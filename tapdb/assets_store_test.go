@@ -724,6 +724,12 @@ func filterMinAmt(amt uint64) filterOpt {
 	}
 }
 
+func filterMaxAmt(amt uint64) filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.MaxAmt = amt
+	}
+}
+
 func filterCoinSelectType(typ tapsend.CoinSelectType) filterOpt {
 	return func(f *AssetQueryFilters) {
 		f.CoinSelectType = typ
@@ -739,6 +745,18 @@ func filterDistinctSpecifier() filterOpt {
 func filterAnchorHeight(height int32) filterOpt {
 	return func(f *AssetQueryFilters) {
 		f.MinAnchorHeight = height
+	}
+}
+
+func filterAnchorPoint(point *wire.OutPoint) filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.AnchorPoint = point
+	}
+}
+
+func filterScriptKey(key *asset.ScriptKey) filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.ScriptKey = key
 	}
 }
 
@@ -780,6 +798,7 @@ func TestFetchAllAssets(t *testing.T) {
 		assetGen:    assetGen.assetGens[2],
 		anchorPoint: assetGen.anchorPoints[0],
 		amt:         34,
+		scriptKey:   scriptKeyWithScript,
 	}, {
 		assetGen:    assetGen.assetGens[3],
 		anchorPoint: assetGen.anchorPoints[1],
@@ -899,6 +918,38 @@ func TestFetchAllAssets(t *testing.T) {
 		includeSpent:  true,
 		numAssets:     8,
 	}, {
+		name: "max amount",
+		filter: makeFilter(
+			filterMaxAmt(100),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
+		numAssets: 6,
+	}, {
+		name: "max amount, include spent",
+		filter: makeFilter(
+			filterMaxAmt(100),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
+		includeSpent: true,
+		numAssets:    7,
+	}, {
+		name: "max amount, include leased",
+		filter: makeFilter(
+			filterMaxAmt(100),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
+		includeLeased: true,
+		numAssets:     8,
+	}, {
+		name: "max amount, include leased, include spent",
+		filter: makeFilter(
+			filterMaxAmt(100),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
+		includeLeased: true,
+		includeSpent:  true,
+		numAssets:     9,
+	}, {
 		name: "default min height, include spent",
 		filter: makeFilter(
 			filterAnchorHeight(500),
@@ -914,7 +965,7 @@ func TestFetchAllAssets(t *testing.T) {
 		),
 		numAssets: 0,
 	}, {
-		name: "default min height, include spent",
+		name: "specific height, include spent",
 		filter: makeFilter(
 			filterAnchorHeight(502),
 			filterCoinSelectType(tapsend.ScriptTreesAllowed),
@@ -928,6 +979,21 @@ func TestFetchAllAssets(t *testing.T) {
 			filterCoinSelectType(tapsend.Bip86Only),
 		),
 		numAssets: 0,
+	}, {
+		name: "query by script key",
+		filter: makeFilter(
+			filterScriptKey(scriptKeyWithScript),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
+		numAssets: 1,
+	}, {
+		name: "query by script key, include leased",
+		filter: makeFilter(
+			filterScriptKey(scriptKeyWithScript),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
+		includeLeased: true,
+		numAssets:     2,
 	}, {
 		name: "query by group key only",
 		filter: makeFilter(
@@ -952,6 +1018,13 @@ func TestFetchAllAssets(t *testing.T) {
 			)), filterDistinctSpecifier(),
 		),
 		numAssets: 2,
+	}, {
+		name: "query by anchor point",
+		filter: makeFilter(
+			filterAnchorPoint(&assetGen.anchorPoints[0]),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
+		numAssets: 3,
 	}}
 
 	for _, tc := range testCases {

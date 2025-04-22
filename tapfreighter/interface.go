@@ -39,6 +39,10 @@ type CommitmentConstraints struct {
 	// to satisfy the constraints.
 	MinAmt uint64
 
+	// MaxAmt specifies the maximum amount that an asset commitment needs to
+	// hold to satisfy the constraints.
+	MaxAmt uint64
+
 	// PrevIDs are the set of inputs allowed to be used.
 	PrevIDs []asset.PrevID
 
