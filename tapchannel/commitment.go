@@ -60,8 +60,9 @@ type DecodedView struct {
 // returned reflects the current state of HTLCs within the remote or local
 // commitment chain, and the current commitment fee rate.
 func ComputeView(ourBalance, theirBalance uint64,
-	whoseCommit lntypes.ChannelParty, original *lnwallet.HtlcView) (uint64,
-	uint64, *DecodedView, *DecodedView, error) {
+	whoseCommit lntypes.ChannelParty,
+	original lnwallet.AuxHtlcView) (uint64, uint64, *DecodedView,
+	*DecodedView, error) {
 
 	log.Tracef("Computing view, whoseCommit=%v, ourAssetBalance=%d, "+
 		"theirAssetBalance=%d, ourUpdates=%d, theirUpdates=%d",
@@ -94,19 +95,19 @@ func ComputeView(ourBalance, theirBalance uint64,
 	localHtlcIndex := make(map[uint64]lnwallet.AuxHtlcDescriptor)
 	remoteHtlcIndex := make(map[uint64]lnwallet.AuxHtlcDescriptor)
 
-	for _, entry := range original.AuxOurUpdates() {
+	for _, entry := range original.Updates.Local {
 		if entry.EntryType == lnwallet.Add {
 			localHtlcIndex[entry.HtlcIndex] = entry
 		}
 	}
-	for _, entry := range original.AuxTheirUpdates() {
+	for _, entry := range original.Updates.Remote {
 		if entry.EntryType == lnwallet.Add {
 			remoteHtlcIndex[entry.HtlcIndex] = entry
 		}
 	}
 
 	local, remote := ourBalance, theirBalance
-	for _, entry := range original.AuxOurUpdates() {
+	for _, entry := range original.Updates.Local {
 		switch entry.EntryType {
 		// Skip adds for now, they will be processed below.
 		case lnwallet.Add:
@@ -153,7 +154,7 @@ func ComputeView(ourBalance, theirBalance uint64,
 			}
 		}
 	}
-	for _, entry := range original.AuxTheirUpdates() {
+	for _, entry := range original.Updates.Remote {
 		switch entry.EntryType {
 		// Skip adds for now, they will be processed below.
 		case lnwallet.Add:
@@ -203,7 +204,7 @@ func ComputeView(ourBalance, theirBalance uint64,
 	// Next we take a second pass through all the log entries, skipping any
 	// settled HTLCs, and debiting the chain state balance due to any newly
 	// added HTLCs.
-	for _, entry := range original.AuxOurUpdates() {
+	for _, entry := range original.Updates.Local {
 		isAdd := entry.EntryType == lnwallet.Add
 
 		// Skip any entries that aren't adds or adds that were already
@@ -245,7 +246,7 @@ func ComputeView(ourBalance, theirBalance uint64,
 
 		newView.OurUpdates = append(newView.OurUpdates, decodedEntry)
 	}
-	for _, entry := range original.AuxTheirUpdates() {
+	for _, entry := range original.Updates.Remote {
 		isAdd := entry.EntryType == lnwallet.Add
 
 		// Skip any entries that aren't adds or adds that were already
@@ -478,7 +479,7 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	chanState lnwallet.AuxChanState, chanAssetState *cmsg.OpenChannel,
 	whoseCommit lntypes.ChannelParty, ourBalance,
-	theirBalance lnwire.MilliSatoshi, originalView *lnwallet.HtlcView,
+	theirBalance lnwire.MilliSatoshi, originalView lnwallet.AuxHtlcView,
 	chainParams *address.ChainParams,
 	keys lnwallet.CommitmentKeyRing) ([]*tapsend.Allocation,
 	*cmsg.Commitment, error) {

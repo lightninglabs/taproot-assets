@@ -14,6 +14,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -109,7 +112,8 @@ func (s *AuxTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
 // called first.
 func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
-	htlcAmt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
+	htlcAmt lnwire.MilliSatoshi,
+	htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
 
 	// If the commitment or HTLC blob is not set, we don't have any
 	// information about the channel and cannot determine the available
@@ -172,18 +176,53 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 		return 0, fmt.Errorf("error decoding HTLC blob: %w", err)
 	}
 
-	// localBalance is the total number of local asset units.
-	localBalance := cmsg.OutputSum(commitment.LocalOutputs())
+	// With the help of the latest HtlcView, let's calculate a more precise
+	// local balance. This is useful in order to not forward HTLCs that may
+	// never be settled. Other HTLCs that may also call into this method are
+	// not yet registered to the commitment, so we need to account for them
+	// manually.
+	computedLocal, decodedView, err := ComputeLocalBalance(
+		*commitment, htlcView,
+	)
+	if err != nil {
+		return 0, err
+	}
 
-	// There either already is an amount set in the HTLC (which would
-	// indicate it to be a direct-channel keysend payment that just sends
-	// assets to the direct peer with no conversion), in which case we don't
-	// need an RFQ ID as we can just compare the local balance and the
-	// required HTLC amount. If there is no amount set, we need to look up
-	// the RFQ ID in the HTLC blob and use the accepted quote to determine
-	// the amount.
+	log.Tracef("Computed asset HTLC View: commitmentLocal=%v, "+
+		"computedLocal=%v, nextHeight=%v, thisHtlc=%v, newView=%v",
+		cmsg.OutputSum(commitment.LocalOutputs()), computedLocal,
+		htlcView.NextHeight, htlc.Amounts.Val.Sum(),
+		lnutils.NewLogClosure(func() string {
+			return prettyPrintLocalView(*decodedView)
+		}))
+
+	// If the HTLC carries asset units (keysend, forwarding), then there's
+	// no need to do any RFQ related math. We can directly compare the asset
+	// units of the HTLC with those in our local balance.
 	htlcAssetAmount := htlc.Amounts.Val.Sum()
-	if htlcAssetAmount != 0 && htlcAssetAmount <= localBalance {
+	if htlcAssetAmount != 0 {
+		return paymentBandwidthAssetUnits(
+			htlcAssetAmount, computedLocal, linkBandwidth, htlcAmt,
+		)
+	}
+
+	// Otherwise, we derive the available bandwidth from the HTLC's RFQ and
+	// the asset units in our local balance.
+	return s.paymentBandwidth(
+		htlc, computedLocal, linkBandwidth, minHtlcAmt,
+	)
+}
+
+// paymentBandwidthAssetUnits includes the asset unit related checks between the
+// HTLC carrying the units and the asset balance of our channel. The response
+// will either be infinite or zero bandwidth, as we can't really map the amount
+// to msats without an RFQ, and it's also not needed.
+func paymentBandwidthAssetUnits(htlcAssetAmount, computedLocal uint64,
+	linkBandwidth,
+	htlcAmt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
+
+	switch {
+	case htlcAssetAmount <= computedLocal:
 		// Check if the current link bandwidth can afford sending out
 		// the htlc amount without dipping into the channel reserve. If
 		// it goes below the reserve, we report zero bandwidth as we
@@ -202,10 +241,30 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 		// matter too much here, we just want to signal that this
 		// channel _does_ have available bandwidth.
 		return lnwire.NewMSatFromSatoshis(btcutil.MaxSatoshi), nil
-	}
 
-	// If the HTLC doesn't have an asset amount and RFQ ID, it's incomplete,
-	// and we cannot determine what channel to use.
+	case htlcAssetAmount > computedLocal:
+		// The asset balance of the channel is simply not enough to
+		// route the asset units, we report 0 bandwidth in order for the
+		// HTLC to fail back.
+		return 0, nil
+
+	default:
+		// We shouldn't reach this case, we add it only for the function
+		// to always return something and the compiler to be happy.
+		return 0, fmt.Errorf("should not reach this, invalid htlc " +
+			"asset amount or computed local balance")
+	}
+}
+
+// paymentBandwidth returns the available payment bandwidth of the channel based
+// on the asset rate of the RFQ quote that is included in the HTLC and the asset
+// units of the local balance.
+func (s *AuxTrafficShaper) paymentBandwidth(htlc *rfqmsg.Htlc,
+	localBalance uint64, linkBandwidth,
+	minHtlcAmt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
+
+	// If the HTLC doesn't have an RFQ ID, it's incomplete, and we cannot
+	// determine the bandwidth.
 	if htlc.RfqID.ValOpt().IsNone() {
 		log.Tracef("No RFQ ID in HTLC, cannot determine matching " +
 			"outgoing channel")
@@ -257,6 +316,38 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	// The available balance is the local asset unit expressed in
 	// milli-satoshis.
 	return availableBalanceMsat, nil
+}
+
+// ComputeLocalBalance combines the given commitment state with the HtlcView to
+// produce the available local balance with accuracy.
+func ComputeLocalBalance(commitment cmsg.Commitment,
+	htlcView lnwallet.AuxHtlcView) (uint64, *DecodedView, error) {
+
+	// Set the htlcView next height to 0. This is needed because the
+	// following helper `ComputeLocalBalance` will use that height to add or
+	// remove HTLCs that have a matching addHeight. The HTLCs that are not
+	// yet part of the commitment have an addHeight of 0, so that's the
+	// height we want to filter by here.
+	htlcView.NextHeight = 0
+
+	// Let's get the current local and remote asset balances of the channel
+	// as reported by the latest commitment.
+	localBalance := cmsg.OutputSum(commitment.LocalOutputs())
+	remoteBalance := cmsg.OutputSum(commitment.RemoteOutputs())
+
+	// With the help of the latest HtlcView, let's calculate a more precise
+	// local balance. This is useful in order to not forward HTLCs that may
+	// never be settled. Other HTLCs that may also call into this method are
+	// not yet registered to the commitment, so we need to account for them
+	// manually.
+	computedLocal, _, decodedView, _, err := ComputeView(
+		localBalance, remoteBalance, lntypes.Local, htlcView,
+	)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return computedLocal, decodedView, nil
 }
 
 // ProduceHtlcExtraData is a function that, based on the previous custom record
@@ -356,4 +447,32 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	}
 
 	return htlcAmountMSat, updatedRecords, nil
+}
+
+// prettyPrintLocalView returns a string that pretty-prints the local update log
+// of an HTLC view.
+func prettyPrintLocalView(view DecodedView) string {
+	var res string
+	res = "\nHtlcView Local Updates:\n"
+	for _, v := range view.OurUpdates {
+		assetAmt := uint64(0)
+		if rfqmsg.HasAssetHTLCCustomRecords(v.CustomRecords) {
+			assetHtlc, err := rfqmsg.HtlcFromCustomRecords(
+				v.CustomRecords,
+			)
+			if err != nil {
+				res = fmt.Sprintf("%s\terror: could not "+
+					"decode htlc custom records\n", res)
+				continue
+			}
+
+			assetAmt = rfqmsg.Sum(assetHtlc.Balances())
+		}
+
+		res = fmt.Sprintf("%s\thtlcIndex=%v: amt=%v, assets=%v, "+
+			"addHeight=%v\n", res, v.HtlcIndex, v.Amount, assetAmt,
+			v.AddHeight(lntypes.Local))
+	}
+
+	return res
 }
