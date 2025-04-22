@@ -97,6 +97,14 @@ func bitIndex(idx uint8, key *[hashSize]byte) byte {
 	return (byteVal >> (idx % 8)) & 1
 }
 
+// setBit returns a copy of the key with the bit at the given depth set to 1.
+func setBit(key [hashSize]byte, depth int) [hashSize]byte {
+	byteIndex := depth / 8
+	bitIndex := depth % 8
+	key[byteIndex] |= (1 << bitIndex)
+	return key
+}
+
 // iterFunc is a type alias for closures to be invoked at every iteration of
 // walking through a tree.
 type iterFunc = func(height int, current, sibling, parent Node) error
@@ -331,6 +339,162 @@ func (t *FullTree) MerkleProof(ctx context.Context, key [hashSize]byte) (
 	}
 
 	return NewProof(proof), nil
+}
+
+// findLeaves recursively traverses the tree represented by the given node and
+// collects all non-empty leaf nodes along with their reconstructed keys.
+func findLeaves(ctx context.Context, tx TreeStoreViewTx, node Node,
+	keyPrefix [hashSize]byte,
+	depth int) (map[[hashSize]byte]*LeafNode, error) {
+
+	// Base case: If it's a leaf node.
+	if leafNode, ok := node.(*LeafNode); ok {
+		if leafNode.IsEmpty() {
+			return make(map[[hashSize]byte]*LeafNode), nil
+		}
+		return map[[hashSize]byte]*LeafNode{keyPrefix: leafNode}, nil
+	}
+
+	// Recursive step: If it's a branch node.
+	if branchNode, ok := node.(*BranchNode); ok {
+		// Optimization: if the branch is empty, return early.
+		if IsEqualNode(branchNode, EmptyTree[depth]) {
+			return make(map[[hashSize]byte]*LeafNode), nil
+		}
+
+		left, right, err := tx.GetChildren(depth, branchNode.NodeHash())
+		if err != nil {
+			return nil, fmt.Errorf("error getting children for "+
+				"branch %s at depth %d: %w",
+				branchNode.NodeHash(), depth, err)
+		}
+
+		// Recursively find leaves in the left subtree. The key prefix
+		// remains the same as the 0 bit is implicitly handled by the
+		// initial keyPrefix state.
+		leftLeaves, err := findLeaves(
+			ctx, tx, left, keyPrefix, depth+1,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Recursively find leaves in the right subtree. Set the bit
+		// corresponding to the current depth in the key prefix.
+		rightKeyPrefix := setBit(keyPrefix, depth)
+
+		rightLeaves, err := findLeaves(
+			ctx, tx, right, rightKeyPrefix, depth+1,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Merge the results.
+		for k, v := range rightLeaves {
+			leftLeaves[k] = v
+		}
+		return leftLeaves, nil
+	}
+
+	// Handle unexpected node types.
+	return nil, fmt.Errorf("unexpected node type %T encountered "+
+		"during leaf collection", node)
+}
+
+// Copy copies all the key-value pairs from the source tree into the target
+// tree.
+func (t *FullTree) Copy(ctx context.Context, targetTree Tree) error {
+	var leaves map[[hashSize]byte]*LeafNode
+	err := t.store.View(ctx, func(tx TreeStoreViewTx) error {
+		root, err := tx.RootNode()
+		if err != nil {
+			return fmt.Errorf("error getting root node: %w", err)
+		}
+
+		// Optimization: If the source tree is empty, there's nothing
+		// to copy.
+		if IsEqualNode(root, EmptyTree[0]) {
+			leaves = make(map[[hashSize]byte]*LeafNode)
+			return nil
+		}
+
+		leaves, err = findLeaves(ctx, tx, root, [hashSize]byte{}, 0)
+		if err != nil {
+			return fmt.Errorf("error finding leaves: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Insert all found leaves into the target tree using InsertMany for
+	// efficiency.
+	_, err = targetTree.InsertMany(ctx, leaves)
+	if err != nil {
+		return fmt.Errorf("error inserting leaves into target "+
+			"tree: %w", err)
+	}
+
+	return nil
+}
+
+// InsertMany inserts multiple leaf nodes provided in the leaves map within a
+// single database transaction.
+func (t *FullTree) InsertMany(ctx context.Context,
+	leaves map[[hashSize]byte]*LeafNode) (Tree, error) {
+
+	if len(leaves) == 0 {
+		return t, nil
+	}
+
+	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
+		currentRoot, err := tx.RootNode()
+		if err != nil {
+			return err
+		}
+		rootBranch := currentRoot.(*BranchNode)
+
+		for key, leaf := range leaves {
+			// Check for potential sum overflow before each
+			// insertion.
+			sumRoot := rootBranch.NodeSum()
+			sumLeaf := leaf.NodeSum()
+			err = CheckSumOverflowUint64(sumRoot, sumLeaf)
+			if err != nil {
+				return fmt.Errorf("full tree leaf insert sum "+
+					"overflow, root: %d, leaf: %d; %w",
+					sumRoot, sumLeaf, err)
+			}
+
+			// Insert the leaf using the internal helper.
+			newRoot, err := t.insert(tx, &key, leaf)
+			if err != nil {
+				return fmt.Errorf("error inserting leaf "+
+					"with key %x: %w", key, err)
+			}
+			rootBranch = newRoot
+
+			// Update the root within the transaction so subsequent
+			// inserts in this batch read the correct state.
+			err = tx.UpdateRoot(rootBranch)
+			if err != nil {
+				return fmt.Errorf("error updating root "+
+					"during InsertMany: %w", err)
+			}
+		}
+
+		// The root is already updated by the last iteration of the
+		// loop. No final update needed here, but returning nil error
+		// signals success.
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return t, nil
 }
 
 // VerifyMerkleProof determines whether a merkle proof for the leaf found at the

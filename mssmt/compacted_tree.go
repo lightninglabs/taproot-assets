@@ -392,3 +392,191 @@ func (t *CompactedTree) MerkleProof(ctx context.Context, key [hashSize]byte) (
 
 	return NewProof(proof), nil
 }
+
+// collectLeavesRecursive is a recursive helper function that's used to traverse
+// down an MS-SMT tree and collect all leaf nodes. It returns a map of leaf
+// nodes indexed by their hash.
+func collectLeavesRecursive(ctx context.Context, tx TreeStoreViewTx, node Node,
+	depth int) (map[[hashSize]byte]*LeafNode, error) {
+
+	// Base case: If it's a compacted leaf node.
+	if compactedLeaf, ok := node.(*CompactedLeafNode); ok {
+		if compactedLeaf.LeafNode.IsEmpty() {
+			return make(map[[hashSize]byte]*LeafNode), nil
+		}
+		return map[[hashSize]byte]*LeafNode{
+			compactedLeaf.Key(): compactedLeaf.LeafNode,
+		}, nil
+	}
+
+	// Recursive step: If it's a branch node.
+	if branchNode, ok := node.(*BranchNode); ok {
+		// Optimization: if the branch is empty, return early.
+		if depth < MaxTreeLevels &&
+			IsEqualNode(branchNode, EmptyTree[depth]) {
+
+			return make(map[[hashSize]byte]*LeafNode), nil
+		}
+
+		// Handle case where depth might exceed EmptyTree bounds if
+		// logic error exists
+		if depth >= MaxTreeLevels {
+			// This shouldn't happen if called correctly, implies a
+			// leaf.
+			return nil, fmt.Errorf("invalid depth %d for branch "+
+				"node", depth)
+		}
+
+		left, right, err := tx.GetChildren(depth, branchNode.NodeHash())
+		if err != nil {
+			// If children not found, it might be an empty branch
+			// implicitly Check if the error indicates "not found"
+			// or similar Depending on store impl, this might be how
+			// empty is signaled For now, treat error as fatal.
+			return nil, fmt.Errorf("error getting children for "+
+				"branch %s at depth %d: %w",
+				branchNode.NodeHash(), depth, err)
+		}
+
+		leftLeaves, err := collectLeavesRecursive(
+			ctx, tx, left, depth+1,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		rightLeaves, err := collectLeavesRecursive(
+			ctx, tx, right, depth+1,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Merge the results.
+		for k, v := range rightLeaves {
+			// Check for duplicate keys, although this shouldn't
+			// happen in a valid SMT.
+			if _, exists := leftLeaves[k]; exists {
+				return nil, fmt.Errorf("duplicate key %x "+
+					"found during leaf collection", k)
+			}
+			leftLeaves[k] = v
+		}
+
+		return leftLeaves, nil
+	}
+
+	// Handle unexpected node types or implicit empty nodes. If node is nil
+	// or explicitly an EmptyLeafNode representation
+	if node == nil || IsEqualNode(node, EmptyLeafNode) {
+		return make(map[[hashSize]byte]*LeafNode), nil
+	}
+
+	// Check against EmptyTree branches if possible (requires depth)
+	if depth < MaxTreeLevels && IsEqualNode(node, EmptyTree[depth]) {
+		return make(map[[hashSize]byte]*LeafNode), nil
+	}
+
+	return nil, fmt.Errorf("unexpected node type %T encountered "+
+		"during leaf collection at depth %d", node, depth)
+}
+
+// Copy copies all the key-value pairs from the source tree into the target
+// tree.
+func (t *CompactedTree) Copy(ctx context.Context, targetTree Tree) error {
+	var leaves map[[hashSize]byte]*LeafNode
+	err := t.store.View(ctx, func(tx TreeStoreViewTx) error {
+		root, err := tx.RootNode()
+		if err != nil {
+			return fmt.Errorf("error getting root node: %w", err)
+		}
+
+		// Optimization: If the source tree is empty, there's nothing to
+		// copy.
+		if IsEqualNode(root, EmptyTree[0]) {
+			leaves = make(map[[hashSize]byte]*LeafNode)
+			return nil
+		}
+
+		// Start recursive collection from the root at depth 0.
+		leaves, err = collectLeavesRecursive(ctx, tx, root, 0)
+		if err != nil {
+			return fmt.Errorf("error collecting leaves: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Insert all found leaves into the target tree using InsertMany for
+	// efficiency.
+	_, err = targetTree.InsertMany(ctx, leaves)
+	if err != nil {
+		return fmt.Errorf("error inserting leaves into "+
+			"target tree: %w", err)
+	}
+
+	return nil
+}
+
+// InsertMany inserts multiple leaf nodes provided in the leaves map within a
+// single database transaction.
+func (t *CompactedTree) InsertMany(ctx context.Context,
+	leaves map[[hashSize]byte]*LeafNode) (Tree, error) {
+
+	if len(leaves) == 0 {
+		return t, nil
+	}
+
+	dbErr := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
+		currentRoot, err := tx.RootNode()
+		if err != nil {
+			return err
+		}
+		rootBranch := currentRoot.(*BranchNode)
+
+		for key, leaf := range leaves {
+			// Check for potential sum overflow before each
+			// insertion.
+			sumRoot := rootBranch.NodeSum()
+			sumLeaf := leaf.NodeSum()
+			err = CheckSumOverflowUint64(sumRoot, sumLeaf)
+			if err != nil {
+				return fmt.Errorf("compact tree leaf insert "+
+					"sum overflow, root: %d, leaf: %d; %w",
+					sumRoot, sumLeaf, err)
+			}
+
+			// Insert the leaf using the internal helper.
+			newRoot, err := t.insert(
+				tx, &key, 0, rootBranch, leaf,
+			)
+			if err != nil {
+				return fmt.Errorf("error inserting leaf "+
+					"with key %x: %w", key, err)
+			}
+			rootBranch = newRoot
+
+			// Update the root within the transaction for
+			// consistency, even though the insert logic passes the
+			// root explicitly.
+			err = tx.UpdateRoot(rootBranch)
+			if err != nil {
+				return fmt.Errorf("error updating root "+
+					"during InsertMany: %w", err)
+			}
+		}
+
+		// The root is already updated by the last iteration of the
+		// loop. No final update needed here, but returning nil error
+		// signals success.
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return t, nil
+}
