@@ -779,6 +779,9 @@ message TransferOutputAnchor {
     bytes tapscript_sibling = 6;
 
     uint32 num_passive_assets = 7;
+
+    // pk_script is the pkscript of the anchor output.
+    bytes pk_script = 8;
 }
 
 enum OutputType {
