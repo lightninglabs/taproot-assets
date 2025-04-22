@@ -698,7 +698,7 @@ func (b *MultiverseStore) FetchProof(ctx context.Context,
 			ProofType: universe.ProofTypeTransfer,
 		}
 		scriptKey := asset.NewScriptKey(&loc.ScriptKey)
-		leafKey := universe.LeafKey{
+		leafKey := universe.BaseLeafKey{
 			ScriptKey: &scriptKey,
 		}
 		if loc.OutPoint != nil {
@@ -766,7 +766,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		// tree.
 		var err error
 		issuanceProof, err = universeUpsertProofLeaf(
-			ctx, dbTx, id, key, leaf, metaReveal,
+			ctx, dbTx, id, key, leaf, metaReveal, false,
 		)
 		if err != nil {
 			return err
@@ -812,7 +812,7 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 		// tree.
 		return universeUpsertProofLeaf(
 			ctx, dbTx, item.ID, item.Key, item.Leaf,
-			item.MetaReveal,
+			item.MetaReveal, false,
 		)
 	}
 
@@ -1028,7 +1028,7 @@ func (b *MultiverseStore) RegisterSubscriber(
 			ProofType: universe.ProofTypeTransfer,
 		}
 		scriptKey := asset.NewScriptKey(&loc.ScriptKey)
-		key := universe.LeafKey{
+		key := universe.BaseLeafKey{
 			ScriptKey: &scriptKey,
 		}
 
