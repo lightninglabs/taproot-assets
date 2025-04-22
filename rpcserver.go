@@ -1212,6 +1212,13 @@ func (r *rpcServer) MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 		return nil, err
 	}
 
+	// Ensure the block timestamp is set if a block height is set.
+	if a.AnchorBlockTimestamp == 0 && a.AnchorBlockHeight > 0 {
+		a.AnchorBlockTimestamp = r.cfg.ChainBridge.GetBlockTimestamp(
+			ctx, a.AnchorBlockHeight,
+		)
+	}
+
 	return taprpc.MarshalChainAsset(
 		ctx, a, decDisplay, withWitness, keyRing,
 	)
