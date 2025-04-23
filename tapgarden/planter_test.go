@@ -46,7 +46,7 @@ import (
 // Default to a large interval so the planter never actually ticks and only
 // rely on our manual ticks.
 var (
-	defaultTimeout    = time.Second * 5
+	defaultTimeout    = time.Second * 10
 	noCaretakerStates = fn.NewSet(
 		tapgarden.BatchStatePending,
 		tapgarden.BatchStateSeedlingCancelled,
