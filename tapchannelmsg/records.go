@@ -94,11 +94,23 @@ type OpenChannel struct {
 	// this value needs to be the same for all assets. Otherwise, they would
 	// not be fungible.
 	DecimalDisplay tlv.RecordT[tlv.TlvType1, uint8]
+
+	// GroupKey is the optional group key used to fund this channel.
+	GroupKey tlv.OptionalRecordT[tlv.TlvType2, *btcec.PublicKey]
 }
 
 // NewOpenChannel creates a new OpenChannel record with the given funded assets.
-func NewOpenChannel(fundedAssets []*AssetOutput,
-	decimalDisplay uint8) *OpenChannel {
+func NewOpenChannel(fundedAssets []*AssetOutput, decimalDisplay uint8,
+	groupKey *btcec.PublicKey) *OpenChannel {
+
+	var optGroupRecord tlv.OptionalRecordT[tlv.TlvType2, *btcec.PublicKey]
+	if groupKey != nil {
+		optGroupRecord = tlv.SomeRecordT[tlv.TlvType2](
+			tlv.NewPrimitiveRecord[tlv.TlvType2](
+				groupKey,
+			),
+		)
+	}
 
 	return &OpenChannel{
 		FundedAssets: tlv.NewRecordT[tlv.TlvType0](
@@ -109,6 +121,7 @@ func NewOpenChannel(fundedAssets []*AssetOutput,
 		DecimalDisplay: tlv.NewPrimitiveRecord[tlv.TlvType1](
 			decimalDisplay,
 		),
+		GroupKey: optGroupRecord,
 	}
 }
 
@@ -118,17 +131,18 @@ func (o *OpenChannel) Assets() []*AssetOutput {
 	return o.FundedAssets.Val.Outputs
 }
 
-// records returns the records that make up the OpenChannel.
-func (o *OpenChannel) records() []tlv.Record {
-	return []tlv.Record{
+// Encode serializes the OpenChannel to the given io.Writer.
+func (o *OpenChannel) Encode(w io.Writer) error {
+	tlvRecords := []tlv.Record{
 		o.FundedAssets.Record(),
 		o.DecimalDisplay.Record(),
 	}
-}
 
-// Encode serializes the OpenChannel to the given io.Writer.
-func (o *OpenChannel) Encode(w io.Writer) error {
-	tlvRecords := o.records()
+	o.GroupKey.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType2, *btcec.PublicKey]) {
+			tlvRecords = append(tlvRecords, r.Record())
+		},
+	)
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(tlvRecords...)
@@ -141,13 +155,30 @@ func (o *OpenChannel) Encode(w io.Writer) error {
 
 // Decode deserializes the OpenChannel from the given io.Reader.
 func (o *OpenChannel) Decode(r io.Reader) error {
+	groupKey := o.GroupKey.Zero()
+
+	tlvRecords := []tlv.Record{
+		o.FundedAssets.Record(),
+		o.DecimalDisplay.Record(),
+		groupKey.Record(),
+	}
+
 	// Create the tlv stream.
-	tlvStream, err := tlv.NewStream(o.records()...)
+	tlvStream, err := tlv.NewStream(tlvRecords...)
 	if err != nil {
 		return err
 	}
 
-	return tlvStream.Decode(r)
+	tlvs, err := tlvStream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return err
+	}
+
+	if _, ok := tlvs[groupKey.TlvType()]; ok {
+		o.GroupKey = tlv.SomeRecordT(groupKey)
+	}
+
+	return nil
 }
 
 // Bytes returns the serialized OpenChannel record.

@@ -39,7 +39,9 @@ func TestReadChannelCustomData(t *testing.T) {
 	output3 := NewAssetOutput(assetID3, 3000, proof3)
 	output4 := NewAssetOutput(assetID4, 4000, proof4)
 
-	fundingState := NewOpenChannel([]*AssetOutput{output1, output2}, 11)
+	fundingState := NewOpenChannel(
+		[]*AssetOutput{output1, output2}, 11, nil,
+	)
 	commitState := NewCommitment(
 		[]*AssetOutput{output1}, []*AssetOutput{output2},
 		map[input.HtlcIndex][]*AssetOutput{

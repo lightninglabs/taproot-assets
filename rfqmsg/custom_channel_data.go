@@ -37,6 +37,7 @@ type JsonAssetChannel struct {
 	OutgoingHtlcs       []JsonAssetTranche `json:"outgoing_htlcs"`
 	IncomingHtlcs       []JsonAssetTranche `json:"incoming_htlcs"`
 	Capacity            uint64             `json:"capacity"`
+	GroupKey            string             `json:"group_key,omitempty"`
 	LocalBalance        uint64             `json:"local_balance"`
 	RemoteBalance       uint64             `json:"remote_balance"`
 	OutgoingHtlcBalance uint64             `json:"outgoing_htlc_balance"`
