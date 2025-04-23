@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -106,6 +109,8 @@ var (
 			GroupPubKey: *pubKey,
 		},
 	}
+
+	assetHexFileName = filepath.Join("testdata", "asset.hex")
 )
 
 // TestGenesisAssetClassification tests that the multiple forms of genesis asset
@@ -1221,4 +1226,24 @@ func TestExternalKeyPubKey(t *testing.T) {
 			require.Equal(tt, tc.expectedPubKey, pubKeyHex)
 		})
 	}
+}
+
+// TestDecodeAsset tests that we can decode an asset from a hex file. This is
+// mostly useful for debugging purposes.
+func TestDecodeAsset(t *testing.T) {
+	fileContent, err := os.ReadFile(assetHexFileName)
+	require.NoError(t, err)
+
+	assetBytes, err := hex.DecodeString(string(fileContent))
+	require.NoError(t, err)
+
+	var a Asset
+	err = a.Decode(bytes.NewReader(assetBytes))
+	require.NoError(t, err)
+
+	ta := NewTestFromAsset(t, &a)
+	assetJSON, err := json.MarshalIndent(ta, "", "\t")
+	require.NoError(t, err)
+
+	t.Logf("Decoded asset: %v", string(assetJSON))
 }
