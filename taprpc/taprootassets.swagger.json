@@ -2328,6 +2328,10 @@
         "label": {
           "type": "string",
           "description": "An optional short label for the send transfer. This label can be used to\ntrack the progress of the transfer via the logs or an event subscription.\nMultiple transfers can share the same label."
+        },
+        "skip_proof_courier_ping_check": {
+          "type": "boolean",
+          "description": "A flag to skip the proof courier ping check. This is useful for\ntesting purposes and for forced transfers when the proof courier\nis not immediately available."
         }
       }
     },

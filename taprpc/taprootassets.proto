@@ -1267,6 +1267,11 @@ message SendAssetRequest {
     // track the progress of the transfer via the logs or an event subscription.
     // Multiple transfers can share the same label.
     string label = 3;
+
+    // A flag to skip the proof courier ping check. This is useful for
+    // testing purposes and for forced transfers when the proof courier
+    // is not immediately available.
+    bool skip_proof_courier_ping_check = 4;
 }
 
 message PrevInputAsset {
