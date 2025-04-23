@@ -3375,7 +3375,7 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
-		tapfreighter.NewAddressParcel(feeRate, tapAddrs...),
+		tapfreighter.NewAddressParcel(feeRate, req.Label, tapAddrs...),
 	)
 	if err != nil {
 		return nil, err
@@ -3662,6 +3662,7 @@ func marshalOutboundParcel(
 		AnchorTxBlockHeight: parcel.AnchorTxBlockHeight,
 		Inputs:              rpcInputs,
 		Outputs:             rpcOutputs,
+		Label:               parcel.Label,
 	}, nil
 }
 
@@ -3846,23 +3847,69 @@ func (r *rpcServer) SubscribeReceiveEvents(
 	)
 }
 
+// shouldNotifyAssetSendEvent returns true if the given AssetSendEvent matches
+// all specified filter criteria. Unset filter values are ignored. If set, all
+// filters must match (logical AND).
+func shouldNotifyAssetSendEvent(event tapfreighter.AssetSendEvent,
+	targetScriptKey fn.Option[btcec.PublicKey], targetLabel string) bool {
+
+	// By default, if no filter values are provided, match on event.
+	match := true
+
+	// Filter by label if specified.
+	if targetLabel != "" {
+		match = match && (event.TransferLabel == targetLabel)
+	}
+
+	// Filter by target script key if specified.
+	if targetScriptKey.IsSome() {
+		// If script key is specified but there are no virtual packets,
+		// early return as a match is impossible.
+		if len(event.VirtualPackets) == 0 {
+			return false
+		}
+
+		scriptKey := targetScriptKey.UnwrapToPtr()
+		found := false
+
+		for _, vPacket := range event.VirtualPackets {
+			if found {
+				break
+			}
+
+			for _, vOut := range vPacket.Outputs {
+				if vOut.ScriptKey.PubKey == nil {
+					continue
+				}
+				if vOut.ScriptKey.PubKey.IsEqual(scriptKey) {
+					found = true
+					break
+				}
+			}
+		}
+
+		match = match && found
+	}
+
+	return match
+}
+
 // SubscribeSendEvents registers a subscription to the event notification
 // stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
 	ntfnStream sendEventStream) error {
 
-	var (
-		targetScriptKey *btcec.PublicKey
-		err             error
-	)
+	var targetScriptKey fn.Option[btcec.PublicKey]
 	if len(req.FilterScriptKey) > 0 {
-		targetScriptKey, err = btcec.ParsePubKey(req.FilterScriptKey)
+		scriptKey, err := btcec.ParsePubKey(req.FilterScriptKey)
 		if err != nil {
 			return fmt.Errorf("error parsing script key: %w", err)
 		}
+
+		targetScriptKey = fn.MaybeSome(scriptKey)
 	}
 
-	filter := func(event fn.Event) (bool, error) {
+	shouldNotify := func(event fn.Event) (bool, error) {
 		var e *tapfreighter.AssetSendEvent
 		switch typedEvent := event.(type) {
 		case *tapfreighter.AssetSendEvent:
@@ -3878,44 +3925,14 @@ func (r *rpcServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
 				event)
 		}
 
-		// If we're not filtering on a specific script key, we return
-		// all events.
-		if targetScriptKey == nil {
-			return true, nil
-		}
-
-		// We can only match the script key on the active virtual
-		// packets, so if there are none, then this isn't an event we're
-		// interested in.
-		if len(e.VirtualPackets) == 0 {
-			return false, nil
-		}
-
-		for _, vPacket := range e.VirtualPackets {
-			for _, vOut := range vPacket.Outputs {
-				if vOut.ScriptKey.PubKey == nil {
-					continue
-				}
-
-				// This packet sends to the filtered script key,
-				// we want to include this event.
-				if vOut.ScriptKey.PubKey.IsEqual(
-					targetScriptKey,
-				) {
-
-					return true, nil
-				}
-			}
-		}
-
-		// No packets with outputs going to the filtered script key
-		// found.
-		return false, nil
+		return shouldNotifyAssetSendEvent(
+			*e, targetScriptKey, req.FilterLabel,
+		), nil
 	}
 
 	return handleEvents[bool, *taprpc.SendEvent](
-		r.cfg.ChainPorter, ntfnStream, marshalSendEvent, filter, r.quit,
-		false,
+		r.cfg.ChainPorter, ntfnStream, marshalSendEvent, shouldNotify,
+		r.quit, false,
 	)
 }
 
@@ -4162,6 +4179,7 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 		SendState:             e.SendState.String(),
 		VirtualPackets:        make([][]byte, len(e.VirtualPackets)),
 		PassiveVirtualPackets: make([][]byte, len(e.PassivePackets)),
+		TransferLabel:         e.TransferLabel,
 	}
 
 	if e.Error != nil {

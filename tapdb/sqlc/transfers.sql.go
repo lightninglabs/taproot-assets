@@ -252,23 +252,29 @@ const InsertAssetTransfer = `-- name: InsertAssetTransfer :one
 WITH target_txn(txn_id) AS (
     SELECT txn_id
     FROM chain_txns
-    WHERE txid = $3
+    WHERE txid = $4
 )
 INSERT INTO asset_transfers (
-    height_hint, anchor_txn_id, transfer_time_unix
+    height_hint, anchor_txn_id, transfer_time_unix, label
 ) VALUES (
-    $1, (SELECT txn_id FROM target_txn), $2
+    $1, (SELECT txn_id FROM target_txn), $2, $3
 ) RETURNING id
 `
 
 type InsertAssetTransferParams struct {
 	HeightHint       int32
 	TransferTimeUnix time.Time
+	Label            sql.NullString
 	AnchorTxid       []byte
 }
 
 func (q *Queries) InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, InsertAssetTransfer, arg.HeightHint, arg.TransferTimeUnix, arg.AnchorTxid)
+	row := q.db.QueryRowContext(ctx, InsertAssetTransfer,
+		arg.HeightHint,
+		arg.TransferTimeUnix,
+		arg.Label,
+		arg.AnchorTxid,
+	)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -457,7 +463,7 @@ func (q *Queries) LogProofTransferAttempt(ctx context.Context, arg LogProofTrans
 const QueryAssetTransfers = `-- name: QueryAssetTransfers :many
 SELECT
     id, height_hint, txns.txid, txns.block_hash AS anchor_tx_block_hash,
-    transfer_time_unix
+    transfer_time_unix, transfers.label
 FROM asset_transfers transfers
 JOIN chain_txns txns
     ON txns.txn_id = transfers.anchor_txn_id
@@ -494,6 +500,7 @@ type QueryAssetTransfersRow struct {
 	Txid              []byte
 	AnchorTxBlockHash []byte
 	TransferTimeUnix  time.Time
+	Label             sql.NullString
 }
 
 func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error) {
@@ -511,6 +518,7 @@ func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfe
 			&i.Txid,
 			&i.AnchorTxBlockHash,
 			&i.TransferTimeUnix,
+			&i.Label,
 		); err != nil {
 			return nil, err
 		}

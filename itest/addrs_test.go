@@ -3,6 +3,8 @@ package itest
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
@@ -964,25 +966,40 @@ func sendAsset(t *harnessTest, sender *tapdHarness,
 
 	require.NotEmpty(t.t, options.sendAssetRequest.TapAddrs)
 
-	// We need the first address's scriptkey to subscribe to events.
-	firstAddr, err := address.DecodeAddress(
-		options.sendAssetRequest.TapAddrs[0], &address.RegressionNetTap,
-	)
-	require.NoError(t.t, err)
-	scriptKey := firstAddr.ScriptKey.SerializeCompressed()
+	// Assign a default transfer label using a Unix timestamp if none is
+	// provided. This will be used in filtering send events.
+	if options.sendAssetRequest.Label == "" {
+		options.sendAssetRequest.Label = fmt.Sprintf(
+			"%d", time.Now().UnixNano(),
+		)
+	}
 
+	// Construct send event stream.
 	ctxc, streamCancel := context.WithCancel(ctxb)
 	stream, err := sender.SubscribeSendEvents(
 		ctxc, &taprpc.SubscribeSendEventsRequest{
-			FilterScriptKey: scriptKey,
+			FilterLabel: options.sendAssetRequest.Label,
 		},
 	)
 	require.NoError(t.t, err)
+
+	// Formulate a subscription handler for the send event stream.
 	sub := &EventSubscription[*taprpc.SendEvent]{
 		ClientEventStream: stream,
 		Cancel:            streamCancel,
+
+		// Use the filter callback to ensure that the server side filter
+		// is working as expected.
+		ShouldNotify: func(e *taprpc.SendEvent) (bool, error) {
+			require.Equal(
+				t.t, e.TransferLabel,
+				options.sendAssetRequest.Label,
+			)
+			return true, nil
+		},
 	}
 
+	// Kick off the send asset request.
 	resp, err := sender.SendAsset(ctxt, &options.sendAssetRequest)
 	if options.errText != "" {
 		require.ErrorContains(t.t, err, options.errText)
@@ -992,8 +1009,12 @@ func sendAsset(t *harnessTest, sender *tapdHarness,
 	require.NoError(t.t, err)
 
 	// We'll get events up to the point where we broadcast the transaction.
+	//
+	// Don't specify a target script key here, we are already filtering
+	// events by the label.
+	var targetScriptKey []byte = nil
 	AssertSendEvents(
-		t.t, scriptKey, sub,
+		t.t, targetScriptKey, sub,
 		tapfreighter.SendStateVirtualCommitmentSelect,
 		tapfreighter.SendStateBroadcast,
 	)

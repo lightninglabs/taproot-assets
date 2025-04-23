@@ -2442,6 +2442,7 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 			HeightHint:       int32(spend.AnchorTxHeightHint),
 			AnchorTxid:       newAnchorTXID[:],
 			TransferTimeUnix: spend.TransferTime,
+			Label:            sqlStr(spend.Label),
 		})
 		if err != nil {
 			return fmt.Errorf("unable to insert asset transfer: "+
@@ -3562,6 +3563,7 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 				ChainFees:          dbAnchorTx.ChainFees,
 				Inputs:             inputs,
 				Outputs:            outputs,
+				Label:              dbT.Label.String,
 			}
 
 			// Set the block height if the anchor is marked as

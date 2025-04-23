@@ -3,6 +3,7 @@ package itest
 import (
 	"bytes"
 	"context"
+	"io"
 	"testing"
 	"time"
 
@@ -61,6 +62,51 @@ type ClientEventStream[T any] interface {
 type EventSubscription[T any] struct {
 	ClientEventStream[T]
 	Cancel context.CancelFunc
+
+	// ShouldNotify is an optional filter predicate function that can be
+	// used to filter events received from the client stream.
+	//
+	// If set, it will be called for each event received from the stream. If
+	// it returns true, the event is returned. If it returns false, the
+	// event is ignored and the next event is received from the stream.
+	ShouldNotify func(T) (bool, error)
+}
+
+// Recv receives an event from the client stream. If a filter is set, it will
+// check if the event matches the filter. If it does, it returns the event.
+// If not, it continues receiving events until it finds one that matches the
+// filter.
+func (e *EventSubscription[T]) Recv() (T, error) {
+	var zero T
+
+	// If no filter predicate is set, we can just return the event.
+	if e.ShouldNotify == nil {
+		return e.ClientEventStream.Recv()
+	}
+
+	// If a filter is set, we need to check if the event matches the
+	// filter. If it does, we return the event. If not, we continue
+	// receiving events until we find one that matches the filter.
+	for {
+		event, err := e.ClientEventStream.Recv()
+		if err != nil {
+			if err == io.EOF {
+				// Handle end of stream.
+				return zero, err
+			}
+
+			return zero, err
+		}
+
+		match, err := e.ShouldNotify(event)
+		if err != nil {
+			return zero, err
+		}
+
+		if match {
+			return event, nil
+		}
+	}
 }
 
 // CopyRequest is a helper function to copy a request so that we can modify it.

@@ -137,6 +137,9 @@ type AddressParcel struct {
 	// transferFeeRate is an optional manually-set feerate specified when
 	// requesting an asset transfer.
 	transferFeeRate *chainfee.SatPerKWeight
+
+	// label is an optional user provided transfer label.
+	label string
 }
 
 // A compile-time assertion to ensure AddressParcel implements the parcel
@@ -144,7 +147,7 @@ type AddressParcel struct {
 var _ Parcel = (*AddressParcel)(nil)
 
 // NewAddressParcel creates a new AddressParcel.
-func NewAddressParcel(feeRate *chainfee.SatPerKWeight,
+func NewAddressParcel(feeRate *chainfee.SatPerKWeight, label string,
 	destAddrs ...*address.Tap) *AddressParcel {
 
 	return &AddressParcel{
@@ -154,6 +157,7 @@ func NewAddressParcel(feeRate *chainfee.SatPerKWeight,
 		},
 		destAddrs:       destAddrs,
 		transferFeeRate: feeRate,
+		label:           label,
 	}
 }
 
@@ -165,6 +169,7 @@ func (p *AddressParcel) pkg() *sendPackage {
 	// Initialize a package with the destination address.
 	return &sendPackage{
 		Parcel: p,
+		Label:  p.label,
 	}
 }
 
@@ -229,6 +234,7 @@ func (p *PendingParcel) pkg() *sendPackage {
 	return &sendPackage{
 		OutboundPkg: p.outboundPkg,
 		SendState:   SendStateBroadcast,
+		Label:       p.outboundPkg.Label,
 	}
 }
 
@@ -471,6 +477,9 @@ type sendPackage struct {
 	// confirmation data.
 	TransferTxConfEvent *chainntnfs.TxConfirmation
 
+	// Label is a user provided short label for this transfer.
+	Label string
+
 	// Note is a user provided description for this transfer. This is
 	// currently only used by asset burn transfers.
 	Note string
@@ -489,7 +498,8 @@ type sendPackage struct {
 // they were already committed at.
 func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 	anchorTx *tapsend.AnchorTransaction, passiveAssets []*tappsbt.VPacket,
-	isLocalKey func(asset.ScriptKey) bool) (*OutboundParcel, error) {
+	isLocalKey func(asset.ScriptKey) bool, label string) (*OutboundParcel,
+	error) {
 
 	var passiveAssetAnchor *Anchor
 	if len(passiveAssets) > 0 {
@@ -526,6 +536,7 @@ func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 		),
 		PassiveAssets:       passiveAssets,
 		PassiveAssetsAnchor: passiveAssetAnchor,
+		Label:               label,
 	}
 
 	allPackets := append(activeTransfers, passiveAssets...)

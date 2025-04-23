@@ -1580,6 +1580,10 @@
           "type": "integer",
           "format": "int64",
           "description": "The block height of the blockchain block that contains the anchor\ntransaction. If the anchor transaction is still unconfirmed, this value\nwill be 0."
+        },
+        "label": {
+          "type": "string",
+          "description": "An optional short label for the transfer. This label can be used to track\nthe progress of the transfer via the logs or an event subscription.\nMultiple transfers can share the same label."
         }
       }
     },
@@ -2320,6 +2324,10 @@
           "type": "integer",
           "format": "int64",
           "description": "The optional fee rate to use for the minting transaction, in sat/kw.\n\nTODO(roasbeef): maybe in future add details re type of ProofCourier or\n w/e"
+        },
+        "label": {
+          "type": "string",
+          "description": "An optional short label for the send transfer. This label can be used to\ntrack the progress of the transfer via the logs or an event subscription.\nMultiple transfers can share the same label."
         }
       }
     },
@@ -2382,6 +2390,10 @@
         "error": {
           "type": "string",
           "description": "An optional error, indicating that executing the send_state failed."
+        },
+        "transfer_label": {
+          "type": "string",
+          "description": "The label of the transfer."
         }
       }
     },
@@ -2420,6 +2432,10 @@
           "type": "string",
           "format": "byte",
           "description": "Filter send events by a specific recipient script key. Leave empty to get\nall receive events for all parcels."
+        },
+        "filter_label": {
+          "type": "string",
+          "description": "Filter send events by a specific label. Leave empty to not filter by\ntransfer label."
         }
       }
     },
