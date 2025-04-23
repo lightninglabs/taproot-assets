@@ -2288,7 +2288,6 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 		map[wire.OutPoint]*commitment.TapCommitment,
 	)
 	for anchorPoint := range chainAnchorToAssets {
-		anchorPoint := anchorPoint
 		anchorUTXO := anchorPoints[anchorPoint]
 		anchoredAssets := chainAnchorToAssets[anchorPoint]
 		anchoredAltLeaves := anchorAltLeaves[anchorPoint]
