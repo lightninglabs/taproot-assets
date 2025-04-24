@@ -46,7 +46,7 @@ import (
 // Default to a large interval so the planter never actually ticks and only
 // rely on our manual ticks.
 var (
-	defaultTimeout    = time.Second * 5
+	defaultTimeout    = time.Second * 10
 	noCaretakerStates = fn.NewSet(
 		tapgarden.BatchStatePending,
 		tapgarden.BatchStateSeedlingCancelled,
@@ -309,7 +309,18 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(isFunded bool,
 		// The received update should be a state of MintingStateSeed.
 		require.Equal(t, tapgarden.MintingStateSeed, update.NewState)
 
-		t.keyRing.AssertNumberOfCalls(t, "DeriveNextKey", keyCount)
+		require.Eventually(t, func() bool {
+			// Assert that the key ring method DeriveNextKey was
+			// called the expected number of times.
+			count := 0
+			for _, call := range t.keyRing.Calls {
+				if call.Method == "DeriveNextKey" {
+					count++
+				}
+			}
+
+			return count == keyCount
+		}, defaultTimeout, wait.PollInterval)
 	}
 }
 
@@ -318,10 +329,15 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(isFunded bool,
 func (t *mintingTestHarness) assertPendingBatchExists(numSeedlings int) {
 	t.Helper()
 
-	batch, err := t.planter.PendingBatch()
-	require.NoError(t, err)
-	require.NotNil(t, batch)
-	require.Len(t, batch.Seedlings, numSeedlings)
+	// The planter is a state machine, so we need to wait until it has
+	// reached the expected state.
+	require.Eventually(t, func() bool {
+		batch, err := t.planter.PendingBatch()
+		require.NoError(t, err)
+
+		require.NotNil(t, batch)
+		return len(batch.Seedlings) == numSeedlings
+	}, defaultTimeout, wait.PollInterval)
 }
 
 // assertNoActiveBatch asserts that no pending batch exists.

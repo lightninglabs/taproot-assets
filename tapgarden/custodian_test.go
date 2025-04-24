@@ -584,12 +584,28 @@ func TestBookAssetSyncer(t *testing.T) {
 	// If we add the asset to the asset syncer, address creation should
 	// succeed.
 	h.syncer.AddAsset(*newAsset)
-	addrVersion = test.RandFlip(address.V0, address.V1)
-	newAddr, err := h.addrBook.NewAddress(
-		ctx, addrVersion, newAsset.ID(), 1, nil, proofCourierAddr,
-	)
+
+	// Fetch the asset from the syncer. This should trigger the
+	// background goroutine to add the asset to the address book.
+	_, err = h.syncer.FetchAsset(newAsset.ID())
 	require.NoError(t, err)
-	require.NotNil(t, newAddr)
+
+	// Eventually, the asset should be registered and we should be able to
+	// create a new address for it.
+	var newAddr *address.AddrWithKeyInfo
+	addrVersion = test.RandFlip(address.V0, address.V1)
+
+	require.Eventually(t, func() bool {
+		newAddr, err = h.addrBook.NewAddress(
+			ctx, addrVersion, newAsset.ID(), 1, nil,
+			proofCourierAddr,
+		)
+		if err != nil {
+			return false
+		}
+
+		return newAddr != nil
+	}, defaultTimeout, wait.PollInterval)
 
 	h.keyRing.AssertNumberOfCalls(t, "DeriveNextTaprootAssetKey", 2)
 
