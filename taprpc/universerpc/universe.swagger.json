@@ -1722,6 +1722,34 @@
         }
       }
     },
+    "taprpcAssetMeta": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw data of the asset meta data. Based on the type below, this may be\nstructured data such as a text file or PDF. The size of the data is limited\nto 1MiB."
+        },
+        "type": {
+          "$ref": "#/definitions/taprpcAssetMetaType",
+          "description": "The type of the asset meta data."
+        },
+        "meta_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the meta. This is the hash of the TLV serialization of the meta\nitself."
+        }
+      }
+    },
+    "taprpcAssetMetaType": {
+      "type": "string",
+      "enum": [
+        "META_TYPE_OPAQUE",
+        "META_TYPE_JSON"
+      ],
+      "default": "META_TYPE_OPAQUE",
+      "description": " - META_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs.\n - META_TYPE_JSON: JSON is used for asset meta blobs that are to be interpreted as valid JSON\nstrings."
+    },
     "taprpcAssetType": {
       "type": "string",
       "enum": [
@@ -1779,6 +1807,30 @@
           "type": "integer",
           "format": "int64",
           "description": "The index of the output that carries the unique Taproot Asset commitment in\nthe genesis transaction."
+        }
+      }
+    },
+    "taprpcGenesisReveal": {
+      "type": "object",
+      "properties": {
+        "genesis_base_reveal": {
+          "$ref": "#/definitions/taprpcGenesisInfo",
+          "description": "The base genesis information in the genesis reveal."
+        }
+      }
+    },
+    "taprpcGroupKeyReveal": {
+      "type": "object",
+      "properties": {
+        "raw_group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw group key which is a normal public key."
+        },
+        "tapscript_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The tapscript root included in the tweaked group key, which may be empty."
         }
       }
     },
@@ -1960,6 +2012,10 @@
           "type": "string",
           "format": "byte",
           "description": "MultiverseInclusionProof is the inclusion proof for the asset leaf in the\nmultiverse."
+        },
+        "issuance_data": {
+          "$ref": "#/definitions/universerpcIssuanceData",
+          "description": "The issuance related data for an issuance asset leaf. This is empty for\nany other type of asset leaf."
         }
       }
     },
@@ -2138,6 +2194,23 @@
           "type": "string",
           "format": "int64",
           "description": "A pseudo-random runtime ID for the current instance of the Universe\nserver, changes with each restart. Mainly used to identify identical\nservers when they are exposed under different hostnames/ports."
+        }
+      }
+    },
+    "universerpcIssuanceData": {
+      "type": "object",
+      "properties": {
+        "meta_reveal": {
+          "$ref": "#/definitions/taprpcAssetMeta",
+          "description": "The reveal meta data associated with the proof, if available."
+        },
+        "genesis_reveal": {
+          "$ref": "#/definitions/taprpcGenesisReveal",
+          "description": "GenesisReveal is an optional field that is the Genesis information for\nthe asset. This is required for minting proofs."
+        },
+        "group_key_reveal": {
+          "$ref": "#/definitions/taprpcGroupKeyReveal",
+          "description": "GroupKeyReveal is an optional field that includes the information needed\nto derive the tweaked group key."
         }
       }
     },

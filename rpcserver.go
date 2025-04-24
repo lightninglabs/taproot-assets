@@ -5538,14 +5538,68 @@ func (r *rpcServer) marshalUniverseProofLeaf(ctx context.Context,
 		return nil, err
 	}
 
-	return &unirpc.AssetProofResponse{
+	response := &unirpc.AssetProofResponse{
 		Req:                      req,
 		UniverseRoot:             uniRoot,
 		UniverseInclusionProof:   uniProof,
 		AssetLeaf:                assetLeaf,
 		MultiverseRoot:           multiverseRoot,
 		MultiverseInclusionProof: multiverseProof,
-	}, nil
+	}
+
+	// For an issuance proof, it's useful to directly see some of the
+	// genesis and meta reveal data in a decoded manner. Since we don't know
+	// the proof type, if it was unspecified, we'll only skip this if the
+	// proof type is transfer.
+	if req.Id.ProofType != unirpc.ProofType_PROOF_TYPE_TRANSFER {
+		p, err := proof.Leaf.RawProof.AsSingleProof()
+		if err != nil {
+			return nil, err
+		}
+
+		// If this isn't a genesis reveal, it means we have a transfer
+		// proof after all (perhaps because the proof type was given
+		// as ProofType_PROOF_TYPE_UNSPECIFIED).
+		if p.GenesisReveal == nil {
+			return response, nil
+		}
+
+		genInfo := &taprpc.GenesisInfo{
+			GenesisPoint: p.GenesisReveal.FirstPrevOut.String(),
+			Name:         p.GenesisReveal.Tag,
+			MetaHash:     p.GenesisReveal.MetaHash[:],
+			AssetId:      fn.ByteSlice(p.Asset.ID()),
+			OutputIndex:  p.GenesisReveal.OutputIndex,
+			AssetType:    taprpc.AssetType(p.Asset.Type),
+		}
+		issuanceData := &unirpc.IssuanceData{
+			GenesisReveal: &taprpc.GenesisReveal{
+				GenesisBaseReveal: genInfo,
+			},
+		}
+
+		if p.GroupKeyReveal != nil {
+			rawKey := p.GroupKeyReveal.RawKey()
+			issuanceData.GroupKeyReveal = &taprpc.GroupKeyReveal{
+				RawGroupKey:   rawKey[:],
+				TapscriptRoot: p.GroupKeyReveal.TapscriptRoot(),
+			}
+		}
+
+		if p.MetaReveal != nil {
+			issuanceData.MetaReveal = &taprpc.AssetMeta{
+				Data: p.MetaReveal.Data,
+				Type: taprpc.AssetMetaType(
+					p.MetaReveal.Type,
+				),
+				MetaHash: fn.ByteSlice(p.MetaReveal.MetaHash()),
+			}
+		}
+
+		response.IssuanceData = issuanceData
+	}
+
+	return response, nil
 }
 
 // QueryProof attempts to query for an issuance or transfer proof for a given

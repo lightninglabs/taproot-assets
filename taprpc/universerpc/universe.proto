@@ -367,6 +367,23 @@ message AssetProofResponse {
     // MultiverseInclusionProof is the inclusion proof for the asset leaf in the
     // multiverse.
     bytes multiverse_inclusion_proof = 6;
+
+    // The issuance related data for an issuance asset leaf. This is empty for
+    // any other type of asset leaf.
+    IssuanceData issuance_data = 7;
+}
+
+message IssuanceData {
+    // The reveal meta data associated with the proof, if available.
+    taprpc.AssetMeta meta_reveal = 1;
+
+    // GenesisReveal is an optional field that is the Genesis information for
+    // the asset. This is required for minting proofs.
+    taprpc.GenesisReveal genesis_reveal = 2;
+
+    // GroupKeyReveal is an optional field that includes the information needed
+    // to derive the tweaked group key.
+    taprpc.GroupKeyReveal group_key_reveal = 3;
 }
 
 message AssetProof {
