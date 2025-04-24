@@ -191,7 +191,12 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		//
 		// TODO(george): Strict-forwarding could be configurable?
 		if isAssetInvoice(req.Invoice, s) {
+			iLog.Debugf("has no asset custom records, but " +
+				"invoice requires assets, canceling HTLCs")
+
 			resp.CancelSet = true
+		} else {
+			iLog.Tracef("has no asset custom records, ignoring")
 		}
 
 		return resp, nil
@@ -202,6 +207,9 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		// correspond to an asset invoice, we do not settle the invoice.
 		// Since we requested btc we should be receiving btc.
 		resp.CancelSet = true
+
+		iLog.Debugf("has asset custom records, but invoice does not " +
+			"require assets, canceling HTLCs")
 
 		return resp, nil
 
