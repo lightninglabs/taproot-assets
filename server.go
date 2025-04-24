@@ -17,7 +17,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/monitoring"
-	"github.com/lightninglabs/taproot-assets/perms"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
@@ -133,7 +132,7 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 				Checkers: []macaroons.Checker{
 					macaroons.IPLockChecker,
 				},
-				RequiredPerms: perms.RequiredPermissions,
+				RequiredPerms: taprpc.RequiredPermissions,
 			},
 		)
 		if err != nil {
@@ -158,7 +157,7 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 
 			// Register all our known permission with the macaroon
 			// service.
-			for method, ops := range perms.RequiredPermissions {
+			for method, ops := range taprpc.RequiredPermissions {
 				err := interceptorChain.AddPermission(
 					method, ops,
 				)
@@ -311,7 +310,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	serverOpts := s.cfg.GrpcServerOpts
 
 	// Get RPC endpoints which don't require macaroons.
-	macaroonWhitelist := perms.MacaroonWhitelist(
+	macaroonWhitelist := taprpc.MacaroonWhitelist(
 		s.cfg.UniversePublicAccess.IsReadAccessGranted(),
 		s.cfg.UniversePublicAccess.IsWriteAccessGranted(),
 		s.cfg.RPCConfig.AllowPublicUniProofCourier,

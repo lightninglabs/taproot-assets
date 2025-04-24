@@ -1,4 +1,4 @@
-package perms
+package taprpc
 
 import "gopkg.in/macaroon-bakery.v2/bakery"
 

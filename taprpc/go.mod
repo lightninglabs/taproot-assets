@@ -7,6 +7,7 @@ require (
 	github.com/lightningnetwork/lnd v0.19.0-beta.rc2.0.20250423092132-a35ace7371af
 	google.golang.org/grpc v1.64.1
 	google.golang.org/protobuf v1.34.2
+	gopkg.in/macaroon-bakery.v2 v2.1.0
 )
 
 require (
@@ -174,7 +175,6 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20240513163218-0867130af1f8 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240513163218-0867130af1f8 // indirect
 	gopkg.in/errgo.v1 v1.0.1 // indirect
-	gopkg.in/macaroon-bakery.v2 v2.0.1 // indirect
 	gopkg.in/macaroon.v2 v2.0.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
