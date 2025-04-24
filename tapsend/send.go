@@ -1584,6 +1584,9 @@ func LogCommitment(prefix string, idx int,
 		prefix, idx, tapCommitment.Version, merkleRoot[:],
 		internalKey.SerializeCompressed(), pkScript, trimmedMerkleRoot)
 	for _, a := range tapCommitment.CommittedAssets() {
+		var buf bytes.Buffer
+		_ = a.Encode(&buf)
+
 		groupKey := "<nil>"
 		if a.GroupKey != nil {
 			groupKey = hex.EncodeToString(
@@ -1592,9 +1595,11 @@ func LogCommitment(prefix string, idx int,
 		}
 		log.Tracef("%v commitment asset_id=%v, script_key=%x, "+
 			"group_key=%v, amount=%d, version=%d, "+
-			"split_commitment=%v", prefix, a.ID(),
+			"split_commitment=%v, encoded=%x", prefix, a.ID(),
 			a.ScriptKey.PubKey.SerializeCompressed(), groupKey,
-			a.Amount, a.Version, a.SplitCommitmentRoot != nil)
+			a.Amount, a.Version, a.SplitCommitmentRoot != nil,
+			buf.Bytes())
+
 	}
 }
 

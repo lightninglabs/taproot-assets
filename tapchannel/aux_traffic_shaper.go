@@ -81,27 +81,30 @@ func (s *AuxTrafficShaper) Stop() error {
 // it is handled by the traffic shaper, then the normal bandwidth calculation
 // can be skipped and the bandwidth returned by PaymentBandwidth should be used
 // instead.
-func (s *AuxTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
-	fundingBlob lfn.Option[tlv.Blob]) (bool, error) {
+func (s *AuxTrafficShaper) ShouldHandleTraffic(cid lnwire.ShortChannelID,
+	_, htlcBlob lfn.Option[tlv.Blob]) (bool, error) {
 
-	// If there is no auxiliary blob in the channel, it's not a custom
-	// channel, and we don't need to handle it.
-	if fundingBlob.IsNone() {
-		log.Tracef("No aux funding blob set, not handling traffic")
+	// The rule here is simple: If the HTLC is an asset HTLC, we _need_ to
+	// handle the bandwidth. Because of non-strict forwarding in lnd, it
+	// could otherwise be the case that we forward an asset HTLC on a
+	// non-asset channel, which would be a problem.
+	htlcBytes := htlcBlob.UnwrapOr(nil)
+	if len(htlcBytes) == 0 {
+		log.Tracef("Empty HTLC blob, not handling traffic for %v", cid)
 		return false, nil
 	}
 
-	// If we can successfully decode the channel blob as a channel capacity
-	// information, we know that this is a custom channel.
-	err := lfn.MapOptionZ(fundingBlob, func(blob tlv.Blob) error {
-		_, err := cmsg.DecodeOpenChannel(blob)
-		return err
-	})
-	if err != nil {
-		return false, err
+	// If there are no asset HTLC custom records, we don't need to do
+	// anything as this is a regular payment.
+	if !rfqmsg.HasAssetHTLCEntries(htlcBytes) {
+		log.Tracef("No asset HTLC custom records, not handling "+
+			"traffic for %v", cid)
+		return false, nil
 	}
 
-	// No error, so this is a custom channel, we'll want to decide.
+	// If this _is_ an asset HTLC, we definitely want to handle the
+	// bandwidth for this channel, so we can deny forwarding asset HTLCs
+	// over non-asset channels.
 	return true, nil
 }
 
@@ -110,39 +113,85 @@ func (s *AuxTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
 // is no bandwidth available. To find out if a channel is a custom channel that
 // should be handled by the traffic shaper, the HandleTraffic method should be
 // called first.
-func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
+func (s *AuxTrafficShaper) PaymentBandwidth(fundingBlob, htlcBlob,
 	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
 	htlcAmt lnwire.MilliSatoshi,
 	htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
 
-	// If the commitment or HTLC blob is not set, we don't have any
-	// information about the channel and cannot determine the available
-	// bandwidth from a taproot asset perspective. We return the link
-	// bandwidth as a fallback.
-	if commitmentBlob.IsNone() || htlcBlob.IsNone() {
-		log.Tracef("No commitment or HTLC blob set, returning link "+
-			"bandwidth %v", linkBandwidth)
+	fundingBlobBytes := fundingBlob.UnwrapOr(nil)
+	htlcBytes := htlcBlob.UnwrapOr(nil)
+	commitmentBytes := commitmentBlob.UnwrapOr(nil)
+
+	// If the HTLC is not an asset HTLC, we can just return the normal link
+	// bandwidth, as we don't need to do any special math. We shouldn't even
+	// get here in the first place, since the ShouldHandleTraffic function
+	// should return false in this case.
+	if len(htlcBytes) == 0 || !rfqmsg.HasAssetHTLCEntries(htlcBytes) {
+		log.Tracef("Empty HTLC blob or no asset HTLC custom records, "+
+			"returning link bandwidth %v", linkBandwidth)
 		return linkBandwidth, nil
 	}
 
-	commitmentBytes := commitmentBlob.UnsafeFromSome()
-	htlcBytes := htlcBlob.UnsafeFromSome()
-
-	// Sometimes the blob is set but actually empty, in which case we also
-	// don't have any information about the channel.
-	if len(commitmentBytes) == 0 || len(htlcBytes) == 0 {
-		log.Tracef("Empty commitment or HTLC blob, returning link "+
-			"bandwidth %v", linkBandwidth)
-		return linkBandwidth, nil
+	// If this is an asset HTLC but the channel is not an asset channel, we
+	// MUST deny forwarding the HTLC.
+	if len(commitmentBytes) == 0 || len(fundingBlobBytes) == 0 {
+		log.Tracef("Empty commitment or funding blob, cannot forward" +
+			"asset HTLC over non-asset channel, returning 0 " +
+			"bandwidth")
+		return 0, nil
 	}
 
-	// If there are no asset HTLC custom records, we don't need to do
-	// anything as this is a regular payment.
-	if !rfqmsg.HasAssetHTLCEntries(htlcBytes) {
-		log.Tracef("No asset HTLC custom records, returning link "+
-			"bandwidth %v", linkBandwidth)
-		return linkBandwidth, nil
+	fundingChan, err := cmsg.DecodeOpenChannel(fundingBlobBytes)
+	if err != nil {
+		return 0, fmt.Errorf("error decoding funding blob: %w", err)
 	}
+
+	commitment, err := cmsg.DecodeCommitment(commitmentBytes)
+	if err != nil {
+		return 0, fmt.Errorf("error decoding commitment blob: %w", err)
+	}
+
+	htlc, err := rfqmsg.DecodeHtlc(htlcBytes)
+	if err != nil {
+		return 0, fmt.Errorf("error decoding HTLC blob: %w", err)
+	}
+
+	// Before we do any further checks, we actually need to make sure that
+	// the HTLC is compatible with this channel. Because of `lnd`'s
+	// non-strict forwarding, if there are multiple asset channels, the
+	// wrong one could be chosen if we signal there's bandwidth. So we need
+	// to tell `lnd` it can't use this channel if the assets aren't
+	// compatible.
+	htlcAssetIDs := fn.NewSet[asset.ID](fn.Map(
+		htlc.Balances(), func(b *rfqmsg.AssetBalance) asset.ID {
+			return b.AssetID.Val
+		})...,
+	)
+	if !fundingChan.HasAllAssetIDs(htlcAssetIDs) {
+		log.Tracef("HTLC asset IDs %v not compatible with asset IDs "+
+			"of channel, returning 0 bandwidth", htlcAssetIDs)
+		return 0, nil
+	}
+
+	// With the help of the latest HtlcView, let's calculate a more precise
+	// local balance. This is useful in order to not forward HTLCs that may
+	// never be settled. Other HTLCs that may also call into this method are
+	// not yet registered to the commitment, so we need to account for them
+	// manually.
+	computedLocal, decodedView, err := ComputeLocalBalance(
+		*commitment, htlcView,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	log.Tracef("Computed asset HTLC View: commitmentLocal=%v, "+
+		"computedLocal=%v, nextHeight=%v, thisHtlc=%v, newView=%v",
+		cmsg.OutputSum(commitment.LocalOutputs()), computedLocal,
+		htlcView.NextHeight, htlc.Amounts.Val.Sum(),
+		lnutils.NewLogClosure(func() string {
+			return prettyPrintLocalView(*decodedView)
+		}))
 
 	// Get the minimum HTLC amount, which is just above dust.
 	minHtlcAmt := rfqmath.DefaultOnChainHtlcMSat
@@ -165,36 +214,6 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	if htlcAmt < minHtlcAmt {
 		htlcAmt = minHtlcAmt
 	}
-
-	commitment, err := cmsg.DecodeCommitment(commitmentBytes)
-	if err != nil {
-		return 0, fmt.Errorf("error decoding commitment blob: %w", err)
-	}
-
-	htlc, err := rfqmsg.DecodeHtlc(htlcBytes)
-	if err != nil {
-		return 0, fmt.Errorf("error decoding HTLC blob: %w", err)
-	}
-
-	// With the help of the latest HtlcView, let's calculate a more precise
-	// local balance. This is useful in order to not forward HTLCs that may
-	// never be settled. Other HTLCs that may also call into this method are
-	// not yet registered to the commitment, so we need to account for them
-	// manually.
-	computedLocal, decodedView, err := ComputeLocalBalance(
-		*commitment, htlcView,
-	)
-	if err != nil {
-		return 0, err
-	}
-
-	log.Tracef("Computed asset HTLC View: commitmentLocal=%v, "+
-		"computedLocal=%v, nextHeight=%v, thisHtlc=%v, newView=%v",
-		cmsg.OutputSum(commitment.LocalOutputs()), computedLocal,
-		htlcView.NextHeight, htlc.Amounts.Val.Sum(),
-		lnutils.NewLogClosure(func() string {
-			return prettyPrintLocalView(*decodedView)
-		}))
 
 	// If the HTLC carries asset units (keysend, forwarding), then there's
 	// no need to do any RFQ related math. We can directly compare the asset

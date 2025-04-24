@@ -1,8 +1,10 @@
 package tapchannel
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"testing"
@@ -12,9 +14,11 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -298,7 +302,9 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 			}
 		} else {
 			if assetValueMsat != res.AmtPaid {
-				m.t.Errorf("unexpected final asset value")
+				m.t.Errorf("unexpected final asset value, "+
+					"wanted %d, got %d", assetValueMsat,
+					res.AmtPaid)
 			}
 		}
 	}
@@ -309,9 +315,30 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 	return nil
 }
 
+type mockLndClient struct {
+	lndclient.LightningClient
+
+	channels []lndclient.ChannelInfo
+}
+
+// ListChannels retrieves all channels of the backing lnd node.
+func (m *mockLndClient) ListChannels(_ context.Context, _, _ bool,
+	_ ...lndclient.ListChannelsOption) ([]lndclient.ChannelInfo, error) {
+
+	return m.channels, nil
+}
+
 // TestAuxInvoiceManager tests that the htlc modifications of the aux invoice
 // manager align with our expectations.
 func TestAuxInvoiceManager(t *testing.T) {
+	randCircuitKey := func() invoices.CircuitKey {
+		return invoices.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(
+				test.RandInt[uint64](),
+			),
+		}
+	}
+
 	testCases := []struct {
 		name            string
 		buyQuotes       rfq.BuyAcceptMap
@@ -324,6 +351,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 			name: "non asset invoice",
 			requests: []lndclient.InvoiceHtlcModifyRequest{
 				{
+					CircuitKey:  randCircuitKey(),
 					Invoice:     &lnrpc.Invoice{},
 					ExitHtlcAmt: 1234,
 				},
@@ -338,6 +366,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 			name: "non asset routing hints",
 			requests: []lndclient.InvoiceHtlcModifyRequest{
 				{
+					CircuitKey: randCircuitKey(),
 					Invoice: &lnrpc.Invoice{
 						RouteHints: testNonAssetHints(),
 						ValueMsat:  1_000_000,
@@ -360,6 +389,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 			name: "asset invoice, no custom records",
 			requests: []lndclient.InvoiceHtlcModifyRequest{
 				{
+					CircuitKey: randCircuitKey(),
 					Invoice: &lnrpc.Invoice{
 						RouteHints:  testRouteHints(),
 						PaymentAddr: []byte{1, 1, 1},
@@ -382,6 +412,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 			name: "asset invoice, custom records",
 			requests: []lndclient.InvoiceHtlcModifyRequest{
 				{
+					CircuitKey: randCircuitKey(),
 					Invoice: &lnrpc.Invoice{
 						RouteHints:  testRouteHints(),
 						ValueMsat:   3_000_000,
@@ -417,6 +448,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 			name: "asset invoice, not enough amt",
 			requests: []lndclient.InvoiceHtlcModifyRequest{
 				{
+					CircuitKey: randCircuitKey(),
 					Invoice: &lnrpc.Invoice{
 						RouteHints:  testRouteHints(),
 						ValueMsat:   10_000_000,
@@ -453,6 +485,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 			name: "btc invoice, custom records",
 			requests: []lndclient.InvoiceHtlcModifyRequest{
 				{
+					CircuitKey: randCircuitKey(),
 					Invoice: &lnrpc.Invoice{
 						ValueMsat:   10_000_000,
 						PaymentAddr: []byte{1, 1, 1},
@@ -477,6 +510,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 			name: "asset invoice, wrong asset htlc",
 			requests: []lndclient.InvoiceHtlcModifyRequest{
 				{
+					CircuitKey: randCircuitKey(),
 					Invoice: &lnrpc.Invoice{
 						RouteHints:  testRouteHints(),
 						ValueMsat:   3_000_000,
@@ -513,6 +547,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 			name: "asset invoice, group key rfq",
 			requests: []lndclient.InvoiceHtlcModifyRequest{
 				{
+					CircuitKey: randCircuitKey(),
 					Invoice: &lnrpc.Invoice{
 						RouteHints:  testRouteHints(),
 						ValueMsat:   20_000_000,
@@ -557,6 +592,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 			name: "asset invoice, group key rfq, bad htlc",
 			requests: []lndclient.InvoiceHtlcModifyRequest{
 				{
+					CircuitKey: randCircuitKey(),
 					Invoice: &lnrpc.Invoice{
 						RouteHints:  testRouteHints(),
 						ValueMsat:   20_000_000,
@@ -604,10 +640,16 @@ func TestAuxInvoiceManager(t *testing.T) {
 
 		t.Logf("Running AuxInvoiceManager test case: %v", testCase.name)
 
+		channels, err := genChannelsFromRequests(testCase.requests)
+		require.NoError(t, err)
+
 		// Instantiate mock rfq manager.
 		mockRfq := &mockRfqManager{
 			peerBuyQuotes:   testCase.buyQuotes,
 			localSellQuotes: testCase.sellQuotes,
+		}
+		mockLnd := &mockLndClient{
+			channels: channels,
 		}
 
 		done := make(chan bool)
@@ -626,10 +668,11 @@ func TestAuxInvoiceManager(t *testing.T) {
 				ChainParams:         testChainParams,
 				InvoiceHtlcModifier: mockModifier,
 				RfqManager:          mockRfq,
+				LightningClient:     mockLnd,
 			},
 		)
 
-		err := manager.Start()
+		err = manager.Start()
 		require.NoError(t, err)
 
 		// If the manager is not done processing the htlc modification
@@ -777,7 +820,13 @@ func genHtlc(t *rapid.T, balance []*rfqmsg.AssetBalance,
 func genRequest(t *rapid.T) (lndclient.InvoiceHtlcModifyRequest, uint64,
 	asset.ID, rfqmsg.ID) {
 
-	request := lndclient.InvoiceHtlcModifyRequest{}
+	request := lndclient.InvoiceHtlcModifyRequest{
+		CircuitKey: invoices.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(
+				rapid.Uint64().Draw(t, "chan_id"),
+			),
+		},
+	}
 
 	rfqID := genRandomRfqID(t)
 
@@ -800,13 +849,12 @@ func genRequest(t *rapid.T) (lndclient.InvoiceHtlcModifyRequest, uint64,
 // genRequests generates a random array of requests to be processed by the
 // AuxInvoiceManager. It also returns the rfq map with the related rfq quotes.
 func genRequests(t *rapid.T) ([]lndclient.InvoiceHtlcModifyRequest,
-	rfq.BuyAcceptMap) {
+	rfq.BuyAcceptMap, []lndclient.ChannelInfo) {
 
 	rfqMap := rfq.BuyAcceptMap{}
 
 	numRequests := rapid.IntRange(1, 5).Draw(t, "requestsLen")
-	requests := make([]lndclient.InvoiceHtlcModifyRequest, 0)
-
+	var requests []lndclient.InvoiceHtlcModifyRequest
 	for range numRequests {
 		req, numAssets, assetID, scid := genRequest(t)
 		requests = append(requests, req)
@@ -819,7 +867,58 @@ func genRequests(t *rapid.T) ([]lndclient.InvoiceHtlcModifyRequest,
 		genBuyQuotes(t, rfqMap, numAssets, quoteAmt, assetID, scid)
 	}
 
-	return requests, rfqMap
+	channels, err := genChannelsFromRequests(requests)
+	require.NoError(t, err)
+
+	return requests, rfqMap, channels
+}
+
+// genChannelsFromRequests generates a list of channel info instances
+// based on the provided requests.
+func genChannelsFromRequests(
+	r []lndclient.InvoiceHtlcModifyRequest) ([]lndclient.ChannelInfo,
+	error) {
+
+	channels := make([]lndclient.ChannelInfo, len(r))
+	for i, req := range r {
+		var (
+			buf           bytes.Buffer
+			htlc          rfqmsg.Htlc
+			jsonAssetChan rfqmsg.JsonAssetChannel
+		)
+		err := req.WireCustomRecords.SerializeTo(&buf)
+		if err != nil {
+			return nil, err
+		}
+
+		err = htlc.Decode(&buf)
+		if err != nil {
+			return nil, err
+		}
+
+		jsonAssetChan.FundingAssets = make(
+			[]rfqmsg.JsonAssetUtxo, len(htlc.Balances()),
+		)
+		for idx, balance := range htlc.Balances() {
+			fundingAsset := &jsonAssetChan.FundingAssets[idx]
+			fundingAssetGen := &fundingAsset.AssetGenesis
+			fundingAssetGen.AssetID = balance.AssetID.Val.String()
+
+			jsonAssetChan.GroupKey += balance.AssetID.Val.String()
+		}
+
+		jsonChan, err := json.Marshal(jsonAssetChan)
+		if err != nil {
+			return nil, err
+		}
+
+		channels[i] = lndclient.ChannelInfo{
+			ChannelID:         req.CircuitKey.ChanID.ToUint64(),
+			CustomChannelData: jsonChan,
+		}
+	}
+
+	return channels, nil
 }
 
 // genRandomVertex generates a route.Vertex instance filled with random bytes.
@@ -898,10 +997,13 @@ func genBuyQuotes(t *rapid.T, rfqMap rfq.BuyAcceptMap, units, amtMsat uint64,
 // testInvoiceManager creates an array of requests to be processed by the
 // AuxInvoiceManager. Uses the enhanced HtlcModifierMockProperty instance.
 func testInvoiceManager(t *rapid.T) {
-	requests, rfqMap := genRequests(t)
+	requests, rfqMap, channels := genRequests(t)
 
 	mockRfq := &mockRfqManager{
 		peerBuyQuotes: rfqMap,
+	}
+	mockLnd := &mockLndClient{
+		channels: channels,
 	}
 
 	done := make(chan bool)
@@ -913,13 +1015,12 @@ func testInvoiceManager(t *rapid.T) {
 		t:          t,
 	}
 
-	manager := NewAuxInvoiceManager(
-		&InvoiceManagerConfig{
-			ChainParams:         testChainParams,
-			InvoiceHtlcModifier: mockModifier,
-			RfqManager:          mockRfq,
-		},
-	)
+	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{
+		ChainParams:         testChainParams,
+		InvoiceHtlcModifier: mockModifier,
+		RfqManager:          mockRfq,
+		LightningClient:     mockLnd,
+	})
 
 	err := manager.Start()
 	require.NoError(t, err)

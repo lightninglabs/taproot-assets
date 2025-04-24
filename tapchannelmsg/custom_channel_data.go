@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -83,6 +84,14 @@ func (c *ChannelCustomData) AsJson() ([]byte, error) {
 		OutgoingHtlcBalance: c.LocalCommit.OutgoingHtlcAssets.Val.Sum(),
 		IncomingHtlcBalance: c.LocalCommit.IncomingHtlcAssets.Val.Sum(),
 	}
+
+	c.OpenChan.GroupKey.ValOpt().WhenSome(func(key *btcec.PublicKey) {
+		if key != nil {
+			resp.GroupKey = hex.EncodeToString(
+				key.SerializeCompressed(),
+			)
+		}
+	})
 
 	// First, we encode the funding state, which lists all assets committed
 	// to the channel at the time of channel opening.

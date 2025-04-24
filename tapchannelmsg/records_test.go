@@ -65,6 +65,7 @@ func TestOpenChannel(t *testing.T) {
 	require.NoError(t, err)
 	randProof, err := proof.Decode(proofBytes)
 	require.NoError(t, err)
+	randGroupKey := test.RandPubKey(t)
 
 	testCases := []struct {
 		name    string
@@ -78,14 +79,22 @@ func TestOpenChannel(t *testing.T) {
 			name: "channel with funded asset",
 			channel: NewOpenChannel([]*AssetOutput{
 				NewAssetOutput([32]byte{1}, 1000, *randProof),
-			}, 0),
+			}, 0, nil),
 		},
 		{
 			name: "channel with multiple funded assets",
 			channel: NewOpenChannel([]*AssetOutput{
 				NewAssetOutput([32]byte{1}, 1000, *randProof),
 				NewAssetOutput([32]byte{2}, 2000, *randProof),
-			}, 11),
+			}, 11, nil),
+		},
+		{
+			name: "channel with multiple funded assets and group " +
+				"key",
+			channel: NewOpenChannel([]*AssetOutput{
+				NewAssetOutput([32]byte{1}, 1000, *randProof),
+				NewAssetOutput([32]byte{2}, 2000, *randProof),
+			}, 11, randGroupKey),
 		},
 	}
 

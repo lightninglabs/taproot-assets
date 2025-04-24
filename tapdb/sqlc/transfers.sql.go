@@ -695,8 +695,12 @@ func (q *Queries) QueryProofTransferAttempts(ctx context.Context, arg QueryProof
 const ReAnchorPassiveAssets = `-- name: ReAnchorPassiveAssets :exec
 UPDATE assets
 SET anchor_utxo_id = $1,
+    -- The following fields need to be the same fields we reset in
+    -- Asset.CopySpendTemplate.
     split_commitment_root_hash = NULL,
-    split_commitment_root_value = NULL
+    split_commitment_root_value = NULL,
+    lock_time = 0,
+    relative_lock_time = 0
 WHERE asset_id = $2
 `
 

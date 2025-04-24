@@ -2,6 +2,7 @@ package tapchannel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -13,7 +14,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -77,6 +80,10 @@ type InvoiceManagerConfig struct {
 	// accepted quotes for determining the incoming value of invoice related
 	// HTLCs.
 	RfqManager RfqManager
+
+	// LndClient is the lnd client that will be used to interact with the
+	// lnd node.
+	LightningClient lndclient.LightningClient
 }
 
 // AuxInvoiceManager is a Taproot Asset auxiliary invoice manager that can be
@@ -86,6 +93,12 @@ type AuxInvoiceManager struct {
 	stopOnce  sync.Once
 
 	cfg *InvoiceManagerConfig
+
+	// channelFundingCache is a cache used to store the channel funding
+	// information for the channels that are used to receive assets. The map
+	// is keyed by the main channel ID, and the value is the asset channel
+	// funding information.
+	channelFundingCache lnutils.SyncMap[uint64, rfqmsg.JsonAssetChannel]
 
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
@@ -206,7 +219,7 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 	}
 
 	// We now run some validation checks on the asset HTLC.
-	err = s.validateAssetHTLC(ctx, htlc)
+	err = s.validateAssetHTLC(ctx, htlc, resp.CircuitKey)
 	if err != nil {
 		log.Errorf("Failed to validate asset HTLC: %v", err)
 
@@ -268,11 +281,11 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 	return resp, nil
 }
 
-// identifierFromQuote retrieves the quote by looking up the rfq manager's maps
-// of accepted quotes based on the passed rfq ID. If there's a match, the asset
-// specifier is returned.
-func (s *AuxInvoiceManager) identifierFromQuote(
-	rfqID rfqmsg.ID) (asset.Specifier, error) {
+// identifierAndPeerFromQuote retrieves the quote by looking up the rfq
+// manager's maps of accepted quotes based on the passed rfq ID. If there's a
+// match, the asset specifier and peer are returned.
+func (s *AuxInvoiceManager) identifierAndPeerFromQuote(
+	rfqID rfqmsg.ID) (asset.Specifier, route.Vertex, error) {
 
 	acceptedBuyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
 	acceptedSellQuotes := s.cfg.RfqManager.LocalAcceptedSellQuotes()
@@ -280,23 +293,28 @@ func (s *AuxInvoiceManager) identifierFromQuote(
 	buyQuote, isBuy := acceptedBuyQuotes[rfqID.Scid()]
 	sellQuote, isSell := acceptedSellQuotes[rfqID.Scid()]
 
-	var specifier asset.Specifier
+	var (
+		specifier asset.Specifier
+		peer      route.Vertex
+	)
 
 	switch {
 	case isBuy:
 		specifier = buyQuote.Request.AssetSpecifier
+		peer = buyQuote.Peer
 
 	case isSell:
 		specifier = sellQuote.Request.AssetSpecifier
+		peer = sellQuote.Peer
 	}
 
 	err := specifier.AssertNotEmpty()
 	if err != nil {
-		return specifier, fmt.Errorf("rfqID does not match any "+
+		return specifier, peer, fmt.Errorf("rfqID does not match any "+
 			"accepted buy or sell quote: %v", err)
 	}
 
-	return specifier, nil
+	return specifier, peer, nil
 }
 
 // priceFromQuote retrieves the price from the accepted quote for the given RFQ
@@ -390,12 +408,12 @@ func isAssetInvoice(invoice *lnrpc.Invoice, rfqLookup RfqLookup) bool {
 
 // validateAssetHTLC runs a couple of checks on the provided asset HTLC.
 func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
-	htlc *rfqmsg.Htlc) error {
+	htlc *rfqmsg.Htlc, circuitKey invoices.CircuitKey) error {
 
 	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
 
 	// Retrieve the asset identifier from the RFQ quote.
-	identifier, err := s.identifierFromQuote(rfqID)
+	identifier, peer, err := s.identifierAndPeerFromQuote(rfqID)
 	if err != nil {
 		return fmt.Errorf("could not extract assetID from "+
 			"quote: %v", err)
@@ -403,6 +421,7 @@ func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
 
 	// Check for each of the asset balances of the HTLC that the identifier
 	// matches that of the RFQ quote.
+	assetIDs := fn.NewSet[asset.ID]()
 	for _, v := range htlc.Balances() {
 		match, err := s.cfg.RfqManager.AssetMatchesSpecifier(
 			ctx, identifier, v.AssetID.Val,
@@ -415,9 +434,79 @@ func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
 			return fmt.Errorf("asset ID %s does not match %s",
 				v.AssetID.Val.String(), identifier.String())
 		}
+
+		assetIDs.Add(v.AssetID.Val)
+	}
+
+	assetData, err := s.fetchChannelAssetData(ctx, circuitKey.ChanID, peer)
+	if err != nil {
+		return fmt.Errorf("unable to fetch channel asset data: %w", err)
+	}
+
+	if !assetData.HasAllAssetIDs(assetIDs) {
+		return fmt.Errorf("channel %d does not have all asset IDs "+
+			"required for HTLC settlement",
+			circuitKey.ChanID)
 	}
 
 	return nil
+}
+
+// fetchChannelAssetData retrieves the asset channel data for the provided
+// channel ID. If the cache doesn't contain the data, it is queried from the
+// backing lnd node.
+func (s *AuxInvoiceManager) fetchChannelAssetData(ctx context.Context,
+	chanID lnwire.ShortChannelID,
+	peer route.Vertex) (*rfqmsg.JsonAssetChannel, error) {
+
+	// Do we have the information cached? Great, no lookup necessary. We
+	// don't need to worry about cache invalidation because the funding
+	// information remains constant for the lifetime of the channel.
+	cachedAssetData, ok := s.channelFundingCache.Load(chanID.ToUint64())
+	if ok {
+		return &cachedAssetData, nil
+	}
+
+	// We also need to validate that the HTLC is actually the correct asset
+	// and arrived through the correct asset channel.
+	channels, err := s.cfg.LightningClient.ListChannels(
+		ctx, true, false, lndclient.WithPeer(peer[:]),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to list channels: %w", err)
+	}
+
+	var inboundChannel *lndclient.ChannelInfo
+	for _, channel := range channels {
+		if channel.ChannelID == chanID.ToUint64() {
+			inboundChannel = &channel
+			break
+		}
+	}
+
+	if inboundChannel == nil {
+		return nil, fmt.Errorf("unable to find channel with short "+
+			"channel ID %d", chanID.ToUint64())
+	}
+
+	if len(inboundChannel.CustomChannelData) == 0 {
+		return nil, fmt.Errorf("channel %d does not have custom "+
+			"channel data, can't accept asset HTLC over non-asset "+
+			"channel", inboundChannel.ChannelID)
+	}
+
+	var assetData rfqmsg.JsonAssetChannel
+	err = json.Unmarshal(inboundChannel.CustomChannelData, &assetData)
+	if err != nil {
+		return nil, fmt.Errorf("unable to unmarshal channel asset "+
+			"data: %w", err)
+	}
+
+	// We cache the asset data for the channel so we don't have to look it
+	// up again.
+	s.channelFundingCache.Store(chanID.ToUint64(), assetData)
+
+	return &assetData, nil
 }
 
 // Stop signals for an aux invoice manager to gracefully exit.

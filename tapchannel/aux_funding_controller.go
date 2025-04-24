@@ -576,7 +576,8 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 // both sides are able to construct the funding output, and will be able to
 // store the appropriate funding blobs.
 func (p *pendingAssetFunding) toAuxFundingDesc(req *bindFundingReq,
-	decimalDisplay uint8) (*lnwallet.AuxFundingDesc, error) {
+	decimalDisplay uint8,
+	groupKey *btcec.PublicKey) (*lnwallet.AuxFundingDesc, error) {
 
 	// First, we'll map all the assets into asset outputs that'll be stored
 	// in the open channel struct on the lnd side.
@@ -584,7 +585,9 @@ func (p *pendingAssetFunding) toAuxFundingDesc(req *bindFundingReq,
 
 	// With all the outputs assembled, we'll now map that to the open
 	// channel wrapper that'll go in the set of TLV blobs.
-	openChanDesc := cmsg.NewOpenChannel(assetOutputs, decimalDisplay)
+	openChanDesc := cmsg.NewOpenChannel(
+		assetOutputs, decimalDisplay, groupKey,
+	)
 
 	// Now we'll encode the 3 TLV blobs that lnd will store: the main one
 	// for the funding details, and then the blobs for the local and remote
@@ -1933,8 +1936,20 @@ func (f *FundingController) chanFunder() {
 				continue
 			}
 
+			groupKey, err := f.fundingAssetGroupKey(
+				ctxc, fundingFlow.assetOutputs(),
+			)
+			if err != nil {
+				fErr := fmt.Errorf("unable to determine group "+
+					"key: %w", err)
+				f.cfg.ErrReporter.ReportError(
+					ctxc, fundingFlow.peerPub, pid, fErr,
+				)
+				continue
+			}
+
 			fundingDesc, err := fundingFlow.toAuxFundingDesc(
-				req, decimalDisplay,
+				req, decimalDisplay, groupKey,
 			)
 			if err != nil {
 				fErr := fmt.Errorf("unable to create aux "+
@@ -2027,6 +2042,65 @@ func (f *FundingController) fundingAssetDecimalDisplay(ctx context.Context,
 	}
 
 	return decimalDisplay, nil
+}
+
+// fundingAssetGroupKey determines the group key of the funding asset(s). If no
+// group key was used to fund the channel, then nil is returned.
+func (f *FundingController) fundingAssetGroupKey(ctx context.Context,
+	assetOutputs []*cmsg.AssetOutput) (*btcec.PublicKey, error) {
+
+	// We now check the group key of each funding asset, to make sure we
+	// know the meta information for each asset. And we also verify that
+	// each asset tranche has the same group key.
+	var groupKey *btcec.PublicKey
+	for _, a := range assetOutputs {
+		info, err := f.cfg.AssetSyncer.QueryAssetInfo(
+			ctx, a.AssetID.Val,
+		)
+		switch {
+		// If the asset isn't a grouped asset (or we don't know the
+		// asset), then we just continue.
+		case errors.Is(err, address.ErrAssetGroupUnknown):
+			continue
+
+		case err != nil:
+			return nil, fmt.Errorf("unable to fetch group info: %w",
+				err)
+		}
+
+		switch {
+		// We haven't set the group key before and have found one now,
+		// perfect. Let's assume that's our group key we'll use.
+		case groupKey == nil && info.GroupKey != nil:
+			groupKey = &info.GroupKey.GroupPubKey
+
+		// If we already have a group key, then we need to verify that
+		// the group key of this asset matches the one we already have.
+		case groupKey != nil && info.GroupKey != nil:
+			if !groupKey.IsEqual(&info.GroupKey.GroupPubKey) {
+				return nil, fmt.Errorf("group key mismatch: "+
+					"expected %x, got %x",
+					groupKey.SerializeCompressed(),
+					info.GroupPubKey.SerializeCompressed())
+			}
+
+		// If a previous asset resulted in a group key, every following
+		// one must also result in the same one. If we can't find one
+		// now, it means we either don't know about the asset (not
+		// synced) or it's not a grouped asset.
+		case groupKey != nil && info.GroupKey == nil:
+			return nil, fmt.Errorf("group key mismatch: "+
+				"expected %x, got nil",
+				groupKey.SerializeCompressed())
+
+		// If we don't have a group key yet, and the asset isn't a
+		// grouped asset, then we just continue.
+		case groupKey == nil && info.GroupKey == nil:
+			continue
+		}
+	}
+
+	return groupKey, nil
 }
 
 // channelAcceptor is a callback that's called by the lnd client when a new
