@@ -7819,11 +7819,24 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		time.Duration(expirySeconds) * time.Second,
 	)
 
+	// We now want to calculate the upper bound of the RFQ order, which
+	// either is the asset amount specified by the user, or the converted
+	// satoshi amount of the invoice, expressed in asset units, using the
+	// local price oracle's conversion rate.
+	maxUnits, err := calculateAssetMaxAmount(
+		ctx, r.cfg.PriceOracle, specifier, req.AssetAmount, iReq,
+		r.cfg.RfqManager.GetPriceDeviationPpm(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error calculating asset max "+
+			"amount: %w", err)
+	}
+
 	rpcSpecifier := marshalAssetSpecifier(specifier)
 
 	resp, err := r.AddAssetBuyOrder(ctx, &rfqrpc.AddAssetBuyOrderRequest{
 		AssetSpecifier: &rpcSpecifier,
-		AssetMaxAmt:    req.AssetAmount,
+		AssetMaxAmt:    maxUnits,
 		Expiry:         uint64(expiryTimestamp.Unix()),
 		PeerPubKey:     peerPubKey[:],
 		TimeoutSeconds: uint32(
@@ -7853,35 +7866,17 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		return nil, fmt.Errorf("unexpected response type: %T", r)
 	}
 
-	// If the invoice is for an asset unit amount smaller than the minimal
-	// transportable amount, we'll return an error, as it wouldn't be
-	// payable by the network.
-	if acceptedQuote.MinTransportableUnits > req.AssetAmount {
-		return nil, fmt.Errorf("cannot create invoice over %d asset "+
-			"units, as the minimal transportable amount is %d "+
-			"units with the current rate of %v units/BTC",
-			req.AssetAmount, acceptedQuote.MinTransportableUnits,
-			acceptedQuote.AskAssetRate)
-	}
-
-	// Now that we have the accepted quote, we know the amount in Satoshi
-	// that we need to pay. We can now update the invoice with this amount.
-	//
-	// First, un-marshall the ask asset rate from the accepted quote.
-	askAssetRate, err := rfqrpc.UnmarshalFixedPoint(
-		acceptedQuote.AskAssetRate,
+	// Now that we have the accepted quote, we know the amount in (milli)
+	// Satoshi that we need to pay. We can now update the invoice with this
+	// amount.
+	invoiceAmtMsat, err := validateInvoiceAmount(
+		acceptedQuote, req.AssetAmount, iReq,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling ask asset rate: %w",
+		return nil, fmt.Errorf("error validating invoice amount: %w",
 			err)
 	}
-
-	// Convert the asset amount into a fixed-point.
-	assetAmount := rfqmath.NewBigIntFixedPoint(req.AssetAmount, 0)
-
-	// Calculate the invoice amount in msat.
-	valMsat := rfqmath.UnitsToMilliSatoshi(assetAmount, *askAssetRate)
-	iReq.ValueMsat = int64(valMsat)
+	iReq.ValueMsat = int64(invoiceAmtMsat)
 
 	// The last step is to create a hop hint that includes the fake SCID of
 	// the quote, alongside the channel's routing policy. We need to choose
@@ -7982,6 +7977,147 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		AcceptedBuyQuote: acceptedQuote,
 		InvoiceResult:    invoiceResp,
 	}, nil
+}
+
+// calculateAssetMaxAmount calculates the max units to be placed in the invoice
+// RFQ quote order. When adding invoices based on asset units, that value is
+// directly returned. If using the value/value_msat fields of the invoice then
+// a price oracle query will take place to calculate the max units of the quote.
+func calculateAssetMaxAmount(ctx context.Context, priceOracle rfq.PriceOracle,
+	specifier asset.Specifier, requestAssetAmount uint64,
+	inv *lnrpc.Invoice, deviationPPM uint64) (uint64, error) {
+
+	// Let's unmarshall the satoshi related fields to see if an amount was
+	// set based on those.
+	amtMsat, err := lnrpc.UnmarshallAmt(inv.Value, inv.ValueMsat)
+	if err != nil {
+		return 0, err
+	}
+
+	// Let's make sure that only one type of amount is set, in order to
+	// avoid ambiguous behavior. This field dictates the actual value of the
+	// invoice so let's be strict and only allow one possible value to be
+	// set.
+	if requestAssetAmount > 0 && amtMsat != 0 {
+		return 0, fmt.Errorf("cannot set both asset amount and sats " +
+			"amount")
+	}
+
+	// If the invoice is being added based on asset units, there's nothing
+	// to do so return the amount directly.
+	if amtMsat == 0 {
+		return requestAssetAmount, nil
+	}
+
+	// If the invoice defines the desired amount in satoshis, we need to
+	// query our oracle first to get an estimation on the asset rate. This
+	// will help us establish a quote with the correct amount of asset
+	// units.
+	maxUnits, err := rfq.EstimateAssetUnits(
+		ctx, priceOracle, specifier, amtMsat,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	maxMathUnits := rfqmath.NewBigIntFromUint64(maxUnits)
+
+	// Since we used a different oracle price query above calculate the max
+	// amount of units, we want to add some breathing room to account for
+	// price fluctuations caused by the small-time delay, plus the fact that
+	// the agreed upon quote may be different. If we don't add this safety
+	// window the peer may allow a routable amount that evaluates to less
+	// than what we ask for.
+	// Apply the tolerance margin twice. Once due to the ask/bid price
+	// deviation that may occur during rfq negotiation, and once for the
+	// price movement that may occur between querying the oracle and
+	// acquiring the quote. We don't really care about this margin being too
+	// big, this only affects the max units our peer agrees to route.
+	tolerance := rfqmath.NewBigIntFromUint64(deviationPPM)
+
+	maxMathUnits = rfqmath.AddTolerance(maxMathUnits, tolerance)
+	maxMathUnits = rfqmath.AddTolerance(maxMathUnits, tolerance)
+
+	return maxMathUnits.ToUint64(), nil
+}
+
+// validateInvoiceAmount validates the quote against the invoice we're trying to
+// add. It returns the value in msat that should be included in the invoice.
+func validateInvoiceAmount(acceptedQuote *rfqrpc.PeerAcceptedBuyQuote,
+	requestAssetAmount uint64, inv *lnrpc.Invoice) (lnwire.MilliSatoshi,
+	error) {
+
+	invoiceAmtMsat, err := lnrpc.UnmarshallAmt(inv.Value, inv.ValueMsat)
+	if err != nil {
+		return 0, err
+	}
+
+	// Now that we have the accepted quote, we know the amount in Satoshi
+	// that we need to pay. We can now update the invoice with this amount.
+	//
+	// First, un-marshall the ask asset rate from the accepted quote.
+	askAssetRate, err := rfqrpc.UnmarshalFixedPoint(
+		acceptedQuote.AskAssetRate,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("error unmarshalling ask asset rate: %w",
+			err)
+	}
+
+	// We either have a requested amount in milli satoshi that we want to
+	// validate against the quote's max amount (in which case we overwrite
+	// the invoiceUnits), or we have a requested amount in asset units that
+	// we want to convert into milli satoshis (and overwrite
+	// newInvoiceAmtMsat).
+	var (
+		newInvoiceAmtMsat = invoiceAmtMsat
+		invoiceUnits      = requestAssetAmount
+	)
+	switch {
+	case invoiceAmtMsat != 0:
+		// If the invoice was created with a satoshi amount, we need to
+		// calculate the units.
+		invoiceUnits = rfqmath.MilliSatoshiToUnits(
+			invoiceAmtMsat, *askAssetRate,
+		).ScaleTo(0).ToUint64()
+
+		// Now let's see if the negotiated quote can actually route the
+		// amount we need in msat.
+		maxFixedUnits := rfqmath.NewBigIntFixedPoint(
+			acceptedQuote.AssetMaxAmount, 0,
+		)
+		maxRoutableMsat := rfqmath.UnitsToMilliSatoshi(
+			maxFixedUnits, *askAssetRate,
+		)
+
+		if maxRoutableMsat <= invoiceAmtMsat {
+			return 0, fmt.Errorf("cannot create invoice for %v "+
+				"msat, max routable amount is %v msat",
+				invoiceAmtMsat, maxRoutableMsat)
+		}
+
+	default:
+		// Convert the asset amount into a fixed-point.
+		assetAmount := rfqmath.NewBigIntFixedPoint(invoiceUnits, 0)
+
+		// Calculate the invoice amount in msat.
+		newInvoiceAmtMsat = rfqmath.UnitsToMilliSatoshi(
+			assetAmount, *askAssetRate,
+		)
+	}
+
+	// If the invoice is for an asset unit amount smaller than the minimal
+	// transportable amount, we'll return an error, as it wouldn't be
+	// payable by the network.
+	if acceptedQuote.MinTransportableUnits > invoiceUnits {
+		return 0, fmt.Errorf("cannot create invoice for %d asset "+
+			"units, as the minimal transportable amount is %d "+
+			"units with the current rate of %v units/BTC",
+			invoiceUnits, acceptedQuote.MinTransportableUnits,
+			acceptedQuote.AskAssetRate)
+	}
+
+	return newInvoiceAmtMsat, nil
 }
 
 // DeclareScriptKey declares a new script key to the wallet. This is useful
