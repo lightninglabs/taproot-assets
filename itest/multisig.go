@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -171,7 +172,7 @@ func MultiSigTest(t *testing.T, ctx context.Context, aliceTapd,
 	muSig2Addr, err := bobTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
 		AssetId:   firstBatchGenesis.AssetId,
 		Amt:       assetsToSend,
-		ScriptKey: taprpc.MarshalScriptKey(tapScriptKey),
+		ScriptKey: rpcutils.MarshalScriptKey(tapScriptKey),
 		InternalKey: &taprpc.KeyDescriptor{
 			RawKeyBytes: pubKeyBytes(btcInternalKey),
 		},
@@ -372,7 +373,7 @@ func DeriveKeys(t *testing.T, tapd commands.RpcClientsBundle) (asset.ScriptKey,
 		},
 	)
 	require.NoError(t, err)
-	scriptKey, err := taprpc.UnmarshalScriptKey(scriptKeyDesc.ScriptKey)
+	scriptKey, err := rpcutils.UnmarshalScriptKey(scriptKeyDesc.ScriptKey)
 	require.NoError(t, err)
 
 	internalKeyDesc, err := tapd.NextInternalKey(
@@ -381,7 +382,7 @@ func DeriveKeys(t *testing.T, tapd commands.RpcClientsBundle) (asset.ScriptKey,
 		},
 	)
 	require.NoError(t, err)
-	internalKeyLnd, err := taprpc.UnmarshalKeyDescriptor(
+	internalKeyLnd, err := rpcutils.UnmarshalKeyDescriptor(
 		internalKeyDesc.InternalKey,
 	)
 	require.NoError(t, err)

@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -1150,7 +1151,7 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 		// for this output.
 		firstOutput := firstTransfer.Outputs[0]
 		require.Equal(
-			t.t, taprpc.ProofDeliveryStatusNotApplicable,
+			t.t, rpcutils.ProofDeliveryStatusNotApplicable,
 			firstOutput.ProofDeliveryStatus,
 		)
 
@@ -1159,7 +1160,7 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 		// completed successfully.
 		secondOutput := firstTransfer.Outputs[1]
 		require.Equal(
-			t.t, taprpc.ProofDeliveryStatusPending,
+			t.t, rpcutils.ProofDeliveryStatusPending,
 			secondOutput.ProofDeliveryStatus,
 		)
 
@@ -1228,7 +1229,7 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 		// for this output.
 		firstOutput := firstTransfer.Outputs[0]
 		require.Equal(
-			t.t, taprpc.ProofDeliveryStatusNotApplicable,
+			t.t, rpcutils.ProofDeliveryStatusNotApplicable,
 			firstOutput.ProofDeliveryStatus,
 		)
 
@@ -1237,7 +1238,7 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 		// completed successfully.
 		secondOutput := firstTransfer.Outputs[1]
 		require.Equal(
-			t.t, taprpc.ProofDeliveryStatusPending,
+			t.t, rpcutils.ProofDeliveryStatusPending,
 			secondOutput.ProofDeliveryStatus,
 		)
 
@@ -1254,7 +1255,7 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 		// for this output.
 		firstOutput = secondTransfer.Outputs[0]
 		require.Equal(
-			t.t, taprpc.ProofDeliveryStatusNotApplicable,
+			t.t, rpcutils.ProofDeliveryStatusNotApplicable,
 			firstOutput.ProofDeliveryStatus,
 		)
 
@@ -1263,7 +1264,7 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 		// completed successfully.
 		secondOutput = secondTransfer.Outputs[1]
 		require.Equal(
-			t.t, taprpc.ProofDeliveryStatusPending,
+			t.t, rpcutils.ProofDeliveryStatusPending,
 			secondOutput.ProofDeliveryStatus,
 		)
 

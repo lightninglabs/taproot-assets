@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -2708,7 +2709,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 	// We need to let the wallet of Bob know that we're going to use a
 	// script key with a custom root.
 	_, err = bob.DeclareScriptKey(ctxt, &wrpc.DeclareScriptKeyRequest{
-		ScriptKey: taprpc.MarshalScriptKey(bobAssetScriptKey),
+		ScriptKey: rpcutils.MarshalScriptKey(bobAssetScriptKey),
 	})
 	require.NoError(t.t, err)
 
@@ -2923,7 +2924,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 	// We need to let the wallet of Bob know that we're going to use a
 	// script key with a custom root.
 	_, err = bob.DeclareScriptKey(ctxt, &wrpc.DeclareScriptKeyRequest{
-		ScriptKey: taprpc.MarshalScriptKey(bobAssetScriptKey),
+		ScriptKey: rpcutils.MarshalScriptKey(bobAssetScriptKey),
 	})
 	require.NoError(t.t, err)
 
@@ -3139,7 +3140,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 	// We need to let the wallet of Bob know that we're going to use a
 	// script key with a custom root.
 	_, err = bob.DeclareScriptKey(ctxt, &wrpc.DeclareScriptKeyRequest{
-		ScriptKey: taprpc.MarshalScriptKey(bobAssetScriptKey),
+		ScriptKey: rpcutils.MarshalScriptKey(bobAssetScriptKey),
 	})
 	require.NoError(t.t, err)
 
@@ -3333,12 +3334,12 @@ func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
 		AssetVersion: mintedAsset.Version,
 		ScriptKey: &taprpc.ScriptKey{
 			PubKey: schnorr.SerializePubKey(bobAssetScriptKey),
-			KeyDesc: taprpc.MarshalKeyDescriptor(
+			KeyDesc: rpcutils.MarshalKeyDescriptor(
 				bobScriptKey.RawKey,
 			),
 			TapTweak: rootHash,
 		},
-		InternalKey: taprpc.MarshalKeyDescriptor(bobInternalKey),
+		InternalKey: rpcutils.MarshalKeyDescriptor(bobInternalKey),
 	})
 
 	require.NoError(t.t, err)

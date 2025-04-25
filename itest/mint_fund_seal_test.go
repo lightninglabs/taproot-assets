@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -109,7 +110,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	// Asset 0 will have no asset group, and an external script key with a
 	// tapscript root.
 	assetReqWithScriptKey := CopyRequest(simpleAssets[0])
-	assetReqWithScriptKey.Asset.ScriptKey = taprpc.MarshalScriptKey(
+	assetReqWithScriptKey.Asset.ScriptKey = rpcutils.MarshalScriptKey(
 		tweakedScript,
 	)
 
@@ -117,15 +118,15 @@ func testMintFundSealAssets(t *harnessTest) {
 	// root. This asset will be a group anchor.
 	assetReqGroupedInternalTweaked := CopyRequest(simpleAssets[1])
 	assetReqGroupedInternalTweaked.Asset.NewGroupedAsset = true
-	assetReqGroupedInternalTweaked.Asset.GroupInternalKey = taprpc.
-		MarshalKeyDescriptor(managedGroupInternal)
+	assetReqGroupedInternalTweaked.Asset.GroupInternalKey =
+		rpcutils.MarshalKeyDescriptor(managedGroupInternal)
 	assetReqGroupedInternalTweaked.Asset.
 		GroupTapscriptRoot = groupInternalTweak
 
 	// Asset 2 will have an external group key with a tapscript root.
 	assetReqGroupedExternal := CopyRequest(issuableAssets[0])
-	assetReqGroupedExternal.Asset.GroupInternalKey = taprpc.
-		MarshalKeyDescriptor(groupExternalDesc)
+	assetReqGroupedExternal.Asset.GroupInternalKey =
+		rpcutils.MarshalKeyDescriptor(groupExternalDesc)
 	assetReqGroupedExternal.Asset.GroupTapscriptRoot = groupExternalTweak[:]
 
 	// Asset 3 will be a member of the asset group created by Asset 1.
@@ -701,7 +702,7 @@ func unmarshalPendingAssetGroup(t *testing.T,
 	asset.GroupVirtualTx) {
 
 	require.NotNil(t, a.GroupVirtualTx)
-	virtualTx, err := taprpc.UnmarshalGroupVirtualTx(a.GroupVirtualTx)
+	virtualTx, err := rpcutils.UnmarshalGroupVirtualTx(a.GroupVirtualTx)
 	require.NoError(t, err)
 
 	// Ensure that the group virtual tx is the same as the grouped virtual
@@ -721,7 +722,7 @@ func unmarshalPendingAssetGroup(t *testing.T,
 
 	// Unmarshal group key request.
 	require.NotNil(t, a.GroupKeyRequest)
-	keyReq, err := taprpc.UnmarshalGroupKeyRequest(a.GroupKeyRequest)
+	keyReq, err := rpcutils.UnmarshalGroupKeyRequest(a.GroupKeyRequest)
 	require.NoError(t, err)
 
 	return *keyReq, *virtualTx
