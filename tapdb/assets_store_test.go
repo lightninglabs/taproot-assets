@@ -1597,6 +1597,11 @@ func TestAssetExportLog(t *testing.T) {
 		PkScript: bytes.Repeat([]byte{0x01}, 34),
 		Value:    1000,
 	})
+	newAnchorTx.AddTxOut(&wire.TxOut{
+		PkScript: bytes.Repeat([]byte{0x02}, 34),
+		Value:    1000,
+	})
+
 	const heightHint = 1450
 
 	newScriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
@@ -1691,6 +1696,7 @@ func TestAssetExportLog(t *testing.T) {
 				// application sets it properly.
 				TaprootAssetRoot: bytes.Repeat([]byte{0x1}, 32),
 				MerkleRoot:       bytes.Repeat([]byte{0x1}, 32),
+				PkScript:         bytes.Repeat([]byte{0x1}, 34),
 			},
 			ScriptKey:        newScriptKey,
 			ScriptKeyLocal:   true,
@@ -1727,6 +1733,7 @@ func TestAssetExportLog(t *testing.T) {
 				// application sets it properly.
 				TaprootAssetRoot: bytes.Repeat([]byte{0x1}, 32),
 				MerkleRoot:       bytes.Repeat([]byte{0x1}, 32),
+				PkScript:         bytes.Repeat([]byte{0x2}, 34),
 			},
 			ScriptKey:      newScriptKey2,
 			ScriptKeyLocal: true,

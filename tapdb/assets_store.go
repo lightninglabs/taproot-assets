@@ -3542,6 +3542,13 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 					"anchor tx: %w", err)
 			}
 
+			// Fill in the anchor transaction's output pkScripts.
+			for i, out := range outputs {
+				outIdx := out.Anchor.OutPoint.Index
+				pkScript := anchorTx.TxOut[outIdx].PkScript
+				outputs[i].Anchor.PkScript = pkScript
+			}
+
 			// Marshal anchor tx block hash from the database to a
 			// Hash type.
 			var anchorTxBlockHash fn.Option[chainhash.Hash]
