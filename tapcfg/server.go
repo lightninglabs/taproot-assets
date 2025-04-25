@@ -397,7 +397,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			HtlcInterceptor: lndRouterClient,
 			HtlcSubscriber:  lndRouterClient,
 			PriceOracle:     priceOracle,
-			ChannelLister:   walletAnchor,
+			ChannelLister:   lndServices.Client,
 			GroupLookup:     tapdbAddrBook,
 			AliasManager:    lndRouterClient,
 			// nolint: lll
