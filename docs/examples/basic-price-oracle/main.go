@@ -101,6 +101,73 @@ func isSupportedSubjectAsset(subjectAsset *oraclerpc.AssetSpecifier) bool {
 	return false
 }
 
+// getPurchaseRate returns the buy (purchase) rate for the asset. The unit of
+// the rate is the number of TAP asset units per BTC.
+//
+// Suppose our TAP asset is a USD stablecoin. To support liquidity and precision
+// in rate conversion, we mint 1,000,000 TAP asset units per 1.00 USD. Wallet
+// software must therefore display 1 USD for every 1,000,000 TAP asset units.
+// In effect, wallet software must divide TAP asset units by 1,000,000 (= 10^6)
+// to show the correct USD value. We call the exponent in this conversion factor
+// (in this example it's 6) the `decimalDisplay` of the asset. The
+// decimal display for a given asset is immutable and defined at minting.
+//
+// All rates returned by the price oracle service to tapd nodes are expressed as
+// TAP asset units per BTC.
+//
+// Suppose the real-world price of 1 BTC is $42,000.16. To express this as a
+// rate in TAP asset units per BTC, multiply by the decimal display conversion
+// factor (10^decimalDisplay):
+//
+// realWorldPrice      = 42,000.16
+// decimalDisplay      = 6
+// tapAssetUnitsPerBtc = realWorldPrice * (10^decimalDisplay)
+//
+//	= 42,000.16 * 1,000,000
+//	= 42,000,160,000
+//
+// Therefore, the price oracle should return the rate:
+//
+// rfqmath.NewBigIntFixedPoint(42_000_160_000, 0)
+//
+// ## When is the FixedPoint representation useful?
+//
+// Suppose another TAP asset is highly valuable, and the buy rate is
+// 0.00001 TAP asset units per BTC. Spending 1 BTC would return 0.00001 TAP
+// asset units of our valuable asset.
+//
+// To maintain integer-based communication, representing such small fractional
+// rates directly is impractical due to floating-point precision issues.
+// Instead, the price oracle returns a FixedPoint representation with integer
+// components.
+//
+// A FixedPoint number `F` consists of a coefficient `C` and scale exponent `s`:
+//
+// F = C * (10^-s)
+//
+// Another way to express this is:
+//
+// F = C / (10^s)
+//
+// Now, we know F = 0.00001, and we are free to choose any integer pair (C, s)
+// that satisfies this equation. One simple choice is to let C = 1 and s = 5,
+// since 1 * 10^-5 = 0.00001.
+//
+// So the rate can be represented as:
+//
+// rfqmath.NewBigIntFixedPoint(1, 5)
+func getPurchaseRate() rfqmath.BigIntFixedPoint {
+	return rfqmath.NewBigIntFixedPoint(42_000_160_000, 0)
+}
+
+// getSaleRate returns the sell/sale rate for the asset. The units of the
+// rate is the number of TAP asset units per BTC.
+//
+// NOTE: see getPurchaseRate for more information.
+func getSaleRate() rfqmath.BigIntFixedPoint {
+	return rfqmath.NewBigIntFixedPoint(39_000_220_000, 0)
+}
+
 // getAssetRates returns the asset rates for a given transaction type and
 // subject asset max amount.
 func getAssetRates(transactionType oraclerpc.TransactionType,
@@ -109,21 +176,9 @@ func getAssetRates(transactionType oraclerpc.TransactionType,
 	// Determine the rate based on the transaction type.
 	var subjectAssetRate rfqmath.BigIntFixedPoint
 	if transactionType == oraclerpc.TransactionType_PURCHASE {
-		// As an example, the purchase rate is $42,000 per BTC. To
-		// increase precision, we represent this as 42 billion
-		// taproot asset units per BTC. Therefore, we scale the
-		// $42,000 per BTC rate by a factor of 10^6.
-		subjectAssetRate = rfqmath.FixedPointFromUint64[rfqmath.BigInt](
-			42_000, 6,
-		)
+		subjectAssetRate = getPurchaseRate()
 	} else {
-		// Our example sell rate will be lower at $40,000 per BTC. This
-		// rate will be represented as 40 billion taproot asset units
-		// per BTC. Therefore, we scale the $40,000 per BTC rate by a
-		// factor of 10^6.
-		subjectAssetRate = rfqmath.FixedPointFromUint64[rfqmath.BigInt](
-			40_000, 6,
-		)
+		subjectAssetRate = getSaleRate()
 	}
 
 	// Set the rate expiry to 5 minutes by default.
