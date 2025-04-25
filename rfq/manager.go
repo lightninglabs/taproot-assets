@@ -41,7 +41,9 @@ const (
 type ChannelLister interface {
 	// ListChannels returns a list of channels that are available for
 	// routing.
-	ListChannels(ctx context.Context) ([]lndclient.ChannelInfo, error)
+	ListChannels(ctx context.Context, activeOnly, publicOnly bool,
+		_ ...lndclient.ListChannelsOption) ([]lndclient.ChannelInfo,
+		error)
 }
 
 // ScidAliasManager is an interface that can add short channel ID (SCID) aliases
@@ -548,7 +550,7 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 
 	// Retrieve all local channels.
 	ctxb := context.Background()
-	localChans, err := m.cfg.ChannelLister.ListChannels(ctxb)
+	localChans, err := m.cfg.ChannelLister.ListChannels(ctxb, true, false)
 	if err != nil {
 		// Not being able to call lnd to add the alias is a critical
 		// error, which warrants shutting down, as something is wrong.
