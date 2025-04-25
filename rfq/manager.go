@@ -18,7 +18,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
-	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -549,62 +548,19 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 	peer route.Vertex) error {
 
-	// Retrieve all local channels.
 	ctxb := context.Background()
-	localChans, err := m.cfg.ChannelLister.ListChannels(ctxb, true, false)
+	peerChans, err := m.RfqChannel(ctxb, assetSpecifier, &peer, NoIntention)
 	if err != nil {
-		// Not being able to call lnd to add the alias is a critical
-		// error, which warrants shutting down, as something is wrong.
-		return fn.NewCriticalError(
-			fmt.Errorf("add alias: error listing local channels: "+
-				"%w", err),
-		)
+		return err
 	}
 
-	// Filter for channels with the given peer.
-	peerChannels := lfn.Filter(
-		localChans, func(c lndclient.ChannelInfo) bool {
-			return c.PubKeyBytes == peer
-		},
-	)
-
-	var baseSCID uint64
-	for _, localChan := range peerChannels {
-		if len(localChan.CustomChannelData) == 0 {
-			continue
-		}
-
-		var assetData rfqmsg.JsonAssetChannel
-		err = json.Unmarshal(localChan.CustomChannelData, &assetData)
-		if err != nil {
-			log.Warnf("Unable to unmarshal channel asset data: %v",
-				err)
-			continue
-		}
-
-		match, err := m.ChannelCompatible(
-			ctxb, assetData, assetSpecifier,
-		)
-		if err != nil {
-			return err
-		}
-
-		// TODO(george): Instead of returning the first result,
-		// try to pick the best channel for what we're trying to
-		// do (receive/send). Binding a baseSCID means we're
-		// also binding the asset liquidity on that channel.
-		if match {
-			baseSCID = localChan.ChannelID
-			break
-		}
+	if len(peerChans[peer]) == 0 {
+		return fmt.Errorf("cannot add scid alias with peer=%v, no "+
+			"compatible channels found for %s", peer,
+			&assetSpecifier)
 	}
 
-	// As a fallback, if the base SCID is not found and there's only one
-	// channel with the target peer, assume that the base SCID corresponds
-	// to that channel.
-	if baseSCID == 0 && len(peerChannels) == 1 {
-		baseSCID = peerChannels[0].ChannelID
-	}
+	baseSCID := peerChans[peer][0].ChannelInfo.ChannelID
 
 	// At this point, if the base SCID is still not found, we return an
 	// error. We can't map the SCID alias to a base SCID.
