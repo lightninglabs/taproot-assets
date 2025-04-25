@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -6929,7 +6928,9 @@ func (r *rpcServer) checkPeerChannel(ctx context.Context, peer route.Vertex,
 		// If we don't get an error here, it means we do have an asset
 		// channel with the peer. The intention doesn't matter as we're
 		// just checking whether a channel exists.
-		_, err := r.rfqChannel(ctx, specifier, &peer, NoIntention)
+		_, err := r.cfg.RfqManager.RfqChannel(
+			ctx, specifier, &peer, rfq.NoIntention,
+		)
 		if err != nil {
 			return fmt.Errorf("error checking asset channel: %w",
 				err)
@@ -7634,8 +7635,8 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		rpcSpecifier := marshalAssetSpecifier(specifier)
 
 		// We can now query the asset channels we have.
-		assetChan, err := r.rfqChannel(
-			ctx, specifier, peerPubKey, SendIntention,
+		assetChan, err := r.cfg.RfqManager.RfqChannel(
+			ctx, specifier, peerPubKey, rfq.SendIntention,
 		)
 		if err != nil {
 			return fmt.Errorf("error finding asset channel to "+
@@ -7645,7 +7646,7 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		// Even if the user didn't specify the peer public key before,
 		// we definitely know it now. So let's make sure it's always
 		// set.
-		peerPubKey = &assetChan.channelInfo.PubKeyBytes
+		peerPubKey = &assetChan.ChannelInfo.PubKeyBytes
 
 		// paymentMaxAmt is the maximum amount that the counterparty is
 		// expected to pay. This is the amount that the invoice is
@@ -7756,7 +7757,9 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 
 		// We check that we have the asset amount available in the
 		// channel.
-		_, err = r.rfqChannel(ctx, specifier, &dest, SendIntention)
+		_, err = r.cfg.RfqManager.RfqChannel(
+			ctx, specifier, &dest, rfq.SendIntention,
+		)
 		if err != nil {
 			return fmt.Errorf("error finding asset channel to "+
 				"use: %w", err)
@@ -7979,8 +7982,8 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	}
 
 	// We can now query the asset channels we have.
-	assetChan, err := r.rfqChannel(
-		ctx, specifier, peerPubKey, ReceiveIntention,
+	assetChan, err := r.cfg.RfqManager.RfqChannel(
+		ctx, specifier, peerPubKey, rfq.ReceiveIntention,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error finding asset channel to use: %w",
@@ -7989,7 +7992,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 	// Even if the user didn't specify the peer public key before, we
 	// definitely know it now. So let's make sure it's always set.
-	peerPubKey = &assetChan.channelInfo.PubKeyBytes
+	peerPubKey = &assetChan.ChannelInfo.PubKeyBytes
 
 	expirySeconds := iReq.Expiry
 	if expirySeconds == 0 {
@@ -8062,7 +8065,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	// the quote, alongside the channel's routing policy. We need to choose
 	// the policy that points towards us, as the payment will be flowing in.
 	// So we get the policy that's being set by the remote peer.
-	channelID := assetChan.channelInfo.ChannelID
+	channelID := assetChan.ChannelInfo.ChannelID
 	inboundPolicy, err := r.getInboundPolicy(
 		ctx, channelID, peerPubKey.String(),
 	)
@@ -8393,196 +8396,6 @@ func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
 	}
 
 	return meta.DecDisplayOption()
-}
-
-// chanIntention defines the intention of calling rfqChannel. This helps with
-// returning the channel that is most suitable for what we want to do.
-type chanIntention uint8
-
-const (
-	// NoIntention defines the absence of any intention, signalling that we
-	// don't really care which channel is returned.
-	NoIntention chanIntention = iota
-
-	// SendIntention defines the intention to send over an asset channel.
-	SendIntention
-
-	// ReceiveIntention defines the intention to receive over an asset
-	// channel.
-	ReceiveIntention
-)
-
-// rfqChannel returns the channel to use for RFQ operations. If a peer public
-// key is specified, the channels are filtered by that peer. If there are
-// multiple channels for the same specifier, the user must specify the peer
-// public key.
-func (r *rpcServer) rfqChannel(ctx context.Context, specifier asset.Specifier,
-	peerPubKey *route.Vertex,
-	intention chanIntention) (*channelWithSpecifier, error) {
-
-	balances, haveGroupChans, err := r.computeCompatibleChannelAssetBalance(
-		ctx, specifier,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error computing available asset "+
-			"channel balance: %w", err)
-	}
-
-	// If the user uses the asset ID to specify what asset to use, that will
-	// not work for asset channels that have multiple UTXOs of grouped
-	// assets. The result wouldn't be deterministic anyway (meaning, it's
-	// not guaranteed that a specific asset ID is moved within a channel
-	// when an HTLC is sent, the allocation logic decides which actual UTXO
-	// is used). So we tell the user to use the group key instead, at least
-	// for channels that have multiple UTXOs of grouped assets.
-	if specifier.HasId() && len(balances) == 0 && haveGroupChans {
-		return nil, fmt.Errorf("no compatible asset channel found for "+
-			"%s, make sure to use group key for grouped asset "+
-			"channels", &specifier)
-	}
-
-	// If the above special case didn't apply, it just means we don't have
-	// the specific asset in a channel that can be used.
-	if len(balances) == 0 {
-		return nil, fmt.Errorf("no asset channel balance found for %s",
-			&specifier)
-	}
-
-	// If a peer public key was specified, we always want to use that to
-	// filter the asset channels.
-	if peerPubKey != nil {
-		balances = fn.Filter(
-			balances, func(c channelWithSpecifier) bool {
-				return c.channelInfo.PubKeyBytes == *peerPubKey
-			},
-		)
-	}
-
-	switch {
-	// If there are multiple asset channels for the same specifier, we need
-	// to ask the user to specify the peer public key. Otherwise, we don't
-	// know who to ask for a quote.
-	case len(balances) > 1 && peerPubKey == nil:
-		return nil, fmt.Errorf("multiple asset channels found for "+
-			"%s, please specify the peer pubkey", &specifier)
-
-	// We don't have any channels with that asset ID and peer.
-	case len(balances) == 0:
-		return nil, fmt.Errorf("no asset channel found for %s",
-			&specifier)
-	}
-
-	// If the user specified a peer public key, and we still have multiple
-	// channels, it means we have multiple channels with the same asset and
-	// the same peer, as we ruled out the rest of the cases above.
-
-	// Initialize best balance to first channel of the list.
-	bestBalance := balances[0]
-
-	switch intention {
-	case ReceiveIntention:
-		// If the intention is to receive, return the channel
-		// with the best remote balance.
-		fn.ForEach(balances, func(b channelWithSpecifier) {
-			if b.assetInfo.RemoteBalance >
-				bestBalance.assetInfo.RemoteBalance {
-
-				bestBalance = b
-			}
-		})
-
-	case SendIntention:
-		// If the intention is to send, return the channel with
-		// the best local balance.
-		fn.ForEach(balances, func(b channelWithSpecifier) {
-			if b.assetInfo.LocalBalance >
-				bestBalance.assetInfo.LocalBalance {
-
-				bestBalance = b
-			}
-		})
-
-	case NoIntention:
-		// Do nothing. Just return the first element that was
-		// assigned above.
-	}
-
-	return &bestBalance, nil
-}
-
-// channelWithSpecifier is a helper struct that combines the information of an
-// asset specifier that is satisfied by a channel with the channels' general
-// information.
-type channelWithSpecifier struct {
-	// specifier is the asset specifier that is satisfied by this channels'
-	// assets.
-	specifier asset.Specifier
-
-	// channelInfo is the information about the channel the asset is
-	// committed to.
-	channelInfo lndclient.ChannelInfo
-
-	// assetInfo contains the asset related info of the channel.
-	assetInfo rfqmsg.JsonAssetChannel
-}
-
-// computeCompatibleChannelAssetBalance computes the total local and remote
-// balance for each asset channel that matches the provided asset specifier.
-// For a channel to match an asset specifier, all asset UTXOs in the channel
-// must match the specifier. That means a channel is seen as _not_ compatible if
-// it contains multiple asset IDs but the specifier only specifies one of them.
-// The user should use the group key in that case instead. To help inform the
-// user about this, the returned boolean value indicates if there are any active
-// channels that have grouped assets.
-func (r *rpcServer) computeCompatibleChannelAssetBalance(ctx context.Context,
-	specifier asset.Specifier) ([]channelWithSpecifier, bool, error) {
-
-	activeChannels, err := r.cfg.Lnd.Client.ListChannels(ctx, true, false)
-	if err != nil {
-		return nil, false, fmt.Errorf("unable to fetch channels: %w",
-			err)
-	}
-
-	var (
-		channels                 = make([]channelWithSpecifier, 0)
-		haveGroupedAssetChannels bool
-	)
-	for chanIdx := range activeChannels {
-		openChan := activeChannels[chanIdx]
-		if len(openChan.CustomChannelData) == 0 {
-			continue
-		}
-
-		var assetData rfqmsg.JsonAssetChannel
-		err = json.Unmarshal(openChan.CustomChannelData, &assetData)
-		if err != nil {
-			return nil, false, fmt.Errorf("unable to unmarshal "+
-				"asset data: %w", err)
-		}
-
-		if len(assetData.GroupKey) > 0 {
-			haveGroupedAssetChannels = true
-		}
-
-		// Check if the assets of this channel match the provided
-		// specifier.
-		pass, err := r.cfg.RfqManager.ChannelMatchesFully(
-			ctx, assetData, specifier,
-		)
-		if err != nil {
-			return nil, false, err
-		}
-
-		if pass {
-			channels = append(channels, channelWithSpecifier{
-				specifier:   specifier,
-				channelInfo: openChan,
-				assetInfo:   assetData,
-			})
-		}
-	}
-
-	return channels, haveGroupedAssetChannels, nil
 }
 
 // getInboundPolicy returns the policy of the given channel that points towards

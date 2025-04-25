@@ -1054,6 +1054,190 @@ func (m *Manager) ChannelMatchesFully(ctx context.Context,
 	return true, nil
 }
 
+// ChannelWithSpecifier is a helper struct that combines the information of an
+// asset specifier that is satisfied by a channel with the channels' general
+// information.
+type ChannelWithSpecifier struct {
+	// Specifier is the asset Specifier that is satisfied by this channels'
+	// assets.
+	Specifier asset.Specifier
+
+	// ChannelInfo is the information about the channel the asset is
+	// committed to.
+	ChannelInfo lndclient.ChannelInfo
+
+	// AssetInfo contains the asset related info of the channel.
+	AssetInfo rfqmsg.JsonAssetChannel
+}
+
+// ComputeCompatibleChannelAssetBalance computes the total local and remote
+// balance for each asset channel that matches the provided asset specifier.
+func (m *Manager) ComputeCompatibleChannelAssetBalance(ctx context.Context,
+	activeChannels []lndclient.ChannelInfo,
+	specifier asset.Specifier) ([]ChannelWithSpecifier, bool, error) {
+
+	var (
+		channels                 = make([]ChannelWithSpecifier, 0)
+		haveGroupedAssetChannels bool
+	)
+	for chanIdx := range activeChannels {
+		openChan := activeChannels[chanIdx]
+		if len(openChan.CustomChannelData) == 0 {
+			continue
+		}
+
+		var assetData rfqmsg.JsonAssetChannel
+		err := json.Unmarshal(openChan.CustomChannelData, &assetData)
+		if err != nil {
+			return nil, false, fmt.Errorf("unable to unmarshal "+
+				"asset data: %w", err)
+		}
+
+		if len(assetData.GroupKey) > 0 {
+			haveGroupedAssetChannels = true
+		}
+
+		// Check if the assets of this channel match the provided
+		// specifier.
+		pass, err := m.ChannelMatchesFully(
+			ctx, assetData, specifier,
+		)
+		if err != nil {
+			return nil, false, err
+		}
+
+		if pass {
+			channels = append(channels, ChannelWithSpecifier{
+				Specifier:   specifier,
+				ChannelInfo: openChan,
+				AssetInfo:   assetData,
+			})
+		}
+	}
+
+	return channels, haveGroupedAssetChannels, nil
+}
+
+// chanIntention defines the intention of calling rfqChannel. This helps with
+// returning the channel that is most suitable for what we want to do.
+type chanIntention uint8
+
+const (
+	// NoIntention defines the absence of any intention, signalling that we
+	// don't really care which channel is returned.
+	NoIntention chanIntention = iota
+
+	// SendIntention defines the intention to send over an asset channel.
+	SendIntention
+
+	// ReceiveIntention defines the intention to receive over an asset
+	// channel.
+	ReceiveIntention
+)
+
+// RfqChannel returns the channel to use for RFQ operations. If a peer public
+// key is specified, the channels are filtered by that peer. If there are
+// multiple channels for the same specifier, the user must specify the peer
+// public key.
+func (m *Manager) RfqChannel(ctx context.Context,
+	specifier asset.Specifier, peerPubKey *route.Vertex,
+	intention chanIntention) (*ChannelWithSpecifier, error) {
+
+	activeChannels, err := m.cfg.ChannelLister.ListChannels(
+		ctx, true, false,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	balances, haveGroupChans, err := m.ComputeCompatibleChannelAssetBalance(
+		ctx, activeChannels, specifier,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error computing available asset "+
+			"channel balance: %w", err)
+	}
+
+	// If the user uses the asset ID to specify what asset to use, that will
+	// not work for asset channels that have multiple UTXOs of grouped
+	// assets. The result wouldn't be deterministic anyway (meaning, it's
+	// not guaranteed that a specific asset ID is moved within a channel
+	// when an HTLC is sent, the allocation logic decides which actual UTXO
+	// is used). So we tell the user to use the group key instead, at least
+	// for channels that have multiple UTXOs of grouped assets.
+	if specifier.HasId() && len(balances) == 0 && haveGroupChans {
+		return nil, fmt.Errorf("no compatible asset channel found for "+
+			"%s, make sure to use group key for grouped asset "+
+			"channels", &specifier)
+	}
+
+	if len(balances) == 0 {
+		return nil, fmt.Errorf("no asset channel balance found for %s",
+			&specifier)
+	}
+
+	// If a peer public key was specified, we always want to use that to
+	// filter the asset channels.
+	if peerPubKey != nil {
+		balances = fn.Filter(
+			balances, func(c ChannelWithSpecifier) bool {
+				return c.ChannelInfo.PubKeyBytes == *peerPubKey
+			},
+		)
+	}
+
+	switch {
+	// If there are multiple asset channels for the same specifier, we need
+	// to ask the user to specify the peer public key. Otherwise, we don't
+	// know who to ask for a quote.
+	case len(balances) > 1 && peerPubKey == nil:
+		return nil, fmt.Errorf("multiple asset channels found for "+
+			"%s, please specify the peer pubkey", &specifier)
+
+	// We don't have any channels with that asset ID and peer.
+	case len(balances) == 0:
+		return nil, fmt.Errorf("no asset channel found for %s",
+			&specifier)
+	}
+
+	// If the user specified a peer public key, and we still have multiple
+	// channels, it means we have multiple channels with the same asset and
+	// the same peer, as we ruled out the rest of the cases above.
+
+	// Initialize best balance to first channel of the list.
+	bestBalance := balances[0]
+
+	switch intention {
+	case ReceiveIntention:
+		// If the intention is to receive, return the channel
+		// with the best remote balance.
+		fn.ForEach(balances, func(b ChannelWithSpecifier) {
+			if b.AssetInfo.RemoteBalance >
+				bestBalance.AssetInfo.RemoteBalance {
+
+				bestBalance = b
+			}
+		})
+
+	case SendIntention:
+		// If the intention is to send, return the channel with
+		// the best local balance.
+		fn.ForEach(balances, func(b ChannelWithSpecifier) {
+			if b.AssetInfo.LocalBalance >
+				bestBalance.AssetInfo.LocalBalance {
+
+				bestBalance = b
+			}
+		})
+
+	case NoIntention:
+		// Do nothing. Just return the first element that was
+		// assigned above.
+	}
+
+	return &bestBalance, nil
+}
+
 // publishSubscriberEvent publishes an event to all subscribers.
 func (m *Manager) publishSubscriberEvent(event fn.Event) {
 	// Iterate over the subscribers and deliver the event to each one.
