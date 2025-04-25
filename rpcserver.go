@@ -7616,7 +7616,7 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		}
 
 		// Unmarshall the accepted quote's asset rate.
-		assetRate, err := rfqrpc.UnmarshalFixedPoint(
+		assetRate, err := rpcutils.UnmarshalRfqFixedPoint(
 			acceptedQuote.BidAssetRate,
 		)
 		if err != nil {
@@ -7777,7 +7777,7 @@ func (r *rpcServer) parseRequest(
 func checkOverpayment(quote *rfqrpc.PeerAcceptedSellQuote,
 	paymentAmount lnwire.MilliSatoshi, allowOverpay bool) error {
 
-	rateFP, err := rfqrpc.UnmarshalFixedPoint(quote.BidAssetRate)
+	rateFP, err := rpcutils.UnmarshalRfqFixedPoint(quote.BidAssetRate)
 	if err != nil {
 		return fmt.Errorf("cannot unmarshal asset rate: %w", err)
 	}
@@ -8118,7 +8118,7 @@ func validateInvoiceAmount(acceptedQuote *rfqrpc.PeerAcceptedBuyQuote,
 	// that we need to pay. We can now update the invoice with this amount.
 	//
 	// First, un-marshall the ask asset rate from the accepted quote.
-	askAssetRate, err := rfqrpc.UnmarshalFixedPoint(
+	askAssetRate, err := rpcutils.UnmarshalRfqFixedPoint(
 		acceptedQuote.AskAssetRate,
 	)
 	if err != nil {
