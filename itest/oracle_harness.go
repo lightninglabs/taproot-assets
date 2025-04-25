@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightningnetwork/lnd/cert"
 	"github.com/stretchr/testify/require"
@@ -128,7 +129,7 @@ func (o *oracleHarness) getAssetRates(specifier asset.Specifier,
 	}
 
 	// Marshal subject asset rate to RPC format.
-	rpcSubjectAssetToBtcRate, err := oraclerpc.MarshalBigIntFixedPoint(
+	rpcSubjectAssetToBtcRate, err := rpcutils.MarshalBigIntFixedPoint(
 		subjectAssetRate,
 	)
 	if err != nil {
@@ -136,7 +137,7 @@ func (o *oracleHarness) getAssetRates(specifier asset.Specifier,
 	}
 
 	// Marshal payment asset rate to RPC format.
-	rpcPaymentAssetToBtcRate, err := oraclerpc.MarshalBigIntFixedPoint(
+	rpcPaymentAssetToBtcRate, err := rpcutils.MarshalBigIntFixedPoint(
 		rfqmsg.MilliSatPerBtc,
 	)
 	if err != nil {
@@ -182,7 +183,7 @@ func (o *oracleHarness) QueryAssetRates(_ context.Context,
 
 	// Ensure that the payment asset is BTC. We only support BTC as the
 	// payment asset in this example.
-	if !oraclerpc.IsAssetBtc(req.PaymentAsset) {
+	if !rpcutils.IsAssetBtc(req.PaymentAsset) {
 		log.Infof("Payment asset is not BTC: %v", req.PaymentAsset)
 
 		return &oraclerpc.QueryAssetRatesResponse{

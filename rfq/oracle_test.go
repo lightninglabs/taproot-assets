@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -41,7 +42,7 @@ func (p *mockRpcPriceOracleServer) QueryAssetRates(_ context.Context,
 	subjectAssetRate := rfqmath.NewBigIntFixedPoint(testAssetRate, 3)
 
 	// Marshal the subject asset rate to a fixed point.
-	subjectAssetFp, err := priceoraclerpc.MarshalBigIntFixedPoint(
+	subjectAssetFp, err := rpcutils.MarshalBigIntFixedPoint(
 		subjectAssetRate,
 	)
 	if err != nil {
