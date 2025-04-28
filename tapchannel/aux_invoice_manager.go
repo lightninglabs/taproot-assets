@@ -166,8 +166,13 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		return nil, fmt.Errorf("unable to decode response: %w", err)
 	}
 
-	log.Debugf("Received invoice: %s", jsonBytes)
-	log.Debugf("Received wire custom records: %v",
+	iLog := log.WithPrefix(
+		fmt.Sprintf("Invoice(hash=%x, amt=%v): ",
+			req.Invoice.RHash, req.Invoice.Value),
+	)
+
+	iLog.Debugf("received invoice: %s", jsonBytes)
+	iLog.Debugf("received wire custom records: %v",
 		limitSpewer.Sdump(req.WireCustomRecords))
 
 	// Check if any strict forwarding rules need to be applied. Strict
@@ -186,7 +191,12 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		//
 		// TODO(george): Strict-forwarding could be configurable?
 		if isAssetInvoice(req.Invoice, s) {
+			iLog.Debugf("has no asset custom records, but " +
+				"invoice requires assets, canceling HTLCs")
+
 			resp.CancelSet = true
+		} else {
+			iLog.Tracef("has no asset custom records, ignoring")
 		}
 
 		return resp, nil
@@ -197,6 +207,9 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		// correspond to an asset invoice, we do not settle the invoice.
 		// Since we requested btc we should be receiving btc.
 		resp.CancelSet = true
+
+		iLog.Debugf("has asset custom records, but invoice does not " +
+			"require assets, canceling HTLCs")
 
 		return resp, nil
 
@@ -209,7 +222,7 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		return nil, fmt.Errorf("unable to decode htlc: %w", err)
 	}
 
-	log.Debugf("Received htlc: %v", limitSpewer.Sdump(htlc))
+	iLog.Debugf("received htlc: %v", limitSpewer.Sdump(htlc))
 
 	// If we don't have an RFQ ID, then this is likely a keysend payment,
 	// and we don't modify the amount (since the invoice amount will match
@@ -221,7 +234,7 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 	// We now run some validation checks on the asset HTLC.
 	err = s.validateAssetHTLC(ctx, htlc, resp.CircuitKey)
 	if err != nil {
-		log.Errorf("Failed to validate asset HTLC: %v", err)
+		iLog.Errorf("failed to validate asset HTLC: %v", err)
 
 		resp.CancelSet = true
 
@@ -266,7 +279,7 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 	totalInboundWithMargin := totalInbound + allowedMarginMSat + 1
 	invoiceValue := lnwire.MilliSatoshi(req.Invoice.ValueMsat)
 
-	log.Debugf("Accepted HTLC sum: %v, current HTLC amount: %v, allowed "+
+	iLog.Debugf("accepted HTLC sum: %v, current HTLC amount: %v, allowed "+
 		"margin: %v (total %v), invoice value %v", acceptedHtlcSum,
 		resp.AmtPaid, allowedMarginMSat, totalInboundWithMargin,
 		invoiceValue)
