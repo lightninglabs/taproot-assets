@@ -1225,13 +1225,13 @@ func AssertAssetOutboundTransferWithOutputs(t *testing.T,
 func AssertNonInteractiveRecvComplete(t *testing.T,
 	receiver taprpc.TaprootAssetsClient, totalInboundTransfers int) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
 	// And finally, they should be marked as completed with a proof
 	// available.
 	err := wait.NoError(func() error {
+		ctxb := context.Background()
+		ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout/2)
+		defer cancel()
+
 		resp, err := receiver.AddrReceives(
 			ctxt, &taprpc.AddrReceivesRequest{},
 		)
@@ -1250,7 +1250,7 @@ func AssertNonInteractiveRecvComplete(t *testing.T,
 		}
 
 		return nil
-	}, defaultWaitTimeout/2)
+	}, defaultWaitTimeout)
 	require.NoError(t, err)
 }
 
