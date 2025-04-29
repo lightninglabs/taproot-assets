@@ -698,7 +698,7 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 	// can build the issuance proofs.
 	genesisTxHash := signedTx.TxHash()
 	err = lndServices.WalletKit.PublishTransaction(
-		ctxt, signedTx, "tapd-asset-minting",
+		ctxt, signedTx, tapgarden.IssuanceTxLabel,
 	)
 	require.NoError(t.t, err)
 

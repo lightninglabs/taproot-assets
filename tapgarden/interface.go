@@ -22,6 +22,12 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
+const (
+	// IssuanceTxLabel defines the label assigned to an on-chain transaction
+	// that represents a tapd asset issuance.
+	IssuanceTxLabel = "tapd-asset-issuance"
+)
+
 // FundBatchResp is the response returned from the FundBatch method.
 type FundBatchResp struct {
 	// Batch is the batch that was funded.
@@ -332,7 +338,7 @@ type ChainBridge interface {
 
 	// PublishTransaction attempts to publish a new transaction to the
 	// network.
-	PublishTransaction(context.Context, *wire.MsgTx) error
+	PublishTransaction(context.Context, *wire.MsgTx, string) error
 
 	// EstimateFee returns a fee estimate for the confirmation target.
 	EstimateFee(ctx context.Context,

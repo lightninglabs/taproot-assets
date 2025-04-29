@@ -1521,7 +1521,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// With the public key imported, we can now broadcast to the
 		// network.
 		err = p.cfg.ChainBridge.PublishTransaction(
-			ctx, currentPkg.OutboundPkg.AnchorTx,
+			ctx, currentPkg.OutboundPkg.AnchorTx, TransferTxLabel,
 		)
 		switch {
 		case errors.Is(err, lnwallet.ErrDoubleSpend):

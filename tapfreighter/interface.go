@@ -25,6 +25,12 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
+const (
+	// TransferTxLabel defines the label assigned to an on-chain transaction
+	// that represents a tapd asset transfer.
+	TransferTxLabel = "tapd-asset-transfer"
+)
+
 // CommitmentConstraints conveys the constraints on the type of Taproot asset
 // commitments needed to satisfy a send request. Typically, for Bitcoin we just
 // care about the amount. In the case of Taproot Asset, we also need to worry
