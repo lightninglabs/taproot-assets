@@ -824,13 +824,13 @@ func (m *MockAssetSyncer) FetchAsset(id asset.ID) (*asset.AssetGroup, error) {
 }
 
 func (m *MockAssetSyncer) SyncAssetInfo(_ context.Context,
-	id *asset.ID) error {
+	s asset.Specifier) error {
 
-	if id == nil {
+	if !s.HasId() {
 		return fmt.Errorf("no asset ID provided")
 	}
 
-	_, err := m.FetchAsset(*id)
+	_, err := m.FetchAsset(*s.UnwrapIdToPtr())
 	return err
 }
 
