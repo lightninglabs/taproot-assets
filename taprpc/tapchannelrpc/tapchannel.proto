@@ -220,11 +220,16 @@ message AddInvoiceResponse {
 
 message AssetPayReq {
     // The asset ID that will be used to resolve the invoice's satoshi amount.
+    // Mutually exclusive to group_key.
     bytes asset_id = 1;
 
     // The normal LN invoice that whose amount will be mapped to units of the
     // asset ID.
     string pay_req_string = 2;
+
+    // The group key that will be used to resolve the invoice's satoshi amount.
+    // Mutually exclusive to asset_id.
+    bytes group_key = 3;
 }
 
 message AssetPayReqResponse {
@@ -238,7 +243,9 @@ message AssetPayReqResponse {
     taprpc.AssetGroup asset_group = 3;
 
     // Genesis information for the asset ID which includes the meta hash, and
-    // asset ID.
+    // asset ID. This is only set if the payment request was decoded with an
+    // asset ID and not with a group key (since a group can contain assets from
+    // different minting events or genesis infos).
     taprpc.GenesisInfo genesis_info = 4;
 
     // The normal decoded payment request.
