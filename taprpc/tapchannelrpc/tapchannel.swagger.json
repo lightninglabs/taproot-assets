@@ -1539,11 +1539,16 @@
         "asset_id": {
           "type": "string",
           "format": "byte",
-          "description": "The asset ID that will be used to resolve the invoice's satoshi amount."
+          "description": "The asset ID that will be used to resolve the invoice's satoshi amount.\nMutually exclusive to group_key."
         },
         "pay_req_string": {
           "type": "string",
           "description": "The normal LN invoice that whose amount will be mapped to units of the\nasset ID."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The group key that will be used to resolve the invoice's satoshi amount.\nMutually exclusive to asset_id."
         }
       }
     },
@@ -1565,7 +1570,7 @@
         },
         "genesis_info": {
           "$ref": "#/definitions/taprpcGenesisInfo",
-          "description": "Genesis information for the asset ID which includes the meta hash, and\nasset ID."
+          "description": "Genesis information for the asset ID which includes the meta hash, and\nasset ID. This is only set if the payment request was decoded with an\nasset ID and not with a group key (since a group can contain assets from\ndifferent minting events or genesis infos)."
         },
         "pay_req": {
           "$ref": "#/definitions/lnrpcPayReq",
