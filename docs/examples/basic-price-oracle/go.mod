@@ -2,16 +2,12 @@ module basic-price-oracle
 
 go 1.23.6
 
-replace (
-	github.com/lightninglabs/taproot-assets => ../../../
-
-	// We want to format raw bytes as hex instead of base64. The forked version
-	// allows us to specify that as an option.
-	google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display
-)
+// We want to format raw bytes as hex instead of base64. The forked version
+// allows us to specify that as an option.
+replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display
 
 require (
-	github.com/lightninglabs/taproot-assets v0.5.0-rc1
+	github.com/lightninglabs/taproot-assets v0.5.2-0.20250424095231-89a3e175feb0
 	github.com/sirupsen/logrus v1.9.3
 	google.golang.org/grpc v1.64.1
 )
