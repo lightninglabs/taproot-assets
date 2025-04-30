@@ -29,7 +29,14 @@ func GetPromInterceptors(cfg *PrometheusConfig) ([]grpc.UnaryServerInterceptor,
 	}
 
 	if cfg.PerfHistograms {
-		opt := grpc_prometheus.WithServerHandlingTimeHistogram()
+		// Set the histogram buckets in seconds.
+		histogramBuckets := []float64{
+			0.01, 0.1, 0.5, 1, 5, 10, 60, 120, 240, 600, 1200,
+		}
+		opt := grpc_prometheus.WithServerHandlingTimeHistogram(
+			grpc_prometheus.WithHistogramBuckets(histogramBuckets),
+		)
+
 		opts = append(opts, opt)
 	}
 
