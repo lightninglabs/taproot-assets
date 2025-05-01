@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -1103,4 +1105,104 @@ func MockCourierURL(t *testing.T, protocol, addr string) *url.URL {
 	require.NoError(t, err)
 
 	return proofCourierAddr
+}
+
+// MockTxProof creates a mock TxProof for testing purposes.
+func MockTxProof(t testing.TB) *TxProof {
+	internalKey := test.RandPubKey(t)
+
+	bip86Key := txscript.ComputeTaprootKeyNoScript(internalKey)
+	bip86PkScript, err := txscript.PayToTaprootScript(bip86Key)
+	require.NoError(t, err)
+
+	randRoot := test.RandBytes(32)
+	tapscriptKey := txscript.ComputeTaprootOutputKey(internalKey, randRoot)
+	tapscriptPkScript, err := txscript.PayToTaprootScript(tapscriptKey)
+	require.NoError(t, err)
+
+	tx := wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				SignatureScript: test.RandBytes(10),
+			},
+		},
+		TxOut: []*wire.TxOut{
+			{
+				PkScript: bip86PkScript,
+			},
+			{
+				PkScript: tapscriptPkScript,
+			},
+		},
+	}
+
+	transactions := []*wire.MsgTx{
+		{},
+		&tx,
+	}
+
+	merkleProof, err := NewTxMerkleProof(transactions, 1)
+	require.NoError(t, err)
+
+	utilTransactions := fn.Map(transactions, btcutil.NewTx)
+	hashes := blockchain.BuildMerkleTreeStore(utilTransactions, false)
+
+	block := wire.MsgBlock{
+		Header: wire.BlockHeader{
+			MerkleRoot: *hashes[len(hashes)-1],
+		},
+		Transactions: transactions,
+	}
+
+	// We randomly either use the bip86 key or the tapscript output in our
+	// claimed proof.
+	targetIndex := uint32(test.RandInt31n(2))
+
+	return &TxProof{
+		MsgTx:       tx,
+		BlockHeader: block.Header,
+		MerkleProof: *merkleProof,
+		ClaimedOutPoint: wire.OutPoint{
+			Hash:  tx.TxHash(),
+			Index: targetIndex,
+		},
+		InternalKey: *internalKey,
+		MerkleRoot: func() []byte {
+			if targetIndex == 0 {
+				return nil
+			}
+			return randRoot
+		}(),
+	}
+}
+
+type MockTxStore struct {
+	proofs map[wire.OutPoint]struct{}
+	mu     sync.RWMutex
+}
+
+func NewMockTxProofStore() *MockTxStore {
+	return &MockTxStore{
+		proofs: make(map[wire.OutPoint]struct{}),
+	}
+}
+
+func (s *MockTxStore) HaveProof(outpoint wire.OutPoint) (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	_, exists := s.proofs[outpoint]
+	return exists, nil
+}
+
+func (s *MockTxStore) StoreProof(outpoint wire.OutPoint) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.proofs[outpoint]; exists {
+		return ErrTxMerkleProofExists
+	}
+
+	s.proofs[outpoint] = struct{}{}
+	return nil
 }
