@@ -1,14 +1,41 @@
 package proof
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightningnetwork/lnd/tlv"
+)
+
+var (
+	// ErrTxMerkleProofExists is an error returned when a transaction
+	// merkle proof already exists in the store.
+	ErrTxMerkleProofExists = errors.New("tx merkle proof already exists")
+
+	// ErrHashMismatch is returned when the hash of the outpoint does not
+	// match the hash of the transaction.
+	ErrHashMismatch = errors.New("outpoint hash does not match tx hash")
+
+	// ErrOutputIndexInvalid is returned when the output index of the
+	// outpoint is invalid for the transaction.
+	ErrOutputIndexInvalid = errors.New("output index is invalid for tx")
+
+	// ErrClaimedOutputScriptMismatch is returned when the claimed output
+	// script does not match the constructed Taproot output key script.
+	ErrClaimedOutputScriptMismatch = errors.New(
+		"claimed output pk script doesn't match constructed Taproot " +
+			"output key pk script",
+	)
 )
 
 // TxMerkleProof represents a simplified version of BIP-0037 transaction merkle
@@ -166,4 +193,234 @@ func (p *TxMerkleProof) Decode(r io.Reader) error {
 	p.Bits = bits[:len(p.Nodes)]
 
 	return nil
+}
+
+// TxProof is a struct that contains all the necessary elements to prove the
+// existence of a certain outpoint in a block.
+type TxProof struct {
+	// MsgTx is the transaction that contains the outpoint.
+	MsgTx wire.MsgTx
+
+	// BlockHeader is the header of the block that contains the transaction.
+	BlockHeader wire.BlockHeader
+
+	// BlockHeight is the height at which the block was mined.
+	BlockHeight uint32
+
+	// MerkleProof is the proof that the transaction is included in the
+	// block and its merkle root.
+	MerkleProof TxMerkleProof
+
+	// ClaimedOutPoint is the outpoint that is being proved to exist in the
+	// transaction.
+	ClaimedOutPoint wire.OutPoint
+
+	// InternalKey is the Taproot internal key used to construct the P2TR
+	// output that is claimed by the outpoint above. Must be provided
+	// alongside the Taproot Merkle root to prove knowledge of the output's
+	// construction.
+	InternalKey btcec.PublicKey
+
+	// MerkleRoot is the claimed output's Taproot Merkle root, if
+	// applicable. This, alongside the internal key, is used to prove
+	// knowledge of the output's construction. If this is not provided
+	// (empty or nil), a BIP-0086 output key construction is assumed.
+	MerkleRoot []byte
+}
+
+// Verify validates the Bitcoin Merkle Inclusion Proof.
+func (p *TxProof) Verify(headerVerifier HeaderVerifier,
+	merkleVerifier MerkleVerifier) error {
+
+	txHash := p.MsgTx.TxHash()
+
+	// Part 1: Verify the claimed outpoint references the provided
+	// transaction.
+	if p.ClaimedOutPoint.Hash != txHash {
+		return ErrHashMismatch
+	}
+
+	if p.ClaimedOutPoint.Index >= uint32(len(p.MsgTx.TxOut)) {
+		return ErrOutputIndexInvalid
+	}
+
+	// Part 2: Verify the claimed outpoint is indeed a P2TR output and the
+	// construction details are valid.
+	taprootKey := txscript.ComputeTaprootKeyNoScript(&p.InternalKey)
+	if len(p.MerkleRoot) > 0 {
+		taprootKey = txscript.ComputeTaprootOutputKey(
+			&p.InternalKey, p.MerkleRoot,
+		)
+	}
+
+	expectedPkScript, err := txscript.PayToTaprootScript(taprootKey)
+	if err != nil {
+		return fmt.Errorf("error computing taproot output: %w", err)
+	}
+
+	claimedTxOut := p.MsgTx.TxOut[p.ClaimedOutPoint.Index]
+	if !bytes.Equal(claimedTxOut.PkScript, expectedPkScript) {
+		return ErrClaimedOutputScriptMismatch
+	}
+
+	// Part 3: Verify the transaction is included in the given block.
+	err = merkleVerifier(
+		&p.MsgTx, &p.MerkleProof, p.BlockHeader.MerkleRoot,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Part 4: Verify the block header is valid and matches the given block
+	// height.
+	err = headerVerifier(p.BlockHeader, p.BlockHeight)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// MarshalTxProof converts a TxProof to its gRPC representation.
+func MarshalTxProof(p TxProof) (*mboxrpc.BitcoinMerkleInclusionProof, error) {
+	serialize := func(serFn func(at io.Writer) error) ([]byte, error) {
+		var buf bytes.Buffer
+		if err := serFn(&buf); err != nil {
+			return nil, fmt.Errorf("error serializing: %w", err)
+		}
+		return buf.Bytes(), nil
+	}
+
+	rawTxData, err := serialize(p.MsgTx.Serialize)
+	if err != nil {
+		return nil, fmt.Errorf("error serializing raw tx data: %w", err)
+	}
+
+	rawBlockHeaderData, err := serialize(p.BlockHeader.Serialize)
+	if err != nil {
+		return nil, fmt.Errorf("error serializing raw block header "+
+			"data: %w", err)
+	}
+
+	txMerkleProof := &mboxrpc.MerkleProof{
+		SiblingHashes: make([][]byte, len(p.MerkleProof.Nodes)),
+		Bits:          make([]bool, len(p.MerkleProof.Bits)),
+	}
+	for idx, node := range p.MerkleProof.Nodes {
+		txMerkleProof.SiblingHashes[idx] = node[:]
+	}
+	copy(txMerkleProof.Bits, p.MerkleProof.Bits)
+
+	return &mboxrpc.BitcoinMerkleInclusionProof{
+		RawTxData:          rawTxData,
+		RawBlockHeaderData: rawBlockHeaderData,
+		BlockHeight:        p.BlockHeight,
+		MerkleProof:        txMerkleProof,
+		ClaimedOutpoint: &taprpc.OutPoint{
+			Txid:        p.ClaimedOutPoint.Hash[:],
+			OutputIndex: p.ClaimedOutPoint.Index,
+		},
+		InternalKey: p.InternalKey.SerializeCompressed(),
+		MerkleRoot:  p.MerkleRoot,
+	}, nil
+}
+
+// UnmarshalTxProof converts a gRPC TxProof to its internal representation.
+func UnmarshalTxProof(
+	rpcProof *mboxrpc.BitcoinMerkleInclusionProof) (*TxProof, error) {
+
+	var p TxProof
+	err := p.MsgTx.Deserialize(bytes.NewReader(rpcProof.RawTxData))
+	if err != nil {
+		return nil, fmt.Errorf("error decoding raw tx data: %w", err)
+	}
+
+	err = p.BlockHeader.Deserialize(
+		bytes.NewReader(rpcProof.RawBlockHeaderData),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding raw block header "+
+			"data: %w", err)
+	}
+
+	p.BlockHeight = rpcProof.BlockHeight
+	if p.BlockHeight == 0 {
+		return nil, fmt.Errorf("block height is missing")
+	}
+
+	if rpcProof.MerkleProof == nil {
+		return nil, fmt.Errorf("merkle proof is missing")
+	}
+
+	mp := rpcProof.MerkleProof
+	if len(mp.SiblingHashes) == 0 {
+		return nil, fmt.Errorf("merkle proof sibling hashes are " +
+			"missing")
+	}
+
+	if len(mp.SiblingHashes) != len(mp.Bits) {
+		return nil, fmt.Errorf("merkle proof sibling hashes and " +
+			"bits length mismatch")
+	}
+
+	p.MerkleProof.Nodes = make([]chainhash.Hash, len(mp.SiblingHashes))
+	for idx, siblingHash := range mp.SiblingHashes {
+		hash, err := chainhash.NewHash(siblingHash)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding sibling "+
+				"hash: %w", err)
+		}
+
+		p.MerkleProof.Nodes[idx] = *hash
+	}
+
+	p.MerkleProof.Bits = make([]bool, len(mp.Bits))
+	copy(p.MerkleProof.Bits, mp.Bits)
+
+	if rpcProof.ClaimedOutpoint == nil {
+		return nil, fmt.Errorf("claimed outpoint is missing")
+	}
+
+	opHash, err := chainhash.NewHash(rpcProof.ClaimedOutpoint.Txid)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding outpoint txid: %w",
+			err)
+	}
+
+	p.ClaimedOutPoint = wire.OutPoint{
+		Hash:  *opHash,
+		Index: rpcProof.ClaimedOutpoint.OutputIndex,
+	}
+
+	internalKey, err := btcec.ParsePubKey(rpcProof.InternalKey)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding internal key: %w", err)
+	}
+	p.InternalKey = *internalKey
+
+	// The merkle root is optional. If it is provided, it needs to be
+	// exactly 32 bytes long though.
+	switch len(rpcProof.MerkleRoot) {
+	case 0, 32:
+		p.MerkleRoot = rpcProof.MerkleRoot
+
+	default:
+		return nil, fmt.Errorf("merkle root must be empty or "+
+			"exactly 32 bytes long, got %d bytes",
+			len(rpcProof.MerkleRoot))
+	}
+
+	return &p, nil
+}
+
+// TxProofStore is an interface that defines the methods for storing and
+// retrieving transaction proofs.
+type TxProofStore interface {
+	// HaveProof returns true if the proof for the given outpoint exists in
+	// the store.
+	HaveProof(wire.OutPoint) (bool, error)
+
+	// StoreProof stores the given transaction proof in the store. If the
+	// proof already exists, it returns ErrTxMerkleProofExists.
+	StoreProof(wire.OutPoint) error
 }
