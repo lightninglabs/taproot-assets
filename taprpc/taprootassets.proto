@@ -231,6 +231,14 @@ message ListAssetRequest {
 
     // Return all assets that are currently anchored on this outpoint.
     OutPoint anchor_outpoint = 9;
+
+    // The script key type to filter the assets by. If not set, only assets with
+    // a BIP-0086 script key will be returned (which is the equivalent of
+    // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). If the type
+    // is set to SCRIPT_KEY_BURN or SCRIPT_KEY_TOMBSTONE the include_spent flag
+    // will automatically be set to true, because assets of that type are always
+    // marked as spent.
+    ScriptKeyTypeQuery script_key_type = 10;
 }
 
 message AnchorInfo {
@@ -517,6 +525,7 @@ message Asset {
     // assets in this output are destroyed and can no longer be spent.
     bool is_burn = 17;
 
+    // Deprecated, use script_key_type instead!
     // Indicates whether this script key has either been derived by the local
     // wallet or was explicitly declared to be known by using the
     // DeclareScriptKey RPC. Knowing the key conceptually means the key belongs
@@ -527,6 +536,7 @@ message Asset {
     // script key will be shown in the wallet balance.
     bool script_key_declared_known = 18;
 
+    // Deprecated, use script_key_type instead!
     // Indicates whether the script key is known to have a Tapscript spend path,
     // meaning that the Taproot merkle root tweak is not empty. This will only
     // ever be true if either script_key_is_local or script_key_internals_known
@@ -539,6 +549,12 @@ message Asset {
     // field is null, it means the presence of a decimal display field is
     // unknown in the current context.
     DecimalDisplay decimal_display = 20;
+
+    // The type of the script key. This type is either user-declared when custom
+    // script keys are added, or automatically determined by the daemon for
+    // standard operations (e.g. BIP-86 keys, burn keys, tombstone keys, channel
+    // related keys).
+    ScriptKeyType script_key_type = 21;
 }
 
 message PrevWitness {
@@ -568,6 +584,11 @@ message ListAssetResponse {
 
 message ListUtxosRequest {
     bool include_leased = 1;
+
+    // The script key type to filter the assets by. If not set, only assets with
+    // a BIP-0086 script key will be returned (which is the equivalent of
+    // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86).
+    ScriptKeyTypeQuery script_key_type = 2;
 }
 
 message ManagedUtxo {
@@ -665,6 +686,14 @@ message ListBalancesRequest {
 
     // An option to include previous leased assets in the balances.
     bool include_leased = 5;
+
+    // The script key type to filter the assets by. If not set, only assets with
+    // a BIP-0086 script key will be returned (which is the equivalent of
+    // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). If the type
+    // is set to SCRIPT_KEY_BURN or SCRIPT_KEY_TOMBSTONE the include_spent flag
+    // will automatically be set to true, because assets of that type are always
+    // marked as spent.
+    ScriptKeyTypeQuery script_key_type = 6;
 }
 
 message AssetBalance {
@@ -1007,6 +1036,67 @@ message NewAddrRequest {
     AddrVersion address_version = 8;
 }
 
+enum ScriptKeyType {
+    /*
+    The type of script key is not known. This should only be stored for assets
+        where we don't know the internal key of the script key (e.g. for
+        imported proofs).
+    */
+    SCRIPT_KEY_UNKNOWN = 0;
+
+    /*
+    The script key is a normal BIP-86 key. This means that the internal key is
+    turned into a Taproot output key by applying a BIP-86 tweak to it.
+    */
+    SCRIPT_KEY_BIP86 = 1;
+
+    /*
+    The script key is a key that contains a script path that is defined by the
+    user and is therefore external to the tapd wallet. Spending this key
+    requires providing a specific witness and must be signed through the vPSBT
+    signing flow.
+    */
+    SCRIPT_KEY_SCRIPT_PATH_EXTERNAL = 2;
+
+    /*
+    The script key is a specific un-spendable key that indicates a burnt asset.
+    Assets with this key type can never be spent again, as a burn key is a
+    tweaked NUMS key that nobody knows the private key for.
+    */
+    SCRIPT_KEY_BURN = 3;
+
+    /*
+    The script key is a specific un-spendable key that indicates a tombstone
+    output. This is only the case for zero-value assets that result from a
+    non-interactive (TAP address) send where no change was left over.
+    */
+    SCRIPT_KEY_TOMBSTONE = 4;
+
+    /*
+    The script key is used for an asset that resides within a Taproot Asset
+    Channel. That means the script key is either a funding key (OP_TRUE), a
+    commitment output key (to_local, to_remote, htlc), or a HTLC second-level
+    transaction output key. Keys related to channels are not shown in asset
+    balances (unless specifically requested) and are never used for coin
+    selection.
+    */
+    SCRIPT_KEY_CHANNEL = 5;
+}
+
+message ScriptKeyTypeQuery {
+    oneof type {
+        // Query for assets of a specific script key type.
+        ScriptKeyType explicit_type = 1;
+
+        // Query for assets with all script key types.
+        bool all_types = 2;
+
+        // TODO(guggero): Add a bit field that allows querying for multiple
+        // script key types at once. Need a way to do a WHERE ... IN () type SQL
+        // query that is compatible with all backends first though.
+    }
+}
+
 message ScriptKey {
     /*
     The full Taproot output key the asset is locked to. This is either a BIP-86
@@ -1025,6 +1115,14 @@ message ScriptKey {
     empty then a BIP-86 style tweak is applied to the internal key.
     */
     bytes tap_tweak = 3;
+
+    /*
+    The type of the script key. This type is either user-declared when custom
+    script keys are added, or automatically determined by the daemon for
+    standard operations (e.g. BIP-86 keys, burn keys, tombstone keys, channel
+    related keys).
+    */
+    ScriptKeyType type = 4;
 }
 
 message KeyLocator {

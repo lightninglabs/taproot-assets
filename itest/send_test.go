@@ -1757,6 +1757,10 @@ func testSendMultipleCoins(t *harnessTest) {
 	)
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 5)
 	AssertSendEventsComplete(t.t, addrs[0].ScriptKey, sendEvents)
+	AssertBalances(
+		t.t, t.tapd, rpcAssets[0].Amount, WithNumUtxos(numParts),
+		WithNumAnchorUtxos(numParts),
+	)
 
 	// Next, we'll attempt to complete 5 parallel transfers with distinct
 	// addresses from our main node to Bob.
@@ -1809,6 +1813,14 @@ func testSendMultipleCoins(t *harnessTest) {
 	for idx, events := range addrSendEvents {
 		AssertSendEventsComplete(t.t, bobAddrs[idx].ScriptKey, events)
 	}
+
+	// Finally, we make sure that both the sender and receiver have the
+	// correct number of asset units and UTXOs in their wallets.
+	AssertBalances(t.t, t.tapd, 0, WithNumAnchorUtxos(0))
+	AssertBalances(
+		t.t, secondTapd, unitsPerPart*numParts, WithNumUtxos(numParts),
+		WithNumAnchorUtxos(numParts),
+	)
 }
 
 // testSendNoCourierUniverseImport tests that we can send assets to a node that

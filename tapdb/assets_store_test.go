@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -24,7 +25,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapscript"
-	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
@@ -730,12 +730,6 @@ func filterMaxAmt(amt uint64) filterOpt {
 	}
 }
 
-func filterCoinSelectType(typ tapsend.CoinSelectType) filterOpt {
-	return func(f *AssetQueryFilters) {
-		f.CoinSelectType = typ
-	}
-}
-
 func filterDistinctSpecifier() filterOpt {
 	return func(f *AssetQueryFilters) {
 		f.DistinctSpecifier = true
@@ -757,6 +751,12 @@ func filterAnchorPoint(point *wire.OutPoint) filterOpt {
 func filterScriptKey(key *asset.ScriptKey) filterOpt {
 	return func(f *AssetQueryFilters) {
 		f.ScriptKey = key
+	}
+}
+
+func filterScriptKeyType(keyType asset.ScriptKeyType) filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.ScriptKeyType = fn.Some(keyType)
 	}
 }
 
@@ -889,14 +889,12 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "min amount",
 		filter: makeFilter(
 			filterMinAmt(12),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		numAssets: 2,
 	}, {
 		name: "min amount, include spent",
 		filter: makeFilter(
 			filterMinAmt(12),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeSpent: true,
 		numAssets:    4,
@@ -904,7 +902,6 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "min amount, include leased",
 		filter: makeFilter(
 			filterMinAmt(12),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeLeased: true,
 		numAssets:     5,
@@ -912,7 +909,6 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "min amount, include leased, include spent",
 		filter: makeFilter(
 			filterMinAmt(12),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeLeased: true,
 		includeSpent:  true,
@@ -921,14 +917,12 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "max amount",
 		filter: makeFilter(
 			filterMaxAmt(100),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		numAssets: 6,
 	}, {
 		name: "max amount, include spent",
 		filter: makeFilter(
 			filterMaxAmt(100),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeSpent: true,
 		numAssets:    7,
@@ -936,7 +930,6 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "max amount, include leased",
 		filter: makeFilter(
 			filterMaxAmt(100),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeLeased: true,
 		numAssets:     8,
@@ -944,7 +937,6 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "max amount, include leased, include spent",
 		filter: makeFilter(
 			filterMaxAmt(100),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeLeased: true,
 		includeSpent:  true,
@@ -953,7 +945,6 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "default min height, include spent",
 		filter: makeFilter(
 			filterAnchorHeight(500),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeSpent: true,
 		numAssets:    8,
@@ -961,14 +952,12 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "specific height",
 		filter: makeFilter(
 			filterAnchorHeight(512),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		numAssets: 0,
 	}, {
 		name: "specific height, include spent",
 		filter: makeFilter(
 			filterAnchorHeight(502),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeSpent: true,
 		numAssets:    3,
@@ -976,21 +965,19 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "script key with tapscript",
 		filter: makeFilter(
 			filterMinAmt(100),
-			filterCoinSelectType(tapsend.Bip86Only),
+			filterScriptKeyType(asset.ScriptKeyBip86),
 		),
 		numAssets: 0,
 	}, {
 		name: "query by script key",
 		filter: makeFilter(
 			filterScriptKey(scriptKeyWithScript),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		numAssets: 1,
 	}, {
 		name: "query by script key, include leased",
 		filter: makeFilter(
 			filterScriptKey(scriptKeyWithScript),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeLeased: true,
 		numAssets:     2,
@@ -1022,7 +1009,6 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "query by anchor point",
 		filter: makeFilter(
 			filterAnchorPoint(&assetGen.anchorPoints[0]),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		numAssets: 3,
 	}}
@@ -2944,11 +2930,11 @@ func TestQueryAssetBalances(t *testing.T) {
 	// At first, none of the assets should be leased.
 	includeLeased := false
 	balances, err := assetsStore.QueryBalancesByAsset(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	balancesByGroup, err := assetsStore.QueryAssetBalancesByGroup(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	require.Len(t, balances, numAssets)
@@ -2984,14 +2970,14 @@ func TestQueryAssetBalances(t *testing.T) {
 
 	// Only two assets should be returned that is not leased.
 	unleasedBalances, err := assetsStore.QueryBalancesByAsset(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	require.Len(t, unleasedBalances, numAssets-2)
 
 	// Only one group should be returned that is not leased.
 	unleasedBalancesByGroup, err := assetsStore.QueryAssetBalancesByGroup(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	require.Len(t, unleasedBalancesByGroup, numGroups-1)
@@ -3014,12 +3000,12 @@ func TestQueryAssetBalances(t *testing.T) {
 	// the same results as when the assets where unleased.
 	includeLeased = true
 	includeLeasedBalances, err := assetsStore.QueryBalancesByAsset(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	require.Len(t, includeLeasedBalances, numAssets)
 	includeLeasedBalByGroup, err := assetsStore.QueryAssetBalancesByGroup(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	require.Len(t, includeLeasedBalByGroup, len(assetGen.groupKeys))
@@ -3049,23 +3035,33 @@ func TestQueryAssetBalancesCustomChannelFunding(t *testing.T) {
 	const numGroups = 1
 	assetGen := newAssetGenerator(t, numAssets, numGroups)
 
-	fundingScriptKey := asset.NewScriptKey(
-		tapscript.NewChannelFundingScriptTree().TaprootKey,
+	fundingKey := tapscript.NewChannelFundingScriptTree()
+	xOnlyKey, _ := schnorr.ParsePubKey(
+		schnorr.SerializePubKey(fundingKey.TaprootKey),
 	)
+	fundingScriptKey := asset.ScriptKey{
+		PubKey: xOnlyKey,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: keychain.KeyDescriptor{
+				PubKey: fundingKey.InternalKey,
+			},
+			Type: asset.ScriptKeyScriptPathChannel,
+		},
+	}
 
 	assetDesc := []assetDesc{
 		{
 			assetGen:    assetGen.assetGens[0],
 			anchorPoint: assetGen.anchorPoints[0],
 			keyGroup:    assetGen.groupKeys[0],
-			amt:         4,
+			amt:         8,
 			scriptKey:   &fundingScriptKey,
 		},
 		{
 			assetGen:    assetGen.assetGens[1],
 			anchorPoint: assetGen.anchorPoints[1],
 			keyGroup:    assetGen.groupKeys[0],
-			amt:         4,
+			amt:         12,
 		},
 	}
 	assetGen.genAssets(t, assetsStore, assetDesc)
@@ -3073,11 +3069,11 @@ func TestQueryAssetBalancesCustomChannelFunding(t *testing.T) {
 	// Hit both balance queries, they should return the same result.
 	includeLeased := false
 	balances, err := assetsStore.QueryBalancesByAsset(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	balancesByGroup, err := assetsStore.QueryAssetBalancesByGroup(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	require.Len(t, balances, numAssets-1)
@@ -3096,4 +3092,31 @@ func TestQueryAssetBalancesCustomChannelFunding(t *testing.T) {
 		balanceByGroupSum += balance.Balance
 	}
 	require.Equal(t, assetDesc[1].amt, balanceByGroupSum)
+
+	// If we explicitly query for channel related script keys, we should get
+	// just those assets.
+	balances, err = assetsStore.QueryBalancesByAsset(
+		ctx, nil, includeLeased,
+		fn.Some(asset.ScriptKeyScriptPathChannel),
+	)
+	require.NoError(t, err)
+	balancesByGroup, err = assetsStore.QueryAssetBalancesByGroup(
+		ctx, nil, includeLeased,
+		fn.Some(asset.ScriptKeyScriptPathChannel),
+	)
+	require.NoError(t, err)
+	require.Len(t, balances, numAssets-1)
+	require.Len(t, balancesByGroup, numAssets-1)
+
+	balanceSum = uint64(0)
+	for _, balance := range balances {
+		balanceSum += balance.Balance
+	}
+	require.Equal(t, assetDesc[0].amt, balanceSum)
+
+	balanceByGroupSum = uint64(0)
+	for _, balance := range balancesByGroup {
+		balanceByGroupSum += balance.Balance
+	}
+	require.Equal(t, assetDesc[0].amt, balanceByGroupSum)
 }

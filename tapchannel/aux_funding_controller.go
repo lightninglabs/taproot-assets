@@ -797,7 +797,7 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 	fundDesc := &tapsend.FundingDescriptor{
 		AssetSpecifier:    specifier,
 		Amount:            amt,
-		CoinSelectType:    tapsend.Bip86Only,
+		ScriptKeyType:     fn.Some(asset.ScriptKeyBip86),
 		DistinctSpecifier: true,
 	}
 

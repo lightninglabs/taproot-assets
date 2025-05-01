@@ -1010,7 +1010,7 @@ func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
 	case assetID != nil:
 		// Retrieve the current asset balance.
 		balances, err := r.cfg.AssetStore.QueryBalancesByAsset(
-			ctx, assetID, true,
+			ctx, assetID, true, fn.None[asset.ScriptKeyType](),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to query asset balance: %w",
@@ -1026,7 +1026,7 @@ func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
 	case groupPubKey != nil:
 		// Retrieve the current balance of the group.
 		balances, err := r.cfg.AssetStore.QueryAssetBalancesByGroup(
-			ctx, groupPubKey, true,
+			ctx, groupPubKey, true, fn.None[asset.ScriptKeyType](),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to query group balance: %w",
@@ -1060,9 +1060,8 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 	}
 
 	constraints := tapfreighter.CommitmentConstraints{
-		MinAmt:         req.MinAmount,
-		MaxAmt:         req.MaxAmount,
-		CoinSelectType: tapsend.DefaultCoinSelectType,
+		MinAmt: req.MinAmount,
+		MaxAmt: req.MaxAmount,
 	}
 
 	if len(req.GroupKey) > 0 {
@@ -1105,9 +1104,18 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 		filters.AnchorPoint = outPoint
 	}
 
+	scriptKeyType, includeSpent, err := taprpc.ParseScriptKeyTypeQuery(
+		req.ScriptKeyType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse script key type "+
+			"query: %w", err)
+	}
+	filters.ScriptKeyType = scriptKeyType
+
 	rpcAssets, err := r.fetchRpcAssets(
-		ctx, req.WithWitness, req.IncludeSpent, req.IncludeLeased,
-		filters,
+		ctx, req.WithWitness, req.IncludeSpent || includeSpent,
+		req.IncludeLeased, filters,
 	)
 
 	if err != nil {
@@ -1225,11 +1233,12 @@ func (r *rpcServer) MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 }
 
 func (r *rpcServer) listBalancesByAsset(ctx context.Context,
-	assetID *asset.ID, includeLeased bool) (*taprpc.ListBalancesResponse,
+	assetID *asset.ID, includeLeased bool,
+	skt fn.Option[asset.ScriptKeyType]) (*taprpc.ListBalancesResponse,
 	error) {
 
 	balances, err := r.cfg.AssetStore.QueryBalancesByAsset(
-		ctx, assetID, includeLeased,
+		ctx, assetID, includeLeased, skt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list balances: %w", err)
@@ -1260,11 +1269,12 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 }
 
 func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
-	groupKey *btcec.PublicKey,
-	includeLeased bool) (*taprpc.ListBalancesResponse, error) {
+	groupKey *btcec.PublicKey, includeLeased bool,
+	skt fn.Option[asset.ScriptKeyType]) (*taprpc.ListBalancesResponse,
+	error) {
 
 	balances, err := r.cfg.AssetStore.QueryAssetBalancesByGroup(
-		ctx, groupKey, includeLeased,
+		ctx, groupKey, includeLeased, skt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list balances: %w", err)
@@ -1299,8 +1309,22 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 func (r *rpcServer) ListUtxos(ctx context.Context,
 	req *taprpc.ListUtxosRequest) (*taprpc.ListUtxosResponse, error) {
 
+	scriptKeyType, includeSpent, err := taprpc.ParseScriptKeyTypeQuery(
+		req.ScriptKeyType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse script key type "+
+			"query: %w", err)
+	}
+
+	filters := &tapdb.AssetQueryFilters{
+		CommitmentConstraints: tapfreighter.CommitmentConstraints{
+			ScriptKeyType: scriptKeyType,
+		},
+	}
+
 	rpcAssets, err := r.fetchRpcAssets(
-		ctx, false, false, req.IncludeLeased, nil,
+		ctx, false, includeSpent, req.IncludeLeased, filters,
 	)
 	if err != nil {
 		return nil, err
@@ -1402,6 +1426,14 @@ func (r *rpcServer) ListGroups(ctx context.Context,
 func (r *rpcServer) ListBalances(ctx context.Context,
 	req *taprpc.ListBalancesRequest) (*taprpc.ListBalancesResponse, error) {
 
+	scriptKeyType, _, err := taprpc.ParseScriptKeyTypeQuery(
+		req.ScriptKeyType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse script key type "+
+			"query: %w", err)
+	}
+
 	switch groupBy := req.GroupBy.(type) {
 	case *taprpc.ListBalancesRequest_AssetId:
 		if !groupBy.AssetId {
@@ -1418,7 +1450,9 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 			copy(assetID[:], req.AssetFilter)
 		}
 
-		return r.listBalancesByAsset(ctx, assetID, req.IncludeLeased)
+		return r.listBalancesByAsset(
+			ctx, assetID, req.IncludeLeased, scriptKeyType,
+		)
 
 	case *taprpc.ListBalancesRequest_GroupKey:
 		if !groupBy.GroupKey {
@@ -1436,7 +1470,7 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 		}
 
 		return r.listBalancesByGroupKey(
-			ctx, groupKey, req.IncludeLeased,
+			ctx, groupKey, req.IncludeLeased, scriptKeyType,
 		)
 
 	default:
@@ -2175,7 +2209,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 	req *wrpc.FundVirtualPsbtRequest) (*wrpc.FundVirtualPsbtResponse,
 	error) {
 
-	coinSelectType, err := unmarshalCoinSelectType(req.CoinSelectType)
+	scriptKeyType, err := unmarshalCoinSelectType(req.CoinSelectType)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing coin select type: %w",
 			err)
@@ -2202,7 +2236,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 				"recipients: %w", err)
 		}
 
-		desc.CoinSelectType = coinSelectType
+		desc.ScriptKeyType = scriptKeyType
 		fundedVPkt, err = r.cfg.AssetWallet.FundPacket(ctx, desc, vPkt)
 		if err != nil {
 			return nil, fmt.Errorf("error funding packet: %w", err)
@@ -2272,7 +2306,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		}
 
 		fundedVPkt, err = r.cfg.AssetWallet.FundAddressSend(
-			ctx, coinSelectType, prevIDs, addr,
+			ctx, scriptKeyType, prevIDs, addr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error funding address send: "+
@@ -2321,23 +2355,24 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 	return response, nil
 }
 
-// unmarshalCoinSelectType converts an RPC select type into a native one.
+// unmarshalCoinSelectType converts an RPC select type into a script key type
+// that can be used to select the appropriate inputs.
 func unmarshalCoinSelectType(
-	coinSelectType wrpc.CoinSelectType) (tapsend.CoinSelectType, error) {
+	coinSelectType wrpc.CoinSelectType) (fn.Option[asset.ScriptKeyType],
+	error) {
 
 	switch coinSelectType {
-	case wrpc.CoinSelectType_COIN_SELECT_DEFAULT:
-		return tapsend.DefaultCoinSelectType, nil
+	case wrpc.CoinSelectType_COIN_SELECT_DEFAULT,
+		wrpc.CoinSelectType_COIN_SELECT_SCRIPT_TREES_ALLOWED:
+
+		return fn.None[asset.ScriptKeyType](), nil
 
 	case wrpc.CoinSelectType_COIN_SELECT_BIP86_ONLY:
-		return tapsend.Bip86Only, nil
-
-	case wrpc.CoinSelectType_COIN_SELECT_SCRIPT_TREES_ALLOWED:
-		return tapsend.ScriptTreesAllowed, nil
+		return fn.Some(asset.ScriptKeyBip86), nil
 
 	default:
-		return 0, fmt.Errorf("unknown coin select type: %d",
-			coinSelectType)
+		return fn.None[asset.ScriptKeyType](), fmt.Errorf("unknown "+
+			"coin select type: %d", coinSelectType)
 	}
 }
 
@@ -8154,7 +8189,20 @@ func (r *rpcServer) DeclareScriptKey(ctx context.Context,
 			err)
 	}
 
-	err = r.cfg.TapAddrBook.InsertScriptKey(ctx, *scriptKey, true)
+	// Because we've been given the key over the RPC interface, we can't be
+	// 100% sure of the type, if it wasn't declared. But we can make a
+	// best-effort guess based on the fields the user has set. This is a
+	// no-op if the type is already set.
+	scriptKey.Type = scriptKey.DetermineType()
+
+	// The user is declaring the key, so they should know what type it is.
+	// So if they didn't set it, and it wasn't an obvious one, we'll require
+	// them to set it.
+	if scriptKey.Type == asset.ScriptKeyUnknown {
+		return nil, fmt.Errorf("script key type must be set")
+	}
+
+	err = r.cfg.TapAddrBook.InsertScriptKey(ctx, *scriptKey, scriptKey.Type)
 	if err != nil {
 		return nil, fmt.Errorf("error inserting script key: %w", err)
 	}

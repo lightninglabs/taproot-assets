@@ -85,6 +85,10 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 		ctxt, t, alice, bob, numUnits, genInfo, mintedAsset,
 		bobScriptKey, bobInternalKey, tapscript, rootHash,
 	)
+	AssertBalances(
+		t.t, bob, numUnits, WithNumUtxos(1), WithNumAnchorUtxos(1),
+		WithScriptKeyType(asset.ScriptKeyScriptPathExternal),
+	)
 
 	// Now try to send back those assets using the PSBT flow.
 	aliceAddr, err := alice.NewAddr(ctxb, &taprpc.NewAddrRequest{
@@ -152,6 +156,11 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	assetsJSON, err := formatProtoJSON(aliceAssets)
 	require.NoError(t.t, err)
 	t.Logf("Got alice assets: %s", assetsJSON)
+
+	AssertBalances(
+		t.t, alice, mintedAsset.Amount-numUnits/2, WithNumUtxos(2),
+		WithNumAnchorUtxos(2), WithScriptKeyType(asset.ScriptKeyBip86),
+	)
 }
 
 // testPsbtScriptCheckSigSend tests that we can properly send assets with a sig
@@ -203,6 +212,11 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	sendToTapscriptAddr(
 		ctxt, t, alice, bob, numUnits, genInfo, mintedAsset,
 		bobScriptKey, bobInternalKey, tapscript, rootHash,
+	)
+
+	AssertBalances(
+		t.t, bob, numUnits, WithNumUtxos(1), WithNumAnchorUtxos(1),
+		WithScriptKeyType(asset.ScriptKeyScriptPathExternal),
 	)
 
 	// Now try to send back those assets using the PSBT flow.
@@ -274,6 +288,11 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	assetsJSON, err := formatProtoJSON(aliceAssets)
 	require.NoError(t.t, err)
 	t.Logf("Got alice assets: %s", assetsJSON)
+
+	AssertBalances(
+		t.t, alice, mintedAsset.Amount-numUnits/2, WithNumUtxos(2),
+		WithNumAnchorUtxos(2), WithScriptKeyType(asset.ScriptKeyBip86),
+	)
 }
 
 // testPsbtNormalInteractiveFullValueSend tests that we can properly send normal
@@ -874,7 +893,9 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 		)
 
 		senderAssets, err := sender.ListAssets(
-			ctxt, &taprpc.ListAssetRequest{},
+			ctxt, &taprpc.ListAssetRequest{
+				ScriptKeyType: allScriptKeysQuery,
+			},
 		)
 		require.NoError(t.t, err)
 
@@ -898,7 +919,9 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 		require.Len(t.t, senderAssets.Assets, numSenderAssets)
 
 		receiverAssets, err := receiver.ListAssets(
-			ctxt, &taprpc.ListAssetRequest{},
+			ctxt, &taprpc.ListAssetRequest{
+				ScriptKeyType: allScriptKeysQuery,
+			},
 		)
 		require.NoError(t.t, err)
 		require.Len(t.t, receiverAssets.Assets, numReceiverAssets)
@@ -1226,13 +1249,17 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	)
 
 	senderAssets, err := alice.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctxt, &taprpc.ListAssetRequest{
+			ScriptKeyType: allScriptKeysQuery,
+		},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, senderAssets.Assets, 1)
 
 	receiverAssets, err := bob.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctxt, &taprpc.ListAssetRequest{
+			ScriptKeyType: allScriptKeysQuery,
+		},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, receiverAssets.Assets, 1)
@@ -1402,13 +1429,17 @@ func testPsbtMultiSend(t *harnessTest) {
 	)
 
 	senderAssets, err := sender.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctxt, &taprpc.ListAssetRequest{
+			ScriptKeyType: allScriptKeysQuery,
+		},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, senderAssets.Assets, 4)
 
 	receiverAssets, err := receiver.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctxt, &taprpc.ListAssetRequest{
+			ScriptKeyType: allScriptKeysQuery,
+		},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, receiverAssets.Assets, 2)

@@ -27,13 +27,6 @@ import (
 	"github.com/lightningnetwork/lnd/signal"
 )
 
-// databaseBackend is an interface that contains all methods our different
-// database backends implement.
-type databaseBackend interface {
-	tapdb.BatchedQuerier
-	WithTx(tx *sql.Tx) *sqlc.Queries
-}
-
 // genServerConfig generates a server config from the given tapd config.
 //
 // NOTE: The RPCConfig and SignalInterceptor fields must be set by the caller
@@ -44,7 +37,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	var (
 		err    error
-		db     databaseBackend
+		db     tapdb.DatabaseBackend
 		dbType sqlc.BackendType
 	)
 

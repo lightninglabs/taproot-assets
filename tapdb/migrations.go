@@ -2,6 +2,7 @@ package tapdb
 
 import (
 	"bytes"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 )
 
 const (
@@ -22,8 +24,15 @@ const (
 	// daemon.
 	//
 	// NOTE: This MUST be updated when a new migration is added.
-	LatestMigrationVersion = 32
+	LatestMigrationVersion = 34
 )
+
+// DatabaseBackend is an interface that contains all methods our different
+// Database backends implement.
+type DatabaseBackend interface {
+	BatchedQuerier
+	WithTx(tx *sql.Tx) *sqlc.Queries
+}
 
 // MigrationTarget is a functional option that can be passed to applyMigrations
 // to specify a target version to migrate to. `currentDbVersion` is the current
@@ -58,13 +67,16 @@ var (
 // migrationOption is a functional option that can be passed to migrate related
 // methods to modify their behavior.
 type migrateOptions struct {
-	latestVersion fn.Option[uint]
+	latestVersion     fn.Option[uint]
+	postStepCallbacks map[uint]migrate.PostStepCallback
 }
 
 // defaultMigrateOptions returns a new migrateOptions instance with default
 // settings.
 func defaultMigrateOptions() *migrateOptions {
-	return &migrateOptions{}
+	return &migrateOptions{
+		postStepCallbacks: make(map[uint]migrate.PostStepCallback),
+	}
 }
 
 // MigrateOpt is a functional option that can be passed to migrate related
@@ -76,6 +88,21 @@ type MigrateOpt func(*migrateOptions)
 func WithLatestVersion(version uint) MigrateOpt {
 	return func(o *migrateOptions) {
 		o.latestVersion = fn.Some(version)
+	}
+}
+
+// WithPostStepCallbacks is an option that can be used to set a map of
+// PostStepCallback functions that can be used to execute a Golang based
+// migration step after a SQL based migration step has been executed. The key is
+// the migration version and the value is the callback function that should be
+// run _after_ the step was executed (but before the version is marked as
+// cleanly executed). An error returned from the callback will cause the
+// migration to fail and the step to be marked as dirty.
+func WithPostStepCallbacks(
+	postStepCallbacks map[uint]migrate.PostStepCallback) MigrateOpt {
+
+	return func(o *migrateOptions) {
+		o.postStepCallbacks = postStepCallbacks
 	}
 }
 
@@ -133,6 +160,7 @@ func applyMigrations(fs fs.FS, driver database.Driver, path, dbName string,
 	// above.
 	sqlMigrate, err := migrate.NewWithInstance(
 		"migrations", migrateFileServer, dbName, driver,
+		migrate.WithPostStepCallbacks(opts.postStepCallbacks),
 	)
 	if err != nil {
 		return err

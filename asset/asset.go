@@ -108,6 +108,50 @@ const (
 	EncodeSegwit
 )
 
+// ScriptKeyType denotes the type of script key used for an asset. This type is
+// serialized to the database, so we don't use iota for the values to ensure
+// they don't change by accident.
+type ScriptKeyType uint8
+
+const (
+	// ScriptKeyUnknown is the default script key type used for assets that
+	// we don't know the type of. This should only be stored for assets
+	// where we don't know the internal key of the script key (e.g. for
+	// imported proofs).
+	ScriptKeyUnknown ScriptKeyType = 0
+
+	// ScriptKeyBip86 is the script key type used for assets that use the
+	// BIP86 style tweak (e.g. an empty tweak).
+	ScriptKeyBip86 ScriptKeyType = 1
+
+	// ScriptKeyScriptPathExternal is the script key type used for assets
+	// that use a script path that is defined by an external application.
+	// Keys with script paths are normally not shown in asset balances and
+	// by default aren't used for coin selection unless specifically
+	// requested.
+	ScriptKeyScriptPathExternal ScriptKeyType = 2
+
+	// ScriptKeyBurn is the script key type used for assets that are burned
+	// and not spendable.
+	ScriptKeyBurn ScriptKeyType = 3
+
+	// ScriptKeyTombstone is the script key type used for assets that are
+	// not spendable and have been marked as tombstones. This is only the
+	// case for zero-value assets that result from a non-interactive (TAP
+	// address) send where no change was left over. The script key used for
+	// this is a NUMS key that is not spendable.
+	ScriptKeyTombstone ScriptKeyType = 4
+
+	// ScriptKeyScriptPathChannel is the script key type used for assets
+	// that use a script path that is somehow related to Taproot Asset
+	// Channels. That means the script key is either a funding key
+	// (OP_TRUE), a commitment output key (to_local, to_remote, htlc), or a
+	// HTLC second-level transaction output key.
+	// Keys related to channels are not shown in asset balances (unless
+	// specifically requested) and are _never_ used for coin selection.
+	ScriptKeyScriptPathChannel ScriptKeyType = 5
+)
+
 var (
 	// ZeroPrevID is the blank prev ID used for genesis assets and also
 	// asset split leaves.
@@ -1005,14 +1049,8 @@ type TweakedScriptKey struct {
 	// public key. If this is nil, then a BIP-0086 tweak is assumed.
 	Tweak []byte
 
-	// DeclaredKnown indicates that this script key has been explicitly
-	// declared as being important to the local wallet, even if it might not
-	// be fully known to the local wallet. This could perhaps also be named
-	// "imported", though that might imply that the corresponding private
-	// key was also somehow imported and available. The only relevance this
-	// flag has is that assets with a declared key are shown in the asset
-	// list/balance.
-	DeclaredKnown bool
+	// Type is the type of script key that is being used.
+	Type ScriptKeyType
 }
 
 // IsEqual returns true is this tweaked script key is exactly equivalent to the
@@ -1083,12 +1121,9 @@ func (s *ScriptKey) IsEqual(otherScriptKey *ScriptKey) bool {
 // the local wallet or was explicitly declared to be known by using the
 // DeclareScriptKey RPC. Knowing the key conceptually means the key belongs to
 // the local wallet or is at least known by a software that operates on the
-// local wallet. The DeclaredAsKnown flag is never serialized in proofs, so this
-// is never explicitly set for keys foreign to the local wallet. Therefore, if
-// this method returns true for a script key, it means the asset with the script
-// key will be shown in the wallet balance.
+// local wallet.
 func (s *ScriptKey) DeclaredAsKnown() bool {
-	return s.TweakedScriptKey != nil && s.TweakedScriptKey.DeclaredKnown
+	return s.TweakedScriptKey != nil && s.Type != ScriptKeyUnknown
 }
 
 // HasScriptPath returns true if we know the internals of the script key and
@@ -1098,15 +1133,55 @@ func (s *ScriptKey) HasScriptPath() bool {
 	return s.TweakedScriptKey != nil && len(s.TweakedScriptKey.Tweak) > 0
 }
 
+// DetermineType attempts to determine the type of the script key based on the
+// information available. This method will only return ScriptKeyUnknown if the
+// following condition is met:
+//   - The script key doesn't have a script path, but the final Taproot output
+//     key doesn't match a BIP-0086 key derived from the internal key. This will
+//     be the case for "foreign" script keys we import from proofs, where we set
+//     the internal key to the same key as the tweaked script key (because we
+//     don't know the internal key, as it's not part of the proof encoding).
+func (s *ScriptKey) DetermineType() ScriptKeyType {
+	// If we have an explicit script key type set, we can return that.
+	if s.TweakedScriptKey != nil &&
+		s.TweakedScriptKey.Type != ScriptKeyUnknown {
+
+		return s.TweakedScriptKey.Type
+	}
+
+	// If there is a known tweak, then we know that this is a script path
+	// key. We never return the channel type, since those keys should always
+	// be declared properly, and we never should need to guess their type.
+	if s.HasScriptPath() {
+		return ScriptKeyScriptPathExternal
+	}
+
+	// Is it the known NUMS key? Then this is a tombstone output.
+	if s.PubKey != nil && s.PubKey.IsEqual(NUMSPubKey) {
+		return ScriptKeyTombstone
+	}
+
+	// Do we know the internal key? Then we can check whether it is a
+	// BIP-0086 key.
+	if s.PubKey != nil && s.TweakedScriptKey != nil &&
+		s.TweakedScriptKey.RawKey.PubKey != nil {
+
+		bip86 := NewScriptKeyBip86(s.TweakedScriptKey.RawKey)
+		if bip86.PubKey.IsEqual(s.PubKey) {
+			return ScriptKeyBip86
+		}
+	}
+
+	return ScriptKeyUnknown
+}
+
 // NewScriptKey constructs a ScriptKey with only the publicly available
 // information. This resulting key may or may not have a tweak applied to it.
 func NewScriptKey(key *btcec.PublicKey) ScriptKey {
 	// Since we'll never query lnd for a tweaked key, it doesn't matter if
 	// we lose the parity information here. And this will only ever be
 	// serialized on chain in a 32-bit representation as well.
-	key, _ = schnorr.ParsePubKey(
-		schnorr.SerializePubKey(key),
-	)
+	key, _ = schnorr.ParsePubKey(schnorr.SerializePubKey(key))
 	return ScriptKey{
 		PubKey: key,
 	}
@@ -1118,9 +1193,7 @@ func NewScriptKey(key *btcec.PublicKey) ScriptKey {
 func NewScriptKeyBip86(rawKey keychain.KeyDescriptor) ScriptKey {
 	// Tweak the script key BIP-0086 style (such that we only commit to the
 	// internal key when signing).
-	tweakedPubKey := txscript.ComputeTaprootKeyNoScript(
-		rawKey.PubKey,
-	)
+	tweakedPubKey := txscript.ComputeTaprootKeyNoScript(rawKey.PubKey)
 
 	// Since we'll never query lnd for a tweaked key, it doesn't matter if
 	// we lose the parity information here. And this will only ever be
@@ -1133,6 +1206,7 @@ func NewScriptKeyBip86(rawKey keychain.KeyDescriptor) ScriptKey {
 		PubKey: tweakedPubKey,
 		TweakedScriptKey: &TweakedScriptKey{
 			RawKey: rawKey,
+			Type:   ScriptKeyBip86,
 		},
 	}
 }
@@ -1526,7 +1600,7 @@ func (a *Asset) Copy() *Asset {
 
 	if a.ScriptKey.TweakedScriptKey != nil {
 		assetCopy.ScriptKey.TweakedScriptKey = &TweakedScriptKey{
-			DeclaredKnown: a.ScriptKey.DeclaredKnown,
+			Type: a.ScriptKey.Type,
 		}
 		assetCopy.ScriptKey.RawKey = a.ScriptKey.RawKey
 

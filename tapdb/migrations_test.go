@@ -2,6 +2,7 @@ package tapdb
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -553,5 +554,119 @@ func TestMigration31(t *testing.T) {
 		t, err,
 		"duplicate insert should now succeed with the new unique "+
 			"constraint",
+	)
+}
+
+// TestMigration33 tests that the Golang based post migration check for the
+// script key type detection works as expected. It verifies that the script key
+// types are detected correctly and that the migration to version 31 works as
+// expected.
+func TestMigration33(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 32)
+
+	// We need to insert some test data that will be affected by the
+	// migration number 31.
+	InsertTestdata(t, db.BaseDB, "migrations_test_00033_dummy_data.sql")
+
+	// And now that we have test data inserted, we can migrate to the latest
+	// version.
+	err := db.ExecuteMigrations(TargetLatest, WithPostStepCallbacks(
+		makePostStepCallbacks(db, postMigrationChecks),
+	))
+	require.NoError(t, err)
+
+	// The migration should have de-duplicated the assets, so we should now
+	// only have two valid/distinct assets with two witnesses and one proof
+	// each. So we're just asserting the expected state _after_ the
+	// migration has run.
+	unknownKey, _ := hex.DecodeString(
+		"039c571fffcac1a1a7cd3372bd202ad8562f28e48b90f8a4eb714eca062f" +
+			"576ee6",
+	)
+	unknownScriptKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+		ctx, unknownKey,
+	)
+	require.NoError(t, err)
+	require.Equal(
+		t, asset.ScriptKeyUnknown, extractSqlInt16[asset.ScriptKeyType](
+			unknownScriptKey.ScriptKey.KeyType,
+		),
+	)
+
+	bip86Key, _ := hex.DecodeString(
+		"029c571fffcac1a1a7cd3372bd202ad8562f28e48b90f8a4eb714eca062f" +
+			"576ee6",
+	)
+	bip86ScriptKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+		ctx, bip86Key,
+	)
+	require.NoError(t, err)
+	require.EqualValues(
+		t, asset.ScriptKeyBip86,
+		extractSqlInt16[asset.ScriptKeyType](
+			bip86ScriptKey.ScriptKey.KeyType,
+		),
+	)
+
+	scriptedKey, _ := hex.DecodeString(
+		"03f9cdf1ff7c9fbb0ea3c8533cd7048994f41ea20a79764469c22aa18aa6" +
+			"696169",
+	)
+	scriptedScriptKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+		ctx, scriptedKey,
+	)
+	require.NoError(t, err)
+	require.EqualValues(
+		t, asset.ScriptKeyScriptPathExternal,
+		extractSqlInt16[asset.ScriptKeyType](
+			scriptedScriptKey.ScriptKey.KeyType,
+		),
+	)
+
+	tombstoneKey, _ := hex.DecodeString(
+		"027c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3e6d540b" +
+			"3653fe",
+	)
+	tombstoneScriptKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+		ctx, tombstoneKey,
+	)
+	require.NoError(t, err)
+	require.EqualValues(
+		t, asset.ScriptKeyTombstone,
+		extractSqlInt16[asset.ScriptKeyType](
+			tombstoneScriptKey.ScriptKey.KeyType,
+		),
+	)
+
+	channelKey, _ := hex.DecodeString(
+		"0350aaeb166f4234650d84a2d8a130987aeaf6950206e0905401ee74ff3f" +
+			"8d18e6",
+	)
+	channelScriptKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+		ctx, channelKey,
+	)
+	require.NoError(t, err)
+	require.EqualValues(
+		t, asset.ScriptKeyScriptPathChannel,
+		extractSqlInt16[asset.ScriptKeyType](
+			channelScriptKey.ScriptKey.KeyType,
+		),
+	)
+
+	burnKey, _ := hex.DecodeString(
+		"02248bca7dbb12dcf0b490263a1d521691691aa2541842b7472c83acac0e" +
+			"88443b",
+	)
+	burnScriptKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+		ctx, burnKey,
+	)
+	require.NoError(t, err)
+	require.EqualValues(
+		t, asset.ScriptKeyBurn,
+		extractSqlInt16[asset.ScriptKeyType](
+			burnScriptKey.ScriptKey.KeyType,
+		),
 	)
 }

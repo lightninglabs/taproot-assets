@@ -716,7 +716,7 @@ CREATE TABLE script_keys (
     -- An optional tweak for the script_key. If NULL, the raw_key may be
     -- tweaked BIP-0086 style.
     tweak BLOB
-, declared_known BOOLEAN);
+, key_type SMALLINT);
 
 CREATE INDEX status_idx ON addr_events(status);
 

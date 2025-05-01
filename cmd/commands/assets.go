@@ -14,7 +14,47 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/urfave/cli"
+	"golang.org/x/exp/maps"
 )
+
+var (
+	// nolint:lll
+	scriptKeyTypeMap = map[string]taprpc.ScriptKeyType{
+		"unknown":     taprpc.ScriptKeyType_SCRIPT_KEY_UNKNOWN,
+		"bip86":       taprpc.ScriptKeyType_SCRIPT_KEY_BIP86,
+		"script-path": taprpc.ScriptKeyType_SCRIPT_KEY_SCRIPT_PATH_EXTERNAL,
+		"burn":        taprpc.ScriptKeyType_SCRIPT_KEY_BURN,
+		"tombstone":   taprpc.ScriptKeyType_SCRIPT_KEY_TOMBSTONE,
+		"channel":     taprpc.ScriptKeyType_SCRIPT_KEY_CHANNEL,
+	}
+)
+
+// parseScriptKeyType parses the script key type query from the command line
+// context. If the user didn't specify a script key type, the "show all" query
+// type is returned.
+func parseScriptKeyType(c *cli.Context) (*taprpc.ScriptKeyTypeQuery, error) {
+	allScriptKeysQuery := &taprpc.ScriptKeyTypeQuery{
+		Type: &taprpc.ScriptKeyTypeQuery_AllTypes{
+			AllTypes: true,
+		},
+	}
+
+	if !c.IsSet(scriptKeyTypeName) || c.String(scriptKeyTypeName) == "" {
+		return allScriptKeysQuery, nil
+	}
+
+	scriptKeyType, ok := scriptKeyTypeMap[c.String(scriptKeyTypeName)]
+	if !ok {
+		return nil, fmt.Errorf("script key type '%v' is unknown",
+			c.String(scriptKeyTypeName))
+	}
+
+	return &taprpc.ScriptKeyTypeQuery{
+		Type: &taprpc.ScriptKeyTypeQuery_ExplicitType{
+			ExplicitType: scriptKeyType,
+		},
+	}, nil
+}
 
 var assetsCommands = []cli.Command{
 	{
@@ -64,6 +104,7 @@ var (
 	skipProofCourierPingCheckName = "skip-proof-courier-ping-check"
 	assetAmountName               = "amount"
 	burnOverrideConfirmationName  = "override_confirmation_destroy_assets"
+	scriptKeyTypeName             = "script_key_type"
 )
 
 var mintAssetCommand = cli.Command{
@@ -666,6 +707,12 @@ var listAssetsCommand = cli.Command{
 			Usage: "include freshly minted and not yet confirmed " +
 				"assets in the list",
 		},
+		cli.StringFlag{
+			Name: scriptKeyTypeName,
+			Usage: "filter assets by the type of script key they " +
+				"use; possible values are: " +
+				strings.Join(maps.Keys(scriptKeyTypeMap), ", "),
+		},
 	},
 	Action: listAssets,
 }
@@ -677,15 +724,22 @@ func listAssets(ctx *cli.Context) error {
 
 	// TODO(roasbeef): need to reverse txid
 
+	scriptKeyQuery, err := parseScriptKeyType(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to parse script key type: %w", err)
+	}
+
 	resp, err := client.ListAssets(ctxc, &taprpc.ListAssetRequest{
 		WithWitness:             ctx.Bool(assetShowWitnessName),
 		IncludeSpent:            ctx.Bool(assetShowSpentName),
 		IncludeLeased:           ctx.Bool(assetShowLeasedName),
 		IncludeUnconfirmedMints: ctx.Bool(assetShowUnconfMintsName),
+		ScriptKeyType:           scriptKeyQuery,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to list assets: %w", err)
 	}
+
 	printRespJSON(resp)
 	return nil
 }
@@ -695,7 +749,19 @@ var listUtxosCommand = cli.Command{
 	ShortName:   "u",
 	Usage:       "list all utxos",
 	Description: "list all utxos managing assets",
-	Action:      listUtxos,
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  assetShowLeasedName,
+			Usage: "include leased assets in the list",
+		},
+		cli.StringFlag{
+			Name: scriptKeyTypeName,
+			Usage: "filter assets by the type of script key they " +
+				"use; possible values are: " +
+				strings.Join(maps.Keys(scriptKeyTypeMap), ", "),
+		},
+	},
+	Action: listUtxos,
 }
 
 func listUtxos(ctx *cli.Context) error {
@@ -703,10 +769,19 @@ func listUtxos(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.ListUtxos(ctxc, &taprpc.ListUtxosRequest{})
+	scriptKeyQuery, err := parseScriptKeyType(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to parse script key type: %w", err)
+	}
+
+	resp, err := client.ListUtxos(ctxc, &taprpc.ListUtxosRequest{
+		IncludeLeased: ctx.Bool(assetShowLeasedName),
+		ScriptKeyType: scriptKeyQuery,
+	})
 	if err != nil {
 		return fmt.Errorf("unable to list utxos: %w", err)
 	}
+
 	printRespJSON(resp)
 	return nil
 }
@@ -758,6 +833,12 @@ var listAssetBalancesCommand = cli.Command{
 				"balance query against. Must be used " +
 				"together with --by_group",
 		},
+		cli.StringFlag{
+			Name: scriptKeyTypeName,
+			Usage: "filter assets by the type of script key they " +
+				"use; possible values are: " +
+				strings.Join(maps.Keys(scriptKeyTypeMap), ", "),
+		},
 	},
 }
 
@@ -766,10 +847,14 @@ func listAssetBalances(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	var err error
+	scriptKeyQuery, err := parseScriptKeyType(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to parse script key type: %w", err)
+	}
 
 	req := &taprpc.ListBalancesRequest{
 		IncludeLeased: ctx.Bool(assetIncludeLeasedName),
+		ScriptKeyType: scriptKeyQuery,
 	}
 
 	if !ctx.Bool(groupByGroupName) {

@@ -1239,7 +1239,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"address parcel")
 		}
 		fundSendRes, err := p.cfg.AssetWallet.FundAddressSend(
-			ctx, tapsend.Bip86Only, nil, addrParcel.destAddrs...,
+			ctx, fn.Some(asset.ScriptKeyBip86), nil,
+			addrParcel.destAddrs...,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fund address send: "+
@@ -1720,6 +1721,46 @@ func (p *ChainPorter) publishSubscriberEvent(event fn.Event) {
 
 	for _, sub := range p.subscribers {
 		sub.NewItemCreated.ChanIn() <- event
+	}
+}
+
+// detectUnSpendableKeys checks if the script key in the virtual output is a
+// burn or tombstone key and sets the appropriate type on the output script key.
+func detectUnSpendableKeys(vOut *tappsbt.VOutput) {
+	setScriptKeyType := func(vOut *tappsbt.VOutput,
+		scriptKeyType asset.ScriptKeyType) {
+
+		if vOut.Asset.ScriptKey.TweakedScriptKey == nil {
+			vOut.Asset.ScriptKey.TweakedScriptKey = new(
+				asset.TweakedScriptKey,
+			)
+			vOut.Asset.ScriptKey.RawKey.PubKey =
+				vOut.Asset.ScriptKey.PubKey
+		}
+		if vOut.ScriptKey.TweakedScriptKey == nil {
+			vOut.ScriptKey.TweakedScriptKey = new(
+				asset.TweakedScriptKey,
+			)
+			vOut.ScriptKey.RawKey.PubKey = vOut.ScriptKey.PubKey
+		}
+
+		vOut.Asset.ScriptKey.Type = scriptKeyType
+		vOut.ScriptKey.Type = scriptKeyType
+	}
+
+	if vOut.Asset == nil {
+		return
+	}
+
+	witness := vOut.Asset.PrevWitnesses
+	scriptKey := vOut.ScriptKey
+	if len(witness) > 0 && asset.IsBurnKey(scriptKey.PubKey, witness[0]) {
+		setScriptKeyType(vOut, asset.ScriptKeyBurn)
+	}
+
+	unSpendable, _ := scriptKey.IsUnSpendable()
+	if unSpendable {
+		setScriptKeyType(vOut, asset.ScriptKeyTombstone)
 	}
 }
 

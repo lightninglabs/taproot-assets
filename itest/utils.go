@@ -449,6 +449,7 @@ func FinalizeBatchUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 	listRespUnconfirmed, err := tapClient.ListAssets(
 		ctxt, &taprpc.ListAssetRequest{
 			IncludeUnconfirmedMints: true,
+			ScriptKeyType:           allScriptKeysQuery,
 		},
 	)
 	require.NoError(t, err)

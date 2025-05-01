@@ -46,6 +46,20 @@ var (
 
 	batchFrozen    = mintrpc.BatchState_BATCH_STATE_FROZEN
 	batchFinalized = mintrpc.BatchState_BATCH_STATE_FINALIZED
+
+	allScriptKeysQuery = &taprpc.ScriptKeyTypeQuery{
+		Type: &taprpc.ScriptKeyTypeQuery_AllTypes{
+			AllTypes: true,
+		},
+	}
+
+	groupBalancesByAssetID = &taprpc.ListBalancesRequest_AssetId{
+		AssetId: true,
+	}
+
+	groupBalancesByGroupKey = &taprpc.ListBalancesRequest_GroupKey{
+		GroupKey: true,
+	}
 )
 
 // tapClient is an interface that covers all currently available RPC interfaces
@@ -1336,7 +1350,8 @@ func AssertBalanceByID(t *testing.T, client taprpc.TaprootAssetsClient,
 			GroupBy: &taprpc.ListBalancesRequest_AssetId{
 				AssetId: true,
 			},
-			AssetFilter: id,
+			AssetFilter:   id,
+			ScriptKeyType: allScriptKeysQuery,
 		},
 	)
 	require.NoError(t, err)
@@ -1902,7 +1917,9 @@ func AssertAssetsMinted(t *testing.T, tapClient commands.RpcClientsBundle,
 	)
 
 	listRespConfirmed, err := tapClient.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctxt, &taprpc.ListAssetRequest{
+			ScriptKeyType: allScriptKeysQuery,
+		},
 	)
 	require.NoError(t, err)
 	confirmedAssets := GroupAssetsByName(listRespConfirmed.Assets)
@@ -2001,7 +2018,7 @@ func AssertGenesisOutput(t *testing.T, output *taprpc.ManagedUtxo,
 	require.Equal(t, expectedMerkleRoot[:], output.MerkleRoot)
 }
 
-func AssertAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
+func AssertMintedAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 	simpleAssets, issuableAssets []*taprpc.Asset, includeLeased bool) {
 
 	t.Helper()
@@ -2012,12 +2029,9 @@ func AssertAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	// First, we'll ensure that we're able to get the balances of all the
 	// assets grouped by their asset IDs.
-	balanceReq := &taprpc.ListBalancesRequest_AssetId{
-		AssetId: true,
-	}
 	assetIDBalances, err := client.ListBalances(
 		ctxt, &taprpc.ListBalancesRequest{
-			GroupBy:       balanceReq,
+			GroupBy:       groupBalancesByAssetID,
 			IncludeLeased: includeLeased,
 		},
 	)
@@ -2058,20 +2072,17 @@ func AssertAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 	require.NoError(t, err)
 
 	var totalAssetListBalance uint64
-	for _, asset := range assetList.Assets {
-		totalAssetListBalance += asset.Amount
+	for _, a := range assetList.Assets {
+		totalAssetListBalance += a.Amount
 	}
 
 	require.Equal(t, totalBalance, totalAssetListBalance)
 
 	// We'll also ensure that we're able to get the balance by key group
 	// for all the assets that have one specified.
-	groupBalanceReq := &taprpc.ListBalancesRequest_GroupKey{
-		GroupKey: true,
-	}
 	assetGroupBalances, err := client.ListBalances(
 		ctxt, &taprpc.ListBalancesRequest{
-			GroupBy: groupBalanceReq,
+			GroupBy: groupBalancesByGroupKey,
 		},
 	)
 	require.NoError(t, err)
@@ -2080,19 +2091,311 @@ func AssertAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 		t, len(issuableAssets),
 		len(assetGroupBalances.AssetGroupBalances),
 	)
+}
 
-	for _, balance := range assetGroupBalances.AssetBalances {
-		for _, rpcAsset := range issuableAssets {
-			if balance.AssetGenesis.Name == rpcAsset.AssetGenesis.Name {
-				require.Equal(
-					t, balance.Balance, rpcAsset.Amount,
-				)
-				require.Equal(
-					t, balance.AssetGenesis,
-					rpcAsset.AssetGenesis,
-				)
+type balanceConfig struct {
+	assetID             []byte
+	groupKey            []byte
+	groupedAssetBalance uint64
+	numAssetUtxos       uint32
+	numAnchorUtxos      uint32
+	includeLeased       bool
+	allScriptKeyTypes   bool
+	scriptKeyType       *asset.ScriptKeyType
+	scriptKey           []byte
+}
+
+type BalanceOption func(*balanceConfig)
+
+func WithAssetID(assetID []byte) BalanceOption {
+	return func(c *balanceConfig) {
+		c.assetID = assetID
+	}
+}
+
+func WithGroupKey(groupKey []byte) BalanceOption {
+	return func(c *balanceConfig) {
+		c.groupKey = groupKey
+	}
+}
+
+func WithGroupedAssetBalance(groupedAssetBalance uint64) BalanceOption {
+	return func(c *balanceConfig) {
+		c.groupedAssetBalance = groupedAssetBalance
+	}
+}
+
+func WithNumUtxos(numAssetUtxos uint32) BalanceOption {
+	return func(c *balanceConfig) {
+		c.numAssetUtxos = numAssetUtxos
+	}
+}
+
+func WithNumAnchorUtxos(numAnchorUtxos uint32) BalanceOption {
+	return func(c *balanceConfig) {
+		c.numAnchorUtxos = numAnchorUtxos
+	}
+}
+
+func WithIncludeLeased() BalanceOption {
+	return func(c *balanceConfig) {
+		c.includeLeased = true
+	}
+}
+
+func WithAllScriptKeyTypes() BalanceOption {
+	return func(c *balanceConfig) {
+		c.allScriptKeyTypes = true
+	}
+}
+
+func WithScriptKeyType(scriptKeyType asset.ScriptKeyType) BalanceOption {
+	return func(c *balanceConfig) {
+		c.scriptKeyType = &scriptKeyType
+	}
+}
+
+func WithScriptKey(scriptKey []byte) BalanceOption {
+	return func(c *balanceConfig) {
+		c.scriptKey = scriptKey
+
+		if len(scriptKey) == 33 {
+			xOnlyKey, _ := schnorr.ParsePubKey(scriptKey[1:])
+			c.scriptKey = xOnlyKey.SerializeCompressed()
+		}
+	}
+}
+
+func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
+	balance uint64, opts ...BalanceOption) {
+
+	t.Helper()
+
+	config := &balanceConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	var rpcTypeQuery *taprpc.ScriptKeyTypeQuery
+	switch {
+	case config.allScriptKeyTypes:
+		rpcTypeQuery = &taprpc.ScriptKeyTypeQuery{
+			Type: &taprpc.ScriptKeyTypeQuery_AllTypes{
+				AllTypes: true,
+			},
+		}
+
+	case config.scriptKeyType != nil:
+		rpcTypeQuery = &taprpc.ScriptKeyTypeQuery{
+			Type: &taprpc.ScriptKeyTypeQuery_ExplicitType{
+				ExplicitType: taprpc.MarshalScriptKeyType(
+					*config.scriptKeyType,
+				),
+			},
+		}
+	}
+
+	balanceSum := func(resp *taprpc.ListBalancesResponse,
+		group bool) uint64 {
+
+		var totalBalance uint64
+
+		if group {
+			for _, currentBalance := range resp.AssetGroupBalances {
+				totalBalance += currentBalance.Balance
+			}
+		} else {
+			for _, currentBalance := range resp.AssetBalances {
+				totalBalance += currentBalance.Balance
 			}
 		}
+
+		return totalBalance
+	}
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// First, we'll ensure that we're able to get the balances of all the
+	// assets grouped by their asset IDs.
+	assetIDBalances, err := client.ListBalances(
+		ctxt, &taprpc.ListBalancesRequest{
+			GroupBy:        groupBalancesByAssetID,
+			IncludeLeased:  config.includeLeased,
+			ScriptKeyType:  rpcTypeQuery,
+			AssetFilter:    config.assetID,
+			GroupKeyFilter: config.groupKey,
+		},
+	)
+	require.NoError(t, err)
+
+	// Spent assets (burns/tombstones) are never included in the balance,
+	// even if we specifically query for their type. So we skip the balance
+	// check in that case. We also skip if we're looking for a specific
+	// script key.
+	checkBalance := (config.scriptKeyType == nil ||
+		(*config.scriptKeyType != asset.ScriptKeyBurn &&
+			*config.scriptKeyType != asset.ScriptKeyTombstone)) &&
+		len(config.scriptKey) == 0
+	if checkBalance {
+		require.Equal(
+			t, balance, balanceSum(assetIDBalances, false),
+			"asset balance, wanted %d, got: %v", balance,
+			toJSON(t, assetIDBalances),
+		)
+	}
+
+	// Next, we do the same but grouped by group keys (if requested, since
+	// this only returns the balances for actually grouped assets).
+	if config.groupedAssetBalance > 0 {
+		assetGroupBalances, err := client.ListBalances(
+			ctxt, &taprpc.ListBalancesRequest{
+				GroupBy:        groupBalancesByGroupKey,
+				IncludeLeased:  config.includeLeased,
+				ScriptKeyType:  rpcTypeQuery,
+				AssetFilter:    config.assetID,
+				GroupKeyFilter: config.groupKey,
+			},
+		)
+		require.NoError(t, err)
+
+		// Spent assets (burns/tombstones) are never included in the
+		// balance, even if we specifically query for their type. So we
+		// skip the balance check in that case.
+		if checkBalance {
+			require.Equalf(
+				t, config.groupedAssetBalance,
+				balanceSum(assetGroupBalances, true),
+				"grouped balance, wanted %d, got: %v", balance,
+				toJSON(t, assetGroupBalances),
+			)
+		}
+	}
+
+	// Finally, we assert that the sum of all assets queried with the given
+	// query parameters matches the expected balance.
+	assetList, err := client.ListAssets(ctxt, &taprpc.ListAssetRequest{
+		IncludeLeased: config.includeLeased,
+		ScriptKeyType: rpcTypeQuery,
+	})
+	require.NoError(t, err)
+
+	var (
+		totalBalance uint64
+		numUtxos     uint32
+	)
+	for _, a := range assetList.Assets {
+		if len(config.assetID) > 0 {
+			if !bytes.Equal(
+				a.AssetGenesis.AssetId, config.assetID,
+			) {
+
+				continue
+			}
+		}
+
+		if len(config.groupKey) > 0 {
+			if a.AssetGroup == nil {
+				continue
+			}
+
+			if !bytes.Equal(
+				a.AssetGroup.TweakedGroupKey, config.groupKey,
+			) {
+
+				continue
+			}
+		}
+
+		if len(config.scriptKey) > 0 {
+			if !bytes.Equal(a.ScriptKey, config.scriptKey) {
+				continue
+			}
+		}
+
+		totalBalance += a.Amount
+		numUtxos++
+	}
+	require.Equalf(
+		t, balance, totalBalance, "ListAssets balance, wanted %d, "+
+			"got: %v", balance, toJSON(t, assetList),
+	)
+
+	// The number of UTXOs means asset outputs in this case. We check the
+	// BTC-level UTXOs below as well, but that's just to make sure the
+	// output of that RPC lists the same assets.
+	if config.numAssetUtxos > 0 {
+		require.Equal(
+			t, config.numAssetUtxos, numUtxos, "ListAssets num "+
+				"asset utxos",
+		)
+	}
+
+	utxoList, err := client.ListUtxos(ctxt, &taprpc.ListUtxosRequest{
+		IncludeLeased: config.includeLeased,
+		ScriptKeyType: rpcTypeQuery,
+	})
+	require.NoError(t, err)
+
+	// Make sure the ListUtxos call returns the same number of (asset) UTXOs
+	// as the ListAssets call.
+	var numAnchorUtxos uint32
+	totalBalance = 0
+	numUtxos = 0
+	for _, btcUtxo := range utxoList.ManagedUtxos {
+		numAnchorUtxos++
+		for _, assetUtxo := range btcUtxo.Assets {
+			if len(config.assetID) > 0 {
+				if !bytes.Equal(
+					assetUtxo.AssetGenesis.AssetId,
+					config.assetID,
+				) {
+
+					continue
+				}
+			}
+
+			if len(config.groupKey) > 0 {
+				if assetUtxo.AssetGroup == nil {
+					continue
+				}
+
+				if !bytes.Equal(
+					assetUtxo.AssetGroup.TweakedGroupKey,
+					config.groupKey,
+				) {
+
+					continue
+				}
+			}
+
+			if len(config.scriptKey) > 0 {
+				if !bytes.Equal(
+					assetUtxo.ScriptKey, config.scriptKey,
+				) {
+
+					continue
+				}
+			}
+
+			totalBalance += assetUtxo.Amount
+			numUtxos++
+		}
+	}
+	require.Equal(t, balance, totalBalance, "ListUtxos balance")
+
+	if config.numAnchorUtxos > 0 {
+		require.Equal(
+			t, config.numAnchorUtxos, numAnchorUtxos, "num anchor "+
+				"utxos",
+		)
+	}
+	if config.numAssetUtxos > 0 {
+		require.Equal(
+			t, config.numAssetUtxos, numUtxos, "ListUtxos num "+
+				"asset utxos",
+		)
 	}
 }
 
@@ -2198,6 +2501,7 @@ func assertNumAssetOutputs(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	resp, err := client.ListAssets(ctxt, &taprpc.ListAssetRequest{
 		IncludeLeased: true,
+		ScriptKeyType: allScriptKeysQuery,
 	})
 	require.NoError(t, err)
 

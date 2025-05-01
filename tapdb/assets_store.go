@@ -23,8 +23,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
-	"github.com/lightninglabs/taproot-assets/tapscript"
-	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -624,8 +622,8 @@ func parseAssetWitness(input AssetWitness) (asset.Witness, error) {
 // dbAssetsToChainAssets maps a set of confirmed assets in the database, and
 // the witnesses of those assets to a set of normal ChainAsset structs needed
 // by a higher level application.
-func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
-	witnesses assetWitnesses) ([]*asset.ChainAsset, error) {
+func dbAssetsToChainAssets(dbAssets []ConfirmedAsset, witnesses assetWitnesses,
+	dbClock clock.Clock) ([]*asset.ChainAsset, error) {
 
 	chainAssets := make([]*asset.ChainAsset, len(dbAssets))
 	for i := range dbAssets {
@@ -633,16 +631,12 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 
 		// First, we'll decode the script key which every asset must
 		// specify, and populate the key locator information.
-		rawScriptKeyPub, err := btcec.ParsePubKey(sprout.ScriptKeyRaw)
+		scriptKey, err := parseScriptKey(
+			sprout.InternalKey, sprout.ScriptKey,
+		)
 		if err != nil {
-			return nil, err
-		}
-		rawScriptKeyDesc := keychain.KeyDescriptor{
-			PubKey: rawScriptKeyPub,
-			KeyLocator: keychain.KeyLocator{
-				Index:  uint32(sprout.ScriptKeyIndex),
-				Family: keychain.KeyFamily(sprout.ScriptKeyFam),
-			},
+			return nil, fmt.Errorf("unable to decode script key: "+
+				"%w", err)
 		}
 
 		// Not all assets have a key group, so we only need to
@@ -726,20 +720,6 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 			amount = 1
 		}
 
-		scriptKeyPub, err := btcec.ParsePubKey(sprout.TweakedScriptKey)
-		if err != nil {
-			return nil, err
-		}
-		declaredKnown := extractBool(sprout.ScriptKeyDeclaredKnown)
-		scriptKey := asset.ScriptKey{
-			PubKey: scriptKeyPub,
-			TweakedScriptKey: &asset.TweakedScriptKey{
-				RawKey:        rawScriptKeyDesc,
-				Tweak:         sprout.ScriptKeyTweak,
-				DeclaredKnown: declaredKnown,
-			},
-		}
-
 		assetSprout, err := asset.New(
 			assetGenesis, amount, lockTime, relativeLocktime,
 			scriptKey, groupKey,
@@ -753,7 +733,9 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		// We cannot use 0 as the amount when creating a new asset with
 		// the New function above. But if this is a tombstone asset, we
 		// actually have to set the amount to 0.
-		if scriptKeyPub.IsEqual(asset.NUMSPubKey) && sprout.Amount == 0 {
+		if scriptKey.PubKey.IsEqual(asset.NUMSPubKey) &&
+			sprout.Amount == 0 {
+
 			assetSprout.Amount = 0
 		}
 
@@ -845,7 +827,7 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		owner := sprout.AnchorLeaseOwner
 		expiry := sprout.AnchorLeaseExpiry
 		if len(owner) > 0 && expiry.Valid &&
-			expiry.Time.UTC().After(a.clock.Now().UTC()) {
+			expiry.Time.UTC().After(dbClock.Now().UTC()) {
 
 			copy(chainAssets[i].AnchorLeaseOwner[:], owner)
 			chainAssets[i].AnchorLeaseExpiry = &expiry.Time
@@ -913,13 +895,11 @@ func (a *AssetStore) constraintsToDbFilter(
 			assetFilter.AssetIDFilter = nil
 		}
 
-		switch query.CoinSelectType {
-		case tapsend.ScriptTreesAllowed:
-			assetFilter.Bip86ScriptKeysOnly = false
-
-		default:
-			assetFilter.Bip86ScriptKeysOnly = true
-		}
+		// The fn.None option means we don't restrict on script key type
+		// at all.
+		query.ScriptKeyType.WhenSome(func(t asset.ScriptKeyType) {
+			assetFilter.ScriptKeyType = sqlInt16(t)
+		})
 	}
 
 	return assetFilter, nil
@@ -1006,8 +986,8 @@ type AssetQueryFilters struct {
 // QueryBalancesByAsset queries the balances for assets or alternatively
 // for a selected one that matches the passed asset ID filter.
 func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
-	assetID *asset.ID,
-	includeLeased bool) (map[asset.ID]AssetBalance, error) {
+	assetID *asset.ID, includeLeased bool,
+	skt fn.Option[asset.ScriptKeyType]) (map[asset.ID]AssetBalance, error) {
 
 	// We'll now map the application level filtering to the type of
 	// filtering our database query understands.
@@ -1020,12 +1000,23 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 
 	// We exclude the assets that are specifically used for funding custom
 	// channels. The balance of those assets is reported through lnd channel
-	// balance. Those assets are identified by the funding script tree for a
-	// custom channel asset-level script key.
-	excludeKey := asset.NewScriptKey(
-		tapscript.NewChannelFundingScriptTree().TaprootKey,
+	// balance. Those assets are identified by the specific script key type
+	// for channel keys. We exclude them unless explicitly queried for.
+	assetBalancesFilter.ExcludeScriptKeyType = sqlInt16(
+		asset.ScriptKeyScriptPathChannel,
 	)
-	assetBalancesFilter.ExcludeKey = excludeKey.PubKey.SerializeCompressed()
+
+	// The fn.None option means we don't restrict on script key type at all.
+	skt.WhenSome(func(t asset.ScriptKeyType) {
+		assetBalancesFilter.ScriptKeyType = sqlInt16(t)
+
+		// If the user explicitly wants to see the channel related asset
+		// balances, we need to set the exclude type to NULL.
+		if t == asset.ScriptKeyScriptPathChannel {
+			nullValue := sql.NullInt16{}
+			assetBalancesFilter.ExcludeScriptKeyType = nullValue
+		}
+	})
 
 	// By default, we only show assets that are not leased.
 	if !includeLeased {
@@ -1086,9 +1077,9 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 // QueryAssetBalancesByGroup queries the asset balances for asset groups or
 // alternatively for a selected one that matches the passed filter.
 func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
-	groupKey *btcec.PublicKey,
-	includeLeased bool) (map[asset.SerializedKey]AssetGroupBalance,
-	error) {
+	groupKey *btcec.PublicKey, includeLeased bool,
+	skt fn.Option[asset.ScriptKeyType]) (
+	map[asset.SerializedKey]AssetGroupBalance, error) {
 
 	// We'll now map the application level filtering to the type of
 	// filtering our database query understands.
@@ -1101,12 +1092,23 @@ func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
 
 	// We exclude the assets that are specifically used for funding custom
 	// channels. The balance of those assets is reported through lnd channel
-	// balance. Those assets are identified by the funding script tree for a
-	// custom channel asset-level script key.
-	excludeKey := asset.NewScriptKey(
-		tapscript.NewChannelFundingScriptTree().TaprootKey,
+	// balance. Those assets are identified by the specific script key type
+	// for channel keys. We exclude them unless explicitly queried for.
+	assetBalancesFilter.ExcludeScriptKeyType = sqlInt16(
+		asset.ScriptKeyScriptPathChannel,
 	)
-	assetBalancesFilter.ExcludeKey = excludeKey.PubKey.SerializeCompressed()
+
+	// The fn.None option means we don't restrict on script key type at all.
+	skt.WhenSome(func(t asset.ScriptKeyType) {
+		assetBalancesFilter.ScriptKeyType = sqlInt16(t)
+
+		// If the user explicitly wants to see the channel related asset
+		// balances, we need to set the exclude type to NULL.
+		if t == asset.ScriptKeyScriptPathChannel {
+			nullValue := sql.NullInt16{}
+			assetBalancesFilter.ExcludeScriptKeyType = nullValue
+		}
+	})
 
 	// By default, we only show assets that are not leased.
 	if !includeLeased {
@@ -1251,7 +1253,7 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context, includeSpent,
 		return nil, dbErr
 	}
 
-	return a.dbAssetsToChainAssets(dbAssets, assetWitnesses)
+	return dbAssetsToChainAssets(dbAssets, assetWitnesses, a.clock)
 }
 
 // FetchManagedUTXOs fetches all UTXOs we manage.
@@ -1519,8 +1521,8 @@ func locatorToProofQuery(locator proof.Locator) (FetchAssetProof, error) {
 // the FileArchiver.
 //
 // NOTE: This implements the proof.Archiver interface.
-func (a *AssetStore) FetchIssuanceProof(ctx context.Context, id asset.ID,
-	anchorOutpoint wire.OutPoint) (proof.Blob, error) {
+func (a *AssetStore) FetchIssuanceProof(_ context.Context, _ asset.ID,
+	_ wire.OutPoint) (proof.Blob, error) {
 
 	return nil, proof.ErrProofNotFound
 }
@@ -1963,7 +1965,9 @@ func (a *AssetStore) queryChainAssets(ctx context.Context, q ActiveAssetsStore,
 	if err != nil {
 		return nil, err
 	}
-	matchingAssets, err := a.dbAssetsToChainAssets(dbAssets, assetWitnesses)
+	matchingAssets, err := dbAssetsToChainAssets(
+		dbAssets, assetWitnesses, a.clock,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2687,10 +2691,14 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 	scriptInternalKey := keychain.KeyDescriptor{
 		PubKey: output.ScriptKey.PubKey,
 	}
-	var tweak []byte
+	var (
+		tweak         []byte
+		scriptKeyType sql.NullInt16
+	)
 	if output.ScriptKey.TweakedScriptKey != nil {
 		scriptInternalKey = output.ScriptKey.RawKey
 		tweak = output.ScriptKey.Tweak
+		scriptKeyType = sqlInt16(output.ScriptKey.Type)
 	}
 	scriptInternalKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    scriptInternalKey.PubKey.SerializeCompressed(),
@@ -2705,6 +2713,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		InternalKeyID:    scriptInternalKeyID,
 		TweakedScriptKey: output.ScriptKey.PubKey.SerializeCompressed(),
 		Tweak:            tweak,
+		KeyType:          scriptKeyType,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to insert script key: %w", err)
@@ -2787,27 +2796,12 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 				"key: %w", err)
 		}
 
-		scriptKey, err := btcec.ParsePubKey(dbOut.ScriptKeyBytes)
+		scriptKey, err := parseScriptKey(
+			dbOut.InternalKey, dbOut.ScriptKey,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode script key: "+
 				"%w", err)
-		}
-
-		rawScriptKey, err := btcec.ParsePubKey(
-			dbOut.ScriptKeyRawKeyBytes,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to decode raw script "+
-				"key: %w", err)
-		}
-
-		scriptKeyLocator := keychain.KeyLocator{
-			Family: keychain.KeyFamily(
-				dbOut.ScriptKeyFamily,
-			),
-			Index: uint32(
-				dbOut.ScriptKeyIndex,
-			),
 		}
 
 		var splitRootHash mssmt.NodeHash
@@ -2824,7 +2818,6 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 				err)
 		}
 
-		declaredKnown := extractBool(dbOut.ScriptKeyDeclaredKnown)
 		outputAnchor := tapfreighter.Anchor{
 			Value: btcutil.Amount(
 				dbOut.AnchorValue,
@@ -2876,19 +2869,9 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 			LockTime:         uint64(dbOut.LockTime.Int32),
 			RelativeLockTime: uint64(dbOut.RelativeLockTime.Int32),
 			AssetVersion:     asset.Version(dbOut.AssetVersion),
-			ScriptKey: asset.ScriptKey{
-				PubKey: scriptKey,
-				TweakedScriptKey: &asset.TweakedScriptKey{
-					RawKey: keychain.KeyDescriptor{
-						PubKey:     rawScriptKey,
-						KeyLocator: scriptKeyLocator,
-					},
-					Tweak:         dbOut.ScriptKeyTweak,
-					DeclaredKnown: declaredKnown,
-				},
-			},
-			ScriptKeyLocal: dbOut.ScriptKeyLocal,
-			WitnessData:    witnessData,
+			ScriptKey:        scriptKey,
+			ScriptKeyLocal:   dbOut.ScriptKeyLocal,
+			WitnessData:      witnessData,
 			SplitCommitmentRoot: mssmt.NewComputedNode(
 				splitRootHash,
 				uint64(dbOut.SplitCommitmentRootValue.Int64),
@@ -3167,13 +3150,14 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 					"witness: %w", err)
 			}
 
-			scriptPubKey, err := btcec.ParsePubKey(
-				out.ScriptKeyBytes,
+			fullScriptKey, err := parseScriptKey(
+				out.InternalKey, out.ScriptKey,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to decode script "+
 					"key: %w", err)
 			}
+			scriptPubKey := fullScriptKey.PubKey
 
 			isNumsKey := scriptPubKey.IsEqual(asset.NUMSPubKey)
 			isTombstone := isNumsKey &&
@@ -3181,7 +3165,7 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 				out.OutputType == int16(tappsbt.TypeSplitRoot)
 			isBurn := !isNumsKey && len(witnessData) > 0 &&
 				asset.IsBurnKey(scriptPubKey, witnessData[0])
-			isKnown := extractBool(out.ScriptKeyDeclaredKnown)
+			isKnown := fullScriptKey.Type != asset.ScriptKeyUnknown
 			skipAssetCreation := !isTombstone && !isBurn &&
 				!out.ScriptKeyLocal && !isKnown
 
@@ -3235,7 +3219,7 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 			}
 
 			params := ApplyPendingOutput{
-				ScriptKeyID: out.ScriptKeyID,
+				ScriptKeyID: out.ScriptKey.ScriptKeyID,
 				AnchorUtxoID: sqlInt64(
 					out.AnchorUtxoID,
 				),
@@ -3277,7 +3261,7 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 			if !ok {
 				return fmt.Errorf("no proof found for output "+
 					"with script key %x",
-					out.ScriptKeyBytes)
+					scriptPubKey.SerializeCompressed())
 			}
 			localProofKeys = append(localProofKeys, outKey)
 

@@ -171,28 +171,6 @@ type AssetGroupQuerier interface {
 	QueryAssetGroup(context.Context, asset.ID) (*asset.AssetGroup, error)
 }
 
-// CoinSelectType is a type that indicates the type of coins that should be
-// selected. This type is defined in the tapsend package to avoid a circular
-// dependency with the freighter package.
-type CoinSelectType uint8
-
-const (
-	// Bip86Only indicates that only coins that have a BIP-086 script key
-	// should be selected.
-	Bip86Only CoinSelectType = 0
-
-	// ScriptTreesAllowed indicates that coins with any script key type
-	// should be selected.
-	ScriptTreesAllowed CoinSelectType = 1
-
-	// DefaultCoinSelectType is the default coin selection type that should
-	// be used when no specific type is specified. We default to allowing
-	// any script key type to be in line with the RPC values, which are
-	// intended to be backward compatible with clients that didn't specify
-	// the type (when funding a vPSBT for example).
-	DefaultCoinSelectType = ScriptTreesAllowed
-)
-
 // FundingDescriptor describes the information that is needed to select and
 // verify input assets in order to send to a specific recipient. It is a subset
 // of the information contained in a Taproot Asset address.
@@ -206,14 +184,15 @@ type FundingDescriptor struct {
 	// PrevIDs is the set of inputs that can be used to fund the transfer.
 	PrevIDs []asset.PrevID
 
-	// CoinSelectType specifies the type of coins that should be selected.
-	CoinSelectType CoinSelectType
-
 	// DistinctSpecifier indicates whether we _only_ look at either the
 	// group key _or_ the asset ID but not both. That means, if the group
 	// key is set, we ignore the asset ID and allow multiple inputs of the
 	// same group to be selected.
 	DistinctSpecifier bool
+
+	// ScriptKeyType is the type of script key the assets are expected to
+	// have. If this is fn.None, then any script key type is allowed.
+	ScriptKeyType fn.Option[asset.ScriptKeyType]
 }
 
 // TapCommitmentKey is the key that maps to the root commitment for the asset

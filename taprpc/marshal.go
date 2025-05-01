@@ -85,8 +85,14 @@ func UnmarshalKeyDescriptor(rpcDesc *KeyDescriptor) (keychain.KeyDescriptor,
 // UnmarshalScriptKey parses the RPC script key into the native counterpart.
 func UnmarshalScriptKey(rpcKey *ScriptKey) (*asset.ScriptKey, error) {
 	var (
-		scriptKey asset.ScriptKey
-		err       error
+		scriptKey = asset.ScriptKey{
+			TweakedScriptKey: &asset.TweakedScriptKey{
+				// The tweak is optional, if it's empty it means
+				// the key is derived using BIP-0086.
+				Tweak: rpcKey.TapTweak,
+			},
+		}
+		err error
 	)
 
 	// The script public key is a Taproot key, so 32-byte x-only.
@@ -98,17 +104,15 @@ func UnmarshalScriptKey(rpcKey *ScriptKey) (*asset.ScriptKey, error) {
 	// The key descriptor is optional for script keys that are completely
 	// independent of the backing wallet.
 	if rpcKey.KeyDesc != nil {
-		keyDesc, err := UnmarshalKeyDescriptor(rpcKey.KeyDesc)
+		scriptKey.RawKey, err = UnmarshalKeyDescriptor(rpcKey.KeyDesc)
 		if err != nil {
 			return nil, err
 		}
-		scriptKey.TweakedScriptKey = &asset.TweakedScriptKey{
-			RawKey: keyDesc,
+	}
 
-			// The tweak is optional, if it's empty it means the key
-			// is derived using BIP-0086.
-			Tweak: rpcKey.TapTweak,
-		}
+	scriptKey.Type, err = UnmarshalScriptKeyType(rpcKey.Type)
+	if err != nil {
+		return nil, err
 	}
 
 	return &scriptKey, nil
@@ -125,9 +129,61 @@ func MarshalScriptKey(scriptKey asset.ScriptKey) *ScriptKey {
 			scriptKey.TweakedScriptKey.RawKey,
 		)
 		rpcScriptKey.TapTweak = scriptKey.TweakedScriptKey.Tweak
+		rpcScriptKey.Type = MarshalScriptKeyType(scriptKey.Type)
 	}
 
 	return rpcScriptKey
+}
+
+// UnmarshalScriptKeyType parses the script key type from the RPC variant.
+func UnmarshalScriptKeyType(rpcType ScriptKeyType) (asset.ScriptKeyType,
+	error) {
+
+	switch rpcType {
+	case ScriptKeyType_SCRIPT_KEY_UNKNOWN:
+		return asset.ScriptKeyUnknown, nil
+
+	case ScriptKeyType_SCRIPT_KEY_BIP86:
+		return asset.ScriptKeyBip86, nil
+
+	case ScriptKeyType_SCRIPT_KEY_SCRIPT_PATH_EXTERNAL:
+		return asset.ScriptKeyScriptPathExternal, nil
+
+	case ScriptKeyType_SCRIPT_KEY_BURN:
+		return asset.ScriptKeyBurn, nil
+
+	case ScriptKeyType_SCRIPT_KEY_TOMBSTONE:
+		return asset.ScriptKeyTombstone, nil
+
+	case ScriptKeyType_SCRIPT_KEY_CHANNEL:
+		return asset.ScriptKeyScriptPathChannel, nil
+
+	default:
+		return 0, fmt.Errorf("unknown script key type: %v", rpcType)
+	}
+}
+
+// MarshalScriptKeyType marshals the script key type from the RPC variant.
+func MarshalScriptKeyType(typ asset.ScriptKeyType) ScriptKeyType {
+	switch typ {
+	case asset.ScriptKeyBip86:
+		return ScriptKeyType_SCRIPT_KEY_BIP86
+
+	case asset.ScriptKeyScriptPathExternal:
+		return ScriptKeyType_SCRIPT_KEY_SCRIPT_PATH_EXTERNAL
+
+	case asset.ScriptKeyBurn:
+		return ScriptKeyType_SCRIPT_KEY_BURN
+
+	case asset.ScriptKeyTombstone:
+		return ScriptKeyType_SCRIPT_KEY_TOMBSTONE
+
+	case asset.ScriptKeyScriptPathChannel:
+		return ScriptKeyType_SCRIPT_KEY_CHANNEL
+
+	default:
+		return ScriptKeyType_SCRIPT_KEY_UNKNOWN
+	}
 }
 
 // UnmarshalAssetVersion parses an asset version from the RPC variant.
@@ -526,11 +582,18 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 	isSpent, withWitness bool, keyRing KeyLookup,
 	decDisplay fn.Option[uint32]) (*Asset, error) {
 
-	scriptKeyIsLocal := false
-	if a.ScriptKey.TweakedScriptKey != nil && keyRing != nil {
-		scriptKeyIsLocal = keyRing.IsLocalKey(
-			ctx, a.ScriptKey.RawKey,
-		)
+	var (
+		scriptKeyIsLocal = false
+		scriptKeyType    = asset.ScriptKeyUnknown
+	)
+	if a.ScriptKey.TweakedScriptKey != nil {
+		if keyRing != nil {
+			scriptKeyIsLocal = keyRing.IsLocalKey(
+				ctx, a.ScriptKey.RawKey,
+			)
+		}
+
+		scriptKeyType = a.ScriptKey.Type
 	}
 
 	assetVersion, err := MarshalAssetVersion(a.Version)
@@ -552,6 +615,7 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 		ScriptKeyHasScriptPath: a.ScriptKey.HasScriptPath(),
 		IsSpent:                isSpent,
 		IsBurn:                 a.IsBurn(),
+		ScriptKeyType:          MarshalScriptKeyType(scriptKeyType),
 	}
 
 	decDisplay.WhenSome(func(u uint32) {
@@ -628,4 +692,42 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 	}
 
 	return rpcAsset, nil
+}
+
+// ParseScriptKeyTypeQuery parses the script key type query from the RPC
+// variant.
+func ParseScriptKeyTypeQuery(
+	q *ScriptKeyTypeQuery) (fn.Option[asset.ScriptKeyType], bool, error) {
+
+	if q == nil || q.Type == nil {
+		return fn.Some(asset.ScriptKeyBip86), false, nil
+	}
+
+	switch t := q.Type.(type) {
+	case *ScriptKeyTypeQuery_ExplicitType:
+		explicitType, err := UnmarshalScriptKeyType(t.ExplicitType)
+		if err != nil {
+			return fn.None[asset.ScriptKeyType](), false, err
+		}
+
+		// Because burns and tombstones are not spendable, we always
+		// insert them as "spent". So if the user wants to see any of
+		// those keys, we need to toggle the "includeSpent" flag,
+		// otherwise the result will always be empty.
+		includeSpent := false
+		switch explicitType {
+		case asset.ScriptKeyTombstone, asset.ScriptKeyBurn:
+			includeSpent = true
+
+		default:
+		}
+
+		return fn.Some(explicitType), includeSpent, nil
+
+	case *ScriptKeyTypeQuery_AllTypes:
+		return fn.None[asset.ScriptKeyType](), false, nil
+
+	default:
+		return fn.Some(asset.ScriptKeyBip86), false, nil
+	}
 }

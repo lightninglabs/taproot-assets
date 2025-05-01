@@ -1494,7 +1494,9 @@ func deriveFundingScriptKey(ctx context.Context, addrBook address.Storage,
 	// We'll also need to import the funding script key into the wallet so
 	// the asset will be materialized in the asset table and show up in the
 	// balance correctly.
-	err := addrBook.InsertScriptKey(ctx, fundingScriptKey, true)
+	err := addrBook.InsertScriptKey(
+		ctx, fundingScriptKey, asset.ScriptKeyScriptPathChannel,
+	)
 	if err != nil {
 		return asset.ScriptKey{}, fmt.Errorf("unable to insert script "+
 			"key: %w", err)
