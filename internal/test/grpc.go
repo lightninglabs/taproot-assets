@@ -33,9 +33,25 @@ func StartMockGRPCServer(t *testing.T, grpcServer *grpc.Server,
 	nextPort := port.NextAvailablePort()
 	listenAddr := fmt.Sprintf(ListenAddrTemplate, nextPort)
 
+	cleanup, err := StartMockGRPCServerWithAddr(
+		t, grpcServer, withTLS, listenAddr,
+	)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return listenAddr, cleanup, nil
+}
+
+// StartMockGRPCServerWithAddr starts a mock gRPC server on the given address
+// and returns the address it's listening on. The caller should clean up the
+// server by calling the cleanup function.
+func StartMockGRPCServerWithAddr(t *testing.T, grpcServer *grpc.Server,
+	withTLS bool, listenAddr string) (func(), error) {
+
 	grpcListener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
-		return "", nil, fmt.Errorf("mock RPC server unable to listen "+
+		return nil, fmt.Errorf("mock RPC server unable to listen "+
 			"on %s", listenAddr)
 	}
 
@@ -72,7 +88,7 @@ func StartMockGRPCServer(t *testing.T, grpcServer *grpc.Server,
 	select {
 	case <-ctx.Done():
 		// If the context is canceled, an error occurred during startup.
-		return "", nil, ctx.Err()
+		return nil, ctx.Err()
 
 	case <-time.After(StartupWaitTime):
 		// No error was reported within the startup wait time, we can
@@ -87,7 +103,7 @@ func StartMockGRPCServer(t *testing.T, grpcServer *grpc.Server,
 		_ = g.Wait()
 	}
 
-	return listenAddr, cleanup, nil
+	return cleanup, nil
 }
 
 func genCert(t *testing.T) *tls.Config {
