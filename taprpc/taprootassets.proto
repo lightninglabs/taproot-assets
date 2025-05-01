@@ -265,6 +265,9 @@ message AnchorInfo {
 
     // The height of the block which contains the anchor transaction.
     uint32 block_height = 8;
+
+    // The UTC Unix timestamp of the block containing the anchor transaction.
+    int64 block_timestamp = 9;
 }
 
 message GenesisInfo {
