@@ -1328,7 +1328,7 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 
 		// Construct universe key.
 		outPoint := transitionProof.OutPoint()
-		assetKey := unirpc.MarshalAssetKey(
+		assetKey := rpcutils.MarshalAssetKey(
 			outPoint, proofAsset.ScriptKey.PubKey,
 		)
 		assetID := proofAsset.ID()
@@ -1342,7 +1342,7 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			groupPubKeyBytes = groupPubKey.SerializeCompressed()
 		}
 
-		universeID := unirpc.MarshalUniverseID(
+		universeID := rpcutils.MarshalUniverseID(
 			assetID[:], groupPubKeyBytes,
 		)
 		universeKey := unirpc.UniverseKey{
@@ -1424,10 +1424,10 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 		}
 
 		universeKey := unirpc.UniverseKey{
-			Id: unirpc.MarshalUniverseID(
+			Id: rpcutils.MarshalUniverseID(
 				loc.AssetID[:], groupKeyBytes,
 			),
-			LeafKey: unirpc.MarshalAssetKey(
+			LeafKey: rpcutils.MarshalAssetKey(
 				*loc.OutPoint, &loc.ScriptKey,
 			),
 		}
