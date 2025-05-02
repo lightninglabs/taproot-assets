@@ -14,7 +14,7 @@ import (
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
-	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -1309,7 +1309,7 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 		// Construct asset leaf.
 		// Note: We pass in a none-value for the decimal display option,
 		// as this doesn't matter for the courrier.
-		rpcAsset, err := taprpc.MarshalAsset(
+		rpcAsset, err := rpcutils.MarshalAsset(
 			ctx, &proofAsset, true, true, nil, fn.None[uint32](),
 		)
 		if err != nil {
@@ -1328,7 +1328,7 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 
 		// Construct universe key.
 		outPoint := transitionProof.OutPoint()
-		assetKey := unirpc.MarshalAssetKey(
+		assetKey := rpcutils.MarshalAssetKey(
 			outPoint, proofAsset.ScriptKey.PubKey,
 		)
 		assetID := proofAsset.ID()
@@ -1342,7 +1342,7 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			groupPubKeyBytes = groupPubKey.SerializeCompressed()
 		}
 
-		universeID := unirpc.MarshalUniverseID(
+		universeID := rpcutils.MarshalUniverseID(
 			assetID[:], groupPubKeyBytes,
 		)
 		universeKey := unirpc.UniverseKey{
@@ -1424,10 +1424,10 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 		}
 
 		universeKey := unirpc.UniverseKey{
-			Id: unirpc.MarshalUniverseID(
+			Id: rpcutils.MarshalUniverseID(
 				loc.AssetID[:], groupKeyBytes,
 			),
-			LeafKey: unirpc.MarshalAssetKey(
+			LeafKey: rpcutils.MarshalAssetKey(
 				*loc.OutPoint, &loc.ScriptKey,
 			),
 		}

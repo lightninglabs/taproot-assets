@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"google.golang.org/grpc"
@@ -203,7 +204,7 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 
 	// Construct the RPC asset rates hint.
 	rpcAssetRatesHint, err := fn.MapOptionZ(
-		assetRateHint, oraclerpc.MarshalAssetRates,
+		assetRateHint, rpcutils.MarshalAssetRates,
 	).Unpack()
 	if err != nil {
 		return nil, err
@@ -242,7 +243,7 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 		}
 
 		// Unmarshal the subject asset to BTC rate.
-		rate, err := oraclerpc.UnmarshalFixedPoint(
+		rate, err := rpcutils.UnmarshalFixedPoint(
 			result.Ok.AssetRates.SubjectAssetRate,
 		)
 		if err != nil {
@@ -299,7 +300,7 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
 
 	// Construct the RPC asset rates hint.
 	rpcAssetRatesHint, err := fn.MapOptionZ(
-		assetRateHint, oraclerpc.MarshalAssetRates,
+		assetRateHint, rpcutils.MarshalAssetRates,
 	).Unpack()
 	if err != nil {
 		return nil, err
@@ -333,7 +334,7 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
 		}
 
 		// Unmarshal the subject asset to BTC rate.
-		rate, err := oraclerpc.UnmarshalFixedPoint(
+		rate, err := rpcutils.UnmarshalFixedPoint(
 			result.Ok.AssetRates.SubjectAssetRate,
 		)
 		if err != nil {

@@ -39,6 +39,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -486,7 +487,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			"a specific group")
 	}
 
-	assetVersion, err := taprpc.UnmarshalAssetVersion(
+	assetVersion, err := rpcutils.UnmarshalAssetVersion(
 		req.Asset.AssetVersion,
 	)
 	if err != nil {
@@ -568,14 +569,16 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		groupTapscriptRoot []byte
 	)
 	if req.Asset.ScriptKey != nil {
-		scriptKey, err = taprpc.UnmarshalScriptKey(req.Asset.ScriptKey)
+		scriptKey, err = rpcutils.UnmarshalScriptKey(
+			req.Asset.ScriptKey,
+		)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	if specificGroupInternalKey {
-		groupInternalKey, err = taprpc.UnmarshalKeyDescriptor(
+		groupInternalKey, err = rpcutils.UnmarshalKeyDescriptor(
 			req.Asset.GroupInternalKey,
 		)
 		if err != nil {
@@ -621,7 +624,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 
 	if req.Asset.ExternalGroupKey != nil {
-		externalKey, err := taprpc.UnmarshalExternalKey(
+		externalKey, err := rpcutils.UnmarshalExternalKey(
 			req.Asset.ExternalGroupKey,
 		)
 		if err != nil {
@@ -747,7 +750,7 @@ func (r *rpcServer) FundBatch(ctx context.Context,
 	}
 	feeRateOpt := fn.MaybeSome(feeRate)
 
-	tapTreeOpt, err := taprpc.UnmarshalTapscriptSibling(
+	tapTreeOpt, err := rpcutils.UnmarshalTapscriptSibling(
 		req.GetFullTree(), req.GetBranch(),
 	)
 	if err != nil {
@@ -873,7 +876,7 @@ func (r *rpcServer) FinalizeBatch(ctx context.Context,
 	}
 	feeRateOpt := fn.MaybeSome(feeRate)
 
-	tapTreeOpt, err := taprpc.UnmarshalTapscriptSibling(
+	tapTreeOpt, err := rpcutils.UnmarshalTapscriptSibling(
 		req.GetFullTree(), req.GetBranch(),
 	)
 	if err != nil {
@@ -1081,7 +1084,7 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 	}
 
 	if req.ScriptKey != nil {
-		scriptKey, err := taprpc.UnmarshalScriptKey(req.ScriptKey)
+		scriptKey, err := rpcutils.UnmarshalScriptKey(req.ScriptKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode script key: "+
 				"%w", err)
@@ -1104,7 +1107,7 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 		filters.AnchorPoint = outPoint
 	}
 
-	scriptKeyType, includeSpent, err := taprpc.ParseScriptKeyTypeQuery(
+	scriptKeyType, includeSpent, err := rpcutils.ParseScriptKeyTypeQuery(
 		req.ScriptKeyType,
 	)
 	if err != nil {
@@ -1201,7 +1204,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 // MarshalChainAsset marshals the given chain asset into an RPC asset.
 func (r *rpcServer) MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 	meta *proof.MetaReveal, withWitness bool,
-	keyRing taprpc.KeyLookup) (*taprpc.Asset, error) {
+	keyRing rpcutils.KeyLookup) (*taprpc.Asset, error) {
 
 	var (
 		decDisplay fn.Option[uint32]
@@ -1227,7 +1230,7 @@ func (r *rpcServer) MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 		)
 	}
 
-	return taprpc.MarshalChainAsset(
+	return rpcutils.MarshalChainAsset(
 		ctx, a, decDisplay, withWitness, keyRing,
 	)
 }
@@ -1309,7 +1312,7 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 func (r *rpcServer) ListUtxos(ctx context.Context,
 	req *taprpc.ListUtxosRequest) (*taprpc.ListUtxosResponse, error) {
 
-	scriptKeyType, includeSpent, err := taprpc.ParseScriptKeyTypeQuery(
+	scriptKeyType, includeSpent, err := rpcutils.ParseScriptKeyTypeQuery(
 		req.ScriptKeyType,
 	)
 	if err != nil {
@@ -1389,7 +1392,7 @@ func (r *rpcServer) ListGroups(ctx context.Context,
 	for _, a := range readableAssets {
 		groupKey := hex.EncodeToString(a.GroupKey.SerializeCompressed())
 
-		assetVersion, err := taprpc.MarshalAssetVersion(
+		assetVersion, err := rpcutils.MarshalAssetVersion(
 			a.Version,
 		)
 		if err != nil {
@@ -1426,7 +1429,7 @@ func (r *rpcServer) ListGroups(ctx context.Context,
 func (r *rpcServer) ListBalances(ctx context.Context,
 	req *taprpc.ListBalancesRequest) (*taprpc.ListBalancesResponse, error) {
 
-	scriptKeyType, _, err := taprpc.ParseScriptKeyTypeQuery(
+	scriptKeyType, _, err := rpcutils.ParseScriptKeyTypeQuery(
 		req.ScriptKeyType,
 	)
 	if err != nil {
@@ -1613,7 +1616,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, fmt.Errorf("invalid tapscript sibling: %w", err)
 	}
 
-	assetVersion, err := taprpc.UnmarshalAssetVersion(req.AssetVersion)
+	assetVersion, err := rpcutils.UnmarshalAssetVersion(req.AssetVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -1650,7 +1653,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 
 	// Both the script and internal keys were specified.
 	default:
-		scriptKey, err := taprpc.UnmarshalScriptKey(req.ScriptKey)
+		scriptKey, err := rpcutils.UnmarshalScriptKey(req.ScriptKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode script key: "+
 				"%w", err)
@@ -1668,7 +1671,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 			scriptKey.RawKey.PubKey.SerializeCompressed(),
 			scriptKey.Tweak[:])
 
-		internalKey, err := taprpc.UnmarshalKeyDescriptor(
+		internalKey, err := rpcutils.UnmarshalKeyDescriptor(
 			req.InternalKey,
 		)
 		if err != nil {
@@ -3025,7 +3028,7 @@ func (r *rpcServer) NextInternalKey(ctx context.Context,
 	}
 
 	return &wrpc.NextInternalKeyResponse{
-		InternalKey: taprpc.MarshalKeyDescriptor(keyDesc),
+		InternalKey: rpcutils.MarshalKeyDescriptor(keyDesc),
 	}, nil
 }
 
@@ -3051,7 +3054,7 @@ func (r *rpcServer) NextScriptKey(ctx context.Context,
 	}
 
 	return &wrpc.NextScriptKeyResponse{
-		ScriptKey: taprpc.MarshalScriptKey(scriptKey),
+		ScriptKey: rpcutils.MarshalScriptKey(scriptKey),
 	}, nil
 }
 
@@ -3099,10 +3102,12 @@ func (r *rpcServer) QueryInternalKey(ctx context.Context,
 	}
 
 	return &wrpc.QueryInternalKeyResponse{
-		InternalKey: taprpc.MarshalKeyDescriptor(keychain.KeyDescriptor{
-			PubKey:     internalKey,
-			KeyLocator: keyLocator,
-		}),
+		InternalKey: rpcutils.MarshalKeyDescriptor(
+			keychain.KeyDescriptor{
+				PubKey:     internalKey,
+				KeyLocator: keyLocator,
+			},
+		),
 	}, nil
 }
 
@@ -3209,7 +3214,7 @@ func (r *rpcServer) QueryScriptKey(ctx context.Context,
 	}
 
 	return &wrpc.QueryScriptKeyResponse{
-		ScriptKey: taprpc.MarshalScriptKey(asset.ScriptKey{
+		ScriptKey: rpcutils.MarshalScriptKey(asset.ScriptKey{
 			PubKey:           scriptKey,
 			TweakedScriptKey: tweakedKey,
 		}),
@@ -3252,7 +3257,7 @@ func marshalAddr(addr *address.Tap,
 			err)
 	}
 
-	assetVersion, err := taprpc.MarshalAssetVersion(addr.AssetVersion)
+	assetVersion, err := rpcutils.MarshalAssetVersion(addr.AssetVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -3653,7 +3658,7 @@ func marshalOutboundParcel(
 			return nil, err
 		}
 
-		assetVersion, err := taprpc.MarshalAssetVersion(
+		assetVersion, err := rpcutils.MarshalAssetVersion(
 			out.AssetVersion,
 		)
 		if err != nil {
@@ -3718,12 +3723,14 @@ func marshalOutboundParcel(
 func marshalOutputProofDeliveryStatus(
 	out tapfreighter.TransferOutput) taprpc.ProofDeliveryStatus {
 
-	proofDeliveryStatus := taprpc.ProofDeliveryStatusNotApplicable
+	proofDeliveryStatus := rpcutils.ProofDeliveryStatusNotApplicable
 	out.ProofDeliveryComplete.WhenSome(func(complete bool) {
 		if complete {
-			proofDeliveryStatus = taprpc.ProofDeliveryStatusComplete
+			proofDeliveryStatus =
+				rpcutils.ProofDeliveryStatusComplete
 		} else {
-			proofDeliveryStatus = taprpc.ProofDeliveryStatusPending
+			proofDeliveryStatus =
+				rpcutils.ProofDeliveryStatusPending
 		}
 	})
 
@@ -4441,7 +4448,7 @@ func marshalSeedling(seedling *tapgarden.Seedling) (*mintrpc.PendingAsset,
 	)
 
 	if seedling.ScriptKey.PubKey != nil {
-		scriptKey = taprpc.MarshalScriptKey(seedling.ScriptKey)
+		scriptKey = rpcutils.MarshalScriptKey(seedling.ScriptKey)
 	}
 
 	if seedling.HasGroupKey() {
@@ -4450,7 +4457,7 @@ func marshalSeedling(seedling *tapgarden.Seedling) (*mintrpc.PendingAsset,
 	}
 
 	if seedling.GroupInternalKey != nil {
-		groupInternalKey = taprpc.MarshalKeyDescriptor(
+		groupInternalKey = rpcutils.MarshalKeyDescriptor(
 			*seedling.GroupInternalKey,
 		)
 	}
@@ -4473,7 +4480,7 @@ func marshalSeedling(seedling *tapgarden.Seedling) (*mintrpc.PendingAsset,
 		}
 	}
 
-	assetVersion, err := taprpc.MarshalAssetVersion(
+	assetVersion, err := rpcutils.MarshalAssetVersion(
 		seedling.AssetVersion,
 	)
 	if err != nil {
@@ -4513,14 +4520,14 @@ func marshalUnsealedSeedling(params chaincfg.Params, verbose bool,
 	}
 
 	if verbose && seedling.PendingAssetGroup != nil {
-		groupVirtualTx, err = taprpc.MarshalGroupVirtualTx(
+		groupVirtualTx, err = rpcutils.MarshalGroupVirtualTx(
 			&seedling.PendingAssetGroup.GroupVirtualTx,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		groupReq, err = taprpc.MarshalGroupKeyRequest(
+		groupReq, err = rpcutils.MarshalGroupKeyRequest(
 			&seedling.PendingAssetGroup.GroupKeyRequest,
 		)
 		if err != nil {
@@ -4616,7 +4623,7 @@ func marshalSprouts(sprouts []*asset.Asset,
 			grp := sprout.GroupKey
 			groupKeyBytes = grp.GroupPubKey.SerializeCompressed()
 			groupTapscriptRoot = grp.TapscriptRoot
-			groupInternalKey = taprpc.MarshalKeyDescriptor(
+			groupInternalKey = rpcutils.MarshalKeyDescriptor(
 				grp.RawKey,
 			)
 		}
@@ -4629,7 +4636,7 @@ func marshalSprouts(sprouts []*asset.Asset,
 			GroupKey:           groupKeyBytes,
 			GroupInternalKey:   groupInternalKey,
 			GroupTapscriptRoot: groupTapscriptRoot,
-			ScriptKey: taprpc.MarshalScriptKey(
+			ScriptKey: rpcutils.MarshalScriptKey(
 				sprout.ScriptKey,
 			),
 		})
@@ -5331,7 +5338,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	return resp, nil
 }
 
-func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
+func marshalAssetLeaf(ctx context.Context, keys rpcutils.KeyLookup,
 	assetLeaf *universe.Leaf,
 	decDisplay fn.Option[uint32]) (*unirpc.AssetLeaf, error) {
 
@@ -5346,7 +5353,7 @@ func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
 	}
 
 	// Marshal as a chain asset to include chain_anchor details.
-	rpcAsset, err := taprpc.MarshalChainAsset(
+	rpcAsset, err := rpcutils.MarshalChainAsset(
 		ctx, chainAsset, decDisplay, true, keys,
 	)
 	if err != nil {
@@ -6556,7 +6563,7 @@ func MarshalAssetFedSyncCfg(
 	if uniID.GroupKey != nil {
 		groupKeyBytes = uniID.GroupKey.SerializeCompressed()
 	}
-	uniIdRPC := unirpc.MarshalUniverseID(assetIDBytes, groupKeyBytes)
+	uniIdRPC := rpcutils.MarshalUniverseID(assetIDBytes, groupKeyBytes)
 
 	// Marshal proof type.
 	proofTypeRpc, err := MarshalUniProofType(uniID.ProofType)
@@ -7609,7 +7616,7 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		}
 
 		// Unmarshall the accepted quote's asset rate.
-		assetRate, err := rfqrpc.UnmarshalFixedPoint(
+		assetRate, err := rpcutils.UnmarshalRfqFixedPoint(
 			acceptedQuote.BidAssetRate,
 		)
 		if err != nil {
@@ -7770,7 +7777,7 @@ func (r *rpcServer) parseRequest(
 func checkOverpayment(quote *rfqrpc.PeerAcceptedSellQuote,
 	paymentAmount lnwire.MilliSatoshi, allowOverpay bool) error {
 
-	rateFP, err := rfqrpc.UnmarshalFixedPoint(quote.BidAssetRate)
+	rateFP, err := rpcutils.UnmarshalRfqFixedPoint(quote.BidAssetRate)
 	if err != nil {
 		return fmt.Errorf("cannot unmarshal asset rate: %w", err)
 	}
@@ -8111,7 +8118,7 @@ func validateInvoiceAmount(acceptedQuote *rfqrpc.PeerAcceptedBuyQuote,
 	// that we need to pay. We can now update the invoice with this amount.
 	//
 	// First, un-marshall the ask asset rate from the accepted quote.
-	askAssetRate, err := rfqrpc.UnmarshalFixedPoint(
+	askAssetRate, err := rpcutils.UnmarshalRfqFixedPoint(
 		acceptedQuote.AskAssetRate,
 	)
 	if err != nil {
@@ -8183,7 +8190,7 @@ func (r *rpcServer) DeclareScriptKey(ctx context.Context,
 	in *wrpc.DeclareScriptKeyRequest) (*wrpc.DeclareScriptKeyResponse,
 	error) {
 
-	scriptKey, err := taprpc.UnmarshalScriptKey(in.ScriptKey)
+	scriptKey, err := rpcutils.UnmarshalScriptKey(in.ScriptKey)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling script key: %w",
 			err)
@@ -8208,7 +8215,7 @@ func (r *rpcServer) DeclareScriptKey(ctx context.Context,
 	}
 
 	return &wrpc.DeclareScriptKeyResponse{
-		ScriptKey: taprpc.MarshalScriptKey(*scriptKey),
+		ScriptKey: rpcutils.MarshalScriptKey(*scriptKey),
 	}, nil
 }
 

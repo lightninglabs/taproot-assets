@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -2188,7 +2189,7 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 	case config.scriptKeyType != nil:
 		rpcTypeQuery = &taprpc.ScriptKeyTypeQuery{
 			Type: &taprpc.ScriptKeyTypeQuery_ExplicitType{
-				ExplicitType: taprpc.MarshalScriptKeyType(
+				ExplicitType: rpcutils.MarshalScriptKeyType(
 					*config.scriptKeyType,
 				),
 			},
