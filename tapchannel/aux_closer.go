@@ -402,13 +402,43 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		closeAllocs[idx].OutputIndex = uint32(idx)
 	}
 
-	// Now that we have the complete set of allocations, we'll distribute
-	// them to create the vPackets we'll need to anchor everything.
-	vPackets, err := tapsend.DistributeCoins(
-		inputProofs, closeAllocs, a.cfg.ChainParams, true, tappsbt.V1,
+	// Now we know the deterministic ordering of the local/remote asset/btc
+	// outputs, we can extract the output indexes for the allocations.
+	var (
+		localOutputIndex, remoteOutputIndex uint32
+	)
+	if localAlloc != nil {
+		localOutputIndex = localAlloc.OutputIndex
+	}
+	if remoteAlloc != nil {
+		remoteOutputIndex = remoteAlloc.OutputIndex
+	}
+
+	// We don't use the normal allocation code here. This requires a bit of
+	// a lengthy explanation: When we close a channel, the output of the
+	// `lncli closedchannels` command will show the last commitment state of
+	// the channel as the closing asset balance. Which is correct in terms
+	// of balances. But if there are multiple different asset IDs (e.g., in
+	// a grouped asset channel), then _how_ those pieces are distributed
+	// within the commitment transaction depends on the order of the
+	// allocations. And the order of the allocations is dependent on the
+	// BTC amount and the pkScript of the BTC-level output. Both of which
+	// are different in the coop close output (we set the asset-level output
+	// BTC amount to the dummy amount, and the pkScript will be a newly
+	// derived internal key with no sibling script path).
+	// So, long story short: If we used the tapsend.DistributeCoins method
+	// here, it could happen that the actual asset output distribution shown
+	// in the `lncli closedchannels` command would be different from the
+	// actual distribution in the co-op close transaction.
+	// This could mostly be seen as an UX-only issue, but was actually
+	// discovered while attempting to assert the final closing balance of
+	// grouped asset channels in the litd integration test.
+	vPackets, err := CommitmentToPackets(
+		commitState, inputProofs, a.cfg.ChainParams, localShutdown,
+		remoteShutdown, localOutputIndex, remoteOutputIndex, tappsbt.V1,
 	)
 	if err != nil {
-		return none, fmt.Errorf("unable to distribute coins: %w", err)
+		return none, fmt.Errorf("unable to create vPackets: %w", err)
 	}
 
 	// We can now add the witness for the OP_TRUE spend of the commitment
