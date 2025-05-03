@@ -119,6 +119,17 @@ type BaseUniverseStore interface {
 	DeleteMultiverseLeaf(ctx context.Context,
 		arg DeleteMultiverseLeaf) error
 
+	// UpsertUniverseSupplyLeaf attempts to upsert a supply leaf into the
+	// supply tree for a given asset.
+	UpsertUniverseSupplyLeaf(ctx context.Context,
+		arg UpsertUniverseSupplyLeaf) (int64, error)
+
+	// UpsertUniverseSupplyRoot attempts to upsert a supply root into the
+	// supply tree for a given asset.
+	UpsertUniverseSupplyRoot(ctx context.Context,
+		arg UpsertUniverseSupplyRoot) (int64, error)
+}
+
 // getUniverseTreeSum retrieves the sum of a universe tree specified by its
 // identifier.
 func getUniverseTreeSum(ctx context.Context, db BatchedUniverseTree,
