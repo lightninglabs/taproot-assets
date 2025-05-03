@@ -80,7 +80,7 @@ var (
 	})
 	ScriptKeyGen = rapid.Custom(func(t *rapid.T) ScriptKey {
 		return ScriptKey{
-			PubKey: MaybePubKeyGen.Draw(t, "pubkey"),
+			PubKey: PubKeyGen.Draw(t, "pubkey"),
 			TweakedScriptKey: rapid.Ptr(
 				TweakedScriptKeyGen, true,
 			).Draw(t, "tweaked_script_key"),
