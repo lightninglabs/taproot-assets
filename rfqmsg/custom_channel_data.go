@@ -5,6 +5,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
 
 // JsonAssetBalance is a struct that represents the balance of a single asset ID
@@ -53,7 +54,7 @@ type JsonAssetChannel struct {
 
 // HasAllAssetIDs checks if the OpenChannel contains all asset IDs in the
 // provided set. It returns true if all asset IDs are present, false otherwise.
-func (c *JsonAssetChannel) HasAllAssetIDs(ids fn.Set[asset.ID]) bool {
+func (c *JsonAssetChannel) HasAllAssetIDs(ids lfn.Set[asset.ID]) bool {
 	// There is a possibility that we're checking the asset ID from an HTLC
 	// that hasn't been materialized yet and could actually contain a group
 	// key x-coordinate. That should only be the case if there is a single
@@ -65,12 +66,12 @@ func (c *JsonAssetChannel) HasAllAssetIDs(ids fn.Set[asset.ID]) bool {
 		}
 	}
 
-	availableIDStrings := fn.NewSet(fn.Map(
+	availableIDStrings := lfn.NewSet(fn.Map(
 		c.FundingAssets, func(fundingAsset JsonAssetUtxo) string {
 			return fundingAsset.AssetGenesis.AssetID
 		},
 	)...)
-	targetIDStrings := fn.NewSet(fn.Map(
+	targetIDStrings := lfn.NewSet(fn.Map(
 		ids.ToSlice(), func(id asset.ID) string {
 			return id.String()
 		},

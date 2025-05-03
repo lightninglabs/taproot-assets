@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -434,7 +435,7 @@ func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
 
 	// Check for each of the asset balances of the HTLC that the identifier
 	// matches that of the RFQ quote.
-	assetIDs := fn.NewSet[asset.ID]()
+	assetIDs := lfn.NewSet[asset.ID]()
 	for _, v := range htlc.Balances() {
 		match, err := s.cfg.RfqManager.AssetMatchesSpecifier(
 			ctx, identifier, v.AssetID.Val,

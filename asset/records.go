@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 	"golang.org/x/exp/maps"
 )
@@ -34,7 +35,7 @@ const (
 
 // KnownAssetLeafTypes is a set of all known asset leaf TLV types. This set is
 // asserted to be complete by a check in the BIP test vector unit tests.
-var KnownAssetLeafTypes = fn.NewSet(
+var KnownAssetLeafTypes = lfn.NewSet(
 	LeafVersion, LeafGenesis, LeafType, LeafAmount, LeafLockTime,
 	LeafRelativeLockTime, LeafPrevWitness, LeafSplitCommitmentRoot,
 	LeafScriptVersion, LeafScriptKey, LeafGroupKey,
@@ -63,7 +64,7 @@ func (e ErrUnknownType) Error() string {
 // unknown. If we find an unknown even type, then it means we're behind in our
 // software version and an error is returned detailing the type.
 func AssertNoUnknownEvenTypes(parsedTypes tlv.TypeMap,
-	knownTypes fn.Set[tlv.Type]) error {
+	knownTypes lfn.Set[tlv.Type]) error {
 
 	// Run through the set of types that we parsed. We want to error out if
 	// we encounter an unknown type that's even.
@@ -88,7 +89,7 @@ func AssertNoUnknownEvenTypes(parsedTypes tlv.TypeMap,
 // FilterUnknownTypes filters out all types that are unknown from the given
 // parsed types. The known types are specified as a set.
 func FilterUnknownTypes(parsedTypes tlv.TypeMap,
-	knownTypes fn.Set[tlv.Type]) tlv.TypeMap {
+	knownTypes lfn.Set[tlv.Type]) tlv.TypeMap {
 
 	result := make(tlv.TypeMap, len(parsedTypes))
 	for t, v := range parsedTypes {
@@ -109,7 +110,7 @@ func FilterUnknownTypes(parsedTypes tlv.TypeMap,
 // takes the set of known types for a given stream, and returns an error if the
 // buffer includes any unknown even types.
 func TlvStrictDecode(stream *tlv.Stream, r io.Reader,
-	knownTypes fn.Set[tlv.Type]) (tlv.TypeMap, error) {
+	knownTypes lfn.Set[tlv.Type]) (tlv.TypeMap, error) {
 
 	parsedTypes, err := stream.DecodeWithParsedTypes(r)
 	if err != nil {
@@ -128,7 +129,7 @@ func TlvStrictDecode(stream *tlv.Stream, r io.Reader,
 // size is capped at 65535. This should only be called from a p2p setting where
 // untrusted input is being deserialized.
 func TlvStrictDecodeP2P(stream *tlv.Stream, r io.Reader,
-	knownTypes fn.Set[tlv.Type]) (tlv.TypeMap, error) {
+	knownTypes lfn.Set[tlv.Type]) (tlv.TypeMap, error) {
 
 	parsedTypes, err := stream.DecodeWithParsedTypesP2P(r)
 	if err != nil {

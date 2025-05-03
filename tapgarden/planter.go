@@ -2191,7 +2191,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 
 	// Each provided group witness must have a corresponding seedling in the
 	// current batch.
-	seedlingAssetIDs := fn.NewSet(fn.Map(
+	seedlingAssetIDs := lfn.NewSet(fn.Map(
 		groupReqs, func(req asset.GroupKeyRequest) asset.ID {
 			return req.NewAsset.ID()
 		})...,

@@ -25,6 +25,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -1974,11 +1975,11 @@ type ChainAsset struct {
 }
 
 // LeafKeySet is a set of leaf keys.
-type LeafKeySet = fn.Set[[32]byte]
+type LeafKeySet = lfn.Set[[32]byte]
 
 // NewLeafKeySet creates a new leaf key set.
 func NewLeafKeySet() LeafKeySet {
-	return fn.NewSet[[32]byte]()
+	return lfn.NewSet[[32]byte]()
 }
 
 // An AltLeaf is a type that is used to carry arbitrary data, and does not

@@ -191,7 +191,7 @@ func (o *OpenChannel) Bytes() []byte {
 
 // HasAllAssetIDs checks if the OpenChannel contains all asset IDs in the
 // provided set. It returns true if all asset IDs are present, false otherwise.
-func (o *OpenChannel) HasAllAssetIDs(ids fn.Set[asset.ID]) bool {
+func (o *OpenChannel) HasAllAssetIDs(ids lfn.Set[asset.ID]) bool {
 	// There is a possibility that we're checking the asset ID from an HTLC
 	// that hasn't been materialized yet and could actually contain a group
 	// key x-coordinate. That should only be the case if there is a single
@@ -220,7 +220,7 @@ func (o *OpenChannel) HasAllAssetIDs(ids fn.Set[asset.ID]) bool {
 		}
 	}
 
-	availableIDs := fn.NewSet(fn.Map(
+	availableIDs := lfn.NewSet(fn.Map(
 		o.Assets(), func(output *AssetOutput) asset.ID {
 			return output.AssetID.Val
 		},

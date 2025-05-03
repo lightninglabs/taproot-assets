@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
@@ -18,7 +18,7 @@ func TestTlvStrictDecode(t *testing.T) {
 
 	testCases := []struct {
 		parsedTypes tlv.TypeMap
-		knownTypes  fn.Set[tlv.Type]
+		knownTypes  lfn.Set[tlv.Type]
 		err         error
 	}{
 		// No unknown types.
@@ -27,7 +27,7 @@ func TestTlvStrictDecode(t *testing.T) {
 				0: []byte{},
 				2: []byte{},
 			},
-			knownTypes: fn.NewSet[tlv.Type](0, 2),
+			knownTypes: lfn.NewSet[tlv.Type](0, 2),
 			err:        nil,
 		},
 
@@ -38,7 +38,7 @@ func TestTlvStrictDecode(t *testing.T) {
 				2: []byte{},
 				3: []byte{},
 			},
-			knownTypes: fn.NewSet[tlv.Type](0, 2),
+			knownTypes: lfn.NewSet[tlv.Type](0, 2),
 			err:        nil,
 		},
 
@@ -49,7 +49,7 @@ func TestTlvStrictDecode(t *testing.T) {
 				2: []byte{},
 				4: []byte{},
 			},
-			knownTypes: fn.NewSet[tlv.Type](0, 2),
+			knownTypes: lfn.NewSet[tlv.Type](0, 2),
 			err: ErrUnknownType{
 				UnknownType: 4,
 				ValueBytes:  []byte{},
@@ -71,7 +71,7 @@ func TestFilterUnknownTypes(t *testing.T) {
 
 	testCases := []struct {
 		parsedTypes tlv.TypeMap
-		knownTypes  fn.Set[tlv.Type]
+		knownTypes  lfn.Set[tlv.Type]
 		result      tlv.TypeMap
 	}{
 		// No unknown types.
@@ -80,7 +80,7 @@ func TestFilterUnknownTypes(t *testing.T) {
 				0: []byte{},
 				2: []byte{},
 			},
-			knownTypes: fn.NewSet[tlv.Type](0, 2),
+			knownTypes: lfn.NewSet[tlv.Type](0, 2),
 			result:     nil,
 		},
 
@@ -91,7 +91,7 @@ func TestFilterUnknownTypes(t *testing.T) {
 				2: []byte{},
 				3: []byte{},
 			},
-			knownTypes: fn.NewSet[tlv.Type](0, 2),
+			knownTypes: lfn.NewSet[tlv.Type](0, 2),
 			result: tlv.TypeMap{
 				3: []byte{},
 			},
@@ -105,7 +105,7 @@ func TestFilterUnknownTypes(t *testing.T) {
 				3: []byte{},
 				4: []byte{},
 			},
-			knownTypes: fn.NewSet[tlv.Type](0, 2),
+			knownTypes: lfn.NewSet[tlv.Type](0, 2),
 			result: tlv.TypeMap{
 				3: []byte{},
 				4: []byte{},

@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1031,7 +1032,7 @@ func (tmr *TestMetaReveal) ToMetaReveal(t testing.TB) *MetaReveal {
 }
 
 type mockIgnoreChecker struct {
-	ignoredAssetPoints fn.Set[AssetPoint]
+	ignoredAssetPoints lfn.Set[AssetPoint]
 	ignoreAll          bool
 }
 
@@ -1039,7 +1040,7 @@ func newMockIgnoreChecker(ignoreAll bool,
 	ignorePoints ...AssetPoint) *mockIgnoreChecker {
 
 	return &mockIgnoreChecker{
-		ignoredAssetPoints: fn.NewSet(ignorePoints...),
+		ignoredAssetPoints: lfn.NewSet(ignorePoints...),
 		ignoreAll:          ignoreAll,
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -357,7 +358,7 @@ func finishMint(t *testing.T, ctx context.Context, miner *rpcclient.Client,
 // getTotalAssetGroups returns the total number of asset groups found in the
 // passed array of assets.
 func getTotalAssetGroups(assets []*taprpc.Asset) []string {
-	groups := fn.NewSet[string]()
+	groups := lfn.NewSet[string]()
 
 	for _, v := range assets {
 		groupKeyStr := fmt.Sprintf("%x", v.AssetGroup.TweakedGroupKey)

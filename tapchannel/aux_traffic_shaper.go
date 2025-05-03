@@ -162,7 +162,7 @@ func (s *AuxTrafficShaper) PaymentBandwidth(fundingBlob, htlcBlob,
 	// wrong one could be chosen if we signal there's bandwidth. So we need
 	// to tell `lnd` it can't use this channel if the assets aren't
 	// compatible.
-	htlcAssetIDs := fn.NewSet[asset.ID](fn.Map(
+	htlcAssetIDs := lfn.NewSet[asset.ID](fn.Map(
 		htlc.Balances(), func(b *rfqmsg.AssetBalance) asset.ID {
 			return b.AssetID.Val
 		})...,

@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -282,7 +283,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 
 	// With the set of keys fetched, we can now find the set of keys that
 	// need to be synced.
-	keysToFetch := fn.SetDiff(remoteUniKeys, localUniKeys)
+	keysToFetch := lfn.SetDiff(remoteUniKeys, localUniKeys)
 
 	log.Infof("UniverseRoot(%v): diff_size=%v", uniID.String(),
 		len(keysToFetch))

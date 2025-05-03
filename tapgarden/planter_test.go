@@ -35,6 +35,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -47,19 +48,19 @@ import (
 // rely on our manual ticks.
 var (
 	defaultTimeout    = time.Second * 10
-	noCaretakerStates = fn.NewSet(
+	noCaretakerStates = lfn.NewSet(
 		tapgarden.BatchStatePending,
 		tapgarden.BatchStateSeedlingCancelled,
 		tapgarden.BatchStateSproutCancelled,
 	)
-	batchFrozenStates = fn.NewSet(
+	batchFrozenStates = lfn.NewSet(
 		tapgarden.BatchStateFrozen,
 		tapgarden.BatchStateCommitted,
 		tapgarden.BatchStateBroadcast,
 		tapgarden.BatchStateConfirmed,
 		tapgarden.BatchStateFinalized,
 	)
-	batchCommittedStates = fn.NewSet(
+	batchCommittedStates = lfn.NewSet(
 		tapgarden.BatchStateCommitted,
 		tapgarden.BatchStateBroadcast,
 		tapgarden.BatchStateConfirmed,

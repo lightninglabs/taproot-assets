@@ -1468,7 +1468,7 @@ func AssertInputsUnique(packets []*tappsbt.VPacket) error {
 // carried by all packets assigned to that output can be used to construct an
 // AltCommitment.
 func AssertOutputAltLeavesValid(vPackets []*tappsbt.VPacket) error {
-	anchorLeaves := make(map[uint32]fn.Set[[32]byte])
+	anchorLeaves := make(map[uint32]lfn.Set[[32]byte])
 
 	for _, pkt := range vPackets {
 		for _, vOut := range pkt.Outputs {
@@ -1479,7 +1479,7 @@ func AssertOutputAltLeavesValid(vPackets []*tappsbt.VPacket) error {
 			// Build a set of AltLeaf keys for each anchor output.
 			outIndex := vOut.AnchorOutputIndex
 			if _, ok := anchorLeaves[outIndex]; !ok {
-				anchorLeaves[outIndex] = fn.NewSet[[32]byte]()
+				anchorLeaves[outIndex] = lfn.NewSet[[32]byte]()
 			}
 
 			err := asset.AddLeafKeysVerifyUnique(

@@ -4,8 +4,8 @@ import (
 	"bytes"
 
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -23,20 +23,20 @@ const (
 
 // KnownAssetProofTypes is a set of all known asset proof TLV types. This set
 // is asserted to be complete by a check in the BIP test vector unit tests.
-var KnownAssetProofTypes = fn.NewSet(
+var KnownAssetProofTypes = lfn.NewSet(
 	AssetProofVersionType, AssetProofAssetIDType, AssetProofType,
 )
 
 // KnownTaprootAssetProofTypes is a set of all known taproot asset proof TLV
 // types. This set is asserted to be complete by a check in the BIP test vector
 // unit tests.
-var KnownTaprootAssetProofTypes = fn.NewSet(
+var KnownTaprootAssetProofTypes = lfn.NewSet(
 	TaprootAssetProofVersionType, TaprootAssetProofType,
 )
 
 // KnownProofTypes is a set of all known proof TLV types. This set is asserted
 // to be complete by a check in the BIP test vector unit tests.
-var KnownProofTypes = fn.NewSet(
+var KnownProofTypes = lfn.NewSet(
 	ProofAssetProofType, ProofTaprootAssetProofType,
 )
 

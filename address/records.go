@@ -7,7 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
-	"github.com/lightninglabs/taproot-assets/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -46,7 +46,7 @@ const (
 
 // KnownAddressTypes is a set of all known address TLV types. This set is
 // asserted to be complete by a check in the BIP test vector unit tests.
-var KnownAddressTypes = fn.NewSet(
+var KnownAddressTypes = lfn.NewSet(
 	addrVersionType, addrAssetVersionType, addrAssetIDType,
 	addrGroupKeyType, addrScriptKeyType, addrInternalKeyType,
 	addrTapscriptSiblingType, addrAmountType, addrProofCourierAddrType,

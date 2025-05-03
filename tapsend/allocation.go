@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 )
 
@@ -489,7 +490,7 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 	assetIDs := fn.Map(inputs, func(input *proof.Proof) asset.ID {
 		return input.Asset.ID()
 	})
-	uniqueAssetIDs := fn.NewSet(assetIDs...).ToSlice()
+	uniqueAssetIDs := lfn.NewSet(assetIDs...).ToSlice()
 
 	// Each "piece" keeps track of how many assets of a specific asset ID
 	// we have already distributed. The pieces are also the main way to

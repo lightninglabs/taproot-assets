@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -54,7 +55,7 @@ const (
 
 // KnownProofTypes is a set of all known proof TLV types. This set is asserted
 // to be complete by a check in the BIP test vector unit tests.
-var KnownProofTypes = fn.NewSet(
+var KnownProofTypes = lfn.NewSet(
 	VersionType, PrevOutType, BlockHeaderType, AnchorTxType,
 	TxMerkleProofType, AssetLeafType, InclusionProofType,
 	ExclusionProofsType, SplitRootProofType, MetaRevealType,
@@ -64,7 +65,7 @@ var KnownProofTypes = fn.NewSet(
 
 // KnownTaprootProofTypes is a set of all known Taproot proof TLV types. This
 // set is asserted to be complete by a check in the BIP test vector unit tests.
-var KnownTaprootProofTypes = fn.NewSet(
+var KnownTaprootProofTypes = lfn.NewSet(
 	TaprootProofOutputIndexType, TaprootProofInternalKeyType,
 	TaprootProofCommitmentProofType, TaprootProofTapscriptProofType,
 )
@@ -72,7 +73,7 @@ var KnownTaprootProofTypes = fn.NewSet(
 // KnownCommitmentProofTypes is a set of all known commitment proof TLV types.
 // This set is asserted to be complete by a check in the BIP test vector unit
 // tests.
-var KnownCommitmentProofTypes = fn.NewSet(
+var KnownCommitmentProofTypes = lfn.NewSet(
 	commitment.ProofAssetProofType, commitment.ProofTaprootAssetProofType,
 	CommitmentProofTapSiblingPreimageType,
 )
@@ -80,14 +81,14 @@ var KnownCommitmentProofTypes = fn.NewSet(
 // KnownTapscriptProofTypes is a set of all known Tapscript proof TLV types.
 // This set is asserted to be complete by a check in the BIP test vector unit
 // tests.
-var KnownTapscriptProofTypes = fn.NewSet(
+var KnownTapscriptProofTypes = lfn.NewSet(
 	TapscriptProofTapPreimage1, TapscriptProofTapPreimage2,
 	TapscriptProofBip86,
 )
 
 // KnownMetaRevealTypes is a set of all known meta reveal TLV types. This set is
 // asserted to be complete by a check in the BIP test vector unit tests.
-var KnownMetaRevealTypes = fn.NewSet(
+var KnownMetaRevealTypes = lfn.NewSet(
 	MetaRevealEncodingType, MetaRevealDataType, MetaRevealDecimalDisplay,
 	MetaRevealUniverseCommitments, MetaRevealCanonicalUniversesType,
 	MetaRevealDelegationKeyType,

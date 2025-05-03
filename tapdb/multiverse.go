@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
 
 const (
@@ -864,7 +865,7 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	}
 
 	// Invalidate the root node cache for all the assets we just inserted.
-	idsToDelete := fn.NewSet(
+	idsToDelete := lfn.NewSet(
 		fn.Map(items, func(item *universe.Item) universeIDKey {
 			return item.ID.String()
 		})...,

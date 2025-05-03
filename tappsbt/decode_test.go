@@ -14,9 +14,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
-	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -225,7 +225,7 @@ func TestEncodingDecoding(t *testing.T) {
 	}, {
 		name: "invalid packet version",
 		pkg: func(t *testing.T) *VPacket {
-			validVers := fn.NewSet(uint8(V0), uint8(V1))
+			validVers := lfn.NewSet(uint8(V0), uint8(V1))
 			pkt := RandPacket(t, false, true)
 
 			invalidPktVersion := test.RandInt[uint8]()
