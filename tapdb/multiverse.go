@@ -176,7 +176,9 @@ func namespaceForProof(proofType universe.ProofType) (string, error) {
 		return transferMultiverseNS, nil
 
 	default:
-		return "", fmt.Errorf("unknown proof type: %d", int(proofType))
+		return "", fmt.Errorf("unsupported proof type for "+
+			"multiverse: %v",
+			proofType)
 	}
 }
 
@@ -632,9 +634,18 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 			return err
 		}
 
-		// Populate multiverse specific fields of proofs.
-		//
-		// Retrieve a handle to the multiverse MS-SMT tree.
+		// Populate multiverse specific fields of proofs. Re-check proof
+		// type to decide if multiverse proof is needed.
+		if id.ProofType != universe.ProofTypeIssuance &&
+			id.ProofType != universe.ProofTypeTransfer {
+
+			log.Tracef("Skipping multiverse proof fetch for "+
+				"proof type %v", id.ProofType)
+			return nil
+		}
+
+		// Now we know multiverseNS is valid and corresponds to issuance
+		// or transfer. Retrieve a handle to the multiverse MS-SMT tree.
 		multiverseTree := mssmt.NewCompactedTree(
 			newTreeStoreWrapperTx(tx, multiverseNS),
 		)
@@ -757,19 +768,33 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
 
 	var (
-		writeTx       BaseMultiverseOptions
-		issuanceProof *universe.Proof
+		writeTx         BaseMultiverseOptions
+		uniProof        *universe.Proof
+		multiverseRoot  mssmt.Node
+		multiverseProof *mssmt.Proof
 	)
 
 	execTxFunc := func(dbTx BaseMultiverseStore) error {
 		// Register issuance in the asset (group) specific universe
 		// tree.
 		var err error
-		issuanceProof, err = universeUpsertProofLeaf(
-			ctx, dbTx, id, key, leaf, metaReveal, false,
+		uniProof, err = universeUpsertProofLeaf(
+			ctx, dbTx, id.String(), id.ProofType.String(),
+			id.GroupKey, key, leaf, metaReveal,
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed universe upsert: %w", err)
+		}
+
+		// Now, attempt to insert the universe root into the main
+		// multiverse tree.
+		//
+		// nolint:lll
+		multiverseRoot, multiverseProof, err = upsertMultiverseLeafEntry(
+			ctx, dbTx, id, uniProof.UniverseRoot,
+		)
+		if err != nil {
+			return fmt.Errorf("failed multiverse upsert: %w", err)
 		}
 
 		return nil
@@ -779,6 +804,11 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		return nil, dbErr
 	}
 
+	// Populate the multiverse fields in the proof object now that the
+	// transaction is complete.
+	uniProof.MultiverseRoot = multiverseRoot
+	uniProof.MultiverseInclusionProof = multiverseProof
+
 	// Invalidate the cache since we just updated the root.
 	b.rootNodeCache.wipeCache()
 	b.proofCache.delProofsForAsset(id)
@@ -786,8 +816,10 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	b.syncerCache.addOrReplace(universe.Root{
 		ID:        id,
 		AssetName: leaf.Asset.Tag,
-		Node:      issuanceProof.UniverseRoot,
+		Node:      uniProof.UniverseRoot,
 	})
+
+	b.leafKeysCache.wipeCache(id.String())
 
 	// Notify subscribers about the new proof leaf, now that we're sure we
 	// have written it to the database. But we only care about transfer
@@ -797,24 +829,13 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		b.transferProofDistributor.NotifySubscribers(leaf.RawProof)
 	}
 
-	return issuanceProof, nil
+	return uniProof, nil
 }
 
 // UpsertProofLeafBatch upserts a proof leaf batch within the multiverse tree
 // and the universe tree that corresponds to the given key(s).
 func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	items []*universe.Item) error {
-
-	insertProof := func(item *universe.Item,
-		dbTx BaseMultiverseStore) (*universe.Proof, error) {
-
-		// Upsert proof leaf into the asset (group) specific universe
-		// tree.
-		return universeUpsertProofLeaf(
-			ctx, dbTx, item.ID, item.Key, item.Leaf,
-			item.MetaReveal, false,
-		)
-	}
 
 	var (
 		writeTx   BaseMultiverseOptions
@@ -825,12 +846,40 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 			uniProofs = make([]*universe.Proof, len(items))
 			for idx := range items {
 				item := items[idx]
-				uniProof, err := insertProof(item, store)
+
+				// Upsert into the specific universe tree to
+				// start with.
+				uniProof, err := universeUpsertProofLeaf(
+					ctx, store, item.ID.String(),
+					item.ID.ProofType.String(),
+					item.ID.GroupKey, item.Key, item.Leaf,
+					item.MetaReveal,
+				)
 				if err != nil {
-					return err
+					return fmt.Errorf("failed universe "+
+						"upsert for item %d: %w",
+						idx, err)
+				}
+				uniProofs[idx] = uniProof
+
+				// Next we'll, attempt to insert the universe
+				// root into the main multiverse tree.
+				//
+				//nolint:lll
+				multiRoot, multiProof, err := upsertMultiverseLeafEntry(
+					ctx, store, item.ID,
+					uniProof.UniverseRoot,
+				)
+				if err != nil {
+					return fmt.Errorf("failed multiverse "+
+						"upsert for item %d: %w",
+						idx, err)
 				}
 
-				uniProofs[idx] = uniProof
+				// Update the proof object with multiverse
+				// details.
+				uniProofs[idx].MultiverseRoot = multiRoot
+				uniProofs[idx].MultiverseInclusionProof = multiProof //nolint:lll
 			}
 
 			return nil
