@@ -141,7 +141,7 @@ func specifierToIdentifier(spec asset.Specifier,
 // getUniverseTreeSum retrieves the sum of a universe tree specified by its
 // identifier.
 func getUniverseTreeSum(ctx context.Context, db BatchedUniverseTree,
-	id universe.Identifier) universe.SumQueryResp {
+	namespace string) universe.SumQueryResp {
 
 	var sumOpt lfn.Option[uint64]
 
@@ -210,12 +210,11 @@ type authProofBuilder[DecodedLeafType any, AuthProofType any] func(
 // info, and finally the QueryType is the type that is used to query the leaves.
 func queryUniverseLeavesAndProofs[LeafType any, AuthType any, QueryType any](
 	ctx context.Context, db BatchedUniverseTree, assetSpec asset.Specifier,
-	id universe.Identifier, leafQuery universeLeafQueryFunc[QueryType],
+	namespace string, leafQuery universeLeafQueryFunc[QueryType],
 	leafDecode universeLeafDecodeFunc[LeafType],
 	proofBuild authProofBuilder[LeafType, AuthType],
 	queryParams ...QueryType) lfn.Result[lfn.Option[[]AuthType]] {
 
-	namespace := id.String()
 	var (
 		resultAuths []AuthType
 		foundAny    bool
@@ -305,10 +304,9 @@ func queryUniverseLeavesAndProofs[LeafType any, AuthType any, QueryType any](
 // decodeFunc decodes the raw proof bytes from a UniverseLeaf into the
 // desired domain-specific type.
 func listUniverseLeaves[T any](ctx context.Context, db BatchedUniverseTree,
-	id universe.Identifier, decodeFunc func(UniverseLeaf) (T, error),
+	namespace string, decodeFunc func(UniverseLeaf) (T, error),
 ) lfn.Result[lfn.Option[[]T]] {
 
-	namespace := id.String()
 	var results []T
 
 	readTx := NewBaseUniverseReadTx()
@@ -602,11 +600,9 @@ func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 // NOTE: This function accepts a db transaction, as it's used when making
 // broader DB updates.
 func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
-	id universe.Identifier, key universe.LeafKey, leaf *universe.Leaf,
-	metaReveal *proof.MetaReveal,
-	skipMultiverse bool) (*universe.Proof, error) {
-
-	namespace := id.String()
+	namespace string, proofTypeStr string, groupKey *btcec.PublicKey,
+	key universe.LeafKey, leaf *universe.Leaf,
+	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
 
 	// With the tree store created, we'll now obtain byte representation of
 	// the minting key, as that'll be the key in the SMT itself.
@@ -617,8 +613,8 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	leafNode := leaf.SmtLeafNode()
 
 	var groupKeyBytes []byte
-	if id.GroupKey != nil {
-		groupKeyBytes = schnorr.SerializePubKey(id.GroupKey)
+	if groupKey != nil {
+		groupKeyBytes = schnorr.SerializePubKey(groupKey)
 	}
 
 	mintingPointBytes, err := encodeOutpoint(key.LeafOutPoint())
@@ -650,7 +646,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		NamespaceRoot: namespace,
 		AssetID:       fn.ByteSlice(leaf.ID()),
 		GroupKey:      groupKeyBytes,
-		ProofType:     sqlStr(id.ProofType.String()),
+		ProofType:     sqlStr(proofTypeStr),
 	})
 	if err != nil {
 		return nil, err
