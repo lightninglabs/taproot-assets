@@ -1,4 +1,4 @@
-package address
+package addressbook
 
 import (
 	"context"
@@ -12,151 +12,13 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
 )
-
-var (
-	// ErrAssetGroupUnknown is returned when the asset genesis is not known.
-	// This means an address can't be created until a Universe bootstrap or
-	// manual issuance proof insertion.
-	ErrAssetGroupUnknown = fmt.Errorf("asset group is unknown")
-
-	// ErrAssetMetaNotFound is returned when an asset meta is not found in
-	// the database.
-	ErrAssetMetaNotFound = fmt.Errorf("asset meta not found")
-)
-
-// AddrWithKeyInfo wraps a normal Taproot Asset struct with key descriptor
-// information.
-type AddrWithKeyInfo struct {
-	*Tap
-
-	// ScriptKeyTweak houses the wallet specific information related to a
-	// tweak key. This includes the raw key desc information along with the
-	// tweak used to create the address.
-	ScriptKeyTweak asset.TweakedScriptKey
-
-	// InternalKeyDesc is the key desc for the internal key.
-	InternalKeyDesc keychain.KeyDescriptor
-
-	// TaprootOutputKey is the tweaked taproot output key that assets must
-	// be sent to on chain to be received.
-	TaprootOutputKey btcec.PublicKey
-
-	// CreationTime is the time the address was created in the database.
-	CreationTime time.Time
-
-	// ManagedAfter is the time at which the address was imported into the
-	// wallet.
-	ManagedAfter time.Time
-}
-
-// QueryParams holds the set of query params for the address book.
-type QueryParams struct {
-	// CreatedAfter if set, only addresses created after the time will be
-	// returned.
-	CreatedAfter time.Time
-
-	// CreatedBefore is set, only the addresses created before the time
-	// will be returned.
-	CreatedBefore time.Time
-
-	// Limit if set, only this many addresses will be returned.
-	Limit int32
-
-	// Offset if set, then the final result will be offset by this many
-	// addresses.
-	Offset int32
-
-	// UnmanagedOnly is a boolean pointer indicating whether only addresses
-	// should be returned that are not yet managed by the wallet.
-	UnmanagedOnly bool
-}
-
-// AssetSyncer is an interface that allows the address.Book to look up asset
-// genesis and group information from both the local asset store and assets
-// known to universe servers in our federation.
-type AssetSyncer interface {
-	// SyncAssetInfo queries the universes in our federation for genesis
-	// and asset group information about the given asset ID.
-	SyncAssetInfo(ctx context.Context, assetID *asset.ID) error
-
-	// EnableAssetSync updates the sync config for the given asset so that
-	// we sync future issuance proofs.
-	EnableAssetSync(ctx context.Context, groupInfo *asset.AssetGroup) error
-}
-
-// Storage is the main storage interface for the address book.
-type Storage interface {
-	EventStorage
-
-	// InsertAddrs inserts a series of addresses into the database.
-	InsertAddrs(ctx context.Context, addrs ...AddrWithKeyInfo) error
-
-	// QueryAddrs attempts to query for a set of addresses.
-	QueryAddrs(ctx context.Context,
-		params QueryParams) ([]AddrWithKeyInfo, error)
-
-	// QueryAssetGroup attempts to locate the asset group information
-	// (genesis + group key) associated with a given asset.
-	QueryAssetGroup(context.Context, asset.ID) (*asset.AssetGroup, error)
-
-	// FetchAssetMetaByHash attempts to fetch an asset meta based on an
-	// asset hash.
-	FetchAssetMetaByHash(ctx context.Context,
-		metaHash [asset.MetaHashLen]byte) (*proof.MetaReveal, error)
-
-	// FetchAssetMetaForAsset attempts to fetch an asset meta based on an
-	// asset ID.
-	FetchAssetMetaForAsset(ctx context.Context,
-		assetID asset.ID) (*proof.MetaReveal, error)
-
-	// AddrByTaprootOutput returns a single address based on its Taproot
-	// output key or a sql.ErrNoRows error if no such address exists.
-	AddrByTaprootOutput(ctx context.Context,
-		key *btcec.PublicKey) (*AddrWithKeyInfo, error)
-
-	// SetAddrManaged sets an address as being managed by the internal
-	// wallet.
-	SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
-		managedFrom time.Time) error
-
-	// InsertInternalKey inserts an internal key into the database to make
-	// sure it is identified as a local key later on when importing proofs.
-	// The key can be an internal key for an asset script key or the
-	// internal key of an anchor output.
-	InsertInternalKey(ctx context.Context,
-		keyDesc keychain.KeyDescriptor) error
-
-	// InsertScriptKey inserts an address related script key into the
-	// database, so it can be recognized as belonging to the wallet when a
-	// transfer comes in later on.
-	InsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
-		keyType asset.ScriptKeyType) error
-}
-
-// KeyRing is used to create script and internal keys for Taproot Asset
-// addresses.
-type KeyRing interface {
-	// DeriveNextTaprootAssetKey attempts to derive the *next* key within
-	// the TaprootAsset key family.
-	DeriveNextTaprootAssetKey(context.Context) (keychain.KeyDescriptor,
-		error)
-
-	// DeriveNextKey attempts to derive the *next* key within the key
-	// family (account in BIP43) specified. This method should return the
-	// next external child within this branch.
-	DeriveNextKey(context.Context,
-		keychain.KeyFamily) (keychain.KeyDescriptor, error)
-
-	// IsLocalKey returns true if the key is under the control of the wallet
-	// and can be derived by it.
-	IsLocalKey(ctx context.Context, desc keychain.KeyDescriptor) bool
-}
 
 // BookConfig is the main config for the address.Book.
 type BookConfig struct {
@@ -165,13 +27,13 @@ type BookConfig struct {
 
 	// Syncer allows the address.Book to sync issuance information for
 	// assets from universe servers in our federation.
-	Syncer AssetSyncer
+	Syncer address.AssetSyncer
 
 	// KeyRing points to an active key ring instance.
-	KeyRing KeyRing
+	KeyRing address.KeyRing
 
 	// Chain points to the chain the address.Book is active on.
-	Chain ChainParams
+	Chain address.ChainParams
 
 	// StoreTimeout is the default timeout to use for any storage
 	// interaction.
@@ -185,7 +47,7 @@ type Book struct {
 
 	// subscribers is a map of components that want to be notified on new
 	// address events, keyed by their subscription ID.
-	subscribers map[uint64]*fn.EventReceiver[*AddrWithKeyInfo]
+	subscribers map[uint64]*fn.EventReceiver[*address.AddrWithKeyInfo]
 
 	// subscriberMtx guards the subscribers map and access to the
 	// subscriptionID.
@@ -194,14 +56,14 @@ type Book struct {
 
 // A compile-time assertion to make sure Book satisfies the
 // fn.EventPublisher interface.
-var _ fn.EventPublisher[*AddrWithKeyInfo, QueryParams] = (*Book)(nil)
+var _ fn.EventPublisher[*address.AddrWithKeyInfo, address.QueryParams] = (*Book)(nil)
 
 // NewBook creates a new Book instance from the config.
 func NewBook(cfg BookConfig) *Book {
 	return &Book{
 		cfg: cfg,
 		subscribers: make(
-			map[uint64]*fn.EventReceiver[*AddrWithKeyInfo],
+			map[uint64]*fn.EventReceiver[*address.AddrWithKeyInfo],
 		),
 	}
 }
@@ -220,9 +82,9 @@ func (b *Book) QueryAssetInfo(ctx context.Context,
 
 	// Asset lookup failed gracefully; continue to asset lookup using the
 	// AssetSyncer if enabled.
-	case errors.Is(err, ErrAssetGroupUnknown):
+	case errors.Is(err, address.ErrAssetGroupUnknown):
 		if b.cfg.Syncer == nil {
-			return nil, ErrAssetGroupUnknown
+			return nil, address.ErrAssetGroupUnknown
 		}
 
 	case err != nil:
@@ -283,9 +145,9 @@ func (b *Book) FetchAssetMetaForAsset(ctx context.Context,
 
 	// Asset lookup failed gracefully; continue to asset lookup using the
 	// AssetSyncer if enabled.
-	case errors.Is(err, ErrAssetMetaNotFound):
+	case errors.Is(err, address.ErrAssetMetaNotFound):
 		if b.cfg.Syncer == nil {
-			return nil, ErrAssetMetaNotFound
+			return nil, address.ErrAssetMetaNotFound
 		}
 
 	case err != nil:
@@ -314,11 +176,11 @@ func (b *Book) FetchAssetMetaForAsset(ctx context.Context,
 }
 
 // NewAddress creates a new Taproot Asset address based on the input parameters.
-func (b *Book) NewAddress(ctx context.Context, addrVersion Version,
+func (b *Book) NewAddress(ctx context.Context, addrVersion address.Version,
 	assetID asset.ID, amount uint64,
 	tapscriptSibling *commitment.TapscriptPreimage,
-	proofCourierAddr url.URL, addrOpts ...NewAddrOpt) (*AddrWithKeyInfo,
-	error) {
+	proofCourierAddr url.URL,
+	addrOpts ...address.NewAddrOpt) (*address.AddrWithKeyInfo, error) {
 
 	// Before we proceed and make new keys, make sure that we actually know
 	// of this asset ID, or can import it.
@@ -350,12 +212,12 @@ func (b *Book) NewAddress(ctx context.Context, addrVersion Version,
 
 // NewAddressWithKeys creates a new Taproot Asset address based on the input
 // parameters that include pre-derived script and internal keys.
-func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
-	assetID asset.ID, amount uint64, scriptKey asset.ScriptKey,
-	internalKeyDesc keychain.KeyDescriptor,
+func (b *Book) NewAddressWithKeys(ctx context.Context,
+	addrVersion address.Version, assetID asset.ID, amount uint64,
+	scriptKey asset.ScriptKey, internalKeyDesc keychain.KeyDescriptor,
 	tapscriptSibling *commitment.TapscriptPreimage,
-	proofCourierAddr url.URL, addrOpts ...NewAddrOpt) (*AddrWithKeyInfo,
-	error) {
+	proofCourierAddr url.URL,
+	addrOpts ...address.NewAddrOpt) (*address.AddrWithKeyInfo, error) {
 
 	// Before we proceed, we'll make sure that the asset group is known to
 	// the local store. Otherwise, we can't make an address as we haven't
@@ -375,7 +237,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
 		groupWitness = assetGroup.Witness
 	}
 
-	baseAddr, err := New(
+	baseAddr, err := address.New(
 		addrVersion, *assetGroup.Genesis, groupKey, groupWitness,
 		*scriptKey.PubKey, *internalKeyDesc.PubKey, amount,
 		tapscriptSibling, &b.cfg.Chain, proofCourierAddr,
@@ -407,7 +269,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
 		return nil, fmt.Errorf("unable to insert script key: %w", err)
 	}
 
-	addr := AddrWithKeyInfo{
+	addr := address.AddrWithKeyInfo{
 		Tap:              baseAddr,
 		ScriptKeyTweak:   *scriptKey.TweakedScriptKey,
 		InternalKeyDesc:  internalKeyDesc,
@@ -486,7 +348,7 @@ func (b *Book) NextScriptKey(ctx context.Context,
 
 // ListAddrs lists a set of addresses based on the expressed query params.
 func (b *Book) ListAddrs(ctx context.Context,
-	params QueryParams) ([]AddrWithKeyInfo, error) {
+	params address.QueryParams) ([]address.AddrWithKeyInfo, error) {
 
 	return b.cfg.Store.QueryAddrs(ctx, params)
 }
@@ -494,15 +356,15 @@ func (b *Book) ListAddrs(ctx context.Context,
 // AddrByTaprootOutput returns a single address based on its Taproot output key
 // or a sql.ErrNoRows error if no such address exists.
 func (b *Book) AddrByTaprootOutput(ctx context.Context,
-	key *btcec.PublicKey) (*AddrWithKeyInfo, error) {
+	key *btcec.PublicKey) (*address.AddrWithKeyInfo, error) {
 
 	return b.cfg.Store.AddrByTaprootOutput(ctx, key)
 }
 
 // SetAddrManaged sets an address as being managed by the internal
 // wallet.
-func (b *Book) SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
-	managedFrom time.Time) error {
+func (b *Book) SetAddrManaged(ctx context.Context,
+	addr *address.AddrWithKeyInfo, managedFrom time.Time) error {
 
 	return b.cfg.Store.SetAddrManaged(ctx, addr, managedFrom)
 }
@@ -510,9 +372,9 @@ func (b *Book) SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
 // GetOrCreateEvent creates a new address event for the given status, address
 // and transaction. If an event for that address and transaction already exists,
 // then the status and transaction information is updated instead.
-func (b *Book) GetOrCreateEvent(ctx context.Context, status Status,
-	addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
-	outputIdx uint32) (*Event, error) {
+func (b *Book) GetOrCreateEvent(ctx context.Context, status address.Status,
+	addr *address.AddrWithKeyInfo, walletTx *lndclient.Transaction,
+	outputIdx uint32) (*address.Event, error) {
 
 	return b.cfg.Store.GetOrCreateEvent(
 		ctx, status, addr, walletTx, outputIdx,
@@ -520,18 +382,18 @@ func (b *Book) GetOrCreateEvent(ctx context.Context, status Status,
 }
 
 // QueryEvent returns a single address event by its address and outpoint.
-func (b *Book) QueryEvent(ctx context.Context,
-	addr *AddrWithKeyInfo, outpoint wire.OutPoint) (*Event, error) {
+func (b *Book) QueryEvent(ctx context.Context, addr *address.AddrWithKeyInfo,
+	outpoint wire.OutPoint) (*address.Event, error) {
 
 	return b.cfg.Store.QueryEvent(ctx, addr, outpoint)
 }
 
 // GetPendingEvents returns all events that are not yet in status complete from
 // the database.
-func (b *Book) GetPendingEvents(ctx context.Context) ([]*Event, error) {
-	from := StatusTransactionDetected
-	to := StatusProofReceived
-	query := EventQueryParams{
+func (b *Book) GetPendingEvents(ctx context.Context) ([]*address.Event, error) {
+	from := address.StatusTransactionDetected
+	to := address.StatusProofReceived
+	query := address.EventQueryParams{
 		StatusFrom: &from,
 		StatusTo:   &to,
 	}
@@ -540,15 +402,15 @@ func (b *Book) GetPendingEvents(ctx context.Context) ([]*Event, error) {
 
 // QueryEvents returns all events that match the given query.
 func (b *Book) QueryEvents(ctx context.Context,
-	query EventQueryParams) ([]*Event, error) {
+	query address.EventQueryParams) ([]*address.Event, error) {
 
 	return b.cfg.Store.QueryAddrEvents(ctx, query)
 }
 
 // CompleteEvent updates an address event as being complete and links it with
 // the proof and asset that was imported/created for it.
-func (b *Book) CompleteEvent(ctx context.Context, event *Event,
-	status Status, anchorPoint wire.OutPoint) error {
+func (b *Book) CompleteEvent(ctx context.Context, event *address.Event,
+	status address.Status, anchorPoint wire.OutPoint) error {
 
 	return b.cfg.Store.CompleteEvent(ctx, event, status, anchorPoint)
 }
@@ -560,8 +422,8 @@ func (b *Book) CompleteEvent(ctx context.Context, event *Event,
 // marker onward existing items should be delivered on startup. If deliverFrom
 // is nil/zero/empty then all existing items will be delivered.
 func (b *Book) RegisterSubscriber(
-	receiver *fn.EventReceiver[*AddrWithKeyInfo],
-	deliverExisting bool, deliverFrom QueryParams) error {
+	receiver *fn.EventReceiver[*address.AddrWithKeyInfo],
+	deliverExisting bool, deliverFrom address.QueryParams) error {
 
 	b.subscriberMtx.Lock()
 	defer b.subscriberMtx.Unlock()
@@ -595,7 +457,7 @@ func (b *Book) RegisterSubscriber(
 // RemoveSubscriber removes the given subscriber and also stops it from
 // processing events.
 func (b *Book) RemoveSubscriber(
-	subscriber *fn.EventReceiver[*AddrWithKeyInfo]) error {
+	subscriber *fn.EventReceiver[*address.AddrWithKeyInfo]) error {
 
 	b.subscriberMtx.Lock()
 	defer b.subscriberMtx.Unlock()

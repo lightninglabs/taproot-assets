@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/addressbook"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -96,7 +97,7 @@ type broadcastReq struct {
 type AuxSweeperCfg struct {
 	// AddrBook is the address book that the signer will use to generate
 	// new script and internal keys for sweeping purposes.
-	AddrBook *address.Book
+	AddrBook *addressbook.Book
 
 	// ChainParams are the chain parameters of the network the signer is
 	// operating on.

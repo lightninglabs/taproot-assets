@@ -30,6 +30,7 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/addressbook"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -3223,7 +3224,7 @@ func (r *rpcServer) QueryScriptKey(ctx context.Context,
 
 // marshalAddr turns an address into its RPC counterpart.
 func marshalAddr(addr *address.Tap,
-	db address.Storage) (*taprpc.Addr, error) {
+	db addressbook.Storage) (*taprpc.Addr, error) {
 
 	addrStr, err := addr.EncodeAddress()
 	if err != nil {
@@ -3291,7 +3292,7 @@ func marshalAddr(addr *address.Tap,
 
 // marshalAddrEvent turns an address event into its RPC counterpart.
 func marshalAddrEvent(event *address.Event,
-	db address.Storage) (*taprpc.AddrEvent, error) {
+	db addressbook.Storage) (*taprpc.AddrEvent, error) {
 
 	rpcAddr, err := marshalAddr(event.Addr.Tap, db)
 	if err != nil {
@@ -4129,7 +4130,7 @@ func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
 
 // marshallReceiveAssetEvent maps an asset receive event to its RPC counterpart.
 func marshallReceiveAssetEvent(event fn.Event,
-	db address.Storage) (*tapdevrpc.ReceiveAssetEvent, error) {
+	db addressbook.Storage) (*tapdevrpc.ReceiveAssetEvent, error) {
 
 	switch e := event.(type) {
 	case *proof.BackoffWaitEvent:

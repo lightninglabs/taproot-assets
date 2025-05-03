@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/addressbook"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -98,7 +99,7 @@ type CustodianConfig struct {
 	GroupVerifier proof.GroupVerifier
 
 	// AddrBook is the storage backend for addresses.
-	AddrBook *address.Book
+	AddrBook *addressbook.Book
 
 	// ProofArchive is the storage backend for proofs to which we store new
 	// incoming proofs.

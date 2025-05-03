@@ -8,6 +8,7 @@ import (
 
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/addressbook"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
@@ -166,7 +167,7 @@ type Config struct {
 
 	ChainBridge tapgarden.ChainBridge
 
-	AddrBook *address.Book
+	AddrBook *addressbook.Book
 
 	// AddrBookDisableSyncer is a flag which, if true, will prevent the
 	// daemon from trying to sync issuance proofs for unknown assets when

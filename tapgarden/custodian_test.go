@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/addressbook"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -41,7 +42,7 @@ var (
 
 // newAddrBook creates a new instance of the TapAddressBook book.
 func newAddrBookForDB(db *tapdb.BaseDB, keyRing *tapgarden.MockKeyRing,
-	syncer *tapgarden.MockAssetSyncer) (*address.Book,
+	syncer *tapgarden.MockAssetSyncer) (*addressbook.Book,
 	*tapdb.TapAddressBook) {
 
 	txCreator := func(tx *sql.Tx) tapdb.AddrBook {
@@ -51,7 +52,7 @@ func newAddrBookForDB(db *tapdb.BaseDB, keyRing *tapgarden.MockKeyRing,
 	addrTx := tapdb.NewTransactionExecutor(db, txCreator)
 	testClock := clock.NewTestClock(time.Now())
 	tapdbBook := tapdb.NewTapAddressBook(addrTx, chainParams, testClock)
-	book := address.NewBook(address.BookConfig{
+	book := addressbook.NewBook(addressbook.BookConfig{
 		Store:        tapdbBook,
 		Syncer:       syncer,
 		StoreTimeout: testTimeout,
@@ -148,7 +149,7 @@ type custodianHarness struct {
 	walletAnchor *tapgarden.MockWalletAnchor
 	keyRing      *tapgarden.MockKeyRing
 	tapdbBook    *tapdb.TapAddressBook
-	addrBook     *address.Book
+	addrBook     *addressbook.Book
 	syncer       *tapgarden.MockAssetSyncer
 	assetDB      *tapdb.AssetStore
 	multiverse   *tapdb.MultiverseStore

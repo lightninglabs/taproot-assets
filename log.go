@@ -3,6 +3,7 @@ package taprootassets
 import (
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/addressbook"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -106,6 +107,9 @@ func SetupLoggers(root *build.SubLoggerManager,
 	AddSubLogger(root, proof.Subsystem, interceptor, proof.UseLogger)
 	AddSubLogger(root, tapdb.Subsystem, interceptor, tapdb.UseLogger)
 	AddSubLogger(root, address.Subsystem, interceptor, address.UseLogger)
+	AddSubLogger(
+		root, addressbook.Subsystem, interceptor, addressbook.UseLogger,
+	)
 	AddSubLogger(root, tapsend.Subsystem, interceptor, tapsend.UseLogger)
 	AddSubLogger(root, universe.Subsystem, interceptor, universe.UseLogger)
 	AddSubLogger(

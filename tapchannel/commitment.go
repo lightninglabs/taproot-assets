@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/addressbook"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -1457,7 +1458,7 @@ func FakeCommitTx(fundingOutpoint wire.OutPoint,
 // deriveFundingScriptKey derives the funding script key that'll be used to
 // fund the channel. If an asset ID is provided, then a unique funding script
 // key will be derived for that asset ID.
-func deriveFundingScriptKey(ctx context.Context, addrBook address.Storage,
+func deriveFundingScriptKey(ctx context.Context, addrBook addressbook.Storage,
 	assetID *asset.ID) (asset.ScriptKey, error) {
 
 	fundingScriptTree := tapscript.NewChannelFundingScriptTree()

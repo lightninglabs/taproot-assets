@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/addressbook"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
@@ -318,7 +319,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		},
 	)
 
-	addrBookConfig := address.BookConfig{
+	addrBookConfig := addressbook.BookConfig{
 		Store:        tapdbAddrBook,
 		Syncer:       universeFederation,
 		StoreTimeout: tapdb.DefaultStoreTimeout,
@@ -328,7 +329,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	if cfg.AddrBook.DisableSyncer {
 		addrBookConfig.Syncer = nil
 	}
-	addrBook := address.NewBook(addrBookConfig)
+	addrBook := addressbook.NewBook(addrBookConfig)
 
 	virtualTxSigner := tap.NewLndRpcVirtualTxSigner(lndServices)
 	coinSelect := tapfreighter.NewCoinSelect(assetStore)

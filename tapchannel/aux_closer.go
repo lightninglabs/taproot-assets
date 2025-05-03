@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/addressbook"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -36,7 +37,7 @@ type AuxChanCloserCfg struct {
 	// AddrBook is what we'll use to generate new keys for the co-op close
 	// transaction, and also import proof for our settled outputs as the
 	// non-initiator.
-	AddrBook *address.Book
+	AddrBook *addressbook.Book
 
 	// TxSender is what we'll use to broadcast a transaction to the
 	// network, while ensuring we also update all our asset and UTXO state

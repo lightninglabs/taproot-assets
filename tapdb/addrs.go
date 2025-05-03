@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/addressbook"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -1268,5 +1269,5 @@ func (t *TapAddressBook) FetchInternalKeyLocator(ctx context.Context,
 
 // A set of compile-time assertions to ensure that TapAddressBook meets the
 // address.Storage and address.EventStorage interface.
-var _ address.Storage = (*TapAddressBook)(nil)
-var _ address.EventStorage = (*TapAddressBook)(nil)
+var _ addressbook.Storage = (*TapAddressBook)(nil)
+var _ addressbook.EventStorage = (*TapAddressBook)(nil)

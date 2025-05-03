@@ -1,13 +1,11 @@
 package address
 
 import (
-	"context"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/lndclient"
 )
 
 // Status denotes an address event's current status.
@@ -98,31 +96,4 @@ type Event struct {
 	// don't keep a reference to it in memory as the proof itself can be
 	// large. The proof can be fetched by the script key of the address.
 	HasProof bool
-}
-
-// EventStorage is the interface that a component storing address events should
-// implement.
-type EventStorage interface {
-	// GetOrCreateEvent creates a new address event for the given status,
-	// address and transaction. If an event for that address and transaction
-	// already exists, then the status and transaction information is
-	// updated instead.
-	GetOrCreateEvent(ctx context.Context, status Status,
-		addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
-		outputIdx uint32) (*Event, error)
-
-	// QueryAddrEvents returns a list of event that match the given query
-	// parameters.
-	QueryAddrEvents(ctx context.Context, params EventQueryParams) ([]*Event,
-		error)
-
-	// QueryEvent returns a single address event by its address and
-	// outpoint.
-	QueryEvent(ctx context.Context, addr *AddrWithKeyInfo,
-		outpoint wire.OutPoint) (*Event, error)
-
-	// CompleteEvent updates an address event as being complete and links it
-	// with the proof and asset that was imported/created for it.
-	CompleteEvent(ctx context.Context, event *Event, status Status,
-		anchorPoint wire.OutPoint) error
 }
