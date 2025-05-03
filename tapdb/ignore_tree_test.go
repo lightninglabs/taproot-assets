@@ -75,7 +75,7 @@ func randIgnoreTuple(t *testing.T,
 // setupIgnoreTreeTest sets up a test environment for IgnoreUniverseTree
 // testing.
 func setupIgnoreTreeTest(t *testing.T) (*IgnoreUniverseTree, asset.Specifier,
-	[]universe.SignedIgnoreTuple) {
+	[]*universe.SignedIgnoreTuple) {
 
 	// Create the ignore tree instance backed by the usual set of batched db
 	// abstractions.
@@ -108,11 +108,11 @@ func setupIgnoreTreeTest(t *testing.T) (*IgnoreUniverseTree, asset.Specifier,
 	)
 	require.NoError(t, err)
 
-	tuples := make([]universe.SignedIgnoreTuple, numTuples)
+	tuples := make([]*universe.SignedIgnoreTuple, numTuples)
 	for i := 0; i < numTuples; i++ {
 		signedTuple := randIgnoreTuple(t, dbTxer)
 
-		tuples[i] = signedTuple
+		tuples[i] = &signedTuple
 	}
 
 	genesisOutpoint := genesis.FirstPrevOut
@@ -181,9 +181,7 @@ func TestIgnoreUniverseTreeAddTuples(t *testing.T) {
 			ctx, invalidSpec, signedTuples...,
 		)
 		require.Error(t, result.Err())
-		require.Contains(
-			t, result.Err().Error(), "group key must be set",
-		)
+		require.ErrorIs(t, result.Err(), ErrMissingGroupKey)
 	})
 }
 
@@ -223,7 +221,7 @@ func TestIgnoreUniverseTreeSum(t *testing.T) {
 
 		expectedTupleSum := fn.Reduce(
 			signedTuples,
-			func(acc int, tuple universe.SignedIgnoreTuple) int {
+			func(acc int, tuple *universe.SignedIgnoreTuple) int {
 				return acc + int(tuple.IgnoreTuple.Val.Amount)
 			},
 		)
@@ -234,7 +232,7 @@ func TestIgnoreUniverseTreeSum(t *testing.T) {
 		// updated.
 		extraTuple := randIgnoreTuple(t, ignoreTree.db)
 		extraSum := extraTuple.IgnoreTuple.Val.Amount
-		addResult = ignoreTree.AddTuples(ctx, spec, extraTuple)
+		addResult = ignoreTree.AddTuples(ctx, spec, &extraTuple)
 		require.NoError(t, addResult.Err())
 
 		newSumRes := ignoreTree.Sum(ctx, spec)
@@ -254,9 +252,7 @@ func TestIgnoreUniverseTreeSum(t *testing.T) {
 		var invalidSpec asset.Specifier
 		result := ignoreTree.Sum(ctx, invalidSpec)
 		require.Error(t, result.Err())
-		require.Contains(
-			t, result.Err().Error(), "group key must be set",
-		)
+		require.ErrorIs(t, result.Err(), ErrMissingGroupKey)
 	})
 }
 
@@ -309,7 +305,7 @@ func TestIgnoreUniverseTreeListTuples(t *testing.T) {
 
 		// If we add another new tuple, it should show up in the list.
 		extraTuple := randIgnoreTuple(t, ignoreTree.db)
-		addResult = ignoreTree.AddTuples(ctx, spec, extraTuple)
+		addResult = ignoreTree.AddTuples(ctx, spec, &extraTuple)
 		require.NoError(t, addResult.Err())
 
 		newTuples, err := ignoreTree.ListTuples(ctx, spec).Unpack()
@@ -324,9 +320,7 @@ func TestIgnoreUniverseTreeListTuples(t *testing.T) {
 		invalidSpec := asset.Specifier{}
 		result := ignoreTree.ListTuples(ctx, invalidSpec)
 		require.Error(t, result.Err())
-		require.Contains(
-			t, result.Err().Error(), "group key must be set",
-		)
+		require.ErrorIs(t, result.Err(), ErrMissingGroupKey)
 	})
 }
 
@@ -353,9 +347,7 @@ func TestIgnoreUniverseTreeQueryTuples(t *testing.T) {
 			ctx, invalidSpec, signedTuples[0].IgnoreTuple.Val,
 		)
 		require.Error(t, result.Err())
-		require.Contains(
-			t, result.Err().Error(), "group key must be set",
-		)
+		require.ErrorIs(t, result.Err(), ErrMissingGroupKey)
 	})
 
 	// Test case 3: Query for a tuple that doesn't exist should return None.
