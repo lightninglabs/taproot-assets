@@ -53,3 +53,6 @@ vendor/
 # Release builds
 /taproot-assets-*
 .aider*
+
+# Web assembly binaries.
+*.wasm
