@@ -143,7 +143,6 @@ func specifierToIdentifier(spec asset.Specifier,
 func getUniverseTreeSum(ctx context.Context, db BatchedUniverseTree,
 	id universe.Identifier) universe.SumQueryResp {
 
-	namespace := id.String()
 	var sumOpt lfn.Option[uint64]
 
 	readTx := NewBaseUniverseReadTx()
