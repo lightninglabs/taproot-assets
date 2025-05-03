@@ -1529,7 +1529,7 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 }
 
 const FetchMintAnchorUniCommitment = `-- name: FetchMintAnchorUniCommitment :one
-SELECT id, batch_id, tx_output_index, taproot_internal_key, group_key
+SELECT id, batch_id, tx_output_index, taproot_internal_key, group_key, spent_by
 FROM mint_anchor_uni_commitments
 WHERE batch_id = $1
 `
@@ -1544,6 +1544,7 @@ func (q *Queries) FetchMintAnchorUniCommitment(ctx context.Context, batchID int3
 		&i.TxOutputIndex,
 		&i.TaprootInternalKey,
 		&i.GroupKey,
+		&i.SpentBy,
 	)
 	return i, err
 }
@@ -3045,34 +3046,36 @@ func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOPa
 
 const UpsertMintAnchorUniCommitment = `-- name: UpsertMintAnchorUniCommitment :one
 INSERT INTO mint_anchor_uni_commitments (
-    id, batch_id, tx_output_index, taproot_internal_key, group_key
+    batch_id, tx_output_index, taproot_internal_key, group_key, spent_by
 )
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
     taproot_internal_key = EXCLUDED.taproot_internal_key,
-    group_key = EXCLUDED.group_key
+    group_key = EXCLUDED.group_key,
+    -- Only update spent_by if a non-NULL value is provided.
+    spent_by = COALESCE(EXCLUDED.spent_by, mint_anchor_uni_commitments.spent_by)
 RETURNING id
 `
 
 type UpsertMintAnchorUniCommitmentParams struct {
-	ID                 int64
 	BatchID            int32
 	TxOutputIndex      int32
 	TaprootInternalKey []byte
 	GroupKey           []byte
+	SpentBy            sql.NullInt64
 }
 
 // Upsert a record into the mint_anchor_uni_commitments table.
-// If a record with the same batch_id and group_key already exists, update the
+// If a record with the same batch_id and tx_output_index already exists, update the
 // existing record. Otherwise, insert a new record.
 func (q *Queries) UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertMintAnchorUniCommitment,
-		arg.ID,
 		arg.BatchID,
 		arg.TxOutputIndex,
 		arg.TaprootInternalKey,
 		arg.GroupKey,
+		arg.SpentBy,
 	)
 	var id int64
 	err := row.Scan(&id)
