@@ -1534,6 +1534,7 @@ SELECT
     mint_anchor_uni_commitments.batch_id,
     mint_anchor_uni_commitments.tx_output_index,
     mint_anchor_uni_commitments.group_key,
+    mint_anchor_uni_commitments.spent_by,
     batch_internal_keys.raw_key AS batch_key,
     mint_anchor_uni_commitments.taproot_internal_key_id,
     taproot_internal_keys.key_id, taproot_internal_keys.raw_key, taproot_internal_keys.key_family, taproot_internal_keys.key_index
@@ -1562,6 +1563,7 @@ type FetchMintAnchorUniCommitmentRow struct {
 	BatchID              int32
 	TxOutputIndex        int32
 	GroupKey             []byte
+	SpentBy              sql.NullInt64
 	BatchKey             []byte
 	TaprootInternalKeyID int64
 	InternalKey          InternalKey
@@ -1583,6 +1585,7 @@ func (q *Queries) FetchMintAnchorUniCommitment(ctx context.Context, arg FetchMin
 			&i.BatchID,
 			&i.TxOutputIndex,
 			&i.GroupKey,
+			&i.SpentBy,
 			&i.BatchKey,
 			&i.TaprootInternalKeyID,
 			&i.InternalKey.KeyID,
@@ -3121,14 +3124,14 @@ WITH target_batch AS (
     -- internal key associated with the batch.
     SELECT keys.key_id AS batch_id
     FROM internal_keys keys
-    WHERE keys.raw_key = $4
+    WHERE keys.raw_key = $5
 )
 INSERT INTO mint_anchor_uni_commitments (
-    batch_id, tx_output_index, taproot_internal_key_id, group_key
+    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by
 )
 VALUES (
-    (SELECT batch_id FROM target_batch), $1,
-    $2, $3
+    (SELECT batch_id FROM target_batch), $1, 
+    $2, $3, $4
 )
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
@@ -3141,6 +3144,7 @@ type UpsertMintAnchorUniCommitmentParams struct {
 	TxOutputIndex        int32
 	TaprootInternalKeyID int64
 	GroupKey             []byte
+	SpentBy              sql.NullInt64
 	BatchKey             []byte
 }
 
@@ -3152,6 +3156,7 @@ func (q *Queries) UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertM
 		arg.TxOutputIndex,
 		arg.TaprootInternalKeyID,
 		arg.GroupKey,
+		arg.SpentBy,
 		arg.BatchKey,
 	)
 	var id int64
