@@ -152,7 +152,7 @@ func TestIgnoreUniverseTreeAddTuples(t *testing.T) {
 			require.NotNil(t, tuple.InclusionProof)
 			require.NotNil(t, tuple.IgnoreTreeRoot)
 			require.Equal(
-				t, signedTuples[i], tuple.SignedIgnoreTuple,
+				t, *signedTuples[i], tuple.SignedIgnoreTuple,
 			)
 
 			// The returned inclusion proof should be valid.
@@ -391,7 +391,7 @@ func TestIgnoreUniverseTreeQueryTuples(t *testing.T) {
 			)
 
 			queriedTuple := queriedTuples[0]
-			require.Equal(t, tuple, queriedTuple.SignedIgnoreTuple)
+			require.Equal(t, *tuple, queriedTuple.SignedIgnoreTuple)
 
 			leafNode, err := queriedTuple.UniverseLeafNode()
 			require.NoError(t, err)
