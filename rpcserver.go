@@ -6799,8 +6799,26 @@ func (r *rpcServer) AddAssetBuyOrder(ctx context.Context,
 	timeout := time.After(time.Second * time.Duration(req.TimeoutSeconds))
 
 	for {
+		type targetEventType = *rfq.PeerAcceptedBuyQuoteEvent
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
+			acceptedQuote, ok := event.(targetEventType)
+			if !ok {
+				rpcsLog.Debugf("Received event of type %T "+
+					"but expected accepted sell quote, "+
+					"skipping", event)
+
+				continue
+			}
+
+			if !acceptedQuote.MatchesOrder(*buyOrder) {
+				rpcsLog.Debugf("Received event of type %T "+
+					"but order doesn't match, skipping",
+					event)
+
+				continue
+			}
+
 			resp, err := rfq.NewAddAssetBuyOrderResponse(event)
 			if err != nil {
 				return nil, fmt.Errorf("error marshalling "+
@@ -6973,8 +6991,26 @@ func (r *rpcServer) AddAssetSellOrder(ctx context.Context,
 	timeout := time.After(time.Second * time.Duration(req.TimeoutSeconds))
 
 	for {
+		type targetEventType = *rfq.PeerAcceptedSellQuoteEvent
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
+			acceptedQuote, ok := event.(targetEventType)
+			if !ok {
+				rpcsLog.Debugf("Received event of type %T "+
+					"but expected accepted sell quote, "+
+					"skipping", event)
+
+				continue
+			}
+
+			if !acceptedQuote.MatchesOrder(*sellOrder) {
+				rpcsLog.Debugf("Received event of type %T "+
+					"but order doesn't match, skipping",
+					event)
+
+				continue
+			}
+
 			resp, err := rfq.NewAddAssetSellOrderResponse(event)
 			if err != nil {
 				return nil, fmt.Errorf("error marshalling "+
