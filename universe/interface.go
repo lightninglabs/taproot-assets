@@ -247,12 +247,20 @@ type Leaf struct {
 
 	// Amt is the amount of units associated with the coin.
 	Amt uint64
+
+	// IsBurn is a boolean that indicates whether the leaf represents a burn
+	// or not.
+	IsBurn bool
 }
 
 // SmtLeafNode returns the SMT leaf node for the given leaf.
 func (m *Leaf) SmtLeafNode() *mssmt.LeafNode {
 	amount := m.Amt
-	if !m.Asset.IsGenesisAsset() {
+
+	// For transfer proofs, we just want to track the number of transfers.
+	// However, for burns (which aren't genesis asset proofs), we still want
+	// to track the amount as the final sum value.
+	if !m.Asset.IsGenesisAsset() && !m.IsBurn {
 		// We set transfer proof amounts to 1 as the transfer universe
 		// tracks the total number of transfers.
 		amount = 1
