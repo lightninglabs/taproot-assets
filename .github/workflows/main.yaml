@@ -21,7 +21,7 @@ env:
 
   GO_VERSION: '1.23.6'
   
-  LITD_ITEST_BRANCH: 'script-key-migrations'
+  LITD_ITEST_BRANCH: 'master'
 
 jobs:
   #######################

@@ -154,13 +154,12 @@ func (h *StreamHandler) HandleOutgoingMessage(
 	ctx, cancel := h.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	err = h.cfg.PeerMessenger.SendCustomMessage(ctx, lndClientCustomMsg)
-	if err != nil {
-		return fmt.Errorf("unable to send message to peer: %w",
-			err)
-	}
-
-	// Store outgoing requests.
+	// We store the outgoing request in the request map, so we can interpret
+	// any response and map it to the original request. We do this before
+	// sending the message, because otherwise we could potentially receive
+	// the response while we're waiting for the atomic lock to be released,
+	// which would lead to us not knowing about the request in the first
+	// place, and we couldn't map the response.
 	switch msg := outgoingMsg.(type) {
 	case *rfqmsg.BuyRequest:
 		h.outgoingRequests.Store(msg.ID, msg)
@@ -171,6 +170,12 @@ func (h *StreamHandler) HandleOutgoingMessage(
 		h.outgoingRequests.Store(msg.ID, msg)
 		log.Tracef("Stored outgoing request with ID %s",
 			msg.ID.String())
+	}
+
+	err = h.cfg.PeerMessenger.SendCustomMessage(ctx, lndClientCustomMsg)
+	if err != nil {
+		return fmt.Errorf("unable to send message to peer: %w",
+			err)
 	}
 
 	return nil
