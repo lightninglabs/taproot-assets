@@ -285,6 +285,7 @@ type MintAnchorUniCommitment struct {
 	TxOutputIndex      int32
 	TaprootInternalKey []byte
 	GroupKey           []byte
+	SpentBy            sql.NullInt64
 }
 
 type MssmtNode struct {
@@ -344,6 +345,53 @@ type ScriptKey struct {
 	TweakedScriptKey []byte
 	Tweak            []byte
 	KeyType          sql.NullInt16
+}
+
+type SupplyCommitState struct {
+	ID        int64
+	StateName string
+}
+
+type SupplyCommitStateMachine struct {
+	GroupKey           []byte
+	CurrentStateID     int32
+	LatestCommitmentID sql.NullInt64
+}
+
+type SupplyCommitTransition struct {
+	TransitionID         int64
+	StateMachineGroupKey []byte
+	OldCommitmentID      sql.NullInt64
+	NewCommitmentID      sql.NullInt64
+	PendingCommitTxnID   sql.NullInt64
+	Finalized            bool
+	CreationTime         time.Time
+}
+
+type SupplyCommitUpdateType struct {
+	ID             int64
+	UpdateTypeName string
+}
+
+type SupplyCommitment struct {
+	CommitID       int64
+	GroupKey       []byte
+	ChainTxnID     int64
+	OutputIndex    sql.NullInt32
+	InternalKeyID  int64
+	OutputKey      []byte
+	BlockHeader    []byte
+	BlockHeight    sql.NullInt32
+	MerkleProof    []byte
+	SupplyRootHash []byte
+	SupplyRootSum  sql.NullInt64
+}
+
+type SupplyUpdateEvent struct {
+	EventID      int64
+	TransitionID int64
+	UpdateTypeID int32
+	EventData    []byte
 }
 
 type TapscriptEdge struct {

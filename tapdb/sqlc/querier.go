@@ -33,6 +33,8 @@ type Querier interface {
 	DeleteMultiverseLeaf(ctx context.Context, arg DeleteMultiverseLeafParams) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	DeleteRoot(ctx context.Context, namespace string) (int64, error)
+	DeleteSupplyCommitTransition(ctx context.Context, transitionID int64) error
+	DeleteSupplyUpdateEvents(ctx context.Context, transitionID int64) error
 	DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error
 	DeleteTapscriptTreeNodes(ctx context.Context) error
 	DeleteTapscriptTreeRoot(ctx context.Context, rootHash []byte) error
@@ -66,6 +68,7 @@ type Querier interface {
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]FetchAssetsForBatchRow, error)
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error)
+	FetchChainTxByID(ctx context.Context, txnID int64) (FetchChainTxByIDRow, error)
 	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error)
 	FetchChildrenSelfJoin(ctx context.Context, arg FetchChildrenSelfJoinParams) ([]FetchChildrenSelfJoinRow, error)
 	FetchGenesisByAssetID(ctx context.Context, assetID []byte) (GenesisInfoView, error)
@@ -77,6 +80,7 @@ type Querier interface {
 	// Sort and limit to return the genesis ID for initial genesis of the group.
 	FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (FetchGroupByGroupKeyRow, error)
 	FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsRow, error)
+	FetchInternalKeyByID(ctx context.Context, keyID int64) (FetchInternalKeyByIDRow, error)
 	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (FetchInternalKeyLocatorRow, error)
 	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error)
@@ -91,6 +95,7 @@ type Querier interface {
 	FetchSeedlingByID(ctx context.Context, seedlingID int64) (AssetSeedling, error)
 	FetchSeedlingID(ctx context.Context, arg FetchSeedlingIDParams) (int64, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error)
+	FetchSupplyCommit(ctx context.Context, groupKey []byte) (FetchSupplyCommitRow, error)
 	// Sort the nodes by node_index here instead of returning the indices.
 	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)
 	FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error)
@@ -99,6 +104,8 @@ type Querier interface {
 	FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error)
 	FetchUniverseSupplyRoot(ctx context.Context, namespaceRoot string) (FetchUniverseSupplyRootRow, error)
 	FetchUnknownTypeScriptKeys(ctx context.Context) ([]FetchUnknownTypeScriptKeysRow, error)
+	FetchUnspentPrecommits(ctx context.Context, groupKey []byte) ([]FetchUnspentPrecommitsRow, error)
+	FinalizeSupplyCommitTransition(ctx context.Context, transitionID int64) error
 	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
 	GenesisPoints(ctx context.Context) ([]GenesisPoint, error)
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
@@ -117,6 +124,9 @@ type Querier interface {
 	InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error
 	InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
+	InsertSupplyCommitTransition(ctx context.Context, arg InsertSupplyCommitTransitionParams) (int64, error)
+	InsertSupplyCommitment(ctx context.Context, arg InsertSupplyCommitmentParams) (int64, error)
+	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
 	LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error
 	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
@@ -142,6 +152,8 @@ type Querier interface {
 	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
 	QueryBurns(ctx context.Context, arg QueryBurnsParams) ([]QueryBurnsRow, error)
 	QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error)
+	// Find the ID of an existing non-finalized transition for the group key
+	QueryExistingPendingTransition(ctx context.Context, groupKey []byte) (int64, error)
 	QueryFederationGlobalSyncConfigs(ctx context.Context) ([]FederationGlobalSyncConfig, error)
 	// Join on mssmt_nodes to get leaf related fields.
 	// Join on genesis_info_view to get leaf related fields.
@@ -149,7 +161,11 @@ type Querier interface {
 	QueryFederationUniSyncConfigs(ctx context.Context) ([]QueryFederationUniSyncConfigsRow, error)
 	QueryMultiverseLeaves(ctx context.Context, arg QueryMultiverseLeavesParams) ([]QueryMultiverseLeavesRow, error)
 	QueryPassiveAssets(ctx context.Context, transferID int64) ([]QueryPassiveAssetsRow, error)
+	QueryPendingSupplyCommitTransition(ctx context.Context, groupKey []byte) (SupplyCommitTransition, error)
 	QueryProofTransferAttempts(ctx context.Context, arg QueryProofTransferAttemptsParams) ([]time.Time, error)
+	QuerySupplyCommitStateMachine(ctx context.Context, groupKey []byte) (QuerySupplyCommitStateMachineRow, error)
+	QuerySupplyCommitment(ctx context.Context, commitID int64) (SupplyCommitment, error)
+	QuerySupplyUpdateEvents(ctx context.Context, transitionID int64) ([]QuerySupplyUpdateEventsRow, error)
 	// TODO(roasbeef): use the universe id instead for the grouping? so namespace
 	// root, simplifies queries
 	QueryUniverseAssetStats(ctx context.Context, arg QueryUniverseAssetStatsParams) ([]QueryUniverseAssetStatsRow, error)
@@ -165,6 +181,9 @@ type Querier interface {
 	UniverseRoots(ctx context.Context, arg UniverseRootsParams) ([]UniverseRootsRow, error)
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
+	UpdateSupplyCommitTransitionCommitment(ctx context.Context, arg UpdateSupplyCommitTransitionCommitmentParams) error
+	UpdateSupplyCommitmentChainDetails(ctx context.Context, arg UpdateSupplyCommitmentChainDetailsParams) error
+	UpdateSupplyCommitmentRoot(ctx context.Context, arg UpdateSupplyCommitmentRootParams) error
 	UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLeaseParams) error
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int64, error)
 	UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64, error)
@@ -182,13 +201,16 @@ type Querier interface {
 	UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int64, error)
 	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int64, error)
 	// Upsert a record into the mint_anchor_uni_commitments table.
-	// If a record with the same batch_id and group_key already exists, update the
+	// If a record with the same batch_id and tx_output_index already exists, update the
 	// existing record. Otherwise, insert a new record.
 	UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error)
 	UpsertMultiverseLeaf(ctx context.Context, arg UpsertMultiverseLeafParams) (int64, error)
 	UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error)
 	UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error
 	UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int64, error)
+	// Return the ID of the state that was actually set (either inserted or updated),
+	// and the latest commitment ID that was set.
+	UpsertSupplyCommitStateMachine(ctx context.Context, arg UpsertSupplyCommitStateMachineParams) (UpsertSupplyCommitStateMachineRow, error)
 	UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error)
 	UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error)
 	UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error)

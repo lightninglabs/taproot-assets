@@ -570,7 +570,7 @@ CREATE TABLE mint_anchor_uni_commitments (
 
     -- The asset group key associated with the universe commitment.
     group_key BLOB
-);
+, spent_by BIGINT REFERENCES supply_commitments(commit_id));
 
 CREATE UNIQUE INDEX mint_anchor_uni_commitments_unique
     ON mint_anchor_uni_commitments (batch_id, tx_output_index);
@@ -719,6 +719,113 @@ CREATE TABLE script_keys (
 , key_type SMALLINT);
 
 CREATE INDEX status_idx ON addr_events(status);
+
+CREATE TABLE supply_commit_state_machines (
+    -- The tweaked group key identifying the asset group's state machine.
+    group_key BLOB PRIMARY KEY CHECK(length(group_key) = 33),
+
+    -- The current state of the state machine.
+    current_state_id INTEGER NOT NULL REFERENCES supply_commit_states(id),
+
+    -- The latest successfully committed supply state on chain.
+    -- Can be NULL if no commitment has been made yet.
+    latest_commitment_id BIGINT REFERENCES supply_commitments(commit_id)
+);
+
+CREATE TABLE supply_commit_states (
+    id INTEGER PRIMARY KEY,
+    state_name TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE supply_commit_transitions (
+    transition_id INTEGER PRIMARY KEY,
+
+    -- Reference back to the state machine this transition belongs to.
+    state_machine_group_key BLOB NOT NULL REFERENCES supply_commit_state_machines(group_key),
+
+    -- The commitment being replaced by this transition.
+    -- Can be NULL if this is the first commitment.
+    old_commitment_id BIGINT REFERENCES supply_commitments(commit_id),
+
+    -- The new commitment that this transition aims to create.
+    -- Can be NULL initially, before the commitment details are created.
+    new_commitment_id BIGINT REFERENCES supply_commitments(commit_id),
+
+    -- The chain transaction that, once confirmed, will finalize this transition.
+    -- Can be NULL until the transaction is created and signed.
+    pending_commit_txn_id BIGINT REFERENCES chain_txns(txn_id),
+
+    -- Indicates if this transition has been successfully completed and committed.
+    finalized BOOLEAN NOT NULL DEFAULT FALSE,
+
+    -- Timestamp when this transition was initiated.
+    creation_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX supply_commit_transitions_single_pending_idx
+    ON supply_commit_transitions (state_machine_group_key) WHERE finalized = 0;
+
+CREATE INDEX supply_commit_transitions_state_machine_group_key_idx ON supply_commit_transitions(state_machine_group_key);
+
+CREATE TABLE supply_commit_update_types (
+    id INTEGER PRIMARY KEY,
+    update_type_name TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE supply_commitments (
+    commit_id INTEGER PRIMARY KEY,
+
+    -- The tweaked group key identifying the asset group this commitment belongs to.
+    group_key BLOB NOT NULL CHECK(length(group_key) = 33),
+
+    -- The chain transaction that included this commitment.
+    chain_txn_id BIGINT NOT NULL REFERENCES chain_txns(txn_id),
+
+    -- The output index within the chain_txn_id transaction for the commitment.
+    output_index INTEGER,
+
+    -- The internal key used for the commitment output.
+    internal_key_id BIGINT NOT NULL REFERENCES internal_keys(key_id),
+
+    -- The taproot output key used for the commitment output.
+    output_key BLOB NOT NULL CHECK(length(output_key) = 33),
+
+    -- The block header of the block mining the commitment transaction.
+    block_header BLOB,
+
+    -- The block height at which the commitment transaction was confirmed.
+    -- Can be NULL if the transaction is not yet confirmed.
+    block_height INTEGER,
+
+    -- The merkle proof demonstrating the commitment's inclusion in the block.
+    merkle_proof BLOB,
+
+    -- The root hash of the supply commitment at this snapshot.
+    supply_root_hash BLOB,
+
+    -- The root sum of the supply commitment at this snapshot.
+    supply_root_sum BIGINT
+);
+
+CREATE INDEX supply_commitments_chain_txn_id_idx ON supply_commitments(chain_txn_id);
+
+CREATE INDEX supply_commitments_group_key_idx ON supply_commitments(group_key);
+
+CREATE TABLE supply_update_events (
+    event_id INTEGER PRIMARY KEY,
+
+    -- Reference to the state transition this event is part of.
+    transition_id BIGINT NOT NULL REFERENCES supply_commit_transitions(transition_id) ON DELETE CASCADE,
+
+    -- The type of update (mint, burn, ignore).
+    update_type_id INTEGER NOT NULL REFERENCES supply_commit_update_types(id),
+
+    -- Opaque blob containing the serialized data for the specific
+    -- SupplyUpdateEvent (NewMintEvent, NewBurnEvent, NewIgnoreEvent).
+    event_data BLOB NOT NULL
+);
+
+CREATE INDEX supply_update_events_transition_id_idx ON supply_update_events(transition_id);
 
 CREATE TABLE tapscript_edges (
         edge_id INTEGER PRIMARY KEY,

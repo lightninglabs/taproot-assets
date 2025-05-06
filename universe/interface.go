@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"time"
@@ -1299,6 +1300,31 @@ func (b *BurnLeaf) UniverseLeafNode() (*mssmt.LeafNode, error) {
 	return mssmt.NewLeafNode(rawProofBytes, b.BurnProof.Asset.Amount), nil
 }
 
+// Encode encodes the burn leaf into the target writer.
+func (b *BurnLeaf) Encode(w io.Writer) error {
+	return b.BurnProof.Encode(w)
+}
+
+// Decode decodes the burn leaf from the target reader.
+func (b *BurnLeaf) Decode(r io.Reader) error {
+	burnProof := new(proof.Proof)
+	if err := burnProof.Decode(r); err != nil {
+		return fmt.Errorf("unable to decode burn proof: %w", err)
+	}
+
+	b.BurnProof = burnProof
+
+	b.UniverseKey = AssetLeafKey{
+		BaseLeafKey: BaseLeafKey{
+			OutPoint:  b.BurnProof.OutPoint(),
+			ScriptKey: &b.BurnProof.Asset.ScriptKey,
+		},
+		AssetID: b.BurnProof.Asset.ID(),
+	}
+
+	return nil
+}
+
 // AuthenticatedBurnLeaf is a type that represents a burn leaf within the
 // Universe tree. This includes the MS-SMT inclusion proofs.
 type AuthenticatedBurnLeaf struct {
@@ -1363,4 +1389,10 @@ type BurnTree interface {
 
 	// ListBurns attempts to list all burn leaves for the given asset.
 	ListBurns(context.Context, asset.Specifier) ListBurnsResp
+}
+
+// UniverseLeaf is an interface that allows a caller to query for the leaf node
+// of a given Universe tree.
+type UniverseLeaf interface {
+	UniverseLeafNode() (*mssmt.LeafNode, error)
 }
