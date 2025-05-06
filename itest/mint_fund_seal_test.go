@@ -577,6 +577,9 @@ func testMintExternalGroupKeyChantools(t *harnessTest) {
 	mintReq2 := CopyRequest(issuableAssets[0])
 	mintReq2.Asset.Name = "itestbuxx-money-printer-brrr-tranche-2"
 	mintReq2.Asset.ExternalGroupKey = externalGroupKey
+	mintReq2.Asset.GroupedAsset = true
+	mintReq2.Asset.NewGroupedAsset = false
+	mintReq2.Asset.GroupKey = batchAssets[0].AssetGroup.TweakedGroupKey
 
 	assetReqs2 := []*mintrpc.MintAssetRequest{mintReq2}
 
