@@ -410,8 +410,8 @@ func TestDistributeCoins(t *testing.T) {
 			vPktVersion: tappsbt.V1,
 			expectedInputs: map[asset.ID][]asset.ScriptKey{
 				assetID2.ID(): {
-					assetID2Tranche1.ScriptKey,
 					assetID2Tranche2.ScriptKey,
+					assetID2Tranche1.ScriptKey,
 				},
 			},
 			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
@@ -452,8 +452,8 @@ func TestDistributeCoins(t *testing.T) {
 			},
 			expectedInputs: map[asset.ID][]asset.ScriptKey{
 				assetID2.ID(): {
-					assetID2Tranche1.ScriptKey,
 					assetID2Tranche2.ScriptKey,
+					assetID2Tranche1.ScriptKey,
 				},
 			},
 			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
@@ -613,19 +613,19 @@ func TestDistributeCoins(t *testing.T) {
 			},
 			expectedInputs: map[asset.ID][]asset.ScriptKey{
 				assetID1.ID(): {
-					assetID1Tranche1.ScriptKey,
-					assetID1Tranche2.ScriptKey,
 					assetID1Tranche3.ScriptKey,
+					assetID1Tranche2.ScriptKey,
+					assetID1Tranche1.ScriptKey,
 				},
 				assetID2.ID(): {
-					assetID2Tranche1.ScriptKey,
-					assetID2Tranche2.ScriptKey,
 					assetID2Tranche3.ScriptKey,
+					assetID2Tranche2.ScriptKey,
+					assetID2Tranche1.ScriptKey,
 				},
 				assetID3.ID(): {
-					assetID3Tranche1.ScriptKey,
-					assetID3Tranche2.ScriptKey,
 					assetID3Tranche3.ScriptKey,
+					assetID3Tranche2.ScriptKey,
+					assetID3Tranche1.ScriptKey,
 				},
 			},
 			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
@@ -689,19 +689,19 @@ func TestDistributeCoins(t *testing.T) {
 			},
 			expectedInputs: map[asset.ID][]asset.ScriptKey{
 				assetID1.ID(): {
-					assetID1Tranche1.ScriptKey,
-					assetID1Tranche2.ScriptKey,
 					assetID1Tranche3.ScriptKey,
+					assetID1Tranche2.ScriptKey,
+					assetID1Tranche1.ScriptKey,
 				},
 				assetID2.ID(): {
-					assetID2Tranche1.ScriptKey,
-					assetID2Tranche2.ScriptKey,
 					assetID2Tranche3.ScriptKey,
+					assetID2Tranche2.ScriptKey,
+					assetID2Tranche1.ScriptKey,
 				},
 				assetID3.ID(): {
-					assetID3Tranche1.ScriptKey,
-					assetID3Tranche2.ScriptKey,
 					assetID3Tranche3.ScriptKey,
+					assetID3Tranche2.ScriptKey,
+					assetID3Tranche1.ScriptKey,
 				},
 			},
 			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
@@ -770,19 +770,19 @@ func TestDistributeCoins(t *testing.T) {
 			},
 			expectedInputs: map[asset.ID][]asset.ScriptKey{
 				assetID1.ID(): {
-					assetID1Tranche1.ScriptKey,
-					assetID1Tranche2.ScriptKey,
 					assetID1Tranche3.ScriptKey,
+					assetID1Tranche2.ScriptKey,
+					assetID1Tranche1.ScriptKey,
 				},
 				assetID2.ID(): {
-					assetID2Tranche1.ScriptKey,
-					assetID2Tranche2.ScriptKey,
 					assetID2Tranche3.ScriptKey,
+					assetID2Tranche2.ScriptKey,
+					assetID2Tranche1.ScriptKey,
 				},
 				assetID3.ID(): {
-					assetID3Tranche1.ScriptKey,
-					assetID3Tranche2.ScriptKey,
 					assetID3Tranche3.ScriptKey,
+					assetID3Tranche2.ScriptKey,
+					assetID3Tranche1.ScriptKey,
 				},
 			},
 			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
