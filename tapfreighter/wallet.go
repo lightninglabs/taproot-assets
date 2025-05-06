@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -525,7 +526,13 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 	}
 
 	// Now that we know what inputs we're going to spend, we know that by
-	// definition, we use the first input's info as the burn's PrevID.
+	// definition, we use the first input's info as the burn's PrevID. But
+	// to know which input will actually be assigned as the first input in
+	// the allocated virtual packet, we first apply the same sorting that
+	// the allocation code will also apply.
+	slices.SortFunc(activeAssets, func(a, b *AnchoredCommitment) int {
+		return tapsend.AssetSortForInputs(*a.Asset, *b.Asset)
+	})
 	firstInput := activeAssets[0]
 	firstPrevID := asset.PrevID{
 		OutPoint: firstInput.AnchorPoint,
