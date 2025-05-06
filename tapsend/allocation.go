@@ -2,9 +2,11 @@ package tapsend
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -389,25 +391,28 @@ func sortPiecesWithProofs(pieces []*piece) {
 	// Now sort all the proofs within each piece by amount and then script
 	// key. This will give us a stable order for all asset UTXOs.
 	for idx := range pieces {
-		sort.Slice(pieces[idx].proofs, func(i, j int) bool {
-			assetI := pieces[idx].proofs[i].Asset
-			assetJ := pieces[idx].proofs[j].Asset
-
-			// If amounts are equal, sort by script key.
-			if assetI.Amount == assetJ.Amount {
-				keyI := assetI.ScriptKey.PubKey
-				keyJ := assetJ.ScriptKey.PubKey
-				return bytes.Compare(
-					keyI.SerializeCompressed(),
-					keyJ.SerializeCompressed(),
-				) < 0
-			}
-
-			// Otherwise, sort by amount, but in reverse order so
-			// that the largest amounts are first.
-			return assetI.Amount > assetJ.Amount
-		})
+		slices.SortFunc(
+			pieces[idx].proofs, func(i, j *proof.Proof) int {
+				return AssetSortForInputs(i.Asset, j.Asset)
+			},
+		)
 	}
+}
+
+// AssetSortForInputs is a comparison function that should be used to sort asset
+// inputs by amount (in reverse order) and then by script key. Using this
+// function everywhere we sort inputs will ensure that the inputs are always in
+// a predictable and stable order.
+func AssetSortForInputs(i, j asset.Asset) int {
+	return cmp.Or(
+		// Sort amounts in reverse order so that the largest amounts are
+		// first.
+		cmp.Compare(j.Amount, i.Amount),
+		bytes.Compare(
+			i.ScriptKey.PubKey.SerializeCompressed(),
+			j.ScriptKey.PubKey.SerializeCompressed(),
+		),
+	)
 }
 
 // DistributeCoins allocates a set of inputs (extracted from the given input
