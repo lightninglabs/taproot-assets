@@ -791,6 +791,10 @@ const (
 
 	// ProofTypeBurn corresponds to the burn proof type.
 	ProofTypeBurn
+
+	// ProofTypeMintSupply indicates a proof related to the mint supply
+	// sub-tree.
+	ProofTypeMintSupply
 )
 
 // NewProofTypeFromAsset returns the proof type for the given asset proof.
@@ -819,6 +823,8 @@ func (t ProofType) String() string {
 		return "ignore"
 	case ProofTypeBurn:
 		return "burn"
+	case ProofTypeMintSupply:
+		return "mint_supply"
 	}
 
 	return fmt.Sprintf("unknown(%v)", int(t))
@@ -837,6 +843,8 @@ func ParseStrProofType(typeStr string) (ProofType, error) {
 		return ProofTypeIgnore, nil
 	case "burn":
 		return ProofTypeBurn, nil
+	case "mint_supply":
+		return ProofTypeMintSupply, nil
 	default:
 		return 0, fmt.Errorf("unknown proof type: %v", typeStr)
 	}

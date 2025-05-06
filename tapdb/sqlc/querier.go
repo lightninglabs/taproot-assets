@@ -41,6 +41,9 @@ type Querier interface {
 	DeleteUniverseLeaves(ctx context.Context, namespace string) error
 	DeleteUniverseRoot(ctx context.Context, namespaceRoot string) error
 	DeleteUniverseServer(ctx context.Context, arg DeleteUniverseServerParams) error
+	DeleteUniverseSupplyLeaf(ctx context.Context, arg DeleteUniverseSupplyLeafParams) error
+	DeleteUniverseSupplyLeaves(ctx context.Context, namespaceRoot string) error
+	DeleteUniverseSupplyRoot(ctx context.Context, namespaceRoot string) error
 	FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error)
 	FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventRow, error)
 	FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg FetchAddrEventByAddrKeyAndOutpointParams) (FetchAddrEventByAddrKeyAndOutpointRow, error)
@@ -94,6 +97,7 @@ type Querier interface {
 	FetchTransferOutputs(ctx context.Context, transferID int64) ([]FetchTransferOutputsRow, error)
 	FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysParams) ([]FetchUniverseKeysRow, error)
 	FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error)
+	FetchUniverseSupplyRoot(ctx context.Context, namespaceRoot string) (FetchUniverseSupplyRootRow, error)
 	FetchUnknownTypeScriptKeys(ctx context.Context) ([]FetchUnknownTypeScriptKeysRow, error)
 	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
 	GenesisPoints(ctx context.Context) ([]GenesisPoint, error)
@@ -152,6 +156,7 @@ type Querier interface {
 	QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeavesParams) ([]QueryUniverseLeavesRow, error)
 	QueryUniverseServers(ctx context.Context, arg QueryUniverseServersParams) ([]UniverseServer, error)
 	QueryUniverseStats(ctx context.Context) (QueryUniverseStatsRow, error)
+	QueryUniverseSupplyLeaves(ctx context.Context, arg QueryUniverseSupplyLeavesParams) ([]QueryUniverseSupplyLeavesRow, error)
 	ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
@@ -189,6 +194,8 @@ type Querier interface {
 	UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error)
 	UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) error
 	UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int64, error)
+	UpsertUniverseSupplyLeaf(ctx context.Context, arg UpsertUniverseSupplyLeafParams) (int64, error)
+	UpsertUniverseSupplyRoot(ctx context.Context, arg UpsertUniverseSupplyRootParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

@@ -875,3 +875,43 @@ JOIN universe_roots roots
 GROUP BY roots.asset_id, roots.group_key, roots.proof_type
 ORDER BY roots.asset_id, roots.group_key, roots.proof_type;
 
+CREATE TABLE universe_supply_leaves (
+    id INTEGER PRIMARY KEY,
+
+    -- Reference to the root supply tree this leaf belongs to.
+    supply_root_id BIGINT NOT NULL REFERENCES universe_supply_roots(id) ON DELETE CASCADE,
+
+    -- The type of sub-tree this leaf represents (issuance, burn, ignore).
+    sub_tree_type TEXT NOT NULL REFERENCES proof_types(proof_type),
+
+    -- The key used for this leaf within the root supply tree's MS-SMT.
+    -- This typically corresponds to a hash identifying the sub-tree type.
+    leaf_node_key BLOB NOT NULL,
+
+    -- The namespace within mssmt_nodes where the actual sub-tree root node resides.
+    leaf_node_namespace VARCHAR NOT NULL,
+
+    -- Ensure each supply root has only one leaf per sub-tree type.
+    UNIQUE(supply_root_id, sub_tree_type)
+);
+
+CREATE INDEX universe_supply_leaves_supply_root_id_idx ON universe_supply_leaves(supply_root_id);
+
+CREATE INDEX universe_supply_leaves_supply_root_id_type_idx ON universe_supply_leaves(supply_root_id, sub_tree_type);
+
+CREATE TABLE universe_supply_roots (
+    id INTEGER PRIMARY KEY,
+
+    -- The namespace root of the MS-SMT representing this supply tree.
+    -- We set the foreign key constraint evaluation to be deferred until after
+    -- the database transaction ends. Otherwise, if the root of the SMT is
+    -- deleted temporarily before inserting a new root, then this constraint
+    -- is violated.
+    namespace_root VARCHAR UNIQUE NOT NULL REFERENCES mssmt_roots(namespace) DEFERRABLE INITIALLY DEFERRED,
+
+    -- The tweaked group key identifying the asset group this supply tree belongs to.
+    group_key BLOB UNIQUE NOT NULL CHECK(length(group_key) = 33)
+);
+
+CREATE INDEX universe_supply_roots_group_key_idx ON universe_supply_roots(group_key);
+

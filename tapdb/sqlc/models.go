@@ -403,3 +403,17 @@ type UniverseStat struct {
 	GroupKey         []byte
 	ProofType        sql.NullString
 }
+
+type UniverseSupplyLeafe struct {
+	ID                int64
+	SupplyRootID      int64
+	SubTreeType       string
+	LeafNodeKey       []byte
+	LeafNodeNamespace string
+}
+
+type UniverseSupplyRoot struct {
+	ID            int64
+	NamespaceRoot string
+	GroupKey      []byte
+}

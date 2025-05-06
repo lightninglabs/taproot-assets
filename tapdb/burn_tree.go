@@ -13,9 +13,14 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
+
+// ErrMissingGroupKey is returned when an operation requires an asset specifier
+// with a group key, but none is provided.
+var ErrMissingGroupKey = errors.New("asset specifier missing group key")
 
 // BurnUniverseTree is a structure that holds the DB for burn operations.
 type BurnUniverseTree struct {
@@ -31,18 +36,124 @@ func NewBurnUniverseTree(db BatchedUniverseTree) *BurnUniverseTree {
 func (bt *BurnUniverseTree) Sum(ctx context.Context,
 	spec asset.Specifier) universe.BurnTreeSum {
 
-	// Derive identifier from the asset.Specifier.
-	id, err := specifierToIdentifier(spec, universe.ProofTypeBurn)
-	if err != nil {
-		return lfn.Err[lfn.Option[uint64]](err)
+	groupKey := spec.UnwrapGroupKeyToPtr()
+	if groupKey == nil {
+		return lfn.Err[lfn.Option[uint64]](ErrMissingGroupKey)
 	}
+	namespace := subTreeNamespace(groupKey, supplycommit.BurnTreeType)
 
 	// Use the generic helper to get the sum.
-	return getUniverseTreeSum(ctx, bt.db, id)
+	return getUniverseTreeSum(ctx, bt.db, namespace)
 }
 
 // ErrNotBurn is returned when a proof is not a burn proof.
 var ErrNotBurn = errors.New("not a burn proof")
+
+// insertBurnsInternal performs the insertion of burn leaves within a database
+// transaction. It also updates the main supply tree with the new burn sub-tree
+// root.
+//
+// NOTE: This function must be called within a database transaction.
+func insertBurnsInternal(ctx context.Context, db BaseUniverseStore,
+	spec asset.Specifier, burnLeaves ...*universe.BurnLeaf,
+) ([]*universe.AuthenticatedBurnLeaf, error) {
+
+	if len(burnLeaves) == 0 {
+		return nil, fmt.Errorf("no burn leaves provided")
+	}
+
+	groupKey := spec.UnwrapGroupKeyToPtr()
+	if groupKey == nil {
+		return nil, ErrMissingGroupKey
+	}
+
+	// Given the group key, and the sub-tree type, we'll derive a unique
+	// namespace for this tree.
+	subNs := subTreeNamespace(groupKey, supplycommit.BurnTreeType)
+
+	// Perform upfront validation for all proofs. Make sure that all the
+	// assets are actually burns.
+	for _, burnLeaf := range burnLeaves {
+		if !burnLeaf.BurnProof.Asset.IsBurn() {
+			return nil, fmt.Errorf("%w: proof for asset %v is "+
+				"not a burn proof, has type %v",
+				ErrNotBurn,
+				burnLeaf.BurnProof.Asset.ID(),
+				burnLeaf.BurnProof.Asset.Type)
+		}
+	}
+
+	tree := mssmt.NewCompactedTree(
+		newTreeStoreWrapperTx(db, subNs),
+	)
+
+	var finalResults []*universe.AuthenticatedBurnLeaf
+
+	// First, insert all burn leaves into the burn sub-tree SMT.
+	for _, burnLeaf := range burnLeaves {
+		leafKey := burnLeaf.UniverseKey
+
+		// Encode the burn proof to get the raw bytes.
+		var proofBuf bytes.Buffer
+		err := burnLeaf.BurnProof.Encode(&proofBuf)
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode burn "+
+				"proof: %w", err)
+		}
+		rawProofBytes := proofBuf.Bytes()
+
+		// Construct the universe.Leaf required by
+		// universeUpsertProofLeaf.
+		burnProof := burnLeaf.BurnProof
+		leaf := &universe.Leaf{
+			GenesisWithGroup: universe.GenesisWithGroup{
+				Genesis:  burnProof.Asset.Genesis,
+				GroupKey: burnProof.Asset.GroupKey,
+			},
+			RawProof: rawProofBytes,
+			Asset:    &burnLeaf.BurnProof.Asset,
+			Amt:      burnLeaf.BurnProof.Asset.Amount,
+			IsBurn:   true,
+		}
+
+		// Call the generic upsert function for the burn sub-tree to
+		// update DB records. MetaReveal is nil for burns.
+		_, err = universeUpsertProofLeaf(
+			ctx, db, subNs, supplycommit.BurnTreeType.String(),
+			groupKey, leafKey, leaf, nil,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to upsert burn "+
+				"leaf DB records for key %v: %w", leafKey, err)
+		}
+	}
+
+	// Fetch the final burn sub-tree root after all insertions.
+	finalBurnRoot, err := tree.Root(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get burn tree root: %w", err)
+	}
+
+	// Now, construct the AuthenticatedBurnLeaf results by fetching proofs
+	// against the final tree root.
+	for _, burnLeaf := range burnLeaves {
+		leafKey := burnLeaf.UniverseKey.UniverseKey()
+		inclusionProof, err := tree.MerkleProof(ctx, leafKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get burn proof "+
+				"for key %v: %w", burnLeaf.UniverseKey, err)
+		}
+
+		authLeaf := &universe.AuthenticatedBurnLeaf{
+			BurnLeaf:     burnLeaf,
+			BurnTreeRoot: finalBurnRoot,
+			BurnProof:    inclusionProof,
+		}
+		finalResults = append(finalResults, authLeaf)
+	}
+
+	return finalResults, nil
+}
 
 // InsertBurns attempts to insert a set of new burn leaves into the burn tree
 // identified by the passed asset.Specifier. If a given proof isn't a true burn
@@ -53,87 +164,24 @@ func (bt *BurnUniverseTree) InsertBurns(ctx context.Context,
 	spec asset.Specifier,
 	burnLeaves ...*universe.BurnLeaf) universe.BurnLeafResp {
 
-	if len(burnLeaves) == 0 {
-		return lfn.Err[[]*universe.AuthenticatedBurnLeaf](
-			fmt.Errorf("no burn leaves provided"),
-		)
-	}
-
-	// Derive identifier (and thereby the namespace) from the
-	// asset.Specifier.
-	id, err := specifierToIdentifier(spec, universe.ProofTypeBurn)
-	if err != nil {
-		return lfn.Err[[]*universe.AuthenticatedBurnLeaf](err)
-	}
-
-	// Perform upfront validation for all proofs. Make sure that all the
-	// assets are actually burns.
-	for _, burnLeaf := range burnLeaves {
-		if !burnLeaf.BurnProof.Asset.IsBurn() {
-			return lfn.Err[[]*universe.AuthenticatedBurnLeaf](
-				fmt.Errorf("%w: proof for asset %v is not a "+
-					"burn proof, has type %v",
-					ErrNotBurn,
-					burnLeaf.BurnProof.Asset.ID(),
-					burnLeaf.BurnProof.Asset.Type),
-			)
-		}
-	}
-
-	var finalResults []*universe.AuthenticatedBurnLeaf
-
-	var writeTx BaseUniverseStoreOptions
+	var (
+		writeTx      BaseUniverseStoreOptions
+		finalResults []*universe.AuthenticatedBurnLeaf
+		err          error
+	)
 	txErr := bt.db.ExecTx(ctx, &writeTx, func(db BaseUniverseStore) error {
-		for _, burnLeaf := range burnLeaves {
-			leafKey := burnLeaf.UniverseKey
+		finalResults, err = insertBurnsInternal(
+			ctx, db, spec, burnLeaves...,
+		)
 
-			// Encode the burn proof to get the raw bytes.
-			var proofBuf bytes.Buffer
-			err := burnLeaf.BurnProof.Encode(&proofBuf)
-			if err != nil {
-				return fmt.Errorf("unable to encode burn "+
-					"proof: %w", err)
-			}
-			rawProofBytes := proofBuf.Bytes()
-
-			// Construct the universe.Leaf required by
-			// universeUpsertProofLeaf.
-			burnProof := burnLeaf.BurnProof
-			leaf := &universe.Leaf{
-				GenesisWithGroup: universe.GenesisWithGroup{
-					Genesis:  burnProof.Asset.Genesis,
-					GroupKey: burnProof.Asset.GroupKey,
-				},
-				RawProof: rawProofBytes,
-				Asset:    &burnLeaf.BurnProof.Asset,
-				Amt:      burnLeaf.BurnProof.Asset.Amount,
-			}
-
-			// Call the generic upsert function. MetaReveal is nil
-			// for burns, as this isn't an issuance instance. We
-			// also skip inserting into the multi-verse tree for
-			// now.
-			uniProof, err := universeUpsertProofLeaf(
-				ctx, db, id, leafKey, leaf, nil, true,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to upsert burn "+
-					"leaf for key %v: %w", leafKey, err)
-			}
-
-			authLeaf := &universe.AuthenticatedBurnLeaf{
-				BurnLeaf:     burnLeaf,
-				BurnTreeRoot: uniProof.UniverseRoot,
-				BurnProof:    uniProof.UniverseInclusionProof,
-			}
-			finalResults = append(finalResults, authLeaf)
-		}
-
-		return nil
+		// TODO(roasbeef): also update the root supply tree?
+		return err
 	})
 	if txErr != nil {
 		return lfn.Err[[]*universe.AuthenticatedBurnLeaf](txErr)
 	}
+
+	// TODO(roasbeef): cache invalidation?
 
 	return lfn.Ok(finalResults)
 }
@@ -143,14 +191,11 @@ func queryBurnLeaves(ctx context.Context, dbtx BaseUniverseStore,
 	spec asset.Specifier,
 	burnPoints ...wire.OutPoint) ([]UniverseLeaf, error) {
 
-	uniNamespace, err := specifierToIdentifier(
-		spec, universe.ProofTypeBurn,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error deriving identifier: %w", err)
+	groupKey := spec.UnwrapGroupKeyToPtr()
+	if groupKey == nil {
+		return nil, ErrMissingGroupKey
 	}
-
-	namespace := uniNamespace.String()
+	namespace := subTreeNamespace(groupKey, supplycommit.BurnTreeType)
 
 	// If no burn points are provided, we query all leaves in the namespace.
 	if len(burnPoints) == 0 {
@@ -166,7 +211,7 @@ func queryBurnLeaves(ctx context.Context, dbtx BaseUniverseStore,
 		}
 		if err != nil {
 			return nil, fmt.Errorf("error querying all leaves "+
-				"for namespace %s: %w", &uniNamespace, err)
+				"for namespace %s: %w", namespace, err)
 		}
 
 		return dbLeaves, nil
@@ -264,19 +309,19 @@ func (bt *BurnUniverseTree) QueryBurns(ctx context.Context,
 	spec asset.Specifier,
 	burnPoints ...wire.OutPoint) universe.BurnLeafQueryResp {
 
-	// Derive identifier from the asset.Specifier.
-	id, err := specifierToIdentifier(spec, universe.ProofTypeBurn)
-	if err != nil {
+	groupKey := spec.UnwrapGroupKeyToPtr()
+	if groupKey == nil {
 		return lfn.Err[lfn.Option[[]*universe.AuthenticatedBurnLeaf]](
-			err,
+			ErrMissingGroupKey,
 		)
 	}
+	namespace := subTreeNamespace(groupKey, supplycommit.BurnTreeType)
 
 	// Use the generic list helper to list the leaves from the universe
 	// Tree. We pass in our custom decode function to handle the logic
 	// specific to BurnLeaf.
 	return queryUniverseLeavesAndProofs(
-		ctx, bt.db, spec, id, queryBurnLeaves,
+		ctx, bt.db, spec, namespace, queryBurnLeaves,
 		decodeAndBuildAuthBurnLeaf, buildAuthBurnLeaf, burnPoints...,
 	)
 }
@@ -306,13 +351,15 @@ func (bt *BurnUniverseTree) ListBurns(ctx context.Context,
 	spec asset.Specifier) universe.ListBurnsResp {
 
 	// Derive identifier from the asset.Specifier.
-	id, err := specifierToIdentifier(spec, universe.ProofTypeBurn)
-	if err != nil {
-		return lfn.Err[lfn.Option[[]*universe.BurnDesc]](err)
+	groupKey := spec.UnwrapGroupKeyToPtr()
+	if groupKey == nil {
+		return lfn.Err[lfn.Option[[]*universe.BurnDesc]](
+			ErrMissingGroupKey,
+		)
 	}
+	namespace := subTreeNamespace(groupKey, supplycommit.BurnTreeType)
 
-	// Use the generic list helper.
-	return listUniverseLeaves(ctx, bt.db, id, decodeBurnDesc)
+	return listUniverseLeaves(ctx, bt.db, namespace, decodeBurnDesc)
 }
 
 // Compile-time assertion to ensure BurnUniverseTree implements the
