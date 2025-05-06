@@ -1230,3 +1230,139 @@ func TestAllocationsFromTemplate(t *testing.T) {
 		})
 	}
 }
+
+// TestSortPiecesWithProofs tests that we can sort pieces of assets with their
+// proofs. The sorting is done first by asset ID, then by the amount of the
+// proofs in descending order and then by script key.
+func TestSortPiecesWithProofs(t *testing.T) {
+	key1 := asset.NewScriptKey(test.ParsePubKey(
+		t, "03a15fd6e1fded33270ae01183dfc8f8edd1274644b7d014ac5ab576f"+
+			"bf8328b05",
+	))
+	key2 := asset.NewScriptKey(test.ParsePubKey(
+		t, "029191ec924fb3c6bbd0d264d0b3cf97fcb2fc1eb5737184e7e17e35c"+
+			"6609ee853",
+	))
+	tests := []struct {
+		name     string
+		input    []*piece
+		expected []*piece
+	}{{
+		name: "sort by asset ID and proofs by amount",
+		input: []*piece{{
+			assetID: asset.ID{0x02},
+			proofs: []*proof.Proof{{
+				Asset: asset.Asset{
+					Amount:    50,
+					ScriptKey: key1,
+				},
+			}, {
+				Asset: asset.Asset{
+					Amount:    300,
+					ScriptKey: key2,
+				},
+			}, {
+				Asset: asset.Asset{
+					Amount:    100,
+					ScriptKey: key2,
+				},
+			}},
+		}, {
+			assetID: asset.ID{0x01},
+			proofs: []*proof.Proof{{
+				Asset: asset.Asset{
+					Amount:    200,
+					ScriptKey: key1,
+				},
+			}, {
+				Asset: asset.Asset{
+					Amount:    150,
+					ScriptKey: key2,
+				},
+			}},
+		}},
+		expected: []*piece{{
+			assetID: asset.ID{0x01},
+			proofs: []*proof.Proof{{
+				Asset: asset.Asset{
+					Amount:    200,
+					ScriptKey: key1,
+				},
+			}, {
+				Asset: asset.Asset{
+					Amount:    150,
+					ScriptKey: key2,
+				},
+			}},
+		}, {
+			assetID: asset.ID{0x02},
+			proofs: []*proof.Proof{{
+				Asset: asset.Asset{
+					Amount:    300,
+					ScriptKey: key2,
+				},
+			}, {
+				Asset: asset.Asset{
+					Amount:    100,
+					ScriptKey: key2,
+				},
+			}, {
+				Asset: asset.Asset{
+					Amount:    50,
+					ScriptKey: key1,
+				},
+			}},
+		}},
+	}, {
+		name: "script keys after amount",
+		input: []*piece{{
+			assetID: asset.ID{0x01},
+			proofs: []*proof.Proof{{
+				Asset: asset.Asset{
+					Amount:    50,
+					ScriptKey: key1,
+				},
+			}, {
+				Asset: asset.Asset{
+					Amount:    50,
+					ScriptKey: key2,
+				},
+			}, {
+				Asset: asset.Asset{
+					Amount:    50,
+					ScriptKey: key2,
+				},
+			}},
+		}},
+		expected: []*piece{{
+			assetID: asset.ID{0x01},
+			proofs: []*proof.Proof{{
+				Asset: asset.Asset{
+					Amount:    50,
+					ScriptKey: key2,
+				},
+			}, {
+				Asset: asset.Asset{
+					Amount:    50,
+					ScriptKey: key2,
+				},
+			}, {
+				Asset: asset.Asset{
+					Amount:    50,
+					ScriptKey: key1,
+				},
+			}},
+		}},
+	}, {
+		name:     "empty input",
+		input:    []*piece{},
+		expected: []*piece{},
+	}}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sortPiecesWithProofs(tt.input)
+			require.Equal(t, tt.expected, tt.input)
+		})
+	}
+}
