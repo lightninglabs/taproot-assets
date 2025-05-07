@@ -2675,12 +2675,12 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		// against.
 		if req.GroupInternalKey != nil && req.ExternalKey.IsNone() {
 			return fmt.Errorf("cannot specify group internal key " +
-				"without enabling emission")
+				"without creating a new grouped asset")
 		}
 
 		if req.GroupTapscriptRoot != nil {
 			return fmt.Errorf("cannot specify group tapscript " +
-				"root without enabling emission")
+				"root without creating a new grouped asset")
 		}
 	}
 
