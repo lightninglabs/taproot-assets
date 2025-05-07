@@ -486,19 +486,13 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 	// We group the assets by asset ID, since we'll want to create a single
 	// virtual packet per asset ID (with each virtual packet potentially
 	// having multiple inputs and outputs).
-	assetIDs := fn.Map(inputs, func(input *proof.Proof) asset.ID {
-		return input.Asset.ID()
-	})
-	uniqueAssetIDs := fn.NewSet(assetIDs...).ToSlice()
+	groupedProofs := GroupProofsByAssetID(inputs)
 
 	// Each "piece" keeps track of how many assets of a specific asset ID
 	// we have already distributed. The pieces are also the main way to
 	// reference an asset ID's virtual packet.
-	pieces := make([]*piece, len(uniqueAssetIDs))
-	for i, assetID := range uniqueAssetIDs {
-		proofsByID := fn.Filter(inputs, func(i *proof.Proof) bool {
-			return i.Asset.ID() == assetID
-		})
+	pieces := make([]*piece, 0, len(groupedProofs))
+	for assetID, proofsByID := range groupedProofs {
 		sumByID := fn.Reduce(
 			proofsByID, func(sum uint64, i *proof.Proof) uint64 {
 				return sum + i.Asset.Amount
@@ -512,12 +506,12 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 			return nil, err
 		}
 
-		pieces[i] = &piece{
+		pieces = append(pieces, &piece{
 			assetID:        assetID,
 			totalAvailable: sumByID,
 			proofs:         proofsByID,
 			packet:         pkt,
-		}
+		})
 	}
 
 	// Make sure the pieces are in a stable and reproducible order before we
@@ -839,4 +833,23 @@ func setAllocationFieldsFromOutput(alloc *Allocation, vOut *tappsbt.VOutput) {
 	alloc.ProofDeliveryAddress = vOut.ProofDeliveryAddress
 	alloc.AltLeaves = vOut.AltLeaves
 	alloc.SiblingPreimage = vOut.AnchorOutputTapscriptSibling
+}
+
+// GroupProofsByAssetID groups the given proofs by their asset ID.
+func GroupProofsByAssetID(proofs []*proof.Proof) map[asset.ID][]*proof.Proof {
+	assetIDs := fn.Map(proofs, func(p *proof.Proof) asset.ID {
+		return p.Asset.ID()
+	})
+	uniqueAssetIDs := fn.NewSet(assetIDs...).ToSlice()
+
+	groupedProofs := make(map[asset.ID][]*proof.Proof, len(uniqueAssetIDs))
+	for _, assetID := range uniqueAssetIDs {
+		groupedProofs[assetID] = fn.Filter(
+			proofs, func(p *proof.Proof) bool {
+				return p.Asset.ID() == assetID
+			},
+		)
+	}
+
+	return groupedProofs
 }

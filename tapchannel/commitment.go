@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -28,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"golang.org/x/exp/maps"
 )
 
 // DecodedDescriptor is a wrapper around a PaymentDescriptor that also includes
@@ -1503,6 +1505,132 @@ func deriveFundingScriptKey(ctx context.Context, addrBook address.Storage,
 	}
 
 	return fundingScriptKey, nil
+}
+
+// CommitmentToPackets converts a commitment to a list of vPackets. The
+// commitment must not contain any HTLCs, as this only works for coop-closed
+// channels.
+func CommitmentToPackets(c *cmsg.Commitment, inputs []*proof.Proof,
+	chainParams *address.ChainParams, localShutdownMsg,
+	remoteShutdownMsg cmsg.AuxShutdownMsg, localOutputIndex,
+	remoteOutputIndex uint32,
+	vPktVersion tappsbt.VPacketVersion) ([]*tappsbt.VPacket, error) {
+
+	if len(c.IncomingHtlcAssets.Val.HtlcOutputs) > 0 ||
+		len(c.OutgoingHtlcAssets.Val.HtlcOutputs) > 0 {
+
+		return nil, fmt.Errorf("commitment contains HTLCs, cannot " +
+			"create vPackets")
+	}
+
+	// We group the inputs by asset ID, so we can create a vPacket for each
+	// asset ID. The number of vPackets is dictated by the number of
+	// different asset IDs in the commitment transaction.
+	groupedInputs := tapsend.GroupProofsByAssetID(inputs)
+	vPackets := make(map[asset.ID]*tappsbt.VPacket, len(groupedInputs))
+	for assetID, proofsByID := range groupedInputs {
+		pkt, err := tappsbt.FromProofs(
+			proofsByID, chainParams, vPktVersion,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error creating vPacket: %w",
+				err)
+		}
+
+		vPackets[assetID] = pkt
+	}
+
+	localOutputs := c.LocalOutputs()
+	remoteOutputs := c.RemoteOutputs()
+
+	// We now distribute the outputs to the vPackets.
+	for _, output := range localOutputs {
+		pkt, ok := vPackets[output.AssetID.Val]
+		if !ok {
+			return nil, fmt.Errorf("no vPacket found "+
+				"for asset ID %s", output.AssetID.Val)
+		}
+
+		outAsset := output.Proof.Val.Asset
+		vOut, err := assetToInteractiveVOutput(
+			outAsset, asset.V0, localShutdownMsg,
+			localOutputIndex,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error creating "+
+				"vOutput: %w", err)
+		}
+
+		pkt.Outputs = append(pkt.Outputs, vOut)
+	}
+
+	for _, output := range remoteOutputs {
+		pkt, ok := vPackets[output.AssetID.Val]
+		if !ok {
+			return nil, fmt.Errorf("no vPacket found "+
+				"for asset ID %s", output.AssetID.Val)
+		}
+
+		outAsset := output.Proof.Val.Asset
+		vOut, err := assetToInteractiveVOutput(
+			outAsset, asset.V0, remoteShutdownMsg,
+			remoteOutputIndex,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error creating "+
+				"vOutput: %w", err)
+		}
+
+		pkt.Outputs = append(pkt.Outputs, vOut)
+	}
+
+	return maps.Values(vPackets), nil
+}
+
+// assetToInteractiveVOutput creates a VOutput for an asset that is part of an
+// interactive transaction.
+func assetToInteractiveVOutput(a asset.Asset, version asset.Version,
+	shutdownMsg cmsg.AuxShutdownMsg,
+	anchorOutputIndex uint32) (*tappsbt.VOutput, error) {
+
+	scriptKey, ok := shutdownMsg.ScriptKeys.Val[a.ID()]
+	if !ok {
+		return nil, fmt.Errorf("no script key for asset %s", a.ID())
+	}
+
+	proofDeliveryUrl, err := lfn.MapOptionZ(
+		shutdownMsg.ProofDeliveryAddr.ValOpt(),
+		func(u []byte) lfn.Result[*url.URL] {
+			proofDeliveryUrl, err := url.Parse(string(u))
+			if err != nil {
+				return lfn.Err[*url.URL](fmt.Errorf("unable "+
+					"to parse proof delivery address: %w",
+					err))
+			}
+
+			return lfn.Ok(proofDeliveryUrl)
+		},
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode proof delivery "+
+			"address: %w", err)
+	}
+
+	outType := tappsbt.TypeSplitRoot
+	if a.SplitCommitmentRoot == nil {
+		outType = tappsbt.TypeSimple
+	}
+
+	return &tappsbt.VOutput{
+		Amount:                  a.Amount,
+		AssetVersion:            version,
+		Type:                    outType,
+		Interactive:             true,
+		AnchorOutputIndex:       anchorOutputIndex,
+		AnchorOutputInternalKey: shutdownMsg.AssetInternalKey.Val,
+		ScriptKey:               asset.NewScriptKey(&scriptKey),
+		ProofDeliveryAddress:    proofDeliveryUrl,
+	}, nil
 }
 
 // InPlaceCustomCommitSort performs an in-place sort of a transaction, given a
