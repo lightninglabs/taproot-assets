@@ -27,6 +27,32 @@ var (
 // TestCreateProofSuffix tests the creation of suffix proofs for a given anchor
 // transaction.
 func TestCreateProofSuffix(t *testing.T) {
+	testCases := []struct {
+		name        string
+		stxoProof   bool
+		expectedErr string
+	}{
+		{
+			name:      "Correct inclusion and exclusion proofs",
+			stxoProof: true,
+		},
+		{
+			name:      "No stxo proof",
+			stxoProof: false,
+			expectedErr: "error verifying STXO proof: missing " +
+				"asset proof",
+		},
+	}
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(tt *testing.T) {
+			createProofSuffix(t, tc.stxoProof, tc.expectedErr)
+		})
+	}
+}
+
+func createProofSuffix(t *testing.T, stxoProof bool, expectedErr string) {
 	testAssets := []*asset.Asset{
 		asset.RandAsset(t, asset.RandAssetType(t)),
 		asset.RandAsset(t, asset.RandAssetType(t)),
@@ -83,7 +109,10 @@ func TestCreateProofSuffix(t *testing.T) {
 	}
 	outputCommitments := make(map[uint32]*commitment.TapCommitment)
 
-	addOutputCommitment(t, anchorTx, outputCommitments, testPackets...)
+	addOutputCommitment(
+		t, anchorTx, outputCommitments, stxoProof,
+		testPackets...,
+	)
 	addBip86Output(t, anchorTx.FundedPsbt.Pkt)
 
 	// Create a proof suffix for all 4 packets now and validate it.
@@ -106,18 +135,34 @@ func TestCreateProofSuffix(t *testing.T) {
 			)
 
 			// Checking the transfer witness is the very last step
-			// of the proof verification. Since we didn't properly
+			// of the proof verification. Since we don't properly
 			// sign the transfer, we expect the witness to be
 			// invalid. But if we get to that point, we know that
-			// all inclusion and exclusion proofs are correct (which
-			// is what this test is testing).
+			// all inclusion and exclusion proofs are correct. So
+			// for successful cases we still expect an error, namely
+			// the invalid witness error.
+			errCode := txscript.ErrTaprootSigInvalid
 			invalidWitnessErr := vm.Error{
 				Kind: vm.ErrInvalidTransferWitness,
 				Inner: txscript.Error{
-					ErrorCode: txscript.ErrTaprootSigInvalid,
+					ErrorCode: errCode,
 				},
 			}
-			require.ErrorIs(t, err, invalidWitnessErr)
+			if expectedErr == "" {
+				require.ErrorIs(t, err, invalidWitnessErr)
+
+				continue
+			}
+
+			if vPkt.Outputs[outIdx].Asset.IsTransferRoot() {
+				require.ErrorContains(
+					t, err, expectedErr,
+				)
+			} else {
+				require.ErrorIs(
+					t, err, invalidWitnessErr,
+				)
+			}
 		}
 	}
 }
@@ -206,7 +251,7 @@ func createPacket(t *testing.T, a *asset.Asset, split bool,
 
 func addOutputCommitment(t *testing.T, anchorTx *AnchorTransaction,
 	outputCommitments map[uint32]*commitment.TapCommitment,
-	vPackets ...*tappsbt.VPacket) {
+	stxoProof bool, vPackets ...*tappsbt.VPacket) {
 
 	packet := anchorTx.FundedPsbt.Pkt
 
@@ -245,8 +290,10 @@ func addOutputCommitment(t *testing.T, anchorTx *AnchorTransaction,
 
 		c, err := commitment.FromAssets(nil, assets...)
 		require.NoError(t, err)
-		err = c.MergeAltLeaves(stxoAssetsByOutput[idx1])
-		require.NoError(t, err)
+		if stxoProof {
+			err = c.MergeAltLeaves(stxoAssetsByOutput[idx1])
+			require.NoError(t, err)
+		}
 
 		internalKey := keyByOutput[idx1]
 		script, err := tapscript.PayToAddrScript(*internalKey, nil, *c)
