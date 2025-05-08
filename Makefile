@@ -57,7 +57,7 @@ DOCKER_TOOLS = docker run \
   -v $(shell bash -c "mkdir -p /tmp/go-lint-cache; echo /tmp/go-lint-cache"):/root/.cache/golangci-lint \
   -v $$(pwd):/build taproot-assets-tools
 
-GO_VERSION = 1.23.6
+GO_VERSION = 1.23.9
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
