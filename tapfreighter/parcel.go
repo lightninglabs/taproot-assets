@@ -50,6 +50,12 @@ const (
 	// ensure it properly tracks the coins allocated to the anchor output.
 	SendStateBroadcast
 
+	// SendStateBroadcastComplete represents the state where the transfer
+	// transaction has been broadcast and is either in the mempool or
+	// confirmed on-chain. At this stage, cancellation cannot rely solely
+	// on naive coin unlocking.
+	SendStateBroadcastComplete
+
 	// SendStateWaitTxConf is a state in which we will wait for the transfer
 	// transaction to confirm on-chain.
 	SendStateWaitTxConf
@@ -90,6 +96,9 @@ func (s SendState) String() string {
 
 	case SendStateBroadcast:
 		return "SendStateBroadcast"
+
+	case SendStateBroadcastComplete:
+		return "SendStateBroadcastComplete"
 
 	case SendStateWaitTxConf:
 		return "SendStateWaitTxConf"
