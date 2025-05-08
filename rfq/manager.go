@@ -1116,6 +1116,24 @@ func (q *PeerAcceptedBuyQuoteEvent) Timestamp() time.Time {
 	return q.timestamp.UTC()
 }
 
+// MatchesOrder checks if the sell quote matches the provided order.
+func (q *PeerAcceptedBuyQuoteEvent) MatchesOrder(order BuyOrder) bool {
+	if q.Request.AssetSpecifier != order.AssetSpecifier {
+		return false
+	}
+
+	// If the order has no peer, we accept equality just based on the
+	// specifier.
+	if order.Peer.IsNone() {
+		return true
+	}
+
+	// If a peer is specified, ensure it matches the event's peer.
+	return fn.MapOptionZ(order.Peer, func(vertex route.Vertex) bool {
+		return q.Peer == vertex
+	})
+}
+
 // Ensure that the PeerAcceptedBuyQuoteEvent struct implements the Event
 // interface.
 var _ fn.Event = (*PeerAcceptedBuyQuoteEvent)(nil)
@@ -1195,6 +1213,24 @@ func NewPeerAcceptedSellQuoteEvent(
 // Timestamp returns the event creation UTC timestamp.
 func (q *PeerAcceptedSellQuoteEvent) Timestamp() time.Time {
 	return q.timestamp.UTC()
+}
+
+// MatchesOrder checks if the sell quote matches the provided order.
+func (q *PeerAcceptedSellQuoteEvent) MatchesOrder(order SellOrder) bool {
+	if q.Request.AssetSpecifier != order.AssetSpecifier {
+		return false
+	}
+
+	// If the order has no peer, we accept equality just based on the
+	// specifier.
+	if order.Peer.IsNone() {
+		return true
+	}
+
+	// If a peer is specified, ensure it matches the event's peer.
+	return fn.MapOptionZ(order.Peer, func(vertex route.Vertex) bool {
+		return q.Peer == vertex
+	})
 }
 
 // Ensure that the PeerAcceptedSellQuoteEvent struct implements the Event
