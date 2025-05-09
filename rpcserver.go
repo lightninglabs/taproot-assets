@@ -8395,12 +8395,29 @@ func (r *rpcServer) rfqChannel(ctx context.Context, specifier asset.Specifier,
 	peerPubKey *route.Vertex,
 	intention chanIntention) (*channelWithSpecifier, error) {
 
-	balances, err := r.computeChannelAssetBalance(ctx, specifier)
+	balances, haveGroupChans, err := r.computeCompatibleChannelAssetBalance(
+		ctx, specifier,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error computing available asset "+
 			"channel balance: %w", err)
 	}
 
+	// If the user uses the asset ID to specify what asset to use, that will
+	// not work for asset channels that have multiple UTXOs of grouped
+	// assets. The result wouldn't be deterministic anyway (meaning, it's
+	// not guaranteed that a specific asset ID is moved within a channel
+	// when an HTLC is sent, the allocation logic decides which actual UTXO
+	// is used). So we tell the user to use the group key instead, at least
+	// for channels that have multiple UTXOs of grouped assets.
+	if specifier.HasId() && len(balances) == 0 && haveGroupChans {
+		return nil, fmt.Errorf("no compatible asset channel found for "+
+			"%s, make sure to use group key for grouped asset "+
+			"channels", &specifier)
+	}
+
+	// If the above special case didn't apply, it just means we don't have
+	// the specific asset in a channel that can be used.
 	if len(balances) == 0 {
 		return nil, fmt.Errorf("no asset channel balance found for %s",
 			&specifier)
@@ -8484,17 +8501,27 @@ type channelWithSpecifier struct {
 	assetInfo rfqmsg.JsonAssetChannel
 }
 
-// computeChannelAssetBalance computes the total local and remote balance for
-// each asset channel that matches the provided asset specifier.
-func (r *rpcServer) computeChannelAssetBalance(ctx context.Context,
-	specifier asset.Specifier) ([]channelWithSpecifier, error) {
+// computeCompatibleChannelAssetBalance computes the total local and remote
+// balance for each asset channel that matches the provided asset specifier.
+// For a channel to match an asset specifier, all asset UTXOs in the channel
+// must match the specifier. That means a channel is seen as _not_ compatible if
+// it contains multiple asset IDs but the specifier only specifies one of them.
+// The user should use the group key in that case instead. To help inform the
+// user about this, the returned boolean value indicates if there are any active
+// channels that have grouped assets.
+func (r *rpcServer) computeCompatibleChannelAssetBalance(ctx context.Context,
+	specifier asset.Specifier) ([]channelWithSpecifier, bool, error) {
 
 	activeChannels, err := r.cfg.Lnd.Client.ListChannels(ctx, true, false)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch channels: %w", err)
+		return nil, false, fmt.Errorf("unable to fetch channels: %w",
+			err)
 	}
 
-	channels := make([]channelWithSpecifier, 0)
+	var (
+		channels                 = make([]channelWithSpecifier, 0)
+		haveGroupedAssetChannels bool
+	)
 	for chanIdx := range activeChannels {
 		openChan := activeChannels[chanIdx]
 		if len(openChan.CustomChannelData) == 0 {
@@ -8504,17 +8531,21 @@ func (r *rpcServer) computeChannelAssetBalance(ctx context.Context,
 		var assetData rfqmsg.JsonAssetChannel
 		err = json.Unmarshal(openChan.CustomChannelData, &assetData)
 		if err != nil {
-			return nil, fmt.Errorf("unable to unmarshal asset "+
-				"data: %w", err)
+			return nil, false, fmt.Errorf("unable to unmarshal "+
+				"asset data: %w", err)
+		}
+
+		if len(assetData.GroupKey) > 0 {
+			haveGroupedAssetChannels = true
 		}
 
 		// Check if the assets of this channel match the provided
 		// specifier.
-		pass, err := r.cfg.RfqManager.ChannelCompatible(
+		pass, err := r.cfg.RfqManager.ChannelMatchesFully(
 			ctx, assetData, specifier,
 		)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		if pass {
@@ -8526,7 +8557,7 @@ func (r *rpcServer) computeChannelAssetBalance(ctx context.Context,
 		}
 	}
 
-	return channels, nil
+	return channels, haveGroupedAssetChannels, nil
 }
 
 // getInboundPolicy returns the policy of the given channel that points towards
