@@ -34,7 +34,9 @@ type TaprootAssetChannelsClient interface {
 	SendPayment(ctx context.Context, in *SendPaymentRequest, opts ...grpc.CallOption) (TaprootAssetChannels_SendPaymentClient, error)
 	// AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
 	// specific parameters. It allows RPC users to create invoices that correspond
-	// to the specified asset amount.
+	// to the specified asset amount. If a peer pubkey is specified, then only that
+	// peer will be used for RFQ negotiations. If none is specified then RFQ quotes
+	// for all peers with suitable asset channels will be created.
 	AddInvoice(ctx context.Context, in *AddInvoiceRequest, opts ...grpc.CallOption) (*AddInvoiceResponse, error)
 	// DecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an
 	// asset ID and returns the invoice amount expressed in asset units along side
@@ -138,7 +140,9 @@ type TaprootAssetChannelsServer interface {
 	SendPayment(*SendPaymentRequest, TaprootAssetChannels_SendPaymentServer) error
 	// AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
 	// specific parameters. It allows RPC users to create invoices that correspond
-	// to the specified asset amount.
+	// to the specified asset amount. If a peer pubkey is specified, then only that
+	// peer will be used for RFQ negotiations. If none is specified then RFQ quotes
+	// for all peers with suitable asset channels will be created.
 	AddInvoice(context.Context, *AddInvoiceRequest) (*AddInvoiceResponse, error)
 	// DecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an
 	// asset ID and returns the invoice amount expressed in asset units along side
