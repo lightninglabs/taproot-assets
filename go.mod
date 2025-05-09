@@ -216,3 +216,5 @@ replace github.com/golang-migrate/migrate/v4 => github.com/lightninglabs/migrate
 
 // Note this is a temproary replace and will be removed when taprpc is tagged.
 replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
+
+replace github.com/lightningnetwork/lnd => github.com/roasbeef/lnd v0.2.1-alpha.0.20250505223159-b58451faad16
