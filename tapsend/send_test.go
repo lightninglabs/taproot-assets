@@ -682,6 +682,8 @@ func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
 	default:
 		require.Fail(t, "unknown vPacket version")
 	}
+
+	// TODO(jhb): Check for correct STXOs
 }
 
 func checkTaprootOutputs(t *testing.T, outputs []*tappsbt.VOutput,

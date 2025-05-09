@@ -79,6 +79,12 @@ type Verifier interface {
 type BaseVerifier struct {
 }
 
+// P2TROutputsSTXOs is used to track stxo proofs per p2tr output in the anchor
+// transaction.
+type P2TROutputsSTXOs = map[uint32]fn.Set[asset.SerializedKey]
+
+type CommittedVersions = map[uint32][]commitment.TapCommitmentVersion
+
 // Verify takes the passed serialized proof file, and returns a nil
 // error if the proof file is valid. A valid file should return an
 // AssetSnapshot of the final state transition of the file.
@@ -165,9 +171,52 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 
 // verifyInclusionProof verifies the InclusionProof is valid.
 func (p *Proof) verifyInclusionProof() (*commitment.TapCommitment, error) {
-	return verifyTaprootProof(
-		&p.AnchorTx, &p.InclusionProof, &p.Asset, true,
+	// Determine if we're dealing with v0 or v1 proofs.
+	hasV1Proofs := p.IsVersionV1() &&
+		p.InclusionProof.CommitmentProof != nil &&
+		len(p.InclusionProof.CommitmentProof.STXOProofs) > 0
+
+	if !hasV1Proofs {
+		return verifyTaprootProof(
+			&p.AnchorTx, &p.InclusionProof, &p.Asset, true,
+		)
+	}
+
+	commitVersions := make(map[uint32][]commitment.TapCommitmentVersion)
+	p2trOutputs := make(P2TROutputsSTXOs)
+	outIdx := p.InclusionProof.OutputIndex
+	p2trOutputs[outIdx] = make(fn.Set[asset.SerializedKey])
+
+	// Collect the STXOs from the new asset.
+	stxoAssets, err := asset.CollectSTXO(&p.Asset)
+	if err != nil {
+		return nil, fmt.Errorf("error collecting STXO assets: %w", err)
+	}
+
+	// Map STXOs by serialized key.
+	assetMap := make(map[asset.SerializedKey]*asset.Asset)
+	for idx := range stxoAssets {
+		stxoAsset := stxoAssets[idx].(*asset.Asset)
+		key := asset.ToSerialized(stxoAsset.ScriptKey.PubKey)
+		assetMap[key] = stxoAsset
+		p2trOutputs[outIdx].Add(key)
+	}
+
+	baseProof := p.InclusionProof
+
+	verifiedCommitment, err := verifySTXOProofSet(
+		&p.AnchorTx, baseProof, assetMap, p2trOutputs, commitVersions,
+		true,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(p2trOutputs) > 0 {
+		return nil, ErrInvalidCommitmentProof
+	}
+
+	return verifiedCommitment, nil
 }
 
 // verifySplitRootProof verifies the SplitRootProof is valid.
@@ -184,67 +233,221 @@ func (p *Proof) verifySplitRootProof() error {
 func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 	error) {
 
-	// Gather all P2TR outputs in the on-chain transaction.
-	p2trOutputs := make(map[uint32]struct{})
+	// Gather all P2TR outputs in the on-chain transaction. The STXO proofs
+	// are tracked using a set of serialized keys. We ignore that set when
+	// verifying V0 exclusion proofs.
+	p2trOutputs := make(fn.Set[uint32])
 	for i, txOut := range p.AnchorTx.TxOut {
 		if uint32(i) == p.InclusionProof.OutputIndex {
 			continue
 		}
-		if txscript.IsPayToTaproot(txOut.PkScript) {
-			p2trOutputs[uint32(i)] = struct{}{}
+		if !txscript.IsPayToTaproot(txOut.PkScript) {
+			continue
+		}
+
+		p2trOutputs.Add(uint32(i))
+	}
+
+	// There is nothing to check so return early.
+	if len(p2trOutputs) == 0 {
+		return nil, nil
+	}
+
+	commitVersions := make(CommittedVersions)
+
+	p2trOutputCopy := fn.NewSet(p2trOutputs.ToSlice()...)
+	err := p.verifyV0ExclusionProofs(p2trOutputCopy, commitVersions)
+	if err != nil {
+		return nil, err
+	}
+
+	// Early pass to determine if we're dealing with v0 or v1 proofs.
+	hasV1Proofs := p.IsVersionV1() &&
+		len(p.ExclusionProofs) > 0 &&
+		p.ExclusionProofs[0].CommitmentProof != nil &&
+		len(p.ExclusionProofs[0].CommitmentProof.STXOProofs) > 0
+
+	if hasV1Proofs {
+		p2trOutputCopy = fn.NewSet(p2trOutputs.ToSlice()...)
+		err := p.verifyV1ExclusionProofs(p2trOutputCopy, commitVersions)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	// Verify all of the encoded exclusion proofs.
-	commitVersions := make(map[uint32]commitment.TapCommitmentVersion)
-	for _, exclusionProof := range p.ExclusionProofs {
-		exclusionProof := exclusionProof
+	// If no commitments in proofs, no version to return.
+	if len(commitVersions) == 0 {
+		return nil, nil
+	}
+
+	// All proofs must have similar versions.
+	return verifySTXOVersions(commitVersions)
+}
+
+// verifyV0ExclusionProofs verifies all version 1 exclusion proofs.
+func (p *Proof) verifyV0ExclusionProofs(p2trOutputs fn.Set[uint32],
+	commitVersions CommittedVersions) error {
+
+	// Verify all of the encoded v0 exclusion proofs.
+	for idx := range p.ExclusionProofs {
+		exclusionProof := p.ExclusionProofs[idx]
+
 		derivedCommitment, err := verifyTaprootProof(
 			&p.AnchorTx, &exclusionProof, &p.Asset, false,
 		)
 		if err != nil {
-			return nil, err
+			return fmt.Errorf("error verifying STXO proof: %w", err)
 		}
 
 		outputIdx := exclusionProof.OutputIndex
-		delete(p2trOutputs, outputIdx)
+		delete(p2trOutputs, exclusionProof.OutputIndex)
 
-		// Store the commitment version. If there was no Taproot Asset
-		// commitment present, then there is nothing to store.
+		// Store commitment version if Taproot Asset commitment present.
 		if derivedCommitment != nil {
-			commitVersions[outputIdx] = derivedCommitment.Version
+			commitVersions[outputIdx] = append(
+				commitVersions[outputIdx],
+				derivedCommitment.Version,
+			)
 		}
 	}
 
 	// If any outputs are missing a proof, fail.
 	if len(p2trOutputs) > 0 {
-		return nil, ErrMissingExclusionProofs
+		return ErrMissingExclusionProofs
 	}
 
-	// If there were no commitments in any exclusion proofs, then there is
-	// no version to return.
-	if len(commitVersions) == 0 {
-		return nil, nil
+	return nil
+}
+
+// verifyV1ExclusionProofs verifies all version 2 exclusion proofs.
+func (p *Proof) verifyV1ExclusionProofs(p2trOutputs fn.Set[uint32],
+	commitVersions CommittedVersions) error {
+
+	// Collect the STXOs from the new asset.
+	stxoAssets, err := asset.CollectSTXO(&p.Asset)
+	if err != nil {
+		return fmt.Errorf("error collecting STXO assets: %w", err)
 	}
 
-	// All ExclusionProofs must have similar versions.
-	firstCommitVersion := maps.Values(commitVersions)[0]
-	for outputIdx, commitVersion := range commitVersions {
-		outputCommitVersion := commitVersion
-		if !commitment.IsSimilarTapCommitmentVersion(
-			&firstCommitVersion, &outputCommitVersion,
-		) {
+	// Create a P2TROutputsSTXOs from p2trOutputs and map STXOs by
+	// serialized key.
+	assetMap := make(map[asset.SerializedKey]*asset.Asset)
+	p2trOutputsSTXOs := make(P2TROutputsSTXOs)
+	for outIdx := range p2trOutputs {
+		p2trOutputsSTXOs[outIdx] = make(fn.Set[asset.SerializedKey])
+	}
 
-			log.Tracef("output %d commit version %d, first output "+
-				"commit version %d", outputIdx, commitVersion,
-				firstCommitVersion)
-
-			return nil, fmt.Errorf("mixed anchor commitment " +
-				"versions for exclusion proofs")
+	for idx := range stxoAssets {
+		stxoAsset := stxoAssets[idx].(*asset.Asset)
+		key := asset.ToSerialized(stxoAsset.ScriptKey.PubKey)
+		assetMap[key] = stxoAsset
+		for outIdx := range p2trOutputs {
+			p2trOutputsSTXOs[outIdx].Add(key)
 		}
 	}
 
-	return &firstCommitVersion, nil
+	for idx := range p.ExclusionProofs {
+		exclusionProof := p.ExclusionProofs[idx]
+		if exclusionProof.TapscriptProof != nil &&
+			exclusionProof.TapscriptProof.Bip86 {
+
+			continue
+		}
+
+		_, err := verifySTXOProofSet(
+			&p.AnchorTx, exclusionProof, assetMap, p2trOutputsSTXOs,
+			commitVersions, false,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// verifySTXOProofSet verifies a set of STXO proofs.
+func verifySTXOProofSet(anchorTx *wire.MsgTx, baseProof TaprootProof,
+	assetMap map[asset.SerializedKey]*asset.Asset,
+	p2trOutputs P2TROutputsSTXOs,
+	commitVersions map[uint32][]commitment.TapCommitmentVersion,
+	inclusion bool) (*commitment.TapCommitment, error) {
+
+	var verifiedCommitment *commitment.TapCommitment
+	for key := range baseProof.CommitmentProof.STXOProofs {
+		stxoProof := baseProof.CommitmentProof.STXOProofs[key]
+		stxoAsset := assetMap[key]
+		stxoCombinedProof := MakeSTXOProof(baseProof, &stxoProof)
+
+		var err error
+		verifiedCommitment, err = verifyTaprootProof(
+			anchorTx, &stxoCombinedProof, stxoAsset, inclusion,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error verifying STXO "+
+				"proof: %w", err)
+		}
+
+		outIdx := stxoCombinedProof.OutputIndex
+		delete(p2trOutputs[outIdx], key)
+		if len(p2trOutputs[outIdx]) == 0 {
+			delete(p2trOutputs, outIdx)
+		}
+
+		commitVersions[outIdx] = append(
+			commitVersions[outIdx], verifiedCommitment.Version,
+		)
+	}
+
+	return verifiedCommitment, nil
+}
+
+// MakeSTXOProof creates a new proof for an STXO reusing the base proof while
+// replacing commitmentProof but the stxoProof.
+func MakeSTXOProof(baseProof TaprootProof,
+	stxoProof *commitment.Proof) TaprootProof {
+
+	return TaprootProof{
+		OutputIndex: baseProof.OutputIndex,
+		InternalKey: baseProof.InternalKey,
+		CommitmentProof: &CommitmentProof{
+			Proof: commitment.Proof{
+				TaprootAssetProof: stxoProof.TaprootAssetProof,
+				AssetProof:        stxoProof.AssetProof,
+				UnknownOddTypes:   stxoProof.UnknownOddTypes,
+			},
+			TapSiblingPreimage: baseProof.CommitmentProof.
+				TapSiblingPreimage,
+		},
+		TapscriptProof:  baseProof.TapscriptProof,
+		UnknownOddTypes: baseProof.UnknownOddTypes,
+	}
+}
+
+// verifySTXOVersions verifies all STXO versions match.
+func verifySTXOVersions(versions map[uint32][]commitment.TapCommitmentVersion) (
+	*commitment.TapCommitmentVersion, error) {
+
+	firstVersion := maps.Values(versions)[0][0]
+
+	for outIdx, stxoVersions := range versions {
+		for idx := range stxoVersions {
+			ver := stxoVersions[idx]
+			if !commitment.IsSimilarTapCommitmentVersion(
+				&firstVersion, &ver,
+			) {
+
+				log.Tracef("output %d commit version %d, "+
+					"first version %d",
+					outIdx, ver, firstVersion)
+
+				return nil, fmt.Errorf("mixed anchor " +
+					"commitment versions")
+			}
+		}
+	}
+
+	return &firstVersion, nil
 }
 
 // verifyAssetStateTransition verifies an asset's witnesses resulting from a

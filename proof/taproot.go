@@ -38,6 +38,13 @@ type CommitmentProof struct {
 	// at the tapscript root of the expected output.
 	TapSiblingPreimage *commitment.TapscriptPreimage
 
+	// STXOProofs is a list of proofs that either prove the spend of the
+	// inputs as referenced in the asset's previous witnesses' prevIDs when
+	// this is in an inclusion proof, or the non-spend of an input if this
+	// is in an exclusion proof. Only the root assets in a transfer (so no
+	// minted or split assets) will have STXO inclusion or exclusion proofs.
+	STXOProofs map[asset.SerializedKey]commitment.Proof
+
 	// UnknownOddTypes is a map of unknown odd types that were encountered
 	// during decoding. This map is used to preserve unknown types that we
 	// don't know of yet, so we can still encode them back when serializing.
@@ -57,6 +64,11 @@ func (p CommitmentProof) EncodeRecords() []tlv.Record {
 			),
 		)
 	}
+	if len(p.STXOProofs) > 0 {
+		records = append(records, CommitmentProofSTXOProofsRecord(
+			&p.STXOProofs,
+		))
+	}
 
 	// Add any unknown odd types that were encountered during decoding.
 	return asset.CombineRecords(records, p.UnknownOddTypes)
@@ -65,9 +77,13 @@ func (p CommitmentProof) EncodeRecords() []tlv.Record {
 // DecodeRecords returns the decoding records for the CommitmentProof.
 func (p *CommitmentProof) DecodeRecords() []tlv.Record {
 	records := p.Proof.DecodeRecords()
-	return append(
+	records = append(
 		records,
 		CommitmentProofTapSiblingPreimageRecord(&p.TapSiblingPreimage),
+	)
+	return append(
+		records,
+		CommitmentProofSTXOProofsRecord(&p.STXOProofs),
 	)
 }
 
