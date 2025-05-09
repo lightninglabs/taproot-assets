@@ -226,7 +226,7 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 		}
 
 		if !rfqmsg.HasAssetHTLCCustomRecords(r.WireCustomRecords) {
-			if isAssetInvoice(r.Invoice, m) {
+			if IsAssetInvoice(r.Invoice, m) {
 				if !res.CancelSet {
 					m.t.Errorf("expected cancel set flag")
 				}
@@ -236,7 +236,7 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 			if r.ExitHtlcAmt != res.AmtPaid {
 				m.t.Errorf("AmtPaid != ExitHtlcAmt")
 			}
-		} else if !isAssetInvoice(r.Invoice, m) {
+		} else if !IsAssetInvoice(r.Invoice, m) {
 			if !res.CancelSet {
 				m.t.Errorf("expected cancel set flag")
 			}

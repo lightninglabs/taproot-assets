@@ -190,7 +190,7 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		// accepting sats instead of assets.
 		//
 		// TODO(george): Strict-forwarding could be configurable?
-		if isAssetInvoice(req.Invoice, s) {
+		if IsAssetInvoice(req.Invoice, s) {
 			iLog.Debugf("has no asset custom records, but " +
 				"invoice requires assets, canceling HTLCs")
 
@@ -202,7 +202,7 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		return resp, nil
 
 	// We have custom records, but the invoice is not an asset invoice.
-	case !isAssetInvoice(req.Invoice, s) && !req.Invoice.IsKeysend:
+	case !IsAssetInvoice(req.Invoice, s) && !req.Invoice.IsKeysend:
 		// If we do have custom records, but the invoice does not
 		// correspond to an asset invoice, we do not settle the invoice.
 		// Since we requested btc we should be receiving btc.
@@ -386,11 +386,11 @@ func (s *AuxInvoiceManager) RfqPeerFromScid(scid uint64) (route.Vertex, error) {
 	return buyQuote.Peer, nil
 }
 
-// isAssetInvoice checks whether the provided invoice is an asset invoice. This
+// IsAssetInvoice checks whether the provided invoice is an asset invoice. This
 // method checks whether the routing hints of the invoice match those created
 // when generating an asset invoice, and if that's the case we then check that
 // the scid matches an existing quote.
-func isAssetInvoice(invoice *lnrpc.Invoice, rfqLookup RfqLookup) bool {
+func IsAssetInvoice(invoice *lnrpc.Invoice, rfqLookup RfqLookup) bool {
 	hints := invoice.RouteHints
 
 	for _, hint := range hints {
