@@ -245,7 +245,7 @@ func testMintMultiAssetGroupErrors(t *harnessTest) {
 
 	groupedAsset.Asset.GroupAnchor = validAnchorName
 	_, err = t.tapd.MintAsset(ctxb, groupedAsset)
-	require.ErrorContains(t.t, err, "has emission disabled")
+	require.ErrorContains(t.t, err, "isn't starting a new group")
 
 	// Finally, we'll modify the assets to make the multi-asset group valid.
 	validAnchor.Asset.NewGroupedAsset = true

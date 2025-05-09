@@ -183,10 +183,41 @@ func (c Seedling) validateFields() error {
 func (c Seedling) validateGroupKey(group asset.AssetGroup,
 	anchorMeta *proof.MetaReveal) error {
 
-	// We must be able to sign with the group key.
-	if !group.GroupKey.IsLocal() {
+	// If an external key isn't specified but the actual group key used
+	// isn't local to this daemon, we won't be able to sign with it.
+	if c.ExternalKey.IsNone() && !group.GroupKey.IsLocal() {
 		groupKeyBytes := c.GroupInfo.GroupPubKey.SerializeCompressed()
 		return fmt.Errorf("can't sign with group key %x", groupKeyBytes)
+	}
+
+	// If there is an external key defined, we need to check that it matches
+	// the group key.
+	err := fn.MapOptionZ(
+		c.ExternalKey, func(extKey asset.ExternalKey) error {
+			if group.GroupKey == nil {
+				return fmt.Errorf("group key is nil")
+			}
+
+			if group.GroupKey.RawKey.PubKey == nil {
+				return fmt.Errorf("group raw key is nil")
+			}
+
+			pk, err := extKey.PubKey()
+			if err != nil {
+				return fmt.Errorf("error getting external "+
+					"key: %w", err)
+			}
+
+			if !pk.IsEqual(group.RawKey.PubKey) {
+				return fmt.Errorf("external key does not " +
+					"match group key")
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("error validating external key: %w", err)
 	}
 
 	// The seedling asset type must match the group asset type.

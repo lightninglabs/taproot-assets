@@ -149,7 +149,7 @@ func (m *MintingBatch) validateGroupAnchor(s *Seedling) error {
 			s.GroupAnchor)
 	}
 	if !anchor.EnableEmission {
-		return fmt.Errorf("group anchor %v has emission disabled",
+		return fmt.Errorf("group anchor %v isn't starting a new group",
 			*s.GroupAnchor)
 	}
 
@@ -414,9 +414,9 @@ func (m *MintingBatch) validateUniCommitment(newSeedling Seedling) error {
 		// seedling has the universe commitment flag enabled, it must
 		// specify a re-issuable asset group key.
 		if !newSeedling.EnableEmission {
-			return fmt.Errorf("the emission flag must be enabled " +
-				"for the first asset in a batch with the " +
-				"universe commitment flag enabled")
+			return fmt.Errorf("the 'new grouped asset' flag must " +
+				"be enabled for the first asset in a batch " +
+				"with the universe commitment flag enabled")
 		}
 
 		if !newSeedling.HasGroupKey() {

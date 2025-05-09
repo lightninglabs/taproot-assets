@@ -329,7 +329,9 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 	reissueRequest.Asset.NewGroupedAsset = true
 	reissueRequest.Asset.GroupedAsset = false
 	_, err = t.tapd.MintAsset(ctxb, reissueRequest)
-	require.ErrorContains(t.t, err, "must disable emission to specify")
+	require.ErrorContains(
+		t.t, err, "must not create new grouped asset to specify",
+	)
 
 	// Restore the correct flags for a new grouped asset.
 	reissueRequest.Asset.NewGroupedAsset = false

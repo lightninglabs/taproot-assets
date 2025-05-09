@@ -443,19 +443,19 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	// Using a specific group key or anchor implies disabling emission.
 	case req.Asset.NewGroupedAsset:
 		if specificGroupKey || specificGroupAnchor {
-			return nil, fmt.Errorf("must disable emission to " +
-				"specify a group")
+			return nil, fmt.Errorf("must not create new grouped " +
+				"asset to specify an existing group")
 		}
 
 	// A group tapscript root cannot be specified if emission is disabled.
 	case !req.Asset.NewGroupedAsset && groupTapscriptRootSize != 0:
 		return nil, fmt.Errorf("cannot specify a group tapscript root" +
-			"with emission disabled")
+			"when not creating a new grouped asset")
 
 	// A group internal key cannot be specified if emission is disabled.
 	case !req.Asset.NewGroupedAsset && specificGroupInternalKey:
 		return nil, fmt.Errorf("cannot specify a group internal key" +
-			"with emission disabled")
+			"when not creating a new grouped asset")
 
 	// If the asset is intended to be part of an existing group, a group key
 	// or anchor must be specified, but not both. Neither a group tapscript
@@ -473,12 +473,14 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 
 		if groupTapscriptRootSize != 0 {
 			return nil, fmt.Errorf("cannot specify a group " +
-				"tapscript root with emission disabled")
+				"tapscript root when not creating a new " +
+				"grouped asset")
 		}
 
 		if specificGroupInternalKey {
 			return nil, fmt.Errorf("cannot specify a group " +
-				"internal key with emission disabled")
+				"internal key when not creating a new " +
+				"grouped asset")
 		}
 
 	// A group was specified without GroupedAsset being set.
@@ -608,8 +610,9 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 
 	rpcsLog.Infof("[MintAsset]: version=%v, type=%v, name=%v, amt=%v, "+
-		"enable_emission=%v", seedling.AssetVersion, seedling.AssetType,
-		seedling.AssetName, seedling.Amount, seedling.EnableEmission)
+		"new_grouped_asset=%v", seedling.AssetVersion,
+		seedling.AssetType, seedling.AssetName, seedling.Amount,
+		seedling.EnableEmission)
 
 	if scriptKey != nil {
 		seedling.ScriptKey = *scriptKey
