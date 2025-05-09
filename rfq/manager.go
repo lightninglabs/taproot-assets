@@ -1044,12 +1044,12 @@ func (m *Manager) ChannelCompatible(ctx context.Context,
 			return false, err
 		}
 
-		if !match {
-			return false, err
+		if match {
+			return true, err
 		}
 	}
 
-	return true, nil
+	return false, nil
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.

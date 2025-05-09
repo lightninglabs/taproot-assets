@@ -417,7 +417,7 @@ type pendingAssetFunding struct {
 
 	inputProofs []*proof.Proof
 
-	feeRate chainfee.SatPerVByte
+	feeRate chainfee.SatPerKWeight
 
 	lockedInputs []wire.OutPoint
 
@@ -1280,7 +1280,7 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	// This'll add yet another output (lnd's change output) to the
 	// template.
 	finalFundedPsbt, err := f.fundPsbt(
-		ctx, fundingPsbt, fundingState.feeRate.FeePerKWeight(),
+		ctx, fundingPsbt, fundingState.feeRate,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fund PSBT: %w", err)
@@ -1619,7 +1619,15 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 		return fmt.Errorf("unable to establish min_relay_fee: %w",
 			err)
 	}
-	if fundReq.FeeRate.FeePerKWeight() < minRelayFee {
+
+	// If the user specifies 1 sat/vByte, that result in 253 sat/kw, which
+	// is exactly 3 sat/kw lower than the default min relay fee. So we need
+	// to make sure we don't allow that.
+	feeRate := fundReq.FeeRate.FeePerKWeight()
+	if feeRate == chainfee.AbsoluteFeePerKwFloor {
+		feeRate = chainfee.FeePerKwFloor
+	}
+	if feeRate < minRelayFee {
 		return fmt.Errorf("fee rate %v too low, min_relay_fee: %v",
 			fundReq.FeeRate.FeePerKWeight(), minRelayFee)
 	}
@@ -1638,7 +1646,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 		initiator:              true,
 		amt:                    fundReq.AssetAmount,
 		pushAmt:                fundReq.PushAmount,
-		feeRate:                fundReq.FeeRate,
+		feeRate:                feeRate,
 		fundingAckChan:         make(chan bool, 1),
 		fundingFinalizedSignal: make(chan struct{}),
 	}

@@ -823,8 +823,8 @@ func (m *MockAssetSyncer) FetchAsset(id asset.ID) (*asset.AssetGroup, error) {
 	}
 }
 
-func (m *MockAssetSyncer) SyncAssetInfo(_ context.Context,
-	id *asset.ID) error {
+func (m *MockAssetSyncer) SyncAssetInfo(_ context.Context, id *asset.ID,
+	_ *btcec.PublicKey) error {
 
 	if id == nil {
 		return fmt.Errorf("no asset ID provided")
