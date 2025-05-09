@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -1070,4 +1071,66 @@ func MockCourierURL(t *testing.T, protocol, addr string) *url.URL {
 	require.NoError(t, err)
 
 	return proofCourierAddr
+}
+
+// MockTxProof creates a mock TxProof for testing purposes. It uses the
+// given testdata file to create a TxProof with the given transaction index
+// and output index. The testdata file should contain a serialized block
+// with the transactions to be used for the proof.
+func MockTxProof(t testing.TB, blockTestDataFileName string, txIndex int,
+	outputIndex uint32) *TxProof {
+
+	oddTxBlockHex, err := os.ReadFile(blockTestDataFileName)
+	require.NoError(t, err)
+
+	var oddTxBlock wire.MsgBlock
+	err = oddTxBlock.Deserialize(
+		hex.NewDecoder(bytes.NewReader(oddTxBlockHex)),
+	)
+	require.NoError(t, err)
+
+	txMerkleProof, err := NewTxMerkleProof(oddTxBlock.Transactions, txIndex)
+	require.NoError(t, err)
+
+	tx := oddTxBlock.Transactions[txIndex]
+	return &TxProof{
+		MsgTx:       *tx,
+		BlockHeader: oddTxBlock.Header,
+		MerkleProof: *txMerkleProof,
+		ClaimedOutPoint: wire.OutPoint{
+			Hash:  tx.TxHash(),
+			Index: outputIndex,
+		},
+	}
+}
+
+type MockTxStore struct {
+	proofs map[wire.OutPoint]struct{}
+	mu     sync.RWMutex
+}
+
+func NewMockTxProofStore() *MockTxStore {
+	return &MockTxStore{
+		proofs: make(map[wire.OutPoint]struct{}),
+	}
+}
+
+func (s *MockTxStore) HaveProof(outpoint wire.OutPoint) (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	_, exists := s.proofs[outpoint]
+	return exists, nil
+}
+
+func (s *MockTxStore) StoreProof(outpoint wire.OutPoint) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.proofs[outpoint]; exists {
+		return ErrTxMerkleProofExists
+	}
+
+	s.proofs[outpoint] = struct{}{}
+	return nil
 }

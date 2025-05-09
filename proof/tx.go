@@ -11,6 +11,20 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+var (
+	// ErrTxMerkleProofExists is an error returned when a transaction
+	// merkle proof already exists in the store.
+	ErrTxMerkleProofExists = errors.New("tx merkle proof already exists")
+
+	// ErrHashMismatch is returned when the hash of the outpoint does not
+	// match the hash of the transaction.
+	ErrHashMismatch = errors.New("outpoint hash does not match tx hash")
+
+	// ErrOutputIndexInvalid is returned when the output index of the
+	// outpoint is invalid for the transaction.
+	ErrOutputIndexInvalid = errors.New("output index is invalid for tx")
+)
+
 // TxMerkleProof represents a simplified version of BIP-0037 transaction merkle
 // proofs for a single transaction.
 type TxMerkleProof struct {
@@ -166,4 +180,66 @@ func (p *TxMerkleProof) Decode(r io.Reader) error {
 	p.Bits = bits[:len(p.Nodes)]
 
 	return nil
+}
+
+// TxProof is a struct that contains all the necessary elements to prove the
+// existence of a certain outpoint in a block.
+type TxProof struct {
+	// MsgTx is the transaction that contains the outpoint.
+	MsgTx wire.MsgTx
+
+	// BlockHeader is the header of the block that contains the transaction.
+	BlockHeader wire.BlockHeader
+
+	// BlockHeight is the height at which the block was mined.
+	BlockHeight uint32
+
+	// MerkleProof is the proof that the transaction is included in the
+	// block and its merkle root.
+	MerkleProof TxMerkleProof
+
+	// ClaimedOutPoint is the outpoint that is being proved to exist in the
+	// transaction.
+	ClaimedOutPoint wire.OutPoint
+}
+
+// Verify validates the Bitcoin Merkle Inclusion Proof.
+func (p *TxProof) Verify(headerVerifier HeaderVerifier,
+	merkleVerifier MerkleVerifier) error {
+
+	txHash := p.MsgTx.TxHash()
+
+	if p.ClaimedOutPoint.Hash != txHash {
+		return ErrHashMismatch
+	}
+
+	if p.ClaimedOutPoint.Index >= uint32(len(p.MsgTx.TxOut)) {
+		return ErrOutputIndexInvalid
+	}
+
+	err := merkleVerifier(
+		&p.MsgTx, &p.MerkleProof, p.BlockHeader.MerkleRoot,
+	)
+	if err != nil {
+		return err
+	}
+
+	err = headerVerifier(p.BlockHeader, p.BlockHeight)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// TxProofStore is an interface that defines the methods for storing and
+// retrieving transaction proofs.
+type TxProofStore interface {
+	// HaveProof returns true if the proof for the given outpoint exists in
+	// the store.
+	HaveProof(wire.OutPoint) (bool, error)
+
+	// StoreProof stores the given transaction proof in the store. If the
+	// proof already exists, it returns ErrTxMerkleProofExists.
+	StoreProof(wire.OutPoint) error
 }
