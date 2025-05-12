@@ -374,7 +374,7 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 
 	btcPacket = signPacket(t.t, aliceLnd, btcPacket)
 	btcPacket = FinalizePacket(t.t, aliceLnd.RPC, btcPacket)
-	sendResp = LogAndPublish(
+	sendResp = PublishAndLogTransfer(
 		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets,
 		commitResp,
 	)

@@ -1124,7 +1124,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 
 	commitPacket = signPacket(t.t, senderLnd, commitPacket)
 	commitPacket = FinalizePacket(t.t, senderLnd.RPC, commitPacket)
-	publishResp := LogAndPublish(
+	publishResp := PublishAndLogTransfer(
 		t.t, sender, commitPacket, []*tappsbt.VPacket{activePacket},
 		[]*tappsbt.VPacket{passivePacket}, commitResp,
 	)
@@ -2438,7 +2438,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	signedPkt := finalizePacket(t.t, lndBob, finalPsbt)
 	require.True(t.t, signedPkt.IsComplete())
 
-	logResp := LogAndPublish(
+	logResp := PublishAndLogTransfer(
 		t.t, alice, signedPkt, []*tappsbt.VPacket{bobVPsbt}, nil, resp,
 	)
 	t.Logf("Logged transaction: %v", toJSON(t.t, logResp))
@@ -2611,7 +2611,7 @@ func testPsbtExternalCommit(t *harnessTest) {
 
 	btcPacket = signPacket(t.t, aliceLnd, btcPacket)
 	btcPacket = FinalizePacket(t.t, aliceLnd.RPC, btcPacket)
-	sendResp := LogAndPublish(
+	sendResp := PublishAndLogTransfer(
 		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets,
 		commitResp,
 	)
@@ -3273,7 +3273,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 		Cancel:            streamCancel,
 	}
 
-	LogAndPublish(t.t, bob, btcPacket, vPackets, nil, commitResp)
+	PublishAndLogTransfer(t.t, bob, btcPacket, vPackets, nil, commitResp)
 
 	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 
