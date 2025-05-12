@@ -307,10 +307,13 @@ func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 	// are no STXO proofs present (because they're not needed for this type
 	// of asset).
 	if !p.IsVersionV1() || !hasStxoProofs {
-		err := p.verifyV1ExclusionProofs(maps.Clone(p2trOutputs))
-		if err != nil {
-			return nil, err
-		}
+		return verifySTXOVersions(commitVersions)
+	}
+
+	// We know we need to check for v1 proofs, so we do that now.
+	err = p.verifyV1ExclusionProofs(maps.Clone(p2trOutputs))
+	if err != nil {
+		return nil, err
 	}
 
 	// All proofs must have similar versions.
