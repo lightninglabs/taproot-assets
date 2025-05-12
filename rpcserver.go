@@ -7817,6 +7817,13 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		if err != nil {
 			return err
 		}
+
+		// If the payment failed, return an error and stop listening
+		// for updates immediately.
+		if update.Status == lnrpc.Payment_FAILED {
+			return fmt.Errorf("payment failed: %s",
+				update.FailureReason.String())
+		}
 	}
 }
 
