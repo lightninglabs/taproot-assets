@@ -505,6 +505,11 @@ type sendPackage struct {
 	// testing purposes or to force transfer attempts even if the
 	// proof courier is not immediately reachable.
 	SkipProofCourierPingCheck bool
+
+	// SkipAnchorTxBroadcast indicates whether the anchor transaction
+	// broadcast should be skipped. Useful when an external system handles
+	// broadcasting, such as in custom transaction packaging workflows.
+	SkipAnchorTxBroadcast bool
 }
 
 // ConvertToTransfer prepares the finished send data for storing to the database
@@ -520,8 +525,8 @@ type sendPackage struct {
 // they were already committed at.
 func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 	anchorTx *tapsend.AnchorTransaction, passiveAssets []*tappsbt.VPacket,
-	isLocalKey func(asset.ScriptKey) bool, label string) (*OutboundParcel,
-	error) {
+	isLocalKey func(asset.ScriptKey) bool, label string,
+	skipAnchorTxBroadcast bool) (*OutboundParcel, error) {
 
 	var passiveAssetAnchor *Anchor
 	if len(passiveAssets) > 0 {
@@ -556,9 +561,10 @@ func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 			// assuming most transfers have around two outputs.
 			[]TransferOutput, 0, len(activeTransfers)*2,
 		),
-		PassiveAssets:       passiveAssets,
-		PassiveAssetsAnchor: passiveAssetAnchor,
-		Label:               label,
+		PassiveAssets:         passiveAssets,
+		PassiveAssetsAnchor:   passiveAssetAnchor,
+		Label:                 label,
+		SkipAnchorTxBroadcast: skipAnchorTxBroadcast,
 	}
 
 	allPackets := append(activeTransfers, passiveAssets...)

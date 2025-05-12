@@ -1467,6 +1467,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			currentHeight, currentPkg.VirtualPackets,
 			currentPkg.AnchorTx, currentPkg.PassiveAssets,
 			isLocalKey, currentPkg.Label,
+			currentPkg.SkipAnchorTxBroadcast,
 		)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
