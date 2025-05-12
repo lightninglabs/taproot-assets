@@ -116,11 +116,12 @@ type AssetSeedling struct {
 }
 
 type AssetTransfer struct {
-	ID               int64
-	HeightHint       int32
-	AnchorTxnID      int64
-	TransferTimeUnix time.Time
-	Label            sql.NullString
+	ID                    int64
+	HeightHint            int32
+	AnchorTxnID           int64
+	TransferTimeUnix      time.Time
+	Label                 sql.NullString
+	SkipAnchorTxBroadcast bool
 }
 
 type AssetTransferInput struct {

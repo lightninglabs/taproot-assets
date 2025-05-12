@@ -5,9 +5,11 @@ WITH target_txn(txn_id) AS (
     WHERE txid = @anchor_txid
 )
 INSERT INTO asset_transfers (
-    height_hint, anchor_txn_id, transfer_time_unix, label
+    height_hint, anchor_txn_id, transfer_time_unix, label,
+    skip_anchor_tx_broadcast
 ) VALUES (
-    @height_hint, (SELECT txn_id FROM target_txn), @transfer_time_unix, @label
+    @height_hint, (SELECT txn_id FROM target_txn), @transfer_time_unix, @label,
+    @skip_anchor_tx_broadcast
 ) RETURNING id;
 
 -- name: InsertAssetTransferInput :exec
@@ -44,7 +46,8 @@ WHERE output_id = (SELECT output_id FROM target);
 -- name: QueryAssetTransfers :many
 SELECT
     id, height_hint, txns.txid, txns.block_hash AS anchor_tx_block_hash,
-    transfer_time_unix, transfers.label
+    transfer_time_unix, transfers.label,
+    transfers.skip_anchor_tx_broadcast
 FROM asset_transfers transfers
 JOIN chain_txns txns
     ON txns.txn_id = transfers.anchor_txn_id
