@@ -1497,6 +1497,16 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"disk: %w", err)
 		}
 
+		// If skip flag is set—bypass anchor broadcast and advance to
+		// the confirmation wait state.
+		if currentPkg.OutboundPkg.SkipAnchorTxBroadcast {
+			log.Info("Skip anchor broadcast flag set; " +
+				"transitioning to WaitTxConf state")
+			currentPkg.SendState = SendStateWaitTxConf
+
+			return &currentPkg, nil
+		}
+
 		// We've logged the state transition to disk, so now we can
 		// move onto the broadcast phase.
 		currentPkg.SendState = SendStateBroadcast
