@@ -334,7 +334,7 @@ func MultiSigTest(t *testing.T, ctx context.Context, aliceTapd,
 	// transaction.
 	signedPkt := FinalizePacket(t, bobLnd, btcWithdrawPkt)
 
-	logResp := LogAndPublish(
+	logResp := ExecPreAnchoredTransfer(
 		t, bobTapd, signedPkt, finalizedWithdrawPackets, nil,
 		commitResp,
 	)
@@ -490,10 +490,12 @@ func FinalizePacket(t *testing.T, lnd *rpc.HarnessRPC,
 	return signedPacket
 }
 
-func LogAndPublish(t *testing.T, tapd commands.RpcClientsBundle,
+func ExecPreAnchoredTransfer(t *testing.T, tapd commands.RpcClientsBundle,
 	btcPkt *psbt.Packet, activeAssets []*tappsbt.VPacket,
 	passiveAssets []*tappsbt.VPacket,
 	commitResp *wrpc.CommitVirtualPsbtsResponse) *taprpc.SendAssetResponse {
+
+	t.Helper()
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
