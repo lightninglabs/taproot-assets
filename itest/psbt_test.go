@@ -2438,7 +2438,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	signedPkt := finalizePacket(t.t, lndBob, finalPsbt)
 	require.True(t.t, signedPkt.IsComplete())
 
-	logResp := logAndPublish(
+	logResp := LogAndPublish(
 		t.t, alice, signedPkt, []*tappsbt.VPacket{bobVPsbt}, nil, resp,
 	)
 	t.Logf("Logged transaction: %v", toJSON(t.t, logResp))
@@ -3422,45 +3422,6 @@ func finalizePacket(t *testing.T, lnd *node.HarnessNode,
 	require.NoError(t, err)
 
 	return signedPacket
-}
-
-func logAndPublish(t *testing.T, tapd *tapdHarness, btcPkt *psbt.Packet,
-	activeAssets []*tappsbt.VPacket, passiveAssets []*tappsbt.VPacket,
-	commitResp *wrpc.CommitVirtualPsbtsResponse) *taprpc.SendAssetResponse {
-
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
-	var buf bytes.Buffer
-	err := btcPkt.Serialize(&buf)
-	require.NoError(t, err)
-
-	request := &wrpc.PublishAndLogRequest{
-		AnchorPsbt:        buf.Bytes(),
-		VirtualPsbts:      make([][]byte, len(activeAssets)),
-		PassiveAssetPsbts: make([][]byte, len(passiveAssets)),
-		ChangeOutputIndex: commitResp.ChangeOutputIndex,
-		LndLockedUtxos:    commitResp.LndLockedUtxos,
-	}
-
-	for idx := range activeAssets {
-		request.VirtualPsbts[idx], err = tappsbt.Encode(
-			activeAssets[idx],
-		)
-		require.NoError(t, err)
-	}
-	for idx := range passiveAssets {
-		request.PassiveAssetPsbts[idx], err = tappsbt.Encode(
-			passiveAssets[idx],
-		)
-		require.NoError(t, err)
-	}
-
-	resp, err := tapd.PublishAndLogTransfer(ctxt, request)
-	require.NoError(t, err)
-
-	return resp
 }
 
 // getAddressBip32Derivation returns the PSBT BIP-0032 derivation info of an
