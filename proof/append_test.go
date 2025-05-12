@@ -382,11 +382,33 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		split1Asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
+
+	// For the transfer root we also need to the stxo exclusion proofs.
+	_, stxo1In2exclusionProof, err := tap2Commitment.Proof(
+		stxoAsset1.TapCommitmentKey(),
+		stxoAsset1.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	stxoID := asset.ToSerialized(stxoAsset1.ScriptKey.PubKey)
+	stxo1In2Proofs := make(map[asset.SerializedKey]commitment.Proof, 1)
+	stxo1In2Proofs[stxoID] = *stxo1In2exclusionProof
+
 	_, split1In3ExclusionProof, err := tap3Commitment.Proof(
 		split1Asset.TapCommitmentKey(),
 		split1Asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
+
+	// For the transfer root we also need to the stxo exclusion proofs.
+	_, stxo1In3exclusionProof, err := tap3Commitment.Proof(
+		stxoAsset1.TapCommitmentKey(),
+		stxoAsset1.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	stxo1In3Proofs := make(map[asset.SerializedKey]commitment.Proof, 1)
+	stxo1In3Proofs[stxoID] = *stxo1In3exclusionProof
 
 	_, split2In1ExclusionProof, err := tap1Commitment.Proof(
 		split2Asset.TapCommitmentKey(),
@@ -427,13 +449,15 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 				OutputIndex: 1,
 				InternalKey: internalKey2,
 				CommitmentProof: &CommitmentProof{
-					Proof: *split1In2ExclusionProof,
+					Proof:      *split1In2ExclusionProof,
+					STXOProofs: stxo1In2Proofs,
 				},
 			}, {
 				OutputIndex: 2,
 				InternalKey: internalKey3,
 				CommitmentProof: &CommitmentProof{
-					Proof: *split1In3ExclusionProof,
+					Proof:      *split1In3ExclusionProof,
+					STXOProofs: stxo1In3Proofs,
 				},
 			}},
 		},
