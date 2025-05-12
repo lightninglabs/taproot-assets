@@ -1558,10 +1558,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"transaction %v: %w", txHash, err)
 		}
 
-		// With the transaction broadcast, we'll deliver a
-		// notification via the transaction broadcast response channel.
-		currentPkg.deliverTxBroadcastResp()
-
 		// Set send state to the next state to evaluate.
 		currentPkg.SendState = SendStateWaitTxConf
 		return &currentPkg, nil
@@ -1569,6 +1565,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// At this point, transaction broadcast is complete. We go on to wait
 	// for the transfer transaction to confirm on-chain.
 	case SendStateWaitTxConf:
+		// The state machine now transitions to waiting for the transfer
+		// transaction to be confirmed on-chain. Before entering this
+		// state, we return the outbound package response to unblock the
+		// caller's send request.
+		currentPkg.deliverOutboundPkgResp()
+
 		err := p.waitForTransferTxConf(&currentPkg)
 		return &currentPkg, err
 
