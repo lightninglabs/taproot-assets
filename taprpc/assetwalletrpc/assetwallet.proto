@@ -393,6 +393,20 @@ message PublishAndLogRequest {
     inputs that were already present in the PSBT are not locked.
     */
     repeated taprpc.OutPoint lnd_locked_utxos = 5;
+
+    /*
+    If set, the anchor transaction will not be broadcast to the network. This
+    is useful when an external system handles broadcasting, such as in custom
+    transaction packaging workflows.
+    */
+    bool skip_anchor_tx_broadcast = 6;
+
+    /*
+    An optional short label for the transfer. This label can be used to track
+    the progress of the transfer via the logs or an event subscription.
+    Multiple transfers can share the same label.
+    */
+    string label = 7;
 }
 
 message NextInternalKeyRequest {
