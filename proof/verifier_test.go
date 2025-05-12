@@ -399,9 +399,8 @@ func TestVerifyV1InclusionProof(t *testing.T) {
 			)
 			p.Version = TransitionV1
 
-			// We add the first STXO asset to the root commitment.
-			// The second one is missing, so the proof should be
-			// invalid.
+			// We add the both STXO assets to the root commitment.
+			// So the proof should be valid.
 			_, _ = addV1InclusionProof(
 				t, p, rootCommitment, withAddStxoProof(),
 				withAddAdditionalStxoProofs(),
