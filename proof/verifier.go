@@ -320,7 +320,7 @@ func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 	return verifySTXOVersions(commitVersions)
 }
 
-// verifyV0ExclusionProofs verifies all version 1 exclusion proofs.
+// verifyV0ExclusionProofs verifies all version 0 exclusion proofs.
 func (p *Proof) verifyV0ExclusionProofs(
 	p2trOutputs fn.Set[uint32]) (CommittedVersions, error) {
 
@@ -360,7 +360,7 @@ func (p *Proof) verifyV0ExclusionProofs(
 	return commitVersions, nil
 }
 
-// verifyV1ExclusionProofs verifies all version 2 exclusion proofs.
+// verifyV1ExclusionProofs verifies all version 1 exclusion proofs.
 func (p *Proof) verifyV1ExclusionProofs(p2trOutputs fn.Set[uint32]) error {
 	// Collect the STXOs from the new asset.
 	stxoAssets, err := asset.CollectSTXO(&p.Asset)
