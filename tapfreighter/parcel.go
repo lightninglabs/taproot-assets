@@ -379,6 +379,15 @@ type PreAnchoredParcel struct {
 	passiveAssets []*tappsbt.VPacket
 
 	anchorTx *tapsend.AnchorTransaction
+
+	// skipAnchorTxBroadcast bool is a flag that indicates whether the
+	// anchor transaction broadcast should be skipped. This is useful when
+	// an external system handles broadcasting, such as in custom
+	// transaction packaging workflows.
+	skipAnchorTxBroadcast bool
+
+	// label is an optional user provided transfer label.
+	label string
 }
 
 // A compile-time assertion to ensure PreAnchoredParcel implements the Parcel
@@ -387,17 +396,19 @@ var _ Parcel = (*PreAnchoredParcel)(nil)
 
 // NewPreAnchoredParcel creates a new PreAnchoredParcel.
 func NewPreAnchoredParcel(vPackets []*tappsbt.VPacket,
-	passiveAssets []*tappsbt.VPacket,
-	anchorTx *tapsend.AnchorTransaction) *PreAnchoredParcel {
+	passiveAssets []*tappsbt.VPacket, anchorTx *tapsend.AnchorTransaction,
+	skipAnchorTxBroadcast bool, label string) *PreAnchoredParcel {
 
 	return &PreAnchoredParcel{
 		parcelKit: &parcelKit{
 			respChan: make(chan *OutboundParcel, 1),
 			errChan:  make(chan error, 1),
 		},
-		virtualPackets: vPackets,
-		passiveAssets:  passiveAssets,
-		anchorTx:       anchorTx,
+		virtualPackets:        vPackets,
+		passiveAssets:         passiveAssets,
+		anchorTx:              anchorTx,
+		skipAnchorTxBroadcast: skipAnchorTxBroadcast,
+		label:                 label,
 	}
 }
 
@@ -409,11 +420,13 @@ func (p *PreAnchoredParcel) pkg() *sendPackage {
 	// Initialize a package the signed virtual transaction and input
 	// commitment.
 	return &sendPackage{
-		Parcel:         p,
-		SendState:      SendStateStorePreBroadcast,
-		VirtualPackets: p.virtualPackets,
-		PassiveAssets:  p.passiveAssets,
-		AnchorTx:       p.anchorTx,
+		Parcel:                p,
+		SendState:             SendStateStorePreBroadcast,
+		VirtualPackets:        p.virtualPackets,
+		PassiveAssets:         p.passiveAssets,
+		AnchorTx:              p.anchorTx,
+		Label:                 p.label,
+		SkipAnchorTxBroadcast: p.skipAnchorTxBroadcast,
 	}
 }
 
