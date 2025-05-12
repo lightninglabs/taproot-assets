@@ -505,6 +505,11 @@ func (p *Proof) IsUnknownVersion() bool {
 	}
 }
 
+// IsVersionV0 returns true if the proof is of version V0.
+func (p *Proof) IsVersionV0() bool {
+	return p.Version == TransitionV0
+}
+
 // IsVersionV1 returns true if the proof is of version V1.
 func (p *Proof) IsVersionV1() bool {
 	return p.Version == TransitionV1
