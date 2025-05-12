@@ -4252,6 +4252,7 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 		VirtualPackets:        make([][]byte, len(e.VirtualPackets)),
 		PassiveVirtualPackets: make([][]byte, len(e.PassivePackets)),
 		TransferLabel:         e.TransferLabel,
+		NextSendState:         e.NextSendState.String(),
 	}
 
 	if e.Error != nil {

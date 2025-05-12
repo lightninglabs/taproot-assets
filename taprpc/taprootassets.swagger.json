@@ -2527,6 +2527,10 @@
         "transfer_label": {
           "type": "string",
           "description": "The label of the transfer."
+        },
+        "next_send_state": {
+          "type": "string",
+          "description": "The next send state that will be executed."
         }
       }
     },
