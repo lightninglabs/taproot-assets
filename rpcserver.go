@@ -3709,6 +3709,19 @@ func marshalOutboundParcel(
 		}
 	})
 
+	// Serialize the anchor transaction if it exists.
+	var anchorTxBytes []byte
+	if parcel.AnchorTx != nil {
+		var b bytes.Buffer
+		err := parcel.AnchorTx.Serialize(&b)
+		if err != nil {
+			return nil, fmt.Errorf("unable to serialize anchor "+
+				"tx: %w", err)
+		}
+
+		anchorTxBytes = b.Bytes()
+	}
+
 	return &taprpc.AssetTransfer{
 		TransferTimestamp:   parcel.TransferTime.Unix(),
 		AnchorTxHash:        anchorTxHash[:],
@@ -3719,6 +3732,7 @@ func marshalOutboundParcel(
 		Inputs:              rpcInputs,
 		Outputs:             rpcOutputs,
 		Label:               parcel.Label,
+		AnchorTx:            anchorTxBytes,
 	}, nil
 }
 
