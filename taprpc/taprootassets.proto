@@ -1630,6 +1630,9 @@ message SendEvent {
 
     // The label of the transfer.
     string transfer_label = 10;
+
+    // The next send state that will be executed.
+    string next_send_state = 11;
 }
 
 message AnchorTransaction {

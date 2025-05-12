@@ -1789,6 +1789,9 @@ type AssetSendEvent struct {
 	// Error below is set, then it means executing this state failed.
 	SendState SendState
 
+	// NextSendState is the next state that will be executed.
+	NextSendState SendState
+
 	// Error is an optional error, indicating that something went wrong
 	// during the execution of the SendState above.
 	Error error
@@ -1827,8 +1830,9 @@ func newAssetSendEvent(executedState SendState,
 	pkg sendPackage) *AssetSendEvent {
 
 	newSendEvent := &AssetSendEvent{
-		timestamp: time.Now().UTC(),
-		SendState: executedState,
+		timestamp:     time.Now().UTC(),
+		SendState:     executedState,
+		NextSendState: pkg.SendState,
 		// The parcel remains static throughout the state machine, so we
 		// don't need to copy it, there can be no data race.
 		Parcel:         pkg.Parcel,
@@ -1855,6 +1859,7 @@ func newAssetSendErrorEvent(err error, executedState SendState,
 	return &AssetSendEvent{
 		timestamp:      time.Now().UTC(),
 		SendState:      executedState,
+		NextSendState:  pkg.SendState,
 		Error:          err,
 		Parcel:         pkg.Parcel,
 		TransferLabel:  pkg.Label,
