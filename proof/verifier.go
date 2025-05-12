@@ -199,7 +199,7 @@ func (p *Proof) verifyInclusionProof() (*commitment.TapCommitment, error) {
 	// We ignore the STXO proofs if the proof signals version 0, or if there
 	// are no STXO proofs present (because they're not needed for this type
 	// of asset).
-	if !p.IsVersionV1() || !hasStxoProofs {
+	if p.IsVersionV0() || !hasStxoProofs {
 		return v0Commitment, nil
 	}
 
@@ -306,7 +306,7 @@ func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 	// We ignore the STXO proofs if the proof signals version 0, or if there
 	// are no STXO proofs present (because they're not needed for this type
 	// of asset).
-	if !p.IsVersionV1() || !hasStxoProofs {
+	if p.IsVersionV0() || !hasStxoProofs {
 		return verifySTXOVersions(commitVersions)
 	}
 
