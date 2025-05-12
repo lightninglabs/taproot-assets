@@ -57,9 +57,9 @@ var (
 	// for sending proofs with the hashmail courier.
 	defaultHashmailBackoffConfig = proof.BackoffCfg{
 		BackoffResetWait: time.Second,
-		NumTries:         5,
+		NumTries:         10,
 		InitialBackoff:   300 * time.Millisecond,
-		MaxBackoff:       600 * time.Millisecond,
+		MaxBackoff:       2 * time.Second,
 	}
 
 	// defaultUniverseRpcBackoffConfig is the default backoff config we'll
@@ -67,9 +67,9 @@ var (
 	defaultUniverseRpcBackoffConfig = proof.BackoffCfg{
 		SkipInitDelay:    true,
 		BackoffResetWait: time.Second,
-		NumTries:         5,
+		NumTries:         10,
 		InitialBackoff:   300 * time.Millisecond,
-		MaxBackoff:       600 * time.Millisecond,
+		MaxBackoff:       2 * time.Second,
 	}
 
 	// defaultProofRetrievalDelay is the default delay we'll use for the

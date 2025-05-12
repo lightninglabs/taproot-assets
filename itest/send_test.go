@@ -760,8 +760,7 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 	expectedEventCount := nodeBackoffCfg.NumTries - 1
 
 	// Context timeout scales with expected number of events.
-	timeout := time.Duration(expectedEventCount) *
-		defaultProofTransferReceiverAckTimeout
+	timeout := time.Duration(expectedEventCount) * nodeBackoffCfg.MaxBackoff
 
 	// Allow for some margin for the operations that aren't pure
 	// waiting on the receiver ACK.
@@ -868,8 +867,7 @@ func testReattemptProofTransferOnTapdRestart(t *harnessTest) {
 	expectedEventCount := nodeBackoffCfg.NumTries - 1
 
 	// Context timeout scales with expected number of events.
-	timeout := time.Duration(expectedEventCount) *
-		defaultProofTransferReceiverAckTimeout
+	timeout := time.Duration(expectedEventCount) * nodeBackoffCfg.MaxBackoff
 
 	// Allow for some margin for the operations that aren't pure waiting on
 	// the receiver ACK.
@@ -1029,8 +1027,7 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 	expectedEventCount := nodeBackoffCfg.NumTries - 1
 
 	// Context timeout scales with expected number of events.
-	timeout := time.Duration(expectedEventCount) *
-		defaultProofTransferReceiverAckTimeout
+	timeout := time.Duration(expectedEventCount) * nodeBackoffCfg.MaxBackoff
 
 	// Allow for some margin for the operations that aren't pure waiting on
 	// the receiver ACK.
