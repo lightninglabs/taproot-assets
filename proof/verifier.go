@@ -291,9 +291,12 @@ func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 		return nil, nil
 	}
 
-	// If we have any valid v0 proofs, and the proof signals v1, then we
-	// also _need_ to have v1 proofs.
-	needStxoProofs := p.IsVersionV1() && len(commitVersions) > 0
+	// If we have any valid v0 proofs, and the proof signals v1 and the
+	// asset represents a root transfer, then we also _need_ to have v1
+	// proofs.
+	needStxoProofs := p.IsVersionV1() && len(commitVersions) > 0 &&
+		p.Asset.IsTransferRoot()
+
 	hasStxoProofs := len(p.ExclusionProofs) > 0 &&
 		p.ExclusionProofs[0].CommitmentProof != nil &&
 		len(p.ExclusionProofs[0].CommitmentProof.STXOProofs) > 0
