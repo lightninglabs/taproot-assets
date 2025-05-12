@@ -297,10 +297,9 @@ func TestVerifyV1InclusionProof(t *testing.T) {
 			p, rootCommitment := makeV0InclusionProof(t)
 			p.Version = TransitionV1
 
-			// But now we add an STXO asset to the root commitment,
-			// which should cause the proof to be invalid, since the
-			// root commitment changed, and we don't update the
-			// anchor tx output yet.
+			// But now we update the anchor tx output, which should
+			// cause the proof to be invalid, since we didn't add
+			// the STXO asset to the root commitment yet.
 			_, _ = addV1InclusionProof(
 				t, p, rootCommitment, withUpdateAnchorTx(),
 			)
