@@ -591,7 +591,7 @@
     },
     "/v1/taproot-assets/assets/transfers/register": {
       "post": {
-        "summary": "RegisterTransfer informs the daemon about a new inbound transfer that has\nhappened. This is used for interactive transfers where no TAP address is\ninvolved and the recipient is aware of the transfer through an out-of-band\nprotocol but the daemon hasn't been informed about the completion of the\ntransfer. For this to work, the proof must already be in the recipient's\nlocal universe (e.g. through the use of the universerpc.ImportProof RPC or\nthe universe proof courier and universe sync mechanisms) and this call\nsimply instructs the daemon to detect the transfer as an asset it owns.",
+        "summary": "RegisterTransfer informs the daemon about a new inbound transfer that has\nhappened. This is used for interactive transfers where no TAP address is\ninvolved and the recipient is aware of the transfer through an out-of-band\nprotocol but the daemon hasn't been informed about the completion of the\ntransfer. For this to work, the proof must already be in the recipient's\nlocal universe (e.g. through the use of the universerpc.InsertProof RPC or\nthe universe proof courier and universe sync mechanisms) and this call\nsimply instructs the daemon to detect the transfer as an asset it owns.",
         "operationId": "TaprootAssets_RegisterTransfer",
         "responses": {
           "200": {

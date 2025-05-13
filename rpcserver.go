@@ -8871,7 +8871,7 @@ func (r *rpcServer) syncAssetGroup(ctx context.Context,
 // involved and the recipient is aware of the transfer through an out-of-band
 // protocol but the daemon hasn't been informed about the completion of the
 // transfer. For this to work, the proof must already be in the recipient's
-// local universe (e.g. through the use of the universerpc.ImportProof RPC or
+// local universe (e.g. through the use of the universerpc.InsertProof RPC or
 // the universe proof courier and universe sync mechanisms) and this call
 // simply instructs the daemon to detect the transfer as an asset it owns.
 func (r *rpcServer) RegisterTransfer(ctx context.Context,
