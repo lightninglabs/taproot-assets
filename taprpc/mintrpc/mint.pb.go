@@ -1325,8 +1325,8 @@ type ListBatchRequest struct {
 	//	*ListBatchRequest_BatchKey
 	//	*ListBatchRequest_BatchKeyStr
 	Filter isListBatchRequest_Filter `protobuf_oneof:"filter"`
-	// If true, pending asset group information will be shown for the pending
-	// batch.
+	// If true, pending asset group details will be included for any funded,
+	// non-empty pending batch. Unfunded or empty batches will be excluded.
 	Verbose bool `protobuf:"varint,3,opt,name=verbose,proto3" json:"verbose,omitempty"`
 }
 

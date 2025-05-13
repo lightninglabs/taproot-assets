@@ -420,8 +420,8 @@ message ListBatchRequest {
         string batch_key_str = 2;
     }
 
-    // If true, pending asset group information will be shown for the pending
-    // batch.
+    // If true, pending asset group details will be included for any funded,
+    // non-empty pending batch. Unfunded or empty batches will be excluded.
     bool verbose = 3;
 }
 

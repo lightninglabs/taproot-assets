@@ -85,7 +85,7 @@
           },
           {
             "name": "verbose",
-            "description": "If true, pending asset group information will be shown for the pending\nbatch.",
+            "description": "If true, pending asset group details will be included for any funded,\nnon-empty pending batch. Unfunded or empty batches will be excluded.",
             "in": "query",
             "required": false,
             "type": "boolean"
