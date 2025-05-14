@@ -877,6 +877,129 @@ func TestDistributeCoins(t *testing.T) {
 				},
 			},
 		},
+		{
+			// This tests the backward compatibility case where the
+			// split root output is defined explicitly, even for an
+			// interactive packet (which is the case for channels).
+			name: "single asset, distributed to three outputs",
+			inputs: []*proof.Proof{
+				makeProof(t, assetID1Tranche1),
+			},
+			interactive: true,
+			//nolint:lll
+			allocations: []*Allocation{
+				{
+					Type:        CommitAllocationHtlcOutgoing,
+					Amount:      50,
+					OutputIndex: 2,
+				},
+				{
+					Type:        CommitAllocationToLocal,
+					Amount:      20,
+					OutputIndex: 3,
+				},
+				{
+					Type:        CommitAllocationToRemote,
+					Amount:      30,
+					OutputIndex: 4,
+					SplitRoot:   true,
+				},
+			},
+			expectedInputs: map[asset.ID][]asset.ScriptKey{
+				assetID1.ID(): {
+					assetID1Tranche1.ScriptKey,
+				},
+			},
+			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
+				assetID1.ID(): {
+					{
+						Amount:            50,
+						Type:              simple,
+						Interactive:       true,
+						AnchorOutputIndex: 2,
+					},
+					{
+						Amount:            20,
+						Type:              simple,
+						Interactive:       true,
+						AnchorOutputIndex: 3,
+					},
+					{
+						Amount:            30,
+						Type:              split,
+						Interactive:       true,
+						AnchorOutputIndex: 4,
+					},
+				},
+			},
+		},
+		{
+			// This shows that for channels with multiple asset IDs,
+			// defining the split root output might not be enough,
+			// if some assets aren't even distributed to that
+			// output. So the fallback for a packet that doesn't
+			// get an exact split root output is to just use the
+			// first output as the split root.
+			name: "multiple allocations, split root defined on " +
+				"output that gets full value",
+			inputs: []*proof.Proof{
+				makeProof(t, assetID4Tranche1),
+				makeProof(t, assetID5Tranche1),
+			},
+			interactive: true,
+			//nolint:lll
+			allocations: []*Allocation{
+				{
+					Type:        CommitAllocationHtlcOutgoing,
+					Amount:      5000,
+					OutputIndex: 2,
+				},
+				{
+					Type:        CommitAllocationToLocal,
+					Amount:      20000,
+					OutputIndex: 3,
+				},
+				{
+					Type:        CommitAllocationToRemote,
+					Amount:      25000,
+					OutputIndex: 4,
+					SplitRoot:   true,
+				},
+			},
+			vPktVersion: tappsbt.V1,
+			expectedInputs: map[asset.ID][]asset.ScriptKey{
+				assetID4.ID(): {
+					assetID4Tranche1.ScriptKey,
+				},
+				assetID5.ID(): {
+					assetID5Tranche1.ScriptKey,
+				},
+			},
+			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
+				assetID4.ID(): {
+					{
+						Amount:            5000,
+						Type:              split,
+						Interactive:       true,
+						AnchorOutputIndex: 2,
+					},
+					{
+						Amount:            20000,
+						Type:              simple,
+						Interactive:       true,
+						AnchorOutputIndex: 3,
+					},
+				},
+				assetID5.ID(): {
+					{
+						Amount:            25000,
+						Type:              simple,
+						Interactive:       true,
+						AnchorOutputIndex: 4,
+					},
+				},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
