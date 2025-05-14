@@ -1297,9 +1297,9 @@ type AuthIgnoreTuples = []AuthenticatedIgnoreTuple
 // ListTuplesResp is the response to a query for ignore tuples.
 type ListTuplesResp = lfn.Result[lfn.Option[IgnoreTuples]]
 
-// IgnoreTree represents a tree of ignore tuples which can be used to
+// IgnoreTreeArchive represents an archive of ignore trees which can be used to
 // effectively cache rejection of invalid proofs.
-type IgnoreTree interface {
+type IgnoreTreeArchive interface {
 	// Sum returns the sum of the ignore tuples for the given asset.
 	Sum(context.Context, asset.Specifier) SumQueryResp
 
