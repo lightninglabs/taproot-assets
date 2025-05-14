@@ -174,7 +174,17 @@ func testMintBatchResume(t *harnessTest) {
 
 	// Build one batch, but leave it as pending.
 	BuildMintingBatch(t.t, t.tapd, simpleAssets)
-	batchResp, err := t.tapd.ListBatches(ctxt, &mintrpc.ListBatchRequest{})
+
+	// The batch is pending and unfunded, so the verbose batch listing
+	// should return an empty list. An anchor transaction (BTC funding) is
+	// required for verbose listing to include group key requests.
+	batchResp, err := t.tapd.ListBatches(ctxt, &mintrpc.ListBatchRequest{
+		Verbose: true,
+	})
+	require.NoError(t.t, err)
+	require.Empty(t.t, batchResp.Batches)
+
+	batchResp, err = t.tapd.ListBatches(ctxt, &mintrpc.ListBatchRequest{})
 	require.NoError(t.t, err)
 	require.Len(t.t, batchResp.Batches, 1)
 	t.Logf("batches: %v", toJSON(t.t, batchResp))

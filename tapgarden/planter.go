@@ -1516,7 +1516,7 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 	}
 
 	// Formulate verbose batches from the sorted batches.
-	verboseBatches := make([]*VerboseBatch, len(sortedBatches))
+	verboseBatches := make([]*VerboseBatch, 0, len(sortedBatches))
 
 	for idx := range sortedBatches {
 		currentBatch := sortedBatches[idx]
@@ -1527,6 +1527,10 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 		case currentBatch.State() != BatchStatePending:
 			continue
 		case !currentBatch.IsFunded():
+			// The batch isn't funded yet, so we can't display any
+			// pending asset group information. Funding is required
+			// because the anchor transaction outpoint is needed to
+			// formulate pending asset group key requests.
 			continue
 		case len(currentBatch.Seedlings) == 0:
 			continue
@@ -1538,7 +1542,7 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 			return nil, err
 		}
 
-		verboseBatches[idx] = verboseBatch
+		verboseBatches = append(verboseBatches, verboseBatch)
 	}
 
 	return verboseBatches, nil
