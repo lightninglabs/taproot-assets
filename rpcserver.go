@@ -7743,8 +7743,26 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				"for keysend payment")
 		}
 
-		var balances []*rfqmsg.AssetBalance
+		if len(req.PaymentRequest.Dest) == 0 {
+			return fmt.Errorf("destination node must be " +
+				"specified for keysend payment")
+		}
 
+		dest, err := route.NewVertexFromBytes(req.PaymentRequest.Dest)
+		if err != nil {
+			return fmt.Errorf("error parsing destination node "+
+				"pubkey: %w", err)
+		}
+
+		// We check that we have the asset amount available in the
+		// channel.
+		_, err = r.rfqChannel(ctx, specifier, &dest, SendIntention)
+		if err != nil {
+			return fmt.Errorf("error finding asset channel to "+
+				"use: %w", err)
+		}
+
+		var balances []*rfqmsg.AssetBalance
 		switch {
 		case specifier.HasId():
 			balances = []*rfqmsg.AssetBalance{
