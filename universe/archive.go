@@ -130,11 +130,25 @@ func (a *Archive) RootNode(ctx context.Context,
 	return a.cfg.Multiverse.UniverseRootNode(ctx, id)
 }
 
+// RootNodesQuery is a query struct used to fetch root nodes from the archive.
 type RootNodesQuery struct {
+	// WithAmountsById is a boolean that indicates whether to include
+	// amounts by ID in the results. If true, then the results will
+	// include the amounts by ID for each root node.
 	WithAmountsById bool
-	SortDirection   SortDirection
-	Offset          int32
-	Limit           int32
+
+	// SortDirection is the direction to sort the root nodes by.
+	SortDirection SortDirection
+
+	// Offset is the zero-based index of the first item in the returned
+	// results. In other words, it specifies how many entries to skip before
+	// including the first entry in the result set. This is useful for
+	// pagination.
+	Offset int32
+
+	// Limit is the maximum number of root nodes to return. If this is
+	// zero, then the default limit will be used.
+	Limit int32
 }
 
 // RootNodes returns the set of root nodes for all known base universes assets.
@@ -653,11 +667,24 @@ func (a *Archive) FetchProofLeaf(ctx context.Context, id Identifier,
 	return a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
 }
 
+// UniverseLeafKeysQuery is a query struct to fetch leaf keys from the archive.
 type UniverseLeafKeysQuery struct {
-	Id            Identifier
+	// Id is the universe identifier.
+	Id Identifier
+
+	// SortDirection is the sorting direction of the leaf keys in the
+	// response.
 	SortDirection SortDirection
-	Offset        int32
-	Limit         int32
+
+	// Offset is the zero-based index of the first item in the returned
+	// results. In other words, it specifies how many entries to skip before
+	// including the first entry in the result set. This is useful for
+	// pagination.
+	Offset int32
+
+	// Limit is the maximum number of leaf keys to return. If this is
+	// zero, then the default limit will be used.
+	Limit int32
 }
 
 // UniverseLeafKeys returns the set of leaf keys known for the specified
