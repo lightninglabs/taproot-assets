@@ -94,7 +94,7 @@ func (i *IgnoreTuple) Record() tlv.Record {
 // IgnoreTuples is a slice of IgnoreTuple.
 type IgnoreTuples = []*IgnoreTuple
 
-// IgnoreSignature is a Schnorr signature over an IgnoreTuple.
+// IgnoreSig is a Schnorr signature over an IgnoreTuple.
 //
 // TODO(roasbeef): sig validate methods, sig gen above
 type IgnoreSig struct {

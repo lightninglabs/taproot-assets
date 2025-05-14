@@ -1303,7 +1303,7 @@ type IgnoreTreeArchive interface {
 	// Sum returns the sum of the ignore tuples for the given asset.
 	Sum(context.Context, asset.Specifier) SumQueryResp
 
-	// AddTuple adds a new ignore tuples to the ignore tree.
+	// AddTuples adds a new ignore tuples to the ignore tree.
 	//
 	// TODO(roasbeef): does all the signing under the hood?
 	AddTuples(context.Context, asset.Specifier,
