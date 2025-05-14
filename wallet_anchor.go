@@ -91,6 +91,9 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 			},
 			MinConfs:   int32(minConfs),
 			ChangeType: defaultChangeType,
+			// Adjust the max fee tolerance to be 100% of the value to avoid false positives with small anchor outputs.
+			// https://github.com/lightninglabs/taproot-assets/issues/1417
+			MaxFeeRatio: 1,
 		},
 	)
 	if err != nil {
