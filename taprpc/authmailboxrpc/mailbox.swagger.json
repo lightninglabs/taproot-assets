@@ -1,0 +1,379 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "authmailboxrpc/mailbox.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "Mailbox"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/taproot-assets/mailbox/receive": {
+      "post": {
+        "summary": "Initiates a bidirectional stream to receive messages for a specific\nreceiver. This stream implements the challenge-response handshake required\nfor receiver authentication before messages are delivered.",
+        "description": "Expected flow:\n1. Client -\u003e Server: ReceiveMessagesRequest(init = InitReceive{...})\n2. Server -\u003e Client: ReceiveMessagesResponse(challenge = Challenge{...})\n3. Client -\u003e Server: ReceiveMessagesRequest(auth_sig = AuthSignature{...})\n4. Server -\u003e Client: [Stream of ReceiveMessagesResponse(\nmessage = MailboxMessage{...}\n)]\n5. Server -\u003e Client: ReceiveMessagesResponse(eos = EndOfStream{}) or\nReceiveMessagesResponse(error = ReceiveError{...})",
+        "operationId": "Mailbox_ReceiveMessages",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/authmailboxrpcReceiveMessagesResponse"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of authmailboxrpcReceiveMessagesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": "Wrapper message for requests sent FROM the client TO the server during the\nReceiveMessages stream. (streaming inputs)",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/authmailboxrpcReceiveMessagesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Mailbox"
+        ]
+      }
+    },
+    "/v1/taproot-assets/mailbox/send": {
+      "post": {
+        "summary": "Sends a single message to a receiver's mailbox. Requires a valid, unused\nBitcoin transaction outpoint as proof of work/stake.",
+        "operationId": "Mailbox_SendMessage",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/authmailboxrpcSendMessageResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": "Request message for the SendMessage RPC.",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/authmailboxrpcSendMessageRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Mailbox"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "ReceiveErrorCode": {
+      "type": "string",
+      "enum": [
+        "CODE_UNSPECIFIED",
+        "INVALID_RECEIVER_ID",
+        "INVALID_SIGNATURE",
+        "AUTH_TIMEOUT",
+        "INTERNAL_ERROR",
+        "TEMPORARILY_UNAVAILABLE"
+      ],
+      "default": "CODE_UNSPECIFIED"
+    },
+    "authmailboxrpcAuthSignature": {
+      "type": "object",
+      "properties": {
+        "signature": {
+          "type": "string",
+          "format": "byte"
+        }
+      },
+      "description": "Carries the client's signature in response to the server's challenge."
+    },
+    "authmailboxrpcBitcoinMerkleInclusionProof": {
+      "type": "object",
+      "properties": {
+        "raw_tx_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw Bitcoin transaction bytes, in standard Bitcoin serialization\nformat, containing the outpoint being claimed. The server will hash this\nto get the TXID."
+        },
+        "raw_block_header_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw block header bytes (typically 80 bytes) of the block in which the\ntransaction was mined. Contains the Merkle root against which the proof\nis verified."
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height at which the block was mined. This is used to determine the\nblock's validity and to ensure the transaction is not too old."
+        },
+        "merkle_proof": {
+          "$ref": "#/definitions/authmailboxrpcMerkleProof",
+          "description": "The Merkle path proving the transaction's inclusion in the block header's\nMerkle root."
+        },
+        "claimed_outpoint": {
+          "$ref": "#/definitions/authmailboxrpcOutpoint",
+          "description": "The specific output within the provided transaction being claimed as the\nproof \"token\". The output at the given index must be a P2TR output.\nThe server must verify that the txid_hex matches the hash of the provided\ntransaction data, and that this specific outpoint index exists in the\ntransaction."
+        }
+      },
+      "description": "Encapsulates the full proof required for sender authentication, demonstrating\nthat a specific transaction output was included in a Bitcoin block."
+    },
+    "authmailboxrpcChallenge": {
+      "type": "object",
+      "properties": {
+        "challenge_hash": {
+          "type": "string",
+          "format": "byte"
+        }
+      },
+      "description": "Carries the challenge hash sent by the server to the client."
+    },
+    "authmailboxrpcEndOfStream": {
+      "type": "object",
+      "description": "An empty message used to explicitly signal the normal end of the message\nstream."
+    },
+    "authmailboxrpcInitReceive": {
+      "type": "object",
+      "properties": {
+        "receiver_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "start_message_id_exclusive": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "start_block_height_inclusive": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "start_timestamp_exclusive": {
+          "type": "string",
+          "format": "int64"
+        }
+      },
+      "description": "Carries the initial parameters from the client to start receiving messages."
+    },
+    "authmailboxrpcMailboxMessage": {
+      "type": "object",
+      "properties": {
+        "message_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique ID assigned to the message by the server upon storage."
+        },
+        "encrypted_payload": {
+          "type": "string",
+          "format": "byte",
+          "description": "The ECIES encrypted message payload, intended for the receiver."
+        },
+        "sender_ephemeral_pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The sender's ephemeral public key used for the ECIES exchange. Required\nby the receiver to derive the shared secret and decrypt the payload."
+        },
+        "arrival_timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Timestamp (Unix epoch seconds) when the message arrived at the server."
+        },
+        "expiry_block_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Block height after which this message may be considered expired by the\nsystem."
+        }
+      },
+      "description": "Represents a single message as stored and retrieved from the mailbox."
+    },
+    "authmailboxrpcMerkleProof": {
+      "type": "object",
+      "properties": {
+        "sibling_hashes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "List of sibling hashes in the Merkle path, ordered from the transaction's\nsibling up towards the root. Each hash is typically 32 bytes."
+        },
+        "bits": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "description": "The bitmask indicating the direction (left/right) of each sibling hash\nin the Merkle tree. Each bit corresponds to a sibling hash in the\nsibling_hashes list. 0 indicates left, 1 indicates right."
+        }
+      },
+      "description": "Represents the Merkle proof hashes needed to link a transaction to the Merkle\nroot within a Bitcoin block header."
+    },
+    "authmailboxrpcOutpoint": {
+      "type": "object",
+      "properties": {
+        "txid_hex": {
+          "type": "string",
+          "description": "Transaction ID as a hex-encoded string (standard 64 characters).\nWhile derivable from the raw tx in the proof, including it here makes\nthe claimed outpoint explicit."
+        },
+        "index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Output index (vout) within the transaction."
+        }
+      },
+      "description": "Represents a Bitcoin transaction outpoint."
+    },
+    "authmailboxrpcPingResponse": {
+      "type": "object",
+      "properties": {
+        "server_time": {
+          "type": "string",
+          "format": "int64",
+          "description": "The current server time in Unix epoch seconds."
+        }
+      },
+      "description": "Response message for the Ping RPC."
+    },
+    "authmailboxrpcReceiveError": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/ReceiveErrorCode"
+        },
+        "details": {
+          "type": "string"
+        }
+      },
+      "description": "Represents a structured error encountered during the ReceiveMessages stream."
+    },
+    "authmailboxrpcReceiveMessagesRequest": {
+      "type": "object",
+      "properties": {
+        "init": {
+          "$ref": "#/definitions/authmailboxrpcInitReceive"
+        },
+        "auth_sig": {
+          "$ref": "#/definitions/authmailboxrpcAuthSignature"
+        }
+      },
+      "description": "Wrapper message for requests sent FROM the client TO the server during the\nReceiveMessages stream."
+    },
+    "authmailboxrpcReceiveMessagesResponse": {
+      "type": "object",
+      "properties": {
+        "challenge": {
+          "$ref": "#/definitions/authmailboxrpcChallenge"
+        },
+        "auth_success": {
+          "type": "boolean"
+        },
+        "message": {
+          "$ref": "#/definitions/authmailboxrpcMailboxMessage"
+        },
+        "error": {
+          "$ref": "#/definitions/authmailboxrpcReceiveError"
+        },
+        "eos": {
+          "$ref": "#/definitions/authmailboxrpcEndOfStream"
+        }
+      },
+      "description": "Wrapper message for responses sent FROM the server TO the client\nduring the ReceiveMessages stream."
+    },
+    "authmailboxrpcSendMessageRequest": {
+      "type": "object",
+      "properties": {
+        "receiver_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The public key identifier of the intended receiver (ReceiverID), encoded\nas the raw bytes of the compressed public key."
+        },
+        "encrypted_payload": {
+          "type": "string",
+          "format": "byte",
+          "description": "The ECIES encrypted message payload."
+        },
+        "sender_ephemeral_pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The sender's ephemeral public key used for ECIES."
+        },
+        "tx_proof": {
+          "$ref": "#/definitions/authmailboxrpcBitcoinMerkleInclusionProof",
+          "description": "The Bitcoin Merkle Inclusion Proof used as the sender's\nauthentication. The server MUST perform full validation of this\nproof:\n1. Verify claimed_outpoint.txid_hex matches hash(raw_tx_data).\n2. Verify claimed_outpoint.index is valid for the transaction.\n3. Verify merkle_proof connects the transaction hash to the\n   raw_block_header_data's Merkle root.\n4. Verify block_header validity (e.g., PoW, potentially chain\n   context).\n5. Ensure the claimed_outpoint has not been used previously (check\n   used_proofs table)."
+        },
+        "expiry_block_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The block height after which this message may be considered expired."
+        }
+      },
+      "description": "Request message for the SendMessage RPC."
+    },
+    "authmailboxrpcSendMessageResponse": {
+      "type": "object",
+      "properties": {
+        "message_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique ID assigned to the stored message by the server."
+        }
+      },
+      "description": "Response message for the SendMessage RPC."
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}
