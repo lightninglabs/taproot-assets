@@ -379,6 +379,15 @@ type PreAnchoredParcel struct {
 	passiveAssets []*tappsbt.VPacket
 
 	anchorTx *tapsend.AnchorTransaction
+
+	// skipAnchorTxBroadcast bool is a flag that indicates whether the
+	// anchor transaction broadcast should be skipped. This is useful when
+	// an external system handles broadcasting, such as in custom
+	// transaction packaging workflows.
+	skipAnchorTxBroadcast bool
+
+	// label is an optional user provided transfer label.
+	label string
 }
 
 // A compile-time assertion to ensure PreAnchoredParcel implements the Parcel
@@ -387,17 +396,19 @@ var _ Parcel = (*PreAnchoredParcel)(nil)
 
 // NewPreAnchoredParcel creates a new PreAnchoredParcel.
 func NewPreAnchoredParcel(vPackets []*tappsbt.VPacket,
-	passiveAssets []*tappsbt.VPacket,
-	anchorTx *tapsend.AnchorTransaction) *PreAnchoredParcel {
+	passiveAssets []*tappsbt.VPacket, anchorTx *tapsend.AnchorTransaction,
+	skipAnchorTxBroadcast bool, label string) *PreAnchoredParcel {
 
 	return &PreAnchoredParcel{
 		parcelKit: &parcelKit{
 			respChan: make(chan *OutboundParcel, 1),
 			errChan:  make(chan error, 1),
 		},
-		virtualPackets: vPackets,
-		passiveAssets:  passiveAssets,
-		anchorTx:       anchorTx,
+		virtualPackets:        vPackets,
+		passiveAssets:         passiveAssets,
+		anchorTx:              anchorTx,
+		skipAnchorTxBroadcast: skipAnchorTxBroadcast,
+		label:                 label,
 	}
 }
 
@@ -409,11 +420,13 @@ func (p *PreAnchoredParcel) pkg() *sendPackage {
 	// Initialize a package the signed virtual transaction and input
 	// commitment.
 	return &sendPackage{
-		Parcel:         p,
-		SendState:      SendStateStorePreBroadcast,
-		VirtualPackets: p.virtualPackets,
-		PassiveAssets:  p.passiveAssets,
-		AnchorTx:       p.anchorTx,
+		Parcel:                p,
+		SendState:             SendStateStorePreBroadcast,
+		VirtualPackets:        p.virtualPackets,
+		PassiveAssets:         p.passiveAssets,
+		AnchorTx:              p.anchorTx,
+		Label:                 p.label,
+		SkipAnchorTxBroadcast: p.skipAnchorTxBroadcast,
 	}
 }
 
@@ -505,6 +518,11 @@ type sendPackage struct {
 	// testing purposes or to force transfer attempts even if the
 	// proof courier is not immediately reachable.
 	SkipProofCourierPingCheck bool
+
+	// SkipAnchorTxBroadcast indicates whether the anchor transaction
+	// broadcast should be skipped. Useful when an external system handles
+	// broadcasting, such as in custom transaction packaging workflows.
+	SkipAnchorTxBroadcast bool
 }
 
 // ConvertToTransfer prepares the finished send data for storing to the database
@@ -520,8 +538,8 @@ type sendPackage struct {
 // they were already committed at.
 func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 	anchorTx *tapsend.AnchorTransaction, passiveAssets []*tappsbt.VPacket,
-	isLocalKey func(asset.ScriptKey) bool, label string) (*OutboundParcel,
-	error) {
+	isLocalKey func(asset.ScriptKey) bool, label string,
+	skipAnchorTxBroadcast bool) (*OutboundParcel, error) {
 
 	var passiveAssetAnchor *Anchor
 	if len(passiveAssets) > 0 {
@@ -556,9 +574,10 @@ func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 			// assuming most transfers have around two outputs.
 			[]TransferOutput, 0, len(activeTransfers)*2,
 		),
-		PassiveAssets:       passiveAssets,
-		PassiveAssetsAnchor: passiveAssetAnchor,
-		Label:               label,
+		PassiveAssets:         passiveAssets,
+		PassiveAssetsAnchor:   passiveAssetAnchor,
+		Label:                 label,
+		SkipAnchorTxBroadcast: skipAnchorTxBroadcast,
 	}
 
 	allPackets := append(activeTransfers, passiveAssets...)
@@ -770,9 +789,9 @@ func outputAnchor(anchorTx *tapsend.AnchorTransaction, vOut *tappsbt.VOutput,
 	}, nil
 }
 
-// deliverTxBroadcastResp delivers a response for the parcel back to the
+// deliverOutboundPkgResp delivers a response for the parcel back to the
 // receiver over the response channel.
-func (s *sendPackage) deliverTxBroadcastResp() {
+func (s *sendPackage) deliverOutboundPkgResp() {
 	// Ensure that we have a response channel to deliver the response over.
 	// We may not have one if the package send process was recommenced after
 	// a restart.

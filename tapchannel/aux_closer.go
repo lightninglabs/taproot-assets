@@ -645,7 +645,7 @@ func shipChannelTxn(txSender tapfreighter.Porter, chanTx *wire.MsgTx,
 		FinalTx:   chanTx,
 	}
 	preSignedParcel := tapfreighter.NewPreAnchoredParcel(
-		vPkts, nil, closeAnchor,
+		vPkts, nil, closeAnchor, false, "",
 	)
 	_, err = txSender.RequestShipment(preSignedParcel)
 	if err != nil {

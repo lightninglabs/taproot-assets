@@ -1678,6 +1678,11 @@
         "label": {
           "type": "string",
           "description": "An optional short label for the transfer. This label can be used to track\nthe progress of the transfer via the logs or an event subscription.\nMultiple transfers can share the same label."
+        },
+        "anchor_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "The L1 transaction that anchors the Taproot Asset commitment where the\nasset resides."
         }
       }
     },
@@ -2522,6 +2527,10 @@
         "transfer_label": {
           "type": "string",
           "description": "The label of the transfer."
+        },
+        "next_send_state": {
+          "type": "string",
+          "description": "The next send state that will be executed."
         }
       }
     },

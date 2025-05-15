@@ -2442,10 +2442,11 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 		// outputs will reference. We'll insert this next, so we can
 		// use its ID.
 		transferID, err := q.InsertAssetTransfer(ctx, NewAssetTransfer{
-			HeightHint:       int32(spend.AnchorTxHeightHint),
-			AnchorTxid:       newAnchorTXID[:],
-			TransferTimeUnix: spend.TransferTime,
-			Label:            sqlStr(spend.Label),
+			HeightHint:            int32(spend.AnchorTxHeightHint),
+			AnchorTxid:            newAnchorTXID[:],
+			TransferTimeUnix:      spend.TransferTime,
+			Label:                 sqlStr(spend.Label),
+			SkipAnchorTxBroadcast: spend.SkipAnchorTxBroadcast,
 		})
 		if err != nil {
 			return fmt.Errorf("unable to insert asset transfer: "+
@@ -3545,15 +3546,17 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 				)
 			}
 
+			// nolint:lll
 			parcel := &tapfreighter.OutboundParcel{
-				AnchorTx:           anchorTx,
-				AnchorTxHeightHint: uint32(dbT.HeightHint),
-				AnchorTxBlockHash:  anchorTxBlockHash,
-				TransferTime:       dbT.TransferTimeUnix.UTC(),
-				ChainFees:          dbAnchorTx.ChainFees,
-				Inputs:             inputs,
-				Outputs:            outputs,
-				Label:              dbT.Label.String,
+				AnchorTx:              anchorTx,
+				AnchorTxHeightHint:    uint32(dbT.HeightHint),
+				AnchorTxBlockHash:     anchorTxBlockHash,
+				TransferTime:          dbT.TransferTimeUnix.UTC(),
+				ChainFees:             dbAnchorTx.ChainFees,
+				Inputs:                inputs,
+				Outputs:               outputs,
+				Label:                 dbT.Label.String,
+				SkipAnchorTxBroadcast: dbT.SkipAnchorTxBroadcast,
 			}
 
 			// Set the block height if the anchor is marked as

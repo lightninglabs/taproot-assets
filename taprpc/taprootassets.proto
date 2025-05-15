@@ -783,6 +783,10 @@ message AssetTransfer {
     // the progress of the transfer via the logs or an event subscription.
     // Multiple transfers can share the same label.
     string label = 9;
+
+    // The L1 transaction that anchors the Taproot Asset commitment where the
+    // asset resides.
+    bytes anchor_tx = 10;
 }
 
 message TransferInput {
@@ -1626,6 +1630,9 @@ message SendEvent {
 
     // The label of the transfer.
     string transfer_label = 10;
+
+    // The next send state that will be executed.
+    string next_send_state = 11;
 }
 
 message AnchorTransaction {

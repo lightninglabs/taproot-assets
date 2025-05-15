@@ -334,7 +334,7 @@ func MultiSigTest(t *testing.T, ctx context.Context, aliceTapd,
 	// transaction.
 	signedPkt := FinalizePacket(t, bobLnd, btcWithdrawPkt)
 
-	logResp := LogAndPublish(
+	logResp := ExecPreAnchoredTransfer(
 		t, bobTapd, signedPkt, finalizedWithdrawPackets, nil,
 		commitResp,
 	)
@@ -490,10 +490,57 @@ func FinalizePacket(t *testing.T, lnd *rpc.HarnessRPC,
 	return signedPacket
 }
 
-func LogAndPublish(t *testing.T, tapd commands.RpcClientsBundle,
+// ExecPreAnchoredTransferOption defines a functional option for
+// ExecPreAnchoredTransfer.
+type ExecPreAnchoredTransferOption func(*execPreAnchoredTransferOptions)
+
+// execPreAnchoredTransferOptions contains the options for
+// ExecPreAnchoredTransfer.
+type execPreAnchoredTransferOptions struct {
+	// skipAnchorTxBroadcast indicates whether to skip the broadcast of
+	// the anchor transaction.
+	skipAnchorTxBroadcast bool
+
+	// label is the label to use for the transfer.
+	label string
+}
+
+// defaultExecPreAnchoredTransferOptions returns the default options for
+// ExecPreAnchoredTransfer.
+func defaultExecPreAnchoredTransferOptions() *execPreAnchoredTransferOptions {
+	return &execPreAnchoredTransferOptions{}
+}
+
+// withSkipAnchorTxBroadcast is an option for ExecPreAnchoredTransfer that
+// indicates whether to skip the broadcast of the anchor transaction.
+func withSkipAnchorTxBroadcast() ExecPreAnchoredTransferOption {
+	return func(opts *execPreAnchoredTransferOptions) {
+		opts.skipAnchorTxBroadcast = true
+	}
+}
+
+// withLabel is an option for ExecPreAnchoredTransfer that sets the label for
+// the transfer.
+func withLabel(label string) ExecPreAnchoredTransferOption {
+	return func(opts *execPreAnchoredTransferOptions) {
+		opts.label = label
+	}
+}
+
+// ExecPreAnchoredTransfer executes a pre-anchored transfer with optional
+// arguments.
+func ExecPreAnchoredTransfer(t *testing.T, tapd commands.RpcClientsBundle,
 	btcPkt *psbt.Packet, activeAssets []*tappsbt.VPacket,
 	passiveAssets []*tappsbt.VPacket,
-	commitResp *wrpc.CommitVirtualPsbtsResponse) *taprpc.SendAssetResponse {
+	commitResp *wrpc.CommitVirtualPsbtsResponse,
+	opts ...ExecPreAnchoredTransferOption) *taprpc.SendAssetResponse {
+
+	t.Helper()
+
+	options := defaultExecPreAnchoredTransferOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -504,11 +551,13 @@ func LogAndPublish(t *testing.T, tapd commands.RpcClientsBundle,
 	require.NoError(t, err)
 
 	request := &wrpc.PublishAndLogRequest{
-		AnchorPsbt:        buf.Bytes(),
-		VirtualPsbts:      make([][]byte, len(activeAssets)),
-		PassiveAssetPsbts: make([][]byte, len(passiveAssets)),
-		ChangeOutputIndex: commitResp.ChangeOutputIndex,
-		LndLockedUtxos:    commitResp.LndLockedUtxos,
+		AnchorPsbt:            buf.Bytes(),
+		VirtualPsbts:          make([][]byte, len(activeAssets)),
+		PassiveAssetPsbts:     make([][]byte, len(passiveAssets)),
+		ChangeOutputIndex:     commitResp.ChangeOutputIndex,
+		LndLockedUtxos:        commitResp.LndLockedUtxos,
+		SkipAnchorTxBroadcast: options.skipAnchorTxBroadcast,
+		Label:                 options.label,
 	}
 
 	for idx := range activeAssets {
