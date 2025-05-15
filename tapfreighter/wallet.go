@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -1116,10 +1117,20 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	}
 
 	// Final TX sanity check.
-	err = blockchain.CheckTransactionSanity(btcutil.NewTx(finalTx))
+	finalBtcUtilTx := btcutil.NewTx(finalTx)
+	err = blockchain.CheckTransactionSanity(finalBtcUtilTx)
 	if err != nil {
 		return nil, fmt.Errorf("anchor TX failed final checks: %w", err)
 	}
+
+	// Report the actual fee rate that will be paid.
+	//
+	// Compute the virtual size of the transaction in bytes.
+	size := mempool.GetTxVirtualSize(finalBtcUtilTx)
+
+	// Compute the fee rate in sat/kvb.
+	actualFeeRate := int64(chainFees) * 1000 / size
+	log.Infof("Anchor TX final fee rate: %d sat/kvb", actualFeeRate)
 
 	anchorTx := &tapsend.AnchorTransaction{
 		FundedPsbt:    anchorPkt,

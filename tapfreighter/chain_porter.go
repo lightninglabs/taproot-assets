@@ -1332,6 +1332,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"minimum relay fee: %w", err)
 		}
 
+		log.Infof("Min relay fee: %v",
+			minRelayFee.FeePerKVByte().String())
+
 		// If the fee rate is below the minimum relay fee, we'll
 		// bump it up.
 		if feeRate < minRelayFee {
@@ -1543,9 +1546,31 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"transaction %v: %w", txHash, err)
 
 		case err != nil:
+			// If the error is due to the min relay fee not being
+			// met, we'll unlock the inputs we locked for this
+			// transfer before returning the error.
+			if strings.Contains(
+				err.Error(), "min relay fee not met",
+			) {
+				p.unlockInputs(ctx, &currentPkg)
+			}
+
+			// We exercise caution by not unlocking the inputs in
+			// the general error case, in case the transaction was
+			// somehow broadcasted.
 			return nil, fmt.Errorf("unable to broadcast "+
 				"transaction %v: %w", txHash, err)
 		}
+
+		// Set send state to the next state to evaluate.
+		currentPkg.SendState = SendStateBroadcastComplete
+		return &currentPkg, nil
+
+	// At this stage, the transaction has been broadcast to the network.
+	// From this point forward, the transfer cancellation methodology
+	// changes.
+	case SendStateBroadcastComplete:
+		log.Infof("Transfer tx broadcast complete")
 
 		// With the transaction broadcast, we'll deliver a
 		// notification via the transaction broadcast response channel.
@@ -1621,6 +1646,9 @@ func (p *ChainPorter) unlockInputs(ctx context.Context, pkg *sendPackage) {
 		return
 	}
 
+	// TODO(ffranr): Make use of CheckMempoolAccept to ensure we don't
+	//  unlock inputs for transactions that are in the mempool.
+
 	// If we haven't even attempted to broadcast yet, we're still in a state
 	// where we give feedback to the user synchronously, as we haven't
 	// created an on-chain transaction that we need to await confirmation.
@@ -1629,7 +1657,7 @@ func (p *ChainPorter) unlockInputs(ctx context.Context, pkg *sendPackage) {
 	// sanity-check that we have known input commitments to unlock, since
 	// that might not always be the case (for example if another party
 	// contributes inputs).
-	if pkg.SendState < SendStateStorePreBroadcast &&
+	if pkg.SendState < SendStateBroadcastComplete &&
 		len(pkg.InputCommitments) > 0 {
 
 		for prevID := range pkg.InputCommitments {
@@ -1660,6 +1688,9 @@ func (p *ChainPorter) unlockInputs(ctx context.Context, pkg *sendPackage) {
 			log.Warnf("Unable to unlock input %v: %v", op, err)
 		}
 	}
+
+	// TODO(ffranr): Remove pending asset transfer and chain tx from the
+	//  database.
 }
 
 // logPacket logs the virtual packet to the debug log.
