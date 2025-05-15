@@ -732,7 +732,7 @@ func testAssetBalances(t *harnessTest) {
 				},
 			},
 			expectError:    true,
-			expectedErrMsg: "invalid Txid",
+			expectedErrMsg: "invalid outpoint txid",
 		},
 		{
 			name: "Fail if AssetId is too short",

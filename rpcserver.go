@@ -1097,17 +1097,13 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 	}
 
 	if req.AnchorOutpoint != nil {
-		txid, err := chainhash.NewHash(req.AnchorOutpoint.Txid)
+		op, err := rpcutils.UnmarshalOutPoint(req.AnchorOutpoint)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing outpoint: %w",
+			return nil, fmt.Errorf("unmarshalling outpoint: %w",
 				err)
 		}
-		outPoint := &wire.OutPoint{
-			Hash:  *txid,
-			Index: req.AnchorOutpoint.OutputIndex,
-		}
 
-		filters.AnchorPoint = outPoint
+		filters.AnchorPoint = &op
 	}
 
 	scriptKeyType, includeSpent, err := rpcutils.ParseScriptKeyTypeQuery(
@@ -2054,15 +2050,13 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 	// error will be returned and the outpoint needs to be specified to
 	// disambiguate.
 	if req.Outpoint != nil {
-		txid, err := chainhash.NewHash(req.Outpoint.Txid)
+		op, err := rpcutils.UnmarshalOutPoint(req.Outpoint)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing outpoint: %w",
+			return nil, fmt.Errorf("unmarshalling outpoint: %w",
 				err)
 		}
-		outPoint = &wire.OutPoint{
-			Hash:  *txid,
-			Index: req.Outpoint.OutputIndex,
-		}
+
+		outPoint = &op
 	}
 
 	proofBlob, err := r.cfg.ProofArchive.FetchProof(ctx, proof.Locator{
@@ -2255,14 +2249,19 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		)
 		for i, input := range raw.Inputs {
 			if input.Outpoint == nil {
+				// Return an error message which specifically
+				// refers to the index which has a corresponding
+				// nil outpoint.
 				return nil, fmt.Errorf("input at index %d has "+
 					"a nil Outpoint", i)
 			}
 
-			hash, err := chainhash.NewHash(input.Outpoint.Txid)
+			outPoint, err := rpcutils.UnmarshalOutPoint(
+				input.Outpoint,
+			)
 			if err != nil {
-				return nil, fmt.Errorf("input at index %d has "+
-					"invalid Txid: %w", i, err)
+				return nil, fmt.Errorf("unmarshalling "+
+					"outpoint: %w", err)
 			}
 
 			scriptKey, err := parseUserKey(input.ScriptKey)
@@ -2278,12 +2277,8 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 			}
 
 			// Decode the input into an asset.PrevID.
-			outpoint := wire.OutPoint{
-				Hash:  *hash,
-				Index: input.Outpoint.OutputIndex,
-			}
 			prevID := asset.PrevID{
-				OutPoint: outpoint,
+				OutPoint: outPoint,
 				ID:       asset.ID(input.Id),
 				ScriptKey: asset.ToSerialized(
 					scriptKey,
@@ -2970,15 +2965,13 @@ func (r *rpcServer) PublishAndLogTransfer(ctx context.Context,
 		FinalTx:   finalTx,
 	}
 	for idx, lndOutpoint := range req.LndLockedUtxos {
-		hash, err := chainhash.NewHash(lndOutpoint.Txid)
+		op, err := rpcutils.UnmarshalOutPoint(lndOutpoint)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing txid: %w", err)
+			return nil, fmt.Errorf("unmarshalling outpoint: %w",
+				err)
 		}
 
-		anchorTx.FundedPsbt.LockedUTXOs[idx] = wire.OutPoint{
-			Hash:  *hash,
-			Index: lndOutpoint.OutputIndex,
-		}
+		anchorTx.FundedPsbt.LockedUTXOs[idx] = op
 	}
 
 	// We now have everything to ship the pre-anchored parcel using the
@@ -6289,15 +6282,13 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 	// error will be returned and the outpoint needs to be specified to
 	// disambiguate.
 	if req.Outpoint != nil {
-		txid, err := chainhash.NewHash(req.Outpoint.Txid)
+		op, err := rpcutils.UnmarshalOutPoint(req.Outpoint)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing outpoint: %w",
+			return nil, fmt.Errorf("unmarshalling outpoint: %w",
 				err)
 		}
-		outPoint = &wire.OutPoint{
-			Hash:  *txid,
-			Index: req.Outpoint.OutputIndex,
-		}
+
+		outPoint = &op
 	}
 
 	proofBlob, err := r.cfg.ProofArchive.FetchProof(ctx, proof.Locator{
@@ -6584,18 +6575,9 @@ func (r *rpcServer) RemoveUTXOLease(ctx context.Context,
 	req *wrpc.RemoveUTXOLeaseRequest) (*wrpc.RemoveUTXOLeaseResponse,
 	error) {
 
-	if req.Outpoint == nil {
-		return nil, fmt.Errorf("outpoint must be specified")
-	}
-
-	hash, err := chainhash.NewHash(req.Outpoint.Txid)
+	outPoint, err := rpcutils.UnmarshalOutPoint(req.Outpoint)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing txid: %w", err)
-	}
-
-	outPoint := wire.OutPoint{
-		Hash:  *hash,
-		Index: req.Outpoint.OutputIndex,
+		return nil, fmt.Errorf("unmarshaling outpoint: %w", err)
 	}
 
 	err = r.cfg.CoinSelect.ReleaseCoins(ctx, outPoint)
@@ -8753,14 +8735,12 @@ func (r *rpcServer) RegisterTransfer(ctx context.Context,
 	}
 	locator.ScriptKey = *scriptPubKey
 
-	hash, err := chainhash.NewHash(req.Outpoint.Txid)
+	op, err := rpcutils.UnmarshalOutPoint(req.Outpoint)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshalling outpoint: %w", err)
 	}
-	locator.OutPoint = &wire.OutPoint{
-		Hash:  *hash,
-		Index: req.Outpoint.OutputIndex,
-	}
+
+	locator.OutPoint = &op
 
 	// Before we query for the proof, we want to make sure the script key is
 	// already known to us. In an interactive transfer, we'd expect a script
