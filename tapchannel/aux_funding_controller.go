@@ -1080,7 +1080,9 @@ func (f *FundingController) anchorVPackets(fundedPkt *tapsend.FundedPsbt,
 
 	// Given the set of vPackets we've created, we'll now merge them all to
 	// create a map from output index to final tap commitment.
-	outputCommitments, err := tapsend.CreateOutputCommitments(allPackets)
+	outputCommitments, err := tapsend.CreateOutputCommitments(
+		allPackets, tapsend.WithNoSTXOProofs(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new output "+
 			"commitments: %w", err)
