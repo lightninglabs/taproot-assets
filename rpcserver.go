@@ -7743,8 +7743,26 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				"for keysend payment")
 		}
 
-		var balances []*rfqmsg.AssetBalance
+		if len(req.PaymentRequest.Dest) == 0 {
+			return fmt.Errorf("destination node must be " +
+				"specified for keysend payment")
+		}
 
+		dest, err := route.NewVertexFromBytes(req.PaymentRequest.Dest)
+		if err != nil {
+			return fmt.Errorf("error parsing destination node "+
+				"pubkey: %w", err)
+		}
+
+		// We check that we have the asset amount available in the
+		// channel.
+		_, err = r.rfqChannel(ctx, specifier, &dest, SendIntention)
+		if err != nil {
+			return fmt.Errorf("error finding asset channel to "+
+				"use: %w", err)
+		}
+
+		var balances []*rfqmsg.AssetBalance
 		switch {
 		case specifier.HasId():
 			balances = []*rfqmsg.AssetBalance{
@@ -8402,12 +8420,29 @@ func (r *rpcServer) rfqChannel(ctx context.Context, specifier asset.Specifier,
 	peerPubKey *route.Vertex,
 	intention chanIntention) (*channelWithSpecifier, error) {
 
-	balances, err := r.computeChannelAssetBalance(ctx, specifier)
+	balances, haveGroupChans, err := r.computeCompatibleChannelAssetBalance(
+		ctx, specifier,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error computing available asset "+
 			"channel balance: %w", err)
 	}
 
+	// If the user uses the asset ID to specify what asset to use, that will
+	// not work for asset channels that have multiple UTXOs of grouped
+	// assets. The result wouldn't be deterministic anyway (meaning, it's
+	// not guaranteed that a specific asset ID is moved within a channel
+	// when an HTLC is sent, the allocation logic decides which actual UTXO
+	// is used). So we tell the user to use the group key instead, at least
+	// for channels that have multiple UTXOs of grouped assets.
+	if specifier.HasId() && len(balances) == 0 && haveGroupChans {
+		return nil, fmt.Errorf("no compatible asset channel found for "+
+			"%s, make sure to use group key for grouped asset "+
+			"channels", &specifier)
+	}
+
+	// If the above special case didn't apply, it just means we don't have
+	// the specific asset in a channel that can be used.
 	if len(balances) == 0 {
 		return nil, fmt.Errorf("no asset channel balance found for %s",
 			&specifier)
@@ -8491,17 +8526,27 @@ type channelWithSpecifier struct {
 	assetInfo rfqmsg.JsonAssetChannel
 }
 
-// computeChannelAssetBalance computes the total local and remote balance for
-// each asset channel that matches the provided asset specifier.
-func (r *rpcServer) computeChannelAssetBalance(ctx context.Context,
-	specifier asset.Specifier) ([]channelWithSpecifier, error) {
+// computeCompatibleChannelAssetBalance computes the total local and remote
+// balance for each asset channel that matches the provided asset specifier.
+// For a channel to match an asset specifier, all asset UTXOs in the channel
+// must match the specifier. That means a channel is seen as _not_ compatible if
+// it contains multiple asset IDs but the specifier only specifies one of them.
+// The user should use the group key in that case instead. To help inform the
+// user about this, the returned boolean value indicates if there are any active
+// channels that have grouped assets.
+func (r *rpcServer) computeCompatibleChannelAssetBalance(ctx context.Context,
+	specifier asset.Specifier) ([]channelWithSpecifier, bool, error) {
 
 	activeChannels, err := r.cfg.Lnd.Client.ListChannels(ctx, true, false)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch channels: %w", err)
+		return nil, false, fmt.Errorf("unable to fetch channels: %w",
+			err)
 	}
 
-	channels := make([]channelWithSpecifier, 0)
+	var (
+		channels                 = make([]channelWithSpecifier, 0)
+		haveGroupedAssetChannels bool
+	)
 	for chanIdx := range activeChannels {
 		openChan := activeChannels[chanIdx]
 		if len(openChan.CustomChannelData) == 0 {
@@ -8511,17 +8556,21 @@ func (r *rpcServer) computeChannelAssetBalance(ctx context.Context,
 		var assetData rfqmsg.JsonAssetChannel
 		err = json.Unmarshal(openChan.CustomChannelData, &assetData)
 		if err != nil {
-			return nil, fmt.Errorf("unable to unmarshal asset "+
-				"data: %w", err)
+			return nil, false, fmt.Errorf("unable to unmarshal "+
+				"asset data: %w", err)
+		}
+
+		if len(assetData.GroupKey) > 0 {
+			haveGroupedAssetChannels = true
 		}
 
 		// Check if the assets of this channel match the provided
 		// specifier.
-		pass, err := r.cfg.RfqManager.ChannelCompatible(
+		pass, err := r.cfg.RfqManager.ChannelMatchesFully(
 			ctx, assetData, specifier,
 		)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		if pass {
@@ -8533,7 +8582,7 @@ func (r *rpcServer) computeChannelAssetBalance(ctx context.Context,
 		}
 	}
 
-	return channels, nil
+	return channels, haveGroupedAssetChannels, nil
 }
 
 // getInboundPolicy returns the policy of the given channel that points towards
@@ -8591,29 +8640,73 @@ func (r *rpcServer) assetInvoiceAmt(ctx context.Context,
 func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
 	payReq *tchrpc.AssetPayReq) (*tchrpc.AssetPayReqResponse, error) {
 
+	tapdLog.Debugf("Decoding asset pay req, asset_id=%x, group_key=%x,"+
+		"pay_req=%v", payReq.AssetId, payReq.GroupKey,
+		payReq.PayReqString)
+
 	if r.cfg.PriceOracle == nil {
 		return nil, fmt.Errorf("price oracle is not set")
 	}
 
 	// First, we'll perform some basic input validation.
+	var assetID asset.ID
 	switch {
-	case len(payReq.AssetId) == 0:
-		return nil, fmt.Errorf("asset ID must be specified")
+	case len(payReq.AssetId) == 0 && len(payReq.GroupKey) == 0:
+		return nil, fmt.Errorf("either asset ID or group key must be " +
+			"specified")
 
-	case len(payReq.AssetId) != 32:
+	case len(payReq.AssetId) != 0 && len(payReq.GroupKey) != 0:
+		return nil, fmt.Errorf("cannot set both asset ID and group key")
+
+	case len(payReq.AssetId) != 0 && len(payReq.AssetId) != 32:
 		return nil, fmt.Errorf("asset ID must be 32 bytes, "+
 			"was %d", len(payReq.AssetId))
+
+	case len(payReq.GroupKey) != 0 && len(payReq.GroupKey) != 33 &&
+		len(payReq.GroupKey) != 32:
+
+		return nil, fmt.Errorf("group key must be 32 or 33 bytes, "+
+			"was %d", len(payReq.GroupKey))
 
 	case len(payReq.PayReqString) == 0:
 		return nil, fmt.Errorf("payment request must be specified")
 	}
 
-	var (
-		resp    tchrpc.AssetPayReqResponse
-		assetID asset.ID
-	)
+	// We made sure that only one is set, so let's now use the asset ID
+	// or group key.
+	switch {
+	// The asset ID is easy, we can just copy the bytes.
+	case len(payReq.AssetId) != 0:
+		copy(assetID[:], payReq.AssetId)
 
-	copy(assetID[:], payReq.AssetId)
+	// The group key is a bit more involved. We first need to sync the asset
+	// group, then fetch the leaves that are associated with this group key.
+	// From there, we can look up the asset ID of one of the group's
+	// tranches.
+	case len(payReq.GroupKey) != 0:
+		var (
+			groupKey *btcec.PublicKey
+			err      error
+		)
+		if len(payReq.GroupKey) == 32 {
+			groupKey, err = schnorr.ParsePubKey(payReq.GroupKey)
+		} else {
+			groupKey, err = btcec.ParsePubKey(payReq.GroupKey)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error parsing group "+
+				"key: %w", err)
+		}
+
+		assetID, err = r.syncAssetGroup(ctx, *groupKey)
+		if err != nil {
+			return nil, fmt.Errorf("error syncing asset group: %w",
+				err)
+		}
+
+		tapdLog.Debugf("Resolved asset ID %v for group key %x",
+			assetID.String(), groupKey.SerializeCompressed())
+	}
 
 	// With the inputs validated, we'll first call out to lnd to decode the
 	// payment request.
@@ -8625,7 +8718,9 @@ func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
 		return nil, fmt.Errorf("unable to fetch channel: %w", err)
 	}
 
-	resp.PayReq = payReqInfo
+	resp := tchrpc.AssetPayReqResponse{
+		PayReq: payReqInfo,
+	}
 
 	// Next, we'll fetch the information for this asset ID through the addr
 	// book. This'll automatically fetch the asset if needed.
@@ -8635,12 +8730,17 @@ func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
 			"asset_id=%x: %w", assetID[:], err)
 	}
 
-	resp.GenesisInfo = &taprpc.GenesisInfo{
-		GenesisPoint: assetGroup.FirstPrevOut.String(),
-		AssetType:    taprpc.AssetType(assetGroup.Type),
-		Name:         assetGroup.Tag,
-		MetaHash:     assetGroup.MetaHash[:],
-		AssetId:      assetID[:],
+	// The genesis info makes no sense in the case where we have decoded the
+	// invoice for a group key, since we just pick the first asset ID we
+	// found for a group key.
+	if len(payReq.GroupKey) == 0 {
+		resp.GenesisInfo = &taprpc.GenesisInfo{
+			GenesisPoint: assetGroup.FirstPrevOut.String(),
+			AssetType:    taprpc.AssetType(assetGroup.Type),
+			Name:         assetGroup.Tag,
+			MetaHash:     assetGroup.MetaHash[:],
+			AssetId:      assetID[:],
+		}
 	}
 
 	// If this asset ID belongs to an asset group, then we'll display that
@@ -8700,12 +8800,103 @@ func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
 	return &resp, nil
 }
 
+// syncAssetGroup checks if we already know any asset leaves associated with
+// this group key. If not, it will sync the asset group and return the asset
+// ID of the first leaf found. If there are no leaves found after syncing, an
+// error is returned.
+func (r *rpcServer) syncAssetGroup(ctx context.Context,
+	groupKey btcec.PublicKey) (asset.ID, error) {
+
+	// We first check if we already know any asset leaves associated with
+	// this group key.
+	leaf := fn.NewRight[asset.ID](groupKey)
+	leaves, err := r.cfg.Multiverse.FetchLeaves(
+		ctx, []universe.MultiverseLeafDesc{leaf},
+		universe.ProofTypeIssuance,
+	)
+	if err != nil {
+		return asset.ID{}, fmt.Errorf("error fetching leaves: %w", err)
+	}
+
+	tapdLog.Tracef("Found %d leaves for group key %x",
+		len(leaves), groupKey.SerializeCompressed())
+
+	// If there are no leaves, then we need to sync the asset group.
+	if len(leaves) == 0 {
+		tapdLog.Debugf("No leaves found for group key %x, "+
+			"syncing asset group", groupKey.SerializeCompressed())
+		err = r.cfg.AddrBook.SyncAssetGroup(ctx, groupKey)
+		if err != nil {
+			return asset.ID{}, fmt.Errorf("error syncing asset "+
+				"group: %w", err)
+		}
+
+		// Now we can try again.
+		leaves, err = r.cfg.Multiverse.FetchLeaves(
+			ctx, []universe.MultiverseLeafDesc{leaf},
+			universe.ProofTypeIssuance,
+		)
+		if err != nil {
+			return asset.ID{}, fmt.Errorf("error fetching leaves: "+
+				"%w", err)
+		}
+
+		tapdLog.Tracef("Found %d leaves for group key %x",
+			len(leaves), groupKey.SerializeCompressed())
+
+		if len(leaves) == 0 {
+			return asset.ID{}, fmt.Errorf("no asset leaves found "+
+				"for group %x after sync",
+				groupKey.SerializeCompressed())
+		}
+	}
+
+	// Since we know we have at least one leaf, we can just take leaf ID and
+	// query the keys with it. We just need one so we can fetch the actual
+	// proof to find out the asset ID. We don't really care about the order,
+	// so we just use the natural database order.
+	leafID := leaves[0]
+	leafKeys, err := r.cfg.Multiverse.UniverseLeafKeys(
+		ctx, universe.UniverseLeafKeysQuery{
+			Id:    leafID.ID,
+			Limit: 1,
+		},
+	)
+	if err != nil {
+		return asset.ID{}, fmt.Errorf("error fetching leaf keys: %w",
+			err)
+	}
+
+	// We know we have a leaf, so this shouldn't happen.
+	if len(leafKeys) != 1 {
+		return asset.ID{}, fmt.Errorf("expected 1 leaf key, got %d",
+			len(leafKeys))
+	}
+
+	proofs, err := r.cfg.Multiverse.FetchProofLeaf(
+		ctx, leafID.ID, leafKeys[0],
+	)
+	if err != nil {
+		return asset.ID{}, fmt.Errorf("error fetching proof leaf: %w",
+			err)
+	}
+
+	// We should have a proof for the asset ID now.
+	if len(proofs) != 1 {
+		return asset.ID{}, fmt.Errorf("expected 1 proof, got %d",
+			len(proofs))
+	}
+
+	// We can now extract the asset ID from the proof.
+	return proofs[0].Leaf.ID(), nil
+}
+
 // RegisterTransfer informs the daemon about a new inbound transfer that has
 // happened. This is used for interactive transfers where no TAP address is
 // involved and the recipient is aware of the transfer through an out-of-band
 // protocol but the daemon hasn't been informed about the completion of the
 // transfer. For this to work, the proof must already be in the recipient's
-// local universe (e.g. through the use of the universerpc.ImportProof RPC or
+// local universe (e.g. through the use of the universerpc.InsertProof RPC or
 // the universe proof courier and universe sync mechanisms) and this call
 // simply instructs the daemon to detect the transfer as an asset it owns.
 func (r *rpcServer) RegisterTransfer(ctx context.Context,

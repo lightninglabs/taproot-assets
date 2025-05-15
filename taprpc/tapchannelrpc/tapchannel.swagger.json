@@ -51,7 +51,7 @@
     },
     "/v1/taproot-assets/channels/fund": {
       "post": {
-        "summary": "FundChannel initiates the channel funding negotiation with a peer for the\ncreation of a channel that contains a specified amount of a given asset.",
+        "summary": "litcli: `ln fundchannel`\nFundChannel initiates the channel funding negotiation with a peer for the\ncreation of a channel that contains a specified amount of a given asset.",
         "operationId": "TaprootAssetChannels_FundChannel",
         "responses": {
           "200": {
@@ -84,7 +84,7 @@
     },
     "/v1/taproot-assets/channels/invoice": {
       "post": {
-        "summary": "AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset\nspecific parameters. It allows RPC users to create invoices that correspond\nto the specified asset amount.",
+        "summary": "litcli: `ln addinvoice`\nAddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset\nspecific parameters. It allows RPC users to create invoices that correspond\nto the specified asset amount.",
         "operationId": "TaprootAssetChannels_AddInvoice",
         "responses": {
           "200": {
@@ -117,7 +117,7 @@
     },
     "/v1/taproot-assets/channels/invoice/decode": {
       "post": {
-        "summary": "DecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an\nasset ID and returns the invoice amount expressed in asset units along side\nthe normal information.",
+        "summary": "litcli: `ln decodeassetinvoice`\nDecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an\nasset ID or group key and returns the invoice amount expressed in asset\nunits along side the normal information.",
         "operationId": "TaprootAssetChannels_DecodeAssetPayReq",
         "responses": {
           "200": {
@@ -150,7 +150,7 @@
     },
     "/v1/taproot-assets/channels/send-payment": {
       "post": {
-        "summary": "SendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method\nwith asset specific parameters. It allows RPC users to send asset keysend\npayments (direct payments) or payments to an invoice with a specified asset\namount.",
+        "summary": "litcli: `ln sendpayment`\nSendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method\nwith asset specific parameters. It allows RPC users to send asset keysend\npayments (direct payments) or payments to an invoice with a specified asset\namount.",
         "operationId": "TaprootAssetChannels_SendPayment",
         "responses": {
           "200": {
@@ -1539,11 +1539,16 @@
         "asset_id": {
           "type": "string",
           "format": "byte",
-          "description": "The asset ID that will be used to resolve the invoice's satoshi amount."
+          "description": "The asset ID that will be used to resolve the invoice's satoshi amount.\nMutually exclusive to group_key."
         },
         "pay_req_string": {
           "type": "string",
           "description": "The normal LN invoice that whose amount will be mapped to units of the\nasset ID."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The group key that will be used to resolve the invoice's satoshi amount.\nMutually exclusive to asset_id."
         }
       }
     },
@@ -1565,7 +1570,7 @@
         },
         "genesis_info": {
           "$ref": "#/definitions/taprpcGenesisInfo",
-          "description": "Genesis information for the asset ID which includes the meta hash, and\nasset ID."
+          "description": "Genesis information for the asset ID which includes the meta hash, and\nasset ID. This is only set if the payment request was decoded with an\nasset ID and not with a group key (since a group can contain assets from\ndifferent minting events or genesis infos)."
         },
         "pay_req": {
           "$ref": "#/definitions/lnrpcPayReq",

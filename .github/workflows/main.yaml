@@ -375,6 +375,7 @@ jobs:
         working-directory: ./lightning-terminal
         run: |
           go mod edit -replace=github.com/lightninglabs/taproot-assets=../
+          go mod edit -replace=github.com/lightninglabs/taproot-assets/taprpc=../taprpc
           go mod tidy
 
       - name: Install yarn

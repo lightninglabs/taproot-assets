@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -805,13 +806,26 @@ func (f *FederationEnvoy) tryFetchServers() ([]ServerAddr, error) {
 }
 
 // SyncAssetInfo queries the universes in our federation for genesis and asset
-// group information about the given asset ID.
+// group information about the given asset.
 func (f *FederationEnvoy) SyncAssetInfo(ctx context.Context,
-	assetID *asset.ID) error {
+	specifier asset.Specifier) error {
 
-	if assetID == nil {
-		return fmt.Errorf("no asset ID provided")
+	uniID := Identifier{
+		ProofType: ProofTypeIssuance,
 	}
+
+	// One of asset ID or group key must be set, but not both.
+	if specifier.HasId() == specifier.HasGroupPubKey() {
+		return fmt.Errorf("must set either asset ID or group key for " +
+			"asset sync")
+	}
+
+	specifier.WhenId(func(id asset.ID) {
+		uniID.AssetID = id
+	})
+	specifier.WhenGroupPubKey(func(groupKey btcec.PublicKey) {
+		uniID.GroupKey = &groupKey
+	})
 
 	// Fetch the set of universe servers in our federation.
 	fedServers, err := f.tryFetchServers()
@@ -820,16 +834,14 @@ func (f *FederationEnvoy) SyncAssetInfo(ctx context.Context,
 	}
 
 	assetConfig := FedUniSyncConfig{
-		UniverseID: Identifier{
-			AssetID:   *assetID,
-			ProofType: ProofTypeIssuance,
-		},
+		UniverseID:      uniID,
 		AllowSyncInsert: true,
 		AllowSyncExport: false,
 	}
 	fullConfig := SyncConfigs{
 		UniSyncConfigs: []*FedUniSyncConfig{&assetConfig},
 	}
+
 	// We'll sync with Universe servers in parallel and collect the diffs
 	// from any successful syncs. There can only be one diff per server, as
 	// we're only syncing one universe root.
@@ -846,8 +858,8 @@ func (f *FederationEnvoy) SyncAssetInfo(ctx context.Context,
 		// Sync failures are expected from Universe servers that do not
 		// have a relevant universe root.
 		if err != nil {
-			log.Warnf("Asset lookup failed: asset_id=%v, "+
-				"remote_server=%v: %v", assetID.String(),
+			log.Warnf("Asset lookup failed: id=%v, "+
+				"remote_server=%v: %v", uniID.String(),
 				addr.HostStr(), err)
 
 			// We don't want to abort syncing here, as this might
@@ -863,8 +875,8 @@ func (f *FederationEnvoy) SyncAssetInfo(ctx context.Context,
 			if len(syncDiff) != 1 {
 				log.Warnf("Unexpected number of sync diffs "+
 					"when looking up asset: num_diffs=%d, "+
-					"asset_id=%v, remote_server=%v",
-					len(syncDiff), assetID.String(),
+					"id=%v, remote_server=%v",
+					len(syncDiff), uniID.String(),
 					addr.HostStr())
 
 				// We don't want to abort syncing here, as this
@@ -891,12 +903,11 @@ func (f *FederationEnvoy) SyncAssetInfo(ctx context.Context,
 
 	syncDiffs := fn.Collect(returnedSyncDiffs)
 	log.Infof("Synced new Universe leaves for asset %v, diff_size=%v",
-		assetID.String(), len(syncDiffs))
+		uniID.String(), len(syncDiffs))
 
-	// TODO(jhb): Log successful syncs?
 	if len(syncDiffs) == 0 {
 		return fmt.Errorf("asset lookup failed for asset: %v",
-			assetID.String())
+			uniID.String())
 	}
 
 	return nil

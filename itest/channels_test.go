@@ -61,7 +61,10 @@ func testChannelRPCs(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	_, err = stream.Recv()
-	require.ErrorContains(t.t, err, "invalid vertex length of 0, want 33")
+	require.ErrorContains(
+		t.t, err, "destination node must be specified for keysend "+
+			"payment",
+	)
 
 	// Now let's also try the invoice path, which should fail because we
 	// don't have any asset channels with peers that we could ask for a

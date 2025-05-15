@@ -579,7 +579,7 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 			continue
 		}
 
-		match, err := m.ChannelCompatible(
+		match, err := m.ChannelMatchesFully(
 			ctxb, assetData, assetSpecifier,
 		)
 		if err != nil {
@@ -1019,11 +1019,11 @@ func (m *Manager) GetPriceDeviationPpm() uint64 {
 	return m.cfg.AcceptPriceDeviationPpm
 }
 
-// ChannelCompatible checks a channel's assets against an asset specifier. If
-// the specifier is an asset ID, then all assets must be of that specific ID,
-// if the specifier is a group key, then all assets in the channel must belong
-// to that group.
-func (m *Manager) ChannelCompatible(ctx context.Context,
+// ChannelMatchesFully checks a channel's assets against an asset specifier. If
+// the specifier is an asset ID, then all asset UTXOs must be of that specific
+// ID, if the specifier is a group key, then all assets in the channel must
+// belong to that group.
+func (m *Manager) ChannelMatchesFully(ctx context.Context,
 	jsonChannel rfqmsg.JsonAssetChannel, specifier asset.Specifier) (bool,
 	error) {
 
