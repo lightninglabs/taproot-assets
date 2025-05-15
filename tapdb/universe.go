@@ -117,7 +117,7 @@ type BaseUniverseStore interface {
 // for a specific proof type.
 //
 // NOTE: This makes an assumption that only specifiers with a group key are
-// valid.
+// valid for the ignore and burn proof types.
 func specifierToIdentifier(spec asset.Specifier,
 	proofType universe.ProofType) (universe.Identifier, error) {
 
@@ -125,7 +125,9 @@ func specifierToIdentifier(spec asset.Specifier,
 
 	// The specifier must have a group key to be able to be used within the
 	// ignore or burn tree context.
-	if !spec.HasGroupPubKey() {
+	requireGroupKey := proofType == universe.ProofTypeIgnore ||
+		proofType == universe.ProofTypeBurn
+	if requireGroupKey && !spec.HasGroupPubKey() {
 		return id, fmt.Errorf("group key must be set for proof type %v",
 			proofType)
 	}
