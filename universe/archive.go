@@ -110,14 +110,13 @@ type uniFetcher interface {
 // something to it, returning a type T and an error.
 type uniAction[T any] func(BaseBackend) (T, error)
 
-// withBaseUni is a helper function for performing some action on/with a base
-// universe with a generic return value.
-func withBaseUni[T any](fetcher uniFetcher, id Identifier,
+// withUni is a helper function that performs an action on a universe instance,
+// returning a generic result.
+func withUni[T any](fetcher uniFetcher, id Identifier,
 	f uniAction[T]) (T, error) {
 
-	baseUni := fetcher.fetchUniverse(id)
-
-	return f(baseUni)
+	uni := fetcher.fetchUniverse(id)
+	return f(uni)
 }
 
 // RootNode returns the root node of the base universe corresponding to the
@@ -705,7 +704,7 @@ func (a *Archive) MintingLeaves(ctx context.Context,
 	log.Debugf("Retrieving all leaves for Universe: id=%v",
 		id.StringForLog())
 
-	return withBaseUni(
+	return withUni(
 		a, id, func(baseUni BaseBackend) ([]Leaf, error) {
 			return baseUni.MintingLeaves(ctx)
 		},
