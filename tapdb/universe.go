@@ -568,9 +568,10 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 	return genAssetID, nil
 }
 
-// RegisterIssuance inserts a new minting leaf within the universe tree, stored
-// at the base key.
-func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
+// UpsertProofLeaf inserts or updates a proof leaf within the universe tree,
+// stored at the base key. The metaReveal type is purely optional, and should be
+// specified if the genesis proof committed to a non-zero meta hash.
+func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 	key universe.LeafKey, leaf *universe.Leaf,
 	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
 

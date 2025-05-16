@@ -407,11 +407,11 @@ type BaseBackend interface {
 	// RootNode returns the root node for a given base universe.
 	RootNode(context.Context) (mssmt.Node, string, error)
 
-	// RegisterIssuance inserts a new minting leaf within the universe
-	// tree, stored at the base key. The metaReveal type is purely
+	// UpsertProofLeaf inserts or updates a proof leaf within the universe
+	// tree, stored at the given key. The metaReveal type is purely
 	// optional, and should be specified if the genesis proof committed to
 	// a non-zero meta hash.
-	RegisterIssuance(ctx context.Context, key LeafKey, leaf *Leaf,
+	UpsertProofLeaf(ctx context.Context, key LeafKey, leaf *Leaf,
 		metaReveal *proof.MetaReveal) (*Proof, error)
 
 	// FetchProof retrieves a universe proof corresponding to the given key.

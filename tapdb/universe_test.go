@@ -300,7 +300,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		targetKey := testLeaf.LeafKey
 		leaf := testLeaf.Leaf
 
-		issuanceProof, err := baseUniverse.RegisterIssuance(
+		issuanceProof, err := baseUniverse.UpsertProofLeaf(
 			ctx, targetKey, &leaf, nil,
 		)
 		require.NoError(t, err)
@@ -406,7 +406,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		testLeaf.Leaf.RawProof = randProofBytes
 
 		targetKey := testLeaf.LeafKey
-		issuanceProof, err := baseUniverse.RegisterIssuance(
+		issuanceProof, err := baseUniverse.UpsertProofLeaf(
 			ctx, targetKey, &testLeaf.Leaf, nil,
 		)
 		require.NoError(t, err)
@@ -476,7 +476,7 @@ func TestUniverseMetaBlob(t *testing.T) {
 	targetKey := randLeafKey(t)
 	leaf := randMintingLeaf(t, assetGen, id.GroupKey)
 
-	_, err := baseUniverse.RegisterIssuance(ctx, targetKey, &leaf, meta)
+	_, err := baseUniverse.UpsertProofLeaf(ctx, targetKey, &leaf, meta)
 	require.NoError(t, err)
 
 	// We should be able to fetch the leaf based on the base key we used
@@ -503,7 +503,7 @@ func insertRandLeaf(t *testing.T, ctx context.Context, tree *BaseUniverseTree,
 	targetKey := randLeafKey(t)
 	leaf := randMintingLeaf(t, targetGen, tree.id.GroupKey)
 
-	return tree.RegisterIssuance(ctx, targetKey, &leaf, nil)
+	return tree.UpsertProofLeaf(ctx, targetKey, &leaf, nil)
 }
 
 // TestUniverseTreeIsolation tests that each Universe tree is properly isolated
@@ -680,7 +680,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 
 		leafToScriptKey[scriptKey] = leaf
 
-		_, err := baseUniverse.RegisterIssuance(
+		_, err := baseUniverse.UpsertProofLeaf(
 			ctx, targetKey, &leaf, nil,
 		)
 		require.NoError(t, err)
@@ -754,7 +754,7 @@ func TestUniverseLeafOverflow(t *testing.T) {
 	leaf.Amt = math.MaxUint64 - 1
 
 	// We should be able to insert this np.
-	_, err := baseUniverse.RegisterIssuance(ctx, targetKey, &leaf, nil)
+	_, err := baseUniverse.UpsertProofLeaf(ctx, targetKey, &leaf, nil)
 	require.NoError(t, err)
 
 	// We should be able to fetch the leaf based on the base key we used
@@ -767,7 +767,7 @@ func TestUniverseLeafOverflow(t *testing.T) {
 	targetKey2 := randLeafKey(t)
 	leaf2 := randMintingLeaf(t, assetGen, id.GroupKey)
 
-	_, err = baseUniverse.RegisterIssuance(ctx, targetKey2, &leaf2, nil)
+	_, err = baseUniverse.UpsertProofLeaf(ctx, targetKey2, &leaf2, nil)
 	require.ErrorIs(t, err, mssmt.ErrIntegerOverflow)
 
 	// We should still be able to fetch the original issuance proof.
@@ -861,7 +861,7 @@ func TestUniverseRootSum(t *testing.T) {
 
 				keys[i] = targetKey
 
-				_, err := baseUniverse.RegisterIssuance(
+				_, err := baseUniverse.UpsertProofLeaf(
 					ctx, targetKey, &leaf, nil,
 				)
 				require.NoError(t, err)
