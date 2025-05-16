@@ -158,6 +158,23 @@ func (p *BaseProofParams) HaveInclusionProof(anchorOutputIndex uint32) bool {
 	return p.OutputIndex == int(anchorOutputIndex)
 }
 
+// HaveSTXOExclusionProof returns true if we have an STXO exclusion proof for
+// the given anchor output index.
+func (p *BaseProofParams) HaveSTXOExclusionProof(
+	anchorOutputIndex uint32) bool {
+
+	for _, proof := range p.ExclusionProofs {
+		if proof.OutputIndex == anchorOutputIndex &&
+			proof.CommitmentProof != nil &&
+			len(proof.CommitmentProof.STXOProofs) > 0 {
+
+			return true
+		}
+	}
+
+	return false
+}
+
 // MintParams holds the set of chain level information needed to make a proof
 // file for the set of assets minted in a batch.
 type MintParams struct {
@@ -195,6 +212,7 @@ type MintingBlobOption func(*mintingBlobOpts)
 type mintingBlobOpts struct {
 	metaReveals        map[asset.SerializedKey]*MetaReveal
 	tapSiblingPreimage *commitment.TapscriptPreimage
+	genConfig          GenConfig
 }
 
 // defaultMintingBlobOpts returns the default set of options for creating a
@@ -202,6 +220,7 @@ type mintingBlobOpts struct {
 func defaultMintingBlobOpts() *mintingBlobOpts {
 	return &mintingBlobOpts{
 		metaReveals: make(map[asset.SerializedKey]*MetaReveal),
+		genConfig:   DefaultGenConfig(),
 	}
 }
 
@@ -226,6 +245,14 @@ func WithSiblingPreimage(
 	}
 }
 
+// WithGenOption is a MintingBlobOption that allows the caller to modify the
+// proof generation configuration used to create the minting blob.
+func WithGenOption(genOpts GenOption) MintingBlobOption {
+	return func(o *mintingBlobOpts) {
+		genOpts(&o.genConfig)
+	}
+}
+
 // NewMintingBlobs takes a set of minting parameters, and produces a series of
 // serialized proof files, which proves the creation/existence of each of the
 // assets within the batch.
@@ -237,7 +264,10 @@ func NewMintingBlobs(params *MintParams, vCtx VerifierCtx,
 		blobOpt(opts)
 	}
 
-	base, err := baseProof(&params.BaseProofParams, params.GenesisPoint)
+	base, err := baseProof(
+		&params.BaseProofParams, params.GenesisPoint,
+		opts.genConfig.transitionVersion,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +302,9 @@ func NewMintingBlobs(params *MintParams, vCtx VerifierCtx,
 
 // baseProof creates the basic proof template that contains all anchor
 // transaction related fields.
-func baseProof(params *BaseProofParams, prevOut wire.OutPoint) (*Proof, error) {
+func baseProof(params *BaseProofParams, prevOut wire.OutPoint,
+	version TransitionVersion) (*Proof, error) {
+
 	// First, we'll create the merkle proof for the anchor transaction. In
 	// this case, since all the assets were created in the same block, we
 	// only need a single merkle proof.
@@ -289,6 +321,8 @@ func baseProof(params *BaseProofParams, prevOut wire.OutPoint) (*Proof, error) {
 		InternalKey: params.InternalKey,
 	}
 	proof.ExclusionProofs = params.ExclusionProofs
+	proof.Version = version
+
 	return proof, nil
 }
 

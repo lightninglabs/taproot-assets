@@ -11,6 +11,33 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 )
 
+// GenConfig is a struct that holds the configuration for creating Taproot Asset
+// proofs.
+type GenConfig struct {
+	// transitionVersion is the version of the asset state transition proof
+	// that is going to be used.
+	transitionVersion TransitionVersion
+}
+
+// DefaultGenConfig returns a default proof generation configuration.
+func DefaultGenConfig() GenConfig {
+	return GenConfig{
+		transitionVersion: TransitionV0,
+	}
+}
+
+// GenOption is a function type that can be used to modify the proof generation
+// configuration.
+type GenOption func(*GenConfig)
+
+// WithVersion is an option that can be used to create a transition proof of the
+// given version.
+func WithVersion(v TransitionVersion) GenOption {
+	return func(cfg *GenConfig) {
+		cfg.transitionVersion = v
+	}
+}
+
 // TransitionParams holds the set of chain level information needed to append a
 // proof to an existing file for the given asset state transition.
 type TransitionParams struct {
@@ -42,8 +69,8 @@ type TransitionParams struct {
 // on-chain output, this function takes the script key of the asset to return
 // the proof for. This method returns both the encoded full provenance (proof
 // chain) and the added latest proof.
-func AppendTransition(blob Blob, params *TransitionParams,
-	vCtx VerifierCtx) (Blob, *Proof, error) {
+func AppendTransition(blob Blob, params *TransitionParams, vCtx VerifierCtx,
+	opts ...GenOption) (Blob, *Proof, error) {
 
 	// Decode the proof blob into a proper file structure first.
 	f := NewEmptyFile(V0)
@@ -69,7 +96,7 @@ func AppendTransition(blob Blob, params *TransitionParams,
 	}
 
 	// We can now create the new proof entry for the asset in the params.
-	newProof, err := CreateTransitionProof(lastPrevOut, params)
+	newProof, err := CreateTransitionProof(lastPrevOut, params, opts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating transition "+
 			"proof: %w", err)
@@ -122,10 +149,17 @@ func (p *Proof) UpdateTransitionProof(params *BaseProofParams) error {
 
 // CreateTransitionProof creates a proof for an asset transition, based on the
 // last proof of the last asset state and the new asset in the params.
-func CreateTransitionProof(prevOut wire.OutPoint,
-	params *TransitionParams) (*Proof, error) {
+func CreateTransitionProof(prevOut wire.OutPoint, params *TransitionParams,
+	opts ...GenOption) (*Proof, error) {
 
-	proof, err := baseProof(&params.BaseProofParams, prevOut)
+	cfg := DefaultGenConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	proof, err := baseProof(
+		&params.BaseProofParams, prevOut, cfg.transitionVersion,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating base proofs: %w", err)
 	}
@@ -158,6 +192,41 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 	proof.InclusionProof.CommitmentProof = &CommitmentProof{
 		Proof:              *assetMerkleProof,
 		TapSiblingPreimage: params.TapscriptSibling,
+	}
+
+	if proof.Asset.IsTransferRoot() {
+		stxoInclusionProofs := make(
+			map[asset.SerializedKey]commitment.Proof,
+			len(proof.Asset.PrevWitnesses),
+		)
+		for _, wit := range proof.Asset.PrevWitnesses {
+			spentAsset, err := asset.MakeSpentAsset(wit)
+			if err != nil {
+				return nil, fmt.Errorf("error creating "+
+					"altLeaf: %w", err)
+			}
+
+			// Generate an STXO inclusion proof for each prev
+			// witness.
+			_, stxoProof, err := params.TaprootAssetRoot.Proof(
+				asset.EmptyGenesisID,
+				spentAsset.AssetCommitmentKey(),
+			)
+			if err != nil {
+				return nil, err
+			}
+			keySerialized := asset.ToSerialized(
+				spentAsset.ScriptKey.PubKey,
+			)
+			stxoInclusionProofs[keySerialized] = *stxoProof
+		}
+
+		if len(stxoInclusionProofs) == 0 {
+			return nil, fmt.Errorf("no stxo inclusion proofs")
+		}
+
+		proof.InclusionProof.CommitmentProof.STXOProofs =
+			stxoInclusionProofs
 	}
 
 	// If the asset is a split asset, we also need to generate MS-SMT

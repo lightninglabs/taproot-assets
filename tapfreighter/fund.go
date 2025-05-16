@@ -460,16 +460,6 @@ func createAndSetInput(vPkt *tappsbt.VPacket, idx int,
 	}
 	vPkt.SetInputAsset(idx, assetInput.Asset)
 
-	inputAltLeaves, err := assetInput.Commitment.FetchAltLeaves()
-	if err != nil {
-		return fmt.Errorf("cannot fetch alt leaves from input: %w", err)
-	}
-
-	err = vPkt.Inputs[idx].SetAltLeaves(inputAltLeaves)
-	if err != nil {
-		return fmt.Errorf("cannot set alt leaves on vInput: %w", err)
-	}
-
 	return nil
 }
 

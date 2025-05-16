@@ -453,7 +453,9 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 	// With the outputs prepared, we can now create the set of output
 	// commitments, then with the output index locations known, we can set
 	// the output indexes in the allocations.
-	outCommitments, err := tapsend.CreateOutputCommitments(vPackets)
+	outCommitments, err := tapsend.CreateOutputCommitments(
+		vPackets, tapsend.WithNoSTXOProofs(),
+	)
 	if err != nil {
 		return none, fmt.Errorf("unable to create output "+
 			"commitments: %w", err)

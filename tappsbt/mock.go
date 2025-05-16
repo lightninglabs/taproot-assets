@@ -173,10 +173,8 @@ func RandPacket(t testing.TB, setVersion, altLeaves bool) *VPacket {
 	}
 
 	if altLeaves {
-		inputLeaves := asset.RandAltLeaves(t, true)
 		output1Leaves := asset.RandAltLeaves(t, true)
 		output2Leaves := asset.RandAltLeaves(t, true)
-		randVInput.AltLeaves = asset.ToAltLeaves(inputLeaves)
 		randVOutput1.AltLeaves = asset.ToAltLeaves(output1Leaves)
 		randVOutput2.AltLeaves = asset.ToAltLeaves(output2Leaves)
 	}
@@ -308,22 +306,6 @@ func NewTestFromVInput(t testing.TB, i *VInput) *TestVInput {
 		ti.Proof = proof.NewTestFromProof(t, i.Proof)
 	}
 
-	if len(i.AltLeaves) > 0 {
-		// Assert that the concrete type of AltLeaf is supported.
-		require.IsTypef(
-			t, &asset.Asset{}, i.AltLeaves[0],
-			"AltLeaves must be of type *asset.Asset",
-		)
-
-		ti.AltLeaves = make([]*asset.TestAsset, 0, len(i.AltLeaves))
-		for idx := range i.AltLeaves {
-			leaf := i.AltLeaves[idx].(*asset.Asset)
-			ti.AltLeaves = append(
-				ti.AltLeaves, asset.NewTestFromAsset(t, leaf),
-			)
-		}
-	}
-
 	return ti
 }
 
@@ -336,7 +318,6 @@ type TestVInput struct {
 	Anchor            *TestAnchor              `json:"anchor"`
 	Asset             *asset.TestAsset         `json:"asset"`
 	Proof             *proof.TestProof         `json:"proof"`
-	AltLeaves         []*asset.TestAsset       `json:"alt_leaves"`
 }
 
 func (ti *TestVInput) ToVInput(t testing.TB) *VInput {
@@ -377,15 +358,6 @@ func (ti *TestVInput) ToVInput(t testing.TB) *VInput {
 
 	if ti.Proof != nil {
 		vi.Proof = ti.Proof.ToProof(t)
-	}
-
-	if len(ti.AltLeaves) > 0 {
-		vi.AltLeaves = make(
-			[]asset.AltLeaf[asset.Asset], len(ti.AltLeaves),
-		)
-		for idx, leaf := range ti.AltLeaves {
-			vi.AltLeaves[idx] = leaf.ToAsset(t)
-		}
 	}
 
 	return vi

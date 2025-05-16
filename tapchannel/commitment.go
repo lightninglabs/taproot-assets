@@ -575,7 +575,9 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 			"packets: %w", err)
 	}
 
-	outCommitments, err := tapsend.CreateOutputCommitments(vPackets)
+	outCommitments, err := tapsend.CreateOutputCommitments(
+		vPackets, tapsend.WithNoSTXOProofs(),
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create output "+
 			"commitments: %w", err)
@@ -1423,7 +1425,9 @@ func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 			"packets: %w", err)
 	}
 
-	outCommitments, err := tapsend.CreateOutputCommitments(vPackets)
+	outCommitments, err := tapsend.CreateOutputCommitments(
+		vPackets, tapsend.WithNoSTXOProofs(),
+	)
 	if err != nil {
 		return none, fmt.Errorf("unable to create output commitments: "+
 			"%w", err)

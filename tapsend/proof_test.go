@@ -27,6 +27,30 @@ var (
 // TestCreateProofSuffix tests the creation of suffix proofs for a given anchor
 // transaction.
 func TestCreateProofSuffix(t *testing.T) {
+	testCases := []struct {
+		name        string
+		stxoProof   bool
+		expectedErr string
+	}{
+		{
+			name:      "Correct inclusion and exclusion proofs",
+			stxoProof: true,
+		},
+		{
+			name:      "No stxo proof",
+			stxoProof: false,
+			expectedErr: "error verifying STXO proof: missing " +
+				"asset proof",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(tt *testing.T) {
+			createProofSuffix(t, tc.stxoProof, tc.expectedErr)
+		})
+	}
+}
+
+func createProofSuffix(t *testing.T, stxoProof bool, expectedErr string) {
 	testAssets := []*asset.Asset{
 		asset.RandAsset(t, asset.RandAssetType(t)),
 		asset.RandAsset(t, asset.RandAssetType(t)),
@@ -83,7 +107,10 @@ func TestCreateProofSuffix(t *testing.T) {
 	}
 	outputCommitments := make(map[uint32]*commitment.TapCommitment)
 
-	addOutputCommitment(t, anchorTx, outputCommitments, testPackets...)
+	addOutputCommitment(
+		t, anchorTx, outputCommitments, stxoProof,
+		testPackets...,
+	)
 	addBip86Output(t, anchorTx.FundedPsbt.Pkt)
 
 	// Create a proof suffix for all 4 packets now and validate it.
@@ -92,6 +119,7 @@ func TestCreateProofSuffix(t *testing.T) {
 			proofSuffix, err := CreateProofSuffix(
 				pkt.UnsignedTx, pkt.Outputs, vPkt,
 				outputCommitments, outIdx, testPackets,
+				proof.WithVersion(proof.TransitionV1),
 			)
 			require.NoError(t, err)
 
@@ -106,18 +134,34 @@ func TestCreateProofSuffix(t *testing.T) {
 			)
 
 			// Checking the transfer witness is the very last step
-			// of the proof verification. Since we didn't properly
+			// of the proof verification. Since we don't properly
 			// sign the transfer, we expect the witness to be
 			// invalid. But if we get to that point, we know that
-			// all inclusion and exclusion proofs are correct (which
-			// is what this test is testing).
+			// all inclusion and exclusion proofs are correct. So
+			// for successful cases we still expect an error, namely
+			// the invalid witness error.
+			errCode := txscript.ErrTaprootSigInvalid
 			invalidWitnessErr := vm.Error{
 				Kind: vm.ErrInvalidTransferWitness,
 				Inner: txscript.Error{
-					ErrorCode: txscript.ErrTaprootSigInvalid,
+					ErrorCode: errCode,
 				},
 			}
-			require.ErrorIs(t, err, invalidWitnessErr)
+			if expectedErr == "" {
+				require.ErrorIs(t, err, invalidWitnessErr)
+
+				continue
+			}
+
+			if vPkt.Outputs[outIdx].Asset.IsTransferRoot() {
+				require.ErrorContains(
+					t, err, expectedErr,
+				)
+			} else {
+				require.ErrorIs(
+					t, err, invalidWitnessErr,
+				)
+			}
 		}
 	}
 }
@@ -206,7 +250,7 @@ func createPacket(t *testing.T, a *asset.Asset, split bool,
 
 func addOutputCommitment(t *testing.T, anchorTx *AnchorTransaction,
 	outputCommitments map[uint32]*commitment.TapCommitment,
-	vPackets ...*tappsbt.VPacket) {
+	stxoProof bool, vPackets ...*tappsbt.VPacket) {
 
 	packet := anchorTx.FundedPsbt.Pkt
 
@@ -222,27 +266,42 @@ func addOutputCommitment(t *testing.T, anchorTx *AnchorTransaction,
 		}
 	}
 
-	for idx, assets := range assetsByOutput {
-		for idx := range assets {
-			if !assets[idx].HasSplitCommitmentWitness() {
+	stxoAssetsByOutput := make(map[uint32][]asset.AltLeaf[asset.Asset])
+	for idx1, assets := range assetsByOutput {
+		for idx2 := range assets {
+			if assets[idx2].IsTransferRoot() {
+				stxoAssets, err := asset.CollectSTXO(
+					assets[idx2],
+				)
+				stxoAssetsByOutput[idx1] = append(
+					stxoAssetsByOutput[idx1], stxoAssets...,
+				)
+				require.NoError(t, err)
+			}
+
+			if !assets[idx2].HasSplitCommitmentWitness() {
 				continue
 			}
-			assets[idx] = assets[idx].Copy()
-			assets[idx].PrevWitnesses[0].SplitCommitment = nil
+
+			assets[idx2] = assets[idx2].Copy()
+			assets[idx2].PrevWitnesses[0].SplitCommitment = nil
 		}
 
 		c, err := commitment.FromAssets(nil, assets...)
 		require.NoError(t, err)
+		if stxoProof {
+			err = c.MergeAltLeaves(stxoAssetsByOutput[idx1])
+			require.NoError(t, err)
+		}
 
-		internalKey := keyByOutput[idx]
+		internalKey := keyByOutput[idx1]
 		script, err := tapscript.PayToAddrScript(*internalKey, nil, *c)
 		require.NoError(t, err)
 
-		packet.UnsignedTx.TxOut[idx].PkScript = script
-		packet.Outputs[idx].TaprootInternalKey = schnorr.SerializePubKey(
-			internalKey,
-		)
-		outputCommitments[idx] = c
+		packet.UnsignedTx.TxOut[idx1].PkScript = script
+		packet.Outputs[idx1].TaprootInternalKey =
+			schnorr.SerializePubKey(internalKey)
+		outputCommitments[idx1] = c
 	}
 }
 
