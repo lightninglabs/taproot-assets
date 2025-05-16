@@ -22,7 +22,7 @@ type ArchiveConfig struct {
 	// NewBaseTree returns a new base universe backend for the given
 	// identifier. This method always returns a new universe instance, even
 	// if the identifier has never been seen before.
-	NewBaseTree func(id Identifier) BaseBackend
+	NewBaseTree func(id Identifier) StorageBackend
 
 	// HeaderVerifier is used to verify the validity of the header for a
 	// genesis proof.
@@ -65,7 +65,7 @@ type Archive struct {
 
 	// baseUniverses is a map of all the current known base universe
 	// instances for the archive.
-	baseUniverses map[Identifier]BaseBackend
+	baseUniverses map[Identifier]StorageBackend
 
 	sync.RWMutex
 }
@@ -74,7 +74,7 @@ type Archive struct {
 func NewArchive(cfg ArchiveConfig) *Archive {
 	a := &Archive{
 		cfg:           cfg,
-		baseUniverses: make(map[Identifier]BaseBackend),
+		baseUniverses: make(map[Identifier]StorageBackend),
 	}
 
 	return a
@@ -87,7 +87,7 @@ func (a *Archive) Close() error {
 
 // fetchUniverse returns the base universe instance for the passed identifier.
 // The universe will be loaded in on demand if it has not been seen before.
-func (a *Archive) fetchUniverse(id Identifier) BaseBackend {
+func (a *Archive) fetchUniverse(id Identifier) StorageBackend {
 	a.Lock()
 	defer a.Unlock()
 
@@ -103,21 +103,20 @@ func (a *Archive) fetchUniverse(id Identifier) BaseBackend {
 // uniFetcher takes a base universe ID, and returns the base universe
 // backend associated with the ID.
 type uniFetcher interface {
-	fetchUniverse(id Identifier) BaseBackend
+	fetchUniverse(id Identifier) StorageBackend
 }
 
 // uniAction is a function that takes a base universe backend, and does
 // something to it, returning a type T and an error.
-type uniAction[T any] func(BaseBackend) (T, error)
+type uniAction[T any] func(StorageBackend) (T, error)
 
-// withBaseUni is a helper function for performing some action on/with a base
-// universe with a generic return value.
-func withBaseUni[T any](fetcher uniFetcher, id Identifier,
+// withUni is a helper function that performs an action on a universe instance,
+// returning a generic result.
+func withUni[T any](fetcher uniFetcher, id Identifier,
 	f uniAction[T]) (T, error) {
 
-	baseUni := fetcher.fetchUniverse(id)
-
-	return f(baseUni)
+	uni := fetcher.fetchUniverse(id)
+	return f(uni)
 }
 
 // RootNode returns the root node of the base universe corresponding to the
@@ -130,11 +129,25 @@ func (a *Archive) RootNode(ctx context.Context,
 	return a.cfg.Multiverse.UniverseRootNode(ctx, id)
 }
 
+// RootNodesQuery is a query struct used to fetch root nodes from the archive.
 type RootNodesQuery struct {
+	// WithAmountsById is a boolean that indicates whether to include
+	// amounts by ID in the results. If true, then the results will
+	// include the amounts by ID for each root node.
 	WithAmountsById bool
-	SortDirection   SortDirection
-	Offset          int32
-	Limit           int32
+
+	// SortDirection is the direction to sort the root nodes by.
+	SortDirection SortDirection
+
+	// Offset is the zero-based index of the first item in the returned
+	// results. In other words, it specifies how many entries to skip before
+	// including the first entry in the result set. This is useful for
+	// pagination.
+	Offset int32
+
+	// Limit is the maximum number of root nodes to return. If this is
+	// zero, then the default limit will be used.
+	Limit int32
 }
 
 // RootNodes returns the set of root nodes for all known base universes assets.
@@ -653,11 +666,24 @@ func (a *Archive) FetchProofLeaf(ctx context.Context, id Identifier,
 	return a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
 }
 
+// UniverseLeafKeysQuery is a query struct to fetch leaf keys from the archive.
 type UniverseLeafKeysQuery struct {
-	Id            Identifier
+	// Id is the universe identifier.
+	Id Identifier
+
+	// SortDirection is the sorting direction of the leaf keys in the
+	// response.
 	SortDirection SortDirection
-	Offset        int32
-	Limit         int32
+
+	// Offset is the zero-based index of the first item in the returned
+	// results. In other words, it specifies how many entries to skip before
+	// including the first entry in the result set. This is useful for
+	// pagination.
+	Offset int32
+
+	// Limit is the maximum number of leaf keys to return. If this is
+	// zero, then the default limit will be used.
+	Limit int32
 }
 
 // UniverseLeafKeys returns the set of leaf keys known for the specified
@@ -670,17 +696,17 @@ func (a *Archive) UniverseLeafKeys(ctx context.Context,
 	return a.cfg.Multiverse.UniverseLeafKeys(ctx, q)
 }
 
-// MintingLeaves returns the set of minting leaves known for the specified base
-// universe.
-func (a *Archive) MintingLeaves(ctx context.Context,
+// FetchLeaves returns the set of leaves which correspond to the given universe
+// identifier.
+func (a *Archive) FetchLeaves(ctx context.Context,
 	id Identifier) ([]Leaf, error) {
 
-	log.Debugf("Retrieving all leaves for Universe: id=%v",
+	log.Debugf("Retrieving all leaves for universe (id=%v)",
 		id.StringForLog())
 
-	return withBaseUni(
-		a, id, func(baseUni BaseBackend) ([]Leaf, error) {
-			return baseUni.MintingLeaves(ctx)
+	return withUni(
+		a, id, func(uni StorageBackend) ([]Leaf, error) {
+			return uni.FetchLeaves(ctx)
 		},
 	)
 }

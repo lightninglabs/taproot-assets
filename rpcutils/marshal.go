@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -254,6 +255,25 @@ func UnmarshalGenesisInfo(rpcGen *taprpc.GenesisInfo) (*asset.Genesis, error) {
 		MetaHash:     fn.ToArray[[32]byte](rpcGen.MetaHash),
 		OutputIndex:  rpcGen.OutputIndex,
 		Type:         asset.Type(rpcGen.AssetType),
+	}, nil
+}
+
+// UnmarshalOutPoint parses an outpoint from the RPC variant.
+func UnmarshalOutPoint(rpcOutpoint *taprpc.OutPoint) (wire.OutPoint, error) {
+	var zero wire.OutPoint
+
+	if rpcOutpoint == nil {
+		return zero, fmt.Errorf("unexpected nil RPC outpoint")
+	}
+
+	txid, err := chainhash.NewHash(rpcOutpoint.Txid)
+	if err != nil {
+		return zero, fmt.Errorf("invalid outpoint txid: %w", err)
+	}
+
+	return wire.OutPoint{
+		Hash:  *txid,
+		Index: rpcOutpoint.OutputIndex,
 	}, nil
 }
 

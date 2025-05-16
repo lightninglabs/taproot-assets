@@ -154,8 +154,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	groupVerifier := tapgarden.GenGroupVerifier(
 		context.Background(), assetMintingStore,
 	)
-	uniCfg := universe.ArchiveConfig{
-		NewBaseTree: func(id universe.Identifier) universe.BaseBackend {
+	uniArchiveCfg := universe.ArchiveConfig{
+		// nolint: lll
+		NewBaseTree: func(id universe.Identifier) universe.StorageBackend {
 			return tapdb.NewBaseUniverseTree(
 				uniDB, id,
 			)
@@ -284,12 +285,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		ErrChan:   mainErrChan,
 	})
 
-	baseUni := universe.NewArchive(uniCfg)
+	uniArchive := universe.NewArchive(uniArchiveCfg)
 
 	universeSyncer := universe.NewSimpleSyncer(universe.SimpleSyncCfg{
-		LocalDiffEngine:     baseUni,
+		LocalDiffEngine:     uniArchive,
 		NewRemoteDiffEngine: tap.NewRpcUniverseDiff,
-		LocalRegistrar:      baseUni,
+		LocalRegistrar:      uniArchive,
 		SyncBatchSize:       defaultUniverseSyncBatchSize,
 	})
 
@@ -304,7 +305,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		universe.FederationConfig{
 			FederationDB:            federationDB,
 			UniverseSyncer:          universeSyncer,
-			LocalRegistrar:          baseUni,
+			LocalRegistrar:          uniArchive,
 			SyncInterval:            cfg.Universe.SyncInterval,
 			NewRemoteRegistrar:      tap.NewRpcUniverseRegistrar,
 			StaticFederationMembers: federationMembers,
@@ -574,7 +575,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AssetWallet:              assetWallet,
 		CoinSelect:               coinSelect,
 		ChainPorter:              chainPorter,
-		UniverseArchive:          baseUni,
+		UniverseArchive:          uniArchive,
 		UniverseSyncer:           universeSyncer,
 		UniverseFederation:       universeFederation,
 		UniFedSyncAllAssets:      cfg.Universe.SyncAllAssets,

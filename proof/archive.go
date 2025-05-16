@@ -136,7 +136,7 @@ type AnnotatedProof struct {
 // Exporter is used to fetch proofs by their unique identifier.
 type Exporter interface {
 	// FetchProof fetches a proof for an asset uniquely identified by the
-	// passed ProofIdentifier.
+	// given locator.
 	//
 	// If a proof cannot be found, then ErrProofNotFound should be
 	// returned. If multiple proofs exist for the given fields of the

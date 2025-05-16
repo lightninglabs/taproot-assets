@@ -548,19 +548,15 @@ func (t Type) String() string {
 
 // PrevID serves as a reference to an asset's previous input.
 type PrevID struct {
-	// OutPoint refers to the asset's previous output position within a
-	// transaction.
+	// OutPoint is the Bitcoin-level identifier (TXID + vout) of the UTXO
+	// anchoring the asset state.
 	OutPoint wire.OutPoint
 
-	// ID is the asset ID of the previous asset tree.
+	// ID is the TAP-level asset identifier.
 	ID ID
 
-	// TODO(roasbeef): need another ref type for assets w/ a key group?
-
-	// ScriptKey is the previously tweaked Taproot output key committing to
-	// the possible spending conditions of the asset. PrevID is being used
-	// as map keys, so we want to only use data types with fixed and
-	// comparable content, which a btcec.PublicKey might not be.
+	// ScriptKey is the TAP-level Taproot output key that committed to the
+	// asset's spending conditions. Serialized to ensure comparability.
 	ScriptKey SerializedKey
 }
 

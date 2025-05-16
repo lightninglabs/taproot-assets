@@ -356,7 +356,7 @@ func (m *MockProofArchive) FetchIssuanceProof(_ context.Context,
 	}
 
 	// Mimic the pattern matching done with proof file paths in
-	// FileArchiver.FetchIssuanceProof().
+	// FileArchiver.FetchProof().
 	matchingHashes := make([][32]byte, 0)
 	locMatcher := func(locBytes [132]byte, locHash [32]byte) error {
 		if bytes.Equal(locBytes[:32], id[:]) &&
