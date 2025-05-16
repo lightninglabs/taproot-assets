@@ -155,7 +155,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		context.Background(), assetMintingStore,
 	)
 	uniArchiveCfg := universe.ArchiveConfig{
-		NewBaseTree: func(id universe.Identifier) universe.BaseBackend {
+		// nolint: lll
+		NewBaseTree: func(id universe.Identifier) universe.StorageBackend {
 			return tapdb.NewBaseUniverseTree(
 				uniDB, id,
 			)

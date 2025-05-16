@@ -398,13 +398,11 @@ func (i *Proof) VerifyRoot(expectedRoot mssmt.Node) bool {
 		mssmt.IsEqualNode(reconstructedRoot, expectedRoot)
 }
 
-// BaseBackend is the backend storage interface for a base universe. The
-// backend can be used to store issuance profs, retrieve them, and also fetch
-// the set of keys and leaves stored within the universe.
-//
-// TODO(roasbeef): gRPC service to match this, think about the REST mapping
-type BaseBackend interface {
-	// RootNode returns the root node for a given base universe.
+// StorageBackend defines the storage interface for a universe. It supports
+// storing and retrieving proofs, as well as fetching the set of keys and leaves
+// contained in the universe.
+type StorageBackend interface {
+	// RootNode returns the root node for a given universe.
 	RootNode(context.Context) (mssmt.Node, string, error)
 
 	// UpsertProofLeaf inserts or updates a proof leaf within the universe
@@ -430,7 +428,7 @@ type BaseBackend interface {
 	// FetchLeaves retrieves all leaves from the universe tree.
 	FetchLeaves(ctx context.Context) ([]Leaf, error)
 
-	// DeleteUniverse deletes all leaves, and the root, for a given base
+	// DeleteUniverse deletes all leaves, and the root, for a given
 	// universe.
 	DeleteUniverse(ctx context.Context) (string, error)
 }
@@ -477,10 +475,9 @@ type MultiverseLeaf struct {
 	*mssmt.LeafNode
 }
 
-// MultiverseArchive is an interface used to keep track of the set of universe
-// roots that we know of. The BaseBackend interface is used to interact with a
-// particular base universe, while this is used to obtain aggregate information
-// about the universes.
+// MultiverseArchive is an interface for tracking the set of known universe
+// roots. While the StorageBackend interface operates on a single universe, this
+// interface provides aggregate access across multiple universes.
 type MultiverseArchive interface {
 	// RootNodes returns the complete set of known root nodes for the set
 	// of assets tracked in the base Universe.
@@ -779,7 +776,7 @@ type CommittedIssuanceProof struct {
 type ChainCommitter interface {
 	// CommitUniverse takes a Universe and returns a new commitment to that
 	// Universe in the main chain.
-	CommitUniverse(universe BaseBackend) (*Commitment, error)
+	CommitUniverse(universe StorageBackend) (*Commitment, error)
 }
 
 // Canonical is an interface that allows a caller to query for the latest
@@ -787,7 +784,7 @@ type ChainCommitter interface {
 //
 // TODO(roasbeef): sync methods too, divide into read/write?
 type Canonical interface {
-	BaseBackend
+	StorageBackend
 
 	// Query returns a fully proved response for the target base key.
 	Query(context.Context, LeafKey) (*CommittedIssuanceProof, error)

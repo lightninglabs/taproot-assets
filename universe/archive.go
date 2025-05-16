@@ -22,7 +22,7 @@ type ArchiveConfig struct {
 	// NewBaseTree returns a new base universe backend for the given
 	// identifier. This method always returns a new universe instance, even
 	// if the identifier has never been seen before.
-	NewBaseTree func(id Identifier) BaseBackend
+	NewBaseTree func(id Identifier) StorageBackend
 
 	// HeaderVerifier is used to verify the validity of the header for a
 	// genesis proof.
@@ -65,7 +65,7 @@ type Archive struct {
 
 	// baseUniverses is a map of all the current known base universe
 	// instances for the archive.
-	baseUniverses map[Identifier]BaseBackend
+	baseUniverses map[Identifier]StorageBackend
 
 	sync.RWMutex
 }
@@ -74,7 +74,7 @@ type Archive struct {
 func NewArchive(cfg ArchiveConfig) *Archive {
 	a := &Archive{
 		cfg:           cfg,
-		baseUniverses: make(map[Identifier]BaseBackend),
+		baseUniverses: make(map[Identifier]StorageBackend),
 	}
 
 	return a
@@ -87,7 +87,7 @@ func (a *Archive) Close() error {
 
 // fetchUniverse returns the base universe instance for the passed identifier.
 // The universe will be loaded in on demand if it has not been seen before.
-func (a *Archive) fetchUniverse(id Identifier) BaseBackend {
+func (a *Archive) fetchUniverse(id Identifier) StorageBackend {
 	a.Lock()
 	defer a.Unlock()
 
@@ -103,12 +103,12 @@ func (a *Archive) fetchUniverse(id Identifier) BaseBackend {
 // uniFetcher takes a base universe ID, and returns the base universe
 // backend associated with the ID.
 type uniFetcher interface {
-	fetchUniverse(id Identifier) BaseBackend
+	fetchUniverse(id Identifier) StorageBackend
 }
 
 // uniAction is a function that takes a base universe backend, and does
 // something to it, returning a type T and an error.
-type uniAction[T any] func(BaseBackend) (T, error)
+type uniAction[T any] func(StorageBackend) (T, error)
 
 // withUni is a helper function that performs an action on a universe instance,
 // returning a generic result.
@@ -705,7 +705,7 @@ func (a *Archive) FetchLeaves(ctx context.Context,
 		id.StringForLog())
 
 	return withUni(
-		a, id, func(uni BaseBackend) ([]Leaf, error) {
+		a, id, func(uni StorageBackend) ([]Leaf, error) {
 			return uni.FetchLeaves(ctx)
 		},
 	)

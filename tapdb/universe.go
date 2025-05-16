@@ -380,11 +380,11 @@ type BatchedUniverseTree interface {
 	BatchedTx[BaseUniverseStore]
 }
 
-// BaseUniverseTree implements the persistent storage for the Base universe for
+// BaseUniverseTree implements the persistent storage for the universe for
 // a given asset. The minting outpoints stored of the asset are used to key
 // into the universe tree.
 //
-// NOTE: This implements the universe.Base interface.
+// NOTE: This implements the universe.StorageBackend interface.
 type BaseUniverseTree struct {
 	db BatchedUniverseTree
 
@@ -1192,4 +1192,4 @@ func (b *BaseUniverseTree) DeleteUniverse(ctx context.Context) (string, error) {
 	return b.smtNamespace, dbErr
 }
 
-var _ universe.BaseBackend = (*BaseUniverseTree)(nil)
+var _ universe.StorageBackend = (*BaseUniverseTree)(nil)
