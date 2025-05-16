@@ -696,17 +696,17 @@ func (a *Archive) UniverseLeafKeys(ctx context.Context,
 	return a.cfg.Multiverse.UniverseLeafKeys(ctx, q)
 }
 
-// MintingLeaves returns the set of minting leaves known for the specified base
-// universe.
-func (a *Archive) MintingLeaves(ctx context.Context,
+// FetchLeaves returns the set of leaves which correspond to the given universe
+// identifier.
+func (a *Archive) FetchLeaves(ctx context.Context,
 	id Identifier) ([]Leaf, error) {
 
-	log.Debugf("Retrieving all leaves for Universe: id=%v",
+	log.Debugf("Retrieving all leaves for universe (id=%v)",
 		id.StringForLog())
 
 	return withUni(
-		a, id, func(baseUni BaseBackend) ([]Leaf, error) {
-			return baseUni.MintingLeaves(ctx)
+		a, id, func(uni BaseBackend) ([]Leaf, error) {
+			return uni.MintingLeaves(ctx)
 		},
 	)
 }

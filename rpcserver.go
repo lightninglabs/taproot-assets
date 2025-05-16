@@ -5389,7 +5389,7 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 		return nil, err
 	}
 
-	assetLeaves, err := r.cfg.UniverseArchive.MintingLeaves(ctx, universeID)
+	assetLeaves, err := r.cfg.UniverseArchive.FetchLeaves(ctx, universeID)
 	if err != nil {
 		return nil, err
 	}
