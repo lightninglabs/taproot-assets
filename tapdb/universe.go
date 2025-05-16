@@ -1026,8 +1026,8 @@ func mintingKeys(ctx context.Context, dbTx BaseUniverseStore,
 	return leafKeys, nil
 }
 
-// MintingKeys returns all the keys inserted in the universe.
-func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
+// FetchKeys retrieves all keys from the universe tree.
+func (b *BaseUniverseTree) FetchKeys(ctx context.Context,
 	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
 
 	var leafKeys []universe.LeafKey

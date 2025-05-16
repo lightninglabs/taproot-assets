@@ -363,7 +363,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 	// Next, we'll query for all the available keys, this should match the
 	// number of insertions we just did.
-	mintingKeys, err := baseUniverse.MintingKeys(
+	mintingKeys, err := baseUniverse.FetchKeys(
 		ctx, universe.UniverseLeafKeysQuery{},
 	)
 	require.NoError(t, err)
@@ -435,7 +435,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	_, err = baseUniverse.DeleteUniverse(ctx)
 	require.NoError(t, err)
 
-	mintingKeys, err = baseUniverse.MintingKeys(
+	mintingKeys, err = baseUniverse.FetchKeys(
 		ctx, universe.UniverseLeafKeysQuery{},
 	)
 	require.NoError(t, err)

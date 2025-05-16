@@ -423,8 +423,8 @@ type BaseBackend interface {
 	FetchIssuanceProof(ctx context.Context,
 		key LeafKey) ([]*Proof, error)
 
-	// MintingKeys returns all the keys inserted in the universe.
-	MintingKeys(ctx context.Context,
+	// FetchKeys retrieves all keys from the universe tree.
+	FetchKeys(ctx context.Context,
 		q UniverseLeafKeysQuery) ([]LeafKey, error)
 
 	// FetchLeaves retrieves all leaves from the universe tree.
