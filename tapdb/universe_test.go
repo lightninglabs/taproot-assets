@@ -378,7 +378,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 	// We should be able to query for the complete set of leaves,
 	// which matches what we inserted above.
-	dbLeaves, err := baseUniverse.MintingLeaves(ctx)
+	dbLeaves, err := baseUniverse.FetchLeaves(ctx)
 	require.NoError(t, err)
 	require.Equal(t, numLeaves, len(dbLeaves))
 	require.True(t, fn.All(dbLeaves, func(leaf universe.Leaf) bool {
@@ -441,7 +441,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, mintingKeys, 0)
 
-	dbLeaves, err = baseUniverse.MintingLeaves(ctx)
+	dbLeaves, err = baseUniverse.FetchLeaves(ctx)
 	require.NoError(t, err)
 	require.Len(t, dbLeaves, 0)
 

@@ -706,7 +706,7 @@ func (a *Archive) FetchLeaves(ctx context.Context,
 
 	return withUni(
 		a, id, func(uni BaseBackend) ([]Leaf, error) {
-			return uni.MintingLeaves(ctx)
+			return uni.FetchLeaves(ctx)
 		},
 	)
 }

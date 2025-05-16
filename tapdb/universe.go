@@ -1050,8 +1050,8 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 	return leafKeys, nil
 }
 
-// MintingLeaves returns all the minting leaves inserted into the universe.
-func (b *BaseUniverseTree) MintingLeaves(
+// FetchLeaves retrieves all leaves from the universe tree.
+func (b *BaseUniverseTree) FetchLeaves(
 	ctx context.Context) ([]universe.Leaf, error) {
 
 	var leaves []universe.Leaf

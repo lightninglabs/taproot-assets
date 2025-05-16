@@ -427,9 +427,8 @@ type BaseBackend interface {
 	MintingKeys(ctx context.Context,
 		q UniverseLeafKeysQuery) ([]LeafKey, error)
 
-	// MintingLeaves returns all the minting leaves inserted into the
-	// universe.
-	MintingLeaves(ctx context.Context) ([]Leaf, error)
+	// FetchLeaves retrieves all leaves from the universe tree.
+	FetchLeaves(ctx context.Context) ([]Leaf, error)
 
 	// DeleteUniverse deletes all leaves, and the root, for a given base
 	// universe.
