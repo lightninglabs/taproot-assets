@@ -807,11 +807,11 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	}, nil
 }
 
-// FetchIssuanceProof returns an issuance proof for the target key. If the key
-// doesn't have a script key specified, then all the proofs for the minting
-// outpoint will be returned. If neither are specified, then proofs for all the
-// inserted leaves will be returned.
-func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
+// FetchProof retrieves a universe proof corresponding to the given key. If the
+// key omits a script key, all proofs for the specified minting outpoint will be
+// returned. If both the script key and minting outpoint are omitted, proofs for
+// all inserted leaves in the universe will be returned.
+func (b *BaseUniverseTree) FetchProof(ctx context.Context,
 	universeKey universe.LeafKey) ([]*universe.Proof, error) {
 
 	var (

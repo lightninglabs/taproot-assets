@@ -328,7 +328,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 		// We should be able to fetch the issuance proof now, using
 		// that very same target key generated.
-		dbProof, err := baseUniverse.FetchIssuanceProof(ctx, targetKey)
+		dbProof, err := baseUniverse.FetchProof(ctx, targetKey)
 		require.NoError(t, err)
 
 		uniProof := dbProof[0]
@@ -481,7 +481,7 @@ func TestUniverseMetaBlob(t *testing.T) {
 
 	// We should be able to fetch the leaf based on the base key we used
 	// above.
-	dbProof, err := baseUniverse.FetchIssuanceProof(ctx, targetKey)
+	dbProof, err := baseUniverse.FetchProof(ctx, targetKey)
 	require.NoError(t, err)
 
 	uniProof := dbProof[0]
@@ -688,7 +688,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 
 	// If we query for only the minting point, then all three leaves should
 	// be returned.
-	proofs, err := baseUniverse.FetchIssuanceProof(
+	proofs, err := baseUniverse.FetchProof(
 		ctx, universe.BaseLeafKey{
 			OutPoint: rootMintingPoint,
 		},
@@ -703,7 +703,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 		scriptKey, err := btcec.ParsePubKey(scriptKeyBytes[:])
 		require.NoError(t, err)
 
-		p, err := baseUniverse.FetchIssuanceProof(
+		p, err := baseUniverse.FetchProof(
 			ctx, universe.BaseLeafKey{
 				OutPoint: rootMintingPoint,
 				ScriptKey: &asset.ScriptKey{
@@ -759,7 +759,7 @@ func TestUniverseLeafOverflow(t *testing.T) {
 
 	// We should be able to fetch the leaf based on the base key we used
 	// above.
-	_, err = baseUniverse.FetchIssuanceProof(ctx, targetKey)
+	_, err = baseUniverse.FetchProof(ctx, targetKey)
 	require.NoError(t, err)
 
 	// If we try to insert another, then this should fail, as the tree will
@@ -771,7 +771,7 @@ func TestUniverseLeafOverflow(t *testing.T) {
 	require.ErrorIs(t, err, mssmt.ErrIntegerOverflow)
 
 	// We should still be able to fetch the original issuance proof.
-	_, err = baseUniverse.FetchIssuanceProof(ctx, targetKey)
+	_, err = baseUniverse.FetchProof(ctx, targetKey)
 	require.NoError(t, err)
 }
 
@@ -877,7 +877,7 @@ func TestUniverseRootSum(t *testing.T) {
 			// Each of the leaves inserted should have the proper
 			// value as well.
 			for i, key := range keys {
-				proofs, err := baseUniverse.FetchIssuanceProof(
+				proofs, err := baseUniverse.FetchProof(
 					ctx, key,
 				)
 				require.NoError(t, err)

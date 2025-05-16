@@ -414,14 +414,14 @@ type BaseBackend interface {
 	RegisterIssuance(ctx context.Context, key LeafKey, leaf *Leaf,
 		metaReveal *proof.MetaReveal) (*Proof, error)
 
-	// FetchIssuanceProof returns an issuance proof for the target key. If
-	// the key doesn't have a script key specified, then all the proofs for
-	// the minting outpoint will be returned. If neither are specified,
-	// then proofs for all the inserted leaves will be returned.
+	// FetchProof retrieves a universe proof corresponding to the given key.
+	// If the key omits a script key, all proofs for the specified minting
+	// outpoint will be returned. If both the script key and minting
+	// outpoint are omitted, proofs for all inserted leaves in the universe
+	// will be returned.
 	//
 	// TODO(roasbeef): can eventually do multi-proofs for the SMT
-	FetchIssuanceProof(ctx context.Context,
-		key LeafKey) ([]*Proof, error)
+	FetchProof(ctx context.Context, key LeafKey) ([]*Proof, error)
 
 	// FetchKeys retrieves all keys from the universe tree.
 	FetchKeys(ctx context.Context,
