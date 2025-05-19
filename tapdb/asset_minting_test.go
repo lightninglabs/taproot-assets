@@ -27,6 +27,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 )
@@ -37,31 +38,20 @@ func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore,
 	sqlc.Querier) {
 
 	// First, Make a new test database.
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
+	queries := sqlc.NewForType(db, db.BackendType)
 
 	mintStore, assetStore := newAssetStoreFromDB(db.BaseDB)
-	return mintStore, assetStore, db
+	return mintStore, assetStore, queries
 }
 
 // newAssetStoreFromDB makes a new instance of the AssetMintingStore backed by
 // the passed database.
-func newAssetStoreFromDB(db *BaseDB) (*AssetMintingStore, *AssetStore) {
-	// TODO(roasbeef): can use another layer of type params since
-	// duplicated?
-	txCreator := func(tx *sql.Tx) PendingAssetStore {
-		return db.WithTx(tx)
-	}
-	activeTxCreator := func(tx *sql.Tx) ActiveAssetsStore {
-		return db.WithTx(tx)
-	}
-
-	metaTxCreator := func(tx *sql.Tx) MetaStore {
-		return db.WithTx(tx)
-	}
-
-	assetMintingDB := NewTransactionExecutor(db, txCreator)
-	assetsDB := NewTransactionExecutor(db, activeTxCreator)
-	metaDB := NewTransactionExecutor(db, metaTxCreator)
+func newAssetStoreFromDB(db *sqldb.BaseDB) (*AssetMintingStore, *AssetStore) {
+	queries := sqlc.NewForType(db, db.BackendType)
+	assetMintingDB := NewPendingAssetStoreExecutor(db, queries)
+	assetsDB := NewActiveAssetExecutor(db, queries)
+	metaDB := NewMetaStoreExecutor(db, queries)
 
 	testClock := clock.NewTestClock(time.Now())
 
@@ -167,7 +157,7 @@ func storeGroupGenesis(t *testing.T, ctx context.Context, initGen asset.Genesis,
 	}
 
 	var writeTxOpts AssetStoreTxOptions
-	err = store.db.ExecTx(ctx, &writeTxOpts, upsertAsset)
+	err = store.db.ExecTx(ctx, &writeTxOpts, upsertAsset, sqldb.NoOpReset)
 	require.NoError(t, err)
 
 	return initialAsset.Amount, groupPriv, &asset.AssetGroup{
@@ -292,12 +282,13 @@ func storeTapscriptTreeWrapper(ctx context.Context, isBranch bool,
 	store *AssetMintingStore, rootHash []byte, nodes [][]byte) error {
 
 	var writeTxOpts AssetStoreTxOptions
-	return store.db.ExecTx(ctx, &writeTxOpts,
-		func(q PendingAssetStore) error {
+	return store.db.ExecTx(
+		ctx, &writeTxOpts, func(q PendingAssetStore) error {
 			return upsertTapscriptTree(
 				ctx, q, rootHash, isBranch, nodes,
 			)
-		})
+		}, sqldb.NoOpReset,
+	)
 }
 
 // fetchTapscriptTreeWrapper wraps a DB transaction that fetches a tapscript
@@ -311,11 +302,12 @@ func fetchTapscriptTreeWrapper(ctx context.Context, rootHash []byte,
 	)
 
 	readOpts := NewAssetStoreReadTx()
-	dbErr := store.db.ExecTx(ctx, &readOpts,
-		func(q PendingAssetStore) error {
+	dbErr := store.db.ExecTx(
+		ctx, &readOpts, func(q PendingAssetStore) error {
 			dbTreeNodes, err = q.FetchTapscriptTree(ctx, rootHash)
 			return err
-		})
+		}, sqldb.NoOpReset,
+	)
 
 	return dbTreeNodes, dbErr
 }
@@ -326,10 +318,11 @@ func deleteTapscriptTreeWrapper(ctx context.Context, rootHash []byte,
 	store *AssetMintingStore) error {
 
 	var writeTxOpts AssetStoreTxOptions
-	return store.db.ExecTx(ctx, &writeTxOpts,
-		func(q PendingAssetStore) error {
+	return store.db.ExecTx(
+		ctx, &writeTxOpts, func(q PendingAssetStore) error {
 			return deleteTapscriptTree(ctx, q, rootHash[:])
-		})
+		}, sqldb.NoOpReset,
+	)
 }
 
 // assertTreeDeletion asserts that a tapscript tree has been deleted properly.
@@ -1289,7 +1282,7 @@ func TestGroupStore(t *testing.T) {
 	}
 
 	var writeTxOpts AssetStoreTxOptions
-	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchGenID)
+	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchGenID, sqldb.NoOpReset)
 
 	// Lookup of a missing genesis should return a wrapped error.
 	invalidGen := gen1
@@ -1301,7 +1294,9 @@ func TestGroupStore(t *testing.T) {
 		return nil
 	}
 
-	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchInvalidGen)
+	_ = assetStore.db.ExecTx(
+		ctx, &writeTxOpts, fetchInvalidGen, sqldb.NoOpReset,
+	)
 
 	// We should also be able to look up each asset group with a genesis ID.
 	fetchGroupByGenID := func(q PendingAssetStore) error {
@@ -1337,7 +1332,9 @@ func TestGroupStore(t *testing.T) {
 		return nil
 	}
 
-	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchGroupByGenID)
+	_ = assetStore.db.ExecTx(
+		ctx, &writeTxOpts, fetchGroupByGenID, sqldb.NoOpReset,
+	)
 
 	// Lookup of an invalid genesis ID should return a wrapped error.
 	invalidGenID := int64(len(mintGroups) + 1)
@@ -1348,7 +1345,9 @@ func TestGroupStore(t *testing.T) {
 		return nil
 	}
 
-	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchInvalidGenID)
+	_ = assetStore.db.ExecTx(
+		ctx, &writeTxOpts, fetchInvalidGenID, sqldb.NoOpReset,
+	)
 
 	// We should also be able to look up each asset group with a group key.
 	fetchGroupByKey := func(q PendingAssetStore) error {
@@ -1370,7 +1369,9 @@ func TestGroupStore(t *testing.T) {
 		return nil
 	}
 
-	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchGroupByKey)
+	_ = assetStore.db.ExecTx(
+		ctx, &writeTxOpts, fetchGroupByKey, sqldb.NoOpReset,
+	)
 
 	// Lookup of a missing group key should return a wrapped error.
 	invalidGroupKey := groupPriv2.PubKey()
@@ -1381,7 +1382,9 @@ func TestGroupStore(t *testing.T) {
 		return nil
 	}
 
-	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchInvalidGroupKey)
+	_ = assetStore.db.ExecTx(
+		ctx, &writeTxOpts, fetchInvalidGroupKey, sqldb.NoOpReset,
+	)
 }
 
 // TestGroupAnchors tests that we can create a minting batch with a multi-asset
@@ -1794,7 +1797,9 @@ func storeMintAnchorUniCommitment(t *testing.T, assetStore AssetMintingStore,
 
 		return nil
 	}
-	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, upsertMintAnchorPreCommit)
+	_ = assetStore.db.ExecTx(
+		ctx, &writeTxOpts, upsertMintAnchorPreCommit, sqldb.NoOpReset,
+	)
 }
 
 // assertMintAnchorUniCommitment is a helper function that reads a mint anchor
@@ -1814,7 +1819,9 @@ func assertMintAnchorUniCommitment(t *testing.T, assetStore AssetMintingStore,
 		mintAnchorCommitment = &res
 		return nil
 	}
-	_ = assetStore.db.ExecTx(ctx, &readOpts, readMintAnchorCommitment)
+	_ = assetStore.db.ExecTx(
+		ctx, &readOpts, readMintAnchorCommitment, sqldb.NoOpReset,
+	)
 
 	// Ensure the mint anchor commitment matches the one we inserted.
 	require.NotNil(t, mintAnchorCommitment)
@@ -1858,7 +1865,7 @@ func TestUpsertMintAnchorUniCommitment(t *testing.T) {
 
 			batchID = int32(batches[0].BatchID)
 			return nil
-		},
+		}, sqldb.NoOpReset,
 	)
 
 	// Serialize keys into bytes for easier handling.

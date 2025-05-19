@@ -13,8 +13,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/universe"
-
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 )
 
 // BurnUniverseTree is a structure that holds the DB for burn operations.
@@ -130,7 +130,7 @@ func (bt *BurnUniverseTree) InsertBurns(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if txErr != nil {
 		return lfn.Err[[]*universe.AuthenticatedBurnLeaf](txErr)
 	}

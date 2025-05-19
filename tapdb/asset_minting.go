@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"golang.org/x/exp/maps"
 )
 
@@ -137,6 +138,8 @@ type (
 // contains only the methods needed to drive the process of batching and
 // creating a new set of assets.
 type PendingAssetStore interface {
+	sqldb.BaseQuerier
+
 	// UpsertAssetStore houses the methods related to inserting/updating
 	// assets.
 	UpsertAssetStore
@@ -293,13 +296,33 @@ func NewAssetStoreReadTx() AssetStoreTxOptions {
 	}
 }
 
+type PendingAssetStoreExecutor[T sqldb.BaseQuerier] struct {
+	*sqldb.TransactionExecutor[T]
+
+	PendingAssetStore
+}
+
+func NewPendingAssetStoreExecutor(baseDB *sqldb.BaseDB,
+	queries *sqlc.Queries) *PendingAssetStoreExecutor[PendingAssetStore] {
+
+	executor := sqldb.NewTransactionExecutor(
+		baseDB, func(tx *sql.Tx) PendingAssetStore {
+			return queries.WithTx(tx)
+		},
+	)
+	return &PendingAssetStoreExecutor[PendingAssetStore]{
+		TransactionExecutor: executor,
+		PendingAssetStore:   queries,
+	}
+}
+
 // BatchedPendingAssetStore combines the PendingAssetStore interface with the
 // BatchedTx interface, allowing for multiple queries to be executed in a
 // single SQL transaction.
 type BatchedPendingAssetStore interface {
 	PendingAssetStore
 
-	BatchedTx[PendingAssetStore]
+	sqldb.BatchedTx[PendingAssetStore]
 }
 
 // AssetMintingStore is an implementation of the tapgarden.PlantingLog
@@ -532,7 +555,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 
 	return err
 }
@@ -664,7 +687,7 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 }
 
 // fetchSeedlingID attempts to fetch the ID for a seedling from a specific
@@ -1048,7 +1071,7 @@ func (a *AssetMintingStore) FetchAssetMeta(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 
 	if dbErr != nil {
 		return nil, dbErr
@@ -1086,7 +1109,7 @@ func (a *AssetMintingStore) FetchNonFinalBatches(
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -1119,7 +1142,7 @@ func (a *AssetMintingStore) FetchAllBatches(
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -1151,7 +1174,7 @@ func (a *AssetMintingStore) FetchMintingBatch(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
 		return nil, fmt.Errorf("no batch with key %x", batchKeyBytes)
@@ -1344,7 +1367,7 @@ func (a *AssetMintingStore) UpdateBatchState(ctx context.Context,
 			RawKey:     batchKey.SerializeCompressed(),
 			BatchState: int16(newState),
 		})
-	})
+	}, sqldb.NoOpReset)
 }
 
 // CommitBatchTapSibling updates the tapscript sibling of a batch based on the
@@ -1360,7 +1383,7 @@ func (a *AssetMintingStore) CommitBatchTapSibling(ctx context.Context,
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		return q.BindMintingBatchWithTapSibling(ctx, siblingUpdate)
-	})
+	}, sqldb.NoOpReset)
 }
 
 // encodeOutpoint encodes the outpoint point in Bitcoin wire format, returning
@@ -1395,7 +1418,7 @@ func (a *AssetMintingStore) CommitBatchTx(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 }
 
 // AddSeedlingGroups stores the asset groups for seedlings associated with a
@@ -1435,7 +1458,7 @@ func (a *AssetMintingStore) AddSeedlingGroups(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 }
 
 // FetchSeedlingGroups is used to fetch the asset groups for seedlings
@@ -1460,7 +1483,7 @@ func (a *AssetMintingStore) FetchSeedlingGroups(ctx context.Context,
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
 		seedlingGroups, err = fetchSeedlingGroups(ctx, q, seedlingGens)
 		return err
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -1554,7 +1577,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 			RawKey:     rawBatchKey,
 			BatchState: int16(tapgarden.BatchStateCommitted),
 		})
-	})
+	}, sqldb.NoOpReset)
 }
 
 // CommitSignedGenesisTx binds a fully signed genesis transaction to a pending
@@ -1679,7 +1702,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 			RawKey:     rawBatchKey,
 			BatchState: int16(tapgarden.BatchStateBroadcast),
 		})
-	})
+	}, sqldb.NoOpReset)
 }
 
 // MarkBatchConfirmed stores final confirmation information for a batch on
@@ -1746,7 +1769,7 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 			}
 		}
 		return nil
-	})
+	}, sqldb.NoOpReset)
 }
 
 // FetchGroupByGenesis fetches the asset group created by the genesis referenced
@@ -1763,7 +1786,7 @@ func (a *AssetMintingStore) FetchGroupByGenesis(ctx context.Context,
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(a PendingAssetStore) error {
 		dbGroup, err = fetchGroupByGenesis(ctx, a, genesisID)
 		return err
-	})
+	}, sqldb.NoOpReset)
 
 	if dbErr != nil {
 		return nil, dbErr
@@ -1786,7 +1809,7 @@ func (a *AssetMintingStore) FetchGroupByGroupKey(ctx context.Context,
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(a PendingAssetStore) error {
 		dbGroup, err = fetchGroupByGroupKey(ctx, a, groupKey)
 		return err
-	})
+	}, sqldb.NoOpReset)
 
 	if dbErr != nil {
 		return nil, dbErr
@@ -1809,7 +1832,7 @@ func (a *AssetMintingStore) FetchScriptKeyByTweakedKey(ctx context.Context,
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
 		scriptKey, err = fetchScriptKey(ctx, q, tweakedKey)
 		return err
-	})
+	}, sqldb.NoOpReset)
 
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
@@ -1862,7 +1885,7 @@ func (a *AssetMintingStore) StoreTapscriptTree(ctx context.Context,
 		return upsertTapscriptTree(
 			ctx, a, rootHash[:], isBranch, treeNodesBytes,
 		)
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, err
 	}
@@ -1884,7 +1907,7 @@ func (a *AssetMintingStore) LoadTapscriptTree(ctx context.Context,
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(a PendingAssetStore) error {
 		dbTreeNodes, err = a.FetchTapscriptTree(ctx, rootHash[:])
 		return err
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -1934,7 +1957,7 @@ func (a *AssetMintingStore) DeleteTapscriptTree(ctx context.Context,
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(a PendingAssetStore) error {
 		return deleteTapscriptTree(ctx, a, rootHash[:])
-	})
+	}, sqldb.NoOpReset)
 }
 
 // A compile-time assertion to ensure that AssetMintingStore meets the

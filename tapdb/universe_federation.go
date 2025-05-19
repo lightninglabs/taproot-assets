@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnutils"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"golang.org/x/exp/maps"
 )
 
@@ -163,12 +164,32 @@ func NewUniverseFederationReadTx() UniverseFederationOptions {
 	}
 }
 
+type UniverseServerExecutor[T sqldb.BaseQuerier] struct {
+	*sqldb.TransactionExecutor[T]
+
+	UniverseServerStore
+}
+
+func NewUniverseServerExecutor(baseDB *sqldb.BaseDB,
+	queries *sqlc.Queries) *UniverseServerExecutor[UniverseServerStore] {
+
+	executor := sqldb.NewTransactionExecutor(
+		baseDB, func(tx *sql.Tx) UniverseServerStore {
+			return queries.WithTx(tx)
+		},
+	)
+	return &UniverseServerExecutor[UniverseServerStore]{
+		TransactionExecutor: executor,
+		UniverseServerStore: queries,
+	}
+}
+
 // BatchedUniverseServerStore allows for batched DB transactions for the
 // universe server store.
 type BatchedUniverseServerStore interface {
 	UniverseServerStore
 
-	BatchedTx[UniverseServerStore]
+	sqldb.BatchedTx[UniverseServerStore]
 }
 
 // assetSyncCfgs is a map of asset ID to universe specific sync config.
@@ -235,7 +256,7 @@ func (u *UniverseFederationDB) UniverseServers(
 		)
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 
 	return uniServers, dbErr
 }
@@ -253,10 +274,10 @@ func (u *UniverseFederationDB) AddServers(ctx context.Context,
 			}
 			return db.InsertUniverseServer(ctx, addr)
 		})
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		// Add context to unique constraint errors.
-		var uniqueConstraintErr *ErrSqlUniqueConstraintViolation
+		var uniqueConstraintErr sqldb.ErrSQLUniqueConstraintViolation
 		if errors.As(err, &uniqueConstraintErr) {
 			return universe.ErrDuplicateUniverse
 		}
@@ -289,7 +310,7 @@ func (u *UniverseFederationDB) RemoveServers(ctx context.Context,
 				TargetServer: a.HostStr(),
 			})
 		})
-	})
+	}, sqldb.NoOpReset)
 }
 
 // LogNewSyncs logs a new sync event for each server. This can be used to keep
@@ -305,7 +326,7 @@ func (u *UniverseFederationDB) LogNewSyncs(ctx context.Context,
 				TargetServer: a.HostStr(),
 			})
 		})
-	})
+	}, sqldb.NoOpReset)
 }
 
 // UpsertFederationProofSyncLog upserts a federation proof sync log entry for a
@@ -353,7 +374,7 @@ func (u *UniverseFederationDB) UpsertFederationProofSyncLog(
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 
 	return logID, err
 }
@@ -415,7 +436,7 @@ func (u *UniverseFederationDB) QueryFederationProofSyncLog(
 		}
 
 		return err
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, err
 	}
@@ -474,7 +495,7 @@ func (u *UniverseFederationDB) FetchPendingProofsSyncLog(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, err
 	}
@@ -595,7 +616,7 @@ func (u *UniverseFederationDB) DeleteProofsSyncLogEntries(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return err
 	}
@@ -664,7 +685,7 @@ func (u *UniverseFederationDB) UpsertFederationSyncConfig(
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return dbErr
 	}
@@ -810,7 +831,7 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 			}
 		}
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, nil, err
 	}

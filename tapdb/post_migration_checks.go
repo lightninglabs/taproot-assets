@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 )
 
 const (
@@ -24,7 +25,7 @@ const (
 
 // postMigrationCheck is a function type for a function that performs a
 // post-migration check on the database.
-type postMigrationCheck func(context.Context, sqlc.Querier) error
+type postMigrationCheck func(context.Context, *sqlc.Queries) error
 
 var (
 	// postMigrationChecks is a map of functions that are run after the
@@ -40,22 +41,22 @@ var (
 // step callbacks that can be used with the migrate package. The keys of the map
 // are the migration versions, and the values are the callbacks that will be
 // executed after the migration with the corresponding version is applied.
-func makePostStepCallbacks(db DatabaseBackend,
-	checks map[uint]postMigrationCheck) map[uint]migrate.PostStepCallback {
+func makePostStepCallbacks(db *sqldb.BaseDB,
+	c map[uint]postMigrationCheck) map[uint]migrate.PostStepCallback {
 
-	var (
-		ctx  = context.Background()
-		txDb = NewTransactionExecutor(
-			db, func(tx *sql.Tx) sqlc.Querier {
-				return db.WithTx(tx)
-			},
-		)
-		writeTxOpts AssetStoreTxOptions
+	queries := sqlc.NewForType(db, db.BackendType)
+	executor := sqldb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) *sqlc.Queries {
+			return queries.WithTx(tx)
+		},
 	)
 
-	postStepCallbacks := make(map[uint]migrate.PostStepCallback)
-	for version, check := range checks {
-		runCheck := func(m *migrate.Migration, q sqlc.Querier) error {
+	var (
+		ctx               = context.Background()
+		postStepCallbacks = make(map[uint]migrate.PostStepCallback)
+	)
+	for version, check := range c {
+		runCheck := func(m *migrate.Migration, q *sqlc.Queries) error {
 			log.Infof("Running post-migration check for version %d",
 				version)
 			start := time.Now()
@@ -80,10 +81,11 @@ func makePostStepCallbacks(db DatabaseBackend,
 		postStepCallbacks[version] = func(m *migrate.Migration,
 			_ database.Driver) error {
 
-			return txDb.ExecTx(
-				ctx, &writeTxOpts, func(q sqlc.Querier) error {
+			return executor.ExecTx(
+				ctx, sqldb.NewWriteTx(),
+				func(q *sqlc.Queries) error {
 					return runCheck(m, q)
-				},
+				}, sqldb.NoOpReset,
 			)
 		}
 	}
@@ -94,7 +96,7 @@ func makePostStepCallbacks(db DatabaseBackend,
 // determineAndAssignScriptKeyType attempts to detect the type of the script
 // keys that don't have a type set yet.
 func determineAndAssignScriptKeyType(ctx context.Context,
-	q sqlc.Querier) error {
+	q *sqlc.Queries) error {
 
 	defaultClock := clock.NewDefaultClock()
 

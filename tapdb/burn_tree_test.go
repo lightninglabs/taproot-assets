@@ -2,7 +2,6 @@ package tapdb
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"testing"
 
@@ -12,7 +11,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,12 +60,9 @@ func setupBurnTreeTest(t *testing.T) (*BurnUniverseTree, asset.Specifier,
 
 	// Create the burn tree instance backed by the usual set of batched db
 	// abstractions.
-	sqlDB := NewTestDB(t)
-	dbTxer := NewTransactionExecutor(
-		sqlDB, func(tx *sql.Tx) BaseUniverseStore {
-			return sqlDB.WithTx(tx)
-		},
-	)
+	sqlDB := sqldb.NewTestDB(t, TapdMigrationStreams)
+	queries := sqlc.NewForType(sqlDB.BaseDB, sqlDB.BaseDB.BackendType)
+	dbTxer := NewBaseUniverseExecutor(sqlDB.BaseDB, queries)
 	burnTree := NewBurnUniverseTree(dbTxer)
 
 	// Create a context for the test.

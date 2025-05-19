@@ -11,6 +11,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite" // Register relevant drivers.
 )
@@ -132,27 +133,13 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 	db.SetMaxIdleConns(defaultMaxConns)
 	db.SetConnMaxLifetime(defaultConnMaxLifetime)
 
-	queries := sqlc.NewSqlite(db)
+	queries := sqlc.NewForType(db, sqldb.BackendTypeSqlite)
 	s := &SqliteStore{
 		cfg: cfg,
 		BaseDB: &BaseDB{
 			DB:      db,
 			Queries: queries,
 		},
-	}
-
-	// Now that the database is open, populate the database with our set of
-	// schemas based on our embedded in-memory file system.
-	if !cfg.SkipMigrations {
-		err := s.ExecuteMigrations(
-			s.backupAndMigrate, WithPostStepCallbacks(
-				makePostStepCallbacks(s, postMigrationChecks),
-			),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error executing migrations: "+
-				"%w", err)
-		}
 	}
 
 	return s, nil
@@ -302,12 +289,12 @@ func NewTestSqliteDBWithVersion(t *testing.T, version uint) *SqliteStore {
 	})
 	require.NoError(t, err)
 
-	err = sqlDB.ExecuteMigrations(
-		TargetVersion(version), WithPostStepCallbacks(
-			makePostStepCallbacks(sqlDB, postMigrationChecks),
-		),
-	)
-	require.NoError(t, err)
+	//err = sqlDB.ExecuteMigrations(
+	//	TargetVersion(version), WithPostStepCallbacks(
+	//		makePostStepCallbacks(sqlDB, postMigrationChecks),
+	//	),
+	//)
+	//require.NoError(t, err)
 
 	t.Cleanup(func() {
 		require.NoError(t, sqlDB.DB.Close())

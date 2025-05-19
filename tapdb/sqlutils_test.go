@@ -3,7 +3,6 @@ package tapdb
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -242,48 +242,29 @@ func (d *DbHandler) AddRandomServerAddrs(t *testing.T,
 }
 
 // newDbHandleFromDb creates a new database store handle given a database store.
-func newDbHandleFromDb(db *BaseDB) *DbHandler {
+func newDbHandleFromDb(db *sqldb.BaseDB) *DbHandler {
 	testClock := clock.NewTestClock(time.Now())
 
 	// Gain a handle to the pending (minting) universe federation store.
-	universeServerTxCreator := NewTransactionExecutor(
-		db, func(tx *sql.Tx) UniverseServerStore {
-			return db.WithTx(tx)
-		},
-	)
+	queries := sqlc.NewForType(db, db.BackendType)
+	universeServerTxCreator := NewUniverseServerExecutor(db, queries)
 	fedStore := NewUniverseFederationDB(universeServerTxCreator, testClock)
 
 	// Gain a handle to the multiverse store.
-	multiverseTxCreator := NewTransactionExecutor(db,
-		func(tx *sql.Tx) BaseMultiverseStore {
-			return db.WithTx(tx)
-		},
-	)
+	multiverseTxCreator := NewBaseMultiverseExecutor(db, queries)
 	multiverseStore := NewMultiverseStore(
 		multiverseTxCreator, DefaultMultiverseStoreConfig(),
 	)
 
 	// Gain a handle to the pending (minting) assets store.
-	assetMintingDB := NewTransactionExecutor(
-		db, func(tx *sql.Tx) PendingAssetStore {
-			return db.WithTx(tx)
-		},
-	)
+	assetMintingDB := NewPendingAssetStoreExecutor(db, queries)
 	assetMintingStore := NewAssetMintingStore(assetMintingDB)
 
 	// Gain a handle to the active assets store.
-	assetsDB := NewTransactionExecutor(
-		db, func(tx *sql.Tx) ActiveAssetsStore {
-			return db.WithTx(tx)
-		},
-	)
+	assetsDB := NewActiveAssetExecutor(db, queries)
 
 	// Gain a handle to the meta store.
-	metaDB := NewTransactionExecutor(
-		db, func(tx *sql.Tx) MetaStore {
-			return db.WithTx(tx)
-		},
-	)
+	metaDB := NewMetaStoreExecutor(db, queries)
 
 	activeAssetsStore := NewAssetStore(
 		assetsDB, metaDB, testClock, db.Backend(),
@@ -294,20 +275,13 @@ func newDbHandleFromDb(db *BaseDB) *DbHandler {
 		MultiverseStore:         multiverseStore,
 		AssetMintingStore:       assetMintingStore,
 		AssetStore:              activeAssetsStore,
-		DirectQuery:             db,
+		DirectQuery:             queries,
 	}
-}
-
-// NewDbHandleFromPath creates a new database store handle given a database file
-// path.
-func NewDbHandleFromPath(t *testing.T, dbPath string) *DbHandler {
-	db := NewTestDbHandleFromPath(t, dbPath)
-	return newDbHandleFromDb(db.BaseDB)
 }
 
 // NewDbHandle creates a new database store handle.
 func NewDbHandle(t *testing.T) *DbHandler {
 	// Create a new test database with the default database file path.
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
 	return newDbHandleFromDb(db.BaseDB)
 }

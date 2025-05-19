@@ -2,7 +2,6 @@ package tapdb
 
 import (
 	"context"
-	"database/sql"
 	"encoding/hex"
 	"testing"
 
@@ -12,8 +11,10 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -79,12 +80,9 @@ func setupIgnoreTreeTest(t *testing.T) (*IgnoreUniverseTree, asset.Specifier,
 
 	// Create the ignore tree instance backed by the usual set of batched db
 	// abstractions.
-	sqlDB := NewTestDB(t)
-	dbTxer := NewTransactionExecutor(
-		sqlDB, func(tx *sql.Tx) BaseUniverseStore {
-			return sqlDB.WithTx(tx)
-		},
-	)
+	sqlDB := sqldb.NewTestDB(t, TapdMigrationStreams)
+	queries := sqlc.NewForType(sqlDB.BaseDB, sqlDB.BaseDB.BackendType)
+	dbTxer := NewBaseUniverseExecutor(sqlDB.BaseDB, queries)
 	ignoreTree := NewIgnoreUniverseTree(dbTxer)
 
 	// Create a context for the test.

@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 )
 
 type (
@@ -61,6 +62,8 @@ type (
 // UniverseStatsStore is an interface that defines the methods required to
 // implement the universe.Telemetry interface.
 type UniverseStatsStore interface {
+	sqldb.BaseQuerier
+
 	// InsertNewProofEvent inserts a new proof event into the database.
 	InsertNewProofEvent(ctx context.Context, arg NewProofEvent) error
 
@@ -104,12 +107,32 @@ func NewUniverseStatsReadTx() UniverseStatsOptions {
 	}
 }
 
+type UniverseStatsExecutor[T sqldb.BaseQuerier] struct {
+	*sqldb.TransactionExecutor[T]
+
+	UniverseStatsStore
+}
+
+func NewUniverseStatsExecutor(baseDB *sqldb.BaseDB,
+	queries *sqlc.Queries) *UniverseStatsExecutor[UniverseStatsStore] {
+
+	executor := sqldb.NewTransactionExecutor(
+		baseDB, func(tx *sql.Tx) UniverseStatsStore {
+			return queries.WithTx(tx)
+		},
+	)
+	return &UniverseStatsExecutor[UniverseStatsStore]{
+		TransactionExecutor: executor,
+		UniverseStatsStore:  queries,
+	}
+}
+
 // BatchedUniverseStats is a wrapper around the set of UniverseSyncEvents that
 // supports batched DB operations.
 type BatchedUniverseStats interface {
 	UniverseStatsStore
 
-	BatchedTx[UniverseStatsStore]
+	sqldb.BatchedTx[UniverseStatsStore]
 }
 
 // eventQuery is used to query for events within a given time range.
@@ -369,7 +392,7 @@ func (u *UniverseStats) LogSyncEvent(ctx context.Context,
 			GroupKeyXOnly:  groupKeyXOnly,
 			ProofType:      sqlStr(uniID.ProofType.String()),
 		})
-	})
+	}, sqldb.NoOpReset)
 }
 
 // LogSyncEvents logs sync events for the target universe.
@@ -403,7 +426,7 @@ func (u *UniverseStats) LogSyncEvents(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 }
 
 // LogNewProofEvent logs a new proof insertion event for the target universe.
@@ -424,7 +447,7 @@ func (u *UniverseStats) LogNewProofEvent(ctx context.Context,
 			GroupKeyXOnly:  groupKeyXOnly,
 			ProofType:      sqlStr(uniID.ProofType.String()),
 		})
-	})
+	}, sqldb.NoOpReset)
 }
 
 // LogNewProofEvents logs new proof insertion events for the target universe.
@@ -457,7 +480,7 @@ func (u *UniverseStats) LogNewProofEvents(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 }
 
 // querySyncStats is a helper function that's used to query the sync stats for
@@ -503,7 +526,7 @@ func (u *UniverseStats) querySyncStats(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return universe.AggregateStats{}, err
 	}
@@ -706,7 +729,7 @@ func (u *UniverseStats) QueryAssetStatsPerDay(ctx context.Context,
 	)
 	dbErr := u.db.ExecTx(ctx, &readTx, func(db UniverseStatsStore) error {
 		switch u.db.Backend() {
-		case sqlc.BackendTypeSqlite:
+		case sqldb.BackendTypeSqlite:
 			var err error
 			stats, err := db.QueryAssetStatsPerDaySqlite(
 				ctx, AssetStatsPerDayQuery{
@@ -736,7 +759,7 @@ func (u *UniverseStats) QueryAssetStatsPerDay(ctx context.Context,
 
 			return nil
 
-		case sqlc.BackendTypePostgres:
+		case sqldb.BackendTypePostgres:
 			stats, err := db.QueryAssetStatsPerDayPostgres(
 				ctx, AssetStatsPerDayQueryPg{
 					StartTime: q.StartTime.UTC().Unix(),
@@ -769,7 +792,7 @@ func (u *UniverseStats) QueryAssetStatsPerDay(ctx context.Context,
 			return fmt.Errorf("unknown backend type: %v",
 				u.db.Backend())
 		}
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -907,7 +930,7 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, err
 	}

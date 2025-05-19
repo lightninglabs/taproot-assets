@@ -9,6 +9,7 @@ import (
 	postgres_migrate "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -119,27 +120,13 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	rawDb.SetConnMaxLifetime(connMaxLifetime)
 	rawDb.SetConnMaxIdleTime(connMaxIdleTime)
 
-	queries := sqlc.NewPostgres(rawDb)
+	queries := sqlc.NewForType(rawDb, sqldb.BackendTypePostgres)
 	s := &PostgresStore{
 		cfg: cfg,
 		BaseDB: &BaseDB{
 			DB:      rawDb,
 			Queries: queries,
 		},
-	}
-
-	// Now that the database is open, populate the database with our set of
-	// schemas based on our embedded in-memory file system.
-	if !cfg.SkipMigrations {
-		err := s.ExecuteMigrations(
-			TargetLatest, WithPostStepCallbacks(
-				makePostStepCallbacks(s, postMigrationChecks),
-			),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error executing migrations: "+
-				"%w", err)
-		}
 	}
 
 	return s, nil

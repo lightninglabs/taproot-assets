@@ -9,6 +9,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 )
 
 type (
@@ -40,6 +41,8 @@ type (
 // TreeStore is a sub-set of the main sqlc.Querier interface that contains
 // only the methods needed to manipulate and query stored MSSMT trees.
 type TreeStore interface {
+	sqldb.BaseQuerier
+
 	// InsertBranch inserts a new branch to the store.
 	InsertBranch(ctx context.Context, newNode NewBranch) error
 
@@ -91,12 +94,32 @@ func NewTreeStoreReadTx() TreeStoreTxOptions {
 	}
 }
 
+type TreeStoreExecutor[T sqldb.BaseQuerier] struct {
+	*sqldb.TransactionExecutor[T]
+
+	TreeStore
+}
+
+func NewTreeStoreExecutor(baseDB *sqldb.BaseDB,
+	queries *sqlc.Queries) *TreeStoreExecutor[TreeStore] {
+
+	executor := sqldb.NewTransactionExecutor(
+		baseDB, func(tx *sql.Tx) TreeStore {
+			return queries.WithTx(tx)
+		},
+	)
+	return &TreeStoreExecutor[TreeStore]{
+		TransactionExecutor: executor,
+		TreeStore:           queries,
+	}
+}
+
 // BatchedTreeStore is a version of the AddrBook that's capable of batched
 // database operations.
 type BatchedTreeStore interface {
 	TreeStore
 
-	BatchedTx[TreeStore]
+	sqldb.BatchedTx[TreeStore]
 }
 
 // TaprootAssetTreeStore is an persistent MS-SMT implementation backed by a live
@@ -136,7 +159,7 @@ func (t *TaprootAssetTreeStore) Update(ctx context.Context,
 	}
 
 	var writeTxOpts TreeStoreTxOptions
-	return t.db.ExecTx(ctx, &writeTxOpts, txBody)
+	return t.db.ExecTx(ctx, &writeTxOpts, txBody, sqldb.NoOpReset)
 }
 
 // View gives a view of the persistent tree in the passed view closure using
@@ -158,7 +181,7 @@ func (t *TaprootAssetTreeStore) View(ctx context.Context,
 		readOnly: true,
 	}
 
-	return t.db.ExecTx(ctx, &readTxOpts, txBody)
+	return t.db.ExecTx(ctx, &readTxOpts, txBody, sqldb.NoOpReset)
 }
 
 type taprootAssetTreeStoreTx struct {

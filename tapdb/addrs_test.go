@@ -2,7 +2,6 @@ package tapdb
 
 import (
 	"context"
-	"database/sql"
 	"math/rand"
 	"testing"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,14 +28,11 @@ var (
 func newAddrBook(t *testing.T,
 	clock clock.Clock) (*TapAddressBook, sqlc.Querier) {
 
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
+	queries := sqlc.NewForType(db, db.BackendType)
 
-	txCreator := func(tx *sql.Tx) AddrBook {
-		return db.WithTx(tx)
-	}
-
-	addrTx := NewTransactionExecutor(db, txCreator)
-	return NewTapAddressBook(addrTx, chainParams, clock), db
+	addrTx := NewAddrBookExecutor(db.BaseDB, queries)
+	return NewTapAddressBook(addrTx, chainParams, clock), queries
 }
 
 func confirmTx(tx *lndclient.Transaction) {
@@ -167,6 +164,7 @@ func TestAddressInsertion(t *testing.T) {
 		err := addrBook.db.ExecTx(
 			ctx, &writeTxOpts,
 			insertFullAssetGen(ctx, assetGen, assetGroup),
+			sqldb.NoOpReset,
 		)
 		require.NoError(t, err)
 	}
@@ -271,6 +269,7 @@ func TestAddressQuery(t *testing.T) {
 		err := addrBook.db.ExecTx(
 			ctx, &writeTxOpts,
 			insertFullAssetGen(ctx, assetGen, assetGroup),
+			sqldb.NoOpReset,
 		)
 		require.NoError(t, err)
 
@@ -386,7 +385,8 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 
 	var writeTxOpts AddrBookTxOptions
 	err := addrBook.db.ExecTx(
-		ctx, &writeTxOpts, insertFullAssetGen(ctx, assetGen, assetGroup),
+		ctx, &writeTxOpts,
+		insertFullAssetGen(ctx, assetGen, assetGroup), sqldb.NoOpReset,
 	)
 	require.NoError(t, err)
 
@@ -428,6 +428,7 @@ func TestAddrEventCreation(t *testing.T) {
 		err := addrBook.db.ExecTx(
 			ctx, &writeTxOpts,
 			insertFullAssetGen(ctx, assetGen, assetGroup),
+			sqldb.NoOpReset,
 		)
 		require.NoError(t, err)
 
@@ -521,6 +522,7 @@ func TestAddressEventQuery(t *testing.T) {
 		err := addrBook.db.ExecTx(
 			ctx, &writeTxOpts,
 			insertFullAssetGen(ctx, assetGen, assetGroup),
+			sqldb.NoOpReset,
 		)
 		require.NoError(t, err)
 

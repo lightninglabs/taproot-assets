@@ -3,7 +3,6 @@ package tapcfg
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/binary"
 	"fmt"
 
@@ -25,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/signal"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 )
 
 // genServerConfig generates a server config from the given tapd config.
@@ -36,71 +36,69 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	mainErrChan chan<- error) (*tap.Config, error) {
 
 	var (
-		err    error
-		db     tapdb.DatabaseBackend
-		dbType sqlc.BackendType
+		err error
+		db  *sqldb.BaseDB
 	)
 
 	// Now that we know where the database will live, we'll go ahead and
 	// open up the default implementation of it.
 	switch cfg.DatabaseBackend {
 	case DatabaseBackendSqlite:
-		dbType = sqlc.BackendTypeSqlite
-
 		cfgLogger.Infof("Opening sqlite3 database at: %v",
 			cfg.Sqlite.DatabaseFileName)
-		db, err = tapdb.NewSqliteStore(cfg.Sqlite)
+		sqliteDB, err := sqldb.NewSqliteStore(&sqldb.SqliteConfig{
+			SkipMigrations:        cfg.Sqlite.SkipMigrations,
+			SkipMigrationDbBackup: cfg.Sqlite.SkipMigrationDbBackup,
+		}, cfg.Sqlite.DatabaseFileName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to open database: %w",
+				err)
+		}
+
+		db = sqliteDB.BaseDB
 
 	case DatabaseBackendPostgres:
-		dbType = sqlc.BackendTypePostgres
-
 		cfgLogger.Infof("Opening postgres database at: %v",
 			cfg.Postgres.DSN(true))
-		db, err = tapdb.NewPostgresStore(cfg.Postgres)
+
+		postgresDB, err := sqldb.NewPostgresStore(&sqldb.PostgresConfig{
+			Dsn:                cfg.Postgres.DSN(false),
+			MaxOpenConnections: cfg.Postgres.MaxOpenConnections,
+			MaxIdleConnections: cfg.Postgres.MaxIdleConnections,
+			ConnMaxLifetime:    cfg.Postgres.ConnMaxLifetime,
+			ConnMaxIdleTime:    cfg.Postgres.ConnMaxIdleTime,
+			RequireSSL:         cfg.Postgres.RequireSSL,
+			SkipMigrations:     cfg.Postgres.SkipMigrations,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to open database: %w",
+				err)
+		}
+
+		db = postgresDB.BaseDB
 
 	default:
 		return nil, fmt.Errorf("unknown database backend: %s",
 			cfg.DatabaseBackend)
 	}
-	if err != nil {
-		return nil, fmt.Errorf("unable to open database: %w", err)
-	}
 
 	defaultClock := clock.NewDefaultClock()
-	rksDB := tapdb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tapdb.KeyStore {
-			return db.WithTx(tx)
-		},
-	)
-	mintingStore := tapdb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tapdb.PendingAssetStore {
-			return db.WithTx(tx)
-		},
-	)
+	queries := sqlc.NewForType(db, db.BackendType)
+	rksDB := tapdb.NewKeyStoreExecutor(db, queries)
+	mintingStore := tapdb.NewPendingAssetStoreExecutor(db, queries)
 	assetMintingStore := tapdb.NewAssetMintingStore(mintingStore)
 
-	assetDB := tapdb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tapdb.ActiveAssetsStore {
-			return db.WithTx(tx)
-		},
-	)
+	assetDB := tapdb.NewActiveAssetExecutor(db, queries)
+	metaDB := tapdb.NewMetaStoreExecutor(db, queries)
 
-	metaDB := tapdb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tapdb.MetaStore {
-			return db.WithTx(tx)
-		},
-	)
-
-	addrBookDB := tapdb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tapdb.AddrBook {
-			return db.WithTx(tx)
-		},
-	)
+	addrBookDB := tapdb.NewAddrBookExecutor(db, queries)
 	tapChainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
 	tapdbAddrBook := tapdb.NewTapAddressBook(
 		addrBookDB, &tapChainParams, defaultClock,
 	)
-	assetStore := tapdb.NewAssetStore(assetDB, metaDB, defaultClock, dbType)
+	assetStore := tapdb.NewAssetStore(
+		assetDB, metaDB, defaultClock, db.BackendType,
+	)
 
 	keyRing := tap.NewLndRpcKeyRing(lndServices)
 	walletAnchor := tap.NewLndRpcWalletAnchor(lndServices)
@@ -110,16 +108,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	lndInvoicesClient := tap.NewLndInvoicesClient(lndServices)
 	lndFeatureBitsVerifier := tap.NewLndFeatureBitVerifier(lndServices)
 
-	uniDB := tapdb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tapdb.BaseUniverseStore {
-			return db.WithTx(tx)
-		},
-	)
-	multiverseDB := tapdb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tapdb.BaseMultiverseStore {
-			return db.WithTx(tx)
-		},
-	)
+	uniDB := tapdb.NewBaseUniverseExecutor(db, queries)
+	multiverseDB := tapdb.NewBaseMultiverseExecutor(db, queries)
 
 	cfgLogger.Debugf("multiverse_cache=%v",
 		spew.Sdump(cfg.Universe.MultiverseCaches))
@@ -130,11 +120,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		},
 	)
 
-	uniStatsDB := tapdb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tapdb.UniverseStatsStore {
-			return db.WithTx(tx)
-		},
-	)
+	uniStatsDB := tapdb.NewUniverseStatsExecutor(db, queries)
 
 	var statsOpts []tapdb.UniverseStatsOption
 	if cfg.Universe.StatsCacheDuration != 0 {
@@ -168,11 +154,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseStats:        universeStats,
 	}
 
-	federationStore := tapdb.NewTransactionExecutor(db,
-		func(tx *sql.Tx) tapdb.UniverseServerStore {
-			return db.WithTx(tx)
-		},
-	)
+	federationStore := tapdb.NewUniverseServerExecutor(db, queries)
 	federationDB := tapdb.NewUniverseFederationDB(
 		federationStore, defaultClock,
 	)

@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 )
 
 type (
@@ -186,6 +187,8 @@ type (
 // ActiveAssetsStore is a sub-set of the main sqlc.Querier interface that
 // contains methods related to querying the set of confirmed assets.
 type ActiveAssetsStore interface {
+	sqldb.BaseQuerier
+
 	// UpsertAssetStore houses the methods related to inserting/updating
 	// assets.
 	UpsertAssetStore
@@ -364,6 +367,8 @@ type ActiveAssetsStore interface {
 // MetaStore is a sub-set of the main sqlc.Querier interface that contains
 // methods related to metadata of the daemon.
 type MetaStore interface {
+	sqldb.BaseQuerier
+
 	// AssetsDBSizeSqlite returns the total size of the taproot assets
 	// sqlite database.
 	AssetsDBSizeSqlite(ctx context.Context) (int32, error)
@@ -403,13 +408,53 @@ func (c cacheableBlockHeight) Size() (uint64, error) {
 	return 1, nil
 }
 
+type ActiveAssetExecutor[T sqldb.BaseQuerier] struct {
+	*sqldb.TransactionExecutor[T]
+
+	ActiveAssetsStore
+}
+
+func NewActiveAssetExecutor(baseDB *sqldb.BaseDB,
+	queries *sqlc.Queries) *ActiveAssetExecutor[ActiveAssetsStore] {
+
+	executor := sqldb.NewTransactionExecutor(
+		baseDB, func(tx *sql.Tx) ActiveAssetsStore {
+			return queries.WithTx(tx)
+		},
+	)
+	return &ActiveAssetExecutor[ActiveAssetsStore]{
+		TransactionExecutor: executor,
+		ActiveAssetsStore:   queries,
+	}
+}
+
 // BatchedAssetStore combines the AssetStore interface with the BatchedTx
 // interface, allowing for multiple queries to be executed in a single SQL
 // transaction.
 type BatchedAssetStore interface {
 	ActiveAssetsStore
 
-	BatchedTx[ActiveAssetsStore]
+	sqldb.BatchedTx[ActiveAssetsStore]
+}
+
+type MetaStoreExecutor[T sqldb.BaseQuerier] struct {
+	*sqldb.TransactionExecutor[T]
+
+	MetaStore
+}
+
+func NewMetaStoreExecutor(baseDB *sqldb.BaseDB,
+	queries *sqlc.Queries) *MetaStoreExecutor[MetaStore] {
+
+	executor := sqldb.NewTransactionExecutor(
+		baseDB, func(tx *sql.Tx) MetaStore {
+			return queries.WithTx(tx)
+		},
+	)
+	return &MetaStoreExecutor[MetaStore]{
+		TransactionExecutor: executor,
+		MetaStore:           queries,
+	}
 }
 
 // BatchedMetaStore combines the MetaStore interface with the BatchedTx
@@ -418,7 +463,7 @@ type BatchedAssetStore interface {
 type BatchedMetaStore interface {
 	MetaStore
 
-	BatchedTx[MetaStore]
+	sqldb.BatchedTx[MetaStore]
 }
 
 // AssetStore is used to query for the set of pending and confirmed assets.
@@ -435,13 +480,13 @@ type AssetStore struct {
 
 	txHeights *lru.Cache[chainhash.Hash, cacheableBlockHeight]
 
-	dbType sqlc.BackendType
+	dbType sqldb.BackendType
 }
 
 // NewAssetStore creates a new AssetStore from the specified BatchedAssetStore
 // interface.
 func NewAssetStore(db BatchedAssetStore, metaDB BatchedMetaStore,
-	clock clock.Clock, dbType sqlc.BackendType) *AssetStore {
+	clock clock.Clock, dbType sqldb.BackendType) *AssetStore {
 
 	return &AssetStore{
 		db:               db,
@@ -1066,7 +1111,7 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 		}
 
 		return err
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -1152,7 +1197,7 @@ func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
 		}
 
 		return err
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -1173,7 +1218,7 @@ func (a *AssetStore) FetchGroupedAssets(ctx context.Context) (
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
 		dbAssets, err = q.FetchGroupedAssets(ctx)
 		return err
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -1248,7 +1293,7 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context, includeSpent,
 		)
 
 		return err
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -1269,7 +1314,7 @@ func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
 		utxos, err = q.FetchManagedUTXOs(ctx)
 		return err
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -1339,7 +1384,7 @@ func (a *AssetStore) FetchAssetProofsSizes(
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 
 	if dbErr != nil {
 		return nil, dbErr
@@ -1416,7 +1461,7 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 			proofs[serializedKey] = assetProofs[0].ProofFile
 		}
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -1448,7 +1493,7 @@ func (a *AssetStore) FetchProof(ctx context.Context,
 		var err error
 		diskProof, err = fetchProof(ctx, q, args)
 		return err
-	})
+	}, sqldb.NoOpReset)
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
 		return nil, proof.ErrProofNotFound
@@ -1551,7 +1596,7 @@ func (a *AssetStore) HasProof(ctx context.Context, locator proof.Locator) (bool,
 
 		haveProof = proofAvailable
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return false, dbErr
 	}
@@ -1619,7 +1664,7 @@ func (a *AssetStore) FetchProofs(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
 		return nil, proof.ErrProofNotFound
@@ -1898,7 +1943,7 @@ func (a *AssetStore) ImportProofs(ctx context.Context, _ proof.VerifierCtx,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return fmt.Errorf("unable to import proofs: %w", err)
 	}
@@ -2117,7 +2162,7 @@ func (a *AssetStore) LeaseCoins(ctx context.Context, leaseOwner [32]byte,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return fmt.Errorf("unable to lease coins: %w", err)
 	}
@@ -2145,7 +2190,7 @@ func (a *AssetStore) ReleaseCoins(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return fmt.Errorf("unable to release coins: %w", err)
 	}
@@ -2161,7 +2206,7 @@ func (a *AssetStore) DeleteExpiredLeases(ctx context.Context) error {
 			Time:  a.clock.Now().UTC(),
 			Valid: true,
 		})
-	})
+	}, sqldb.NoOpReset)
 }
 
 // queryCommitments queries the database for commitments matching the passed
@@ -2268,7 +2313,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -2493,7 +2538,7 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 }
 
 // insertAssetTransferInput inserts a new asset transfer input into the DB.
@@ -2992,7 +3037,7 @@ func (a *AssetStore) LogProofTransferAttempt(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 }
 
 // QueryProofTransferLog returns timestamps which correspond to logged proof
@@ -3026,7 +3071,7 @@ func (a *AssetStore) QueryProofTransferLog(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	return timestamps, err
 }
 
@@ -3058,7 +3103,7 @@ func (a *AssetStore) ConfirmProofDelivery(ctx context.Context,
 			Position:                 outPosition,
 		}
 		return q.SetTransferOutputProofDeliveryStatus(ctx, params)
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return fmt.Errorf("failed to confirm transfer output proof "+
 			"delivery status in db: %w", err)
@@ -3328,7 +3373,7 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return fmt.Errorf("failed to confirm transfer: %w", err)
 	}
@@ -3567,7 +3612,7 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -3586,10 +3631,10 @@ func (a *AssetStore) AssetsDBSize(ctx context.Context) (int64, error) {
 			err  error
 		)
 		switch a.dbType {
-		case sqlc.BackendTypePostgres:
+		case sqldb.BackendTypePostgres:
 			size, err = q.AssetsDBSizePostgres(ctx)
 
-		case sqlc.BackendTypeSqlite:
+		case sqldb.BackendTypeSqlite:
 			var res int32
 			res, err = q.AssetsDBSizeSqlite(ctx)
 			size = int64(res)
@@ -3605,7 +3650,7 @@ func (a *AssetStore) AssetsDBSize(ctx context.Context) (int64, error) {
 		totalSize = size
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 
 	if dbErr != nil {
 		return 0, dbErr
@@ -3636,7 +3681,7 @@ func (a *AssetStore) TxHeight(ctx context.Context, txid chainhash.Hash) (uint32,
 		dbBlockHeight = dbTx.BlockHeight.Int32
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return 0, dbErr
 	}
@@ -3677,7 +3722,7 @@ func (a *AssetStore) QueryBurns(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 )
 
 type (
@@ -58,6 +59,8 @@ type (
 // the SMT tree, and finally fetch a genesis. We then combine that with Universe
 // specific information to implement all the required interaction.
 type BaseUniverseStore interface {
+	sqldb.BaseQuerier
+
 	UpsertAssetStore
 
 	TreeStore
@@ -164,7 +167,7 @@ func getUniverseTreeSum(ctx context.Context, db BatchedUniverseTree,
 		// Return the sum from the root.
 		sumOpt = lfn.Some(root.NodeSum())
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if txErr != nil {
 		return lfn.Err[lfn.Option[uint64]](txErr)
 	}
@@ -184,22 +187,20 @@ type uniKey = [32]byte
 // universeLeafQueryFunc defines the function signature for retrieving
 // UniverseLeaf records based on specific query parameters.
 type universeLeafQueryFunc[QueryType any] func(context.Context,
-	BaseUniverseStore, asset.Specifier, ...QueryType,
-) ([]UniverseLeaf, error)
+	BaseUniverseStore, asset.Specifier,
+	...QueryType) ([]UniverseLeaf, error)
 
 // universeLeafDecodeFunc defines the function signature for decoding a raw
 // proof from a UniverseLeaf into a specific type and extracting the universe
 // key.
 type universeLeafDecodeFunc[DecodedLeafType any] func(
-	UniverseLeaf,
-) (DecodedLeafType, uniKey, error)
+	UniverseLeaf) (DecodedLeafType, uniKey, error)
 
 // authProofBuilder defines the function signature for constructing the final
 // authenticated proof structure using the decoded leaf, the SMT proof, and the
 // SMT root.
 type authProofBuilder[DecodedLeafType any, AuthProofType any] func(
-	DecodedLeafType, *mssmt.Proof, mssmt.Node,
-) AuthProofType
+	DecodedLeafType, *mssmt.Proof, mssmt.Node) AuthProofType
 
 // queryUniverseLeavesAndProofs executes a query against universe leaves,
 // fetches their inclusion proofs, and builds authenticated results.
@@ -283,7 +284,7 @@ func queryUniverseLeavesAndProofs[LeafType any, AuthType any, QueryType any](
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if txErr != nil {
 		return lfn.Err[lfn.Option[[]AuthType]](txErr)
 	}
@@ -340,7 +341,7 @@ func listUniverseLeaves[T any](ctx context.Context, db BatchedUniverseTree,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if txErr != nil {
 		return lfn.Err[lfn.Option[[]T]](txErr)
 	}
@@ -370,12 +371,32 @@ func NewBaseUniverseReadTx() BaseUniverseStoreOptions {
 	}
 }
 
+type BaseUniverseExecutor[T sqldb.BaseQuerier] struct {
+	*sqldb.TransactionExecutor[T]
+
+	BaseUniverseStore
+}
+
+func NewBaseUniverseExecutor(baseDB *sqldb.BaseDB,
+	queries *sqlc.Queries) *BaseUniverseExecutor[BaseUniverseStore] {
+
+	executor := sqldb.NewTransactionExecutor(
+		baseDB, func(tx *sql.Tx) BaseUniverseStore {
+			return queries.WithTx(tx)
+		},
+	)
+	return &BaseUniverseExecutor[BaseUniverseStore]{
+		TransactionExecutor: executor,
+		BaseUniverseStore:   queries,
+	}
+}
+
 // BatchedUniverseTree is a wrapper around the base universe tree that allows us
 // to perform batch queries with all the relevant query interfaces.
 type BatchedUniverseTree interface {
 	BaseUniverseStore
 
-	BatchedTx[BaseUniverseStore]
+	sqldb.BatchedTx[BaseUniverseStore]
 }
 
 // BaseUniverseTree implements the persistent storage for the Base universe for
@@ -418,7 +439,7 @@ func (b *BaseUniverseTree) RootNode(ctx context.Context) (mssmt.Node, string,
 
 		universeRoot = dbRoot
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
 		return nil, "", universe.ErrNoUniverseRoot
@@ -583,7 +604,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 			ctx, dbTx, b.id, key, leaf, metaReveal, false,
 		)
 		return err
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -823,7 +844,7 @@ func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
 			ctx, b.id, universeKey, dbTx,
 		)
 		return err
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -1040,7 +1061,7 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 		leafKeys = dbLeaves
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -1108,7 +1129,7 @@ func (b *BaseUniverseTree) MintingLeaves(
 
 			return nil
 		})
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -1184,7 +1205,7 @@ func (b *BaseUniverseTree) DeleteUniverse(ctx context.Context) (string, error) {
 
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(db BaseUniverseStore) error {
 		return deleteUniverseTree(ctx, db, b.id)
-	})
+	}, sqldb.NoOpReset)
 
 	return b.smtNamespace, dbErr
 }

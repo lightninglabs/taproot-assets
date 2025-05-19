@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 )
 
 const (
@@ -92,13 +93,33 @@ func NewBaseMultiverseReadTx() BaseMultiverseOptions {
 	}
 }
 
+type BaseMultiverseExecutor[T sqldb.BaseQuerier] struct {
+	*sqldb.TransactionExecutor[T]
+
+	BaseMultiverseStore
+}
+
+func NewBaseMultiverseExecutor(baseDB *sqldb.BaseDB,
+	queries *sqlc.Queries) *BaseMultiverseExecutor[BaseMultiverseStore] {
+
+	executor := sqldb.NewTransactionExecutor(
+		baseDB, func(tx *sql.Tx) BaseMultiverseStore {
+			return queries.WithTx(tx)
+		},
+	)
+	return &BaseMultiverseExecutor[BaseMultiverseStore]{
+		TransactionExecutor: executor,
+		BaseMultiverseStore: queries,
+	}
+}
+
 // BatchedMultiverse is a wrapper around the base multiverse that allows us to
 // perform batch transactional database queries with all the relevant query
 // interfaces.
 type BatchedMultiverse interface {
 	BaseMultiverseStore
 
-	BatchedTx[BaseMultiverseStore]
+	sqldb.BatchedTx[BaseMultiverseStore]
 }
 
 // MultiverseStoreConfig is the set of configuration options for the multiverse
@@ -221,7 +242,7 @@ func (b *MultiverseStore) MultiverseRootNode(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return none, dbErr
 	}
@@ -295,7 +316,7 @@ func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 
 		universeRoot = dbRoot
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
 		return universe.Root{}, universe.ErrNoUniverseRoot
@@ -350,7 +371,7 @@ func (b *MultiverseStore) UniverseLeafKeys(ctx context.Context,
 		leafKeys = dbLeaves
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -553,7 +574,7 @@ func (b *MultiverseStore) queryRootNodes(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -665,7 +686,7 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 		}
 
 		return err
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -774,7 +795,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 
 		return nil
 	}
-	dbErr := b.db.ExecTx(ctx, &writeTx, execTxFunc)
+	dbErr := b.db.ExecTx(ctx, &writeTx, execTxFunc, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -834,7 +855,7 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 			}
 
 			return nil
-		},
+		}, sqldb.NoOpReset,
 	)
 	if dbErr != nil {
 		return dbErr
@@ -901,7 +922,7 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 		}
 
 		return deleteUniverseTree(ctx, tx, id)
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return "", dbErr
 	}
@@ -991,7 +1012,7 @@ func (b *MultiverseStore) FetchLeaves(ctx context.Context,
 			}
 		}
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}

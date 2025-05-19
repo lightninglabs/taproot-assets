@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,8 +22,8 @@ import (
 // into Postgres-compatible hex literal formatting if the configured database
 // backend is Postgres. In particular, it transforms occurrences of hex literals
 // formatted as X'...' into the format '\x...'.
-func transformByteLiterals(t *testing.T, db *BaseDB, query string) string {
-	if db.Backend() == sqlc.BackendTypePostgres {
+func transformByteLiterals(db *sqldb.BaseDB, query string) string {
+	if db.Backend() == sqldb.BackendTypePostgres {
 		re := regexp.MustCompile(`X'([0-9A-Fa-f]+?)'`)
 		query = re.ReplaceAllString(query, `'\x$1'`)
 	}
@@ -37,7 +38,7 @@ func TestMigrationSteps(t *testing.T) {
 
 	// As a first step, we create a new database but only migrate to
 	// version 1, which only contains the macaroon tables.
-	db := NewTestDBWithVersion(t, 1)
+	db := sqldb.NewTestDBWithVersion(t, TapdMigrationStream, 1)
 
 	// If we create an assets store now, there should be no tables for the
 	// managed UTXOs yet.
@@ -81,7 +82,7 @@ func TestMigrationSteps(t *testing.T) {
 	require.True(t, IsSchemaError(MapSQLError(err)))
 
 	// We now migrate to a later but not yet latest version.
-	err = db.ExecuteMigrations(TargetVersion(11))
+	err = db.ExecuteMigrations(sqldb.TargetVersion(11), TapdMigrationStream)
 	require.NoError(t, err)
 
 	// Now there should be a managed UTXOs table.
@@ -100,7 +101,7 @@ func TestMigrationSteps(t *testing.T) {
 
 	// And now that we have test data inserted, we can migrate to the latest
 	// version.
-	err = db.ExecuteMigrations(TargetLatest)
+	err = db.ExecuteMigrations(TargetLatest, TapdMigrationStream)
 	require.NoError(t, err)
 
 	// Here we would now test that the migration to the latest version did
@@ -113,7 +114,7 @@ func TestMigrationSteps(t *testing.T) {
 func TestMigration15(t *testing.T) {
 	ctx := context.Background()
 
-	db := NewTestDBWithVersion(t, 14)
+	db := sqldb.NewTestDBWithVersion(t, TapdMigrationStream, 14)
 
 	// We need to insert some test data that will be affected by the
 	// migration number 15.
@@ -121,7 +122,7 @@ func TestMigration15(t *testing.T) {
 
 	// And now that we have test data inserted, we can migrate to the latest
 	// version.
-	err := db.ExecuteMigrations(TargetLatest)
+	err := db.ExecuteMigrations(TargetLatest, TapdMigrationStream)
 	require.NoError(t, err)
 
 	// Make sure the single asset that was inserted actually has two
@@ -143,13 +144,17 @@ func TestMigration15(t *testing.T) {
 // TestMigrationDowngrade tests that downgrading the database is prevented.
 func TestMigrationDowngrade(t *testing.T) {
 	// For this test, with the current hard coded latest version.
-	db := NewTestDBWithVersion(t, LatestMigrationVersion)
+	db := sqldb.NewTestDBWithVersion(
+		t, TapdMigrationStream, LatestMigrationVersion,
+	)
 
 	// We'll now attempt to execute migrations, targeting the latest
 	// version. But we'll have the DB think the latest version is actually
 	// less than the current version. This simulates downgrading.
-	err := db.ExecuteMigrations(TargetLatest, WithLatestVersion(1))
-	require.ErrorIs(t, err, ErrMigrationDowngrade)
+	stream := TapdMigrationStream
+	stream.LatestMigrationVersion = 1
+	err := db.ExecuteMigrations(TargetLatest, stream)
+	require.ErrorIs(t, err, sqldb.ErrMigrationDowngrade)
 }
 
 // findDbBackupFilePath walks the directory of the given database file path and
@@ -188,7 +193,7 @@ func findDbBackupFilePath(t *testing.T, dbFilePath string) string {
 func TestSqliteMigrationBackup(t *testing.T) {
 	ctx := context.Background()
 
-	db := NewTestSqliteDBWithVersion(t, 14)
+	db := sqldb.NewTestSqliteDBWithVersion(t, TapdMigrationStream, 14)
 
 	// We need to insert some test data that will be affected by the
 	// migration number 15.
@@ -196,7 +201,7 @@ func TestSqliteMigrationBackup(t *testing.T) {
 
 	// And now that we have test data inserted, we can create a backup and
 	// migrate to the latest version.
-	err := db.ExecuteMigrations(db.backupAndMigrate)
+	err := sqldb.ApplyAllMigrations(db, TapdMigrationStreams)
 	require.NoError(t, err)
 
 	// Inspect the migrated database. Make sure the single asset that was
@@ -218,14 +223,16 @@ func TestSqliteMigrationBackup(t *testing.T) {
 	// modified by the migration).
 	//
 	// Find the backup database file.
-	dbBackupFilePath := findDbBackupFilePath(t, db.cfg.DatabaseFileName)
+	dbBackupFilePath := findDbBackupFilePath(t, db.DbPath)
 
 	// Construct a new database handle for the backup database.
-	backupDb := NewTestSqliteDbHandleFromPath(t, dbBackupFilePath)
+	backupDB := sqldb.NewTestSqliteDBFromPath(
+		t, dbBackupFilePath, TapdMigrationStreams,
+	)
 	require.NoError(t, err)
 
 	// Inspect the backup database.
-	_, assetStore = newAssetStoreFromDB(backupDb.BaseDB)
+	_, assetStore = newAssetStoreFromDB(backupDB.BaseDB)
 	assets, err = assetStore.FetchAllAssets(ctx, false, false, nil)
 	require.NoError(t, err)
 
@@ -248,7 +255,7 @@ func TestSqliteMigrationBackup(t *testing.T) {
 func TestMigration20(t *testing.T) {
 	ctx := context.Background()
 
-	db := NewTestDBWithVersion(t, 19)
+	db := sqldb.NewTestDBWithVersion(t, TapdMigrationStream, 19)
 
 	// We need to insert some test data that will be affected by the
 	// migration number 20.
@@ -256,7 +263,7 @@ func TestMigration20(t *testing.T) {
 
 	// And now that we have test data inserted, we can migrate to the latest
 	// version.
-	err := db.ExecuteMigrations(TargetLatest)
+	err := db.ExecuteMigrations(TargetLatest, TapdMigrationStream)
 	require.NoError(t, err)
 
 	// The migration should have de-duplicated the assets, so we should now
@@ -318,14 +325,14 @@ func TestMigration29(t *testing.T) {
 
 	// Create a test database at a version prior to migration 29 (e.g.
 	// version 28).
-	db := NewTestDBWithVersion(t, 28)
+	db := sqldb.NewTestDBWithVersion(t, TapdMigrationStream, 28)
 
 	// Insert dummy data representing the pre-migration state.
 	// This should minimally populate the tables that will be affected by
 	InsertTestdata(t, db.BaseDB, "migrations_test_00029_dummy_data.sql")
 
 	// Run the migration to the latest version.
-	err := db.ExecuteMigrations(TargetLatest)
+	err := db.ExecuteMigrations(TargetLatest, TapdMigrationStream)
 	require.NoError(t, err)
 
 	// First, we'll Verify pre-existing dummy data was migrated correctly.
@@ -363,7 +370,7 @@ func TestMigration29(t *testing.T) {
 	//   row with namespace 'ns_burn'.
 	//
 	//   - Then insert a universe_roots row referencing namespace 'ns_burn'
-	_, err = db.ExecContext(ctx, transformByteLiterals(t, db.BaseDB, ` 
+	_, err = db.ExecContext(ctx, transformByteLiterals(db.BaseDB, ` 
 	  INSERT INTO mssmt_nodes (
 	      hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
 	  )
@@ -373,14 +380,14 @@ func TestMigration29(t *testing.T) {
 	  )
 	`))
 	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, transformByteLiterals(t, db.BaseDB, `
+	_, err = db.ExecContext(ctx, transformByteLiterals(db.BaseDB, `
 	  INSERT INTO mssmt_roots (namespace, root_hash)
 	  VALUES (
 	    'ns_burn', 
 	    X'1111111111111111111111111111111111111111111111111111111111111111')
 	`))
 	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, transformByteLiterals(t, db.BaseDB, ` 
+	_, err = db.ExecContext(ctx, transformByteLiterals(db.BaseDB, ` 
 	  INSERT INTO universe_roots (
 		id, namespace_root, asset_id, group_key, proof_type)
 	  VALUES (
@@ -397,7 +404,7 @@ func TestMigration29(t *testing.T) {
 	//
 	//   - Then insert a universe_roots row referencing namespace
 	//   'ns_ignore' with proof_type 'ignore'.
-	_, err = db.ExecContext(ctx, transformByteLiterals(t, db.BaseDB, `
+	_, err = db.ExecContext(ctx, transformByteLiterals(db.BaseDB, `
 	  INSERT INTO mssmt_nodes (
 	      hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
 	  )
@@ -407,7 +414,7 @@ func TestMigration29(t *testing.T) {
 	  )
 	`))
 	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, transformByteLiterals(t, db.BaseDB, `
+	_, err = db.ExecContext(ctx, transformByteLiterals(db.BaseDB, `
 	  INSERT INTO mssmt_roots (namespace, root_hash)
 	  VALUES (
 	    'ns_ignore', 
@@ -415,7 +422,7 @@ func TestMigration29(t *testing.T) {
 	`))
 	require.NoError(t, err)
 	//nolint:lll
-	_, err = db.ExecContext(ctx, transformByteLiterals(t, db.BaseDB, `
+	_, err = db.ExecContext(ctx, transformByteLiterals(db.BaseDB, `
 	  INSERT INTO universe_roots (
 		id, namespace_root, asset_id, group_key, proof_type)
 	  VALUES (
@@ -452,7 +459,7 @@ func TestMigration29(t *testing.T) {
 	// For federation_uni_sync_config, insert a new row with proof_type
 	// "ignore". Note: The schema requires a valid 33-byte group_key. Here
 	// we use a hard-coded hex value.
-	_, err = db.ExecContext(ctx, transformByteLiterals(t, db.BaseDB, `
+	_, err = db.ExecContext(ctx, transformByteLiterals(db.BaseDB, `
 	  INSERT INTO federation_uni_sync_config (
 		namespace, group_key, proof_type, allow_sync_insert, 
 		allow_sync_export)
@@ -477,7 +484,7 @@ func TestMigration31(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a test DB at the pre-migration state (version 30).
-	db := NewTestDBWithVersion(t, 30)
+	db := sqldb.NewTestDBWithVersion(t, TapdMigrationStream, 30)
 
 	// Insert test data from file.
 	InsertTestdata(t, db.BaseDB, "migrations_test_00031_dummy_data.sql")
@@ -498,7 +505,7 @@ func TestMigration31(t *testing.T) {
 	`
 
 	dupQuery := transformByteLiterals(
-		t, db.BaseDB, fmt.Sprintf(dupLeafStmt, 101),
+		db.BaseDB, fmt.Sprintf(dupLeafStmt, 101),
 	)
 	_, err := db.ExecContext(ctx, dupQuery)
 	require.Error(
@@ -509,7 +516,7 @@ func TestMigration31(t *testing.T) {
 	// Check error message, which differs between SQLite and Postgres
 	errMsg := err.Error()
 	switch db.Backend() {
-	case sqlc.BackendTypeSqlite:
+	case sqldb.BackendTypeSqlite:
 		require.Contains(
 			t, errMsg,
 			"constraint failed: UNIQUE constraint failed: "+
@@ -517,7 +524,7 @@ func TestMigration31(t *testing.T) {
 				"universe_leaves.script_key_bytes",
 			"SQLite error should contain the expected unique "+
 				"constraint failure")
-	case sqlc.BackendTypePostgres:
+	case sqldb.BackendTypePostgres:
 		require.Contains(
 			t, errMsg, "duplicate key value violates unique "+
 				"constraint", "postgres error should mention "+
@@ -528,13 +535,13 @@ func TestMigration31(t *testing.T) {
 
 	// Run migration 31 (apply the up migration that updates the unique
 	// constraint).
-	err = db.ExecuteMigrations(TargetVersion(31))
+	err = db.ExecuteMigrations(sqldb.TargetVersion(31), TapdMigrationStream)
 	require.NoError(t, err)
 
 	// Verify that the dummy row inserted from the testdata file was
 	// migrated properly.
 	var ns string
-	err = db.QueryRowContext(ctx, transformByteLiterals(t, db.BaseDB, `
+	err = db.QueryRowContext(ctx, transformByteLiterals(db.BaseDB, `
 		SELECT leaf_node_namespace FROM universe_leaves WHERE id = 100
 	`)).Scan(&ns)
 	require.NoError(t, err)
@@ -547,7 +554,7 @@ func TestMigration31(t *testing.T) {
 	// to insert a row with the same minting_point and script_key_bytes but
 	// a different namespace ("test_ns") should succeed.
 	dupQuery2 := transformByteLiterals(
-		t, db.BaseDB, fmt.Sprintf(dupLeafStmt, 102),
+		db.BaseDB, fmt.Sprintf(dupLeafStmt, 102),
 	)
 	_, err = db.ExecContext(ctx, dupQuery2)
 	require.NoError(
@@ -564,7 +571,8 @@ func TestMigration31(t *testing.T) {
 func TestMigration33(t *testing.T) {
 	ctx := context.Background()
 
-	db := NewTestDBWithVersion(t, 32)
+	db := sqldb.NewTestDBWithVersion(t, TapdMigrationStream, 32)
+	queries := sqlc.NewForType(db.BaseDB, db.Backend())
 
 	// We need to insert some test data that will be affected by the
 	// migration number 31.
@@ -572,9 +580,7 @@ func TestMigration33(t *testing.T) {
 
 	// And now that we have test data inserted, we can migrate to the latest
 	// version.
-	err := db.ExecuteMigrations(TargetLatest, WithPostStepCallbacks(
-		makePostStepCallbacks(db, postMigrationChecks),
-	))
+	err := db.ExecuteMigrations(TargetLatest, TapdMigrationStream)
 	require.NoError(t, err)
 
 	// The migration should have de-duplicated the assets, so we should now
@@ -585,7 +591,7 @@ func TestMigration33(t *testing.T) {
 		"039c571fffcac1a1a7cd3372bd202ad8562f28e48b90f8a4eb714eca062f" +
 			"576ee6",
 	)
-	unknownScriptKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+	unknownScriptKey, err := queries.FetchScriptKeyByTweakedKey(
 		ctx, unknownKey,
 	)
 	require.NoError(t, err)
@@ -599,7 +605,7 @@ func TestMigration33(t *testing.T) {
 		"029c571fffcac1a1a7cd3372bd202ad8562f28e48b90f8a4eb714eca062f" +
 			"576ee6",
 	)
-	bip86ScriptKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+	bip86ScriptKey, err := queries.FetchScriptKeyByTweakedKey(
 		ctx, bip86Key,
 	)
 	require.NoError(t, err)
@@ -614,7 +620,7 @@ func TestMigration33(t *testing.T) {
 		"03f9cdf1ff7c9fbb0ea3c8533cd7048994f41ea20a79764469c22aa18aa6" +
 			"696169",
 	)
-	scriptedScriptKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+	scriptedScriptKey, err := queries.FetchScriptKeyByTweakedKey(
 		ctx, scriptedKey,
 	)
 	require.NoError(t, err)
@@ -629,7 +635,7 @@ func TestMigration33(t *testing.T) {
 		"027c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3e6d540b" +
 			"3653fe",
 	)
-	tombstoneScriptKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+	tombstoneScriptKey, err := queries.FetchScriptKeyByTweakedKey(
 		ctx, tombstoneKey,
 	)
 	require.NoError(t, err)
@@ -644,7 +650,7 @@ func TestMigration33(t *testing.T) {
 		"0350aaeb166f4234650d84a2d8a130987aeaf6950206e0905401ee74ff3f" +
 			"8d18e6",
 	)
-	channelScriptKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+	channelScriptKey, err := queries.FetchScriptKeyByTweakedKey(
 		ctx, channelKey,
 	)
 	require.NoError(t, err)
@@ -659,7 +665,7 @@ func TestMigration33(t *testing.T) {
 		"02248bca7dbb12dcf0b490263a1d521691691aa2541842b7472c83acac0e" +
 			"88443b",
 	)
-	burnScriptKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+	burnScriptKey, err := queries.FetchScriptKeyByTweakedKey(
 		ctx, burnKey,
 	)
 	require.NoError(t, err)

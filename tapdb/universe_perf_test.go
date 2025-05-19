@@ -9,6 +9,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,7 +38,7 @@ const (
 )
 
 // executeSQLStatements executes a list of SQL statements with logging.
-func executeSQLStatements(t *testing.T, db *BaseDB, statements []string,
+func executeSQLStatements(t *testing.T, db *sqldb.BaseDB, statements []string,
 	action string) {
 
 	t.Logf("%s indices...", action)
@@ -52,7 +53,7 @@ func executeSQLStatements(t *testing.T, db *BaseDB, statements []string,
 }
 
 // createIndices creates all required indices on the database.
-func createIndices(t *testing.T, db *BaseDB) {
+func createIndices(t *testing.T, db *sqldb.BaseDB) {
 	statements := []string{
 		createUniverseRootIndex,
 		createUniverseLeavesIndex,
@@ -63,7 +64,7 @@ func createIndices(t *testing.T, db *BaseDB) {
 }
 
 // dropIndices removes all custom indices from the database.
-func dropIndices(t *testing.T, db *BaseDB) {
+func dropIndices(t *testing.T, db *sqldb.BaseDB) {
 	statements := []string{
 		`DROP INDEX IF EXISTS idx_universe_roots_composite`,
 		`DROP INDEX IF EXISTS idx_universe_leaves_asset`,
@@ -119,7 +120,7 @@ type queryTest struct {
 	name    string
 	query   string
 	args    func(h *uniStatsHarness) []interface{}
-	dbTypes []sqlc.BackendType
+	dbTypes []sqldb.BackendType
 }
 
 // testQueries defines the test cases and their compatible database types.
@@ -130,9 +131,9 @@ var testQueries = []queryTest{
 		args: func(h *uniStatsHarness) []interface{} {
 			return []interface{}{h.assetUniverses[0].id.String()}
 		},
-		dbTypes: []sqlc.BackendType{
-			sqlc.BackendTypeSqlite,
-			sqlc.BackendTypePostgres,
+		dbTypes: []sqldb.BackendType{
+			sqldb.BackendTypeSqlite,
+			sqldb.BackendTypePostgres,
 		},
 	},
 
@@ -146,9 +147,9 @@ var testQueries = []queryTest{
 				nil,
 			}
 		},
-		dbTypes: []sqlc.BackendType{
-			sqlc.BackendTypeSqlite,
-			sqlc.BackendTypePostgres,
+		dbTypes: []sqldb.BackendType{
+			sqldb.BackendTypeSqlite,
+			sqldb.BackendTypePostgres,
 		},
 	},
 
@@ -158,9 +159,9 @@ var testQueries = []queryTest{
 		args: func(h *uniStatsHarness) []interface{} {
 			return []interface{}{}
 		},
-		dbTypes: []sqlc.BackendType{
-			sqlc.BackendTypeSqlite,
-			sqlc.BackendTypePostgres,
+		dbTypes: []sqldb.BackendType{
+			sqldb.BackendTypeSqlite,
+			sqldb.BackendTypePostgres,
 		},
 	},
 
@@ -170,9 +171,9 @@ var testQueries = []queryTest{
 		args: func(h *uniStatsHarness) []interface{} {
 			return []interface{}{}
 		},
-		dbTypes: []sqlc.BackendType{
-			sqlc.BackendTypeSqlite,
-			sqlc.BackendTypePostgres,
+		dbTypes: []sqldb.BackendType{
+			sqldb.BackendTypeSqlite,
+			sqldb.BackendTypePostgres,
 		},
 	},
 }
@@ -202,7 +203,7 @@ func logPerformanceAnalysis(t *testing.T, results map[string]*queryStats) {
 }
 
 // getQueryPlan retrieves the execution plan for a query from the database.
-func getQueryPlan(ctx context.Context, t *testing.T, db *BaseDB,
+func getQueryPlan(ctx context.Context, t *testing.T, db *sqldb.BaseDB,
 	q queryTest, h *uniStatsHarness) string {
 
 	var (
@@ -211,7 +212,7 @@ func getQueryPlan(ctx context.Context, t *testing.T, db *BaseDB,
 	)
 
 	switch db.Backend() {
-	case sqlc.BackendTypeSqlite:
+	case sqldb.BackendTypeSqlite:
 		explainQuery = fmt.Sprintf("EXPLAIN QUERY PLAN %s", q.query)
 		rows, err := db.QueryContext(ctx, explainQuery, q.args(h)...)
 		require.NoError(t, err)
@@ -230,7 +231,7 @@ func getQueryPlan(ctx context.Context, t *testing.T, db *BaseDB,
 		}
 		rows.Close()
 
-	case sqlc.BackendTypePostgres:
+	case sqldb.BackendTypePostgres:
 		explainQuery = fmt.Sprintf("EXPLAIN %s", q.query)
 		rows, err := db.QueryContext(ctx, explainQuery, q.args(h)...)
 		require.NoError(t, err)
@@ -245,7 +246,7 @@ func getQueryPlan(ctx context.Context, t *testing.T, db *BaseDB,
 		}
 		rows.Close()
 
-	case sqlc.BackendTypeUnknown:
+	case sqldb.BackendTypeUnknown:
 		return "Unknown backend type"
 	}
 
@@ -253,7 +254,7 @@ func getQueryPlan(ctx context.Context, t *testing.T, db *BaseDB,
 }
 
 // executeQuery runs a query multiple times and measures execution time.
-func executeQuery(ctx context.Context, t *testing.T, db *BaseDB,
+func executeQuery(ctx context.Context, t *testing.T, db *sqldb.BaseDB,
 	q queryTest, h *uniStatsHarness) time.Duration {
 
 	start := time.Now()
@@ -270,8 +271,8 @@ func executeQuery(ctx context.Context, t *testing.T, db *BaseDB,
 }
 
 // supportsQuery checks if a query is supported by the given database type.
-func supportsQuery(dbType sqlc.BackendType,
-	dbTypes []sqlc.BackendType) bool {
+func supportsQuery(dbType sqldb.BackendType,
+	dbTypes []sqldb.BackendType) bool {
 
 	for _, t := range dbTypes {
 		if t == dbType {
@@ -304,8 +305,8 @@ func TestUniverseIndexPerformance(t *testing.T) {
 
 	// setupDB creates a new database and harness for testing, either
 	// creating or dropping the supporting indices.
-	setupDB := func(withIndices bool) (*BaseDB, *uniStatsHarness) {
-		db := NewTestDB(t)
+	setupDB := func(withIndices bool) (*sqldb.BaseDB, *uniStatsHarness) {
+		db := sqldb.NewTestDB(t, TapdMigrationStreams)
 		sqlDB := db.BaseDB
 
 		// Set reasonable connection limits.
@@ -339,7 +340,7 @@ func TestUniverseIndexPerformance(t *testing.T) {
 
 	// runTest executes a query with or without indices.
 	runTest := func(t *testing.T, q queryTest, withIndices bool,
-		sqlDB *BaseDB, h *uniStatsHarness) {
+		sqlDB *sqldb.BaseDB, h *uniStatsHarness) {
 
 		t.Logf("\n=== Query Plan for %s ===", q.name)
 

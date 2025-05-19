@@ -10,8 +10,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/universe"
-
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 )
 
 // IgnoreUniverseTree is a structure that holds the DB for ignore operations.
@@ -145,7 +145,7 @@ func (it *IgnoreUniverseTree) AddTuples(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if txErr != nil {
 		return lfn.Err[universe.AuthIgnoreTuples](txErr)
 	}

@@ -3,7 +3,6 @@ package tapdb
 import (
 	"context"
 	crand "crypto/rand"
-	"database/sql"
 	"math"
 	"math/rand"
 	"reflect"
@@ -19,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,49 +71,37 @@ func randUniverseID(t testing.TB, forceGroup bool,
 func newTestUniverse(t *testing.T,
 	id universe.Identifier) (*BaseUniverseTree, sqlc.Querier) {
 
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
 
-	dbTxer := NewTransactionExecutor(
-		db, func(tx *sql.Tx) BaseUniverseStore {
-			return db.WithTx(tx)
-		},
-	)
+	queries := sqlc.NewForType(db, db.BackendType)
+	executor := NewBaseUniverseExecutor(db.BaseDB, queries)
 
-	return NewBaseUniverseTree(dbTxer, id), db
+	return NewBaseUniverseTree(executor, id), queries
 }
 
 func newTestMultiverse(t *testing.T) (*MultiverseStore, sqlc.Querier) {
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
 
-	dbTxer := NewTransactionExecutor(
-		db, func(tx *sql.Tx) BaseMultiverseStore {
-			return db.WithTx(tx)
-		},
-	)
-
-	return NewMultiverseStore(dbTxer, DefaultMultiverseStoreConfig()), db
+	return newTestMultiverseWithDb(db.BaseDB)
 }
 
-func newTestMultiverseWithDb(db *BaseDB) (*MultiverseStore, sqlc.Querier) {
-	dbTxer := NewTransactionExecutor(
-		db, func(tx *sql.Tx) BaseMultiverseStore {
-			return db.WithTx(tx)
-		},
-	)
+func newTestMultiverseWithDb(
+	db *sqldb.BaseDB) (*MultiverseStore, sqlc.Querier) {
 
-	return NewMultiverseStore(dbTxer, DefaultMultiverseStoreConfig()), db
+	queries := sqlc.NewForType(db, db.BackendType)
+	executor := NewBaseMultiverseExecutor(db, queries)
+
+	return NewMultiverseStore(executor, DefaultMultiverseStoreConfig()),
+		queries
 }
 
-func newTestUniverseWithDb(db *BaseDB,
+func newTestUniverseWithDb(db *sqldb.BaseDB,
 	id universe.Identifier) (*BaseUniverseTree, sqlc.Querier) {
 
-	dbTxer := NewTransactionExecutor(
-		db, func(tx *sql.Tx) BaseUniverseStore {
-			return db.WithTx(tx)
-		},
-	)
+	queries := sqlc.NewForType(db, db.BackendType)
+	executor := NewBaseUniverseExecutor(db, queries)
 
-	return NewBaseUniverseTree(dbTxer, id), db
+	return NewBaseUniverseTree(executor, id), queries
 }
 
 func assertIDInList(t *testing.T, leaves []universe.MultiverseLeaf,
@@ -258,7 +246,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	id := randUniverseID(
 		t, false, withProofType(universe.ProofTypeIssuance),
 	)
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
 	baseUniverse, _ := newTestUniverseWithDb(db.BaseDB, id)
 	multiverse, _ := newTestMultiverseWithDb(db.BaseDB)
 
@@ -513,7 +501,7 @@ func TestUniverseTreeIsolation(t *testing.T) {
 
 	ctx := context.Background()
 
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
 
 	// For this test, we'll create two different Universes: one based on a
 	// group key, and the other with a plain asset ID.
@@ -551,11 +539,8 @@ func TestUniverseTreeIsolation(t *testing.T) {
 
 	// If we make a new multiverse, then we should be able to fetch both the
 	// roots above.
-	multiverseDB := NewTransactionExecutor(db,
-		func(tx *sql.Tx) BaseMultiverseStore {
-			return db.WithTx(tx)
-		},
-	)
+	queries := sqlc.NewForType(db.BaseDB, db.BackendType)
+	multiverseDB := NewBaseMultiverseExecutor(db.BaseDB, queries)
 	multiverse := NewMultiverseStore(
 		multiverseDB, DefaultMultiverseStoreConfig(),
 	)

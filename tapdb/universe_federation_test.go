@@ -2,7 +2,6 @@ package tapdb
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/rand"
 )
@@ -18,15 +18,12 @@ import (
 func newTestFederationDb(t *testing.T,
 	clock clock.Clock) (*UniverseFederationDB, sqlc.Querier) {
 
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
 
-	dbTxer := NewTransactionExecutor(db,
-		func(tx *sql.Tx) UniverseServerStore {
-			return db.WithTx(tx)
-		},
-	)
+	queries := sqlc.NewForType(db, db.BackendType)
+	dbTxer := NewUniverseServerExecutor(db.BaseDB, queries)
 
-	return NewUniverseFederationDB(dbTxer, clock), db
+	return NewUniverseFederationDB(dbTxer, clock), queries
 }
 
 // TestUniverseFederationCRUD tests that we can add and remove servers from the

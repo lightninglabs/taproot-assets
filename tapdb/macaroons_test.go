@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,12 +17,11 @@ func TestRootKeyStore(t *testing.T) {
 	t.Parallel()
 
 	// First, Make a new test database.
-	db := NewTestDB(t)
+	db := sqldb.NewTestSqliteDB(t, []sqldb.MigrationStream{TapdMigrationStream})
 
 	// Make a new root key store from the database.
-	rksDB := NewTransactionExecutor(db, func(tx *sql.Tx) KeyStore {
-		return db.WithTx(tx)
-	})
+	queries := sqlc.NewForType(db.BaseDB, db.BaseDB.BackendType)
+	rksDB := NewKeyStoreExecutor(db.BaseDB, queries)
 	rks := NewRootKeyStore(rksDB)
 	ctx := context.Background()
 

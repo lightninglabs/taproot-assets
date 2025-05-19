@@ -8,6 +8,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -21,6 +22,8 @@ type MacaroonID = sqlc.InsertRootKeyParams
 // KeyStore represents access to a persistence key store for macaroon root key
 // IDs.
 type KeyStore interface {
+	sqldb.BaseQuerier
+
 	// GetRootKey fetches the root key associated with the passed ID.
 	GetRootKey(ctx context.Context, id []byte) (MacaroonRootKey, error)
 
@@ -50,6 +53,26 @@ func (r *KeyStoreTxOptions) ReadOnly() bool {
 	return r.readOnly
 }
 
+type KeyStoreExecutor[T sqldb.BaseQuerier] struct {
+	*sqldb.TransactionExecutor[T]
+
+	KeyStore
+}
+
+func NewKeyStoreExecutor(baseDB *sqldb.BaseDB,
+	queries *sqlc.Queries) *KeyStoreExecutor[KeyStore] {
+
+	executor := sqldb.NewTransactionExecutor(
+		baseDB, func(tx *sql.Tx) KeyStore {
+			return queries.WithTx(tx)
+		},
+	)
+	return &KeyStoreExecutor[KeyStore]{
+		TransactionExecutor: executor,
+		KeyStore:            queries,
+	}
+}
+
 // BatchedKeyStore is the main storage interface for the RootKeyStore. It
 // supports all the basic queries as well as running the set of queries in a
 // single database transaction.
@@ -63,7 +86,7 @@ type BatchedKeyStore interface {
 	// which allows us to perform operations to the key store in an atomic
 	// transaction. Also add in the TxOptions interface which our defined
 	// KeyStoreTxOptions satisfies.
-	BatchedTx[KeyStore]
+	sqldb.BatchedTx[KeyStore]
 }
 
 // RootKeyStore is an implementation of the bakery.RootKeyStore interface
@@ -97,7 +120,7 @@ func (r *RootKeyStore) Get(ctx context.Context, id []byte) ([]byte, error) {
 
 		rootKey = mac.RootKey
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -151,7 +174,7 @@ func (r *RootKeyStore) RootKey(ctx context.Context) ([]byte, []byte, error) {
 			ID:      id,
 			RootKey: rootKey,
 		})
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, nil, dbErr
 	}

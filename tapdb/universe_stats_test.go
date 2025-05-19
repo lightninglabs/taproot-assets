@@ -3,7 +3,6 @@ package tapdb
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -17,23 +16,20 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 )
 
-func newUniverseStatsWithDB(db *BaseDB, clock clock.Clock) (*UniverseStats,
-	sqlc.Querier) {
+func newUniverseStatsWithDB(db *sqldb.BaseDB,
+	clock clock.Clock) (*UniverseStats, sqlc.Querier) {
 
-	dbTxer := NewTransactionExecutor(
-		db, func(tx *sql.Tx) UniverseStatsStore {
-			return db.WithTx(tx)
-		},
-	)
-
+	queries := sqlc.NewForType(db, db.BackendType)
+	executor := NewUniverseStatsExecutor(db, queries)
 	stats := NewUniverseStats(
-		dbTxer, clock, WithStatsCacheDuration(0),
+		executor, clock, WithStatsCacheDuration(0),
 	)
 
-	return stats, db
+	return stats, queries
 }
 
 type uniStatsHarness struct {
@@ -46,7 +42,7 @@ type uniStatsHarness struct {
 	t *testing.T
 }
 
-func newUniStatsHarness(t *testing.T, numAssets int, db *BaseDB,
+func newUniStatsHarness(t *testing.T, numAssets int, db *sqldb.BaseDB,
 	statsDB *UniverseStats) *uniStatsHarness {
 
 	stats := &uniStatsHarness{
@@ -144,7 +140,7 @@ func (u *uniStatsHarness) addEvents(numAssets int) {
 func TestUniverseStatsEvents(t *testing.T) {
 	t.Parallel()
 
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
 
 	yesterday := time.Now().UTC().Add(-24 * time.Hour)
 	testClock := clock.NewTestClock(yesterday)
@@ -275,7 +271,7 @@ func TestUniverseStatsEvents(t *testing.T) {
 func TestUniverseStatsAsyncCache(t *testing.T) {
 	t.Parallel()
 
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
 
 	yesterday := time.Now().UTC().Add(-24 * time.Hour)
 	testClock := clock.NewTestClock(yesterday)
@@ -326,7 +322,7 @@ func TestUniverseStatsAsyncCache(t *testing.T) {
 // TestUniverseQuerySyncStatsSorting tests that we're able to properly sort the
 // response using any of the available params.
 func TestUniverseQuerySyncStatsSorting(t *testing.T) {
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
 
 	testClock := clock.NewTestClock(time.Now())
 	statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)
@@ -580,7 +576,7 @@ func TestUniverseQuerySyncStatsSorting(t *testing.T) {
 // asset snapshot for the set of assets given one or more of the possible
 // filters.
 func TestUniverseQuerySyncFilters(t *testing.T) {
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
 
 	testClock := clock.NewTestClock(time.Now())
 	statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)

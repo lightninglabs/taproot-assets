@@ -2,11 +2,11 @@ package tapdb
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,15 +15,12 @@ import (
 func newTaprootAssetTreeStore(t *testing.T,
 	namespace string) (*TaprootAssetTreeStore, sqlc.Querier) {
 
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
+	queries := sqlc.NewForType(db, db.BackendType)
 
-	txCreator := func(tx *sql.Tx) TreeStore {
-		return db.WithTx(tx)
-	}
+	treeDB := NewTreeStoreExecutor(db.BaseDB, queries)
 
-	treeDB := NewTransactionExecutor(db, txCreator)
-
-	return NewTaprootAssetTreeStore(treeDB, namespace), db
+	return NewTaprootAssetTreeStore(treeDB, namespace), queries
 }
 
 // assertNodesEq is a helper to check equivalency or equality based on the

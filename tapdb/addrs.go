@@ -24,6 +24,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 )
 
 type (
@@ -87,6 +88,8 @@ type (
 // also make internal keys since each address has an internal key and a script
 // key (tho they can be the same).
 type AddrBook interface {
+	sqldb.BaseQuerier
+
 	// UpsertAssetStore houses the methods related to inserting/updating
 	// assets.
 	UpsertAssetStore
@@ -194,12 +197,32 @@ func NewAddrBookReadTx() AssetStoreTxOptions {
 	}
 }
 
+type AddrBookExecutor[T sqldb.BaseQuerier] struct {
+	*sqldb.TransactionExecutor[T]
+
+	AddrBook
+}
+
+func NewAddrBookExecutor(baseDB *sqldb.BaseDB,
+	queries *sqlc.Queries) *AddrBookExecutor[AddrBook] {
+
+	executor := sqldb.NewTransactionExecutor(
+		baseDB, func(tx *sql.Tx) AddrBook {
+			return queries.WithTx(tx)
+		},
+	)
+	return &AddrBookExecutor[AddrBook]{
+		TransactionExecutor: executor,
+		AddrBook:            queries,
+	}
+}
+
 // BatchedAddrBook is a version of the AddrBook that's capable of batched
 // database operations.
 type BatchedAddrBook interface {
 	AddrBook
 
-	BatchedTx[AddrBook]
+	sqldb.BatchedTx[AddrBook]
 }
 
 // TapAddressBook represents a storage backend for all the Taproot Asset
@@ -325,7 +348,7 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 }
 
 // QueryAddrs attempts to query for the set of addresses on disk given the
@@ -478,7 +501,7 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, err
 	}
@@ -499,7 +522,7 @@ func (t *TapAddressBook) AddrByTaprootOutput(ctx context.Context,
 		var err error
 		addr, err = fetchAddr(ctx, db, t.params, key)
 		return err
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, err
 	}
@@ -624,7 +647,7 @@ func (t *TapAddressBook) SetAddrManaged(ctx context.Context,
 				&addr.TaprootOutputKey,
 			),
 		})
-	})
+	}, sqldb.NoOpReset)
 }
 
 // InsertInternalKey inserts an internal key into the database to make sure it
@@ -645,7 +668,7 @@ func (t *TapAddressBook) InsertInternalKey(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 }
 
 // InsertScriptKey inserts an address related script key into the database, so
@@ -671,7 +694,7 @@ func (t *TapAddressBook) InsertScriptKey(ctx context.Context,
 			KeyType:          sqlInt16(keyType),
 		})
 		return err
-	})
+	}, sqldb.NoOpReset)
 }
 
 // GetOrCreateEvent creates a new address event for the given status, address
@@ -776,7 +799,7 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 
 		event, err = fetchEvent(ctx, db, eventID, addr)
 		return err
-	})
+	}, sqldb.NoOpReset)
 	if dbErr != nil {
 		return nil, dbErr
 	}
@@ -797,7 +820,7 @@ func (t *TapAddressBook) QueryEvent(ctx context.Context,
 		var err error
 		event, err = fetchEventByOutpoint(ctx, db, addr, outpoint)
 		return err
-	})
+	}, sqldb.NoOpReset)
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
 		return nil, address.ErrNoEvent
@@ -871,7 +894,7 @@ func (t *TapAddressBook) QueryAddrEvents(
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, err
 	}
@@ -1012,7 +1035,7 @@ func (t *TapAddressBook) CompleteEvent(ctx context.Context,
 			AssetID:             sqlInt64(proofData[0].AssetID),
 		})
 		return err
-	})
+	}, sqldb.NoOpReset)
 }
 
 // QueryAssetGroup attempts to fetch an asset group by its asset ID. If the
@@ -1067,7 +1090,7 @@ func (t *TapAddressBook) QueryAssetGroup(ctx context.Context,
 		)
 
 		return err
-	})
+	}, sqldb.NoOpReset)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return nil, address.ErrAssetGroupUnknown
@@ -1104,7 +1127,7 @@ func (t *TapAddressBook) FetchAssetMetaByHash(ctx context.Context,
 		})
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
 		return nil, address.ErrAssetMetaNotFound
@@ -1140,7 +1163,7 @@ func (t *TapAddressBook) FetchAssetMetaForAsset(ctx context.Context,
 		})
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
 		return nil, address.ErrAssetMetaNotFound
@@ -1199,7 +1222,7 @@ func (t *TapAddressBook) InsertAssetGen(ctx context.Context,
 	var writeTxOpts AddrBookTxOptions
 	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
 		return insertFullAssetGen(ctx, gen, group)(db)
-	})
+	}, sqldb.NoOpReset)
 }
 
 // FetchScriptKey attempts to fetch the full tweaked script key struct
@@ -1217,7 +1240,7 @@ func (t *TapAddressBook) FetchScriptKey(ctx context.Context,
 	dbErr := t.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
 		scriptKey, err = fetchScriptKey(ctx, db, tweakedScriptKey)
 		return err
-	})
+	}, sqldb.NoOpReset)
 
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
@@ -1254,7 +1277,7 @@ func (t *TapAddressBook) FetchInternalKeyLocator(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, sqldb.NoOpReset)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return keyLoc, address.ErrInternalKeyNotFound

@@ -14,7 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
-	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/constraints"
 )
@@ -216,7 +216,7 @@ func parseCoalesceNumericType[T constraints.Integer](value any) (T, error) {
 
 // InsertTestdata reads the given file from the testdata directory and inserts
 // its content into the given database.
-func InsertTestdata(t *testing.T, db *BaseDB, fileName string) {
+func InsertTestdata(t *testing.T, db *sqldb.BaseDB, fileName string) {
 	ctx := context.Background()
 	var opts AssetStoreTxOptions
 	tx, err := db.BeginTx(ctx, &opts)
@@ -226,7 +226,7 @@ func InsertTestdata(t *testing.T, db *BaseDB, fileName string) {
 
 	// If we're using Postgres, we need to convert the SQLite hex literals
 	// (X'<hex>') to Postgres hex literals ('\x<hex>').
-	if db.Backend() == sqlc.BackendTypePostgres {
+	if db.Backend() == sqldb.BackendTypePostgres {
 		rex := regexp.MustCompile(`X'([0-9a-f]+?)'`)
 		testData = rex.ReplaceAllString(testData, `'\x$1'`)
 		t.Logf("Postgres test data: %v", testData)

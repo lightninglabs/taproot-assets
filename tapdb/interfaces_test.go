@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,7 +36,7 @@ func TestExecutorOptionRetryDelay(t *testing.T) {
 func TestInt64PrimaryKey(t *testing.T) {
 	t.Parallel()
 
-	db := NewTestDB(t)
+	db := sqldb.NewTestDB(t, TapdMigrationStreams)
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())
 	})
