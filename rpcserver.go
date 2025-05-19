@@ -6934,7 +6934,7 @@ func (r *rpcServer) checkPeerChannel(ctx context.Context, peer route.Vertex,
 		// If we don't get an error here, it means we do have an asset
 		// channel with the peer. The intention doesn't matter as we're
 		// just checking whether a channel exists.
-		_, err := r.cfg.RfqManager.RfqChannel(
+		_, err := r.cfg.RfqManager.FetchChannel(
 			ctx, specifier, &peer, rfq.NoIntention,
 		)
 		if err != nil {
@@ -7641,7 +7641,7 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		rpcSpecifier := marshalAssetSpecifier(specifier)
 
 		// We can now query the asset channels we have.
-		chanMap, err := r.cfg.RfqManager.RfqChannel(
+		chanMap, err := r.cfg.RfqManager.FetchChannel(
 			ctx, specifier, peerPubKey, rfq.SendIntention,
 		)
 		if err != nil {
@@ -7776,7 +7776,7 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 
 		// We check that we have the asset amount available in the
 		// channel.
-		_, err = r.cfg.RfqManager.RfqChannel(
+		_, err = r.cfg.RfqManager.FetchChannel(
 			ctx, specifier, &dest, rfq.SendIntention,
 		)
 		if err != nil {
@@ -8010,7 +8010,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	}
 
 	// We can now query the asset channels we have.
-	chanMap, err := r.cfg.RfqManager.RfqChannel(
+	chanMap, err := r.cfg.RfqManager.FetchChannel(
 		ctx, specifier, peerPubKey, rfq.ReceiveIntention,
 	)
 	if err != nil {
@@ -8044,7 +8044,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	type quoteWithInfo struct {
 		quote   *rfqrpc.PeerAcceptedBuyQuote
 		rate    *rfqmath.BigIntFixedPoint
-		channel rfq.ChannelWithSpecifier
+		channel rfq.TapChannel
 	}
 
 	var acquiredQuotes []quoteWithInfo

@@ -553,7 +553,7 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 	peer route.Vertex) error {
 
 	ctxb := context.Background()
-	peerChans, err := m.RfqChannel(
+	peerChans, err := m.FetchChannel(
 		ctxb, assetSpecifier, &peer, NoIntention,
 	)
 	if err != nil && !strings.Contains(
@@ -568,7 +568,7 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 	// is okay, because non-strict forwarding will ask each channel if the
 	// bandwidth matches the provided specifier.
 	if len(peerChans[peer]) == 0 {
-		peerChans, err = m.RfqChannel(
+		peerChans, err = m.FetchChannel(
 			ctxb, asset.Specifier{}, &peer, NoIntention,
 		)
 		if err != nil {
@@ -1033,10 +1033,10 @@ func (m *Manager) ChannelMatchesFully(ctx context.Context,
 	return true, nil
 }
 
-// ChannelWithSpecifier is a helper struct that combines the information of an
-// asset specifier that is satisfied by a channel with the channels' general
+// TapChannel is a helper struct that combines the information of an asset
+// specifier that is satisfied by a channel with the channels' general
 // information.
-type ChannelWithSpecifier struct {
+type TapChannel struct {
 	// Specifier is the asset Specifier that is satisfied by this channels'
 	// assets.
 	Specifier asset.Specifier
@@ -1051,11 +1051,11 @@ type ChannelWithSpecifier struct {
 
 // PeerChanMap is a structure that maps peers to channels. This is used for
 // filtering asset channels against an asset specifier.
-type PeerChanMap map[route.Vertex][]ChannelWithSpecifier
+type PeerChanMap map[route.Vertex][]TapChannel
 
-// ComputeCompatibleChannelAssetBalance computes the total local and remote
-// balance for each asset channel that matches the provided asset specifier.
-func (m *Manager) ComputeCompatibleChannelAssetBalance(ctx context.Context,
+// ComputeChannelAssetBalance computes the total local and remote balance for
+// each asset channel that matches the provided asset specifier.
+func (m *Manager) ComputeChannelAssetBalance(ctx context.Context,
 	activeChannels []lndclient.ChannelInfo,
 	specifier asset.Specifier) (PeerChanMap, bool, error) {
 
@@ -1106,7 +1106,7 @@ func (m *Manager) ComputeCompatibleChannelAssetBalance(ctx context.Context,
 		if pass || !specifier.IsSome() {
 			peerChanMap[openChan.PubKeyBytes] = append(
 				peerChanMap[openChan.PubKeyBytes],
-				ChannelWithSpecifier{
+				TapChannel{
 					Specifier:   specifier,
 					ChannelInfo: openChan,
 					AssetInfo:   assetData,
@@ -1135,10 +1135,10 @@ const (
 	ReceiveIntention
 )
 
-// RfqChannel returns the channel to use for RFQ operations. It returns a map of
-// peers and their eligible channels. If a peerPubKey is specified then the map
-// will only contain one entry for that peer.
-func (m *Manager) RfqChannel(ctx context.Context, specifier asset.Specifier,
+// FetchChannel returns the channel to use for RFQ operations. It returns a map
+// of peers and their eligible channels. If a peerPubKey is specified then the
+// map will only contain one entry for that peer.
+func (m *Manager) FetchChannel(ctx context.Context, specifier asset.Specifier,
 	peerPubKey *route.Vertex,
 	intention ChanIntention) (PeerChanMap, error) {
 
@@ -1149,8 +1149,7 @@ func (m *Manager) RfqChannel(ctx context.Context, specifier asset.Specifier,
 		return nil, err
 	}
 
-	// nolint:lll
-	balancesMap, haveGroupChans, err := m.ComputeCompatibleChannelAssetBalance(
+	balancesMap, haveGroupChans, err := m.ComputeChannelAssetBalance(
 		ctx, activeChannels, specifier,
 	)
 	if err != nil {

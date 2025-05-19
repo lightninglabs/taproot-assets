@@ -149,7 +149,7 @@ func assertComputeChannelAssetBalance(t *testing.T,
 	)
 	defer cancel()
 
-	chanMap, _, err := manager.ComputeCompatibleChannelAssetBalance(
+	chanMap, _, err := manager.ComputeChannelAssetBalance(
 		ctxt, tc.activeChannels, tc.specifier,
 	)
 	require.NoError(t, err)
