@@ -8142,7 +8142,13 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		return nil, fmt.Errorf("error validating invoice amount: %w",
 			err)
 	}
+
+	// We'll forward the invoice request to lnd, where we can only set one
+	// of the two values. Since we've calculated the amount in mSat (but the
+	// user might've set the satoshi value initially), we need to reset the
+	// value field.
 	iReq.ValueMsat = int64(invoiceAmtMsat)
+	iReq.Value = 0
 
 	// If this is a hodl invoice, then we'll copy over the relevant fields,
 	// then route this through the invoicerpc instead.
