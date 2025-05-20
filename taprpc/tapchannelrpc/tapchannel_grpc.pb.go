@@ -37,7 +37,9 @@ type TaprootAssetChannelsClient interface {
 	// litcli: `ln addinvoice`
 	// AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
 	// specific parameters. It allows RPC users to create invoices that correspond
-	// to the specified asset amount.
+	// to the specified asset amount. If a peer pubkey is specified, then only that
+	// peer will be used for RFQ negotiations. If none is specified then RFQ quotes
+	// for all peers with suitable asset channels will be created.
 	AddInvoice(ctx context.Context, in *AddInvoiceRequest, opts ...grpc.CallOption) (*AddInvoiceResponse, error)
 	// litcli: `ln decodeassetinvoice`
 	// DecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an
@@ -145,7 +147,9 @@ type TaprootAssetChannelsServer interface {
 	// litcli: `ln addinvoice`
 	// AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
 	// specific parameters. It allows RPC users to create invoices that correspond
-	// to the specified asset amount.
+	// to the specified asset amount. If a peer pubkey is specified, then only that
+	// peer will be used for RFQ negotiations. If none is specified then RFQ quotes
+	// for all peers with suitable asset channels will be created.
 	AddInvoice(context.Context, *AddInvoiceRequest) (*AddInvoiceResponse, error)
 	// litcli: `ln decodeassetinvoice`
 	// DecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an

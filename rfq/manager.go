@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,10 +19,12 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
-	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 const (
@@ -41,7 +45,9 @@ const (
 type ChannelLister interface {
 	// ListChannels returns a list of channels that are available for
 	// routing.
-	ListChannels(ctx context.Context) ([]lndclient.ChannelInfo, error)
+	ListChannels(ctx context.Context, activeOnly, publicOnly bool,
+		_ ...lndclient.ListChannelsOption) ([]lndclient.ChannelInfo,
+		error)
 }
 
 // ScidAliasManager is an interface that can add short channel ID (SCID) aliases
@@ -546,62 +552,37 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 	peer route.Vertex) error {
 
-	// Retrieve all local channels.
 	ctxb := context.Background()
-	localChans, err := m.cfg.ChannelLister.ListChannels(ctxb)
-	if err != nil {
-		// Not being able to call lnd to add the alias is a critical
-		// error, which warrants shutting down, as something is wrong.
-		return fn.NewCriticalError(
-			fmt.Errorf("add alias: error listing local channels: "+
-				"%w", err),
-		)
+	peerChans, err := m.FetchChannel(
+		ctxb, assetSpecifier, &peer, NoIntention,
+	)
+	if err != nil && !strings.Contains(
+		err.Error(), "no asset channel balance found for",
+	) {
+
+		return err
 	}
 
-	// Filter for channels with the given peer.
-	peerChannels := lfn.Filter(
-		localChans, func(c lndclient.ChannelInfo) bool {
-			return c.PubKeyBytes == peer
-		},
-	)
-
-	var baseSCID uint64
-	for _, localChan := range peerChannels {
-		if len(localChan.CustomChannelData) == 0 {
-			continue
-		}
-
-		var assetData rfqmsg.JsonAssetChannel
-		err = json.Unmarshal(localChan.CustomChannelData, &assetData)
-		if err != nil {
-			log.Warnf("Unable to unmarshal channel asset data: %v",
-				err)
-			continue
-		}
-
-		match, err := m.ChannelMatchesFully(
-			ctxb, assetData, assetSpecifier,
+	// As a fallback, if we didn't find any compatible channels with the
+	// peer, let's pick any channel that is available with this peer. This
+	// is okay, because non-strict forwarding will ask each channel if the
+	// bandwidth matches the provided specifier.
+	if len(peerChans[peer]) == 0 {
+		peerChans, err = m.FetchChannel(
+			ctxb, asset.Specifier{}, &peer, NoIntention,
 		)
 		if err != nil {
 			return err
 		}
-
-		// TODO(george): Instead of returning the first result,
-		// try to pick the best channel for what we're trying to
-		// do (receive/send). Binding a baseSCID means we're
-		// also binding the asset liquidity on that channel.
-		if match {
-			baseSCID = localChan.ChannelID
-			break
-		}
 	}
 
-	// As a fallback, if the base SCID is not found and there's only one
-	// channel with the target peer, assume that the base SCID corresponds
-	// to that channel.
-	if baseSCID == 0 && len(peerChannels) == 1 {
-		baseSCID = peerChannels[0].ChannelID
+	if len(peerChans[peer]) == 0 {
+		return fmt.Errorf("cannot add scid alias with peer=%v, no "+
+			"compatible channels found for %s", peer,
+			&assetSpecifier)
 	}
+
+	baseSCID := peerChans[peer][0].ChannelInfo.ChannelID
 
 	// At this point, if the base SCID is still not found, we return an
 	// error. We can't map the SCID alias to a base SCID.
@@ -1050,6 +1031,250 @@ func (m *Manager) ChannelMatchesFully(ctx context.Context,
 	}
 
 	return true, nil
+}
+
+// TapChannel is a helper struct that combines the information of an asset
+// specifier that is satisfied by a channel with the channels' general
+// information.
+type TapChannel struct {
+	// Specifier is the asset Specifier that is satisfied by this channels'
+	// assets.
+	Specifier asset.Specifier
+
+	// ChannelInfo is the information about the channel the asset is
+	// committed to.
+	ChannelInfo lndclient.ChannelInfo
+
+	// AssetInfo contains the asset related info of the channel.
+	AssetInfo rfqmsg.JsonAssetChannel
+}
+
+// PeerChanMap is a structure that maps peers to channels. This is used for
+// filtering asset channels against an asset specifier.
+type PeerChanMap map[route.Vertex][]TapChannel
+
+// ComputeChannelAssetBalance computes the total local and remote balance for
+// each asset channel that matches the provided asset specifier.
+func (m *Manager) ComputeChannelAssetBalance(ctx context.Context,
+	activeChannels []lndclient.ChannelInfo,
+	specifier asset.Specifier) (PeerChanMap, bool, error) {
+
+	var (
+		peerChanMap              = make(PeerChanMap)
+		haveGroupedAssetChannels bool
+	)
+	for chanIdx := range activeChannels {
+		var (
+			pass      bool
+			assetData rfqmsg.JsonAssetChannel
+		)
+
+		openChan := activeChannels[chanIdx]
+
+		// If there specifier is empty, we skip all asset balance
+		// related checks.
+		if specifier.IsSome() {
+			if len(openChan.CustomChannelData) == 0 {
+				continue
+			}
+
+			err := json.Unmarshal(
+				openChan.CustomChannelData, &assetData,
+			)
+			if err != nil {
+				return nil, false, fmt.Errorf("unable to "+
+					"unmarshal asset data: %w", err)
+			}
+
+			if len(assetData.GroupKey) > 0 {
+				haveGroupedAssetChannels = true
+			}
+
+			// Check if the assets of this channel match the
+			// provided specifier.
+			pass, err = m.ChannelMatchesFully(
+				ctx, assetData, specifier,
+			)
+			if err != nil {
+				return nil, false, err
+			}
+		}
+
+		// We also append the channel in the case where the specifier is
+		// empty. This means that the caller doesn't really care about
+		// the type of balance.
+		if pass || !specifier.IsSome() {
+			peerChanMap[openChan.PubKeyBytes] = append(
+				peerChanMap[openChan.PubKeyBytes],
+				TapChannel{
+					Specifier:   specifier,
+					ChannelInfo: openChan,
+					AssetInfo:   assetData,
+				},
+			)
+		}
+	}
+
+	return peerChanMap, haveGroupedAssetChannels, nil
+}
+
+// ChanIntention defines the intention of calling rfqChannel. This helps with
+// returning the channel that is most suitable for what we want to do.
+type ChanIntention uint8
+
+const (
+	// NoIntention defines the absence of any intention, signalling that we
+	// don't really care which channel is returned.
+	NoIntention ChanIntention = iota
+
+	// SendIntention defines the intention to send over an asset channel.
+	SendIntention
+
+	// ReceiveIntention defines the intention to receive over an asset
+	// channel.
+	ReceiveIntention
+)
+
+// FetchChannel returns the channel to use for RFQ operations. It returns a map
+// of peers and their eligible channels. If a peerPubKey is specified then the
+// map will only contain one entry for that peer.
+func (m *Manager) FetchChannel(ctx context.Context, specifier asset.Specifier,
+	peerPubKey *route.Vertex,
+	intention ChanIntention) (PeerChanMap, error) {
+
+	activeChannels, err := m.cfg.ChannelLister.ListChannels(
+		ctx, true, false,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	balancesMap, haveGroupChans, err := m.ComputeChannelAssetBalance(
+		ctx, activeChannels, specifier,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error computing available asset "+
+			"channel balance: %w", err)
+	}
+
+	// If the user uses the asset ID to specify what asset to use, that will
+	// not work for asset channels that have multiple UTXOs of grouped
+	// assets. The result wouldn't be deterministic anyway (meaning, it's
+	// not guaranteed that a specific asset ID is moved within a channel
+	// when an HTLC is sent, the allocation logic decides which actual UTXO
+	// is used). So we tell the user to use the group key instead, at least
+	// for channels that have multiple UTXOs of grouped assets.
+	if specifier.HasId() && len(balancesMap) == 0 && haveGroupChans {
+		return nil, fmt.Errorf("no compatible asset channel found for "+
+			"%s, make sure to use group key for grouped asset "+
+			"channels", &specifier)
+	}
+
+	if len(balancesMap) == 0 {
+		return nil, fmt.Errorf("no asset channel balance found for %s",
+			&specifier)
+	}
+
+	switch intention {
+	case SendIntention:
+		// When sending we care about the volume of our local balances,
+		// so we sort by local balances in descending order.
+		for k, v := range balancesMap {
+			sort.Slice(v, func(i, j int) bool {
+				return v[i].AssetInfo.LocalBalance >
+					v[j].AssetInfo.LocalBalance
+			})
+
+			balancesMap[k] = v
+		}
+	case ReceiveIntention:
+		// When sending we care about the volume of the remote balances,
+		// so we sort by remote balances in descending order.
+		for k, v := range balancesMap {
+			sort.Slice(v, func(i, j int) bool {
+				return v[i].AssetInfo.RemoteBalance >
+					v[j].AssetInfo.RemoteBalance
+			})
+
+			balancesMap[k] = v
+		}
+	case NoIntention:
+		// We don't care about sending or receiving, this means that
+		// the method was called as a dry check. Do nothing.
+	}
+
+	// If a peer public key was specified, we always want to use that to
+	// filter the asset channels.
+	if peerPubKey != nil {
+		_, ok := balancesMap[*peerPubKey]
+		if !ok {
+			return nil, fmt.Errorf("no asset channels found for "+
+				"%s and peer=%s", &specifier, peerPubKey)
+		}
+
+		filteredRes := make(PeerChanMap)
+		filteredRes[*peerPubKey] = balancesMap[*peerPubKey]
+
+		balancesMap = filteredRes
+	}
+
+	return balancesMap, nil
+}
+
+// InboundPolicyFetcher is a helper that fetches the inbound policy of a channel
+// based on its chanID.
+type InboundPolicyFetcher func(ctx context.Context, chanID uint64,
+	remotePubStr string) (*lnrpc.RoutingPolicy, error)
+
+// RfqToHopHint creates the hop hint representation which encapsulates certain
+// quote information along with some other data required by the payment to
+// succeed.
+// Depending on whether the hold flag is set, we either return the lnrpc version
+// of a hop hint or the zpay32 version. This is because we use the lndclient
+// wrapper for hold invoices while we use the raw lnrpc endpoint for simple
+// invoices.
+func (m *Manager) RfqToHopHint(ctx context.Context,
+	policyFetcher InboundPolicyFetcher, channelID uint64,
+	peerPubKey route.Vertex, quote *rfqrpc.PeerAcceptedBuyQuote,
+	hold bool) (*zpay32.HopHint, error) {
+
+	inboundPolicy, err := policyFetcher(ctx, channelID, peerPubKey.String())
+	if err != nil {
+		return nil, fmt.Errorf("unable to get inbound channel "+
+			"policy for channel with ID %d: %w", channelID, err)
+	}
+
+	peerPub, err := btcec.ParsePubKey(peerPubKey[:])
+	if err != nil {
+		return nil, fmt.Errorf("error parsing peer "+
+			"pubkey: %w", err)
+	}
+	hopHint := &zpay32.HopHint{
+		NodeID:      peerPub,
+		ChannelID:   quote.Scid,
+		FeeBaseMSat: uint32(inboundPolicy.FeeBaseMsat),
+		FeeProportionalMillionths: uint32(
+			inboundPolicy.FeeRateMilliMsat,
+		),
+		CLTVExpiryDelta: uint16(
+			inboundPolicy.TimeLockDelta,
+		),
+	}
+
+	return hopHint, nil
+}
+
+// Zpay32HopHintToLnrpc converts a zpay32 hop hint to the lnrpc representation.
+func Zpay32HopHintToLnrpc(h *zpay32.HopHint) *lnrpc.HopHint {
+	return &lnrpc.HopHint{
+		NodeId: fmt.Sprintf(
+			"%x", h.NodeID.SerializeCompressed(),
+		),
+		ChanId:                    h.ChannelID,
+		FeeBaseMsat:               h.FeeBaseMSat,
+		FeeProportionalMillionths: h.FeeProportionalMillionths,
+		CltvExpiryDelta:           uint32(h.CLTVExpiryDelta),
+	}
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.
