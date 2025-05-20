@@ -99,7 +99,6 @@ type Querier interface {
 	GenesisPoints(ctx context.Context) ([]GenesisPoint, error)
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
 	HasAssetProof(ctx context.Context, tweakedScriptKey []byte) (bool, error)
-	InsertAddr(ctx context.Context, arg InsertAddrParams) (int64, error)
 	InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error
 	InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error
 	InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int64, error)
@@ -161,6 +160,7 @@ type Querier interface {
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLeaseParams) error
+	UpsertAddr(ctx context.Context, arg UpsertAddrParams) (int64, error)
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int64, error)
 	UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64, error)
 	UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int64, error)

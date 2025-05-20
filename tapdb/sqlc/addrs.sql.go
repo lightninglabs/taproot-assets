@@ -302,49 +302,6 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 	return items, nil
 }
 
-const InsertAddr = `-- name: InsertAddr :one
-INSERT INTO addrs (
-    version, asset_version, genesis_asset_id, group_key, script_key_id,
-    taproot_key_id, tapscript_sibling, taproot_output_key, amount, asset_type,
-    creation_time, proof_courier_addr
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id
-`
-
-type InsertAddrParams struct {
-	Version          int16
-	AssetVersion     int16
-	GenesisAssetID   int64
-	GroupKey         []byte
-	ScriptKeyID      int64
-	TaprootKeyID     int64
-	TapscriptSibling []byte
-	TaprootOutputKey []byte
-	Amount           int64
-	AssetType        int16
-	CreationTime     time.Time
-	ProofCourierAddr []byte
-}
-
-func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, InsertAddr,
-		arg.Version,
-		arg.AssetVersion,
-		arg.GenesisAssetID,
-		arg.GroupKey,
-		arg.ScriptKeyID,
-		arg.TaprootKeyID,
-		arg.TapscriptSibling,
-		arg.TaprootOutputKey,
-		arg.Amount,
-		arg.AssetType,
-		arg.CreationTime,
-		arg.ProofCourierAddr,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
 const QueryEventIDs = `-- name: QueryEventIDs :many
 SELECT
     addr_events.id as event_id, addrs.taproot_output_key as taproot_output_key
@@ -417,6 +374,85 @@ type SetAddrManagedParams struct {
 func (q *Queries) SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error {
 	_, err := q.db.ExecContext(ctx, SetAddrManaged, arg.TaprootOutputKey, arg.ManagedFrom)
 	return err
+}
+
+const UpsertAddr = `-- name: UpsertAddr :one
+INSERT INTO addrs (
+    version,
+    asset_version,
+    genesis_asset_id,
+    group_key,
+    script_key_id,
+    taproot_key_id,
+    tapscript_sibling,
+    taproot_output_key,
+    amount,
+    asset_type,
+    creation_time,
+    proof_courier_addr
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+) 
+ON CONFLICT (taproot_output_key) DO UPDATE
+SET
+    -- If the WHERE clause below is true (exact match on all other fields,
+    -- except for creation_time), we set taproot_output_key to its current
+    -- conflicting value. This is a no-op in terms of data change but allows
+    -- RETURNING id to work on the existing row.
+    taproot_output_key = excluded.taproot_output_key
+WHERE 
+    addrs.version = excluded.version
+    AND addrs.asset_version = excluded.asset_version
+    AND addrs.genesis_asset_id = excluded.genesis_asset_id
+    AND (
+        (addrs.group_key IS NULL AND excluded.group_key IS NULL)
+        OR addrs.group_key = excluded.group_key
+    )
+    AND addrs.script_key_id = excluded.script_key_id
+    AND addrs.taproot_key_id = excluded.taproot_key_id
+    AND (
+        (addrs.tapscript_sibling IS NULL AND excluded.tapscript_sibling IS NULL)
+        OR addrs.tapscript_sibling = excluded.tapscript_sibling
+    )
+    AND addrs.amount = excluded.amount
+    AND addrs.asset_type = excluded.asset_type
+    AND addrs.proof_courier_addr = excluded.proof_courier_addr
+RETURNING id
+`
+
+type UpsertAddrParams struct {
+	Version          int16
+	AssetVersion     int16
+	GenesisAssetID   int64
+	GroupKey         []byte
+	ScriptKeyID      int64
+	TaprootKeyID     int64
+	TapscriptSibling []byte
+	TaprootOutputKey []byte
+	Amount           int64
+	AssetType        int16
+	CreationTime     time.Time
+	ProofCourierAddr []byte
+}
+
+func (q *Queries) UpsertAddr(ctx context.Context, arg UpsertAddrParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertAddr,
+		arg.Version,
+		arg.AssetVersion,
+		arg.GenesisAssetID,
+		arg.GroupKey,
+		arg.ScriptKeyID,
+		arg.TaprootKeyID,
+		arg.TapscriptSibling,
+		arg.TaprootOutputKey,
+		arg.Amount,
+		arg.AssetType,
+		arg.CreationTime,
+		arg.ProofCourierAddr,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const UpsertAddrEvent = `-- name: UpsertAddrEvent :one
