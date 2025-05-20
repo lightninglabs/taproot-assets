@@ -300,7 +300,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		targetKey := testLeaf.LeafKey
 		leaf := testLeaf.Leaf
 
-		issuanceProof, err := baseUniverse.RegisterIssuance(
+		issuanceProof, err := baseUniverse.UpsertProofLeaf(
 			ctx, targetKey, &leaf, nil,
 		)
 		require.NoError(t, err)
@@ -328,7 +328,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 		// We should be able to fetch the issuance proof now, using
 		// that very same target key generated.
-		dbProof, err := baseUniverse.FetchIssuanceProof(ctx, targetKey)
+		dbProof, err := baseUniverse.FetchProof(ctx, targetKey)
 		require.NoError(t, err)
 
 		uniProof := dbProof[0]
@@ -363,7 +363,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 	// Next, we'll query for all the available keys, this should match the
 	// number of insertions we just did.
-	mintingKeys, err := baseUniverse.MintingKeys(
+	mintingKeys, err := baseUniverse.FetchKeys(
 		ctx, universe.UniverseLeafKeysQuery{},
 	)
 	require.NoError(t, err)
@@ -378,7 +378,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 	// We should be able to query for the complete set of leaves,
 	// which matches what we inserted above.
-	dbLeaves, err := baseUniverse.MintingLeaves(ctx)
+	dbLeaves, err := baseUniverse.FetchLeaves(ctx)
 	require.NoError(t, err)
 	require.Equal(t, numLeaves, len(dbLeaves))
 	require.True(t, fn.All(dbLeaves, func(leaf universe.Leaf) bool {
@@ -406,7 +406,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		testLeaf.Leaf.RawProof = randProofBytes
 
 		targetKey := testLeaf.LeafKey
-		issuanceProof, err := baseUniverse.RegisterIssuance(
+		issuanceProof, err := baseUniverse.UpsertProofLeaf(
 			ctx, targetKey, &testLeaf.Leaf, nil,
 		)
 		require.NoError(t, err)
@@ -435,13 +435,13 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	_, err = baseUniverse.DeleteUniverse(ctx)
 	require.NoError(t, err)
 
-	mintingKeys, err = baseUniverse.MintingKeys(
+	mintingKeys, err = baseUniverse.FetchKeys(
 		ctx, universe.UniverseLeafKeysQuery{},
 	)
 	require.NoError(t, err)
 	require.Len(t, mintingKeys, 0)
 
-	dbLeaves, err = baseUniverse.MintingLeaves(ctx)
+	dbLeaves, err = baseUniverse.FetchLeaves(ctx)
 	require.NoError(t, err)
 	require.Len(t, dbLeaves, 0)
 
@@ -476,12 +476,12 @@ func TestUniverseMetaBlob(t *testing.T) {
 	targetKey := randLeafKey(t)
 	leaf := randMintingLeaf(t, assetGen, id.GroupKey)
 
-	_, err := baseUniverse.RegisterIssuance(ctx, targetKey, &leaf, meta)
+	_, err := baseUniverse.UpsertProofLeaf(ctx, targetKey, &leaf, meta)
 	require.NoError(t, err)
 
 	// We should be able to fetch the leaf based on the base key we used
 	// above.
-	dbProof, err := baseUniverse.FetchIssuanceProof(ctx, targetKey)
+	dbProof, err := baseUniverse.FetchProof(ctx, targetKey)
 	require.NoError(t, err)
 
 	uniProof := dbProof[0]
@@ -503,7 +503,7 @@ func insertRandLeaf(t *testing.T, ctx context.Context, tree *BaseUniverseTree,
 	targetKey := randLeafKey(t)
 	leaf := randMintingLeaf(t, targetGen, tree.id.GroupKey)
 
-	return tree.RegisterIssuance(ctx, targetKey, &leaf, nil)
+	return tree.UpsertProofLeaf(ctx, targetKey, &leaf, nil)
 }
 
 // TestUniverseTreeIsolation tests that each Universe tree is properly isolated
@@ -680,7 +680,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 
 		leafToScriptKey[scriptKey] = leaf
 
-		_, err := baseUniverse.RegisterIssuance(
+		_, err := baseUniverse.UpsertProofLeaf(
 			ctx, targetKey, &leaf, nil,
 		)
 		require.NoError(t, err)
@@ -688,7 +688,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 
 	// If we query for only the minting point, then all three leaves should
 	// be returned.
-	proofs, err := baseUniverse.FetchIssuanceProof(
+	proofs, err := baseUniverse.FetchProof(
 		ctx, universe.BaseLeafKey{
 			OutPoint: rootMintingPoint,
 		},
@@ -703,7 +703,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 		scriptKey, err := btcec.ParsePubKey(scriptKeyBytes[:])
 		require.NoError(t, err)
 
-		p, err := baseUniverse.FetchIssuanceProof(
+		p, err := baseUniverse.FetchProof(
 			ctx, universe.BaseLeafKey{
 				OutPoint: rootMintingPoint,
 				ScriptKey: &asset.ScriptKey{
@@ -754,12 +754,12 @@ func TestUniverseLeafOverflow(t *testing.T) {
 	leaf.Amt = math.MaxUint64 - 1
 
 	// We should be able to insert this np.
-	_, err := baseUniverse.RegisterIssuance(ctx, targetKey, &leaf, nil)
+	_, err := baseUniverse.UpsertProofLeaf(ctx, targetKey, &leaf, nil)
 	require.NoError(t, err)
 
 	// We should be able to fetch the leaf based on the base key we used
 	// above.
-	_, err = baseUniverse.FetchIssuanceProof(ctx, targetKey)
+	_, err = baseUniverse.FetchProof(ctx, targetKey)
 	require.NoError(t, err)
 
 	// If we try to insert another, then this should fail, as the tree will
@@ -767,11 +767,11 @@ func TestUniverseLeafOverflow(t *testing.T) {
 	targetKey2 := randLeafKey(t)
 	leaf2 := randMintingLeaf(t, assetGen, id.GroupKey)
 
-	_, err = baseUniverse.RegisterIssuance(ctx, targetKey2, &leaf2, nil)
+	_, err = baseUniverse.UpsertProofLeaf(ctx, targetKey2, &leaf2, nil)
 	require.ErrorIs(t, err, mssmt.ErrIntegerOverflow)
 
 	// We should still be able to fetch the original issuance proof.
-	_, err = baseUniverse.FetchIssuanceProof(ctx, targetKey)
+	_, err = baseUniverse.FetchProof(ctx, targetKey)
 	require.NoError(t, err)
 }
 
@@ -861,7 +861,7 @@ func TestUniverseRootSum(t *testing.T) {
 
 				keys[i] = targetKey
 
-				_, err := baseUniverse.RegisterIssuance(
+				_, err := baseUniverse.UpsertProofLeaf(
 					ctx, targetKey, &leaf, nil,
 				)
 				require.NoError(t, err)
@@ -877,7 +877,7 @@ func TestUniverseRootSum(t *testing.T) {
 			// Each of the leaves inserted should have the proper
 			// value as well.
 			for i, key := range keys {
-				proofs, err := baseUniverse.FetchIssuanceProof(
+				proofs, err := baseUniverse.FetchProof(
 					ctx, key,
 				)
 				require.NoError(t, err)

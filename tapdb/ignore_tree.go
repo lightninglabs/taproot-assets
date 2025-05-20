@@ -24,7 +24,7 @@ func NewIgnoreUniverseTree(db BatchedUniverseTree) *IgnoreUniverseTree {
 	return &IgnoreUniverseTree{db: db}
 }
 
-// AddTuple adds a new ignore tuples to the ignore tree.
+// AddTuples adds a new ignore tuples to the ignore tree.
 func (it *IgnoreUniverseTree) AddTuples(ctx context.Context,
 	spec asset.Specifier, tuples ...universe.SignedIgnoreTuple,
 ) lfn.Result[universe.AuthIgnoreTuples] {

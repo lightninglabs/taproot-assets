@@ -117,7 +117,7 @@ type BaseUniverseStore interface {
 // for a specific proof type.
 //
 // NOTE: This makes an assumption that only specifiers with a group key are
-// valid.
+// valid for the ignore and burn proof types.
 func specifierToIdentifier(spec asset.Specifier,
 	proofType universe.ProofType) (universe.Identifier, error) {
 
@@ -125,7 +125,9 @@ func specifierToIdentifier(spec asset.Specifier,
 
 	// The specifier must have a group key to be able to be used within the
 	// ignore or burn tree context.
-	if !spec.HasGroupPubKey() {
+	requireGroupKey := proofType == universe.ProofTypeIgnore ||
+		proofType == universe.ProofTypeBurn
+	if requireGroupKey && !spec.HasGroupPubKey() {
 		return id, fmt.Errorf("group key must be set for proof type %v",
 			proofType)
 	}
@@ -378,11 +380,11 @@ type BatchedUniverseTree interface {
 	BatchedTx[BaseUniverseStore]
 }
 
-// BaseUniverseTree implements the persistent storage for the Base universe for
+// BaseUniverseTree implements the persistent storage for the universe for
 // a given asset. The minting outpoints stored of the asset are used to key
 // into the universe tree.
 //
-// NOTE: This implements the universe.Base interface.
+// NOTE: This implements the universe.StorageBackend interface.
 type BaseUniverseTree struct {
 	db BatchedUniverseTree
 
@@ -566,9 +568,10 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 	return genAssetID, nil
 }
 
-// RegisterIssuance inserts a new minting leaf within the universe tree, stored
-// at the base key.
-func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
+// UpsertProofLeaf inserts or updates a proof leaf within the universe tree,
+// stored at the base key. The metaReveal type is purely optional, and should be
+// specified if the genesis proof committed to a non-zero meta hash.
+func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 	key universe.LeafKey, leaf *universe.Leaf,
 	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
 
@@ -805,11 +808,11 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	}, nil
 }
 
-// FetchIssuanceProof returns an issuance proof for the target key. If the key
-// doesn't have a script key specified, then all the proofs for the minting
-// outpoint will be returned. If neither are specified, then proofs for all the
-// inserted leaves will be returned.
-func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
+// FetchProof retrieves a universe proof corresponding to the given key. If the
+// key omits a script key, all proofs for the specified minting outpoint will be
+// returned. If both the script key and minting outpoint are omitted, proofs for
+// all inserted leaves in the universe will be returned.
+func (b *BaseUniverseTree) FetchProof(ctx context.Context,
 	universeKey universe.LeafKey) ([]*universe.Proof, error) {
 
 	var (
@@ -1024,8 +1027,8 @@ func mintingKeys(ctx context.Context, dbTx BaseUniverseStore,
 	return leafKeys, nil
 }
 
-// MintingKeys returns all the keys inserted in the universe.
-func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
+// FetchKeys retrieves all keys from the universe tree.
+func (b *BaseUniverseTree) FetchKeys(ctx context.Context,
 	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
 
 	var leafKeys []universe.LeafKey
@@ -1048,8 +1051,8 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 	return leafKeys, nil
 }
 
-// MintingLeaves returns all the minting leaves inserted into the universe.
-func (b *BaseUniverseTree) MintingLeaves(
+// FetchLeaves retrieves all leaves from the universe tree.
+func (b *BaseUniverseTree) FetchLeaves(
 	ctx context.Context) ([]universe.Leaf, error) {
 
 	var leaves []universe.Leaf
@@ -1189,4 +1192,4 @@ func (b *BaseUniverseTree) DeleteUniverse(ctx context.Context) (string, error) {
 	return b.smtNamespace, dbErr
 }
 
-var _ universe.BaseBackend = (*BaseUniverseTree)(nil)
+var _ universe.StorageBackend = (*BaseUniverseTree)(nil)

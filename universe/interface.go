@@ -398,40 +398,37 @@ func (i *Proof) VerifyRoot(expectedRoot mssmt.Node) bool {
 		mssmt.IsEqualNode(reconstructedRoot, expectedRoot)
 }
 
-// BaseBackend is the backend storage interface for a base universe. The
-// backend can be used to store issuance profs, retrieve them, and also fetch
-// the set of keys and leaves stored within the universe.
-//
-// TODO(roasbeef): gRPC service to match this, think about the REST mapping
-type BaseBackend interface {
-	// RootNode returns the root node for a given base universe.
+// StorageBackend defines the storage interface for a universe. It supports
+// storing and retrieving proofs, as well as fetching the set of keys and leaves
+// contained in the universe.
+type StorageBackend interface {
+	// RootNode returns the root node for a given universe.
 	RootNode(context.Context) (mssmt.Node, string, error)
 
-	// RegisterIssuance inserts a new minting leaf within the universe
-	// tree, stored at the base key. The metaReveal type is purely
+	// UpsertProofLeaf inserts or updates a proof leaf within the universe
+	// tree, stored at the given key. The metaReveal type is purely
 	// optional, and should be specified if the genesis proof committed to
 	// a non-zero meta hash.
-	RegisterIssuance(ctx context.Context, key LeafKey, leaf *Leaf,
+	UpsertProofLeaf(ctx context.Context, key LeafKey, leaf *Leaf,
 		metaReveal *proof.MetaReveal) (*Proof, error)
 
-	// FetchIssuanceProof returns an issuance proof for the target key. If
-	// the key doesn't have a script key specified, then all the proofs for
-	// the minting outpoint will be returned. If neither are specified,
-	// then proofs for all the inserted leaves will be returned.
+	// FetchProof retrieves a universe proof corresponding to the given key.
+	// If the key omits a script key, all proofs for the specified minting
+	// outpoint will be returned. If both the script key and minting
+	// outpoint are omitted, proofs for all inserted leaves in the universe
+	// will be returned.
 	//
 	// TODO(roasbeef): can eventually do multi-proofs for the SMT
-	FetchIssuanceProof(ctx context.Context,
-		key LeafKey) ([]*Proof, error)
+	FetchProof(ctx context.Context, key LeafKey) ([]*Proof, error)
 
-	// MintingKeys returns all the keys inserted in the universe.
-	MintingKeys(ctx context.Context,
+	// FetchKeys retrieves all keys from the universe tree.
+	FetchKeys(ctx context.Context,
 		q UniverseLeafKeysQuery) ([]LeafKey, error)
 
-	// MintingLeaves returns all the minting leaves inserted into the
-	// universe.
-	MintingLeaves(ctx context.Context) ([]Leaf, error)
+	// FetchLeaves retrieves all leaves from the universe tree.
+	FetchLeaves(ctx context.Context) ([]Leaf, error)
 
-	// DeleteUniverse deletes all leaves, and the root, for a given base
+	// DeleteUniverse deletes all leaves, and the root, for a given
 	// universe.
 	DeleteUniverse(ctx context.Context) (string, error)
 }
@@ -478,10 +475,9 @@ type MultiverseLeaf struct {
 	*mssmt.LeafNode
 }
 
-// MultiverseArchive is an interface used to keep track of the set of universe
-// roots that we know of. The BaseBackend interface is used to interact with a
-// particular base universe, while this is used to obtain aggregate information
-// about the universes.
+// MultiverseArchive is an interface for tracking the set of known universe
+// roots. While the StorageBackend interface operates on a single universe, this
+// interface provides aggregate access across multiple universes.
 type MultiverseArchive interface {
 	// RootNodes returns the complete set of known root nodes for the set
 	// of assets tracked in the base Universe.
@@ -780,7 +776,7 @@ type CommittedIssuanceProof struct {
 type ChainCommitter interface {
 	// CommitUniverse takes a Universe and returns a new commitment to that
 	// Universe in the main chain.
-	CommitUniverse(universe BaseBackend) (*Commitment, error)
+	CommitUniverse(universe StorageBackend) (*Commitment, error)
 }
 
 // Canonical is an interface that allows a caller to query for the latest
@@ -788,7 +784,7 @@ type ChainCommitter interface {
 //
 // TODO(roasbeef): sync methods too, divide into read/write?
 type Canonical interface {
-	BaseBackend
+	StorageBackend
 
 	// Query returns a fully proved response for the target base key.
 	Query(context.Context, LeafKey) (*CommittedIssuanceProof, error)
@@ -1297,13 +1293,13 @@ type AuthIgnoreTuples = []AuthenticatedIgnoreTuple
 // ListTuplesResp is the response to a query for ignore tuples.
 type ListTuplesResp = lfn.Result[lfn.Option[IgnoreTuples]]
 
-// IgnoreTree represents a tree of ignore tuples which can be used to
+// IgnoreTreeArchive represents an archive of ignore trees which can be used to
 // effectively cache rejection of invalid proofs.
-type IgnoreTree interface {
+type IgnoreTreeArchive interface {
 	// Sum returns the sum of the ignore tuples for the given asset.
 	Sum(context.Context, asset.Specifier) SumQueryResp
 
-	// AddTuple adds a new ignore tuples to the ignore tree.
+	// AddTuples adds a new ignore tuples to the ignore tree.
 	//
 	// TODO(roasbeef): does all the signing under the hood?
 	AddTuples(context.Context, asset.Specifier,
