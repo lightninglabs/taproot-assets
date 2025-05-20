@@ -55,7 +55,7 @@ func parseSqliteError(sqliteErr *sqlite.Error) error {
 
 	// A write operation could not continue because of a conflict within the
 	// same database connection.
-	case sqlite3.SQLITE_LOCKED:
+	case sqlite3.SQLITE_LOCKED, sqlite3.SQLITE_BUSY_SNAPSHOT:
 		return &ErrDeadlockError{
 			DbError: sqliteErr,
 		}
