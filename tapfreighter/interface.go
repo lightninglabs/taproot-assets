@@ -448,6 +448,11 @@ type OutboundParcel struct {
 
 	// Label is a user provided label for the transfer.
 	Label string
+
+	// SkipAnchorTxBroadcast indicates whether the anchor transaction
+	// broadcast should be skipped. Useful when an external system handles
+	// broadcasting, such as in custom transaction packaging workflows.
+	SkipAnchorTxBroadcast bool
 }
 
 // Copy creates a deep copy of the OutboundParcel.

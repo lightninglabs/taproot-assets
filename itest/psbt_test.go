@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -1124,7 +1127,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 
 	commitPacket = signPacket(t.t, senderLnd, commitPacket)
 	commitPacket = FinalizePacket(t.t, senderLnd.RPC, commitPacket)
-	publishResp := LogAndPublish(
+	publishResp := PublishAndLogTransfer(
 		t.t, sender, commitPacket, []*tappsbt.VPacket{activePacket},
 		[]*tappsbt.VPacket{passivePacket}, commitResp,
 	)
@@ -2438,7 +2441,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	signedPkt := finalizePacket(t.t, lndBob, finalPsbt)
 	require.True(t.t, signedPkt.IsComplete())
 
-	logResp := logAndPublish(
+	logResp := PublishAndLogTransfer(
 		t.t, alice, signedPkt, []*tappsbt.VPacket{bobVPsbt}, nil, resp,
 	)
 	t.Logf("Logged transaction: %v", toJSON(t.t, logResp))
@@ -2611,18 +2614,80 @@ func testPsbtExternalCommit(t *harnessTest) {
 
 	btcPacket = signPacket(t.t, aliceLnd, btcPacket)
 	btcPacket = FinalizePacket(t.t, aliceLnd.RPC, btcPacket)
-	sendResp := LogAndPublish(
+
+	transferLabel := "itest-psbt-external-commit"
+
+	// Subscribe to the send event stream so we can verify the sender's
+	// state transitions during this test.
+	ctx, streamCancel := context.WithCancel(ctxb)
+	stream, err := aliceTapd.SubscribeSendEvents(
+		ctx, &taprpc.SubscribeSendEventsRequest{
+			FilterLabel: transferLabel,
+		},
+	)
+	require.NoError(t.t, err)
+	sendEvents := &EventSubscription[*taprpc.SendEvent]{
+		ClientEventStream: stream,
+		Cancel:            streamCancel,
+	}
+
+	// Execute the transfer but skip anchor transaction broadcast. This
+	// simulates a packaging workflow where broadcasting is handled
+	// externally.
+	sendResp := PublishAndLogTransfer(
 		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets,
-		commitResp,
+		commitResp, withSkipAnchorTxBroadcast(),
+		withLabel(transferLabel),
 	)
 
+	// Assert that the state machine transitions directly to waiting for
+	// tx confirmation, skipping the broadcast state.
+	require.Eventually(t.t, func() bool {
+		isMatchingState := func(msg *taprpc.SendEvent) bool {
+			lastState := tapfreighter.SendStateStorePreBroadcast
+			nextState := tapfreighter.SendStateWaitTxConf
+
+			return msg.SendState == lastState.String() &&
+				msg.NextSendState == nextState.String()
+		}
+
+		for {
+			msg, err := sendEvents.Recv()
+			if err != nil {
+				return false
+			}
+
+			return isMatchingState(msg)
+		}
+	}, defaultWaitTimeout, time.Second)
+
+	// Unmarshal the anchor transaction.
+	var anchorTx wire.MsgTx
+	reader := bytes.NewReader(sendResp.Transfer.AnchorTx)
+	err = anchorTx.Deserialize(reader)
+	require.NoError(t.t, err)
+
+	// Ensure that the anchor PSBT matches the returned anchor
+	// transaction.
+	require.Equal(t.t, anchorTx.TxHash(), btcPacket.UnsignedTx.TxHash())
+
+	// Assert that the anchor transaction is not in the mempool.
+	miner := t.lndHarness.Miner()
+	miner.AssertTxnsNotInMempool([]chainhash.Hash{
+		anchorTx.TxHash(),
+	})
+
+	// Add the anchor transaction to the mempool and mine.
+	miner.MineBlockWithTx(&anchorTx)
+
+	// Assert that the transfer has the correct number of outputs.
 	expectedAmounts := []uint64{
 		targetAsset.Amount - assetsToSend, assetsToSend,
 	}
-	ConfirmAndAssertOutboundTransferWithOutputs(
+	AssertAssetOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner().Client, aliceTapd,
-		sendResp, targetAssetGenesis.AssetId, expectedAmounts,
-		0, 1, len(expectedAmounts),
+		sendResp.Transfer, targetAssetGenesis.AssetId, expectedAmounts,
+		0, 1, len(expectedAmounts), false,
 	)
 
 	// And now the event should be completed on both sides.
@@ -3273,7 +3338,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 		Cancel:            streamCancel,
 	}
 
-	LogAndPublish(t.t, bob, btcPacket, vPackets, nil, commitResp)
+	PublishAndLogTransfer(t.t, bob, btcPacket, vPackets, nil, commitResp)
 
 	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 
@@ -3422,45 +3487,6 @@ func finalizePacket(t *testing.T, lnd *node.HarnessNode,
 	require.NoError(t, err)
 
 	return signedPacket
-}
-
-func logAndPublish(t *testing.T, tapd *tapdHarness, btcPkt *psbt.Packet,
-	activeAssets []*tappsbt.VPacket, passiveAssets []*tappsbt.VPacket,
-	commitResp *wrpc.CommitVirtualPsbtsResponse) *taprpc.SendAssetResponse {
-
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
-	var buf bytes.Buffer
-	err := btcPkt.Serialize(&buf)
-	require.NoError(t, err)
-
-	request := &wrpc.PublishAndLogRequest{
-		AnchorPsbt:        buf.Bytes(),
-		VirtualPsbts:      make([][]byte, len(activeAssets)),
-		PassiveAssetPsbts: make([][]byte, len(passiveAssets)),
-		ChangeOutputIndex: commitResp.ChangeOutputIndex,
-		LndLockedUtxos:    commitResp.LndLockedUtxos,
-	}
-
-	for idx := range activeAssets {
-		request.VirtualPsbts[idx], err = tappsbt.Encode(
-			activeAssets[idx],
-		)
-		require.NoError(t, err)
-	}
-	for idx := range passiveAssets {
-		request.PassiveAssetPsbts[idx], err = tappsbt.Encode(
-			passiveAssets[idx],
-		)
-		require.NoError(t, err)
-	}
-
-	resp, err := tapd.PublishAndLogTransfer(ctxt, request)
-	require.NoError(t, err)
-
-	return resp
 }
 
 // getAddressBip32Derivation returns the PSBT BIP-0032 derivation info of an

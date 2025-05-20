@@ -740,6 +740,14 @@
             "$ref": "#/definitions/taprpcOutPoint"
           },
           "description": "The list of UTXO lock leases that were acquired for the inputs in the funded\nPSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,\ninputs that were already present in the PSBT are not locked."
+        },
+        "skip_anchor_tx_broadcast": {
+          "type": "boolean",
+          "description": "If set, the anchor transaction will not be broadcast to the network. This\nis useful when an external system handles broadcasting, such as in custom\ntransaction packaging workflows."
+        },
+        "label": {
+          "type": "string",
+          "description": "An optional short label for the transfer. This label can be used to track\nthe progress of the transfer via the logs or an event subscription.\nMultiple transfers can share the same label."
         }
       }
     },
@@ -940,6 +948,11 @@
         "label": {
           "type": "string",
           "description": "An optional short label for the transfer. This label can be used to track\nthe progress of the transfer via the logs or an event subscription.\nMultiple transfers can share the same label."
+        },
+        "anchor_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "The L1 transaction that anchors the Taproot Asset commitment where the\nasset resides."
         }
       }
     },

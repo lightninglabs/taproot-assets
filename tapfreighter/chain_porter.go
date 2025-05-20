@@ -1467,6 +1467,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			currentHeight, currentPkg.VirtualPackets,
 			currentPkg.AnchorTx, currentPkg.PassiveAssets,
 			isLocalKey, currentPkg.Label,
+			currentPkg.SkipAnchorTxBroadcast,
 		)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
@@ -1494,6 +1495,16 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 			return nil, fmt.Errorf("unable to write send pkg to "+
 				"disk: %w", err)
+		}
+
+		// If skip flag is set—bypass anchor broadcast and advance to
+		// the confirmation wait state.
+		if currentPkg.OutboundPkg.SkipAnchorTxBroadcast {
+			log.Info("Skip anchor broadcast flag set; " +
+				"transitioning to WaitTxConf state")
+			currentPkg.SendState = SendStateWaitTxConf
+
+			return &currentPkg, nil
 		}
 
 		// We've logged the state transition to disk, so now we can
@@ -1547,10 +1558,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"transaction %v: %w", txHash, err)
 		}
 
-		// With the transaction broadcast, we'll deliver a
-		// notification via the transaction broadcast response channel.
-		currentPkg.deliverTxBroadcastResp()
-
 		// Set send state to the next state to evaluate.
 		currentPkg.SendState = SendStateWaitTxConf
 		return &currentPkg, nil
@@ -1558,6 +1565,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// At this point, transaction broadcast is complete. We go on to wait
 	// for the transfer transaction to confirm on-chain.
 	case SendStateWaitTxConf:
+		// The state machine now transitions to waiting for the transfer
+		// transaction to be confirmed on-chain. Before entering this
+		// state, we return the outbound package response to unblock the
+		// caller's send request.
+		currentPkg.deliverOutboundPkgResp()
+
 		err := p.waitForTransferTxConf(&currentPkg)
 		return &currentPkg, err
 
@@ -1778,6 +1791,9 @@ type AssetSendEvent struct {
 	// Error below is set, then it means executing this state failed.
 	SendState SendState
 
+	// NextSendState is the next state that will be executed.
+	NextSendState SendState
+
 	// Error is an optional error, indicating that something went wrong
 	// during the execution of the SendState above.
 	Error error
@@ -1816,8 +1832,9 @@ func newAssetSendEvent(executedState SendState,
 	pkg sendPackage) *AssetSendEvent {
 
 	newSendEvent := &AssetSendEvent{
-		timestamp: time.Now().UTC(),
-		SendState: executedState,
+		timestamp:     time.Now().UTC(),
+		SendState:     executedState,
+		NextSendState: pkg.SendState,
 		// The parcel remains static throughout the state machine, so we
 		// don't need to copy it, there can be no data race.
 		Parcel:         pkg.Parcel,
@@ -1844,6 +1861,7 @@ func newAssetSendErrorEvent(err error, executedState SendState,
 	return &AssetSendEvent{
 		timestamp:      time.Now().UTC(),
 		SendState:      executedState,
+		NextSendState:  pkg.SendState,
 		Error:          err,
 		Parcel:         pkg.Parcel,
 		TransferLabel:  pkg.Label,

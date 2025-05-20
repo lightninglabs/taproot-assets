@@ -464,7 +464,7 @@ func testMintFundSealAssets(t *harnessTest) {
 
 	// Finalize and publish the transfer anchor TX.
 	signedPkt := FinalizePacket(t.t, aliceLnd.RPC, transferPkt)
-	logResp := LogAndPublish(
+	logResp := PublishAndLogTransfer(
 		t.t, aliceTapd, signedPkt, bobVpsbt, passiveVpsbts,
 		commitResp,
 	)
