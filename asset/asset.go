@@ -2164,3 +2164,52 @@ func FromAltLeaves(leaves []AltLeaf[Asset]) []*Asset {
 		return l.(*Asset)
 	})
 }
+
+// CollectSTXO returns the assets spent by the given output asset in the form of
+// a minimal assets that can be used to create an STXO commitment.
+func CollectSTXO(outAsset *Asset) ([]AltLeaf[Asset], error) {
+	// Genesis assets have no input asset, so they should have an empty
+	// STXO tree. Split leaves will also have a zero PrevID; we will use
+	// an empty STXO tree for them as well.
+	if !outAsset.IsTransferRoot() {
+		return nil, nil
+	}
+
+	// At this point, the asset must have at least one witness.
+	if len(outAsset.PrevWitnesses) == 0 {
+		return nil, fmt.Errorf("asset has no witnesses")
+	}
+
+	// We'll convert the PrevID of each witness into a minimal Asset, where
+	// the PrevID is the tweak for an un-spendable script key.
+	altLeaves := make([]*Asset, len(outAsset.PrevWitnesses))
+	for idx, wit := range outAsset.PrevWitnesses {
+		altLeaf, err := MakeSpentAsset(wit)
+		if err != nil {
+			return nil, fmt.Errorf("error collecting stxo for "+
+				"witness %d: %w", idx, err)
+		}
+
+		altLeaves[idx] = altLeaf
+	}
+
+	return ToAltLeaves(altLeaves), nil
+}
+
+// MakeSpentAsset creates an Alt Leaf with the minimal asset based on the PrevId
+// of the witness.
+func MakeSpentAsset(witness Witness) (*Asset, error) {
+	if witness.PrevID == nil {
+		return nil, fmt.Errorf("witness has no prevID")
+	}
+
+	prevIdKey := DeriveBurnKey(*witness.PrevID)
+	scriptKey := NewScriptKey(prevIdKey)
+
+	spentAsset, err := NewAltLeaf(scriptKey, ScriptV0)
+	if err != nil {
+		return nil, fmt.Errorf("error creating altLeaf: %w", err)
+	}
+
+	return spentAsset, nil
+}

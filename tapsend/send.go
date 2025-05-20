@@ -909,11 +909,38 @@ func addKeyTweaks(unknowns []*psbt.Unknown, desc *lndclient.SignDescriptor) {
 	}
 }
 
+// OutputCommitmentConfig is a struct that holds the configuration for the
+// output commitment creation process.
+type OutputCommitmentConfig struct {
+	// noSTXOProofs indicates whether we should skip the generation of
+	// STXO proofs. This should only be done for asset channels to preserve
+	// the backward compatibility with older peers.
+	noSTXOProofs bool
+}
+
+// OutputCommitmentOption is a functional option that can be used to configure
+// the output commitment creation process.
+type OutputCommitmentOption func(*OutputCommitmentConfig)
+
+// WithNoSTXOProofs is an option that can be used to skip the generation of
+// STXO proofs. This should only be done for asset channels to preserve the
+// backward compatibility with older peers.
+func WithNoSTXOProofs() OutputCommitmentOption {
+	return func(cfg *OutputCommitmentConfig) {
+		cfg.noSTXOProofs = true
+	}
+}
+
 // CreateOutputCommitments creates the final set of Taproot asset commitments
 // representing the asset sends of the given packets of active and passive
 // assets.
-func CreateOutputCommitments(
-	packets []*tappsbt.VPacket) (tappsbt.OutputCommitments, error) {
+func CreateOutputCommitments(packets []*tappsbt.VPacket,
+	opts ...OutputCommitmentOption) (tappsbt.OutputCommitments, error) {
+
+	cfg := &OutputCommitmentConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
 
 	// Inputs must be unique.
 	if err := AssertInputsUnique(packets); err != nil {
@@ -948,7 +975,7 @@ func CreateOutputCommitments(
 	// And now we commit each packet to the respective anchor output
 	// commitments.
 	for _, vPkt := range packets {
-		err := commitPacket(vPkt, outputCommitments)
+		err := commitPacket(vPkt, cfg.noSTXOProofs, outputCommitments)
 		if err != nil {
 			return nil, err
 		}
@@ -959,7 +986,7 @@ func CreateOutputCommitments(
 
 // commitPacket creates the output commitments for a virtual packet and merges
 // it with the existing commitments for the anchor outputs.
-func commitPacket(vPkt *tappsbt.VPacket,
+func commitPacket(vPkt *tappsbt.VPacket, noSTXOProofs bool,
 	outputCommitments tappsbt.OutputCommitments) error {
 
 	inputs := vPkt.Inputs
@@ -993,6 +1020,22 @@ func commitPacket(vPkt *tappsbt.VPacket,
 		)
 		if err != nil {
 			return fmt.Errorf("error committing assets: %w", err)
+		}
+
+		// To not break backward compatibility with older peers, we skip
+		// the generation of STXO proofs for asset channels.
+		if !noSTXOProofs {
+			// Collect the spent assets for this output.
+			stxoAssets, err := asset.CollectSTXO(vOut.Asset)
+			if err != nil {
+				return fmt.Errorf("error collecting STXO "+
+					"assets: %w", err)
+			}
+
+			// If we have STXOs, we will encumber vOut.AltLeaves
+			// with them. They will be merged into the commitment
+			// later with MergeAltLeaves.
+			vOut.AltLeaves = append(vOut.AltLeaves, stxoAssets...)
 		}
 
 		// Because the receiver of this output might be receiving
@@ -1995,12 +2038,21 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 				inputAssets[outpoint], vIn.Asset(),
 			)
 			inputSiblings[outpoint] = sibling
-			inputAltLeaves[outpoint] = append(
-				inputAltLeaves[outpoint],
-				asset.CopyAltLeaves(vIn.AltLeaves)...,
-			)
 			inputScripts[outpoint] = anchorIn.WitnessUtxo.PkScript
 			inputAnchors[outpoint] = vIn.Anchor
+
+			// AltLeaves are the same for all assets from the same
+			// outpoint. So we only need to store them once for each
+			// outpoint.
+			if vIn.Proof == nil {
+				continue
+			}
+
+			if _, ok := inputAltLeaves[outpoint]; !ok {
+				inputAltLeaves[outpoint] = asset.CopyAltLeaves(
+					vIn.Proof.AltLeaves,
+				)
+			}
 		}
 	}
 
@@ -2010,15 +2062,6 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 		inputAssets[outpoint] = append(
 			inputAssets[outpoint], prunedAssets[outpoint]...,
 		)
-	}
-
-	// Each input must have a valid set of AltLeaves at this point.
-	for outpoint, leaves := range inputAltLeaves {
-		err := asset.ValidAltLeaves(leaves)
-		if err != nil {
-			return fmt.Errorf("input %v invalid alt leaves: %w",
-				outpoint.String(), err)
-		}
 	}
 
 	// We can now go through each anchor input that contains assets being

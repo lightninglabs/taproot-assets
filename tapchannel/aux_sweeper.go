@@ -1590,7 +1590,9 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 			"packets: %w", err)
 	}
 
-	outCommitments, err := tapsend.CreateOutputCommitments(vPackets)
+	outCommitments, err := tapsend.CreateOutputCommitments(
+		vPackets, tapsend.WithNoSTXOProofs(),
+	)
 	if err != nil {
 		return fmt.Errorf("unable to create output "+
 			"commitments: %w", err)
@@ -2219,7 +2221,9 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 
 	// Now that we have our set of resolutions, we'll make a new commitment
 	// out of all the vPackets contained.
-	outCommitments, err := tapsend.CreateOutputCommitments(directPkts)
+	outCommitments, err := tapsend.CreateOutputCommitments(
+		directPkts, tapsend.WithNoSTXOProofs(),
+	)
 	if err != nil {
 		return lfn.Errf[returnType]("unable to create "+
 			"output commitments: %w", err)
@@ -2400,7 +2404,9 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	}
 
 	// Now that we have our vPkts, we'll re-create the output commitments.
-	outCommitments, err := tapsend.CreateOutputCommitments(vPkts.allPkts())
+	outCommitments, err := tapsend.CreateOutputCommitments(
+		vPkts.allPkts(), tapsend.WithNoSTXOProofs(),
+	)
 	if err != nil {
 		return fmt.Errorf("unable to create output "+
 			"commitments: %w", err)

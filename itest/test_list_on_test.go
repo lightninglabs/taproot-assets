@@ -6,6 +6,10 @@ import "github.com/lightninglabs/taproot-assets/proof"
 
 var testCases = []*testCase{
 	{
+		name: "psbt stxo exclusion proofs",
+		test: testPsbtSTXOExclusionProofs,
+	},
+	{
 		name: "mint assets",
 		test: testMintAssets,
 	},

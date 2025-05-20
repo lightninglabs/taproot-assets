@@ -462,6 +462,13 @@ func (p *pendingAssetFunding) addToFundingCommitment(a *asset.Asset) error {
 		return fmt.Errorf("unable to create commitment: %w", err)
 	}
 
+	newCommitment, err = commitment.TrimSplitWitnesses(
+		&newCommitment.Version, newCommitment,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to trim split witness: %w", err)
+	}
+
 	// If we don't already have a commitment, then we'll use the one created
 	// just now and don't need to merge anything.
 	if p.fundingAssetCommitment == nil {
@@ -1073,7 +1080,9 @@ func (f *FundingController) anchorVPackets(fundedPkt *tapsend.FundedPsbt,
 
 	// Given the set of vPackets we've created, we'll now merge them all to
 	// create a map from output index to final tap commitment.
-	outputCommitments, err := tapsend.CreateOutputCommitments(allPackets)
+	outputCommitments, err := tapsend.CreateOutputCommitments(
+		allPackets, tapsend.WithNoSTXOProofs(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new output "+
 			"commitments: %w", err)
@@ -1719,7 +1728,6 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	// we can derive the tapscript root that'll be used alongside the
 	// internal key (which we'll only learn from lnd later as we finalize
 	// the funding PSBT).
-	fundingAssets := make([]*asset.Asset, 0, len(fundingVpkt.VPackets))
 	for _, pkt := range fundingVpkt.VPackets {
 		fundingOut, err := pkt.FirstNonSplitRootOutput()
 		if err != nil {
@@ -1727,27 +1735,18 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 				"packet: %w", err)
 		}
 
-		fundingAssets = append(fundingAssets, fundingOut.Asset.Copy())
+		err = fundingState.addToFundingCommitment(
+			fundingOut.Asset.Copy(),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to add asset to funding "+
+				"commitment: %w", err)
+		}
 	}
-	fundingCommitVersion, err := tappsbt.CommitmentVersion(
-		fundingVpkt.VPackets[0].Version,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to create commitment: %w", err)
-	}
-
-	fundingCommitment, err := commitment.FromAssets(
-		fundingCommitVersion, fundingAssets...,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to create commitment: %w", err)
-	}
-
-	fundingState.fundingAssetCommitment = fundingCommitment
 
 	tapsend.LogCommitment(
-		"funding output", 0, fundingCommitment, &btcec.PublicKey{},
-		nil, nil,
+		"funding output", 0, fundingState.fundingAssetCommitment,
+		&btcec.PublicKey{}, nil, nil,
 	)
 
 	// Before we can send our OpenChannel message, we'll
@@ -1895,21 +1894,9 @@ func (f *FundingController) chanFunder() {
 				continue
 			}
 
-			trimmedCommitment, err := commitment.TrimSplitWitnesses(
-				&fundingCommitment.Version, fundingCommitment,
-			)
-			if err != nil {
-				fErr := fmt.Errorf("unable to anchor output "+
-					"script: %w", err)
-				f.cfg.ErrReporter.ReportError(
-					ctxc, fundingFlow.peerPub, pid,
-					fErr,
-				)
-				continue
-			}
-
-			tapscriptRoot := trimmedCommitment.TapscriptRoot(nil)
-			log.Infof("Returning tapscript root: %v", tapscriptRoot)
+			tapscriptRoot := fundingCommitment.TapscriptRoot(nil)
+			log.Infof("Returning tapscript root: %x",
+				fn.ByteSlice(tapscriptRoot))
 
 			req.resp <- lfn.Some(tapscriptRoot)
 
