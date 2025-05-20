@@ -74,6 +74,7 @@ endif
 # are provided, we default to "nolog" which will be silent.
 ifneq ($(log),)
 LOG_TAGS := ${log}
+TEST_FLAGS += -test.v
 else
 LOG_TAGS := nolog
 endif
