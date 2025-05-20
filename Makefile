@@ -232,6 +232,10 @@ flake-unit-race:
 	@$(call print, "Flake hunting races in unit tests.")
 	while [ $$? -eq 0 ]; do make unit-race nocache=1; done
 
+flake-unit-race-trace:
+	@$(call print, "Flake hunting races in unit tests.")
+	while [ $$? -eq 0 ]; do make unit-race log='stdout trace' nocache=1; done
+
 # =============
 # FUZZING
 # =============
