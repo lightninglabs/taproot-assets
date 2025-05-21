@@ -319,6 +319,12 @@ message CommitVirtualPsbtsRequest {
     expiration of 10 minutes will be applied.
     */
     uint64 lock_expiration_seconds = 9;
+
+    /*
+    If set, the psbt funding step will be skipped. This is useful if the intent
+    is to create a zero-fee transaction.
+    */
+    bool skip_funding = 10;
 }
 
 message CommitVirtualPsbtsResponse {
