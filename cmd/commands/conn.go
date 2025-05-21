@@ -282,7 +282,7 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 	// determine the correct path to the macaroon when not specified.
 	network := strings.ToLower(ctx.GlobalString("network"))
 	switch network {
-	case "mainnet", "testnet", "regtest", "simnet", "signet":
+	case "mainnet", "testnet", "testnet4", "regtest", "simnet", "signet":
 	default:
 		return "", "", fmt.Errorf("unknown network: %v", network)
 	}

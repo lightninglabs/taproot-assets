@@ -104,10 +104,27 @@
     },
     {
       "address": {
-        "version": 0,
-        "chain_params_hrp": "tapsb",
+        "version": 1,
+        "chain_params_hrp": "taptb",
         "asset_version": 0,
         "asset_id": "b285b6a5adca55cabdda0f1204427e0b6238c0a311965caa87cecac849ba76c2",
+        "group_key": "03ff4d197521b1af73f4e2ad529abd38d2e7309bdfd4c378f51fb5d920f816c936",
+        "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "tapscript_sibling": "",
+        "amount": 1,
+        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "unknown_odd_types": null
+      },
+      "expected": "taptb1qqqszqspqqzzpv59k6j6mjj4e27a5rcjq3p8uzmz8rq2xyvktj4g0nk2epym5akzq5ss8l6dr96jrvd0w06w9t2jn27n35h8xzdal4xr0r63ldweyrupdjfkqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xsesy0g396",
+      "comment": "testnet4 group collectible"
+    },
+    {
+      "address": {
+        "version": 1,
+        "chain_params_hrp": "tapsb",
+        "asset_version": 0,
+        "asset_id": "3ea23fd8d66115c9676a57d5684864fd337343e1cce8e6f7e6d2262141cf7795",
         "group_key": "",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
@@ -116,15 +133,15 @@
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
         "unknown_odd_types": null
       },
-      "expected": "tapsb1qqqsqqspqqzzpv59k6j6mjj4e27a5rcjq3p8uzmz8rq2xyvktj4g0nk2epym5akzqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xsesxc04ee",
+      "expected": "tapsb1qqqszqspqqzzq04z8lvdvcg4e9nk5474dpyxflfnwdp7rn8gumm7d53xy9qu7au4qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xsesk46mnu",
       "comment": "simnet collectible"
     },
     {
       "address": {
-        "version": 0,
+        "version": 1,
         "chain_params_hrp": "tapsb",
         "asset_version": 0,
-        "asset_id": "014e5e94531e41814f47525d168b72994a080105dab3c2fe89f4ece727e0665a",
+        "asset_id": "10d5dc5afdab33b767003f8f20d726eadab89419a18b435280affabfb659eeb1",
         "group_key": "",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
@@ -133,15 +150,15 @@
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
         "unknown_odd_types": null
       },
-      "expected": "tapsb1qqqsqqspqqzzqq2wt629x8jps985w5jaz69h9x22pqqstk4nctlgna8vuun7qej6qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0py2spsqjdehhggrpypmxzmrfvss8xcmjd9c8gzspqyxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpn0dwlms",
+      "expected": "tapsb1qqqszqspqqzzqyx4m3d0m2enkansq0u0yrtjd6k6hz2pngvtgdfgptl6h7m9nm43qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0py2spsqjdehhggrpypmxzmrfvss8xcmjd9c8gzspqyxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpntpzt44",
       "comment": "simnet collectible with sibling"
     },
     {
       "address": {
-        "version": 1,
+        "version": 0,
         "chain_params_hrp": "tapsb",
         "asset_version": 0,
-        "asset_id": "0e3551778a29c399050bd495e38fc1c13ff200777972e69db6c84e670b406985",
+        "asset_id": "bb0f263c1689547badf0bc87ad378aac0e19131613a5da5ef675c30c251bbc8c",
         "group_key": "",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
@@ -152,7 +169,7 @@
           "31337": "Zm9v"
         }
       },
-      "expected": "tapsb1qqqszqspqqzzqr3429mc52wrnyzsh4y4uw8ursfl7gq8w7tju6wmdjzwvu95q6v9qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0py2spsqjdehhggrpypmxzmrfvss8xcmjd9c8gzspqyxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnl4axjqmxdahsazt7x4",
+      "expected": "tapsb1qqqsqqspqqzzpwc0yc7pdz250wklp0y845mc4tqwryf3vya9mf00vawrpsj3h0yvqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0py2spsqjdehhggrpypmxzmrfvss8xcmjd9c8gzspqyxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnl4axjqmxdahs5ptw90",
       "comment": "simnet collectible with sibling and unknown TLV type"
     }
   ],
