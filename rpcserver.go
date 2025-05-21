@@ -3769,6 +3769,168 @@ func marshalOutputType(outputType tappsbt.VOutputType) (taprpc.OutputType,
 	}
 }
 
+// IgnoreAssetOutPointRequest is the request type for the IgnoreAssetOutPoint
+// RPC method.
+type IgnoreAssetOutPointRequest struct {
+	// AssetOutPoint is the asset outpoint to ignore.
+	AssetOutPoint asset.OutPoint
+
+	// Amount is the amount of the asset at the anchor outpoint.
+	Amount uint64
+}
+
+// unmarshalIgnoreAssetOutPointRequest converts the RPC request into the
+// native request type.
+func unmarshalIgnoreAssetOutPointRequest(
+	req *unirpc.IgnoreAssetOutPointRequest) (IgnoreAssetOutPointRequest,
+	error) {
+
+	var zero IgnoreAssetOutPointRequest
+
+	// Parse asset outpoint from the request.
+	assetOutPoint, err := rpcutils.UnmarshalAssetOutPoint(req.AssetOutPoint)
+	if err != nil {
+		return zero, fmt.Errorf("failed to parse asset outpoint: %w",
+			err)
+	}
+
+	return IgnoreAssetOutPointRequest{
+		AssetOutPoint: assetOutPoint,
+		Amount:        req.Amount,
+	}, nil
+}
+
+// MarshalSignedIgnore converts a signed ignore entry into its RPC counterpart.
+func MarshalSignedIgnore(signedIgnore universe.SignedIgnoreTuple) (
+	unirpc.SignedIgnoreAssetOutPoint, error) {
+
+	var (
+		ignoreTuple = signedIgnore.IgnoreTuple.Val
+		ignoreSig   = signedIgnore.Sig.Val
+	)
+
+	rpcAssetOutPoint := rpcutils.MarshalAssetOutPoint(ignoreTuple.PrevID)
+
+	return unirpc.SignedIgnoreAssetOutPoint{
+		IgnoreAssetOutpoint: &unirpc.IgnoreEntry{
+			AssetOutPoint: rpcAssetOutPoint,
+			Amount:        ignoreTuple.Amount,
+		},
+		Sig: ignoreSig.Serialize(),
+	}, nil
+}
+
+// IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
+// as ignored. An ignored outpoint will be included in the next universe
+// commitment transaction that is published.
+func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
+	rpcReq *unirpc.IgnoreAssetOutPointRequest) (
+	*unirpc.IgnoreAssetOutPointResponse, error) {
+
+	// Unmarshal the request into the native type.
+	req, err := unmarshalIgnoreAssetOutPointRequest(rpcReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal request: %w", err)
+	}
+
+	assetID := req.AssetOutPoint.ID
+
+	// Fetch the asset group for the given asset ID.
+	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(ctx, assetID)
+	if err != nil {
+		return nil, fmt.Errorf("fail to find asset group given "+
+			"asset ID: %w", err)
+	}
+
+	// Formulate an asset specifier from the asset ID and group key.
+	assetSpec := asset.NewSpecifierOptionalGroupKey(
+		assetID, assetGroup.GroupKey,
+	)
+
+	// Retrieve asset meta reveal for the asset ID. This will be used to
+	// obtain the supply commitment delegation key.
+	metaReveal, err := r.cfg.TapAddrBook.FetchAssetMetaForAsset(
+		ctx, assetID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("faild to fetch asset meta: %w", err)
+	}
+
+	// Extract supply commitment delegation pub key from the asset metadata.
+	delegationPubKey, err := metaReveal.DelegationKey.UnwrapOrErr(
+		fmt.Errorf("delegation key not found for given asset"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch the full delegation key locator.
+	delegationKey, err := r.cfg.TapAddrBook.FetchInternalKeyLocator(
+		ctx, &delegationPubKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch delegation key "+
+			"locator: %w", err)
+	}
+
+	// Formulate the ignore entry and sign it with the delegation key.
+	ignoreTuple := universe.IgnoreTuple{
+		PrevID: req.AssetOutPoint,
+		Amount: req.Amount,
+	}
+
+	ignoreSig, err := ignoreTuple.GenSig(
+		ctx, r.cfg.Lnd.Signer, delegationKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign ignore tuple: %w", err)
+	}
+
+	// Upsert a signed ignore tuple into the ignore tree archive and
+	// get back the authenticated ignore tuples.
+	signedIgnore := universe.NewSignedIgnoreTuple(ignoreTuple, ignoreSig)
+	authIgnoreTuples, err := r.cfg.UniverseArchive.UpsertIgnoreTuples(
+		ctx, assetSpec, signedIgnore,
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("failed to upsert ignore tuple: %w",
+			err)
+	}
+
+	// We should have exactly one authenticated ignore tuple.
+	if len(authIgnoreTuples) != 1 {
+		return nil, fmt.Errorf("expected exactly one authenticated "+
+			"ignore tuple, got %d", len(authIgnoreTuples))
+	}
+
+	authIgnoreTuple := authIgnoreTuples[0]
+
+	// Marshal the authenticated ignore tuple into the response.
+	rpcSignedIgnore, err := MarshalSignedIgnore(
+		authIgnoreTuple.SignedIgnoreTuple,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal signed ignore "+
+			"asset output: %w", err)
+	}
+
+	rpcIgnoreRoot := marshalMssmtNode(authIgnoreTuple.IgnoreTreeRoot)
+
+	inclusionProofBytes, err := marshalMssmtProof(
+		authIgnoreTuple.InclusionProof,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal inclusion proof: "+
+			"%w", err)
+	}
+
+	return &unirpc.IgnoreAssetOutPointResponse{
+		SignedIgnoreAssetOutpoint: &rpcSignedIgnore,
+		IgnoreRoot:                rpcIgnoreRoot,
+		InclusionProof:            inclusionProofBytes,
+	}, nil
+}
+
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(

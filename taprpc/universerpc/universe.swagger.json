@@ -1722,6 +1722,21 @@
         }
       }
     },
+    "taprpcAssetID": {
+      "type": "object",
+      "properties": {
+        "asset_id_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset ID in raw byte form. Use this field when\ninteracting via gRPC."
+        },
+        "asset_id_str": {
+          "type": "string",
+          "description": "The 32-byte asset ID encoded as a hex string. Use this field when\ninteracting via REST."
+        }
+      },
+      "description": "The asset ID is a 32-byte identifier that uniquely identifies an asset."
+    },
     "taprpcAssetMeta": {
       "type": "object",
       "properties": {
@@ -1749,6 +1764,29 @@
       ],
       "default": "META_TYPE_OPAQUE",
       "description": " - META_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs.\n - META_TYPE_JSON: JSON is used for asset meta blobs that are to be interpreted as valid JSON\nstrings."
+    },
+    "taprpcAssetOutPoint": {
+      "type": "object",
+      "properties": {
+        "anchor_out_point": {
+          "type": "string",
+          "description": "The outpoint of the asset anchor, represented as a string in the\nformat \"\u003ctxid\u003e:\u003cvout\u003e\". The \u003ctxid\u003e is the transaction ID of the UTXO,\nhex-encoded and byte-reversed (i.e., the internal little-endian\n32-byte value is reversed to big-endian hex format) to match standard\nBitcoin RPC and UI conventions."
+        },
+        "asset_id": {
+          "$ref": "#/definitions/taprpcAssetID",
+          "description": "The asset ID of the asset anchored at the outpoint."
+        },
+        "script_key_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script key in raw byte form. Use this field when interacting\nvia gRPC."
+        },
+        "script_key_str": {
+          "type": "string",
+          "description": "The script key represented as a hex-encoded string. Use this\nfield when interacting via REST."
+        }
+      },
+      "description": "A transaction outpoint annotated with TAP-level asset metadata. It uniquely\nidentifies an asset anchored at a specific outpoint."
     },
     "taprpcAssetType": {
       "type": "string",
@@ -2187,6 +2225,38 @@
         }
       }
     },
+    "universerpcIgnoreAssetOutPointResponse": {
+      "type": "object",
+      "properties": {
+        "signed_ignore_asset_outpoint": {
+          "$ref": "#/definitions/universerpcSignedIgnoreAssetOutPoint",
+          "description": "The signed ignore asset outpoint."
+        },
+        "ignore_root": {
+          "$ref": "#/definitions/universerpcMerkleSumNode",
+          "description": "The root of the asset specific ignore Merkle tree."
+        },
+        "inclusion_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "The inclusion proof for the asset outpoint in the ignore Merkle tree."
+        }
+      }
+    },
+    "universerpcIgnoreEntry": {
+      "type": "object",
+      "properties": {
+        "asset_out_point": {
+          "$ref": "#/definitions/taprpcAssetOutPoint",
+          "description": "The outpoint of the asset to ignore."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of asset units at the associated asset outpoint."
+        }
+      }
+    },
     "universerpcInfoResponse": {
       "type": "object",
       "properties": {
@@ -2364,6 +2434,20 @@
     },
     "universerpcSetFederationSyncConfigResponse": {
       "type": "object"
+    },
+    "universerpcSignedIgnoreAssetOutPoint": {
+      "type": "object",
+      "properties": {
+        "ignore_asset_outpoint": {
+          "$ref": "#/definitions/universerpcIgnoreEntry",
+          "description": "The ignore asset outpoint entry."
+        },
+        "sig": {
+          "type": "string",
+          "format": "byte",
+          "description": "The Schnorr signature of the asset issuer over the ignored asset\noutpoint."
+        }
+      }
     },
     "universerpcSortDirection": {
       "type": "string",
