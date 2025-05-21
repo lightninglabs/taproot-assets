@@ -205,7 +205,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 
 		// For mainnet, we need to overwrite the default universe proof
-		// courier address to use the mainnet server.
+		// courier address to use the mainnet server (the default is
+		// the testnet3 server).
 		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
 			cfg.DefaultProofCourierAddr = fmt.Sprintf(
 				"%s://%s", proof.UniverseRpcCourierType,
@@ -225,6 +226,56 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			federationMembers = append(
 				federationMembers,
 				defaultTestnetFederationServer,
+			)
+		}
+
+	case "testnet4":
+		// Add our default testnet4 federation server to the list of
+		// federation servers if not disabled by the user for privacy
+		// reasons.
+		if !cfg.Universe.NoDefaultFederation {
+			cfgLogger.Infof("Configuring %v as initial Universe "+
+				"federation server",
+				defaultTestnet4FederationServer)
+
+			federationMembers = append(
+				federationMembers,
+				defaultTestnet4FederationServer,
+			)
+		}
+
+		// For testnet4, we need to overwrite the default universe proof
+		// courier address to use the testnet4 server (the default is
+		// the testnet3 server).
+		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
+			cfg.DefaultProofCourierAddr = fmt.Sprintf(
+				"%s://%s", proof.UniverseRpcCourierType,
+				defaultTestnet4FederationServer,
+			)
+		}
+
+	case "signet":
+		// Add our default signet federation server to the list of
+		// federation servers if not disabled by the user for privacy
+		// reasons.
+		if !cfg.Universe.NoDefaultFederation {
+			cfgLogger.Infof("Configuring %v as initial Universe "+
+				"federation server",
+				defaultSignetFederationServer)
+
+			federationMembers = append(
+				federationMembers,
+				defaultSignetFederationServer,
+			)
+		}
+
+		// For signet, we need to overwrite the default universe proof
+		// courier address to use the signet server (the default is
+		// the testnet3 server).
+		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
+			cfg.DefaultProofCourierAddr = fmt.Sprintf(
+				"%s://%s", proof.UniverseRpcCourierType,
+				defaultSignetFederationServer,
 			)
 		}
 
