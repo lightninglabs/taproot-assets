@@ -522,6 +522,10 @@
           "type": "string",
           "format": "uint64",
           "description": "If set, the UTXOs used as inputs in the BTC-level anchor transaction will be\nlocked for the specified number of seconds. If unset, LND's default lock\nexpiration of 10 minutes will be applied."
+        },
+        "skip_funding": {
+          "type": "boolean",
+          "description": "If set, the psbt funding step will be skipped. This is useful if the intent\nis to create a zero-fee transaction."
         }
       }
     },
