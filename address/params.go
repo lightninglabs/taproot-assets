@@ -15,6 +15,9 @@ const (
 	// TestnetHRP is the HRP for testnet.
 	TestnetHRP = "taptb"
 
+	// Testnet4HRP is the HRP for testnet4.
+	Testnet4HRP = "taptb"
+
 	// RegTestHRP is the HRP for regtest.
 	RegTestHRP = "taprt"
 
@@ -78,6 +81,12 @@ var (
 		TapHRP: TestnetHRP,
 	}
 
+	// TestNet4Tap holds the chain params for testnet4.
+	TestNet4Tap = ChainParams{
+		Params: &chaincfg.TestNet4Params,
+		TapHRP: Testnet4HRP,
+	}
+
 	// RegressionNetTap holds the chain params for regtest.
 	RegressionNetTap = ChainParams{
 		Params: &chaincfg.RegressionNetParams,
@@ -124,6 +133,9 @@ func Net(hrp string) (*ChainParams, error) {
 	case TestNet3Tap.TapHRP:
 		return &TestNet3Tap, nil
 
+	case TestNet4Tap.TapHRP:
+		return &TestNet4Tap, nil
+
 	case RegressionNetTap.TapHRP:
 		return &RegressionNetTap, nil
 
@@ -154,6 +166,9 @@ func ParamsForChain(name string) ChainParams {
 
 	case chaincfg.TestNet3Params.Name:
 		return TestNet3Tap
+
+	case chaincfg.TestNet4Params.Name:
+		return TestNet4Tap
 
 	case chaincfg.RegressionNetParams.Name:
 		return RegressionNetTap

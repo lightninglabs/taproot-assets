@@ -343,6 +343,16 @@ func TestAddressEncoding(t *testing.T) {
 			err: nil,
 		},
 		{
+			name: "testnet4 group collectible",
+			f: func() (*Tap, string, error) {
+				return randEncodedAddress(
+					t, &TestNet4Tap, true, false,
+					asset.Collectible,
+				)
+			},
+			err: nil,
+		},
+		{
 			name: "simnet collectible",
 			f: func() (*Tap, string, error) {
 				return randEncodedAddress(
