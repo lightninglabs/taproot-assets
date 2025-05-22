@@ -54,8 +54,10 @@ const (
 
 	defaultNetwork = "testnet"
 
-	defaultMainnetFederationServer = "universe.lightning.finance:10029"
-	defaultTestnetFederationServer = "testnet.universe.lightning.finance:10029"
+	defaultMainnetFederationServer  = "universe.lightning.finance:10029"
+	defaultTestnetFederationServer  = "testnet.universe.lightning.finance:10029"
+	defaultTestnet4FederationServer = "testnet4.universe.lightning.finance:443"
+	defaultSignetFederationServer   = "signet.universe.lightning.finance:443"
 
 	// DefaultAutogenValidity is the default validity of a self-signed
 	// certificate. The value corresponds to 14 months
