@@ -32,7 +32,7 @@ type (
 	AddrQuery = sqlc.FetchAddrsParams
 
 	// NewAddr is a type alias for the params to create a new address.
-	NewAddr = sqlc.InsertAddrParams
+	NewAddr = sqlc.UpsertAddrParams
 
 	// Addresses is a type alias for the full address row with key locator
 	// information.
@@ -82,6 +82,14 @@ type (
 	AssetMeta = sqlc.FetchAssetMetaForAssetRow
 )
 
+var (
+	// ErrConflictingAddress is returned when an address (with the same
+	// output key) already exists in the database and we're attempting to
+	// re-insert it but at least one of the fields (except creation_time)
+	// is different.
+	ErrConflictingAddress = errors.New("failed to add conflicting address")
+)
+
 // AddrBook is an interface that represents the storage backed needed to create
 // the TapAddressBook book. We need to be able to insert/fetch addresses, and
 // also make internal keys since each address has an internal key and a script
@@ -109,8 +117,9 @@ type AddrBook interface {
 	FetchAddrByTaprootOutputKey(ctx context.Context,
 		arg []byte) (AddrByTaprootOutput, error)
 
-	// InsertAddr inserts a new address into the database.
-	InsertAddr(ctx context.Context, arg NewAddr) (int64, error)
+	// UpsertAddr upserts a new address into the database returning the
+	// primary key.
+	UpsertAddr(ctx context.Context, arg NewAddr) (int64, error)
 
 	// UpsertInternalKey inserts a new or updates an existing internal key
 	// into the database and returns the primary key.
@@ -302,7 +311,7 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 				addr.Tap.ProofCourierAddr.String(),
 			)
 
-			_, err = db.InsertAddr(ctx, NewAddr{
+			_, err = db.UpsertAddr(ctx, NewAddr{
 				Version:          int16(addr.Version),
 				AssetVersion:     int16(addr.AssetVersion),
 				GenesisAssetID:   genAssetID,
@@ -319,6 +328,10 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 				ProofCourierAddr: proofCourierAddrBytes,
 			})
 			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return ErrConflictingAddress
+				}
+
 				return fmt.Errorf("unable to insert addr: %w",
 					err)
 			}

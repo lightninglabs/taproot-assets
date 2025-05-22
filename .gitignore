@@ -4,6 +4,7 @@
 *.dll
 *.so
 *.dylib
+.DS_Store
 tapcli-debug
 tapd-debug
 /tapcli

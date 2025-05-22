@@ -172,6 +172,23 @@ func TestAddressInsertion(t *testing.T) {
 	}
 	require.NoError(t, addrBook.InsertAddrs(ctx, addrs...))
 
+	// Now insert the addresses again, to test that upsert works as well.
+	require.NoError(t, addrBook.InsertAddrs(ctx, addrs...))
+
+	// Changing an address' creation time should not affect the insertion
+	// process but should not change the database either.
+	addrTime := addrs[0].CreationTime
+	addrs[0].CreationTime = addrTime.Add(time.Second)
+	require.NoError(t, addrBook.InsertAddrs(ctx, addrs[0]))
+	addrs[0].CreationTime = addrTime
+
+	// Now change the amount, which upon upsert should trigger an error.
+	addrs[0].Amount += 1
+	require.Error(t,
+		addrBook.InsertAddrs(ctx, addrs[0]), ErrConflictingAddress,
+	)
+	addrs[0].Amount -= 1
+
 	// Now we should be able to fetch the complete set of addresses with
 	// the query method without specifying any special params.
 	dbAddrs, err := addrBook.QueryAddrs(ctx, address.QueryParams{})
