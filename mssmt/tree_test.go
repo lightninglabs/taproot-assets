@@ -1,5 +1,3 @@
-//go:build !race
-
 package mssmt_test
 
 import (
@@ -13,12 +11,100 @@ import (
 	"strconv"
 	"testing"
 
+	"crypto/sha256"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	_ "github.com/lightninglabs/taproot-assets/tapdb"
+
 	"github.com/stretchr/testify/require"
 )
+
+// TestBatchedInsert verifies that a batch of leaves is inserted correctly
+// and that each inserted element can be retrieved.
+func TestBatchedInsert(t *testing.T) {
+	ctx := context.Background()
+	numLeaves := 10
+	var leaves []struct {
+		key  [32]byte
+		leaf *mssmt.LeafNode
+	}
+	for i := 0; i < numLeaves; i++ {
+		key := sha256.Sum256([]byte(fmt.Sprintf("value-%d", i)))
+		value := []byte(fmt.Sprintf("leaf-%d", i))
+		leaves = append(leaves, struct {
+			key  [32]byte
+			leaf *mssmt.LeafNode
+		}{
+			key:  key,
+			leaf: mssmt.NewLeafNode(value, uint64(i+1)),
+		})
+	}
+
+	store := mssmt.NewDefaultStore()
+	compTree := mssmt.NewCompactedTree(store)
+
+	// Build the batch.
+	var batch []mssmt.BatchedInsertionEntry
+	for _, tl := range leaves {
+		batch = append(batch, mssmt.BatchedInsertionEntry{
+			Key:  tl.key,
+			Leaf: tl.leaf,
+		})
+	}
+
+	newTree, err := compTree.BatchedInsert(ctx, batch)
+	require.NoError(t, err)
+
+	// Verify that each inserted leaf can be retrieved.
+	for _, entry := range batch {
+		retrieved, err := newTree.Get(ctx, entry.Key)
+		require.NoError(t, err)
+		require.Equal(t, entry.Leaf, retrieved, "mismatch for key %x", entry.Key)
+	}
+}
+
+// TestBatchedInsertEmpty ensures that calling BatchedInsert with an empty batch
+// leaves the tree unchanged.
+func TestBatchedInsertEmpty(t *testing.T) {
+	ctx := context.Background()
+	store := mssmt.NewDefaultStore()
+	compTree := mssmt.NewCompactedTree(store)
+
+	newTree, err := compTree.BatchedInsert(ctx, []mssmt.BatchedInsertionEntry{})
+	require.NoError(t, err)
+	root, err := newTree.Root(ctx)
+	require.NoError(t, err)
+	require.True(t, mssmt.IsEqualNode(root, mssmt.EmptyTree[0]))
+}
+
+// TestBatchedInsertOverflow verifies that a batch insertion causing a sum overflow
+// returns an error.
+func TestBatchedInsertOverflow(t *testing.T) {
+	ctx := context.Background()
+	store := mssmt.NewDefaultStore()
+	compTree := mssmt.NewCompactedTree(store)
+
+	// Insert one leaf with a huge sum.
+	huge := uint64(math.MaxUint64 - 100)
+	key1 := [32]byte{1}
+	hugeLeaf := mssmt.NewLeafNode([]byte("huge"), huge)
+	_, err := compTree.Insert(ctx, key1, hugeLeaf)
+	require.NoError(t, err)
+
+	// Prepare a batch with one normal leaf and one that overflows the root sum.
+	key2 := [32]byte{2}
+	normalLeaf := mssmt.NewLeafNode([]byte("normal"), 50)
+	key3 := [32]byte{3}
+	overflowLeaf := mssmt.NewLeafNode([]byte("overflow"), 101) //  huge + 101 exceeds MaxUint64
+	batch := []mssmt.BatchedInsertionEntry{
+		{Key: key2, Leaf: normalLeaf},
+		{Key: key3, Leaf: overflowLeaf},
+	}
+	_, err = compTree.BatchedInsert(ctx, batch)
+	require.Error(t, err)
+	require.ErrorIs(t, err, mssmt.ErrIntegerOverflow)
+}
 
 var (
 	errorTestVectorName       = "mssmt_tree_error_cases.json"
