@@ -2582,6 +2582,7 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 		},
 		MinConfs:              1,
 		ChangeType:            P2TRChangeType,
+		MaxFeeRatio:           psbtMaxFeeRatio,
 		CustomLockId:          req.CustomLockId,
 		LockExpirationSeconds: req.LockExpirationSeconds,
 	}

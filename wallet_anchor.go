@@ -27,6 +27,13 @@ type LndRpcWalletAnchor struct {
 	lnd *lndclient.LndServices
 }
 
+// psbtMaxFeeRatio is the maximum ratio between fees paid and total output
+// amount produced. Since taproot assets can be anchored to outpoints that may
+// carry relatively small bitcoin amounts, we want to bump the allowed ratio
+// between fees paid and total produced output amount. This can prove useful in
+// high fee environments where we'd otherwise fail to fund the psbt.
+const psbtMaxFeeRatio = 1.00
+
 // NewLndRpcWalletAnchor returns a new wallet anchor instance using the passed
 // lnd node.
 func NewLndRpcWalletAnchor(lnd *lndclient.LndServices) *LndRpcWalletAnchor {
@@ -88,8 +95,9 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 			Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
 				SatPerVbyte: satPerVByte,
 			},
-			MinConfs:   int32(minConfs),
-			ChangeType: defaultChangeType,
+			MinConfs:    int32(minConfs),
+			ChangeType:  defaultChangeType,
+			MaxFeeRatio: psbtMaxFeeRatio,
 		},
 	)
 	if err != nil {
