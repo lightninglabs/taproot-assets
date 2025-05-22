@@ -58,13 +58,13 @@ WHERE batch_id in (SELECT batch_id FROM target_batch);
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id,
-    script_key_id, group_internal_key_id, group_tapscript_root
+    script_key_id, group_internal_key_id, group_tapscript_root, delegation_key
 ) VALUES (
    @asset_name, @asset_type, @asset_version, @asset_supply,
    @asset_meta_id, @emission_enabled, @batch_id,
    sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id'),
    sqlc.narg('script_key_id'), sqlc.narg('group_internal_key_id'),
-   @group_tapscript_root
+   @group_tapscript_root, sqlc.narg('delegation_key')
 );
 
 -- name: FetchSeedlingID :one
@@ -113,14 +113,14 @@ WITH target_key_id AS (
 INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id,
-    script_key_id, group_internal_key_id, group_tapscript_root
+    script_key_id, group_internal_key_id, group_tapscript_root, delegation_key
 ) VALUES (
     @asset_name, @asset_type, @asset_version, @asset_supply,
     @asset_meta_id, @emission_enabled,
     (SELECT key_id FROM target_key_id),
     sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id'),
     sqlc.narg('script_key_id'), sqlc.narg('group_internal_key_id'),
-    @group_tapscript_root
+    @group_tapscript_root, sqlc.narg('delegation_key')
 );
 
 -- name: FetchSeedlingsForBatch :many

@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
 
 // ArchiveConfig is the main config for the archive. This includes all the items
@@ -23,6 +24,10 @@ type ArchiveConfig struct {
 	// identifier. This method always returns a new universe instance, even
 	// if the identifier has never been seen before.
 	NewBaseTree func(id Identifier) StorageBackend
+
+	// IgnoreTreeArchive is an archive of all known ignore trees across all
+	// assets.
+	IgnoreTreeArchive IgnoreTreeArchive
 
 	// HeaderVerifier is used to verify the validity of the header for a
 	// genesis proof.
@@ -709,6 +714,21 @@ func (a *Archive) FetchLeaves(ctx context.Context,
 			return uni.FetchLeaves(ctx)
 		},
 	)
+}
+
+// UpsertIgnoreTuples inserts the passed ignore tuples into the ignore tree
+// archive. If the tuples already exist, then no action is taken.
+//
+// NOTE: Ignore proofs are not included in the multiverse, as they are purely
+// off-chain. Only issuance and transfer proofs are included in the multiverse.
+func (a *Archive) UpsertIgnoreTuples(ctx context.Context,
+	assetSpec asset.Specifier,
+	tuples ...SignedIgnoreTuple) lfn.Result[AuthIgnoreTuples] {
+
+	log.Debugf("Inserting ignore asset tuples into universe archive "+
+		"(count=%v)", len(tuples))
+
+	return a.cfg.IgnoreTreeArchive.AddTuples(ctx, assetSpec, tuples...)
 }
 
 // DeleteRoot deletes all universe leaves, and the universe root, for the

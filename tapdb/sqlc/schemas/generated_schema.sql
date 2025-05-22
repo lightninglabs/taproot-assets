@@ -203,7 +203,7 @@ CREATE TABLE asset_seedlings (
     group_genesis_id BIGINT REFERENCES genesis_assets(gen_asset_id),
 
     group_anchor_id BIGINT REFERENCES asset_seedlings(seedling_id)
-, script_key_id BIGINT REFERENCES script_keys(script_key_id), group_internal_key_id BIGINT REFERENCES internal_keys(key_id), group_tapscript_root BLOB);
+, script_key_id BIGINT REFERENCES script_keys(script_key_id), group_internal_key_id BIGINT REFERENCES internal_keys(key_id), group_tapscript_root BLOB, delegation_key BIGINT REFERENCES internal_keys(key_id));
 
 CREATE TABLE asset_transfer_inputs (
     input_id INTEGER PRIMARY KEY,

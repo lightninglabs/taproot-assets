@@ -157,6 +157,19 @@ service TaprootAssets {
         returns (RegisterTransferResponse);
 }
 
+// The asset ID is a 32-byte identifier that uniquely identifies an asset.
+message AssetID {
+    oneof id {
+        // The 32-byte asset ID in raw byte form. Use this field when
+        // interacting via gRPC.
+        bytes asset_id_bytes = 1;
+
+        // The 32-byte asset ID encoded as a hex string. Use this field when
+        // interacting via REST.
+        string asset_id_str = 2;
+    }
+}
+
 enum AssetType {
     /*
     Indicates that an asset is capable of being split/merged, with each of the
@@ -1490,6 +1503,32 @@ message OutPoint {
     The index of the output on the transaction.
     */
     uint32 output_index = 2;
+}
+
+// A transaction outpoint annotated with TAP-level asset metadata. It uniquely
+// identifies an asset anchored at a specific outpoint.
+message AssetOutPoint {
+    // The outpoint of the asset anchor, represented as a string in the
+    // format "<txid>:<vout>". The <txid> is the transaction ID of the UTXO,
+    // hex-encoded and byte-reversed (i.e., the internal little-endian
+    // 32-byte value is reversed to big-endian hex format) to match standard
+    // Bitcoin RPC and UI conventions.
+    string anchor_out_point = 1;
+
+    // The asset ID of the asset anchored at the outpoint.
+    AssetID asset_id = 2;
+
+    // The script key of the asset. This is the taproot output key that the
+    // asset is locked to.
+    oneof script_key {
+        // The script key in raw byte form. Use this field when interacting
+        // via gRPC.
+        bytes script_key_bytes = 4;
+
+        // The script key represented as a hex-encoded string. Use this
+        // field when interacting via REST.
+        string script_key_str = 5;
+    }
 }
 
 message SubscribeReceiveEventsRequest {

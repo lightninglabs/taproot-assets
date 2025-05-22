@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -757,4 +758,143 @@ func ParseScriptKeyTypeQuery(
 	default:
 		return fn.Some(asset.ScriptKeyBip86), false, nil
 	}
+}
+
+// MarshalAssetID converts an asset ID to its RPC representation.
+func MarshalAssetID(assetID asset.ID) taprpc.AssetID {
+	// Marshal asset ID as string.
+	return taprpc.AssetID{
+		Id: &taprpc.AssetID_AssetIdStr{
+			AssetIdStr: assetID.String(),
+		},
+	}
+}
+
+// UnmarshalAssetID parses an asset ID from the RPC variant.
+func UnmarshalAssetID(rpcID *taprpc.AssetID) (asset.ID, error) {
+	var zero asset.ID
+
+	if rpcID == nil {
+		return zero, fmt.Errorf("unexpected nil RPC asset ID")
+	}
+
+	switch {
+	// Decode asset ID from byte array.
+	case rpcID.GetAssetIdBytes() != nil:
+
+		assetIDBytes := rpcID.GetAssetIdBytes()
+		return asset.NewIDFromBytes(assetIDBytes)
+
+	// Decode asset ID from hex string.
+	case rpcID.GetAssetIdStr() != "":
+		assetIDStr := rpcID.GetAssetIdStr()
+
+		if len(assetIDStr) != hex.EncodedLen(sha256.Size) {
+			return zero, fmt.Errorf("asset ID must be 32 bytes")
+		}
+
+		assetIDBytes, err := hex.DecodeString(assetIDStr)
+		if err != nil {
+			return zero, fmt.Errorf("error hex decoding asset ID: "+
+				"%w", err)
+		}
+
+		return asset.NewIDFromBytes(assetIDBytes)
+
+	default:
+		return zero, fmt.Errorf("asset ID must be either a byte " +
+			"array or a hex string")
+	}
+}
+
+// MarshalAssetOutPoint converts an asset outpoint to its RPC representation.
+func MarshalAssetOutPoint(outPoint asset.OutPoint) *taprpc.AssetOutPoint {
+	// Marshal script key.
+	scriptKey := outPoint.ScriptKey
+
+	rpcAssetID := MarshalAssetID(outPoint.ID)
+
+	return &taprpc.AssetOutPoint{
+		AnchorOutPoint: outPoint.OutPoint.String(),
+		AssetId:        &rpcAssetID,
+		ScriptKey: &taprpc.AssetOutPoint_ScriptKeyStr{
+			ScriptKeyStr: scriptKey.String(),
+		},
+	}
+}
+
+// UnmarshalAssetOutPoint parses an asset outpoint from the RPC variant.
+func UnmarshalAssetOutPoint(
+	rpcAssetOutPoint *taprpc.AssetOutPoint) (asset.OutPoint, error) {
+
+	var zero asset.OutPoint
+
+	if rpcAssetOutPoint == nil {
+		return zero, fmt.Errorf("unexpected nil RPC outpoint")
+	}
+
+	// Unmarshal anchor outpoint.
+	anchorOutPoint, err := wire.NewOutPointFromString(
+		rpcAssetOutPoint.AnchorOutPoint,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("failed to parse anchor outpoint: %w",
+			err)
+	}
+
+	// Unmarshal asset ID.
+	assetID, err := UnmarshalAssetID(rpcAssetOutPoint.AssetId)
+	if err != nil {
+		return zero, fmt.Errorf("failed to parse asset ID: %w", err)
+	}
+
+	// Unmarshal serialized script key.
+	var serializedScriptKey asset.SerializedKey
+
+	switch {
+	// Decode script key from byte array.
+	case rpcAssetOutPoint.GetScriptKeyBytes() != nil:
+		scriptKeyBytes := rpcAssetOutPoint.GetScriptKeyBytes()
+
+		sk, err := asset.NewSerializedKeyFromBytes(
+			scriptKeyBytes,
+		)
+		if err != nil {
+			return zero, fmt.Errorf("failed to parse script key: "+
+				"%w", err)
+		}
+
+		serializedScriptKey = sk
+
+	// Decode script key from hex string.
+	case rpcAssetOutPoint.GetScriptKeyStr() != "":
+		scriptKeyStr := rpcAssetOutPoint.GetScriptKeyStr()
+
+		if len(scriptKeyStr) != hex.EncodedLen(
+			btcec.PubKeyBytesLenCompressed) {
+
+			return zero, fmt.Errorf("script key must be %d bytes",
+				btcec.PubKeyBytesLenCompressed)
+		}
+
+		scriptKeyBytes, err := hex.DecodeString(scriptKeyStr)
+		if err != nil {
+			return zero, fmt.Errorf("failed to decode script key: "+
+				"%w", err)
+		}
+
+		sk, err := asset.NewSerializedKeyFromBytes(scriptKeyBytes)
+		if err != nil {
+			return zero, fmt.Errorf("failed to parse script key: "+
+				"%w", err)
+		}
+
+		serializedScriptKey = sk
+	}
+
+	return asset.OutPoint{
+		OutPoint:  *anchorOutPoint,
+		ID:        assetID,
+		ScriptKey: serializedScriptKey,
+	}, nil
 }

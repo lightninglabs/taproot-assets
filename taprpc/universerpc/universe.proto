@@ -154,6 +154,14 @@ service Universe {
     */
     rpc QueryFederationSyncConfig (QueryFederationSyncConfigRequest)
         returns (QueryFederationSyncConfigResponse);
+
+    /* tapcli: `universe ignoreoutpoint`
+    IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
+    as ignored. An ignored outpoint will be included in the next universe
+    commitment transaction that is published.
+    */
+    rpc IgnoreAssetOutPoint (IgnoreAssetOutPointRequest)
+        returns (IgnoreAssetOutPointResponse);
 }
 
 message MultiverseRootRequest {
@@ -660,4 +668,40 @@ message QueryFederationSyncConfigResponse {
     repeated GlobalFederationSyncConfig global_sync_configs = 1;
 
     repeated AssetFederationSyncConfig asset_sync_configs = 2;
+}
+
+message IgnoreAssetOutPointRequest {
+    // The outpoint of the asset to ignore.
+    taprpc.AssetOutPoint asset_out_point = 1;
+
+    // The amount of asset units at the associated asset outpoint.
+    uint64 amount = 2;
+}
+
+message IgnoreEntry {
+    // The outpoint of the asset to ignore.
+    taprpc.AssetOutPoint asset_out_point = 1;
+
+    // The amount of asset units at the associated asset outpoint.
+    uint64 amount = 2;
+}
+
+message SignedIgnoreAssetOutPoint {
+    // The ignore asset outpoint entry.
+    IgnoreEntry ignore_asset_outpoint = 1;
+
+    // The Schnorr signature of the asset issuer over the ignored asset
+    // outpoint.
+    bytes sig = 2;
+}
+
+message IgnoreAssetOutPointResponse {
+    // The signed ignore asset outpoint.
+    SignedIgnoreAssetOutPoint signed_ignore_asset_outpoint = 1;
+
+    // The root of the asset specific ignore Merkle tree.
+    MerkleSumNode ignore_root = 2;
+
+    // The inclusion proof for the asset outpoint in the ignore Merkle tree.
+    bytes inclusion_proof = 3;
 }

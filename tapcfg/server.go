@@ -161,6 +161,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				uniDB, id,
 			)
 		},
+		IgnoreTreeArchive:    tapdb.NewIgnoreUniverseTree(uniDB),
 		HeaderVerifier:       headerVerifier,
 		MerkleVerifier:       proof.DefaultMerkleVerifier,
 		GroupVerifier:        groupVerifier,
