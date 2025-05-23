@@ -182,8 +182,8 @@ message AddInvoiceRequest {
     uint64 asset_amount = 2;
 
     // The node identity public key of the peer to ask for a quote for receiving
-    // assets and converting them from satoshis. This must be specified if
-    // there are multiple channels with the given asset ID.
+    // assets and converting them from satoshis. When specified only quotes with
+    // this peer will be negotiated.
     bytes peer_pubkey = 3;
 
     // The full lnd invoice request to send. All fields behave the same way as

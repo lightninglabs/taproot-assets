@@ -1503,7 +1503,7 @@
         "peer_pubkey": {
           "type": "string",
           "format": "byte",
-          "description": "The node identity public key of the peer to ask for a quote for receiving\nassets and converting them from satoshis. This must be specified if\nthere are multiple channels with the given asset ID."
+          "description": "The node identity public key of the peer to ask for a quote for receiving\nassets and converting them from satoshis. When specified only quotes with\nthis peer will be negotiated."
         },
         "invoice_request": {
           "$ref": "#/definitions/lnrpcInvoice",

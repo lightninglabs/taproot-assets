@@ -627,8 +627,8 @@ type AddInvoiceRequest struct {
 	// The asset amount to receive.
 	AssetAmount uint64 `protobuf:"varint,2,opt,name=asset_amount,json=assetAmount,proto3" json:"asset_amount,omitempty"`
 	// The node identity public key of the peer to ask for a quote for receiving
-	// assets and converting them from satoshis. This must be specified if
-	// there are multiple channels with the given asset ID.
+	// assets and converting them from satoshis. When specified only quotes with
+	// this peer will be negotiated.
 	PeerPubkey []byte `protobuf:"bytes,3,opt,name=peer_pubkey,json=peerPubkey,proto3" json:"peer_pubkey,omitempty"`
 	// The full lnd invoice request to send. All fields behave the same way as
 	// they do for lnd's lnrpc.AddInvoice RPC method (see the API docs at
