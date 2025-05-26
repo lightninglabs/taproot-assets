@@ -70,7 +70,8 @@ func (h *ApertureHarness) Start(errChan chan error) error {
 	}
 
 	// Start the aperture service.
-	err := h.Service.Start(errChan)
+	shutdownChan := make(chan struct{})
+	err := h.Service.Start(errChan, shutdownChan)
 	if err != nil {
 		return err
 	}
