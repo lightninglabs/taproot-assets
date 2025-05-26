@@ -1,6 +1,6 @@
 module github.com/lightninglabs/taproot-assets
 
-go 1.23.6
+go 1.23.9
 
 require (
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6
@@ -25,16 +25,16 @@ require (
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/lib/pq v1.10.9
-	github.com/lightninglabs/aperture v0.3.8-beta
-	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2
-	github.com/lightninglabs/lndclient v0.19.0-4
+	github.com/lightninglabs/aperture v0.3.13-beta
+	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.3
+	github.com/lightninglabs/lndclient v0.19.0-7
 	github.com/lightninglabs/neutrino/cache v1.1.2
-	github.com/lightninglabs/taproot-assets/taprpc v1.0.0
-	github.com/lightningnetwork/lnd v0.19.0-beta.rc2.0.20250423092132-a35ace7371af
+	github.com/lightninglabs/taproot-assets/taprpc v1.0.4
+	github.com/lightningnetwork/lnd v0.19.0-beta
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.8
-	github.com/lightningnetwork/lnd/tlv v1.3.0
+	github.com/lightningnetwork/lnd/tlv v1.3.1
 	github.com/lightningnetwork/lnd/tor v1.1.6
 	github.com/ory/dockertest/v3 v3.10.0
 	github.com/prometheus/client_golang v1.14.0
@@ -123,7 +123,8 @@ require (
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/libdns/libdns v0.2.1 // indirect
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
-	github.com/lightninglabs/lightning-node-connect v0.2.5-alpha // indirect
+	github.com/lightninglabs/lightning-node-connect/gbn v1.0.1 // indirect
+	github.com/lightninglabs/lightning-node-connect/mailbox v1.0.1 // indirect
 	github.com/lightninglabs/neutrino v0.16.1 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
