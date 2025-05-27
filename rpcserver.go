@@ -153,6 +153,10 @@ type (
 		Send(T) error
 		grpc.ServerStream
 	}
+
+	// coinSelectExistingIndex is a type alias for the existing output index
+	// used in the PSBT coin selection.
+	coinSelectExistingIndex = walletrpc.PsbtCoinSelect_ExistingOutputIndex
 )
 
 // rpcServer is the main RPC server for the Taproot Assets daemon that handles
@@ -2570,80 +2574,92 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
 
-	// The change output and fee parameters of this RPC are identical to the
-	// walletrpc.FundPsbt, so we just map them 1:1 and let lnd do the
-	// validation.
-	coinSelect := &walletrpc.PsbtCoinSelect{
-		Psbt: packetBytes,
-	}
-	fundRequest := &walletrpc.FundPsbtRequest{
-		Template: &walletrpc.FundPsbtRequest_CoinSelect{
-			CoinSelect: coinSelect,
-		},
-		MinConfs:              1,
-		ChangeType:            P2TRChangeType,
-		CustomLockId:          req.CustomLockId,
-		LockExpirationSeconds: req.LockExpirationSeconds,
-	}
-
-	// Unfortunately we can't use the same RPC types, so we have to do a
-	// 1:1 mapping to the walletrpc types for the anchor change output and
-	// fee "oneof" fields.
-	type existingIndex = walletrpc.PsbtCoinSelect_ExistingOutputIndex
-	switch change := req.AnchorChangeOutput.(type) {
-	case *wrpc.CommitVirtualPsbtsRequest_ExistingOutputIndex:
-		coinSelect.ChangeOutput = &existingIndex{
-			ExistingOutputIndex: change.ExistingOutputIndex,
-		}
-
-	case *wrpc.CommitVirtualPsbtsRequest_Add:
-		coinSelect.ChangeOutput = &walletrpc.PsbtCoinSelect_Add{
-			Add: change.Add,
-		}
-
-	default:
-		return nil, fmt.Errorf("unknown change output type")
-	}
-
-	switch fee := req.Fees.(type) {
-	case *wrpc.CommitVirtualPsbtsRequest_TargetConf:
-		fundRequest.Fees = &walletrpc.FundPsbtRequest_TargetConf{
-			TargetConf: fee.TargetConf,
-		}
-
-	case *wrpc.CommitVirtualPsbtsRequest_SatPerVbyte:
-		fundRequest.Fees = &walletrpc.FundPsbtRequest_SatPerVbyte{
-			SatPerVbyte: fee.SatPerVbyte,
-		}
-
-	default:
-		return nil, fmt.Errorf("unknown fee type")
-	}
-
-	lndWallet := r.cfg.Lnd.WalletKit
-	fundedPacket, changeIndex, lockedUTXO, err := lndWallet.FundPsbt(
-		ctx, fundRequest,
+	var (
+		lockedUTXO      []*walletrpc.UtxoLease
+		lockedOutpoints []wire.OutPoint
+		fundedPacket    *psbt.Packet = pkt
+		changeIndex     int32        = -1
+		success         bool
 	)
-	if err != nil {
-		return nil, fmt.Errorf("error funding packet: %w", err)
-	}
 
-	lockedOutpoints := fn.Map(
-		lockedUTXO, func(utxo *walletrpc.UtxoLease) wire.OutPoint {
-			var hash chainhash.Hash
-			copy(hash[:], utxo.Outpoint.TxidBytes)
-			return wire.OutPoint{
-				Hash:  hash,
-				Index: utxo.Outpoint.OutputIndex,
+	if !req.SkipFunding {
+		// The change output and fee parameters of this RPC are
+		// identical to the walletrpc.FundPsbt, so we just map them 1:1
+		// and let lnd do the validation.
+		coinSelect := &walletrpc.PsbtCoinSelect{
+			Psbt: packetBytes,
+		}
+		fundRequest := &walletrpc.FundPsbtRequest{
+			Template: &walletrpc.FundPsbtRequest_CoinSelect{
+				CoinSelect: coinSelect,
+			},
+			MinConfs:              1,
+			ChangeType:            P2TRChangeType,
+			CustomLockId:          req.CustomLockId,
+			LockExpirationSeconds: req.LockExpirationSeconds,
+		}
+
+		// Unfortunately we can't use the same RPC types, so we have to
+		// do a 1:1 mapping to the walletrpc types for the anchor change
+		// output and fee "oneof" fields.
+		switch change := req.AnchorChangeOutput.(type) {
+		case *wrpc.CommitVirtualPsbtsRequest_ExistingOutputIndex:
+			coinSelect.ChangeOutput = &coinSelectExistingIndex{
+				ExistingOutputIndex: change.ExistingOutputIndex,
 			}
-		},
-	)
 
-	// From now on, if we error out, we need to make sure we unlock the
-	// UTXOs that lnd just locked for us.
-	success := false
-	defer func() {
-		if !success {
+		case *wrpc.CommitVirtualPsbtsRequest_Add:
+			coinSelect.ChangeOutput = &walletrpc.PsbtCoinSelect_Add{
+				Add: change.Add,
+			}
+
+		default:
+			return nil, fmt.Errorf("unknown change output type")
+		}
+
+		switch fee := req.Fees.(type) {
+		case *wrpc.CommitVirtualPsbtsRequest_TargetConf:
+			fundRequest.Fees =
+				&walletrpc.FundPsbtRequest_TargetConf{
+					TargetConf: fee.TargetConf,
+				}
+
+		case *wrpc.CommitVirtualPsbtsRequest_SatPerVbyte:
+			fundRequest.Fees =
+				&walletrpc.FundPsbtRequest_SatPerVbyte{
+					SatPerVbyte: fee.SatPerVbyte,
+				}
+
+		default:
+			return nil, fmt.Errorf("unknown fee type")
+		}
+
+		lndWallet := r.cfg.Lnd.WalletKit
+		fundedPacket, changeIndex, lockedUTXO, err = lndWallet.FundPsbt(
+			ctx, fundRequest,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error funding packet: %w", err)
+		}
+
+		lockedOutpoints = fn.Map(lockedUTXO,
+			func(utxo *walletrpc.UtxoLease) wire.OutPoint {
+				var hash chainhash.Hash
+				copy(hash[:], utxo.Outpoint.TxidBytes)
+				return wire.OutPoint{
+					Hash:  hash,
+					Index: utxo.Outpoint.OutputIndex,
+				}
+			},
+		)
+
+		// From now on, if we error out, we need to make sure we unlock
+		// the UTXOs that lnd just locked for us.
+		defer func() {
+			if success {
+				return
+			}
+
 			for idx, utxo := range lockedUTXO {
 				var lockID wtxmgr.LockID
 				copy(lockID[:], utxo.Id)
@@ -2655,8 +2671,8 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 						"UTXO %v: %v", op, err)
 				}
 			}
-		}
-	}()
+		}()
+	}
 
 	// We can now update the anchor outputs as we have the final
 	// commitments.
