@@ -210,6 +210,9 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		return fmt.Errorf("unable to start RFQ manager: %w", err)
 	}
 
+	// Start universe supply commitment manager.
+	s.cfg.SupplyCommitManager.Start()
+
 	// Start the auxiliary components.
 	if err := s.cfg.AuxLeafSigner.Start(); err != nil {
 		return fmt.Errorf("unable to start aux leaf signer: %w", err)
