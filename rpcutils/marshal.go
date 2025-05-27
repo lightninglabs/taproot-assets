@@ -755,3 +755,44 @@ func ParseScriptKeyTypeQuery(
 		return fn.Some(asset.ScriptKeyBip86), false, nil
 	}
 }
+
+// UnmarshalAssetOutPoint parses an asset outpoint from the RPC variant.
+func UnmarshalAssetOutPoint(
+	rpcAssetOutPoint *taprpc.AssetOutPoint) (asset.AnchorPoint, error) {
+
+	var zero asset.AnchorPoint
+
+	if rpcAssetOutPoint == nil {
+		return zero, fmt.Errorf("unexpected nil RPC outpoint")
+	}
+
+	// Unmarshal anchor outpoint.
+	anchorOutPoint, err := wire.NewOutPointFromString(
+		rpcAssetOutPoint.AnchorOutPoint,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("failed to parse anchor outpoint: %w",
+			err)
+	}
+
+	// Unmarshal asset ID.
+	assetID, err := asset.NewIDFromBytes(rpcAssetOutPoint.AssetId)
+	if err != nil {
+		return zero, fmt.Errorf("failed to parse asset ID: %w", err)
+	}
+
+	// Unmarshal serialized script key.
+	serializedScriptKey, err := asset.NewSerializedKeyFromBytes(
+		rpcAssetOutPoint.ScriptKey,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("failed to parse script key: "+
+			"%w", err)
+	}
+
+	return asset.AnchorPoint{
+		OutPoint:  *anchorOutPoint,
+		ID:        assetID,
+		ScriptKey: serializedScriptKey,
+	}, nil
+}

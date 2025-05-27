@@ -57,6 +57,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -3792,6 +3793,116 @@ func marshalOutputType(outputType tappsbt.VOutputType) (taprpc.OutputType,
 	default:
 		return 0, fmt.Errorf("unknown output type: %d", outputType)
 	}
+}
+
+// IgnoreAssetOutPointRequest is the request type for the IgnoreAssetOutPoint
+// RPC method.
+type IgnoreAssetOutPointRequest struct {
+	// AssetAnchorPoint is the asset anchor point to ignore.
+	AssetAnchorPoint asset.AnchorPoint
+
+	// Amount is the amount of the asset at the anchor outpoint.
+	Amount uint64
+}
+
+// unmarshalIgnoreAssetOutPointRequest converts the RPC request into the
+// native request type.
+func unmarshalIgnoreAssetOutPointRequest(
+	req *unirpc.IgnoreAssetOutPointRequest) (IgnoreAssetOutPointRequest,
+	error) {
+
+	var zero IgnoreAssetOutPointRequest
+
+	// Parse asset outpoint from the request.
+	assetOutPoint, err := rpcutils.UnmarshalAssetOutPoint(req.AssetOutPoint)
+	if err != nil {
+		return zero, fmt.Errorf("failed to parse asset outpoint: %w",
+			err)
+	}
+
+	return IgnoreAssetOutPointRequest{
+		AssetAnchorPoint: assetOutPoint,
+		Amount:           req.Amount,
+	}, nil
+}
+
+// IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
+// as ignored. An ignored outpoint will be included in the next universe
+// commitment transaction that is published.
+func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
+	rpcReq *unirpc.IgnoreAssetOutPointRequest) (
+	*unirpc.IgnoreAssetOutPointResponse, error) {
+
+	// Unmarshal the request into the native type.
+	req, err := unmarshalIgnoreAssetOutPointRequest(rpcReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal request: %w", err)
+	}
+
+	assetID := req.AssetAnchorPoint.ID
+
+	// Fetch the asset group for the given asset ID.
+	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(ctx, assetID)
+	if err != nil {
+		return nil, fmt.Errorf("fail to find asset group given "+
+			"asset ID: %w", err)
+	}
+
+	// Formulate an asset specifier from the asset ID and group key.
+	assetSpec := asset.NewSpecifierOptionalGroupKey(
+		assetID, assetGroup.GroupKey,
+	)
+
+	// Retrieve asset meta reveal for the asset ID. This will be used to
+	// obtain the supply commitment delegation key.
+	metaReveal, err := r.cfg.TapAddrBook.FetchAssetMetaForAsset(
+		ctx, assetID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("faild to fetch asset meta: %w", err)
+	}
+
+	// Extract supply commitment delegation pub key from the asset metadata.
+	delegationPubKey, err := metaReveal.DelegationKey.UnwrapOrErr(
+		fmt.Errorf("delegation key not found for given asset"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch the full delegation key locator.
+	delegationKey, err := r.cfg.TapAddrBook.FetchInternalKeyLocator(
+		ctx, &delegationPubKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch delegation key "+
+			"locator: %w", err)
+	}
+
+	// Formulate the ignore entry and sign it with the delegation key.
+	ignoreTuple := universe.IgnoreTuple{
+		PrevID: req.AssetAnchorPoint,
+		Amount: req.Amount,
+	}
+
+	signedIgnore, err := ignoreTuple.GenSignedIgnore(
+		ctx, r.cfg.Lnd.Signer, delegationKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign ignore tuple: %w", err)
+	}
+
+	// Upsert a signed ignore tuple into the ignore tree archive and
+	// get back the authenticated ignore tuples.
+	ignoreEvent := supplycommit.NewIgnoreEvent{
+		SignedIgnoreTuple: signedIgnore,
+	}
+	err = r.cfg.SupplyCommitManager.SendEvent(ctx, assetSpec, &ignoreEvent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upsert ignore tuple: %w", err)
+	}
+
+	return &unirpc.IgnoreAssetOutPointResponse{}, nil
 }
 
 // SubscribeSendAssetEventNtfns registers a subscription to the event

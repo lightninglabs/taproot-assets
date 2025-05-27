@@ -158,6 +158,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/universe/ignore-asset-outpoint": {
+      "post": {
+        "summary": "tapcli: `universe ignoreoutpoint`\nIgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint\nas ignored. An ignored outpoint will be included in the next universe supply\ncommitment transaction that is published.",
+        "operationId": "Universe_IgnoreAssetOutPoint",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcIgnoreAssetOutPointResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcIgnoreAssetOutPointRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/info": {
       "get": {
         "summary": "tapcli: `universe info`\nInfo returns a set of information about the current state of the Universe.",
@@ -1750,6 +1783,26 @@
       "default": "META_TYPE_OPAQUE",
       "description": " - META_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs.\n - META_TYPE_JSON: JSON is used for asset meta blobs that are to be interpreted as valid JSON\nstrings."
     },
+    "taprpcAssetOutPoint": {
+      "type": "object",
+      "properties": {
+        "anchor_out_point": {
+          "type": "string",
+          "description": "The outpoint of the asset anchor, represented as a string in the\nformat \"\u003ctxid\u003e:\u003cvout\u003e\". The \u003ctxid\u003e is the transaction ID of the UTXO,\nhex-encoded and byte-reversed (i.e., the internal little-endian\n32-byte value is reversed to big-endian hex format) to match standard\nBitcoin RPC and UI conventions."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID of the asset anchored at the outpoint."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script key of the asset. This is the taproot output key that the\nasset is locked to."
+        }
+      },
+      "description": "A transaction outpoint annotated with TAP-level asset metadata. It uniquely\nidentifies an asset anchored at a specific outpoint."
+    },
     "taprpcAssetType": {
       "type": "string",
       "enum": [
@@ -2190,6 +2243,23 @@
           "$ref": "#/definitions/universerpcProofType"
         }
       }
+    },
+    "universerpcIgnoreAssetOutPointRequest": {
+      "type": "object",
+      "properties": {
+        "asset_out_point": {
+          "$ref": "#/definitions/taprpcAssetOutPoint",
+          "description": "The outpoint of the asset to ignore."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of asset units at the associated asset outpoint."
+        }
+      }
+    },
+    "universerpcIgnoreAssetOutPointResponse": {
+      "type": "object"
     },
     "universerpcInfoResponse": {
       "type": "object",
