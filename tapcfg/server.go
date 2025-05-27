@@ -154,6 +154,16 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	groupVerifier := tapgarden.GenGroupVerifier(
 		context.Background(), assetMintingStore,
 	)
+
+	// Construct the supply commit manager, which is used to
+	// formulate universe supply commitment transactions.
+	supplyCommitDb := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.SupplyCommitStore {
+			return db.WithTx(tx)
+		},
+	)
+	supplyCommitSM := tapdb.NewSupplyCommitMachine(supplyCommitDb)
+
 	uniCfg := universe.ArchiveConfig{
 		NewBaseTree: func(id universe.Identifier) universe.BaseBackend {
 			return tapdb.NewBaseUniverseTree(
@@ -574,6 +584,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AssetWallet:              assetWallet,
 		CoinSelect:               coinSelect,
 		ChainPorter:              chainPorter,
+		SupplyCommitManager:      supplyCommitSM,
 		UniverseArchive:          baseUni,
 		UniverseSyncer:           universeSyncer,
 		UniverseFederation:       universeFederation,
