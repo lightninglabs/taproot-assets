@@ -98,12 +98,12 @@ func ComputeView(ourBalance, theirBalance uint64,
 	remoteHtlcIndex := make(map[uint64]lnwallet.AuxHtlcDescriptor)
 
 	for _, entry := range original.Updates.Local {
-		if entry.EntryType == lnwallet.Add {
+		if entry.IsAdd() {
 			localHtlcIndex[entry.HtlcIndex] = entry
 		}
 	}
 	for _, entry := range original.Updates.Remote {
-		if entry.EntryType == lnwallet.Add {
+		if entry.IsAdd() {
 			remoteHtlcIndex[entry.HtlcIndex] = entry
 		}
 	}
@@ -113,6 +113,9 @@ func ComputeView(ourBalance, theirBalance uint64,
 		switch entry.EntryType {
 		// Skip adds for now, they will be processed below.
 		case lnwallet.Add:
+			continue
+
+		case lnwallet.NoopAdd:
 			continue
 
 		// Fee updates don't concern us at the asset level.
@@ -162,6 +165,9 @@ func ComputeView(ourBalance, theirBalance uint64,
 		case lnwallet.Add:
 			continue
 
+		case lnwallet.NoopAdd:
+			continue
+
 		// Fee updates don't concern us at the asset level.
 		case lnwallet.FeeUpdate:
 			continue
@@ -207,7 +213,7 @@ func ComputeView(ourBalance, theirBalance uint64,
 	// settled HTLCs, and debiting the chain state balance due to any newly
 	// added HTLCs.
 	for _, entry := range original.Updates.Local {
-		isAdd := entry.EntryType == lnwallet.Add
+		isAdd := entry.IsAdd()
 
 		// Skip any entries that aren't adds or adds that were already
 		// settled or failed by a child HTLC entry we processed above.
@@ -249,7 +255,7 @@ func ComputeView(ourBalance, theirBalance uint64,
 		newView.OurUpdates = append(newView.OurUpdates, decodedEntry)
 	}
 	for _, entry := range original.Updates.Remote {
-		isAdd := entry.EntryType == lnwallet.Add
+		isAdd := entry.IsAdd()
 
 		// Skip any entries that aren't adds or adds that were already
 		// settled or failed by a child HTLC entry we processed above.
