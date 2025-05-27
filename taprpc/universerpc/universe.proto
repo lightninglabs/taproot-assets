@@ -154,6 +154,14 @@ service Universe {
     */
     rpc QueryFederationSyncConfig (QueryFederationSyncConfigRequest)
         returns (QueryFederationSyncConfigResponse);
+
+    /* tapcli: `universe ignoreoutpoint`
+    IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
+    as ignored. An ignored outpoint will be included in the next universe supply
+    commitment transaction that is published.
+    */
+    rpc IgnoreAssetOutPoint (IgnoreAssetOutPointRequest)
+        returns (IgnoreAssetOutPointResponse);
 }
 
 message MultiverseRootRequest {
@@ -662,4 +670,15 @@ message QueryFederationSyncConfigResponse {
     repeated GlobalFederationSyncConfig global_sync_configs = 1;
 
     repeated AssetFederationSyncConfig asset_sync_configs = 2;
+}
+
+message IgnoreAssetOutPointRequest {
+    // The outpoint of the asset to ignore.
+    taprpc.AssetOutPoint asset_out_point = 1;
+
+    // The amount of asset units at the associated asset outpoint.
+    uint64 amount = 2;
+}
+
+message IgnoreAssetOutPointResponse {
 }
