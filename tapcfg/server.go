@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/signal"
@@ -161,6 +162,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	groupVerifier := tapgarden.GenGroupVerifier(
 		context.Background(), assetMintingStore,
 	)
+
 	uniArchiveCfg := universe.ArchiveConfig{
 		// nolint: lll
 		NewBaseTree: func(id universe.Identifier) universe.StorageBackend {
@@ -583,6 +585,37 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			"access status: %w", err)
 	}
 
+	// Construct the supply commit manager, which is used to
+	// formulate universe supply commitment transactions.
+	//
+	// Construct database backends for the supply commitment state machines.
+	supplyCommitDb := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.SupplyCommitStore {
+			return db.WithTx(tx)
+		},
+	)
+	supplyCommitStore := tapdb.NewSupplyCommitMachine(supplyCommitDb)
+
+	// Construct the supply tree database backend.
+	supplyTreeDb := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.BaseUniverseStore {
+			return db.WithTx(tx)
+		},
+	)
+	supplyTreeStore := tapdb.NewSupplyTreeStore(supplyTreeDb)
+
+	// Create the supply commitment state machine manager, which is used to
+	// manage the supply commitment state machines for each asset group.
+	supplyCommitManager := supplycommit.NewMultiStateMachineManager(
+		supplycommit.MultiStateMachineManagerCfg{
+			TreeView:    supplyTreeStore,
+			Commitments: supplyCommitStore,
+			Wallet:      walletAnchor,
+			Chain:       chainBridge,
+			StateLog:    supplyCommitStore,
+		},
+	)
+
 	return &tap.Config{
 		DebugLevel:            cfg.DebugLevel,
 		RuntimeID:             runtimeID,
@@ -633,6 +666,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AssetWallet:              assetWallet,
 		CoinSelect:               coinSelect,
 		ChainPorter:              chainPorter,
+		SupplyCommitManager:      supplyCommitManager,
 		UniverseArchive:          uniArchive,
 		UniverseSyncer:           universeSyncer,
 		UniverseFederation:       universeFederation,
