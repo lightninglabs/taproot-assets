@@ -1722,6 +1722,26 @@
         }
       }
     },
+    "taprpcAssetOutPoint": {
+      "type": "object",
+      "properties": {
+        "anchor_out_point": {
+          "type": "string",
+          "description": "The outpoint of the asset anchor, represented as a string in the\nformat \"\u003ctxid\u003e:\u003cvout\u003e\". The \u003ctxid\u003e is the transaction ID of the UTXO,\nhex-encoded and byte-reversed (i.e., the internal little-endian\n32-byte value is reversed to big-endian hex format) to match standard\nBitcoin RPC and UI conventions."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID of the asset anchored at the outpoint."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script key of the asset. This is the taproot output key that the\nasset is locked to."
+        }
+      },
+      "description": "A transaction outpoint annotated with TAP-level asset metadata. It uniquely\nidentifies an asset anchored at a specific outpoint."
+    },
     "taprpcAssetType": {
       "type": "string",
       "enum": [
@@ -2130,6 +2150,9 @@
           "$ref": "#/definitions/universerpcProofType"
         }
       }
+    },
+    "universerpcIgnoreAssetOutPointResponse": {
+      "type": "object"
     },
     "universerpcInfoResponse": {
       "type": "object",

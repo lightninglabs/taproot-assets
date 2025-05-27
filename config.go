@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
@@ -182,6 +183,11 @@ type Config struct {
 	CoinSelect *tapfreighter.CoinSelect
 
 	ChainPorter tapfreighter.Porter
+
+	// SupplyCommitManager is a service that is used to manage supply
+	// commitments for assets. Supply commitments are issuer published
+	// attestations of the total supply of an asset.
+	SupplyCommitManager supplycommit.StateMachineStore
 
 	UniverseArchive *universe.Archive
 
