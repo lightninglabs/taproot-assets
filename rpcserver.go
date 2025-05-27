@@ -6488,6 +6488,13 @@ func (r *rpcServer) marshalAssetSyncSnapshot(ctx context.Context,
 		AnchorPoint: a.AnchorPoint.String(),
 	}
 
+	decDisplay, err := r.DecDisplayForAssetID(ctx, a.AssetID)
+	if err == nil {
+		decDisplay.WhenSome(func(u uint32) {
+			rpcAsset.DecimalDisplay = u
+		})
+	}
+
 	if a.GroupKey != nil {
 		resp.GroupKey = a.GroupKey.SerializeCompressed()
 		resp.GroupAnchor = rpcAsset
