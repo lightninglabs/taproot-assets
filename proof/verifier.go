@@ -206,10 +206,12 @@ func (p *Proof) verifyInclusionProof() (*commitment.TapCommitment, error) {
 			ErrStxoInputProofMissing)
 	}
 
-	// We ignore the STXO proofs if the proof signals version 0, or if there
-	// are no STXO proofs present (because they're not needed for this type
-	// of asset).
-	if p.IsVersionV0() || !hasStxoProofs {
+	// We ignore the STXO proofs if they're not needed for this type of
+	// asset or if there are no STXO proofs. At this point we can be sure
+	// that if they are needed they also are present (because of the check
+	// above). If they are not needed, but still present we verify them for
+	// good measure.
+	if !p.Asset.IsTransferRoot() || !hasStxoProofs {
 		return v0Commitment, nil
 	}
 
@@ -292,7 +294,7 @@ func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 		maps.Clone(p2trOutputs),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error veryfying v0 exclusion proof: %w",
+		return nil, fmt.Errorf("error verifying v0 exclusion proof: %w",
 			err)
 	}
 
@@ -318,10 +320,12 @@ func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 			ErrStxoInputProofMissing)
 	}
 
-	// We ignore the STXO proofs if the proof signals version 0, or if there
-	// are no STXO proofs present (because they're not needed for this type
-	// of asset).
-	if p.IsVersionV0() || !hasStxoProofs {
+	// We ignore the STXO proofs if they're not needed for this type of
+	// asset or if there are no STXO proofs. At this point we can be sure
+	// that if they are needed they also are present (because of the check
+	// above). If they are not needed, but still present we verify them for
+	// good measure.
+	if !p.Asset.IsTransferRoot() || !hasStxoProofs {
 		return assertVersionConsistency(commitVersions)
 	}
 
