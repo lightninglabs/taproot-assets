@@ -9,8 +9,8 @@ require (
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c
-	github.com/btcsuite/btclog/v2 v2.0.1-0.20250110154127-3ae4bf1cb318
-	github.com/btcsuite/btcwallet v0.16.13
+	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084
+	github.com/btcsuite/btcwallet v0.16.14
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.5
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.6
 	github.com/caddyserver/certmagic v0.17.2
@@ -217,3 +217,5 @@ replace github.com/golang-migrate/migrate/v4 => github.com/lightninglabs/migrate
 
 // Note this is a temproary replace and will be removed when taprpc is tagged.
 replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
+
+replace github.com/lightningnetwork/lnd => github.com/GeorgeTsagk/lnd v0.0.0-20250616111006-7b25935ec491
