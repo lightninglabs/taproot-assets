@@ -2343,7 +2343,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		ChangeOutputIndex: 0,
 	}
 	for idx := range passivePackets {
-		response.PassiveAssetPsbts[idx], err = serialize(
+		response.PassiveAssetPsbts[idx], err = fn.Serialize(
 			passivePackets[idx],
 		)
 		if err != nil {
@@ -2357,7 +2357,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		return nil, fmt.Errorf("only one packet supported")
 	}
 
-	response.FundedPsbt, err = serialize(fundedVPkt.VPackets[0])
+	response.FundedPsbt, err = fn.Serialize(fundedVPkt.VPackets[0])
 	if err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
@@ -2443,7 +2443,7 @@ func (r *rpcServer) SignVirtualPsbt(ctx context.Context,
 		return nil, fmt.Errorf("error signing packet: %w", err)
 	}
 
-	signedPsbtBytes, err := serialize(vPkt)
+	signedPsbtBytes, err := fn.Serialize(vPkt)
 	if err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
@@ -2569,7 +2569,7 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 
 	// We're ready to attempt to fund the transaction now. For that we first
 	// need to re-serialize our packet.
-	packetBytes, err := serialize(pkt)
+	packetBytes, err := fn.Serialize(pkt)
 	if err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
@@ -2718,7 +2718,7 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 		ChangeOutputIndex: changeIndex,
 	}
 
-	response.AnchorPsbt, err = serialize(fundedPacket)
+	response.AnchorPsbt, err = fn.Serialize(fundedPacket)
 	if err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
@@ -4421,7 +4421,7 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 	// If we have the genesis packet available (funded+signed), then we'll
 	// display the txid as well.
 	if batch.GenesisPacket != nil {
-		rpcBatch.BatchPsbt, err = serialize(batch.GenesisPacket.Pkt)
+		rpcBatch.BatchPsbt, err = fn.Serialize(batch.GenesisPacket.Pkt)
 		if err != nil {
 			return nil, fmt.Errorf("error serializing batch PSBT: "+
 				"%w", err)
@@ -8477,18 +8477,6 @@ func (r *rpcServer) DeclareScriptKey(ctx context.Context,
 	return &wrpc.DeclareScriptKeyResponse{
 		ScriptKey: rpcutils.MarshalScriptKey(*scriptKey),
 	}, nil
-}
-
-// serialize is a helper function that serializes a serializable object into a
-// byte slice.
-func serialize(s interface{ Serialize(io.Writer) error }) ([]byte, error) {
-	var b bytes.Buffer
-	err := s.Serialize(&b)
-	if err != nil {
-		return nil, err
-	}
-
-	return b.Bytes(), nil
 }
 
 // decodeVirtualPackets decodes a slice of raw virtual packet bytes into a slice
