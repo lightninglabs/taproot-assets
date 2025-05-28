@@ -85,7 +85,8 @@ func (s *CoinSelect) SelectCoins(ctx context.Context,
 		},
 	)
 	if len(compatibleCommitments) == 0 {
-		return nil, ErrMatchingAssetsNotFound
+		return nil, fmt.Errorf("%w: no compatible commitments for max "+
+			"version %v", ErrMatchingAssetsNotFound, maxVersion)
 	}
 
 	selectedCoins, err := s.selectForAmount(
@@ -191,7 +192,9 @@ func (s *CoinSelect) selectForAmount(minTotalAmount uint64,
 	// Having examined all the eligible commitments, return an error if the
 	// minimal funding amount was not reached.
 	if amountSum < minTotalAmount {
-		return nil, ErrMatchingAssetsNotFound
+		return nil, fmt.Errorf("%w: insufficient amount available, "+
+			"have %d, want %d", ErrMatchingAssetsNotFound,
+			amountSum, minTotalAmount)
 	}
 	return selectedCommitments, nil
 }
