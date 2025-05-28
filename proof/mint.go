@@ -266,7 +266,7 @@ func NewMintingBlobs(params *MintParams, vCtx VerifierCtx,
 
 	base, err := baseProof(
 		&params.BaseProofParams, params.GenesisPoint,
-		opts.genConfig.transitionVersion,
+		opts.genConfig.TransitionVersion,
 	)
 	if err != nil {
 		return nil, err

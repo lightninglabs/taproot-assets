@@ -454,6 +454,44 @@ func TestVerifyV1InclusionProof(t *testing.T) {
 		expectedErrContains: "error verifying STXO proof: invalid " +
 			"taproot proof",
 	}, {
+		name: "valid v0 and invalid v1 proofs but with v0 version",
+		makeProof: func(t *testing.T) []*Proof {
+			p, rootCommitments := makeV0InclusionProof(t)
+
+			// We add an STXO asset to the root commitment.
+			_, key := addV1InclusionProof(
+				t, p[0], rootCommitments[0], withAddStxoProof(),
+				withUpdateAnchorTx(),
+			)
+
+			// At this point both proofs are valid. But we want to
+			// invalidate just the v1 proof, so we replace it by one
+			// that is derived from a different commitment. We can
+			// achieve that by downgrading the commitment and
+			// re-deriving the same proof, without updating the
+			// anchor output transaction.
+			clonedCommitment, err := rootCommitments[0].Downgrade()
+			require.NoError(t, err)
+
+			_, v1ProofOld, err := clonedCommitment.Proof(
+				asset.EmptyGenesisID,
+				p[0].Asset.AssetCommitmentKey(),
+			)
+			require.NoError(t, err)
+
+			cp := p[0].InclusionProof.CommitmentProof
+			cp.STXOProofs[key] = *v1ProofOld
+
+			// We now have a invalid v1 proof, but the proof's
+			// version is still set to 0. We do however expect the
+			// verification to fail, since the v1 proof is present
+			// and will be verified..
+
+			return p
+		},
+		expectedErrContains: "error verifying STXO proof: invalid " +
+			"taproot proof",
+	}, {
 		name: "stxo proof missing",
 		makeProof: func(t *testing.T) []*Proof {
 			// We create a proof for an asset that spends two
@@ -670,6 +708,31 @@ func TestVerifyV1ExclusionProof(t *testing.T) {
 
 			return p
 		},
+	}, {
+		name: "invalid v1 exclusion proof but with v0 version",
+		makeProof: func(t *testing.T) []*Proof {
+			p, _ := makeV0InclusionProof(t)
+
+			// We now correctly prove that the asset isn't in the
+			// second output.
+			emptyCommitment, err := commitment.NewTapCommitment(nil)
+			require.NoError(t, err)
+
+			addV0ExclusionOutput(
+				t, p[0], emptyCommitment,
+				p[0].Asset.TapCommitmentKey(),
+				p[0].Asset.AssetCommitmentKey(), internalKey, 1,
+			)
+
+			randAsset := makeTransferAsset(t)
+			addV1ExclusionProof(
+				t, p[0], *randAsset, emptyCommitment, 1,
+			)
+
+			return p
+		},
+		expectedErrContains: "error verifying v1 exclusion proof: " +
+			"missing STXO asset for key",
 	}, {
 		name: "multiple assets with an exclusion proof each",
 		makeProof: func(t *testing.T) []*Proof {

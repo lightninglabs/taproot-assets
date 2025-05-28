@@ -155,9 +155,14 @@ func CreateProofSuffixCustom(finalTx *wire.MsgTx, vPacket *tappsbt.VPacket,
 
 	inputPrevID := vPacket.Inputs[0].PrevID
 
+	cfg := proof.DefaultGenConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	params, err := proofParams(
 		finalTx, vPacket, outputCommitments, outIndex,
-		allAnchoredVPackets,
+		allAnchoredVPackets, cfg.NoSTXOProofs,
 	)
 	if err != nil {
 		return nil, err
@@ -233,7 +238,8 @@ func newParams(finalTx *wire.MsgTx, a *asset.Asset, outputIndex int,
 // proofs for the sender and receiver.
 func proofParams(finalTx *wire.MsgTx, vPkt *tappsbt.VPacket,
 	outputCommitments tappsbt.OutputCommitments, outIndex int,
-	allAnchoredVPackets []*tappsbt.VPacket) (*proof.TransitionParams, error) {
+	allAnchoredVPackets []*tappsbt.VPacket,
+	noStxoProofs bool) (*proof.TransitionParams, error) {
 
 	isSplit, err := vPkt.HasSplitCommitment()
 	if err != nil {
@@ -268,6 +274,12 @@ func proofParams(finalTx *wire.MsgTx, vPkt *tappsbt.VPacket,
 			allVirtualOutputs, rootOut.Asset, rootParams,
 			outputCommitments,
 		)
+
+		// If we don't require STXO exclusion proofs, then we are done
+		// here.
+		if noStxoProofs {
+			return rootParams, err
+		}
 
 		// Add STXO exclusion proofs for all the other outputs, for all
 		// STXOs spent by _all_ VOutputs that anchor in this output.

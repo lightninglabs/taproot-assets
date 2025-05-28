@@ -1612,6 +1612,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 			proofSuffix, err := tapsend.CreateProofSuffixCustom(
 				req.CommitTx, vPkt, outCommitments, outIdx,
 				vPackets, exclusionCreator,
+				proof.WithNoSTXOProofs(),
 			)
 			if err != nil {
 				return fmt.Errorf("unable to create "+
@@ -2450,7 +2451,7 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 
 			proofSuffix, err := tapsend.CreateProofSuffixCustom(
 				sweepTx, vPkt, outCommitments, outIdx, allVpkts,
-				exclusionCreator,
+				exclusionCreator, proof.WithNoSTXOProofs(),
 			)
 			if err != nil {
 				return fmt.Errorf("unable to create proof "+

@@ -612,7 +612,7 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 				fakeCommitTx, vPkt, outCommitments, outIdx,
 				vPackets, tapsend.NonAssetExclusionProofs(
 					allocations,
-				),
+				), proof.WithNoSTXOProofs(),
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("unable to create "+
