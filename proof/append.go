@@ -14,15 +14,19 @@ import (
 // GenConfig is a struct that holds the configuration for creating Taproot Asset
 // proofs.
 type GenConfig struct {
-	// transitionVersion is the version of the asset state transition proof
+	// TransitionVersion is the version of the asset state transition proof
 	// that is going to be used.
-	transitionVersion TransitionVersion
+	TransitionVersion TransitionVersion
+
+	// NoSTXOProofs indicates whether to skip the generation of STXO
+	// inclusion and exclusion proofs for the transition proof.
+	NoSTXOProofs bool
 }
 
 // DefaultGenConfig returns a default proof generation configuration.
 func DefaultGenConfig() GenConfig {
 	return GenConfig{
-		transitionVersion: TransitionV0,
+		TransitionVersion: TransitionV0,
 	}
 }
 
@@ -34,7 +38,15 @@ type GenOption func(*GenConfig)
 // given version.
 func WithVersion(v TransitionVersion) GenOption {
 	return func(cfg *GenConfig) {
-		cfg.transitionVersion = v
+		cfg.TransitionVersion = v
+	}
+}
+
+// WithNoSTXOProofs is an option that can be used to skip the generation of
+// STXO inclusion and exclusion proofs for the transition proof.
+func WithNoSTXOProofs() GenOption {
+	return func(cfg *GenConfig) {
+		cfg.NoSTXOProofs = true
 	}
 }
 
@@ -158,7 +170,7 @@ func CreateTransitionProof(prevOut wire.OutPoint, params *TransitionParams,
 	}
 
 	proof, err := baseProof(
-		&params.BaseProofParams, prevOut, cfg.transitionVersion,
+		&params.BaseProofParams, prevOut, cfg.TransitionVersion,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating base proofs: %w", err)
@@ -194,7 +206,7 @@ func CreateTransitionProof(prevOut wire.OutPoint, params *TransitionParams,
 		TapSiblingPreimage: params.TapscriptSibling,
 	}
 
-	if proof.Asset.IsTransferRoot() {
+	if proof.Asset.IsTransferRoot() && !cfg.NoSTXOProofs {
 		stxoInclusionProofs := make(
 			map[asset.SerializedKey]commitment.Proof,
 			len(proof.Asset.PrevWitnesses),

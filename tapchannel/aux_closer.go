@@ -726,6 +726,7 @@ func (a *AuxChanCloser) FinalizeClose(desc chancloser.AuxCloseDesc,
 			proofSuffix, err := tapsend.CreateProofSuffixCustom(
 				closeTx, vPkt, closeInfo.outputCommitments,
 				outIdx, closeInfo.vPackets, exclusionCreator,
+				proof.WithNoSTXOProofs(),
 			)
 			if err != nil {
 				return fmt.Errorf("unable to create proof "+

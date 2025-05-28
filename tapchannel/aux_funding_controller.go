@@ -1114,6 +1114,7 @@ func (f *FundingController) anchorVPackets(fundedPkt *tapsend.FundedPsbt,
 			proofSuffix, err := tapsend.CreateProofSuffix(
 				fundedPkt.Pkt.UnsignedTx, fundedPkt.Pkt.Outputs,
 				vPkt, outputCommitments, vOutIdx, allPackets,
+				proof.WithNoSTXOProofs(),
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to create "+
