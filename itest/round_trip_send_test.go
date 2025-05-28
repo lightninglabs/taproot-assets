@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -183,11 +183,10 @@ func testRoundTripSend(t *harnessTest) {
 
 	// We can now broadcast the transaction and wait for it to be mined.
 	// Publish the sweep transaction and then mine it as well.
-	var buf bytes.Buffer
-	err = tx.Serialize(&buf)
+	txBytes, err := fn.Serialize(tx)
 	require.NoError(t.t, err)
 	t.tapd.cfg.LndNode.RPC.PublishTransaction(&walletrpc.Transaction{
-		TxHex: buf.Bytes(),
+		TxHex: txBytes,
 	})
 
 	// Mine one block which should contain the sweep transaction.

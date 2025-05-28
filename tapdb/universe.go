@@ -533,8 +533,8 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 		}
 	}
 
-	var txBuf bytes.Buffer
-	if err := genesisProof.AnchorTx.Serialize(&txBuf); err != nil {
+	txBytes, err := fn.Serialize(&genesisProof.AnchorTx)
+	if err != nil {
 		return 0, fmt.Errorf("unable to serialize anchor tx: %w", err)
 	}
 
@@ -542,7 +542,7 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 	genBlockHash := genesisProof.BlockHeader.BlockHash()
 	chainTXID, err := db.UpsertChainTx(ctx, ChainTxParams{
 		Txid:        genTXID[:],
-		RawTx:       txBuf.Bytes(),
+		RawTx:       txBytes,
 		BlockHeight: sqlInt32(genesisProof.BlockHeight),
 		BlockHash:   genBlockHash[:],
 	})
