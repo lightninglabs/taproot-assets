@@ -132,14 +132,13 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 		splitCommitment.RootAsset = *senderOut.Copy()
 	}
 
-	var b bytes.Buffer
-	err = fundedPacket.Serialize(&b)
+	fundedPktBytes, err := fn.Serialize(fundedPacket)
 	require.NoError(t.t, err)
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := bob.AnchorVirtualPsbts(
 		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
-			VirtualPsbts: [][]byte{b.Bytes()},
+			VirtualPsbts: [][]byte{fundedPktBytes},
 		},
 	)
 	require.NoError(t.t, err)
@@ -256,13 +255,12 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	fundedPacket.Inputs[0].TaprootBip32Derivation[0].LeafHashes = [][]byte{
 		leaf2Hash[:],
 	}
-	var b bytes.Buffer
-	err = fundedPacket.Serialize(&b)
+	fundedPktBytes, err := fn.Serialize(fundedPacket)
 	require.NoError(t.t, err)
 
 	signedResp, err := bob.SignVirtualPsbt(
 		ctxb, &wrpc.SignVirtualPsbtRequest{
-			FundedPsbt: b.Bytes(),
+			FundedPsbt: fundedPktBytes,
 		},
 	)
 	require.NoError(t.t, err)
@@ -1109,13 +1107,13 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 	btcPacket, err := tapsend.PrepareAnchoringTemplate(allPackets)
 	require.NoError(t.t, err)
 
-	var btcPacketBuf bytes.Buffer
-	require.NoError(t.t, btcPacket.Serialize(&btcPacketBuf))
+	btcPacketBytes, err := fn.Serialize(btcPacket)
+	require.NoError(t.t, err)
 
 	commitReq := &wrpc.CommitVirtualPsbtsRequest{
 		VirtualPsbts:      [][]byte{signedvPktBytes},
 		PassiveAssetPsbts: [][]byte{signPassiveResp.SignedPsbt},
-		AnchorPsbt:        btcPacketBuf.Bytes(),
+		AnchorPsbt:        btcPacketBytes,
 		Fees: &wrpc.CommitVirtualPsbtsRequest_SatPerVbyte{
 			SatPerVbyte: uint64(feeRateSatPerKVByte / 1000),
 		},
@@ -1894,13 +1892,12 @@ func testPsbtSighashNone(t *harnessTest) {
 	// has been generated.
 	fundedPacket.Inputs[0].SighashType = txscript.SigHashNone
 
-	var b bytes.Buffer
-	err = fundedPacket.Serialize(&b)
+	fundedPktBytes, err := fn.Serialize(fundedPacket)
 	require.NoError(t.t, err)
 
 	signedResp, err := bob.SignVirtualPsbt(
 		ctxb, &wrpc.SignVirtualPsbtRequest{
-			FundedPsbt: b.Bytes(),
+			FundedPsbt: fundedPktBytes,
 		},
 	)
 	require.NoError(t.t, err)
@@ -1935,10 +1932,8 @@ func testPsbtSighashNone(t *harnessTest) {
 		PrevWitnesses = witnessBackup
 
 	// Serialize the edited signed packet.
-	var buffer bytes.Buffer
-	err = signedPacket.Serialize(&buffer)
+	signedBytes, err := fn.Serialize(signedPacket)
 	require.NoError(t.t, err)
-	signedBytes := buffer.Bytes()
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := bob.AnchorVirtualPsbts(
@@ -2065,14 +2060,12 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 	// This is where we would normally set the sighash flag to SIGHASH_NONE,
 	// but instead we skip that step to verify that the VM will invalidate
 	// the transfer when any inputs or outputs are mutated.
-
-	var b bytes.Buffer
-	err = fundedPacket.Serialize(&b)
+	fundedPktBytes, err := fn.Serialize(fundedPacket)
 	require.NoError(t.t, err)
 
 	signedResp, err := bob.SignVirtualPsbt(
 		ctxb, &wrpc.SignVirtualPsbtRequest{
-			FundedPsbt: b.Bytes(),
+			FundedPsbt: fundedPktBytes,
 		},
 	)
 	require.NoError(t.t, err)
@@ -2107,10 +2100,8 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 		PrevWitnesses = witnessBackup
 
 	// Serialize the edited signed packet.
-	var buffer bytes.Buffer
-	err = signedPacket.Serialize(&buffer)
+	signedBytes, err := fn.Serialize(signedPacket)
 	require.NoError(t.t, err)
-	signedBytes := buffer.Bytes()
 
 	ctxc, streamCancel := context.WithCancel(ctxb)
 	stream, err := bob.SubscribeSendEvents(
@@ -2267,8 +2258,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 		[]*psbt.TaprootBip32Derivation{trDerivation}
 	btcPacket.Outputs[0].TaprootInternalKey = trDerivation.XOnlyPubKey
 
-	var b bytes.Buffer
-	err = btcPacket.Serialize(&b)
+	btcPacketBytes, err := fn.Serialize(btcPacket)
 	require.NoError(t.t, err)
 
 	// Now we need to commit the vPSBT and PSBT, creating all the related
@@ -2276,7 +2266,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	resp, err := alice.CommitVirtualPsbts(
 		ctxb, &wrpc.CommitVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signedResp.SignedPsbt},
-			AnchorPsbt:   b.Bytes(),
+			AnchorPsbt:   btcPacketBytes,
 			AnchorChangeOutput: &wrpc.CommitVirtualPsbtsRequest_Add{
 				Add: true,
 			},
@@ -2318,14 +2308,13 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 
 	t.Logf("Alice BTC PSBT: %v", spew.Sdump(btcPacket))
 
-	b.Reset()
-	err = btcPacket.Serialize(&b)
+	btcPacketBytes, err = fn.Serialize(btcPacket)
 	require.NoError(t.t, err)
 
 	// Now alice signs the bitcoin psbt.
 	signPsbtResp := t.tapd.cfg.LndNode.RPC.SignPsbt(
 		&walletrpc.SignPsbtRequest{
-			FundedPsbt: b.Bytes(),
+			FundedPsbt: btcPacketBytes,
 		},
 	)
 
@@ -2412,8 +2401,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 
 	// Now let's serialize the edited vPSBT and commit it to our bitcoin
 	// PSBT.
-	b.Reset()
-	err = btcPacket.Serialize(&b)
+	btcPacketBytes, err = fn.Serialize(btcPacket)
 	require.NoError(t.t, err)
 
 	// This call will also fund the PSBT, which means that the bitcoin that
@@ -2422,7 +2410,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	resp, err = bob.CommitVirtualPsbts(
 		ctxb, &wrpc.CommitVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{bobVPsbtBytes},
-			AnchorPsbt:   b.Bytes(),
+			AnchorPsbt:   btcPacketBytes,
 			AnchorChangeOutput: &wrpc.CommitVirtualPsbtsRequest_Add{
 				Add: true,
 			},
@@ -3052,11 +3040,11 @@ func testPsbtLockTimeSend(t *harnessTest) {
 	spendTx, err := psbt.Extract(btcPacket)
 	require.NoError(t.t, err)
 
-	var spendTxBuf bytes.Buffer
-	require.NoError(t.t, spendTx.Serialize(&spendTxBuf))
+	spendTxBytes, err := fn.Serialize(spendTx)
+	require.NoError(t.t, err)
 	_, err = bobLnd.RPC.WalletKit.PublishTransaction(
 		ctxt, &walletrpc.Transaction{
-			TxHex: spendTxBuf.Bytes(),
+			TxHex: spendTxBytes,
 		},
 	)
 	require.ErrorContains(t.t, err, "non final")
@@ -3267,11 +3255,11 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 	spendTx, err := psbt.Extract(btcPacket)
 	require.NoError(t.t, err)
 
-	var spendTxBuf bytes.Buffer
-	require.NoError(t.t, spendTx.Serialize(&spendTxBuf))
+	spendTxBytes, err := fn.Serialize(spendTx)
+	require.NoError(t.t, err)
 	_, err = lndBob.RPC.WalletKit.PublishTransaction(
 		ctxt, &walletrpc.Transaction{
-			TxHex: spendTxBuf.Bytes(),
+			TxHex: spendTxBytes,
 		},
 	)
 	require.ErrorContains(t.t, err, "non BIP68 final")
@@ -3485,11 +3473,11 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 	spendTxTimeLocked, err := psbt.Extract(btcPacketTimeLocked)
 	require.NoError(t.t, err)
 
-	var spendTxBuf bytes.Buffer
-	require.NoError(t.t, spendTxTimeLocked.Serialize(&spendTxBuf))
+	spendTxBytes, err := fn.Serialize(spendTxTimeLocked)
+	require.NoError(t.t, err)
 	_, err = lndBob.RPC.WalletKit.PublishTransaction(
 		ctxt, &walletrpc.Transaction{
-			TxHex: spendTxBuf.Bytes(),
+			TxHex: spendTxBytes,
 		},
 	)
 	require.ErrorContains(t.t, err, "non BIP68 final")
@@ -3509,11 +3497,11 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 	spendTxTimeLocked, err = psbt.Extract(btcPacket)
 	require.NoError(t.t, err)
 
-	spendTxBuf.Reset()
-	require.NoError(t.t, spendTxTimeLocked.Serialize(&spendTxBuf))
+	spendTxBytes, err = fn.Serialize(spendTxTimeLocked)
+	require.NoError(t.t, err)
 	_, err = lndBob.RPC.WalletKit.PublishTransaction(
 		ctxt, &walletrpc.Transaction{
-			TxHex: spendTxBuf.Bytes(),
+			TxHex: spendTxBytes,
 		},
 	)
 	require.NoError(t.t, err)
@@ -3648,12 +3636,11 @@ func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
 func signPacket(t *testing.T, lnd *node.HarnessNode,
 	pkt *psbt.Packet) *psbt.Packet {
 
-	var buf bytes.Buffer
-	err := pkt.Serialize(&buf)
+	pktBytes, err := fn.Serialize(pkt)
 	require.NoError(t, err)
 
 	signResp := lnd.RPC.SignPsbt(&walletrpc.SignPsbtRequest{
-		FundedPsbt: buf.Bytes(),
+		FundedPsbt: pktBytes,
 	})
 
 	signedPacket, err := psbt.NewFromRawBytes(
@@ -3667,12 +3654,11 @@ func signPacket(t *testing.T, lnd *node.HarnessNode,
 func finalizePacket(t *testing.T, lnd *node.HarnessNode,
 	pkt *psbt.Packet) *psbt.Packet {
 
-	var buf bytes.Buffer
-	err := pkt.Serialize(&buf)
+	pktBytes, err := fn.Serialize(pkt)
 	require.NoError(t, err)
 
 	finalizeResp := lnd.RPC.FinalizePsbt(&walletrpc.FinalizePsbtRequest{
-		FundedPsbt: buf.Bytes(),
+		FundedPsbt: pktBytes,
 	})
 
 	signedPacket, err := psbt.NewFromRawBytes(
