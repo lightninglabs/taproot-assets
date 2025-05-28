@@ -1083,8 +1083,7 @@ func fundPacket(t *harnessTest, tapd *tapdHarness,
 func maybeFundPacket(t *harnessTest, tapd *tapdHarness,
 	vPkg *tappsbt.VPacket) (*wrpc.FundVirtualPsbtResponse, error) {
 
-	var buf bytes.Buffer
-	err := vPkg.Serialize(&buf)
+	psbtBytes, err := fn.Serialize(vPkg)
 	require.NoError(t.t, err)
 
 	ctxb := context.Background()
@@ -1093,7 +1092,7 @@ func maybeFundPacket(t *harnessTest, tapd *tapdHarness,
 
 	return tapd.FundVirtualPsbt(ctxt, &wrpc.FundVirtualPsbtRequest{
 		Template: &wrpc.FundVirtualPsbtRequest_Psbt{
-			Psbt: buf.Bytes(),
+			Psbt: psbtBytes,
 		},
 	})
 }

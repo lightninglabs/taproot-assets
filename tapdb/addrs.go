@@ -699,9 +699,9 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 		writeTxOpts AddrBookTxOptions
 		event       *address.Event
 		txHash      = walletTx.Tx.TxHash()
-		txBuf       bytes.Buffer
 	)
-	if err := walletTx.Tx.Serialize(&txBuf); err != nil {
+	txBytes, err := fn.Serialize(walletTx.Tx)
+	if err != nil {
 		return nil, fmt.Errorf("error serializing tx: %w", err)
 	}
 	outpoint := wire.OutPoint{
@@ -727,7 +727,7 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 		// transaction in our DB.
 		txUpsert := ChainTxParams{
 			Txid:  txHash[:],
-			RawTx: txBuf.Bytes(),
+			RawTx: txBytes,
 		}
 		if walletTx.Confirmations > 0 {
 			txUpsert.BlockHeight = sqlInt32(walletTx.BlockHeight)

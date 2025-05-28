@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -55,17 +56,17 @@ func (a *assetChanIntent) FundingPsbt() (*psbt.Packet, error) {
 func (a *assetChanIntent) BindPsbt(ctx context.Context,
 	finalPSBT *psbt.Packet) error {
 
-	var psbtBuf bytes.Buffer
-	if err := finalPSBT.Serialize(&psbtBuf); err != nil {
+	psbtBytes, err := fn.Serialize(finalPSBT)
+	if err != nil {
 		return fmt.Errorf("unable to serialize base PSBT: %w", err)
 	}
 
-	_, err := a.lnd.Client.FundingStateStep(
+	_, err = a.lnd.Client.FundingStateStep(
 		ctx, &lnrpc.FundingTransitionMsg{
 			Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
 				PsbtVerify: &lnrpc.FundingPsbtVerify{
 					PendingChanId: a.tempPID[:],
-					FundedPsbt:    psbtBuf.Bytes(),
+					FundedPsbt:    psbtBytes,
 					SkipFinalize:  true,
 				},
 			},

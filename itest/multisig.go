@@ -402,12 +402,11 @@ func CommitVirtualPsbts(t *testing.T, funder commands.RpcClientsBundle,
 
 	t.Logf("Funding packet: %v\n", spew.Sdump(packet))
 
-	var buf bytes.Buffer
-	err := packet.Serialize(&buf)
+	packetBytes, err := fn.Serialize(packet)
 	require.NoError(t, err)
 
 	request := &wrpc.CommitVirtualPsbtsRequest{
-		AnchorPsbt: buf.Bytes(),
+		AnchorPsbt: packetBytes,
 		Fees: &wrpc.CommitVirtualPsbtsRequest_SatPerVbyte{
 			SatPerVbyte: uint64(feeRateSatPerKVByte / 1000),
 		},
@@ -546,12 +545,11 @@ func PublishAndLogTransfer(t *testing.T, tapd commands.RpcClientsBundle,
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	var buf bytes.Buffer
-	err := btcPkt.Serialize(&buf)
+	btcPktBytes, err := fn.Serialize(btcPkt)
 	require.NoError(t, err)
 
 	request := &wrpc.PublishAndLogRequest{
-		AnchorPsbt:            buf.Bytes(),
+		AnchorPsbt:            btcPktBytes,
 		VirtualPsbts:          make([][]byte, len(activeAssets)),
 		PassiveAssetPsbts:     make([][]byte, len(passiveAssets)),
 		ChangeOutputIndex:     commitResp.ChangeOutputIndex,
@@ -819,13 +817,12 @@ func partialSignWithKey(t *testing.T, lnd *rpc.HarnessRPC,
 	signInput.TaprootLeafScript = leafToSign
 	signInput.SighashType = txscript.SigHashDefault
 
-	var buf bytes.Buffer
-	err := pkt.Serialize(&buf)
+	pktBytes, err := fn.Serialize(pkt)
 	require.NoError(t, err)
 
 	resp, err := lnd.WalletKit.SignPsbt(
 		ctxt, &walletrpc.SignPsbtRequest{
-			FundedPsbt: buf.Bytes(),
+			FundedPsbt: pktBytes,
 		},
 	)
 	require.NoError(t, err)

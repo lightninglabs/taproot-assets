@@ -544,10 +544,10 @@ func testMintAssetsWithTapscriptSibling(t *harnessTest) {
 		TxOut: []*wire.TxOut{burnOutput},
 	}
 
-	var burnTxBuf bytes.Buffer
-	require.NoError(t.t, burnTx.Serialize(&burnTxBuf))
+	burnTxBytes, err := fn.Serialize(&burnTx)
+	require.NoError(t.t, err)
 	bobLnd.RPC.PublishTransaction(&walletrpc.Transaction{
-		TxHex: burnTxBuf.Bytes(),
+		TxHex: burnTxBytes,
 	})
 
 	// Bob should detect the TX, and the resulting confirmed UTXO once

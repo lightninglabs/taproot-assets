@@ -752,9 +752,9 @@ func signTransferWithTweakedScriptKey(t *harnessTest, ctxt context.Context,
 	[]*tappsbt.VPacket) {
 
 	encodeVpsbt := func(psbt *tappsbt.VPacket) []byte {
-		var b bytes.Buffer
-		require.NoError(t.t, psbt.Serialize(&b))
-		return b.Bytes()
+		packetBytes, err := fn.Serialize(psbt)
+		require.NoError(t.t, err)
+		return packetBytes
 	}
 	decodeVpsbt := func(psbt []byte) *tappsbt.VPacket {
 		vpsbt, err := tappsbt.NewFromRawBytes(
