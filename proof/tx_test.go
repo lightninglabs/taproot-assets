@@ -3,13 +3,16 @@ package proof
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -107,5 +110,179 @@ func TestTxMerkleProofEncoding(t *testing.T) {
 				t, decoded.Verify(tx, block.Header.MerkleRoot),
 			)
 		}
+	}
+}
+
+// TestTxProofVerification tests the verification of the TxProof struct.
+func TestTxProofVerification(t *testing.T) {
+	var (
+		errInvalidHeader      = errors.New("invalid header")
+		errInvalidMerkleProof = errors.New("invalid merkle proof")
+		errHeaderVerifier     = func(wire.BlockHeader, uint32) error {
+			return errInvalidHeader
+		}
+		errMerkleVerifier = func(*wire.MsgTx, *TxMerkleProof,
+			[32]byte) error {
+
+			return errInvalidMerkleProof
+		}
+		testBlocks = readTestData(t)
+		firstBlock = testBlocks[0]
+		firstTx    = firstBlock.Transactions[1]
+		testKey    = test.RandPubKey(t)
+	)
+
+	firstTxProof, err := NewTxMerkleProof(
+		firstBlock.Transactions, 1,
+	)
+	require.NoError(t, err)
+
+	bip86Key := txscript.ComputeTaprootKeyNoScript(testKey)
+	bip86PkScript, err := txscript.PayToTaprootScript(bip86Key)
+	require.NoError(t, err)
+
+	randRoot := test.RandBytes(32)
+	tapscriptKey := txscript.ComputeTaprootOutputKey(testKey, randRoot)
+	tapscriptPkScript, err := txscript.PayToTaprootScript(tapscriptKey)
+	require.NoError(t, err)
+
+	bip86Tx := wire.MsgTx{
+		TxOut: []*wire.TxOut{
+			{
+				PkScript: bip86PkScript,
+			},
+		},
+	}
+	tapscriptTx := wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				SignatureScript: test.RandBytes(10),
+			},
+		},
+		TxOut: []*wire.TxOut{
+			{
+				PkScript: tapscriptPkScript,
+			},
+		},
+	}
+
+	testCases := []struct {
+		name           string
+		proof          *TxProof
+		headerVerifier HeaderVerifier
+		merkleVerifier MerkleVerifier
+		expectedErr    error
+		expectedErrStr string
+	}{
+		{
+			name: "hash mismatch",
+			proof: &TxProof{
+				MsgTx: *firstTx,
+				ClaimedOutPoint: wire.OutPoint{
+					Hash: test.RandHash(),
+				},
+			},
+			expectedErr: ErrHashMismatch,
+		},
+		{
+			name: "index mismatch",
+			proof: &TxProof{
+				MsgTx: *firstTx,
+				ClaimedOutPoint: wire.OutPoint{
+					Hash:  firstTx.TxHash(),
+					Index: 123,
+				},
+			},
+			expectedErr: ErrOutputIndexInvalid,
+		},
+		{
+			name: "pk script mismatch",
+			proof: &TxProof{
+				MsgTx: *firstTx,
+				ClaimedOutPoint: wire.OutPoint{
+					Hash:  firstTx.TxHash(),
+					Index: 0,
+				},
+				InternalKey: *testKey,
+			},
+			expectedErr: ErrClaimedOutputScriptMismatch,
+		},
+		{
+			name: "merkle verifier mismatch",
+			proof: &TxProof{
+				MsgTx: bip86Tx,
+				ClaimedOutPoint: wire.OutPoint{
+					Hash:  bip86Tx.TxHash(),
+					Index: 0,
+				},
+				InternalKey: *testKey,
+			},
+			merkleVerifier: errMerkleVerifier,
+			expectedErr:    errInvalidMerkleProof,
+		},
+		{
+			name: "header verifier mismatch",
+			proof: &TxProof{
+				MsgTx: bip86Tx,
+				ClaimedOutPoint: wire.OutPoint{
+					Hash:  bip86Tx.TxHash(),
+					Index: 0,
+				},
+				InternalKey: *testKey,
+			},
+			merkleVerifier: MockMerkleVerifier,
+			headerVerifier: errHeaderVerifier,
+			expectedErr:    errInvalidHeader,
+		},
+		{
+			name: "success",
+			proof: &TxProof{
+				MsgTx:       tapscriptTx,
+				BlockHeader: testBlocks[0].Header,
+				BlockHeight: 39493,
+				MerkleProof: *firstTxProof,
+				ClaimedOutPoint: wire.OutPoint{
+					Hash:  tapscriptTx.TxHash(),
+					Index: 0,
+				},
+				InternalKey: *testKey,
+				MerkleRoot:  randRoot,
+			},
+			merkleVerifier: MockMerkleVerifier,
+			headerVerifier: MockHeaderVerifier,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.proof.Verify(
+				tc.headerVerifier, tc.merkleVerifier,
+			)
+
+			switch {
+			case tc.expectedErr != nil:
+				require.ErrorIs(t, err, tc.expectedErr)
+				require.ErrorContains(t, err, tc.expectedErrStr)
+
+				return
+
+			case tc.expectedErrStr != "":
+				require.ErrorContains(t, err, tc.expectedErrStr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			// For a successful proof, we also check the RPC
+			// marshaling and unmarshaling.
+			rpcProof, err := MarshalTxProof(*tc.proof)
+			require.NoError(t, err)
+
+			newProof, err := UnmarshalTxProof(rpcProof)
+			require.NoError(t, err)
+
+			require.Equal(t, tc.proof, newProof)
+		})
 	}
 }
