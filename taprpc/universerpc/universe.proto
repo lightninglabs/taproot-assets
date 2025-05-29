@@ -586,6 +586,8 @@ message AssetStatsAsset {
     int64 genesis_timestamp = 7;
 
     string anchor_point = 8;
+
+    uint32 decimal_display = 9;
 }
 
 message UniverseAssetStats {
