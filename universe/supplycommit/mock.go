@@ -26,21 +26,22 @@ type mockSupplyTreeView struct {
 	mock.Mock
 }
 
-func (m *mockSupplyTreeView) FetchSubTree(assetSpec asset.Specifier,
+func (m *mockSupplyTreeView) FetchSubTree(_ context.Context,
+	assetSpec asset.Specifier,
 	treeType SupplySubTree) lfn.Result[mssmt.Tree] {
 
 	args := m.Called(assetSpec, treeType)
 	return args.Get(0).(lfn.Result[mssmt.Tree])
 }
 
-func (m *mockSupplyTreeView) FetchSubTrees(
+func (m *mockSupplyTreeView) FetchSubTrees(_ context.Context,
 	assetSpec asset.Specifier) lfn.Result[SupplyTrees] {
 
 	args := m.Called(assetSpec)
 	return args.Get(0).(lfn.Result[SupplyTrees])
 }
 
-func (m *mockSupplyTreeView) FetchRootSupplyTree(
+func (m *mockSupplyTreeView) FetchRootSupplyTree(_ context.Context,
 	assetSpec asset.Specifier) lfn.Result[mssmt.Tree] {
 
 	args := m.Called(assetSpec)
