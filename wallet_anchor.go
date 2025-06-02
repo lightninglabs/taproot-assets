@@ -12,10 +12,12 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -223,6 +225,23 @@ func (l *LndRpcWalletAnchor) MinRelayFee(
 	ctx context.Context) (chainfee.SatPerKWeight, error) {
 
 	return l.lnd.WalletKit.MinRelayFee(ctx)
+}
+
+// DeriveNextKey derives the next key in the taproot assets key family.
+func (l *LndRpcWalletAnchor) DeriveNextKey(
+	ctx context.Context) (keychain.KeyDescriptor, error) {
+
+	keyFam := asset.TaprootAssetsKeyFamily
+
+	tapdLog.Debugf("Deriving new key for fam_family=%v", keyFam)
+
+	keyDesc, err := l.lnd.WalletKit.DeriveNextKey(ctx, int32(keyFam))
+	if err != nil {
+		return keychain.KeyDescriptor{}, fmt.Errorf("unable to "+
+			"derive key ring: %w", err)
+	}
+
+	return *keyDesc, nil
 }
 
 // A compile time assertion to ensure LndRpcWalletAnchor meets the
