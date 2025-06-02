@@ -34,6 +34,16 @@ import (
 const (
 	// serviceListenAddress is the listening address of the service.
 	serviceListenAddress = "localhost:8095"
+
+	// supportedAssetIdStr is the hex-encoded asset ID for which this price
+	// oracle provides exchange rates.
+	supportedAssetIdStr = "7b4336d33b019df9438e586f83c587ca00fa6560249" +
+		"7b93ace193e9ce53b1a67"
+
+	// supportedGroupKeyStr is the hex-encoded asset group key for which
+	// this price oracle provides exchange rates.
+	supportedGroupKeyStr = "02875ce409b587a6656357639d099ad9eb08396d0d" +
+		"fea8930a45e742c81d6fc782"
 )
 
 // setupLogger sets up the logger to write logs to a file.
@@ -65,17 +75,15 @@ type RpcPriceOracleServer struct {
 	oraclerpc.UnimplementedPriceOracleServer
 }
 
-// isSupportedSubjectAsset returns true if the given subject asset is supported
-// by the price oracle, and false otherwise.
-func isSupportedSubjectAsset(subjectAsset *oraclerpc.AssetSpecifier) bool {
+// isSupportedAssetID returns true if the given asset ID is supported by the
+// price oracle, and false otherwise.
+func isSupportedAssetID(rpcAssetSpec *oraclerpc.AssetSpecifier) bool {
 	// Ensure that the subject asset is set.
-	if subjectAsset == nil {
+	if rpcAssetSpec == nil {
 		logrus.Info("Subject asset is not set (nil)")
 		return false
 	}
 
-	supportedAssetIdStr := "7b4336d33b019df9438e586f83c587ca00fa65602497b9" +
-		"3ace193e9ce53b1a67"
 	supportedAssetIdBytes, err := hex.DecodeString(supportedAssetIdStr)
 	if err != nil {
 		fmt.Println("Error decoding supported asset hex string:", err)
@@ -83,14 +91,14 @@ func isSupportedSubjectAsset(subjectAsset *oraclerpc.AssetSpecifier) bool {
 	}
 
 	// Check the subject asset bytes if set.
-	subjectAssetIdBytes := subjectAsset.GetAssetId()
+	subjectAssetIdBytes := rpcAssetSpec.GetAssetId()
 	if len(subjectAssetIdBytes) > 0 {
 		logrus.Infof("Subject asset ID bytes populated: %x",
 			supportedAssetIdBytes)
 		return bytes.Equal(supportedAssetIdBytes, subjectAssetIdBytes)
 	}
 
-	subjectAssetIdStr := subjectAsset.GetAssetIdStr()
+	subjectAssetIdStr := rpcAssetSpec.GetAssetIdStr()
 	if len(subjectAssetIdStr) > 0 {
 		logrus.Infof("Subject asset ID str populated: %s",
 			supportedAssetIdStr)
@@ -98,7 +106,53 @@ func isSupportedSubjectAsset(subjectAsset *oraclerpc.AssetSpecifier) bool {
 	}
 
 	logrus.Infof("Subject asset ID not set")
+
 	return false
+}
+
+// isSupportedAssetGroupKey returns true if the given asset group key is
+// supported by the price oracle, and false otherwise.
+func isSupportedAssetGroupKey(
+	rpcAssetSpec *oraclerpc.AssetSpecifier) bool {
+
+	// Ensure that the subject asset is not nil.
+	if rpcAssetSpec == nil {
+		logrus.Info("Subject asset is not set (nil)")
+		return false
+	}
+
+	supportedGroupKeyBytes, err := hex.DecodeString(supportedGroupKeyStr)
+	if err != nil {
+		fmt.Println("Error decoding supported asset group key hex "+
+			"string:", err)
+		return false
+	}
+
+	// Check the subject asset group key bytes if set.
+	subjectGroupKeyBytes := rpcAssetSpec.GetGroupKey()
+	if len(subjectGroupKeyBytes) > 0 {
+		logrus.Infof("Subject asset group key bytes populated: %x",
+			supportedGroupKeyBytes)
+		return bytes.Equal(supportedGroupKeyBytes, subjectGroupKeyBytes)
+	}
+
+	subjectGroupKeyStr := rpcAssetSpec.GetGroupKeyStr()
+	if len(subjectGroupKeyStr) > 0 {
+		logrus.Infof("Subject asset group key str populated: %s",
+			supportedGroupKeyStr)
+		return subjectGroupKeyStr == supportedGroupKeyStr
+	}
+
+	logrus.Infof("Subject asset group key not set")
+
+	return false
+}
+
+// isSupportedAssetID returns true if the given subject asset is
+// supported by the price oracle, and false otherwise.
+func isSupportedSubjectAsset(subjectAsset *oraclerpc.AssetSpecifier) bool {
+	return isSupportedAssetID(subjectAsset) ||
+		isSupportedAssetGroupKey(subjectAsset)
 }
 
 // getPurchaseRate returns the buy (purchase) rate for the asset. The unit of
@@ -265,7 +319,7 @@ func (p *RpcPriceOracleServer) QueryAssetRates(_ context.Context,
 
 	// Ensure that the subject asset is supported.
 	if !isSupportedSubjectAsset(req.SubjectAsset) {
-		logrus.Infof("Unsupported subject asset ID str: %v\n",
+		logrus.Infof("Unsupported subject asset: %v\n",
 			req.SubjectAsset)
 
 		return &oraclerpc.QueryAssetRatesResponse{
