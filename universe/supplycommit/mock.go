@@ -140,7 +140,12 @@ func (m *mockWallet) UnlockInput(ctx context.Context, op wire.OutPoint) error {
 	return args.Error(0)
 }
 
-func (m *mockWallet) DeriveNextKey(
+// mockKeyRing is a mock implementation of the KeyRing interface.
+type mockKeyRing struct {
+	mock.Mock
+}
+
+func (m *mockKeyRing) DeriveNextTaprootAssetKey(
 	ctx context.Context) (keychain.KeyDescriptor, error) {
 
 	args := m.Called(ctx)

@@ -351,7 +351,7 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 func newRootCommitment(ctx context.Context,
 	oldCommitment lfn.Option[RootCommitment],
 	unspentPreCommits []PreCommitment, newSupplyRoot *mssmt.BranchNode,
-	wallet Wallet) lfn.Result[RootCommitment] {
+	wallet Wallet, keyRing KeyRing) lfn.Result[RootCommitment] {
 
 	newCommitTx := wire.NewMsgTx(2)
 
@@ -378,7 +378,7 @@ func newRootCommitment(ctx context.Context,
 	})(oldCommitment)
 	commitInternalKey, err := iKeyOpt.UnwrapOrFuncErr(
 		func() (*btcec.PublicKey, error) {
-			newKey, err := wallet.DeriveNextKey(ctx)
+			newKey, err := keyRing.DeriveNextTaprootAssetKey(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("unable to derive "+
 					"next key: %w", err)
@@ -527,7 +527,7 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 		// commitment.
 		newSupplyCommit, err := newRootCommitment(
 			ctx, oldCommitment, preCommits, newSupplyRoot,
-			env.Wallet,
+			env.Wallet, env.KeyRing,
 		).Unpack()
 		if err != nil {
 			return nil, fmt.Errorf("unable to create "+
