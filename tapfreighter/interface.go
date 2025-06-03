@@ -458,13 +458,29 @@ type OutboundParcel struct {
 // Copy creates a deep copy of the OutboundParcel.
 func (o *OutboundParcel) Copy() *OutboundParcel {
 	newParcel := &OutboundParcel{
-		AnchorTxHeightHint: o.AnchorTxHeightHint,
-		TransferTime:       o.TransferTime,
-		ChainFees:          o.ChainFees,
-		PassiveAssets:      fn.CopyAll(o.PassiveAssets),
-		Inputs:             fn.CopySlice(o.Inputs),
-		Outputs:            fn.CopySlice(o.Outputs),
+		AnchorTxHeightHint:    o.AnchorTxHeightHint,
+		AnchorTxBlockHeight:   o.AnchorTxBlockHeight,
+		TransferTime:          o.TransferTime,
+		ChainFees:             o.ChainFees,
+		Inputs:                fn.CopySlice(o.Inputs),
+		Outputs:               fn.CopySlice(o.Outputs),
+		Label:                 o.Label,
+		SkipAnchorTxBroadcast: o.SkipAnchorTxBroadcast,
 	}
+
+	newParcel.PassiveAssets = make(
+		[]*tappsbt.VPacket, 0, len(o.PassiveAssets),
+	)
+
+	for _, pa := range o.PassiveAssets {
+		newParcel.PassiveAssets = append(
+			newParcel.PassiveAssets, pa.Copy(),
+		)
+	}
+
+	o.AnchorTxBlockHash.WhenSome(func(h chainhash.Hash) {
+		newParcel.AnchorTxBlockHash = fn.Some(h)
+	})
 
 	if o.AnchorTx != nil {
 		newParcel.AnchorTx = o.AnchorTx.Copy()
@@ -472,16 +488,30 @@ func (o *OutboundParcel) Copy() *OutboundParcel {
 
 	if o.PassiveAssetsAnchor != nil {
 		oldAnchor := o.PassiveAssetsAnchor
+
 		newParcel.PassiveAssetsAnchor = &Anchor{
-			OutPoint:          oldAnchor.OutPoint,
-			Value:             oldAnchor.Value,
-			InternalKey:       oldAnchor.InternalKey,
-			TaprootAssetRoot:  oldAnchor.TaprootAssetRoot,
-			CommitmentVersion: oldAnchor.CommitmentVersion,
-			MerkleRoot:        oldAnchor.MerkleRoot,
-			TapscriptSibling:  oldAnchor.TapscriptSibling,
-			NumPassiveAssets:  oldAnchor.NumPassiveAssets,
+			OutPoint:    oldAnchor.OutPoint,
+			Value:       oldAnchor.Value,
+			InternalKey: oldAnchor.InternalKey,
+			TaprootAssetRoot: fn.CopySlice(
+				oldAnchor.TaprootAssetRoot,
+			),
+			MerkleRoot: fn.CopySlice(oldAnchor.MerkleRoot),
+			TapscriptSibling: fn.CopySlice(
+				oldAnchor.TapscriptSibling,
+			),
+			NumPassiveAssets: oldAnchor.NumPassiveAssets,
+			PkScript:         fn.CopySlice(oldAnchor.PkScript),
 		}
+
+		// Leave CommitmentVersion nil if it was unset or set it to
+		// point to a new uint8 otherwise.
+		if oldAnchor.CommitmentVersion != nil {
+			commitmentVersion := *oldAnchor.CommitmentVersion
+			newParcel.PassiveAssetsAnchor.CommitmentVersion =
+				&commitmentVersion
+		}
+
 	}
 
 	return newParcel
