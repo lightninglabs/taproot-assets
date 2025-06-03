@@ -138,6 +138,16 @@ func CheckFederationServer(localRuntimeID int64, connectTimeout time.Duration,
 	srvrLog.Debugf("Attempting to connect to federation server %v",
 		server.HostStr())
 
+	// Resolving the address first to ensure that we can connect to it.
+	resolvedAddr, err := server.Addr()
+	if err != nil {
+		return fmt.Errorf("error resolving server address %v: %w",
+			server.HostStr(), err)
+	}
+
+	srvrLog.Debugf("Resolved federation server address: %v",
+		resolvedAddr.String())
+
 	conn, err := ConnectUniverse(server)
 	if err != nil {
 		return fmt.Errorf("error connecting to server %v: %w",
@@ -175,8 +185,7 @@ type universeClientConn struct {
 func ConnectUniverse(
 	serverAddr universe.ServerAddr) (*universeClientConn, error) {
 
-	// TODO(roasbeef): all info is authenticated, but also want to allow
-	// brontide connect as well, can avoid TLS certs
+	uniAddr := serverAddr.HostStr()
 	creds := credentials.NewTLS(&tls.Config{
 		InsecureSkipVerify: true,
 	})
@@ -187,12 +196,8 @@ func ConnectUniverse(
 		grpc.WithDefaultCallOptions(MaxMsgReceiveSize),
 	}
 
-	uniAddr, err := serverAddr.Addr()
-	if err != nil {
-		return nil, err
-	}
-
-	rawConn, err := grpc.Dial(uniAddr.String(), opts...)
+	srvrLog.Infof("Connecting to Universe server at %s", uniAddr)
+	rawConn, err := grpc.NewClient(uniAddr, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to RPC server: "+
 			"%w", err)
