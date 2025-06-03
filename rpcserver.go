@@ -3864,6 +3864,12 @@ func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
 	return &unirpc.IgnoreAssetOutPointResponse{}, nil
 }
 
+// SubscribeSupplyCommitEvents registers a subscription to the event
+// notification stream which relates to the supply commitment process.
+func (r *rpcServer) SubscribeSupplyCommitEvents() {
+
+}
+
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(
