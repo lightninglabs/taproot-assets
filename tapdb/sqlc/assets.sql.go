@@ -1714,7 +1714,7 @@ func (q *Queries) FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScrip
 }
 
 const FetchSeedlingByID = `-- name: FetchSeedlingByID :one
-SELECT seedling_id, asset_name, asset_version, asset_type, asset_supply, asset_meta_id, emission_enabled, batch_id, group_genesis_id, group_anchor_id, script_key_id, group_internal_key_id, group_tapscript_root
+SELECT seedling_id, asset_name, asset_version, asset_type, asset_supply, asset_meta_id, emission_enabled, batch_id, group_genesis_id, group_anchor_id, script_key_id, group_internal_key_id, group_tapscript_root, delegation_key
 FROM asset_seedlings
 WHERE seedling_id = $1
 `
@@ -1736,6 +1736,7 @@ func (q *Queries) FetchSeedlingByID(ctx context.Context, seedlingID int64) (Asse
 		&i.ScriptKeyID,
 		&i.GroupInternalKeyID,
 		&i.GroupTapscriptRoot,
+		&i.DelegationKey,
 	)
 	return i, err
 }
@@ -2063,13 +2064,13 @@ const InsertAssetSeedling = `-- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id,
-    script_key_id, group_internal_key_id, group_tapscript_root
+    script_key_id, group_internal_key_id, group_tapscript_root, delegation_key
 ) VALUES (
    $1, $2, $3, $4,
    $5, $6, $7,
    $8, $9,
    $10, $11,
-   $12
+   $12, $13
 )
 `
 
@@ -2086,6 +2087,7 @@ type InsertAssetSeedlingParams struct {
 	ScriptKeyID        sql.NullInt64
 	GroupInternalKeyID sql.NullInt64
 	GroupTapscriptRoot []byte
+	DelegationKey      sql.NullInt64
 }
 
 func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error {
@@ -2102,6 +2104,7 @@ func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedli
 		arg.ScriptKeyID,
 		arg.GroupInternalKeyID,
 		arg.GroupTapscriptRoot,
+		arg.DelegationKey,
 	)
 	return err
 }
@@ -2120,14 +2123,14 @@ WITH target_key_id AS (
 INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id,
-    script_key_id, group_internal_key_id, group_tapscript_root
+    script_key_id, group_internal_key_id, group_tapscript_root, delegation_key
 ) VALUES (
     $2, $3, $4, $5,
     $6, $7,
     (SELECT key_id FROM target_key_id),
     $8, $9,
     $10, $11,
-    $12
+    $12, $13
 )
 `
 
@@ -2144,6 +2147,7 @@ type InsertAssetSeedlingIntoBatchParams struct {
 	ScriptKeyID        sql.NullInt64
 	GroupInternalKeyID sql.NullInt64
 	GroupTapscriptRoot []byte
+	DelegationKey      sql.NullInt64
 }
 
 func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error {
@@ -2160,6 +2164,7 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 		arg.ScriptKeyID,
 		arg.GroupInternalKeyID,
 		arg.GroupTapscriptRoot,
+		arg.DelegationKey,
 	)
 	return err
 }

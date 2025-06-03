@@ -113,6 +113,7 @@ type AssetSeedling struct {
 	ScriptKeyID        sql.NullInt64
 	GroupInternalKeyID sql.NullInt64
 	GroupTapscriptRoot []byte
+	DelegationKey      sql.NullInt64
 }
 
 type AssetTransfer struct {
