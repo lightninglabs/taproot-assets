@@ -217,3 +217,6 @@ replace github.com/golang-migrate/migrate/v4 => github.com/lightninglabs/migrate
 
 // Note this is a temproary replace and will be removed when taprpc is tagged.
 replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
+
+// Needed to pin to lnd master until the sqldb tag is updated.
+replace github.com/lightningnetwork/lnd/sqldb => ../../lightningnetwork/lnd/sqldb
