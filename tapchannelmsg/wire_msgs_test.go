@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -12,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
@@ -257,4 +262,136 @@ func TestProofChunkErrorCases(t *testing.T) {
 			"expected error assembling from empty chunk list",
 		)
 	})
+}
+
+// ExtractHexDump extracts the hex bytes from a hex dump string, saved from a
+// log file that contains the spew.Sdump format of a byte blob.
+func ExtractHexDump(input string) ([]byte, error) {
+	lines := strings.Split(input, "\n")
+
+	// Regex to match the hex byte part between the offset and ASCII
+	// section.
+	re := regexp.MustCompile(`^[\da-fA-F]+\s+((?:[\da-fA-F]{2} ? ?){1,16})`)
+
+	var result bytes.Buffer
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		match := re.FindStringSubmatch(line)
+		if len(match) < 2 {
+			continue
+		}
+
+		hexPart := strings.ReplaceAll(match[1], " ", "")
+		extractedBytes, err := hex.DecodeString(hexPart)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding hex on line: "+
+				"%s, err: %v", line, err)
+		}
+
+		_, _ = result.Write(extractedBytes)
+	}
+
+	return result.Bytes(), nil
+}
+
+// TestDecodeFundingBlobHexDump tests decoding a funding blob from a hex dump
+// file, saved from a log file that contains the spew.Sdump format of a
+// byte blob. The hex dump is expected to contain the funding blob in a specific
+// format, which is then decoded into a ChannelCustomData structure.
+func TestDecodeFundingBlobHexDump(t *testing.T) {
+	fileName := filepath.Join("testdata", "funding-blob.hexdump")
+	fundingBlobBytes, err := os.ReadFile(fileName)
+	require.NoError(t, err)
+
+	// Extract the hex bytes from the hex dump.
+	hexBytes, err := ExtractHexDump(string(fundingBlobBytes))
+	require.NoError(t, err)
+
+	// Decode the funding blob from the extracted hex bytes.
+	fundingChan, err := DecodeOpenChannel(hexBytes)
+	require.NoError(t, err)
+
+	customChan := &ChannelCustomData{
+		OpenChan: *fundingChan,
+	}
+
+	customChanJSON, err := customChan.AsJson()
+	require.NoError(t, err)
+
+	var formatted bytes.Buffer
+	err = json.Indent(&formatted, customChanJSON, "", "  ")
+	require.NoError(t, err)
+
+	t.Logf("Decoded funding channel: %s", formatted.String())
+}
+
+// TestDecodeHtlcBlobHexDump tests decoding a HTLC blob from a hex dump
+// file, saved from a log file that contains the spew.Sdump format of a
+// byte blob. The hex dump is expected to contain the funding blob in a specific
+// format, which is then decoded into a Htlc structure.
+func TestDecodeHtlcBlobHexDump(t *testing.T) {
+	fileName := filepath.Join("testdata", "htlc-blob.hexdump")
+	htlcBlobBytes, err := os.ReadFile(fileName)
+	require.NoError(t, err)
+
+	// Extract the hex bytes from the hex dump.
+	hexBytes, err := ExtractHexDump(string(htlcBlobBytes))
+	require.NoError(t, err)
+
+	// Decode the HTLC blob from the extracted hex bytes.
+	htlc, err := rfqmsg.DecodeHtlc(hexBytes)
+	require.NoError(t, err)
+
+	htlcJSON, err := htlc.AsJson()
+	require.NoError(t, err)
+
+	var formatted bytes.Buffer
+	err = json.Indent(&formatted, htlcJSON, "", "  ")
+	require.NoError(t, err)
+
+	t.Logf("Decoded HTLC blob: %s", formatted.String())
+}
+
+// TestDecodeCommitmentBlobHexDump tests decoding a commitment blob from a hex
+// dump file, saved from a log file that contains the spew.Sdump format of a
+// byte blob. The hex dump is expected to contain the funding blob in a specific
+// format, which is then decoded into a Commitment structure.
+func TestDecodeCommitmentBlobHexDump(t *testing.T) {
+	fileName := filepath.Join("testdata", "commitment-blob.hexdump")
+	commitmentBlobBytes, err := os.ReadFile(fileName)
+	require.NoError(t, err)
+
+	// Extract the hex bytes from the hex dump.
+	hexBytes, err := ExtractHexDump(string(commitmentBlobBytes))
+	require.NoError(t, err)
+
+	// Decode the commitment blob from the extracted hex bytes.
+	commit, err := DecodeCommitment(hexBytes)
+	require.NoError(t, err)
+
+	resp := &rfqmsg.JsonAssetChannel{
+		LocalBalance:        commit.LocalAssets.Val.Sum(),
+		RemoteBalance:       commit.RemoteAssets.Val.Sum(),
+		OutgoingHtlcBalance: commit.OutgoingHtlcAssets.Val.Sum(),
+		IncomingHtlcBalance: commit.IncomingHtlcAssets.Val.Sum(),
+	}
+	resp.LocalAssets = outputsToJsonTranches(commit.LocalAssets.Val.Outputs)
+	resp.RemoteAssets = outputsToJsonTranches(
+		commit.RemoteAssets.Val.Outputs,
+	)
+	resp.OutgoingHtlcs = outputsToJsonTranches(
+		commit.OutgoingHtlcAssets.Val.Outputs(),
+	)
+	resp.IncomingHtlcs = outputsToJsonTranches(
+		commit.IncomingHtlcAssets.Val.Outputs(),
+	)
+
+	formatted, err := json.MarshalIndent(resp, "", "  ")
+	require.NoError(t, err)
+
+	t.Logf("Decoded commitment: %s", string(formatted))
 }
