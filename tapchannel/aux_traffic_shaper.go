@@ -1,6 +1,7 @@
 package tapchannel
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -228,7 +229,7 @@ func (s *AuxTrafficShaper) PaymentBandwidth(fundingBlob, htlcBlob,
 	// Otherwise, we derive the available bandwidth from the HTLC's RFQ and
 	// the asset units in our local balance.
 	return s.paymentBandwidth(
-		htlc, computedLocal, linkBandwidth, minHtlcAmt,
+		htlc, computedLocal, linkBandwidth, minHtlcAmt, fundingChan,
 	)
 }
 
@@ -279,8 +280,8 @@ func paymentBandwidthAssetUnits(htlcAssetAmount, computedLocal uint64,
 // on the asset rate of the RFQ quote that is included in the HTLC and the asset
 // units of the local balance.
 func (s *AuxTrafficShaper) paymentBandwidth(htlc *rfqmsg.Htlc,
-	localBalance uint64, linkBandwidth,
-	minHtlcAmt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
+	localBalance uint64, linkBandwidth, minHtlcAmt lnwire.MilliSatoshi,
+	fundingChan *cmsg.OpenChannel) (lnwire.MilliSatoshi, error) {
 
 	// If the HTLC doesn't have an RFQ ID, it's incomplete, and we cannot
 	// determine the bandwidth.
@@ -301,17 +302,52 @@ func (s *AuxTrafficShaper) paymentBandwidth(htlc *rfqmsg.Htlc,
 	sellQuote, isSellQuote := acceptedSellQuotes[rfqID.Scid()]
 	buyQuote, isBuyQuote := acceptedBuyQuotes[rfqID.Scid()]
 
-	var rate rfqmsg.AssetRate
+	var (
+		rate      rfqmsg.AssetRate
+		specifier asset.Specifier
+	)
 	switch {
 	case isSellQuote:
 		rate = sellQuote.AssetRate
+		specifier = sellQuote.Request.AssetSpecifier
 
 	case isBuyQuote:
 		rate = buyQuote.AssetRate
+		specifier = buyQuote.Request.AssetSpecifier
 
 	default:
 		return 0, fmt.Errorf("no accepted quote found for RFQ ID "+
 			"%x (SCID %d)", rfqID[:], rfqID.Scid())
+	}
+
+	// Now that we found the quote, we can determine if this quote is even
+	// compatible with this channel. If not, we cannot forward the HTLC
+	// and should return 0 bandwidth.
+	for _, b := range fundingChan.FundedAssets.Val.Outputs {
+		// We define compatibility by making sure that each asset in the
+		// channel matches the specifier of the RFQ quote. This means
+		// if the quote was created for a single asset in a grouped
+		// asset channel with multiple tranches, then the check will
+		// return false, because the group key needs to be used in that
+		// case. But this matches the behavior in other areas, where we
+		// also use AssetMatchesSpecifier.
+		match, err := s.cfg.RfqManager.AssetMatchesSpecifier(
+			context.Background(), specifier, b.AssetID.Val,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("error checking if asset ID %x "+
+				"matches specifier %s: %w", b.AssetID.Val[:],
+				specifier.String(), err)
+		}
+
+		// One of the asset IDs in the channel does not match the quote,
+		// we don't want to route this HTLC over this channel.
+		if !match {
+			log.Tracef("Quote with ID %x (SCID %d) not compatible "+
+				"with channel assets, returning 0 bandwidth",
+				rfqID[:], rfqID.Scid())
+			return 0, nil
+		}
 	}
 
 	// Calculate the local available balance in the local asset unit,
