@@ -11,16 +11,75 @@ import (
 	"time"
 )
 
-const FetchAddrByTaprootOutputKey = `-- name: FetchAddrByTaprootOutputKey :one
+const FetchAddrByScriptKeyAndVersion = `-- name: FetchAddrByScriptKeyAndVersion :one
 SELECT
-    version, asset_version, genesis_asset_id, group_key, tapscript_sibling,
-    taproot_output_key, amount, asset_type, creation_time, managed_from,
-    proof_courier_addr,
+    addrs.id, addrs.version, addrs.asset_version, addrs.genesis_asset_id, addrs.group_key, addrs.script_key_id, addrs.taproot_key_id, addrs.tapscript_sibling, addrs.taproot_output_key, addrs.amount, addrs.asset_type, addrs.creation_time, addrs.managed_from, addrs.proof_courier_addr,
     script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type,
     raw_script_keys.key_id, raw_script_keys.raw_key, raw_script_keys.key_family, raw_script_keys.key_index,
-    taproot_keys.raw_key AS raw_taproot_key,
-    taproot_keys.key_family AS taproot_key_family,
-    taproot_keys.key_index AS taproot_key_index
+    taproot_keys.key_id, taproot_keys.raw_key, taproot_keys.key_family, taproot_keys.key_index
+FROM addrs
+JOIN script_keys
+  ON addrs.script_key_id = script_keys.script_key_id
+JOIN internal_keys raw_script_keys
+  ON script_keys.internal_key_id = raw_script_keys.key_id
+JOIN internal_keys taproot_keys
+  ON addrs.taproot_key_id = taproot_keys.key_id
+WHERE script_keys.tweaked_script_key = $1 AND addrs.version = $2
+`
+
+type FetchAddrByScriptKeyAndVersionParams struct {
+	TweakedScriptKey []byte
+	Version          int16
+}
+
+type FetchAddrByScriptKeyAndVersionRow struct {
+	Addr          Addr
+	ScriptKey     ScriptKey
+	InternalKey   InternalKey
+	InternalKey_2 InternalKey
+}
+
+func (q *Queries) FetchAddrByScriptKeyAndVersion(ctx context.Context, arg FetchAddrByScriptKeyAndVersionParams) (FetchAddrByScriptKeyAndVersionRow, error) {
+	row := q.db.QueryRowContext(ctx, FetchAddrByScriptKeyAndVersion, arg.TweakedScriptKey, arg.Version)
+	var i FetchAddrByScriptKeyAndVersionRow
+	err := row.Scan(
+		&i.Addr.ID,
+		&i.Addr.Version,
+		&i.Addr.AssetVersion,
+		&i.Addr.GenesisAssetID,
+		&i.Addr.GroupKey,
+		&i.Addr.ScriptKeyID,
+		&i.Addr.TaprootKeyID,
+		&i.Addr.TapscriptSibling,
+		&i.Addr.TaprootOutputKey,
+		&i.Addr.Amount,
+		&i.Addr.AssetType,
+		&i.Addr.CreationTime,
+		&i.Addr.ManagedFrom,
+		&i.Addr.ProofCourierAddr,
+		&i.ScriptKey.ScriptKeyID,
+		&i.ScriptKey.InternalKeyID,
+		&i.ScriptKey.TweakedScriptKey,
+		&i.ScriptKey.Tweak,
+		&i.ScriptKey.KeyType,
+		&i.InternalKey.KeyID,
+		&i.InternalKey.RawKey,
+		&i.InternalKey.KeyFamily,
+		&i.InternalKey.KeyIndex,
+		&i.InternalKey_2.KeyID,
+		&i.InternalKey_2.RawKey,
+		&i.InternalKey_2.KeyFamily,
+		&i.InternalKey_2.KeyIndex,
+	)
+	return i, err
+}
+
+const FetchAddrByTaprootOutputKey = `-- name: FetchAddrByTaprootOutputKey :one
+SELECT
+    addrs.id, addrs.version, addrs.asset_version, addrs.genesis_asset_id, addrs.group_key, addrs.script_key_id, addrs.taproot_key_id, addrs.tapscript_sibling, addrs.taproot_output_key, addrs.amount, addrs.asset_type, addrs.creation_time, addrs.managed_from, addrs.proof_courier_addr,
+    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type,
+    raw_script_keys.key_id, raw_script_keys.raw_key, raw_script_keys.key_family, raw_script_keys.key_index,
+    taproot_keys.key_id, taproot_keys.raw_key, taproot_keys.key_family, taproot_keys.key_index
 FROM addrs
 JOIN script_keys
   ON addrs.script_key_id = script_keys.script_key_id
@@ -32,39 +91,30 @@ WHERE taproot_output_key = $1
 `
 
 type FetchAddrByTaprootOutputKeyRow struct {
-	Version          int16
-	AssetVersion     int16
-	GenesisAssetID   int64
-	GroupKey         []byte
-	TapscriptSibling []byte
-	TaprootOutputKey []byte
-	Amount           int64
-	AssetType        int16
-	CreationTime     time.Time
-	ManagedFrom      sql.NullTime
-	ProofCourierAddr []byte
-	ScriptKey        ScriptKey
-	InternalKey      InternalKey
-	RawTaprootKey    []byte
-	TaprootKeyFamily int32
-	TaprootKeyIndex  int32
+	Addr          Addr
+	ScriptKey     ScriptKey
+	InternalKey   InternalKey
+	InternalKey_2 InternalKey
 }
 
 func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error) {
 	row := q.db.QueryRowContext(ctx, FetchAddrByTaprootOutputKey, taprootOutputKey)
 	var i FetchAddrByTaprootOutputKeyRow
 	err := row.Scan(
-		&i.Version,
-		&i.AssetVersion,
-		&i.GenesisAssetID,
-		&i.GroupKey,
-		&i.TapscriptSibling,
-		&i.TaprootOutputKey,
-		&i.Amount,
-		&i.AssetType,
-		&i.CreationTime,
-		&i.ManagedFrom,
-		&i.ProofCourierAddr,
+		&i.Addr.ID,
+		&i.Addr.Version,
+		&i.Addr.AssetVersion,
+		&i.Addr.GenesisAssetID,
+		&i.Addr.GroupKey,
+		&i.Addr.ScriptKeyID,
+		&i.Addr.TaprootKeyID,
+		&i.Addr.TapscriptSibling,
+		&i.Addr.TaprootOutputKey,
+		&i.Addr.Amount,
+		&i.Addr.AssetType,
+		&i.Addr.CreationTime,
+		&i.Addr.ManagedFrom,
+		&i.Addr.ProofCourierAddr,
 		&i.ScriptKey.ScriptKeyID,
 		&i.ScriptKey.InternalKeyID,
 		&i.ScriptKey.TweakedScriptKey,
@@ -74,9 +124,10 @@ func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutput
 		&i.InternalKey.RawKey,
 		&i.InternalKey.KeyFamily,
 		&i.InternalKey.KeyIndex,
-		&i.RawTaprootKey,
-		&i.TaprootKeyFamily,
-		&i.TaprootKeyIndex,
+		&i.InternalKey_2.KeyID,
+		&i.InternalKey_2.RawKey,
+		&i.InternalKey_2.KeyFamily,
+		&i.InternalKey_2.KeyIndex,
 	)
 	return i, err
 }
