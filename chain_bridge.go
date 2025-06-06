@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
@@ -49,6 +50,7 @@ type LndRpcChainBridge struct {
 	lnd *lndclient.LndServices
 
 	blockTimestampCache *lru.Cache[uint32, cacheableTimestamp]
+	retryConfig         fn.RetryConfig
 
 	assetStore *tapdb.AssetStore
 }
@@ -63,7 +65,8 @@ func NewLndRpcChainBridge(lnd *lndclient.LndServices,
 		blockTimestampCache: lru.NewCache[uint32, cacheableTimestamp](
 			maxNumBlocksInCache,
 		),
-		assetStore: assetStore,
+		retryConfig: fn.DefaultRetryConfig(),
+		assetStore:  assetStore,
 	}
 }
 
@@ -112,25 +115,35 @@ func (l *LndRpcChainBridge) RegisterBlockEpochNtfn(
 func (l *LndRpcChainBridge) GetBlock(ctx context.Context,
 	hash chainhash.Hash) (*wire.MsgBlock, error) {
 
-	block, err := l.lnd.ChainKit.GetBlock(ctx, hash)
-	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve block: %w", err)
-	}
-
-	return block, nil
+	return fn.RetryFuncN(
+		ctx, l.retryConfig, func() (*wire.MsgBlock, error) {
+			block, err := l.lnd.ChainKit.GetBlock(ctx, hash)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"unable to retrieve block: %w", err,
+				)
+			}
+			return block, nil
+		},
+	)
 }
 
 // GetBlockHeader returns a block header given its hash.
 func (l *LndRpcChainBridge) GetBlockHeader(ctx context.Context,
 	hash chainhash.Hash) (*wire.BlockHeader, error) {
 
-	header, err := l.lnd.ChainKit.GetBlockHeader(ctx, hash)
-	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve block header: %w",
-			err)
-	}
-
-	return header, nil
+	return fn.RetryFuncN(
+		ctx, l.retryConfig, func() (*wire.BlockHeader, error) {
+			header, err := l.lnd.ChainKit.GetBlockHeader(ctx, hash)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"unable to retrieve block "+
+						"header: %w", err,
+				)
+			}
+			return header, nil
+		},
+	)
 }
 
 // GetBlockHash returns the hash of the block in the best blockchain at the
@@ -138,13 +151,20 @@ func (l *LndRpcChainBridge) GetBlockHeader(ctx context.Context,
 func (l *LndRpcChainBridge) GetBlockHash(ctx context.Context,
 	blockHeight int64) (chainhash.Hash, error) {
 
-	blockHash, err := l.lnd.ChainKit.GetBlockHash(ctx, blockHeight)
-	if err != nil {
-		return chainhash.Hash{}, fmt.Errorf("unable to retrieve "+
-			"block hash: %w", err)
-	}
-
-	return blockHash, nil
+	return fn.RetryFuncN(
+		ctx, l.retryConfig, func() (chainhash.Hash, error) {
+			blockHash, err := l.lnd.ChainKit.GetBlockHash(
+				ctx, blockHeight,
+			)
+			if err != nil {
+				return chainhash.Hash{}, fmt.Errorf(
+					"unable to retrieve block hash: %w",
+					err,
+				)
+			}
+			return blockHash, nil
+		},
+	)
 }
 
 // VerifyBlock returns an error if a block (with given header and height) is not
@@ -184,12 +204,17 @@ func (l *LndRpcChainBridge) VerifyBlock(ctx context.Context,
 
 // CurrentHeight return the current height of the main chain.
 func (l *LndRpcChainBridge) CurrentHeight(ctx context.Context) (uint32, error) {
-	_, bestHeight, err := l.lnd.ChainKit.GetBestBlock(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("unable to grab block height: %w", err)
-	}
-
-	return uint32(bestHeight), nil
+	return fn.RetryFuncN(
+		ctx, l.retryConfig, func() (uint32, error) {
+			_, bestHeight, err := l.lnd.ChainKit.GetBestBlock(ctx)
+			if err != nil {
+				return 0, fmt.Errorf(
+					"unable to grab block height: %w", err,
+				)
+			}
+			return uint32(bestHeight), nil
+		},
+	)
 }
 
 // GetBlockTimestamp returns the timestamp of the block at the given height.
@@ -207,7 +232,11 @@ func (l *LndRpcChainBridge) GetBlockTimestamp(ctx context.Context,
 		return int64(cacheTS)
 	}
 
-	hash, err := l.lnd.ChainKit.GetBlockHash(ctx, int64(height))
+	hash, err := fn.RetryFuncN(
+		ctx, l.retryConfig, func() (chainhash.Hash, error) {
+			return l.lnd.ChainKit.GetBlockHash(ctx, int64(height))
+		},
+	)
 	if err != nil {
 		return 0
 	}
@@ -229,14 +258,27 @@ func (l *LndRpcChainBridge) GetBlockTimestamp(ctx context.Context,
 func (l *LndRpcChainBridge) PublishTransaction(ctx context.Context,
 	tx *wire.MsgTx, label string) error {
 
-	return l.lnd.WalletKit.PublishTransaction(ctx, tx, label)
+	_, err := fn.RetryFuncN(
+		ctx, l.retryConfig, func() (struct{}, error) {
+			return struct{}{}, l.lnd.WalletKit.PublishTransaction(
+				ctx, tx, label,
+			)
+		},
+	)
+	return err
 }
 
 // EstimateFee returns a fee estimate for the confirmation target.
 func (l *LndRpcChainBridge) EstimateFee(ctx context.Context,
 	confTarget uint32) (chainfee.SatPerKWeight, error) {
 
-	return l.lnd.WalletKit.EstimateFeeRate(ctx, int32(confTarget))
+	return fn.RetryFuncN(
+		ctx, l.retryConfig, func() (chainfee.SatPerKWeight, error) {
+			return l.lnd.WalletKit.EstimateFeeRate(
+				ctx, int32(confTarget),
+			)
+		},
+	)
 }
 
 // GenFileChainLookup generates a chain lookup interface for the given
