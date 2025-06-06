@@ -1092,6 +1092,29 @@ func (t *TapAddressBook) QueryAssetGroup(ctx context.Context,
 	return &assetGroup, nil
 }
 
+// QueryAssetGroupByGroupKey fetches the asset group with a matching tweaked
+// key, including the genesis information used to create the group.
+func (t *TapAddressBook) QueryAssetGroupByGroupKey(ctx context.Context,
+	groupKey *btcec.PublicKey) (*asset.AssetGroup, error) {
+
+	var (
+		dbGroup *asset.AssetGroup
+		err     error
+	)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := t.db.ExecTx(ctx, &readOpts, func(a AddrBook) error {
+		dbGroup, err = fetchGroupByGroupKey(ctx, a, groupKey)
+		return err
+	})
+
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return dbGroup, nil
+}
+
 // FetchAssetMetaByHash attempts to fetch an asset meta based on an asset hash.
 func (t *TapAddressBook) FetchAssetMetaByHash(ctx context.Context,
 	metaHash [asset.MetaHashLen]byte) (*proof.MetaReveal, error) {

@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -104,6 +105,12 @@ type Storage interface {
 	// QueryAssetGroup attempts to locate the asset group information
 	// (genesis + group key) associated with a given asset.
 	QueryAssetGroup(context.Context, asset.ID) (*asset.AssetGroup, error)
+
+	// QueryAssetGroupByGroupKey fetches the asset group with a matching
+	// tweaked key, including the genesis information used to create the
+	// group.
+	QueryAssetGroupByGroupKey(context.Context,
+		*btcec.PublicKey) (*asset.AssetGroup, error)
 
 	// FetchAssetMetaByHash attempts to fetch an asset meta based on an
 	// asset hash.
@@ -210,23 +217,53 @@ func NewBook(cfg BookConfig) *Book {
 // geneses already known to this node. If asset issuance was not previously
 // verified, we then query universes in our federation for issuance proofs.
 func (b *Book) QueryAssetInfo(ctx context.Context,
-	id asset.ID) (*asset.AssetGroup, error) {
+	specifier asset.Specifier) (asset.AssetGroup, error) {
+
+	switch {
+	case specifier.HasGroupPubKey():
+		return fn.MapOptionZ(
+			specifier.GroupKey(),
+			func(gk btcec.PublicKey) lfn.Result[asset.AssetGroup] {
+				return b.queryAssetInfoByGroupKey(ctx, gk)
+			},
+		).Unpack()
+
+	case specifier.HasId():
+		return fn.MapOptionZ(
+			specifier.ID(),
+			func(id asset.ID) lfn.Result[asset.AssetGroup] {
+				return b.queryAssetInfoByID(ctx, id)
+			},
+		).Unpack()
+
+	default:
+		return asset.AssetGroup{}, fmt.Errorf("invalid specifier: %s",
+			&specifier)
+	}
+}
+
+// queryAssetInfoByID attempts to locate asset genesis information by querying
+// geneses by ID already known to this node. If asset issuance was not
+// previously verified, we then query universes in our federation for issuance
+// proofs.
+func (b *Book) queryAssetInfoByID(ctx context.Context,
+	id asset.ID) lfn.Result[asset.AssetGroup] {
 
 	// Check if we know of this asset ID already.
 	assetGroup, err := b.cfg.Store.QueryAssetGroup(ctx, id)
 	switch {
 	case assetGroup != nil:
-		return assetGroup, nil
+		return lfn.Ok(*assetGroup)
 
 	// Asset lookup failed gracefully; continue to asset lookup using the
 	// AssetSyncer if enabled.
 	case errors.Is(err, ErrAssetGroupUnknown):
 		if b.cfg.Syncer == nil {
-			return nil, ErrAssetGroupUnknown
+			return lfn.Err[asset.AssetGroup](ErrAssetGroupUnknown)
 		}
 
 	case err != nil:
-		return nil, err
+		return lfn.Err[asset.AssetGroup](err)
 	}
 
 	log.Debugf("Asset %v is unknown, attempting to bootstrap", id.String())
@@ -234,14 +271,14 @@ func (b *Book) QueryAssetInfo(ctx context.Context,
 	// Use the AssetSyncer to query our universe federation for the asset.
 	err = b.cfg.Syncer.SyncAssetInfo(ctx, asset.NewSpecifierFromId(id))
 	if err != nil {
-		return nil, err
+		return lfn.Err[asset.AssetGroup](err)
 	}
 
 	// The asset genesis info may have been synced from a universe
 	// server; query for the asset ID again.
 	assetGroup, err = b.cfg.Store.QueryAssetGroup(ctx, id)
 	if err != nil {
-		return nil, err
+		return lfn.Err[asset.AssetGroup](err)
 	}
 
 	log.Debugf("Bootstrap succeeded for asset %v", id.String())
@@ -257,11 +294,57 @@ func (b *Book) QueryAssetInfo(ctx context.Context,
 			))
 		err = b.cfg.Syncer.EnableAssetSync(ctx, assetGroup)
 		if err != nil {
-			return nil, err
+			return lfn.Err[asset.AssetGroup](err)
 		}
 	}
 
-	return assetGroup, nil
+	return lfn.Ok(*assetGroup)
+}
+
+// queryAssetInfoByID attempts to locate asset genesis information by querying
+// geneses by group key already known to this node. If asset issuance was not
+// previously verified, we then query universes in our federation for issuance
+// proofs.
+func (b *Book) queryAssetInfoByGroupKey(ctx context.Context,
+	gk btcec.PublicKey) lfn.Result[asset.AssetGroup] {
+
+	// Check if we know of this group key already.
+	gkBytes := gk.SerializeCompressed()
+	assetGroup, err := b.cfg.Store.QueryAssetGroupByGroupKey(ctx, &gk)
+	switch {
+	case assetGroup != nil:
+		return lfn.Ok(*assetGroup)
+
+	// Asset lookup failed gracefully; continue to asset lookup using the
+	// AssetSyncer if enabled.
+	case errors.Is(err, ErrAssetGroupUnknown):
+		if b.cfg.Syncer == nil {
+			return lfn.Err[asset.AssetGroup](ErrAssetGroupUnknown)
+		}
+
+	case err != nil:
+		return lfn.Err[asset.AssetGroup](err)
+	}
+
+	log.Debugf("Asset group %x is unknown, attempting to bootstrap",
+		gkBytes)
+
+	// Use the AssetSyncer to query our universe federation for the asset.
+	err = b.SyncAssetGroup(ctx, gk)
+	if err != nil {
+		return lfn.Err[asset.AssetGroup](err)
+	}
+
+	// The asset genesis info may have been synced from a universe
+	// server; query for the group key again.
+	assetGroup, err = b.cfg.Store.QueryAssetGroupByGroupKey(ctx, &gk)
+	if err != nil {
+		return lfn.Err[asset.AssetGroup](err)
+	}
+
+	log.Debugf("Bootstrap succeeded for group %x", gkBytes)
+
+	return lfn.Ok(*assetGroup)
 }
 
 // SyncAssetGroup attempts to enable asset sync for the given asset group, then
@@ -336,16 +419,16 @@ func (b *Book) FetchAssetMetaForAsset(ctx context.Context,
 
 // NewAddress creates a new Taproot Asset address based on the input parameters.
 func (b *Book) NewAddress(ctx context.Context, addrVersion Version,
-	assetID asset.ID, amount uint64,
+	specifier asset.Specifier, amount uint64,
 	tapscriptSibling *commitment.TapscriptPreimage,
 	proofCourierAddr url.URL, addrOpts ...NewAddrOpt) (*AddrWithKeyInfo,
 	error) {
 
 	// Before we proceed and make new keys, make sure that we actually know
 	// of this asset ID, or can import it.
-	if _, err := b.QueryAssetInfo(ctx, assetID); err != nil {
+	if _, err := b.QueryAssetInfo(ctx, specifier); err != nil {
 		return nil, fmt.Errorf("unable to make address for unknown "+
-			"asset %x: %w", assetID[:], err)
+			"asset %s: %w", &specifier, err)
 	}
 
 	rawScriptKeyDesc, err := b.cfg.KeyRing.DeriveNextTaprootAssetKey(ctx)
@@ -364,7 +447,7 @@ func (b *Book) NewAddress(ctx context.Context, addrVersion Version,
 	}
 
 	return b.NewAddressWithKeys(
-		ctx, addrVersion, assetID, amount, scriptKey, internalKeyDesc,
+		ctx, addrVersion, specifier, amount, scriptKey, internalKeyDesc,
 		tapscriptSibling, proofCourierAddr, addrOpts...,
 	)
 }
@@ -372,7 +455,7 @@ func (b *Book) NewAddress(ctx context.Context, addrVersion Version,
 // NewAddressWithKeys creates a new Taproot Asset address based on the input
 // parameters that include pre-derived script and internal keys.
 func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
-	assetID asset.ID, amount uint64, scriptKey asset.ScriptKey,
+	specifier asset.Specifier, amount uint64, scriptKey asset.ScriptKey,
 	internalKeyDesc keychain.KeyDescriptor,
 	tapscriptSibling *commitment.TapscriptPreimage,
 	proofCourierAddr url.URL, addrOpts ...NewAddrOpt) (*AddrWithKeyInfo,
@@ -381,7 +464,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
 	// Before we proceed, we'll make sure that the asset group is known to
 	// the local store. Otherwise, we can't make an address as we haven't
 	// bootstrapped it.
-	assetGroup, err := b.QueryAssetInfo(ctx, assetID)
+	assetGroup, err := b.QueryAssetInfo(ctx, specifier)
 	if err != nil {
 		return nil, err
 	}

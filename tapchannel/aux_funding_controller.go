@@ -192,7 +192,7 @@ type AssetSyncer interface {
 	// not previously verified, we then query universes in our federation
 	// for issuance proofs.
 	QueryAssetInfo(ctx context.Context,
-		id asset.ID) (*asset.AssetGroup, error)
+		specifier asset.Specifier) (asset.AssetGroup, error)
 
 	// FetchAssetMetaForAsset attempts to fetch an asset meta based on an
 	// asset ID.
@@ -1478,7 +1478,7 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 		// Before we proceed, we'll make sure that we already know of
 		// the genesis proof for the incoming asset.
 		_, err = f.cfg.AssetSyncer.QueryAssetInfo(
-			ctx, assetProof.AssetID.Val,
+			ctx, asset.NewSpecifierFromId(assetProof.AssetID.Val),
 		)
 		if err != nil {
 			return tempPID, fmt.Errorf("unable to verify genesis "+
@@ -2051,7 +2051,7 @@ func (f *FundingController) fundingAssetGroupKey(ctx context.Context,
 	var groupKey *btcec.PublicKey
 	for _, a := range assetOutputs {
 		info, err := f.cfg.AssetSyncer.QueryAssetInfo(
-			ctx, a.AssetID.Val,
+			ctx, asset.NewSpecifierFromId(a.AssetID.Val),
 		)
 		switch {
 		// If the asset isn't a grouped asset (or we don't know the
