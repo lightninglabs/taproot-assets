@@ -72,7 +72,8 @@ type Wallet interface {
 	FundAddressSend(ctx context.Context,
 		scriptKeyType fn.Option[asset.ScriptKeyType],
 		prevIDs []asset.PrevID,
-		receiverAddrs ...*address.Tap) (*FundedVPacket, error)
+		receiverAddrs ...*address.Tap) (*FundedVPacket,
+		map[uint32]*proof.SendFragmentEnvelope, error)
 
 	// FundPacket funds a virtual transaction, selecting assets to spend
 	// in order to pay the given recipient. The selected input is then added
@@ -243,7 +244,8 @@ type FundedVPacket struct {
 // NOTE: This is part of the Wallet interface.
 func (f *AssetWallet) FundAddressSend(ctx context.Context,
 	scriptKeyType fn.Option[asset.ScriptKeyType], prevIDs []asset.PrevID,
-	receiverAddrs ...*address.Tap) (*FundedVPacket, error) {
+	receiverAddrs ...*address.Tap) (*FundedVPacket,
+	map[uint32]*proof.SendFragmentEnvelope, error) {
 
 	// We start by creating a new virtual transaction that will be used to
 	// hold the asset transfer. Because sending to an address is always a
@@ -251,13 +253,14 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 	// a change output.
 	vPkt, err := tappsbt.FromAddresses(receiverAddrs, 1)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create virtual transaction "+
-			"from addresses: %w", err)
+		return nil, nil, fmt.Errorf("unable to create virtual "+
+			"transaction from addresses: %w", err)
 	}
 
 	fundDesc, err := tapsend.DescribeAddrs(receiverAddrs)
 	if err != nil {
-		return nil, fmt.Errorf("unable to describe recipients: %w", err)
+		return nil, nil, fmt.Errorf("unable to describe recipients: %w",
+			err)
 	}
 
 	// We need to constrain the prevIDs if they are provided.
@@ -268,10 +271,148 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 	fundDesc.ScriptKeyType = scriptKeyType
 	fundedVPkt, err := f.FundPacket(ctx, fundDesc, vPkt)
 	if err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("error funding packet: %w", err)
 	}
 
-	return fundedVPkt, nil
+	// If we're sending to a V2 address, we need to create the send fragment
+	// for the receiver now. Later we won't have the full context available
+	// anymore. We assume here that the addresses have been pre validated
+	// to only contain the same versions. So we only need to look at the
+	// first one.
+	firstAddrVersion := receiverAddrs[0].Version
+
+	// If this isn't a V2 address, we can return early, as we have
+	// everything we need.
+	if firstAddrVersion < address.V2 {
+		return fundedVPkt, nil, nil
+	}
+
+	return createSendFragments(ctx, receiverAddrs, fundedVPkt)
+}
+
+// createSendFragments creates the send fragments for the given receiver
+// addresses and the funded virtual packet. The send fragments are used to
+// reconstruct the information required to fetch proofs from the universe,
+// and to materialize the asset outputs on the receiver's side. We assume that
+// the receiver has access to the TAP address that was used to send the assets.
+func createSendFragments(ctx context.Context, receiverAddrs []*address.Tap,
+	fundedVPkt *FundedVPacket) (*FundedVPacket,
+	map[uint32]*proof.SendFragmentEnvelope, error) {
+
+	result := make(
+		map[uint32]*proof.SendFragmentEnvelope, len(receiverAddrs),
+	)
+
+	addToFragment := func(addr *address.Tap, specifier asset.Specifier,
+		vOut *tappsbt.VOutput) (*tappsbt.VOutput, error) {
+
+		internalKey := *vOut.ScriptKey.PubKey
+
+		envelope, ok := result[vOut.AnchorOutputIndex]
+		if !ok {
+			envelope = &proof.SendFragmentEnvelope{
+				Specifier:  specifier,
+				Receiver:   internalKey,
+				CourierURL: *vOut.ProofDeliveryAddress,
+				Fragment: proof.SendFragment{
+					Version: proof.SendFragmentV0,
+					Outputs: make(
+						map[asset.ID]proof.SendOutput,
+					),
+				},
+			}
+			result[vOut.AnchorOutputIndex] = envelope
+		}
+
+		// We require an asset ID to be set in the specifier.
+		assetID, err := specifier.ID().UnwrapOrErr(fmt.Errorf("asset "+
+			"specifier %s does not have an ID", &specifier))
+		if err != nil {
+			return nil, err
+		}
+
+		scriptKey, err := proof.DeriveUniqueScriptKey(
+			internalKey, assetID,
+			proof.ScriptKeyDerivationUniquePedersen,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to derive unique "+
+				"script key: %w", err)
+		}
+
+		envelope.Fragment.Outputs[assetID] = proof.SendOutput{
+			AssetVersion: vOut.AssetVersion,
+			Amount:       vOut.Amount,
+			ScriptKey:    asset.ToSerialized(scriptKey.PubKey),
+		}
+
+		vOut.ScriptKey = scriptKey
+
+		if vOut.Asset != nil {
+			vOut.Asset.ScriptKey = scriptKey
+		}
+
+		return vOut, nil
+	}
+
+	for pktIdx, vPkt := range fundedVPkt.VPackets {
+		specifier, err := vPkt.AssetSpecifier()
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to determine "+
+				"asset specifier: %w", err)
+		}
+
+		for outIdx, vOut := range vPkt.Outputs {
+			// A send fragment can only be created for addresses
+			// with a proof delivery address.
+			if vOut.ProofDeliveryAddress == nil {
+				continue
+			}
+
+			for _, addr := range receiverAddrs {
+				// A send fragment will only be created for V2
+				// addresses.
+				if addr.Version < address.V2 {
+					continue
+				}
+
+				// Check if the output we're currently looking
+				// at was created for the given address.
+				if !tappsbt.OutputMatchesAddress(vOut, addr) {
+					log.Infof("Output %d doesn't match "+
+						"addr, skipping", outIdx)
+					continue
+				}
+
+				log.Debugf("Adding send fregment for output %d",
+					outIdx)
+				newVOut, err := addToFragment(
+					addr, specifier, vOut,
+				)
+				if err != nil {
+					return nil, nil, fmt.Errorf("unable "+
+						"to add output to send "+
+						"fragment: %w", err)
+				}
+
+				fundedVPkt.VPackets[pktIdx].Outputs[outIdx] =
+					newVOut
+			}
+		}
+	}
+
+	// We need to re-create the output assets because we potentially changed
+	// the script keys.
+	for _, vPkt := range fundedVPkt.VPackets {
+		if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
+			log.Errorf("Error preparing output assets: %v, "+
+				"packets: %v", err, limitSpewer.Sdump(vPkt))
+			return nil, nil, fmt.Errorf("unable to prepare "+
+				"outputs: %w", err)
+		}
+	}
+
+	return fundedVPkt, result, nil
 }
 
 // createPassivePacket creates a virtual packet for the given passive asset.

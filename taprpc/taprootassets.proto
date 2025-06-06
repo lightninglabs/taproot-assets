@@ -1405,6 +1405,12 @@ message SendAssetRequest {
     // testing purposes and for forced transfers when the proof courier
     // is not immediately available.
     bool skip_proof_courier_ping_check = 4;
+
+    // A map of TAP address to amount to send. An entry in this map is only
+    // required for V2 addresses that don't specify an amount (amount of zero).
+    // If an address does specify an amount, then it cannot be overridden in
+    // this map.
+    map<string, uint64> address_amounts = 5;
 }
 
 message PrevInputAsset {

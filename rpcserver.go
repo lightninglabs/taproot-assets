@@ -2316,23 +2316,36 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		}
 
 		var (
-			addr *address.Tap
-			err  error
+			addrs []*address.Tap
+			err   error
 		)
 		for a := range raw.Recipients {
-			addr, err = address.DecodeAddress(a, &r.cfg.ChainParams)
+			addr, err := address.DecodeAddress(
+				a, &r.cfg.ChainParams,
+			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to decode "+
 					"addr: %w", err)
 			}
+
+			// TODO(guggero): Need to add send fragment envelopes to
+			// the vPSBT to support grouped address send flows with
+			// the PSBT APIs.
+			if addr.Version > address.V1 {
+				return nil, fmt.Errorf("address version %d "+
+					"not supported for funding virtual "+
+					"packet", addr.Version)
+			}
+
+			addrs = append(addrs, addr)
 		}
 
-		if addr == nil {
+		if len(addrs) == 0 {
 			return nil, fmt.Errorf("no recipients specified")
 		}
 
-		fundedVPkt, err = r.cfg.AssetWallet.FundAddressSend(
-			ctx, scriptKeyType, prevIDs, addr,
+		fundedVPkt, _, err = r.cfg.AssetWallet.FundAddressSend(
+			ctx, scriptKeyType, prevIDs, addrs...,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error funding address send: "+
@@ -3344,7 +3357,7 @@ func marshalAddrEvent(event *address.Event,
 		Outpoint:                event.Outpoint.String(),
 		UtxoAmtSat:              uint64(event.Amt),
 		ConfirmationHeight:      event.ConfirmationHeight,
-		HasProof:                event.HasProof,
+		HasProof:                event.HasAllProofs,
 	}, nil
 }
 
@@ -3415,37 +3428,63 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 		err      error
 	)
 	for idx := range req.TapAddrs {
-		if req.TapAddrs[idx] == "" {
+		addrStr := req.TapAddrs[idx]
+		if addrStr == "" {
 			return nil, fmt.Errorf("addr %d must be specified", idx)
 		}
 
 		tapAddrs[idx], err = address.DecodeAddress(
-			req.TapAddrs[idx], &r.cfg.ChainParams,
+			addrStr, &r.cfg.ChainParams,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		// Ensure all addrs are of the same asset ID. Within a single
-		// transfer (=a single virtual packet), we expect only to have
-		// inputs and outputs of the same asset ID. Multiple assets can
-		// be moved in a single BTC level anchor output, but the
-		// expectation is that they would be in separate virtual
-		// packets, one for each asset ID. They would then be merged
-		// into the same anchor output in the wallet's
-		// AnchorVirtualTransactions call.
+		// V2 addresses can have the amount defined as zero, which will
+		// allow users to send any amount. So we expect the amount to
+		// send being set in the request's map.
+		amount, ok := req.AddressAmounts[addrStr]
+		switch {
+		// A non-zero amount was provided, but the address doesn't need
+		// one. We allow the user to set a zero amount in the map, in
+		// which case we just ignore it.
+		case ok && amount > 0 && tapAddrs[idx].Amount > 0:
+			return nil, fmt.Errorf("addr '%s' has a non-zero "+
+				"amount defined, cannot override amount in "+
+				"address amounts map", addrStr)
+
+		// The address needs an amount, but the user didn't provide
+		// one.
+		case (!ok || amount == 0) && tapAddrs[idx].Amount == 0:
+			return nil, fmt.Errorf("addr '%s' has no amount "+
+				"defined, please set the amount in the "+
+				"address amounts map", addrStr)
+
+		// The address has a zero amount, but the user provided a
+		// non-zero amount in the map, so we override the address'
+		// value for coin selection.
+		case ok && amount > 0:
+			tapAddrs[idx].Amount = amount
+		}
+
+		// Ensure all addrs are of the same asset specifier, as the
+		// wallet only supports funding for one asset or group at a
+		// time.
 		//
 		// TODO(guggero): Support creating multiple virtual packets, one
 		// for each asset ID when the user wants to send multiple asset
 		// IDs at the same time without going through the PSBT flow.
-		//
-		// TODO(guggero): Revisit after we have a way to send fungible
-		// assets with different IDs to an address (non-interactive).
+		firstSpec := asset.NewSpecifierOptionalGroupPubKey(
+			tapAddrs[0].AssetID, tapAddrs[0].GroupKey,
+		)
 		if idx > 0 {
-			if tapAddrs[idx].AssetID != tapAddrs[0].AssetID {
+			spec := asset.NewSpecifierOptionalGroupPubKey(
+				tapAddrs[idx].AssetID, tapAddrs[idx].GroupKey,
+			)
+			if spec != firstSpec {
 				return nil, fmt.Errorf("all addrs must be of "+
-					"the same asset ID %v",
-					tapAddrs[0].AssetID)
+					"the same asset ID or group key %v",
+					firstSpec)
 			}
 		}
 	}
