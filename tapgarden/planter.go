@@ -2202,6 +2202,69 @@ func matchPsbtToGroupReq(psbt psbt.Packet,
 	return fn.None[asset.GroupKeyRequest](), nil
 }
 
+// sealBatchPreCommit injects the group public key obtained during the sealing
+// phase into the pre‑commitment output descriptor of the batch's genesis
+// packet.
+//
+// Preconditions:
+//   - batch.UniverseCommitments must be true – otherwise the function is a NOP.
+//   - batch.GenesisPacket must not be nil.
+//
+// Post‑conditions:
+//   - batch.GenesisPacket.PreCommitmentOutput is populated with the group key.
+//
+// NOTE: The function mutates the supplied *MintingBatch in place.
+func sealBatchPreCommit(batch *MintingBatch) error {
+	// Fast‑exit if Universe Commitments are disabled – nothing to update.
+	if !batch.UniverseCommitments {
+		return nil
+	}
+
+	// A valid genesis packet is mandatory once Universe Commitments are on.
+	if batch.GenesisPacket == nil {
+		return fmt.Errorf("batch genesis packet is unexpectedly " +
+			"nil, cannot update mint anchor pre-commitment output")
+	}
+
+	// Retrieve the group public key recorded during sealing.
+	groupKeyOpt, err := fetchPreCommitGroupKey(batch)
+	if err != nil {
+		return fmt.Errorf("unable to fetch pre-commit group key: %w",
+			err)
+	}
+
+	groupKey, err := groupKeyOpt.UnwrapOrErr(
+		fmt.Errorf("pre-commitment output group key is unexpectedly " +
+			"absent"),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Ensure that the group key is set in the genesis packet
+	// pre-commitment output descriptor.
+	fundedAnchor := batch.GenesisPacket
+	if fundedAnchor == nil {
+		return fmt.Errorf("funded anchor is unexpectedly nil, " +
+			"cannot update mint anchor pre-commitment output " +
+			"descriptor")
+	}
+
+	// Formulate the pre-commitment output descriptor with the group key.
+	preCommitDesc := fn.MapOptionZ(
+		fundedAnchor.PreCommitmentOutput,
+		// nolint: lll
+		func(preCommit PreCommitmentOutput) fn.Option[PreCommitmentOutput] {
+			preCommit.GroupPubKey = fn.Some(groupKey)
+			return fn.Some(preCommit)
+		},
+	)
+
+	batch.GenesisPacket.PreCommitmentOutput = preCommitDesc
+
+	return nil
+}
+
 // sealBatch will verify that each grouped asset in the pending batch has an
 // asset group witness, and will attempt to create asset group witnesses when
 // possible if they are not provided. After all asset group witnesses have been
@@ -2439,6 +2502,16 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 	for _, group := range newAssetGroups {
 		assetName := group.Genesis.Tag
 		batchWithGroupInfo.Seedlings[assetName].GroupInfo = group
+	}
+
+	// Persist the newly generated group-key metadata in the batch’s
+	// pre-commitment output—needed only when Universe Commitments are on—
+	// before passing the batch to the minting store.
+	if batchWithGroupInfo.UniverseCommitments {
+		err := sealBatchPreCommit(batchWithGroupInfo)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// With all the asset group witnesses validated, we can now save them
