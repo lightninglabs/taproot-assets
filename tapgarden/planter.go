@@ -2651,7 +2651,7 @@ func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
 		return nil
 	}
 
-	// On the other hand, if we're handling the group anchor seedling, we
+	// On the other hand, if we're handling the group anchor seedling,
 	// and the delegation key is unset, we must generate a new one.
 	if req.EnableEmission && req.GroupAnchor == nil {
 		newKey, err := c.cfg.KeyRing.DeriveNextKey(
@@ -2673,10 +2673,13 @@ func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
 
-	// Finalise the seedling delegation key.
-	err := c.prepSeedlingDelegationKey(ctx, req)
-	if err != nil {
-		return err
+	// If the seedling has the universe/supply commitment feature enabled,
+	// finalize the delegation key.
+	if req.UniverseCommitments {
+		err := c.prepSeedlingDelegationKey(ctx, req)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Set seedling asset metadata fields.
