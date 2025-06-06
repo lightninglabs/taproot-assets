@@ -2361,7 +2361,8 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 		}
 	}
 
-	assetGroups := make([]*asset.AssetGroup, 0, len(groupReqs))
+	// Formulate new asset groups from the group key requests.
+	newAssetGroups := make([]*asset.AssetGroup, 0, len(groupReqs))
 	for i := 0; i < len(groupReqs); i++ {
 		var (
 			genTX      = genTXs[i]
@@ -2430,22 +2431,22 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 			GroupKey: groupKey,
 		}
 
-		assetGroups = append(assetGroups, newGroup)
+		newAssetGroups = append(newAssetGroups, newGroup)
+	}
+
+	// Assign each newly created asset group to its corresponding seedling.
+	batchWithGroupInfo := workingBatch.Copy()
+	for _, group := range newAssetGroups {
+		assetName := group.Genesis.Tag
+		batchWithGroupInfo.Seedlings[assetName].GroupInfo = group
 	}
 
 	// With all the asset group witnesses validated, we can now save them
-	// to disk.
-	err = c.cfg.Log.AddSeedlingGroups(ctx, genesisPoint, assetGroups)
+	// to disk effectively sealing the batch.
+	err = c.cfg.Log.SealBatch(ctx, batchWithGroupInfo, newAssetGroups)
 	if err != nil {
 		return nil, fmt.Errorf("unable to write seedling groups: "+
 			"%w", err)
-	}
-
-	// Populate the group info for each seedling, to display to the caller.
-	batchWithGroupInfo := workingBatch.Copy()
-	for _, group := range assetGroups {
-		assetName := group.Genesis.Tag
-		batchWithGroupInfo.Seedlings[assetName].GroupInfo = group
 	}
 
 	return batchWithGroupInfo, nil
