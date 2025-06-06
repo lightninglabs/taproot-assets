@@ -101,6 +101,7 @@ func (m *MintingBatch) Copy() *MintingBatch {
 		// set, so a shallow copy is sufficient.
 		BatchKey:            m.BatchKey,
 		RootAssetCommitment: m.RootAssetCommitment,
+		UniverseCommitments: m.UniverseCommitments,
 		mintingPubKey:       m.mintingPubKey,
 		tapSibling:          m.tapSibling,
 	}
