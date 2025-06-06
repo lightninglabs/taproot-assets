@@ -1470,10 +1470,20 @@ func (a *AssetMintingStore) CommitBatchTx(ctx context.Context,
 	})
 }
 
-// AddSeedlingGroups stores the asset groups for seedlings associated with a
-// batch.
-func (a *AssetMintingStore) AddSeedlingGroups(ctx context.Context,
-	genesisOutpoint wire.OutPoint, assetGroups []*asset.AssetGroup) error {
+// SealBatch seals a batch by assigning and persisting asset groups for
+// the seedlings it contains.
+func (a *AssetMintingStore) SealBatch(ctx context.Context,
+	batch *tapgarden.MintingBatch,
+	newAssetGroups []*asset.AssetGroup) error {
+
+	// Retrieve genesis outpoint from the batch genesis packet.
+	genesisPkt := batch.GenesisPacket
+	genesisOutpoint, err := genesisPkt.GenesisOutpoint().UnwrapOrErr(
+		fmt.Errorf("batch genesis packet missing genesis outpoint"),
+	)
+	if err != nil {
+		return err
+	}
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
@@ -1486,10 +1496,10 @@ func (a *AssetMintingStore) AddSeedlingGroups(ctx context.Context,
 		}
 
 		// insert genesis and group key
-		for idx := range assetGroups {
+		for idx := range newAssetGroups {
 			genAssetID, err := upsertGenesis(
 				ctx, q, genesisPointID,
-				*assetGroups[idx].Genesis,
+				*newAssetGroups[idx].Genesis,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to upsert grouped "+
@@ -1497,7 +1507,7 @@ func (a *AssetMintingStore) AddSeedlingGroups(ctx context.Context,
 			}
 
 			_, err = upsertGroupKey(
-				ctx, assetGroups[idx].GroupKey, q,
+				ctx, newAssetGroups[idx].GroupKey, q,
 				genesisPointID, genAssetID,
 			)
 			if err != nil {
