@@ -3,6 +3,7 @@ package tapgarden
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"math/rand"
@@ -970,6 +971,28 @@ func (m *MockKeyRing) ScriptKeyAt(t *testing.T, idx uint32) asset.ScriptKey {
 		KeyLocator: loc,
 		PubKey:     priv.PubKey(),
 	})
+}
+
+func (m *MockKeyRing) DeriveSharedKey(_ context.Context, key *btcec.PublicKey,
+	locator *keychain.KeyLocator) ([sha256.Size]byte, error) {
+
+	if locator == nil {
+		return [32]byte{}, fmt.Errorf("locator is nil")
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	priv, ok := m.Keys[*locator]
+	if !ok {
+		return [32]byte{}, fmt.Errorf("script key not found at index "+
+			"%d", locator.Index)
+	}
+
+	ecdh := &keychain.PrivKeyECDH{
+		PrivKey: priv,
+	}
+	return ecdh.ECDH(key)
 }
 
 type MockGenSigner struct {
