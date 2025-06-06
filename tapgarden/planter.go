@@ -3049,8 +3049,13 @@ func (f *FundedMintAnchorPsbt) Copy() *FundedMintAnchorPsbt {
 	}
 
 	if f.Pkt != nil {
+		var unsignedTx *wire.MsgTx
+		if f.Pkt.UnsignedTx != nil {
+			unsignedTx = f.Pkt.UnsignedTx.Copy()
+		}
+
 		newMintAnchorPsbt.Pkt = &psbt.Packet{
-			UnsignedTx: f.Pkt.UnsignedTx.Copy(),
+			UnsignedTx: unsignedTx,
 			Inputs:     fn.CopySlice(f.Pkt.Inputs),
 			Outputs:    fn.CopySlice(f.Pkt.Outputs),
 			Unknowns:   fn.CopySlice(f.Pkt.Unknowns),

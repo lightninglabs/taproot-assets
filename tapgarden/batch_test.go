@@ -5,6 +5,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -210,4 +211,21 @@ func TestValidateUniCommitment(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// TestMintingBatchCopy tests that MintingBatch.Copy() works as expected.
+func TestMintingBatchCopy(t *testing.T) {
+	// Set to true to debug print.
+	debug := false
+
+	// Please set the depth value carefully. Sometimes our copy functions
+	// are deeply nested in other packages and do not need changes. Often
+	// types are recursive and too deep copy may end up in stack-overlow.
+	const maxDepth = 6
+	p := &MintingBatch{}
+	test.FillFakeData(t, debug, maxDepth, p)
+
+	// We allow aliasing here deep down (for now).
+	strict := false
+	test.AssertCopyEqual(t, debug, strict, p)
 }
