@@ -419,20 +419,15 @@ func (m *MintingBatch) validateUniCommitment(newSeedling Seedling) error {
 				"funded batch")
 		}
 
-		// At this point, we know the batch is empty, and the candidate
-		// seedling will be the first to be added. Consequently, if the
-		// seedling has the universe commitment flag enabled, it must
-		// specify a re-issuable asset group key.
-		if !newSeedling.EnableEmission {
-			return fmt.Errorf("the 'new grouped asset' flag must " +
-				"be enabled for the first asset in a batch " +
-				"with the universe commitment flag enabled")
-		}
-
-		if !newSeedling.HasGroupKey() {
-			return fmt.Errorf("a group key must be specified " +
-				"for the first seedling in the batch when " +
-				"the universe commitment flag is enabled")
+		// At this point, the batch is empty and the current seedling
+		// will be the first added. Therefore, if the seedling is
+		// neither creating a new group nor adding to an existing one,
+		// it violates the constraints of the universe commitment
+		// feature.
+		if !newSeedling.EnableEmission && !newSeedling.HasGroupKey() {
+			return fmt.Errorf("universe commitment enabled: " +
+				"seedling must either create a new asset " +
+				"group or issue into an existing one")
 		}
 
 		// No further checks are required for the first seedling in the
