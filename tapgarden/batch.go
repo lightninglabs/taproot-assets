@@ -92,6 +92,15 @@ type VerboseBatch struct {
 	UnsealedSeedlings map[string]*UnsealedSeedling
 }
 
+// BatchKeyBytes returns the serialized bytes of the batch key.
+func (m *MintingBatch) BatchKeyBytes() []byte {
+	if m.BatchKey.PubKey == nil {
+		return nil
+	}
+
+	return m.BatchKey.PubKey.SerializeCompressed()
+}
+
 // Copy creates a deep copy of the batch.
 func (m *MintingBatch) Copy() *MintingBatch {
 	batchCopy := &MintingBatch{
