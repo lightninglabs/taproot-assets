@@ -26,6 +26,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
 )
@@ -671,76 +672,6 @@ func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
 	return newBatch, nil
 }
 
-// preCommitmentOutput creates the pre-commitment output for a batch that uses
-// universe commitments.
-func preCommitmentOutput(pendingBatch *MintingBatch) (PreCommitmentOutput,
-	error) {
-
-	var zero PreCommitmentOutput
-
-	// Ensure that a pending batch is provided.
-	if pendingBatch == nil {
-		return zero, fmt.Errorf("no pending batch provided when " +
-			"creating pre-commitment output")
-	}
-
-	// Ensure that the universe commitments feature is enabled for the
-	// batch.
-	if !pendingBatch.UniverseCommitments {
-		return zero, fmt.Errorf("code error: universe commitments " +
-			"should be enabled before calling " +
-			"preCommitmentOutput")
-	}
-
-	// Ensure that the batch has at least one seedling.
-	if len(pendingBatch.Seedlings) == 0 {
-		return zero, fmt.Errorf("uni commitment enabled for funded " +
-			"batch but no seedlings in batch")
-	}
-
-	// Retrieve batch anchor seedling.
-	var groupAnchorSeedling *Seedling
-	for _, seedling := range pendingBatch.Seedlings {
-		if seedling.GroupAnchor == nil {
-			groupAnchorSeedling = seedling
-			break
-		}
-
-		groupAnchorSeedling =
-			pendingBatch.Seedlings[*seedling.GroupAnchor]
-		break
-	}
-
-	// Ensure that the group anchor seedling is found.
-	if groupAnchorSeedling == nil {
-		return zero, fmt.Errorf("no group anchor seedling found")
-	}
-
-	// Extract delegated key from the group anchor seedling.
-	delegationKey, err := groupAnchorSeedling.DelegationKey.UnwrapOrErr(
-		fmt.Errorf("no delegation key found in seedling"),
-	)
-	if err != nil {
-		return zero, err
-	}
-
-	// Extract group pub key from group anchor seedling.
-	if groupAnchorSeedling.GroupInfo == nil {
-		return zero, fmt.Errorf("no group info found in seedling")
-	}
-	groupPubKey := groupAnchorSeedling.GroupInfo.GroupPubKey
-
-	// Use a placeholder output index for the pre-commitment output. This
-	// will be revised after funding.
-	var placeholderOutIdx uint32 = 0
-
-	// Formulate the pre-commitment output bundle.
-	preCommitOut := NewPreCommitmentOutput(
-		placeholderOutIdx, *delegationKey.PubKey, groupPubKey,
-	)
-	return preCommitOut, nil
-}
-
 // unfundedAnchorPsbt creates an unfunded PSBT packet for the minting anchor
 // transaction.
 func unfundedAnchorPsbt(preCommitmentTxOut fn.Option[wire.TxOut]) (psbt.Packet,
@@ -868,6 +799,99 @@ func anchorTxOutputIndexes(fundedPsbt tapsend.FundedPsbt,
 	}, nil
 }
 
+// DelegationKey is a type alias for a key descriptor used as a supply
+// commitment delegation key.
+type DelegationKey = keychain.KeyDescriptor
+
+// fetchDelegationKey retrieves the delegation key from the given batch.
+func fetchDelegationKey(pendingBatch *MintingBatch) (fn.Option[DelegationKey],
+	error) {
+
+	var zero fn.Option[DelegationKey]
+
+	// Ensure that a pending batch is provided.
+	if pendingBatch == nil {
+		return zero, fmt.Errorf("no pending batch provided when " +
+			"creating pre-commitment output")
+	}
+
+	// Ensure that the batch has at least one seedling.
+	if len(pendingBatch.Seedlings) == 0 {
+		return zero, fmt.Errorf("failed to derive pre-commitment " +
+			"delegation key: no seedlings in batch")
+	}
+
+	// Retrieve batch anchor seedling.
+	var groupAnchorSeedling fn.Option[Seedling]
+	for _, seedling := range pendingBatch.Seedlings {
+		if seedling.GroupAnchor == nil {
+			groupAnchorSeedling = fn.Some(*seedling)
+			break
+		}
+
+		groupAnchorSeedling =
+			fn.Some(*pendingBatch.Seedlings[*seedling.GroupAnchor])
+		break
+	}
+
+	delegationKeyDesc := fn.MapOptionZ(groupAnchorSeedling,
+		func(s Seedling) fn.Option[keychain.KeyDescriptor] {
+			return s.DelegationKey
+		},
+	)
+
+	return delegationKeyDesc, nil
+}
+
+// fetchPreCommitGroupKey retrieves the group key associated with the
+// pre-commitment output from the batch, if the pre-commitment feature is
+// enabled and a group key is available.
+func fetchPreCommitGroupKey(
+	pendingBatch *MintingBatch) (fn.Option[btcec.PublicKey], error) {
+
+	var zero fn.Option[btcec.PublicKey]
+
+	// Return None if no pending batch is provided.
+	if pendingBatch == nil {
+		return zero, nil
+	}
+
+	// If universe commitments are disabled, there is no group key available
+	// from the batch to associate with the pre-commitment. Therefore, we
+	// return None.
+	if !pendingBatch.UniverseCommitments {
+		return zero, nil
+	}
+
+	// If the batch has no seedlings, we can't derive a group key.
+	if len(pendingBatch.Seedlings) == 0 {
+		return zero, nil
+	}
+
+	// Retrieve batch anchor seedling.
+	var groupAnchorSeedling Seedling
+	for _, seedling := range pendingBatch.Seedlings {
+		// If the seedling has no group anchor, we can use it as the
+		// group anchor seedling.
+		if seedling.GroupAnchor == nil {
+			groupAnchorSeedling = *seedling
+			break
+		}
+
+		groupAnchorSeedling =
+			*pendingBatch.Seedlings[*seedling.GroupAnchor]
+		break
+	}
+
+	// If the group info is unset, then there is no pre-commitment group pub
+	// key defined in the batch.
+	if groupAnchorSeedling.GroupInfo == nil {
+		return zero, nil
+	}
+
+	return fn.Some(groupAnchorSeedling.GroupInfo.GroupPubKey), nil
+}
+
 // fundGenesisPsbt generates a PSBT packet we'll use to create an asset.  In
 // order to be able to create an asset, we need an initial genesis outpoint. To
 // obtain this we'll ask the wallet to fund a PSBT template for GenesisAmtSats
@@ -883,24 +907,27 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 
 	// If universe commitments are enabled, we formulate a pre-commitment
 	// output. This output is spent by the universe commitment transaction.
-	var preCommitmentOut fn.Option[PreCommitmentOutput]
+	var delegationKey fn.Option[DelegationKey]
 	if c.pendingBatch != nil && c.pendingBatch.UniverseCommitments {
-		out, err := preCommitmentOutput(c.pendingBatch)
+		delegationK, err := fetchDelegationKey(c.pendingBatch)
 		if err != nil {
 			return zero, fmt.Errorf("unable to create "+
 				"pre-commitment output: %w", err)
 		}
 
-		preCommitmentOut = fn.Some(out)
+		delegationKey = delegationK
 	}
 
-	// Derive wire.TxOut from the pre-commitment output, if available.
+	// Derive wire.TxOut from the pre-commitment delegation key, if
+	// available. The delegation key is used as the output internal key.
 	var preCommitmentTxOut fn.Option[wire.TxOut]
-	if preCommitmentOut.IsSome() {
+	if delegationKey.IsSome() {
 		txOut, err := fn.MapOptionZ(
-			preCommitmentOut,
-			func(p PreCommitmentOutput) lfn.Result[wire.TxOut] {
-				return lfn.NewResult(p.TxOut())
+			delegationKey,
+			func(key DelegationKey) lfn.Result[wire.TxOut] {
+				return lfn.NewResult(
+					PreCommitTxOut(*key.PubKey),
+				)
 			},
 		).Unpack()
 		if err != nil {
@@ -994,9 +1021,10 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 			"%w", err)
 	}
 
-	// Sanity check that the pre-commitment output index was found if
-	// expected.
-	if preCommitmentOut.IsSome() &&
+	// The presence of a delegation key indicates that a pre-commitment
+	// output should exist. Therefore, the index of that output is expected
+	// to be defined at this point.
+	if delegationKey.IsSome() &&
 		anchorOutIndexes.PreCommitOutIdx.IsNone() {
 
 		return zero, fmt.Errorf("pre-commitment output index not found")
@@ -1004,7 +1032,8 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 
 	// If pre-commitment output is some, assign the output index to the
 	// pre-commitment output.
-	if preCommitmentOut.IsSome() {
+	var preCommitOutIdx fn.Option[uint32]
+	if delegationKey.IsSome() {
 		// Ensure that a pre-commitment output index is found.
 		outIdx, err := anchorOutIndexes.PreCommitOutIdx.UnwrapOrErr(
 			fmt.Errorf("pre-commitment output index not found"),
@@ -1013,18 +1042,60 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 			return zero, err
 		}
 
-		// Assign output index to the pre-commitment output.
-		preCommitmentOut = fn.MapOption(
-			func(out PreCommitmentOutput) PreCommitmentOutput {
-				out.OutIdx = outIdx
-				return out
-			},
-		)(preCommitmentOut)
+		preCommitOutIdx = fn.Some(outIdx)
+	}
+
+	// If there is a group pub key to associate with the pre-commitment
+	// output, fetch it now.
+	preCommitGroupPubKey, err := fetchPreCommitGroupKey(c.pendingBatch)
+	if err != nil {
+		return zero, fmt.Errorf("unable to fetch pre-commitment "+
+			"group key: %w", err)
+	}
+
+	// Formulate the pre-commitment output descriptor and finalize
+	// pre-commitment output in fundedGenesisPkt.
+	var preCommitOut fn.Option[PreCommitmentOutput]
+	if delegationKey.IsSome() {
+		dKey, err := delegationKey.UnwrapOrErr(
+			fmt.Errorf("code error: expected delegation key"),
+		)
+		if err != nil {
+			return zero, err
+		}
+
+		outIdx, err := preCommitOutIdx.UnwrapOrErr(
+			fmt.Errorf("code error: expected pre-commitment " +
+				"output index"),
+		)
+		if err != nil {
+			return zero, err
+		}
+
+		preCommitOut = fn.Some(NewPreCommitmentOutput(
+			outIdx, dKey, preCommitGroupPubKey,
+		))
+
+		// Finalize the pre-commitment output in the fundedGenesisPkt.
+		// An output is already present in the unsigned transaction, so
+		// we just need to set the corresponding fields in the PSBT.
+		bip32Derivation, trBip32Derivation :=
+			tappsbt.Bip32DerivationFromKeyDesc(
+				dKey, c.cfg.ChainParams.HDCoinType,
+			)
+
+		pOut := &fundedGenesisPkt.Pkt.Outputs[outIdx]
+
+		pOut.Bip32Derivation = []*psbt.Bip32Derivation{bip32Derivation}
+		pOut.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+			trBip32Derivation,
+		}
+		pOut.TaprootInternalKey = trBip32Derivation.XOnlyPubKey
 	}
 
 	// Formulate a funded minting anchor PSBT from the funded PSBT.
 	fundedMintAnchorPsbt, err := NewFundedMintAnchorPsbt(
-		*fundedGenesisPkt, anchorOutIndexes, preCommitmentOut,
+		*fundedGenesisPkt, anchorOutIndexes, preCommitOut,
 	)
 	if err != nil {
 		return zero, fmt.Errorf("unable to create funded minting "+
@@ -2613,6 +2684,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	// Set seedling asset metadata fields.
 	req.Meta.UniverseCommitments = req.UniverseCommitments
 
+	// If a delegation key is set in the seedling, set it in the metadata.
 	if req.DelegationKey.IsSome() {
 		keyDesc, err := req.DelegationKey.UnwrapOrErr(
 			fmt.Errorf("delegation key is not set"),
@@ -2974,16 +3046,22 @@ type PreCommitmentOutput struct {
 
 	// InternalKey is the Taproot internal public key associated with the
 	// pre-commitment output.
-	InternalKey btcec.PublicKey
+	InternalKey DelegationKey
 
-	// GroupPubKey is the asset group public key associated with this
-	// pre-commitment output.
-	GroupPubKey btcec.PublicKey
+	// GroupPubKey is the asset-group public key for this pre-commitment.
+	//
+	// Optional:
+	//   - Present when the group key is already known—either reused from an
+	//     existing group at funding time or generated once the batch is
+	//     sealed.
+	//   - Absent while an unsealed batch without a prior group key is still
+	//     in progress.
+	GroupPubKey fn.Option[btcec.PublicKey]
 }
 
 // NewPreCommitmentOutput creates a new PreCommitmentOutput instance.
-func NewPreCommitmentOutput(outIdx uint32, internalKey,
-	groupPubKey btcec.PublicKey) PreCommitmentOutput {
+func NewPreCommitmentOutput(outIdx uint32, internalKey DelegationKey,
+	groupPubKey fn.Option[btcec.PublicKey]) PreCommitmentOutput {
 
 	return PreCommitmentOutput{
 		OutIdx:      outIdx,
@@ -2992,12 +3070,12 @@ func NewPreCommitmentOutput(outIdx uint32, internalKey,
 	}
 }
 
-// TxOut returns the pre-commitment output as a wire.TxOut instance.
-func (p *PreCommitmentOutput) TxOut() (wire.TxOut, error) {
+// PreCommitTxOut returns the pre-commitment output as a wire.TxOut instance.
+func PreCommitTxOut(internalKey btcec.PublicKey) (wire.TxOut, error) {
 	var zero wire.TxOut
 
 	// Formulate a taproot output key from the taproot internal key.
-	taprootOutputKey := txscript.ComputeTaprootKeyNoScript(&p.InternalKey)
+	taprootOutputKey := txscript.ComputeTaprootKeyNoScript(&internalKey)
 
 	// Create a new pay-to-taproot pk script from the taproot output key.
 	pkScript, err := txscript.PayToTaprootScript(taprootOutputKey)
