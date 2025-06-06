@@ -343,6 +343,10 @@ var testCases = []*testCase{
 		name: "asset signing after lnd restore from seed",
 		test: testRestoreLndFromSeed,
 	},
+	{
+		name: "address v2 with group key",
+		test: testAddressV2WithGroupKey,
+	},
 }
 
 var optionalTestCases = []*testCase{
