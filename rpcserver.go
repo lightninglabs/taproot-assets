@@ -1645,8 +1645,9 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddress(
-			ctx, addrVersion, assetID, req.Amt, tapscriptSibling,
-			*courierAddr, address.WithAssetVersion(assetVersion),
+			ctx, addrVersion, asset.NewSpecifierFromId(assetID),
+			req.Amt, tapscriptSibling, *courierAddr,
+			address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -1694,9 +1695,9 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
-			ctx, addrVersion, assetID, req.Amt, *scriptKey,
-			internalKey, tapscriptSibling, *courierAddr,
-			address.WithAssetVersion(assetVersion),
+			ctx, addrVersion, asset.NewSpecifierFromId(assetID),
+			req.Amt, *scriptKey, internalKey, tapscriptSibling,
+			*courierAddr, address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -8713,7 +8714,9 @@ func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
 
 	// Next, we'll fetch the information for this asset ID through the addr
 	// book. This'll automatically fetch the asset if needed.
-	assetGroup, err := r.cfg.AddrBook.QueryAssetInfo(ctx, assetID)
+	assetGroup, err := r.cfg.AddrBook.QueryAssetInfo(
+		ctx, asset.NewSpecifierFromId(assetID),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch asset info for "+
 			"asset_id=%x: %w", assetID[:], err)
