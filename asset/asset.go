@@ -150,6 +150,13 @@ const (
 	// Keys related to channels are not shown in asset balances (unless
 	// specifically requested) and are _never_ used for coin selection.
 	ScriptKeyScriptPathChannel ScriptKeyType = 5
+
+	// ScriptKeyUniquePedersen is the script key type used for assets that
+	// use a unique script key, tweaked with a Pedersen commitment key in a
+	// single Tapscript leaf. This is used to avoid collisions in the
+	// universe when there are multiple grouped asset UTXOs within the same
+	// on-chain output.
+	ScriptKeyUniquePedersen ScriptKeyType = 6
 )
 
 var (
