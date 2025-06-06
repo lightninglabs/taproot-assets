@@ -376,10 +376,16 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 	}
 
 	// Serialize internal key.
-	internalKey := preCommitOut.InternalKey.SerializeCompressed()
+	internalKey := preCommitOut.InternalKey.PubKey.SerializeCompressed()
 
-	// Serialize group key.
-	groupPubKey := preCommitOut.GroupPubKey.SerializeCompressed()
+	// Serialize the group key if it is defined. The key may be unset when
+	// there is no existing group and the minting batch is funded but not
+	// yet sealed.
+	groupPubKey := fn.MapOptionZ(
+		preCommitOut.GroupPubKey, func(pubKey btcec.PublicKey) []byte {
+			return pubKey.SerializeCompressed()
+		},
+	)
 
 	_, err = q.UpsertMintAnchorUniCommitment(
 		ctx, MintAnchorUniCommitParams{
@@ -1240,17 +1246,26 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 			}
 
 			// Parse the group public key from the database.
-			groupPubKey, err := btcec.ParsePubKey(res.GroupKey)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing "+
-					"group public key: %w", err)
+			var groupPubKey fn.Option[btcec.PublicKey]
+			if res.GroupKey != nil {
+				gk, err := btcec.ParsePubKey(res.GroupKey)
+				if err != nil {
+					return nil, fmt.Errorf("error parsing "+
+						"group public key: %w", err)
+				}
+
+				groupPubKey = fn.Some(*gk)
 			}
 
 			preCommitOut = fn.Some(
 				tapgarden.PreCommitmentOutput{
-					OutIdx:      uint32(res.TxOutputIndex),
-					InternalKey: *internalKey,
-					GroupPubKey: *groupPubKey,
+					OutIdx: uint32(res.TxOutputIndex),
+					// TODO(ffranr): Read full key desk from
+					//  db.
+					InternalKey: tapgarden.DelegationKey{
+						PubKey: internalKey,
+					},
+					GroupPubKey: groupPubKey,
 				},
 			)
 		}
