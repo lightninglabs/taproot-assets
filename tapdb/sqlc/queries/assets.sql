@@ -1035,21 +1035,40 @@ JOIN assets_meta
 WHERE assets.asset_id = $1;
 
 -- Upsert a record into the mint_anchor_uni_commitments table.
--- If a record with the same batch_id and group_key already exists, update the
--- existing record. Otherwise, insert a new record.
+-- If a record with the same batch ID and tx output index already exists, update
+-- the existing record. Otherwise, insert a new record.
 -- name: UpsertMintAnchorUniCommitment :one
+WITH target_batch AS (
+    -- This CTE is used to fetch the ID of a batch, based on the serialized
+    -- internal key associated with the batch.
+    SELECT keys.key_id AS batch_id
+    FROM internal_keys keys
+    WHERE keys.raw_key = @batch_key
+)
 INSERT INTO mint_anchor_uni_commitments (
     id, batch_id, tx_output_index, taproot_internal_key, group_key
 )
-VALUES ($1, $2, $3, $4, $5)
+VALUES (
+    @id, (SELECT batch_id FROM target_batch), @tx_output_index,
+    @taproot_internal_key, @group_key
+)
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
     taproot_internal_key = EXCLUDED.taproot_internal_key,
     group_key = EXCLUDED.group_key
 RETURNING id;
 
--- Fetch a record from the mint_anchor_uni_commitments table by id.
+-- Fetch records from the mint_anchor_uni_commitments table by batch key.
 -- name: FetchMintAnchorUniCommitment :one
-SELECT id, batch_id, tx_output_index, taproot_internal_key, group_key
+WITH target_batch AS (
+    -- This CTE is used to fetch the ID of a batch, based on the serialized
+    -- internal key associated with the batch.
+    SELECT keys.key_id AS batch_id, keys.raw_key
+    FROM internal_keys keys
+    WHERE keys.raw_key = @batch_key
+)
+SELECT
+    id, batch_id, tx_output_index, taproot_internal_key, group_key,
+    (SELECT raw_key FROM target_batch) AS batch_key
 FROM mint_anchor_uni_commitments
-WHERE batch_id = $1;
+WHERE batch_id = (SELECT batch_id FROM target_batch);

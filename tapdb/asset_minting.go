@@ -247,7 +247,7 @@ type PendingAssetStore interface {
 	// FetchMintAnchorUniCommitment fetches the mint anchor uni commitment
 	// for a given batch.
 	FetchMintAnchorUniCommitment(ctx context.Context,
-		batchID int32) (sqlc.MintAnchorUniCommitment, error)
+		batchKey []byte) (sqlc.FetchMintAnchorUniCommitmentRow, error)
 
 	// UpsertMintAnchorUniCommitment inserts a new or updates an existing
 	// mint anchor uni commitment on disk.
@@ -348,7 +348,7 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 	rawBatchKey := batchKey.SerializeCompressed()
 	enableUniverseCommitments := anchorPackage.PreCommitmentOutput.IsSome()
 
-	batchID, err := q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
+	_, err = q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
 		RawKey:              rawBatchKey,
 		MintingTxPsbt:       psbtBuf.Bytes(),
 		ChangeOutputIndex:   sqlInt32(anchorPackage.ChangeOutputIndex),
@@ -389,7 +389,7 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 
 	_, err = q.UpsertMintAnchorUniCommitment(
 		ctx, MintAnchorUniCommitParams{
-			BatchID:            int32(batchID),
+			BatchKey:           rawBatchKey,
 			TxOutputIndex:      int32(preCommitOut.OutIdx),
 			TaprootInternalKey: internalKey,
 			GroupKey:           groupPubKey,
@@ -1229,7 +1229,7 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		var preCommitOut fn.Option[tapgarden.PreCommitmentOutput]
 		if dbBatch.UniverseCommitments {
 			res, err := q.FetchMintAnchorUniCommitment(
-				ctx, int32(dbBatch.BatchID),
+				ctx, dbBatch.RawKey,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to fetch mint "+
