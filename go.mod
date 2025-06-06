@@ -27,7 +27,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/lightninglabs/aperture v0.3.13-beta
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.3
-	github.com/lightninglabs/lndclient v0.19.0-7
+	github.com/lightninglabs/lndclient v0.19.0-8
 	github.com/lightninglabs/neutrino/cache v1.1.2
 	github.com/lightninglabs/taproot-assets/taprpc v1.0.6
 	github.com/lightningnetwork/lnd v0.19.0-beta
@@ -41,6 +41,7 @@ require (
 	github.com/prometheus/client_golang v1.14.0
 	github.com/stretchr/testify v1.10.0
 	github.com/urfave/cli v1.22.14
+	golang.org/x/crypto v0.36.0
 	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8
 	golang.org/x/net v0.38.0
 	golang.org/x/sync v0.12.0
@@ -188,7 +189,6 @@ require (
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.23.0 // indirect
-	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/mod v0.21.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0 // indirect

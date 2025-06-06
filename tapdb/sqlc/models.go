@@ -38,6 +38,20 @@ type AddrEvent struct {
 	AssetID             sql.NullInt64
 }
 
+type AddrEventOutput struct {
+	ID          int64
+	AddrEventID int64
+	Amount      int64
+	AssetID     []byte
+	ScriptKeyID int64
+}
+
+type AddrEventProof struct {
+	ID           int64
+	AddrEventID  int64
+	AssetProofID int64
+}
+
 type Asset struct {
 	AssetID                  int64
 	GenesisID                int64

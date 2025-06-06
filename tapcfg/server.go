@@ -13,6 +13,7 @@ import (
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
@@ -317,6 +318,10 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
+	// TODO(guggero): Create and use database backed stores.
+	mailboxStore := authmailbox.NewMockStore()
+	mailboxTxProofStore := proof.NewMockTxProofStore()
+
 	reOrgWatcher := tapgarden.NewReOrgWatcher(&tapgarden.ReOrgWatcherConfig{
 		ChainBridge: chainBridge,
 		GroupVerifier: tapgarden.GenGroupVerifier(
@@ -611,6 +616,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				context.Background(), assetMintingStore,
 			),
 			AddrBook:               addrBook,
+			Signer:                 lndServices.Signer,
 			ProofArchive:           proofArchive,
 			ProofNotifier:          multiNotifier,
 			ErrChan:                mainErrChan,
@@ -644,6 +650,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AuxSweeper:               auxSweeper,
 		LogWriter:                cfg.LogWriter,
 		LogMgr:                   cfg.LogMgr,
+		MboxServerConfig: authmailbox.ServerConfig{
+			AuthTimeout:    cfg.Universe.MboxAuthTimeout,
+			Signer:         lndServices.Signer,
+			HeaderVerifier: headerVerifier,
+			MerkleVerifier: proof.DefaultMerkleVerifier,
+			MsgStore:       mailboxStore,
+			TxProofStore:   mailboxTxProofStore,
+		},
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),
 			MintingStore: assetMintingStore,

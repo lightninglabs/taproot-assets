@@ -15,6 +15,7 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
@@ -63,6 +64,7 @@ type Server struct {
 	cfg *Config
 
 	*rpcServer
+	mboxServer      *authmailbox.Server
 	macaroonService *lndclient.MacaroonService
 
 	quit chan struct{}
@@ -178,6 +180,8 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		return fmt.Errorf("unable to create rpc server: %w", err)
 	}
 
+	s.mboxServer = authmailbox.NewServer(&s.cfg.MboxServerConfig)
+
 	// First, we'll start the main batched asset minter.
 	if err := s.cfg.AssetMinter.Start(); err != nil {
 		return fmt.Errorf("unable to start asset minter: %w", err)
@@ -240,13 +244,20 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		return fmt.Errorf("unable to start RPC server: %w", err)
 	}
 
+	shutdownFuncs["rpcServer"] = s.rpcServer.Stop
+
+	if err := s.mboxServer.Start(); err != nil {
+		return fmt.Errorf("unable to start auth mailbox server: %w",
+			err)
+	}
+
 	// This does have no effect if starting the rpc server is the last step
 	// in this function, but its better to have it here in case we add more
 	// steps in the future.
 	//
 	// NOTE: if this is not the last step in the function, feel free to
 	// delete this comment.
-	shutdownFuncs["rpcServer"] = s.rpcServer.Stop
+	shutdownFuncs["mboxServer"] = s.mboxServer.Stop
 
 	shutdownFuncs = nil
 
@@ -360,6 +371,11 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		return mkErr("error registering gRPC server: %v", err)
 	}
 
+	err = s.mboxServer.RegisterWithGrpcServer(grpcServer)
+	if err != nil {
+		return mkErr("error registering auth mailbox server: %v", err)
+	}
+
 	// All the necessary components have been registered, so we can
 	// actually start listening for requests.
 	err = startGrpcListen(s.cfg, grpcServer, grpcListeners)
@@ -371,7 +387,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	// direct tapd to connect to its loopback address rather than a
 	// wildcard to prevent certificate issues when accessing the proxy
 	// externally.
-	stopProxy, err := startRestProxy(s.cfg, s.rpcServer)
+	stopProxy, err := startRestProxy(s.cfg, s.rpcServer, s.mboxServer)
 	if err != nil {
 		return mkErr("error starting REST proxy: %v", err)
 	}
@@ -511,7 +527,9 @@ func startGrpcListen(cfg *Config, grpcServer *grpc.Server,
 
 // startRestProxy starts the given REST proxy on the listeners found in the
 // config.
-func startRestProxy(cfg *Config, rpcServer *rpcServer) (func(), error) {
+func startRestProxy(cfg *Config, rpcServer *rpcServer,
+	mboxServer *authmailbox.Server) (func(), error) {
+
 	// We use the first RPC listener as the destination for our REST proxy.
 	// If the listener is set to listen on all interfaces, we replace it
 	// with localhost, as we cannot dial it directly.
@@ -573,6 +591,13 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer) (func(), error) {
 	}
 
 	err = rpcServer.RegisterWithRestProxy(
+		ctx, mux, cfg.RestDialOpts, restProxyDest,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	err = mboxServer.RegisterWithRestProxy(
 		ctx, mux, cfg.RestDialOpts, restProxyDest,
 	)
 	if err != nil {

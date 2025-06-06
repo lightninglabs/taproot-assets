@@ -2,6 +2,32 @@ CREATE INDEX addr_asset_genesis_ids ON addrs (genesis_asset_id);
 
 CREATE INDEX addr_creation_time ON addrs (creation_time);
 
+CREATE TABLE addr_event_outputs (
+    id INTEGER PRIMARY KEY,
+
+    -- addr_event_id is the reference to the address event this output belongs to.
+    addr_event_id BIGINT NOT NULL REFERENCES addr_events(id),
+
+    amount BIGINT NOT NULL,
+    
+    asset_id BLOB NOT NULL CHECK(length(asset_id) = 32),
+
+    -- script_key_id points to the internal key that we created to serve as the
+    -- script key to be able to receive this asset.
+    script_key_id BIGINT NOT NULL REFERENCES script_keys(script_key_id)
+);
+
+CREATE TABLE addr_event_proofs (
+    id INTEGER PRIMARY KEY,
+
+    -- addr_event_id is the reference to the address event this proof belongs to.
+    addr_event_id BIGINT NOT NULL REFERENCES addr_events(id),
+
+    -- asset_proof_id is a reference to the proof associated with this asset
+    -- event.
+    asset_proof_id BIGINT NOT NULL REFERENCES asset_proofs(proof_id)
+);
+
 CREATE TABLE addr_events (
     id INTEGER PRIMARY KEY,
 
@@ -95,6 +121,9 @@ CREATE TABLE addrs (
     -- used in distributing proofs associated with a particular tap address.
     proof_courier_addr BLOB NOT NULL
 );
+
+CREATE UNIQUE INDEX addrs_script_key_version_2_uk
+    ON addrs (script_key_id, version) WHERE version = 2;
 
 CREATE TABLE asset_burn_transfers (
     -- The auto-incrementing integer that identifies this burn transfer.

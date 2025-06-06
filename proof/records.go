@@ -54,6 +54,12 @@ const (
 	MetaRevealUniverseCommitments    tlv.Type = 7
 	MetaRevealCanonicalUniversesType tlv.Type = 9
 	MetaRevealDelegationKeyType      tlv.Type = 11
+
+	SendFragmentVersionType     tlv.Type = 0
+	SendFragmentBlockHeaderType tlv.Type = 2
+	SendFragmentBlockHeightType tlv.Type = 4
+	SendFragmentOutPointType    tlv.Type = 6
+	SendFragmentOutputsType     tlv.Type = 8
 )
 
 // KnownProofTypes is a set of all known proof TLV types. This set is asserted
@@ -97,9 +103,61 @@ var KnownMetaRevealTypes = fn.NewSet(
 	MetaRevealDelegationKeyType,
 )
 
+// KnownSendFragmentTypes is a set of all known send fragment TLV types.
+// This set is asserted to be complete by a check in the BIP test vector unit
+// tests.
+var KnownSendFragmentTypes = fn.NewSet(
+	SendFragmentVersionType, SendFragmentBlockHeaderType,
+	SendFragmentBlockHeightType, SendFragmentOutPointType,
+	SendFragmentOutputsType,
+)
+
 func VersionRecord(version *TransitionVersion) tlv.Record {
 	return tlv.MakeStaticRecord(
 		VersionType, version, 4, VersionEncoder, VersionDecoder,
+	)
+}
+
+func FragmentVersionRecord(version *SendFragmentVersion) tlv.Record {
+	return tlv.MakeStaticRecord(
+		SendFragmentVersionType, version, 1, FragmentVersionEncoder,
+		FragmentVersionDecoder,
+	)
+}
+
+func FragmentBlockHeaderRecord(header *wire.BlockHeader) tlv.Record {
+	return tlv.MakeStaticRecord(
+		SendFragmentBlockHeaderType, header, wire.MaxBlockHeaderPayload,
+		BlockHeaderEncoder, BlockHeaderDecoder,
+	)
+}
+
+func FragmentBlockHeightRecord(height *uint32) tlv.Record {
+	return tlv.MakeStaticRecord(
+		SendFragmentBlockHeightType, height, 4, tlv.EUint32,
+		tlv.DUint32,
+	)
+}
+
+func FragmentOutPointRecord(prevOut *wire.OutPoint) tlv.Record {
+	return tlv.MakeStaticRecord(
+		SendFragmentOutPointType, prevOut, 32+4, asset.OutPointEncoder,
+		asset.OutPointDecoder,
+	)
+}
+
+func FragmentOutputsRecord(outputs *map[asset.ID]SendOutput) tlv.Record {
+	sizeFunc := func() uint64 {
+		var buf bytes.Buffer
+		err := SendOutputsEncoder(&buf, outputs, &[8]byte{})
+		if err != nil {
+			panic(err)
+		}
+		return uint64(len(buf.Bytes()))
+	}
+	return tlv.MakeDynamicRecord(
+		SendFragmentOutputsType, outputs, sizeFunc, SendOutputsEncoder,
+		SendOutputsDecoder,
 	)
 }
 

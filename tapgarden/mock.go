@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapscript"
@@ -970,6 +971,25 @@ func (m *MockKeyRing) ScriptKeyAt(t *testing.T, idx uint32) asset.ScriptKey {
 		KeyLocator: loc,
 		PubKey:     priv.PubKey(),
 	})
+}
+
+func (m *MockKeyRing) DeriveSharedKey(_ context.Context, key *btcec.PublicKey,
+	locator *keychain.KeyLocator) ([32]byte, error) {
+
+	if locator == nil {
+		return [32]byte{}, fmt.Errorf("locator is nil")
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	priv, ok := m.Keys[*locator]
+	if !ok {
+		return [32]byte{}, fmt.Errorf("script key not found at index "+
+			"%d", locator.Index)
+	}
+
+	return ecies.ECDH(priv, key)
 }
 
 type MockGenSigner struct {

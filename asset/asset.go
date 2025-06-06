@@ -150,6 +150,13 @@ const (
 	// Keys related to channels are not shown in asset balances (unless
 	// specifically requested) and are _never_ used for coin selection.
 	ScriptKeyScriptPathChannel ScriptKeyType = 5
+
+	// ScriptKeyUniquePedersen is the script key type used for assets that
+	// use a unique script key, tweaked with a Pedersen commitment key in a
+	// single Tapscript leaf. This is used to avoid collisions in the
+	// universe when there are multiple grouped asset UTXOs within the same
+	// on-chain output.
+	ScriptKeyUniquePedersen ScriptKeyType = 6
 )
 
 var (
@@ -464,6 +471,12 @@ func (s *Specifier) WhenId(f func(ID)) {
 // ID returns the underlying asset ID option of the specifier.
 func (s *Specifier) ID() fn.Option[ID] {
 	return s.id
+}
+
+// GroupKey returns the underlying asset group public key option of the
+// specifier.
+func (s *Specifier) GroupKey() fn.Option[btcec.PublicKey] {
+	return s.groupKey
 }
 
 // WhenGroupPubKey executes the given function if asset group public key field
