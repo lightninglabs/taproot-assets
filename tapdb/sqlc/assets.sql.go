@@ -1529,21 +1529,40 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 }
 
 const FetchMintAnchorUniCommitment = `-- name: FetchMintAnchorUniCommitment :one
-SELECT id, batch_id, tx_output_index, taproot_internal_key, group_key
+WITH target_batch AS (
+    -- This CTE is used to fetch the ID of a batch, based on the serialized
+    -- internal key associated with the batch.
+    SELECT keys.key_id AS batch_id, keys.raw_key
+    FROM internal_keys keys
+    WHERE keys.raw_key = $1
+)
+SELECT
+    id, batch_id, tx_output_index, taproot_internal_key, group_key,
+    (SELECT raw_key FROM target_batch) AS batch_key
 FROM mint_anchor_uni_commitments
-WHERE batch_id = $1
+WHERE batch_id = (SELECT batch_id FROM target_batch)
 `
 
-// Fetch a record from the mint_anchor_uni_commitments table by id.
-func (q *Queries) FetchMintAnchorUniCommitment(ctx context.Context, batchID int32) (MintAnchorUniCommitment, error) {
-	row := q.db.QueryRowContext(ctx, FetchMintAnchorUniCommitment, batchID)
-	var i MintAnchorUniCommitment
+type FetchMintAnchorUniCommitmentRow struct {
+	ID                 int64
+	BatchID            int32
+	TxOutputIndex      int32
+	TaprootInternalKey []byte
+	GroupKey           []byte
+	BatchKey           []byte
+}
+
+// Fetch records from the mint_anchor_uni_commitments table by batch key.
+func (q *Queries) FetchMintAnchorUniCommitment(ctx context.Context, batchKey []byte) (FetchMintAnchorUniCommitmentRow, error) {
+	row := q.db.QueryRowContext(ctx, FetchMintAnchorUniCommitment, batchKey)
+	var i FetchMintAnchorUniCommitmentRow
 	err := row.Scan(
 		&i.ID,
 		&i.BatchID,
 		&i.TxOutputIndex,
 		&i.TaprootInternalKey,
 		&i.GroupKey,
+		&i.BatchKey,
 	)
 	return i, err
 }
@@ -3044,10 +3063,20 @@ func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOPa
 }
 
 const UpsertMintAnchorUniCommitment = `-- name: UpsertMintAnchorUniCommitment :one
+WITH target_batch AS (
+    -- This CTE is used to fetch the ID of a batch, based on the serialized
+    -- internal key associated with the batch.
+    SELECT keys.key_id AS batch_id
+    FROM internal_keys keys
+    WHERE keys.raw_key = $5
+)
 INSERT INTO mint_anchor_uni_commitments (
     id, batch_id, tx_output_index, taproot_internal_key, group_key
 )
-VALUES ($1, $2, $3, $4, $5)
+VALUES (
+    $1, (SELECT batch_id FROM target_batch), $2,
+    $3, $4
+)
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
     taproot_internal_key = EXCLUDED.taproot_internal_key,
@@ -3057,22 +3086,22 @@ RETURNING id
 
 type UpsertMintAnchorUniCommitmentParams struct {
 	ID                 int64
-	BatchID            int32
 	TxOutputIndex      int32
 	TaprootInternalKey []byte
 	GroupKey           []byte
+	BatchKey           []byte
 }
 
 // Upsert a record into the mint_anchor_uni_commitments table.
-// If a record with the same batch_id and group_key already exists, update the
-// existing record. Otherwise, insert a new record.
+// If a record with the same batch ID and tx output index already exists, update
+// the existing record. Otherwise, insert a new record.
 func (q *Queries) UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertMintAnchorUniCommitment,
 		arg.ID,
-		arg.BatchID,
 		arg.TxOutputIndex,
 		arg.TaprootInternalKey,
 		arg.GroupKey,
+		arg.BatchKey,
 	)
 	var id int64
 	err := row.Scan(&id)

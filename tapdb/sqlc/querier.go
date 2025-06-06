@@ -77,8 +77,8 @@ type Querier interface {
 	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (FetchInternalKeyLocatorRow, error)
 	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error)
-	// Fetch a record from the mint_anchor_uni_commitments table by id.
-	FetchMintAnchorUniCommitment(ctx context.Context, batchID int32) (MintAnchorUniCommitment, error)
+	// Fetch records from the mint_anchor_uni_commitments table by batch key.
+	FetchMintAnchorUniCommitment(ctx context.Context, batchKey []byte) (FetchMintAnchorUniCommitmentRow, error)
 	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchMultiverseRoot(ctx context.Context, namespaceRoot string) (FetchMultiverseRootRow, error)
@@ -177,8 +177,8 @@ type Querier interface {
 	UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int64, error)
 	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int64, error)
 	// Upsert a record into the mint_anchor_uni_commitments table.
-	// If a record with the same batch_id and group_key already exists, update the
-	// existing record. Otherwise, insert a new record.
+	// If a record with the same batch ID and tx output index already exists, update
+	// the existing record. Otherwise, insert a new record.
 	UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error)
 	UpsertMultiverseLeaf(ctx context.Context, arg UpsertMultiverseLeafParams) (int64, error)
 	UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error)
