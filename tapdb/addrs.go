@@ -989,6 +989,22 @@ func fetchEvent(ctx context.Context, db AddrBook, eventID int64,
 		Index: uint32(dbEvent.OutputIndex),
 	}
 
+	var outputs map[asset.ID]address.SendOutput
+	if addr.Version < address.V2 {
+		outputs = map[asset.ID]address.SendOutput{
+			addr.AssetID: {
+				Amount: addr.Amount,
+				ScriptKey: asset.ScriptKey{
+					PubKey:           &addr.ScriptKey,
+					TweakedScriptKey: &addr.ScriptKeyTweak,
+				},
+			},
+		}
+	} else {
+		// TODO(guggero): persistence for multi output address events,
+		// need to migrate existing events into 1:n table too.
+	}
+
 	return &address.Event{
 		ID:                 eventID,
 		CreationTime:       dbEvent.CreationTime.UTC(),
@@ -998,7 +1014,8 @@ func fetchEvent(ctx context.Context, db AddrBook, eventID int64,
 		Amt:                btcutil.Amount(dbEvent.AmtSats.Int64),
 		InternalKey:        internalKey,
 		ConfirmationHeight: uint32(dbEvent.ConfirmationHeight.Int32),
-		HasProof:           dbEvent.AssetProofID.Valid,
+		Outputs:            outputs,
+		HasAllProofs:       dbEvent.AssetProofID.Valid,
 	}, nil
 }
 
@@ -1044,7 +1061,7 @@ func fetchEventByOutpoint(ctx context.Context, db AddrBook,
 		Amt:                btcutil.Amount(dbEvent.AmtSats.Int64),
 		InternalKey:        internalKey,
 		ConfirmationHeight: uint32(dbEvent.ConfirmationHeight.Int32),
-		HasProof:           dbEvent.AssetProofID.Valid,
+		HasAllProofs:       dbEvent.AssetProofID.Valid,
 	}, nil
 }
 

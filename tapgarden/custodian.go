@@ -8,13 +8,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	mbox "github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
@@ -99,6 +103,10 @@ type CustodianConfig struct {
 	// AddrBook is the storage backend for addresses.
 	AddrBook *address.Book
 
+	// Signer is the lndclient.SignerClient that is used to sign challenges
+	// from the auth mailbox server when subscribing for messages.
+	Signer lndclient.SignerClient
+
 	// ProofArchive is the storage backend for proofs to which we store new
 	// incoming proofs.
 	ProofArchive proof.Archiver
@@ -159,6 +167,11 @@ type Custodian struct {
 	// address events of inbound assets.
 	events map[wire.OutPoint]*address.Event
 
+	// mboxSubscriptions is a helper that allows us to subscribe to multiple
+	// mailbox servers at once, using multiple different URLs and receiver
+	// keys.
+	mboxSubscriptions *mbox.MultiSubscription
+
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
 	*fn.ContextGuard
@@ -178,6 +191,14 @@ func NewCustodian(cfg *CustodianConfig) *Custodian {
 		proofSubscription: proofSub,
 		statusEventsSubs:  statusEventsSubs,
 		events:            make(map[wire.OutPoint]*address.Event),
+		mboxSubscriptions: mbox.NewMultiSubscription(
+			mbox.ClientConfig{
+				SkipTlsVerify: true,
+				Signer:        cfg.Signer,
+				MinBackoff:    100 * time.Millisecond,
+				MaxBackoff:    10 * time.Second,
+			},
+		),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -236,6 +257,12 @@ func (c *Custodian) Stop() error {
 		err = c.cfg.ProofNotifier.RemoveSubscriber(c.proofSubscription)
 		if err != nil {
 			stopErr = err
+		}
+
+		err = c.mboxSubscriptions.Stop()
+		if err != nil {
+			stopErr = fmt.Errorf("unable to stop mailbox "+
+				"subscriptions: %w", err)
 		}
 
 		// Remove all status event subscribers.
@@ -333,8 +360,9 @@ func (c *Custodian) watchInboundAssets() {
 		go func() {
 			defer c.Wg.Done()
 
-			recErr := c.receiveProof(
+			recErr := c.receiveProofs(
 				event.Addr.Tap, event.Outpoint,
+				event.Outputs,
 				event.ConfirmationHeight,
 			)
 			if recErr != nil {
@@ -391,6 +419,13 @@ func (c *Custodian) watchInboundAssets() {
 		case newProof := <-c.proofSubscription.NewItemCreated.ChanOut():
 			log.Tracef("New proof received from notifier")
 			err = c.mapProofToEvent(newProof)
+
+		case newMsg := <-c.mboxSubscriptions.MessageChan():
+			log.Debugf("Received %d new mailbox message received "+
+				"for %x", len(newMsg.Messages),
+				newMsg.Receiver.PubKey.SerializeCompressed())
+
+			err = c.handleMailboxMessages(newMsg)
 
 		case err = <-txErrChan:
 			break
@@ -466,8 +501,9 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				go func() {
 					defer c.Wg.Done()
 
-					recErr := c.receiveProof(
+					recErr := c.receiveProofs(
 						event.Addr.Tap, op,
+						event.Outputs,
 						event.ConfirmationHeight,
 					)
 					if recErr != nil {
@@ -523,8 +559,9 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 		go func() {
 			defer c.Wg.Done()
 
-			recErr := c.receiveProof(
-				addr, op, event.ConfirmationHeight,
+			recErr := c.receiveProofs(
+				addr, op, event.Outputs,
+				event.ConfirmationHeight,
 			)
 			if recErr != nil {
 				c.publishSubscriberStatusEvent(
@@ -544,17 +581,31 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 	return nil
 }
 
+func (c *Custodian) receiveProofs(addr *address.Tap, op wire.OutPoint,
+	outputs map[asset.ID]address.SendOutput, confHeight uint32) error {
+
+	for assetID, output := range outputs {
+		err := c.receiveProof(
+			addr, op, assetID, output.ScriptKey, confHeight,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to receive proof for output "+
+				"%s in %s: %w", assetID, op.String(), err)
+		}
+	}
+
+	return nil
+}
+
 // receiveProof attempts to receive a proof for the given address and outpoint
 // via the proof courier service.
 func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint,
-	confHeight uint32) error {
+	assetID asset.ID, scriptKey asset.ScriptKey, confHeight uint32) error {
 
 	ctx, cancel := c.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	assetID := addr.AssetID
-
-	scriptKeyBytes := addr.ScriptKey.SerializeCompressed()
+	scriptKeyBytes := scriptKey.PubKey.SerializeCompressed()
 	log.Debugf("Waiting to receive proof for script key %x", scriptKeyBytes)
 
 	c.publishSubscriberStatusEvent(NewAssetReceiveEvent(
@@ -583,22 +634,28 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint,
 	// retrieval success before this delay.
 	select {
 	case <-time.After(c.cfg.ProofRetrievalDelay):
+		log.Trace("Done with initial delay, now attempting to " +
+			"retrieve proof")
 	case <-ctx.Done():
 		return nil
 	}
 
 	// Attempt to receive proof via proof courier service.
 	recipient := proof.Recipient{
-		ScriptKey: &addr.ScriptKey,
+		ScriptKey: scriptKey.PubKey,
 		AssetID:   assetID,
 		Amount:    addr.Amount,
 	}
 	loc := proof.Locator{
 		AssetID:   &assetID,
 		GroupKey:  addr.GroupKey,
-		ScriptKey: addr.ScriptKey,
+		ScriptKey: *scriptKey.PubKey,
 		OutPoint:  &op,
 	}
+
+	log.Tracef("Attempting to receive proof for script key %x",
+		scriptKey.PubKey.SerializeCompressed())
+
 	addrProof, err := courier.ReceiveProof(ctx, recipient, loc)
 	if err != nil {
 		return fmt.Errorf("unable to receive proof using courier: %w",
@@ -720,6 +777,21 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 		return fmt.Errorf("unable to encode address: %w", err)
 	}
 
+	// V2 addresses aren't added to the internal wallet as an on-chain
+	// address, they can't be detected by watching the chain at all. We'll
+	// not mark them as managed in the address book, that way we'll always
+	// receive the full list of V2 addresses at startup as well.
+	if addr.Version >= address.V2 {
+		log.Infof("Subscribing to mailbox updates for Taproot Asset "+
+			"address %s", addrStr)
+
+		// TODO(guggero): Filter by last received message ID.
+		return c.mboxSubscriptions.Subscribe(
+			addr.ProofCourierAddr, addr.InternalKeyDesc,
+			mbox.MessageFilter{},
+		)
+	}
+
 	// Let's not be interrupted by a shutdown.
 	ctxt, cancel := c.CtxBlocking()
 	defer cancel()
@@ -747,6 +819,136 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 	}
 
 	return c.cfg.AddrBook.SetAddrManaged(ctxt, addr, time.Now())
+}
+
+func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
+	ctx, cancel := c.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	receiver := msgs.Receiver
+	tapAddr, err := c.cfg.AddrBook.AddrByScriptKeyAndVersion(
+		ctx, receiver.PubKey, address.V2,
+	)
+	if err != nil {
+		if errors.Is(err, address.ErrNoAddr) {
+			return fmt.Errorf("no Taproot Asset address found for "+
+				"receiver %x: %w",
+				receiver.PubKey.SerializeCompressed(), err)
+		}
+		return fmt.Errorf("error querying address by script key: %w",
+			err)
+	}
+
+	for _, mboxMsg := range msgs.Messages {
+		// Decrypt the mailbox message using the receiver's key.
+		log.Debugf("Decrypting mailbox message with ID %d for %x",
+			mboxMsg.MessageId,
+			receiver.PubKey.SerializeCompressed())
+
+		fragment, err := c.decryptMailboxMsg(
+			ctx, receiver, mboxMsg.EncryptedPayload,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to decrypt mailbox "+
+				"message: %w", err)
+		}
+
+		log.Debugf("Received fragment with %d outputs",
+			len(fragment.Outputs))
+
+		// TODO(actually create the event)
+
+		op := fragment.OutPoint
+		outputs := make(map[asset.ID]address.SendOutput)
+		for assetID, output := range fragment.Outputs {
+			scriptKey, err := proof.DeriveUniqueScriptKey(
+				*receiver.PubKey, assetID,
+				output.DerivationMethod,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to derive script "+
+					"key for asset: %w", err)
+			}
+
+			err = c.cfg.AddrBook.InsertScriptKey(
+				ctx, scriptKey, scriptKey.Type,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert script "+
+					"key into address book: %w", err)
+			}
+
+			log.Tracef("Expecting to fetch proof for outpoint %s "+
+				"and script key %x", op.String(),
+				scriptKey.PubKey.SerializeCompressed())
+
+			outputs[assetID] = address.SendOutput{
+				Amount:    output.Amount,
+				ScriptKey: scriptKey,
+			}
+		}
+
+		// Now that we've seen this output confirm on chain, we'll
+		// launch a goroutine to use the ProofCourier to import the
+		// proof into our local DB.
+		c.Wg.Add(1)
+		go func() {
+			defer c.Wg.Done()
+
+			recErr := c.receiveProofs(
+				tapAddr.Tap, fragment.OutPoint, outputs,
+				fragment.BlockHeight,
+			)
+			if recErr != nil {
+				c.publishSubscriberStatusEvent(
+					NewAssetReceiveErrorEvent(
+						recErr, *tapAddr.Tap, op,
+						fragment.BlockHeight,
+						// TODO(guggero): proper value
+						address.StatusTransactionConfirmed,
+					),
+				)
+
+				log.Errorf("Unable to receive proof: %v",
+					recErr)
+			}
+		}()
+	}
+
+	return nil
+}
+
+// decryptMailboxMsg decrypts a mailbox message using the receiver's key and
+// returns the decoded SendFragment message.
+func (c *Custodian) decryptMailboxMsg(ctx context.Context,
+	receiverKey keychain.KeyDescriptor, msg []byte) (*proof.SendFragment,
+	error) {
+
+	pubKeyBytes, _, err := ecies.ExtractAdditionalData(msg)
+	if err != nil {
+		return nil, fmt.Errorf("unable to extract additional data "+
+			"from mailbox message: %w", err)
+	}
+
+	senderPubKey, err := btcec.ParsePubKey(pubKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse sender public key: %w",
+			err)
+	}
+
+	sharedKey, err := c.cfg.Signer.DeriveSharedKey(
+		ctx, senderPubKey, &receiverKey.KeyLocator,
+	)
+
+	// Decrypt the message using the ECIES decryption method.
+	decryptedMsg, err := ecies.DecryptSha256ChaCha20Poly1305(sharedKey, msg)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decrypt mailbox message: %w",
+			err)
+	}
+
+	// Decode the decrypted message into a mailbox message.
+	return proof.DecodeSendFragment(decryptedMsg)
 }
 
 // checkProofAvailable checks the proof storage if a proof for the given event
@@ -1142,7 +1344,13 @@ func AddrMatchesAsset(addr *address.AddrWithKeyInfo, a *asset.Asset) bool {
 	groupKeyEqual := groupKeyBothNil ||
 		addr.GroupKey.IsEqual(&a.GroupKey.GroupPubKey)
 
-	return addr.AssetID == a.ID() && groupKeyEqual &&
+	// If the group key is set, then the asset ID in the address is allowed
+	// to be the zero value, since it is not used for group assets.
+	var zeroAssetID asset.ID
+	assetIDEqual := (addr.AssetID == zeroAssetID && groupKeyNoneNil) ||
+		addr.AssetID == a.ID()
+
+	return assetIDEqual && groupKeyEqual &&
 		addr.ScriptKey.IsEqual(a.ScriptKey.PubKey)
 }
 
