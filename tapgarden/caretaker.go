@@ -412,12 +412,6 @@ func (b *BatchCaretaker) assetCultivator() {
 	}
 }
 
-// extractGenesisOutpoint extracts the genesis point (the first input from the
-// genesis transaction).
-func extractGenesisOutpoint(tx *wire.MsgTx) wire.OutPoint {
-	return tx.TxIn[0].PreviousOutPoint
-}
-
 // seedlingsToAssetSprouts maps a set of seedlings in the internal batch into a
 // set of sprouts: Assets that aren't yet fully linked to broadcast genesis
 // transaction.
@@ -596,12 +590,18 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		// Unpack output indexes.
-		genesisPacket := b.cfg.Batch.GenesisPacket
+		genesisPkt := b.cfg.Batch.GenesisPacket
 
-		changeOutputIndex := genesisPacket.ChangeOutputIndex
-		b.anchorOutputIndex = genesisPacket.AssetAnchorOutIdx
+		changeOutputIndex := genesisPkt.ChangeOutputIndex
+		b.anchorOutputIndex = genesisPkt.AssetAnchorOutIdx
 
-		genesisPoint := extractGenesisOutpoint(genesisTxPkt.UnsignedTx)
+		genesisPoint, err := genesisPkt.GenesisOutpoint().UnwrapOrErr(
+			fmt.Errorf("batch genesis outpoint is missing from " +
+				"funded genesis packet"),
+		)
+		if err != nil {
+			return 0, err
+		}
 
 		// First, we'll turn all the seedlings into actual taproot assets.
 		tapCommitment, err := b.seedlingsToAssetSprouts(
@@ -653,7 +653,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				ChangeOutputIndex: changeOutputIndex,
 			},
 			AssetAnchorOutIdx:   b.anchorOutputIndex,
-			PreCommitmentOutput: genesisPacket.PreCommitmentOutput,
+			PreCommitmentOutput: genesisPkt.PreCommitmentOutput,
 		}
 
 		// With all our commitments created, we'll commit them to disk,
@@ -995,6 +995,17 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// output we need to create an exclusion proof for it (and for
 		// all other P2TR outputs, we just assume BIP-0086 here).
 		batchCommitment := b.cfg.Batch.RootAssetCommitment
+
+		pkt := b.cfg.Batch.GenesisPacket
+		genesisOutPoint, err := pkt.GenesisOutpoint().UnwrapOrErr(
+			fmt.Errorf("batch genesis outpoint is missing from " +
+				"funded genesis packet",
+			),
+		)
+		if err != nil {
+			return 0, err
+		}
+
 		baseProof := &proof.MintParams{
 			BaseProofParams: proof.BaseProofParams{
 				Block:            confInfo.Block,
@@ -1006,11 +1017,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				TapscriptSibling: batchSibling,
 				TaprootAssetRoot: batchCommitment,
 			},
-			GenesisPoint: extractGenesisOutpoint(
-				b.cfg.Batch.GenesisPacket.Pkt.UnsignedTx,
-			),
+			GenesisPoint: genesisOutPoint,
 		}
-		err := proof.AddExclusionProofs(
+		err = proof.AddExclusionProofs(
 			&baseProof.BaseProofParams, confInfo.Tx,
 			b.cfg.Batch.GenesisPacket.Pkt.Outputs,
 			func(idx uint32) bool {

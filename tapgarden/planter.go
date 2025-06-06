@@ -1322,20 +1322,28 @@ func filterFinalizedBatches(batches []*MintingBatch) ([]*MintingBatch,
 func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
 	archiver proof.Archiver, batch *MintingBatch) (*MintingBatch, error) {
 
-	if batch.GenesisPacket == nil {
+	genesisPkt := batch.GenesisPacket
+
+	if genesisPkt == nil {
 		return nil, fmt.Errorf("batch is missing anchor tx packet")
 	}
 
 	// Collect genesis TX information from the batch to build the proof
 	// locators.
-	anchorOutputIndex := batch.GenesisPacket.AssetAnchorOutIdx
+	anchorOutputIndex := genesisPkt.AssetAnchorOutIdx
+
+	genOutpoint, err := genesisPkt.GenesisOutpoint().UnwrapOrErr(
+		fmt.Errorf("genesis outpoint not set in batch genesis packet"),
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	signedTx, err := psbt.Extract(batch.GenesisPacket.Pkt)
 	if err != nil {
 		return nil, err
 	}
 
-	genOutpoint := extractGenesisOutpoint(signedTx)
 	genScript := signedTx.TxOut[anchorOutputIndex].PkScript
 	anchorOutpoint := wire.OutPoint{
 		Hash:  signedTx.TxHash(),
@@ -1571,9 +1579,14 @@ func newVerboseBatch(currentBatch *MintingBatch,
 	// fetch the genesis point and anchor index for the batch.
 	anchorOutputIndex := currentBatch.GenesisPacket.AssetAnchorOutIdx
 
-	genesisPoint := extractGenesisOutpoint(
-		currentBatch.GenesisPacket.Pkt.UnsignedTx,
+	genesisPkt := currentBatch.GenesisPacket
+	genesisPoint, err := genesisPkt.GenesisOutpoint().UnwrapOrErr(
+		fmt.Errorf("batch genesis outpoint is missing from " +
+			"funded genesis packet"),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// Construct the group key requests and group virtual TXs for each
 	// seedling. With these we can verify provided asset group witnesses, or
@@ -2147,11 +2160,16 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 
 	// Before we can build the group key requests for each seedling, we must
 	// fetch the genesis point and anchor index for the batch.
-	anchorOutputIndex := workingBatch.GenesisPacket.AssetAnchorOutIdx
+	workingGenesisPkt := workingBatch.GenesisPacket
+	anchorOutputIndex := workingGenesisPkt.AssetAnchorOutIdx
 
-	genesisPoint := extractGenesisOutpoint(
-		workingBatch.GenesisPacket.Pkt.UnsignedTx,
+	genesisPoint, err := workingGenesisPkt.GenesisOutpoint().UnwrapOrErr(
+		fmt.Errorf("batch genesis outpoint is missing from " +
+			"funded genesis packet"),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// Check if the batch is already sealed by picking a random grouped
 	// seedling and trying to fetch the full asset group.
@@ -3034,6 +3052,26 @@ func NewFundedMintAnchorPsbt(
 		AssetAnchorOutIdx:   anchorOutIndexes.AssetAnchorOutIdx,
 		PreCommitmentOutput: preCommitOut,
 	}, nil
+}
+
+// GenesisOutpoint returns the genesis outpoint of the mint anchor PSBT, which
+// is the first input in the genesis transaction.
+func (f *FundedMintAnchorPsbt) GenesisOutpoint() fn.Option[wire.OutPoint] {
+	var zero fn.Option[wire.OutPoint]
+
+	if f.Pkt == nil {
+		return zero
+	}
+
+	if f.Pkt.UnsignedTx == nil {
+		return zero
+	}
+
+	if len(f.Pkt.UnsignedTx.TxIn) == 0 {
+		return zero
+	}
+
+	return fn.Some(f.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint)
 }
 
 // Copy creates a deep copy of FundedMintAnchorPsbt.
