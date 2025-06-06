@@ -1600,17 +1600,23 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, fmt.Errorf("no proof courier address provided")
 	}
 
-	if len(req.AssetId) != 32 {
-		return nil, fmt.Errorf("invalid asset id length")
+	assetID, groupKey, err := parseAssetSpecifier(
+		req.AssetId, "", req.GroupKey, "",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse asset specifier: %w",
+			err)
+	}
+	specifier, err := asset.NewSpecifier(assetID, groupKey, nil, true)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create asset specifier: %w",
+			err)
 	}
 
-	var assetID asset.ID
-	copy(assetID[:], req.AssetId)
+	rpcsLog.Infof("[NewAddr]: making new addr: specifier=%s, amt=%v",
+		&specifier, req.Amt)
 
-	rpcsLog.Infof("[NewAddr]: making new addr: asset_id=%x, amt=%v",
-		assetID[:], req.Amt)
-
-	err := r.checkBalanceOverflow(ctx, &assetID, nil, req.Amt)
+	err = r.checkBalanceOverflow(ctx, assetID, groupKey, req.Amt)
 	if err != nil {
 		return nil, err
 	}
@@ -1634,6 +1640,16 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, err
 	}
 
+	// Addresses with version 2 or later must use the new authmailbox proof
+	// courier type.
+	if addrVersion >= address.V2 {
+		if courierAddr.Scheme != proof.AuthMailboxUniRpcCourierType {
+			return nil, fmt.Errorf("address version %d must use "+
+				"the '%s' proof courier type", addrVersion,
+				proof.AuthMailboxUniRpcCourierType)
+		}
+	}
+
 	var addr *address.AddrWithKeyInfo
 	switch {
 	// No key was specified, we'll let the address book derive them.
@@ -1641,9 +1657,8 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddress(
-			ctx, addrVersion, asset.NewSpecifierFromId(assetID),
-			req.Amt, tapscriptSibling, *courierAddr,
-			address.WithAssetVersion(assetVersion),
+			ctx, addrVersion, specifier, req.Amt, tapscriptSibling,
+			*courierAddr, address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -1691,9 +1706,9 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
-			ctx, addrVersion, asset.NewSpecifierFromId(assetID),
-			req.Amt, *scriptKey, internalKey, tapscriptSibling,
-			*courierAddr, address.WithAssetVersion(assetVersion),
+			ctx, addrVersion, specifier, req.Amt, *scriptKey,
+			internalKey, tapscriptSibling, *courierAddr,
+			address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
