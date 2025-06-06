@@ -2470,6 +2470,14 @@
         "skip_proof_courier_ping_check": {
           "type": "boolean",
           "description": "A flag to skip the proof courier ping check. This is useful for\ntesting purposes and for forced transfers when the proof courier\nis not immediately available."
+        },
+        "address_amounts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "A map of TAP address to amount to send. An entry in this map is only\nrequired for V2 addresses that don't specify an amount (amount of zero).\nIf an address does specify an amount, then it cannot be overridden in\nthis map."
         }
       }
     },

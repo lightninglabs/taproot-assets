@@ -490,6 +490,12 @@ func (m *MockProofCourier) Stop() error {
 	return nil
 }
 
+func (m *MockProofCourier) DeliverFragment(_ context.Context,
+	_ *SendFragmentEnvelope) error {
+
+	return fmt.Errorf("send fragment not supported")
+}
+
 // DeliverProof attempts to delivery a proof to the receiver, using the
 // information in the Addr type.
 func (m *MockProofCourier) DeliverProof(_ context.Context,

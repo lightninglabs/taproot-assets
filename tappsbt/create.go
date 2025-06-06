@@ -2,6 +2,7 @@ package tappsbt
 
 import (
 	"fmt"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
@@ -84,6 +85,56 @@ func FromAddresses(receiverAddrs []*address.Tap,
 	}
 
 	return pkt, nil
+}
+
+// OutputMatchesAddress checks whether the given virtual output matches the
+// given address.
+func OutputMatchesAddress(vOut *VOutput, addr *address.Tap) bool {
+	urlEqual := func(aPtr, bPtr *url.URL) bool {
+		var a, b url.URL
+		if aPtr != nil {
+			a = *aPtr
+		}
+		if bPtr != nil {
+			b = *bPtr
+		}
+		return a.String() == b.String()
+	}
+
+	tapscriptSiblingEqual := func(a, b *commitment.TapscriptPreimage) bool {
+		if a == nil || b == nil {
+			return a == b
+		}
+
+		aHash, err := a.TapHash()
+		if err != nil {
+			return false
+		}
+		bHash, err := b.TapHash()
+		if err != nil {
+			return false
+		}
+
+		return *aHash == *bHash
+	}
+
+	equalVersion := vOut.AssetVersion == addr.AssetVersion
+	addrScriptKey := asset.NewScriptKey(&addr.ScriptKey)
+	equalScriptKey := vOut.ScriptKey.PubKey.IsEqual(addrScriptKey.PubKey)
+	equalInternalKey := vOut.AnchorOutputInternalKey.IsEqual(
+		&addr.InternalKey,
+	)
+	equalUrl := urlEqual(vOut.ProofDeliveryAddress, &addr.ProofCourierAddr)
+	equalSibling := tapscriptSiblingEqual(
+		vOut.AnchorOutputTapscriptSibling,
+		addr.TapscriptSibling,
+	)
+
+	// The amount is not compared, because multiple virtual outputs might
+	// be needed to satisfy the amount of the address.
+	return equalVersion && equalScriptKey && equalInternalKey && equalUrl &&
+		equalSibling
+
 }
 
 // ForInteractiveSend creates a virtual transaction packet for sending an output
