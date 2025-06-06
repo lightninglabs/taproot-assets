@@ -2,8 +2,10 @@ package taprootassets
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -86,6 +88,23 @@ func (l *LndRpcKeyRing) IsLocalKey(ctx context.Context,
 	}
 
 	return derived.PubKey.IsEqual(desc.PubKey)
+}
+
+// DeriveSharedKey returns a shared secret key by performing
+// Diffie-Hellman key derivation between the ephemeral public key and
+// the key specified by the key locator (or the node's identity private
+// key if no key locator is specified):
+//
+//	P_shared = privKeyNode * ephemeralPubkey
+//
+// The resulting shared public key is serialized in the compressed
+// format and hashed with SHA256, resulting in a final key length of 256
+// bits.
+func (l *LndRpcKeyRing) DeriveSharedKey(ctx context.Context,
+	ephemeralPubKey *btcec.PublicKey,
+	keyLocator *keychain.KeyLocator) ([sha256.Size]byte, error) {
+
+	return l.lnd.Signer.DeriveSharedKey(ctx, ephemeralPubKey, keyLocator)
 }
 
 // A compile time assertion to ensure LndRpcKeyRing meets the
