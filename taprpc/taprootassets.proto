@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "tapcommon.proto";
+
 package taprpc;
 
 option go_package = "github.com/lightninglabs/taproot-assets/taprpc";
@@ -1478,18 +1480,6 @@ message AssetBurn {
 
 message ListBurnsResponse {
     repeated AssetBurn burns = 1;
-}
-
-message OutPoint {
-    /*
-    Raw bytes representing the transaction id.
-    */
-    bytes txid = 1;
-
-    /*
-    The index of the output on the transaction.
-    */
-    uint32 output_index = 2;
 }
 
 message SubscribeReceiveEventsRequest {

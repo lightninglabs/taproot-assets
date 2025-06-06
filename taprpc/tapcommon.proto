@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package taprpc;
+
+option go_package = "github.com/lightninglabs/taproot-assets/taprpc";
+
+// Represents a Bitcoin transaction outpoint.
+message OutPoint {
+    /*
+    Raw bytes representing the transaction id.
+    */
+    bytes txid = 1;
+
+    /*
+    The index of the output on the transaction.
+    */
+    uint32 output_index = 2;
+}
