@@ -41,6 +41,7 @@ type Querier interface {
 	DeleteUniverseLeaves(ctx context.Context, namespace string) error
 	DeleteUniverseRoot(ctx context.Context, namespaceRoot string) error
 	DeleteUniverseServer(ctx context.Context, arg DeleteUniverseServerParams) error
+	FetchAddrByScriptKeyAndVersion(ctx context.Context, arg FetchAddrByScriptKeyAndVersionParams) (FetchAddrByScriptKeyAndVersionRow, error)
 	FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error)
 	FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventRow, error)
 	FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg FetchAddrEventByAddrKeyAndOutpointParams) (FetchAddrEventByAddrKeyAndOutpointRow, error)

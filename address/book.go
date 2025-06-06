@@ -127,6 +127,12 @@ type Storage interface {
 	AddrByTaprootOutput(ctx context.Context,
 		key *btcec.PublicKey) (*AddrWithKeyInfo, error)
 
+	// AddrByScriptKeyAndVersion returns a single address based on its
+	// script key and version or a sql.ErrNoRows error if no such address
+	// exists.
+	AddrByScriptKeyAndVersion(context.Context, *btcec.PublicKey,
+		Version) (*AddrWithKeyInfo, error)
+
 	// SetAddrManaged sets an address as being managed by the internal
 	// wallet.
 	SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
@@ -601,6 +607,14 @@ func (b *Book) AddrByTaprootOutput(ctx context.Context,
 	key *btcec.PublicKey) (*AddrWithKeyInfo, error) {
 
 	return b.cfg.Store.AddrByTaprootOutput(ctx, key)
+}
+
+// AddrByScriptKeyAndVersion returns a single address based on its script key
+// and version or a sql.ErrNoRows error if no such address exists.
+func (b *Book) AddrByScriptKeyAndVersion(ctx context.Context,
+	scriptKey *btcec.PublicKey, version Version) (*AddrWithKeyInfo, error) {
+
+	return b.cfg.Store.AddrByScriptKeyAndVersion(ctx, scriptKey, version)
 }
 
 // SetAddrManaged sets an address as being managed by the internal
