@@ -84,8 +84,10 @@ type Seedling struct {
 	// Amount is the total amount of the asset.
 	Amount uint64
 
-	// GroupInfo contains the information needed to link this asset to an
-	// exiting group.
+	// GroupInfo contains metadata linking this issuance tranche to an asset
+	// group. It is set either when the seedling is added to a batch (for an
+	// existing asset group) or when the batch is sealed and a new asset
+	// group is created.
 	GroupInfo *asset.AssetGroup
 
 	// EnableEmission if true, then an asset group key will be specified
