@@ -1372,27 +1372,66 @@ func AssertBalanceByID(t *testing.T, client taprpc.TaprootAssetsClient,
 // AssertBalanceByGroup asserts that the balance of a single asset group
 // on the given daemon is correct.
 func AssertBalanceByGroup(t *testing.T, client taprpc.TaprootAssetsClient,
-	hexGroupKey string, amt uint64) {
+	hexGroupKey string, amt uint64, opts ...BalanceOption) {
 
 	t.Helper()
+
+	config := &balanceConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	var rpcTypeQuery *taprpc.ScriptKeyTypeQuery
+	switch {
+	case config.allScriptKeyTypes:
+		rpcTypeQuery = &taprpc.ScriptKeyTypeQuery{
+			Type: &taprpc.ScriptKeyTypeQuery_AllTypes{
+				AllTypes: true,
+			},
+		}
+
+	case config.scriptKeyType != nil:
+		rpcTypeQuery = &taprpc.ScriptKeyTypeQuery{
+			Type: &taprpc.ScriptKeyTypeQuery_ExplicitType{
+				ExplicitType: rpcutils.MarshalScriptKeyType(
+					*config.scriptKeyType,
+				),
+			},
+		}
+	}
 
 	groupKey, err := hex.DecodeString(hexGroupKey)
 	require.NoError(t, err)
 
 	ctxb := context.Background()
-	balancesResp, err := client.ListBalances(
-		ctxb, &taprpc.ListBalancesRequest{
-			GroupBy: &taprpc.ListBalancesRequest_GroupKey{
-				GroupKey: true,
+	err = wait.NoError(func() error {
+		balancesResp, err := client.ListBalances(
+			ctxb, &taprpc.ListBalancesRequest{
+				GroupBy: &taprpc.ListBalancesRequest_GroupKey{
+					GroupKey: true,
+				},
+				GroupKeyFilter: groupKey,
+				ScriptKeyType:  rpcTypeQuery,
 			},
-			GroupKeyFilter: groupKey,
-		},
-	)
-	require.NoError(t, err)
+		)
+		if err != nil {
+			return fmt.Errorf("error listing balances: %w", err)
+		}
 
-	balance, ok := balancesResp.AssetGroupBalances[hexGroupKey]
-	require.True(t, ok)
-	require.Equal(t, amt, balance.Balance)
+		balance, ok := balancesResp.AssetGroupBalances[hexGroupKey]
+		if !ok {
+			return fmt.Errorf("no balance found for group key %s",
+				hexGroupKey)
+		}
+
+		if balance.Balance != amt {
+			return fmt.Errorf("expected balance %d, got %d",
+				amt, balance.Balance)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, err)
 }
 
 // AssertTransfer asserts that the value of each transfer initiated on the
