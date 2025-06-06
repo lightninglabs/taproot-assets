@@ -532,6 +532,9 @@ func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 	assetRequests []*mintrpc.MintAssetRequest,
 	opts ...MintOption) []*taprpc.Asset {
 
+	// Sanity check that we have at least one asset request.
+	require.NotEmpty(t, assetRequests)
+
 	options := DefaultMintOptions()
 	for _, opt := range opts {
 		opt(options)
