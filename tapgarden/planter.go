@@ -2443,6 +2443,56 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 		batchWithGroupInfo.Seedlings[assetName].GroupInfo = group
 	}
 
+	// If universe commitments are enabled, the mint anchor pre-commitment
+	// output stored in the database must be updated with the associated
+	// newly generated group information.
+	if batchWithGroupInfo.UniverseCommitments {
+		if batchWithGroupInfo.GenesisPacket == nil {
+			return nil, fmt.Errorf("batch genesis packet is " +
+				"unexpectedly nil, cannot update mint anchor " +
+				"pre-commitment output")
+		}
+
+		// Fetch the pre-commit group key that was added to the
+		// modified batch.
+		groupKeyOpt, err := fetchPreCommitGroupKey(batchWithGroupInfo)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch pre-commit "+
+				"group key: %w", err)
+		}
+
+		groupKey, err := groupKeyOpt.UnwrapOrErr(
+			fmt.Errorf("pre-commitment output group key is " +
+				"unexpectedly absent"),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Ensure that the group key is set in the genesis packet
+		// pre-commitment output descriptor.
+		fundedAnchor := batchWithGroupInfo.GenesisPacket
+		if fundedAnchor == nil {
+			return nil, fmt.Errorf("funded anchor is " +
+				"unexpectedly nil, cannot update mint anchor " +
+				"pre-commitment output descriptor")
+		}
+
+		preCommitDesc, err :=
+			fundedAnchor.PreCommitmentOutput.UnwrapOrErr(
+				fmt.Errorf("pre-commitment output is " +
+					"unexpectedly absent"),
+			)
+		if err != nil {
+			return nil, err
+		}
+
+		preCommitDesc.GroupPubKey = fn.Some(groupKey)
+
+		batchWithGroupInfo.GenesisPacket.PreCommitmentOutput =
+			fn.Some(preCommitDesc)
+	}
+
 	// With all the asset group witnesses validated, we can now save them
 	// to disk effectively sealing the batch.
 	err = c.cfg.Log.SealBatch(ctx, batchWithGroupInfo, newAssetGroups)
