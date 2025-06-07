@@ -325,11 +325,13 @@ func mintAsset(ctx *cli.Context) error {
 		// Opaque is the default if the meta_type flag is not set, so
 		// having empty metadata is allowed.
 		case taprpc.AssetMetaType_META_TYPE_OPAQUE:
+		// For opaque metadata, if no data is provided, we'll leave assetMeta as nil.
+		// This signifies that no metadata should be attached.
 		case taprpc.AssetMetaType_META_TYPE_JSON:
-			// Set only the metadata type; if present, the decimal
-			// display will be added as the actual metadata later.
-			// The minter will ultimately reject empty metadata.
+		// If the meta type is JSON and no data is provided,
+		// default to an empty JSON object.
 			assetMeta = &taprpc.AssetMeta{
+			Data: []byte("{}"),
 				Type: metaType,
 			}
 

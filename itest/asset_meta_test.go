@@ -247,3 +247,123 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 		t.t, 7, thirdAssets[0].DecimalDisplay.DecimalDisplay,
 	)
 }
+
+// testMintAssetNoMetadataJSON tests that minting an asset with meta_type as
+// json and no explicit metadata results in an asset with an empty JSON object
+// as metadata.
+func testMintAssetNoMetadataJSON(t *testing.T, cfg *harnessTest) {
+	// Mint an asset with meta_type json and no explicit metadata.
+	mintResp := cfg.Tapd.TapdClient.MintAsset(
+		t, &mintrpc.MintAssetRequest{
+			Asset: &mintrpc.MintAsset{
+				AssetType: taprpc.AssetType_NORMAL,
+				Name:      "testjsonmeta",
+				AssetMeta: &taprpc.AssetMeta{
+					Type: taprpc.AssetMetaType_META_TYPE_JSON,
+				},
+				Amount: 1000,
+			},
+		},
+	)
+
+	// Wait for the batch to be finalized.
+	waitForBatchState(
+		t, cfg.Tapd.TapdClient, mintResp.PendingBatch.BatchKey,
+		mintrpc.BatchState_BATCH_STATE_FINALIZED, defaultTimeout,
+	)
+
+	// Verify that the minted asset has an empty JSON object as metadata.
+	listResp := cfg.Tapd.TapdClient.ListAssets(
+		t, &taprpc.ListAssetRequest{},
+	)
+
+	var mintedAsset *taprpc.Asset
+	for _, asset := range listResp.Assets {
+		if asset.AssetGenesis.Name == "testjsonmeta" {
+			mintedAsset = asset
+			break
+		}
+	}
+
+	require.NotNil(t, mintedAsset, "minted asset not found")
+	require.NotNil(t, mintedAsset.AssetGenesis.MetaHash, "asset meta hash is nil")
+
+	// Fetch the metadata for the asset.
+	metaResp := cfg.Tapd.TapdClient.FetchAssetMeta(
+		t, &taprpc.FetchAssetMetaRequest{
+			Asset: &taprpc.FetchAssetMetaRequest_AssetId{
+				AssetId: mintedAsset.AssetGenesis.AssetId,
+			},
+		},
+	)
+
+	require.NotNil(t, metaResp, "asset meta is nil")
+	require.Equal(
+		t, taprpc.AssetMetaType_META_TYPE_JSON, metaResp.Type,
+		"asset meta type is not JSON",
+	)
+	require.Equal(
+		t, "{}", string(metaResp.Data),
+		"asset meta data is not an empty JSON object",
+	)
+}
+
+// testMintAssetNoMetadataJSON tests that minting an asset with meta_type as
+// json and no explicit metadata results in an asset with an empty JSON object
+// as metadata.
+func testMintAssetNoMetadataJSON(t *testing.T, cfg *harnessTest) {
+	// Mint an asset with meta_type json and no explicit metadata.
+	mintResp := cfg.Tapd.TapdClient.MintAsset(
+		t, &mintrpc.MintAssetRequest{
+			Asset: &mintrpc.MintAsset{
+				AssetType: taprpc.AssetType_NORMAL,
+				Name:      "testjsonmeta",
+				AssetMeta: &taprpc.AssetMeta{
+					Type: taprpc.AssetMetaType_META_TYPE_JSON,
+				},
+				Amount: 1000,
+			},
+		},
+	)
+
+	// Wait for the batch to be finalized.
+	waitForBatchState(
+		t, cfg.Tapd.TapdClient, mintResp.PendingBatch.BatchKey,
+		mintrpc.BatchState_BATCH_STATE_FINALIZED, defaultTimeout,
+	)
+
+	// Verify that the minted asset has an empty JSON object as metadata.
+	listResp := cfg.Tapd.TapdClient.ListAssets(
+		t, &taprpc.ListAssetRequest{},
+	)
+
+	var mintedAsset *taprpc.Asset
+	for _, asset := range listResp.Assets {
+		if asset.AssetGenesis.Name == "testjsonmeta" {
+			mintedAsset = asset
+			break
+		}
+	}
+
+	require.NotNil(t, mintedAsset, "minted asset not found")
+	require.NotNil(t, mintedAsset.AssetGenesis.MetaHash, "asset meta hash is nil")
+
+	// Fetch the metadata for the asset.
+	metaResp := cfg.Tapd.TapdClient.FetchAssetMeta(
+		t, &taprpc.FetchAssetMetaRequest{
+			Asset: &taprpc.FetchAssetMetaRequest_AssetId{
+				AssetId: mintedAsset.AssetGenesis.AssetId,
+			},
+		},
+	)
+
+	require.NotNil(t, metaResp, "asset meta is nil")
+	require.Equal(
+		t, taprpc.AssetMetaType_META_TYPE_JSON, metaResp.Type,
+		"asset meta type is not JSON",
+	)
+	require.Equal(
+		t, "{}", string(metaResp.Data),
+		"asset meta data is not an empty JSON object",
+	)
+}

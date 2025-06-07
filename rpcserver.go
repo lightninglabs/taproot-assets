@@ -533,6 +533,14 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			return nil, err
 		}
 
+		// If the meta type is JSON and no data is provided, default to
+		// an empty JSON object.
+		if metaType == proof.MetaJson &&
+			len(req.Asset.AssetMeta.Data) == 0 {
+
+			req.Asset.AssetMeta.Data = []byte("{}")
+		}
+
 		// If the asset meta field was specified, then the data inside
 		// must be valid. Let's check that now.
 		seedlingMeta = proof.MetaReveal{
