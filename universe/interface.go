@@ -247,12 +247,20 @@ type Leaf struct {
 
 	// Amt is the amount of units associated with the coin.
 	Amt uint64
+
+	// IsBurn is a boolean that indicates whether the leaf represents a burn
+	// or not.
+	IsBurn bool
 }
 
 // SmtLeafNode returns the SMT leaf node for the given leaf.
 func (m *Leaf) SmtLeafNode() *mssmt.LeafNode {
 	amount := m.Amt
-	if !m.Asset.IsGenesisAsset() {
+
+	// For transfer proofs, we just want to track the number of transfers.
+	// However, for burns (which aren't genesis asset proofs), we still want
+	// to track the amount as the final sum value.
+	if !m.Asset.IsGenesisAsset() && !m.IsBurn {
 		// We set transfer proof amounts to 1 as the transfer universe
 		// tracks the total number of transfers.
 		amount = 1
@@ -740,61 +748,6 @@ type DiffEngine interface {
 
 	// Close is used to shutdown the active diff engine instance.
 	Close() error
-}
-
-// Commitment is an on chain universe commitment. This includes the merkle
-// proof for a transaction which anchors the target universe root.
-type Commitment struct {
-	// BlockHeight is the height of the block that the commitment is
-	// contained within.
-	BlockHeight uint32
-
-	// BlockHeader is the block header that commits to the transaction.
-	BlockHeader wire.BlockHeader
-
-	// MerkleProof is a merkle proof for the above transaction that the
-	// anchor output was included.
-	MerkleProof *proof.TxMerkleProof
-
-	// UniverseRoot is the full Universe root for this commitment.
-	UniverseRoot mssmt.Node
-}
-
-// CommittedIssuanceProof couples together a Bitcoin level merkle proof
-// commitment with an issuance proof. This allows remote callers to verify that
-// their responses re actually committed to within the chain.
-type CommittedIssuanceProof struct {
-	// ChainProof is the on chain proof that shows the Universe root has
-	// been stamped in the chain.
-	ChainProof *Commitment
-
-	// TaprootAssetProof is a proof of new asset issuance.
-	TaprootAssetProof *Proof
-}
-
-// ChainCommitter is used to commit a Universe backend in the chain.
-type ChainCommitter interface {
-	// CommitUniverse takes a Universe and returns a new commitment to that
-	// Universe in the main chain.
-	CommitUniverse(universe StorageBackend) (*Commitment, error)
-}
-
-// Canonical is an interface that allows a caller to query for the latest
-// canonical Universe information related to an asset.
-//
-// TODO(roasbeef): sync methods too, divide into read/write?
-type Canonical interface {
-	StorageBackend
-
-	// Query returns a fully proved response for the target base key.
-	Query(context.Context, LeafKey) (*CommittedIssuanceProof, error)
-
-	// LatestCommitment returns the latest chain commitment.
-	LatestCommitment() (*Commitment, error)
-
-	// UpdateChainCommitment takes in a series of chain commitments and
-	// updates the commitment on chain.
-	UpdateChainCommitment(chainCommits ...ChainCommitter) (*Commitment, error)
 }
 
 // FederationLog is used to keep track of the set Universe servers that
