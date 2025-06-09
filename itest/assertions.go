@@ -292,20 +292,32 @@ func GroupAssetsByName(assets []*taprpc.Asset) map[string][]*taprpc.Asset {
 func AssertAssetState(t *testing.T, assets map[string][]*taprpc.Asset,
 	name string, metaHash []byte, assetChecks ...AssetCheck) *taprpc.Asset {
 
-	var a *taprpc.Asset
-
+	// Sanity check that the asset name is in the asset map.
 	require.Contains(t, assets, name)
 
+	var a *taprpc.Asset
 	for _, rpcAsset := range assets[name] {
 		rpcGen := rpcAsset.AssetGenesis
-		if bytes.Equal(rpcGen.MetaHash, metaHash[:]) {
+
+		switch {
+		case len(assets[name]) == 1:
 			a = rpcAsset
-
-			for _, check := range assetChecks {
-				err := check(rpcAsset)
-				require.NoError(t, err)
+		default:
+			// If there are more than one asset with the same
+			// name, we need to check the metadata hash to find the
+			// correct one.
+			if bytes.Equal(rpcGen.MetaHash, metaHash[:]) {
+				a = rpcAsset
 			}
+		}
 
+		for _, check := range assetChecks {
+			err := check(rpcAsset)
+			require.NoError(t, err)
+		}
+
+		if a != nil {
+			// If we found the asset, we can break out of the loop.
 			break
 		}
 	}
