@@ -127,7 +127,7 @@ service TaprootAssets {
     FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
     either by the asset ID for that asset, or a meta hash.
     */
-    rpc FetchAssetMeta (FetchAssetMetaRequest) returns (AssetMeta);
+    rpc FetchAssetMeta (FetchAssetMetaRequest) returns (FetchAssetMetaResponse);
 
     /* tapcli: `events receive`
     SubscribeReceiveEvents allows a caller to subscribe to receive events for
@@ -1417,7 +1417,22 @@ message FetchAssetMetaRequest {
 
         // The hex encoded meta hash of the asset meta.
         string meta_hash_str = 4;
+
+        // The group key of the assets to fetch the meta for.
+        bytes group_key = 5;
+
+        // The hex encoded group key of the assets to fetch the meta for.
+        string group_key_str = 6;
     }
+}
+
+message FetchAssetMetaResponse {
+    // The list of asset metadata objects.
+    repeated AssetMeta asset_metas = 1;
+
+    // The number of base 10 digits to the right of the decimal point to
+    // display the asset amount. This is the same for all assets in a group.
+    int32 decimal_display = 2;
 }
 
 message BurnAssetRequest {

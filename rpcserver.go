@@ -4727,92 +4727,279 @@ func parseUserKey(scriptKey []byte) (*btcec.PublicKey, error) {
 	}
 }
 
-func (r *rpcServer) FetchAssetMeta(ctx context.Context,
-	req *taprpc.FetchAssetMetaRequest) (*taprpc.AssetMeta, error) {
+// fetchMetaByAssetID is a helper function to fetch asset metadata by asset ID.
+func (s *rpcServer) fetchMetaByAssetID(ctx context.Context, assetIdBytes []byte) (*taprpc.FetchAssetMetaResponse, error) {
+	if len(assetIdBytes) != sha256.Size {
+		return nil, fmt.Errorf("asset ID must be 32 bytes")
+	}
+	var parsedAssetID asset.ID
+	copy(parsedAssetID[:], assetIdBytes)
 
-	var (
-		assetMeta *proof.MetaReveal
-		err       error
-	)
+	dbMeta, fetchErr := s.cfg.AddrBook.FetchAssetMetaForAsset(ctx, parsedAssetID)
+	if fetchErr != nil {
+		return nil, fmt.Errorf("unable to fetch asset meta for asset ID: %w", fetchErr)
+	}
 
-	switch {
-	case req.GetAssetId() != nil:
-		if len(req.GetAssetId()) != sha256.Size {
-			return nil, fmt.Errorf("asset ID must be 32 bytes")
+	rpcMeta, err := rpcutils.MarshalAssetMeta(dbMeta)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal asset meta: %w", err)
+	}
+
+	decDisplay, _ := dbMeta.DecDisplayOption()
+
+	return &taprpc.FetchAssetMetaResponse{
+		AssetMetas:     []*taprpc.AssetMeta{rpcMeta},
+		DecimalDisplay: int32(decDisplay.UnwrapOr(0)),
+	}, nil
+}
+
+// fetchMetaByMetaHash is a helper function to fetch asset metadata by meta hash.
+func (s *rpcServer) fetchMetaByMetaHash(ctx context.Context, metaHashBytes []byte) (*taprpc.FetchAssetMetaResponse, error) {
+	if len(metaHashBytes) != sha256.Size {
+		return nil, fmt.Errorf("meta hash must be 32 bytes")
+	}
+	var mH [asset.MetaHashLen]byte
+	copy(mH[:], metaHashBytes)
+
+	dbMeta, fetchErr := s.cfg.AddrBook.FetchAssetMetaByHash(ctx, mH)
+	if fetchErr != nil {
+		return nil, fmt.Errorf("unable to fetch asset meta by hash: %w", fetchErr)
+	}
+
+	rpcMeta, err := rpcutils.MarshalAssetMeta(dbMeta)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal asset meta: %w", err)
+	}
+
+	decDisplay, _ := dbMeta.DecDisplayOption()
+
+	return &taprpc.FetchAssetMetaResponse{
+		AssetMetas:     []*taprpc.AssetMeta{rpcMeta},
+		DecimalDisplay: int32(decDisplay.UnwrapOr(0)),
+	}, nil
+}
+
+// fetchMetaByGroupKey is a helper function to fetch asset metadata by group key.
+func (s *rpcServer) fetchMetaByGroupKey(ctx context.Context, groupKeyBytes []byte) (*taprpc.FetchAssetMetaResponse, error) {
+	if len(groupKeyBytes) != btcec.PubKeyBytesCompressed && len(groupKeyBytes) != schnorr.PubKeyBytesLen {
+		return nil, fmt.Errorf("group key must be 32 or 33 bytes")
+	}
+	parsedGroupKey, err := parseUserKey(groupKeyBytes) // Reuses existing helper
+	if err != nil {
+		return nil, fmt.Errorf("invalid group key: %w", err)
+	}
+
+	assetSpecifier := asset.NewSpecifierFromGroupKey(*parsedGroupKey)
+	filters := &tapdb.AssetQueryFilters{
+		CommitmentConstraints: tapfreighter.CommitmentConstraints{
+			AssetSpecifier: assetSpecifier,
+		},
+	}
+	// We want all assets, spent or unspent, leased or not, to get their metas.
+	// Setting withWitness to false as we only need meta.
+	rpcChainAssets, err := s.fetchRpcAssets(ctx, false, true, true, filters)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch assets for group key: %w", err)
+	}
+
+	if len(rpcChainAssets) == 0 {
+		// If no assets are found for the group, it's not an error per se,
+		// but there's no metadata to return. The decimal display would be default (0).
+		return &taprpc.FetchAssetMetaResponse{
+			AssetMetas:     []*taprpc.AssetMeta{},
+			DecimalDisplay: 0,
+		}, nil
+	}
+
+	rpcMetas := make([]*taprpc.AssetMeta, 0, len(rpcChainAssets))
+	var groupDecimalDisplay uint32 // Assuming it's the same for the whole group.
+
+	for i, chainAsset := range rpcChainAssets {
+		var assetIDVar asset.ID
+		copy(assetIDVar[:], chainAsset.AssetGenesis.AssetId)
+
+		dbMeta, fetchErr := s.cfg.AddrBook.FetchAssetMetaForAsset(ctx, assetIDVar)
+		if fetchErr != nil {
+			rpcsLog.Warnf("Failed to fetch meta for asset %x in group %x: %v",
+				assetIDVar[:], parsedGroupKey.SerializeCompressed(), fetchErr)
+			continue
 		}
 
-		var assetID asset.ID
-		copy(assetID[:], req.GetAssetId())
+		rpcMetaItem, marshalErr := rpcutils.MarshalAssetMeta(dbMeta)
+		if marshalErr != nil {
+			rpcsLog.Warnf("Failed to marshal meta for asset %x in group %x: %v",
+				assetIDVar[:], parsedGroupKey.SerializeCompressed(), marshalErr)
+			continue
+		}
+		rpcMetas = append(rpcMetas, rpcMetaItem)
 
-		assetMeta, err = r.cfg.AddrBook.FetchAssetMetaForAsset(
-			ctx, assetID,
-		)
+		if i == 0 {
+			decOpt, _ := dbMeta.DecDisplayOption()
+			groupDecimalDisplay = decOpt.UnwrapOr(0)
+		}
+	}
 
-	case req.GetAssetIdStr() != "":
-		if len(req.GetAssetIdStr()) != hex.EncodedLen(sha256.Size) {
-			return nil, fmt.Errorf("asset ID must be 32 bytes")
+	return &taprpc.FetchAssetMetaResponse{
+		AssetMetas:     rpcMetas,
+		DecimalDisplay: int32(groupDecimalDisplay),
+	}, nil
+}
+
+// fetchMetaByAssetID is a helper function to fetch asset metadata by asset ID.
+func (s *rpcServer) fetchMetaByAssetID(ctx context.Context, assetIdBytes []byte) (*taprpc.FetchAssetMetaResponse, error) {
+	if len(assetIdBytes) != sha256.Size {
+		return nil, fmt.Errorf("asset ID must be 32 bytes")
+	}
+	var parsedAssetID asset.ID
+	copy(parsedAssetID[:], assetIdBytes)
+
+	dbMeta, fetchErr := s.cfg.AddrBook.FetchAssetMetaForAsset(ctx, parsedAssetID)
+	if fetchErr != nil {
+		return nil, fmt.Errorf("unable to fetch asset meta for asset ID: %w", fetchErr)
+	}
+
+	rpcMeta, err := rpcutils.MarshalAssetMeta(dbMeta)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal asset meta: %w", err)
+	}
+
+	decDisplay, _ := dbMeta.DecDisplayOption()
+
+	return &taprpc.FetchAssetMetaResponse{
+		AssetMetas:     []*taprpc.AssetMeta{rpcMeta},
+		DecimalDisplay: int32(decDisplay.UnwrapOr(0)),
+	}, nil
+}
+
+// fetchMetaByMetaHash is a helper function to fetch asset metadata by meta hash.
+func (s *rpcServer) fetchMetaByMetaHash(ctx context.Context, metaHashBytes []byte) (*taprpc.FetchAssetMetaResponse, error) {
+	if len(metaHashBytes) != sha256.Size {
+		return nil, fmt.Errorf("meta hash must be 32 bytes")
+	}
+	var mH [asset.MetaHashLen]byte
+	copy(mH[:], metaHashBytes)
+
+	dbMeta, fetchErr := s.cfg.AddrBook.FetchAssetMetaByHash(ctx, mH)
+	if fetchErr != nil {
+		return nil, fmt.Errorf("unable to fetch asset meta by hash: %w", fetchErr)
+	}
+
+	rpcMeta, err := rpcutils.MarshalAssetMeta(dbMeta)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal asset meta: %w", err)
+	}
+
+	decDisplay, _ := dbMeta.DecDisplayOption()
+
+	return &taprpc.FetchAssetMetaResponse{
+		AssetMetas:     []*taprpc.AssetMeta{rpcMeta},
+		DecimalDisplay: int32(decDisplay.UnwrapOr(0)),
+	}, nil
+}
+
+// fetchMetaByGroupKey is a helper function to fetch asset metadata by group key.
+func (s *rpcServer) fetchMetaByGroupKey(ctx context.Context, groupKeyBytes []byte) (*taprpc.FetchAssetMetaResponse, error) {
+	if len(groupKeyBytes) != btcec.PubKeyBytesCompressed && len(groupKeyBytes) != schnorr.PubKeyBytesLen {
+		return nil, fmt.Errorf("group key must be 32 or 33 bytes")
+	}
+	parsedGroupKey, err := parseUserKey(groupKeyBytes) // Reuses existing helper
+	if err != nil {
+		return nil, fmt.Errorf("invalid group key: %w", err)
+	}
+
+	assetSpecifier := asset.NewSpecifierFromGroupKey(*parsedGroupKey)
+	filters := &tapdb.AssetQueryFilters{
+		CommitmentConstraints: tapfreighter.CommitmentConstraints{
+			AssetSpecifier: assetSpecifier,
+		},
+	}
+	// We want all assets, spent or unspent, leased or not, to get their metas.
+	// Setting withWitness to false as we only need meta.
+	rpcChainAssets, err := s.fetchRpcAssets(ctx, false, true, true, filters)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch assets for group key: %w", err)
+	}
+
+	if len(rpcChainAssets) == 0 {
+		// If no assets are found for the group, it's not an error per se,
+		// but there's no metadata to return. The decimal display would be default (0).
+		return &taprpc.FetchAssetMetaResponse{
+			AssetMetas:     []*taprpc.AssetMeta{},
+			DecimalDisplay: 0,
+		}, nil
+	}
+
+	rpcMetas := make([]*taprpc.AssetMeta, 0, len(rpcChainAssets))
+	var groupDecimalDisplay uint32 // Assuming it's the same for the whole group.
+
+	for i, chainAsset := range rpcChainAssets {
+		var assetIDVar asset.ID
+		copy(assetIDVar[:], chainAsset.AssetGenesis.AssetId)
+
+		dbMeta, fetchErr := s.cfg.AddrBook.FetchAssetMetaForAsset(ctx, assetIDVar)
+		if fetchErr != nil {
+			rpcsLog.Warnf("Failed to fetch meta for asset %x in group %x: %v",
+				assetIDVar[:], parsedGroupKey.SerializeCompressed(), fetchErr)
+			continue
 		}
 
-		var assetIDBytes []byte
-		assetIDBytes, err = hex.DecodeString(req.GetAssetIdStr())
+		rpcMetaItem, marshalErr := rpcutils.MarshalAssetMeta(dbMeta)
+		if marshalErr != nil {
+			rpcsLog.Warnf("Failed to marshal meta for asset %x in group %x: %v",
+				assetIDVar[:], parsedGroupKey.SerializeCompressed(), marshalErr)
+			continue
+		}
+		rpcMetas = append(rpcMetas, rpcMetaItem)
+
+		if i == 0 {
+			decOpt, _ := dbMeta.DecDisplayOption()
+			groupDecimalDisplay = decOpt.UnwrapOr(0)
+		}
+	}
+
+	return &taprpc.FetchAssetMetaResponse{
+		AssetMetas:     rpcMetas,
+		DecimalDisplay: int32(groupDecimalDisplay),
+	}, nil
+}
+
+func (s *rpcServer) FetchAssetMeta(ctx context.Context,
+	req *taprpc.FetchAssetMetaRequest) (*taprpc.FetchAssetMetaResponse, error) {
+
+	switch assetType := req.Asset.(type) {
+	case *taprpc.FetchAssetMetaRequest_AssetId:
+		return s.fetchMetaByAssetID(ctx, assetType.AssetId)
+
+	case *taprpc.FetchAssetMetaRequest_AssetIdStr:
+		assetIDBytes, err := hex.DecodeString(assetType.AssetIdStr)
 		if err != nil {
-			return nil, fmt.Errorf("error hex decoding asset ID: "+
-				"%w", err)
+			return nil, fmt.Errorf("unable to decode asset id string: %w", err)
 		}
+		return s.fetchMetaByAssetID(ctx, assetIDBytes)
 
-		var assetID asset.ID
-		copy(assetID[:], assetIDBytes)
+	case *taprpc.FetchAssetMetaRequest_MetaHash:
+		return s.fetchMetaByMetaHash(ctx, assetType.MetaHash)
 
-		assetMeta, err = r.cfg.AddrBook.FetchAssetMetaForAsset(
-			ctx, assetID,
-		)
-
-	case req.GetMetaHash() != nil:
-		if len(req.GetMetaHash()) != sha256.Size {
-			return nil, fmt.Errorf("meta hash must be 32 bytes")
-		}
-
-		var metaHash [asset.MetaHashLen]byte
-		copy(metaHash[:], req.GetMetaHash())
-
-		assetMeta, err = r.cfg.AddrBook.FetchAssetMetaByHash(
-			ctx, metaHash,
-		)
-
-	case req.GetMetaHashStr() != "":
-		if len(req.GetMetaHashStr()) != hex.EncodedLen(sha256.Size) {
-			return nil, fmt.Errorf("meta hash must be 32 bytes")
-		}
-
-		var metaHashBytes []byte
-		metaHashBytes, err = hex.DecodeString(req.GetMetaHashStr())
+	case *taprpc.FetchAssetMetaRequest_MetaHashStr:
+		metaHashBytes, err := hex.DecodeString(assetType.MetaHashStr)
 		if err != nil {
-			return nil, fmt.Errorf("error hex decoding meta hash: "+
-				"%w", err)
+			return nil, fmt.Errorf("unable to decode meta hash string: %w", err)
 		}
+		return s.fetchMetaByMetaHash(ctx, metaHashBytes)
 
-		var metaHash [asset.MetaHashLen]byte
-		copy(metaHash[:], metaHashBytes)
+	case *taprpc.FetchAssetMetaRequest_GroupKey:
+		return s.fetchMetaByGroupKey(ctx, assetType.GroupKey)
 
-		assetMeta, err = r.cfg.AddrBook.FetchAssetMetaByHash(
-			ctx, metaHash,
-		)
+	case *taprpc.FetchAssetMetaRequest_GroupKeyStr:
+		groupKeyBytes, err := hex.DecodeString(assetType.GroupKeyStr)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode group key string: %w", err)
+		}
+		return s.fetchMetaByGroupKey(ctx, groupKeyBytes)
 
 	default:
-		return nil, fmt.Errorf("either asset ID or meta hash must " +
-			"be set")
+		return nil, fmt.Errorf("unknown asset identifier in FetchAssetMetaRequest")
 	}
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch asset "+
-			"meta: %w", err)
-	}
-
-	metaHash := assetMeta.MetaHash()
-	return &taprpc.AssetMeta{
-		Data:     assetMeta.Data,
-		Type:     taprpc.AssetMetaType(assetMeta.Type),
-		MetaHash: metaHash[:],
-	}, nil
 }
 
 // MarshalUniProofType marshals the universe proof type into the RPC

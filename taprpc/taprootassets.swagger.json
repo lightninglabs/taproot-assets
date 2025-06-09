@@ -455,7 +455,7 @@
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/taprpcAssetMeta"
+              "$ref": "#/definitions/taprpcFetchAssetMetaResponse"
             }
           },
           "default": {
@@ -492,6 +492,21 @@
           {
             "name": "meta_hash_str",
             "description": "The hex encoded meta hash of the asset meta.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "group_key",
+            "description": "The group key of the assets to fetch the meta for.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "group_key_str",
+            "description": "The hex encoded group key of the assets to fetch the meta for.",
             "in": "query",
             "required": false,
             "type": "string"
@@ -510,7 +525,7 @@
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/taprpcAssetMeta"
+              "$ref": "#/definitions/taprpcFetchAssetMetaResponse"
             }
           },
           "default": {
@@ -547,6 +562,21 @@
           {
             "name": "asset_id_str",
             "description": "The hex encoded asset ID of the asset to fetch the meta for.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "group_key",
+            "description": "The group key of the assets to fetch the meta for.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "group_key_str",
+            "description": "The hex encoded group key of the assets to fetch the meta for.",
             "in": "query",
             "required": false,
             "type": "string"
@@ -1916,6 +1946,24 @@
         },
         "outpoint": {
           "$ref": "#/definitions/taprpcOutPoint"
+        }
+      }
+    },
+    "taprpcFetchAssetMetaResponse": {
+      "type": "object",
+      "properties": {
+        "asset_metas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/taprpcAssetMeta"
+          },
+          "description": "The list of asset metadata objects."
+        },
+        "decimal_display": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of base 10 digits to the right of the decimal point to\ndisplay the asset amount. This is the same for all assets in a group."
         }
       }
     },
