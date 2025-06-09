@@ -222,8 +222,8 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 		t.t, 2, secondAssets[0].DecimalDisplay.DecimalDisplay,
 	)
 
-	// For an asset with a JSON meta data type, we also expect the decimal
-	// display to be encoded in the meta data JSON.
+	// For an asset with a JSON metadata type, we also expect the decimal
+	// display to be encoded in the metadata JSON.
 	metaResp, err := t.tapd.FetchAssetMeta(
 		ctxt, &taprpc.FetchAssetMetaRequest{
 			Asset: &taprpc.FetchAssetMetaRequest_AssetId{
@@ -234,6 +234,13 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	require.NoError(t.t, err)
 	require.Contains(t.t, string(metaResp.Data), `"foo":"bar"`)
 	require.Contains(t.t, string(metaResp.Data), `"decimal_display":2`)
+
+	require.Empty(t.t, metaResp.UnknownOddTypes)
+	require.Equal(t.t, taprpc.AssetMetaType_META_TYPE_JSON, metaResp.Type)
+	require.Equal(t.t, uint32(2), metaResp.DecimalDisplay)
+	require.Equal(t.t, false, metaResp.UniverseCommitments)
+	require.Empty(t.t, metaResp.CanonicalUniverseUrls)
+	require.Nil(t.t, metaResp.DelegationKey)
 
 	AssertGroupSizes(
 		t.t, t.tapd, []string{hex.EncodeToString(groupKey)}, []int{2},
