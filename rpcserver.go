@@ -534,11 +534,31 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			return nil, err
 		}
 
+		// Unmarshal canonical universe URLs, if any.
+		urlStrings := req.Asset.AssetMeta.CanonicalUniverseUrls
+		uniUrls := make([]url.URL, 0, len(urlStrings))
+		for idx := range urlStrings {
+			urlStr := urlStrings[idx]
+			urlAddr, err := url.Parse(urlStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid canonical "+
+					"universe URL %q: %w", urlStr, err)
+			}
+
+			uniUrls = append(uniUrls, *urlAddr)
+		}
+
+		var canonicalUniUrls fn.Option[[]url.URL]
+		if len(uniUrls) > 0 {
+			canonicalUniUrls = fn.Some(uniUrls)
+		}
+
 		// If the asset meta field was specified, then the data inside
 		// must be valid. Let's check that now.
 		seedlingMeta = proof.MetaReveal{
-			Data: req.Asset.AssetMeta.Data,
-			Type: metaType,
+			Data:               req.Asset.AssetMeta.Data,
+			Type:               metaType,
+			CanonicalUniverses: canonicalUniUrls,
 		}
 
 		// Before we set the TLV based decimal display, we first make

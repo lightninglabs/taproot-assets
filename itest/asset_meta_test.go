@@ -3,8 +3,10 @@ package itest
 import (
 	"context"
 	"encoding/hex"
+	"net/url"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -114,12 +116,17 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 
 	mintName := "test-asset-decimal-places"
 	jsonData := []byte(`{"field1": "value1", "field2": "value2"}`)
+	canonicalUniUrls := []string{
+		"https://example.com/asset",
+	}
 	firstAsset := &mintrpc.MintAsset{
 		AssetType: taprpc.AssetType_NORMAL,
 		Name:      mintName,
 		AssetMeta: &taprpc.AssetMeta{
 			Data: jsonData,
 			Type: taprpc.AssetMetaType_META_TYPE_JSON,
+
+			CanonicalUniverseUrls: canonicalUniUrls,
 		},
 		Amount:          500,
 		DecimalDisplay:  2,
@@ -143,20 +150,30 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 		t.t, taprpc.AssetMetaType_META_TYPE_JSON,
 		firstAsset.AssetMeta.Type,
 	)
-	mintedMeta := &proof.MetaReveal{
-		Type: proof.MetaJson,
-		Data: jsonData,
+
+	uniUrls := make([]url.URL, 0, len(canonicalUniUrls))
+	for idx := range canonicalUniUrls {
+		urlStr := canonicalUniUrls[idx]
+		uniUrl, err := url.Parse(urlStr)
+		require.NoError(t.t, err)
+		uniUrls = append(uniUrls, *uniUrl)
+	}
+
+	expectedMintedMeta := &proof.MetaReveal{
+		Type:               proof.MetaJson,
+		Data:               jsonData,
+		CanonicalUniverses: fn.Some(uniUrls),
 	}
 
 	// Manually update the requested metadata and compute the expected hash.
-	err := mintedMeta.SetDecDisplay(firstAsset.DecimalDisplay)
+	err := expectedMintedMeta.SetDecDisplay(firstAsset.DecimalDisplay)
 	require.NoError(t.t, err)
 
-	metaHash := mintedMeta.MetaHash()
+	expectedMetaHash := expectedMintedMeta.MetaHash()
 
 	// The meta hash from the minted asset must match the expected hash.
 	genMetaHash := firstAssetMinted.AssetGenesis.MetaHash
-	require.Equal(t.t, genMetaHash, metaHash[:])
+	require.Equal(t.t, expectedMetaHash[:], genMetaHash)
 
 	// Mint another asset into the same asset group as the first asset.
 	groupKey := firstAssetMinted.AssetGroup.TweakedGroupKey
@@ -218,6 +235,12 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	require.NoError(t.t, err)
 	require.Contains(t.t, string(metaResp.Data), `"foo":"bar"`)
 	require.Contains(t.t, string(metaResp.Data), `"decimal_display":2`)
+
+	require.Empty(t.t, metaResp.UnknownOddTypes)
+	require.EqualValues(t.t, metaResp.DecimalDisplay, 2)
+	require.Equal(t.t, metaResp.UniverseCommitments, false)
+	require.Empty(t.t, metaResp.CanonicalUniverseUrls)
+	require.Nil(t.t, metaResp.DelegationKey)
 
 	AssertGroupSizes(
 		t.t, t.tapd, []string{hex.EncodeToString(groupKey)}, []int{2},
