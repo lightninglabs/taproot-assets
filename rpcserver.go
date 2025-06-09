@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -4807,11 +4808,53 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 			"meta: %w", err)
 	}
 
+	// Marshal odd types into the RPC format.
+	rpcUnknownOddTypes := make(map[uint64][]byte)
+	for tlvType, val := range assetMeta.UnknownOddTypes {
+		rpcUnknownOddTypes[uint64(tlvType)] = val
+	}
+
+	if len(assetMeta.UnknownOddTypes) == 0 {
+		rpcUnknownOddTypes = nil
+	}
+
+	// Marshal decimal display into the RPC format.
+	decDisplay := taprpc.AssetMetaType(
+		assetMeta.DecimalDisplay.UnwrapOr(0),
+	)
+
+	// Marshal canonical universe URLs into the RPC format.
+	canonicalUniUrls := fn.MapOptionZ(
+		assetMeta.CanonicalUniverses, func(urls []url.URL) []string {
+			urlStrings := make([]string, 0, len(urls))
+			for idx := range urls {
+				urlAddr := urls[idx]
+				urlStrings = append(
+					urlStrings, urlAddr.String(),
+				)
+			}
+
+			return urlStrings
+		},
+	)
+
+	// Marshal the asset delegation key into the RPC format.
+	rpcDelegationKey := fn.MapOptionZ(
+		assetMeta.DelegationKey, func(key btcec.PublicKey) []byte {
+			return key.SerializeCompressed()
+		},
+	)
+
 	metaHash := assetMeta.MetaHash()
 	return &taprpc.AssetMeta{
-		Data:     assetMeta.Data,
-		Type:     taprpc.AssetMetaType(assetMeta.Type),
-		MetaHash: metaHash[:],
+		Data:                  assetMeta.Data,
+		Type:                  decDisplay,
+		MetaHash:              metaHash[:],
+		UnknownOddTypes:       rpcUnknownOddTypes,
+		DecimalDisplay:        assetMeta.DecimalDisplay.UnwrapOr(0),
+		UniverseCommitments:   assetMeta.UniverseCommitments,
+		CanonicalUniverseUrls: canonicalUniUrls,
+		DelegationKey:         rpcDelegationKey,
 	}, nil
 }
 

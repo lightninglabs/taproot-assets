@@ -1618,6 +1618,35 @@
           "type": "string",
           "format": "byte",
           "description": "The hash of the meta. This is the hash of the TLV serialization of the meta\nitself."
+        },
+        "unknown_odd_types": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "A map of unknown odd TLV types that were encountered during asset meta data\ndecoding."
+        },
+        "decimal_display": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The decimal display value of the asset. This is used to determine the number\nof decimal places to display when presenting the asset amount to the user."
+        },
+        "universe_commitments": {
+          "type": "boolean",
+          "description": "Boolean flag indicating whether the asset-group issuer publishes\nuniverse-supply commitments to the canonical universe set."
+        },
+        "canonical_universe_urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of canonical universe URLs where the asset-group issuer publishes\nasset-related proofs."
+        },
+        "delegation_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The public key that is used to verify universe supply commitment related\non-chain outputs and proofs."
         }
       }
     },

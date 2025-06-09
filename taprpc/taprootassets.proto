@@ -203,6 +203,36 @@ message AssetMeta {
     itself.
     */
     bytes meta_hash = 3;
+
+    /*
+    A map of unknown odd TLV types that were encountered during asset meta data
+    decoding.
+    */
+    map<uint64, bytes> unknown_odd_types = 4;
+
+    /*
+    The decimal display value of the asset. This is used to determine the number
+    of decimal places to display when presenting the asset amount to the user.
+    */
+    uint32 decimal_display = 5;
+
+    /*
+    Boolean flag indicating whether the asset-group issuer publishes
+    universe-supply commitments to the canonical universe set.
+    */
+    bool universe_commitments = 6;
+
+    /*
+    List of canonical universe URLs where the asset-group issuer publishes
+    asset-related proofs.
+    */
+    repeated string canonical_universe_urls = 7;
+
+    /*
+    The public key that is used to verify universe supply commitment related
+    on-chain outputs and proofs.
+    */
+    bytes delegation_key = 8;
 }
 
 message ListAssetRequest {
