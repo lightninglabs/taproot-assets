@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -1986,9 +1987,15 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 					MetaHash: metaHash,
 				},
 			}
-			rpcMeta, err = r.FetchAssetMeta(ctx, req)
+			resp, err := r.FetchAssetMeta(ctx, req)
 			if err != nil {
 				return nil, err
+			}
+
+			rpcMeta = &taprpc.AssetMeta{
+				Data:     resp.Data,
+				Type:     resp.Type,
+				MetaHash: resp.MetaHash,
 			}
 		}
 	}
@@ -4731,7 +4738,8 @@ func parseUserKey(scriptKey []byte) (*btcec.PublicKey, error) {
 }
 
 func (r *rpcServer) FetchAssetMeta(ctx context.Context,
-	req *taprpc.FetchAssetMetaRequest) (*taprpc.AssetMeta, error) {
+	req *taprpc.FetchAssetMetaRequest) (*taprpc.FetchAssetMetaResponse,
+	error) {
 
 	var (
 		assetMeta *proof.MetaReveal
@@ -4810,11 +4818,42 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 			"meta: %w", err)
 	}
 
+	// Marshal odd types into the RPC format.
+	rpcUnknownOddTypes := make(map[uint64][]byte)
+	for tlvType, val := range assetMeta.UnknownOddTypes {
+		rpcUnknownOddTypes[uint64(tlvType)] = val
+	}
+
+	if len(assetMeta.UnknownOddTypes) == 0 {
+		rpcUnknownOddTypes = nil
+	}
+
+	// Marshal canonical universe URLs into the RPC format.
+	canonicalUniUrls := fn.MapOptionZ(
+		assetMeta.CanonicalUniverses, func(urls []url.URL) []string {
+			return fn.Map(urls, func(urlAddr url.URL) string {
+				return urlAddr.String()
+			})
+		},
+	)
+
+	// Marshal the asset delegation key into the RPC format.
+	rpcDelegationKey := fn.MapOptionZ(
+		assetMeta.DelegationKey, func(key btcec.PublicKey) []byte {
+			return key.SerializeCompressed()
+		},
+	)
+
 	metaHash := assetMeta.MetaHash()
-	return &taprpc.AssetMeta{
-		Data:     assetMeta.Data,
-		Type:     taprpc.AssetMetaType(assetMeta.Type),
-		MetaHash: metaHash[:],
+	return &taprpc.FetchAssetMetaResponse{
+		Data:                  assetMeta.Data,
+		Type:                  taprpc.AssetMetaType(assetMeta.Type),
+		MetaHash:              metaHash[:],
+		UnknownOddTypes:       rpcUnknownOddTypes,
+		DecimalDisplay:        assetMeta.DecimalDisplay.UnwrapOr(0),
+		UniverseCommitments:   assetMeta.UniverseCommitments,
+		CanonicalUniverseUrls: canonicalUniUrls,
+		DelegationKey:         rpcDelegationKey,
 	}, nil
 }
 
