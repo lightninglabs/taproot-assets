@@ -116,6 +116,10 @@ type (
 	// database ID.
 	ProofUpdateByID = sqlc.UpsertAssetProofByIDParams
 
+	// FetchPreCommitParams is a type alias for the params used to fetch
+	// mint anchor pre-commitments.
+	FetchPreCommitParams = sqlc.FetchMintAnchorUniCommitmentParams
+
 	// FetchAssetID is used to fetch the primary key ID of an asset, by
 	// outpoint and tweaked script key.
 	FetchAssetID = sqlc.FetchAssetIDParams
@@ -244,10 +248,10 @@ type PendingAssetStore interface {
 	FetchAssetMetaForAsset(ctx context.Context,
 		assetID []byte) (sqlc.FetchAssetMetaForAssetRow, error)
 
-	// FetchMintAnchorUniCommitment fetches the mint anchor uni commitment
-	// for a given batch.
+	// FetchMintAnchorUniCommitment fetches mint anchor pre-commitments.
 	FetchMintAnchorUniCommitment(ctx context.Context,
-		batchKey []byte) (sqlc.FetchMintAnchorUniCommitmentRow, error)
+		arg sqlc.FetchMintAnchorUniCommitmentParams) (
+		[]sqlc.FetchMintAnchorUniCommitmentRow, error)
 
 	// UpsertMintAnchorUniCommitment inserts a new or updates an existing
 	// mint anchor uni commitment on disk.
@@ -376,7 +380,17 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 	}
 
 	// Serialize internal key.
-	internalKey := preCommitOut.InternalKey.PubKey.SerializeCompressed()
+	rawInternalKey := preCommitOut.InternalKey.PubKey.SerializeCompressed()
+
+	internalKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
+		RawKey:    rawInternalKey,
+		KeyFamily: int32(preCommitOut.InternalKey.Family),
+		KeyIndex:  int32(preCommitOut.InternalKey.Index),
+	})
+	if err != nil {
+		return fmt.Errorf("faild to upsert delegation key into "+
+			"internal key table: %w: %w", ErrUpsertInternalKey, err)
+	}
 
 	// Serialize the group key if it is defined. The key may be unset when
 	// there is no existing group and the minting batch is funded but not
@@ -389,10 +403,10 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 
 	_, err = q.UpsertMintAnchorUniCommitment(
 		ctx, MintAnchorUniCommitParams{
-			BatchKey:           rawBatchKey,
-			TxOutputIndex:      int32(preCommitOut.OutIdx),
-			TaprootInternalKey: internalKey,
-			GroupKey:           groupPubKey,
+			BatchKey:             rawBatchKey,
+			TxOutputIndex:        int32(preCommitOut.OutIdx),
+			TaprootInternalKeyID: internalKeyID,
+			GroupKey:             groupPubKey,
 		},
 	)
 	if err != nil {
@@ -1228,21 +1242,68 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		// the pre-commitment output index from the database.
 		var preCommitOut fn.Option[tapgarden.PreCommitmentOutput]
 		if dbBatch.UniverseCommitments {
-			res, err := q.FetchMintAnchorUniCommitment(
-				ctx, dbBatch.RawKey,
+			fetchRes, err := q.FetchMintAnchorUniCommitment(
+				ctx, FetchPreCommitParams{
+					BatchKey: dbBatch.RawKey,
+				},
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to fetch mint "+
 					"anchor uni commitment: %w", err)
 			}
 
+			// Expect one pre-commitment output for a given batch.
+			if len(fetchRes) != 1 {
+				return nil, fmt.Errorf("expected one "+
+					"pre-commitment output, got %d",
+					len(fetchRes))
+			}
+
+			res := fetchRes[0]
+
 			// Parse the internal key from the database.
-			internalKey, err := btcec.ParsePubKey(
-				res.TaprootInternalKey,
+			if res.TaprootInternalKeyRaw == nil {
+				return nil, fmt.Errorf("unable to fetch " +
+					"pre-commitment internal key")
+			}
+
+			internalKeyPubKey, err := btcec.ParsePubKey(
+				res.TaprootInternalKeyRaw,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing "+
 					"taproot internal key: %w", err)
+			}
+
+			// Parse internal key family from the database.
+			if !res.TaprootInternalKeyFamily.Valid {
+				return nil, fmt.Errorf("unable to fetch " +
+					"pre-commitment internal key family")
+			}
+			keyFamily := keychain.KeyFamily(
+				res.TaprootInternalKeyFamily.Int32,
+			)
+
+			// Parse internal key index from the database.
+			if !res.TaprootInternalKeyIndex.Valid {
+				return nil, fmt.Errorf("unable to fetch " +
+					"pre-commitment internal key family")
+			}
+
+			if res.TaprootInternalKeyIndex.Int32 < 0 {
+				return nil, fmt.Errorf("found negative " +
+					"internal key index in database")
+			}
+
+			keyIndex := uint32(res.TaprootInternalKeyIndex.Int32)
+
+			// Formulate internal key descriptor.
+			internalKey := tapgarden.DelegationKey{
+				KeyLocator: keychain.KeyLocator{
+					Family: keyFamily,
+					Index:  keyIndex,
+				},
+				PubKey: internalKeyPubKey,
 			}
 
 			// Parse the group public key from the database.
@@ -1259,12 +1320,8 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 
 			preCommitOut = fn.Some(
 				tapgarden.PreCommitmentOutput{
-					OutIdx: uint32(res.TxOutputIndex),
-					// TODO(ffranr): Read full key desk from
-					//  db.
-					InternalKey: tapgarden.DelegationKey{
-						PubKey: internalKey,
-					},
+					OutIdx:      uint32(res.TxOutputIndex),
+					InternalKey: internalKey,
 					GroupPubKey: groupPubKey,
 				},
 			)
