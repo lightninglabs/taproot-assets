@@ -203,7 +203,8 @@ CREATE TABLE asset_seedlings (
     group_genesis_id BIGINT REFERENCES genesis_assets(gen_asset_id),
 
     group_anchor_id BIGINT REFERENCES asset_seedlings(seedling_id)
-, script_key_id BIGINT REFERENCES script_keys(script_key_id), group_internal_key_id BIGINT REFERENCES internal_keys(key_id), group_tapscript_root BLOB);
+, script_key_id BIGINT REFERENCES script_keys(script_key_id), group_internal_key_id BIGINT REFERENCES internal_keys(key_id), group_tapscript_root BLOB, delegation_key_id
+BIGINT REFERENCES internal_keys(key_id));
 
 CREATE TABLE asset_transfer_inputs (
     input_id INTEGER PRIMARY KEY,
@@ -566,11 +567,10 @@ CREATE TABLE mint_anchor_uni_commitments (
     tx_output_index INTEGER NOT NULL,
 
     -- The Taproot output internal key for the pre-commitment output.
-    taproot_internal_key BLOB,
-
-    -- The asset group key associated with the universe commitment.
     group_key BLOB
-);
+, taproot_internal_key_id
+BIGINT REFERENCES internal_keys(key_id)
+NOT NULL);
 
 CREATE UNIQUE INDEX mint_anchor_uni_commitments_unique
     ON mint_anchor_uni_commitments (batch_id, tx_output_index);
