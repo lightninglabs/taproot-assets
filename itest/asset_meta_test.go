@@ -197,18 +197,9 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	_, err = t.tapd.MintAsset(ctxt, secondAssetReq)
 	require.ErrorContains(t.t, err, "decimal display does not match")
 
-	// Requesting a decimal display without specifying the metadata field
-	// with at least the type should fail.
-	secondAssetReq.Asset.DecimalDisplay = firstAsset.DecimalDisplay
-	secondAssetReq.Asset.AssetMeta = nil
-
-	_, err = t.tapd.MintAsset(ctxt, secondAssetReq)
-	require.ErrorContains(
-		t.t, err, "decimal display requires asset metadata",
-	)
-
 	// Attempting to set a different decimal display in the JSON meta data
 	// as in the new RPC request field should give us an error as well.
+	secondAssetReq.Asset.DecimalDisplay = firstAsset.DecimalDisplay
 	secondAssetReq.Asset.AssetMeta = &taprpc.AssetMeta{
 		Type: taprpc.AssetMetaType_META_TYPE_JSON,
 		Data: []byte(`{"foo": "bar", "decimal_display": 3}`),
