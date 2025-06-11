@@ -71,7 +71,6 @@ func TestValidateMetaReveal(t *testing.T) {
 				Type: MetaOpaque,
 				Data: nil,
 			},
-			expectedErr: ErrMetaDataMissing,
 		},
 		{
 			name: "too much data",

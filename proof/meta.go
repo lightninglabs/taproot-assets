@@ -271,17 +271,11 @@ func IsValidMetaType[T SizableInteger](num T) (MetaType, error) {
 // IsValidMetaSize checks if the passed data is non-empty and below the maximum
 // size.
 func IsValidMetaSize(mBytes []byte, maxSize int) error {
-	mSize := len(mBytes)
-	switch {
-	case mSize == 0:
-		return ErrMetaDataMissing
-
-	case mSize > maxSize:
+	if len(mBytes) > maxSize {
 		return ErrMetaDataTooLarge
-
-	default:
-		return nil
 	}
+
+	return nil
 }
 
 // IsValidDecDisplay checks if the decimal display value is below the maximum.
@@ -295,15 +289,13 @@ func IsValidDecDisplay(decDisplay uint32) error {
 
 // DecodeMetaJSON decodes bytes as a JSON object, after checking that the bytes
 // could be valid metadata.
-//
-// TODO(ffranr): Add unit test for `jBytes := []byte{}`.
 func DecodeMetaJSON(jBytes []byte) (map[string]interface{}, error) {
 	jMeta := make(map[string]interface{})
 
 	// These bytes must match our metadata size constraints.
 	err := IsValidMetaSize(jBytes, MetaDataMaxSizeBytes)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidJSON, err.Error())
+		return nil, fmt.Errorf("%w: %w", ErrInvalidJSON, err)
 	}
 
 	// Unmarshal checks internally if the JSON is valid.
