@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/protofsm"
@@ -122,8 +123,33 @@ func (m *MultiStateMachineManager) fetchStateMachine(
 		StateLog:    m.cfg.StateLog,
 	}
 
-	// TODO(ffranr): Get initial state from disk here.
-	initialState := &DefaultState{}
+	// Before we start the state machine, we'll need to fetch the current
+	// state from disk, to see if we need to emit any new events.
+	ctx := context.Background()
+	initialState, _, err := m.cfg.StateLog.FetchState(
+		ctx, assetSpec,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch current state: %w", err)
+	}
+
+	var triggerEvent fn.Option[Event]
+
+	switch initialState.(type) {
+
+	// Once we write the commitment transaction to disk in CommitTxSign,
+	// then on restart, we'll be in the broadcast state. From this point,
+	// we'll trigger the broadcast event so we can resume the state machine.
+	case *CommitBroadcastState:
+		triggerEvent = fn.Some[Event](&BroadcastEvent{})
+
+		// Once we get a confirmation, then we'll transition to the
+		// CommitFinalizeState. If we crashed right after that, then we'll also
+		// send the finalize event so we can apply everything, and transition
+		// back to the normal default state.
+	case *CommitFinalizeState:
+		triggerEvent = fn.Some[Event](&FinalizeEvent{})
+	}
 
 	fsmCfg := protofsm.StateMachineCfg[Event, *Environment]{
 		InitialState: initialState,
@@ -134,6 +160,12 @@ func (m *MultiStateMachineManager) fetchStateMachine(
 	// Ensure that the state machine is running. We use the manager's
 	// context here which will be cancelled when the manager is stopped.
 	newSm.Start(m.smCtx)
+
+	// If we have a trigger event, we send it to the state machine. This'll
+	// make sure that the state machine starts ticking properly.
+	triggerEvent.WhenSome(func(event Event) {
+		newSm.SendEvent(ctx, event)
+	})
 
 	m.smCache.Set(*groupKey, &newSm)
 
