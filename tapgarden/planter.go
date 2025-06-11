@@ -560,7 +560,7 @@ func (c *ChainPlanter) Start() error {
 
 				log.Infof("Sealing non-finalized batch from "+
 					"DB (%x)", batchKey)
-				_, sealErr = c.sealBatch(
+				sealedBatch, sealErr := c.sealBatch(
 					ctx, SealParams{}, batch,
 				)
 				if sealErr != nil {
@@ -575,6 +575,12 @@ func (c *ChainPlanter) Start() error {
 						cancelBatch()
 						continue
 					}
+				}
+
+				// If the sealBatch call returned a sealed
+				// batch, update the pending batch accordingly.
+				if sealedBatch != nil {
+					batch = sealedBatch
 				}
 
 				// Any pending batch that was funded and sealed
@@ -1971,7 +1977,14 @@ func (c *ChainPlanter) gardener() {
 					break
 				}
 
-				req.Resolve(sealedBatch)
+				// If seal batch executed successfully, and
+				// returned a sealed batch, then we can update
+				// the pending batch.
+				if err == nil && sealedBatch != nil {
+					c.pendingBatch = sealedBatch
+				}
+
+				req.Resolve(c.pendingBatch)
 
 			case reqTypeFinalizeBatch:
 				if c.pendingBatch == nil {
@@ -2581,11 +2594,17 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	// If the batch needs to be sealed, we'll use the default behavior for
 	// generating asset group witnesses. Any custom behavior requires
 	// calling SealBatch() explicitly, before batch finalization.
-	_, err = c.sealBatch(ctx, SealParams{}, c.pendingBatch)
+	sealedBatch, err := c.sealBatch(ctx, SealParams{}, c.pendingBatch)
 	if err != nil {
 		if !errors.Is(err, ErrBatchAlreadySealed) {
 			return nil, err
 		}
+	}
+
+	// If seal batch executed successfully, and returned a sealed batch,
+	// then we can update the pending batch.
+	if err == nil && sealedBatch != nil {
+		c.pendingBatch = sealedBatch
 	}
 
 	// Now that the batch has been frozen on disk, we can update the batch
