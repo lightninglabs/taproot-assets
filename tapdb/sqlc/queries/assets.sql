@@ -1052,10 +1052,10 @@ WITH target_batch AS (
     WHERE keys.raw_key = @batch_key
 )
 INSERT INTO mint_anchor_uni_commitments (
-    id, batch_id, tx_output_index, taproot_internal_key_id, group_key
+    batch_id, tx_output_index, taproot_internal_key_id, group_key
 )
 VALUES (
-    @id, (SELECT batch_id FROM target_batch), @tx_output_index,
+    (SELECT batch_id FROM target_batch), @tx_output_index,
     @taproot_internal_key_id, @group_key
 )
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
