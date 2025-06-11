@@ -3121,14 +3121,14 @@ WITH target_batch AS (
     -- internal key associated with the batch.
     SELECT keys.key_id AS batch_id
     FROM internal_keys keys
-    WHERE keys.raw_key = $5
+    WHERE keys.raw_key = $4
 )
 INSERT INTO mint_anchor_uni_commitments (
-    id, batch_id, tx_output_index, taproot_internal_key_id, group_key
+    batch_id, tx_output_index, taproot_internal_key_id, group_key
 )
 VALUES (
-    $1, (SELECT batch_id FROM target_batch), $2,
-    $3, $4
+    (SELECT batch_id FROM target_batch), $1,
+    $2, $3
 )
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
@@ -3138,7 +3138,6 @@ RETURNING id
 `
 
 type UpsertMintAnchorUniCommitmentParams struct {
-	ID                   int64
 	TxOutputIndex        int32
 	TaprootInternalKeyID int64
 	GroupKey             []byte
@@ -3150,7 +3149,6 @@ type UpsertMintAnchorUniCommitmentParams struct {
 // the existing record. Otherwise, insert a new record.
 func (q *Queries) UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertMintAnchorUniCommitment,
-		arg.ID,
 		arg.TxOutputIndex,
 		arg.TaprootInternalKeyID,
 		arg.GroupKey,
