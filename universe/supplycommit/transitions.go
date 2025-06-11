@@ -630,9 +630,7 @@ func (c *CommitTxSignState) ProcessEvent(event Event,
 				SupplyTransition: stateTransition,
 			},
 			NewEvents: lfn.Some(FsmEvent{
-				InternalEvent: []Event{&BroadcastEvent{
-					SignedCommitPkt: signedPsbt,
-				}},
+				InternalEvent: []Event{&BroadcastEvent{}},
 			}),
 		}, nil
 
@@ -654,13 +652,11 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 	// signed commit tx, then register for a confirmation for when it
 	// confirms.
 	case *BroadcastEvent:
-		// First, we'll extract the final signed transaction from the
-		// PSBT.
-		commitTx, err := psbt.Extract(newEvent.SignedCommitPkt)
-		if err != nil {
-			return nil, fmt.Errorf("unable to extract "+
-				"psbt: %w", err)
+		if c.SupplyTransition.NewCommitment.Txn == nil {
+			return nil, fmt.Errorf("commitment transaction is nil")
 		}
+
+		commitTx := c.SupplyTransition.NewCommitment.Txn
 
 		// Construct a detailed label for the broadcast request using
 		// the helper function.
