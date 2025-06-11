@@ -295,6 +295,11 @@ type MintingStore interface {
 	// the genesis point for the batch.
 	CommitBatchTx(ctx context.Context, batchKey *btcec.PublicKey,
 		genesisTx FundedMintAnchorPsbt) error
+
+	// FetchDelegationKey fetches the delegation key for the given asset
+	// group public key.
+	FetchDelegationKey(ctx context.Context,
+		groupKey btcec.PublicKey) (fn.Option[DelegationKey], error)
 }
 
 // ChainBridge is our bridge to the target chain. It's used to get confirmation
