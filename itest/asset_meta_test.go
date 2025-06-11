@@ -84,6 +84,31 @@ func testAssetMeta(t *harnessTest) {
 				},
 			},
 		},
+
+		// A mint request that doesn't specify asset meta at all should
+		// be permitted.
+		{
+			asset: &mintrpc.MintAssetRequest{
+				Asset: &mintrpc.MintAsset{
+					AssetType: taprpc.AssetType_NORMAL,
+					Name:      "no meta",
+					Amount:    5000,
+				},
+			},
+		},
+
+		// A user should also be able to specify a decimal display, but
+		// not actually specify an asset meta at all.
+		{
+			asset: &mintrpc.MintAssetRequest{
+				Asset: &mintrpc.MintAsset{
+					AssetType:      taprpc.AssetType_NORMAL,
+					Name:           "dec display",
+					Amount:         5000,
+					DecimalDisplay: 6,
+				},
+			},
+		},
 	}
 
 	ctxb := context.Background()
