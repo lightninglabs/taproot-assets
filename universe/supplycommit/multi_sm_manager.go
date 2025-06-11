@@ -160,8 +160,15 @@ func (m *MultiStateMachineManager) fetchStateMachine(
 		ChainParams:      m.cfg.ChainParams,
 	}
 
-	// TODO(ffranr): Get initial state from disk here.
-	initialState := &DefaultState{}
+	// Before we start the state machine, we'll need to fetch the current
+	// state from disk, to see if we need to emit any new events.
+	ctx, cancel := m.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	initialState, _, err := m.cfg.StateLog.FetchState(ctx, assetSpec)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch current state: %w", err)
+	}
 
 	// Create a new error reporter for the state machine.
 	errorReporter := NewErrorReporter(assetSpec)
@@ -179,6 +186,23 @@ func (m *MultiStateMachineManager) fetchStateMachine(
 	// the manager is stopped.
 	smCtx, _ := m.WithCtxQuitNoTimeout()
 	newSm.Start(smCtx)
+
+	// If specific initial states are provided, we send the corresponding
+	// events to the state machine to ensure it begins ticking as expected.
+	switch initialState.(type) {
+	// Once we write the commitment transaction to disk in CommitTxSign,
+	// then on restart, we'll be in the broadcast state. From this point,
+	// we'll trigger the broadcast event so we can resume the state machine.
+	case *CommitBroadcastState:
+		newSm.SendEvent(ctx, &BroadcastEvent{})
+
+	// Once we get a confirmation, then we'll transition to the
+	// CommitFinalizeState. If we crashed right after that, then
+	// we'll also send the finalize event so we can apply
+	// everything, and transition back to the normal default state.
+	case *CommitFinalizeState:
+		newSm.SendEvent(ctx, &FinalizeEvent{})
+	}
 
 	m.smCache.Set(*groupKey, &newSm)
 
