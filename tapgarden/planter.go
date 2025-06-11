@@ -2715,6 +2715,12 @@ func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
 		return nil
 	}
 
+	// If the delegation key is already set, we can skip any further
+	// delegation key considerations.
+	if req.DelegationKey.IsSome() {
+		return nil
+	}
+
 	// At this point, we know that the universe commitments feature is
 	// enabled for the seedling. If a group anchor seedling is specified
 	// we will use its delegation key.
@@ -2744,6 +2750,24 @@ func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
 		return nil
 	}
 
+	// If an existing group key is set, we can use that to look up the
+	// delegation key.
+	if req.GroupInfo != nil && req.GroupInfo.GroupKey != nil {
+		dKeyOpt, err := c.cfg.Log.FetchDelegationKey(
+			ctx, req.GroupInfo.GroupKey.GroupPubKey,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch delegation key "+
+				"for group key: %w", err)
+		}
+
+		// Return early if a corresponding delegation key is found.
+		if dKeyOpt.IsSome() {
+			req.DelegationKey = dKeyOpt
+			return nil
+		}
+	}
+
 	// On the other hand, if we're handling the group anchor seedling,
 	// and the delegation key is unset, we must generate a new one.
 	if req.EnableEmission && req.GroupAnchor == nil {
@@ -2756,9 +2780,11 @@ func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
 		}
 
 		req.DelegationKey = fn.Some(newKey)
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("failed to finalize delegation key for "+
+		"seedling %s", req.AssetName)
 }
 
 // prepAssetSeedling performs some basic validation for the Seedling, then

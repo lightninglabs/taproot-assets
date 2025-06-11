@@ -1431,6 +1431,58 @@ func (a *AssetMintingStore) CommitBatchTx(ctx context.Context,
 	})
 }
 
+// FetchDelegationKey fetches the delegation key for the given asset group
+// public key.
+func (a *AssetMintingStore) FetchDelegationKey(ctx context.Context,
+	groupKey btcec.PublicKey) (fn.Option[tapgarden.DelegationKey], error) {
+
+	var zero fn.Option[tapgarden.DelegationKey]
+	groupKeyBytes := groupKey.SerializeCompressed()
+
+	var delegationKey fn.Option[tapgarden.DelegationKey]
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
+		fetchRow, err := q.FetchMintAnchorUniCommitment(
+			ctx, FetchPreCommitParams{
+				GroupKey: groupKeyBytes,
+			},
+		)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			return fmt.Errorf("unable to fetch mint anchor "+
+				"uni commitment by group key: %w", err)
+		}
+
+		// If we didn't find any pre-commitment outputs, then
+		// we can return early.
+		if len(fetchRow) == 0 {
+			return nil
+		}
+
+		// Select the first pre-commitment entry. We assume that all
+		// outputs in the group share the same delegation key.
+		row := fetchRow[0]
+
+		internalKey, err := parseInternalKey(row.InternalKey)
+		if err != nil {
+			return fmt.Errorf("error parsing pre-commitment "+
+				"internal key: %w", err)
+		}
+
+		delegationKey = fn.Some(internalKey)
+
+		return nil
+	})
+	if dbErr != nil {
+		return zero, dbErr
+	}
+
+	return delegationKey, nil
+}
+
 // upsertPreCommit upserts the pre-commitment output for a batch into the
 // database. If the pre-commitment output is unset on the batch, then
 // this function is a no-op.
