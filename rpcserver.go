@@ -505,11 +505,14 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		return nil, err
 	}
 
-	// If a custom decimal display is set, we require the AssetMeta to be
-	// set. That means the user has to at least specify the meta type.
+	// If a custom decimal display is set, but the user didn't specify an
+	// asset meta, then we'll assume an opaque type.
 	if req.Asset.DecimalDisplay != 0 && req.Asset.AssetMeta == nil {
-		return nil, fmt.Errorf("decimal display requires asset " +
-			"metadata")
+		rpcsLog.Infof("No asset meta specified, using opaque type "+
+			"for decimal display %d", req.Asset.DecimalDisplay)
+
+		req.Asset.AssetMeta = &taprpc.AssetMeta{}
+
 	}
 
 	// Decimal display doesn't really make sense for collectibles.
