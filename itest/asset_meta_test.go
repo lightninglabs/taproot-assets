@@ -263,3 +263,354 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 		t.t, 7, thirdAssets[0].DecimalDisplay.DecimalDisplay,
 	)
 }
+
+// testFetchAssetMetaRPC tests the FetchAssetMeta RPC endpoint with various
+// scenarios, including fetching by group key.
+func testFetchAssetMetaRPC(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*3)
+	defer cancel()
+
+	// 1. Mint a group of assets.
+	groupName := "meta-test-group"
+	groupMetaJSON := `{"type": "test-group"}`
+	groupDecimalDisplay := uint32(2)
+
+	// Asset 1 in the group
+	groupAsset1Req := &mintrpc.MintAssetRequest{
+		Asset: &mintrpc.MintAsset{
+			AssetType: taprpc.AssetType_NORMAL,
+			Name:      groupName + "-alpha",
+			AssetMeta: &taprpc.AssetMeta{
+				Data: []byte(`{"id":"alpha"}`), // Individual meta
+				Type: taprpc.AssetMetaType_META_TYPE_JSON,
+			},
+			Amount:          1000,
+			NewGroupedAsset: true, // This will be the group anchor
+			DecimalDisplay:  groupDecimalDisplay,
+		},
+	}
+
+	// Mint and get the first asset to establish the group.
+	rpcGroupAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{groupAsset1Req},
+	)
+	require.Len(t.t, rpcGroupAssets, 1)
+	groupAsset1 := rpcGroupAssets[0]
+	require.NotNil(t.t, groupAsset1.AssetGroup)
+	groupKeyBytes := groupAsset1.AssetGroup.TweakedGroupKey
+	groupKeyHex := hex.EncodeToString(groupKeyBytes)
+	t.Logf("Minted group anchor %s with group key %s", groupAsset1.AssetGenesis.Name, groupKeyHex)
+
+	// Asset 2 in the same group
+	groupAsset2Req := &mintrpc.MintAssetRequest{
+		Asset: &mintrpc.MintAsset{
+			AssetType: taprpc.AssetType_NORMAL,
+			Name:      groupName + "-beta",
+			AssetMeta: &taprpc.AssetMeta{ // Ensure meta is provided if DecimalDisplay is used
+				Data: []byte(`{"id":"beta"}`), // Individual meta
+				Type: taprpc.AssetMetaType_META_TYPE_JSON,
+			},
+			Amount:         2000,
+			GroupedAsset:   true,
+			GroupKey:       groupKeyBytes,
+			DecimalDisplay: groupDecimalDisplay, // Must match group's
+		},
+	}
+	rpcGroupAssets2 := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{groupAsset2Req},
+	)
+	require.Len(t.t, rpcGroupAssets2, 1)
+	groupAsset2 := rpcGroupAssets2[0]
+	t.Logf("Minted grouped asset %s into group key %s", groupAsset2.AssetGenesis.Name, groupKeyHex)
+
+	// 2. Mint a non-grouped asset.
+	soloAssetName := "solo-meta-asset"
+	soloAssetMetaJSON := `{"type": "solo"}`
+	soloAssetDecimalDisplay := uint32(3)
+	soloAssetReq := &mintrpc.MintAssetRequest{
+		Asset: &mintrpc.MintAsset{
+			AssetType: taprpc.AssetType_NORMAL,
+			Name:      soloAssetName,
+			AssetMeta: &taprpc.AssetMeta{
+				Data: []byte(soloAssetMetaJSON),
+				Type: taprpc.AssetMetaType_META_TYPE_JSON,
+			},
+			Amount:         3000,
+			DecimalDisplay: soloAssetDecimalDisplay,
+		},
+	}
+	rpcSoloAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{soloAssetReq},
+	)
+	require.Len(t.t, rpcSoloAssets, 1)
+	soloAsset := rpcSoloAssets[0]
+	soloAssetIdStr := hex.EncodeToString(soloAsset.AssetGenesis.AssetId)
+	var soloAssetMetaHash [32]byte
+	copy(soloAssetMetaHash[:], soloAsset.AssetGenesis.MetaHash)
+	soloAssetMetaHashStr := hex.EncodeToString(soloAsset.AssetGenesis.MetaHash)
+	t.Logf("Minted solo asset %s with ID %s", soloAssetName, soloAssetIdStr)
+
+	// Test Case: RPC Fetch by Group Key - Success
+	t.t.Run("RPC Fetch by Group Key - Success", func(tt *testing.T) {
+		req := &taprpc.FetchAssetMetaRequest{
+			Asset: &taprpc.FetchAssetMetaRequest_GroupKeyStr{
+				GroupKeyStr: groupKeyHex,
+			},
+		}
+		resp, err := t.tapd.FetchAssetMeta(ctxt, req)
+		require.NoError(tt, err)
+		require.NotNil(tt, resp)
+		require.Len(tt, resp.AssetMetas, 2, "Should fetch two assets in the group")
+		require.Equal(tt, int32(groupDecimalDisplay), resp.DecimalDisplay)
+
+		// Verify metas (content check can be shallow, e.g. name in data)
+		var foundAlpha, foundBeta bool
+		for _, meta := range resp.AssetMetas {
+			if strings.Contains(string(meta.Data), `"id":"alpha"`) {
+				foundAlpha = true
+			}
+			if strings.Contains(string(meta.Data), `"id":"beta"`) {
+				foundBeta = true
+			}
+		}
+		require.True(tt, foundAlpha, "GroupAssetAlpha meta not found or content mismatch")
+		require.True(tt, foundBeta, "GroupAssetBeta meta not found or content mismatch")
+	})
+
+	// Test Case: RPC Fetch by Group Key - Group Not Found
+	t.t.Run("RPC Fetch by Group Key - Group Not Found", func(tt *testing.T) {
+		nonExistentGroupKey := "03aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		req := &taprpc.FetchAssetMetaRequest{
+			Asset: &taprpc.FetchAssetMetaRequest_GroupKeyStr{
+				GroupKeyStr: nonExistentGroupKey,
+			},
+		}
+		resp, err := t.tapd.FetchAssetMeta(ctxt, req)
+		require.NoError(tt, err) // Should not error, just return empty
+		require.NotNil(tt, resp)
+		require.Empty(tt, resp.AssetMetas)
+		require.Equal(tt, int32(0), resp.DecimalDisplay)
+	})
+
+	// Test Case: RPC Fetch by Asset ID - Grouped Asset
+	t.t.Run("RPC Fetch by Asset ID - Grouped Asset", func(tt *testing.T) {
+		groupedAssetIdStr := hex.EncodeToString(groupAsset1.AssetGenesis.AssetId)
+		req := &taprpc.FetchAssetMetaRequest{
+			Asset: &taprpc.FetchAssetMetaRequest_AssetIdStr{
+				AssetIdStr: groupedAssetIdStr,
+			},
+		}
+		resp, err := t.tapd.FetchAssetMeta(ctxt, req)
+		require.NoError(tt, err)
+		require.NotNil(tt, resp)
+		require.Len(tt, resp.AssetMetas, 1)
+		require.True(tt, strings.Contains(string(resp.AssetMetas[0].Data), `"id":"alpha"`))
+		require.Equal(tt, int32(groupDecimalDisplay), resp.DecimalDisplay)
+	})
+
+	// Test Case: RPC Fetch by Asset ID - Non-Grouped Asset
+	t.t.Run("RPC Fetch by Asset ID - Non-Grouped Asset", func(tt *testing.T) {
+		req := &taprpc.FetchAssetMetaRequest{
+			Asset: &taprpc.FetchAssetMetaRequest_AssetIdStr{
+				AssetIdStr: soloAssetIdStr,
+			},
+		}
+		resp, err := t.tapd.FetchAssetMeta(ctxt, req)
+		require.NoError(tt, err)
+		require.NotNil(tt, resp)
+		require.Len(tt, resp.AssetMetas, 1)
+		require.JSONEq(tt, soloAssetMetaJSON, string(resp.AssetMetas[0].Data))
+		require.Equal(tt, int32(soloAssetDecimalDisplay), resp.DecimalDisplay)
+	})
+
+	// Test Case: RPC Fetch by Meta Hash
+	t.t.Run("RPC Fetch by Meta Hash", func(tt *testing.T) {
+		req := &taprpc.FetchAssetMetaRequest{
+			Asset: &taprpc.FetchAssetMetaRequest_MetaHashStr{
+				MetaHashStr: soloAssetMetaHashStr,
+			},
+		}
+		resp, err := t.tapd.FetchAssetMeta(ctxt, req)
+		require.NoError(tt, err)
+		require.NotNil(tt, resp)
+		require.Len(tt, resp.AssetMetas, 1)
+		require.JSONEq(tt, soloAssetMetaJSON, string(resp.AssetMetas[0].Data))
+		require.Equal(tt, int32(soloAssetDecimalDisplay), resp.DecimalDisplay)
+	})
+}
+
+// testFetchAssetMetaCLI tests the 'tapcli assets fetchmeta' command with
+// various scenarios, including fetching by group key and flag validation.
+func testFetchAssetMetaCLI(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*3)
+	defer cancel()
+
+	// Re-use the same minting logic as testFetchAssetMetaRPC for consistency.
+	// Mint a group of assets.
+	groupName := "cli-meta-test-group"
+	groupDecimalDisplay := uint32(2)
+	groupAsset1Req := &mintrpc.MintAssetRequest{
+		Asset: &mintrpc.MintAsset{
+			AssetType: taprpc.AssetType_NORMAL,
+			Name:      groupName + "-alpha-cli",
+			AssetMeta: &taprpc.AssetMeta{
+				Data: []byte(`{"id":"alpha-cli"}`),
+				Type: taprpc.AssetMetaType_META_TYPE_JSON,
+			},
+			Amount:          1000,
+			NewGroupedAsset: true,
+			DecimalDisplay:  groupDecimalDisplay,
+		},
+	}
+	rpcGroupAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{groupAsset1Req},
+	)
+	require.Len(t.t, rpcGroupAssets, 1)
+	groupAsset1 := rpcGroupAssets[0]
+	groupKeyBytes := groupAsset1.AssetGroup.TweakedGroupKey
+	groupKeyHex := hex.EncodeToString(groupKeyBytes)
+	t.Logf("CLI: Minted group anchor %s with group key %s", groupAsset1.AssetGenesis.Name, groupKeyHex)
+
+	groupAsset2Req := &mintrpc.MintAssetRequest{
+		Asset: &mintrpc.MintAsset{
+			AssetType: taprpc.AssetType_NORMAL,
+			Name:      groupName + "-beta-cli",
+			AssetMeta: &taprpc.AssetMeta{
+				Data: []byte(`{"id":"beta-cli"}`),
+				Type: taprpc.AssetMetaType_META_TYPE_JSON,
+			},
+			Amount:         2000,
+			GroupedAsset:   true,
+			GroupKey:       groupKeyBytes,
+			DecimalDisplay: groupDecimalDisplay,
+		},
+	}
+	MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{groupAsset2Req},
+	)
+	t.Logf("CLI: Minted grouped asset %s into group key %s", groupAsset2Req.Asset.Name, groupKeyHex)
+
+	// Mint a non-grouped asset.
+	soloAssetName := "cli-solo-meta-asset"
+	soloAssetMetaJSON := `{"type": "solo-cli"}`
+	soloAssetDecimalDisplay := uint32(3)
+	soloAssetReq := &mintrpc.MintAssetRequest{
+		Asset: &mintrpc.MintAsset{
+			AssetType: taprpc.AssetType_NORMAL,
+			Name:      soloAssetName,
+			AssetMeta: &taprpc.AssetMeta{
+				Data: []byte(soloAssetMetaJSON),
+				Type: taprpc.AssetMetaType_META_TYPE_JSON,
+			},
+			Amount:         3000,
+			DecimalDisplay: soloAssetDecimalDisplay,
+		},
+	}
+	rpcSoloAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{soloAssetReq},
+	)
+	require.Len(t.t, rpcSoloAssets, 1)
+	soloAsset := rpcSoloAssets[0]
+	soloAssetIdStr := hex.EncodeToString(soloAsset.AssetGenesis.AssetId)
+	t.Logf("CLI: Minted solo asset %s with ID %s", soloAssetName, soloAssetIdStr)
+
+	// Test Case: CLI Fetch by Group Key - Success
+	t.t.Run("CLI Fetch by Group Key - Success", func(tt *testing.T) {
+		respJSON, err := ExecTapCLI(
+			ctxt, t.tapd, "assets", "fetchmeta", "--group_key", groupKeyHex,
+		)
+		require.NoError(tt, err)
+
+		var resp taprpc.FetchAssetMetaResponse
+		require.NoError(tt, taprpc.RpcAssetsCommandJsonParser.Unmarshal(
+			[]byte(respJSON.(string)), &resp,
+		))
+
+		require.Len(tt, resp.AssetMetas, 2, "Should fetch two assets in the group via CLI")
+		require.Equal(tt, int32(groupDecimalDisplay), resp.DecimalDisplay)
+		var foundAlpha, foundBeta bool
+		for _, meta := range resp.AssetMetas {
+			if strings.Contains(string(meta.Data), `"id":"alpha-cli"`) {
+				foundAlpha = true
+			}
+			if strings.Contains(string(meta.Data), `"id":"beta-cli"`) {
+				foundBeta = true
+			}
+		}
+		require.True(tt, foundAlpha, "GroupAssetAlpha meta not found via CLI")
+		require.True(tt, foundBeta, "GroupAssetBeta meta not found via CLI")
+	})
+
+	// Test Case: CLI Fetch by Group Key - Group Not Found
+	t.t.Run("CLI Fetch by Group Key - Group Not Found", func(tt *testing.T) {
+		nonExistentGroupKey := "03bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		respJSON, err := ExecTapCLI(
+			ctxt, t.tapd, "assets", "fetchmeta", "--group_key", nonExistentGroupKey,
+		)
+		require.NoError(tt, err)
+		var resp taprpc.FetchAssetMetaResponse
+		require.NoError(tt, taprpc.RpcAssetsCommandJsonParser.Unmarshal(
+			[]byte(respJSON.(string)), &resp,
+		))
+		require.Empty(tt, resp.AssetMetas)
+		require.Equal(tt, int32(0), resp.DecimalDisplay)
+	})
+
+	// Test Case: CLI Fetch by Asset ID - Non-Grouped Asset
+	t.t.Run("CLI Fetch by Asset ID - Non-Grouped Asset", func(tt *testing.T) {
+		respJSON, err := ExecTapCLI(
+			ctxt, t.tapd, "assets", "fetchmeta", "--asset_id", soloAssetIdStr,
+		)
+		require.NoError(tt, err)
+		var resp taprpc.FetchAssetMetaResponse
+		require.NoError(tt, taprpc.RpcAssetsCommandJsonParser.Unmarshal(
+			[]byte(respJSON.(string)), &resp,
+		))
+		require.Len(tt, resp.AssetMetas, 1)
+		require.JSONEq(tt, soloAssetMetaJSON, string(resp.AssetMetas[0].Data))
+		require.Equal(tt, int32(soloAssetDecimalDisplay), resp.DecimalDisplay)
+	})
+
+	// Test Case: CLI - Mutual Exclusivity of Flags
+	t.t.Run("CLI Mutual Exclusivity", func(tt *testing.T) {
+		_, err := ExecTapCLIFail(
+			ctxt, t.tapd, errStringMutuallyExclusive, "assets", "fetchmeta",
+			"--group_key", groupKeyHex, "--asset_id", soloAssetIdStr,
+		)
+		require.NoError(tt, err) // ExecTapCLIFail checks for the error string
+
+		_, err = ExecTapCLIFail(
+			ctxt, t.tapd, errStringMutuallyExclusive, "assets", "fetchmeta",
+			"--group_key", groupKeyHex, "--meta_hash", "aabbcc",
+		)
+		require.NoError(tt, err)
+
+		_, err = ExecTapCLIFail(
+			ctxt, t.tapd, errStringMutuallyExclusive, "assets", "fetchmeta",
+			"--asset_id", soloAssetIdStr, "--meta_hash", "aabbcc",
+		)
+		require.NoError(tt, err)
+
+		_, err = ExecTapCLIFail(
+			ctxt, t.tapd, errStringMutuallyExclusive, "assets", "fetchmeta",
+			"--group_key", groupKeyHex, "--asset_id", soloAssetIdStr, "--meta_hash", "aabbcc",
+		)
+		require.NoError(tt, err)
+
+		_, err = ExecTapCLIFail(
+			ctxt, t.tapd, "must specify one of asset_id, meta_hash, or group_key",
+			"assets", "fetchmeta",
+		)
+		require.NoError(tt, err)
+	})
+}
+
+// And register both in the main test list for this file.

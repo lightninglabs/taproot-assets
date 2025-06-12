@@ -10,6 +10,7 @@ package universerpc
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 
@@ -24,411 +25,323 @@ import (
 )
 
 // Suppress "imported and not used" errors
-var _ codes.Code
-var _ io.Reader
-var _ status.Status
-var _ = runtime.String
-var _ = utilities.NewDoubleArray
-var _ = metadata.Join
+var (
+	_ codes.Code
+	_ io.Reader
+	_ status.Status
+	_ = errors.New
+	_ = runtime.String
+	_ = utilities.NewDoubleArray
+	_ = metadata.Join
+)
 
 func request_Universe_MultiverseRoot_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq MultiverseRootRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq MultiverseRootRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.MultiverseRoot(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_MultiverseRoot_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq MultiverseRootRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq MultiverseRootRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.MultiverseRoot(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_AssetRoots_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
-)
+var filter_Universe_AssetRoots_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 
 func request_Universe_AssetRoots_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetRootRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq AssetRootRequest
+		metadata runtime.ServerMetadata
+	)
+	io.Copy(io.Discard, req.Body)
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_AssetRoots_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.AssetRoots(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_AssetRoots_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetRootRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq AssetRootRequest
+		metadata runtime.ServerMetadata
+	)
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_AssetRoots_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.AssetRoots(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_QueryAssetRoots_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
-)
+var filter_Universe_QueryAssetRoots_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
 
 func request_Universe_QueryAssetRoots_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetRootQuery
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq AssetRootQuery
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["id.asset_id_str"]
+	io.Copy(io.Discard, req.Body)
+	val, ok := pathParams["id.asset_id_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.asset_id_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "id.asset_id_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.asset_id_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryAssetRoots_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.QueryAssetRoots(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_QueryAssetRoots_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetRootQuery
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq AssetRootQuery
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["id.asset_id_str"]
+	val, ok := pathParams["id.asset_id_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.asset_id_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "id.asset_id_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.asset_id_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryAssetRoots_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.QueryAssetRoots(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_QueryAssetRoots_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
-)
+var filter_Universe_QueryAssetRoots_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
 
 func request_Universe_QueryAssetRoots_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetRootQuery
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq AssetRootQuery
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["id.group_key_str"]
+	io.Copy(io.Discard, req.Body)
+	val, ok := pathParams["id.group_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.group_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "id.group_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.group_key_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryAssetRoots_1); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.QueryAssetRoots(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_QueryAssetRoots_1(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetRootQuery
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq AssetRootQuery
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["id.group_key_str"]
+	val, ok := pathParams["id.group_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.group_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "id.group_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.group_key_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryAssetRoots_1); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.QueryAssetRoots(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_DeleteAssetRoot_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
-)
+var filter_Universe_DeleteAssetRoot_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 
 func request_Universe_DeleteAssetRoot_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq DeleteRootQuery
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq DeleteRootQuery
+		metadata runtime.ServerMetadata
+	)
+	io.Copy(io.Discard, req.Body)
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_DeleteAssetRoot_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.DeleteAssetRoot(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_DeleteAssetRoot_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq DeleteRootQuery
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq DeleteRootQuery
+		metadata runtime.ServerMetadata
+	)
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_DeleteAssetRoot_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.DeleteAssetRoot(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_AssetLeafKeys_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
-)
+var filter_Universe_AssetLeafKeys_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
 
 func request_Universe_AssetLeafKeys_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetLeafKeysRequest
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq AssetLeafKeysRequest
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["id.asset_id_str"]
+	io.Copy(io.Discard, req.Body)
+	val, ok := pathParams["id.asset_id_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.asset_id_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "id.asset_id_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.asset_id_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_AssetLeafKeys_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.AssetLeafKeys(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_AssetLeafKeys_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetLeafKeysRequest
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq AssetLeafKeysRequest
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["id.asset_id_str"]
+	val, ok := pathParams["id.asset_id_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.asset_id_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "id.asset_id_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.asset_id_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_AssetLeafKeys_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.AssetLeafKeys(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_AssetLeafKeys_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
-)
+var filter_Universe_AssetLeafKeys_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
 
 func request_Universe_AssetLeafKeys_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetLeafKeysRequest
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq AssetLeafKeysRequest
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["id.group_key_str"]
+	io.Copy(io.Discard, req.Body)
+	val, ok := pathParams["id.group_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.group_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "id.group_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.group_key_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_AssetLeafKeys_1); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.AssetLeafKeys(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_AssetLeafKeys_1(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetLeafKeysRequest
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq AssetLeafKeysRequest
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["id.group_key_str"]
+	val, ok := pathParams["id.group_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.group_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "id.group_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.group_key_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_AssetLeafKeys_1); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.AssetLeafKeys(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_AssetLeaves_0 = &utilities.DoubleArray{Encoding: map[string]int{"asset_id_str": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
-)
+var filter_Universe_AssetLeaves_0 = &utilities.DoubleArray{Encoding: map[string]int{"asset_id_str": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
 
 func request_Universe_AssetLeaves_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ID
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq ID
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["asset_id_str"]
+	io.Copy(io.Discard, req.Body)
+	val, ok := pathParams["asset_id_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "asset_id_str")
 	}
-
 	if protoReq.Id == nil {
 		protoReq.Id = &ID_AssetIdStr{}
 	} else if _, ok := protoReq.Id.(*ID_AssetIdStr); !ok {
@@ -438,35 +351,26 @@ func request_Universe_AssetLeaves_0(ctx context.Context, marshaler runtime.Marsh
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "asset_id_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_AssetLeaves_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.AssetLeaves(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_AssetLeaves_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ID
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq ID
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["asset_id_str"]
+	val, ok := pathParams["asset_id_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "asset_id_str")
 	}
-
 	if protoReq.Id == nil {
 		protoReq.Id = &ID_AssetIdStr{}
 	} else if _, ok := protoReq.Id.(*ID_AssetIdStr); !ok {
@@ -476,39 +380,29 @@ func local_request_Universe_AssetLeaves_0(ctx context.Context, marshaler runtime
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "asset_id_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_AssetLeaves_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.AssetLeaves(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_AssetLeaves_1 = &utilities.DoubleArray{Encoding: map[string]int{"group_key_str": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
-)
+var filter_Universe_AssetLeaves_1 = &utilities.DoubleArray{Encoding: map[string]int{"group_key_str": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
 
 func request_Universe_AssetLeaves_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ID
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq ID
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["group_key_str"]
+	io.Copy(io.Discard, req.Body)
+	val, ok := pathParams["group_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "group_key_str")
 	}
-
 	if protoReq.Id == nil {
 		protoReq.Id = &ID_GroupKeyStr{}
 	} else if _, ok := protoReq.Id.(*ID_GroupKeyStr); !ok {
@@ -518,35 +412,26 @@ func request_Universe_AssetLeaves_1(ctx context.Context, marshaler runtime.Marsh
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "group_key_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_AssetLeaves_1); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.AssetLeaves(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_AssetLeaves_1(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ID
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq ID
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["group_key_str"]
+	val, ok := pathParams["group_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "group_key_str")
 	}
-
 	if protoReq.Id == nil {
 		protoReq.Id = &ID_GroupKeyStr{}
 	} else if _, ok := protoReq.Id.(*ID_GroupKeyStr); !ok {
@@ -556,1050 +441,848 @@ func local_request_Universe_AssetLeaves_1(ctx context.Context, marshaler runtime
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "group_key_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_AssetLeaves_1); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.AssetLeaves(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_QueryProof_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1, "leaf_key": 2, "op": 3, "hash_str": 4, "index": 5, "script_key_str": 6}, Base: []int{1, 1, 1, 5, 1, 2, 2, 3, 0, 0, 0, 5, 0}, Check: []int{0, 1, 2, 1, 4, 5, 4, 7, 3, 6, 8, 4, 12}}
-)
+var filter_Universe_QueryProof_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1, "leaf_key": 2, "op": 3, "hash_str": 4, "index": 5, "script_key_str": 6}, Base: []int{1, 1, 1, 5, 1, 2, 2, 3, 0, 0, 0, 5, 0}, Check: []int{0, 1, 2, 1, 4, 5, 4, 7, 3, 6, 8, 4, 12}}
 
 func request_Universe_QueryProof_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq UniverseKey
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq UniverseKey
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["id.asset_id_str"]
+	io.Copy(io.Discard, req.Body)
+	val, ok := pathParams["id.asset_id_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.asset_id_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "id.asset_id_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.asset_id_str", err)
 	}
-
 	val, ok = pathParams["leaf_key.op.hash_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "leaf_key.op.hash_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "leaf_key.op.hash_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "leaf_key.op.hash_str", err)
 	}
-
 	val, ok = pathParams["leaf_key.op.index"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "leaf_key.op.index")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "leaf_key.op.index", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "leaf_key.op.index", err)
 	}
-
 	val, ok = pathParams["leaf_key.script_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "leaf_key.script_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "leaf_key.script_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "leaf_key.script_key_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryProof_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.QueryProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_QueryProof_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq UniverseKey
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq UniverseKey
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["id.asset_id_str"]
+	val, ok := pathParams["id.asset_id_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.asset_id_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "id.asset_id_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.asset_id_str", err)
 	}
-
 	val, ok = pathParams["leaf_key.op.hash_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "leaf_key.op.hash_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "leaf_key.op.hash_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "leaf_key.op.hash_str", err)
 	}
-
 	val, ok = pathParams["leaf_key.op.index"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "leaf_key.op.index")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "leaf_key.op.index", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "leaf_key.op.index", err)
 	}
-
 	val, ok = pathParams["leaf_key.script_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "leaf_key.script_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "leaf_key.script_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "leaf_key.script_key_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryProof_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.QueryProof(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_QueryProof_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1, "leaf_key": 2, "op": 3, "hash_str": 4, "index": 5, "script_key_str": 6}, Base: []int{1, 1, 1, 5, 1, 2, 2, 3, 0, 0, 0, 5, 0}, Check: []int{0, 1, 2, 1, 4, 5, 4, 7, 3, 6, 8, 4, 12}}
-)
+var filter_Universe_QueryProof_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1, "leaf_key": 2, "op": 3, "hash_str": 4, "index": 5, "script_key_str": 6}, Base: []int{1, 1, 1, 5, 1, 2, 2, 3, 0, 0, 0, 5, 0}, Check: []int{0, 1, 2, 1, 4, 5, 4, 7, 3, 6, 8, 4, 12}}
 
 func request_Universe_QueryProof_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq UniverseKey
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq UniverseKey
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["id.group_key_str"]
+	io.Copy(io.Discard, req.Body)
+	val, ok := pathParams["id.group_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.group_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "id.group_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.group_key_str", err)
 	}
-
 	val, ok = pathParams["leaf_key.op.hash_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "leaf_key.op.hash_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "leaf_key.op.hash_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "leaf_key.op.hash_str", err)
 	}
-
 	val, ok = pathParams["leaf_key.op.index"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "leaf_key.op.index")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "leaf_key.op.index", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "leaf_key.op.index", err)
 	}
-
 	val, ok = pathParams["leaf_key.script_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "leaf_key.script_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "leaf_key.script_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "leaf_key.script_key_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryProof_1); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.QueryProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_QueryProof_1(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq UniverseKey
-	var metadata runtime.ServerMetadata
-
 	var (
-		val string
-		ok  bool
-		err error
-		_   = err
+		protoReq UniverseKey
+		metadata runtime.ServerMetadata
+		err      error
 	)
-
-	val, ok = pathParams["id.group_key_str"]
+	val, ok := pathParams["id.group_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.group_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "id.group_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.group_key_str", err)
 	}
-
 	val, ok = pathParams["leaf_key.op.hash_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "leaf_key.op.hash_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "leaf_key.op.hash_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "leaf_key.op.hash_str", err)
 	}
-
 	val, ok = pathParams["leaf_key.op.index"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "leaf_key.op.index")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "leaf_key.op.index", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "leaf_key.op.index", err)
 	}
-
 	val, ok = pathParams["leaf_key.script_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "leaf_key.script_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "leaf_key.script_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "leaf_key.script_key_str", err)
 	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryProof_1); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.QueryProof(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 func request_Universe_InsertProof_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetProof
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq AssetProof
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["key.id.asset_id_str"]
+	val, ok := pathParams["key.id.asset_id_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.id.asset_id_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.id.asset_id_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.id.asset_id_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.hash_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.hash_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.hash_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.hash_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.index"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.index")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.index", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.index", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.script_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.script_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.script_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
 	}
-
 	msg, err := client.InsertProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_InsertProof_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetProof
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq AssetProof
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["key.id.asset_id_str"]
+	val, ok := pathParams["key.id.asset_id_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.id.asset_id_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.id.asset_id_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.id.asset_id_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.hash_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.hash_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.hash_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.hash_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.index"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.index")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.index", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.index", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.script_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.script_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.script_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
 	}
-
 	msg, err := server.InsertProof(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 func request_Universe_InsertProof_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetProof
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq AssetProof
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["key.id.group_key_str"]
+	val, ok := pathParams["key.id.group_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.id.group_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.id.group_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.id.group_key_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.hash_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.hash_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.hash_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.hash_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.index"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.index")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.index", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.index", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.script_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.script_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.script_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
 	}
-
 	msg, err := client.InsertProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_InsertProof_1(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetProof
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq AssetProof
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["key.id.group_key_str"]
+	val, ok := pathParams["key.id.group_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.id.group_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.id.group_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.id.group_key_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.hash_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.hash_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.hash_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.hash_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.index"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.index")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.index", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.index", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.script_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.script_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.script_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
 	}
-
 	msg, err := server.InsertProof(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 func request_Universe_PushProof_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PushProofRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq PushProofRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["key.id.asset_id_str"]
+	val, ok := pathParams["key.id.asset_id_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.id.asset_id_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.id.asset_id_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.id.asset_id_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.hash_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.hash_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.hash_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.hash_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.index"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.index")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.index", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.index", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.script_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.script_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.script_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
 	}
-
 	msg, err := client.PushProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_PushProof_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PushProofRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq PushProofRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["key.id.asset_id_str"]
+	val, ok := pathParams["key.id.asset_id_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.id.asset_id_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.id.asset_id_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.id.asset_id_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.hash_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.hash_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.hash_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.hash_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.index"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.index")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.index", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.index", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.script_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.script_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.script_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
 	}
-
 	msg, err := server.PushProof(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 func request_Universe_PushProof_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PushProofRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq PushProofRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["key.id.group_key_str"]
+	val, ok := pathParams["key.id.group_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.id.group_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.id.group_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.id.group_key_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.hash_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.hash_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.hash_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.hash_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.index"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.index")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.index", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.index", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.script_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.script_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.script_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
 	}
-
 	msg, err := client.PushProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_PushProof_1(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PushProofRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq PushProofRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["key.id.group_key_str"]
+	val, ok := pathParams["key.id.group_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.id.group_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.id.group_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.id.group_key_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.hash_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.hash_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.hash_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.hash_str", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.op.index"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.index")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.index", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.index", err)
 	}
-
 	val, ok = pathParams["key.leaf_key.script_key_str"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.script_key_str")
 	}
-
 	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.script_key_str", val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
 	}
-
 	msg, err := server.PushProof(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 func request_Universe_Info_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq InfoRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq InfoRequest
+		metadata runtime.ServerMetadata
+	)
+	io.Copy(io.Discard, req.Body)
 	msg, err := client.Info(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_Info_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq InfoRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq InfoRequest
+		metadata runtime.ServerMetadata
+	)
 	msg, err := server.Info(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 func request_Universe_SyncUniverse_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq SyncRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq SyncRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.SyncUniverse(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_SyncUniverse_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq SyncRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq SyncRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.SyncUniverse(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 func request_Universe_ListFederationServers_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ListFederationServersRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq ListFederationServersRequest
+		metadata runtime.ServerMetadata
+	)
+	io.Copy(io.Discard, req.Body)
 	msg, err := client.ListFederationServers(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_ListFederationServers_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ListFederationServersRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq ListFederationServersRequest
+		metadata runtime.ServerMetadata
+	)
 	msg, err := server.ListFederationServers(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 func request_Universe_AddFederationServer_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AddFederationServerRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq AddFederationServerRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.AddFederationServer(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_AddFederationServer_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AddFederationServerRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq AddFederationServerRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.AddFederationServer(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_DeleteFederationServer_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
-)
+var filter_Universe_DeleteFederationServer_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 
 func request_Universe_DeleteFederationServer_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq DeleteFederationServerRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq DeleteFederationServerRequest
+		metadata runtime.ServerMetadata
+	)
+	io.Copy(io.Discard, req.Body)
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_DeleteFederationServer_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.DeleteFederationServer(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_DeleteFederationServer_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq DeleteFederationServerRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq DeleteFederationServerRequest
+		metadata runtime.ServerMetadata
+	)
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_DeleteFederationServer_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.DeleteFederationServer(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 func request_Universe_UniverseStats_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq StatsRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq StatsRequest
+		metadata runtime.ServerMetadata
+	)
+	io.Copy(io.Discard, req.Body)
 	msg, err := client.UniverseStats(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_UniverseStats_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq StatsRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq StatsRequest
+		metadata runtime.ServerMetadata
+	)
 	msg, err := server.UniverseStats(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_QueryAssetStats_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
-)
+var filter_Universe_QueryAssetStats_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 
 func request_Universe_QueryAssetStats_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetStatsQuery
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq AssetStatsQuery
+		metadata runtime.ServerMetadata
+	)
+	io.Copy(io.Discard, req.Body)
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryAssetStats_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.QueryAssetStats(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_QueryAssetStats_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq AssetStatsQuery
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq AssetStatsQuery
+		metadata runtime.ServerMetadata
+	)
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryAssetStats_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.QueryAssetStats(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_QueryEvents_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
-)
+var filter_Universe_QueryEvents_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 
 func request_Universe_QueryEvents_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QueryEventsRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq QueryEventsRequest
+		metadata runtime.ServerMetadata
+	)
+	io.Copy(io.Discard, req.Body)
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryEvents_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.QueryEvents(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_QueryEvents_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QueryEventsRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq QueryEventsRequest
+		metadata runtime.ServerMetadata
+	)
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryEvents_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.QueryEvents(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 func request_Universe_SetFederationSyncConfig_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq SetFederationSyncConfigRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq SetFederationSyncConfigRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.SetFederationSyncConfig(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_SetFederationSyncConfig_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq SetFederationSyncConfigRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq SetFederationSyncConfigRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.SetFederationSyncConfig(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
-var (
-	filter_Universe_QueryFederationSyncConfig_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
-)
+var filter_Universe_QueryFederationSyncConfig_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 
 func request_Universe_QueryFederationSyncConfig_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QueryFederationSyncConfigRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq QueryFederationSyncConfigRequest
+		metadata runtime.ServerMetadata
+	)
+	io.Copy(io.Discard, req.Body)
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryFederationSyncConfig_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := client.QueryFederationSyncConfig(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Universe_QueryFederationSyncConfig_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QueryFederationSyncConfigRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq QueryFederationSyncConfigRequest
+		metadata runtime.ServerMetadata
+	)
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryFederationSyncConfig_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.QueryFederationSyncConfig(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 // RegisterUniverseHandlerServer registers the http handlers for service Universe to "mux".
 // UnaryRPC     :call UniverseServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
 // Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterUniverseHandlerFromEndpoint instead.
+// GRPC interceptors will not work for this type of registration. To use interceptors, you must use the "runtime.WithMiddlewares" option in the "runtime.NewServeMux" call.
 func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, server UniverseServer) error {
-
-	mux.Handle("POST", pattern_Universe_MultiverseRoot_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_MultiverseRoot_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/MultiverseRoot", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/multiverse"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/MultiverseRoot", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/multiverse"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1611,20 +1294,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_MultiverseRoot_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_AssetRoots_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_AssetRoots_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetRoots", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/roots"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetRoots", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/roots"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1636,20 +1314,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_AssetRoots_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryAssetRoots_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryAssetRoots_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/roots/asset-id/{id.asset_id_str}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/roots/asset-id/{id.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1661,20 +1334,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryAssetRoots_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryAssetRoots_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryAssetRoots_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/roots/group-key/{id.group_key_str}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/roots/group-key/{id.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1686,20 +1354,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryAssetRoots_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("DELETE", pattern_Universe_DeleteAssetRoot_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodDelete, pattern_Universe_DeleteAssetRoot_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/DeleteAssetRoot", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/delete"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/DeleteAssetRoot", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/delete"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1711,20 +1374,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_DeleteAssetRoot_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_AssetLeafKeys_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_AssetLeafKeys_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/keys/asset-id/{id.asset_id_str}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/keys/asset-id/{id.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1736,20 +1394,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_AssetLeafKeys_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_AssetLeafKeys_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_AssetLeafKeys_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/keys/group-key/{id.group_key_str}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/keys/group-key/{id.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1761,20 +1414,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_AssetLeafKeys_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_AssetLeaves_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_AssetLeaves_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1786,20 +1434,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_AssetLeaves_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_AssetLeaves_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_AssetLeaves_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/group-key/{group_key_str}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/group-key/{group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1811,20 +1454,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_AssetLeaves_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1836,20 +1474,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryProof_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1861,20 +1494,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryProof_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_InsertProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_InsertProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/InsertProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/InsertProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1886,20 +1514,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_InsertProof_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_InsertProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_InsertProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/InsertProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/InsertProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1911,20 +1534,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_InsertProof_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_PushProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_PushProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/PushProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/push/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/PushProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/push/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1936,20 +1554,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_PushProof_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_PushProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_PushProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/PushProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/push/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/PushProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/push/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1961,20 +1574,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_PushProof_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_Info_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_Info_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/Info", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/info"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/Info", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/info"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1986,20 +1594,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_Info_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_SyncUniverse_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_SyncUniverse_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/SyncUniverse", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/sync"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/SyncUniverse", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/sync"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2011,20 +1614,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_SyncUniverse_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_ListFederationServers_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_ListFederationServers_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/ListFederationServers", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/federation"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/ListFederationServers", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/federation"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2036,20 +1634,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_ListFederationServers_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_AddFederationServer_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_AddFederationServer_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AddFederationServer", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/federation"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AddFederationServer", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/federation"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2061,20 +1654,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_AddFederationServer_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("DELETE", pattern_Universe_DeleteFederationServer_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodDelete, pattern_Universe_DeleteFederationServer_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/DeleteFederationServer", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/federation"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/DeleteFederationServer", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/federation"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2086,20 +1674,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_DeleteFederationServer_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_UniverseStats_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_UniverseStats_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/UniverseStats", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/stats"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/UniverseStats", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/stats"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2111,20 +1694,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_UniverseStats_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryAssetStats_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryAssetStats_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryAssetStats", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/stats/assets"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryAssetStats", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/stats/assets"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2136,20 +1714,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryAssetStats_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryEvents_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryEvents_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryEvents", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/stats/events"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryEvents", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/stats/events"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2161,20 +1734,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryEvents_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_SetFederationSyncConfig_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_SetFederationSyncConfig_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/SetFederationSyncConfig", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/sync/config"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/SetFederationSyncConfig", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/sync/config"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2186,20 +1754,15 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_SetFederationSyncConfig_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryFederationSyncConfig_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryFederationSyncConfig_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryFederationSyncConfig", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/sync/config"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryFederationSyncConfig", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/sync/config"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2211,9 +1774,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryFederationSyncConfig_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
 
 	return nil
@@ -2240,7 +1801,6 @@ func RegisterUniverseHandlerFromEndpoint(ctx context.Context, mux *runtime.Serve
 			}
 		}()
 	}()
-
 	return RegisterUniverseHandler(ctx, mux, conn)
 }
 
@@ -2254,16 +1814,13 @@ func RegisterUniverseHandler(ctx context.Context, mux *runtime.ServeMux, conn *g
 // to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "UniverseClient".
 // Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "UniverseClient"
 // doesn't go through the normal gRPC flow (creating a gRPC client etc.) then it will be up to the passed in
-// "UniverseClient" to call the correct interceptors.
+// "UniverseClient" to call the correct interceptors. This client ignores the HTTP middlewares.
 func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, client UniverseClient) error {
-
-	mux.Handle("POST", pattern_Universe_MultiverseRoot_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_MultiverseRoot_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/MultiverseRoot", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/multiverse"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/MultiverseRoot", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/multiverse"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2274,18 +1831,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_MultiverseRoot_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_AssetRoots_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_AssetRoots_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetRoots", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/roots"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetRoots", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/roots"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2296,18 +1848,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_AssetRoots_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryAssetRoots_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryAssetRoots_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/roots/asset-id/{id.asset_id_str}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/roots/asset-id/{id.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2318,18 +1865,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryAssetRoots_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryAssetRoots_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryAssetRoots_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/roots/group-key/{id.group_key_str}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/roots/group-key/{id.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2340,18 +1882,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryAssetRoots_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("DELETE", pattern_Universe_DeleteAssetRoot_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodDelete, pattern_Universe_DeleteAssetRoot_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/DeleteAssetRoot", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/delete"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/DeleteAssetRoot", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/delete"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2362,18 +1899,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_DeleteAssetRoot_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_AssetLeafKeys_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_AssetLeafKeys_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/keys/asset-id/{id.asset_id_str}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/keys/asset-id/{id.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2384,18 +1916,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_AssetLeafKeys_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_AssetLeafKeys_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_AssetLeafKeys_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/keys/group-key/{id.group_key_str}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/keys/group-key/{id.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2406,18 +1933,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_AssetLeafKeys_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_AssetLeaves_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_AssetLeaves_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2428,18 +1950,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_AssetLeaves_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_AssetLeaves_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_AssetLeaves_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/group-key/{group_key_str}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/group-key/{group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2450,18 +1967,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_AssetLeaves_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2472,18 +1984,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryProof_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2494,18 +2001,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryProof_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_InsertProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_InsertProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/InsertProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/InsertProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2516,18 +2018,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_InsertProof_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_InsertProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_InsertProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/InsertProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/InsertProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2538,18 +2035,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_InsertProof_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_PushProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_PushProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/PushProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/push/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/PushProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/push/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2560,18 +2052,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_PushProof_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_PushProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_PushProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/PushProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/push/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/PushProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/push/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2582,18 +2069,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_PushProof_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_Info_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_Info_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/Info", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/info"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/Info", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/info"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2604,18 +2086,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_Info_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_SyncUniverse_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_SyncUniverse_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/SyncUniverse", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/sync"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/SyncUniverse", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/sync"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2626,18 +2103,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_SyncUniverse_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_ListFederationServers_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_ListFederationServers_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/ListFederationServers", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/federation"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/ListFederationServers", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/federation"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2648,18 +2120,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_ListFederationServers_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_AddFederationServer_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_AddFederationServer_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AddFederationServer", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/federation"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AddFederationServer", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/federation"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2670,18 +2137,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_AddFederationServer_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("DELETE", pattern_Universe_DeleteFederationServer_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodDelete, pattern_Universe_DeleteFederationServer_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/DeleteFederationServer", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/federation"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/DeleteFederationServer", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/federation"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2692,18 +2154,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_DeleteFederationServer_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_UniverseStats_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_UniverseStats_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/UniverseStats", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/stats"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/UniverseStats", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/stats"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2714,18 +2171,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_UniverseStats_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryAssetStats_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryAssetStats_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryAssetStats", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/stats/assets"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryAssetStats", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/stats/assets"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2736,18 +2188,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryAssetStats_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryEvents_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryEvents_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryEvents", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/stats/events"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryEvents", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/stats/events"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2758,18 +2205,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryEvents_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Universe_SetFederationSyncConfig_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Universe_SetFederationSyncConfig_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/SetFederationSyncConfig", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/sync/config"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/SetFederationSyncConfig", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/sync/config"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2780,18 +2222,13 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_SetFederationSyncConfig_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Universe_QueryFederationSyncConfig_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Universe_QueryFederationSyncConfig_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryFederationSyncConfig", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/sync/config"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryFederationSyncConfig", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/sync/config"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2802,114 +2239,63 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Universe_QueryFederationSyncConfig_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
 	return nil
 }
 
 var (
-	pattern_Universe_MultiverseRoot_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "multiverse"}, ""))
-
-	pattern_Universe_AssetRoots_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "roots"}, ""))
-
-	pattern_Universe_QueryAssetRoots_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "roots", "asset-id", "id.asset_id_str"}, ""))
-
-	pattern_Universe_QueryAssetRoots_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "roots", "group-key", "id.group_key_str"}, ""))
-
-	pattern_Universe_DeleteAssetRoot_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "delete"}, ""))
-
-	pattern_Universe_AssetLeafKeys_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "keys", "asset-id", "id.asset_id_str"}, ""))
-
-	pattern_Universe_AssetLeafKeys_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "keys", "group-key", "id.group_key_str"}, ""))
-
-	pattern_Universe_AssetLeaves_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "leaves", "asset-id", "asset_id_str"}, ""))
-
-	pattern_Universe_AssetLeaves_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "leaves", "group-key", "group_key_str"}, ""))
-
-	pattern_Universe_QueryProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "asset-id", "id.asset_id_str", "leaf_key.op.hash_str", "leaf_key.op.index", "leaf_key.script_key_str"}, ""))
-
-	pattern_Universe_QueryProof_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "group-key", "id.group_key_str", "leaf_key.op.hash_str", "leaf_key.op.index", "leaf_key.script_key_str"}, ""))
-
-	pattern_Universe_InsertProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "asset-id", "key.id.asset_id_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
-
-	pattern_Universe_InsertProof_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "group-key", "key.id.group_key_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
-
-	pattern_Universe_PushProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 2, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8, 1, 0, 4, 1, 5, 9}, []string{"v1", "taproot-assets", "universe", "proofs", "push", "asset-id", "key.id.asset_id_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
-
-	pattern_Universe_PushProof_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 2, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8, 1, 0, 4, 1, 5, 9}, []string{"v1", "taproot-assets", "universe", "proofs", "push", "group-key", "key.id.group_key_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
-
-	pattern_Universe_Info_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "info"}, ""))
-
-	pattern_Universe_SyncUniverse_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "sync"}, ""))
-
-	pattern_Universe_ListFederationServers_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "federation"}, ""))
-
-	pattern_Universe_AddFederationServer_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "federation"}, ""))
-
-	pattern_Universe_DeleteFederationServer_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "federation"}, ""))
-
-	pattern_Universe_UniverseStats_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "stats"}, ""))
-
-	pattern_Universe_QueryAssetStats_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "universe", "stats", "assets"}, ""))
-
-	pattern_Universe_QueryEvents_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "universe", "stats", "events"}, ""))
-
-	pattern_Universe_SetFederationSyncConfig_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "universe", "sync", "config"}, ""))
-
+	pattern_Universe_MultiverseRoot_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "multiverse"}, ""))
+	pattern_Universe_AssetRoots_0                = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "roots"}, ""))
+	pattern_Universe_QueryAssetRoots_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "roots", "asset-id", "id.asset_id_str"}, ""))
+	pattern_Universe_QueryAssetRoots_1           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "roots", "group-key", "id.group_key_str"}, ""))
+	pattern_Universe_DeleteAssetRoot_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "delete"}, ""))
+	pattern_Universe_AssetLeafKeys_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "keys", "asset-id", "id.asset_id_str"}, ""))
+	pattern_Universe_AssetLeafKeys_1             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "keys", "group-key", "id.group_key_str"}, ""))
+	pattern_Universe_AssetLeaves_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "leaves", "asset-id", "asset_id_str"}, ""))
+	pattern_Universe_AssetLeaves_1               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "leaves", "group-key", "group_key_str"}, ""))
+	pattern_Universe_QueryProof_0                = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "asset-id", "id.asset_id_str", "leaf_key.op.hash_str", "leaf_key.op.index", "leaf_key.script_key_str"}, ""))
+	pattern_Universe_QueryProof_1                = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "group-key", "id.group_key_str", "leaf_key.op.hash_str", "leaf_key.op.index", "leaf_key.script_key_str"}, ""))
+	pattern_Universe_InsertProof_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "asset-id", "key.id.asset_id_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
+	pattern_Universe_InsertProof_1               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "group-key", "key.id.group_key_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
+	pattern_Universe_PushProof_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 2, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8, 1, 0, 4, 1, 5, 9}, []string{"v1", "taproot-assets", "universe", "proofs", "push", "asset-id", "key.id.asset_id_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
+	pattern_Universe_PushProof_1                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 2, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8, 1, 0, 4, 1, 5, 9}, []string{"v1", "taproot-assets", "universe", "proofs", "push", "group-key", "key.id.group_key_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
+	pattern_Universe_Info_0                      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "info"}, ""))
+	pattern_Universe_SyncUniverse_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "sync"}, ""))
+	pattern_Universe_ListFederationServers_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "federation"}, ""))
+	pattern_Universe_AddFederationServer_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "federation"}, ""))
+	pattern_Universe_DeleteFederationServer_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "federation"}, ""))
+	pattern_Universe_UniverseStats_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "stats"}, ""))
+	pattern_Universe_QueryAssetStats_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "universe", "stats", "assets"}, ""))
+	pattern_Universe_QueryEvents_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "universe", "stats", "events"}, ""))
+	pattern_Universe_SetFederationSyncConfig_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "universe", "sync", "config"}, ""))
 	pattern_Universe_QueryFederationSyncConfig_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "universe", "sync", "config"}, ""))
 )
 
 var (
-	forward_Universe_MultiverseRoot_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_AssetRoots_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_QueryAssetRoots_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_QueryAssetRoots_1 = runtime.ForwardResponseMessage
-
-	forward_Universe_DeleteAssetRoot_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_AssetLeafKeys_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_AssetLeafKeys_1 = runtime.ForwardResponseMessage
-
-	forward_Universe_AssetLeaves_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_AssetLeaves_1 = runtime.ForwardResponseMessage
-
-	forward_Universe_QueryProof_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_QueryProof_1 = runtime.ForwardResponseMessage
-
-	forward_Universe_InsertProof_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_InsertProof_1 = runtime.ForwardResponseMessage
-
-	forward_Universe_PushProof_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_PushProof_1 = runtime.ForwardResponseMessage
-
-	forward_Universe_Info_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_SyncUniverse_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_ListFederationServers_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_AddFederationServer_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_DeleteFederationServer_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_UniverseStats_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_QueryAssetStats_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_QueryEvents_0 = runtime.ForwardResponseMessage
-
-	forward_Universe_SetFederationSyncConfig_0 = runtime.ForwardResponseMessage
-
+	forward_Universe_MultiverseRoot_0            = runtime.ForwardResponseMessage
+	forward_Universe_AssetRoots_0                = runtime.ForwardResponseMessage
+	forward_Universe_QueryAssetRoots_0           = runtime.ForwardResponseMessage
+	forward_Universe_QueryAssetRoots_1           = runtime.ForwardResponseMessage
+	forward_Universe_DeleteAssetRoot_0           = runtime.ForwardResponseMessage
+	forward_Universe_AssetLeafKeys_0             = runtime.ForwardResponseMessage
+	forward_Universe_AssetLeafKeys_1             = runtime.ForwardResponseMessage
+	forward_Universe_AssetLeaves_0               = runtime.ForwardResponseMessage
+	forward_Universe_AssetLeaves_1               = runtime.ForwardResponseMessage
+	forward_Universe_QueryProof_0                = runtime.ForwardResponseMessage
+	forward_Universe_QueryProof_1                = runtime.ForwardResponseMessage
+	forward_Universe_InsertProof_0               = runtime.ForwardResponseMessage
+	forward_Universe_InsertProof_1               = runtime.ForwardResponseMessage
+	forward_Universe_PushProof_0                 = runtime.ForwardResponseMessage
+	forward_Universe_PushProof_1                 = runtime.ForwardResponseMessage
+	forward_Universe_Info_0                      = runtime.ForwardResponseMessage
+	forward_Universe_SyncUniverse_0              = runtime.ForwardResponseMessage
+	forward_Universe_ListFederationServers_0     = runtime.ForwardResponseMessage
+	forward_Universe_AddFederationServer_0       = runtime.ForwardResponseMessage
+	forward_Universe_DeleteFederationServer_0    = runtime.ForwardResponseMessage
+	forward_Universe_UniverseStats_0             = runtime.ForwardResponseMessage
+	forward_Universe_QueryAssetStats_0           = runtime.ForwardResponseMessage
+	forward_Universe_QueryEvents_0               = runtime.ForwardResponseMessage
+	forward_Universe_SetFederationSyncConfig_0   = runtime.ForwardResponseMessage
 	forward_Universe_QueryFederationSyncConfig_0 = runtime.ForwardResponseMessage
 )

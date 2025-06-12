@@ -2,6 +2,8 @@
 
 set -e
 
+LND_VERSION="v0.17.0-beta"
+
 # generate compiles the *.pb.go stubs from the *.proto files.
 function generate() {
   echo "Generating root gRPC server protos"

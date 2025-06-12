@@ -1154,7 +1154,7 @@ var fetchMetaCommand = cli.Command{
 	Name:  "meta",
 	Usage: "fetch asset meta",
 	Description: "fetch the meta bytes for an asset based on the " +
-		"asset_id or meta_hash",
+		"asset_id, meta_hash, or group_key",
 	Action: fetchMeta,
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -1165,44 +1165,58 @@ var fetchMetaCommand = cli.Command{
 			Name:  metaName,
 			Usage: "meta_hash to fetch meta for",
 		},
+		&cli.StringFlag{
+			Name: "group_key",
+			Usage: "the hex-encoded group key of the assets to fetch metadata for. " +
+				"Mutually exclusive with asset_id and meta_hash",
+		},
 	},
 }
 
 func fetchMeta(ctx *cli.Context) error {
-	switch {
-	case ctx.IsSet(metaName) && ctx.IsSet(assetIDName):
-		return fmt.Errorf("only the asset_id or meta_hash can be set")
+	assetID := ctx.String(assetIDName)
+	metaHashHex := ctx.String(metaName)
+	groupKeyHex := ctx.String("group_key")
 
-	case !ctx.IsSet(assetIDName) && !ctx.IsSet(metaName):
-		return cli.ShowSubcommandHelp(ctx)
+	numIdentifiers := 0
+	if assetID != "" {
+		numIdentifiers++
+	}
+	if metaHashHex != "" {
+		numIdentifiers++
+	}
+	if groupKeyHex != "" {
+		numIdentifiers++
+	}
+
+	if numIdentifiers == 0 {
+		return fmt.Errorf("must specify one of asset_id, meta_hash, or group_key")
+	}
+	if numIdentifiers > 1 {
+		return fmt.Errorf("must specify only one of asset_id, meta_hash, or group_key")
 	}
 
 	ctxc := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &taprpc.FetchAssetMetaRequest{}
-	if ctx.IsSet(assetIDName) {
-		assetIDHex, err := hex.DecodeString(ctx.String(assetIDName))
-		if err != nil {
-			return fmt.Errorf("invalid asset ID")
-		}
-
-		req.Asset = &taprpc.FetchAssetMetaRequest_AssetId{
-			AssetId: assetIDHex,
-		}
-	} else {
-		metaBytes, err := hex.DecodeString(ctx.String(metaName))
-		if err != nil {
-			return fmt.Errorf("invalid meta hash")
-		}
-
-		req.Asset = &taprpc.FetchAssetMetaRequest_MetaHash{
-			MetaHash: metaBytes,
-		}
+	fetchReq := &taprpc.FetchAssetMetaRequest{}
+	switch {
+	case assetID != "":
+		// The RPC expects bytes, but the CLI takes a hex string for AssetIdStr.
+		// The original code used AssetId (bytes) for assetIDName.
+		// For consistency with proto changes and to allow string input,
+		// we'll use AssetIdStr. If the RPC still needs bytes for asset_id,
+		// this part would need further adjustment or the proto needs AssetIdStr.
+		// The proto *does* have AssetIdStr, so this is fine.
+		fetchReq.Asset = &taprpc.FetchAssetMetaRequest_AssetIdStr{AssetIdStr: assetID}
+	case metaHashHex != "":
+		fetchReq.Asset = &taprpc.FetchAssetMetaRequest_MetaHashStr{MetaHashStr: metaHashHex}
+	case groupKeyHex != "":
+		fetchReq.Asset = &taprpc.FetchAssetMetaRequest_GroupKeyStr{GroupKeyStr: groupKeyHex}
 	}
 
-	resp, err := client.FetchAssetMeta(ctxc, req)
+	resp, err := client.FetchAssetMeta(ctxc, fetchReq)
 	if err != nil {
 		return fmt.Errorf("unable to fetch asset meta: %w", err)
 	}
