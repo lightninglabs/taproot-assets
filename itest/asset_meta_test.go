@@ -84,6 +84,31 @@ func testAssetMeta(t *harnessTest) {
 				},
 			},
 		},
+
+		// A mint request that doesn't specify asset meta at all should
+		// be permitted.
+		{
+			asset: &mintrpc.MintAssetRequest{
+				Asset: &mintrpc.MintAsset{
+					AssetType: taprpc.AssetType_NORMAL,
+					Name:      "no meta",
+					Amount:    5000,
+				},
+			},
+		},
+
+		// A user should also be able to specify a decimal display, but
+		// not actually specify an asset meta at all.
+		{
+			asset: &mintrpc.MintAssetRequest{
+				Asset: &mintrpc.MintAsset{
+					AssetType:      taprpc.AssetType_NORMAL,
+					Name:           "dec display",
+					Amount:         5000,
+					DecimalDisplay: 6,
+				},
+			},
+		},
 	}
 
 	ctxb := context.Background()
@@ -172,18 +197,9 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	_, err = t.tapd.MintAsset(ctxt, secondAssetReq)
 	require.ErrorContains(t.t, err, "decimal display does not match")
 
-	// Requesting a decimal display without specifying the metadata field
-	// with at least the type should fail.
-	secondAssetReq.Asset.DecimalDisplay = firstAsset.DecimalDisplay
-	secondAssetReq.Asset.AssetMeta = nil
-
-	_, err = t.tapd.MintAsset(ctxt, secondAssetReq)
-	require.ErrorContains(
-		t.t, err, "decimal display requires asset metadata",
-	)
-
 	// Attempting to set a different decimal display in the JSON meta data
 	// as in the new RPC request field should give us an error as well.
+	secondAssetReq.Asset.DecimalDisplay = firstAsset.DecimalDisplay
 	secondAssetReq.Asset.AssetMeta = &taprpc.AssetMeta{
 		Type: taprpc.AssetMetaType_META_TYPE_JSON,
 		Data: []byte(`{"foo": "bar", "decimal_display": 3}`),

@@ -66,7 +66,7 @@ func NewChantoolsHarness(t *testing.T) ChantoolsHarness {
 	require.NoError(t, err, "failed to get chantools version")
 
 	versionOutStr := string(versionOut)
-	if !strings.Contains(versionOutStr, "chantools version v0.13.5") {
+	if !strings.Contains(versionOutStr, "chantools version v0.14.0") {
 		t.Fatalf("unexpected chantools version: %v", versionOutStr)
 	}
 

@@ -90,7 +90,7 @@ build-itest:
 	@if [ ! -f itest/chantools/chantools ]; then \
 		$(call print, "Building itest chantools."); \
 		rm -rf itest/chantools; \
-		git clone --depth 1 --branch v0.13.5 https://github.com/lightninglabs/chantools.git itest/chantools; \
+		git clone --depth 1 --branch v0.14.0 https://github.com/lightninglabs/chantools.git itest/chantools; \
 		cd itest/chantools && go build ./cmd/chantools; \
 	else \
 		$(call print, "Chantools is already installed and available in itest/chantools."); \

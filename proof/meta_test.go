@@ -3,9 +3,12 @@ package proof
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -15,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 )
 
 var (
@@ -71,7 +75,6 @@ func TestValidateMetaReveal(t *testing.T) {
 				Type: MetaOpaque,
 				Data: nil,
 			},
-			expectedErr: ErrMetaDataMissing,
 		},
 		{
 			name: "too much data",
@@ -465,4 +468,163 @@ func TestDecodeNewMetaReveal(t *testing.T) {
 	require.Equal(t, false, decoded.UniverseCommitments)
 	require.Equal(t, fn.None[[]url.URL](), decoded.CanonicalUniverses)
 	require.Equal(t, fn.None[btcec.PublicKey](), decoded.DelegationKey)
+}
+
+// TestDecodeMetaJSONEmptyBytes tests DecodeMetaJSON with an empty byte slice.
+func TestDecodeMetaJSONEmptyBytes(t *testing.T) {
+	t.Parallel()
+
+	_, err := DecodeMetaJSON([]byte{})
+	require.ErrorIs(t, err, ErrInvalidJSON)
+}
+
+// TestEncodeMetaJSONEmptyOrNilMap tests EncodeMetaJSON with nil and empty maps.
+func TestEncodeMetaJSONEmptyOrNilMap(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil map", func(t *testing.T) {
+		nilMapBytes, err := EncodeMetaJSON(nil)
+		require.NoError(t, err)
+		require.Equal(
+			t, []byte{}, nilMapBytes,
+			"encoding nil map should produce empty bytes",
+		)
+	})
+
+	t.Run("empty map", func(t *testing.T) {
+		emptyMap := make(map[string]interface{})
+		emptyMapBytes, err := EncodeMetaJSON(emptyMap)
+		require.NoError(t, err)
+		require.Equal(t, []byte("{}"), emptyMapBytes,
+			"Encoding empty map should produce '{}'")
+	})
+}
+
+// simpleJSONMap is a helper struct for generating map[string]interface{}
+// values for property-based testing.
+type simpleJSONMap struct {
+	StringEntries map[string]string
+	FloatEntries  map[string]float64
+	BoolEntries   map[string]bool
+}
+
+// toMap converts a simpleJSONMap to a map[string]interface{}.
+func (s simpleJSONMap) toMap() map[string]interface{} {
+	m := make(map[string]interface{})
+	for k, v := range s.StringEntries {
+		// To avoid key collisions if rapid generates identical keys for
+		// different entry types, we could prefix them, but for
+		// simplicity, we'll assume distinct keys or accept overwrites
+		// if rapid generates identical string keys for different map
+		// types (unlikely to be an issue for typical map generation).
+		m[k] = v
+	}
+	for k, v := range s.FloatEntries {
+		m[k] = v
+	}
+	for k, v := range s.BoolEntries {
+		m[k] = v
+	}
+	return m
+}
+
+// TestMetaJsonEncodeDecodeProperties tests the EncodeMetaJSON and
+// DecodeMetaJSON functions using property-based testing. It ensures that
+// encoding and then decoding a map yields the original map.
+func TestMetaJsonEncodeDecodeProperties(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		// Generate a simpleJSONMap instance.
+		sjm := rapid.Custom(func(t *rapid.T) simpleJSONMap {
+			return simpleJSONMap{
+				StringEntries: rapid.MapOf(
+					rapid.String(), rapid.String(),
+				).Draw(t, "StringEntries"),
+				FloatEntries: rapid.MapOf(
+					rapid.String(), rapid.Float64(),
+				).Draw(t, "FloatEntries"),
+				BoolEntries: rapid.MapOf(
+					rapid.String(), rapid.Bool(),
+				).Draw(t, "BoolEntries"),
+			}
+		}).Draw(rt, "sjm")
+
+		originalMap := sjm.toMap()
+
+		encodedBytes, err := EncodeMetaJSON(originalMap)
+		if err != nil {
+			// If the generated map is too large, EncodeMetaJSON
+			// will return ErrMetaDataTooLarge. This is an expected
+			// behavior, not a property failure.
+			if errors.Is(err, ErrMetaDataTooLarge) {
+				return
+			}
+
+			// Any other encoding error is a failure.
+			rt.Fatalf("EncodeMetaJSON failed for map %#v: %v",
+				originalMap, err)
+		}
+
+		decodedMap, err := DecodeMetaJSON(encodedBytes)
+		if err != nil {
+			rt.Fatalf("DecodeMetaJSON failed for bytes %s "+
+				"(from map %#v): %v",
+				string(encodedBytes), originalMap, err)
+		}
+
+		if !reflect.DeepEqual(originalMap, decodedMap) {
+			rt.Fatalf("Decoded map does not match original map.\n"+
+				"Original: %#v\nEncoded:  %s\nDecoded:  %#v",
+				originalMap, string(encodedBytes), decodedMap)
+		}
+	})
+}
+
+// TestDecodeMetaJSONOversizedProperty tests that DecodeMetaJSON returns an
+// error when the input byte slice is larger than MetaDataMaxSizeBytes.
+func TestDecodeMetaJSONOversizedProperty(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		// Generate a byte slice that is guaranteed to be too large. We
+		// add a small delta to avoid generating slices that are
+		// excessively large and slow down the test.
+		oversizedBytes := rapid.SliceOfN(
+			rapid.Byte(),
+			MetaDataMaxSizeBytes+1,
+			MetaDataMaxSizeBytes+10,
+		).Draw(rt, "oversizedBytes")
+
+		_, err := DecodeMetaJSON(oversizedBytes)
+		require.ErrorIs(rt, err, ErrMetaDataTooLarge)
+	})
+}
+
+// TestDecodeMetaJSONInvalidJSONProperty tests that DecodeMetaJSON returns an
+// error for byte slices that are not valid JSON but are within size limits.
+func TestDecodeMetaJSONInvalidJSONProperty(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		// Generate a byte slice that is within the size limit. There's
+		// a high chance this random byte slice won't be valid JSON.
+		inputBytes := rapid.SliceOfN(
+			rapid.Byte(),
+			0, MetaDataMaxSizeBytes,
+		).Draw(rt, "inputBytes")
+
+		// If, by chance, we generated valid JSON or an empty slice
+		// (which DecodeMetaJSON handles as valid empty JSON), we skip
+		// this iteration as we want to test invalid JSON.
+		// DecodeMetaJSON considers empty bytes as valid (empty map).
+		if json.Valid(inputBytes) {
+			rt.Skip("Generated valid JSON or empty " +
+				"slice, skipping to test invalid case")
+			return
+		}
+
+		_, err := DecodeMetaJSON(inputBytes)
+		require.ErrorIs(rt, err, ErrInvalidJSON)
+	})
 }
