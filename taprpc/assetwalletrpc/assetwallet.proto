@@ -1,5 +1,6 @@
 syntax = "proto3";
 
+import "tapcommon.proto";
 import "taprootassets.proto";
 
 package assetwalletrpc;
