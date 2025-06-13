@@ -248,7 +248,8 @@ func randIgnoreTupleGen(t *rapid.T,
 			ScriptKey: asset.ToSerialized(scriptKey.PubKey),
 			OutPoint:  op,
 		},
-		Amount: 100,
+		Amount:      100,
+		BlockHeight: rapid.Uint32Range(1, 1000).Draw(t, "block_height"),
 	}
 
 	// Create a signature for the ignore tuple.
@@ -365,6 +366,101 @@ func setupSupplyTreeTestForProps(t *testing.T) (*SupplyTreeStore,
 	eventGen := randSupplyUpdateEventGen(baseGenesis, groupKey, dbTxer)
 
 	return supplyStore, spec, eventGen
+}
+
+// createMintEventWithHeight creates a mint event with a specific block height.
+func createMintEventWithHeight(t *testing.T, groupKey *btcec.PublicKey,
+	height uint32) *supplycommit.NewMintEvent {
+
+	mintAsset := asset.RandAsset(t, asset.Normal)
+	mintAsset.GroupKey = &asset.GroupKey{GroupPubKey: *groupKey}
+	mintAsset.GroupKey.Witness = mintAsset.PrevWitnesses[0].TxWitness
+
+	mintProof := randProof(t, mintAsset)
+	mintProof.BlockHeight = height
+	mintProof.GroupKeyReveal = asset.NewGroupKeyRevealV0(
+		asset.ToSerialized(groupKey), nil,
+	)
+
+	var proofBuf bytes.Buffer
+	require.NoError(t, mintProof.Encode(&proofBuf))
+
+	mintLeaf := universe.Leaf{
+		GenesisWithGroup: universe.GenesisWithGroup{
+			Genesis:  mintAsset.Genesis,
+			GroupKey: mintAsset.GroupKey,
+		},
+		Asset:    &mintProof.Asset,
+		Amt:      mintProof.Asset.Amount,
+		RawProof: proofBuf.Bytes(),
+	}
+
+	mintKey := universe.AssetLeafKey{
+		BaseLeafKey: universe.BaseLeafKey{
+			OutPoint:  mintProof.OutPoint(),
+			ScriptKey: &mintProof.Asset.ScriptKey,
+		},
+		AssetID: mintProof.Asset.ID(),
+	}
+
+	return &supplycommit.NewMintEvent{
+		LeafKey:       mintKey,
+		IssuanceProof: mintLeaf,
+	}
+}
+
+// createBurnEventWithHeight creates a burn event with a specific block height.
+func createBurnEventWithHeight(t *testing.T, baseGenesis asset.Genesis,
+	groupKey *asset.GroupKey, db BatchedUniverseTree,
+	height uint32) *supplycommit.NewBurnEvent {
+
+	burnAsset := createBurnAsset(t)
+	burnAsset.Genesis = baseGenesis
+	burnAsset.GroupKey = groupKey
+
+	burnProof := randProof(t, burnAsset)
+	burnProof.BlockHeight = height
+	burnProof.GenesisReveal = &baseGenesis
+
+	// Ensure genesis exists for this burn leaf in the DB.
+	ctx := context.Background()
+	genesisPointID, err := upsertGenesisPoint(
+		ctx, db, burnAsset.Genesis.FirstPrevOut,
+	)
+	require.NoError(t, err)
+	_, err = upsertGenesis(
+		ctx, db, genesisPointID, burnAsset.Genesis,
+	)
+	require.NoError(t, err)
+
+	burnLeaf := &universe.BurnLeaf{
+		UniverseKey: universe.AssetLeafKey{
+			BaseLeafKey: universe.BaseLeafKey{
+				OutPoint:  burnProof.OutPoint(),
+				ScriptKey: &burnProof.Asset.ScriptKey,
+			},
+			AssetID: burnProof.Asset.ID(),
+		},
+		BurnProof: burnProof,
+	}
+
+	return &supplycommit.NewBurnEvent{
+		BurnLeaf: *burnLeaf,
+	}
+}
+
+// createIgnoreEventWithHeight creates an ignore event with a specific block
+// height.
+func createIgnoreEventWithHeight(t *testing.T, baseAssetID asset.ID,
+	db BatchedUniverseTree, height uint32) *supplycommit.NewIgnoreEvent {
+
+	signedTuple := randIgnoreTuple(t, db)
+	signedTuple.IgnoreTuple.Val.ID = baseAssetID
+	signedTuple.IgnoreTuple.Val.BlockHeight = height
+
+	return &supplycommit.NewIgnoreEvent{
+		SignedIgnoreTuple: signedTuple,
+	}
 }
 
 // TestSupplyTreeStoreApplySupplyUpdates tests that the ApplySupplyUpdates meets
@@ -537,4 +633,115 @@ func TestSupplyTreeStoreApplySupplyUpdates(t *testing.T) {
 		ctxb, spec, updates,
 	)
 	require.NoError(t, err)
+}
+
+// TestSupplyTreeStoreFetchSupplyLeavesByHeight tests the
+// FetchSupplyLeavesByHeight method.
+func TestSupplyTreeStoreFetchSupplyLeavesByHeight(t *testing.T) {
+	t.Parallel()
+
+	supplyStore, spec, _ := setupSupplyTreeTestForProps(t)
+	ctxb := context.Background()
+	dbTxer := supplyStore.db
+
+	groupKey, err := spec.UnwrapGroupKeyOrErr()
+	require.NoError(t, err)
+	assetID := spec.UnwrapIdToPtr()
+
+	fullGroupKey := &asset.GroupKey{
+		GroupPubKey: *groupKey,
+	}
+
+	// Create events with specific block heights, we'll use these heights
+	// below to ensure that the new leaf height is properly set/read all the
+	// way down the call stack.
+	mintEvent100 := createMintEventWithHeight(t, groupKey, 100)
+	burnEvent200 := createBurnEventWithHeight(
+		t, asset.RandGenesis(t, asset.Normal), fullGroupKey, dbTxer,
+		200,
+	)
+	ignoreEvent300 := createIgnoreEventWithHeight(t, *assetID, dbTxer, 300)
+	mintEvent400 := createMintEventWithHeight(t, groupKey, 400)
+
+	updates := []supplycommit.SupplyUpdateEvent{
+		mintEvent100, burnEvent200, ignoreEvent300, mintEvent400,
+	}
+
+	// Apply updates.
+	_, err = supplyStore.ApplySupplyUpdates(ctxb, spec, updates)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name            string
+		startHeight     uint32
+		endHeight       uint32
+		expectedCount   int
+		expectedHeights []uint32
+	}{
+		{
+			name:            "range including first",
+			startHeight:     0,
+			endHeight:       150,
+			expectedCount:   1,
+			expectedHeights: []uint32{100},
+		},
+		{
+			name:            "range including second",
+			startHeight:     150,
+			endHeight:       250,
+			expectedCount:   1,
+			expectedHeights: []uint32{200},
+		},
+		{
+			name:            "range including all",
+			startHeight:     0,
+			endHeight:       500,
+			expectedCount:   4,
+			expectedHeights: []uint32{100, 200, 300, 400},
+		},
+		{
+			name:            "exact range",
+			startHeight:     100,
+			endHeight:       400,
+			expectedCount:   4,
+			expectedHeights: []uint32{100, 200, 300, 400},
+		},
+		{
+			name:            "inner range",
+			startHeight:     101,
+			endHeight:       399,
+			expectedCount:   2,
+			expectedHeights: []uint32{200, 300},
+		},
+		{
+			name:            "range after all",
+			startHeight:     501,
+			endHeight:       1000,
+			expectedCount:   0,
+			expectedHeights: nil,
+		},
+		{
+			name:            "range before all",
+			startHeight:     0,
+			endHeight:       99,
+			expectedCount:   0,
+			expectedHeights: nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			leaves, err := supplyStore.FetchSupplyLeavesByHeight(
+				ctxb, spec, tc.startHeight, tc.endHeight,
+			)
+			require.NoError(t, err)
+			require.Len(t, leaves, tc.expectedCount)
+
+			var heights []uint32
+			for _, leaf := range leaves {
+				heights = append(heights, leaf.BlockHeight())
+			}
+			require.ElementsMatch(t, tc.expectedHeights, heights)
+		})
+	}
 }
