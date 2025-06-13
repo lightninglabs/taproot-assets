@@ -1020,6 +1020,10 @@ func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
 		return false
 	}
 
+	if g.Version != otherGroupKey.Version {
+		return false
+	}
+
 	equalGroup := g.IsSameGroup(otherGroupKey)
 	if !equalGroup {
 		return false
