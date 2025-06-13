@@ -602,3 +602,111 @@ func (s *SupplyTreeStore) ApplySupplyUpdates(ctx context.Context,
 	return finalRoot, nil
 }
 
+// SupplyUpdate is a struct that holds a supply update event and its block
+// height.
+type SupplyUpdate struct {
+	supplycommit.SupplyUpdateEvent
+	BlockHeight uint32
+}
+
+// FetchSupplyLeavesByHeight fetches all supply leaves for a given asset
+// specifier within a given block height range.
+func (s *SupplyTreeStore) FetchSupplyLeavesByHeight(ctx context.Context,
+	spec asset.Specifier, startHeight, endHeight uint32) ([]SupplyUpdate, error) {
+
+	groupKey, err := spec.UnwrapGroupKeyOrErr()
+	if err != nil {
+		return nil, fmt.Errorf("group key must be "+
+			"specified for supply tree: %w", err)
+	}
+
+	var updates []SupplyUpdate
+
+	readTx := NewBaseUniverseReadTx()
+	dbErr := s.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
+		for _, treeType := range []supplycommit.SupplySubTree{
+			supplycommit.MintTreeType, supplycommit.BurnTreeType,
+			supplycommit.IgnoreTreeType,
+		} {
+			namespace := subTreeNamespace(groupKey, treeType)
+
+			leaves, err := db.QuerySupplyLeavesByHeight(
+				ctx, sqlc.QuerySupplyLeavesByHeightParams{
+					Namespace:   namespace,
+					StartHeight: sqlInt32(startHeight),
+					EndHeight:   sqlInt32(endHeight),
+				},
+			)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+
+				return fmt.Errorf("failed to query "+
+					"supply leaves: %w", err)
+			}
+
+			for _, leaf := range leaves {
+				var event supplycommit.SupplyUpdateEvent
+				switch treeType {
+				case supplycommit.MintTreeType:
+					var mintEvent supplycommit.NewMintEvent
+					err = mintEvent.Decode(
+						bytes.NewReader(
+							leaf.SupplyLeafBytes,
+						),
+					)
+					if err != nil {
+						return fmt.Errorf("failed "+
+							"to decode mint "+
+							"event: %w", err)
+					}
+
+					event = &mintEvent
+
+				case supplycommit.BurnTreeType:
+					var burnEvent supplycommit.NewBurnEvent
+					err = burnEvent.Decode(
+						bytes.NewReader(
+							leaf.SupplyLeafBytes,
+						),
+					)
+					if err != nil {
+						return fmt.Errorf("failed "+
+							"to decode burn "+
+							"event: %w", err)
+					}
+
+					event = &burnEvent
+
+				case supplycommit.IgnoreTreeType:
+					var ignoreEvent supplycommit.NewIgnoreEvent
+					err = ignoreEvent.Decode(
+						bytes.NewReader(
+							leaf.SupplyLeafBytes,
+						),
+					)
+					if err != nil {
+						return fmt.Errorf("failed "+
+							"to decode ignore "+
+							"event: %w", err)
+					}
+					event = &ignoreEvent
+				}
+
+				updates = append(updates, SupplyUpdate{
+					SupplyUpdateEvent: event,
+					BlockHeight: extractSqlInt32[uint32](
+						leaf.BlockHeight,
+					),
+				})
+			}
+		}
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return updates, nil
+}
