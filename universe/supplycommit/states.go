@@ -92,6 +92,9 @@ type SupplyUpdateEvent interface {
 	// UniverseLeafNode returns the leaf node to use when inserting this
 	// update into a universe MS-SMT tree.
 	UniverseLeafNode() (*mssmt.LeafNode, error)
+
+	// BlockHeight returns the block height of the update.
+	BlockHeight() uint32
 }
 
 // NewIgnoreEvent signals that a caller wishes to update the ignore portion of
@@ -102,6 +105,11 @@ type NewIgnoreEvent struct {
 
 // eventSealed is a special method that is used to seal the interface.
 func (n *NewIgnoreEvent) eventSealed() {}
+
+// BlockHeight returns the block height of the update.
+func (n *NewIgnoreEvent) BlockHeight() uint32 {
+	return n.SignedIgnoreTuple.IgnoreTuple.Val.BlockHeight
+}
 
 // ScriptKey returns the script key that is used to identify the target asset.
 func (n *NewIgnoreEvent) ScriptKey() asset.SerializedKey {
@@ -138,6 +146,11 @@ type NewBurnEvent struct {
 // eventSealed is a special method that is used to seal the interface.
 func (n *NewBurnEvent) eventSealed() {}
 
+// BlockHeight returns the block height of the update.
+func (n *NewBurnEvent) BlockHeight() uint32 {
+	return n.BurnLeaf.BurnProof.BlockHeight
+}
+
 // ScriptKey returns the script key that is used to identify the target asset.
 func (n *NewBurnEvent) ScriptKey() asset.SerializedKey {
 	leafKey := n.BurnLeaf.UniverseKey.LeafScriptKey()
@@ -171,7 +184,16 @@ type NewMintEvent struct {
 	// LeafKey is the universe leaf key for the asset issuance or spend.
 	LeafKey universe.UniqueLeafKey
 
+	// IssuanceProof is the universe leaf for the issuance.
 	IssuanceProof universe.Leaf
+
+	// MintHeight is the height of the block that contains the mint.
+	MintHeight uint32
+}
+
+// BlockHeight returns the block height of the update.
+func (n *NewMintEvent) BlockHeight() uint32 {
+	return n.MintHeight
 }
 
 // eventSealed is a special method that is used to seal the interface.
@@ -224,6 +246,7 @@ func (n *NewMintEvent) Decode(r io.Reader) error {
 		return fmt.Errorf("decode mint event: %w", err)
 	}
 
+	n.MintHeight = issuanceProof.BlockHeight
 	n.IssuanceProof.GenesisWithGroup = universe.GenesisWithGroup{
 		Genesis:  issuanceProof.Asset.Genesis,
 		GroupKey: issuanceProof.Asset.GroupKey,

@@ -31,8 +31,9 @@ var IgnoreSigGen = rapid.Custom(func(t *rapid.T) IgnoreSig {
 // (PrevID) objects. It reuses the NonGenesisPrevIDGen from the asset package.
 var IgnoreTupleGen = rapid.Custom(func(t *rapid.T) IgnoreTuple {
 	return IgnoreTuple{
-		PrevID: asset.NonGenesisPrevIDGen.Draw(t, "ignore_tuple"),
-		Amount: rapid.Uint64().Draw(t, "amount"),
+		PrevID:      asset.NonGenesisPrevIDGen.Draw(t, "ignore_tuple"),
+		Amount:      rapid.Uint64().Draw(t, "amount"),
+		BlockHeight: rapid.Uint32().Draw(t, "block_height"),
 	}
 })
 

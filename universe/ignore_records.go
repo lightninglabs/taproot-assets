@@ -29,6 +29,9 @@ type IgnoreTuple struct {
 
 	// Amount is the total asset unit amount associated with asset.PrevID.
 	Amount uint64
+
+	// BlockHeight is the height of the block that contains the ignore.
+	BlockHeight uint32
 }
 
 func ignoreTupleEncoder(w io.Writer, val any, buf *[8]byte) error {
@@ -45,7 +48,11 @@ func ignoreTupleEncoder(w io.Writer, val any, buf *[8]byte) error {
 			return err
 		}
 
-		return tlv.EUint64(w, &t.Amount, buf)
+		if err := tlv.EUint64(w, &t.Amount, buf); err != nil {
+			return err
+		}
+
+		return tlv.EUint32(w, &t.BlockHeight, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "*PrevID")
 }
@@ -73,9 +80,15 @@ func ignoreTupleDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 			return err
 		}
 
+		var height uint32
+		if err = tlv.DUint32(r, &height, buf, 4); err != nil {
+			return err
+		}
+
 		*typ = IgnoreTuple{
-			PrevID: prevID,
-			Amount: amt,
+			PrevID:      prevID,
+			Amount:      amt,
+			BlockHeight: height,
 		}
 		return nil
 	}
@@ -84,7 +97,8 @@ func ignoreTupleDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 
 // Record returns the TLV record for the IgnoreTuple.
 func (i *IgnoreTuple) Record() tlv.Record {
-	const recordSize = 8 + 36 + sha256.Size + btcec.PubKeyBytesLenCompressed
+	const recordSize = 8 + 36 + sha256.Size +
+		btcec.PubKeyBytesLenCompressed + 4
 
 	return tlv.MakeStaticRecord(
 		0, i, recordSize,
