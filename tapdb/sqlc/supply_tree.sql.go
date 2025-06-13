@@ -71,6 +71,71 @@ func (q *Queries) FetchUniverseSupplyRoot(ctx context.Context, namespaceRoot str
 	return i, err
 }
 
+const QuerySupplyLeavesByHeight = `-- name: QuerySupplyLeavesByHeight :many
+SELECT
+    leaves.script_key_bytes,
+    gen.gen_asset_id,
+    nodes.value AS supply_leaf_bytes,
+    nodes.sum AS sum_amt,
+    gen.asset_id,
+    leaves.block_height
+FROM universe_leaves AS leaves
+JOIN mssmt_nodes AS nodes
+    ON leaves.leaf_node_key = nodes.key
+    AND leaves.leaf_node_namespace = nodes.namespace
+JOIN genesis_info_view AS gen
+    ON leaves.asset_genesis_id = gen.gen_asset_id
+WHERE
+    leaves.leaf_node_namespace = $1 AND
+    (leaves.block_height >= $2 OR $2 IS NULL) AND
+    (leaves.block_height <= $3 OR $3 IS NULL)
+`
+
+type QuerySupplyLeavesByHeightParams struct {
+	Namespace   string
+	StartHeight sql.NullInt32
+	EndHeight   sql.NullInt32
+}
+
+type QuerySupplyLeavesByHeightRow struct {
+	ScriptKeyBytes  []byte
+	GenAssetID      int64
+	SupplyLeafBytes []byte
+	SumAmt          int64
+	AssetID         []byte
+	BlockHeight     sql.NullInt32
+}
+
+func (q *Queries) QuerySupplyLeavesByHeight(ctx context.Context, arg QuerySupplyLeavesByHeightParams) ([]QuerySupplyLeavesByHeightRow, error) {
+	rows, err := q.db.QueryContext(ctx, QuerySupplyLeavesByHeight, arg.Namespace, arg.StartHeight, arg.EndHeight)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QuerySupplyLeavesByHeightRow
+	for rows.Next() {
+		var i QuerySupplyLeavesByHeightRow
+		if err := rows.Scan(
+			&i.ScriptKeyBytes,
+			&i.GenAssetID,
+			&i.SupplyLeafBytes,
+			&i.SumAmt,
+			&i.AssetID,
+			&i.BlockHeight,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const QueryUniverseSupplyLeaves = `-- name: QueryUniverseSupplyLeaves :many
 SELECT r.group_key, l.sub_tree_type,
        smt_nodes.value AS sub_tree_root_hash, smt_nodes.sum AS sub_tree_root_sum

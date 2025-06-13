@@ -1,14 +1,18 @@
 package tapdb
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 
@@ -270,18 +274,19 @@ func (s *SupplyTreeStore) FetchRootSupplyTree(ctx context.Context,
 // NOTE: This function must be called within a database transaction.
 func registerMintSupplyInternal(ctx context.Context, dbTx BaseUniverseStore,
 	assetSpec asset.Specifier, key universe.LeafKey, leaf *universe.Leaf,
-	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
+	metaReveal *proof.MetaReveal, blockHeight lfn.Option[uint32]) (*universe.Proof,
+	error) {
 
 	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
 	if err != nil {
-		return nil, fmt.Errorf("group key must be specified for mint supply: %w", err)
+		return nil, fmt.Errorf("group key must be specified for mint supply: %w", err) //nolint:lll
 	}
 	subNs := subTreeNamespace(groupKey, supplycommit.MintTreeType)
 
 	// Upsert the leaf into the mint supply sub-tree SMT and DB.
 	mintSupplyProof, err := universeUpsertProofLeaf(
 		ctx, dbTx, subNs, supplycommit.MintTreeType.String(), groupKey,
-		key, leaf, metaReveal,
+		key, leaf, metaReveal, blockHeight,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed mint supply universe "+
@@ -307,15 +312,21 @@ func (s *SupplyTreeStore) RegisterMintSupply(ctx context.Context,
 
 	var (
 		writeTx           BaseUniverseStoreOptions
-		err               error
 		mintSupplyProof   *universe.Proof
 		newRootSupplyRoot mssmt.Node
 	)
 	dbErr := s.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
+		// We don't need to decode the whole proof, we just need the
+		// block height.
+		blockHeight, err := SparseDecodeBlockHeight(leaf.RawProof)
+		if err != nil {
+			return err
+		}
+
 		// Upsert the leaf into the mint supply sub-tree SMT and DB
 		// first.
 		mintSupplyProof, err = registerMintSupplyInternal(
-			ctx, dbTx, spec, key, leaf, nil,
+			ctx, dbTx, spec, key, leaf, nil, blockHeight,
 		)
 		if err != nil {
 			return fmt.Errorf("failed mint supply universe "+
@@ -387,9 +398,15 @@ func applySupplyUpdatesInternal(ctx context.Context, dbTx BaseUniverseStore,
 					"type: %T", update)
 			}
 
+			var blockHeight lfn.Option[uint32]
+			height := mintEvent.BlockHeight()
+			if height > 0 {
+				blockHeight = lfn.Some(height)
+			}
+
 			mintProof, err := registerMintSupplyInternal(
 				ctx, dbTx, spec, mintEvent.LeafKey,
-				&mintEvent.IssuanceProof, nil,
+				&mintEvent.IssuanceProof, nil, blockHeight,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("failed to register "+
@@ -577,4 +594,113 @@ func (s *SupplyTreeStore) ApplySupplyUpdates(ctx context.Context,
 	// TODO(roasbeef): cache invalidation?
 
 	return finalRoot, nil
+}
+
+// SupplyUpdate is a struct that holds a supply update event and its block
+// height.
+type SupplyUpdate struct {
+	supplycommit.SupplyUpdateEvent
+	BlockHeight uint32
+}
+
+// FetchSupplyLeavesByHeight fetches all supply leaves for a given asset
+// specifier within a given block height range.
+func (s *SupplyTreeStore) FetchSupplyLeavesByHeight(ctx context.Context,
+	spec asset.Specifier, startHeight, endHeight uint32) ([]SupplyUpdate, error) {
+
+	groupKey, err := spec.UnwrapGroupKeyOrErr()
+	if err != nil {
+		return nil, fmt.Errorf("group key must be "+
+			"specified for supply tree: %w", err)
+	}
+
+	var updates []SupplyUpdate
+
+	readTx := NewBaseUniverseReadTx()
+	dbErr := s.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
+		for _, treeType := range []supplycommit.SupplySubTree{
+			supplycommit.MintTreeType, supplycommit.BurnTreeType,
+			supplycommit.IgnoreTreeType,
+		} {
+			namespace := subTreeNamespace(groupKey, treeType)
+
+			leaves, err := db.QuerySupplyLeavesByHeight(
+				ctx, sqlc.QuerySupplyLeavesByHeightParams{
+					Namespace:   namespace,
+					StartHeight: sqlInt32(startHeight),
+					EndHeight:   sqlInt32(endHeight),
+				},
+			)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+
+				return fmt.Errorf("failed to query "+
+					"supply leaves: %w", err)
+			}
+
+			for _, leaf := range leaves {
+				var event supplycommit.SupplyUpdateEvent
+				switch treeType {
+				case supplycommit.MintTreeType:
+					var mintEvent supplycommit.NewMintEvent
+					err = mintEvent.Decode(
+						bytes.NewReader(
+							leaf.SupplyLeafBytes,
+						),
+					)
+					if err != nil {
+						return fmt.Errorf("failed "+
+							"to decode mint "+
+							"event: %w", err)
+					}
+
+					event = &mintEvent
+
+				case supplycommit.BurnTreeType:
+					var burnEvent supplycommit.NewBurnEvent
+					err = burnEvent.Decode(
+						bytes.NewReader(
+							leaf.SupplyLeafBytes,
+						),
+					)
+					if err != nil {
+						return fmt.Errorf("failed "+
+							"to decode burn "+
+							"event: %w", err)
+					}
+
+					event = &burnEvent
+
+				case supplycommit.IgnoreTreeType:
+					var ignoreEvent supplycommit.NewIgnoreEvent
+					err = ignoreEvent.Decode(
+						bytes.NewReader(
+							leaf.SupplyLeafBytes,
+						),
+					)
+					if err != nil {
+						return fmt.Errorf("failed "+
+							"to decode ignore "+
+							"event: %w", err)
+					}
+					event = &ignoreEvent
+				}
+
+				updates = append(updates, SupplyUpdate{
+					SupplyUpdateEvent: event,
+					BlockHeight: extractSqlInt32[uint32](
+						leaf.BlockHeight,
+					),
+				})
+			}
+		}
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return updates, nil
 }
