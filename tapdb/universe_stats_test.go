@@ -43,10 +43,10 @@ type uniStatsHarness struct {
 
 	db *UniverseStats
 
-	t *testing.T
+	t testing.TB
 }
 
-func newUniStatsHarness(t *testing.T, numAssets int, db *BaseDB,
+func newUniStatsHarness(t testing.TB, numAssets int, db *BaseDB,
 	statsDB *UniverseStats) *uniStatsHarness {
 
 	stats := &uniStatsHarness{
@@ -100,7 +100,7 @@ func (u *uniStatsHarness) logSyncEventByIndex(i int) {
 	require.NoError(u.t, err)
 }
 
-func (u *uniStatsHarness) assertUniverseStatsEqual(t *testing.T,
+func (u *uniStatsHarness) assertUniverseStatsEqual(t testing.TB,
 	stats universe.AggregateStats) {
 
 	var (

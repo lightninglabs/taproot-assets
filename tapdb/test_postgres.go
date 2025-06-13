@@ -7,18 +7,18 @@ import (
 )
 
 // NewTestDB is a helper function that creates a Postgres database for testing.
-func NewTestDB(t *testing.T) *PostgresStore {
+func NewTestDB(t testing.TB) *PostgresStore {
 	return NewTestPostgresDB(t)
 }
 
 // NewTestDbHandleFromPath is a helper function that creates a new handle to an
 // existing SQLite database for testing.
-func NewTestDbHandleFromPath(t *testing.T, dbPath string) *PostgresStore {
+func NewTestDbHandleFromPath(t testing.TB, dbPath string) *PostgresStore {
 	return NewTestPostgresDB(t)
 }
 
 // NewTestDBWithVersion is a helper function that creates a Postgres database
 // for testing and migrates it to the given version.
-func NewTestDBWithVersion(t *testing.T, version uint) *PostgresStore {
+func NewTestDBWithVersion(t testing.TB, version uint) *PostgresStore {
 	return NewTestPostgresDBWithVersion(t, version)
 }

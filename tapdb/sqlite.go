@@ -256,7 +256,7 @@ func (s *SqliteStore) ExecuteMigrations(target MigrationTarget,
 
 // NewTestSqliteDB is a helper function that creates an SQLite database for
 // testing.
-func NewTestSqliteDB(t *testing.T) *SqliteStore {
+func NewTestSqliteDB(t testing.TB) *SqliteStore {
 	t.Helper()
 
 	// TODO(roasbeef): if we pass :memory: for the file name, then we get
@@ -269,7 +269,7 @@ func NewTestSqliteDB(t *testing.T) *SqliteStore {
 
 // NewTestSqliteDbHandleFromPath is a helper function that creates a SQLite
 // database handle given a database file path.
-func NewTestSqliteDbHandleFromPath(t *testing.T, dbPath string) *SqliteStore {
+func NewTestSqliteDbHandleFromPath(t testing.TB, dbPath string) *SqliteStore {
 	t.Helper()
 
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
@@ -287,7 +287,7 @@ func NewTestSqliteDbHandleFromPath(t *testing.T, dbPath string) *SqliteStore {
 
 // NewTestSqliteDBWithVersion is a helper function that creates an SQLite
 // database for testing and migrates it to the given version.
-func NewTestSqliteDBWithVersion(t *testing.T, version uint) *SqliteStore {
+func NewTestSqliteDBWithVersion(t testing.TB, version uint) *SqliteStore {
 	t.Helper()
 
 	t.Logf("Creating new SQLite DB for testing, migrating to version %d",

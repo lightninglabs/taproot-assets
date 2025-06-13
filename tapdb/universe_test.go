@@ -68,7 +68,7 @@ func randUniverseID(t testing.TB, forceGroup bool,
 	return id
 }
 
-func newTestUniverse(t *testing.T,
+func newTestUniverse(t testing.TB,
 	id universe.Identifier) (*BaseUniverseTree, sqlc.Querier) {
 
 	db := NewTestDB(t)
@@ -82,7 +82,7 @@ func newTestUniverse(t *testing.T,
 	return NewBaseUniverseTree(dbTxer, id), db
 }
 
-func newTestMultiverse(t *testing.T) (*MultiverseStore, sqlc.Querier) {
+func newTestMultiverse(t testing.TB) (*MultiverseStore, sqlc.Querier) {
 	db := NewTestDB(t)
 
 	dbTxer := NewTransactionExecutor(
@@ -116,7 +116,7 @@ func newTestUniverseWithDb(db *BaseDB,
 	return NewBaseUniverseTree(dbTxer, id), db
 }
 
-func assertIDInList(t *testing.T, leaves []universe.MultiverseLeaf,
+func assertIDInList(t testing.TB, leaves []universe.MultiverseLeaf,
 	id universe.Identifier) {
 
 	require.True(t, fn.Any(leaves, func(l universe.MultiverseLeaf) bool {
@@ -155,14 +155,14 @@ func TestUniverseEmptyTree(t *testing.T) {
 	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
 }
 
-func randLeafKey(t *testing.T) universe.LeafKey {
+func randLeafKey(t testing.TB) universe.LeafKey {
 	return universe.BaseLeafKey{
 		OutPoint:  test.RandOp(t),
 		ScriptKey: fn.Ptr(asset.NewScriptKey(test.RandPubKey(t))),
 	}
 }
 
-func randProof(t *testing.T, argAsset *asset.Asset) *proof.Proof {
+func randProof(t testing.TB, argAsset *asset.Asset) *proof.Proof {
 	proofAsset := *asset.RandAsset(t, asset.Normal)
 	if argAsset != nil {
 		proofAsset = *argAsset
@@ -200,7 +200,7 @@ func randProof(t *testing.T, argAsset *asset.Asset) *proof.Proof {
 	}
 }
 
-func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
+func randMintingLeaf(t testing.TB, assetGen asset.Genesis,
 	groupKey *btcec.PublicKey) universe.Leaf {
 
 	randProof := randProof(t, nil)
@@ -490,7 +490,7 @@ func TestUniverseMetaBlob(t *testing.T) {
 	require.Equal(t, assetGen.ID(), uniProof.Leaf.Genesis.ID())
 }
 
-func insertRandLeaf(t *testing.T, ctx context.Context, tree *BaseUniverseTree,
+func insertRandLeaf(t testing.TB, ctx context.Context, tree *BaseUniverseTree,
 	assetGen *asset.Genesis) (*universe.Proof, error) {
 
 	var targetGen asset.Genesis

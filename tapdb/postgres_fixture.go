@@ -35,7 +35,7 @@ type TestPgFixture struct {
 // NewTestPgFixture constructs a new TestPgFixture starting up a docker
 // container running Postgres 11. The started container will expire in after
 // the passed duration.
-func NewTestPgFixture(t *testing.T, expiry time.Duration,
+func NewTestPgFixture(t testing.TB, expiry time.Duration,
 	autoRemove bool) *TestPgFixture {
 
 	// Use a sensible default on Windows (tcp/http) and linux/osx (socket)
@@ -122,13 +122,13 @@ func (f *TestPgFixture) GetConfig() *PostgresConfig {
 }
 
 // TearDown stops the underlying docker container.
-func (f *TestPgFixture) TearDown(t *testing.T) {
+func (f *TestPgFixture) TearDown(t testing.TB) {
 	err := f.pool.Purge(f.resource)
 	require.NoError(t, err, "Could not purge resource")
 }
 
 // ClearDB clears the database.
-func (f *TestPgFixture) ClearDB(t *testing.T) {
+func (f *TestPgFixture) ClearDB(t testing.TB) {
 	dbConn, err := sql.Open("postgres", f.GetDSN())
 	require.NoError(t, err)
 
