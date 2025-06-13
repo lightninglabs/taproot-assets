@@ -113,6 +113,21 @@ func addTuplesInternal(ctx context.Context, db BaseUniverseStore,
 				"universe root: %w", err)
 		}
 
+		var blockHeight lfn.Option[uint32]
+		height := tup.IgnoreTuple.Val.BlockHeight
+		if height > 0 {
+			blockHeight = lfn.Some(height)
+		}
+
+		sqlBlockHeight := lfn.MapOptionZ(
+			blockHeight, func(num uint32) sql.NullInt32 {
+				return sql.NullInt32{
+					Int32: int32(num),
+					Valid: true,
+				}
+			},
+		)
+
 		scriptKey := ignoreTup.ScriptKey
 		err = db.UpsertUniverseLeaf(ctx, UpsertUniverseLeaf{
 			AssetGenesisID:    assetGenID,
@@ -121,6 +136,7 @@ func addTuplesInternal(ctx context.Context, db BaseUniverseStore,
 			LeafNodeKey:       smtKey[:],
 			LeafNodeNamespace: namespace,
 			MintingPoint:      ignorePointBytes,
+			BlockHeight:       sqlBlockHeight,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to upsert ignore "+
