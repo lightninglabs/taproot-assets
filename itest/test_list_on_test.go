@@ -343,6 +343,10 @@ var testCases = []*testCase{
 		name: "asset signing after lnd restore from seed",
 		test: testRestoreLndFromSeed,
 	},
+	{
+		name: "pre commit output",
+		test: testPreCommitOutput,
+	},
 }
 
 var optionalTestCases = []*testCase{

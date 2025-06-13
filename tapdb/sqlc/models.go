@@ -113,6 +113,7 @@ type AssetSeedling struct {
 	ScriptKeyID        sql.NullInt64
 	GroupInternalKeyID sql.NullInt64
 	GroupTapscriptRoot []byte
+	DelegationKeyID    sql.NullInt64
 }
 
 type AssetTransfer struct {
@@ -281,11 +282,11 @@ type ManagedUtxo struct {
 }
 
 type MintAnchorUniCommitment struct {
-	ID                 int64
-	BatchID            int32
-	TxOutputIndex      int32
-	TaprootInternalKey []byte
-	GroupKey           []byte
+	ID                   int64
+	BatchID              int32
+	TxOutputIndex        int32
+	GroupKey             []byte
+	TaprootInternalKeyID int64
 }
 
 type MssmtNode struct {

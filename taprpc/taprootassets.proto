@@ -127,7 +127,7 @@ service TaprootAssets {
     FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
     either by the asset ID for that asset, or a meta hash.
     */
-    rpc FetchAssetMeta (FetchAssetMetaRequest) returns (AssetMeta);
+    rpc FetchAssetMeta (FetchAssetMetaRequest) returns (FetchAssetMetaResponse);
 
     /* tapcli: `events receive`
     SubscribeReceiveEvents allows a caller to subscribe to receive events for
@@ -1418,6 +1418,54 @@ message FetchAssetMetaRequest {
         // The hex encoded meta hash of the asset meta.
         string meta_hash_str = 4;
     }
+}
+
+message FetchAssetMetaResponse {
+    /*
+    The raw data of the asset meta data. Based on the type below, this may be
+    structured data such as a text file or PDF. The size of the data is limited
+    to 1MiB.
+    */
+    bytes data = 1;
+
+    // The type of the asset meta data.
+    AssetMetaType type = 2;
+
+    /*
+    The hash of the meta. This is the hash of the TLV serialization of the meta
+    itself.
+    */
+    bytes meta_hash = 3;
+
+    /*
+    A map of unknown odd TLV types that were encountered during asset meta data
+    decoding.
+    */
+    map<uint64, bytes> unknown_odd_types = 4;
+
+    /*
+    The decimal display value of the asset. This is used to determine the number
+    of decimal places to display when presenting the asset amount to the user.
+    */
+    uint32 decimal_display = 5;
+
+    /*
+    Boolean flag indicating whether the asset-group issuer publishes
+    universe-supply commitments to the canonical universe set.
+    */
+    bool universe_commitments = 6;
+
+    /*
+    List of canonical universe URLs where the asset-group issuer publishes
+    asset-related proofs.
+    */
+    repeated string canonical_universe_urls = 7;
+
+    /*
+    The public key that is used to verify universe supply commitment related
+    on-chain outputs and proofs.
+    */
+    bytes delegation_key = 8;
 }
 
 message BurnAssetRequest {
