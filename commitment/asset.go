@@ -117,7 +117,7 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 		}
 
 		switch {
-		case !expectedGroupKey.IsEqualGroup(newAsset.GroupKey):
+		case !expectedGroupKey.IsSameGroup(newAsset.GroupKey):
 			return nil, ErrAssetGroupKeyMismatch
 
 		case expectedGroupKey == nil:

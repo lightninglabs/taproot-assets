@@ -986,7 +986,7 @@ func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
 		return false
 	}
 
-	equalGroup := g.IsEqualGroup(otherGroupKey)
+	equalGroup := g.IsSameGroup(otherGroupKey)
 	if !equalGroup {
 		return false
 	}
@@ -1002,9 +1002,9 @@ func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
 	return slices.EqualFunc(g.Witness, otherGroupKey.Witness, bytes.Equal)
 }
 
-// IsEqualGroup returns true if this group key describes the same asset group
-// as the passed other group key.
-func (g *GroupKey) IsEqualGroup(otherGroupKey *GroupKey) bool {
+// IsSameGroup returns true if this group key refers to the same asset group
+// as the given group key.
+func (g *GroupKey) IsSameGroup(otherGroupKey *GroupKey) bool {
 	// If this key is nil, the other must be nil too.
 	if g == nil {
 		return otherGroupKey == nil
