@@ -89,42 +89,39 @@ type AssetCommitment struct {
 // parseCommon extracts the common fixed parameters of a set of assets to
 // include in the returned commitment.
 func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
+	// Return early if no assets were provided. After this point, we
+	// assume that at least one asset is present.
 	if len(assets) == 0 {
 		return nil, ErrNoAssets
 	}
 
+	// Inspect the first asset to note properties which should be consistent
+	// across all assets.
 	var (
-		assetType        asset.Type
-		tapCommitmentKey [32]byte
-		maxVersion       = asset.Version(0)
-		firstAssetID     = assets[0].Genesis.ID()
-		assetGroupKey    = assets[0].GroupKey
-		assetsMap        = make(CommittedAssets, len(assets))
-	)
-	for idx, newAsset := range assets {
-		// Inspect the first asset to note properties which should be
-		// consistent across all assets.
-		if idx == 0 {
-			// Set the asset type from the first asset.
-			assetType = newAsset.Type
+		firstAsset = assets[0]
 
-			// Set the expected tapCommitmentKey from the first
-			// asset.
-			tapCommitmentKey = newAsset.TapCommitmentKey()
-		}
+		expectedAssetType        = firstAsset.Type
+		expectedTapCommitmentKey = firstAsset.TapCommitmentKey()
+		expectedAssetID          = firstAsset.Genesis.ID()
+		expectedGroupKey         = firstAsset.GroupKey
+	)
+
+	// Ensure all assets share the same properties as the first.
+	for idx := range assets {
+		newAsset := assets[idx]
 
 		// Return error if the asset type doesn't match the previously
 		// encountered asset types.
-		if assetType != newAsset.Type {
+		if expectedAssetType != newAsset.Type {
 			return nil, ErrAssetTypeMismatch
 		}
 
 		switch {
-		case !assetGroupKey.IsEqualGroup(newAsset.GroupKey):
+		case !expectedGroupKey.IsEqualGroup(newAsset.GroupKey):
 			return nil, ErrAssetGroupKeyMismatch
 
-		case assetGroupKey == nil:
-			if firstAssetID != newAsset.Genesis.ID() {
+		case expectedGroupKey == nil:
+			if expectedAssetID != newAsset.Genesis.ID() {
 				return nil, ErrAssetGenesisMismatch
 			}
 		}
@@ -134,20 +131,33 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 		//
 		// NOTE: This sanity check executes after the group key check
 		// because it is a less specific check.
-		if tapCommitmentKey != newAsset.TapCommitmentKey() {
+		if expectedTapCommitmentKey != newAsset.TapCommitmentKey() {
 			return nil, fmt.Errorf("inconsistent asset " +
 				"TapCommitmentKey")
 		}
+	}
+
+	// Construct a map from AssetCommitmentKey to asset, validating that
+	// each AssetCommitmentKey value is unique as the map is populated.
+	assetsMap := make(CommittedAssets, len(assets))
+	for idx := range assets {
+		newAsset := assets[idx]
 
 		key := newAsset.AssetCommitmentKey()
 		if _, ok := assetsMap[key]; ok {
 			return nil, fmt.Errorf("%w: %x",
 				ErrAssetDuplicateScriptKey, key[:])
 		}
+		assetsMap[key] = newAsset
+	}
+
+	// Determine the maximum asset version among all assets in the set.
+	maxVersion := asset.Version(0)
+	for idx := range assets {
+		newAsset := assets[idx]
 		if newAsset.Version > maxVersion {
 			maxVersion = newAsset.Version
 		}
-		assetsMap[key] = newAsset
 	}
 
 	// The tapKey here is what will be used to place this asset commitment
@@ -155,7 +165,7 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 	// group key, then this will be the normal asset ID. Otherwise, this'll
 	// be the sha256 of the group key.
 	assetSpecifier := asset.NewSpecifierOptionalGroupKey(
-		firstAssetID, assetGroupKey,
+		expectedAssetID, expectedGroupKey,
 	)
 
 	tapKey := asset.TapCommitmentKey(assetSpecifier)
@@ -163,7 +173,7 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 	return &AssetCommitment{
 		Version:   maxVersion,
 		TapKey:    tapKey,
-		AssetType: assetType,
+		AssetType: expectedAssetType,
 		assets:    assetsMap,
 	}, nil
 }
