@@ -975,6 +975,40 @@ func GroupPubKeyV0(rawKey *btcec.PublicKey, singleTweak, tapTweak []byte) (
 	}
 }
 
+// IsEqualCustomTapscriptRoot reports whether the receiver and the provided
+// GroupKey define the same custom tapscript root.
+//
+// Equality semantics:
+//  1. If neither key sets a custom tapscript root (both options are None),
+//     the keys are considered equal.
+//  2. If both keys set a custom tapscript root (both options are Some), the
+//     underlying root hashes must be identical.
+//  3. If the presence bits differ (one Some, the other None) the keys are
+//     unequal.
+//
+// Fields other than CustomTapscriptRoot are intentionally ignored.
+func (g *GroupKey) IsEqualCustomTapscriptRoot(otherGroupKey *GroupKey) bool {
+	// If the two presence flags differ, the roots cannot be equal.
+	if g.CustomTapscriptRoot.IsSome() !=
+		otherGroupKey.CustomTapscriptRoot.IsSome() {
+
+		return false
+	}
+
+	// Both option flags are None -> neither key specifies a custom root;
+	// they match trivially.
+	if g.CustomTapscriptRoot.IsNone() {
+		return true
+	}
+
+	// At this point both option flags are Some. Compare the underlying
+	// hashes.
+	root := g.CustomTapscriptRoot.UnwrapToPtr()
+	otherRoot := otherGroupKey.CustomTapscriptRoot.UnwrapToPtr()
+
+	return root.IsEqual(otherRoot)
+}
+
 // IsEqual returns true if this group key and signature are exactly equivalent
 // to the passed other group key.
 func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
@@ -992,6 +1026,10 @@ func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
 	}
 
 	if !bytes.Equal(g.TapscriptRoot, otherGroupKey.TapscriptRoot) {
+		return false
+	}
+
+	if !g.IsEqualCustomTapscriptRoot(otherGroupKey) {
 		return false
 	}
 
