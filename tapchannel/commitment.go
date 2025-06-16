@@ -1672,12 +1672,34 @@ func InPlaceCustomCommitSort(tx *wire.MsgTx, cltvs []uint32,
 	htlcIndexes []input.HtlcIndex,
 	allocations []*tapsend.Allocation) error {
 
+	log.Tracef("Sorting commit tx with %d outputs, %d allocations, "+
+		"%d cltvs, %d htlc indexes", len(tx.TxOut), len(allocations),
+		len(cltvs), len(htlcIndexes))
+
 	if len(tx.TxOut) != len(allocations) {
-		return fmt.Errorf("output and allocation size mismatch")
+		log.Errorf("Output and allocation size mismatch: "+
+			"len(tx.TxOut)=%d, len(allocations)=%d. "+
+			"allocations=%v, htlc_indexes=%v",
+			len(tx.TxOut), len(allocations),
+			limitSpewer.Sdump(allocations),
+			limitSpewer.Sdump(htlcIndexes))
+
+		return fmt.Errorf("output and allocation size mismatch: "+
+			"len(tx.TxOut)=%d, len(allocations)=%d",
+			len(tx.TxOut), len(allocations))
 	}
 
 	if len(tx.TxOut) != len(cltvs) {
-		return fmt.Errorf("output and cltv list size mismatch")
+		log.Errorf("Output and cltv list size mismatch: "+
+			"len(tx.TxOut)=%d, len(cltvs)=%d. "+
+			"allocations=%v, htlc_indexes=%v",
+			len(tx.TxOut), len(cltvs),
+			limitSpewer.Sdump(allocations),
+			limitSpewer.Sdump(htlcIndexes))
+
+		return fmt.Errorf("output and cltv list size mismatch: "+
+			"len(tx.TxOut)=%d, len(cltvs)=%d",
+			len(tx.TxOut), len(cltvs))
 	}
 
 	// First the easy part, sort the inputs by BIP69.
@@ -1708,6 +1730,14 @@ func InPlaceCustomCommitSort(tx *wire.MsgTx, cltvs []uint32,
 		}
 
 		if allocation == nil {
+			log.Errorf("Could not find allocation for output %d: "+
+				"pk_script=%x, value=%d, cltv=%d, "+
+				"htlc_index=%d", i, original.PkScript,
+				original.Value, cltvs[i], htlcIndexes[i])
+
+			log.Errorf("allocations=%v",
+				limitSpewer.Sdump(allocations))
+
 			return fmt.Errorf("no corresponding allocation entry "+
 				"found for output index %d", i)
 		}
