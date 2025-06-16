@@ -945,6 +945,7 @@ func TestProofVerification(t *testing.T) {
 	assetID := p.Asset.ID()
 	t.Logf("Proof asset ID: %x", assetID[:])
 
+	t.Logf("Proof anchor TXID: %v", p.AnchorTx.TxHash())
 	t.Logf("Proof anchor TX: %v", spew.Sdump(p.AnchorTx))
 
 	inclusionTxOut := p.AnchorTx.TxOut[p.InclusionProof.OutputIndex]
@@ -964,6 +965,13 @@ func TestProofVerification(t *testing.T) {
 		}
 
 		t.Logf("%s proof key: %x", logString, proofKey)
+	}
+
+	for _, exclusionProof := range p.ExclusionProofs {
+		t.Logf("Exclusion proof output index: %d",
+			exclusionProof.OutputIndex)
+		t.Logf("Exclusion proof internal key: %x",
+			exclusionProof.InternalKey.SerializeCompressed())
 	}
 
 	var buf bytes.Buffer
