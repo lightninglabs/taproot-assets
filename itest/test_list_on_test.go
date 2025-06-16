@@ -50,6 +50,14 @@ var testCases = []*testCase{
 		test: testMintAssetWithDecimalDisplayMetaField,
 	},
 	{
+		name: "fetch asset meta rpc",
+		test: testFetchAssetMetaRPC,
+	},
+	{
+		name: "fetch asset meta cli",
+		test: testFetchAssetMetaCLI,
+	},
+	{
 		name: "addresses",
 		test: testAddresses,
 	},
