@@ -2058,82 +2058,105 @@ func TestAssetGroupComplexWitness(t *testing.T) {
 	require.True(t, groupKey.IsEqual(storedGroup.GroupKey))
 }
 
-// TestAssetGroupV1 tests that we can store and fetch an asset group version 1.
-func TestAssetGroupV1(t *testing.T) {
+// TestStoreFetchAssetGroupV1 tests that we can store and fetch an asset group
+// version 1.
+func TestStoreFetchAssetGroupV1(t *testing.T) {
 	t.Parallel()
 
-	mintingStore, assetStore, db := newAssetStore(t)
-	ctx := context.Background()
-
-	internalKey := test.RandPubKey(t)
-	groupAnchorGen := asset.RandGenesis(t, asset.RandAssetType(t))
-	groupAnchorGen.MetaHash = [32]byte{}
-	tapscriptRoot := test.RandBytes(32)
-	customTapscriptRoot := test.RandHash()
-	groupSig := test.RandBytes(64)
-
-	// First, we'll insert all the required rows we need to satisfy the
-	// foreign key constraints needed to insert a new genesis witness.
-	genesisPointID, err := upsertGenesisPoint(
-		ctx, db, groupAnchorGen.FirstPrevOut,
-	)
-	require.NoError(t, err)
-
-	genAssetID, err := upsertGenesis(
-		ctx, db, genesisPointID, groupAnchorGen,
-	)
-	require.NoError(t, err)
-
-	groupKey := asset.GroupKey{
-		Version: asset.GroupKeyV1,
-		RawKey: keychain.KeyDescriptor{
-			PubKey: internalKey,
+	testCases := []struct {
+		name                string
+		customTapscriptRoot fn.Option[chainhash.Hash]
+		witnessData         [][]byte
+		expectedError       error
+	}{{
+		name:                "group key with custom tapscript root",
+		customTapscriptRoot: fn.Some(test.RandHash()),
+		witnessData: [][]byte{
+			test.RandBytes(32),
+			test.RandBytes(64),
 		},
-		GroupPubKey:   *internalKey,
-		TapscriptRoot: tapscriptRoot,
-		CustomTapscriptRoot: fn.Some[chainhash.Hash](
-			customTapscriptRoot,
-		),
-		Witness: fn.MakeSlice(tapscriptRoot, groupSig),
-	}
-
-	// Upsert, fetch, and check the group key.
-	_, err = upsertGroupKey(
-		ctx, &groupKey, assetStore.db, genesisPointID, genAssetID,
-	)
-	require.NoError(t, err)
-
-	storedGroup, err := mintingStore.FetchGroupByGroupKey(ctx, internalKey)
-	require.NoError(t, err)
-
-	require.Equal(t, groupAnchorGen, *storedGroup.Genesis)
-	require.True(t, groupKey.IsEqual(storedGroup.GroupKey))
-
-	// Formulate a new group key where the custom tapscript root is None.
-	// Check that we can insert and fetch the group key.
-	groupKeyCustomRootNone := asset.GroupKey{
-		Version: asset.GroupKeyV1,
-		RawKey: keychain.KeyDescriptor{
-			PubKey: internalKey,
+		expectedError: nil,
+	}, {
+		name: "group key without custom tapscript " +
+			"root",
+		customTapscriptRoot: fn.None[chainhash.Hash](),
+		witnessData: [][]byte{
+			test.RandBytes(32),
+			test.RandBytes(64),
 		},
-		GroupPubKey:         *internalKey,
-		TapscriptRoot:       tapscriptRoot,
-		CustomTapscriptRoot: fn.None[chainhash.Hash](),
-		Witness:             fn.MakeSlice(tapscriptRoot, groupSig),
+		expectedError: nil,
+	}}
+
+	for idx := range testCases {
+		tc := testCases[idx]
+
+		t.Run(tc.name, func(tt *testing.T) {
+			tt.Parallel()
+
+			mintingStore, assetStore, db := newAssetStore(tt)
+			ctx := context.Background()
+
+			internalKey := test.RandPubKey(tt)
+			groupAnchorGen := asset.RandGenesis(
+				tt, asset.RandAssetType(tt),
+			)
+			groupAnchorGen.MetaHash = [32]byte{}
+			tapscriptRoot := test.RandBytes(32)
+
+			// First, we'll insert all the required rows we need to
+			// satisfy the foreign key constraints needed to insert
+			// a new genesis witness.
+			genesisPointID, err := upsertGenesisPoint(
+				ctx, db, groupAnchorGen.FirstPrevOut,
+			)
+			require.NoError(tt, err)
+
+			genAssetID, err := upsertGenesis(
+				ctx, db, genesisPointID, groupAnchorGen,
+			)
+			require.NoError(tt, err)
+
+			groupKey := asset.GroupKey{
+				Version: asset.GroupKeyV1,
+				RawKey: keychain.KeyDescriptor{
+					PubKey: internalKey,
+				},
+				GroupPubKey:         *internalKey,
+				TapscriptRoot:       tapscriptRoot,
+				CustomTapscriptRoot: tc.customTapscriptRoot,
+				Witness:             tc.witnessData,
+			}
+
+			// Upsert the group key.
+			_, err = upsertGroupKey(
+				ctx, &groupKey, assetStore.db, genesisPointID,
+				genAssetID,
+			)
+			if tc.expectedError != nil {
+				require.ErrorIs(tt, err, tc.expectedError)
+				return
+			}
+			require.NoError(tt, err)
+
+			// Fetch and verify the group key.
+			storedGroup, err := mintingStore.FetchGroupByGroupKey(
+				ctx, internalKey,
+			)
+			require.NoError(tt, err)
+
+			// Verify the genesis matches.
+			require.Equal(tt, groupAnchorGen, *storedGroup.Genesis)
+
+			// Verify the group key matches.
+			require.True(tt, groupKey.IsEqual(storedGroup.GroupKey))
+
+			// Ensure that the group key version is set to V1.
+			require.Equal(
+				tt, asset.GroupKeyV1,
+				storedGroup.GroupKey.Version,
+			)
+		})
 	}
-
-	// Upsert, fetch, and check the group key.
-	_, err = upsertGroupKey(
-		ctx, &groupKeyCustomRootNone, assetStore.db, genesisPointID,
-		genAssetID,
-	)
-	require.NoError(t, err)
-
-	storedGroup2, err := mintingStore.FetchGroupByGroupKey(ctx, internalKey)
-	require.NoError(t, err)
-
-	require.Equal(t, groupAnchorGen, *storedGroup2.Genesis)
-	require.True(t, groupKeyCustomRootNone.IsEqual(storedGroup2.GroupKey))
 }
 
 // TestAssetGroupKeyUpsert tests that if you try to insert another asset group
