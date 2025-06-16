@@ -76,17 +76,11 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 		}
 	}
 
-	// We'll convert the fee rate to sat/vbyte as that's what the FundPsbt
-	// expects. We round up to the nearest whole unit to prevent issues
-	// where the fee doesn't meet the min_relay_fee because of rounding
-	// down.
-	satPerVByte := uint64(math.Ceil(float64(feeRate.FeePerKVByte()) / 1000))
-
 	pkt, changeIndex, leasedUtxos, err := l.lnd.WalletKit.FundPsbt(
 		ctx, &walletrpc.FundPsbtRequest{
 			Template: fundTemplate,
-			Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
-				SatPerVbyte: satPerVByte,
+			Fees: &walletrpc.FundPsbtRequest_SatPerKw{
+				SatPerKw: uint64(feeRate),
 			},
 			MinConfs:   int32(minConfs),
 			ChangeType: defaultChangeType,
