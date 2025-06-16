@@ -37,7 +37,7 @@ const (
 )
 
 // executeSQLStatements executes a list of SQL statements with logging.
-func executeSQLStatements(t *testing.T, db *BaseDB, statements []string,
+func executeSQLStatements(t testing.TB, db *BaseDB, statements []string,
 	action string) {
 
 	t.Logf("%s indices...", action)
@@ -52,7 +52,7 @@ func executeSQLStatements(t *testing.T, db *BaseDB, statements []string,
 }
 
 // createIndices creates all required indices on the database.
-func createIndices(t *testing.T, db *BaseDB) {
+func createIndices(t testing.TB, db *BaseDB) {
 	statements := []string{
 		createUniverseRootIndex,
 		createUniverseLeavesIndex,
@@ -63,7 +63,7 @@ func createIndices(t *testing.T, db *BaseDB) {
 }
 
 // dropIndices removes all custom indices from the database.
-func dropIndices(t *testing.T, db *BaseDB) {
+func dropIndices(t testing.TB, db *BaseDB) {
 	statements := []string{
 		`DROP INDEX IF EXISTS idx_universe_roots_composite`,
 		`DROP INDEX IF EXISTS idx_universe_leaves_asset`,
@@ -178,17 +178,17 @@ var testQueries = []queryTest{
 }
 
 // logPerformanceAnalysis prints performance metrics for all test queries.
-func logPerformanceAnalysis(t *testing.T, results map[string]*queryStats) {
-	t.Log("\n=== Performance Analysis ===")
+func logPerformanceAnalysis(b *testing.B, results map[string]*queryStats) {
+	b.Log("\n=== Performance Analysis ===")
 
 	for name, result := range results {
-		t.Logf("\nQuery: %s (%d runs)", name, result.queries)
+		b.Logf("\nQuery: %s (%d runs)", name, result.queries)
 
-		t.Log("Query Plan:")
-		t.Log(result.queryPlan)
+		b.Log("Query Plan:")
+		b.Log(result.queryPlan)
 
-		t.Logf("No indices exec time: %v", result.withoutIndices)
-		t.Logf("With indices exec time: %v", result.withIndices)
+		b.Logf("No indices exec time: %v", result.withoutIndices)
+		b.Logf("With indices exec time: %v", result.withIndices)
 
 		// Calculate improvement factor.
 		var improvement float64
@@ -197,12 +197,12 @@ func logPerformanceAnalysis(t *testing.T, results map[string]*queryStats) {
 				float64(result.withIndices)
 		}
 
-		t.Logf("Improvement: %.2fx", improvement)
+		b.Logf("Improvement: %.2fx", improvement)
 	}
 }
 
 // getQueryPlan retrieves the execution plan for a query from the database.
-func getQueryPlan(ctx context.Context, t *testing.T, db *BaseDB,
+func getQueryPlan(ctx context.Context, t testing.TB, db *BaseDB,
 	q queryTest, h *uniStatsHarness) string {
 
 	var (
@@ -253,7 +253,7 @@ func getQueryPlan(ctx context.Context, t *testing.T, db *BaseDB,
 }
 
 // executeQuery runs a query multiple times and measures execution time.
-func executeQuery(ctx context.Context, t *testing.T, db *BaseDB,
+func executeQuery(ctx context.Context, t testing.TB, db *BaseDB,
 	q queryTest, h *uniStatsHarness) time.Duration {
 
 	start := time.Now()
@@ -291,11 +291,9 @@ type queryStats struct {
 	queryPlan      string
 }
 
-// TestUniverseIndexPerformance tests the performance impact
-// of database indices.
-func TestUniverseIndexPerformance(t *testing.T) {
-	t.Parallel()
-
+// BenchmarkUniverseIndexPerformance tests the performance impact of database
+// indices.
+func BenchmarkUniverseIndexPerformance(b *testing.B) {
 	// Create context with reasonable timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -305,7 +303,7 @@ func TestUniverseIndexPerformance(t *testing.T) {
 	// setupDB creates a new database and harness for testing, either
 	// creating or dropping the supporting indices.
 	setupDB := func(withIndices bool) (*BaseDB, *uniStatsHarness) {
-		db := NewTestDB(t)
+		db := NewTestDB(b)
 		sqlDB := db.BaseDB
 
 		// Set reasonable connection limits.
@@ -317,11 +315,11 @@ func TestUniverseIndexPerformance(t *testing.T) {
 		statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)
 
 		// Add progress tracking.
-		t.Logf("Gen test data: %d assets, %d leaves/tree",
+		b.Logf("Gen test data: %d assets, %d leaves/tree",
 			numAssets, numLeavesPerTree)
 
-		h := newUniStatsHarness(t, numAssets, db.BaseDB, statsDB)
-		require.NotNil(t, h)
+		h := newUniStatsHarness(b, numAssets, db.BaseDB, statsDB)
+		require.NotNil(b, h)
 
 		// Generate some events for all assets.
 		for range 10 {
@@ -329,32 +327,32 @@ func TestUniverseIndexPerformance(t *testing.T) {
 		}
 
 		if withIndices {
-			createIndices(t, sqlDB)
+			createIndices(b, sqlDB)
 		} else {
-			dropIndices(t, sqlDB)
+			dropIndices(b, sqlDB)
 		}
 
 		return sqlDB, h
 	}
 
 	// runTest executes a query with or without indices.
-	runTest := func(t *testing.T, q queryTest, withIndices bool,
+	runTest := func(b *testing.B, q queryTest, withIndices bool,
 		sqlDB *BaseDB, h *uniStatsHarness) {
 
-		t.Logf("\n=== Query Plan for %s ===", q.name)
+		b.Logf("\n=== Query Plan for %s ===", q.name)
 
 		// Skip unsupported queries.
 		if !supportsQuery(sqlDB.Backend(), q.dbTypes) {
-			t.Skipf("Query %s unsupported by backend %v",
+			b.Skipf("Query %s unsupported by backend %v",
 				q.name, sqlDB.Backend())
 			return
 		}
 
-		plan := getQueryPlan(ctx, t, sqlDB, q, h)
-		t.Logf("Query Plan:\n%s", plan)
+		plan := getQueryPlan(ctx, b, sqlDB, q, h)
+		b.Logf("Query Plan:\n%s", plan)
 
 		// Execute the query repeatedly.
-		queryTime := executeQuery(ctx, t, sqlDB, q, h)
+		queryTime := executeQuery(ctx, b, sqlDB, q, h)
 
 		// Record results.
 		stat, ok := testResults[q.name]
@@ -373,7 +371,7 @@ func TestUniverseIndexPerformance(t *testing.T) {
 			stat.withoutIndices = queryTime
 		}
 
-		t.Logf("%s executed in: %v", q.name, queryTime)
+		b.Logf("%s executed in: %v", q.name, queryTime)
 	}
 
 	// Run tests with and without indices.
@@ -383,11 +381,11 @@ func TestUniverseIndexPerformance(t *testing.T) {
 		for _, q := range testQueries {
 			testName := fmt.Sprintf("name=%v,indices=%v", q.name,
 				withIndices)
-			t.Run(testName, func(t *testing.T) {
-				runTest(t, q, withIndices, sqlDB, h)
+			b.Run(testName, func(b *testing.B) {
+				runTest(b, q, withIndices, sqlDB, h)
 			})
 		}
 
-		logPerformanceAnalysis(t, testResults)
+		logPerformanceAnalysis(b, testResults)
 	}
 }
