@@ -8553,8 +8553,10 @@ func (r *rpcServer) getInboundPolicy(ctx context.Context, chanID uint64,
 		return nil, fmt.Errorf("unable to fetch channel: %w", err)
 	}
 
+	// We want the policy that corresponds to the node that is the remote
+	// peer in the channel.
 	policy := edge.Node2Policy
-	if edge.Node2Pub == remotePubStr {
+	if edge.Node1Pub == remotePubStr {
 		policy = edge.Node1Policy
 	}
 
