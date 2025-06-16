@@ -160,13 +160,6 @@ func testMinRelayFeeBump(t *harnessTest) {
 	harnessMinRelayFeeRate := chainfee.SatPerKVByte(1000)
 	defaultFeeRate := chainfee.SatPerKWeight(3125)
 
-	// roundUpMinRelayFeeRate is the converted fee rate to sat/vbyte as
-	// that's what the FundPsbt expects. We add 999 to round up to the
-	// nearest 1000. We'll use this with `AssertFeerate`.
-	roundUpMinRelayFeeRate := chainfee.SatPerVByte(
-		(realWorldMinRelayFeeRate + 999) / 1000,
-	)
-
 	t.lndHarness.SetFeeEstimateWithConf(belowFloorFeeRate, 6)
 	t.lndHarness.SetMinRelayFeerate(realWorldMinRelayFeeRate)
 
@@ -205,7 +198,7 @@ func testMinRelayFeeBump(t *harnessTest) {
 	// We check whether the minting TX is bumped to the min relay fee.
 	AssertFeeRate(
 		t.t, t.lndHarness.Miner().Client, initialUTXOs[0].Amount,
-		&mintOutpoint.Hash, roundUpMinRelayFeeRate.FeePerKWeight(),
+		&mintOutpoint.Hash, realWorldMinRelayFeeRate.FeePerKWeight(),
 	)
 
 	// Now that we have the asset created, we'll make a new node that'll
@@ -258,7 +251,7 @@ func testMinRelayFeeBump(t *harnessTest) {
 	sendInputAmt := initialUTXOs[1].Amount + 1000
 	AssertTransferFeeRate(
 		t.t, t.lndHarness.Miner().Client, sendResp, sendInputAmt,
-		roundUpMinRelayFeeRate.FeePerKWeight(),
+		realWorldMinRelayFeeRate.FeePerKWeight(),
 	)
 
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
