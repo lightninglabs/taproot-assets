@@ -7798,6 +7798,16 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				"pubkey: %w", err)
 		}
 
+		// We must enforce a minimum satoshi amount to make sure the
+		// carrier HTLC is above dust. This is handled by the traffic
+		// shaper for invoice-based payments, but for keysend payments
+		// we need to do it here.
+		if pReq.Amt < int64(rfqmath.DefaultOnChainHtlcSat) {
+			return fmt.Errorf("keysend payment satoshi amount "+
+				"must be greater than or equal to %d satoshis",
+				rfqmath.DefaultOnChainHtlcSat)
+		}
+
 		// We check that we have the asset amount available in the
 		// channel.
 		_, err = r.cfg.RfqManager.FetchChannel(
