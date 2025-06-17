@@ -92,6 +92,38 @@ type GroupKey struct {
 	Witness wire.TxWitness
 }
 
+// IsGroupAnchor returns true if the provided asset ID matches the first asset
+// minted into the group. Each asset group key is derived from a single group
+// anchor asset ID.
+func (g *GroupKey) IsGroupAnchor(assetID ID) (bool, error) {
+	var zero bool
+
+	// We will use the given asset ID and the parameters of the receiver
+	// GroupKey to derive a group public key.
+	//
+	// We will then compare the derived key to the GroupPubKey in the
+	// receiver. If they match, then the asset ID is the group anchor
+	// asset ID from which the receiver group key is derived.
+	expectedGroupPubKey := g.GroupPubKey
+
+	// The group key reveal logic derives the group public key.
+	// Although we pass in the receiver’s GroupKey, its group public key is
+	// not used. Instead, the key is re-derived from the associated
+	// parameters.
+	gkr, err := NewGroupKeyReveal(*g, assetID)
+	if err != nil {
+		return zero, err
+	}
+
+	derivedGroupPubKey, err := gkr.GroupPubKey(assetID)
+	if err != nil {
+		return zero, fmt.Errorf("cannot derive group public key: %w",
+			err)
+	}
+
+	return expectedGroupPubKey.IsEqual(derivedGroupPubKey), nil
+}
+
 // GroupKeyRequest contains the essential fields used to derive a group key.
 type GroupKeyRequest struct {
 	// Version is the version of the group key construction.
