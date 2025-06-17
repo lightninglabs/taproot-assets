@@ -3,6 +3,8 @@ package itest
 import (
 	"context"
 
+	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -64,6 +66,26 @@ func testChannelRPCs(t *harnessTest) {
 	require.ErrorContains(
 		t.t, err, "destination node must be specified for keysend "+
 			"payment",
+	)
+
+	// Make sure that the minimum satoshi amount for a keysend payment is
+	// enforced.
+	stream, err = t.tapd.SendPayment(ctx, &tchrpc.SendPaymentRequest{
+		AssetAmount: 123,
+		AssetId:     dummyByteArr[:],
+		PaymentRequest: &routerrpc.SendPaymentRequest{
+			Dest: test.RandPubKey(t.t).SerializeCompressed(),
+			DestCustomRecords: map[uint64][]byte{
+				record.KeySendType: dummyByteArr[:],
+			},
+			Amt: int64(rfqmath.DefaultOnChainHtlcSat - 1),
+		},
+	})
+	require.NoError(t.t, err)
+
+	_, err = stream.Recv()
+	require.ErrorContains(
+		t.t, err, "keysend payment satoshi amount must be greater",
 	)
 
 	// Now let's also try the invoice path, which should fail because we
