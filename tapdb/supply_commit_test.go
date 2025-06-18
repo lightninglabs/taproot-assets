@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"testing"
@@ -264,6 +265,31 @@ func (h *supplyCommitTestHarness) currentTransition() lfn.Option[supplycommit.Su
 	return transitionOpt
 }
 
+// fetchDanglingUpdates fetches all dangling updates for the harness's group key.
+//
+//nolint:lll
+func (h *supplyCommitTestHarness) fetchDanglingUpdates() []QueryDanglingSupplyUpdateResp {
+	h.t.Helper()
+
+	var danglingUpdates []QueryDanglingSupplyUpdateResp
+	readTx := ReadTxOption()
+	err := h.commitMachine.db.ExecTx(h.ctx, readTx,
+		func(db SupplyCommitStore) error {
+			var txErr error
+			danglingUpdates, txErr = db.QueryDanglingSupplyUpdateEvents(
+				h.ctx, h.groupKeyBytes,
+			)
+			if errors.Is(txErr, sql.ErrNoRows) {
+				return nil
+			}
+			return txErr
+		},
+	)
+	require.NoError(h.t, err)
+
+	return danglingUpdates
+}
+
 // assertPendingTransitionExists asserts that a pending (non-finalized)
 // transition exists.
 //
@@ -347,10 +373,12 @@ func (h *supplyCommitTestHarness) fetchPendingTransition() (
 	readTx := ReadTxOption()
 	err := h.commitMachine.db.ExecTx(
 		h.ctx, readTx, func(db SupplyCommitStore) error {
-			var txErr error
-			transition, txErr = db.QueryPendingSupplyCommitTransition( //nolint:lll
+			pendingRow, txErr := db.QueryPendingSupplyCommitTransition( //nolint:lll
 				h.ctx, h.groupKeyBytes,
 			)
+			if txErr == nil {
+				transition = pendingRow.SupplyCommitTransition
+			}
 			return txErr
 		},
 	)
@@ -1141,83 +1169,72 @@ func (h *supplyCommitTestHarness) assertTransitionApplied(
 	)
 }
 
-// TestSupplyCommitInsertPendingUpdate tests the insertion of pending updates.
+// TestSupplyCommitInsertPendingUpdate tests the insertion of pending updates,
+// including the creation of dangling events when a transition is frozen.
 func TestSupplyCommitInsertPendingUpdate(t *testing.T) {
 	t.Parallel()
 
 	h := newSupplyCommitTestHarness(t)
 
-	var insertedEvents []supplycommit.SupplyUpdateEvent
-
-	// First, we'll insert a new update of a minting event.
+	// Insert a first event. This should create a new non-frozen transition
+	// and associate this event with it.
 	event1 := h.randMintEvent()
-	insertedEvents = append(insertedEvents, event1)
-	err := h.commitMachine.InsertPendingUpdate(
-		h.ctx, h.assetSpec, event1,
-	)
+	err := h.commitMachine.InsertPendingUpdate(h.ctx, h.assetSpec, event1)
 	require.NoError(t, err)
 
 	// Verify state machine is now in UpdatesPendingState.
 	h.assertCurrentStateIs(&supplycommit.UpdatesPendingState{})
 
-	// Verify a pending transition exists and is in initial state.
+	// Verify a pending transition exists and is not frozen.
 	dbTransition1 := h.assertPendingTransitionExists()
 	h.assertTransitionInitialState(dbTransition1)
+	require.False(t, dbTransition1.Frozen)
 
-	// There should be a pending update now, and after we read it from disk
-	// it should exactly match what we inserted.
-	h.assertPendingUpdates(insertedEvents)
+	// The pending transition should contain exactly our first event.
+	h.assertPendingUpdates([]supplycommit.SupplyUpdateEvent{event1})
+	require.Empty(t, h.fetchDanglingUpdates())
 
-	// Next, we'll insert a new update type.
+	// Now we'll insert a second event. Since the transition is not frozen,
+	// this should be added to the existing transition.
 	event2 := h.randBurnEvent()
-	insertedEvents = append(insertedEvents, event2)
 	err = h.commitMachine.InsertPendingUpdate(h.ctx, h.assetSpec, event2)
 	require.NoError(t, err)
 
-	// Verify state is still UpdatesPendingState.
+	// State should be the same.
 	h.assertCurrentStateIs(&supplycommit.UpdatesPendingState{})
-
-	// Verify it uses the same transition.
 	dbTransition2 := h.assertPendingTransitionExists()
 	require.Equal(t, dbTransition1.TransitionID, dbTransition2.TransitionID)
 
-	// Verify two events are now stored.
-	h.assertPendingUpdates(insertedEvents)
+	// The pending transition should now contain both events.
+	h.assertPendingUpdates([]supplycommit.SupplyUpdateEvent{event1, event2})
+	require.Empty(t, h.fetchDanglingUpdates())
 
-	// Next, we'll insert yet another update type.
+	// Now, freeze the pending transition.
+	err = h.commitMachine.FreezePendingTransition(h.ctx, h.assetSpec)
+	require.NoError(t, err)
+
+	// Verify it's marked as frozen in the DB.
+	dbTransition3 := h.assertPendingTransitionExists()
+	require.True(t, dbTransition3.Frozen)
+
+	// Insert a third event. Since the transition is now frozen, this should
+	// become a dangling event.
 	event3 := h.randIgnoreEvent()
-	insertedEvents = append(insertedEvents, event3)
 	err = h.commitMachine.InsertPendingUpdate(h.ctx, h.assetSpec, event3)
 	require.NoError(t, err)
 
-	// Once again the state should be the same, and the transition ID should
-	// match.
-	h.assertCurrentStateIs(&supplycommit.UpdatesPendingState{})
-	dbTransition3 := h.assertPendingTransitionExists()
-	require.Equal(t, dbTransition1.TransitionID, dbTransition3.TransitionID)
+	// The main transition's updates should be unchanged.
+	h.assertPendingUpdates([]supplycommit.SupplyUpdateEvent{event1, event2})
 
-	// Verify three events are now stored.
-	h.assertPendingUpdates(insertedEvents)
-
-	// Next, let's test an error path, we'll set the state to broadcast,
-	// then attempt to insert a new event.
-	err = h.commitMachine.CommitState(
-		h.ctx, h.assetSpec, &supplycommit.CommitBroadcastState{},
+	// We should now have one dangling event.
+	danglingEvents := h.fetchDanglingUpdates()
+	require.Len(t, danglingEvents, 1)
+	deserializedDangling, err := deserializeSupplyUpdateEvent(
+		danglingEvents[0].UpdateTypeName,
+		bytes.NewReader(danglingEvents[0].EventData),
 	)
 	require.NoError(t, err)
-	h.assertCurrentStateIs(&supplycommit.CommitBroadcastState{})
-
-	// Attempting to insert now should fail.
-	event4 := h.randMintEvent()
-	err = h.commitMachine.InsertPendingUpdate(h.ctx, h.assetSpec, event4)
-	require.Error(t, err)
-	require.ErrorContains(
-		t, err, "cannot insert pending update "+
-			"in state: CommitBroadcastState",
-	)
-
-	// Verify no new event was added.
-	h.assertPendingUpdates(insertedEvents)
+	assertEqualEvents(t, event3, deserializedDangling)
 }
 
 // TestSupplyCommitInsertSignedCommitTx tests associating a signed commit tx
@@ -1812,4 +1829,18 @@ func encodeTx(tx *wire.MsgTx) ([]byte, error) {
 	var buf bytes.Buffer
 	err := tx.Serialize(&buf)
 	return buf.Bytes(), err
+}
+
+// assertEqualEvents compares two supply update events by serializing them and
+// comparing the resulting bytes.
+func assertEqualEvents(t *testing.T, expected,
+	actual supplycommit.SupplyUpdateEvent) {
+
+	t.Helper()
+	var expectedBytes, actualBytes bytes.Buffer
+	err := serializeSupplyUpdateEvent(&expectedBytes, expected)
+	require.NoError(t, err)
+	err = serializeSupplyUpdateEvent(&actualBytes, actual)
+	require.NoError(t, err)
+	require.Equal(t, expectedBytes.String(), actualBytes.String())
 }
