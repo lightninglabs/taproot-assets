@@ -704,6 +704,103 @@ func (s *SupplyCommitMachine) FreezePendingTransition(ctx context.Context,
 	})
 }
 
+// BindDanglingUpdatesToTransition finds any supply update events for the
+// given asset specifier that are not yet associated with a transition,
+// creates a new transition for them, and links them. It returns the
+// list of events that were bound. If no dangling events are found, it
+// returns an empty slice and no error.
+func (s *SupplyCommitMachine) BindDanglingUpdatesToTransition(
+	ctx context.Context, assetSpec asset.Specifier,
+) ([]supplycommit.SupplyUpdateEvent, error) {
+
+	groupKey := assetSpec.UnwrapGroupKeyToPtr()
+	if groupKey == nil {
+		return nil, ErrMissingGroupKey
+	}
+	groupKeyBytes := groupKey.SerializeCompressed()
+
+	var (
+		boundEvents []supplycommit.SupplyUpdateEvent
+	)
+	writeTx := WriteTxOption()
+	err := s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
+		eventRows, err := db.QueryDanglingSupplyUpdateEvents(
+			ctx, groupKeyBytes,
+		)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			return fmt.Errorf("failed to query dangling "+
+				"events: %w", err)
+		}
+
+		if len(eventRows) == 0 {
+			return nil
+		}
+
+		// We have dangling updates. So we'll now move to create a new
+		// transition for them.
+		stateMachine, err := db.QuerySupplyCommitStateMachine(
+			ctx, groupKeyBytes,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to query state "+
+				"machine: %w", err)
+		}
+		latestCommitID := stateMachine.LatestCommitmentID
+
+		transitionID, err := db.InsertSupplyCommitTransition(
+			ctx, InsertSupplyCommitTransition{
+				StateMachineGroupKey: groupKeyBytes,
+				OldCommitmentID:      latestCommitID,
+				Finalized:            false,
+				CreationTime:         time.Now().Unix(),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert new "+
+				"transition: %w", err)
+		}
+
+		// With the new transition created, we'll now link all the
+		// dangling updates.
+		err = db.LinkDanglingSupplyUpdateEvents(
+			ctx, LinkDanglingSupplyUpdateEventsParams{
+				GroupKey:     groupKeyBytes,
+				TransitionID: sqlInt64(transitionID),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to link dangling "+
+				"events: %w", err)
+		}
+
+		boundEvents = make(
+			[]supplycommit.SupplyUpdateEvent, 0, len(eventRows),
+		)
+		for _, eventRow := range eventRows {
+			event, err := deserializeSupplyUpdateEvent(
+				eventRow.UpdateTypeName,
+				bytes.NewReader(eventRow.EventData),
+			)
+			if err != nil {
+				return fmt.Errorf("failed to deserialize "+
+					"event: %w", err)
+			}
+			boundEvents = append(boundEvents, event)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return boundEvents, nil
+}
+
 // InsertSignedCommitTx associates a new signed commitment anchor transaction
 // with the current active supply commitment state transition.
 func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
@@ -1068,7 +1165,7 @@ func (s *SupplyCommitMachine) FetchState(ctx context.Context,
 		// Now that we know we have a state transition, we'll query for
 		// all the pending updates related to the state transition.
 		eventRows, err := db.QuerySupplyUpdateEvents(
-			ctx, dbTransition.TransitionID,
+			ctx, sqlInt64(dbTransition.TransitionID),
 		)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("failed to query update events: "+
