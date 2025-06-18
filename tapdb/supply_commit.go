@@ -44,6 +44,10 @@ type (
 	// supply update event rows.
 	QuerySupplyUpdateResp = sqlc.QuerySupplyUpdateEventsRow
 
+	// QueryDanglingSupplyUpdateResp is an alias for the sqlc type
+	// representing dangling supply update event rows.
+	QueryDanglingSupplyUpdateResp = sqlc.QueryDanglingSupplyUpdateEventsRow
+
 	// SupplyCommitment is an alias for the sqlc type representing a supply
 	// commitment.
 	SupplyCommitment = sqlc.SupplyCommitment
@@ -65,6 +69,9 @@ type (
 
 	// InsertSupplyUpdateEvent is an alias for the sqlc type.
 	InsertSupplyUpdateEvent = sqlc.InsertSupplyUpdateEventParams
+
+	// LinkDanglingSupplyUpdateEventsParams is an alias for the sqlc type.
+	LinkDanglingSupplyUpdateEventsParams = sqlc.LinkDanglingSupplyUpdateEventsParams
 
 	// UpsertChainTxParams is an alias for the sqlc type.
 	UpsertChainTxParams = sqlc.UpsertChainTxParams
@@ -118,6 +125,10 @@ type SupplyCommitStore interface {
 	QueryPendingSupplyCommitTransition(ctx context.Context,
 		groupKey []byte) (SupplyCommitTransition, error)
 
+	// FreezePendingTransition marks the current pending transition for a
+	// group key as frozen.
+	FreezePendingTransition(ctx context.Context, groupKey []byte) error
+
 	// InsertSupplyCommitTransition inserts a new transition record.
 	InsertSupplyCommitTransition(ctx context.Context,
 		arg InsertSupplyCommitTransition) (int64, error)
@@ -148,7 +159,17 @@ type SupplyCommitStore interface {
 
 	// QuerySupplyUpdateEvents fetches all update events for a transition.
 	QuerySupplyUpdateEvents(ctx context.Context,
-		transitionID int64) ([]QuerySupplyUpdateResp, error)
+		transitionID sql.NullInt64) ([]QuerySupplyUpdateResp, error)
+
+	// QueryDanglingSupplyUpdateEvents fetches all update events for a group
+	// key that are not yet associated with a transition.
+	QueryDanglingSupplyUpdateEvents(ctx context.Context,
+		groupKey []byte) ([]QueryDanglingSupplyUpdateResp, error)
+
+	// LinkDanglingSupplyUpdateEvents associates all dangling update events
+	// for a group key with the given transition ID.
+	LinkDanglingSupplyUpdateEvents(ctx context.Context,
+		arg LinkDanglingSupplyUpdateEventsParams) error
 
 	// QuerySupplyCommitment fetches a specific supply commitment by ID.
 	QuerySupplyCommitment(ctx context.Context,
@@ -522,6 +543,75 @@ func (s *SupplyCommitMachine) InsertPendingUpdate(ctx context.Context,
 
 	writeTx := WriteTxOption()
 	return s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
+		// First, check if there's already a pending transition.
+		pendingTransition, err := db.QueryPendingSupplyCommitTransition(
+			ctx, groupKeyBytes,
+		)
+
+		// If a pending transition exists, check if it's frozen.
+		if err == nil {
+			// If the transition is frozen, we should insert a
+			// dangling update that will be processed after the
+			// current transition is finalized.
+			if pendingTransition.Frozen {
+				var b bytes.Buffer
+				err := serializeSupplyUpdateEvent(&b, event)
+				if err != nil {
+					return fmt.Errorf("failed to serialize event "+
+						"data: %w", err)
+				}
+				updateTypeID, err := updateTypeToInt(
+					event.SupplySubTreeType(),
+				)
+				if err != nil {
+					return fmt.Errorf(
+						"failed to map update type: %w", err,
+					)
+				}
+
+				return db.InsertSupplyUpdateEvent(
+					ctx, InsertSupplyUpdateEvent{
+						GroupKey:     groupKeyBytes,
+						TransitionID: sql.NullInt64{},
+						UpdateTypeID: updateTypeID,
+						EventData:    b.Bytes(),
+					},
+				)
+			}
+
+			// The transition is not frozen, so we can add this
+			// update to it.
+			var b bytes.Buffer
+			err = serializeSupplyUpdateEvent(&b, event)
+			if err != nil {
+				return fmt.Errorf("failed to serialize event "+
+					"data: %w", err)
+			}
+			updateTypeID, err := updateTypeToInt(event.SupplySubTreeType())
+			if err != nil {
+				return fmt.Errorf("failed to map update type: %w", err)
+			}
+			return db.InsertSupplyUpdateEvent(
+				ctx, InsertSupplyUpdateEvent{
+					GroupKey: groupKeyBytes,
+					TransitionID: sqlInt64(
+						pendingTransition.TransitionID,
+					),
+					UpdateTypeID: updateTypeID,
+					EventData:    b.Bytes(),
+				},
+			)
+		}
+
+		// If the error is anything other than "no rows", it's a real
+		// problem.
+		if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("failed to query existing "+
+				"pending transition: %w", err)
+		}
+
+		// No pending transition exists. We can create a new one.
+		//
 		// First, we'll upsert a new state machine. We pass a null state
 		// name, as it'll be made with default if doesn't exist. The
 		// query returns the actual state ID set and the latest
@@ -538,62 +628,38 @@ func (s *SupplyCommitMachine) InsertPendingUpdate(ctx context.Context,
 		}
 		currentStateID := upsertResult.CurrentStateID
 
-		// Make sure that we're in either the DefaultState or
-		// UpdatesPendingState state as a sanity check.
+		// Make sure that we're in the DefaultState. We can only start a
+		// new transition from here.
 		currentState, err := intToState(currentStateID)
 		if err != nil {
-			// This indicates an unexpected state ID returned
-			// from the DB.
 			return fmt.Errorf("invalid state ID %d "+
 				"returned from upsert: %w", currentStateID, err)
 		}
 		currentStateName := currentState.String()
-		if currentStateName != "DefaultState" &&
-			currentStateName != "UpdatesPendingState" {
-
-			return fmt.Errorf("cannot insert pending "+
-				"update in state: %s", currentStateName)
+		if currentStateName != "DefaultState" {
+			return fmt.Errorf("cannot start new transition "+
+				"in state: %s", currentStateName)
 		}
 
-		// Now that we know the state machine is in the proper state,
-		// we'll fetch the transition ID, which will be needed below.
-		var transitionID int64
-		existingTransitionID, err := db.QueryExistingPendingTransition(
-			ctx, groupKeyBytes,
+		// Use the latest commitment ID returned by the upsert.
+		latestCommitID := upsertResult.LatestCommitmentID
+
+		transitionID, err := db.InsertSupplyCommitTransition(
+			ctx, InsertSupplyCommitTransition{
+				StateMachineGroupKey: groupKeyBytes,
+				OldCommitmentID:      latestCommitID,
+				Finalized:            false,
+				Frozen:               false,
+				CreationTime:         time.Now().Unix(),
+			},
 		)
-
-		switch {
-		// If no existing pending transition, create one.
-		case errors.Is(err, sql.ErrNoRows):
-			// Use the latest commitment ID returned by the upsert.
-			latestCommitID := upsertResult.LatestCommitmentID
-
-			transitionID, err = db.InsertSupplyCommitTransition(
-				ctx, InsertSupplyCommitTransition{
-					StateMachineGroupKey: groupKeyBytes,
-					OldCommitmentID:      latestCommitID,
-					Finalized:            false,
-					CreationTime:         time.Now().Unix(),
-				},
-			)
-			if err != nil {
-				return fmt.Errorf("failed to insert "+
-					"new transition: %w", err)
-			}
-
-		// If the query failed all together, then we'll bail now.
-		case err != nil:
-			return fmt.Errorf("failed to query existing "+
-				"pending transition: %w", err)
-
-		// Otherwise, we found an existing pending transition, so we can
-		// just use that transition ID.
-		default:
-			transitionID = existingTransitionID
+		if err != nil {
+			return fmt.Errorf("failed to insert "+
+				"new transition: %w", err)
 		}
 
-		// With the transition created or found, we can now serialize,
-		// then insert the update event.
+		// With the transition created, we can now serialize,
+		// then insert the update event, linking it to the new transition.
 		var b bytes.Buffer
 		err = serializeSupplyUpdateEvent(&b, event)
 		if err != nil {
@@ -606,7 +672,8 @@ func (s *SupplyCommitMachine) InsertPendingUpdate(ctx context.Context,
 		}
 		err = db.InsertSupplyUpdateEvent(
 			ctx, InsertSupplyUpdateEvent{
-				TransitionID: transitionID,
+				GroupKey:     groupKeyBytes,
+				TransitionID: sqlInt64(transitionID),
 				UpdateTypeID: updateTypeID,
 				EventData:    b.Bytes(),
 			},
