@@ -1237,6 +1237,113 @@ func TestSupplyCommitInsertPendingUpdate(t *testing.T) {
 	assertEqualEvents(t, event3, deserializedDangling)
 }
 
+// TestBindDanglingUpdatesToTransition tests the logic for binding dangling
+// updates to a new transition.
+func TestBindDanglingUpdatesToTransition(t *testing.T) {
+	t.Parallel()
+
+	h := newSupplyCommitTestHarness(t)
+
+	// If no dangling updates exist, the method should be a no-op.
+	boundEvents, err := h.commitMachine.BindDanglingUpdatesToTransition(
+		h.ctx, h.assetSpec,
+	)
+	require.NoError(t, err)
+	require.Empty(t, boundEvents)
+	h.assertNoPendingTransition()
+
+	// To create dangling updates, we first need a state machine and a
+	// finalized transition.
+	updates1 := []supplycommit.SupplyUpdateEvent{h.randMintEvent()}
+	stateTransition1 := h.performSingleTransition(updates1)
+	h.assertTransitionApplied(stateTransition1)
+
+	// Now, with the machine in DefaultState, we'll manually insert some
+	// dangling events into the DB. This simulates events arriving while a
+	// transition was in flight and frozen.
+	danglingEvent1 := h.randBurnEvent()
+	danglingEvent2 := h.randIgnoreEvent()
+	danglingEventsToInsert := []supplycommit.SupplyUpdateEvent{
+		danglingEvent1, danglingEvent2,
+	}
+
+	// We use a custom transaction to short circuit some of the logic in the
+	// public API.
+	writeTx := WriteTxOption()
+	err = h.commitMachine.db.ExecTx(
+		h.ctx, writeTx, func(db SupplyCommitStore) error {
+			for _, event := range danglingEventsToInsert {
+				var b bytes.Buffer
+				err := serializeSupplyUpdateEvent(&b, event)
+				require.NoError(t, err)
+				updateTypeID, err := updateTypeToInt(
+					event.SupplySubTreeType(),
+				)
+				require.NoError(t, err)
+
+				err = db.InsertSupplyUpdateEvent(
+					h.ctx, InsertSupplyUpdateEvent{
+						GroupKey:     h.groupKeyBytes,
+						TransitionID: sql.NullInt64{},
+						UpdateTypeID: updateTypeID,
+						EventData:    b.Bytes(),
+					},
+				)
+				require.NoError(t, err)
+			}
+
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	// We should now that that updates are properly dangling.
+	require.Len(t, h.fetchDanglingUpdates(), 2)
+
+	// Now we'll bind the set of dangling updates, this should create a new
+	// state transition and associate the events with it.
+	boundEvents, err = h.commitMachine.BindDanglingUpdatesToTransition(
+		h.ctx, h.assetSpec,
+	)
+	require.NoError(t, err)
+
+	// Assert that the returned events match what we inserted. We'll sort
+	// first to ensure a deterministic comparison.
+	sorter := func(events []supplycommit.SupplyUpdateEvent) {
+		sort.SliceStable(events, func(i, j int) bool {
+			keyI := events[i].UniverseLeafKey().UniverseKey()
+			keyJ := events[j].UniverseLeafKey().UniverseKey()
+			return bytes.Compare(keyI[:], keyJ[:]) < 0
+		})
+	}
+	sorter(danglingEventsToInsert)
+	sorter(boundEvents)
+	require.Len(t, boundEvents, 2)
+
+	// The dangling events read out should now match what we inserted.
+	assertEqualEvents(t, danglingEventsToInsert[0], boundEvents[0])
+	assertEqualEvents(t, danglingEventsToInsert[1], boundEvents[1])
+
+	// A new state transition should have been created, and there should be
+	// no dangling updates.
+	dbTransition := h.assertPendingTransitionExists()
+	require.Empty(t, h.fetchDanglingUpdates())
+
+	// The state transition should also now include the set of dangling
+	// updates.
+	h.assertPendingUpdates(danglingEventsToInsert)
+
+	// The new transition's old_commitment_id should point to the one from
+	// the finalized transition.
+	stateMachine, err := h.fetchStateMachine()
+	require.NoError(t, err)
+	require.True(t, stateMachine.LatestCommitmentID.Valid)
+	require.Equal(
+		t, stateMachine.LatestCommitmentID,
+		dbTransition.OldCommitmentID,
+	)
+}
+
 // TestSupplyCommitInsertSignedCommitTx tests associating a signed commit tx
 // with a transition.
 func TestSupplyCommitInsertSignedCommitTx(t *testing.T) {
@@ -1837,10 +1944,13 @@ func assertEqualEvents(t *testing.T, expected,
 	actual supplycommit.SupplyUpdateEvent) {
 
 	t.Helper()
+
 	var expectedBytes, actualBytes bytes.Buffer
 	err := serializeSupplyUpdateEvent(&expectedBytes, expected)
 	require.NoError(t, err)
+
 	err = serializeSupplyUpdateEvent(&actualBytes, actual)
 	require.NoError(t, err)
+
 	require.Equal(t, expectedBytes.String(), actualBytes.String())
 }
