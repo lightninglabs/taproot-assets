@@ -1013,6 +1013,62 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 		)
 	})
 
+	// This test verifies that a FinalizeEvent received by the
+	// CommitFinalizeState leads to a new commitment cycle if there are
+	// dangling updates.
+	t.Run("finalize_event_with_dangling_updates", func(t *testing.T) {
+		h := newSupplyCommitTestHarness(t, &harnessCfg{
+			initialState: &CommitFinalizeState{
+				SupplyTransition: initialTransition,
+			},
+			assetSpec: defaultAssetSpec,
+		})
+		h.start()
+		defer h.stopAndAssert()
+
+		h.expectApplyStateTransition()
+
+		// Mock the binding of dangling updates to return a new set of
+		// events.
+		danglingUpdate := newTestMintEvent(
+			t, test.RandPubKey(t), randOutPoint(t),
+		)
+		h.mockStateLog.On(
+			"BindDanglingUpdatesToTransition", mock.Anything,
+			mock.Anything,
+		).Return([]SupplyUpdateEvent{danglingUpdate}, nil).Once()
+
+		// Set up expectations for the new commitment cycle that should
+		// be triggered immediately.
+		h.expectFullCommitmentCycleMocks(true)
+
+		finalizeEvent := &FinalizeEvent{}
+		h.sendEvent(finalizeEvent)
+
+		// The state machine should transition to CommitTreeCreateState
+		// and then cascade through the commitment process.
+		h.assertStateTransitions(
+			&CommitTreeCreateState{},
+			&CommitTxCreateState{},
+			&CommitTxSignState{},
+			&CommitBroadcastState{},
+			&CommitBroadcastState{},
+		)
+
+		// We can also check that the new CreateTreeEvent was emitted
+		// with the correct dangling updates. This is a bit tricky as
+		// the event is internal. We can check the state of the next
+		// state.
+		finalState := assertAndGetCurrentState[*CommitBroadcastState](h)
+		require.Len(
+			t, finalState.SupplyTransition.PendingUpdates, 1,
+		)
+		require.Equal(
+			t, danglingUpdate,
+			finalState.SupplyTransition.PendingUpdates[0],
+		)
+	})
+
 	// This test verifies that a SupplyUpdateEvent received by the
 	// CommitBroadcastState results in a self-transition after inserting
 	// the update.
