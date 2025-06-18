@@ -25,7 +25,7 @@ DELETE FROM supply_update_events
 WHERE transition_id = $1
 `
 
-func (q *Queries) DeleteSupplyUpdateEvents(ctx context.Context, transitionID int64) error {
+func (q *Queries) DeleteSupplyUpdateEvents(ctx context.Context, transitionID sql.NullInt64) error {
 	_, err := q.db.ExecContext(ctx, DeleteSupplyUpdateEvents, transitionID)
 	return err
 }
@@ -180,12 +180,23 @@ func (q *Queries) FinalizeSupplyCommitTransition(ctx context.Context, transition
 	return err
 }
 
+const FreezePendingTransition = `-- name: FreezePendingTransition :exec
+UPDATE supply_commit_transitions
+SET frozen = TRUE
+WHERE state_machine_group_key = $1 AND finalized = FALSE
+`
+
+func (q *Queries) FreezePendingTransition(ctx context.Context, groupKey []byte) error {
+	_, err := q.db.ExecContext(ctx, FreezePendingTransition, groupKey)
+	return err
+}
+
 const InsertSupplyCommitTransition = `-- name: InsertSupplyCommitTransition :one
 INSERT INTO supply_commit_transitions (
     state_machine_group_key, old_commitment_id, new_commitment_id,
-    pending_commit_txn_id, finalized, creation_time
+    pending_commit_txn_id, finalized, frozen, creation_time
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7
 ) RETURNING transition_id
 `
 
@@ -195,6 +206,7 @@ type InsertSupplyCommitTransitionParams struct {
 	NewCommitmentID      sql.NullInt64
 	PendingCommitTxnID   sql.NullInt64
 	Finalized            bool
+	Frozen               bool
 	CreationTime         int64
 }
 
@@ -205,6 +217,7 @@ func (q *Queries) InsertSupplyCommitTransition(ctx context.Context, arg InsertSu
 		arg.NewCommitmentID,
 		arg.PendingCommitTxnID,
 		arg.Finalized,
+		arg.Frozen,
 		arg.CreationTime,
 	)
 	var transition_id int64
@@ -256,21 +269,94 @@ func (q *Queries) InsertSupplyCommitment(ctx context.Context, arg InsertSupplyCo
 
 const InsertSupplyUpdateEvent = `-- name: InsertSupplyUpdateEvent :exec
 INSERT INTO supply_update_events (
-    transition_id, update_type_id, event_data
+    group_key, transition_id, update_type_id, event_data
 ) VALUES (
-    $1, $2, $3
+    $1, $2, $3, $4
 )
 `
 
 type InsertSupplyUpdateEventParams struct {
-	TransitionID int64
+	GroupKey     []byte
+	TransitionID sql.NullInt64
 	UpdateTypeID int32
 	EventData    []byte
 }
 
 func (q *Queries) InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error {
-	_, err := q.db.ExecContext(ctx, InsertSupplyUpdateEvent, arg.TransitionID, arg.UpdateTypeID, arg.EventData)
+	_, err := q.db.ExecContext(ctx, InsertSupplyUpdateEvent,
+		arg.GroupKey,
+		arg.TransitionID,
+		arg.UpdateTypeID,
+		arg.EventData,
+	)
 	return err
+}
+
+const LinkDanglingSupplyUpdateEvents = `-- name: LinkDanglingSupplyUpdateEvents :exec
+UPDATE supply_update_events
+SET transition_id = $1
+WHERE group_key = $2 AND transition_id IS NULL
+`
+
+type LinkDanglingSupplyUpdateEventsParams struct {
+	TransitionID sql.NullInt64
+	GroupKey     []byte
+}
+
+func (q *Queries) LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error {
+	_, err := q.db.ExecContext(ctx, LinkDanglingSupplyUpdateEvents, arg.TransitionID, arg.GroupKey)
+	return err
+}
+
+const QueryDanglingSupplyUpdateEvents = `-- name: QueryDanglingSupplyUpdateEvents :many
+SELECT
+    ue.event_id,
+    ue.transition_id,
+    ue.update_type_id,
+    types.update_type_name,
+    ue.event_data
+FROM supply_update_events ue
+JOIN supply_commit_update_types types
+    ON ue.update_type_id = types.id
+WHERE ue.group_key = $1 AND ue.transition_id IS NULL
+ORDER BY ue.event_id ASC
+`
+
+type QueryDanglingSupplyUpdateEventsRow struct {
+	EventID        int64
+	TransitionID   sql.NullInt64
+	UpdateTypeID   int32
+	UpdateTypeName string
+	EventData      []byte
+}
+
+func (q *Queries) QueryDanglingSupplyUpdateEvents(ctx context.Context, groupKey []byte) ([]QueryDanglingSupplyUpdateEventsRow, error) {
+	rows, err := q.db.QueryContext(ctx, QueryDanglingSupplyUpdateEvents, groupKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryDanglingSupplyUpdateEventsRow
+	for rows.Next() {
+		var i QueryDanglingSupplyUpdateEventsRow
+		if err := rows.Scan(
+			&i.EventID,
+			&i.TransitionID,
+			&i.UpdateTypeID,
+			&i.UpdateTypeName,
+			&i.EventData,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const QueryExistingPendingTransition = `-- name: QueryExistingPendingTransition :one
@@ -294,14 +380,7 @@ WITH target_machine AS (
     FROM supply_commit_state_machines
     WHERE group_key = $1
 )
-SELECT
-    t.transition_id,
-    t.state_machine_group_key,
-    t.old_commitment_id,
-    t.new_commitment_id,
-    t.pending_commit_txn_id,
-    t.finalized,
-    t.creation_time
+SELECT t.transition_id, t.state_machine_group_key, t.old_commitment_id, t.new_commitment_id, t.pending_commit_txn_id, t.frozen, t.finalized, t.creation_time
 FROM supply_commit_transitions t
 JOIN target_machine tm
     ON t.state_machine_group_key = tm.group_key
@@ -310,17 +389,22 @@ ORDER BY t.creation_time DESC
 LIMIT 1
 `
 
-func (q *Queries) QueryPendingSupplyCommitTransition(ctx context.Context, groupKey []byte) (SupplyCommitTransition, error) {
+type QueryPendingSupplyCommitTransitionRow struct {
+	SupplyCommitTransition SupplyCommitTransition
+}
+
+func (q *Queries) QueryPendingSupplyCommitTransition(ctx context.Context, groupKey []byte) (QueryPendingSupplyCommitTransitionRow, error) {
 	row := q.db.QueryRowContext(ctx, QueryPendingSupplyCommitTransition, groupKey)
-	var i SupplyCommitTransition
+	var i QueryPendingSupplyCommitTransitionRow
 	err := row.Scan(
-		&i.TransitionID,
-		&i.StateMachineGroupKey,
-		&i.OldCommitmentID,
-		&i.NewCommitmentID,
-		&i.PendingCommitTxnID,
-		&i.Finalized,
-		&i.CreationTime,
+		&i.SupplyCommitTransition.TransitionID,
+		&i.SupplyCommitTransition.StateMachineGroupKey,
+		&i.SupplyCommitTransition.OldCommitmentID,
+		&i.SupplyCommitTransition.NewCommitmentID,
+		&i.SupplyCommitTransition.PendingCommitTxnID,
+		&i.SupplyCommitTransition.Frozen,
+		&i.SupplyCommitTransition.Finalized,
+		&i.SupplyCommitTransition.CreationTime,
 	)
 	return i, err
 }
@@ -397,13 +481,13 @@ ORDER BY ue.event_id ASC
 
 type QuerySupplyUpdateEventsRow struct {
 	EventID        int64
-	TransitionID   int64
+	TransitionID   sql.NullInt64
 	UpdateTypeID   int32
 	UpdateTypeName string
 	EventData      []byte
 }
 
-func (q *Queries) QuerySupplyUpdateEvents(ctx context.Context, transitionID int64) ([]QuerySupplyUpdateEventsRow, error) {
+func (q *Queries) QuerySupplyUpdateEvents(ctx context.Context, transitionID sql.NullInt64) ([]QuerySupplyUpdateEventsRow, error) {
 	rows, err := q.db.QueryContext(ctx, QuerySupplyUpdateEvents, transitionID)
 	if err != nil {
 		return nil, err
