@@ -375,6 +375,7 @@ type SupplyCommitTransition struct {
 	OldCommitmentID      sql.NullInt64
 	NewCommitmentID      sql.NullInt64
 	PendingCommitTxnID   sql.NullInt64
+	Frozen               bool
 	Finalized            bool
 	CreationTime         int64
 }
@@ -400,7 +401,8 @@ type SupplyCommitment struct {
 
 type SupplyUpdateEvent struct {
 	EventID      int64
-	TransitionID int64
+	GroupKey     []byte
+	TransitionID sql.NullInt64
 	UpdateTypeID int32
 	EventData    []byte
 }
