@@ -19,9 +19,35 @@ var eventCommands = []cli.Command{
 		Subcommands: []cli.Command{
 			receiveEventsCommand,
 			sendEventsCommand,
+			sendsAllCommand, // Added new command
 			mintEventsCommand,
 		},
 	},
+}
+
+var sendsAllCommand = cli.Command{
+	Name: "sendsall",
+	Usage: "Subscribe to all send events for outgoing asset " +
+		"transfers",
+	Description: "Get live updates on the status of all outbound asset " +
+		"transfers from the local node. This command will block " +
+		"until aborted manually by hitting Ctrl+C. Provides a " +
+		"backlog of historical events and then live updates.",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "last_id",
+			Usage: "(optional) The ID of the last event " +
+				"received. If provided, the stream will " +
+				"start from the event after this ID.",
+		},
+		cli.Int64Flag{
+			Name: "created_after_seconds",
+			Usage: "(optional) If set, only events created " +
+				"after this Unix timestamp (in seconds) " +
+				"will be returned in the backlog.",
+		},
+	},
+	Action: subscribeAllSendEventsAction,
 }
 
 var receiveEventsCommand = cli.Command{
@@ -83,6 +109,32 @@ var sendEventsCommand = cli.Command{
 		},
 	},
 	Action: sendEvents,
+}
+
+func subscribeAllSendEventsAction(ctx *cli.Context) error {
+	ctxc := getContext()
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	req := &assetwalletrpc.SubscribeAllSendEventsRequest{
+		LastId:             ctx.String("last_id"),
+		CreatedAfterSeconds: ctx.Int64("created_after_seconds"),
+	}
+
+	stream, err := walletClient.SubscribeAllSendEvents(ctxc, req)
+	if err != nil {
+		return fmt.Errorf("unable to subscribe to all send events: %w",
+			err)
+	}
+
+	for {
+		event, err := stream.Recv()
+		if err != nil {
+			return fmt.Errorf("unable to receive event: %w", err)
+		}
+
+		printRespJSON(event)
+	}
 }
 
 func sendEvents(ctx *cli.Context) error {

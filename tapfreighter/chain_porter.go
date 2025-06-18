@@ -1819,6 +1819,10 @@ type AssetSendEvent struct {
 	// Transfer is the on-disk level information that tracks the pending
 	// transfer.
 	Transfer *OutboundParcel
+
+	// TransferDBID is the database ID of the transfer. This is only set if
+	// the OutboundPkg of the sendPackage is not nil.
+	TransferDBID int64
 }
 
 // Timestamp returns the timestamp of the event.
@@ -1849,6 +1853,7 @@ func newAssetSendEvent(executedState SendState,
 
 	if pkg.OutboundPkg != nil {
 		newSendEvent.Transfer = pkg.OutboundPkg.Copy()
+		newSendEvent.TransferDBID = pkg.OutboundPkg.ID
 	}
 
 	return newSendEvent
@@ -1870,4 +1875,8 @@ func newAssetSendErrorEvent(err error, executedState SendState,
 		AnchorTx:       pkg.AnchorTx,
 		Transfer:       pkg.OutboundPkg,
 	}
+	if pkg.OutboundPkg != nil {
+		event.TransferDBID = pkg.OutboundPkg.ID
+	}
+	return event
 }

@@ -1633,6 +1633,9 @@ message SendEvent {
 
     // The next send state that will be executed.
     string next_send_state = 11;
+
+    // The primary key of the transfer in the database.
+    int64 transfer_db_id = 12;
 }
 
 message AnchorTransaction {

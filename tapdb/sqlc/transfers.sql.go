@@ -471,7 +471,7 @@ WHERE
 
     -- Filter for pending transfers only if requested.
     AND (
-        $2 = true AND
+        $2::bool = true AND
         (
             txns.block_hash IS NULL
                 OR EXISTS (
@@ -481,14 +481,18 @@ WHERE
                       AND outputs.proof_delivery_complete = false
                 )
         )
-        OR $2 = false OR $2 IS NULL
+        OR $2::bool = false OR $2 IS NULL
     )
+    AND (transfers.id > $3 OR $3 IS NULL)
+    AND (transfers.transfer_time_unix > $4 OR $4 IS NULL)
 ORDER BY transfer_time_unix
 `
 
 type QueryAssetTransfersParams struct {
 	AnchorTxHash         []byte
-	PendingTransfersOnly interface{}
+	PendingTransfersOnly sql.NullBool
+	IDAfter              sql.NullInt64
+	CreatedAfterUnix     sql.NullTime
 }
 
 type QueryAssetTransfersRow struct {
@@ -502,7 +506,12 @@ type QueryAssetTransfersRow struct {
 }
 
 func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error) {
-	rows, err := q.db.QueryContext(ctx, QueryAssetTransfers, arg.AnchorTxHash, arg.PendingTransfersOnly)
+	rows, err := q.db.QueryContext(ctx, QueryAssetTransfers,
+		arg.AnchorTxHash,
+		arg.PendingTransfersOnly,
+		arg.IDAfter,
+		arg.CreatedAfterUnix,
+	)
 	if err != nil {
 		return nil, err
 	}

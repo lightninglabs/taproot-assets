@@ -58,7 +58,7 @@ WHERE
 
     -- Filter for pending transfers only if requested.
     AND (
-        @pending_transfers_only = true AND
+        sqlc.narg('pending_transfers_only')::bool = true AND
         (
             txns.block_hash IS NULL
                 OR EXISTS (
@@ -68,8 +68,10 @@ WHERE
                       AND outputs.proof_delivery_complete = false
                 )
         )
-        OR @pending_transfers_only = false OR @pending_transfers_only IS NULL
+        OR sqlc.narg('pending_transfers_only')::bool = false OR sqlc.narg('pending_transfers_only') IS NULL
     )
+    AND (transfers.id > sqlc.narg('id_after') OR sqlc.narg('id_after') IS NULL)
+    AND (transfers.transfer_time_unix > sqlc.narg('created_after_unix') OR sqlc.narg('created_after_unix') IS NULL)
 ORDER BY transfer_time_unix;
 
 -- name: FetchTransferInputs :many

@@ -112,6 +112,23 @@ service AssetWallet {
     */
     rpc DeclareScriptKey (DeclareScriptKeyRequest)
         returns (DeclareScriptKeyResponse);
+
+    /* tapcli: `wallet events sendsall`
+    SubscribeAllSendEvents allows a caller to subscribe to send events for all
+    outgoing asset transfers, providing a backlog of historical events and
+    then live updates.
+    */
+    rpc SubscribeAllSendEvents (SubscribeAllSendEventsRequest) returns (stream taprpc.SendEvent);
+}
+
+message SubscribeAllSendEventsRequest {
+    // The ID of the last event received. If provided, the stream will start
+    // from the event after this ID.
+    string last_id = 1;
+
+    // If set, only events created after this Unix timestamp (in seconds) will
+    // be returned in the backlog.
+    int64 created_after_seconds = 2;
 }
 
 enum CoinSelectType {

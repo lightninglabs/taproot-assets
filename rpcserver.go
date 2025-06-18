@@ -73,7 +73,13 @@ import (
 	"golang.org/x/exp/maps"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
+	"strconv"
 )
+
+// parseInt64 is a helper function to parse a string to an int64.
+func parseInt64(s string) (int64, error) {
+	return strconv.ParseInt(s, 10, 64)
+}
 
 var (
 	// MaxMsgReceiveSize is the largest message our client will receive. We
@@ -4020,6 +4026,175 @@ func (r *rpcServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
 		r.cfg.ChainPorter, ntfnStream, marshalSendEvent, shouldNotify,
 		r.quit, false,
 	)
+}
+
+// SubscribeAllSendEvents registers a subscription to all asset send events.
+// This differs from SubscribeSendEvents as it does not require a filter and
+// returns all send events, optionally starting from a specific backlog ID.
+func (r *rpcServer) SubscribeAllSendEvents(
+	req *assetwalletrpc.SubscribeAllSendEventsRequest,
+	stream assetwalletrpc.AssetWallet_SubscribeAllSendEventsServer) error {
+
+	ctx := stream.Context()
+
+	// Handle backlog streaming if last_id or created_after_seconds is provided.
+	var lastIDFilterValue int64
+	if req.LastId != "" {
+		var err error
+		lastIDFilterValue, err = parseInt64(req.LastId)
+		if err != nil {
+			return fmt.Errorf("error parsing last_id: %w", err)
+		}
+	}
+
+	var createdAfterFilterTime time.Time
+	if req.CreatedAfterSeconds > 0 {
+		createdAfterFilterTime = time.Unix(req.CreatedAfterSeconds, 0)
+	}
+
+	// Query parcels using the updated QueryParcels method.
+	// We pass false for pendingOnly because for backlog we usually want completed/confirmed transfers.
+	parcels, err := r.cfg.AssetStore.QueryParcels(ctx, nil, false, lastIDFilterValue, createdAfterFilterTime)
+	if err != nil {
+		return fmt.Errorf("error querying past parcels: %w", err)
+	}
+
+	// Stream the backlog parcels. Filtering is now done by the QueryParcels call.
+	if len(parcels) > 0 {
+		rpcsLog.Debugf("Streaming %d backlog send events after ID %d and time %v", len(parcels), lastIDFilterValue, createdAfterFilterTime)
+		for _, parcel := range parcels {
+			// The check `if parcel.ID <= lastID` is no longer needed here
+			// as the database query handles it.
+			rpcEvent, err := marshalOutboundParcelToSendEvent(parcel)
+			if err != nil {
+				rpcsLog.Warnf("Error marshalling parcel to send event: %v", err)
+				continue
+			}
+
+			if err := stream.Send(rpcEvent); err != nil {
+				return fmt.Errorf("error sending backlog event: %w", err)
+			}
+		}
+	}
+
+	// Handle new event subscription.
+	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
+	defer eventSubscriber.Stop()
+
+	err := r.cfg.ChainPorter.RegisterSubscriber(eventSubscriber, false, false)
+	if err != nil {
+		return fmt.Errorf("failed to register event subscriber: %w", err)
+	}
+	defer func() {
+		err := r.cfg.ChainPorter.RemoveSubscriber(eventSubscriber)
+		if err != nil {
+			rpcsLog.Errorf("Error unsubscribing subscriber: %v", err)
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-r.quit:
+			return fmt.Errorf("server shutting down")
+		case event := <-eventSubscriber.NewItemCreated.ChanOut():
+			assetSendEvent, ok := event.(*tapfreighter.AssetSendEvent)
+			if !ok {
+				// Not the event type we are interested in.
+				continue
+			}
+
+			// Marshal tapfreighter.AssetSendEvent to taprpc.SendEvent
+			rpcEvent, err := marshalAssetSendEventWithDBID(assetSendEvent)
+			if err != nil {
+				rpcsLog.Warnf("Error marshalling asset send event: %v", err)
+				continue
+			}
+
+			if err := stream.Send(rpcEvent); err != nil {
+				return fmt.Errorf("error sending event: %w", err)
+			}
+		}
+	}
+}
+
+// marshalOutboundParcelToSendEvent converts a tapfreighter.OutboundParcel
+// into a taprpc.SendEvent. This is primarily for backlog streaming.
+func marshalOutboundParcelToSendEvent(parcel *tapfreighter.OutboundParcel) (*taprpc.SendEvent, error) {
+	rpcTransfer, err := marshalOutboundParcel(parcel)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal outbound parcel for send event: %w", err)
+	}
+
+	// Default to PENDING for backlog items where the original parcel type might be unknown.
+	parcelType := taprpc.ParcelType_PARCEL_TYPE_PENDING
+
+	// Determine SendState based on confirmation status.
+	sendState := taprpc.SendState_SEND_STATE_COMPLETED.String()
+	if parcel.AnchorTxBlockHeight == 0 { // Assuming 0 means unconfirmed
+		// This state indicates the tx is broadcast but not yet confirmed.
+		// It's a reasonable assumption for unconfirmed backlog items.
+		sendState = taprpc.SendState_SEND_STATE_BROADCAST.String()
+	}
+
+	// Attempt to reconstruct virtual packets if possible. This is a placeholder
+	// as OutboundParcel doesn't directly store serialized VPackets in a way
+	// that's easily convertible back without more context or changes to OutboundParcel.
+	// For now, we'll leave these empty for backlog events.
+	var virtualPackets [][]byte
+	var passiveVirtualPackets [][]byte
+
+	// Similarly, AnchorTransaction would need to be reconstructed.
+	// The existing parcel.AnchorTx is already a *wire.MsgTx, not *taprpc.AnchorTransaction.
+	// We'd need to marshal it into the taprpc.AnchorTransaction format.
+	// This is simplified here.
+	var anchorTxRPC *taprpc.AnchorTransaction
+	if parcel.AnchorTx != nil {
+		var finalTxBytes bytes.Buffer
+		if err := parcel.AnchorTx.Serialize(&finalTxBytes); err != nil {
+			return nil, fmt.Errorf("error serializing anchor tx: %w", err)
+		}
+		anchorTxRPC = &taprpc.AnchorTransaction{
+			FinalTx: finalTxBytes.Bytes(),
+			// Other fields like AnchorPsbt, ChangeOutputIndex, ChainFeesSats,
+			// TargetFeeRateSatKw, LndLockedUtxos would need to be sourced
+			// if available and required.
+		}
+	}
+
+
+	return &taprpc.SendEvent{
+		TransferDbId:          parcel.ID,
+		Timestamp:             parcel.TransferTime.UnixMicro(),
+		SendState:             sendState,
+		ParcelType:            parcelType,
+		VirtualPackets:        virtualPackets,        // Placeholder
+		PassiveVirtualPackets: passiveVirtualPackets, // Placeholder
+		AnchorTransaction:     anchorTxRPC,           // Simplified
+		Transfer:              rpcTransfer,
+		TransferLabel:         parcel.Label,
+		// NextSendState is hard to determine for backlog items and depends on the actual current state.
+		// Leaving it empty or setting to a sensible default if possible.
+	}, nil
+}
+
+// marshalAssetSendEventWithDBID marshals a tapfreighter.AssetSendEvent to a taprpc.SendEvent,
+// ensuring TransferDbId is populated.
+func marshalAssetSendEventWithDBID(event *tapfreighter.AssetSendEvent) (*taprpc.SendEvent, error) {
+	// This function adapts the existing marshalSendEvent logic.
+	// The key is to ensure event.TransferDBID is used.
+
+	// Call the existing marshalSendEvent logic first.
+	rpcEvent, err := marshalSendEvent(event)
+	if err != nil {
+		return nil, err
+	}
+
+	// Explicitly set the TransferDbId from the event's TransferDBID field.
+	rpcEvent.TransferDbId = event.TransferDBID
+
+	return rpcEvent, nil
 }
 
 // SubscribeMintEvents allows a caller to subscribe to mint events for asset

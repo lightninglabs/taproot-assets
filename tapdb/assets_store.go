@@ -3458,8 +3458,8 @@ func (a *AssetStore) PendingParcels(
 
 // QueryParcels returns the set of confirmed or unconfirmed parcels.
 func (a *AssetStore) QueryParcels(ctx context.Context,
-	anchorTxHash *chainhash.Hash,
-	pendingTransfersOnly bool) ([]*tapfreighter.OutboundParcel, error) {
+	anchorTxHash *chainhash.Hash, pendingOnly bool, idAfter int64,
+	createdAfter time.Time) ([]*tapfreighter.OutboundParcel, error) {
 
 	var (
 		outboundParcels []*tapfreighter.OutboundParcel
@@ -3475,9 +3475,27 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 			anchorTxHashBytes = anchorTxHash[:]
 		}
 
+		var idAfterSql sql.NullInt64
+		if idAfter > 0 {
+			idAfterSql = sql.NullInt64{
+				Int64: idAfter,
+				Valid: true,
+			}
+		}
+
+		var createdAfterUnixSql sql.NullInt64
+		if !createdAfter.IsZero() {
+			createdAfterUnixSql = sql.NullInt64{
+				Int64: createdAfter.Unix(),
+				Valid: true,
+			}
+		}
+
 		transferQuery := TransferQuery{
 			AnchorTxHash:         anchorTxHashBytes,
-			PendingTransfersOnly: sqlBool(pendingTransfersOnly),
+			PendingTransfersOnly: sqlBool(pendingOnly),
+			IDAfter:              idAfterSql,
+			CreatedAfterUnix:     createdAfterUnixSql,
 		}
 
 		// Query for asset transfers.

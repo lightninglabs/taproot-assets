@@ -3120,3 +3120,207 @@ func TestQueryAssetBalancesCustomChannelFunding(t *testing.T) {
 	}
 	require.Equal(t, assetDesc[0].amt, balanceByGroupSum)
 }
+
+// mockTx is a mock implementation of the Tx interface.
+type mockTx struct {
+	mock.Mock
+	sqlc.Tx
+}
+
+// mockQuerier is a mock implementation of the sqlc.Querier interface.
+type mockQuerier struct {
+	mock.Mock
+	sqlc.Querier
+	lastQueryAssetTransfersParams *sqlc.QueryAssetTransfersParams
+}
+
+// QueryAssetTransfers records the params and returns a mock response.
+func (m *mockQuerier) QueryAssetTransfers(ctx context.Context,
+	arg sqlc.QueryAssetTransfersParams) ([]sqlc.QueryAssetTransfersRow, error) {
+
+	m.lastQueryAssetTransfersParams = &arg
+	args := m.Called(ctx, arg)
+	var rows []sqlc.QueryAssetTransfersRow
+	if args.Get(0) != nil {
+		rows = args.Get(0).([]sqlc.QueryAssetTransfersRow)
+	}
+	return rows, args.Error(1)
+}
+
+// FetchChainTx is a mock implementation.
+func (m *mockQuerier) FetchChainTx(ctx context.Context, txid []byte) (sqlc.ChainTx, error) {
+	args := m.Called(ctx, txid)
+	return args.Get(0).(sqlc.ChainTx), args.Error(1)
+}
+
+// FetchTransferInputs is a mock implementation.
+func (m *mockQuerier) FetchTransferInputs(ctx context.Context, transferID int64) ([]sqlc.FetchTransferInputsRow, error) {
+	args := m.Called(ctx, transferID)
+	var rows []sqlc.FetchTransferInputsRow
+	if args.Get(0) != nil {
+		rows = args.Get(0).([]sqlc.FetchTransferInputsRow)
+	}
+	return rows, args.Error(1)
+}
+
+// FetchTransferOutputs is a mock implementation.
+func (m *mockQuerier) FetchTransferOutputs(ctx context.Context, transferID int64) ([]sqlc.FetchTransferOutputsRow, error) {
+	args := m.Called(ctx, transferID)
+	var rows []sqlc.FetchTransferOutputsRow
+	if args.Get(0) != nil {
+		rows = args.Get(0).([]sqlc.FetchTransferOutputsRow)
+	}
+	return rows, args.Error(1)
+}
+
+func TestQueryParcels_NoFilters(t *testing.T) {
+	t.Parallel()
+
+	// Use the existing test DB setup to get an AssetStore instance.
+	// We will then replace its querier with our mock.
+	dbHandle := NewDbHandle(t)
+	assetStore := dbHandle.AssetStore
+
+	mockQ := &mockQuerier{}
+	assetStore.db = NewSqlStoreWithTx(assetStore.db.BaseDB(), mockQ)
+
+	// Define mock return for QueryAssetTransfers - empty for this param check.
+	mockQ.On(
+		"QueryAssetTransfers", mock.Anything, mock.Anything,
+	).Return([]sqlc.QueryAssetTransfersRow{}, nil)
+
+	// Call QueryParcels with no filters for idAfter and createdAfter.
+	_, err := assetStore.QueryParcels(context.Background(), nil, false, 0, time.Time{})
+	require.NoError(t, err)
+
+	// Assert that QueryAssetTransfers was called.
+	mockQ.AssertCalled(t, "QueryAssetTransfers", mock.Anything, mock.Anything)
+
+	// Assert the parameters passed to QueryAssetTransfers.
+	require.NotNil(t, mockQ.lastQueryAssetTransfersParams)
+	params := mockQ.lastQueryAssetTransfersParams
+	require.False(t, params.IDAfter.Valid, "IDAfter should be invalid")
+	require.False(t, params.CreatedAfterUnix.Valid, "CreatedAfterUnix should be invalid")
+	require.Equal(t, sqlBool(false), params.PendingTransfersOnly)
+	require.Nil(t, params.AnchorTxHash)
+}
+
+func TestQueryParcels_FilterByIDAfter(t *testing.T) {
+	t.Parallel()
+	dbHandle := NewDbHandle(t)
+	assetStore := dbHandle.AssetStore
+	mockQ := &mockQuerier{}
+	assetStore.db = NewSqlStoreWithTx(assetStore.db.BaseDB(), mockQ)
+
+	testIDAfter := int64(100)
+
+	mockQ.On(
+		"QueryAssetTransfers", mock.Anything, mock.Anything,
+	).Return([]sqlc.QueryAssetTransfersRow{}, nil)
+
+	_, err := assetStore.QueryParcels(context.Background(), nil, false, testIDAfter, time.Time{})
+	require.NoError(t, err)
+	mockQ.AssertCalled(t, "QueryAssetTransfers", mock.Anything, mock.Anything)
+	require.NotNil(t, mockQ.lastQueryAssetTransfersParams)
+	params := mockQ.lastQueryAssetTransfersParams
+	require.True(t, params.IDAfter.Valid)
+	require.Equal(t, testIDAfter, params.IDAfter.Int64)
+	require.False(t, params.CreatedAfterUnix.Valid)
+}
+
+func TestQueryParcels_FilterByCreatedAfter(t *testing.T) {
+	t.Parallel()
+	dbHandle := NewDbHandle(t)
+	assetStore := dbHandle.AssetStore
+	mockQ := &mockQuerier{}
+	assetStore.db = NewSqlStoreWithTx(assetStore.db.BaseDB(), mockQ)
+
+	testCreatedAfter := time.Now().Add(-5 * time.Hour)
+
+	mockQ.On(
+		"QueryAssetTransfers", mock.Anything, mock.Anything,
+	).Return([]sqlc.QueryAssetTransfersRow{}, nil)
+
+	_, err := assetStore.QueryParcels(context.Background(), nil, false, 0, testCreatedAfter)
+	require.NoError(t, err)
+	mockQ.AssertCalled(t, "QueryAssetTransfers", mock.Anything, mock.Anything)
+	require.NotNil(t, mockQ.lastQueryAssetTransfersParams)
+	params := mockQ.lastQueryAssetTransfersParams
+	require.False(t, params.IDAfter.Valid)
+	require.True(t, params.CreatedAfterUnix.Valid)
+	require.Equal(t, testCreatedAfter.Unix(), params.CreatedAfterUnix.Int64)
+}
+
+func TestQueryParcels_FilterByIDAndCreatedAfter(t *testing.T) {
+	t.Parallel()
+	dbHandle := NewDbHandle(t)
+	assetStore := dbHandle.AssetStore
+	mockQ := &mockQuerier{}
+	assetStore.db = NewSqlStoreWithTx(assetStore.db.BaseDB(), mockQ)
+
+	testIDAfter := int64(200)
+	testCreatedAfter := time.Now().Add(-10 * time.Hour)
+
+	mockQ.On(
+		"QueryAssetTransfers", mock.Anything, mock.Anything,
+	).Return([]sqlc.QueryAssetTransfersRow{}, nil)
+
+	_, err := assetStore.QueryParcels(context.Background(), nil, false, testIDAfter, testCreatedAfter)
+	require.NoError(t, err)
+	mockQ.AssertCalled(t, "QueryAssetTransfers", mock.Anything, mock.Anything)
+	require.NotNil(t, mockQ.lastQueryAssetTransfersParams)
+	params := mockQ.lastQueryAssetTransfersParams
+	require.True(t, params.IDAfter.Valid)
+	require.Equal(t, testIDAfter, params.IDAfter.Int64)
+	require.True(t, params.CreatedAfterUnix.Valid)
+	require.Equal(t, testCreatedAfter.Unix(), params.CreatedAfterUnix.Int64)
+}
+
+func TestQueryParcels_PendingOnlyAndFilters(t *testing.T) {
+	t.Parallel()
+	dbHandle := NewDbHandle(t)
+	assetStore := dbHandle.AssetStore
+	mockQ := &mockQuerier{}
+	assetStore.db = NewSqlStoreWithTx(assetStore.db.BaseDB(), mockQ)
+
+	testIDAfter := int64(300)
+
+	mockQ.On(
+		"QueryAssetTransfers", mock.Anything, mock.Anything,
+	).Return([]sqlc.QueryAssetTransfersRow{}, nil)
+
+	_, err := assetStore.QueryParcels(context.Background(), nil, true, testIDAfter, time.Time{})
+	require.NoError(t, err)
+	mockQ.AssertCalled(t, "QueryAssetTransfers", mock.Anything, mock.Anything)
+	require.NotNil(t, mockQ.lastQueryAssetTransfersParams)
+	params := mockQ.lastQueryAssetTransfersParams
+	require.True(t, params.IDAfter.Valid)
+	require.Equal(t, testIDAfter, params.IDAfter.Int64)
+	require.False(t, params.CreatedAfterUnix.Valid)
+	require.Equal(t, sqlBool(true), params.PendingTransfersOnly)
+}
+
+func TestQueryParcels_AnchorTxHashAndFilters(t *testing.T) {
+	t.Parallel()
+	dbHandle := NewDbHandle(t)
+	assetStore := dbHandle.AssetStore
+	mockQ := &mockQuerier{}
+	assetStore.db = NewSqlStoreWithTx(assetStore.db.BaseDB(), mockQ)
+
+	testAnchorHash := chainhash.HashH([]byte("testanchor"))
+	testCreatedAfter := time.Now().Add(-2 * time.Hour)
+
+	mockQ.On(
+		"QueryAssetTransfers", mock.Anything, mock.Anything,
+	).Return([]sqlc.QueryAssetTransfersRow{}, nil)
+
+	_, err := assetStore.QueryParcels(context.Background(), &testAnchorHash, false, 0, testCreatedAfter)
+	require.NoError(t, err)
+	mockQ.AssertCalled(t, "QueryAssetTransfers", mock.Anything, mock.Anything)
+	require.NotNil(t, mockQ.lastQueryAssetTransfersParams)
+	params := mockQ.lastQueryAssetTransfersParams
+	require.False(t, params.IDAfter.Valid)
+	require.True(t, params.CreatedAfterUnix.Valid)
+	require.Equal(t, testCreatedAfter.Unix(), params.CreatedAfterUnix.Int64)
+	require.Equal(t, testAnchorHash[:], params.AnchorTxHash)
+}
