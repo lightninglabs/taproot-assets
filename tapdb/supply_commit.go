@@ -687,6 +687,23 @@ func (s *SupplyCommitMachine) InsertPendingUpdate(ctx context.Context,
 	})
 }
 
+// FreezePendingTransition marks the current pending transition for a group key
+// as frozen, meaning it will no longer accept new updates.
+func (s *SupplyCommitMachine) FreezePendingTransition(ctx context.Context,
+	assetSpec asset.Specifier) error {
+
+	groupKey := assetSpec.UnwrapGroupKeyToPtr()
+	if groupKey == nil {
+		return ErrMissingGroupKey
+	}
+	groupKeyBytes := groupKey.SerializeCompressed()
+
+	writeTx := WriteTxOption()
+	return s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
+		return db.FreezePendingTransition(ctx, groupKeyBytes)
+	})
+}
+
 // InsertSignedCommitTx associates a new signed commitment anchor transaction
 // with the current active supply commitment state transition.
 func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
