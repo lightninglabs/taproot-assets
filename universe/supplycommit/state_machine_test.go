@@ -463,6 +463,15 @@ func (h *supplyCommitTestHarness) expectApplyStateTransition() {
 	).Return(nil).Once()
 }
 
+// expectBindDanglingUpdates sets up the mock expectation for the
+// BindDanglingUpdatesToTransition call.
+func (h *supplyCommitTestHarness) expectBindDanglingUpdates() {
+	h.t.Helper()
+	h.mockStateLog.On(
+		"BindDanglingUpdatesToTransition", mock.Anything, mock.Anything,
+	).Return(nil, nil).Once()
+}
+
 // TestSupplyCommitDefaultStateTransitions tests the transitions from the
 // DefaultState.
 func TestSupplyCommitDefaultStateTransitions(t *testing.T) {
@@ -591,6 +600,12 @@ func TestSupplyCommitUpdatesPendingStateTransitions(t *testing.T) {
 		h.start()
 		defer h.stopAndAssert()
 
+		// Before transitioning, the state machine should freeze the
+		// current pending transition.
+		h.mockStateLog.On(
+			"FreezePendingTransition", mock.Anything, mock.Anything,
+		).Return(nil).Once()
+
 		// Set up expectations for the cascade of transitions.
 		h.expectFullCommitmentCycleMocks(true)
 
@@ -701,6 +716,26 @@ func TestSupplyCommitTreeCreateStateTransitions(t *testing.T) {
 		)
 	})
 
+	// This test verifies that a SupplyUpdateEvent received by the
+	// CommitTreeCreateState results in a self-transition after inserting
+	// the update.
+	t.Run("supply_update_event", func(t *testing.T) {
+		h := newSupplyCommitTestHarness(t, &harnessCfg{
+			initialState: &CommitTreeCreateState{},
+			assetSpec:    defaultAssetSpec,
+		})
+		h.start()
+		defer h.stopAndAssert()
+
+		mintEvent := newTestMintEvent(
+			t, test.RandPubKey(t), randOutPoint(t),
+		)
+		h.expectInsertPendingUpdate(mintEvent)
+
+		h.sendEvent(mintEvent)
+		h.assertStateTransitions(&CommitTreeCreateState{})
+	})
+
 	// Ensure that an unknown event sent to the CommitTreeCreateState
 	// results in an error being reported.
 	t.Run("unknown_event", func(t *testing.T) {
@@ -759,6 +794,28 @@ func TestSupplyCommitTxCreateStateTransitions(t *testing.T) {
 			&CommitTxSignState{}, &CommitBroadcastState{},
 			&CommitBroadcastState{},
 		)
+	})
+
+	// This test verifies that a SupplyUpdateEvent received by the
+	// CommitTxCreateState results in a self-transition after inserting
+	// the update.
+	t.Run("supply_update_event", func(t *testing.T) {
+		h := newSupplyCommitTestHarness(t, &harnessCfg{
+			initialState: &CommitTxCreateState{
+				SupplyTransition: initialTransition,
+			},
+			assetSpec: defaultAssetSpec,
+		})
+		h.start()
+		defer h.stopAndAssert()
+
+		mintEvent := newTestMintEvent(
+			t, test.RandPubKey(t), randOutPoint(t),
+		)
+		h.expectInsertPendingUpdate(mintEvent)
+
+		h.sendEvent(mintEvent)
+		h.assertStateTransitions(&CommitTxCreateState{})
 	})
 
 	// This test ensures that an unknown event sent to the
@@ -827,6 +884,28 @@ func TestSupplyCommitTxSignStateTransitions(t *testing.T) {
 		h.assertStateTransitions(
 			&CommitBroadcastState{}, &CommitBroadcastState{},
 		)
+	})
+
+	// This test verifies that a SupplyUpdateEvent received by the
+	// CommitTxSignState results in a self-transition after inserting
+	// the update.
+	t.Run("supply_update_event", func(t *testing.T) {
+		h := newSupplyCommitTestHarness(t, &harnessCfg{
+			initialState: &CommitTxSignState{
+				SupplyTransition: initialTransition,
+			},
+			assetSpec: defaultAssetSpec,
+		})
+		h.start()
+		defer h.stopAndAssert()
+
+		mintEvent := newTestMintEvent(
+			t, test.RandPubKey(t), randOutPoint(t),
+		)
+		h.expectInsertPendingUpdate(mintEvent)
+
+		h.sendEvent(mintEvent)
+		h.assertStateTransitions(&CommitTxSignState{})
 	})
 
 	// This test ensures that an unknown event sent to the CommitTxSignState
@@ -908,6 +987,10 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 		h.expectCommitState()
 		h.expectApplyStateTransition()
 
+		// After applying the transition, the state machine checks for
+		// dangling updates.
+		h.expectBindDanglingUpdates()
+
 		// A dummy block containing the transaction is created for the
 		// ConfEvent.
 		block := &wire.MsgBlock{
@@ -928,6 +1011,28 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 		h.assertStateTransitions(
 			&CommitFinalizeState{}, &DefaultState{},
 		)
+	})
+
+	// This test verifies that a SupplyUpdateEvent received by the
+	// CommitBroadcastState results in a self-transition after inserting
+	// the update.
+	t.Run("supply_update_event", func(t *testing.T) {
+		h := newSupplyCommitTestHarness(t, &harnessCfg{
+			initialState: &CommitBroadcastState{
+				SupplyTransition: initialTransition,
+			},
+			assetSpec: defaultAssetSpec,
+		})
+		h.start()
+		defer h.stopAndAssert()
+
+		mintEvent := newTestMintEvent(
+			t, test.RandPubKey(t), randOutPoint(t),
+		)
+		h.expectInsertPendingUpdate(mintEvent)
+
+		h.sendEvent(mintEvent)
+		h.assertStateTransitions(&CommitBroadcastState{})
 	})
 
 	// This test ensures that an unknown event sent to the
@@ -976,10 +1081,33 @@ func TestSupplyCommitFinalizeStateTransitions(t *testing.T) {
 		defer h.stopAndAssert()
 
 		h.expectApplyStateTransition()
+		h.expectBindDanglingUpdates()
 
 		finalizeEvent := &FinalizeEvent{}
 		h.sendEvent(finalizeEvent)
 		h.assertStateTransitions(&DefaultState{})
+	})
+
+	// This test verifies that a SupplyUpdateEvent received by the
+	// CommitFinalizeState results in a self-transition after inserting
+	// the update.
+	t.Run("supply_update_event", func(t *testing.T) {
+		h := newSupplyCommitTestHarness(t, &harnessCfg{
+			initialState: &CommitFinalizeState{
+				SupplyTransition: initialTransition,
+			},
+			assetSpec: defaultAssetSpec,
+		})
+		h.start()
+		defer h.stopAndAssert()
+
+		mintEvent := newTestMintEvent(
+			t, test.RandPubKey(t), randOutPoint(t),
+		)
+		h.expectInsertPendingUpdate(mintEvent)
+
+		h.sendEvent(mintEvent)
+		h.assertStateTransitions(&CommitFinalizeState{})
 	})
 
 	// This test ensures that an unknown event sent to the
