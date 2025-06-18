@@ -895,8 +895,36 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 				"state transition: %w", err)
 		}
 
+		// Now that the prior transition is finalized, we'll check if
+		// any new "dangling" updates came in while we were busy.
+		//
+		//nolint:lll
+		danglingUpdates, err := env.StateLog.BindDanglingUpdatesToTransition(
+			ctx, env.AssetSpec,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to process "+
+				"dangling updates: %w", err)
+		}
+
+		// If there are no dangling updates, we can transition back to
+		// our idle default state.
+		if len(danglingUpdates) == 0 {
+			return &StateTransition{
+				NextState: &DefaultState{},
+			}, nil
+		}
+
+		// Otherwise, we have more work to do! We'll kick off a new
+		// commitment cycle right away by transitioning to the tree
+		// creation state.
 		return &StateTransition{
-			NextState: &DefaultState{},
+			NextState: &CommitTreeCreateState{},
+			NewEvents: lfn.Some(FsmEvent{
+				InternalEvent: []Event{&CreateTreeEvent{
+					updatesToCommit: danglingUpdates,
+				}},
+			}),
 		}, nil
 
 	// Any other messages in this state will result in an error, as this is
