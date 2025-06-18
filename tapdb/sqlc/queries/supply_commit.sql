@@ -104,6 +104,10 @@ WHERE t.finalized = FALSE
 ORDER BY t.creation_time DESC
 LIMIT 1;
 
+-- name: FreezePendingTransition :exec
+UPDATE supply_commit_transitions
+SET frozen = TRUE
+WHERE state_machine_group_key = @group_key AND finalized = FALSE;
 -- name: QuerySupplyUpdateEvents :many
 SELECT
     ue.event_id,
@@ -116,6 +120,24 @@ JOIN supply_commit_update_types types
     ON ue.update_type_id = types.id
 WHERE ue.transition_id = @transition_id
 ORDER BY ue.event_id ASC;
+
+-- name: QueryDanglingSupplyUpdateEvents :many
+SELECT
+    ue.event_id,
+    ue.transition_id,
+    ue.update_type_id,
+    types.update_type_name,
+    ue.event_data
+FROM supply_update_events ue
+JOIN supply_commit_update_types types
+    ON ue.update_type_id = types.id
+WHERE ue.group_key = @group_key AND ue.transition_id IS NULL
+ORDER BY ue.event_id ASC;
+
+-- name: LinkDanglingSupplyUpdateEvents :exec
+UPDATE supply_update_events
+SET transition_id = @transition_id
+WHERE group_key = @group_key AND transition_id IS NULL;
 
 -- name: QuerySupplyCommitment :one
 SELECT *
