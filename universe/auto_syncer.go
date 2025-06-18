@@ -951,7 +951,7 @@ func (s *SyncConfigs) IsSyncInsertEnabled(id Identifier) bool {
 	// Check for universe specific config. This takes precedence over the
 	// global config.
 	for _, cfg := range s.UniSyncConfigs {
-		if cfg.UniverseID == id {
+		if cfg.UniverseID.IsEqual(id) {
 			return cfg.AllowSyncInsert
 		}
 	}
@@ -972,7 +972,7 @@ func (s *SyncConfigs) IsSyncExportEnabled(id Identifier) bool {
 	// Check for universe specific config. This takes precedence over the
 	// global config.
 	for _, cfg := range s.UniSyncConfigs {
-		if cfg.UniverseID == id {
+		if cfg.UniverseID.IsEqual(id) {
 			return cfg.AllowSyncExport
 		}
 	}
