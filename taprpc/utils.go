@@ -1,7 +1,10 @@
 package taprpc
 
 import (
+	"fmt"
+
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -42,3 +45,14 @@ var (
 		UseHexForBytes: true,
 	}
 )
+
+// PrintMsg prints a protobuf message as JSON, suitable for logging (without any
+// indentation).
+func PrintMsg(message proto.Message) string {
+	jsonBytes, err := ProtoJSONMarshalOpts.Marshal(message)
+	if err != nil {
+		return fmt.Sprintf("<unable to decode proto msg: %v>", err)
+	}
+
+	return string(jsonBytes)
+}
