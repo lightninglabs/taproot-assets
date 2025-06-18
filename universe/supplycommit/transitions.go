@@ -145,6 +145,16 @@ func (u *UpdatesPendingState) ProcessEvent(event Event, env *Environment) (
 	// the new set of supply commitments. We'll emit the CreateTxEvent to
 	// the next state will begin the process of making the new commitment.
 	case *CommitTickEvent:
+		// Before we transition, we'll freeze the current pending
+		// transition. This ensures that no new updates can be added
+		// to this batch.
+		ctx := context.Background()
+		err := env.StateLog.FreezePendingTransition(ctx, env.AssetSpec)
+		if err != nil {
+			return nil, fmt.Errorf("unable to freeze "+
+				"pending transition: %w", err)
+		}
+
 		return &StateTransition{
 			NextState: &CommitTreeCreateState{},
 			NewEvents: lfn.Some(FsmEvent{
