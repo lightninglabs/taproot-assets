@@ -97,6 +97,7 @@ CREATE TABLE supply_commit_transitions (
 
     -- Indicates if this transition is frozen and should not accept new updates.
     frozen BOOLEAN NOT NULL DEFAULT FALSE,
+
     -- Indicates if this transition has been successfully completed and committed.
     finalized BOOLEAN NOT NULL DEFAULT FALSE,
 
@@ -107,6 +108,10 @@ CREATE TABLE supply_commit_transitions (
 -- Table storing individual update events associated with a pending transition.
 CREATE TABLE supply_update_events (
     event_id INTEGER PRIMARY KEY,
+
+    -- The group key of the asset group this event belongs to.
+    -- This is needed to query for dangling events for a specific group.
+    group_key BLOB NOT NULL CHECK(length(group_key) = 33),
 
     -- Reference to the state transition this event is part of.
     -- Can be NULL if the event is staged while another transition is active.
