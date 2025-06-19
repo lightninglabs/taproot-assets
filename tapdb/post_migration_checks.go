@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -20,6 +21,11 @@ const (
 	// Migration33ScriptKeyType is the version of the migration that
 	// introduces the script key type.
 	Migration33ScriptKeyType = 33
+
+	// Migration37InsertAssetBurns is the version of the migration that
+	// inserts the asset burns into the specific asset burns table by
+	// querying all assets and detecting burns from their witnesses.
+	Migration37InsertAssetBurns = 37
 )
 
 // postMigrationCheck is a function type for a function that performs a
@@ -32,7 +38,8 @@ var (
 	// applied. These functions are used to perform additional checks on the
 	// database state that are not fully expressible in SQL.
 	postMigrationChecks = map[uint]postMigrationCheck{
-		Migration33ScriptKeyType: determineAndAssignScriptKeyType,
+		Migration33ScriptKeyType:    determineAndAssignScriptKeyType,
+		Migration37InsertAssetBurns: insertAssetBurns,
 	}
 )
 
@@ -211,6 +218,100 @@ func determineAndAssignScriptKeyType(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("error updating script key type: %w",
 				err)
+		}
+	}
+
+	return nil
+}
+
+// insertAssetBurns queries all assets and detects burns from their witnesses,
+// then inserts the asset burns into the specific asset burns table.
+func insertAssetBurns(ctx context.Context, q sqlc.Querier) error {
+	defaultClock := clock.NewDefaultClock()
+
+	log.Debugf("Detecting script key types")
+
+	// We start by fetching all assets, even the spent ones. We then collect
+	// a list of the burn keys from the assets (because burn keys can only
+	// be calculated from the asset's witness).
+	assetFilter := QueryAssetFilters{
+		Now: sql.NullTime{
+			Time:  defaultClock.Now().UTC(),
+			Valid: true,
+		},
+	}
+	dbAssets, assetWitnesses, err := fetchAssetsWithWitness(
+		ctx, q, assetFilter,
+	)
+	if err != nil {
+		return fmt.Errorf("error fetching assets: %w", err)
+	}
+
+	chainAssets, err := dbAssetsToChainAssets(
+		dbAssets, assetWitnesses, defaultClock,
+	)
+	if err != nil {
+		return fmt.Errorf("error converting assets: %w", err)
+	}
+
+	burnAssets := fn.Filter(chainAssets, func(a *asset.ChainAsset) bool {
+		return a.IsBurn()
+	})
+
+	burnsInTable, err := q.QueryBurns(ctx, sqlc.QueryBurnsParams{})
+	if err != nil {
+		return err
+	}
+
+	burnsMatch := func(b sqlc.QueryBurnsRow, a *asset.ChainAsset) bool {
+		txMatch := (chainhash.Hash(b.AnchorTxid)) == a.AnchorTx.TxHash()
+		assetIDMatch := (asset.ID(b.AssetID)) == a.ID()
+		amountMatch := uint64(b.Amount) == a.Amount
+		return txMatch && assetIDMatch && amountMatch
+	}
+	burnAssetsNotInTable := fn.Filter(
+		burnAssets, func(a *asset.ChainAsset) bool {
+			return fn.NotAny(
+				burnsInTable, func(b sqlc.QueryBurnsRow) bool {
+					return burnsMatch(b, a)
+				},
+			)
+		},
+	)
+
+	log.Debugf("Found %d asset burns not in burn table, adding them now",
+		len(burnAssetsNotInTable))
+	for _, burnAsset := range burnAssetsNotInTable {
+		assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
+			AnchorTxHash: fn.ByteSlice(burnAsset.AnchorTx.TxHash()),
+		})
+		if err != nil {
+			return fmt.Errorf("unable to query asset transfers: %w",
+				err)
+		}
+		if len(assetTransfers) != 1 {
+			log.Warnf("Found %d asset transfers for burn asset "+
+				"%s, expected 1: %v", len(assetTransfers),
+				burnAsset.ID(), assetTransfers)
+
+			continue
+		}
+		assetTransfer := assetTransfers[0]
+
+		var groupKeyBytes []byte
+		if burnAsset.GroupKey != nil {
+			gk := burnAsset.GroupKey.GroupPubKey
+			groupKeyBytes = gk.SerializeCompressed()
+		}
+
+		_, err = q.InsertBurn(ctx, sqlc.InsertBurnParams{
+			TransferID: assetTransfer.ID,
+			AssetID:    fn.ByteSlice(burnAsset.ID()),
+			GroupKey:   groupKeyBytes,
+			Amount:     int64(burnAsset.Amount),
+		})
+		if err != nil {
+			return fmt.Errorf("error inserting burn: %w", err)
 		}
 	}
 
