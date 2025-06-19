@@ -505,8 +505,7 @@ func UnmarshalExternalKey(rpcKey *taprpc.ExternalKey) (asset.ExternalKey,
 func MarshalGroupVirtualTx(genTx *asset.GroupVirtualTx) (*taprpc.GroupVirtualTx,
 	error) {
 
-	var groupTxBuf bytes.Buffer
-	err := genTx.Tx.Serialize(&groupTxBuf)
+	groupTxBytes, err := fn.Serialize(&genTx.Tx)
 	if err != nil {
 		return nil, err
 	}
@@ -517,7 +516,7 @@ func MarshalGroupVirtualTx(genTx *asset.GroupVirtualTx) (*taprpc.GroupVirtualTx,
 	}
 
 	return &taprpc.GroupVirtualTx{
-		Transaction: groupTxBuf.Bytes(),
+		Transaction: groupTxBytes,
 		PrevOut:     &rpcPrevOut,
 		GenesisId:   fn.ByteSlice(genTx.GenID),
 		TweakedKey:  genTx.TweakedKey.SerializeCompressed(),
@@ -575,13 +574,11 @@ func MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 
 	var anchorTxBytes []byte
 	if a.AnchorTx != nil {
-		var b bytes.Buffer
-		err := a.AnchorTx.Serialize(&b)
+		anchorTxBytes, err = fn.Serialize(a.AnchorTx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to serialize anchor "+
 				"tx: %w", err)
 		}
-		anchorTxBytes = b.Bytes()
 	}
 
 	rpcAsset.ChainAnchor = &taprpc.AnchorInfo{

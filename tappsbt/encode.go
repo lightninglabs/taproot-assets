@@ -112,12 +112,12 @@ func (p *VPacket) Serialize(w io.Writer) error {
 // B64Encode returns the base64 encoding of the serialization of the current
 // virtual packet, or an error if the encoding fails.
 func (p *VPacket) B64Encode() (string, error) {
-	var b bytes.Buffer
-	if err := p.Serialize(&b); err != nil {
+	packetBytes, err := fn.Serialize(p)
+	if err != nil {
 		return "", err
 	}
 
-	return base64.StdEncoding.EncodeToString(b.Bytes()), nil
+	return base64.StdEncoding.EncodeToString(packetBytes), nil
 }
 
 // encode encodes the current VInput struct into a PInput and a wire.TxIn.

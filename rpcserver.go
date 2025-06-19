@@ -1603,17 +1603,23 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, fmt.Errorf("no proof courier address provided")
 	}
 
-	if len(req.AssetId) != 32 {
-		return nil, fmt.Errorf("invalid asset id length")
+	assetID, groupKey, err := parseAssetSpecifier(
+		req.AssetId, "", req.GroupKey, "",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse asset specifier: %w",
+			err)
+	}
+	specifier, err := asset.NewSpecifier(assetID, groupKey, nil, true)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create asset specifier: %w",
+			err)
 	}
 
-	var assetID asset.ID
-	copy(assetID[:], req.AssetId)
+	rpcsLog.Infof("[NewAddr]: making new addr: specifier=%s, amt=%v",
+		&specifier, req.Amt)
 
-	rpcsLog.Infof("[NewAddr]: making new addr: asset_id=%x, amt=%v",
-		assetID[:], req.Amt)
-
-	err := r.checkBalanceOverflow(ctx, &assetID, nil, req.Amt)
+	err = r.checkBalanceOverflow(ctx, assetID, groupKey, req.Amt)
 	if err != nil {
 		return nil, err
 	}
@@ -1637,6 +1643,16 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, err
 	}
 
+	// Addresses with version 2 or later must use the new authmailbox proof
+	// courier type.
+	if addrVersion >= address.V2 {
+		if courierAddr.Scheme != proof.AuthMailboxUniRpcCourierType {
+			return nil, fmt.Errorf("address version %d must use "+
+				"the '%s' proof courier type", addrVersion,
+				proof.AuthMailboxUniRpcCourierType)
+		}
+	}
+
 	var addr *address.AddrWithKeyInfo
 	switch {
 	// No key was specified, we'll let the address book derive them.
@@ -1644,7 +1660,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddress(
-			ctx, addrVersion, assetID, req.Amt, tapscriptSibling,
+			ctx, addrVersion, specifier, req.Amt, tapscriptSibling,
 			*courierAddr, address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
@@ -1693,7 +1709,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
-			ctx, addrVersion, assetID, req.Amt, *scriptKey,
+			ctx, addrVersion, specifier, req.Amt, *scriptKey,
 			internalKey, tapscriptSibling, *courierAddr,
 			address.WithAssetVersion(assetVersion),
 		)
@@ -2303,23 +2319,36 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		}
 
 		var (
-			addr *address.Tap
-			err  error
+			addrs []*address.Tap
+			err   error
 		)
 		for a := range raw.Recipients {
-			addr, err = address.DecodeAddress(a, &r.cfg.ChainParams)
+			addr, err := address.DecodeAddress(
+				a, &r.cfg.ChainParams,
+			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to decode "+
 					"addr: %w", err)
 			}
+
+			// TODO(guggero): Need to add send fragment envelopes to
+			// the vPSBT to support grouped address send flows with
+			// the PSBT APIs.
+			if addr.Version > address.V1 {
+				return nil, fmt.Errorf("address version %d "+
+					"not supported for funding virtual "+
+					"packet", addr.Version)
+			}
+
+			addrs = append(addrs, addr)
 		}
 
-		if addr == nil {
+		if len(addrs) == 0 {
 			return nil, fmt.Errorf("no recipients specified")
 		}
 
-		fundedVPkt, err = r.cfg.AssetWallet.FundAddressSend(
-			ctx, scriptKeyType, prevIDs, addr,
+		fundedVPkt, _, err = r.cfg.AssetWallet.FundAddressSend(
+			ctx, scriptKeyType, prevIDs, addrs...,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error funding address send: "+
@@ -2346,7 +2375,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		ChangeOutputIndex: 0,
 	}
 	for idx := range passivePackets {
-		response.PassiveAssetPsbts[idx], err = serialize(
+		response.PassiveAssetPsbts[idx], err = fn.Serialize(
 			passivePackets[idx],
 		)
 		if err != nil {
@@ -2360,7 +2389,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		return nil, fmt.Errorf("only one packet supported")
 	}
 
-	response.FundedPsbt, err = serialize(fundedVPkt.VPackets[0])
+	response.FundedPsbt, err = fn.Serialize(fundedVPkt.VPackets[0])
 	if err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
@@ -2446,7 +2475,7 @@ func (r *rpcServer) SignVirtualPsbt(ctx context.Context,
 		return nil, fmt.Errorf("error signing packet: %w", err)
 	}
 
-	signedPsbtBytes, err := serialize(vPkt)
+	signedPsbtBytes, err := fn.Serialize(vPkt)
 	if err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
@@ -2572,7 +2601,7 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 
 	// We're ready to attempt to fund the transaction now. For that we first
 	// need to re-serialize our packet.
-	packetBytes, err := serialize(pkt)
+	packetBytes, err := fn.Serialize(pkt)
 	if err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
@@ -2721,7 +2750,7 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 		ChangeOutputIndex: changeIndex,
 	}
 
-	response.AnchorPsbt, err = serialize(fundedPacket)
+	response.AnchorPsbt, err = fn.Serialize(fundedPacket)
 	if err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
@@ -3331,7 +3360,7 @@ func marshalAddrEvent(event *address.Event,
 		Outpoint:                event.Outpoint.String(),
 		UtxoAmtSat:              uint64(event.Amt),
 		ConfirmationHeight:      event.ConfirmationHeight,
-		HasProof:                event.HasProof,
+		HasProof:                event.HasAllProofs,
 	}, nil
 }
 
@@ -3402,37 +3431,63 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 		err      error
 	)
 	for idx := range req.TapAddrs {
-		if req.TapAddrs[idx] == "" {
+		addrStr := req.TapAddrs[idx]
+		if addrStr == "" {
 			return nil, fmt.Errorf("addr %d must be specified", idx)
 		}
 
 		tapAddrs[idx], err = address.DecodeAddress(
-			req.TapAddrs[idx], &r.cfg.ChainParams,
+			addrStr, &r.cfg.ChainParams,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		// Ensure all addrs are of the same asset ID. Within a single
-		// transfer (=a single virtual packet), we expect only to have
-		// inputs and outputs of the same asset ID. Multiple assets can
-		// be moved in a single BTC level anchor output, but the
-		// expectation is that they would be in separate virtual
-		// packets, one for each asset ID. They would then be merged
-		// into the same anchor output in the wallet's
-		// AnchorVirtualTransactions call.
+		// V2 addresses can have the amount defined as zero, which will
+		// allow users to send any amount. So we expect the amount to
+		// send being set in the request's map.
+		amount, ok := req.AddressAmounts[addrStr]
+		switch {
+		// A non-zero amount was provided, but the address doesn't need
+		// one. We allow the user to set a zero amount in the map, in
+		// which case we just ignore it.
+		case ok && amount > 0 && tapAddrs[idx].Amount > 0:
+			return nil, fmt.Errorf("addr '%s' has a non-zero "+
+				"amount defined, cannot override amount in "+
+				"address amounts map", addrStr)
+
+		// The address needs an amount, but the user didn't provide
+		// one.
+		case (!ok || amount == 0) && tapAddrs[idx].Amount == 0:
+			return nil, fmt.Errorf("addr '%s' has no amount "+
+				"defined, please set the amount in the "+
+				"address amounts map", addrStr)
+
+		// The address has a zero amount, but the user provided a
+		// non-zero amount in the map, so we override the address'
+		// value for coin selection.
+		case ok && amount > 0:
+			tapAddrs[idx].Amount = amount
+		}
+
+		// Ensure all addrs are of the same asset specifier, as the
+		// wallet only supports funding for one asset or group at a
+		// time.
 		//
 		// TODO(guggero): Support creating multiple virtual packets, one
 		// for each asset ID when the user wants to send multiple asset
 		// IDs at the same time without going through the PSBT flow.
-		//
-		// TODO(guggero): Revisit after we have a way to send fungible
-		// assets with different IDs to an address (non-interactive).
+		firstSpec := asset.NewSpecifierOptionalGroupPubKey(
+			tapAddrs[0].AssetID, tapAddrs[0].GroupKey,
+		)
 		if idx > 0 {
-			if tapAddrs[idx].AssetID != tapAddrs[0].AssetID {
+			spec := asset.NewSpecifierOptionalGroupPubKey(
+				tapAddrs[idx].AssetID, tapAddrs[idx].GroupKey,
+			)
+			if spec != firstSpec {
 				return nil, fmt.Errorf("all addrs must be of "+
-					"the same asset ID %v",
-					tapAddrs[0].AssetID)
+					"the same asset ID or group key %v",
+					firstSpec)
 			}
 		}
 	}
@@ -3729,14 +3784,12 @@ func marshalOutboundParcel(
 	// Serialize the anchor transaction if it exists.
 	var anchorTxBytes []byte
 	if parcel.AnchorTx != nil {
-		var b bytes.Buffer
-		err := parcel.AnchorTx.Serialize(&b)
+		var err error
+		anchorTxBytes, err = fn.Serialize(parcel.AnchorTx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to serialize anchor "+
 				"tx: %w", err)
 		}
-
-		anchorTxBytes = b.Bytes()
 	}
 
 	return &taprpc.AssetTransfer{
@@ -4424,7 +4477,7 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 	// If we have the genesis packet available (funded+signed), then we'll
 	// display the txid as well.
 	if batch.GenesisPacket != nil {
-		rpcBatch.BatchPsbt, err = serialize(batch.GenesisPacket.Pkt)
+		rpcBatch.BatchPsbt, err = fn.Serialize(batch.GenesisPacket.Pkt)
 		if err != nil {
 			return nil, fmt.Errorf("error serializing batch PSBT: "+
 				"%w", err)
@@ -4580,16 +4633,13 @@ func marshalUnsealedSeedling(params chaincfg.Params, verbose bool,
 		}
 
 		// Serialize PSBT to bytes.
-		var psbtBuf bytes.Buffer
-		err = groupVirtualPacket.Serialize(&psbtBuf)
+		psbtBytes, err := fn.Serialize(groupVirtualPacket)
 		if err != nil {
 			return nil, fmt.Errorf("error serializing group "+
 				"virtual PSBT for unsealed seedling: %w", err)
 		}
 
-		groupVirtualPsbt = base64.StdEncoding.EncodeToString(
-			psbtBuf.Bytes(),
-		)
+		groupVirtualPsbt = base64.StdEncoding.EncodeToString(psbtBytes)
 	}
 
 	return &mintrpc.UnsealedAsset{
@@ -8492,18 +8542,6 @@ func (r *rpcServer) DeclareScriptKey(ctx context.Context,
 	}, nil
 }
 
-// serialize is a helper function that serializes a serializable object into a
-// byte slice.
-func serialize(s interface{ Serialize(io.Writer) error }) ([]byte, error) {
-	var b bytes.Buffer
-	err := s.Serialize(&b)
-	if err != nil {
-		return nil, err
-	}
-
-	return b.Bytes(), nil
-}
-
 // decodeVirtualPackets decodes a slice of raw virtual packet bytes into a slice
 // of virtual packets.
 func decodeVirtualPackets(rawPackets [][]byte) ([]*tappsbt.VPacket, error) {
@@ -8691,7 +8729,9 @@ func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
 
 	// Next, we'll fetch the information for this asset ID through the addr
 	// book. This'll automatically fetch the asset if needed.
-	assetGroup, err := r.cfg.AddrBook.QueryAssetInfo(ctx, assetID)
+	assetGroup, err := r.cfg.AddrBook.QueryAssetInfo(
+		ctx, asset.NewSpecifierFromId(assetID),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch asset info for "+
 			"asset_id=%x: %w", assetID[:], err)

@@ -934,13 +934,7 @@ func deserializeTweakedScriptKey(pOut psbt.POutput) (*asset.TweakedScriptKey,
 
 // Encode encodes the virtual packet into a byte slice.
 func Encode(vPkt *VPacket) ([]byte, error) {
-	var buf bytes.Buffer
-	err := vPkt.Serialize(&buf)
-	if err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
+	return fn.Serialize(vPkt)
 }
 
 // Decode decodes a virtual packet from a byte slice.
