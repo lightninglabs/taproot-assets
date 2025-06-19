@@ -56,7 +56,7 @@ type Asset struct {
 
 type AssetBurnTransfer struct {
 	BurnID     int64
-	TransferID int32
+	TransferID int64
 	Note       sql.NullString
 	AssetID    []byte
 	GroupKey   []byte
