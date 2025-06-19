@@ -2865,7 +2865,7 @@ func TestQueryAssetBurns(t *testing.T) {
 	assetID := inputAsset.ID()
 
 	_, err = assetsStore.db.InsertBurn(ctx, sqlc.InsertBurnParams{
-		TransferID: int32(assetTransfers[0].ID),
+		TransferID: assetTransfers[0].ID,
 		Note: sql.NullString{
 			String: "burn",
 			Valid:  true,
@@ -2883,7 +2883,7 @@ func TestQueryAssetBurns(t *testing.T) {
 	require.Len(t, burns, 1)
 
 	_, err = assetsStore.db.InsertBurn(ctx, sqlc.InsertBurnParams{
-		TransferID: int32(assetTransfers[0].ID),
+		TransferID: assetTransfers[0].ID,
 		Note: sql.NullString{
 			String: "burn",
 			Valid:  true,
