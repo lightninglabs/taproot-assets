@@ -21,8 +21,8 @@ func (q *Queries) AssetsDBSizePostgres(ctx context.Context) (int64, error) {
 }
 
 const AssetsDBSizeSqlite = `-- name: AssetsDBSizeSqlite :one
-SELECT page_count * page_size AS size_in_bytes 
-FROM pragma_page_count(), pragma_page_size()
+SELECT pc.page_count * ps.page_size AS size_in_bytes
+FROM pragma_page_count() AS pc, pragma_page_size() AS ps
 `
 
 func (q *Queries) AssetsDBSizeSqlite(ctx context.Context) (int32, error) {

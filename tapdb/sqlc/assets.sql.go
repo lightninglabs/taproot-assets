@@ -12,7 +12,7 @@ import (
 )
 
 const AllAssets = `-- name: AllAssets :many
-SELECT asset_id, genesis_id, version, script_key_id, asset_group_witness_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent 
+SELECT asset_id, genesis_id, version, script_key_id, asset_group_witness_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent
 FROM assets
 `
 
@@ -54,7 +54,7 @@ func (q *Queries) AllAssets(ctx context.Context) ([]Asset, error) {
 }
 
 const AllInternalKeys = `-- name: AllInternalKeys :many
-SELECT key_id, raw_key, key_family, key_index 
+SELECT key_id, raw_key, key_family, key_index
 FROM internal_keys
 `
 
@@ -87,10 +87,12 @@ func (q *Queries) AllInternalKeys(ctx context.Context) ([]InternalKey, error) {
 }
 
 const AllMintingBatches = `-- name: AllMintingBatches :many
-SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, assets_output_index, universe_commitments, key_id, raw_key, key_family, key_index 
-FROM asset_minting_batches
-JOIN internal_keys 
-ON asset_minting_batches.batch_id = internal_keys.key_id
+SELECT
+    batches.batch_id, batches.batch_state, batches.minting_tx_psbt, batches.change_output_index, batches.genesis_id, batches.height_hint, batches.creation_time_unix, batches.tapscript_sibling, batches.assets_output_index, batches.universe_commitments,
+    keys.key_id, keys.raw_key, keys.key_family, keys.key_index
+FROM asset_minting_batches AS batches
+JOIN internal_keys AS keys
+    ON batches.batch_id = keys.key_id
 `
 
 type AllMintingBatchesRow struct {
@@ -149,14 +151,15 @@ func (q *Queries) AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow
 }
 
 const AnchorGenesisPoint = `-- name: AnchorGenesisPoint :exec
-WITH target_point(genesis_id) AS (
-    SELECT genesis_id
+WITH target_point (genesis_id) AS (
+    SELECT genesis_points.genesis_id
     FROM genesis_points
     WHERE genesis_points.prev_out = $1
 )
+
 UPDATE genesis_points
 SET anchor_tx_id = $2
-WHERE genesis_id in (SELECT genesis_id FROM target_point)
+WHERE genesis_id IN (SELECT genesis_id FROM target_point)
 `
 
 type AnchorGenesisPointParams struct {
@@ -171,17 +174,18 @@ func (q *Queries) AnchorGenesisPoint(ctx context.Context, arg AnchorGenesisPoint
 
 const AnchorPendingAssets = `-- name: AnchorPendingAssets :exec
 WITH assets_to_update AS (
-    SELECT script_key_id
-    FROM assets 
-    JOIN genesis_assets 
+    SELECT assets.script_key_id
+    FROM assets
+    JOIN genesis_assets
         ON assets.genesis_id = genesis_assets.gen_asset_id
     JOIN genesis_points
-        ON genesis_points.genesis_id = genesis_assets.genesis_point_id
-    WHERE prev_out = $1
+        ON genesis_assets.genesis_point_id = genesis_points.genesis_id
+    WHERE genesis_points.prev_out = $1
 )
+
 UPDATE assets
 SET anchor_utxo_id = $2
-WHERE script_key_id in (SELECT script_key_id FROM assets_to_update)
+WHERE script_key_id IN (SELECT u.script_key_id FROM assets_to_update AS u)
 `
 
 type AnchorPendingAssetsParams struct {
@@ -195,13 +199,16 @@ func (q *Queries) AnchorPendingAssets(ctx context.Context, arg AnchorPendingAsse
 }
 
 const AssetsByGenesisPoint = `-- name: AssetsByGenesisPoint :many
-SELECT assets.asset_id, assets.genesis_id, version, script_key_id, asset_group_witness_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id, genesis_points.genesis_id, prev_out, anchor_tx_id
-FROM assets 
-JOIN genesis_assets 
+SELECT
+    assets.asset_id, assets.genesis_id, assets.version, assets.script_key_id, assets.asset_group_witness_id, assets.script_version, assets.amount, assets.lock_time, assets.relative_lock_time, assets.split_commitment_root_hash, assets.split_commitment_root_value, assets.anchor_utxo_id, assets.spent,
+    genesis_assets.gen_asset_id, genesis_assets.asset_id, genesis_assets.asset_tag, genesis_assets.meta_data_id, genesis_assets.output_index, genesis_assets.asset_type, genesis_assets.genesis_point_id,
+    genesis_points.genesis_id, genesis_points.prev_out, genesis_points.anchor_tx_id
+FROM assets
+JOIN genesis_assets
     ON assets.genesis_id = genesis_assets.gen_asset_id
 JOIN genesis_points
-    ON genesis_points.genesis_id = genesis_assets.genesis_point_id
-WHERE prev_out = $1
+    ON genesis_assets.genesis_point_id = genesis_points.genesis_id
+WHERE genesis_points.prev_out = $1
 `
 
 type AssetsByGenesisPointRow struct {
@@ -279,17 +286,22 @@ func (q *Queries) AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]A
 
 const AssetsInBatch = `-- name: AssetsInBatch :many
 SELECT
-    gen_asset_id, asset_id, asset_tag, assets_meta.meta_data_hash, 
-    output_index, asset_type, genesis_points.prev_out prev_out
+    genesis_assets.gen_asset_id,
+    genesis_assets.asset_id,
+    genesis_assets.asset_tag,
+    assets_meta.meta_data_hash,
+    genesis_assets.output_index,
+    genesis_assets.asset_type,
+    genesis_points.prev_out
 FROM genesis_assets
 LEFT JOIN assets_meta
     ON genesis_assets.meta_data_id = assets_meta.meta_id
 JOIN genesis_points
     ON genesis_assets.genesis_point_id = genesis_points.genesis_id
-JOIN asset_minting_batches batches
+JOIN asset_minting_batches AS batches
     ON genesis_points.genesis_id = batches.genesis_id
-JOIN internal_keys keys
-    ON keys.key_id = batches.batch_id
+JOIN internal_keys AS keys
+    ON batches.batch_id = keys.key_id
 WHERE keys.raw_key = $1
 `
 
@@ -336,15 +348,16 @@ func (q *Queries) AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInB
 
 const BindMintingBatchWithTapSibling = `-- name: BindMintingBatchWithTapSibling :exec
 WITH target_batch AS (
-    SELECT batch_id
-    FROM asset_minting_batches batches
-    JOIN internal_keys keys
+    SELECT batches.batch_id
+    FROM asset_minting_batches AS batches
+    JOIN internal_keys AS keys
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
+
 UPDATE asset_minting_batches
 SET tapscript_sibling = $2
-WHERE batch_id IN (SELECT batch_id FROM target_batch)
+WHERE batch_id IN (SELECT tb.batch_id FROM target_batch AS tb)
 `
 
 type BindMintingBatchWithTapSiblingParams struct {
@@ -359,16 +372,18 @@ func (q *Queries) BindMintingBatchWithTapSibling(ctx context.Context, arg BindMi
 
 const BindMintingBatchWithTx = `-- name: BindMintingBatchWithTx :one
 WITH target_batch AS (
-    SELECT batch_id
-    FROM asset_minting_batches batches
-    JOIN internal_keys keys
+    SELECT batches.batch_id
+    FROM asset_minting_batches AS batches
+    JOIN internal_keys AS keys
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
+
 UPDATE asset_minting_batches
-SET minting_tx_psbt = $2, change_output_index = $3, assets_output_index = $4,
+SET
+    minting_tx_psbt = $2, change_output_index = $3, assets_output_index = $4,
     genesis_id = $5, universe_commitments = $6
-WHERE batch_id IN (SELECT batch_id FROM target_batch)
+WHERE batch_id IN (SELECT tb.batch_id FROM target_batch AS tb)
 RETURNING batch_id
 `
 
@@ -419,18 +434,19 @@ func (q *Queries) ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnch
 }
 
 const ConfirmChainTx = `-- name: ConfirmChainTx :exec
-WITH target_txn(txn_id) AS (
-    SELECT anchor_tx_id
-    FROM genesis_points points
-    JOIN asset_minting_batches batches
-        ON batches.genesis_id = points.genesis_id
-    JOIN internal_keys keys
+WITH target_txn (txn_id) AS (
+    SELECT points.anchor_tx_id
+    FROM genesis_points AS points
+    JOIN asset_minting_batches AS batches
+        ON points.genesis_id = batches.genesis_id
+    JOIN internal_keys AS keys
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
+
 UPDATE chain_txns
 SET block_height = $2, block_hash = $3, tx_index = $4
-WHERE txn_id in (SELECT txn_id FROM target_txn)
+WHERE txn_id IN (SELECT txn_id FROM target_txn)
 `
 
 type ConfirmChainTxParams struct {
@@ -453,9 +469,10 @@ func (q *Queries) ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) 
 const DeleteExpiredUTXOLeases = `-- name: DeleteExpiredUTXOLeases :exec
 UPDATE managed_utxos
 SET lease_owner = NULL, lease_expiry = NULL
-WHERE lease_owner IS NOT NULL AND
-      lease_expiry IS NOT NULL AND
-      lease_expiry < $1
+WHERE
+    lease_owner IS NOT NULL
+    AND lease_expiry IS NOT NULL
+    AND lease_expiry < $1
 `
 
 func (q *Queries) DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error {
@@ -483,6 +500,7 @@ WITH tree_info AS (
         ON tapscript_edges.root_hash_id = tapscript_roots.root_id
     WHERE tapscript_roots.root_hash = $1
 )
+
 DELETE FROM tapscript_edges
 WHERE edge_id IN (SELECT edge_id FROM tree_info)
 `
@@ -496,9 +514,9 @@ const DeleteTapscriptTreeNodes = `-- name: DeleteTapscriptTreeNodes :exec
 DELETE FROM tapscript_nodes
 WHERE NOT EXISTS (
     SELECT 1
-        FROM tapscript_edges
-        -- Delete any node that is not referenced by any edge.
-        WHERE tapscript_edges.raw_node_id = tapscript_nodes.node_id
+    FROM tapscript_edges
+    -- Delete any node that is not referenced by any edge.
+    WHERE tapscript_edges.raw_node_id = tapscript_nodes.node_id
 )
 `
 
@@ -529,17 +547,21 @@ func (q *Queries) DeleteUTXOLease(ctx context.Context, outpoint []byte) error {
 }
 
 const FetchAssetID = `-- name: FetchAssetID :many
-SELECT asset_id
-    FROM assets
-    JOIN script_keys 
-        ON assets.script_key_id = script_keys.script_key_id
-    JOIN managed_utxos utxos
-        ON assets.anchor_utxo_id = utxos.utxo_id
-    WHERE
-        (script_keys.tweaked_script_key = $1
-            OR $1 IS NULL)
-        AND (utxos.outpoint = $2
-            OR $2 IS NULL)
+SELECT assets.asset_id
+FROM assets
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id
+JOIN managed_utxos AS utxos
+    ON assets.anchor_utxo_id = utxos.utxo_id
+WHERE
+    (
+        script_keys.tweaked_script_key = $1
+        OR $1 IS NULL
+    )
+    AND (
+        utxos.outpoint = $2
+        OR $2 IS NULL
+    )
 `
 
 type FetchAssetIDParams struct {
@@ -571,7 +593,7 @@ func (q *Queries) FetchAssetID(ctx context.Context, arg FetchAssetIDParams) ([]i
 }
 
 const FetchAssetMeta = `-- name: FetchAssetMeta :one
-SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_universe_commitments, assets_meta.meta_canonical_universes, assets_meta.meta_delegation_key
+SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_universe_commitments, assets_meta.meta_canonical_universes, assets_meta.meta_delegation_key -- noqa: RF02,AL03
 FROM assets_meta
 WHERE meta_id = $1
 `
@@ -597,7 +619,7 @@ func (q *Queries) FetchAssetMeta(ctx context.Context, metaID int64) (FetchAssetM
 }
 
 const FetchAssetMetaByHash = `-- name: FetchAssetMetaByHash :one
-SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_universe_commitments, assets_meta.meta_canonical_universes, assets_meta.meta_delegation_key
+SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_universe_commitments, assets_meta.meta_canonical_universes, assets_meta.meta_delegation_key -- noqa: RF02,AL03
 FROM assets_meta
 WHERE meta_data_hash = $1
 `
@@ -623,8 +645,8 @@ func (q *Queries) FetchAssetMetaByHash(ctx context.Context, metaDataHash []byte)
 }
 
 const FetchAssetMetaForAsset = `-- name: FetchAssetMetaForAsset :one
-SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_universe_commitments, assets_meta.meta_canonical_universes, assets_meta.meta_delegation_key
-FROM genesis_assets assets
+SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_universe_commitments, assets_meta.meta_canonical_universes, assets_meta.meta_delegation_key -- noqa: RF02,AL03
+FROM genesis_assets AS assets
 JOIN assets_meta
     ON assets.meta_data_id = assets_meta.meta_id
 WHERE assets.asset_id = $1
@@ -652,24 +674,38 @@ func (q *Queries) FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (F
 
 const FetchAssetProof = `-- name: FetchAssetProof :many
 WITH asset_info AS (
-    SELECT assets.asset_id, script_keys.tweaked_script_key, utxos.outpoint
+    SELECT
+        assets.asset_id,
+        script_keys.tweaked_script_key,
+        utxos.outpoint
     FROM assets
     JOIN script_keys
         ON assets.script_key_id = script_keys.script_key_id
-    JOIN managed_utxos utxos
+    JOIN managed_utxos AS utxos
         ON assets.anchor_utxo_id = utxos.utxo_id
     JOIN genesis_assets
-         ON assets.genesis_id = genesis_assets.gen_asset_id
-   WHERE script_keys.tweaked_script_key = $1
-     AND (utxos.outpoint = $2 OR $2 IS NULL)
-     AND (genesis_assets.asset_id = $3 OR $3 IS NULL)
+        ON assets.genesis_id = genesis_assets.gen_asset_id
+    WHERE
+        script_keys.tweaked_script_key = $1
+        AND (
+            utxos.outpoint = $2
+            OR $2 IS NULL
+        )
+        AND (
+            genesis_assets.asset_id = $3
+            OR $3 IS NULL
+        )
 )
-SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file,
-       asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id,
-       asset_info.outpoint as outpoint
+
+SELECT
+    asset_info.tweaked_script_key AS script_key,
+    asset_proofs.proof_file,
+    asset_info.asset_id,
+    asset_proofs.proof_id,
+    asset_info.outpoint
 FROM asset_proofs
 JOIN asset_info
-  ON asset_info.asset_id = asset_proofs.asset_id
+    ON asset_proofs.asset_id = asset_info.asset_id
 `
 
 type FetchAssetProofParams struct {
@@ -717,15 +753,20 @@ func (q *Queries) FetchAssetProof(ctx context.Context, arg FetchAssetProofParams
 
 const FetchAssetProofs = `-- name: FetchAssetProofs :many
 WITH asset_info AS (
-    SELECT assets.asset_id, script_keys.tweaked_script_key
+    SELECT
+        assets.asset_id,
+        script_keys.tweaked_script_key
     FROM assets
     JOIN script_keys
         ON assets.script_key_id = script_keys.script_key_id
 )
-SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file
+
+SELECT
+    asset_info.tweaked_script_key AS script_key,
+    asset_proofs.proof_file
 FROM asset_proofs
 JOIN asset_info
-    ON asset_info.asset_id = asset_proofs.asset_id
+    ON asset_proofs.asset_id = asset_info.asset_id
 `
 
 type FetchAssetProofsRow struct {
@@ -758,18 +799,23 @@ func (q *Queries) FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, 
 
 const FetchAssetProofsByAssetID = `-- name: FetchAssetProofsByAssetID :many
 WITH asset_info AS (
-    SELECT assets.asset_id, script_keys.tweaked_script_key
+    SELECT
+        assets.asset_id,
+        script_keys.tweaked_script_key
     FROM assets
     JOIN script_keys
         ON assets.script_key_id = script_keys.script_key_id
-    JOIN genesis_assets gen
+    JOIN genesis_assets AS gen
         ON assets.genesis_id = gen.gen_asset_id
     WHERE gen.asset_id = $1
 )
-SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file
+
+SELECT
+    asset_info.tweaked_script_key AS script_key,
+    asset_proofs.proof_file
 FROM asset_proofs
 JOIN asset_info
-    ON asset_info.asset_id = asset_proofs.asset_id
+    ON asset_proofs.asset_id = asset_info.asset_id
 `
 
 type FetchAssetProofsByAssetIDRow struct {
@@ -801,8 +847,9 @@ func (q *Queries) FetchAssetProofsByAssetID(ctx context.Context, assetID []byte)
 }
 
 const FetchAssetProofsSizes = `-- name: FetchAssetProofsSizes :many
-SELECT script_keys.tweaked_script_key AS script_key, 
-       LENGTH(asset_proofs.proof_file) AS proof_file_length
+SELECT
+    script_keys.tweaked_script_key AS script_key,
+    LENGTH(asset_proofs.proof_file) AS proof_file_length
 FROM asset_proofs
 JOIN assets
     ON asset_proofs.asset_id = assets.asset_id
@@ -839,16 +886,20 @@ func (q *Queries) FetchAssetProofsSizes(ctx context.Context) ([]FetchAssetProofs
 }
 
 const FetchAssetWitnesses = `-- name: FetchAssetWitnesses :many
-SELECT 
-    assets.asset_id, prev_out_point, prev_asset_id, prev_script_key, 
-    witness_stack, split_commitment_proof
+SELECT
+    assets.asset_id,
+    asset_witnesses.prev_out_point,
+    asset_witnesses.prev_asset_id,
+    asset_witnesses.prev_script_key,
+    asset_witnesses.witness_stack,
+    asset_witnesses.split_commitment_proof
 FROM asset_witnesses
 JOIN assets
     ON asset_witnesses.asset_id = assets.asset_id
 WHERE (
     (assets.asset_id = $1) OR ($1 IS NULL)
 )
-ORDER BY witness_index
+ORDER BY asset_witnesses.witness_index
 `
 
 type FetchAssetWitnessesRow struct {
@@ -942,49 +993,68 @@ WITH genesis_info AS (
     -- points, to the internal key that reference the batch, then restricted
     -- for internal keys that match our main batch key.
     SELECT
-        gen_asset_id, asset_id, asset_tag, output_index, asset_type,
-        genesis_points.prev_out prev_out,
+        genesis_assets.gen_asset_id,
+        genesis_assets.asset_id,
+        genesis_assets.asset_tag,
+        genesis_assets.output_index,
+        genesis_assets.asset_type,
+        genesis_points.prev_out,
         assets_meta.meta_id
     FROM genesis_assets
     LEFT JOIN assets_meta
         ON genesis_assets.meta_data_id = assets_meta.meta_id
     JOIN genesis_points
         ON genesis_assets.genesis_point_id = genesis_points.genesis_id
-    JOIN asset_minting_batches batches
+    JOIN asset_minting_batches AS batches
         ON genesis_points.genesis_id = batches.genesis_id
-    JOIN internal_keys keys
-        ON keys.key_id = batches.batch_id
+    JOIN internal_keys AS keys
+        ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
-), key_group_info AS (
+),
+
+key_group_info AS (
     -- This CTE is used to perform a series of joins that allow us to extract
     -- the group key information, as well as the group sigs for the series of
     -- assets we care about. We obtain only the assets found in the batch
     -- above, with the WHERE query at the bottom.
-    SELECT 
-        witness_id, gen_asset_id, witness_stack, tapscript_root,
-        tweaked_group_key, raw_key, key_index, key_family
-    FROM asset_group_witnesses wit
-    JOIN asset_groups groups
-        ON wit.group_key_id = groups.group_id
-    JOIN internal_keys keys
-        ON keys.key_id = groups.internal_key_id
+    SELECT
+        wit.witness_id,
+        wit.gen_asset_id,
+        wit.witness_stack,
+        grp.tapscript_root,
+        grp.tweaked_group_key,
+        keys.raw_key,
+        keys.key_index,
+        keys.key_family
+    FROM asset_group_witnesses AS wit
+    JOIN asset_groups AS grp
+        ON wit.group_key_id = grp.group_id
+    JOIN internal_keys AS keys
+        ON grp.internal_key_id = keys.key_id
     -- TODO(roasbeef): or can join do this below?
-    WHERE wit.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
+    WHERE wit.gen_asset_id IN (SELECT gi.gen_asset_id FROM genesis_info AS gi)
 )
-SELECT 
-    version,
-    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type,
-    internal_keys.key_id, internal_keys.raw_key, internal_keys.key_family, internal_keys.key_index,
-    key_group_info.tapscript_root, 
-    key_group_info.witness_stack, 
+
+SELECT
+    assets.version,
+    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type, -- noqa: RF02,AL03
+    internal_keys.key_id, internal_keys.raw_key, internal_keys.key_family, internal_keys.key_index, -- noqa: RF02,AL03
+    key_group_info.tapscript_root,
+    key_group_info.witness_stack,
     key_group_info.tweaked_group_key,
     key_group_info.raw_key AS group_key_raw,
     key_group_info.key_family AS group_key_family,
     key_group_info.key_index AS group_key_index,
-    script_version, amount, lock_time, relative_lock_time, spent,
-    genesis_info.asset_id, genesis_info.asset_tag,
-    assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_universe_commitments, assets_meta.meta_canonical_universes, assets_meta.meta_delegation_key,
-    genesis_info.output_index AS genesis_output_index, genesis_info.asset_type,
+    assets.script_version,
+    assets.amount,
+    assets.lock_time,
+    assets.relative_lock_time,
+    assets.spent,
+    genesis_info.asset_id,
+    genesis_info.asset_tag,
+    assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_universe_commitments, assets_meta.meta_canonical_universes, assets_meta.meta_delegation_key, -- noqa: RF02,AL03
+    genesis_info.output_index AS genesis_output_index,
+    genesis_info.asset_type,
     genesis_info.prev_out AS genesis_prev_out
 FROM assets
 JOIN genesis_info
@@ -994,7 +1064,7 @@ LEFT JOIN assets_meta
 LEFT JOIN key_group_info
     ON assets.genesis_id = key_group_info.gen_asset_id
 JOIN script_keys
-    on assets.script_key_id = script_keys.script_key_id
+    ON assets.script_key_id = script_keys.script_key_id
 JOIN internal_keys
     ON script_keys.internal_key_id = internal_keys.key_id
 `
@@ -1107,7 +1177,7 @@ func (q *Queries) FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, erro
 }
 
 const FetchGenesisByAssetID = `-- name: FetchGenesisByAssetID :one
-SELECT gen_asset_id, asset_id, asset_tag, meta_hash, output_index, asset_type, prev_out, anchor_txid, block_height 
+SELECT gen_asset_id, asset_id, asset_tag, meta_hash, output_index, asset_type, prev_out, anchor_txid, block_height
 FROM genesis_info_view
 WHERE asset_id = $1
 `
@@ -1131,14 +1201,18 @@ func (q *Queries) FetchGenesisByAssetID(ctx context.Context, assetID []byte) (Ge
 
 const FetchGenesisByID = `-- name: FetchGenesisByID :one
 SELECT
-    asset_id, asset_tag, assets_meta.meta_data_hash, output_index, asset_type,
-    genesis_points.prev_out prev_out
+    genesis_assets.asset_id,
+    genesis_assets.asset_tag,
+    assets_meta.meta_data_hash,
+    genesis_assets.output_index,
+    genesis_assets.asset_type,
+    genesis_points.prev_out
 FROM genesis_assets
 LEFT JOIN assets_meta
     ON genesis_assets.meta_data_id = assets_meta.meta_id
 JOIN genesis_points
-  ON genesis_assets.genesis_point_id = genesis_points.genesis_id
-WHERE gen_asset_id = $1
+    ON genesis_assets.genesis_point_id = genesis_points.genesis_id
+WHERE genesis_assets.gen_asset_id = $1
 `
 
 type FetchGenesisByIDRow struct {
@@ -1165,22 +1239,25 @@ func (q *Queries) FetchGenesisByID(ctx context.Context, genAssetID int64) (Fetch
 }
 
 const FetchGenesisID = `-- name: FetchGenesisID :one
-WITH target_point(genesis_id) AS (
-    SELECT genesis_id
+WITH target_point (genesis_id) AS (
+    SELECT genesis_points.genesis_id
     FROM genesis_points
     WHERE genesis_points.prev_out = $6
 )
-SELECT gen_asset_id
+
+SELECT genesis_assets.gen_asset_id
 FROM genesis_assets
-LEFT JOIN assets_meta   
+LEFT JOIN assets_meta
     ON genesis_assets.meta_data_id = assets_meta.meta_id
 WHERE (
-    genesis_assets.genesis_point_id IN (SELECT genesis_id FROM target_point) AND
-    genesis_assets.asset_id = $1 AND
-    genesis_assets.asset_tag = $2 AND
-    assets_meta.meta_data_hash = $3 AND
-    genesis_assets.output_index = $4 AND
-    genesis_assets.asset_type = $5
+    genesis_assets.genesis_point_id IN (
+        SELECT tp.genesis_id FROM target_point AS tp
+    )
+    AND genesis_assets.asset_id = $1
+    AND genesis_assets.asset_tag = $2
+    AND assets_meta.meta_data_hash = $3
+    AND genesis_assets.output_index = $4
+    AND genesis_assets.asset_type = $5
 )
 `
 
@@ -1221,7 +1298,7 @@ func (q *Queries) FetchGenesisIDByAssetID(ctx context.Context, assetID []byte) (
 }
 
 const FetchGenesisPointByAnchorTx = `-- name: FetchGenesisPointByAnchorTx :one
-SELECT genesis_id, prev_out, anchor_tx_id 
+SELECT genesis_id, prev_out, anchor_tx_id
 FROM genesis_points
 WHERE anchor_tx_id = $1
 `
@@ -1235,14 +1312,14 @@ func (q *Queries) FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sq
 
 const FetchGroupByGenesis = `-- name: FetchGroupByGenesis :one
 SELECT
-    key_group_info_view.version AS version,
-    key_group_info_view.tweaked_group_key AS tweaked_group_key,
-    key_group_info_view.raw_key AS raw_key,
-    key_group_info_view.key_index AS key_index,
-    key_group_info_view.key_family AS key_family,
-    key_group_info_view.tapscript_root AS tapscript_root,
-    key_group_info_view.witness_stack AS witness_stack,
-    key_group_info_view.custom_subtree_root AS custom_subtree_root
+    key_group_info_view.version,
+    key_group_info_view.tweaked_group_key,
+    key_group_info_view.raw_key,
+    key_group_info_view.key_index,
+    key_group_info_view.key_family,
+    key_group_info_view.tapscript_root,
+    key_group_info_view.witness_stack,
+    key_group_info_view.custom_subtree_root
 FROM key_group_info_view
 WHERE (
     key_group_info_view.gen_asset_id = $1
@@ -1278,14 +1355,14 @@ func (q *Queries) FetchGroupByGenesis(ctx context.Context, genesisID int64) (Fet
 
 const FetchGroupByGroupKey = `-- name: FetchGroupByGroupKey :one
 SELECT
-    key_group_info_view.version AS version,
-    key_group_info_view.gen_asset_id AS gen_asset_id,
-    key_group_info_view.raw_key AS raw_key,
-    key_group_info_view.key_index AS key_index,
-    key_group_info_view.key_family AS key_family,
-    key_group_info_view.tapscript_root AS tapscript_root,
-    key_group_info_view.witness_stack AS witness_stack,
-    key_group_info_view.custom_subtree_root AS custom_subtree_root
+    key_group_info_view.version,
+    key_group_info_view.gen_asset_id,
+    key_group_info_view.raw_key,
+    key_group_info_view.key_index,
+    key_group_info_view.key_family,
+    key_group_info_view.tapscript_root,
+    key_group_info_view.witness_stack,
+    key_group_info_view.custom_subtree_root
 FROM key_group_info_view
 WHERE (
     key_group_info_view.tweaked_group_key = $1
@@ -1325,10 +1402,13 @@ func (q *Queries) FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (Fe
 const FetchGroupedAssets = `-- name: FetchGroupedAssets :many
 SELECT
     assets.asset_id AS asset_primary_key,
-    amount, lock_time, relative_lock_time, spent, 
-    genesis_info_view.asset_id AS asset_id,
+    assets.amount,
+    assets.lock_time,
+    assets.relative_lock_time,
+    assets.spent,
+    genesis_info_view.asset_id,
     genesis_info_view.asset_tag,
-    genesis_info_view.meta_Hash, 
+    genesis_info_view.meta_hash,
     genesis_info_view.asset_type,
     key_group_info_view.tweaked_group_key,
     assets.version AS asset_version
@@ -1337,7 +1417,7 @@ JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id
 JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id
-WHERE spent = false
+WHERE assets.spent = FALSE
 `
 
 type FetchGroupedAssetsRow struct {
@@ -1390,7 +1470,9 @@ func (q *Queries) FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsR
 }
 
 const FetchInternalKeyLocator = `-- name: FetchInternalKeyLocator :one
-SELECT key_family, key_index
+SELECT
+    key_family,
+    key_index
 FROM internal_keys
 WHERE raw_key = $1
 `
@@ -1408,13 +1490,17 @@ func (q *Queries) FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (F
 }
 
 const FetchManagedUTXO = `-- name: FetchManagedUTXO :one
-SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, root_version, key_id, raw_key, key_family, key_index
-FROM managed_utxos utxos
-JOIN internal_keys keys
+SELECT
+    utxos.utxo_id, utxos.outpoint, utxos.amt_sats, utxos.internal_key_id, utxos.taproot_asset_root, utxos.tapscript_sibling, utxos.merkle_root, utxos.txn_id, utxos.lease_owner, utxos.lease_expiry, utxos.root_version,
+    keys.key_id, keys.raw_key, keys.key_family, keys.key_index
+FROM managed_utxos AS utxos
+JOIN internal_keys AS keys
     ON utxos.internal_key_id = keys.key_id
 WHERE (
-    (txn_id = $1 OR $1 IS NULL) AND
-    (utxos.outpoint = $2 OR $2 IS NULL)
+    (utxos.txn_id = $1 OR $1 IS NULL)
+    AND (
+        utxos.outpoint = $2 OR $2 IS NULL
+    )
 )
 `
 
@@ -1465,9 +1551,11 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOPara
 }
 
 const FetchManagedUTXOs = `-- name: FetchManagedUTXOs :many
-SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, root_version, key_id, raw_key, key_family, key_index
-FROM managed_utxos utxos
-JOIN internal_keys keys
+SELECT
+    utxos.utxo_id, utxos.outpoint, utxos.amt_sats, utxos.internal_key_id, utxos.taproot_asset_root, utxos.tapscript_sibling, utxos.merkle_root, utxos.txn_id, utxos.lease_owner, utxos.lease_expiry, utxos.root_version,
+    keys.key_id, keys.raw_key, keys.key_family, keys.key_index
+FROM managed_utxos AS utxos
+JOIN internal_keys AS keys
     ON utxos.internal_key_id = keys.key_id
 `
 
@@ -1530,24 +1618,33 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 
 const FetchMintAnchorUniCommitment = `-- name: FetchMintAnchorUniCommitment :many
 SELECT
-    mint_anchor_uni_commitments.id,
-    mint_anchor_uni_commitments.batch_id,
-    mint_anchor_uni_commitments.tx_output_index,
-    mint_anchor_uni_commitments.group_key,
+    commitments.id,
+    commitments.batch_id,
+    commitments.tx_output_index,
+    commitments.group_key,
     batch_internal_keys.raw_key AS batch_key,
-    mint_anchor_uni_commitments.taproot_internal_key_id,
-    taproot_internal_keys.key_id, taproot_internal_keys.raw_key, taproot_internal_keys.key_family, taproot_internal_keys.key_index
-FROM mint_anchor_uni_commitments
-    JOIN internal_keys taproot_internal_keys
-        ON mint_anchor_uni_commitments.taproot_internal_key_id = taproot_internal_keys.key_id
-    LEFT JOIN asset_minting_batches batches
-        ON mint_anchor_uni_commitments.batch_id = batches.batch_id
-    LEFT JOIN internal_keys batch_internal_keys
-        ON batches.batch_id = batch_internal_keys.key_id
+    commitments.taproot_internal_key_id,
+    taproot_internal_keys.key_id, taproot_internal_keys.raw_key, taproot_internal_keys.key_family, taproot_internal_keys.key_index -- noqa: RF02,AL03
+FROM mint_anchor_uni_commitments AS commitments
+JOIN internal_keys AS taproot_internal_keys
+    ON commitments.taproot_internal_key_id = taproot_internal_keys.key_id
+LEFT JOIN asset_minting_batches AS batches
+    ON commitments.batch_id = batches.batch_id
+LEFT JOIN internal_keys AS batch_internal_keys
+    ON batches.batch_id = batch_internal_keys.key_id
 WHERE (
-    (batch_internal_keys.raw_key = $1 OR $1 IS NULL) AND
-    (mint_anchor_uni_commitments.group_key = $2 OR $2 IS NULL) AND
-    (taproot_internal_keys.raw_key = $3 OR $3 IS NULL)
+    (
+        batch_internal_keys.raw_key = $1
+        OR $1 IS NULL
+    )
+    AND (
+        commitments.group_key = $2
+        OR $2 IS NULL
+    )
+    AND (
+        taproot_internal_keys.raw_key = $3
+        OR $3 IS NULL
+    )
 )
 `
 
@@ -1609,17 +1706,20 @@ WITH target_batch AS (
     -- internal key associated with the batch. This internal key is used as the
     -- actual Taproot internal key to ultimately mint the batch. This pattern
     -- is used in several other queries.
-    SELECT batch_id
-    FROM asset_minting_batches batches
-    JOIN internal_keys keys
+    SELECT batches.batch_id
+    FROM asset_minting_batches AS batches
+    JOIN internal_keys AS keys
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, assets_output_index, universe_commitments, key_id, raw_key, key_family, key_index
-FROM asset_minting_batches batches
-JOIN internal_keys keys
+
+SELECT
+    batches.batch_id, batches.batch_state, batches.minting_tx_psbt, batches.change_output_index, batches.genesis_id, batches.height_hint, batches.creation_time_unix, batches.tapscript_sibling, batches.assets_output_index, batches.universe_commitments,
+    keys.key_id, keys.raw_key, keys.key_family, keys.key_index
+FROM asset_minting_batches AS batches
+JOIN internal_keys AS keys
     ON batches.batch_id = keys.key_id
-WHERE batch_id in (SELECT batch_id FROM target_batch)
+WHERE batches.batch_id IN (SELECT tb.batch_id FROM target_batch AS tb)
 `
 
 type FetchMintingBatchRow struct {
@@ -1662,9 +1762,11 @@ func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMi
 }
 
 const FetchMintingBatchesByInverseState = `-- name: FetchMintingBatchesByInverseState :many
-SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, assets_output_index, universe_commitments, key_id, raw_key, key_family, key_index
-FROM asset_minting_batches batches
-JOIN internal_keys keys
+SELECT
+    batches.batch_id, batches.batch_state, batches.minting_tx_psbt, batches.change_output_index, batches.genesis_id, batches.height_hint, batches.creation_time_unix, batches.tapscript_sibling, batches.assets_output_index, batches.universe_commitments,
+    keys.key_id, keys.raw_key, keys.key_family, keys.key_index
+FROM asset_minting_batches AS batches
+JOIN internal_keys AS keys
     ON batches.batch_id = keys.key_id
 WHERE batches.batch_state != $1
 `
@@ -1725,10 +1827,12 @@ func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchSt
 }
 
 const FetchScriptKeyByTweakedKey = `-- name: FetchScriptKeyByTweakedKey :one
-SELECT script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type, internal_keys.key_id, internal_keys.raw_key, internal_keys.key_family, internal_keys.key_index
+SELECT
+    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type, -- noqa: RF02,AL03
+    internal_keys.key_id, internal_keys.raw_key, internal_keys.key_family, internal_keys.key_index -- noqa: RF02,AL03
 FROM script_keys
 JOIN internal_keys
-  ON script_keys.internal_key_id = internal_keys.key_id
+    ON script_keys.internal_key_id = internal_keys.key_id
 WHERE script_keys.tweaked_script_key = $1
 `
 
@@ -1801,15 +1905,16 @@ WITH target_key_id AS (
     -- associated with a given batch. This can only return one value in
     -- practice since raw_key is a unique field. We then use this value below
     -- to select only from seedlings in the specified batch.
-    SELECT key_id
-    FROM internal_keys keys
+    SELECT keys.key_id
+    FROM internal_keys AS keys
     WHERE keys.raw_key = $2
 )
-SELECT seedling_id
+
+SELECT asset_seedlings.seedling_id
 FROM asset_seedlings
 WHERE (
-    asset_seedlings.batch_id in (SELECT key_id FROM target_key_id) AND
-    asset_seedlings.asset_name = $1
+    asset_seedlings.batch_id IN (SELECT tki.key_id FROM target_key_id AS tki)
+    AND asset_seedlings.asset_name = $1
 )
 `
 
@@ -1826,17 +1931,26 @@ func (q *Queries) FetchSeedlingID(ctx context.Context, arg FetchSeedlingIDParams
 }
 
 const FetchSeedlingsForBatch = `-- name: FetchSeedlingsForBatch :many
-WITH target_batch(batch_id) AS (
-    SELECT batch_id
-    FROM asset_minting_batches batches
-    JOIN internal_keys keys
+WITH target_batch (batch_id) AS (
+    SELECT batches.batch_id
+    FROM asset_minting_batches AS batches
+    JOIN internal_keys AS keys
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply,
-    assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_universe_commitments, assets_meta.meta_canonical_universes, assets_meta.meta_delegation_key,
-    emission_enabled, batch_id, 
-    group_genesis_id, group_anchor_id, group_tapscript_root,
+
+SELECT
+    asset_seedlings.seedling_id,
+    asset_seedlings.asset_name,
+    asset_seedlings.asset_type,
+    asset_seedlings.asset_version,
+    asset_seedlings.asset_supply,
+    assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_universe_commitments, assets_meta.meta_canonical_universes, assets_meta.meta_delegation_key, -- noqa: RF02,AL03
+    asset_seedlings.emission_enabled,
+    asset_seedlings.batch_id,
+    asset_seedlings.group_genesis_id,
+    asset_seedlings.group_anchor_id,
+    asset_seedlings.group_tapscript_root,
     -- TODO(guggero): We should use sqlc.embed() for the script key and internal
     -- key fields, but we can't because it's a LEFT JOIN. We should check if the
     -- LEFT JOIN is actually necessary or if we always have keys for seedlings.
@@ -1852,18 +1966,18 @@ SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply,
     delegation_internal_keys.raw_key AS delegation_key_raw,
     delegation_internal_keys.key_family AS delegation_key_fam,
     delegation_internal_keys.key_index AS delegation_key_index
-FROM asset_seedlings 
+FROM asset_seedlings
 LEFT JOIN assets_meta
     ON asset_seedlings.asset_meta_id = assets_meta.meta_id
 LEFT JOIN script_keys
     ON asset_seedlings.script_key_id = script_keys.script_key_id
 LEFT JOIN internal_keys
     ON script_keys.internal_key_id = internal_keys.key_id
-LEFT JOIN internal_keys group_internal_keys
+LEFT JOIN internal_keys AS group_internal_keys
     ON asset_seedlings.group_internal_key_id = group_internal_keys.key_id
-LEFT JOIN internal_keys delegation_internal_keys
+LEFT JOIN internal_keys AS delegation_internal_keys
     ON asset_seedlings.delegation_key_id = delegation_internal_keys.key_id
-WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch)
+WHERE asset_seedlings.batch_id IN (SELECT tb.batch_id FROM target_batch AS tb)
 `
 
 type FetchSeedlingsForBatchRow struct {
@@ -1951,17 +2065,22 @@ WITH tree_info AS (
     -- This CTE is used to fetch all edges that link the given tapscript tree
     -- root hash to child nodes. Each edge also contains the index of the child
     -- node in the tapscript tree.
-    SELECT tapscript_roots.branch_only, tapscript_edges.raw_node_id,
+    SELECT
+        tapscript_roots.branch_only,
+        tapscript_edges.raw_node_id,
         tapscript_edges.node_index
     FROM tapscript_roots
     JOIN tapscript_edges
         ON tapscript_roots.root_id = tapscript_edges.root_hash_id
     WHERE tapscript_roots.root_hash = $1
 )
-SELECT tree_info.branch_only, tapscript_nodes.raw_node
+
+SELECT
+    tree_info.branch_only,
+    tapscript_nodes.raw_node
 FROM tapscript_nodes
 JOIN tree_info
-    ON tree_info.raw_node_id = tapscript_nodes.node_id
+    ON tapscript_nodes.node_id = tree_info.raw_node_id
 ORDER BY tree_info.node_index ASC
 `
 
@@ -1995,10 +2114,12 @@ func (q *Queries) FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]Fe
 }
 
 const FetchUnknownTypeScriptKeys = `-- name: FetchUnknownTypeScriptKeys :many
-SELECT script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type, internal_keys.key_id, internal_keys.raw_key, internal_keys.key_family, internal_keys.key_index
+SELECT
+    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type, -- noqa: RF02,AL03
+    internal_keys.key_id, internal_keys.raw_key, internal_keys.key_family, internal_keys.key_index -- noqa: RF02,AL03
 FROM script_keys
 JOIN internal_keys
-  ON script_keys.internal_key_id = internal_keys.key_id
+    ON script_keys.internal_key_id = internal_keys.key_id
 WHERE script_keys.key_type IS NULL
 `
 
@@ -2041,7 +2162,7 @@ func (q *Queries) FetchUnknownTypeScriptKeys(ctx context.Context) ([]FetchUnknow
 }
 
 const GenesisAssets = `-- name: GenesisAssets :many
-SELECT gen_asset_id, asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id 
+SELECT gen_asset_id, asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id
 FROM genesis_assets
 `
 
@@ -2112,10 +2233,11 @@ WITH asset_info AS (
         ON assets.script_key_id = script_keys.script_key_id
     WHERE script_keys.tweaked_script_key = $1
 )
-SELECT COUNT(asset_info.asset_id) > 0 as has_proof
+
+SELECT COUNT(asset_info.asset_id) > 0 AS has_proof
 FROM asset_proofs
 JOIN asset_info
-    ON asset_info.asset_id = asset_proofs.asset_id
+    ON asset_proofs.asset_id = asset_info.asset_id
 `
 
 func (q *Queries) HasAssetProof(ctx context.Context, tweakedScriptKey []byte) (bool, error) {
@@ -2129,13 +2251,14 @@ const InsertAssetSeedling = `-- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id,
-    script_key_id, group_internal_key_id, group_tapscript_root, delegation_key_id
+    script_key_id, group_internal_key_id, group_tapscript_root,
+    delegation_key_id
 ) VALUES (
-   $1, $2, $3, $4,
-   $5, $6, $7,
-   $8, $9,
-   $10, $11,
-   $12, $13
+    $1, $2, $3, $4,
+    $5, $6, $7,
+    $8, $9,
+    $10, $11,
+    $12, $13
 )
 `
 
@@ -2181,11 +2304,12 @@ WITH target_key_id AS (
     -- practice since raw_key is a unique field. We then use this value below
     -- to insert the seedling and point to the proper batch_id, which is a
     -- foreign key that references the key_id of the internal key.
-    SELECT key_id 
-    FROM internal_keys keys
+    SELECT keys.key_id
+    FROM internal_keys AS keys
     WHERE keys.raw_key = $1
 )
-INSERT INTO asset_seedlings(
+
+INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id,
     script_key_id, group_internal_key_id, group_tapscript_root,
@@ -2254,39 +2378,59 @@ func (q *Queries) NewMintingBatch(ctx context.Context, arg NewMintingBatchParams
 
 const QueryAssetBalancesByAsset = `-- name: QueryAssetBalancesByAsset :many
 SELECT
-    genesis_info_view.asset_id, SUM(amount) balance,
-    genesis_info_view.asset_tag, genesis_info_view.meta_hash,
-    genesis_info_view.asset_type, genesis_info_view.output_index,
+    genesis_info_view.asset_id,
+    SUM(assets.amount) AS balance,
+    genesis_info_view.asset_tag,
+    genesis_info_view.meta_hash,
+    genesis_info_view.asset_type,
+    genesis_info_view.output_index,
     genesis_info_view.prev_out AS genesis_point
 FROM assets
 JOIN genesis_info_view
-    ON assets.genesis_id = genesis_info_view.gen_asset_id AND
-      (genesis_info_view.asset_id = $1 OR
-        $1 IS NULL)
-LEFT JOIN key_group_info_view
+    ON
+        assets.genesis_id = genesis_info_view.gen_asset_id
+        AND (
+            genesis_info_view.asset_id = $1
+            OR $1 IS NULL
+        )
+LEFT JOIN key_group_info_view -- noqa: ST11
     ON assets.genesis_id = key_group_info_view.gen_asset_id
-JOIN managed_utxos utxos
-    ON assets.anchor_utxo_id = utxos.utxo_id AND
-       CASE
-           WHEN $2 = true THEN
-               (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > $3)
-           WHEN $2 = false THEN
-               (utxos.lease_owner IS NULL OR 
-                utxos.lease_expiry IS NULL OR
-                utxos.lease_expiry <= $3)
-           ELSE TRUE
-       END
+JOIN managed_utxos AS utxos
+    ON
+        assets.anchor_utxo_id = utxos.utxo_id
+        AND CASE
+            WHEN $2 = TRUE
+                THEN
+                    (
+                        utxos.lease_owner IS NOT NULL
+                        AND utxos.lease_expiry > $3
+                    )
+            WHEN $2 = FALSE
+                THEN
+                    (
+                        utxos.lease_owner IS NULL
+                        OR utxos.lease_expiry IS NULL
+                        OR utxos.lease_expiry <= $3
+                    )
+            ELSE TRUE
+        END
 JOIN script_keys
     ON assets.script_key_id = script_keys.script_key_id
-WHERE spent = FALSE AND 
-      (script_keys.key_type != $4 OR
-        $4 IS NULL) AND
-      ($5 = script_keys.key_type OR 
-        $5 IS NULL)
-GROUP BY assets.genesis_id, genesis_info_view.asset_id,
-         genesis_info_view.asset_tag, genesis_info_view.meta_hash,
-         genesis_info_view.asset_type, genesis_info_view.output_index,
-         genesis_info_view.prev_out
+WHERE
+    assets.spent = FALSE
+    AND (
+        script_keys.key_type != $4
+        OR $4 IS NULL
+    )
+    AND (
+        $5 = script_keys.key_type
+        OR $5 IS NULL
+    )
+GROUP BY
+    assets.genesis_id, genesis_info_view.asset_id,
+    genesis_info_view.asset_tag, genesis_info_view.meta_hash,
+    genesis_info_view.asset_type, genesis_info_view.output_index,
+    genesis_info_view.prev_out
 `
 
 type QueryAssetBalancesByAssetParams struct {
@@ -2350,30 +2494,48 @@ func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, arg QueryAssetB
 
 const QueryAssetBalancesByGroup = `-- name: QueryAssetBalancesByGroup :many
 SELECT
-    key_group_info_view.tweaked_group_key, SUM(amount) balance
+    key_group_info_view.tweaked_group_key,
+    SUM(assets.amount) AS balance
 FROM assets
 JOIN key_group_info_view
-    ON assets.genesis_id = key_group_info_view.gen_asset_id AND
-      (key_group_info_view.tweaked_group_key = $1 OR
-        $1 IS NULL)
-JOIN managed_utxos utxos
-    ON assets.anchor_utxo_id = utxos.utxo_id AND
-       CASE
-           WHEN $2 = true THEN
-               (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > $3)
-           WHEN $2 = false THEN
-               (utxos.lease_owner IS NULL OR 
-                utxos.lease_expiry IS NULL OR
-                utxos.lease_expiry <= $3)
-           ELSE TRUE
-       END
+    ON
+        assets.genesis_id = key_group_info_view.gen_asset_id
+        AND (
+            key_group_info_view.tweaked_group_key
+            = $1
+            OR $1 IS NULL
+        )
+JOIN managed_utxos AS utxos
+    ON
+        assets.anchor_utxo_id = utxos.utxo_id
+        AND CASE
+            WHEN $2 = TRUE
+                THEN
+                    (
+                        utxos.lease_owner IS NOT NULL
+                        AND utxos.lease_expiry > $3
+                    )
+            WHEN $2 = FALSE
+                THEN
+                    (
+                        utxos.lease_owner IS NULL
+                        OR utxos.lease_expiry IS NULL
+                        OR utxos.lease_expiry <= $3
+                    )
+            ELSE TRUE
+        END
 JOIN script_keys
     ON assets.script_key_id = script_keys.script_key_id
-WHERE spent = FALSE AND
-      (script_keys.key_type != $4 OR
-        $4 IS NULL) AND
-      ($5 = script_keys.key_type OR
-        $5 IS NULL)
+WHERE
+    assets.spent = FALSE
+    AND (
+        script_keys.key_type != $4
+        OR $4 IS NULL
+    )
+    AND (
+        $5 = script_keys.key_type
+        OR $5 IS NULL
+    )
 GROUP BY key_group_info_view.tweaked_group_key
 `
 
@@ -2422,19 +2584,24 @@ func (q *Queries) QueryAssetBalancesByGroup(ctx context.Context, arg QueryAssetB
 const QueryAssets = `-- name: QueryAssets :many
 SELECT
     assets.asset_id AS asset_primary_key,
-    assets.genesis_id, assets.version, spent,
-    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type,
-    internal_keys.key_id, internal_keys.raw_key, internal_keys.key_family, internal_keys.key_index,
-    key_group_info_view.tapscript_root, 
-    key_group_info_view.witness_stack, 
+    assets.genesis_id,
+    assets.version,
+    assets.spent,
+    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type, -- noqa: RF02,AL03
+    internal_keys.key_id, internal_keys.raw_key, internal_keys.key_family, internal_keys.key_index, -- noqa: RF02,AL03
+    key_group_info_view.tapscript_root,
+    key_group_info_view.witness_stack,
     key_group_info_view.tweaked_group_key,
     key_group_info_view.raw_key AS group_key_raw,
     key_group_info_view.key_family AS group_key_family,
     key_group_info_view.key_index AS group_key_index,
-    script_version, amount, lock_time, relative_lock_time, 
-    genesis_info_view.asset_id AS asset_id,
+    assets.script_version,
+    assets.amount,
+    assets.lock_time,
+    assets.relative_lock_time,
+    genesis_info_view.asset_id,
     genesis_info_view.asset_tag,
-    genesis_info_view.meta_hash, 
+    genesis_info_view.meta_hash,
     genesis_info_view.output_index AS genesis_output_index,
     genesis_info_view.asset_type,
     genesis_info_view.prev_out AS genesis_prev_out,
@@ -2450,49 +2617,74 @@ SELECT
     utxos.lease_owner AS anchor_lease_owner,
     utxos.lease_expiry AS anchor_lease_expiry,
     utxo_internal_keys.raw_key AS anchor_internal_key,
-    split_commitment_root_hash, split_commitment_root_value
+    assets.split_commitment_root_hash,
+    assets.split_commitment_root_value
 FROM assets
 JOIN genesis_info_view
-    ON assets.genesis_id = genesis_info_view.gen_asset_id AND
-      (genesis_info_view.asset_id = $1 OR
-        $1 IS NULL)
+    ON
+        assets.genesis_id = genesis_info_view.gen_asset_id
+        AND (
+            genesis_info_view.asset_id = $1
+            OR $1 IS NULL
+        )
 LEFT JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id
 JOIN script_keys
-    ON assets.script_key_id = script_keys.script_key_id AND
-      (script_keys.tweaked_script_key = $2 OR
-       $2 IS NULL)
+    ON
+        assets.script_key_id = script_keys.script_key_id
+        AND (
+            script_keys.tweaked_script_key = $2
+            OR $2 IS NULL
+        )
 JOIN internal_keys
     ON script_keys.internal_key_id = internal_keys.key_id
-JOIN managed_utxos utxos
-    ON assets.anchor_utxo_id = utxos.utxo_id AND
-      (utxos.outpoint = $3 OR
-       $3 IS NULL) AND
-       CASE
-           WHEN $4 = true THEN
-               (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > $5)
-           WHEN $4 = false THEN
-               (utxos.lease_owner IS NULL OR 
-                utxos.lease_expiry IS NULL OR
-                utxos.lease_expiry <= $5)
-           ELSE TRUE
-       END
-JOIN internal_keys utxo_internal_keys
+JOIN managed_utxos AS utxos
+    ON
+        assets.anchor_utxo_id = utxos.utxo_id
+        AND (
+            utxos.outpoint = $3
+            OR $3 IS NULL
+        )
+        AND CASE
+            WHEN $4 = TRUE
+                THEN
+                    (
+                        utxos.lease_owner IS NOT NULL
+                        AND utxos.lease_expiry > $5
+                    )
+            WHEN $4 = FALSE
+                THEN
+                    (
+                        utxos.lease_owner IS NULL
+                        OR utxos.lease_expiry IS NULL
+                        OR utxos.lease_expiry <= $5
+                    )
+            ELSE TRUE
+        END
+JOIN internal_keys AS utxo_internal_keys
     ON utxos.internal_key_id = utxo_internal_keys.key_id
-JOIN chain_txns txns
-    ON utxos.txn_id = txns.txn_id AND
-      COALESCE(txns.block_height, 0) >= COALESCE($6, txns.block_height, 0)
+JOIN chain_txns AS txns
+    ON
+        utxos.txn_id = txns.txn_id
+        AND COALESCE(txns.block_height, 0)
+        >= COALESCE($6, txns.block_height, 0)
 WHERE (
-    assets.amount >= COALESCE($7, assets.amount) AND
-    assets.amount <= COALESCE($8, assets.amount) AND
-    assets.spent = COALESCE($9, assets.spent) AND
-    (key_group_info_view.tweaked_group_key = $10 OR
-      $10 IS NULL) AND
-    assets.anchor_utxo_id = COALESCE($11, assets.anchor_utxo_id) AND
-    assets.genesis_id = COALESCE($12, assets.genesis_id) AND
-    assets.script_key_id = COALESCE($13, assets.script_key_id) AND
-    ($14 = script_keys.key_type OR
-      $14 IS NULL)
+    assets.amount >= COALESCE($7, assets.amount)
+    AND assets.amount <= COALESCE($8, assets.amount)
+    AND assets.spent = COALESCE($9, assets.spent)
+    AND (
+        key_group_info_view.tweaked_group_key = $10
+        OR $10 IS NULL
+    )
+    AND assets.anchor_utxo_id
+    = COALESCE($11, assets.anchor_utxo_id)
+    AND assets.genesis_id = COALESCE($12, assets.genesis_id)
+    AND assets.script_key_id
+    = COALESCE($13, assets.script_key_id)
+    AND (
+        $14 = script_keys.key_type
+        OR $14 IS NULL
+    )
 )
 `
 
@@ -2643,20 +2835,25 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 }
 
 const SetAssetSpent = `-- name: SetAssetSpent :one
-WITH target_asset(asset_id) AS (
+WITH target_asset (asset_id) AS (
     SELECT assets.asset_id
     FROM assets
     JOIN script_keys
-      ON assets.script_key_id = script_keys.script_key_id
+        ON assets.script_key_id = script_keys.script_key_id
     JOIN genesis_assets
-      ON assets.genesis_id = genesis_assets.gen_asset_id
-    JOIN managed_utxos utxos
-         ON assets.anchor_utxo_id = utxos.utxo_id AND
-            (utxos.outpoint = $1 OR
-             $1 IS NULL)
-    WHERE script_keys.tweaked_script_key = $2
-     AND genesis_assets.asset_id = $3
+        ON assets.genesis_id = genesis_assets.gen_asset_id
+    JOIN managed_utxos AS utxos
+        ON
+            assets.anchor_utxo_id = utxos.utxo_id
+            AND (
+                utxos.outpoint = $1
+                OR $1 IS NULL
+            )
+    WHERE
+        script_keys.tweaked_script_key = $2
+        AND genesis_assets.asset_id = $3
 )
+
 UPDATE assets
 SET spent = TRUE
 WHERE asset_id = (SELECT asset_id FROM target_asset)
@@ -2678,15 +2875,16 @@ func (q *Queries) SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (i
 
 const UpdateBatchGenesisTx = `-- name: UpdateBatchGenesisTx :exec
 WITH target_batch AS (
-    SELECT batch_id
-    FROM asset_minting_batches batches
-    JOIN internal_keys keys
+    SELECT batches.batch_id
+    FROM asset_minting_batches AS batches
+    JOIN internal_keys AS keys
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
+
 UPDATE asset_minting_batches
 SET minting_tx_psbt = $2
-WHERE batch_id in (SELECT batch_id FROM target_batch)
+WHERE batch_id IN (SELECT tb.batch_id FROM target_batch AS tb)
 `
 
 type UpdateBatchGenesisTxParams struct {
@@ -2705,15 +2903,16 @@ WITH target_batch AS (
     -- internal key associated with the batch. This internal key is used as the
     -- actual Taproot internal key to ultimately mint the batch. This pattern
     -- is used in several other queries.
-    SELECT batch_id
-    FROM asset_minting_batches batches
-    JOIN internal_keys keys
+    SELECT batches.batch_id
+    FROM asset_minting_batches AS batches
+    JOIN internal_keys AS keys
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-UPDATE asset_minting_batches 
+
+UPDATE asset_minting_batches
 SET batch_state = $2
-WHERE batch_id in (SELECT batch_id FROM target_batch)
+WHERE batch_id IN (SELECT tb.batch_id FROM target_batch AS tb)
 `
 
 type UpdateMintingBatchStateParams struct {
@@ -2745,15 +2944,13 @@ func (q *Queries) UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLeaseParams
 
 const UpsertAsset = `-- name: UpsertAsset :one
 INSERT INTO assets (
-    genesis_id, version, script_key_id, asset_group_witness_id, script_version, 
+    genesis_id, version, script_key_id, asset_group_witness_id, script_version,
     amount, lock_time, relative_lock_time, anchor_utxo_id, spent
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 )
 ON CONFLICT (genesis_id, script_key_id, anchor_utxo_id)
-    -- This is a NOP, anchor_utxo_id is one of the unique fields that caused the
-    -- conflict.
-    DO UPDATE SET anchor_utxo_id = EXCLUDED.anchor_utxo_id
+DO UPDATE SET anchor_utxo_id = excluded.anchor_utxo_id
 RETURNING asset_id
 `
 
@@ -2770,6 +2967,8 @@ type UpsertAssetParams struct {
 	Spent               bool
 }
 
+// This is a NOP, anchor_utxo_id is one of the unique fields that caused the
+// conflict.
 func (q *Queries) UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertAsset,
 		arg.GenesisID,
@@ -2795,9 +2994,7 @@ INSERT INTO asset_groups (
 ) VALUES (
     $1, $2, $3, $4, $5, $6
 ) ON CONFLICT (tweaked_group_key)
-    -- This is not a NOP, update the genesis point ID in case it wasn't set
-    -- before.
-    DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
+DO UPDATE SET genesis_point_id = excluded.genesis_point_id
 RETURNING group_id
 `
 
@@ -2810,6 +3007,8 @@ type UpsertAssetGroupKeyParams struct {
 	CustomSubtreeRootID sql.NullInt32
 }
 
+// This is not a NOP, update the genesis point ID in case it wasn't set
+// before.
 func (q *Queries) UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertAssetGroupKey,
 		arg.Version,
@@ -2830,8 +3029,7 @@ INSERT INTO asset_group_witnesses (
 ) VALUES (
     $1, $2, $3
 ) ON CONFLICT (gen_asset_id)
-    -- This is a NOP, gen_asset_id is the unique field that caused the conflict.
-    DO UPDATE SET gen_asset_id = EXCLUDED.gen_asset_id
+DO UPDATE SET gen_asset_id = excluded.gen_asset_id
 RETURNING witness_id
 `
 
@@ -2841,6 +3039,7 @@ type UpsertAssetGroupWitnessParams struct {
 	GroupKeyID   int64
 }
 
+// This is a NOP, gen_asset_id is the unique field that caused the conflict.
 func (q *Queries) UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertAssetGroupWitness, arg.WitnessStack, arg.GenAssetID, arg.GroupKeyID)
 	var witness_id int64
@@ -2855,16 +3054,22 @@ INSERT INTO assets_meta (
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
 ) ON CONFLICT (meta_data_hash)
-    -- In this case, we may be inserting the data+type for an existing blob. So
-    -- we'll set all of those values. At this layer we assume the meta hash
-    -- has been validated elsewhere.
-    DO UPDATE SET meta_data_blob = COALESCE(EXCLUDED.meta_data_blob, assets_meta.meta_data_blob),
-                  meta_data_type = COALESCE(EXCLUDED.meta_data_type, assets_meta.meta_data_type),
-                  meta_decimal_display = COALESCE(EXCLUDED.meta_decimal_display, assets_meta.meta_decimal_display),
-                  meta_universe_commitments = COALESCE(EXCLUDED.meta_universe_commitments, assets_meta.meta_universe_commitments),
-                  meta_canonical_universes = COALESCE(EXCLUDED.meta_canonical_universes, assets_meta.meta_canonical_universes),
-                  meta_delegation_key = COALESCE(EXCLUDED.meta_delegation_key, assets_meta.meta_delegation_key)
-        
+DO UPDATE SET meta_data_blob
+= COALESCE(excluded.meta_data_blob, assets_meta.meta_data_blob),
+meta_data_type = COALESCE(excluded.meta_data_type, assets_meta.meta_data_type),
+meta_decimal_display
+= COALESCE(excluded.meta_decimal_display, assets_meta.meta_decimal_display),
+meta_universe_commitments
+= COALESCE(
+    excluded.meta_universe_commitments, assets_meta.meta_universe_commitments
+),
+meta_canonical_universes
+= COALESCE(
+    excluded.meta_canonical_universes, assets_meta.meta_canonical_universes
+),
+meta_delegation_key
+= COALESCE(excluded.meta_delegation_key, assets_meta.meta_delegation_key)
+
 RETURNING meta_id
 `
 
@@ -2878,6 +3083,9 @@ type UpsertAssetMetaParams struct {
 	MetaDelegationKey       []byte
 }
 
+// In this case, we may be inserting the data+type for an existing blob. So
+// we'll set all of those values. At this layer we assume the meta hash
+// has been validated elsewhere.
 func (q *Queries) UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertAssetMeta,
 		arg.MetaDataHash,
@@ -2899,8 +3107,7 @@ INSERT INTO asset_proofs (
 ) VALUES (
     $1, $2
 ) ON CONFLICT (asset_id)
-    -- This is not a NOP, we always overwrite the proof with the new one.
-    DO UPDATE SET proof_file = EXCLUDED.proof_file
+DO UPDATE SET proof_file = excluded.proof_file
 `
 
 type UpsertAssetProofByIDParams struct {
@@ -2908,6 +3115,7 @@ type UpsertAssetProofByIDParams struct {
 	ProofFile []byte
 }
 
+// This is not a NOP, we always overwrite the proof with the new one.
 func (q *Queries) UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error {
 	_, err := q.db.ExecContext(ctx, UpsertAssetProofByID, arg.AssetID, arg.ProofFile)
 	return err
@@ -2919,13 +3127,12 @@ INSERT INTO asset_witnesses (
     split_commitment_proof, witness_index
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
-)  ON CONFLICT (asset_id, witness_index)
-    -- We overwrite the witness with the new one.
-    DO UPDATE SET prev_out_point = EXCLUDED.prev_out_point,
-                  prev_asset_id = EXCLUDED.prev_asset_id,
-                  prev_script_key = EXCLUDED.prev_script_key,
-                  witness_stack = EXCLUDED.witness_stack,
-                  split_commitment_proof = EXCLUDED.split_commitment_proof
+) ON CONFLICT (asset_id, witness_index)
+DO UPDATE SET prev_out_point = excluded.prev_out_point,
+prev_asset_id = excluded.prev_asset_id,
+prev_script_key = excluded.prev_script_key,
+witness_stack = excluded.witness_stack,
+split_commitment_proof = excluded.split_commitment_proof
 `
 
 type UpsertAssetWitnessParams struct {
@@ -2938,6 +3145,7 @@ type UpsertAssetWitnessParams struct {
 	WitnessIndex         int32
 }
 
+// We overwrite the witness with the new one.
 func (q *Queries) UpsertAssetWitness(ctx context.Context, arg UpsertAssetWitnessParams) error {
 	_, err := q.db.ExecContext(ctx, UpsertAssetWitness,
 		arg.AssetID,
@@ -2958,11 +3166,10 @@ INSERT INTO chain_txns (
     $1, $2, $3, $4, $5,
     $6
 ) ON CONFLICT (txid)
-    -- Not a NOP but instead update any nullable fields that aren't null in the
-    -- args.
-    DO UPDATE SET block_height = COALESCE(EXCLUDED.block_height, chain_txns.block_height),
-                  block_hash = COALESCE(EXCLUDED.block_hash, chain_txns.block_hash),
-                  tx_index = COALESCE(EXCLUDED.tx_index, chain_txns.tx_index)
+DO UPDATE SET block_height
+= COALESCE(excluded.block_height, chain_txns.block_height),
+block_hash = COALESCE(excluded.block_hash, chain_txns.block_hash),
+tx_index = COALESCE(excluded.tx_index, chain_txns.tx_index)
 RETURNING txn_id
 `
 
@@ -2975,6 +3182,8 @@ type UpsertChainTxParams struct {
 	TxIndex     sql.NullInt32
 }
 
+// Not a NOP but instead update any nullable fields that aren't null in the
+// args.
 func (q *Queries) UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertChainTx,
 		arg.Txid,
@@ -2995,13 +3204,18 @@ WITH target_meta_id AS (
     FROM assets_meta
     WHERE meta_data_hash = $1
 )
+
 INSERT INTO genesis_assets (
-    asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id
+    asset_id,
+    asset_tag,
+    meta_data_id,
+    output_index,
+    asset_type,
+    genesis_point_id
 ) VALUES (
     $2, $3, (SELECT meta_id FROM target_meta_id), $4, $5, $6
 ) ON CONFLICT (asset_id)
-    -- This is a NOP, asset_id is the unique field that caused the conflict.
-    DO UPDATE SET asset_id = EXCLUDED.asset_id
+DO UPDATE SET asset_id = excluded.asset_id
 RETURNING gen_asset_id
 `
 
@@ -3014,6 +3228,7 @@ type UpsertGenesisAssetParams struct {
 	GenesisPointID int64
 }
 
+// This is a NOP, asset_id is the unique field that caused the conflict.
 func (q *Queries) UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertGenesisAsset,
 		arg.MetaDataHash,
@@ -3029,16 +3244,16 @@ func (q *Queries) UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAsset
 }
 
 const UpsertGenesisPoint = `-- name: UpsertGenesisPoint :one
-INSERT INTO genesis_points(
+INSERT INTO genesis_points (
     prev_out
 ) VALUES (
     $1
 ) ON CONFLICT (prev_out)
-    -- This is a NOP, prev_out is the unique field that caused the conflict.
-    DO UPDATE SET prev_out = EXCLUDED.prev_out
+DO UPDATE SET prev_out = excluded.prev_out
 RETURNING genesis_id
 `
 
+// This is a NOP, prev_out is the unique field that caused the conflict.
 func (q *Queries) UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertGenesisPoint, prevOut)
 	var genesis_id int64
@@ -3048,12 +3263,11 @@ func (q *Queries) UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int64
 
 const UpsertInternalKey = `-- name: UpsertInternalKey :one
 INSERT INTO internal_keys (
-    raw_key,  key_family, key_index
+    raw_key, key_family, key_index
 ) VALUES (
     $1, $2, $3
 ) ON CONFLICT (raw_key)
-    -- This is a NOP, raw_key is the unique field that caused the conflict.
-    DO UPDATE SET raw_key = EXCLUDED.raw_key
+DO UPDATE SET raw_key = excluded.raw_key
 RETURNING key_id
 `
 
@@ -3063,6 +3277,7 @@ type UpsertInternalKeyParams struct {
 	KeyIndex  int32
 }
 
+// This is a NOP, raw_key is the unique field that caused the conflict.
 func (q *Queries) UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertInternalKey, arg.RawKey, arg.KeyFamily, arg.KeyIndex)
 	var key_id int64
@@ -3071,20 +3286,20 @@ func (q *Queries) UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyPa
 }
 
 const UpsertManagedUTXO = `-- name: UpsertManagedUTXO :one
-WITH target_key(key_id) AS (
+WITH target_key (key_id) AS (
     SELECT key_id
     FROM internal_keys
     WHERE raw_key = $1
 )
+
 INSERT INTO managed_utxos (
     outpoint, amt_sats, internal_key_id, tapscript_sibling, merkle_root, txn_id,
     taproot_asset_root, root_version
 ) VALUES (
     $2, $3, (SELECT key_id FROM target_key), $4, $5, $6, $7, $8
 ) ON CONFLICT (outpoint)
-   -- Not a NOP but instead update any nullable fields that aren't null in the
-   -- args.
-   DO UPDATE SET tapscript_sibling = COALESCE(EXCLUDED.tapscript_sibling, managed_utxos.tapscript_sibling)
+DO UPDATE SET tapscript_sibling
+= COALESCE(excluded.tapscript_sibling, managed_utxos.tapscript_sibling)
 RETURNING utxo_id
 `
 
@@ -3099,6 +3314,8 @@ type UpsertManagedUTXOParams struct {
 	RootVersion      sql.NullInt16
 }
 
+// Not a NOP but instead update any nullable fields that aren't null in the
+// args.
 func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertManagedUTXO,
 		arg.RawKey,
@@ -3120,9 +3337,10 @@ WITH target_batch AS (
     -- This CTE is used to fetch the ID of a batch, based on the serialized
     -- internal key associated with the batch.
     SELECT keys.key_id AS batch_id
-    FROM internal_keys keys
+    FROM internal_keys AS keys
     WHERE keys.raw_key = $4
 )
+
 INSERT INTO mint_anchor_uni_commitments (
     batch_id, tx_output_index, taproot_internal_key_id, group_key
 )
@@ -3130,10 +3348,9 @@ VALUES (
     (SELECT batch_id FROM target_batch), $1,
     $2, $3
 )
-ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
-    -- The following fields are updated if a conflict occurs.
-    taproot_internal_key_id = EXCLUDED.taproot_internal_key_id,
-    group_key = EXCLUDED.group_key
+ON CONFLICT (batch_id, tx_output_index) DO UPDATE SET
+taproot_internal_key_id = excluded.taproot_internal_key_id,
+group_key = excluded.group_key
 RETURNING id
 `
 
@@ -3147,6 +3364,7 @@ type UpsertMintAnchorUniCommitmentParams struct {
 // Upsert a record into the mint_anchor_uni_commitments table.
 // If a record with the same batch ID and tx output index already exists, update
 // the existing record. Otherwise, insert a new record.
+// The following fields are updated if a conflict occurs.
 func (q *Queries) UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertMintAnchorUniCommitment,
 		arg.TxOutputIndex,
@@ -3164,26 +3382,17 @@ INSERT INTO script_keys (
     internal_key_id, tweaked_script_key, tweak, key_type
 ) VALUES (
     $1, $2, $3, $4
-)  ON CONFLICT (tweaked_script_key)
-    -- Overwrite the declared_known, key_type and tweak fields if they were
-    -- previously unknown.
-    DO UPDATE SET 
-      tweaked_script_key = EXCLUDED.tweaked_script_key,
-      -- If the tweak was previously unknown, we'll update to the new value.
-      tweak =
-          CASE
-             WHEN script_keys.tweak IS NULL
-             THEN COALESCE(EXCLUDED.tweak, script_keys.tweak)
-             ELSE script_keys.tweak
-           END,
-      -- We only overwrite the key type with a value that does not mean
-      -- "unknown" (0 or NULL).
-        key_type =
-          CASE
-             WHEN COALESCE(EXCLUDED.key_type, 0) != 0
-             THEN EXCLUDED.key_type
-             ELSE script_keys.key_type
-           END
+) ON CONFLICT (tweaked_script_key)
+DO UPDATE SET
+tweaked_script_key = excluded.tweaked_script_key,
+tweak
+= COALESCE(script_keys.tweak, COALESCE(excluded.tweak, script_keys.tweak)),
+key_type
+= CASE
+    WHEN COALESCE(excluded.key_type, 0) != 0
+        THEN excluded.key_type
+    ELSE script_keys.key_type
+END
 RETURNING script_key_id
 `
 
@@ -3194,6 +3403,11 @@ type UpsertScriptKeyParams struct {
 	KeyType          sql.NullInt16
 }
 
+// Overwrite the declared_known, key_type and tweak fields if they were
+// previously unknown.
+// If the tweak was previously unknown, we'll update to the new value.
+// We only overwrite the key type with a value that does not mean
+// "unknown" (0 or NULL).
 func (q *Queries) UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertScriptKey,
 		arg.InternalKeyID,
@@ -3212,10 +3426,8 @@ INSERT INTO tapscript_edges (
 ) VALUES (
     $1, $2, $3
 ) ON CONFLICT (root_hash_id, node_index, raw_node_id)
-    -- This is a NOP, root_hash_id, node_index, and raw_node_id are the unique
-    -- fields that caused the conflict.
-    DO UPDATE SET root_hash_id = EXCLUDED.root_hash_id,
-    node_index = EXCLUDED.node_index, raw_node_id = EXCLUDED.raw_node_id
+DO UPDATE SET root_hash_id = excluded.root_hash_id,
+node_index = excluded.node_index, raw_node_id = excluded.raw_node_id
 RETURNING edge_id
 `
 
@@ -3225,6 +3437,8 @@ type UpsertTapscriptTreeEdgeParams struct {
 	RawNodeID  int64
 }
 
+// This is a NOP, root_hash_id, node_index, and raw_node_id are the unique
+// fields that caused the conflict.
 func (q *Queries) UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertTapscriptTreeEdge, arg.RootHashID, arg.NodeIndex, arg.RawNodeID)
 	var edge_id int64
@@ -3238,11 +3452,11 @@ INSERT INTO tapscript_nodes (
 ) VALUES (
     $1
 ) ON CONFLICT (raw_node)
-    -- This is a NOP, raw_node is the unique field that caused the conflict.
-    DO UPDATE SET raw_node = EXCLUDED.raw_node
+DO UPDATE SET raw_node = excluded.raw_node
 RETURNING node_id
 `
 
+// This is a NOP, raw_node is the unique field that caused the conflict.
 func (q *Queries) UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertTapscriptTreeNode, rawNode)
 	var node_id int64
@@ -3256,10 +3470,7 @@ INSERT INTO tapscript_roots (
 ) VALUES (
     $1, $2
 ) ON CONFLICT (root_hash)
-    -- This is a NOP, the root_hash is the unique field that caused the
-    -- conflict. The tree should be deleted before switching between branch and
-    -- leaf storage for the same root hash.
-    DO UPDATE SET root_hash = EXCLUDED.root_hash
+DO UPDATE SET root_hash = excluded.root_hash
 RETURNING root_id
 `
 
@@ -3268,6 +3479,9 @@ type UpsertTapscriptTreeRootHashParams struct {
 	BranchOnly bool
 }
 
+// This is a NOP, the root_hash is the unique field that caused the
+// conflict. The tree should be deleted before switching between branch and
+// leaf storage for the same root hash.
 func (q *Queries) UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertTapscriptTreeRootHash, arg.RootHash, arg.BranchOnly)
 	var root_id int64
