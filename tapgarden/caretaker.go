@@ -1512,6 +1512,20 @@ func GenGroupAnchorVerifier(ctx context.Context,
 					ErrGroupKeyUnknown)
 			}
 
+			isGroupAnchor, err := storedGroup.IsGroupAnchor()
+			if err != nil {
+				return fmt.Errorf("%x: group anchor verifier: "+
+					"unable to check if genesis is "+
+					"group anchor: %w", assetGroupKey[:],
+					err)
+			}
+
+			if !isGroupAnchor {
+				return fmt.Errorf("%x: group anchor verifier: "+
+					"genesis is not a group anchor: %w",
+					assetGroupKey[:], err)
+			}
+
 			groupAnchor = newSingleValue(storedGroup.Genesis)
 
 			_, _ = groupAnchors.Put(assetGroupKey, groupAnchor)
