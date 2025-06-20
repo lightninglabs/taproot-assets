@@ -9,14 +9,14 @@ CREATE TABLE addr_events (
     creation_time TIMESTAMP NOT NULL,
 
     -- addr_id is the reference to the address this event was emitted for.
-    addr_id BIGINT NOT NULL REFERENCES addrs(id),
+    addr_id BIGINT NOT NULL REFERENCES addrs (id),
 
     -- status is the status of the inbound asset.
     status SMALLINT NOT NULL CHECK (status IN (0, 1, 2, 3)),
 
     -- chain_txn_id is a reference to the chain transaction that has the Taproot
     -- output for this event.
-    chain_txn_id BIGINT NOT NULL REFERENCES chain_txns(txn_id),
+    chain_txn_id BIGINT NOT NULL REFERENCES chain_txns (txn_id),
 
     -- chain_txn_output_index is the index of the on-chain output (of the
     -- transaction referenced by chain_txn_id) that houses the Taproot Asset
@@ -25,18 +25,18 @@ CREATE TABLE addr_events (
 
     -- managed_utxo_id is a reference to the managed UTXO the internal wallet
     -- tracks with on-chain funds that belong to us.
-    managed_utxo_id BIGINT NOT NULL REFERENCES managed_utxos(utxo_id),
+    managed_utxo_id BIGINT NOT NULL REFERENCES managed_utxos (utxo_id),
 
     -- asset_proof_id is a reference to the proof associated with this asset
     -- event.
-    asset_proof_id BIGINT REFERENCES asset_proofs(proof_id),
-    
+    asset_proof_id BIGINT REFERENCES asset_proofs (proof_id),
+
     -- asset_id is a reference to the asset once we have taken custody of it.
     -- This will only be set once the proofs were imported successfully and the
     -- event is in the status complete.
-    asset_id BIGINT REFERENCES assets(asset_id),
-    
-    UNIQUE(addr_id, chain_txn_id, chain_txn_output_index)
+    asset_id BIGINT REFERENCES assets (asset_id),
+
+    UNIQUE (addr_id, chain_txn_id, chain_txn_output_index)
 );
 
 CREATE INDEX addr_group_keys ON addrs (group_key);
@@ -54,7 +54,7 @@ CREATE TABLE addrs (
 
     -- genesis_asset_id points to the asset genesis of the asset we want to
     -- send/recv.
-    genesis_asset_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id),
+    genesis_asset_id BIGINT NOT NULL REFERENCES genesis_assets (gen_asset_id),
 
     -- group_key is the raw blob of the group key. For assets w/o a group key,
     -- this field will be NULL.
@@ -62,11 +62,11 @@ CREATE TABLE addrs (
 
     -- script_key_id points to the internal key that we created to serve as the
     -- script key to be able to receive this asset.
-    script_key_id BIGINT NOT NULL REFERENCES script_keys(script_key_id),
+    script_key_id BIGINT NOT NULL REFERENCES script_keys (script_key_id),
 
     -- taproot_key_id points to the internal key that we'll use to serve as the
     -- taproot internal key to receive this asset.
-    taproot_key_id BIGINT NOT NULL REFERENCES internal_keys(key_id),
+    taproot_key_id BIGINT NOT NULL REFERENCES internal_keys (key_id),
 
     -- tapscript_sibling is the serialized tapscript sibling preimage that
     -- should be committed to in the taproot output alongside the Taproot Asset
@@ -76,10 +76,12 @@ CREATE TABLE addrs (
     -- taproot_output_key is the tweaked taproot output key that assets must
     -- be sent to on chain to be received, represented as a 32-byte x-only
     -- public key.
-    taproot_output_key BLOB NOT NULL UNIQUE CHECK(length(taproot_output_key) = 32),
+    taproot_output_key BLOB NOT NULL UNIQUE CHECK (
+        length(taproot_output_key) = 32
+    ),
 
     -- amount is the amount of asset we want to receive.
-    amount BIGINT NOT NULL,  
+    amount BIGINT NOT NULL,
 
     -- asset_type is the type of asset we want to receive. 
     asset_type SMALLINT NOT NULL,
@@ -101,16 +103,16 @@ CREATE TABLE "asset_burn_transfers" (
     burn_id INTEGER PRIMARY KEY,
 
     -- A reference to the primary key of the transfer that includes this burn.
-    transfer_id BIGINT NOT NULL REFERENCES asset_transfers(id),
+    transfer_id BIGINT NOT NULL REFERENCES asset_transfers (id),
 
     -- A note that may contain user defined metadata.
     note TEXT,
 
     -- The asset id of the burnt asset.
-    asset_id BLOB NOT NULL REFERENCES genesis_assets(asset_id),
+    asset_id BLOB NOT NULL REFERENCES genesis_assets (asset_id),
 
     -- The group key of the group the burnt asset belonged to.
-    group_key BLOB REFERENCES asset_groups(tweaked_group_key),
+    group_key BLOB REFERENCES asset_groups (tweaked_group_key),
 
     -- The amount of the asset that was burned.
     amount BIGINT NOT NULL
@@ -124,32 +126,35 @@ CREATE TABLE asset_group_witnesses (
     witness_stack BLOB NOT NULL,
 
     -- TODO(roasbeef): not needed since already in assets row?
-    gen_asset_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id) UNIQUE,
+    gen_asset_id BIGINT NOT NULL
+    REFERENCES genesis_assets (gen_asset_id) UNIQUE,
 
-    group_key_id BIGINT NOT NULL REFERENCES asset_groups(group_id)
+    group_key_id BIGINT NOT NULL REFERENCES asset_groups (group_id)
 );
 
 CREATE TABLE asset_groups (
     group_id INTEGER PRIMARY KEY,
 
-    tweaked_group_key BLOB UNIQUE NOT NULL CHECK(length(tweaked_group_key) = 33), 
+    tweaked_group_key BLOB UNIQUE NOT NULL
+    CHECK (length(tweaked_group_key) = 33),
 
     tapscript_root BLOB,
 
     -- TODO(roasbeef): also need to mix in output index here? to derive the
     -- genesis key?
-    internal_key_id BIGINT NOT NULL REFERENCES internal_keys(key_id),
+    internal_key_id BIGINT NOT NULL REFERENCES internal_keys (key_id),
 
-    genesis_point_id BIGINT NOT NULL REFERENCES genesis_points(genesis_id)
-, version INTEGER NOT NULL DEFAULT 0, custom_subtree_root_id INTEGER
-REFERENCES tapscript_roots(root_id));
+    genesis_point_id BIGINT NOT NULL REFERENCES genesis_points (genesis_id)
+, version INTEGER NOT NULL DEFAULT 0, custom_subtree_root_id INTEGER -- noqa: LL01
+REFERENCES tapscript_roots (root_id));
 
-CREATE INDEX asset_id_idx ON addr_events(asset_id);
+CREATE INDEX asset_id_idx ON addr_events (asset_id);
 
-CREATE INDEX asset_ids on genesis_assets(asset_id);
+CREATE INDEX asset_ids ON genesis_assets (asset_id);
 
 CREATE TABLE asset_minting_batches (
-    batch_id INTEGER PRIMARY KEY REFERENCES internal_keys(key_id),
+    batch_id INTEGER PRIMARY KEY -- noqa: LL01 
+    REFERENCES internal_keys (key_id), -- TODO(guggero): Use BIGINT.
 
     -- TODO(roasbeef): make into proper enum table or use check to ensure
     -- proper values
@@ -159,21 +164,21 @@ CREATE TABLE asset_minting_batches (
 
     change_output_index INTEGER,
 
-    genesis_id BIGINT REFERENCES genesis_points(genesis_id),
+    genesis_id BIGINT REFERENCES genesis_points (genesis_id),
 
     height_hint INTEGER NOT NULL,
 
     creation_time_unix TIMESTAMP NOT NULL
 , tapscript_sibling BLOB, assets_output_index INTEGER, universe_commitments BOOLEAN NOT NULL DEFAULT FALSE);
 
-CREATE INDEX asset_proof_id_idx ON addr_events(asset_proof_id);
+CREATE INDEX asset_proof_id_idx ON addr_events (asset_proof_id);
 
 CREATE TABLE asset_proofs (
     proof_id INTEGER PRIMARY KEY,
 
     -- We enforce that this value is unique so we can use an UPSERT to update a
     -- proof file that already exists.
-    asset_id BIGINT NOT NULL REFERENCES assets(asset_id) UNIQUE,
+    asset_id BIGINT NOT NULL REFERENCES assets (asset_id) UNIQUE,
 
     -- TODO(roasbef): store the merkle root separately? then can refer back to
     -- for all other files
@@ -194,53 +199,53 @@ CREATE TABLE asset_seedlings (
 
     asset_supply BIGINT NOT NULL,
 
-    asset_meta_id BIGINT NOT NULL REFERENCES assets_meta(meta_id),
+    asset_meta_id BIGINT NOT NULL REFERENCES assets_meta (meta_id),
 
     emission_enabled BOOLEAN NOT NULL,
 
-    batch_id BIGINT NOT NULL REFERENCES asset_minting_batches(batch_id),
+    batch_id BIGINT NOT NULL REFERENCES asset_minting_batches (batch_id),
 
-    group_genesis_id BIGINT REFERENCES genesis_assets(gen_asset_id),
+    group_genesis_id BIGINT REFERENCES genesis_assets (gen_asset_id),
 
-    group_anchor_id BIGINT REFERENCES asset_seedlings(seedling_id)
-, script_key_id BIGINT REFERENCES script_keys(script_key_id), group_internal_key_id BIGINT REFERENCES internal_keys(key_id), group_tapscript_root BLOB, delegation_key_id
-BIGINT REFERENCES internal_keys(key_id));
+    group_anchor_id BIGINT REFERENCES asset_seedlings (seedling_id)
+, script_key_id BIGINT REFERENCES script_keys (script_key_id), group_internal_key_id BIGINT REFERENCES internal_keys (key_id), group_tapscript_root BLOB, delegation_key_id
+BIGINT REFERENCES internal_keys (key_id));
 
 CREATE TABLE asset_transfer_inputs (
     input_id INTEGER PRIMARY KEY,
-    
-    transfer_id BIGINT NOT NULL REFERENCES asset_transfers(id),
-    
+
+    transfer_id BIGINT NOT NULL REFERENCES asset_transfers (id),
+
     anchor_point BLOB NOT NULL,
-    
+
     asset_id BLOB NOT NULL,
-    
+
     script_key BLOB NOT NULL,
-    
+
     amount BIGINT NOT NULL
 );
 
 CREATE TABLE asset_transfer_outputs (
     output_id INTEGER PRIMARY KEY,
-    
-    transfer_id BIGINT NOT NULL REFERENCES asset_transfers(id),
-    
-    anchor_utxo BIGINT NOT NULL REFERENCES managed_utxos(utxo_id),
-    
-    script_key BIGINT NOT NULL REFERENCES script_keys(script_key_id),
-    
+
+    transfer_id BIGINT NOT NULL REFERENCES asset_transfers (id),
+
+    anchor_utxo BIGINT NOT NULL REFERENCES managed_utxos (utxo_id),
+
+    script_key BIGINT NOT NULL REFERENCES script_keys (script_key_id),
+
     script_key_local BOOL NOT NULL,
-    
+
     amount BIGINT NOT NULL,
 
     asset_version INTEGER NOT NULL,
-    
+
     serialized_witnesses BLOB,
-    
+
     split_commitment_root_hash BLOB,
-    
+
     split_commitment_root_value BIGINT,
-    
+
     proof_suffix BLOB,
 
     num_passive_assets INTEGER NOT NULL,
@@ -259,11 +264,11 @@ ON asset_transfer_outputs (
 );
 
 CREATE TABLE asset_transfers (
-    id INTEGER PRIMARY KEY, 
+    id INTEGER PRIMARY KEY,
 
     height_hint INTEGER NOT NULL,
-    
-    anchor_txn_id BIGINT NOT NULL REFERENCES chain_txns(txn_id),
+
+    anchor_txn_id BIGINT NOT NULL REFERENCES chain_txns (txn_id),
 
     transfer_time_unix TIMESTAMP NOT NULL
 , label VARCHAR DEFAULT NULL, skip_anchor_tx_broadcast BOOLEAN NOT NULL DEFAULT FALSE);
@@ -271,7 +276,7 @@ CREATE TABLE asset_transfers (
 CREATE TABLE asset_witnesses (
     witness_id INTEGER PRIMARY KEY,
 
-    asset_id BIGINT NOT NULL REFERENCES assets(asset_id) ON DELETE CASCADE,
+    asset_id BIGINT NOT NULL REFERENCES assets (asset_id) ON DELETE CASCADE,
 
     prev_out_point BLOB NOT NULL,
 
@@ -287,21 +292,21 @@ CREATE TABLE asset_witnesses (
 , witness_index INTEGER NOT NULL DEFAULT -1);
 
 CREATE UNIQUE INDEX asset_witnesses_asset_id_witness_index_unique
-    ON asset_witnesses (
-                asset_id, witness_index
-        );
+ON asset_witnesses (
+    asset_id, witness_index
+);
 
 CREATE TABLE assets (
     asset_id INTEGER PRIMARY KEY,
-    
-    genesis_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id),
+
+    genesis_id BIGINT NOT NULL REFERENCES genesis_assets (gen_asset_id),
 
     version INTEGER NOT NULL,
 
-    script_key_id BIGINT NOT NULL REFERENCES script_keys(script_key_id),
+    script_key_id BIGINT NOT NULL REFERENCES script_keys (script_key_id),
 
     -- TODO(roasbeef): don't need this after all?
-    asset_group_witness_id BIGINT REFERENCES asset_group_witnesses(witness_id),
+    asset_group_witness_id BIGINT REFERENCES asset_group_witnesses (witness_id),
 
     -- TODO(roasbeef): make into enum?
     script_version INTEGER NOT NULL,
@@ -318,36 +323,37 @@ CREATE TABLE assets (
 
     split_commitment_root_value BIGINT,
 
-    anchor_utxo_id BIGINT REFERENCES managed_utxos(utxo_id),
-    
+    anchor_utxo_id BIGINT REFERENCES managed_utxos (utxo_id),
+
     -- A boolean that indicates that the asset was spent. This is only
     -- set for assets that were transferred in an active manner (as part of an
     -- user initiated transfer). Passive assets that are just re-anchored are
     -- updated in-place.
     spent BOOLEAN NOT NULL DEFAULT FALSE,
-    
-    UNIQUE(asset_id, genesis_id, script_key_id)
+
+    UNIQUE (asset_id, genesis_id, script_key_id)
 );
 
 CREATE UNIQUE INDEX assets_genesis_id_script_key_id_anchor_utxo_id_unique
-    ON assets (
-               genesis_id, script_key_id, anchor_utxo_id
-        );
+ON assets (
+    genesis_id, script_key_id, anchor_utxo_id
+);
 
 CREATE TABLE assets_meta (
     meta_id INTEGER PRIMARY KEY,
 
-    meta_data_hash BLOB UNIQUE CHECK(length(meta_data_hash) = 32),
+    meta_data_hash BLOB UNIQUE CHECK (length(meta_data_hash) = 32),
 
     -- TODO(roasbeef): also have other opque blob here for future fields?
     meta_data_blob BLOB,
 
     meta_data_type SMALLINT
 , meta_decimal_display INTEGER, meta_universe_commitments BOOL, meta_canonical_universes BLOB
-    CHECK(LENGTH(meta_canonical_universes) <= 4096), meta_delegation_key BLOB
-    CHECK(LENGTH(meta_delegation_key) <= 33));
+CHECK (LENGTH(meta_canonical_universes) <= 4096), meta_delegation_key BLOB
+CHECK (LENGTH(meta_delegation_key) <= 33));
 
-CREATE INDEX batch_state_lookup on asset_minting_batches (batch_state);
+CREATE INDEX batch_state_lookup
+ON asset_minting_batches (batch_state);
 
 CREATE TABLE chain_txns (
     txn_id INTEGER PRIMARY KEY,
@@ -365,10 +371,10 @@ CREATE TABLE chain_txns (
     tx_index INTEGER
 );
 
-CREATE INDEX creation_time_idx ON addr_events(creation_time);
+CREATE INDEX creation_time_idx ON addr_events (creation_time);
 
 CREATE TABLE federation_global_sync_config (
-    proof_type TEXT NOT NULL PRIMARY KEY REFERENCES proof_types(proof_type),
+    proof_type TEXT NOT NULL PRIMARY KEY REFERENCES proof_types (proof_type),
     allow_sync_insert BOOLEAN NOT NULL,
     allow_sync_export BOOLEAN NOT NULL
 );
@@ -377,7 +383,7 @@ CREATE TABLE federation_proof_sync_log (
     id INTEGER PRIMARY KEY,
 
     -- The status of the proof sync attempt.
-    status TEXT NOT NULL CHECK(status IN ('pending', 'complete')),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'complete')),
 
     -- The timestamp of when the log entry for the associated proof was last
     -- updated.
@@ -387,20 +393,20 @@ CREATE TABLE federation_proof_sync_log (
     attempt_counter BIGINT NOT NULL DEFAULT 0,
 
     -- The direction of the proof sync attempt.
-    sync_direction TEXT NOT NULL CHECK(sync_direction IN ('push', 'pull')),
+    sync_direction TEXT NOT NULL CHECK (sync_direction IN ('push', 'pull')),
 
     -- The ID of the subject proof leaf.
-    proof_leaf_id BIGINT NOT NULL REFERENCES universe_leaves(id),
+    proof_leaf_id BIGINT NOT NULL REFERENCES universe_leaves (id),
 
     -- The ID of the universe that the proof leaf belongs to.
-    universe_root_id BIGINT NOT NULL REFERENCES universe_roots(id),
+    universe_root_id BIGINT NOT NULL REFERENCES universe_roots (id),
 
     -- The ID of the server that the proof will be/was synced to.
-    servers_id BIGINT NOT NULL REFERENCES universe_servers(id)
+    servers_id BIGINT NOT NULL REFERENCES universe_servers (id)
 );
 
-CREATE UNIQUE INDEX federation_proof_sync_log_unique_index_proof_leaf_id_servers_id
-ON federation_proof_sync_log (
+CREATE UNIQUE INDEX federation_proof_sync_log_unique_index_proof_leaf_id_servers_id ON
+federation_proof_sync_log (
     sync_direction,
     proof_leaf_id,
     universe_root_id,
@@ -414,11 +420,11 @@ CREATE TABLE federation_uni_sync_config (
 
     -- This field contains the byte serialized ID of the asset to which this
     -- configuration is applicable.
-    asset_id BLOB CHECK(length(asset_id) = 32) NULL,
+    asset_id BLOB CHECK (length(asset_id) = 32) NULL,
 
     -- This field contains the byte serialized compressed group key public key
     -- of the asset group to which this configuration is applicable.
-    group_key BLOB CHECK(LENGTH(group_key) = 33) NULL,
+    group_key BLOB CHECK (length(group_key) = 33) NULL,
 
     -- This field is an enum representing the proof type stored in the given
     -- universe.
@@ -426,12 +432,12 @@ CREATE TABLE federation_uni_sync_config (
 
     -- This field is a boolean that indicates whether or not the given universe
     -- should accept remote proof export via federation sync.
-    allow_sync_export BOOLEAN NOT NULL, proof_type TEXT REFERENCES proof_types(proof_type),
+    allow_sync_export BOOLEAN NOT NULL, proof_type TEXT REFERENCES proof_types (proof_type),
 
     -- Both the asset ID and group key cannot be null at the same time.
     CHECK (
-        (asset_id IS NOT NULL AND group_key IS NULL) OR
-        (asset_id IS NULL AND group_key IS NOT NULL)
+        (asset_id IS NOT NULL AND group_key IS NULL)
+        OR (asset_id IS NULL AND group_key IS NOT NULL)
     )
 );
 
@@ -442,7 +448,7 @@ CREATE TABLE genesis_assets (
 
     asset_tag TEXT NOT NULL,
 
-    meta_data_id BIGINT REFERENCES assets_meta(meta_id),
+    meta_data_id BIGINT REFERENCES assets_meta (meta_id),
 
     output_index INTEGER NOT NULL,
 
@@ -450,23 +456,29 @@ CREATE TABLE genesis_assets (
     -- BIP PR
     asset_type SMALLINT NOT NULL,
 
-    genesis_point_id BIGINT NOT NULL REFERENCES genesis_points(genesis_id)
+    genesis_point_id BIGINT NOT NULL REFERENCES genesis_points (genesis_id)
 );
 
 CREATE VIEW genesis_info_view AS
-    SELECT
-        gen_asset_id, asset_id, asset_tag, assets_meta.meta_data_hash meta_hash,
-        output_index, asset_type, genesis_points.prev_out prev_out,
-        chain_txns.txid anchor_txid, block_height
-    FROM genesis_assets
-    -- We do a LEFT JOIN here, as not every asset has a set of
-    -- metadata that matches the asset.
-    LEFT JOIN assets_meta
-        ON genesis_assets.meta_data_id = assets_meta.meta_id
-    JOIN genesis_points
-        ON genesis_assets.genesis_point_id = genesis_points.genesis_id
-    LEFT JOIN chain_txns
-        ON genesis_points.anchor_tx_id = chain_txns.txn_id;
+SELECT
+    genesis_assets.gen_asset_id,
+    genesis_assets.asset_id,
+    genesis_assets.asset_tag,
+    assets_meta.meta_data_hash AS meta_hash,
+    genesis_assets.output_index,
+    genesis_assets.asset_type,
+    genesis_points.prev_out,
+    chain_txns.txid AS anchor_txid,
+    chain_txns.block_height
+FROM genesis_assets
+-- We do a LEFT JOIN here, as not every asset has a set of
+-- metadata that matches the asset.
+LEFT JOIN assets_meta
+    ON genesis_assets.meta_data_id = assets_meta.meta_id
+JOIN genesis_points
+    ON genesis_assets.genesis_point_id = genesis_points.genesis_id
+LEFT JOIN chain_txns
+    ON genesis_points.anchor_tx_id = chain_txns.txn_id;
 
 CREATE TABLE genesis_points (
     genesis_id INTEGER PRIMARY KEY,
@@ -474,20 +486,22 @@ CREATE TABLE genesis_points (
     -- TODO(roasbeef): just need the input index here instead?
     prev_out BLOB UNIQUE NOT NULL,
 
-    anchor_tx_id BIGINT REFERENCES chain_txns(txn_id)
+    anchor_tx_id BIGINT REFERENCES chain_txns (txn_id)
 );
 
-CREATE INDEX idx_mssmt_nodes_composite 
-ON mssmt_nodes(namespace, key, hash_key, sum);
+CREATE INDEX idx_mssmt_nodes_composite
+ON mssmt_nodes (namespace, key, hash_key, sum);
 
-CREATE INDEX idx_universe_roots_composite ON universe_roots(namespace_root, proof_type, asset_id);
+CREATE INDEX idx_universe_roots_composite ON universe_roots (
+    namespace_root, proof_type, asset_id
+);
 
 CREATE TABLE internal_keys (
     key_id INTEGER PRIMARY KEY,
 
     -- We'll always store the full 33-byte key on disk, to make sure we're
     -- retaining full information.
-    raw_key BLOB NOT NULL UNIQUE CHECK(length(raw_key) = 33),
+    raw_key BLOB NOT NULL UNIQUE CHECK (length(raw_key) = 33),
 
     key_family INTEGER NOT NULL,
 
@@ -496,26 +510,35 @@ CREATE TABLE internal_keys (
 
 CREATE VIEW key_group_info_view AS
 SELECT
-    groups.version, witness_id, gen_asset_id, witness_stack, tapscript_root,
-    tweaked_group_key, raw_key, key_index, key_family,
-    substr(tweaked_group_key, 2) AS x_only_group_key,
+    grp.version,
+    wit.witness_id,
+    wit.gen_asset_id,
+    wit.witness_stack,
+    grp.tapscript_root,
+    grp.tweaked_group_key,
+    keys.raw_key,
+    keys.key_index,
+    keys.key_family,
+    substr(grp.tweaked_group_key, 2) AS x_only_group_key,
     tapscript_roots.root_hash AS custom_subtree_root
-FROM asset_group_witnesses wit
-         JOIN asset_groups groups
-              ON wit.group_key_id = groups.group_id
-         JOIN internal_keys keys
-              ON keys.key_id = groups.internal_key_id
+FROM asset_group_witnesses AS wit
+JOIN asset_groups AS grp
+    ON wit.group_key_id = grp.group_id
+JOIN internal_keys AS keys
+    ON grp.internal_key_id = keys.key_id
 
-         -- Include the tapscript root hash for the custom subtree. Here we use
-         -- a LEFT JOIN to allow for the case where a group does not have a
-         -- custom subtree in which case the custom_subtree_root will be NULL.
-         LEFT JOIN tapscript_roots
-                   ON groups.custom_subtree_root_id = tapscript_roots.root_id
-WHERE wit.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info_view);
+-- Include the tapscript root hash for the custom subtree. Here we use
+-- a LEFT JOIN to allow for the case where a group does not have a
+-- custom subtree in which case the custom_subtree_root will be NULL.
+LEFT JOIN tapscript_roots
+    ON grp.custom_subtree_root_id = tapscript_roots.root_id
+WHERE wit.gen_asset_id IN (
+    SELECT giv.gen_asset_id FROM genesis_info_view AS giv
+);
 
 CREATE TABLE macaroons (
     id BLOB PRIMARY KEY,
-    root_key BLOB NOT NULL 
+    root_key BLOB NOT NULL
 );
 
 CREATE TABLE managed_utxos (
@@ -527,10 +550,10 @@ CREATE TABLE managed_utxos (
     -- 64 bit issues?
     amt_sats BIGINT NOT NULL,
 
-    internal_key_id BIGINT NOT NULL REFERENCES internal_keys(key_id),
+    internal_key_id BIGINT NOT NULL REFERENCES internal_keys (key_id),
 
     -- The Taproot Asset root commitment hash.
-    taproot_asset_root BLOB NOT NULL CHECK(length(taproot_asset_root) = 32),
+    taproot_asset_root BLOB NOT NULL CHECK (length(taproot_asset_root) = 32),
 
     -- The serialized tapscript sibling preimage. If this is empty then the
     -- Taproot Asset root commitment is equal to the merkle_root below.
@@ -540,16 +563,16 @@ CREATE TABLE managed_utxos (
     -- corresponds to the Taproot Asset root commitment hash.
     --
     -- TODO(roasbeef): can then reconstruct on start up to ensure matches up
-    merkle_root BLOB NOT NULL CHECK(length(merkle_root) = 32),
+    merkle_root BLOB NOT NULL CHECK (length(merkle_root) = 32),
 
-    txn_id BIGINT NOT NULL REFERENCES chain_txns(txn_id),
+    txn_id BIGINT NOT NULL REFERENCES chain_txns (txn_id),
 
     -- The identity of the application that currently has a lease on this UTXO.
     -- If NULL, then the UTXO is not currently leased. A lease means that the
     -- UTXO is being reserved/locked to be spent in an upcoming transaction and
     -- that it should not be available for coin selection through any of the
     -- wallet RPCs.
-    lease_owner BLOB CHECK(length(lease_owner) = 32),
+    lease_owner BLOB CHECK (length(lease_owner) = 32),
 
     -- The absolute expiry of the lease in seconds as a Unix timestamp. If the
     -- expiry is NULL or the timestamp is in the past, then the lease is not
@@ -561,7 +584,8 @@ CREATE TABLE mint_anchor_uni_commitments (
     id INTEGER PRIMARY KEY,
 
     -- The ID of the minting batch this universe commitment relates to.
-    batch_id INTEGER NOT NULL REFERENCES asset_minting_batches(batch_id),
+    batch_id INTEGER NOT NULL -- noqa: LL01
+    REFERENCES asset_minting_batches (batch_id), -- TODO(guggero): Use BIGINT.
 
     -- The index of the mint batch anchor transaction pre-commitment output.
     tx_output_index INTEGER NOT NULL,
@@ -569,27 +593,27 @@ CREATE TABLE mint_anchor_uni_commitments (
     -- The Taproot output internal key for the pre-commitment output.
     group_key BLOB
 , taproot_internal_key_id
-BIGINT REFERENCES internal_keys(key_id)
+BIGINT REFERENCES internal_keys (key_id)
 NOT NULL);
 
 CREATE UNIQUE INDEX mint_anchor_uni_commitments_unique
-    ON mint_anchor_uni_commitments (batch_id, tx_output_index);
+ON mint_anchor_uni_commitments (batch_id, tx_output_index);
 
 CREATE TABLE mssmt_nodes (
     -- hash_key is the hash key by which we reference all nodes.
     hash_key BLOB NOT NULL,
- 
+
     -- l_hash_key is the hash key of the left child or NULL. If this is a
     -- branch then either l_hash_key or r_hash_key is not NULL.
     l_hash_key BLOB,
-  
+
     -- r_hash_key is the hash key of the right child or NULL. If this is a
     -- branch then either l_hash_key or r_hash_key is not NULL.
     r_hash_key BLOB,
-  
+
     -- key is the leaf key if this is a compacted leaf node.
     key BLOB,
-  
+
     -- value is the leaf value if this is a leaf node.
     value BLOB,
 
@@ -606,9 +630,13 @@ CREATE TABLE mssmt_nodes (
     PRIMARY KEY (hash_key, namespace)
 );
 
-CREATE INDEX mssmt_nodes_l_hash_key_idx ON mssmt_nodes (l_hash_key);
+CREATE INDEX mssmt_nodes_l_hash_key_idx ON mssmt_nodes (
+    l_hash_key
+);
 
-CREATE INDEX mssmt_nodes_r_hash_key_idx ON mssmt_nodes (r_hash_key);
+CREATE INDEX mssmt_nodes_r_hash_key_idx ON mssmt_nodes (
+    r_hash_key
+);
 
 CREATE TABLE mssmt_roots (
     -- namespace allows us to store several root hash pointers for distinct
@@ -618,28 +646,30 @@ CREATE TABLE mssmt_roots (
     -- root_hash points to the root hash node of the MS-SMT tree.
     root_hash BLOB NOT NULL,
 
-    FOREIGN KEY (namespace, root_hash) REFERENCES mssmt_nodes (namespace, hash_key) ON DELETE CASCADE
+    FOREIGN KEY (namespace, root_hash) REFERENCES mssmt_nodes (
+        namespace, hash_key
+    ) ON DELETE CASCADE
 );
 
 CREATE TABLE multiverse_leaves (
     id INTEGER PRIMARY KEY,
 
-    multiverse_root_id BIGINT NOT NULL REFERENCES multiverse_roots(id),
+    multiverse_root_id BIGINT NOT NULL REFERENCES multiverse_roots (id),
 
-    asset_id BLOB CHECK(length(asset_id) = 32),
+    asset_id BLOB CHECK (length(asset_id) = 32),
 
     -- We use the 32 byte schnorr key here as this is what's used to derive the
     -- top-level Taproot Asset commitment key.
-    group_key BLOB CHECK(LENGTH(group_key) = 32),
-    
+    group_key BLOB CHECK (length(group_key) = 32),
+
     leaf_node_key BLOB NOT NULL,
 
     leaf_node_namespace VARCHAR NOT NULL,
 
     -- Both the asset ID and group key cannot be null at the same time.
     CHECK (
-        (asset_id IS NOT NULL AND group_key IS NULL) OR
-        (asset_id IS NULL AND group_key IS NOT NULL)
+        (asset_id IS NOT NULL AND group_key IS NULL)
+        OR (asset_id IS NULL AND group_key IS NOT NULL)
     )
 );
 
@@ -655,21 +685,23 @@ CREATE TABLE multiverse_roots (
     -- root of the SMT is deleted temporarily before inserting a new root, then
     -- this constraint is violated as there's no longer a root that this
     -- universe tree can point to.
-    namespace_root VARCHAR UNIQUE NOT NULL REFERENCES mssmt_roots(namespace) DEFERRABLE INITIALLY DEFERRED,
+    namespace_root VARCHAR UNIQUE NOT NULL REFERENCES mssmt_roots (
+        namespace
+    ) DEFERRABLE INITIALLY DEFERRED,
 
     -- This field is an enum representing the proof type stored in the given
     -- universe.
-    proof_type TEXT NOT NULL CHECK(proof_type IN ('issuance', 'transfer'))
+    proof_type TEXT NOT NULL CHECK (proof_type IN ('issuance', 'transfer'))
 );
 
 CREATE TABLE passive_assets (
     passive_id INTEGER PRIMARY KEY,
 
-    transfer_id BIGINT NOT NULL REFERENCES asset_transfers(id),
+    transfer_id BIGINT NOT NULL REFERENCES asset_transfers (id),
 
-    asset_id BIGINT NOT NULL REFERENCES assets(asset_id),
-    
-    new_anchor_utxo BIGINT NOT NULL REFERENCES managed_utxos(utxo_id),
+    asset_id BIGINT NOT NULL REFERENCES assets (asset_id),
+
+    new_anchor_utxo BIGINT NOT NULL REFERENCES managed_utxos (utxo_id),
 
     script_key BLOB NOT NULL,
 
@@ -681,7 +713,7 @@ CREATE TABLE passive_assets (
 );
 
 CREATE INDEX passive_assets_idx
-    ON passive_assets (transfer_id);
+ON passive_assets (transfer_id);
 
 CREATE INDEX proof_locator_hash_index
 ON proof_transfer_log (proof_locator_hash);
@@ -691,7 +723,7 @@ CREATE TABLE proof_transfer_log (
     -- delivery to the transfer counterparty or receiving a proof from the
     -- transfer counterparty. Note that the transfer counterparty is usually
     -- the proof courier service.
-    transfer_type TEXT NOT NULL CHECK(transfer_type IN ('send', 'receive')),
+    transfer_type TEXT NOT NULL CHECK (transfer_type IN ('send', 'receive')),
 
     proof_locator_hash BLOB NOT NULL,
 
@@ -707,98 +739,110 @@ CREATE TABLE script_keys (
 
     -- The actual internal key here that we hold the private key for. Applying
     -- the tweak to this gives us the tweaked_script_key.
-    internal_key_id BIGINT NOT NULL REFERENCES internal_keys(key_id),
+    internal_key_id BIGINT NOT NULL REFERENCES internal_keys (key_id),
 
     -- The script key after applying the tweak. This is what goes directly in
     -- the asset TLV.
-    tweaked_script_key BLOB NOT NULL UNIQUE CHECK(length(tweaked_script_key) = 33),
+    tweaked_script_key BLOB NOT NULL UNIQUE
+    CHECK (length(tweaked_script_key) = 33),
 
     -- An optional tweak for the script_key. If NULL, the raw_key may be
     -- tweaked BIP-0086 style.
     tweak BLOB
 , key_type SMALLINT);
 
-CREATE INDEX status_idx ON addr_events(status);
+CREATE INDEX status_idx ON addr_events (status);
 
 CREATE TABLE tapscript_edges (
-        edge_id INTEGER PRIMARY KEY,
+    edge_id INTEGER PRIMARY KEY,
 
-        -- The root hash of a tree that includes the referenced tapscript node.
-        root_hash_id BIGINT NOT NULL REFERENCES tapscript_roots(root_id),
+    -- The root hash of a tree that includes the referenced tapscript node.
+    root_hash_id BIGINT NOT NULL REFERENCES tapscript_roots (root_id),
 
-        -- The index of the referenced node in the tapscript tree, which is
-        -- needed to correctly reconstruct the tapscript tree.
-        node_index BIGINT NOT NULL,
+    -- The index of the referenced node in the tapscript tree, which is
+    -- needed to correctly reconstruct the tapscript tree.
+    node_index BIGINT NOT NULL,
 
-        -- The tapscript node referenced by this edge.
-        raw_node_id BIGINT NOT NULL REFERENCES tapscript_nodes(node_id)
+    -- The tapscript node referenced by this edge.
+    raw_node_id BIGINT NOT NULL REFERENCES tapscript_nodes (node_id)
 );
 
 CREATE UNIQUE INDEX tapscript_edges_unique ON tapscript_edges (
-        root_hash_id, node_index, raw_node_id
+    root_hash_id, node_index, raw_node_id
 );
 
 CREATE TABLE tapscript_nodes (
-        node_id INTEGER PRIMARY KEY,
+    node_id INTEGER PRIMARY KEY,
 
-        -- The serialized tapscript node, which may be a tapHash or tapLeaf.
-        raw_node BLOB NOT NULL UNIQUE
+    -- The serialized tapscript node, which may be a tapHash or tapLeaf.
+    raw_node BLOB NOT NULL UNIQUE
 );
 
 CREATE TABLE tapscript_roots (
-        root_id INTEGER PRIMARY KEY,
+    root_id INTEGER PRIMARY KEY,
 
-        -- The root hash of a tapscript tree.
-        root_hash BLOB NOT NULL UNIQUE CHECK(length(root_hash) = 32),
+    -- The root hash of a tapscript tree.
+    root_hash BLOB NOT NULL UNIQUE CHECK (length(root_hash) = 32),
 
-        -- A flag to record if a tapscript tree was stored as two tapHashes, or
-        -- a set of tapLeafs.
-        branch_only BOOLEAN NOT NULL DEFAULT FALSE
+    -- A flag to record if a tapscript tree was stored as two tapHashes, or
+    -- a set of tapLeafs.
+    branch_only BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE INDEX transfer_inputs_idx
-    ON asset_transfer_inputs (transfer_id);
+ON asset_transfer_inputs (transfer_id);
 
 CREATE INDEX transfer_outputs_idx
-    ON asset_transfer_outputs (transfer_id);
+ON asset_transfer_outputs (transfer_id);
 
 CREATE INDEX transfer_time_idx
-    ON asset_transfers (transfer_time_unix);
+ON asset_transfers (transfer_time_unix);
 
 CREATE INDEX transfer_txn_idx
-    ON asset_transfers (anchor_txn_id);
+ON asset_transfers (anchor_txn_id);
 
 CREATE TABLE universe_events (
     event_id INTEGER PRIMARY KEY,
 
-    event_type VARCHAR NOT NULL CHECK (event_type IN ('SYNC', 'NEW_PROOF', 'NEW_ROOT')),
+    event_type VARCHAR NOT NULL CHECK (
+        event_type IN ('SYNC', 'NEW_PROOF', 'NEW_ROOT')
+    ),
 
-    universe_root_id BIGINT NOT NULL REFERENCES universe_roots(id),
+    universe_root_id BIGINT NOT NULL REFERENCES universe_roots (id),
 
     -- TODO(roasbeef): also add which leaf was synced?
 
     event_time TIMESTAMP NOT NULL
 , event_timestamp BIGINT NOT NULL DEFAULT 0);
 
-CREATE INDEX universe_events_event_time_idx ON universe_events(event_time);
+CREATE INDEX universe_events_event_time_idx ON universe_events (
+    event_time
+);
 
-CREATE INDEX universe_events_type_idx ON universe_events(event_type);
+CREATE INDEX universe_events_type_idx ON universe_events (
+    event_type
+);
 
 CREATE TABLE "universe_leaves" (
     id INTEGER PRIMARY KEY,
-    asset_genesis_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id),
+    asset_genesis_id BIGINT NOT NULL REFERENCES genesis_assets (gen_asset_id),
     minting_point BLOB NOT NULL,
-    script_key_bytes BLOB NOT NULL CHECK(LENGTH(script_key_bytes) = 32),
-    universe_root_id BIGINT NOT NULL REFERENCES universe_roots(id),
+    script_key_bytes BLOB NOT NULL CHECK (LENGTH(script_key_bytes) = 32),
+    universe_root_id BIGINT NOT NULL REFERENCES universe_roots (id),
     leaf_node_key BLOB,
     leaf_node_namespace VARCHAR NOT NULL
 );
 
-CREATE INDEX universe_leaves_key_idx ON universe_leaves(leaf_node_key);
+CREATE INDEX universe_leaves_key_idx ON universe_leaves (
+    leaf_node_key
+);
 
-CREATE INDEX universe_leaves_namespace ON universe_leaves(leaf_node_namespace);
+CREATE INDEX universe_leaves_namespace ON universe_leaves (
+    leaf_node_namespace
+);
 
-CREATE UNIQUE INDEX universe_leaves_unique_minting_script_namespace ON "universe_leaves"(minting_point, script_key_bytes, leaf_node_namespace);
+CREATE UNIQUE INDEX universe_leaves_unique_minting_script_namespace
+ON "universe_leaves" (minting_point, script_key_bytes, leaf_node_namespace);
 
 CREATE TABLE universe_roots (
     id INTEGER PRIMARY KEY,
@@ -808,21 +852,27 @@ CREATE TABLE universe_roots (
     -- root of the SMT is deleted temporarily before inserting a new root, then
     -- this constraint is violated as there's no longer a root that this
     -- universe tree can point to.
-    namespace_root VARCHAR UNIQUE NOT NULL REFERENCES mssmt_roots(namespace) DEFERRABLE INITIALLY DEFERRED,
+    namespace_root VARCHAR UNIQUE NOT NULL REFERENCES mssmt_roots (
+        namespace
+    ) DEFERRABLE INITIALLY DEFERRED,
 
     asset_id BLOB,
 
     -- We use the 32 byte schnorr key here as this is what's used to derive the
     -- top-level Taproot Asset commitment key.
-    group_key BLOB CHECK(LENGTH(group_key) = 32),
+    group_key BLOB CHECK (LENGTH(group_key) = 32),
 
     -- This field is an enum representing the proof type stored in the given
     -- universe.
-    proof_type TEXT REFERENCES proof_types(proof_type));
+    proof_type TEXT REFERENCES proof_types (proof_type));
 
-CREATE INDEX universe_roots_asset_id_idx ON universe_roots(asset_id);
+CREATE INDEX universe_roots_asset_id_idx ON universe_roots (
+    asset_id
+);
 
-CREATE INDEX universe_roots_group_key_idx ON universe_roots(group_key);
+CREATE INDEX universe_roots_group_key_idx ON universe_roots (
+    group_key
+);
 
 CREATE TABLE universe_servers (
     id INTEGER PRIMARY KEY,
@@ -833,44 +883,58 @@ CREATE TABLE universe_servers (
 
     last_sync_time TIMESTAMP NOT NULL
 
-    -- TODO(roasbeef): can also add stuff like filters re which items to sync,
-    -- etc? also sync mode, ones that should get everything pushed, etc
+-- TODO(roasbeef): can also add stuff like filters re which items to sync,
+-- etc? also sync mode, ones that should get everything pushed, etc
 );
 
-CREATE INDEX universe_servers_host ON universe_servers(server_host);
+CREATE INDEX universe_servers_host ON universe_servers (
+    server_host
+);
 
 CREATE VIEW universe_stats AS
 WITH sync_counts AS (
-    SELECT universe_root_id, COUNT(*) AS count
+    SELECT
+        universe_root_id,
+        COUNT(*) AS count
     FROM universe_events
     WHERE event_type = 'SYNC'
     GROUP BY universe_root_id
-), proof_counts AS (
-    SELECT universe_root_id, event_type, COUNT(*) AS count
+),
+
+proof_counts AS (
+    SELECT
+        universe_root_id,
+        event_type,
+        COUNT(*) AS count
     FROM universe_events
     WHERE event_type = 'NEW_PROOF'
     GROUP BY universe_root_id, event_type
-), aggregated AS (
-    SELECT COALESCE(SUM(count), 0) as total_asset_syncs,
-           0 AS total_asset_proofs,
-           universe_root_id
+),
+
+aggregated AS (
+    SELECT
+        COALESCE(SUM(count), 0) AS total_asset_syncs,
+        0 AS total_asset_proofs,
+        universe_root_id
     FROM sync_counts
     GROUP BY universe_root_id
     UNION ALL
-    SELECT 0 AS total_asset_syncs,
-           COALESCE(SUM(count), 0) as total_asset_proofs,
-           universe_root_id
+    SELECT
+        0 AS total_asset_syncs,
+        COALESCE(SUM(count), 0) AS total_asset_proofs,
+        universe_root_id
     FROM proof_counts
     GROUP BY universe_root_id
 )
+
 SELECT
-    SUM(ag.total_asset_syncs) AS total_asset_syncs,
-    SUM(ag.total_asset_proofs) AS total_asset_proofs,
     roots.asset_id,
     roots.group_key,
-    roots.proof_type
-FROM aggregated ag
-JOIN universe_roots roots
+    roots.proof_type,
+    SUM(ag.total_asset_syncs) AS total_asset_syncs,
+    SUM(ag.total_asset_proofs) AS total_asset_proofs
+FROM aggregated AS ag
+INNER JOIN universe_roots AS roots
     ON ag.universe_root_id = roots.id
 GROUP BY roots.asset_id, roots.group_key, roots.proof_type
 ORDER BY roots.asset_id, roots.group_key, roots.proof_type;

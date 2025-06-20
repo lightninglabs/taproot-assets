@@ -6,16 +6,16 @@ CREATE TABLE IF NOT EXISTS asset_burn_transfers_corrected (
     burn_id INTEGER PRIMARY KEY,
 
     -- A reference to the primary key of the transfer that includes this burn.
-    transfer_id BIGINT NOT NULL REFERENCES asset_transfers(id),
+    transfer_id BIGINT NOT NULL REFERENCES asset_transfers (id),
 
     -- A note that may contain user defined metadata.
     note TEXT,
 
     -- The asset id of the burnt asset.
-    asset_id BLOB NOT NULL REFERENCES genesis_assets(asset_id),
+    asset_id BLOB NOT NULL REFERENCES genesis_assets (asset_id),
 
     -- The group key of the group the burnt asset belonged to.
-    group_key BLOB REFERENCES asset_groups(tweaked_group_key),
+    group_key BLOB REFERENCES asset_groups (tweaked_group_key),
 
     -- The amount of the asset that was burned.
     amount BIGINT NOT NULL
@@ -24,7 +24,13 @@ CREATE TABLE IF NOT EXISTS asset_burn_transfers_corrected (
 INSERT INTO asset_burn_transfers_corrected (
     burn_id, transfer_id, note, asset_id, group_key, amount
 )
-SELECT burn_id, transfer_id, note, asset_id, group_key, amount
+SELECT
+    burn_id,
+    transfer_id,
+    note,
+    asset_id,
+    group_key,
+    amount
 FROM asset_burn_transfers;
 
 DROP TABLE asset_burn_transfers;
