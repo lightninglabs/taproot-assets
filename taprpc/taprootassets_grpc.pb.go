@@ -100,7 +100,7 @@ type TaprootAssetsClient interface {
 	// tapcli: `assets meta`
 	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
 	// either by the asset ID for that asset, or a meta hash.
-	FetchAssetMeta(ctx context.Context, in *FetchAssetMetaRequest, opts ...grpc.CallOption) (*AssetMeta, error)
+	FetchAssetMeta(ctx context.Context, in *FetchAssetMetaRequest, opts ...grpc.CallOption) (*FetchAssetMetaResponse, error)
 	// tapcli: `events receive`
 	// SubscribeReceiveEvents allows a caller to subscribe to receive events for
 	// incoming asset transfers.
@@ -299,8 +299,8 @@ func (c *taprootAssetsClient) GetInfo(ctx context.Context, in *GetInfoRequest, o
 	return out, nil
 }
 
-func (c *taprootAssetsClient) FetchAssetMeta(ctx context.Context, in *FetchAssetMetaRequest, opts ...grpc.CallOption) (*AssetMeta, error) {
-	out := new(AssetMeta)
+func (c *taprootAssetsClient) FetchAssetMeta(ctx context.Context, in *FetchAssetMetaRequest, opts ...grpc.CallOption) (*FetchAssetMetaResponse, error) {
+	out := new(FetchAssetMetaResponse)
 	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/FetchAssetMeta", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -467,7 +467,7 @@ type TaprootAssetsServer interface {
 	// tapcli: `assets meta`
 	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
 	// either by the asset ID for that asset, or a meta hash.
-	FetchAssetMeta(context.Context, *FetchAssetMetaRequest) (*AssetMeta, error)
+	FetchAssetMeta(context.Context, *FetchAssetMetaRequest) (*FetchAssetMetaResponse, error)
 	// tapcli: `events receive`
 	// SubscribeReceiveEvents allows a caller to subscribe to receive events for
 	// incoming asset transfers.
@@ -549,7 +549,7 @@ func (UnimplementedTaprootAssetsServer) ListBurns(context.Context, *ListBurnsReq
 func (UnimplementedTaprootAssetsServer) GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInfo not implemented")
 }
-func (UnimplementedTaprootAssetsServer) FetchAssetMeta(context.Context, *FetchAssetMetaRequest) (*AssetMeta, error) {
+func (UnimplementedTaprootAssetsServer) FetchAssetMeta(context.Context, *FetchAssetMetaRequest) (*FetchAssetMetaResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FetchAssetMeta not implemented")
 }
 func (UnimplementedTaprootAssetsServer) SubscribeReceiveEvents(*SubscribeReceiveEventsRequest, TaprootAssets_SubscribeReceiveEventsServer) error {

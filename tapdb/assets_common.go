@@ -495,6 +495,31 @@ func fetchScriptKey(ctx context.Context, q FetchScriptKeyStore,
 	return scriptKey.TweakedScriptKey, nil
 }
 
+// parseInternalKey maps an internal key from the database into a
+// KeyDescriptor struct.
+func parseInternalKey(ik sqlc.InternalKey) (keychain.KeyDescriptor, error) {
+	var zero keychain.KeyDescriptor
+
+	// If the raw key is empty, we can't parse it.
+	if len(ik.RawKey) == 0 {
+		return zero, fmt.Errorf("internal raw key is empty")
+	}
+
+	pubKey, err := btcec.ParsePubKey(ik.RawKey)
+	if err != nil {
+		return zero, fmt.Errorf("failed to parse internal raw key: %w",
+			err)
+	}
+
+	return keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Index:  uint32(ik.KeyIndex),
+			Family: keychain.KeyFamily(ik.KeyFamily),
+		},
+		PubKey: pubKey,
+	}, nil
+}
+
 // parseScriptKey maps a script key and internal key from the database into a
 // ScriptKey struct. Both the internal raw public key and the tweaked public key
 // must be set and valid.
