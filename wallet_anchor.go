@@ -1,7 +1,6 @@
 package taprootassets
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"math"
@@ -13,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -47,8 +47,8 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 	minConfs uint32, feeRate chainfee.SatPerKWeight,
 	changeIdx int32) (*tapsend.FundedPsbt, error) {
 
-	var psbtBuf bytes.Buffer
-	if err := packet.Serialize(&psbtBuf); err != nil {
+	psbtBytes, err := fn.Serialize(packet)
+	if err != nil {
 		return nil, fmt.Errorf("unable to encode psbt: %w", err)
 	}
 
@@ -57,7 +57,7 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 	if changeIdx < 0 {
 		fundTemplate = &walletrpc.FundPsbtRequest_CoinSelect{
 			CoinSelect: &walletrpc.PsbtCoinSelect{
-				Psbt: psbtBuf.Bytes(),
+				Psbt: psbtBytes,
 				ChangeOutput: &walletrpc.PsbtCoinSelect_Add{
 					Add: true,
 				},
@@ -70,7 +70,7 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 
 		fundTemplate = &walletrpc.FundPsbtRequest_CoinSelect{
 			CoinSelect: &walletrpc.PsbtCoinSelect{
-				Psbt:         psbtBuf.Bytes(),
+				Psbt:         psbtBytes,
 				ChangeOutput: change,
 			},
 		}

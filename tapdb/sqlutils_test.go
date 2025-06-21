@@ -144,13 +144,12 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 
 	// We'll add the chain transaction of the proof now to simulate a
 	// batched transfer on a higher layer.
-	var anchorTxBuf bytes.Buffer
-	err = annotatedProof.AnchorTx.Serialize(&anchorTxBuf)
+	anchorTxBytes, err := fn.Serialize(annotatedProof.AnchorTx)
 	require.NoError(t, err)
 	anchorTXID := annotatedProof.AnchorTx.TxHash()
 	_, err = db.UpsertChainTx(ctx, ChainTxParams{
 		Txid:        anchorTXID[:],
-		RawTx:       anchorTxBuf.Bytes(),
+		RawTx:       anchorTxBytes,
 		BlockHeight: sqlInt32(annotatedProof.AnchorBlockHeight),
 		BlockHash:   annotatedProof.AnchorBlockHash[:],
 		TxIndex:     sqlInt32(annotatedProof.AnchorTxIndex),

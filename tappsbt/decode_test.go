@@ -100,18 +100,14 @@ func TestGlobalUnknownFields(t *testing.T) {
 	_, err = NewFromPsbt(packet)
 	require.NoError(t, err)
 
-	var packetBuf bytes.Buffer
-	err = packet.Serialize(&packetBuf)
+	packetBytes, err := fn.Serialize(packet)
 	require.NoError(t, err)
-
-	cloneBuffer := func(b *bytes.Buffer) *bytes.Buffer {
-		return bytes.NewBuffer(bytes.Clone(b.Bytes()))
-	}
 
 	// If we remove a mandatory VPacket field from the Packet, decoding
 	// must fail.
-	invalidPacketBytes := cloneBuffer(&packetBuf)
-	invalidPacket, err := psbt.NewFromRawBytes(invalidPacketBytes, false)
+	invalidPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(packetBytes), false,
+	)
 	require.NoError(t, err)
 
 	invalidPacket.Unknowns = invalidPacket.Unknowns[1:]
@@ -120,8 +116,9 @@ func TestGlobalUnknownFields(t *testing.T) {
 
 	// If we add a global Unknown field to the valid Packet, decoding must
 	// still succeed.
-	extraPacketBytes := cloneBuffer(&packetBuf)
-	extraPacket, err := psbt.NewFromRawBytes(extraPacketBytes, false)
+	extraPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(packetBytes), false,
+	)
 	require.NoError(t, err)
 
 	// The VPacket global Unknown keys start at 0x70, so we'll use a key

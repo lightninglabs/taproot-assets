@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -356,10 +357,10 @@ func HexTx(t testing.TB, tx *wire.MsgTx) string {
 		return ""
 	}
 
-	var buf bytes.Buffer
-	require.NoError(t, tx.Serialize(&buf))
+	txBytes, err := fn.Serialize(tx)
+	require.NoError(t, err)
 
-	return hex.EncodeToString(buf.Bytes())
+	return hex.EncodeToString(txBytes)
 }
 
 func ComputeTaprootScriptErr(witnessProgram []byte) ([]byte, error) {

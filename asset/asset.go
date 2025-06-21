@@ -466,6 +466,12 @@ func (s *Specifier) ID() fn.Option[ID] {
 	return s.id
 }
 
+// GroupKey returns the underlying asset group public key option of the
+// specifier.
+func (s *Specifier) GroupKey() fn.Option[btcec.PublicKey] {
+	return s.groupKey
+}
+
 // WhenGroupPubKey executes the given function if asset group public key field
 // is specified.
 func (s *Specifier) WhenGroupPubKey(f func(btcec.PublicKey)) {

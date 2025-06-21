@@ -339,8 +339,7 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 		return fmt.Errorf("%w: %w", ErrUpsertGenesisPoint, err)
 	}
 
-	var psbtBuf bytes.Buffer
-	err = anchorPackage.Pkt.Serialize(&psbtBuf)
+	anchorPktBytes, err := fn.Serialize(anchorPackage.Pkt)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrEncodePsbt, err)
 	}
@@ -350,7 +349,7 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 
 	batchID, err := q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
 		RawKey:              rawBatchKey,
-		MintingTxPsbt:       psbtBuf.Bytes(),
+		MintingTxPsbt:       anchorPktBytes,
 		ChangeOutputIndex:   sqlInt32(anchorPackage.ChangeOutputIndex),
 		AssetsOutputIndex:   sqlInt32(anchorPackage.AssetAnchorOutIdx),
 		GenesisID:           sqlInt64(genesisPointDbID),
@@ -1575,12 +1574,12 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 	//
 	// TODO(roasbeef): lift all this above so don't need to encode, etc --
 	// also below?
-	var txBuf bytes.Buffer
 	rawGenTx, err := psbt.Extract(genesisPkt.Pkt)
 	if err != nil {
 		return fmt.Errorf("unable to extract psbt packet: %w", err)
 	}
-	if err := rawGenTx.Serialize(&txBuf); err != nil {
+	rawGenTxBytes, err := fn.Serialize(rawGenTx)
+	if err != nil {
 		return err
 	}
 
@@ -1608,13 +1607,13 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		// First, we'll update the genesis packet stored as part of the
 		// batch, as this packet is now fully signed.
-		var psbtBuf bytes.Buffer
-		if err := genesisPkt.Pkt.Serialize(&psbtBuf); err != nil {
+		pktBytes, err := fn.Serialize(genesisPkt.Pkt)
+		if err != nil {
 			return err
 		}
-		err := q.UpdateBatchGenesisTx(ctx, GenesisTxUpdate{
+		err = q.UpdateBatchGenesisTx(ctx, GenesisTxUpdate{
 			RawKey:        rawBatchKey,
-			MintingTxPsbt: psbtBuf.Bytes(),
+			MintingTxPsbt: pktBytes,
 		})
 		if err != nil {
 			return fmt.Errorf("unable to update genesis tx: %w",
@@ -1626,7 +1625,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// referenced by the managed UTXO.
 		chainTXID, err := q.UpsertChainTx(ctx, ChainTxParams{
 			Txid:      genTXID[:],
-			RawTx:     txBuf.Bytes(),
+			RawTx:     rawGenTxBytes,
 			ChainFees: genesisPkt.ChainFees,
 		})
 		if err != nil {

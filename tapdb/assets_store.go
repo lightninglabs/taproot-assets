@@ -1705,14 +1705,14 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	//
 	// From the final asset snapshot, we'll obtain the final "resting
 	// place" of the asset and insert that into the DB.
-	var anchorTxBuf bytes.Buffer
-	if err := proof.AnchorTx.Serialize(&anchorTxBuf); err != nil {
+	anchorTxBytes, err := fn.Serialize(proof.AnchorTx)
+	if err != nil {
 		return err
 	}
 	anchorTXID := proof.AnchorTx.TxHash()
 	chainTXID, err := db.UpsertChainTx(ctx, ChainTxParams{
 		Txid:        anchorTXID[:],
-		RawTx:       anchorTxBuf.Bytes(),
+		RawTx:       anchorTxBytes,
 		BlockHeight: sqlInt32(proof.AnchorBlockHeight),
 		BlockHash:   proof.AnchorBlockHash[:],
 		TxIndex:     sqlInt32(proof.AnchorTxIndex),
@@ -2418,11 +2418,10 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 	// Before we enter the DB transaction below, we'll use this space to
 	// encode a few values outside the transaction closure.
 	newAnchorTXID := spend.AnchorTx.TxHash()
-	var txBuf bytes.Buffer
-	if err := spend.AnchorTx.Serialize(&txBuf); err != nil {
+	anchorTxBytes, err := fn.Serialize(spend.AnchorTx)
+	if err != nil {
 		return err
 	}
-	anchorTxBytes := txBuf.Bytes()
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
