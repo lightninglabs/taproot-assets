@@ -937,6 +937,12 @@ type AssetGroup struct {
 	*GroupKey
 }
 
+// IsGroupAnchor returns true if this genesis matches the group anchor asset ID,
+// meaning it corresponds to the first tranche that established the group.
+func (a *AssetGroup) IsGroupAnchor() (bool, error) {
+	return a.GroupKey.IsGroupAnchor(a.Genesis.ID())
+}
+
 // ExternalKey represents an external key used for deriving and managing
 // hierarchical deterministic (HD) wallet addresses according to BIP-86.
 type ExternalKey struct {

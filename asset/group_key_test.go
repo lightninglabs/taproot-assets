@@ -679,3 +679,195 @@ func TestGroupKeyDerivationInvalidAsset(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, groupKey)
 }
+
+// TestAssetIsGroupAnchor tests the GroupKey.IsGroupAnchor method with various
+// test cases covering both positive and negative scenarios.
+func TestAssetIsGroupAnchor(t *testing.T) {
+	t.Parallel()
+
+	// Generate a sample asset ID to use as the group anchor asset ID.
+	firstAssetID := RandID(t)
+
+	testCases := []struct {
+		name string
+
+		// groupKeyVersion indicates the version of the group key
+		// to be tested.
+		groupKeyVersion GroupKeyVersion
+
+		// customTapscriptRoot is an optional custom tapscript root
+		// that can be used for group key derivation.
+		customTapscriptRoot fn.Option[chainhash.Hash]
+
+		// groupAnchorAssetID is the asset ID that the group key is
+		// derived from.
+		groupAnchorAssetID ID
+
+		// candidateAssetID is the asset ID being checked to determine
+		// whether it is the group anchor asset ID.
+		candidateAssetID ID
+
+		// expectedIsGroupAnchorRes indicates whether we expect the
+		// IsGroupAnchor method to return true or false for the
+		// candidate asset ID.
+		expectedIsGroupAnchorRes bool
+	}{{
+		name: "v0 group key matching group anchor asset",
+
+		groupKeyVersion:          GroupKeyV0,
+		customTapscriptRoot:      fn.None[chainhash.Hash](),
+		groupAnchorAssetID:       firstAssetID,
+		candidateAssetID:         firstAssetID,
+		expectedIsGroupAnchorRes: true,
+	}, {
+		name: "v0 group key non-matching asset",
+
+		groupKeyVersion:          GroupKeyV0,
+		customTapscriptRoot:      fn.None[chainhash.Hash](),
+		groupAnchorAssetID:       RandID(t),
+		candidateAssetID:         RandID(t),
+		expectedIsGroupAnchorRes: false,
+	}, {
+		name: "v1 group key matching group anchor asset",
+
+		groupKeyVersion:          GroupKeyV1,
+		customTapscriptRoot:      fn.None[chainhash.Hash](),
+		groupAnchorAssetID:       firstAssetID,
+		candidateAssetID:         firstAssetID,
+		expectedIsGroupAnchorRes: true,
+	}, {
+		name:                     "v1 group key non-matching asset",
+		groupKeyVersion:          GroupKeyV1,
+		customTapscriptRoot:      fn.None[chainhash.Hash](),
+		groupAnchorAssetID:       RandID(t),
+		candidateAssetID:         RandID(t),
+		expectedIsGroupAnchorRes: false,
+	}, {
+		name: "v1 group key with custom tapscript root matching " +
+			"group anchor",
+
+		groupKeyVersion:          GroupKeyV1,
+		customTapscriptRoot:      fn.Some(test.RandHash()),
+		groupAnchorAssetID:       firstAssetID,
+		candidateAssetID:         firstAssetID,
+		expectedIsGroupAnchorRes: true,
+	}, {
+		name: "v1 group key with custom tapscript root non-matching",
+
+		groupKeyVersion:          GroupKeyV1,
+		customTapscriptRoot:      fn.Some(test.RandHash()),
+		groupAnchorAssetID:       RandID(t),
+		candidateAssetID:         RandID(t),
+		expectedIsGroupAnchorRes: false,
+	}}
+
+	for idx := range testCases {
+		tc := testCases[idx]
+
+		t.Run(tc.name, func(tt *testing.T) {
+			tt.Parallel()
+
+			// Create a taproot internal key for use in constructing
+			// the group key.
+			internalKey := test.RandPubKey(tt)
+
+			// Create the group key using the group anchor asset ID
+			// and other parameters (we don't use the candidate
+			// asset ID here, as it is only used for the
+			// IsGroupAnchor check).
+			var groupKey *GroupKey
+			switch tc.groupKeyVersion {
+			case GroupKeyV0:
+				// For V0, we need to derive the group key using
+				// the genesis asset ID.
+				rawKey := ToSerialized(internalKey)
+				tapscriptRoot := test.RandBytes(32)
+				gkr := NewGroupKeyRevealV0(
+					rawKey, tapscriptRoot,
+				)
+
+				groupPubKey, err := gkr.GroupPubKey(
+					tc.groupAnchorAssetID,
+				)
+				require.NoError(tt, err)
+
+				groupKey = &GroupKey{
+					Version: GroupKeyV0,
+					RawKey: keychain.KeyDescriptor{
+						PubKey: internalKey,
+					},
+					GroupPubKey:   *groupPubKey,
+					TapscriptRoot: tapscriptRoot,
+				}
+
+			case GroupKeyV1:
+				// For V1, we need to derive the group key using
+				// the group anchor asset ID.
+				gkr, err := NewGroupKeyRevealV1(
+					PedersenVersion, *internalKey,
+					tc.groupAnchorAssetID,
+					tc.customTapscriptRoot,
+				)
+				require.NoError(tt, err)
+
+				groupPubKey, err := gkr.GroupPubKey(
+					tc.groupAnchorAssetID,
+				)
+				require.NoError(tt, err)
+
+				groupKey = &GroupKey{
+					Version: GroupKeyV1,
+					RawKey: keychain.KeyDescriptor{
+						PubKey: internalKey,
+					},
+					GroupPubKey:   *groupPubKey,
+					TapscriptRoot: gkr.tapscript.root[:],
+
+					// nolint: lll
+					CustomTapscriptRoot: tc.customTapscriptRoot,
+				}
+
+			default:
+				t.Fatalf("unknown group key version: %d",
+					tc.groupKeyVersion)
+			}
+
+			// Call IsGroupAnchor with the candidate asset ID.
+			result, err := groupKey.IsGroupAnchor(
+				tc.candidateAssetID,
+			)
+
+			// Verify the result matches expectations.
+			require.NoError(tt, err)
+			require.Equal(tt, tc.expectedIsGroupAnchorRes, result)
+
+			// Additional verification: if we're testing a matching
+			// case, verify that the same asset ID returns true and
+			// a different one returns false
+			if tc.expectedIsGroupAnchorRes {
+				// Test with the actual group anchor asset ID
+				// (should return true).
+				result, err := groupKey.IsGroupAnchor(
+					tc.groupAnchorAssetID,
+				)
+				require.NoError(tt, err)
+				require.True(tt, result)
+
+				// Test with a different asset ID (should return
+				// false).
+				differentAssetID := RandID(t)
+				for differentAssetID == tc.groupAnchorAssetID {
+					// This case should be rare, but we fail
+					// explicitly if it occurs.
+					t.Fatal("very unexpected asset ID " +
+						"match")
+				}
+				result, err = groupKey.IsGroupAnchor(
+					differentAssetID,
+				)
+				require.NoError(tt, err)
+				require.False(tt, result)
+			}
+		})
+	}
+}
