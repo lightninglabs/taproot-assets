@@ -9,8 +9,8 @@ require (
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c
-	github.com/btcsuite/btclog/v2 v2.0.1-0.20250110154127-3ae4bf1cb318
-	github.com/btcsuite/btcwallet v0.16.13
+	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084
+	github.com/btcsuite/btcwallet v0.16.14
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.5
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.6
 	github.com/caddyserver/certmagic v0.17.2
@@ -30,11 +30,11 @@ require (
 	github.com/lightninglabs/lndclient v0.19.0-7
 	github.com/lightninglabs/neutrino/cache v1.1.2
 	github.com/lightninglabs/taproot-assets/taprpc v1.0.7
-	github.com/lightningnetwork/lnd v0.19.0-beta
+	github.com/lightningnetwork/lnd v0.19.0-beta.rc5.0.20250611041824-9e9524766c8a
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.8
-	github.com/lightningnetwork/lnd/tlv v1.3.1
+	github.com/lightningnetwork/lnd/tlv v1.3.2
 	github.com/lightningnetwork/lnd/tor v1.1.6
 	github.com/ory/dockertest/v3 v3.10.0
 	github.com/pmezard/go-difflib v1.0.0
@@ -131,7 +131,7 @@ require (
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
 	github.com/lightningnetwork/lnd/kvdb v1.4.16 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
-	github.com/lightningnetwork/lnd/sqldb v1.0.9 // indirect
+	github.com/lightningnetwork/lnd/sqldb v1.0.10 // indirect
 	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
