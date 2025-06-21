@@ -1035,21 +1035,23 @@ JOIN assets_meta
 WHERE assets.asset_id = $1;
 
 -- Upsert a record into the mint_anchor_uni_commitments table.
--- If a record with the same batch_id and group_key already exists, update the
+-- If a record with the same batch_id and tx_output_index already exists, update the
 -- existing record. Otherwise, insert a new record.
 -- name: UpsertMintAnchorUniCommitment :one
 INSERT INTO mint_anchor_uni_commitments (
-    id, batch_id, tx_output_index, taproot_internal_key, group_key
+    batch_id, tx_output_index, taproot_internal_key, group_key, spent_by
 )
-VALUES ($1, $2, $3, $4, $5)
+VALUES (@batch_id, @tx_output_index, @taproot_internal_key, @group_key, sqlc.narg('spent_by'))
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
     taproot_internal_key = EXCLUDED.taproot_internal_key,
-    group_key = EXCLUDED.group_key
+    group_key = EXCLUDED.group_key,
+    -- Only update spent_by if a non-NULL value is provided.
+    spent_by = COALESCE(EXCLUDED.spent_by, mint_anchor_uni_commitments.spent_by)
 RETURNING id;
 
 -- Fetch a record from the mint_anchor_uni_commitments table by id.
 -- name: FetchMintAnchorUniCommitment :one
-SELECT id, batch_id, tx_output_index, taproot_internal_key, group_key
+SELECT *
 FROM mint_anchor_uni_commitments
 WHERE batch_id = $1;

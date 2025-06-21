@@ -130,31 +130,6 @@ type BaseUniverseStore interface {
 		arg UpsertUniverseSupplyRoot) (int64, error)
 }
 
-// specifierToIdentifier converts an asset.Specifier into a universe.Identifier
-// for a specific proof type.
-//
-// NOTE: This makes an assumption that only specifiers with a group key are
-// valid for the ignore and burn proof types.
-func specifierToIdentifier(spec asset.Specifier,
-	proofType universe.ProofType) (universe.Identifier, error) {
-
-	var id universe.Identifier
-
-	// The specifier must have a group key to be able to be used within the
-	// ignore or burn tree context.
-	requireGroupKey := proofType == universe.ProofTypeIgnore ||
-		proofType == universe.ProofTypeBurn
-	if requireGroupKey && !spec.HasGroupPubKey() {
-		return id, fmt.Errorf("group key must be set for proof type %v",
-			proofType)
-	}
-
-	id.GroupKey = spec.UnwrapGroupKeyToPtr()
-	id.ProofType = proofType
-
-	return id, nil
-}
-
 // getUniverseTreeSum retrieves the sum of a universe tree specified by its
 // identifier.
 func getUniverseTreeSum(ctx context.Context, db BatchedUniverseTree,
