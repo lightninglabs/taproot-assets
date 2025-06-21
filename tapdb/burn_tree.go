@@ -117,11 +117,17 @@ func insertBurnsInternal(ctx context.Context, db BaseUniverseStore,
 			IsBurn:   true,
 		}
 
+		var blockHeight lfn.Option[uint32]
+		height := burnLeaf.BurnProof.BlockHeight
+		if height > 0 {
+			blockHeight = lfn.Some(height)
+		}
+
 		// Call the generic upsert function for the burn sub-tree to
 		// update DB records. MetaReveal is nil for burns.
 		_, err = universeUpsertProofLeaf(
 			ctx, db, subNs, supplycommit.BurnTreeType.String(),
-			groupKey, leafKey, leaf, nil,
+			groupKey, leafKey, leaf, nil, blockHeight,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to upsert burn "+
