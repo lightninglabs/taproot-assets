@@ -210,7 +210,9 @@ func (s *receiveSubscription) connectServerStream(ctx context.Context,
 
 		// Try connecting by querying a "cheap" RPC that the server can
 		// answer from memory only.
-		_, err = s.client.Info(ctx, &mboxrpc.InfoRequest{})
+		_, err = s.client.MailboxInfo(
+			ctx, &mboxrpc.MailboxInfoRequest{},
+		)
 		if err == nil {
 			log.DebugS(ctx, "Connected successfully to server",
 				"num_tries", i+1)

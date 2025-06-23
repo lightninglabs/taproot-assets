@@ -36,7 +36,7 @@ type MailboxClient interface {
 	// 5. Server -> Client: ReceiveMessagesResponse(eos = EndOfStream{})
 	ReceiveMessages(ctx context.Context, opts ...grpc.CallOption) (Mailbox_ReceiveMessagesClient, error)
 	// Returns basic server information.
-	Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error)
+	MailboxInfo(ctx context.Context, in *MailboxInfoRequest, opts ...grpc.CallOption) (*MailboxInfoResponse, error)
 }
 
 type mailboxClient struct {
@@ -87,9 +87,9 @@ func (x *mailboxReceiveMessagesClient) Recv() (*ReceiveMessagesResponse, error) 
 	return m, nil
 }
 
-func (c *mailboxClient) Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error) {
-	out := new(InfoResponse)
-	err := c.cc.Invoke(ctx, "/authmailboxrpc.Mailbox/Info", in, out, opts...)
+func (c *mailboxClient) MailboxInfo(ctx context.Context, in *MailboxInfoRequest, opts ...grpc.CallOption) (*MailboxInfoResponse, error) {
+	out := new(MailboxInfoResponse)
+	err := c.cc.Invoke(ctx, "/authmailboxrpc.Mailbox/MailboxInfo", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +118,7 @@ type MailboxServer interface {
 	// 5. Server -> Client: ReceiveMessagesResponse(eos = EndOfStream{})
 	ReceiveMessages(Mailbox_ReceiveMessagesServer) error
 	// Returns basic server information.
-	Info(context.Context, *InfoRequest) (*InfoResponse, error)
+	MailboxInfo(context.Context, *MailboxInfoRequest) (*MailboxInfoResponse, error)
 	mustEmbedUnimplementedMailboxServer()
 }
 
@@ -132,8 +132,8 @@ func (UnimplementedMailboxServer) SendMessage(context.Context, *SendMessageReque
 func (UnimplementedMailboxServer) ReceiveMessages(Mailbox_ReceiveMessagesServer) error {
 	return status.Errorf(codes.Unimplemented, "method ReceiveMessages not implemented")
 }
-func (UnimplementedMailboxServer) Info(context.Context, *InfoRequest) (*InfoResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Info not implemented")
+func (UnimplementedMailboxServer) MailboxInfo(context.Context, *MailboxInfoRequest) (*MailboxInfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MailboxInfo not implemented")
 }
 func (UnimplementedMailboxServer) mustEmbedUnimplementedMailboxServer() {}
 
@@ -192,20 +192,20 @@ func (x *mailboxReceiveMessagesServer) Recv() (*ReceiveMessagesRequest, error) {
 	return m, nil
 }
 
-func _Mailbox_Info_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(InfoRequest)
+func _Mailbox_MailboxInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MailboxInfoRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MailboxServer).Info(ctx, in)
+		return srv.(MailboxServer).MailboxInfo(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/authmailboxrpc.Mailbox/Info",
+		FullMethod: "/authmailboxrpc.Mailbox/MailboxInfo",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MailboxServer).Info(ctx, req.(*InfoRequest))
+		return srv.(MailboxServer).MailboxInfo(ctx, req.(*MailboxInfoRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -222,8 +222,8 @@ var Mailbox_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Mailbox_SendMessage_Handler,
 		},
 		{
-			MethodName: "Info",
-			Handler:    _Mailbox_Info_Handler,
+			MethodName: "MailboxInfo",
+			Handler:    _Mailbox_MailboxInfo_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
