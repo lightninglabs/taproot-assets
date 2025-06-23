@@ -510,7 +510,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
 
 	// We might not know the type of script key, if it was given to us
 	// through an RPC call. So we make a guess here.
-	keyType := scriptKey.DetermineType()
+	keyType := scriptKey.DetermineType(fn.Ptr(assetGroup.Genesis.ID()))
 
 	err = b.cfg.Store.InsertScriptKey(ctx, scriptKey, keyType)
 	if err != nil {
