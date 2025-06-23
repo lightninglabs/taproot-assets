@@ -611,6 +611,46 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 					err)
 			}
 		}
+
+		if len(sendPkg.SendManifests) == 0 {
+			// If there are no fragment manifests, then this is an
+			// old address or interactive/vPSBT flow transfer, and
+			// we don't need to create any submission TX proofs.
+			continue
+		}
+
+		// Because we need to provide a TX proof for each message we
+		// upload to the auth mailbox server, we need to find the
+		// manifest that corresponds to this output, then create the
+		// TX proof from the transition proof that already contains all
+		// the data.
+		for outIdx := range sendPkg.SendManifests {
+			manifest := sendPkg.SendManifests[outIdx]
+			log.Debugf("Adding TX proof to manifest for output "+
+				"index %d", outIdx)
+
+			if outIdx != out.Anchor.OutPoint.Index {
+				continue
+			}
+
+			if out.Anchor.InternalKey.PubKey == nil {
+				return fmt.Errorf("anchor internal key "+
+					"not set for output %d", outIdx)
+			}
+
+			manifest.Fragment.OutPoint = out.Anchor.OutPoint
+			manifest.Fragment.BlockHeader = parsedSuffix.BlockHeader
+			manifest.Fragment.BlockHeight = parsedSuffix.BlockHeight
+			manifest.TxProof = proof.TxProof{
+				MsgTx:           parsedSuffix.AnchorTx,
+				BlockHeader:     parsedSuffix.BlockHeader,
+				BlockHeight:     parsedSuffix.BlockHeight,
+				MerkleProof:     parsedSuffix.TxMerkleProof,
+				ClaimedOutPoint: out.Anchor.OutPoint,
+				InternalKey:     *out.Anchor.InternalKey.PubKey,
+				MerkleRoot:      out.Anchor.MerkleRoot,
+			}
+		}
 	}
 
 	sendPkg.SendState = SendStateTransferProofs
@@ -881,6 +921,29 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	// Log a summary of the transfer outputs that require proof delivery and
 	// those that do not.
 	reportProofTransfers(notDeliveringOutputs, pendingDeliveryOutputs)
+
+	for _, manifest := range pkg.SendManifests {
+		// Initiate a proof courier service handle from the proof
+		// courier address found in the Tap address.
+		courier, err := p.cfg.ProofCourierDispatcher.NewCourier(
+			ctx, &manifest.CourierURL, false,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to initiate proof courier "+
+				"service handle: %w", err)
+		}
+
+		err = courier.DeliverFragment(ctx, manifest)
+		if err != nil {
+			return fmt.Errorf("failed to deliver fragment via "+
+				"courier service: %w", err)
+		}
+
+		if err := courier.Close(); err != nil {
+			log.Warnf("Failed to close proof courier service "+
+				"handle: %v", err)
+		}
+	}
 
 	// incompleteDelivery is set to true if any proof delivery attempts fail
 	// and exceed the maximum backoff limit.
@@ -1238,7 +1301,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, fmt.Errorf("unable to cast parcel to " +
 				"address parcel")
 		}
-		fundSendRes, err := p.cfg.AssetWallet.FundAddressSend(
+		wallet := p.cfg.AssetWallet
+		fundSendRes, fragmentManifests, err := wallet.FundAddressSend(
 			ctx, fn.Some(asset.ScriptKeyBip86), nil,
 			addrParcel.destAddrs...,
 		)
@@ -1247,7 +1311,11 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"%w", err)
 		}
 
+		log.Debugf("Got %d fragment manifests for address send",
+			len(fragmentManifests))
+
 		currentPkg.VirtualPackets = fundSendRes.VPackets
+		currentPkg.SendManifests = fragmentManifests
 		currentPkg.InputCommitments = fundSendRes.InputCommitments
 
 		currentPkg.SendState = SendStateVirtualSign
