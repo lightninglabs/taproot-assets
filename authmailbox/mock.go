@@ -87,5 +87,8 @@ func (s *MockMsgStore) QueryMessages(_ context.Context,
 }
 
 func (s *MockMsgStore) NumMessages(context.Context) uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	return uint64(len(s.messages))
 }
