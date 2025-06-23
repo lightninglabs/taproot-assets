@@ -39,7 +39,7 @@ func FromAddresses(receiverAddrs []*address.Tap,
 	switch firstAddr.Version {
 	case address.V0:
 		pkt.Version = V0
-	case address.V1:
+	case address.V1, address.V2:
 		pkt.Version = V1
 	default:
 		return nil, address.ErrUnknownVersion
