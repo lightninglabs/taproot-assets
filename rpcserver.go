@@ -7969,7 +7969,9 @@ func (r *rpcServer) EncodeCustomRecords(_ context.Context,
 			rfqID = fn.Some[rfqmsg.ID](id)
 		}
 
-		htlc := rfqmsg.NewHtlc(assetAmounts, rfqID)
+		htlc := rfqmsg.NewHtlc(
+			assetAmounts, rfqID, fn.None[[]rfqmsg.ID](),
+		)
 
 		// We'll now map the HTLC struct into a set of TLV records,
 		// which we can then encode into the map format expected.
@@ -8111,7 +8113,9 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 			"from peer %x with SCID %d", sellOrder.AssetAmount,
 			quote.AssetRate.String(), quote.Peer, quote.ID.Scid())
 
-		htlc := rfqmsg.NewHtlc(nil, fn.Some(quote.ID))
+		htlc := rfqmsg.NewHtlc(
+			nil, fn.Some(quote.ID), fn.None[[]rfqmsg.ID](),
+		)
 
 		// We'll now map the HTLC struct into a set of TLV records,
 		// which we can then encode into the expected map format.
@@ -8246,7 +8250,9 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		var rfqID rfqmsg.ID
 		copy(rfqID[:], acceptedQuote.Id)
 
-		htlc := rfqmsg.NewHtlc(nil, fn.Some(rfqID))
+		htlc := rfqmsg.NewHtlc(
+			nil, fn.Some(rfqID), fn.None[[]rfqmsg.ID](),
+		)
 
 		// We'll now map the HTLC struct into a set of TLV records,
 		// which we can then encode into the expected map format.
@@ -8321,7 +8327,9 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 			}
 		}
 
-		htlc := rfqmsg.NewHtlc(balances, fn.None[rfqmsg.ID]())
+		htlc := rfqmsg.NewHtlc(
+			balances, fn.None[rfqmsg.ID](), fn.None[[]rfqmsg.ID](),
+		)
 
 		// We'll now map the HTLC struct into a set of TLV records,
 		// which we can then encode into the map format expected.

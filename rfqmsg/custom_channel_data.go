@@ -103,6 +103,7 @@ type JsonAssetTranche struct {
 // JsonHtlc is a struct that represents the asset information that can be
 // transferred via an HTLC.
 type JsonHtlc struct {
-	Balances []*JsonAssetTranche `json:"balances"`
-	RfqID    string              `json:"rfq_id"`
+	Balances        []*JsonAssetTranche `json:"balances"`
+	RfqID           string              `json:"rfq_id"`
+	AvailableRfqIDs []string            `json:"available_rfq_ids,omitempty"`
 }
