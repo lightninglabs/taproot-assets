@@ -7712,24 +7712,6 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				"use: %w", err)
 		}
 
-		// TODO(george): temporary as multi-rfq send is not supported
-		// yet
-		if peerPubKey == nil && len(chanMap) > 1 {
-			return fmt.Errorf("multiple valid peers found, need " +
-				"specify peer pub key")
-		}
-
-		// Even if the user didn't specify the peer public key before,
-		// we definitely know it now. So let's make sure it's always
-		// set.
-		//
-		// TODO(george): we just grab the first value, this is temporary
-		// until multi-rfq send is implemented.
-		for _, v := range chanMap {
-			peerPubKey = &v[0].ChannelInfo.PubKeyBytes
-			break
-		}
-
 		// paymentMaxAmt is the maximum amount that the counterparty is
 		// expected to pay. This is the amount that the invoice is
 		// asking for plus the fee limit in milli-satoshis.
@@ -7738,77 +7720,86 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 			return err
 		}
 
-		resp, err := r.AddAssetSellOrder(
-			ctx, &rfqrpc.AddAssetSellOrderRequest{
-				AssetSpecifier: &rpcSpecifier,
-				PaymentMaxAmt:  uint64(paymentMaxAmt),
-				Expiry:         uint64(expiry.Unix()),
-				PeerPubKey:     peerPubKey[:],
-				TimeoutSeconds: uint32(
-					rfq.DefaultTimeout.Seconds(),
-				),
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("error adding sell order: %w", err)
+		// Since we don't have any pre-negotiated rfq IDs available, we
+		// need to initiate the negotiation procedure for this payment.
+		// We'll store here all the quotes we acquired successfully.
+		var acquiredQuotes []rfqmsg.ID
+
+		var quoteErr, overpaymentErr error
+
+		// For each peer that satisfies our query above, we'll try and
+		// establish an RFQ quote for the asset specifier and max amount
+		// of this payment.
+		for peer := range chanMap {
+			quote, err := r.acquireSellOrder(
+				ctx, &rpcSpecifier, paymentMaxAmt, expiry,
+				&peer,
+			)
+			if err != nil {
+				quoteErr = err
+				rpcsLog.Errorf("error while trying to acquire "+
+					"a sell order for payment: %v", err)
+				continue
+			}
+
+			err = checkOverpayment(
+				quote, paymentMaxAmt, req.AllowOverpay,
+			)
+			if err != nil {
+				overpaymentErr = err
+				rpcsLog.Error(err)
+			}
+
+			// Send out the information about the quote on the
+			// stream.
+			//
+			// nolint:lll
+			err = stream.Send(&tchrpc.SendPaymentResponse{
+				Result: &tchrpc.SendPaymentResponse_AcceptedSellOrder{
+					AcceptedSellOrder: quote,
+				},
+			})
+			if err != nil {
+				return err
+			}
+
+			// Unmarshall the accepted quote's asset rate.
+			assetRate, err := rpcutils.UnmarshalRfqFixedPoint(
+				quote.BidAssetRate,
+			)
+			if err != nil {
+				return fmt.Errorf("error unmarshalling asset "+
+					"rate: %w", err)
+			}
+
+			rpcsLog.Infof("Got quote for %v asset units at %v "+
+				"asset/BTC from peer %x with SCID %d",
+				quote.AssetAmount, assetRate, peerPubKey,
+				quote.Scid)
+
+			var rfqID rfqmsg.ID
+			copy(rfqID[:], quote.Id)
+
+			acquiredQuotes = append(acquiredQuotes, rfqID)
+
+			// If we reached the limit of quotes we can establish,
+			// break and continue.
+			if len(acquiredQuotes) >= rfqmsg.MaxSendPaymentQuotes {
+				break
+			}
 		}
 
-		var acceptedQuote *rfqrpc.PeerAcceptedSellQuote
-		switch r := resp.Response.(type) {
-		case *rfqrpc.AddAssetSellOrderResponse_AcceptedQuote:
-			acceptedQuote = r.AcceptedQuote
-
-		case *rfqrpc.AddAssetSellOrderResponse_InvalidQuote:
-			return fmt.Errorf("peer %v sent back an invalid "+
-				"quote, status: %v", r.InvalidQuote.Peer,
-				r.InvalidQuote.Status.String())
-
-		case *rfqrpc.AddAssetSellOrderResponse_RejectedQuote:
-			return fmt.Errorf("peer %v rejected the quote, code: "+
-				"%v, error message: %v", r.RejectedQuote.Peer,
-				r.RejectedQuote.ErrorCode,
-				r.RejectedQuote.ErrorMessage)
-
-		default:
-			return fmt.Errorf("unexpected response type: %T", r)
+		if len(acquiredQuotes) == 0 {
+			joinErr := errors.Join(quoteErr, overpaymentErr)
+			return fmt.Errorf("failed to acquire any quotes for "+
+				"payment: %v", joinErr)
 		}
 
-		// Check if the payment requires overpayment based on the quote.
-		err = checkOverpayment(
-			acceptedQuote, paymentMaxAmt, req.AllowOverpay,
-		)
-		if err != nil {
-			return err
-		}
-
-		// Send out the information about the quote on the stream.
-		err = stream.Send(&tchrpc.SendPaymentResponse{
-			Result: &tchrpc.SendPaymentResponse_AcceptedSellOrder{
-				AcceptedSellOrder: acceptedQuote,
-			},
-		})
-		if err != nil {
-			return err
-		}
-
-		// Unmarshall the accepted quote's asset rate.
-		assetRate, err := rpcutils.UnmarshalRfqFixedPoint(
-			acceptedQuote.BidAssetRate,
-		)
-		if err != nil {
-			return fmt.Errorf("error unmarshalling asset rate: %w",
-				err)
-		}
-
-		rpcsLog.Infof("Got quote for %v asset units at %v asset/BTC "+
-			"from peer %x with SCID %d", acceptedQuote.AssetAmount,
-			assetRate, peerPubKey, acceptedQuote.Scid)
-
-		var rfqID rfqmsg.ID
-		copy(rfqID[:], acceptedQuote.Id)
-
+		// We now create the HTLC with all the available rfq IDs. This
+		// will be used by LND later to query the bandwidth of various
+		// channels based on the established quotes.
 		htlc := rfqmsg.NewHtlc(
-			nil, fn.Some(rfqID), fn.None[[]rfqmsg.ID](),
+			nil, fn.None[rfqmsg.ID](), fn.Some(acquiredQuotes),
 		)
 
 		// We'll now map the HTLC struct into a set of TLV records,
@@ -8496,6 +8487,48 @@ func (r *rpcServer) acquireBuyOrder(ctx context.Context,
 	}
 
 	return quote, nil
+}
+
+// acquireSellOrder performs an RFQ negotiation with the target peer and quote
+// parameters and returns the quote if the negotiation was successful.
+func (r *rpcServer) acquireSellOrder(ctx context.Context,
+	rpcSpecifier *rfqrpc.AssetSpecifier, paymentMaxAmt lnwire.MilliSatoshi,
+	expiry time.Time,
+	peerPubKey *route.Vertex) (*rfqrpc.PeerAcceptedSellQuote, error) {
+
+	resp, err := r.AddAssetSellOrder(
+		ctx, &rfqrpc.AddAssetSellOrderRequest{
+			AssetSpecifier: rpcSpecifier,
+			PaymentMaxAmt:  uint64(paymentMaxAmt),
+			Expiry:         uint64(expiry.Unix()),
+			PeerPubKey:     peerPubKey[:],
+			TimeoutSeconds: uint32(
+				rfq.DefaultTimeout.Seconds(),
+			),
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error adding sell order: %w", err)
+	}
+
+	switch r := resp.Response.(type) {
+	case *rfqrpc.AddAssetSellOrderResponse_AcceptedQuote:
+		return r.AcceptedQuote, nil
+
+	case *rfqrpc.AddAssetSellOrderResponse_InvalidQuote:
+		return nil, fmt.Errorf("peer %v sent back an invalid "+
+			"quote, status: %v", r.InvalidQuote.Peer,
+			r.InvalidQuote.Status.String())
+
+	case *rfqrpc.AddAssetSellOrderResponse_RejectedQuote:
+		return nil, fmt.Errorf("peer %v rejected the quote, code: "+
+			"%v, error message: %v", r.RejectedQuote.Peer,
+			r.RejectedQuote.ErrorCode,
+			r.RejectedQuote.ErrorMessage)
+
+	default:
+		return nil, fmt.Errorf("unexpected response type: %T", r)
+	}
 }
 
 // DeclareScriptKey declares a new script key to the wallet. This is useful
