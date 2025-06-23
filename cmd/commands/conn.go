@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
@@ -71,6 +72,7 @@ type RpcClientsBundle interface {
 	tchrpc.TaprootAssetChannelsClient
 	universerpc.UniverseClient
 	tapdevrpc.TapDevClient
+	authmailboxrpc.MailboxClient
 }
 
 // getRpcClientBundle returns a bundle of all the RPC clients.
@@ -88,6 +90,7 @@ func getRpcClientBundle(ctx *cli.Context) (RpcClientsBundle, func()) {
 	channelsClient := tchrpc.NewTaprootAssetChannelsClient(conn)
 	universeClient := universerpc.NewUniverseClient(conn)
 	devClient := tapdevrpc.NewTapDevClient(conn)
+	authMailboxClient := authmailboxrpc.NewMailboxClient(conn)
 
 	// Use an inline struct to eliminate the need for defining an additional
 	// struct, reducing potential confusion with RpcClientsBundle.
@@ -99,6 +102,7 @@ func getRpcClientBundle(ctx *cli.Context) (RpcClientsBundle, func()) {
 		tchrpc.TaprootAssetChannelsClient
 		universerpc.UniverseClient
 		tapdevrpc.TapDevClient
+		authmailboxrpc.MailboxClient
 	}{
 		TaprootAssetsClient:        tapClient,
 		AssetWalletClient:          assetWalletClient,
@@ -107,6 +111,7 @@ func getRpcClientBundle(ctx *cli.Context) (RpcClientsBundle, func()) {
 		TaprootAssetChannelsClient: channelsClient,
 		UniverseClient:             universeClient,
 		TapDevClient:               devClient,
+		MailboxClient:              authMailboxClient,
 	}, cleanUp
 }
 

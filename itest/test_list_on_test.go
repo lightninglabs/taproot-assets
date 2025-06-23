@@ -347,6 +347,10 @@ var testCases = []*testCase{
 		name: "pre commit output",
 		test: testPreCommitOutput,
 	},
+	{
+		name: "auth mailbox message store and fetch",
+		test: testAuthMailboxStoreAndFetchMessage,
+	},
 }
 
 var optionalTestCases = []*testCase{

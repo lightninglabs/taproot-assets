@@ -13,6 +13,7 @@ import (
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
@@ -135,6 +136,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			return db.WithTx(tx)
 		},
 	)
+
+	authMailboxStore := tapdb.NewMailboxStore(tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.AuthMailboxStore {
+			return db.WithTx(tx)
+		},
+	))
 
 	var statsOpts []tapdb.UniverseStatsOption
 	if cfg.Universe.StatsCacheDuration != 0 {
@@ -644,6 +651,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AuxSweeper:               auxSweeper,
 		LogWriter:                cfg.LogWriter,
 		LogMgr:                   cfg.LogMgr,
+		MboxServerConfig: authmailbox.ServerConfig{
+			AuthTimeout:    cfg.Universe.MboxAuthTimeout,
+			Signer:         lndServices.Signer,
+			HeaderVerifier: headerVerifier,
+			MerkleVerifier: proof.DefaultMerkleVerifier,
+			MsgStore:       authMailboxStore,
+			TxProofStore:   authMailboxStore,
+		},
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),
 			MintingStore: assetMintingStore,

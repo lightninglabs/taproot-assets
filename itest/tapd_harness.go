@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
@@ -102,6 +103,7 @@ type tapdHarness struct {
 	tchrpc.TaprootAssetChannelsClient
 	universerpc.UniverseClient
 	tapdevrpc.TapDevClient
+	authmailboxrpc.MailboxClient
 }
 
 // tapdConfig holds all configuration items that are required to start a tapd
@@ -442,6 +444,7 @@ func (hs *tapdHarness) start(expectErrExit bool) error {
 	)
 	hs.UniverseClient = universerpc.NewUniverseClient(rpcConn)
 	hs.TapDevClient = tapdevrpc.NewTapDevClient(rpcConn)
+	hs.MailboxClient = authmailboxrpc.NewMailboxClient(rpcConn)
 
 	return nil
 }
