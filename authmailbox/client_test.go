@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"testing"
 	"time"
@@ -236,6 +237,40 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 		client2.stop(t)
 	})
 
+	// We also add a multi-subscription to the same two keys, so we can make
+	// sure we can receive messages from multiple clients at once.
+	multiSub := NewMultiSubscription(*clientCfg)
+	err := multiSub.Subscribe(
+		ctx, url.URL{Host: clientCfg.ServerAddress}, clientKey1, filter,
+	)
+	require.NoError(t, err)
+	err = multiSub.Subscribe(
+		ctx, url.URL{Host: clientCfg.ServerAddress}, clientKey2, filter,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, multiSub.Stop())
+	})
+	msgChan := multiSub.MessageChan()
+	readMultiSub := func(targetID ...uint64) {
+		t.Helper()
+		select {
+		case inboundMsgs := <-msgChan:
+			receivedIDs := fn.Map(
+				inboundMsgs.Messages,
+				func(msg *mboxrpc.MailboxMessage) uint64 {
+					return msg.MessageId
+				},
+			)
+			for _, target := range targetID {
+				require.Contains(t, receivedIDs, target)
+			}
+		case <-time.After(testTimeout):
+			t.Fatalf("timeout waiting for message with ID %v",
+				targetID)
+		}
+	}
+
 	// Send a message to all clients.
 	msg1 := &Message{
 		ID:               1000,
@@ -244,7 +279,7 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	}
 
 	// We also store the message in the store, so we can retrieve it later.
-	_, err := harness.mockMsgStore.StoreMessage(ctx, randOp, msg1)
+	_, err = harness.mockMsgStore.StoreMessage(ctx, randOp, msg1)
 	require.NoError(t, err)
 
 	harness.srv.publishMessage(msg1)
@@ -252,6 +287,7 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	// We should be able to receive that message.
 	client1.readMessages(t, msg1.ID)
 	client2.readMessages(t, msg1.ID)
+	readMultiSub(msg1.ID)
 
 	// We now stop the server and assert that the subscription is no longer
 	// active.
@@ -282,6 +318,7 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	// We should be able to receive that message.
 	client1.readMessages(t, msg2.ID)
 	client2.readMessages(t, msg2.ID)
+	readMultiSub(msg2.ID)
 
 	// If we now start a third client, we should be able to receive all
 	// three messages, given we are using the same key and specify the
@@ -314,6 +351,23 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	harness.srv.publishMessage(msg3)
 	client4.expectNoMessage(t)
 	client1.readMessages(t, msg3.ID)
+	client2.readMessages(t, msg3.ID)
+	client3.readMessages(t, msg3.ID)
+	readMultiSub(msg3.ID)
+
+	// Let's make sure that a message sent to the second key is only
+	// received by the fourth client and the multi-subscription.
+	msg4 := &Message{
+		ID:               1001,
+		ReceiverKey:      *clientKey2.PubKey,
+		ArrivalTimestamp: time.Now(),
+	}
+	harness.srv.publishMessage(msg4)
+	client1.expectNoMessage(t)
+	client2.expectNoMessage(t)
+	client3.expectNoMessage(t)
+	client4.readMessages(t, msg4.ID)
+	readMultiSub(msg4.ID)
 }
 
 // TestSendMessage tests the SendMessage RPC of the server and its ability to
