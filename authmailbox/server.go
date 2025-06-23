@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -203,6 +204,7 @@ func (s *Server) SendMessage(ctx context.Context,
 		ArrivalTimestamp: time.Now(),
 	}
 
+	var claimedOp wire.OutPoint
 	switch p := req.Proof.(type) {
 	case *mboxrpc.SendMessageRequest_TxProof:
 		txProof, err := proof.UnmarshalTxProof(p.TxProof)
@@ -221,7 +223,7 @@ func (s *Server) SendMessage(ctx context.Context,
 		// If this proof has already been used, we reject the message.
 		// This is the last step of the proof validation.
 		haveProof, err := s.cfg.TxProofStore.HaveProof(
-			txProof.ClaimedOutPoint,
+			ctx, txProof.ClaimedOutPoint,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error checking for proof: %w",
@@ -234,13 +236,14 @@ func (s *Server) SendMessage(ctx context.Context,
 		// We didn't have the proof before, so we store it now. If at
 		// the same time a different goroutine is trying to store the
 		// same proof, we expect the database to handle the concurrency.
-		err = s.cfg.TxProofStore.StoreProof(txProof.ClaimedOutPoint)
+		err = s.cfg.TxProofStore.StoreProof(ctx, *txProof)
 		if err != nil {
 			return nil, fmt.Errorf("error storing proof: %w",
 				err)
 		}
 
 		msg.ProofBlockHeight = txProof.BlockHeight
+		claimedOp = txProof.ClaimedOutPoint
 
 	default:
 		return nil, fmt.Errorf("unsupported proof type: %T", p)
@@ -257,7 +260,7 @@ func (s *Server) SendMessage(ctx context.Context,
 	// We have verified everything we can, we'll allow the message to be
 	// stored now.
 	log.TraceS(ctx, "Sending message", "msg", spew.Sdump(msg))
-	err = s.cfg.MsgStore.StoreMessage(msg)
+	msgID, err := s.cfg.MsgStore.StoreMessage(ctx, claimedOp, msg)
 	if err != nil {
 		return nil, fmt.Errorf("error storing message: %w", err)
 	}
@@ -265,10 +268,11 @@ func (s *Server) SendMessage(ctx context.Context,
 	// Publish the message to all subscribers, meaning it will be
 	// distributed to all subscribed streams. Each stream will filter by
 	// recipient ID by itself.
+	msg.ID = msgID
 	s.publishMessage(msg)
 
 	return &mboxrpc.SendMessageResponse{
-		MessageId: msg.ID,
+		MessageId: msgID,
 	}, nil
 }
 
@@ -312,7 +316,7 @@ func (s *Server) Info(ctx context.Context,
 
 	return &mboxrpc.InfoResponse{
 		ServerTime:   time.Now().Unix(),
-		MessageCount: s.cfg.MsgStore.NumMessages(),
+		MessageCount: s.cfg.MsgStore.NumMessages(ctx),
 	}, nil
 }
 
@@ -638,8 +642,9 @@ func (s *Server) RegisterSubscriber(receiver *fn.EventReceiver[[]*Message],
 
 	s.msgEventsSubs[receiver.ID()] = receiver
 
+	ctx := context.Background()
 	if deliverExisting {
-		messages, err := s.cfg.MsgStore.QueryMessages(deliverFrom)
+		messages, err := s.cfg.MsgStore.QueryMessages(ctx, deliverFrom)
 		if err != nil {
 			return fmt.Errorf("error querying messages: %w", err)
 		}

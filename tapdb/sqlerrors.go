@@ -42,7 +42,9 @@ func MapSQLError(err error) error {
 func parseSqliteError(sqliteErr *sqlite.Error) error {
 	switch sqliteErr.Code() {
 	// Handle unique constraint violation error.
-	case sqlite3.SQLITE_CONSTRAINT_UNIQUE:
+	case sqlite3.SQLITE_CONSTRAINT_UNIQUE,
+		sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY:
+
 		return &ErrSqlUniqueConstraintViolation{
 			DbError: sqliteErr,
 		}

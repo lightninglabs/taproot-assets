@@ -25,6 +25,8 @@ type Querier interface {
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) (int64, error)
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
+	ContainsTxProof(ctx context.Context, outpoint []byte) (bool, error)
+	CountAuthMailboxMessages(ctx context.Context) (int64, error)
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
 	DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error
@@ -62,6 +64,7 @@ type Querier interface {
 	// doesn't have a group key. See the comment in fetchAssetSprouts for a work
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]FetchAssetsForBatchRow, error)
+	FetchAuthMailboxMessages(ctx context.Context, id int64) (FetchAuthMailboxMessagesRow, error)
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error)
 	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error)
 	FetchChildrenSelfJoin(ctx context.Context, arg FetchChildrenSelfJoinParams) ([]FetchChildrenSelfJoinRow, error)
@@ -105,6 +108,7 @@ type Querier interface {
 	InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int64, error)
 	InsertAssetTransferInput(ctx context.Context, arg InsertAssetTransferInputParams) error
 	InsertAssetTransferOutput(ctx context.Context, arg InsertAssetTransferOutputParams) error
+	InsertAuthMailboxMessage(ctx context.Context, arg InsertAuthMailboxMessageParams) (int64, error)
 	InsertBranch(ctx context.Context, arg InsertBranchParams) error
 	InsertBurn(ctx context.Context, arg InsertBurnParams) (int64, error)
 	InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error
@@ -113,6 +117,7 @@ type Querier interface {
 	InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error
 	InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
+	InsertTxProof(ctx context.Context, arg InsertTxProofParams) error
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
 	LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error
 	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
@@ -136,6 +141,7 @@ type Querier interface {
 	// make the entire statement evaluate to true, if none of these extra args are
 	// specified.
 	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
+	QueryAuthMailboxMessages(ctx context.Context, arg QueryAuthMailboxMessagesParams) ([]QueryAuthMailboxMessagesRow, error)
 	QueryBurns(ctx context.Context, arg QueryBurnsParams) ([]QueryBurnsRow, error)
 	QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error)
 	QueryFederationGlobalSyncConfigs(ctx context.Context) ([]FederationGlobalSyncConfig, error)

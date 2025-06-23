@@ -221,9 +221,11 @@ func (h *clientHarness) stop(t *testing.T) {
 // restarted. It also tests that the client can receive messages from the
 // server's backlog.
 func TestServerClientAuthAndRestart(t *testing.T) {
+	ctx := context.Background()
 	harness := newServerHarness(t)
 	clientCfg := harness.clientCfg
 
+	randOp := test.RandOp(t)
 	clientKey1, _ := test.RandKeyDesc(t)
 	clientKey2, _ := test.RandKeyDesc(t)
 	filter := MessageFilter{}
@@ -242,7 +244,8 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	}
 
 	// We also store the message in the store, so we can retrieve it later.
-	require.NoError(t, harness.mockMsgStore.StoreMessage(msg1))
+	_, err := harness.mockMsgStore.StoreMessage(ctx, randOp, msg1)
+	require.NoError(t, err)
 
 	harness.srv.publishMessage(msg1)
 
@@ -271,7 +274,8 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 		ReceiverKey:      *clientKey1.PubKey,
 		ArrivalTimestamp: time.Now(),
 	}
-	require.NoError(t, harness.mockMsgStore.StoreMessage(msg2))
+	_, err = harness.mockMsgStore.StoreMessage(ctx, randOp, msg2)
+	require.NoError(t, err)
 
 	harness.srv.publishMessage(msg2)
 
@@ -510,6 +514,8 @@ func makeMessage(c clock.Clock, id uint64, key keychain.KeyDescriptor,
 func TestReceiveBacklog(t *testing.T) {
 	harness := newServerHarness(t)
 
+	ctx := context.Background()
+	randOp := test.RandOp(t)
 	receiver1, _ := test.RandKeyDesc(t)
 	receiver2, _ := test.RandKeyDesc(t)
 	receiver3, _ := test.RandKeyDesc(t)
@@ -551,7 +557,8 @@ func TestReceiveBacklog(t *testing.T) {
 	}
 
 	for _, msg := range messages {
-		require.NoError(t, harness.mockMsgStore.StoreMessage(msg))
+		_, err := harness.mockMsgStore.StoreMessage(ctx, randOp, msg)
+		require.NoError(t, err)
 	}
 
 	testCases := []struct {

@@ -1,10 +1,12 @@
 package authmailbox
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/wire"
 )
 
 const (
@@ -84,21 +86,23 @@ func (f *MessageFilter) DeliverExisting() bool {
 
 // MsgStore is an interface for storing and retrieving messages in the mailbox.
 type MsgStore interface {
-	// StoreMessage stores a message in the mailbox.
-	StoreMessage(msg *Message) error
+	// StoreMessage stores a message in the mailbox, referencing the claimed
+	// outpoint of the transaction that was used to prove the message's
+	// authenticity. If a message with the same outpoint already exists,
+	// it returns proof.ErrTxMerkleProofExists.
+	StoreMessage(ctx context.Context, claimedOp wire.OutPoint,
+		msg *Message) (uint64, error)
 
 	// FetchMessage retrieves a message from the mailbox by its ID.
-	FetchMessage(id uint64) (*Message, error)
-
-	// FetchMessages retrieves all messages in the mailbox.
-	FetchMessages() ([]*Message, error)
+	FetchMessage(ctx context.Context, id uint64) (*Message, error)
 
 	// QueryMessages retrieves messages based on a query.
-	QueryMessages(filter MessageFilter) ([]*Message, error)
+	QueryMessages(ctx context.Context, filter MessageFilter) ([]*Message,
+		error)
 
 	// NumMessages returns the number of messages currently in the mailbox.
 	// Implementations should make sure that this can be calculated quickly
 	// and efficiently (e.g., by caching the result), as it might be queried
 	// often.
-	NumMessages() uint64
+	NumMessages(ctx context.Context) uint64
 }

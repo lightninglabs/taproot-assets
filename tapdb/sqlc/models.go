@@ -177,6 +177,15 @@ type AssetsMetum struct {
 	MetaDelegationKey       []byte
 }
 
+type AuthmailboxMessage struct {
+	ID                int64
+	ClaimedOutpoint   []byte
+	ReceiverKey       []byte
+	EncryptedPayload  []byte
+	ArrivalTimestamp  int64
+	ExpiryBlockHeight sql.NullInt32
+}
+
 type ChainTxn struct {
 	TxnID       int64
 	Txid        []byte
@@ -364,6 +373,14 @@ type TapscriptRoot struct {
 	RootID     int64
 	RootHash   []byte
 	BranchOnly bool
+}
+
+type TxProofClaimedOutpoint struct {
+	Outpoint    []byte
+	BlockHash   []byte
+	BlockHeight int32
+	InternalKey []byte
+	MerkleRoot  []byte
 }
 
 type UniverseEvent struct {
