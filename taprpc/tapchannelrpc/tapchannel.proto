@@ -155,17 +155,33 @@ message SendPaymentRequest {
     bytes group_key = 7;
 }
 
+message AcceptedSellQuotes {
+    // If swapping of assets is necessary to carry out the payment, a number of
+    // RFQ quotes may be negotiated for that purpose. The following field
+    // contains all the sell orders that were negotiated with our peers.
+    repeated rfqrpc.PeerAcceptedSellQuote accepted_sell_orders = 1;
+}
+
 message SendPaymentResponse {
     oneof result {
         // In case channel assets need to be swapped to another asset, an asset
         // sell order is negotiated with the channel peer. The result will be
         // the first message in the response stream. If no swap is needed, the
         // payment results will be streamed directly.
+        // Deprecated. This will now only contain the first quote that was
+        // negotiated. Since the introduction of multi-rfq we now negotiate
+        // multiple quotes in the context of a payment. Use the new field named
+        // "accepted_sell_orders" to retrieve all of them.
         rfqrpc.PeerAcceptedSellQuote accepted_sell_order = 1;
 
-        // The payment result of a single payment attempt. Multiple attempts may
-        // be returned per payment request until either the payment succeeds or
-        // the payment times out.
+        // If swapping of assets is necessary to carry out the payment, a number
+        // of RFQ quotes may be negotiated for that purpose. The following field
+        // contains all the sell orders that were negotiated with our peers.
+        AcceptedSellQuotes accepted_sell_orders = 3;
+
+        // The payment result of a single payment attempt. Multiple attempts
+        // may be returned per payment request until either the payment
+        // succeeds or the payment times out.
         lnrpc.Payment payment_result = 2;
     }
 }

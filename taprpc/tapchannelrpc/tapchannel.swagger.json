@@ -1487,6 +1487,19 @@
         }
       }
     },
+    "tapchannelrpcAcceptedSellQuotes": {
+      "type": "object",
+      "properties": {
+        "accepted_sell_orders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/rfqrpcPeerAcceptedSellQuote"
+          },
+          "description": "If swapping of assets is necessary to carry out the payment, a number of\nRFQ quotes may be negotiated for that purpose. The following field\ncontains all the sell orders that were negotiated with our peers."
+        }
+      }
+    },
     "tapchannelrpcAddInvoiceRequest": {
       "type": "object",
       "properties": {
@@ -1718,11 +1731,15 @@
       "properties": {
         "accepted_sell_order": {
           "$ref": "#/definitions/rfqrpcPeerAcceptedSellQuote",
-          "description": "In case channel assets need to be swapped to another asset, an asset\nsell order is negotiated with the channel peer. The result will be\nthe first message in the response stream. If no swap is needed, the\npayment results will be streamed directly."
+          "description": "In case channel assets need to be swapped to another asset, an asset\nsell order is negotiated with the channel peer. The result will be\nthe first message in the response stream. If no swap is needed, the\npayment results will be streamed directly.\nDeprecated. This will now only contain the first quote that was\nnegotiated. Since the introduction of multi-rfq we now negotiate\nmultiple quotes in the context of a payment. Use the new field named\n\"accepted_sell_orders\" to retrieve all of them."
+        },
+        "accepted_sell_orders": {
+          "$ref": "#/definitions/tapchannelrpcAcceptedSellQuotes",
+          "description": "If swapping of assets is necessary to carry out the payment, a number\nof RFQ quotes may be negotiated for that purpose. The following field\ncontains all the sell orders that were negotiated with our peers."
         },
         "payment_result": {
           "$ref": "#/definitions/lnrpcPayment",
-          "description": "The payment result of a single payment attempt. Multiple attempts may\nbe returned per payment request until either the payment succeeds or\nthe payment times out."
+          "description": "The payment result of a single payment attempt. Multiple attempts\nmay be returned per payment request until either the payment\nsucceeds or the payment times out."
         }
       }
     },
