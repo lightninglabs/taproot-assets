@@ -100,20 +100,20 @@ func request_Mailbox_ReceiveMessages_0(ctx context.Context, marshaler runtime.Ma
 	return stream, metadata, nil
 }
 
-func request_Mailbox_Info_0(ctx context.Context, marshaler runtime.Marshaler, client MailboxClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq InfoRequest
+func request_Mailbox_MailboxInfo_0(ctx context.Context, marshaler runtime.Marshaler, client MailboxClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq MailboxInfoRequest
 	var metadata runtime.ServerMetadata
 
-	msg, err := client.Info(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.MailboxInfo(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_Mailbox_Info_0(ctx context.Context, marshaler runtime.Marshaler, server MailboxServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq InfoRequest
+func local_request_Mailbox_MailboxInfo_0(ctx context.Context, marshaler runtime.Marshaler, server MailboxServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq MailboxInfoRequest
 	var metadata runtime.ServerMetadata
 
-	msg, err := server.Info(ctx, &protoReq)
+	msg, err := server.MailboxInfo(ctx, &protoReq)
 	return msg, metadata, err
 
 }
@@ -156,7 +156,7 @@ func RegisterMailboxHandlerServer(ctx context.Context, mux *runtime.ServeMux, se
 		return
 	})
 
-	mux.Handle("GET", pattern_Mailbox_Info_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Mailbox_MailboxInfo_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -164,12 +164,12 @@ func RegisterMailboxHandlerServer(ctx context.Context, mux *runtime.ServeMux, se
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/authmailboxrpc.Mailbox/Info", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/info"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/authmailboxrpc.Mailbox/MailboxInfo", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/info"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Mailbox_Info_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Mailbox_MailboxInfo_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
@@ -177,7 +177,7 @@ func RegisterMailboxHandlerServer(ctx context.Context, mux *runtime.ServeMux, se
 			return
 		}
 
-		forward_Mailbox_Info_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Mailbox_MailboxInfo_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -266,25 +266,25 @@ func RegisterMailboxHandlerClient(ctx context.Context, mux *runtime.ServeMux, cl
 
 	})
 
-	mux.Handle("GET", pattern_Mailbox_Info_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Mailbox_MailboxInfo_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/authmailboxrpc.Mailbox/Info", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/info"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/authmailboxrpc.Mailbox/MailboxInfo", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/info"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Mailbox_Info_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_Mailbox_MailboxInfo_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Mailbox_Info_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Mailbox_MailboxInfo_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -296,7 +296,7 @@ var (
 
 	pattern_Mailbox_ReceiveMessages_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "mailbox", "receive"}, ""))
 
-	pattern_Mailbox_Info_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "mailbox", "info"}, ""))
+	pattern_Mailbox_MailboxInfo_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "mailbox", "info"}, ""))
 )
 
 var (
@@ -304,5 +304,5 @@ var (
 
 	forward_Mailbox_ReceiveMessages_0 = runtime.ForwardResponseStream
 
-	forward_Mailbox_Info_0 = runtime.ForwardResponseMessage
+	forward_Mailbox_MailboxInfo_0 = runtime.ForwardResponseMessage
 )

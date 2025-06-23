@@ -19,12 +19,12 @@
     "/v1/taproot-assets/mailbox/info": {
       "get": {
         "summary": "Returns basic server information.",
-        "operationId": "Mailbox_Info",
+        "operationId": "Mailbox_MailboxInfo",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/authmailboxrpcInfoResponse"
+              "$ref": "#/definitions/authmailboxrpcMailboxInfoResponse"
             }
           },
           "default": {
@@ -182,22 +182,6 @@
       "type": "object",
       "description": "An empty message used to explicitly signal the normal end of the message\nstream."
     },
-    "authmailboxrpcInfoResponse": {
-      "type": "object",
-      "properties": {
-        "server_time": {
-          "type": "string",
-          "format": "int64",
-          "description": "The current server time in Unix epoch seconds."
-        },
-        "message_count": {
-          "type": "string",
-          "format": "uint64",
-          "description": "The number of messages currently stored on the server."
-        }
-      },
-      "description": "Response message for the Info RPC."
-    },
     "authmailboxrpcInitReceive": {
       "type": "object",
       "properties": {
@@ -219,6 +203,22 @@
         }
       },
       "description": "Carries the initial parameters from the client to start receiving messages."
+    },
+    "authmailboxrpcMailboxInfoResponse": {
+      "type": "object",
+      "properties": {
+        "server_time": {
+          "type": "string",
+          "format": "int64",
+          "description": "The current server time in Unix epoch seconds."
+        },
+        "message_count": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The number of messages currently stored on the server."
+        }
+      },
+      "description": "Response message for the MailboxInfo RPC."
     },
     "authmailboxrpcMailboxMessage": {
       "type": "object",

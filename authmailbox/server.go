@@ -308,13 +308,13 @@ func (s *Server) ReceiveMessages(grpcStream serverStream) error {
 	return s.handleStream(ctxl, grpcStream, stream)
 }
 
-// Info returns basic server information.
-func (s *Server) Info(ctx context.Context,
-	_ *mboxrpc.InfoRequest) (*mboxrpc.InfoResponse, error) {
+// MailboxInfo returns basic server information.
+func (s *Server) MailboxInfo(ctx context.Context,
+	_ *mboxrpc.MailboxInfoRequest) (*mboxrpc.MailboxInfoResponse, error) {
 
 	log.TraceS(ctx, "Received Info message")
 
-	return &mboxrpc.InfoResponse{
+	return &mboxrpc.MailboxInfoResponse{
 		ServerTime:   time.Now().Unix(),
 		MessageCount: s.cfg.MsgStore.NumMessages(ctx),
 	}, nil
