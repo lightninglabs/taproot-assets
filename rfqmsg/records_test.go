@@ -27,6 +27,11 @@ type htlcTestCase struct {
 
 type DummyChecker struct{}
 
+var (
+	dummyRFQ1 = ID(bytes.Repeat([]byte{1}, 32))
+	dummyRFQ2 = ID(bytes.Repeat([]byte{2}, 32))
+)
+
 func MockAssetMatchesSpecifier(_ context.Context, specifier asset.Specifier,
 	id asset.ID) (bool, error) {
 
@@ -112,7 +117,7 @@ func TestHtlc(t *testing.T) {
 			name: "HTLC with balance asset",
 			htlc: NewHtlc([]*AssetBalance{
 				NewAssetBalance([32]byte{1}, 1000),
-			}, fn.None[ID]()),
+			}, fn.None[ID](), fn.None[[]ID]()),
 			expectRecords: true,
 			//nolint:lll
 			expectedJSON: `{
@@ -131,7 +136,7 @@ func TestHtlc(t *testing.T) {
 				NewAssetBalance([32]byte{1}, 1000),
 				NewAssetBalance([32]byte{1}, 2000),
 				NewAssetBalance([32]byte{2}, 5000),
-			}, fn.None[ID]()),
+			}, fn.None[ID](), fn.None[[]ID]()),
 			sumBalances: map[asset.ID]rfqmath.BigInt{
 				[32]byte{1}: rfqmath.NewBigIntFromUint64(3000),
 				[32]byte{2}: rfqmath.NewBigIntFromUint64(5000),
@@ -143,7 +148,7 @@ func TestHtlc(t *testing.T) {
 			htlc: NewHtlc([]*AssetBalance{
 				NewAssetBalance([32]byte{1}, 1000),
 				NewAssetBalance([32]byte{2}, 2000),
-			}, fn.Some(ID{0, 1, 2, 3, 4, 5, 6, 7})),
+			}, fn.Some(dummyRFQ1), fn.None[[]ID]()),
 			expectRecords: true,
 			//nolint:lll
 			expectedJSON: `{
@@ -157,7 +162,33 @@ func TestHtlc(t *testing.T) {
       "amount": 2000
     }
   ],
-  "rfq_id": "0001020304050607000000000000000000000000000000000000000000000000"
+  "rfq_id": "0101010101010101010101010101010101010101010101010101010101010101"
+}`,
+		},
+		{
+			name: "channel with multiple balance assets",
+			htlc: NewHtlc([]*AssetBalance{
+				NewAssetBalance([32]byte{1}, 1000),
+				NewAssetBalance([32]byte{2}, 2000),
+			}, fn.None[ID](), fn.Some([]ID{dummyRFQ1, dummyRFQ2})),
+			expectRecords: true,
+			//nolint:lll
+			expectedJSON: `{
+  "balances": [
+    {
+      "asset_id": "0100000000000000000000000000000000000000000000000000000000000000",
+      "amount": 1000
+    },
+    {
+      "asset_id": "0200000000000000000000000000000000000000000000000000000000000000",
+      "amount": 2000
+    }
+  ],
+  "rfq_id": "",
+  "available_rfq_ids": [
+    "0101010101010101010101010101010101010101010101010101010101010101",
+    "0202020202020202020202020202020202020202020202020202020202020202"
+  ]
 }`,
 		},
 	}

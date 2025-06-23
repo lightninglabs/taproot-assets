@@ -279,7 +279,9 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 	// Include the asset balance in the HTLC record.
 	htlcBalance := rfqmsg.NewAssetBalance(assetID, amt)
 	htlcRecord := rfqmsg.NewHtlc(
-		[]*rfqmsg.AssetBalance{htlcBalance}, fn.Some(c.AcceptedQuoteId),
+		[]*rfqmsg.AssetBalance{htlcBalance},
+		fn.Some(c.AcceptedQuoteId),
+		fn.None[[]rfqmsg.ID](),
 	)
 
 	customRecords, err := lnwire.ParseCustomRecords(htlcRecord.Bytes())
