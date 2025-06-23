@@ -277,50 +277,80 @@ func paymentBandwidthAssetUnits(htlcAssetAmount, computedLocal uint64,
 }
 
 // paymentBandwidth returns the available payment bandwidth of the channel based
-// on the asset rate of the RFQ quote that is included in the HTLC and the asset
-// units of the local balance.
+// on the list of availalbe RFQ IDs. If any of those IDs matches the channel, we
+// calculate the bandwidth based on its asset rate.
 func (s *AuxTrafficShaper) paymentBandwidth(htlc *rfqmsg.Htlc,
 	localBalance uint64, linkBandwidth, minHtlcAmt lnwire.MilliSatoshi,
 	fundingChan *cmsg.OpenChannel) (lnwire.MilliSatoshi, error) {
 
-	// If the HTLC doesn't have an RFQ ID, it's incomplete, and we cannot
-	// determine the bandwidth.
-	if htlc.RfqID.ValOpt().IsNone() {
-		log.Tracef("No RFQ ID in HTLC, cannot determine matching " +
-			"outgoing channel")
+	// If the HTLC doesn't have any available RFQ IDs, it's incomplete, and
+	// we cannot determine the bandwidth. The available RFQ IDs is the list
+	// of RFQ IDs that may be used for the HTLCs of a payment. If they are
+	// missing something is wrong.
+	if htlc.AvailableRfqIDs.IsNone() {
+		log.Tracef("No available RFQ IDs in HTLC, cannot determine " +
+			"matching outgoing channel")
 		return 0, nil
 	}
 
-	// For every other use case (i.e. a normal payment with a negotiated
-	// quote or a multi-hop keysend that also uses a quote), we need to look
-	// up the accepted quote and determine the outgoing bandwidth in
-	// satoshis based on the local asset balance.
-	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
+	// Retrieve the available RFQ IDs.
+	availableIDs := htlc.AvailableRfqIDs.UnsafeFromSome().Val.IDs
+
 	acceptedSellQuotes := s.cfg.RfqManager.PeerAcceptedSellQuotes()
 	acceptedBuyQuotes := s.cfg.RfqManager.LocalAcceptedBuyQuotes()
 
-	sellQuote, isSellQuote := acceptedSellQuotes[rfqID.Scid()]
-	buyQuote, isBuyQuote := acceptedBuyQuotes[rfqID.Scid()]
+	// Now we'll go over our available RFQ IDs and try to find one that can
+	// produce bandwidth over the channel.
+	for _, rfqID := range availableIDs {
+		// For this rfqID we'll fetch the corresponding quote and rate.
+		sellQuote, isSellQuote := acceptedSellQuotes[rfqID.Scid()]
+		buyQuote, isBuyQuote := acceptedBuyQuotes[rfqID.Scid()]
 
-	var (
-		rate      rfqmsg.AssetRate
-		specifier asset.Specifier
-	)
-	switch {
-	case isSellQuote:
-		rate = sellQuote.AssetRate
-		specifier = sellQuote.Request.AssetSpecifier
+		var (
+			rate      rfqmsg.AssetRate
+			specifier asset.Specifier
+		)
+		switch {
+		case isSellQuote:
+			rate = sellQuote.AssetRate
+			specifier = sellQuote.Request.AssetSpecifier
 
-	case isBuyQuote:
-		rate = buyQuote.AssetRate
-		specifier = buyQuote.Request.AssetSpecifier
+		case isBuyQuote:
+			rate = buyQuote.AssetRate
+			specifier = buyQuote.Request.AssetSpecifier
 
-	default:
-		return 0, fmt.Errorf("no accepted quote found for RFQ ID "+
-			"%x (SCID %d)", rfqID[:], rfqID.Scid())
+		default:
+			return 0, fmt.Errorf("no accepted quote found for RFQ "+
+				"ID %x (SCID %d)", rfqID[:], rfqID.Scid())
+		}
+
+		bandwidth, err := s.paymentBandwidthRFQ(
+			rfqID, rate, specifier, localBalance, linkBandwidth,
+			minHtlcAmt, fundingChan,
+		)
+		if err != nil {
+			return 0, err
+		}
+
+		// We know that we establish 1 quote per peer in the scope of
+		// each payment. This means that the first quote that produces
+		// bandwidth is the only quote that can produce bandwidth, so
+		// we immediately return it.
+		if bandwidth > 0 {
+			return bandwidth, nil
+		}
 	}
 
-	// Now that we found the quote, we can determine if this quote is even
+	return 0, nil
+}
+
+// paymentBandwidthRFQ retrieves the bandwidth for a specific channel and quote.
+func (s *AuxTrafficShaper) paymentBandwidthRFQ(rfqID rfqmsg.ID,
+	rate rfqmsg.AssetRate, specifier asset.Specifier, localBalance uint64,
+	linkBandwidth, minHtlcAmt lnwire.MilliSatoshi,
+	fundingChan *cmsg.OpenChannel) (lnwire.MilliSatoshi, error) {
+
+	// Now that we have the quote, we can determine if this quote is even
 	// compatible with this channel. If not, we cannot forward the HTLC
 	// and should return 0 bandwidth.
 	for _, b := range fundingChan.FundedAssets.Val.Outputs {
