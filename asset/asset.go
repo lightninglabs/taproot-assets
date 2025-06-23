@@ -150,6 +150,13 @@ const (
 	// Keys related to channels are not shown in asset balances (unless
 	// specifically requested) and are _never_ used for coin selection.
 	ScriptKeyScriptPathChannel ScriptKeyType = 5
+
+	// ScriptKeyUniquePedersen is the script key type used for assets that
+	// use a unique script key, tweaked with a Pedersen commitment key in a
+	// single Tapscript leaf. This is used to avoid collisions in the
+	// universe when there are multiple grouped asset UTXOs within the same
+	// on-chain output.
+	ScriptKeyUniquePedersen ScriptKeyType = 6
 )
 
 var (
@@ -161,6 +168,7 @@ var (
 		ScriptKeyBurn,
 		ScriptKeyTombstone,
 		ScriptKeyScriptPathChannel,
+		ScriptKeyUniquePedersen,
 	}
 
 	// ScriptKeyTypesNoChannel is a slice of all known script key types
@@ -173,17 +181,37 @@ var (
 		ScriptKeyScriptPathExternal,
 		ScriptKeyBurn,
 		ScriptKeyTombstone,
+		ScriptKeyUniquePedersen,
 	}
 )
 
 // ScriptKeyTypeForDatabaseQuery returns a slice of script key types that should
 // be used when querying the database for assets. The returned slice will either
 // contain all script key types or only those that are not related to channels,
-// depending on the `filterChannelRelated` parameter. Unless the user specifies
+// depending on the `excludeChannelRelated` parameter. Unless the user specifies
 // a specific script key type, in which case the returned slice will only
 // contain that specific script key type.
-func ScriptKeyTypeForDatabaseQuery(filterChannelRelated bool,
+func ScriptKeyTypeForDatabaseQuery(excludeChannelRelated bool,
 	userSpecified fn.Option[ScriptKeyType]) []ScriptKeyType {
+
+	// If the user specified a script key type, we use that directly to
+	// filter the results.
+	if userSpecified.IsSome() {
+		specifiedType := userSpecified.UnwrapOr(ScriptKeyUnknown)
+		dbTypes := []ScriptKeyType{
+			specifiedType,
+		}
+
+		// If the user specifically requested BIP-86 script keys, we
+		// also include the Pedersen unique script key type, because
+		// those can be spent the same way as BIP-86 script keys, and
+		// they should be treated the same way as BIP-86 script keys.
+		if specifiedType == ScriptKeyBip86 {
+			dbTypes = append(dbTypes, ScriptKeyUniquePedersen)
+		}
+
+		return dbTypes
+	}
 
 	// For some queries, we want to get all the assets with all possible
 	// script key types. For those, we use the full set of script key types.
@@ -194,15 +222,9 @@ func ScriptKeyTypeForDatabaseQuery(filterChannelRelated bool,
 	// balance of those assets is reported through lnd channel balance.
 	// Those assets are identified by the specific script key type for
 	// channel keys. We exclude them unless explicitly queried for.
-	if filterChannelRelated {
+	if excludeChannelRelated {
 		dbTypes = fn.CopySlice(ScriptKeyTypesNoChannel)
 	}
-
-	// If the user specified a script key type, we use that to filter the
-	// results.
-	userSpecified.WhenSome(func(t ScriptKeyType) {
-		dbTypes = []ScriptKeyType{t}
-	})
 
 	return dbTypes
 }
@@ -447,7 +469,7 @@ func NewSpecifierFromGroupKey(groupPubKey btcec.PublicKey) Specifier {
 	}
 }
 
-// NewExlusiveSpecifier creates a specifier that may only include one of asset
+// NewExclusiveSpecifier creates a specifier that may only include one of asset
 // ID or group key. If both are set then a specifier over the group key is
 // created.
 func NewExclusiveSpecifier(id *ID,
@@ -1098,6 +1120,65 @@ func EqualKeyDescriptors(a, o keychain.KeyDescriptor) bool {
 	return a.PubKey.IsEqual(o.PubKey)
 }
 
+// ScriptKeyDerivationMethod is the method used to derive the script key of an
+// asset send output from the recipient's internal key and the asset ID of
+// the output. This is used to ensure that the script keys are unique for each
+// asset ID, so that proofs can be fetched from the universe without collisions.
+type ScriptKeyDerivationMethod uint8
+
+const (
+	// ScriptKeyDerivationUniquePedersen means the script key is derived
+	// using the address's recipient ID key and a single leaf that contains
+	// an un-spendable Pedersen commitment key
+	// (OP_CHECKSIG <NUMS_key + asset_id * G>). This can be used to
+	// create unique script keys for each virtual packet in the fragment,
+	// to avoid proof collisions in the universe, where the script keys
+	// should be spendable by a hardware wallet that only supports
+	// miniscript policies for signing P2TR outputs.
+	ScriptKeyDerivationUniquePedersen ScriptKeyDerivationMethod = 0
+)
+
+// DeriveUniqueScriptKey derives a unique script key for the given asset ID
+// using the recipient's internal key and the specified derivation method.
+func DeriveUniqueScriptKey(internalKey btcec.PublicKey, assetID ID,
+	method ScriptKeyDerivationMethod) (ScriptKey, error) {
+
+	switch method {
+	// For the unique Pedersen method, we derive the script key using the
+	// internal key and the asset ID using a Pedersen commitment key in a
+	// single OP_CHECKSIG leaf.
+	case ScriptKeyDerivationUniquePedersen:
+		leaf, err := NewNonSpendableScriptLeaf(
+			PedersenVersion, assetID[:],
+		)
+		if err != nil {
+			return ScriptKey{}, fmt.Errorf("unable to create "+
+				"non-spendable leaf: %w", err)
+		}
+
+		rootHash := leaf.TapHash()
+		scriptPubKey, _ := schnorr.ParsePubKey(schnorr.SerializePubKey(
+			txscript.ComputeTaprootOutputKey(
+				&internalKey, rootHash[:],
+			),
+		))
+		return ScriptKey{
+			PubKey: scriptPubKey,
+			TweakedScriptKey: &TweakedScriptKey{
+				RawKey: keychain.KeyDescriptor{
+					PubKey: &internalKey,
+				},
+				Tweak: rootHash[:],
+				Type:  ScriptKeyUniquePedersen,
+			},
+		}, nil
+
+	default:
+		return ScriptKey{}, fmt.Errorf("unknown script key derivation "+
+			"method: %d", method)
+	}
+}
+
 // TweakedScriptKey is an embedded struct which is primarily used by wallets to
 // be able to keep track of the tweak of a script key alongside the raw key
 // derivation information.
@@ -1197,14 +1278,16 @@ func (s *ScriptKey) HasScriptPath() bool {
 }
 
 // DetermineType attempts to determine the type of the script key based on the
-// information available. This method will only return ScriptKeyUnknown if the
-// following condition is met:
+// information available. This method will only return ScriptKeyUnknown if one
+// of the following conditions is met:
 //   - The script key doesn't have a script path, but the final Taproot output
 //     key doesn't match a BIP-0086 key derived from the internal key. This will
 //     be the case for "foreign" script keys we import from proofs, where we set
 //     the internal key to the same key as the tweaked script key (because we
 //     don't know the internal key, as it's not part of the proof encoding).
-func (s *ScriptKey) DetermineType() ScriptKeyType {
+//   - No asset ID was provided (because it is unavailable in the given
+//     context), and the script key is a unique Pedersen-based key.
+func (s *ScriptKey) DetermineType(id *ID) ScriptKeyType {
 	// If we have an explicit script key type set, we can return that.
 	if s.TweakedScriptKey != nil &&
 		s.TweakedScriptKey.Type != ScriptKeyUnknown {
@@ -1232,6 +1315,24 @@ func (s *ScriptKey) DetermineType() ScriptKeyType {
 		bip86 := NewScriptKeyBip86(s.TweakedScriptKey.RawKey)
 		if bip86.PubKey.IsEqual(s.PubKey) {
 			return ScriptKeyBip86
+		}
+
+		// If we have the asset's ID, we can check whether this is a
+		// Pedersen-based key. If we don't have the ID, then we can't
+		// determine the type, so we'll end up in the default return
+		// below.
+		if id != nil {
+			scriptKey, err := DeriveUniqueScriptKey(
+				*s.TweakedScriptKey.RawKey.PubKey, *id,
+				ScriptKeyDerivationUniquePedersen,
+			)
+			if err != nil {
+				return ScriptKeyUnknown
+			}
+
+			if scriptKey.PubKey.IsEqual(s.PubKey) {
+				return ScriptKeyUniquePedersen
+			}
 		}
 	}
 
