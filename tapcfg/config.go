@@ -139,6 +139,10 @@ const (
 	// defaultLndRPCTimeout is the default timeout we'll use for RPC
 	// requests to lnd.
 	defaultLndRPCTimeout = 1 * time.Minute
+
+	// defaultMailboxAuthTimeout is the default timeout we'll use for
+	// mailbox message retrieval client authentication.
+	defaultMailboxAuthTimeout = 10 * time.Second
 )
 
 var (
@@ -290,6 +294,8 @@ type UniverseConfig struct {
 	UniverseQueriesPerSecond rate.Limit `long:"max-qps" description:"The maximum number of queries per second across the set of active universe queries that is permitted. Anything above this starts to get rate limited."`
 
 	UniverseQueriesBurst int `long:"req-burst-budget" description:"The burst budget for the universe query rate limiting."`
+
+	MboxAuthTimeout time.Duration `long:"mbox-auth-timeout" description:"The timeout for mailbox message retrieval client authentication. Valid time units are {s, m, h}."`
 
 	MultiverseCaches *tapdb.MultiverseCacheConfig `group:"multiverse-caches" namespace:"multiverse-caches"`
 }
@@ -453,6 +459,7 @@ func DefaultConfig() Config {
 			MultiverseCaches: fn.Ptr(
 				tapdb.DefaultMultiverseCacheConfig(),
 			),
+			MboxAuthTimeout: defaultMailboxAuthTimeout,
 		},
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,
