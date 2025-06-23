@@ -2,6 +2,7 @@ package proof
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -418,9 +419,9 @@ func UnmarshalTxProof(
 type TxProofStore interface {
 	// HaveProof returns true if the proof for the given outpoint exists in
 	// the store.
-	HaveProof(wire.OutPoint) (bool, error)
+	HaveProof(context.Context, wire.OutPoint) (bool, error)
 
 	// StoreProof stores the given transaction proof in the store. If the
 	// proof already exists, it returns ErrTxMerkleProofExists.
-	StoreProof(wire.OutPoint) error
+	StoreProof(context.Context, TxProof) error
 }

@@ -1,11 +1,12 @@
 package authmailbox
 
 import (
+	"context"
 	"fmt"
-	"maps"
-	"slices"
 	"sync"
 	"sync/atomic"
+
+	"github.com/btcsuite/btcd/wire"
 )
 
 type MockMsgStore struct {
@@ -22,17 +23,21 @@ func NewMockStore() *MockMsgStore {
 	}
 }
 
-func (s *MockMsgStore) StoreMessage(msg *Message) error {
+func (s *MockMsgStore) StoreMessage(_ context.Context, _ wire.OutPoint,
+	msg *Message) (uint64, error) {
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	msg.ID = s.nextMessageID.Add(1)
+	id := s.nextMessageID.Add(1)
+	s.messages[id] = msg
 
-	s.messages[msg.ID] = msg
-	return nil
+	return id, nil
 }
 
-func (s *MockMsgStore) FetchMessage(id uint64) (*Message, error) {
+func (s *MockMsgStore) FetchMessage(_ context.Context,
+	id uint64) (*Message, error) {
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -44,14 +49,7 @@ func (s *MockMsgStore) FetchMessage(id uint64) (*Message, error) {
 	return msg, nil
 }
 
-func (s *MockMsgStore) FetchMessages() ([]*Message, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return slices.Collect(maps.Values(s.messages)), nil
-}
-
-func (s *MockMsgStore) QueryMessages(
+func (s *MockMsgStore) QueryMessages(_ context.Context,
 	filter MessageFilter) ([]*Message, error) {
 
 	s.mu.RLock()
@@ -88,6 +86,6 @@ func (s *MockMsgStore) QueryMessages(
 	return result, nil
 }
 
-func (s *MockMsgStore) NumMessages() uint64 {
+func (s *MockMsgStore) NumMessages(context.Context) uint64 {
 	return uint64(len(s.messages))
 }

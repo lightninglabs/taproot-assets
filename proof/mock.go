@@ -1181,13 +1181,17 @@ type MockTxStore struct {
 	mu     sync.RWMutex
 }
 
+var _ TxProofStore = (*MockTxStore)(nil)
+
 func NewMockTxProofStore() *MockTxStore {
 	return &MockTxStore{
 		proofs: make(map[wire.OutPoint]struct{}),
 	}
 }
 
-func (s *MockTxStore) HaveProof(outpoint wire.OutPoint) (bool, error) {
+func (s *MockTxStore) HaveProof(_ context.Context,
+	outpoint wire.OutPoint) (bool, error) {
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -1195,14 +1199,16 @@ func (s *MockTxStore) HaveProof(outpoint wire.OutPoint) (bool, error) {
 	return exists, nil
 }
 
-func (s *MockTxStore) StoreProof(outpoint wire.OutPoint) error {
+func (s *MockTxStore) StoreProof(ctx context.Context,
+	proof TxProof) error {
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, exists := s.proofs[outpoint]; exists {
+	if _, exists := s.proofs[proof.ClaimedOutPoint]; exists {
 		return ErrTxMerkleProofExists
 	}
 
-	s.proofs[outpoint] = struct{}{}
+	s.proofs[proof.ClaimedOutPoint] = struct{}{}
 	return nil
 }
