@@ -67,14 +67,10 @@ LIMIT @num_limit OFFSET @num_offset;
 
 -- name: FetchAddrByTaprootOutputKey :one
 SELECT
-    version, asset_version, genesis_asset_id, group_key, tapscript_sibling,
-    taproot_output_key, amount, asset_type, creation_time, managed_from,
-    proof_courier_addr,
+    sqlc.Embed(addrs),
     sqlc.embed(script_keys),
     sqlc.embed(raw_script_keys),
-    taproot_keys.raw_key AS raw_taproot_key,
-    taproot_keys.key_family AS taproot_key_family,
-    taproot_keys.key_index AS taproot_key_index
+    sqlc.embed(taproot_keys)
 FROM addrs
 JOIN script_keys
   ON addrs.script_key_id = script_keys.script_key_id
@@ -83,6 +79,21 @@ JOIN internal_keys raw_script_keys
 JOIN internal_keys taproot_keys
   ON addrs.taproot_key_id = taproot_keys.key_id
 WHERE taproot_output_key = $1;
+
+-- name: FetchAddrByScriptKeyAndVersion :one
+SELECT
+    sqlc.Embed(addrs),
+    sqlc.embed(script_keys),
+    sqlc.embed(raw_script_keys),
+    sqlc.embed(taproot_keys)
+FROM addrs
+JOIN script_keys
+  ON addrs.script_key_id = script_keys.script_key_id
+JOIN internal_keys raw_script_keys
+  ON script_keys.internal_key_id = raw_script_keys.key_id
+JOIN internal_keys taproot_keys
+  ON addrs.taproot_key_id = taproot_keys.key_id
+WHERE script_keys.tweaked_script_key = $1 AND addrs.version = $2;
 
 -- name: SetAddrManaged :exec
 WITH target_addr(addr_id) AS (

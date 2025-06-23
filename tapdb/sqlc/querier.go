@@ -46,6 +46,7 @@ type Querier interface {
 	DeleteUniverseSupplyLeaf(ctx context.Context, arg DeleteUniverseSupplyLeafParams) error
 	DeleteUniverseSupplyLeaves(ctx context.Context, namespaceRoot string) error
 	DeleteUniverseSupplyRoot(ctx context.Context, namespaceRoot string) error
+	FetchAddrByScriptKeyAndVersion(ctx context.Context, arg FetchAddrByScriptKeyAndVersionParams) (FetchAddrByScriptKeyAndVersionRow, error)
 	FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error)
 	FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventRow, error)
 	FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg FetchAddrEventByAddrKeyAndOutpointParams) (FetchAddrEventByAddrKeyAndOutpointRow, error)
