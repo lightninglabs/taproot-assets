@@ -670,3 +670,27 @@ func TestMigration33(t *testing.T) {
 		),
 	)
 }
+
+// TestMigration37 tests that the Golang based post-migration check for the
+// asset burn insertion works as expected.
+func TestMigration37(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 36)
+
+	// We need to insert some test data that will be affected by the
+	// migration number 37.
+	InsertTestdata(t, db.BaseDB, "migrations_test_00037_dummy_data.sql")
+
+	// And now that we have test data inserted, we can migrate to the latest
+	// version.
+	err := db.ExecuteMigrations(TargetLatest, WithPostStepCallbacks(
+		makePostStepCallbacks(db, postMigrationChecks),
+	))
+	require.NoError(t, err)
+
+	burns, err := db.QueryBurns(ctx, QueryBurnsFilters{})
+	require.NoError(t, err)
+
+	require.Len(t, burns, 5)
+}

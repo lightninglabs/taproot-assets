@@ -3312,14 +3312,11 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 		// in the transfer.
 		for _, b := range burns {
 			_, err = q.InsertBurn(ctx, sqlc.InsertBurnParams{
-				TransferID: int32(assetTransfer.ID),
-				Note: sql.NullString{
-					String: b.Note,
-					Valid:  b.Note != "",
-				},
-				AssetID:  b.AssetID,
-				GroupKey: b.GroupKey,
-				Amount:   int64(b.Amount),
+				TransferID: assetTransfer.ID,
+				Note:       sqlStr(b.Note),
+				AssetID:    b.AssetID,
+				GroupKey:   b.GroupKey,
+				Amount:     int64(b.Amount),
 			})
 			if err != nil {
 				return fmt.Errorf("failed to insert burn in "+

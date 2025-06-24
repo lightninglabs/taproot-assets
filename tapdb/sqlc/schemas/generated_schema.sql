@@ -96,13 +96,13 @@ CREATE TABLE addrs (
     proof_courier_addr BLOB NOT NULL
 );
 
-CREATE TABLE asset_burn_transfers (
+CREATE TABLE "asset_burn_transfers" (
     -- The auto-incrementing integer that identifies this burn transfer.
-    burn_id INTEGER PRIMARY KEY, 
+    burn_id INTEGER PRIMARY KEY,
 
     -- A reference to the primary key of the transfer that includes this burn.
-    transfer_id INTEGER NOT NULL REFERENCES asset_transfers(id),
-     
+    transfer_id BIGINT NOT NULL REFERENCES asset_transfers(id),
+
     -- A note that may contain user defined metadata.
     note TEXT,
 

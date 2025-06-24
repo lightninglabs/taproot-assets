@@ -369,7 +369,7 @@ RETURNING burn_id
 `
 
 type InsertBurnParams struct {
-	TransferID int32
+	TransferID int64
 	Note       sql.NullString
 	AssetID    []byte
 	GroupKey   []byte
