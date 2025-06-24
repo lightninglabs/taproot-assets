@@ -222,10 +222,10 @@ type MintingStore interface {
 	FetchMintingBatch(ctx context.Context,
 		batchKey *btcec.PublicKey) (*MintingBatch, error)
 
-	// AddSeedlingGroups stores the asset groups for seedlings associated
-	// with a batch.
-	AddSeedlingGroups(ctx context.Context, genesisOutpoint wire.OutPoint,
-		assetGroups []*asset.AssetGroup) error
+	// SealBatch seals a batch by assigning and persisting asset groups for
+	// the seedlings it contains.
+	SealBatch(ctx context.Context, batch *MintingBatch,
+		newAssetGroups []*asset.AssetGroup) error
 
 	// FetchSeedlingGroups is used to fetch the asset groups for seedlings
 	// associated with a funded batch.
@@ -295,6 +295,11 @@ type MintingStore interface {
 	// the genesis point for the batch.
 	CommitBatchTx(ctx context.Context, batchKey *btcec.PublicKey,
 		genesisTx FundedMintAnchorPsbt) error
+
+	// FetchDelegationKey fetches the delegation key for the given asset
+	// group public key.
+	FetchDelegationKey(ctx context.Context,
+		groupKey btcec.PublicKey) (fn.Option[DelegationKey], error)
 }
 
 // ChainBridge is our bridge to the target chain. It's used to get confirmation

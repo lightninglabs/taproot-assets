@@ -58,13 +58,13 @@ WHERE batch_id in (SELECT batch_id FROM target_batch);
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id,
-    script_key_id, group_internal_key_id, group_tapscript_root
+    script_key_id, group_internal_key_id, group_tapscript_root, delegation_key_id
 ) VALUES (
    @asset_name, @asset_type, @asset_version, @asset_supply,
    @asset_meta_id, @emission_enabled, @batch_id,
    sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id'),
    sqlc.narg('script_key_id'), sqlc.narg('group_internal_key_id'),
-   @group_tapscript_root
+   @group_tapscript_root, sqlc.narg('delegation_key_id')
 );
 
 -- name: FetchSeedlingID :one
@@ -113,14 +113,15 @@ WITH target_key_id AS (
 INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id,
-    script_key_id, group_internal_key_id, group_tapscript_root
+    script_key_id, group_internal_key_id, group_tapscript_root,
+    delegation_key_id
 ) VALUES (
     @asset_name, @asset_type, @asset_version, @asset_supply,
     @asset_meta_id, @emission_enabled,
     (SELECT key_id FROM target_key_id),
     sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id'),
     sqlc.narg('script_key_id'), sqlc.narg('group_internal_key_id'),
-    @group_tapscript_root
+    @group_tapscript_root, sqlc.narg('delegation_key_id')
 );
 
 -- name: FetchSeedlingsForBatch :many
@@ -146,7 +147,10 @@ SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply,
     internal_keys.key_index AS script_key_index,
     group_internal_keys.raw_key AS group_key_raw,
     group_internal_keys.key_family AS group_key_fam,
-    group_internal_keys.key_index AS group_key_index
+    group_internal_keys.key_index AS group_key_index,
+    delegation_internal_keys.raw_key AS delegation_key_raw,
+    delegation_internal_keys.key_family AS delegation_key_fam,
+    delegation_internal_keys.key_index AS delegation_key_index
 FROM asset_seedlings 
 LEFT JOIN assets_meta
     ON asset_seedlings.asset_meta_id = assets_meta.meta_id
@@ -156,6 +160,8 @@ LEFT JOIN internal_keys
     ON script_keys.internal_key_id = internal_keys.key_id
 LEFT JOIN internal_keys group_internal_keys
     ON asset_seedlings.group_internal_key_id = group_internal_keys.key_id
+LEFT JOIN internal_keys delegation_internal_keys
+    ON asset_seedlings.delegation_key_id = delegation_internal_keys.key_id
 WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch);
 
 -- name: UpsertGenesisPoint :one
@@ -1035,21 +1041,49 @@ JOIN assets_meta
 WHERE assets.asset_id = $1;
 
 -- Upsert a record into the mint_anchor_uni_commitments table.
--- If a record with the same batch_id and group_key already exists, update the
--- existing record. Otherwise, insert a new record.
+-- If a record with the same batch ID and tx output index already exists, update
+-- the existing record. Otherwise, insert a new record.
 -- name: UpsertMintAnchorUniCommitment :one
-INSERT INTO mint_anchor_uni_commitments (
-    id, batch_id, tx_output_index, taproot_internal_key, group_key
+WITH target_batch AS (
+    -- This CTE is used to fetch the ID of a batch, based on the serialized
+    -- internal key associated with the batch.
+    SELECT keys.key_id AS batch_id
+    FROM internal_keys keys
+    WHERE keys.raw_key = @batch_key
 )
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO mint_anchor_uni_commitments (
+    batch_id, tx_output_index, taproot_internal_key_id, group_key
+)
+VALUES (
+    (SELECT batch_id FROM target_batch), @tx_output_index,
+    @taproot_internal_key_id, @group_key
+)
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
-    taproot_internal_key = EXCLUDED.taproot_internal_key,
+    taproot_internal_key_id = EXCLUDED.taproot_internal_key_id,
     group_key = EXCLUDED.group_key
 RETURNING id;
 
--- Fetch a record from the mint_anchor_uni_commitments table by id.
--- name: FetchMintAnchorUniCommitment :one
-SELECT id, batch_id, tx_output_index, taproot_internal_key, group_key
+-- Fetch records from the mint_anchor_uni_commitments table with optional
+-- filtering.
+-- name: FetchMintAnchorUniCommitment :many
+SELECT
+    mint_anchor_uni_commitments.id,
+    mint_anchor_uni_commitments.batch_id,
+    mint_anchor_uni_commitments.tx_output_index,
+    mint_anchor_uni_commitments.group_key,
+    batch_internal_keys.raw_key AS batch_key,
+    mint_anchor_uni_commitments.taproot_internal_key_id,
+    sqlc.embed(taproot_internal_keys)
 FROM mint_anchor_uni_commitments
-WHERE batch_id = $1;
+    JOIN internal_keys taproot_internal_keys
+        ON mint_anchor_uni_commitments.taproot_internal_key_id = taproot_internal_keys.key_id
+    LEFT JOIN asset_minting_batches batches
+        ON mint_anchor_uni_commitments.batch_id = batches.batch_id
+    LEFT JOIN internal_keys batch_internal_keys
+        ON batches.batch_id = batch_internal_keys.key_id
+WHERE (
+    (batch_internal_keys.raw_key = sqlc.narg('batch_key') OR sqlc.narg('batch_key') IS NULL) AND
+    (mint_anchor_uni_commitments.group_key = sqlc.narg('group_key') OR sqlc.narg('group_key') IS NULL) AND
+    (taproot_internal_keys.raw_key = sqlc.narg('taproot_internal_key_raw') OR sqlc.narg('taproot_internal_key_raw') IS NULL)
+);

@@ -1528,24 +1528,79 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 	return items, nil
 }
 
-const FetchMintAnchorUniCommitment = `-- name: FetchMintAnchorUniCommitment :one
-SELECT id, batch_id, tx_output_index, taproot_internal_key, group_key
+const FetchMintAnchorUniCommitment = `-- name: FetchMintAnchorUniCommitment :many
+SELECT
+    mint_anchor_uni_commitments.id,
+    mint_anchor_uni_commitments.batch_id,
+    mint_anchor_uni_commitments.tx_output_index,
+    mint_anchor_uni_commitments.group_key,
+    batch_internal_keys.raw_key AS batch_key,
+    mint_anchor_uni_commitments.taproot_internal_key_id,
+    taproot_internal_keys.key_id, taproot_internal_keys.raw_key, taproot_internal_keys.key_family, taproot_internal_keys.key_index
 FROM mint_anchor_uni_commitments
-WHERE batch_id = $1
+    JOIN internal_keys taproot_internal_keys
+        ON mint_anchor_uni_commitments.taproot_internal_key_id = taproot_internal_keys.key_id
+    LEFT JOIN asset_minting_batches batches
+        ON mint_anchor_uni_commitments.batch_id = batches.batch_id
+    LEFT JOIN internal_keys batch_internal_keys
+        ON batches.batch_id = batch_internal_keys.key_id
+WHERE (
+    (batch_internal_keys.raw_key = $1 OR $1 IS NULL) AND
+    (mint_anchor_uni_commitments.group_key = $2 OR $2 IS NULL) AND
+    (taproot_internal_keys.raw_key = $3 OR $3 IS NULL)
+)
 `
 
-// Fetch a record from the mint_anchor_uni_commitments table by id.
-func (q *Queries) FetchMintAnchorUniCommitment(ctx context.Context, batchID int32) (MintAnchorUniCommitment, error) {
-	row := q.db.QueryRowContext(ctx, FetchMintAnchorUniCommitment, batchID)
-	var i MintAnchorUniCommitment
-	err := row.Scan(
-		&i.ID,
-		&i.BatchID,
-		&i.TxOutputIndex,
-		&i.TaprootInternalKey,
-		&i.GroupKey,
-	)
-	return i, err
+type FetchMintAnchorUniCommitmentParams struct {
+	BatchKey              []byte
+	GroupKey              []byte
+	TaprootInternalKeyRaw []byte
+}
+
+type FetchMintAnchorUniCommitmentRow struct {
+	ID                   int64
+	BatchID              int32
+	TxOutputIndex        int32
+	GroupKey             []byte
+	BatchKey             []byte
+	TaprootInternalKeyID int64
+	InternalKey          InternalKey
+}
+
+// Fetch records from the mint_anchor_uni_commitments table with optional
+// filtering.
+func (q *Queries) FetchMintAnchorUniCommitment(ctx context.Context, arg FetchMintAnchorUniCommitmentParams) ([]FetchMintAnchorUniCommitmentRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchMintAnchorUniCommitment, arg.BatchKey, arg.GroupKey, arg.TaprootInternalKeyRaw)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchMintAnchorUniCommitmentRow
+	for rows.Next() {
+		var i FetchMintAnchorUniCommitmentRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BatchID,
+			&i.TxOutputIndex,
+			&i.GroupKey,
+			&i.BatchKey,
+			&i.TaprootInternalKeyID,
+			&i.InternalKey.KeyID,
+			&i.InternalKey.RawKey,
+			&i.InternalKey.KeyFamily,
+			&i.InternalKey.KeyIndex,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const FetchMintingBatch = `-- name: FetchMintingBatch :one
@@ -1713,7 +1768,7 @@ func (q *Queries) FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScrip
 }
 
 const FetchSeedlingByID = `-- name: FetchSeedlingByID :one
-SELECT seedling_id, asset_name, asset_version, asset_type, asset_supply, asset_meta_id, emission_enabled, batch_id, group_genesis_id, group_anchor_id, script_key_id, group_internal_key_id, group_tapscript_root
+SELECT seedling_id, asset_name, asset_version, asset_type, asset_supply, asset_meta_id, emission_enabled, batch_id, group_genesis_id, group_anchor_id, script_key_id, group_internal_key_id, group_tapscript_root, delegation_key_id
 FROM asset_seedlings
 WHERE seedling_id = $1
 `
@@ -1735,6 +1790,7 @@ func (q *Queries) FetchSeedlingByID(ctx context.Context, seedlingID int64) (Asse
 		&i.ScriptKeyID,
 		&i.GroupInternalKeyID,
 		&i.GroupTapscriptRoot,
+		&i.DelegationKeyID,
 	)
 	return i, err
 }
@@ -1792,7 +1848,10 @@ SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply,
     internal_keys.key_index AS script_key_index,
     group_internal_keys.raw_key AS group_key_raw,
     group_internal_keys.key_family AS group_key_fam,
-    group_internal_keys.key_index AS group_key_index
+    group_internal_keys.key_index AS group_key_index,
+    delegation_internal_keys.raw_key AS delegation_key_raw,
+    delegation_internal_keys.key_family AS delegation_key_fam,
+    delegation_internal_keys.key_index AS delegation_key_index
 FROM asset_seedlings 
 LEFT JOIN assets_meta
     ON asset_seedlings.asset_meta_id = assets_meta.meta_id
@@ -1802,6 +1861,8 @@ LEFT JOIN internal_keys
     ON script_keys.internal_key_id = internal_keys.key_id
 LEFT JOIN internal_keys group_internal_keys
     ON asset_seedlings.group_internal_key_id = group_internal_keys.key_id
+LEFT JOIN internal_keys delegation_internal_keys
+    ON asset_seedlings.delegation_key_id = delegation_internal_keys.key_id
 WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch)
 `
 
@@ -1826,6 +1887,9 @@ type FetchSeedlingsForBatchRow struct {
 	GroupKeyRaw        []byte
 	GroupKeyFam        sql.NullInt32
 	GroupKeyIndex      sql.NullInt32
+	DelegationKeyRaw   []byte
+	DelegationKeyFam   sql.NullInt32
+	DelegationKeyIndex sql.NullInt32
 }
 
 func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error) {
@@ -1865,6 +1929,9 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 			&i.GroupKeyRaw,
 			&i.GroupKeyFam,
 			&i.GroupKeyIndex,
+			&i.DelegationKeyRaw,
+			&i.DelegationKeyFam,
+			&i.DelegationKeyIndex,
 		); err != nil {
 			return nil, err
 		}
@@ -2062,13 +2129,13 @@ const InsertAssetSeedling = `-- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id,
-    script_key_id, group_internal_key_id, group_tapscript_root
+    script_key_id, group_internal_key_id, group_tapscript_root, delegation_key_id
 ) VALUES (
    $1, $2, $3, $4,
    $5, $6, $7,
    $8, $9,
    $10, $11,
-   $12
+   $12, $13
 )
 `
 
@@ -2085,6 +2152,7 @@ type InsertAssetSeedlingParams struct {
 	ScriptKeyID        sql.NullInt64
 	GroupInternalKeyID sql.NullInt64
 	GroupTapscriptRoot []byte
+	DelegationKeyID    sql.NullInt64
 }
 
 func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error {
@@ -2101,6 +2169,7 @@ func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedli
 		arg.ScriptKeyID,
 		arg.GroupInternalKeyID,
 		arg.GroupTapscriptRoot,
+		arg.DelegationKeyID,
 	)
 	return err
 }
@@ -2119,14 +2188,15 @@ WITH target_key_id AS (
 INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id,
-    script_key_id, group_internal_key_id, group_tapscript_root
+    script_key_id, group_internal_key_id, group_tapscript_root,
+    delegation_key_id
 ) VALUES (
     $2, $3, $4, $5,
     $6, $7,
     (SELECT key_id FROM target_key_id),
     $8, $9,
     $10, $11,
-    $12
+    $12, $13
 )
 `
 
@@ -2143,6 +2213,7 @@ type InsertAssetSeedlingIntoBatchParams struct {
 	ScriptKeyID        sql.NullInt64
 	GroupInternalKeyID sql.NullInt64
 	GroupTapscriptRoot []byte
+	DelegationKeyID    sql.NullInt64
 }
 
 func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error {
@@ -2159,6 +2230,7 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 		arg.ScriptKeyID,
 		arg.GroupInternalKeyID,
 		arg.GroupTapscriptRoot,
+		arg.DelegationKeyID,
 	)
 	return err
 }
@@ -3044,35 +3116,43 @@ func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOPa
 }
 
 const UpsertMintAnchorUniCommitment = `-- name: UpsertMintAnchorUniCommitment :one
-INSERT INTO mint_anchor_uni_commitments (
-    id, batch_id, tx_output_index, taproot_internal_key, group_key
+WITH target_batch AS (
+    -- This CTE is used to fetch the ID of a batch, based on the serialized
+    -- internal key associated with the batch.
+    SELECT keys.key_id AS batch_id
+    FROM internal_keys keys
+    WHERE keys.raw_key = $4
 )
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO mint_anchor_uni_commitments (
+    batch_id, tx_output_index, taproot_internal_key_id, group_key
+)
+VALUES (
+    (SELECT batch_id FROM target_batch), $1,
+    $2, $3
+)
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
-    taproot_internal_key = EXCLUDED.taproot_internal_key,
+    taproot_internal_key_id = EXCLUDED.taproot_internal_key_id,
     group_key = EXCLUDED.group_key
 RETURNING id
 `
 
 type UpsertMintAnchorUniCommitmentParams struct {
-	ID                 int64
-	BatchID            int32
-	TxOutputIndex      int32
-	TaprootInternalKey []byte
-	GroupKey           []byte
+	TxOutputIndex        int32
+	TaprootInternalKeyID int64
+	GroupKey             []byte
+	BatchKey             []byte
 }
 
 // Upsert a record into the mint_anchor_uni_commitments table.
-// If a record with the same batch_id and group_key already exists, update the
-// existing record. Otherwise, insert a new record.
+// If a record with the same batch ID and tx output index already exists, update
+// the existing record. Otherwise, insert a new record.
 func (q *Queries) UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertMintAnchorUniCommitment,
-		arg.ID,
-		arg.BatchID,
 		arg.TxOutputIndex,
-		arg.TaprootInternalKey,
+		arg.TaprootInternalKeyID,
 		arg.GroupKey,
+		arg.BatchKey,
 	)
 	var id int64
 	err := row.Scan(&id)
