@@ -46,6 +46,16 @@ jobs:
       - name: Generate sql models
         run: make sqlc-check
 
+  sql-lint:
+    name: Sqlc lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v4
+
+      - name: Run sql lint
+        run: make sql-lint-ci
+
   rpc-check:
     name: RPC check
     runs-on: ubuntu-latest

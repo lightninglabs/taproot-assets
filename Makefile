@@ -278,6 +278,9 @@ sqlc-check: sqlc
 sql-lint: docker-sqlfluff
 	$(DOCKER_SQLFLUFF) lint tapdb/sqlc/migrations/* tapdb/sqlc/queries/*
 
+sql-lint-ci: docker-sqlfluff
+	$(DOCKER_SQLFLUFF) lint --format github-annotation-native tapdb/sqlc/migrations/* tapdb/sqlc/queries/*
+
 sql-fix: docker-sqlfluff
 	$(DOCKER_SQLFLUFF) fix tapdb/sqlc/migrations/* tapdb/sqlc/queries/*
 
