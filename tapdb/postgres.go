@@ -38,7 +38,9 @@ var (
 		"BLOB":                "BYTEA",
 		"INTEGER PRIMARY KEY": "BIGSERIAL PRIMARY KEY",
 		"TIMESTAMP":           "TIMESTAMP WITHOUT TIME ZONE",
-		"UNHEX":               "DECODE",
+		// The SQLFluff linter will force us to use lowercase function
+		// names consistently, so this needs to be lowercase.
+		"unhex": "decode",
 	}
 )
 
