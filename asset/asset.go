@@ -153,6 +153,61 @@ const (
 )
 
 var (
+	// AllScriptKeyTypes is a slice of all known script key types.
+	AllScriptKeyTypes = []ScriptKeyType{
+		ScriptKeyUnknown,
+		ScriptKeyBip86,
+		ScriptKeyScriptPathExternal,
+		ScriptKeyBurn,
+		ScriptKeyTombstone,
+		ScriptKeyScriptPathChannel,
+	}
+
+	// ScriptKeyTypesNoChannel is a slice of all known script key types
+	// that are not related to channels. This is used to filter out channel
+	// related script keys when querying for assets that are not related to
+	// channels.
+	ScriptKeyTypesNoChannel = []ScriptKeyType{
+		ScriptKeyUnknown,
+		ScriptKeyBip86,
+		ScriptKeyScriptPathExternal,
+		ScriptKeyBurn,
+		ScriptKeyTombstone,
+	}
+)
+
+// ScriptKeyTypeForDatabaseQuery returns a slice of script key types that should
+// be used when querying the database for assets. The returned slice will either
+// contain all script key types or only those that are not related to channels,
+// depending on the `filterChannelRelated` parameter. Unless the user specifies
+// a specific script key type, in which case the returned slice will only
+// contain that specific script key type.
+func ScriptKeyTypeForDatabaseQuery(filterChannelRelated bool,
+	userSpecified fn.Option[ScriptKeyType]) []ScriptKeyType {
+
+	// For some queries, we want to get all the assets with all possible
+	// script key types. For those, we use the full set of script key types.
+	dbTypes := fn.CopySlice(AllScriptKeyTypes)
+
+	// For some RPCs (mostly balance related), we exclude the assets that
+	// are specifically used for funding custom channels by default. The
+	// balance of those assets is reported through lnd channel balance.
+	// Those assets are identified by the specific script key type for
+	// channel keys. We exclude them unless explicitly queried for.
+	if filterChannelRelated {
+		dbTypes = fn.CopySlice(ScriptKeyTypesNoChannel)
+	}
+
+	// If the user specified a script key type, we use that to filter the
+	// results.
+	userSpecified.WhenSome(func(t ScriptKeyType) {
+		dbTypes = []ScriptKeyType{t}
+	})
+
+	return dbTypes
+}
+
+var (
 	// ZeroPrevID is the blank prev ID used for genesis assets and also
 	// asset split leaves.
 	ZeroPrevID PrevID
