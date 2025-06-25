@@ -45,4 +45,4 @@ docker run \
 	-e UID=$UID \
 	-v "$DIR/../:/build" \
 	-w /build \
-	sqlc/sqlc:1.28.0 generate
+	sqlc/sqlc:1.29.0 generate
