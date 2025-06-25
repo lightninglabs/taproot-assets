@@ -145,7 +145,10 @@ func BenchmarkEncryptSha256ChaCha20Poly1305(b *testing.B) {
 	require.NoError(b, err)
 
 	longMessage := bytes.Repeat([]byte("secret"), 10240)
-	ad := bytes.Repeat([]byte("ad"), 1024)
+
+	// Generate additional data with length 200 bytes, within 255-byte
+	// limit.
+	ad := bytes.Repeat([]byte("a"), 200)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -172,7 +175,10 @@ func BenchmarkDecryptSha256ChaCha20Poly1305(b *testing.B) {
 	require.NoError(b, err)
 
 	longMessage := bytes.Repeat([]byte("secret"), 10240)
-	ad := bytes.Repeat([]byte("ad"), 1024)
+
+	// Generate additional data with length 200 bytes, within 255-byte
+	// limit.
+	ad := bytes.Repeat([]byte("a"), 200)
 
 	ciphertext, err := EncryptSha256ChaCha20Poly1305(
 		sharedSecret, longMessage, ad,
