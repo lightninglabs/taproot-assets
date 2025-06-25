@@ -372,16 +372,12 @@ func setupSupplyTreeTestForProps(t *testing.T) (*SupplyTreeStore,
 func TestSupplyTreeStoreApplySupplyUpdates(t *testing.T) {
 	t.Parallel()
 
-	supplyStore, spec, eventGen := setupSupplyTreeTestForProps(
-		t,
-	)
+	supplyStore, spec, eventGen := setupSupplyTreeTestForProps(t)
 	ctxb := context.Background()
 
 	// Draw a random list of supply update events. Limit the number
 	// of events to keep test execution time reasonable.
-	updates := rapid.SliceOfN(
-		eventGen, 1, 20,
-	).Example()
+	updates := rapid.SliceOfN(eventGen, 1, 20).Example()
 
 	// Apply the updates.
 	finalRootSupplyRoot, err := supplyStore.ApplySupplyUpdates(
@@ -391,7 +387,7 @@ func TestSupplyTreeStoreApplySupplyUpdates(t *testing.T) {
 
 	// First, we'll make a series of maps so we can easily verify
 	// the expected sub-tree roots and sums.
-	expectedSubRoots := make(map[supplycommit.SupplySubTree]mssmt.Node) //nolint:lll
+	expectedSubRoots := make(map[supplycommit.SupplySubTree]mssmt.Node)
 	expectedSubSums := make(map[supplycommit.SupplySubTree]uint64)
 	tempTrees := make(map[supplycommit.SupplySubTree]mssmt.Tree)
 
@@ -536,9 +532,7 @@ func TestSupplyTreeStoreApplySupplyUpdates(t *testing.T) {
 
 	// Read out an additional set of updates, we should be able to
 	// without any issues.
-	updates = rapid.SliceOfN(
-		eventGen, 1, 20,
-	).Example()
+	updates = rapid.SliceOfN(eventGen, 1, 20).Example()
 	_, err = supplyStore.ApplySupplyUpdates(
 		ctxb, spec, updates,
 	)
