@@ -344,11 +344,11 @@ JOIN managed_utxos utxos
        END
 JOIN script_keys
     ON assets.script_key_id = script_keys.script_key_id
-WHERE spent = FALSE AND 
-      (script_keys.key_type != sqlc.narg('exclude_script_key_type') OR
-        sqlc.narg('exclude_script_key_type') IS NULL) AND
-      (sqlc.narg('script_key_type') = script_keys.key_type OR 
-        sqlc.narg('script_key_type') IS NULL)
+WHERE spent = FALSE AND
+  -- The script_key_type argument must NEVER be an empty slice, otherwise this
+  -- query will return no results.
+    COALESCE(script_keys.key_type, 0) IN
+      (sqlc.slice('script_key_type')/*SLICE:script_key_type*/)
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          genesis_info_view.asset_tag, genesis_info_view.meta_hash,
          genesis_info_view.asset_type, genesis_info_view.output_index,
@@ -376,10 +376,10 @@ JOIN managed_utxos utxos
 JOIN script_keys
     ON assets.script_key_id = script_keys.script_key_id
 WHERE spent = FALSE AND
-      (script_keys.key_type != sqlc.narg('exclude_script_key_type') OR
-        sqlc.narg('exclude_script_key_type') IS NULL) AND
-      (sqlc.narg('script_key_type') = script_keys.key_type OR
-        sqlc.narg('script_key_type') IS NULL)
+  -- The script_key_type argument must NEVER be an empty slice, otherwise this
+  -- query will return no results.
+    COALESCE(script_keys.key_type, 0) IN
+      (sqlc.slice('script_key_type')/*SLICE:script_key_type*/)
 GROUP BY key_group_info_view.tweaked_group_key;
 
 -- name: FetchGroupedAssets :many
@@ -512,8 +512,10 @@ WHERE (
     assets.anchor_utxo_id = COALESCE(sqlc.narg('anchor_utxo_id'), assets.anchor_utxo_id) AND
     assets.genesis_id = COALESCE(sqlc.narg('genesis_id'), assets.genesis_id) AND
     assets.script_key_id = COALESCE(sqlc.narg('script_key_id'), assets.script_key_id) AND
-    (sqlc.narg('script_key_type') = script_keys.key_type OR
-      sqlc.narg('script_key_type') IS NULL)
+    -- The script_key_type argument must NEVER be an empty slice, otherwise this
+    -- query will return no results.
+    COALESCE(script_keys.key_type, 0) IN
+      (sqlc.slice('script_key_type')/*SLICE:script_key_type*/)
 );
 
 -- name: AllAssets :many
