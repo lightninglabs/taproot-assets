@@ -11,6 +11,13 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
+// TestVersion tests the Version type and its String method.
+func TestVersion(t *testing.T) {
+	require.Equal(t, "Undefined", VersionUndefined.String())
+	require.Equal(t, "V1", VersionV1.String())
+	require.Equal(t, "Unknown(255)", Version(255).String())
+}
+
 // TestEncryptDecryptSha256ChaCha20Poly1305 tests the
 // EncryptSha256ChaCha20Poly1305 and DecryptSha256ChaCha20Poly1305 functions. It
 // generates a shared secret using ECDH between a sender and receiver key pair,
@@ -75,6 +82,11 @@ func TestEncryptDecryptSha256ChaCha20Poly1305(t *testing.T) {
 				t, len(ciphertext), chacha20poly1305.NonceSize,
 			)
 
+			// Verify the version byte is correct.
+			actualVersionByte := ciphertext[0]
+			require.Equal(t, byte(latestVersion), actualVersionByte)
+			require.Equal(t, byte(1), actualVersionByte)
+
 			// Decrypt the message.
 			plaintext, err := DecryptSha256ChaCha20Poly1305(
 				sharedSecret, ciphertext,
@@ -85,6 +97,32 @@ func TestEncryptDecryptSha256ChaCha20Poly1305(t *testing.T) {
 			require.Equal(t, tt.message, plaintext)
 		})
 	}
+}
+
+// TestUnsupportedVersion tests that decryption fails with unsupported versions.
+func TestUnsupportedVersion(t *testing.T) {
+	senderPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	receiverPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	receiverPub := receiverPriv.PubKey()
+
+	sharedSecret, err := ECDH(senderPriv, receiverPub)
+	require.NoError(t, err)
+
+	// Create a valid ciphertext.
+	ciphertext, err := EncryptSha256ChaCha20Poly1305(
+		sharedSecret, []byte("test"), []byte("ad"),
+	)
+	require.NoError(t, err)
+
+	// Modify the version byte to an unsupported version.
+	ciphertext[0] = byte(latestVersion + 1)
+
+	// Attempt to decrypt should fail.
+	_, err = DecryptSha256ChaCha20Poly1305(sharedSecret, ciphertext)
+	require.ErrorContains(t, err, "unsupported version:")
 }
 
 // TestEncryptDecryptSha256ChaCha20Poly1305Random tests the
@@ -120,6 +158,11 @@ func TestEncryptDecryptSha256ChaCha20Poly1305Random(t *testing.T) {
 		require.NotContains(t, ciphertext, msg)
 		require.GreaterOrEqual(t, len(ciphertext), 32)
 
+		// Verify the version byte is correct.
+		actualVersionByte := ciphertext[0]
+		require.Equal(t, byte(latestVersion), actualVersionByte)
+		require.Equal(t, byte(1), actualVersionByte)
+
 		// Decrypt the message.
 		plaintext, err := DecryptSha256ChaCha20Poly1305(
 			sharedSecret, ciphertext,
@@ -145,7 +188,10 @@ func BenchmarkEncryptSha256ChaCha20Poly1305(b *testing.B) {
 	require.NoError(b, err)
 
 	longMessage := bytes.Repeat([]byte("secret"), 10240)
-	ad := bytes.Repeat([]byte("ad"), 1024)
+
+	// Generate additional data with length 200 bytes, within 255-byte
+	// limit.
+	ad := bytes.Repeat([]byte("a"), 200)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -172,7 +218,10 @@ func BenchmarkDecryptSha256ChaCha20Poly1305(b *testing.B) {
 	require.NoError(b, err)
 
 	longMessage := bytes.Repeat([]byte("secret"), 10240)
-	ad := bytes.Repeat([]byte("ad"), 1024)
+
+	// Generate additional data with length 200 bytes, within 255-byte
+	// limit.
+	ad := bytes.Repeat([]byte("a"), 200)
 
 	ciphertext, err := EncryptSha256ChaCha20Poly1305(
 		sharedSecret, longMessage, ad,
