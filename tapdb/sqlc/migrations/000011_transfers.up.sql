@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS proof_transfer_log (
     -- delivery to the transfer counterparty or receiving a proof from the
     -- transfer counterparty. Note that the transfer counterparty is usually
     -- the proof courier service.
-    transfer_type TEXT NOT NULL CHECK(transfer_type IN ('send', 'receive')),
+    transfer_type TEXT NOT NULL CHECK (transfer_type IN ('send', 'receive')),
 
     proof_locator_hash BLOB NOT NULL,
 

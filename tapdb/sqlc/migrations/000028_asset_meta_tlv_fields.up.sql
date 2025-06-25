@@ -12,11 +12,11 @@ ALTER TABLE assets_meta ADD COLUMN meta_universe_commitments BOOL;
 -- need to allow for the control character in between, so we just assume 256
 -- characters per URL.
 ALTER TABLE assets_meta ADD COLUMN meta_canonical_universes BLOB
-    CHECK(LENGTH(meta_canonical_universes) <= 4096);
+CHECK (LENGTH(meta_canonical_universes) <= 4096);
 
 -- We don't want to decide on the SQL level if this key is a 33-byte compressed
 -- or 32-byte x-only one, so we just use the <= operator in case we ever need
 -- to change the semantics on this field (on the SQL level we just care about
 -- there being a size restriction in the first place).
 ALTER TABLE assets_meta ADD COLUMN meta_delegation_key BLOB
-    CHECK(LENGTH(meta_delegation_key) <= 33);
+CHECK (LENGTH(meta_delegation_key) <= 33);

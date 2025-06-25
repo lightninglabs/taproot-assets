@@ -399,11 +399,11 @@ type UniverseServer struct {
 }
 
 type UniverseStat struct {
-	TotalAssetSyncs  int64
-	TotalAssetProofs int64
 	AssetID          []byte
 	GroupKey         []byte
 	ProofType        sql.NullString
+	TotalAssetSyncs  int64
+	TotalAssetProofs int64
 }
 
 type UniverseSupplyLeafe struct {

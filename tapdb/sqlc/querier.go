@@ -16,6 +16,8 @@ type Querier interface {
 	AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow, error)
 	AnchorGenesisPoint(ctx context.Context, arg AnchorGenesisPointParams) error
 	AnchorPendingAssets(ctx context.Context, arg AnchorPendingAssetsParams) error
+	// This is a NOP, anchor_utxo_id is one of the unique fields that caused the
+	// conflict.
 	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int64, error)
 	AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]AssetsByGenesisPointRow, error)
 	AssetsDBSizePostgres(ctx context.Context) (int64, error)
@@ -145,6 +147,7 @@ type Querier interface {
 	QueryFederationGlobalSyncConfigs(ctx context.Context) ([]FederationGlobalSyncConfig, error)
 	// Join on mssmt_nodes to get leaf related fields.
 	// Join on genesis_info_view to get leaf related fields.
+	// Universe leaves WHERE clauses.
 	QueryFederationProofSyncLog(ctx context.Context, arg QueryFederationProofSyncLogParams) ([]QueryFederationProofSyncLogRow, error)
 	QueryFederationUniSyncConfigs(ctx context.Context) ([]QueryFederationUniSyncConfigsRow, error)
 	QueryMultiverseLeaves(ctx context.Context, arg QueryMultiverseLeavesParams) ([]QueryMultiverseLeavesRow, error)
@@ -166,34 +169,75 @@ type Querier interface {
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLeaseParams) error
+	// If the WHERE clause below is true (exact match on all other fields,
+	// except for creation_time), we set taproot_output_key to its current
+	// conflicting value. This is a no-op in terms of data change but allows
+	// RETURNING id to work on the existing row.
 	UpsertAddr(ctx context.Context, arg UpsertAddrParams) (int64, error)
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int64, error)
+	// This is a NOP, anchor_utxo_id is one of the unique fields that caused the
+	// conflict.
 	UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64, error)
+	// This is not a NOP, update the genesis point ID in case it wasn't set
+	// before.
 	UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int64, error)
+	// This is a NOP, gen_asset_id is the unique field that caused the conflict.
 	UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int64, error)
+	// In this case, we may be inserting the data+type for an existing blob. So
+	// we'll set all of those values. At this layer we assume the meta hash
+	// has been validated elsewhere.
 	UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error)
+	// This is not a NOP, we always overwrite the proof with the new one.
 	UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error
+	// We overwrite the witness with the new one.
 	UpsertAssetWitness(ctx context.Context, arg UpsertAssetWitnessParams) error
+	// Not a NOP but instead update any nullable fields that aren't null in the
+	// args.
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error)
 	UpsertFederationGlobalSyncConfig(ctx context.Context, arg UpsertFederationGlobalSyncConfigParams) error
+	// Increment the attempt counter.
 	UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFederationProofSyncLogParams) (int64, error)
 	UpsertFederationUniSyncConfig(ctx context.Context, arg UpsertFederationUniSyncConfigParams) error
+	// This is a NOP, asset_id is the unique field that caused the conflict.
 	UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int64, error)
+	// This is a NOP, prev_out is the unique field that caused the conflict.
 	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int64, error)
+	// This is a NOP, raw_key is the unique field that caused the conflict.
 	UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int64, error)
+	// Not a NOP but instead update any nullable fields that aren't null in the
+	// args.
 	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int64, error)
 	// Upsert a record into the mint_anchor_uni_commitments table.
 	// If a record with the same batch ID and tx output index already exists, update
 	// the existing record. Otherwise, insert a new record.
+	// The following fields are updated if a conflict occurs.
 	UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error)
+	// This is a no-op to allow returning the ID.
 	UpsertMultiverseLeaf(ctx context.Context, arg UpsertMultiverseLeafParams) (int64, error)
+	// This is a no-op to allow returning the ID.
 	UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error)
+	// Not a NOP, we always overwrite the root hash.
 	UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error
+	// Overwrite the declared_known, key_type and tweak fields if they were
+	// previously unknown.
+	// If the tweak was previously unknown, we'll update to the new value.
+	// We only overwrite the key type with a value that does not mean
+	// "unknown" (0 or NULL).
 	UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int64, error)
+	// This is a NOP, root_hash_id, node_index, and raw_node_id are the unique
+	// fields that caused the conflict.
 	UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error)
+	// This is a NOP, raw_node is the unique field that caused the conflict.
 	UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error)
+	// This is a NOP, the root_hash is the unique field that caused the
+	// conflict. The tree should be deleted before switching between branch and
+	// leaf storage for the same root hash.
 	UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error)
+	// This is a NOP, minting_point and script_key_bytes are the unique fields
+	// that caused the conflict.
 	UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) error
+	// This is a NOP, namespace_root is the unique field that caused the
+	// conflict.
 	UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int64, error)
 	UpsertUniverseSupplyLeaf(ctx context.Context, arg UpsertUniverseSupplyLeafParams) (int64, error)
 	UpsertUniverseSupplyRoot(ctx context.Context, arg UpsertUniverseSupplyRootParams) (int64, error)

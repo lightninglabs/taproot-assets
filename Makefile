@@ -57,6 +57,9 @@ DOCKER_TOOLS = docker run \
   -v $(shell bash -c "mkdir -p /tmp/go-lint-cache; echo /tmp/go-lint-cache"):/root/.cache/golangci-lint \
   -v $$(pwd):/build taproot-assets-tools
 
+DOCKER_SQLFLUFF = docker run --rm --user "$$UID:$$(id -g)" -e UID=$$UID \
+	-v $(shell pwd):/sql sqlfluff-builder
+
 GO_VERSION = 1.23.9
 
 GREEN := "\\033[0;32m"
@@ -148,6 +151,10 @@ docker-release:
 docker-tools:
 	@$(call print, "Building tools docker image.")
 	docker build -q -t taproot-assets-tools $(TOOLS_DIR)
+
+docker-sqlfluff:
+	@$(call print, "Building sqlfluff docker image.")
+	docker build -q -t sqlfluff-builder tools/sqlfluff
 
 scratch: build
 
@@ -267,6 +274,15 @@ sqlc-check: sqlc
 		git status --porcelain '*.go'; \
 		exit 1; \
 	fi
+
+sql-lint: docker-sqlfluff
+	$(DOCKER_SQLFLUFF) lint tapdb/sqlc/migrations/* tapdb/sqlc/queries/*
+
+sql-lint-ci: docker-sqlfluff
+	$(DOCKER_SQLFLUFF) lint --format github-annotation-native tapdb/sqlc/migrations/* tapdb/sqlc/queries/*
+
+sql-fix: docker-sqlfluff
+	$(DOCKER_SQLFLUFF) fix tapdb/sqlc/migrations/* tapdb/sqlc/queries/*
 
 rpc:
 	@$(call print, "Compiling protos.")

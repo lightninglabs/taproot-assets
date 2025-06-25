@@ -12,12 +12,20 @@ ALTER TABLE asset_groups DROP COLUMN custom_subtree_root_id;
 -- Recreate the previous view.
 CREATE VIEW key_group_info_view AS
 SELECT
-    witness_id, gen_asset_id, witness_stack, tapscript_root,
-    tweaked_group_key, raw_key, key_index, key_family,
-    substr(tweaked_group_key, 2) AS x_only_group_key
-FROM asset_group_witnesses wit
-         JOIN asset_groups groups
-              ON wit.group_key_id = groups.group_id
-         JOIN internal_keys keys
-              ON keys.key_id = groups.internal_key_id
-WHERE wit.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info_view);
+    wit.witness_id,
+    wit.gen_asset_id,
+    wit.witness_stack,
+    grp.tapscript_root,
+    grp.tweaked_group_key,
+    keys.raw_key,
+    keys.key_index,
+    keys.key_family,
+    substr(grp.tweaked_group_key, 2) AS x_only_group_key
+FROM asset_group_witnesses AS wit
+JOIN asset_groups AS grp
+    ON wit.group_key_id = grp.group_id
+JOIN internal_keys AS keys
+    ON grp.internal_key_id = keys.key_id
+WHERE wit.gen_asset_id IN (
+    SELECT giv.gen_asset_id FROM genesis_info_view AS giv
+);

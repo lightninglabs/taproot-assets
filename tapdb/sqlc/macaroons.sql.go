@@ -10,7 +10,7 @@ import (
 )
 
 const GetRootKey = `-- name: GetRootKey :one
-SELECT id, root_key FROM macaroons 
+SELECT id, root_key FROM macaroons
 WHERE id = $1
 `
 

@@ -1,5 +1,5 @@
 -- name: GetRootKey :one
-SELECT * FROM macaroons 
+SELECT * FROM macaroons
 WHERE id = $1;
 
 -- name: InsertRootKey :exec

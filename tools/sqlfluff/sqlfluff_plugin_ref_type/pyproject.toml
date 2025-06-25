@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=40.8.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sqlfluff_plugin_ref_type"
+version = "1.0.0"
+requires-python = ">=3.9"
+dependencies = [
+    "sqlfluff>=3.1.0"
+]
+
+[project.entry-points.sqlfluff]
+sqlfluff_plugin_ref_type = "sqlfluff_plugin_ref_type"

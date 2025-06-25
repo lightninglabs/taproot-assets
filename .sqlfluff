@@ -1,0 +1,17 @@
+[sqlfluff]
+dialect = sqlite
+templater = raw
+
+processes = -1
+
+exclude_rules = AM04, AM05, AL05, ST06
+
+warnings = RF04
+
+large_file_skip_byte_limit = 50000
+
+[sqlfluff:indentation]
+tab_space_size = 4
+indented_joins = False
+indented_on_contents = True
+allow_implicit_indents = False

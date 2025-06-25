@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS genesis_points (
     -- TODO(roasbeef): just need the input index here instead?
     prev_out BLOB UNIQUE NOT NULL,
 
-    anchor_tx_id BIGINT REFERENCES chain_txns(txn_id)
+    anchor_tx_id BIGINT REFERENCES chain_txns (txn_id)
 );
 
 -- assets_meta is a table that holds all the metadata information for genesis
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS genesis_points (
 CREATE TABLE IF NOT EXISTS assets_meta (
     meta_id INTEGER PRIMARY KEY,
 
-    meta_data_hash BLOB UNIQUE CHECK(length(meta_data_hash) = 32),
+    meta_data_hash BLOB UNIQUE CHECK (length(meta_data_hash) = 32),
 
     -- TODO(roasbeef): also have other opque blob here for future fields?
     meta_data_blob BLOB,
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS genesis_assets (
 
     asset_tag TEXT NOT NULL,
 
-    meta_data_id BIGINT REFERENCES assets_meta(meta_id),
+    meta_data_id BIGINT REFERENCES assets_meta (meta_id),
 
     output_index INTEGER NOT NULL,
 
@@ -64,9 +64,9 @@ CREATE TABLE IF NOT EXISTS genesis_assets (
     -- BIP PR
     asset_type SMALLINT NOT NULL,
 
-    genesis_point_id BIGINT NOT NULL REFERENCES genesis_points(genesis_id)
+    genesis_point_id BIGINT NOT NULL REFERENCES genesis_points (genesis_id)
 );
-CREATE INDEX IF NOT EXISTS asset_ids on genesis_assets(asset_id);
+CREATE INDEX IF NOT EXISTS asset_ids ON genesis_assets (asset_id);
 
 -- internal_keys is the set of public keys managed and used by the daemon. The
 -- full KeyLocator is stored so we can use these keys without actually storing
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS internal_keys (
 
     -- We'll always store the full 33-byte key on disk, to make sure we're
     -- retaining full information.
-    raw_key BLOB NOT NULL UNIQUE CHECK(length(raw_key) = 33),
+    raw_key BLOB NOT NULL UNIQUE CHECK (length(raw_key) = 33),
 
     key_family INTEGER NOT NULL,
 
@@ -90,15 +90,16 @@ CREATE TABLE IF NOT EXISTS internal_keys (
 CREATE TABLE IF NOT EXISTS asset_groups (
     group_id INTEGER PRIMARY KEY,
 
-    tweaked_group_key BLOB UNIQUE NOT NULL CHECK(length(tweaked_group_key) = 33), 
+    tweaked_group_key BLOB UNIQUE NOT NULL
+    CHECK (length(tweaked_group_key) = 33),
 
     tapscript_root BLOB,
 
     -- TODO(roasbeef): also need to mix in output index here? to derive the
     -- genesis key?
-    internal_key_id BIGINT NOT NULL REFERENCES internal_keys(key_id),
+    internal_key_id BIGINT NOT NULL REFERENCES internal_keys (key_id),
 
-    genesis_point_id BIGINT NOT NULL REFERENCES genesis_points(genesis_id)
+    genesis_point_id BIGINT NOT NULL REFERENCES genesis_points (genesis_id)
 );
 
 -- asset_group_witnesses stores the set of signatures/witness stacks for an
@@ -114,9 +115,10 @@ CREATE TABLE IF NOT EXISTS asset_group_witnesses (
     witness_stack BLOB NOT NULL,
 
     -- TODO(roasbeef): not needed since already in assets row?
-    gen_asset_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id) UNIQUE,
+    gen_asset_id BIGINT NOT NULL
+    REFERENCES genesis_assets (gen_asset_id) UNIQUE,
 
-    group_key_id BIGINT NOT NULL REFERENCES asset_groups(group_id)
+    group_key_id BIGINT NOT NULL REFERENCES asset_groups (group_id)
 );
 
 -- managed_utxos is the set of UTXOs managed by tapd. These UTXOs may commit
@@ -132,10 +134,10 @@ CREATE TABLE IF NOT EXISTS managed_utxos (
     -- 64 bit issues?
     amt_sats BIGINT NOT NULL,
 
-    internal_key_id BIGINT NOT NULL REFERENCES internal_keys(key_id),
+    internal_key_id BIGINT NOT NULL REFERENCES internal_keys (key_id),
 
     -- The Taproot Asset root commitment hash.
-    taproot_asset_root BLOB NOT NULL CHECK(length(taproot_asset_root) = 32),
+    taproot_asset_root BLOB NOT NULL CHECK (length(taproot_asset_root) = 32),
 
     -- The serialized tapscript sibling preimage. If this is empty then the
     -- Taproot Asset root commitment is equal to the merkle_root below.
@@ -145,16 +147,16 @@ CREATE TABLE IF NOT EXISTS managed_utxos (
     -- corresponds to the Taproot Asset root commitment hash.
     --
     -- TODO(roasbeef): can then reconstruct on start up to ensure matches up
-    merkle_root BLOB NOT NULL CHECK(length(merkle_root) = 32),
+    merkle_root BLOB NOT NULL CHECK (length(merkle_root) = 32),
 
-    txn_id BIGINT NOT NULL REFERENCES chain_txns(txn_id),
+    txn_id BIGINT NOT NULL REFERENCES chain_txns (txn_id),
 
     -- The identity of the application that currently has a lease on this UTXO.
     -- If NULL, then the UTXO is not currently leased. A lease means that the
     -- UTXO is being reserved/locked to be spent in an upcoming transaction and
     -- that it should not be available for coin selection through any of the
     -- wallet RPCs.
-    lease_owner BLOB CHECK(length(lease_owner) = 32),
+    lease_owner BLOB CHECK (length(lease_owner) = 32),
 
     -- The absolute expiry of the lease in seconds as a Unix timestamp. If the
     -- expiry is NULL or the timestamp is in the past, then the lease is not
@@ -167,11 +169,12 @@ CREATE TABLE IF NOT EXISTS script_keys (
 
     -- The actual internal key here that we hold the private key for. Applying
     -- the tweak to this gives us the tweaked_script_key.
-    internal_key_id BIGINT NOT NULL REFERENCES internal_keys(key_id),
+    internal_key_id BIGINT NOT NULL REFERENCES internal_keys (key_id),
 
     -- The script key after applying the tweak. This is what goes directly in
     -- the asset TLV.
-    tweaked_script_key BLOB NOT NULL UNIQUE CHECK(length(tweaked_script_key) = 33),
+    tweaked_script_key BLOB NOT NULL UNIQUE
+    CHECK (length(tweaked_script_key) = 33),
 
     -- An optional tweak for the script_key. If NULL, the raw_key may be
     -- tweaked BIP-0086 style.
@@ -185,15 +188,15 @@ CREATE TABLE IF NOT EXISTS script_keys (
 -- spend the asset.
 CREATE TABLE IF NOT EXISTS assets (
     asset_id INTEGER PRIMARY KEY,
-    
-    genesis_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id),
+
+    genesis_id BIGINT NOT NULL REFERENCES genesis_assets (gen_asset_id),
 
     version INTEGER NOT NULL,
 
-    script_key_id BIGINT NOT NULL REFERENCES script_keys(script_key_id),
+    script_key_id BIGINT NOT NULL REFERENCES script_keys (script_key_id),
 
     -- TODO(roasbeef): don't need this after all?
-    asset_group_witness_id BIGINT REFERENCES asset_group_witnesses(witness_id),
+    asset_group_witness_id BIGINT REFERENCES asset_group_witnesses (witness_id),
 
     -- TODO(roasbeef): make into enum?
     script_version INTEGER NOT NULL,
@@ -210,15 +213,15 @@ CREATE TABLE IF NOT EXISTS assets (
 
     split_commitment_root_value BIGINT,
 
-    anchor_utxo_id BIGINT REFERENCES managed_utxos(utxo_id),
-    
+    anchor_utxo_id BIGINT REFERENCES managed_utxos (utxo_id),
+
     -- A boolean that indicates that the asset was spent. This is only
     -- set for assets that were transferred in an active manner (as part of an
     -- user initiated transfer). Passive assets that are just re-anchored are
     -- updated in-place.
     spent BOOLEAN NOT NULL DEFAULT FALSE,
-    
-    UNIQUE(asset_id, genesis_id, script_key_id)
+
+    UNIQUE (asset_id, genesis_id, script_key_id)
 );
 
 -- asset_witnesses stores the set of input witnesses for the latest state of an
@@ -227,7 +230,7 @@ CREATE TABLE IF NOT EXISTS assets (
 CREATE TABLE IF NOT EXISTS asset_witnesses (
     witness_id INTEGER PRIMARY KEY,
 
-    asset_id BIGINT NOT NULL REFERENCES assets(asset_id) ON DELETE CASCADE,
+    asset_id BIGINT NOT NULL REFERENCES assets (asset_id) ON DELETE CASCADE,
 
     prev_out_point BLOB NOT NULL,
 
@@ -247,7 +250,7 @@ CREATE TABLE IF NOT EXISTS asset_proofs (
 
     -- We enforce that this value is unique so we can use an UPSERT to update a
     -- proof file that already exists.
-    asset_id BIGINT NOT NULL REFERENCES assets(asset_id) UNIQUE,
+    asset_id BIGINT NOT NULL REFERENCES assets (asset_id) UNIQUE,
 
     -- TODO(roasbef): store the merkle root separately? then can refer back to
     -- for all other files
@@ -260,7 +263,8 @@ CREATE TABLE IF NOT EXISTS asset_proofs (
 -- minting transaction which once signed and broadcast will actually create the
 -- assets.
 CREATE TABLE IF NOT EXISTS asset_minting_batches (
-    batch_id INTEGER PRIMARY KEY REFERENCES internal_keys(key_id),
+    batch_id INTEGER PRIMARY KEY -- noqa: LL01 
+    REFERENCES internal_keys (key_id), -- TODO(guggero): Use BIGINT.
 
     -- TODO(roasbeef): make into proper enum table or use check to ensure
     -- proper values
@@ -270,13 +274,14 @@ CREATE TABLE IF NOT EXISTS asset_minting_batches (
 
     change_output_index INTEGER,
 
-    genesis_id BIGINT REFERENCES genesis_points(genesis_id),
+    genesis_id BIGINT REFERENCES genesis_points (genesis_id),
 
     height_hint INTEGER NOT NULL,
 
     creation_time_unix TIMESTAMP NOT NULL
 );
-CREATE INDEX IF NOT EXISTS batch_state_lookup on asset_minting_batches (batch_state);
+CREATE INDEX IF NOT EXISTS batch_state_lookup
+ON asset_minting_batches (batch_state);
 
 -- asset_seedlings are budding assets: the contain the base asset information
 -- need to create an asset, but doesn't yet have a genesis point.
@@ -293,15 +298,15 @@ CREATE TABLE IF NOT EXISTS asset_seedlings (
 
     asset_supply BIGINT NOT NULL,
 
-    asset_meta_id BIGINT NOT NULL REFERENCES assets_meta(meta_id),
+    asset_meta_id BIGINT NOT NULL REFERENCES assets_meta (meta_id),
 
     emission_enabled BOOLEAN NOT NULL,
 
-    batch_id BIGINT NOT NULL REFERENCES asset_minting_batches(batch_id),
+    batch_id BIGINT NOT NULL REFERENCES asset_minting_batches (batch_id),
 
-    group_genesis_id BIGINT REFERENCES genesis_assets(gen_asset_id),
+    group_genesis_id BIGINT REFERENCES genesis_assets (gen_asset_id),
 
-    group_anchor_id BIGINT REFERENCES asset_seedlings(seedling_id)
+    group_anchor_id BIGINT REFERENCES asset_seedlings (seedling_id)
 );
 
 -- TODO(roasbeef): need on delete cascade for all these?
@@ -313,31 +318,45 @@ CREATE TABLE IF NOT EXISTS asset_seedlings (
 -- points, to the internal key that reference the batch, then restricted
 -- for internal keys that match our main batch key.
 CREATE VIEW genesis_info_view AS
-    SELECT
-        gen_asset_id, asset_id, asset_tag, assets_meta.meta_data_hash meta_hash,
-        output_index, asset_type, genesis_points.prev_out prev_out, block_height
-    FROM genesis_assets
-    -- We do a LEFT JOIN here, as not every asset has a set of
-    -- metadata that matches the asset.
-    LEFT JOIN assets_meta
-        ON genesis_assets.meta_data_id = assets_meta.meta_id
-    JOIN genesis_points
-        ON genesis_assets.genesis_point_id = genesis_points.genesis_id
-    LEFT JOIN chain_txns
-        ON genesis_points.anchor_tx_id = chain_txns.txn_id;
+SELECT
+    genesis_assets.gen_asset_id,
+    genesis_assets.asset_id,
+    genesis_assets.asset_tag,
+    assets_meta.meta_data_hash AS meta_hash,
+    genesis_assets.output_index,
+    genesis_assets.asset_type,
+    genesis_points.prev_out,
+    chain_txns.block_height
+FROM genesis_assets
+-- We do a LEFT JOIN here, as not every asset has a set of
+-- metadata that matches the asset.
+LEFT JOIN assets_meta
+    ON genesis_assets.meta_data_id = assets_meta.meta_id
+JOIN genesis_points
+    ON genesis_assets.genesis_point_id = genesis_points.genesis_id
+LEFT JOIN chain_txns
+    ON genesis_points.anchor_tx_id = chain_txns.txn_id;
 
 -- This view is used to perform a series of joins that allow us to extract
 -- the group key information, as well as the group sigs for the series of
 -- assets we care about. We obtain only the assets found in the batch
 -- above, with the WHERE query at the bottom.
 CREATE VIEW key_group_info_view AS
-    SELECT
-        witness_id, gen_asset_id, witness_stack, tapscript_root,
-        tweaked_group_key, raw_key, key_index, key_family,
-        substr(tweaked_group_key, 2) AS x_only_group_key
-    FROM asset_group_witnesses wit
-    JOIN asset_groups groups
-        ON wit.group_key_id = groups.group_id
-    JOIN internal_keys keys
-        ON keys.key_id = groups.internal_key_id
-    WHERE wit.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info_view);
+SELECT
+    wit.witness_id,
+    wit.gen_asset_id,
+    wit.witness_stack,
+    grp.tapscript_root,
+    grp.tweaked_group_key,
+    keys.raw_key,
+    keys.key_index,
+    keys.key_family,
+    substr(grp.tweaked_group_key, 2) AS x_only_group_key
+FROM asset_group_witnesses AS wit
+JOIN asset_groups AS grp
+    ON wit.group_key_id = grp.group_id
+JOIN internal_keys AS keys
+    ON grp.internal_key_id = keys.key_id
+WHERE wit.gen_asset_id IN (
+    SELECT giv.gen_asset_id FROM genesis_info_view AS giv
+);
