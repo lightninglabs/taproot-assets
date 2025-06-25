@@ -311,6 +311,15 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/authmailboxrpc.Mailbox/SendMessage": {{
+			Entity: "mailbox",
+			Action: "write",
+		}},
+		"/authmailboxrpc.Mailbox/ReceiveMessages": {{
+			Entity: "mailbox",
+			Action: "read",
+		}},
+		"/authmailboxrpc.Mailbox/MailboxInfo": {{}},
 	}
 
 	// defaultMacaroonWhitelist defines a default set of RPC endpoints that
@@ -325,6 +334,7 @@ var (
 		"/universerpc.Universe/AssetLeafKeys":   {},
 		"/universerpc.Universe/AssetLeaves":     {},
 		"/universerpc.Universe/Info":            {},
+		"/authmailboxrpc.Mailbox/MailboxInfo":   {},
 	}
 )
 
@@ -341,13 +351,16 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 	}
 
 	// Conditionally whitelist universe server read methods.
+	// nolint: lll
 	if allowUniPublicAccessRead || allowPublicUniProofCourier {
 		whitelist["/universerpc.Universe/QueryProof"] = struct{}{}
+		whitelist["/authmailboxrpc.Mailbox/ReceiveMessages"] = struct{}{}
 	}
 
 	// Conditionally whitelist universe server write methods.
 	if allowUniPublicAccessWrite || allowPublicUniProofCourier {
 		whitelist["/universerpc.Universe/InsertProof"] = struct{}{}
+		whitelist["/authmailboxrpc.Mailbox/SendMessage"] = struct{}{}
 	}
 
 	// Conditionally add public stats RPC endpoints to the whitelist.

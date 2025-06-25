@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
@@ -192,6 +193,7 @@ func getTapClient(t *testing.T, ctx context.Context,
 	mintMintClient := mintrpc.NewMintClient(conn)
 	rfqClient := rfqrpc.NewRfqClient(conn)
 	universeClient := universerpc.NewUniverseClient(conn)
+	mboxClient := authmailboxrpc.NewMailboxClient(conn)
 
 	client := &rpcClient{
 		cfg: cfg,
@@ -204,6 +206,7 @@ func getTapClient(t *testing.T, ctx context.Context,
 			tchrpc.TaprootAssetChannelsClient
 			universerpc.UniverseClient
 			tapdevrpc.TapDevClient
+			authmailboxrpc.MailboxClient
 		}{
 			TaprootAssetsClient: assetsClient,
 			AssetWalletClient:   assetWalletClient,
@@ -211,6 +214,7 @@ func getTapClient(t *testing.T, ctx context.Context,
 			MintClient:          mintMintClient,
 			RfqClient:           rfqClient,
 			UniverseClient:      universeClient,
+			MailboxClient:       mboxClient,
 		},
 	}
 

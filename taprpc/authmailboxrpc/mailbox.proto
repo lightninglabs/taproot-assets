@@ -39,7 +39,7 @@ service Mailbox {
     /*
     Returns basic server information.
     */
-    rpc Info (InfoRequest) returns (InfoResponse);
+    rpc MailboxInfo (MailboxInfoRequest) returns (MailboxInfoResponse);
 }
 
 // Represents the Merkle proof hashes needed to link a transaction to the Merkle
@@ -197,12 +197,12 @@ message Challenge {
 message EndOfStream {
 }
 
-// Request message for the Info RPC.
-message InfoRequest {
+// Request message for the MailboxInfo RPC.
+message MailboxInfoRequest {
 }
 
-// Response message for the Info RPC.
-message InfoResponse {
+// Response message for the MailboxInfo RPC.
+message MailboxInfoResponse {
     // The current server time in Unix epoch seconds.
     int64 server_time = 1;
 

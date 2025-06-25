@@ -35,10 +35,37 @@ const (
 )
 
 // TxOptions represents a set of options one can use to control what type of
-// database transaction is created. Transaction can wither be read or write.
+// database transaction is created. Transaction can either be read or write.
 type TxOptions interface {
-	// ReadOnly returns true if the transaction should be read only.
+	// ReadOnly returns true if the transaction should be read-only.
 	ReadOnly() bool
+}
+
+// BaseTxOptions defines the set of db txn options the database understands.
+type BaseTxOptions struct {
+	// readOnly governs if a read-only transaction is needed or not.
+	readOnly bool
+}
+
+// ReadOnly returns true if the transaction should be read only.
+//
+// NOTE: This implements the TxOptions
+func (a *BaseTxOptions) ReadOnly() bool {
+	return a.readOnly
+}
+
+// ReadTxOption returns a TxOptions that indicates a read-only transaction.
+func ReadTxOption() *BaseTxOptions {
+	return &BaseTxOptions{
+		readOnly: true,
+	}
+}
+
+// WriteTxOption returns a TxOptions that indicates a write transaction.
+func WriteTxOption() *BaseTxOptions {
+	return &BaseTxOptions{
+		readOnly: false,
+	}
 }
 
 // BatchedTx is a generic interface that represents the ability to execute

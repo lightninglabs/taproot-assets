@@ -2,6 +2,7 @@ package asset
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"math"
@@ -114,11 +115,12 @@ var (
 		}
 	})
 	GenesisGen = rapid.Custom(func(t *rapid.T) Genesis {
+		maxTagLength := hex.DecodedLen(MaxAssetNameLength)
 		return Genesis{
 			FirstPrevOut: OutPointGen.Draw(t, "first_prev_out"),
-			Tag: rapid.StringN(
-				-1, -1, MaxAssetNameLength,
-			).Draw(t, "tag"),
+			Tag: hex.EncodeToString(rapid.SliceOfN(
+				rapid.Byte(), maxTagLength, maxTagLength,
+			).Draw(t, "tag")),
 			MetaHash: rapid.Make[[32]byte]().Draw(
 				t, "meta_hash",
 			),
