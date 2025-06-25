@@ -154,6 +154,23 @@ func TestBurnUniverseTreeInsertBurns(t *testing.T) {
 			)
 			require.True(t, valid)
 		}
+
+		// Verify that all returned proofs share the same final tree.
+		if len(authLeaves) > 1 {
+			firstRoot := authLeaves[0].BurnTreeRoot
+			for i := 1; i < len(authLeaves); i++ {
+				require.Equal(t,
+					firstRoot.NodeHash(),
+					authLeaves[i].BurnTreeRoot.NodeHash(),
+					"root hash mismatch at index %d", i,
+				)
+				require.Equal(t,
+					firstRoot.NodeSum(),
+					authLeaves[i].BurnTreeRoot.NodeSum(),
+					"root sum mismatch at index %d", i,
+				)
+			}
+		}
 	})
 
 	// Test case 2: Inserting with no burn leaves should return an error.
@@ -173,9 +190,7 @@ func TestBurnUniverseTreeInsertBurns(t *testing.T) {
 			ctx, invalidSpec, burnLeaves...,
 		)
 		require.Error(t, result.Err())
-		require.Contains(
-			t, result.Err().Error(), "group key must be set",
-		)
+		require.ErrorIs(t, result.Err(), ErrMissingGroupKey)
 	})
 
 	// Test case 4: Inserting non-burn proof should fail.
@@ -414,9 +429,7 @@ func TestBurnUniverseTreeSum(t *testing.T) {
 		var invalidSpec asset.Specifier
 		result := burnTree.Sum(ctx, invalidSpec)
 		require.Error(t, result.Err())
-		require.Contains(
-			t, result.Err().Error(), "group key must be set",
-		)
+		require.ErrorIs(t, result.Err(), ErrMissingGroupKey)
 	})
 }
 
@@ -522,9 +535,7 @@ func TestBurnUniverseTreeQueryBurns(t *testing.T) {
 		var invalidSpec asset.Specifier
 		result := burnTree.QueryBurns(ctx, invalidSpec)
 		require.Error(t, result.Err())
-		require.Contains(
-			t, result.Err().Error(), "group key must be set",
-		)
+		require.ErrorIs(t, result.Err(), ErrMissingGroupKey)
 	})
 }
 
@@ -607,9 +618,7 @@ func TestBurnUniverseTreeListBurns(t *testing.T) {
 		invalidSpec := asset.Specifier{}
 		result := burnTree.ListBurns(ctx, invalidSpec)
 		require.Error(t, result.Err())
-		require.Contains(
-			t, result.Err().Error(), "group key must be set",
-		)
+		require.ErrorIs(t, result.Err(), ErrMissingGroupKey)
 	})
 }
 
