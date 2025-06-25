@@ -25,6 +25,35 @@ const (
 	protocolName = "ECIES-HKDF-SHA256-XCHA20POLY1305"
 )
 
+// Version represents the version of the ECIES encoding format.
+type Version uint8
+
+const (
+	// VersionUndefined is the undefined version of the ECIES encoding
+	// format. It is used to indicate that the version is not set or
+	// that the version is unknown.
+	VersionUndefined Version = 0
+
+	// VersionV1 represents the initial version of the ECIES encoding
+	// format.
+	VersionV1 Version = 1
+
+	// LatestVersion is the latest supported protocol version.
+	latestVersion = VersionV1
+)
+
+// String returns the string representation of the version.
+func (v Version) String() string {
+	switch v {
+	case VersionUndefined:
+		return "Undefined"
+	case VersionV1:
+		return "V1"
+	default:
+		return fmt.Sprintf("Unknown(%d)", v)
+	}
+}
+
 // EncryptSha256ChaCha20Poly1305 encrypts the given message using
 // ChaCha20Poly1305 with a shared secret (usually derived using ECDH between the
 // sender's ephemeral key and the receiver's public key) that is hardened using
@@ -32,7 +61,8 @@ const (
 // prepends it to the returned encrypted message. The additional data is limited
 // to at most 255 bytes. The output is a byte slice containing:
 //
-//	<1 byte AD length> <* bytes AD> <24 bytes nonce> <* bytes ciphertext>
+// <1 byte version> <1 byte AD length> <* bytes AD> <24 bytes nonce>
+// <* bytes ciphertext>
 func EncryptSha256ChaCha20Poly1305(sharedSecret [32]byte, msg []byte,
 	additionalData []byte) ([]byte, error) {
 
@@ -69,6 +99,7 @@ func EncryptSha256ChaCha20Poly1305(sharedSecret [32]byte, msg []byte,
 	ciphertext := aead.Seal(nonce, nonce, msg, additionalData)
 
 	var result bytes.Buffer
+	result.WriteByte(byte(latestVersion))
 	result.WriteByte(byte(len(additionalData)))
 	result.Write(additionalData)
 	result.Write(ciphertext)
@@ -76,37 +107,51 @@ func EncryptSha256ChaCha20Poly1305(sharedSecret [32]byte, msg []byte,
 	return result.Bytes(), nil
 }
 
-// ExtractAdditionalData extracts the additional data and the ciphertext from
-// the given message. The message must be in the format:
+// ExtractAdditionalData extracts the version, additional data, and the
+// ciphertext from the given message. The message must be in the format:
 //
-//	<1 byte AD length> <* bytes AD> <24 bytes nonce> <* bytes ciphertext>
-func ExtractAdditionalData(msg []byte) ([]byte, []byte, error) {
-	// We need at least 1 byte for the additional data length.
-	if len(msg) < 1 {
-		return nil, nil, fmt.Errorf("ciphertext too short: %d bytes "+
-			"given, 1 byte minimum", len(msg))
+// <1 byte version> <1 byte AD length> <* bytes AD> <24 bytes nonce>
+// <* bytes ciphertext>
+func ExtractAdditionalData(msg []byte) (Version, []byte, []byte, error) {
+	// We need at least 2 bytes for the version and additional data length.
+	if len(msg) < 2 {
+		return VersionUndefined, nil, nil, fmt.Errorf("ciphertext "+
+			"too short: %d bytes given, 2 bytes minimum", len(msg))
 	}
 
-	// Extract the additional data length from the first byte of the
+	// Extract the version from the first byte of the ciphertext.
+	version := Version(msg[0])
+
+	// Check if the version is supported. We currently only support the
+	// latest version. Return an error early if the version is not supported
+	// as the encoding format may be incompatible with the current
+	// implementation.
+	if version != latestVersion {
+		return VersionUndefined, nil, nil, fmt.Errorf("unsupported "+
+			"version: %s", version)
+	}
+
+	// Extract the additional data length from the second byte of the
 	// ciphertext.
-	additionalDataLen := int(msg[0])
+	additionalDataLen := int(msg[1])
 
 	// Before we start, we check that the ciphertext is at least
-	// 1+adLength+24+16 bytes long. This is the minimum size for a valid
-	// ciphertext, as it contains the additional data length (1 byte), the
-	// additional data (additionalDataLen bytes), the nonce (24 bytes) and
-	// the overhead (16 bytes).
-	minLength := 1 + additionalDataLen + chacha20poly1305.NonceSizeX +
+	// 2+adLength+24+16 bytes long. This is the minimum size for a valid
+	// ciphertext, as it contains the version (1 byte), additional data
+	// length (1 byte), the additional data (additionalDataLen bytes), the
+	// nonce (24 bytes) and the overhead (16 bytes).
+	minLength := 2 + additionalDataLen + chacha20poly1305.NonceSizeX +
 		chacha20poly1305.Overhead
 	if len(msg) < minLength {
-		return nil, nil, fmt.Errorf("ciphertext too short: %d bytes "+
-			"given, %d bytes minimum", len(msg), minLength)
+		return VersionUndefined, nil, nil, fmt.Errorf("ciphertext "+
+			"too short: %d bytes given, %d bytes minimum", len(msg),
+			minLength)
 	}
 
-	additionalData := msg[1 : 1+additionalDataLen]
-	msg = msg[1+additionalDataLen:]
+	additionalData := msg[2 : 2+additionalDataLen]
+	msg = msg[2+additionalDataLen:]
 
-	return additionalData, msg, nil
+	return version, additionalData, msg, nil
 }
 
 // DecryptSha256ChaCha20Poly1305 decrypts the given ciphertext using
@@ -116,14 +161,20 @@ func ExtractAdditionalData(msg []byte) ([]byte, []byte, error) {
 // prepends it to the returned encrypted message. The additional data is limited
 // to at most 255 bytes. The ciphertext must be in the format:
 //
-//	<1 byte AD length> <* bytes AD> <24 bytes nonce> <* bytes ciphertext>
+// <1 byte version> <1 byte AD length> <* bytes AD> <24 bytes nonce>
+// <* bytes ciphertext>
 func DecryptSha256ChaCha20Poly1305(sharedSecret [32]byte,
 	msg []byte) ([]byte, error) {
 
 	// Make sure the message correctly encodes the additional data.
-	additionalData, remainder, err := ExtractAdditionalData(msg)
+	version, additionalData, remainder, err := ExtractAdditionalData(msg)
 	if err != nil {
 		return nil, err
+	}
+
+	// Currently, only the latest version is supported.
+	if version != latestVersion {
+		return nil, fmt.Errorf("unsupported version: %s", version)
 	}
 
 	// We begin by hardening the shared secret against brute forcing by
