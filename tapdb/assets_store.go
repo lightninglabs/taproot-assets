@@ -895,14 +895,32 @@ func (a *AssetStore) constraintsToDbFilter(
 			assetFilter.AssetIDFilter = nil
 		}
 
-		// The fn.None option means we don't restrict on script key type
-		// at all.
-		query.ScriptKeyType.WhenSome(func(t asset.ScriptKeyType) {
-			assetFilter.ScriptKeyType = sqlInt16(t)
-		})
+		// Let's figure out the set of script key types we want to
+		// query for. If the user specified a script key type, then we
+		// use that to filter the results. If the user didn't specify a
+		// script key type, then we use the full set of script key
+		// types, as this might be an internal query that also needs to
+		// know channel related assets.
+		assetFilter.ScriptKeyType = scriptKeyTypesForQuery(
+			false, query.ScriptKeyType,
+		)
 	}
 
 	return assetFilter, nil
+}
+
+// scriptKeyTypesForQuery returns the set of script key types we use in the
+// SQL queries based on the passed parameters. If the user specified a script
+// key type, then we use that to filter the results. If the user didn't
+// specify a script key type, then we use the full set of script key types
+// or the set of script key types that excludes channel related assets,
+// depending on the filterChannelRelated parameter.
+func scriptKeyTypesForQuery(filterChannelRelated bool,
+	userSpecified fn.Option[asset.ScriptKeyType]) []sql.NullInt16 {
+
+	return fn.Map(asset.ScriptKeyTypeForDatabaseQuery(
+		filterChannelRelated, userSpecified,
+	), sqlInt16)
 }
 
 // specificAssetFilter maps the given asset parameters to the set of filters
@@ -944,6 +962,17 @@ func (a *AssetStore) specificAssetFilter(id asset.ID, anchorPoint wire.OutPoint,
 func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
 	assetFilter QueryAssetFilters) ([]ConfirmedAsset, assetWitnesses,
 	error) {
+
+	// We're using a slice of types to query for the set of script key
+	// types, which is turned into a `xxx IN (...)` SQL query. But that
+	// doesn't work for empty slices, as that would result in
+	// `xxx IN (NULL)` which evaluates to false. So we need to use all
+	// available types instead.
+	if len(assetFilter.ScriptKeyType) == 0 {
+		assetFilter.ScriptKeyType = fn.Map(
+			asset.AllScriptKeyTypes, sqlInt16,
+		)
+	}
 
 	// First, we'll fetch all the assets we know of on disk.
 	dbAssets, err := q.QueryAssets(ctx, assetFilter)
@@ -1002,21 +1031,7 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 	// channels. The balance of those assets is reported through lnd channel
 	// balance. Those assets are identified by the specific script key type
 	// for channel keys. We exclude them unless explicitly queried for.
-	assetBalancesFilter.ExcludeScriptKeyType = sqlInt16(
-		asset.ScriptKeyScriptPathChannel,
-	)
-
-	// The fn.None option means we don't restrict on script key type at all.
-	skt.WhenSome(func(t asset.ScriptKeyType) {
-		assetBalancesFilter.ScriptKeyType = sqlInt16(t)
-
-		// If the user explicitly wants to see the channel related asset
-		// balances, we need to set the exclude type to NULL.
-		if t == asset.ScriptKeyScriptPathChannel {
-			nullValue := sql.NullInt16{}
-			assetBalancesFilter.ExcludeScriptKeyType = nullValue
-		}
-	})
+	assetBalancesFilter.ScriptKeyType = scriptKeyTypesForQuery(true, skt)
 
 	// By default, we only show assets that are not leased.
 	if !includeLeased {
@@ -1094,21 +1109,7 @@ func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
 	// channels. The balance of those assets is reported through lnd channel
 	// balance. Those assets are identified by the specific script key type
 	// for channel keys. We exclude them unless explicitly queried for.
-	assetBalancesFilter.ExcludeScriptKeyType = sqlInt16(
-		asset.ScriptKeyScriptPathChannel,
-	)
-
-	// The fn.None option means we don't restrict on script key type at all.
-	skt.WhenSome(func(t asset.ScriptKeyType) {
-		assetBalancesFilter.ScriptKeyType = sqlInt16(t)
-
-		// If the user explicitly wants to see the channel related asset
-		// balances, we need to set the exclude type to NULL.
-		if t == asset.ScriptKeyScriptPathChannel {
-			nullValue := sql.NullInt16{}
-			assetBalancesFilter.ExcludeScriptKeyType = nullValue
-		}
-	})
+	assetBalancesFilter.ScriptKeyType = scriptKeyTypesForQuery(true, skt)
 
 	// By default, we only show assets that are not leased.
 	if !includeLeased {
