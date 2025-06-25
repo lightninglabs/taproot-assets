@@ -330,6 +330,45 @@ type OptionalSeedlingFields struct {
 	GroupAnchorID      sql.NullInt64
 }
 
+// upsertDelegationKey inserts the given delegation key descriptor into
+// the internal_keys SQL table and returns its ID.
+func upsertDelegationKey(ctx context.Context, q PendingAssetStore,
+	keyDescOpt fn.Option[keychain.KeyDescriptor]) (sql.NullInt64, error) {
+
+	var zero sql.NullInt64
+
+	// If the delegation key is not set, we can return a zero value.
+	if keyDescOpt.IsNone() {
+		return zero, nil
+	}
+
+	// Unwrap the key descriptor to get the actual key.
+	keyDesc, err := keyDescOpt.UnwrapOrErr(
+		fmt.Errorf("delegation key is unexpectedly not set"),
+	)
+	if err != nil {
+		return zero, err
+	}
+
+	// Sanity check the key descriptor.
+	if keyDesc.PubKey == nil {
+		return zero, fmt.Errorf("delegation key pubkey is nil")
+	}
+
+	// Insert the key descriptor into the internal_keys table.
+	keyID, err := q.UpsertInternalKey(ctx, InternalKey{
+		RawKey:    keyDesc.PubKey.SerializeCompressed(),
+		KeyFamily: int32(keyDesc.Family),
+		KeyIndex:  int32(keyDesc.Index),
+	})
+	if err != nil {
+		return zero, fmt.Errorf("unable to insert internal key: %w",
+			err)
+	}
+
+	return sqlInt64(keyID), nil
+}
+
 // insertMintAnchorTx inserts a mint anchor transaction into the database.
 func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 	anchorPackage tapgarden.FundedMintAnchorPsbt,
@@ -544,6 +583,17 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 			dbSeedling.GroupGenesisID = optionalDbIDs.GroupGenesisID
 			dbSeedling.GroupAnchorID = optionalDbIDs.GroupAnchorID
 
+			// Upsert the seedling's delegation key if present.
+			delegationKeyID, err := upsertDelegationKey(
+				ctx, q, seedling.DelegationKey,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert "+
+					"delegation key: %w", err)
+			}
+
+			dbSeedling.DelegationKeyID = delegationKeyID
+
 			err = q.InsertAssetSeedling(ctx, dbSeedling)
 			if err != nil {
 				return err
@@ -674,6 +724,18 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 				optionalDbIDs.GroupInternalKeyID
 			dbSeedling.GroupGenesisID = optionalDbIDs.GroupGenesisID
 			dbSeedling.GroupAnchorID = optionalDbIDs.GroupAnchorID
+
+			// Handle delegation key: upsert to internal_keys and
+			// reference in seedling.
+			delegationKeyID, err := upsertDelegationKey(
+				ctx, q, seedling.DelegationKey,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert "+
+					"delegation key: %w", err)
+			}
+
+			dbSeedling.DelegationKeyID = delegationKeyID
 
 			err = q.InsertAssetSeedlingIntoBatch(ctx, dbSeedling)
 			if err != nil {
