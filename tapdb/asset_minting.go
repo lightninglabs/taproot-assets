@@ -855,6 +855,31 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 			}
 		}
 
+		// If the seedling has a delegation key, we'll parse it and
+		// store it in the seedling.
+		if dbSeedling.DelegationKeyRaw != nil {
+			delegationKeyPub, err := btcec.ParsePubKey(
+				dbSeedling.DelegationKeyRaw,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			locator := keychain.KeyLocator{
+				Index: extractSqlInt32[uint32](
+					dbSeedling.DelegationKeyIndex,
+				),
+				Family: extractSqlInt32[keychain.KeyFamily](
+					dbSeedling.DelegationKeyFam,
+				),
+			}
+
+			seedling.DelegationKey = fn.Some(keychain.KeyDescriptor{
+				KeyLocator: locator,
+				PubKey:     delegationKeyPub,
+			})
+		}
+
 		if len(dbSeedling.GroupTapscriptRoot) != 0 {
 			seedling.GroupTapscriptRoot = dbSeedling.
 				GroupTapscriptRoot
