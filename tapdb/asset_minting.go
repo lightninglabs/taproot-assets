@@ -1336,12 +1336,9 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 				"genesis packet")
 		}
 
-		anchorOutputIndex := uint32(0)
-		if batch.GenesisPacket.ChangeOutputIndex == 0 {
-			anchorOutputIndex = 1
-		}
+		assetAnchorOutIdx := batch.GenesisPacket.AssetAnchorOutIdx
 		genesisTx := batch.GenesisPacket.Pkt.UnsignedTx
-		genesisScript := genesisTx.TxOut[anchorOutputIndex].PkScript
+		genesisScript := genesisTx.TxOut[assetAnchorOutIdx].PkScript
 		tapscriptSibling := batch.TapSibling()
 		batch.RootAssetCommitment, err = fetchAssetSprouts(
 			ctx, q, dbBatch.RawKey, tapscriptSibling, genesisScript,
