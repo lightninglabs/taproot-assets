@@ -2878,6 +2878,20 @@ func testPsbtExternalCommit(t *harnessTest) {
 	AssertBalanceByID(
 		t.t, bobTapd, targetAssetGenesis.AssetId, assetsToSend,
 	)
+
+	// We make sure the change and the passive are shown properly in the
+	// sender's wallet.
+	AssertBalances(
+		t.t, aliceTapd, targetAsset.Amount-assetsToSend,
+		WithAssetID(targetAssetGenesis.AssetId), WithNumUtxos(1),
+		WithScriptKeyType(asset.ScriptKeyBip86),
+	)
+	passiveAsset := assets[1]
+	AssertBalances(
+		t.t, aliceTapd, passiveAsset.Amount,
+		WithAssetID(passiveAsset.AssetGenesis.AssetId), WithNumUtxos(1),
+		WithScriptKeyType(asset.ScriptKeyBip86),
+	)
 }
 
 // testPsbtLockTimeSend tests that we can send minted assets into a ScriptKey

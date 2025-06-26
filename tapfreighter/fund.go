@@ -121,7 +121,7 @@ func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 			}
 		}
 
-		err = deriveChangeOutputKey(ctx, vPkt, keyRing)
+		err = deriveChangeOutputKey(ctx, vPkt, keyRing, addrBook)
 		if err != nil {
 			return nil, fmt.Errorf("unable to derive change "+
 				"output key: %w", err)
@@ -201,7 +201,7 @@ func annotateLocalScriptKeys(ctx context.Context, vPkt *tappsbt.VPacket,
 // back to the local node, assuming there is a change output and it isn't a
 // zero-value tombstone.
 func deriveChangeOutputKey(ctx context.Context, vPkt *tappsbt.VPacket,
-	keyRing KeyRing) error {
+	keyRing KeyRing, addrBook AddrBook) error {
 
 	// If we don't have a split output then there's no change.
 	if !vPkt.HasSplitRootOutput() {
@@ -238,6 +238,16 @@ func deriveChangeOutputKey(ctx context.Context, vPkt *tappsbt.VPacket,
 		changeOut.ScriptKey = asset.NewScriptKeyBip86(
 			changeScriptKey,
 		)
+
+		// To make sure we recognize the script key again if it is
+		// used over the vPSBT RPCs (where we don't encode the script
+		// key type), we now also store the key in the DB.
+		err = addrBook.InsertScriptKey(
+			ctx, changeOut.ScriptKey, changeOut.ScriptKey.Type,
+		)
+		if err != nil {
+			return fmt.Errorf("cannot insert script key: %w", err)
+		}
 	}
 
 	return nil

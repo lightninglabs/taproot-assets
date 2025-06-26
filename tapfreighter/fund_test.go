@@ -66,6 +66,18 @@ type mockAddrBook struct {
 	scriptKeys []asset.TweakedScriptKey
 }
 
+func (m *mockAddrBook) InsertScriptKey(_ context.Context,
+	scriptKey asset.ScriptKey, _ asset.ScriptKeyType) error {
+
+	if scriptKey.TweakedScriptKey == nil {
+		return fmt.Errorf("script key must be tweaked")
+	}
+
+	m.scriptKeys = append(m.scriptKeys, *scriptKey.TweakedScriptKey)
+
+	return nil
+}
+
 func (m *mockAddrBook) FetchScriptKey(_ context.Context,
 	tweakedScriptKey *btcec.PublicKey) (*asset.TweakedScriptKey, error) {
 
