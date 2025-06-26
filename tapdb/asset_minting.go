@@ -550,6 +550,9 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 				AssetSupply:     int64(seedling.Amount),
 				AssetMetaID:     assetMetaID,
 				EmissionEnabled: seedling.EnableEmission,
+
+				// nolint: lll
+				UniverseCommitments: seedling.UniverseCommitments,
 			}
 
 			scriptKeyID, err := upsertScriptKey(
@@ -692,6 +695,9 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 				AssetSupply:     int64(seedling.Amount),
 				AssetMetaID:     assetMetaID,
 				EmissionEnabled: seedling.EnableEmission,
+
+				// nolint: lll
+				UniverseCommitments: seedling.UniverseCommitments,
 			}
 
 			scriptKeyID, err := upsertScriptKey(
@@ -787,7 +793,8 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 			Amount: uint64(
 				dbSeedling.AssetSupply,
 			),
-			EnableEmission: dbSeedling.EmissionEnabled,
+			EnableEmission:      dbSeedling.EmissionEnabled,
+			UniverseCommitments: dbSeedling.UniverseCommitments,
 		}
 
 		if dbSeedling.TweakedScriptKey != nil {

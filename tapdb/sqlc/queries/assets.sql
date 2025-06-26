@@ -58,13 +58,15 @@ WHERE batch_id in (SELECT batch_id FROM target_batch);
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id,
-    script_key_id, group_internal_key_id, group_tapscript_root, delegation_key_id
+    script_key_id, group_internal_key_id, group_tapscript_root,
+    delegation_key_id, universe_commitments
 ) VALUES (
    @asset_name, @asset_type, @asset_version, @asset_supply,
    @asset_meta_id, @emission_enabled, @batch_id,
    sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id'),
    sqlc.narg('script_key_id'), sqlc.narg('group_internal_key_id'),
-   @group_tapscript_root, sqlc.narg('delegation_key_id')
+   @group_tapscript_root, sqlc.narg('delegation_key_id'),
+   @universe_commitments
 );
 
 -- name: FetchSeedlingID :one
@@ -114,14 +116,15 @@ INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id,
     script_key_id, group_internal_key_id, group_tapscript_root,
-    delegation_key_id
+    delegation_key_id, universe_commitments
 ) VALUES (
     @asset_name, @asset_type, @asset_version, @asset_supply,
     @asset_meta_id, @emission_enabled,
     (SELECT key_id FROM target_key_id),
     sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id'),
     sqlc.narg('script_key_id'), sqlc.narg('group_internal_key_id'),
-    @group_tapscript_root, sqlc.narg('delegation_key_id')
+    @group_tapscript_root, sqlc.narg('delegation_key_id'),
+    @universe_commitments
 );
 
 -- name: FetchSeedlingsForBatch :many
@@ -150,7 +153,8 @@ SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply,
     group_internal_keys.key_index AS group_key_index,
     delegation_internal_keys.raw_key AS delegation_key_raw,
     delegation_internal_keys.key_family AS delegation_key_fam,
-    delegation_internal_keys.key_index AS delegation_key_index
+    delegation_internal_keys.key_index AS delegation_key_index,
+    universe_commitments
 FROM asset_seedlings 
 LEFT JOIN assets_meta
     ON asset_seedlings.asset_meta_id = assets_meta.meta_id
