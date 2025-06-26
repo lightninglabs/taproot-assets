@@ -1266,8 +1266,9 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 			},
 			PubKey: batchKey,
 		},
-		HeightHint:   uint32(dbBatch.HeightHint),
-		CreationTime: dbBatch.CreationTimeUnix.UTC(),
+		HeightHint:          uint32(dbBatch.HeightHint),
+		CreationTime:        dbBatch.CreationTimeUnix.UTC(),
+		UniverseCommitments: dbBatch.UniverseCommitments,
 	}
 
 	batchState, err := tapgarden.NewBatchState(uint8(dbBatch.BatchState))

@@ -93,6 +93,7 @@ func assertBatchEqual(t *testing.T, a, b *tapgarden.MintingBatch) {
 		t, &a.GenesisPacket.FundedPsbt, &b.GenesisPacket.FundedPsbt,
 	)
 	require.Equal(t, a.RootAssetCommitment, b.RootAssetCommitment)
+	require.Equal(t, a.UniverseCommitments, b.UniverseCommitments)
 }
 
 func assertSeedlingBatchLen(t *testing.T, batches []*tapgarden.MintingBatch,
