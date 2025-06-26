@@ -152,6 +152,12 @@ type AddrBook interface {
 	// ErrInternalKeyNotFound is returned.
 	FetchInternalKeyLocator(ctx context.Context,
 		rawKey *btcec.PublicKey) (keychain.KeyLocator, error)
+
+	// InsertScriptKey inserts an address related script key into the
+	// database, so it can be recognized as belonging to the wallet when a
+	// transfer comes in later on.
+	InsertScriptKey(ctx context.Context,
+		scriptKey asset.ScriptKey, keyType asset.ScriptKeyType) error
 }
 
 // AnchorVTxnsParams holds all the parameters needed to create a BTC level
