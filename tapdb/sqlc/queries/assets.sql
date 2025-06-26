@@ -10,8 +10,8 @@ RETURNING key_id;
 
 -- name: NewMintingBatch :exec
 INSERT INTO asset_minting_batches (
-    batch_state, batch_id, height_hint, creation_time_unix
-) VALUES (0, $1, $2, $3);
+    batch_state, batch_id, height_hint, creation_time_unix, universe_commitments
+) VALUES (0, $1, $2, $3, $4);
 
 -- name: FetchMintingBatchesByInverseState :many
 SELECT *

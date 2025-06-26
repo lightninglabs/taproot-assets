@@ -2240,18 +2240,24 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 
 const NewMintingBatch = `-- name: NewMintingBatch :exec
 INSERT INTO asset_minting_batches (
-    batch_state, batch_id, height_hint, creation_time_unix
-) VALUES (0, $1, $2, $3)
+    batch_state, batch_id, height_hint, creation_time_unix, universe_commitments
+) VALUES (0, $1, $2, $3, $4)
 `
 
 type NewMintingBatchParams struct {
-	BatchID          int64
-	HeightHint       int32
-	CreationTimeUnix time.Time
+	BatchID             int64
+	HeightHint          int32
+	CreationTimeUnix    time.Time
+	UniverseCommitments bool
 }
 
 func (q *Queries) NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error {
-	_, err := q.db.ExecContext(ctx, NewMintingBatch, arg.BatchID, arg.HeightHint, arg.CreationTimeUnix)
+	_, err := q.db.ExecContext(ctx, NewMintingBatch,
+		arg.BatchID,
+		arg.HeightHint,
+		arg.CreationTimeUnix,
+		arg.UniverseCommitments,
+	)
 	return err
 }
 
