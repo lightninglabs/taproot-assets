@@ -20,8 +20,6 @@ var (
 	// ErrInvalidStateTransition is returned when we receive an unexpected
 	// event for a given state.
 	ErrInvalidStateTransition = fmt.Errorf("invalid state transition")
-
-	ErrInvalidState = fmt.Errorf("invalid state")
 )
 
 // Event is a special interface used to create the equivalent of a sum-type, but
@@ -64,8 +62,6 @@ type State interface {
 
 // StateMachine is a state machine that handles creating and updating the
 // on-chain universe supply commitment for a given asset.
-//
-// nolint:lll
 type StateMachine = protofsm.StateMachine[Event, *Environment]
 
 // Config is a configuration struct that is used to initialize a new supply
@@ -282,7 +278,7 @@ type CommitTickEvent struct {
 // eventSealed is a special method that is used to seal the interface.
 func (c *CommitTickEvent) eventSealed() {}
 
-// UpdatePendingState is the state of the state machine when we have. From this
+// UpdatesPendingState is the state of the state machine when we have. From this
 // state, we can queue/accept new supply commit events. Periodically, we'll rely
 // on a new incoming Commit event, that'll be used as a trigger to progress the
 // state machine to the next state.
