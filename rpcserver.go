@@ -4225,6 +4225,24 @@ func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
 		}
 	}()
 
+	eventChan := eventSubscriber.NewItemCreated.ChanOut()
+
+	return handleSubEventChan(
+		eventChan, stream, marshaler, filter, quit,
+	)
+}
+
+// handleSubEventChan reads events from a subscriber channel and forwards them
+// to the RPC stream.
+//
+//   - EventT is the type of the event that will be received from the event
+//     subscriber channel.
+//   - EventRpcT is the type of the RPC event that will be sent over the stream.
+func handleSubEventChan[EventT any, EventRpcT any](
+	eventChan <-chan EventT, stream EventStream[EventRpcT],
+	marshaler func(EventT) (EventRpcT, error),
+	filter func(EventT) (bool, error), quit <-chan struct{}) error {
+
 	// Loop and read from the event subscription and forward to the RPC
 	// stream.
 	for {
@@ -4232,7 +4250,7 @@ func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
 		// Handle receiving a new event from the event source. The event
 		// will be mapped to the RPC event type and sent over the
 		// stream.
-		case event := <-eventSubscriber.NewItemCreated.ChanOut():
+		case event := <-eventChan:
 			// Give the caller a chance to decide if this event
 			// should be notified on or not.
 			shouldNotify, err := filter(event)
