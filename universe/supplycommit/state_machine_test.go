@@ -140,12 +140,13 @@ func newSupplyCommitTestHarness(t *testing.T,
 	mockErrReporter := &mockErrorReporter{}
 
 	env := &Environment{
-		AssetSpec:   cfg.assetSpec,
-		TreeView:    mockTreeView,
-		Commitments: mockCommits,
-		Wallet:      mockWallet,
-		Chain:       mockChain,
-		StateLog:    mockStateLog,
+		AssetSpec:        cfg.assetSpec,
+		TreeView:         mockTreeView,
+		Commitments:      mockCommits,
+		Wallet:           mockWallet,
+		Chain:            mockChain,
+		StateLog:         mockStateLog,
+		CommitConfTarget: DefaultCommitConfTarget,
 	}
 
 	fsmCfg := Config{
