@@ -83,6 +83,48 @@
         ]
       }
     },
+    "/v1/taproot-assets/universe/events/supply-commit": {
+      "post": {
+        "summary": "tapcli: `supplycommit events`\nSubscribeReceiveEvents allows a caller to subscribe to receive events for\nincoming asset transfers.",
+        "operationId": "Universe_SubscribeSupplyCommitEvents",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/universerpcSupplyCommitEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of universerpcSupplyCommitEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcSubscribeSupplyCommitEventsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/federation": {
       "get": {
         "summary": "tapcli: `universe federation list`\nListFederationServers lists the set of servers that make up the federation\nof the local Universe server. This servers are used to push out new proofs,\nand also periodically call sync new proofs from the remote server.",
@@ -2465,6 +2507,25 @@
         "num_total_proofs": {
           "type": "string",
           "format": "int64"
+        }
+      }
+    },
+    "universerpcSubscribeSupplyCommitEventsRequest": {
+      "type": "object",
+      "properties": {
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The key identifying an asset group to monitor for associated event\nemissions."
+        }
+      }
+    },
+    "universerpcSupplyCommitEvent": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "description": "The state of the supply commitment state machine associated with the\nevent."
         }
       }
     },
