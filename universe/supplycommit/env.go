@@ -315,10 +315,10 @@ type StateMachineStore interface {
 	// returned.
 	//
 	// This method will also create a new pending SupplyStateTransition.
-	InsertPendingUpdate(context.Context, asset.
-		Specifier, SupplyUpdateEvent) error
+	InsertPendingUpdate(context.Context, asset.Specifier,
+		SupplyUpdateEvent) error
 
-	// InsertSignedCommitmentTx will associated a new signed commitment
+	// InsertSignedCommitTx will associated a new signed commitment
 	// anchor transaction with the current active supply commitment state
 	// transition. This'll update the existing funded txn with a signed
 	// copy. Finally the state of the  supply commit state transition will
@@ -326,7 +326,7 @@ type StateMachineStore interface {
 	InsertSignedCommitTx(context.Context, asset.Specifier,
 		SupplyCommitTxn) error
 
-	// State is used to commit the state of the state machine to then
+	// CommitState is used to commit the state of the state machine to then
 	// disk.
 	CommitState(context.Context, asset.Specifier, State) error
 
