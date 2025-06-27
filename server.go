@@ -40,6 +40,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/msgmux"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/tlv"
 	"google.golang.org/grpc"
@@ -1045,8 +1046,8 @@ func (s *Server) ShouldHandleTraffic(cid lnwire.ShortChannelID,
 // NOTE: This method is part of the routing.TlvTrafficShaper interface.
 func (s *Server) PaymentBandwidth(fundingBlob, htlcBlob,
 	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
-	htlcAmt lnwire.MilliSatoshi,
-	htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
+	htlcAmt lnwire.MilliSatoshi, htlcView lnwallet.AuxHtlcView,
+	peer *route.Vertex) (lnwire.MilliSatoshi, error) {
 
 	srvrLog.Debugf("PaymentBandwidth called, fundingBlob=%v, htlcBlob=%v, "+
 		"commitmentBlob=%v", lnutils.SpewLogClosure(fundingBlob),
@@ -1059,7 +1060,7 @@ func (s *Server) PaymentBandwidth(fundingBlob, htlcBlob,
 
 	return s.cfg.AuxTrafficShaper.PaymentBandwidth(
 		fundingBlob, htlcBlob, commitmentBlob, linkBandwidth, htlcAmt,
-		htlcView,
+		htlcView, peer,
 	)
 }
 
@@ -1069,8 +1070,8 @@ func (s *Server) PaymentBandwidth(fundingBlob, htlcBlob,
 //
 // NOTE: This method is part of the routing.TlvTrafficShaper interface.
 func (s *Server) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
-	htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi,
-	lnwire.CustomRecords, error) {
+	htlcCustomRecords lnwire.CustomRecords,
+	peer *route.Vertex) (lnwire.MilliSatoshi, lnwire.CustomRecords, error) {
 
 	srvrLog.Debugf("ProduceHtlcExtraData called, totalAmount=%d, "+
 		"htlcBlob=%v", totalAmount,
@@ -1081,7 +1082,7 @@ func (s *Server) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	}
 
 	return s.cfg.AuxTrafficShaper.ProduceHtlcExtraData(
-		totalAmount, htlcCustomRecords,
+		totalAmount, htlcCustomRecords, peer,
 	)
 }
 
