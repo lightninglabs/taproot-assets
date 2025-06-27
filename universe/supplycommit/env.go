@@ -20,6 +20,12 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
+const (
+	// DefaultCommitConfTarget is the default confirmation target used when
+	// crafting the commitment transaction. This is used in fee estimation.
+	DefaultCommitConfTarget = 6
+)
+
 // SupplySubTree is an enum that represents the different types of supply sub
 // trees within the main supply tree. The sub trees are used to track how the
 // supply shifts in response to: mints, burns, and ignores.
