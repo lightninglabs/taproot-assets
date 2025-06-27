@@ -351,6 +351,10 @@ var testCases = []*testCase{
 		name: "auth mailbox message store and fetch",
 		test: testAuthMailboxStoreAndFetchMessage,
 	},
+	{
+		name: "script key type pedersen unique",
+		test: testScriptKeyTypePedersenUnique,
+	},
 }
 
 var optionalTestCases = []*testCase{

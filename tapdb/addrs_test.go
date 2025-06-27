@@ -785,3 +785,87 @@ func TestScriptKeyTypeUpsert(t *testing.T) {
 		)
 	})
 }
+
+// TestQueryAddrEvents tests that we can query address events by their taproot
+// output key.
+func TestQueryAddrEvents(t *testing.T) {
+	t.Parallel()
+
+	// First, make a new addr book instance we'll use in the test below.
+	testClock := clock.NewTestClock(time.Now())
+	addrBook, _ := newAddrBook(t, testClock)
+
+	ctx := context.Background()
+
+	// Insert a test address and event into the database.
+	proofCourierAddr := address.RandProofCourierAddr(t)
+	addr, assetGen, assetGroup := address.RandAddr(
+		t, chainParams, proofCourierAddr,
+	)
+	err := addrBook.db.ExecTx(
+		ctx, WriteTxOption(),
+		insertFullAssetGen(ctx, assetGen, assetGroup),
+	)
+	require.NoError(t, err)
+
+	err = addrBook.InsertAddrs(ctx, *addr)
+	require.NoError(t, err)
+
+	tx := randWalletTx()
+	event, err := addrBook.GetOrCreateEvent(
+		ctx, address.StatusTransactionDetected, addr, tx, 0,
+	)
+	require.NoError(t, err)
+
+	// Query events for the address.
+	queryParams := address.EventQueryParams{
+		AddrTaprootOutputKey: schnorr.SerializePubKey(
+			&addr.TaprootOutputKey,
+		),
+	}
+	events, err := addrBook.QueryAddrEvents(ctx, queryParams)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+
+	// Verify the returned event matches the inserted event.
+	require.Equal(t, event.ID, events[0].ID)
+	require.Equal(t, event.Status, events[0].Status)
+	require.Equal(t, event.Outpoint, events[0].Outpoint)
+}
+
+// TestAddrByScriptKeyAndVersion tests that we can retrieve an address by its
+// script key and version.
+func TestAddrByScriptKeyAndVersion(t *testing.T) {
+	t.Parallel()
+
+	// First, make a new addr book instance we'll use in the test below.
+	testClock := clock.NewTestClock(time.Now())
+	addrBook, _ := newAddrBook(t, testClock)
+
+	ctx := context.Background()
+
+	// Insert a test address into the database.
+	proofCourierAddr := address.RandProofCourierAddr(t)
+	addr, assetGen, assetGroup := address.RandAddr(
+		t, chainParams, proofCourierAddr,
+	)
+	err := addrBook.db.ExecTx(
+		ctx, WriteTxOption(),
+		insertFullAssetGen(ctx, assetGen, assetGroup),
+	)
+	require.NoError(t, err)
+
+	err = addrBook.InsertAddrs(ctx, *addr)
+	require.NoError(t, err)
+
+	// Query the address by script key and version.
+	result, err := addrBook.AddrByScriptKeyAndVersion(
+		ctx, &addr.ScriptKey, addr.Version,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify the returned address matches the inserted address.
+	require.Equal(t, addr.ScriptKey, result.ScriptKey)
+	require.Equal(t, addr.Version, result.Version)
+}
