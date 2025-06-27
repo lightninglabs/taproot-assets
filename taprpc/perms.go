@@ -259,6 +259,10 @@ var (
 			Entity: "universe",
 			Action: "write",
 		}},
+		"/universerpc.Universe/SubscribeSupplyCommitEvents": {{
+			Entity: "universe",
+			Action: "write",
+		}},
 		"/rfqrpc.Rfq/AddAssetBuyOrder": {{
 			Entity: "rfq",
 			Action: "write",

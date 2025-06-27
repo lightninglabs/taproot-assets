@@ -112,6 +112,7 @@ const (
 	maxRfqHopHints = 20
 )
 
+// nolint: lll
 type (
 	// devSendEventStream is a type alias for the asset send event
 	// notification stream.
@@ -148,6 +149,10 @@ type (
 	// receiveComplete is a type alias for the complete event that is sent
 	// when an asset is received.
 	receiveComplete = tapdevrpc.ReceiveAssetEvent_AssetReceiveCompleteEvent
+
+	// supplyCommitEventStream is a type alias for the supply commit
+	// event notification stream.
+	supplyCommitEventStream = unirpc.Universe_SubscribeSupplyCommitEventsServer
 
 	// EventStream is a generic interface type for notification streams.
 	EventStream[T any] interface {
@@ -4191,6 +4196,62 @@ func (r *rpcServer) SubscribeMintEvents(req *mintrpc.SubscribeMintEventsRequest,
 	return handleEvents[bool, *mintrpc.MintEvent](
 		r.cfg.AssetMinter, ntfnStream, marshaler, filter, r.quit,
 		false,
+	)
+}
+
+// SubscribeSupplyCommitEvents registers a subscription to the event
+// notification stream of the supply commitment process.
+func (r *rpcServer) SubscribeSupplyCommitEvents(
+	req *unirpc.SubscribeSupplyCommitEventsRequest,
+	ntfnStream supplyCommitEventStream) error {
+
+	// Parse asset group key from the request.
+	groupKey, err := btcec.ParsePubKey(req.GroupKey)
+	if err != nil {
+		return fmt.Errorf("failed to parse group key: %w", err)
+	}
+
+	// Formulate an asset specifier from the user provided group key.
+	assetSpec := asset.NewSpecifierFromGroupKey(*groupKey)
+
+	// Subscribe to the supply commit state events for the given asset
+	// specifier.
+	sub, err := r.cfg.SupplyCommitManager.RegisterStateEvents(assetSpec)
+	if err != nil {
+		return fmt.Errorf("failed to register for supply commit "+
+			"state events: %w", err)
+	}
+
+	// Remove the subscriber when we're done.
+	defer func() {
+		err := r.cfg.SupplyCommitManager.RemoveStateSub(assetSpec, sub)
+		if err != nil {
+			rpcsLog.Errorf("Error unsubscribing subscriber: %v",
+				err)
+		}
+	}()
+
+	// Extract the event channel from the subscription.
+	eventChan := sub.NewItemCreated.ChanOut()
+
+	// Define the RPC event marshaler and event filter functions for the
+	// event stream.
+	marshaler := func(event supplycommit.FsmState) (
+		*unirpc.SupplyCommitEvent, error) {
+
+		return &unirpc.SupplyCommitEvent{
+			State: event.String(),
+		}, nil
+	}
+
+	// No filter parameters are currently supported.
+	filter := func(event supplycommit.FsmState) (bool, error) {
+		return true, nil
+	}
+
+	// nolint: lll
+	return handleSubEventChan[supplycommit.FsmState, *unirpc.SupplyCommitEvent](
+		eventChan, ntfnStream, marshaler, filter, r.quit,
 	)
 }
 

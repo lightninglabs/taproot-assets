@@ -162,6 +162,13 @@ service Universe {
     */
     rpc IgnoreAssetOutPoint (IgnoreAssetOutPointRequest)
         returns (IgnoreAssetOutPointResponse);
+
+    /* tapcli: `supplycommit events`
+    SubscribeReceiveEvents allows a caller to subscribe to receive events for
+    incoming asset transfers.
+    */
+    rpc SubscribeSupplyCommitEvents (SubscribeSupplyCommitEventsRequest)
+        returns (stream SupplyCommitEvent);
 }
 
 message MultiverseRootRequest {
@@ -681,4 +688,16 @@ message IgnoreAssetOutPointRequest {
 }
 
 message IgnoreAssetOutPointResponse {
+}
+
+message SubscribeSupplyCommitEventsRequest {
+    // The key identifying an asset group to monitor for associated event
+    // emissions.
+    bytes group_key = 1;
+}
+
+message SupplyCommitEvent {
+    // The state of the supply commitment state machine associated with the
+    // event.
+    string state = 1;
 }
