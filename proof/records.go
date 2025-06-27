@@ -29,6 +29,7 @@ const (
 	GenesisRevealType    tlv.Type = 23
 	GroupKeyRevealType   tlv.Type = 25
 	AltLeavesType        tlv.Type = 27
+	UniCommitmentsType   tlv.Type = 29
 
 	TaprootProofOutputIndexType     tlv.Type = 0
 	TaprootProofInternalKeyType     tlv.Type = 2
@@ -64,6 +65,7 @@ var KnownProofTypes = fn.NewSet(
 	ExclusionProofsType, SplitRootProofType, MetaRevealType,
 	AdditionalInputsType, ChallengeWitnessType, BlockHeightType,
 	GenesisRevealType, GroupKeyRevealType, AltLeavesType,
+	UniCommitmentsType,
 )
 
 // KnownTaprootProofTypes is a set of all known Taproot proof TLV types. This

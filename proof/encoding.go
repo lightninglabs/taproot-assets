@@ -739,3 +739,76 @@ func PublicKeyOptionDecoder(r io.Reader, val any, buf *[8]byte,
 		val, "*fn.Option[btcec.PublicKey]", l, l,
 	)
 }
+
+// UniCommitmentVersionEncoder is a function that can be used to encode a
+// UniCommitmentVersion to a writer.
+func UniCommitmentVersionEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if version, ok := val.(*UniCommitmentVersion); ok {
+		versionUint8 := uint8(*version)
+		return tlv.EUint8(w, &versionUint8, buf)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "UniCommitmentVersion")
+}
+
+// UniCommitmentVersionDecoder is a function that can be used to decode a
+// UniCommitmentVersion from a reader.
+func UniCommitmentVersionDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
+	if version, ok := val.(*UniCommitmentVersion); ok {
+		var versionInt uint8
+		err := tlv.DUint8(r, &versionInt, buf, l)
+		if err != nil {
+			return err
+		}
+
+		*version = UniCommitmentVersion(versionInt)
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "UniCommitmentVersion", l, 1)
+}
+
+// UniCommitmentParamsEncoder is a function that can be used to encode a
+// UniCommitmentParams to a writer.
+func UniCommitmentParamsEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*UniCommitmentParams); ok {
+		var paramsBuf bytes.Buffer
+		if err := t.Encode(&paramsBuf); err != nil {
+			return err
+		}
+
+		paramsBytes := paramsBuf.Bytes()
+		return asset.InlineVarBytesEncoder(w, &paramsBytes, buf)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "UniCommitmentParams")
+}
+
+// UniCommitmentParamsDecoder is a function that can be used to decode a
+// UniCommitmentParams from a reader.
+func UniCommitmentParamsDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
+	if typ, ok := val.(*UniCommitmentParams); ok {
+		var paramsBytes []byte
+		err := asset.InlineVarBytesDecoder(
+			r, &paramsBytes, buf, tlv.MaxRecordSize,
+		)
+		if err != nil {
+			return err
+		}
+
+		var params UniCommitmentParams
+		err = params.Decode(bytes.NewReader(paramsBytes))
+		if err != nil {
+			return err
+		}
+
+		*typ = params
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "UniCommitmentParams", l, 1)
+}
