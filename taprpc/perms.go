@@ -259,6 +259,10 @@ var (
 			Entity: "universe",
 			Action: "write",
 		}},
+		"/universerpc.Universe/UpdateSupplyCommit": {{
+			Entity: "universe",
+			Action: "write",
+		}},
 		"/universerpc.Universe/SubscribeSupplyCommitEvents": {{
 			Entity: "universe",
 			Action: "write",

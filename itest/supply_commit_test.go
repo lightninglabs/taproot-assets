@@ -3,6 +3,7 @@ package itest
 import (
 	"bytes"
 	"context"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
@@ -10,6 +11,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -131,4 +133,92 @@ func testPreCommitOutput(t *harnessTest) {
 	secondAssetGroupKey := rpcSecondTrancheAsset.AssetGroup.TweakedGroupKey
 	// Ensure that the second tranche asset is part of the same group.
 	require.EqualValues(t.t, tweakedGroupKey, secondAssetGroupKey)
+}
+
+func testSupplyCommitIgnoreAsset(t *harnessTest) {
+	ctxb := context.Background()
+
+	t.Log("Minting asset group with a single normal asset and " +
+		"universe/supply commitments enabled")
+	mintReq := issuableAssets[0]
+	mintReq.Asset.UniverseCommitments = true
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{mintReq},
+	)
+	require.Len(t.t, rpcAssets, 1, "expected one minted asset")
+
+	// Send some of the asset to a secondary node. We will then use the
+	// primary node to ignore the asset outpoint owned by the secondary
+	// node.
+	t.Log("Setting up secondary node as recipient of asset")
+	secondLnd := t.lndHarness.NewNodeWithCoins("SecondLnd", nil)
+	secondTapd := setupTapdHarness(t.t, t, secondLnd, t.universeServer)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	t.Log("Sending asset to secondary node")
+	rpcAsset := rpcAssets[0]
+	sendAssetAmount := uint64(10)
+	sendChangeAmount := rpcAsset.Amount - sendAssetAmount
+
+	sendResp := sendAssetAndAssert(
+		ctxb, t, t.tapd, secondTapd, sendAssetAmount, sendChangeAmount,
+		rpcAsset.AssetGenesis, rpcAsset, 0, 1, 1,
+	)
+	require.Len(t.t, sendResp.SendResp.Transfer.Outputs, 2)
+	t.Log("Asset transfer completed successfully")
+
+	// Parse the group key from the minted asset.
+	groupKeyBytes := rpcAsset.AssetGroup.TweakedGroupKey
+	require.NotNil(t.t, groupKeyBytes)
+	groupKey, err := btcec.ParsePubKey(groupKeyBytes)
+	require.NoError(t.t, err)
+
+	// Subscribe to supply commit events for the group key.
+	events := SubscribeSupplyCommitEvents(t.t, t.tapd, *groupKey)
+
+	// Determine the transfer output owned by the secondary node.
+	// This is the output that we will ignore.
+	transferOutput := sendResp.SendResp.Transfer.Outputs[0]
+	if sendResp.SendResp.Transfer.Outputs[1].Amount == sendAssetAmount {
+		transferOutput = sendResp.SendResp.Transfer.Outputs[1]
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		t.Log("Waiting for supply commit event for ignored asset " +
+			"outpoint")
+		AssertSupplyCommitEvents(t.t, events)
+		wg.Done()
+	}()
+
+	// Ignore the asset outpoint owned by the secondary node.
+	t.Log("Registering supply commitment asset ignore for asset outpoint " +
+		"owned by secondary node")
+
+	ignoreReq := &unirpc.IgnoreAssetOutPointRequest{
+		AssetOutPoint: &taprpc.AssetOutPoint{
+			AnchorOutPoint: transferOutput.Anchor.Outpoint,
+			AssetId:        rpcAsset.AssetGenesis.AssetId,
+			ScriptKey:      transferOutput.ScriptKey,
+		},
+		Amount: sendAssetAmount,
+	}
+	respIgnore, err := t.tapd.IgnoreAssetOutPoint(ctxb, ignoreReq)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, respIgnore)
+
+	t.Log("Update on-chain supply commitment for asset group")
+	respUpdate, err := t.tapd.UpdateSupplyCommit(
+		ctxb, &unirpc.UpdateSupplyCommitRequest{
+			GroupKey: groupKeyBytes,
+		},
+	)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, respUpdate)
+
+	wg.Wait()
 }

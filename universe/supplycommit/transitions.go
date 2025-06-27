@@ -450,6 +450,9 @@ func fundSupplyCommitTx(ctx context.Context, supplyCommit *RootCommitment,
 
 	// Fund the PSBT using the wallet. We assume a single confirmation
 	// target and let the wallet choose the change output index (-1).
+	//
+	// TODO(ffranr): Error here: error estimating input weight: input
+	//  doesn't specify any UTXO info
 	fundedCommitPkt, err := env.Wallet.FundPsbt(
 		ctx, commitPkt, 1, feeRate, -1,
 	)
@@ -587,6 +590,7 @@ func (c *CommitTxSignState) ProcessEvent(event Event,
 	// the new supply commitment. We'll sign the PSBT, then transition to
 	// the final broadcast phase.
 	case *SignTxEvent:
+		// TODO(ffranr): Debug comment: Signing happens here.
 		ctx := context.Background()
 
 		stateTransition := c.SupplyTransition

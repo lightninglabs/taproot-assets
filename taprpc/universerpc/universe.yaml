@@ -84,6 +84,10 @@ http:
       post: "/v1/taproot-assets/universe/ignore-asset-outpoint"
       body: "*"
 
+    - selector: universerpc.Universe.UpdateSupplyCommit
+      post: "/v1/taproot-assets/universe/update-supply-commit"
+      body: "*"
+
     - selector: universerpc.Universe.SubscribeSupplyCommitEvents
       post: "/v1/taproot-assets/universe/events/supply-commit"
       body: "*"
