@@ -1040,10 +1040,10 @@ JOIN assets_meta
     ON assets.meta_data_id = assets_meta.meta_id
 WHERE assets.asset_id = $1;
 
+-- name: UpsertMintAnchorUniCommitment :one
 -- Upsert a record into the mint_anchor_uni_commitments table.
 -- If a record with the same batch ID and tx output index already exists, update
 -- the existing record. Otherwise, insert a new record.
--- name: UpsertMintAnchorUniCommitment :one
 WITH target_batch AS (
     -- This CTE is used to fetch the ID of a batch, based on the serialized
     -- internal key associated with the batch.
@@ -1052,11 +1052,11 @@ WITH target_batch AS (
     WHERE keys.raw_key = @batch_key
 )
 INSERT INTO mint_anchor_uni_commitments (
-    batch_id, tx_output_index, taproot_internal_key_id, group_key
+    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by
 )
 VALUES (
-    (SELECT batch_id FROM target_batch), @tx_output_index,
-    @taproot_internal_key_id, @group_key
+    (SELECT batch_id FROM target_batch), @tx_output_index, 
+    @taproot_internal_key_id, @group_key, sqlc.narg('spent_by')
 )
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
@@ -1064,14 +1064,15 @@ ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     group_key = EXCLUDED.group_key
 RETURNING id;
 
+-- name: FetchMintAnchorUniCommitment :many
 -- Fetch records from the mint_anchor_uni_commitments table with optional
 -- filtering.
--- name: FetchMintAnchorUniCommitment :many
 SELECT
     mint_anchor_uni_commitments.id,
     mint_anchor_uni_commitments.batch_id,
     mint_anchor_uni_commitments.tx_output_index,
     mint_anchor_uni_commitments.group_key,
+    mint_anchor_uni_commitments.spent_by,
     batch_internal_keys.raw_key AS batch_key,
     mint_anchor_uni_commitments.taproot_internal_key_id,
     sqlc.embed(taproot_internal_keys)
