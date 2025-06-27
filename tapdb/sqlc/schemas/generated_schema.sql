@@ -204,7 +204,7 @@ CREATE TABLE asset_seedlings (
 
     group_anchor_id BIGINT REFERENCES asset_seedlings(seedling_id)
 , script_key_id BIGINT REFERENCES script_keys(script_key_id), group_internal_key_id BIGINT REFERENCES internal_keys(key_id), group_tapscript_root BLOB, delegation_key_id
-BIGINT REFERENCES internal_keys(key_id));
+BIGINT REFERENCES internal_keys(key_id), universe_commitments BOOLEAN NOT NULL DEFAULT FALSE);
 
 CREATE TABLE asset_transfer_inputs (
     input_id INTEGER PRIMARY KEY,

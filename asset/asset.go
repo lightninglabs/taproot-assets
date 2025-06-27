@@ -55,6 +55,21 @@ const (
 // compressed, 33-byte form.
 type SerializedKey [33]byte
 
+// NewSerializedKeyFromBytes creates a new SerializedKey from the given byte
+// slice.
+func NewSerializedKeyFromBytes(key []byte) (SerializedKey, error) {
+	var zero SerializedKey
+
+	if len(key) != 33 {
+		return zero, fmt.Errorf("invalid key length: %d", len(key))
+	}
+
+	var serialized SerializedKey
+	copy(serialized[:], key)
+
+	return serialized, nil
+}
+
 // ToPubKey returns the public key parsed from the serialized key.
 func (s SerializedKey) ToPubKey() (*btcec.PublicKey, error) {
 	return btcec.ParsePubKey(s[:])
@@ -72,6 +87,11 @@ func (s SerializedKey) CopyBytes() []byte {
 	copy(c, s[:])
 
 	return c
+}
+
+// String returns the hex-encoded string representation of the serialized key.
+func (s SerializedKey) String() string {
+	return hex.EncodeToString(s[:])
 }
 
 // ToSerialized serializes a public key in its 33-byte compressed form.
@@ -252,6 +272,23 @@ func (g Genesis) TagHash() [sha256.Size]byte {
 //	sha256(genesisOutPoint || sha256(tag) || sha256(metadata) ||
 //	  outputIndex || assetType)
 type ID [sha256.Size]byte
+
+// NewIDFromBytes creates a new ID from the given byte slice. The byte slice
+// must be exactly 32 bytes long, otherwise an error is returned.
+func NewIDFromBytes(id []byte) (ID, error) {
+	var zero ID
+
+	// Basic sanity check to ensure the ID is the correct length.
+	if len(id) != sha256.Size {
+		return zero, fmt.Errorf("invalid ID length: %d", len(id))
+	}
+
+	// Copy the byte slice into a new ID instance.
+	var assetID ID
+	copy(assetID[:], id)
+
+	return assetID, nil
+}
 
 // String returns the hex-encoded string representation of the ID.
 func (i ID) String() string {
@@ -574,6 +611,10 @@ func (id PrevID) Hash() [sha256.Size]byte {
 	_, _ = h.Write(id.ScriptKey.SchnorrSerialized())
 	return *(*[sha256.Size]byte)(h.Sum(nil))
 }
+
+// AnchorPoint is a type alias for an asset anchor outpoint. It relates the
+// on-chain anchor outpoint (txid:vout) to the corresponding committed asset.
+type AnchorPoint = PrevID
 
 // SplitCommitment represents the asset witness for an asset split.
 type SplitCommitment struct {

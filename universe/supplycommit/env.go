@@ -20,6 +20,12 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
+const (
+	// DefaultCommitConfTarget is the default confirmation target used when
+	// crafting the commitment transaction. This is used in fee estimation.
+	DefaultCommitConfTarget = 6
+)
+
 // SupplySubTree is an enum that represents the different types of supply sub
 // trees within the main supply tree. The sub trees are used to track how the
 // supply shifts in response to: mints, burns, and ignores.
@@ -82,18 +88,20 @@ func (s SupplyTrees) FetchOrCreate(treeType SupplySubTree) mssmt.Tree {
 // to date snapshot of the root supply tree, as the sub trees (ignore, burn,
 // mint) committed in the main supply tree.
 type SupplyTreeView interface {
-	// FetchSubStree returns the sub tree for the given asset spec. This
+	// FetchSubTree returns the sub tree for the given asset spec. This
 	// instance returned should be a copy, as mutations make take place in
 	// the tree.
-	FetchSubTree(assetSpec asset.Specifier,
+	FetchSubTree(ctx context.Context, assetSpec asset.Specifier,
 		treeType SupplySubTree) lfn.Result[mssmt.Tree]
 
 	// FetchSubTrees returns all the sub trees for the given asset spec.
-	FetchSubTrees(assetSpec asset.Specifier) lfn.Result[SupplyTrees]
+	FetchSubTrees(ctx context.Context,
+		assetSpec asset.Specifier) lfn.Result[SupplyTrees]
 
 	// FetchRootSupplyTree returns the root supply tree which contains a
 	// commitment to each of the sub trees.
-	FetchRootSupplyTree(assetSpec asset.Specifier) lfn.Result[mssmt.Tree]
+	FetchRootSupplyTree(ctx context.Context,
+		assetSpec asset.Specifier) lfn.Result[mssmt.Tree]
 }
 
 // PreCommitment is a struct that represents a pre-commitment to an asset

@@ -83,6 +83,48 @@
         ]
       }
     },
+    "/v1/taproot-assets/universe/events/supply-commit": {
+      "post": {
+        "summary": "tapcli: `supplycommit events`\nSubscribeReceiveEvents allows a caller to subscribe to receive events for\nincoming asset transfers.",
+        "operationId": "Universe_SubscribeSupplyCommitEvents",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/universerpcSupplyCommitEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of universerpcSupplyCommitEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcSubscribeSupplyCommitEventsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/federation": {
       "get": {
         "summary": "tapcli: `universe federation list`\nListFederationServers lists the set of servers that make up the federation\nof the local Universe server. This servers are used to push out new proofs,\nand also periodically call sync new proofs from the remote server.",
@@ -150,6 +192,39 @@
             "required": true,
             "schema": {
               "$ref": "#/definitions/universerpcAddFederationServerRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/ignore-asset-outpoint": {
+      "post": {
+        "summary": "tapcli: `universe ignoreoutpoint`\nIgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint\nas ignored. An ignored outpoint will be included in the next universe supply\ncommitment transaction that is published.",
+        "operationId": "Universe_IgnoreAssetOutPoint",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcIgnoreAssetOutPointResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcIgnoreAssetOutPointRequest"
             }
           }
         ],
@@ -1418,6 +1493,39 @@
           "Universe"
         ]
       }
+    },
+    "/v1/taproot-assets/universe/update-supply-commit": {
+      "post": {
+        "summary": "tapcli: `universe updatesupplycommit`\nUpdateSupplyCommit updates the on-chain supply commitment for a specific\nasset group.",
+        "operationId": "Universe_UpdateSupplyCommit",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcUpdateSupplyCommitResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcUpdateSupplyCommitRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
     }
   },
   "definitions": {
@@ -1749,6 +1857,26 @@
       ],
       "default": "META_TYPE_OPAQUE",
       "description": " - META_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs.\n - META_TYPE_JSON: JSON is used for asset meta blobs that are to be interpreted as valid JSON\nstrings."
+    },
+    "taprpcAssetOutPoint": {
+      "type": "object",
+      "properties": {
+        "anchor_out_point": {
+          "type": "string",
+          "description": "The outpoint of the asset anchor, represented as a string in the\nformat \"\u003ctxid\u003e:\u003cvout\u003e\". The \u003ctxid\u003e is the transaction ID of the UTXO,\nhex-encoded and byte-reversed (i.e., the internal little-endian\n32-byte value is reversed to big-endian hex format) to match standard\nBitcoin RPC and UI conventions."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID of the asset anchored at the outpoint."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script key of the asset. This is the taproot output key that the\nasset is locked to."
+        }
+      },
+      "description": "A transaction outpoint annotated with TAP-level asset metadata. It uniquely\nidentifies an asset anchored at a specific outpoint."
     },
     "taprpcAssetType": {
       "type": "string",
@@ -2191,6 +2319,23 @@
         }
       }
     },
+    "universerpcIgnoreAssetOutPointRequest": {
+      "type": "object",
+      "properties": {
+        "asset_out_point": {
+          "$ref": "#/definitions/taprpcAssetOutPoint",
+          "description": "The outpoint of the asset to ignore."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of asset units at the associated asset outpoint."
+        }
+      }
+    },
+    "universerpcIgnoreAssetOutPointResponse": {
+      "type": "object"
+    },
     "universerpcInfoResponse": {
       "type": "object",
       "properties": {
@@ -2398,6 +2543,25 @@
         }
       }
     },
+    "universerpcSubscribeSupplyCommitEventsRequest": {
+      "type": "object",
+      "properties": {
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The key identifying an asset group to monitor for associated event\nemissions."
+        }
+      }
+    },
+    "universerpcSupplyCommitEvent": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "description": "The state of the supply commitment state machine associated with the\nevent."
+        }
+      }
+    },
     "universerpcSyncRequest": {
       "type": "object",
       "properties": {
@@ -2530,6 +2694,19 @@
       ],
       "default": "SYNC_ISSUANCE_ONLY",
       "description": " - SYNC_ISSUANCE_ONLY: A sync node that indicates that only new asset creation (minting) proofs\nshould be synced.\n - SYNC_FULL: A syncing mode that indicates that all asset proofs should be synced.\nThis includes normal transfers as well."
+    },
+    "universerpcUpdateSupplyCommitRequest": {
+      "type": "object",
+      "properties": {
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique identifier for the target asset group whose supply commitment\nis being updated."
+        }
+      }
+    },
+    "universerpcUpdateSupplyCommitResponse": {
+      "type": "object"
     }
   }
 }

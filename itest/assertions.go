@@ -1034,6 +1034,31 @@ func AssertSendEventsComplete(t *testing.T, scriptKey []byte,
 	)
 }
 
+func AssertSupplyCommitEvents(t *testing.T,
+	stream *EventSubscription[*unirpc.SupplyCommitEvent]) {
+
+	success := make(chan struct{})
+	timeout := time.After(defaultWaitTimeout)
+
+	// To make sure we don't forever hang on receiving on the stream, we'll
+	// cancel it after the timeout.
+	go func() {
+		select {
+		case <-timeout:
+			stream.Cancel()
+
+		case <-success:
+		}
+	}()
+
+	for {
+		event, err := stream.Recv()
+		require.NoError(t, err, "receiving event")
+
+		t.Logf("state: %v", event.State)
+	}
+}
+
 // AssertSendEvents makes sure all events with incremental status are sent
 // on the stream for the given script key.
 func AssertSendEvents(t *testing.T, targetScriptKey []byte,

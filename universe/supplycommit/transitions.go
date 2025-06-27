@@ -253,12 +253,15 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 	case *CreateTreeEvent:
 		pendingUpdates := newEvent.updatesToCommit
 
+		// TODO(ffranr): Pass in context?
+		ctx := context.Background()
+
 		// First, we'll gather the current set of sub-trees for the
 		// given asset specifier.
 		//
 		// TODO(roasbeef): sanity check on population of map?
 		oldSupplyTrees, err := env.TreeView.FetchSubTrees(
-			env.AssetSpec,
+			ctx, env.AssetSpec,
 		).Unpack()
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch old sub "+
@@ -279,7 +282,7 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 		// sub-trees created. We'll take those sub-trees, and insert
 		// them into the unified supply tree.
 		rootSupplyTree, err := env.TreeView.FetchRootSupplyTree(
-			env.AssetSpec,
+			ctx, env.AssetSpec,
 		).Unpack()
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch root "+
@@ -288,7 +291,6 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 
 		// Now we'll insert/update each of the read sub-trees into the
 		// root supply tree.
-		ctx := context.Background()
 		for treeType, subTree := range newSupplyTrees {
 			subTreeRoot, err := subTree.Root(ctx)
 			if err != nil {
@@ -448,6 +450,9 @@ func fundSupplyCommitTx(ctx context.Context, supplyCommit *RootCommitment,
 
 	// Fund the PSBT using the wallet. We assume a single confirmation
 	// target and let the wallet choose the change output index (-1).
+	//
+	// TODO(ffranr): Error here: error estimating input weight: input
+	//  doesn't specify any UTXO info
 	fundedCommitPkt, err := env.Wallet.FundPsbt(
 		ctx, commitPkt, 1, feeRate, -1,
 	)
@@ -585,6 +590,7 @@ func (c *CommitTxSignState) ProcessEvent(event Event,
 	// the new supply commitment. We'll sign the PSBT, then transition to
 	// the final broadcast phase.
 	case *SignTxEvent:
+		// TODO(ffranr): Debug comment: Signing happens here.
 		ctx := context.Background()
 
 		stateTransition := c.SupplyTransition
