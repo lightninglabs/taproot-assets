@@ -457,8 +457,7 @@ func IsTaprootAssetCommitmentScript(script []byte) bool {
 func (c *TapCommitment) TapscriptRoot(sibling *chainhash.Hash) chainhash.Hash {
 	commitmentLeaf := c.TapLeaf()
 	if sibling == nil {
-		return txscript.AssembleTaprootScriptTree(commitmentLeaf).
-			RootNode.TapHash()
+		return commitmentLeaf.TapHash()
 	}
 
 	// The ordering of `commitmentLeaf` and `sibling` doesn't matter here as
