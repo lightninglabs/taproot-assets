@@ -516,6 +516,9 @@ func fundSupplyCommitTx(ctx context.Context, supplyCommit *RootCommitment,
 
 	// Fund the PSBT using the wallet. We assume a single confirmation
 	// target and let the wallet choose the change output index (-1).
+	//
+	// TODO(ffranr): Error here: error estimating input weight: input
+	//  doesn't specify any UTXO info
 	fundedCommitPkt, err := env.Wallet.FundPsbt(
 		ctx, commitPkt, 1, feeRate, -1,
 	)
@@ -789,6 +792,12 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 		nextSupplyTransition := c.SupplyTransition
 
 		return &StateTransition{
+			// TODO(ffranr): Introduce a new state to represent
+			//  waiting for confirmation. This enables the
+			//  integration test to wait for that state before
+			//  mining. Relying on CommitBroadcastState is
+			//  suboptimal, as the transaction may not have been
+			//  broadcast yet when that state begins execution.
 			NextState: &CommitBroadcastState{
 				SupplyTransition: nextSupplyTransition,
 			},
@@ -882,6 +891,11 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 		}
 
 		return &StateTransition{
+			// TODO(ffranr): Add a new "end" state that performs no
+			//  actions but signifies completion of the state
+			//  machine. This allows any observer to determine that
+			//  the state machine has finished based on its current
+			//  state.
 			NextState: &DefaultState{},
 		}, nil
 

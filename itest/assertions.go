@@ -1034,6 +1034,103 @@ func AssertSendEventsComplete(t *testing.T, scriptKey []byte,
 	)
 }
 
+type AssertSupplyCommitEventsOptions struct {
+	// targetState is the state we expect the supply commit event to reach.
+	targetState fn.Option[string]
+}
+
+func defaultAssertSupplyCommitEventsOptions() AssertSupplyCommitEventsOptions {
+	return AssertSupplyCommitEventsOptions{
+		targetState: fn.None[string](),
+	}
+}
+
+type AssertSupplyCommitEventsOption func(*AssertSupplyCommitEventsOptions)
+
+// WithAssertSupplyCommitEventsTargetState allows to specify a target state
+// for the supply commit events. Once the stream reaches this state, it will
+// close the stream and return.
+func WithAssertSupplyCommitEventsTargetState(
+	targetState string) AssertSupplyCommitEventsOption {
+
+	return func(opts *AssertSupplyCommitEventsOptions) {
+		opts.targetState = fn.Some(targetState)
+	}
+}
+
+// AssertSupplyCommitEvents makes sure that the supply commit events
+// are received on the stream.
+func AssertSupplyCommitEvents(t *testing.T,
+	stream *EventSubscription[*unirpc.SupplyCommitEvent],
+	optFunctions ...AssertSupplyCommitEventsOption) {
+
+	opts := defaultAssertSupplyCommitEventsOptions()
+	for _, optFunc := range optFunctions {
+		optFunc(&opts)
+	}
+
+	success := make(chan struct{})
+	timeout := time.After(defaultWaitTimeout)
+
+	// To make sure we don't forever hang on receiving on the stream, we'll
+	// cancel it after the timeout.
+	go func() {
+		select {
+		case <-timeout:
+			stream.Cancel()
+
+		case <-success:
+		}
+	}()
+
+	for {
+		event, err := stream.Recv()
+		require.NoError(t, err, "receiving event")
+
+		t.Logf("state: %v", event.State)
+
+		// If a taget state is specified, end the stream once reached.
+		if opts.targetState == fn.Some(event.State) {
+			close(success)
+			stream.Cancel()
+			return
+		}
+	}
+}
+
+func AssertSupplyCommitTxBroadcast(t *testing.T, tapd commands.RpcClientsBundle,
+	assetGroupKey btcec.PublicKey) {
+
+	stream := SubscribeSupplyCommitEvents(t, tapd, assetGroupKey)
+
+	success := make(chan struct{})
+	timeout := time.After(defaultWaitTimeout)
+
+	// To make sure we don't forever hang on receiving on the stream, we'll
+	// cancel it after the timeout.
+	go func() {
+		select {
+		case <-timeout:
+			stream.Cancel()
+
+		case <-success:
+		}
+	}()
+
+	for {
+		event, err := stream.Recv()
+		require.NoError(t, err, "receiving event")
+
+		t.Logf("state: %v", event.State)
+
+		if event.State == "CommitBroadcastState" {
+			close(success)
+			stream.Cancel()
+			return
+		}
+	}
+}
+
 // AssertSendEvents makes sure all events with incremental status are sent
 // on the stream for the given script key.
 func AssertSendEvents(t *testing.T, targetScriptKey []byte,

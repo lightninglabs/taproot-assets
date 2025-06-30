@@ -3910,6 +3910,58 @@ func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
 	return &unirpc.IgnoreAssetOutPointResponse{}, nil
 }
 
+// UpdateSupplyCommit updates the on-chain supply commitment for a specific
+// asset group.
+func (r *rpcServer) UpdateSupplyCommit(ctx context.Context,
+	req *unirpc.UpdateSupplyCommitRequest) (
+	*unirpc.UpdateSupplyCommitResponse, error) {
+
+	// Parse asset group key from the request.
+	groupPubKey, err := btcec.ParsePubKey(req.GroupKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse group key: %w", err)
+	}
+
+	// We will now check to ensure that universe commitments are enabled for
+	// the asset group.
+	//
+	// Look up the asset group by the group key.
+	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByGroupKey(
+		ctx, groupPubKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find asset group "+
+			"given group key: %w", err)
+	}
+
+	// Fetch the asset metadata given the group anchor asset ID.
+	metaReveal, err := r.cfg.TapAddrBook.FetchAssetMetaForAsset(
+		ctx, assetGroup.ID(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("faild to fetch asset meta: %w", err)
+	}
+
+	// Ensure that universe commitment is enabled for the asset group.
+	if !metaReveal.UniverseCommitments {
+		return nil, fmt.Errorf("universe commitment is not " +
+			"enabled for asset group anchor asset")
+	}
+
+	// Formulate an asset specifier from the asset ID and group key.
+	assetSpec := asset.NewSpecifierFromGroupKey(*groupPubKey)
+
+	// Send a commit tick event to the supply commitment manager.
+	event := supplycommit.CommitTickEvent{}
+	err = r.cfg.SupplyCommitManager.SendEvent(ctx, assetSpec, &event)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send commit tick event: %w",
+			err)
+	}
+
+	return &unirpc.UpdateSupplyCommitResponse{}, nil
+}
+
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(

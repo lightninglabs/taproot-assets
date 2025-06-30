@@ -163,6 +163,13 @@ service Universe {
     rpc IgnoreAssetOutPoint (IgnoreAssetOutPointRequest)
         returns (IgnoreAssetOutPointResponse);
 
+    /* tapcli: `universe updatesupplycommit`
+    UpdateSupplyCommit updates the on-chain supply commitment for a specific
+    asset group.
+    */
+    rpc UpdateSupplyCommit (UpdateSupplyCommitRequest)
+        returns (UpdateSupplyCommitResponse);
+
     /* tapcli: `supplycommit events`
     SubscribeReceiveEvents allows a caller to subscribe to receive events for
     incoming asset transfers.
@@ -688,6 +695,15 @@ message IgnoreAssetOutPointRequest {
 }
 
 message IgnoreAssetOutPointResponse {
+}
+
+message UpdateSupplyCommitRequest {
+    // The unique identifier for the target asset group whose supply commitment
+    // is being updated.
+    bytes group_key = 1;
+}
+
+message UpdateSupplyCommitResponse {
 }
 
 message SubscribeSupplyCommitEventsRequest {

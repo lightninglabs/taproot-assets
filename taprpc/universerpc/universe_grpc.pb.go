@@ -120,6 +120,10 @@ type UniverseClient interface {
 	// as ignored. An ignored outpoint will be included in the next universe supply
 	// commitment transaction that is published.
 	IgnoreAssetOutPoint(ctx context.Context, in *IgnoreAssetOutPointRequest, opts ...grpc.CallOption) (*IgnoreAssetOutPointResponse, error)
+	// tapcli: `universe updatesupplycommit`
+	// UpdateSupplyCommit updates the on-chain supply commitment for a specific
+	// asset group.
+	UpdateSupplyCommit(ctx context.Context, in *UpdateSupplyCommitRequest, opts ...grpc.CallOption) (*UpdateSupplyCommitResponse, error)
 	// tapcli: `supplycommit events`
 	// SubscribeReceiveEvents allows a caller to subscribe to receive events for
 	// incoming asset transfers.
@@ -314,6 +318,15 @@ func (c *universeClient) IgnoreAssetOutPoint(ctx context.Context, in *IgnoreAsse
 	return out, nil
 }
 
+func (c *universeClient) UpdateSupplyCommit(ctx context.Context, in *UpdateSupplyCommitRequest, opts ...grpc.CallOption) (*UpdateSupplyCommitResponse, error) {
+	out := new(UpdateSupplyCommitResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/UpdateSupplyCommit", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *universeClient) SubscribeSupplyCommitEvents(ctx context.Context, in *SubscribeSupplyCommitEventsRequest, opts ...grpc.CallOption) (Universe_SubscribeSupplyCommitEventsClient, error) {
 	stream, err := c.cc.NewStream(ctx, &Universe_ServiceDesc.Streams[0], "/universerpc.Universe/SubscribeSupplyCommitEvents", opts...)
 	if err != nil {
@@ -452,6 +465,10 @@ type UniverseServer interface {
 	// as ignored. An ignored outpoint will be included in the next universe supply
 	// commitment transaction that is published.
 	IgnoreAssetOutPoint(context.Context, *IgnoreAssetOutPointRequest) (*IgnoreAssetOutPointResponse, error)
+	// tapcli: `universe updatesupplycommit`
+	// UpdateSupplyCommit updates the on-chain supply commitment for a specific
+	// asset group.
+	UpdateSupplyCommit(context.Context, *UpdateSupplyCommitRequest) (*UpdateSupplyCommitResponse, error)
 	// tapcli: `supplycommit events`
 	// SubscribeReceiveEvents allows a caller to subscribe to receive events for
 	// incoming asset transfers.
@@ -522,6 +539,9 @@ func (UnimplementedUniverseServer) QueryFederationSyncConfig(context.Context, *Q
 }
 func (UnimplementedUniverseServer) IgnoreAssetOutPoint(context.Context, *IgnoreAssetOutPointRequest) (*IgnoreAssetOutPointResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IgnoreAssetOutPoint not implemented")
+}
+func (UnimplementedUniverseServer) UpdateSupplyCommit(context.Context, *UpdateSupplyCommitRequest) (*UpdateSupplyCommitResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateSupplyCommit not implemented")
 }
 func (UnimplementedUniverseServer) SubscribeSupplyCommitEvents(*SubscribeSupplyCommitEventsRequest, Universe_SubscribeSupplyCommitEventsServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeSupplyCommitEvents not implemented")
@@ -899,6 +919,24 @@ func _Universe_IgnoreAssetOutPoint_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Universe_UpdateSupplyCommit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateSupplyCommitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).UpdateSupplyCommit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/UpdateSupplyCommit",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).UpdateSupplyCommit(ctx, req.(*UpdateSupplyCommitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Universe_SubscribeSupplyCommitEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(SubscribeSupplyCommitEventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -1006,6 +1044,10 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IgnoreAssetOutPoint",
 			Handler:    _Universe_IgnoreAssetOutPoint_Handler,
+		},
+		{
+			MethodName: "UpdateSupplyCommit",
+			Handler:    _Universe_UpdateSupplyCommit_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

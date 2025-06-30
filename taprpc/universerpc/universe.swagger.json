@@ -1493,6 +1493,39 @@
           "Universe"
         ]
       }
+    },
+    "/v1/taproot-assets/universe/update-supply-commit": {
+      "post": {
+        "summary": "tapcli: `universe updatesupplycommit`\nUpdateSupplyCommit updates the on-chain supply commitment for a specific\nasset group.",
+        "operationId": "Universe_UpdateSupplyCommit",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcUpdateSupplyCommitResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcUpdateSupplyCommitRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
     }
   },
   "definitions": {
@@ -2661,6 +2694,19 @@
       ],
       "default": "SYNC_ISSUANCE_ONLY",
       "description": " - SYNC_ISSUANCE_ONLY: A sync node that indicates that only new asset creation (minting) proofs\nshould be synced.\n - SYNC_FULL: A syncing mode that indicates that all asset proofs should be synced.\nThis includes normal transfers as well."
+    },
+    "universerpcUpdateSupplyCommitRequest": {
+      "type": "object",
+      "properties": {
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique identifier for the target asset group whose supply commitment\nis being updated."
+        }
+      }
+    },
+    "universerpcUpdateSupplyCommitResponse": {
+      "type": "object"
     }
   }
 }
