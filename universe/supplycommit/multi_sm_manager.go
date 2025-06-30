@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -43,6 +44,10 @@ type MultiStateMachineManagerCfg struct {
 	// state machine. This is used to persist the state of the state machine
 	// across restarts.
 	StateLog StateMachineStore
+
+	// ChainParams is the chain parameters for the chain that we're
+	// operating on.
+	ChainParams chaincfg.Params
 }
 
 // MultiStateMachineManager is a manager for multiple supply commitment state
@@ -126,6 +131,7 @@ func (m *MultiStateMachineManager) fetchStateMachine(
 		Chain:            m.cfg.Chain,
 		StateLog:         m.cfg.StateLog,
 		CommitConfTarget: DefaultCommitConfTarget,
+		ChainParams:      m.cfg.ChainParams,
 	}
 
 	// TODO(ffranr): Get initial state from disk here.

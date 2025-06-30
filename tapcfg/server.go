@@ -613,6 +613,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			Wallet:      walletAnchor,
 			Chain:       chainBridge,
 			StateLog:    supplyCommitStore,
+			ChainParams: *tapChainParams.Params,
 		},
 	)
 
