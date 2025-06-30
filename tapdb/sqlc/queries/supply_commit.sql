@@ -137,9 +137,11 @@ DELETE FROM supply_update_events
 WHERE transition_id = @transition_id;
 
 -- name: FetchUnspentPrecommits :many
+-- Fetch unspent pre-commitment outputs. A pre-commitment output is a mint
+-- anchor transaction output which relates to the supply commitment feature.
 SELECT
     mac.tx_output_index,
-    ik.raw_key AS taproot_internal_key,
+    sqlc.embed(ik),
     mac.group_key,
     mint_txn.block_height,
     mint_txn.raw_tx

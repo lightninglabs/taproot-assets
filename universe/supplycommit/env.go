@@ -123,7 +123,7 @@ type PreCommitment struct {
 
 	// InternalKey is the Taproot internal public key associated with the
 	// pre-commitment output.
-	InternalKey btcec.PublicKey
+	InternalKey keychain.KeyDescriptor
 
 	// GroupPubKey is the asset group public key associated with this
 	// pre-commitment output.
