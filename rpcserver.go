@@ -3360,7 +3360,7 @@ func marshalAddrEvent(event *address.Event,
 		Outpoint:                event.Outpoint.String(),
 		UtxoAmtSat:              uint64(event.Amt),
 		ConfirmationHeight:      event.ConfirmationHeight,
-		HasProof:                event.HasProof,
+		HasProof:                event.HasAllProofs,
 	}, nil
 }
 
