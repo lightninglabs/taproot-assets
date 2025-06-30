@@ -252,6 +252,12 @@ func DescribeAddrs(addrs []*address.Tap) (*FundingDescriptor, error) {
 		firstAddr.AssetID, firstAddr.GroupKey,
 	)
 
+	if firstAddr.Version == address.V2 && firstAddr.GroupKey != nil {
+		assetSpecifier = asset.NewSpecifierFromGroupKey(
+			*firstAddr.GroupKey,
+		)
+	}
+
 	desc := &FundingDescriptor{
 		AssetSpecifier: assetSpecifier,
 	}

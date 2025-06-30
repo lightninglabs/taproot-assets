@@ -178,8 +178,11 @@ func NewAddressParcel(feeRate *chainfee.SatPerKWeight, label string,
 
 // pkg returns the send package that should be delivered.
 func (p *AddressParcel) pkg() *sendPackage {
+	addrStrings := fn.Map(p.destAddrs, func(addr *address.Tap) string {
+		return fmt.Sprintf("%d:%s", addr.Amount, addr.String())
+	})
 	log.Infof("Received to send request to %d addrs: %v", len(p.destAddrs),
-		p.destAddrs)
+		addrStrings)
 
 	// Initialize a package with the destination address.
 	return &sendPackage{
@@ -482,6 +485,11 @@ type sendPackage struct {
 	// InputCommitments is a map from virtual package input index to its
 	// associated Taproot Asset commitment.
 	InputCommitments tappsbt.InputCommitments
+
+	// SendManifests is a map of send manifests that need to be sent to the
+	// auth mailbox server to complete an address V2 transfer. It is keyed
+	// by the anchor output index.
+	SendManifests map[uint32]*proof.SendManifest
 
 	// PassiveAssets is the data used in re-anchoring passive assets.
 	PassiveAssets []*tappsbt.VPacket
