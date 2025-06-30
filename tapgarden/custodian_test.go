@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"net/url"
 	"testing"
 	"time"
 
@@ -351,11 +350,13 @@ func newHarness(t *testing.T,
 	}
 }
 
-func randAddr(h *custodianHarness) (*address.AddrWithKeyInfo, *asset.Genesis) {
-	addr, genesis, group := address.RandAddr(
-		h.t, &address.RegressionNetTap, url.URL{
-			Scheme: "mock",
-		},
+func randAddrV1(
+	h *custodianHarness) (*address.AddrWithKeyInfo, *asset.Genesis) {
+
+	version := test.RandFlip(address.V0, address.V1)
+	addr, genesis, group := address.RandAddrWithVersion(
+		h.t, &address.RegressionNetTap,
+		address.RandProofCourierAddrForVersion(h.t, version), version,
 	)
 
 	err := h.tapdbBook.InsertAssetGen(context.Background(), genesis, group)
@@ -526,7 +527,7 @@ func TestCustodianNewAddr(t *testing.T) {
 	h.assertStartup()
 
 	ctx := context.Background()
-	addr, _ := randAddr(h)
+	addr, _ := randAddrV1(h)
 	proofCourierAddr := address.RandProofCourierAddr(t)
 	addrVersion := test.RandFlip(address.V0, address.V1)
 	dbAddr, err := h.addrBook.NewAddress(
@@ -657,7 +658,7 @@ func TestTransactionHandling(t *testing.T) {
 	addrs := make([]*address.AddrWithKeyInfo, numAddrs)
 	genesis := make([]*asset.Genesis, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addrs[i], genesis[i] = randAddr(h)
+		addrs[i], genesis[i] = randAddrV1(h)
 		err := h.tapdbBook.InsertAddrs(ctx, *addrs[i])
 		require.NoError(t, err)
 	}
@@ -712,7 +713,7 @@ func runTransactionConfirmedOnlyTest(t *testing.T, withRestart bool) {
 	addrs := make([]*address.AddrWithKeyInfo, numAddrs)
 	genesis := make([]*asset.Genesis, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addrs[i], genesis[i] = randAddr(h)
+		addrs[i], genesis[i] = randAddrV1(h)
 		err := h.tapdbBook.InsertAddrs(ctx, *addrs[i])
 		require.NoError(t, err)
 	}
@@ -795,7 +796,7 @@ func TestProofInMultiverseOnly(t *testing.T) {
 	// corresponding wallet transaction.
 	ctx := context.Background()
 
-	addr, genesis := randAddr(h)
+	addr, genesis := randAddrV1(h)
 	err := h.tapdbBook.InsertAddrs(ctx, *addr)
 	require.NoError(t, err)
 

@@ -42,6 +42,13 @@ func TestValidateLocalProofCourier(t *testing.T) {
 			),
 		},
 		{
+			name: "valid authmailbox+universe rpc courier",
+			courierAddr: proof.MockCourierURL(
+				t, proof.AuthMailboxUniRpcCourierType,
+				mockServerAddr,
+			),
+		},
+		{
 			name: "invalid courier type",
 			courierAddr: proof.MockCourierURL(
 				t, proof.HashmailCourierType, mockServerAddr,
