@@ -155,7 +155,9 @@ func TestAddressInsertion(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := address.RandProofCourierAddrForVersion(
+		t, address.V2,
+	)
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
 		addr, assetGen, assetGroup := address.RandAddr(
@@ -278,7 +280,9 @@ func TestAddressQuery(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := address.RandProofCourierAddrForVersion(
+		t, address.V2,
+	)
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
 		addr, assetGen, assetGroup := address.RandAddr(
@@ -396,7 +400,9 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	// Make sure an event with an invalid status cannot be created. This
 	// should be protected by a CHECK constraint on the column. If this
 	// fails, you need to update that constraint in the DB!
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := address.RandProofCourierAddrForVersion(
+		t, address.V2,
+	)
 	addr, assetGen, assetGroup := address.RandAddr(
 		t, chainParams, proofCourierAddr,
 	)
@@ -433,7 +439,9 @@ func TestAddrEventCreation(t *testing.T) {
 
 	// Create 5 addresses and then events with unconfirmed transactions.
 	const numAddrs = 5
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := address.RandProofCourierAddrForVersion(
+		t, address.V2,
+	)
 	txns := make([]*lndclient.Transaction, numAddrs)
 	events := make([]*address.Event, numAddrs)
 	for i := 0; i < numAddrs; i++ {
@@ -528,7 +536,9 @@ func TestAddressEventQuery(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := address.RandProofCourierAddrForVersion(
+		t, address.V2,
+	)
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
 		addr, assetGen, assetGroup := address.RandAddr(
@@ -798,7 +808,9 @@ func TestQueryAddrEvents(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert a test address and event into the database.
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := address.RandProofCourierAddrForVersion(
+		t, address.V2,
+	)
 	addr, assetGen, assetGroup := address.RandAddr(
 		t, chainParams, proofCourierAddr,
 	)
@@ -845,7 +857,9 @@ func TestAddrByScriptKeyAndVersion(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert a test address into the database.
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := address.RandProofCourierAddrForVersion(
+		t, address.V2,
+	)
 	addr, assetGen, assetGroup := address.RandAddr(
 		t, chainParams, proofCourierAddr,
 	)

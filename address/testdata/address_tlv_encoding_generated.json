@@ -2,36 +2,36 @@
   "valid_test_cases": [
     {
       "address": {
-        "version": 0,
+        "version": 2,
         "chain_params_hrp": "taprt",
         "asset_version": 0,
-        "asset_id": "7a3811630bb33503c6536c3a223d3caecb93fe55f4b3439528edf27b10d38e93",
+        "asset_id": "7c08f12ca0d5589e87c632644388fabe08e423a87dd4ed5279b82db43e7f7dce",
         "group_key": "",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
-        "amount": 5577006791947779410,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "amount": 8674665223082153551,
+        "proof_courier_addr": "authmailbox+universerpc://foo.bar:10029",
         "unknown_odd_types": null
       },
-      "expected": "taprt1qqqsqqspqqzzq73cz93shve4q0r9xmp6yg7netktj0l9ta9ngw2j3m0j0vgd8r5nqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7nt9sgss0l8a2gxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpn5zn5dz",
+      "expected": "taprt1qqqsyqspqqzzqlqg7yk2p42cn6ruvvnygwy040sgus36slw5a4f8nwpdksl87lwwqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl77rzng8470ckfuxzwct4w35x6ctfd33x77ptw4hxjan9wfek2unsvvaz7tmxdahjucnpwgarzvpsxgusxl3f4t",
       "comment": "valid regtest address"
     },
     {
       "address": {
-        "version": 0,
+        "version": 2,
         "chain_params_hrp": "tapsb",
         "asset_version": 0,
-        "asset_id": "d72fb1b19be12cbf6223d94abafff5b89ffac4cfd9be3bd9f81556c5dcd7c397",
+        "asset_id": "6d46e01d92cc4c427acc18f3d2f09e60e5b6b5ff950f841bee097bad461998d8",
         "group_key": "",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
-        "amount": 2933568871211445515,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "amount": 2610529275472644968,
+        "proof_courier_addr": "authmailbox+universerpc://foo.bar:10029",
         "unknown_odd_types": null
       },
-      "expected": "tapsb1qqqsqqspqqzzp4e0kxcehcfvha3z8k22htlltwylltzvlkd780vls92kchwd0suhqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl729ky9v8evadpvxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpn76z4sn",
+      "expected": "tapsb1qqqsyqspqqzzqm2xuqwe9nzvgfavcx8n6tcfuc89k66ll9g0ssd7uztm44rpnxxcqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7fp6w69hcnstdqxzwct4w35x6ctfd33x77ptw4hxjan9wfek2unsvvaz7tmxdahjucnpwgarzvpsxgusejet74",
       "comment": "valid simnet address"
     },
     {
@@ -39,50 +39,50 @@
         "version": 0,
         "chain_params_hrp": "taptb",
         "asset_version": 0,
-        "asset_id": "4c9a938dea549244e66763a94c605c934968960f634e18a29ea1cfcd6e5c1797",
+        "asset_id": "ea9706c3f0a86f0987c63bbf410512e773c5d6baf54a2a2dd3c6e48c2e01d03b",
         "group_key": "",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
-        "amount": 1905388747193831650,
+        "amount": 4831389563158288344,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
         "unknown_odd_types": null
       },
-      "expected": "taptb1qqqsqqspqqzzqny6jwx754yjgnnxwcaff3s9ey6fdztq7c6wrz3fagw0e4h9c9uhqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7xn3fnuxhq7sugxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnfaa7x2",
+      "expected": "taptb1qqqsqqspqqzzp65hqmplp2r0pxruvwalgyz39emnchtt4a229gka83hy3shqr5pmqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7scv3v6mh9zhmqxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpn2h736f",
       "comment": "valid testnet address"
     },
     {
       "address": {
-        "version": 1,
+        "version": 0,
         "chain_params_hrp": "tapbc",
         "asset_version": 0,
-        "asset_id": "b89d0b077ee5a3a603c4ed367dc4433082247b1706e261d1ca22a2d5ee0661a1",
+        "asset_id": "9c48f86912ed24bd0f9ec5fe76b639fbd2b876acf6f44472e8819117c89ef4f4",
         "group_key": "",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
-        "amount": 1598098976185383115,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "amount": 3902890183311134652,
+        "proof_courier_addr": "universerpc://rand.hashmail.proof.courier:443",
         "unknown_odd_types": null
       },
-      "expected": "tapbc1qqqszqspqqzzpwyapvrhaedr5cpufmfk0hzyxvyzy3a3wphzv8gu5g4z6hhqvcdpqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl793dj6xn7u0cevxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnyqawrf",
+      "expected": "tapbc1qqqsqqspqqzzp8zglp539mfyh58ea307w6mrn77jhpm2eah5g3ew3qv3zlyfaa85qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7d3fm8chm850hsxz6atwd9mx2unnv4e8qce69uhhyctwvshxsctndpkkz6tv9ec8ymm0vchxxmm4wf5k2u36xs6rx8qfez4",
       "comment": "valid mainnet address"
     },
     {
       "address": {
-        "version": 1,
+        "version": 0,
         "chain_params_hrp": "tapbc",
         "asset_version": 1,
-        "asset_id": "d2ac8f6aa63e6d3e15f7380dbdbc26d60802115ed3eedad25af418cd81fde097",
+        "asset_id": "786244a8df10a0cb481afde9fa6f0b7287858f9c86e246142e088b6dd23a1a0a",
         "group_key": "",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
-        "amount": 898860202204764712,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "amount": 2227583514184312746,
+        "proof_courier_addr": "universerpc://rand.hashmail.proof.courier:443",
         "unknown_odd_types": null
       },
-      "expected": "tapbc1qqqszqspqyzzp54v3a42v0nd8c2lwwqdhk7zd4sgqgg4a5lwmtf94aqcekqlmcyhqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7rrevjtk7f569qxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnk2wtnl",
+      "expected": "tapbc1qqqsqqspqyzzq7rzgj5d7y9qedyp4l0flfhsku58sk8eephzgc2zuzytdhfr5xs2qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl78hf7ankv7884gxz6atwd9mx2unnv4e8qce69uhhyctwvshxsctndpkkz6tv9ec8ymm0vchxxmm4wf5k2u36xs6rx9ja99q",
       "comment": "valid addr, v1 asset version"
     },
     {
@@ -90,16 +90,16 @@
         "version": 0,
         "chain_params_hrp": "taptb",
         "asset_version": 0,
-        "asset_id": "79c2e7658214f22af8f157400063a631ec4f8e85859a542b20d03128bddc1942",
-        "group_key": "024c33bbd182ac25f05c2ae71f91b05e14d83cb28abb845fb054411ab2e8ee0a44",
+        "asset_id": "e16973000f6bdf9a306ddc1df367a44a0551a5035d53bca28f62c9a3625fcd41",
+        "group_key": "038651c337e53772de4ff003408ac7544b97daf58e7e3754230b742a89c91d5565",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
         "amount": 1,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "proof_courier_addr": "universerpc://rand.hashmail.proof.courier:443",
         "unknown_odd_types": null
       },
-      "expected": "taptb1qqqsqqspqqzzq7wzuajcy98j9tu0z46qqp36vv0vf78gtpv62s4jp5p39z7acx2zq5ssynpnh0gc9tp97pwz4ecljxc9u9xc8jeg4wuyt7c9gsg6kt5wuzjyqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xses8qwtmu",
+      "expected": "taptb1qqqsqqspqqzzpctfwvqq767lngcxmhqa7dn6gjs92xjsxh2nhj3g7ckf5d39ln2pq5ss8pj3cvm72dmjme8lqq6q3tr4gjuhmt6cul3h2s3skap238y364t9qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrpdw4hxjan9wfek2unsvvaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnl9fkw8",
       "comment": "signet group collectible"
     },
     {
@@ -107,8 +107,8 @@
         "version": 1,
         "chain_params_hrp": "taptb",
         "asset_version": 0,
-        "asset_id": "b285b6a5adca55cabdda0f1204427e0b6238c0a311965caa87cecac849ba76c2",
-        "group_key": "03ff4d197521b1af73f4e2ad529abd38d2e7309bdfd4c378f51fb5d920f816c936",
+        "asset_id": "adec5c264996d35d451558d9dcbef4d2f6afcc5310030f891865653a3bdaf322",
+        "group_key": "037c76c5182695c47a661d88f8c57a49252457545d1a7ba8dfbfdb2dda1171a606",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
@@ -116,7 +116,7 @@
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
         "unknown_odd_types": null
       },
-      "expected": "taptb1qqqszqspqqzzpv59k6j6mjj4e27a5rcjq3p8uzmz8rq2xyvktj4g0nk2epym5akzq5ss8l6dr96jrvd0w06w9t2jn27n35h8xzdal4xr0r63ldweyrupdjfkqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xsesy0g396",
+      "expected": "taptb1qqqszqspqqzzpt0vtsnyn9knt4z32kxemjl0f5hk4lx9xyqrp7y3set98gaa4uezq5ssxlrkc5vzd9wy0fnpmz8cc4ayjffy2a296xnm4r0mlkedmgghrfsxqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xses2ftttc",
       "comment": "testnet4 group collectible"
     },
     {
@@ -124,53 +124,70 @@
         "version": 1,
         "chain_params_hrp": "tapsb",
         "asset_version": 0,
-        "asset_id": "3ea23fd8d66115c9676a57d5684864fd337343e1cce8e6f7e6d2262141cf7795",
+        "asset_id": "bd357594f7d2f1d71436a0ff56a98ae54cce15337b364a546d2f4a47a0026694",
         "group_key": "",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
         "amount": 1,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "proof_courier_addr": "universerpc://rand.hashmail.proof.courier:443",
         "unknown_odd_types": null
       },
-      "expected": "tapsb1qqqszqspqqzzq04z8lvdvcg4e9nk5474dpyxflfnwdp7rn8gumm7d53xy9qu7au4qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xsesk46mnu",
+      "expected": "tapsb1qqqszqspqqzzp0f4wk2005h36u2rdg8l265c4e2vec2nx7ekff2x6t62g7sqye55qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrpdw4hxjan9wfek2unsvvaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpncrylu0",
       "comment": "simnet collectible"
+    },
+    {
+      "address": {
+        "version": 2,
+        "chain_params_hrp": "tapsb",
+        "asset_version": 0,
+        "asset_id": "8f0ccf71bf7a96c13918f9f1bc79180d1423fde8d25bbeff0fe65a9e43b0b497",
+        "group_key": "",
+        "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "tapscript_sibling": "00c0126e6f7420612076616c696420736372697074",
+        "amount": 1,
+        "proof_courier_addr": "authmailbox+universerpc://foo.bar:10029",
+        "unknown_odd_types": null
+      },
+      "expected": "tapsb1qqqsyqspqqzzprcveacm775kcyu33703h3u3srg5y07735jmhmlslej6nepmpdyhqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0py2spsqjdehhggrpypmxzmrfvss8xcmjd9c8gzspqyxzwct4w35x6ctfd33x77ptw4hxjan9wfek2unsvvaz7tmxdahjucnpwgarzvpsxgusddtaz8",
+      "comment": "simnet collectible with sibling"
     },
     {
       "address": {
         "version": 1,
         "chain_params_hrp": "tapsb",
         "asset_version": 0,
-        "asset_id": "10d5dc5afdab33b767003f8f20d726eadab89419a18b435280affabfb659eeb1",
+        "asset_id": "d99cc3cbda6f3083c9edc9628c81e63c6a2c455b88e2d0fd06fdb71dc91054ba",
         "group_key": "",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "00c0126e6f7420612076616c696420736372697074",
         "amount": 1,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
-        "unknown_odd_types": null
-      },
-      "expected": "tapsb1qqqszqspqqzzqyx4m3d0m2enkansq0u0yrtjd6k6hz2pngvtgdfgptl6h7m9nm43qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0py2spsqjdehhggrpypmxzmrfvss8xcmjd9c8gzspqyxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpntpzt44",
-      "comment": "simnet collectible with sibling"
-    },
-    {
-      "address": {
-        "version": 0,
-        "chain_params_hrp": "tapsb",
-        "asset_version": 0,
-        "asset_id": "bb0f263c1689547badf0bc87ad378aac0e19131613a5da5ef675c30c251bbc8c",
-        "group_key": "",
-        "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
-        "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
-        "tapscript_sibling": "00c0126e6f7420612076616c696420736372697074",
-        "amount": 1,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "proof_courier_addr": "universerpc://rand.hashmail.proof.courier:443",
         "unknown_odd_types": {
           "31337": "Zm9v"
         }
       },
-      "expected": "tapsb1qqqsqqspqqzzpwc0yc7pdz250wklp0y845mc4tqwryf3vya9mf00vawrpsj3h0yvqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0py2spsqjdehhggrpypmxzmrfvss8xcmjd9c8gzspqyxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnl4axjqmxdahs5ptw90",
+      "expected": "tapsb1qqqszqspqqzzpkvuc09a5mess0y7mjtz3jq7v0r293z4hz8z6r7sdldhrhy3q496qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0py2spsqjdehhggrpypmxzmrfvss8xcmjd9c8gzspqyxz6atwd9mx2unnv4e8qce69uhhyctwvshxsctndpkkz6tv9ec8ymm0vchxxmm4wf5k2u36xs6r8lt6dypkvmm0alur27",
       "comment": "simnet collectible with sibling and unknown TLV type"
+    },
+    {
+      "address": {
+        "version": 2,
+        "chain_params_hrp": "taptb",
+        "asset_version": 0,
+        "asset_id": "6cd649ede785f79a11a227ccfc1fd32902c32c39ec63364107bbd86583fd1726",
+        "group_key": "",
+        "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "tapscript_sibling": "",
+        "amount": 0,
+        "proof_courier_addr": "authmailbox+universerpc://foo.bar:10029",
+        "unknown_odd_types": null
+      },
+      "expected": "taptb1qqqsyqspqqzzqmxkf8k70p0hngg6yf7vls0ax2gzcvkrnmrrxeqs0w7cvkpl69exqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqsqrp8v96hg6rdv95kccn00q4h2mnfwejhyum9wfcxxw309anx7mewvfshyw33xqcrywgrwcyqj",
+      "comment": "testnet4 address v2 with zero amount"
     }
   ],
   "error_test_cases": null
