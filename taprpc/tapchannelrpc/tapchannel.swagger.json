@@ -1704,7 +1704,7 @@
         "peer_pubkey": {
           "type": "string",
           "format": "byte",
-          "description": "The node identity public key of the peer to ask for a quote for sending\nout the assets and converting them to satoshis. This must be specified if\nthere are multiple channels with the given asset ID."
+          "description": "The node identity public key of the peer to ask for a quote for sending\nout the assets and converting them to satoshis. If set, only a quote with\nthis peer may be negotiated to carry out the payment."
         },
         "payment_request": {
           "$ref": "#/definitions/routerrpcSendPaymentRequest",

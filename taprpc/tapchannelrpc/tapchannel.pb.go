@@ -374,8 +374,8 @@ type SendPaymentRequest struct {
 	// payment_request.first_hop_custom_records already contains valid RFQ data.
 	AssetAmount uint64 `protobuf:"varint,2,opt,name=asset_amount,json=assetAmount,proto3" json:"asset_amount,omitempty"`
 	// The node identity public key of the peer to ask for a quote for sending
-	// out the assets and converting them to satoshis. This must be specified if
-	// there are multiple channels with the given asset ID.
+	// out the assets and converting them to satoshis. If set, only a quote with
+	// this peer may be negotiated to carry out the payment.
 	PeerPubkey []byte `protobuf:"bytes,3,opt,name=peer_pubkey,json=peerPubkey,proto3" json:"peer_pubkey,omitempty"`
 	// The full lnd payment request to send. All fields behave the same way as
 	// they do for lnd's routerrpc.SendPaymentV2 RPC method (see the API docs
