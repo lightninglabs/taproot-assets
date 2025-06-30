@@ -96,6 +96,11 @@ type MsgStore interface {
 	// FetchMessage retrieves a message from the mailbox by its ID.
 	FetchMessage(ctx context.Context, id uint64) (*Message, error)
 
+	// FetchMessageByOutPoint retrieves a message from the mailbox by its
+	// claimed outpoint of the TX proof that was used to send it.
+	FetchMessageByOutPoint(ctx context.Context,
+		claimedOp wire.OutPoint) (*Message, error)
+
 	// QueryMessages retrieves messages based on a query.
 	QueryMessages(ctx context.Context, filter MessageFilter) ([]*Message,
 		error)

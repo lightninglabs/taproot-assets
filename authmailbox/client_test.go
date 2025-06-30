@@ -379,6 +379,7 @@ func TestSendMessage(t *testing.T) {
 
 	clientKey1, _ := test.RandKeyDesc(t)
 	clientKey2, _ := test.RandKeyDesc(t)
+	clientKey3, _ := test.RandKeyDesc(t)
 
 	proofWithHeight := func(p proof.TxProof, h uint32) proof.TxProof {
 		p.BlockHeight = h
@@ -391,7 +392,7 @@ func TestSendMessage(t *testing.T) {
 	testCases := []struct {
 		name         string
 		txProofs     []proof.TxProof
-		recvKey      keychain.KeyDescriptor
+		recvKeys     []keychain.KeyDescriptor
 		sendKey      keychain.KeyDescriptor
 		msgs         [][]byte
 		expiryHeight uint32
@@ -400,7 +401,7 @@ func TestSendMessage(t *testing.T) {
 		{
 			name:         "empty payload",
 			txProofs:     []proof.TxProof{*txProof1},
-			recvKey:      clientKey2,
+			recvKeys:     []keychain.KeyDescriptor{clientKey2},
 			sendKey:      clientKey1,
 			msgs:         [][]byte{nil},
 			expectedErrs: []string{"empty payload"},
@@ -408,7 +409,7 @@ func TestSendMessage(t *testing.T) {
 		{
 			name:     "long payload",
 			txProofs: []proof.TxProof{*txProof1},
-			recvKey:  clientKey2,
+			recvKeys: []keychain.KeyDescriptor{clientKey2},
 			sendKey:  clientKey1,
 			msgs: [][]byte{
 				bytes.Repeat([]byte("foo"), MsgMaxSize),
@@ -418,7 +419,7 @@ func TestSendMessage(t *testing.T) {
 		{
 			name:         "missing expiry height",
 			txProofs:     []proof.TxProof{*txProof1},
-			recvKey:      clientKey2,
+			recvKeys:     []keychain.KeyDescriptor{clientKey2},
 			sendKey:      clientKey1,
 			msgs:         [][]byte{[]byte("yoooo")},
 			expectedErrs: []string{"missing expiry block height"},
@@ -428,7 +429,7 @@ func TestSendMessage(t *testing.T) {
 			txProofs: []proof.TxProof{
 				proofWithHeight(*txProof1, 100002),
 			},
-			recvKey:      clientKey2,
+			recvKeys:     []keychain.KeyDescriptor{clientKey2},
 			sendKey:      clientKey1,
 			msgs:         [][]byte{[]byte("yoooo")},
 			expiryHeight: 123,
@@ -442,7 +443,7 @@ func TestSendMessage(t *testing.T) {
 			txProofs: []proof.TxProof{
 				proofWithHeight(*txProof1, 100002),
 			},
-			recvKey:      clientKey2,
+			recvKeys:     []keychain.KeyDescriptor{clientKey2},
 			sendKey:      clientKey1,
 			msgs:         [][]byte{[]byte("yoooo")},
 			expiryHeight: 100002 + 123,
@@ -453,7 +454,10 @@ func TestSendMessage(t *testing.T) {
 				proofWithHeight(*txProof1, 100002),
 				proofWithHeight(*txProof1, 100002),
 			},
-			recvKey: clientKey2,
+			recvKeys: []keychain.KeyDescriptor{
+				clientKey2,
+				clientKey3,
+			},
 			sendKey: clientKey1,
 			msgs: [][]byte{
 				[]byte("yoooo"),
@@ -472,7 +476,11 @@ func TestSendMessage(t *testing.T) {
 				proofWithHeight(*txProof2, 100002),
 				proofWithHeight(*txProof3, 100002),
 			},
-			recvKey: clientKey2,
+			recvKeys: []keychain.KeyDescriptor{
+				clientKey2,
+				clientKey2,
+				clientKey2,
+			},
 			sendKey: clientKey1,
 			msgs: [][]byte{
 				[]byte("yoooo"),
@@ -507,9 +515,10 @@ func TestSendMessage(t *testing.T) {
 			for idx := range tc.msgs {
 				msg := tc.msgs[idx]
 				txProof := tc.txProofs[idx]
+				recvKey := tc.recvKeys[idx]
 
 				msgID, err := client1.client.SendMessage(
-					ctx, *tc.recvKey.PubKey, msg, txProof,
+					ctx, *recvKey.PubKey, msg, txProof,
 					tc.expiryHeight,
 				)
 
@@ -528,6 +537,18 @@ func TestSendMessage(t *testing.T) {
 				// We should be able to read the message if
 				// there was no error sending it.
 				client2.readMessages(t, msgID)
+
+				// Sending the same message again should result
+				// in the same message ID, but should not cause
+				// another message to be sent to any recipients.
+				msgIDReSend, err := client1.client.SendMessage(
+					ctx, *recvKey.PubKey, msg, txProof,
+					tc.expiryHeight,
+				)
+				require.NoError(t, err)
+
+				require.Equal(t, msgID, msgIDReSend)
+				client2.expectNoMessage(t)
 			}
 		})
 	}
