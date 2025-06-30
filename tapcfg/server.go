@@ -614,6 +614,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			KeyRing:     keyRing,
 			Chain:       chainBridge,
 			StateLog:    supplyCommitStore,
+			ChainParams: *tapChainParams.Params,
 		},
 	)
 

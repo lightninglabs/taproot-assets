@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -407,6 +408,10 @@ type Environment struct {
 	// CommitConfTarget is the confirmation target used when crafting the
 	// commitment transaction.
 	CommitConfTarget uint32
+
+	// ChainParams is the chain parameters for the chain that we're
+	// operating on.
+	ChainParams chaincfg.Params
 }
 
 // SupplyCommitTxn encapsulates the details of the transaction that creates a
