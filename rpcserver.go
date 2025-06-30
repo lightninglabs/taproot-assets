@@ -8128,9 +8128,19 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	var expensiveQuote *rfqrpc.PeerAcceptedBuyQuote
 	if !existingQuotes {
 		expensiveQuote = acquiredQuotes[0].quote
+	} else {
+		mgr := r.cfg.AuxInvoiceManager
+		buyQuote, err := mgr.GetBuyQuoteFromRouteHints(
+			iReq, specifier,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find matching buy "+
+				"quote in accepted quotes: %w", err)
+		}
+
+		expensiveQuote = marshalPeerAcceptedBuyQuote(*buyQuote)
 	}
 
-	// replace with above
 	// Now that we have the accepted quote, we know the amount in (milli)
 	// Satoshi that we need to pay. We can now update the invoice with this
 	// amount.
