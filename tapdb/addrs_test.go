@@ -47,8 +47,10 @@ func confirmTx(tx *lndclient.Transaction) {
 
 func randWalletTx() *lndclient.Transaction {
 	tx := &lndclient.Transaction{
-		Tx:        wire.NewMsgTx(2),
-		Timestamp: time.Now(),
+		Tx:          wire.NewMsgTx(2),
+		Timestamp:   time.Now(),
+		BlockHeight: rand.Int31n(700_000),
+		BlockHash:   test.RandHash().String(),
 	}
 	numInputs := rand.Intn(10) + 1
 	numOutputs := rand.Intn(5) + 1
@@ -81,6 +83,24 @@ func randWalletTx() *lndclient.Transaction {
 	}
 
 	return tx
+}
+
+func randOutputs(t *testing.T) map[asset.ID]address.SendOutput {
+	numOutputs := test.RandIntn(10)
+	outputs := make(map[asset.ID]address.SendOutput, numOutputs)
+	for j := 0; j < numOutputs; j++ {
+		assetID := asset.RandID(t)
+		amount := rand.Uint64() % 100_000
+		outputs[assetID] = address.SendOutput{
+			Amount: amount,
+			ScriptKey: asset.NewScriptKeyBip86(
+				keychain.KeyDescriptor{
+					PubKey: test.RandPubKey(t),
+				},
+			),
+		}
+	}
+	return outputs
 }
 
 // assertEqualAddrs makes sure the given actual addresses match the expected
@@ -420,7 +440,7 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	outputIndex := rand.Intn(len(txn.Tx.TxOut))
 
 	_, err = addrBook.GetOrCreateEvent(
-		ctx, address.Status(4), addr, txn, uint32(outputIndex),
+		ctx, address.Status(4), addr, txn, uint32(outputIndex), nil,
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "constraint")
@@ -464,7 +484,7 @@ func TestAddrEventCreation(t *testing.T) {
 
 		event, err := addrBook.GetOrCreateEvent(
 			ctx, address.StatusTransactionDetected, addr, txns[i],
-			uint32(outputIndex),
+			uint32(outputIndex), randOutputs(t),
 		)
 		require.NoError(t, err)
 
@@ -498,6 +518,7 @@ func TestAddrEventCreation(t *testing.T) {
 		actual, err := addrBook.GetOrCreateEvent(
 			ctx, address.StatusTransactionDetected,
 			events[idx].Addr, txns[idx], events[idx].Outpoint.Index,
+			nil,
 		)
 		require.NoError(t, err)
 
@@ -514,10 +535,18 @@ func TestAddrEventCreation(t *testing.T) {
 		actual, err := addrBook.GetOrCreateEvent(
 			ctx, address.StatusTransactionConfirmed,
 			events[idx].Addr, txns[idx], events[idx].Outpoint.Index,
+			nil,
 		)
 		require.NoError(t, err)
 
 		assertEqualAddrEvent(t, *events[idx], *actual)
+
+		// We didn't store any proofs for the event. So the HasAllProofs
+		// field should only be true if there are no outputs (which can
+		// only happen in this unit test in the first place).
+		require.Equal(
+			t, len(events[idx].Outputs) == 0, actual.HasAllProofs,
+		)
 	}
 }
 
@@ -560,6 +589,7 @@ func TestAddressEventQuery(t *testing.T) {
 		status := address.Status(i % int(address.StatusCompleted+1))
 		event, err := addrBook.GetOrCreateEvent(
 			ctx, status, addr, txn, uint32(outputIndex),
+			randOutputs(t),
 		)
 		require.NoError(t, err)
 		require.EqualValues(t, i+1, event.ID)
@@ -825,7 +855,7 @@ func TestQueryAddrEvents(t *testing.T) {
 
 	tx := randWalletTx()
 	event, err := addrBook.GetOrCreateEvent(
-		ctx, address.StatusTransactionDetected, addr, tx, 0,
+		ctx, address.StatusTransactionDetected, addr, tx, 0, nil,
 	)
 	require.NoError(t, err)
 
