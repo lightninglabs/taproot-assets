@@ -116,7 +116,7 @@ func (q *Queries) FetchSupplyCommit(ctx context.Context, groupKey []byte) (Fetch
 const FetchUnspentPrecommits = `-- name: FetchUnspentPrecommits :many
 SELECT
     mac.tx_output_index,
-    ik.raw_key AS taproot_internal_key,
+    ik.key_id, ik.raw_key, ik.key_family, ik.key_index,
     mac.group_key,
     mint_txn.block_height,
     mint_txn.raw_tx
@@ -133,13 +133,15 @@ WHERE
 `
 
 type FetchUnspentPrecommitsRow struct {
-	TxOutputIndex      int32
-	TaprootInternalKey []byte
-	GroupKey           []byte
-	BlockHeight        sql.NullInt32
-	RawTx              []byte
+	TxOutputIndex int32
+	InternalKey   InternalKey
+	GroupKey      []byte
+	BlockHeight   sql.NullInt32
+	RawTx         []byte
 }
 
+// Fetch unspent pre-commitment outputs. A pre-commitment output is a mint
+// anchor transaction output which relates to the supply commitment feature.
 func (q *Queries) FetchUnspentPrecommits(ctx context.Context, groupKey []byte) ([]FetchUnspentPrecommitsRow, error) {
 	rows, err := q.db.QueryContext(ctx, FetchUnspentPrecommits, groupKey)
 	if err != nil {
@@ -151,7 +153,10 @@ func (q *Queries) FetchUnspentPrecommits(ctx context.Context, groupKey []byte) (
 		var i FetchUnspentPrecommitsRow
 		if err := rows.Scan(
 			&i.TxOutputIndex,
-			&i.TaprootInternalKey,
+			&i.InternalKey.KeyID,
+			&i.InternalKey.RawKey,
+			&i.InternalKey.KeyFamily,
+			&i.InternalKey.KeyIndex,
 			&i.GroupKey,
 			&i.BlockHeight,
 			&i.RawTx,

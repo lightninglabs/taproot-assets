@@ -245,12 +245,10 @@ func (s *SupplyCommitMachine) UnspentPrecommits(ctx context.Context,
 		// interface.
 		preCommits = make(supplycommit.PreCommits, 0, len(rows))
 		for _, row := range rows {
-			internalKey, err := btcec.ParsePubKey(
-				row.TaprootInternalKey,
-			)
+			internalKey, err := parseInternalKey(row.InternalKey)
 			if err != nil {
-				return fmt.Errorf("error parsing internal "+
-					"key: %w", err)
+				return fmt.Errorf("failed to parse "+
+					"pre-commitment internal key: %w", err)
 			}
 
 			groupPubKey, err := btcec.ParsePubKey(row.GroupKey)
@@ -272,7 +270,7 @@ func (s *SupplyCommitMachine) UnspentPrecommits(ctx context.Context,
 				),
 				MintingTxn:  &mintingTx,
 				OutIdx:      uint32(row.TxOutputIndex),
-				InternalKey: *internalKey,
+				InternalKey: internalKey,
 				GroupPubKey: *groupPubKey,
 			}
 			preCommits = append(preCommits, preCommit)

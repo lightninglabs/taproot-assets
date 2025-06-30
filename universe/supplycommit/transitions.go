@@ -7,10 +7,12 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -353,7 +355,8 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 func newRootCommitment(ctx context.Context,
 	oldCommitment lfn.Option[RootCommitment],
 	unspentPreCommits []PreCommitment, newSupplyRoot *mssmt.BranchNode,
-	wallet Wallet, keyRing KeyRing) lfn.Result[RootCommitment] {
+	wallet Wallet, keyRing KeyRing,
+	chainParams chaincfg.Params) (*RootCommitment, *psbt.Packet, error) {
 
 	newCommitTx := wire.NewMsgTx(2)
 
@@ -363,12 +366,36 @@ func newRootCommitment(ctx context.Context,
 	// TODO(roasbeef): need index map for PSBT??
 	//  * verify all inputs locked on restart, otherwise transition from
 	//  sign//broadcast back to this state?
+	packetPInputs := make([]psbt.PInput, 0, len(unspentPreCommits)+1)
+
 	for _, preCommit := range unspentPreCommits {
 		newCommitTx.AddTxIn(preCommit.TxIn())
+
+		bip32Derivation, trBip32Derivation :=
+			tappsbt.Bip32DerivationFromKeyDesc(
+				preCommit.InternalKey, chainParams.HDCoinType,
+			)
+
+		witnessUtxo := preCommit.MintingTxn.TxOut[preCommit.OutIdx]
+
+		packetPInputs = append(packetPInputs, psbt.PInput{
+			WitnessUtxo: witnessUtxo,
+			Bip32Derivation: []*psbt.Bip32Derivation{
+				bip32Derivation,
+			},
+			TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+				trBip32Derivation,
+			},
+			TaprootInternalKey: trBip32Derivation.XOnlyPubKey,
+		})
 	}
 
-	// If there isn't an existing commitment in the chain, then we'll have
-	// one less input on the transaction.
+	// If all pre-commitments are spent, then we'll use the old commitment
+	// as an input to the new transaction. Pre-commitments are only present
+	// on mint transactions where as the old commitment is the last
+	// commitment that was broadcast.
+	//
+	// TODO(ffranr): Do we have everything we need to fund a PSBT here?
 	oldCommitment.WhenSome(func(r RootCommitment) {
 		newCommitTx.AddTxIn(r.TxIn())
 	})
@@ -381,6 +408,7 @@ func newRootCommitment(ctx context.Context,
 	iKeyOpt := lfn.MapOption(func(r RootCommitment) *btcec.PublicKey {
 		return r.InternalKey
 	})(oldCommitment)
+
 	commitInternalKey, err := iKeyOpt.UnwrapOrFuncErr(
 		func() (*btcec.PublicKey, error) {
 			newKey, err := keyRing.DeriveNextTaprootAssetKey(ctx)
@@ -393,7 +421,7 @@ func newRootCommitment(ctx context.Context,
 		},
 	)
 	if err != nil {
-		return lfn.Err[RootCommitment](err)
+		return nil, nil, err
 	}
 
 	// Derive the new commitment output, and add that to the update
@@ -402,8 +430,8 @@ func newRootCommitment(ctx context.Context,
 		commitInternalKey, nil, newSupplyRoot.NodeHash(),
 	)
 	if err != nil {
-		return lfn.Errf[RootCommitment]("unable to create "+
-			"commitment tx output: %w", err)
+		return nil, nil, fmt.Errorf("unable to create commitment "+
+			"tx output: %w", err)
 	}
 	newCommitTx.AddTxOut(supplyTxOut)
 
@@ -412,7 +440,7 @@ func newRootCommitment(ctx context.Context,
 	if iKeyOpt.IsNone() {
 		_, err := wallet.ImportTaprootOutput(ctx, tapOutKey)
 		if err != nil {
-			return lfn.Errf[RootCommitment]("unable to import "+
+			return nil, nil, fmt.Errorf("unable to import "+
 				"taproot output: %w", err)
 		}
 	}
@@ -430,7 +458,13 @@ func newRootCommitment(ctx context.Context,
 		SupplyRoot:  newSupplyRoot,
 	}
 
-	return lfn.Ok(newSupplyCommit)
+	commitPkt, err := psbt.NewFromUnsignedTx(newCommitTx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create PSBT: %w", err)
+	}
+	commitPkt.Inputs = packetPInputs
+
+	return &newSupplyCommit, commitPkt, nil
 }
 
 // fundSupplyCommitTx takes a newly created supply commitment transaction,
@@ -438,13 +472,7 @@ func newRootCommitment(ctx context.Context,
 // the index of the supply commitment output within the funded transaction. It
 // updates the TxOutIdx field of the passed supplyCommit directly.
 func fundSupplyCommitTx(ctx context.Context, supplyCommit *RootCommitment,
-	env *Environment) (*tapsend.FundedPsbt, error) {
-
-	// Create a new PSBT from the unsigned transaction.
-	commitPkt, err := psbt.NewFromUnsignedTx(supplyCommit.Txn)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create PSBT: %w", err)
-	}
+	commitPkt *psbt.Packet, env *Environment) (*tapsend.FundedPsbt, error) {
 
 	// Estimate the required fee rate.
 	feeRate, err := env.Chain.EstimateFee(ctx, env.CommitConfTarget)
@@ -531,10 +559,10 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 
 		// With all the inputs obtained, we'll create the new supply
 		// commitment.
-		newSupplyCommit, err := newRootCommitment(
+		newSupplyCommit, commitPkt, err := newRootCommitment(
 			ctx, oldCommitment, preCommits, newSupplyRoot,
-			env.Wallet, env.KeyRing,
-		).Unpack()
+			env.Wallet, env.KeyRing, env.ChainParams,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create "+
 				"new root commitment: %w", err)
@@ -544,7 +572,7 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 		// the TxOutIdx field within the newSupplyCommit struct passed
 		// to it.
 		fundedCommitPkt, err := fundSupplyCommitTx(
-			ctx, &newSupplyCommit, env,
+			ctx, newSupplyCommit, commitPkt, env,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fund supply "+
@@ -558,7 +586,7 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 			OldCommitment:     oldCommitment,
 			UnspentPreCommits: preCommits,
 			PendingUpdates:    c.SupplyTransition.PendingUpdates,
-			NewCommitment:     newSupplyCommit,
+			NewCommitment:     *newSupplyCommit,
 		}
 
 		return &StateTransition{
@@ -568,7 +596,7 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 			NewEvents: lfn.Some(FsmEvent{
 				InternalEvent: []Event{&SignTxEvent{
 					CommitPkt:       fundedCommitPkt,
-					NewSupplyCommit: newSupplyCommit,
+					NewSupplyCommit: *newSupplyCommit,
 				}},
 			}),
 		}, nil
