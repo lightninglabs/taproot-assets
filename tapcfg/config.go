@@ -192,7 +192,8 @@ var (
 	// defaultProofCourierAddr is the default proof courier address URI
 	// we'll use to deliver proofs for asynchronous sends.
 	defaultProofCourierAddr = fmt.Sprintf(
-		"%s://%s", proof.UniverseRpcCourierType, fallbackUniverseAddr,
+		"%s://%s", proof.AuthMailboxUniRpcCourierType,
+		fallbackUniverseAddr,
 	)
 
 	// minimalCompatibleVersion is the minimum version and build tags

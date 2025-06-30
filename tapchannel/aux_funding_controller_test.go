@@ -7,6 +7,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -23,6 +24,7 @@ func TestValidateLocalProofCourier(t *testing.T) {
 
 	server := proof.MockUniverseServer{}
 	universerpc.RegisterUniverseServer(grpcServer, &server)
+	mboxrpc.RegisterMailboxServer(grpcServer, &server)
 
 	mockServerAddr, cleanup, err := test.StartMockGRPCServer(
 		t, grpcServer, true,
@@ -39,6 +41,13 @@ func TestValidateLocalProofCourier(t *testing.T) {
 			name: "valid universe rpc courier",
 			courierAddr: proof.MockCourierURL(
 				t, proof.UniverseRpcCourierType, mockServerAddr,
+			),
+		},
+		{
+			name: "valid authmailbox+universe rpc courier",
+			courierAddr: proof.MockCourierURL(
+				t, proof.AuthMailboxUniRpcCourierType,
+				mockServerAddr,
 			),
 		},
 		{

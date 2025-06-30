@@ -285,7 +285,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 
 	case *universeServerHarness:
 		finalCfg.DefaultProofCourierAddr = fmt.Sprintf(
-			"%s://%s", proof.UniverseRpcCourierType,
+			"%s://%s", proof.AuthMailboxUniRpcCourierType,
 			typedProofCourier.ListenAddr,
 		)
 
