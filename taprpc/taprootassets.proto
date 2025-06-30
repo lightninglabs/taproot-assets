@@ -1400,12 +1400,17 @@ message AddrReceivesResponse {
 }
 
 message SendAssetRequest {
+    // The list of TAP addresses to send assets to. The amount to send to each
+    // address is determined by the amount specified in the address itself. For
+    // V2 addresses that are allowed to not specify an amount, use the
+    // addresses_with_amounts list to specify the amount to send to each
+    // address. The tap_addrs and addresses_with_amounts lists are mutually
+    // exclusive, meaning that if addresses_with_amounts is set, then tap_addrs
+    // must be empty, and vice versa.
     repeated string tap_addrs = 1;
 
     // The optional fee rate to use for the minting transaction, in sat/kw.
     uint32 fee_rate = 2;
-    // TODO(roasbeef): maybe in future add details re type of ProofCourier or
-    // w/e
 
     // An optional short label for the send transfer. This label can be used to
     // track the progress of the transfer via the logs or an event subscription.
@@ -1416,6 +1421,26 @@ message SendAssetRequest {
     // testing purposes and for forced transfers when the proof courier
     // is not immediately available.
     bool skip_proof_courier_ping_check = 4;
+
+    // A list of addresses and the amounts of asset units to send to them. This
+    // must be used for V2 TAP addresses that don't specify an amount in the
+    // address itself and allow the sender to choose the amount to send. The
+    // tap_addrs and addresses_with_amounts lists are mutually exclusive,
+    // meaning that if addresses_with_amounts is set, then tap_addrs must be
+    // empty, and vice versa.
+    repeated AddressWithAmount addresses_with_amounts = 5;
+}
+
+message AddressWithAmount {
+    // The TAP address to send assets to.
+    string tap_addr = 1;
+
+    // The amount of asset units to send to the address. This is only used for
+    // re-usable V2 addresses that don't specify an amount in the address itself
+    // and allow the sender to specify the amount on each send attempt. For V0
+    // or V1 addresses, this can be left empty (zero) as the amount is taken
+    // from the address itself.
+    uint64 amount = 2;
 }
 
 message PrevInputAsset {

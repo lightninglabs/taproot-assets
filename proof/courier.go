@@ -3,6 +3,7 @@ package proof
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/tls"
 	"fmt"
@@ -12,10 +13,14 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
+	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightningnetwork/lnd/keychain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	grpcconn "google.golang.org/grpc/connectivity"
@@ -56,6 +61,24 @@ type CourierHarness interface {
 	Stop() error
 }
 
+// EncryptionProvider is an interface that provides methods for deriving
+// encryption keys used for encrypting and decrypting send fragments sent over
+// the auth mailbox protocol.
+type EncryptionProvider interface {
+	// DeriveSharedKey returns a shared secret key by performing
+	// Diffie-Hellman key derivation between the ephemeral public key and
+	// the key specified by the key locator (or the node's identity private
+	// key if no key locator is specified):
+	//
+	//     P_shared = privKeyNode * ephemeralPubkey
+	//
+	// The resulting shared public key is serialized in the compressed
+	// format and hashed with SHA256, resulting in a final key length of 256
+	// bits.
+	DeriveSharedKey(ctx context.Context, ephemeralPubKey *btcec.PublicKey,
+		keyLocator *keychain.KeyLocator) ([sha256.Size]byte, error)
+}
+
 // Courier abstracts away from the final proof retrieval/delivery process as
 // part of the non-interactive send flow. A sender can use this given the
 // abstracted Addr/source type to send a proof to the receiver. Conversely, a
@@ -63,7 +86,8 @@ type CourierHarness interface {
 type Courier interface {
 	// DeliverProof attempts to delivery a proof to the receiver, using the
 	// information in the Addr type.
-	DeliverProof(context.Context, Recipient, *AnnotatedProof) error
+	DeliverProof(context.Context, Recipient, *AnnotatedProof,
+		*SendManifest) error
 
 	// ReceiveProof attempts to obtain a proof as identified by the passed
 	// locator from the source encapsulated within the specified address.
@@ -95,6 +119,10 @@ type CourierCfg struct {
 	// LocalArchive is an archive that can be used to fetch proofs from the
 	// local archive.
 	LocalArchive Archiver
+
+	// Signer is a signer client that can be used to derive shared keys for
+	// encrypting and decrypting send fragments sent over the auth mailbox.
+	Signer lndclient.SignerClient
 }
 
 // CourierConnStatus is an enum that represents the different states a courier
@@ -206,7 +234,7 @@ func (u *URLDispatch) NewCourier(ctx context.Context, addr *url.URL,
 	case UniverseRpcCourierType, AuthMailboxUniRpcCourierType:
 		return NewUniverseRpcCourier(
 			ctx, u.cfg.UniverseRpcCfg, u.cfg.TransferLog,
-			u.cfg.LocalArchive, addr, lazyConnect,
+			u.cfg.LocalArchive, u.cfg.Signer, addr, lazyConnect,
 		)
 
 	default:
@@ -883,8 +911,15 @@ func (h *HashMailCourier) ensureConnect(ctx context.Context) error {
 // information in the Addr type.
 //
 // TODO(roasbeef): other delivery context as type param?
-func (h *HashMailCourier) DeliverProof(ctx context.Context,
-	recipient Recipient, proof *AnnotatedProof) error {
+func (h *HashMailCourier) DeliverProof(ctx context.Context, recipient Recipient,
+	proof *AnnotatedProof, sendFragment *SendManifest) error {
+
+	// Send fragment manifests are only supported by the auth mailbox/
+	// universe RPC courier.
+	if sendFragment != nil {
+		return fmt.Errorf("send fragment not supported by hashmail " +
+			"courier")
+	}
 
 	// Compute the stream IDs for the sender and receiver. Note that these
 	// stream IDs are derived from the recipient's script key only. Which
@@ -1192,6 +1227,10 @@ type UniverseRpcCourier struct {
 	// store and query for proofs.
 	localArchive Archiver
 
+	// signer is a signer client that can be used to derive shared keys for
+	// encrypting and decrypting send fragments sent over the auth mailbox.
+	signer lndclient.SignerClient
+
 	// rawConn is the raw connection that the courier will use to interact
 	// with the remote gRPC service.
 	rawConn *grpc.ClientConn
@@ -1199,6 +1238,10 @@ type UniverseRpcCourier struct {
 	// client is the RPC client that the courier will use to interact with
 	// the universe RPC server.
 	client unirpc.UniverseClient
+
+	// mboxClient is the RPC client that the courier will use to interact
+	// with the auth mailbox RPC server.
+	mboxClient mboxrpc.MailboxClient
 
 	// backoffHandle is a handle to the backoff procedure used in proof
 	// delivery.
@@ -1216,13 +1259,15 @@ type UniverseRpcCourier struct {
 // NewUniverseRpcCourier creates a new universe RPC proof courier service
 // handle.
 func NewUniverseRpcCourier(ctx context.Context, cfg *UniverseRpcCourierCfg,
-	transferLog TransferLog, localArchive Archiver, addr *url.URL,
+	transferLog TransferLog, localArchive Archiver,
+	signer lndclient.SignerClient, addr *url.URL,
 	lazyConnect bool) (*UniverseRpcCourier, error) {
 
 	courier := UniverseRpcCourier{
 		cfg:           cfg,
 		addr:          addr,
 		localArchive:  localArchive,
+		signer:        signer,
 		backoffHandle: NewBackoffHandler(cfg.BackoffCfg, transferLog),
 		subscribers:   make(map[uint64]*fn.EventReceiver[fn.Event]),
 	}
@@ -1284,19 +1329,122 @@ func (c *UniverseRpcCourier) ensureConnect(ctx context.Context) error {
 	}
 
 	c.client = unirpc.NewUniverseClient(conn)
+	c.mboxClient = mboxrpc.NewMailboxClient(conn)
 	c.rawConn = conn
 
 	// Make sure we initiate the connection. The GetInfo RPC method is in
 	// the base macaroon white list, so it doesn't require any
 	// authentication, independent of the universe's configuration.
 	_, err = c.client.Info(ctx, &unirpc.InfoRequest{})
+	if err != nil {
+		// If we fail to connect, we'll close the connection and return
+		// the error.
+		if closeErr := c.rawConn.Close(); closeErr != nil {
+			log.Errorf("Unable to close RPC courier connection: %v",
+				closeErr)
+		}
 
-	return err
+		return fmt.Errorf("unable to connect to universe RPC courier "+
+			"service: %w", err)
+	}
+
+	// If this is the "old" universe RPC courier type, then we'll skip the
+	// additional auth mailbox RPC check, as it is not required for the
+	// old courier type.
+	if c.addr.Scheme != AuthMailboxUniRpcCourierType {
+		return nil
+	}
+
+	// If this is an auth mailbox type connection (which is a normal
+	// universe RPC connection plus an auth mailbox RPC for transmitting the
+	// send fragments), we'll also want to make sure the server supports
+	// that additional auth mailbox RPC.
+	_, err = c.mboxClient.MailboxInfo(ctx, &mboxrpc.MailboxInfoRequest{})
+	if err != nil {
+		// If we fail to connect, we'll close the connection and return
+		// the error.
+		if closeErr := c.rawConn.Close(); closeErr != nil {
+			log.Errorf("Unable to close RPC courier connection: %v",
+				closeErr)
+		}
+
+		return fmt.Errorf("unable to connect to auth mailbox RPC "+
+			"courier service: %w", err)
+	}
+
+	return nil
+}
+
+// deliverFragment attempts to deliver a send fragment to the recipient
+// using the auth mailbox protocol. If the underlying courier doesn't
+// support send fragments, then this method will return an error.
+func (c *UniverseRpcCourier) deliverFragment(ctx context.Context,
+	fragment *SendManifest) error {
+
+	if c.addr.Scheme != AuthMailboxUniRpcCourierType {
+		return fmt.Errorf("send fragment not supported by standalone "+
+			"universe RPC courier, must use '%s'",
+			AuthMailboxUniRpcCourierType)
+	}
+
+	// We generate an ephemeral key pair that we'll use to encrypt the
+	// send fragment before sending it to the receiver. The public key of
+	// the pair will be part of the encrypted payload, so we can throw away
+	// the private key after doing the ECDH operation below.
+	privKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		return fmt.Errorf("unable to generate ephemeral key: %w", err)
+	}
+	senderEphemeralKey := privKey.PubKey()
+	senderKeyBytes := senderEphemeralKey.SerializeCompressed()
+
+	sharedSecret, err := ecies.ECDH(privKey, &fragment.Receiver)
+	if err != nil {
+		return fmt.Errorf("unable to derive shared key: %w", err)
+	}
+
+	log.Infof("Transferring send fragment to receiver with claimed "+
+		"outpoint %v", fragment.Fragment.OutPoint)
+
+	msg, err := fn.Encode(&fragment.Fragment)
+	if err != nil {
+		return fmt.Errorf("unable to encode send fragment: %w", err)
+	}
+
+	encryptedPayload, err := ecies.EncryptSha256ChaCha20Poly1305(
+		sharedSecret, msg, senderKeyBytes,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to encrypt send fragment: %w", err)
+	}
+
+	rpcProof, err := MarshalTxProof(fragment.TxProof)
+	if err != nil {
+		return fmt.Errorf("unable to marshal tx proof: %w", err)
+	}
+
+	resp, err := c.mboxClient.SendMessage(ctx, &mboxrpc.SendMessageRequest{
+		ReceiverId:       fragment.Receiver.SerializeCompressed(),
+		EncryptedPayload: encryptedPayload,
+		Proof: &mboxrpc.SendMessageRequest_TxProof{
+			TxProof: rpcProof,
+		},
+		ExpiryBlockHeight: fragment.ExpiryHeight,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to send message: %w", err)
+	}
+
+	log.Infof("Successfully sent send fragment to server, ID=%d",
+		resp.MessageId)
+
+	return nil
 }
 
 // DeliverProof attempts to delivery a proof file to the receiver.
 func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
-	recipient Recipient, annotatedProof *AnnotatedProof) error {
+	recipient Recipient, annotatedProof *AnnotatedProof,
+	sendFragment *SendManifest) error {
 
 	// Decode annotated proof into proof file.
 	proofFile := &File{}
@@ -1393,6 +1541,18 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			)
 			defer subCtxCancel()
 
+			// Sending a message to the courier is idempotent, so we
+			// can safely retry it every time before we insert the
+			// proofs.
+			if sendFragment != nil {
+				err = c.deliverFragment(subCtx, sendFragment)
+				if err != nil {
+					return fmt.Errorf("error delivering "+
+						"send fragment to courier "+
+						"service: %w", err)
+				}
+			}
+
 			assetProof := unirpc.AssetProof{
 				Key:       &universeKey,
 				AssetLeaf: &assetLeaf,
@@ -1467,6 +1627,9 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 				ctx, c.cfg.ServiceRequestTimeout,
 			)
 			defer subCtxCancel()
+
+			log.Tracef("Querying for proof with script key %x",
+				loc.ScriptKey.SerializeCompressed())
 
 			resp, err := c.client.QueryProof(subCtx, &universeKey)
 			if err != nil {
@@ -1722,7 +1885,7 @@ func CheckUniverseRpcCourierConnection(ctx context.Context,
 	ctxt, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	courier, err := NewUniverseRpcCourier(
-		ctxt, &UniverseRpcCourierCfg{}, nil, nil, courierURL,
+		ctxt, &UniverseRpcCourierCfg{}, nil, nil, nil, courierURL,
 		false,
 	)
 	if err != nil {
