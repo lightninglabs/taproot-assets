@@ -124,8 +124,8 @@ message SendPaymentRequest {
     uint64 asset_amount = 2;
 
     // The node identity public key of the peer to ask for a quote for sending
-    // out the assets and converting them to satoshis. This must be specified if
-    // there are multiple channels with the given asset ID.
+    // out the assets and converting them to satoshis. If set, only a quote with
+    // this peer may be negotiated to carry out the payment.
     bytes peer_pubkey = 3;
 
     // The full lnd payment request to send. All fields behave the same way as
