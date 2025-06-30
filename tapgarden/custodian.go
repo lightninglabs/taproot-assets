@@ -438,6 +438,19 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 		op := wire.OutPoint{Hash: txHash, Index: uint32(idx)}
 		event, ok := c.events[op]
 		if ok {
+			// This code path is only for V0 and V1
+			// addresses, which only have a single output.
+			scriptKey := asset.ScriptKey{
+				PubKey:           &event.Addr.ScriptKey,
+				TweakedScriptKey: &event.Addr.ScriptKeyTweak,
+			}
+			sendOutputs := map[asset.ID]address.SendOutput{
+				event.Addr.AssetID: {
+					Amount:    event.Addr.Amount,
+					ScriptKey: scriptKey,
+				},
+			}
+
 			// Was this event previously unconfirmed, and we have
 			// received a conf now? Let's bump the state then.
 			if event.ConfirmationHeight == 0 &&
@@ -449,6 +462,7 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 					ctxt,
 					address.StatusTransactionConfirmed,
 					event.Addr, walletTx, uint32(idx),
+					sendOutputs,
 				)
 				cancel()
 				if err != nil {
@@ -690,10 +704,22 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 		status = address.StatusTransactionConfirmed
 	}
 
+	// This code path is only for V0 and V1 addresses, which only have a
+	// single output.
+	sendOutputs := map[asset.ID]address.SendOutput{
+		addr.AssetID: {
+			Amount: addr.Amount,
+			ScriptKey: asset.ScriptKey{
+				PubKey:           &addr.ScriptKey,
+				TweakedScriptKey: &addr.ScriptKeyTweak,
+			},
+		},
+	}
+
 	// Block here, a shutdown can wait on this operation.
 	ctxt, cancel = c.CtxBlocking()
 	event, err := c.cfg.AddrBook.GetOrCreateEvent(
-		ctxt, status, addr, walletTx, outputIdx,
+		ctxt, status, addr, walletTx, outputIdx, sendOutputs,
 	)
 	cancel()
 	if err != nil {
