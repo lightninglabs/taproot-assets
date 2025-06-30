@@ -7233,25 +7233,35 @@ func marshalPeerAcceptedBuyQuotes(
 	rpcQuotes := make(
 		[]*rfqrpc.PeerAcceptedBuyQuote, 0, len(quotes),
 	)
-	for scid, quote := range quotes {
-		coefficient := quote.AssetRate.Rate.Coefficient.String()
-		rpcAskAssetRate := &rfqrpc.FixedPoint{
-			Coefficient: coefficient,
-			Scale:       uint32(quote.AssetRate.Rate.Scale),
-		}
-
-		rpcQuote := &rfqrpc.PeerAcceptedBuyQuote{
-			Peer:           quote.Peer.String(),
-			Id:             quote.ID[:],
-			Scid:           uint64(scid),
-			AssetMaxAmount: quote.Request.AssetMaxAmt,
-			AskAssetRate:   rpcAskAssetRate,
-			Expiry:         uint64(quote.AssetRate.Expiry.Unix()),
-		}
-		rpcQuotes = append(rpcQuotes, rpcQuote)
+	for _, quote := range quotes {
+		rpcQuotes = append(
+			rpcQuotes, marshalPeerAcceptedBuyQuote(quote),
+		)
 	}
 
 	return rpcQuotes, nil
+}
+
+// marshalPeerAcceptedBuyQuote marshals a peer accepted asset buy quote into
+// the RPC form. This is a quote that was requested by our node and has been
+// accepted by our peer.
+func marshalPeerAcceptedBuyQuote(
+	quote rfqmsg.BuyAccept) *rfqrpc.PeerAcceptedBuyQuote {
+
+	coefficient := quote.AssetRate.Rate.Coefficient.String()
+	rpcAskAssetRate := &rfqrpc.FixedPoint{
+		Coefficient: coefficient,
+		Scale:       uint32(quote.AssetRate.Rate.Scale),
+	}
+
+	return &rfqrpc.PeerAcceptedBuyQuote{
+		Peer:           quote.Peer.String(),
+		Id:             quote.ID[:],
+		Scid:           uint64(quote.ShortChannelId()),
+		AssetMaxAmount: quote.Request.AssetMaxAmt,
+		AskAssetRate:   rpcAskAssetRate,
+		Expiry:         uint64(quote.AssetRate.Expiry.Unix()),
+	}
 }
 
 // marshalPeerAcceptedSellQuotes marshals a map of peer accepted asset sell
