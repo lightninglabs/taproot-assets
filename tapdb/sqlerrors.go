@@ -32,8 +32,12 @@ func MapSQLError(err error) error {
 		return parsePostgresError(pqErr)
 	}
 
-	// Return original error if it could not be classified as a database
-	// specific error.
+	// As a last step, check if this is a connection error that needs
+	// sanitization to prevent leaking sensitive information.
+	err = sanitizeConnectionError(err)
+
+	// Return the error (potentially sanitized) if it could not be
+	// classified as a database specific error.
 	return err
 }
 
@@ -111,7 +115,8 @@ func parsePostgresError(pqErr *pgconn.PgError) error {
 		}
 
 	default:
-		return fmt.Errorf("unknown postgres error: %w", pqErr)
+		return fmt.Errorf("unknown postgres error: %w",
+			sanitizeConnectionError(pqErr))
 	}
 }
 
@@ -197,4 +202,69 @@ func (e ErrSchemaError) Error() string {
 func IsSchemaError(err error) bool {
 	var schemaError *ErrSchemaError
 	return errors.As(err, &schemaError)
+}
+
+// ErrDatabaseConnectionError is an error type which represents a database
+// connection error with sensitive information sanitized.
+type ErrDatabaseConnectionError struct {
+	DbError error
+}
+
+// Unwrap returns the wrapped error.
+func (e ErrDatabaseConnectionError) Unwrap() error {
+	return e.DbError
+}
+
+// Error returns a generic error message without revealing connection details.
+func (e ErrDatabaseConnectionError) Error() string {
+	// Return a generic error message that doesn't reveal any connection
+	// details to prevent information leakage.
+	return "database connection failed"
+}
+
+// isConnectionError checks if an error message contains patterns that indicate
+// a database connection error with potentially sensitive information.
+func isConnectionError(errStr string) bool {
+	// List of patterns that indicate connection errors with sensitive info.
+	patterns := []string{
+		"failed to connect to",
+		"dial tcp",
+		"user=",
+		"password=",
+		"host=",
+		"dbname=",
+		"sslmode=",
+		"connection refused",
+		"no route to host",
+		"password authentication failed",
+	}
+
+	for _, pattern := range patterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// sanitizeConnectionError checks if an error contains database connection
+// information and returns a sanitized version if it does.
+func sanitizeConnectionError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// Check if the error message contains connection parameters that could
+	// leak sensitive information.
+	if isConnectionError(err.Error()) {
+		// Log the original error for debugging purposes, but return a
+		// sanitized version to prevent information leakage.
+		log.Errorf("Database connection error (sanitized): %v", err)
+		return &ErrDatabaseConnectionError{
+			DbError: err,
+		}
+	}
+
+	return err
 }
