@@ -624,13 +624,21 @@ func (c *CommitTxSignState) ProcessEvent(event Event,
 		stateTransition := c.SupplyTransition
 
 		// After some initial validation, we'll now sign the PSBT.
-		signedPsbt, err := env.Wallet.SignAndFinalizePsbt(
+		log.Debug("Signing supply commitment PSBT")
+		signedPsbt, err := env.Wallet.SignPsbt(
 			ctx, newEvent.CommitPkt.Pkt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to sign "+
 				"commitment tx: %w", err)
 		}
+
+		err = psbt.MaybeFinalizeAll(signedPsbt)
+		if err != nil {
+			return nil, fmt.Errorf("unable to finalize psbt: %w",
+				err)
+		}
+
 		commitTx, err := psbt.Extract(signedPsbt)
 		if err != nil {
 			return nil, fmt.Errorf("unable to extract "+

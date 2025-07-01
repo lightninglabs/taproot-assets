@@ -307,9 +307,8 @@ type Wallet interface {
 		feeRate chainfee.SatPerKWeight,
 		changeIdx int32) (*tapsend.FundedPsbt, error)
 
-	// SignAndFinalizePsbt fully signs and finalizes the target PSBT
-	// packet.
-	SignAndFinalizePsbt(context.Context, *psbt.Packet) (*psbt.Packet, error)
+	// SignPsbt fully signs the target PSBT packet.
+	SignPsbt(context.Context, *psbt.Packet) (*psbt.Packet, error)
 
 	// ImportTaprootOutput imports a new taproot output key into the wallet.
 	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcutil.Address,
