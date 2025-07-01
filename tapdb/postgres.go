@@ -91,7 +91,7 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 
 	rawDb, err := sql.Open("pgx", cfg.DSN(false))
 	if err != nil {
-		return nil, err
+		return nil, MapSQLError(err)
 	}
 
 	maxConns := defaultMaxConns
