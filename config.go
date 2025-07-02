@@ -187,6 +187,10 @@ type Config struct {
 
 	ChainPorter tapfreighter.Porter
 
+	// FsmDaemonAdapters is a set of adapters that allow a state machine to
+	// interact with external daemons.
+	FsmDaemonAdapters *LndFsmDaemonAdapters
+
 	// SupplyCommitManager is a service that is used to manage supply
 	// commitments for assets. Supply commitments are issuer published
 	// attestations of the total supply of an asset.
