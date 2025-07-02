@@ -109,7 +109,13 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 	}, nil
 }
 
-// SignPsbt...
+// SignPsbt expects a partial transaction with all inputs and outputs fully
+// declared and tries to sign all unsigned inputs that have all required fields
+// (UTXO information, BIP32 derivation information, witness or sig scripts) set.
+// If no error is returned, the PSBT is ready to be given to the next signer or
+// to be finalized if lnd was the last signer.
+//
+// NOTE: See lndclient.WalletKitClient for further details.
 func (l *LndRpcWalletAnchor) SignPsbt(ctx context.Context,
 	packet *psbt.Packet) (*psbt.Packet, error) {
 
