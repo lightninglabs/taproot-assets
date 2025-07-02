@@ -200,8 +200,8 @@ func (a *atomicSyncStatsCache) wipe() {
 }
 
 // fetchQuery attempts to fetch the query from the cache.
-func (a *atomicSyncStatsCache) fetchQuery(q universe.SyncStatsQuery,
-) cachedSyncStats {
+func (a *atomicSyncStatsCache) fetchQuery(
+	q universe.SyncStatsQuery) cachedSyncStats {
 
 	assetType := func() asset.Type {
 		if q.AssetTypeFilter != nil {
@@ -816,6 +816,22 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 		return resp, nil
 	}
 
+	dbStats, err := u.reloadSyncStatsFromDB(ctx, q)
+	if err != nil {
+		log.Errorf("Unable to query sync stats: %v", err)
+		return nil, fmt.Errorf("unable to query sync stats: %w", err)
+	}
+
+	resp.SyncStats = dbStats
+
+	return resp, nil
+}
+
+// reloadSyncStatsFromDB queries the DB for the sync stats for the target
+// universe, then stores the result in the cache.
+func (u *UniverseStats) reloadSyncStatsFromDB(ctx context.Context,
+	q universe.SyncStatsQuery) ([]universe.AssetSyncSnapshot, error) {
+
 	// First, we'll map the external query to our SQL specific struct.
 	// We'll need to use the proper null types so the query works as
 	// expected.
@@ -847,7 +863,10 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 		query.AssetID = q.AssetIDFilter[:]
 	}
 
-	readTx := NewUniverseStatsReadTx()
+	var (
+		readTx = NewUniverseStatsReadTx()
+		result []universe.AssetSyncSnapshot
+	)
 	err := u.db.ExecTx(ctx, &readTx, func(db UniverseStatsStore) error {
 		// With the query constructed above, we'll now query the DB for
 		// the set of stats for each universe.
@@ -856,10 +875,7 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 			return err
 		}
 
-		resp.SyncStats = make(
-			[]universe.AssetSyncSnapshot, 0, len(assetStats),
-		)
-
+		result = make([]universe.AssetSyncSnapshot, 0, len(assetStats))
 		for _, assetStat := range assetStats {
 			stats := universe.AssetSyncSnapshot{
 				TotalSupply: uint64(assetStat.AssetSupply),
@@ -903,7 +919,7 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 				Index: uint32(assetStat.AnchorIndex),
 			}
 
-			resp.SyncStats = append(resp.SyncStats, stats)
+			result = append(result, stats)
 		}
 
 		return nil
@@ -913,7 +929,7 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 	}
 
 	// Now we'll insert the result in the cache.
-	u.syncStatsCache.storeQuery(q, resp.SyncStats)
+	u.syncStatsCache.storeQuery(q, result)
 
 	// Finally, we'll create the time after function that'll wipe the
 	// cache, forcing a refresh.
@@ -934,7 +950,7 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 		u.syncStatsCache.wipe()
 	})
 
-	return resp, nil
+	return result, nil
 }
 
 var _ universe.Telemetry = (*UniverseStats)(nil)
