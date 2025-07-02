@@ -10,8 +10,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -637,11 +637,13 @@ func (b *Book) SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
 // and transaction. If an event for that address and transaction already exists,
 // then the status and transaction information is updated instead.
 func (b *Book) GetOrCreateEvent(ctx context.Context, status Status,
-	addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
-	outputIdx uint32, outputs map[asset.ID]SendOutput) (*Event, error) {
+	addr *AddrWithKeyInfo, walletTx *wire.MsgTx, outputIdx uint32,
+	blockHeight uint32, blockHash *chainhash.Hash,
+	outputs map[asset.ID]SendOutput) (*Event, error) {
 
 	return b.cfg.Store.GetOrCreateEvent(
-		ctx, status, addr, walletTx, outputIdx, outputs,
+		ctx, status, addr, walletTx, outputIdx, blockHeight, blockHash,
+		outputs,
 	)
 }
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -440,7 +441,8 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	outputIndex := rand.Intn(len(txn.Tx.TxOut))
 
 	_, err = addrBook.GetOrCreateEvent(
-		ctx, address.Status(4), addr, txn, uint32(outputIndex), nil,
+		ctx, address.Status(4), addr, txn.Tx, uint32(outputIndex),
+		0, nil, nil,
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "constraint")
@@ -483,8 +485,9 @@ func TestAddrEventCreation(t *testing.T) {
 		outputIndex := rand.Intn(len(txns[i].Tx.TxOut))
 
 		event, err := addrBook.GetOrCreateEvent(
-			ctx, address.StatusTransactionDetected, addr, txns[i],
-			uint32(outputIndex), randOutputs(t),
+			ctx, address.StatusTransactionDetected, addr,
+			txns[i].Tx, uint32(outputIndex), 0, nil,
+			randOutputs(t),
 		)
 		require.NoError(t, err)
 
@@ -517,8 +520,8 @@ func TestAddrEventCreation(t *testing.T) {
 	for idx := range events {
 		actual, err := addrBook.GetOrCreateEvent(
 			ctx, address.StatusTransactionDetected,
-			events[idx].Addr, txns[idx], events[idx].Outpoint.Index,
-			nil,
+			events[idx].Addr, txns[idx].Tx,
+			events[idx].Outpoint.Index, 0, nil, nil,
 		)
 		require.NoError(t, err)
 
@@ -527,15 +530,19 @@ func TestAddrEventCreation(t *testing.T) {
 
 	// Now we update the status of our event, make the transaction confirmed
 	// and set the tapscript sibling to nil for all of them.
-	for idx := range events {
-		confirmTx(txns[idx])
+	for idx, event := range events {
+		txn := txns[idx]
+		confirmTx(txn)
 		events[idx].Status = address.StatusTransactionConfirmed
-		events[idx].ConfirmationHeight = uint32(txns[idx].BlockHeight)
+		events[idx].ConfirmationHeight = uint32(txn.BlockHeight)
+
+		hash, err := chainhash.NewHashFromStr(txn.TxHash)
+		require.NoError(t, err)
 
 		actual, err := addrBook.GetOrCreateEvent(
 			ctx, address.StatusTransactionConfirmed,
-			events[idx].Addr, txns[idx], events[idx].Outpoint.Index,
-			nil,
+			event.Addr, txn.Tx, event.Outpoint.Index,
+			uint32(txn.BlockHeight), hash, nil,
 		)
 		require.NoError(t, err)
 
@@ -588,8 +595,8 @@ func TestAddressEventQuery(t *testing.T) {
 		// Make sure we use all states at least once.
 		status := address.Status(i % int(address.StatusCompleted+1))
 		event, err := addrBook.GetOrCreateEvent(
-			ctx, status, addr, txn, uint32(outputIndex),
-			randOutputs(t),
+			ctx, status, addr, txn.Tx, uint32(outputIndex),
+			0, nil, randOutputs(t),
 		)
 		require.NoError(t, err)
 		require.EqualValues(t, i+1, event.ID)
@@ -855,7 +862,8 @@ func TestQueryAddrEvents(t *testing.T) {
 
 	tx := randWalletTx()
 	event, err := addrBook.GetOrCreateEvent(
-		ctx, address.StatusTransactionDetected, addr, tx, 0, nil,
+		ctx, address.StatusTransactionDetected, addr, tx.Tx, 0, 0, nil,
+		nil,
 	)
 	require.NoError(t, err)
 

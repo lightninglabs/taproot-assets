@@ -6,8 +6,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 )
 
@@ -128,9 +128,9 @@ type EventStorage interface {
 	// already exists, then the status and transaction information is
 	// updated instead.
 	GetOrCreateEvent(ctx context.Context, status Status,
-		addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
-		outputIdx uint32, outputs map[asset.ID]SendOutput) (*Event,
-		error)
+		addr *AddrWithKeyInfo, walletTx *wire.MsgTx, outputIdx uint32,
+		blockHeight uint32, blockHash *chainhash.Hash,
+		outputs map[asset.ID]SendOutput) (*Event, error)
 
 	// QueryAddrEvents returns a list of event that match the given query
 	// parameters.

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
@@ -456,12 +457,20 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			if event.ConfirmationHeight == 0 &&
 				walletTx.Confirmations > 0 {
 
-				var err error
+				blockHash, err := chainhash.NewHashFromStr(
+					walletTx.BlockHash,
+				)
+				if err != nil {
+					return fmt.Errorf("error parsing "+
+						"block hash: %w", err)
+				}
+
 				ctxt, cancel := c.CtxBlocking()
 				event, err = c.cfg.AddrBook.GetOrCreateEvent(
 					ctxt,
 					address.StatusTransactionConfirmed,
-					event.Addr, walletTx, uint32(idx),
+					event.Addr, walletTx.Tx, uint32(idx),
+					uint32(walletTx.BlockHeight), blockHash,
 					sendOutputs,
 				)
 				cancel()
@@ -699,9 +708,21 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 	// a Taproot Asset address.
 	log.Infof("Found inbound asset transfer (asset_id=%x) for Taproot "+
 		"Asset address %s in %s", addr.AssetID[:], addrStr, op.String())
-	status := address.StatusTransactionDetected
+
+	var (
+		status      = address.StatusTransactionDetected
+		blockHeight uint32
+		blockHash   *chainhash.Hash
+	)
 	if walletTx.Confirmations > 0 {
 		status = address.StatusTransactionConfirmed
+		blockHeight = uint32(walletTx.BlockHeight)
+
+		blockHash, err = chainhash.NewHashFromStr(walletTx.BlockHash)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing block hash: %w",
+				err)
+		}
 	}
 
 	// This code path is only for V0 and V1 addresses, which only have a
@@ -719,7 +740,8 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 	// Block here, a shutdown can wait on this operation.
 	ctxt, cancel = c.CtxBlocking()
 	event, err := c.cfg.AddrBook.GetOrCreateEvent(
-		ctxt, status, addr, walletTx, outputIdx, sendOutputs,
+		ctxt, status, addr, walletTx.Tx, outputIdx, blockHeight,
+		blockHash, sendOutputs,
 	)
 	cancel()
 	if err != nil {
