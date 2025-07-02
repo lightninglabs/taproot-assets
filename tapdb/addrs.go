@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -776,31 +775,30 @@ func (t *TapAddressBook) InsertScriptKey(ctx context.Context,
 // and transaction. If an event for that address and transaction already exists,
 // then the status and transaction information is updated instead.
 func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
-	status address.Status, addr *address.AddrWithKeyInfo,
-	walletTx *lndclient.Transaction, outputIdx uint32,
-	outputs map[asset.ID]address.SendOutput) (*address.Event, error) {
+	status address.Status, source address.EventSource) (*address.Event,
+	error) {
 
 	var (
 		writeTxOpts AddrBookTxOptions
 		event       *address.Event
-		txHash      = walletTx.Tx.TxHash()
+		txHash      = source.Tx.TxHash()
 	)
-	txBytes, err := fn.Serialize(walletTx.Tx)
+	txBytes, err := fn.Serialize(source.Tx)
 	if err != nil {
 		return nil, fmt.Errorf("error serializing tx: %w", err)
 	}
 	outpoint := wire.OutPoint{
 		Hash:  txHash,
-		Index: outputIdx,
+		Index: source.OutputIdx,
 	}
 	outpointBytes, err := encodeOutpoint(outpoint)
 	if err != nil {
 		return nil, fmt.Errorf("error encoding outpoint: %w", err)
 	}
-	outputDetails := walletTx.OutputDetails[outputIdx]
+	txOut := source.Tx.TxOut[source.OutputIdx]
 
 	siblingBytes, siblingHash, err := commitment.MaybeEncodeTapscriptPreimage(
-		addr.TapscriptSibling,
+		source.Addr.TapscriptSibling,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error encoding tapscript sibling: %w",
@@ -814,40 +812,29 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 			Txid:  txHash[:],
 			RawTx: txBytes,
 		}
-		if walletTx.Confirmations > 0 {
-			txUpsert.BlockHeight = sqlInt32(walletTx.BlockHeight)
-
-			// We're missing the transaction index within the block,
-			// we need to update that from the proof. Fortunately we
-			// only update fields that aren't nil in the upsert.
-			blockHash, err := chainhash.NewHashFromStr(
-				walletTx.BlockHash,
-			)
-			if err != nil {
-				return fmt.Errorf("error parsing block hash: "+
-					"%w", err)
-			}
-			txUpsert.BlockHash = blockHash[:]
+		if source.BlockHeight > 0 && source.BlockHash != nil {
+			txUpsert.BlockHeight = sqlInt32(source.BlockHeight)
+			txUpsert.BlockHash = source.BlockHash[:]
 		}
 		chainTxID, err := db.UpsertChainTx(ctx, txUpsert)
 		if err != nil {
 			return fmt.Errorf("error upserting chain TX: %w", err)
 		}
 
-		tapCommitment, err := addr.TapCommitment()
-		if err != nil {
-			return fmt.Errorf("error deriving commitment: %w", err)
+		merkleRoot := source.TaprootAssetRoot
+		if siblingHash != nil {
+			merkleRoot = asset.TapBranchHash(
+				source.TaprootAssetRoot, *siblingHash,
+			)
 		}
-		merkleRoot := tapCommitment.TapscriptRoot(siblingHash)
-		taprootAssetRoot := tapCommitment.TapscriptRoot(nil)
-		commitmentVersion := uint8(tapCommitment.Version)
 
+		internalKey := source.Addr.InternalKey
 		utxoUpsert := RawManagedUTXO{
-			RawKey:           addr.InternalKey.SerializeCompressed(),
+			RawKey:           internalKey.SerializeCompressed(),
 			Outpoint:         outpointBytes,
-			AmtSats:          outputDetails.Amount,
-			TaprootAssetRoot: taprootAssetRoot[:],
-			RootVersion:      sqlInt16(commitmentVersion),
+			AmtSats:          txOut.Value,
+			TaprootAssetRoot: source.TaprootAssetRoot[:],
+			RootVersion:      sqlInt16(source.CommitmentVersion),
 			MerkleRoot:       merkleRoot[:],
 			TapscriptSibling: siblingBytes,
 			TxnID:            chainTxID,
@@ -859,12 +846,12 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 
 		eventID, err := db.UpsertAddrEvent(ctx, UpsertAddrEvent{
 			TaprootOutputKey: schnorr.SerializePubKey(
-				&addr.TaprootOutputKey,
+				&source.Addr.TaprootOutputKey,
 			),
 			CreationTime:        t.clock.Now().UTC(),
 			Status:              int16(status),
 			Txid:                txHash[:],
-			ChainTxnOutputIndex: int32(outputIdx),
+			ChainTxnOutputIndex: int32(source.OutputIdx),
 			ManagedUtxoID:       managedUtxoID,
 		})
 		if err != nil {
@@ -873,7 +860,7 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 		}
 
 		// Upsert the address event outputs.
-		for assetID, output := range outputs {
+		for assetID, output := range source.Outputs {
 			scriptKey := output.ScriptKey
 			scriptKeyBytes := scriptKey.PubKey.SerializeCompressed()
 			internalKeyID, err := insertInternalKey(
@@ -913,7 +900,7 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 			}
 		}
 
-		event, err = fetchEvent(ctx, db, eventID, addr)
+		event, err = fetchEvent(ctx, db, eventID, source.Addr)
 		return err
 	})
 	if dbErr != nil {
