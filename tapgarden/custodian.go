@@ -333,8 +333,8 @@ func (c *Custodian) watchInboundAssets() {
 		go func() {
 			defer c.Wg.Done()
 
-			recErr := c.receiveProof(
-				event.Addr.Tap, event.Outpoint,
+			recErr := c.receiveProofs(
+				event.Addr.Tap, event.Outpoint, event.Outputs,
 				event.ConfirmationHeight,
 			)
 			if recErr != nil {
@@ -487,8 +487,9 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				go func() {
 					defer c.Wg.Done()
 
-					recErr := c.receiveProof(
+					recErr := c.receiveProofs(
 						event.Addr.Tap, op,
+						event.Outputs,
 						event.ConfirmationHeight,
 					)
 					if recErr != nil {
@@ -544,8 +545,9 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 		go func() {
 			defer c.Wg.Done()
 
-			recErr := c.receiveProof(
-				addr, op, event.ConfirmationHeight,
+			recErr := c.receiveProofs(
+				addr, op, event.Outputs,
+				event.ConfirmationHeight,
 			)
 			if recErr != nil {
 				c.publishSubscriberStatusEvent(
@@ -565,22 +567,39 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 	return nil
 }
 
+// receiveProofs attempts to receive proofs for all outputs of the given
+// address and outpoint via the proof courier service. It will iterate over
+// the outputs and call receiveProof for each one.
+func (c *Custodian) receiveProofs(addr *address.Tap, op wire.OutPoint,
+	outputs map[asset.ID]address.SendOutput, confHeight uint32) error {
+
+	// We only want to send out the "transaction confirmed" event once, even
+	// if there are multiple outputs for the same address and outpoint.
+	c.publishSubscriberStatusEvent(NewAssetReceiveEvent(
+		*addr, op, confHeight, address.StatusTransactionConfirmed,
+	))
+
+	for assetID, output := range outputs {
+		err := c.receiveProof(addr, op, assetID, output.ScriptKey)
+		if err != nil {
+			return fmt.Errorf("unable to receive proof for output "+
+				"%s in %s: %w", assetID, op.String(), err)
+		}
+	}
+
+	return nil
+}
+
 // receiveProof attempts to receive a proof for the given address and outpoint
 // via the proof courier service.
 func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint,
-	confHeight uint32) error {
+	assetID asset.ID, scriptKey asset.ScriptKey) error {
 
 	ctx, cancel := c.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	assetID := addr.AssetID
-
-	scriptKeyBytes := addr.ScriptKey.SerializeCompressed()
+	scriptKeyBytes := scriptKey.PubKey.SerializeCompressed()
 	log.Debugf("Waiting to receive proof for script key %x", scriptKeyBytes)
-
-	c.publishSubscriberStatusEvent(NewAssetReceiveEvent(
-		*addr, op, confHeight, address.StatusTransactionConfirmed,
-	))
 
 	// Initiate proof courier service handle from the proof courier address
 	// found in the Tap address.
@@ -604,22 +623,29 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint,
 	// retrieval success before this delay.
 	select {
 	case <-time.After(c.cfg.ProofRetrievalDelay):
+		log.Trace("Done with initial delay, now attempting to " +
+			"retrieve proof")
+
 	case <-ctx.Done():
 		return nil
 	}
 
 	// Attempt to receive proof via proof courier service.
 	recipient := proof.Recipient{
-		ScriptKey: &addr.ScriptKey,
+		ScriptKey: scriptKey.PubKey,
 		AssetID:   assetID,
 		Amount:    addr.Amount,
 	}
 	loc := proof.Locator{
 		AssetID:   &assetID,
 		GroupKey:  addr.GroupKey,
-		ScriptKey: addr.ScriptKey,
+		ScriptKey: *scriptKey.PubKey,
 		OutPoint:  &op,
 	}
+
+	log.Tracef("Attempting to receive proof for script key %x",
+		scriptKey.PubKey.SerializeCompressed())
+
 	addrProof, err := courier.ReceiveProof(ctx, recipient, loc)
 	if err != nil {
 		return fmt.Errorf("unable to receive proof using courier: %w",
