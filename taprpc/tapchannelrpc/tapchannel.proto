@@ -17,6 +17,7 @@ service TaprootAssetChannels {
     rpc FundChannel (FundChannelRequest) returns (FundChannelResponse);
 
     /*
+    Deprecated.
     EncodeCustomRecords allows RPC users to encode Taproot Asset channel related
     data into the TLV format that is used in the custom records of the lnd
     payment or other channel related RPCs. This RPC is completely stateless and
@@ -24,7 +25,9 @@ service TaprootAssetChannels {
     validation.
     */
     rpc EncodeCustomRecords (EncodeCustomRecordsRequest)
-        returns (EncodeCustomRecordsResponse);
+        returns (EncodeCustomRecordsResponse) {
+        option deprecated = true;
+    };
 
     /* litcli: `ln sendpayment`
     SendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method

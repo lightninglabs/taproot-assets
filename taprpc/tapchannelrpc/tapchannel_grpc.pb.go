@@ -22,6 +22,9 @@ type TaprootAssetChannelsClient interface {
 	// FundChannel initiates the channel funding negotiation with a peer for the
 	// creation of a channel that contains a specified amount of a given asset.
 	FundChannel(ctx context.Context, in *FundChannelRequest, opts ...grpc.CallOption) (*FundChannelResponse, error)
+	// Deprecated: Do not use.
+	//
+	// Deprecated.
 	// EncodeCustomRecords allows RPC users to encode Taproot Asset channel related
 	// data into the TLV format that is used in the custom records of the lnd
 	// payment or other channel related RPCs. This RPC is completely stateless and
@@ -65,6 +68,7 @@ func (c *taprootAssetChannelsClient) FundChannel(ctx context.Context, in *FundCh
 	return out, nil
 }
 
+// Deprecated: Do not use.
 func (c *taprootAssetChannelsClient) EncodeCustomRecords(ctx context.Context, in *EncodeCustomRecordsRequest, opts ...grpc.CallOption) (*EncodeCustomRecordsResponse, error) {
 	out := new(EncodeCustomRecordsResponse)
 	err := c.cc.Invoke(ctx, "/tapchannelrpc.TaprootAssetChannels/EncodeCustomRecords", in, out, opts...)
@@ -132,6 +136,9 @@ type TaprootAssetChannelsServer interface {
 	// FundChannel initiates the channel funding negotiation with a peer for the
 	// creation of a channel that contains a specified amount of a given asset.
 	FundChannel(context.Context, *FundChannelRequest) (*FundChannelResponse, error)
+	// Deprecated: Do not use.
+	//
+	// Deprecated.
 	// EncodeCustomRecords allows RPC users to encode Taproot Asset channel related
 	// data into the TLV format that is used in the custom records of the lnd
 	// payment or other channel related RPCs. This RPC is completely stateless and

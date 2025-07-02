@@ -18,7 +18,7 @@
   "paths": {
     "/v1/taproot-assets/channels/encode-custom-data": {
       "post": {
-        "summary": "EncodeCustomRecords allows RPC users to encode Taproot Asset channel related\ndata into the TLV format that is used in the custom records of the lnd\npayment or other channel related RPCs. This RPC is completely stateless and\ndoes not perform any checks on the data provided, other than pure format\nvalidation.",
+        "summary": "Deprecated.\nEncodeCustomRecords allows RPC users to encode Taproot Asset channel related\ndata into the TLV format that is used in the custom records of the lnd\npayment or other channel related RPCs. This RPC is completely stateless and\ndoes not perform any checks on the data provided, other than pure format\nvalidation.",
         "operationId": "TaprootAssetChannels_EncodeCustomRecords",
         "responses": {
           "200": {
