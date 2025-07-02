@@ -161,6 +161,19 @@ func assertEqualAddrEvent(t *testing.T, expected, actual address.Event) {
 	require.Equal(t, expectedTime.Unix(), actualTime.Unix())
 }
 
+// newEventSource creates a new address event source from the given address,
+// transaction and output index.
+func newEventSource(t *testing.T, addr *address.AddrWithKeyInfo,
+	txn *lndclient.Transaction, outputIndex uint32) address.EventSource {
+
+	src, err := address.NewSourceFromWalletTx(
+		addr, txn, outputIndex, randOutputs(t),
+	)
+	require.NoError(t, err)
+
+	return src
+}
+
 // TestAddressInsertion tests that we're always able to retrieve an address we
 // inserted into the DB.
 func TestAddressInsertion(t *testing.T) {
@@ -175,13 +188,14 @@ func TestAddressInsertion(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
+	addrVersion := test.RandFlip(address.V0, address.V1)
 	proofCourierAddr := address.RandProofCourierAddrForVersion(
-		t, address.V2,
+		t, addrVersion,
 	)
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(
-			t, chainParams, proofCourierAddr,
+		addr, assetGen, assetGroup := address.RandAddrWithVersion(
+			t, chainParams, proofCourierAddr, addrVersion,
 		)
 
 		addrs[i] = *addr
@@ -300,13 +314,14 @@ func TestAddressQuery(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
+	addrVersion := test.RandFlip(address.V0, address.V1)
 	proofCourierAddr := address.RandProofCourierAddrForVersion(
-		t, address.V2,
+		t, addrVersion,
 	)
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(
-			t, chainParams, proofCourierAddr,
+		addr, assetGen, assetGroup := address.RandAddrWithVersion(
+			t, chainParams, proofCourierAddr, addrVersion,
 		)
 
 		err := addrBook.db.ExecTx(
@@ -420,11 +435,12 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	// Make sure an event with an invalid status cannot be created. This
 	// should be protected by a CHECK constraint on the column. If this
 	// fails, you need to update that constraint in the DB!
+	addrVersion := test.RandFlip(address.V0, address.V1)
 	proofCourierAddr := address.RandProofCourierAddrForVersion(
-		t, address.V2,
+		t, addrVersion,
 	)
-	addr, assetGen, assetGroup := address.RandAddr(
-		t, chainParams, proofCourierAddr,
+	addr, assetGen, assetGroup := address.RandAddrWithVersion(
+		t, chainParams, proofCourierAddr, addrVersion,
 	)
 
 	var writeTxOpts AddrBookTxOptions
@@ -440,7 +456,8 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	outputIndex := rand.Intn(len(txn.Tx.TxOut))
 
 	_, err = addrBook.GetOrCreateEvent(
-		ctx, address.Status(4), addr, txn, uint32(outputIndex), nil,
+		ctx, address.Status(4),
+		newEventSource(t, addr, txn, uint32(outputIndex)),
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "constraint")
@@ -459,14 +476,15 @@ func TestAddrEventCreation(t *testing.T) {
 
 	// Create 5 addresses and then events with unconfirmed transactions.
 	const numAddrs = 5
+	addrVersion := test.RandFlip(address.V0, address.V1)
 	proofCourierAddr := address.RandProofCourierAddrForVersion(
-		t, address.V2,
+		t, addrVersion,
 	)
 	txns := make([]*lndclient.Transaction, numAddrs)
 	events := make([]*address.Event, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(
-			t, chainParams, proofCourierAddr,
+		addr, assetGen, assetGroup := address.RandAddrWithVersion(
+			t, chainParams, proofCourierAddr, addrVersion,
 		)
 
 		var writeTxOpts AddrBookTxOptions
@@ -483,8 +501,8 @@ func TestAddrEventCreation(t *testing.T) {
 		outputIndex := rand.Intn(len(txns[i].Tx.TxOut))
 
 		event, err := addrBook.GetOrCreateEvent(
-			ctx, address.StatusTransactionDetected, addr, txns[i],
-			uint32(outputIndex), randOutputs(t),
+			ctx, address.StatusTransactionDetected,
+			newEventSource(t, addr, txns[i], uint32(outputIndex)),
 		)
 		require.NoError(t, err)
 
@@ -515,10 +533,13 @@ func TestAddrEventCreation(t *testing.T) {
 	// If we try to create the same events again, we should just get the
 	// exact same event back.
 	for idx := range events {
+		src := newEventSource(
+			t, events[idx].Addr, txns[idx],
+			events[idx].Outpoint.Index,
+		)
+		src.Outputs = events[idx].Outputs
 		actual, err := addrBook.GetOrCreateEvent(
-			ctx, address.StatusTransactionDetected,
-			events[idx].Addr, txns[idx], events[idx].Outpoint.Index,
-			nil,
+			ctx, address.StatusTransactionDetected, src,
 		)
 		require.NoError(t, err)
 
@@ -527,15 +548,19 @@ func TestAddrEventCreation(t *testing.T) {
 
 	// Now we update the status of our event, make the transaction confirmed
 	// and set the tapscript sibling to nil for all of them.
-	for idx := range events {
-		confirmTx(txns[idx])
+	for idx, event := range events {
+		txn := txns[idx]
+		confirmTx(txn)
 		events[idx].Status = address.StatusTransactionConfirmed
-		events[idx].ConfirmationHeight = uint32(txns[idx].BlockHeight)
+		events[idx].ConfirmationHeight = uint32(txn.BlockHeight)
+
+		src := newEventSource(
+			t, event.Addr, txns[idx], event.Outpoint.Index,
+		)
+		src.Outputs = event.Outputs
 
 		actual, err := addrBook.GetOrCreateEvent(
-			ctx, address.StatusTransactionConfirmed,
-			events[idx].Addr, txns[idx], events[idx].Outpoint.Index,
-			nil,
+			ctx, address.StatusTransactionConfirmed, src,
 		)
 		require.NoError(t, err)
 
@@ -565,13 +590,14 @@ func TestAddressEventQuery(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
+	addrVersion := test.RandFlip(address.V0, address.V1)
 	proofCourierAddr := address.RandProofCourierAddrForVersion(
-		t, address.V2,
+		t, addrVersion,
 	)
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(
-			t, chainParams, proofCourierAddr,
+		addr, assetGen, assetGroup := address.RandAddrWithVersion(
+			t, chainParams, proofCourierAddr, addrVersion,
 		)
 
 		err := addrBook.db.ExecTx(
@@ -588,8 +614,8 @@ func TestAddressEventQuery(t *testing.T) {
 		// Make sure we use all states at least once.
 		status := address.Status(i % int(address.StatusCompleted+1))
 		event, err := addrBook.GetOrCreateEvent(
-			ctx, status, addr, txn, uint32(outputIndex),
-			randOutputs(t),
+			ctx, status,
+			newEventSource(t, addr, txn, uint32(outputIndex)),
 		)
 		require.NoError(t, err)
 		require.EqualValues(t, i+1, event.ID)
@@ -855,7 +881,8 @@ func TestQueryAddrEvents(t *testing.T) {
 
 	tx := randWalletTx()
 	event, err := addrBook.GetOrCreateEvent(
-		ctx, address.StatusTransactionDetected, addr, tx, 0, nil,
+		ctx, address.StatusTransactionDetected,
+		newEventSource(t, addr, tx, 0),
 	)
 	require.NoError(t, err)
 
@@ -887,11 +914,12 @@ func TestAddrByScriptKeyAndVersion(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert a test address into the database.
+	addrVersion := test.RandFlip(address.V0, address.V1)
 	proofCourierAddr := address.RandProofCourierAddrForVersion(
-		t, address.V2,
+		t, addrVersion,
 	)
-	addr, assetGen, assetGroup := address.RandAddr(
-		t, chainParams, proofCourierAddr,
+	addr, assetGen, assetGroup := address.RandAddrWithVersion(
+		t, chainParams, proofCourierAddr, addrVersion,
 	)
 	err := addrBook.db.ExecTx(
 		ctx, WriteTxOption(),
