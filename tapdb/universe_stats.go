@@ -187,6 +187,8 @@ type atomicSyncStatsCache struct {
 
 	refreshTimer atomic.Pointer[time.Timer]
 
+	isStale atomic.Bool
+
 	*cacheLogger
 }
 
@@ -226,7 +228,7 @@ func (a *atomicSyncStatsCache) resetTimer() {
 		log.Infof("Purging sync stats cache, duration=%v",
 			a.cacheDuration)
 
-		a.wipe()
+		a.isStale.Store(true)
 	}))
 }
 
@@ -829,6 +831,21 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 	u.syncStatsCache.RUnlock()
 
 	if syncSnapshots != nil {
+		// Are the cached results stale? Then we issue a new query
+		// in the background to refresh the cache.
+		if u.syncStatsCache.isStale.Load() {
+			// We use a background context as the request's context
+			// will be cancelled once the request completes.
+			ctxb := context.Background()
+			go func() {
+				_, err := u.reloadSyncStatsFromDB(ctxb, q)
+				if err != nil {
+					log.Errorf("Unable to query sync "+
+						"stats in background: %v", err)
+				}
+			}()
+		}
+
 		resp.SyncStats = syncSnapshots
 		return resp, nil
 	}
@@ -841,6 +858,21 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 	// Check again to see if the value was loaded in while we were waiting.
 	syncSnapshots = u.syncStatsCache.fetchQuery(q)
 	if syncSnapshots != nil {
+		// Are the cached results stale? Then we issue a new query
+		// in the background to refresh the cache.
+		if u.syncStatsCache.isStale.Load() {
+			// We use a background context as the request's context
+			// will be cancelled once the request completes.
+			ctxb := context.Background()
+			go func() {
+				_, err := u.reloadSyncStatsFromDB(ctxb, q)
+				if err != nil {
+					log.Errorf("Unable to query sync "+
+						"stats in background: %v", err)
+				}
+			}()
+		}
+
 		resp.SyncStats = syncSnapshots
 		return resp, nil
 	}
