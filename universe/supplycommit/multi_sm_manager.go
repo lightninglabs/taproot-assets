@@ -39,6 +39,10 @@ type MultiStateMachineManagerCfg struct {
 	// TODO(roasbeef): can make a slimmer version of
 	Chain tapgarden.ChainBridge
 
+	// DaemonAdapters is a set of adapters that allow the state machine to
+	// interact with external daemons whilst processing internal events.
+	DaemonAdapters protofsm.DaemonAdapters
+
 	// StateLog is the main state log that is used to track the state of the
 	// state machine. This is used to persist the state of the state machine
 	// across restarts.
@@ -139,6 +143,7 @@ func (m *MultiStateMachineManager) fetchStateMachine(
 	fsmCfg := protofsm.StateMachineCfg[Event, *Environment]{
 		InitialState: initialState,
 		Env:          env,
+		Daemon:       m.cfg.DaemonAdapters,
 	}
 	newSm := protofsm.NewStateMachine[Event, *Environment](fsmCfg)
 
