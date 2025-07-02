@@ -179,14 +179,21 @@ type syncStatsCache = lru.Cache[syncStatsQuery, cachedSyncStats]
 
 // atomicAssetEventsCache is an atomic wrapper around the asset events cache.
 type atomicSyncStatsCache struct {
+	sync.RWMutex
+
 	atomic.Pointer[syncStatsCache]
+
+	cacheDuration time.Duration
+
+	refreshTimer atomic.Pointer[time.Timer]
 
 	*cacheLogger
 }
 
-func newAtomicSyncStatsCache() *atomicSyncStatsCache {
+func newAtomicSyncStatsCache(duration time.Duration) *atomicSyncStatsCache {
 	return &atomicSyncStatsCache{
-		cacheLogger: newCacheLogger("sync stats"),
+		cacheDuration: duration,
+		cacheLogger:   newCacheLogger("sync stats"),
 	}
 }
 
@@ -197,6 +204,30 @@ func (a *atomicSyncStatsCache) wipe() {
 	)
 
 	a.Store(statsCache)
+}
+
+// resetTimer resets the timer that will be used to refresh the sync stats
+// cache.
+func (a *atomicSyncStatsCache) resetTimer() {
+	// Finally, we'll create the time after function that'll wipe the
+	// cache, forcing a refresh.
+	//
+	// If we already have a timer active, then stop it, so we only have a
+	// single timer going at any given time.
+	timer := a.refreshTimer.Load()
+	if timer != nil && !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+
+	a.refreshTimer.Store(time.AfterFunc(a.cacheDuration, func() {
+		log.Infof("Purging sync stats cache, duration=%v",
+			a.cacheDuration)
+
+		a.wipe()
+	}))
 }
 
 // fetchQuery attempts to fetch the query from the cache.
@@ -294,9 +325,7 @@ type UniverseStats struct {
 	assetEventsCache  assetEventsCache
 	eventsCacheLogger *cacheLogger
 
-	syncStatsMtx     sync.RWMutex
-	syncStatsCache   *atomicSyncStatsCache
-	syncStatsRefresh *time.Timer
+	syncStatsCache *atomicSyncStatsCache
 }
 
 // statsOpts defines the set of options that can be used to configure the
@@ -335,7 +364,7 @@ func NewUniverseStats(db BatchedUniverseStats, clock clock.Clock,
 		o(&opts)
 	}
 
-	atomicStatsCache := newAtomicSyncStatsCache()
+	atomicStatsCache := newAtomicSyncStatsCache(opts.cacheDuration)
 	atomicStatsCache.wipe()
 
 	return &UniverseStats{
@@ -462,8 +491,8 @@ func (u *UniverseStats) LogNewProofEvents(ctx context.Context,
 
 // querySyncStats is a helper function that's used to query the sync stats for
 // the Universe db.
-func (u *UniverseStats) querySyncStats(ctx context.Context,
-) (universe.AggregateStats, error) {
+func (u *UniverseStats) querySyncStats(
+	ctx context.Context) (universe.AggregateStats, error) {
 
 	var dbStats universe.AggregateStats
 
@@ -795,9 +824,9 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 
 	// First, check the cache to see if we already have a cached result for
 	// this query.
-	u.syncStatsMtx.RLock()
+	u.syncStatsCache.RLock()
 	syncSnapshots := u.syncStatsCache.fetchQuery(q)
-	u.syncStatsMtx.RUnlock()
+	u.syncStatsCache.RUnlock()
 
 	if syncSnapshots != nil {
 		resp.SyncStats = syncSnapshots
@@ -806,8 +835,8 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 
 	// Otherwise, we'll grab the main mutex so we can query the db then
 	// cache the result.
-	u.syncStatsMtx.Lock()
-	defer u.syncStatsMtx.Unlock()
+	u.syncStatsCache.Lock()
+	defer u.syncStatsCache.Unlock()
 
 	// Check again to see if the value was loaded in while we were waiting.
 	syncSnapshots = u.syncStatsCache.fetchQuery(q)
@@ -816,6 +845,8 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 		return resp, nil
 	}
 
+	// Our cache is completely empty for the given query, we need to wait
+	// for the DB query to complete, then cache the result.
 	dbStats, err := u.reloadSyncStatsFromDB(ctx, q)
 	if err != nil {
 		log.Errorf("Unable to query sync stats: %v", err)
@@ -928,27 +959,10 @@ func (u *UniverseStats) reloadSyncStatsFromDB(ctx context.Context,
 		return nil, err
 	}
 
-	// Now we'll insert the result in the cache.
+	// Now we'll insert the result in the cache and reset the timer, making
+	// sure the cache will be refreshed again.
 	u.syncStatsCache.storeQuery(q, result)
-
-	// Finally, we'll create the time after function that'll wipe the
-	// cache, forcing a refresh.
-	//
-	// If we already have a timer active, then stop it, so we only have a
-	// single timer going at any given time.
-	if u.syncStatsRefresh != nil && !u.syncStatsRefresh.Stop() {
-		select {
-		case <-u.syncStatsRefresh.C:
-		default:
-		}
-	}
-
-	u.syncStatsRefresh = time.AfterFunc(u.opts.cacheDuration, func() {
-		log.Infof("Purging sync stats cache, duration=%v",
-			u.opts.cacheDuration)
-
-		u.syncStatsCache.wipe()
-	})
+	u.syncStatsCache.resetTimer()
 
 	return result, nil
 }
