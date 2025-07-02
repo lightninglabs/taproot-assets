@@ -21,6 +21,18 @@ const (
 	DefaultTimeout = 30 * time.Second
 )
 
+// DaemonAdapters is a wrapper around the protofsm.DaemonAdapters interface
+// with the addition of Start and Stop methods.
+type DaemonAdapters interface {
+	protofsm.DaemonAdapters
+
+	// Start starts the daemon adapters handler service.
+	Start() error
+
+	// Stop stops the daemon adapters handler service.
+	Stop() error
+}
+
 // MultiStateMachineManagerCfg is the configuration for the
 // MultiStateMachineManager. It contains all the dependencies needed to
 // manage multiple supply commitment state machines, one for each asset group.
@@ -42,6 +54,10 @@ type MultiStateMachineManagerCfg struct {
 	//
 	// TODO(roasbeef): can make a slimmer version of
 	Chain tapgarden.ChainBridge
+
+	// DaemonAdapters is a set of adapters that allow the state machine to
+	// interact with external daemons whilst processing internal events.
+	DaemonAdapters DaemonAdapters
 
 	// StateLog is the main state log that is used to track the state of the
 	// state machine. This is used to persist the state of the state machine
@@ -87,10 +103,22 @@ func NewMultiStateMachineManager(
 
 // Start starts the multi state machine manager.
 func (m *MultiStateMachineManager) Start() error {
+	var err error
+
 	m.startOnce.Do(func() {
+		err = m.cfg.DaemonAdapters.Start()
+		if err != nil {
+			err = fmt.Errorf("unable to start daemon adapters: %w",
+				err)
+			return
+		}
 		// Initialize the state machine cache.
 		m.smCache = newStateMachineCache()
 	})
+	if err != nil {
+		return fmt.Errorf("could not start supply commit "+
+			"MultiStateMachineManager: %w", err)
+	}
 
 	return nil
 }
@@ -98,7 +126,16 @@ func (m *MultiStateMachineManager) Start() error {
 // Stop stops the multi state machine manager, which in turn stops all asset
 // group key specific supply commitment state machines.
 func (m *MultiStateMachineManager) Stop() error {
+	var err error
+
 	m.stopOnce.Do(func() {
+		err = m.cfg.DaemonAdapters.Stop()
+		if err != nil {
+			err = fmt.Errorf("unable to stop daemon adapters: %w",
+				err)
+			return
+		}
+
 		// Cancel the state machine context to signal all state machines
 		// to stop.
 		close(m.Quit)
@@ -106,6 +143,10 @@ func (m *MultiStateMachineManager) Stop() error {
 		// Stop all state machines.
 		m.smCache.StopAll()
 	})
+	if err != nil {
+		return fmt.Errorf("could not stop supply commit "+
+			"MultiStateMachineManager: %w", err)
+	}
 
 	return nil
 }
@@ -147,6 +188,7 @@ func (m *MultiStateMachineManager) fetchStateMachine(
 	fsmCfg := protofsm.StateMachineCfg[Event, *Environment]{
 		InitialState: initialState,
 		Env:          env,
+		Daemon:       m.cfg.DaemonAdapters,
 	}
 	newSm := protofsm.NewStateMachine[Event, *Environment](fsmCfg)
 
