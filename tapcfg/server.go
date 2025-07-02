@@ -111,6 +111,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	lndRouterClient := tap.NewLndRouterClient(lndServices)
 	lndInvoicesClient := tap.NewLndInvoicesClient(lndServices)
 	lndFeatureBitsVerifier := tap.NewLndFeatureBitVerifier(lndServices)
+	lndFsmDaemonAdapters := tap.NewLndFsmDaemonAdapters(lndServices)
 
 	uniDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.BaseUniverseStore {
@@ -608,13 +609,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	// manage the supply commitment state machines for each asset group.
 	supplyCommitManager := supplycommit.NewMultiStateMachineManager(
 		supplycommit.MultiStateMachineManagerCfg{
-			TreeView:    supplyTreeStore,
-			Commitments: supplyCommitStore,
-			Wallet:      walletAnchor,
-			KeyRing:     keyRing,
-			Chain:       chainBridge,
-			StateLog:    supplyCommitStore,
-			ChainParams: *tapChainParams.Params,
+			TreeView:       supplyTreeStore,
+			Commitments:    supplyCommitStore,
+			Wallet:         walletAnchor,
+			KeyRing:        keyRing,
+			Chain:          chainBridge,
+			DaemonAdapters: lndFsmDaemonAdapters,
+			StateLog:       supplyCommitStore,
+			ChainParams:    *tapChainParams.Params,
 		},
 	)
 
@@ -668,6 +670,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AssetWallet:              assetWallet,
 		CoinSelect:               coinSelect,
 		ChainPorter:              chainPorter,
+		FsmDaemonAdapters:        lndFsmDaemonAdapters,
 		SupplyCommitManager:      supplyCommitManager,
 		UniverseArchive:          uniArchive,
 		UniverseSyncer:           universeSyncer,

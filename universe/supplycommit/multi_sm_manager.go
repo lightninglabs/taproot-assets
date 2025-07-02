@@ -21,6 +21,18 @@ const (
 	DefaultTimeout = 30 * time.Second
 )
 
+// DaemonAdapters is a wrapper around the protofsm.DaemonAdapters interface
+// with the addition of Start and Stop methods.
+type DaemonAdapters interface {
+	protofsm.DaemonAdapters
+
+	// Start starts the daemon adapters handler service.
+	Start() error
+
+	// Stop stops the daemon adapters handler service.
+	Stop() error
+}
+
 // MultiStateMachineManagerCfg is the configuration for the
 // MultiStateMachineManager. It contains all the dependencies needed to
 // manage multiple supply commitment state machines, one for each asset group.
@@ -44,6 +56,10 @@ type MultiStateMachineManagerCfg struct {
 	//
 	// TODO(roasbeef): can make a slimmer version of
 	Chain tapgarden.ChainBridge
+
+	// DaemonAdapters is a set of adapters that allow the state machine to
+	// interact with external daemons whilst processing internal events.
+	DaemonAdapters DaemonAdapters
 
 	// StateLog is the main state log that is used to track the state of the
 	// state machine. This is used to persist the state of the state machine
@@ -150,6 +166,7 @@ func (m *MultiStateMachineManager) fetchStateMachine(
 	fsmCfg := protofsm.StateMachineCfg[Event, *Environment]{
 		InitialState: initialState,
 		Env:          env,
+		Daemon:       m.cfg.DaemonAdapters,
 	}
 	newSm := protofsm.NewStateMachine[Event, *Environment](fsmCfg)
 
