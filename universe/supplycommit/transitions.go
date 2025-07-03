@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
@@ -16,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/protofsm"
 )
@@ -405,19 +405,21 @@ func newRootCommitment(ctx context.Context,
 	// Determine the internal key to use for this output.
 	// If a prior root commitment exists, reuse its internal key;
 	// otherwise, generate a new one.
-	iKeyOpt := lfn.MapOption(func(r RootCommitment) *btcec.PublicKey {
-		return r.InternalKey.PubKey
+	iKeyOpt := lfn.MapOption(func(r RootCommitment) keychain.KeyDescriptor {
+		return r.InternalKey
 	})(oldCommitment)
 
 	commitInternalKey, err := iKeyOpt.UnwrapOrFuncErr(
-		func() (*btcec.PublicKey, error) {
+		func() (keychain.KeyDescriptor, error) {
+			var zero keychain.KeyDescriptor
+
 			newKey, err := wallet.DeriveNextKey(ctx)
 			if err != nil {
-				return nil, fmt.Errorf("unable to derive "+
+				return zero, fmt.Errorf("unable to derive "+
 					"next key: %w", err)
 			}
 
-			return newKey.PubKey, nil
+			return newKey, nil
 		},
 	)
 	if err != nil {
@@ -445,6 +447,21 @@ func newRootCommitment(ctx context.Context,
 		}
 	}
 
+	bip32Derivation, trBip32Derivation :=
+		tappsbt.Bip32DerivationFromKeyDesc(
+			commitInternalKey, chainParams.HDCoinType,
+		)
+
+	packetPOutput := psbt.POutput{
+		Bip32Derivation: []*psbt.Bip32Derivation{
+			bip32Derivation,
+		},
+		TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+			trBip32Derivation,
+		},
+		TaprootInternalKey: trBip32Derivation.XOnlyPubKey,
+	}
+
 	// With the inputs added, we'll now create our new commitment output. We
 	// don't know the index yet, so we'll set this to 0. We'll also re-use
 	// the current internal key for now.
@@ -463,6 +480,7 @@ func newRootCommitment(ctx context.Context,
 		return nil, nil, fmt.Errorf("unable to create PSBT: %w", err)
 	}
 	commitPkt.Inputs = packetPInputs
+	commitPkt.Outputs = []psbt.POutput{packetPOutput}
 
 	return &newSupplyCommit, commitPkt, nil
 }
