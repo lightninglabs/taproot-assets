@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -301,6 +302,9 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 		}, {
 			key:     PsbtKeyTypeOutputTapAltLeaves,
 			encoder: altLeavesEncoder(o.AltLeaves),
+		}, {
+			key:     PsbtKeyTypeOutputTapAddress,
+			encoder: addressEncoder(o.Address),
 		},
 	}
 
@@ -516,6 +520,29 @@ func urlEncoder(val *url.URL) encoderFunc {
 		)
 		if err := asset.UrlEncoder(&b, val, &scratch); err != nil {
 			return nil, fmt.Errorf("error encoding TLV record: %w",
+				err)
+		}
+
+		return []*customPsbtField{
+			{
+				Key:   fn.CopySlice(key),
+				Value: b.Bytes(),
+			},
+		}, nil
+	}
+}
+
+// addressEncoder returns a function that encodes the given Taproot Asset
+// address as a custom PSBT field. If the address is nil, it returns nil.
+func addressEncoder(val *address.Tap) encoderFunc {
+	return func(key []byte) ([]*customPsbtField, error) {
+		if val == nil {
+			return nil, nil
+		}
+
+		var b bytes.Buffer
+		if err := val.Encode(&b); err != nil {
+			return nil, fmt.Errorf("error encoding address: %w",
 				err)
 		}
 
