@@ -394,10 +394,26 @@ func newRootCommitment(ctx context.Context,
 	// as an input to the new transaction. Pre-commitments are only present
 	// on mint transactions where as the old commitment is the last
 	// commitment that was broadcast.
-	//
-	// TODO(ffranr): Do we have everything we need to fund a PSBT here?
 	oldCommitment.WhenSome(func(r RootCommitment) {
 		newCommitTx.AddTxIn(r.TxIn())
+
+		bip32Derivation, trBip32Derivation :=
+			tappsbt.Bip32DerivationFromKeyDesc(
+				r.InternalKey, chainParams.HDCoinType,
+			)
+
+		witnessUtxo := r.Txn.TxOut[r.TxOutIdx]
+
+		packetPInputs = append(packetPInputs, psbt.PInput{
+			WitnessUtxo: witnessUtxo,
+			Bip32Derivation: []*psbt.Bip32Derivation{
+				bip32Derivation,
+			},
+			TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+				trBip32Derivation,
+			},
+			TaprootInternalKey: trBip32Derivation.XOnlyPubKey,
+		})
 	})
 
 	// With the inputs available, derive the supply commitment output.
