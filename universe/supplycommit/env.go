@@ -154,7 +154,7 @@ type RootCommitment struct {
 	TxOutIdx uint32
 
 	// InternalKey is the internal key used to create the commitment output.
-	InternalKey *btcec.PublicKey
+	InternalKey keychain.KeyDescriptor
 
 	// Output key is the taproot output key used to create the commitment
 	// output.
@@ -183,7 +183,7 @@ func (r *RootCommitment) TxIn() *wire.TxIn {
 // TODO(roasbeef): expand, add support for tapscript as well
 func (r *RootCommitment) TxOut() (*wire.TxOut, error) {
 	txOut, _, err := RootCommitTxOut(
-		r.InternalKey, r.OutputKey, r.SupplyRoot.NodeHash(),
+		r.InternalKey.PubKey, r.OutputKey, r.SupplyRoot.NodeHash(),
 	)
 
 	return txOut, err
