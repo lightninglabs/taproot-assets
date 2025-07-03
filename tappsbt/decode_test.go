@@ -193,13 +193,21 @@ func TestEncodingDecoding(t *testing.T) {
 		assertEqualPackets(t, pkg, decoded)
 	}
 
+	proofCourierAddr := address.RandProofCourierAddrForVersion(
+		t, address.V2,
+	)
 	testCases := []testCase{{
 		name: "minimal packet",
 		pkg: func(t *testing.T) *VPacket {
-			proofCourierAddr := address.RandProofCourierAddr(t)
 			addr, _, _ := address.RandAddr(
 				t, testParams, proofCourierAddr,
 			)
+
+			// The address' genesis information isn't encoded, so it
+			// will be the empty genesis after decoding. To make
+			// sure we can directly compare before and after, we
+			// also attach an empty genesis to the address.
+			addr.AttachGenesis(asset.Genesis{})
 
 			pkg, err := FromAddresses([]*address.Tap{addr.Tap}, 1)
 			require.NoError(t, err)
