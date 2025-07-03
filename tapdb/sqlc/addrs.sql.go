@@ -455,6 +455,23 @@ func (q *Queries) QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([
 	return items, nil
 }
 
+const QueryLastEventHeightByAddrVersion = `-- name: QueryLastEventHeightByAddrVersion :one
+SELECT cast(coalesce(max(chain_txns.block_height), 0) AS BIGINT) AS last_height
+FROM addr_events
+JOIN chain_txns
+    ON addr_events.chain_txn_id = chain_txns.txn_id
+JOIN addrs
+    ON addr_events.addr_id = addrs.id
+WHERE addrs.version = $1
+`
+
+func (q *Queries) QueryLastEventHeightByAddrVersion(ctx context.Context, version int16) (int64, error) {
+	row := q.db.QueryRowContext(ctx, QueryLastEventHeightByAddrVersion, version)
+	var last_height int64
+	err := row.Scan(&last_height)
+	return last_height, err
+}
+
 const SetAddrManaged = `-- name: SetAddrManaged :exec
 WITH target_addr(addr_id) AS (
     SELECT id
