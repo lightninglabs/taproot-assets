@@ -219,6 +219,11 @@ type AddrBook interface {
 	// FetchAssetMetaForAsset fetches the asset meta for a given asset.
 	FetchAssetMetaForAsset(ctx context.Context,
 		assetID []byte) (AssetMeta, error)
+
+	// QueryLastEventHeightByAddrVersion queries the last event height for a
+	// given address version.
+	QueryLastEventHeightByAddrVersion(ctx context.Context,
+		version int16) (int64, error)
 }
 
 // AddrBookTxOptions defines the set of db txn options the AddrBook
@@ -1221,6 +1226,28 @@ func (t *TapAddressBook) CompleteEvent(ctx context.Context,
 
 		return nil
 	})
+}
+
+// LastEventHeightByVersion returns the last event height for a given address
+// version.
+func (t *TapAddressBook) LastEventHeightByVersion(ctx context.Context,
+	version address.Version) (uint32, error) {
+
+	var lastHeight int64
+
+	readOpts := NewAssetStoreReadTx()
+	err := t.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
+		var err error
+		lastHeight, err = db.QueryLastEventHeightByAddrVersion(
+			ctx, int16(version),
+		)
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return uint32(lastHeight), nil
 }
 
 // QueryAssetGroup attempts to fetch an asset group by its asset ID. If the
