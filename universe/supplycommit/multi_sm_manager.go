@@ -163,10 +163,14 @@ func (m *MultiStateMachineManager) fetchStateMachine(
 	// TODO(ffranr): Get initial state from disk here.
 	initialState := &DefaultState{}
 
+	// Create a new error reporter for the state machine.
+	errorReporter := NewErrorReporter(assetSpec)
+
 	fsmCfg := protofsm.StateMachineCfg[Event, *Environment]{
-		InitialState: initialState,
-		Env:          env,
-		Daemon:       m.cfg.DaemonAdapters,
+		ErrorReporter: &errorReporter,
+		InitialState:  initialState,
+		Env:           env,
+		Daemon:        m.cfg.DaemonAdapters,
 	}
 	newSm := protofsm.NewStateMachine[Event, *Environment](fsmCfg)
 
@@ -425,4 +429,27 @@ func (c *stateMachineCache) Delete(groupPubKey btcec.PublicKey) {
 	defer c.mu.Unlock()
 
 	delete(c.cache, serializedGroupKey)
+}
+
+// ErrorReporter is an asset specific error reporter that can be used to
+// report errors that occur during the operation of the asset group supply
+// commitment state machine.
+type ErrorReporter struct {
+	// assetSpec is the asset specifier that identifies the asset group.
+	assetSpec asset.Specifier
+}
+
+// NewErrorReporter creates a new ErrorReporter for the given asset specifier
+// state machine.
+func NewErrorReporter(assetSpec asset.Specifier) ErrorReporter {
+	return ErrorReporter{
+		assetSpec: assetSpec,
+	}
+}
+
+// ReportError reports an error that occurred during the operation of the
+// asset group supply commitment state machine.
+func (r *ErrorReporter) ReportError(err error) {
+	log.Errorf("supply commit state machine (asset_spec=%s): %v",
+		r.assetSpec.String(), err)
 }
