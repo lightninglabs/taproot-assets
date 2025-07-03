@@ -161,7 +161,7 @@ SELECT
     sc.commit_id,
     sc.output_index,
     sc.output_key,
-    ik.raw_key AS internal_key,
+    sqlc.embed(ik),
     txn.raw_tx,
     sc.supply_root_hash AS root_hash,
     sc.supply_root_sum AS root_sum 

@@ -406,7 +406,7 @@ func newRootCommitment(ctx context.Context,
 	// If a prior root commitment exists, reuse its internal key;
 	// otherwise, generate a new one.
 	iKeyOpt := lfn.MapOption(func(r RootCommitment) *btcec.PublicKey {
-		return r.InternalKey
+		return r.InternalKey.PubKey
 	})(oldCommitment)
 
 	commitInternalKey, err := iKeyOpt.UnwrapOrFuncErr(
@@ -427,7 +427,7 @@ func newRootCommitment(ctx context.Context,
 	// Derive the new commitment output, and add that to the update
 	// transaction.
 	supplyTxOut, tapOutKey, err := rootCommitTxOut(
-		commitInternalKey, nil, newSupplyRoot.NodeHash(),
+		commitInternalKey.PubKey, nil, newSupplyRoot.NodeHash(),
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create commitment "+
@@ -651,11 +651,12 @@ func (c *CommitTxSignState) ProcessEvent(event Event,
 		// state to disk, and also mark that that we'll transition to
 		// the CommitBroadcastState. We construct the SupplyCommitTxn
 		// struct with the details from the finalized commitment.
+		newCommit := &stateTransition.NewCommitment
 		commitTxnDetails := SupplyCommitTxn{
 			Txn:         commitTx,
-			InternalKey: stateTransition.NewCommitment.InternalKey,
-			OutputKey:   stateTransition.NewCommitment.OutputKey,
-			OutputIndex: stateTransition.NewCommitment.TxOutIdx,
+			InternalKey: newCommit.InternalKey.PubKey,
+			OutputKey:   newCommit.OutputKey,
+			OutputIndex: newCommit.TxOutIdx,
 		}
 		err = env.StateLog.InsertSignedCommitTx(
 			ctx, env.AssetSpec, commitTxnDetails,

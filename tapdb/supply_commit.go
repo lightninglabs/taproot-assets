@@ -313,7 +313,7 @@ func (s *SupplyCommitMachine) SupplyCommit(ctx context.Context,
 				err)
 		}
 
-		internalKey, err := btcec.ParsePubKey(row.InternalKey)
+		internalKey, err := parseInternalKey(row.InternalKey)
 		if err != nil {
 			return fmt.Errorf("error parsing internal key: %w", err)
 		}
@@ -826,7 +826,11 @@ func fetchCommitment(ctx context.Context, db SupplyCommitStore,
 			"fetch internal key %d for commit %d: %w",
 			commit.InternalKeyID, commitID.Int64, err)
 	}
-	internalKey, err := btcec.ParsePubKey(internalKeyRow.RawKey)
+	internalKey, err := parseInternalKey(sqlc.InternalKey{
+		RawKey:    internalKeyRow.RawKey,
+		KeyFamily: internalKeyRow.KeyFamily,
+		KeyIndex:  internalKeyRow.KeyIndex,
+	})
 	if err != nil {
 		return noneRootCommit, noneChainInfo, fmt.Errorf("failed to "+
 			"parse internal key for commit %d: %w", commitID.Int64,

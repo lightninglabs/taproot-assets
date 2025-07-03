@@ -72,7 +72,7 @@ SELECT
     sc.commit_id,
     sc.output_index,
     sc.output_key,
-    ik.raw_key AS internal_key,
+    ik.key_id, ik.raw_key, ik.key_family, ik.key_index,
     txn.raw_tx,
     sc.supply_root_hash AS root_hash,
     sc.supply_root_sum AS root_sum 
@@ -92,7 +92,7 @@ type FetchSupplyCommitRow struct {
 	CommitID    int64
 	OutputIndex sql.NullInt32
 	OutputKey   []byte
-	InternalKey []byte
+	InternalKey InternalKey
 	RawTx       []byte
 	RootHash    []byte
 	RootSum     sql.NullInt64
@@ -105,7 +105,10 @@ func (q *Queries) FetchSupplyCommit(ctx context.Context, groupKey []byte) (Fetch
 		&i.CommitID,
 		&i.OutputIndex,
 		&i.OutputKey,
-		&i.InternalKey,
+		&i.InternalKey.KeyID,
+		&i.InternalKey.RawKey,
+		&i.InternalKey.KeyFamily,
+		&i.InternalKey.KeyIndex,
 		&i.RawTx,
 		&i.RootHash,
 		&i.RootSum,
