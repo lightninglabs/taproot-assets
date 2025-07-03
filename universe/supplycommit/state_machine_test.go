@@ -791,10 +791,13 @@ func TestSupplyCommitTxSignStateTransitions(t *testing.T) {
 	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
 	dummyTx := wire.NewMsgTx(2)
 	dummyTx.AddTxOut(&wire.TxOut{PkScript: []byte("test"), Value: 1})
+
+	internalKey, _ := test.RandKeyDesc(t)
+
 	initialTransition := SupplyStateTransition{
 		NewCommitment: RootCommitment{
 			Txn:         dummyTx,
-			InternalKey: test.RandPubKey(t),
+			InternalKey: internalKey,
 			TxOutIdx:    0,
 		},
 	}

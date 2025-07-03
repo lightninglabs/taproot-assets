@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
@@ -16,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/protofsm"
 )
@@ -405,19 +405,21 @@ func newRootCommitment(ctx context.Context,
 	// Determine the internal key to use for this output.
 	// If a prior root commitment exists, reuse its internal key;
 	// otherwise, generate a new one.
-	iKeyOpt := lfn.MapOption(func(r RootCommitment) *btcec.PublicKey {
+	iKeyOpt := lfn.MapOption(func(r RootCommitment) keychain.KeyDescriptor {
 		return r.InternalKey
 	})(oldCommitment)
 
 	commitInternalKey, err := iKeyOpt.UnwrapOrFuncErr(
-		func() (*btcec.PublicKey, error) {
+		func() (keychain.KeyDescriptor, error) {
+			var zero keychain.KeyDescriptor
+
 			newKey, err := keyRing.DeriveNextTaprootAssetKey(ctx)
 			if err != nil {
-				return nil, fmt.Errorf("unable to derive "+
+				return zero, fmt.Errorf("unable to derive "+
 					"next key: %w", err)
 			}
 
-			return newKey.PubKey, nil
+			return newKey, nil
 		},
 	)
 	if err != nil {
@@ -427,7 +429,7 @@ func newRootCommitment(ctx context.Context,
 	// Derive the new commitment output, and add that to the update
 	// transaction.
 	supplyTxOut, tapOutKey, err := RootCommitTxOut(
-		commitInternalKey, nil, newSupplyRoot.NodeHash(),
+		commitInternalKey.PubKey, nil, newSupplyRoot.NodeHash(),
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create commitment "+
@@ -651,11 +653,12 @@ func (c *CommitTxSignState) ProcessEvent(event Event,
 		// state to disk, and also mark that that we'll transition to
 		// the CommitBroadcastState. We construct the SupplyCommitTxn
 		// struct with the details from the finalized commitment.
+		newCommit := &stateTransition.NewCommitment
 		commitTxnDetails := SupplyCommitTxn{
 			Txn:         commitTx,
-			InternalKey: stateTransition.NewCommitment.InternalKey,
-			OutputKey:   stateTransition.NewCommitment.OutputKey,
-			OutputIndex: stateTransition.NewCommitment.TxOutIdx,
+			InternalKey: newCommit.InternalKey.PubKey,
+			OutputKey:   newCommit.OutputKey,
+			OutputIndex: newCommit.TxOutIdx,
 		}
 		err = env.StateLog.InsertSignedCommitTx(
 			ctx, env.AssetSpec, commitTxnDetails,
