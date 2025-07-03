@@ -227,3 +227,12 @@ WHERE addr_events.status >= @status_from
   AND COALESCE(@addr_taproot_key, addrs.taproot_output_key) = addrs.taproot_output_key
   AND addr_events.creation_time >= @created_after
 ORDER by addr_events.creation_time;
+
+-- name: QueryLastEventHeightByAddrVersion :one
+SELECT cast(coalesce(max(chain_txns.block_height), 0) AS BIGINT) AS last_height
+FROM addr_events
+JOIN chain_txns
+    ON addr_events.chain_txn_id = chain_txns.txn_id
+JOIN addrs
+    ON addr_events.addr_id = addrs.id
+WHERE addrs.version = $1;

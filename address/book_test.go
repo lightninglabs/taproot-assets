@@ -145,8 +145,8 @@ func TestBook_QueryAssetInfo(t *testing.T) {
 		expectsError: false,
 	}}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			mockStorage := &MockStorage{}
 			mockSyncer := &MockAssetSyncer{}
 			book := NewBook(BookConfig{
@@ -156,9 +156,9 @@ func TestBook_QueryAssetInfo(t *testing.T) {
 				Chain:        ChainParams{},
 				StoreTimeout: time.Second,
 			})
-			test.setupMocks(mockStorage, mockSyncer)
-			_, err := book.QueryAssetInfo(ctx, test.specifier)
-			if test.expectsError {
+			tc.setupMocks(mockStorage, mockSyncer)
+			_, err := book.QueryAssetInfo(ctx, tc.specifier)
+			if tc.expectsError {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
@@ -172,6 +172,13 @@ func TestBook_QueryAssetInfo(t *testing.T) {
 // MockStorage is a mock implementation of the Storage interface.
 type MockStorage struct {
 	mock.Mock
+}
+
+func (m *MockStorage) LastEventHeightByVersion(ctx context.Context,
+	version Version) (uint32, error) {
+
+	args := m.Called(ctx, version)
+	return args.Get(0).(uint32), args.Error(1)
 }
 
 func (m *MockStorage) AddrByScriptKeyAndVersion(ctx context.Context,
