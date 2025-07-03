@@ -447,6 +447,21 @@ func newRootCommitment(ctx context.Context,
 		}
 	}
 
+	bip32Derivation, trBip32Derivation :=
+		tappsbt.Bip32DerivationFromKeyDesc(
+			commitInternalKey, chainParams.HDCoinType,
+		)
+
+	packetPOutput := psbt.POutput{
+		Bip32Derivation: []*psbt.Bip32Derivation{
+			bip32Derivation,
+		},
+		TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+			trBip32Derivation,
+		},
+		TaprootInternalKey: trBip32Derivation.XOnlyPubKey,
+	}
+
 	// With the inputs added, we'll now create our new commitment output. We
 	// don't know the index yet, so we'll set this to 0. We'll also re-use
 	// the current internal key for now.
@@ -465,6 +480,7 @@ func newRootCommitment(ctx context.Context,
 		return nil, nil, fmt.Errorf("unable to create PSBT: %w", err)
 	}
 	commitPkt.Inputs = packetPInputs
+	commitPkt.Outputs = []psbt.POutput{packetPOutput}
 
 	return &newSupplyCommit, commitPkt, nil
 }
