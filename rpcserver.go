@@ -7394,10 +7394,26 @@ func (r *rpcServer) AddAssetBuyOrder(ctx context.Context,
 
 	timeout := time.After(time.Second * time.Duration(req.TimeoutSeconds))
 
+	type (
+		targetEventType = *rfq.PeerAcceptedBuyQuoteEvent
+		rejectEventType = *rfq.InvalidQuoteRespEvent
+	)
+
 	for {
-		type targetEventType = *rfq.PeerAcceptedBuyQuoteEvent
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
+			reject, ok := event.(rejectEventType)
+			if ok {
+				if reject.QuoteResponse.MsgPeer() ==
+					*buyOrder.Peer.UnwrapToPtr() {
+
+					return nil, fmt.Errorf("peer %s "+
+						"rejected quote %v",
+						peer.String(),
+						reject.QuoteResponse.String())
+				}
+			}
+
 			acceptedQuote, ok := event.(targetEventType)
 			if !ok {
 				rpcsLog.Debugf("Received event of type %T "+
@@ -7588,10 +7604,26 @@ func (r *rpcServer) AddAssetSellOrder(ctx context.Context,
 
 	timeout := time.After(time.Second * time.Duration(req.TimeoutSeconds))
 
+	type (
+		targetEventType = *rfq.PeerAcceptedSellQuoteEvent
+		rejectEventType = *rfq.InvalidQuoteRespEvent
+	)
+
 	for {
-		type targetEventType = *rfq.PeerAcceptedSellQuoteEvent
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
+			reject, ok := event.(rejectEventType)
+			if ok {
+				if reject.QuoteResponse.MsgPeer() ==
+					*sellOrder.Peer.UnwrapToPtr() {
+
+					return nil, fmt.Errorf("peer %s "+
+						"rejected quote %v",
+						peer.String(),
+						reject.QuoteResponse.String())
+				}
+			}
+
 			acceptedQuote, ok := event.(targetEventType)
 			if !ok {
 				rpcsLog.Debugf("Received event of type %T "+
