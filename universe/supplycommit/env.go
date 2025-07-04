@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -18,6 +19,12 @@ import (
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+)
+
+const (
+	// DefaultCommitConfTarget is the default confirmation target used when
+	// crafting the commitment transaction. This is used in fee estimation.
+	DefaultCommitConfTarget = 6
 )
 
 // SupplySubTree is an enum that represents the different types of supply sub
@@ -82,18 +89,20 @@ func (s SupplyTrees) FetchOrCreate(treeType SupplySubTree) mssmt.Tree {
 // to date snapshot of the root supply tree, as the sub trees (ignore, burn,
 // mint) committed in the main supply tree.
 type SupplyTreeView interface {
-	// FetchSubStree returns the sub tree for the given asset spec. This
+	// FetchSubTree returns the sub tree for the given asset spec. This
 	// instance returned should be a copy, as mutations make take place in
 	// the tree.
-	FetchSubTree(assetSpec asset.Specifier,
+	FetchSubTree(ctx context.Context, assetSpec asset.Specifier,
 		treeType SupplySubTree) lfn.Result[mssmt.Tree]
 
 	// FetchSubTrees returns all the sub trees for the given asset spec.
-	FetchSubTrees(assetSpec asset.Specifier) lfn.Result[SupplyTrees]
+	FetchSubTrees(ctx context.Context,
+		assetSpec asset.Specifier) lfn.Result[SupplyTrees]
 
 	// FetchRootSupplyTree returns the root supply tree which contains a
 	// commitment to each of the sub trees.
-	FetchRootSupplyTree(assetSpec asset.Specifier) lfn.Result[mssmt.Tree]
+	FetchRootSupplyTree(ctx context.Context,
+		assetSpec asset.Specifier) lfn.Result[mssmt.Tree]
 }
 
 // PreCommitment is a struct that represents a pre-commitment to an asset
@@ -114,7 +123,7 @@ type PreCommitment struct {
 
 	// InternalKey is the Taproot internal public key associated with the
 	// pre-commitment output.
-	InternalKey btcec.PublicKey
+	InternalKey keychain.KeyDescriptor
 
 	// GroupPubKey is the asset group public key associated with this
 	// pre-commitment output.
@@ -145,7 +154,7 @@ type RootCommitment struct {
 	TxOutIdx uint32
 
 	// InternalKey is the internal key used to create the commitment output.
-	InternalKey *btcec.PublicKey
+	InternalKey keychain.KeyDescriptor
 
 	// Output key is the taproot output key used to create the commitment
 	// output.
@@ -173,11 +182,21 @@ func (r *RootCommitment) TxIn() *wire.TxIn {
 //
 // TODO(roasbeef): expand, add support for tapscript as well
 func (r *RootCommitment) TxOut() (*wire.TxOut, error) {
-	// First, obtain the root hash of the supply tree.
-	supplyRootHash := r.SupplyRoot.NodeHash()
+	txOut, _, err := rootCommitTxOut(
+		r.InternalKey.PubKey, r.OutputKey, r.SupplyRoot.NodeHash(),
+	)
 
-	var taprootKey *btcec.PublicKey
-	if r.OutputKey == nil {
+	return txOut, err
+}
+
+// rootCommitTxOut returns the transaction output that corresponds to the root
+// commitment. This is used to create a new commitment output.
+func rootCommitTxOut(internalKey *btcec.PublicKey,
+	tapOutKey *btcec.PublicKey, supplyRootHash mssmt.NodeHash) (*wire.TxOut,
+	*btcec.PublicKey, error) {
+
+	var taprootOutputKey *btcec.PublicKey
+	if tapOutKey == nil {
 		// We'll create a new unspendable output that contains a
 		// commitment to the root.
 		//
@@ -186,28 +205,32 @@ func (r *RootCommitment) TxOut() (*wire.TxOut, error) {
 			asset.PedersenVersion, supplyRootHash[:],
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create leaf: %w", err)
+			return nil, nil, fmt.Errorf("unable to create leaf: %w",
+				err)
 		}
 
 		tapscriptTree := txscript.AssembleTaprootScriptTree(tapLeaf)
 
 		rootHash := tapscriptTree.RootNode.TapHash()
-		taprootKey = txscript.ComputeTaprootOutputKey(
-			r.InternalKey, rootHash[:],
+		taprootOutputKey = txscript.ComputeTaprootOutputKey(
+			internalKey, rootHash[:],
 		)
 	} else {
-		taprootKey = r.OutputKey
+		taprootOutputKey = tapOutKey
 	}
 
-	pkScript, err := txscript.PayToTaprootScript(taprootKey)
+	pkScript, err := txscript.PayToTaprootScript(taprootOutputKey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create pk script: %w", err)
+		return nil, nil, fmt.Errorf("unable to create pk script: %w",
+			err)
 	}
 
-	return &wire.TxOut{
+	txOut := wire.TxOut{
 		Value:    int64(tapsend.DummyAmtSats),
 		PkScript: pkScript,
-	}, nil
+	}
+
+	return &txOut, taprootOutputKey, nil
 }
 
 // ChainProof stores the information needed to prove that a given supply commit
@@ -284,9 +307,8 @@ type Wallet interface {
 		feeRate chainfee.SatPerKWeight,
 		changeIdx int32) (*tapsend.FundedPsbt, error)
 
-	// SignAndFinalizePsbt fully signs and finalizes the target PSBT
-	// packet.
-	SignAndFinalizePsbt(context.Context, *psbt.Packet) (*psbt.Packet, error)
+	// SignPsbt fully signs the target PSBT packet.
+	SignPsbt(context.Context, *psbt.Packet) (*psbt.Packet, error)
 
 	// ImportTaprootOutput imports a new public key into the wallet, as a
 	// P2TR output.
@@ -315,10 +337,10 @@ type StateMachineStore interface {
 	// returned.
 	//
 	// This method will also create a new pending SupplyStateTransition.
-	InsertPendingUpdate(context.Context, asset.
-		Specifier, SupplyUpdateEvent) error
+	InsertPendingUpdate(context.Context, asset.Specifier,
+		SupplyUpdateEvent) error
 
-	// InsertSignedCommitmentTx will associated a new signed commitment
+	// InsertSignedCommitTx will associated a new signed commitment
 	// anchor transaction with the current active supply commitment state
 	// transition. This'll update the existing funded txn with a signed
 	// copy. Finally the state of the  supply commit state transition will
@@ -326,7 +348,7 @@ type StateMachineStore interface {
 	InsertSignedCommitTx(context.Context, asset.Specifier,
 		SupplyCommitTxn) error
 
-	// State is used to commit the state of the state machine to then
+	// CommitState is used to commit the state of the state machine to then
 	// disk.
 	CommitState(context.Context, asset.Specifier, State) error
 
@@ -393,6 +415,10 @@ type Environment struct {
 	// CommitConfTarget is the confirmation target used when crafting the
 	// commitment transaction.
 	CommitConfTarget uint32
+
+	// ChainParams is the chain parameters for the chain that we're
+	// operating on.
+	ChainParams chaincfg.Params
 }
 
 // SupplyCommitTxn encapsulates the details of the transaction that creates a

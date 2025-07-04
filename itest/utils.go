@@ -979,6 +979,29 @@ func SubscribeSendEvents(t *testing.T,
 	}
 }
 
+// SubscribeSupplyCommitEvents subscribes to supply commit events and returns
+// the event stream.
+//
+// nolint: lll
+func SubscribeSupplyCommitEvents(t *testing.T, tapd commands.RpcClientsBundle,
+	assetGroupKey btcec.PublicKey) *EventSubscription[*unirpc.SupplyCommitEvent] {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithCancel(ctxb)
+
+	stream, err := tapd.SubscribeSupplyCommitEvents(
+		ctxt, &unirpc.SubscribeSupplyCommitEventsRequest{
+			GroupKey: assetGroupKey.SerializeCompressed(),
+		},
+	)
+	require.NoError(t, err)
+
+	return &EventSubscription[*unirpc.SupplyCommitEvent]{
+		ClientEventStream: stream,
+		Cancel:            cancel,
+	}
+}
+
 // SubscribeReceiveEvents subscribes to receive events and returns the event
 // stream.
 //

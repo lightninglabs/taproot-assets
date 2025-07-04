@@ -3619,10 +3619,18 @@ func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
 	AssertSendEventsComplete(t.t, bobAddr.ScriptKey, sendEvents)
 }
 
+// sendAssetAndAssertResponse is a struct that holds the response of a
+// sendAssetsToAddr call.
+type sendAssetAndAssertResponse struct {
+	// SendResp is the response of the sendAssetsToAddr call.
+	SendResp *taprpc.SendAssetResponse
+}
+
 func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
 	bob *tapdHarness, numUnits, change uint64,
 	genInfo *taprpc.GenesisInfo, mintedAsset *taprpc.Asset,
-	outTransferIdx, numOutTransfers, numInTransfers int) {
+	outTransferIdx, numOutTransfers,
+	numInTransfers int) sendAssetAndAssertResponse {
 
 	// And finally, we make sure that we can send out one of the asset UTXOs
 	// that shared the anchor output and the other one is treated as a
@@ -3645,6 +3653,10 @@ func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
 	// appear in that RPC output).
 	AssertNonInteractiveRecvComplete(t.t, bob, numInTransfers)
 	AssertSendEventsComplete(t.t, bobAddr.ScriptKey, sendEvents)
+
+	return sendAssetAndAssertResponse{
+		SendResp: sendResp,
+	}
 }
 
 func signPacket(t *testing.T, lnd *node.HarnessNode,

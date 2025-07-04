@@ -72,7 +72,7 @@ SELECT
     sc.commit_id,
     sc.output_index,
     sc.output_key,
-    ik.raw_key AS internal_key,
+    ik.key_id, ik.raw_key, ik.key_family, ik.key_index,
     txn.raw_tx,
     sc.supply_root_hash AS root_hash,
     sc.supply_root_sum AS root_sum 
@@ -92,7 +92,7 @@ type FetchSupplyCommitRow struct {
 	CommitID    int64
 	OutputIndex sql.NullInt32
 	OutputKey   []byte
-	InternalKey []byte
+	InternalKey InternalKey
 	RawTx       []byte
 	RootHash    []byte
 	RootSum     sql.NullInt64
@@ -105,7 +105,10 @@ func (q *Queries) FetchSupplyCommit(ctx context.Context, groupKey []byte) (Fetch
 		&i.CommitID,
 		&i.OutputIndex,
 		&i.OutputKey,
-		&i.InternalKey,
+		&i.InternalKey.KeyID,
+		&i.InternalKey.RawKey,
+		&i.InternalKey.KeyFamily,
+		&i.InternalKey.KeyIndex,
 		&i.RawTx,
 		&i.RootHash,
 		&i.RootSum,
@@ -116,7 +119,7 @@ func (q *Queries) FetchSupplyCommit(ctx context.Context, groupKey []byte) (Fetch
 const FetchUnspentPrecommits = `-- name: FetchUnspentPrecommits :many
 SELECT
     mac.tx_output_index,
-    ik.raw_key AS taproot_internal_key,
+    ik.key_id, ik.raw_key, ik.key_family, ik.key_index,
     mac.group_key,
     mint_txn.block_height,
     mint_txn.raw_tx
@@ -133,13 +136,15 @@ WHERE
 `
 
 type FetchUnspentPrecommitsRow struct {
-	TxOutputIndex      int32
-	TaprootInternalKey []byte
-	GroupKey           []byte
-	BlockHeight        sql.NullInt32
-	RawTx              []byte
+	TxOutputIndex int32
+	InternalKey   InternalKey
+	GroupKey      []byte
+	BlockHeight   sql.NullInt32
+	RawTx         []byte
 }
 
+// Fetch unspent pre-commitment outputs. A pre-commitment output is a mint
+// anchor transaction output which relates to the supply commitment feature.
 func (q *Queries) FetchUnspentPrecommits(ctx context.Context, groupKey []byte) ([]FetchUnspentPrecommitsRow, error) {
 	rows, err := q.db.QueryContext(ctx, FetchUnspentPrecommits, groupKey)
 	if err != nil {
@@ -151,7 +156,10 @@ func (q *Queries) FetchUnspentPrecommits(ctx context.Context, groupKey []byte) (
 		var i FetchUnspentPrecommitsRow
 		if err := rows.Scan(
 			&i.TxOutputIndex,
-			&i.TaprootInternalKey,
+			&i.InternalKey.KeyID,
+			&i.InternalKey.RawKey,
+			&i.InternalKey.KeyFamily,
+			&i.InternalKey.KeyIndex,
 			&i.GroupKey,
 			&i.BlockHeight,
 			&i.RawTx,

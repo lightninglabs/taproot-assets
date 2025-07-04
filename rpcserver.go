@@ -57,6 +57,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -111,6 +112,7 @@ const (
 	maxRfqHopHints = 20
 )
 
+// nolint: lll
 type (
 	// devSendEventStream is a type alias for the asset send event
 	// notification stream.
@@ -147,6 +149,10 @@ type (
 	// receiveComplete is a type alias for the complete event that is sent
 	// when an asset is received.
 	receiveComplete = tapdevrpc.ReceiveAssetEvent_AssetReceiveCompleteEvent
+
+	// supplyCommitEventStream is a type alias for the supply commit
+	// event notification stream.
+	supplyCommitEventStream = unirpc.Universe_SubscribeSupplyCommitEventsServer
 
 	// EventStream is a generic interface type for notification streams.
 	EventStream[T any] interface {
@@ -3794,6 +3800,168 @@ func marshalOutputType(outputType tappsbt.VOutputType) (taprpc.OutputType,
 	}
 }
 
+// IgnoreAssetOutPointRequest is the request type for the IgnoreAssetOutPoint
+// RPC method.
+type IgnoreAssetOutPointRequest struct {
+	// AssetAnchorPoint is the asset anchor point to ignore.
+	AssetAnchorPoint asset.AnchorPoint
+
+	// Amount is the amount of the asset at the anchor outpoint.
+	Amount uint64
+}
+
+// unmarshalIgnoreAssetOutPointRequest converts the RPC request into the
+// native request type.
+func unmarshalIgnoreAssetOutPointRequest(
+	req *unirpc.IgnoreAssetOutPointRequest) (IgnoreAssetOutPointRequest,
+	error) {
+
+	var zero IgnoreAssetOutPointRequest
+
+	// Parse asset outpoint from the request.
+	assetOutPoint, err := rpcutils.UnmarshalAssetOutPoint(req.AssetOutPoint)
+	if err != nil {
+		return zero, fmt.Errorf("failed to parse asset outpoint: %w",
+			err)
+	}
+
+	return IgnoreAssetOutPointRequest{
+		AssetAnchorPoint: assetOutPoint,
+		Amount:           req.Amount,
+	}, nil
+}
+
+// IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
+// as ignored. An ignored outpoint will be included in the next universe
+// commitment transaction that is published.
+func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
+	rpcReq *unirpc.IgnoreAssetOutPointRequest) (
+	*unirpc.IgnoreAssetOutPointResponse, error) {
+
+	// Unmarshal the request into the native type.
+	req, err := unmarshalIgnoreAssetOutPointRequest(rpcReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal request: %w", err)
+	}
+
+	assetID := req.AssetAnchorPoint.ID
+
+	// Fetch the asset group for the given asset ID.
+	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(ctx, assetID)
+	if err != nil {
+		return nil, fmt.Errorf("fail to find asset group given "+
+			"asset ID: %w", err)
+	}
+
+	// Formulate an asset specifier from the asset ID and group key.
+	assetSpec := asset.NewSpecifierOptionalGroupKey(
+		assetID, assetGroup.GroupKey,
+	)
+
+	// Retrieve asset meta reveal for the asset ID. This will be used to
+	// obtain the supply commitment delegation key.
+	metaReveal, err := r.cfg.TapAddrBook.FetchAssetMetaForAsset(
+		ctx, assetID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("faild to fetch asset meta: %w", err)
+	}
+
+	// Extract supply commitment delegation pub key from the asset metadata.
+	delegationPubKey, err := metaReveal.DelegationKey.UnwrapOrErr(
+		fmt.Errorf("delegation key not found for given asset"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch the full delegation key locator.
+	delegationKey, err := r.cfg.TapAddrBook.FetchInternalKeyLocator(
+		ctx, &delegationPubKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch delegation key "+
+			"locator: %w", err)
+	}
+
+	// Formulate the ignore entry and sign it with the delegation key.
+	ignoreTuple := universe.IgnoreTuple{
+		PrevID: req.AssetAnchorPoint,
+		Amount: req.Amount,
+	}
+
+	signedIgnore, err := ignoreTuple.GenSignedIgnore(
+		ctx, r.cfg.Lnd.Signer, delegationKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign ignore tuple: %w", err)
+	}
+
+	// Upsert a signed ignore tuple into the ignore tree archive and
+	// get back the authenticated ignore tuples.
+	ignoreEvent := supplycommit.NewIgnoreEvent{
+		SignedIgnoreTuple: signedIgnore,
+	}
+	err = r.cfg.SupplyCommitManager.SendEvent(ctx, assetSpec, &ignoreEvent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upsert ignore tuple: %w", err)
+	}
+
+	return &unirpc.IgnoreAssetOutPointResponse{}, nil
+}
+
+// UpdateSupplyCommit updates the on-chain supply commitment for a specific
+// asset group.
+func (r *rpcServer) UpdateSupplyCommit(ctx context.Context,
+	req *unirpc.UpdateSupplyCommitRequest) (
+	*unirpc.UpdateSupplyCommitResponse, error) {
+
+	// Parse asset group key from the request.
+	groupPubKey, err := btcec.ParsePubKey(req.GroupKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse group key: %w", err)
+	}
+
+	// We will now check to ensure that universe commitments are enabled for
+	// the asset group.
+	//
+	// Look up the asset group by the group key.
+	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByGroupKey(
+		ctx, groupPubKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find asset group "+
+			"given group key: %w", err)
+	}
+
+	// Fetch the asset metadata given the group anchor asset ID.
+	metaReveal, err := r.cfg.TapAddrBook.FetchAssetMetaForAsset(
+		ctx, assetGroup.ID(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("faild to fetch asset meta: %w", err)
+	}
+
+	// Ensure that universe commitment is enabled for the asset group.
+	if !metaReveal.UniverseCommitments {
+		return nil, fmt.Errorf("universe commitment is not " +
+			"enabled for asset group anchor asset")
+	}
+
+	// Formulate an asset specifier from the asset ID and group key.
+	assetSpec := asset.NewSpecifierFromGroupKey(*groupPubKey)
+
+	// Send a commit tick event to the supply commitment manager.
+	event := supplycommit.CommitTickEvent{}
+	err = r.cfg.SupplyCommitManager.SendEvent(ctx, assetSpec, &event)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send commit tick event: %w",
+			err)
+	}
+
+	return &unirpc.UpdateSupplyCommitResponse{}, nil
+}
+
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(
@@ -4083,6 +4251,62 @@ func (r *rpcServer) SubscribeMintEvents(req *mintrpc.SubscribeMintEventsRequest,
 	)
 }
 
+// SubscribeSupplyCommitEvents registers a subscription to the event
+// notification stream of the supply commitment process.
+func (r *rpcServer) SubscribeSupplyCommitEvents(
+	req *unirpc.SubscribeSupplyCommitEventsRequest,
+	ntfnStream supplyCommitEventStream) error {
+
+	// Parse asset group key from the request.
+	groupKey, err := btcec.ParsePubKey(req.GroupKey)
+	if err != nil {
+		return fmt.Errorf("failed to parse group key: %w", err)
+	}
+
+	// Formulate an asset specifier from the user provided group key.
+	assetSpec := asset.NewSpecifierFromGroupKey(*groupKey)
+
+	// Subscribe to the supply commit state events for the given asset
+	// specifier.
+	sub, err := r.cfg.SupplyCommitManager.RegisterStateEvents(assetSpec)
+	if err != nil {
+		return fmt.Errorf("failed to register for supply commit "+
+			"state events: %w", err)
+	}
+
+	// Remove the subscriber when we're done.
+	defer func() {
+		err := r.cfg.SupplyCommitManager.RemoveStateSub(assetSpec, sub)
+		if err != nil {
+			rpcsLog.Errorf("Error unsubscribing subscriber: %v",
+				err)
+		}
+	}()
+
+	// Extract the event channel from the subscription.
+	eventChan := sub.NewItemCreated.ChanOut()
+
+	// Define the RPC event marshaler and event filter functions for the
+	// event stream.
+	marshaler := func(event supplycommit.FsmState) (
+		*unirpc.SupplyCommitEvent, error) {
+
+		return &unirpc.SupplyCommitEvent{
+			State: event.String(),
+		}, nil
+	}
+
+	// No filter parameters are currently supported.
+	filter := func(event supplycommit.FsmState) (bool, error) {
+		return true, nil
+	}
+
+	// nolint: lll
+	return handleSubEventChan[supplycommit.FsmState, *unirpc.SupplyCommitEvent](
+		eventChan, ntfnStream, marshaler, filter, r.quit,
+	)
+}
+
 // handleEvents is a helper function that reads events from an event source and
 // forwards them to an RPC stream.
 func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
@@ -4114,6 +4338,24 @@ func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
 		}
 	}()
 
+	eventChan := eventSubscriber.NewItemCreated.ChanOut()
+
+	return handleSubEventChan(
+		eventChan, stream, marshaler, filter, quit,
+	)
+}
+
+// handleSubEventChan reads events from a subscriber channel and forwards them
+// to the RPC stream.
+//
+//   - EventT is the type of the event that will be received from the event
+//     subscriber channel.
+//   - EventRpcT is the type of the RPC event that will be sent over the stream.
+func handleSubEventChan[EventT any, EventRpcT any](
+	eventChan <-chan EventT, stream EventStream[EventRpcT],
+	marshaler func(EventT) (EventRpcT, error),
+	filter func(EventT) (bool, error), quit <-chan struct{}) error {
+
 	// Loop and read from the event subscription and forward to the RPC
 	// stream.
 	for {
@@ -4121,7 +4363,7 @@ func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
 		// Handle receiving a new event from the event source. The event
 		// will be mapped to the RPC event type and sent over the
 		// stream.
-		case event := <-eventSubscriber.NewItemCreated.ChanOut():
+		case event := <-eventChan:
 			// Give the caller a chance to decide if this event
 			// should be notified on or not.
 			shouldNotify, err := filter(event)
