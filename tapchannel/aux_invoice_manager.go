@@ -264,8 +264,19 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 
 	// We assume that each shard can have a rounding error of up to 1 asset
 	// unit. So we allow the final amount to be off by up to 1 asset unit
-	// per accepted HTLC (plus the one we're currently processing).
+	// per accepted HTLC (plus the one we're currently processing). The
+	// plus one here is because the invoice only has previously accepted
+	// HTLCs committed to it, but we're processing the current HTLC which
+	// is not yet in that list.
 	allowedMarginAssetUnits := uint64(len(req.Invoice.Htlcs) + 1)
+
+	// Because we do a round trip of units -> milli-sats, then split into
+	// shards, then back to units and then back to milli-sats again, we lose
+	// up to numHTLCs+1 asset units in the process. So we allow for an
+	// additional unit here.
+	allowedMarginAssetUnits++
+
+	// Convert the allowed margin asset units to milli-satoshis.
 	marginAssetUnits := rfqmath.NewBigIntFixedPoint(
 		allowedMarginAssetUnits, 0,
 	)
