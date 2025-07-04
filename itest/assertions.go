@@ -993,6 +993,57 @@ func AssertReceiveEvents(t *testing.T, addr *taprpc.Addr,
 	}
 }
 
+// AssertReceiveEventsCustom makes sure we receive the expected events.
+func AssertReceiveEventsCustom(t *testing.T,
+	stream *EventSubscription[*taprpc.ReceiveEvent],
+	status []taprpc.AddrEventStatus) {
+
+	success := make(chan struct{})
+	timeout := time.After(defaultWaitTimeout)
+
+	// To make sure we don't forever hang on receiving on the stream, we'll
+	// cancel it after the timeout.
+	go func() {
+		select {
+		case <-timeout:
+			t.Logf("AssertReceiveEventsCustom: cancelling stream " +
+				"after timeout")
+			stream.Cancel()
+
+		case <-success:
+		}
+	}()
+
+	var index int
+	for {
+		if index == len(status) {
+			return
+		}
+
+		event, err := stream.Recv()
+		require.NoError(t, err, "receiving receive event")
+
+		// Check the event's error field for unexpected errors. Perform
+		// this check before verifying the expected receive state, as
+		// errors might occur alongside an out-of-order receive state.
+		require.Emptyf(
+			t, event.Error, "send event error: %x", event,
+		)
+		require.Equal(t, status[index], event.Status)
+
+		// Fully close the stream once we definitely no longer need the
+		// stream.
+		// nolint: lll
+		if event.Status == taprpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED {
+			stream.Cancel()
+			close(success)
+			return
+		}
+
+		index++
+	}
+}
+
 // makeFilterSendEventScriptKey returns a filter function that checks if the
 // given script key is present in the send event. If it is, the event is
 // included in the stream.
@@ -1387,27 +1438,66 @@ func AssertBalanceByID(t *testing.T, client taprpc.TaprootAssetsClient,
 // AssertBalanceByGroup asserts that the balance of a single asset group
 // on the given daemon is correct.
 func AssertBalanceByGroup(t *testing.T, client taprpc.TaprootAssetsClient,
-	hexGroupKey string, amt uint64) {
+	hexGroupKey string, amt uint64, opts ...BalanceOption) {
 
 	t.Helper()
+
+	config := &balanceConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	var rpcTypeQuery *taprpc.ScriptKeyTypeQuery
+	switch {
+	case config.allScriptKeyTypes:
+		rpcTypeQuery = &taprpc.ScriptKeyTypeQuery{
+			Type: &taprpc.ScriptKeyTypeQuery_AllTypes{
+				AllTypes: true,
+			},
+		}
+
+	case config.scriptKeyType != nil:
+		rpcTypeQuery = &taprpc.ScriptKeyTypeQuery{
+			Type: &taprpc.ScriptKeyTypeQuery_ExplicitType{
+				ExplicitType: rpcutils.MarshalScriptKeyType(
+					*config.scriptKeyType,
+				),
+			},
+		}
+	}
 
 	groupKey, err := hex.DecodeString(hexGroupKey)
 	require.NoError(t, err)
 
 	ctxb := context.Background()
-	balancesResp, err := client.ListBalances(
-		ctxb, &taprpc.ListBalancesRequest{
-			GroupBy: &taprpc.ListBalancesRequest_GroupKey{
-				GroupKey: true,
+	err = wait.NoError(func() error {
+		balancesResp, err := client.ListBalances(
+			ctxb, &taprpc.ListBalancesRequest{
+				GroupBy: &taprpc.ListBalancesRequest_GroupKey{
+					GroupKey: true,
+				},
+				GroupKeyFilter: groupKey,
+				ScriptKeyType:  rpcTypeQuery,
 			},
-			GroupKeyFilter: groupKey,
-		},
-	)
-	require.NoError(t, err)
+		)
+		if err != nil {
+			return fmt.Errorf("error listing balances: %w", err)
+		}
 
-	balance, ok := balancesResp.AssetGroupBalances[hexGroupKey]
-	require.True(t, ok)
-	require.Equal(t, amt, balance.Balance)
+		balance, ok := balancesResp.AssetGroupBalances[hexGroupKey]
+		if !ok {
+			return fmt.Errorf("no balance found for group key %s",
+				hexGroupKey)
+		}
+
+		if balance.Balance != amt {
+			return fmt.Errorf("expected balance %d, got %d",
+				amt, balance.Balance)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, err)
 }
 
 // AssertTransfer asserts that the value of each transfer initiated on the

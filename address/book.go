@@ -10,8 +10,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -137,6 +137,11 @@ type Storage interface {
 	// wallet.
 	SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
 		managedFrom time.Time) error
+
+	// LastEventHeightByVersion returns the last event height for a given
+	// address version.
+	LastEventHeightByVersion(ctx context.Context,
+		version Version) (uint32, error)
 
 	// InsertInternalKey inserts an internal key into the database to make
 	// sure it is identified as a local key later on when importing proofs.
@@ -485,6 +490,14 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
 		groupWitness = assetGroup.Witness
 	}
 
+	// For V2 addresses, we need to derive the script key individually for
+	// each asset piece/UTXO that's being sent. To be able to do that, we
+	// encode the bare/raw internal key instead of the BIP-0086 tweaked
+	// Taproot output key as the address's script key.
+	if addrVersion >= V2 {
+		scriptKey.PubKey = scriptKey.TweakedScriptKey.RawKey.PubKey
+	}
+
 	baseAddr, err := New(
 		addrVersion, *assetGroup.Genesis, groupKey, groupWitness,
 		*scriptKey.PubKey, *internalKeyDesc.PubKey, amount,
@@ -625,15 +638,25 @@ func (b *Book) SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
 	return b.cfg.Store.SetAddrManaged(ctx, addr, managedFrom)
 }
 
+// LastEventHeightByVersion returns the last event height for a given address
+// version.
+func (b *Book) LastEventHeightByVersion(ctx context.Context,
+	version Version) (uint32, error) {
+
+	return b.cfg.Store.LastEventHeightByVersion(ctx, version)
+}
+
 // GetOrCreateEvent creates a new address event for the given status, address
 // and transaction. If an event for that address and transaction already exists,
 // then the status and transaction information is updated instead.
 func (b *Book) GetOrCreateEvent(ctx context.Context, status Status,
-	addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
-	outputIdx uint32) (*Event, error) {
+	addr *AddrWithKeyInfo, walletTx *wire.MsgTx, outputIdx uint32,
+	blockHeight uint32, blockHash *chainhash.Hash,
+	outputs map[asset.ID]SendOutput) (*Event, error) {
 
 	return b.cfg.Store.GetOrCreateEvent(
-		ctx, status, addr, walletTx, outputIdx,
+		ctx, status, addr, walletTx, outputIdx, blockHeight, blockHash,
+		outputs,
 	)
 }
 

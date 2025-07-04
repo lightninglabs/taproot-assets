@@ -24,7 +24,10 @@ type (
 	NewMailboxMessage = sqlc.InsertAuthMailboxMessageParams
 
 	// MailboxMessage is a row in the auth mailbox messages table.
-	MailboxMessage = sqlc.FetchAuthMailboxMessagesRow
+	MailboxMessage = sqlc.FetchAuthMailboxMessageRow
+
+	// MailboxMessageByOutpoint is a row in the auth mailbox messages table.
+	MailboxMessageByOutpoint = sqlc.FetchAuthMailboxMessageByOutpointRow
 
 	// QueryMailboxMessages is used to query mailbox messages from the
 	// database. It contains the parameters for the query.
@@ -46,9 +49,14 @@ type AuthMailboxStore interface {
 	// authmailbox database.
 	CountAuthMailboxMessages(ctx context.Context) (int64, error)
 
-	// FetchAuthMailboxMessages retrieves a mailbox message by its ID.
-	FetchAuthMailboxMessages(ctx context.Context,
+	// FetchAuthMailboxMessage retrieves a mailbox message by its ID.
+	FetchAuthMailboxMessage(ctx context.Context,
 		id int64) (MailboxMessage, error)
+
+	// FetchAuthMailboxMessageByOutpoint retrieves a mailbox message by its
+	// claimed outpoint.
+	FetchAuthMailboxMessageByOutpoint(ctx context.Context,
+		claimedOutpoint []byte) (MailboxMessageByOutpoint, error)
 
 	// InsertAuthMailboxMessage inserts a new mailbox message into the
 	// database. It returns an error if the insertion fails.
@@ -102,16 +110,16 @@ var _ proof.TxProofStore = (*MailboxStore)(nil)
 func (m MailboxStore) StoreMessage(ctx context.Context, claimedOp wire.OutPoint,
 	msg *authmailbox.Message) (uint64, error) {
 
+	serializedOp, err := encodeOutpoint(claimedOp)
+	if err != nil {
+		return 0, fmt.Errorf("error encoding outpoint: %w", err)
+	}
+
 	var (
 		txOpt = WriteTxOption()
 		msgID int64
 	)
 	dbErr := m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
-		serializedOp, err := encodeOutpoint(claimedOp)
-		if err != nil {
-			return fmt.Errorf("error encoding outpoint: %w", err)
-		}
-
 		receiverKey := msg.ReceiverKey.SerializeCompressed()
 		msgID, err = q.InsertAuthMailboxMessage(ctx, NewMailboxMessage{
 			ClaimedOutpoint:   serializedOp,
@@ -149,7 +157,7 @@ func (m MailboxStore) FetchMessage(ctx context.Context,
 		msg   *authmailbox.Message
 	)
 	dbErr := m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
-		dbMsg, err := q.FetchAuthMailboxMessages(ctx, int64(id))
+		dbMsg, err := q.FetchAuthMailboxMessage(ctx, int64(id))
 		if err != nil {
 			return fmt.Errorf("error fetching message %d: %w", id,
 				err)
@@ -176,6 +184,55 @@ func (m MailboxStore) FetchMessage(ctx context.Context,
 	if dbErr != nil {
 		return nil, fmt.Errorf("error fetching message %d: %w", id,
 			dbErr)
+	}
+
+	return msg, nil
+}
+
+// FetchMessageByOutPoint retrieves a message from the mailbox by its
+// claimed outpoint of the TX proof that was used to send it.
+func (m MailboxStore) FetchMessageByOutPoint(ctx context.Context,
+	claimedOp wire.OutPoint) (*authmailbox.Message, error) {
+
+	serializedOp, err := encodeOutpoint(claimedOp)
+	if err != nil {
+		return nil, fmt.Errorf("error encoding outpoint: %w", err)
+	}
+
+	var (
+		txOpt = ReadTxOption()
+		msg   *authmailbox.Message
+	)
+	dbErr := m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
+		dbMsg, err := q.FetchAuthMailboxMessageByOutpoint(
+			ctx, serializedOp,
+		)
+		if err != nil {
+			return fmt.Errorf("error fetching message by "+
+				"outpoint %v: %w", serializedOp, err)
+		}
+
+		receiverKey, err := btcec.ParsePubKey(dbMsg.ReceiverKey)
+		if err != nil {
+			return fmt.Errorf("error parsing receiver key: %w", err)
+		}
+
+		msg = &authmailbox.Message{
+			ID:               uint64(dbMsg.ID),
+			ReceiverKey:      *receiverKey,
+			EncryptedPayload: dbMsg.EncryptedPayload,
+			ArrivalTimestamp: time.Unix(dbMsg.ArrivalTimestamp, 0),
+			ProofBlockHeight: uint32(dbMsg.BlockHeight),
+			ExpiryBlockHeight: extractSqlInt32[uint32](
+				dbMsg.ExpiryBlockHeight,
+			),
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, fmt.Errorf("error fetching message by outpoint "+
+			"%v: %w", serializedOp, dbErr)
 	}
 
 	return msg, nil
