@@ -1087,6 +1087,17 @@ enum ScriptKeyType {
     selection.
     */
     SCRIPT_KEY_CHANNEL = 5;
+
+    /*
+    The script key is derived using the asset ID and a single leaf that contains
+    an un-spendable Pedersen commitment key
+    `(OP_CHECKSIG <NUMS_key + asset_id * G>)`. This can be used to create
+    unique script keys for each virtual packet in the fragment, to avoid proof
+    collisions in the universe, where the script keys should be spendable by
+    a hardware wallet that only supports miniscript policies for signing P2TR
+    outputs.
+    */
+    SCRIPT_KEY_UNIQUE_PEDERSEN = 6;
 }
 
 message ScriptKeyTypeQuery {

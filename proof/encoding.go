@@ -739,3 +739,136 @@ func PublicKeyOptionDecoder(r io.Reader, val any, buf *[8]byte,
 		val, "*fn.Option[btcec.PublicKey]", l, l,
 	)
 }
+
+func FragmentVersionEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*SendFragmentVersion); ok {
+		return tlv.EUint8T(w, uint8(*t), buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "SendFragmentVersion")
+}
+
+func FragmentVersionDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
+	if typ, ok := val.(*SendFragmentVersion); ok {
+		var t uint8
+		if err := tlv.DUint8(r, &t, buf, l); err != nil {
+			return err
+		}
+		*typ = SendFragmentVersion(t)
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "SendFragmentVersion", l, 1)
+}
+
+func SendOutputEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*SendOutput); ok {
+		err := tlv.EUint8T(w, uint8(t.AssetVersion), buf)
+		if err != nil {
+			return err
+		}
+		if err := tlv.EUint64T(w, t.Amount, buf); err != nil {
+			return err
+		}
+		err = tlv.EUint8T(w, uint8(t.DerivationMethod), buf)
+		if err != nil {
+			return err
+		}
+
+		keyArr := ([btcec.PubKeyBytesLenCompressed]byte)(t.ScriptKey)
+		return tlv.EBytes33(w, &keyArr, buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "*SendOutput")
+}
+
+func SendOutputDecoder(r io.Reader, val any, buf *[8]byte) error {
+	if typ, ok := val.(*SendOutput); ok {
+		var assetVersion uint8
+		if err := tlv.DUint8(r, &assetVersion, buf, 1); err != nil {
+			return err
+		}
+		typ.AssetVersion = asset.Version(assetVersion)
+
+		if err := tlv.DUint64(r, &typ.Amount, buf, 8); err != nil {
+			return err
+		}
+
+		var derivationMethod uint8
+		if err := tlv.DUint8(r, &derivationMethod, buf, 1); err != nil {
+			return err
+		}
+		typ.DerivationMethod = asset.ScriptKeyDerivationMethod(
+			derivationMethod,
+		)
+
+		keyArr := ([btcec.PubKeyBytesLenCompressed]byte)(typ.ScriptKey)
+		if err := tlv.DBytes33(
+			r, &keyArr, buf, btcec.PubKeyBytesLenCompressed,
+		); err != nil {
+			return err
+		}
+		typ.ScriptKey = keyArr
+
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "*SendOutput")
+}
+
+func SendOutputsEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*map[asset.ID]SendOutput); ok {
+		numOutputs := uint64(len(*t))
+		if err := tlv.WriteVarInt(w, numOutputs, buf); err != nil {
+			return err
+		}
+
+		for id, output := range *t {
+			idArr := ([32]byte)(id)
+			if err := tlv.EBytes32(w, &idArr, buf); err != nil {
+				return err
+			}
+
+			err := SendOutputEncoder(w, &output, buf)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "map[asset.ID]SendOutput")
+}
+
+func SendOutputsDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(*map[asset.ID]SendOutput); ok {
+		numOutputs, err := tlv.ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+
+		// Avoid OOM by limiting the number of send outputs we accept.
+		if numOutputs > MaxSendFragmentOutputs {
+			return fmt.Errorf("%w: too many send outputs",
+				ErrProofInvalid)
+		}
+
+		result := make(map[asset.ID]SendOutput, numOutputs)
+		for i := uint64(0); i < numOutputs; i++ {
+			var id [32]byte
+			if err := tlv.DBytes32(r, &id, buf, 32); err != nil {
+				return err
+			}
+
+			var output SendOutput
+			err := SendOutputDecoder(r, &output, buf)
+			if err != nil {
+				return err
+			}
+
+			result[id] = output
+		}
+
+		*typ = result
+
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "map[asset.ID]SendOutput")
+}

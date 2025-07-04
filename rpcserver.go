@@ -8508,7 +8508,7 @@ func (r *rpcServer) DeclareScriptKey(ctx context.Context,
 	// 100% sure of the type, if it wasn't declared. But we can make a
 	// best-effort guess based on the fields the user has set. This is a
 	// no-op if the type is already set.
-	scriptKey.Type = scriptKey.DetermineType()
+	scriptKey.Type = scriptKey.DetermineType(nil)
 
 	// The user is declaring the key, so they should know what type it is.
 	// So if they didn't set it, and it wasn't an obvious one, we'll require
