@@ -4,8 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/require"
@@ -267,34 +266,6 @@ func (h *harnessTest) addFederationServer(host string, target *tapdHarness) {
 	require.NoError(h.t, err)
 }
 
-// nextAvailablePort returns the first port that is available for listening by
-// a new node. It panics if no port is found and the maximum available TCP port
-// is reached.
-func nextAvailablePort() int {
-	port := atomic.AddUint32(&lastPort, 1)
-	for port < 65535 {
-		// If there are no errors while attempting to listen on this
-		// port, close the socket and return it as available. While it
-		// could be the case that some other process picks up this port
-		// between the time the socket is closed and it's reopened in
-		// the harness node, in practice in CI servers this seems much
-		// less likely than simply some other process already being
-		// bound at the start of the tests.
-		addr := fmt.Sprintf("127.0.0.1:%d", port)
-		l, err := net.Listen("tcp4", addr)
-		if err == nil {
-			err := l.Close()
-			if err == nil {
-				return int(port)
-			}
-		}
-		port = atomic.AddUint32(&lastPort, 1)
-	}
-
-	// No ports available? Must be a mistake.
-	panic("no ports available for listening")
-}
-
 // setupHarnesses creates new server and client harnesses that are connected
 // to each other through an in-memory gRPC connection.
 func setupHarnesses(t *testing.T, ht *harnessTest,
@@ -317,8 +288,8 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 	var proofCourier proof.CourierHarness
 	switch proofCourierType {
 	case proof.HashmailCourierType:
-		port := nextAvailablePort()
-		apertureHarness := NewApertureHarness(ht.t, port)
+		listenPort := port.NextAvailablePort()
+		apertureHarness := NewApertureHarness(ht.t, listenPort)
 		err := apertureHarness.Start(nil)
 		require.NoError(t, err, "aperture proof courier harness")
 
