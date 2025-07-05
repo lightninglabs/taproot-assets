@@ -21,6 +21,7 @@ cmd/tapd/tapd
 /itest/.backendlogs/*
 /itest/.minerlogs/*
 /itest/tapd-itest
+/itest/itest.test
 
 /docs/examples/basic-price-oracle/basic-price-oracle
 

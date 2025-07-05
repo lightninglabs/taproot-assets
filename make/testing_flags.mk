@@ -4,10 +4,14 @@ RPC_TAGS = autopilotrpc chainrpc invoicesrpc peersrpc routerrpc signrpc verrpc w
 LOG_TAGS =
 TEST_FLAGS =
 ITEST_FLAGS = -logoutput
-ITEST_COVERAGE =
+ITEST_COVERAGE = -cover -coverpkg=./... -coverprofile=itest/coverage.txt
+COLLECT_ITEST_COVERAGE = go tool covdata textfmt -i=itest/regtest/cover -o itest/coverage.txt
 COVER_PKG = $$(go list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)' | grep -v taprpc)
 COVER_HTML = go tool cover -html=coverage.txt -o coverage.html
 POSTGRES_START_DELAY = 5
+NUM_ITEST_TRANCHES = 8
+ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
+SHUFFLE_SEED = 0
 
 GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
@@ -15,6 +19,22 @@ GOLISTCOVER := $(shell go list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./
 # If rpc option is set also add all extra RPC tags to DEV_TAGS
 ifneq ($(with-rpc),)
 DEV_TAGS += $(RPC_TAGS)
+endif
+
+# Scale the number of parallel running itest tranches.
+ifneq ($(tranches),)
+NUM_ITEST_TRANCHES = $(tranches)
+ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
+endif
+
+# Give the ability to run the same tranche multiple times at the same time.
+ifneq ($(parallel),)
+ITEST_PARALLELISM = $(parallel)
+endif
+
+# Set the seed for shuffling the test cases.
+ifneq ($(shuffleseed),)
+SHUFFLE_SEED = $(shuffleseed)
 endif
 
 # If specific package is being unit tested, construct the full name of the
@@ -34,7 +54,7 @@ endif
 
 # Define the integration test.run filter if the icase argument was provided.
 ifneq ($(icase),)
-TEST_FLAGS += -test.run="TestTaprootAssetsDaemon/$(icase)"
+TEST_FLAGS += -test.run="TestTaprootAssetsDaemon/tranche.*/.*-of-.*/$(icase)"
 endif
 
 # Don't delete the data directories of nodes.
@@ -63,11 +83,6 @@ endif
 
 ifneq ($(tags),)
 DEV_TAGS += ${tags}
-endif
-
-# Enable integration test coverage (requires Go >= 1.20.0).
-ifneq ($(cover),)
-ITEST_COVERAGE = -coverprofile=itest/coverage.txt -coverpkg=./...
 endif
 
 # Define the log tags that will be applied only when running unit tests. If none
@@ -128,8 +143,5 @@ endif
 # Construct the integration test command with the added build flags.
 ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) integration itest $(backend)
 
-# Construct the coverage test command path with the added build flags.
-GOACC := $(GOACC_BIN) $(COVER_PKG) -- -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
-
 # Construct the load test command with the added build flags.
-LOADTEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) loadtest 
+LOADTEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) loadtest

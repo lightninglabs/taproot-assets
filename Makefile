@@ -102,6 +102,10 @@ build-itest:
 	@$(call print, "Building itest lnd.")
 	CGO_ENABLED=0 $(GOBUILD) -mod=mod -tags="$(ITEST_TAGS)" -o itest/lnd-itest $(DEV_LDFLAGS) $(LND_PKG)/cmd/lnd
 
+build-itest-binary:
+	@$(call print, "Building itest binary for ${backend} backend.")
+	CGO_ENABLED=0 $(GOTEST) -v $(ITEST_COVERAGE) ./itest -tags="$(ITEST_TAGS)" -c -o itest/itest.test
+
 build-loadtest:
 	CGO_ENABLED=0 $(GOTEST) -c -tags="$(LOADTEST_TAGS)" -o loadtest $(PKG)/itest/loadtest
 
@@ -194,15 +198,24 @@ itest: build-itest itest-only
 
 itest-trace: build-itest itest-only-trace
 
-itest-only: aperture-dir
+itest-only: aperture-dir clean-itest-logs
 	@$(call print, "Running integration tests with ${backend} backend.")
-	rm -rf itest/regtest; date
+	date
 	$(GOTEST) ./itest -v $(ITEST_COVERAGE) -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -btcdexec=./btcd-itest -logdir=regtest
 
-itest-only-trace: aperture-dir
+itest-only-trace: aperture-dir clean-itest-logs
 	@$(call print, "Running integration tests with ${backend} backend.")
 	rm -rf itest/regtest; date
 	$(GOTEST) ./itest -v -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -loglevel=trace -btcdexec=./btcd-itest -logdir=regtest
+
+itest-parallel: aperture-dir clean-itest-logs build-itest build-itest-binary
+	@$(call print, "Running integration tests in parallel with ${backend} backend.")
+	date
+	scripts/itest_parallel.sh $(ITEST_PARALLELISM) $(NUM_ITEST_TRANCHES) $(SHUFFLE_SEED) $(TEST_FLAGS) $(ITEST_FLAGS)
+	$(COLLECT_ITEST_COVERAGE)
+
+clean-itest-logs:
+	rm -rf itest/regtest
 
 aperture-dir:
 ifeq ($(UNAME_S),Linux)
