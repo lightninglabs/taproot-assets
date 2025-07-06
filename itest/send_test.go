@@ -1835,7 +1835,7 @@ func testSendNoCourierUniverseImport(t *harnessTest) {
 	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
 	secondTapd := setupTapdHarness(
 		t.t, t, bobLnd, t.universeServer, func(p *tapdHarnessParams) {
-			p.proofCourier = &proof.MockProofCourier{}
+			p.proofCourier = proof.NewMockProofCourier()
 		},
 	)
 	defer func() {

@@ -290,6 +290,11 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 			typedProofCourier.ListenAddr,
 		)
 
+	case *proof.MockProofCourier:
+		finalCfg.DefaultProofCourierAddr = fmt.Sprintf(
+			"%s://%s", proof.MockCourierType, "dummyhost:1234",
+		)
+
 	default:
 		finalCfg.DefaultProofCourierAddr = ""
 	}
