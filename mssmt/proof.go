@@ -42,7 +42,7 @@ func NewProof(nodes []Node) *Proof {
 }
 
 // Root returns the root node obtained by walking up the tree.
-func (p Proof) Root(key [32]byte, leaf *LeafNode) *BranchNode {
+func (p Proof) Root(key [32]byte, leaf Node) *BranchNode {
 	// Note that we don't need to check the error here since the only point
 	// where the error could come from is the passed iterator which is nil.
 	node, _ := walkUp(&key, leaf, p.Nodes, nil)
