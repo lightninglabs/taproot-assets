@@ -330,6 +330,45 @@ type OptionalSeedlingFields struct {
 	GroupAnchorID      sql.NullInt64
 }
 
+// upsertDelegationKey inserts the given delegation key descriptor into
+// the internal_keys SQL table and returns its ID.
+func upsertDelegationKey(ctx context.Context, q PendingAssetStore,
+	keyDescOpt fn.Option[keychain.KeyDescriptor]) (sql.NullInt64, error) {
+
+	var zero sql.NullInt64
+
+	// If the delegation key is not set, we can return a zero value.
+	if keyDescOpt.IsNone() {
+		return zero, nil
+	}
+
+	// Unwrap the key descriptor to get the actual key.
+	keyDesc, err := keyDescOpt.UnwrapOrErr(
+		fmt.Errorf("delegation key is unexpectedly not set"),
+	)
+	if err != nil {
+		return zero, err
+	}
+
+	// Sanity check the key descriptor.
+	if keyDesc.PubKey == nil {
+		return zero, fmt.Errorf("delegation key pubkey is nil")
+	}
+
+	// Insert the key descriptor into the internal_keys table.
+	keyID, err := q.UpsertInternalKey(ctx, InternalKey{
+		RawKey:    keyDesc.PubKey.SerializeCompressed(),
+		KeyFamily: int32(keyDesc.Family),
+		KeyIndex:  int32(keyDesc.Index),
+	})
+	if err != nil {
+		return zero, fmt.Errorf("unable to insert internal key: %w",
+			err)
+	}
+
+	return sqlInt64(keyID), nil
+}
+
 // insertMintAnchorTx inserts a mint anchor transaction into the database.
 func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 	anchorPackage tapgarden.FundedMintAnchorPsbt,
@@ -442,9 +481,10 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 		// With our internal key inserted, we can now insert a new
 		// batch which references the target internal key.
 		if err := q.NewMintingBatch(ctx, MintingBatchInit{
-			BatchID:          batchID,
-			HeightHint:       int32(newBatch.HeightHint),
-			CreationTimeUnix: newBatch.CreationTime.UTC(),
+			BatchID:             batchID,
+			HeightHint:          int32(newBatch.HeightHint),
+			CreationTimeUnix:    newBatch.CreationTime.UTC(),
+			UniverseCommitments: newBatch.UniverseCommitments,
 		}); err != nil {
 			return fmt.Errorf("unable to insert minting "+
 				"batch: %w", err)
@@ -510,6 +550,9 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 				AssetSupply:     int64(seedling.Amount),
 				AssetMetaID:     assetMetaID,
 				EmissionEnabled: seedling.EnableEmission,
+
+				// nolint: lll
+				UniverseCommitments: seedling.UniverseCommitments,
 			}
 
 			scriptKeyID, err := upsertScriptKey(
@@ -543,6 +586,17 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 				optionalDbIDs.GroupInternalKeyID
 			dbSeedling.GroupGenesisID = optionalDbIDs.GroupGenesisID
 			dbSeedling.GroupAnchorID = optionalDbIDs.GroupAnchorID
+
+			// Upsert the seedling's delegation key if present.
+			delegationKeyID, err := upsertDelegationKey(
+				ctx, q, seedling.DelegationKey,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert "+
+					"delegation key: %w", err)
+			}
+
+			dbSeedling.DelegationKeyID = delegationKeyID
 
 			err = q.InsertAssetSeedling(ctx, dbSeedling)
 			if err != nil {
@@ -641,6 +695,9 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 				AssetSupply:     int64(seedling.Amount),
 				AssetMetaID:     assetMetaID,
 				EmissionEnabled: seedling.EnableEmission,
+
+				// nolint: lll
+				UniverseCommitments: seedling.UniverseCommitments,
 			}
 
 			scriptKeyID, err := upsertScriptKey(
@@ -674,6 +731,18 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 				optionalDbIDs.GroupInternalKeyID
 			dbSeedling.GroupGenesisID = optionalDbIDs.GroupGenesisID
 			dbSeedling.GroupAnchorID = optionalDbIDs.GroupAnchorID
+
+			// Handle delegation key: upsert to internal_keys and
+			// reference in seedling.
+			delegationKeyID, err := upsertDelegationKey(
+				ctx, q, seedling.DelegationKey,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert "+
+					"delegation key: %w", err)
+			}
+
+			dbSeedling.DelegationKeyID = delegationKeyID
 
 			err = q.InsertAssetSeedlingIntoBatch(ctx, dbSeedling)
 			if err != nil {
@@ -724,7 +793,8 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 			Amount: uint64(
 				dbSeedling.AssetSupply,
 			),
-			EnableEmission: dbSeedling.EmissionEnabled,
+			EnableEmission:      dbSeedling.EmissionEnabled,
+			UniverseCommitments: dbSeedling.UniverseCommitments,
 		}
 
 		if dbSeedling.TweakedScriptKey != nil {
@@ -790,6 +860,31 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 				KeyLocator: groupKeyLocator,
 				PubKey:     groupKeyPub,
 			}
+		}
+
+		// If the seedling has a delegation key, we'll parse it and
+		// store it in the seedling.
+		if dbSeedling.DelegationKeyRaw != nil {
+			delegationKeyPub, err := btcec.ParsePubKey(
+				dbSeedling.DelegationKeyRaw,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			locator := keychain.KeyLocator{
+				Index: extractSqlInt32[uint32](
+					dbSeedling.DelegationKeyIndex,
+				),
+				Family: extractSqlInt32[keychain.KeyFamily](
+					dbSeedling.DelegationKeyFam,
+				),
+			}
+
+			seedling.DelegationKey = fn.Some(keychain.KeyDescriptor{
+				KeyLocator: locator,
+				PubKey:     delegationKeyPub,
+			})
 		}
 
 		if len(dbSeedling.GroupTapscriptRoot) != 0 {
@@ -1203,8 +1298,9 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 			},
 			PubKey: batchKey,
 		},
-		HeightHint:   uint32(dbBatch.HeightHint),
-		CreationTime: dbBatch.CreationTimeUnix.UTC(),
+		HeightHint:          uint32(dbBatch.HeightHint),
+		CreationTime:        dbBatch.CreationTimeUnix.UTC(),
+		UniverseCommitments: dbBatch.UniverseCommitments,
 	}
 
 	batchState, err := tapgarden.NewBatchState(uint8(dbBatch.BatchState))
@@ -1336,12 +1432,9 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 				"genesis packet")
 		}
 
-		anchorOutputIndex := uint32(0)
-		if batch.GenesisPacket.ChangeOutputIndex == 0 {
-			anchorOutputIndex = 1
-		}
+		assetAnchorOutIdx := batch.GenesisPacket.AssetAnchorOutIdx
 		genesisTx := batch.GenesisPacket.Pkt.UnsignedTx
-		genesisScript := genesisTx.TxOut[anchorOutputIndex].PkScript
+		genesisScript := genesisTx.TxOut[assetAnchorOutIdx].PkScript
 		tapscriptSibling := batch.TapSibling()
 		batch.RootAssetCommitment, err = fetchAssetSprouts(
 			ctx, q, dbBatch.RawKey, tapscriptSibling, genesisScript,

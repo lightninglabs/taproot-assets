@@ -93,6 +93,7 @@ func assertBatchEqual(t *testing.T, a, b *tapgarden.MintingBatch) {
 		t, &a.GenesisPacket.FundedPsbt, &b.GenesisPacket.FundedPsbt,
 	)
 	require.Equal(t, a.RootAssetCommitment, b.RootAssetCommitment)
+	require.Equal(t, a.UniverseCommitments, b.UniverseCommitments)
 }
 
 func assertSeedlingBatchLen(t *testing.T, batches []*tapgarden.MintingBatch,
@@ -606,6 +607,62 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	require.NoError(t, err)
 	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertSeedlingBatchLen(t, mintingBatches, 1, numSeedlings)
+}
+
+// TestInsertFetchUniCommitBatch tests that we're able to properly write
+// and read a minting batch that has universe commitments enabled.
+func TestInsertFetchUniCommitBatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	assetStore, _, _ := newAssetStore(t)
+
+	// Generate a batch with a single seedling, we will set the group
+	// information later.
+	batch := tapgarden.RandMintingBatch(
+		t, tapgarden.WithTotalGroups([]int{1}),
+		tapgarden.WithUniverseCommitments(true),
+	)
+	require.True(t, batch.UniverseCommitments)
+
+	// Generate the group genesis, persist it, and assign the group details
+	// to the seedling.
+	assetName := maps.Keys(batch.Seedlings)[0]
+	assetType := batch.Seedlings[assetName].AssetType
+
+	privDesc, groupPriv := test.RandKeyDesc(t)
+	randGenesis := asset.RandGenesis(t, assetType)
+	_, _, group := storeGroupGenesis(
+		t, ctx, randGenesis, nil, assetStore, privDesc, groupPriv,
+	)
+
+	batch.Seedlings[assetName].GroupInfo = group
+
+	// Assert that the seedling is in the expected state.
+	seedling := batch.Seedlings[assetName]
+	require.True(t, seedling.UniverseCommitments)
+	require.True(t, seedling.DelegationKey.IsSome())
+
+	// Commit the minting batch to the database.
+	err := assetStore.CommitMintingBatch(ctx, batch)
+	require.NoError(t, err)
+
+	// Fetch the same batch from the database.
+	dbBatch, err := assetStore.FetchMintingBatch(
+		ctx, batch.BatchKey.PubKey,
+	)
+	require.NoError(t, err)
+
+	// Assert that the batch is in the expected state.
+	require.True(t, dbBatch.UniverseCommitments)
+
+	// Assert that the seedling is in the expected state.
+	require.Len(t, dbBatch.Seedlings, 1)
+
+	dbSeedling := dbBatch.Seedlings[assetName]
+	require.True(t, dbSeedling.UniverseCommitments)
+	require.True(t, dbSeedling.DelegationKey.IsSome())
+	require.Equal(t, dbSeedling.DelegationKey, seedling.DelegationKey)
 }
 
 // seedlingsToAssetRoot maps a set of seedlings to an asset root.
