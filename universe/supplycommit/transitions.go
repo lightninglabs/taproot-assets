@@ -300,6 +300,10 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 					"sub-tree root: %w", err)
 			}
 
+			if subTreeRoot.NodeSum() == 0 {
+				continue
+			}
+
 			rootTreeLeaf := mssmt.NewLeafNode(
 				lnutils.ByteSlice(subTreeRoot.NodeHash()),
 				subTreeRoot.NodeSum(),
