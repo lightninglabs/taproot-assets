@@ -32,11 +32,11 @@ const (
 	// fragment version is not recognized.
 	SendFragmentVersionUnknown SendFragmentVersion = 0
 
-	// SendFragmentV0 is the first version of the send fragment.
-	SendFragmentV0 SendFragmentVersion = 1
+	// SendFragmentV1 is the first version of the send fragment.
+	SendFragmentV1 SendFragmentVersion = 1
 
 	// LatestVersion is the latest version of the send fragment.
-	LatestVersion = SendFragmentV0
+	LatestVersion = SendFragmentV1
 )
 
 // SendOutput is a single asset UTXO or leaf that is being sent to the receiver
