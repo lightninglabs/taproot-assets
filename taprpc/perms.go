@@ -255,6 +255,18 @@ var (
 			Entity: "universe",
 			Action: "read",
 		}},
+		"/universerpc.Universe/IgnoreAssetOutPoint": {{
+			Entity: "universe",
+			Action: "write",
+		}},
+		"/universerpc.Universe/UpdateSupplyCommit": {{
+			Entity: "universe",
+			Action: "write",
+		}},
+		"/universerpc.Universe/FetchSupplyCommit": {{
+			Entity: "universe",
+			Action: "read",
+		}},
 		"/rfqrpc.Rfq/AddAssetBuyOrder": {{
 			Entity: "rfq",
 			Action: "write",

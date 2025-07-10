@@ -145,10 +145,10 @@ func (t *FullTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 
 // walkUp walks up from the `start` leaf node up to the root with the help of
 // `siblings`. The root branch node computed is returned.
-func walkUp(key *[hashSize]byte, start *LeafNode, siblings []Node,
+func walkUp(key *[hashSize]byte, start Node, siblings []Node,
 	iter iterFunc) (*BranchNode, error) {
 
-	var current Node = start
+	var current = start
 	for i := lastBitIndex; i >= 0; i-- {
 		sibling := siblings[lastBitIndex-i]
 		var parent Node

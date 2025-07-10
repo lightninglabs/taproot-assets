@@ -348,6 +348,10 @@ var testCases = []*testCase{
 		test: testPreCommitOutput,
 	},
 	{
+		name: "supply commit ignore asset",
+		test: testSupplyCommitIgnoreAsset,
+	},
+	{
 		name: "auth mailbox message store and fetch",
 		test: testAuthMailboxStoreAndFetchMessage,
 	},
