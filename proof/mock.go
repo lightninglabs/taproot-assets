@@ -494,7 +494,7 @@ func (m *MockProofCourier) Stop() error {
 // DeliverProof attempts to delivery a proof to the receiver, using the
 // information in the Addr type.
 func (m *MockProofCourier) DeliverProof(_ context.Context,
-	_ Recipient, proof *AnnotatedProof) error {
+	_ Recipient, proof *AnnotatedProof, _ *SendManifest) error {
 
 	m.Lock()
 	defer m.Unlock()
