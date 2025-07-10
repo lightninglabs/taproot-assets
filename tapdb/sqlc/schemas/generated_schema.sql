@@ -952,7 +952,7 @@ CREATE TABLE "universe_leaves" (
     universe_root_id BIGINT NOT NULL REFERENCES universe_roots(id),
     leaf_node_key BLOB,
     leaf_node_namespace VARCHAR NOT NULL
-);
+, block_height INTEGER);
 
 CREATE INDEX universe_leaves_key_idx ON universe_leaves(leaf_node_key);
 

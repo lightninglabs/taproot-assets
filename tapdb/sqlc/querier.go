@@ -171,6 +171,7 @@ type Querier interface {
 	QueryProofTransferAttempts(ctx context.Context, arg QueryProofTransferAttemptsParams) ([]time.Time, error)
 	QuerySupplyCommitStateMachine(ctx context.Context, groupKey []byte) (QuerySupplyCommitStateMachineRow, error)
 	QuerySupplyCommitment(ctx context.Context, commitID int64) (SupplyCommitment, error)
+	QuerySupplyLeavesByHeight(ctx context.Context, arg QuerySupplyLeavesByHeightParams) ([]QuerySupplyLeavesByHeightRow, error)
 	QuerySupplyUpdateEvents(ctx context.Context, transitionID int64) ([]QuerySupplyUpdateEventsRow, error)
 	// TODO(roasbeef): use the universe id instead for the grouping? so namespace
 	// root, simplifies queries

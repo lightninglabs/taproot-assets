@@ -448,6 +448,7 @@ type UniverseLeafe struct {
 	UniverseRootID    int64
 	LeafNodeKey       []byte
 	LeafNodeNamespace string
+	BlockHeight       sql.NullInt32
 }
 
 type UniverseRoot struct {
