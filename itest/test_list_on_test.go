@@ -355,6 +355,14 @@ var testCases = []*testCase{
 		name: "script key type pedersen unique",
 		test: testScriptKeyTypePedersenUnique,
 	},
+	{
+		name: "address v2 with group key",
+		test: testAddressV2WithGroupKey,
+	},
+	{
+		name: "address v2 with group key restart",
+		test: testAddressV2WithGroupKeyRestart,
+	},
 }
 
 var optionalTestCases = []*testCase{
