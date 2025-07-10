@@ -79,3 +79,7 @@ http:
 
     - selector: universerpc.Universe.QueryEvents
       get: "/v1/taproot-assets/universe/stats/events"
+
+    - selector: universerpc.Universe.IgnoreAssetOutPoint
+      post: "/v1/taproot-assets/universe/ignore-asset-outpoint"
+      body: "*"
