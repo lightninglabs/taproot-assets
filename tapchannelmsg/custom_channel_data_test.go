@@ -282,7 +282,7 @@ func TestHtlcCustomData(t *testing.T) {
 		rfqmsg.NewAssetBalance(assetID1, 1000),
 		rfqmsg.NewAssetBalance(assetID2, 2000),
 		rfqmsg.NewAssetBalance(assetID3, 5000),
-	}, fn.Some(rfqID))
+	}, fn.Some(rfqID), fn.Some([]rfqmsg.ID{rfqID}))
 
 	var customChannelData bytes.Buffer
 	require.NoError(t, htlc.Encode(&customChannelData))
@@ -309,7 +309,10 @@ func TestHtlcCustomData(t *testing.T) {
       "amount": 5000
     }
   ],
-  "rfq_id": "` + hexStr(rfqID[:]) + `"
+  "rfq_id": "` + hexStr(rfqID[:]) + `",
+  "available_rfq_ids": [
+    "` + hexStr(rfqID[:]) + `"
+  ]
 }`
 	require.Equal(t, expected, formattedJSON.String())
 }

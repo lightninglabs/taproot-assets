@@ -1,5 +1,7 @@
 package fn
 
+import "context"
+
 // SendOrQuit attempts to and a message through channel c. If this succeeds,
 // then bool is returned. Otherwise if a quit signal is received first, then
 // false is returned.
@@ -8,6 +10,19 @@ func SendOrQuit[T any, Q any](c chan<- T, msg T, quit chan Q) bool {
 	case c <- msg:
 		return true
 	case <-quit:
+		return false
+	}
+}
+
+// SendOrDone attempts to and a message through channel c. If this succeeds,
+// then bool is returned. Otherwise if a ctx done signal is received first, then
+// false is returned.
+func SendOrDone[T any](ctx context.Context, c chan<- T, msg T) bool {
+	select {
+	case c <- msg:
+		return true
+
+	case <-ctx.Done():
 		return false
 	}
 }
