@@ -230,7 +230,38 @@ func (s *Server) SendMessage(ctx context.Context,
 				err)
 		}
 		if haveProof {
-			return nil, proof.ErrTxMerkleProofExists
+			// If we already have this proof, we check if it's for
+			// the same recipient. If it is, we'll return the
+			// message ID, making this call idempotent to simplify
+			// the client re-try logic. Because the encryption
+			// algorithm will produce a different ciphertext for the
+			// same message each time, we cannot compare the actual
+			// message itself. So we have to assume that using the
+			// same outpoint in the proof for the same recipient
+			// means it's also the same message. Since the proof
+			// still has to be valid, there is only a limited risk
+			// of a DoS vector here. Also, the message lookup by
+			// outpoint is backed by a database index.
+			dbMsg, err := s.cfg.MsgStore.FetchMessageByOutPoint(
+				ctx, txProof.ClaimedOutPoint,
+			)
+			if err != nil {
+				return nil, proof.ErrTxMerkleProofExists
+			}
+
+			// It's a different recipient, so someone is attempting
+			// to re-use a proof for a different recipient.
+			if !dbMsg.ReceiverKey.IsEqual(&msg.ReceiverKey) {
+				return nil, proof.ErrTxMerkleProofExists
+			}
+
+			// We have a message with the same outpoint and
+			// recipient, so we can return the message ID, so it
+			// looks to the client as if we stored the message, even
+			// though we have it already.
+			return &mboxrpc.SendMessageResponse{
+				MessageId: dbMsg.ID,
+			}, nil
 		}
 
 		// We didn't have the proof before, so we store it now. If at

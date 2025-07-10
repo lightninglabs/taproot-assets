@@ -57,6 +57,14 @@ func TestStoreAndFetchMessage(t *testing.T) {
 		t, msg.ArrivalTimestamp.Unix(), dbMsg.ArrivalTimestamp.Unix(),
 	)
 	require.Equal(t, msg.ExpiryBlockHeight, dbMsg.ExpiryBlockHeight)
+
+	// We should also be able to fetch the message by its outpoint.
+	dbMsgByOutPoint, err := mailboxStore.FetchMessageByOutPoint(
+		ctx, txProof.ClaimedOutPoint,
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, dbMsg, dbMsgByOutPoint)
 }
 
 // TestQueryMessages tests querying messages with filters.
