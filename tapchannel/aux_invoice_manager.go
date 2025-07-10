@@ -419,6 +419,34 @@ func IsAssetInvoice(invoice *lnrpc.Invoice, rfqLookup RfqLookup) bool {
 	return false
 }
 
+// GetBuyQuoteFromRouteHints is a helper method that extracts a buy quote from
+// the route hints of an invoice, given that the quote is accepted and has a
+// matching specifier.
+func (s *AuxInvoiceManager) GetBuyQuoteFromRouteHints(invoice *lnrpc.Invoice,
+	specifier asset.Specifier) *rfqmsg.BuyAccept {
+
+	hints := invoice.RouteHints
+	buyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
+
+	for _, hint := range hints {
+		for _, h := range hint.HopHints {
+			scid := h.ChanId
+			buyQuote, ok := buyQuotes[rfqmsg.SerialisedScid(scid)]
+			if !ok {
+				continue
+			}
+
+			quoteSpecifier := buyQuote.Request.AssetSpecifier
+
+			if quoteSpecifier.String() == specifier.String() {
+				return &buyQuote
+			}
+		}
+	}
+
+	return nil
+}
+
 // validateAssetHTLC runs a couple of checks on the provided asset HTLC.
 func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
 	htlc *rfqmsg.Htlc, circuitKey invoices.CircuitKey) error {
