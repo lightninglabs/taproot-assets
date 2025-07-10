@@ -27,6 +27,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	addrV2 = taprpc.AddrVersion_ADDR_VERSION_V2
+)
+
 // testAddresses tests the various RPC calls related to addresses.
 func testAddresses(t *harnessTest) {
 	// First, mint a few assets, so we have some to create addresses for.
@@ -964,6 +968,22 @@ func withReceiverAddresses(addrs ...*taprpc.Addr) sendOption {
 	}
 }
 
+// withAddV2Receiver is an option to add a V2 receiver to the send asset
+// request.
+func withAddV2Receiver(amount uint64,
+	receiver *taprpc.Addr) sendOption {
+
+	return func(options *sendOptions) {
+		options.sendAssetRequest.AddressesWithAmounts = append(
+			options.sendAssetRequest.AddressesWithAmounts,
+			&taprpc.AddressWithAmount{
+				Amount:  amount,
+				TapAddr: receiver.Encoded,
+			},
+		)
+	}
+}
+
 // withSkipProofCourierPingCheck is an option to skip the proof courier ping
 // check. This is useful for testing purposes.
 func withSkipProofCourierPingCheck() sendOption {
@@ -1005,7 +1025,9 @@ func sendAsset(t *harnessTest, sender *tapdHarness,
 		opt(options)
 	}
 
-	require.NotEmpty(t.t, options.sendAssetRequest.TapAddrs)
+	legacyAddrs := options.sendAssetRequest.TapAddrs
+	newAddrs := options.sendAssetRequest.AddressesWithAmounts
+	require.True(t.t, len(legacyAddrs) > 0 || len(newAddrs) > 0)
 
 	// Assign a default transfer label using a Unix timestamp if none is
 	// provided. This will be used in filtering send events.
