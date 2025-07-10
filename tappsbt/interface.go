@@ -59,6 +59,7 @@ var (
 	PsbtKeyTypeOutputTapAssetLockTime                      = []byte{0x7c}
 	PsbtKeyTypeOutputTapAssetRelativeLockTime              = []byte{0x7d}
 	PsbtKeyTypeOutputTapAltLeaves                          = []byte{0x7e}
+	PsbtKeyTypeOutputTapAddress                            = []byte{0x7f}
 )
 
 // The following keys are used as custom fields on the BTC level anchor
@@ -597,6 +598,11 @@ type VOutput struct {
 	// data-carrying leaves are used for a purpose distinct from
 	// representing individual Taproot Assets.
 	AltLeaves []asset.AltLeaf[asset.Asset]
+
+	// Address is the Taproot Asset address that was used to create this
+	// output. This is only present for non-interactive outputs that were
+	// created from a Taproot Asset address.
+	Address *address.Tap
 }
 
 // Copy creates a deep copy of the VOutput.
@@ -625,6 +631,7 @@ func (o *VOutput) Copy() *VOutput {
 		ProofDeliveryAddress:         o.ProofDeliveryAddress,
 		ProofSuffix:                  o.ProofSuffix,
 		AltLeaves:                    asset.CopyAltLeaves(o.AltLeaves),
+		Address:                      o.Address,
 	}
 }
 
