@@ -1458,6 +1458,25 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// local means the lnd node connected to this daemon knows how
 		// to derive the key.
 		isLocalKey := func(key asset.ScriptKey) bool {
+			// To make sure we have the correct internal key with
+			// the family and index set, we attempt to fetch it
+			// from the database. If it exists, then we know we
+			// stored it with the correct information.
+			dbKey, err := p.cfg.AssetWallet.FetchScriptKey(
+				ctx, key.PubKey,
+			)
+			if err == nil {
+				return p.cfg.KeyRing.IsLocalKey(
+					ctx, dbKey.RawKey,
+				)
+			}
+
+			// As a fallback, we can check if the key is local by
+			// using the info we have, with a potential for a false
+			// negative if the key family and index isn't set at
+			// this point. But if it isn't set, then we didn't
+			// import/declare the key before, so it's very likely
+			// not ours anyway.
 			return key.TweakedScriptKey != nil &&
 				p.cfg.KeyRing.IsLocalKey(ctx, key.RawKey)
 		}

@@ -3167,17 +3167,22 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 			isBurn := !isNumsKey && len(witnessData) > 0 &&
 				asset.IsBurnKey(scriptPubKey, witnessData[0])
 			isKnown := fullScriptKey.Type != asset.ScriptKeyUnknown
+			isRemotePedersen := fullScriptKey.Type ==
+				asset.ScriptKeyUniquePedersen &&
+				!out.ScriptKeyLocal
 			skipAssetCreation := !isTombstone && !isBurn &&
-				!out.ScriptKeyLocal && !isKnown
+				!out.ScriptKeyLocal &&
+				(!isKnown || isRemotePedersen)
 
 			log.Tracef("Skip asset creation for "+
 				"output %d?: %v,  position=%v, scriptKey=%x, "+
 				"isTombstone=%v, isBurn=%v, "+
-				"scriptKeyLocal=%v, scriptKeyKnown=%v",
-				idx, skipAssetCreation, out.Position,
-				scriptPubKey.SerializeCompressed(),
-				isTombstone, isBurn, out.ScriptKeyLocal,
-				isKnown)
+				"scriptKeyLocal=%v, scriptKeyKnown=%v, "+
+				"isRemotePedersen=%v", idx, skipAssetCreation,
+				out.Position,
+				scriptPubKey.SerializeCompressed(), isTombstone,
+				isBurn, out.ScriptKeyLocal, isKnown,
+				isRemotePedersen)
 
 			// If this is an outbound transfer (meaning that our
 			// node doesn't control the script key, and it isn't a
