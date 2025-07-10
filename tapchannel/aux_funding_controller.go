@@ -2226,7 +2226,9 @@ func (f *FundingController) validateLocalProofCourier(
 
 	// We need the courier to be a universe based courier, as the hashmail
 	// courier can't deal with channel funding outputs.
-	if courierURL.Scheme != proof.UniverseRpcCourierType {
+	if courierURL.Scheme != proof.UniverseRpcCourierType &&
+		courierURL.Scheme != proof.AuthMailboxUniRpcCourierType {
+
 		return fmt.Errorf("unsupported proof courier type '%v', %v",
 			courierURL.Scheme, flagHelp)
 	}

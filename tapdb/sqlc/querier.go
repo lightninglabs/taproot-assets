@@ -50,6 +50,8 @@ type Querier interface {
 	DeleteUniverseSupplyRoot(ctx context.Context, namespaceRoot string) error
 	FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventRow, error)
 	FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg FetchAddrEventByAddrKeyAndOutpointParams) (FetchAddrEventByAddrKeyAndOutpointRow, error)
+	FetchAddrEventOutputs(ctx context.Context, addrEventID int64) ([]FetchAddrEventOutputsRow, error)
+	FetchAddrEventProofs(ctx context.Context, addrEventID int64) ([]FetchAddrEventProofsRow, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
 	FetchAllNodes(ctx context.Context) ([]MssmtNode, error)
 	FetchAssetID(ctx context.Context, arg FetchAssetIDParams) ([]int64, error)
@@ -68,7 +70,8 @@ type Querier interface {
 	// doesn't have a group key. See the comment in fetchAssetSprouts for a work
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]FetchAssetsForBatchRow, error)
-	FetchAuthMailboxMessages(ctx context.Context, id int64) (FetchAuthMailboxMessagesRow, error)
+	FetchAuthMailboxMessage(ctx context.Context, id int64) (FetchAuthMailboxMessageRow, error)
+	FetchAuthMailboxMessageByOutpoint(ctx context.Context, claimedOutpoint []byte) (FetchAuthMailboxMessageByOutpointRow, error)
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error)
 	FetchChainTxByID(ctx context.Context, txnID int64) (FetchChainTxByIDRow, error)
 	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error)
@@ -165,6 +168,7 @@ type Querier interface {
 	// Join on genesis_info_view to get leaf related fields.
 	QueryFederationProofSyncLog(ctx context.Context, arg QueryFederationProofSyncLogParams) ([]QueryFederationProofSyncLogRow, error)
 	QueryFederationUniSyncConfigs(ctx context.Context) ([]QueryFederationUniSyncConfigsRow, error)
+	QueryLastEventHeightByAddrVersion(ctx context.Context, version int16) (int64, error)
 	QueryMultiverseLeaves(ctx context.Context, arg QueryMultiverseLeavesParams) ([]QueryMultiverseLeavesRow, error)
 	QueryPassiveAssets(ctx context.Context, transferID int64) ([]QueryPassiveAssetsRow, error)
 	QueryPendingSupplyCommitTransition(ctx context.Context, groupKey []byte) (SupplyCommitTransition, error)
@@ -193,6 +197,8 @@ type Querier interface {
 	UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLeaseParams) error
 	UpsertAddr(ctx context.Context, arg UpsertAddrParams) (int64, error)
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int64, error)
+	UpsertAddrEventOutput(ctx context.Context, arg UpsertAddrEventOutputParams) (int64, error)
+	UpsertAddrEventProof(ctx context.Context, arg UpsertAddrEventProofParams) (int64, error)
 	UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64, error)
 	UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int64, error)
 	UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int64, error)

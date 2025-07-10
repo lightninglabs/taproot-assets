@@ -1774,7 +1774,7 @@ func testSendMultipleCoins(t *harnessTest) {
 		)
 		AssertAssetOutboundTransferWithOutputs(
 			t.t, t.lndHarness.Miner().Client, t.tapd,
-			sendResp.Transfer, genInfo.AssetId,
+			sendResp.Transfer, [][]byte{genInfo.AssetId},
 			[]uint64{0, unitsPerPart}, i+1, i+2,
 			2, false,
 		)

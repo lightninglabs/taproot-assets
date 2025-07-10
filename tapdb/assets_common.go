@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -119,9 +120,6 @@ var (
 
 	// ErrUpsertScriptKey is returned when upserting a script key fails.
 	ErrUpsertScriptKey = errors.New("unable to upsert script key")
-
-	// ErrNoAssetGroup is returned when no matching asset group is found.
-	ErrNoAssetGroup = errors.New("no matching asset group")
 
 	// ErrNoAssetMeta is returned when no matching asset meta is found.
 	ErrNoAssetMeta = errors.New("no matching asset meta")
@@ -634,7 +632,7 @@ func fetchGroupByGenesis(ctx context.Context, q GroupStore,
 	groupInfo, err := q.FetchGroupByGenesis(ctx, genID)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return nil, fmt.Errorf("%w: %w", ErrNoAssetGroup, err)
+		return nil, address.ErrAssetGroupUnknown
 	case err != nil:
 		return nil, err
 	}
@@ -669,7 +667,7 @@ func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 	groupInfo, err := q.FetchGroupByGroupKey(ctx, groupKeyQuery[:])
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return nil, fmt.Errorf("%w: %w", ErrNoAssetGroup, err)
+		return nil, address.ErrAssetGroupUnknown
 	case err != nil:
 		return nil, err
 	}

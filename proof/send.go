@@ -32,11 +32,11 @@ const (
 	// fragment version is not recognized.
 	SendFragmentVersionUnknown SendFragmentVersion = 0
 
-	// SendFragmentV0 is the first version of the send fragment.
-	SendFragmentV0 SendFragmentVersion = 1
+	// SendFragmentV1 is the first version of the send fragment.
+	SendFragmentV1 SendFragmentVersion = 1
 
 	// LatestVersion is the latest version of the send fragment.
-	LatestVersion = SendFragmentV0
+	LatestVersion = SendFragmentV1
 )
 
 // SendOutput is a single asset UTXO or leaf that is being sent to the receiver
@@ -200,6 +200,10 @@ type SendManifest struct {
 	// outputs that are being sent. This is used as proof-of work to show
 	// to the auth mailbox server.
 	TxProof TxProof
+
+	// ExpiryHeight is the block height at which the send fragment will
+	// expire, allowing the server to clean up old fragments in its DB.
+	ExpiryHeight uint32
 
 	// Receiver is the receiver's public key of the asset outputs, used
 	// to decrypt the send fragment. This is the internal key of the address

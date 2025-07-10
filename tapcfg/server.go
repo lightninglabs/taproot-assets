@@ -216,7 +216,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		// the testnet3 server).
 		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
 			cfg.DefaultProofCourierAddr = fmt.Sprintf(
-				"%s://%s", proof.UniverseRpcCourierType,
+				"%s://%s", proof.AuthMailboxUniRpcCourierType,
 				defaultMainnetFederationServer,
 			)
 		}
@@ -256,7 +256,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		// the testnet3 server).
 		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
 			cfg.DefaultProofCourierAddr = fmt.Sprintf(
-				"%s://%s", proof.UniverseRpcCourierType,
+				"%s://%s", proof.AuthMailboxUniRpcCourierType,
 				defaultTestnet4FederationServer,
 			)
 		}
@@ -281,7 +281,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		// the testnet3 server).
 		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
 			cfg.DefaultProofCourierAddr = fmt.Sprintf(
-				"%s://%s", proof.UniverseRpcCourierType,
+				"%s://%s", proof.AuthMailboxUniRpcCourierType,
 				defaultSignetFederationServer,
 			)
 		}
@@ -478,6 +478,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	chainPorter := tapfreighter.NewChainPorter(
 		&tapfreighter.ChainPorterConfig{
+			ChainParams: tapChainParams,
 			Signer:      virtualTxSigner,
 			TxValidator: &tap.ValidatorV0{},
 			ExportLog:   assetStore,
@@ -618,10 +619,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				context.Background(), assetMintingStore,
 			),
 			AddrBook:               addrBook,
+			Signer:                 lndServices.Signer,
 			ProofArchive:           proofArchive,
 			ProofNotifier:          multiNotifier,
 			ErrChan:                mainErrChan,
 			ProofCourierDispatcher: proofCourierDispatcher,
+			MboxBackoffCfg:         cfg.UniverseRpcCourier.BackoffCfg,
 			ProofRetrievalDelay:    cfg.CustodianProofRetrievalDelay,
 			ProofWatcher:           reOrgWatcher,
 		}),
