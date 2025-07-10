@@ -12,10 +12,12 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -109,7 +111,13 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 	}, nil
 }
 
-// SignPsbt...
+// SignPsbt expects a partial transaction with all inputs and outputs fully
+// declared and tries to sign all unsigned inputs that have all required fields
+// (UTXO information, BIP32 derivation information, witness or sig scripts) set.
+// If no error is returned, the PSBT is ready to be given to the next signer or
+// to be finalized if lnd was the last signer.
+//
+// NOTE: See lndclient.WalletKitClient for further details.
 func (l *LndRpcWalletAnchor) SignPsbt(ctx context.Context,
 	packet *psbt.Packet) (*psbt.Packet, error) {
 
@@ -223,6 +231,23 @@ func (l *LndRpcWalletAnchor) MinRelayFee(
 	ctx context.Context) (chainfee.SatPerKWeight, error) {
 
 	return l.lnd.WalletKit.MinRelayFee(ctx)
+}
+
+// DeriveNextKey derives the next key in the taproot assets key family.
+func (l *LndRpcWalletAnchor) DeriveNextKey(
+	ctx context.Context) (keychain.KeyDescriptor, error) {
+
+	keyFam := asset.TaprootAssetsKeyFamily
+
+	tapdLog.Debugf("Deriving new key for fam_family=%v", keyFam)
+
+	keyDesc, err := l.lnd.WalletKit.DeriveNextKey(ctx, int32(keyFam))
+	if err != nil {
+		return keychain.KeyDescriptor{}, fmt.Errorf("unable to "+
+			"derive key ring: %w", err)
+	}
+
+	return *keyDesc, nil
 }
 
 // A compile time assertion to ensure LndRpcWalletAnchor meets the
