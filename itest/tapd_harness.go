@@ -31,6 +31,7 @@ import (
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/stretchr/testify/require"
@@ -199,10 +200,10 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	}
 
 	tapCfg.RpcConf.RawRPCListeners = []string{
-		fmt.Sprintf("127.0.0.1:%d", nextAvailablePort()),
+		fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort()),
 	}
 	tapCfg.RpcConf.RawRESTListeners = []string{
-		fmt.Sprintf("127.0.0.1:%d", nextAvailablePort()),
+		fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort()),
 	}
 
 	// Update the config with the lnd node's connection info.
@@ -287,6 +288,11 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		finalCfg.DefaultProofCourierAddr = fmt.Sprintf(
 			"%s://%s", proof.UniverseRpcCourierType,
 			typedProofCourier.ListenAddr,
+		)
+
+	case *proof.MockProofCourier:
+		finalCfg.DefaultProofCourierAddr = fmt.Sprintf(
+			"%s://%s", proof.MockCourierType, "dummyhost:1234",
 		)
 
 	default:

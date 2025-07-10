@@ -39,6 +39,10 @@ const (
 	// UniverseRpcCourierType is a courier that uses the daemon universe RPC
 	// endpoints to deliver proofs.
 	UniverseRpcCourierType = "universerpc"
+
+	// MockCourierType is a mock courier that can be used for testing
+	// purposes.
+	MockCourierType = "mockcourier"
 )
 
 // CourierHarness interface is an integration testing harness for a proof
@@ -199,6 +203,9 @@ func (u *URLDispatch) NewCourier(ctx context.Context, addr *url.URL,
 			u.cfg.LocalArchive, addr, lazyConnect,
 		)
 
+	case MockCourierType:
+		return NewMockProofCourier(), nil
+
 	default:
 		return nil, fmt.Errorf("unknown courier address protocol "+
 			"(consider updating tapd): %v", addr.Scheme)
@@ -235,7 +242,7 @@ func ValidateCourierAddress(addr *url.URL) error {
 	}
 
 	switch addr.Scheme {
-	case HashmailCourierType, UniverseRpcCourierType:
+	case HashmailCourierType, UniverseRpcCourierType, MockCourierType:
 		// Valid and known courier address protocol.
 		return nil
 
