@@ -34,7 +34,7 @@ func TestSendFragmentEncodeDecode(t *testing.T) {
 		{
 			name: "basic fragment",
 			fragment: SendFragment{
-				Version: SendFragmentV0,
+				Version: SendFragmentV1,
 				BlockHeader: wire.BlockHeader{
 					Version:    1,
 					PrevBlock:  [32]byte{0x01},
@@ -63,7 +63,7 @@ func TestSendFragmentEncodeDecode(t *testing.T) {
 		{
 			name: "empty fragment",
 			fragment: SendFragment{
-				Version: SendFragmentV0,
+				Version: SendFragmentV1,
 				BlockHeader: wire.BlockHeader{
 					Timestamp: time.Unix(1234567890, 0),
 				},
