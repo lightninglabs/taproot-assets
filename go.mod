@@ -128,7 +128,7 @@ require (
 	github.com/lightninglabs/lightning-node-connect/gbn v1.0.1 // indirect
 	github.com/lightninglabs/lightning-node-connect/mailbox v1.0.1 // indirect
 	github.com/lightninglabs/neutrino v0.16.1 // indirect
-	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb // indirect
+	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240815225420-8b40adf04ab9 // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
 	github.com/lightningnetwork/lnd/kvdb v1.4.16 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
@@ -217,3 +217,7 @@ replace github.com/golang-migrate/migrate/v4 => github.com/lightninglabs/migrate
 
 // Note this is a temproary replace and will be removed when taprpc is tagged.
 replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
+
+replace github.com/lightningnetwork/lnd => github.com/GeorgeTsagk/lnd v0.0.0-20250626140435-ed6a7abee9af
+
+replace github.com/lightningnetwork/lnd/sqldb => github.com/GeorgeTsagk/lnd/sqldb v0.0.0-20250626140435-ed6a7abee9af
