@@ -166,7 +166,7 @@ func determineAndAssignScriptKeyType(ctx context.Context,
 		if _, ok := burnKeys[serializedKey]; ok {
 			newType = asset.ScriptKeyBurn
 		} else {
-			assumedType := scriptKey.DetermineType()
+			assumedType := scriptKey.DetermineType(nil)
 
 			switch {
 			// If we're sure that a key is BIP-86 or the well-known

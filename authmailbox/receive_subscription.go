@@ -200,6 +200,18 @@ func (s *receiveSubscription) connectServerStream(ctx context.Context,
 		err     error
 	)
 	for i := 0; i < numRetries; i++ {
+		// If we're shutting down, we don't want to re-try connecting.
+		select {
+		case <-s.quit:
+			log.DebugS(ctx, "Client is shutting down...")
+			return ErrClientShutdown
+
+		case <-ctx.Done():
+			log.DebugS(ctx, "Client is shutting down...")
+			return ErrClientShutdown
+		default:
+		}
+
 		// Wait before connecting in case this is a re-connect trial.
 		if backoff != 0 {
 			err = s.wait(backoff)
@@ -441,16 +453,22 @@ func (s *receiveSubscription) HandleServerShutdown(ctx context.Context,
 
 // closeStream closes the long-lived stream connection to the server.
 func (s *receiveSubscription) closeStream(ctx context.Context) error {
+	log.InfoS(ctx, "Closing stream")
+
 	s.streamMutex.Lock()
 	defer s.streamMutex.Unlock()
 
+	if s.streamCancel != nil {
+		s.streamCancel()
+	}
+
 	if s.serverStream == nil {
+		log.InfoS(ctx, "Server stream is not connected")
 		return nil
 	}
 
 	log.DebugS(ctx, "Closing server stream")
 	err := s.serverStream.CloseSend()
-	s.streamCancel()
 	s.serverStream = nil
 
 	return err

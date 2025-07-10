@@ -127,6 +127,12 @@ type Storage interface {
 	AddrByTaprootOutput(ctx context.Context,
 		key *btcec.PublicKey) (*AddrWithKeyInfo, error)
 
+	// AddrByScriptKeyAndVersion returns a single address based on its
+	// script key and version or a sql.ErrNoRows error if no such address
+	// exists.
+	AddrByScriptKeyAndVersion(context.Context, *btcec.PublicKey,
+		Version) (*AddrWithKeyInfo, error)
+
 	// SetAddrManaged sets an address as being managed by the internal
 	// wallet.
 	SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
@@ -504,7 +510,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
 
 	// We might not know the type of script key, if it was given to us
 	// through an RPC call. So we make a guess here.
-	keyType := scriptKey.DetermineType()
+	keyType := scriptKey.DetermineType(fn.Ptr(assetGroup.Genesis.ID()))
 
 	err = b.cfg.Store.InsertScriptKey(ctx, scriptKey, keyType)
 	if err != nil {
@@ -601,6 +607,14 @@ func (b *Book) AddrByTaprootOutput(ctx context.Context,
 	key *btcec.PublicKey) (*AddrWithKeyInfo, error) {
 
 	return b.cfg.Store.AddrByTaprootOutput(ctx, key)
+}
+
+// AddrByScriptKeyAndVersion returns a single address based on its script key
+// and version or a sql.ErrNoRows error if no such address exists.
+func (b *Book) AddrByScriptKeyAndVersion(ctx context.Context,
+	scriptKey *btcec.PublicKey, version Version) (*AddrWithKeyInfo, error) {
+
+	return b.cfg.Store.AddrByScriptKeyAndVersion(ctx, scriptKey, version)
 }
 
 // SetAddrManaged sets an address as being managed by the internal

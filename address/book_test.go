@@ -175,6 +175,13 @@ type MockStorage struct {
 	mock.Mock
 }
 
+func (m *MockStorage) AddrByScriptKeyAndVersion(ctx context.Context,
+	key *btcec.PublicKey, version Version) (*AddrWithKeyInfo, error) {
+
+	args := m.Called(ctx, key, version)
+	return args.Get(0).(*AddrWithKeyInfo), args.Error(1)
+}
+
 func (m *MockStorage) GetOrCreateEvent(ctx context.Context, status Status,
 	addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
 	outputIdx uint32) (*Event, error) {

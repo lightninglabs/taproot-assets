@@ -38,9 +38,15 @@ type (
 	// information.
 	Addresses = sqlc.FetchAddrsRow
 
-	// AddrByTaprootOutput is a type alias for returning an address by its
-	// Taproot output key.
-	AddrByTaprootOutput = sqlc.FetchAddrByTaprootOutputKeyRow
+	// SingleAddrQuery is a type alias for returning an address by its
+	// Taproot output key, x-only script key or version (or a combination of
+	// those).
+	SingleAddrQuery = sqlc.QueryAddrParams
+
+	// SingleAddrRow is a type alias for returning an address by either its
+	// Taproot output key, x-only script key or version (or a combination
+	// of those).
+	SingleAddrRow = sqlc.QueryAddrRow
 
 	// AddrManaged is a type alias for setting an address as managed.
 	AddrManaged = sqlc.SetAddrManagedParams
@@ -111,11 +117,11 @@ type AddrBook interface {
 	// passed AddrQuery.
 	FetchAddrs(ctx context.Context, arg AddrQuery) ([]Addresses, error)
 
-	// FetchAddrByTaprootOutputKey returns a single address based on its
-	// Taproot output key or a sql.ErrNoRows error if no such address
-	// exists.
-	FetchAddrByTaprootOutputKey(ctx context.Context,
-		arg []byte) (AddrByTaprootOutput, error)
+	// QueryAddr returns a single address based on its Taproot output key,
+	// its x-only script key or version, or a sql.ErrNoRows error if no such
+	// address exists.
+	QueryAddr(ctx context.Context, arg SingleAddrQuery) (SingleAddrRow,
+		error)
 
 	// UpsertAddr upserts a new address into the database returning the
 	// primary key.
@@ -509,8 +515,57 @@ func (t *TapAddressBook) AddrByTaprootOutput(ctx context.Context,
 		readOpts = NewAddrBookReadTx()
 	)
 	err := t.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
-		var err error
-		addr, err = fetchAddr(ctx, db, t.params, key)
+		row, err := db.QueryAddr(ctx, SingleAddrQuery{
+			TaprootOutputKey: schnorr.SerializePubKey(key),
+		})
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return address.ErrNoAddr
+
+		case err != nil:
+			return err
+		}
+
+		addr, err = parseAddr(
+			ctx, db, t.params, row.Addr, row.ScriptKey,
+			row.InternalKey, row.InternalKey_2,
+		)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return addr, nil
+}
+
+// AddrByScriptKeyAndVersion returns a single address based on its script key
+// and version or a sql.ErrNoRows error if no such address exists.
+func (t *TapAddressBook) AddrByScriptKeyAndVersion(ctx context.Context,
+	scriptKey *btcec.PublicKey,
+	version address.Version) (*address.AddrWithKeyInfo, error) {
+
+	var (
+		addr     *address.AddrWithKeyInfo
+		readOpts = NewAddrBookReadTx()
+	)
+	err := t.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
+		row, err := db.QueryAddr(ctx, SingleAddrQuery{
+			XOnlyScriptKey: schnorr.SerializePubKey(scriptKey),
+			Version:        sqlInt16(version),
+		})
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return address.ErrNoAddr
+
+		case err != nil:
+			return err
+		}
+
+		addr, err = parseAddr(
+			ctx, db, t.params, row.Addr, row.ScriptKey,
+			row.InternalKey, row.InternalKey_2,
+		)
 		return err
 	})
 	if err != nil {
@@ -522,19 +577,9 @@ func (t *TapAddressBook) AddrByTaprootOutput(ctx context.Context,
 
 // fetchAddr fetches a single address identified by its taproot output key from
 // the database and populates all its fields.
-func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
-	taprootOutputKey *btcec.PublicKey) (*address.AddrWithKeyInfo, error) {
-
-	dbAddr, err := db.FetchAddrByTaprootOutputKey(
-		ctx, schnorr.SerializePubKey(taprootOutputKey),
-	)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		return nil, address.ErrNoAddr
-
-	case err != nil:
-		return nil, err
-	}
+func parseAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
+	dbAddr sqlc.Addr, dbScriptKey sqlc.ScriptKey, dbInternalKey,
+	dbTaprootKey sqlc.InternalKey) (*address.AddrWithKeyInfo, error) {
 
 	genesis, err := fetchGenesis(ctx, db, dbAddr.GenesisAssetID)
 	if err != nil {
@@ -566,21 +611,21 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 		}
 	}
 
-	scriptKey, err := parseScriptKey(dbAddr.InternalKey, dbAddr.ScriptKey)
+	scriptKey, err := parseScriptKey(dbInternalKey, dbScriptKey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode script key: %w", err)
 	}
 
-	internalKey, err := btcec.ParsePubKey(dbAddr.RawTaprootKey)
+	internalKey, err := btcec.ParsePubKey(dbTaprootKey.RawKey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode taproot key: %w", err)
 	}
 	internalKeyDesc := keychain.KeyDescriptor{
 		KeyLocator: keychain.KeyLocator{
 			Family: keychain.KeyFamily(
-				dbAddr.TaprootKeyFamily,
+				dbTaprootKey.KeyFamily,
 			),
-			Index: uint32(dbAddr.TaprootKeyIndex),
+			Index: uint32(dbTaprootKey.KeyIndex),
 		},
 		PubKey: internalKey,
 	}
@@ -610,6 +655,12 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make addr: %w", err)
+	}
+
+	taprootOutputKey, err := tapAddr.TaprootOutputKey()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get taproot output key: %w",
+			err)
 	}
 
 	return &address.AddrWithKeyInfo{
@@ -866,11 +917,25 @@ func (t *TapAddressBook) QueryAddrEvents(
 					"output key: %w", err)
 			}
 
-			addr, err := fetchAddr(
-				ctx, db, t.params, taprootOutputKey,
+			row, err := db.QueryAddr(ctx, SingleAddrQuery{
+				TaprootOutputKey: schnorr.SerializePubKey(
+					taprootOutputKey,
+				),
+			})
+			switch {
+			case errors.Is(err, sql.ErrNoRows):
+				return address.ErrNoAddr
+
+			case err != nil:
+				return err
+			}
+
+			addr, err := parseAddr(
+				ctx, db, t.params, row.Addr, row.ScriptKey,
+				row.InternalKey, row.InternalKey_2,
 			)
 			if err != nil {
-				return fmt.Errorf("error fetching address: %w",
+				return fmt.Errorf("error parsing address: %w",
 					err)
 			}
 

@@ -160,6 +160,9 @@ func UnmarshalScriptKeyType(rpcType taprpc.ScriptKeyType) (asset.ScriptKeyType,
 	case taprpc.ScriptKeyType_SCRIPT_KEY_CHANNEL:
 		return asset.ScriptKeyScriptPathChannel, nil
 
+	case taprpc.ScriptKeyType_SCRIPT_KEY_UNIQUE_PEDERSEN:
+		return asset.ScriptKeyUniquePedersen, nil
+
 	default:
 		return 0, fmt.Errorf("unknown script key type: %v", rpcType)
 	}
@@ -182,6 +185,9 @@ func MarshalScriptKeyType(typ asset.ScriptKeyType) taprpc.ScriptKeyType {
 
 	case asset.ScriptKeyScriptPathChannel:
 		return taprpc.ScriptKeyType_SCRIPT_KEY_CHANNEL
+
+	case asset.ScriptKeyUniquePedersen:
+		return taprpc.ScriptKeyType_SCRIPT_KEY_UNIQUE_PEDERSEN
 
 	default:
 		return taprpc.ScriptKeyType_SCRIPT_KEY_UNKNOWN
