@@ -104,3 +104,8 @@ ALTER TABLE addr_events
 
 ALTER TABLE addr_events
     DROP COLUMN asset_proof_id;
+
+-- Finally, we also add a new column to the transfer output table that contains
+-- the encoded address that was used to create the transfer output (if set).
+ALTER TABLE asset_transfer_outputs
+    ADD COLUMN tap_address VARCHAR;

@@ -16,3 +16,6 @@ ALTER TABLE addr_events
     ADD COLUMN asset_proof_id BIGINT REFERENCES asset_proofs(proof_id);
 ALTER TABLE addr_events
     ADD COLUMN asset_id BIGINT REFERENCES assets(asset_id);
+
+ALTER TABLE asset_transfer_outputs
+    DROP COLUMN tap_address;
