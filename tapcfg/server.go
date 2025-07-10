@@ -696,7 +696,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			HeaderVerifier: headerVerifier,
 			MerkleVerifier: proof.DefaultMerkleVerifier,
 			MsgStore:       authMailboxStore,
-			TxProofStore:   authMailboxStore,
 		},
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),

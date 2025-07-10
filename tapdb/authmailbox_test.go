@@ -34,8 +34,6 @@ func TestStoreAndFetchMessage(t *testing.T) {
 	ctx := context.Background()
 
 	txProof := proof.MockTxProof(t)
-	require.NoError(t, mailboxStore.StoreProof(ctx, *txProof))
-
 	msg := &authmailbox.Message{
 		ReceiverKey:       *receiverKey,
 		EncryptedPayload:  []byte("payload"),
@@ -43,9 +41,7 @@ func TestStoreAndFetchMessage(t *testing.T) {
 		ExpiryBlockHeight: 100,
 	}
 
-	msgID, err := mailboxStore.StoreMessage(
-		ctx, txProof.ClaimedOutPoint, msg,
-	)
+	msgID, err := mailboxStore.StoreMessage(ctx, *txProof, msg)
 	require.NoError(t, err)
 
 	// Verify the message was stored correctly.
@@ -57,6 +53,14 @@ func TestStoreAndFetchMessage(t *testing.T) {
 		t, msg.ArrivalTimestamp.Unix(), dbMsg.ArrivalTimestamp.Unix(),
 	)
 	require.Equal(t, msg.ExpiryBlockHeight, dbMsg.ExpiryBlockHeight)
+
+	// We should also be able to fetch the message by its outpoint.
+	dbMsgByOutPoint, err := mailboxStore.FetchMessageByOutPoint(
+		ctx, txProof.ClaimedOutPoint,
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, dbMsg, dbMsgByOutPoint)
 }
 
 // TestQueryMessages tests querying messages with filters.
@@ -70,8 +74,6 @@ func TestQueryMessages(t *testing.T) {
 	const numMessages = 5
 	for i := 0; i < numMessages; i++ {
 		txProof := proof.MockTxProof(t)
-		require.NoError(t, mailboxStore.StoreProof(ctx, *txProof))
-
 		msg := &authmailbox.Message{
 			ReceiverKey:      *receiverKey,
 			EncryptedPayload: []byte("payload"),
@@ -81,9 +83,7 @@ func TestQueryMessages(t *testing.T) {
 			ExpiryBlockHeight: 100,
 		}
 
-		_, err := mailboxStore.StoreMessage(
-			ctx, txProof.ClaimedOutPoint, msg,
-		)
+		_, err := mailboxStore.StoreMessage(ctx, *txProof, msg)
 		require.NoError(t, err)
 	}
 
@@ -114,8 +114,6 @@ func TestNumMessages(t *testing.T) {
 	const numMessages = 5
 	for i := 0; i < numMessages; i++ {
 		txProof := proof.MockTxProof(t)
-		require.NoError(t, mailboxStore.StoreProof(ctx, *txProof))
-
 		msg := &authmailbox.Message{
 			ReceiverKey:       *receiverKey,
 			EncryptedPayload:  []byte("payload"),
@@ -123,9 +121,7 @@ func TestNumMessages(t *testing.T) {
 			ExpiryBlockHeight: 100,
 		}
 
-		_, err := mailboxStore.StoreMessage(
-			ctx, txProof.ClaimedOutPoint, msg,
-		)
+		_, err := mailboxStore.StoreMessage(ctx, *txProof, msg)
 		require.NoError(t, err)
 	}
 
@@ -137,21 +133,32 @@ func TestNumMessages(t *testing.T) {
 func TestStoreProof(t *testing.T) {
 	t.Parallel()
 
+	receiverKey := test.RandPubKey(t)
 	mailboxStore, _ := newMailboxStore(t)
 	ctx := context.Background()
 
 	txProof := proof.MockTxProof(t)
-	require.NoError(t, mailboxStore.StoreProof(ctx, *txProof))
+	msg := &authmailbox.Message{
+		ReceiverKey:       *receiverKey,
+		EncryptedPayload:  []byte("payload"),
+		ArrivalTimestamp:  time.Now(),
+		ExpiryBlockHeight: 100,
+	}
+
+	_, err := mailboxStore.StoreMessage(ctx, *txProof, msg)
+	require.NoError(t, err)
 
 	// Verify the proof exists.
-	exists, err := mailboxStore.HaveProof(ctx, txProof.ClaimedOutPoint)
+	existingMsg, err := mailboxStore.FetchMessageByOutPoint(
+		ctx, txProof.ClaimedOutPoint,
+	)
 	require.NoError(t, err)
-	require.True(t, exists)
+	require.GreaterOrEqual(t, existingMsg.ID, uint64(1))
 
 	// If we try to store another proof with the same outpoint, it should
 	// return an error.
 	otherProof := *proof.MockTxProof(t)
 	otherProof.ClaimedOutPoint = txProof.ClaimedOutPoint
-	err = mailboxStore.StoreProof(ctx, otherProof)
+	_, err = mailboxStore.StoreMessage(ctx, otherProof, msg)
 	require.ErrorIs(t, err, proof.ErrTxMerkleProofExists)
 }

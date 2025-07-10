@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -48,10 +48,6 @@ type ServerConfig struct {
 	// MsgStore is the message store used to store and retrieve messages
 	// sent to the mailbox server.
 	MsgStore MsgStore
-
-	// TxProofStore is the proof store used to store and retrieve TX
-	// proofs sent by clients to prove the rate limit of their messages.
-	TxProofStore proof.TxProofStore
 }
 
 // Server is the mailbox server that handles incoming messages from clients and
@@ -204,10 +200,10 @@ func (s *Server) SendMessage(ctx context.Context,
 		ArrivalTimestamp: time.Now(),
 	}
 
-	var claimedOp wire.OutPoint
+	var txProof *proof.TxProof
 	switch p := req.Proof.(type) {
 	case *mboxrpc.SendMessageRequest_TxProof:
-		txProof, err := proof.UnmarshalTxProof(p.TxProof)
+		txProof, err = proof.UnmarshalTxProof(p.TxProof)
 		if err != nil {
 			return nil, fmt.Errorf("error unmarshalling proof: %w",
 				err)
@@ -222,28 +218,47 @@ func (s *Server) SendMessage(ctx context.Context,
 
 		// If this proof has already been used, we reject the message.
 		// This is the last step of the proof validation.
-		haveProof, err := s.cfg.TxProofStore.HaveProof(
+		existingMsg, err := s.cfg.MsgStore.FetchMessageByOutPoint(
 			ctx, txProof.ClaimedOutPoint,
 		)
-		if err != nil {
+		switch {
+		case errors.Is(err, ErrMessageNotFound):
+			// This is the expected case, we don't have a message
+			// with this outpoint yet, so we can continue below.
+
+		case err != nil:
 			return nil, fmt.Errorf("error checking for proof: %w",
 				err)
-		}
-		if haveProof {
-			return nil, proof.ErrTxMerkleProofExists
-		}
 
-		// We didn't have the proof before, so we store it now. If at
-		// the same time a different goroutine is trying to store the
-		// same proof, we expect the database to handle the concurrency.
-		err = s.cfg.TxProofStore.StoreProof(ctx, *txProof)
-		if err != nil {
-			return nil, fmt.Errorf("error storing proof: %w",
-				err)
+		default:
+			// If we already have this proof, we check if it's for
+			// the same recipient. If it is, we'll return the
+			// message ID, making this call idempotent to simplify
+			// the client re-try logic. Because the encryption
+			// algorithm will produce a different ciphertext for the
+			// same message each time, we cannot compare the actual
+			// message itself. So we have to assume that using the
+			// same outpoint in the proof for the same recipient
+			// means it's also the same message.
+			if !existingMsg.ReceiverKey.IsEqual(&msg.ReceiverKey) {
+				// It's a different recipient, so someone is
+				// attempting to re-use a proof for a different
+				// recipient.
+				return nil, fmt.Errorf("outpoint in proof "+
+					"alread in use: %w",
+					proof.ErrTxMerkleProofExists)
+			}
+
+			// We have a message with the same outpoint and
+			// recipient, so we can return the message ID, so it
+			// looks to the client as if we stored the message, even
+			// though we have it already.
+			return &mboxrpc.SendMessageResponse{
+				MessageId: existingMsg.ID,
+			}, nil
 		}
 
 		msg.ProofBlockHeight = txProof.BlockHeight
-		claimedOp = txProof.ClaimedOutPoint
 
 	default:
 		return nil, fmt.Errorf("unsupported proof type: %T", p)
@@ -260,7 +275,7 @@ func (s *Server) SendMessage(ctx context.Context,
 	// We have verified everything we can, we'll allow the message to be
 	// stored now.
 	log.TraceS(ctx, "Sending message", "msg", spew.Sdump(msg))
-	msgID, err := s.cfg.MsgStore.StoreMessage(ctx, claimedOp, msg)
+	msgID, err := s.cfg.MsgStore.StoreMessage(ctx, *txProof, msg)
 	if err != nil {
 		return nil, fmt.Errorf("error storing message: %w", err)
 	}
