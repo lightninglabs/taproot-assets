@@ -4300,21 +4300,28 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 		}
 	}
 
-	switch e.Parcel.(type) {
-	case *tapfreighter.AddressParcel:
-		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_ADDRESS
+	if e.Parcel != nil {
+		switch e.Parcel.(type) {
+		case *tapfreighter.AddressParcel:
+			result.ParcelType =
+				taprpc.ParcelType_PARCEL_TYPE_ADDRESS
 
-	case *tapfreighter.PreSignedParcel:
-		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_PRE_SIGNED
+		case *tapfreighter.PreSignedParcel:
+			result.ParcelType =
+				taprpc.ParcelType_PARCEL_TYPE_PRE_SIGNED
 
-	case *tapfreighter.PendingParcel:
-		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_PENDING
+		case *tapfreighter.PendingParcel:
+			result.ParcelType =
+				taprpc.ParcelType_PARCEL_TYPE_PENDING
 
-	case *tapfreighter.PreAnchoredParcel:
-		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_PRE_ANCHORED
+		case *tapfreighter.PreAnchoredParcel:
+			result.ParcelType =
+				taprpc.ParcelType_PARCEL_TYPE_PRE_ANCHORED
 
-	default:
-		return nil, fmt.Errorf("unknown parcel type %T", e.Parcel)
+		default:
+			return nil, fmt.Errorf("unknown parcel type %T",
+				e.Parcel)
+		}
 	}
 
 	if e.AnchorTx != nil {
