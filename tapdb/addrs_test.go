@@ -431,6 +431,15 @@ func TestAddrEventCreation(t *testing.T) {
 
 	ctx := context.Background()
 
+	// Before we start, the last height for any version should be 0, as
+	// we don't have any events yet.
+	height, err := addrBook.LastEventHeightByVersion(ctx, address.V0)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, height)
+	height, err = addrBook.LastEventHeightByVersion(ctx, address.V1)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, height)
+
 	// Create 5 addresses and then events with unconfirmed transactions.
 	const numAddrs = 5
 	proofCourierAddr := address.RandProofCourierAddr(t)
@@ -498,18 +507,30 @@ func TestAddrEventCreation(t *testing.T) {
 
 	// Now we update the status of our event, make the transaction confirmed
 	// and set the tapscript sibling to nil for all of them.
-	for idx := range events {
+	maxHeightByVersion := make(map[address.Version]int32)
+	for idx, event := range events {
+		txn := txns[idx]
 		confirmTx(txns[idx])
 		events[idx].Status = address.StatusTransactionConfirmed
 		events[idx].ConfirmationHeight = uint32(txns[idx].BlockHeight)
 
 		actual, err := addrBook.GetOrCreateEvent(
 			ctx, address.StatusTransactionConfirmed,
-			events[idx].Addr, txns[idx], events[idx].Outpoint.Index,
+			event.Addr, txns[idx], events[idx].Outpoint.Index,
 		)
 		require.NoError(t, err)
 
 		assertEqualAddrEvent(t, *events[idx], *actual)
+
+		if maxHeightByVersion[event.Addr.Version] < txn.BlockHeight {
+			maxHeightByVersion[event.Addr.Version] = txn.BlockHeight
+		}
+	}
+
+	for version, maxHeight := range maxHeightByVersion {
+		height, err := addrBook.LastEventHeightByVersion(ctx, version)
+		require.NoError(t, err)
+		require.EqualValues(t, maxHeight, height)
 	}
 }
 
