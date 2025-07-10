@@ -87,3 +87,6 @@ http:
     - selector: universerpc.Universe.UpdateSupplyCommit
       post: "/v1/taproot-assets/universe/supply/{group_key_str}"
       body: "*"
+
+    - selector: universerpc.Universe.FetchSupplyCommit
+      get: "/v1/taproot-assets/universe/supply/{group_key_str}"

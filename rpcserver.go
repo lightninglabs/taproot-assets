@@ -3995,6 +3995,259 @@ func (r *rpcServer) UpdateSupplyCommit(ctx context.Context,
 	return &unirpc.UpdateSupplyCommitResponse{}, nil
 }
 
+// inclusionProofs fetches the inclusion proofs for the given leaf keys from
+// the provided MSSMT tree. The leaf keys are expected to be 32-byte long.
+func inclusionProofs(ctx context.Context, tree mssmt.Tree,
+	leafKeys [][]byte) ([][]byte, error) {
+
+	proofs := make([][]byte, 0, len(leafKeys))
+	for idx := range leafKeys {
+		leafKey := leafKeys[idx]
+
+		if len(leafKey) != 32 {
+			return nil, fmt.Errorf("leaf key is not 32 bytes long")
+		}
+
+		var key [32]byte
+		copy(key[:], leafKey)
+
+		inclusionProof, err := tree.MerkleProof(ctx, key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get inclusion proof "+
+				"for leaf key %x: %w", leafKey, err)
+		}
+
+		proofBytes, err := marshalMssmtProof(inclusionProof)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal inclusion "+
+				"proof for leaf key %x: %w", leafKey, err)
+		}
+
+		proofs = append(proofs, proofBytes)
+	}
+
+	return proofs, nil
+}
+
+// supplySubtreeRoot fetches the root of a specific supply subtree and its
+// supply tree inclusion proof.
+func supplySubtreeRoot(ctx context.Context, supplyTree mssmt.Tree,
+	subtrees supplycommit.SupplyTrees,
+	subtreeType supplycommit.SupplySubTree) (
+	*unirpc.SupplyCommitSubtreeRoot, error) {
+
+	// Fetch supply subtree root for the given subtree type.
+	subtree := subtrees[subtreeType]
+	subtreeRoot, err := subtree.Root(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get supply subtree root: "+
+			"%w", err)
+	}
+
+	// Fetch subtree inclusion proof for the given subtree type. This can
+	// be used to verify that the subtree root is indeed part of the
+	// supply tree.
+	subtreeRootLeafKey := subtreeType.UniverseKey()
+	subtreeInclusionProof, err := supplyTree.MerkleProof(
+		ctx, subtreeRootLeafKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get supply subtree "+
+			"inclusion proof: %w", err)
+	}
+
+	inclusionProofBytes, err := marshalMssmtProof(subtreeInclusionProof)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal inclusion "+
+			"proof for issuance subtree: %w", err)
+	}
+
+	return &unirpc.SupplyCommitSubtreeRoot{
+		Type:                     subtreeType.String(),
+		RootNode:                 marshalMssmtNode(subtreeRoot),
+		SupplyTreeLeafKey:        subtreeRootLeafKey[:],
+		SupplyTreeInclusionProof: inclusionProofBytes,
+	}, nil
+}
+
+// FetchSupplyCommit fetches the on-chain supply commitment for a specific
+// asset group.
+func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
+	req *unirpc.FetchSupplyCommitRequest) (
+	*unirpc.FetchSupplyCommitResponse, error) {
+
+	// Parse asset group key from the request.
+	var groupPubKey btcec.PublicKey
+
+	switch {
+	case len(req.GetGroupKeyBytes()) > 0:
+		gk, err := btcec.ParsePubKey(req.GetGroupKeyBytes())
+		if err != nil {
+			return nil, fmt.Errorf("parsing group key: %w", err)
+		}
+
+		groupPubKey = *gk
+
+	case len(req.GetGroupKeyStr()) > 0:
+		groupKeyBytes, err := hex.DecodeString(req.GetGroupKeyStr())
+		if err != nil {
+			return nil, fmt.Errorf("decoding group key: %w", err)
+		}
+
+		gk, err := btcec.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("parsing group key: %w", err)
+		}
+
+		groupPubKey = *gk
+
+	default:
+		return nil, fmt.Errorf("group key unspecified")
+	}
+
+	// Formulate an asset specifier from the asset group key.
+	assetSpec := asset.NewSpecifierFromGroupKey(groupPubKey)
+
+	// Fetch the supply commitment for the asset specifier.
+	respOpt, err := r.cfg.SupplyCommitManager.FetchCommitment(
+		ctx, assetSpec,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch supply commit: %w",
+			err)
+	}
+	if respOpt.IsNone() {
+		return nil, fmt.Errorf("supply commitment not found for "+
+			"asset group with key %x",
+			groupPubKey.SerializeCompressed())
+	}
+	resp, err := respOpt.UnwrapOrErr(fmt.Errorf("unexpected None value " +
+		"for supply commitment response"))
+	if err != nil {
+		return nil, err
+	}
+
+	supplyTreeRoot, err := resp.SupplyTree.Root(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get supply tree root: %w",
+			err)
+	}
+
+	// Fetch subtree commitment root and inclusion proofs for the issuance
+	// subtree.
+	rpcIssuanceSubtreeRoot, err := supplySubtreeRoot(
+		ctx, resp.SupplyTree, resp.Subtrees, supplycommit.MintTreeType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch supply issuance "+
+			"subtree root: %w", err)
+	}
+
+	// Fetch subtree commitment root and inclusion proofs for the burn
+	// subtree.
+	rpcBurnSubtreeRoot, err := supplySubtreeRoot(
+		ctx, resp.SupplyTree, resp.Subtrees, supplycommit.BurnTreeType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch supply burn subtree "+
+			"root: %w", err)
+	}
+
+	// Fetch subtree commitment root and inclusion proofs for the ignore
+	// subtree.
+	rpcIgnoreSubtreeRoot, err := supplySubtreeRoot(
+		ctx, resp.SupplyTree, resp.Subtrees,
+		supplycommit.IgnoreTreeType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch supply ignore subtree "+
+			"root: %w", err)
+	}
+
+	// Get inclusion proofs for any issuance leaf key specified in the
+	// request.
+	issuanceTree := resp.Subtrees[supplycommit.MintTreeType]
+	issuanceInclusionProofs, err := inclusionProofs(
+		ctx, issuanceTree, req.IssuanceLeafKeys,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch issuance tree "+
+			"inclusion proofs: %w", err)
+	}
+
+	// Get inclusion proofs for any burn leaf key specified in the request.
+	burnTree := resp.Subtrees[supplycommit.BurnTreeType]
+	burnInclusionProofs, err := inclusionProofs(
+		ctx, burnTree, req.BurnLeafKeys,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch burn tree "+
+			"inclusion proofs: %w", err)
+	}
+
+	// Get inclusion proofs for any ignore leaf key specified in the
+	// request.
+	ignoreTree := resp.Subtrees[supplycommit.IgnoreTreeType]
+	ignoreInclusionProofs, err := inclusionProofs(
+		ctx, ignoreTree, req.IgnoreLeafKeys,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch ignore tree "+
+			"inclusion proofs: %w", err)
+	}
+
+	// Sanity check: ensure the supply root derived from the supply tree
+	// matches the root provided in the chain commitment.
+	if resp.ChainCommitment.SupplyRoot.NodeHash() !=
+		supplyTreeRoot.NodeHash() {
+
+		return nil, fmt.Errorf("mismatched supply commitment root: "+
+			"expected %x, got %x",
+			resp.ChainCommitment.SupplyRoot.NodeHash(),
+			supplyTreeRoot.NodeHash())
+	}
+
+	txOutInternalKey := resp.ChainCommitment.InternalKey.PubKey
+
+	// Extract the block height and hash from the chain commitment if
+	// present.
+	var (
+		blockHeight uint32
+		blockHash   []byte
+		txIndex     uint32
+		chainFees   int64
+	)
+	resp.ChainCommitment.CommitmentBlock.WhenSome(
+		func(b supplycommit.CommitmentBlock) {
+			blockHeight = b.Height
+			blockHash = b.Hash[:]
+			txIndex = b.TxIndex
+			chainFees = b.ChainFees
+		},
+	)
+
+	return &unirpc.FetchSupplyCommitResponse{
+		SupplyCommitmentRoot: marshalMssmtNode(supplyTreeRoot),
+
+		AnchorTxid:             resp.ChainCommitment.Txn.TxID(),
+		AnchorTxOutIdx:         resp.ChainCommitment.TxOutIdx,
+		AnchorTxOutInternalKey: txOutInternalKey.SerializeCompressed(),
+
+		BlockHeight:     blockHeight,
+		BlockHash:       blockHash,
+		BlockTxIndex:    txIndex,
+		TxChainFeesSats: chainFees,
+
+		IssuanceSubtreeRoot: rpcIssuanceSubtreeRoot,
+		BurnSubtreeRoot:     rpcBurnSubtreeRoot,
+		IgnoreSubtreeRoot:   rpcIgnoreSubtreeRoot,
+
+		IssuanceLeafInclusionProofs: issuanceInclusionProofs,
+		BurnLeafInclusionProofs:     burnInclusionProofs,
+		IgnoreLeafInclusionProofs:   ignoreInclusionProofs,
+	}, nil
+}
+
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(
@@ -4017,7 +4270,9 @@ func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
 	_ *tapdevrpc.SubscribeReceiveAssetEventNtfnsRequest,
 	ntfnStream devReceiveEventStream) error {
 
-	marshaler := func(event fn.Event) (*tapdevrpc.ReceiveAssetEvent, error) {
+	marshaler := func(event fn.Event) (*tapdevrpc.ReceiveAssetEvent,
+		error) {
+
 		return marshallReceiveAssetEvent(
 			event, r.cfg.TapAddrBook,
 		)
