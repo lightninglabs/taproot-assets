@@ -474,6 +474,18 @@ func TestAddrEventCreation(t *testing.T) {
 
 	ctx := context.Background()
 
+	// Before we start, the last height for any version should be 0, as
+	// we don't have any events yet.
+	height, err := addrBook.LastEventHeightByVersion(ctx, address.V0)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, height)
+	height, err = addrBook.LastEventHeightByVersion(ctx, address.V1)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, height)
+	height, err = addrBook.LastEventHeightByVersion(ctx, address.V2)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, height)
+
 	// Create 5 addresses and then events with unconfirmed transactions.
 	const numAddrs = 5
 	addrVersion := test.RandFlip(address.V0, address.V1)
@@ -548,6 +560,7 @@ func TestAddrEventCreation(t *testing.T) {
 
 	// Now we update the status of our event, make the transaction confirmed
 	// and set the tapscript sibling to nil for all of them.
+	maxHeightByVersion := make(map[address.Version]int32)
 	for idx, event := range events {
 		txn := txns[idx]
 		confirmTx(txn)
@@ -570,8 +583,18 @@ func TestAddrEventCreation(t *testing.T) {
 		// field should only be true if there are no outputs (which can
 		// only happen in this unit test in the first place).
 		require.Equal(
-			t, len(events[idx].Outputs) == 0, actual.HasAllProofs,
+			t, len(event.Outputs) == 0, actual.HasAllProofs,
 		)
+
+		if maxHeightByVersion[event.Addr.Version] < txn.BlockHeight {
+			maxHeightByVersion[event.Addr.Version] = txn.BlockHeight
+		}
+	}
+
+	for version, maxHeight := range maxHeightByVersion {
+		height, err := addrBook.LastEventHeightByVersion(ctx, version)
+		require.NoError(t, err)
+		require.EqualValues(t, maxHeight, height)
 	}
 }
 

@@ -137,6 +137,11 @@ type Storage interface {
 	SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
 		managedFrom time.Time) error
 
+	// LastEventHeightByVersion returns the last event height for a given
+	// address version.
+	LastEventHeightByVersion(ctx context.Context,
+		version Version) (uint32, error)
+
 	// InsertInternalKey inserts an internal key into the database to make
 	// sure it is identified as a local key later on when importing proofs.
 	// The key can be an internal key for an asset script key or the
@@ -630,6 +635,14 @@ func (b *Book) SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
 	managedFrom time.Time) error {
 
 	return b.cfg.Store.SetAddrManaged(ctx, addr, managedFrom)
+}
+
+// LastEventHeightByVersion returns the last event height for a given address
+// version.
+func (b *Book) LastEventHeightByVersion(ctx context.Context,
+	version Version) (uint32, error) {
+
+	return b.cfg.Store.LastEventHeightByVersion(ctx, version)
 }
 
 // GetOrCreateEvent creates a new address event for the given status, address
