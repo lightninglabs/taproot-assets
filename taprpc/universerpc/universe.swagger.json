@@ -158,6 +158,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/universe/fetch-supply-commit": {
+      "post": {
+        "summary": "tapcli: `universe fetchsupplycommit`\nFetchSupplyCommit fetches the on-chain supply commitment for a specific\nasset group.",
+        "operationId": "Universe_FetchSupplyCommit",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcFetchSupplyCommitResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcFetchSupplyCommitRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/ignore-asset-outpoint": {
       "post": {
         "summary": "tapcli: `universe ignoreoutpoint`\nIgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint\nas ignored. An ignored outpoint will be included in the next universe supply\ncommitment transaction that is published.",
@@ -2217,6 +2250,93 @@
     "universerpcDeleteRootResponse": {
       "type": "object"
     },
+    "universerpcFetchSupplyCommitRequest": {
+      "type": "object",
+      "properties": {
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique identifier for the target asset group whose supply commitment\nis being fetched."
+        },
+        "issuance_leaf_keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Optional: A list of issuance leaf keys. For each key in this list,\nthe endpoint will generate and return an inclusion proof."
+        },
+        "burn_leaf_keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Optional: A list of burn leaf keys. For each key in this list,\nthe endpoint will generate and return an inclusion proof."
+        },
+        "ignore_leaf_keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Optional: A list of ignore leaf keys. For each key in this list, the\nendpoint will generate and return an inclusion proof."
+        }
+      }
+    },
+    "universerpcFetchSupplyCommitResponse": {
+      "type": "object",
+      "properties": {
+        "supply_commitment_root": {
+          "$ref": "#/definitions/universerpcMerkleSumNode",
+          "description": "The supply commitment merkle sum root node for the specified asset."
+        },
+        "anchor_tx_out_idx": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "anchor_tx_out_internal_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "issuance_subtree_root": {
+          "$ref": "#/definitions/universerpcSupplyCommitSubtreeRoot",
+          "description": "The root of the issuance tree for the specified asset."
+        },
+        "burn_subtree_root": {
+          "$ref": "#/definitions/universerpcSupplyCommitSubtreeRoot",
+          "description": "The root of the burn tree for the specified asset."
+        },
+        "ignore_subtree_root": {
+          "$ref": "#/definitions/universerpcSupplyCommitSubtreeRoot",
+          "description": "The root of the ignore tree for the specified asset."
+        },
+        "issuance_leaf_inclusion_proofs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Inclusion proofs for each issuance leaf key provided in the request.\nEach entry corresponds to the key at the same index in\n`issuance_leaf_keys`."
+        },
+        "burn_leaf_inclusion_proofs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Inclusion proofs for each burn leaf key provided in the request.\nEach entry corresponds to the key at the same index in `burn_leaf_keys`."
+        },
+        "ignore_leaf_inclusion_proofs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Inclusion proofs for each ignored leaf key provided in the request.\nEach entry corresponds to the key at the same index in\n`ignore_leaf_keys`."
+        }
+      }
+    },
     "universerpcGlobalFederationSyncConfig": {
       "type": "object",
       "properties": {
@@ -2510,6 +2630,29 @@
         "num_total_proofs": {
           "type": "string",
           "format": "int64"
+        }
+      }
+    },
+    "universerpcSupplyCommitSubtreeRoot": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "The type of the supply commit subtree."
+        },
+        "root_node": {
+          "$ref": "#/definitions/universerpcMerkleSumNode",
+          "description": "The root node of the supply commit subtree."
+        },
+        "supply_tree_leaf_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The leaf key which locates the subtree leaf node in the supply commit\ntree."
+        },
+        "supply_tree_inclusion_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "The inclusion proof for the supply commit subtree root node."
         }
       }
     },

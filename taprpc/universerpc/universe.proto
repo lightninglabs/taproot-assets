@@ -169,6 +169,13 @@ service Universe {
     */
     rpc UpdateSupplyCommit (UpdateSupplyCommitRequest)
         returns (UpdateSupplyCommitResponse);
+
+    /* tapcli: `universe fetchsupplycommit`
+    FetchSupplyCommit fetches the on-chain supply commitment for a specific
+    asset group.
+    */
+    rpc FetchSupplyCommit (FetchSupplyCommitRequest)
+        returns (FetchSupplyCommitResponse);
 }
 
 message MultiverseRootRequest {
@@ -703,4 +710,68 @@ message UpdateSupplyCommitRequest {
 }
 
 message UpdateSupplyCommitResponse {
+}
+
+message FetchSupplyCommitRequest {
+    // The unique identifier for the target asset group whose supply commitment
+    // is being fetched.
+    bytes group_key = 1;
+
+    // Optional: A list of issuance leaf keys. For each key in this list,
+    // the endpoint will generate and return an inclusion proof.
+    repeated bytes issuance_leaf_keys = 2;
+
+    // Optional: A list of burn leaf keys. For each key in this list,
+    // the endpoint will generate and return an inclusion proof.
+    repeated bytes burn_leaf_keys = 3;
+
+    // Optional: A list of ignore leaf keys. For each key in this list, the
+    // endpoint will generate and return an inclusion proof.
+    repeated bytes ignore_leaf_keys = 4;
+}
+
+message SupplyCommitSubtreeRoot {
+    // The type of the supply commit subtree.
+    string type = 1;
+
+    // The root node of the supply commit subtree.
+    MerkleSumNode root_node = 2;
+
+    // The leaf key which locates the subtree leaf node in the supply commit
+    // tree.
+    bytes supply_tree_leaf_key = 3;
+
+    // The inclusion proof for the supply commit subtree root node.
+    bytes supply_tree_inclusion_proof = 4;
+}
+
+message FetchSupplyCommitResponse {
+    // The supply commitment merkle sum root node for the specified asset.
+    MerkleSumNode supply_commitment_root = 1;
+
+    uint32 anchor_tx_out_idx = 2;
+    bytes anchor_tx_out_internal_key = 3;
+
+    // The root of the issuance tree for the specified asset.
+    SupplyCommitSubtreeRoot issuance_subtree_root = 4;
+
+    // The root of the burn tree for the specified asset.
+    SupplyCommitSubtreeRoot burn_subtree_root = 5;
+
+    // The root of the ignore tree for the specified asset.
+    SupplyCommitSubtreeRoot ignore_subtree_root = 6;
+
+    // Inclusion proofs for each issuance leaf key provided in the request.
+    // Each entry corresponds to the key at the same index in
+    // `issuance_leaf_keys`.
+    repeated bytes issuance_leaf_inclusion_proofs = 7;
+
+    // Inclusion proofs for each burn leaf key provided in the request.
+    // Each entry corresponds to the key at the same index in `burn_leaf_keys`.
+    repeated bytes burn_leaf_inclusion_proofs = 8;
+
+    // Inclusion proofs for each ignored leaf key provided in the request.
+    // Each entry corresponds to the key at the same index in
+    // `ignore_leaf_keys`.
+    repeated bytes ignore_leaf_inclusion_proofs = 9;
 }

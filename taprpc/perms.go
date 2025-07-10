@@ -263,6 +263,10 @@ var (
 			Entity: "universe",
 			Action: "write",
 		}},
+		"/universerpc.Universe/FetchSupplyCommit": {{
+			Entity: "universe",
+			Action: "read",
+		}},
 		"/rfqrpc.Rfq/AddAssetBuyOrder": {{
 			Entity: "rfq",
 			Action: "write",
