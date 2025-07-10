@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -1401,7 +1402,9 @@ func TestGroupStore(t *testing.T) {
 	fetchInvalidGenID := func(q PendingAssetStore) error {
 		dbGroup, err := fetchGroupByGenesis(ctx, q, invalidGenID)
 		require.Nil(t, dbGroup)
-		require.ErrorContains(t, err, "no matching asset group")
+		require.ErrorContains(
+			t, err, address.ErrAssetGroupUnknown.Error(),
+		)
 		return nil
 	}
 
@@ -1434,7 +1437,9 @@ func TestGroupStore(t *testing.T) {
 	fetchInvalidGroupKey := func(q PendingAssetStore) error {
 		dbGroup, err := fetchGroupByGroupKey(ctx, q, invalidGroupKey)
 		require.Nil(t, dbGroup)
-		require.ErrorContains(t, err, "no matching asset group")
+		require.ErrorContains(
+			t, err, address.ErrAssetGroupUnknown.Error(),
+		)
 		return nil
 	}
 
