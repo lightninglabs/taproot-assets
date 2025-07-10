@@ -216,7 +216,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		// the testnet3 server).
 		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
 			cfg.DefaultProofCourierAddr = fmt.Sprintf(
-				"%s://%s", proof.UniverseRpcCourierType,
+				"%s://%s", proof.AuthMailboxUniRpcCourierType,
 				defaultMainnetFederationServer,
 			)
 		}
@@ -256,7 +256,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		// the testnet3 server).
 		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
 			cfg.DefaultProofCourierAddr = fmt.Sprintf(
-				"%s://%s", proof.UniverseRpcCourierType,
+				"%s://%s", proof.AuthMailboxUniRpcCourierType,
 				defaultTestnet4FederationServer,
 			)
 		}
@@ -281,7 +281,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		// the testnet3 server).
 		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
 			cfg.DefaultProofCourierAddr = fmt.Sprintf(
-				"%s://%s", proof.UniverseRpcCourierType,
+				"%s://%s", proof.AuthMailboxUniRpcCourierType,
 				defaultSignetFederationServer,
 			)
 		}
