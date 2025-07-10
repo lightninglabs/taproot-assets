@@ -255,6 +255,10 @@ var (
 			Entity: "universe",
 			Action: "read",
 		}},
+		"/universerpc.Universe/IgnoreAssetOutPoint": {{
+			Entity: "universe",
+			Action: "write",
+		}},
 		"/rfqrpc.Rfq/AddAssetBuyOrder": {{
 			Entity: "rfq",
 			Action: "write",
