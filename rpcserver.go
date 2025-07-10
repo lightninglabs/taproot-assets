@@ -3920,6 +3920,81 @@ func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
 	}, nil
 }
 
+// UpdateSupplyCommit updates the on-chain supply commitment for a specific
+// asset group.
+func (r *rpcServer) UpdateSupplyCommit(ctx context.Context,
+	req *unirpc.UpdateSupplyCommitRequest) (
+	*unirpc.UpdateSupplyCommitResponse, error) {
+
+	// Parse asset group key from the request.
+	var groupPubKey btcec.PublicKey
+
+	switch {
+	case len(req.GetGroupKeyBytes()) > 0:
+		gk, err := btcec.ParsePubKey(req.GetGroupKeyBytes())
+		if err != nil {
+			return nil, fmt.Errorf("parsing group key: %w", err)
+		}
+
+		groupPubKey = *gk
+
+	case len(req.GetGroupKeyStr()) > 0:
+		groupKeyBytes, err := hex.DecodeString(req.GetGroupKeyStr())
+		if err != nil {
+			return nil, fmt.Errorf("decoding group key: %w", err)
+		}
+
+		gk, err := btcec.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("parsing group key: %w", err)
+		}
+
+		groupPubKey = *gk
+
+	default:
+		return nil, fmt.Errorf("group key unspecified")
+	}
+
+	// We will now check to ensure that universe commitments are enabled for
+	// the asset group.
+	//
+	// Look up the asset group by the group key.
+	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByGroupKey(
+		ctx, &groupPubKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find asset group "+
+			"given group key: %w", err)
+	}
+
+	// Fetch the asset metadata given the group anchor asset ID.
+	metaReveal, err := r.cfg.TapAddrBook.FetchAssetMetaForAsset(
+		ctx, assetGroup.ID(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("faild to fetch asset meta: %w", err)
+	}
+
+	// Ensure that universe commitment is enabled for the asset group.
+	if !metaReveal.UniverseCommitments {
+		return nil, fmt.Errorf("universe commitment is not " +
+			"enabled for asset group anchor asset")
+	}
+
+	// Formulate an asset specifier from the asset group key.
+	assetSpec := asset.NewSpecifierFromGroupKey(groupPubKey)
+
+	// Send a commit tick event to the supply commitment manager.
+	event := supplycommit.CommitTickEvent{}
+	err = r.cfg.SupplyCommitManager.SendEvent(ctx, assetSpec, &event)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send commit tick event: %w",
+			err)
+	}
+
+	return &unirpc.UpdateSupplyCommitResponse{}, nil
+}
+
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(

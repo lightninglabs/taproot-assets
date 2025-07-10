@@ -163,6 +163,13 @@ service Universe {
     */
     rpc IgnoreAssetOutPoint (IgnoreAssetOutPointRequest)
         returns (IgnoreAssetOutPointResponse);
+
+    /* tapcli: `universe updatesupplycommit`
+    UpdateSupplyCommit updates the on-chain supply commitment for a specific
+    asset group.
+    */
+    rpc UpdateSupplyCommit (UpdateSupplyCommitRequest)
+        returns (UpdateSupplyCommitResponse);
 }
 
 message MultiverseRootRequest {
@@ -688,4 +695,20 @@ message IgnoreAssetOutPointResponse {
 
     // The signed ignore outpoint leaf in the ignore supply commitment tree.
     MerkleSumNode leaf = 2;
+}
+
+message UpdateSupplyCommitRequest {
+    // The unique identifier for the target asset group whose supply commitment
+    // is being updated.
+    oneof group_key {
+        // The 32-byte asset group key specified as raw bytes (gRPC only).
+        bytes group_key_bytes = 1;
+
+        // The 32-byte asset group key encoded as hex string (use this for
+        // REST).
+        string group_key_str = 2;
+    }
+}
+
+message UpdateSupplyCommitResponse {
 }

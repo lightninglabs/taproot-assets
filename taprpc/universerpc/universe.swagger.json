@@ -1365,6 +1365,46 @@
         ]
       }
     },
+    "/v1/taproot-assets/universe/supply/{group_key_str}": {
+      "post": {
+        "summary": "tapcli: `universe updatesupplycommit`\nUpdateSupplyCommit updates the on-chain supply commitment for a specific\nasset group.",
+        "operationId": "Universe_UpdateSupplyCommit",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcUpdateSupplyCommitResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/UniverseUpdateSupplyCommitBody"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/sync": {
       "post": {
         "summary": "tapcli: `universe sync`\nSyncUniverse takes host information for a remote Universe server, then\nattempts to synchronize either only the set of specified asset_ids, or all\nassets if none are specified. The sync process will attempt to query for\nthe latest known root for each asset, performing tree based reconciliation\nto arrive at a new shared root.",
@@ -1565,6 +1605,16 @@
         "server": {
           "$ref": "#/definitions/universerpcUniverseFederationServer",
           "description": "The universe server to push the proof to."
+        }
+      }
+    },
+    "UniverseUpdateSupplyCommitBody": {
+      "type": "object",
+      "properties": {
+        "group_key_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
         }
       }
     },
@@ -2612,6 +2662,9 @@
       ],
       "default": "SYNC_ISSUANCE_ONLY",
       "description": " - SYNC_ISSUANCE_ONLY: A sync node that indicates that only new asset creation (minting) proofs\nshould be synced.\n - SYNC_FULL: A syncing mode that indicates that all asset proofs should be synced.\nThis includes normal transfers as well."
+    },
+    "universerpcUpdateSupplyCommitResponse": {
+      "type": "object"
     }
   }
 }
