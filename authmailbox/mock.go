@@ -7,30 +7,42 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/proof"
 )
 
 type MockMsgStore struct {
-	messages      map[uint64]*Message
-	nextMessageID atomic.Uint64
-	mu            sync.RWMutex
+	messages          map[uint64]*Message
+	outpointToMessage map[wire.OutPoint]uint64
+	nextMessageID     atomic.Uint64
+	proofs            map[wire.OutPoint]struct{}
+	mu                sync.RWMutex
 }
 
 var _ MsgStore = (*MockMsgStore)(nil)
 
 func NewMockStore() *MockMsgStore {
 	return &MockMsgStore{
-		messages: make(map[uint64]*Message),
+		messages:          make(map[uint64]*Message),
+		outpointToMessage: make(map[wire.OutPoint]uint64),
+		proofs:            make(map[wire.OutPoint]struct{}),
 	}
 }
 
-func (s *MockMsgStore) StoreMessage(_ context.Context, _ wire.OutPoint,
+func (s *MockMsgStore) StoreMessage(_ context.Context, txProof proof.TxProof,
 	msg *Message) (uint64, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if _, exists := s.proofs[txProof.ClaimedOutPoint]; exists {
+		return 0, proof.ErrTxMerkleProofExists
+	}
+
+	s.proofs[txProof.ClaimedOutPoint] = struct{}{}
+
 	id := s.nextMessageID.Add(1)
 	s.messages[id] = msg
+	s.outpointToMessage[txProof.ClaimedOutPoint] = id
 
 	return id, nil
 }
@@ -47,6 +59,20 @@ func (s *MockMsgStore) FetchMessage(_ context.Context,
 	}
 
 	return msg, nil
+}
+
+func (s *MockMsgStore) FetchMessageByOutPoint(ctx context.Context,
+	claimedOp wire.OutPoint) (*Message, error) {
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	msgID, exists := s.outpointToMessage[claimedOp]
+	if !exists {
+		return nil, ErrMessageNotFound
+	}
+
+	return s.FetchMessage(ctx, msgID)
 }
 
 func (s *MockMsgStore) QueryMessages(_ context.Context,

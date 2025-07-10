@@ -2,6 +2,7 @@ package tapdb
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -24,7 +25,10 @@ type (
 	NewMailboxMessage = sqlc.InsertAuthMailboxMessageParams
 
 	// MailboxMessage is a row in the auth mailbox messages table.
-	MailboxMessage = sqlc.FetchAuthMailboxMessagesRow
+	MailboxMessage = sqlc.FetchAuthMailboxMessageRow
+
+	// MailboxMessageByOutpoint is a row in the auth mailbox messages table.
+	MailboxMessageByOutpoint = sqlc.FetchAuthMailboxMessageByOutpointRow
 
 	// QueryMailboxMessages is used to query mailbox messages from the
 	// database. It contains the parameters for the query.
@@ -38,17 +42,18 @@ type (
 // AuthMailboxStore defines the interface for interacting with the authmailbox
 // database.
 type AuthMailboxStore interface {
-	// ContainsTxProof checks if a transaction proof exists in the database
-	// for the given outpoint.
-	ContainsTxProof(ctx context.Context, outpoint []byte) (bool, error)
-
 	// CountAuthMailboxMessages returns the number of messages in the
 	// authmailbox database.
 	CountAuthMailboxMessages(ctx context.Context) (int64, error)
 
-	// FetchAuthMailboxMessages retrieves a mailbox message by its ID.
-	FetchAuthMailboxMessages(ctx context.Context,
+	// FetchAuthMailboxMessage retrieves a mailbox message by its ID.
+	FetchAuthMailboxMessage(ctx context.Context,
 		id int64) (MailboxMessage, error)
+
+	// FetchAuthMailboxMessageByOutpoint retrieves a mailbox message by its
+	// claimed outpoint.
+	FetchAuthMailboxMessageByOutpoint(ctx context.Context,
+		claimedOutpoint []byte) (MailboxMessageByOutpoint, error)
 
 	// InsertAuthMailboxMessage inserts a new mailbox message into the
 	// database. It returns an error if the insertion fails.
@@ -93,23 +98,35 @@ func NewMailboxStore(db BatchedMailboxStore) *MailboxStore {
 // Two compile-time assertions to ensure that MailboxStore implements the
 // authmailbox.MsgStore and proof.TxProofStore interfaces.
 var _ authmailbox.MsgStore = (*MailboxStore)(nil)
-var _ proof.TxProofStore = (*MailboxStore)(nil)
 
 // StoreMessage stores a message in the mailbox, referencing the claimed
 // outpoint of the transaction that was used to prove the message's
 // authenticity. If a message with the same outpoint already exists,
 // it returns proof.ErrTxMerkleProofExists.
-func (m MailboxStore) StoreMessage(ctx context.Context, claimedOp wire.OutPoint,
+func (m MailboxStore) StoreMessage(ctx context.Context, txProof proof.TxProof,
 	msg *authmailbox.Message) (uint64, error) {
+
+	serializedOp, err := encodeOutpoint(txProof.ClaimedOutPoint)
+	if err != nil {
+		return 0, fmt.Errorf("error encoding outpoint: %w", err)
+	}
 
 	var (
 		txOpt = WriteTxOption()
 		msgID int64
 	)
 	dbErr := m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
-		serializedOp, err := encodeOutpoint(claimedOp)
+		err := q.InsertTxProof(ctx, NewTxProof{
+			Outpoint: serializedOp,
+			BlockHash: fn.ByteSlice(
+				txProof.BlockHeader.BlockHash(),
+			),
+			BlockHeight: int32(txProof.BlockHeight),
+			InternalKey: txProof.InternalKey.SerializeCompressed(),
+			MerkleRoot:  txProof.MerkleRoot,
+		})
 		if err != nil {
-			return fmt.Errorf("error encoding outpoint: %w", err)
+			return fmt.Errorf("error inserting proof: %w", err)
 		}
 
 		receiverKey := msg.ReceiverKey.SerializeCompressed()
@@ -134,7 +151,7 @@ func (m MailboxStore) StoreMessage(ctx context.Context, claimedOp wire.OutPoint,
 		}
 
 		return 0, fmt.Errorf("error storing message for outpoint "+
-			"%s: %w", claimedOp, dbErr)
+			"%s: %w", txProof.ClaimedOutPoint, dbErr)
 	}
 
 	return uint64(msgID), nil
@@ -149,7 +166,7 @@ func (m MailboxStore) FetchMessage(ctx context.Context,
 		msg   *authmailbox.Message
 	)
 	dbErr := m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
-		dbMsg, err := q.FetchAuthMailboxMessages(ctx, int64(id))
+		dbMsg, err := q.FetchAuthMailboxMessage(ctx, int64(id))
 		if err != nil {
 			return fmt.Errorf("error fetching message %d: %w", id,
 				err)
@@ -176,6 +193,58 @@ func (m MailboxStore) FetchMessage(ctx context.Context,
 	if dbErr != nil {
 		return nil, fmt.Errorf("error fetching message %d: %w", id,
 			dbErr)
+	}
+
+	return msg, nil
+}
+
+// FetchMessageByOutPoint retrieves a message from the mailbox by its
+// claimed outpoint of the TX proof that was used to send it.
+func (m MailboxStore) FetchMessageByOutPoint(ctx context.Context,
+	claimedOp wire.OutPoint) (*authmailbox.Message, error) {
+
+	serializedOp, err := encodeOutpoint(claimedOp)
+	if err != nil {
+		return nil, fmt.Errorf("error encoding outpoint: %w", err)
+	}
+
+	var (
+		txOpt = ReadTxOption()
+		msg   *authmailbox.Message
+	)
+	dbErr := m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
+		dbMsg, err := q.FetchAuthMailboxMessageByOutpoint(
+			ctx, serializedOp,
+		)
+		if err != nil {
+			return fmt.Errorf("error fetching message by "+
+				"outpoint %v: %w", serializedOp, err)
+		}
+
+		receiverKey, err := btcec.ParsePubKey(dbMsg.ReceiverKey)
+		if err != nil {
+			return fmt.Errorf("error parsing receiver key: %w", err)
+		}
+
+		msg = &authmailbox.Message{
+			ID:               uint64(dbMsg.ID),
+			ReceiverKey:      *receiverKey,
+			EncryptedPayload: dbMsg.EncryptedPayload,
+			ArrivalTimestamp: time.Unix(dbMsg.ArrivalTimestamp, 0),
+			ProofBlockHeight: uint32(dbMsg.BlockHeight),
+			ExpiryBlockHeight: extractSqlInt32[uint32](
+				dbMsg.ExpiryBlockHeight,
+			),
+		}
+
+		return nil
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, authmailbox.ErrMessageNotFound
+	case dbErr != nil:
+		return nil, fmt.Errorf("error fetching message by outpoint "+
+			"%v: %w", serializedOp, dbErr)
 	}
 
 	return msg, nil
@@ -265,71 +334,4 @@ func (m MailboxStore) NumMessages(ctx context.Context) uint64 {
 	}
 
 	return uint64(count)
-}
-
-// HaveProof returns true if the proof for the given outpoint exists in the
-// store.
-func (m MailboxStore) HaveProof(ctx context.Context,
-	op wire.OutPoint) (bool, error) {
-
-	var (
-		txOpt  = ReadTxOption()
-		exists bool
-	)
-	dbErr := m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
-		serializedOp, err := encodeOutpoint(op)
-		if err != nil {
-			return fmt.Errorf("error encoding outpoint: %w", err)
-		}
-
-		exists, err = q.ContainsTxProof(ctx, serializedOp)
-		if err != nil {
-			return fmt.Errorf("error checking proof existence: %w",
-				err)
-		}
-
-		return nil
-	})
-	if dbErr != nil {
-		return false, fmt.Errorf("error checking proof existence: %w",
-			dbErr)
-	}
-
-	return exists, nil
-}
-
-// StoreProof stores the given transaction proof in the store. If the proof
-// already exists, it returns proof.ErrTxMerkleProofExists.
-func (m MailboxStore) StoreProof(ctx context.Context,
-	txProof proof.TxProof) error {
-
-	txOpt := WriteTxOption()
-	dbErr := m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
-		serializedOp, err := encodeOutpoint(txProof.ClaimedOutPoint)
-		if err != nil {
-			return fmt.Errorf("error encoding outpoint: %w", err)
-		}
-
-		return q.InsertTxProof(ctx, NewTxProof{
-			Outpoint: serializedOp,
-			BlockHash: fn.ByteSlice(
-				txProof.BlockHeader.BlockHash(),
-			),
-			BlockHeight: int32(txProof.BlockHeight),
-			InternalKey: txProof.InternalKey.SerializeCompressed(),
-			MerkleRoot:  txProof.MerkleRoot,
-		})
-	})
-	if dbErr != nil {
-		// Add context to unique constraint errors.
-		var uniqueConstraintErr *ErrSqlUniqueConstraintViolation
-		if errors.As(dbErr, &uniqueConstraintErr) {
-			return proof.ErrTxMerkleProofExists
-		}
-
-		return fmt.Errorf("error storing proof for outpoint %s: %w",
-			txProof.ClaimedOutPoint, dbErr)
-	}
-
-	return nil
 }

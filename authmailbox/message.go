@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/proof"
 )
 
 const (
@@ -19,6 +20,10 @@ var (
 	// allowed length.
 	ErrMessageTooLong = fmt.Errorf("message too long, max %d bytes",
 		MsgMaxSize)
+
+	// ErrMessageNotFound is returned when a message with the given ID or
+	// outpoint cannot be found in the mailbox.
+	ErrMessageNotFound = fmt.Errorf("message not found")
 )
 
 // Message represents a message in the mailbox.
@@ -90,11 +95,18 @@ type MsgStore interface {
 	// outpoint of the transaction that was used to prove the message's
 	// authenticity. If a message with the same outpoint already exists,
 	// it returns proof.ErrTxMerkleProofExists.
-	StoreMessage(ctx context.Context, claimedOp wire.OutPoint,
+	StoreMessage(ctx context.Context, proof proof.TxProof,
 		msg *Message) (uint64, error)
 
 	// FetchMessage retrieves a message from the mailbox by its ID.
 	FetchMessage(ctx context.Context, id uint64) (*Message, error)
+
+	// FetchMessageByOutPoint retrieves a message from the mailbox by its
+	// claimed outpoint of the TX proof that was used to send it. If no
+	// message with the given outpoint exists, it returns
+	// ErrMessageNotFound.
+	FetchMessageByOutPoint(ctx context.Context,
+		claimedOp wire.OutPoint) (*Message, error)
 
 	// QueryMessages retrieves messages based on a query.
 	QueryMessages(ctx context.Context, filter MessageFilter) ([]*Message,
