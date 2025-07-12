@@ -273,6 +273,10 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		marginAssetUnits, *assetRate,
 	)
 
+	// We add a 1mSAT per HTLC margin which is the inprecision tolerance of
+	// our rfqmath library.
+	allowedMarginMSat += lnwire.MilliSatoshi(allowedMarginAssetUnits)
+
 	// If the sum of the accepted HTLCs plus the current HTLC amount plus
 	// the error margin is greater than the invoice amount, we'll accept it.
 	totalInbound := acceptedHtlcSum + resp.AmtPaid
