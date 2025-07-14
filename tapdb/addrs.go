@@ -80,6 +80,10 @@ type (
 
 	// AssetMeta is the metadata record for an asset.
 	AssetMeta = sqlc.FetchAssetMetaForAssetRow
+
+	// AllAssetMetaRow is a type alias for fetching all asset metadata
+	// records.
+	AllAssetMetaRow = sqlc.FetchAllAssetMetaRow
 )
 
 var (
@@ -180,6 +184,10 @@ type AddrBook interface {
 	// FetchAssetMetaForAsset fetches the asset meta for a given asset.
 	FetchAssetMetaForAsset(ctx context.Context,
 		assetID []byte) (AssetMeta, error)
+
+	// FetchAllAssetMeta fetches all asset metadata records from the
+	// database.
+	FetchAllAssetMeta(ctx context.Context) ([]AllAssetMetaRow, error)
 }
 
 // AddrBookTxOptions defines the set of db txn options the AddrBook
@@ -1162,6 +1170,49 @@ func (t *TapAddressBook) FetchAssetMetaForAsset(ctx context.Context,
 	}
 
 	return assetMeta, nil
+}
+
+// FetchAllAssetMeta attempts to fetch all asset meta known to the database.
+func (t *TapAddressBook) FetchAllAssetMeta(
+	ctx context.Context) (map[asset.ID]*proof.MetaReveal, error) {
+
+	var assetMetas map[asset.ID]*proof.MetaReveal
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := t.db.ExecTx(ctx, &readOpts, func(q AddrBook) error {
+		dbMetas, err := q.FetchAllAssetMeta(ctx)
+		if err != nil {
+			return err
+		}
+
+		assetMetas = make(map[asset.ID]*proof.MetaReveal, len(dbMetas))
+		for _, dbMeta := range dbMetas {
+			// If no record is present, we should get a
+			// sql.ErrNoRows error
+			// above.
+			metaOpt, err := parseAssetMetaReveal(dbMeta.AssetsMetum)
+			if err != nil {
+				return fmt.Errorf("unable to parse asset "+
+					"meta: %w", err)
+			}
+
+			metaOpt.WhenSome(func(meta proof.MetaReveal) {
+				var id asset.ID
+				copy(id[:], dbMeta.AssetID)
+				assetMetas[id] = &meta
+			})
+		}
+
+		return nil
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, address.ErrAssetMetaNotFound
+	case dbErr != nil:
+		return nil, dbErr
+	}
+
+	return assetMetas, nil
 }
 
 // insertFullAssetGen inserts a new asset genesis and optional asset group

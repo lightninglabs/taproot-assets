@@ -45,6 +45,7 @@ type Querier interface {
 	FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventRow, error)
 	FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg FetchAddrEventByAddrKeyAndOutpointParams) (FetchAddrEventByAddrKeyAndOutpointRow, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
+	FetchAllAssetMeta(ctx context.Context) ([]FetchAllAssetMetaRow, error)
 	FetchAllNodes(ctx context.Context) ([]MssmtNode, error)
 	FetchAssetID(ctx context.Context, arg FetchAssetIDParams) ([]int64, error)
 	FetchAssetMeta(ctx context.Context, metaID int64) (FetchAssetMetaRow, error)
