@@ -150,6 +150,11 @@ type Storage interface {
 	// transfer comes in later on.
 	InsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
 		keyType asset.ScriptKeyType) error
+
+	// FetchAllAssetMeta attempts to fetch all asset meta known to the
+	// database.
+	FetchAllAssetMeta(
+		ctx context.Context) (map[asset.ID]*proof.MetaReveal, error)
 }
 
 // KeyRing is used to create script and internal keys for Taproot Asset
@@ -203,6 +208,14 @@ type Book struct {
 	// subscriberMtx guards the subscribers map and access to the
 	// subscriptionID.
 	subscriberMtx sync.Mutex
+
+	// decimalDisplayCache is a cache for the decimal display value of
+	// assets. This is used to avoid repeated database queries for the same
+	// asset ID.
+	decimalDisplayCache map[asset.ID]fn.Option[uint32]
+
+	// decDisplayCacheMtx guards the decimalDisplayCache map.
+	decDisplayCacheMtx sync.Mutex
 }
 
 // A compile-time assertion to make sure Book satisfies the
@@ -216,6 +229,7 @@ func NewBook(cfg BookConfig) *Book {
 		subscribers: make(
 			map[uint64]*fn.EventReceiver[*AddrWithKeyInfo],
 		),
+		decimalDisplayCache: make(map[asset.ID]fn.Option[uint32]),
 	}
 }
 
@@ -428,13 +442,61 @@ func (b *Book) FetchAssetMetaForAsset(ctx context.Context,
 func (b *Book) DecDisplayForAssetID(ctx context.Context,
 	id asset.ID) (fn.Option[uint32], error) {
 
+	b.decDisplayCacheMtx.Lock()
+	defer b.decDisplayCacheMtx.Unlock()
+
+	// If we don't have anything in the cache, we'll attempt to load it.
+	// This will be re-attempted every time if there are no assets in the
+	// database. But this isn't expected to remain the case for long.
+	if len(b.decimalDisplayCache) == 0 {
+		// If the cache is empty, we'll populate it with all asset
+		// metas known to the database.
+		allMeta, err := b.cfg.Store.FetchAllAssetMeta(ctx)
+		if err != nil {
+			return fn.None[uint32](), fmt.Errorf("unable to fetch "+
+				"all asset meta: %v", err)
+		}
+
+		for assetID, meta := range allMeta {
+			if meta == nil {
+				continue
+			}
+
+			displayOpt, err := meta.DecDisplayOption()
+			if err != nil {
+				return fn.None[uint32](), fmt.Errorf("unable "+
+					"to extract decimal display option "+
+					"for asset %v: %v", assetID, err)
+			}
+
+			b.decimalDisplayCache[assetID] = displayOpt
+		}
+	}
+
+	// If we have the value in the cache, return it from there.
+	if displayOpt, ok := b.decimalDisplayCache[id]; ok {
+		return displayOpt, nil
+	}
+
+	// If we don't have the value in the cache, it was added after we filled
+	// the cache, and we'll attempt to fetch the asset meta from the
+	// database instead.
 	meta, err := b.FetchAssetMetaForAsset(ctx, id)
 	if err != nil {
 		return fn.None[uint32](), fmt.Errorf("unable to fetch asset "+
 			"meta for asset_id=%v :%v", id, err)
 	}
 
-	return meta.DecDisplayOption()
+	opt, err := meta.DecDisplayOption()
+	if err != nil {
+		return fn.None[uint32](), fmt.Errorf("unable to extract "+
+			"decimal display option for asset %v: %v", id, err)
+	}
+
+	// Store the value in the cache for future lookups.
+	b.decimalDisplayCache[id] = opt
+
+	return opt, nil
 }
 
 // NewAddress creates a new Taproot Asset address based on the input parameters.
