@@ -1362,26 +1362,43 @@ func AssertAssetGenesis(t *testing.T, expected, actual *taprpc.GenesisInfo) {
 func AssertBalanceByID(t *testing.T, client taprpc.TaprootAssetsClient,
 	id []byte, amt uint64) {
 
-	ctxb := context.Background()
-	balancesResp, err := client.ListBalances(
-		ctxb, &taprpc.ListBalancesRequest{
-			GroupBy: &taprpc.ListBalancesRequest_AssetId{
-				AssetId: true,
+	require.Eventually(t, func() bool {
+		ctxb := context.Background()
+		balancesResp, err := client.ListBalances(
+			ctxb, &taprpc.ListBalancesRequest{
+				GroupBy: &taprpc.ListBalancesRequest_AssetId{
+					AssetId: true,
+				},
+				AssetFilter:   id,
+				ScriptKeyType: allScriptKeysQuery,
 			},
-			AssetFilter:   id,
-			ScriptKeyType: allScriptKeysQuery,
-		},
-	)
-	require.NoError(t, err)
+		)
+		if err != nil {
+			t.Logf("error listing balances: %v", err)
+			return false
+		}
 
-	balance, ok := balancesResp.AssetBalances[hex.EncodeToString(id)]
-	if amt == 0 {
-		require.False(t, ok)
-		return
-	}
+		// nolint: lll
+		balance, ok := balancesResp.AssetBalances[hex.EncodeToString(id)]
+		if amt == 0 {
+			require.False(t, ok)
+			return true
+		}
 
-	require.True(t, ok)
-	require.Equal(t, amt, balance.Balance)
+		if !ok {
+			t.Logf("balance for asset not found (asset_id=%x)", id)
+			return false
+		}
+
+		if balance.Balance != amt {
+			t.Logf("balance mismatch for asset (asset_id=%x, "+
+				"expected=%d, actual=%d)", id, amt,
+				balance.Balance)
+			return false
+		}
+
+		return true
+	}, defaultWaitTimeout, time.Second)
 }
 
 // AssertBalanceByGroup asserts that the balance of a single asset group
