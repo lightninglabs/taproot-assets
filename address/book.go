@@ -334,6 +334,20 @@ func (b *Book) FetchAssetMetaForAsset(ctx context.Context,
 	return meta, nil
 }
 
+// DecDisplayForAssetID attempts to fetch the meta reveal for a specific asset
+// ID and extract the decimal display value from it.
+func (b *Book) DecDisplayForAssetID(ctx context.Context,
+	id asset.ID) (fn.Option[uint32], error) {
+
+	meta, err := b.FetchAssetMetaForAsset(ctx, id)
+	if err != nil {
+		return fn.None[uint32](), fmt.Errorf("unable to fetch asset "+
+			"meta for asset_id=%v :%v", id, err)
+	}
+
+	return meta.DecDisplayOption()
+}
+
 // NewAddress creates a new Taproot Asset address based on the input parameters.
 func (b *Book) NewAddress(ctx context.Context, addrVersion Version,
 	assetID asset.ID, amount uint64,
