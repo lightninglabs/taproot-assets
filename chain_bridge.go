@@ -27,10 +27,10 @@ import (
 
 const (
 	// maxNumBlocksInCache is the maximum number of blocks we'll cache
-	// timestamps for. With 100k blocks we should only take up approximately
-	// 800kB of memory (4 bytes for the block height and 4 bytes for the
+	// timestamps for. With 400k blocks we should only take up approximately
+	// 3200kB of memory (4 bytes for the block height and 4 bytes for the
 	// timestamp, not including any map/cache overhead).
-	maxNumBlocksInCache = 100_000
+	maxNumBlocksInCache = 400_000
 )
 
 // cacheableTimestamp is a wrapper around an uint32 that can be used as a value
