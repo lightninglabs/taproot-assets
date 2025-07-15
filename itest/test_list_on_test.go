@@ -290,7 +290,7 @@ var allTestCases = []*testCase{
 		test: testGetInfo,
 	},
 	{
-		name: "burn test",
+		name: "burn assets",
 		test: testBurnAssets,
 	},
 	{

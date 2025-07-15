@@ -287,6 +287,10 @@ func NewWitnessPrevIDRecord(prevID **PrevID) tlv.Record {
 
 func NewWitnessTxWitnessRecord(witness *wire.TxWitness) tlv.Record {
 	recordSize := func() uint64 {
+		if witness == nil {
+			return 0
+		}
+
 		return uint64((*witness).SerializeSize())
 	}
 	return tlv.MakeDynamicRecord(

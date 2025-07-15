@@ -737,6 +737,11 @@ type Witness struct {
 // the witness should be encoded or not.
 func (w *Witness) encodeRecords(encodeType EncodeType) []tlv.Record {
 	var records []tlv.Record
+
+	if w == nil {
+		return records
+	}
+
 	if w.PrevID != nil {
 		records = append(records, NewWitnessPrevIDRecord(&w.PrevID))
 	}
@@ -771,6 +776,10 @@ func (w *Witness) DecodeRecords() []tlv.Record {
 
 // Encode encodes an asset witness into a TLV stream.
 func (w *Witness) Encode(writer io.Writer) error {
+	if w == nil {
+		return fmt.Errorf("cannot encode nil witness")
+	}
+
 	stream, err := tlv.NewStream(w.EncodeRecords()...)
 	if err != nil {
 		return err
