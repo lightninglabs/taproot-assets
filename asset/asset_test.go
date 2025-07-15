@@ -1247,3 +1247,125 @@ func TestDecodeAsset(t *testing.T) {
 
 	t.Logf("Decoded asset: %v", string(assetJSON))
 }
+
+// TestSpecifierEqual tests the Specifier.Equal method for all possible cases.
+func TestSpecifierEqual(t *testing.T) {
+	id1 := ID{1, 2, 3}
+	id2 := ID{4, 5, 6}
+	pk1, _ := btcec.NewPrivateKey()
+	pubKey1 := pk1.PubKey()
+	pk2, _ := btcec.NewPrivateKey()
+	pubKey2 := pk2.PubKey()
+
+	cases := []struct {
+		name      string
+		s, other  *Specifier
+		strict    bool
+		expects   bool
+		expectErr bool
+	}{
+		{
+			name:    "both nil",
+			s:       nil,
+			other:   nil,
+			strict:  false,
+			expects: true,
+		},
+		{
+			name:    "one nil (s)",
+			s:       nil,
+			other:   &Specifier{},
+			strict:  false,
+			expects: false,
+		},
+		{
+			name:    "one nil (other)",
+			s:       &Specifier{},
+			other:   nil,
+			strict:  false,
+			expects: false,
+		},
+		{
+			name:    "both empty",
+			s:       &Specifier{},
+			other:   &Specifier{},
+			strict:  false,
+			expects: true,
+		},
+		{
+			name:    "both with same ID",
+			s:       &Specifier{id: fn.Some(id1)},
+			other:   &Specifier{id: fn.Some(id1)},
+			strict:  false,
+			expects: true,
+		},
+		{
+			name:    "both with different ID",
+			s:       &Specifier{id: fn.Some(id1)},
+			other:   &Specifier{id: fn.Some(id2)},
+			strict:  false,
+			expects: false,
+		},
+		{
+			name:    "both with same group key",
+			s:       &Specifier{groupKey: fn.Some(*pubKey1)},
+			other:   &Specifier{groupKey: fn.Some(*pubKey1)},
+			strict:  false,
+			expects: true,
+		},
+		{
+			name:    "both with different group key",
+			s:       &Specifier{groupKey: fn.Some(*pubKey1)},
+			other:   &Specifier{groupKey: fn.Some(*pubKey2)},
+			strict:  false,
+			expects: false,
+		},
+		{
+			name:    "one with ID, one with group key",
+			s:       &Specifier{id: fn.Some(id1)},
+			other:   &Specifier{groupKey: fn.Some(*pubKey1)},
+			strict:  false,
+			expects: false,
+		},
+		{
+			name:    "both with ID, strict true",
+			s:       &Specifier{id: fn.Some(id1)},
+			other:   &Specifier{id: fn.Some(id1)},
+			strict:  true,
+			expects: true,
+		},
+		{
+			name:    "both with group key, strict true",
+			s:       &Specifier{groupKey: fn.Some(*pubKey1)},
+			other:   &Specifier{groupKey: fn.Some(*pubKey1)},
+			strict:  true,
+			expects: true,
+		},
+		{
+			name:    "one with ID, one with group key, strict true",
+			s:       &Specifier{id: fn.Some(id1)},
+			other:   &Specifier{groupKey: fn.Some(*pubKey1)},
+			strict:  true,
+			expects: false,
+		},
+		{
+			name:    "both empty, strict true",
+			s:       &Specifier{},
+			other:   &Specifier{},
+			strict:  true,
+			expects: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			eq, err := tc.s.Equal(tc.other, tc.strict)
+			if tc.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.expects, eq)
+			}
+		})
+	}
+}
