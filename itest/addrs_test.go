@@ -1013,6 +1013,15 @@ func sendAsset(t *harnessTest, sender *tapdHarness,
 		options.sendAssetRequest.SkipProofCourierPingCheck = true
 	}
 
+	// The SubscribeSendEvents call returns immediately, but the server may
+	// still be setting up its event stream. If we emit an event too soon,
+	// it may be lost. We wait briefly to allow the server time to complete
+	// setup.
+	//
+	// TODO(ffranr): Remove this once the server supports buffering or
+	//  replaying early events for new subscribers.
+	time.Sleep(time.Second)
+
 	// Kick off the send asset request.
 	resp, err := sender.SendAsset(ctxt, &options.sendAssetRequest)
 	if options.errText != "" {
