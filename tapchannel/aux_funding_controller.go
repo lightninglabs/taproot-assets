@@ -301,7 +301,7 @@ type FundingController struct {
 
 	cfg FundingControllerCfg
 
-	msgs chan msgmux.PeerMsg
+	msgQueue *fn.ConcurrentQueue[msgmux.PeerMsg]
 
 	bindFundingReqs chan *bindFundingReq
 
@@ -318,9 +318,11 @@ type FundingController struct {
 
 // NewFundingController creates a new instance of the FundingController.
 func NewFundingController(cfg FundingControllerCfg) *FundingController {
+	msgs := fn.NewConcurrentQueue[msgmux.PeerMsg](fn.DefaultQueueSize)
+	msgs.Start()
 	return &FundingController{
 		cfg:             cfg,
-		msgs:            make(chan msgmux.PeerMsg, 10),
+		msgQueue:        msgs,
 		bindFundingReqs: make(chan *bindFundingReq, 10),
 		newFundingReqs:  make(chan *FundReq, 10),
 		rootReqs:        make(chan *assetRootReq, 10),
@@ -386,6 +388,8 @@ func (f *FundingController) Stop() error {
 
 	close(f.Quit)
 	f.Wg.Wait()
+
+	f.msgQueue.Stop()
 
 	return nil
 }
@@ -1858,7 +1862,7 @@ func (f *FundingController) chanFunder() {
 		// The remote party has sent us some upfront proof for channel
 		// asset inputs. We'll log this pending chan ID, then validate
 		// the proofs included.
-		case msg := <-f.msgs:
+		case msg := <-f.msgQueue.ChanOut():
 			tempFundingID, err := f.processFundingMsg(
 				ctxc, fundingFlows, msg,
 			)
@@ -2438,7 +2442,7 @@ func (f *FundingController) CanHandle(msg msgmux.PeerMsg) bool {
 func (f *FundingController) SendMessage(_ context.Context,
 	msg msgmux.PeerMsg) bool {
 
-	return fn.SendOrQuit(f.msgs, msg, f.Quit)
+	return fn.SendOrQuit(f.msgQueue.ChanIn(), msg, f.Quit)
 }
 
 // TODO(roasbeef): try to protofsm it?
