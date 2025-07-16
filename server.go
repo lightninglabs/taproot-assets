@@ -39,6 +39,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/msgmux"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/tlv"
 	"google.golang.org/grpc"
@@ -836,12 +837,16 @@ func (s *Server) Name() msgmux.EndpointName {
 //
 // NOTE: This method is part of the msgmux.MsgEndpoint interface.
 func (s *Server) CanHandle(msg msgmux.PeerMsg) bool {
-	err := s.waitForReady()
-	if err != nil {
-		srvrLog.Debugf("Can't handle PeerMsg, server not ready %v",
-			err)
+	// We can't wait for ready here, as this method is potentially called
+	// during startup. The `CanHandle` method is stateless, so we can call
+	// it if the funding controller has been created (but potentially has
+	// not yet been started).
+	if s == nil || s.cfg == nil || s.cfg.AuxFundingController == nil {
+		// This shouldn't happen, the server and funding controller
+		// should always be initialized before the msgmux is started.
 		return false
 	}
+
 	return s.cfg.AuxFundingController.CanHandle(msg)
 }
 
@@ -850,12 +855,18 @@ func (s *Server) CanHandle(msg msgmux.PeerMsg) bool {
 //
 // NOTE: This method is part of the msgmux.MsgEndpoint interface.
 func (s *Server) SendMessage(ctx context.Context, msg msgmux.PeerMsg) bool {
-	err := s.waitForReady()
-	if err != nil {
-		srvrLog.Debugf("Failed to send PeerMsg, server not ready %v",
-			err)
+	// We can't wait for ready here, as this method is potentially called
+	// during startup. The `SendMessage` method will buffer messages that
+	// come in between the funding controller being created and it being
+	// started (which only happens after waitForReady fires). So it's safe
+	// to call it here, as long as the funding controller has been created.
+	if s == nil || s.cfg == nil || s.cfg.AuxFundingController == nil {
+		// This shouldn't happen, the CanHandle method is always called
+		// first, and that should've already returned false in this
+		// case.
 		return false
 	}
+
 	return s.cfg.AuxFundingController.SendMessage(ctx, msg)
 }
 
@@ -1020,13 +1031,14 @@ func (s *Server) ShouldHandleTraffic(cid lnwire.ShortChannelID,
 // NOTE: This method is part of the routing.TlvTrafficShaper interface.
 func (s *Server) PaymentBandwidth(fundingBlob, htlcBlob,
 	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
-	htlcAmt lnwire.MilliSatoshi,
-	htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
+	htlcAmt lnwire.MilliSatoshi, htlcView lnwallet.AuxHtlcView,
+	peer route.Vertex) (lnwire.MilliSatoshi, error) {
 
 	srvrLog.Debugf("PaymentBandwidth called, fundingBlob=%v, htlcBlob=%v, "+
-		"commitmentBlob=%v", lnutils.SpewLogClosure(fundingBlob),
+		"commitmentBlob=%v, peer=%x",
+		lnutils.SpewLogClosure(fundingBlob),
 		lnutils.SpewLogClosure(htlcBlob),
-		lnutils.SpewLogClosure(commitmentBlob))
+		lnutils.SpewLogClosure(commitmentBlob), peer[:])
 
 	if err := s.waitForReady(); err != nil {
 		return 0, err
@@ -1044,12 +1056,12 @@ func (s *Server) PaymentBandwidth(fundingBlob, htlcBlob,
 //
 // NOTE: This method is part of the routing.TlvTrafficShaper interface.
 func (s *Server) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
-	htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi,
-	lnwire.CustomRecords, error) {
+	htlcCustomRecords lnwire.CustomRecords,
+	peer route.Vertex) (lnwire.MilliSatoshi, lnwire.CustomRecords, error) {
 
 	srvrLog.Debugf("ProduceHtlcExtraData called, totalAmount=%d, "+
-		"htlcBlob=%v", totalAmount,
-		lnutils.SpewLogClosure(htlcCustomRecords))
+		"htlcBlob=%v, peer=%x", totalAmount,
+		lnutils.SpewLogClosure(htlcCustomRecords), peer[:])
 
 	if err := s.waitForReady(); err != nil {
 		return 0, nil, err

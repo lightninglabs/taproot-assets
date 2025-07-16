@@ -1228,7 +1228,9 @@ func (r *rpcServer) MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 	case meta != nil:
 		decDisplay, err = meta.DecDisplayOption()
 	default:
-		decDisplay, err = r.DecDisplayForAssetID(ctx, a.ID())
+		decDisplay, err = r.cfg.AddrBook.DecDisplayForAssetID(
+			ctx, a.ID(),
+		)
 	}
 	if err != nil {
 		return nil, err
@@ -5440,7 +5442,9 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 	for i, assetLeaf := range assetLeaves {
 		assetLeaf := assetLeaf
 
-		decDisplay, err := r.DecDisplayForAssetID(ctx, assetLeaf.ID())
+		decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(
+			ctx, assetLeaf.ID(),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -5544,7 +5548,9 @@ func (r *rpcServer) marshalUniverseProofLeaf(ctx context.Context,
 		return nil, err
 	}
 
-	decDisplay, err := r.DecDisplayForAssetID(ctx, proof.Leaf.ID())
+	decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(
+		ctx, proof.Leaf.ID(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -6012,7 +6018,7 @@ func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
 
 		leaves := make([]*unirpc.AssetLeaf, len(diff.NewLeafProofs))
 		for i, leaf := range diff.NewLeafProofs {
-			decDisplay, err := r.DecDisplayForAssetID(
+			decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(
 				ctx, leaf.ID(),
 			)
 			if err != nil {
@@ -6507,7 +6513,7 @@ func (r *rpcServer) marshalAssetSyncSnapshot(ctx context.Context,
 		AnchorPoint: a.AnchorPoint.String(),
 	}
 
-	decDisplay, err := r.DecDisplayForAssetID(ctx, a.AssetID)
+	decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(ctx, a.AssetID)
 	if err == nil {
 		decDisplay.WhenSome(func(u uint32) {
 			rpcAsset.DecimalDisplay = u
@@ -7187,67 +7193,48 @@ func (r *rpcServer) AddAssetBuyOffer(_ context.Context,
 	return &rfqrpc.AddAssetBuyOfferResponse{}, nil
 }
 
-// marshalPeerAcceptedBuyQuotes marshals a map of peer accepted asset buy quotes
-// into the RPC form. These are quotes that were requested by our node and have
-// been accepted by our peers.
-func marshalPeerAcceptedBuyQuotes(
-	quotes map[rfq.SerialisedScid]rfqmsg.BuyAccept) (
-	[]*rfqrpc.PeerAcceptedBuyQuote, error) {
+// marshalPeerAcceptedBuyQuote marshals a peer accepted asset buy quote into
+// the RPC form. This is a quote that was requested by our node and has been
+// accepted by our peer.
+func marshalPeerAcceptedBuyQuote(
+	quote rfqmsg.BuyAccept) *rfqrpc.PeerAcceptedBuyQuote {
 
-	// Marshal the accepted quotes into the RPC form.
-	rpcQuotes := make(
-		[]*rfqrpc.PeerAcceptedBuyQuote, 0, len(quotes),
-	)
-	for scid, quote := range quotes {
-		coefficient := quote.AssetRate.Rate.Coefficient.String()
-		rpcAskAssetRate := &rfqrpc.FixedPoint{
-			Coefficient: coefficient,
-			Scale:       uint32(quote.AssetRate.Rate.Scale),
-		}
-
-		rpcQuote := &rfqrpc.PeerAcceptedBuyQuote{
-			Peer:           quote.Peer.String(),
-			Id:             quote.ID[:],
-			Scid:           uint64(scid),
-			AssetMaxAmount: quote.Request.AssetMaxAmt,
-			AskAssetRate:   rpcAskAssetRate,
-			Expiry:         uint64(quote.AssetRate.Expiry.Unix()),
-		}
-		rpcQuotes = append(rpcQuotes, rpcQuote)
+	coefficient := quote.AssetRate.Rate.Coefficient.String()
+	rpcAskAssetRate := &rfqrpc.FixedPoint{
+		Coefficient: coefficient,
+		Scale:       uint32(quote.AssetRate.Rate.Scale),
 	}
 
-	return rpcQuotes, nil
+	return &rfqrpc.PeerAcceptedBuyQuote{
+		Peer:           quote.Peer.String(),
+		Id:             quote.ID[:],
+		Scid:           uint64(quote.ShortChannelId()),
+		AssetMaxAmount: quote.Request.AssetMaxAmt,
+		AskAssetRate:   rpcAskAssetRate,
+		Expiry:         uint64(quote.AssetRate.Expiry.Unix()),
+	}
 }
 
-// marshalPeerAcceptedSellQuotes marshals a map of peer accepted asset sell
-// quotes into the RPC form. These are quotes that were requested by our node
-// and have been accepted by our peers.
-//
-// nolint: lll
-func marshalPeerAcceptedSellQuotes(quotes map[rfq.SerialisedScid]rfqmsg.SellAccept) (
-	[]*rfqrpc.PeerAcceptedSellQuote, error) {
+// marshalPeerAcceptedSellQuote marshals peer accepted asset sell quote into the
+// RPC form. This is a quote that was requested by our node and has been
+// accepted by our peers.
+func marshalPeerAcceptedSellQuote(
+	quote rfqmsg.SellAccept) *rfqrpc.PeerAcceptedSellQuote {
 
-	// Marshal the accepted quotes into the RPC form.
-	rpcQuotes := make([]*rfqrpc.PeerAcceptedSellQuote, 0, len(quotes))
-	for scid, quote := range quotes {
-		rpcAssetRate := &rfqrpc.FixedPoint{
-			Coefficient: quote.AssetRate.Rate.Coefficient.String(),
-			Scale:       uint32(quote.AssetRate.Rate.Scale),
-		}
-
-		// TODO(ffranr): Add SellRequest payment max amount to
-		//  PeerAcceptedSellQuote.
-		rpcQuote := &rfqrpc.PeerAcceptedSellQuote{
-			Peer:         quote.Peer.String(),
-			Id:           quote.ID[:],
-			Scid:         uint64(scid),
-			BidAssetRate: rpcAssetRate,
-			Expiry:       uint64(quote.AssetRate.Expiry.Unix()),
-		}
-		rpcQuotes = append(rpcQuotes, rpcQuote)
+	rpcAssetRate := &rfqrpc.FixedPoint{
+		Coefficient: quote.AssetRate.Rate.Coefficient.String(),
+		Scale:       uint32(quote.AssetRate.Rate.Scale),
 	}
 
-	return rpcQuotes, nil
+	// TODO(ffranr): Add SellRequest payment max amount to
+	//  PeerAcceptedSellQuote.
+	return &rfqrpc.PeerAcceptedSellQuote{
+		Peer:         quote.Peer.String(),
+		Id:           quote.ID[:],
+		Scid:         uint64(quote.ShortChannelId()),
+		BidAssetRate: rpcAssetRate,
+		Expiry:       uint64(quote.AssetRate.Expiry.Unix()),
+	}
 }
 
 // QueryPeerAcceptedQuotes is used to query for quotes that were requested by
@@ -7261,19 +7248,13 @@ func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
 	peerAcceptedBuyQuotes := r.cfg.RfqManager.PeerAcceptedBuyQuotes()
 	peerAcceptedSellQuotes := r.cfg.RfqManager.PeerAcceptedSellQuotes()
 
-	rpcBuyQuotes, err := marshalPeerAcceptedBuyQuotes(peerAcceptedBuyQuotes)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling peer accepted buy "+
-			"quotes: %w", err)
-	}
-
-	rpcSellQuotes, err := marshalPeerAcceptedSellQuotes(
-		peerAcceptedSellQuotes,
+	rpcBuyQuotes := fn.Map(
+		maps.Values(peerAcceptedBuyQuotes), marshalPeerAcceptedBuyQuote,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling peer accepted sell "+
-			"quotes: %w", err)
-	}
+	rpcSellQuotes := fn.Map(
+		maps.Values(peerAcceptedSellQuotes),
+		marshalPeerAcceptedSellQuote,
+	)
 
 	return &rfqrpc.QueryPeerAcceptedQuotesResponse{
 		BuyQuotes:  rpcBuyQuotes,
@@ -8147,9 +8128,19 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	var expensiveQuote *rfqrpc.PeerAcceptedBuyQuote
 	if !existingQuotes {
 		expensiveQuote = acquiredQuotes[0].quote
+	} else {
+		mgr := r.cfg.AuxInvoiceManager
+		buyQuote, err := mgr.GetBuyQuoteFromRouteHints(
+			iReq, specifier,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find matching buy "+
+				"quote in accepted quotes: %w", err)
+		}
+
+		expensiveQuote = marshalPeerAcceptedBuyQuote(*buyQuote)
 	}
 
-	// replace with above
 	// Now that we have the accepted quote, we know the amount in (milli)
 	// Satoshi that we need to pay. We can now update the invoice with this
 	// amount.
@@ -8536,20 +8527,6 @@ func encodeVirtualPackets(packets []*tappsbt.VPacket) ([][]byte, error) {
 	return rawPackets, nil
 }
 
-// DecDisplayForAssetID attempts to fetch the meta reveal for a specific asset
-// ID and extract the decimal display value from it.
-func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
-	id asset.ID) (fn.Option[uint32], error) {
-
-	meta, err := r.cfg.AddrBook.FetchAssetMetaForAsset(ctx, id)
-	if err != nil {
-		return fn.None[uint32](), fmt.Errorf("unable to fetch asset "+
-			"meta for asset_id=%v :%v", id, err)
-	}
-
-	return meta.DecDisplayOption()
-}
-
 // getInboundPolicy returns the policy of the given channel that points towards
 // our node, so it's the policy set by the remote peer.
 func (r *rpcServer) getInboundPolicy(ctx context.Context, chanID uint64,
@@ -8751,7 +8728,7 @@ func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
 
 	// The final piece of information we need is the decimal display
 	// information for this asset ID.
-	decDisplay, err := r.DecDisplayForAssetID(ctx, assetID)
+	decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(ctx, assetID)
 	if err != nil {
 		return nil, err
 	}

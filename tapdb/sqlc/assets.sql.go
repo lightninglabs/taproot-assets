@@ -528,6 +528,52 @@ func (q *Queries) DeleteUTXOLease(ctx context.Context, outpoint []byte) error {
 	return err
 }
 
+const FetchAllAssetMeta = `-- name: FetchAllAssetMeta :many
+SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_universe_commitments, assets_meta.meta_canonical_universes, assets_meta.meta_delegation_key, genesis_assets.asset_id
+FROM assets_meta
+JOIN genesis_assets
+    ON genesis_assets.meta_data_id = assets_meta.meta_id
+ORDER BY assets_meta.meta_id
+`
+
+type FetchAllAssetMetaRow struct {
+	AssetsMetum AssetsMetum
+	AssetID     []byte
+}
+
+func (q *Queries) FetchAllAssetMeta(ctx context.Context) ([]FetchAllAssetMetaRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchAllAssetMeta)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAllAssetMetaRow
+	for rows.Next() {
+		var i FetchAllAssetMetaRow
+		if err := rows.Scan(
+			&i.AssetsMetum.MetaID,
+			&i.AssetsMetum.MetaDataHash,
+			&i.AssetsMetum.MetaDataBlob,
+			&i.AssetsMetum.MetaDataType,
+			&i.AssetsMetum.MetaDecimalDisplay,
+			&i.AssetsMetum.MetaUniverseCommitments,
+			&i.AssetsMetum.MetaCanonicalUniverses,
+			&i.AssetsMetum.MetaDelegationKey,
+			&i.AssetID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FetchAssetID = `-- name: FetchAssetID :many
 SELECT asset_id
     FROM assets

@@ -264,8 +264,19 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 
 	// We assume that each shard can have a rounding error of up to 1 asset
 	// unit. So we allow the final amount to be off by up to 1 asset unit
-	// per accepted HTLC (plus the one we're currently processing).
+	// per accepted HTLC (plus the one we're currently processing). The
+	// plus one here is because the invoice only has previously accepted
+	// HTLCs committed to it, but we're processing the current HTLC which
+	// is not yet in that list.
 	allowedMarginAssetUnits := uint64(len(req.Invoice.Htlcs) + 1)
+
+	// Because we do a round trip of units -> milli-sats, then split into
+	// shards, then back to units and then back to milli-sats again, we lose
+	// up to numHTLCs+1 asset units in the process. So we allow for an
+	// additional unit here.
+	allowedMarginAssetUnits++
+
+	// Convert the allowed margin asset units to milli-satoshis.
 	marginAssetUnits := rfqmath.NewBigIntFixedPoint(
 		allowedMarginAssetUnits, 0,
 	)
@@ -417,6 +428,38 @@ func IsAssetInvoice(invoice *lnrpc.Invoice, rfqLookup RfqLookup) bool {
 	}
 
 	return false
+}
+
+// GetBuyQuoteFromRouteHints is a helper method that extracts a buy quote from
+// the route hints of an invoice, given that the quote is accepted and has a
+// matching specifier. If no matching quote is found, it returns an error.
+func (s *AuxInvoiceManager) GetBuyQuoteFromRouteHints(invoice *lnrpc.Invoice,
+	specifier asset.Specifier) (*rfqmsg.BuyAccept, error) {
+
+	buyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
+	for _, hint := range invoice.RouteHints {
+		for _, h := range hint.HopHints {
+			scid := rfqmsg.SerialisedScid(h.ChanId)
+			buyQuote, ok := buyQuotes[scid]
+			if !ok {
+				continue
+			}
+
+			quoteSpecifier := buyQuote.Request.AssetSpecifier
+			areEqual, err := quoteSpecifier.Equal(&specifier, false)
+			if err != nil {
+				return nil, fmt.Errorf("error comparing "+
+					"specifiers: %w", err)
+			}
+
+			if areEqual {
+				return &buyQuote, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("no buy quote found for specifier %s",
+		specifier.String())
 }
 
 // validateAssetHTLC runs a couple of checks on the provided asset HTLC.
