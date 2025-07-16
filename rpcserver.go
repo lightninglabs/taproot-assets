@@ -7228,67 +7228,48 @@ func (r *rpcServer) AddAssetBuyOffer(_ context.Context,
 	return &rfqrpc.AddAssetBuyOfferResponse{}, nil
 }
 
-// marshalPeerAcceptedBuyQuotes marshals a map of peer accepted asset buy quotes
-// into the RPC form. These are quotes that were requested by our node and have
-// been accepted by our peers.
-func marshalPeerAcceptedBuyQuotes(
-	quotes map[rfq.SerialisedScid]rfqmsg.BuyAccept) (
-	[]*rfqrpc.PeerAcceptedBuyQuote, error) {
+// marshalPeerAcceptedBuyQuote marshals a peer accepted asset buy quote into
+// the RPC form. This is a quote that was requested by our node and has been
+// accepted by our peer.
+func marshalPeerAcceptedBuyQuote(
+	quote rfqmsg.BuyAccept) *rfqrpc.PeerAcceptedBuyQuote {
 
-	// Marshal the accepted quotes into the RPC form.
-	rpcQuotes := make(
-		[]*rfqrpc.PeerAcceptedBuyQuote, 0, len(quotes),
-	)
-	for scid, quote := range quotes {
-		coefficient := quote.AssetRate.Rate.Coefficient.String()
-		rpcAskAssetRate := &rfqrpc.FixedPoint{
-			Coefficient: coefficient,
-			Scale:       uint32(quote.AssetRate.Rate.Scale),
-		}
-
-		rpcQuote := &rfqrpc.PeerAcceptedBuyQuote{
-			Peer:           quote.Peer.String(),
-			Id:             quote.ID[:],
-			Scid:           uint64(scid),
-			AssetMaxAmount: quote.Request.AssetMaxAmt,
-			AskAssetRate:   rpcAskAssetRate,
-			Expiry:         uint64(quote.AssetRate.Expiry.Unix()),
-		}
-		rpcQuotes = append(rpcQuotes, rpcQuote)
+	coefficient := quote.AssetRate.Rate.Coefficient.String()
+	rpcAskAssetRate := &rfqrpc.FixedPoint{
+		Coefficient: coefficient,
+		Scale:       uint32(quote.AssetRate.Rate.Scale),
 	}
 
-	return rpcQuotes, nil
+	return &rfqrpc.PeerAcceptedBuyQuote{
+		Peer:           quote.Peer.String(),
+		Id:             quote.ID[:],
+		Scid:           uint64(quote.ShortChannelId()),
+		AssetMaxAmount: quote.Request.AssetMaxAmt,
+		AskAssetRate:   rpcAskAssetRate,
+		Expiry:         uint64(quote.AssetRate.Expiry.Unix()),
+	}
 }
 
-// marshalPeerAcceptedSellQuotes marshals a map of peer accepted asset sell
-// quotes into the RPC form. These are quotes that were requested by our node
-// and have been accepted by our peers.
-//
-// nolint: lll
-func marshalPeerAcceptedSellQuotes(quotes map[rfq.SerialisedScid]rfqmsg.SellAccept) (
-	[]*rfqrpc.PeerAcceptedSellQuote, error) {
+// marshalPeerAcceptedSellQuote marshals peer accepted asset sell quote into the
+// RPC form. This is a quote that was requested by our node and has been
+// accepted by our peers.
+func marshalPeerAcceptedSellQuote(
+	quote rfqmsg.SellAccept) *rfqrpc.PeerAcceptedSellQuote {
 
-	// Marshal the accepted quotes into the RPC form.
-	rpcQuotes := make([]*rfqrpc.PeerAcceptedSellQuote, 0, len(quotes))
-	for scid, quote := range quotes {
-		rpcAssetRate := &rfqrpc.FixedPoint{
-			Coefficient: quote.AssetRate.Rate.Coefficient.String(),
-			Scale:       uint32(quote.AssetRate.Rate.Scale),
-		}
-
-		// TODO(ffranr): Add SellRequest payment max amount to
-		//  PeerAcceptedSellQuote.
-		rpcQuote := &rfqrpc.PeerAcceptedSellQuote{
-			Peer:         quote.Peer.String(),
-			Id:           quote.ID[:],
-			Scid:         uint64(scid),
-			BidAssetRate: rpcAssetRate,
-			Expiry:       uint64(quote.AssetRate.Expiry.Unix()),
-		}
-		rpcQuotes = append(rpcQuotes, rpcQuote)
+	rpcAssetRate := &rfqrpc.FixedPoint{
+		Coefficient: quote.AssetRate.Rate.Coefficient.String(),
+		Scale:       uint32(quote.AssetRate.Rate.Scale),
 	}
 
-	return rpcQuotes, nil
+	// TODO(ffranr): Add SellRequest payment max amount to
+	//  PeerAcceptedSellQuote.
+	return &rfqrpc.PeerAcceptedSellQuote{
+		Peer:         quote.Peer.String(),
+		Id:           quote.ID[:],
+		Scid:         uint64(quote.ShortChannelId()),
+		BidAssetRate: rpcAssetRate,
+		Expiry:       uint64(quote.AssetRate.Expiry.Unix()),
+	}
 }
 
 // QueryPeerAcceptedQuotes is used to query for quotes that were requested by
@@ -7302,19 +7283,13 @@ func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
 	peerAcceptedBuyQuotes := r.cfg.RfqManager.PeerAcceptedBuyQuotes()
 	peerAcceptedSellQuotes := r.cfg.RfqManager.PeerAcceptedSellQuotes()
 
-	rpcBuyQuotes, err := marshalPeerAcceptedBuyQuotes(peerAcceptedBuyQuotes)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling peer accepted buy "+
-			"quotes: %w", err)
-	}
-
-	rpcSellQuotes, err := marshalPeerAcceptedSellQuotes(
-		peerAcceptedSellQuotes,
+	rpcBuyQuotes := fn.Map(
+		maps.Values(peerAcceptedBuyQuotes), marshalPeerAcceptedBuyQuote,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling peer accepted sell "+
-			"quotes: %w", err)
-	}
+	rpcSellQuotes := fn.Map(
+		maps.Values(peerAcceptedSellQuotes),
+		marshalPeerAcceptedSellQuote,
+	)
 
 	return &rfqrpc.QueryPeerAcceptedQuotesResponse{
 		BuyQuotes:  rpcBuyQuotes,
@@ -8188,9 +8163,19 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	var expensiveQuote *rfqrpc.PeerAcceptedBuyQuote
 	if !existingQuotes {
 		expensiveQuote = acquiredQuotes[0].quote
+	} else {
+		mgr := r.cfg.AuxInvoiceManager
+		buyQuote, err := mgr.GetBuyQuoteFromRouteHints(
+			iReq, specifier,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find matching buy "+
+				"quote in accepted quotes: %w", err)
+		}
+
+		expensiveQuote = marshalPeerAcceptedBuyQuote(*buyQuote)
 	}
 
-	// replace with above
 	// Now that we have the accepted quote, we know the amount in (milli)
 	// Satoshi that we need to pay. We can now update the invoice with this
 	// amount.
