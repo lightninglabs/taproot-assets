@@ -1046,6 +1046,13 @@ JOIN assets_meta
     ON assets.meta_data_id = assets_meta.meta_id
 WHERE assets.asset_id = $1;
 
+-- name: FetchAllAssetMeta :many
+SELECT sqlc.embed(assets_meta), genesis_assets.asset_id
+FROM assets_meta
+JOIN genesis_assets
+    ON genesis_assets.meta_data_id = assets_meta.meta_id
+ORDER BY assets_meta.meta_id;
+
 -- name: UpsertMintAnchorUniCommitment :one
 -- Upsert a record into the mint_anchor_uni_commitments table.
 -- If a record with the same batch ID and tx output index already exists, update

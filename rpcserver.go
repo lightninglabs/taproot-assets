@@ -1229,7 +1229,9 @@ func (r *rpcServer) MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 	case meta != nil:
 		decDisplay, err = meta.DecDisplayOption()
 	default:
-		decDisplay, err = r.DecDisplayForAssetID(ctx, a.ID())
+		decDisplay, err = r.cfg.AddrBook.DecDisplayForAssetID(
+			ctx, a.ID(),
+		)
 	}
 	if err != nil {
 		return nil, err
@@ -5475,7 +5477,9 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 	for i, assetLeaf := range assetLeaves {
 		assetLeaf := assetLeaf
 
-		decDisplay, err := r.DecDisplayForAssetID(ctx, assetLeaf.ID())
+		decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(
+			ctx, assetLeaf.ID(),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -5579,7 +5583,9 @@ func (r *rpcServer) marshalUniverseProofLeaf(ctx context.Context,
 		return nil, err
 	}
 
-	decDisplay, err := r.DecDisplayForAssetID(ctx, proof.Leaf.ID())
+	decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(
+		ctx, proof.Leaf.ID(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -6047,7 +6053,7 @@ func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
 
 		leaves := make([]*unirpc.AssetLeaf, len(diff.NewLeafProofs))
 		for i, leaf := range diff.NewLeafProofs {
-			decDisplay, err := r.DecDisplayForAssetID(
+			decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(
 				ctx, leaf.ID(),
 			)
 			if err != nil {
@@ -6542,7 +6548,7 @@ func (r *rpcServer) marshalAssetSyncSnapshot(ctx context.Context,
 		AnchorPoint: a.AnchorPoint.String(),
 	}
 
-	decDisplay, err := r.DecDisplayForAssetID(ctx, a.AssetID)
+	decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(ctx, a.AssetID)
 	if err == nil {
 		decDisplay.WhenSome(func(u uint32) {
 			rpcAsset.DecimalDisplay = u
@@ -8559,20 +8565,6 @@ func encodeVirtualPackets(packets []*tappsbt.VPacket) ([][]byte, error) {
 	return rawPackets, nil
 }
 
-// DecDisplayForAssetID attempts to fetch the meta reveal for a specific asset
-// ID and extract the decimal display value from it.
-func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
-	id asset.ID) (fn.Option[uint32], error) {
-
-	meta, err := r.cfg.AddrBook.FetchAssetMetaForAsset(ctx, id)
-	if err != nil {
-		return fn.None[uint32](), fmt.Errorf("unable to fetch asset "+
-			"meta for asset_id=%v :%v", id, err)
-	}
-
-	return meta.DecDisplayOption()
-}
-
 // getInboundPolicy returns the policy of the given channel that points towards
 // our node, so it's the policy set by the remote peer.
 func (r *rpcServer) getInboundPolicy(ctx context.Context, chanID uint64,
@@ -8776,7 +8768,7 @@ func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
 
 	// The final piece of information we need is the decimal display
 	// information for this asset ID.
-	decDisplay, err := r.DecDisplayForAssetID(ctx, assetID)
+	decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(ctx, assetID)
 	if err != nil {
 		return nil, err
 	}

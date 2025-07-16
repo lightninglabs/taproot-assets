@@ -175,6 +175,13 @@ type MockStorage struct {
 	mock.Mock
 }
 
+func (m *MockStorage) FetchAllAssetMeta(
+	ctx context.Context) (map[asset.ID]*proof.MetaReveal, error) {
+
+	args := m.Called(ctx)
+	return args.Get(0).(map[asset.ID]*proof.MetaReveal), args.Error(1)
+}
+
 func (m *MockStorage) AddrByScriptKeyAndVersion(ctx context.Context,
 	key *btcec.PublicKey, version Version) (*AddrWithKeyInfo, error) {
 
