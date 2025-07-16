@@ -521,6 +521,85 @@ func (s *Specifier) AssertNotEmpty() error {
 	return nil
 }
 
+// Equal compares this specifier to another one, returning true if they are
+// equal. If strict is true, then both specifiers need to either have both equal
+// asset IDs and group keys set or only one of those (but matching). If strict
+// is false, then it's enough to have the same group key _or_ the same asset ID
+// (if one has no group key set). This is useful for cases where one specifier
+// only specifies the group key, while the other one specifies both the group
+// key and the asset ID. In that case, we can consider them equal if the group
+// keys match, even if the asset IDs are different (or one is not set).
+func (s *Specifier) Equal(other *Specifier, strict bool) (bool, error) {
+	// If both specifiers are nil, they are equal.
+	if s == nil && other == nil {
+		return true, nil
+	}
+
+	// If one of the specifiers is nil, they are not equal.
+	if s == nil || other == nil {
+		return false, nil
+	}
+
+	// If either of them is empty while the other is not, they are not
+	// equal.
+	if (s.HasId() || s.HasGroupPubKey()) !=
+		(other.HasId() || other.HasGroupPubKey()) {
+
+		return false, nil
+	}
+
+	// If they both have distinct elements set, then they are not equal.
+	if s.HasId() != other.HasId() &&
+		s.HasGroupPubKey() != other.HasGroupPubKey() {
+
+		return false, nil
+	}
+
+	// If both specifiers have a group public key, compare them.
+	if s.HasGroupPubKey() && other.HasGroupPubKey() {
+		groupKeyA := s.UnwrapGroupKeyToPtr()
+		groupKeyB := other.UnwrapGroupKeyToPtr()
+
+		// If any unwrapped element is nil, something's wrong, and we
+		// can't compare them.
+		if groupKeyA == nil || groupKeyB == nil {
+			return false, fmt.Errorf("unable to unwrap group key "+
+				"from specifier: %v vs %v", s, other)
+		}
+
+		if !groupKeyA.IsEqual(groupKeyB) {
+			return false, nil
+		}
+
+		// If we're not doing a strict comparison, then we can return
+		// true here if the group keys match. The group key has higher
+		// priority than the ID, so if they match and the comparison
+		// isn't strict, we can consider the specifiers equal.
+		if !strict {
+			return true, nil
+		}
+	}
+
+	// If both specifiers have an ID, compare them.
+	if s.HasId() && other.HasId() {
+		idA := s.UnwrapIdToPtr()
+		idB := other.UnwrapIdToPtr()
+
+		// If any unwrapped element is nil, something's wrong and we
+		// can't compare them.
+		if idA == nil || idB == nil {
+			return false, fmt.Errorf("unable to unwrap asset ID "+
+				"from specifier: %v vs %v", s, other)
+		}
+
+		if *idA != *idB {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
 // Type denotes the asset types supported by the Taproot Asset protocol.
 type Type uint8
 
