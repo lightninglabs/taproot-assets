@@ -862,12 +862,16 @@ func (s *Server) Name() msgmux.EndpointName {
 //
 // NOTE: This method is part of the msgmux.MsgEndpoint interface.
 func (s *Server) CanHandle(msg msgmux.PeerMsg) bool {
-	err := s.waitForReady()
-	if err != nil {
-		srvrLog.Debugf("Can't handle PeerMsg, server not ready %v",
-			err)
+	// We can't wait for ready here, as this method is potentially called
+	// during startup. The `CanHandle` method is stateless, so we can call
+	// it if the funding controller has been created (but potentially has
+	// not yet been started).
+	if s == nil || s.cfg == nil || s.cfg.AuxFundingController == nil {
+		// This shouldn't happen, the server and funding controller
+		// should always be initialized before the msgmux is started.
 		return false
 	}
+
 	return s.cfg.AuxFundingController.CanHandle(msg)
 }
 
@@ -876,12 +880,18 @@ func (s *Server) CanHandle(msg msgmux.PeerMsg) bool {
 //
 // NOTE: This method is part of the msgmux.MsgEndpoint interface.
 func (s *Server) SendMessage(ctx context.Context, msg msgmux.PeerMsg) bool {
-	err := s.waitForReady()
-	if err != nil {
-		srvrLog.Debugf("Failed to send PeerMsg, server not ready %v",
-			err)
+	// We can't wait for ready here, as this method is potentially called
+	// during startup. The `SendMessage` method will buffer messages that
+	// come in between the funding controller being created and it being
+	// started (which only happens after waitForReady fires). So it's safe
+	// to call it here, as long as the funding controller has been created.
+	if s == nil || s.cfg == nil || s.cfg.AuxFundingController == nil {
+		// This shouldn't happen, the CanHandle method is always called
+		// first, and that should've already returned false in this
+		// case.
 		return false
 	}
+
 	return s.cfg.AuxFundingController.SendMessage(ctx, msg)
 }
 
