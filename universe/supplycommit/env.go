@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -18,6 +19,12 @@ import (
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+)
+
+const (
+	// DefaultCommitConfTarget is the default confirmation target used when
+	// crafting the commitment transaction. This is used in fee estimation.
+	DefaultCommitConfTarget = 6
 )
 
 // SupplySubTree is an enum that represents the different types of supply sub
@@ -82,18 +89,20 @@ func (s SupplyTrees) FetchOrCreate(treeType SupplySubTree) mssmt.Tree {
 // to date snapshot of the root supply tree, as the sub trees (ignore, burn,
 // mint) committed in the main supply tree.
 type SupplyTreeView interface {
-	// FetchSubStree returns the sub tree for the given asset spec. This
+	// FetchSubTree returns the sub tree for the given asset spec. This
 	// instance returned should be a copy, as mutations make take place in
 	// the tree.
-	FetchSubTree(assetSpec asset.Specifier,
+	FetchSubTree(ctx context.Context, assetSpec asset.Specifier,
 		treeType SupplySubTree) lfn.Result[mssmt.Tree]
 
 	// FetchSubTrees returns all the sub trees for the given asset spec.
-	FetchSubTrees(assetSpec asset.Specifier) lfn.Result[SupplyTrees]
+	FetchSubTrees(ctx context.Context,
+		assetSpec asset.Specifier) lfn.Result[SupplyTrees]
 
 	// FetchRootSupplyTree returns the root supply tree which contains a
 	// commitment to each of the sub trees.
-	FetchRootSupplyTree(assetSpec asset.Specifier) lfn.Result[mssmt.Tree]
+	FetchRootSupplyTree(ctx context.Context,
+		assetSpec asset.Specifier) lfn.Result[mssmt.Tree]
 }
 
 // PreCommitment is a struct that represents a pre-commitment to an asset
@@ -276,7 +285,7 @@ type CommitmentTracker interface {
 }
 
 // Wallet the main wallet interface used to managed PSBT packets, and
-// import public keys into the wallet.
+// import taproot output keys into the wallet.
 type Wallet interface {
 	// FundPsbt attaches enough inputs to the target PSBT packet for it to
 	// be valid.
@@ -288,18 +297,22 @@ type Wallet interface {
 	// packet.
 	SignAndFinalizePsbt(context.Context, *psbt.Packet) (*psbt.Packet, error)
 
-	// ImportTaprootOutput imports a new public key into the wallet, as a
-	// P2TR output.
+	// ImportTaprootOutput imports a new taproot output key into the wallet.
 	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcutil.Address,
 		error)
 
 	// UnlockInput unlocks the set of target inputs after a batch or send
 	// transaction is abandoned.
 	UnlockInput(context.Context, wire.OutPoint) error
+}
 
-	// DeriveNextKey attempts to derive the *next* key within the keychain.
-	// This method should return the next external child within this branch.
-	DeriveNextKey(context.Context) (keychain.KeyDescriptor, error)
+// KeyRing is an interface that allows the state machine to derive new keys
+// within the keychain.
+type KeyRing interface {
+	// DeriveNextTaprootAssetKey attempts to derive the *next* key within
+	// the Taproot Asset key family.
+	DeriveNextTaprootAssetKey(ctx context.Context) (keychain.KeyDescriptor,
+		error)
 }
 
 // StateMachineStore is an interface that allows the state machine to persist
@@ -315,10 +328,10 @@ type StateMachineStore interface {
 	// returned.
 	//
 	// This method will also create a new pending SupplyStateTransition.
-	InsertPendingUpdate(context.Context, asset.
-		Specifier, SupplyUpdateEvent) error
+	InsertPendingUpdate(context.Context, asset.Specifier,
+		SupplyUpdateEvent) error
 
-	// InsertSignedCommitmentTx will associated a new signed commitment
+	// InsertSignedCommitTx will associated a new signed commitment
 	// anchor transaction with the current active supply commitment state
 	// transition. This'll update the existing funded txn with a signed
 	// copy. Finally the state of the  supply commit state transition will
@@ -326,7 +339,7 @@ type StateMachineStore interface {
 	InsertSignedCommitTx(context.Context, asset.Specifier,
 		SupplyCommitTxn) error
 
-	// State is used to commit the state of the state machine to then
+	// CommitState is used to commit the state of the state machine to then
 	// disk.
 	CommitState(context.Context, asset.Specifier, State) error
 
@@ -376,9 +389,11 @@ type Environment struct {
 	// commitment outputs that are currently confirmed on-chain.
 	Commitments CommitmentTracker
 
-	// Wallet is the main wallet interface used to managed PSBT packets, and
-	// generate new keys.
+	// Wallet is the main wallet interface used to managed PSBT packets.
 	Wallet Wallet
+
+	// KeyRing is the main key ring interface used to manage keys.
+	KeyRing KeyRing
 
 	// Chain is our access to the current main chain.
 	//
@@ -393,6 +408,10 @@ type Environment struct {
 	// CommitConfTarget is the confirmation target used when crafting the
 	// commitment transaction.
 	CommitConfTarget uint32
+
+	// ChainParams is the chain parameters for the chain that we're
+	// operating on.
+	ChainParams chaincfg.Params
 }
 
 // SupplyCommitTxn encapsulates the details of the transaction that creates a

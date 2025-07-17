@@ -211,6 +211,18 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		return fmt.Errorf("unable to start RFQ manager: %w", err)
 	}
 
+	// Start FSM daemon adapters.
+	if err := s.cfg.FsmDaemonAdapters.Start(); err != nil {
+		return fmt.Errorf("unable to start FSM daemon adapters: %w",
+			err)
+	}
+
+	// Start universe supply commitment manager.
+	if err := s.cfg.SupplyCommitManager.Start(); err != nil {
+		return fmt.Errorf("unable to start supply commit manager: %w",
+			err)
+	}
+
 	// Start the auxiliary components.
 	if err := s.cfg.AuxLeafSigner.Start(); err != nil {
 		return fmt.Errorf("unable to start aux leaf signer: %w", err)
@@ -689,6 +701,18 @@ func (s *Server) Stop() error {
 
 	if err := s.cfg.RfqManager.Stop(); err != nil {
 		return err
+	}
+
+	// Stop FSM daemon adapters.
+	if err := s.cfg.FsmDaemonAdapters.Stop(); err != nil {
+		return fmt.Errorf("unable to stop FSM daemon adapters: %w",
+			err)
+	}
+
+	// Stop universe supply commitment manager.
+	if err := s.cfg.SupplyCommitManager.Stop(); err != nil {
+		return fmt.Errorf("unable to stop supply commit manager: %w",
+			err)
 	}
 
 	if err := s.cfg.AuxLeafSigner.Stop(); err != nil {

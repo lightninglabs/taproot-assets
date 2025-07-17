@@ -120,6 +120,7 @@ type supplyCommitTestHarness struct {
 	mockTreeView    *mockSupplyTreeView
 	mockCommits     *mockCommitmentTracker
 	mockWallet      *mockWallet
+	mockKeyRing     *mockKeyRing
 	mockChain       *mockChainBridge
 	mockStateLog    *mockStateMachineStore
 	mockDaemon      *mockDaemonAdapters
@@ -134,18 +135,21 @@ func newSupplyCommitTestHarness(t *testing.T,
 	mockTreeView := &mockSupplyTreeView{}
 	mockCommits := &mockCommitmentTracker{}
 	mockWallet := &mockWallet{}
+	mockKey := &mockKeyRing{}
 	mockChain := &mockChainBridge{}
 	mockStateLog := &mockStateMachineStore{}
 	mockDaemon := newMockDaemonAdapters()
 	mockErrReporter := &mockErrorReporter{}
 
 	env := &Environment{
-		AssetSpec:   cfg.assetSpec,
-		TreeView:    mockTreeView,
-		Commitments: mockCommits,
-		Wallet:      mockWallet,
-		Chain:       mockChain,
-		StateLog:    mockStateLog,
+		AssetSpec:        cfg.assetSpec,
+		TreeView:         mockTreeView,
+		Commitments:      mockCommits,
+		Wallet:           mockWallet,
+		KeyRing:          mockKey,
+		Chain:            mockChain,
+		StateLog:         mockStateLog,
+		CommitConfTarget: DefaultCommitConfTarget,
 	}
 
 	fsmCfg := Config{
@@ -168,6 +172,7 @@ func newSupplyCommitTestHarness(t *testing.T,
 		mockTreeView:    mockTreeView,
 		mockCommits:     mockCommits,
 		mockWallet:      mockWallet,
+		mockKeyRing:     mockKey,
 		mockChain:       mockChain,
 		mockStateLog:    mockStateLog,
 		mockDaemon:      mockDaemon,
@@ -362,7 +367,7 @@ func (h *supplyCommitTestHarness) expectKeyDerivationAndImport() {
 	dummyKeyDesc := keychain.KeyDescriptor{
 		PubKey: test.RandPubKey(h.t),
 	}
-	h.mockWallet.On("DeriveNextKey", mock.Anything).Return(
+	h.mockKeyRing.On("DeriveNextTaprootAssetKey", mock.Anything).Return(
 		dummyKeyDesc, nil,
 	).Once()
 

@@ -253,12 +253,15 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 	case *CreateTreeEvent:
 		pendingUpdates := newEvent.updatesToCommit
 
+		// TODO(ffranr): Pass in context?
+		ctx := context.Background()
+
 		// First, we'll gather the current set of sub-trees for the
 		// given asset specifier.
 		//
 		// TODO(roasbeef): sanity check on population of map?
 		oldSupplyTrees, err := env.TreeView.FetchSubTrees(
-			env.AssetSpec,
+			ctx, env.AssetSpec,
 		).Unpack()
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch old sub "+
@@ -279,7 +282,7 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 		// sub-trees created. We'll take those sub-trees, and insert
 		// them into the unified supply tree.
 		rootSupplyTree, err := env.TreeView.FetchRootSupplyTree(
-			env.AssetSpec,
+			ctx, env.AssetSpec,
 		).Unpack()
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch root "+
@@ -288,7 +291,6 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 
 		// Now we'll insert/update each of the read sub-trees into the
 		// root supply tree.
-		ctx := context.Background()
 		for treeType, subTree := range newSupplyTrees {
 			subTreeRoot, err := subTree.Root(ctx)
 			if err != nil {
@@ -351,7 +353,7 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 func newRootCommitment(ctx context.Context,
 	oldCommitment lfn.Option[RootCommitment],
 	unspentPreCommits []PreCommitment, newSupplyRoot *mssmt.BranchNode,
-	wallet Wallet) lfn.Result[RootCommitment] {
+	wallet Wallet, keyRing KeyRing) lfn.Result[RootCommitment] {
 
 	newCommitTx := wire.NewMsgTx(2)
 
@@ -378,7 +380,7 @@ func newRootCommitment(ctx context.Context,
 	})(oldCommitment)
 	commitInternalKey, err := iKeyOpt.UnwrapOrFuncErr(
 		func() (*btcec.PublicKey, error) {
-			newKey, err := wallet.DeriveNextKey(ctx)
+			newKey, err := keyRing.DeriveNextTaprootAssetKey(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("unable to derive "+
 					"next key: %w", err)
@@ -527,7 +529,7 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 		// commitment.
 		newSupplyCommit, err := newRootCommitment(
 			ctx, oldCommitment, preCommits, newSupplyRoot,
-			env.Wallet,
+			env.Wallet, env.KeyRing,
 		).Unpack()
 		if err != nil {
 			return nil, fmt.Errorf("unable to create "+
@@ -628,9 +630,7 @@ func (c *CommitTxSignState) ProcessEvent(event Event,
 				SupplyTransition: stateTransition,
 			},
 			NewEvents: lfn.Some(FsmEvent{
-				InternalEvent: []Event{&BroadcastEvent{
-					SignedCommitPkt: signedPsbt,
-				}},
+				InternalEvent: []Event{&BroadcastEvent{}},
 			}),
 		}, nil
 
@@ -652,13 +652,11 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 	// signed commit tx, then register for a confirmation for when it
 	// confirms.
 	case *BroadcastEvent:
-		// First, we'll extract the final signed transaction from the
-		// PSBT.
-		commitTx, err := psbt.Extract(newEvent.SignedCommitPkt)
-		if err != nil {
-			return nil, fmt.Errorf("unable to extract "+
-				"psbt: %w", err)
+		if c.SupplyTransition.NewCommitment.Txn == nil {
+			return nil, fmt.Errorf("commitment transaction is nil")
 		}
+
+		commitTx := c.SupplyTransition.NewCommitment.Txn
 
 		// Construct a detailed label for the broadcast request using
 		// the helper function.
