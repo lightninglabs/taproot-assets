@@ -219,7 +219,10 @@ func queryAddr(ctx *cli.Context) error {
 	return nil
 }
 
-const addrName = "addr"
+const (
+	addrName           = "addr"
+	addrWithAmountName = "addr_with_amount"
+)
 
 var decodeAddrCommand = cli.Command{
 	Name:      "decode",
