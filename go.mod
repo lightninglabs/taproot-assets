@@ -30,7 +30,7 @@ require (
 	github.com/lightninglabs/lndclient v0.19.0-9
 	github.com/lightninglabs/neutrino/cache v1.1.2
 	github.com/lightninglabs/taproot-assets/taprpc v1.0.9
-	github.com/lightningnetwork/lnd v0.19.2-beta.rc2
+	github.com/lightningnetwork/lnd v0.19.2-beta
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.8
