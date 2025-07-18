@@ -201,6 +201,10 @@ type SendManifest struct {
 	// to the auth mailbox server.
 	TxProof TxProof
 
+	// ExpiryHeight is the block height at which the send fragment will
+	// expire, allowing the server to clean up old fragments in its DB.
+	ExpiryHeight uint32
+
 	// Receiver is the receiver's public key of the asset outputs, used
 	// to decrypt the send fragment. This is the internal key of the address
 	// that was used to send the assets.

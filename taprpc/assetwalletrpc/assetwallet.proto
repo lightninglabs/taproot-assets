@@ -193,10 +193,24 @@ message TxTemplate {
     repeated PrevId inputs = 1;
 
     /*
-    A map of all Taproot Asset addresses mapped to the anchor transaction's
-    output index that should be sent to.
+    DEPRECATED: A map of all Taproot Asset addresses that should be sent to.
+    The keys are the Taproot Asset addresses in human-readable form, and the
+    values are IGNORED and should not be set (use the addresses_with_amounts
+    field below instead). The recipients map and addresses_with_amounts list
+    are mutually exclusive, meaning that if addresses_with_amounts is set, then
+    recipients must be empty, and vice versa.
     */
     map<string, uint64> recipients = 2;
+
+    /*
+    A list of addresses and the amounts of asset units to send to them. This
+    must be used for V2 TAP addresses that don't specify an amount in the
+    address itself and allow the sender to choose the amount to send. The
+    recipients and addresses_with_amounts lists are mutually exclusive,
+    meaning that if addresses_with_amounts is set, then recipients must be
+    empty, and vice versa.
+    */
+    repeated taprpc.AddressWithAmount addresses_with_amounts = 3;
 }
 
 message PrevId {
