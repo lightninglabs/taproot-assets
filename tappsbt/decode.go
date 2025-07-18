@@ -116,6 +116,7 @@ func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 		vOut := &VOutput{}
 		err = vOut.decode(
 			packet.Outputs[idx], packet.UnsignedTx.TxOut[idx],
+			chainParams,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error decoding virtual output "+
@@ -212,7 +213,9 @@ func (i *VInput) decode(pIn psbt.PInput) error {
 }
 
 // decode decodes the given POutput and wire.TxOut into the current VOutput.
-func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
+func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut,
+	chainParams *address.ChainParams) error {
+
 	o.Amount = uint64(txOut.Value)
 
 	if len(txOut.PkScript) != schnorr.PubKeyBytesLen+2 {
@@ -305,6 +308,9 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 		}, {
 			key:     PsbtKeyTypeOutputTapAltLeaves,
 			decoder: altLeavesDecoder(&o.AltLeaves),
+		}, {
+			key:     PsbtKeyTypeOutputTapAddress,
+			decoder: addressDecoder(&o.Address, chainParams),
 		}}
 
 	for idx := range mapping {
@@ -522,5 +528,30 @@ func urlDecoder(u **url.URL) decoderFunc {
 			*u = &url.URL{}
 		}
 		return tlvDecoder(*u, asset.UrlDecoder)(key, byteVal)
+	}
+}
+
+// addressDecoder returns a decoder function that can handle nil Taproot
+// addresses.
+func addressDecoder(a **address.Tap,
+	chainParams *address.ChainParams) decoderFunc {
+
+	return func(key, byteVal []byte) error {
+		if len(byteVal) == 0 {
+			return nil
+		}
+
+		addr := address.Tap{
+			ChainParams: chainParams,
+		}
+		err := addr.Decode(bytes.NewReader(byteVal))
+		if err != nil {
+			return fmt.Errorf("error decoding Taproot address: %w",
+				err)
+		}
+
+		*a = &addr
+
+		return nil
 	}
 }

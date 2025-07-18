@@ -211,6 +211,10 @@ type Allocation struct {
 	// upload the proof for this allocation.
 	ProofDeliveryAddress *url.URL
 
+	// Address is the Taproot Address that the asset allocation is
+	// intended for.
+	Address *address.Tap
+
 	// AltLeaves represent data used to construct an Asset commitment, that
 	// will be inserted in the output anchor Tap commitment. These
 	// data-carrying leaves are used for a purpose distinct from
@@ -622,6 +626,7 @@ func allocatePiece(p piece, a Allocation, toFill uint64,
 		LockTime:                     a.LockTime,
 		RelativeLockTime:             uint64(a.Sequence),
 		AltLeaves:                    a.AltLeaves,
+		Address:                      a.Address,
 	}
 
 	// If we've allocated all pieces, or we don't need to allocate anything
@@ -846,6 +851,7 @@ func setAllocationFieldsFromOutput(alloc *Allocation, vOut *tappsbt.VOutput) {
 	alloc.ProofDeliveryAddress = vOut.ProofDeliveryAddress
 	alloc.AltLeaves = vOut.AltLeaves
 	alloc.SiblingPreimage = vOut.AnchorOutputTapscriptSibling
+	alloc.Address = vOut.Address
 }
 
 // GroupProofsByAssetID groups the given proofs by their asset ID.
