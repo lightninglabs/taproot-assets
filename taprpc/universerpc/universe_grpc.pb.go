@@ -115,6 +115,19 @@ type UniverseClient interface {
 	// QueryFederationSyncConfig queries the universe federation sync configuration
 	// settings.
 	QueryFederationSyncConfig(ctx context.Context, in *QueryFederationSyncConfigRequest, opts ...grpc.CallOption) (*QueryFederationSyncConfigResponse, error)
+	// tapcli: `universe ignoreoutpoint`
+	// IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
+	// as ignored. An ignored outpoint will be included in the next universe supply
+	// commitment transaction that is published.
+	IgnoreAssetOutPoint(ctx context.Context, in *IgnoreAssetOutPointRequest, opts ...grpc.CallOption) (*IgnoreAssetOutPointResponse, error)
+	// tapcli: `universe updatesupplycommit`
+	// UpdateSupplyCommit updates the on-chain supply commitment for a specific
+	// asset group.
+	UpdateSupplyCommit(ctx context.Context, in *UpdateSupplyCommitRequest, opts ...grpc.CallOption) (*UpdateSupplyCommitResponse, error)
+	// tapcli: `universe fetchsupplycommit`
+	// FetchSupplyCommit fetches the on-chain supply commitment for a specific
+	// asset group.
+	FetchSupplyCommit(ctx context.Context, in *FetchSupplyCommitRequest, opts ...grpc.CallOption) (*FetchSupplyCommitResponse, error)
 }
 
 type universeClient struct {
@@ -296,6 +309,33 @@ func (c *universeClient) QueryFederationSyncConfig(ctx context.Context, in *Quer
 	return out, nil
 }
 
+func (c *universeClient) IgnoreAssetOutPoint(ctx context.Context, in *IgnoreAssetOutPointRequest, opts ...grpc.CallOption) (*IgnoreAssetOutPointResponse, error) {
+	out := new(IgnoreAssetOutPointResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/IgnoreAssetOutPoint", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *universeClient) UpdateSupplyCommit(ctx context.Context, in *UpdateSupplyCommitRequest, opts ...grpc.CallOption) (*UpdateSupplyCommitResponse, error) {
+	out := new(UpdateSupplyCommitResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/UpdateSupplyCommit", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *universeClient) FetchSupplyCommit(ctx context.Context, in *FetchSupplyCommitRequest, opts ...grpc.CallOption) (*FetchSupplyCommitResponse, error) {
+	out := new(FetchSupplyCommitResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/FetchSupplyCommit", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UniverseServer is the server API for Universe service.
 // All implementations must embed UnimplementedUniverseServer
 // for forward compatibility
@@ -397,6 +437,19 @@ type UniverseServer interface {
 	// QueryFederationSyncConfig queries the universe federation sync configuration
 	// settings.
 	QueryFederationSyncConfig(context.Context, *QueryFederationSyncConfigRequest) (*QueryFederationSyncConfigResponse, error)
+	// tapcli: `universe ignoreoutpoint`
+	// IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
+	// as ignored. An ignored outpoint will be included in the next universe supply
+	// commitment transaction that is published.
+	IgnoreAssetOutPoint(context.Context, *IgnoreAssetOutPointRequest) (*IgnoreAssetOutPointResponse, error)
+	// tapcli: `universe updatesupplycommit`
+	// UpdateSupplyCommit updates the on-chain supply commitment for a specific
+	// asset group.
+	UpdateSupplyCommit(context.Context, *UpdateSupplyCommitRequest) (*UpdateSupplyCommitResponse, error)
+	// tapcli: `universe fetchsupplycommit`
+	// FetchSupplyCommit fetches the on-chain supply commitment for a specific
+	// asset group.
+	FetchSupplyCommit(context.Context, *FetchSupplyCommitRequest) (*FetchSupplyCommitResponse, error)
 	mustEmbedUnimplementedUniverseServer()
 }
 
@@ -460,6 +513,15 @@ func (UnimplementedUniverseServer) SetFederationSyncConfig(context.Context, *Set
 }
 func (UnimplementedUniverseServer) QueryFederationSyncConfig(context.Context, *QueryFederationSyncConfigRequest) (*QueryFederationSyncConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method QueryFederationSyncConfig not implemented")
+}
+func (UnimplementedUniverseServer) IgnoreAssetOutPoint(context.Context, *IgnoreAssetOutPointRequest) (*IgnoreAssetOutPointResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method IgnoreAssetOutPoint not implemented")
+}
+func (UnimplementedUniverseServer) UpdateSupplyCommit(context.Context, *UpdateSupplyCommitRequest) (*UpdateSupplyCommitResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateSupplyCommit not implemented")
+}
+func (UnimplementedUniverseServer) FetchSupplyCommit(context.Context, *FetchSupplyCommitRequest) (*FetchSupplyCommitResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FetchSupplyCommit not implemented")
 }
 func (UnimplementedUniverseServer) mustEmbedUnimplementedUniverseServer() {}
 
@@ -816,6 +878,60 @@ func _Universe_QueryFederationSyncConfig_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Universe_IgnoreAssetOutPoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IgnoreAssetOutPointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).IgnoreAssetOutPoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/IgnoreAssetOutPoint",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).IgnoreAssetOutPoint(ctx, req.(*IgnoreAssetOutPointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Universe_UpdateSupplyCommit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateSupplyCommitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).UpdateSupplyCommit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/UpdateSupplyCommit",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).UpdateSupplyCommit(ctx, req.(*UpdateSupplyCommitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Universe_FetchSupplyCommit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FetchSupplyCommitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).FetchSupplyCommit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/FetchSupplyCommit",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).FetchSupplyCommit(ctx, req.(*FetchSupplyCommitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Universe_ServiceDesc is the grpc.ServiceDesc for Universe service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -898,6 +1014,18 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "QueryFederationSyncConfig",
 			Handler:    _Universe_QueryFederationSyncConfig_Handler,
+		},
+		{
+			MethodName: "IgnoreAssetOutPoint",
+			Handler:    _Universe_IgnoreAssetOutPoint_Handler,
+		},
+		{
+			MethodName: "UpdateSupplyCommit",
+			Handler:    _Universe_UpdateSupplyCommit_Handler,
+		},
+		{
+			MethodName: "FetchSupplyCommit",
+			Handler:    _Universe_FetchSupplyCommit_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

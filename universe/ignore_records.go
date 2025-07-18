@@ -2,14 +2,20 @@ package universe
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
+
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -90,6 +96,88 @@ func (i *IgnoreTuple) Record() tlv.Record {
 		0, i, recordSize,
 		ignoreTupleEncoder, ignoreTupleDecoder,
 	)
+}
+
+// Encode serializes the IgnoreTuple to the given io.Writer.
+func (i *IgnoreTuple) Encode(w io.Writer) error {
+	stream, err := tlv.NewStream(i.Record())
+	if err != nil {
+		return err
+	}
+
+	return stream.Encode(w)
+}
+
+// Bytes returns the serialized IgnoreTuple.
+func (i *IgnoreTuple) Bytes() ([]byte, error) {
+	var buf bytes.Buffer
+	err := i.Encode(&buf)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// Digest returns the SHA256 digest of the TLV serialized IgnoreTuple.
+func (i *IgnoreTuple) Digest() ([sha256.Size]byte, error) {
+	var zero [sha256.Size]byte
+
+	ignoreBytes, err := i.Bytes()
+	if err != nil {
+		return zero, err
+	}
+
+	digest := sha256.Sum256(ignoreBytes)
+	return digest, nil
+}
+
+// GenSignedIgnore generates a Schnorr signature over the IgnoreTuple using the
+// provided SignerClient and key locator.
+func (i *IgnoreTuple) GenSignedIgnore(ctx context.Context,
+	signer lndclient.SignerClient,
+	key keychain.KeyLocator) (SignedIgnoreTuple, error) {
+
+	var zero SignedIgnoreTuple
+
+	// Formulate the digest of the IgnoreTuple from its TLV
+	// serialization.
+	digest, err := i.Digest()
+	if err != nil {
+		return zero, err
+	}
+
+	// Sign the digest using the provided key locator.
+	sigBytes, err := signer.SignMessage(
+		ctx, digest[:], key, lndclient.SignSchnorr(nil),
+	)
+	if err != nil {
+		return zero, err
+	}
+
+	// Convert the signature bytes to a Schnorr signature.
+	lnwireSig, err := lnwire.NewSigFromSchnorrRawSignature(sigBytes)
+	if err != nil {
+		return zero, err
+	}
+
+	sigPtr, err := lnwireSig.ToSignature()
+	if err != nil {
+		return zero, err
+	}
+
+	sig, ok := sigPtr.(*schnorr.Signature)
+	if !ok {
+		return zero, fmt.Errorf("failed to cast sig to " +
+			"*schnorr.Signature")
+	}
+
+	// Create the IgnoreSig from the Schnorr signature.
+	ignoreSig := IgnoreSig{
+		Signature: *sig,
+	}
+
+	return NewSignedIgnoreTuple(*i, ignoreSig), nil
 }
 
 // IgnoreTuples is a slice of IgnoreTuple.
