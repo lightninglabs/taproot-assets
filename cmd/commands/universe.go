@@ -1315,7 +1315,7 @@ func universeInfo(ctx *cli.Context) error {
 
 var universeStatsCommand = cli.Command{
 	Name:      "stats",
-	ShortName: "s",
+	ShortName: "st",
 	Usage:     "query for stats related to the active local Universe server",
 	Description: `
 	Query for a set of aggregate statistics related to the local Universe
