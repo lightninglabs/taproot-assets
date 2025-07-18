@@ -418,7 +418,7 @@ func (h *supplyCommitTestHarness) expectPsbtFunding() {
 }
 
 func (h *supplyCommitTestHarness) expectPsbtSigning() {
-	signFn := signAndFinalizePsbtMockFn(func(
+	signFn := signPsbtMockFn(func(
 		_ context.Context, pkt *psbt.Packet,
 	) (*psbt.Packet, error) {
 		// The transaction from the PSBT is extracted and used to create
@@ -428,7 +428,7 @@ func (h *supplyCommitTestHarness) expectPsbtSigning() {
 		return newTestSignedPsbt(h.t, pkt.UnsignedTx), nil
 	})
 	h.mockWallet.On(
-		"SignAndFinalizePsbt", mock.Anything, mock.Anything,
+		"SignPsbt", mock.Anything, mock.Anything,
 	).Return(signFn, nil).Once()
 }
 
@@ -791,10 +791,13 @@ func TestSupplyCommitTxSignStateTransitions(t *testing.T) {
 	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
 	dummyTx := wire.NewMsgTx(2)
 	dummyTx.AddTxOut(&wire.TxOut{PkScript: []byte("test"), Value: 1})
+
+	internalKey, _ := test.RandKeyDesc(t)
+
 	initialTransition := SupplyStateTransition{
 		NewCommitment: RootCommitment{
 			Txn:         dummyTx,
-			InternalKey: test.RandPubKey(t),
+			InternalKey: internalKey,
 			TxOutIdx:    0,
 		},
 	}

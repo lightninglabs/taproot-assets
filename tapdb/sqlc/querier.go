@@ -108,6 +108,8 @@ type Querier interface {
 	FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error)
 	FetchUniverseSupplyRoot(ctx context.Context, namespaceRoot string) (FetchUniverseSupplyRootRow, error)
 	FetchUnknownTypeScriptKeys(ctx context.Context) ([]FetchUnknownTypeScriptKeysRow, error)
+	// Fetch unspent pre-commitment outputs. A pre-commitment output is a mint
+	// anchor transaction output which relates to the supply commitment feature.
 	FetchUnspentPrecommits(ctx context.Context, groupKey []byte) ([]FetchUnspentPrecommitsRow, error)
 	FinalizeSupplyCommitTransition(ctx context.Context, transitionID int64) error
 	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
