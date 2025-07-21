@@ -71,6 +71,14 @@ func EncryptSha256ChaCha20Poly1305(sharedSecret [32]byte, msg []byte,
 			"given, 255 bytes maximum", len(additionalData))
 	}
 
+	// Select a random nonce.
+	nonceSize := chacha20poly1305.NonceSizeX
+	nonce := make([]byte, nonceSize)
+
+	if _, err := crand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("cannot read random nonce: %w", err)
+	}
+
 	// We begin by hardening the shared secret against brute forcing by
 	// using HKDF with SHA256.
 	stretchedKey, err := HkdfSha256(sharedSecret[:], []byte(protocolName))
@@ -86,17 +94,22 @@ func EncryptSha256ChaCha20Poly1305(sharedSecret [32]byte, msg []byte,
 			"cipher: %w", err)
 	}
 
-	// Select a random nonce, and leave capacity for the ciphertext.
-	nonce := make(
+	// Sanity check the nonce size used.
+	if len(nonce) != aead.NonceSize() {
+		return nil, fmt.Errorf("invalid nonce length")
+	}
+
+	// Construct an extended nonce which has additional capacity for the
+	// ciphertext.
+	extendedNonce := make(
 		[]byte, aead.NonceSize(),
 		aead.NonceSize()+len(msg)+aead.Overhead(),
 	)
+	copy(extendedNonce, nonce)
 
-	if _, err := crand.Read(nonce); err != nil {
-		return nil, fmt.Errorf("cannot read random nonce: %w", err)
-	}
-
-	ciphertext := aead.Seal(nonce, nonce, msg, additionalData)
+	ciphertext := aead.Seal(
+		extendedNonce, extendedNonce, msg, additionalData,
+	)
 
 	var result bytes.Buffer
 	result.WriteByte(byte(latestVersion))
