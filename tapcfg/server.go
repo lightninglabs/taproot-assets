@@ -508,7 +508,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			Signer:      assetWallet,
 		},
 	)
-	channelFunder := tap.NewLndPbstChannelFunder(lndServices)
+	channelFunder := lndservices.NewLndPbstChannelFunder(lndServices)
 	auxFundingController := tapchannel.NewFundingController(
 		tapchannel.FundingControllerCfg{
 			HeaderVerifier: headerVerifier,
