@@ -111,7 +111,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	msgTransportClient := lndservices.NewLndMsgTransportClient(lndServices)
 	lndRouterClient := lndservices.NewLndRouterClient(lndServices)
 	lndInvoicesClient := lndservices.NewLndInvoicesClient(lndServices)
-	lndFeatureBitsVerifier := tap.NewLndFeatureBitVerifier(lndServices)
+	lndFeatureBitsVerifier := lndservices.NewLndFeatureBitVerifier(
+		lndServices,
+	)
 	lndFsmDaemonAdapters := lndservices.NewLndFsmDaemonAdapters(lndServices)
 
 	uniDB := tapdb.NewTransactionExecutor(
