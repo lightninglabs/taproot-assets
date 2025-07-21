@@ -81,7 +81,9 @@ func EncryptSha256ChaCha20Poly1305(sharedSecret [32]byte, msg []byte,
 
 	// We begin by hardening the shared secret against brute forcing by
 	// using HKDF with SHA256.
-	stretchedKey, err := HkdfSha256(sharedSecret[:], []byte(protocolName))
+	stretchedKey, err := HkdfSha256(
+		sharedSecret[:], nonce, []byte(protocolName),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot derive hkdf key: %w", err)
 	}
@@ -197,7 +199,9 @@ func DecryptSha256ChaCha20Poly1305(sharedSecret [32]byte,
 
 	// We begin by hardening the shared secret against brute forcing by
 	// using HKDF with SHA256.
-	stretchedKey, err := HkdfSha256(sharedSecret[:], []byte(protocolName))
+	stretchedKey, err := HkdfSha256(
+		sharedSecret[:], nonce, []byte(protocolName),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot derive hkdf key: %w", err)
 	}
@@ -226,9 +230,9 @@ func DecryptSha256ChaCha20Poly1305(sharedSecret [32]byte,
 
 // HkdfSha256 derives a 32-byte key from the given secret and salt using HKDF
 // with SHA256.
-func HkdfSha256(secret, salt []byte) ([32]byte, error) {
+func HkdfSha256(secret, salt, info []byte) ([32]byte, error) {
 	var key [32]byte
-	kdf := hkdf.New(sha256.New, secret, salt, nil)
+	kdf := hkdf.New(sha256.New, secret, salt, info)
 	if _, err := io.ReadFull(kdf, key[:]); err != nil {
 		return [32]byte{}, fmt.Errorf("cannot read secret from HKDF "+
 			"reader: %w", err)
