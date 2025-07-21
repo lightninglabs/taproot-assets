@@ -60,7 +60,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	aliceLndKeyRing := taprootassets.NewLndRpcKeyRing(
+	aliceLndKeyRing := lndservices.NewLndRpcKeyRing(
 		&aliceLndClient.LndServices,
 	)
 
@@ -594,7 +594,7 @@ func testMintExternalGroupKeyChantools(t *harnessTest) {
 // Derive a random key on an LND node, with a key family not matching the
 // Taproot Assets key family.
 func deriveRandomKey(t *testing.T, ctxt context.Context,
-	keyRing *taprootassets.LndRpcKeyRing) keychain.KeyDescriptor {
+	keyRing *lndservices.LndRpcKeyRing) keychain.KeyDescriptor {
 
 	var (
 		randFam = test.RandInt31n(math.MaxInt32)

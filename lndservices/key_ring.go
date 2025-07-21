@@ -1,4 +1,4 @@
-package taprootassets
+package lndservices
 
 import (
 	"context"
@@ -32,7 +32,7 @@ func NewLndRpcKeyRing(lnd *lndclient.LndServices) *LndRpcKeyRing {
 func (l *LndRpcKeyRing) DeriveNextKey(ctx context.Context,
 	keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
 
-	tapdLog.Debugf("Deriving new key for fam_family=%v", keyFam)
+	log.Debugf("Deriving new key for fam_family=%v", keyFam)
 
 	keyDesc, err := l.lnd.WalletKit.DeriveNextKey(ctx, int32(keyFam))
 	if err != nil {
@@ -50,7 +50,7 @@ func (l *LndRpcKeyRing) DeriveNextTaprootAssetKey(
 
 	keyFam := int32(asset.TaprootAssetsKeyFamily)
 
-	tapdLog.Debugf("Deriving new key for fam_family=%v", keyFam)
+	log.Debugf("Deriving new key for fam_family=%v", keyFam)
 
 	keyDesc, err := l.lnd.WalletKit.DeriveNextKey(ctx, keyFam)
 	if err != nil {
