@@ -110,7 +110,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	chainBridge := lndservices.NewLndRpcChainBridge(lndServices, assetStore)
 	msgTransportClient := lndservices.NewLndMsgTransportClient(lndServices)
 	lndRouterClient := lndservices.NewLndRouterClient(lndServices)
-	lndInvoicesClient := tap.NewLndInvoicesClient(lndServices)
+	lndInvoicesClient := lndservices.NewLndInvoicesClient(lndServices)
 	lndFeatureBitsVerifier := tap.NewLndFeatureBitVerifier(lndServices)
 	lndFsmDaemonAdapters := lndservices.NewLndFsmDaemonAdapters(lndServices)
 
