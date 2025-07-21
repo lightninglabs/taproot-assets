@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
+	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
@@ -189,7 +190,7 @@ type Config struct {
 
 	// FsmDaemonAdapters is a set of adapters that allow a state machine to
 	// interact with external daemons.
-	FsmDaemonAdapters *LndFsmDaemonAdapters
+	FsmDaemonAdapters *lndservices.LndFsmDaemonAdapters
 
 	// SupplyCommitManager is a service that is used to manage supply
 	// commitments for assets. Supply commitments are issuer published

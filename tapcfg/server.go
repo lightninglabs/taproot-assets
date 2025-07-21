@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
+	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
@@ -106,12 +107,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	keyRing := tap.NewLndRpcKeyRing(lndServices)
 	walletAnchor := tap.NewLndRpcWalletAnchor(lndServices)
-	chainBridge := tap.NewLndRpcChainBridge(lndServices, assetStore)
-	msgTransportClient := tap.NewLndMsgTransportClient(lndServices)
+	chainBridge := lndservices.NewLndRpcChainBridge(lndServices, assetStore)
+	msgTransportClient := lndservices.NewLndMsgTransportClient(lndServices)
 	lndRouterClient := tap.NewLndRouterClient(lndServices)
 	lndInvoicesClient := tap.NewLndInvoicesClient(lndServices)
 	lndFeatureBitsVerifier := tap.NewLndFeatureBitVerifier(lndServices)
-	lndFsmDaemonAdapters := tap.NewLndFsmDaemonAdapters(lndServices)
+	lndFsmDaemonAdapters := lndservices.NewLndFsmDaemonAdapters(lndServices)
 
 	uniDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.BaseUniverseStore {
