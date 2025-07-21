@@ -106,7 +106,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	assetStore := tapdb.NewAssetStore(assetDB, metaDB, defaultClock, dbType)
 
 	keyRing := lndservices.NewLndRpcKeyRing(lndServices)
-	walletAnchor := tap.NewLndRpcWalletAnchor(lndServices)
+	walletAnchor := lndservices.NewLndRpcWalletAnchor(lndServices)
 	chainBridge := lndservices.NewLndRpcChainBridge(lndServices, assetStore)
 	msgTransportClient := lndservices.NewLndMsgTransportClient(lndServices)
 	lndRouterClient := lndservices.NewLndRouterClient(lndServices)

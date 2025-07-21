@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -623,7 +624,7 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 	require.NoError(t.t, err)
 
 	lndServices := &lndClient.LndServices
-	walletAnchor := taprootassets.NewLndRpcWalletAnchor(lndServices)
+	walletAnchor := lndservices.NewLndRpcWalletAnchor(lndServices)
 
 	// First, create and fund a genesis TX to anchor the asset.
 	genesisDummyScript := append(
