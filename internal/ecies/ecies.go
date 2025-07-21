@@ -177,6 +177,11 @@ func DecryptSha256ChaCha20Poly1305(sharedSecret [32]byte,
 		return nil, fmt.Errorf("unsupported version: %s", version)
 	}
 
+	// Split additional data, nonce, and ciphertext.
+	nonceSize := chacha20poly1305.NonceSizeX
+	nonce := remainder[:nonceSize]
+	ciphertext := remainder[nonceSize:]
+
 	// We begin by hardening the shared secret against brute forcing by
 	// using HKDF with SHA256.
 	stretchedKey, err := HkdfSha256(sharedSecret[:], []byte(protocolName))
@@ -192,9 +197,10 @@ func DecryptSha256ChaCha20Poly1305(sharedSecret [32]byte,
 			"cipher: %w", err)
 	}
 
-	// Split additional data, nonce and ciphertext.
-	nonce := remainder[:aead.NonceSize()]
-	ciphertext := remainder[aead.NonceSize():]
+	// Sanity check the nonce size used.
+	if len(nonce) != aead.NonceSize() {
+		return nil, fmt.Errorf("invalid nonce length")
+	}
 
 	// Decrypt the message and check it wasn't tampered with.
 	plaintext, err := aead.Open(nil, nonce, ciphertext, additionalData)
