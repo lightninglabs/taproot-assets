@@ -1,4 +1,4 @@
-package taprootassets
+package lndservices
 
 import (
 	"context"

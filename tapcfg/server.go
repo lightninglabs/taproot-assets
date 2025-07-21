@@ -393,7 +393,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	}
 	addrBook := address.NewBook(addrBookConfig)
 
-	virtualTxSigner := tap.NewLndRpcVirtualTxSigner(lndServices)
+	virtualTxSigner := lndservices.NewLndRpcVirtualTxSigner(lndServices)
 	coinSelect := tapfreighter.NewCoinSelect(assetStore)
 	assetWallet := tapfreighter.NewAssetWallet(&tapfreighter.WalletConfig{
 		CoinSelector:     coinSelect,
