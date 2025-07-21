@@ -5,15 +5,17 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/protofsm"
 )
@@ -298,6 +300,10 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 					"sub-tree root: %w", err)
 			}
 
+			if subTreeRoot.NodeSum() == 0 {
+				continue
+			}
+
 			rootTreeLeaf := mssmt.NewLeafNode(
 				lnutils.ByteSlice(subTreeRoot.NodeHash()),
 				subTreeRoot.NodeSum(),
@@ -353,7 +359,8 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 func newRootCommitment(ctx context.Context,
 	oldCommitment lfn.Option[RootCommitment],
 	unspentPreCommits []PreCommitment, newSupplyRoot *mssmt.BranchNode,
-	wallet Wallet, keyRing KeyRing) lfn.Result[RootCommitment] {
+	wallet Wallet, keyRing KeyRing,
+	chainParams chaincfg.Params) (*RootCommitment, *psbt.Packet, error) {
 
 	newCommitTx := wire.NewMsgTx(2)
 
@@ -363,46 +370,116 @@ func newRootCommitment(ctx context.Context,
 	// TODO(roasbeef): need index map for PSBT??
 	//  * verify all inputs locked on restart, otherwise transition from
 	//  sign//broadcast back to this state?
+	packetPInputs := make([]psbt.PInput, 0, len(unspentPreCommits)+1)
+
 	for _, preCommit := range unspentPreCommits {
 		newCommitTx.AddTxIn(preCommit.TxIn())
+
+		bip32Derivation, trBip32Derivation :=
+			tappsbt.Bip32DerivationFromKeyDesc(
+				preCommit.InternalKey, chainParams.HDCoinType,
+			)
+
+		witnessUtxo := preCommit.MintingTxn.TxOut[preCommit.OutIdx]
+
+		packetPInputs = append(packetPInputs, psbt.PInput{
+			WitnessUtxo: witnessUtxo,
+			Bip32Derivation: []*psbt.Bip32Derivation{
+				bip32Derivation,
+			},
+			TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+				trBip32Derivation,
+			},
+			TaprootInternalKey: trBip32Derivation.XOnlyPubKey,
+		})
 	}
 
-	// If there isn't an existing commitment in the chain, then we'll have
-	// one less input on the transaction.
+	// If all pre-commitments are spent, then we'll use the old commitment
+	// as an input to the new transaction. Pre-commitments are only present
+	// on mint transactions where as the old commitment is the last
+	// commitment that was broadcast.
 	oldCommitment.WhenSome(func(r RootCommitment) {
 		newCommitTx.AddTxIn(r.TxIn())
+
+		bip32Derivation, trBip32Derivation :=
+			tappsbt.Bip32DerivationFromKeyDesc(
+				r.InternalKey, chainParams.HDCoinType,
+			)
+
+		witnessUtxo := r.Txn.TxOut[r.TxOutIdx]
+
+		packetPInputs = append(packetPInputs, psbt.PInput{
+			WitnessUtxo: witnessUtxo,
+			Bip32Derivation: []*psbt.Bip32Derivation{
+				bip32Derivation,
+			},
+			TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+				trBip32Derivation,
+			},
+			TaprootInternalKey: trBip32Derivation.XOnlyPubKey,
+		})
 	})
 
-	// If we have a prior root commitment, then we'll reuse the internal
-	// key. Otherwise, we'll generate a fresh one.
-	iKeyOpt := lfn.MapOption(func(r RootCommitment) *btcec.PublicKey {
+	// With the inputs available, derive the supply commitment output.
+	//
+	// Determine the internal key to use for this output.
+	// If a prior root commitment exists, reuse its internal key;
+	// otherwise, generate a new one.
+	iKeyOpt := lfn.MapOption(func(r RootCommitment) keychain.KeyDescriptor {
 		return r.InternalKey
 	})(oldCommitment)
+
 	commitInternalKey, err := iKeyOpt.UnwrapOrFuncErr(
-		func() (*btcec.PublicKey, error) {
+		func() (keychain.KeyDescriptor, error) {
+			var zero keychain.KeyDescriptor
+
 			newKey, err := keyRing.DeriveNextTaprootAssetKey(ctx)
 			if err != nil {
-				return nil, fmt.Errorf("unable to derive "+
+				return zero, fmt.Errorf("unable to derive "+
 					"next key: %w", err)
 			}
 
-			return newKey.PubKey, nil
+			return newKey, nil
 		},
 	)
 	if err != nil {
-		return lfn.Err[RootCommitment](err)
+		return nil, nil, err
 	}
+
+	// Derive the new commitment output, and add that to the update
+	// transaction.
+	supplyTxOut, tapOutKey, err := RootCommitTxOut(
+		commitInternalKey.PubKey, nil, newSupplyRoot.NodeHash(),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create commitment "+
+			"tx output: %w", err)
+	}
+	newCommitTx.AddTxOut(supplyTxOut)
 
 	// If we just generated a new key, then we'll import that into the
 	// wallet so it can track the sats for our commitment output.
 	if iKeyOpt.IsNone() {
-		_, err := wallet.ImportTaprootOutput(
-			ctx, commitInternalKey,
-		)
+		_, err := wallet.ImportTaprootOutput(ctx, tapOutKey)
 		if err != nil {
-			return lfn.Errf[RootCommitment]("unable to import "+
+			return nil, nil, fmt.Errorf("unable to import "+
 				"taproot output: %w", err)
 		}
+	}
+
+	bip32Derivation, trBip32Derivation :=
+		tappsbt.Bip32DerivationFromKeyDesc(
+			commitInternalKey, chainParams.HDCoinType,
+		)
+
+	packetPOutput := psbt.POutput{
+		Bip32Derivation: []*psbt.Bip32Derivation{
+			bip32Derivation,
+		},
+		TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+			trBip32Derivation,
+		},
+		TaprootInternalKey: trBip32Derivation.XOnlyPubKey,
 	}
 
 	// With the inputs added, we'll now create our new commitment output. We
@@ -414,19 +491,18 @@ func newRootCommitment(ctx context.Context,
 		Txn:         newCommitTx,
 		TxOutIdx:    0,
 		InternalKey: commitInternalKey,
+		OutputKey:   tapOutKey,
 		SupplyRoot:  newSupplyRoot,
 	}
 
-	// Finally, we'll derive the new commitment output, and add that to the
-	// update transaction.
-	supplyTxOut, err := newSupplyCommit.TxOut()
+	commitPkt, err := psbt.NewFromUnsignedTx(newCommitTx)
 	if err != nil {
-		return lfn.Errf[RootCommitment]("unable to create "+
-			"commitment output: %w", err)
+		return nil, nil, fmt.Errorf("unable to create PSBT: %w", err)
 	}
-	newCommitTx.AddTxOut(supplyTxOut)
+	commitPkt.Inputs = packetPInputs
+	commitPkt.Outputs = []psbt.POutput{packetPOutput}
 
-	return lfn.Ok(newSupplyCommit)
+	return &newSupplyCommit, commitPkt, nil
 }
 
 // fundSupplyCommitTx takes a newly created supply commitment transaction,
@@ -434,13 +510,7 @@ func newRootCommitment(ctx context.Context,
 // the index of the supply commitment output within the funded transaction. It
 // updates the TxOutIdx field of the passed supplyCommit directly.
 func fundSupplyCommitTx(ctx context.Context, supplyCommit *RootCommitment,
-	env *Environment) (*tapsend.FundedPsbt, error) {
-
-	// Create a new PSBT from the unsigned transaction.
-	commitPkt, err := psbt.NewFromUnsignedTx(supplyCommit.Txn)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create PSBT: %w", err)
-	}
+	commitPkt *psbt.Packet, env *Environment) (*tapsend.FundedPsbt, error) {
 
 	// Estimate the required fee rate.
 	feeRate, err := env.Chain.EstimateFee(ctx, env.CommitConfTarget)
@@ -527,10 +597,10 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 
 		// With all the inputs obtained, we'll create the new supply
 		// commitment.
-		newSupplyCommit, err := newRootCommitment(
+		newSupplyCommit, commitPkt, err := newRootCommitment(
 			ctx, oldCommitment, preCommits, newSupplyRoot,
-			env.Wallet, env.KeyRing,
-		).Unpack()
+			env.Wallet, env.KeyRing, env.ChainParams,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create "+
 				"new root commitment: %w", err)
@@ -540,7 +610,7 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 		// the TxOutIdx field within the newSupplyCommit struct passed
 		// to it.
 		fundedCommitPkt, err := fundSupplyCommitTx(
-			ctx, &newSupplyCommit, env,
+			ctx, newSupplyCommit, commitPkt, env,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fund supply "+
@@ -554,7 +624,7 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 			OldCommitment:     oldCommitment,
 			UnspentPreCommits: preCommits,
 			PendingUpdates:    c.SupplyTransition.PendingUpdates,
-			NewCommitment:     newSupplyCommit,
+			NewCommitment:     *newSupplyCommit,
 		}
 
 		return &StateTransition{
@@ -564,7 +634,7 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 			NewEvents: lfn.Some(FsmEvent{
 				InternalEvent: []Event{&SignTxEvent{
 					CommitPkt:       fundedCommitPkt,
-					NewSupplyCommit: newSupplyCommit,
+					NewSupplyCommit: *newSupplyCommit,
 				}},
 			}),
 		}, nil
@@ -592,13 +662,21 @@ func (c *CommitTxSignState) ProcessEvent(event Event,
 		stateTransition := c.SupplyTransition
 
 		// After some initial validation, we'll now sign the PSBT.
-		signedPsbt, err := env.Wallet.SignAndFinalizePsbt(
+		log.Debug("Signing supply commitment PSBT")
+		signedPsbt, err := env.Wallet.SignPsbt(
 			ctx, newEvent.CommitPkt.Pkt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to sign "+
 				"commitment tx: %w", err)
 		}
+
+		err = psbt.MaybeFinalizeAll(signedPsbt)
+		if err != nil {
+			return nil, fmt.Errorf("unable to finalize psbt: %w",
+				err)
+		}
+
 		commitTx, err := psbt.Extract(signedPsbt)
 		if err != nil {
 			return nil, fmt.Errorf("unable to extract "+
@@ -611,11 +689,12 @@ func (c *CommitTxSignState) ProcessEvent(event Event,
 		// state to disk, and also mark that that we'll transition to
 		// the CommitBroadcastState. We construct the SupplyCommitTxn
 		// struct with the details from the finalized commitment.
+		newCommit := &stateTransition.NewCommitment
 		commitTxnDetails := SupplyCommitTxn{
 			Txn:         commitTx,
-			InternalKey: stateTransition.NewCommitment.InternalKey,
-			OutputKey:   stateTransition.NewCommitment.OutputKey,
-			OutputIndex: stateTransition.NewCommitment.TxOutIdx,
+			InternalKey: newCommit.InternalKey.PubKey,
+			OutputKey:   newCommit.OutputKey,
+			OutputIndex: newCommit.TxOutIdx,
 		}
 		err = env.StateLog.InsertSignedCommitTx(
 			ctx, env.AssetSpec, commitTxnDetails,

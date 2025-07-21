@@ -123,7 +123,7 @@ type PreCommitment struct {
 
 	// InternalKey is the Taproot internal public key associated with the
 	// pre-commitment output.
-	InternalKey btcec.PublicKey
+	InternalKey keychain.KeyDescriptor
 
 	// GroupPubKey is the asset group public key associated with this
 	// pre-commitment output.
@@ -154,7 +154,7 @@ type RootCommitment struct {
 	TxOutIdx uint32
 
 	// InternalKey is the internal key used to create the commitment output.
-	InternalKey *btcec.PublicKey
+	InternalKey keychain.KeyDescriptor
 
 	// Output key is the taproot output key used to create the commitment
 	// output.
@@ -182,11 +182,21 @@ func (r *RootCommitment) TxIn() *wire.TxIn {
 //
 // TODO(roasbeef): expand, add support for tapscript as well
 func (r *RootCommitment) TxOut() (*wire.TxOut, error) {
-	// First, obtain the root hash of the supply tree.
-	supplyRootHash := r.SupplyRoot.NodeHash()
+	txOut, _, err := RootCommitTxOut(
+		r.InternalKey.PubKey, r.OutputKey, r.SupplyRoot.NodeHash(),
+	)
 
-	var taprootKey *btcec.PublicKey
-	if r.OutputKey == nil {
+	return txOut, err
+}
+
+// RootCommitTxOut returns the transaction output that corresponds to the root
+// commitment. This is used to create a new commitment output.
+func RootCommitTxOut(internalKey *btcec.PublicKey,
+	tapOutKey *btcec.PublicKey, supplyRootHash mssmt.NodeHash) (*wire.TxOut,
+	*btcec.PublicKey, error) {
+
+	var taprootOutputKey *btcec.PublicKey
+	if tapOutKey == nil {
 		// We'll create a new unspendable output that contains a
 		// commitment to the root.
 		//
@@ -195,28 +205,32 @@ func (r *RootCommitment) TxOut() (*wire.TxOut, error) {
 			asset.PedersenVersion, supplyRootHash[:],
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create leaf: %w", err)
+			return nil, nil, fmt.Errorf("unable to create leaf: %w",
+				err)
 		}
 
 		tapscriptTree := txscript.AssembleTaprootScriptTree(tapLeaf)
 
 		rootHash := tapscriptTree.RootNode.TapHash()
-		taprootKey = txscript.ComputeTaprootOutputKey(
-			r.InternalKey, rootHash[:],
+		taprootOutputKey = txscript.ComputeTaprootOutputKey(
+			internalKey, rootHash[:],
 		)
 	} else {
-		taprootKey = r.OutputKey
+		taprootOutputKey = tapOutKey
 	}
 
-	pkScript, err := txscript.PayToTaprootScript(taprootKey)
+	pkScript, err := txscript.PayToTaprootScript(taprootOutputKey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create pk script: %w", err)
+		return nil, nil, fmt.Errorf("unable to create pk script: %w",
+			err)
 	}
 
-	return &wire.TxOut{
+	txOut := wire.TxOut{
 		Value:    int64(tapsend.DummyAmtSats),
 		PkScript: pkScript,
-	}, nil
+	}
+
+	return &txOut, taprootOutputKey, nil
 }
 
 // ChainProof stores the information needed to prove that a given supply commit
@@ -293,9 +307,8 @@ type Wallet interface {
 		feeRate chainfee.SatPerKWeight,
 		changeIdx int32) (*tapsend.FundedPsbt, error)
 
-	// SignAndFinalizePsbt fully signs and finalizes the target PSBT
-	// packet.
-	SignAndFinalizePsbt(context.Context, *psbt.Packet) (*psbt.Packet, error)
+	// SignPsbt fully signs the target PSBT packet.
+	SignPsbt(context.Context, *psbt.Packet) (*psbt.Packet, error)
 
 	// ImportTaprootOutput imports a new taproot output key into the wallet.
 	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcutil.Address,

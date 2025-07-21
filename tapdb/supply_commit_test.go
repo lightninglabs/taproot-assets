@@ -681,7 +681,7 @@ func (h *supplyCommitTestHarness) performSingleTransition(
 	// Next, we'll generate a new "fake" commitment transaction along with
 	// sample internal and output keys.
 	commitTx := randTx(h.t, 1)
-	internalKey := test.RandPubKey(h.t)
+	internalKey, _ := test.RandKeyDesc(h.t)
 	outputKey := test.RandPubKey(h.t)
 
 	// We'll now simulate the next phase of the state transition where we
@@ -689,7 +689,7 @@ func (h *supplyCommitTestHarness) performSingleTransition(
 	// and commit that.
 	commitDetails := supplycommit.SupplyCommitTxn{
 		Txn:         commitTx,
-		InternalKey: internalKey,
+		InternalKey: internalKey.PubKey,
 		OutputKey:   outputKey,
 		OutputIndex: 1,
 	}
@@ -764,7 +764,7 @@ func (h *supplyCommitTestHarness) performSingleTransition(
 
 	return stateTransitionOutput{
 		appliedUpdates: updates,
-		internalKey:    internalKey,
+		internalKey:    internalKey.PubKey,
 		outputKey:      outputKey,
 		commitTx:       commitTx,
 		chainProof:     chainProof,
@@ -1116,7 +1116,7 @@ func (h *supplyCommitTestHarness) assertTransitionApplied(
 	)
 	require.Equal(
 		h.t, output.internalKey.SerializeCompressed(),
-		fetchedCommit.InternalKey.SerializeCompressed(),
+		fetchedCommit.InternalKey.PubKey.SerializeCompressed(),
 		"SupplyCommit returned wrong InternalKey",
 	)
 	require.Equal(
@@ -1321,7 +1321,7 @@ func TestSupplyCommitInsertSignedCommitTx(t *testing.T) {
 	)
 	require.Equal(
 		t, internalKey.SerializeCompressed(),
-		fetchedTransition.NewCommitment.InternalKey.SerializeCompressed(), //nolint:lll
+		fetchedTransition.NewCommitment.InternalKey.PubKey.SerializeCompressed(), //nolint:lll
 	)
 	require.Equal(
 		t, outputKey.SerializeCompressed(),
@@ -1714,7 +1714,7 @@ func TestSupplyCommitMachineFetch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(
 		t, dbInternalKeyRow.RawKey,
-		rootCommit.InternalKey.SerializeCompressed(),
+		rootCommit.InternalKey.PubKey.SerializeCompressed(),
 	)
 	require.Equal(
 		t, dbCommit.OutputKey,

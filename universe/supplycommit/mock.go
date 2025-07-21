@@ -75,11 +75,9 @@ type fundPsbtMockFn func(
 	chainfee.SatPerKWeight, int32,
 ) (*tapsend.FundedPsbt, error)
 
-// signAndFinalizePsbtMockFn defines a type for the mock function used in
+// signPsbtMockFn defines a type for the mock function used in
 // SignAndFinalizePsbt, to simplify a long type assertion.
-type signAndFinalizePsbtMockFn func(
-	context.Context, *psbt.Packet,
-) (*psbt.Packet, error)
+type signPsbtMockFn func(context.Context, *psbt.Packet) (*psbt.Packet, error)
 
 // mockWallet is a mock implementation of the Wallet interface.
 type mockWallet struct {
@@ -107,7 +105,7 @@ func (m *mockWallet) FundPsbt(
 	return args.Get(0).(*tapsend.FundedPsbt), args.Error(1)
 }
 
-func (m *mockWallet) SignAndFinalizePsbt(ctx context.Context,
+func (m *mockWallet) SignPsbt(ctx context.Context,
 	packet *psbt.Packet) (*psbt.Packet, error) {
 
 	args := m.Called(ctx, packet)
@@ -116,7 +114,7 @@ func (m *mockWallet) SignAndFinalizePsbt(ctx context.Context,
 	// If so, this indicates a custom mock implementation that should be
 	// executed to get the actual return values.
 	arg0 := args.Get(0)
-	if fn, ok := arg0.(signAndFinalizePsbtMockFn); ok {
+	if fn, ok := arg0.(signPsbtMockFn); ok {
 		return fn(ctx, packet)
 	}
 
