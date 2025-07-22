@@ -9,6 +9,7 @@ import (
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -48,6 +49,7 @@ var universeCommands = []cli.Command{
 			universeFederationCommand,
 			universeInfoCommand,
 			universeStatsCommand,
+			universeSupplyCommitCommand,
 		},
 	},
 }
@@ -1502,4 +1504,213 @@ func universeEventStatsQueryCommand(ctx *cli.Context) error {
 
 	printRespJSON(resp)
 	return nil
+}
+
+var universeSupplyCommitCommand = cli.Command{
+	Name:      "supplycommit",
+	ShortName: "sc",
+	Usage:     "manage the supply commitment for a Universe",
+	Description: `
+	Manage the supply commitment for a Universe. The supply commitment
+	is a cryptographic commitment to the total supply of assets in a
+	Universe.
+	`,
+	Subcommands: []cli.Command{
+		ignoreAssetOutPointCmd,
+		updateSupplyCommitCmd,
+		fetchSupplyCommitCmd,
+	},
+}
+
+var ignoreAssetOutPointCmd = cli.Command{
+	Name:  "ignore",
+	Usage: "ignores an asset outpoint when committing to the asset supply",
+	Description: "This command allows us to ignore a specific asset UTXO " +
+		"when creating a new supply commitment. This is useful if " +
+		"an otherwise valid asset should not be counted towards the " +
+		"total asset group supply.",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name: "asset_anchor_point",
+			Usage: "the asset anchor point to ignore, specified " +
+				"as txid:vout",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     assetIDName,
+			Usage:    "the asset ID of the asset to ignore",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     scriptKeyName,
+			Usage:    "the script key of the asset to ignore",
+			Required: true,
+		},
+		&cli.Uint64Flag{
+			Name: "amount",
+			Usage: "the amount of the asset at the anchor " +
+				"outpoint",
+			Required: true,
+		},
+	},
+	Action: ignoreAssetOutPoint,
+}
+
+func ignoreAssetOutPoint(ctx *cli.Context) error {
+	cliCtx := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	anchorPointStr := ctx.String("asset_anchor_point")
+
+	assetID, err := hex.DecodeString(ctx.String(assetIDName))
+	if err != nil {
+		return fmt.Errorf("invalid asset_id: %w", err)
+	}
+
+	scriptKey, err := hex.DecodeString(ctx.String(scriptKeyName))
+	if err != nil {
+		return fmt.Errorf("invalid script_key: %w", err)
+	}
+
+	req := &unirpc.IgnoreAssetOutPointRequest{
+		AssetOutPoint: &taprpc.AssetOutPoint{
+			AnchorOutPoint: anchorPointStr,
+			AssetId:        assetID,
+			ScriptKey:      scriptKey,
+		},
+		Amount: ctx.Uint64("amount"),
+	}
+
+	resp, err := client.IgnoreAssetOutPoint(cliCtx, req)
+	if err != nil {
+		return err
+	}
+
+	printJSON(resp)
+	return nil
+}
+
+var updateSupplyCommitCmd = cli.Command{
+	Name:  "update",
+	Usage: "updates the on-chain supply commitment for an asset group",
+	Description: "This command updates the on-chain supply " +
+		"commitment for a specific asset group.",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "group_key",
+			Usage:    "the group key of the asset group to update",
+			Required: true,
+		},
+	},
+	Action: updateSupplyCommit,
+}
+
+func updateSupplyCommit(ctx *cli.Context) error {
+	cliCtx := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	req := &unirpc.UpdateSupplyCommitRequest{
+		GroupKey: &unirpc.UpdateSupplyCommitRequest_GroupKeyStr{
+			GroupKeyStr: ctx.String("group_key"),
+		},
+	}
+
+	resp, err := client.UpdateSupplyCommit(cliCtx, req)
+	if err != nil {
+		return err
+	}
+
+	printJSON(resp)
+	return nil
+}
+
+var fetchSupplyCommitCmd = cli.Command{
+	Name:  "fetch",
+	Usage: "fetches the on-chain supply commitment for an asset group",
+	Description: "This command fetches the on-chain supply " +
+		"commitment for a specific asset group.",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "group_key",
+			Usage:    "the group key of the asset group to fetch",
+			Required: true,
+		},
+		&cli.StringSliceFlag{
+			Name: "issuance_leaf_keys",
+			Usage: "a list of issuance leaf keys to fetch " +
+				"inclusion proofs for",
+		},
+		&cli.StringSliceFlag{
+			Name: "burn_leaf_keys",
+			Usage: "a list of burn leaf keys to fetch inclusion " +
+				"proofs for",
+		},
+		&cli.StringSliceFlag{
+			Name: "ignore_leaf_keys",
+			Usage: "a list of ignore leaf keys to fetch " +
+				"inclusion proofs for",
+		},
+	},
+	Action: fetchSupplyCommit,
+}
+
+func fetchSupplyCommit(ctx *cli.Context) error {
+	cliCtx := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	req := &unirpc.FetchSupplyCommitRequest{
+		GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyStr{
+			GroupKeyStr: ctx.String("group_key"),
+		},
+	}
+
+	issuanceKeys, err := parseHexStrings(
+		ctx.StringSlice("issuance_leaf_keys"),
+	)
+	if err != nil {
+		return fmt.Errorf("invalid issuance_leaf_keys: %w", err)
+	}
+	req.IssuanceLeafKeys = issuanceKeys
+
+	burnKeys, err := parseHexStrings(ctx.StringSlice("burn_leaf_keys"))
+	if err != nil {
+		return fmt.Errorf("invalid burn_leaf_keys: %w", err)
+	}
+	req.BurnLeafKeys = burnKeys
+
+	ignoreKeys, err := parseHexStrings(ctx.StringSlice("ignore_leaf_keys"))
+	if err != nil {
+		return fmt.Errorf("invalid ignore_leaf_keys: %w", err)
+	}
+	req.IgnoreLeafKeys = ignoreKeys
+
+	resp, err := client.FetchSupplyCommit(cliCtx, req)
+	if err != nil {
+		return err
+	}
+
+	printJSON(resp)
+	return nil
+}
+
+// parseHexStrings converts a slice of hex-encoded strings into a slice of byte
+// slices. Each string in hexStrings must be a valid hex representation, or an
+// error is returned.
+func parseHexStrings(hexStrings []string) ([][]byte, error) {
+	result := make([][]byte, len(hexStrings))
+
+	for i, hexStr := range hexStrings {
+		decoded, err := hex.DecodeString(hexStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid hex string %q: %w",
+				hexStr, err)
+		}
+
+		result[i] = decoded
+	}
+
+	return result, nil
 }
