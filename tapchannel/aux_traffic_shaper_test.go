@@ -74,7 +74,7 @@ func TestUnitConversionToleranceRapid(t *testing.T) {
 			Draw(t, "invoiceAmtUnits")
 		numHTLCs := rapid.Uint64Range(1, 16).
 			Draw(t, "numHTLCs")
-		coefficient := rapid.Uint64Range(1, 20_000_000_000).
+		coefficient := rapid.Uint64Range(1, 300_000_000_000).
 			Draw(t, "coefficient")
 
 		rate := rfqmath.BigIntFixedPoint{
