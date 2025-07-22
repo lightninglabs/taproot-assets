@@ -25,7 +25,6 @@ type Querier interface {
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) (int64, error)
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
-	ContainsTxProof(ctx context.Context, outpoint []byte) (bool, error)
 	CountAuthMailboxMessages(ctx context.Context) (int64, error)
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
@@ -69,7 +68,8 @@ type Querier interface {
 	// doesn't have a group key. See the comment in fetchAssetSprouts for a work
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]FetchAssetsForBatchRow, error)
-	FetchAuthMailboxMessages(ctx context.Context, id int64) (FetchAuthMailboxMessagesRow, error)
+	FetchAuthMailboxMessage(ctx context.Context, id int64) (FetchAuthMailboxMessageRow, error)
+	FetchAuthMailboxMessageByOutpoint(ctx context.Context, claimedOutpoint []byte) (FetchAuthMailboxMessageByOutpointRow, error)
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error)
 	FetchChainTxByID(ctx context.Context, txnID int64) (FetchChainTxByIDRow, error)
 	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error)
@@ -168,6 +168,7 @@ type Querier interface {
 	// Join on genesis_info_view to get leaf related fields.
 	QueryFederationProofSyncLog(ctx context.Context, arg QueryFederationProofSyncLogParams) ([]QueryFederationProofSyncLogRow, error)
 	QueryFederationUniSyncConfigs(ctx context.Context) ([]QueryFederationUniSyncConfigsRow, error)
+	QueryLastEventHeight(ctx context.Context, version int16) (int64, error)
 	QueryMultiverseLeaves(ctx context.Context, arg QueryMultiverseLeavesParams) ([]QueryMultiverseLeavesRow, error)
 	QueryPassiveAssets(ctx context.Context, transferID int64) ([]QueryPassiveAssetsRow, error)
 	QueryPendingSupplyCommitTransition(ctx context.Context, groupKey []byte) (SupplyCommitTransition, error)

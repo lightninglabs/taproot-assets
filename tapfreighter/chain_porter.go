@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -1457,9 +1458,41 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// (e.g. a change output) or an outbound transfer. A key being
 		// local means the lnd node connected to this daemon knows how
 		// to derive the key.
-		isLocalKey := func(key asset.ScriptKey) bool {
+		isLocalKey := func(key asset.ScriptKey) (bool, error) {
+			// To make sure we have the correct internal key with
+			// the family and index set, we attempt to fetch it
+			// from the database. If it exists, then we know we
+			// stored it with the correct information.
+			dbKey, err := p.cfg.AssetWallet.FetchScriptKey(
+				ctx, key.PubKey,
+			)
+			switch {
+			// If this isn't an output that goes to us, we won't
+			// find it, which is okay. Only for other database
+			// errors do we return the error.
+			case err != nil &&
+				!errors.Is(err, address.ErrScriptKeyNotFound):
+
+				return false, fmt.Errorf("error fetching "+
+					"script key: %w", err)
+
+			// We did find the key, so we can check if it's a local
+			// key with the key ring.
+			case err == nil:
+				return p.cfg.KeyRing.IsLocalKey(
+					ctx, dbKey.RawKey,
+				), nil
+			}
+
+			// As a fallback, in case only the internal key was
+			// declared, we can check if the key is local by
+			// using the info we have, with a potential for a false
+			// negative if the key family and index isn't set at
+			// this point. But if it isn't set, then we didn't
+			// import/declare the key before, so it's very likely
+			// not ours anyway.
 			return key.TweakedScriptKey != nil &&
-				p.cfg.KeyRing.IsLocalKey(ctx, key.RawKey)
+				p.cfg.KeyRing.IsLocalKey(ctx, key.RawKey), nil
 		}
 
 		// We need to prepare the parcel for storage.

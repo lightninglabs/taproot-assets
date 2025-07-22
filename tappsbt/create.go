@@ -80,6 +80,7 @@ func FromAddresses(receiverAddrs []*address.Tap,
 			AnchorOutputInternalKey:      &addr.InternalKey,
 			AnchorOutputTapscriptSibling: addr.TapscriptSibling,
 			ProofDeliveryAddress:         &addr.ProofCourierAddr,
+			Address:                      addr,
 		})
 	}
 

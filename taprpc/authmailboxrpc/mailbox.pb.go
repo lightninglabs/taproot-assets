@@ -577,10 +577,31 @@ type InitReceive struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	ReceiverId                []byte `protobuf:"bytes,1,opt,name=receiver_id,json=receiverId,proto3" json:"receiver_id,omitempty"`
-	StartMessageIdExclusive   uint64 `protobuf:"varint,2,opt,name=start_message_id_exclusive,json=startMessageIdExclusive,proto3" json:"start_message_id_exclusive,omitempty"`
+	// The public key identifier of the receiver of the messages that should be
+	// received through a message receive stream, encoded as the raw bytes of
+	// the compressed public key.
+	ReceiverId []byte `protobuf:"bytes,1,opt,name=receiver_id,json=receiverId,proto3" json:"receiver_id,omitempty"`
+	// The exclusive start message ID, meaning messages with this ID or higher
+	// will be included in the response. This allows the client to resume
+	// receiving messages from a specific point without missing any. One of
+	// start_message_id_exclusive, start_block_height_inclusive or
+	// start_timestamp_exclusive must be at their non-default values for any
+	// existing messages to be returned!
+	StartMessageIdExclusive uint64 `protobuf:"varint,2,opt,name=start_message_id_exclusive,json=startMessageIdExclusive,proto3" json:"start_message_id_exclusive,omitempty"`
+	// The inclusive start block height, meaning messages from this block height
+	// or higher will be included in the response. This allows the client to
+	// filter messages based on the block height at which they were produced.
+	// One of start_message_id_exclusive, start_block_height_inclusive or
+	// start_timestamp_exclusive must be at their non-default values for any
+	// existing messages to be returned!
 	StartBlockHeightInclusive uint32 `protobuf:"varint,3,opt,name=start_block_height_inclusive,json=startBlockHeightInclusive,proto3" json:"start_block_height_inclusive,omitempty"`
-	StartTimestampExclusive   int64  `protobuf:"varint,4,opt,name=start_timestamp_exclusive,json=startTimestampExclusive,proto3" json:"start_timestamp_exclusive,omitempty"`
+	// The exclusive start timestamp in Unix epoch seconds, meaning messages
+	// with a timestamp strictly greater than this value will be included in the
+	// response. This allows the client to filter messages based on their
+	// arrival time at the server. One of start_message_id_exclusive,
+	// start_block_height_inclusive or start_timestamp_exclusive must be at
+	// their non-default values for any existing messages to be returned!
+	StartTimestampExclusive int64 `protobuf:"varint,4,opt,name=start_timestamp_exclusive,json=startTimestampExclusive,proto3" json:"start_timestamp_exclusive,omitempty"`
 }
 
 func (x *InitReceive) Reset() {

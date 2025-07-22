@@ -538,7 +538,7 @@ type sendPackage struct {
 // they were already committed at.
 func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 	anchorTx *tapsend.AnchorTransaction, passiveAssets []*tappsbt.VPacket,
-	isLocalKey func(asset.ScriptKey) bool, label string,
+	isLocalKey func(asset.ScriptKey) (bool, error), label string,
 	skipAnchorTxBroadcast bool) (*OutboundParcel, error) {
 
 	var passiveAssetAnchor *Anchor
@@ -650,7 +650,8 @@ func transferInput(vIn *tappsbt.VInput) (*TransferInput, error) {
 // packet.
 func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int, position uint64,
 	anchorTx *tapsend.AnchorTransaction, passiveAssets []*tappsbt.VPacket,
-	isLocalKey func(asset.ScriptKey) bool) (*TransferOutput, error) {
+	isLocalKey func(asset.ScriptKey) (bool, error)) (*TransferOutput,
+	error) {
 
 	vOut := vPkt.Outputs[vOutIdx]
 
@@ -680,6 +681,12 @@ func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int, position uint64,
 		return nil, fmt.Errorf("unable to create anchor: %w", err)
 	}
 
+	scriptKeyLocal, err := isLocalKey(vOut.ScriptKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to determine if script key "+
+			"is local: %w", err)
+	}
+
 	out := TransferOutput{
 		Anchor:              *anchor,
 		Type:                vOut.Type,
@@ -692,7 +699,7 @@ func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int, position uint64,
 		SplitCommitmentRoot: vOut.Asset.SplitCommitmentRoot,
 		ProofSuffix:         proofSuffixBytes,
 		ProofCourierAddr:    proofCourierAddrBytes,
-		ScriptKeyLocal:      isLocalKey(vOut.ScriptKey),
+		ScriptKeyLocal:      scriptKeyLocal,
 		Position:            position,
 	}
 

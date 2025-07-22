@@ -187,19 +187,23 @@
       "properties": {
         "receiver_id": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The public key identifier of the receiver of the messages that should be\nreceived through a message receive stream, encoded as the raw bytes of\nthe compressed public key."
         },
         "start_message_id_exclusive": {
           "type": "string",
-          "format": "uint64"
+          "format": "uint64",
+          "title": "The exclusive start message ID, meaning messages with this ID or higher\nwill be included in the response. This allows the client to resume\nreceiving messages from a specific point without missing any. One of\nstart_message_id_exclusive, start_block_height_inclusive or\nstart_timestamp_exclusive must be at their non-default values for any\nexisting messages to be returned!"
         },
         "start_block_height_inclusive": {
           "type": "integer",
-          "format": "int64"
+          "format": "int64",
+          "title": "The inclusive start block height, meaning messages from this block height\nor higher will be included in the response. This allows the client to\nfilter messages based on the block height at which they were produced.\nOne of start_message_id_exclusive, start_block_height_inclusive or\nstart_timestamp_exclusive must be at their non-default values for any\nexisting messages to be returned!"
         },
         "start_timestamp_exclusive": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "title": "The exclusive start timestamp in Unix epoch seconds, meaning messages\nwith a timestamp strictly greater than this value will be included in the\nresponse. This allows the client to filter messages based on their\narrival time at the server. One of start_message_id_exclusive,\nstart_block_height_inclusive or start_timestamp_exclusive must be at\ntheir non-default values for any existing messages to be returned!"
         }
       },
       "description": "Carries the initial parameters from the client to start receiving messages."

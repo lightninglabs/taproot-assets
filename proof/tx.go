@@ -2,7 +2,6 @@ package proof
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -412,16 +411,4 @@ func UnmarshalTxProof(
 	}
 
 	return &p, nil
-}
-
-// TxProofStore is an interface that defines the methods for storing and
-// retrieving transaction proofs.
-type TxProofStore interface {
-	// HaveProof returns true if the proof for the given outpoint exists in
-	// the store.
-	HaveProof(context.Context, wire.OutPoint) (bool, error)
-
-	// StoreProof stores the given transaction proof in the store. If the
-	// proof already exists, it returns ErrTxMerkleProofExists.
-	StoreProof(context.Context, TxProof) error
 }

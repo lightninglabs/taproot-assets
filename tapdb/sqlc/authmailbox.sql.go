@@ -10,21 +10,6 @@ import (
 	"database/sql"
 )
 
-const ContainsTxProof = `-- name: ContainsTxProof :one
-SELECT EXISTS (
-    SELECT 1
-    FROM tx_proof_claimed_outpoints
-    WHERE outpoint = $1
-)
-`
-
-func (q *Queries) ContainsTxProof(ctx context.Context, outpoint []byte) (bool, error) {
-	row := q.db.QueryRowContext(ctx, ContainsTxProof, outpoint)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const CountAuthMailboxMessages = `-- name: CountAuthMailboxMessages :one
 SELECT COUNT(*) AS count
 FROM authmailbox_messages m
@@ -37,7 +22,7 @@ func (q *Queries) CountAuthMailboxMessages(ctx context.Context) (int64, error) {
 	return count, err
 }
 
-const FetchAuthMailboxMessages = `-- name: FetchAuthMailboxMessages :one
+const FetchAuthMailboxMessage = `-- name: FetchAuthMailboxMessage :one
 SELECT 
     m.id,
     m.claimed_outpoint,
@@ -52,7 +37,7 @@ JOIN tx_proof_claimed_outpoints op
 WHERE id = $1
 `
 
-type FetchAuthMailboxMessagesRow struct {
+type FetchAuthMailboxMessageRow struct {
 	ID                int64
 	ClaimedOutpoint   []byte
 	ReceiverKey       []byte
@@ -62,9 +47,49 @@ type FetchAuthMailboxMessagesRow struct {
 	BlockHeight       int32
 }
 
-func (q *Queries) FetchAuthMailboxMessages(ctx context.Context, id int64) (FetchAuthMailboxMessagesRow, error) {
-	row := q.db.QueryRowContext(ctx, FetchAuthMailboxMessages, id)
-	var i FetchAuthMailboxMessagesRow
+func (q *Queries) FetchAuthMailboxMessage(ctx context.Context, id int64) (FetchAuthMailboxMessageRow, error) {
+	row := q.db.QueryRowContext(ctx, FetchAuthMailboxMessage, id)
+	var i FetchAuthMailboxMessageRow
+	err := row.Scan(
+		&i.ID,
+		&i.ClaimedOutpoint,
+		&i.ReceiverKey,
+		&i.EncryptedPayload,
+		&i.ArrivalTimestamp,
+		&i.ExpiryBlockHeight,
+		&i.BlockHeight,
+	)
+	return i, err
+}
+
+const FetchAuthMailboxMessageByOutpoint = `-- name: FetchAuthMailboxMessageByOutpoint :one
+SELECT
+    m.id,
+    m.claimed_outpoint,
+    m.receiver_key,
+    m.encrypted_payload,
+    m.arrival_timestamp,
+    m.expiry_block_height,
+    op.block_height
+FROM authmailbox_messages m
+JOIN tx_proof_claimed_outpoints op
+    ON m.claimed_outpoint = op.outpoint
+WHERE m.claimed_outpoint = $1
+`
+
+type FetchAuthMailboxMessageByOutpointRow struct {
+	ID                int64
+	ClaimedOutpoint   []byte
+	ReceiverKey       []byte
+	EncryptedPayload  []byte
+	ArrivalTimestamp  int64
+	ExpiryBlockHeight sql.NullInt32
+	BlockHeight       int32
+}
+
+func (q *Queries) FetchAuthMailboxMessageByOutpoint(ctx context.Context, claimedOutpoint []byte) (FetchAuthMailboxMessageByOutpointRow, error) {
+	row := q.db.QueryRowContext(ctx, FetchAuthMailboxMessageByOutpoint, claimedOutpoint)
+	var i FetchAuthMailboxMessageByOutpointRow
 	err := row.Scan(
 		&i.ID,
 		&i.ClaimedOutpoint,

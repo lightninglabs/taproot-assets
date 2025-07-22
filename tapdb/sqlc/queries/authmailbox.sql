@@ -5,13 +5,6 @@ INSERT INTO tx_proof_claimed_outpoints (
     $1, $2, $3, $4, $5
 );
 
--- name: ContainsTxProof :one
-SELECT EXISTS (
-    SELECT 1
-    FROM tx_proof_claimed_outpoints
-    WHERE outpoint = $1
-);
-
 -- name: InsertAuthMailboxMessage :one
 INSERT INTO authmailbox_messages (
     claimed_outpoint, receiver_key, encrypted_payload, arrival_timestamp,
@@ -21,7 +14,7 @@ INSERT INTO authmailbox_messages (
 )
 RETURNING id;
 
--- name: FetchAuthMailboxMessages :one
+-- name: FetchAuthMailboxMessage :one
 SELECT 
     m.id,
     m.claimed_outpoint,
@@ -34,6 +27,20 @@ FROM authmailbox_messages m
 JOIN tx_proof_claimed_outpoints op
     ON m.claimed_outpoint = op.outpoint
 WHERE id = $1;
+
+-- name: FetchAuthMailboxMessageByOutpoint :one
+SELECT
+    m.id,
+    m.claimed_outpoint,
+    m.receiver_key,
+    m.encrypted_payload,
+    m.arrival_timestamp,
+    m.expiry_block_height,
+    op.block_height
+FROM authmailbox_messages m
+JOIN tx_proof_claimed_outpoints op
+    ON m.claimed_outpoint = op.outpoint
+WHERE m.claimed_outpoint = $1;
 
 -- name: QueryAuthMailboxMessages :many
 SELECT

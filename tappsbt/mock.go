@@ -116,6 +116,17 @@ func RandPacket(t testing.TB, setVersion, altLeaves bool) *VPacket {
 	courierAddress, err := url.Parse("https://example.com")
 	require.NoError(t, err)
 
+	courierURL := address.RandProofCourierAddr(t)
+	addr1, _, _ := address.RandAddr(t, testParams, courierURL)
+	addr2, _, _ := address.RandAddr(t, testParams, courierURL)
+
+	// The address' genesis information isn't encoded, so it will be the
+	// empty genesis after decoding. To make sure we can directly compare
+	// before and after, we also attach an empty genesis to the two
+	// addresses.
+	addr1.AttachGenesis(asset.Genesis{})
+	addr2.AttachGenesis(asset.Genesis{})
+
 	randVInput := VInput{
 		PrevID: asset.PrevID{
 			OutPoint:  op,
@@ -154,6 +165,7 @@ func RandPacket(t testing.TB, setVersion, altLeaves bool) *VPacket {
 		ProofSuffix:                        &inputProof,
 		RelativeLockTime:                   345,
 		LockTime:                           456,
+		Address:                            addr1.Tap,
 	}
 
 	randVOutput2 := VOutput{
@@ -170,6 +182,7 @@ func RandPacket(t testing.TB, setVersion, altLeaves bool) *VPacket {
 		Asset:                              testOutputAsset,
 		ScriptKey:                          testOutputAsset.ScriptKey,
 		AnchorOutputTapscriptSibling:       &testPreimage2,
+		Address:                            addr2.Tap,
 	}
 
 	if altLeaves {
@@ -614,6 +627,11 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 			)
 		}
 	}
+
+	if v.Address != nil {
+		vo.Address = address.NewTestFromAddress(t, v.Address)
+	}
+
 	return vo
 }
 
@@ -640,6 +658,7 @@ type TestVOutput struct {
 	RelativeLockTime              uint64                   `json:"relative_lock_time"`
 	LockTime                      uint64                   `json:"lock_time"`
 	AltLeaves                     []*asset.TestAsset       `json:"alt_leaves"`
+	Address                       *address.TestAddress     `json:"address"`
 }
 
 func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
@@ -739,6 +758,10 @@ func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
 		for idx, leaf := range to.AltLeaves {
 			v.AltLeaves[idx] = leaf.ToAsset(t)
 		}
+	}
+
+	if to.Address != nil {
+		v.Address = to.Address.ToAddress(t)
 	}
 
 	return v
