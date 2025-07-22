@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -59,7 +60,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	aliceLndKeyRing := taprootassets.NewLndRpcKeyRing(
+	aliceLndKeyRing := lndservices.NewLndRpcKeyRing(
 		&aliceLndClient.LndServices,
 	)
 
@@ -219,7 +220,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	// Now we can construct any asset group witnesses needed. Before
 	// performing any signing, we'll create a GenesisSigner backed by
 	// Alice's LND node, which also derived all keypairs so far.
-	aliceLndSigner := taprootassets.NewLndRpcVirtualTxSigner(
+	aliceLndSigner := lndservices.NewLndRpcVirtualTxSigner(
 		&aliceLndClient.LndServices,
 	)
 
@@ -593,7 +594,7 @@ func testMintExternalGroupKeyChantools(t *harnessTest) {
 // Derive a random key on an LND node, with a key family not matching the
 // Taproot Assets key family.
 func deriveRandomKey(t *testing.T, ctxt context.Context,
-	keyRing *taprootassets.LndRpcKeyRing) keychain.KeyDescriptor {
+	keyRing *lndservices.LndRpcKeyRing) keychain.KeyDescriptor {
 
 	var (
 		randFam = test.RandInt31n(math.MaxInt32)

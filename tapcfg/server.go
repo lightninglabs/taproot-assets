@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
+	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
@@ -104,14 +105,16 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	assetStore := tapdb.NewAssetStore(assetDB, metaDB, defaultClock, dbType)
 
-	keyRing := tap.NewLndRpcKeyRing(lndServices)
-	walletAnchor := tap.NewLndRpcWalletAnchor(lndServices)
-	chainBridge := tap.NewLndRpcChainBridge(lndServices, assetStore)
-	msgTransportClient := tap.NewLndMsgTransportClient(lndServices)
-	lndRouterClient := tap.NewLndRouterClient(lndServices)
-	lndInvoicesClient := tap.NewLndInvoicesClient(lndServices)
-	lndFeatureBitsVerifier := tap.NewLndFeatureBitVerifier(lndServices)
-	lndFsmDaemonAdapters := tap.NewLndFsmDaemonAdapters(lndServices)
+	keyRing := lndservices.NewLndRpcKeyRing(lndServices)
+	walletAnchor := lndservices.NewLndRpcWalletAnchor(lndServices)
+	chainBridge := lndservices.NewLndRpcChainBridge(lndServices, assetStore)
+	msgTransportClient := lndservices.NewLndMsgTransportClient(lndServices)
+	lndRouterClient := lndservices.NewLndRouterClient(lndServices)
+	lndInvoicesClient := lndservices.NewLndInvoicesClient(lndServices)
+	lndFeatureBitsVerifier := lndservices.NewLndFeatureBitVerifier(
+		lndServices,
+	)
+	lndFsmDaemonAdapters := lndservices.NewLndFsmDaemonAdapters(lndServices)
 
 	uniDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.BaseUniverseStore {
@@ -392,7 +395,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	}
 	addrBook := address.NewBook(addrBookConfig)
 
-	virtualTxSigner := tap.NewLndRpcVirtualTxSigner(lndServices)
+	virtualTxSigner := lndservices.NewLndRpcVirtualTxSigner(lndServices)
 	coinSelect := tapfreighter.NewCoinSelect(assetStore)
 	assetWallet := tapfreighter.NewAssetWallet(&tapfreighter.WalletConfig{
 		CoinSelector:     coinSelect,
@@ -505,7 +508,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			Signer:      assetWallet,
 		},
 	)
-	channelFunder := tap.NewLndPbstChannelFunder(lndServices)
+	channelFunder := lndservices.NewLndPbstChannelFunder(lndServices)
 	auxFundingController := tapchannel.NewFundingController(
 		tapchannel.FundingControllerCfg{
 			HeaderVerifier: headerVerifier,
