@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -116,8 +117,8 @@ func (s *AuxTrafficShaper) ShouldHandleTraffic(cid lnwire.ShortChannelID,
 // called first.
 func (s *AuxTrafficShaper) PaymentBandwidth(fundingBlob, htlcBlob,
 	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
-	htlcAmt lnwire.MilliSatoshi,
-	htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
+	htlcAmt lnwire.MilliSatoshi, htlcView lnwallet.AuxHtlcView,
+	peer route.Vertex) (lnwire.MilliSatoshi, error) {
 
 	fundingBlobBytes := fundingBlob.UnwrapOr(nil)
 	htlcBytes := htlcBlob.UnwrapOr(nil)
@@ -230,6 +231,7 @@ func (s *AuxTrafficShaper) PaymentBandwidth(fundingBlob, htlcBlob,
 	// the asset units in our local balance.
 	return s.paymentBandwidth(
 		htlc, computedLocal, linkBandwidth, minHtlcAmt, fundingChan,
+		peer,
 	)
 }
 
@@ -277,11 +279,12 @@ func paymentBandwidthAssetUnits(htlcAssetAmount, computedLocal uint64,
 }
 
 // paymentBandwidth returns the available payment bandwidth of the channel based
-// on the list of availalbe RFQ IDs. If any of those IDs matches the channel, we
+// on the list of available RFQ IDs. If any of those IDs matches the channel, we
 // calculate the bandwidth based on its asset rate.
 func (s *AuxTrafficShaper) paymentBandwidth(htlc *rfqmsg.Htlc,
 	localBalance uint64, linkBandwidth, minHtlcAmt lnwire.MilliSatoshi,
-	fundingChan *cmsg.OpenChannel) (lnwire.MilliSatoshi, error) {
+	fundingChan *cmsg.OpenChannel,
+	peer route.Vertex) (lnwire.MilliSatoshi, error) {
 
 	// If the HTLC doesn't have any available RFQ IDs, it's incomplete, and
 	// we cannot determine the bandwidth. The available RFQ IDs is the list
@@ -309,19 +312,28 @@ func (s *AuxTrafficShaper) paymentBandwidth(htlc *rfqmsg.Htlc,
 		var (
 			rate      rfqmsg.AssetRate
 			specifier asset.Specifier
+			quotePeer route.Vertex
 		)
 		switch {
 		case isSellQuote:
+			quotePeer = sellQuote.Peer
 			rate = sellQuote.AssetRate
 			specifier = sellQuote.Request.AssetSpecifier
 
 		case isBuyQuote:
+			quotePeer = buyQuote.Peer
 			rate = buyQuote.AssetRate
 			specifier = buyQuote.Request.AssetSpecifier
 
 		default:
 			return 0, fmt.Errorf("no accepted quote found for RFQ "+
 				"ID %x (SCID %d)", rfqID[:], rfqID.Scid())
+		}
+
+		// If the channel peer does not match the quote peer, continue
+		// to the next available quote.
+		if peer != quotePeer {
+			continue
 		}
 
 		bandwidth, err := s.paymentBandwidthRFQ(
@@ -439,8 +451,8 @@ func ComputeLocalBalance(commitment cmsg.Commitment,
 // blob of an HTLC, may produce a different blob or modify the amount of bitcoin
 // this HTLC should carry.
 func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
-	htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi,
-	lnwire.CustomRecords, error) {
+	htlcCustomRecords lnwire.CustomRecords,
+	peer route.Vertex) (lnwire.MilliSatoshi, lnwire.CustomRecords, error) {
 
 	if !rfqmsg.HasAssetHTLCCustomRecords(htlcCustomRecords) {
 		log.Tracef("No asset HTLC custom records, not producing " +
@@ -464,16 +476,47 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 		return totalAmount, htlcCustomRecords, nil
 	}
 
-	if htlc.RfqID.ValOpt().IsNone() {
-		return 0, nil, fmt.Errorf("no RFQ ID present in HTLC blob")
+	// Within the context of a payment we may negotiate multiple quotes. All
+	// of the quotes that may be used for a payment are encoded in the
+	// following field. If we don't have any available quotes then we can't
+	// proceed.
+	if htlc.AvailableRfqIDs.IsNone() {
+		return 0, nil, fmt.Errorf("no available RFQ IDs present in " +
+			"HTLC blob")
 	}
 
-	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
 	acceptedQuotes := s.cfg.RfqManager.PeerAcceptedSellQuotes()
-	quote, ok := acceptedQuotes[rfqID.Scid()]
-	if !ok {
-		return 0, nil, fmt.Errorf("no accepted quote found for RFQ ID "+
-			"%x (SCID %d)", rfqID[:], rfqID.Scid())
+	availableIDs := htlc.AvailableRfqIDs.UnsafeFromSome().Val.IDs
+
+	var (
+		rfqID rfqmsg.ID
+		quote rfqmsg.SellAccept
+	)
+
+	// Let's find the quote that matches this peer. This will be the quote
+	// that we'll use to calculate the asset units. Given that we may only
+	// establish a maximum of 1 quote per peer per payment, this check is
+	// safe to perform as there are no competing quotes for a certain peer.
+	for _, id := range availableIDs {
+		q, ok := acceptedQuotes[id.Scid()]
+		if !ok {
+			continue
+		}
+
+		// We found the quote to use, now let's set the related fields.
+		if q.Peer == peer {
+			// This is the actual RFQ ID that our peer will use to
+			// perform checks on their end.
+			rfqID = id
+			htlc.RfqID = rfqmsg.SomeRfqIDRecord(rfqID)
+			quote = q
+			break
+		}
+	}
+
+	if htlc.RfqID.IsNone() {
+		return 0, nil, fmt.Errorf("none of the available RFQ IDs "+
+			"match our peer=%s", peer)
 	}
 
 	// Now that we've queried the accepted quote, we know how many asset
