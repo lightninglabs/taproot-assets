@@ -39,7 +39,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
-	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapdb"
@@ -176,8 +175,6 @@ type rpcServer struct {
 
 	interceptor signal.Interceptor
 
-	interceptorChain *rpcperms.InterceptorChain
-
 	cfg *Config
 
 	proofQueryRateLimiter *rate.Limiter
@@ -186,29 +183,30 @@ type rpcServer struct {
 	wg   sync.WaitGroup
 }
 
-// newRPCServer creates a new RPC sever from the set of input dependencies.
-func newRPCServer(interceptor signal.Interceptor,
-	interceptorChain *rpcperms.InterceptorChain,
-	cfg *Config) (*rpcServer, error) {
-
+// newRPCServer creates a new RPC sever.
+func newRPCServer() *rpcServer {
 	return &rpcServer{
-		interceptor:      interceptor,
-		interceptorChain: interceptorChain,
-		quit:             make(chan struct{}),
-		proofQueryRateLimiter: rate.NewLimiter(
-			cfg.UniverseQueriesPerSecond, cfg.UniverseQueriesBurst,
-		),
-		cfg: cfg,
-	}, nil
+		quit: make(chan struct{}),
+	}
 }
 
 // TODO(roasbeef): build in batching for asset creation?
 
 // Start signals that the RPC server starts accepting requests.
-func (r *rpcServer) Start() error {
+func (r *rpcServer) Start(cfg *Config) error {
 	if atomic.AddInt32(&r.started, 1) != 1 {
 		return nil
 	}
+
+	if cfg == nil {
+		return fmt.Errorf("RPC server config not provided in Start")
+	}
+
+	r.interceptor = cfg.SignalInterceptor
+	r.cfg = cfg
+	r.proofQueryRateLimiter = rate.NewLimiter(
+		r.cfg.UniverseQueriesPerSecond, r.cfg.UniverseQueriesBurst,
+	)
 
 	rpcsLog.Infof("Starting RPC Server")
 

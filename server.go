@@ -72,11 +72,12 @@ type Server struct {
 	wg   sync.WaitGroup
 }
 
-// NewServer creates a new server given the passed config.
-func NewServer(chainParams *address.ChainParams, cfg *Config) *Server {
+// NewServer creates a new server.
+func NewServer(chainParams *address.ChainParams) *Server {
 	return &Server{
+		rpcServer:   newRPCServer(),
+		mboxServer:  authmailbox.NewServer(),
 		chainParams: chainParams,
-		cfg:         cfg,
 		ready:       make(chan bool),
 		quit:        make(chan struct{}, 1),
 	}
@@ -104,6 +105,11 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 			close(s.quit)
 		}
 	}()
+
+	if s.cfg == nil {
+		return fmt.Errorf("main server config not set before calling " +
+			"initialize")
+	}
 
 	// Show version at startup.
 	srvrLog.Infof("Version: %s, build=%s, logging=%s, "+
@@ -170,18 +176,6 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 			}
 		}
 	}
-
-	// Initialize, and register our implementation of the gRPC interface
-	// exported by the rpcServer.
-	var err error
-	s.rpcServer, err = newRPCServer(
-		s.cfg.SignalInterceptor, interceptorChain, s.cfg,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to create rpc server: %w", err)
-	}
-
-	s.mboxServer = authmailbox.NewServer(&s.cfg.MboxServerConfig)
 
 	// First, we'll start the main batched asset minter.
 	if err := s.cfg.AssetMinter.Start(); err != nil {
@@ -253,13 +247,13 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 
 	// Now we have created all dependencies necessary to populate and
 	// start the RPC server.
-	if err := s.rpcServer.Start(); err != nil {
+	if err := s.rpcServer.Start(s.cfg); err != nil {
 		return fmt.Errorf("unable to start RPC server: %w", err)
 	}
 
 	shutdownFuncs["rpcServer"] = s.rpcServer.Stop
 
-	if err := s.mboxServer.Start(); err != nil {
+	if err := s.mboxServer.Start(&s.cfg.MboxServerConfig); err != nil {
 		return fmt.Errorf("unable to start auth mailbox server: %w",
 			err)
 	}

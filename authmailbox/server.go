@@ -80,9 +80,8 @@ type Server struct {
 }
 
 // NewServer creates a new mailbox server with the given configuration.
-func NewServer(cfg *ServerConfig) *Server {
+func NewServer() *Server {
 	return &Server{
-		cfg: cfg,
 		msgEventsSubs: make(
 			map[uint64]*fn.EventReceiver[[]*Message],
 		),
@@ -92,12 +91,21 @@ func NewServer(cfg *ServerConfig) *Server {
 }
 
 // Start signals that the RPC server starts accepting requests.
-func (s *Server) Start() error {
+func (s *Server) Start(cfg *ServerConfig) error {
+	var startErr error
 	s.startOnce.Do(func() {
 		log.Infof("Starting authmailbox RPC Server")
+
+		if cfg == nil {
+			startErr = fmt.Errorf("authmailbox server config not " +
+				"provided in Start")
+			return
+		}
+
+		s.cfg = cfg
 	})
 
-	return nil
+	return startErr
 }
 
 // RegisterWithGrpcServer registers the rpcServer with the passed root gRPC
