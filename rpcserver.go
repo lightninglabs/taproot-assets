@@ -233,15 +233,18 @@ func (r *rpcServer) Stop() error {
 
 // RegisterWithGrpcServer registers the rpcServer with the passed root gRPC
 // server.
-func (r *rpcServer) RegisterWithGrpcServer(grpcServer *grpc.Server) error {
+func (r *rpcServer) RegisterWithGrpcServer(
+	registrar grpc.ServiceRegistrar) error {
+
 	// Register the main RPC server.
-	taprpc.RegisterTaprootAssetsServer(grpcServer, r)
-	wrpc.RegisterAssetWalletServer(grpcServer, r)
-	mintrpc.RegisterMintServer(grpcServer, r)
-	rfqrpc.RegisterRfqServer(grpcServer, r)
-	tchrpc.RegisterTaprootAssetChannelsServer(grpcServer, r)
-	unirpc.RegisterUniverseServer(grpcServer, r)
-	tapdevrpc.RegisterGrpcServer(grpcServer, r)
+	taprpc.RegisterTaprootAssetsServer(registrar, r)
+	wrpc.RegisterAssetWalletServer(registrar, r)
+	mintrpc.RegisterMintServer(registrar, r)
+	rfqrpc.RegisterRfqServer(registrar, r)
+	tchrpc.RegisterTaprootAssetChannelsServer(registrar, r)
+	unirpc.RegisterUniverseServer(registrar, r)
+	tapdevrpc.RegisterGrpcServer(registrar, r)
+
 	return nil
 }
 

@@ -102,8 +102,8 @@ func (s *Server) Start() error {
 
 // RegisterWithGrpcServer registers the rpcServer with the passed root gRPC
 // server.
-func (s *Server) RegisterWithGrpcServer(grpcServer *grpc.Server) error {
-	mboxrpc.RegisterMailboxServer(grpcServer, s)
+func (s *Server) RegisterWithGrpcServer(registrar grpc.ServiceRegistrar) error {
+	mboxrpc.RegisterMailboxServer(registrar, s)
 
 	return nil
 }
