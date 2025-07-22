@@ -669,6 +669,35 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer,
 	return shutdown, nil
 }
 
+// RegisterGrpcService must register the sub-server's GRPC server with the given
+// registrar.
+//
+// NOTE: this is part of the SubServer interface.
+func (s *Server) RegisterGrpcService(registrar grpc.ServiceRegistrar) {
+	_ = s.rpcServer.RegisterWithGrpcServer(registrar)
+	_ = s.mboxServer.RegisterWithGrpcServer(registrar)
+}
+
+// RegisterRestService registers the sub-server's REST handlers with the given
+// endpoint.
+//
+// NOTE: this is part of the SubServer interface.
+func (s *Server) RegisterRestService(ctx context.Context, mux *proxy.ServeMux,
+	endpoint string, dialOpts []grpc.DialOption) error {
+
+	err := s.rpcServer.RegisterWithRestProxy(ctx, mux, dialOpts, endpoint)
+	if err != nil {
+		return err
+	}
+
+	err = s.mboxServer.RegisterWithRestProxy(ctx, mux, dialOpts, endpoint)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Stop signals that the main tapd server should attempt a graceful shutdown.
 func (s *Server) Stop() error {
 	if atomic.AddInt32(&s.shutdown, 1) != 1 {
