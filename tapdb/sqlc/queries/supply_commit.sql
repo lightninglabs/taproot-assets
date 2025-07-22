@@ -163,6 +163,10 @@ SELECT
     sc.output_key,
     sqlc.embed(ik),
     txn.raw_tx,
+    txn.block_height,
+    txn.block_hash,
+    txn.tx_index,
+    txn.chain_fees,
     sc.supply_root_hash AS root_hash,
     sc.supply_root_sum AS root_sum 
 FROM supply_commit_state_machines sm

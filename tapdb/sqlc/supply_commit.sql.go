@@ -74,6 +74,10 @@ SELECT
     sc.output_key,
     ik.key_id, ik.raw_key, ik.key_family, ik.key_index,
     txn.raw_tx,
+    txn.block_height,
+    txn.block_hash,
+    txn.tx_index,
+    txn.chain_fees,
     sc.supply_root_hash AS root_hash,
     sc.supply_root_sum AS root_sum 
 FROM supply_commit_state_machines sm
@@ -94,6 +98,10 @@ type FetchSupplyCommitRow struct {
 	OutputKey   []byte
 	InternalKey InternalKey
 	RawTx       []byte
+	BlockHeight sql.NullInt32
+	BlockHash   []byte
+	TxIndex     sql.NullInt32
+	ChainFees   int64
 	RootHash    []byte
 	RootSum     sql.NullInt64
 }
@@ -110,6 +118,10 @@ func (q *Queries) FetchSupplyCommit(ctx context.Context, groupKey []byte) (Fetch
 		&i.InternalKey.KeyFamily,
 		&i.InternalKey.KeyIndex,
 		&i.RawTx,
+		&i.BlockHeight,
+		&i.BlockHash,
+		&i.TxIndex,
+		&i.ChainFees,
 		&i.RootHash,
 		&i.RootSum,
 	)
