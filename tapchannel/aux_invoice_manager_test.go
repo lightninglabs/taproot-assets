@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -820,11 +821,10 @@ func genHtlc(t *rapid.T, balance []*rfqmsg.AssetBalance,
 // method also returns the assetUnits and the rfqID used by the htlc.
 func genRequest(t *rapid.T) (lndclient.InvoiceHtlcModifyRequest, uint64,
 	asset.ID, rfqmsg.ID) {
-
 	request := lndclient.InvoiceHtlcModifyRequest{
 		CircuitKey: invoices.CircuitKey{
 			ChanID: lnwire.NewShortChanIDFromInt(
-				rapid.Uint64().Draw(t, "chan_id"),
+				rand.Uint64(),
 			),
 		},
 	}
