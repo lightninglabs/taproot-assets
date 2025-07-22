@@ -24,6 +24,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -3142,4 +3143,107 @@ func TestQueryAssetBalancesCustomChannelFunding(t *testing.T) {
 		balanceByGroupSum += balance.Balance
 	}
 	require.Equal(t, assetDesc[0].amt, balanceByGroupSum)
+}
+
+// TestShouldSkipAssetCreation tests the behavior of the shouldSkipAssetCreation
+// function for various asset transfer output scenarios.
+func TestShouldSkipAssetCreation(t *testing.T) {
+	t.Parallel()
+
+	prevID := asset.PrevID{
+		OutPoint:  test.RandOp(t),
+		ID:        asset.RandID(t),
+		ScriptKey: asset.RandSerializedKey(t),
+	}
+
+	testCases := []struct {
+		name          string
+		output        TransferOutputRow
+		scriptKey     asset.ScriptKey
+		witnessData   []asset.Witness
+		expectedSkip  bool
+		expectedSpent bool
+	}{
+		{
+			name: "tombstone asset",
+			output: TransferOutputRow{
+				Amount:     0,
+				OutputType: int16(tappsbt.TypeSplitRoot),
+			},
+			scriptKey:     asset.NUMSScriptKey,
+			witnessData:   nil,
+			expectedSkip:  false,
+			expectedSpent: true,
+		},
+		{
+			name: "burn asset",
+			output: TransferOutputRow{
+				Amount: 100,
+			},
+			scriptKey: asset.ScriptKey{
+				PubKey: asset.DeriveBurnKey(prevID),
+			},
+			witnessData: []asset.Witness{{
+				PrevID: &prevID,
+			}},
+			expectedSkip:  false,
+			expectedSpent: true,
+		},
+		{
+			name: "local script key asset",
+			output: TransferOutputRow{
+				Amount:         100,
+				ScriptKeyLocal: true,
+			},
+			scriptKey: asset.ScriptKey{
+				PubKey: test.RandPubKey(t),
+			},
+			witnessData:   nil,
+			expectedSkip:  false,
+			expectedSpent: false,
+		},
+		{
+			name: "remote pedersen asset",
+			output: TransferOutputRow{
+				Amount: 100,
+			},
+			scriptKey: asset.ScriptKey{
+				TweakedScriptKey: &asset.TweakedScriptKey{
+					Type: asset.ScriptKeyUniquePedersen,
+				},
+				PubKey: test.RandPubKey(t),
+			},
+			witnessData:   nil,
+			expectedSkip:  true,
+			expectedSpent: false,
+		},
+		{
+			name: "local pedersen asset",
+			output: TransferOutputRow{
+				Amount:         100,
+				ScriptKeyLocal: true,
+			},
+			scriptKey: asset.ScriptKey{
+				TweakedScriptKey: &asset.TweakedScriptKey{
+					Type: asset.ScriptKeyUniquePedersen,
+				},
+				PubKey: test.RandPubKey(t),
+			},
+			witnessData:   nil,
+			expectedSkip:  false,
+			expectedSpent: false,
+		},
+	}
+
+	// Run each test case.
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			skip, spent := shouldSkipAssetCreation(
+				tc.output, tc.scriptKey, tc.witnessData,
+			)
+
+			require.Equal(t, tc.expectedSkip, skip)
+			require.Equal(t, tc.expectedSpent, spent)
+		})
+	}
 }

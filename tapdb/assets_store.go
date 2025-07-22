@@ -3158,31 +3158,6 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 				return fmt.Errorf("unable to decode script "+
 					"key: %w", err)
 			}
-			scriptPubKey := fullScriptKey.PubKey
-
-			isNumsKey := scriptPubKey.IsEqual(asset.NUMSPubKey)
-			isTombstone := isNumsKey &&
-				out.Amount == 0 &&
-				out.OutputType == int16(tappsbt.TypeSplitRoot)
-			isBurn := !isNumsKey && len(witnessData) > 0 &&
-				asset.IsBurnKey(scriptPubKey, witnessData[0])
-			isKnown := fullScriptKey.Type != asset.ScriptKeyUnknown
-			isRemotePedersen := fullScriptKey.Type ==
-				asset.ScriptKeyUniquePedersen &&
-				!out.ScriptKeyLocal
-			skipAssetCreation := !isTombstone && !isBurn &&
-				!out.ScriptKeyLocal &&
-				(!isKnown || isRemotePedersen)
-
-			log.Tracef("Skip asset creation for "+
-				"output %d?: %v,  position=%v, scriptKey=%x, "+
-				"isTombstone=%v, isBurn=%v, "+
-				"scriptKeyLocal=%v, scriptKeyKnown=%v, "+
-				"isRemotePedersen=%v", idx, skipAssetCreation,
-				out.Position,
-				scriptPubKey.SerializeCompressed(), isTombstone,
-				isBurn, out.ScriptKeyLocal, isKnown,
-				isRemotePedersen)
 
 			// If this is an outbound transfer (meaning that our
 			// node doesn't control the script key, and it isn't a
@@ -3191,6 +3166,9 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 			// leaving the node. The same goes for outputs that are
 			// only used to anchor passive assets, which are handled
 			// separately.
+			skipAssetCreation, markSpent := shouldSkipAssetCreation(
+				out, fullScriptKey, witnessData,
+			)
 			if skipAssetCreation {
 				continue
 			}
@@ -3236,7 +3214,7 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 				SplitCommitmentRootHash:  out.SplitCommitmentRootHash,
 				SplitCommitmentRootValue: out.SplitCommitmentRootValue,
 				SpentAssetID:             templateID,
-				Spent:                    isTombstone || isBurn,
+				Spent:                    markSpent,
 				AssetVersion:             out.AssetVersion,
 			}
 			newAssetID, err := q.ApplyPendingOutput(ctx, params)
@@ -3258,6 +3236,7 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 					"witnesses: %w", err)
 			}
 
+			scriptPubKey := fullScriptKey.PubKey
 			outKey := tapfreighter.NewOutputIdentifier(
 				outProofAsset.ID(), inclusionProof.OutputIndex,
 				*scriptPubKey,
@@ -3353,6 +3332,55 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 	}
 
 	return nil
+}
+
+// shouldSkipAssetCreation determines whether we should skip creating an asset
+// in our local database for a given transfer output. This is based on the
+// script key type, the amount, and whether the output is controlled by the
+// node or not. If we skip asset creation, we also return a second boolean that
+// indicates whether the output should be displayed as being spent (because
+// tombstone and burns cannot be used any further and should be displayed as
+// such).
+func shouldSkipAssetCreation(out TransferOutputRow,
+	scriptKey asset.ScriptKey, witnessData []asset.Witness) (bool, bool) {
+
+	scriptPubKey := scriptKey.PubKey
+
+	scriptKeyType := asset.ScriptKeyUnknown
+	if scriptKey.TweakedScriptKey != nil {
+		scriptKeyType = scriptKey.TweakedScriptKey.Type
+	}
+
+	isNumsKey := scriptPubKey.IsEqual(asset.NUMSPubKey)
+	isTombstone := isNumsKey && out.Amount == 0 &&
+		out.OutputType == int16(tappsbt.TypeSplitRoot)
+	isBurn := !isNumsKey && len(witnessData) > 0 &&
+		asset.IsBurnKey(scriptPubKey, witnessData[0])
+	isKnown := scriptKeyType != asset.ScriptKeyUnknown
+	isRemotePedersen := scriptKeyType == asset.ScriptKeyUniquePedersen &&
+		!out.ScriptKeyLocal
+	isKnownLocal := isKnown && !isRemotePedersen
+
+	// We _do_ create assets for the following asset types:
+	// 1. Tombstones (to later garbage collect the anchor).
+	// 2. Burns (to later garbage collect the anchor).
+	// 3. Outputs that are controlled by the node (local script key).
+	// 4. Outputs that are known to the node, and don't belong to a remote
+	//    node.
+	// The following boolean expression is the inverse of the above, meaning
+	// that we skip asset creation for outputs that _are not_ any of the
+	// above.
+	skipAssetCreation := !isTombstone && !isBurn && !out.ScriptKeyLocal &&
+		!isKnownLocal
+
+	log.Tracef("Skip asset creation for output %d?: %v, scriptKey=%x, "+
+		"isTombstone=%v, isBurn=%v, scriptKeyLocal=%v, "+
+		"scriptKeyKnown=%v, isRemotePedersen=%v", out.Position,
+		skipAssetCreation, scriptPubKey.SerializeCompressed(),
+		isTombstone, isBurn, out.ScriptKeyLocal, isKnown,
+		isRemotePedersen)
+
+	return skipAssetCreation, isTombstone || isBurn
 }
 
 // reAnchorPassiveAssets re-anchors all passive assets that were anchored by
