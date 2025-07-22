@@ -37,7 +37,11 @@ type MockSigner struct {
 
 	SignOutputRawChannel chan SignOutputRawRequest
 
-	Signature    []byte
+	Signature []byte
+
+	// SignMessageErr holds the error returned by SignMessage, if any.
+	SignMessageErr error
+
 	SignatureMsg string
 }
 
@@ -65,6 +69,10 @@ func (s *MockSigner) SignOutputRaw(_ context.Context, tx *wire.MsgTx,
 func (s *MockSigner) SignMessage(_ context.Context, _ []byte,
 	_ keychain.KeyLocator, _ ...lndclient.SignMessageOption) ([]byte,
 	error) {
+
+	if s.SignMessageErr != nil {
+		return nil, s.SignMessageErr
+	}
 
 	return s.Signature, nil
 }
