@@ -1332,6 +1332,153 @@
         ]
       }
     },
+    "/v1/taproot-assets/universe/supply/ignore": {
+      "post": {
+        "summary": "tapcli: `universe ignoreoutpoint`\nIgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint\nas ignored. An ignored outpoint will be included in the next universe supply\ncommitment transaction that is published.",
+        "operationId": "Universe_IgnoreAssetOutPoint",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcIgnoreAssetOutPointResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcIgnoreAssetOutPointRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/supply/{group_key_str}": {
+      "get": {
+        "summary": "tapcli: `universe fetchsupplycommit`\nFetchSupplyCommit fetches the on-chain supply commitment for a specific\nasset group.",
+        "operationId": "Universe_FetchSupplyCommit",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcFetchSupplyCommitResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "group_key_bytes",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "issuance_leaf_keys",
+            "description": "Optional: A list of issuance leaf keys. For each key in this list,\nthe endpoint will generate and return an inclusion proof.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "byte"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "burn_leaf_keys",
+            "description": "Optional: A list of burn leaf keys. For each key in this list,\nthe endpoint will generate and return an inclusion proof.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "byte"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "ignore_leaf_keys",
+            "description": "Optional: A list of ignore leaf keys. For each key in this list, the\nendpoint will generate and return an inclusion proof.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "byte"
+            },
+            "collectionFormat": "multi"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      },
+      "post": {
+        "summary": "tapcli: `universe updatesupplycommit`\nUpdateSupplyCommit updates the on-chain supply commitment for a specific\nasset group.",
+        "operationId": "Universe_UpdateSupplyCommit",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcUpdateSupplyCommitResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/UniverseUpdateSupplyCommitBody"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/sync": {
       "post": {
         "summary": "tapcli: `universe sync`\nSyncUniverse takes host information for a remote Universe server, then\nattempts to synchronize either only the set of specified asset_ids, or all\nassets if none are specified. The sync process will attempt to query for\nthe latest known root for each asset, performing tree based reconciliation\nto arrive at a new shared root.",
@@ -1532,6 +1679,16 @@
         "server": {
           "$ref": "#/definitions/universerpcUniverseFederationServer",
           "description": "The universe server to push the proof to."
+        }
+      }
+    },
+    "UniverseUpdateSupplyCommitBody": {
+      "type": "object",
+      "properties": {
+        "group_key_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
         }
       }
     },
@@ -1749,6 +1906,26 @@
       ],
       "default": "META_TYPE_OPAQUE",
       "description": " - META_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs.\n - META_TYPE_JSON: JSON is used for asset meta blobs that are to be interpreted as valid JSON\nstrings."
+    },
+    "taprpcAssetOutPoint": {
+      "type": "object",
+      "properties": {
+        "anchor_out_point": {
+          "type": "string",
+          "description": "The outpoint of the asset anchor, represented as a string in the\nformat \"\u003ctxid\u003e:\u003cvout\u003e\". The \u003ctxid\u003e is the transaction ID of the UTXO,\nhex-encoded and byte-reversed (i.e., the internal little-endian\n32-byte value is reversed to big-endian hex format) to match standard\nBitcoin RPC and UI conventions."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID of the asset anchored at the outpoint."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script key of the asset. This is the taproot output key that the\nasset is locked to."
+        }
+      },
+      "description": "A transaction outpoint annotated with TAP-level asset metadata. It uniquely\nidentifies an asset anchored at a specific outpoint."
     },
     "taprpcAssetType": {
       "type": "string",
@@ -2131,6 +2308,85 @@
     "universerpcDeleteRootResponse": {
       "type": "object"
     },
+    "universerpcFetchSupplyCommitResponse": {
+      "type": "object",
+      "properties": {
+        "supply_commitment_root": {
+          "$ref": "#/definitions/universerpcMerkleSumNode",
+          "description": "The supply commitment merkle sum root node for the specified asset."
+        },
+        "anchor_txid": {
+          "type": "string",
+          "description": "The txid of the anchor transaction that commits to the supply\ncommitment for the specified asset."
+        },
+        "anchor_tx_out_idx": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The output index of the anchor transaction that commits to the supply\ncommitment for the specified asset."
+        },
+        "anchor_tx_out_internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The transaction output taproot internal key of the anchor transaction\nthat commits to the supply commitment for the specified asset."
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height of the block at which the supply commitment was anchored."
+        },
+        "block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the block at which the supply commitment was anchored."
+        },
+        "block_tx_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the transaction in the block that commits to the supply\ncommitment."
+        },
+        "tx_chain_fees_sats": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total number of satoshis in on-chain fees paid by the supply\ncommitment transaction."
+        },
+        "issuance_subtree_root": {
+          "$ref": "#/definitions/universerpcSupplyCommitSubtreeRoot",
+          "description": "The root of the issuance tree for the specified asset."
+        },
+        "burn_subtree_root": {
+          "$ref": "#/definitions/universerpcSupplyCommitSubtreeRoot",
+          "description": "The root of the burn tree for the specified asset."
+        },
+        "ignore_subtree_root": {
+          "$ref": "#/definitions/universerpcSupplyCommitSubtreeRoot",
+          "description": "The root of the ignore tree for the specified asset."
+        },
+        "issuance_leaf_inclusion_proofs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Inclusion proofs for each issuance leaf key provided in the request.\nEach entry corresponds to the key at the same index in\n`issuance_leaf_keys`."
+        },
+        "burn_leaf_inclusion_proofs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Inclusion proofs for each burn leaf key provided in the request.\nEach entry corresponds to the key at the same index in `burn_leaf_keys`."
+        },
+        "ignore_leaf_inclusion_proofs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Inclusion proofs for each ignored leaf key provided in the request.\nEach entry corresponds to the key at the same index in\n`ignore_leaf_keys`."
+        }
+      }
+    },
     "universerpcGlobalFederationSyncConfig": {
       "type": "object",
       "properties": {
@@ -2189,6 +2445,34 @@
         },
         "proof_type": {
           "$ref": "#/definitions/universerpcProofType"
+        }
+      }
+    },
+    "universerpcIgnoreAssetOutPointRequest": {
+      "type": "object",
+      "properties": {
+        "asset_out_point": {
+          "$ref": "#/definitions/taprpcAssetOutPoint",
+          "description": "The outpoint of the asset to ignore."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of asset units at the associated asset outpoint."
+        }
+      }
+    },
+    "universerpcIgnoreAssetOutPointResponse": {
+      "type": "object",
+      "properties": {
+        "leaf_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The key identifying the signed ignore outpoint leaf in the ignore supply\ncommitment subtree."
+        },
+        "leaf": {
+          "$ref": "#/definitions/universerpcMerkleSumNode",
+          "description": "The signed ignore outpoint leaf in the ignore supply commitment tree."
         }
       }
     },
@@ -2399,6 +2683,29 @@
         }
       }
     },
+    "universerpcSupplyCommitSubtreeRoot": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "The type of the supply commit subtree."
+        },
+        "root_node": {
+          "$ref": "#/definitions/universerpcMerkleSumNode",
+          "description": "The root node of the supply commit subtree."
+        },
+        "supply_tree_leaf_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The leaf key which locates the subtree leaf node in the supply commit\ntree."
+        },
+        "supply_tree_inclusion_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "The inclusion proof for the supply commit subtree root node."
+        }
+      }
+    },
     "universerpcSyncRequest": {
       "type": "object",
       "properties": {
@@ -2531,6 +2838,9 @@
       ],
       "default": "SYNC_ISSUANCE_ONLY",
       "description": " - SYNC_ISSUANCE_ONLY: A sync node that indicates that only new asset creation (minting) proofs\nshould be synced.\n - SYNC_FULL: A syncing mode that indicates that all asset proofs should be synced.\nThis includes normal transfers as well."
+    },
+    "universerpcUpdateSupplyCommitResponse": {
+      "type": "object"
     }
   }
 }

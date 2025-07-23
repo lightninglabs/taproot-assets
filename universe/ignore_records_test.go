@@ -2,10 +2,14 @@ package universe
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
@@ -112,4 +116,85 @@ func TestSignedIgnoreTupleEncodeDecode(t *testing.T) {
 		// Check if the decoded tuple matches the original
 		require.Equal(t, origTuple, decodedTuple)
 	})
+}
+
+// TestGenSignedIgnore tests the GenSignedIgnore method of IgnoreTuple using a
+// table-driven style.
+func TestGenSignedIgnore(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		tuple     IgnoreTuple
+		signature []byte
+		keyLoc    keychain.KeyLocator
+		expectErr bool
+	}{
+		{
+			name: "valid signature",
+			tuple: IgnoreTuple{
+				PrevID: asset.PrevID{
+					OutPoint:  test.RandOp(t),
+					ID:        asset.RandID(t),
+					ScriptKey: asset.RandSerializedKey(t),
+				},
+				Amount: 42,
+			},
+			signature: bytes.Repeat(
+				[]byte{0x01}, schnorr.SignatureSize,
+			),
+			keyLoc:    test.RandKeyLoc(),
+			expectErr: false,
+		},
+		{
+			name: "signer returns error",
+			tuple: IgnoreTuple{
+				PrevID: asset.PrevID{
+					OutPoint:  test.RandOp(t),
+					ID:        asset.RandID(t),
+					ScriptKey: asset.RandSerializedKey(t),
+				},
+				Amount: 99,
+			},
+			signature: nil,
+			keyLoc:    test.RandKeyLoc(),
+			expectErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mockSigner := test.NewMockSigner()
+			mockSigner.Signature = tc.signature
+
+			if tc.expectErr {
+				mockSigner.SignMessageErr = fmt.Errorf(
+					"mock signer error",
+				)
+			}
+
+			signed, err := tc.tuple.GenSignedIgnore(
+				context.Background(), mockSigner, tc.keyLoc,
+			)
+
+			if tc.expectErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			// Check that the signature matches what the mock signer
+			// produced.
+			require.Equal(
+				t, tc.signature,
+				signed.Sig.Val.Signature.Serialize(),
+			)
+
+			// Check that the tuple matches.
+			require.Equal(t, tc.tuple, signed.IgnoreTuple.Val)
+		})
+	}
 }

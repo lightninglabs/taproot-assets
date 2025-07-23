@@ -9,9 +9,11 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -143,6 +145,26 @@ func (p *PreCommitment) TxIn() *wire.TxIn {
 // PreCommits is a slice of pre-commitments.
 type PreCommits = []PreCommitment
 
+// CommitmentBlock captures the finalized on-chain state of a supply commitment
+// transaction after it has been mined. It records block-level metadata and the
+// actual fee paid to anchor the commitment.
+type CommitmentBlock struct {
+	// Height is the block height of the block that contains the
+	// commitment.
+	Height uint32
+
+	// Hash is the hash of the block that contains the commitment.
+	Hash chainhash.Hash
+
+	// TxIndex is the index of the supply commitment transaction within
+	// the block.
+	TxIndex uint32
+
+	// ChainFees is the amount in sats paid in on-chain fees for the
+	// supply commitment transaction.
+	ChainFees int64
+}
+
 // RootCommitment is the root commitment that contains the commitment to the the
 // sub-supply trees for a given asset.
 type RootCommitment struct {
@@ -164,6 +186,11 @@ type RootCommitment struct {
 	// sub-commitments. The sum value of this tree is the outstanding supply
 	// value.
 	SupplyRoot *mssmt.BranchNode
+
+	// CommitmentBlock is the block that contains the commitment to the
+	// asset supply. This may be None if the commitment has not yet
+	// been mined.
+	CommitmentBlock fn.Option[CommitmentBlock]
 }
 
 // TxIn returns the transaction input that corresponds to the root commitment.

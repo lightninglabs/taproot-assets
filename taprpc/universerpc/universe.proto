@@ -1,5 +1,6 @@
 syntax = "proto3";
 
+import "tapcommon.proto";
 import "taprootassets.proto";
 
 package universerpc;
@@ -154,6 +155,28 @@ service Universe {
     */
     rpc QueryFederationSyncConfig (QueryFederationSyncConfigRequest)
         returns (QueryFederationSyncConfigResponse);
+
+    /* tapcli: `universe ignoreoutpoint`
+    IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
+    as ignored. An ignored outpoint will be included in the next universe supply
+    commitment transaction that is published.
+    */
+    rpc IgnoreAssetOutPoint (IgnoreAssetOutPointRequest)
+        returns (IgnoreAssetOutPointResponse);
+
+    /* tapcli: `universe updatesupplycommit`
+    UpdateSupplyCommit updates the on-chain supply commitment for a specific
+    asset group.
+    */
+    rpc UpdateSupplyCommit (UpdateSupplyCommitRequest)
+        returns (UpdateSupplyCommitResponse);
+
+    /* tapcli: `universe fetchsupplycommit`
+    FetchSupplyCommit fetches the on-chain supply commitment for a specific
+    asset group.
+    */
+    rpc FetchSupplyCommit (FetchSupplyCommitRequest)
+        returns (FetchSupplyCommitResponse);
 }
 
 message MultiverseRootRequest {
@@ -662,4 +685,131 @@ message QueryFederationSyncConfigResponse {
     repeated GlobalFederationSyncConfig global_sync_configs = 1;
 
     repeated AssetFederationSyncConfig asset_sync_configs = 2;
+}
+
+message IgnoreAssetOutPointRequest {
+    // The outpoint of the asset to ignore.
+    taprpc.AssetOutPoint asset_out_point = 1;
+
+    // The amount of asset units at the associated asset outpoint.
+    uint64 amount = 2;
+}
+
+message IgnoreAssetOutPointResponse {
+    // The key identifying the signed ignore outpoint leaf in the ignore supply
+    // commitment subtree.
+    bytes leaf_key = 1;
+
+    // The signed ignore outpoint leaf in the ignore supply commitment tree.
+    MerkleSumNode leaf = 2;
+}
+
+message UpdateSupplyCommitRequest {
+    // The unique identifier for the target asset group whose supply commitment
+    // is being updated.
+    oneof group_key {
+        // The 32-byte asset group key specified as raw bytes (gRPC only).
+        bytes group_key_bytes = 1;
+
+        // The 32-byte asset group key encoded as hex string (use this for
+        // REST).
+        string group_key_str = 2;
+    }
+}
+
+message UpdateSupplyCommitResponse {
+}
+
+message FetchSupplyCommitRequest {
+    // The unique identifier for the target asset group whose supply commitment
+    // is being fetched.
+    oneof group_key {
+        // The 32-byte asset group key specified as raw bytes (gRPC only).
+        bytes group_key_bytes = 1;
+
+        // The 32-byte asset group key encoded as hex string (use this for
+        // REST).
+        string group_key_str = 2;
+    }
+
+    // Optional: A list of issuance leaf keys. For each key in this list,
+    // the endpoint will generate and return an inclusion proof.
+    repeated bytes issuance_leaf_keys = 3;
+
+    // Optional: A list of burn leaf keys. For each key in this list,
+    // the endpoint will generate and return an inclusion proof.
+    repeated bytes burn_leaf_keys = 4;
+
+    // Optional: A list of ignore leaf keys. For each key in this list, the
+    // endpoint will generate and return an inclusion proof.
+    repeated bytes ignore_leaf_keys = 5;
+}
+
+message SupplyCommitSubtreeRoot {
+    // The type of the supply commit subtree.
+    string type = 1;
+
+    // The root node of the supply commit subtree.
+    MerkleSumNode root_node = 2;
+
+    // The leaf key which locates the subtree leaf node in the supply commit
+    // tree.
+    bytes supply_tree_leaf_key = 3;
+
+    // The inclusion proof for the supply commit subtree root node.
+    bytes supply_tree_inclusion_proof = 4;
+}
+
+message FetchSupplyCommitResponse {
+    // The supply commitment merkle sum root node for the specified asset.
+    MerkleSumNode supply_commitment_root = 1;
+
+    // The txid of the anchor transaction that commits to the supply
+    // commitment for the specified asset.
+    string anchor_txid = 2;
+
+    // The output index of the anchor transaction that commits to the supply
+    // commitment for the specified asset.
+    uint32 anchor_tx_out_idx = 3;
+
+    // The transaction output taproot internal key of the anchor transaction
+    // that commits to the supply commitment for the specified asset.
+    bytes anchor_tx_out_internal_key = 4;
+
+    // The height of the block at which the supply commitment was anchored.
+    uint32 block_height = 5;
+
+    // The hash of the block at which the supply commitment was anchored.
+    bytes block_hash = 6;
+
+    // The index of the transaction in the block that commits to the supply
+    // commitment.
+    uint32 block_tx_index = 7;
+
+    // The total number of satoshis in on-chain fees paid by the supply
+    // commitment transaction.
+    int64 tx_chain_fees_sats = 8;
+
+    // The root of the issuance tree for the specified asset.
+    SupplyCommitSubtreeRoot issuance_subtree_root = 9;
+
+    // The root of the burn tree for the specified asset.
+    SupplyCommitSubtreeRoot burn_subtree_root = 10;
+
+    // The root of the ignore tree for the specified asset.
+    SupplyCommitSubtreeRoot ignore_subtree_root = 11;
+
+    // Inclusion proofs for each issuance leaf key provided in the request.
+    // Each entry corresponds to the key at the same index in
+    // `issuance_leaf_keys`.
+    repeated bytes issuance_leaf_inclusion_proofs = 12;
+
+    // Inclusion proofs for each burn leaf key provided in the request.
+    // Each entry corresponds to the key at the same index in `burn_leaf_keys`.
+    repeated bytes burn_leaf_inclusion_proofs = 13;
+
+    // Inclusion proofs for each ignored leaf key provided in the request.
+    // Each entry corresponds to the key at the same index in
+    // `ignore_leaf_keys`.
+    repeated bytes ignore_leaf_inclusion_proofs = 14;
 }

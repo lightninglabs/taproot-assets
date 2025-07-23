@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -330,6 +332,41 @@ func (s *SupplyCommitMachine) SupplyCommit(ctx context.Context,
 				err)
 		}
 
+		// Parse block related data from row if present.
+		var commitmentBlock fn.Option[supplycommit.CommitmentBlock]
+		if len(row.BlockHash) > 0 {
+			// Parse block height if present, otherwise return an
+			// error as it must be set if block hash is set.
+			if !row.BlockHeight.Valid {
+				return fmt.Errorf("block height must be set " +
+					"if block hash is set")
+			}
+
+			blockHeight := uint32(row.BlockHeight.Int32)
+
+			// Parse the block hash, which should be valid at this
+			// point.
+			blockHash, err := chainhash.NewHash(row.BlockHash)
+			if err != nil {
+				return fmt.Errorf("parsing block hash: %w", err)
+			}
+
+			// Parse transaction block index which should be set
+			// if the block height is set.
+			if !row.TxIndex.Valid {
+				return fmt.Errorf("transaction index must be " +
+					"set if block height is set")
+			}
+			txIndex := uint32(row.TxIndex.Int32)
+
+			commitmentBlock = fn.Some(supplycommit.CommitmentBlock{
+				Hash:      *blockHash,
+				Height:    blockHeight,
+				TxIndex:   txIndex,
+				ChainFees: row.ChainFees,
+			})
+		}
+
 		// Construct the root node directly from the stored hash and
 		// sum. Handle potential NULL values if the root wasn't set yet
 		// (though FetchSupplyCommit filters for confirmed TX, so it
@@ -355,11 +392,12 @@ func (s *SupplyCommitMachine) SupplyCommit(ctx context.Context,
 		}
 
 		rootCommitment := supplycommit.RootCommitment{
-			Txn:         &commitTx,
-			TxOutIdx:    uint32(row.OutputIndex.Int32),
-			InternalKey: internalKey,
-			OutputKey:   outputKey,
-			SupplyRoot:  rootNode,
+			Txn:             &commitTx,
+			TxOutIdx:        uint32(row.OutputIndex.Int32),
+			InternalKey:     internalKey,
+			OutputKey:       outputKey,
+			SupplyRoot:      rootNode,
+			CommitmentBlock: commitmentBlock,
 		}
 		rootCommitmentOpt = lfn.Some(rootCommitment)
 

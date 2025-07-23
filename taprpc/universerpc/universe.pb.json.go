@@ -495,4 +495,79 @@ func RegisterUniverseJSONCallbacks(registry map[string]func(ctx context.Context,
 		}
 		callback(string(respBytes), nil)
 	}
+
+	registry["universerpc.Universe.IgnoreAssetOutPoint"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &IgnoreAssetOutPointRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewUniverseClient(conn)
+		resp, err := client.IgnoreAssetOutPoint(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
+	registry["universerpc.Universe.UpdateSupplyCommit"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &UpdateSupplyCommitRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewUniverseClient(conn)
+		resp, err := client.UpdateSupplyCommit(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
+	registry["universerpc.Universe.FetchSupplyCommit"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &FetchSupplyCommitRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewUniverseClient(conn)
+		resp, err := client.FetchSupplyCommit(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
 }
