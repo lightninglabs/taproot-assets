@@ -67,64 +67,111 @@ It does *not* handle:
 ## State Machine Overview
 
 The state machine transitions through several states to process supply updates
-and create a new on-chain commitment. It starts in an idle `DefaultState`. When
-new supply updates arrive, it moves to `UpdatesPendingState`. A periodic
-`CommitTickEvent` triggers the commitment process, moving through states for
-tree creation (`CommitTreeCreateState`), transaction creation
-(`CommitTxCreateState`), signing (`CommitTxSignState`), broadcasting
-(`CommitBroadcastState`), and finally finalization (`CommitFinalizeState`) upon
-confirmation, before returning to the `DefaultState`.
+and create a new on-chain commitment. It starts in an idle `DefaultState`. Supply
+updates can now be received in **any state** and are either bound to an active
+transition or stored as "dangling updates" to be bound to the next transition.
+When the state machine has pending updates and receives a `CommitTickEvent`, it
+triggers the commitment process, moving through states for tree creation
+(`CommitTreeCreateState`), transaction creation (`CommitTxCreateState`), signing
+(`CommitTxSignState`), broadcasting (`CommitBroadcastState`), and finally
+finalization (`CommitFinalizeState`) upon confirmation, before returning to the
+`DefaultState`.
 
 ### States and Transitions
 
 ```mermaid
 stateDiagram-v2
-    [*] --> DefaultState: Initialize / Finalize
+    direction LR
+    
+    [*] --> DefaultState: Initialize
 
     DefaultState --> UpdatesPendingState: SupplyUpdateEvent
+    UpdatesPendingState --> CommitTreeCreateState: CommitTickEvent
+    
+    state CommitmentCycle {
+        direction TB
+        CommitTreeCreateState --> CommitTxCreateState: CreateTreeEvent
+        CommitTxCreateState --> CommitTxSignState: CreateTxEvent
+        CommitTxSignState --> CommitBroadcastState: SignTxEvent
+        CommitBroadcastState --> CommitFinalizeState: ConfEvent
+    }
+    
+    CommitFinalizeState --> DefaultState: FinalizeEvent<br/>(no dangling updates)
+    CommitFinalizeState --> CommitTreeCreateState: FinalizeEvent<br/>(has dangling updates)
+
+    %% Self-transitions
     DefaultState --> DefaultState: CommitTickEvent
-
     UpdatesPendingState --> UpdatesPendingState: SupplyUpdateEvent
-    UpdatesPendingState --> CommitTreeCreateState: CommitTickEvent (emits CreateTreeEvent)
-
-    CommitTreeCreateState --> CommitTxCreateState: CreateTreeEvent (emits CreateTxEvent)
     CommitTreeCreateState --> CommitTreeCreateState: CommitTickEvent
-
-    CommitTxCreateState --> CommitTxSignState: CreateTxEvent (emits SignTxEvent)
-
-    CommitTxSignState --> CommitBroadcastState: SignTxEvent (emits BroadcastEvent)
-
-    CommitBroadcastState --> CommitBroadcastState: BroadcastEvent (Broadcasts Tx, Registers Conf)
-    CommitBroadcastState --> CommitFinalizeState: ConfEvent (emits FinalizeEvent)
-
-    CommitFinalizeState --> DefaultState: FinalizeEvent (Applies Transition)
+    CommitBroadcastState --> CommitBroadcastState: BroadcastEvent
 ```
 
-*   **DefaultState:** The idle state. Awaiting new supply updates.
+**Key State Transitions:**
+
+1. **Supply Update Handling:**
+   - `DefaultState` + SupplyUpdateEvent → `UpdatesPendingState`
+   - `UpdatesPendingState` + SupplyUpdateEvent → Self (accumulates)
+   - Any other state + SupplyUpdateEvent → Self (stores as dangling update)
+
+2. **Commitment Cycle:**
+   - `UpdatesPendingState` + CommitTickEvent → `CommitTreeCreateState`
+   - Internal events drive the cycle through creation, signing, and broadcasting
+
+3. **Critical Optimization:**
+   - `CommitFinalizeState` checks for dangling updates:
+     - If none → `DefaultState` (idle)
+     - If present → `CommitTreeCreateState` (immediate new cycle)
+
+This design ensures no supply updates are lost and allows continuous processing without returning to idle states when updates accumulate during commitment processing.
+
+*   **DefaultState:** The idle state. Awaiting new supply updates or the next
+    commitment cycle. Supply updates received here transition to `UpdatesPendingState`.
 
 *   **UpdatesPendingState:** One or more supply updates have been received and
-    are staged, waiting for the next commit trigger.
+    are staged, waiting for the next commit trigger. Additional updates can be
+    received and added to the pending set.
 
 *   **CommitTreeCreateState:** Triggered by `CommitTickEvent`. Fetches existing
-    sub-trees, applies pending updates, calculates the new sub-tree roots, and
-    calculates the new root supply tree.
+    sub-trees, applies pending updates (including any dangling updates), calculates
+    the new sub-tree roots, and calculates the new root supply tree. Supply updates
+    received during this state are stored as dangling updates.
 
 *   **CommitTxCreateState:** Triggered by `CreateTreeEvent`. Fetches the
     previous commitment (if any) and unspent pre-commitments. Constructs the new
     commitment transaction (PSBT) spending these inputs and creating the new
-    commitment output. Funds the PSBT using the wallet.
+    commitment output. Funds the PSBT using the wallet. Supply updates received
+    during this state are stored as dangling updates.
 
 *   **CommitTxSignState:** Triggered by `CreateTxEvent`. Signs the funded
     commitment PSBT using the wallet. Persists the signed transaction details and
-    state before broadcasting.
+    state before broadcasting. Supply updates received during this state are stored
+    as dangling updates.
 
 *   **CommitBroadcastState:** Triggered by `SignTxEvent`. Broadcasts the signed
     transaction and registers for its confirmation. Waits for the `ConfEvent`.
+    Supply updates received during this state are stored as dangling updates.
 
 *   **CommitFinalizeState:** Triggered by `ConfEvent`. The commitment
     transaction is confirmed. Finalizes the state transition by updating the
     canonical supply trees and commitment details in persistent storage.
-    Transitions back to `DefaultState`.
+    Transitions back to `DefaultState`. Supply updates received during this state
+    are stored as dangling updates.
+
+### Dangling Updates
+
+A key feature of the state machine is its ability to handle "dangling updates" -
+supply update events that are received when the state machine is already processing
+a commitment cycle (states other than `DefaultState` or `UpdatesPendingState`).
+
+These updates are:
+- Stored separately without being immediately bound to the active transition
+- Preserved across state transitions
+- Automatically bound to the next transition when it's created
+- Ensure no supply updates are lost even if they arrive during active processing
+
+This mechanism allows the state machine to continuously accept new supply updates
+without blocking or losing data, even while a commitment transaction is being
+created, signed, or broadcast.
 
 ## Environment and Persistence
 
