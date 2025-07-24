@@ -2,6 +2,7 @@ package address
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"testing"
 	"time"
@@ -9,11 +10,19 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+)
+
+// Test error constants used throughout the tests.
+var (
+	errDatabaseError = errors.New("database error")
+	errMetadataError = errors.New("metadata error")
+	errKeyFetchError = errors.New("key fetch error")
 )
 
 // TestBook_NewAddress tests that we can create a new address with the
@@ -66,6 +75,278 @@ func TestBook_NewAddress(t *testing.T) {
 	mockStorage.AssertExpectations(t)
 	mockKeyRing.AssertExpectations(t)
 	mockSyncer.AssertExpectations(t)
+}
+
+// addrMockHelper provides helper functions for setting up mock expectations.
+type addrMockHelper struct {
+	ctx     context.Context
+	storage *MockStorage
+}
+
+// newAddrMockHelper creates a new addrMockHelper instance.
+func newAddrMockHelper(ctx context.Context,
+	storage *MockStorage) *addrMockHelper {
+
+	return &addrMockHelper{
+		ctx:     ctx,
+		storage: storage,
+	}
+}
+
+// expectAssetGroup sets up mock expectation for QueryAssetGroupByID.
+func (m *addrMockHelper) expectAssetGroup(assetID asset.ID,
+	group *asset.AssetGroup, err error) {
+
+	m.storage.On("QueryAssetGroupByID", m.ctx, assetID).Return(group, err)
+}
+
+// expectAssetMeta sets up mock expectation for FetchAssetMetaForAsset.
+func (m *addrMockHelper) expectAssetMeta(assetID asset.ID,
+	meta *proof.MetaReveal, err error) {
+
+	m.storage.On("FetchAssetMetaForAsset", m.ctx, assetID).Return(meta, err)
+}
+
+// expectKeyLocator sets up mock expectation for FetchInternalKeyLocator.
+func (m *addrMockHelper) expectKeyLocator(key *btcec.PublicKey,
+	locator keychain.KeyLocator, err error) {
+
+	m.storage.On("FetchInternalKeyLocator", m.ctx, key).Return(locator, err)
+}
+
+// expectFullDelegationFlow sets up all three mock expectations for a complete
+// delegation check.
+func (m *addrMockHelper) expectFullDelegationFlow(assetID asset.ID,
+	group *asset.AssetGroup, meta *proof.MetaReveal,
+	delegationKey *btcec.PublicKey, locator keychain.KeyLocator,
+	locatorErr error) {
+
+	m.expectAssetGroup(assetID, group, nil)
+	m.expectAssetMeta(assetID, meta, nil)
+
+	if delegationKey != nil {
+		m.expectKeyLocator(delegationKey, locator, locatorErr)
+	}
+}
+
+// TestBookHasDelegationKey tests that the HasDelegationKey method correctly
+// checks if we control the delegation key for a given asset.
+func TestBookHasDelegationKey(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// We'll start off by creating some test data to use in our tests.
+	assetWithDelegation := asset.RandID(t)
+	assetWithoutDelegation := asset.RandID(t)
+	assetNoGroup := asset.RandID(t)
+	assetNoMeta := asset.RandID(t)
+
+	delegationKey, _ := btcec.NewPrivateKey()
+	delegationPubKey := delegationKey.PubKey()
+
+	groupKey, _ := btcec.NewPrivateKey()
+	groupPubKey := groupKey.PubKey()
+
+	assetGroup := &asset.AssetGroup{
+		GroupKey: &asset.GroupKey{
+			GroupPubKey: *groupPubKey,
+		},
+	}
+
+	metaWithDelegation := &proof.MetaReveal{
+		DelegationKey: fn.Some(*delegationPubKey),
+	}
+
+	metaWithoutDelegation := &proof.MetaReveal{
+		DelegationKey: fn.None[btcec.PublicKey](),
+	}
+
+	keyLocator := keychain.KeyLocator{
+		Family: 1,
+		Index:  1,
+	}
+
+	tests := []struct {
+		name          string
+		assetID       asset.ID
+		setupMocks    func(*MockStorage)
+		expectedHas   bool
+		expectedError string
+	}{
+		// If we can fetch the asset group, the meta, and also the
+		// internal key, then we should conclude we made the asset.
+		{
+			name:    "asset with controlled delegation key",
+			assetID: assetWithDelegation,
+			setupMocks: func(m *MockStorage) {
+				h := newAddrMockHelper(ctx, m)
+
+				h.expectFullDelegationFlow(
+					assetWithDelegation, assetGroup,
+					metaWithDelegation, delegationPubKey,
+					keyLocator, nil,
+				)
+			},
+			expectedHas: true,
+		},
+
+		// Test that if we can't find the internal key, that we conclude
+		// it isn't our asset.
+		{
+			name:    "asset with non-controlled delegation key",
+			assetID: assetWithDelegation,
+			setupMocks: func(m *MockStorage) {
+				h := newAddrMockHelper(ctx, m)
+				h.expectFullDelegationFlow(
+					assetWithDelegation, assetGroup,
+					metaWithDelegation, delegationPubKey,
+					keychain.KeyLocator{},
+					ErrInternalKeyNotFound,
+				)
+			},
+			expectedHas: false,
+		},
+
+		// If an asset has no group, then it can't have a delegation
+		// key.
+		{
+			name:    "asset without group",
+			assetID: assetNoGroup,
+			setupMocks: func(m *MockStorage) {
+				h := newAddrMockHelper(ctx, m)
+				h.expectAssetGroup(assetNoGroup, nil, nil)
+			},
+			expectedHas: false,
+		},
+
+		// If we can't query for the group, we return an error.
+		{
+			name:    "asset group query error",
+			assetID: assetWithDelegation,
+			setupMocks: func(m *MockStorage) {
+				h := newAddrMockHelper(ctx, m)
+				h.expectAssetGroup(
+					assetWithDelegation, nil,
+					errDatabaseError,
+				)
+			},
+			expectedHas: false,
+			expectedError: "fail to find asset group given asset " +
+				"ID",
+		},
+
+		// If an asset has no metadata, then we can't have a delegation
+		// key.
+		{
+			name:    "asset without metadata",
+			assetID: assetNoMeta,
+			setupMocks: func(m *MockStorage) {
+				h := newAddrMockHelper(ctx, m)
+				h.expectAssetGroup(assetNoMeta, assetGroup, nil)
+				h.expectAssetMeta(assetNoMeta, nil, nil)
+			},
+			expectedHas: false,
+		},
+
+		// If we can't fetch the asset metadata, we return an error.
+		{
+			name:    "asset metadata fetch error",
+			assetID: assetWithDelegation,
+			setupMocks: func(m *MockStorage) {
+				h := newAddrMockHelper(ctx, m)
+				h.expectAssetGroup(
+					assetWithDelegation, assetGroup, nil,
+				)
+				h.expectAssetMeta(
+					assetWithDelegation, nil,
+					errMetadataError,
+				)
+			},
+			expectedHas:   false,
+			expectedError: "failed to fetch asset meta",
+		},
+
+		// If the asset metadata has no delegation key, we conclude we
+		// didn't make it.
+		{
+			name:    "asset with no delegation key in metadata",
+			assetID: assetWithoutDelegation,
+			setupMocks: func(m *MockStorage) {
+				h := newAddrMockHelper(ctx, m)
+				h.expectAssetGroup(
+					assetWithoutDelegation, assetGroup, nil,
+				)
+				h.expectAssetMeta(
+					assetWithoutDelegation,
+					metaWithoutDelegation, nil,
+				)
+			},
+			expectedHas: false,
+		},
+
+		// If we can't fetch the delegation key locator, we return an
+		// error.
+		{
+			name:    "key locator fetch error",
+			assetID: assetWithDelegation,
+			setupMocks: func(m *MockStorage) {
+				h := newAddrMockHelper(ctx, m)
+				h.expectAssetGroup(
+					assetWithDelegation, assetGroup, nil,
+				)
+				h.expectAssetMeta(
+					assetWithDelegation, metaWithDelegation,
+					nil,
+				)
+				h.expectKeyLocator(
+					delegationPubKey, keychain.KeyLocator{},
+					errKeyFetchError,
+				)
+			},
+			expectedHas:   false,
+			expectedError: "failed to fetch delegation key locator",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			mockStorage := &MockStorage{}
+			mockKeyRing := &MockKeyRing{}
+
+			// For each test, we'll create a new Book instance,
+			// then set up our mock expectations.
+			book := NewBook(BookConfig{
+				Store:        mockStorage,
+				KeyRing:      mockKeyRing,
+				Chain:        TestNet3Tap,
+				StoreTimeout: time.Second,
+			})
+			tt.setupMocks(mockStorage)
+
+			// The bulk of the interaction is handled by our mocks,
+			// so we'll cal with the args, then assert our
+			// expectations.
+			hasDelegation, err := book.HasDelegationKey(
+				ctx, tt.assetID,
+			)
+			if tt.expectedError != "" {
+				require.Error(t, err)
+				require.Contains(
+					t, err.Error(), tt.expectedError,
+				)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, tt.expectedHas, hasDelegation)
+
+			// Verify expectations
+			mockStorage.AssertExpectations(t)
+			mockKeyRing.AssertExpectations(t)
+		})
+	}
 }
 
 // TestBook_QueryAssetInfo tests that we can query asset info, while mocking the
@@ -248,6 +529,9 @@ func (m *MockStorage) QueryAssetGroupByID(ctx context.Context,
 	id asset.ID) (*asset.AssetGroup, error) {
 
 	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).(*asset.AssetGroup), args.Error(1)
 }
 
@@ -269,6 +553,9 @@ func (m *MockStorage) FetchAssetMetaForAsset(ctx context.Context,
 	assetID asset.ID) (*proof.MetaReveal, error) {
 
 	args := m.Called(ctx, assetID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).(*proof.MetaReveal), args.Error(1)
 }
 
@@ -298,6 +585,16 @@ func (m *MockStorage) InsertScriptKey(ctx context.Context,
 
 	args := m.Called(ctx, scriptKey, keyType)
 	return args.Error(0)
+}
+
+func (m *MockStorage) FetchInternalKeyLocator(ctx context.Context,
+	rawKey *btcec.PublicKey) (keychain.KeyLocator, error) {
+
+	args := m.Called(ctx, rawKey)
+	if args.Get(0) == nil {
+		return keychain.KeyLocator{}, args.Error(1)
+	}
+	return args.Get(0).(keychain.KeyLocator), args.Error(1)
 }
 
 // MockAssetSyncer is a mock implementation of the AssetSyncer interface.
