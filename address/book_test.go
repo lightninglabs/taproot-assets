@@ -198,9 +198,9 @@ func (m *MockStorage) AddrByScriptKeyAndVersion(ctx context.Context,
 
 func (m *MockStorage) GetOrCreateEvent(ctx context.Context, status Status,
 	addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
-	outputIdx uint32) (*Event, error) {
+	outputIdx uint32, outputs map[asset.ID]AssetOutput) (*Event, error) {
 
-	args := m.Called(ctx, status, addr, walletTx, outputIdx)
+	args := m.Called(ctx, status, addr, walletTx, outputIdx, outputs)
 	return args.Get(0).(*Event), args.Error(1)
 }
 

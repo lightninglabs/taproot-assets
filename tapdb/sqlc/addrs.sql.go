@@ -13,13 +13,16 @@ import (
 
 const FetchAddrEvent = `-- name: FetchAddrEvent :one
 SELECT
-    creation_time, status, asset_proof_id, asset_id,
+    creation_time,
+    status,
     chain_txns.txid as txid,
     chain_txns.block_height as confirmation_height,
     chain_txn_output_index as output_index,
     managed_utxos.amt_sats as amt_sats,
     managed_utxos.tapscript_sibling as tapscript_sibling,
-    internal_keys.raw_key as internal_key
+    internal_keys.raw_key as internal_key,
+    (SELECT count(*) FROM addr_event_proofs ap 
+     WHERE ap.addr_event_id = addr_events.id) AS num_proofs
 FROM addr_events
 LEFT JOIN chain_txns
        ON addr_events.chain_txn_id = chain_txns.txn_id
@@ -27,20 +30,19 @@ LEFT JOIN managed_utxos
        ON addr_events.managed_utxo_id = managed_utxos.utxo_id
 LEFT JOIN internal_keys
        ON managed_utxos.internal_key_id = internal_keys.key_id
-WHERE id = $1
+WHERE addr_events.id = $1
 `
 
 type FetchAddrEventRow struct {
 	CreationTime       time.Time
 	Status             int16
-	AssetProofID       sql.NullInt64
-	AssetID            sql.NullInt64
 	Txid               []byte
 	ConfirmationHeight sql.NullInt32
 	OutputIndex        int32
 	AmtSats            sql.NullInt64
 	TapscriptSibling   []byte
 	InternalKey        []byte
+	NumProofs          int64
 }
 
 func (q *Queries) FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventRow, error) {
@@ -49,14 +51,13 @@ func (q *Queries) FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventR
 	err := row.Scan(
 		&i.CreationTime,
 		&i.Status,
-		&i.AssetProofID,
-		&i.AssetID,
 		&i.Txid,
 		&i.ConfirmationHeight,
 		&i.OutputIndex,
 		&i.AmtSats,
 		&i.TapscriptSibling,
 		&i.InternalKey,
+		&i.NumProofs,
 	)
 	return i, err
 }
@@ -68,13 +69,17 @@ WITH target_addr(addr_id) AS (
     WHERE addrs.taproot_output_key = $1
 )
 SELECT
-    addr_events.id, creation_time, status, asset_proof_id, asset_id,
+    addr_events.id,
+    creation_time,
+    status,
     chain_txns.txid as txid,
     chain_txns.block_height as confirmation_height,
     chain_txn_output_index as output_index,
     managed_utxos.amt_sats as amt_sats,
     managed_utxos.tapscript_sibling as tapscript_sibling,
-    internal_keys.raw_key as internal_key
+    internal_keys.raw_key as internal_key,
+    (SELECT count(*) FROM addr_event_proofs ap
+     WHERE ap.addr_event_id = addr_events.id) AS num_proofs
 FROM addr_events
 JOIN target_addr
   ON addr_events.addr_id = target_addr.addr_id
@@ -98,14 +103,13 @@ type FetchAddrEventByAddrKeyAndOutpointRow struct {
 	ID                 int64
 	CreationTime       time.Time
 	Status             int16
-	AssetProofID       sql.NullInt64
-	AssetID            sql.NullInt64
 	Txid               []byte
 	ConfirmationHeight sql.NullInt32
 	OutputIndex        int32
 	AmtSats            sql.NullInt64
 	TapscriptSibling   []byte
 	InternalKey        []byte
+	NumProofs          int64
 }
 
 func (q *Queries) FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg FetchAddrEventByAddrKeyAndOutpointParams) (FetchAddrEventByAddrKeyAndOutpointRow, error) {
@@ -115,16 +119,112 @@ func (q *Queries) FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg Fe
 		&i.ID,
 		&i.CreationTime,
 		&i.Status,
-		&i.AssetProofID,
-		&i.AssetID,
 		&i.Txid,
 		&i.ConfirmationHeight,
 		&i.OutputIndex,
 		&i.AmtSats,
 		&i.TapscriptSibling,
 		&i.InternalKey,
+		&i.NumProofs,
 	)
 	return i, err
+}
+
+const FetchAddrEventOutputs = `-- name: FetchAddrEventOutputs :many
+SELECT
+    addr_event_outputs.amount,
+    addr_event_outputs.asset_id,
+    addr_event_outputs.script_key_id,
+    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type,
+    internal_keys.key_id, internal_keys.raw_key, internal_keys.key_family, internal_keys.key_index
+FROM addr_event_outputs
+JOIN script_keys
+    ON addr_event_outputs.script_key_id = script_keys.script_key_id
+JOIN internal_keys
+    ON script_keys.internal_key_id = internal_keys.key_id
+WHERE addr_event_outputs.addr_event_id = $1
+`
+
+type FetchAddrEventOutputsRow struct {
+	Amount      int64
+	AssetID     []byte
+	ScriptKeyID int64
+	ScriptKey   ScriptKey
+	InternalKey InternalKey
+}
+
+func (q *Queries) FetchAddrEventOutputs(ctx context.Context, addrEventID int64) ([]FetchAddrEventOutputsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchAddrEventOutputs, addrEventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAddrEventOutputsRow
+	for rows.Next() {
+		var i FetchAddrEventOutputsRow
+		if err := rows.Scan(
+			&i.Amount,
+			&i.AssetID,
+			&i.ScriptKeyID,
+			&i.ScriptKey.ScriptKeyID,
+			&i.ScriptKey.InternalKeyID,
+			&i.ScriptKey.TweakedScriptKey,
+			&i.ScriptKey.Tweak,
+			&i.ScriptKey.KeyType,
+			&i.InternalKey.KeyID,
+			&i.InternalKey.RawKey,
+			&i.InternalKey.KeyFamily,
+			&i.InternalKey.KeyIndex,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const FetchAddrEventProofs = `-- name: FetchAddrEventProofs :many
+SELECT
+    addr_event_proofs.asset_proof_id,
+    asset_proofs.proof_file
+FROM addr_event_proofs
+JOIN asset_proofs
+    ON addr_event_proofs.asset_proof_id = asset_proofs.proof_id
+WHERE addr_event_proofs.addr_event_id = $1
+`
+
+type FetchAddrEventProofsRow struct {
+	AssetProofID int64
+	ProofFile    []byte
+}
+
+func (q *Queries) FetchAddrEventProofs(ctx context.Context, addrEventID int64) ([]FetchAddrEventProofsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchAddrEventProofs, addrEventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAddrEventProofsRow
+	for rows.Next() {
+		var i FetchAddrEventProofsRow
+		if err := rows.Scan(&i.AssetProofID, &i.ProofFile); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const FetchAddrs = `-- name: FetchAddrs :many
@@ -484,15 +584,13 @@ WITH target_addr(addr_id) AS (
 )
 INSERT INTO addr_events (
     creation_time, addr_id, status, chain_txn_id, chain_txn_output_index,
-    managed_utxo_id, asset_proof_id, asset_id
+    managed_utxo_id
 ) VALUES (
     $3, (SELECT addr_id FROM target_addr), $4,
-    (SELECT txn_id FROM target_chain_txn), $5, $6, $7, $8
+    (SELECT txn_id FROM target_chain_txn), $5, $6
 )
 ON CONFLICT (addr_id, chain_txn_id, chain_txn_output_index)
-    DO UPDATE SET status = EXCLUDED.status,
-                  asset_proof_id = COALESCE(EXCLUDED.asset_proof_id, addr_events.asset_proof_id),
-                  asset_id = COALESCE(EXCLUDED.asset_id, addr_events.asset_id)
+    DO UPDATE SET status = EXCLUDED.status
 RETURNING id
 `
 
@@ -503,8 +601,6 @@ type UpsertAddrEventParams struct {
 	Status              int16
 	ChainTxnOutputIndex int32
 	ManagedUtxoID       int64
-	AssetProofID        sql.NullInt64
-	AssetID             sql.NullInt64
 }
 
 func (q *Queries) UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int64, error) {
@@ -515,9 +611,66 @@ func (q *Queries) UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams
 		arg.Status,
 		arg.ChainTxnOutputIndex,
 		arg.ManagedUtxoID,
-		arg.AssetProofID,
-		arg.AssetID,
 	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const UpsertAddrEventOutput = `-- name: UpsertAddrEventOutput :one
+INSERT INTO addr_event_outputs (
+    addr_event_id, amount, asset_id, script_key_id
+) VALUES (
+    $1, $2, $3, $4
+)
+ON CONFLICT (addr_event_id, asset_id) DO UPDATE
+SET
+    -- We allow the amount and script key to be updated.
+    amount = EXCLUDED.amount,
+    script_key_id = EXCLUDED.script_key_id
+RETURNING id
+`
+
+type UpsertAddrEventOutputParams struct {
+	AddrEventID int64
+	Amount      int64
+	AssetID     []byte
+	ScriptKeyID int64
+}
+
+func (q *Queries) UpsertAddrEventOutput(ctx context.Context, arg UpsertAddrEventOutputParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertAddrEventOutput,
+		arg.AddrEventID,
+		arg.Amount,
+		arg.AssetID,
+		arg.ScriptKeyID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const UpsertAddrEventProof = `-- name: UpsertAddrEventProof :one
+INSERT INTO addr_event_proofs (
+    addr_event_id, asset_proof_id, asset_id_fk
+) VALUES (
+    $1, $2, $3
+)
+ON CONFLICT (addr_event_id, asset_proof_id) DO UPDATE
+SET
+    -- We allow the asset_id_fk to be updated.
+    asset_id_fk = EXCLUDED.asset_id_fk
+RETURNING id
+`
+
+type UpsertAddrEventProofParams struct {
+	AddrEventID  int64
+	AssetProofID int64
+	AssetIDFk    sql.NullInt64
+}
+
+func (q *Queries) UpsertAddrEventProof(ctx context.Context, arg UpsertAddrEventProofParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertAddrEventProof, arg.AddrEventID, arg.AssetProofID, arg.AssetIDFk)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
