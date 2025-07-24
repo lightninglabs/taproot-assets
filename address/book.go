@@ -727,10 +727,10 @@ func (b *Book) LastEventHeightByVersion(ctx context.Context,
 // then the status and transaction information is updated instead.
 func (b *Book) GetOrCreateEvent(ctx context.Context, status Status,
 	addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
-	outputIdx uint32) (*Event, error) {
+	outputIdx uint32, outputs map[asset.ID]AssetOutput) (*Event, error) {
 
 	return b.cfg.Store.GetOrCreateEvent(
-		ctx, status, addr, walletTx, outputIdx,
+		ctx, status, addr, walletTx, outputIdx, outputs,
 	)
 }
 
