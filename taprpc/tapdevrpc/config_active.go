@@ -4,6 +4,6 @@ package tapdevrpc
 
 import "google.golang.org/grpc"
 
-func RegisterGrpcServer(grpcServer *grpc.Server, srv TapDevServer) {
-	RegisterTapDevServer(grpcServer, srv)
+func RegisterGrpcServer(registrar grpc.ServiceRegistrar, srv TapDevServer) {
+	RegisterTapDevServer(registrar, srv)
 }

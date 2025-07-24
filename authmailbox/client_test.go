@@ -82,7 +82,8 @@ func (h *serverHarness) start(t *testing.T) {
 	}
 	h.grpcServer = grpc.NewServer(serverOpts...)
 
-	h.srv = NewServer(h.cfg)
+	h.srv = NewServer()
+	require.NoError(t, h.srv.Start(h.cfg))
 	mboxrpc.RegisterMailboxServer(h.grpcServer, h.srv)
 
 	cleanup, err := test.StartMockGRPCServerWithAddr(

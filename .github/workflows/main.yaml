@@ -21,7 +21,7 @@ env:
 
   GO_VERSION: '1.23.9'
   
-  LITD_ITEST_BRANCH: 'lnd-19-2'
+  LITD_ITEST_BRANCH: 'tapd-main-branch'
 
 jobs:
   #######################

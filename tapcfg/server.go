@@ -771,7 +771,10 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		LetsEncryptDomain:          cfg.RpcConf.LetsEncryptDomain,
 	}
 
-	return tap.NewServer(&serverCfg.ChainParams, serverCfg), nil
+	srv := tap.NewServer(&serverCfg.ChainParams)
+	srv.UpdateConfig(serverCfg)
+
+	return srv, nil
 }
 
 // ConfigureSubServer updates a Taproot Asset server with the given CLI config.
