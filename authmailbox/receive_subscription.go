@@ -333,7 +333,7 @@ func (s *receiveSubscription) readIncomingStream(ctx context.Context) {
 		// us no choice but to abort.
 		case err != nil:
 			// Context canceled is the error that signals we closed
-			// the stream, most likely because the trader is
+			// the stream, most likely because the client is
 			// shutting down.
 			if fn.IsCanceled(err) {
 				return
