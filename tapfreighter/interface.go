@@ -78,6 +78,15 @@ type AssetBurn struct {
 
 	// AnchorTxid is the txid of the transaction this burn is anchored to.
 	AnchorTxid chainhash.Hash
+
+	// ScriptKey is the script key of the asset that got burnt.
+	ScriptKey *asset.ScriptKey
+
+	// OutPoint is the outpoint of the asset that got burnt.
+	OutPoint wire.OutPoint
+
+	// Proof is the proof that the asset was burnt.
+	Proof *proof.Proof
 }
 
 // String returns the string representation of the commitment constraints.
