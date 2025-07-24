@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	taprootassets "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -77,7 +78,7 @@ var assetsCommands = []cli.Command{
 	},
 }
 
-var (
+const (
 	assetTypeName                 = "type"
 	assetTagName                  = "name"
 	assetSupplyName               = "supply"
@@ -903,7 +904,16 @@ var sendAssetsCommand = cli.Command{
 		cli.StringSliceFlag{
 			Name: addrName,
 			Usage: "addr to send to; can be specified multiple " +
-				"times to send to multiple addresses at once",
+				"times to send to multiple addresses of the " +
+				"same asset ID or group at once",
+		},
+		cli.StringSliceFlag{
+			Name: addrWithAmountName,
+			Usage: "addr to send to with an amount; expected " +
+				"format is '--addr_with_amount " +
+				"<addr>:<amount>', can be specified multiple " +
+				"times to send to multiple addresses of the " +
+				"same asset ID or group at once",
 		},
 		cli.Uint64Flag{
 			Name: feeRateName,
@@ -922,7 +932,10 @@ var sendAssetsCommand = cli.Command{
 
 func sendAssets(ctx *cli.Context) error {
 	addrs := ctx.StringSlice(addrName)
-	if ctx.NArg() != 0 || ctx.NumFlags() == 0 || len(addrs) == 0 {
+	addrsWithAmounts := ctx.StringSlice(addrWithAmountName)
+	if ctx.NArg() != 0 || ctx.NumFlags() == 0 ||
+		(len(addrs) == 0 && len(addrsWithAmounts) == 0) {
+
 		return cli.ShowSubcommandHelp(ctx)
 	}
 
@@ -935,12 +948,77 @@ func sendAssets(ctx *cli.Context) error {
 		return err
 	}
 
+	var (
+		network     = ctx.GlobalString("network")
+		chainParams = address.ParamsForChain(network)
+		rpcAddrs    []*taprpc.AddressWithAmount
+	)
+	for _, addrStr := range addrs {
+		addr, err := address.DecodeAddress(addrStr, &chainParams)
+		if err != nil {
+			return fmt.Errorf("unable to decode address %s: %w",
+				addrStr, err)
+		}
+
+		rpcAddrs = append(rpcAddrs, &taprpc.AddressWithAmount{
+			TapAddr: addrStr,
+			Amount:  addr.Amount,
+		})
+	}
+	for _, addrWithAmount := range addrsWithAmounts {
+		parts := strings.Split(addrWithAmount, ":")
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid address with amount: %s, "+
+				"expected format is '<addr>:<amount>'",
+				addrWithAmount)
+		}
+
+		addrStr := parts[0]
+		userAmount, err := strconv.ParseUint(parts[1], 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid amount in address with "+
+				"amount: %s, expected a valid uint64", parts[1])
+		}
+
+		addr, err := address.DecodeAddress(addrStr, &chainParams)
+		if err != nil {
+			return fmt.Errorf("unable to decode address %s: %w",
+				addrStr, err)
+		}
+
+		switch {
+		// Only V2 addresses allow overriding the amount to send.
+		case userAmount > 0 && addr.Version != address.V2:
+			return fmt.Errorf("address %s is not a V2 address, "+
+				"cannot override the amount to send", addrStr)
+
+		// Make sure the user isn't trying to override the amount for
+		// an address that doesn't allow it.
+		case userAmount > 0 && addr.Amount > 0:
+			return fmt.Errorf("address %s has an amount of %d "+
+				"defined, cannot override with %d",
+				addrStr, addr.Amount, userAmount)
+
+		// Also make sure the user did specify an amount for an address
+		// that requires it.
+		case userAmount == 0 && addr.Amount == 0:
+			return fmt.Errorf("address %s does not have an amount "+
+				"defined, must specify an amount to send",
+				addrStr)
+		}
+
+		rpcAddrs = append(rpcAddrs, &taprpc.AddressWithAmount{
+			TapAddr: addrStr,
+			Amount:  userAmount,
+		})
+	}
+
 	resp, err := client.SendAsset(ctxc, &taprpc.SendAssetRequest{
-		TapAddrs: addrs,
-		FeeRate:  feeRate,
+		FeeRate: feeRate,
 		SkipProofCourierPingCheck: ctx.Bool(
 			skipProofCourierPingCheckName,
 		),
+		AddressesWithAmounts: rpcAddrs,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to send assets: %w", err)
