@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/protofsm"
 )
@@ -268,6 +269,35 @@ func (m *MultiStateMachineManager) SendEventSync(ctx context.Context,
 		return err
 	}
 	return event.WaitForDone(ctx)
+}
+
+// SendMintEvent sends a mint event to the supply commitment state machine.
+//
+// NOTE: This implements the tapgarden.MintSupplyCommitter interface.
+func (m *MultiStateMachineManager) SendMintEvent(ctx context.Context,
+	assetSpec asset.Specifier, leafKey universe.UniqueLeafKey,
+	issuanceProof universe.Leaf, mintBlockHeight uint32) error {
+
+	mintEvent := &NewMintEvent{
+		LeafKey:       leafKey,
+		IssuanceProof: issuanceProof,
+		MintHeight:    mintBlockHeight,
+	}
+
+	return m.SendEventSync(ctx, assetSpec, mintEvent)
+}
+
+// SendBurnEvent sends a burn event to the supply commitment state machine.
+//
+// NOTE: This implements the tapfreighter.BurnSupplyCommitter interface.
+func (m *MultiStateMachineManager) SendBurnEvent(ctx context.Context,
+	assetSpec asset.Specifier, burnLeaf universe.BurnLeaf) error {
+
+	burnEvent := &NewBurnEvent{
+		BurnLeaf: burnLeaf,
+	}
+
+	return m.SendEventSync(ctx, assetSpec, burnEvent)
 }
 
 // CanHandle determines if the state machine associated with the given asset
