@@ -40,6 +40,11 @@ const (
 	// endpoints to deliver proofs.
 	UniverseRpcCourierType = "universerpc"
 
+	// AuthMailboxUniRpcCourierType is a courier that uses the authmailbox
+	// protocol to transmit send specific information to the receiver and a
+	// universe RPC endpoint to deliver the actual proofs.
+	AuthMailboxUniRpcCourierType = "authmailbox+universerpc"
+
 	// MockCourierType is a mock courier that can be used for testing
 	// purposes.
 	MockCourierType = "mockcourier"
@@ -197,7 +202,12 @@ func (u *URLDispatch) NewCourier(ctx context.Context, addr *url.URL,
 			lazyConnect,
 		)
 
-	case UniverseRpcCourierType:
+	// The auth mailbox courier is a universe RPC courier that also
+	// interacts with an auth mailbox service for transferring send
+	// fragments. But the proof receive and delivery is done via the
+	// universe RPC service, so we instantiate the same courier and just
+	// handle the send fragment fetching differently.
+	case UniverseRpcCourierType, AuthMailboxUniRpcCourierType:
 		return NewUniverseRpcCourier(
 			ctx, u.cfg.UniverseRpcCfg, u.cfg.TransferLog,
 			u.cfg.LocalArchive, addr, lazyConnect,
@@ -242,7 +252,9 @@ func ValidateCourierAddress(addr *url.URL) error {
 	}
 
 	switch addr.Scheme {
-	case HashmailCourierType, UniverseRpcCourierType, MockCourierType:
+	case HashmailCourierType, UniverseRpcCourierType, MockCourierType,
+		AuthMailboxUniRpcCourierType:
+
 		// Valid and known courier address protocol.
 		return nil
 
