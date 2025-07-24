@@ -566,6 +566,14 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
 		groupWitness = assetGroup.Witness
 	}
 
+	// For V2 addresses, we need to derive the script key individually for
+	// each asset piece/UTXO that's being sent. To be able to do that, we
+	// encode the bare/raw internal key instead of the BIP-0086 tweaked
+	// Taproot output key as the address's script key.
+	if addrVersion == V2 {
+		scriptKey.PubKey = scriptKey.TweakedScriptKey.RawKey.PubKey
+	}
+
 	baseAddr, err := New(
 		addrVersion, *assetGroup.Genesis, groupKey, groupWitness,
 		*scriptKey.PubKey, *internalKeyDesc.PubKey, amount,

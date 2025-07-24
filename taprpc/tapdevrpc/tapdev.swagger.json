@@ -149,7 +149,7 @@
         "asset_id": {
           "type": "string",
           "format": "byte",
-          "description": "The asset ID that uniquely identifies the asset."
+          "description": "The asset ID that uniquely identifies the asset. This can be all zeroes\nfor V2 addresses that have a group key set."
         },
         "asset_type": {
           "$ref": "#/definitions/taprpcAssetType",
@@ -158,12 +158,12 @@
         "amount": {
           "type": "string",
           "format": "uint64",
-          "description": "The total amount of the asset stored in this Taproot Asset UTXO."
+          "description": "The total amount of the asset stored in this Taproot Asset UTXO. The\namount is allowed to be unset for V2 addresses, where the sender will\npost a fragment containing the asset IDs and amounts to the proof\ncourier's auth mailbox."
         },
         "group_key": {
           "type": "string",
           "format": "byte",
-          "title": "The group key of the asset (if it exists)"
+          "description": "The group key of the asset group to receive assets for. If this field\nis set, then any asset of the group can be sent to this address. Can only\nbe specified for V2 addresses. If this field is set, the asset_id\nfield must be empty."
         },
         "script_key": {
           "type": "string",
@@ -187,7 +187,7 @@
         },
         "proof_courier_addr": {
           "type": "string",
-          "description": "The address of the proof courier service used in proof transfer."
+          "description": "The address of the proof courier service used in proof transfer. For V2\naddresses the proof courier address is mandatory and must be a valid auth\nmailbox address (authmailbox+universerpc://host:port)."
         },
         "asset_version": {
           "$ref": "#/definitions/taprpcAssetVersion",
@@ -204,10 +204,11 @@
       "enum": [
         "ADDR_VERSION_UNSPECIFIED",
         "ADDR_VERSION_V0",
-        "ADDR_VERSION_V1"
+        "ADDR_VERSION_V1",
+        "ADDR_VERSION_V2"
       ],
       "default": "ADDR_VERSION_UNSPECIFIED",
-      "description": " - ADDR_VERSION_UNSPECIFIED: ADDR_VERSION_UNSPECIFIED is the default value for an address version in\nan RPC message. It is unmarshalled to the latest address version.\n - ADDR_VERSION_V0: ADDR_VERSION_V0 is the initial address version.\n - ADDR_VERSION_V1: ADDR_VERSION_V1 is the address version that uses V2 Taproot Asset\ncommitments."
+      "description": " - ADDR_VERSION_UNSPECIFIED: ADDR_VERSION_UNSPECIFIED is the default value for an address version in\nan RPC message. It is unmarshalled to the latest address version.\n - ADDR_VERSION_V0: ADDR_VERSION_V0 is the initial address version.\n - ADDR_VERSION_V1: ADDR_VERSION_V1 is the address version that uses V2 Taproot Asset\ncommitments.\n - ADDR_VERSION_V2: ADDR_VERSION_V2 is the address version that supports sending grouped\nassets and require the new auth mailbox proof courier address format."
     },
     "taprpcAssetType": {
       "type": "string",

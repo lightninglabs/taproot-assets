@@ -55,7 +55,7 @@ const (
 	// proofCourierCheckTimeout is the amount of time we'll wait before we
 	// time out an attempt to connect to a proof courier when checking the
 	// configured address.
-	proofCourierCheckTimeout = time.Second * 5
+	proofCourierCheckTimeout = time.Second * 30
 
 	// maxNumAssetIDs is the maximum number of fungible asset pieces (asset
 	// IDs) that can be committed to a single channel. The number needs to
