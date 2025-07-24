@@ -8,7 +8,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -197,10 +196,9 @@ func (m *MockStorage) AddrByScriptKeyAndVersion(ctx context.Context,
 }
 
 func (m *MockStorage) GetOrCreateEvent(ctx context.Context, status Status,
-	addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
-	outputIdx uint32, outputs map[asset.ID]AssetOutput) (*Event, error) {
+	source EventSource) (*Event, error) {
 
-	args := m.Called(ctx, status, addr, walletTx, outputIdx, outputs)
+	args := m.Called(ctx, status, source)
 	return args.Get(0).(*Event), args.Error(1)
 }
 

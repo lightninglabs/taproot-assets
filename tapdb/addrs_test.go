@@ -161,6 +161,19 @@ func assertEqualAddrEvent(t *testing.T, expected, actual address.Event) {
 	require.Equal(t, expectedTime.Unix(), actualTime.Unix())
 }
 
+// newEventSource creates a new address event source from the given address,
+// transaction and output index.
+func newEventSource(t *testing.T, addr *address.AddrWithKeyInfo,
+	txn *lndclient.Transaction, outputIndex uint32) address.EventSource {
+
+	src, err := address.NewSourceFromWalletTx(
+		addr, txn, outputIndex, randOutputs(t),
+	)
+	require.NoError(t, err)
+
+	return src
+}
+
 // TestAddressInsertion tests that we're always able to retrieve an address we
 // inserted into the DB.
 func TestAddressInsertion(t *testing.T) {
@@ -443,7 +456,8 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	outputIndex := rand.Intn(len(txn.Tx.TxOut))
 
 	_, err = addrBook.GetOrCreateEvent(
-		ctx, address.Status(4), addr, txn, uint32(outputIndex), nil,
+		ctx, address.Status(4),
+		newEventSource(t, addr, txn, uint32(outputIndex)),
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "constraint")
@@ -499,8 +513,8 @@ func TestAddrEventCreation(t *testing.T) {
 		outputIndex := rand.Intn(len(txns[i].Tx.TxOut))
 
 		event, err := addrBook.GetOrCreateEvent(
-			ctx, address.StatusTransactionDetected, addr, txns[i],
-			uint32(outputIndex), randOutputs(t),
+			ctx, address.StatusTransactionDetected,
+			newEventSource(t, addr, txns[i], uint32(outputIndex)),
 		)
 		require.NoError(t, err)
 
@@ -531,10 +545,13 @@ func TestAddrEventCreation(t *testing.T) {
 	// If we try to create the same events again, we should just get the
 	// exact same event back.
 	for idx := range events {
+		src := newEventSource(
+			t, events[idx].Addr, txns[idx],
+			events[idx].Outpoint.Index,
+		)
+		src.Outputs = events[idx].Outputs
 		actual, err := addrBook.GetOrCreateEvent(
-			ctx, address.StatusTransactionDetected,
-			events[idx].Addr, txns[idx], events[idx].Outpoint.Index,
-			nil,
+			ctx, address.StatusTransactionDetected, src,
 		)
 		require.NoError(t, err)
 
@@ -548,11 +565,15 @@ func TestAddrEventCreation(t *testing.T) {
 		txn := txns[idx]
 		confirmTx(txns[idx])
 		events[idx].Status = address.StatusTransactionConfirmed
-		events[idx].ConfirmationHeight = uint32(txns[idx].BlockHeight)
+		events[idx].ConfirmationHeight = uint32(txn.BlockHeight)
+
+		src := newEventSource(
+			t, event.Addr, txns[idx], event.Outpoint.Index,
+		)
+		src.Outputs = event.Outputs
 
 		actual, err := addrBook.GetOrCreateEvent(
-			ctx, address.StatusTransactionConfirmed,
-			event.Addr, txns[idx], events[idx].Outpoint.Index, nil,
+			ctx, address.StatusTransactionConfirmed, src,
 		)
 		require.NoError(t, err)
 
@@ -616,8 +637,8 @@ func TestAddressEventQuery(t *testing.T) {
 		// Make sure we use all states at least once.
 		status := address.Status(i % int(address.StatusCompleted+1))
 		event, err := addrBook.GetOrCreateEvent(
-			ctx, status, addr, txn, uint32(outputIndex),
-			randOutputs(t),
+			ctx, status,
+			newEventSource(t, addr, txn, uint32(outputIndex)),
 		)
 		require.NoError(t, err)
 		require.EqualValues(t, i+1, event.ID)
@@ -884,7 +905,8 @@ func TestQueryAddrEvents(t *testing.T) {
 
 	tx := randWalletTx()
 	event, err := addrBook.GetOrCreateEvent(
-		ctx, address.StatusTransactionDetected, addr, tx, 0, nil,
+		ctx, address.StatusTransactionDetected,
+		newEventSource(t, addr, tx, 0),
 	)
 	require.NoError(t, err)
 
