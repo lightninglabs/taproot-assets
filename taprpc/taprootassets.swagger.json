@@ -1315,6 +1315,20 @@
       "default": "ADDR_VERSION_UNSPECIFIED",
       "description": " - ADDR_VERSION_UNSPECIFIED: ADDR_VERSION_UNSPECIFIED is the default value for an address version in\nan RPC message. It is unmarshalled to the latest address version.\n - ADDR_VERSION_V0: ADDR_VERSION_V0 is the initial address version.\n - ADDR_VERSION_V1: ADDR_VERSION_V1 is the address version that uses V2 Taproot Asset\ncommitments.\n - ADDR_VERSION_V2: ADDR_VERSION_V2 is the address version that supports sending grouped\nassets and require the new auth mailbox proof courier address format."
     },
+    "taprpcAddressWithAmount": {
+      "type": "object",
+      "properties": {
+        "tap_addr": {
+          "type": "string",
+          "description": "The TAP address to send assets to."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of asset units to send to the address. This is only used for\nre-usable V2 addresses that don't specify an amount in the address itself\nand allow the sender to specify the amount on each send attempt. For V0\nor V1 addresses, this can be left empty (zero) as the amount is taken\nfrom the address itself."
+        }
+      }
+    },
     "taprpcAnchorInfo": {
       "type": "object",
       "properties": {
@@ -2559,12 +2573,12 @@
           "items": {
             "type": "string"
           },
-          "description": "The list of Taproot Asset addresses to send the asset to."
+          "description": "The list of TAP addresses to send assets to. The amount to send to each\naddress is determined by the amount specified in the address itself. For\nV2 addresses that are allowed to not specify an amount, use the\naddresses_with_amounts list to specify the amount to send to each\naddress. The tap_addrs and addresses_with_amounts lists are mutually\nexclusive, meaning that if addresses_with_amounts is set, then tap_addrs\nmust be empty, and vice versa."
         },
         "fee_rate": {
           "type": "integer",
           "format": "int64",
-          "description": "The optional fee rate to use for the minting transaction, in sat/kw.\n\nTODO(roasbeef): maybe in future add details re type of ProofCourier or\n w/e"
+          "description": "The optional fee rate to use for the minting transaction, in sat/kw."
         },
         "label": {
           "type": "string",
@@ -2573,6 +2587,14 @@
         "skip_proof_courier_ping_check": {
           "type": "boolean",
           "description": "A flag to skip the proof courier ping check. This is useful for\ntesting purposes and for forced transfers when the proof courier\nis not immediately available."
+        },
+        "addresses_with_amounts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/taprpcAddressWithAmount"
+          },
+          "description": "A list of addresses and the amounts of asset units to send to them. This\nmust be used for V2 TAP addresses that don't specify an amount in the\naddress itself and allow the sender to choose the amount to send. The\ntap_addrs and addresses_with_amounts lists are mutually exclusive,\nmeaning that if addresses_with_amounts is set, then tap_addrs must be\nempty, and vice versa."
         }
       }
     },
