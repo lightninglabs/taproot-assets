@@ -29,7 +29,6 @@ SELECT
     m.receiver_key,
     m.encrypted_payload,
     m.arrival_timestamp,
-    m.expiry_block_height,
     op.block_height
 FROM authmailbox_messages m
 JOIN tx_proof_claimed_outpoints op
@@ -38,13 +37,12 @@ WHERE id = $1
 `
 
 type FetchAuthMailboxMessageRow struct {
-	ID                int64
-	ClaimedOutpoint   []byte
-	ReceiverKey       []byte
-	EncryptedPayload  []byte
-	ArrivalTimestamp  int64
-	ExpiryBlockHeight sql.NullInt32
-	BlockHeight       int32
+	ID               int64
+	ClaimedOutpoint  []byte
+	ReceiverKey      []byte
+	EncryptedPayload []byte
+	ArrivalTimestamp int64
+	BlockHeight      int32
 }
 
 func (q *Queries) FetchAuthMailboxMessage(ctx context.Context, id int64) (FetchAuthMailboxMessageRow, error) {
@@ -56,7 +54,6 @@ func (q *Queries) FetchAuthMailboxMessage(ctx context.Context, id int64) (FetchA
 		&i.ReceiverKey,
 		&i.EncryptedPayload,
 		&i.ArrivalTimestamp,
-		&i.ExpiryBlockHeight,
 		&i.BlockHeight,
 	)
 	return i, err
@@ -69,7 +66,6 @@ SELECT
     m.receiver_key,
     m.encrypted_payload,
     m.arrival_timestamp,
-    m.expiry_block_height,
     op.block_height
 FROM authmailbox_messages m
 JOIN tx_proof_claimed_outpoints op
@@ -78,13 +74,12 @@ WHERE m.claimed_outpoint = $1
 `
 
 type FetchAuthMailboxMessageByOutpointRow struct {
-	ID                int64
-	ClaimedOutpoint   []byte
-	ReceiverKey       []byte
-	EncryptedPayload  []byte
-	ArrivalTimestamp  int64
-	ExpiryBlockHeight sql.NullInt32
-	BlockHeight       int32
+	ID               int64
+	ClaimedOutpoint  []byte
+	ReceiverKey      []byte
+	EncryptedPayload []byte
+	ArrivalTimestamp int64
+	BlockHeight      int32
 }
 
 func (q *Queries) FetchAuthMailboxMessageByOutpoint(ctx context.Context, claimedOutpoint []byte) (FetchAuthMailboxMessageByOutpointRow, error) {
@@ -96,7 +91,6 @@ func (q *Queries) FetchAuthMailboxMessageByOutpoint(ctx context.Context, claimed
 		&i.ReceiverKey,
 		&i.EncryptedPayload,
 		&i.ArrivalTimestamp,
-		&i.ExpiryBlockHeight,
 		&i.BlockHeight,
 	)
 	return i, err
@@ -104,20 +98,18 @@ func (q *Queries) FetchAuthMailboxMessageByOutpoint(ctx context.Context, claimed
 
 const InsertAuthMailboxMessage = `-- name: InsertAuthMailboxMessage :one
 INSERT INTO authmailbox_messages (
-    claimed_outpoint, receiver_key, encrypted_payload, arrival_timestamp,
-                                  expiry_block_height
+    claimed_outpoint, receiver_key, encrypted_payload, arrival_timestamp
 ) VALUES (
-    $1, $2, $3, $4, $5
+    $1, $2, $3, $4
 )
 RETURNING id
 `
 
 type InsertAuthMailboxMessageParams struct {
-	ClaimedOutpoint   []byte
-	ReceiverKey       []byte
-	EncryptedPayload  []byte
-	ArrivalTimestamp  int64
-	ExpiryBlockHeight sql.NullInt32
+	ClaimedOutpoint  []byte
+	ReceiverKey      []byte
+	EncryptedPayload []byte
+	ArrivalTimestamp int64
 }
 
 func (q *Queries) InsertAuthMailboxMessage(ctx context.Context, arg InsertAuthMailboxMessageParams) (int64, error) {
@@ -126,7 +118,6 @@ func (q *Queries) InsertAuthMailboxMessage(ctx context.Context, arg InsertAuthMa
 		arg.ReceiverKey,
 		arg.EncryptedPayload,
 		arg.ArrivalTimestamp,
-		arg.ExpiryBlockHeight,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -167,7 +158,6 @@ SELECT
     m.receiver_key,
     m.encrypted_payload,
     m.arrival_timestamp,
-    m.expiry_block_height,
     op.block_height
 FROM authmailbox_messages m
 JOIN tx_proof_claimed_outpoints op
@@ -198,13 +188,12 @@ type QueryAuthMailboxMessagesParams struct {
 }
 
 type QueryAuthMailboxMessagesRow struct {
-	ID                int64
-	ClaimedOutpoint   []byte
-	ReceiverKey       []byte
-	EncryptedPayload  []byte
-	ArrivalTimestamp  int64
-	ExpiryBlockHeight sql.NullInt32
-	BlockHeight       int32
+	ID               int64
+	ClaimedOutpoint  []byte
+	ReceiverKey      []byte
+	EncryptedPayload []byte
+	ArrivalTimestamp int64
+	BlockHeight      int32
 }
 
 func (q *Queries) QueryAuthMailboxMessages(ctx context.Context, arg QueryAuthMailboxMessagesParams) ([]QueryAuthMailboxMessagesRow, error) {
@@ -227,7 +216,6 @@ func (q *Queries) QueryAuthMailboxMessages(ctx context.Context, arg QueryAuthMai
 			&i.ReceiverKey,
 			&i.EncryptedPayload,
 			&i.ArrivalTimestamp,
-			&i.ExpiryBlockHeight,
 			&i.BlockHeight,
 		); err != nil {
 			return nil, err

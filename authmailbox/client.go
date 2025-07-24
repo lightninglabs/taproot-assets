@@ -146,8 +146,7 @@ func (c *Client) Stop() error {
 // to encrypt the message, encryptedPayload is the encrypted message payload
 // and txProof is the proof of the transaction that contains the message.
 func (c *Client) SendMessage(ctx context.Context, receiverKey btcec.PublicKey,
-	encryptedPayload []byte, txProof proof.TxProof,
-	expiryBlockHeight uint32) (uint64, error) {
+	encryptedPayload []byte, txProof proof.TxProof) (uint64, error) {
 
 	if c.stopped.Load() {
 		return 0, ErrClientShutdown
@@ -164,7 +163,6 @@ func (c *Client) SendMessage(ctx context.Context, receiverKey btcec.PublicKey,
 		Proof: &mboxrpc.SendMessageRequest_TxProof{
 			TxProof: rpcProof,
 		},
-		ExpiryBlockHeight: expiryBlockHeight,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("unable to send message: %w", err)

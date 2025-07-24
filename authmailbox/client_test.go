@@ -400,7 +400,6 @@ func TestSendMessage(t *testing.T) {
 		recvKeys     []keychain.KeyDescriptor
 		sendKey      keychain.KeyDescriptor
 		msgs         [][]byte
-		expiryHeight uint32
 		expectedErrs []string
 	}{
 		{
@@ -422,36 +421,13 @@ func TestSendMessage(t *testing.T) {
 			expectedErrs: []string{ErrMessageTooLong.Error()},
 		},
 		{
-			name:         "missing expiry height",
-			txProofs:     []proof.TxProof{*txProof1},
-			recvKeys:     []keychain.KeyDescriptor{clientKey2},
-			sendKey:      clientKey1,
-			msgs:         [][]byte{[]byte("yoooo")},
-			expectedErrs: []string{"missing expiry block height"},
-		},
-		{
-			name: "expiry height too low",
-			txProofs: []proof.TxProof{
-				proofWithHeight(*txProof1, 100002),
-			},
-			recvKeys:     []keychain.KeyDescriptor{clientKey2},
-			sendKey:      clientKey1,
-			msgs:         [][]byte{[]byte("yoooo")},
-			expiryHeight: 123,
-			expectedErrs: []string{
-				"expiry block height 123 is before proof " +
-					"block height 100002",
-			},
-		},
-		{
 			name: "success",
 			txProofs: []proof.TxProof{
 				proofWithHeight(*txProof1, 100002),
 			},
-			recvKeys:     []keychain.KeyDescriptor{clientKey2},
-			sendKey:      clientKey1,
-			msgs:         [][]byte{[]byte("yoooo")},
-			expiryHeight: 100002 + 123,
+			recvKeys: []keychain.KeyDescriptor{clientKey2},
+			sendKey:  clientKey1,
+			msgs:     [][]byte{[]byte("yoooo")},
 		},
 		{
 			name: "duplicate proof",
@@ -468,7 +444,6 @@ func TestSendMessage(t *testing.T) {
 				[]byte("yoooo"),
 				[]byte("imma try again"),
 			},
-			expiryHeight: 100002 + 123,
 			expectedErrs: []string{
 				"",
 				proof.ErrTxMerkleProofExists.Error(),
@@ -492,7 +467,6 @@ func TestSendMessage(t *testing.T) {
 				[]byte("imma try again"),
 				[]byte("and again"),
 			},
-			expiryHeight: 100002 + 123,
 		},
 	}
 
@@ -524,7 +498,6 @@ func TestSendMessage(t *testing.T) {
 
 				msgID, err := client1.client.SendMessage(
 					ctx, *recvKey.PubKey, msg, txProof,
-					tc.expiryHeight,
 				)
 
 				if len(tc.expectedErrs) > 0 &&
@@ -548,7 +521,6 @@ func TestSendMessage(t *testing.T) {
 				// another message to be sent to any recipients.
 				msgIDReSend, err := client1.client.SendMessage(
 					ctx, *recvKey.PubKey, msg, txProof,
-					tc.expiryHeight,
 				)
 				require.NoError(t, err)
 
