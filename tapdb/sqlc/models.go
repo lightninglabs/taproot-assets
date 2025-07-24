@@ -167,6 +167,7 @@ type AssetTransferOutput struct {
 	RelativeLockTime         sql.NullInt32
 	ProofDeliveryComplete    sql.NullBool
 	Position                 int32
+	TapAddress               sql.NullString
 }
 
 type AssetWitness struct {

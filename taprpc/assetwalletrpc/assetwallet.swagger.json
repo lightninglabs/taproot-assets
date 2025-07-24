@@ -1191,6 +1191,14 @@
           "type": "string",
           "format": "byte",
           "description": "The asset ID of the asset that was created in this output."
+        },
+        "proof_courier_addr": {
+          "type": "string",
+          "description": "The proof courier address that was used to deliver the proof for this\noutput."
+        },
+        "tap_addr": {
+          "type": "string",
+          "description": "The Taproot Asset address that was used to create the output. This is\nonly set for new outputs for tapd versions that support the address V2\nformat. For older versions, this field will be empty."
         }
       }
     },

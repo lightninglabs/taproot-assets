@@ -305,6 +305,10 @@ type TransferOutput struct {
 	// associated with this output.
 	ProofCourierAddr []byte
 
+	// TapAddress is the encoded taproot address that this output was
+	// created for (if available).
+	TapAddress string
+
 	// ProofDeliveryComplete is a flag that indicates whether the proof
 	// delivery for this output is complete.
 	//
@@ -366,6 +370,27 @@ func (out *TransferOutput) ShouldDeliverProof() (bool, error) {
 
 	// At this point, we should deliver a proof.
 	return true, nil
+}
+
+// AssetID returns the asset ID of the transfer output. This requires the
+// proof suffix to be set, as the asset ID is encoded in the proof suffix.
+func (out *TransferOutput) AssetID() (asset.ID, error) {
+	var zero asset.ID
+	if len(out.ProofSuffix) == 0 {
+		return zero, fmt.Errorf("proof suffix not set")
+	}
+
+	var outProofAsset asset.Asset
+	err := proof.SparseDecode(
+		bytes.NewReader(out.ProofSuffix),
+		proof.AssetLeafRecord(&outProofAsset),
+	)
+	if err != nil {
+		return zero, fmt.Errorf("unable to sparse decode proof: %w",
+			err)
+	}
+
+	return outProofAsset.ID(), nil
 }
 
 // UniqueKey returns a unique key that can be used to identify the output.
