@@ -29,6 +29,13 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
+const (
+	// DefaultSendFragmentExpiryDelta is the default number of blocks that
+	// we expect a send fragment to be valid for after its claimed outpoint
+	// has been spent. This is roughly equivalent to 90 days.
+	DefaultSendFragmentExpiryDelta = 12_960
+)
+
 // ProofImporter is used to import proofs into the local proof archive after we
 // complete a trransfer.
 type ProofImporter interface {
