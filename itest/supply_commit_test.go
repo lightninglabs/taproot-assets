@@ -155,7 +155,7 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 
 	t.Log("Minting asset group with a single normal asset and " +
 		"universe/supply commitments enabled")
-	mintReq := issuableAssets[0]
+	mintReq := CopyRequest(issuableAssets[0])
 	mintReq.Asset.UniverseCommitments = true
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner().Client, t.tapd,
