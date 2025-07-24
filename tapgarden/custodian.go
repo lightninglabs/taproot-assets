@@ -138,6 +138,11 @@ type CustodianConfig struct {
 	// mailbox service.
 	MboxBackoffCfg *proof.BackoffCfg
 
+	// MboxInsecure indicates whether the auth mailbox service should be
+	// accessed over an insecure connection (without TLS). This is only used
+	// for testing.
+	MboxInsecure bool
+
 	// ProofRetrievalDelay is the time duration the custodian waits having
 	// identified an asset transfer on-chain and before retrieving the
 	// corresponding proof via the proof courier service.
@@ -222,7 +227,8 @@ func NewCustodian(cfg *CustodianConfig) *Custodian {
 		events:            make(map[wire.OutPoint]*address.Event),
 		mboxSubscriptions: mbox.NewMultiSubscription(
 			mbox.ClientConfig{
-				SkipTlsVerify: true,
+				Insecure:      cfg.MboxInsecure,
+				SkipTlsVerify: !cfg.MboxInsecure,
 				Signer:        cfg.Signer,
 				MinBackoff:    backoffCfg.InitialBackoff,
 				MaxBackoff:    backoffCfg.MaxBackoff,
@@ -667,7 +673,9 @@ func (c *Custodian) receiveProofs(addr *address.Tap, op wire.OutPoint,
 		err := c.receiveProof(addr, op, assetID, output.ScriptKey)
 		if err != nil {
 			return fmt.Errorf("unable to receive proof for output "+
-				"%s in %s: %w", assetID, op.String(), err)
+				"%s (script key %x) in %s: %w", assetID,
+				output.ScriptKey.PubKey.SerializeCompressed(),
+				op.String(), err)
 		}
 	}
 
