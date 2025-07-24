@@ -6,16 +6,31 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	mbox "github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
+)
+
+const (
+	// defaultMboxInitialBackoff is the initial backoff time used for
+	// connecting to the auth mailbox service.
+	defaultMboxInitialBackoff = 100 * time.Millisecond
+
+	// defaultMboxMaxBackoff is the maximum backoff time used for connecting
+	// to the auth mailbox service.
+	defaultMboxMaxBackoff = 10 * time.Second
 )
 
 // AssetReceiveEvent is an event that is sent to a subscriber once the
@@ -99,6 +114,10 @@ type CustodianConfig struct {
 	// AddrBook is the storage backend for addresses.
 	AddrBook *address.Book
 
+	// Signer is the lndclient.SignerClient that is used to sign challenges
+	// from the auth mailbox server when subscribing for messages.
+	Signer lndclient.SignerClient
+
 	// ProofArchive is the storage backend for proofs to which we store new
 	// incoming proofs.
 	ProofArchive proof.Archiver
@@ -114,6 +133,10 @@ type CustodianConfig struct {
 	// proof courier handles for receiving proofs based on the protocol of
 	// a proof courier address.
 	ProofCourierDispatcher proof.CourierDispatch
+
+	// MboxBackoffCfg is the backoff configuration used for the auth
+	// mailbox service.
+	MboxBackoffCfg *proof.BackoffCfg
 
 	// ProofRetrievalDelay is the time duration the custodian waits having
 	// identified an asset transfer on-chain and before retrieving the
@@ -159,6 +182,16 @@ type Custodian struct {
 	// address events of inbound assets.
 	events map[wire.OutPoint]*address.Event
 
+	// mboxSubscriptions is a helper that allows us to subscribe to multiple
+	// mailbox servers at once, using multiple different URLs and receiver
+	// keys.
+	mboxSubscriptions *mbox.MultiSubscription
+
+	// mboxRequestStartHeight is the block height at which we start
+	// requesting messages from the auth mailbox. This is increased with
+	// each new message we receive.
+	mboxRequestStartHeight atomic.Uint32
+
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
 	*fn.ContextGuard
@@ -172,12 +205,29 @@ func NewCustodian(cfg *CustodianConfig) *Custodian {
 	)
 	proofSub := fn.NewEventReceiver[proof.Blob](fn.DefaultQueueSize)
 	statusEventsSubs := make(map[uint64]*fn.EventReceiver[fn.Event])
+
+	backoffCfg := cfg.MboxBackoffCfg
+	if backoffCfg == nil {
+		backoffCfg = &proof.BackoffCfg{
+			InitialBackoff: defaultMboxInitialBackoff,
+			MaxBackoff:     defaultMboxMaxBackoff,
+		}
+	}
+
 	return &Custodian{
 		cfg:               cfg,
 		addrSubscription:  addrSub,
 		proofSubscription: proofSub,
 		statusEventsSubs:  statusEventsSubs,
 		events:            make(map[wire.OutPoint]*address.Event),
+		mboxSubscriptions: mbox.NewMultiSubscription(
+			mbox.ClientConfig{
+				SkipTlsVerify: true,
+				Signer:        cfg.Signer,
+				MinBackoff:    backoffCfg.InitialBackoff,
+				MaxBackoff:    backoffCfg.MaxBackoff,
+			},
+		),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -225,6 +275,8 @@ func (c *Custodian) Start() error {
 func (c *Custodian) Stop() error {
 	var stopErr error
 	c.stopOnce.Do(func() {
+		log.Info("Stopping asset custodian")
+
 		close(c.Quit)
 		c.Wg.Wait()
 
@@ -236,6 +288,12 @@ func (c *Custodian) Stop() error {
 		err = c.cfg.ProofNotifier.RemoveSubscriber(c.proofSubscription)
 		if err != nil {
 			stopErr = err
+		}
+
+		err = c.mboxSubscriptions.Stop()
+		if err != nil {
+			stopErr = fmt.Errorf("unable to stop mailbox "+
+				"subscriptions: %w", err)
 		}
 
 		// Remove all status event subscribers.
@@ -286,6 +344,25 @@ func (c *Custodian) watchInboundAssets() {
 		reportErr(err)
 		return
 	}
+
+	// Fetching start height for querying new auth mailbox messages. We
+	// always start at the last block height of the last event we processed,
+	// which will give us the events for that block again (the block height
+	// query is inclusive). But we can handle duplicate events, so this is
+	// not an issue. Only V2 addresses are using the auth mailbox, so we
+	// can query just for V2 address events.
+	log.Infof("Fetching last v2 address event height")
+	ctxt, cancel = c.WithCtxQuit()
+	lastHeight, err := c.cfg.AddrBook.LastEventHeightByVersion(
+		ctxt, address.V2,
+	)
+	cancel()
+	if err != nil {
+		reportErr(err)
+		return
+	}
+
+	c.mboxRequestStartHeight.Store(lastHeight)
 
 	// From the events we already know, we can now find out the last height
 	// we detected an event at.
@@ -377,7 +454,7 @@ func (c *Custodian) watchInboundAssets() {
 		var err error
 		select {
 		case newAddr := <-c.addrSubscription.NewItemCreated.ChanOut():
-			err = c.importAddrToWallet(newAddr)
+			err = c.importAddrToWallet(ctxStream, newAddr)
 
 		case tx := <-newTxChan:
 			err = c.inspectWalletTx(&tx)
@@ -385,6 +462,13 @@ func (c *Custodian) watchInboundAssets() {
 		case newProof := <-c.proofSubscription.NewItemCreated.ChanOut():
 			log.Tracef("New proof received from notifier")
 			err = c.mapProofToEvent(newProof)
+
+		case newMsg := <-c.mboxSubscriptions.MessageChan():
+			log.Debugf("Received %d new mailbox message received "+
+				"for %x", len(newMsg.Messages),
+				newMsg.Receiver.PubKey.SerializeCompressed())
+
+			err = c.handleMailboxMessages(newMsg)
 
 		case err = <-txErrChan:
 			break
@@ -774,10 +858,44 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 // importAddrToWallet imports the given Taproot Asset address into the
 // lnd-internal btcwallet instance by tracking the on-chain Taproot output key
 // the assets must be sent to in order to be received.
-func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
+func (c *Custodian) importAddrToWallet(ctx context.Context,
+	addr *address.AddrWithKeyInfo) error {
+
 	addrStr, err := addr.EncodeAddress()
 	if err != nil {
 		return fmt.Errorf("unable to encode address: %w", err)
+	}
+
+	// V2 addresses aren't added to the internal wallet as an on-chain
+	// address, they can't be detected by watching the chain at all. We'll
+	// not mark them as managed (meaning we have processed and imported it)
+	// in the address book, that way we'll always receive the full list of
+	// V2 addresses at startup as well (we query for non-managed addresses
+	// in Start, which will always include all v2 addresses as we never set
+	// them as managed).
+	if addr.Version >= address.V2 {
+		startBlock := c.mboxRequestStartHeight.Load()
+
+		// A start block of 0 would mean to the server that we don't
+		// want to receive any previous messages
+		// (MessageFilter.DeliverExisting() would return false). So we
+		// set the block to 1.
+		if startBlock == 0 {
+			startBlock = 1
+		}
+
+		rawScriptKey := addr.ScriptKeyTweak.RawKey
+		log.Infof("Subscribing to mailbox updates for Taproot Asset "+
+			"address receiver=%x (index=%d), startBlock=%d, "+
+			"addr=%s", rawScriptKey.PubKey.SerializeCompressed(),
+			rawScriptKey.Index, startBlock, addrStr)
+
+		return c.mboxSubscriptions.Subscribe(
+			ctx, addr.ProofCourierAddr, rawScriptKey,
+			mbox.MessageFilter{
+				StartBlock: startBlock,
+			},
+		)
 	}
 
 	// Let's not be interrupted by a shutdown.
@@ -807,6 +925,215 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 	}
 
 	return c.cfg.AddrBook.SetAddrManaged(ctxt, addr, time.Now())
+}
+
+// handleMailboxMessages processes the received mailbox messages and attempts
+// to decrypt them. If successful, it will then attempt to receive proofs for
+// the contained SendFragment messages using the proof courier service.
+func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
+	ctx, cancel := c.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	receiver := msgs.Receiver
+	tapAddr, err := c.cfg.AddrBook.AddrByScriptKeyAndVersion(
+		ctx, receiver.PubKey, address.V2,
+	)
+	if err != nil {
+		if errors.Is(err, address.ErrNoAddr) {
+			return fmt.Errorf("no Taproot Asset address found for "+
+				"receiver %x: %w",
+				receiver.PubKey.SerializeCompressed(), err)
+		}
+		return fmt.Errorf("error querying address by script key: %w",
+			err)
+	}
+
+	var maxMsgBlockHeight uint32
+	for _, mboxMsg := range msgs.Messages {
+		// Decrypt the mailbox message using the receiver's key.
+		log.Debugf("Decrypting mailbox message with ID %d for %x",
+			mboxMsg.MessageId,
+			receiver.PubKey.SerializeCompressed())
+
+		fragment, err := c.decryptMailboxMsg(
+			ctx, receiver, mboxMsg.EncryptedPayload,
+		)
+		if err != nil {
+			// If we can't decrypt the message, we'll log the
+			// error but continue processing the next message. This
+			// way nobody can corrupt our state by sending us a
+			// malformed message.
+			log.Errorf("Unable to decrypt mailbox message: %v", err)
+
+			continue
+		}
+
+		log.Debugf("Received fragment with %d outputs",
+			len(fragment.Outputs))
+
+		op := fragment.OutPoint
+		outputs := make(map[asset.ID]address.AssetOutput)
+		for assetID, output := range fragment.Outputs {
+			scriptKey, err := asset.DeriveUniqueScriptKey(
+				*receiver.PubKey, assetID,
+				output.DerivationMethod,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to derive script "+
+					"key for asset: %w", err)
+			}
+
+			err = c.cfg.AddrBook.InsertScriptKey(
+				ctx, scriptKey, scriptKey.Type,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert script "+
+					"key into address book: %w", err)
+			}
+
+			log.Tracef("Expecting to fetch proof for outpoint %s "+
+				"and script key %x", op.String(),
+				scriptKey.PubKey.SerializeCompressed())
+
+			outputs[assetID] = address.AssetOutput{
+				Amount:    output.Amount,
+				ScriptKey: scriptKey,
+			}
+		}
+
+		// If we've already fully processed this event, we can skip it.
+		event, err := c.cfg.AddrBook.QueryEvent(
+			ctx, tapAddr, fragment.OutPoint,
+		)
+		if err == nil && event.Status == address.StatusCompleted &&
+			event.HasAllProofs {
+
+			log.Infof("Received mailbox message for outpoint %v "+
+				"but was already fully processed previously, "+
+				"skipping", event.Outpoint)
+
+			continue
+		}
+
+		// Let's now make sure we can fetch the block mentioned in the
+		// fragment, so we can extract the transaction from it.
+		block, err := c.cfg.ChainBridge.GetBlock(
+			ctx, fragment.BlockHeader.BlockHash(),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch block %s: %w",
+				fragment.BlockHeader.BlockHash(), err)
+		}
+
+		eventSrc, err := address.NewTransferFromFragment(
+			tapAddr, block, fragment, outputs,
+		)
+		if err != nil {
+			return fmt.Errorf("error creating event source from "+
+				"fragment: %w", err)
+		}
+
+		// We have all the information we need to create a new address
+		// event for this fragment.
+		// Block here, a shutdown can wait on this operation.
+		ctxt, cancel := c.CtxBlocking()
+		event, err = c.cfg.AddrBook.GetOrCreateEvent(
+			ctxt, address.StatusTransactionConfirmed, eventSrc,
+		)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("error creating event: %w", err)
+		}
+
+		// Let's update our cache of ongoing events.
+		c.events[op] = event
+
+		// We'll want to ratchet forward the start block height for new
+		// mailbox queries, so we don't always receive the same events
+		// over and over again. We'll use the maximum block height
+		// from this set of messages.
+		if fragment.BlockHeight > maxMsgBlockHeight {
+			maxMsgBlockHeight = fragment.BlockHeight
+		}
+
+		// Now that we've seen this output confirm on chain, we'll
+		// launch a goroutine to use the ProofCourier to import the
+		// proof into our local DB.
+		c.Goroutine(func() error {
+			return c.receiveProofs(
+				tapAddr.Tap, fragment.OutPoint, outputs,
+				fragment.BlockHeight,
+			)
+		}, func(err error) {
+			c.publishSubscriberStatusEvent(
+				NewAssetReceiveErrorEvent(
+					err, *tapAddr.Tap, op,
+					fragment.BlockHeight, event.Status,
+				),
+			)
+
+			log.Errorf("Unable to receive proof: %v", err)
+		})
+	}
+
+	if c.mboxRequestStartHeight.Load() < maxMsgBlockHeight {
+		log.Debugf("Updating mailbox request start height to %d",
+			maxMsgBlockHeight)
+
+		// Update the start block height for new mailbox queries, so
+		// we don't always receive the same events over and over again.
+		c.mboxRequestStartHeight.Store(maxMsgBlockHeight)
+	}
+
+	return nil
+}
+
+// decryptMailboxMsg decrypts a mailbox message using the receiver's key and
+// returns the decoded SendFragment message.
+func (c *Custodian) decryptMailboxMsg(ctx context.Context,
+	receiverKey keychain.KeyDescriptor, msg []byte) (*proof.SendFragment,
+	error) {
+
+	_, pubKeyBytes, _, err := ecies.ExtractAdditionalData(msg)
+	if err != nil {
+		return nil, fmt.Errorf("unable to extract additional data "+
+			"from mailbox message: %w", err)
+	}
+
+	senderPubKey, err := btcec.ParsePubKey(pubKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse sender public key: %w",
+			err)
+	}
+
+	sharedKey, err := c.cfg.Signer.DeriveSharedKey(
+		ctx, senderPubKey, &receiverKey.KeyLocator,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to derive shared key for "+
+			"mailbox message: %w", err)
+	}
+
+	// Decrypt the message using the ECIES decryption method.
+	decryptedMsg, err := ecies.DecryptSha256ChaCha20Poly1305(sharedKey, msg)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decrypt mailbox message: %w",
+			err)
+	}
+
+	// Decode the decrypted message into a mailbox message.
+	fragment, err := proof.DecodeSendFragment(decryptedMsg)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode send fragment: %w",
+			err)
+	}
+
+	err = fragment.Validate()
+	if err != nil {
+		return nil, fmt.Errorf("invalid send fragment: %w", err)
+	}
+
+	return fragment, nil
 }
 
 // checkProofAvailable checks the proof storage if a proof for the given event
@@ -881,7 +1208,7 @@ func (c *Custodian) checkProofAvailable(event *address.Event) (bool, error) {
 	// The proof might be an old state, let's make sure it matches our event
 	// before marking the inbound asset transfer as complete.
 	if AddrMatchesAsset(event.Addr, &lastProof.Asset) {
-		return true, c.setReceiveCompleted(event, lastProof, file)
+		return true, c.setReceiveCompleted(event, file)
 	}
 
 	return false, nil
@@ -980,37 +1307,43 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 			return fmt.Errorf("error fetching last proof: %w", err)
 		}
 	}
-	log.Infof("Received new proof file for asset ID %s, version=%d,"+
-		"num_proofs=%d", lastProof.Asset.ID().String(), file.Version,
-		file.NumProofs())
+	log.Infof("Received new proof file for asset_id=%s, script_key=%x,"+
+		"version=%d, num_proofs=%d", lastProof.Asset.ID().String(),
+		lastProof.Asset.ScriptKey.PubKey.SerializeCompressed(),
+		file.Version, file.NumProofs())
 
 	// Check if any of our in-flight events match the last proof's state.
 	for _, event := range c.events {
-		if EventMatchesProof(event, lastProof) {
-			c.publishSubscriberStatusEvent(NewAssetReceiveEvent(
-				*event.Addr.Tap, event.Outpoint,
-				event.ConfirmationHeight,
-				address.StatusProofReceived,
-			))
+		matches := EventMatchesProof(event, lastProof)
+		if !matches {
+			log.Debugf("Proof with op %s doesn't match event with "+
+				"op %s, skipping", lastProof.OutPoint(),
+				event.Outpoint)
 
-			// Importing a proof already creates the asset in the
-			// database. Therefore, all we need to do is update the
-			// state of the address event to mark it as completed
-			// successfully.
-			err = c.setReceiveCompleted(event, lastProof, file)
-			if err != nil {
-				c.publishSubscriberStatusEvent(
-					NewAssetReceiveErrorEvent(
-						err, *event.Addr.Tap,
-						event.Outpoint,
-						event.ConfirmationHeight,
-						event.Status,
-					),
-				)
+			continue
+		}
 
-				return fmt.Errorf("error updating event: %w",
-					err)
-			}
+		c.publishSubscriberStatusEvent(NewAssetReceiveEvent(
+			*event.Addr.Tap, event.Outpoint,
+			event.ConfirmationHeight, address.StatusProofReceived,
+		))
+
+		log.Debugf("Proof received for event %s", event.Outpoint)
+
+		// Importing a proof already creates the asset in the
+		// database. Therefore, all we need to do is update the
+		// state of the address event to mark it as completed
+		// successfully.
+		err = c.setReceiveCompleted(event, file)
+		if err != nil {
+			c.publishSubscriberStatusEvent(
+				NewAssetReceiveErrorEvent(
+					err, *event.Addr.Tap, event.Outpoint,
+					event.ConfirmationHeight, event.Status,
+				),
+			)
+
+			return fmt.Errorf("error updating event: %w", err)
 		}
 	}
 
@@ -1047,7 +1380,7 @@ func (c *Custodian) assertProofInLocalArchive(p *proof.AnnotatedProof) error {
 // setReceiveCompleted updates the address event in the database to mark it as
 // completed successfully and to link it to the proof we received.
 func (c *Custodian) setReceiveCompleted(event *address.Event,
-	lastProof *proof.Proof, proofFile *proof.File) error {
+	proofFile *proof.File) error {
 
 	// The proof is created after a single confirmation. To make sure we
 	// notice if the anchor transaction is re-organized out of the chain, we
@@ -1066,13 +1399,36 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 	ctxt, cancel := c.CtxBlocking()
 	defer cancel()
 
-	anchorPoint := wire.OutPoint{
-		Hash:  lastProof.AnchorTx.TxHash(),
-		Index: lastProof.InclusionProof.OutputIndex,
+	// Do we have all proofs for all outputs of the event? If not, then we
+	// can't complete the event yet. We'll be called again here with more
+	// proofs once the sender sends them to us.
+	for assetID, output := range event.Outputs {
+		loc := proof.Locator{
+			AssetID:   &assetID,
+			GroupKey:  event.Addr.GroupKey,
+			ScriptKey: *output.ScriptKey.PubKey,
+			OutPoint:  &event.Outpoint,
+		}
+		haveProof, err := c.cfg.ProofArchive.HasProof(ctxt, loc)
+		if err != nil {
+			return fmt.Errorf("error checking if proof is "+
+				"available for asset %s: %w", assetID, err)
+		}
+
+		if !haveProof {
+			log.Debugf("Proof for output with script key %x not "+
+				"yet available, can't complete event yet",
+				output.ScriptKey.PubKey.SerializeCompressed())
+
+			return nil
+		}
 	}
 
+	log.Debugf("All proofs received for event %s, completing it",
+		event.Outpoint)
+
 	err = c.cfg.AddrBook.CompleteEvent(
-		ctxt, event, address.StatusCompleted, anchorPoint,
+		ctxt, event, address.StatusCompleted, event.Outpoint,
 	)
 	if err != nil {
 		return fmt.Errorf("error completing event: %w", err)
@@ -1202,12 +1558,35 @@ func AddrMatchesAsset(addr *address.AddrWithKeyInfo, a *asset.Asset) bool {
 	groupKeyEqual := groupKeyBothNil ||
 		addr.GroupKey.IsEqual(&a.GroupKey.GroupPubKey)
 
-	return addr.AssetID == a.ID() && groupKeyEqual &&
-		addr.ScriptKey.IsEqual(a.ScriptKey.PubKey)
+	assetIDEqual := addr.AssetID == a.ID()
+
+	scriptKeyEqual := addr.ScriptKey.IsEqual(a.ScriptKey.PubKey)
+
+	pedersenScriptKey, err := addr.ScriptKeyForAssetID(a.ID())
+	if err != nil {
+		// If we can't derive the Pedersen version, we'll just return
+		// false. This should never happen anyway, since the only
+		// possible error paths are that we supply too much data (not
+		// the case as we only pass the asset ID) or that we can't
+		// derive a NUMS key for some reason, which is also super
+		// unlikely.
+		return false
+	}
+	pedersenScriptKeyEqual := pedersenScriptKey.IsEqual(a.ScriptKey.PubKey)
+
+	log.Tracef("AddrMatchesAsset: id_equal=%v, group_key_equal=%v, "+
+		"script_key_equal=%v, pedersen_script_key_equal=%v",
+		assetIDEqual, groupKeyEqual, scriptKeyEqual,
+		pedersenScriptKeyEqual)
+
+	return (assetIDEqual || groupKeyEqual) &&
+		(scriptKeyEqual || pedersenScriptKeyEqual)
 }
 
 // EventMatchesProof returns true if the given event matches the given proof.
 func EventMatchesProof(event *address.Event, p *proof.Proof) bool {
+	log.Tracef("EventMatchesProof: event_op=%s, proof_op=%s",
+		event.Outpoint, p.OutPoint())
 	return AddrMatchesAsset(event.Addr, &p.Asset) &&
 		event.Outpoint == p.OutPoint()
 }
