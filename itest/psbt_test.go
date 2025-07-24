@@ -2868,8 +2868,8 @@ func testPsbtExternalCommit(t *harnessTest) {
 	}
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner().Client, aliceTapd,
-		sendResp.Transfer, targetAssetGenesis.AssetId, expectedAmounts,
-		0, 1, len(expectedAmounts), false,
+		sendResp.Transfer, [][]byte{targetAssetGenesis.AssetId},
+		expectedAmounts, 0, 1, len(expectedAmounts), false,
 	)
 
 	// And now the event should be completed on both sides.
