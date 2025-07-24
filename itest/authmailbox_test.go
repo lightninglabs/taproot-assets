@@ -124,12 +124,12 @@ func testAuthMailboxStoreAndFetchMessage(t *harnessTest) {
 
 	// Now we can start sending messages to the mailbox server.
 	id, err := mboxClient.SendMessage(
-		ctx, *receiverKey.PubKey, []byte("message 1"), txProof1, 1234,
+		ctx, *receiverKey.PubKey, []byte("message 1"), txProof1,
 	)
 	require.NoError(t.t, err)
 	require.Greater(t.t, id, uint64(0))
 	id2, err := mboxClient.SendMessage(
-		ctx, *receiverKey.PubKey, []byte("message 2"), txProof2, 2345,
+		ctx, *receiverKey.PubKey, []byte("message 2"), txProof2,
 	)
 	require.NoError(t.t, err)
 	require.Greater(t.t, id2, uint64(0))
@@ -137,14 +137,14 @@ func testAuthMailboxStoreAndFetchMessage(t *harnessTest) {
 	// We check that we can't use the same tx proof again for a different
 	// receiver.
 	_, err = mboxClient.SendMessage(
-		ctx, *receiverKey2.PubKey, []byte("message 3"), txProof1, 3456,
+		ctx, *receiverKey2.PubKey, []byte("message 3"), txProof1,
 	)
 	require.ErrorContains(t.t, err, proof.ErrTxMerkleProofExists.Error())
 
 	// But sending the same message again for the same receiver should
 	// return the same message ID as in the first attempt.
 	idReSend, err := mboxClient.SendMessage(
-		ctx, *receiverKey.PubKey, []byte("message 1"), txProof1, 1234,
+		ctx, *receiverKey.PubKey, []byte("message 1"), txProof1,
 	)
 	require.NoError(t.t, err)
 	require.Equal(t.t, id, idReSend)
@@ -152,7 +152,7 @@ func testAuthMailboxStoreAndFetchMessage(t *harnessTest) {
 	// We also make sure that the TX proof is properly validated.
 	txProof1.MerkleRoot = test.RandBytes(32)
 	_, err = mboxClient.SendMessage(
-		ctx, *receiverKey.PubKey, []byte("message 3"), txProof1, 3456,
+		ctx, *receiverKey.PubKey, []byte("message 3"), txProof1,
 	)
 	require.ErrorContains(
 		t.t, err, "validating proof: claimed output pk script doesn't "+

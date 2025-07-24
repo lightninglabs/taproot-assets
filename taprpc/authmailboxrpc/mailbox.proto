@@ -106,10 +106,6 @@ message MailboxMessage {
 
     // Timestamp (Unix epoch seconds) when the message arrived at the server.
     int64 arrival_timestamp = 3;
-
-    // Block height after which this message may be considered expired by the
-    // system.
-    uint32 expiry_block_height = 4;
 }
 
 // Represents a list of messages.
@@ -143,9 +139,6 @@ message SendMessageRequest {
         //    used_proofs table).
         BitcoinMerkleInclusionProof tx_proof = 4;
     }
-
-    // The block height after which this message may be considered expired.
-    uint32 expiry_block_height = 5;
 }
 
 // Response message for the SendMessage RPC.

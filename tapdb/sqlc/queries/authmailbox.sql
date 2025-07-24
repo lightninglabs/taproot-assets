@@ -7,10 +7,9 @@ INSERT INTO tx_proof_claimed_outpoints (
 
 -- name: InsertAuthMailboxMessage :one
 INSERT INTO authmailbox_messages (
-    claimed_outpoint, receiver_key, encrypted_payload, arrival_timestamp,
-                                  expiry_block_height
+    claimed_outpoint, receiver_key, encrypted_payload, arrival_timestamp
 ) VALUES (
-    $1, $2, $3, $4, $5
+    $1, $2, $3, $4
 )
 RETURNING id;
 
@@ -21,7 +20,6 @@ SELECT
     m.receiver_key,
     m.encrypted_payload,
     m.arrival_timestamp,
-    m.expiry_block_height,
     op.block_height
 FROM authmailbox_messages m
 JOIN tx_proof_claimed_outpoints op
@@ -35,7 +33,6 @@ SELECT
     m.receiver_key,
     m.encrypted_payload,
     m.arrival_timestamp,
-    m.expiry_block_height,
     op.block_height
 FROM authmailbox_messages m
 JOIN tx_proof_claimed_outpoints op
@@ -49,7 +46,6 @@ SELECT
     m.receiver_key,
     m.encrypted_payload,
     m.arrival_timestamp,
-    m.expiry_block_height,
     op.block_height
 FROM authmailbox_messages m
 JOIN tx_proof_claimed_outpoints op

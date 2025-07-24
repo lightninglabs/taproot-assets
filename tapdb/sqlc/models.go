@@ -179,12 +179,11 @@ type AssetsMetum struct {
 }
 
 type AuthmailboxMessage struct {
-	ID                int64
-	ClaimedOutpoint   []byte
-	ReceiverKey       []byte
-	EncryptedPayload  []byte
-	ArrivalTimestamp  int64
-	ExpiryBlockHeight sql.NullInt32
+	ID               int64
+	ClaimedOutpoint  []byte
+	ReceiverKey      []byte
+	EncryptedPayload []byte
+	ArrivalTimestamp int64
 }
 
 type ChainTxn struct {
