@@ -289,7 +289,7 @@ CREATE TABLE asset_transfer_outputs (
     -- the output. This value will be NULL for outputs that do not require proof
     -- transfer.
     proof_courier_addr BLOB
-, lock_time INTEGER, relative_lock_time INTEGER, proof_delivery_complete BOOL, position INTEGER NOT NULL DEFAULT -1);
+, lock_time INTEGER, relative_lock_time INTEGER, proof_delivery_complete BOOL, position INTEGER NOT NULL DEFAULT -1, tap_address VARCHAR);
 
 CREATE UNIQUE INDEX asset_transfer_outputs_transfer_id_position_unique
 ON asset_transfer_outputs (

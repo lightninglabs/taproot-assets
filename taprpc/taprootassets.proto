@@ -887,6 +887,15 @@ message TransferOutput {
     ProofDeliveryStatus proof_delivery_status = 11;
 
     bytes asset_id = 12;
+
+    // The proof courier address that was used to deliver the proof for this
+    // output.
+    string proof_courier_addr = 13;
+
+    // The Taproot Asset address that was used to create the output. This is
+    // only set for new outputs for tapd versions that support the address V2
+    // format. For older versions, this field will be empty.
+    string tap_addr = 14;
 }
 
 message StopRequest {
