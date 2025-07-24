@@ -687,6 +687,15 @@ func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int, position uint64,
 			"is local: %w", err)
 	}
 
+	var addrString string
+	if vOut.Address != nil {
+		addrString, err = vOut.Address.EncodeAddress()
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode address "+
+				"for output %d: %w", vOutIdx, err)
+		}
+	}
+
 	out := TransferOutput{
 		Anchor:              *anchor,
 		Type:                vOut.Type,
@@ -701,6 +710,7 @@ func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int, position uint64,
 		ProofCourierAddr:    proofCourierAddrBytes,
 		ScriptKeyLocal:      scriptKeyLocal,
 		Position:            position,
+		TapAddress:          addrString,
 	}
 
 	// Determine whether an associated proof needs to be delivered to a peer
