@@ -2,13 +2,19 @@ package address
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 )
 
 // Status denotes an address event's current status.
@@ -120,6 +126,126 @@ type Event struct {
 	HasAllProofs bool
 }
 
+// IncomingTransfer is a struct that holds the information about an incoming
+// asset transfer that was detected on-chain. This is used to create an Event
+// instance that can be stored in the database.
+type IncomingTransfer struct {
+	// Addr is the Taproot Asset address that was used to receive the
+	// assets.
+	Addr *AddrWithKeyInfo
+
+	// Tx is the on-chain transaction that contains the Taproot Asset
+	// commitment for the incoming asset transfer.
+	Tx *wire.MsgTx
+
+	// OutputIdx is the index of the output in the transaction that contains
+	// the Taproot Asset commitment for the incoming asset transfer.
+	OutputIdx uint32
+
+	// CommitmentVersion is the version of the Taproot Asset commitment
+	// that was used to create the Taproot Asset address.
+	CommitmentVersion commitment.TapCommitmentVersion
+
+	// TaprootAssetRoot is the root of the Taproot Asset commitment tree
+	// that was used to create the Taproot Asset address.
+	TaprootAssetRoot [sha256.Size]byte
+
+	// BlockHeight is the height of the block that contains the transaction.
+	BlockHeight uint32
+
+	// BlockHash is the hash of the block that contains the transaction.
+	BlockHash *chainhash.Hash
+
+	// Outputs is a map of asset IDs to the outputs that are being sent.
+	Outputs map[asset.ID]AssetOutput
+}
+
+// NewTransferFromWalletTx creates a new IncomingTransfer from a wallet
+// transaction and the address that was used to receive the assets. This can
+// only be used for V0 and V1 addresses.
+func NewTransferFromWalletTx(addr *AddrWithKeyInfo,
+	walletTx *lndclient.Transaction, outputIdx uint32,
+	outputs map[asset.ID]AssetOutput) (IncomingTransfer, error) {
+
+	var empty IncomingTransfer
+	if addr.Version > V1 {
+		return empty, fmt.Errorf("address version %d is not "+
+			"supported for event source creation", addr.Version)
+	}
+
+	var blockHash *chainhash.Hash
+	if walletTx.Confirmations > 0 {
+		var err error
+		blockHash, err = chainhash.NewHashFromStr(walletTx.BlockHash)
+		if err != nil {
+			return empty, fmt.Errorf("error parsing block hash: %w",
+				err)
+		}
+	}
+
+	expectedCommitment, err := addr.TapCommitment()
+	if err != nil {
+		return empty, fmt.Errorf("error getting taproot asset "+
+			"commitment: %w", err)
+	}
+	taprootAssetRoot := expectedCommitment.TapscriptRoot(nil)
+
+	return IncomingTransfer{
+		Addr:              addr,
+		Tx:                walletTx.Tx,
+		OutputIdx:         outputIdx,
+		CommitmentVersion: expectedCommitment.Version,
+		TaprootAssetRoot:  taprootAssetRoot,
+		BlockHeight:       uint32(walletTx.BlockHeight),
+		BlockHash:         blockHash,
+		Outputs:           outputs,
+	}, nil
+}
+
+// NewTransferFromFragment creates a new IncomingTransfer from a SendFragment,
+// the block that contains the TX and the address that was used to receive the
+// assets. This can only be used for V2 addresses.
+func NewTransferFromFragment(addr *AddrWithKeyInfo, block *wire.MsgBlock,
+	fragment *proof.SendFragment,
+	outputs map[asset.ID]AssetOutput) (IncomingTransfer, error) {
+
+	var empty IncomingTransfer
+	if addr.Version < V2 {
+		return empty, fmt.Errorf("address version %d is not "+
+			"supported for event source creation", addr.Version)
+	}
+
+	commitmentVersion, err := CommitmentVersion(addr.Version)
+	if err != nil {
+		return empty, err
+	}
+
+	var walletTx *wire.MsgTx
+	for _, tx := range block.Transactions {
+		if tx.TxHash() == fragment.OutPoint.Hash {
+			walletTx = tx
+			break
+		}
+	}
+
+	if walletTx == nil {
+		return empty, fmt.Errorf("unable to find transaction %s in "+
+			"block %s", fragment.OutPoint.Hash,
+			fragment.BlockHeader.BlockHash())
+	}
+
+	return IncomingTransfer{
+		Addr:              addr,
+		Tx:                walletTx,
+		OutputIdx:         fragment.OutPoint.Index,
+		CommitmentVersion: *commitmentVersion,
+		Outputs:           outputs,
+		TaprootAssetRoot:  fragment.TaprootAssetRoot,
+		BlockHeight:       fragment.BlockHeight,
+		BlockHash:         fn.Ptr(fragment.BlockHeader.BlockHash()),
+	}, nil
+}
+
 // EventStorage is the interface that a component storing address events should
 // implement.
 type EventStorage interface {
@@ -128,9 +254,7 @@ type EventStorage interface {
 	// already exists, then the status and transaction information is
 	// updated instead.
 	GetOrCreateEvent(ctx context.Context, status Status,
-		addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
-		outputIdx uint32, outputs map[asset.ID]AssetOutput) (*Event,
-		error)
+		transfer IncomingTransfer) (*Event, error)
 
 	// QueryAddrEvents returns a list of event that match the given query
 	// parameters.

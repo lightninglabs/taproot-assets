@@ -462,13 +462,20 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			if event.ConfirmationHeight == 0 &&
 				walletTx.Confirmations > 0 {
 
-				var err error
+				xfer, err := address.NewTransferFromWalletTx(
+					event.Addr, walletTx, uint32(idx),
+					sendOutputs,
+				)
+				if err != nil {
+					return fmt.Errorf("error creating "+
+						"event source: %w", err)
+				}
+
 				ctxt, cancel := c.CtxBlocking()
 				event, err = c.cfg.AddrBook.GetOrCreateEvent(
 					ctxt,
 					address.StatusTransactionConfirmed,
-					event.Addr, walletTx, uint32(idx),
-					sendOutputs,
+					xfer,
 				)
 				cancel()
 				if err != nil {
@@ -705,6 +712,7 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 	// a Taproot Asset address.
 	log.Infof("Found inbound asset transfer (asset_id=%x) for Taproot "+
 		"Asset address %s in %s", addr.AssetID[:], addrStr, op.String())
+
 	status := address.StatusTransactionDetected
 	if walletTx.Confirmations > 0 {
 		status = address.StatusTransactionConfirmed
@@ -727,11 +735,16 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 		},
 	}
 
+	xfer, err := address.NewTransferFromWalletTx(
+		addr, walletTx, outputIdx, sendOutputs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error creating event source: %w", err)
+	}
+
 	// Block here, a shutdown can wait on this operation.
 	ctxt, cancel = c.CtxBlocking()
-	event, err := c.cfg.AddrBook.GetOrCreateEvent(
-		ctxt, status, addr, walletTx, outputIdx, sendOutputs,
-	)
+	event, err := c.cfg.AddrBook.GetOrCreateEvent(ctxt, status, xfer)
 	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("error creating event: %w", err)
