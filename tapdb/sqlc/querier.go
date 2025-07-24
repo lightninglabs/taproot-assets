@@ -77,6 +77,7 @@ type Querier interface {
 	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error)
 	FetchChildrenSelfJoin(ctx context.Context, arg FetchChildrenSelfJoinParams) ([]FetchChildrenSelfJoinRow, error)
 	FetchGenesisByAssetID(ctx context.Context, assetID []byte) (GenesisInfoView, error)
+	FetchGenesisByGroupKey(ctx context.Context, tweakedGroupKey []byte) (GenesisInfoView, error)
 	FetchGenesisByID(ctx context.Context, genAssetID int64) (FetchGenesisByIDRow, error)
 	FetchGenesisID(ctx context.Context, arg FetchGenesisIDParams) (int64, error)
 	FetchGenesisIDByAssetID(ctx context.Context, assetID []byte) (int64, error)

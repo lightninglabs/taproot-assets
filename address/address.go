@@ -148,7 +148,13 @@ type Tap struct {
 	Amount uint64
 
 	// assetGen is the receiving asset's genesis metadata which directly
-	// maps to its unique ID within the Taproot Asset protocol.
+	// maps to its unique ID within the Taproot Asset protocol. For a
+	// grouped address, this will be the genesis of the asset genesis that
+	// started the group. This doesn't matter in the context of an address,
+	// because currently the genesis is only used to find out the type of
+	// asset (normal vs. collectible).
+	// TODO(guggero): Remove this field and combine the asset ID and group
+	// key into a single asset specifier.
 	assetGen asset.Genesis
 
 	// ProofCourierAddr is the address of the proof courier that will be
@@ -233,14 +239,27 @@ func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
 		return nil, ErrUnknownVersion
 	}
 
-	// Addresses with version 2 or later must use the new authmailbox proof
-	// courier type.
-	if version == V2 &&
-		proofCourierAddr.Scheme != proof.AuthMailboxUniRpcCourierType {
+	// Version 2 addresses behave slightly differently than V0 and V1
+	// addresses.
+	addressAssetID := genesis.ID()
+	if version == V2 {
+		// Addresses with version 2 or later must use the new
+		// authmailbox proof courier type.
+		if proofCourierAddr.Scheme !=
+			proof.AuthMailboxUniRpcCourierType {
 
-		return nil, fmt.Errorf("%w: address version %d must use the "+
-			"'%s' proof courier type", ErrInvalidProofCourierAddr,
-			version, proof.AuthMailboxUniRpcCourierType)
+			return nil, fmt.Errorf("%w: address version %d must "+
+				"use the '%s' proof courier type",
+				ErrInvalidProofCourierAddr, version,
+				proof.AuthMailboxUniRpcCourierType)
+		}
+
+		// If a group key is provided, then we zero out the asset ID in
+		// the address, as it doesn't make sense (we'll ignore it anyway
+		// when sending assets to this address).
+		if groupKey != nil {
+			addressAssetID = asset.ID{}
+		}
 	}
 
 	// We can only use a tapscript sibling that is not a Taproot Asset
@@ -260,7 +279,7 @@ func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
 		Version:          version,
 		ChainParams:      net,
 		AssetVersion:     options.assetVersion,
-		AssetID:          genesis.ID(),
+		AssetID:          addressAssetID,
 		GroupKey:         groupKey,
 		ScriptKey:        scriptKey,
 		InternalKey:      internalKey,

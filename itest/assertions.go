@@ -1375,7 +1375,18 @@ func AssertNonInteractiveRecvComplete(t *testing.T,
 // AssertAddr asserts that an address contains the correct information of an
 // asset.
 func AssertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
-	require.Equal(t, expected.AssetGenesis.AssetId, actual.AssetId)
+	// For v2 addresses, we set the asset ID to all zeroes if there is a
+	// group key.
+	if len(actual.GroupKey) > 0 &&
+		actual.AddressVersion == taprpc.AddrVersion_ADDR_VERSION_V2 {
+
+		require.Equal(
+			t, fn.ByteSlice(asset.ID{}), actual.AssetId,
+		)
+	} else {
+		require.Equal(t, expected.AssetGenesis.AssetId, actual.AssetId)
+	}
+
 	require.Equal(t, expected.AssetGenesis.AssetType, actual.AssetType)
 
 	if expected.AssetGroup == nil {
