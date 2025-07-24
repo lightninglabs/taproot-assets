@@ -135,7 +135,7 @@ func (m MailboxStore) StoreMessage(ctx context.Context, txProof proof.TxProof,
 			ReceiverKey:       receiverKey,
 			EncryptedPayload:  msg.EncryptedPayload,
 			ArrivalTimestamp:  msg.ArrivalTimestamp.Unix(),
-			ExpiryBlockHeight: sqlInt32(msg.ExpiryBlockHeight),
+			ExpiryBlockHeight: sqlInt32(msg.ExpiryBlockDelta),
 		})
 		if err != nil {
 			return fmt.Errorf("error inserting message: %w", err)
@@ -183,7 +183,7 @@ func (m MailboxStore) FetchMessage(ctx context.Context,
 			EncryptedPayload: dbMsg.EncryptedPayload,
 			ArrivalTimestamp: time.Unix(dbMsg.ArrivalTimestamp, 0),
 			ProofBlockHeight: uint32(dbMsg.BlockHeight),
-			ExpiryBlockHeight: extractSqlInt32[uint32](
+			ExpiryBlockDelta: extractSqlInt32[uint32](
 				dbMsg.ExpiryBlockHeight,
 			),
 		}
@@ -232,7 +232,7 @@ func (m MailboxStore) FetchMessageByOutPoint(ctx context.Context,
 			EncryptedPayload: dbMsg.EncryptedPayload,
 			ArrivalTimestamp: time.Unix(dbMsg.ArrivalTimestamp, 0),
 			ProofBlockHeight: uint32(dbMsg.BlockHeight),
-			ExpiryBlockHeight: extractSqlInt32[uint32](
+			ExpiryBlockDelta: extractSqlInt32[uint32](
 				dbMsg.ExpiryBlockHeight,
 			),
 		}
@@ -293,7 +293,7 @@ func (m MailboxStore) QueryMessages(ctx context.Context,
 					dbMsg.ArrivalTimestamp, 0,
 				),
 				ProofBlockHeight: uint32(dbMsg.BlockHeight),
-				ExpiryBlockHeight: extractSqlInt32[uint32](
+				ExpiryBlockDelta: extractSqlInt32[uint32](
 					dbMsg.ExpiryBlockHeight,
 				),
 			}

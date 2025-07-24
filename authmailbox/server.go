@@ -194,8 +194,8 @@ func (s *Server) SendMessage(ctx context.Context,
 		return nil, ErrMessageTooLong
 	}
 
-	if req.ExpiryBlockHeight == 0 {
-		return nil, fmt.Errorf("missing expiry block height")
+	if req.ExpiryBlockDelta == 0 {
+		return nil, fmt.Errorf("missing expiry block delta")
 	}
 
 	if req.Proof == nil {
@@ -272,12 +272,10 @@ func (s *Server) SendMessage(ctx context.Context,
 		return nil, fmt.Errorf("unsupported proof type: %T", p)
 	}
 
-	// Now that we know the arrival block height (either from the proof or
-	// from our backend), we can validate the expiry block height.
-	if req.ExpiryBlockHeight <= msg.ProofBlockHeight {
-		return nil, fmt.Errorf("expiry block height %d is before "+
-			"proof block height %d", req.ExpiryBlockHeight,
-			msg.ProofBlockHeight)
+	// The number of blocks to wait after the claimed outpoint has been
+	// spent must be non-zero, otherwise the message would never expire.
+	if req.ExpiryBlockDelta == 0 {
+		return nil, fmt.Errorf("expiry block delta is missing")
 	}
 
 	// We have verified everything we can, we'll allow the message to be

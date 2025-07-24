@@ -422,25 +422,15 @@ func TestSendMessage(t *testing.T) {
 			expectedErrs: []string{ErrMessageTooLong.Error()},
 		},
 		{
-			name:         "missing expiry height",
-			txProofs:     []proof.TxProof{*txProof1},
-			recvKeys:     []keychain.KeyDescriptor{clientKey2},
-			sendKey:      clientKey1,
-			msgs:         [][]byte{[]byte("yoooo")},
-			expectedErrs: []string{"missing expiry block height"},
-		},
-		{
-			name: "expiry height too low",
+			name: "expiry delta not set",
 			txProofs: []proof.TxProof{
 				proofWithHeight(*txProof1, 100002),
 			},
-			recvKeys:     []keychain.KeyDescriptor{clientKey2},
-			sendKey:      clientKey1,
-			msgs:         [][]byte{[]byte("yoooo")},
-			expiryHeight: 123,
+			recvKeys: []keychain.KeyDescriptor{clientKey2},
+			sendKey:  clientKey1,
+			msgs:     [][]byte{[]byte("yoooo")},
 			expectedErrs: []string{
-				"expiry block height 123 is before proof " +
-					"block height 100002",
+				"missing expiry block delta",
 			},
 		},
 		{
