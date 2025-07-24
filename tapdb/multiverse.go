@@ -776,11 +776,16 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 
 	execTxFunc := func(dbTx BaseMultiverseStore) error {
 		// Register issuance in the asset (group) specific universe
-		// tree.
-		var err error
+		// tree. We don't need to decode the whole proof, we just
+		// need the block height.
+		blockHeight, err := SparseDecodeBlockHeight(leaf.RawProof)
+		if err != nil {
+			return err
+		}
+
 		uniProof, err = universeUpsertProofLeaf(
 			ctx, dbTx, id.String(), id.ProofType.String(),
-			id.GroupKey, key, leaf, metaReveal,
+			id.GroupKey, key, leaf, metaReveal, blockHeight,
 		)
 		if err != nil {
 			return fmt.Errorf("failed universe upsert: %w", err)
@@ -847,13 +852,22 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 			for idx := range items {
 				item := items[idx]
 
+				// We don't need to decode the whole proof, we
+				// just need the block height.
+				blockHeight, err := SparseDecodeBlockHeight(
+					item.Leaf.RawProof,
+				)
+				if err != nil {
+					return err
+				}
+
 				// Upsert into the specific universe tree to
 				// start with.
 				uniProof, err := universeUpsertProofLeaf(
 					ctx, store, item.ID.String(),
 					item.ID.ProofType.String(),
 					item.ID.GroupKey, item.Key, item.Leaf,
-					item.MetaReveal,
+					item.MetaReveal, blockHeight,
 				)
 				if err != nil {
 					return fmt.Errorf("failed universe "+

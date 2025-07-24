@@ -92,6 +92,7 @@ func newTestMintEvent(t *testing.T, scriptKey *btcec.PublicKey,
 	return &NewMintEvent{
 		LeafKey:       leafKey,
 		IssuanceProof: issuanceProof,
+		MintHeight:    1000,
 	}
 }
 
@@ -1183,6 +1184,7 @@ func TestSupplyUpdateEventTypes(t *testing.T) {
 			GroupKey: randomFullProof.Asset.GroupKey,
 		}
 		originalMintEvent.IssuanceProof.Amt = randomFullProof.Asset.Amount
+		originalMintEvent.MintHeight = randomFullProof.BlockHeight
 
 		rawProofBytes, err := randomFullProof.Bytes()
 		require.NoError(t, err)

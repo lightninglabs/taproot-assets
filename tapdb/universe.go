@@ -58,6 +58,10 @@ type (
 
 	// UpsertUniverseSupplyLeaf is used to upsert a universe supply leaf.
 	UpsertUniverseSupplyLeaf = sqlc.UpsertUniverseSupplyLeafParams
+
+	// QuerySupplyLeavesByHeightParams is used to query for supply leaves
+	// by height.
+	QuerySupplyLeavesByHeightParams = sqlc.QuerySupplyLeavesByHeightParams
 )
 
 // BaseUniverseStore is the main interface for the Taproot Asset universe store.
@@ -128,6 +132,12 @@ type BaseUniverseStore interface {
 	// supply tree for a given asset.
 	UpsertUniverseSupplyRoot(ctx context.Context,
 		arg UpsertUniverseSupplyRoot) (int64, error)
+
+	// QuerySupplyLeavesByHeight is used to query for supply leaves by
+	// height.
+	QuerySupplyLeavesByHeight(ctx context.Context,
+		arg QuerySupplyLeavesByHeightParams) (
+		[]sqlc.QuerySupplyLeavesByHeightRow, error)
 }
 
 // getUniverseTreeSum retrieves the sum of a universe tree specified by its
@@ -570,9 +580,17 @@ func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 	)
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
 		namespace := b.id.String()
+
+		// We don't need to decode the whole proof, we just need the
+		// block height.
+		blockHeight, err := SparseDecodeBlockHeight(leaf.RawProof)
+		if err != nil {
+			return err
+		}
+
 		issuanceProof, err := universeUpsertProofLeaf(
 			ctx, dbTx, namespace, b.id.ProofType.String(),
-			b.id.GroupKey, key, leaf, metaReveal,
+			b.id.GroupKey, key, leaf, metaReveal, blockHeight,
 		)
 		if err != nil {
 			return fmt.Errorf("failed universe upsert: %w", err)
@@ -701,8 +719,8 @@ func upsertMultiverseLeafEntry(ctx context.Context, dbTx BaseUniverseStore,
 // broader DB updates.
 func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	namespace string, proofTypeStr string, groupKey *btcec.PublicKey,
-	key universe.LeafKey, leaf *universe.Leaf,
-	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
+	key universe.LeafKey, leaf *universe.Leaf, metaReveal *proof.MetaReveal,
+	blockHeight lfn.Option[uint32]) (*universe.Proof, error) {
 
 	// With the tree store created, we'll now obtain byte representation of
 	// the minting key, as that'll be the key in the SMT itself.
@@ -773,6 +791,21 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		return nil, err
 	}
 
+	// If the block height isn't specified, then we'll attempt to extract it
+	// from the proof itself.
+	if blockHeight.IsNone() && leafProof.BlockHeight > 0 {
+		blockHeight = lfn.Some(leafProof.BlockHeight)
+	}
+
+	sqlBlockHeight := lfn.MapOptionZ(
+		blockHeight, func(num uint32) sql.NullInt32 {
+			return sql.NullInt32{
+				Int32: int32(num),
+				Valid: true,
+			}
+		},
+	)
+
 	scriptKey := key.LeafScriptKey()
 	scriptKeyBytes := schnorr.SerializePubKey(scriptKey.PubKey)
 	err = dbTx.UpsertUniverseLeaf(ctx, UpsertUniverseLeaf{
@@ -782,6 +815,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		LeafNodeKey:       smtKey[:],
 		LeafNodeNamespace: namespace,
 		MintingPoint:      mintingPointBytes,
+		BlockHeight:       sqlBlockHeight,
 	})
 	if err != nil {
 		return nil, err

@@ -38,17 +38,18 @@ WHERE namespace_root = @namespace_root;
 
 -- name: UpsertUniverseLeaf :exec
 INSERT INTO universe_leaves (
-    asset_genesis_id, script_key_bytes, universe_root_id, leaf_node_key, 
-    leaf_node_namespace, minting_point
+    asset_genesis_id, script_key_bytes, universe_root_id, leaf_node_key,
+    leaf_node_namespace, minting_point, block_height
 ) VALUES (
     @asset_genesis_id, @script_key_bytes, @universe_root_id, @leaf_node_key,
-    @leaf_node_namespace, @minting_point
+    @leaf_node_namespace, @minting_point, @block_height
 ) ON CONFLICT (minting_point, script_key_bytes, leaf_node_namespace)
-    -- This is a NOP, minting_point and script_key_bytes are the unique fields
-    -- that caused the conflict.
+    -- Update the block_height on conflict. The minting_point, script_key_bytes,
+    -- and leaf_node_namespace remain unchanged as they form the unique constraint.
     DO UPDATE SET minting_point = EXCLUDED.minting_point,
                   script_key_bytes = EXCLUDED.script_key_bytes,
-                  leaf_node_namespace = EXCLUDED.leaf_node_namespace;
+                  leaf_node_namespace = EXCLUDED.leaf_node_namespace,
+                  block_height = EXCLUDED.block_height;
 
 -- name: DeleteUniverseLeaves :exec
 DELETE FROM universe_leaves

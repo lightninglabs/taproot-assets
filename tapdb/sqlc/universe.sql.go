@@ -1011,7 +1011,7 @@ func (q *Queries) QueryUniverseStats(ctx context.Context) (QueryUniverseStatsRow
 }
 
 const UniverseLeaves = `-- name: UniverseLeaves :many
-SELECT id, asset_genesis_id, minting_point, script_key_bytes, universe_root_id, leaf_node_key, leaf_node_namespace FROM universe_leaves
+SELECT id, asset_genesis_id, minting_point, script_key_bytes, universe_root_id, leaf_node_key, leaf_node_namespace, block_height FROM universe_leaves
 `
 
 func (q *Queries) UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error) {
@@ -1031,6 +1031,7 @@ func (q *Queries) UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error) {
 			&i.UniverseRootID,
 			&i.LeafNodeKey,
 			&i.LeafNodeNamespace,
+			&i.BlockHeight,
 		); err != nil {
 			return nil, err
 		}
@@ -1292,17 +1293,18 @@ func (q *Queries) UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverse
 
 const UpsertUniverseLeaf = `-- name: UpsertUniverseLeaf :exec
 INSERT INTO universe_leaves (
-    asset_genesis_id, script_key_bytes, universe_root_id, leaf_node_key, 
-    leaf_node_namespace, minting_point
+    asset_genesis_id, script_key_bytes, universe_root_id, leaf_node_key,
+    leaf_node_namespace, minting_point, block_height
 ) VALUES (
     $1, $2, $3, $4,
-    $5, $6
+    $5, $6, $7
 ) ON CONFLICT (minting_point, script_key_bytes, leaf_node_namespace)
-    -- This is a NOP, minting_point and script_key_bytes are the unique fields
-    -- that caused the conflict.
+    -- Update the block_height on conflict. The minting_point, script_key_bytes,
+    -- and leaf_node_namespace remain unchanged as they form the unique constraint.
     DO UPDATE SET minting_point = EXCLUDED.minting_point,
                   script_key_bytes = EXCLUDED.script_key_bytes,
-                  leaf_node_namespace = EXCLUDED.leaf_node_namespace
+                  leaf_node_namespace = EXCLUDED.leaf_node_namespace,
+                  block_height = EXCLUDED.block_height
 `
 
 type UpsertUniverseLeafParams struct {
@@ -1312,6 +1314,7 @@ type UpsertUniverseLeafParams struct {
 	LeafNodeKey       []byte
 	LeafNodeNamespace string
 	MintingPoint      []byte
+	BlockHeight       sql.NullInt32
 }
 
 func (q *Queries) UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) error {
@@ -1322,6 +1325,7 @@ func (q *Queries) UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeaf
 		arg.LeafNodeKey,
 		arg.LeafNodeNamespace,
 		arg.MintingPoint,
+		arg.BlockHeight,
 	)
 	return err
 }
