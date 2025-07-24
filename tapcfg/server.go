@@ -484,6 +484,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	chainPorter := tapfreighter.NewChainPorter(
 		&tapfreighter.ChainPorterConfig{
+			ChainParams: tapChainParams,
 			Signer:      virtualTxSigner,
 			TxValidator: &tap.ValidatorV0{},
 			ExportLog:   assetStore,
