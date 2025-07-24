@@ -1176,6 +1176,31 @@ func (q *Queries) FetchGenesisByAssetID(ctx context.Context, assetID []byte) (Ge
 	return i, err
 }
 
+const FetchGenesisByGroupKey = `-- name: FetchGenesisByGroupKey :one
+SELECT gv.gen_asset_id, gv.asset_id, gv.asset_tag, gv.meta_hash, gv.output_index, gv.asset_type, gv.prev_out, gv.anchor_txid, gv.block_height
+FROM genesis_info_view AS gv
+JOIN key_group_info_view AS kgv
+    ON gv.gen_asset_id = kgv.gen_asset_id
+WHERE kgv.tweaked_group_key = $1
+`
+
+func (q *Queries) FetchGenesisByGroupKey(ctx context.Context, tweakedGroupKey []byte) (GenesisInfoView, error) {
+	row := q.db.QueryRowContext(ctx, FetchGenesisByGroupKey, tweakedGroupKey)
+	var i GenesisInfoView
+	err := row.Scan(
+		&i.GenAssetID,
+		&i.AssetID,
+		&i.AssetTag,
+		&i.MetaHash,
+		&i.OutputIndex,
+		&i.AssetType,
+		&i.PrevOut,
+		&i.AnchorTxid,
+		&i.BlockHeight,
+	)
+	return i, err
+}
+
 const FetchGenesisByID = `-- name: FetchGenesisByID :one
 SELECT
     asset_id, asset_tag, assets_meta.meta_data_hash, output_index, asset_type,

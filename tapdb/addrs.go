@@ -212,6 +212,11 @@ type AddrBook interface {
 	FetchGenesisByAssetID(ctx context.Context,
 		assetID []byte) (sqlc.GenesisInfoView, error)
 
+	// FetchGenesisByGroupKey attempts to fetch asset genesis information
+	// for a given group key.
+	FetchGenesisByGroupKey(ctx context.Context,
+		tweakedGroupKey []byte) (sqlc.GenesisInfoView, error)
+
 	// FetchInternalKeyLocator fetches the key locator for an internal key.
 	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (KeyLocator,
 		error)
@@ -309,9 +314,28 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 			// point, so we'll just fetch it so we can obtain the
 			// genAssetID.
 			addr := addrs[idx]
-			assetGen, err := db.FetchGenesisByAssetID(
-				ctx, addr.AssetID[:],
+
+			// If this is an address for a grouped asset, then we
+			// need to fetch the genesis from the group key.
+			// TODO(guggero): We should use an asset specifier in
+			// the address and remove the need for the embedded
+			// genesis struct. Then we can have a
+			// QueryAssetBySpecifier method that we can use here.
+			var (
+				assetGen sqlc.GenesisInfoView
+				err      error
 			)
+			switch {
+			case addr.GroupKey != nil && addr.AssetID == asset.ID{}:
+				gkBytes := addr.GroupKey.SerializeCompressed()
+				assetGen, err = db.FetchGenesisByGroupKey(
+					ctx, gkBytes,
+				)
+			default:
+				assetGen, err = db.FetchGenesisByAssetID(
+					ctx, addr.AssetID[:],
+				)
+			}
 			if err != nil {
 				return err
 			}
