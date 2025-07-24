@@ -436,7 +436,7 @@ func (s *Server) handleStream(ctx context.Context,
 		// An error happened anywhere in the process, we need to abort
 		// the connection.
 		case err := <-stream.errChan:
-			log.ErrorS(ctx, "Error in trader stream: %v", err)
+			log.ErrorS(ctx, "Error in client stream: %v", err)
 
 			stream.abort()
 			return fmt.Errorf("error reading client=%d stream: %w",
@@ -500,7 +500,7 @@ func (s *Server) readIncomingStream(ctx context.Context,
 		// that auth message and validate it.
 		msg, err := grpcStream.Recv()
 		switch {
-		// The default disconnect signal from the client, if the trader
+		// The default disconnect signal from the client, if the client
 		// is shut down.
 		case err == io.EOF || fn.IsCanceled(err):
 			stream.abort()
