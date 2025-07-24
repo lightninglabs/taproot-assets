@@ -192,7 +192,7 @@ func (b *BatchCaretaker) Cancel() error {
 	// function, so the batch state read is the next state that has not yet
 	// been executed. Seedlings are converted to asset sprouts in the Frozen
 	// state, and broadcast in the Broadast state.
-	log.Debugf("BatchCaretaker(%x): Trying to cancel", batchKey)
+	log.Debugf("BatchCaretaker(%x): Trying to cancel", batchKey[:])
 	switch batchState {
 	// In the pending state, the batch seedlings have not sprouted yet.
 	case BatchStatePending, BatchStateFrozen:
@@ -201,8 +201,9 @@ func (b *BatchCaretaker) Cancel() error {
 			BatchStateSeedlingCancelled,
 		)
 		if err != nil {
-			err = fmt.Errorf("BatchCaretaker(%x), batch state(%v), "+
-				"cancel failed: %w", batchKey, batchState, err)
+			err = fmt.Errorf("BatchCaretaker(%x), batch "+
+				"state(%v), "+"cancel failed: %w", batchKey[:],
+				batchState, err)
 
 			b.cfg.PublishMintEvent(newAssetMintErrorEvent(
 				err, BatchStateSeedlingCancelled, b.cfg.Batch,
@@ -221,8 +222,9 @@ func (b *BatchCaretaker) Cancel() error {
 			BatchStateSproutCancelled,
 		)
 		if err != nil {
-			err = fmt.Errorf("BatchCaretaker(%x), batch state(%v), "+
-				"cancel failed: %w", batchKey, batchState, err)
+			err = fmt.Errorf("BatchCaretaker(%x), batch "+
+				"state(%v), cancel failed: %w", batchKey[:],
+				batchState, err)
 
 			b.cfg.PublishMintEvent(newAssetMintErrorEvent(
 				err, BatchStateSproutCancelled, b.cfg.Batch,
@@ -552,7 +554,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
-			b.batchKey, BatchStatePending, BatchStateFrozen)
+			b.batchKey[:], BatchStatePending, BatchStateFrozen)
 
 		return BatchStateFrozen, nil
 
@@ -690,7 +692,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
-			b.batchKey, BatchStateFrozen, BatchStateCommitted)
+			b.batchKey[:], BatchStateFrozen, BatchStateCommitted)
 
 		return BatchStateCommitted, nil
 
@@ -819,7 +821,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
-			b.batchKey, BatchStateCommitted, BatchStateBroadcast)
+			b.batchKey[:], BatchStateCommitted, BatchStateBroadcast)
 
 		return BatchStateBroadcast, nil
 
@@ -963,7 +965,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}()
 
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
-			b.batchKey, BatchStateBroadcast, BatchStateBroadcast)
+			b.batchKey[:], BatchStateBroadcast, BatchStateBroadcast)
 
 		return BatchStateBroadcast, nil
 
@@ -1139,6 +1141,17 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			}
 		}
 
+		// Send supply commitment events for all minted assets before
+		// finalizing the batch. This ensures that supply commitments
+		// are tracked before the batch is considered complete.
+		err = b.sendSupplyCommitEvents(
+			ctx, anchorAssets, nonAnchorAssets, mintingProofs,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to send supply commit "+
+				"events: %w", err)
+		}
+
 		err = b.cfg.Log.MarkBatchConfirmed(
 			ctx, b.cfg.Batch.BatchKey.PubKey, confInfo.BlockHash,
 			confInfo.BlockHeight, confInfo.TxIndex,
@@ -1157,7 +1170,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
-			b.batchKey, BatchStateConfirmed, BatchStateFinalized)
+			b.batchKey[:], BatchStateConfirmed, BatchStateFinalized)
 
 		return BatchStateFinalized, nil
 
@@ -1165,7 +1178,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 	// so we just go back to batch finalized.
 	case BatchStateFinalized:
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
-			b.batchKey, BatchStateFinalized, BatchStateFinalized)
+			b.batchKey[:], BatchStateFinalized, BatchStateFinalized)
 
 		// TODO(roasbeef): confirmed should just be the final state?
 		ctx, cancel := b.WithCtxQuit()
@@ -1430,6 +1443,125 @@ func GenHeaderVerifier(ctx context.Context,
 		err := chainBridge.VerifyBlock(ctx, header, height)
 		return err
 	}
+}
+
+// sendSupplyCommitEvents sends supply commitment events for all minted assets
+// in the batch to track them in the supply commitment state machine.
+func (b *BatchCaretaker) sendSupplyCommitEvents(ctx context.Context,
+	anchorAssets, nonAnchorAssets []*asset.Asset,
+	mintingProofs proof.AssetProofs) error {
+
+	// If no supply commit manager is configured, skip this step.
+	if b.cfg.MintSupplyCommitter == nil {
+		return nil
+	}
+
+	// If no delegation key checker is configured, skip this step. As if we
+	// need this to figure out if we made the asset or not.
+	if b.cfg.DelegationKeyChecker == nil {
+		return nil
+	}
+
+	// We'll combine the anchor and non-anchor assets into a single slice
+	// that we'll run through below.
+	allAssets := append(anchorAssets, nonAnchorAssets...)
+
+	delChecker := b.cfg.DelegationKeyChecker
+
+	// We filter the assets to only include those that have a delegation
+	// key. As only those have a supply commitment maintained.
+	assetsWithDelegation := fn.Filter(allAssets, func(a *asset.Asset) bool {
+		hasDelegationKey, err := delChecker.HasDelegationKey(
+			ctx, a.ID(),
+		)
+		if err != nil {
+			log.Debugf("Error checking delegation key for "+
+				"asset %x: %v", a.ID(), err)
+			return false
+		}
+		if !hasDelegationKey {
+			log.Debugf("Skipping supply commit event for "+
+				"asset %x: delegation key not controlled "+
+				"locally",
+				a.ID())
+		}
+		return hasDelegationKey
+	})
+
+	// For each of the assets that we just created with a delegation key,
+	// we'll create then send a supply commit event so the committer can
+	// take care of it.
+	for _, mintedAsset := range assetsWithDelegation {
+		// First, we'll extract the minting proof based on the srcipt
+		// key, and extract the very last proof from that.
+		scriptKey := asset.ToSerialized(mintedAsset.ScriptKey.PubKey)
+		mintingProof, ok := mintingProofs[scriptKey]
+		if !ok {
+			return fmt.Errorf("missing minting proof for asset "+
+				"with script key %x", scriptKey[:])
+		}
+
+		proofBlob, err := proof.EncodeAsProofFile(mintingProof)
+		if err != nil {
+			return fmt.Errorf("unable to encode proof as "+
+				"file: %w", err)
+		}
+		proofFile, err := proof.DecodeFile(proofBlob)
+		if err != nil {
+			return fmt.Errorf("unable to decode proof "+
+				"file: %w", err)
+		}
+		leafProof, err := proofFile.LastProof()
+		if err != nil {
+			return fmt.Errorf("unable to get leaf proof: %w", err)
+		}
+
+		// Encode just the leaf proof, not the entire file.
+		var leafProofBuf bytes.Buffer
+		if err := leafProof.Encode(&leafProofBuf); err != nil {
+			return fmt.Errorf("unable to encode leaf proof: %w",
+				err)
+		}
+		leafProofBytes := leafProofBuf.Bytes()
+
+		// With the proof extracted, we can now create the universe
+		// key and leaf.
+		universeKey := universe.BaseLeafKey{
+			OutPoint:  leafProof.OutPoint(),
+			ScriptKey: &mintedAsset.ScriptKey,
+		}
+		uniqueLeafKey := universe.AssetLeafKey{
+			BaseLeafKey: universeKey,
+			AssetID:     mintedAsset.ID(),
+		}
+		universeLeaf := universe.Leaf{
+			GenesisWithGroup: universe.GenesisWithGroup{
+				Genesis:  mintedAsset.Genesis,
+				GroupKey: mintedAsset.GroupKey,
+			},
+			RawProof: leafProofBytes,
+			Asset:    &leafProof.Asset,
+			Amt:      mintedAsset.Amount,
+		}
+		assetSpec := asset.NewSpecifierOptionalGroupKey(
+			mintedAsset.ID(), mintedAsset.GroupKey,
+		)
+
+		// Finally we send all of the above to the supply commiter.
+		err = b.cfg.MintSupplyCommitter.SendMintEvent(
+			ctx, assetSpec, uniqueLeafKey, universeLeaf,
+			leafProof.BlockHeight,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to send mint event for "+
+				"asset %x: %w", mintedAsset.ID(), err)
+		}
+
+		log.Infof("Sent supply commit mint event for asset %v",
+			mintedAsset.ID())
+	}
+
+	return nil
 }
 
 // assetGroupCacheSize is the size of the cache for group keys.
