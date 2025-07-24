@@ -74,6 +74,18 @@ func RandAddrWithVersion(t testing.TB, params *ChainParams,
 		},
 	})
 
+	return RandAddrWithVersionAndScriptKey(
+		t, params, proofCourierAddr, addrVersion, scriptKey,
+	)
+}
+
+// RandAddrWithVersionAndScriptKey creates a random address for testing, using
+// the specified version and script key.
+func RandAddrWithVersionAndScriptKey(t testing.TB, params *ChainParams,
+	proofCourierAddr url.URL, addrVersion Version,
+	scriptKey asset.ScriptKey) (*AddrWithKeyInfo, *asset.Genesis,
+	*asset.GroupKey) {
+
 	internalKey := test.RandPrivKey()
 
 	genesis := asset.RandGenesis(t, asset.Type(test.RandInt31n(2)))
