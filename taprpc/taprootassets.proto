@@ -1011,22 +1011,33 @@ enum AddrVersion {
     // ADDR_VERSION_V1 is the address version that uses V2 Taproot Asset
     // commitments.
     ADDR_VERSION_V1 = 2;
+
+    // ADDR_VERSION_V2 is the address version that supports sending grouped
+    // assets and require the new auth mailbox proof courier address format.
+    ADDR_VERSION_V2 = 3;
 }
 
 message Addr {
     // The bech32 encoded Taproot Asset address.
     string encoded = 1;
 
-    // The asset ID that uniquely identifies the asset.
+    // The asset ID that uniquely identifies the asset. This can be all zeroes
+    // for V2 addresses that have a group key set.
     bytes asset_id = 2;
 
     // The type of the asset.
     AssetType asset_type = 3;
 
-    // The total amount of the asset stored in this Taproot Asset UTXO.
+    // The total amount of the asset stored in this Taproot Asset UTXO. The
+    // amount is allowed to be unset for V2 addresses, where the sender will
+    // post a fragment containing the asset IDs and amounts to the proof
+    // courier's auth mailbox.
     uint64 amount = 4;
 
-    // The group key of the asset (if it exists)
+    // The group key of the asset group to receive assets for. If this field
+    // is set, then any asset of the group can be sent to this address. Can only
+    // be specified for V2 addresses. If this field is set, the asset_id
+    // field must be empty.
     bytes group_key = 5;
 
     /*
@@ -1053,7 +1064,9 @@ message Addr {
     */
     bytes taproot_output_key = 9;
 
-    // The address of the proof courier service used in proof transfer.
+    // The address of the proof courier service used in proof transfer. For V2
+    // addresses the proof courier address is mandatory and must be a valid auth
+    // mailbox address (authmailbox+universerpc://host:port).
     string proof_courier_addr = 10;
 
     // The asset version of the address.
@@ -1089,10 +1102,18 @@ message QueryAddrResponse {
 }
 
 message NewAddrRequest {
-    // The asset ID that uniquely identifies the asset to create an address for.
+    /*
+    The asset ID to create the address for. This is required for V0 and V1
+    addresses. For V2 addresses, this field is optional and must be empty if the
+    group key is set.
+    */
     bytes asset_id = 1;
 
-    // The amount to create the address for.
+    /*
+    The number of asset units to be sent to the address. This is required for V0
+    and V1 addresses. For V2 addresses, this field is optional and can be left
+    at 0 to indicate that the sender can choose the amount of assets to send.
+    */
     uint64 amt = 2;
 
     /*
@@ -1138,6 +1159,12 @@ message NewAddrRequest {
     The version of this address.
     */
     AddrVersion address_version = 8;
+
+    /*
+    The group key to receive assets for. This can only be specified for V2
+    addresses. If this field is set, the asset_id field must be empty.
+    */
+    bytes group_key = 9;
 }
 
 enum ScriptKeyType {

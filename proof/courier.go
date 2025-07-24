@@ -1741,8 +1741,18 @@ func CheckUniverseRpcCourierConnection(ctx context.Context,
 		false,
 	)
 	if err != nil {
+		// Unimplemented here means that the courier is missing some
+		// RPC methods that we require.
+		statusErr, ok := status.FromError(err)
+		if ok && statusErr.Code() == codes.Unimplemented {
+			return fmt.Errorf("universe RPC courier at '%v' does "+
+				"not support the required RPC methods, make "+
+				"sure it runs the latest version of tapd: %w",
+				courierURL.String(), err)
+		}
+
 		return fmt.Errorf("unable to test connection proof courier "+
-			"'%v': %v", courierURL.String(), err)
+			"'%v': %w", courierURL.String(), err)
 	}
 
 	err = courier.Close()
