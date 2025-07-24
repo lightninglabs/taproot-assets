@@ -2255,9 +2255,22 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 		// that means we don't know anything about what it should look
 		// like on chain (the genesis is required to derive the taproot
 		// output key).
-		assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(
-			ctx, addr.AssetID,
-		)
+		// TODO(guggero): We should use an asset specifier in the
+		// address and remove the need for the embedded genesis struct.
+		// Then we can have a QueryAssetBySpecifier method that we can
+		// use here.
+		var assetGroup *asset.AssetGroup
+		switch {
+		case addr.GroupKey != nil && addr.AssetID == asset.ID{}:
+			book := r.cfg.TapAddrBook
+			assetGroup, err = book.QueryAssetGroupByGroupKey(
+				ctx, addr.GroupKey,
+			)
+		default:
+			assetGroup, err = r.cfg.TapAddrBook.QueryAssetGroup(
+				ctx, addr.AssetID,
+			)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("unknown asset=%x: %w",
 				addr.AssetID[:], err)
@@ -3366,10 +3379,22 @@ func marshalAddr(addr *address.Tap,
 	// We can only derive the taproot output if we already know the genesis
 	// for this asset, as that's required to make the template asset that
 	// will be committed to in the tapscript tree.
-	var taprootOutputKey []byte
-	assetGroup, err := db.QueryAssetGroup(
-		context.Background(), addr.AssetID,
+	// TODO(guggero): We should use an asset specifier in the address and
+	// remove the need for the embedded genesis struct. Then we can have
+	// a QueryAssetBySpecifier method that we can use here.
+	var (
+		taprootOutputKey []byte
+		assetGroup       *asset.AssetGroup
+		ctx              = context.Background()
 	)
+	switch {
+	case addr.GroupKey != nil && addr.AssetID == asset.ID{}:
+		assetGroup, err = db.QueryAssetGroupByGroupKey(
+			ctx, addr.GroupKey,
+		)
+	default:
+		assetGroup, err = db.QueryAssetGroup(ctx, addr.AssetID)
+	}
 	if err == nil {
 		addr.AttachGenesis(*assetGroup.Genesis)
 
