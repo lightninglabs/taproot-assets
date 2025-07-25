@@ -122,6 +122,14 @@ type ManagerCfg struct {
 	// messages (this means that the price oracle will not be queried).
 	SkipAcceptQuotePriceCheck bool
 
+	// SendPriceHint is a flag that, if set, will send a price hint to the
+	// peer when requesting a quote.
+	SendPriceHint bool
+
+	// SendPeerId is a flag that, if set, will send the peer ID (public
+	// key of the peer) to the price oracle when requesting a price rate.
+	SendPeerId bool
+
 	// ErrChan is the main error channel which will be used to report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -271,16 +279,15 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 	}
 
 	// Initialise and start the quote negotiator.
-	m.negotiator, err = NewNegotiator(
-		// nolint: lll
-		NegotiatorCfg{
-			PriceOracle:               m.cfg.PriceOracle,
-			OutgoingMessages:          m.outgoingMessages,
-			AcceptPriceDeviationPpm:   m.cfg.AcceptPriceDeviationPpm,
-			SkipAcceptQuotePriceCheck: m.cfg.SkipAcceptQuotePriceCheck,
-			ErrChan:                   m.subsystemErrChan,
-		},
-	)
+	m.negotiator, err = NewNegotiator(NegotiatorCfg{
+		PriceOracle:               m.cfg.PriceOracle,
+		OutgoingMessages:          m.outgoingMessages,
+		AcceptPriceDeviationPpm:   m.cfg.AcceptPriceDeviationPpm,
+		SkipAcceptQuotePriceCheck: m.cfg.SkipAcceptQuotePriceCheck,
+		SendPriceHint:             m.cfg.SendPriceHint,
+		SendPeerId:                m.cfg.SendPeerId,
+		ErrChan:                   m.subsystemErrChan,
+	})
 	if err != nil {
 		return fmt.Errorf("error initializing RFQ negotiator: %w",
 			err)
