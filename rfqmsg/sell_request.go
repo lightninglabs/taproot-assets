@@ -57,25 +57,40 @@ type SellRequest struct {
 	// initiate the RFQ negotiation process and may differ from the final
 	// agreed rate.
 	AssetRateHint fn.Option[AssetRate]
+
+	// PriceOracleMetadata is an optional text field that can be used to
+	// provide additional metadata about the sell request to the price
+	// oracle. This can include information about the wallet end user that
+	// initiated the transaction, or any authentication information that the
+	// price oracle can use to give out a more accurate (or discount) asset
+	// rate. The maximum length of this field is 32'768 bytes.
+	PriceOracleMetadata string
 }
 
 // NewSellRequest creates a new asset sell quote request.
 func NewSellRequest(peer route.Vertex, assetSpecifier asset.Specifier,
-	paymentMaxAmt lnwire.MilliSatoshi,
-	assetRateHint fn.Option[AssetRate]) (*SellRequest, error) {
+	paymentMaxAmt lnwire.MilliSatoshi, assetRateHint fn.Option[AssetRate],
+	oracleMetadata string) (*SellRequest, error) {
 
 	id, err := NewID()
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate random id: %w", err)
 	}
 
+	// Cap the user-defined string to avoid p2p message size limits.
+	if len(oracleMetadata) > MaxOracleMetadataLength {
+		return nil, fmt.Errorf("price oracle metadata exceeds maximum "+
+			"length of %d bytes", MaxOracleMetadataLength)
+	}
+
 	return &SellRequest{
-		Peer:           peer,
-		Version:        latestSellRequestVersion,
-		ID:             id,
-		AssetSpecifier: assetSpecifier,
-		PaymentMaxAmt:  paymentMaxAmt,
-		AssetRateHint:  assetRateHint,
+		Peer:                peer,
+		Version:             latestSellRequestVersion,
+		ID:                  id,
+		AssetSpecifier:      assetSpecifier,
+		PaymentMaxAmt:       paymentMaxAmt,
+		AssetRateHint:       assetRateHint,
+		PriceOracleMetadata: oracleMetadata,
 	}, nil
 }
 
@@ -137,9 +152,15 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 		Version:        msgData.Version.Val,
 		ID:             msgData.ID.Val,
 		AssetSpecifier: assetSpecifier,
-		PaymentMaxAmt:  lnwire.MilliSatoshi(msgData.MaxInAsset.Val),
-		AssetRateHint:  assetRateHint,
+		PaymentMaxAmt: lnwire.MilliSatoshi(
+			msgData.MaxInAsset.Val,
+		),
+		AssetRateHint: assetRateHint,
 	}
+
+	msgData.PriceOracleMetadata.ValOpt().WhenSome(func(metaBytes []byte) {
+		req.PriceOracleMetadata = string(metaBytes)
+	})
 
 	// Perform basic sanity checks on the quote request.
 	if err := req.Validate(); err != nil {
@@ -162,6 +183,12 @@ func (q *SellRequest) Validate() error {
 	if q.Version != latestSellRequestVersion {
 		return fmt.Errorf("unsupported sell request message version: "+
 			"%d", q.Version)
+	}
+
+	// Cap the user-defined string to avoid p2p message size limits.
+	if len(q.PriceOracleMetadata) > MaxOracleMetadataLength {
+		return fmt.Errorf("price oracle metadata exceeds maximum "+
+			"length of %d bytes", MaxOracleMetadataLength)
 	}
 
 	return nil
