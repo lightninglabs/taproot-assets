@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -271,28 +272,29 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 			continue
 		}
 
-		assetRate := lnwire.MilliSatoshi(
-			quote.AssetRate.Rate.ToUint64(),
+		assetRate := quote.AssetRate.Rate
+		htlcAssets := htlc.Amounts.Val.Sum()
+		totalAssetAmount := rfqmath.NewBigIntFixedPoint(htlcAssets, 0)
+
+		amtPaid := rfqmath.UnitsToMilliSatoshi(
+			totalAssetAmount, assetRate,
 		)
-		msatPerBtc := float64(btcutil.SatoshiPerBitcoin * 1000)
-		unitValue := msatPerBtc / float64(assetRate)
-		assetUnits := lnwire.MilliSatoshi(htlc.Amounts.Val.Sum())
-
-		floatValue := float64(assetUnits) * unitValue
-
-		assetValueMsat := lnwire.MilliSatoshi(floatValue)
 
 		acceptedMsat := lnwire.MilliSatoshi(0)
 		for _, htlc := range r.Invoice.Htlcs {
 			acceptedMsat += lnwire.MilliSatoshi(htlc.AmtMsat)
 		}
 
-		marginHtlcs := len(r.Invoice.Htlcs) + 1
-		marginMsat := lnwire.MilliSatoshi(
-			float64(marginHtlcs) * unitValue,
+		marginHtlcs := uint64(len(r.Invoice.Htlcs) + 1)
+		marginHtlcs++
+
+		marginAssetUnits := rfqmath.NewBigIntFixedPoint(marginHtlcs, 0)
+
+		marginMsat := rfqmath.UnitsToMilliSatoshi(
+			marginAssetUnits, assetRate,
 		)
 
-		totalMsatIn := marginMsat + assetValueMsat + acceptedMsat + 1
+		totalMsatIn := marginMsat + amtPaid + acceptedMsat + 1
 
 		invoiceValue := lnwire.MilliSatoshi(r.Invoice.ValueMsat)
 
@@ -301,9 +303,9 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 				m.t.Errorf("amt + accepted != invoice amt")
 			}
 		} else {
-			if assetValueMsat != res.AmtPaid {
+			if amtPaid != res.AmtPaid {
 				m.t.Errorf("unexpected final asset value, "+
-					"wanted %d, got %d", assetValueMsat,
+					"wanted %d, got %d", amtPaid,
 					res.AmtPaid)
 			}
 		}
@@ -819,11 +821,10 @@ func genHtlc(t *rapid.T, balance []*rfqmsg.AssetBalance,
 // method also returns the assetUnits and the rfqID used by the htlc.
 func genRequest(t *rapid.T) (lndclient.InvoiceHtlcModifyRequest, uint64,
 	asset.ID, rfqmsg.ID) {
-
 	request := lndclient.InvoiceHtlcModifyRequest{
 		CircuitKey: invoices.CircuitKey{
 			ChanID: lnwire.NewShortChanIDFromInt(
-				rapid.Uint64().Draw(t, "chan_id"),
+				rand.Uint64(),
 			),
 		},
 	}
