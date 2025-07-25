@@ -102,51 +102,52 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 	}, nil
 }
 
-// queryBidFromPriceOracle queries the price oracle for a bid price. It returns
-// an appropriate outgoing response message which should be sent to the peer.
-func (n *Negotiator) queryBidFromPriceOracle(assetSpecifier asset.Specifier,
+// queryBuyFromPriceOracle queries the price oracle for a buy price.
+// It returns an appropriate outgoing response message which should be sent to
+// the peer.
+func (n *Negotiator) queryBuyFromPriceOracle(assetSpecifier asset.Specifier,
 	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
 
-	// TODO(ffranr): Optionally accept a peer's proposed ask price as an
+	// TODO(ffranr): Optionally accept a peer's proposed sell price as an
 	//  arg to this func and pass it to the price oracle. The price oracle
-	//  service might be intelligent enough to use the peer's proposed ask
-	//  price as a factor when computing the bid price. This argument must
+	//  service might be intelligent enough to use the peer's proposed sell
+	//  price as a factor when computing the buy price. This argument must
 	//  be optional because at some call sites we are initiating a request
-	//  and do not have a peer's proposed ask price.
+	//  and do not have a peer's proposed sell price.
 
 	ctx, cancel := n.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	log.Debugf("Querying price oracle for bid price (asset_specifier=%s, "+
+	log.Debugf("Querying price oracle for buy price (asset_specifier=%s, "+
 		"asset_max_amt=%s, payment_max_amt=%s, asset_rate_hint=%s)",
 		assetSpecifier.String(), assetMaxAmt.String(),
 		paymentMaxAmt.String(), assetRateHint.String())
 
-	oracleResponse, err := n.cfg.PriceOracle.QueryBidPrice(
+	oracleResponse, err := n.cfg.PriceOracle.QueryBuyPrice(
 		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
-			"bid: %w", err)
+			"buy price: %w", err)
 	}
 
 	// Now we will check for an error in the response from the price oracle.
 	// If present, we will convert it to a string and return it as an error.
 	if oracleResponse.Err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
-			"bid price: %s", oracleResponse.Err)
+			"buy price: %s", oracleResponse.Err)
 	}
 
-	// By this point, the price oracle did not return an error or a bid
+	// By this point, the price oracle did not return an error or a buy
 	// price. We will therefore return an error.
 	if oracleResponse.AssetRate.Rate.ToUint64() == 0 {
 		return nil, fmt.Errorf("price oracle did not specify a " +
-			"bid price")
+			"buy price")
 	}
 
-	// TODO(ffranr): Check that the bid price is reasonable.
+	// TODO(ffranr): Check that the buy price is reasonable.
 	// TODO(ffranr): Ensure that the expiry time is valid and sufficient.
 
 	return &oracleResponse.AssetRate, nil
@@ -176,17 +177,17 @@ func (n *Negotiator) HandleOutgoingBuyOrder(
 		return finalise(err)
 	}
 
-	// We calculate a proposed bid price for our peer's
+	// We calculate a proposed buy price for our peer's
 	// consideration. If a price oracle is not specified we will
 	// skip this step.
 	var assetRateHint fn.Option[rfqmsg.AssetRate]
 
 	if n.cfg.PriceOracle != nil && buyOrder.AssetSpecifier.IsSome() {
-		// Query the price oracle for a bid price.
+		// Query the price oracle for a buy price.
 		//
 		// TODO(ffranr): Pass the BuyOrder expiry to the price
 		//  oracle at this point.
-		assetRate, err := n.queryBidFromPriceOracle(
+		assetRate, err := n.queryBuyFromPriceOracle(
 			buyOrder.AssetSpecifier,
 			fn.Some(buyOrder.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](),
@@ -194,9 +195,9 @@ func (n *Negotiator) HandleOutgoingBuyOrder(
 		)
 		if err != nil {
 			// If we fail to query the price oracle for a
-			// bid price, we will log a warning and continue
-			// without a bid price.
-			log.Warnf("failed to query bid price from price "+
+			// buy price, we will log a warning and continue
+			// without a buy price.
+			log.Warnf("failed to query buy price from price "+
 				"oracle for outgoing buy request: %v", err)
 		}
 
@@ -230,47 +231,47 @@ func (n *Negotiator) HandleOutgoingBuyOrder(
 	return request.ID, nil
 }
 
-// queryAskFromPriceOracle queries the price oracle for an asking price. It
+// querySellFromPriceOracle queries the price oracle for a sell price. It
 // returns an appropriate outgoing response message which should be sent to the
 // peer.
-func (n *Negotiator) queryAskFromPriceOracle(assetSpecifier asset.Specifier,
+func (n *Negotiator) querySellFromPriceOracle(assetSpecifier asset.Specifier,
 	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
 
-	// Query the price oracle for an asking price.
+	// Query the price oracle for a sell price.
 	ctx, cancel := n.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	log.Debugf("Querying price oracle for ask price (asset_specifier=%s, "+
+	log.Debugf("Querying price oracle for sell price (asset_specifier=%s, "+
 		"asset_max_amt=%s, payment_max_amt=%s, asset_rate_hint=%s)",
 		assetSpecifier.String(), assetMaxAmt.String(),
 		paymentMaxAmt.String(), assetRateHint.String())
 
-	oracleResponse, err := n.cfg.PriceOracle.QueryAskPrice(
+	oracleResponse, err := n.cfg.PriceOracle.QuerySellPrice(
 		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt,
 		assetRateHint,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
-			"ask price: %w", err)
+			"sell price: %w", err)
 	}
 
 	// Now we will check for an error in the response from the price oracle.
 	// If present, we will convert it to a string and return it as an error.
 	if oracleResponse.Err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
-			"ask price: %s", oracleResponse.Err)
+			"sell price: %s", oracleResponse.Err)
 	}
 
-	// By this point, the price oracle did not return an error or an asking
+	// By this point, the price oracle did not return an error or a sell
 	// price. We will therefore return an error.
 	if oracleResponse.AssetRate.Rate.Coefficient.ToUint64() == 0 {
 		return nil, fmt.Errorf("price oracle did not specify an " +
 			"asset to BTC rate")
 	}
 
-	// TODO(ffranr): Check that the asking price is reasonable.
+	// TODO(ffranr): Check that the sell price is reasonable.
 	// TODO(ffranr): Ensure that the expiry time is valid and sufficient.
 
 	return &oracleResponse.AssetRate, nil
@@ -335,8 +336,8 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 	go func() {
 		defer n.Wg.Done()
 
-		// Query the price oracle for an asking price.
-		assetRate, err := n.queryAskFromPriceOracle(
+		// Query the price oracle for a sale price.
+		assetRate, err := n.querySellFromPriceOracle(
 			request.AssetSpecifier,
 			fn.Some(request.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](),
@@ -351,7 +352,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 			sendOutgoingMsg(msg)
 
 			// Add an error to the error channel and return.
-			err = fmt.Errorf("failed to query ask price from "+
+			err = fmt.Errorf("failed to query sell price from "+
 				"oracle: %w", err)
 			n.cfg.ErrChan <- err
 			return
@@ -430,10 +431,10 @@ func (n *Negotiator) HandleIncomingSellRequest(
 	go func() {
 		defer n.Wg.Done()
 
-		// Query the price oracle for a bid price. This is the price we
+		// Query the price oracle for a buy price. This is the price we
 		// are willing to pay for the asset that our peer is trying to
 		// sell to us.
-		assetRate, err := n.queryBidFromPriceOracle(
+		assetRate, err := n.queryBuyFromPriceOracle(
 			request.AssetSpecifier, fn.None[uint64](),
 			fn.Some(request.PaymentMaxAmt), request.AssetRateHint,
 		)
@@ -446,7 +447,7 @@ func (n *Negotiator) HandleIncomingSellRequest(
 			sendOutgoingMsg(msg)
 
 			// Add an error to the error channel and return.
-			err = fmt.Errorf("failed to query bid price from "+
+			err = fmt.Errorf("failed to query buy price from "+
 				"oracle: %w", err)
 			n.cfg.ErrChan <- err
 			return
@@ -484,17 +485,17 @@ func (n *Negotiator) HandleOutgoingSellOrder(
 		return finalise(err)
 	}
 
-	// We calculate a proposed ask price for our peer's
+	// We calculate a proposed sell price for our peer's
 	// consideration. If a price oracle is not specified we will
 	// skip this step.
 	var assetRateHint fn.Option[rfqmsg.AssetRate]
 
 	if n.cfg.PriceOracle != nil && order.AssetSpecifier.IsSome() {
-		// Query the price oracle for an asking price.
+		// Query the price oracle for a sell price.
 		//
 		// TODO(ffranr): Pass the SellOrder expiry to the
 		//  price oracle at this point.
-		assetRate, err := n.queryAskFromPriceOracle(
+		assetRate, err := n.querySellFromPriceOracle(
 			order.AssetSpecifier, fn.None[uint64](),
 			fn.Some(order.PaymentMaxAmt),
 			fn.None[rfqmsg.AssetRate](),
@@ -596,19 +597,19 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	go func() {
 		defer n.Wg.Done()
 
-		// The buy accept message includes an ask price, which
+		// The buy accept message includes an sell price, which
 		// represents the amount the peer is willing to accept for the
 		// asset we are purchasing.
 		//
-		// To validate this ask, we will query our price oracle for a
-		// bid price and compare it with the peer's asking price. If the
+		// To validate this sell, we will query our price oracle for a
+		// buy price and compare it with the peer's sell price. If the
 		// two prices fall within an acceptable tolerance, we will
 		// approve the quote.
 		//
 		// When querying the price oracle, we will provide the peer's
-		// ask price as a hint. The oracle may factor this into its
-		// calculations to generate a more relevant bid price.
-		assetRate, err := n.queryBidFromPriceOracle(
+		// sell price as a hint. The oracle may factor this into its
+		// calculations to generate a more relevant buy price.
+		assetRate, err := n.queryBuyFromPriceOracle(
 			msg.Request.AssetSpecifier,
 			fn.Some(msg.Request.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](), fn.Some(msg.AssetRate),
@@ -753,19 +754,19 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 
 	// Query the price oracle asynchronously using a separate goroutine.
 	n.ContextGuard.Goroutine(func() error {
-		// The sell accept message includes a bid price, which
+		// The sell accept message includes a buy price, which
 		// represents the amount the peer is willing to pay for the
 		// asset we are selling.
 		//
-		// To validate this bid, we will query our price oracle for an
-		// ask price and compare it with the peer's bid. If the two
+		// To validate this buy, we will query our price oracle for an
+		// sell price and compare it with the peer's buy. If the two
 		// prices fall within an acceptable tolerance, we will accept
 		// the quote.
 		//
 		// When querying the price oracle, we will provide the peer's
-		// bid as a hint. The oracle may incorporate this bid into its
-		// calculations to determine a more accurate ask price.
-		assetRate, err := n.queryAskFromPriceOracle(
+		// buy as a hint. The oracle may incorporate this buy into its
+		// calculations to determine a more accurate sell price.
+		assetRate, err := n.querySellFromPriceOracle(
 			msg.Request.AssetSpecifier, fn.None[uint64](),
 			fn.Some(msg.Request.PaymentMaxAmt),
 			fn.Some(msg.AssetRate),
@@ -861,7 +862,7 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 // for sale.
 //
 // A sell offer is passive (unlike a buy order), meaning that it does not
-// actively lead to a bid request from a peer. Instead, it is used by the node
+// actively lead to a buy request from a peer. Instead, it is used by the node
 // to selectively accept or reject incoming quote requests early before price
 // considerations.
 type SellOffer struct {

@@ -43,9 +43,9 @@ func assertIncomingSellAcceptTestCase(
 	mockPriceOracle := &MockPriceOracle{}
 
 	// Register an expected call and response for price oracle method
-	// QueryAskPrice.
+	// QuerySellPrice.
 	mockPriceOracle.On(
-		"QueryAskPrice", mock.Anything, mock.Anything,
+		"QuerySellPrice", mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(
 		&OracleResponse{
@@ -228,9 +228,9 @@ func assertIncomingBuyAcceptTestCase(
 	mockPriceOracle := &MockPriceOracle{}
 
 	// Register an expected call and response for price oracle method
-	// QueryBidPrice.
+	// QueryBuyPrice.
 	mockPriceOracle.On(
-		"QueryBidPrice", mock.Anything, mock.Anything,
+		"QueryBuyPrice", mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(
 		&OracleResponse{

@@ -9622,7 +9622,7 @@ func (r *rpcServer) assetInvoiceAmt(ctx context.Context,
 
 	oracle := r.cfg.PriceOracle
 
-	oracleResp, err := oracle.QueryAskPrice(
+	oracleResp, err := oracle.QuerySellPrice(
 		ctx, targetAsset, fn.None[uint64](), fn.Some(invoiceAmt),
 		fn.None[rfqmsg.AssetRate](),
 	)

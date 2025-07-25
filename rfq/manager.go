@@ -1302,7 +1302,7 @@ func EstimateAssetUnits(ctx context.Context, oracle PriceOracle,
 	specifier asset.Specifier,
 	amtMsat lnwire.MilliSatoshi) (uint64, error) {
 
-	oracleRes, err := oracle.QueryBidPrice(
+	oracleRes, err := oracle.QueryBuyPrice(
 		ctx, specifier, fn.None[uint64](), fn.Some(amtMsat),
 		fn.None[rfqmsg.AssetRate](),
 	)
