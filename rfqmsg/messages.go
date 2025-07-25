@@ -181,8 +181,14 @@ func NewAssetRate(rate rfqmath.BigIntFixedPoint, expiry time.Time) AssetRate {
 	}
 }
 
-// MaxMessageType is the maximum supported message type value.
-const MaxMessageType = lnwire.MessageType(math.MaxUint16)
+const (
+	// MaxMessageType is the maximum supported message type value.
+	MaxMessageType = lnwire.MessageType(math.MaxUint16)
+
+	// MaxOracleMetadataLength is the maximum length of the oracle metadata
+	// field in a quote request message.
+	MaxOracleMetadataLength = 32_768
+)
 
 // TapMessageTypeBaseOffset is the taproot-assets specific message type
 // identifier base offset. All tap messages will have a type identifier that is
