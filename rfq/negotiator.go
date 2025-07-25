@@ -208,7 +208,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 		// Construct a new buy request to send to the peer.
 		request, err := rfqmsg.NewBuyRequest(
 			peer, buyOrder.AssetSpecifier,
-			buyOrder.AssetMaxAmt, assetRateHint,
+			buyOrder.AssetMaxAmt, assetRateHint, "",
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create buy request "+
@@ -511,7 +511,7 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 
 		request, err := rfqmsg.NewSellRequest(
 			peer, order.AssetSpecifier, order.PaymentMaxAmt,
-			assetRateHint,
+			assetRateHint, "",
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create sell request "+
