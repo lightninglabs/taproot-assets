@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -53,6 +54,11 @@ type (
 	requestOutAssetRateHint = tlv.OptionalRecordT[
 		tlv.TlvType21, TlvFixedPoint,
 	]
+
+	// requestOracleMetadata is a type alias for a record that represents
+	// the optional metadata that can be included in a quote request to
+	// provide additional context to the price oracle.
+	requestOracleMetadata = tlv.OptionalRecordT[tlv.TlvType27, []byte]
 )
 
 // requestWireMsgData is a struct that represents the message data field for
@@ -124,6 +130,14 @@ type requestWireMsgData struct {
 	// transferred under the terms of the quote, applicable whether the
 	// asset is BTC or any other.
 	MinOutAsset tlv.OptionalRecordT[tlv.TlvType25, uint64]
+
+	// PriceOracleMetadata is an optional text field that can be used to
+	// provide additional metadata about the buy request to the price
+	// oracle. This can include information about the wallet end user that
+	// initiated the transaction, or any authentication information that the
+	// price oracle can use to give out a more accurate (or discount) asset
+	// rate. The maximum length of this field is 32'768 bytes.
+	PriceOracleMetadata requestOracleMetadata
 }
 
 // newRequestWireMsgDataFromBuy creates a new requestWireMsgData from a buy
@@ -178,18 +192,28 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 
 	maxInAsset := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetMaxAmt)
 
+	var oracleMetadata requestOracleMetadata
+	if len(q.PriceOracleMetadata) > 0 {
+		oracleMetadata = tlv.SomeRecordT[tlv.TlvType27](
+			tlv.NewPrimitiveRecord[tlv.TlvType27]([]byte(
+				q.PriceOracleMetadata,
+			)),
+		)
+	}
+
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
-		Version:          version,
-		ID:               id,
-		TransferType:     transferType,
-		Expiry:           expiryTlv,
-		InAssetID:        inAssetID,
-		InAssetGroupKey:  inAssetGroupKey,
-		OutAssetID:       outAssetID,
-		OutAssetGroupKey: outAssetGroupKey,
-		MaxInAsset:       maxInAsset,
-		InAssetRateHint:  inAssetRateHint,
+		Version:             version,
+		ID:                  id,
+		TransferType:        transferType,
+		Expiry:              expiryTlv,
+		InAssetID:           inAssetID,
+		InAssetGroupKey:     inAssetGroupKey,
+		OutAssetID:          outAssetID,
+		OutAssetGroupKey:    outAssetGroupKey,
+		MaxInAsset:          maxInAsset,
+		InAssetRateHint:     inAssetRateHint,
+		PriceOracleMetadata: oracleMetadata,
 	}, nil
 }
 
@@ -248,17 +272,27 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 		)
 	})
 
+	var oracleMetadata requestOracleMetadata
+	if len(q.PriceOracleMetadata) > 0 {
+		oracleMetadata = tlv.SomeRecordT[tlv.TlvType27](
+			tlv.NewPrimitiveRecord[tlv.TlvType27]([]byte(
+				q.PriceOracleMetadata,
+			)),
+		)
+	}
+
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
-		Version:          version,
-		ID:               id,
-		TransferType:     transferType,
-		Expiry:           expiryTlv,
-		InAssetID:        inAssetID,
-		OutAssetID:       outAssetID,
-		OutAssetGroupKey: outAssetGroupKey,
-		MaxInAsset:       maxInAsset,
-		OutAssetRateHint: outAssetRateHint,
+		Version:             version,
+		ID:                  id,
+		TransferType:        transferType,
+		Expiry:              expiryTlv,
+		InAssetID:           inAssetID,
+		OutAssetID:          outAssetID,
+		OutAssetGroupKey:    outAssetGroupKey,
+		MaxInAsset:          maxInAsset,
+		OutAssetRateHint:    outAssetRateHint,
+		PriceOracleMetadata: oracleMetadata,
 	}, nil
 }
 
@@ -318,6 +352,14 @@ func (m *requestWireMsgData) Validate() error {
 	if inAssetIsBTC && outAssetIsBTC {
 		return fmt.Errorf("inbound and outbound asset IDs cannot " +
 			"both be set to all zeros")
+	}
+
+	if lfn.MapOptionZ(m.PriceOracleMetadata.ValOpt(), func(m []byte) bool {
+		return len(m) > MaxOracleMetadataLength
+	}) {
+
+		return fmt.Errorf("price oracle metadata exceeds maximum "+
+			"length of %d bytes", MaxOracleMetadataLength)
 	}
 
 	return nil
@@ -384,6 +426,11 @@ func (m *requestWireMsgData) Encode(w io.Writer) error {
 			records = append(records, r.Record())
 		},
 	)
+	m.PriceOracleMetadata.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType27, []byte]) {
+			records = append(records, r.Record())
+		},
+	)
 
 	tlv.SortRecords(records)
 
@@ -411,6 +458,8 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 	minInAsset := m.MinInAsset.Zero()
 	minOutAsset := m.MinOutAsset.Zero()
 
+	oracleMetadata := m.PriceOracleMetadata.Zero()
+
 	// Create a tlv stream with all the fields.
 	tlvStream, err := tlv.NewStream(
 		m.Version.Record(),
@@ -431,6 +480,8 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 
 		minInAsset.Record(),
 		minOutAsset.Record(),
+
+		oracleMetadata.Record(),
 	)
 	if err != nil {
 		return err
@@ -469,6 +520,9 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 	}
 	if _, ok := tlvMap[minOutAsset.TlvType()]; ok {
 		m.MinOutAsset = tlv.SomeRecordT(minOutAsset)
+	}
+	if _, ok := tlvMap[oracleMetadata.TlvType()]; ok {
+		m.PriceOracleMetadata = tlv.SomeRecordT(oracleMetadata)
 	}
 
 	return nil
