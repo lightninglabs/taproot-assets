@@ -108,26 +108,52 @@ WITH target_addr(addr_id) AS (
 )
 INSERT INTO addr_events (
     creation_time, addr_id, status, chain_txn_id, chain_txn_output_index,
-    managed_utxo_id, asset_proof_id, asset_id
+    managed_utxo_id
 ) VALUES (
     $3, (SELECT addr_id FROM target_addr), $4,
-    (SELECT txn_id FROM target_chain_txn), $5, $6, $7, $8
+    (SELECT txn_id FROM target_chain_txn), $5, $6
 )
 ON CONFLICT (addr_id, chain_txn_id, chain_txn_output_index)
-    DO UPDATE SET status = EXCLUDED.status,
-                  asset_proof_id = COALESCE(EXCLUDED.asset_proof_id, addr_events.asset_proof_id),
-                  asset_id = COALESCE(EXCLUDED.asset_id, addr_events.asset_id)
+    DO UPDATE SET status = EXCLUDED.status
+RETURNING id;
+
+-- name: UpsertAddrEventOutput :one
+INSERT INTO addr_event_outputs (
+    addr_event_id, amount, asset_id, script_key_id
+) VALUES (
+    $1, $2, $3, $4
+)
+ON CONFLICT (addr_event_id, asset_id) DO UPDATE
+SET
+    -- We allow the amount and script key to be updated.
+    amount = EXCLUDED.amount,
+    script_key_id = EXCLUDED.script_key_id
+RETURNING id;
+
+-- name: UpsertAddrEventProof :one
+INSERT INTO addr_event_proofs (
+    addr_event_id, asset_proof_id, asset_id_fk
+) VALUES (
+    $1, $2, $3
+)
+ON CONFLICT (addr_event_id, asset_proof_id) DO UPDATE
+SET
+    -- We allow the asset_id_fk to be updated.
+    asset_id_fk = EXCLUDED.asset_id_fk
 RETURNING id;
 
 -- name: FetchAddrEvent :one
 SELECT
-    creation_time, status, asset_proof_id, asset_id,
+    creation_time,
+    status,
     chain_txns.txid as txid,
     chain_txns.block_height as confirmation_height,
     chain_txn_output_index as output_index,
     managed_utxos.amt_sats as amt_sats,
     managed_utxos.tapscript_sibling as tapscript_sibling,
-    internal_keys.raw_key as internal_key
+    internal_keys.raw_key as internal_key,
+    (SELECT count(*) FROM addr_event_proofs ap 
+     WHERE ap.addr_event_id = addr_events.id) AS num_proofs
 FROM addr_events
 LEFT JOIN chain_txns
        ON addr_events.chain_txn_id = chain_txns.txn_id
@@ -135,7 +161,30 @@ LEFT JOIN managed_utxos
        ON addr_events.managed_utxo_id = managed_utxos.utxo_id
 LEFT JOIN internal_keys
        ON managed_utxos.internal_key_id = internal_keys.key_id
-WHERE id = $1;
+WHERE addr_events.id = $1;
+
+-- name: FetchAddrEventOutputs :many
+SELECT
+    addr_event_outputs.amount,
+    addr_event_outputs.asset_id,
+    addr_event_outputs.script_key_id,
+    sqlc.embed(script_keys),
+    sqlc.embed(internal_keys)
+FROM addr_event_outputs
+JOIN script_keys
+    ON addr_event_outputs.script_key_id = script_keys.script_key_id
+JOIN internal_keys
+    ON script_keys.internal_key_id = internal_keys.key_id
+WHERE addr_event_outputs.addr_event_id = $1;
+
+-- name: FetchAddrEventProofs :many
+SELECT
+    addr_event_proofs.asset_proof_id,
+    asset_proofs.proof_file
+FROM addr_event_proofs
+JOIN asset_proofs
+    ON addr_event_proofs.asset_proof_id = asset_proofs.proof_id
+WHERE addr_event_proofs.addr_event_id = $1;
 
 -- name: FetchAddrEventByAddrKeyAndOutpoint :one
 WITH target_addr(addr_id) AS (
@@ -144,13 +193,17 @@ WITH target_addr(addr_id) AS (
     WHERE addrs.taproot_output_key = $1
 )
 SELECT
-    addr_events.id, creation_time, status, asset_proof_id, asset_id,
+    addr_events.id,
+    creation_time,
+    status,
     chain_txns.txid as txid,
     chain_txns.block_height as confirmation_height,
     chain_txn_output_index as output_index,
     managed_utxos.amt_sats as amt_sats,
     managed_utxos.tapscript_sibling as tapscript_sibling,
-    internal_keys.raw_key as internal_key
+    internal_keys.raw_key as internal_key,
+    (SELECT count(*) FROM addr_event_proofs ap
+     WHERE ap.addr_event_id = addr_events.id) AS num_proofs
 FROM addr_events
 JOIN target_addr
   ON addr_events.addr_id = target_addr.addr_id

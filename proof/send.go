@@ -201,6 +201,13 @@ type SendManifest struct {
 	// to the auth mailbox server.
 	TxProof TxProof
 
+	// ExpiryBlockDelta is a user-defined expiry block height delta for the
+	// message. Once the outpoint claimed by the proof provided by this
+	// message has been spent, then after this number of blocks after the
+	// spending transaction height the message can be considered expired and
+	// may be deleted.
+	ExpiryBlockDelta uint32
+
 	// Receiver is the receiver's public key of the asset outputs, used
 	// to decrypt the send fragment. This is the internal key of the address
 	// that was used to send the assets.

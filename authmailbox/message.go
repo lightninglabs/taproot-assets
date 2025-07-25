@@ -48,10 +48,12 @@ type Message struct {
 	// the tx proof for this message.
 	ProofBlockHeight uint32
 
-	// ExpiryBlockHeight is a user-defined expiry block height for the
-	// message. This is the block height after which the message can be
-	// considered expired and may be deleted.
-	ExpiryBlockHeight uint32
+	// ExpiryBlockDelta is a user-defined expiry block height delta for the
+	// message. Once the outpoint claimed by the proof provided by this
+	// message has been spent, then after this number of blocks after the
+	// spending transaction height the message can be considered expired and
+	// may be deleted.
+	ExpiryBlockDelta uint32
 }
 
 // Timestamp returns the time when the message was received.

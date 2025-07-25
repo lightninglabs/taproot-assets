@@ -2753,6 +2753,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		ProofCourierAddr:      output.ProofCourierAddr,
 		ProofDeliveryComplete: proofDeliveryComplete,
 		Position:              position,
+		TapAddress:            sqlStr(output.TapAddress),
 	}
 
 	// There might not have been a split, so we can't rely on the split root
@@ -2882,6 +2883,7 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 			ProofCourierAddr:      dbOut.ProofCourierAddr,
 			ProofDeliveryComplete: proofDeliveryComplete,
 			Position:              uint64(dbOut.Position),
+			TapAddress:            dbOut.TapAddress.String,
 		}
 
 		err = readOutPoint(

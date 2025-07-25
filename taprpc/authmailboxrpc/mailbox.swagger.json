@@ -242,10 +242,10 @@
           "format": "int64",
           "description": "Timestamp (Unix epoch seconds) when the message arrived at the server."
         },
-        "expiry_block_height": {
+        "expiry_block_delta": {
           "type": "integer",
           "format": "int64",
-          "description": "Block height after which this message may be considered expired by the\nsystem."
+          "description": "A user-defined expiry block height delta for the message. Once the\noutpoint claimed by the proof provided by this message has been spent,\nthen after this number of blocks after the spending transaction height\nthe message can be considered expired and may be deleted."
         }
       },
       "description": "Represents a single message as stored and retrieved from the mailbox."
@@ -332,10 +332,10 @@
           "$ref": "#/definitions/authmailboxrpcBitcoinMerkleInclusionProof",
           "description": "The Bitcoin Merkle Inclusion Proof used as the sender's\nauthentication. The server MUST perform full validation of this\nproof:\n1. Verify claimed_outpoint.txid_hex matches hash(raw_tx_data).\n2. Verify claimed_outpoint.index is valid for the transaction.\n3. Verify merkle_proof connects the transaction hash to the\n   raw_block_header_data's Merkle root.\n4. Verify block_header validity (e.g., PoW, potentially chain\n   context).\n5. Ensure the claimed_outpoint has not been used previously (check\n   used_proofs table)."
         },
-        "expiry_block_height": {
+        "expiry_block_delta": {
           "type": "integer",
           "format": "int64",
-          "description": "The block height after which this message may be considered expired."
+          "description": "A user-defined expiry block height delta for the message. Once the\noutpoint claimed by the proof provided by this message has been spent,\nthen after this number of blocks after the spending transaction height\nthe message can be considered expired and may be deleted."
         }
       },
       "description": "Request message for the SendMessage RPC."

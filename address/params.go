@@ -164,7 +164,7 @@ func ParamsForChain(name string) ChainParams {
 	case chaincfg.MainNetParams.Name:
 		return MainNetTap
 
-	case chaincfg.TestNet3Params.Name:
+	case chaincfg.TestNet3Params.Name, "testnet":
 		return TestNet3Tap
 
 	case chaincfg.TestNet4Params.Name:

@@ -29,6 +29,13 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
+const (
+	// DefaultSendFragmentExpiryDelta is the default number of blocks that
+	// we expect a send fragment to be valid for after its claimed outpoint
+	// has been spent. This is roughly equivalent to 90 days.
+	DefaultSendFragmentExpiryDelta = 12_960
+)
+
 // ProofImporter is used to import proofs into the local proof archive after we
 // complete a trransfer.
 type ProofImporter interface {
@@ -44,6 +51,9 @@ type ProofImporter interface {
 
 // ChainPorterConfig is the main config for the chain porter.
 type ChainPorterConfig struct {
+	// ChainParams are the chain parameters for the chain porter.
+	ChainParams address.ChainParams
+
 	// Signer implements the Taproot Asset level signing we need to sign a
 	// virtual transaction.
 	Signer Signer
@@ -612,6 +622,53 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 					err)
 			}
 		}
+
+		if len(sendPkg.SendManifests) == 0 {
+			// If there are no fragment manifests, then this is an
+			// old address or interactive/vPSBT flow transfer, and
+			// we don't need to create any submission TX proofs.
+			continue
+		}
+
+		// Because we need to provide a TX proof for each message we
+		// upload to the auth mailbox server, we need to find the
+		// manifest that corresponds to this output, then create the
+		// TX proof from the transition proof that already contains all
+		// the data.
+		for outIdx := range sendPkg.SendManifests {
+			manifest := sendPkg.SendManifests[outIdx]
+			log.Debugf("Adding TX proof to manifest for output "+
+				"index %d", outIdx)
+
+			if outIdx != out.Anchor.OutPoint.Index {
+				continue
+			}
+
+			if out.Anchor.InternalKey.PubKey == nil {
+				return fmt.Errorf("anchor internal key "+
+					"not set for output %d", outIdx)
+			}
+
+			copy(
+				manifest.Fragment.TaprootAssetRoot[:],
+				out.Anchor.TaprootAssetRoot,
+			)
+
+			expiryDelta := uint32(DefaultSendFragmentExpiryDelta)
+			manifest.ExpiryBlockDelta = expiryDelta
+			manifest.Fragment.OutPoint = out.Anchor.OutPoint
+			manifest.Fragment.BlockHeader = parsedSuffix.BlockHeader
+			manifest.Fragment.BlockHeight = parsedSuffix.BlockHeight
+			manifest.TxProof = proof.TxProof{
+				MsgTx:           parsedSuffix.AnchorTx,
+				BlockHeader:     parsedSuffix.BlockHeader,
+				BlockHeight:     parsedSuffix.BlockHeight,
+				MerkleProof:     parsedSuffix.TxMerkleProof,
+				ClaimedOutPoint: out.Anchor.OutPoint,
+				InternalKey:     *out.Anchor.InternalKey.PubKey,
+				MerkleRoot:      out.Anchor.MerkleRoot,
+			}
+		}
 	}
 
 	sendPkg.SendState = SendStateTransferProofs
@@ -902,10 +959,18 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 				"script key %x", scriptKeyBytes)
 		}
 
+		// Is there a send fragment manifest for this output that we
+		// need to send first?
+		var sendManifest *proof.SendManifest
+		if len(pkg.SendManifests) > 0 {
+			anchorOutputIndex := out.Anchor.OutPoint.Index
+			sendManifest = pkg.SendManifests[anchorOutputIndex]
+		}
+
 		log.Debugf("Attempting to deliver proof (script_key=%x, "+
-			"asset_id=%x, proof_courier_addr=%s)",
+			"asset_id=%x, proof_courier_addr=%s, has_manifest=%v)",
 			scriptKeyBytes, receiverProof.AssetID[:],
-			out.ProofCourierAddr)
+			out.ProofCourierAddr, sendManifest != nil)
 
 		proofCourierAddr, err := proof.ParseCourierAddress(
 			string(out.ProofCourierAddr),
@@ -939,7 +1004,9 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			AssetID:   *receiverProof.AssetID,
 			Amount:    out.Amount,
 		}
-		err = courier.DeliverProof(ctx, recipient, receiverProof)
+		err = courier.DeliverProof(
+			ctx, recipient, receiverProof, sendManifest,
+		)
 
 		// If the proof courier returned a backoff error, then
 		// we'll just return nil here so that we can retry
@@ -1239,7 +1306,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, fmt.Errorf("unable to cast parcel to " +
 				"address parcel")
 		}
-		fundSendRes, err := p.cfg.AssetWallet.FundAddressSend(
+		wallet := p.cfg.AssetWallet
+		fundSendRes, err := wallet.FundAddressSend(
 			ctx, fn.Some(asset.ScriptKeyBip86), nil,
 			addrParcel.destAddrs...,
 		)
@@ -1611,7 +1679,21 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// package state on disk to reflect this. This step frees up the change
 	// outputs so that they can be used in future transactions.
 	case SendStateStorePostAnchorTxConf:
-		err := p.storeProofs(&currentPkg)
+		// Before we store the proofs, we need to create the send
+		// fragment manifests for any address v2 sends.
+		manifests, err := createSendFragments(
+			&p.cfg.ChainParams, currentPkg.OutboundPkg,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create send "+
+				"fragments: %w", err)
+		}
+
+		log.Infof("Created %d send fragment manifests for transfer",
+			len(manifests))
+		currentPkg.SendManifests = manifests
+
+		err = p.storeProofs(&currentPkg)
 		if err != nil {
 			return nil, fmt.Errorf("unable to store proofs: %w",
 				err)

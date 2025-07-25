@@ -561,6 +561,8 @@ type MockChainBridge struct {
 	ReqCount atomic.Int32
 	ConfReqs map[int]*chainntnfs.ConfirmationEvent
 
+	Blocks map[chainhash.Hash]*wire.MsgBlock
+
 	failFeeEstimates atomic.Bool
 	errConf          atomic.Int32
 	emptyConf        atomic.Int32
@@ -575,6 +577,7 @@ func NewMockChainBridge() *MockChainBridge {
 		ConfReqSignal:     make(chan int),
 		BlockEpochSignal:  make(chan struct{}, 1),
 		NewBlocks:         make(chan int32),
+		Blocks:            make(map[chainhash.Hash]*wire.MsgBlock),
 	}
 }
 
@@ -677,7 +680,12 @@ func (m *MockChainBridge) RegisterBlockEpochNtfn(
 func (m *MockChainBridge) GetBlock(ctx context.Context,
 	hash chainhash.Hash) (*wire.MsgBlock, error) {
 
-	return &wire.MsgBlock{}, nil
+	block, ok := m.Blocks[hash]
+	if !ok {
+		return nil, fmt.Errorf("block %s not found", hash.String())
+	}
+
+	return block, nil
 }
 
 // GetBlockHash returns the hash of the block in the best blockchain at the
