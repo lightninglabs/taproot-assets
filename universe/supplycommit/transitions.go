@@ -147,6 +147,16 @@ func (u *UpdatesPendingState) ProcessEvent(event Event, env *Environment) (
 	// the new set of supply commitments. We'll emit the CreateTxEvent to
 	// the next state will begin the process of making the new commitment.
 	case *CommitTickEvent:
+		// Before we transition, we'll freeze the current pending
+		// transition. This ensures that no new updates can be added
+		// to this batch.
+		ctx := context.Background()
+		err := env.StateLog.FreezePendingTransition(ctx, env.AssetSpec)
+		if err != nil {
+			return nil, fmt.Errorf("unable to freeze "+
+				"pending transition: %w", err)
+		}
+
 		return &StateTransition{
 			NextState: &CommitTreeCreateState{},
 			NewEvents: lfn.Some(FsmEvent{
@@ -242,6 +252,22 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 	// driver still single threaded?
 
 	switch newEvent := event.(type) {
+	// If we get a supply update event while we're creating the tree,
+	// we'll just insert it as a dangling update and do a self-transition.
+	case SupplyUpdateEvent:
+		ctx := context.Background()
+		err := env.StateLog.InsertPendingUpdate(
+			ctx, env.AssetSpec, newEvent,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert "+
+				"pending update: %w", err)
+		}
+
+		return &StateTransition{
+			NextState: c,
+		}, nil
+
 	// If we get a tick in this state, then it's just a no-op. We'll
 	// transition back to the same state.
 	case *CommitTickEvent:
@@ -570,6 +596,22 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 	env *Environment) (*StateTransition, error) {
 
 	switch newEvent := event.(type) {
+	// If we get a supply update event while we're creating the commit tx,
+	// we'll just insert it as a dangling update and do a self-transition.
+	case SupplyUpdateEvent:
+		ctx := context.Background()
+		err := env.StateLog.InsertPendingUpdate(
+			ctx, env.AssetSpec, newEvent,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert "+
+				"pending update: %w", err)
+		}
+
+		return &StateTransition{
+			NextState: c,
+		}, nil
+
 	// From here we'll create a new commitment update transaction that
 	// spends the old set of commitments, and creates a new transaction that
 	// commits to the root supply tree.
@@ -649,17 +691,33 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 
 // ProcessEvent processes incoming events for the CommitTxSignState. From here,
 // we'll sign the transaction, then transition to the next state for broadcast.
-func (c *CommitTxSignState) ProcessEvent(event Event,
+func (s *CommitTxSignState) ProcessEvent(event Event,
 	env *Environment) (*StateTransition, error) {
 
 	switch newEvent := event.(type) {
+	// If we get a supply update event while we're signing the commit tx,
+	// we'll just insert it as a dangling update and do a self-transition.
+	case SupplyUpdateEvent:
+		ctx := context.Background()
+		err := env.StateLog.InsertPendingUpdate(
+			ctx, env.AssetSpec, newEvent,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert "+
+				"pending update: %w", err)
+		}
+
+		return &StateTransition{
+			NextState: s,
+		}, nil
+
 	// We've received the SignTxEvent that contains the PSBT to sign, and
 	// the new supply commitment. We'll sign the PSBT, then transition to
 	// the final broadcast phase.
 	case *SignTxEvent:
 		ctx := context.Background()
 
-		stateTransition := c.SupplyTransition
+		stateTransition := s.SupplyTransition
 
 		// After some initial validation, we'll now sign the PSBT.
 		log.Debug("Signing supply commitment PSBT")
@@ -717,7 +775,7 @@ func (c *CommitTxSignState) ProcessEvent(event Event,
 	// an undefined state transition.
 	default:
 		return nil, fmt.Errorf("%w: received %T while in %T",
-			ErrInvalidStateTransition, newEvent, c)
+			ErrInvalidStateTransition, newEvent, s)
 	}
 }
 
@@ -727,6 +785,23 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 	env *Environment) (*StateTransition, error) {
 
 	switch newEvent := event.(type) {
+	// If we get a supply update event while we're broadcasting the commit
+	// tx, we'll just insert it as a dangling update and do a
+	// self-transition.
+	case SupplyUpdateEvent:
+		ctx := context.Background()
+		err := env.StateLog.InsertPendingUpdate(
+			ctx, env.AssetSpec, newEvent,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert "+
+				"pending update: %w", err)
+		}
+
+		return &StateTransition{
+			NextState: c,
+		}, nil
+
 	// We're at the final step of the state machine. We'll broadcast the
 	// signed commit tx, then register for a confirmation for when it
 	// confirms.
@@ -861,6 +936,22 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 	env *Environment) (*StateTransition, error) {
 
 	switch newEvent := event.(type) {
+	// If we get a supply update event while we're finalizing the commit,
+	// we'll just insert it as a dangling update and do a self-transition.
+	case SupplyUpdateEvent:
+		ctx := context.Background()
+		err := env.StateLog.InsertPendingUpdate(
+			ctx, env.AssetSpec, newEvent,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert "+
+				"pending update: %w", err)
+		}
+
+		return &StateTransition{
+			NextState: c,
+		}, nil
+
 	// We'll receive the FinalizeEvent that contains the supply transition
 	// to finalize. We'll update the state machine state on disk, then
 	// update the supply trees.
@@ -881,8 +972,36 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 				"state transition: %w", err)
 		}
 
+		// Now that the prior transition is finalized, we'll check if
+		// any new "dangling" updates came in while we were busy.
+		//
+		//nolint:lll
+		danglingUpdates, err := env.StateLog.BindDanglingUpdatesToTransition(
+			ctx, env.AssetSpec,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to process "+
+				"dangling updates: %w", err)
+		}
+
+		// If there are no dangling updates, we can transition back to
+		// our idle default state.
+		if len(danglingUpdates) == 0 {
+			return &StateTransition{
+				NextState: &DefaultState{},
+			}, nil
+		}
+
+		// Otherwise, we have more work to do! We'll kick off a new
+		// commitment cycle right away by transitioning to the tree
+		// creation state.
 		return &StateTransition{
-			NextState: &DefaultState{},
+			NextState: &CommitTreeCreateState{},
+			NewEvents: lfn.Some(FsmEvent{
+				InternalEvent: []Event{&CreateTreeEvent{
+					updatesToCommit: danglingUpdates,
+				}},
+			}),
 		}, nil
 
 	// Any other messages in this state will result in an error, as this is

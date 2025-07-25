@@ -410,6 +410,18 @@ type StateMachineStore interface {
 	//   * Mark the target state transition as finalized.
 	ApplyStateTransition(context.Context, asset.Specifier,
 		SupplyStateTransition) error
+
+	// FreezePendingTransition marks the current pending transition for a
+	// group key as frozen.
+	FreezePendingTransition(context.Context, asset.Specifier) error
+
+	// BindDanglingUpdatesToTransition finds any supply update events for
+	// the given asset specifier that are not yet associated with a
+	// transition, creates a new transition for them, and links them. It
+	// returns the list of events that were bound. If no dangling events are
+	// found, it returns an empty slice and no error.
+	BindDanglingUpdatesToTransition(context.Context,
+		asset.Specifier) ([]SupplyUpdateEvent, error)
 }
 
 // Environment is a set of dependencies that a state machine may need to carry

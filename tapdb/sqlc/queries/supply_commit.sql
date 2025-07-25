@@ -55,9 +55,9 @@ WHERE commit_id = @commit_id;
 -- name: InsertSupplyCommitTransition :one
 INSERT INTO supply_commit_transitions (
     state_machine_group_key, old_commitment_id, new_commitment_id,
-    pending_commit_txn_id, finalized, creation_time
+    pending_commit_txn_id, finalized, frozen, creation_time
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7
 ) RETURNING transition_id;
 
 -- name: FinalizeSupplyCommitTransition :exec
@@ -67,9 +67,9 @@ WHERE transition_id = @transition_id;
 
 -- name: InsertSupplyUpdateEvent :exec
 INSERT INTO supply_update_events (
-    transition_id, update_type_id, event_data
+    group_key, transition_id, update_type_id, event_data
 ) VALUES (
-    $1, $2, $3
+    $1, $2, $3, $4
 );
 
 -- name: QuerySupplyCommitStateMachine :one
@@ -89,20 +89,18 @@ WITH target_machine AS (
     FROM supply_commit_state_machines
     WHERE group_key = @group_key
 )
-SELECT
-    t.transition_id,
-    t.state_machine_group_key,
-    t.old_commitment_id,
-    t.new_commitment_id,
-    t.pending_commit_txn_id,
-    t.finalized,
-    t.creation_time
+SELECT sqlc.embed(t)
 FROM supply_commit_transitions t
 JOIN target_machine tm
     ON t.state_machine_group_key = tm.group_key
 WHERE t.finalized = FALSE
 ORDER BY t.creation_time DESC
 LIMIT 1;
+
+-- name: FreezePendingTransition :exec
+UPDATE supply_commit_transitions
+SET frozen = TRUE
+WHERE state_machine_group_key = @group_key AND finalized = FALSE;
 
 -- name: QuerySupplyUpdateEvents :many
 SELECT
@@ -116,6 +114,24 @@ JOIN supply_commit_update_types types
     ON ue.update_type_id = types.id
 WHERE ue.transition_id = @transition_id
 ORDER BY ue.event_id ASC;
+
+-- name: QueryDanglingSupplyUpdateEvents :many
+SELECT
+    ue.event_id,
+    ue.transition_id,
+    ue.update_type_id,
+    types.update_type_name,
+    ue.event_data
+FROM supply_update_events ue
+JOIN supply_commit_update_types types
+    ON ue.update_type_id = types.id
+WHERE ue.group_key = @group_key AND ue.transition_id IS NULL
+ORDER BY ue.event_id ASC;
+
+-- name: LinkDanglingSupplyUpdateEvents :exec
+UPDATE supply_update_events
+SET transition_id = @transition_id
+WHERE group_key = @group_key AND transition_id IS NULL;
 
 -- name: QuerySupplyCommitment :one
 SELECT *
