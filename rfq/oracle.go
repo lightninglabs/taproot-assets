@@ -91,19 +91,19 @@ func ParsePriceOracleAddress(addrStr string) (*OracleAddr, error) {
 // PriceOracle is an interface that provides exchange rate information for
 // assets.
 type PriceOracle interface {
-	// QueryAskPrice returns the ask price for a given asset amount.
-	// The ask price is the amount the oracle suggests a peer should accept
+	// QuerySellPrice returns the sell price for a given asset amount. The
+	// sell price is the amount the oracle suggests a peer should accept
 	// from another peer to provide the specified asset amount.
-	QueryAskPrice(ctx context.Context, assetSpecifier asset.Specifier,
+	QuerySellPrice(ctx context.Context, assetSpecifier asset.Specifier,
 		assetMaxAmt fn.Option[uint64],
 		paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 		assetRateHint fn.Option[rfqmsg.AssetRate]) (
 		*OracleResponse, error)
 
-	// QueryBidPrice returns the bid price for a given asset amount.
-	// The bid price is the amount the oracle suggests a peer should pay
-	// to another peer to receive the specified asset amount.
-	QueryBidPrice(ctx context.Context, assetSpecifier asset.Specifier,
+	// QueryBuyPrice returns the buy price for a given asset amount. The buy
+	// price is the amount the oracle suggests a peer should pay to another
+	// peer to receive the specified asset amount.
+	QueryBuyPrice(ctx context.Context, assetSpecifier asset.Specifier,
 		assetMaxAmt fn.Option[uint64],
 		paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 		assetRateHint fn.Option[rfqmsg.AssetRate]) (
@@ -189,8 +189,8 @@ func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
 	}, nil
 }
 
-// QueryAskPrice returns the ask price for the given asset amount.
-func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
+// QuerySellPrice returns the sell price for the given asset amount.
+func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
 	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse,
@@ -280,8 +280,8 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 	}
 }
 
-// QueryBidPrice returns a bid price for the given asset amount.
-func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
+// QueryBuyPrice returns a buy price for the given asset amount.
+func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context,
 	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse,
