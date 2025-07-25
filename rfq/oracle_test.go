@@ -116,9 +116,9 @@ func startBackendRPC(t *testing.T, grpcServer *grpc.Server) string {
 	return mockAddr
 }
 
-// testCaseQueryAskPrice is a test case for the RPC price oracle client
-// QueryAskPrice function.
-type testCaseQueryAskPrice struct {
+// testCaseQuerySalePrice is a test case for the RPC price oracle client
+// QuerySellPrice function.
+type testCaseQuerySalePrice struct {
 	name string
 
 	expectError bool
@@ -129,8 +129,8 @@ type testCaseQueryAskPrice struct {
 	suggestedAssetRate uint64
 }
 
-// runQueryAskPriceTest runs the RPC price oracle client QueryAskPrice test.
-func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
+// runQuerySalePriceTest runs the RPC price oracle client QuerySellPrice test.
+func runQuerySalePriceTest(t *testing.T, tc *testCaseQuerySalePrice) {
 	// Start the mock RPC price oracle service.
 	serverOpts := []grpc.ServerOption{
 		grpc.Creds(insecure.NewCredentials()),
@@ -162,7 +162,7 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	)
 	require.NoError(t, err)
 
-	resp, err := client.QueryAskPrice(
+	resp, err := client.QuerySellPrice(
 		ctx, assetSpecifier, fn.Some[uint64](assetMaxAmt),
 		fn.None[lnwire.MilliSatoshi](), fn.Some(assetRateHint),
 	)
@@ -186,7 +186,7 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	require.True(t, resp.AssetRate.Expiry.After(time.Now()))
 }
 
-// TestRpcPriceOracle tests the RPC price oracle client QueryAskPrice function.
+// TestRpcPriceOracle tests the RPC price oracle client QuerySellPrice function.
 func TestRpcPriceOracleQueryAskPrice(t *testing.T) {
 	// Create a random asset ID and asset group key.
 	var assetId asset.ID
@@ -194,7 +194,7 @@ func TestRpcPriceOracleQueryAskPrice(t *testing.T) {
 
 	assetGroupKey := test.RandPubKey(t)
 
-	testCases := []*testCaseQueryAskPrice{
+	testCases := []*testCaseQuerySalePrice{
 		{
 			name:               "asset ID only",
 			assetId:            &assetId,
@@ -222,13 +222,13 @@ func TestRpcPriceOracleQueryAskPrice(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		runQueryAskPriceTest(t, tc)
+		runQuerySalePriceTest(t, tc)
 	}
 }
 
-// testCaseQueryBidPrice is a test case for the RPC price oracle client
-// QueryBidPrice function.
-type testCaseQueryBidPrice struct {
+// testCaseQueryPurchasePrice is a test case for the RPC price oracle client
+// QueryBuyPrice function.
+type testCaseQueryPurchasePrice struct {
 	name string
 
 	expectError bool
@@ -237,8 +237,9 @@ type testCaseQueryBidPrice struct {
 	assetGroupKey *btcec.PublicKey
 }
 
-// runQueryBidPriceTest runs the RPC price oracle client QueryBidPrice test.
-func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
+// runQueryPurchasePriceTest runs the RPC price oracle client QueryBuyPrice
+// test.
+func runQueryPurchasePriceTest(t *testing.T, tc *testCaseQueryPurchasePrice) {
 	// Start the mock RPC price oracle service.
 	serverOpts := []grpc.ServerOption{
 		grpc.Creds(insecure.NewCredentials()),
@@ -263,7 +264,7 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 	)
 	require.NoError(t, err)
 
-	resp, err := client.QueryBidPrice(
+	resp, err := client.QueryBuyPrice(
 		ctx, assetSpecifier, fn.Some[uint64](assetMaxAmt),
 		fn.None[lnwire.MilliSatoshi](),
 		fn.None[rfqmsg.AssetRate](),
@@ -288,15 +289,16 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 	require.True(t, resp.AssetRate.Expiry.After(time.Now()))
 }
 
-// TestRpcPriceOracle tests the RPC price oracle client QueryBidPrice function.
-func TestRpcPriceOracleQueryBidPrice(t *testing.T) {
+// TestRpcPriceOracleQueryPurchasePrice tests the RPC price oracle client
+// QueryBuyPrice function.
+func TestRpcPriceOracleQueryPurchasePrice(t *testing.T) {
 	// Create a random asset ID and asset group key.
 	var assetId asset.ID
 	copy(assetId[:], test.RandBytes(32))
 
 	assetGroupKey := test.RandPubKey(t)
 
-	testCases := []*testCaseQueryBidPrice{
+	testCases := []*testCaseQueryPurchasePrice{
 		{
 			name:    "asset ID only",
 			assetId: &assetId,
@@ -315,6 +317,6 @@ func TestRpcPriceOracleQueryBidPrice(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		runQueryBidPriceTest(t, tc)
+		runQueryPurchasePriceTest(t, tc)
 	}
 }
