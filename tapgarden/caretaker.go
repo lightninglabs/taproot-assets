@@ -1148,6 +1148,17 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			return 0, fmt.Errorf("unable to confirm batch: %w", err)
 		}
 
+		// Send supply commitment events for all minted assets before
+		// finalizing the batch. This ensures that supply commitments
+		// are tracked before the batch is considered complete.
+		err = b.sendSupplyCommitEvents(
+			ctx, anchorAssets, nonAnchorAssets, mintingProofs,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to send supply commit "+
+				"events: %w", err)
+		}
+
 		// Now that we've confirmed the batch, we'll hand over the
 		// proofs to the re-org watcher.
 		if err := b.cfg.ProofWatcher.WatchProofs(
@@ -1430,6 +1441,114 @@ func GenHeaderVerifier(ctx context.Context,
 		err := chainBridge.VerifyBlock(ctx, header, height)
 		return err
 	}
+}
+
+// sendSupplyCommitEvents sends supply commitment events for all minted assets
+// in the batch to track them in the supply commitment state machine.
+func (b *BatchCaretaker) sendSupplyCommitEvents(ctx context.Context,
+	anchorAssets, nonAnchorAssets []*asset.Asset,
+	mintingProofs proof.AssetProofs) error {
+
+	// If no supply commit manager is configured, skip this step.
+	if b.cfg.MintCommitter == nil {
+		return nil
+	}
+
+	// If no delegation key checker is configured, skip this step.
+	if b.cfg.DelegationKeyChecker == nil {
+		return nil
+	}
+
+	// Combine all assets for processing.
+	allAssets := append(anchorAssets, nonAnchorAssets...)
+
+	// Filter out assets where we don't control the delegation key.
+	assetsWithDelegation := fn.Filter(allAssets, func(a *asset.Asset) bool {
+		hasDelegationKey, err := b.cfg.DelegationKeyChecker.HasDelegationKey(
+			ctx, a.ID(),
+		)
+		if err != nil {
+			log.Debugf("Error checking delegation key for asset %x: %v",
+				a.ID(), err)
+			return false
+		}
+		if !hasDelegationKey {
+			log.Debugf("Skipping supply commit event for asset %x: "+
+				"delegation key not controlled locally",
+				a.ID())
+		}
+		return hasDelegationKey
+	})
+
+	for _, mintedAsset := range assetsWithDelegation {
+		scriptKey := asset.ToSerialized(mintedAsset.ScriptKey.PubKey)
+		mintingProof, ok := mintingProofs[scriptKey]
+		if !ok {
+			return fmt.Errorf("missing minting proof for asset "+
+				"with script key %x", scriptKey[:])
+		}
+
+		// Create the universe leaf key and proof for this asset.
+		universeKey := universe.BaseLeafKey{
+			OutPoint:  mintedAsset.Genesis.FirstPrevOut,
+			ScriptKey: &mintedAsset.ScriptKey,
+		}
+
+		// Convert the proof to bytes for use with DecodeFile and universe.Leaf.
+		proofBlob, err := proof.EncodeAsProofFile(mintingProof)
+		if err != nil {
+			return fmt.Errorf("unable to encode proof as file: %w", err)
+		}
+
+		// Parse the proof to create the universe leaf.
+		proofFile, err := proof.DecodeFile(proofBlob)
+		if err != nil {
+			return fmt.Errorf("unable to decode proof file: %w", err)
+		}
+
+		// Get the leaf proof from the proof file.
+		leafProof, err := proofFile.LastProof()
+		if err != nil {
+			return fmt.Errorf("unable to get leaf proof: %w", err)
+		}
+
+		universeLeaf := universe.Leaf{
+			GenesisWithGroup: universe.GenesisWithGroup{
+				Genesis:  mintedAsset.Genesis,
+				GroupKey: mintedAsset.GroupKey,
+			},
+			RawProof: proofBlob,
+			Asset:    &leafProof.Asset,
+			Amt:      mintedAsset.Amount,
+		}
+
+		// Create the unique leaf key for universe registration.
+		uniqueLeafKey := universe.AssetLeafKey{
+			BaseLeafKey: universeKey,
+			AssetID:     mintedAsset.ID(),
+		}
+
+		// Send the mint event to the supply commit manager.
+
+		// Determine the asset specifier for this asset.
+		assetSpec := asset.NewSpecifierOptionalGroupKey(
+			mintedAsset.ID(), mintedAsset.GroupKey,
+		)
+
+		// Send the mint event to the supply commit manager.
+		err = b.cfg.MintCommitter.SendMintEvent(
+			ctx, assetSpec, uniqueLeafKey, universeLeaf,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to send mint event for "+
+				"asset %x: %w", mintedAsset.ID(), err)
+		}
+
+		log.Debugf("Sent supply commit mint event for asset %x",
+			mintedAsset.ID())
+	}
+
+	return nil
 }
 
 // assetGroupCacheSize is the size of the cache for group keys.

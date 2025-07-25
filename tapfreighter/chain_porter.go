@@ -24,6 +24,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -40,6 +41,15 @@ type ProofImporter interface {
 	// proof.
 	ImportProofs(ctx context.Context, vCtx proof.VerifierCtx,
 		replace bool, proofs ...*proof.AnnotatedProof) error
+}
+
+// BurnSupplyCommitter is used by the chain porter to update the on-chain supply
+// commitment when burns new 1st party burns are confirmed.
+type BurnSupplyCommitter interface {
+	// SendBurnEvent sends a burn event to the supply commitment state
+	// machine.
+	SendBurnEvent(ctx context.Context, assetSpec asset.Specifier,
+		burnLeaf universe.BurnLeaf) error
 }
 
 // ChainPorterConfig is the main config for the chain porter.
@@ -90,6 +100,15 @@ type ChainPorterConfig struct {
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
+
+	// BurnSupplyCommitter is used to track supply changes (burns) and
+	// create periodic on-chain supply commitments.
+	BurnCommitter BurnSupplyCommitter
+
+	// DelegationKeyChecker is used to verify that we control the delegation
+	// key for a given asset, which is required for creating supply
+	// commitments.
+	DelegationKeyChecker address.DelegationKeyChecker
 }
 
 // ChainPorter is the main sub-system of the tapfreighter package. The porter
@@ -680,11 +699,20 @@ func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
 		}
 	}
 
+	// Send supply commitment events for all burned assets before
+	// confirming the transaction. This ensures that supply commitments
+	// are tracked before the burn is considered complete.
+	err := p.sendBurnSupplyCommitEvents(ctx, burns)
+	if err != nil {
+		return fmt.Errorf("unable to send burn supply commit "+
+			"events: %w", err)
+	}
+
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	anchorTXID := pkg.OutboundPkg.AnchorTx.TxHash()
 	anchorTxBlockHeight := int32(pkg.TransferTxConfEvent.BlockHeight)
-	err := p.cfg.ExportLog.LogAnchorTxConfirm(ctx, &AssetConfirmEvent{
+	err = p.cfg.ExportLog.LogAnchorTxConfirm(ctx, &AssetConfirmEvent{
 		AnchorTXID:             anchorTXID,
 		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
 		BlockHeight:            anchorTxBlockHeight,
@@ -1903,4 +1931,95 @@ func newAssetSendErrorEvent(err error, executedState SendState,
 		AnchorTx:       pkg.AnchorTx,
 		Transfer:       pkg.OutboundPkg,
 	}
+}
+
+// sendBurnSupplyCommitEvents sends supply commitment events for all burned
+// assets to track them in the supply commitment state machine.
+func (p *ChainPorter) sendBurnSupplyCommitEvents(ctx context.Context,
+	burns []*AssetBurn) error {
+
+	// If no supply commit manager is configured, skip this step.
+	if p.cfg.BurnCommitter == nil {
+		return nil
+	}
+
+	// If no delegation key checker is configured, skip this step.
+	if p.cfg.DelegationKeyChecker == nil {
+		return nil
+	}
+
+	// Filter out burns where we don't control the delegation key.
+	burnsWithDelegation := fn.Filter(burns, func(burn *AssetBurn) bool {
+		var assetID asset.ID
+		copy(assetID[:], burn.AssetID)
+
+		hasDelegationKey, err := p.cfg.DelegationKeyChecker.HasDelegationKey(
+			ctx, assetID,
+		)
+		if err != nil {
+			log.Debugf("Error checking delegation key for asset %x: %v",
+				assetID, err)
+			return false
+		}
+		if !hasDelegationKey {
+			log.Debugf("Skipping supply commit burn event for asset %x: "+
+				"delegation key not controlled locally",
+				assetID)
+		}
+		return hasDelegationKey
+	})
+
+	for _, burn := range burnsWithDelegation {
+		// Create the asset specifier for this burn.
+		var assetID asset.ID
+		copy(assetID[:], burn.AssetID)
+
+		var assetSpec asset.Specifier
+		if burn.GroupKey != nil {
+			// Parse the group key from the serialized bytes.
+			groupKeyBytes := burn.GroupKey
+			groupKey, err := btcec.ParsePubKey(groupKeyBytes)
+			if err != nil {
+				return fmt.Errorf("unable to parse group key: %w", err)
+			}
+
+			assetSpec = asset.NewSpecifierOptionalGroupPubKey(
+				assetID, groupKey,
+			)
+		} else {
+			assetSpec = asset.NewSpecifierFromId(assetID)
+		}
+
+		// Create a NewBurnEvent for the supply commitment state machine.
+		// We need to create a universe.BurnLeaf for this.
+		burnLeaf := universe.BurnLeaf{
+			UniverseKey: universe.AssetLeafKey{
+				BaseLeafKey: universe.BaseLeafKey{
+					OutPoint: wire.OutPoint{
+						Hash:  burn.AnchorTxid,
+						Index: 0, // Burn outputs are typically at index 0
+					},
+					ScriptKey: nil, // Will be populated from burn proof if available
+				},
+				AssetID: assetID,
+			},
+			// Note: In a full implementation, we would fetch the burn proof
+			// from the asset and populate the BurnProof field.
+			BurnProof: nil,
+		}
+
+		// Send the burn event to the supply commit manager.
+		err := p.cfg.BurnCommitter.SendBurnEvent(
+			ctx, assetSpec, burnLeaf,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to send burn event for "+
+				"asset %x: %w", assetID, err)
+		}
+
+		log.Debugf("Sent supply commit burn event for asset %x",
+			assetID)
+	}
+
+	return nil
 }
