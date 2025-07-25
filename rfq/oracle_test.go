@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -165,6 +166,7 @@ func runQuerySalePriceTest(t *testing.T, tc *testCaseQuerySalePrice) {
 	resp, err := client.QuerySellPrice(
 		ctx, assetSpecifier, fn.Some[uint64](assetMaxAmt),
 		fn.None[lnwire.MilliSatoshi](), fn.Some(assetRateHint),
+		fn.None[route.Vertex](), "", IntentRecvPayment,
 	)
 
 	// If we expect an error, ensure that it is returned.
@@ -267,7 +269,8 @@ func runQueryPurchasePriceTest(t *testing.T, tc *testCaseQueryPurchasePrice) {
 	resp, err := client.QueryBuyPrice(
 		ctx, assetSpecifier, fn.Some[uint64](assetMaxAmt),
 		fn.None[lnwire.MilliSatoshi](),
-		fn.None[rfqmsg.AssetRate](),
+		fn.None[rfqmsg.AssetRate](), fn.None[route.Vertex](), "",
+		IntentPayInvoice,
 	)
 
 	// If we expect an error, ensure that it is returned.

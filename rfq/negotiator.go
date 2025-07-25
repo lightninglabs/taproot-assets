@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 const (
@@ -108,7 +109,9 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 func (n *Negotiator) queryBuyFromPriceOracle(assetSpecifier asset.Specifier,
 	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
-	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
+	assetRateHint fn.Option[rfqmsg.AssetRate],
+	counterparty fn.Option[route.Vertex], metadata string,
+	intent PriceQueryIntent) (*rfqmsg.AssetRate, error) {
 
 	// TODO(ffranr): Optionally accept a peer's proposed sell price as an
 	//  arg to this func and pass it to the price oracle. The price oracle
@@ -127,6 +130,7 @@ func (n *Negotiator) queryBuyFromPriceOracle(assetSpecifier asset.Specifier,
 
 	oracleResponse, err := n.cfg.PriceOracle.QueryBuyPrice(
 		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
+		counterparty, metadata, intent,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
@@ -190,6 +194,9 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 				fn.Some(buyOrder.AssetMaxAmt),
 				fn.None[lnwire.MilliSatoshi](),
 				fn.None[rfqmsg.AssetRate](),
+				fn.None[route.Vertex](),
+				buyOrder.PriceOracleMetadata,
+				IntentRecvPaymentHint,
 			)
 			if err != nil {
 				// If we fail to query the price oracle for a
@@ -207,8 +214,8 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 
 		// Construct a new buy request to send to the peer.
 		request, err := rfqmsg.NewBuyRequest(
-			peer, buyOrder.AssetSpecifier,
-			buyOrder.AssetMaxAmt, assetRateHint, "",
+			peer, buyOrder.AssetSpecifier, buyOrder.AssetMaxAmt,
+			assetRateHint, "",
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create buy request "+
@@ -240,7 +247,9 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 func (n *Negotiator) querySellFromPriceOracle(assetSpecifier asset.Specifier,
 	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
-	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
+	assetRateHint fn.Option[rfqmsg.AssetRate],
+	counterparty fn.Option[route.Vertex], metadata string,
+	intent PriceQueryIntent) (*rfqmsg.AssetRate, error) {
 
 	// Query the price oracle for a sell price.
 	ctx, cancel := n.WithCtxQuitNoTimeout()
@@ -252,8 +261,8 @@ func (n *Negotiator) querySellFromPriceOracle(assetSpecifier asset.Specifier,
 		paymentMaxAmt.String(), assetRateHint.String())
 
 	oracleResponse, err := n.cfg.PriceOracle.QuerySellPrice(
-		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt,
-		assetRateHint,
+		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
+		counterparty, metadata, intent,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
@@ -341,10 +350,10 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 
 		// Query the price oracle for a sale price.
 		assetRate, err := n.querySellFromPriceOracle(
-			request.AssetSpecifier,
-			fn.Some(request.AssetMaxAmt),
-			fn.None[lnwire.MilliSatoshi](),
-			request.AssetRateHint,
+			request.AssetSpecifier, fn.Some(request.AssetMaxAmt),
+			fn.None[lnwire.MilliSatoshi](), request.AssetRateHint,
+			fn.None[route.Vertex](), request.PriceOracleMetadata,
+			IntentRecvPayment,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -440,6 +449,8 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		assetRate, err := n.queryBuyFromPriceOracle(
 			request.AssetSpecifier, fn.None[uint64](),
 			fn.Some(request.PaymentMaxAmt), request.AssetRateHint,
+			fn.None[route.Vertex](), request.PriceOracleMetadata,
+			IntentPayInvoice,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -498,6 +509,8 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 				order.AssetSpecifier, fn.None[uint64](),
 				fn.Some(order.PaymentMaxAmt),
 				fn.None[rfqmsg.AssetRate](),
+				fn.None[route.Vertex](),
+				order.PriceOracleMetadata, IntentPayInvoiceHint,
 			)
 			if err != nil {
 				err := fmt.Errorf("negotiator failed to "+
@@ -617,6 +630,9 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 			msg.Request.AssetSpecifier,
 			fn.Some(msg.Request.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](), fn.Some(msg.AssetRate),
+			fn.None[route.Vertex](),
+			msg.Request.PriceOracleMetadata,
+			IntentRecvPaymentQualify,
 		)
 		if err != nil {
 			// The price oracle returned an error. We will return
@@ -773,7 +789,9 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		assetRate, err := n.querySellFromPriceOracle(
 			msg.Request.AssetSpecifier, fn.None[uint64](),
 			fn.Some(msg.Request.PaymentMaxAmt),
-			fn.Some(msg.AssetRate),
+			fn.Some(msg.AssetRate), fn.None[route.Vertex](),
+			msg.Request.PriceOracleMetadata,
+			IntentPayInvoiceQualify,
 		)
 		if err != nil {
 			// The price oracle returned an error.

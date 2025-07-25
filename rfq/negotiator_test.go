@@ -46,7 +46,8 @@ func assertIncomingSellAcceptTestCase(
 	// QuerySellPrice.
 	mockPriceOracle.On(
 		"QuerySellPrice", mock.Anything, mock.Anything,
-		mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything,
 	).Return(
 		&OracleResponse{
 			AssetRate: tc.priceOracleAskPrice,
@@ -231,7 +232,8 @@ func assertIncomingBuyAcceptTestCase(
 	// QueryBuyPrice.
 	mockPriceOracle.On(
 		"QueryBuyPrice", mock.Anything, mock.Anything,
-		mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything,
 	).Return(
 		&OracleResponse{
 			AssetRate: tc.priceOracleBidPrice,
