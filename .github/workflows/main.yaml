@@ -224,6 +224,20 @@ jobs:
         run: make fmt
 
   ########################
+  # check PR updates release notes
+  ########################
+  milestone-check:
+    name: Check release notes updated
+    runs-on: ubuntu-latest
+    if: '!contains(github.event.pull_request.labels.*.name, ''no-changelog'')'
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v4
+
+      - name: Release notes check
+        run: scripts/check-release-notes.sh
+
+  ########################
   # run unit tests
   ########################
   unit-test:
