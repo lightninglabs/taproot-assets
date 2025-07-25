@@ -1288,6 +1288,10 @@
           "type": "string",
           "format": "uint64",
           "description": "The smallest amount of asset units that can be transported within a\nsingle HTLC over the Lightning Network with the given rate. This is the\nasset unit equivalent of 354 satoshis, which is the minimum amount for an\nHTLC to be above the dust limit."
+        },
+        "price_oracle_metadata": {
+          "type": "string",
+          "description": "An optional user-provided text field used to provide additional metadata\nabout the buy order to the price oracle. This can include information\nabout the wallet end user that initiated the transaction, or any\nauthentication information that the price oracle can use to give out a\nmore accurate (or discount) asset rate."
         }
       }
     },
@@ -1326,6 +1330,10 @@
           "type": "string",
           "format": "uint64",
           "description": "The minimum amount of milli-satoshis that need to be sent out in order to\ntransport a single asset unit over the Lightning Network with the given\nrate. This is the base amount of 354,000 milli-satoshi (the minimum\namount for a non-dust HTLC) plus the equivalent of one asset unit in\nmilli-satoshis."
+        },
+        "price_oracle_metadata": {
+          "type": "string",
+          "description": "An optional user-provided text field used to provide additional metadata\nabout the sell order to the price oracle. This can include information\nabout the wallet end user that initiated the transaction, or any\nauthentication information that the price oracle can use to give out a\nmore accurate (or discount) asset rate."
         }
       }
     },
@@ -1530,6 +1538,10 @@
           "type": "string",
           "format": "byte",
           "description": "The group key which dictates which assets may be accepted for this\ninvoice. If set, any asset that belongs to this group may be accepted to\nsettle this invoice. Mutually exclusive to asset_id."
+        },
+        "price_oracle_metadata": {
+          "type": "string",
+          "description": "An optional text field that can be used to provide additional metadata\nabout the invoice to the price oracle. This can include information\nabout the wallet end user that initiated the transaction, or any\nauthentication information that the price oracle can use to give out a\nmore accurate (or discount) asset rate. Though not verified or enforced\nby tapd, the suggested format for this field is a JSON string.\nThis field is optional and can be left empty if no metadata is available.\nThe maximum length of this field is 32'768 bytes."
         }
       }
     },
@@ -1562,6 +1574,10 @@
           "type": "string",
           "format": "byte",
           "description": "The group key that will be used to resolve the invoice's satoshi amount.\nMutually exclusive to asset_id."
+        },
+        "price_oracle_metadata": {
+          "type": "string",
+          "description": "An optional text field that can be used to provide additional metadata\nabout the invoice to the price oracle. This can include information\nabout the wallet end user that initiated the transaction, or any\nauthentication information that the price oracle can use to give out a\nmore accurate (or discount) asset rate. Though not verified or enforced\nby tapd, the suggested format for this field is a JSON string.\nThis field is optional and can be left empty if no metadata is available.\nThe maximum length of this field is 32'768 bytes."
         }
       }
     },
@@ -1725,6 +1741,10 @@
           "type": "string",
           "format": "byte",
           "description": "The group key which dictates which assets may be used for this payment.\nMutually exclusive to asset_id."
+        },
+        "price_oracle_metadata": {
+          "type": "string",
+          "description": "An optional text field that can be used to provide additional metadata\nabout the payment to the price oracle. This can include information\nabout the wallet end user that initiated the transaction, or any\nauthentication information that the price oracle can use to give out a\nmore accurate (or discount) asset rate. Though not verified or enforced\nby tapd, the suggested format for this field is a JSON string.\nThis field is optional and can be left empty if no metadata is available.\nThe maximum length of this field is 32'768 bytes."
         }
       }
     },
