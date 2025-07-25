@@ -1118,7 +1118,7 @@ func (s *Server) PaymentBandwidth(fundingBlob, htlcBlob,
 
 	return s.cfg.AuxTrafficShaper.PaymentBandwidth(
 		fundingBlob, htlcBlob, commitmentBlob, linkBandwidth, htlcAmt,
-		htlcView,
+		htlcView, peer,
 	)
 }
 
@@ -1140,7 +1140,7 @@ func (s *Server) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	}
 
 	return s.cfg.AuxTrafficShaper.ProduceHtlcExtraData(
-		totalAmount, htlcCustomRecords,
+		totalAmount, htlcCustomRecords, peer,
 	)
 }
 

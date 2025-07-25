@@ -382,7 +382,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	}
 
 	htlcCustomRecords := rfqmsg.NewHtlc(
-		assetAmounts, fn.Some(acceptedQuoteId),
+		assetAmounts, fn.Some(acceptedQuoteId), fn.None[[]rfqmsg.ID](),
 	)
 
 	// Convert the custom records to a TLV map for inclusion in
