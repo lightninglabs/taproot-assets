@@ -49,6 +49,14 @@ type NegotiatorCfg struct {
 	// useful for testing purposes.
 	SkipAcceptQuotePriceCheck bool
 
+	// SendPriceHint is a flag that, if set, will send a price hint to the
+	// peer when requesting a quote.
+	SendPriceHint bool
+
+	// SendPeerId is a flag that, if set, will send the peer ID (public
+	// key of the peer) to the price oracle when requesting a price rate.
+	SendPeerId bool
+
 	// ErrChan is a channel that is populated with errors by this subsystem.
 	ErrChan chan<- error
 }
@@ -187,7 +195,13 @@ func (n *Negotiator) HandleOutgoingBuyOrder(
 	var assetRateHint fn.Option[rfqmsg.AssetRate]
 
 	if n.cfg.PriceOracle != nil &&
-		buyOrder.AssetSpecifier.IsSome() {
+		buyOrder.AssetSpecifier.IsSome() &&
+		n.cfg.SendPriceHint {
+
+		var peerID fn.Option[route.Vertex]
+		if n.cfg.SendPeerId {
+			peerID = buyOrder.Peer
+		}
 
 		// Query the price oracle for a buy price.
 		//
@@ -198,8 +212,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(
 			fn.Some(buyOrder.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](),
 			fn.None[rfqmsg.AssetRate](),
-			fn.None[route.Vertex](),
-			buyOrder.PriceOracleMetadata,
+			peerID, buyOrder.PriceOracleMetadata,
 			IntentRecvPaymentHint,
 		)
 		if err != nil {
@@ -347,12 +360,16 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 	go func() {
 		defer n.Wg.Done()
 
+		var peerID fn.Option[route.Vertex]
+		if n.cfg.SendPeerId {
+			peerID = fn.Some(request.Peer)
+		}
+
 		// Query the price oracle for a sale price.
 		assetRate, err := n.querySellFromPriceOracle(
 			request.AssetSpecifier, fn.Some(request.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](), request.AssetRateHint,
-			fn.None[route.Vertex](), request.PriceOracleMetadata,
-			IntentRecvPayment,
+			peerID, request.PriceOracleMetadata, IntentRecvPayment,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -442,14 +459,18 @@ func (n *Negotiator) HandleIncomingSellRequest(
 	go func() {
 		defer n.Wg.Done()
 
+		var peerID fn.Option[route.Vertex]
+		if n.cfg.SendPeerId {
+			peerID = fn.Some(request.Peer)
+		}
+
 		// Query the price oracle for a buy price. This is the price we
 		// are willing to pay for the asset that our peer is trying to
 		// sell to us.
 		assetRate, err := n.queryBuyFromPriceOracle(
 			request.AssetSpecifier, fn.None[uint64](),
 			fn.Some(request.PaymentMaxAmt), request.AssetRateHint,
-			fn.None[route.Vertex](), request.PriceOracleMetadata,
-			IntentPayInvoice,
+			peerID, request.PriceOracleMetadata, IntentPayInvoice,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -503,7 +524,14 @@ func (n *Negotiator) HandleOutgoingSellOrder(
 	// skip this step.
 	var assetRateHint fn.Option[rfqmsg.AssetRate]
 
-	if n.cfg.PriceOracle != nil && order.AssetSpecifier.IsSome() {
+	if n.cfg.PriceOracle != nil && order.AssetSpecifier.IsSome() &&
+		n.cfg.SendPriceHint {
+
+		var peerID fn.Option[route.Vertex]
+		if n.cfg.SendPeerId {
+			peerID = order.Peer
+		}
+
 		// Query the price oracle for a sell price.
 		//
 		// TODO(ffranr): Pass the SellOrder expiry to the
@@ -511,7 +539,7 @@ func (n *Negotiator) HandleOutgoingSellOrder(
 		assetRate, err := n.querySellFromPriceOracle(
 			order.AssetSpecifier, fn.None[uint64](),
 			fn.Some(order.PaymentMaxAmt),
-			fn.None[rfqmsg.AssetRate](), fn.None[route.Vertex](),
+			fn.None[rfqmsg.AssetRate](), peerID,
 			order.PriceOracleMetadata, IntentPayInvoiceHint,
 		)
 		if err != nil {
@@ -612,6 +640,11 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	go func() {
 		defer n.Wg.Done()
 
+		var peerID fn.Option[route.Vertex]
+		if n.cfg.SendPeerId {
+			peerID = fn.Some(msg.Peer)
+		}
+
 		// The buy accept message includes an sell price, which
 		// represents the amount the peer is willing to accept for the
 		// asset we are purchasing.
@@ -628,8 +661,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 			msg.Request.AssetSpecifier,
 			fn.Some(msg.Request.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](), fn.Some(msg.AssetRate),
-			fn.None[route.Vertex](),
-			msg.Request.PriceOracleMetadata,
+			peerID, msg.Request.PriceOracleMetadata,
 			IntentRecvPaymentQualify,
 		)
 		if err != nil {
@@ -772,6 +804,11 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 
 	// Query the price oracle asynchronously using a separate goroutine.
 	n.ContextGuard.Goroutine(func() error {
+		var peerID fn.Option[route.Vertex]
+		if n.cfg.SendPeerId {
+			peerID = fn.Some(msg.Peer)
+		}
+
 		// The sell accept message includes a buy price, which
 		// represents the amount the peer is willing to pay for the
 		// asset we are selling.
@@ -787,7 +824,7 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		assetRate, err := n.querySellFromPriceOracle(
 			msg.Request.AssetSpecifier, fn.None[uint64](),
 			fn.Some(msg.Request.PaymentMaxAmt),
-			fn.Some(msg.AssetRate), fn.None[route.Vertex](),
+			fn.Some(msg.AssetRate), peerID,
 			msg.Request.PriceOracleMetadata,
 			IntentPayInvoiceQualify,
 		)

@@ -456,23 +456,21 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	}
 
 	// Construct the RFQ manager.
-	rfqManager, err := rfq.NewManager(
-		rfq.ManagerCfg{
-			PeerMessenger:   msgTransportClient,
-			HtlcInterceptor: lndRouterClient,
-			HtlcSubscriber:  lndRouterClient,
-			PriceOracle:     priceOracle,
-			ChannelLister:   lndServices.Client,
-			GroupLookup:     tapdbAddrBook,
-			AliasManager:    lndRouterClient,
-			// nolint: lll
-			AcceptPriceDeviationPpm: rfqCfg.AcceptPriceDeviationPpm,
-			// nolint: lll
-			SkipAcceptQuotePriceCheck: rfqCfg.SkipAcceptQuotePriceCheck,
-			NoOpHTLCs:                 cfg.Channel.NoopHTLCs,
-			ErrChan:                   mainErrChan,
-		},
-	)
+	rfqManager, err := rfq.NewManager(rfq.ManagerCfg{
+		PeerMessenger:             msgTransportClient,
+		HtlcInterceptor:           lndRouterClient,
+		HtlcSubscriber:            lndRouterClient,
+		PriceOracle:               priceOracle,
+		ChannelLister:             lndServices.Client,
+		GroupLookup:               tapdbAddrBook,
+		AliasManager:              lndRouterClient,
+		AcceptPriceDeviationPpm:   rfqCfg.AcceptPriceDeviationPpm,
+		SkipAcceptQuotePriceCheck: rfqCfg.SkipAcceptQuotePriceCheck,
+		SendPriceHint:             rfqCfg.SendPriceHint,
+		SendPeerId:                rfqCfg.PriceOracleSendPeerId,
+		NoOpHTLCs:                 cfg.Channel.NoopHTLCs,
+		ErrChan:                   mainErrChan,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -626,6 +624,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		},
 	)
 
+	// nolint: lll
 	return &tap.Config{
 		DebugLevel:            cfg.DebugLevel,
 		RuntimeID:             runtimeID,
@@ -652,7 +651,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ProofUpdates: proofArchive,
 			ErrChan:      mainErrChan,
 		}),
-		// nolint: lll
 		AssetCustodian: tapgarden.NewCustodian(&tapgarden.CustodianConfig{
 			ChainParams:  &tapChainParams,
 			WalletAnchor: walletAnchor,
@@ -690,6 +688,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseQueriesBurst:     cfg.Universe.UniverseQueriesBurst,
 		RfqManager:               rfqManager,
 		PriceOracle:              priceOracle,
+		PriceOracleSendPeerID:    cfg.Experimental.Rfq.PriceOracleSendPeerId,
 		AuxLeafSigner:            auxLeafSigner,
 		AuxFundingController:     auxFundingController,
 		AuxChanCloser:            auxChanCloser,

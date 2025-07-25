@@ -8905,14 +8905,19 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		time.Duration(expirySeconds) * time.Second,
 	)
 
+	var peerID fn.Option[route.Vertex]
+	if r.cfg.PriceOracleSendPeerID {
+		peerID = fn.MaybeSome(peerPubKey)
+	}
+
 	// We now want to calculate the upper bound of the RFQ order, which
 	// either is the asset amount specified by the user, or the converted
 	// satoshi amount of the invoice, expressed in asset units, using the
 	// local price oracle's conversion rate.
 	maxUnits, err := calculateAssetMaxAmount(
 		ctx, r.cfg.PriceOracle, specifier, req.AssetAmount, iReq,
-		r.cfg.RfqManager.GetPriceDeviationPpm(),
-		fn.None[route.Vertex](), req.PriceOracleMetadata,
+		r.cfg.RfqManager.GetPriceDeviationPpm(), peerID,
+		req.PriceOracleMetadata,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error calculating asset max "+
