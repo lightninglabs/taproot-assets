@@ -7721,11 +7721,18 @@ func unmarshalAssetBuyOrder(
 	}
 	expiry := time.Unix(int64(req.Expiry), 0).UTC()
 
+	if len(req.PriceOracleMetadata) > rfqmsg.MaxOracleMetadataLength {
+		return nil, fmt.Errorf("metadata exceeds maximum length of %d "+
+			"bytes: %d bytes", rfqmsg.MaxOracleMetadataLength,
+			len(req.PriceOracleMetadata))
+	}
+
 	return &rfq.BuyOrder{
-		AssetSpecifier: assetSpecifier,
-		AssetMaxAmt:    req.AssetMaxAmt,
-		Expiry:         expiry,
-		Peer:           fn.MaybeSome(peer),
+		AssetSpecifier:      assetSpecifier,
+		AssetMaxAmt:         req.AssetMaxAmt,
+		Expiry:              expiry,
+		Peer:                fn.MaybeSome(peer),
+		PriceOracleMetadata: req.PriceOracleMetadata,
 	}, nil
 }
 
@@ -7930,11 +7937,18 @@ func unmarshalAssetSellOrder(
 	}
 	expiry := time.Unix(int64(req.Expiry), 0).UTC()
 
+	if len(req.PriceOracleMetadata) > rfqmsg.MaxOracleMetadataLength {
+		return nil, fmt.Errorf("metadata exceeds maximum length of %d "+
+			"bytes: %d bytes", rfqmsg.MaxOracleMetadataLength,
+			len(req.PriceOracleMetadata))
+	}
+
 	return &rfq.SellOrder{
-		AssetSpecifier: assetSpecifier,
-		PaymentMaxAmt:  lnwire.MilliSatoshi(req.PaymentMaxAmt),
-		Expiry:         expiry,
-		Peer:           peer,
+		AssetSpecifier:      assetSpecifier,
+		PaymentMaxAmt:       lnwire.MilliSatoshi(req.PaymentMaxAmt),
+		Expiry:              expiry,
+		Peer:                peer,
+		PriceOracleMetadata: req.PriceOracleMetadata,
 	}, nil
 }
 
@@ -8123,50 +8137,6 @@ func (r *rpcServer) AddAssetBuyOffer(_ context.Context,
 	return &rfqrpc.AddAssetBuyOfferResponse{}, nil
 }
 
-// marshalPeerAcceptedBuyQuote marshals a peer accepted asset buy quote into
-// the RPC form. This is a quote that was requested by our node and has been
-// accepted by our peer.
-func marshalPeerAcceptedBuyQuote(
-	quote rfqmsg.BuyAccept) *rfqrpc.PeerAcceptedBuyQuote {
-
-	coefficient := quote.AssetRate.Rate.Coefficient.String()
-	rpcAskAssetRate := &rfqrpc.FixedPoint{
-		Coefficient: coefficient,
-		Scale:       uint32(quote.AssetRate.Rate.Scale),
-	}
-
-	return &rfqrpc.PeerAcceptedBuyQuote{
-		Peer:           quote.Peer.String(),
-		Id:             quote.ID[:],
-		Scid:           uint64(quote.ShortChannelId()),
-		AssetMaxAmount: quote.Request.AssetMaxAmt,
-		AskAssetRate:   rpcAskAssetRate,
-		Expiry:         uint64(quote.AssetRate.Expiry.Unix()),
-	}
-}
-
-// marshalPeerAcceptedSellQuote marshals peer accepted asset sell quote into the
-// RPC form. This is a quote that was requested by our node and has been
-// accepted by our peers.
-func marshalPeerAcceptedSellQuote(
-	quote rfqmsg.SellAccept) *rfqrpc.PeerAcceptedSellQuote {
-
-	rpcAssetRate := &rfqrpc.FixedPoint{
-		Coefficient: quote.AssetRate.Rate.Coefficient.String(),
-		Scale:       uint32(quote.AssetRate.Rate.Scale),
-	}
-
-	// TODO(ffranr): Add SellRequest payment max amount to
-	//  PeerAcceptedSellQuote.
-	return &rfqrpc.PeerAcceptedSellQuote{
-		Peer:         quote.Peer.String(),
-		Id:           quote.ID[:],
-		Scid:         uint64(quote.ShortChannelId()),
-		BidAssetRate: rpcAssetRate,
-		Expiry:       uint64(quote.AssetRate.Expiry.Unix()),
-	}
-}
-
 // QueryPeerAcceptedQuotes is used to query for quotes that were requested by
 // our node and have been accepted our peers.
 func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
@@ -8179,11 +8149,11 @@ func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
 	peerAcceptedSellQuotes := r.cfg.RfqManager.PeerAcceptedSellQuotes()
 
 	rpcBuyQuotes := fn.Map(
-		maps.Values(peerAcceptedBuyQuotes), marshalPeerAcceptedBuyQuote,
+		maps.Values(peerAcceptedBuyQuotes), rfq.MarshalAcceptedBuyQuote,
 	)
 	rpcSellQuotes := fn.Map(
 		maps.Values(peerAcceptedSellQuotes),
-		marshalPeerAcceptedSellQuote,
+		rfq.MarshalAcceptedSellQuote,
 	)
 
 	return &rfqrpc.QueryPeerAcceptedQuotesResponse{
@@ -8198,10 +8168,7 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 
 	switch event := eventInterface.(type) {
 	case *rfq.PeerAcceptedBuyQuoteEvent:
-		acceptedQuote, err := rfq.MarshalAcceptedBuyQuoteEvent(event)
-		if err != nil {
-			return nil, err
-		}
+		acceptedQuote := rfq.MarshalAcceptedBuyQuote(event.BuyAccept)
 
 		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedBuyQuote{
 			PeerAcceptedBuyQuote: &rfqrpc.PeerAcceptedBuyQuoteEvent{
@@ -8614,7 +8581,7 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		// We'll store here all the quotes we acquired successfully.
 		acquiredQuotes := r.acquirePaymentQuotes(
 			ctx, &rpcSpecifier, paymentMaxAmt, expiry, chanMap,
-			req.AllowOverpay, payHash,
+			req.AllowOverpay, payHash, req.PriceOracleMetadata,
 		)
 
 		// Send out the information about the acquired quotes on the
@@ -8945,6 +8912,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	maxUnits, err := calculateAssetMaxAmount(
 		ctx, r.cfg.PriceOracle, specifier, req.AssetAmount, iReq,
 		r.cfg.RfqManager.GetPriceDeviationPpm(),
+		fn.None[route.Vertex](), req.PriceOracleMetadata,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error calculating asset max "+
@@ -8968,7 +8936,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 		quote, err := r.acquireBuyOrder(
 			ctx, &rpcSpecifier, maxUnits, expiryTimestamp,
-			&peer,
+			&peer, req.PriceOracleMetadata,
 		)
 		if err != nil {
 			rpcsLog.Errorf("error while trying to acquire a buy "+
@@ -9035,7 +9003,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				"quote in accepted quotes: %w", err)
 		}
 
-		expensiveQuote = marshalPeerAcceptedBuyQuote(*buyQuote)
+		expensiveQuote = rfq.MarshalAcceptedBuyQuote(*buyQuote)
 	}
 
 	// Now that we have the accepted quote, we know the amount in (milli)
@@ -9157,7 +9125,8 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 // a price oracle query will take place to calculate the max units of the quote.
 func calculateAssetMaxAmount(ctx context.Context, priceOracle rfq.PriceOracle,
 	specifier asset.Specifier, requestAssetAmount uint64,
-	inv *lnrpc.Invoice, deviationPPM uint64) (uint64, error) {
+	inv *lnrpc.Invoice, deviationPPM uint64,
+	counterparty fn.Option[route.Vertex], metadata string) (uint64, error) {
 
 	// Let's unmarshall the satoshi related fields to see if an amount was
 	// set based on those.
@@ -9186,7 +9155,8 @@ func calculateAssetMaxAmount(ctx context.Context, priceOracle rfq.PriceOracle,
 	// will help us establish a quote with the correct amount of asset
 	// units.
 	maxUnits, err := rfq.EstimateAssetUnits(
-		ctx, priceOracle, specifier, amtMsat,
+		ctx, priceOracle, specifier, amtMsat, counterparty, metadata,
+		rfq.IntentPayInvoice,
 	)
 	if err != nil {
 		return 0, err
@@ -9357,8 +9327,8 @@ func validateInvoiceAmount(acceptedQuote *rfqrpc.PeerAcceptedBuyQuote,
 // parameters and returns the quote if the negotiation was successful.
 func (r *rpcServer) acquireBuyOrder(ctx context.Context,
 	rpcSpecifier *rfqrpc.AssetSpecifier, assetMaxAmt uint64,
-	expiryTimestamp time.Time,
-	peerPubKey *route.Vertex) (*rfqrpc.PeerAcceptedBuyQuote, error) {
+	expiryTimestamp time.Time, peerPubKey *route.Vertex,
+	metadata string) (*rfqrpc.PeerAcceptedBuyQuote, error) {
 
 	var quote *rfqrpc.PeerAcceptedBuyQuote
 
@@ -9370,6 +9340,7 @@ func (r *rpcServer) acquireBuyOrder(ctx context.Context,
 		TimeoutSeconds: uint32(
 			rfq.DefaultTimeout.Seconds(),
 		),
+		PriceOracleMetadata: metadata,
 	})
 	if err != nil {
 		return quote, fmt.Errorf("error adding buy order: %w", err)
@@ -9409,8 +9380,8 @@ func (r *rpcServer) acquireBuyOrder(ctx context.Context,
 // is returned.
 func (r *rpcServer) acquirePaymentQuotes(ctx context.Context,
 	rpcSpecifier *rfqrpc.AssetSpecifier, paymentMaxAmt lnwire.MilliSatoshi,
-	expiry time.Time, chanMap rfq.PeerChanMap,
-	overpay bool, payHash string) []*rfqrpc.PeerAcceptedSellQuote {
+	expiry time.Time, chanMap rfq.PeerChanMap, overpay bool, payHash string,
+	metadata string) []*rfqrpc.PeerAcceptedSellQuote {
 
 	var acquiredQuotes []*rfqrpc.PeerAcceptedSellQuote
 
@@ -9435,7 +9406,7 @@ func (r *rpcServer) acquirePaymentQuotes(ctx context.Context,
 
 			quote, err := r.acquireSellQuote(
 				rpcCtx, rpcSpecifier, paymentMaxAmt,
-				expiry, &peer,
+				expiry, &peer, metadata,
 			)
 			if err != nil {
 				fn.SendOrDone(collectorCtx, errorCollector, err)
@@ -9484,8 +9455,8 @@ func (r *rpcServer) acquirePaymentQuotes(ctx context.Context,
 // parameters and returns the quote if the negotiation was successful.
 func (r *rpcServer) acquireSellQuote(ctx context.Context,
 	rpcSpecifier *rfqrpc.AssetSpecifier, paymentMaxAmt lnwire.MilliSatoshi,
-	expiry time.Time,
-	peerPubKey *route.Vertex) (*rfqrpc.PeerAcceptedSellQuote, error) {
+	expiry time.Time, peerPubKey *route.Vertex,
+	metadata string) (*rfqrpc.PeerAcceptedSellQuote, error) {
 
 	resp, err := r.AddAssetSellOrder(
 		ctx, &rfqrpc.AddAssetSellOrderRequest{
@@ -9496,6 +9467,7 @@ func (r *rpcServer) acquireSellQuote(ctx context.Context,
 			TimeoutSeconds: uint32(
 				rfq.DefaultTimeout.Seconds(),
 			),
+			PriceOracleMetadata: metadata,
 		},
 	)
 	if err != nil {
@@ -9617,14 +9589,15 @@ func (r *rpcServer) getInboundPolicy(ctx context.Context, chanID uint64,
 // assetInvoiceAmt calculates the amount of asset units to pay for an invoice
 // which is expressed in sats.
 func (r *rpcServer) assetInvoiceAmt(ctx context.Context,
-	targetAsset asset.Specifier,
+	targetAsset asset.Specifier, metadata string,
 	invoiceAmt lnwire.MilliSatoshi) (uint64, error) {
 
 	oracle := r.cfg.PriceOracle
 
 	oracleResp, err := oracle.QuerySellPrice(
 		ctx, targetAsset, fn.None[uint64](), fn.Some(invoiceAmt),
-		fn.None[rfqmsg.AssetRate](),
+		fn.None[rfqmsg.AssetRate](), fn.None[route.Vertex](), metadata,
+		rfq.IntentPayInvoice,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("error querying ask price: %w", err)
@@ -9785,7 +9758,9 @@ func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
 	targetAsset := asset.NewSpecifierOptionalGroupKey(
 		assetGroup.ID(), assetGroup.GroupKey,
 	)
-	invoiceAmt, err := r.assetInvoiceAmt(ctx, targetAsset, numMsat)
+	invoiceAmt, err := r.assetInvoiceAmt(
+		ctx, targetAsset, payReq.PriceOracleMetadata, numMsat,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error deriving asset amount: %w", err)
 	}

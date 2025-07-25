@@ -739,6 +739,14 @@ type BuyOrder struct {
 	// TODO(ffranr): Currently, this field must be specified. In the future,
 	//  the negotiator should be able to determine the optimal peer.
 	Peer fn.Option[route.Vertex]
+
+	// PriceOracleMetadata is an optional text field that can be used to
+	// provide additional metadata about the buy order to the price
+	// oracle. This can include information about the wallet end user that
+	// initiated the transaction, or any authentication information that the
+	// price oracle can use to give out a more accurate (or discount) asset
+	// rate. The maximum length of this field is 32'768 bytes.
+	PriceOracleMetadata string
 }
 
 // UpsertAssetBuyOrder upserts an asset buy order for management.
@@ -793,6 +801,14 @@ type SellOrder struct {
 	// Peer is the peer that the buy order is intended for. This field is
 	// optional.
 	Peer fn.Option[route.Vertex]
+
+	// PriceOracleMetadata is an optional text field that can be used to
+	// provide additional metadata about the sell order to the price
+	// oracle. This can include information about the wallet end user that
+	// initiated the transaction, or any authentication information that the
+	// price oracle can use to give out a more accurate (or discount) asset
+	// rate. The maximum length of this field is 32'768 bytes.
+	PriceOracleMetadata string
 }
 
 // UpsertAssetSellOrder upserts an asset sell order for management.
@@ -1299,12 +1315,13 @@ func (m *Manager) publishSubscriberEvent(event fn.Event) {
 // out how many units of an asset are needed to evaluate to the provided amount
 // in milli satoshi.
 func EstimateAssetUnits(ctx context.Context, oracle PriceOracle,
-	specifier asset.Specifier,
-	amtMsat lnwire.MilliSatoshi) (uint64, error) {
+	specifier asset.Specifier, amtMsat lnwire.MilliSatoshi,
+	counterparty fn.Option[route.Vertex], metadata string,
+	intent PriceQueryIntent) (uint64, error) {
 
 	oracleRes, err := oracle.QueryBuyPrice(
 		ctx, specifier, fn.None[uint64](), fn.Some(amtMsat),
-		fn.None[rfqmsg.AssetRate](),
+		fn.None[rfqmsg.AssetRate](), counterparty, metadata, intent,
 	)
 	if err != nil {
 		return 0, err

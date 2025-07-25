@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -55,7 +56,9 @@ func (m *MockPriceOracle) QuerySellPrice(ctx context.Context,
 	assetSpecifier asset.Specifier,
 	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
-	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
+	assetRateHint fn.Option[rfqmsg.AssetRate],
+	counterparty fn.Option[route.Vertex], metadata string,
+	intent PriceQueryIntent) (*OracleResponse, error) {
 
 	// Return early with default value if no expected calls are predefined
 	// for this method.
@@ -74,6 +77,7 @@ func (m *MockPriceOracle) QuerySellPrice(ctx context.Context,
 	// If an expected call exists, call normally.
 	args := m.Called(
 		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
+		counterparty, metadata, intent,
 	)
 	resp, _ := args.Get(0).(*OracleResponse)
 	return resp, args.Error(1)
@@ -84,7 +88,9 @@ func (m *MockPriceOracle) QueryBuyPrice(ctx context.Context,
 	assetSpecifier asset.Specifier,
 	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
-	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
+	assetRateHint fn.Option[rfqmsg.AssetRate],
+	counterparty fn.Option[route.Vertex], metadata string,
+	intent PriceQueryIntent) (*OracleResponse, error) {
 
 	// Return early with default value if no expected calls are predefined
 	// for this method.
@@ -103,6 +109,7 @@ func (m *MockPriceOracle) QueryBuyPrice(ctx context.Context,
 	// If an expected call exists, call normally.
 	args := m.Called(
 		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
+		counterparty, metadata, intent,
 	)
 	resp, _ := args.Get(0).(*OracleResponse)
 	return resp, args.Error(1)
