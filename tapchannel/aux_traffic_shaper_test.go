@@ -19,7 +19,7 @@ func TestUnitConversionTolerance(t *testing.T) {
 	)
 	var (
 		rate = rfqmath.BigIntFixedPoint{
-			Coefficient: rfqmath.NewBigIntFromUint64(9852216748),
+			Coefficient: rfqmath.NewBigIntFromUint64(9_852_216_748),
 			Scale:       0,
 		}
 	)
@@ -61,8 +61,12 @@ func TestUnitConversionTolerance(t *testing.T) {
 		newMarginAssetUnits, rate,
 	)
 
+	proposedMargin := rfqmath.UnitsToMilliSatoshi(marginAssetUnits, rate) +
+		lnwire.MilliSatoshi(numHTLCs)
+
 	t.Logf("Old tolerance allowed in msat: %d", allowedMarginMSat)
 	t.Logf("New tolerance allowed in msat: %d", newAllowedMarginMSat)
+	t.Logf("Proposed tolerance allowed in msat: %d", proposedMargin)
 }
 
 // TestUnitConversionToleranceRapid uses rapid to randomly draw invoice amounts,
