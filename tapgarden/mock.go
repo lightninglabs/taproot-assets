@@ -218,10 +218,10 @@ func RandMintingBatch(t testing.TB, opts ...MintBatchOption) *MintingBatch {
 	// Create an empty minting batch.
 	batchKey, _ := test.RandKeyDesc(t)
 	batch := &MintingBatch{
-		BatchKey:            batchKey,
-		HeightHint:          test.RandInt[uint32](),
-		CreationTime:        time.Now(),
-		UniverseCommitments: options.universeCommitments,
+		BatchKey:          batchKey,
+		HeightHint:        test.RandInt[uint32](),
+		CreationTime:      time.Now(),
+		SupplyCommitments: options.universeCommitments,
 	}
 
 	// Generate seedlings for each asset group.
