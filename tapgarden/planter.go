@@ -2220,7 +2220,7 @@ func matchPsbtToGroupReq(psbt psbt.Packet,
 // packet.
 //
 // Preconditions:
-//   - batch.UniverseCommitments must be true – otherwise the function is a NOP.
+//   - batch.SupplyCommitments must be true – otherwise the function is a NOP.
 //   - batch.GenesisPacket must not be nil.
 //
 // Post‑conditions:
@@ -2711,7 +2711,7 @@ func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
 
 	// If the universe commitments feature is disabled for this seedling,
 	// we can skip any further delegation key considerations.
-	if !req.UniverseCommitments {
+	if !req.SupplyCommitments {
 		return nil
 	}
 
@@ -2794,7 +2794,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 
 	// If the seedling has the universe/supply commitment feature enabled,
 	// finalize the delegation key.
-	if req.UniverseCommitments {
+	if req.SupplyCommitments {
 		err := c.prepSeedlingDelegationKey(ctx, req)
 		if err != nil {
 			return err
@@ -2802,7 +2802,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	}
 
 	// Set seedling asset metadata fields.
-	req.Meta.UniverseCommitments = req.UniverseCommitments
+	req.Meta.UniverseCommitments = req.SupplyCommitments
 
 	// If a delegation key is set in the seedling, set it in the metadata.
 	if req.DelegationKey.IsSome() {

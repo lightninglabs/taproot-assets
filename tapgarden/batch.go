@@ -323,7 +323,7 @@ func (m *MintingBatch) HasSeedlings() bool {
 func (m *MintingBatch) validateDelegationKey(newSeedling Seedling) error {
 	// If the universe commitment flag is disabled, then the delegation key
 	// should not be set.
-	if !newSeedling.UniverseCommitments {
+	if !newSeedling.SupplyCommitments {
 		if newSeedling.DelegationKey.IsSome() {
 			return fmt.Errorf("delegation key must not be set " +
 				"for seedling without universe commitments")
@@ -395,7 +395,7 @@ func (m *MintingBatch) validateUniCommitment(newSeedling Seedling) error {
 		// If there are no seedlings in the batch, and the first
 		// (subject) seedling doesn't enable universe commitment, we can
 		// accept it without further checks.
-		if !newSeedling.UniverseCommitments {
+		if !newSeedling.SupplyCommitments {
 			return nil
 		}
 
@@ -442,14 +442,14 @@ func (m *MintingBatch) validateUniCommitment(newSeedling Seedling) error {
 	// Therefore, when evaluating this new candidate seedling for inclusion
 	// in the batch, we must ensure that its universe commitment flag state
 	// matches the flag state of the batch.
-	if m.UniverseCommitments != newSeedling.UniverseCommitments {
+	if m.UniverseCommitments != newSeedling.SupplyCommitments {
 		return fmt.Errorf("seedling universe commitment flag does " +
 			"not match batch")
 	}
 
 	// If the universe commitment flag is disabled for both the seedling and
 	// the batch, no additional checks are required.
-	if !m.UniverseCommitments && !newSeedling.UniverseCommitments {
+	if !m.UniverseCommitments && !newSeedling.SupplyCommitments {
 		return nil
 	}
 
@@ -459,7 +459,7 @@ func (m *MintingBatch) validateUniCommitment(newSeedling Seedling) error {
 	// * the batch contains at least one seedling.
 	//
 	// For clarity, we will assert these conditions now.
-	if !m.UniverseCommitments || !newSeedling.UniverseCommitments ||
+	if !m.UniverseCommitments || !newSeedling.SupplyCommitments ||
 		!m.HasSeedlings() {
 
 		return fmt.Errorf("unexpected code path reached")
@@ -520,7 +520,7 @@ func (m *MintingBatch) AddSeedling(newSeedling Seedling) error {
 	// seedling being added to the batch, the batch universe commitment flag
 	// can be set to match the seedling's flag state.
 	if !m.HasSeedlings() {
-		m.UniverseCommitments = newSeedling.UniverseCommitments
+		m.UniverseCommitments = newSeedling.SupplyCommitments
 	}
 
 	// Ensure that the delegation key is valid for the seedling being

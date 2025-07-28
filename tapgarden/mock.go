@@ -89,10 +89,10 @@ func RandGroupAnchorSeedling(t testing.TB, groupAnchorName string,
 			Genesis:  &assetGenesis,
 			GroupKey: groupKey,
 		},
-		ScriptKey:           asset.NewScriptKeyBip86(scriptKey),
-		EnableEmission:      true,
-		UniverseCommitments: uniCommitments,
-		DelegationKey:       delegationKey,
+		ScriptKey:         asset.NewScriptKeyBip86(scriptKey),
+		EnableEmission:    true,
+		SupplyCommitments: uniCommitments,
+		DelegationKey:     delegationKey,
 	}
 }
 
@@ -114,11 +114,11 @@ func RandNonAnchorGroupSeedling(t testing.TB, assetVersion asset.Version,
 		Meta: &proof.MetaReveal{
 			Data: metaDataBlob,
 		},
-		Amount:              uint64(test.RandInt[uint32]()),
-		ScriptKey:           asset.NewScriptKeyBip86(scriptKey),
-		EnableEmission:      true,
-		UniverseCommitments: uniCommitments,
-		DelegationKey:       delegationKey,
+		Amount:            uint64(test.RandInt[uint32]()),
+		ScriptKey:         asset.NewScriptKeyBip86(scriptKey),
+		EnableEmission:    true,
+		SupplyCommitments: uniCommitments,
+		DelegationKey:     delegationKey,
 	}
 	return seedling
 }

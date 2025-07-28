@@ -641,7 +641,7 @@ func TestInsertFetchUniCommitBatch(t *testing.T) {
 
 	// Assert that the seedling is in the expected state.
 	seedling := batch.Seedlings[assetName]
-	require.True(t, seedling.UniverseCommitments)
+	require.True(t, seedling.SupplyCommitments)
 	require.True(t, seedling.DelegationKey.IsSome())
 
 	// Commit the minting batch to the database.
@@ -661,7 +661,7 @@ func TestInsertFetchUniCommitBatch(t *testing.T) {
 	require.Len(t, dbBatch.Seedlings, 1)
 
 	dbSeedling := dbBatch.Seedlings[assetName]
-	require.True(t, dbSeedling.UniverseCommitments)
+	require.True(t, dbSeedling.SupplyCommitments)
 	require.True(t, dbSeedling.DelegationKey.IsSome())
 	require.Equal(t, dbSeedling.DelegationKey, seedling.DelegationKey)
 }
