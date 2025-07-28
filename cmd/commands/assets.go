@@ -99,7 +99,7 @@ var (
 	groupByGroupName              = "by_group"
 	assetIDName                   = "asset_id"
 	shortResponseName             = "short"
-	universeCommitmentsName       = "universe_commitments"
+	enableSupplyCommitmentsName   = "enable_supply_commitments"
 	feeRateName                   = "sat_per_vbyte"
 	skipProofCourierPingCheckName = "skip-proof-courier-ping-check"
 	assetAmountName               = "amount"
@@ -198,9 +198,9 @@ var mintAssetCommand = cli.Command{
 				"was derived from",
 		},
 		cli.BoolFlag{
-			Name: universeCommitmentsName,
+			Name: enableSupplyCommitmentsName,
 			Usage: "if set, the asset group will be minted with " +
-				"universe commitments enabled " +
+				"universe supply commitments enabled " +
 				"(minter-controlled, on-chain attestations " +
 				"that anchor and verify the state of an " +
 				"asset group); this option restricts the " +
@@ -434,8 +434,10 @@ func mintAsset(ctx *cli.Context) error {
 			AssetVersion: taprpc.AssetVersion(
 				ctx.Uint64(assetVersionName),
 			),
-			ExternalGroupKey:    externalKey,
-			UniverseCommitments: ctx.Bool(universeCommitmentsName),
+			ExternalGroupKey: externalKey,
+			EnableSupplyCommitments: ctx.Bool(
+				enableSupplyCommitmentsName,
+			),
 		},
 		ShortResponse: ctx.Bool(shortResponseName),
 	})

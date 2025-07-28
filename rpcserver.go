@@ -621,7 +621,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		Amount:              req.Asset.Amount,
 		EnableEmission:      req.Asset.NewGroupedAsset,
 		Meta:                &seedlingMeta,
-		UniverseCommitments: req.Asset.UniverseCommitments,
+		UniverseCommitments: req.Asset.EnableSupplyCommitments,
 	}
 
 	rpcsLog.Infof("[MintAsset]: version=%v, type=%v, name=%v, amt=%v, "+

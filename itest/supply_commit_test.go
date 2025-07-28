@@ -89,7 +89,7 @@ func assertAnchorTxPreCommitOut(
 // universe/supply commitments enabled.
 func testPreCommitOutput(t *harnessTest) {
 	mintReq := CopyRequest(issuableAssets[0])
-	mintReq.Asset.UniverseCommitments = true
+	mintReq.Asset.EnableSupplyCommitments = true
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner().Client, t.tapd,
 		[]*mintrpc.MintAssetRequest{mintReq},
@@ -119,7 +119,7 @@ func testPreCommitOutput(t *harnessTest) {
 			GroupedAsset:    true,
 			GroupKey:        tweakedGroupKey,
 
-			UniverseCommitments: true,
+			EnableSupplyCommitments: true,
 		},
 	}
 	rpcAssets = MintAssetsConfirmBatch(
@@ -156,7 +156,7 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 	t.Log("Minting asset group with a single normal asset and " +
 		"universe/supply commitments enabled")
 	mintReq := issuableAssets[0]
-	mintReq.Asset.UniverseCommitments = true
+	mintReq.Asset.EnableSupplyCommitments = true
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner().Client, t.tapd,
 		[]*mintrpc.MintAssetRequest{mintReq},
