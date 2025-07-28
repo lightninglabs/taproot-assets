@@ -290,12 +290,6 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 	// is not yet in that list.
 	allowedMarginAssetUnits := uint64(len(req.Invoice.Htlcs) + 1)
 
-	// Because we do a round trip of units -> milli-sats, then split into
-	// shards, then back to units and then back to milli-sats again, we lose
-	// up to numHTLCs+1 asset units in the process. So we allow for an
-	// additional unit here.
-	allowedMarginAssetUnits++
-
 	// Convert the allowed margin asset units to milli-satoshis.
 	marginAssetUnits := rfqmath.NewBigIntFixedPoint(
 		allowedMarginAssetUnits, 0,
@@ -304,10 +298,17 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		marginAssetUnits, *assetRate,
 	)
 
+	// Every HTLC makes a roundtrip from msats to units and then back to
+	// msats right here. Above we account for the asset units that may have
+	// been lost by our peer when converting their incoming HTLC amount to
+	// asset units, now we need to account for our loss for converting each
+	// HTLC to msats.
+	allowedMarginMSat += lnwire.MilliSatoshi(len(req.Invoice.Htlcs) + 1)
+
 	// If the sum of the accepted HTLCs plus the current HTLC amount plus
 	// the error margin is greater than the invoice amount, we'll accept it.
 	totalInbound := acceptedHtlcSum + resp.AmtPaid
-	totalInboundWithMargin := totalInbound + allowedMarginMSat + 1
+	totalInboundWithMargin := totalInbound + allowedMarginMSat
 	invoiceValue := lnwire.MilliSatoshi(req.Invoice.ValueMsat)
 
 	iLog.Debugf("accepted HTLC sum: %v, current HTLC amount: %v, allowed "+
@@ -318,6 +319,12 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 	// If we're within the error margin, we'll increase the current HTLCs
 	// amount to cover the error rate and make the total sum match the
 	// invoice amount exactly.
+	//
+	// Note: The total calculated margin should match what is implemented in
+	// our TestUnitConversionToleranceRapid test. That test serves as a
+	// sanity check for our tolerance model, which should allow all
+	// combinations of shards and asset rates to be captured by the total
+	// calculated tolerance.
 	if totalInboundWithMargin >= invoiceValue {
 		resp.AmtPaid = invoiceValue - acceptedHtlcSum
 	}
