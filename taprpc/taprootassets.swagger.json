@@ -2627,6 +2627,11 @@
         "filter_label": {
           "type": "string",
           "description": "Filter send events by a specific label. Leave empty to not filter by\ntransfer label."
+        },
+        "start_timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "The start time as a Unix timestamp in microseconds. If not set (default\nvalue 0), the daemon will start streaming events from the current time."
         }
       }
     },
