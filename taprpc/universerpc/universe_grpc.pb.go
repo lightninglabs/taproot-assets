@@ -70,7 +70,9 @@ type UniverseClient interface {
 	// attempt to upload the asset leaf.
 	PushProof(ctx context.Context, in *PushProofRequest, opts ...grpc.CallOption) (*PushProofResponse, error)
 	// tapcli: `universe info`
-	// Info returns a set of information about the current state of the Universe.
+	// Info returns a set of information about the current state of the Universe
+	// and allows a caller to check that a universe server is reachable and
+	// configured correctly to allow proof courier access without macaroons.
 	Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error)
 	// tapcli: `universe sync`
 	// SyncUniverse takes host information for a remote Universe server, then
@@ -392,7 +394,9 @@ type UniverseServer interface {
 	// attempt to upload the asset leaf.
 	PushProof(context.Context, *PushProofRequest) (*PushProofResponse, error)
 	// tapcli: `universe info`
-	// Info returns a set of information about the current state of the Universe.
+	// Info returns a set of information about the current state of the Universe
+	// and allows a caller to check that a universe server is reachable and
+	// configured correctly to allow proof courier access without macaroons.
 	Info(context.Context, *InfoRequest) (*InfoResponse, error)
 	// tapcli: `universe sync`
 	// SyncUniverse takes host information for a remote Universe server, then

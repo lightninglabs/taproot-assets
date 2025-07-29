@@ -160,7 +160,7 @@
     },
     "/v1/taproot-assets/universe/info": {
       "get": {
-        "summary": "tapcli: `universe info`\nInfo returns a set of information about the current state of the Universe.",
+        "summary": "tapcli: `universe info`\nInfo returns a set of information about the current state of the Universe\nand allows a caller to check that a universe server is reachable and\nconfigured correctly to allow proof courier access without macaroons.",
         "operationId": "Universe_Info",
         "responses": {
           "200": {

@@ -83,7 +83,9 @@ service Universe {
     // TODO(roasbeef): rename resp to UniverseStateUpdate? ^
 
     /* tapcli: `universe info`
-    Info returns a set of information about the current state of the Universe.
+    Info returns a set of information about the current state of the Universe
+    and allows a caller to check that a universe server is reachable and
+    configured correctly to allow proof courier access without macaroons.
     */
     rpc Info (InfoRequest) returns (InfoResponse);
 
