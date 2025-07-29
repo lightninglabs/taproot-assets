@@ -18,7 +18,7 @@
   "paths": {
     "/v1/taproot-assets/channels/encode-custom-data": {
       "post": {
-        "summary": "EncodeCustomRecords allows RPC users to encode Taproot Asset channel related\ndata into the TLV format that is used in the custom records of the lnd\npayment or other channel related RPCs. This RPC is completely stateless and\ndoes not perform any checks on the data provided, other than pure format\nvalidation.",
+        "summary": "Deprecated.\nEncodeCustomRecords allows RPC users to encode Taproot Asset channel related\ndata into the TLV format that is used in the custom records of the lnd\npayment or other channel related RPCs. This RPC is completely stateless and\ndoes not perform any checks on the data provided, other than pure format\nvalidation.",
         "operationId": "TaprootAssetChannels_EncodeCustomRecords",
         "responses": {
           "200": {
@@ -1487,6 +1487,19 @@
         }
       }
     },
+    "tapchannelrpcAcceptedSellQuotes": {
+      "type": "object",
+      "properties": {
+        "accepted_sell_orders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/rfqrpcPeerAcceptedSellQuote"
+          },
+          "description": "If swapping of assets is necessary to carry out the payment, a number of\nRFQ quotes may be negotiated for that purpose. The following field\ncontains all the sell orders that were negotiated with our peers."
+        }
+      }
+    },
     "tapchannelrpcAddInvoiceRequest": {
       "type": "object",
       "properties": {
@@ -1691,7 +1704,7 @@
         "peer_pubkey": {
           "type": "string",
           "format": "byte",
-          "description": "The node identity public key of the peer to ask for a quote for sending\nout the assets and converting them to satoshis. This must be specified if\nthere are multiple channels with the given asset ID."
+          "description": "The node identity public key of the peer to ask for a quote for sending\nout the assets and converting them to satoshis. If set, only a quote with\nthis peer may be negotiated to carry out the payment."
         },
         "payment_request": {
           "$ref": "#/definitions/routerrpcSendPaymentRequest",
@@ -1718,11 +1731,15 @@
       "properties": {
         "accepted_sell_order": {
           "$ref": "#/definitions/rfqrpcPeerAcceptedSellQuote",
-          "description": "In case channel assets need to be swapped to another asset, an asset\nsell order is negotiated with the channel peer. The result will be\nthe first message in the response stream. If no swap is needed, the\npayment results will be streamed directly."
+          "description": "In case channel assets need to be swapped to another asset, an asset\nsell order is negotiated with the channel peer. The result will be\nthe first message in the response stream. If no swap is needed, the\npayment results will be streamed directly.\nDeprecated. This will now only contain the first quote that was\nnegotiated. Since the introduction of multi-rfq we now negotiate\nmultiple quotes in the context of a payment. Use the new field named\n\"accepted_sell_orders\" to retrieve all of them."
+        },
+        "accepted_sell_orders": {
+          "$ref": "#/definitions/tapchannelrpcAcceptedSellQuotes",
+          "description": "If swapping of assets is necessary to carry out the payment, a number\nof RFQ quotes may be negotiated for that purpose. The following field\ncontains all the sell orders that were negotiated with our peers."
         },
         "payment_result": {
           "$ref": "#/definitions/lnrpcPayment",
-          "description": "The payment result of a single payment attempt. Multiple attempts may\nbe returned per payment request until either the payment succeeds or\nthe payment times out."
+          "description": "The payment result of a single payment attempt. Multiple attempts\nmay be returned per payment request until either the payment\nsucceeds or the payment times out."
         }
       }
     },

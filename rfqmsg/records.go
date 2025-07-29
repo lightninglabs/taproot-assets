@@ -24,6 +24,13 @@ const (
 	// be from the same asset group but from different tranches to be
 	// encoded as an individual record.
 	MaxNumOutputs = 2048
+
+	// MaxSendPaymentQuotes is the upper limit of quotes that may be
+	// acquired by the SendPayment RPC endpoint in order to carry out the
+	// payment. Acquiring more quotes than whatever is defined below is
+	// possible, but may cause performance and network I/O bottlenecks as
+	// a lot of RFQ messages are getting involved.
+	MaxSendPaymentQuotes = 50
 )
 
 var (
@@ -42,11 +49,105 @@ type (
 	// encode an RFQ id within the custom records of an HTLC record on the
 	// wire.
 	HtlcRfqIDType = tlv.TlvType65538
+
+	// AvailableRfqIDsType is the type alias for the TLV type that is used
+	// to encode the list of available RFQ IDs that can be used for an HTLC.
+	// This list is only meant to be handled by the complementary LND
+	// instance via the AuxTrafficShaper hooks.
+	AvailableRfqIDsType = tlv.TlvType65540
 )
 
 // SomeRfqIDRecord creates an optional record that represents an RFQ ID.
 func SomeRfqIDRecord(id ID) tlv.OptionalRecordT[HtlcRfqIDType, ID] {
 	return tlv.SomeRecordT(tlv.NewPrimitiveRecord[HtlcRfqIDType, ID](id))
+}
+
+// HtlcRfqIDs is a helper wrapper around the array of IDs that can be encoded as
+// records.
+type HtlcRfqIDs struct {
+	// IDs is a list of RFQ IDs that are associated with the HTLC.
+	IDs []ID
+}
+
+// Record returns the tlv record of RfqIDs.
+func (r *HtlcRfqIDs) Record() tlv.Record {
+	size := func() uint64 {
+		var (
+			buf     bytes.Buffer
+			scratch [8]byte
+		)
+		err := encodeRfqIDs(&buf, r, &scratch)
+		if err != nil {
+			panic(fmt.Sprintf("unable to encode RFQ IDs: %v", err))
+		}
+		return uint64(buf.Len())
+	}
+
+	// Note that we set the type here as zero, as when used with a
+	// tlv.RecordT, the type param will be used as the type.
+	return tlv.MakeDynamicRecord(
+		0, r, size, encodeRfqIDs, decodeRfqIDs,
+	)
+}
+
+// encodeRfqIDs encodes the RfqIDs struct on the wire.
+func encodeRfqIDs(w io.Writer, val any, buf *[8]byte) error {
+	if rfqIDs, ok := val.(*HtlcRfqIDs); ok {
+		ids := rfqIDs.IDs
+		num := uint64(len(ids))
+		if err := tlv.WriteVarInt(w, num, buf); err != nil {
+			return err
+		}
+		for _, id := range ids {
+			idCopy := id
+			if err := IdEncoder(w, &idCopy, buf); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "*RfqIDs")
+}
+
+// decodeRfqIDs decodes the RfqIDs from the wire.
+func decodeRfqIDs(r io.Reader, val any, buf *[8]byte, _ uint64) error {
+	if ids, ok := val.(*HtlcRfqIDs); ok {
+		num, err := tlv.ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+
+		if num > MaxSendPaymentQuotes {
+			return fmt.Errorf("available RFQ IDs array length too "+
+				"big, max allowed is %v, got %v",
+				MaxSendPaymentQuotes, num)
+		}
+
+		list := make([]ID, num)
+		for i := uint64(0); i < num; i++ {
+			var id ID
+			if err := IdDecoder(r, &id, buf, 32); err != nil {
+				return err
+			}
+			list[i] = id
+		}
+
+		ids.IDs = list
+
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "*RfqIDs", 0, 0)
+}
+
+// SomeRfqIDsRecord creates an optional record that represents the array of
+// available RFQ IDs.
+func SomeRfqIDsRecord(
+	ids []ID) tlv.OptionalRecordT[AvailableRfqIDsType, HtlcRfqIDs] {
+
+	return tlv.SomeRecordT(tlv.NewRecordT[AvailableRfqIDsType, HtlcRfqIDs](
+		HtlcRfqIDs{IDs: ids},
+	))
 }
 
 // Htlc is a record that represents the capacity change related to an in-flight
@@ -57,12 +158,23 @@ type Htlc struct {
 	// Amounts is a list of asset balances that are changed by the HTLC.
 	Amounts tlv.RecordT[HtlcAmountRecordType, AssetBalanceListRecord]
 
-	// RfqID is the RFQ ID that corresponds to the HTLC.
+	// RfqID is the RFQ ID that corresponds to the HTLC. This is the RFQ ID
+	// that got locked in and is being used for all the rfqmath related
+	// calculations.
 	RfqID tlv.OptionalRecordT[HtlcRfqIDType, ID]
+
+	// AvailableRfqIDs is a list of RFQ IDs that may be used for this HTLC.
+	// This is used by the traffic shaper when querying for available
+	// bandwidth. This is only the list of candidate RFQ IDs that may be
+	// picked when an HTLC is sent over to a peer. When one of these RFQ IDs
+	// gets picked it will be encoded as an Htlc.RfqID (see above field).
+	AvailableRfqIDs tlv.OptionalRecordT[AvailableRfqIDsType, HtlcRfqIDs]
 }
 
 // NewHtlc creates a new Htlc record with the given funded assets.
-func NewHtlc(amounts []*AssetBalance, rfqID fn.Option[ID]) *Htlc {
+func NewHtlc(amounts []*AssetBalance, rfqID fn.Option[ID],
+	availableRfqIDs fn.Option[[]ID]) *Htlc {
+
 	htlc := &Htlc{
 		Amounts: tlv.NewRecordT[HtlcAmountRecordType](
 			AssetBalanceListRecord{
@@ -70,8 +182,13 @@ func NewHtlc(amounts []*AssetBalance, rfqID fn.Option[ID]) *Htlc {
 			},
 		),
 	}
+
 	rfqID.WhenSome(func(id ID) {
 		htlc.RfqID = SomeRfqIDRecord(id)
+	})
+
+	availableRfqIDs.WhenSome(func(ids []ID) {
+		htlc.AvailableRfqIDs = SomeRfqIDsRecord(ids)
 	})
 
 	return htlc
@@ -135,6 +252,12 @@ func (h *Htlc) Records() []tlv.Record {
 		records = append(records, r.Record())
 	})
 
+	h.AvailableRfqIDs.WhenSome(
+		func(r tlv.RecordT[AvailableRfqIDsType, HtlcRfqIDs]) {
+			records = append(records, r.Record())
+		},
+	)
+
 	return records
 }
 
@@ -154,11 +277,13 @@ func (h *Htlc) Encode(w io.Writer) error {
 // Decode deserializes the Htlc from the given io.Reader.
 func (h *Htlc) Decode(r io.Reader) error {
 	rfqID := h.RfqID.Zero()
+	rfqIDs := h.AvailableRfqIDs.Zero()
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(
 		h.Amounts.Record(),
 		rfqID.Record(),
+		rfqIDs.Record(),
 	)
 	if err != nil {
 		return err
@@ -171,6 +296,10 @@ func (h *Htlc) Decode(r io.Reader) error {
 
 	if val, ok := typeMap[h.RfqID.TlvType()]; ok && val == nil {
 		h.RfqID = tlv.SomeRecordT(rfqID)
+	}
+
+	if val, ok := typeMap[h.AvailableRfqIDs.TlvType()]; ok && val == nil {
+		h.AvailableRfqIDs = tlv.SomeRecordT(rfqIDs)
 	}
 
 	return nil
@@ -196,6 +325,13 @@ func (h *Htlc) AsJson() ([]byte, error) {
 
 	h.RfqID.ValOpt().WhenSome(func(id ID) {
 		j.RfqID = hex.EncodeToString(id[:])
+	})
+
+	h.AvailableRfqIDs.ValOpt().WhenSome(func(rfqIDs HtlcRfqIDs) {
+		j.AvailableRfqIDs = make([]string, len(rfqIDs.IDs))
+		for idx, id := range rfqIDs.IDs {
+			j.AvailableRfqIDs[idx] = hex.EncodeToString(id[:])
+		}
 	})
 
 	for idx, balance := range h.Balances() {
@@ -235,8 +371,9 @@ func HtlcFromCustomRecords(records lnwire.CustomRecords) (*Htlc, error) {
 // the custom records that we'd expect an asset HTLC to carry.
 func HasAssetHTLCCustomRecords(records lnwire.CustomRecords) bool {
 	var (
-		amountType HtlcAmountRecordType
-		rfqIDType  HtlcRfqIDType
+		amountType   HtlcAmountRecordType
+		rfqIDType    HtlcRfqIDType
+		availableIDs AvailableRfqIDsType
 	)
 	for key := range records {
 		if key == uint64(amountType.TypeVal()) {
@@ -244,6 +381,10 @@ func HasAssetHTLCCustomRecords(records lnwire.CustomRecords) bool {
 		}
 
 		if key == uint64(rfqIDType.TypeVal()) {
+			return true
+		}
+
+		if key == uint64(availableIDs.TypeVal()) {
 			return true
 		}
 	}

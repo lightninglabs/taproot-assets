@@ -803,18 +803,22 @@ func genHtlc(t *rapid.T, balance []*rfqmsg.AssetBalance,
 
 	// Introduce a chance of no rfqID in this htlc.
 	if rapid.Bool().Draw(t, "has_rfqid") {
-		return rfqmsg.NewHtlc(balance, fn.None[rfqmsg.ID]())
+		return rfqmsg.NewHtlc(
+			balance, fn.None[rfqmsg.ID](), fn.None[[]rfqmsg.ID](),
+		)
 	}
 
 	// Introduce a chance of a mismatch in the expected and actual htlc
 	// rfqID.
 	if rapid.Bool().Draw(t, "rfqid_match") {
-		return rfqmsg.NewHtlc(balance, fn.Some(dummyRfqID(
-			rapid.IntRange(0, 255).Draw(t, "scid"),
-		)))
+		return rfqmsg.NewHtlc(
+			balance, fn.Some(dummyRfqID(
+				rapid.IntRange(0, 255).Draw(t, "scid"),
+			)), fn.None[[]rfqmsg.ID](),
+		)
 	}
 
-	return rfqmsg.NewHtlc(balance, fn.Some(rfqID))
+	return rfqmsg.NewHtlc(balance, fn.Some(rfqID), fn.None[[]rfqmsg.ID]())
 }
 
 // genRequest generates an InvoiceHtlcModifyRequest with random values. This
@@ -1113,7 +1117,7 @@ func testNonAssetHints() []*lnrpc.RouteHint {
 func newWireCustomRecords(t *testing.T, amounts []*rfqmsg.AssetBalance,
 	rfqID fn.Option[rfqmsg.ID]) lnwire.CustomRecords {
 
-	htlc := rfqmsg.NewHtlc(amounts, rfqID)
+	htlc := rfqmsg.NewHtlc(amounts, rfqID, fn.None[[]rfqmsg.ID]())
 
 	customRecords, err := lnwire.ParseCustomRecords(htlc.Bytes())
 	require.NoError(t, err)
