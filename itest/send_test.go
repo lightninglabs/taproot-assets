@@ -1514,7 +1514,8 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 
 // assetRpcEvent is a generic type that catches all asset events.
 type assetRpcEvent interface {
-	*tapdevrpc.SendAssetEvent | *tapdevrpc.ReceiveAssetEvent
+	*tapdevrpc.SendAssetEvent | *tapdevrpc.ReceiveAssetEvent |
+		*taprpc.SendEvent
 }
 
 // assertAssetNtfsEvent asserts that the given asset event notification was
@@ -1876,6 +1877,248 @@ func testSendNoCourierUniverseImport(t *harnessTest) {
 	// And now, the transfer should be completed on the receiver side too.
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
 	AssertSendEventsComplete(t.t, receiveAddr.ScriptKey, sendEvents)
+}
+
+// testHistoricalSendEventsReplay tests that the SubscribeSendEvents RPC can
+// replay historical events when a start_timestamp is provided.
+func testHistoricalSendEventsReplay(t *harnessTest) {
+	ctxb := context.Background()
+
+	const amount = 100
+
+	// First, mint an asset.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+	totalMinted := rpcAssets[0].Amount
+	genInfo := rpcAssets[0].AssetGenesis
+
+	// Create a second node to receive assets.
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	// Get the current timestamp before performing transfers. We'll use this
+	// as our historical replay start time.
+	beforeTransfers := time.Now()
+
+	// Perform multiple transfers to create historical events with different
+	// labels and recipients.
+	const numTransfers = 3
+	changeUnits := totalMinted
+	transferLabels := []string{"transfer-1", "transfer-2", "transfer-3"}
+	bobAddrs := make([]*taprpc.Addr, numTransfers)
+
+	for i := 0; i < numTransfers; i++ {
+		// Create a new address for each transfer.
+		bobAddr, err := secondTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+			AssetId:      genInfo.AssetId,
+			Amt:          amount,
+			AssetVersion: rpcAssets[0].Version,
+		})
+		require.NoError(t.t, err)
+		AssertAddrCreated(t.t, secondTapd, rpcAssets[0], bobAddr)
+		bobAddrs[i] = bobAddr
+
+		// Send assets to the address with a specific label.
+		sendResp, _ := sendAssetsToAddrWithLabel(
+			t, t.tapd, transferLabels[i], bobAddr,
+		)
+
+		// Confirm the transfer.
+		changeUnits -= amount
+		ConfirmAndAssertOutboundTransfer(
+			t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+			genInfo.AssetId, []uint64{changeUnits, amount}, i, i+1,
+		)
+		AssertNonInteractiveRecvComplete(t.t, secondTapd, i+1)
+	}
+
+	// Now test historical event replay. Subscribe to send events with a
+	// start timestamp from before the transfers.
+	startTimestamp := beforeTransfers.UnixMicro()
+
+	t.t.Logf("Starting historical event replay test with timestamp: %d "+
+		"(time: %v)", startTimestamp, beforeTransfers)
+
+	ctxc, streamCancel := context.WithCancel(ctxb)
+	stream, err := t.tapd.SubscribeSendEvents(
+		ctxc, &taprpc.SubscribeSendEventsRequest{
+			StartTimestamp: startTimestamp,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Create EventSubscription wrapper for the stream.
+	events := &EventSubscription[*taprpc.SendEvent]{
+		ClientEventStream: stream,
+		Cancel:            streamCancel,
+	}
+
+	// Define selector for complete events with anchor transaction.
+	historicalEvents := make([]*taprpc.SendEvent, 0, numTransfers)
+	eventSelector := func(event *taprpc.SendEvent) bool {
+		t.t.Logf("Received historical event: state=%s, timestamp=%d",
+			event.SendState, event.Timestamp)
+
+		// We only want completed transfer events.
+		if event.SendState != "SendStateComplete" {
+			return false
+		}
+
+		// Verify the timestamp is reasonable (after our start time).
+		eventTime := time.Unix(0, event.Timestamp*1000)
+		t.t.Logf("Event time: %v, before transfers: %v", eventTime,
+			beforeTransfers)
+
+		// Verify that historical events include the anchor transaction.
+		require.NotNil(
+			t.t, event.AnchorTransaction,
+			"historical event should include anchor transaction",
+		)
+		require.NotEmpty(
+			t.t, event.AnchorTransaction.FinalTx,
+			"anchor transaction final tx should not be empty",
+		)
+
+		historicalEvents = append(historicalEvents, event)
+
+		return true
+	}
+
+	const ntfsTimeout = 10 * time.Second
+
+	// Use the utility function to assert we receive all historical events.
+	assertAssetNtfsEvent(
+		t, events, ntfsTimeout, eventSelector, numTransfers,
+	)
+
+	// Test that events are ordered chronologically.
+	for i := 1; i < len(historicalEvents); i++ {
+		require.GreaterOrEqual(
+			t.t, historicalEvents[i].Timestamp,
+			historicalEvents[i-1].Timestamp,
+			"historical events should be in chronological order",
+		)
+	}
+
+	// Test filtering by label - should only get events for "transfer-2".
+	ctxc2, streamCancel2 := context.WithCancel(ctxb)
+	labelStream, err := t.tapd.SubscribeSendEvents(
+		ctxc2, &taprpc.SubscribeSendEventsRequest{
+			StartTimestamp: startTimestamp,
+			FilterLabel:    "transfer-2",
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Create EventSubscription wrapper for the label stream.
+	labelEvents := &EventSubscription[*taprpc.SendEvent]{
+		ClientEventStream: labelStream,
+		Cancel:            streamCancel2,
+	}
+
+	// Define selector for complete events with label "transfer-2".
+	labelEventSelector := func(event *taprpc.SendEvent) bool {
+		if event.SendState == "SendStateComplete" {
+			t.t.Logf("Received label-filtered event: "+
+				"transfer_label=%s", event.TransferLabel)
+
+			return true
+		}
+
+		return false
+	}
+
+	// Should receive exactly 1 event for "transfer-2".
+	assertAssetNtfsEvent(t, labelEvents, ntfsTimeout, labelEventSelector, 1)
+
+	// Test filtering by script key - should only get events for the first
+	// transfer's recipient.
+	firstScriptKey := bobAddrs[0].ScriptKey
+	ctxc3, streamCancel3 := context.WithCancel(ctxb)
+	scriptKeyStream, err := t.tapd.SubscribeSendEvents(
+		ctxc3, &taprpc.SubscribeSendEventsRequest{
+			StartTimestamp:  startTimestamp,
+			FilterScriptKey: firstScriptKey,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Create EventSubscription wrapper for the script key stream.
+	scriptKeyEvents := &EventSubscription[*taprpc.SendEvent]{
+		ClientEventStream: scriptKeyStream,
+		Cancel:            streamCancel3,
+	}
+
+	// Define selector for complete events with the specific script key.
+	scriptKeyEventSelector := func(event *taprpc.SendEvent) bool {
+		if event.SendState == "SendStateComplete" {
+			t.t.Logf("Received script key-filtered event for key: "+
+				"%x", firstScriptKey)
+
+			return true
+		}
+
+		return false
+	}
+
+	// Should receive exactly 1 event for this script key.
+	assertAssetNtfsEvent(
+		t, scriptKeyEvents, ntfsTimeout, scriptKeyEventSelector, 1,
+	)
+
+	// Test filtering by both label and script key - should get events that
+	// match both criteria.
+	ctxc4, streamCancel4 := context.WithCancel(ctxb)
+	bothStream, err := t.tapd.SubscribeSendEvents(
+		ctxc4, &taprpc.SubscribeSendEventsRequest{
+			StartTimestamp:  startTimestamp,
+			FilterLabel:     "transfer-1",
+			FilterScriptKey: bobAddrs[0].ScriptKey,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Create EventSubscription wrapper for the combined filter stream.
+	bothEvents := &EventSubscription[*taprpc.SendEvent]{
+		ClientEventStream: bothStream,
+		Cancel:            streamCancel4,
+	}
+
+	// Define selector for complete events with both label and script key.
+	bothEventSelector := func(event *taprpc.SendEvent) bool {
+		if event.SendState == "SendStateComplete" {
+			t.t.Logf("Received combined filter event: label=%s, "+
+				"script_key=%x", event.TransferLabel,
+				bobAddrs[0].ScriptKey)
+
+			return true
+		}
+
+		return false
+	}
+
+	// Should receive exactly 1 event that matches both filters.
+	assertAssetNtfsEvent(t, bothEvents, ntfsTimeout, bothEventSelector, 1)
+
+	// Test with a timestamp in the future (should return an error from the
+	// stream).
+	futureTime := time.Now().Add(1 * time.Hour).UnixMicro()
+	futureStream, err := t.tapd.SubscribeSendEvents(
+		ctxb, &taprpc.SubscribeSendEventsRequest{
+			StartTimestamp: futureTime,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// The error should occur when we try to receive from the stream.
+	_, err = futureStream.Recv()
+	require.Error(t.t, err)
+	require.Contains(t.t, err.Error(), "cannot be in the future")
 }
 
 // testRestoreLndFromSeed tests that we can restore an LND node from a seed and
