@@ -98,6 +98,9 @@ CREATE TABLE supply_commit_transitions (
     -- Can be NULL until the transaction is created and signed.
     pending_commit_txn_id BIGINT REFERENCES chain_txns(txn_id),
 
+    -- Indicates if this transition is frozen and should not accept new updates.
+    frozen BOOLEAN NOT NULL DEFAULT FALSE,
+
     -- Indicates if this transition has been successfully completed and committed.
     finalized BOOLEAN NOT NULL DEFAULT FALSE,
 
@@ -113,8 +116,13 @@ CREATE TABLE supply_commit_transitions (
 CREATE TABLE supply_update_events (
     event_id INTEGER PRIMARY KEY,
 
+    -- The group key of the asset group this event belongs to.
+    -- This is needed to query for dangling events for a specific group.
+    group_key BLOB NOT NULL CHECK(length(group_key) = 33),
+
     -- Reference to the state transition this event is part of.
-    transition_id BIGINT NOT NULL REFERENCES supply_commit_transitions(transition_id) ON DELETE CASCADE,
+    -- Can be NULL if the event is staged while another transition is active.
+    transition_id BIGINT REFERENCES supply_commit_transitions(transition_id) ON DELETE CASCADE,
 
     -- The type of update (mint, burn, ignore).
     update_type_id INTEGER NOT NULL REFERENCES supply_commit_update_types(id),

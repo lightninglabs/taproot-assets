@@ -35,7 +35,7 @@ type Querier interface {
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	DeleteRoot(ctx context.Context, namespace string) (int64, error)
 	DeleteSupplyCommitTransition(ctx context.Context, transitionID int64) error
-	DeleteSupplyUpdateEvents(ctx context.Context, transitionID int64) error
+	DeleteSupplyUpdateEvents(ctx context.Context, transitionID sql.NullInt64) error
 	DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error
 	DeleteTapscriptTreeNodes(ctx context.Context) error
 	DeleteTapscriptTreeRoot(ctx context.Context, rootHash []byte) error
@@ -112,6 +112,7 @@ type Querier interface {
 	// anchor transaction output which relates to the supply commitment feature.
 	FetchUnspentPrecommits(ctx context.Context, groupKey []byte) ([]FetchUnspentPrecommitsRow, error)
 	FinalizeSupplyCommitTransition(ctx context.Context, transitionID int64) error
+	FreezePendingTransition(ctx context.Context, groupKey []byte) error
 	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
 	GenesisPoints(ctx context.Context) ([]GenesisPoint, error)
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
@@ -135,6 +136,7 @@ type Querier interface {
 	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error
 	InsertTxProof(ctx context.Context, arg InsertTxProofParams) error
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
+	LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error
 	LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error
 	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
@@ -160,6 +162,7 @@ type Querier interface {
 	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
 	QueryAuthMailboxMessages(ctx context.Context, arg QueryAuthMailboxMessagesParams) ([]QueryAuthMailboxMessagesRow, error)
 	QueryBurns(ctx context.Context, arg QueryBurnsParams) ([]QueryBurnsRow, error)
+	QueryDanglingSupplyUpdateEvents(ctx context.Context, groupKey []byte) ([]QueryDanglingSupplyUpdateEventsRow, error)
 	QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error)
 	// Find the ID of an existing non-finalized transition for the group key
 	QueryExistingPendingTransition(ctx context.Context, groupKey []byte) (int64, error)
@@ -171,12 +174,12 @@ type Querier interface {
 	QueryLastEventHeight(ctx context.Context, version int16) (int64, error)
 	QueryMultiverseLeaves(ctx context.Context, arg QueryMultiverseLeavesParams) ([]QueryMultiverseLeavesRow, error)
 	QueryPassiveAssets(ctx context.Context, transferID int64) ([]QueryPassiveAssetsRow, error)
-	QueryPendingSupplyCommitTransition(ctx context.Context, groupKey []byte) (SupplyCommitTransition, error)
+	QueryPendingSupplyCommitTransition(ctx context.Context, groupKey []byte) (QueryPendingSupplyCommitTransitionRow, error)
 	QueryProofTransferAttempts(ctx context.Context, arg QueryProofTransferAttemptsParams) ([]time.Time, error)
 	QuerySupplyCommitStateMachine(ctx context.Context, groupKey []byte) (QuerySupplyCommitStateMachineRow, error)
 	QuerySupplyCommitment(ctx context.Context, commitID int64) (SupplyCommitment, error)
 	QuerySupplyLeavesByHeight(ctx context.Context, arg QuerySupplyLeavesByHeightParams) ([]QuerySupplyLeavesByHeightRow, error)
-	QuerySupplyUpdateEvents(ctx context.Context, transitionID int64) ([]QuerySupplyUpdateEventsRow, error)
+	QuerySupplyUpdateEvents(ctx context.Context, transitionID sql.NullInt64) ([]QuerySupplyUpdateEventsRow, error)
 	// TODO(roasbeef): use the universe id instead for the grouping? so namespace
 	// root, simplifies queries
 	QueryUniverseAssetStats(ctx context.Context, arg QueryUniverseAssetStatsParams) ([]QueryUniverseAssetStatsRow, error)

@@ -317,6 +317,24 @@ func (m *mockStateMachineStore) ApplyStateTransition(ctx context.Context,
 	return args.Error(0)
 }
 
+func (m *mockStateMachineStore) FreezePendingTransition(ctx context.Context,
+	spec asset.Specifier) error {
+
+	args := m.Called(ctx, spec)
+	return args.Error(0)
+}
+
+func (m *mockStateMachineStore) BindDanglingUpdatesToTransition(
+	ctx context.Context,
+	spec asset.Specifier) ([]SupplyUpdateEvent, error) {
+
+	args := m.Called(ctx, spec)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]SupplyUpdateEvent), args.Error(1)
+}
+
 // mockDaemonAdapters is a mock implementation of the protofsm.DaemonAdapters
 // interface.
 type mockDaemonAdapters struct {
