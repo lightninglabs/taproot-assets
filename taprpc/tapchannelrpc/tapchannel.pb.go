@@ -304,6 +304,7 @@ type isEncodeCustomRecordsRequest_Input interface {
 }
 
 type EncodeCustomRecordsRequest_RouterSendPayment struct {
+	// The custom records to encode for a payment request.
 	RouterSendPayment *RouterSendPaymentData `protobuf:"bytes,1,opt,name=router_send_payment,json=routerSendPayment,proto3,oneof"`
 }
 
@@ -575,6 +576,7 @@ type HodlInvoice struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The payment hash of the HODL invoice to be created.
 	PaymentHash []byte `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
 }
 

@@ -1222,12 +1222,14 @@
         "parameters": [
           {
             "name": "asset_name_filter",
+            "description": "The asset name filter. If this is empty, then all assets are returned.",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
             "name": "asset_id_filter",
+            "description": "The asset ID filter. If this is empty, then all assets are returned.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -1235,6 +1237,7 @@
           },
           {
             "name": "asset_type_filter",
+            "description": "The asset type filter. If this is set to FILTER_ASSET_NONE, then all\nassets are returned. If set to FILTER_ASSET_NORMAL, then only normal\nassets are returned. If set to FILTER_ASSET_COLLECTIBLE, then only\ncollectible assets are returned.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -1247,6 +1250,7 @@
           },
           {
             "name": "sort_by",
+            "description": "The sort order for the query. If this is set to SORT_BY_NONE, then the\nresults are not sorted.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -1264,6 +1268,7 @@
           },
           {
             "name": "offset",
+            "description": "The offset for the page. This is used for pagination.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -1271,6 +1276,7 @@
           },
           {
             "name": "limit",
+            "description": "The length limit for the page. This is used for pagination.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -1278,6 +1284,7 @@
           },
           {
             "name": "direction",
+            "description": "The direction of the sort. If this is set to SORT_DIRECTION_ASC, then\nthe results are sorted in ascending order. If set to\nSORT_DIRECTION_DESC, then the results are sorted in descending order.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -1314,6 +1321,7 @@
         "parameters": [
           {
             "name": "start_timestamp",
+            "description": "The start timestamp for the query, in Unix epoch time (seconds).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -1321,6 +1329,7 @@
           },
           {
             "name": "end_timestamp",
+            "description": "The end timestamp for the query, in Unix epoch time (seconds).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -1816,7 +1825,8 @@
           "items": {
             "type": "object",
             "$ref": "#/definitions/taprpcPrevWitness"
-          }
+          },
+          "description": "The asset's previous witnesses, which either contain the spending\nwitness stack (usually a signature) or the split commitment witness\n(which is used to prove the split commitment of a split asset)."
         },
         "is_spent": {
           "type": "boolean",
@@ -2015,19 +2025,23 @@
       "type": "object",
       "properties": {
         "anchor_point": {
-          "type": "string"
+          "type": "string",
+          "description": "The previous input's anchor point, which is the on-chain outpoint the\nasset was anchored to."
         },
         "asset_id": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The asset ID of the asset that was spent as an input."
         },
         "script_key": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The script key of the asset that was spent as an input."
         },
         "amount": {
           "type": "string",
-          "format": "uint64"
+          "format": "uint64",
+          "description": "The amount of the asset that was spent as an input."
         }
       }
     },
@@ -2035,17 +2049,20 @@
       "type": "object",
       "properties": {
         "prev_id": {
-          "$ref": "#/definitions/taprpcPrevInputAsset"
+          "$ref": "#/definitions/taprpcPrevInputAsset",
+          "description": "The previous input asset that this witness is for."
         },
         "tx_witness": {
           "type": "array",
           "items": {
             "type": "string",
             "format": "byte"
-          }
+          },
+          "description": "The witness stack that is used to prove the asset owner's authorization\nto spend an asset. This is only set if the asset is the root asset of an\nasset split."
         },
         "split_commitment": {
-          "$ref": "#/definitions/taprpcSplitCommitment"
+          "$ref": "#/definitions/taprpcSplitCommitment",
+          "description": "The split commitment that is used to prove the split commitment of a\nsplit asset. This is only set if the asset is a split asset."
         }
       }
     },
@@ -2061,13 +2078,14 @@
         "SCRIPT_KEY_UNIQUE_PEDERSEN"
       ],
       "default": "SCRIPT_KEY_UNKNOWN",
-      "description": " - SCRIPT_KEY_UNKNOWN: The type of script key is not known. This should only be stored for assets\nwhere we don't know the internal key of the script key (e.g. for\nimported proofs).\n - SCRIPT_KEY_BIP86: The script key is a normal BIP-86 key. This means that the internal key is\nturned into a Taproot output key by applying a BIP-86 tweak to it.\n - SCRIPT_KEY_SCRIPT_PATH_EXTERNAL: The script key is a key that contains a script path that is defined by the\nuser and is therefore external to the tapd wallet. Spending this key\nrequires providing a specific witness and must be signed through the vPSBT\nsigning flow.\n - SCRIPT_KEY_BURN: The script key is a specific un-spendable key that indicates a burnt asset.\nAssets with this key type can never be spent again, as a burn key is a\ntweaked NUMS key that nobody knows the private key for.\n - SCRIPT_KEY_TOMBSTONE: The script key is a specific un-spendable key that indicates a tombstone\noutput. This is only the case for zero-value assets that result from a\nnon-interactive (TAP address) send where no change was left over.\n - SCRIPT_KEY_CHANNEL: The script key is used for an asset that resides within a Taproot Asset\nChannel. That means the script key is either a funding key (OP_TRUE), a\ncommitment output key (to_local, to_remote, htlc), or a HTLC second-level\ntransaction output key. Keys related to channels are not shown in asset\nbalances (unless specifically requested) and are never used for coin\nselection.\n - SCRIPT_KEY_UNIQUE_PEDERSEN: The script key is derived using the asset ID and a single leaf that contains\nan un-spendable Pedersen commitment key\n`(OP_CHECKSIG \u003cNUMS_key + asset_id * G\u003e)`. This can be used to create\nunique script keys for each virtual packet in the fragment, to avoid proof\ncollisions in the universe, where the script keys should be spendable by\na hardware wallet that only supports miniscript policies for signing P2TR\noutputs."
+      "description": " - SCRIPT_KEY_UNKNOWN: The type of script key is not known. This should only be stored for assets\nwhere we don't know the internal key of the script key (e.g. for imported\nproofs).\n - SCRIPT_KEY_BIP86: The script key is a normal BIP-86 key. This means that the internal key is\nturned into a Taproot output key by applying a BIP-86 tweak to it.\n - SCRIPT_KEY_SCRIPT_PATH_EXTERNAL: The script key is a key that contains a script path that is defined by the\nuser and is therefore external to the tapd wallet. Spending this key\nrequires providing a specific witness and must be signed through the vPSBT\nsigning flow.\n - SCRIPT_KEY_BURN: The script key is a specific un-spendable key that indicates a burnt asset.\nAssets with this key type can never be spent again, as a burn key is a\ntweaked NUMS key that nobody knows the private key for.\n - SCRIPT_KEY_TOMBSTONE: The script key is a specific un-spendable key that indicates a tombstone\noutput. This is only the case for zero-value assets that result from a\nnon-interactive (TAP address) send where no change was left over.\n - SCRIPT_KEY_CHANNEL: The script key is used for an asset that resides within a Taproot Asset\nChannel. That means the script key is either a funding key (OP_TRUE), a\ncommitment output key (to_local, to_remote, htlc), or a HTLC second-level\ntransaction output key. Keys related to channels are not shown in asset\nbalances (unless specifically requested) and are never used for coin\nselection.\n - SCRIPT_KEY_UNIQUE_PEDERSEN: The script key is derived using the asset ID and a single leaf that contains\nan un-spendable Pedersen commitment key\n`(OP_CHECKSIG \u003cNUMS_key + asset_id * G\u003e)`. This can be used to create\nunique script keys for each virtual packet in the fragment, to avoid proof\ncollisions in the universe, where the script keys should be spendable by\na hardware wallet that only supports miniscript policies for signing P2TR\noutputs."
     },
     "taprpcSplitCommitment": {
       "type": "object",
       "properties": {
         "root_asset": {
-          "$ref": "#/definitions/taprpcAsset"
+          "$ref": "#/definitions/taprpcAsset",
+          "description": "The root asset that contains the transaction witness that authorizes the\nspend of the asset."
         }
       }
     },
@@ -2079,7 +2097,8 @@
           "items": {
             "type": "object",
             "$ref": "#/definitions/universerpcUniverseFederationServer"
-          }
+          },
+          "description": "The federation server to add to the local Universe federation."
         }
       }
     },
@@ -2228,35 +2247,44 @@
       "properties": {
         "asset_id": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The ID of the asset."
         },
         "genesis_point": {
-          "type": "string"
+          "type": "string",
+          "description": "The asset's genesis point, which is the outpoint of the genesis\ntransaction that created the asset. This is a hex encoded string."
         },
         "total_supply": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The total supply of the asset. This is the total number of units of the\nasset that have been issued."
         },
         "asset_name": {
-          "type": "string"
+          "type": "string",
+          "description": "The human-readable name of the asset."
         },
         "asset_type": {
-          "$ref": "#/definitions/taprpcAssetType"
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The type of the asset. This can be either a normal asset or a collectible\nasset."
         },
         "genesis_height": {
           "type": "integer",
-          "format": "int32"
+          "format": "int32",
+          "description": "The height of the block at which the asset was created."
         },
         "genesis_timestamp": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The timestamp of the block at which the asset was created, in Unix epoch\ntime (seconds)."
         },
         "anchor_point": {
-          "type": "string"
+          "type": "string",
+          "description": "The anchor point of the asset, which is a human-readable string that\nrepresents the asset's anchor point in the blockchain."
         },
         "decimal_display": {
           "type": "integer",
-          "format": "int64"
+          "format": "int64",
+          "description": "The decimal display value for the asset. This is the number of decimal\nplaces that the asset can be divided into."
         }
       }
     },
@@ -2414,11 +2442,13 @@
         },
         "sync_events": {
           "type": "string",
-          "format": "uint64"
+          "format": "uint64",
+          "description": "The number of sync events that occurred on this date."
         },
         "new_proof_events": {
           "type": "string",
-          "format": "uint64"
+          "format": "uint64",
+          "description": "The number of new proof events that occurred on this date."
         }
       }
     },
@@ -2511,7 +2541,8 @@
           "items": {
             "type": "object",
             "$ref": "#/definitions/universerpcUniverseFederationServer"
-          }
+          },
+          "description": "The list of federation servers that make up the local Universe\nfederation."
         }
       }
     },
@@ -2596,7 +2627,8 @@
           "items": {
             "type": "object",
             "$ref": "#/definitions/universerpcGroupedUniverseEvents"
-          }
+          },
+          "description": "The list of grouped universe events that occurred within the specified\ntime range. Each entry in the list represents a day, with the number of\nsync and new proof events that occurred on that day."
         }
       }
     },
@@ -2608,14 +2640,16 @@
           "items": {
             "type": "object",
             "$ref": "#/definitions/universerpcGlobalFederationSyncConfig"
-          }
+          },
+          "description": "The global federation sync configs for the given proof types."
         },
         "asset_sync_configs": {
           "type": "array",
           "items": {
             "type": "object",
             "$ref": "#/definitions/universerpcAssetFederationSyncConfig"
-          }
+          },
+          "description": "The asset federation sync configs for the given universe IDs."
         }
       }
     },
@@ -2640,14 +2674,16 @@
           "items": {
             "type": "object",
             "$ref": "#/definitions/universerpcGlobalFederationSyncConfig"
-          }
+          },
+          "description": "The global federation sync configs for the given proof types."
         },
         "asset_sync_configs": {
           "type": "array",
           "items": {
             "type": "object",
             "$ref": "#/definitions/universerpcAssetFederationSyncConfig"
-          }
+          },
+          "description": "The asset federation sync configs for the given universe IDs."
         }
       }
     },
@@ -2744,7 +2780,8 @@
       "type": "object",
       "properties": {
         "id": {
-          "$ref": "#/definitions/universerpcID"
+          "$ref": "#/definitions/universerpcID",
+          "description": "The ID of the asset to sync."
         }
       }
     },
@@ -2777,7 +2814,8 @@
           "items": {
             "type": "object",
             "$ref": "#/definitions/universerpcAssetStatsSnapshot"
-          }
+          },
+          "description": "The asset statistics snapshot for the queried assets."
         }
       }
     },
@@ -2785,11 +2823,13 @@
       "type": "object",
       "properties": {
         "host": {
-          "type": "string"
+          "type": "string",
+          "description": "The host of the federation server, which is used to connect to the\nserver to push proofs and sync new proofs."
         },
         "id": {
           "type": "integer",
-          "format": "int32"
+          "format": "int32",
+          "description": "The numeric ID of the federation server. This is used to identify\nexisting servers when adding or deleting them from the federation."
         }
       }
     },
@@ -2810,7 +2850,8 @@
       "type": "object",
       "properties": {
         "id": {
-          "$ref": "#/definitions/universerpcID"
+          "$ref": "#/definitions/universerpcID",
+          "description": "The ID of the asset universe root."
         },
         "mssmt_root": {
           "$ref": "#/definitions/universerpcMerkleSumNode",

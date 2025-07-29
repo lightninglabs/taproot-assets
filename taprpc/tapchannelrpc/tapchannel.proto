@@ -100,6 +100,7 @@ message RouterSendPaymentData {
 
 message EncodeCustomRecordsRequest {
     oneof input {
+        // The custom records to encode for a payment request.
         RouterSendPaymentData router_send_payment = 1;
     }
 }
@@ -171,6 +172,7 @@ message SendPaymentResponse {
 }
 
 message HodlInvoice {
+    // The payment hash of the HODL invoice to be created.
     bytes payment_hash = 1;
 }
 

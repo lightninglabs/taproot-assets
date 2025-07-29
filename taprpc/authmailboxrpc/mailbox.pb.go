@@ -560,10 +560,13 @@ type isReceiveMessagesRequest_RequestType interface {
 }
 
 type ReceiveMessagesRequest_Init struct {
+	// The initial parameters sent by the client to start receiving
+	// messages.
 	Init *InitReceive `protobuf:"bytes,1,opt,name=init,proto3,oneof"`
 }
 
 type ReceiveMessagesRequest_AuthSig struct {
+	// The client's signature in response to the server's challenge.
 	AuthSig *AuthSignature `protobuf:"bytes,2,opt,name=auth_sig,json=authSig,proto3,oneof"`
 }
 
@@ -670,6 +673,8 @@ type AuthSignature struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The client's Schnorr signature over the challenge hash provided by
+	// the server.
 	Signature []byte `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
 }
 
@@ -800,18 +805,28 @@ type isReceiveMessagesResponse_ResponseType interface {
 }
 
 type ReceiveMessagesResponse_Challenge struct {
+	// The challenge sent by the server to the client, which the client
+	// must sign to prove ownership of the receiver's public key.
 	Challenge *Challenge `protobuf:"bytes,1,opt,name=challenge,proto3,oneof"`
 }
 
 type ReceiveMessagesResponse_AuthSuccess struct {
+	// A successful authentication response, indicating the client has
+	// successfully signed the challenge and is now authenticated to receive
+	// messages.
 	AuthSuccess bool `protobuf:"varint,2,opt,name=auth_success,json=authSuccess,proto3,oneof"`
 }
 
 type ReceiveMessagesResponse_Messages struct {
+	// A list of mailbox messages sent to the client. This will be
+	// sent after the client has successfully authenticated by signing the
+	// challenge. The client should expect a stream of these messages
+	// until the server sends an EndOfStream message.
 	Messages *MailboxMessages `protobuf:"bytes,3,opt,name=messages,proto3,oneof"`
 }
 
 type ReceiveMessagesResponse_Eos struct {
+	// An EndOfStream message indicating that the server is shutting down.
 	Eos *EndOfStream `protobuf:"bytes,4,opt,name=eos,proto3,oneof"`
 }
 
@@ -829,6 +844,8 @@ type Challenge struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The challenge hash that the client must sign to prove ownership of the
+	// receiver's public key.
 	ChallengeHash []byte `protobuf:"bytes,1,opt,name=challenge_hash,json=challengeHash,proto3" json:"challenge_hash,omitempty"`
 }
 
