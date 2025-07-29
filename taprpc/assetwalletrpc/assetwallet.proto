@@ -98,7 +98,7 @@ service AssetWallet {
     rpc VerifyAssetOwnership (VerifyAssetOwnershipRequest)
         returns (VerifyAssetOwnershipResponse);
 
-    /*
+    /* `tapcli: assets removelease`
     RemoveUTXOLease removes the lease/lock/reservation of the given managed
     UTXO.
     */

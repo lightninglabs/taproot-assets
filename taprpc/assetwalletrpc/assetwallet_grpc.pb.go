@@ -69,6 +69,7 @@ type AssetWalletClient interface {
 	// VerifyAssetOwnership verifies the asset ownership proof embedded in the
 	// given transition proof of an asset and returns true if the proof is valid.
 	VerifyAssetOwnership(ctx context.Context, in *VerifyAssetOwnershipRequest, opts ...grpc.CallOption) (*VerifyAssetOwnershipResponse, error)
+	// `tapcli: assets removelease`
 	// RemoveUTXOLease removes the lease/lock/reservation of the given managed
 	// UTXO.
 	RemoveUTXOLease(ctx context.Context, in *RemoveUTXOLeaseRequest, opts ...grpc.CallOption) (*RemoveUTXOLeaseResponse, error)
@@ -258,6 +259,7 @@ type AssetWalletServer interface {
 	// VerifyAssetOwnership verifies the asset ownership proof embedded in the
 	// given transition proof of an asset and returns true if the proof is valid.
 	VerifyAssetOwnership(context.Context, *VerifyAssetOwnershipRequest) (*VerifyAssetOwnershipResponse, error)
+	// `tapcli: assets removelease`
 	// RemoveUTXOLease removes the lease/lock/reservation of the given managed
 	// UTXO.
 	RemoveUTXOLease(context.Context, *RemoveUTXOLeaseRequest) (*RemoveUTXOLeaseResponse, error)

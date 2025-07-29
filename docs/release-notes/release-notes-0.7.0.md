@@ -75,6 +75,10 @@
   asset command flag from `--universe_commitments` to
   `--enable_supply_commitments` for consistency with the updated terminology.
 
+- The [CLI command `tapcli assets removelease` was added to give access to the
+  `RemoveUTXOLease` RPC method on the command line as
+  well](https://github.com/lightninglabs/taproot-assets/pull/1690).
+
 # Improvements
 
 ## Functional Updates

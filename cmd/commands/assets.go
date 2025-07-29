@@ -8,9 +8,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/btcsuite/btcd/wire"
 	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/urfave/cli"
@@ -73,11 +75,12 @@ var assetsCommands = []cli.Command{
 			listBurnsCommand,
 			listTransfersCommand,
 			fetchMetaCommand,
+			removeUtxoLeaseCommand,
 		},
 	},
 }
 
-var (
+const (
 	assetTypeName                 = "type"
 	assetTagName                  = "name"
 	assetSupplyName               = "supply"
@@ -1207,6 +1210,56 @@ func fetchMeta(ctx *cli.Context) error {
 	resp, err := client.FetchAssetMeta(ctxc, req)
 	if err != nil {
 		return fmt.Errorf("unable to fetch asset meta: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var removeUtxoLeaseCommand = cli.Command{
+	Name:      "removelease",
+	ShortName: "rl",
+	Usage:     "release the lease/lock/reservation on an asset UTXO",
+	Description: `
+	Allows the caller to release the lease/lock/reservation that is put on
+	an asset UTXO when it is used in a transaction. The lease is to prevent
+	the asset UTXO from being used in another transaction while the current
+	transaction is being signed and broadcast. If the transaction fails to
+	broadcast, the lease will remain in place for up to 10 minutes. With
+	this command, the caller can release the lease early, allowing the
+	UTXO to be used in another transaction immediately.
+
+	This command either returns an empty response ({}), or an error if the
+	lease could not be released.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: outpointName,
+			Usage: "the outpoint (<txid>:<vout>) of the UTXO to " +
+				"release the lease for",
+		},
+	},
+	Action: removeUtxoLease,
+}
+
+func removeUtxoLease(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	outpoint, err := wire.NewOutPointFromString(ctx.String(outpointName))
+	if err != nil {
+		return fmt.Errorf("error parsing outpoint: %w", err)
+	}
+
+	resp, err := client.RemoveUTXOLease(ctxc, &wrpc.RemoveUTXOLeaseRequest{
+		Outpoint: &taprpc.OutPoint{
+			Txid:        outpoint.Hash[:],
+			OutputIndex: outpoint.Index,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("unable to remove utxo lease: %w", err)
 	}
 
 	printRespJSON(resp)
