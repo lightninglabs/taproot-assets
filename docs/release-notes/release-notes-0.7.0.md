@@ -75,6 +75,9 @@
 - [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the
   `MintAsset` RPC message field from `universe_commitments` to
   `enable_supply_commitments`.
+- The `SubscribeSendEvents` RPC now supports [historical event replay of 
+  completed sends with efficient database-level
+  filtering](https://github.com/lightninglabs/taproot-assets/pull/1685).
 
 ## tapcli Additions
 
