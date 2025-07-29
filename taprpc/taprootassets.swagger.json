@@ -1498,6 +1498,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The balance of the asset owned by the target daemon."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The group key of the asset (if it belongs to a group)."
         }
       }
     },

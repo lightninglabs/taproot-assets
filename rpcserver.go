@@ -1275,12 +1275,12 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 	}
 
 	resp := &taprpc.ListBalancesResponse{
-		AssetBalances: make(map[string]*taprpc.AssetBalance, len(balances)),
+		AssetBalances: make(
+			map[string]*taprpc.AssetBalance, len(balances),
+		),
 	}
 
 	for _, balance := range balances {
-		balance := balance
-
 		assetIDStr := hex.EncodeToString(balance.ID[:])
 
 		resp.AssetBalances[assetIDStr] = &taprpc.AssetBalance{
@@ -1291,7 +1291,8 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 				MetaHash:     balance.MetaHash[:],
 				AssetId:      balance.ID[:],
 			},
-			Balance: balance.Balance,
+			GroupKey: balance.GroupKey,
+			Balance:  balance.Balance,
 		}
 	}
 

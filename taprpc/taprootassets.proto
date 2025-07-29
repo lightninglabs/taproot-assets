@@ -731,6 +731,9 @@ message AssetBalance {
 
     // The balance of the asset owned by the target daemon.
     uint64 balance = 3;
+
+    // The group key of the asset (if it belongs to a group).
+    bytes group_key = 4;
 }
 
 message AssetGroupBalance {
