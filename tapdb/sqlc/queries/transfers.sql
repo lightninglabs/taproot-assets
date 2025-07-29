@@ -70,6 +70,26 @@ WHERE
         )
         OR @pending_transfers_only = false OR @pending_transfers_only IS NULL
     )
+
+    -- Optionally filter on a given start time.
+    AND transfers.transfer_time_unix >=
+        COALESCE(sqlc.narg('start_time'), transfers.transfer_time_unix)
+
+    -- Optionally filter on a given label.
+    AND (transfers.label = sqlc.narg('filter_label') OR
+            sqlc.narg('filter_label') IS NULL)
+
+    -- Optionally filter on outputs with a specific script key.
+    AND (
+      EXISTS (
+        SELECT 1
+        FROM asset_transfer_outputs outputs
+        JOIN script_keys sk ON outputs.script_key = sk.script_key_id
+        WHERE outputs.transfer_id = transfers.id
+          AND sk.tweaked_script_key = sqlc.arg('filter_script_key')
+      )
+      OR sqlc.arg('filter_script_key') IS NULL
+    )
 ORDER BY transfer_time_unix;
 
 -- name: FetchTransferInputs :many

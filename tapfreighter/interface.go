@@ -571,6 +571,13 @@ type ExportLog interface {
 	// QueryParcels returns the set of confirmed or unconfirmed parcels.
 	QueryParcels(ctx context.Context, anchorTxHash *chainhash.Hash,
 		pending bool) ([]*OutboundParcel, error)
+
+	// QueryCompletedParcels returns the set of completed parcels that were
+	// transferred after the given start time, optionally filtered by label
+	// and/or script key.
+	QueryCompletedParcels(ctx context.Context, startTime time.Time,
+		filterLabel string, filterScriptKey *btcec.PublicKey) (
+		[]*OutboundParcel, error)
 }
 
 // ChainBridge aliases into the ChainBridge of the tapgarden package.
