@@ -66,6 +66,7 @@
   [API
   docs](https://lightning.engineering/api-docs/api/taproot-assets/price-oracle/query-asset-rates/#priceoraclerpcintent)
   for more information on the different values and their meaning.
+
 - The `SendPayment`, `AddInvoice` and `DecodeAssetPayReq` RPCs now have a [new
   `price_oracle_metadata` field the user can specify to send additional metadata
   to a price oracle](https://github.com/lightninglabs/taproot-assets/pull/1677)
@@ -78,6 +79,11 @@
 - The `SubscribeSendEvents` RPC now supports [historical event replay of 
   completed sends with efficient database-level
   filtering](https://github.com/lightninglabs/taproot-assets/pull/1685).
+
+- A [new field `unconfirmed_transfers` was added to the response of the 
+  `ListBalances` RPC
+  method](https://github.com/lightninglabs/taproot-assets/pull/1691) to indicate
+  that unconfirmed asset-related transactions don't count toward the balance.
 
 ## tapcli Additions
 

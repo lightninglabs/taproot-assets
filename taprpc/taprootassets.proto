@@ -751,6 +751,11 @@ message ListBalancesResponse {
     // and the value is the balance of that group owned by the target daemon.
     // This is only set if group_by.group_key is true in the request.
     map<string, AssetGroupBalance> asset_group_balances = 2;
+
+    // This is a count of unconfirmed outgoing transfers. Unconfirmed transfers
+    // (and the change resulting from them) do not appear in the balance. The
+    // balance only represents confirmed assets that are owned by the daemon.
+    uint64 unconfirmed_transfers = 3;
 }
 
 message ListTransfersRequest {

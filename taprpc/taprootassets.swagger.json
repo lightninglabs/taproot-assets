@@ -2163,6 +2163,11 @@
             "$ref": "#/definitions/taprpcAssetGroupBalance"
           },
           "description": "The map of asset group balances, where the key is the group key\nand the value is the balance of that group owned by the target daemon.\nThis is only set if group_by.group_key is true in the request."
+        },
+        "unconfirmed_transfers": {
+          "type": "string",
+          "format": "uint64",
+          "description": "This is a count of unconfirmed outgoing transfers. Unconfirmed transfers\n(and the change resulting from them) do not appear in the balance. The\nbalance only represents confirmed assets that are owned by the daemon."
         }
       }
     },

@@ -1295,6 +1295,16 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 		}
 	}
 
+	// We will also report the number of unconfirmed transfers. This is
+	// useful for clients as unconfirmed asset coins are not included in the
+	// balance list.
+	outboundParcels, err := r.cfg.AssetStore.QueryParcels(ctx, nil, true)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query for unconfirmed "+
+			"outgoing parcels: %w", err)
+	}
+	resp.UnconfirmedTransfers = uint64(len(outboundParcels))
+
 	return resp, nil
 }
 
@@ -1330,6 +1340,16 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 			Balance:  balance.Balance,
 		}
 	}
+
+	// We will also report the number of unconfirmed transfers. This is
+	// useful for clients as unconfirmed asset coins are not included in the
+	// balance list.
+	outboundParcels, err := r.cfg.AssetStore.QueryParcels(ctx, nil, true)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query for unconfirmed "+
+			"outgoing parcels: %w", err)
+	}
+	resp.UnconfirmedTransfers = uint64(len(outboundParcels))
 
 	return resp, nil
 }
