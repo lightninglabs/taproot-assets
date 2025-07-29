@@ -865,7 +865,7 @@ func fetchPreCommitGroupKey(
 	// If universe commitments are disabled, there is no group key available
 	// from the batch to associate with the pre-commitment. Therefore, we
 	// return None.
-	if !pendingBatch.UniverseCommitments {
+	if !pendingBatch.SupplyCommitments {
 		return zero, nil
 	}
 
@@ -914,7 +914,7 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 	// If universe commitments are enabled, we formulate a pre-commitment
 	// output. This output is spent by the universe commitment transaction.
 	var delegationKey fn.Option[DelegationKey]
-	if c.pendingBatch != nil && c.pendingBatch.UniverseCommitments {
+	if c.pendingBatch != nil && c.pendingBatch.SupplyCommitments {
 		delegationK, err := fetchDelegationKey(c.pendingBatch)
 		if err != nil {
 			return zero, fmt.Errorf("unable to create "+
@@ -2220,7 +2220,7 @@ func matchPsbtToGroupReq(psbt psbt.Packet,
 // packet.
 //
 // Preconditions:
-//   - batch.UniverseCommitments must be true – otherwise the function is a NOP.
+//   - batch.SupplyCommitments must be true – otherwise the function is a NOP.
 //   - batch.GenesisPacket must not be nil.
 //
 // Post‑conditions:
@@ -2229,7 +2229,7 @@ func matchPsbtToGroupReq(psbt psbt.Packet,
 // NOTE: The function mutates the supplied *MintingBatch in place.
 func sealBatchPreCommit(batch *MintingBatch) error {
 	// Fast‑exit if Universe Commitments are disabled – nothing to update.
-	if !batch.UniverseCommitments {
+	if !batch.SupplyCommitments {
 		return nil
 	}
 
@@ -2520,7 +2520,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 	// Persist the newly generated group-key metadata in the batch’s
 	// pre-commitment output—needed only when Universe Commitments are on—
 	// before passing the batch to the minting store.
-	if batchWithGroupInfo.UniverseCommitments {
+	if batchWithGroupInfo.SupplyCommitments {
 		err := sealBatchPreCommit(batchWithGroupInfo)
 		if err != nil {
 			return nil, err
@@ -2711,7 +2711,7 @@ func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
 
 	// If the universe commitments feature is disabled for this seedling,
 	// we can skip any further delegation key considerations.
-	if !req.UniverseCommitments {
+	if !req.SupplyCommitments {
 		return nil
 	}
 
@@ -2794,7 +2794,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 
 	// If the seedling has the universe/supply commitment feature enabled,
 	// finalize the delegation key.
-	if req.UniverseCommitments {
+	if req.SupplyCommitments {
 		err := c.prepSeedlingDelegationKey(ctx, req)
 		if err != nil {
 			return err
@@ -2802,7 +2802,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	}
 
 	// Set seedling asset metadata fields.
-	req.Meta.UniverseCommitments = req.UniverseCommitments
+	req.Meta.UniverseCommitments = req.SupplyCommitments
 
 	// If a delegation key is set in the seedling, set it in the metadata.
 	if req.DelegationKey.IsSome() {

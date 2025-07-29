@@ -94,7 +94,7 @@ func assertBatchEqual(t *testing.T, a, b *tapgarden.MintingBatch) {
 		t, &a.GenesisPacket.FundedPsbt, &b.GenesisPacket.FundedPsbt,
 	)
 	require.Equal(t, a.RootAssetCommitment, b.RootAssetCommitment)
-	require.Equal(t, a.UniverseCommitments, b.UniverseCommitments)
+	require.Equal(t, a.SupplyCommitments, b.SupplyCommitments)
 }
 
 func assertSeedlingBatchLen(t *testing.T, batches []*tapgarden.MintingBatch,
@@ -624,7 +624,7 @@ func TestInsertFetchUniCommitBatch(t *testing.T) {
 		t, tapgarden.WithTotalGroups([]int{1}),
 		tapgarden.WithUniverseCommitments(true),
 	)
-	require.True(t, batch.UniverseCommitments)
+	require.True(t, batch.SupplyCommitments)
 
 	// Generate the group genesis, persist it, and assign the group details
 	// to the seedling.
@@ -641,7 +641,7 @@ func TestInsertFetchUniCommitBatch(t *testing.T) {
 
 	// Assert that the seedling is in the expected state.
 	seedling := batch.Seedlings[assetName]
-	require.True(t, seedling.UniverseCommitments)
+	require.True(t, seedling.SupplyCommitments)
 	require.True(t, seedling.DelegationKey.IsSome())
 
 	// Commit the minting batch to the database.
@@ -655,13 +655,13 @@ func TestInsertFetchUniCommitBatch(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assert that the batch is in the expected state.
-	require.True(t, dbBatch.UniverseCommitments)
+	require.True(t, dbBatch.SupplyCommitments)
 
 	// Assert that the seedling is in the expected state.
 	require.Len(t, dbBatch.Seedlings, 1)
 
 	dbSeedling := dbBatch.Seedlings[assetName]
-	require.True(t, dbSeedling.UniverseCommitments)
+	require.True(t, dbSeedling.SupplyCommitments)
 	require.True(t, dbSeedling.DelegationKey.IsSome())
 	require.Equal(t, dbSeedling.DelegationKey, seedling.DelegationKey)
 }
@@ -1925,7 +1925,7 @@ func TestUpsertMintAnchorUniCommitment(t *testing.T) {
 
 	// Create a new batch with one asset group seedling.
 	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, 1)
-	mintingBatch.UniverseCommitments = true
+	mintingBatch.SupplyCommitments = true
 
 	_, _, group := addRandGroupToBatch(
 		t, assetStore, ctx, mintingBatch.Seedlings,

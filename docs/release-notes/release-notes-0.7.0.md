@@ -65,8 +65,15 @@
   when requesting quotes. The field can contain optional user or authentication
   information that helps the price oracle to decide on the optimal price rate to
   return.
+- [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the
+  `MintAsset` RPC message field from `universe_commitments` to
+  `enable_supply_commitments`.
 
 ## tapcli Additions
+
+- [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the mint
+  asset command flag from `--universe_commitments` to
+  `--enable_supply_commitments` for consistency with the updated terminology.
 
 # Improvements
 

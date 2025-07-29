@@ -484,7 +484,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 			BatchID:             batchID,
 			HeightHint:          int32(newBatch.HeightHint),
 			CreationTimeUnix:    newBatch.CreationTime.UTC(),
-			UniverseCommitments: newBatch.UniverseCommitments,
+			UniverseCommitments: newBatch.SupplyCommitments,
 		}); err != nil {
 			return fmt.Errorf("unable to insert minting "+
 				"batch: %w", err)
@@ -552,7 +552,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 				EmissionEnabled: seedling.EnableEmission,
 
 				// nolint: lll
-				UniverseCommitments: seedling.UniverseCommitments,
+				UniverseCommitments: seedling.SupplyCommitments,
 			}
 
 			scriptKeyID, err := upsertScriptKey(
@@ -697,7 +697,7 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 				EmissionEnabled: seedling.EnableEmission,
 
 				// nolint: lll
-				UniverseCommitments: seedling.UniverseCommitments,
+				UniverseCommitments: seedling.SupplyCommitments,
 			}
 
 			scriptKeyID, err := upsertScriptKey(
@@ -793,8 +793,8 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 			Amount: uint64(
 				dbSeedling.AssetSupply,
 			),
-			EnableEmission:      dbSeedling.EmissionEnabled,
-			UniverseCommitments: dbSeedling.UniverseCommitments,
+			EnableEmission:    dbSeedling.EmissionEnabled,
+			SupplyCommitments: dbSeedling.UniverseCommitments,
 		}
 
 		if dbSeedling.TweakedScriptKey != nil {
@@ -1298,9 +1298,9 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 			},
 			PubKey: batchKey,
 		},
-		HeightHint:          uint32(dbBatch.HeightHint),
-		CreationTime:        dbBatch.CreationTimeUnix.UTC(),
-		UniverseCommitments: dbBatch.UniverseCommitments,
+		HeightHint:        uint32(dbBatch.HeightHint),
+		CreationTime:      dbBatch.CreationTimeUnix.UTC(),
+		SupplyCommitments: dbBatch.UniverseCommitments,
 	}
 
 	batchState, err := tapgarden.NewBatchState(uint8(dbBatch.BatchState))

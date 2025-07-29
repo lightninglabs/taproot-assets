@@ -147,7 +147,7 @@ func TestValidateUniCommitment(t *testing.T) {
 		t, anchorSeedling.AssetVersion, anchorSeedling.AssetType,
 		anchorSeedling.AssetName, anchorSeedling.Meta.Data,
 		anchorSeedling.DelegationKey,
-		anchorSeedling.UniverseCommitments,
+		anchorSeedling.SupplyCommitments,
 	)
 
 	testCases = append(testCases, TestCase{

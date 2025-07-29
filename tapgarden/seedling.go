@@ -94,15 +94,15 @@ type Seedling struct {
 	// for this asset meaning future assets linked to it can be created.
 	EnableEmission bool
 
-	// UniverseCommitments indicates whether the minting event which
-	// will be associated with the seedling supports universe commitments.
+	// SupplyCommitments indicates whether the minting event which
+	// will be associated with the seedling supports supply commitments.
 	// If set to true, the seedling can only be included in a minting batch
 	// where all assets share the same asset group key, which must be
 	// specified.
 	//
-	// Universe commitments are minter-controlled, on-chain anchored
+	// Supply commitments are minter-controlled, on-chain anchored
 	// attestations regarding the state of the universe.
-	UniverseCommitments bool
+	SupplyCommitments bool
 
 	// DelegationKey is the public key that is used to verify universe
 	// commitment related on-chain outputs and proofs.

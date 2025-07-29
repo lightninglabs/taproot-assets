@@ -76,7 +76,10 @@ CREATE TABLE supply_commit_state_machines (
     latest_commitment_id BIGINT REFERENCES supply_commitments(commit_id)
 );
 
--- Table tracking a pending state transition for a state machine.
+-- Table tracking an in-progress transition from one supply commitment to a
+-- newer one. A transition represents the process of creating a new on-chain
+-- supply commitment that succeeds a prior version, which remains valid as a
+-- historical record.
 CREATE TABLE supply_commit_transitions (
     transition_id INTEGER PRIMARY KEY,
 
@@ -102,7 +105,11 @@ CREATE TABLE supply_commit_transitions (
     creation_time BIGINT NOT NULL
 );
 
--- Table storing individual update events associated with a pending transition.
+-- Table recording supply update events associated with a pending supply
+-- commitment transition. A transition is the process of creating a newer
+-- on-chain supply commitment that follows a previous one. Update events are
+-- asset group supply-specific events handled by the supply commitment state
+-- machine.
 CREATE TABLE supply_update_events (
     event_id INTEGER PRIMARY KEY,
 
