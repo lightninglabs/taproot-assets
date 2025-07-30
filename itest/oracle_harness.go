@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"slices"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightningnetwork/lnd/cert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -29,6 +31,14 @@ type oracleHarness struct {
 
 	grpcListener net.Listener
 	grpcServer   *grpc.Server
+
+	// Mock is a mock object that can optionally be used to track calls to
+	// the oracle harness. If no call expectations are set, the prices from
+	// the maps below will be used.
+	// NOTE: When setting up the call expectations, we need to use the
+	// actual fields of the `QueryAssetRatesRequest` message, since
+	// otherwise it is much harder to match the calls nicely.
+	mock.Mock
 
 	// buyPrices is a map used internally by the oracle harness to store buy
 	// prices for certain assets. We use the asset specifier string as a
@@ -181,6 +191,18 @@ func (o *oracleHarness) QueryAssetRates(_ context.Context,
 	req *oraclerpc.QueryAssetRatesRequest) (
 	*oraclerpc.QueryAssetRatesResponse, error) {
 
+	// Return early with the mocked value if call expectations are set up.
+	if hasExpectedCall(o.ExpectedCalls, "QueryAssetRates") {
+		args := o.Called(
+			req.TransactionType, req.SubjectAsset,
+			req.SubjectAssetMaxAmount, req.PaymentAsset,
+			req.PaymentAssetMaxAmount, req.AssetRatesHint,
+			req.Intent, req.CounterpartyId, req.Metadata,
+		)
+		resp, _ := args.Get(0).(*oraclerpc.QueryAssetRatesResponse)
+		return resp, args.Error(1)
+	}
+
 	// Ensure that the payment asset is BTC. We only support BTC as the
 	// payment asset in this example.
 	if !rpcutils.IsAssetBtc(req.PaymentAsset) {
@@ -323,4 +345,12 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 	}
 
 	return tlsCert, nil
+}
+
+// hasExpectedCall checks if the method call has been registered as an expected
+// call with the mock object.
+func hasExpectedCall(expectedCalls []*mock.Call, method string) bool {
+	return slices.ContainsFunc(expectedCalls, func(call *mock.Call) bool {
+		return call.Method == method
+	})
 }
