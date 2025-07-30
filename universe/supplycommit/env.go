@@ -118,6 +118,12 @@ type SupplyTreeView interface {
 	// commitment to each of the sub trees.
 	FetchRootSupplyTree(ctx context.Context,
 		assetSpec asset.Specifier) lfn.Result[mssmt.Tree]
+
+	// FetchSupplyLeavesByHeight returns the set of supply leaves for the
+	// given asset specifier within the specified height range.
+	FetchSupplyLeavesByHeight(ctx context.Context,
+		assetSpec asset.Specifier, startHeight,
+		endHeight uint32) lfn.Result[SupplyLeaves]
 }
 
 // PreCommitment is a struct that represents a pre-commitment to an asset

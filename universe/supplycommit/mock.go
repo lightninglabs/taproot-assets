@@ -48,6 +48,14 @@ func (m *mockSupplyTreeView) FetchRootSupplyTree(_ context.Context,
 	return args.Get(0).(lfn.Result[mssmt.Tree])
 }
 
+func (m *mockSupplyTreeView) FetchSupplyLeavesByHeight(_ context.Context,
+	assetSpec asset.Specifier, startHeight,
+	endHeight uint32) lfn.Result[SupplyLeaves] {
+
+	args := m.Called(assetSpec, startHeight, endHeight)
+	return args.Get(0).(lfn.Result[SupplyLeaves])
+}
+
 // mockCommitmentTracker is a mock implementation of the CommitmentTracker
 // interface.
 type mockCommitmentTracker struct {
