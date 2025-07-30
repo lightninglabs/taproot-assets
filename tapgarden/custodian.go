@@ -329,27 +329,21 @@ func (c *Custodian) watchInboundAssets() {
 
 		// If we didn't find a proof, we'll launch a goroutine to use
 		// the ProofCourier to import the proof into our local DB.
-		c.Wg.Add(1)
-		go func() {
-			defer c.Wg.Done()
-
-			recErr := c.receiveProofs(
+		c.Goroutine(func() error {
+			return c.receiveProofs(
 				event.Addr.Tap, event.Outpoint, event.Outputs,
 				event.ConfirmationHeight,
 			)
-			if recErr != nil {
-				c.publishSubscriberStatusEvent(
-					NewAssetReceiveErrorEvent(
-						recErr, *event.Addr.Tap,
-						event.Outpoint,
-						event.ConfirmationHeight,
-						event.Status,
-					),
-				)
+		}, func(err error) {
+			c.publishSubscriberStatusEvent(
+				NewAssetReceiveErrorEvent(
+					err, *event.Addr.Tap, event.Outpoint,
+					event.ConfirmationHeight, event.Status,
+				),
+			)
 
-				reportErr(recErr)
-			}
-		}()
+			reportErr(err)
+		})
 	}
 
 	// Read all on-chain transactions and make sure they are mapped to an
@@ -489,31 +483,27 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				// chain, we'll launch a goroutine to use the
 				// ProofCourier to import the proof into our
 				// local DB.
-				c.Wg.Add(1)
-				go func() {
-					defer c.Wg.Done()
-
-					recErr := c.receiveProofs(
+				c.Goroutine(func() error {
+					return c.receiveProofs(
 						event.Addr.Tap, op,
 						event.Outputs,
 						event.ConfirmationHeight,
 					)
-					if recErr != nil {
-						c.publishSubscriberStatusEvent(
-							//nolint:lll
-							NewAssetReceiveErrorEvent(
-								recErr,
-								*event.Addr.Tap,
-								event.Outpoint,
-								event.ConfirmationHeight,
-								event.Status,
-							),
-						)
+				}, func(err error) {
+					c.publishSubscriberStatusEvent(
+						//nolint:lll
+						NewAssetReceiveErrorEvent(
+							err,
+							*event.Addr.Tap,
+							event.Outpoint,
+							event.ConfirmationHeight,
+							event.Status,
+						),
+					)
 
-						log.Errorf("Unable to receive "+
-							"proof: %v", recErr)
-					}
-				}()
+					log.Errorf("Unable to receive "+
+						"proof: %v", err)
+				})
 			}
 
 			continue
@@ -547,27 +537,21 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 		// Now that we've seen this output confirm on chain, we'll
 		// launch a goroutine to use the ProofCourier to import the
 		// proof into our local DB.
-		c.Wg.Add(1)
-		go func() {
-			defer c.Wg.Done()
-
-			recErr := c.receiveProofs(
+		c.Goroutine(func() error {
+			return c.receiveProofs(
 				addr, op, event.Outputs,
 				event.ConfirmationHeight,
 			)
-			if recErr != nil {
-				c.publishSubscriberStatusEvent(
-					NewAssetReceiveErrorEvent(
-						recErr, *addr, op,
-						event.ConfirmationHeight,
-						event.Status,
-					),
-				)
+		}, func(err error) {
+			c.publishSubscriberStatusEvent(
+				NewAssetReceiveErrorEvent(
+					err, *addr, op,
+					event.ConfirmationHeight, event.Status,
+				),
+			)
 
-				log.Errorf("Unable to receive proof: %v",
-					recErr)
-			}
-		}()
+			log.Errorf("Unable to receive proof: %v", err)
+		})
 	}
 
 	return nil
