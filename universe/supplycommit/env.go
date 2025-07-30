@@ -87,6 +87,19 @@ func (s SupplyTrees) FetchOrCreate(treeType SupplySubTree) mssmt.Tree {
 	return tree
 }
 
+// SupplyLeaves is the response type for fetching the supply leaves for a given
+// asset specifier.
+type SupplyLeaves struct {
+	// IssuanceLeafEntries is a slice of issuance leaves.
+	IssuanceLeafEntries []NewMintEvent
+
+	// BurnLeafEntries is a slice of burn leaves.
+	BurnLeafEntries []NewBurnEvent
+
+	// IgnoreLeafEntries is a slice of ignore leaves.
+	IgnoreLeafEntries []NewIgnoreEvent
+}
+
 // SupplyTreeView is an interface that allows the state machine to obtain an up
 // to date snapshot of the root supply tree, as the sub trees (ignore, burn,
 // mint) committed in the main supply tree.

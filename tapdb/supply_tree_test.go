@@ -733,14 +733,30 @@ func TestSupplyTreeStoreFetchSupplyLeavesByHeight(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			leaves, err := supplyStore.FetchSupplyLeavesByHeight(
 				ctxb, spec, tc.startHeight, tc.endHeight,
-			)
+			).Unpack()
 			require.NoError(t, err)
-			require.Len(t, leaves, tc.expectedCount)
+
+			// Check that the number of leaves matches the expected
+			// count.
+			totalLeavesCount := len(leaves.IssuanceLeafEntries) +
+				len(leaves.BurnLeafEntries) +
+				len(leaves.IgnoreLeafEntries)
+			require.Equal(t, totalLeavesCount, tc.expectedCount)
 
 			var heights []uint32
-			for _, leaf := range leaves {
+
+			for _, leaf := range leaves.IssuanceLeafEntries {
 				heights = append(heights, leaf.BlockHeight())
 			}
+
+			for _, leaf := range leaves.BurnLeafEntries {
+				heights = append(heights, leaf.BlockHeight())
+			}
+
+			for _, leaf := range leaves.IgnoreLeafEntries {
+				heights = append(heights, leaf.BlockHeight())
+			}
+
 			require.ElementsMatch(t, tc.expectedHeights, heights)
 		})
 	}
