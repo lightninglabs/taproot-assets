@@ -87,6 +87,12 @@
 
 ## tapcli Updates
 
+- The default script key type in the `tapcli assets list`,
+  `tapcli assets balance` and `tapcli assets utxos` commands was changed from
+  the default "all script key types" [to the value
+  `bip86`](https://github.com/lightninglabs/taproot-assets/pull/1690) to match
+  the default value of the RPC interface.
+
 ## Code Health
 
 - A series of PRs was created that refactored the send and funding logic in

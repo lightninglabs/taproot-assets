@@ -40,9 +40,28 @@ func parseScriptKeyType(c *cli.Context) (*taprpc.ScriptKeyTypeQuery, error) {
 			AllTypes: true,
 		},
 	}
+	bip86ScriptKeysQuery := &taprpc.ScriptKeyTypeQuery{
+		Type: &taprpc.ScriptKeyTypeQuery_ExplicitType{
+			ExplicitType: taprpc.ScriptKeyType_SCRIPT_KEY_BIP86,
+		},
+	}
 
-	if !c.IsSet(scriptKeyTypeName) || c.String(scriptKeyTypeName) == "" {
+	// The default value if no script key type is set is aligned with the
+	// default value of the RPC interface, which is BIP-86 script keys.
+	switch {
+	// Both flags are set, which is not allowed.
+	case c.IsSet(scriptKeyTypeName) && c.IsSet(scriptKeyTypeAll):
+		return nil, fmt.Errorf("cannot set both '%s' and '%s'",
+			scriptKeyTypeName, scriptKeyTypeAll)
+
+	// The "all script key types" flag is set, so we return a query
+	// that requests all script key types.
+	case c.Bool(scriptKeyTypeAll):
 		return allScriptKeysQuery, nil
+
+	// No flag is set, use the default value of BIP-86 script keys.
+	case !c.IsSet(scriptKeyTypeName) || c.String(scriptKeyTypeName) == "":
+		return bip86ScriptKeysQuery, nil
 	}
 
 	scriptKeyType, ok := scriptKeyTypeMap[c.String(scriptKeyTypeName)]
@@ -108,6 +127,7 @@ const (
 	assetAmountName               = "amount"
 	burnOverrideConfirmationName  = "override_confirmation_destroy_assets"
 	scriptKeyTypeName             = "script_key_type"
+	scriptKeyTypeAll              = "all_script_key_types"
 )
 
 var mintAssetCommand = cli.Command{
@@ -717,6 +737,13 @@ var listAssetsCommand = cli.Command{
 			Usage: "filter assets by the type of script key they " +
 				"use; possible values are: " +
 				strings.Join(maps.Keys(scriptKeyTypeMap), ", "),
+			Value: "bip86",
+		},
+		cli.BoolFlag{
+			Name: scriptKeyTypeAll,
+			Usage: "show all assets, regardless of the script " +
+				"key type; cannot be used at the same time " +
+				"as --" + scriptKeyTypeName,
 		},
 	},
 	Action: listAssets,
@@ -764,6 +791,13 @@ var listUtxosCommand = cli.Command{
 			Usage: "filter assets by the type of script key they " +
 				"use; possible values are: " +
 				strings.Join(maps.Keys(scriptKeyTypeMap), ", "),
+			Value: "bip86",
+		},
+		cli.BoolFlag{
+			Name: scriptKeyTypeAll,
+			Usage: "show all assets, regardless of the script " +
+				"key type; cannot be used at the same time " +
+				"as --" + scriptKeyTypeName,
 		},
 	},
 	Action: listUtxos,
@@ -843,6 +877,13 @@ var listAssetBalancesCommand = cli.Command{
 			Usage: "filter assets by the type of script key they " +
 				"use; possible values are: " +
 				strings.Join(maps.Keys(scriptKeyTypeMap), ", "),
+			Value: "bip86",
+		},
+		cli.BoolFlag{
+			Name: scriptKeyTypeAll,
+			Usage: "show all assets, regardless of the script " +
+				"key type; cannot be used at the same time " +
+				"as --" + scriptKeyTypeName,
 		},
 	},
 }
