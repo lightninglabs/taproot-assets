@@ -99,6 +99,10 @@
 
 ## Functional Updates
 
+- The output of `lncli channelbalance` [now also shows the local and remote
+  balances of asset channels grouped by group key (if grouped assets were used
+  in a channel)](https://github.com/lightninglabs/taproot-assets/pull/1691).
+
 ## RPC Updates
 
 ## tapcli Updates
