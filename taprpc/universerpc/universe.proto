@@ -179,6 +179,14 @@ service Universe {
     */
     rpc FetchSupplyCommit (FetchSupplyCommitRequest)
         returns (FetchSupplyCommitResponse);
+
+    /* tapcli: `universe supplyleaves`
+    FetchSupplyLeaves fetches the supply leaves for a specific asset group
+    within a specified block height range. The leaves include issuance, burn,
+    and ignore leaves, which represent the supply changes for the asset group.
+    */
+    rpc FetchSupplyLeaves (FetchSupplyLeavesRequest)
+        returns (FetchSupplyLeavesResponse);
 }
 
 message MultiverseRootRequest {
@@ -868,4 +876,59 @@ message FetchSupplyCommitResponse {
     // Each entry corresponds to the key at the same index in
     // `ignore_leaf_keys`.
     repeated bytes ignore_leaf_inclusion_proofs = 14;
+}
+
+message FetchSupplyLeavesRequest {
+    // The unique identifier for the target asset group whose supply leaves are
+    // being fetched.
+    oneof group_key {
+        // The 32-byte asset group key specified as raw bytes (gRPC only).
+        bytes group_key_bytes = 1;
+
+        // The 32-byte asset group key encoded as hex string (use this for
+        // REST).
+        string group_key_str = 2;
+    }
+
+    // The start block height for the range of supply leaves to fetch.
+    uint32 block_height_start = 3;
+
+    // The end block height for the range of supply leaves to fetch.
+    uint32 block_height_end = 4;
+}
+
+// SupplyLeafKey identifies a supply leaf entry. It contains the components
+// used to derive the key, which is computed as a hash of these fields.
+message SupplyLeafKey {
+    // The outpoint associated with the supply leaf.
+    Outpoint outpoint = 1;
+
+    // The script key of the supply leaf. This is the script key of the asset
+    // point.
+    bytes script_key = 2;
+
+    // The asset ID associated with the supply leaf. This is only set for
+    // ignore type supply leaves.
+    bytes asset_id = 3;
+}
+
+message SupplyLeafEntry {
+    // The key that identifies the supply leaf in the supply commitment subtree.
+    SupplyLeafKey leaf_key = 1;
+
+    // The merkle sum node representing the supply leaf in the supply commitment
+    // subtree.
+    MerkleSumNode leaf_node = 2;
+
+    // The block height at which the supply leaf was created.
+    uint32 block_height = 3;
+
+    // The raw serialized bytes of the supply leaf.
+    bytes raw_leaf = 4;
+}
+
+message FetchSupplyLeavesResponse {
+    repeated SupplyLeafEntry issuance_leaves = 1;
+    repeated SupplyLeafEntry burn_leaves = 2;
+    repeated SupplyLeafEntry ignore_leaves = 3;
 }

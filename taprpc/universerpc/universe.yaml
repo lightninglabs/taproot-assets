@@ -90,3 +90,6 @@ http:
 
     - selector: universerpc.Universe.FetchSupplyCommit
       get: "/v1/taproot-assets/universe/supply/{group_key_str}"
+
+    - selector: universerpc.Universe.FetchSupplyLeaves
+      get: "/v1/taproot-assets/universe/supply/leaves/{group_key_str}"

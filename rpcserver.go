@@ -4260,6 +4260,150 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 	}, nil
 }
 
+// FetchSupplyLeaves returns the set of supply leaves for the given asset
+// specifier within the specified height range.
+func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
+	req *unirpc.FetchSupplyLeavesRequest) (
+	*unirpc.FetchSupplyLeavesResponse, error) {
+
+	// Parse asset group key from the request.
+	var groupPubKey btcec.PublicKey
+
+	switch {
+	case len(req.GetGroupKeyBytes()) > 0:
+		gk, err := btcec.ParsePubKey(req.GetGroupKeyBytes())
+		if err != nil {
+			return nil, fmt.Errorf("parsing group key: %w", err)
+		}
+
+		groupPubKey = *gk
+
+	case len(req.GetGroupKeyStr()) > 0:
+		groupKeyBytes, err := hex.DecodeString(req.GetGroupKeyStr())
+		if err != nil {
+			return nil, fmt.Errorf("decoding group key: %w", err)
+		}
+
+		gk, err := btcec.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("parsing group key: %w", err)
+		}
+
+		groupPubKey = *gk
+
+	default:
+		return nil, fmt.Errorf("group key unspecified")
+	}
+
+	// Formulate an asset specifier from the asset group key.
+	assetSpec := asset.NewSpecifierFromGroupKey(groupPubKey)
+
+	// Fetch supply leaves for the asset specifier.
+	resp, err := r.cfg.SupplyCommitManager.FetchSupplyLeavesByHeight(
+		ctx, assetSpec, req.BlockHeightStart, req.BlockHeightEnd,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch supply leaves: %w", err)
+	}
+
+	rpcMarshalLeafEntry := func(leafEntry supplycommit.SupplyUpdateEvent) (
+		*unirpc.SupplyLeafEntry, error) {
+
+		leafNode, err := leafEntry.UniverseLeafNode()
+		if err != nil {
+			rpcsLog.Errorf("Failed to get universe leaf node "+
+				"from leaf entry: %v (leaf_entry=%s)", err,
+				spew.Sdump(leafEntry))
+
+			return nil, fmt.Errorf("failed to get universe leaf "+
+				"node from leaf entry: %w", err)
+		}
+
+		leafKey := leafEntry.UniverseLeafKey()
+
+		outPoint := leafKey.LeafOutPoint()
+		rpcOutPoint := unirpc.Outpoint{
+			HashStr: outPoint.Hash.String(),
+			Index:   int32(outPoint.Index),
+		}
+
+		// Encode the leaf as a byte slice.
+		var leafBuf bytes.Buffer
+		err = leafEntry.Encode(&leafBuf)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode leaf entry: "+
+				"%w", err)
+		}
+
+		return &unirpc.SupplyLeafEntry{
+			LeafKey: &unirpc.SupplyLeafKey{
+				Outpoint: &rpcOutPoint,
+				ScriptKey: schnorr.SerializePubKey(
+					leafKey.LeafScriptKey().PubKey,
+				),
+				AssetId: fn.ByteSlice(leafKey.LeafAssetID()),
+			},
+			LeafNode:    marshalMssmtNode(leafNode),
+			BlockHeight: leafEntry.BlockHeight(),
+			RawLeaf:     leafBuf.Bytes(),
+		}, nil
+	}
+
+	// Marshal issuance supply leaves into the RPC format.
+	rpcIssuanceLeaves := make(
+		[]*unirpc.SupplyLeafEntry, 0, len(resp.IssuanceLeafEntries),
+	)
+	for idx := range resp.IssuanceLeafEntries {
+		leafEntry := resp.IssuanceLeafEntries[idx]
+
+		rpcLeaf, err := rpcMarshalLeafEntry(&leafEntry)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal supply "+
+				"leaf entry: %w", err)
+		}
+
+		rpcIssuanceLeaves = append(rpcIssuanceLeaves, rpcLeaf)
+	}
+
+	// Marshal burn supply leaves into the RPC format.
+	rpcBurnLeaves := make(
+		[]*unirpc.SupplyLeafEntry, 0, len(resp.BurnLeafEntries),
+	)
+	for idx := range resp.BurnLeafEntries {
+		leafEntry := resp.BurnLeafEntries[idx]
+
+		rpcLeaf, err := rpcMarshalLeafEntry(&leafEntry)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal supply "+
+				"leaf entry: %w", err)
+		}
+
+		rpcBurnLeaves = append(rpcBurnLeaves, rpcLeaf)
+	}
+
+	// Marshal ignore supply leaves into the RPC format.
+	rpcIgnoreLeaves := make(
+		[]*unirpc.SupplyLeafEntry, 0, len(resp.IgnoreLeafEntries),
+	)
+	for idx := range resp.IgnoreLeafEntries {
+		leafEntry := resp.IgnoreLeafEntries[idx]
+
+		rpcLeaf, err := rpcMarshalLeafEntry(&leafEntry)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal supply "+
+				"leaf entry: %w", err)
+		}
+
+		rpcIgnoreLeaves = append(rpcIgnoreLeaves, rpcLeaf)
+	}
+
+	return &unirpc.FetchSupplyLeavesResponse{
+		IssuanceLeaves: rpcIssuanceLeaves,
+		BurnLeaves:     rpcBurnLeaves,
+		IgnoreLeaves:   rpcIgnoreLeaves,
+	}, nil
+}
+
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(

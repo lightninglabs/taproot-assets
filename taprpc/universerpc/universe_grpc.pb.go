@@ -130,6 +130,11 @@ type UniverseClient interface {
 	// FetchSupplyCommit fetches the on-chain supply commitment for a specific
 	// asset group.
 	FetchSupplyCommit(ctx context.Context, in *FetchSupplyCommitRequest, opts ...grpc.CallOption) (*FetchSupplyCommitResponse, error)
+	// tapcli: `universe supplyleaves`
+	// FetchSupplyLeaves fetches the supply leaves for a specific asset group
+	// within a specified block height range. The leaves include issuance, burn,
+	// and ignore leaves, which represent the supply changes for the asset group.
+	FetchSupplyLeaves(ctx context.Context, in *FetchSupplyLeavesRequest, opts ...grpc.CallOption) (*FetchSupplyLeavesResponse, error)
 }
 
 type universeClient struct {
@@ -338,6 +343,15 @@ func (c *universeClient) FetchSupplyCommit(ctx context.Context, in *FetchSupplyC
 	return out, nil
 }
 
+func (c *universeClient) FetchSupplyLeaves(ctx context.Context, in *FetchSupplyLeavesRequest, opts ...grpc.CallOption) (*FetchSupplyLeavesResponse, error) {
+	out := new(FetchSupplyLeavesResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/FetchSupplyLeaves", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UniverseServer is the server API for Universe service.
 // All implementations must embed UnimplementedUniverseServer
 // for forward compatibility
@@ -454,6 +468,11 @@ type UniverseServer interface {
 	// FetchSupplyCommit fetches the on-chain supply commitment for a specific
 	// asset group.
 	FetchSupplyCommit(context.Context, *FetchSupplyCommitRequest) (*FetchSupplyCommitResponse, error)
+	// tapcli: `universe supplyleaves`
+	// FetchSupplyLeaves fetches the supply leaves for a specific asset group
+	// within a specified block height range. The leaves include issuance, burn,
+	// and ignore leaves, which represent the supply changes for the asset group.
+	FetchSupplyLeaves(context.Context, *FetchSupplyLeavesRequest) (*FetchSupplyLeavesResponse, error)
 	mustEmbedUnimplementedUniverseServer()
 }
 
@@ -526,6 +545,9 @@ func (UnimplementedUniverseServer) UpdateSupplyCommit(context.Context, *UpdateSu
 }
 func (UnimplementedUniverseServer) FetchSupplyCommit(context.Context, *FetchSupplyCommitRequest) (*FetchSupplyCommitResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FetchSupplyCommit not implemented")
+}
+func (UnimplementedUniverseServer) FetchSupplyLeaves(context.Context, *FetchSupplyLeavesRequest) (*FetchSupplyLeavesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FetchSupplyLeaves not implemented")
 }
 func (UnimplementedUniverseServer) mustEmbedUnimplementedUniverseServer() {}
 
@@ -936,6 +958,24 @@ func _Universe_FetchSupplyCommit_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Universe_FetchSupplyLeaves_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FetchSupplyLeavesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).FetchSupplyLeaves(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/FetchSupplyLeaves",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).FetchSupplyLeaves(ctx, req.(*FetchSupplyLeavesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Universe_ServiceDesc is the grpc.ServiceDesc for Universe service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1030,6 +1070,10 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FetchSupplyCommit",
 			Handler:    _Universe_FetchSupplyCommit_Handler,
+		},
+		{
+			MethodName: "FetchSupplyLeaves",
+			Handler:    _Universe_FetchSupplyLeaves_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
