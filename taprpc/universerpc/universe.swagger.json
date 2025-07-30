@@ -1374,6 +1374,62 @@
         ]
       }
     },
+    "/v1/taproot-assets/universe/supply/leaves/{group_key_str}": {
+      "get": {
+        "summary": "tapcli: `universe supplyleaves`\nFetchSupplyLeaves fetches the supply leaves for a specific asset group\nwithin a specified block height range. The leaves include issuance, burn,\nand ignore leaves, which represent the supply changes for the asset group.",
+        "operationId": "Universe_FetchSupplyLeaves",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcFetchSupplyLeavesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "group_key_bytes",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "block_height_start",
+            "description": "The start block height for the range of supply leaves to fetch.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "block_height_end",
+            "description": "The end block height for the range of supply leaves to fetch.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/supply/{group_key_str}": {
       "get": {
         "summary": "tapcli: `universe fetchsupplycommit`\nFetchSupplyCommit fetches the on-chain supply commitment for a specific\nasset group.",
@@ -2415,6 +2471,32 @@
         }
       }
     },
+    "universerpcFetchSupplyLeavesResponse": {
+      "type": "object",
+      "properties": {
+        "issuance_leaves": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/universerpcSupplyLeafEntry"
+          }
+        },
+        "burn_leaves": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/universerpcSupplyLeafEntry"
+          }
+        },
+        "ignore_leaves": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/universerpcSupplyLeafEntry"
+          }
+        }
+      }
+    },
     "universerpcGlobalFederationSyncConfig": {
       "type": "object",
       "properties": {
@@ -2741,6 +2823,49 @@
           "description": "The inclusion proof for the supply commit subtree root node."
         }
       }
+    },
+    "universerpcSupplyLeafEntry": {
+      "type": "object",
+      "properties": {
+        "leaf_key": {
+          "$ref": "#/definitions/universerpcSupplyLeafKey",
+          "description": "The key that identifies the supply leaf in the supply commitment subtree."
+        },
+        "leaf_node": {
+          "$ref": "#/definitions/universerpcMerkleSumNode",
+          "description": "The merkle sum node representing the supply leaf in the supply commitment\nsubtree."
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The block height at which the supply leaf was created."
+        },
+        "raw_leaf": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw serialized bytes of the supply leaf."
+        }
+      }
+    },
+    "universerpcSupplyLeafKey": {
+      "type": "object",
+      "properties": {
+        "outpoint": {
+          "$ref": "#/definitions/universerpcOutpoint",
+          "description": "The outpoint associated with the supply leaf."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script key of the supply leaf. This is the script key of the asset\npoint."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID associated with the supply leaf. This is only set for\nignore type supply leaves."
+        }
+      },
+      "description": "SupplyLeafKey identifies a supply leaf entry. It contains the components\nused to derive the key, which is computed as a hash of these fields."
     },
     "universerpcSyncRequest": {
       "type": "object",
