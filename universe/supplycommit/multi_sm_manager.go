@@ -377,6 +377,25 @@ func (m *MultiStateMachineManager) FetchCommitment(ctx context.Context,
 	}), nil
 }
 
+// FetchSupplyLeavesByHeight returns the set of supply leaves for the given
+// asset specifier within the specified height range.
+func (m *MultiStateMachineManager) FetchSupplyLeavesByHeight(
+	ctx context.Context, assetSpec asset.Specifier, startHeight,
+	endHeight uint32) (SupplyLeaves, error) {
+
+	var zero SupplyLeaves
+
+	resp, err := m.cfg.TreeView.FetchSupplyLeavesByHeight(
+		ctx, assetSpec, startHeight, endHeight,
+	).Unpack()
+	if err != nil {
+		return zero, fmt.Errorf("unable to fetch supply leaves: %w",
+			err)
+	}
+
+	return resp, nil
+}
+
 // stateMachineCache is a thread-safe cache mapping an asset group's public key
 // to its supply commitment state machine.
 type stateMachineCache struct {
