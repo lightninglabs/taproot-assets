@@ -124,7 +124,8 @@
       "properties": {
         "signature": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The client's Schnorr signature over the challenge hash provided by\nthe server."
         }
       },
       "description": "Carries the client's signature in response to the server's challenge."
@@ -173,7 +174,8 @@
       "properties": {
         "challenge_hash": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The challenge hash that the client must sign to prove ownership of the\nreceiver's public key."
         }
       },
       "description": "Carries the challenge hash sent by the server to the client."
@@ -289,10 +291,12 @@
       "type": "object",
       "properties": {
         "init": {
-          "$ref": "#/definitions/authmailboxrpcInitReceive"
+          "$ref": "#/definitions/authmailboxrpcInitReceive",
+          "description": "The initial parameters sent by the client to start receiving\nmessages."
         },
         "auth_sig": {
-          "$ref": "#/definitions/authmailboxrpcAuthSignature"
+          "$ref": "#/definitions/authmailboxrpcAuthSignature",
+          "description": "The client's signature in response to the server's challenge."
         }
       },
       "description": "Wrapper message for requests sent FROM the client TO the server during the\nReceiveMessages stream."
@@ -301,16 +305,20 @@
       "type": "object",
       "properties": {
         "challenge": {
-          "$ref": "#/definitions/authmailboxrpcChallenge"
+          "$ref": "#/definitions/authmailboxrpcChallenge",
+          "description": "The challenge sent by the server to the client, which the client\nmust sign to prove ownership of the receiver's public key."
         },
         "auth_success": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "A successful authentication response, indicating the client has\nsuccessfully signed the challenge and is now authenticated to receive\nmessages."
         },
         "messages": {
-          "$ref": "#/definitions/authmailboxrpcMailboxMessages"
+          "$ref": "#/definitions/authmailboxrpcMailboxMessages",
+          "description": "A list of mailbox messages sent to the client. This will be\nsent after the client has successfully authenticated by signing the\nchallenge. The client should expect a stream of these messages\nuntil the server sends an EndOfStream message."
         },
         "eos": {
-          "$ref": "#/definitions/authmailboxrpcEndOfStream"
+          "$ref": "#/definitions/authmailboxrpcEndOfStream",
+          "description": "An EndOfStream message indicating that the server is shutting down."
         }
       },
       "description": "Wrapper message for responses sent FROM the server TO the client\nduring the ReceiveMessages stream."

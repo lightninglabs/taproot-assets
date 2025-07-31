@@ -338,8 +338,8 @@ type ScriptKeyType int32
 
 const (
 	// The type of script key is not known. This should only be stored for assets
-	// where we don't know the internal key of the script key (e.g. for
-	// imported proofs).
+	// where we don't know the internal key of the script key (e.g. for imported
+	// proofs).
 	ScriptKeyType_SCRIPT_KEY_UNKNOWN ScriptKeyType = 0
 	// The script key is a normal BIP-86 key. This means that the internal key is
 	// turned into a Taproot output key by applying a BIP-86 tweak to it.
@@ -698,8 +698,17 @@ type ListAssetRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	WithWitness   bool `protobuf:"varint,1,opt,name=with_witness,json=withWitness,proto3" json:"with_witness,omitempty"`
-	IncludeSpent  bool `protobuf:"varint,2,opt,name=include_spent,json=includeSpent,proto3" json:"include_spent,omitempty"`
+	// Whether to include each asset's witness in the response. The witness
+	// either contains the spending signatures or the split commitment witness,
+	// which can both be large and usually aren't very useful on the command
+	// line, so are omitted by default.
+	WithWitness bool `protobuf:"varint,1,opt,name=with_witness,json=withWitness,proto3" json:"with_witness,omitempty"`
+	// Include assets that are marked as spent (which is always true for burn
+	// or tombstone assets).
+	IncludeSpent bool `protobuf:"varint,2,opt,name=include_spent,json=includeSpent,proto3" json:"include_spent,omitempty"`
+	// Include assets that are leased (locked/reserved) by the daemon for a
+	// pending transfer. Leased assets cannot be used by the daemon until the
+	// pending transfer is confirmed or the lease expires.
 	IncludeLeased bool `protobuf:"varint,3,opt,name=include_leased,json=includeLeased,proto3" json:"include_leased,omitempty"`
 	// List assets that aren't confirmed yet. Only freshly minted assets will
 	// show in the asset list with a block height of 0. All other forms of
@@ -1672,7 +1681,10 @@ type Asset struct {
 	// The information related to the key group of an asset (if it exists).
 	AssetGroup *AssetGroup `protobuf:"bytes,11,opt,name=asset_group,json=assetGroup,proto3" json:"asset_group,omitempty"`
 	// Describes where in the chain the asset is currently anchored.
-	ChainAnchor   *AnchorInfo    `protobuf:"bytes,12,opt,name=chain_anchor,json=chainAnchor,proto3" json:"chain_anchor,omitempty"`
+	ChainAnchor *AnchorInfo `protobuf:"bytes,12,opt,name=chain_anchor,json=chainAnchor,proto3" json:"chain_anchor,omitempty"`
+	// The asset's previous witnesses, which either contain the spending
+	// witness stack (usually a signature) or the split commitment witness
+	// (which is used to prove the split commitment of a split asset).
 	PrevWitnesses []*PrevWitness `protobuf:"bytes,13,rep,name=prev_witnesses,json=prevWitnesses,proto3" json:"prev_witnesses,omitempty"`
 	// Indicates whether the asset has been spent.
 	IsSpent bool `protobuf:"varint,14,opt,name=is_spent,json=isSpent,proto3" json:"is_spent,omitempty"`
@@ -1884,8 +1896,14 @@ type PrevWitness struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	PrevId          *PrevInputAsset  `protobuf:"bytes,1,opt,name=prev_id,json=prevId,proto3" json:"prev_id,omitempty"`
-	TxWitness       [][]byte         `protobuf:"bytes,2,rep,name=tx_witness,json=txWitness,proto3" json:"tx_witness,omitempty"`
+	// The previous input asset that this witness is for.
+	PrevId *PrevInputAsset `protobuf:"bytes,1,opt,name=prev_id,json=prevId,proto3" json:"prev_id,omitempty"`
+	// The witness stack that is used to prove the asset owner's authorization
+	// to spend an asset. This is only set if the asset is the root asset of an
+	// asset split.
+	TxWitness [][]byte `protobuf:"bytes,2,rep,name=tx_witness,json=txWitness,proto3" json:"tx_witness,omitempty"`
+	// The split commitment that is used to prove the split commitment of a
+	// split asset. This is only set if the asset is a split asset.
 	SplitCommitment *SplitCommitment `protobuf:"bytes,3,opt,name=split_commitment,json=splitCommitment,proto3" json:"split_commitment,omitempty"`
 }
 
@@ -1947,6 +1965,8 @@ type SplitCommitment struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The root asset that contains the transaction witness that authorizes the
+	// spend of the asset.
 	RootAsset *Asset `protobuf:"bytes,1,opt,name=root_asset,json=rootAsset,proto3" json:"root_asset,omitempty"`
 }
 
@@ -1994,6 +2014,8 @@ type ListAssetResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The list of assets found in the database matching the request query
+	// parameters.
 	Assets []*Asset `protobuf:"bytes,1,rep,name=assets,proto3" json:"assets,omitempty"`
 	// This is a count of unconfirmed outgoing transfers. Unconfirmed transfers
 	// do not appear as assets in this endpoint response.
@@ -2062,6 +2084,9 @@ type ListUtxosRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// Whether to include UTXOs that are marked as leased (locked/reserved) by
+	// the wallet for a pending transfer. Leased UTXOs cannot be used by the
+	// wallet until the pending transfer is confirmed or the lease expires.
 	IncludeLeased bool `protobuf:"varint,1,opt,name=include_leased,json=includeLeased,proto3" json:"include_leased,omitempty"`
 	// The script key type to filter the assets by. If not set, only assets with
 	// a BIP-0086 script key will be returned (which is the equivalent of
@@ -2768,7 +2793,13 @@ type ListBalancesResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	AssetBalances      map[string]*AssetBalance      `protobuf:"bytes,1,rep,name=asset_balances,json=assetBalances,proto3" json:"asset_balances,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	// The map of asset balances, where the key is the asset ID and the value
+	// is the balance of that asset owned by the target daemon. This is only
+	// set if group_by.asset_id is true in the request.
+	AssetBalances map[string]*AssetBalance `protobuf:"bytes,1,rep,name=asset_balances,json=assetBalances,proto3" json:"asset_balances,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	// The map of asset group balances, where the key is the group key
+	// and the value is the balance of that group owned by the target daemon.
+	// This is only set if group_by.group_key is true in the request.
 	AssetGroupBalances map[string]*AssetGroupBalance `protobuf:"bytes,2,rep,name=asset_group_balances,json=assetGroupBalances,proto3" json:"asset_group_balances,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 }
 
@@ -2992,12 +3023,17 @@ type AssetTransfer struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The timestamp of the transfer in UTC Unix time seconds.
 	TransferTimestamp int64 `protobuf:"varint,1,opt,name=transfer_timestamp,json=transferTimestamp,proto3" json:"transfer_timestamp,omitempty"`
 	// The new transaction that commits to the set of Taproot Assets found
 	// at the above new anchor point.
-	AnchorTxHash       []byte `protobuf:"bytes,2,opt,name=anchor_tx_hash,json=anchorTxHash,proto3" json:"anchor_tx_hash,omitempty"`
+	AnchorTxHash []byte `protobuf:"bytes,2,opt,name=anchor_tx_hash,json=anchorTxHash,proto3" json:"anchor_tx_hash,omitempty"`
+	// The height hint of the anchor transaction. This is the height at which
+	// the anchor transaction was published, so the actual inclusion height
+	// will be greater than this value.
 	AnchorTxHeightHint uint32 `protobuf:"varint,3,opt,name=anchor_tx_height_hint,json=anchorTxHeightHint,proto3" json:"anchor_tx_height_hint,omitempty"`
-	AnchorTxChainFees  int64  `protobuf:"varint,4,opt,name=anchor_tx_chain_fees,json=anchorTxChainFees,proto3" json:"anchor_tx_chain_fees,omitempty"`
+	// The total fees paid by the anchor transaction in satoshis.
+	AnchorTxChainFees int64 `protobuf:"varint,4,opt,name=anchor_tx_chain_fees,json=anchorTxChainFees,proto3" json:"anchor_tx_chain_fees,omitempty"`
 	// Describes the set of spent assets.
 	Inputs []*TransferInput `protobuf:"bytes,5,rep,name=inputs,proto3" json:"inputs,omitempty"`
 	// Describes the set of newly created asset outputs.
@@ -3204,14 +3240,32 @@ type TransferOutputAnchor struct {
 
 	// The new location of the Taproot Asset commitment that was created on
 	// chain.
-	Outpoint         string `protobuf:"bytes,1,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
-	Value            int64  `protobuf:"varint,2,opt,name=value,proto3" json:"value,omitempty"`
-	InternalKey      []byte `protobuf:"bytes,3,opt,name=internal_key,json=internalKey,proto3" json:"internal_key,omitempty"`
+	Outpoint string `protobuf:"bytes,1,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
+	// The anchor transaction output's value in satoshis.
+	Value int64 `protobuf:"varint,2,opt,name=value,proto3" json:"value,omitempty"`
+	// The anchor transaction output's internal key, which is the Taproot
+	// internal key of the on-chain output.
+	InternalKey []byte `protobuf:"bytes,3,opt,name=internal_key,json=internalKey,proto3" json:"internal_key,omitempty"`
+	// The Taproot Asset root commitment hash, which is the root of the
+	// Taproot Asset commitment tree for the asset that was created.
 	TaprootAssetRoot []byte `protobuf:"bytes,4,opt,name=taproot_asset_root,json=taprootAssetRoot,proto3" json:"taproot_asset_root,omitempty"`
-	MerkleRoot       []byte `protobuf:"bytes,5,opt,name=merkle_root,json=merkleRoot,proto3" json:"merkle_root,omitempty"`
+	// The Taproot merkle root hash committed to by the outpoint of this
+	// output. If there is no Tapscript sibling, this is equal to the Taproot
+	// Asset root commitment hash.
+	// If there is a Tapscript sibling, this is the tap branch root hash of the
+	// Taproot Asset root hash and the tapscript sibling.
+	MerkleRoot []byte `protobuf:"bytes,5,opt,name=merkle_root,json=merkleRoot,proto3" json:"merkle_root,omitempty"`
+	// The serialized preimage of a Tapscript sibling, if there was one. If this
+	// is empty, then the merkle_root hash is equal to the Taproot root hash
+	// of the anchor output.
 	TapscriptSibling []byte `protobuf:"bytes,6,opt,name=tapscript_sibling,json=tapscriptSibling,proto3" json:"tapscript_sibling,omitempty"`
+	// The number of passive assets that were committed to this output.
+	// Passive assets are assets that are not actively spent, but are instead
+	// passively carried along with the main asset and re-anchored in the
+	// anchor output.
 	NumPassiveAssets uint32 `protobuf:"varint,7,opt,name=num_passive_assets,json=numPassiveAssets,proto3" json:"num_passive_assets,omitempty"`
-	// pk_script is the pkscript of the anchor output.
+	// The actual output's script, which is the P2TR script for the final
+	// Taproot output key created by this transfer output.
 	PkScript []byte `protobuf:"bytes,8,opt,name=pk_script,json=pkScript,proto3" json:"pk_script,omitempty"`
 }
 
@@ -3308,21 +3362,45 @@ type TransferOutput struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Anchor           *TransferOutputAnchor `protobuf:"bytes,1,opt,name=anchor,proto3" json:"anchor,omitempty"`
-	ScriptKey        []byte                `protobuf:"bytes,2,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
-	ScriptKeyIsLocal bool                  `protobuf:"varint,3,opt,name=script_key_is_local,json=scriptKeyIsLocal,proto3" json:"script_key_is_local,omitempty"`
-	Amount           uint64                `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	// The transfer output's on-chain anchor information, which contains the
+	// BTC-level output information that anchors the Taproot Asset commitment
+	// for this output.
+	Anchor *TransferOutputAnchor `protobuf:"bytes,1,opt,name=anchor,proto3" json:"anchor,omitempty"`
+	// The script key of the asset that was created.
+	ScriptKey []byte `protobuf:"bytes,2,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
+	// Indicates whether the script key is known to the wallet of the lnd node
+	// connected to the Taproot Asset daemon. If true, the asset will be shown
+	// in the wallet balance.
+	ScriptKeyIsLocal bool `protobuf:"varint,3,opt,name=script_key_is_local,json=scriptKeyIsLocal,proto3" json:"script_key_is_local,omitempty"`
+	// The amount of the asset that was created in this output.
+	Amount uint64 `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
 	// The new individual transition proof (not a full proof file) that proves
 	// the inclusion of the new asset within the new AnchorTx.
-	NewProofBlob        []byte       `protobuf:"bytes,5,opt,name=new_proof_blob,json=newProofBlob,proto3" json:"new_proof_blob,omitempty"`
-	SplitCommitRootHash []byte       `protobuf:"bytes,6,opt,name=split_commit_root_hash,json=splitCommitRootHash,proto3" json:"split_commit_root_hash,omitempty"`
-	OutputType          OutputType   `protobuf:"varint,7,opt,name=output_type,json=outputType,proto3,enum=taprpc.OutputType" json:"output_type,omitempty"`
-	AssetVersion        AssetVersion `protobuf:"varint,8,opt,name=asset_version,json=assetVersion,proto3,enum=taprpc.AssetVersion" json:"asset_version,omitempty"`
-	LockTime            uint64       `protobuf:"varint,9,opt,name=lock_time,json=lockTime,proto3" json:"lock_time,omitempty"`
-	RelativeLockTime    uint64       `protobuf:"varint,10,opt,name=relative_lock_time,json=relativeLockTime,proto3" json:"relative_lock_time,omitempty"`
+	NewProofBlob []byte `protobuf:"bytes,5,opt,name=new_proof_blob,json=newProofBlob,proto3" json:"new_proof_blob,omitempty"`
+	// The split commitment root hash of the asset that was created in this
+	// output. This is only set if the asset is a split root output, meaning
+	// that the asset is a split root output that carries the change from a
+	// split or a tombstone from a non-interactive full value send output.
+	SplitCommitRootHash []byte `protobuf:"bytes,6,opt,name=split_commit_root_hash,json=splitCommitRootHash,proto3" json:"split_commit_root_hash,omitempty"`
+	// The type of the output. This is used to distinguish between a simple
+	// output that is not a split root and does not carry passive assets, and a
+	// split root output that carries the change from a split or a tombstone
+	// from a non-interactive full value send output.
+	OutputType OutputType `protobuf:"varint,7,opt,name=output_type,json=outputType,proto3,enum=taprpc.OutputType" json:"output_type,omitempty"`
+	// The asset version of the output. This is used to determine how the asset
+	// is encoded in the Taproot Asset commitment tree.
+	AssetVersion AssetVersion `protobuf:"varint,8,opt,name=asset_version,json=assetVersion,proto3,enum=taprpc.AssetVersion" json:"asset_version,omitempty"`
+	// The lock time of the output, which is an optional field that can be set
+	// to delay the spending of the output until a certain time in the future.
+	LockTime uint64 `protobuf:"varint,9,opt,name=lock_time,json=lockTime,proto3" json:"lock_time,omitempty"`
+	// The relative lock time of the output, which is an optional field that
+	// can be set to delay the spending of the output relative to the block
+	// height at which the output is confirmed.
+	RelativeLockTime uint64 `protobuf:"varint,10,opt,name=relative_lock_time,json=relativeLockTime,proto3" json:"relative_lock_time,omitempty"`
 	// The delivery status of the proof associated with this output.
 	ProofDeliveryStatus ProofDeliveryStatus `protobuf:"varint,11,opt,name=proof_delivery_status,json=proofDeliveryStatus,proto3,enum=taprpc.ProofDeliveryStatus" json:"proof_delivery_status,omitempty"`
-	AssetId             []byte              `protobuf:"bytes,12,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	// The asset ID of the asset that was created in this output.
+	AssetId []byte `protobuf:"bytes,12,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
 }
 
 func (x *TransferOutput) Reset() {
@@ -3523,7 +3601,12 @@ type DebugLevelRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	// If true, all the valid debug sub-systems will be returned.
-	Show      bool   `protobuf:"varint,1,opt,name=show,proto3" json:"show,omitempty"`
+	Show bool `protobuf:"varint,1,opt,name=show,proto3" json:"show,omitempty"`
+	// If set, the debug level for the sub-system will be set to this value.
+	// Can be one of: "trace", "debug", "info", "warn", "error", "critical",
+	// "off", to set a global level, optionally followed by a comma-separated
+	// list of sub-systems to set the level for. For example:
+	// "debug,TADB=info,UNIV=warn".
 	LevelSpec string `protobuf:"bytes,2,opt,name=level_spec,json=levelSpec,proto3" json:"level_spec,omitempty"`
 }
 
@@ -3578,6 +3661,8 @@ type DebugLevelResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The list of available logging sub-systems that can be set to a specific
+	// debug level.
 	SubSystems string `protobuf:"bytes,1,opt,name=sub_systems,json=subSystems,proto3" json:"sub_systems,omitempty"`
 }
 
@@ -3855,6 +3940,7 @@ type QueryAddrResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The list of addresses that match the query parameters.
 	Addrs []*Addr `protobuf:"bytes,1,rep,name=addrs,proto3" json:"addrs,omitempty"`
 }
 
@@ -3902,8 +3988,10 @@ type NewAddrRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The asset ID that uniquely identifies the asset to create an address for.
 	AssetId []byte `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
-	Amt     uint64 `protobuf:"varint,2,opt,name=amt,proto3" json:"amt,omitempty"`
+	// The amount to create the address for.
+	Amt uint64 `protobuf:"varint,2,opt,name=amt,proto3" json:"amt,omitempty"`
 	// The optional script key that the receiving asset should be locked to. If no
 	// script key is provided, a normal BIP-86 key will be derived from the
 	// underlying wallet.
@@ -4456,6 +4544,7 @@ type DecodeAddrRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The bech32 encoded Taproot Asset address to decode.
 	Addr string `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
 }
 
@@ -4506,6 +4595,8 @@ type ProofFile struct {
 	// The raw proof file encoded as bytes. Must be a file and not just an
 	// individual mint/transfer proof.
 	RawProofFile []byte `protobuf:"bytes,1,opt,name=raw_proof_file,json=rawProofFile,proto3" json:"raw_proof_file,omitempty"`
+	// The genesis point of the proof file, which is the asset's genesis
+	// transaction outpoint.
 	GenesisPoint string `protobuf:"bytes,2,opt,name=genesis_point,json=genesisPoint,proto3" json:"genesis_point,omitempty"`
 }
 
@@ -4745,6 +4836,7 @@ type VerifyProofResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// Whether the proof file was valid or not.
 	Valid bool `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
 	// The decoded last proof in the file if the proof file was valid.
 	DecodedProof *DecodedProof `protobuf:"bytes,2,opt,name=decoded_proof,json=decodedProof,proto3" json:"decoded_proof,omitempty"`
@@ -4881,6 +4973,7 @@ type DecodeProofResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The decoded, more human-readable proof.
 	DecodedProof *DecodedProof `protobuf:"bytes,1,opt,name=decoded_proof,json=decodedProof,proto3" json:"decoded_proof,omitempty"`
 }
 
@@ -4928,9 +5021,12 @@ type ExportProofRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	AssetId   []byte    `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
-	ScriptKey []byte    `protobuf:"bytes,2,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
-	Outpoint  *OutPoint `protobuf:"bytes,3,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
+	// The asset ID of the asset to export the proof for.
+	AssetId []byte `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	// The script key of the asset to export the proof for.
+	ScriptKey []byte `protobuf:"bytes,2,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
+	// The on-chain outpoint of the asset to export the proof for.
+	Outpoint *OutPoint `protobuf:"bytes,3,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
 }
 
 func (x *ExportProofRequest) Reset() {
@@ -5310,6 +5406,7 @@ type SendAssetRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The list of Taproot Asset addresses to send the asset to.
 	TapAddrs []string `protobuf:"bytes,1,rep,name=tap_addrs,json=tapAddrs,proto3" json:"tap_addrs,omitempty"`
 	// The optional fee rate to use for the minting transaction, in sat/kw.
 	FeeRate uint32 `protobuf:"varint,2,opt,name=fee_rate,json=feeRate,proto3" json:"fee_rate,omitempty"`
@@ -5388,10 +5485,15 @@ type PrevInputAsset struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The previous input's anchor point, which is the on-chain outpoint the
+	// asset was anchored to.
 	AnchorPoint string `protobuf:"bytes,1,opt,name=anchor_point,json=anchorPoint,proto3" json:"anchor_point,omitempty"`
-	AssetId     []byte `protobuf:"bytes,2,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
-	ScriptKey   []byte `protobuf:"bytes,3,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
-	Amount      uint64 `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	// The asset ID of the asset that was spent as an input.
+	AssetId []byte `protobuf:"bytes,2,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	// The script key of the asset that was spent as an input.
+	ScriptKey []byte `protobuf:"bytes,3,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
+	// The amount of the asset that was spent as an input.
+	Amount uint64 `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
 }
 
 func (x *PrevInputAsset) Reset() {
@@ -5459,6 +5561,7 @@ type SendAssetResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The transfer that was created to send assets to one or more addresses.
 	Transfer *AssetTransfer `protobuf:"bytes,1,opt,name=transfer,proto3" json:"transfer,omitempty"`
 }
 
@@ -5544,14 +5647,26 @@ type GetInfoResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Version           string `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	LndVersion        string `protobuf:"bytes,2,opt,name=lnd_version,json=lndVersion,proto3" json:"lnd_version,omitempty"`
-	Network           string `protobuf:"bytes,3,opt,name=network,proto3" json:"network,omitempty"`
+	// The full version string of the Taproot Asset daemon.
+	Version string `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	// The full version string of the LND node that this daemon is connected to.
+	LndVersion string `protobuf:"bytes,2,opt,name=lnd_version,json=lndVersion,proto3" json:"lnd_version,omitempty"`
+	// The network this daemon is connected to, e.g. "mainnet", "testnet", or
+	// any other supported network.
+	Network string `protobuf:"bytes,3,opt,name=network,proto3" json:"network,omitempty"`
+	// The public key of the LND node that this daemon is connected to.
 	LndIdentityPubkey string `protobuf:"bytes,4,opt,name=lnd_identity_pubkey,json=lndIdentityPubkey,proto3" json:"lnd_identity_pubkey,omitempty"`
-	NodeAlias         string `protobuf:"bytes,5,opt,name=node_alias,json=nodeAlias,proto3" json:"node_alias,omitempty"`
-	BlockHeight       uint32 `protobuf:"varint,6,opt,name=block_height,json=blockHeight,proto3" json:"block_height,omitempty"`
-	BlockHash         string `protobuf:"bytes,7,opt,name=block_hash,json=blockHash,proto3" json:"block_hash,omitempty"`
-	SyncToChain       bool   `protobuf:"varint,8,opt,name=sync_to_chain,json=syncToChain,proto3" json:"sync_to_chain,omitempty"`
+	// The alias of the LND node that this daemon is connected to.
+	NodeAlias string `protobuf:"bytes,5,opt,name=node_alias,json=nodeAlias,proto3" json:"node_alias,omitempty"`
+	// The current block height as seen by the LND node this daemon is
+	// connected to.
+	BlockHeight uint32 `protobuf:"varint,6,opt,name=block_height,json=blockHeight,proto3" json:"block_height,omitempty"`
+	// The current block hash as seen by the LND node this daemon is connected
+	// to.
+	BlockHash string `protobuf:"bytes,7,opt,name=block_hash,json=blockHash,proto3" json:"block_hash,omitempty"`
+	// Whether the LND node this daemon is connected to is synced to the
+	// Bitcoin chain.
+	SyncToChain bool `protobuf:"varint,8,opt,name=sync_to_chain,json=syncToChain,proto3" json:"sync_to_chain,omitempty"`
 }
 
 func (x *GetInfoResponse) Reset() {
@@ -5883,8 +5998,9 @@ type BurnAssetRequest struct {
 	//
 	//	*BurnAssetRequest_AssetId
 	//	*BurnAssetRequest_AssetIdStr
-	Asset        isBurnAssetRequest_Asset `protobuf_oneof:"asset"`
-	AmountToBurn uint64                   `protobuf:"varint,3,opt,name=amount_to_burn,json=amountToBurn,proto3" json:"amount_to_burn,omitempty"`
+	Asset isBurnAssetRequest_Asset `protobuf_oneof:"asset"`
+	// The number of asset units to burn. This must be greater than zero.
+	AmountToBurn uint64 `protobuf:"varint,3,opt,name=amount_to_burn,json=amountToBurn,proto3" json:"amount_to_burn,omitempty"`
 	// A safety check to ensure the user is aware of the destructive nature of
 	// the burn. This needs to be set to the value "assets will be destroyed"
 	// for the burn to succeed.
@@ -6197,6 +6313,7 @@ type ListBurnsResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The list of asset burns that match the query parameters.
 	Burns []*AssetBurn `protobuf:"bytes,1,rep,name=burns,proto3" json:"burns,omitempty"`
 }
 
@@ -6614,6 +6731,8 @@ type AnchorTransaction struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The on-chain anchor transaction PSBT packet that was created by the
+	// daemon.
 	AnchorPsbt []byte `protobuf:"bytes,1,opt,name=anchor_psbt,json=anchorPsbt,proto3" json:"anchor_psbt,omitempty"`
 	// The index of the (added) change output or -1 if no change was left over.
 	ChangeOutputIndex int32 `protobuf:"varint,2,opt,name=change_output_index,json=changeOutputIndex,proto3" json:"change_output_index,omitempty"`
@@ -6784,6 +6903,7 @@ type RegisterTransferResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The asset transfer that was registered.
 	RegisteredAsset *Asset `protobuf:"bytes,1,opt,name=registered_asset,json=registeredAsset,proto3" json:"registered_asset,omitempty"`
 }
 

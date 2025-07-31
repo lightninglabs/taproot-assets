@@ -83,7 +83,9 @@ service Universe {
     // TODO(roasbeef): rename resp to UniverseStateUpdate? ^
 
     /* tapcli: `universe info`
-    Info returns a set of information about the current state of the Universe.
+    Info returns a set of information about the current state of the Universe
+    and allows a caller to check that a universe server is reachable and
+    configured correctly to allow proof courier access without macaroons.
     */
     rpc Info (InfoRequest) returns (InfoResponse);
 
@@ -251,6 +253,7 @@ message ID {
 }
 
 message UniverseRoot {
+    // The ID of the asset universe root.
     ID id = 1;
 
     // The merkle sum sparse merkle tree root associated with the above
@@ -451,6 +454,7 @@ enum UniverseSyncMode {
 }
 
 message SyncTarget {
+    // The ID of the asset to sync.
     ID id = 1;
 }
 
@@ -487,7 +491,12 @@ message SyncResponse {
 }
 
 message UniverseFederationServer {
+    // The host of the federation server, which is used to connect to the
+    // server to push proofs and sync new proofs.
     string host = 1;
+
+    // The numeric ID of the federation server. This is used to identify
+    // existing servers when adding or deleting them from the federation.
     int32 id = 2;
 }
 
@@ -495,10 +504,13 @@ message ListFederationServersRequest {
 }
 
 message ListFederationServersResponse {
+    // The list of federation servers that make up the local Universe
+    // federation.
     repeated UniverseFederationServer servers = 1;
 }
 
 message AddFederationServerRequest {
+    // The federation server to add to the local Universe federation.
     repeated UniverseFederationServer servers = 1;
 }
 
@@ -506,6 +518,7 @@ message AddFederationServerResponse {
 }
 
 message DeleteFederationServerRequest {
+    // The federation server to delete from the local Universe federation.
     repeated UniverseFederationServer servers = 1;
 }
 
@@ -552,18 +565,31 @@ enum AssetTypeFilter {
 }
 
 message AssetStatsQuery {
+    // The asset name filter. If this is empty, then all assets are returned.
     string asset_name_filter = 1;
 
+    // The asset ID filter. If this is empty, then all assets are returned.
     bytes asset_id_filter = 2;
 
+    // The asset type filter. If this is set to FILTER_ASSET_NONE, then all
+    // assets are returned. If set to FILTER_ASSET_NORMAL, then only normal
+    // assets are returned. If set to FILTER_ASSET_COLLECTIBLE, then only
+    // collectible assets are returned.
     AssetTypeFilter asset_type_filter = 3;
 
+    // The sort order for the query. If this is set to SORT_BY_NONE, then the
+    // results are not sorted.
     AssetQuerySort sort_by = 4;
 
+    // The offset for the page. This is used for pagination.
     int32 offset = 5;
 
+    // The length limit for the page. This is used for pagination.
     int32 limit = 6;
 
+    // The direction of the sort. If this is set to SORT_DIRECTION_ASC, then
+    // the results are sorted in ascending order. If set to
+    // SORT_DIRECTION_DESC, then the results are sorted in descending order.
     SortDirection direction = 7;
 }
 
@@ -594,48 +620,76 @@ message AssetStatsSnapshot {
 }
 
 message AssetStatsAsset {
+    // The ID of the asset.
     bytes asset_id = 1;
 
+    // The asset's genesis point, which is the outpoint of the genesis
+    // transaction that created the asset. This is a hex encoded string.
     string genesis_point = 2;
 
+    // The total supply of the asset. This is the total number of units of the
+    // asset that have been issued.
     int64 total_supply = 3;
 
+    // The human-readable name of the asset.
     string asset_name = 4;
 
+    // The type of the asset. This can be either a normal asset or a collectible
+    // asset.
     taprpc.AssetType asset_type = 5;
 
+    // The height of the block at which the asset was created.
     int32 genesis_height = 6;
 
+    // The timestamp of the block at which the asset was created, in Unix epoch
+    // time (seconds).
     int64 genesis_timestamp = 7;
 
+    // The anchor point of the asset, which is a human-readable string that
+    // represents the asset's anchor point in the blockchain.
     string anchor_point = 8;
 
+    // The decimal display value for the asset. This is the number of decimal
+    // places that the asset can be divided into.
     uint32 decimal_display = 9;
 }
 
 message UniverseAssetStats {
+    // The asset statistics snapshot for the queried assets.
     repeated AssetStatsSnapshot asset_stats = 1;
 }
 
 message QueryEventsRequest {
+    // The start timestamp for the query, in Unix epoch time (seconds).
     int64 start_timestamp = 1;
+
+    // The end timestamp for the query, in Unix epoch time (seconds).
     int64 end_timestamp = 2;
 }
 
 message QueryEventsResponse {
+    // The list of grouped universe events that occurred within the specified
+    // time range. Each entry in the list represents a day, with the number of
+    // sync and new proof events that occurred on that day.
     repeated GroupedUniverseEvents events = 1;
 }
 
 message GroupedUniverseEvents {
     // The date the events occurred on, formatted as YYYY-MM-DD.
     string date = 1;
+
+    // The number of sync events that occurred on this date.
     uint64 sync_events = 2;
+
+    // The number of new proof events that occurred on this date.
     uint64 new_proof_events = 3;
 }
 
 message SetFederationSyncConfigRequest {
+    // The global federation sync configs for the given proof types.
     repeated GlobalFederationSyncConfig global_sync_configs = 1;
 
+    // The asset federation sync configs for the given universe IDs.
     repeated AssetFederationSyncConfig asset_sync_configs = 2;
 }
 
@@ -682,8 +736,10 @@ message QueryFederationSyncConfigRequest {
 }
 
 message QueryFederationSyncConfigResponse {
+    // The global federation sync configs for the given proof types.
     repeated GlobalFederationSyncConfig global_sync_configs = 1;
 
+    // The asset federation sync configs for the given universe IDs.
     repeated AssetFederationSyncConfig asset_sync_configs = 2;
 }
 

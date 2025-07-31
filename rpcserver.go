@@ -6534,7 +6534,9 @@ func (r *rpcServer) PushProof(ctx context.Context,
 	}, nil
 }
 
-// Info returns a set of information about the current state of the Universe.
+// Info returns a set of information about the current state of the Universe
+// and allows a caller to check that a universe server is reachable and
+// configured correctly to allow proof courier access without macaroons.
 func (r *rpcServer) Info(ctx context.Context,
 	_ *unirpc.InfoRequest) (*unirpc.InfoResponse, error) {
 

@@ -649,6 +649,7 @@ type UniverseRoot struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The ID of the asset universe root.
 	Id *ID `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// The merkle sum sparse merkle tree root associated with the above
 	// universe ID.
@@ -1866,6 +1867,7 @@ type SyncTarget struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The ID of the asset to sync.
 	Id *ID `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 }
 
@@ -2133,8 +2135,12 @@ type UniverseFederationServer struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The host of the federation server, which is used to connect to the
+	// server to push proofs and sync new proofs.
 	Host string `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
-	Id   int32  `protobuf:"varint,2,opt,name=id,proto3" json:"id,omitempty"`
+	// The numeric ID of the federation server. This is used to identify
+	// existing servers when adding or deleting them from the federation.
+	Id int32 `protobuf:"varint,2,opt,name=id,proto3" json:"id,omitempty"`
 }
 
 func (x *UniverseFederationServer) Reset() {
@@ -2226,6 +2232,8 @@ type ListFederationServersResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The list of federation servers that make up the local Universe
+	// federation.
 	Servers []*UniverseFederationServer `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
 }
 
@@ -2273,6 +2281,7 @@ type AddFederationServerRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The federation server to add to the local Universe federation.
 	Servers []*UniverseFederationServer `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
 }
 
@@ -2358,6 +2367,7 @@ type DeleteFederationServerRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The federation server to delete from the local Universe federation.
 	Servers []*UniverseFederationServer `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
 }
 
@@ -2514,13 +2524,26 @@ type AssetStatsQuery struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	AssetNameFilter string          `protobuf:"bytes,1,opt,name=asset_name_filter,json=assetNameFilter,proto3" json:"asset_name_filter,omitempty"`
-	AssetIdFilter   []byte          `protobuf:"bytes,2,opt,name=asset_id_filter,json=assetIdFilter,proto3" json:"asset_id_filter,omitempty"`
+	// The asset name filter. If this is empty, then all assets are returned.
+	AssetNameFilter string `protobuf:"bytes,1,opt,name=asset_name_filter,json=assetNameFilter,proto3" json:"asset_name_filter,omitempty"`
+	// The asset ID filter. If this is empty, then all assets are returned.
+	AssetIdFilter []byte `protobuf:"bytes,2,opt,name=asset_id_filter,json=assetIdFilter,proto3" json:"asset_id_filter,omitempty"`
+	// The asset type filter. If this is set to FILTER_ASSET_NONE, then all
+	// assets are returned. If set to FILTER_ASSET_NORMAL, then only normal
+	// assets are returned. If set to FILTER_ASSET_COLLECTIBLE, then only
+	// collectible assets are returned.
 	AssetTypeFilter AssetTypeFilter `protobuf:"varint,3,opt,name=asset_type_filter,json=assetTypeFilter,proto3,enum=universerpc.AssetTypeFilter" json:"asset_type_filter,omitempty"`
-	SortBy          AssetQuerySort  `protobuf:"varint,4,opt,name=sort_by,json=sortBy,proto3,enum=universerpc.AssetQuerySort" json:"sort_by,omitempty"`
-	Offset          int32           `protobuf:"varint,5,opt,name=offset,proto3" json:"offset,omitempty"`
-	Limit           int32           `protobuf:"varint,6,opt,name=limit,proto3" json:"limit,omitempty"`
-	Direction       SortDirection   `protobuf:"varint,7,opt,name=direction,proto3,enum=universerpc.SortDirection" json:"direction,omitempty"`
+	// The sort order for the query. If this is set to SORT_BY_NONE, then the
+	// results are not sorted.
+	SortBy AssetQuerySort `protobuf:"varint,4,opt,name=sort_by,json=sortBy,proto3,enum=universerpc.AssetQuerySort" json:"sort_by,omitempty"`
+	// The offset for the page. This is used for pagination.
+	Offset int32 `protobuf:"varint,5,opt,name=offset,proto3" json:"offset,omitempty"`
+	// The length limit for the page. This is used for pagination.
+	Limit int32 `protobuf:"varint,6,opt,name=limit,proto3" json:"limit,omitempty"`
+	// The direction of the sort. If this is set to SORT_DIRECTION_ASC, then
+	// the results are sorted in ascending order. If set to
+	// SORT_DIRECTION_DESC, then the results are sorted in descending order.
+	Direction SortDirection `protobuf:"varint,7,opt,name=direction,proto3,enum=universerpc.SortDirection" json:"direction,omitempty"`
 }
 
 func (x *AssetStatsQuery) Reset() {
@@ -2708,15 +2731,30 @@ type AssetStatsAsset struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	AssetId          []byte           `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
-	GenesisPoint     string           `protobuf:"bytes,2,opt,name=genesis_point,json=genesisPoint,proto3" json:"genesis_point,omitempty"`
-	TotalSupply      int64            `protobuf:"varint,3,opt,name=total_supply,json=totalSupply,proto3" json:"total_supply,omitempty"`
-	AssetName        string           `protobuf:"bytes,4,opt,name=asset_name,json=assetName,proto3" json:"asset_name,omitempty"`
-	AssetType        taprpc.AssetType `protobuf:"varint,5,opt,name=asset_type,json=assetType,proto3,enum=taprpc.AssetType" json:"asset_type,omitempty"`
-	GenesisHeight    int32            `protobuf:"varint,6,opt,name=genesis_height,json=genesisHeight,proto3" json:"genesis_height,omitempty"`
-	GenesisTimestamp int64            `protobuf:"varint,7,opt,name=genesis_timestamp,json=genesisTimestamp,proto3" json:"genesis_timestamp,omitempty"`
-	AnchorPoint      string           `protobuf:"bytes,8,opt,name=anchor_point,json=anchorPoint,proto3" json:"anchor_point,omitempty"`
-	DecimalDisplay   uint32           `protobuf:"varint,9,opt,name=decimal_display,json=decimalDisplay,proto3" json:"decimal_display,omitempty"`
+	// The ID of the asset.
+	AssetId []byte `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	// The asset's genesis point, which is the outpoint of the genesis
+	// transaction that created the asset. This is a hex encoded string.
+	GenesisPoint string `protobuf:"bytes,2,opt,name=genesis_point,json=genesisPoint,proto3" json:"genesis_point,omitempty"`
+	// The total supply of the asset. This is the total number of units of the
+	// asset that have been issued.
+	TotalSupply int64 `protobuf:"varint,3,opt,name=total_supply,json=totalSupply,proto3" json:"total_supply,omitempty"`
+	// The human-readable name of the asset.
+	AssetName string `protobuf:"bytes,4,opt,name=asset_name,json=assetName,proto3" json:"asset_name,omitempty"`
+	// The type of the asset. This can be either a normal asset or a collectible
+	// asset.
+	AssetType taprpc.AssetType `protobuf:"varint,5,opt,name=asset_type,json=assetType,proto3,enum=taprpc.AssetType" json:"asset_type,omitempty"`
+	// The height of the block at which the asset was created.
+	GenesisHeight int32 `protobuf:"varint,6,opt,name=genesis_height,json=genesisHeight,proto3" json:"genesis_height,omitempty"`
+	// The timestamp of the block at which the asset was created, in Unix epoch
+	// time (seconds).
+	GenesisTimestamp int64 `protobuf:"varint,7,opt,name=genesis_timestamp,json=genesisTimestamp,proto3" json:"genesis_timestamp,omitempty"`
+	// The anchor point of the asset, which is a human-readable string that
+	// represents the asset's anchor point in the blockchain.
+	AnchorPoint string `protobuf:"bytes,8,opt,name=anchor_point,json=anchorPoint,proto3" json:"anchor_point,omitempty"`
+	// The decimal display value for the asset. This is the number of decimal
+	// places that the asset can be divided into.
+	DecimalDisplay uint32 `protobuf:"varint,9,opt,name=decimal_display,json=decimalDisplay,proto3" json:"decimal_display,omitempty"`
 }
 
 func (x *AssetStatsAsset) Reset() {
@@ -2819,6 +2857,7 @@ type UniverseAssetStats struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The asset statistics snapshot for the queried assets.
 	AssetStats []*AssetStatsSnapshot `protobuf:"bytes,1,rep,name=asset_stats,json=assetStats,proto3" json:"asset_stats,omitempty"`
 }
 
@@ -2866,8 +2905,10 @@ type QueryEventsRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The start timestamp for the query, in Unix epoch time (seconds).
 	StartTimestamp int64 `protobuf:"varint,1,opt,name=start_timestamp,json=startTimestamp,proto3" json:"start_timestamp,omitempty"`
-	EndTimestamp   int64 `protobuf:"varint,2,opt,name=end_timestamp,json=endTimestamp,proto3" json:"end_timestamp,omitempty"`
+	// The end timestamp for the query, in Unix epoch time (seconds).
+	EndTimestamp int64 `protobuf:"varint,2,opt,name=end_timestamp,json=endTimestamp,proto3" json:"end_timestamp,omitempty"`
 }
 
 func (x *QueryEventsRequest) Reset() {
@@ -2921,6 +2962,9 @@ type QueryEventsResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The list of grouped universe events that occurred within the specified
+	// time range. Each entry in the list represents a day, with the number of
+	// sync and new proof events that occurred on that day.
 	Events []*GroupedUniverseEvents `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
 }
 
@@ -2969,8 +3013,10 @@ type GroupedUniverseEvents struct {
 	unknownFields protoimpl.UnknownFields
 
 	// The date the events occurred on, formatted as YYYY-MM-DD.
-	Date           string `protobuf:"bytes,1,opt,name=date,proto3" json:"date,omitempty"`
-	SyncEvents     uint64 `protobuf:"varint,2,opt,name=sync_events,json=syncEvents,proto3" json:"sync_events,omitempty"`
+	Date string `protobuf:"bytes,1,opt,name=date,proto3" json:"date,omitempty"`
+	// The number of sync events that occurred on this date.
+	SyncEvents uint64 `protobuf:"varint,2,opt,name=sync_events,json=syncEvents,proto3" json:"sync_events,omitempty"`
+	// The number of new proof events that occurred on this date.
 	NewProofEvents uint64 `protobuf:"varint,3,opt,name=new_proof_events,json=newProofEvents,proto3" json:"new_proof_events,omitempty"`
 }
 
@@ -3032,8 +3078,10 @@ type SetFederationSyncConfigRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The global federation sync configs for the given proof types.
 	GlobalSyncConfigs []*GlobalFederationSyncConfig `protobuf:"bytes,1,rep,name=global_sync_configs,json=globalSyncConfigs,proto3" json:"global_sync_configs,omitempty"`
-	AssetSyncConfigs  []*AssetFederationSyncConfig  `protobuf:"bytes,2,rep,name=asset_sync_configs,json=assetSyncConfigs,proto3" json:"asset_sync_configs,omitempty"`
+	// The asset federation sync configs for the given universe IDs.
+	AssetSyncConfigs []*AssetFederationSyncConfig `protobuf:"bytes,2,rep,name=asset_sync_configs,json=assetSyncConfigs,proto3" json:"asset_sync_configs,omitempty"`
 }
 
 func (x *SetFederationSyncConfigRequest) Reset() {
@@ -3317,8 +3365,10 @@ type QueryFederationSyncConfigResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The global federation sync configs for the given proof types.
 	GlobalSyncConfigs []*GlobalFederationSyncConfig `protobuf:"bytes,1,rep,name=global_sync_configs,json=globalSyncConfigs,proto3" json:"global_sync_configs,omitempty"`
-	AssetSyncConfigs  []*AssetFederationSyncConfig  `protobuf:"bytes,2,rep,name=asset_sync_configs,json=assetSyncConfigs,proto3" json:"asset_sync_configs,omitempty"`
+	// The asset federation sync configs for the given universe IDs.
+	AssetSyncConfigs []*AssetFederationSyncConfig `protobuf:"bytes,2,rep,name=asset_sync_configs,json=assetSyncConfigs,proto3" json:"asset_sync_configs,omitempty"`
 }
 
 func (x *QueryFederationSyncConfigResponse) Reset() {

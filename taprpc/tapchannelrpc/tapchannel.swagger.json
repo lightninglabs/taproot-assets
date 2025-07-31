@@ -1595,7 +1595,8 @@
       "type": "object",
       "properties": {
         "router_send_payment": {
-          "$ref": "#/definitions/tapchannelrpcRouterSendPaymentData"
+          "$ref": "#/definitions/tapchannelrpcRouterSendPaymentData",
+          "description": "The custom records to encode for a payment request."
         }
       }
     },
@@ -1666,7 +1667,8 @@
       "properties": {
         "payment_hash": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The payment hash of the HODL invoice to be created."
         }
       }
     },

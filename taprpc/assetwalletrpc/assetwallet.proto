@@ -417,18 +417,23 @@ message PublishAndLogRequest {
 }
 
 message NextInternalKeyRequest {
+    // The key family to derive the next internal key for.
     uint32 key_family = 1;
 }
 
 message NextInternalKeyResponse {
+    // The full key descriptor of the internal key that was derived.
     taprpc.KeyDescriptor internal_key = 1;
 }
 
 message NextScriptKeyRequest {
+    // The key family to derive the next script key for.
     uint32 key_family = 1;
 }
 
 message NextScriptKeyResponse {
+    // The full script key information that was derived, including the
+    // internal key and the tweaked script key.
     taprpc.ScriptKey script_key = 1;
 }
 
@@ -439,6 +444,7 @@ message QueryInternalKeyRequest {
 }
 
 message QueryInternalKeyResponse {
+    // The full key descriptor of the internal key that was queried.
     taprpc.KeyDescriptor internal_key = 1;
 }
 
@@ -450,14 +456,21 @@ message QueryScriptKeyRequest {
 }
 
 message QueryScriptKeyResponse {
+    // The full script key information that was queried, including the
+    // internal key and the tweaked script key.
     taprpc.ScriptKey script_key = 1;
 }
 
 message ProveAssetOwnershipRequest {
+    // The asset ID of the asset to prove ownership of. This is the 32-byte
+    // asset ID that identifies a particular asset or tranche of assets.
     bytes asset_id = 1;
 
+    // The script key that is used to spend the asset.
     bytes script_key = 2;
 
+    // The outpoint of the asset UTXO that is being proven to be owned by the
+    // prover.
     taprpc.OutPoint outpoint = 3;
 
     // An optional 32-byte challenge that may be used to bind the generated
@@ -471,6 +484,8 @@ message ProveAssetOwnershipResponse {
 }
 
 message VerifyAssetOwnershipRequest {
+    // The full ownership proof that was generated, including the witness data
+    // that contains the proving signature.
     bytes proof_with_witness = 1;
 
     // An optional 32-byte challenge that may be used to check the ownership
@@ -480,6 +495,7 @@ message VerifyAssetOwnershipRequest {
 }
 
 message VerifyAssetOwnershipResponse {
+    // Whether the ownership proof is valid or not.
     bool valid_proof = 1;
 
     // The outpoint the proof commits to.
@@ -507,9 +523,12 @@ message RemoveUTXOLeaseResponse {
 }
 
 message DeclareScriptKeyRequest {
+    // The script key the wallet should be informed about.
     taprpc.ScriptKey script_key = 1;
 }
 
 message DeclareScriptKeyResponse {
+    // The script key that was declared, including the internal key and the
+    // tweaked script key.
     taprpc.ScriptKey script_key = 1;
 }

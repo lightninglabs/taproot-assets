@@ -572,7 +572,8 @@
       "type": "object",
       "properties": {
         "script_key": {
-          "$ref": "#/definitions/taprpcScriptKey"
+          "$ref": "#/definitions/taprpcScriptKey",
+          "description": "The script key the wallet should be informed about."
         }
       }
     },
@@ -580,7 +581,8 @@
       "type": "object",
       "properties": {
         "script_key": {
-          "$ref": "#/definitions/taprpcScriptKey"
+          "$ref": "#/definitions/taprpcScriptKey",
+          "description": "The script key that was declared, including the internal key and the\ntweaked script key."
         }
       }
     },
@@ -630,7 +632,8 @@
       "properties": {
         "key_family": {
           "type": "integer",
-          "format": "int64"
+          "format": "int64",
+          "description": "The key family to derive the next internal key for."
         }
       }
     },
@@ -638,7 +641,8 @@
       "type": "object",
       "properties": {
         "internal_key": {
-          "$ref": "#/definitions/taprpcKeyDescriptor"
+          "$ref": "#/definitions/taprpcKeyDescriptor",
+          "description": "The full key descriptor of the internal key that was derived."
         }
       }
     },
@@ -647,7 +651,8 @@
       "properties": {
         "key_family": {
           "type": "integer",
-          "format": "int64"
+          "format": "int64",
+          "description": "The key family to derive the next script key for."
         }
       }
     },
@@ -655,7 +660,8 @@
       "type": "object",
       "properties": {
         "script_key": {
-          "$ref": "#/definitions/taprpcScriptKey"
+          "$ref": "#/definitions/taprpcScriptKey",
+          "description": "The full script key information that was derived, including the\ninternal key and the tweaked script key."
         }
       }
     },
@@ -683,14 +689,17 @@
       "properties": {
         "asset_id": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The asset ID of the asset to prove ownership of. This is the 32-byte\nasset ID that identifies a particular asset or tranche of assets."
         },
         "script_key": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The script key that is used to spend the asset."
         },
         "outpoint": {
-          "$ref": "#/definitions/taprpcOutPoint"
+          "$ref": "#/definitions/taprpcOutPoint",
+          "description": "The outpoint of the asset UTXO that is being proven to be owned by the\nprover."
         },
         "challenge": {
           "type": "string",
@@ -759,7 +768,8 @@
       "type": "object",
       "properties": {
         "internal_key": {
-          "$ref": "#/definitions/taprpcKeyDescriptor"
+          "$ref": "#/definitions/taprpcKeyDescriptor",
+          "description": "The full key descriptor of the internal key that was queried."
         }
       }
     },
@@ -767,7 +777,8 @@
       "type": "object",
       "properties": {
         "script_key": {
-          "$ref": "#/definitions/taprpcScriptKey"
+          "$ref": "#/definitions/taprpcScriptKey",
+          "description": "The full script key information that was queried, including the\ninternal key and the tweaked script key."
         }
       }
     },
@@ -837,7 +848,8 @@
       "properties": {
         "proof_with_witness": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The full ownership proof that was generated, including the witness data\nthat contains the proving signature."
         },
         "challenge": {
           "type": "string",
@@ -850,7 +862,8 @@
       "type": "object",
       "properties": {
         "valid_proof": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether the ownership proof is valid or not."
         },
         "outpoint": {
           "$ref": "#/definitions/taprpcOutPoint",
@@ -909,7 +922,8 @@
       "properties": {
         "transfer_timestamp": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The timestamp of the transfer in UTC Unix time seconds."
         },
         "anchor_tx_hash": {
           "type": "string",
@@ -918,11 +932,13 @@
         },
         "anchor_tx_height_hint": {
           "type": "integer",
-          "format": "int64"
+          "format": "int64",
+          "description": "The height hint of the anchor transaction. This is the height at which\nthe anchor transaction was published, so the actual inclusion height\nwill be greater than this value."
         },
         "anchor_tx_chain_fees": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The total fees paid by the anchor transaction in satoshis."
         },
         "inputs": {
           "type": "array",
@@ -1083,13 +1099,14 @@
         "SCRIPT_KEY_UNIQUE_PEDERSEN"
       ],
       "default": "SCRIPT_KEY_UNKNOWN",
-      "description": " - SCRIPT_KEY_UNKNOWN: The type of script key is not known. This should only be stored for assets\nwhere we don't know the internal key of the script key (e.g. for\nimported proofs).\n - SCRIPT_KEY_BIP86: The script key is a normal BIP-86 key. This means that the internal key is\nturned into a Taproot output key by applying a BIP-86 tweak to it.\n - SCRIPT_KEY_SCRIPT_PATH_EXTERNAL: The script key is a key that contains a script path that is defined by the\nuser and is therefore external to the tapd wallet. Spending this key\nrequires providing a specific witness and must be signed through the vPSBT\nsigning flow.\n - SCRIPT_KEY_BURN: The script key is a specific un-spendable key that indicates a burnt asset.\nAssets with this key type can never be spent again, as a burn key is a\ntweaked NUMS key that nobody knows the private key for.\n - SCRIPT_KEY_TOMBSTONE: The script key is a specific un-spendable key that indicates a tombstone\noutput. This is only the case for zero-value assets that result from a\nnon-interactive (TAP address) send where no change was left over.\n - SCRIPT_KEY_CHANNEL: The script key is used for an asset that resides within a Taproot Asset\nChannel. That means the script key is either a funding key (OP_TRUE), a\ncommitment output key (to_local, to_remote, htlc), or a HTLC second-level\ntransaction output key. Keys related to channels are not shown in asset\nbalances (unless specifically requested) and are never used for coin\nselection.\n - SCRIPT_KEY_UNIQUE_PEDERSEN: The script key is derived using the asset ID and a single leaf that contains\nan un-spendable Pedersen commitment key\n`(OP_CHECKSIG \u003cNUMS_key + asset_id * G\u003e)`. This can be used to create\nunique script keys for each virtual packet in the fragment, to avoid proof\ncollisions in the universe, where the script keys should be spendable by\na hardware wallet that only supports miniscript policies for signing P2TR\noutputs."
+      "description": " - SCRIPT_KEY_UNKNOWN: The type of script key is not known. This should only be stored for assets\nwhere we don't know the internal key of the script key (e.g. for imported\nproofs).\n - SCRIPT_KEY_BIP86: The script key is a normal BIP-86 key. This means that the internal key is\nturned into a Taproot output key by applying a BIP-86 tweak to it.\n - SCRIPT_KEY_SCRIPT_PATH_EXTERNAL: The script key is a key that contains a script path that is defined by the\nuser and is therefore external to the tapd wallet. Spending this key\nrequires providing a specific witness and must be signed through the vPSBT\nsigning flow.\n - SCRIPT_KEY_BURN: The script key is a specific un-spendable key that indicates a burnt asset.\nAssets with this key type can never be spent again, as a burn key is a\ntweaked NUMS key that nobody knows the private key for.\n - SCRIPT_KEY_TOMBSTONE: The script key is a specific un-spendable key that indicates a tombstone\noutput. This is only the case for zero-value assets that result from a\nnon-interactive (TAP address) send where no change was left over.\n - SCRIPT_KEY_CHANNEL: The script key is used for an asset that resides within a Taproot Asset\nChannel. That means the script key is either a funding key (OP_TRUE), a\ncommitment output key (to_local, to_remote, htlc), or a HTLC second-level\ntransaction output key. Keys related to channels are not shown in asset\nbalances (unless specifically requested) and are never used for coin\nselection.\n - SCRIPT_KEY_UNIQUE_PEDERSEN: The script key is derived using the asset ID and a single leaf that contains\nan un-spendable Pedersen commitment key\n`(OP_CHECKSIG \u003cNUMS_key + asset_id * G\u003e)`. This can be used to create\nunique script keys for each virtual packet in the fragment, to avoid proof\ncollisions in the universe, where the script keys should be spendable by\na hardware wallet that only supports miniscript policies for signing P2TR\noutputs."
     },
     "taprpcSendAssetResponse": {
       "type": "object",
       "properties": {
         "transfer": {
-          "$ref": "#/definitions/taprpcAssetTransfer"
+          "$ref": "#/definitions/taprpcAssetTransfer",
+          "description": "The transfer that was created to send assets to one or more addresses."
         }
       }
     },
@@ -1121,18 +1138,22 @@
       "type": "object",
       "properties": {
         "anchor": {
-          "$ref": "#/definitions/taprpcTransferOutputAnchor"
+          "$ref": "#/definitions/taprpcTransferOutputAnchor",
+          "description": "The transfer output's on-chain anchor information, which contains the\nBTC-level output information that anchors the Taproot Asset commitment\nfor this output."
         },
         "script_key": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The script key of the asset that was created."
         },
         "script_key_is_local": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Indicates whether the script key is known to the wallet of the lnd node\nconnected to the Taproot Asset daemon. If true, the asset will be shown\nin the wallet balance."
         },
         "amount": {
           "type": "string",
-          "format": "uint64"
+          "format": "uint64",
+          "description": "The amount of the asset that was created in this output."
         },
         "new_proof_blob": {
           "type": "string",
@@ -1141,21 +1162,26 @@
         },
         "split_commit_root_hash": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The split commitment root hash of the asset that was created in this\noutput. This is only set if the asset is a split root output, meaning\nthat the asset is a split root output that carries the change from a\nsplit or a tombstone from a non-interactive full value send output."
         },
         "output_type": {
-          "$ref": "#/definitions/taprpcOutputType"
+          "$ref": "#/definitions/taprpcOutputType",
+          "description": "The type of the output. This is used to distinguish between a simple\noutput that is not a split root and does not carry passive assets, and a\nsplit root output that carries the change from a split or a tombstone\nfrom a non-interactive full value send output."
         },
         "asset_version": {
-          "$ref": "#/definitions/taprpcAssetVersion"
+          "$ref": "#/definitions/taprpcAssetVersion",
+          "description": "The asset version of the output. This is used to determine how the asset\nis encoded in the Taproot Asset commitment tree."
         },
         "lock_time": {
           "type": "string",
-          "format": "uint64"
+          "format": "uint64",
+          "description": "The lock time of the output, which is an optional field that can be set\nto delay the spending of the output until a certain time in the future."
         },
         "relative_lock_time": {
           "type": "string",
-          "format": "uint64"
+          "format": "uint64",
+          "description": "The relative lock time of the output, which is an optional field that\ncan be set to delay the spending of the output relative to the block\nheight at which the output is confirmed."
         },
         "proof_delivery_status": {
           "$ref": "#/definitions/taprpcProofDeliveryStatus",
@@ -1163,7 +1189,8 @@
         },
         "asset_id": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The asset ID of the asset that was created in this output."
         }
       }
     },
@@ -1176,32 +1203,38 @@
         },
         "value": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The anchor transaction output's value in satoshis."
         },
         "internal_key": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The anchor transaction output's internal key, which is the Taproot\ninternal key of the on-chain output."
         },
         "taproot_asset_root": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The Taproot Asset root commitment hash, which is the root of the\nTaproot Asset commitment tree for the asset that was created."
         },
         "merkle_root": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The Taproot merkle root hash committed to by the outpoint of this\noutput. If there is no Tapscript sibling, this is equal to the Taproot\nAsset root commitment hash.\nIf there is a Tapscript sibling, this is the tap branch root hash of the\nTaproot Asset root hash and the tapscript sibling."
         },
         "tapscript_sibling": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The serialized preimage of a Tapscript sibling, if there was one. If this\nis empty, then the merkle_root hash is equal to the Taproot root hash\nof the anchor output."
         },
         "num_passive_assets": {
           "type": "integer",
-          "format": "int64"
+          "format": "int64",
+          "description": "The number of passive assets that were committed to this output.\nPassive assets are assets that are not actively spent, but are instead\npassively carried along with the main asset and re-anchored in the\nanchor output."
         },
         "pk_script": {
           "type": "string",
           "format": "byte",
-          "description": "pk_script is the pkscript of the anchor output."
+          "description": "The actual output's script, which is the P2TR script for the final\nTaproot output key created by this transfer output."
         }
       }
     }

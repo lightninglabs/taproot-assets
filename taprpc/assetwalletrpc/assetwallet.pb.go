@@ -953,6 +953,7 @@ type NextInternalKeyRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The key family to derive the next internal key for.
 	KeyFamily uint32 `protobuf:"varint,1,opt,name=key_family,json=keyFamily,proto3" json:"key_family,omitempty"`
 }
 
@@ -1000,6 +1001,7 @@ type NextInternalKeyResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The full key descriptor of the internal key that was derived.
 	InternalKey *taprpc.KeyDescriptor `protobuf:"bytes,1,opt,name=internal_key,json=internalKey,proto3" json:"internal_key,omitempty"`
 }
 
@@ -1047,6 +1049,7 @@ type NextScriptKeyRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The key family to derive the next script key for.
 	KeyFamily uint32 `protobuf:"varint,1,opt,name=key_family,json=keyFamily,proto3" json:"key_family,omitempty"`
 }
 
@@ -1094,6 +1097,8 @@ type NextScriptKeyResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The full script key information that was derived, including the
+	// internal key and the tweaked script key.
 	ScriptKey *taprpc.ScriptKey `protobuf:"bytes,1,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
 }
 
@@ -1190,6 +1195,7 @@ type QueryInternalKeyResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The full key descriptor of the internal key that was queried.
 	InternalKey *taprpc.KeyDescriptor `protobuf:"bytes,1,opt,name=internal_key,json=internalKey,proto3" json:"internal_key,omitempty"`
 }
 
@@ -1287,6 +1293,8 @@ type QueryScriptKeyResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The full script key information that was queried, including the
+	// internal key and the tweaked script key.
 	ScriptKey *taprpc.ScriptKey `protobuf:"bytes,1,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
 }
 
@@ -1334,9 +1342,14 @@ type ProveAssetOwnershipRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	AssetId   []byte           `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
-	ScriptKey []byte           `protobuf:"bytes,2,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
-	Outpoint  *taprpc.OutPoint `protobuf:"bytes,3,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
+	// The asset ID of the asset to prove ownership of. This is the 32-byte
+	// asset ID that identifies a particular asset or tranche of assets.
+	AssetId []byte `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	// The script key that is used to spend the asset.
+	ScriptKey []byte `protobuf:"bytes,2,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
+	// The outpoint of the asset UTXO that is being proven to be owned by the
+	// prover.
+	Outpoint *taprpc.OutPoint `protobuf:"bytes,3,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
 	// An optional 32-byte challenge that may be used to bind the generated
 	// proof. This challenge needs to be also presented on the
 	// VerifyAssetOwnership RPC in order to check the proof against it.
@@ -1455,6 +1468,8 @@ type VerifyAssetOwnershipRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The full ownership proof that was generated, including the witness data
+	// that contains the proving signature.
 	ProofWithWitness []byte `protobuf:"bytes,1,opt,name=proof_with_witness,json=proofWithWitness,proto3" json:"proof_with_witness,omitempty"`
 	// An optional 32-byte challenge that may be used to check the ownership
 	// proof against. This challenge must match the one that the prover used
@@ -1513,6 +1528,7 @@ type VerifyAssetOwnershipResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// Whether the ownership proof is valid or not.
 	ValidProof bool `protobuf:"varint,1,opt,name=valid_proof,json=validProof,proto3" json:"valid_proof,omitempty"`
 	// The outpoint the proof commits to.
 	Outpoint *taprpc.OutPoint `protobuf:"bytes,2,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
@@ -1691,6 +1707,7 @@ type DeclareScriptKeyRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The script key the wallet should be informed about.
 	ScriptKey *taprpc.ScriptKey `protobuf:"bytes,1,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
 }
 
@@ -1738,6 +1755,8 @@ type DeclareScriptKeyResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The script key that was declared, including the internal key and the
+	// tweaked script key.
 	ScriptKey *taprpc.ScriptKey `protobuf:"bytes,1,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
 }
 
