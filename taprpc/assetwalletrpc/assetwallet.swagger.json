@@ -249,7 +249,7 @@
     },
     "/v1/taproot-assets/wallet/utxo-lease/delete": {
       "post": {
-        "summary": "RemoveUTXOLease removes the lease/lock/reservation of the given managed\nUTXO.",
+        "summary": "`tapcli: assets removelease`\nRemoveUTXOLease removes the lease/lock/reservation of the given managed\nUTXO.",
         "operationId": "AssetWallet_RemoveUTXOLease",
         "responses": {
           "200": {
