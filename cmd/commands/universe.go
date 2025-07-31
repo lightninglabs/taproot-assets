@@ -1519,6 +1519,7 @@ var universeSupplyCommitCommand = cli.Command{
 		ignoreAssetOutPointCmd,
 		updateSupplyCommitCmd,
 		fetchSupplyCommitCmd,
+		fetchSupplyLeavesCmd,
 	},
 }
 
@@ -1688,6 +1689,54 @@ func fetchSupplyCommit(ctx *cli.Context) error {
 	req.IgnoreLeafKeys = ignoreKeys
 
 	resp, err := client.FetchSupplyCommit(cliCtx, req)
+	if err != nil {
+		return err
+	}
+
+	printJSON(resp)
+	return nil
+}
+
+var fetchSupplyLeavesCmd = cli.Command{
+	Name: "supplyleaves",
+	Usage: "fetches the on-chain supply commitment subtree leaves for an " +
+		"asset group",
+	Description: "This command fetches the on-chain supply " +
+		"commitment subtree leaves for a specific asset group.",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "group_key",
+			Usage:    "the group key of the asset group to fetch",
+			Required: true,
+		},
+		&cli.Uint64Flag{
+			Name:     "block_height_start",
+			Usage:    "the start of the block height range",
+			Required: true,
+		},
+		&cli.Uint64Flag{
+			Name:     "block_height_end",
+			Usage:    "the end of the block height range",
+			Required: true,
+		},
+	},
+	Action: fetchSupplyLeaves,
+}
+
+func fetchSupplyLeaves(ctx *cli.Context) error {
+	cliCtx := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	req := &unirpc.FetchSupplyLeavesRequest{
+		GroupKey: &unirpc.FetchSupplyLeavesRequest_GroupKeyStr{
+			GroupKeyStr: ctx.String("group_key"),
+		},
+		BlockHeightStart: uint32(ctx.Uint64("block_height_start")),
+		BlockHeightEnd:   uint32(ctx.Uint64("block_height_end")),
+	}
+
+	resp, err := client.FetchSupplyLeaves(cliCtx, req)
 	if err != nil {
 		return err
 	}
