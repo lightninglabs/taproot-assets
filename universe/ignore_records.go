@@ -311,7 +311,7 @@ func (i *SignedIgnoreTuple) UniverseKey() [32]byte {
 func (i *SignedIgnoreTuple) LeafScriptKey() asset.ScriptKey {
 	scriptKeyBytes := i.IgnoreTuple.Val.ScriptKey
 
-	keyPub, _ := btcec.ParsePubKey(scriptKeyBytes.SchnorrSerialized())
+	keyPub, _ := btcec.ParsePubKey(scriptKeyBytes[:])
 	scriptKey := asset.NewScriptKey(keyPub)
 
 	return scriptKey
