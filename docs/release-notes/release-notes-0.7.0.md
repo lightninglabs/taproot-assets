@@ -93,6 +93,10 @@
 
 ## Functional Updates
 
+- When sending a payment or adding an invoice any failed RFQ negotiations will
+  now fail immedietaly, instead of causing a long timeout (30s). This was due
+  to the RPC endpoint ignoring the RFQ rejection response.
+
 ## RPC Updates
 
 ## tapcli Updates
