@@ -616,6 +616,21 @@ func fetchSupplyLeavesByHeight(ctx context.Context, db BaseUniverseStore,
 	groupKey btcec.PublicKey, startHeight,
 	endHeight uint32) (*supplycommit.SupplyLeaves, error) {
 
+	// Convert the start and end heights to SQL nullable integers.
+	// If the height is zero, we use a null value to indicate no limit.
+	var (
+		sqlStartHeight sql.NullInt32
+		sqlEndHeight   sql.NullInt32
+	)
+
+	if startHeight > 0 {
+		sqlStartHeight = sqlInt32(startHeight)
+	}
+
+	if endHeight > 0 {
+		sqlEndHeight = sqlInt32(endHeight)
+	}
+
 	var resp supplycommit.SupplyLeaves
 
 	for _, treeType := range allSupplyTreeTypes {
@@ -624,8 +639,8 @@ func fetchSupplyLeavesByHeight(ctx context.Context, db BaseUniverseStore,
 		leaves, err := db.QuerySupplyLeavesByHeight(
 			ctx, sqlc.QuerySupplyLeavesByHeightParams{
 				Namespace:   namespace,
-				StartHeight: sqlInt32(startHeight),
-				EndHeight:   sqlInt32(endHeight),
+				StartHeight: sqlStartHeight,
+				EndHeight:   sqlEndHeight,
 			},
 		)
 		if err != nil {
