@@ -7386,7 +7386,7 @@ func (r *rpcServer) AddAssetBuyOrder(ctx context.Context,
 	}()
 
 	// Upsert the buy order into the RFQ manager.
-	err = r.cfg.RfqManager.UpsertAssetBuyOrder(*buyOrder)
+	id, err := r.cfg.RfqManager.UpsertAssetBuyOrder(*buyOrder)
 	if err != nil {
 		return nil, fmt.Errorf("error upserting buy order into RFQ "+
 			"manager: %w", err)
@@ -7403,15 +7403,10 @@ func (r *rpcServer) AddAssetBuyOrder(ctx context.Context,
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
 			reject, ok := event.(rejectEventType)
-			if ok {
-				if reject.QuoteResponse.MsgPeer() ==
-					*buyOrder.Peer.UnwrapToPtr() {
-
-					return nil, fmt.Errorf("peer %s "+
-						"rejected quote %v",
-						peer.String(),
-						reject.QuoteResponse.String())
-				}
+			if ok && reject.QuoteResponse.MsgID() == id {
+				return nil, fmt.Errorf("peer %s rejected "+
+					"quote %v", peer.String(),
+					reject.QuoteResponse.String())
 			}
 
 			acceptedQuote, ok := event.(targetEventType)
@@ -7596,7 +7591,7 @@ func (r *rpcServer) AddAssetSellOrder(ctx context.Context,
 	}()
 
 	// Upsert the order into the RFQ manager.
-	err = r.cfg.RfqManager.UpsertAssetSellOrder(*sellOrder)
+	id, err := r.cfg.RfqManager.UpsertAssetSellOrder(*sellOrder)
 	if err != nil {
 		return nil, fmt.Errorf("error upserting sell order into RFQ "+
 			"manager: %w", err)
@@ -7613,15 +7608,10 @@ func (r *rpcServer) AddAssetSellOrder(ctx context.Context,
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
 			reject, ok := event.(rejectEventType)
-			if ok {
-				if reject.QuoteResponse.MsgPeer() ==
-					*sellOrder.Peer.UnwrapToPtr() {
-
-					return nil, fmt.Errorf("peer %s "+
-						"rejected quote %v",
-						peer.String(),
-						reject.QuoteResponse.String())
-				}
+			if ok && reject.QuoteResponse.MsgID() == id {
+				return nil, fmt.Errorf("peer %s rejected "+
+					"quote %v", peer.String(),
+					reject.QuoteResponse.String())
 			}
 
 			acceptedQuote, ok := event.(targetEventType)

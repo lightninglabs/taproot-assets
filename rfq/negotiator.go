@@ -155,82 +155,79 @@ func (n *Negotiator) queryBidFromPriceOracle(assetSpecifier asset.Specifier,
 // HandleOutgoingBuyOrder handles an outgoing buy order by constructing buy
 // requests and passing them to the outgoing messages channel. These requests
 // are sent to peers.
-func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
-	// Query the price oracle for a reasonable bid price. We perform this
-	// query and response handling in a separate goroutine in case it is a
-	// remote service and takes a long time to respond.
-	n.Wg.Add(1)
-	go func() {
-		defer n.Wg.Done()
+func (n *Negotiator) HandleOutgoingBuyOrder(
+	buyOrder BuyOrder) (rfqmsg.ID, error) {
 
-		// Unwrap the peer from the buy order. For now, we can assume
-		// that the peer is always specified.
-		peer, err := buyOrder.Peer.UnwrapOrErr(
-			fmt.Errorf("buy order peer must be specified"),
+	// Whenever this method returns an error we want to notify both the RFQ
+	// manager main loop and also the caller. This wrapper delivers the
+	// error to the manager (possibly triggering a daemon shutdown if
+	// critical) then returns the error.
+	finalise := func(err error) (rfqmsg.ID, error) {
+		n.cfg.ErrChan <- err
+		return rfqmsg.ID{}, err
+	}
+
+	// Unwrap the peer from the buy order. For now, we can assume
+	// that the peer is always specified.
+	peer, err := buyOrder.Peer.UnwrapOrErr(
+		fmt.Errorf("buy order peer must be specified"),
+	)
+	if err != nil {
+		return finalise(err)
+	}
+
+	// We calculate a proposed bid price for our peer's
+	// consideration. If a price oracle is not specified we will
+	// skip this step.
+	var assetRateHint fn.Option[rfqmsg.AssetRate]
+
+	if n.cfg.PriceOracle != nil && buyOrder.AssetSpecifier.IsSome() {
+		// Query the price oracle for a bid price.
+		//
+		// TODO(ffranr): Pass the BuyOrder expiry to the price
+		//  oracle at this point.
+		assetRate, err := n.queryBidFromPriceOracle(
+			buyOrder.AssetSpecifier,
+			fn.Some(buyOrder.AssetMaxAmt),
+			fn.None[lnwire.MilliSatoshi](),
+			fn.None[rfqmsg.AssetRate](),
 		)
 		if err != nil {
-			n.cfg.ErrChan <- err
+			// If we fail to query the price oracle for a
+			// bid price, we will log a warning and continue
+			// without a bid price.
+			log.Warnf("failed to query bid price from price "+
+				"oracle for outgoing buy request: %v", err)
 		}
 
-		// We calculate a proposed bid price for our peer's
-		// consideration. If a price oracle is not specified we will
-		// skip this step.
-		var assetRateHint fn.Option[rfqmsg.AssetRate]
+		assetRateHint = fn.MaybeSome[rfqmsg.AssetRate](assetRate)
+	}
 
-		if n.cfg.PriceOracle != nil &&
-			buyOrder.AssetSpecifier.IsSome() {
+	// Construct a new buy request to send to the peer.
+	request, err := rfqmsg.NewBuyRequest(
+		peer, buyOrder.AssetSpecifier,
+		buyOrder.AssetMaxAmt, assetRateHint,
+	)
+	if err != nil {
+		err := fmt.Errorf("unable to create buy request "+
+			"message: %w", err)
+		return finalise(err)
+	}
 
-			// Query the price oracle for a bid price.
-			//
-			// TODO(ffranr): Pass the BuyOrder expiry to the price
-			//  oracle at this point.
-			assetRate, err := n.queryBidFromPriceOracle(
-				buyOrder.AssetSpecifier,
-				fn.Some(buyOrder.AssetMaxAmt),
-				fn.None[lnwire.MilliSatoshi](),
-				fn.None[rfqmsg.AssetRate](),
-			)
-			if err != nil {
-				// If we fail to query the price oracle for a
-				// bid price, we will log a warning and continue
-				// without a bid price.
-				log.Warnf("failed to query bid price from "+
-					"price oracle for outgoing buy "+
-					"request: %v", err)
-			}
+	// Send the response message to the outgoing messages channel.
+	var msg rfqmsg.OutgoingMsg = request
+	sendSuccess := fn.SendOrQuit(
+		n.cfg.OutgoingMessages, msg, n.Quit,
+	)
+	if !sendSuccess {
+		err := fmt.Errorf("negotiator failed to add quote " +
+			"request message to the outgoing messages " +
+			"channel")
 
-			assetRateHint = fn.MaybeSome[rfqmsg.AssetRate](
-				assetRate,
-			)
-		}
+		return finalise(err)
+	}
 
-		// Construct a new buy request to send to the peer.
-		request, err := rfqmsg.NewBuyRequest(
-			peer, buyOrder.AssetSpecifier,
-			buyOrder.AssetMaxAmt, assetRateHint,
-		)
-		if err != nil {
-			err := fmt.Errorf("unable to create buy request "+
-				"message: %w", err)
-			n.cfg.ErrChan <- err
-			return
-		}
-
-		// Send the response message to the outgoing messages channel.
-		var msg rfqmsg.OutgoingMsg = request
-		sendSuccess := fn.SendOrQuit(
-			n.cfg.OutgoingMessages, msg, n.Quit,
-		)
-		if !sendSuccess {
-			err := fmt.Errorf("negotiator failed to add quote " +
-				"request message to the outgoing messages " +
-				"channel")
-			n.cfg.ErrChan <- err
-			return
-		}
-	}()
-
-	return nil
+	return request.ID, nil
 }
 
 // queryAskFromPriceOracle queries the price oracle for an asking price. It
@@ -466,72 +463,71 @@ func (n *Negotiator) HandleIncomingSellRequest(
 // HandleOutgoingSellOrder handles an outgoing sell order by constructing sell
 // requests and passing them to the outgoing messages channel. These requests
 // are sent to peers.
-func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
-	// Query the price oracle for a reasonable ask price. We perform this
-	// query and response handling in a separate goroutine in case it is a
-	// remote service and takes a long time to respond.
-	n.Wg.Add(1)
-	go func() {
-		defer n.Wg.Done()
+func (n *Negotiator) HandleOutgoingSellOrder(
+	order SellOrder) (rfqmsg.ID, error) {
 
-		// Unwrap the peer from the order. For now, we can assume that
-		// the peer is always specified.
-		peer, err := order.Peer.UnwrapOrErr(
-			fmt.Errorf("buy order peer must be specified"),
+	// Whenever this method returns an error we want to notify both the RFQ
+	// manager main loop and also the caller. This wrapper delivers the
+	// error to the manager (possibly triggering a daemon shutdown if
+	// critical) then returns the error.
+	finalise := func(err error) (rfqmsg.ID, error) {
+		n.cfg.ErrChan <- err
+		return rfqmsg.ID{}, err
+	}
+
+	// Unwrap the peer from the order. For now, we can assume that
+	// the peer is always specified.
+	peer, err := order.Peer.UnwrapOrErr(
+		fmt.Errorf("buy order peer must be specified"),
+	)
+	if err != nil {
+		return finalise(err)
+	}
+
+	// We calculate a proposed ask price for our peer's
+	// consideration. If a price oracle is not specified we will
+	// skip this step.
+	var assetRateHint fn.Option[rfqmsg.AssetRate]
+
+	if n.cfg.PriceOracle != nil && order.AssetSpecifier.IsSome() {
+		// Query the price oracle for an asking price.
+		//
+		// TODO(ffranr): Pass the SellOrder expiry to the
+		//  price oracle at this point.
+		assetRate, err := n.queryAskFromPriceOracle(
+			order.AssetSpecifier, fn.None[uint64](),
+			fn.Some(order.PaymentMaxAmt),
+			fn.None[rfqmsg.AssetRate](),
 		)
 		if err != nil {
-			n.cfg.ErrChan <- err
+			err := fmt.Errorf("negotiator failed to handle price "+
+				"oracle response: %w", err)
+			return finalise(err)
 		}
 
-		// We calculate a proposed ask price for our peer's
-		// consideration. If a price oracle is not specified we will
-		// skip this step.
-		var assetRateHint fn.Option[rfqmsg.AssetRate]
+		assetRateHint = fn.MaybeSome(assetRate)
+	}
 
-		if n.cfg.PriceOracle != nil && order.AssetSpecifier.IsSome() {
-			// Query the price oracle for an asking price.
-			//
-			// TODO(ffranr): Pass the SellOrder expiry to the
-			//  price oracle at this point.
-			assetRate, err := n.queryAskFromPriceOracle(
-				order.AssetSpecifier, fn.None[uint64](),
-				fn.Some(order.PaymentMaxAmt),
-				fn.None[rfqmsg.AssetRate](),
-			)
-			if err != nil {
-				err := fmt.Errorf("negotiator failed to "+
-					"handle price oracle response: %w", err)
-				n.cfg.ErrChan <- err
-				return
-			}
+	request, err := rfqmsg.NewSellRequest(
+		peer, order.AssetSpecifier, order.PaymentMaxAmt, assetRateHint,
+	)
 
-			assetRateHint = fn.MaybeSome(assetRate)
-		}
+	if err != nil {
+		err := fmt.Errorf("unable to create sell request message: %w",
+			err)
+		return finalise(err)
+	}
 
-		request, err := rfqmsg.NewSellRequest(
-			peer, order.AssetSpecifier, order.PaymentMaxAmt,
-			assetRateHint,
-		)
-		if err != nil {
-			err := fmt.Errorf("unable to create sell request "+
-				"message: %w", err)
-			n.cfg.ErrChan <- err
-			return
-		}
+	// Send the response message to the outgoing messages channel.
+	var msg rfqmsg.OutgoingMsg = request
+	sendSuccess := fn.SendOrQuit(n.cfg.OutgoingMessages, msg, n.Quit)
+	if !sendSuccess {
+		err := fmt.Errorf("negotiator failed to add sell request " +
+			"message to the outgoing messages channel")
+		return finalise(err)
+	}
 
-		// Send the response message to the outgoing messages channel.
-		var msg rfqmsg.OutgoingMsg = request
-		sendSuccess := fn.SendOrQuit(
-			n.cfg.OutgoingMessages, msg, n.Quit,
-		)
-		if !sendSuccess {
-			err := fmt.Errorf("negotiator failed to add sell " +
-				"request message to the outgoing messages " +
-				"channel")
-			n.cfg.ErrChan <- err
-			return
-		}
-	}()
+	return request.ID, err
 }
 
 // expiryWithinBounds checks if a quote expiry unix timestamp (in seconds) is
