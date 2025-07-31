@@ -49,6 +49,8 @@ type Querier interface {
 	DeleteUniverseSupplyRoot(ctx context.Context, namespaceRoot string) error
 	FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventRow, error)
 	FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg FetchAddrEventByAddrKeyAndOutpointParams) (FetchAddrEventByAddrKeyAndOutpointRow, error)
+	FetchAddrEventOutputs(ctx context.Context, addrEventID int64) ([]FetchAddrEventOutputsRow, error)
+	FetchAddrEventProofs(ctx context.Context, addrEventID int64) ([]FetchAddrEventProofsRow, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
 	FetchAllAssetMeta(ctx context.Context) ([]FetchAllAssetMetaRow, error)
 	FetchAllNodes(ctx context.Context) ([]MssmtNode, error)
@@ -75,6 +77,7 @@ type Querier interface {
 	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error)
 	FetchChildrenSelfJoin(ctx context.Context, arg FetchChildrenSelfJoinParams) ([]FetchChildrenSelfJoinRow, error)
 	FetchGenesisByAssetID(ctx context.Context, assetID []byte) (GenesisInfoView, error)
+	FetchGenesisByGroupKey(ctx context.Context, tweakedGroupKey []byte) (GenesisInfoView, error)
 	FetchGenesisByID(ctx context.Context, genAssetID int64) (FetchGenesisByIDRow, error)
 	FetchGenesisID(ctx context.Context, arg FetchGenesisIDParams) (int64, error)
 	FetchGenesisIDByAssetID(ctx context.Context, assetID []byte) (int64, error)
@@ -201,6 +204,8 @@ type Querier interface {
 	UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLeaseParams) error
 	UpsertAddr(ctx context.Context, arg UpsertAddrParams) (int64, error)
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int64, error)
+	UpsertAddrEventOutput(ctx context.Context, arg UpsertAddrEventOutputParams) (int64, error)
+	UpsertAddrEventProof(ctx context.Context, arg UpsertAddrEventProofParams) (int64, error)
 	UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64, error)
 	UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int64, error)
 	UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int64, error)

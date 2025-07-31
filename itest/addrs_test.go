@@ -27,6 +27,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	addrV2 = taprpc.AddrVersion_ADDR_VERSION_V2
+)
+
 // testAddresses tests the various RPC calls related to addresses.
 func testAddresses(t *harnessTest) {
 	// First, mint a few assets, so we have some to create addresses for.
@@ -423,12 +427,14 @@ func testAddressAssetSyncer(t *harnessTest) {
 	}
 
 	// Mint more assets with the main node, which should not sync to Bob.
+	thirdGroupReq := CopyRequest(issuableAssets[0])
+	thirdGroupReq.Asset.Name = "third-group"
 	secondRpcAssets := MintAssetsConfirmBatch(
 		t.t, miner, t.tapd, []*mintrpc.MintAssetRequest{
-			simpleAssets[1], issuableAssets[1],
+			simpleAssets[1], issuableAssets[1], thirdGroupReq,
 		},
 	)
-	require.Len(t.t, secondRpcAssets, 2)
+	require.Len(t.t, secondRpcAssets, 3)
 
 	// Verify that Bob will not sync to Alice by default by manually
 	// triggering a sync.
@@ -481,7 +487,19 @@ func testAddressAssetSyncer(t *harnessTest) {
 		Amt:          firstAsset.Amount,
 		AssetVersion: firstAsset.Version,
 	})
-	require.ErrorContains(t.t, err, "asset group is unknown")
+	require.ErrorContains(t.t, err, address.ErrAssetGroupUnknown.Error())
+
+	thirdAsset := secondRpcAssets[2]
+	thirdGroup := thirdAsset.AssetGroup
+	v2Courier := address.RandProofCourierAddrForVersion(t.t, address.V2)
+	_, err = bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AddressVersion:   taprpc.AddrVersion_ADDR_VERSION_V2,
+		GroupKey:         thirdGroup.TweakedGroupKey,
+		Amt:              0,
+		AssetVersion:     thirdAsset.Version,
+		ProofCourierAddr: v2Courier.String(),
+	})
+	require.ErrorContains(t.t, err, address.ErrAssetGroupUnknown.Error())
 
 	// Restart Bob again with the syncer enabled. Bob should be able to make
 	// an address for both new assets minted by Alice, even though he has
@@ -506,30 +524,48 @@ func testAddressAssetSyncer(t *harnessTest) {
 	require.NoError(t.t, err)
 	AssertAddr(t.t, secondAsset, secondAddr)
 
-	// Ensure that the asset group of the second asset has a matching
-	// universe config so Bob will sync future issuances.
+	thirdAddr, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AddressVersion:   taprpc.AddrVersion_ADDR_VERSION_V2,
+		GroupKey:         thirdAsset.AssetGroup.TweakedGroupKey,
+		Amt:              0,
+		AssetVersion:     thirdAsset.Version,
+		ProofCourierAddr: v2Courier.String(),
+	})
+	require.NoError(t.t, err)
+	AssertAddr(t.t, thirdAsset, thirdAddr)
+
+	// Ensure that the asset group of the second and third asset has a
+	// matching universe config so Bob will sync future issuance events.
 	resp, err := bob.UniverseClient.QueryFederationSyncConfig(
 		ctxt, &unirpc.QueryFederationSyncConfigRequest{},
 	)
 	require.NoError(t.t, err)
-	require.Len(t.t, resp.AssetSyncConfigs, 1)
+	require.Len(t.t, resp.AssetSyncConfigs, 2)
 
-	groupSyncConfig := resp.AssetSyncConfigs[0]
-	require.NotNil(t.t, groupSyncConfig.Id)
+	var syncGroupKeys [][]byte
+	for _, groupConfig := range resp.AssetSyncConfigs {
+		groupUniID, err := tap.UnmarshalUniID(groupConfig.Id)
+		require.NoError(t.t, err)
 
-	groupUniID, err := tap.UnmarshalUniID(groupSyncConfig.Id)
-	uniIDGroupKey := schnorr.SerializePubKey(groupUniID.GroupKey)
-	require.NotNil(t.t, groupUniID.GroupKey)
-	require.Equal(t.t, secondGroup.TweakedGroupKey[1:], uniIDGroupKey)
-	require.Equal(t.t, groupUniID.ProofType, universe.ProofTypeIssuance)
+		require.NotNil(t.t, groupUniID.GroupKey)
+		require.Equal(
+			t.t, groupUniID.ProofType, universe.ProofTypeIssuance,
+		)
+
+		uniIDGroupKey := schnorr.SerializePubKey(groupUniID.GroupKey)
+		syncGroupKeys = append(syncGroupKeys, uniIDGroupKey)
+	}
+
+	require.Contains(t.t, syncGroupKeys, secondGroup.TweakedGroupKey[1:])
+	require.Contains(t.t, syncGroupKeys, thirdGroup.TweakedGroupKey[1:])
 
 	// Bob's Universe stats should show that he has now synced both assets
 	// from the second mint and the single asset group from that mint.
-	AssertUniverseStats(t.t, bob, 2, 2, 1)
+	AssertUniverseStats(t.t, bob, 3, 3, 2)
 
 	// Alice's Universe stats should reflect the extra syncs from the asset
 	// group lookups by Bob.
-	AssertUniverseStats(t.t, t.tapd, 4, 4, 2)
+	AssertUniverseStats(t.t, t.tapd, 5, 5, 3)
 
 	// If Alice now mints a re-issuance for the second asset group, Bob
 	// should successfully sync that new asset.
@@ -932,6 +968,22 @@ func withReceiverAddresses(addrs ...*taprpc.Addr) sendOption {
 	}
 }
 
+// withAddV2Receiver is an option to add a V2 receiver to the send asset
+// request.
+func withAddV2Receiver(amount uint64,
+	receiver *taprpc.Addr) sendOption {
+
+	return func(options *sendOptions) {
+		options.sendAssetRequest.AddressesWithAmounts = append(
+			options.sendAssetRequest.AddressesWithAmounts,
+			&taprpc.AddressWithAmount{
+				Amount:  amount,
+				TapAddr: receiver.Encoded,
+			},
+		)
+	}
+}
+
 // withSkipProofCourierPingCheck is an option to skip the proof courier ping
 // check. This is useful for testing purposes.
 func withSkipProofCourierPingCheck() sendOption {
@@ -980,7 +1032,9 @@ func sendAsset(t *harnessTest, sender *tapdHarness,
 		opt(options)
 	}
 
-	require.NotEmpty(t.t, options.sendAssetRequest.TapAddrs)
+	legacyAddrs := options.sendAssetRequest.TapAddrs
+	newAddrs := options.sendAssetRequest.AddressesWithAmounts
+	require.True(t.t, len(legacyAddrs) > 0 || len(newAddrs) > 0)
 
 	// Assign a default transfer label using a Unix timestamp if none is
 	// provided. This will be used in filtering send events.

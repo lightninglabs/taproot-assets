@@ -116,7 +116,7 @@ func RandPacket(t testing.TB, setVersion, altLeaves bool) *VPacket {
 	courierAddress, err := url.Parse("https://example.com")
 	require.NoError(t, err)
 
-	courierURL := address.RandProofCourierAddr(t)
+	courierURL := address.RandProofCourierAddrForVersion(t, address.V2)
 	addr1, _, _ := address.RandAddr(t, testParams, courierURL)
 	addr2, _, _ := address.RandAddr(t, testParams, courierURL)
 

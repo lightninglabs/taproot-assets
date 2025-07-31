@@ -3,7 +3,6 @@ package authmailbox
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"net/url"
 	"os"
 	"testing"
@@ -16,94 +15,8 @@ import (
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
-
-var (
-	testTimeout    = time.Second
-	testMinBackoff = time.Millisecond * 20
-	testMaxBackoff = time.Millisecond * 100
-)
-
-type serverHarness struct {
-	cfg          *ServerConfig
-	clientCfg    *ClientConfig
-	mockSigner   *test.MockSigner
-	mockMsgStore *MockMsgStore
-	srv          *Server
-	grpcServer   *grpc.Server
-	cleanup      func()
-	listenAddr   string
-}
-
-func newServerHarness(t *testing.T) *serverHarness {
-	signer := test.NewMockSigner()
-	signer.Signature = test.RandBytes(64)
-
-	inMemMsgStore := NewMockStore()
-
-	nextPort := port.NextAvailablePort()
-	listenAddr := fmt.Sprintf(test.ListenAddrTemplate, nextPort)
-
-	serverCfg := &ServerConfig{
-		AuthTimeout:    testTimeout,
-		Signer:         signer,
-		HeaderVerifier: proof.MockHeaderVerifier,
-		MerkleVerifier: proof.DefaultMerkleVerifier,
-		MsgStore:       inMemMsgStore,
-	}
-	h := &serverHarness{
-		listenAddr: listenAddr,
-		cfg:        serverCfg,
-		clientCfg: &ClientConfig{
-			ServerAddress: listenAddr,
-			Insecure:      true,
-			Signer:        signer,
-			MinBackoff:    testMinBackoff,
-			MaxBackoff:    testMaxBackoff,
-		},
-		mockSigner:   signer,
-		mockMsgStore: inMemMsgStore,
-	}
-	h.start(t)
-
-	return h
-}
-
-func (h *serverHarness) start(t *testing.T) {
-	t.Helper()
-
-	t.Logf("Starting server %s", h.listenAddr)
-	serverOpts := []grpc.ServerOption{
-		grpc.Creds(insecure.NewCredentials()),
-	}
-	h.grpcServer = grpc.NewServer(serverOpts...)
-
-	h.srv = NewServer()
-	require.NoError(t, h.srv.Start(h.cfg))
-	mboxrpc.RegisterMailboxServer(h.grpcServer, h.srv)
-
-	cleanup, err := test.StartMockGRPCServerWithAddr(
-		t, h.grpcServer, false, h.listenAddr,
-	)
-	require.NoError(t, err)
-
-	h.cleanup = cleanup
-}
-
-func (h *serverHarness) stop(t *testing.T) {
-	t.Helper()
-
-	t.Logf("Stopping server %s", h.listenAddr)
-	err := h.srv.Stop()
-	require.NoError(t, err)
-
-	h.grpcServer.GracefulStop()
-	h.cleanup()
-}
 
 type clientHarness struct {
 	cfg          *ClientConfig
@@ -229,7 +142,7 @@ func randProof(t *testing.T) proof.TxProof {
 // server's backlog.
 func TestServerClientAuthAndRestart(t *testing.T) {
 	ctx := context.Background()
-	harness := newServerHarness(t)
+	harness := NewMockServer(t)
 	clientCfg := harness.clientCfg
 
 	clientKey1, _ := test.RandKeyDesc(t)
@@ -296,7 +209,7 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 
 	// We now stop the server and assert that the subscription is no longer
 	// active.
-	harness.stop(t)
+	harness.Stop(t)
 	client1.assertDisconnected(t)
 	client2.assertDisconnected(t)
 
@@ -305,7 +218,7 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 
 	// Let's start the server again and make sure the clients eventually
 	// re-connect.
-	harness.start(t)
+	harness.Start(t)
 	client1.assertConnected(t)
 	client2.assertConnected(t)
 
@@ -400,7 +313,6 @@ func TestSendMessage(t *testing.T) {
 		recvKeys     []keychain.KeyDescriptor
 		sendKey      keychain.KeyDescriptor
 		msgs         [][]byte
-		expiryHeight uint32
 		expectedErrs []string
 	}{
 		{
@@ -422,36 +334,13 @@ func TestSendMessage(t *testing.T) {
 			expectedErrs: []string{ErrMessageTooLong.Error()},
 		},
 		{
-			name:         "missing expiry height",
-			txProofs:     []proof.TxProof{*txProof1},
-			recvKeys:     []keychain.KeyDescriptor{clientKey2},
-			sendKey:      clientKey1,
-			msgs:         [][]byte{[]byte("yoooo")},
-			expectedErrs: []string{"missing expiry block height"},
-		},
-		{
-			name: "expiry height too low",
-			txProofs: []proof.TxProof{
-				proofWithHeight(*txProof1, 100002),
-			},
-			recvKeys:     []keychain.KeyDescriptor{clientKey2},
-			sendKey:      clientKey1,
-			msgs:         [][]byte{[]byte("yoooo")},
-			expiryHeight: 123,
-			expectedErrs: []string{
-				"expiry block height 123 is before proof " +
-					"block height 100002",
-			},
-		},
-		{
 			name: "success",
 			txProofs: []proof.TxProof{
 				proofWithHeight(*txProof1, 100002),
 			},
-			recvKeys:     []keychain.KeyDescriptor{clientKey2},
-			sendKey:      clientKey1,
-			msgs:         [][]byte{[]byte("yoooo")},
-			expiryHeight: 100002 + 123,
+			recvKeys: []keychain.KeyDescriptor{clientKey2},
+			sendKey:  clientKey1,
+			msgs:     [][]byte{[]byte("yoooo")},
 		},
 		{
 			name: "duplicate proof",
@@ -468,7 +357,6 @@ func TestSendMessage(t *testing.T) {
 				[]byte("yoooo"),
 				[]byte("imma try again"),
 			},
-			expiryHeight: 100002 + 123,
 			expectedErrs: []string{
 				"",
 				proof.ErrTxMerkleProofExists.Error(),
@@ -492,7 +380,6 @@ func TestSendMessage(t *testing.T) {
 				[]byte("imma try again"),
 				[]byte("and again"),
 			},
-			expiryHeight: 100002 + 123,
 		},
 	}
 
@@ -500,7 +387,7 @@ func TestSendMessage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			harness := newServerHarness(t)
+			harness := NewMockServer(t)
 			clientCfg := harness.clientCfg
 
 			filter := MessageFilter{
@@ -524,7 +411,6 @@ func TestSendMessage(t *testing.T) {
 
 				msgID, err := client1.client.SendMessage(
 					ctx, *recvKey.PubKey, msg, txProof,
-					tc.expiryHeight,
 				)
 
 				if len(tc.expectedErrs) > 0 &&
@@ -548,7 +434,6 @@ func TestSendMessage(t *testing.T) {
 				// another message to be sent to any recipients.
 				msgIDReSend, err := client1.client.SendMessage(
 					ctx, *recvKey.PubKey, msg, txProof,
-					tc.expiryHeight,
 				)
 				require.NoError(t, err)
 
@@ -592,7 +477,7 @@ func makeMessage(c clock.Clock, id uint64, key keychain.KeyDescriptor,
 // TestReceiveBacklog tests that the client can receive messages from the
 // server's backlog, using custom filters.
 func TestReceiveBacklog(t *testing.T) {
-	harness := newServerHarness(t)
+	harness := NewMockServer(t)
 
 	ctx := context.Background()
 	receiver1, _ := test.RandKeyDesc(t)

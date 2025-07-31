@@ -41,11 +41,7 @@ CREATE TABLE IF NOT EXISTS authmailbox_messages (
     -- The timestamp when the message was created on the server. This is a unix
     -- timestamp in seconds to allow for easy querying and sorting of messages
     -- based on their arrival time, without time zone complications.
-    arrival_timestamp BIGINT NOT NULL,
-    
-    -- The optional expiry block height for the message, which indicates
-    -- when the message should be considered expired and can be deleted.
-    expiry_block_height INTEGER
+    arrival_timestamp BIGINT NOT NULL
 );
 
 -- Each message must have a unique claimed outpoint, which serves as a spam

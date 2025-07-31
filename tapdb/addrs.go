@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -55,8 +54,24 @@ type (
 	// updating an existing one.
 	UpsertAddrEvent = sqlc.UpsertAddrEventParams
 
+	// UpsertAddrEventOutput is a type alias for creating a new address
+	// event output or updating an existing one.
+	UpsertAddrEventOutput = sqlc.UpsertAddrEventOutputParams
+
+	// UpsertAddrEventProof is a type alias for creating a new address
+	// event proof or updating an existing one.
+	UpsertAddrEventProof = sqlc.UpsertAddrEventProofParams
+
 	// AddrEvent is a type alias for fetching an address event row.
 	AddrEvent = sqlc.FetchAddrEventRow
+
+	// AddrEventOutput is a type alias for fetching the outputs of an
+	// address event.
+	AddrEventOutput = sqlc.FetchAddrEventOutputsRow
+
+	// AddrEventProof is a type alias for fetching the proofs of an address
+	// event.
+	AddrEventProof = sqlc.FetchAddrEventProofsRow
 
 	// FetchAddrEventByOutpoint is a type alias for the params to fetch an
 	// address event by address and outpoint.
@@ -155,9 +170,27 @@ type AddrBook interface {
 	// and returns the primary key.
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEvent) (int64, error)
 
+	// UpsertAddrEventOutput inserts a new or updates an existing address
+	// event output and returns the primary key.
+	UpsertAddrEventOutput(ctx context.Context,
+		arg UpsertAddrEventOutput) (int64, error)
+
+	// UpsertAddrEventProof inserts a new or updates an existing address
+	// event proof and returns the primary key.
+	UpsertAddrEventProof(ctx context.Context,
+		arg UpsertAddrEventProof) (int64, error)
+
 	// FetchAddrEvent returns a single address event based on its primary
 	// key.
 	FetchAddrEvent(ctx context.Context, id int64) (AddrEvent, error)
+
+	// FetchAddrEventOutputs returns the outputs of an address event.
+	FetchAddrEventOutputs(ctx context.Context,
+		addrEventID int64) ([]AddrEventOutput, error)
+
+	// FetchAddrEventProofs returns the proofs of an address event.
+	FetchAddrEventProofs(ctx context.Context,
+		addrEventID int64) ([]AddrEventProof, error)
 
 	// FetchAddrEventByAddrKeyAndOutpoint returns a single address event
 	// based on its address Taproot output key and outpoint.
@@ -178,6 +211,11 @@ type AddrBook interface {
 	// for a given asset ID.
 	FetchGenesisByAssetID(ctx context.Context,
 		assetID []byte) (sqlc.GenesisInfoView, error)
+
+	// FetchGenesisByGroupKey attempts to fetch asset genesis information
+	// for a given group key.
+	FetchGenesisByGroupKey(ctx context.Context,
+		tweakedGroupKey []byte) (sqlc.GenesisInfoView, error)
 
 	// FetchInternalKeyLocator fetches the key locator for an internal key.
 	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (KeyLocator,
@@ -276,9 +314,28 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 			// point, so we'll just fetch it so we can obtain the
 			// genAssetID.
 			addr := addrs[idx]
-			assetGen, err := db.FetchGenesisByAssetID(
-				ctx, addr.AssetID[:],
+
+			// If this is an address for a grouped asset, then we
+			// need to fetch the genesis from the group key.
+			// TODO(guggero): We should use an asset specifier in
+			// the address and remove the need for the embedded
+			// genesis struct. Then we can have a
+			// QueryAssetBySpecifier method that we can use here.
+			var (
+				assetGen sqlc.GenesisInfoView
+				err      error
 			)
+			switch {
+			case addr.GroupKey != nil && addr.AssetID == asset.ID{}:
+				gkBytes := addr.GroupKey.SerializeCompressed()
+				assetGen, err = db.FetchGenesisByGroupKey(
+					ctx, gkBytes,
+				)
+			default:
+				assetGen, err = db.FetchGenesisByAssetID(
+					ctx, addr.AssetID[:],
+				)
+			}
 			if err != nil {
 				return err
 			}
@@ -755,31 +812,30 @@ func (t *TapAddressBook) InsertScriptKey(ctx context.Context,
 // and transaction. If an event for that address and transaction already exists,
 // then the status and transaction information is updated instead.
 func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
-	status address.Status, addr *address.AddrWithKeyInfo,
-	walletTx *lndclient.Transaction, outputIdx uint32) (*address.Event,
+	status address.Status, xfer address.IncomingTransfer) (*address.Event,
 	error) {
 
 	var (
 		writeTxOpts AddrBookTxOptions
 		event       *address.Event
-		txHash      = walletTx.Tx.TxHash()
+		txHash      = xfer.Tx.TxHash()
 	)
-	txBytes, err := fn.Serialize(walletTx.Tx)
+	txBytes, err := fn.Serialize(xfer.Tx)
 	if err != nil {
 		return nil, fmt.Errorf("error serializing tx: %w", err)
 	}
 	outpoint := wire.OutPoint{
 		Hash:  txHash,
-		Index: outputIdx,
+		Index: xfer.OutputIdx,
 	}
 	outpointBytes, err := encodeOutpoint(outpoint)
 	if err != nil {
 		return nil, fmt.Errorf("error encoding outpoint: %w", err)
 	}
-	outputDetails := walletTx.OutputDetails[outputIdx]
+	txOut := xfer.Tx.TxOut[xfer.OutputIdx]
 
 	siblingBytes, siblingHash, err := commitment.MaybeEncodeTapscriptPreimage(
-		addr.TapscriptSibling,
+		xfer.Addr.TapscriptSibling,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error encoding tapscript sibling: %w",
@@ -793,40 +849,29 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 			Txid:  txHash[:],
 			RawTx: txBytes,
 		}
-		if walletTx.Confirmations > 0 {
-			txUpsert.BlockHeight = sqlInt32(walletTx.BlockHeight)
-
-			// We're missing the transaction index within the block,
-			// we need to update that from the proof. Fortunately we
-			// only update fields that aren't nil in the upsert.
-			blockHash, err := chainhash.NewHashFromStr(
-				walletTx.BlockHash,
-			)
-			if err != nil {
-				return fmt.Errorf("error parsing block hash: "+
-					"%w", err)
-			}
-			txUpsert.BlockHash = blockHash[:]
+		if xfer.BlockHeight > 0 && xfer.BlockHash != nil {
+			txUpsert.BlockHeight = sqlInt32(xfer.BlockHeight)
+			txUpsert.BlockHash = xfer.BlockHash[:]
 		}
 		chainTxID, err := db.UpsertChainTx(ctx, txUpsert)
 		if err != nil {
 			return fmt.Errorf("error upserting chain TX: %w", err)
 		}
 
-		tapCommitment, err := addr.TapCommitment()
-		if err != nil {
-			return fmt.Errorf("error deriving commitment: %w", err)
+		merkleRoot := xfer.TaprootAssetRoot
+		if siblingHash != nil {
+			merkleRoot = asset.TapBranchHash(
+				xfer.TaprootAssetRoot, *siblingHash,
+			)
 		}
-		merkleRoot := tapCommitment.TapscriptRoot(siblingHash)
-		taprootAssetRoot := tapCommitment.TapscriptRoot(nil)
-		commitmentVersion := uint8(tapCommitment.Version)
 
+		internalKey := xfer.Addr.InternalKey
 		utxoUpsert := RawManagedUTXO{
-			RawKey:           addr.InternalKey.SerializeCompressed(),
+			RawKey:           internalKey.SerializeCompressed(),
 			Outpoint:         outpointBytes,
-			AmtSats:          outputDetails.Amount,
-			TaprootAssetRoot: taprootAssetRoot[:],
-			RootVersion:      sqlInt16(commitmentVersion),
+			AmtSats:          txOut.Value,
+			TaprootAssetRoot: xfer.TaprootAssetRoot[:],
+			RootVersion:      sqlInt16(xfer.CommitmentVersion),
 			MerkleRoot:       merkleRoot[:],
 			TapscriptSibling: siblingBytes,
 			TxnID:            chainTxID,
@@ -838,12 +883,12 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 
 		eventID, err := db.UpsertAddrEvent(ctx, UpsertAddrEvent{
 			TaprootOutputKey: schnorr.SerializePubKey(
-				&addr.TaprootOutputKey,
+				&xfer.Addr.TaprootOutputKey,
 			),
 			CreationTime:        t.clock.Now().UTC(),
 			Status:              int16(status),
 			Txid:                txHash[:],
-			ChainTxnOutputIndex: int32(outputIdx),
+			ChainTxnOutputIndex: int32(xfer.OutputIdx),
 			ManagedUtxoID:       managedUtxoID,
 		})
 		if err != nil {
@@ -851,7 +896,48 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 				err)
 		}
 
-		event, err = fetchEvent(ctx, db, eventID, addr)
+		// Upsert the address event outputs.
+		for assetID, output := range xfer.Outputs {
+			scriptKey := output.ScriptKey
+			scriptKeyBytes := scriptKey.PubKey.SerializeCompressed()
+			internalKeyID, err := insertInternalKey(
+				ctx, db, scriptKey.RawKey,
+			)
+			if err != nil {
+				return fmt.Errorf("error inserting internal "+
+					"key: %w", err)
+			}
+
+			scriptKeyID, err := db.UpsertScriptKey(
+				ctx, NewScriptKey{
+					InternalKeyID:    internalKeyID,
+					TweakedScriptKey: scriptKeyBytes,
+					Tweak:            scriptKey.Tweak,
+					KeyType: sqlInt16(
+						scriptKey.Type,
+					),
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("error upserting script "+
+					"key: %w", err)
+			}
+
+			_, err = db.UpsertAddrEventOutput(
+				ctx, UpsertAddrEventOutput{
+					AddrEventID: eventID,
+					Amount:      int64(output.Amount),
+					AssetID:     assetID[:],
+					ScriptKeyID: scriptKeyID,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("error upserting address "+
+					"event output: %w", err)
+			}
+		}
+
+		event, err = fetchEvent(ctx, db, eventID, xfer.Addr)
 		return err
 	})
 	if dbErr != nil {
@@ -994,6 +1080,11 @@ func fetchEvent(ctx context.Context, db AddrBook, eventID int64,
 		Index: uint32(dbEvent.OutputIndex),
 	}
 
+	outputs, err := fetchEventOutputs(ctx, db, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching event outputs: %w", err)
+	}
+
 	return &address.Event{
 		ID:                 eventID,
 		CreationTime:       dbEvent.CreationTime.UTC(),
@@ -1003,7 +1094,8 @@ func fetchEvent(ctx context.Context, db AddrBook, eventID int64,
 		Amt:                btcutil.Amount(dbEvent.AmtSats.Int64),
 		InternalKey:        internalKey,
 		ConfirmationHeight: uint32(dbEvent.ConfirmationHeight.Int32),
-		HasProof:           dbEvent.AssetProofID.Valid,
+		Outputs:            outputs,
+		HasAllProofs:       dbEvent.NumProofs == int64(len(outputs)),
 	}, nil
 }
 
@@ -1040,6 +1132,11 @@ func fetchEventByOutpoint(ctx context.Context, db AddrBook,
 		Index: uint32(dbEvent.OutputIndex),
 	}
 
+	outputs, err := fetchEventOutputs(ctx, db, dbEvent.ID)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching event outputs: %w", err)
+	}
+
 	return &address.Event{
 		ID:                 dbEvent.ID,
 		CreationTime:       dbEvent.CreationTime.UTC(),
@@ -1048,9 +1145,45 @@ func fetchEventByOutpoint(ctx context.Context, db AddrBook,
 		Outpoint:           op,
 		Amt:                btcutil.Amount(dbEvent.AmtSats.Int64),
 		InternalKey:        internalKey,
+		Outputs:            outputs,
 		ConfirmationHeight: uint32(dbEvent.ConfirmationHeight.Int32),
-		HasProof:           dbEvent.AssetProofID.Valid,
+		HasAllProofs:       dbEvent.NumProofs == int64(len(outputs)),
 	}, nil
+}
+
+// fetchEventOutputs fetches the set of outputs for a given address event ID.
+func fetchEventOutputs(ctx context.Context, db AddrBook,
+	eventID int64) (map[asset.ID]address.AssetOutput, error) {
+
+	dbOutputs, err := db.FetchAddrEventOutputs(ctx, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching addr event outputs: %w",
+			err)
+	}
+
+	outputs := make(map[asset.ID]address.AssetOutput, len(dbOutputs))
+	for _, dbOutput := range dbOutputs {
+		assetID, err := asset.NewIDFromBytes(dbOutput.AssetID)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing asset ID: %w",
+				err)
+		}
+
+		sk, err := parseScriptKey(
+			dbOutput.InternalKey, dbOutput.ScriptKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing script key: %w",
+				err)
+		}
+
+		outputs[assetID] = address.AssetOutput{
+			Amount:    uint64(dbOutput.Amount),
+			ScriptKey: sk,
+		}
+	}
+
+	return outputs, nil
 }
 
 // CompleteEvent updates an address event as being complete and links it with
@@ -1064,45 +1197,69 @@ func (t *TapAddressBook) CompleteEvent(ctx context.Context,
 		return fmt.Errorf("unable to encode outpoint: %w", err)
 	}
 
-	args := FetchAssetProof{
-		TweakedScriptKey: event.Addr.ScriptKey.SerializeCompressed(),
-		Outpoint:         outpoint,
-	}
-
 	var writeTxOpts AddrBookTxOptions
 	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
-		proofData, err := db.FetchAssetProof(ctx, args)
-		if err != nil {
-			return fmt.Errorf("error fetching asset proof: %w", err)
-		}
-
-		switch {
-		// We have no proof for this script key and outpoint.
-		case len(proofData) == 0:
-			return fmt.Errorf("proof for script key %x and "+
-				"outpoint %v not found: %w",
-				args.TweakedScriptKey, anchorPoint,
-				proof.ErrProofNotFound)
-
-		// Something is quite wrong if we have multiple proofs for the
-		// same script key and outpoint.
-		case len(proofData) > 1:
-			return fmt.Errorf("expected exactly one proof, got "+
-				"%d: %w", len(proofData),
-				proof.ErrMultipleProofs)
-		}
-
-		_, err = db.UpsertAddrEvent(ctx, UpsertAddrEvent{
+		// We first update the event status and TXID/outpoint. This also
+		// gives us the event ID that we can use to insert the proof
+		// data.
+		eventID, err := db.UpsertAddrEvent(ctx, UpsertAddrEvent{
 			TaprootOutputKey: schnorr.SerializePubKey(
 				&event.Addr.TaprootOutputKey,
 			),
 			Status:              int16(status),
 			Txid:                anchorPoint.Hash[:],
 			ChainTxnOutputIndex: int32(anchorPoint.Index),
-			AssetProofID:        sqlInt64(proofData[0].ProofID),
-			AssetID:             sqlInt64(proofData[0].AssetID),
 		})
-		return err
+		if err != nil {
+			return fmt.Errorf("error updating addr event: %w", err)
+		}
+
+		for _, output := range event.Outputs {
+			scriptPubKey := output.ScriptKey.PubKey
+			scriptPubKeyBytes := scriptPubKey.SerializeCompressed()
+			args := FetchAssetProof{
+				TweakedScriptKey: scriptPubKeyBytes,
+				Outpoint:         outpoint,
+			}
+
+			proofData, err := db.FetchAssetProof(ctx, args)
+			if err != nil {
+				return fmt.Errorf("error fetching asset "+
+					"proof: %w", err)
+			}
+
+			switch {
+			// We have no proof for this script key and outpoint.
+			case len(proofData) == 0:
+				return fmt.Errorf("proof for script key %x "+
+					"and outpoint %v not found: %w",
+					args.TweakedScriptKey, anchorPoint,
+					proof.ErrProofNotFound)
+
+			// Something is quite wrong if we have multiple proofs
+			// for the same script key and outpoint.
+			case len(proofData) > 1:
+				return fmt.Errorf("expected exactly one "+
+					"proof, got %d: %w", len(proofData),
+					proof.ErrMultipleProofs)
+			}
+
+			_, err = db.UpsertAddrEventProof(
+				ctx, UpsertAddrEventProof{
+					AddrEventID:  eventID,
+					AssetProofID: proofData[0].ProofID,
+					AssetIDFk: sqlInt64(
+						proofData[0].AssetID,
+					),
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("error inserting addr event "+
+					"proof: %w", err)
+			}
+		}
+
+		return nil
 	})
 }
 

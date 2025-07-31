@@ -13,19 +13,23 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -139,6 +143,62 @@ func newProofArchiveForDB(t *testing.T, db *tapdb.BaseDB) (*proof.MultiArchiver,
 	return proofArchive, assetStore, multiverse
 }
 
+type mockSigner struct {
+	lndclient.SignerClient
+	keyRing *tapgarden.MockKeyRing
+}
+
+func (m *mockSigner) DeriveSharedKey(ctx context.Context,
+	ephemeralPubKey *btcec.PublicKey,
+	keyLocator *keychain.KeyLocator) ([32]byte, error) {
+
+	return m.keyRing.DeriveSharedKey(ctx, ephemeralPubKey, keyLocator)
+}
+
+func (m *mockSigner) SignMessage(_ context.Context, msg []byte,
+	locator keychain.KeyLocator, _ ...lndclient.SignMessageOption) ([]byte,
+	error) {
+
+	privKey, ok := m.keyRing.Keys[locator]
+	if !ok {
+		return nil, fmt.Errorf("no key found for locator %v", locator)
+	}
+
+	msgHash := chainhash.HashB(msg)
+	sig, err := schnorr.Sign(privKey, msgHash)
+	if err != nil {
+		return nil, err
+	}
+
+	if !sig.Verify(msgHash, privKey.PubKey()) {
+		return nil, fmt.Errorf("signature verification failed")
+	}
+
+	return sig.Serialize(), nil
+}
+
+func (m *mockSigner) VerifyMessage(_ context.Context, msg, sig []byte,
+	pubKey [33]byte, _ ...lndclient.VerifyMessageOption) (bool, error) {
+
+	if len(sig) != schnorr.SignatureSize {
+		return false, fmt.Errorf("invalid signature length: %d",
+			len(sig))
+	}
+
+	pubKeyParsed, err := btcec.ParsePubKey(pubKey[:])
+	if err != nil {
+		return false, fmt.Errorf("failed to parse public key: %w", err)
+	}
+
+	msgHash := chainhash.HashB(msg)
+	sigObj, err := schnorr.ParseSignature(sig)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse signature: %w", err)
+	}
+
+	return sigObj.Verify(msgHash, pubKeyParsed), nil
+}
+
 type custodianHarness struct {
 	t            *testing.T
 	c            *tapgarden.Custodian
@@ -147,6 +207,7 @@ type custodianHarness struct {
 	chainBridge  *tapgarden.MockChainBridge
 	walletAnchor *tapgarden.MockWalletAnchor
 	keyRing      *tapgarden.MockKeyRing
+	signer       *mockSigner
 	tapdbBook    *tapdb.TapAddressBook
 	addrBook     *address.Book
 	syncer       *tapgarden.MockAssetSyncer
@@ -299,6 +360,9 @@ func newHarness(t *testing.T,
 	chainBridge := tapgarden.NewMockChainBridge()
 	walletAnchor := tapgarden.NewMockWalletAnchor()
 	keyRing := tapgarden.NewMockKeyRing()
+	signer := &mockSigner{
+		keyRing: keyRing,
+	}
 	syncer := tapgarden.NewMockAssetSyncer()
 	db := tapdb.NewTestDB(t)
 	addrBook, tapdbBook := newAddrBookForDB(db.BaseDB, keyRing, syncer)
@@ -328,10 +392,12 @@ func newHarness(t *testing.T,
 		ChainBridge:            chainBridge,
 		WalletAnchor:           walletAnchor,
 		AddrBook:               addrBook,
+		Signer:                 signer,
 		ProofArchive:           archive,
 		ProofNotifier:          notifier,
 		ProofCourierDispatcher: courierDispatch,
 		ProofWatcher:           proofWatcher,
+		MboxInsecure:           true,
 		ErrChan:                errChan,
 	}
 	return &custodianHarness{
@@ -342,6 +408,7 @@ func newHarness(t *testing.T,
 		chainBridge:  chainBridge,
 		walletAnchor: walletAnchor,
 		keyRing:      keyRing,
+		signer:       signer,
 		tapdbBook:    tapdbBook,
 		addrBook:     addrBook,
 		syncer:       syncer,
@@ -351,11 +418,27 @@ func newHarness(t *testing.T,
 	}
 }
 
-func randAddr(h *custodianHarness) (*address.AddrWithKeyInfo, *asset.Genesis) {
-	addr, genesis, group := address.RandAddr(
-		h.t, &address.RegressionNetTap, url.URL{
-			Scheme: "mock",
-		},
+func randAddrV1(
+	h *custodianHarness) (*address.AddrWithKeyInfo, *asset.Genesis) {
+
+	version := test.RandFlip(address.V0, address.V1)
+	addr, genesis, group := address.RandAddrWithVersion(
+		h.t, &address.RegressionNetTap,
+		address.RandProofCourierAddrForVersion(h.t, version), version,
+	)
+
+	err := h.tapdbBook.InsertAssetGen(context.Background(), genesis, group)
+	require.NoError(h.t, err)
+
+	return addr, genesis
+}
+
+func randAddrV2(h *custodianHarness, proofCourier url.URL,
+	scriptKey asset.ScriptKey) (*address.AddrWithKeyInfo, *asset.Genesis) {
+
+	addr, genesis, group := address.RandAddrWithVersionAndScriptKey(
+		h.t, &address.RegressionNetTap, proofCourier, address.V2,
+		scriptKey,
 	)
 
 	err := h.tapdbBook.InsertAssetGen(context.Background(), genesis, group)
@@ -419,11 +502,21 @@ func randProof(t *testing.T, outputIndex int, tx *wire.MsgTx,
 	genesis *asset.Genesis,
 	addr *address.AddrWithKeyInfo) *proof.AnnotatedProof {
 
+	return randProofWithScriptKey(
+		t, outputIndex, tx, genesis, addr,
+		asset.NewScriptKey(&addr.ScriptKey),
+	)
+}
+
+func randProofWithScriptKey(t *testing.T, outputIndex int, tx *wire.MsgTx,
+	genesis *asset.Genesis, addr *address.AddrWithKeyInfo,
+	scriptKey asset.ScriptKey) *proof.AnnotatedProof {
+
 	a := asset.Asset{
 		Version:   asset.V0,
 		Genesis:   *genesis,
 		Amount:    addr.Amount,
-		ScriptKey: asset.NewScriptKey(&addr.ScriptKey),
+		ScriptKey: scriptKey,
 		PrevWitnesses: []asset.Witness{
 			{
 				PrevID: &asset.PrevID{},
@@ -470,7 +563,7 @@ func randProof(t *testing.T, outputIndex int, tx *wire.MsgTx,
 		Locator: proof.Locator{
 			AssetID:   fn.Ptr(genesis.ID()),
 			GroupKey:  addr.GroupKey,
-			ScriptKey: addr.ScriptKey,
+			ScriptKey: *scriptKey.PubKey,
 			OutPoint:  &op,
 		},
 		Blob: buf.Bytes(),
@@ -526,7 +619,7 @@ func TestCustodianNewAddr(t *testing.T) {
 	h.assertStartup()
 
 	ctx := context.Background()
-	addr, _ := randAddr(h)
+	addr, _ := randAddrV1(h)
 	proofCourierAddr := address.RandProofCourierAddr(t)
 	addrVersion := test.RandFlip(address.V0, address.V1)
 	dbAddr, err := h.addrBook.NewAddress(
@@ -548,6 +641,149 @@ func TestCustodianNewAddr(t *testing.T) {
 
 		return !addrs[0].ManagedAfter.IsZero()
 	})
+}
+
+// TestV2AddressHandling tests that the custodian correctly handles incoming
+// V2 addresses and mailbox messages.
+func TestV2AddressHandling(t *testing.T) {
+	t.Parallel()
+
+	ctxb := context.Background()
+	h := newHarness(t, nil)
+
+	mockServer := authmailbox.NewMockServerWithSigner(t, h.signer)
+	t.Cleanup(func() {
+		mockServer.Stop(t)
+	})
+
+	// We need to derive a new sender key for the address, the key ring will
+	// need to sign with that key later.
+	receiverKey, err := h.keyRing.DeriveNextTaprootAssetKey(ctxb)
+	require.NoError(t, err)
+
+	// Before we start the custodian, we create a V2 address.
+	addr, genesis := randAddrV2(h, url.URL{
+		Scheme: proof.AuthMailboxUniRpcCourierType,
+		Host:   mockServer.ListenAddr,
+	}, asset.ScriptKey{
+		PubKey: receiverKey.PubKey,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: receiverKey,
+			Type:   asset.ScriptKeyBip86,
+		},
+	})
+
+	t.Logf("Receiver script key: %x",
+		receiverKey.PubKey.SerializeCompressed())
+
+	err = h.tapdbBook.InsertAddrs(ctxb, *addr)
+	require.NoError(t, err)
+
+	// We now start the custodian and make sure it's started up correctly.
+	require.NoError(t, h.c.Start())
+	t.Cleanup(func() {
+		require.NoError(t, h.c.Stop())
+	})
+	h.assertStartup()
+
+	// We don't expect the address to be imported into the wallet.
+	select {
+	case <-h.walletAnchor.ImportPubKeySignal:
+		require.Fail(t, "did not expect pubkey to be imported")
+	case <-time.After(testTimeout):
+	}
+
+	// Now, we'll craft a mailbox message that contains a send fragment.
+	// First, we need a sender key.
+	senderPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	senderPubKey := senderPrivKey.PubKey()
+
+	// We'll use ECDH to derive a shared secret.
+	sharedSecret, err := ecies.ECDH(senderPrivKey, receiverKey.PubKey)
+	require.NoError(t, err)
+
+	// Now we create the send fragment.
+	outputIdx, tx := randWalletTx(nil)
+	tx.Confirmations = 1
+	blockHeader := wire.BlockHeader{
+		Version:    1,
+		PrevBlock:  test.RandHash(),
+		MerkleRoot: test.RandHash(),
+		Timestamp:  time.Now(),
+		Bits:       0,
+		Nonce:      0,
+	}
+	block := &wire.MsgBlock{
+		Header: blockHeader,
+		Transactions: []*wire.MsgTx{
+			{},
+			tx.Tx,
+		},
+	}
+	derivationMethod := asset.ScriptKeyDerivationUniquePedersen
+	fragment := &proof.SendFragment{
+		Version: proof.SendFragmentV1,
+		OutPoint: wire.OutPoint{
+			Hash:  tx.Tx.TxHash(),
+			Index: uint32(outputIdx),
+		},
+		Outputs: map[asset.ID]proof.SendOutput{
+			genesis.ID(): {
+				Amount:           addr.Amount,
+				DerivationMethod: derivationMethod,
+			},
+		},
+		BlockHeight: 123,
+		BlockHeader: blockHeader,
+	}
+	h.chainBridge.Blocks[block.BlockHash()] = block
+
+	// Now we encode and encrypt the fragment.
+	fragmentBytes, err := fn.Encode(fragment)
+	require.NoError(t, err)
+
+	encryptedFragment, err := ecies.EncryptSha256ChaCha20Poly1305(
+		sharedSecret, fragmentBytes, senderPubKey.SerializeCompressed(),
+	)
+	require.NoError(t, err)
+
+	// We also need a proof for the courier.
+	outScriptKey, err := asset.DeriveUniqueScriptKey(
+		addr.ScriptKey, genesis.ID(),
+		asset.ScriptKeyDerivationUniquePedersen,
+	)
+	require.NoError(t, err)
+
+	mockProof := randProofWithScriptKey(
+		t, outputIdx, tx.Tx, genesis, addr, outScriptKey,
+	)
+	recipient := proof.Recipient{}
+	t.Logf("Storing proof for recipient key %x",
+		mockProof.ScriptKey.SerializeCompressed())
+
+	err = h.courier.DeliverProof(nil, recipient, mockProof, nil)
+	require.NoError(t, err)
+
+	// Now we can send the message to the custodian's mailbox subscription.
+	addrStr, err := addr.EncodeAddress()
+	require.NoError(t, err)
+	t.Logf("Sending message for address %s", addrStr)
+
+	mockServer.PublishMessage(&authmailbox.Message{
+		ID:               1,
+		ReceiverKey:      *receiverKey.PubKey,
+		EncryptedPayload: encryptedFragment,
+		ArrivalTimestamp: time.Now(),
+		ProofBlockHeight: 123,
+	})
+
+	// We expect one event to be created, and it should be completed.
+	h.assertEventsPresent(1, address.StatusCompleted)
+
+	dbProof, err := h.assetDB.FetchProof(ctxb, mockProof.Locator)
+	require.NoError(t, err)
+	require.EqualValues(t, mockProof.Blob, dbProof)
 }
 
 // TestBookAssetSyncer makes sure that addresses can be created for assets
@@ -657,7 +893,7 @@ func TestTransactionHandling(t *testing.T) {
 	addrs := make([]*address.AddrWithKeyInfo, numAddrs)
 	genesis := make([]*asset.Genesis, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addrs[i], genesis[i] = randAddr(h)
+		addrs[i], genesis[i] = randAddrV1(h)
 		err := h.tapdbBook.InsertAddrs(ctx, *addrs[i])
 		require.NoError(t, err)
 	}
@@ -668,7 +904,7 @@ func TestTransactionHandling(t *testing.T) {
 
 	mockProof := randProof(t, outputIdx, tx.Tx, genesis[0], addrs[0])
 	recipient := proof.Recipient{}
-	err := h.courier.DeliverProof(nil, recipient, mockProof)
+	err := h.courier.DeliverProof(nil, recipient, mockProof, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, h.c.Start())
@@ -712,7 +948,7 @@ func runTransactionConfirmedOnlyTest(t *testing.T, withRestart bool) {
 	addrs := make([]*address.AddrWithKeyInfo, numAddrs)
 	genesis := make([]*asset.Genesis, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addrs[i], genesis[i] = randAddr(h)
+		addrs[i], genesis[i] = randAddrV1(h)
 		err := h.tapdbBook.InsertAddrs(ctx, *addrs[i])
 		require.NoError(t, err)
 	}
@@ -744,7 +980,7 @@ func runTransactionConfirmedOnlyTest(t *testing.T, withRestart bool) {
 		mockProof := randProof(
 			t, outputIndexes[idx], tx.Tx, genesis[idx], addrs[idx],
 		)
-		_ = h.courier.DeliverProof(nil, recipient, mockProof)
+		_ = h.courier.DeliverProof(nil, recipient, mockProof, nil)
 	}
 
 	// We want events to be created for each address, they should be in the
@@ -795,7 +1031,7 @@ func TestProofInMultiverseOnly(t *testing.T) {
 	// corresponding wallet transaction.
 	ctx := context.Background()
 
-	addr, genesis := randAddr(h)
+	addr, genesis := randAddrV1(h)
 	err := h.tapdbBook.InsertAddrs(ctx, *addr)
 	require.NoError(t, err)
 

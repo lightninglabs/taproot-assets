@@ -46,6 +46,11 @@ var newAddrCommand = cli.Command{
 			Name:  assetIDName,
 			Usage: "the asset genesis ID of the asset to receive",
 		},
+		cli.StringFlag{
+			Name: groupKeyName,
+			Usage: "the group key of the asset to receive, if " +
+				"the asset is part of a group",
+		},
 		cli.Uint64Flag{
 			Name:  amtName,
 			Usage: "the amt of the asset to receive",
@@ -70,13 +75,31 @@ var newAddrCommand = cli.Command{
 }
 
 func newAddr(ctx *cli.Context) error {
-	if ctx.String(assetIDName) == "" {
+	if ctx.String(assetIDName) == "" && ctx.String(groupKeyName) == "" {
 		return cli.ShowSubcommandHelp(ctx)
 	}
 
-	assetID, err := hex.DecodeString(ctx.String(assetIDName))
-	if err != nil {
-		return fmt.Errorf("unable to decode assetID: %w", err)
+	var (
+		assetID  []byte
+		groupKey []byte
+		err      error
+	)
+	switch {
+	case ctx.IsSet(assetIDName) && ctx.IsSet(groupKeyName):
+		return fmt.Errorf("cannot set both %s and %s, only one is "+
+			"allowed", assetIDName, groupKeyName)
+
+	case ctx.IsSet(assetIDName):
+		assetID, err = hex.DecodeString(ctx.String(assetIDName))
+		if err != nil {
+			return fmt.Errorf("unable to decode assetID: %w", err)
+		}
+
+	case ctx.IsSet(groupKeyName):
+		groupKey, err = hex.DecodeString(ctx.String(groupKeyName))
+		if err != nil {
+			return fmt.Errorf("unable to decode group key: %w", err)
+		}
 	}
 
 	ctxc := getContext()
@@ -93,10 +116,19 @@ func newAddr(ctx *cli.Context) error {
 	addrVersion := taprpc.AddrVersion_ADDR_VERSION_V1
 	switch ctx.String(addressVersionName) {
 	case "":
+		// We know that if a group key is set, then we need to be using
+		// at least a V2 address. So we can just use that if the user
+		// specifies no explicit version.
+		if len(groupKey) > 0 {
+			addrVersion = taprpc.AddrVersion_ADDR_VERSION_V2
+		}
+
 	case "v0", "V0":
 		addrVersion = taprpc.AddrVersion_ADDR_VERSION_V0
 	case "v1", "V1":
 		addrVersion = taprpc.AddrVersion_ADDR_VERSION_V1
+	case "v2", "V2":
+		addrVersion = taprpc.AddrVersion_ADDR_VERSION_V2
 	default:
 		return fmt.Errorf("unknown address version: %s",
 			ctx.String(addressVersionName))
@@ -104,6 +136,7 @@ func newAddr(ctx *cli.Context) error {
 
 	addr, err := client.NewAddr(ctxc, &taprpc.NewAddrRequest{
 		AssetId:          assetID,
+		GroupKey:         groupKey,
 		Amt:              ctx.Uint64(amtName),
 		AssetVersion:     assetVersion,
 		ProofCourierAddr: ctx.String(proofCourierAddrName),
@@ -193,7 +226,10 @@ func queryAddr(ctx *cli.Context) error {
 	return nil
 }
 
-const addrName = "addr"
+const (
+	addrName           = "addr"
+	addrWithAmountName = "addr_with_amount"
+)
 
 var decodeAddrCommand = cli.Command{
 	Name:      "decode",

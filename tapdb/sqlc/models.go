@@ -34,8 +34,21 @@ type AddrEvent struct {
 	ChainTxnID          int64
 	ChainTxnOutputIndex int32
 	ManagedUtxoID       int64
-	AssetProofID        sql.NullInt64
-	AssetID             sql.NullInt64
+}
+
+type AddrEventOutput struct {
+	ID          int64
+	AddrEventID int64
+	Amount      int64
+	AssetID     []byte
+	ScriptKeyID int64
+}
+
+type AddrEventProof struct {
+	ID           int64
+	AddrEventID  int64
+	AssetProofID int64
+	AssetIDFk    sql.NullInt64
 }
 
 type Asset struct {
@@ -154,6 +167,7 @@ type AssetTransferOutput struct {
 	RelativeLockTime         sql.NullInt32
 	ProofDeliveryComplete    sql.NullBool
 	Position                 int32
+	TapAddress               sql.NullString
 }
 
 type AssetWitness struct {
@@ -179,12 +193,11 @@ type AssetsMetum struct {
 }
 
 type AuthmailboxMessage struct {
-	ID                int64
-	ClaimedOutpoint   []byte
-	ReceiverKey       []byte
-	EncryptedPayload  []byte
-	ArrivalTimestamp  int64
-	ExpiryBlockHeight sql.NullInt32
+	ID               int64
+	ClaimedOutpoint  []byte
+	ReceiverKey      []byte
+	EncryptedPayload []byte
+	ArrivalTimestamp int64
 }
 
 type ChainTxn struct {
