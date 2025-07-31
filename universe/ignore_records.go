@@ -36,7 +36,8 @@ type IgnoreTuple struct {
 	// Amount is the total asset unit amount associated with asset.PrevID.
 	Amount uint64
 
-	// BlockHeight is the height of the block that contains the ignore.
+	// BlockHeight is the height of the block at which this ignore tuple was
+	// created.
 	BlockHeight uint32
 }
 

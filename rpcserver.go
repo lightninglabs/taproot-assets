@@ -3897,10 +3897,21 @@ func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
 		return nil, fmt.Errorf("failed to fetch delegation key "+
 			"locator: %w", err)
 	}
+
+	// Determine the current block height and add it to the ignore tuple.
+	// A supply commitment verifier can then validate each commitment
+	// against historical snapshots of the supply subtrees.
+	currentBlockHeight, err := r.cfg.ChainBridge.CurrentHeight(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current block height "+
+			"for new ignore tuple: %w", err)
+	}
+
 	// Formulate the ignore entry and sign it with the delegation key.
 	ignoreTuple := universe.IgnoreTuple{
-		PrevID: req.AssetAnchorPoint,
-		Amount: req.Amount,
+		PrevID:      req.AssetAnchorPoint,
+		Amount:      req.Amount,
+		BlockHeight: currentBlockHeight,
 	}
 
 	signedIgnore, err := ignoreTuple.GenSignedIgnore(
