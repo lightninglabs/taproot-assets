@@ -200,6 +200,9 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 		transferOutput = sendResp.RpcResp.Transfer.Outputs[1]
 	}
 
+	// Get block height at the time of the ignore request.
+	_, newIgnoreBlockHeight := t.lndHarness.Miner().GetBestBlock()
+
 	// Ignore the asset outpoint owned by the secondary node.
 	ignoreReq := &unirpc.IgnoreAssetOutPointRequest{
 		AssetOutPoint: &taprpc.AssetOutPoint{
@@ -390,6 +393,56 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 	// to the supply commitment delegation key for signing.
 	_, err = secondTapd.IgnoreAssetOutPoint(ctxb, ignoreReq)
 	require.ErrorContains(t.t, err, "delegation key locator not found")
+
+	// Fetch the supply leaves to ensure that the ignored asset outpoint is
+	// included in the supply leaves.
+	//
+	// nolint: lll
+	respLeaves, err := t.tapd.FetchSupplyLeaves(
+		ctxb, &unirpc.FetchSupplyLeavesRequest{
+			GroupKey: &unirpc.FetchSupplyLeavesRequest_GroupKeyBytes{
+				GroupKeyBytes: groupKeyBytes,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, respLeaves)
+
+	require.Len(t.t, respLeaves.IgnoreLeaves, 1)
+
+	ignoreLeafEntry := respLeaves.IgnoreLeaves[0]
+	require.EqualValues(
+		t.t, 10, ignoreLeafEntry.LeafNode.RootSum,
+	)
+	require.EqualValues(
+		t.t, newIgnoreBlockHeight, ignoreLeafEntry.BlockHeight,
+	)
+	require.True(
+		t.t, bytes.Equal(
+			rpcAsset.AssetGenesis.AssetId,
+			ignoreLeafEntry.LeafKey.AssetId,
+		),
+		"asset ID mismatch in ignore leaf",
+	)
+	require.True(
+		t.t, bytes.Equal(
+			transferOutput.ScriptKey[1:],
+			ignoreLeafEntry.LeafKey.ScriptKey,
+		),
+		"asset script key mismatch in ignore leaf",
+	)
+
+	transferOutPoint, err := wire.NewOutPointFromString(
+		transferOutput.Anchor.Outpoint,
+	)
+	require.Equal(
+		t.t, transferOutPoint.Hash.String(),
+		ignoreLeafEntry.LeafKey.Outpoint.HashStr,
+	)
+	require.EqualValues(
+		t.t, transferOutPoint.Index,
+		ignoreLeafEntry.LeafKey.Outpoint.Index,
+	)
 }
 
 // AssertInclusionProof checks that the inclusion proof for a given leaf key
