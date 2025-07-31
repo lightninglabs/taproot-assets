@@ -267,6 +267,10 @@ var (
 			Entity: "universe",
 			Action: "read",
 		}},
+		"/universerpc.Universe/FetchSupplyLeaves": {{
+			Entity: "universe",
+			Action: "read",
+		}},
 		"/rfqrpc.Rfq/AddAssetBuyOrder": {{
 			Entity: "rfq",
 			Action: "write",
@@ -366,6 +370,7 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 	// nolint: lll
 	if allowUniPublicAccessRead || allowPublicUniProofCourier {
 		whitelist["/universerpc.Universe/QueryProof"] = struct{}{}
+		whitelist["/universerpc.Universe/FetchSupplyLeaves"] = struct{}{}
 		whitelist["/authmailboxrpc.Mailbox/ReceiveMessages"] = struct{}{}
 	}
 
