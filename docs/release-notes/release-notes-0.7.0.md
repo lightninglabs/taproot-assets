@@ -133,6 +133,12 @@
   balances of asset channels grouped by group key (if grouped assets were used
   in a channel)](https://github.com/lightninglabs/taproot-assets/pull/1691).
 
+- When sending a payment or adding an invoice any failed RFQ negotiations will
+  now fail immediately, instead of causing a long timeout (30s). This was due
+  to the RPC endpoint ignoring the RFQ rejection response. This
+  [PR](https://github.com/lightninglabs/taproot-assets/pull/1640) addresses the
+  issue.
+
 ## RPC Updates
 
 ## tapcli Updates
