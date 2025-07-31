@@ -315,7 +315,52 @@ jobs:
           format: 'golang'
           parallel: true
 
-  # Integration tests on Postgres backend.
+  ########################
+  # run integration tests with lnd remote-signer
+  ########################
+  integration-test-lnd-remote-signer:
+    name: run itests with lnd remote-signer
+    runs-on: ubuntu-latest
+    steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
+      - name: git checkout
+        uses: actions/checkout@v4
+
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+
+      - name: run itest
+        run: make itest-parallel remote-signing=1
+
+      - name: Zip log files on failure
+        if: ${{ failure() }}
+        run: 7z a logs-itest-lnd-remotesigner.zip itest/**/*.log
+
+      - name: Upload log files on failure
+        uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: logs-itest-lnd-remotesigner
+          path: logs-itest-lnd-remotesigner.zip
+          retention-days: 5
+
+      - name: Send coverage
+        uses: coverallsapp/github-action@v2
+        if: ${{ success() }}
+        continue-on-error: true
+        with:
+          file: itest/coverage.txt
+          flag-name: 'itest'
+          format: 'golang'
+          parallel: true
+
+  ########################
+  # run integration tests with Postgres backend
+  ########################
   integration-test-postgres:
     name: run itests postgres
     runs-on: ubuntu-latest
