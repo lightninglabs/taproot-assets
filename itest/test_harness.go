@@ -368,6 +368,10 @@ type tapdHarnessParams struct {
 	// oracleServerAddress defines the oracle server's address that this
 	// tapd harness is going to use.
 	oracleServerAddress string
+
+	// sendPriceHint indicates whether the tapd should send price hints from
+	// the local oracle to the counterparty when requesting a quote.
+	sendPriceHint bool
 }
 
 // Option is a tapd harness option.
@@ -384,6 +388,15 @@ func WithOracleServer(global, override string) Option {
 		case len(global) > 0:
 			th.oracleServerAddress = global
 		}
+	}
+}
+
+// WithSendPriceHint is a functional option that indicates that the tapd node
+// should send price hints from the local oracle to the counterparty when
+// requesting a quote.
+func WithSendPriceHint() Option {
+	return func(th *tapdHarnessParams) {
+		th.sendPriceHint = true
 	}
 }
 
@@ -420,6 +433,7 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.sqliteDatabaseFilePath = params.sqliteDatabaseFilePath
 		ho.disableSyncCache = params.disableSyncCache
 		ho.oracleServerAddress = params.oracleServerAddress
+		ho.sendPriceHint = params.sendPriceHint
 	}
 
 	tapdCfg := tapdConfig{

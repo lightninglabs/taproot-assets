@@ -45,34 +45,33 @@ func MarshalAcceptedSellQuote(
 		Expiry:               uint64(accept.AssetRate.Expiry.Unix()),
 		AssetAmount:          numAssetUnits.ScaleTo(0).ToUint64(),
 		MinTransportableMsat: uint64(minTransportableMSat),
+		PriceOracleMetadata:  accept.Request.PriceOracleMetadata,
 	}
 }
 
-// MarshalAcceptedBuyQuoteEvent marshals a peer accepted buy quote event to
-// its rpc representation.
-func MarshalAcceptedBuyQuoteEvent(
-	event *PeerAcceptedBuyQuoteEvent) (*rfqrpc.PeerAcceptedBuyQuote,
-	error) {
-
+// MarshalAcceptedBuyQuote marshals a peer accepted buy quote to its RPC
+// representation.
+func MarshalAcceptedBuyQuote(q rfqmsg.BuyAccept) *rfqrpc.PeerAcceptedBuyQuote {
 	// We now calculate the minimum amount of asset units that can be
 	// transported within a single HTLC for this asset at the given rate.
 	// This corresponds to the 354 satoshi minimum non-dust HTLC value.
 	minTransportableUnits := rfqmath.MinTransportableUnits(
-		rfqmath.DefaultOnChainHtlcMSat, event.AssetRate.Rate,
+		rfqmath.DefaultOnChainHtlcMSat, q.AssetRate.Rate,
 	).ScaleTo(0).ToUint64()
 
 	return &rfqrpc.PeerAcceptedBuyQuote{
-		Peer:           event.Peer.String(),
-		Id:             event.ID[:],
-		Scid:           uint64(event.ShortChannelId()),
-		AssetMaxAmount: event.Request.AssetMaxAmt,
+		Peer:           q.Peer.String(),
+		Id:             q.ID[:],
+		Scid:           uint64(q.ShortChannelId()),
+		AssetMaxAmount: q.Request.AssetMaxAmt,
 		AskAssetRate: &rfqrpc.FixedPoint{
-			Coefficient: event.AssetRate.Rate.Coefficient.String(),
-			Scale:       uint32(event.AssetRate.Rate.Scale),
+			Coefficient: q.AssetRate.Rate.Coefficient.String(),
+			Scale:       uint32(q.AssetRate.Rate.Scale),
 		},
-		Expiry:                uint64(event.AssetRate.Expiry.Unix()),
+		Expiry:                uint64(q.AssetRate.Expiry.Unix()),
 		MinTransportableUnits: minTransportableUnits,
-	}, nil
+		PriceOracleMetadata:   q.Request.PriceOracleMetadata,
+	}
 }
 
 // MarshalInvalidQuoteRespEvent marshals an invalid quote response event to
@@ -112,13 +111,8 @@ func NewAddAssetBuyOrderResponse(
 
 	switch e := event.(type) {
 	case *PeerAcceptedBuyQuoteEvent:
-		acceptedQuote, err := MarshalAcceptedBuyQuoteEvent(e)
-		if err != nil {
-			return nil, err
-		}
-
 		resp.Response = &rfqrpc.AddAssetBuyOrderResponse_AcceptedQuote{
-			AcceptedQuote: acceptedQuote,
+			AcceptedQuote: MarshalAcceptedBuyQuote(e.BuyAccept),
 		}
 		return resp, nil
 

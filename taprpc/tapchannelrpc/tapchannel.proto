@@ -157,6 +157,16 @@ message SendPaymentRequest {
     // The group key which dictates which assets may be used for this payment.
     // Mutually exclusive to asset_id.
     bytes group_key = 7;
+
+    // An optional text field that can be used to provide additional metadata
+    // about the payment to the price oracle. This can include information
+    // about the wallet end user that initiated the transaction, or any
+    // authentication information that the price oracle can use to give out a
+    // more accurate (or discount) asset rate. Though not verified or enforced
+    // by tapd, the suggested format for this field is a JSON string.
+    // This field is optional and can be left empty if no metadata is available.
+    // The maximum length of this field is 32'768 bytes.
+    string price_oracle_metadata = 8;
 }
 
 message AcceptedSellQuotes {
@@ -231,6 +241,16 @@ message AddInvoiceRequest {
     // invoice. If set, any asset that belongs to this group may be accepted to
     // settle this invoice. Mutually exclusive to asset_id.
     bytes group_key = 6;
+
+    // An optional text field that can be used to provide additional metadata
+    // about the invoice to the price oracle. This can include information
+    // about the wallet end user that initiated the transaction, or any
+    // authentication information that the price oracle can use to give out a
+    // more accurate (or discount) asset rate. Though not verified or enforced
+    // by tapd, the suggested format for this field is a JSON string.
+    // This field is optional and can be left empty if no metadata is available.
+    // The maximum length of this field is 32'768 bytes.
+    string price_oracle_metadata = 7;
 }
 
 message AddInvoiceResponse {
@@ -253,6 +273,16 @@ message AssetPayReq {
     // The group key that will be used to resolve the invoice's satoshi amount.
     // Mutually exclusive to asset_id.
     bytes group_key = 3;
+
+    // An optional text field that can be used to provide additional metadata
+    // about the invoice to the price oracle. This can include information
+    // about the wallet end user that initiated the transaction, or any
+    // authentication information that the price oracle can use to give out a
+    // more accurate (or discount) asset rate. Though not verified or enforced
+    // by tapd, the suggested format for this field is a JSON string.
+    // This field is optional and can be left empty if no metadata is available.
+    // The maximum length of this field is 32'768 bytes.
+    string price_oracle_metadata = 4;
 }
 
 message AssetPayReqResponse {

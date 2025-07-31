@@ -33,6 +33,8 @@ type testCaseEncodeDecode struct {
 
 	minInAsset  *uint64
 	minOutAsset *uint64
+
+	oracleMetadata string
 }
 
 // Request generates a requestWireMsgData instance from the test case.
@@ -107,19 +109,29 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 		)
 	}
 
+	var oracleMetadata requestOracleMetadata
+	if tc.oracleMetadata != "" {
+		oracleMetadata = tlv.SomeRecordT[tlv.TlvType27](
+			tlv.NewPrimitiveRecord[tlv.TlvType27]([]byte(
+				tc.oracleMetadata,
+			)),
+		)
+	}
+
 	return requestWireMsgData{
-		Version:          version,
-		ID:               id,
-		Expiry:           expiry,
-		InAssetID:        inAssetID,
-		InAssetGroupKey:  inAssetGroupKey,
-		OutAssetID:       outAssetID,
-		OutAssetGroupKey: outAssetGroupKey,
-		MaxInAsset:       maxInAsset,
-		InAssetRateHint:  inAssetRateHint,
-		OutAssetRateHint: outAssetRateHint,
-		MinInAsset:       minInAsset,
-		MinOutAsset:      minOutAsset,
+		Version:             version,
+		ID:                  id,
+		Expiry:              expiry,
+		InAssetID:           inAssetID,
+		InAssetGroupKey:     inAssetGroupKey,
+		OutAssetID:          outAssetID,
+		OutAssetGroupKey:    outAssetGroupKey,
+		MaxInAsset:          maxInAsset,
+		InAssetRateHint:     inAssetRateHint,
+		OutAssetRateHint:    outAssetRateHint,
+		MinInAsset:          minInAsset,
+		MinOutAsset:         minOutAsset,
+		PriceOracleMetadata: oracleMetadata,
 	}
 }
 
@@ -168,6 +180,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			outAssetRateHint: &outAssetRateHint,
 			minInAsset:       &minInAsset,
 			minOutAsset:      &minOutAsset,
+			oracleMetadata:   "this could be a JSON string",
 		},
 		{
 			testName: "in asset ID, out asset ID zero, no asset " +
