@@ -3488,8 +3488,21 @@ func (a *AssetStore) PendingParcels(
 
 // QueryParcels returns the set of confirmed or unconfirmed parcels.
 func (a *AssetStore) QueryParcels(ctx context.Context,
-	anchorTxHash *chainhash.Hash,
-	pendingTransfersOnly bool) ([]*tapfreighter.OutboundParcel, error) {
+	anchorTxHash *chainhash.Hash, pendingOnly bool) (
+	[]*tapfreighter.OutboundParcel, error) {
+
+	return a.queryParcelsWithFilters(
+		ctx, anchorTxHash, pendingOnly, time.Time{}, "", nil,
+	)
+}
+
+// queryParcelsWithFilters returns the set of confirmed or unconfirmed parcels
+// with optional time, label, and script key filters applied at the database
+// level.
+func (a *AssetStore) queryParcelsWithFilters(ctx context.Context,
+	anchorTxHash *chainhash.Hash, pendingOnly bool, startTime time.Time,
+	filterLabel string, filterScriptKey *btcec.PublicKey) (
+	[]*tapfreighter.OutboundParcel, error) {
 
 	var (
 		outboundParcels []*tapfreighter.OutboundParcel
@@ -3507,10 +3520,29 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 
 		transferQuery := TransferQuery{
 			AnchorTxHash:         anchorTxHashBytes,
-			PendingTransfersOnly: sqlBool(pendingTransfersOnly),
+			PendingTransfersOnly: sqlBool(pendingOnly),
 		}
 
-		// Query for asset transfers.
+		if !startTime.IsZero() {
+			transferQuery.StartTime = sql.NullTime{
+				Time:  startTime,
+				Valid: true,
+			}
+		}
+
+		// Add label filter if provided.
+		if filterLabel != "" {
+			transferQuery.FilterLabel = sqlStr(filterLabel)
+		}
+
+		// Add script key filter if provided.
+		if filterScriptKey != nil {
+			serializedKey := filterScriptKey.SerializeCompressed()
+			transferQuery.FilterScriptKey = serializedKey
+		}
+
+		// Query for asset transfers with filters applied at database
+		// level.
 		dbTransfers, err := q.QueryAssetTransfers(ctx, transferQuery)
 		if err != nil {
 			return err
@@ -3533,14 +3565,13 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 				return fmt.Errorf("unable to fetch transfer "+
 					"outputs: %w", err)
 			}
-
-			// We know that the anchor transaction is the same for
-			// each output. Therefore, we use the first output to
-			// fetch the transfer's anchor transaction.
 			if len(outputs) == 0 {
 				return fmt.Errorf("no outputs for transfer")
 			}
 
+			// We know that the anchor transaction is the same for
+			// each output. Therefore, we use the first output to
+			// fetch the transfer's anchor transaction.
 			anchorTXID := outputs[0].Anchor.OutPoint.Hash[:]
 			dbAnchorTx, err := q.FetchChainTx(ctx, anchorTXID)
 			if err != nil {
@@ -3596,6 +3627,7 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 					dbAnchorTx.BlockHeight.Int32,
 				)
 			}
+
 			outboundParcels = append(outboundParcels, parcel)
 		}
 
@@ -3606,6 +3638,63 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 	}
 
 	return outboundParcels, nil
+}
+
+// QueryCompletedParcels returns the set of completed parcels that were
+// transferred after the given start time, optionally filtered by label and/or
+// script key.
+func (a *AssetStore) QueryCompletedParcels(ctx context.Context,
+	startTime time.Time, filterLabel string,
+	filterScriptKey *btcec.PublicKey) ([]*tapfreighter.OutboundParcel,
+	error) {
+
+	// Query for all parcels starting from the given timestamp with optional
+	// label and script key filters, then filter for truly completed ones.
+	allParcels, err := a.queryParcelsWithFilters(
+		ctx, nil, false, startTime, filterLabel, filterScriptKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build filter description for logging.
+	var filterDesc string
+	switch {
+	case filterLabel != "" && filterScriptKey != nil:
+		filterDesc = fmt.Sprintf(" with label='%s' and script_key=%x",
+			filterLabel, filterScriptKey.SerializeCompressed())
+
+	case filterLabel != "":
+		filterDesc = fmt.Sprintf(" with label='%s'", filterLabel)
+
+	case filterScriptKey != nil:
+		filterDesc = fmt.Sprintf(" with script_key=%x",
+			filterScriptKey.SerializeCompressed())
+	}
+
+	log.Infof("QueryCompletedParcels: found %d total parcels since %v%s",
+		len(allParcels), startTime, filterDesc)
+
+	// Filter for completed parcels: those that are confirmed on-chain.
+	// For historical events, we don't require all proofs to be delivered
+	// since proof delivery can happen asynchronously.
+	var completedParcels []*tapfreighter.OutboundParcel
+	for i, parcel := range allParcels {
+		log.Debugf("QueryCompletedParcels(parcel %d): block_height=%d,"+
+			" transfer_time=%v, label=%s", i+1,
+			parcel.AnchorTxBlockHeight, parcel.TransferTime,
+			parcel.Label)
+
+		// Check if parcel is confirmed (has block height set).
+		if parcel.AnchorTxBlockHeight != 0 {
+			completedParcels = append(completedParcels, parcel)
+		}
+	}
+
+	log.Infof("QueryCompletedParcels: filtered to %d completed parcels",
+		len(completedParcels))
+
+	return completedParcels, nil
 }
 
 // AssetsDBSize returns the total size of the taproot assets database.

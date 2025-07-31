@@ -1904,3 +1904,30 @@ func newAssetSendErrorEvent(err error, executedState SendState,
 		Transfer:       pkg.OutboundPkg,
 	}
 }
+
+// NewHistoricalAssetSendEvent creates an AssetSendEvent from a completed
+// transfer parcel for historical event replay. This is used when replaying
+// events from the database.
+func NewHistoricalAssetSendEvent(parcel *OutboundParcel,
+	timestamp time.Time) *AssetSendEvent {
+
+	return &AssetSendEvent{
+		timestamp:     timestamp,
+		SendState:     SendStateComplete,
+		NextSendState: SendStateComplete,
+		Error:         nil,
+		// We don't have the original Parcel for historical events.
+		Parcel:        nil,
+		TransferLabel: parcel.Label,
+		Transfer:      parcel,
+		// For historical events, we don't have access to the virtual
+		// packets, so these will be empty. This is a limitation of
+		// historical replay.
+		VirtualPackets: nil,
+		PassivePackets: nil,
+		AnchorTx: &tapsend.AnchorTransaction{
+			FinalTx:   parcel.AnchorTx,
+			ChainFees: parcel.ChainFees,
+		},
+	}
+}

@@ -947,6 +947,13 @@ func withFeeRate(feeRate uint32) sendOption {
 	}
 }
 
+// withSendLabel is an option to specify the label for the send.
+func withSendLabel(label string) sendOption {
+	return func(options *sendOptions) {
+		options.sendAssetRequest.Label = label
+	}
+}
+
 // withError is an option to specify the string that is expected in the error
 // returned by the SendAsset call.
 func withError(errorText string) sendOption {
@@ -1052,6 +1059,18 @@ func sendAssetsToAddr(t *harnessTest, sender *tapdHarness,
 	*EventSubscription[*taprpc.SendEvent]) {
 
 	return sendAsset(t, sender, withReceiverAddresses(receiverAddrs...))
+}
+
+// sendAssetsToAddrWithLabel sends assets to the given addresses with a specific
+// label.
+func sendAssetsToAddrWithLabel(t *harnessTest, sender *tapdHarness,
+	label string, receiverAddrs ...*taprpc.Addr) (*taprpc.SendAssetResponse,
+	*EventSubscription[*taprpc.SendEvent]) {
+
+	return sendAsset(
+		t, sender, withReceiverAddresses(receiverAddrs...),
+		withSendLabel(label),
+	)
 }
 
 // fundAddressSendPacket asks the wallet to fund a new virtual packet with the

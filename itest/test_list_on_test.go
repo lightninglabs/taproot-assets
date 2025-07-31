@@ -135,6 +135,10 @@ var allTestCases = []*testCase{
 		test: testSendNoCourierUniverseImport,
 	},
 	{
+		name: "historical send events replay",
+		test: testHistoricalSendEventsReplay,
+	},
+	{
 		name:             "basic send passive asset hashmail courier",
 		test:             testBasicSendPassiveAsset,
 		proofCourierType: proof.HashmailCourierType,

@@ -483,12 +483,35 @@ WHERE
         )
         OR $2 = false OR $2 IS NULL
     )
+
+    -- Optionally filter on a given start time.
+    AND transfers.transfer_time_unix >=
+        COALESCE($3, transfers.transfer_time_unix)
+
+    -- Optionally filter on a given label.
+    AND (transfers.label = $4 OR
+            $4 IS NULL)
+
+    -- Optionally filter on outputs with a specific script key.
+    AND (
+      EXISTS (
+        SELECT 1
+        FROM asset_transfer_outputs outputs
+        JOIN script_keys sk ON outputs.script_key = sk.script_key_id
+        WHERE outputs.transfer_id = transfers.id
+          AND sk.tweaked_script_key = $5
+      )
+      OR $5 IS NULL
+    )
 ORDER BY transfer_time_unix
 `
 
 type QueryAssetTransfersParams struct {
 	AnchorTxHash         []byte
 	PendingTransfersOnly interface{}
+	StartTime            sql.NullTime
+	FilterLabel          sql.NullString
+	FilterScriptKey      []byte
 }
 
 type QueryAssetTransfersRow struct {
@@ -502,7 +525,13 @@ type QueryAssetTransfersRow struct {
 }
 
 func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error) {
-	rows, err := q.db.QueryContext(ctx, QueryAssetTransfers, arg.AnchorTxHash, arg.PendingTransfersOnly)
+	rows, err := q.db.QueryContext(ctx, QueryAssetTransfers,
+		arg.AnchorTxHash,
+		arg.PendingTransfersOnly,
+		arg.StartTime,
+		arg.FilterLabel,
+		arg.FilterScriptKey,
+	)
 	if err != nil {
 		return nil, err
 	}

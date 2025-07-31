@@ -116,6 +116,10 @@ const (
 	// the whole payment if only one of the peers is taking too long to
 	// respond.
 	multiRfqNegotiationTimeout = time.Second * 8
+
+	// fetchTimeout is a generic timeout to use when fetching data from
+	// the database during any RPC calls that don't have a parent context.
+	fetchTimeout = time.Second * 30
 )
 
 type (
@@ -4468,6 +4472,72 @@ func (r *rpcServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
 		targetScriptKey = fn.MaybeSome(scriptKey)
 	}
 
+	// If a start timestamp is provided, first send historical events.
+	if req.StartTimestamp > 0 {
+		// Convert microseconds to time.Time
+		startTime := time.Unix(0, req.StartTimestamp*1000)
+
+		// Validate that the timestamp is not in the future.
+		if startTime.After(time.Now()) {
+			return fmt.Errorf("start_timestamp cannot be in the " +
+				"future")
+		}
+
+		// Query completed transfers from the database with filters.
+		ctxt, cancel := context.WithTimeout(
+			context.Background(), fetchTimeout,
+		)
+		defer cancel()
+
+		// Convert the targetScriptKey Option to a *btcec.PublicKey.
+		var filterScriptKey *btcec.PublicKey
+		targetScriptKey.WhenSome(func(key btcec.PublicKey) {
+			filterScriptKey = &key
+		})
+
+		parcels, err := r.cfg.AssetStore.QueryCompletedParcels(
+			ctxt, startTime, req.FilterLabel, filterScriptKey,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to query historical "+
+				"parcels: %w", err)
+		}
+
+		rpcsLog.Infof("SubscribeSendEvents: found %d completed "+
+			"parcels since %v (timestamp: %d)", len(parcels),
+			startTime, req.StartTimestamp)
+
+		// Send historical events in chronological order.
+		for i, parcel := range parcels {
+			rpcsLog.Debugf("SubscribeSendEvents: sending "+
+				"historical event %d: transfer_time=%v, "+
+				"label=%s", i+1, parcel.TransferTime,
+				parcel.Label)
+
+			// Reconstruct the send event from the parcel.
+			event := tapfreighter.NewHistoricalAssetSendEvent(
+				parcel, parcel.TransferTime,
+			)
+
+			// Since we already filtered at the database level, we
+			// can directly send all events. Marshal and send the
+			// event.
+			rpcEvent, err := marshalSendEvent(event)
+			if err != nil {
+				rpcsLog.Errorf("Failed to marshal historical "+
+					"send event: %v", err)
+
+				return err
+			}
+
+			if err := ntfnStream.Send(rpcEvent); err != nil {
+				return fmt.Errorf("failed to send historical "+
+					"send event: %w", err)
+			}
+		}
+	}
+
+	// Now handle live events.
 	shouldNotify := func(event fn.Event) (bool, error) {
 		var e *tapfreighter.AssetSendEvent
 		switch typedEvent := event.(type) {
@@ -4779,6 +4849,12 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 		case *tapfreighter.PreAnchoredParcel:
 			result.ParcelType =
 				taprpc.ParcelType_PARCEL_TYPE_PRE_ANCHORED
+
+		case nil:
+			// For historical events, we don't have the original
+			// parcel. Use a default parcel type.
+			result.ParcelType =
+				taprpc.ParcelType_PARCEL_TYPE_ADDRESS
 
 		default:
 			return nil, fmt.Errorf("unknown parcel type %T",

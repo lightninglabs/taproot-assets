@@ -1582,6 +1582,10 @@ message SubscribeSendEventsRequest {
     // Filter send events by a specific label. Leave empty to not filter by
     // transfer label.
     string filter_label = 2;
+
+    // The start time as a Unix timestamp in microseconds. If not set (default
+    // value 0), the daemon will start streaming events from the current time.
+    int64 start_timestamp = 3;
 }
 
 enum SendState {
