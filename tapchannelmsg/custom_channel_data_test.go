@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
@@ -137,6 +138,16 @@ func TestReadBalanceCustomData(t *testing.T) {
 	proof1 := randProof(t)
 	proof2 := randProof(t)
 	proof3 := randProof(t)
+
+	// We make it so the assets in proof 1 and proof 2 are in the same
+	// group, so their balance will be combined in the output.
+	groupPubKey := test.RandPubKey(t)
+	proof1.Asset.GroupKey = &asset.GroupKey{
+		GroupPubKey: *groupPubKey,
+	}
+	proof2.Asset.GroupKey = proof1.Asset.GroupKey
+	groupKeyStr := hex.EncodeToString(groupPubKey.SerializeCompressed())
+
 	assetID1 := proof1.Asset.ID()
 	assetID2 := proof2.Asset.ID()
 	assetID3 := proof3.Asset.ID()
@@ -226,6 +237,20 @@ func TestReadBalanceCustomData(t *testing.T) {
 	require.Contains(t, formattedJSON.String(), expectedOpen3)
 	require.Contains(t, formattedJSON.String(), expectedPending1)
 	require.Contains(t, formattedJSON.String(), expectedPending2)
+
+	// The grouped balance shouldn't show the asset ID or name, since that
+	// would be confusing as it would only use the ID/name of the first
+	// asset we have in the channels for that group.
+	expectedOpenGroup := `"` + groupKeyStr + `": {
+      "local_balance": 3000,
+      "remote_balance": 2000
+    }`
+	expectedPendingGroup := `"` + groupKeyStr + `": {
+      "local_balance": 0,
+      "remote_balance": 1000
+    }`
+	require.Contains(t, formattedJSON.String(), expectedOpenGroup)
+	require.Contains(t, formattedJSON.String(), expectedPendingGroup)
 }
 
 // TestCloseOutCustomData tests that we can read the custom data from a channel

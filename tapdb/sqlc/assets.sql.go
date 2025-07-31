@@ -2324,7 +2324,8 @@ SELECT
     genesis_info_view.asset_id, SUM(amount) balance,
     genesis_info_view.asset_tag, genesis_info_view.meta_hash,
     genesis_info_view.asset_type, genesis_info_view.output_index,
-    genesis_info_view.prev_out AS genesis_point
+    genesis_info_view.prev_out AS genesis_point,
+    key_group_info_view.tweaked_group_key AS group_key
 FROM assets
 JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id AND
@@ -2353,7 +2354,7 @@ WHERE spent = FALSE AND
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          genesis_info_view.asset_tag, genesis_info_view.meta_hash,
          genesis_info_view.asset_type, genesis_info_view.output_index,
-         genesis_info_view.prev_out
+         genesis_info_view.prev_out, key_group_info_view.tweaked_group_key
 `
 
 type QueryAssetBalancesByAssetParams struct {
@@ -2371,6 +2372,7 @@ type QueryAssetBalancesByAssetRow struct {
 	AssetType    int16
 	OutputIndex  int32
 	GenesisPoint []byte
+	GroupKey     []byte
 }
 
 // We use a LEFT JOIN here as not every asset has a group key, so this'll
@@ -2407,6 +2409,7 @@ func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, arg QueryAssetB
 			&i.AssetType,
 			&i.OutputIndex,
 			&i.GenesisPoint,
+			&i.GroupKey,
 		); err != nil {
 			return nil, err
 		}

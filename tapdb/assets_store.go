@@ -383,6 +383,7 @@ type AssetBalance struct {
 	Type         asset.Type
 	GenesisPoint wire.OutPoint
 	OutputIndex  uint32
+	GroupKey     []byte
 }
 
 // AssetGroupBalance holds abalance query result for a particular asset group
@@ -1064,6 +1065,7 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 				Tag:         assetBalance.AssetTag,
 				Type:        asset.Type(assetBalance.AssetType),
 				OutputIndex: uint32(assetBalance.OutputIndex),
+				GroupKey:    assetBalance.GroupKey,
 			}
 
 			err = readOutPoint(
