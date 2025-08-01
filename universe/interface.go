@@ -712,6 +712,27 @@ type AssetSyncDiff struct {
 	//  * can used a sealed interface to return the error
 }
 
+// HasRootChanged reports whether the universe root was modified during sync.
+// It returns true if the sync resulted in a state change, or false if it was a
+// no-op.
+func (a *AssetSyncDiff) HasRootChanged() (bool, error) {
+	// If the old root is nil, this may be the first sync.
+	// If the new root is non-nil, the root has changed.
+	if a.OldUniverseRoot.Node == nil {
+		return a.NewUniverseRoot.Node != nil, nil
+	}
+
+	// Sanity check: the new root should not be nil if the old root was
+	// non-nil. This likely indicates a logic error.
+	if a.NewUniverseRoot.Node == nil {
+		return false, fmt.Errorf("new universe root is nil, but old " +
+			"root is not")
+	}
+
+	// Both roots are non-nil. Compare their hashes to detect changes.
+	return a.OldUniverseRoot.NodeHash() != a.NewUniverseRoot.NodeHash(), nil
+}
+
 // Syncer is used to synchronize the state of two Universe instances: a local
 // instance and a remote instance. As a Universe is a tree based structure,
 // tree based bisection can be used to find the point of divergence with

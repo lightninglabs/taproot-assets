@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"sync/atomic"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -45,6 +46,25 @@ type SimpleSyncCfg struct {
 	// SyncBatchSize is the number of items to sync in a single batch.
 	SyncBatchSize int
 }
+
+// SyncDiffEvent is sent to subscribers after a universe sync completes,
+// if a diff between the local and remote universe was detected.
+type SyncDiffEvent struct {
+	// timestamp is the time the event was created.
+	timestamp time.Time
+
+	// SyncDiff is the diff of the sync.
+	SyncDiff AssetSyncDiff
+}
+
+// Timestamp returns the timestamp of the event.
+func (e *SyncDiffEvent) Timestamp() time.Time {
+	return e.timestamp
+}
+
+// A compile-time assertion to ensure that SyncDiffEvent implements the
+// fn.Event interface.
+var _ fn.Event = (*SyncDiffEvent)(nil)
 
 // SimpleSyncer is a simple implementation of the Syncer interface. It's based
 // on a set difference operation between the local and remote Universe.
@@ -572,7 +592,41 @@ func (s *SimpleSyncer) SyncUniverse(ctx context.Context, host ServerAddr,
 
 	// With the engine created, we can now sync the local Universe with the
 	// remote instance.
-	return s.executeSync(ctx, diffEngine, syncType, syncConfigs, idsToSync)
+	diffs, err := s.executeSync(
+		ctx, diffEngine, syncType, syncConfigs, idsToSync,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute sync: %w", err)
+	}
+
+	// Notify subscribers of the new sync diffs where the old and
+	// new Universe roots differ.
+	var events []fn.Event
+	for idx := range diffs {
+		diff := diffs[idx]
+
+		// Only notify subscribers if the old and new Universe roots
+		// differ.
+		rootChange, err := diff.HasRootChanged()
+		if err != nil {
+			return nil, fmt.Errorf("unable to determine "+
+				"if root has changed: %w", err)
+		}
+
+		if rootChange {
+			events = append(
+				events,
+				&SyncDiffEvent{
+					timestamp: time.Now().UTC(),
+					SyncDiff:  diff,
+				},
+			)
+		}
+	}
+
+	s.eventDistributor.NotifySubscribers(events...)
+
+	return diffs, nil
 }
 
 // fetchAllRoots fetches all the roots from the remote Universe. This function
