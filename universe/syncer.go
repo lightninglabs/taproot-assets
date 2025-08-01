@@ -55,14 +55,46 @@ type SimpleSyncer struct {
 	// Universe with a remote Universe. This is used to prevent concurrent
 	// syncs.
 	isSyncing atomic.Bool
+
+	// eventDistributor is used to distribute sync events to subscribers.
+	eventDistributor *fn.EventDistributor[fn.Event]
 }
 
 // NewSimpleSyncer creates a new SimpleSyncer instance.
 func NewSimpleSyncer(cfg SimpleSyncCfg) *SimpleSyncer {
 	return &SimpleSyncer{
-		cfg: cfg,
+		cfg:              cfg,
+		eventDistributor: fn.NewEventDistributor[fn.Event](),
 	}
 }
+
+// RegisterSubscriber adds a new subscriber for receiving events.
+//
+// NOTE: This is part of the fn.EventPublisher interface.
+func (s *SimpleSyncer) RegisterSubscriber(receiver *fn.EventReceiver[fn.Event],
+	deliverExisting bool, _ bool) error {
+
+	if deliverExisting {
+		return fmt.Errorf("SimpleSyncer does not support delivering " +
+			"existing events")
+	}
+
+	s.eventDistributor.RegisterSubscriber(receiver)
+	return nil
+}
+
+// RemoveSubscriber removes the given subscriber and also stops it from
+// processing events.
+//
+// NOTE: This is part of the fn.EventPublisher interface.
+func (s *SimpleSyncer) RemoveSubscriber(
+	subscriber *fn.EventReceiver[fn.Event]) error {
+
+	return s.eventDistributor.RemoveSubscriber(subscriber)
+}
+
+// Ensure SimpleSyncer implements the fn.EventPublisher interface.
+var _ fn.EventPublisher[fn.Event, bool] = (*SimpleSyncer)(nil)
 
 // executeSync attempts to sync the local Universe with the remote diff engine.
 // A simple approach where a set difference is used to find the set of assets
