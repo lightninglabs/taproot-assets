@@ -120,6 +120,10 @@
 - All [`lndclient` wrapper services were moved to their own `lndservices` sub
   package](https://github.com/lightninglabs/taproot-assets/pull/1668).
 
+- [Simplify](https://github.com/lightninglabs/taproot-assets/pull/1696)
+  `ChainPorter` state machine by removing a goroutine and simplifying
+  event emission. Fixes an itest flake.
+
 ## Breaking Changes
 
 ## Performance Improvements
