@@ -106,6 +106,15 @@ func (s *receiveSubscription) connectAndAuthenticate(ctx context.Context,
 
 	err := s.connectServerStream(ctx, initialBackoff, reconnectRetries)
 	if err != nil {
+		if errors.Is(err, ErrClientShutdown) {
+			log.DebugS(ctx, "Client is shutting down, not "+
+				"connecting to server stream")
+
+			// Allow the main server to identify this as the request
+			// being canceled by the client. Which will cause the
+			// error not to be treated as a fatal error.
+			return context.Canceled
+		}
 		return fmt.Errorf("connecting server stream failed: %w", err)
 	}
 
