@@ -10,8 +10,8 @@ import (
 // JsonAssetBalance is a struct that represents the balance of a single asset ID
 // within a channel.
 type JsonAssetBalance struct {
-	AssetID       string `json:"asset_id"`
-	Name          string `json:"name"`
+	AssetID       string `json:"asset_id,omitempty"`
+	Name          string `json:"name,omitempty"`
 	LocalBalance  uint64 `json:"local_balance"`
 	RemoteBalance uint64 `json:"remote_balance"`
 }
@@ -80,9 +80,12 @@ func (c *JsonAssetChannel) HasAllAssetIDs(ids fn.Set[asset.ID]) bool {
 
 // JsonAssetChannelBalances is a struct that represents the balance information
 // of all assets within open and pending channels.
+// nolint:lll
 type JsonAssetChannelBalances struct {
-	OpenChannels    map[string]*JsonAssetBalance `json:"open_channels"`
-	PendingChannels map[string]*JsonAssetBalance `json:"pending_channels"`
+	OpenChannels           map[string]*JsonAssetBalance `json:"open_channels"`
+	OpenChannelsByGroup    map[string]*JsonAssetBalance `json:"open_channels_by_group"`
+	PendingChannels        map[string]*JsonAssetBalance `json:"pending_channels"`
+	PendingChannelsByGroup map[string]*JsonAssetBalance `json:"pending_channels_by_group"`
 }
 
 // JsonCloseOutput is a struct that represents the additional co-op close output

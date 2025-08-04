@@ -2279,6 +2279,24 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 			"asset balance, wanted %d, got: %v", balance,
 			toJSON(t, assetIDBalances),
 		)
+
+		// If we query for grouped asset balances too, it means we do
+		// have at least some assets with a group key. So the output of
+		// the ListBalances call should contain at least one asset
+		// balance with a group key set.
+		if config.groupedAssetBalance > 0 {
+			numGrouped := 0
+			for _, bal := range assetIDBalances.AssetBalances {
+				if len(bal.GroupKey) > 0 {
+					numGrouped++
+				}
+			}
+			require.Greater(
+				t, numGrouped, 0, "expected at least one "+
+					"asset in ListBalances response to "+
+					"have a group key set",
+			)
+		}
 	}
 
 	// Next, we do the same but grouped by group keys (if requested, since
@@ -2305,6 +2323,12 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 				"grouped balance, wanted %d, got: %v", balance,
 				toJSON(t, assetGroupBalances),
 			)
+
+			// Because we query for grouped assets, the group key
+			// field should be set for all asset balances.
+			for _, bal := range assetGroupBalances.AssetBalances {
+				require.Equal(t, config.groupKey, bal.GroupKey)
+			}
 		}
 	}
 

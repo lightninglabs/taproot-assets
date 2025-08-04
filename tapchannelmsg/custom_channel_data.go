@@ -200,83 +200,90 @@ func (b *BalanceCustomData) AsJson() ([]byte, error) {
 		return []byte{}, nil
 	}
 
-	resp := &rfqmsg.JsonAssetChannelBalances{
-		OpenChannels:    make(map[string]*rfqmsg.JsonAssetBalance),
-		PendingChannels: make(map[string]*rfqmsg.JsonAssetBalance),
-	}
-	for _, openChan := range b.OpenChannels {
-		for _, assetOutput := range openChan.LocalOutputs() {
-			assetID := assetOutput.AssetID.Val
+	type groupedBalance = map[string]*rfqmsg.JsonAssetBalance
 
-			assetIDStr := hex.EncodeToString(assetID[:])
-			assetName := assetOutput.Proof.Val.Asset.Tag
+	// addOutput is a helper function that adds an asset output to the
+	// targetByID and targetByGroup maps, updating the local or remote
+	// balance as appropriate.
+	addOutput := func(out *AssetOutput, local bool, targetByID,
+		targetByGroup groupedBalance) {
 
-			assetBalance, ok := resp.OpenChannels[assetIDStr]
+		assetID := out.AssetID.Val
+		assetIDStr := hex.EncodeToString(assetID[:])
+		assetName := out.Proof.Val.Asset.Tag
+		amount := out.Amount.Val
+		groupKey := out.Proof.Val.Asset.GroupKey
+
+		balanceByID, ok := targetByID[assetIDStr]
+		if !ok {
+			balanceByID = &rfqmsg.JsonAssetBalance{
+				AssetID: assetIDStr,
+				Name:    assetName,
+			}
+			targetByID[assetIDStr] = balanceByID
+		}
+
+		if local {
+			balanceByID.LocalBalance += amount
+		} else {
+			balanceByID.RemoteBalance += amount
+		}
+
+		if groupKey != nil {
+			groupKeyStr := hex.EncodeToString(
+				groupKey.GroupPubKey.SerializeCompressed(),
+			)
+
+			balanceByGroupKey, ok := targetByGroup[groupKeyStr]
 			if !ok {
-				assetBalance = &rfqmsg.JsonAssetBalance{
-					AssetID: assetIDStr,
-					Name:    assetName,
-				}
-				resp.OpenChannels[assetIDStr] = assetBalance
+				balanceByGroupKey = &rfqmsg.JsonAssetBalance{}
+				targetByGroup[groupKeyStr] = balanceByGroupKey
 			}
 
-			assetBalance.LocalBalance += assetOutput.Amount.Val
+			if local {
+				balanceByGroupKey.LocalBalance += amount
+			} else {
+				balanceByGroupKey.RemoteBalance += amount
+			}
+		}
+	}
+
+	resp := &rfqmsg.JsonAssetChannelBalances{
+		OpenChannels:           make(groupedBalance),
+		OpenChannelsByGroup:    make(groupedBalance),
+		PendingChannels:        make(groupedBalance),
+		PendingChannelsByGroup: make(groupedBalance),
+	}
+
+	for _, openChan := range b.OpenChannels {
+		for _, assetOutput := range openChan.LocalOutputs() {
+			addOutput(
+				assetOutput, true, resp.OpenChannels,
+				resp.OpenChannelsByGroup,
+			)
 		}
 
 		for _, assetOutput := range openChan.RemoteOutputs() {
-			assetID := assetOutput.AssetID.Val
-
-			assetIDStr := hex.EncodeToString(assetID[:])
-			assetName := assetOutput.Proof.Val.Asset.Tag
-
-			assetBalance, ok := resp.OpenChannels[assetIDStr]
-			if !ok {
-				assetBalance = &rfqmsg.JsonAssetBalance{
-					AssetID: assetIDStr,
-					Name:    assetName,
-				}
-				resp.OpenChannels[assetIDStr] = assetBalance
-			}
-
-			assetBalance.RemoteBalance += assetOutput.Amount.Val
+			addOutput(
+				assetOutput, false, resp.OpenChannels,
+				resp.OpenChannelsByGroup,
+			)
 		}
 	}
 
 	for _, pendingChan := range b.PendingChannels {
 		for _, assetOutput := range pendingChan.LocalOutputs() {
-			assetID := assetOutput.AssetID.Val
-
-			assetIDStr := hex.EncodeToString(assetID[:])
-			assetName := assetOutput.Proof.Val.Asset.Tag
-
-			assetBalance, ok := resp.PendingChannels[assetIDStr]
-			if !ok {
-				assetBalance = &rfqmsg.JsonAssetBalance{
-					AssetID: assetIDStr,
-					Name:    assetName,
-				}
-				resp.PendingChannels[assetIDStr] = assetBalance
-			}
-
-			assetBalance.LocalBalance += assetOutput.Amount.Val
+			addOutput(
+				assetOutput, true, resp.PendingChannels,
+				resp.PendingChannelsByGroup,
+			)
 		}
 
 		for _, assetOutput := range pendingChan.RemoteOutputs() {
-			assetID := assetOutput.AssetID.Val
-
-			assetIDStr := hex.EncodeToString(assetID[:])
-			assetName := assetOutput.Proof.Val.Asset.Tag
-
-			assetBalance, ok := resp.PendingChannels[assetIDStr]
-			if !ok {
-				assetBalance = &rfqmsg.JsonAssetBalance{
-					AssetID: assetIDStr,
-					Name:    assetName,
-				}
-				resp.PendingChannels[assetIDStr] = assetBalance
-			}
-
-			assetBalance.RemoteBalance += assetOutput.Amount.Val
+			addOutput(
+				assetOutput, false, resp.PendingChannels,
+				resp.PendingChannelsByGroup,
+			)
 		}
 	}
 
