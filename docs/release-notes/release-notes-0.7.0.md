@@ -189,6 +189,14 @@
   [PR](https://github.com/lightninglabs/taproot-assets/pull/1640) addresses the
   issue.
 
+- A new configuration is now available which controls the max ratio of fees that
+  each anchor transaction pays. This is important because given the nature of
+  the small taproot-assets anchors we might want to allow for fees to be greater
+  than the anchor amount itself, which is helpful in high fee environment where
+  pulling in extra inputs might not be preferred. It is exposed via the flag
+  `wallet.psbt-max-fee-ratio` and is introduced by
+  [PR #1545](https://github.com/lightninglabs/taproot-assets/pull/1545).
+
 ## RPC Updates
 
 ## tapcli Updates
