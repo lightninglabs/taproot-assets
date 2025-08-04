@@ -1272,7 +1272,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	commitPacket = signPacket(t.t, senderLnd, commitPacket)
-	commitPacket = FinalizePacket(t.t, senderLnd.RPC, commitPacket)
+	commitPacket = FinalizeFullySigned(t.t, commitPacket)
 	publishResp := PublishAndLogTransfer(
 		t.t, sender, commitPacket, []*tappsbt.VPacket{activePacket},
 		[]*tappsbt.VPacket{passivePacket}, commitResp,
@@ -2918,7 +2918,7 @@ func testPsbtExternalCommit(t *harnessTest) {
 	t.Logf("Committed transaction: %v", toJSON(t.t, commitResp))
 
 	btcPacket = signPacket(t.t, aliceLnd, btcPacket)
-	btcPacket = FinalizePacket(t.t, aliceLnd.RPC, btcPacket)
+	btcPacket = FinalizeFullySigned(t.t, btcPacket)
 
 	transferLabel := "itest-psbt-external-commit"
 
