@@ -332,9 +332,8 @@ func (p *ChainPorter) mainEventLoop() {
 func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 	// Continue state transitions whilst state complete has not yet
 	// been reached.
-	for pkg.SendState < SendStateComplete {
-		log.Infof("ChainPorter executing state: %v",
-			pkg.SendState)
+	for pkg.SendState <= SendStateComplete {
+		log.Infof("ChainPorter executing state: %v", pkg.SendState)
 
 		// Before we attempt a state transition, make sure that
 		// we aren't trying to shut down.
@@ -360,14 +359,19 @@ func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 		}
 
 		// Notify subscribers that the state machine has executed a
-		// state successfully. The only state that happens in a
-		// goroutine outside the state machine is sending the proof to
-		// the receiver using the proof courier service. That goroutine
-		// will notify the subscribers itself, so we skip it here.
-		if pkg.SendState < SendStateComplete {
-			p.publishSubscriberEvent(newAssetSendEvent(
-				stateToExecute, *updatedPkg,
-			))
+		// state successfully.
+		p.publishSubscriberEvent(newAssetSendEvent(
+			stateToExecute, *updatedPkg,
+		))
+
+		// Exit the loop once the state machine has executed its final
+		// state.
+		if pkg.SendState == SendStateComplete {
+			log.Infof("ChainPorter completed state machine for "+
+				"parcel (anchor_txid=%v)",
+				updatedPkg.OutboundPkg.AnchorTx.TxHash())
+
+			return
 		}
 
 		pkg = updatedPkg
@@ -1028,18 +1032,6 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		return nil
 	}
 
-	// At this point, the transfer is fully finalised and successful:
-	// - The anchoring transaction has been confirmed on-chain.
-	// - The proof(s) have been delivered to the receiver(s).
-	// - The database has been updated to reflect the successful transfer.
-	log.Infof("Parcel transfer is fully complete (anchor_txid=%v)",
-		pkg.OutboundPkg.AnchorTx.TxHash())
-
-	// Send out the final notification that the transfer is complete.
-	p.publishSubscriberEvent(newAssetSendEvent(SendStateComplete, *pkg))
-
-	pkg.SendState = SendStateComplete
-
 	return nil
 }
 
@@ -1631,26 +1623,24 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// we've stored the sender and receiver proofs in the proof archive.
 	// We'll now attempt to transfer one or more proofs to the receiver(s).
 	case SendStateTransferProofs:
-		// We'll set the package state to complete early here so the
-		// main loop breaks out. We'll continue to attempt proof
-		// deliver in the background.
+		err := p.transferReceiverProof(&currentPkg)
+		if err != nil {
+			return nil, fmt.Errorf("unable to transfer receiver "+
+				"proof: %w", err)
+		}
+
 		currentPkg.SendState = SendStateComplete
+		return &currentPkg, nil
 
-		p.Wg.Add(1)
-		go func() {
-			defer p.Wg.Done()
-
-			err := p.transferReceiverProof(&currentPkg)
-			if err != nil {
-				log.Errorf("unable to transfer receiver "+
-					"proof: %v", err)
-
-				p.publishSubscriberEvent(newAssetSendErrorEvent(
-					err, SendStateTransferProofs,
-					currentPkg,
-				))
-			}
-		}()
+	case SendStateComplete:
+		// At this point, the transfer is fully finalised and
+		// successful:
+		// - The anchoring transaction has been confirmed on-chain.
+		// - The proof(s) have been delivered to the receiver(s).
+		// - The database has been updated to reflect the successful
+		//   transfer.
+		log.Infof("Parcel transfer is fully complete (anchor_txid=%v)",
+			currentPkg.OutboundPkg.AnchorTx.TxHash())
 
 		return &currentPkg, nil
 
