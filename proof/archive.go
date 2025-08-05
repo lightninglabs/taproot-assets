@@ -879,21 +879,54 @@ func (m *MultiArchiver) FetchIssuanceProof(ctx context.Context,
 // intended to be a performance optimized lookup compared to fetching a proof
 // and checking for ErrProofNotFound. The multi archiver only considers a proof
 // to be present if all backends have it.
-func (m *MultiArchiver) HasProof(ctx context.Context, id Locator) (bool, error) {
+func (m *MultiArchiver) HasProof(ctx context.Context,
+	id Locator) (bool, error) {
+
+	var (
+		someHaveProof = false
+		allHaveProof  = true
+	)
 	for _, archive := range m.backends {
 		ok, err := archive.HasProof(ctx, id)
 		if err != nil {
 			return false, err
 		}
 
-		// We are expecting all backends to have the proof, otherwise we
-		// consider the proof not to be found.
-		if !ok {
-			return false, nil
-		}
+		someHaveProof = someHaveProof || ok
+		allHaveProof = allHaveProof && ok
 	}
 
-	return true, nil
+	// If all backends have the proof, then we don't need to do anything
+	// further and can return that result.
+	if allHaveProof {
+		return true, nil
+	}
+
+	// If no backends have the proof, then this is just a proof we don't
+	// know about, which is fine too.
+	if !someHaveProof {
+		return false, nil
+	}
+
+	// If only some but not all backends have the proof, it's possible that
+	// the other ones are in the process of importing it right now. So we
+	// re-try a couple of times to see if the proof becomes available
+	// eventually.
+	return fn.RetryFuncN(
+		ctx, fn.DefaultRetryConfig(), func() (bool, error) {
+			allHaveProof = true
+			for _, archive := range m.backends {
+				ok, err := archive.HasProof(ctx, id)
+				if err != nil {
+					return false, err
+				}
+
+				allHaveProof = allHaveProof && ok
+			}
+
+			return allHaveProof, nil
+		},
+	)
 }
 
 // FetchProofs fetches all proofs for assets uniquely identified by the passed
