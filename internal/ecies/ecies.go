@@ -79,8 +79,9 @@ func EncryptSha256ChaCha20Poly1305(sharedSecret [32]byte, msg []byte,
 		return nil, fmt.Errorf("cannot read random nonce: %w", err)
 	}
 
-	// We begin by hardening the shared secret against brute forcing by
-	// using HKDF with SHA256.
+	// Derive a strong session key from the shared secret using HKDF-SHA256.
+	// The nonce is used as the salt, and the protocol name as the info
+	// label. This mitigates risks from weak shared secrets.
 	stretchedKey, err := HkdfSha256(
 		sharedSecret[:], nonce, []byte(protocolName),
 	)
@@ -197,8 +198,9 @@ func DecryptSha256ChaCha20Poly1305(sharedSecret [32]byte,
 	nonce := remainder[:nonceSize]
 	ciphertext := remainder[nonceSize:]
 
-	// We begin by hardening the shared secret against brute forcing by
-	// using HKDF with SHA256.
+	// Derive a strong session key from the shared secret using HKDF-SHA256.
+	// The nonce is used as the salt, and the protocol name as the info
+	// label. This mitigates risks from weak shared secrets.
 	stretchedKey, err := HkdfSha256(
 		sharedSecret[:], nonce, []byte(protocolName),
 	)
