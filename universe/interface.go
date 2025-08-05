@@ -276,10 +276,10 @@ type LeafKey interface {
 	// UniverseKey returns the universe key for the leaf.
 	UniverseKey() [32]byte
 
-	// ScriptKey returns the script key for the leaf.
+	// LeafScriptKey returns the script key for the leaf.
 	LeafScriptKey() asset.ScriptKey
 
-	// OutPoint returns the outpoint for the leaf.
+	// LeafOutPoint returns the outpoint for the leaf.
 	LeafOutPoint() wire.OutPoint
 }
 
