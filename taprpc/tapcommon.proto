@@ -4,6 +4,13 @@ package taprpc;
 
 option go_package = "github.com/lightninglabs/taproot-assets/taprpc";
 
+// Enum for specifying sort direction in paginated queries.
+enum SortDirection {
+    SORT_DIRECTION_ASC = 0;
+
+    SORT_DIRECTION_DESC = 1;
+}
+
 // Represents a Bitcoin transaction outpoint.
 message OutPoint {
     /*
