@@ -322,6 +322,11 @@ func (i *SignedIgnoreTuple) LeafOutPoint() wire.OutPoint {
 	return i.IgnoreTuple.Val.OutPoint
 }
 
+// LeafAssetID returns the asset ID for the SignedIgnoreTuple.
+func (i *SignedIgnoreTuple) LeafAssetID() asset.ID {
+	return i.IgnoreTuple.Val.ID
+}
+
 // DecodeSignedIgnoreTuple deserializes a SignedIgnoreTuple from the given blob.
 func DecodeSignedIgnoreTuple(blob []byte) (SignedIgnoreTuple, error) {
 	var s SignedIgnoreTuple
