@@ -25,6 +25,7 @@ type Querier interface {
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) (int64, error)
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
+	CountAssets(ctx context.Context, arg CountAssetsParams) (int64, error)
 	CountAuthMailboxMessages(ctx context.Context) (int64, error)
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
@@ -160,6 +161,15 @@ type Querier interface {
 	// make the entire statement evaluate to true, if none of these extra args are
 	// specified.
 	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
+	// We use a LEFT JOIN here as not every asset has a group key, so this'll
+	// generate rows that have NULL values for the group key fields if an asset
+	// doesn't have a group key. See the comment in fetchAssetSprouts for a work
+	// around that needs to be used with this query until a sqlc bug is fixed.
+	// This clause is used to select specific assets for a asset ID, general
+	// channel balances, and also coin selection. We use the sqlc.narg feature to
+	// make the entire statement evaluate to true, if none of these extra args are
+	// specified.
+	QueryAssetsPaginated(ctx context.Context, arg QueryAssetsPaginatedParams) ([]QueryAssetsPaginatedRow, error)
 	QueryAuthMailboxMessages(ctx context.Context, arg QueryAuthMailboxMessagesParams) ([]QueryAuthMailboxMessagesRow, error)
 	QueryBurns(ctx context.Context, arg QueryBurnsParams) ([]QueryBurnsRow, error)
 	QueryDanglingSupplyUpdateEvents(ctx context.Context, groupKey []byte) ([]QueryDanglingSupplyUpdateEventsRow, error)

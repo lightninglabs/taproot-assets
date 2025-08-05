@@ -523,6 +523,142 @@ WHERE (
       (sqlc.slice('script_key_type')/*SLICE:script_key_type*/)
 );
 
+-- name: QueryAssetsPaginated :many
+SELECT
+    assets.asset_id AS asset_primary_key,
+    assets.genesis_id, assets.version, spent,
+    sqlc.embed(script_keys),
+    sqlc.embed(internal_keys),
+    key_group_info_view.tapscript_root, 
+    key_group_info_view.witness_stack, 
+    key_group_info_view.tweaked_group_key,
+    key_group_info_view.raw_key AS group_key_raw,
+    key_group_info_view.key_family AS group_key_family,
+    key_group_info_view.key_index AS group_key_index,
+    script_version, amount, lock_time, relative_lock_time, 
+    genesis_info_view.asset_id AS asset_id,
+    genesis_info_view.asset_tag,
+    genesis_info_view.meta_hash, 
+    genesis_info_view.output_index AS genesis_output_index,
+    genesis_info_view.asset_type,
+    genesis_info_view.prev_out AS genesis_prev_out,
+    txns.raw_tx AS anchor_tx,
+    txns.txid AS anchor_txid,
+    txns.block_hash AS anchor_block_hash,
+    txns.block_height AS anchor_block_height,
+    utxos.outpoint AS anchor_outpoint,
+    utxos.tapscript_sibling AS anchor_tapscript_sibling,
+    utxos.merkle_root AS anchor_merkle_root,
+    utxos.taproot_asset_root AS anchor_taproot_asset_root,
+    utxos.root_version AS anchor_commitment_version,
+    utxos.lease_owner AS anchor_lease_owner,
+    utxos.lease_expiry AS anchor_lease_expiry,
+    utxo_internal_keys.raw_key AS anchor_internal_key,
+    split_commitment_root_hash, split_commitment_root_value
+FROM assets
+JOIN genesis_info_view
+    ON assets.genesis_id = genesis_info_view.gen_asset_id AND
+      (genesis_info_view.asset_id = sqlc.narg('asset_id_filter') OR
+        sqlc.narg('asset_id_filter') IS NULL)
+-- We use a LEFT JOIN here as not every asset has a group key, so this'll
+-- generate rows that have NULL values for the group key fields if an asset
+-- doesn't have a group key. See the comment in fetchAssetSprouts for a work
+-- around that needs to be used with this query until a sqlc bug is fixed.
+LEFT JOIN key_group_info_view
+    ON assets.genesis_id = key_group_info_view.gen_asset_id
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id AND
+      (script_keys.tweaked_script_key = sqlc.narg('tweaked_script_key') OR
+       sqlc.narg('tweaked_script_key') IS NULL)
+JOIN internal_keys
+    ON script_keys.internal_key_id = internal_keys.key_id
+JOIN managed_utxos utxos
+    ON assets.anchor_utxo_id = utxos.utxo_id AND
+      (utxos.outpoint = sqlc.narg('anchor_point') OR
+       sqlc.narg('anchor_point') IS NULL) AND
+       CASE
+           WHEN sqlc.narg('leased') = true THEN
+               (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > @now)
+           WHEN sqlc.narg('leased') = false THEN
+               (utxos.lease_owner IS NULL OR 
+                utxos.lease_expiry IS NULL OR
+                utxos.lease_expiry <= @now)
+           ELSE TRUE
+       END
+JOIN internal_keys utxo_internal_keys
+    ON utxos.internal_key_id = utxo_internal_keys.key_id
+JOIN chain_txns txns
+    ON utxos.txn_id = txns.txn_id AND
+      COALESCE(txns.block_height, 0) >= COALESCE(sqlc.narg('min_anchor_height'), txns.block_height, 0)
+-- This clause is used to select specific assets for a asset ID, general
+-- channel balances, and also coin selection. We use the sqlc.narg feature to
+-- make the entire statement evaluate to true, if none of these extra args are
+-- specified.
+WHERE (
+    assets.amount >= COALESCE(sqlc.narg('min_amt'), assets.amount) AND
+    assets.amount <= COALESCE(sqlc.narg('max_amt'), assets.amount) AND
+    assets.spent = COALESCE(sqlc.narg('spent'), assets.spent) AND
+    (key_group_info_view.tweaked_group_key = sqlc.narg('key_group_filter') OR
+      sqlc.narg('key_group_filter') IS NULL) AND
+    assets.anchor_utxo_id = COALESCE(sqlc.narg('anchor_utxo_id'), assets.anchor_utxo_id) AND
+    assets.genesis_id = COALESCE(sqlc.narg('genesis_id'), assets.genesis_id) AND
+    assets.script_key_id = COALESCE(sqlc.narg('script_key_id'), assets.script_key_id) AND
+    -- The script_key_type argument must NEVER be an empty slice, otherwise this
+    -- query will return no results.
+    COALESCE(script_keys.key_type, 0) IN
+      (sqlc.slice('script_key_type')/*SLICE:script_key_type*/)
+)
+ORDER BY
+    CASE WHEN @is_desc = false THEN assets.asset_id END ASC,
+    CASE WHEN @is_desc = true THEN assets.asset_id END DESC
+LIMIT @num_limit OFFSET @num_offset;
+
+-- name: CountAssets :one
+SELECT COUNT(*) AS total_count
+FROM assets
+JOIN genesis_info_view
+    ON assets.genesis_id = genesis_info_view.gen_asset_id AND
+      (genesis_info_view.asset_id = sqlc.narg('asset_id_filter') OR
+        sqlc.narg('asset_id_filter') IS NULL)
+LEFT JOIN key_group_info_view
+    ON assets.genesis_id = key_group_info_view.gen_asset_id
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id AND
+      (script_keys.tweaked_script_key = sqlc.narg('tweaked_script_key') OR
+       sqlc.narg('tweaked_script_key') IS NULL)
+JOIN internal_keys
+    ON script_keys.internal_key_id = internal_keys.key_id
+JOIN managed_utxos utxos
+    ON assets.anchor_utxo_id = utxos.utxo_id AND
+      (utxos.outpoint = sqlc.narg('anchor_point') OR
+       sqlc.narg('anchor_point') IS NULL) AND
+       CASE
+           WHEN sqlc.narg('leased') = true THEN
+               (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > @now)
+           WHEN sqlc.narg('leased') = false THEN
+               (utxos.lease_owner IS NULL OR 
+                utxos.lease_expiry IS NULL OR
+                utxos.lease_expiry <= @now)
+           ELSE TRUE
+       END
+JOIN internal_keys utxo_internal_keys
+    ON utxos.internal_key_id = utxo_internal_keys.key_id
+JOIN chain_txns txns
+    ON utxos.txn_id = txns.txn_id AND
+      COALESCE(txns.block_height, 0) >= COALESCE(sqlc.narg('min_anchor_height'), txns.block_height, 0)
+WHERE (
+    assets.amount >= COALESCE(sqlc.narg('min_amt'), assets.amount) AND
+    assets.amount <= COALESCE(sqlc.narg('max_amt'), assets.amount) AND
+    assets.spent = COALESCE(sqlc.narg('spent'), assets.spent) AND
+    (key_group_info_view.tweaked_group_key = sqlc.narg('key_group_filter') OR
+      sqlc.narg('key_group_filter') IS NULL) AND
+    assets.anchor_utxo_id = COALESCE(sqlc.narg('anchor_utxo_id'), assets.anchor_utxo_id) AND
+    assets.genesis_id = COALESCE(sqlc.narg('genesis_id'), assets.genesis_id) AND
+    assets.script_key_id = COALESCE(sqlc.narg('script_key_id'), assets.script_key_id) AND
+    COALESCE(script_keys.key_type, 0) IN
+      (sqlc.slice('script_key_type')/*SLICE:script_key_type*/)
+);
+
 -- name: AllAssets :many
 SELECT * 
 FROM assets;
