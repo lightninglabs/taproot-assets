@@ -82,11 +82,11 @@ type SupplyUpdateEvent interface {
 	SupplySubTreeType() SupplySubTree
 
 	// UniverseLeafKey returns the specific leaf key to use when inserting
-	// this update into a universe MS-SMT tree.
-	UniverseLeafKey() universe.LeafKey
+	// this update into a universe supply MS-SMT tree.
+	UniverseLeafKey() universe.UniqueLeafKey
 
 	// UniverseLeafNode returns the leaf node to use when inserting this
-	// update into a universe MS-SMT tree.
+	// update into a universe supply MS-SMT tree.
 	UniverseLeafNode() (*mssmt.LeafNode, error)
 
 	// BlockHeight returns the block height of the update.
@@ -119,7 +119,7 @@ func (n *NewIgnoreEvent) SupplySubTreeType() SupplySubTree {
 
 // UniverseLeafKey returns the specific leaf key to use when inserting this
 // update into a universe MS-SMT tree.
-func (n *NewIgnoreEvent) UniverseLeafKey() universe.LeafKey {
+func (n *NewIgnoreEvent) UniverseLeafKey() universe.UniqueLeafKey {
 	return &n.SignedIgnoreTuple
 }
 
@@ -160,7 +160,7 @@ func (n *NewBurnEvent) SupplySubTreeType() SupplySubTree {
 
 // UniverseLeafKey returns the specific leaf key to use when inserting this
 // update into a universe MS-SMT tree.
-func (n *NewBurnEvent) UniverseLeafKey() universe.LeafKey {
+func (n *NewBurnEvent) UniverseLeafKey() universe.UniqueLeafKey {
 	return n.BurnLeaf.UniverseKey
 }
 
@@ -209,7 +209,7 @@ func (n *NewMintEvent) SupplySubTreeType() SupplySubTree {
 
 // UniverseLeafKey returns the specific leaf key to use when inserting this
 // update into a universe MS-SMT tree.
-func (n *NewMintEvent) UniverseLeafKey() universe.LeafKey {
+func (n *NewMintEvent) UniverseLeafKey() universe.UniqueLeafKey {
 	return n.LeafKey
 }
 
