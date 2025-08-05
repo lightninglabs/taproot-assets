@@ -304,7 +304,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 
 	// Now that we know where the divergence is, we can fetch the issuance
 	// proofs from the remote party.
-	err = fn.ParSlice(
+	fetchErrs, err := fn.ParSliceErrCollect(
 		ctx, keysToFetch, func(ctx context.Context, key LeafKey) error {
 			newProof, err := diffEngine.FetchProofLeaf(
 				ctx, uniID, key,
@@ -320,8 +320,9 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 			// given.
 			validRoot := leafProof.VerifyRoot(remoteRoot)
 			if !validRoot {
-				return fmt.Errorf("proof for key=%v is "+
-					"invalid", spew.Sdump(key))
+				return fmt.Errorf("proof leaf failed "+
+					"universe root verification "+
+					"(leaf_key=%v)", spew.Sdump(key))
 			}
 
 			// If this is an issuance proof, then we can send
@@ -377,6 +378,13 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 		})
 	if err != nil {
 		return err
+	}
+
+	// Report any errors encountered while fetching the leaves.
+	for idx, fetchErr := range fetchErrs {
+		leafKey := keysToFetch[idx]
+		log.Errorf("Error fetching leaf (leaf_key=%x): %v",
+			leafKey.UniverseKey(), fetchErr)
 	}
 
 	// We use an error group to simply the error handling of a goroutine.
