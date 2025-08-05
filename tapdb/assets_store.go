@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -192,6 +193,14 @@ type ActiveAssetsStore interface {
 
 	// QueryAssets fetches the set of fully confirmed assets.
 	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset,
+		error)
+
+	// QueryAssetsPaginated fetches a paginated set of fully confirmed assets.
+	QueryAssetsPaginated(context.Context, sqlc.QueryAssetsPaginatedParams) ([]sqlc.QueryAssetsPaginatedRow,
+		error)
+
+	// CountAssets returns the total count of assets matching the filters.
+	CountAssets(context.Context, sqlc.CountAssetsParams) (int64,
 		error)
 
 	// QueryAssetBalancesByAsset queries the balances for assets or
@@ -996,6 +1005,88 @@ func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
 	return dbAssets, assetWitnesses, nil
 }
 
+// fetchAssetsWithWitnessPaginated fetches a paginated set of assets and their
+// witnesses from the database.
+func fetchAssetsWithWitnessPaginated(ctx context.Context, q ActiveAssetsStore,
+	assetFilter sqlc.QueryAssetsPaginatedParams) ([]ConfirmedAsset, assetWitnesses,
+	error) {
+
+	// We're using a slice of types to query for the set of script key
+	// types, which is turned into a `xxx IN (...)` SQL query. But that
+	// doesn't work for empty slices, as that would result in
+	// `xxx IN (NULL)` which evaluates to false. So we need to use all
+	// available types instead.
+	if len(assetFilter.ScriptKeyType) == 0 {
+		assetFilter.ScriptKeyType = fn.Map(
+			asset.AllScriptKeyTypes, sqlInt16,
+		)
+	}
+
+	// First, we'll fetch the paginated assets we know of on disk.
+	dbAssetsPaginated, err := q.QueryAssetsPaginated(ctx, assetFilter)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to read db assets: %w", err)
+	}
+
+	// Convert QueryAssetsPaginatedRow to ConfirmedAsset (QueryAssetsRow)
+	// The structures have identical fields, so we can map them
+	dbAssets := make([]ConfirmedAsset, len(dbAssetsPaginated))
+	for i, row := range dbAssetsPaginated {
+		dbAssets[i] = ConfirmedAsset{
+			AssetPrimaryKey:          row.AssetPrimaryKey,
+			GenesisID:                row.GenesisID,
+			Version:                  row.Version,
+			Spent:                    row.Spent,
+			ScriptKey:                row.ScriptKey,
+			InternalKey:              row.InternalKey,
+			TapscriptRoot:            row.TapscriptRoot,
+			WitnessStack:             row.WitnessStack,
+			TweakedGroupKey:          row.TweakedGroupKey,
+			GroupKeyRaw:              row.GroupKeyRaw,
+			GroupKeyFamily:           row.GroupKeyFamily,
+			GroupKeyIndex:            row.GroupKeyIndex,
+			ScriptVersion:            row.ScriptVersion,
+			Amount:                   row.Amount,
+			LockTime:                 row.LockTime,
+			RelativeLockTime:         row.RelativeLockTime,
+			AssetID:                  row.AssetID,
+			AssetTag:                 row.AssetTag,
+			MetaHash:                 row.MetaHash,
+			GenesisOutputIndex:       row.GenesisOutputIndex,
+			AssetType:                row.AssetType,
+			GenesisPrevOut:           row.GenesisPrevOut,
+			AnchorTx:                 row.AnchorTx,
+			AnchorTxid:               row.AnchorTxid,
+			AnchorBlockHash:          row.AnchorBlockHash,
+			AnchorBlockHeight:        row.AnchorBlockHeight,
+			AnchorOutpoint:           row.AnchorOutpoint,
+			AnchorTapscriptSibling:   row.AnchorTapscriptSibling,
+			AnchorMerkleRoot:         row.AnchorMerkleRoot,
+			AnchorTaprootAssetRoot:   row.AnchorTaprootAssetRoot,
+			AnchorCommitmentVersion:  row.AnchorCommitmentVersion,
+			AnchorLeaseOwner:         row.AnchorLeaseOwner,
+			AnchorLeaseExpiry:        row.AnchorLeaseExpiry,
+			AnchorInternalKey:        row.AnchorInternalKey,
+			SplitCommitmentRootHash:  row.SplitCommitmentRootHash,
+			SplitCommitmentRootValue: row.SplitCommitmentRootValue,
+		}
+	}
+
+	assetIDs := fMap(dbAssets, func(a ConfirmedAsset) int64 {
+		return a.AssetPrimaryKey
+	})
+
+	// With all the assets obtained, we'll now do a second query to
+	// obtain all the witnesses we know of for each asset.
+	assetWitnesses, err := fetchAssetWitnesses(ctx, q, assetIDs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to fetch asset "+
+			"witnesses: %w", err)
+	}
+
+	return dbAssets, assetWitnesses, nil
+}
+
 // AssetQueryFilters is a wrapper struct over the CommitmentConstraints struct
 // which lets us filter the results of the set of assets returned.
 type AssetQueryFilters struct {
@@ -1257,6 +1348,110 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context, includeSpent,
 	}
 
 	return dbAssetsToChainAssets(dbAssets, assetWitnesses, a.clock)
+}
+
+// FetchAllAssetsPaginated fetches a paginated set of confirmed assets stored on disk.
+func (a *AssetStore) FetchAllAssetsPaginated(ctx context.Context, includeSpent,
+	includeLeased bool, query *AssetQueryFilters, offset, limit int32,
+	direction taprpc.SortDirection) ([]*asset.ChainAsset, uint64, error) {
+
+	var (
+		dbAssets       []ConfirmedAsset
+		assetWitnesses map[int64][]AssetWitness
+		totalCount     int64
+		err            error
+	)
+
+	// We'll now map the application level filtering to the type of
+	// filtering our database query understands. We need to convert
+	// from QueryAssetFilters to QueryAssetsPaginatedParams.
+	baseFilter, err := a.constraintsToDbFilter(query)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Create the paginated filter from the base filter.
+	assetFilter := sqlc.QueryAssetsPaginatedParams{
+		AssetIDFilter:    baseFilter.AssetIDFilter,
+		TweakedScriptKey: baseFilter.TweakedScriptKey,
+		AnchorPoint:      baseFilter.AnchorPoint,
+		Leased:           baseFilter.Leased,
+		Now:              baseFilter.Now,
+		MinAnchorHeight:  baseFilter.MinAnchorHeight,
+		MinAmt:           baseFilter.MinAmt,
+		MaxAmt:           baseFilter.MaxAmt,
+		Spent:            baseFilter.Spent,
+		KeyGroupFilter:   baseFilter.KeyGroupFilter,
+		AnchorUtxoID:     baseFilter.AnchorUtxoID,
+		GenesisID:        baseFilter.GenesisID,
+		ScriptKeyID:      baseFilter.ScriptKeyID,
+		ScriptKeyType:    baseFilter.ScriptKeyType,
+	}
+
+	// By default, the spent boolean is null, which means we'll fetch all
+	// assets. Only if we should exclude spent assets, we'll set the spent
+	// boolean to false.
+	if !includeSpent {
+		assetFilter.Spent = sqlBool(false)
+	}
+
+	// By default, we only show assets that are not leased.
+	if !includeLeased {
+		assetFilter.Leased = sqlBool(false)
+	}
+
+	// Set pagination parameters.
+	assetFilter.NumOffset = offset
+	assetFilter.NumLimit = limit
+	
+	// Set sort direction.
+	isDesc := direction == taprpc.SortDirection_SORT_DIRECTION_DESC
+	assetFilter.IsDesc = sqlBool(isDesc)
+
+	// With the query constructed, we can now fetch the assets along w/
+	// their witness information.
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		// First, get the total count of assets matching the filter.
+		// Create CountAssetsParams from the filter (without pagination fields)
+		countParams := sqlc.CountAssetsParams{
+			AssetIDFilter:    assetFilter.AssetIDFilter,
+			TweakedScriptKey: assetFilter.TweakedScriptKey,
+			AnchorPoint:      assetFilter.AnchorPoint,
+			Leased:           assetFilter.Leased,
+			Now:              assetFilter.Now,
+			MinAnchorHeight:  assetFilter.MinAnchorHeight,
+			MinAmt:           assetFilter.MinAmt,
+			MaxAmt:           assetFilter.MaxAmt,
+			Spent:            assetFilter.Spent,
+			KeyGroupFilter:   assetFilter.KeyGroupFilter,
+			AnchorUtxoID:     assetFilter.AnchorUtxoID,
+			GenesisID:        assetFilter.GenesisID,
+			ScriptKeyID:      assetFilter.ScriptKeyID,
+			ScriptKeyType:    assetFilter.ScriptKeyType,
+		}
+		totalCount, err = q.CountAssets(ctx, countParams)
+		if err != nil {
+			return err
+		}
+
+		// Then fetch the paginated assets.
+		dbAssets, assetWitnesses, err = fetchAssetsWithWitnessPaginated(
+			ctx, q, assetFilter,
+		)
+
+		return err
+	})
+	if dbErr != nil {
+		return nil, 0, dbErr
+	}
+
+	chainAssets, err := dbAssetsToChainAssets(dbAssets, assetWitnesses, a.clock)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return chainAssets, uint64(totalCount), nil
 }
 
 // FetchManagedUTXOs fetches all UTXOs we manage.
