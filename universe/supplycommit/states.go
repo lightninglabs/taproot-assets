@@ -91,6 +91,9 @@ type SupplyUpdateEvent interface {
 
 	// BlockHeight returns the block height of the update.
 	BlockHeight() uint32
+
+	// Encode encodes the event into the passed io.Writer.
+	Encode(io.Writer) error
 }
 
 // NewIgnoreEvent signals that a caller wishes to update the ignore portion of
@@ -127,6 +130,11 @@ func (n *NewIgnoreEvent) UniverseLeafKey() universe.UniqueLeafKey {
 // into a universe MS-SMT tree.
 func (n *NewIgnoreEvent) UniverseLeafNode() (*mssmt.LeafNode, error) {
 	return n.SignedIgnoreTuple.UniverseLeafNode()
+}
+
+// Encode encodes the ignore tuple into the passed io.Writer.
+func (n *NewIgnoreEvent) Encode(w io.Writer) error {
+	return n.SignedIgnoreTuple.Encode(w)
 }
 
 // A compile time assertion to ensure that NewIgnoreEvent implements the
@@ -168,6 +176,11 @@ func (n *NewBurnEvent) UniverseLeafKey() universe.UniqueLeafKey {
 // into a universe MS-SMT tree.
 func (n *NewBurnEvent) UniverseLeafNode() (*mssmt.LeafNode, error) {
 	return n.BurnLeaf.UniverseLeafNode()
+}
+
+// Encode encodes the burn leaf into the passed io.Writer.
+func (n *NewBurnEvent) Encode(w io.Writer) error {
+	return n.BurnLeaf.Encode(w)
 }
 
 // A compile time assertion to ensure that NewBurnEvent implements the
