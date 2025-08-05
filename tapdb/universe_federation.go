@@ -508,9 +508,9 @@ func fetchProofSyncLogEntry(ctx context.Context, entry ProofSyncLogEntry,
 			Genesis:  leafAssetGen,
 			GroupKey: leafAsset.GroupKey,
 		},
-		RawProof: entry.LeafGenesisProof,
-		Asset:    &leafAsset,
-		Amt:      leafAsset.Amount,
+		RawProofBlob: entry.LeafGenesisProof,
+		Asset:        &leafAsset,
+		CoinAmt:      leafAsset.Amount,
 	}
 
 	// Parse leaf key from leaf DB row.

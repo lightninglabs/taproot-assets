@@ -117,7 +117,7 @@ func randMintingLeafGen(t *rapid.T, assetGen asset.Genesis,
 			Witness:     witness,
 		}
 
-		leaf.GroupKey = assetGroupKey
+		leaf.GenesisWithGroup.GroupKey = assetGroupKey
 		randProof.Asset.GroupKey = assetGroupKey
 		randProof.GroupKeyReveal = asset.NewGroupKeyRevealV0(
 			asset.ToSerialized(groupKey), nil,
@@ -128,7 +128,7 @@ func randMintingLeafGen(t *rapid.T, assetGen asset.Genesis,
 
 	var proofBuf bytes.Buffer
 	require.NoError(t, randProof.Encode(&proofBuf))
-	leaf.RawProof = proofBuf.Bytes()
+	leaf.RawProofBlob = proofBuf.Bytes()
 
 	return leaf
 }
@@ -143,7 +143,9 @@ func randMintEventGen(groupPubKey *btcec.PublicKey,
 		mintLeaf := randMintingLeafGen(t, mintGenesis, groupPubKey)
 
 		var p proof.Proof
-		require.NoError(t, p.Decode(bytes.NewReader(mintLeaf.RawProof)))
+		require.NoError(
+			t, p.Decode(bytes.NewReader(mintLeaf.RawProofBlob)),
+		)
 
 		mintKey := universe.AssetLeafKey{
 			BaseLeafKey: universe.BaseLeafKey{
@@ -390,9 +392,9 @@ func createMintEventWithHeight(t *testing.T, groupKey *btcec.PublicKey,
 			Genesis:  mintAsset.Genesis,
 			GroupKey: mintAsset.GroupKey,
 		},
-		Asset:    &mintProof.Asset,
-		Amt:      mintProof.Asset.Amount,
-		RawProof: proofBuf.Bytes(),
+		Asset:        &mintProof.Asset,
+		Amt:          mintProof.Asset.Amount,
+		RawProofBlob: proofBuf.Bytes(),
 	}
 
 	mintKey := universe.AssetLeafKey{

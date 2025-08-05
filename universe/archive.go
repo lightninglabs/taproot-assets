@@ -236,14 +236,20 @@ func (a *Archive) MultiverseRoot(ctx context.Context, proofType ProofType,
 // the leaf is already known, then no action is taken and the existing
 // commitment proof returned.
 func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
-	key LeafKey, leaf *AssetLeaf) (*Proof, error) {
+	key LeafKey, leaf Leaf) (*Proof, error) {
+
+	assetLeaf, ok := leaf.(*AssetLeaf)
+	if !ok {
+		return nil, fmt.Errorf("leaf must be of type AssetLeaf, "+
+			"got %T", leaf)
+	}
 
 	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))
 
 	// If universe proof type unspecified in universe ID, set based on the
 	// provided asset proof.
-	newAsset := leaf.Asset
+	newAsset := assetLeaf.Asset
 	if id.ProofType == ProofTypeUnspecified {
 		var err error
 		id.ProofType, err = NewProofTypeFromAsset(newAsset)
@@ -260,7 +266,8 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 
 	// We need to decode the new proof now.
 	var newProof proof.Proof
-	if err := newProof.Decode(bytes.NewReader(leaf.RawProof)); err != nil {
+	err = newProof.Decode(bytes.NewReader(assetLeaf.RawProof()))
+	if err != nil {
 		return nil, err
 	}
 
@@ -273,7 +280,7 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 
 		var existingProof proof.Proof
 		if err := existingProof.Decode(bytes.NewReader(
-			issuanceProof.Leaf.RawProof,
+			issuanceProof.Leaf.RawProof(),
 		)); err != nil {
 			return nil, err
 		}
@@ -321,7 +328,7 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	// Now that we know the proof is valid, we'll insert it into the base
 	// multiverse backend, and return the new issuance proof.
 	issuanceProof, err := a.cfg.Multiverse.UpsertProofLeaf(
-		ctx, id, key, leaf, assetSnapshot.MetaReveal,
+		ctx, id, key, assetLeaf, assetSnapshot.MetaReveal,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to register new "+
@@ -407,13 +414,19 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 // extractBatchDeps constructs map from leaf key to asset in a batch. This is
 // useful for when we're validating an asset state transition in a batch, and
 // the input asset it depends on is created in the batch.
-func extractBatchDeps(batch []*Item) map[UniverseKey]*asset.Asset {
+func extractBatchDeps(batch []*Item) (map[UniverseKey]*asset.Asset, error) {
 	batchDeps := make(map[UniverseKey]*asset.Asset)
 	for _, item := range batch {
-		batchDeps[item.Key.UniverseKey()] = item.Leaf.Asset
+		assetLeaf, ok := item.Leaf.(*AssetLeaf)
+		if !ok {
+			return nil, fmt.Errorf("expected leaf to be of type "+
+				"AssetLeaf, got %T", item.Leaf)
+		}
+
+		batchDeps[item.Key.UniverseKey()] = assetLeaf.Asset
 	}
 
-	return batchDeps
+	return batchDeps, nil
 }
 
 // UpsertProofLeafBatch inserts a batch of proof leaves within the target
@@ -435,12 +448,18 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 	for ind := range items {
 		item := items[ind]
 
+		assetLeaf, ok := item.Leaf.(*AssetLeaf)
+		if !ok {
+			return fmt.Errorf("expected leaf to be of type "+
+				"AssetLeaf, got %T", item.Leaf)
+		}
+
 		// If unspecified, set universe ID proof type based on leaf
 		// proof type.
 		if item.ID.ProofType == ProofTypeUnspecified {
 			var err error
 			item.ID.ProofType, err = NewProofTypeFromAsset(
-				item.Leaf.Asset,
+				assetLeaf.Asset,
 			)
 			if err != nil {
 				return err
@@ -449,7 +468,7 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 
 		// Ensure that the target universe ID proof type corresponds to
 		// the leaf proof type.
-		err := ValidateProofUniverseType(item.Leaf.Asset, item.ID)
+		err := ValidateProofUniverseType(assetLeaf.Asset, item.ID)
 		if err != nil {
 			return err
 		}
@@ -457,7 +476,7 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 		// At this point, we'll need to decode the proof so we can
 		// partition it below.
 		var assetProof proof.Proof
-		err = assetProof.Decode(bytes.NewReader(item.Leaf.RawProof))
+		err = assetProof.Decode(bytes.NewReader(item.Leaf.RawProof()))
 		if err != nil {
 			return fmt.Errorf("unable to decode proof: %w", err)
 		}
@@ -475,15 +494,26 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 		}
 	}
 
-	batchDeps := extractBatchDeps(items)
+	batchDeps, err := extractBatchDeps(items)
+	if err != nil {
+		return fmt.Errorf("unable to extract batch dependencies: %w",
+			err)
+	}
 
 	verifyBatch := func(batchItems []*Item) error {
 		err := fn.ParSlice(
 			ctx, batchItems, func(ctx context.Context,
 				i *Item) error {
 
+				assetLeaf, ok := i.Leaf.(*AssetLeaf)
+				if !ok {
+					return fmt.Errorf("expected leaf to "+
+						"be of type AssetLeaf, got %T",
+						i.Leaf)
+				}
+
 				prevAssets, err := a.getPrevAssetSnapshot(
-					ctx, i.ID, i.Leaf.Asset, batchDeps,
+					ctx, i.ID, assetLeaf.Asset, batchDeps,
 				)
 				if err != nil {
 					return fmt.Errorf("unable to "+
@@ -518,7 +548,7 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 		return nil
 	}
 
-	err := verifyBatch(anchorItems)
+	err = verifyBatch(anchorItems)
 	if err != nil {
 		return err
 	}
@@ -641,7 +671,13 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 			newAsset.ScriptKey.PubKey.SerializeCompressed())
 	}
 
-	prevAsset := prevProofs[0].Leaf.Asset
+	assetLeaf, ok := prevProofs[0].Leaf.(*AssetLeaf)
+	if !ok {
+		return nil, fmt.Errorf("expected leaf to be of type "+
+			"AssetLeaf, got %T", prevProofs[0].Leaf)
+	}
+
+	prevAsset := assetLeaf.Asset
 
 	// TODO(roasbeef): need more than one snapshot, for inputs
 
@@ -699,13 +735,13 @@ func (a *Archive) UniverseLeafKeys(ctx context.Context,
 // FetchLeaves returns the set of leaves which correspond to the given universe
 // identifier.
 func (a *Archive) FetchLeaves(ctx context.Context,
-	id Identifier) ([]AssetLeaf, error) {
+	id Identifier) ([]Leaf, error) {
 
 	log.Debugf("Retrieving all leaves for universe (id=%v)",
 		id.StringForLog())
 
 	return withUni(
-		a, id, func(uni StorageBackend) ([]AssetLeaf, error) {
+		a, id, func(uni StorageBackend) ([]Leaf, error) {
 			return uni.FetchLeaves(ctx)
 		},
 	)

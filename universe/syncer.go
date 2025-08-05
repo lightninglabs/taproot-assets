@@ -293,7 +293,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	// local registrar as they're fetched.
 	var (
 		fetchedLeaves = make(chan *Item, len(keysToFetch))
-		newLeafProofs = make([]*AssetLeaf, 0, len(keysToFetch))
+		newLeafProofs = make([]Leaf, 0, len(keysToFetch))
 		batchSyncEG   errgroup.Group
 	)
 
@@ -337,7 +337,10 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 				// reference the group key in this proof's
 				// group key reveal.
 				reg := s.cfg.LocalRegistrar
-				if hasGroupKeyReveal(leafProof.Leaf.RawProof) {
+				if hasGroupKeyReveal(
+					leafProof.Leaf.RawProof(),
+				) {
+
 					log.Debugf("UniverseRoot(%v): "+
 						"Inserting new group key "+
 						"reveal leaf", uniID.String())
@@ -418,13 +421,17 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 
 			_ = proof.SparseDecode(
 				//nolint:lll
-				bytes.NewReader(transferLeaves[i].Leaf.RawProof),
+				bytes.NewReader(
+					transferLeaves[i].Leaf.RawProof(),
+				),
 				iRecord,
 			)
 
 			_ = proof.SparseDecode(
 				//nolint:lll
-				bytes.NewReader(transferLeaves[j].Leaf.RawProof),
+				bytes.NewReader(
+					transferLeaves[j].Leaf.RawProof(),
+				),
 				jRecord,
 			)
 
@@ -482,11 +489,11 @@ func hasGroupKeyReveal(rawProof []byte) bool {
 // batches and returns the new leaf proofs.
 func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 	uniID Identifier, fetchedLeaves chan *Item,
-	numTotal int) ([]*AssetLeaf, error) {
+	numTotal int) ([]Leaf, error) {
 
 	var (
 		numItems      int
-		newLeafProofs []*AssetLeaf
+		newLeafProofs []Leaf
 	)
 	err := fn.CollectBatch(
 		ctx, fetchedLeaves, s.cfg.SyncBatchSize,
@@ -512,7 +519,7 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 			}
 
 			newLeaves := fn.Map(
-				batch, func(i *Item) *AssetLeaf {
+				batch, func(i *Item) Leaf {
 					return i.Leaf
 				},
 			)

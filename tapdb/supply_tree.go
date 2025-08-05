@@ -314,7 +314,7 @@ func (s *SupplyTreeStore) RegisterMintSupply(ctx context.Context,
 	spec asset.Specifier, key universe.LeafKey,
 	leaf *universe.AssetLeaf) (*universe.Proof, mssmt.Node, error) {
 
-	groupKey := leaf.GroupKey
+	groupKey := leaf.GroupKey()
 	if groupKey == nil {
 		return nil, nil, fmt.Errorf("group key must be specified " +
 			"for mint supply")
@@ -328,7 +328,7 @@ func (s *SupplyTreeStore) RegisterMintSupply(ctx context.Context,
 	dbErr := s.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
 		// We don't need to decode the whole proof, we just need the
 		// block height.
-		blockHeight, err := SparseDecodeBlockHeight(leaf.RawProof)
+		blockHeight, err := SparseDecodeBlockHeight(leaf.RawProof())
 		if err != nil {
 			return err
 		}

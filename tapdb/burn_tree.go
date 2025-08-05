@@ -111,10 +111,10 @@ func insertBurnsInternal(ctx context.Context, db BaseUniverseStore,
 				Genesis:  burnProof.Asset.Genesis,
 				GroupKey: burnProof.Asset.GroupKey,
 			},
-			RawProof: rawProofBytes,
-			Asset:    &burnLeaf.BurnProof.Asset,
-			Amt:      burnLeaf.BurnProof.Asset.Amount,
-			IsBurn:   true,
+			RawProofBlob: rawProofBytes,
+			Asset:        &burnLeaf.BurnProof.Asset,
+			CoinAmt:      burnLeaf.BurnProof.Asset.Amount,
+			IsBurn:       true,
 		}
 
 		var blockHeight lfn.Option[uint32]

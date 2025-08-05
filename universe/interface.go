@@ -233,21 +233,37 @@ type GenesisWithGroup struct {
 	*asset.GroupKey
 }
 
+// Leaf is a leaf node in the SMT.
+type Leaf interface {
+	// SmtLeafNode returns the SMT leaf node for the given leaf.
+	SmtLeafNode() *mssmt.LeafNode
+
+	// RawProof returns the raw proof blob associated with the leaf.
+	RawProof() proof.Blob
+
+	GroupKey() *asset.GroupKey
+
+	ID() asset.ID
+
+	Amt() uint64
+}
+
 // AssetLeaf is a leaf node in the SMT that represents an asset issuance or
 // transfer. For each asset issued or transferred for a given universe, a new
 // leaf is created.
 type AssetLeaf struct {
 	GenesisWithGroup
 
-	// RawProof is either an issuance proof or a transfer proof associated
-	// with/ the issuance or spend event which this leaf represents.
-	RawProof proof.Blob
+	// RawProofBlob is either an issuance proof or a transfer proof
+	// associated with/ the issuance or spend event which this leaf
+	// represents.
+	RawProofBlob proof.Blob
 
 	// Asset is the asset that the leaf is associated with.
 	Asset *asset.Asset
 
 	// Amt is the amount of units associated with the coin.
-	Amt uint64
+	CoinAmt uint64
 
 	// IsBurn is a boolean that indicates whether the leaf represents a burn
 	// or not.
@@ -256,7 +272,7 @@ type AssetLeaf struct {
 
 // SmtLeafNode returns the SMT leaf node for the given leaf.
 func (m *AssetLeaf) SmtLeafNode() *mssmt.LeafNode {
-	amount := m.Amt
+	amount := m.CoinAmt
 
 	// For transfer proofs, we just want to track the number of transfers.
 	// However, for burns (which aren't genesis asset proofs), we still want
@@ -267,7 +283,23 @@ func (m *AssetLeaf) SmtLeafNode() *mssmt.LeafNode {
 		amount = 1
 	}
 
-	return mssmt.NewLeafNode(m.RawProof, amount)
+	return mssmt.NewLeafNode(m.RawProofBlob, amount)
+}
+
+func (m *AssetLeaf) RawProof() proof.Blob {
+	return m.RawProofBlob
+}
+
+func (m *AssetLeaf) GroupKey() *asset.GroupKey {
+	return m.GenesisWithGroup.GroupKey
+}
+
+func (m *AssetLeaf) ID() asset.ID {
+	return m.GenesisWithGroup.ID()
+}
+
+func (m *AssetLeaf) Amt() uint64 {
+	return m.CoinAmt
 }
 
 // LeafKey is an interface that allows us to obtain the universe key for a leaf
@@ -371,7 +403,7 @@ func (a AssetLeafKey) UniverseKey() [32]byte {
 // the universe root and multiverse root.
 type Proof struct {
 	// Leaf is the leaf node for the asset within the universe tree.
-	Leaf *AssetLeaf
+	Leaf Leaf
 
 	// LeafKey is the universe leaf key for the asset issuance or spend.
 	LeafKey LeafKey
@@ -418,7 +450,7 @@ type StorageBackend interface {
 	// tree, stored at the given key. The metaReveal type is purely
 	// optional, and should be specified if the genesis proof committed to
 	// a non-zero meta hash.
-	UpsertProofLeaf(ctx context.Context, key LeafKey, leaf *AssetLeaf,
+	UpsertProofLeaf(ctx context.Context, key LeafKey, leaf Leaf,
 		metaReveal *proof.MetaReveal) (*Proof, error)
 
 	// FetchProof retrieves a universe proof corresponding to the given key.
@@ -435,7 +467,7 @@ type StorageBackend interface {
 		q UniverseLeafKeysQuery) ([]LeafKey, error)
 
 	// FetchLeaves retrieves all leaves from the universe tree.
-	FetchLeaves(ctx context.Context) ([]AssetLeaf, error)
+	FetchLeaves(ctx context.Context) ([]Leaf, error)
 
 	// DeleteUniverse deletes all leaves, and the root, for a given
 	// universe.
@@ -495,8 +527,7 @@ type MultiverseArchive interface {
 	// UpsertProofLeaf upserts a proof leaf within the multiverse tree and
 	// the universe tree that corresponds to the given key.
 	UpsertProofLeaf(ctx context.Context, id Identifier, key LeafKey,
-		leaf *AssetLeaf,
-		metaReveal *proof.MetaReveal) (*Proof, error)
+		leaf Leaf, metaReveal *proof.MetaReveal) (*Proof, error)
 
 	// UpsertProofLeafBatch upserts a proof leaf batch within the multiverse
 	// tree and the universe tree that corresponds to the given key(s).
@@ -538,7 +569,7 @@ type MultiverseArchive interface {
 type Registrar interface {
 	// UpsertProofLeaf upserts a proof leaf within the target universe tree.
 	UpsertProofLeaf(ctx context.Context, id Identifier, key LeafKey,
-		leaf *AssetLeaf) (*Proof, error)
+		leaf Leaf) (*Proof, error)
 
 	// Close is used to shutdown the active registrar instance.
 	Close() error
@@ -554,7 +585,7 @@ type Item struct {
 	Key LeafKey
 
 	// Leaf is the proof leaf which will be stored at the key.
-	Leaf *AssetLeaf
+	Leaf Leaf
 
 	// MetaReveal is the meta reveal associated with the given proof leaf.
 	MetaReveal *proof.MetaReveal
@@ -706,7 +737,7 @@ type AssetSyncDiff struct {
 
 	// NewAssetLeaves is the set of new leaf proofs that were added to the
 	// Universe.
-	NewLeafProofs []*AssetLeaf
+	NewLeafProofs []Leaf
 
 	// TODO(roasbeef): ability to return if things failed?
 	//  * can used a sealed interface to return the error

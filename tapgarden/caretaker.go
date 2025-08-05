@@ -1259,9 +1259,9 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 		// The universe tree store only the asset state transition and
 		// not also the proof file checksum (as the root is effectively
 		// a checksum), so we'll use just the state transition.
-		RawProof: mintingProofBytes,
-		Amt:      a.Amount,
-		Asset:    a,
+		RawProofBlob: mintingProofBytes,
+		CoinAmt:      a.Amount,
+		Asset:        a,
 	}
 
 	return blob, &universe.Item{

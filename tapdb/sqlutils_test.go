@@ -200,9 +200,9 @@ func (d *DbHandler) AddUniProofLeaf(t *testing.T, testAsset *asset.Asset,
 			Genesis:  testAsset.Genesis,
 			GroupKey: testAsset.GroupKey,
 		},
-		RawProof: annotatedProof.Blob,
-		Asset:    testAsset,
-		Amt:      testAsset.Amount,
+		RawProofBlob: annotatedProof.Blob,
+		Asset:        testAsset,
+		Amt:          testAsset.Amount,
 	}
 
 	uniProof, err := d.MultiverseStore.UpsertProofLeaf(

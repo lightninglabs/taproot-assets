@@ -70,7 +70,7 @@ type FederationPushReq struct {
 	Key LeafKey
 
 	// Leaf is the new leaf to add.
-	Leaf *AssetLeaf
+	Leaf Leaf
 
 	// resp is a channel that will be sent the asset issuance/transfer
 	// proof and corresponding universe/multiverse inclusion proofs if the
@@ -239,7 +239,7 @@ func (f *FederationEnvoy) syncServerState(ctx context.Context,
 
 // pushProofToServer attempts to push out a new proof to the target server.
 func (f *FederationEnvoy) pushProofToServer(ctx context.Context,
-	uniID Identifier, key LeafKey, leaf *AssetLeaf, addr ServerAddr) error {
+	uniID Identifier, key LeafKey, leaf Leaf, addr ServerAddr) error {
 
 	remoteUniverseServer, err := f.cfg.NewRemoteRegistrar(addr)
 	if err != nil {
@@ -263,7 +263,7 @@ func (f *FederationEnvoy) pushProofToServer(ctx context.Context,
 // pushProofToServerLogged attempts to push out a new proof to the target
 // server, and logs the sync attempt.
 func (f *FederationEnvoy) pushProofToServerLogged(ctx context.Context,
-	uniID Identifier, key LeafKey, leaf *AssetLeaf, addr ServerAddr) error {
+	uniID Identifier, key LeafKey, leaf Leaf, addr ServerAddr) error {
 
 	// Ensure that we have a pending sync log entry for this
 	// leaf and server pair. This will allow us to handle all
@@ -301,7 +301,7 @@ func (f *FederationEnvoy) pushProofToServerLogged(ctx context.Context,
 // pushProofToFederation attempts to push out a new proof to the current
 // federation in parallel.
 func (f *FederationEnvoy) pushProofToFederation(ctx context.Context,
-	uniID Identifier, key LeafKey, leaf *AssetLeaf, fedServers []ServerAddr,
+	uniID Identifier, key LeafKey, leaf Leaf, fedServers []ServerAddr,
 	logProofSync bool) {
 
 	log.Infof("Pushing proof to %v federation members, proof_key=%v",
@@ -658,7 +658,7 @@ func (f *FederationEnvoy) handleBatchPushRequest(
 //
 // NOTE: This is part of the universe.Registrar interface.
 func (f *FederationEnvoy) UpsertProofLeaf(_ context.Context, id Identifier,
-	key LeafKey, leaf *AssetLeaf) (*Proof, error) {
+	key LeafKey, leaf Leaf) (*Proof, error) {
 
 	// If we're attempting to push an issuance proof, then we'll ensure
 	// that we track the sync attempt to ensure that we retry in the event

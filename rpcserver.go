@@ -5982,7 +5982,7 @@ func marshalAssetLeaf(ctx context.Context, keys rpcutils.KeyLookup,
 	decDisplay fn.Option[uint32]) (*unirpc.AssetLeaf, error) {
 
 	// Decode the single proof to extract on-chain anchor info.
-	p, err := proof.Decode(assetLeaf.RawProof)
+	p, err := proof.Decode(assetLeaf.RawProofBlob)
 	if err != nil {
 		return nil, err
 	}
@@ -6001,7 +6001,7 @@ func marshalAssetLeaf(ctx context.Context, keys rpcutils.KeyLookup,
 
 	return &unirpc.AssetLeaf{
 		Asset: rpcAsset,
-		Proof: assetLeaf.RawProof,
+		Proof: assetLeaf.RawProofBlob,
 	}, nil
 }
 
@@ -6050,8 +6050,14 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 			return nil, err
 		}
 
+		aLeaf, ok := assetLeaf.(*universe.AssetLeaf)
+		if !ok {
+			return nil, fmt.Errorf("expected universe.AssetLeaf, "+
+				"got %T", assetLeaf)
+		}
+
 		resp.Leaves[i], err = r.marshalAssetLeaf(
-			ctx, &assetLeaf, decDisplay,
+			ctx, aLeaf, decDisplay,
 		)
 		if err != nil {
 			return nil, err
@@ -6156,7 +6162,13 @@ func (r *rpcServer) marshalUniverseProofLeaf(ctx context.Context,
 		return nil, err
 	}
 
-	assetLeaf, err := r.marshalAssetLeaf(ctx, proof.Leaf, decDisplay)
+	aLeaf, ok := proof.Leaf.(*universe.AssetLeaf)
+	if !ok {
+		return nil, fmt.Errorf("expected universe.AssetLeaf, got %T",
+			proof.Leaf)
+	}
+
+	assetLeaf, err := r.marshalAssetLeaf(ctx, aLeaf, decDisplay)
 	if err != nil {
 		return nil, err
 	}
@@ -6195,7 +6207,7 @@ func (r *rpcServer) marshalUniverseProofLeaf(ctx context.Context,
 	// the proof type, if it was unspecified, we'll only skip this if the
 	// proof type is transfer.
 	if req.Id.ProofType != unirpc.ProofType_PROOF_TYPE_TRANSFER {
-		p, err := proof.Leaf.RawProof.AsSingleProof()
+		p, err := proof.Leaf.RawProof().AsSingleProof()
 		if err != nil {
 			return nil, err
 		}
@@ -6409,9 +6421,9 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.AssetLeaf, error) {
 			Genesis:  proofAsset.Genesis,
 			GroupKey: proofAsset.GroupKey,
 		},
-		RawProof: leaf.Proof,
-		Asset:    &proofAsset,
-		Amt:      proofAsset.Amount,
+		RawProofBlob: leaf.Proof,
+		Asset:        &proofAsset,
+		CoinAmt:      proofAsset.Amount,
 	}, nil
 }
 
@@ -6628,8 +6640,15 @@ func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
 				return err
 			}
 
+			assetLeaf, ok := leaf.(*universe.AssetLeaf)
+			if !ok {
+				return fmt.Errorf("expected "+
+					"universe.AssetLeaf, got %T",
+					leaf)
+			}
+
 			leaves[i], err = r.marshalAssetLeaf(
-				ctx, leaf, decDisplay,
+				ctx, assetLeaf, decDisplay,
 			)
 			if err != nil {
 				return err

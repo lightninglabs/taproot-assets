@@ -209,7 +209,7 @@ func randMintingLeaf(t testing.TB, assetGen asset.Genesis,
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis: assetGen,
 		},
-		Amt: uint64(rand.Int31()),
+		CoinAmt: uint64(rand.Int31()),
 	}
 
 	// The asset within the genesis proof is random; reset the asset genesis
@@ -223,7 +223,7 @@ func randMintingLeaf(t testing.TB, assetGen asset.Genesis,
 			Witness:     randProof.Asset.GroupKey.Witness,
 		}
 
-		leaf.GroupKey = assetGroupKey
+		leaf.GenesisWithGroup.GroupKey = assetGroupKey
 		randProof.Asset.GroupKey = assetGroupKey
 		randProof.GroupKeyReveal = asset.NewGroupKeyRevealV0(
 			asset.ToSerialized(groupKey), nil,
@@ -235,7 +235,7 @@ func randMintingLeaf(t testing.TB, assetGen asset.Genesis,
 	proofBytes, err := randProof.Bytes()
 	require.NoError(t, err)
 
-	leaf.RawProof = proofBytes
+	leaf.RawProofBlob = proofBytes
 
 	return leaf
 }
@@ -295,7 +295,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	var leafSum uint64
 	for _, testLeaf := range testLeaves {
 		// Each new leaf should add to the accumulated sum.
-		leafSum += testLeaf.Amt
+		leafSum += testLeaf.CoinAmt
 
 		targetKey := testLeaf.LeafKey
 		leaf := testLeaf.AssetLeaf
@@ -381,9 +381,9 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	dbLeaves, err := baseUniverse.FetchLeaves(ctx)
 	require.NoError(t, err)
 	require.Equal(t, numLeaves, len(dbLeaves))
-	require.True(t, fn.All(dbLeaves, func(leaf universe.AssetLeaf) bool {
+	require.True(t, fn.All(dbLeaves, func(leaf universe.Leaf) bool {
 		return fn.All(testLeaves, func(testLeaf leafWithKey) bool {
-			return leaf.Genesis.ID() ==
+			return leaf.ID() ==
 				testLeaf.AssetLeaf.Genesis.ID()
 		})
 	}))
@@ -403,7 +403,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		randProofBytes, err := randProof.Bytes()
 		require.NoError(t, err)
 
-		testLeaf.AssetLeaf.RawProof = randProofBytes
+		testLeaf.AssetLeaf.RawProofBlob = randProofBytes
 
 		targetKey := testLeaf.LeafKey
 		issuanceProof, err := baseUniverse.UpsertProofLeaf(
@@ -487,7 +487,7 @@ func TestUniverseMetaBlob(t *testing.T) {
 	uniProof := dbProof[0]
 
 	// The proof should have the same genesis that we inserted above.
-	require.Equal(t, assetGen.ID(), uniProof.Leaf.Genesis.ID())
+	require.Equal(t, assetGen.ID(), uniProof.Leaf.ID())
 }
 
 func insertRandLeaf(t testing.TB, ctx context.Context, tree *BaseUniverseTree,
@@ -546,8 +546,14 @@ func TestUniverseTreeIsolation(t *testing.T) {
 
 	// The sum of each root should match the value of the sole leaf we've
 	// inserted.
-	require.Equal(t, groupLeaf.Leaf.Amt, groupRoot.NodeSum())
-	require.Equal(t, normalLeaf.Leaf.Amt, normalRoot.NodeSum())
+	assetLeafGroup, ok := groupLeaf.Leaf.(*universe.AssetLeaf)
+	require.True(t, ok)
+
+	assetLeafNormal, ok := normalLeaf.Leaf.(*universe.AssetLeaf)
+	require.True(t, ok)
+
+	require.Equal(t, assetLeafGroup.Amt, groupRoot.NodeSum())
+	require.Equal(t, assetLeafNormal.Amt, normalRoot.NodeSum())
 
 	// If we make a new multiverse, then we should be able to fetch both the
 	// roots above.
@@ -600,7 +606,7 @@ func TestUniverseTreeIsolation(t *testing.T) {
 
 			groupAmt, ok := root.GroupedAssets[groupLeaf.Leaf.ID()]
 			require.True(t, ok)
-			require.Equal(t, groupLeaf.Leaf.Amt, groupAmt)
+			require.Equal(t, groupLeaf.Leaf.Amt(), groupAmt)
 		}
 	}
 
@@ -663,9 +669,10 @@ func TestUniverseLeafQuery(t *testing.T) {
 			// key, so they must also share the same group witness.
 			switch {
 			case sharedWitness == nil:
-				sharedWitness = leaf.GroupKey.Witness
+				sharedWitness = leaf.GroupKey().Witness
 			default:
-				leaf.GroupKey.Witness = sharedWitness
+				leaf.GenesisWithGroup.GroupKey.Witness =
+					sharedWitness
 
 				//nolint:lll
 				// leaf.Proof.Asset.GroupKey.Witness = sharedWitness
@@ -717,8 +724,11 @@ func TestUniverseLeafQuery(t *testing.T) {
 		// We can't compare the raw leaves as the proofs looks slightly
 		// differently after an encode->decode cycle (nil vs. empty
 		// slices and so on).
+		assetLeaf, ok := p[0].Leaf.(*universe.AssetLeaf)
+		require.True(t, ok)
+
 		require.Equal(
-			t, leaf.GenesisWithGroup, p[0].Leaf.GenesisWithGroup,
+			t, leaf.GenesisWithGroup, assetLeaf.GenesisWithGroup,
 		)
 
 		expectedNode := leaf.SmtLeafNode()
@@ -751,7 +761,7 @@ func TestUniverseLeafOverflow(t *testing.T) {
 
 	// We'll modify the leaf value to actually be a very large number, 1
 	// value away from overflowing.
-	leaf.Amt = math.MaxUint64 - 1
+	leaf.CoinAmt = math.MaxUint64 - 1
 
 	// We should be able to insert this np.
 	_, err := baseUniverse.UpsertProofLeaf(ctx, targetKey, &leaf, nil)
@@ -841,7 +851,7 @@ func TestUniverseRootSum(t *testing.T) {
 				leaf := randMintingLeaf(
 					t, assetGen, id.GroupKey,
 				)
-				leaf.Amt = testLeaf.sumAmt
+				leaf.CoinAmt = testLeaf.sumAmt
 
 				leaves[i] = leaf
 
@@ -891,7 +901,10 @@ func TestUniverseRootSum(t *testing.T) {
 					sumAmt = 1
 				}
 
-				require.Equal(t, int(sumAmt), int(proofs[0].Leaf.Amt))
+				require.Equal(
+					t, int(sumAmt),
+					int(proofs[0].Leaf.Amt()),
+				)
 			}
 		})
 	}
@@ -1005,7 +1018,7 @@ func TestMultiverseRootSum(t *testing.T) {
 				leaf := randMintingLeaf(
 					t, assetGen, id.GroupKey,
 				)
-				leaf.Amt = testLeaf.sumAmt
+				leaf.CoinAmt = testLeaf.sumAmt
 
 				targetKey := randLeafKey(t)
 

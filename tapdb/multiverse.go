@@ -742,7 +742,7 @@ func (b *MultiverseStore) FetchProof(ctx context.Context,
 				"got %d", len(proofs))
 		}
 
-		return proofs[0].Leaf.RawProof, nil
+		return proofs[0].Leaf.RawProof(), nil
 	}
 
 	file, err := proof.FetchProofProvenance(
@@ -764,8 +764,14 @@ func (b *MultiverseStore) FetchProof(ctx context.Context,
 // UpsertProofLeaf upserts a proof leaf within the multiverse tree and the
 // universe tree that corresponds to the given key.
 func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
-	id universe.Identifier, key universe.LeafKey, leaf *universe.AssetLeaf,
+	id universe.Identifier, key universe.LeafKey, leaf universe.Leaf,
 	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
+
+	assetLeaf, ok := leaf.(*universe.AssetLeaf)
+	if !ok {
+		return nil, fmt.Errorf("expected universe.AssetLeaf, got %T",
+			leaf)
+	}
 
 	var (
 		writeTx         BaseMultiverseOptions
@@ -778,7 +784,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		// Register issuance in the asset (group) specific universe
 		// tree. We don't need to decode the whole proof, we just
 		// need the block height.
-		blockHeight, err := SparseDecodeBlockHeight(leaf.RawProof)
+		blockHeight, err := SparseDecodeBlockHeight(leaf.RawProof())
 		if err != nil {
 			return err
 		}
@@ -820,7 +826,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	b.leafKeysCache.wipeCache(id.String())
 	b.syncerCache.addOrReplace(universe.Root{
 		ID:        id,
-		AssetName: leaf.Asset.Tag,
+		AssetName: assetLeaf.Asset.Tag,
 		Node:      uniProof.UniverseRoot,
 	})
 
@@ -831,7 +837,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	// proofs, as the events are received by the custodian to finalize
 	// inbound transfers.
 	if id.ProofType == universe.ProofTypeTransfer {
-		b.transferProofDistributor.NotifySubscribers(leaf.RawProof)
+		b.transferProofDistributor.NotifySubscribers(leaf.RawProof())
 	}
 
 	return uniProof, nil
@@ -855,7 +861,7 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 				// We don't need to decode the whole proof, we
 				// just need the block height.
 				blockHeight, err := SparseDecodeBlockHeight(
-					item.Leaf.RawProof,
+					item.Leaf.RawProof(),
 				)
 				if err != nil {
 					return err
@@ -914,14 +920,20 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	for idx := range items {
 		if items[idx].ID.ProofType == universe.ProofTypeTransfer {
 			b.transferProofDistributor.NotifySubscribers(
-				items[idx].Leaf.RawProof,
+				items[idx].Leaf.RawProof(),
 			)
+		}
+
+		assetLeaf, ok := items[idx].Leaf.(*universe.AssetLeaf)
+		if !ok {
+			return fmt.Errorf("expected universe.AssetLeaf, "+
+				"got %T", items[idx].Leaf)
 		}
 
 		// Update the syncer cache with the new root node.
 		b.syncerCache.addOrReplace(universe.Root{
 			ID:        items[idx].ID,
-			AssetName: items[idx].Leaf.Asset.Tag,
+			AssetName: assetLeaf.Asset.Tag,
 			Node:      uniProofs[idx].UniverseRoot,
 		})
 	}
@@ -1107,7 +1119,7 @@ func (b *MultiverseStore) RegisterSubscriber(
 		// Deliver the found leaves to the new item queue of the
 		// subscriber.
 		for idx := range leaves {
-			rawProof := leaves[idx].Leaf.RawProof
+			rawProof := leaves[idx].Leaf.RawProof()
 			receiver.NewItemCreated.ChanIn() <- rawProof
 		}
 	}

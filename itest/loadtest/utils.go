@@ -360,7 +360,7 @@ func (n *noopBaseUni) MultiverseRoot(ctx context.Context,
 // commitment proof returned.
 func (n noopBaseUni) UpsertProofLeaf(ctx context.Context,
 	id universe.Identifier, key universe.LeafKey,
-	leaf *universe.AssetLeaf) (*universe.Proof, error) {
+	leaf universe.Leaf) (*universe.Proof, error) {
 
 	return nil, nil
 }

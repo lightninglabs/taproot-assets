@@ -571,7 +571,7 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 // stored at the base key. The metaReveal type is purely optional, and should be
 // specified if the genesis proof committed to a non-zero meta hash.
 func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
-	key universe.LeafKey, leaf *universe.AssetLeaf,
+	key universe.LeafKey, leaf universe.Leaf,
 	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
 
 	var (
@@ -583,7 +583,7 @@ func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 
 		// We don't need to decode the whole proof, we just need the
 		// block height.
-		blockHeight, err := SparseDecodeBlockHeight(leaf.RawProof)
+		blockHeight, err := SparseDecodeBlockHeight(leaf.RawProof())
 		if err != nil {
 			return err
 		}
@@ -719,9 +719,15 @@ func upsertMultiverseLeafEntry(ctx context.Context, dbTx BaseUniverseStore,
 // broader DB updates.
 func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	namespace string, proofTypeStr string, groupKey *btcec.PublicKey,
-	key universe.LeafKey, leaf *universe.AssetLeaf,
+	key universe.LeafKey, leaf universe.Leaf,
 	metaReveal *proof.MetaReveal,
 	blockHeight lfn.Option[uint32]) (*universe.Proof, error) {
+
+	assetLeaf, ok := leaf.(*universe.AssetLeaf)
+	if !ok {
+		return nil, fmt.Errorf("leaf must be of type AssetLeaf, "+
+			"got %T", leaf)
+	}
 
 	// With the tree store created, we'll now obtain byte representation of
 	// the minting key, as that'll be the key in the SMT itself.
@@ -763,7 +769,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	// root ID that we'll use to insert the universe leaf overlay.
 	universeRootID, err := dbTx.UpsertUniverseRoot(ctx, NewUniverseRoot{
 		NamespaceRoot: namespace,
-		AssetID:       fn.ByteSlice(leaf.ID()),
+		AssetID:       fn.ByteSlice(assetLeaf.ID()),
 		GroupKey:      groupKeyBytes,
 		ProofType:     sqlStr(proofTypeStr),
 	})
@@ -774,19 +780,19 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	// Before we insert the asset genesis, we'll insert the meta first. The
 	// reveal may or may not be populated, which'll also insert the opaque
 	// meta blob on disk.
-	_, err = maybeUpsertAssetMeta(ctx, dbTx, &leaf.Genesis, metaReveal)
+	_, err = maybeUpsertAssetMeta(ctx, dbTx, &assetLeaf.Genesis, metaReveal)
 	if err != nil {
 		return nil, err
 	}
 
 	var leafProof proof.Proof
-	err = leafProof.Decode(bytes.NewReader(leaf.RawProof))
+	err = leafProof.Decode(bytes.NewReader(assetLeaf.RawProof()))
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode proof: %w", err)
 	}
 
 	assetGenID, err := upsertAssetGen(
-		ctx, dbTx, leaf.Genesis, leaf.GroupKey, &leafProof,
+		ctx, dbTx, assetLeaf.Genesis, assetLeaf.GroupKey(), &leafProof,
 	)
 	if err != nil {
 		return nil, err
@@ -971,19 +977,7 @@ func universeFetchProofLeaf(ctx context.Context,
 			return fmt.Errorf("unable to decode proof: %w", err)
 		}
 
-		issuanceProof := &universe.Proof{
-			LeafKey:                universeKey,
-			UniverseRoot:           rootNode,
-			UniverseInclusionProof: leafProof,
-			Leaf: &universe.AssetLeaf{
-				GenesisWithGroup: universe.GenesisWithGroup{
-					Genesis: leafAssetGen,
-				},
-				RawProof: leaf.GenesisProof,
-				Asset:    &leafAsset,
-				Amt:      uint64(leaf.SumAmt),
-			},
-		}
+		var groupKey *asset.GroupKey
 		if id.GroupKey != nil {
 			leafAssetGroup, err := fetchGroupByGenesis(
 				ctx, dbTx, leaf.GenAssetID,
@@ -992,10 +986,27 @@ func universeFetchProofLeaf(ctx context.Context,
 				return err
 			}
 
-			issuanceProof.Leaf.GroupKey = &asset.GroupKey{
+			groupKey = &asset.GroupKey{
 				GroupPubKey: *id.GroupKey,
 				Witness:     leafAssetGroup.Witness,
 			}
+		}
+
+		assetLeaf := &universe.AssetLeaf{
+			GenesisWithGroup: universe.GenesisWithGroup{
+				Genesis:  leafAssetGen,
+				GroupKey: groupKey,
+			},
+			RawProofBlob: leaf.GenesisProof,
+			Asset:        &leafAsset,
+			CoinAmt:      uint64(leaf.SumAmt),
+		}
+
+		issuanceProof := &universe.Proof{
+			Leaf:                   assetLeaf,
+			LeafKey:                universeKey,
+			UniverseRoot:           rootNode,
+			UniverseInclusionProof: leafProof,
 		}
 
 		proofs = append(proofs, issuanceProof)
@@ -1091,9 +1102,9 @@ func (b *BaseUniverseTree) FetchKeys(ctx context.Context,
 
 // FetchLeaves retrieves all leaves from the universe tree.
 func (b *BaseUniverseTree) FetchLeaves(
-	ctx context.Context) ([]universe.AssetLeaf, error) {
+	ctx context.Context) ([]universe.Leaf, error) {
 
-	var leaves []universe.AssetLeaf
+	var leaves []universe.Leaf
 
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
@@ -1131,18 +1142,21 @@ func (b *BaseUniverseTree) FetchLeaves(
 
 			// Now that we have the leaves, we'll encode them all
 			// into the set of minting leaves.
-			leaf := universe.AssetLeaf{
-				GenesisWithGroup: universe.GenesisWithGroup{
-					Genesis: leafAssetGen,
-				},
-				RawProof: dbLeaf.GenesisProof,
-				Asset:    &genProof.Asset,
-				Amt:      uint64(dbLeaf.SumAmt),
-			}
+			var gk *asset.GroupKey
 			if b.id.GroupKey != nil {
-				leaf.GroupKey = &asset.GroupKey{
+				gk = &asset.GroupKey{
 					GroupPubKey: *b.id.GroupKey,
 				}
+			}
+
+			leaf := &universe.AssetLeaf{
+				GenesisWithGroup: universe.GenesisWithGroup{
+					Genesis:  leafAssetGen,
+					GroupKey: gk,
+				},
+				RawProofBlob: dbLeaf.GenesisProof,
+				Asset:        &genProof.Asset,
+				CoinAmt:      uint64(dbLeaf.SumAmt),
 			}
 
 			leaves = append(leaves, leaf)

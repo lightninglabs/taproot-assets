@@ -222,7 +222,7 @@ func (n *NewMintEvent) UniverseLeafNode() (*mssmt.LeafNode, error) {
 // Encode encodes the mint event into the passed io.Writer.
 func (n *NewMintEvent) Encode(w io.Writer) error {
 	// TODO(roasbeef): TLV here?
-	_, err := w.Write(n.IssuanceProof.RawProof)
+	_, err := w.Write(n.IssuanceProof.RawProofBlob)
 	return err
 }
 
@@ -234,7 +234,7 @@ func (n *NewMintEvent) Decode(r io.Reader) error {
 	}
 
 	n.IssuanceProof = universe.AssetLeaf{
-		RawProof: b.Bytes(),
+		RawProofBlob: b.Bytes(),
 	}
 
 	var issuanceProof proof.Proof
@@ -248,7 +248,7 @@ func (n *NewMintEvent) Decode(r io.Reader) error {
 		GroupKey: issuanceProof.Asset.GroupKey,
 	}
 	n.IssuanceProof.Asset = &issuanceProof.Asset
-	n.IssuanceProof.Amt = issuanceProof.Asset.Amount
+	n.IssuanceProof.CoinAmt = issuanceProof.Asset.Amount
 	n.IssuanceProof.IsBurn = false
 
 	n.LeafKey = universe.AssetLeafKey{
