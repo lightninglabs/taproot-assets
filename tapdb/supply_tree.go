@@ -282,8 +282,8 @@ func (s *SupplyTreeStore) FetchRootSupplyTree(ctx context.Context,
 //
 // NOTE: This function must be called within a database transaction.
 func registerMintSupplyInternal(ctx context.Context, dbTx BaseUniverseStore,
-	assetSpec asset.Specifier, key universe.LeafKey, leaf *universe.Leaf,
-	metaReveal *proof.MetaReveal,
+	assetSpec asset.Specifier, key universe.LeafKey,
+	leaf *universe.AssetLeaf, metaReveal *proof.MetaReveal,
 	blockHeight lfn.Option[uint32]) (*universe.Proof, error) {
 
 	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
@@ -312,7 +312,7 @@ func registerMintSupplyInternal(ctx context.Context, dbTx BaseUniverseStore,
 // TODO(roasbeef): don't actually need? public version
 func (s *SupplyTreeStore) RegisterMintSupply(ctx context.Context,
 	spec asset.Specifier, key universe.LeafKey,
-	leaf *universe.Leaf) (*universe.Proof, mssmt.Node, error) {
+	leaf *universe.AssetLeaf) (*universe.Proof, mssmt.Node, error) {
 
 	groupKey := leaf.GroupKey
 	if groupKey == nil {

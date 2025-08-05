@@ -82,7 +82,7 @@ func unmarshalIssuanceProof(uniKey *unirpc.UniverseKey,
 // that uses a remote Universe server as the Registry instance.
 func (r *RpcUniverseRegistrar) UpsertProofLeaf(ctx context.Context,
 	id universe.Identifier, key universe.LeafKey,
-	leaf *universe.Leaf) (*universe.Proof, error) {
+	leaf *universe.AssetLeaf) (*universe.Proof, error) {
 
 	uniID, err := MarshalUniID(id)
 	if err != nil {

@@ -571,7 +571,7 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 // stored at the base key. The metaReveal type is purely optional, and should be
 // specified if the genesis proof committed to a non-zero meta hash.
 func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
-	key universe.LeafKey, leaf *universe.Leaf,
+	key universe.LeafKey, leaf *universe.AssetLeaf,
 	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
 
 	var (
@@ -719,14 +719,15 @@ func upsertMultiverseLeafEntry(ctx context.Context, dbTx BaseUniverseStore,
 // broader DB updates.
 func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	namespace string, proofTypeStr string, groupKey *btcec.PublicKey,
-	key universe.LeafKey, leaf *universe.Leaf, metaReveal *proof.MetaReveal,
+	key universe.LeafKey, leaf *universe.AssetLeaf,
+	metaReveal *proof.MetaReveal,
 	blockHeight lfn.Option[uint32]) (*universe.Proof, error) {
 
 	// With the tree store created, we'll now obtain byte representation of
 	// the minting key, as that'll be the key in the SMT itself.
 	smtKey := key.UniverseKey()
 
-	// The value stored in the MS-SMT will be the serialized Leaf, so we'll
+	// The value stored in the MS-SMT will be the serialized leaf, so we'll
 	// convert that into raw bytes now.
 	leafNode := leaf.SmtLeafNode()
 
@@ -974,7 +975,7 @@ func universeFetchProofLeaf(ctx context.Context,
 			LeafKey:                universeKey,
 			UniverseRoot:           rootNode,
 			UniverseInclusionProof: leafProof,
-			Leaf: &universe.Leaf{
+			Leaf: &universe.AssetLeaf{
 				GenesisWithGroup: universe.GenesisWithGroup{
 					Genesis: leafAssetGen,
 				},
@@ -1090,9 +1091,9 @@ func (b *BaseUniverseTree) FetchKeys(ctx context.Context,
 
 // FetchLeaves retrieves all leaves from the universe tree.
 func (b *BaseUniverseTree) FetchLeaves(
-	ctx context.Context) ([]universe.Leaf, error) {
+	ctx context.Context) ([]universe.AssetLeaf, error) {
 
-	var leaves []universe.Leaf
+	var leaves []universe.AssetLeaf
 
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
@@ -1130,7 +1131,7 @@ func (b *BaseUniverseTree) FetchLeaves(
 
 			// Now that we have the leaves, we'll encode them all
 			// into the set of minting leaves.
-			leaf := universe.Leaf{
+			leaf := universe.AssetLeaf{
 				GenesisWithGroup: universe.GenesisWithGroup{
 					Genesis: leafAssetGen,
 				},

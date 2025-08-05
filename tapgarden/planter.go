@@ -3044,7 +3044,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 		if p.Asset.GroupKey != nil {
 			uniGen.GroupKey = p.Asset.GroupKey
 		}
-		mintingLeaf := &universe.Leaf{
+		mintingLeaf := &universe.AssetLeaf{
 			GenesisWithGroup: uniGen,
 			RawProof:         proofBytes,
 			Amt:              p.Asset.Amount,

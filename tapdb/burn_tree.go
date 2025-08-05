@@ -106,7 +106,7 @@ func insertBurnsInternal(ctx context.Context, db BaseUniverseStore,
 		// Construct the universe.Leaf required by
 		// universeUpsertProofLeaf.
 		burnProof := burnLeaf.BurnProof
-		leaf := &universe.Leaf{
+		leaf := &universe.AssetLeaf{
 			GenesisWithGroup: universe.GenesisWithGroup{
 				Genesis:  burnProof.Asset.Genesis,
 				GroupKey: burnProof.Asset.GroupKey,

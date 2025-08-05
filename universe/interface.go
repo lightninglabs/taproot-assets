@@ -233,10 +233,10 @@ type GenesisWithGroup struct {
 	*asset.GroupKey
 }
 
-// Leaf is a leaf node in the SMT that represents an asset issuance or transfer.
-// For each asset issued or transferred for a given universe, a new leaf is
-// created.
-type Leaf struct {
+// AssetLeaf is a leaf node in the SMT that represents an asset issuance or
+// transfer. For each asset issued or transferred for a given universe, a new
+// leaf is created.
+type AssetLeaf struct {
 	GenesisWithGroup
 
 	// RawProof is either an issuance proof or a transfer proof associated
@@ -255,7 +255,7 @@ type Leaf struct {
 }
 
 // SmtLeafNode returns the SMT leaf node for the given leaf.
-func (m *Leaf) SmtLeafNode() *mssmt.LeafNode {
+func (m *AssetLeaf) SmtLeafNode() *mssmt.LeafNode {
 	amount := m.Amt
 
 	// For transfer proofs, we just want to track the number of transfers.
@@ -371,7 +371,7 @@ func (a AssetLeafKey) UniverseKey() [32]byte {
 // the universe root and multiverse root.
 type Proof struct {
 	// Leaf is the leaf node for the asset within the universe tree.
-	Leaf *Leaf
+	Leaf *AssetLeaf
 
 	// LeafKey is the universe leaf key for the asset issuance or spend.
 	LeafKey LeafKey
@@ -418,7 +418,7 @@ type StorageBackend interface {
 	// tree, stored at the given key. The metaReveal type is purely
 	// optional, and should be specified if the genesis proof committed to
 	// a non-zero meta hash.
-	UpsertProofLeaf(ctx context.Context, key LeafKey, leaf *Leaf,
+	UpsertProofLeaf(ctx context.Context, key LeafKey, leaf *AssetLeaf,
 		metaReveal *proof.MetaReveal) (*Proof, error)
 
 	// FetchProof retrieves a universe proof corresponding to the given key.
@@ -435,7 +435,7 @@ type StorageBackend interface {
 		q UniverseLeafKeysQuery) ([]LeafKey, error)
 
 	// FetchLeaves retrieves all leaves from the universe tree.
-	FetchLeaves(ctx context.Context) ([]Leaf, error)
+	FetchLeaves(ctx context.Context) ([]AssetLeaf, error)
 
 	// DeleteUniverse deletes all leaves, and the root, for a given
 	// universe.
@@ -495,7 +495,7 @@ type MultiverseArchive interface {
 	// UpsertProofLeaf upserts a proof leaf within the multiverse tree and
 	// the universe tree that corresponds to the given key.
 	UpsertProofLeaf(ctx context.Context, id Identifier, key LeafKey,
-		leaf *Leaf,
+		leaf *AssetLeaf,
 		metaReveal *proof.MetaReveal) (*Proof, error)
 
 	// UpsertProofLeafBatch upserts a proof leaf batch within the multiverse
@@ -538,7 +538,7 @@ type MultiverseArchive interface {
 type Registrar interface {
 	// UpsertProofLeaf upserts a proof leaf within the target universe tree.
 	UpsertProofLeaf(ctx context.Context, id Identifier, key LeafKey,
-		leaf *Leaf) (*Proof, error)
+		leaf *AssetLeaf) (*Proof, error)
 
 	// Close is used to shutdown the active registrar instance.
 	Close() error
@@ -554,7 +554,7 @@ type Item struct {
 	Key LeafKey
 
 	// Leaf is the proof leaf which will be stored at the key.
-	Leaf *Leaf
+	Leaf *AssetLeaf
 
 	// MetaReveal is the meta reveal associated with the given proof leaf.
 	MetaReveal *proof.MetaReveal
@@ -706,7 +706,7 @@ type AssetSyncDiff struct {
 
 	// NewAssetLeaves is the set of new leaf proofs that were added to the
 	// Universe.
-	NewLeafProofs []*Leaf
+	NewLeafProofs []*AssetLeaf
 
 	// TODO(roasbeef): ability to return if things failed?
 	//  * can used a sealed interface to return the error
@@ -966,7 +966,7 @@ type ProofSyncLogEntry struct {
 	LeafKey LeafKey
 
 	// Leaf is the leaf associated with the sync event.
-	Leaf Leaf
+	Leaf AssetLeaf
 }
 
 // FederationProofSyncLog is used for CRUD operations relating to the federation

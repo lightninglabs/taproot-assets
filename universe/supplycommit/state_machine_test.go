@@ -73,7 +73,7 @@ func newTestMintEvent(t *testing.T, scriptKey *btcec.PublicKey,
 	assetGenesis := mintAsset.Genesis
 	assetID := assetGenesis.ID()
 
-	issuanceProof := universe.Leaf{
+	issuanceProof := universe.AssetLeaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis: assetGenesis,
 		},

@@ -78,11 +78,11 @@ func randProofGen(t *rapid.T, argAsset *asset.Asset) *proof.Proof {
 }
 
 func randMintingLeafGen(t *rapid.T, assetGen asset.Genesis,
-	groupKey *btcec.PublicKey) universe.Leaf {
+	groupKey *btcec.PublicKey) universe.AssetLeaf {
 
 	randProof := randProofGen(t, nil)
 
-	leaf := universe.Leaf{
+	leaf := universe.AssetLeaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis: assetGen,
 		},
@@ -385,7 +385,7 @@ func createMintEventWithHeight(t *testing.T, groupKey *btcec.PublicKey,
 	var proofBuf bytes.Buffer
 	require.NoError(t, mintProof.Encode(&proofBuf))
 
-	mintLeaf := universe.Leaf{
+	mintLeaf := universe.AssetLeaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis:  mintAsset.Genesis,
 			GroupKey: mintAsset.GroupKey,

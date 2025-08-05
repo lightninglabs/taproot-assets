@@ -195,7 +195,7 @@ func (d *DbHandler) AddUniProofLeaf(t *testing.T, testAsset *asset.Asset,
 		ScriptKey: &testAsset.ScriptKey,
 	}
 
-	leaf := universe.Leaf{
+	leaf := universe.AssetLeaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis:  testAsset.Genesis,
 			GroupKey: testAsset.GroupKey,

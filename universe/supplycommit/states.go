@@ -181,7 +181,7 @@ type NewMintEvent struct {
 	LeafKey universe.UniqueLeafKey
 
 	// IssuanceProof is the universe leaf for the issuance.
-	IssuanceProof universe.Leaf
+	IssuanceProof universe.AssetLeaf
 
 	// MintHeight is the height of the block that contains the mint.
 	MintHeight uint32
@@ -233,7 +233,7 @@ func (n *NewMintEvent) Decode(r io.Reader) error {
 		return fmt.Errorf("unable to copy: %w", err)
 	}
 
-	n.IssuanceProof = universe.Leaf{
+	n.IssuanceProof = universe.AssetLeaf{
 		RawProof: b.Bytes(),
 	}
 

@@ -201,11 +201,11 @@ func randProof(t testing.TB, argAsset *asset.Asset) *proof.Proof {
 }
 
 func randMintingLeaf(t testing.TB, assetGen asset.Genesis,
-	groupKey *btcec.PublicKey) universe.Leaf {
+	groupKey *btcec.PublicKey) universe.AssetLeaf {
 
 	randProof := randProof(t, nil)
 
-	leaf := universe.Leaf{
+	leaf := universe.AssetLeaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis: assetGen,
 		},
@@ -244,7 +244,7 @@ func randMintingLeaf(t testing.TB, assetGen asset.Genesis,
 type leafWithKey struct {
 	universe.LeafKey
 
-	universe.Leaf
+	universe.AssetLeaf
 }
 
 // TestUniverseIssuanceProofs tests that we're able to insert issuance proofs
@@ -298,7 +298,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		leafSum += testLeaf.Amt
 
 		targetKey := testLeaf.LeafKey
-		leaf := testLeaf.Leaf
+		leaf := testLeaf.AssetLeaf
 
 		issuanceProof, err := baseUniverse.UpsertProofLeaf(
 			ctx, targetKey, &leaf, nil,
@@ -381,10 +381,10 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	dbLeaves, err := baseUniverse.FetchLeaves(ctx)
 	require.NoError(t, err)
 	require.Equal(t, numLeaves, len(dbLeaves))
-	require.True(t, fn.All(dbLeaves, func(leaf universe.Leaf) bool {
+	require.True(t, fn.All(dbLeaves, func(leaf universe.AssetLeaf) bool {
 		return fn.All(testLeaves, func(testLeaf leafWithKey) bool {
 			return leaf.Genesis.ID() ==
-				testLeaf.Leaf.Genesis.ID()
+				testLeaf.AssetLeaf.Genesis.ID()
 		})
 	}))
 
@@ -403,11 +403,11 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		randProofBytes, err := randProof.Bytes()
 		require.NoError(t, err)
 
-		testLeaf.Leaf.RawProof = randProofBytes
+		testLeaf.AssetLeaf.RawProof = randProofBytes
 
 		targetKey := testLeaf.LeafKey
 		issuanceProof, err := baseUniverse.UpsertProofLeaf(
-			ctx, targetKey, &testLeaf.Leaf, nil,
+			ctx, targetKey, &testLeaf.AssetLeaf, nil,
 		)
 		require.NoError(t, err)
 
@@ -651,7 +651,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 	// minting outpoint, but will have distinct script keys.
 	rootMintingPoint := randLeafKey(t).LeafOutPoint()
 
-	leafToScriptKey := make(map[asset.SerializedKey]universe.Leaf)
+	leafToScriptKey := make(map[asset.SerializedKey]universe.AssetLeaf)
 	for i := 0; i < numLeafs; i++ {
 		baseKey := randLeafKey(t).(universe.BaseLeafKey)
 		baseKey.OutPoint = rootMintingPoint
@@ -833,7 +833,9 @@ func TestUniverseRootSum(t *testing.T) {
 
 			assetGen := asset.RandGenesis(t, asset.Normal)
 
-			leaves := make([]universe.Leaf, len(testCase.leaves))
+			leaves := make(
+				[]universe.AssetLeaf, len(testCase.leaves),
+			)
 			keys := make([]universe.LeafKey, len(testCase.leaves))
 			for i, testLeaf := range testCase.leaves {
 				leaf := randMintingLeaf(

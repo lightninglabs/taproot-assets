@@ -341,8 +341,8 @@ func assertProofSyncLogLeafKey(t *testing.T, actualLeafKey universe.LeafKey,
 
 // assertProofSyncLogLeaf asserts that a leaf derived from a proof sync log
 // entry is equal to a given universe leaf.
-func assertProofSyncLogLeaf(t *testing.T, actualLeaf universe.Leaf,
-	logLeaf universe.Leaf) {
+func assertProofSyncLogLeaf(t *testing.T, actualLeaf universe.AssetLeaf,
+	logLeaf universe.AssetLeaf) {
 
 	if actualLeaf.GenesisWithGroup.GroupKey != nil {
 		// We can safely ignore the group key witness as it is the

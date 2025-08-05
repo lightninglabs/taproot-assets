@@ -236,7 +236,7 @@ func (a *Archive) MultiverseRoot(ctx context.Context, proofType ProofType,
 // the leaf is already known, then no action is taken and the existing
 // commitment proof returned.
 func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
-	key LeafKey, leaf *Leaf) (*Proof, error) {
+	key LeafKey, leaf *AssetLeaf) (*Proof, error) {
 
 	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))
@@ -699,13 +699,13 @@ func (a *Archive) UniverseLeafKeys(ctx context.Context,
 // FetchLeaves returns the set of leaves which correspond to the given universe
 // identifier.
 func (a *Archive) FetchLeaves(ctx context.Context,
-	id Identifier) ([]Leaf, error) {
+	id Identifier) ([]AssetLeaf, error) {
 
 	log.Debugf("Retrieving all leaves for universe (id=%v)",
 		id.StringForLog())
 
 	return withUni(
-		a, id, func(uni StorageBackend) ([]Leaf, error) {
+		a, id, func(uni StorageBackend) ([]AssetLeaf, error) {
 			return uni.FetchLeaves(ctx)
 		},
 	)

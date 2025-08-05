@@ -503,7 +503,7 @@ func fetchProofSyncLogEntry(ctx context.Context, entry ProofSyncLogEntry,
 		return nil, fmt.Errorf("unable to decode proof: %w", err)
 	}
 
-	leaf := &universe.Leaf{
+	leaf := &universe.AssetLeaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis:  leafAssetGen,
 			GroupKey: leafAsset.GroupKey,

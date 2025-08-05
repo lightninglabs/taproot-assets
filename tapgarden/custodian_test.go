@@ -275,7 +275,7 @@ func (h *custodianHarness) addProofFileToMultiverse(p *proof.AnnotatedProof) {
 				transition.Asset.ScriptKey.PubKey,
 			)),
 		}
-		leaf := &universe.Leaf{
+		leaf := &universe.AssetLeaf{
 			GenesisWithGroup: universe.GenesisWithGroup{
 				Genesis:  transition.Asset.Genesis,
 				GroupKey: transition.Asset.GroupKey,
