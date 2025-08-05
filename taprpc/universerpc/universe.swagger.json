@@ -2080,6 +2080,15 @@
       "default": "SCRIPT_KEY_UNKNOWN",
       "description": " - SCRIPT_KEY_UNKNOWN: The type of script key is not known. This should only be stored for assets\nwhere we don't know the internal key of the script key (e.g. for imported\nproofs).\n - SCRIPT_KEY_BIP86: The script key is a normal BIP-86 key. This means that the internal key is\nturned into a Taproot output key by applying a BIP-86 tweak to it.\n - SCRIPT_KEY_SCRIPT_PATH_EXTERNAL: The script key is a key that contains a script path that is defined by the\nuser and is therefore external to the tapd wallet. Spending this key\nrequires providing a specific witness and must be signed through the vPSBT\nsigning flow.\n - SCRIPT_KEY_BURN: The script key is a specific un-spendable key that indicates a burnt asset.\nAssets with this key type can never be spent again, as a burn key is a\ntweaked NUMS key that nobody knows the private key for.\n - SCRIPT_KEY_TOMBSTONE: The script key is a specific un-spendable key that indicates a tombstone\noutput. This is only the case for zero-value assets that result from a\nnon-interactive (TAP address) send where no change was left over.\n - SCRIPT_KEY_CHANNEL: The script key is used for an asset that resides within a Taproot Asset\nChannel. That means the script key is either a funding key (OP_TRUE), a\ncommitment output key (to_local, to_remote, htlc), or a HTLC second-level\ntransaction output key. Keys related to channels are not shown in asset\nbalances (unless specifically requested) and are never used for coin\nselection.\n - SCRIPT_KEY_UNIQUE_PEDERSEN: The script key is derived using the asset ID and a single leaf that contains\nan un-spendable Pedersen commitment key\n`(OP_CHECKSIG \u003cNUMS_key + asset_id * G\u003e)`. This can be used to create\nunique script keys for each virtual packet in the fragment, to avoid proof\ncollisions in the universe, where the script keys should be spendable by\na hardware wallet that only supports miniscript policies for signing P2TR\noutputs."
     },
+    "taprpcSortDirection": {
+      "type": "string",
+      "enum": [
+        "SORT_DIRECTION_ASC",
+        "SORT_DIRECTION_DESC"
+      ],
+      "default": "SORT_DIRECTION_ASC",
+      "description": "Enum for specifying sort direction in paginated queries."
+    },
     "taprpcSplitCommitment": {
       "type": "object",
       "properties": {
@@ -2689,14 +2698,6 @@
     },
     "universerpcSetFederationSyncConfigResponse": {
       "type": "object"
-    },
-    "universerpcSortDirection": {
-      "type": "string",
-      "enum": [
-        "SORT_DIRECTION_ASC",
-        "SORT_DIRECTION_DESC"
-      ],
-      "default": "SORT_DIRECTION_ASC"
     },
     "universerpcStatsResponse": {
       "type": "object",

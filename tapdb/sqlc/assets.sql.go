@@ -451,6 +451,100 @@ func (q *Queries) ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) 
 	return err
 }
 
+const CountAssets = `-- name: CountAssets :one
+SELECT COUNT(*) AS total_count
+FROM assets
+JOIN genesis_info_view
+    ON assets.genesis_id = genesis_info_view.gen_asset_id AND
+      (genesis_info_view.asset_id = $1 OR
+        $1 IS NULL)
+LEFT JOIN key_group_info_view
+    ON assets.genesis_id = key_group_info_view.gen_asset_id
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id AND
+      (script_keys.tweaked_script_key = $2 OR
+       $2 IS NULL)
+JOIN internal_keys
+    ON script_keys.internal_key_id = internal_keys.key_id
+JOIN managed_utxos utxos
+    ON assets.anchor_utxo_id = utxos.utxo_id AND
+      (utxos.outpoint = $3 OR
+       $3 IS NULL) AND
+       CASE
+           WHEN $4 = true THEN
+               (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > $5)
+           WHEN $4 = false THEN
+               (utxos.lease_owner IS NULL OR 
+                utxos.lease_expiry IS NULL OR
+                utxos.lease_expiry <= $5)
+           ELSE TRUE
+       END
+JOIN internal_keys utxo_internal_keys
+    ON utxos.internal_key_id = utxo_internal_keys.key_id
+JOIN chain_txns txns
+    ON utxos.txn_id = txns.txn_id AND
+      COALESCE(txns.block_height, 0) >= COALESCE($6, txns.block_height, 0)
+WHERE (
+    assets.amount >= COALESCE($7, assets.amount) AND
+    assets.amount <= COALESCE($8, assets.amount) AND
+    assets.spent = COALESCE($9, assets.spent) AND
+    (key_group_info_view.tweaked_group_key = $10 OR
+      $10 IS NULL) AND
+    assets.anchor_utxo_id = COALESCE($11, assets.anchor_utxo_id) AND
+    assets.genesis_id = COALESCE($12, assets.genesis_id) AND
+    assets.script_key_id = COALESCE($13, assets.script_key_id) AND
+    COALESCE(script_keys.key_type, 0) IN
+      (/*SLICE:script_key_type*/?)
+)
+`
+
+type CountAssetsParams struct {
+	AssetIDFilter    []byte
+	TweakedScriptKey []byte
+	AnchorPoint      []byte
+	Leased           interface{}
+	Now              sql.NullTime
+	MinAnchorHeight  sql.NullInt32
+	MinAmt           sql.NullInt64
+	MaxAmt           sql.NullInt64
+	Spent            sql.NullBool
+	KeyGroupFilter   []byte
+	AnchorUtxoID     sql.NullInt64
+	GenesisID        sql.NullInt64
+	ScriptKeyID      sql.NullInt64
+	ScriptKeyType    []sql.NullInt16
+}
+
+func (q *Queries) CountAssets(ctx context.Context, arg CountAssetsParams) (int64, error) {
+	query := CountAssets
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.AssetIDFilter)
+	queryParams = append(queryParams, arg.TweakedScriptKey)
+	queryParams = append(queryParams, arg.AnchorPoint)
+	queryParams = append(queryParams, arg.Leased)
+	queryParams = append(queryParams, arg.Now)
+	queryParams = append(queryParams, arg.MinAnchorHeight)
+	queryParams = append(queryParams, arg.MinAmt)
+	queryParams = append(queryParams, arg.MaxAmt)
+	queryParams = append(queryParams, arg.Spent)
+	queryParams = append(queryParams, arg.KeyGroupFilter)
+	queryParams = append(queryParams, arg.AnchorUtxoID)
+	queryParams = append(queryParams, arg.GenesisID)
+	queryParams = append(queryParams, arg.ScriptKeyID)
+	if len(arg.ScriptKeyType) > 0 {
+		for _, v := range arg.ScriptKeyType {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:script_key_type*/?", makeQueryParams(len(queryParams), len(arg.ScriptKeyType)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:script_key_type*/?", "NULL", 1)
+	}
+	row := q.db.QueryRowContext(ctx, query, queryParams...)
+	var total_count int64
+	err := row.Scan(&total_count)
+	return total_count, err
+}
+
 const DeleteExpiredUTXOLeases = `-- name: DeleteExpiredUTXOLeases :exec
 UPDATE managed_utxos
 SET lease_owner = NULL, lease_expiry = NULL
@@ -2676,6 +2770,249 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 	var items []QueryAssetsRow
 	for rows.Next() {
 		var i QueryAssetsRow
+		if err := rows.Scan(
+			&i.AssetPrimaryKey,
+			&i.GenesisID,
+			&i.Version,
+			&i.Spent,
+			&i.ScriptKey.ScriptKeyID,
+			&i.ScriptKey.InternalKeyID,
+			&i.ScriptKey.TweakedScriptKey,
+			&i.ScriptKey.Tweak,
+			&i.ScriptKey.KeyType,
+			&i.InternalKey.KeyID,
+			&i.InternalKey.RawKey,
+			&i.InternalKey.KeyFamily,
+			&i.InternalKey.KeyIndex,
+			&i.TapscriptRoot,
+			&i.WitnessStack,
+			&i.TweakedGroupKey,
+			&i.GroupKeyRaw,
+			&i.GroupKeyFamily,
+			&i.GroupKeyIndex,
+			&i.ScriptVersion,
+			&i.Amount,
+			&i.LockTime,
+			&i.RelativeLockTime,
+			&i.AssetID,
+			&i.AssetTag,
+			&i.MetaHash,
+			&i.GenesisOutputIndex,
+			&i.AssetType,
+			&i.GenesisPrevOut,
+			&i.AnchorTx,
+			&i.AnchorTxid,
+			&i.AnchorBlockHash,
+			&i.AnchorBlockHeight,
+			&i.AnchorOutpoint,
+			&i.AnchorTapscriptSibling,
+			&i.AnchorMerkleRoot,
+			&i.AnchorTaprootAssetRoot,
+			&i.AnchorCommitmentVersion,
+			&i.AnchorLeaseOwner,
+			&i.AnchorLeaseExpiry,
+			&i.AnchorInternalKey,
+			&i.SplitCommitmentRootHash,
+			&i.SplitCommitmentRootValue,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const QueryAssetsPaginated = `-- name: QueryAssetsPaginated :many
+SELECT
+    assets.asset_id AS asset_primary_key,
+    assets.genesis_id, assets.version, spent,
+    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type,
+    internal_keys.key_id, internal_keys.raw_key, internal_keys.key_family, internal_keys.key_index,
+    key_group_info_view.tapscript_root, 
+    key_group_info_view.witness_stack, 
+    key_group_info_view.tweaked_group_key,
+    key_group_info_view.raw_key AS group_key_raw,
+    key_group_info_view.key_family AS group_key_family,
+    key_group_info_view.key_index AS group_key_index,
+    script_version, amount, lock_time, relative_lock_time, 
+    genesis_info_view.asset_id AS asset_id,
+    genesis_info_view.asset_tag,
+    genesis_info_view.meta_hash, 
+    genesis_info_view.output_index AS genesis_output_index,
+    genesis_info_view.asset_type,
+    genesis_info_view.prev_out AS genesis_prev_out,
+    txns.raw_tx AS anchor_tx,
+    txns.txid AS anchor_txid,
+    txns.block_hash AS anchor_block_hash,
+    txns.block_height AS anchor_block_height,
+    utxos.outpoint AS anchor_outpoint,
+    utxos.tapscript_sibling AS anchor_tapscript_sibling,
+    utxos.merkle_root AS anchor_merkle_root,
+    utxos.taproot_asset_root AS anchor_taproot_asset_root,
+    utxos.root_version AS anchor_commitment_version,
+    utxos.lease_owner AS anchor_lease_owner,
+    utxos.lease_expiry AS anchor_lease_expiry,
+    utxo_internal_keys.raw_key AS anchor_internal_key,
+    split_commitment_root_hash, split_commitment_root_value
+FROM assets
+JOIN genesis_info_view
+    ON assets.genesis_id = genesis_info_view.gen_asset_id AND
+      (genesis_info_view.asset_id = $1 OR
+        $1 IS NULL)
+LEFT JOIN key_group_info_view
+    ON assets.genesis_id = key_group_info_view.gen_asset_id
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id AND
+      (script_keys.tweaked_script_key = $2 OR
+       $2 IS NULL)
+JOIN internal_keys
+    ON script_keys.internal_key_id = internal_keys.key_id
+JOIN managed_utxos utxos
+    ON assets.anchor_utxo_id = utxos.utxo_id AND
+      (utxos.outpoint = $3 OR
+       $3 IS NULL) AND
+       CASE
+           WHEN $4 = true THEN
+               (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > $5)
+           WHEN $4 = false THEN
+               (utxos.lease_owner IS NULL OR 
+                utxos.lease_expiry IS NULL OR
+                utxos.lease_expiry <= $5)
+           ELSE TRUE
+       END
+JOIN internal_keys utxo_internal_keys
+    ON utxos.internal_key_id = utxo_internal_keys.key_id
+JOIN chain_txns txns
+    ON utxos.txn_id = txns.txn_id AND
+      COALESCE(txns.block_height, 0) >= COALESCE($6, txns.block_height, 0)
+WHERE (
+    assets.amount >= COALESCE($7, assets.amount) AND
+    assets.amount <= COALESCE($8, assets.amount) AND
+    assets.spent = COALESCE($9, assets.spent) AND
+    (key_group_info_view.tweaked_group_key = $10 OR
+      $10 IS NULL) AND
+    assets.anchor_utxo_id = COALESCE($11, assets.anchor_utxo_id) AND
+    assets.genesis_id = COALESCE($12, assets.genesis_id) AND
+    assets.script_key_id = COALESCE($13, assets.script_key_id) AND
+    -- The script_key_type argument must NEVER be an empty slice, otherwise this
+    -- query will return no results.
+    COALESCE(script_keys.key_type, 0) IN
+      (/*SLICE:script_key_type*/?)
+)
+ORDER BY
+    CASE WHEN $15 = false THEN assets.asset_id END ASC,
+    CASE WHEN $15 = true THEN assets.asset_id END DESC
+LIMIT $17 OFFSET $16
+`
+
+type QueryAssetsPaginatedParams struct {
+	AssetIDFilter    []byte
+	TweakedScriptKey []byte
+	AnchorPoint      []byte
+	Leased           interface{}
+	Now              sql.NullTime
+	MinAnchorHeight  sql.NullInt32
+	MinAmt           sql.NullInt64
+	MaxAmt           sql.NullInt64
+	Spent            sql.NullBool
+	KeyGroupFilter   []byte
+	AnchorUtxoID     sql.NullInt64
+	GenesisID        sql.NullInt64
+	ScriptKeyID      sql.NullInt64
+	ScriptKeyType    []sql.NullInt16
+	IsDesc           interface{}
+	NumOffset        int32
+	NumLimit         int32
+}
+
+type QueryAssetsPaginatedRow struct {
+	AssetPrimaryKey          int64
+	GenesisID                int64
+	Version                  int32
+	Spent                    bool
+	ScriptKey                ScriptKey
+	InternalKey              InternalKey
+	TapscriptRoot            []byte
+	WitnessStack             []byte
+	TweakedGroupKey          []byte
+	GroupKeyRaw              []byte
+	GroupKeyFamily           sql.NullInt32
+	GroupKeyIndex            sql.NullInt32
+	ScriptVersion            int32
+	Amount                   int64
+	LockTime                 sql.NullInt32
+	RelativeLockTime         sql.NullInt32
+	AssetID                  []byte
+	AssetTag                 string
+	MetaHash                 []byte
+	GenesisOutputIndex       int32
+	AssetType                int16
+	GenesisPrevOut           []byte
+	AnchorTx                 []byte
+	AnchorTxid               []byte
+	AnchorBlockHash          []byte
+	AnchorBlockHeight        sql.NullInt32
+	AnchorOutpoint           []byte
+	AnchorTapscriptSibling   []byte
+	AnchorMerkleRoot         []byte
+	AnchorTaprootAssetRoot   []byte
+	AnchorCommitmentVersion  sql.NullInt16
+	AnchorLeaseOwner         []byte
+	AnchorLeaseExpiry        sql.NullTime
+	AnchorInternalKey        []byte
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
+}
+
+// We use a LEFT JOIN here as not every asset has a group key, so this'll
+// generate rows that have NULL values for the group key fields if an asset
+// doesn't have a group key. See the comment in fetchAssetSprouts for a work
+// around that needs to be used with this query until a sqlc bug is fixed.
+// This clause is used to select specific assets for a asset ID, general
+// channel balances, and also coin selection. We use the sqlc.narg feature to
+// make the entire statement evaluate to true, if none of these extra args are
+// specified.
+func (q *Queries) QueryAssetsPaginated(ctx context.Context, arg QueryAssetsPaginatedParams) ([]QueryAssetsPaginatedRow, error) {
+	query := QueryAssetsPaginated
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.AssetIDFilter)
+	queryParams = append(queryParams, arg.TweakedScriptKey)
+	queryParams = append(queryParams, arg.AnchorPoint)
+	queryParams = append(queryParams, arg.Leased)
+	queryParams = append(queryParams, arg.Now)
+	queryParams = append(queryParams, arg.MinAnchorHeight)
+	queryParams = append(queryParams, arg.MinAmt)
+	queryParams = append(queryParams, arg.MaxAmt)
+	queryParams = append(queryParams, arg.Spent)
+	queryParams = append(queryParams, arg.KeyGroupFilter)
+	queryParams = append(queryParams, arg.AnchorUtxoID)
+	queryParams = append(queryParams, arg.GenesisID)
+	queryParams = append(queryParams, arg.ScriptKeyID)
+	if len(arg.ScriptKeyType) > 0 {
+		for _, v := range arg.ScriptKeyType {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:script_key_type*/?", makeQueryParams(len(queryParams), len(arg.ScriptKeyType)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:script_key_type*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.IsDesc)
+	queryParams = append(queryParams, arg.NumOffset)
+	queryParams = append(queryParams, arg.NumLimit)
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryAssetsPaginatedRow
+	for rows.Next() {
+		var i QueryAssetsPaginatedRow
 		if err := rows.Scan(
 			&i.AssetPrimaryKey,
 			&i.GenesisID,

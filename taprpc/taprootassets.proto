@@ -252,6 +252,19 @@ message ListAssetRequest {
     // will automatically be set to true, because assets of that type are always
     // marked as spent.
     ScriptKeyTypeQuery script_key_type = 10;
+
+    // The offset for the page. This is used for pagination.
+    int32 offset = 11;
+
+    // The length limit for the page. This is used for pagination.
+    // If not specified, the default value of 100 will be used.
+    int32 limit = 12;
+
+    // The direction of the sort. If this is set to SORT_DIRECTION_ASC (or
+    // defaults to it), then the results are sorted in ascending order by
+    // asset ID. If this is set to SORT_DIRECTION_DESC, then the results are
+    // sorted in descending order by asset ID.
+    SortDirection direction = 13;
 }
 
 message AnchorInfo {
@@ -606,6 +619,15 @@ message ListAssetResponse {
     // chain yet. These assets will appear in the asset list with a block height
     // of 0 if include_unconfirmed_mints is set to true in the request.
     uint64 unconfirmed_mints = 3;
+
+    // The total number of assets that match the query. This is useful for
+    // calculating the total number of pages.
+    uint64 total_count = 4;
+
+    // Whether there are more assets to be fetched. If true, then
+    // additional assets can be fetched by increasing the offset in the
+    // next request.
+    bool has_more = 5;
 }
 
 message ListUtxosRequest {

@@ -337,6 +337,34 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "offset",
+            "description": "The offset for the page. This is used for pagination.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "limit",
+            "description": "The length limit for the page. This is used for pagination.\nIf not specified, the default value of 100 will be used.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "direction",
+            "description": "The direction of the sort. If this is set to SORT_DIRECTION_ASC (or\ndefaults to it), then the results are sorted in ascending order by\nasset ID. If this is set to SORT_DIRECTION_DESC, then the results are\nsorted in descending order by asset ID.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SORT_DIRECTION_ASC",
+              "SORT_DIRECTION_DESC"
+            ],
+            "default": "SORT_DIRECTION_ASC"
           }
         ],
         "tags": [
@@ -2149,6 +2177,15 @@
           "type": "string",
           "format": "uint64",
           "description": "This is a count of freshly minted assets that haven't been confirmed on\nchain yet. These assets will appear in the asset list with a block height\nof 0 if include_unconfirmed_mints is set to true in the request."
+        },
+        "total_count": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total number of assets that match the query. This is useful for\ncalculating the total number of pages."
+        },
+        "has_more": {
+          "type": "boolean",
+          "description": "Whether there are more assets to be fetched. If true, then\nadditional assets can be fetched by increasing the offset in the\nnext request."
         }
       }
     },
@@ -2640,6 +2677,15 @@
           "description": "The next send state that will be executed."
         }
       }
+    },
+    "taprpcSortDirection": {
+      "type": "string",
+      "enum": [
+        "SORT_DIRECTION_ASC",
+        "SORT_DIRECTION_DESC"
+      ],
+      "default": "SORT_DIRECTION_ASC",
+      "description": "Enum for specifying sort direction in paginated queries."
     },
     "taprpcSplitCommitment": {
       "type": "object",

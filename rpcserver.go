@@ -1141,11 +1141,20 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 	}
 	filters.ScriptKeyType = scriptKeyType
 
-	rpcAssets, err := r.fetchRpcAssets(
-		ctx, req.WithWitness, req.IncludeSpent || includeSpent,
-		req.IncludeLeased, filters,
-	)
+	// Set default values for pagination if not specified.
+	offset := req.Offset
+	limit := req.Limit
+	if limit == 0 {
+		limit = 100 // Default page size
+	}
+	direction := req.Direction
 
+	// Use paginated fetch if pagination parameters are specified.
+	// We always use pagination now to support the total count.
+	rpcAssets, totalCount, err := r.fetchRpcAssetsPaginated(
+		ctx, req.WithWitness, req.IncludeSpent || includeSpent,
+		req.IncludeLeased, filters, offset, limit, direction,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1156,10 +1165,8 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 	)
 
 	// We now count and filter the assets according to the
-	// IncludeUnconfirmedMints flag.
-	//
-	// TODO(guggero): Do this on the SQL level once we add pagination to the
-	// asset list query, as this will no longer work with pagination.
+	// IncludeUnconfirmedMints flag. This is now done in memory for
+	// paginated results as well.
 	for idx := range rpcAssets {
 		switch {
 		// If the asset isn't confirmed yet, we count it but only
@@ -1190,10 +1197,16 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 			"outgoing parcels: %w", err)
 	}
 
+	// Check if there are more results available.
+	hasMore := int32(len(filteredAssets)) == limit && 
+		(offset+limit) < int32(totalCount)
+
 	return &taprpc.ListAssetResponse{
 		Assets:               filteredAssets,
 		UnconfirmedTransfers: uint64(len(outboundParcels)),
 		UnconfirmedMints:     unconfirmedMints,
+		TotalCount:           totalCount,
+		HasMore:              hasMore,
 	}, nil
 }
 
@@ -1224,6 +1237,37 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 	}
 
 	return rpcAssets, nil
+}
+
+func (r *rpcServer) fetchRpcAssetsPaginated(ctx context.Context, withWitness,
+	includeSpent, includeLeased bool, queryFilters *tapdb.AssetQueryFilters,
+	offset, limit int32, direction taprpc.SortDirection) ([]*taprpc.Asset,
+	uint64, error) {
+
+	assets, totalCount, err := r.cfg.AssetStore.FetchAllAssetsPaginated(
+		ctx, includeSpent, includeLeased, queryFilters, offset, limit,
+		direction,
+	)
+	if err != nil {
+		return nil, 0, fmt.Errorf("unable to read chain assets: %w", err)
+	}
+
+	rpcAssets := make([]*taprpc.Asset, len(assets))
+	for i, a := range assets {
+		if a == nil {
+			return nil, 0, fmt.Errorf("nil asset at index %d", i)
+		}
+
+		rpcAssets[i], err = r.MarshalChainAsset(
+			ctx, *a, nil, withWitness, r.cfg.AddrBook,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("unable to marshal asset: %w",
+				err)
+		}
+	}
+
+	return rpcAssets, totalCount, nil
 }
 
 // MarshalChainAsset marshals the given chain asset into an RPC asset.
