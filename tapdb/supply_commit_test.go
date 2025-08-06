@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -2069,6 +2070,138 @@ func encodeTx(tx *wire.MsgTx) ([]byte, error) {
 	var buf bytes.Buffer
 	err := tx.Serialize(&buf)
 	return buf.Bytes(), err
+}
+
+// TestSupplySyncerPushLog tests the LogSupplyCommitPush method which logs
+// successful pushes to remote universe servers.
+func TestSupplySyncerPushLog(t *testing.T) {
+	t.Parallel()
+
+	// Set up the test harness with all necessary components.
+	h := newSupplyCommitTestHarness(t)
+
+	// Create a test supply commitment that we can reference.
+	// Use the same simple approach as
+	// TestSupplyCommitMultipleSupplyCommitments.
+	genTxData := func() (int64, []byte, []byte) {
+		genesisPoint := test.RandOp(h.t)
+		tx := wire.NewMsgTx(2)
+		tx.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: genesisPoint,
+		})
+		tx.AddTxOut(&wire.TxOut{
+			Value:    1000,
+			PkScript: test.RandBytes(20),
+		})
+
+		txBytes, err := encodeTx(tx)
+		require.NoError(h.t, err)
+		txid := tx.TxHash()
+		chainTxID, err := h.db.UpsertChainTx(
+			h.ctx, sqlc.UpsertChainTxParams{
+				Txid:  txid[:],
+				RawTx: txBytes,
+			},
+		)
+		require.NoError(h.t, err)
+		return chainTxID, txid[:], txBytes
+	}
+
+	chainTxID, txid, rawTx := genTxData()
+	commitID := h.addTestSupplyCommitment(chainTxID, txid, rawTx, false)
+
+	// Get the supply root that was created by addTestSupplyCommitment.
+	rows, err := h.db.(sqlc.DBTX).QueryContext(h.ctx, `
+		SELECT supply_root_hash, supply_root_sum FROM supply_commitments
+		WHERE commit_id = $1
+	`, commitID)
+	require.NoError(t, err)
+	defer rows.Close()
+	require.True(t, rows.Next(), "Expected supply commitment to exist")
+
+	var rootHashBytes []byte
+	var rootSum int64
+	err = rows.Scan(&rootHashBytes, &rootSum)
+	require.NoError(t, err)
+	require.NoError(t, rows.Close())
+
+	var rootHash mssmt.NodeHash
+	copy(rootHash[:], rootHashBytes)
+
+	// Decode the raw transaction to get the actual wire.MsgTx used in the
+	// test data.
+	var actualTx wire.MsgTx
+	err = actualTx.Deserialize(bytes.NewReader(rawTx))
+	require.NoError(t, err)
+
+	// Create a SupplySyncerStore and test the actual LogSupplyCommitPush
+	// method.
+	syncerStore := NewSupplySyncerStore(h.batchedTreeDB)
+
+	// Create mock data for the method call.
+	serverAddr := universe.NewServerAddrFromStr("localhost:8080")
+	supplyRoot := mssmt.NewComputedBranch(rootHash, uint64(rootSum))
+
+	// Create minimal supply leaves - just need something to count.
+	// We need at least one leaf or the method returns early without
+	// logging.
+	mintEvent := supplycommit.NewMintEvent{
+		MintHeight: 100,
+	}
+	leaves := supplycommit.SupplyLeaves{
+		IssuanceLeafEntries: []supplycommit.NewMintEvent{mintEvent},
+	}
+
+	commitment := supplycommit.RootCommitment{
+		SupplyRoot:  supplyRoot,
+		Txn:         &actualTx,
+		TxOutIdx:    0,
+		InternalKey: keychain.KeyDescriptor{PubKey: h.groupPubKey},
+		OutputKey:   h.groupPubKey,
+	}
+
+	// Record the time before the call to verify timestamp is recent.
+	beforeCall := time.Now().Unix()
+
+	// Test the actual LogSupplyCommitPush method.
+	err = syncerStore.LogSupplyCommitPush(
+		h.ctx, serverAddr, h.assetSpec, commitment, leaves,
+	)
+	require.NoError(t, err, "LogSupplyCommitPush should work")
+
+	afterCall := time.Now().Unix()
+
+	// Verify the log entry was created correctly using the new fetch query.
+	var logEntries []sqlc.SupplySyncerPushLog
+	readTx := ReadTxOption()
+	err = h.batchedTreeDB.ExecTx(h.ctx, readTx,
+		func(dbTx BaseUniverseStore) error {
+			var txErr error
+			logEntries, txErr = dbTx.FetchSupplySyncerPushLogs(
+				h.ctx, h.groupKeyBytes,
+			)
+			return txErr
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, logEntries, 1, "Expected exactly one push log entry")
+
+	logEntry := logEntries[0]
+
+	// Verify all the fields are correct.
+	require.Equal(t, h.groupKeyBytes, logEntry.GroupKey)
+	require.Equal(t, int32(100), logEntry.MaxPushedBlockHeight)
+	require.Equal(t, "localhost:8080", logEntry.ServerAddress)
+	require.Equal(t, txid, logEntry.CommitTxid)
+	require.Equal(t, int32(0), logEntry.OutputIndex)
+	require.Equal(t, int32(1), logEntry.NumLeavesPushed)
+	require.GreaterOrEqual(t, logEntry.CreatedAt, beforeCall)
+	require.LessOrEqual(t, logEntry.CreatedAt, afterCall)
+
+	t.Logf("Successfully logged push: commitTxid=%x, outputIndex=%d, "+
+		"timestamp=%d, leaves=%d", logEntry.CommitTxid,
+		logEntry.OutputIndex, logEntry.CreatedAt,
+		logEntry.NumLeavesPushed)
 }
 
 // assertEqualEvents compares two supply update events by serializing them and
