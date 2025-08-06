@@ -98,6 +98,9 @@
 - The `SubscribeSendEvents` RPC now supports [historical event replay of 
   completed sends with efficient database-level
   filtering](https://github.com/lightninglabs/taproot-assets/pull/1685).
+- [Add universe RPC endpoint FetchSupplyLeaves](https://github.com/lightninglabs/taproot-assets/pull/1693)
+  that allows users to fetch the supply leaves of a universe supply commitment.
+  This is useful for verification.
 
 - A [new field `unconfirmed_transfers` was added to the response of the 
   `ListBalances` RPC
@@ -139,6 +142,9 @@
   the default "all script key types" [to the value
   `bip86`](https://github.com/lightninglabs/taproot-assets/pull/1690) to match
   the default value of the RPC interface.
+- [Add universe supply commit subcommand fetchleaves](https://github.com/lightninglabs/taproot-assets/pull/1693)
+  that allows users to fetch the supply leaves of a universe supply commitment.
+  This is useful for verification.
 
 ## Code Health
 

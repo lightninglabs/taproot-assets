@@ -87,6 +87,19 @@ func (s SupplyTrees) FetchOrCreate(treeType SupplySubTree) mssmt.Tree {
 	return tree
 }
 
+// SupplyLeaves is the response type for fetching the supply leaves for a given
+// asset specifier.
+type SupplyLeaves struct {
+	// IssuanceLeafEntries is a slice of issuance leaves.
+	IssuanceLeafEntries []NewMintEvent
+
+	// BurnLeafEntries is a slice of burn leaves.
+	BurnLeafEntries []NewBurnEvent
+
+	// IgnoreLeafEntries is a slice of ignore leaves.
+	IgnoreLeafEntries []NewIgnoreEvent
+}
+
 // SupplyTreeView is an interface that allows the state machine to obtain an up
 // to date snapshot of the root supply tree, as the sub trees (ignore, burn,
 // mint) committed in the main supply tree.
@@ -105,6 +118,12 @@ type SupplyTreeView interface {
 	// commitment to each of the sub trees.
 	FetchRootSupplyTree(ctx context.Context,
 		assetSpec asset.Specifier) lfn.Result[mssmt.Tree]
+
+	// FetchSupplyLeavesByHeight returns the set of supply leaves for the
+	// given asset specifier within the specified height range.
+	FetchSupplyLeavesByHeight(ctx context.Context,
+		assetSpec asset.Specifier, startHeight,
+		endHeight uint32) lfn.Result[SupplyLeaves]
 }
 
 // PreCommitment is a struct that represents a pre-commitment to an asset

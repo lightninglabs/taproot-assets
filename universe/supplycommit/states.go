@@ -82,15 +82,18 @@ type SupplyUpdateEvent interface {
 	SupplySubTreeType() SupplySubTree
 
 	// UniverseLeafKey returns the specific leaf key to use when inserting
-	// this update into a universe MS-SMT tree.
-	UniverseLeafKey() universe.LeafKey
+	// this update into a universe supply MS-SMT tree.
+	UniverseLeafKey() universe.UniqueLeafKey
 
 	// UniverseLeafNode returns the leaf node to use when inserting this
-	// update into a universe MS-SMT tree.
+	// update into a universe supply MS-SMT tree.
 	UniverseLeafNode() (*mssmt.LeafNode, error)
 
 	// BlockHeight returns the block height of the update.
 	BlockHeight() uint32
+
+	// Encode encodes the event into the passed io.Writer.
+	Encode(io.Writer) error
 }
 
 // NewIgnoreEvent signals that a caller wishes to update the ignore portion of
@@ -119,7 +122,7 @@ func (n *NewIgnoreEvent) SupplySubTreeType() SupplySubTree {
 
 // UniverseLeafKey returns the specific leaf key to use when inserting this
 // update into a universe MS-SMT tree.
-func (n *NewIgnoreEvent) UniverseLeafKey() universe.LeafKey {
+func (n *NewIgnoreEvent) UniverseLeafKey() universe.UniqueLeafKey {
 	return &n.SignedIgnoreTuple
 }
 
@@ -127,6 +130,11 @@ func (n *NewIgnoreEvent) UniverseLeafKey() universe.LeafKey {
 // into a universe MS-SMT tree.
 func (n *NewIgnoreEvent) UniverseLeafNode() (*mssmt.LeafNode, error) {
 	return n.SignedIgnoreTuple.UniverseLeafNode()
+}
+
+// Encode encodes the ignore tuple into the passed io.Writer.
+func (n *NewIgnoreEvent) Encode(w io.Writer) error {
+	return n.SignedIgnoreTuple.Encode(w)
 }
 
 // A compile time assertion to ensure that NewIgnoreEvent implements the
@@ -160,7 +168,7 @@ func (n *NewBurnEvent) SupplySubTreeType() SupplySubTree {
 
 // UniverseLeafKey returns the specific leaf key to use when inserting this
 // update into a universe MS-SMT tree.
-func (n *NewBurnEvent) UniverseLeafKey() universe.LeafKey {
+func (n *NewBurnEvent) UniverseLeafKey() universe.UniqueLeafKey {
 	return n.BurnLeaf.UniverseKey
 }
 
@@ -168,6 +176,11 @@ func (n *NewBurnEvent) UniverseLeafKey() universe.LeafKey {
 // into a universe MS-SMT tree.
 func (n *NewBurnEvent) UniverseLeafNode() (*mssmt.LeafNode, error) {
 	return n.BurnLeaf.UniverseLeafNode()
+}
+
+// Encode encodes the burn leaf into the passed io.Writer.
+func (n *NewBurnEvent) Encode(w io.Writer) error {
+	return n.BurnLeaf.Encode(w)
 }
 
 // A compile time assertion to ensure that NewBurnEvent implements the
@@ -209,7 +222,7 @@ func (n *NewMintEvent) SupplySubTreeType() SupplySubTree {
 
 // UniverseLeafKey returns the specific leaf key to use when inserting this
 // update into a universe MS-SMT tree.
-func (n *NewMintEvent) UniverseLeafKey() universe.LeafKey {
+func (n *NewMintEvent) UniverseLeafKey() universe.UniqueLeafKey {
 	return n.LeafKey
 }
 

@@ -36,7 +36,8 @@ type IgnoreTuple struct {
 	// Amount is the total asset unit amount associated with asset.PrevID.
 	Amount uint64
 
-	// BlockHeight is the height of the block that contains the ignore.
+	// BlockHeight is the height of the block at which this ignore tuple was
+	// created.
 	BlockHeight uint32
 }
 
@@ -311,7 +312,7 @@ func (i *SignedIgnoreTuple) UniverseKey() [32]byte {
 func (i *SignedIgnoreTuple) LeafScriptKey() asset.ScriptKey {
 	scriptKeyBytes := i.IgnoreTuple.Val.ScriptKey
 
-	keyPub, _ := btcec.ParsePubKey(scriptKeyBytes.SchnorrSerialized())
+	keyPub, _ := btcec.ParsePubKey(scriptKeyBytes[:])
 	scriptKey := asset.NewScriptKey(keyPub)
 
 	return scriptKey
@@ -320,6 +321,11 @@ func (i *SignedIgnoreTuple) LeafScriptKey() asset.ScriptKey {
 // LeafOutPoint returns the outpoint for the SignedIgnoreTuple.
 func (i *SignedIgnoreTuple) LeafOutPoint() wire.OutPoint {
 	return i.IgnoreTuple.Val.OutPoint
+}
+
+// LeafAssetID returns the asset ID for the SignedIgnoreTuple.
+func (i *SignedIgnoreTuple) LeafAssetID() asset.ID {
+	return i.IgnoreTuple.Val.ID
 }
 
 // DecodeSignedIgnoreTuple deserializes a SignedIgnoreTuple from the given blob.
