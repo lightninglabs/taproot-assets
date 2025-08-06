@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -760,4 +761,120 @@ func TestSupplyTreeStoreFetchSupplyLeavesByHeight(t *testing.T) {
 			require.ElementsMatch(t, tc.expectedHeights, heights)
 		})
 	}
+}
+
+// TestFetchSupplyLeavesByHeightZeroHeights tests that when both start and end
+// heights are zero, all results are returned from FetchSupplyLeavesByHeight
+// because zero heights are treated as NULL (no limit).
+func TestFetchSupplyLeavesByHeightZeroHeights(t *testing.T) {
+	t.Parallel()
+
+	supplyStore, spec, _ := setupSupplyTreeTestForProps(t)
+	ctxb := context.Background()
+
+	groupKey, err := spec.UnwrapGroupKeyOrErr()
+	require.NoError(t, err)
+
+	mintEvent := createMintEventWithHeight(t, groupKey, 100)
+
+	_, err = supplyStore.ApplySupplyUpdates(
+		ctxb, spec, []supplycommit.SupplyUpdateEvent{mintEvent},
+	)
+	require.NoError(t, err)
+
+	// Query with both start and end heights set to zero.
+	leaves, err := supplyStore.FetchSupplyLeavesByHeight(
+		ctxb, spec, 0, 0,
+	).Unpack()
+	require.NoError(t, err)
+
+	// Verify that results are returned because zero heights are treated as
+	// NULL (no limit), so all leaves should be returned.
+	totalLeavesCount := len(leaves.IssuanceLeafEntries) +
+		len(leaves.BurnLeafEntries) +
+		len(leaves.IgnoreLeafEntries)
+	require.Equal(t, 1, totalLeavesCount)
+
+	// Verify the returned leaf has the expected height.
+	require.Len(t, leaves.IssuanceLeafEntries, 1)
+	require.Equal(
+		t, uint32(100), leaves.IssuanceLeafEntries[0].BlockHeight(),
+	)
+}
+
+// TestQuerySupplyLeavesByHeightDirectZeroHeights tests the SQL-level
+// QuerySupplyLeavesByHeight function directly with sqlInt32(0) values,
+// which should return no results because no records satisfy both
+// block_height >= 0 AND block_height <= 0 (unless block_height is exactly 0).
+func TestQuerySupplyLeavesByHeightDirectZeroHeights(t *testing.T) {
+	t.Parallel()
+
+	supplyStore, spec, _ := setupSupplyTreeTestForProps(t)
+	ctxb := context.Background()
+
+	groupKey, err := spec.UnwrapGroupKeyOrErr()
+	require.NoError(t, err)
+
+	// Create a mint event with height 100.
+	mintEvent := createMintEventWithHeight(t, groupKey, 100)
+	_, err = supplyStore.ApplySupplyUpdates(
+		ctxb, spec, []supplycommit.SupplyUpdateEvent{mintEvent},
+	)
+	require.NoError(t, err)
+
+	// Test by calling QuerySupplyLeavesByHeight directly with sqlInt32(0)
+	// values (not Go zero values that get converted to SQL NULL).
+	readTx := NewBaseUniverseReadTx()
+	err = supplyStore.db.ExecTx(
+		ctxb, &readTx, func(db BaseUniverseStore) error {
+			// Get the namespace for the mint tree.
+			namespace := subTreeNamespace(
+				groupKey, supplycommit.MintTreeType,
+			)
+
+			// Call QuerySupplyLeavesByHeight directly with
+			// sqlInt32(0) which is a valid SQL integer 0, not NULL.
+			leaves, queryErr := db.QuerySupplyLeavesByHeight(
+				ctxb, sqlc.QuerySupplyLeavesByHeightParams{
+					Namespace:   namespace,
+					StartHeight: sqlInt32(0),
+					EndHeight:   sqlInt32(0),
+				},
+			)
+			if queryErr != nil {
+				return queryErr
+			}
+
+			// Should return no results because no records satisfy
+			// block_height >= 0 AND block_height <= 0 (unless
+			// block_height is 0).
+			require.Len(t, leaves, 0, "Expected no results when "+
+				"querying with start=0 and end=0")
+
+			// Now test with SQL NULL values which should return
+			// results because NULL means "no limit". We
+			// could leave these fields unset, but it's clearer to
+			// set them explicitly.
+			var startHeight, endHeight sql.NullInt32
+			nullLeaves, queryErr := db.QuerySupplyLeavesByHeight(
+				ctxb, sqlc.QuerySupplyLeavesByHeightParams{
+					Namespace:   namespace,
+					StartHeight: startHeight,
+					EndHeight:   endHeight,
+				},
+			)
+			if queryErr != nil {
+				return queryErr
+			}
+
+			// Should return results because NULL heights mean
+			// "no limit", so all leaves should be returned.
+			require.Len(t, nullLeaves, 1, "Expected 1 result "+
+				"when querying with NULL start and end heights")
+
+			return nil
+		},
+	)
+
+	require.NoError(t, err)
 }
