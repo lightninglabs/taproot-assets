@@ -63,6 +63,10 @@ type ScidAliasManager interface {
 	// Manager's maps.
 	DeleteLocalAlias(ctx context.Context, alias,
 		baseScid lnwire.ShortChannelID) error
+
+	// FindBaseAlias finds the base channel ID for a given alias.
+	FindBaseAlias(ctx context.Context,
+		alias lnwire.ShortChannelID) (lnwire.ShortChannelID, error)
 }
 
 type (
@@ -261,6 +265,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 		HtlcInterceptor:   m.cfg.HtlcInterceptor,
 		HtlcSubscriber:    m.cfg.HtlcSubscriber,
 		AcceptHtlcEvents:  m.acceptHtlcEvents,
+		AliasManager:      m.cfg.AliasManager,
 		SpecifierChecker:  m.AssetMatchesSpecifier,
 		NoOpHTLCs:         m.cfg.NoOpHTLCs,
 		AuxChanNegotiator: m.cfg.AuxChanNegotiator,
