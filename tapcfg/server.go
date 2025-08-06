@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
+	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/signal"
@@ -624,6 +625,27 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		},
 	)
 
+	// Set up the supply verifier, which validates supply commitment leaves
+	// published by asset issuers.
+	//
+	// Initialize the database backend for the supply syncer.
+	supplySyncerStore := tapdb.NewSupplySyncerStore(uniDB)
+
+	// Create the supply syncer which is used by the supply verifier.
+	supplySyncer := supplyverifier.NewSupplySyncer(
+		tap.NewRpcSupplySync, supplySyncerStore,
+	)
+
+	supplyVerifyManager := supplyverifier.NewManager(
+		supplyverifier.ManagerCfg{
+			Chain: chainBridge,
+			//SupplyCommitView: supplyCommitStore,
+			SupplySyncer:          supplySyncer,
+			IssuanceSubscriptions: universeSyncer,
+			DaemonAdapters:        lndFsmDaemonAdapters,
+		},
+	)
+
 	return &tap.Config{
 		DebugLevel:            cfg.DebugLevel,
 		RuntimeID:             runtimeID,
@@ -678,6 +700,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		ChainPorter:              chainPorter,
 		FsmDaemonAdapters:        lndFsmDaemonAdapters,
 		SupplyCommitManager:      supplyCommitManager,
+		SupplyVerifyManager:      supplyVerifyManager,
 		UniverseArchive:          uniArchive,
 		UniverseSyncer:           universeSyncer,
 		UniverseFederation:       universeFederation,
