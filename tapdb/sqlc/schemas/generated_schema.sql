@@ -881,6 +881,20 @@ CREATE INDEX supply_commitments_chain_txn_id_idx ON supply_commitments(chain_txn
 
 CREATE INDEX supply_commitments_group_key_idx ON supply_commitments(group_key);
 
+CREATE TABLE supply_syncer_log (
+    id INTEGER PRIMARY KEY,
+
+    -- The tweaked group key identifying the asset group this sync log belongs
+    -- to. This should match the group_key format used in universe_supply_roots.
+    group_key BLOB UNIQUE NOT NULL CHECK(length(group_key) = 33),
+
+    -- The latest block height that has been successfully synced for this asset
+    -- group.
+    latest_sync_block_height INTEGER NOT NULL
+);
+
+CREATE INDEX supply_syncer_log_group_key_idx ON supply_syncer_log(group_key);
+
 CREATE TABLE supply_update_events (
     event_id INTEGER PRIMARY KEY,
 

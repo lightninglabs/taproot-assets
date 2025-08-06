@@ -413,6 +413,12 @@ type SupplyCommitment struct {
 	SupplyRootSum  sql.NullInt64
 }
 
+type SupplySyncerLog struct {
+	ID                    int64
+	GroupKey              []byte
+	LatestSyncBlockHeight int32
+}
+
 type SupplyUpdateEvent struct {
 	EventID      int64
 	GroupKey     []byte
