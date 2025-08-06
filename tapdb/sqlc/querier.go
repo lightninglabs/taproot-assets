@@ -103,6 +103,9 @@ type Querier interface {
 	FetchSeedlingID(ctx context.Context, arg FetchSeedlingIDParams) (int64, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error)
 	FetchSupplyCommit(ctx context.Context, groupKey []byte) (FetchSupplyCommitRow, error)
+	// Fetches all push log entries for a given asset group, ordered by
+	// creation time with the most recent entries first.
+	FetchSupplySyncerPushLogs(ctx context.Context, groupKey []byte) ([]SupplySyncerPushLog, error)
 	// Sort the nodes by node_index here instead of returning the indices.
 	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)
 	FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error)
@@ -136,6 +139,10 @@ type Querier interface {
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	InsertSupplyCommitTransition(ctx context.Context, arg InsertSupplyCommitTransitionParams) (int64, error)
 	InsertSupplyCommitment(ctx context.Context, arg InsertSupplyCommitmentParams) (int64, error)
+	// Inserts a new push log entry to track a successful supply commitment
+	// push to a remote universe server. The commit_txid and output_index are
+	// taken directly from the RootCommitment outpoint.
+	InsertSupplySyncerPushLog(ctx context.Context, arg InsertSupplySyncerPushLogParams) error
 	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error
 	InsertTxProof(ctx context.Context, arg InsertTxProofParams) error
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
