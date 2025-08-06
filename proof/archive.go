@@ -912,7 +912,8 @@ func (m *MultiArchiver) HasProof(ctx context.Context,
 	// the other ones are in the process of importing it right now. So we
 	// re-try a couple of times to see if the proof becomes available
 	// eventually.
-	return fn.RetryFuncN(
+	errNeedRetry := errors.New("need to re-try")
+	result, err := fn.RetryFuncN(
 		ctx, fn.DefaultRetryConfig(), func() (bool, error) {
 			allHaveProof = true
 			for _, archive := range m.backends {
@@ -924,9 +925,23 @@ func (m *MultiArchiver) HasProof(ctx context.Context,
 				allHaveProof = allHaveProof && ok
 			}
 
-			return allHaveProof, nil
+			if !allHaveProof {
+				// If not all backends have the proof, we
+				// return an error to indicate that we need
+				// to retry. This error is only for RetryFuncN
+				// and will never reach the caller.
+				return false, errNeedRetry
+			}
+
+			return true, nil
 		},
 	)
+	if err != nil && !errors.Is(err, errNeedRetry) {
+		return false, fmt.Errorf("error checking if proof exists: %w",
+			err)
+	}
+
+	return result, nil
 }
 
 // FetchProofs fetches all proofs for assets uniquely identified by the passed
