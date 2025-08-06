@@ -479,7 +479,7 @@ func (q *Queries) QuerySupplyCommitStateMachine(ctx context.Context, groupKey []
 }
 
 const QuerySupplyCommitment = `-- name: QuerySupplyCommitment :one
-SELECT commit_id, group_key, chain_txn_id, output_index, internal_key_id, output_key, block_header, block_height, merkle_proof, supply_root_hash, supply_root_sum
+SELECT commit_id, group_key, chain_txn_id, output_index, internal_key_id, output_key, block_header, block_height, merkle_proof, supply_root_hash, supply_root_sum, spent_commitment
 FROM supply_commitments
 WHERE commit_id = $1
 `
@@ -499,6 +499,7 @@ func (q *Queries) QuerySupplyCommitment(ctx context.Context, commitID int64) (Su
 		&i.MerkleProof,
 		&i.SupplyRootHash,
 		&i.SupplyRootSum,
+		&i.SpentCommitment,
 	)
 	return i, err
 }
