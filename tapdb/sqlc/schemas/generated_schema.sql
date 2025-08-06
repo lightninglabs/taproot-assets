@@ -879,11 +879,51 @@ CREATE TABLE supply_commitments (
 
     -- The root sum of the supply commitment at this snapshot.
     supply_root_sum BIGINT
-);
+, spent_commitment BIGINT
+        REFERENCES supply_commitments(commit_id));
 
 CREATE INDEX supply_commitments_chain_txn_id_idx ON supply_commitments(chain_txn_id);
 
 CREATE INDEX supply_commitments_group_key_idx ON supply_commitments(group_key);
+
+CREATE UNIQUE INDEX supply_commitments_outpoint_uk
+    ON supply_commitments(chain_txn_id, output_index);
+
+CREATE INDEX supply_commitments_spent_commitment_idx
+    ON supply_commitments(spent_commitment);
+
+CREATE TABLE supply_syncer_push_log (
+    id INTEGER PRIMARY KEY,
+
+    -- The tweaked group key identifying the asset group this push log belongs
+    -- to. This should match the group_key format used in universe_supply_roots.
+    group_key BLOB NOT NULL CHECK(length(group_key) = 33),
+
+    -- The highest block height among all supply leaves in this push.
+    max_pushed_block_height INTEGER NOT NULL,
+
+    -- The server address (host:port) where the commitment was pushed.
+    server_address TEXT NOT NULL,
+
+    -- The transaction ID (hash) of the supply commitment.
+    commit_txid BLOB NOT NULL CHECK(length(commit_txid) = 32),
+
+    -- The supply commitment output index within the commitment transaction.
+    output_index INTEGER NOT NULL,
+
+    -- The number of leaves included in this specific push (diff count between
+    -- last commitment and current commitment).
+    num_leaves_pushed INTEGER NOT NULL,
+
+    -- The timestamp when this push log entry was created (unix timestamp in seconds).
+    created_at BIGINT NOT NULL
+);
+
+CREATE INDEX supply_syncer_push_log_group_key_idx
+    ON supply_syncer_push_log(group_key);
+
+CREATE INDEX supply_syncer_push_log_server_address_idx
+    ON supply_syncer_push_log(server_address);
 
 CREATE TABLE supply_update_events (
     event_id INTEGER PRIMARY KEY,
