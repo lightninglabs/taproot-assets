@@ -103,6 +103,7 @@ type Querier interface {
 	FetchSeedlingID(ctx context.Context, arg FetchSeedlingIDParams) (int64, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error)
 	FetchSupplyCommit(ctx context.Context, groupKey []byte) (FetchSupplyCommitRow, error)
+	FetchSupplySyncerLog(ctx context.Context, groupKey []byte) (FetchSupplySyncerLogRow, error)
 	// Sort the nodes by node_index here instead of returning the indices.
 	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)
 	FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error)
@@ -233,6 +234,7 @@ type Querier interface {
 	// Return the ID of the state that was actually set (either inserted or updated),
 	// and the latest commitment ID that was set.
 	UpsertSupplyCommitStateMachine(ctx context.Context, arg UpsertSupplyCommitStateMachineParams) (UpsertSupplyCommitStateMachineRow, error)
+	UpsertSupplySyncerLog(ctx context.Context, arg UpsertSupplySyncerLogParams) error
 	UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error)
 	UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error)
 	UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error)
