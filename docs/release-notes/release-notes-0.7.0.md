@@ -41,6 +41,25 @@
    - https://github.com/lightninglabs/taproot-assets/pull/1643
    - https://github.com/lightninglabs/taproot-assets/pull/1655
    - https://github.com/lightninglabs/taproot-assets/pull/1554
+   - https://github.com/lightninglabs/taproot-assets/pull/1587
+
+- A new [address version 2 was introduced that supports grouped assets and
+  custom (sender-defined)
+  amounts](https://github.com/lightninglabs/taproot-assets/pull/1587). When
+  creating an address, the user can now specify `--address_version v2`. The
+  amount is optional for V2 addresses, and if it is not specified by the
+  receiver, the sender can choose any amount to send. V2 addresses with custom
+  amounts work for both simple assets (non-grouped/asset ID only) and grouped
+  assets. In addition, V2 addresses also increase on-chain privacy and therefore
+  are ideal as re-usable, long-term static addresses (with on-chain privacy
+  guarantees similar to BIP-0352 Silent Payments).
+  V2 addresses require the use of a proof courier that supports the
+  new `authmailbox+universerpc://` protocol. Any `tapd` that runs with version
+  `v0.7.0` or later and uses `universe.public-access=rw` automatically supports
+  that new protocol. Users running with the default configuration (and therefore
+  the default/standard universe servers) will not need to change anything, as
+  the default universe servers will be updated after the release of
+  `tapd v0.7.0`.
 
 - Assets burned before `v0.6.0` were not yet added to the table that contains
   all burn events (which can be listed with the `ListBurns` RPC). A [database
@@ -85,6 +104,10 @@
   method](https://github.com/lightninglabs/taproot-assets/pull/1691) to indicate
   that unconfirmed asset-related transactions don't count toward the balance.
 
+- The `SendAsset` RPC has a new field `addresses_with_amounts` that allows the
+  user to specify a custom amount to send to a V2 address that doesn't have an
+  amount specified.
+
 ## tapcli Additions
 
 - [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the mint
@@ -94,6 +117,10 @@
 - The [CLI command `tapcli assets removelease` was added to give access to the
   `RemoveUTXOLease` RPC method on the command line as
   well](https://github.com/lightninglabs/taproot-assets/pull/1690).
+
+- The `tapcli assets send` command now has a new flag `--addr_with_amount` that
+  allows users to specify the amount to send to a V2 address that allows custom
+  amounts (which is the case when a V2 address is created with an amount of 0).
 
 # Improvements
 
@@ -165,4 +192,7 @@
 
 # Contributors (Alphabetical Order)
 
+- ffranr
+- George Tsagkarelis
+- Olaoluwa Osuntokun
 - Oliver Gugger

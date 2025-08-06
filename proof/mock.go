@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -493,7 +494,7 @@ func (m *MockProofCourier) Stop() error {
 // DeliverProof attempts to delivery a proof to the receiver, using the
 // information in the Addr type.
 func (m *MockProofCourier) DeliverProof(_ context.Context,
-	_ Recipient, proof *AnnotatedProof) error {
+	_ Recipient, proof *AnnotatedProof, _ *SendManifest) error {
 
 	m.Lock()
 	defer m.Unlock()
@@ -1088,6 +1089,7 @@ func (m *mockIgnoreChecker) IsIgnored(assetPoint AssetPoint) bool {
 // InfoResponse.
 type MockUniverseServer struct {
 	universerpc.UnimplementedUniverseServer
+	mboxrpc.UnimplementedMailboxServer
 }
 
 // Info is a mock implementation of the GetInfo RPC.
@@ -1095,6 +1097,13 @@ func (m *MockUniverseServer) Info(context.Context,
 	*universerpc.InfoRequest) (*universerpc.InfoResponse, error) {
 
 	return &universerpc.InfoResponse{}, nil
+}
+
+// MailboxInfo is a mock implementation of the MailboxInfo RPC.
+func (m *MockUniverseServer) MailboxInfo(context.Context,
+	*mboxrpc.MailboxInfoRequest) (*mboxrpc.MailboxInfoResponse, error) {
+
+	return &mboxrpc.MailboxInfoResponse{}, nil
 }
 
 // MockCourierURL creates a new mock proof courier URL for the given protocol

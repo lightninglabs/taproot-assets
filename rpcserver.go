@@ -120,6 +120,11 @@ const (
 	// fetchTimeout is a generic timeout to use when fetching data from
 	// the database during any RPC calls that don't have a parent context.
 	fetchTimeout = time.Second * 30
+
+	// proofCourierCheckTimeout is the amount of time we'll wait before we
+	// time out an attempt to connect to a proof courier when checking the
+	// configured address.
+	proofCourierCheckTimeout = time.Second * 30
 )
 
 type (
@@ -1640,17 +1645,23 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, fmt.Errorf("no proof courier address provided")
 	}
 
-	if len(req.AssetId) != 32 {
-		return nil, fmt.Errorf("invalid asset id length")
+	assetID, groupKey, err := parseAssetSpecifier(
+		req.AssetId, "", req.GroupKey, "",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse asset specifier: %w",
+			err)
+	}
+	specifier, err := asset.NewSpecifier(assetID, groupKey, nil, true)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create asset specifier: %w",
+			err)
 	}
 
-	var assetID asset.ID
-	copy(assetID[:], req.AssetId)
+	rpcsLog.Infof("[NewAddr]: making new addr: specifier=%s, amt=%v",
+		&specifier, req.Amt)
 
-	rpcsLog.Infof("[NewAddr]: making new addr: asset_id=%x, amt=%v",
-		assetID[:], req.Amt)
-
-	err := r.checkBalanceOverflow(ctx, &assetID, nil, req.Amt)
+	err = r.checkBalanceOverflow(ctx, assetID, groupKey, req.Amt)
 	if err != nil {
 		return nil, err
 	}
@@ -1674,6 +1685,48 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, err
 	}
 
+	// If the user didn't specify a specific address version but is using
+	// a group key, we default to version 2.
+	if req.AddressVersion == taprpc.AddrVersion_ADDR_VERSION_UNSPECIFIED &&
+		specifier.HasGroupPubKey() {
+
+		addrVersion = address.V2
+	}
+
+	// Addresses with version 2 must use the new authmailbox proof courier
+	// type.
+	protocol := courierAddr.Scheme
+	switch {
+	case addrVersion == address.V2 &&
+		protocol == proof.UniverseRpcCourierType:
+
+		// We assume that any proof courier running an RPC universe
+		// server will upgrade soon to support the new auth mailbox
+		// courier type, so we bump the protocol/scheme to the combined
+		// one.
+		courierAddr.Scheme = proof.AuthMailboxUniRpcCourierType
+
+		// Let's make sure the proof courier actually supports the
+		// auth mailbox courier type.
+		err := proof.CheckUniverseRpcCourierConnection(
+			ctx, proofCourierCheckTimeout, courierAddr,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	case addrVersion == address.V2 &&
+		protocol == proof.AuthMailboxUniRpcCourierType:
+
+		// Great, nothing to do here, this is the courier type we want.
+
+	case addrVersion == address.V2 && protocol == proof.HashmailCourierType:
+		return nil, fmt.Errorf("%w: address version %d must use the "+
+			"'%s' proof courier type",
+			address.ErrInvalidProofCourierAddr, addrVersion,
+			proof.AuthMailboxUniRpcCourierType)
+	}
+
 	var addr *address.AddrWithKeyInfo
 	switch {
 	// No key was specified, we'll let the address book derive them.
@@ -1681,9 +1734,8 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddress(
-			ctx, addrVersion, asset.NewSpecifierFromId(assetID),
-			req.Amt, tapscriptSibling, *courierAddr,
-			address.WithAssetVersion(assetVersion),
+			ctx, addrVersion, specifier, req.Amt, tapscriptSibling,
+			*courierAddr, address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -1731,9 +1783,9 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
-			ctx, addrVersion, asset.NewSpecifierFromId(assetID),
-			req.Amt, *scriptKey, internalKey, tapscriptSibling,
-			*courierAddr, address.WithAssetVersion(assetVersion),
+			ctx, addrVersion, specifier, req.Amt, *scriptKey,
+			internalKey, tapscriptSibling, *courierAddr,
+			address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -2203,9 +2255,22 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 		// that means we don't know anything about what it should look
 		// like on chain (the genesis is required to derive the taproot
 		// output key).
-		assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(
-			ctx, addr.AssetID,
-		)
+		// TODO(guggero): We should use an asset specifier in the
+		// address and remove the need for the embedded genesis struct.
+		// Then we can have a QueryAssetBySpecifier method that we can
+		// use here.
+		var assetGroup *asset.AssetGroup
+		switch {
+		case addr.GroupKey != nil && addr.AssetID == asset.ID{}:
+			book := r.cfg.TapAddrBook
+			assetGroup, err = book.QueryAssetGroupByGroupKey(
+				ctx, addr.GroupKey,
+			)
+		default:
+			assetGroup, err = r.cfg.TapAddrBook.QueryAssetGroup(
+				ctx, addr.AssetID,
+			)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("unknown asset=%x: %w",
 				addr.AssetID[:], err)
@@ -2342,28 +2407,44 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 			}
 			prevIDs = append(prevIDs, prevID)
 		}
-		if len(raw.Recipients) > 1 {
-			return nil, fmt.Errorf("only one recipient supported")
+
+		var rpcAddrs []*taprpc.AddressWithAmount
+		switch {
+		case len(raw.Recipients) > 0 &&
+			len(raw.AddressesWithAmounts) > 0:
+
+			return nil, fmt.Errorf("cannot specify both " +
+				"recipients and addresses_with_amounts")
+
+		case len(raw.Recipients) > 0:
+			rpcAddrs = fn.Map(
+				maps.Keys(raw.Recipients),
+				func(a string) *taprpc.AddressWithAmount {
+					return &taprpc.AddressWithAmount{
+						TapAddr: a,
+					}
+				},
+			)
+
+		case len(raw.AddressesWithAmounts) > 0:
+			rpcAddrs = raw.AddressesWithAmounts
+
+		default:
+			return nil, fmt.Errorf("at least one addr is " +
+				"required, either in the recipients or " +
+				"addresses_with_amounts")
 		}
 
-		var (
-			addr *address.Tap
-			err  error
+		tapAddrs, err := parseAndValidateAddresses(
+			rpcAddrs, &r.cfg.ChainParams,
 		)
-		for a := range raw.Recipients {
-			addr, err = address.DecodeAddress(a, &r.cfg.ChainParams)
-			if err != nil {
-				return nil, fmt.Errorf("unable to decode "+
-					"addr: %w", err)
-			}
-		}
-
-		if addr == nil {
-			return nil, fmt.Errorf("no recipients specified")
+		if err != nil {
+			return nil, fmt.Errorf("error parsing addresses: %w",
+				err)
 		}
 
 		fundedVPkt, err = r.cfg.AssetWallet.FundAddressSend(
-			ctx, scriptKeyType, prevIDs, addr,
+			ctx, scriptKeyType, prevIDs, tapAddrs...,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error funding address send: "+
@@ -3298,10 +3379,22 @@ func marshalAddr(addr *address.Tap,
 	// We can only derive the taproot output if we already know the genesis
 	// for this asset, as that's required to make the template asset that
 	// will be committed to in the tapscript tree.
-	var taprootOutputKey []byte
-	assetGroup, err := db.QueryAssetGroup(
-		context.Background(), addr.AssetID,
+	// TODO(guggero): We should use an asset specifier in the address and
+	// remove the need for the embedded genesis struct. Then we can have
+	// a QueryAssetBySpecifier method that we can use here.
+	var (
+		taprootOutputKey []byte
+		assetGroup       *asset.AssetGroup
+		ctx              = context.Background()
 	)
+	switch {
+	case addr.GroupKey != nil && addr.AssetID == asset.ID{}:
+		assetGroup, err = db.QueryAssetGroupByGroupKey(
+			ctx, addr.GroupKey,
+		)
+	default:
+		assetGroup, err = db.QueryAssetGroup(ctx, addr.AssetID)
+	}
 	if err == nil {
 		addr.AttachGenesis(*assetGroup.Genesis)
 
@@ -3375,7 +3468,7 @@ func marshalAddrEvent(event *address.Event,
 		Outpoint:                event.Outpoint.String(),
 		UtxoAmtSat:              uint64(event.Amt),
 		ConfirmationHeight:      event.ConfirmationHeight,
-		HasProof:                event.HasProof,
+		HasProof:                event.HasAllProofs,
 	}, nil
 }
 
@@ -3437,48 +3530,32 @@ func marshalAddrEventStatus(status address.Status) (taprpc.AddrEventStatus,
 func (r *rpcServer) SendAsset(ctx context.Context,
 	req *taprpc.SendAssetRequest) (*taprpc.SendAssetResponse, error) {
 
-	if len(req.TapAddrs) == 0 {
-		return nil, fmt.Errorf("at least one addr is required")
+	var rpcAddrs []*taprpc.AddressWithAmount
+	switch {
+	case len(req.TapAddrs) > 0 && len(req.AddressesWithAmounts) > 0:
+		return nil, fmt.Errorf("cannot specify both tap_addrs and " +
+			"addresses_with_amounts")
+
+	case len(req.TapAddrs) > 0:
+		rpcAddrs = fn.Map(
+			req.TapAddrs, func(a string) *taprpc.AddressWithAmount {
+				return &taprpc.AddressWithAmount{
+					TapAddr: a,
+				}
+			},
+		)
+
+	case len(req.AddressesWithAmounts) > 0:
+		rpcAddrs = req.AddressesWithAmounts
+
+	default:
+		return nil, fmt.Errorf("at least one addr is required, " +
+			"either in the tap_addrs or addresses_with_amounts")
 	}
 
-	var (
-		tapAddrs = make([]*address.Tap, len(req.TapAddrs))
-		err      error
-	)
-	for idx := range req.TapAddrs {
-		if req.TapAddrs[idx] == "" {
-			return nil, fmt.Errorf("addr %d must be specified", idx)
-		}
-
-		tapAddrs[idx], err = address.DecodeAddress(
-			req.TapAddrs[idx], &r.cfg.ChainParams,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// Ensure all addrs are of the same asset ID. Within a single
-		// transfer (=a single virtual packet), we expect only to have
-		// inputs and outputs of the same asset ID. Multiple assets can
-		// be moved in a single BTC level anchor output, but the
-		// expectation is that they would be in separate virtual
-		// packets, one for each asset ID. They would then be merged
-		// into the same anchor output in the wallet's
-		// AnchorVirtualTransactions call.
-		//
-		// TODO(guggero): Support creating multiple virtual packets, one
-		// for each asset ID when the user wants to send multiple asset
-		// IDs at the same time without going through the PSBT flow.
-		//
-		// TODO(guggero): Revisit after we have a way to send fungible
-		// assets with different IDs to an address (non-interactive).
-		if idx > 0 {
-			if tapAddrs[idx].AssetID != tapAddrs[0].AssetID {
-				return nil, fmt.Errorf("all addrs must be of "+
-					"the same asset ID %v",
-					tapAddrs[0].AssetID)
-			}
-		}
+	tapAddrs, err := parseAndValidateAddresses(rpcAddrs, &r.cfg.ChainParams)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing addresses: %w", err)
 	}
 
 	feeRate, err := checkFeeRateSanity(
@@ -3507,6 +3584,90 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 	return &taprpc.SendAssetResponse{
 		Transfer: parcel,
 	}, nil
+}
+
+// parseAndValidateAddresses parses the addresses with amounts from the RPC
+// request and validates them against the chain parameters. It also ensures
+// that all addresses are of the same asset specifier, as the wallet only
+// supports funding for one asset or group at a time.
+func parseAndValidateAddresses(rpcAddrs []*taprpc.AddressWithAmount,
+	chainParams *address.ChainParams) ([]*address.Tap, error) {
+
+	var (
+		tapAddrs = make([]*address.Tap, len(rpcAddrs))
+		err      error
+	)
+	for idx, rpcAddr := range rpcAddrs {
+		addrStr := rpcAddr.TapAddr
+		if addrStr == "" {
+			return nil, fmt.Errorf("addr %d must be specified", idx)
+		}
+
+		tapAddrs[idx], err = address.DecodeAddress(addrStr, chainParams)
+		if err != nil {
+			return nil, err
+		}
+
+		// V2 addresses can have the amount defined as zero, which will
+		// allow users to send any amount. So we expect the amount to
+		// send being set in the request.
+		switch {
+		// A non-zero amount was provided, but the address doesn't need
+		// one as it has an amount defined. In that case we only allow
+		// the amount to be set by the user if it is equal to the
+		// address amount, as that's what the CLI sets by default.
+		case rpcAddr.Amount > 0 && tapAddrs[idx].Amount > 0 &&
+			tapAddrs[idx].Amount != rpcAddr.Amount:
+
+			return nil, fmt.Errorf("addr '%s' has a non-zero "+
+				"amount defined, cannot override amount in "+
+				"addresses_with_amounts", addrStr)
+
+		// The address has a zero amount, but the user provided a
+		// non-zero amount in the list, so we override the address'
+		// value for coin selection.
+		case rpcAddr.Amount > 0 && tapAddrs[idx].Amount == 0:
+			tapAddrs[idx].Amount = rpcAddr.Amount
+
+		// The address needs an amount, but the user didn't provide
+		// one.
+		case rpcAddr.Amount == 0 && tapAddrs[idx].Amount == 0:
+			return nil, fmt.Errorf("addr '%s' has no amount "+
+				"defined, please set the amount in the "+
+				"addresses_with_amounts", addrStr)
+
+		// The last possible case is when the user didn't specify an
+		// amount in the addresses_with_amounts, but the address has
+		// one, which is the correct and default behavior for V0/V1
+		// addresses.
+		case rpcAddr.Amount == 0 && tapAddrs[idx].Amount > 0:
+			// We don't need to do anything here, as the address
+			// already has the amount set.
+		}
+
+		// Ensure all addrs are of the same asset specifier, as the
+		// wallet only supports funding for one asset or group at a
+		// time.
+		//
+		// TODO(guggero): Support creating multiple virtual packets, one
+		// for each asset ID when the user wants to send multiple asset
+		// IDs at the same time without going through the PSBT flow.
+		firstSpec := asset.NewSpecifierOptionalGroupPubKey(
+			tapAddrs[0].AssetID, tapAddrs[0].GroupKey,
+		)
+		if idx > 0 {
+			spec := asset.NewSpecifierOptionalGroupPubKey(
+				tapAddrs[idx].AssetID, tapAddrs[idx].GroupKey,
+			)
+			if spec != firstSpec {
+				return nil, fmt.Errorf("all addrs must be of "+
+					"the same asset ID or group key %v",
+					firstSpec)
+			}
+		}
+	}
+
+	return tapAddrs, nil
 }
 
 // BurnAsset burns the given number of units of a given asset by sending them
@@ -3730,11 +3891,7 @@ func marshalOutboundParcel(
 			return nil, err
 		}
 
-		var proofAsset asset.Asset
-		err = proof.SparseDecode(
-			bytes.NewReader(out.ProofSuffix),
-			proof.AssetLeafRecord(&proofAsset),
-		)
+		proofAssetID, err := out.AssetID()
 		if err != nil {
 			return nil, fmt.Errorf("unable to sparse decode "+
 				"proof: %w", err)
@@ -3755,7 +3912,9 @@ func marshalOutboundParcel(
 			OutputType:          rpcOutType,
 			AssetVersion:        assetVersion,
 			ProofDeliveryStatus: proofDeliveryStatus,
-			AssetId:             fn.ByteSlice(proofAsset.ID()),
+			AssetId:             proofAssetID[:],
+			ProofCourierAddr:    string(out.ProofCourierAddr),
+			TapAddr:             out.TapAddress,
 		}
 	}
 

@@ -55,7 +55,7 @@ const (
 	// proofCourierCheckTimeout is the amount of time we'll wait before we
 	// time out an attempt to connect to a proof courier when checking the
 	// configured address.
-	proofCourierCheckTimeout = time.Second * 5
+	proofCourierCheckTimeout = time.Second * 30
 
 	// maxNumAssetIDs is the maximum number of fungible asset pieces (asset
 	// IDs) that can be committed to a single channel. The number needs to
@@ -2230,7 +2230,9 @@ func (f *FundingController) validateLocalProofCourier(
 
 	// We need the courier to be a universe based courier, as the hashmail
 	// courier can't deal with channel funding outputs.
-	if courierURL.Scheme != proof.UniverseRpcCourierType {
+	if courierURL.Scheme != proof.UniverseRpcCourierType &&
+		courierURL.Scheme != proof.AuthMailboxUniRpcCourierType {
+
 		return fmt.Errorf("unsupported proof courier type '%v', %v",
 			courierURL.Scheme, flagHelp)
 	}

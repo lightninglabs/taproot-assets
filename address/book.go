@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -566,6 +565,21 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
 		groupWitness = assetGroup.Witness
 	}
 
+	// For V2 addresses, we need to derive the script key individually for
+	// each asset piece/UTXO that's being sent. To be able to do that, we
+	// encode the bare/raw internal key instead of the BIP-0086 tweaked
+	// Taproot output key as the address's script key.
+	if addrVersion == V2 {
+		scriptKey.PubKey = scriptKey.TweakedScriptKey.RawKey.PubKey
+
+		// We also want V2 addresses to be created with the group key
+		// if the asset is a grouped asset.
+		if groupKey != nil && specifier.HasId() {
+			return nil, fmt.Errorf("version 2 addresses for " +
+				"grouped assets must use group key only")
+		}
+	}
+
 	baseAddr, err := New(
 		addrVersion, *assetGroup.Genesis, groupKey, groupWitness,
 		*scriptKey.PubKey, *internalKeyDesc.PubKey, amount,
@@ -718,12 +732,9 @@ func (b *Book) LastEventHeightByVersion(ctx context.Context,
 // and transaction. If an event for that address and transaction already exists,
 // then the status and transaction information is updated instead.
 func (b *Book) GetOrCreateEvent(ctx context.Context, status Status,
-	addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
-	outputIdx uint32) (*Event, error) {
+	transfer IncomingTransfer) (*Event, error) {
 
-	return b.cfg.Store.GetOrCreateEvent(
-		ctx, status, addr, walletTx, outputIdx,
-	)
+	return b.cfg.Store.GetOrCreateEvent(ctx, status, transfer)
 }
 
 // QueryEvent returns a single address event by its address and outpoint.

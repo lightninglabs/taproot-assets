@@ -2,10 +2,12 @@ package itest
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/hex"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -993,6 +996,57 @@ func AssertReceiveEvents(t *testing.T, addr *taprpc.Addr,
 	}
 }
 
+// AssertReceiveEventsCustom makes sure we receive the expected events.
+func AssertReceiveEventsCustom(t *testing.T,
+	stream *EventSubscription[*taprpc.ReceiveEvent],
+	status []taprpc.AddrEventStatus) {
+
+	success := make(chan struct{})
+	timeout := time.After(defaultWaitTimeout)
+
+	// To make sure we don't forever hang on receiving on the stream, we'll
+	// cancel it after the timeout.
+	go func() {
+		select {
+		case <-timeout:
+			t.Logf("AssertReceiveEventsCustom: cancelling stream " +
+				"after timeout")
+			stream.Cancel()
+
+		case <-success:
+		}
+	}()
+
+	var index int
+	for {
+		if index == len(status) {
+			return
+		}
+
+		event, err := stream.Recv()
+		require.NoError(t, err, "receiving receive event")
+
+		// Check the event's error field for unexpected errors. Perform
+		// this check before verifying the expected receive state, as
+		// errors might occur alongside an out-of-order receive state.
+		require.Emptyf(
+			t, event.Error, "send event error: %x", event,
+		)
+		require.Equal(t, status[index], event.Status)
+
+		// Fully close the stream once we definitely no longer need the
+		// stream.
+		// nolint: lll
+		if event.Status == taprpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED {
+			stream.Cancel()
+			close(success)
+			return
+		}
+
+		index++
+	}
+}
+
 // makeFilterSendEventScriptKey returns a filter function that checks if the
 // given script key is present in the send event. If it is, the event is
 // included in the stream.
@@ -1009,6 +1063,18 @@ func makeFilterSendEventScriptKey(
 			for _, vOut := range vPkt.Outputs {
 				if vOut.ScriptKey.PubKey == nil {
 					continue
+				}
+
+				// The scriptKey passed in is actually the one
+				// from the address. So for V2 addresses we need
+				// to compare the script key against the address
+				// script key, as the virtual output script key
+				// is different for each asset ID.
+				addr := vOut.Address
+				if addr != nil && addr.Version == address.V2 {
+					if addr.ScriptKey.IsEqual(&scriptKey) {
+						return true, nil
+					}
 				}
 
 				// This packet sends to the filtered script key,
@@ -1169,7 +1235,7 @@ func ConfirmAndAssertOutboundTransferWithOutputs(t *testing.T,
 	numTransfers, numOutputs int) *wire.MsgBlock {
 
 	return AssertAssetOutboundTransferWithOutputs(
-		t, minerClient, sender, sendResp.Transfer, assetID,
+		t, minerClient, sender, sendResp.Transfer, [][]byte{assetID},
 		expectedAmounts, currentTransferIdx, numTransfers, numOutputs,
 		true,
 	)
@@ -1179,7 +1245,7 @@ func ConfirmAndAssertOutboundTransferWithOutputs(t *testing.T,
 // has the correct state and number of outputs.
 func AssertAssetOutboundTransferWithOutputs(t *testing.T,
 	minerClient *rpcclient.Client, sender commands.RpcClientsBundle,
-	transfer *taprpc.AssetTransfer, assetID []byte,
+	transfer *taprpc.AssetTransfer, inputAssetIDs [][]byte,
 	expectedAmounts []uint64, currentTransferIdx,
 	numTransfers, numOutputs int, confirm bool) *wire.MsgBlock {
 
@@ -1195,7 +1261,14 @@ func AssertAssetOutboundTransferWithOutputs(t *testing.T,
 	for _, o := range outputs {
 		// Ensure that each transfer output script key is unique.
 		_, ok := scripts[string(o.ScriptKey)]
-		require.False(t, ok)
+
+		// We allow multiple tombstone outputs to be present.
+		if ok {
+			if !bytes.Equal(o.ScriptKey, asset.NUMSBytes) {
+				require.Failf(t, "duplicate script key",
+					"%x", o.ScriptKey)
+			}
+		}
 
 		outpoints[o.Anchor.Outpoint] = struct{}{}
 		scripts[string(o.ScriptKey)] = struct{}{}
@@ -1234,8 +1307,21 @@ func AssertAssetOutboundTransferWithOutputs(t *testing.T,
 				expectedAmounts, toJSON(t, transfer))
 		}
 
-		firstIn := transfer.Inputs[0]
-		return bytes.Equal(firstIn.AssetId, assetID)
+		actualInputAssetIDs := fn.Map(
+			transfer.Inputs, func(in *taprpc.TransferInput) string {
+				return hex.EncodeToString(in.AssetId)
+			},
+		)
+		expectedInputAssetIDs := fn.Map(
+			inputAssetIDs, hex.EncodeToString,
+		)
+
+		t.Logf("Want input asset IDs: %v, got: %v",
+			expectedInputAssetIDs, actualInputAssetIDs)
+		return fn.All(
+			expectedInputAssetIDs, func(id string) bool {
+				return slices.Contains(actualInputAssetIDs, id)
+			})
 	}, defaultTimeout, wait.PollInterval)
 	require.NoError(t, err)
 
@@ -1289,7 +1375,18 @@ func AssertNonInteractiveRecvComplete(t *testing.T,
 // AssertAddr asserts that an address contains the correct information of an
 // asset.
 func AssertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
-	require.Equal(t, expected.AssetGenesis.AssetId, actual.AssetId)
+	// For v2 addresses, we set the asset ID to all zeroes if there is a
+	// group key.
+	if len(actual.GroupKey) > 0 &&
+		actual.AddressVersion == taprpc.AddrVersion_ADDR_VERSION_V2 {
+
+		require.Equal(
+			t, fn.ByteSlice(asset.ID{}), actual.AssetId,
+		)
+	} else {
+		require.Equal(t, expected.AssetGenesis.AssetId, actual.AssetId)
+	}
+
 	require.Equal(t, expected.AssetGenesis.AssetType, actual.AssetType)
 
 	if expected.AssetGroup == nil {
@@ -1404,27 +1501,72 @@ func AssertBalanceByID(t *testing.T, client taprpc.TaprootAssetsClient,
 // AssertBalanceByGroup asserts that the balance of a single asset group
 // on the given daemon is correct.
 func AssertBalanceByGroup(t *testing.T, client taprpc.TaprootAssetsClient,
-	hexGroupKey string, amt uint64) {
+	hexGroupKey string, amt uint64, opts ...BalanceOption) {
 
 	t.Helper()
+
+	config := &balanceConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	var rpcTypeQuery *taprpc.ScriptKeyTypeQuery
+	switch {
+	case config.allScriptKeyTypes:
+		rpcTypeQuery = &taprpc.ScriptKeyTypeQuery{
+			Type: &taprpc.ScriptKeyTypeQuery_AllTypes{
+				AllTypes: true,
+			},
+		}
+
+	case config.scriptKeyType != nil:
+		rpcTypeQuery = &taprpc.ScriptKeyTypeQuery{
+			Type: &taprpc.ScriptKeyTypeQuery_ExplicitType{
+				ExplicitType: rpcutils.MarshalScriptKeyType(
+					*config.scriptKeyType,
+				),
+			},
+		}
+	}
 
 	groupKey, err := hex.DecodeString(hexGroupKey)
 	require.NoError(t, err)
 
 	ctxb := context.Background()
-	balancesResp, err := client.ListBalances(
-		ctxb, &taprpc.ListBalancesRequest{
-			GroupBy: &taprpc.ListBalancesRequest_GroupKey{
-				GroupKey: true,
+	err = wait.NoError(func() error {
+		balancesResp, err := client.ListBalances(
+			ctxb, &taprpc.ListBalancesRequest{
+				GroupBy: &taprpc.ListBalancesRequest_GroupKey{
+					GroupKey: true,
+				},
+				GroupKeyFilter: groupKey,
+				ScriptKeyType:  rpcTypeQuery,
 			},
-			GroupKeyFilter: groupKey,
-		},
-	)
-	require.NoError(t, err)
+		)
+		if err != nil {
+			return fmt.Errorf("error listing balances: %w", err)
+		}
 
-	balance, ok := balancesResp.AssetGroupBalances[hexGroupKey]
-	require.True(t, ok)
-	require.Equal(t, amt, balance.Balance)
+		balance, ok := balancesResp.AssetGroupBalances[hexGroupKey]
+		if amt == 0 && !ok {
+			// If we're asserting a zero balance, then there also
+			// won't be an entry in the map.
+			return nil
+		}
+
+		if !ok {
+			return fmt.Errorf("no balance found for group key %s",
+				hexGroupKey)
+		}
+
+		if balance.Balance != amt {
+			return fmt.Errorf("expected balance %d, got %d",
+				amt, balance.Balance)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, err)
 }
 
 // AssertTransfer asserts that the value of each transfer initiated on the
@@ -2576,4 +2718,42 @@ func assertNumAssetOutputs(t *testing.T, client taprpc.TaprootAssetsClient,
 	require.Len(t, outputs, numPieces)
 
 	return outputs
+}
+
+// LargestUtxo returns the largest asset UTXO for the given asset ID or group
+// key. Fails if no assets are found.
+func LargestUtxo(t *testing.T, client taprpc.TaprootAssetsClient,
+	assetID, groupKey []byte) *taprpc.Asset {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	resp, err := client.ListAssets(ctxt, &taprpc.ListAssetRequest{})
+	require.NoError(t, err)
+
+	var outputs []*taprpc.Asset
+	for _, a := range resp.Assets {
+		if len(assetID) > 0 &&
+			!bytes.Equal(a.AssetGenesis.AssetId, assetID) {
+
+			continue
+		}
+
+		if len(groupKey) > 0 && a.AssetGroup != nil &&
+			!bytes.Equal(a.AssetGroup.TweakedGroupKey, groupKey) {
+
+			continue
+		}
+
+		outputs = append(outputs, a)
+	}
+
+	require.NotEmpty(t, outputs)
+	slices.SortFunc(outputs, func(a, b *taprpc.Asset) int {
+		return cmp.Compare(a.Amount, b.Amount)
+	})
+	slices.Reverse(outputs)
+
+	return outputs[0]
 }

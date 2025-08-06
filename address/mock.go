@@ -19,18 +19,50 @@ import (
 // RandProofCourierAddr returns a proof courier address with fields populated
 // with valid but random values.
 func RandProofCourierAddr(t testing.TB) url.URL {
-	// TODO(ffranr): Add more randomness to the address.
-	addr, err := url.ParseRequestURI(
-		"hashmail://rand.hashmail.proof.courier:443",
+	return RandProofCourierAddrForVersion(t, V0)
+}
+
+// RandProofCourierAddrForVersion returns a proof courier address with fields
+// populated with valid but dummy values for the given address version.
+func RandProofCourierAddrForVersion(t testing.TB, version Version) url.URL {
+	var (
+		addr *url.URL
+		err  error
 	)
+	switch version {
+	case V2:
+		addr, err = url.ParseRequestURI(
+			"authmailbox+universerpc://foo.bar:10029",
+		)
+
+	default:
+		protocol := test.RandFlip("hashmail", "universerpc")
+		addr, err = url.ParseRequestURI(
+			protocol + "://rand.hashmail.proof.courier:443",
+		)
+	}
 	require.NoError(t, err)
 
 	return *addr
 }
 
+// RandVersion returns a random address version for testing.
+func RandVersion() Version {
+	return Version(test.RandIntn(int(latestVersion) + 1))
+}
+
 // RandAddr creates a random address for testing.
 func RandAddr(t testing.TB, params *ChainParams,
 	proofCourierAddr url.URL) (*AddrWithKeyInfo,
+	*asset.Genesis, *asset.GroupKey) {
+
+	return RandAddrWithVersion(t, params, proofCourierAddr, RandVersion())
+}
+
+// RandAddrWithVersion creates a random address for testing, using the specified
+// version.
+func RandAddrWithVersion(t testing.TB, params *ChainParams,
+	proofCourierAddr url.URL, addrVersion Version) (*AddrWithKeyInfo,
 	*asset.Genesis, *asset.GroupKey) {
 
 	scriptKeyPriv := test.RandPrivKey()
@@ -42,6 +74,18 @@ func RandAddr(t testing.TB, params *ChainParams,
 		},
 	})
 
+	return RandAddrWithVersionAndScriptKey(
+		t, params, proofCourierAddr, addrVersion, scriptKey,
+	)
+}
+
+// RandAddrWithVersionAndScriptKey creates a random address for testing, using
+// the specified version and script key.
+func RandAddrWithVersionAndScriptKey(t testing.TB, params *ChainParams,
+	proofCourierAddr url.URL, addrVersion Version,
+	scriptKey asset.ScriptKey) (*AddrWithKeyInfo, *asset.Genesis,
+	*asset.GroupKey) {
+
 	internalKey := test.RandPrivKey()
 
 	genesis := asset.RandGenesis(t, asset.Type(test.RandInt31n(2)))
@@ -52,7 +96,6 @@ func RandAddr(t testing.TB, params *ChainParams,
 
 	var (
 		assetVersion     asset.Version
-		addrVersion      Version
 		groupInfo        *asset.GroupKey
 		groupPubKey      *btcec.PublicKey
 		groupWitness     wire.TxWitness
@@ -78,8 +121,6 @@ func RandAddr(t testing.TB, params *ChainParams,
 		)
 		require.NoError(t, err)
 	}
-
-	addrVersion = test.RandFlip(V0, V1)
 
 	tapAddr, err := New(
 		addrVersion, genesis, groupPubKey, groupWitness,

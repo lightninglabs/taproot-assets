@@ -35,10 +35,9 @@ func TestStoreAndFetchMessage(t *testing.T) {
 
 	txProof := proof.MockTxProof(t)
 	msg := &authmailbox.Message{
-		ReceiverKey:       *receiverKey,
-		EncryptedPayload:  []byte("payload"),
-		ArrivalTimestamp:  time.Now(),
-		ExpiryBlockHeight: 100,
+		ReceiverKey:      *receiverKey,
+		EncryptedPayload: []byte("payload"),
+		ArrivalTimestamp: time.Now(),
 	}
 
 	msgID, err := mailboxStore.StoreMessage(ctx, *txProof, msg)
@@ -52,7 +51,6 @@ func TestStoreAndFetchMessage(t *testing.T) {
 	require.Equal(
 		t, msg.ArrivalTimestamp.Unix(), dbMsg.ArrivalTimestamp.Unix(),
 	)
-	require.Equal(t, msg.ExpiryBlockHeight, dbMsg.ExpiryBlockHeight)
 
 	// We should also be able to fetch the message by its outpoint.
 	dbMsgByOutPoint, err := mailboxStore.FetchMessageByOutPoint(
@@ -80,7 +78,6 @@ func TestQueryMessages(t *testing.T) {
 			ArrivalTimestamp: time.Now().Add(
 				time.Duration(i) * time.Second,
 			),
-			ExpiryBlockHeight: 100,
 		}
 
 		_, err := mailboxStore.StoreMessage(ctx, *txProof, msg)
@@ -115,10 +112,9 @@ func TestNumMessages(t *testing.T) {
 	for i := 0; i < numMessages; i++ {
 		txProof := proof.MockTxProof(t)
 		msg := &authmailbox.Message{
-			ReceiverKey:       *receiverKey,
-			EncryptedPayload:  []byte("payload"),
-			ArrivalTimestamp:  time.Now(),
-			ExpiryBlockHeight: 100,
+			ReceiverKey:      *receiverKey,
+			EncryptedPayload: []byte("payload"),
+			ArrivalTimestamp: time.Now(),
 		}
 
 		_, err := mailboxStore.StoreMessage(ctx, *txProof, msg)
@@ -139,10 +135,9 @@ func TestStoreProof(t *testing.T) {
 
 	txProof := proof.MockTxProof(t)
 	msg := &authmailbox.Message{
-		ReceiverKey:       *receiverKey,
-		EncryptedPayload:  []byte("payload"),
-		ArrivalTimestamp:  time.Now(),
-		ExpiryBlockHeight: 100,
+		ReceiverKey:      *receiverKey,
+		EncryptedPayload: []byte("payload"),
+		ArrivalTimestamp: time.Now(),
 	}
 
 	_, err := mailboxStore.StoreMessage(ctx, *txProof, msg)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"time"
 
@@ -274,10 +275,215 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 	fundDesc.ScriptKeyType = scriptKeyType
 	fundedVPkt, err := f.FundPacket(ctx, fundDesc, vPkt)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error funding packet: %w", err)
+	}
+
+	// If we're sending to a V2 address, we need to create the send fragment
+	// for the receiver later. For that we need to add the address to the
+	// virtual outputs and also derive a unique script key.
+	hasV2Addr := fn.Any(receiverAddrs, func(a *address.Tap) bool {
+		return a.Version >= address.V2
+	})
+
+	// If there isn't a V2 address, we can return early, as we have
+	// everything we need.
+	if !hasV2Addr {
+		return fundedVPkt, nil
+	}
+
+	return prepareV2Outputs(ctx, fundedVPkt)
+}
+
+// prepareAddressV2Outputs prepares the outputs of a funded virtual packet
+// for V2 addresses. It derives a unique script key for each output that has
+// a V2 address set.
+func prepareV2Outputs(ctx context.Context,
+	fundedVPkt *FundedVPacket) (*FundedVPacket, error) {
+
+	for pktIdx := range fundedVPkt.VPackets {
+		vPkt := fundedVPkt.VPackets[pktIdx]
+		assetID, err := vPkt.AssetID()
+		if err != nil {
+			return nil, fmt.Errorf("unable to determine asset "+
+				"specifier: %w", err)
+		}
+
+		for outIdx := range vPkt.Outputs {
+			vOut := vPkt.Outputs[outIdx]
+
+			// A send fragment can only be created for an output
+			// that has an address with version 2 set.
+			if vOut.Address == nil {
+				continue
+			}
+			if !vOut.Address.UsesSendManifests() {
+				continue
+			}
+
+			receiverKey := vOut.Address.ScriptKey
+			scriptKey, err := asset.DeriveUniqueScriptKey(
+				receiverKey, assetID,
+				asset.ScriptKeyDerivationUniquePedersen,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to derive "+
+					"unique script key: %w", err)
+			}
+
+			vOut.ScriptKey = scriptKey
+
+			// Now that we've created the unique script key, we also
+			// assign a random alt leaf to the asset, asserting that
+			// sends with the exact same amount and asset ID will
+			// still result in a different on-chain output,
+			// increasing the privacy of the transfer when addresses
+			// are being re-used. This is possible with V2 addresses
+			// (vs. V0/V1) because the recipient isn't able to
+			// predict the on-chain output anyway, so the send
+			// fragment will inform the recipient about the location
+			// to fetch the proofs from. And the parameters required
+			// to fetch a proof are independent of the actual
+			// on-chain commitment output and therefore the actual
+			// asset leaf.
+			randKey, err := btcec.NewPrivateKey()
+			if err != nil {
+				return nil, fmt.Errorf("unable to create "+
+					"random private key: %w", err)
+			}
+			randScriptKey := asset.NewScriptKey(randKey.PubKey())
+			randAltLeaf, err := asset.NewAltLeaf(
+				randScriptKey, asset.ScriptV0,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to create "+
+					"random alt leaf: %w", err)
+			}
+
+			vOut.AltLeaves = append(vOut.AltLeaves, randAltLeaf)
+		}
+
+		// We need to re-create the output assets because we potentially
+		// changed the script keys.
+		if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
+			log.Errorf("Error preparing output assets: %v, "+
+				"packets: %v", err, limitSpewer.Sdump(vPkt))
+			return nil, fmt.Errorf("unable to prepare outputs: %w",
+				err)
+		}
 	}
 
 	return fundedVPkt, nil
+}
+
+// createSendManifests creates the send manifests and fragments for the given
+// funded virtual packets. The send fragments are used to reconstruct the
+// information required to fetch proofs from the universe, and to materialize
+// the asset outputs on the receiver's side. We assume that the receiver has
+// access to the TAP address that was used to send the assets.
+func createSendManifests(chainParams *address.ChainParams,
+	parcel *OutboundParcel) (map[uint32]*proof.SendManifest, error) {
+
+	result := make(map[uint32]*proof.SendManifest)
+	addToFragment := func(addr *address.Tap, assetID asset.ID,
+		vOut TransferOutput) error {
+
+		var (
+			courierAddr *url.URL
+			err         error
+		)
+		if len(vOut.ProofCourierAddr) == 0 {
+			return fmt.Errorf("no proof courier address "+
+				"set for output %d", vOut.Anchor.OutPoint.Index)
+		}
+
+		courierAddr, err = url.Parse(string(vOut.ProofCourierAddr))
+		if err != nil {
+			return fmt.Errorf("unable to parse proof courier "+
+				"address for output %d: %w",
+				vOut.Anchor.OutPoint.Index, err)
+		}
+
+		receiverKey := addr.ScriptKey
+
+		manifest, ok := result[vOut.Anchor.OutPoint.Index]
+		if !ok {
+			manifest = &proof.SendManifest{
+				Receiver:   receiverKey,
+				CourierURL: *courierAddr,
+				Fragment: proof.SendFragment{
+					Version: proof.SendFragmentV1,
+					Outputs: make(
+						map[asset.ID]proof.SendOutput,
+					),
+				},
+			}
+			result[vOut.Anchor.OutPoint.Index] = manifest
+		}
+
+		scriptKey, err := asset.DeriveUniqueScriptKey(
+			receiverKey, assetID,
+			asset.ScriptKeyDerivationUniquePedersen,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to derive unique script "+
+				"key: %w", err)
+		}
+
+		// As a sanity check, we make sure that the unique script key
+		// we just re-derived is the same that's already set on the
+		// virtual output.
+		if !scriptKey.PubKey.IsEqual(vOut.ScriptKey.PubKey) {
+			return fmt.Errorf("derived unique pedersen script key "+
+				"%x doesn't match virtual output script key %x",
+				scriptKey.PubKey.SerializeCompressed(),
+				vOut.ScriptKey.PubKey.SerializeCompressed())
+		}
+
+		manifest.Fragment.Outputs[assetID] = proof.SendOutput{
+			AssetVersion: vOut.AssetVersion,
+			Amount:       vOut.Amount,
+			ScriptKey:    asset.ToSerialized(scriptKey.PubKey),
+		}
+
+		return nil
+	}
+
+	for outIdx, tOut := range parcel.Outputs {
+		assetID, err := tOut.AssetID()
+		if err != nil {
+			return nil, fmt.Errorf("unable to determine asset ID: "+
+				"%w", err)
+		}
+
+		// A send fragment can only be created for an output that has an
+		// address with version 2 set.
+		if len(tOut.TapAddress) == 0 {
+			log.Tracef("Skipping output %d for fragment, "+
+				"no address set", outIdx)
+			continue
+		}
+
+		addr, err := address.DecodeAddress(tOut.TapAddress, chainParams)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode address "+
+				"for output %d: %w", outIdx, err)
+		}
+
+		if addr.Version < address.V2 {
+			log.Tracef("Skipping output %d for fragment, "+
+				"address not V2", outIdx)
+			continue
+		}
+
+		log.Debugf("Adding send fregment for output %d", outIdx)
+		err = addToFragment(addr, assetID, tOut)
+		if err != nil {
+			return nil, fmt.Errorf("unable to add output "+
+				"to send fragment: %w", err)
+		}
+	}
+
+	return result, nil
 }
 
 // createPassivePacket creates a virtual packet for the given passive asset.

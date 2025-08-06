@@ -178,8 +178,11 @@ func NewAddressParcel(feeRate *chainfee.SatPerKWeight, label string,
 
 // pkg returns the send package that should be delivered.
 func (p *AddressParcel) pkg() *sendPackage {
+	addrStrings := fn.Map(p.destAddrs, func(addr *address.Tap) string {
+		return fmt.Sprintf("%d:%s", addr.Amount, addr.String())
+	})
 	log.Infof("Received to send request to %d addrs: %v", len(p.destAddrs),
-		p.destAddrs)
+		addrStrings)
 
 	// Initialize a package with the destination address.
 	return &sendPackage{
@@ -483,6 +486,11 @@ type sendPackage struct {
 	// associated Taproot Asset commitment.
 	InputCommitments tappsbt.InputCommitments
 
+	// SendManifests is a map of send manifests that need to be sent to the
+	// auth mailbox server to complete an address V2 transfer. It is keyed
+	// by the anchor output index.
+	SendManifests map[uint32]*proof.SendManifest
+
 	// PassiveAssets is the data used in re-anchoring passive assets.
 	PassiveAssets []*tappsbt.VPacket
 
@@ -687,6 +695,15 @@ func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int, position uint64,
 			"is local: %w", err)
 	}
 
+	var addrString string
+	if vOut.Address != nil {
+		addrString, err = vOut.Address.EncodeAddress()
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode address "+
+				"for output %d: %w", vOutIdx, err)
+		}
+	}
+
 	out := TransferOutput{
 		Anchor:              *anchor,
 		Type:                vOut.Type,
@@ -701,6 +718,7 @@ func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int, position uint64,
 		ProofCourierAddr:    proofCourierAddrBytes,
 		ScriptKeyLocal:      scriptKeyLocal,
 		Position:            position,
+		TapAddress:          addrString,
 	}
 
 	// Determine whether an associated proof needs to be delivered to a peer

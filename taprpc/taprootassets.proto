@@ -975,6 +975,15 @@ message TransferOutput {
 
     // The asset ID of the asset that was created in this output.
     bytes asset_id = 12;
+
+    // The proof courier address that was used to deliver the proof for this
+    // output.
+    string proof_courier_addr = 13;
+
+    // The Taproot Asset address that was used to create the output. This is
+    // only set for new outputs for tapd versions that support the address V2
+    // format. For older versions, this field will be empty.
+    string tap_addr = 14;
 }
 
 message StopRequest {
@@ -1011,22 +1020,33 @@ enum AddrVersion {
     // ADDR_VERSION_V1 is the address version that uses V2 Taproot Asset
     // commitments.
     ADDR_VERSION_V1 = 2;
+
+    // ADDR_VERSION_V2 is the address version that supports sending grouped
+    // assets and require the new auth mailbox proof courier address format.
+    ADDR_VERSION_V2 = 3;
 }
 
 message Addr {
     // The bech32 encoded Taproot Asset address.
     string encoded = 1;
 
-    // The asset ID that uniquely identifies the asset.
+    // The asset ID that uniquely identifies the asset. This can be all zeroes
+    // for V2 addresses that have a group key set.
     bytes asset_id = 2;
 
     // The type of the asset.
     AssetType asset_type = 3;
 
-    // The total amount of the asset stored in this Taproot Asset UTXO.
+    // The total amount of the asset stored in this Taproot Asset UTXO. The
+    // amount is allowed to be unset for V2 addresses, where the sender will
+    // post a fragment containing the asset IDs and amounts to the proof
+    // courier's auth mailbox.
     uint64 amount = 4;
 
-    // The group key of the asset (if it exists)
+    // The group key of the asset group to receive assets for. If this field
+    // is set, then any asset of the group can be sent to this address. Can only
+    // be specified for V2 addresses. If this field is set, the asset_id
+    // field must be empty.
     bytes group_key = 5;
 
     /*
@@ -1053,7 +1073,9 @@ message Addr {
     */
     bytes taproot_output_key = 9;
 
-    // The address of the proof courier service used in proof transfer.
+    // The address of the proof courier service used in proof transfer. For V2
+    // addresses the proof courier address is mandatory and must be a valid auth
+    // mailbox address (authmailbox+universerpc://host:port).
     string proof_courier_addr = 10;
 
     // The asset version of the address.
@@ -1089,10 +1111,18 @@ message QueryAddrResponse {
 }
 
 message NewAddrRequest {
-    // The asset ID that uniquely identifies the asset to create an address for.
+    /*
+    The asset ID to create the address for. This is required for V0 and V1
+    addresses. For V2 addresses, this field is optional and must be empty if the
+    group key is set.
+    */
     bytes asset_id = 1;
 
-    // The amount to create the address for.
+    /*
+    The number of asset units to be sent to the address. This is required for V0
+    and V1 addresses. For V2 addresses, this field is optional and can be left
+    at 0 to indicate that the sender can choose the amount of assets to send.
+    */
     uint64 amt = 2;
 
     /*
@@ -1138,6 +1168,12 @@ message NewAddrRequest {
     The version of this address.
     */
     AddrVersion address_version = 8;
+
+    /*
+    The group key to receive assets for. This can only be specified for V2
+    addresses. If this field is set, the asset_id field must be empty.
+    */
+    bytes group_key = 9;
 }
 
 enum ScriptKeyType {
@@ -1482,13 +1518,17 @@ message AddrReceivesResponse {
 }
 
 message SendAssetRequest {
-    // The list of Taproot Asset addresses to send the asset to.
+    // The list of TAP addresses to send assets to. The amount to send to each
+    // address is determined by the amount specified in the address itself. For
+    // V2 addresses that are allowed to not specify an amount, use the
+    // addresses_with_amounts list to specify the amount to send to each
+    // address. The tap_addrs and addresses_with_amounts lists are mutually
+    // exclusive, meaning that if addresses_with_amounts is set, then tap_addrs
+    // must be empty, and vice versa.
     repeated string tap_addrs = 1;
 
     // The optional fee rate to use for the minting transaction, in sat/kw.
     uint32 fee_rate = 2;
-    // TODO(roasbeef): maybe in future add details re type of ProofCourier or
-    // w/e
 
     // An optional short label for the send transfer. This label can be used to
     // track the progress of the transfer via the logs or an event subscription.
@@ -1499,6 +1539,26 @@ message SendAssetRequest {
     // testing purposes and for forced transfers when the proof courier
     // is not immediately available.
     bool skip_proof_courier_ping_check = 4;
+
+    // A list of addresses and the amounts of asset units to send to them. This
+    // must be used for V2 TAP addresses that don't specify an amount in the
+    // address itself and allow the sender to choose the amount to send. The
+    // tap_addrs and addresses_with_amounts lists are mutually exclusive,
+    // meaning that if addresses_with_amounts is set, then tap_addrs must be
+    // empty, and vice versa.
+    repeated AddressWithAmount addresses_with_amounts = 5;
+}
+
+message AddressWithAmount {
+    // The TAP address to send assets to.
+    string tap_addr = 1;
+
+    // The amount of asset units to send to the address. This is only used for
+    // re-usable V2 addresses that don't specify an amount in the address itself
+    // and allow the sender to specify the amount on each send attempt. For V0
+    // or V1 addresses, this can be left empty (zero) as the amount is taken
+    // from the address itself.
+    uint64 amount = 2;
 }
 
 message PrevInputAsset {

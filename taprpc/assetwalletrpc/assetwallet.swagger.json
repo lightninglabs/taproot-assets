@@ -839,7 +839,15 @@
             "type": "string",
             "format": "uint64"
           },
-          "description": "A map of all Taproot Asset addresses mapped to the anchor transaction's\noutput index that should be sent to."
+          "description": "DEPRECATED: A map of all Taproot Asset addresses that should be sent to.\nThe keys are the Taproot Asset addresses in human-readable form, and the\nvalues are IGNORED and should not be set (use the addresses_with_amounts\nfield below instead). The recipients map and addresses_with_amounts list\nare mutually exclusive, meaning that if addresses_with_amounts is set, then\nrecipients must be empty, and vice versa."
+        },
+        "addresses_with_amounts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/taprpcAddressWithAmount"
+          },
+          "description": "A list of addresses and the amounts of asset units to send to them. This\nmust be used for V2 TAP addresses that don't specify an amount in the\naddress itself and allow the sender to choose the amount to send. The\nrecipients and addresses_with_amounts lists are mutually exclusive,\nmeaning that if addresses_with_amounts is set, then recipients must be\nempty, and vice versa."
         }
       }
     },
@@ -914,6 +922,20 @@
             "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
+        }
+      }
+    },
+    "taprpcAddressWithAmount": {
+      "type": "object",
+      "properties": {
+        "tap_addr": {
+          "type": "string",
+          "description": "The TAP address to send assets to."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of asset units to send to the address. This is only used for\nre-usable V2 addresses that don't specify an amount in the address itself\nand allow the sender to specify the amount on each send attempt. For V0\nor V1 addresses, this can be left empty (zero) as the amount is taken\nfrom the address itself."
         }
       }
     },
@@ -1191,6 +1213,14 @@
           "type": "string",
           "format": "byte",
           "description": "The asset ID of the asset that was created in this output."
+        },
+        "proof_courier_addr": {
+          "type": "string",
+          "description": "The proof courier address that was used to deliver the proof for this\noutput."
+        },
+        "tap_addr": {
+          "type": "string",
+          "description": "The Taproot Asset address that was used to create the output. This is\nonly set for new outputs for tapd versions that support the address V2\nformat. For older versions, this field will be empty."
         }
       }
     },

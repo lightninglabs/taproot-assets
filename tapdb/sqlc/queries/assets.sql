@@ -1011,6 +1011,13 @@ SELECT *
 FROM genesis_info_view
 WHERE asset_id = $1;
 
+-- name: FetchGenesisByGroupKey :one
+SELECT gv.*
+FROM genesis_info_view AS gv
+JOIN key_group_info_view AS kgv
+    ON gv.gen_asset_id = kgv.gen_asset_id
+WHERE kgv.tweaked_group_key = $1;
+
 -- name: UpsertAssetMeta :one
 INSERT INTO assets_meta (
     meta_data_hash, meta_data_blob, meta_data_type, meta_decimal_display,

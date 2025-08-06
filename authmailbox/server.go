@@ -194,10 +194,6 @@ func (s *Server) SendMessage(ctx context.Context,
 		return nil, ErrMessageTooLong
 	}
 
-	if req.ExpiryBlockHeight == 0 {
-		return nil, fmt.Errorf("missing expiry block height")
-	}
-
 	if req.Proof == nil {
 		return nil, fmt.Errorf("missing proof")
 	}
@@ -270,14 +266,6 @@ func (s *Server) SendMessage(ctx context.Context,
 
 	default:
 		return nil, fmt.Errorf("unsupported proof type: %T", p)
-	}
-
-	// Now that we know the arrival block height (either from the proof or
-	// from our backend), we can validate the expiry block height.
-	if req.ExpiryBlockHeight <= msg.ProofBlockHeight {
-		return nil, fmt.Errorf("expiry block height %d is before "+
-			"proof block height %d", req.ExpiryBlockHeight,
-			msg.ProofBlockHeight)
 	}
 
 	// We have verified everything we can, we'll allow the message to be
@@ -448,7 +436,7 @@ func (s *Server) handleStream(ctx context.Context,
 		// An error happened anywhere in the process, we need to abort
 		// the connection.
 		case err := <-stream.errChan:
-			log.ErrorS(ctx, "Error in trader stream: %v", err)
+			log.ErrorS(ctx, "Error in client stream: %v", err)
 
 			stream.abort()
 			return fmt.Errorf("error reading client=%d stream: %w",
@@ -512,7 +500,7 @@ func (s *Server) readIncomingStream(ctx context.Context,
 		// that auth message and validate it.
 		msg, err := grpcStream.Recv()
 		switch {
-		// The default disconnect signal from the client, if the trader
+		// The default disconnect signal from the client, if the client
 		// is shut down.
 		case err == io.EOF || fn.IsCanceled(err):
 			stream.abort()

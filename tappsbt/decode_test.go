@@ -193,7 +193,9 @@ func TestEncodingDecoding(t *testing.T) {
 		assertEqualPackets(t, pkg, decoded)
 	}
 
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := address.RandProofCourierAddrForVersion(
+		t, address.V2,
+	)
 	testCases := []testCase{{
 		name: "minimal packet",
 		pkg: func(t *testing.T) *VPacket {

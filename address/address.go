@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -48,7 +49,8 @@ var (
 	// create a Taproot Asset address for a Normal asset with an amount of
 	// zero.
 	ErrInvalidAmountNormal = errors.New(
-		"address: normal asset amount of zero",
+		"address: zero amount cannot be used for normal asset " +
+			"addresses of V0 or V1",
 	)
 
 	// ErrUnsupportedAssetType is an error returned when we attempt to
@@ -72,6 +74,12 @@ var (
 	// ErrUnknownVersion is returned when encountering an address with an
 	// unrecognised version number.
 	ErrUnknownVersion = errors.New("address: unknown version number")
+
+	// ErrInvalidProofCourierAddr is returned when we attempt to create a
+	// Taproot Asset address with a proof courier address that is not valid.
+	ErrInvalidProofCourierAddr = errors.New(
+		"address: invalid proof courier address",
+	)
 )
 
 // Version denotes the version of a Taproot Asset address format.
@@ -84,8 +92,12 @@ const (
 	// V1 addresses use V2 Taproot Asset commitments.
 	V1 Version = 1
 
+	// V2 addresses support sending grouped assets and require the new
+	// auth mailbox proof courier address format.
+	V2 Version = 2
+
 	// LatestVersion is the latest supported Taproot Asset address version.
-	latestVersion = V1
+	latestVersion = V2
 )
 
 // Tap represents a Taproot Asset address. Taproot Asset addresses specify an
@@ -101,7 +113,8 @@ type Tap struct {
 	// AssetVersion is the Taproot Asset version of the asset.
 	AssetVersion asset.Version
 
-	// AssetID is the asset ID of the asset.
+	// AssetID is the asset ID of the asset. This will be all zeroes for
+	// V2 addresses that have a group key set.
 	AssetID asset.ID
 
 	// GroupKey is the tweaked public key that is used to associate assets
@@ -109,8 +122,15 @@ type Tap struct {
 	// asset to be made possible.
 	GroupKey *btcec.PublicKey
 
-	// ScriptKey represents a tweaked Taproot output key encumbering the
-	// different ways an asset can be spent.
+	// ScriptKey represents the asset's Taproot output key encumbering the
+	// different ways an asset can be spent. This is different for V2
+	// addresses, where this key is not the Taproot output key but the
+	// Taproot internal key (the bare/raw key) of the asset script key (not
+	// to be confused with the InternalKey below, which is for the on-chain
+	// part of the address). The sender will use this key to encrypt the
+	// send fragment that they post to the proof courier's mailbox. The raw
+	// script key will also be used by the sender to derive different
+	// Taproot output script keys for each asset ID.
 	ScriptKey btcec.PublicKey
 
 	// InternalKey is the BIP-0340/0341 public key of the receiver.
@@ -122,14 +142,25 @@ type Tap struct {
 	TapscriptSibling *commitment.TapscriptPreimage
 
 	// Amount is the number of asset units being requested by the receiver.
+	// The amount is allowed to be zero for V2 addresses, where the sender
+	// will post a fragment containing the asset IDs and amounts to the
+	// proof courier's mailbox.
 	Amount uint64
 
 	// assetGen is the receiving asset's genesis metadata which directly
-	// maps to its unique ID within the Taproot Asset protocol.
+	// maps to its unique ID within the Taproot Asset protocol. For a
+	// grouped address, this will be the genesis of the asset genesis that
+	// started the group. This doesn't matter in the context of an address,
+	// because currently the genesis is only used to find out the type of
+	// asset (normal vs. collectible).
+	// TODO(guggero): Remove this field and combine the asset ID and group
+	// key into a single asset specifier.
 	assetGen asset.Genesis
 
 	// ProofCourierAddr is the address of the proof courier that will be
-	// used to distribute related proofs for this address.
+	// used to distribute related proofs for this address. For V2 addresses
+	// the proof courier address is mandatory and must be a valid auth
+	// mailbox address.
 	ProofCourierAddr url.URL
 
 	// UnknownOddTypes is a map of unknown odd types that were encountered
@@ -191,7 +222,7 @@ func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
 		}
 
 	case asset.Normal:
-		if amt == 0 {
+		if amt == 0 && version != V2 {
 			return nil, ErrInvalidAmountNormal
 		}
 
@@ -206,6 +237,29 @@ func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
 	// Check the version of the address format.
 	if IsUnknownVersion(version) {
 		return nil, ErrUnknownVersion
+	}
+
+	// Version 2 addresses behave slightly differently than V0 and V1
+	// addresses.
+	addressAssetID := genesis.ID()
+	if version == V2 {
+		// Addresses with version 2 or later must use the new
+		// authmailbox proof courier type.
+		if proofCourierAddr.Scheme !=
+			proof.AuthMailboxUniRpcCourierType {
+
+			return nil, fmt.Errorf("%w: address version %d must "+
+				"use the '%s' proof courier type",
+				ErrInvalidProofCourierAddr, version,
+				proof.AuthMailboxUniRpcCourierType)
+		}
+
+		// If a group key is provided, then we zero out the asset ID in
+		// the address, as it doesn't make sense (we'll ignore it anyway
+		// when sending assets to this address).
+		if groupKey != nil {
+			addressAssetID = asset.ID{}
+		}
 	}
 
 	// We can only use a tapscript sibling that is not a Taproot Asset
@@ -225,7 +279,7 @@ func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
 		Version:          version,
 		ChainParams:      net,
 		AssetVersion:     options.assetVersion,
-		AssetID:          genesis.ID(),
+		AssetID:          addressAssetID,
 		GroupKey:         groupKey,
 		ScriptKey:        scriptKey,
 		InternalKey:      internalKey,
@@ -259,11 +313,51 @@ func CommitmentVersion(vers Version) (*commitment.TapCommitmentVersion,
 	// can't know without accessing all leaves of the commitment itself.
 	case V0:
 		return nil, nil
-	case V1:
+	case V1, V2:
 		return fn.Ptr(commitment.TapCommitmentV2), nil
 	default:
 		return nil, ErrUnknownVersion
 	}
+}
+
+// ScriptKeyForAssetID returns the script key for this address for the given
+// asset ID. For V2 addresses, this will derive a unique script key for the
+// asset ID using the internal script key and a Pedersen commitment. For
+// addresses before V2, the script key is always the Taproot output key as
+// specified in the address directly.
+func (a *Tap) ScriptKeyForAssetID(assetID asset.ID) (*btcec.PublicKey, error) {
+	// For addresses before V2, the script key is always the Taproot output
+	// key as specified in the address directly.
+	if a.Version != V2 {
+		return &a.ScriptKey, nil
+	}
+
+	// For V2 addresses, the script key is the internal key, which is used
+	// to derive the Taproot output key for each asset ID using a unique
+	// Pedersen commitment.
+	scriptKey, err := asset.DeriveUniqueScriptKey(
+		a.ScriptKey, assetID, asset.ScriptKeyDerivationUniquePedersen,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to derive unique script key: %w",
+			err)
+	}
+
+	return scriptKey.PubKey, nil
+}
+
+// UsesSendManifests returns true if the address requires the new authmailbox
+// proof courier type to transport a send manifest from the sender to the
+// receiver. If this is true, it means the address supports sending grouped
+// assets and also requires unique script keys for each asset ID.
+func (a *Tap) UsesSendManifests() bool {
+	return a.Version == V2
+}
+
+// SupportsGroupedAssets returns true if the address supports grouped assets.
+func (a *Tap) SupportsGroupedAssets() bool {
+	// Only V2 addresses support grouped assets.
+	return a.Version == V2
 }
 
 // Net returns the ChainParams struct matching the Taproot Asset address
@@ -336,6 +430,18 @@ func (a *Tap) TapCommitment() (*commitment.TapCommitment, error) {
 
 // TaprootOutputKey returns the on-chain Taproot output key.
 func (a *Tap) TaprootOutputKey() (*btcec.PublicKey, error) {
+	// V2 addresses can't be predicted on-chain, so the Taproot output key
+	// doesn't make any sense. But because this is the primary identifier
+	// for an address in the database, we still need to use a unique key.
+	// We've already ensured that the script key is unique for v2 addresses,
+	// so we can use that instead.
+	if a.Version == V2 {
+		// Make sure we always return the parity stripped key.
+		return schnorr.ParsePubKey(schnorr.SerializePubKey(
+			&a.ScriptKey,
+		))
+	}
+
 	c, err := a.TapCommitment()
 	if err != nil {
 		return nil, fmt.Errorf("unable to derive Taproot Asset "+
@@ -465,15 +571,16 @@ func (a *Tap) EncodeAddress() (string, error) {
 
 // String returns the string representation of a Taproot Asset address.
 func (a *Tap) String() string {
-	return fmt.Sprintf("TapAddr{id=%s, amount=%d, script_key=%x}",
-		a.AssetID, a.Amount, a.ScriptKey.SerializeCompressed())
+	s := asset.NewSpecifierOptionalGroupPubKey(a.AssetID, a.GroupKey)
+	return fmt.Sprintf("TapAddr{specifier=%s, amount=%d, script_key=%x}",
+		&s, a.Amount, a.ScriptKey.SerializeCompressed())
 }
 
 // IsUnknownVersion returns true if the address version is not recognized by
 // this implementation of tap.
 func IsUnknownVersion(v Version) bool {
 	switch v {
-	case V0, V1:
+	case V0, V1, V2:
 		return false
 	default:
 		return true
@@ -553,6 +660,9 @@ func UnmarshalVersion(version taprpc.AddrVersion) (Version, error) {
 	case taprpc.AddrVersion_ADDR_VERSION_V1:
 		return V1, nil
 
+	case taprpc.AddrVersion_ADDR_VERSION_V2:
+		return V2, nil
+
 	default:
 		return 0, fmt.Errorf("unknown address version: %v", version)
 	}
@@ -569,6 +679,9 @@ func MarshalVersion(version Version) (taprpc.AddrVersion, error) {
 
 	case V1:
 		return taprpc.AddrVersion_ADDR_VERSION_V1, nil
+
+	case V2:
+		return taprpc.AddrVersion_ADDR_VERSION_V2, nil
 
 	default:
 		return 0, fmt.Errorf("unknown address version: %v", version)

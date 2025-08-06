@@ -25,9 +25,8 @@ type (
 // MarshalMessage converts a Message to its gRPC representation.
 func MarshalMessage(msg *Message) *mboxrpc.MailboxMessage {
 	return &mboxrpc.MailboxMessage{
-		MessageId:         msg.ID,
-		EncryptedPayload:  msg.EncryptedPayload,
-		ArrivalTimestamp:  msg.ArrivalTimestamp.Unix(),
-		ExpiryBlockHeight: msg.ExpiryBlockHeight,
+		MessageId:        msg.ID,
+		EncryptedPayload: msg.EncryptedPayload,
+		ArrivalTimestamp: msg.ArrivalTimestamp.Unix(),
 	}
 }
