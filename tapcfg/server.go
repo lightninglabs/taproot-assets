@@ -609,6 +609,16 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	supplyTreeStore := tapdb.NewSupplyTreeStore(supplyTreeDb)
 
+	// Construct the supply syncer database backend.
+	supplySyncerDb := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.BaseUniverseStore {
+			return db.WithTx(tx)
+		},
+	)
+	supplySyncerStore := tapdb.NewSupplySyncerStore(supplySyncerDb)
+	supplySyncerStore = supplySyncerStore
+	// TODO(ffranr): When init SupplySyncer pass in supplySyncerStore.
+
 	// Create the supply commitment state machine manager, which is used to
 	// manage the supply commitment state machines for each asset group.
 	supplyCommitManager := supplycommit.NewMultiStateMachineManager(
