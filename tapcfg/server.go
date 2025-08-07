@@ -520,8 +520,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	// Create the supply commitment state machine manager, which is used to
 	// manage the supply commitment state machines for each asset group.
-	supplyCommitManager := supplycommit.NewMultiStateMachineManager(
-		supplycommit.MultiStateMachineManagerCfg{
+	supplyCommitManager := supplycommit.NewManager(
+		supplycommit.ManagerCfg{
 			TreeView:           supplyTreeStore,
 			Commitments:        supplyCommitStore,
 			Wallet:             walletAnchor,

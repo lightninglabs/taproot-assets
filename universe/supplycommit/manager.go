@@ -34,10 +34,10 @@ type DaemonAdapters interface {
 	Stop() error
 }
 
-// MultiStateMachineManagerCfg is the configuration for the
-// MultiStateMachineManager. It contains all the dependencies needed to
+// ManagerCfg is the configuration for the
+// Manager. It contains all the dependencies needed to
 // manage multiple supply commitment state machines, one for each asset group.
-type MultiStateMachineManagerCfg struct {
+type ManagerCfg struct {
 	// TreeView is the interface that allows the state machine to obtain an
 	// up to date snapshot of the root supply tree, and the relevant set of
 	// subtrees.
@@ -76,12 +76,12 @@ type MultiStateMachineManagerCfg struct {
 	IgnoreCheckerCache IgnoreCheckerCache
 }
 
-// MultiStateMachineManager is a manager for multiple supply commitment state
+// Manager is a manager for multiple supply commitment state
 // machines, one for each asset group. It is responsible for starting and
 // stopping the state machines, as well as forwarding sending events to them.
-type MultiStateMachineManager struct {
+type Manager struct {
 	// cfg is the configuration for the multi state machine manager.
-	cfg MultiStateMachineManagerCfg
+	cfg ManagerCfg
 
 	// smCache is a cache that maps asset group public keys to their
 	// supply commitment state machines.
@@ -95,11 +95,9 @@ type MultiStateMachineManager struct {
 	stopOnce  sync.Once
 }
 
-// NewMultiStateMachineManager creates a new multi state machine manager.
-func NewMultiStateMachineManager(
-	cfg MultiStateMachineManagerCfg) *MultiStateMachineManager {
-
-	return &MultiStateMachineManager{
+// NewManager creates a new multi state machine manager.
+func NewManager(cfg ManagerCfg) *Manager {
+	return &Manager{
 		cfg: cfg,
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
@@ -109,7 +107,7 @@ func NewMultiStateMachineManager(
 }
 
 // Start starts the multi state machine manager.
-func (m *MultiStateMachineManager) Start() error {
+func (m *Manager) Start() error {
 	m.startOnce.Do(func() {
 		// Initialize the state machine cache.
 		m.smCache = newStateMachineCache()
@@ -120,7 +118,7 @@ func (m *MultiStateMachineManager) Start() error {
 
 // Stop stops the multi state machine manager, which in turn stops all asset
 // group key specific supply commitment state machines.
-func (m *MultiStateMachineManager) Stop() error {
+func (m *Manager) Stop() error {
 	m.stopOnce.Do(func() {
 		// Cancel the state machine context to signal all state machines
 		// to stop.
@@ -136,7 +134,7 @@ func (m *MultiStateMachineManager) Stop() error {
 // fetchStateMachine retrieves a state machine from the cache or creates a
 // new one if it doesn't exist. If a new state machine is created, it is also
 // started.
-func (m *MultiStateMachineManager) fetchStateMachine(
+func (m *Manager) fetchStateMachine(
 	assetSpec asset.Specifier) (*StateMachine, error) {
 
 	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
@@ -218,13 +216,13 @@ func (m *MultiStateMachineManager) fetchStateMachine(
 // SendEvent sends an event to the state machine associated with the given asset
 // specifier. If a state machine for the asset group does not exist, it will be
 // created and started.
-func (m *MultiStateMachineManager) SendEvent(ctx context.Context,
+func (m *Manager) SendEvent(ctx context.Context,
 	assetSpec asset.Specifier, event Event) error {
 
 	sm, err := m.fetchStateMachine(assetSpec)
 	if err != nil {
-		return fmt.Errorf("unable to get or create state "+
-			"machine: %w", err)
+		return fmt.Errorf("unable to get or create state machine: %w",
+			err)
 	}
 
 	sm.SendEvent(ctx, event)
@@ -236,8 +234,8 @@ func (m *MultiStateMachineManager) SendEvent(ctx context.Context,
 // that the event has been durably persisted. If the event doesn't support
 // synchronous processing (i.e., it's not a SupplyUpdateEvent), this method will
 // return an error.
-func (m *MultiStateMachineManager) SendEventSync(ctx context.Context,
-	assetSpec asset.Specifier, event SyncSupplyUpdateEvent) error {
+func (m *Manager) SendEventSync(ctx context.Context, assetSpec asset.Specifier,
+	event SyncSupplyUpdateEvent) error {
 
 	// Only SupplyUpdateEvents can be processed synchronously.
 	supplyEvent, ok := event.(SupplyUpdateEvent)
@@ -274,9 +272,9 @@ func (m *MultiStateMachineManager) SendEventSync(ctx context.Context,
 // SendMintEvent sends a mint event to the supply commitment state machine.
 //
 // NOTE: This implements the tapgarden.MintSupplyCommitter interface.
-func (m *MultiStateMachineManager) SendMintEvent(ctx context.Context,
-	assetSpec asset.Specifier, leafKey universe.UniqueLeafKey,
-	issuanceProof universe.Leaf, mintBlockHeight uint32) error {
+func (m *Manager) SendMintEvent(ctx context.Context, assetSpec asset.Specifier,
+	leafKey universe.UniqueLeafKey, issuanceProof universe.Leaf,
+	mintBlockHeight uint32) error {
 
 	mintEvent := &NewMintEvent{
 		LeafKey:       leafKey,
@@ -290,8 +288,8 @@ func (m *MultiStateMachineManager) SendMintEvent(ctx context.Context,
 // SendBurnEvent sends a burn event to the supply commitment state machine.
 //
 // NOTE: This implements the tapfreighter.BurnSupplyCommitter interface.
-func (m *MultiStateMachineManager) SendBurnEvent(ctx context.Context,
-	assetSpec asset.Specifier, burnLeaf universe.BurnLeaf) error {
+func (m *Manager) SendBurnEvent(ctx context.Context, assetSpec asset.Specifier,
+	burnLeaf universe.BurnLeaf) error {
 
 	burnEvent := &NewBurnEvent{
 		BurnLeaf: burnLeaf,
@@ -303,7 +301,7 @@ func (m *MultiStateMachineManager) SendBurnEvent(ctx context.Context,
 // CanHandle determines if the state machine associated with the given asset
 // specifier can handle the given message. If a state machine for the asset
 // group does not exist, it will be created and started.
-func (m *MultiStateMachineManager) CanHandle(assetSpec asset.Specifier,
+func (m *Manager) CanHandle(assetSpec asset.Specifier,
 	msg msgmux.PeerMsg) (bool, error) {
 
 	sm, err := m.fetchStateMachine(assetSpec)
@@ -318,7 +316,7 @@ func (m *MultiStateMachineManager) CanHandle(assetSpec asset.Specifier,
 // Name returns the name of the state machine associated with the given asset
 // specifier. If a state machine for the asset group does not exist, it will be
 // created and started.
-func (m *MultiStateMachineManager) Name(
+func (m *Manager) Name(
 	assetSpec asset.Specifier) (string, error) {
 
 	sm, err := m.fetchStateMachine(assetSpec)
@@ -333,7 +331,7 @@ func (m *MultiStateMachineManager) Name(
 // SendMessage sends a message to the state machine associated with the given
 // asset specifier. If a state machine for the asset group does not exist, it
 // will be created and started.
-func (m *MultiStateMachineManager) SendMessage(ctx context.Context,
+func (m *Manager) SendMessage(ctx context.Context,
 	assetSpec asset.Specifier, msg msgmux.PeerMsg) (bool, error) {
 
 	sm, err := m.fetchStateMachine(assetSpec)
@@ -348,7 +346,7 @@ func (m *MultiStateMachineManager) SendMessage(ctx context.Context,
 // CurrentState returns the current state of the state machine associated with
 // the given asset specifier. If a state machine for the asset group does not
 // exist, it will be created and started.
-func (m *MultiStateMachineManager) CurrentState(assetSpec asset.Specifier) (
+func (m *Manager) CurrentState(assetSpec asset.Specifier) (
 	protofsm.State[Event, *Environment], error) {
 
 	sm, err := m.fetchStateMachine(assetSpec)
@@ -363,7 +361,7 @@ func (m *MultiStateMachineManager) CurrentState(assetSpec asset.Specifier) (
 // RegisterStateEvents registers a state event subscriber with the state machine
 // associated with the given asset specifier. If a state machine for the asset
 // group does not exist, it will be created and started.
-func (m *MultiStateMachineManager) RegisterStateEvents(
+func (m *Manager) RegisterStateEvents(
 	assetSpec asset.Specifier) (StateSub, error) {
 
 	sm, err := m.fetchStateMachine(assetSpec)
@@ -378,7 +376,7 @@ func (m *MultiStateMachineManager) RegisterStateEvents(
 // RemoveStateSub removes a state event subscriber from the state machine
 // associated with the given asset specifier. If a state machine for the asset
 // group does not exist, it will be created and started.
-func (m *MultiStateMachineManager) RemoveStateSub(assetSpec asset.Specifier,
+func (m *Manager) RemoveStateSub(assetSpec asset.Specifier,
 	sub StateSub) error {
 
 	sm, err := m.fetchStateMachine(assetSpec)
@@ -406,7 +404,7 @@ type FetchCommitmentResp struct {
 }
 
 // FetchCommitment fetches the supply commitment for the given asset specifier.
-func (m *MultiStateMachineManager) FetchCommitment(ctx context.Context,
+func (m *Manager) FetchCommitment(ctx context.Context,
 	assetSpec asset.Specifier) (fn.Option[FetchCommitmentResp], error) {
 
 	var zero fn.Option[FetchCommitmentResp]
@@ -454,7 +452,7 @@ func (m *MultiStateMachineManager) FetchCommitment(ctx context.Context,
 
 // FetchSupplyLeavesByHeight returns the set of supply leaves for the given
 // asset specifier within the specified height range.
-func (m *MultiStateMachineManager) FetchSupplyLeavesByHeight(
+func (m *Manager) FetchSupplyLeavesByHeight(
 	ctx context.Context, assetSpec asset.Specifier, startHeight,
 	endHeight uint32) (SupplyLeaves, error) {
 
