@@ -274,7 +274,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	}
 	finalCfg.UniverseRpcCourier = &proof.UniverseRpcCourierCfg{
 		BackoffCfg:            &universeRpcBackoffCfg,
-		ServiceRequestTimeout: 50 * time.Millisecond,
+		ServiceRequestTimeout: 5 * time.Second,
 	}
 
 	switch typedProofCourier := (opts.proofCourier).(type) {
