@@ -10,7 +10,7 @@ defaults:
     shell: bash
 
 env:
-  GO_VERSION: 1.23.9
+  GO_VERSION: 1.23.12
 
 jobs:
   main:
