@@ -187,6 +187,14 @@ service Universe {
     */
     rpc FetchSupplyLeaves (FetchSupplyLeavesRequest)
         returns (FetchSupplyLeavesResponse);
+
+    /* tapcli: `universe supplycommit insert`
+    InsertSupplyCommit inserts a supply commitment for a specific asset
+    group. This includes the commitment details, supply leaves (issuance, burn,
+    and ignore), and chain proof that proves the commitment has been mined.
+    */
+    rpc InsertSupplyCommit (InsertSupplyCommitRequest)
+        returns (InsertSupplyCommitResponse);
 }
 
 message MultiverseRootRequest {
@@ -931,4 +939,72 @@ message FetchSupplyLeavesResponse {
     repeated SupplyLeafEntry issuance_leaves = 1;
     repeated SupplyLeafEntry burn_leaves = 2;
     repeated SupplyLeafEntry ignore_leaves = 3;
+}
+
+// SupplyCommitChainData represents the on-chain artifacts for a supply
+// commitment update.
+message SupplyCommitChainData {
+    // The raw transaction that created the root commitment.
+    bytes txn = 1;
+
+    // The index of the output in the transaction where the commitment resides.
+    uint32 tx_out_idx = 2;
+
+    // The internal key used to create the commitment output.
+    bytes internal_key = 3;
+
+    // The taproot output key used to create the commitment output.
+    bytes output_key = 4;
+
+    // The root hash of the supply tree that contains the set of
+    // sub-commitments. The sum value of this tree is the outstanding supply
+    // value.
+    bytes supply_root_hash = 5;
+
+    // The sum value of the supply root tree, representing the outstanding
+    // supply amount.
+    uint64 supply_root_sum = 6;
+
+    // The block header of the block that contains the supply commitment
+    // transaction.
+    bytes block_header = 7;
+
+    // The hash of the block that contains the commitment.
+    bytes block_hash = 8;
+
+    // The block height of the block that contains the supply commitment
+    // transaction.
+    uint32 block_height = 9;
+
+    // The merkle proof that proves that the supply commitment transaction is
+    // included in the block.
+    bytes tx_block_merkle_proof = 10;
+
+    // The index of the supply commitment transaction in the block.
+    uint32 tx_index = 11;
+}
+
+message InsertSupplyCommitRequest {
+    // The unique identifier for the target asset group whose supply commitment
+    // is being inserted.
+    oneof group_key {
+        // The 32-byte asset group key specified as raw bytes (gRPC only).
+        bytes group_key_bytes = 1;
+
+        // The 32-byte asset group key encoded as hex string (use this for
+        // REST).
+        string group_key_str = 2;
+    }
+
+    // The supply commitment chain data that contains both the commitment and
+    // chain proof information.
+    SupplyCommitChainData chain_data = 3;
+
+    // The supply leaves that represent the supply changes for the asset group.
+    repeated SupplyLeafEntry issuance_leaves = 4;
+    repeated SupplyLeafEntry burn_leaves = 5;
+    repeated SupplyLeafEntry ignore_leaves = 6;
+}
+
+message InsertSupplyCommitResponse {
 }
