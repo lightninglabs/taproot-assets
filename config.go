@@ -195,7 +195,7 @@ type Config struct {
 	// SupplyCommitManager is a service that is used to manage supply
 	// commitments for assets. Supply commitments are issuer published
 	// attestations of the total supply of an asset.
-	SupplyCommitManager *supplycommit.MultiStateMachineManager
+	SupplyCommitManager *supplycommit.Manager
 
 	UniverseArchive *universe.Archive
 
