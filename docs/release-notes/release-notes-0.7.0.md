@@ -73,6 +73,12 @@
   [related PR](https://github.com/lightninglabs/taproot-assets/pull/1613) for
   more info.
 
+- A [bug in `btcwallet` and `lnd` was fixed that prevented `tapd` from running
+  properly when connected to an `lnd` node that is running in remote-signing
+  mode](https://github.com/lightninglabs/taproot-assets/pull/1694). A new
+  integration test suite now asserts that `tapd` fully supports remote-signing
+  `lnd` backends.
+
 ## RPC Additions
 
 - The [price oracle RPC calls now have an intent, optional peer ID and metadata
@@ -92,12 +98,15 @@
   when requesting quotes. The field can contain optional user or authentication
   information that helps the price oracle to decide on the optimal price rate to
   return.
+
 - [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the
   `MintAsset` RPC message field from `universe_commitments` to
   `enable_supply_commitments`.
+
 - The `SubscribeSendEvents` RPC now supports [historical event replay of 
   completed sends with efficient database-level
   filtering](https://github.com/lightninglabs/taproot-assets/pull/1685).
+
 - [Add universe RPC endpoint FetchSupplyLeaves](https://github.com/lightninglabs/taproot-assets/pull/1693)
   that allows users to fetch the supply leaves of a universe supply commitment.
   This is useful for verification.
@@ -142,7 +151,9 @@
   the default "all script key types" [to the value
   `bip86`](https://github.com/lightninglabs/taproot-assets/pull/1690) to match
   the default value of the RPC interface.
-- [Add universe supply commit subcommand fetchleaves](https://github.com/lightninglabs/taproot-assets/pull/1693)
+
+- [Add universe supply commit subcommand
+  `fetchleaves`](https://github.com/lightninglabs/taproot-assets/pull/1693)
   that allows users to fetch the supply leaves of a universe supply commitment.
   This is useful for verification.
 
