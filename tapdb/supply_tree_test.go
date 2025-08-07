@@ -491,10 +491,7 @@ func TestSupplyTreeStoreApplySupplyUpdates(t *testing.T) {
 	// To do this, we'll first create temporary trees for each
 	// sub-tree. If we didn't have an update type for a given tree,
 	// it'll be the empty tree.
-	for _, treeType := range []supplycommit.SupplySubTree{
-		supplycommit.MintTreeType, supplycommit.BurnTreeType,
-		supplycommit.IgnoreTreeType,
-	} {
+	for _, treeType := range allSupplyTreeTypes {
 		tempTrees[treeType] = mssmt.NewCompactedTree(
 			mssmt.NewDefaultStore(),
 		)
@@ -800,6 +797,35 @@ func TestFetchSupplyLeavesByHeightZeroHeights(t *testing.T) {
 	require.Equal(
 		t, uint32(100), leaves.IssuanceLeafEntries[0].BlockHeight(),
 	)
+
+	// We test that we get the same result if we query the leaves by tree
+	// type.
+	for _, treeType := range allSupplyTreeTypes {
+		res, err := supplyStore.FetchSupplyLeavesByType(
+			ctxb, spec, treeType, 0, 0,
+		).Unpack()
+		require.NoError(t, err)
+
+		switch treeType {
+		case supplycommit.MintTreeType:
+			require.ElementsMatch(
+				t, leaves.IssuanceLeafEntries,
+				res.IssuanceLeafEntries,
+			)
+
+		case supplycommit.BurnTreeType:
+			require.ElementsMatch(
+				t, leaves.BurnLeafEntries,
+				res.BurnLeafEntries,
+			)
+
+		case supplycommit.IgnoreTreeType:
+			require.ElementsMatch(
+				t, leaves.IgnoreLeafEntries,
+				res.IgnoreLeafEntries,
+			)
+		}
+	}
 }
 
 // TestQuerySupplyLeavesByHeightDirectZeroHeights tests the SQL-level
