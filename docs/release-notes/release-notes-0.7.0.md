@@ -183,6 +183,9 @@
 
 ## Code Health
 
+- [The Golang version used was bumped to `v1.23.12` to fix a potential issue
+  with the SQL API](https://github.com/lightninglabs/taproot-assets/pull/1713).
+
 ## Tooling and Documentation
 
 - [Two new sequence diagrams were

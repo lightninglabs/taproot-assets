@@ -7,11 +7,11 @@ set -e
 PR_NUMBER=$(echo $GITHUB_REF | awk 'BEGIN { FS = "/" } ; { print $3 }')
 
 # If this is a PR being merged into the main repo, then the PR number will
-# actually be "master" here, so we'll ignore this case, and assume that in
+# actually be "main" here, so we'll ignore this case, and assume that in
 # order for it to be merged it had to pass the check in its base branch. If
 # we're trying to merge this with the Merge Queue, then the PR number will be
 # "gh-readonly-queue" instead.
-if [[ $PR_NUMBER == "master" ]] || [[ $PR_NUMBER == "gh-readonly-queue" ]]; then
+if [[ $PR_NUMBER == "main" ]] || [[ $PR_NUMBER == "gh-readonly-queue" ]]; then
     exit 0
 fi
 
