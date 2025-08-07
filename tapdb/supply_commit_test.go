@@ -1605,20 +1605,24 @@ func TestSupplyCommitFetchState(t *testing.T) {
 	// As a final step, we'll modify the state machine to finalize the
 	// transition, and go back to the default state.
 	writeTx := WriteTxOption()
-	err = h.commitMachine.db.ExecTx(h.ctx, writeTx, func(db SupplyCommitStore) error { //nolint:lll
-		_, err := db.UpsertSupplyCommitStateMachine(
-			h.ctx, SupplyCommitMachineParams{
+	err = h.commitMachine.db.ExecTx(
+		h.ctx, writeTx, func(db SupplyCommitStore) error {
+			//nolint:lll
+			params := SupplyCommitMachineParams{
 				GroupKey:           h.groupKeyBytes,
-				LatestCommitmentID: updatedTransition.NewCommitmentID, //nolint:lll
+				LatestCommitmentID: updatedTransition.NewCommitmentID,
 				StateName:          sqlStr("DefaultState"),
-			})
-		if err != nil {
-			return err
-		}
-		return db.FinalizeSupplyCommitTransition(
-			h.ctx, updatedTransition.TransitionID,
-		)
-	},
+			}
+			_, err := db.UpsertSupplyCommitStateMachine(
+				h.ctx, params,
+			)
+			if err != nil {
+				return err
+			}
+			return db.FinalizeSupplyCommitTransition(
+				h.ctx, updatedTransition.TransitionID,
+			)
+		},
 	)
 	require.NoError(t, err)
 

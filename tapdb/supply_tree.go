@@ -15,7 +15,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
-
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnutils"
 )
@@ -616,6 +615,38 @@ func fetchSupplyLeavesByHeight(ctx context.Context, db BaseUniverseStore,
 	groupKey btcec.PublicKey, startHeight,
 	endHeight uint32) (*supplycommit.SupplyLeaves, error) {
 
+	var resp supplycommit.SupplyLeaves
+	for _, treeType := range allSupplyTreeTypes {
+		treeResp, err := fetchSupplyLeaves(
+			ctx, db, groupKey, treeType, startHeight, endHeight,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch supply leaves "+
+				"for %v: %w", treeType, err)
+		}
+
+		resp.IssuanceLeafEntries = append(
+			resp.IssuanceLeafEntries,
+			treeResp.IssuanceLeafEntries...,
+		)
+		resp.BurnLeafEntries = append(
+			resp.BurnLeafEntries, treeResp.BurnLeafEntries...,
+		)
+		resp.IgnoreLeafEntries = append(
+			resp.IgnoreLeafEntries, treeResp.IgnoreLeafEntries...,
+		)
+	}
+
+	return &resp, nil
+}
+
+// fetchSupplyLeaves fetches all supply leaves for a given group key and
+// sub-tree type within a specified block height range.
+func fetchSupplyLeaves(ctx context.Context, db BaseUniverseStore,
+	groupKey btcec.PublicKey, treeType supplycommit.SupplySubTree,
+	startHeight, endHeight uint32) (supplycommit.SupplyLeaves,
+	error) {
+
 	// Convert the start and end heights to SQL nullable integers.
 	// If the height is zero, we use a null value to indicate no limit.
 	var (
@@ -633,73 +664,70 @@ func fetchSupplyLeavesByHeight(ctx context.Context, db BaseUniverseStore,
 
 	var resp supplycommit.SupplyLeaves
 
-	for _, treeType := range allSupplyTreeTypes {
-		namespace := subTreeNamespace(&groupKey, treeType)
-
-		leaves, err := db.QuerySupplyLeavesByHeight(
-			ctx, sqlc.QuerySupplyLeavesByHeightParams{
-				Namespace:   namespace,
-				StartHeight: sqlStartHeight,
-				EndHeight:   sqlEndHeight,
-			},
-		)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
-
-			return nil, fmt.Errorf("failed to query supply "+
-				"leaves: %w", err)
+	namespace := subTreeNamespace(&groupKey, treeType)
+	leaves, err := db.QuerySupplyLeavesByHeight(
+		ctx, sqlc.QuerySupplyLeavesByHeightParams{
+			Namespace:   namespace,
+			StartHeight: sqlStartHeight,
+			EndHeight:   sqlEndHeight,
+		},
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return resp, nil
 		}
 
-		for _, leaf := range leaves {
-			switch treeType {
-			case supplycommit.MintTreeType:
-				var event supplycommit.NewMintEvent
-				err = event.Decode(
-					bytes.NewReader(leaf.SupplyLeafBytes),
-				)
-				if err != nil {
-					return nil, fmt.Errorf("failed to "+
-						"decode mint event: %w", err)
-				}
+		return resp, fmt.Errorf("failed to query supply "+
+			"leaves: %w", err)
+	}
 
-				resp.IssuanceLeafEntries = append(
-					resp.IssuanceLeafEntries, event,
-				)
-
-			case supplycommit.BurnTreeType:
-				var event supplycommit.NewBurnEvent
-				err = event.Decode(
-					bytes.NewReader(leaf.SupplyLeafBytes),
-				)
-				if err != nil {
-					return nil, fmt.Errorf("failed to "+
-						"decode burn event: %w", err)
-				}
-
-				resp.BurnLeafEntries = append(
-					resp.BurnLeafEntries, event,
-				)
-
-			case supplycommit.IgnoreTreeType:
-				var event supplycommit.NewIgnoreEvent
-				err = event.Decode(
-					bytes.NewReader(leaf.SupplyLeafBytes),
-				)
-				if err != nil {
-					return nil, fmt.Errorf("failed to "+
-						"decode ignore event: %w", err)
-				}
-
-				resp.IgnoreLeafEntries = append(
-					resp.IgnoreLeafEntries, event,
-				)
+	for _, leaf := range leaves {
+		switch treeType {
+		case supplycommit.MintTreeType:
+			var event supplycommit.NewMintEvent
+			err = event.Decode(
+				bytes.NewReader(leaf.SupplyLeafBytes),
+			)
+			if err != nil {
+				return resp, fmt.Errorf("failed to decode "+
+					"mint event: %w", err)
 			}
+
+			resp.IssuanceLeafEntries = append(
+				resp.IssuanceLeafEntries, event,
+			)
+
+		case supplycommit.BurnTreeType:
+			var event supplycommit.NewBurnEvent
+			err = event.Decode(
+				bytes.NewReader(leaf.SupplyLeafBytes),
+			)
+			if err != nil {
+				return resp, fmt.Errorf("failed to decode "+
+					"burn event: %w", err)
+			}
+
+			resp.BurnLeafEntries = append(
+				resp.BurnLeafEntries, event,
+			)
+
+		case supplycommit.IgnoreTreeType:
+			var event supplycommit.NewIgnoreEvent
+			err = event.Decode(
+				bytes.NewReader(leaf.SupplyLeafBytes),
+			)
+			if err != nil {
+				return resp, fmt.Errorf("failed to decode "+
+					"ignore event: %w", err)
+			}
+
+			resp.IgnoreLeafEntries = append(
+				resp.IgnoreLeafEntries, event,
+			)
 		}
 	}
 
-	return &resp, nil
+	return resp, nil
 }
 
 // FetchSupplyLeavesByHeight fetches all supply leaves for a given asset
@@ -734,6 +762,43 @@ func (s *SupplyTreeStore) FetchSupplyLeavesByHeight(ctx context.Context,
 	if dbErr != nil {
 		return lfn.Errf[respType]("failed to execute database "+
 			"transaction: %w", dbErr)
+	}
+
+	return lfn.Ok(resp)
+}
+
+// FetchSupplyLeavesByType fetches all supply leaves for a given asset specifier
+// and a specific supply sub-tree.
+func (s *SupplyTreeStore) FetchSupplyLeavesByType(ctx context.Context,
+	spec asset.Specifier, treeType supplycommit.SupplySubTree, startHeight,
+	endHeight uint32) lfn.Result[supplycommit.SupplyLeaves] {
+
+	type respType = supplycommit.SupplyLeaves
+
+	groupKey, err := spec.UnwrapGroupKeyOrErr()
+	if err != nil {
+		return lfn.Errf[respType]("group key must be specified for "+
+			"supply tree: %w", err)
+	}
+
+	var (
+		resp   supplycommit.SupplyLeaves
+		readTx = NewBaseUniverseReadTx()
+	)
+	dbErr := s.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
+		var err error
+		resp, err = fetchSupplyLeaves(
+			ctx, db, *groupKey, treeType, startHeight, endHeight,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to fetch all supply "+
+				"leaves: %w", err)
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return lfn.Err[respType](dbErr)
 	}
 
 	return lfn.Ok(resp)
