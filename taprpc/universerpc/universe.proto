@@ -187,6 +187,14 @@ service Universe {
     */
     rpc FetchSupplyLeaves (FetchSupplyLeavesRequest)
         returns (FetchSupplyLeavesResponse);
+
+    /* tapcli: `universe supplyleaves insert`
+    InsertSupplyLeaves inserts the supply leaves for a specific asset group.
+    The leaves include issuance, burn, and ignore leaves, which represent the
+    supply changes for the asset group.
+    */
+    rpc InsertSupplyLeaves (InsertSupplyLeavesRequest)
+        returns (InsertSupplyLeavesResponse);
 }
 
 message MultiverseRootRequest {
@@ -931,4 +939,24 @@ message FetchSupplyLeavesResponse {
     repeated SupplyLeafEntry issuance_leaves = 1;
     repeated SupplyLeafEntry burn_leaves = 2;
     repeated SupplyLeafEntry ignore_leaves = 3;
+}
+
+message InsertSupplyLeavesRequest {
+    // The unique identifier for the target asset group whose supply leaves are
+    // being inserted.
+    oneof group_key {
+        // The 32-byte asset group key specified as raw bytes (gRPC only).
+        bytes group_key_bytes = 1;
+
+        // The 32-byte asset group key encoded as hex string (use this for
+        // REST).
+        string group_key_str = 2;
+    }
+
+    repeated SupplyLeafEntry issuance_leaves = 3;
+    repeated SupplyLeafEntry burn_leaves = 4;
+    repeated SupplyLeafEntry ignore_leaves = 5;
+}
+
+message InsertSupplyLeavesResponse {
 }
