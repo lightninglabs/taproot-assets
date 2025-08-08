@@ -996,7 +996,8 @@ func TestProofVerification(t *testing.T) {
 
 	// Verifying the inclusion and exclusion proofs can also be done without
 	// the previous proof.
-	_, err = p.VerifyProofs()
+	vCtx := MockVerifierCtx
+	_, err = p.VerifyProofIntegrity(context.Background(), vCtx)
 	require.NoError(t, err)
 
 	// Ensure that verification of a proof of unknown version fails.
