@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
+	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/clock"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -535,6 +536,17 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		},
 	)
 
+	// Set up the supply verifier, which validates supply commitment leaves
+	// published by asset issuers.
+	supplyVerifyManager := supplyverifier.NewManager(
+		supplyverifier.ManagerCfg{
+			Chain:                 chainBridge,
+			SupplyCommitView:      supplyCommitStore,
+			IssuanceSubscriptions: universeSyncer,
+			DaemonAdapters:        lndFsmDaemonAdapters,
+		},
+	)
+
 	// For the porter, we'll make a multi-notifier comprised of all the
 	// possible proof file sources to ensure it can always fetch input
 	// proofs.
@@ -690,6 +702,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		FsmDaemonAdapters:        lndFsmDaemonAdapters,
 		SupplyCommitManager:      supplyCommitManager,
 		IgnoreChecker:            ignoreChecker,
+		SupplyVerifyManager:      supplyVerifyManager,
 		UniverseArchive:          uniArchive,
 		UniverseSyncer:           universeSyncer,
 		UniverseFederation:       universeFederation,
