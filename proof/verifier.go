@@ -838,7 +838,74 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	opts ...ProofVerificationOption) (*AssetSnapshot, error) {
 
 	var verificationParams proofVerificationParams
+	for _, opt := range opts {
+		opt(&verificationParams)
+	}
 
+	// We call the VerifyProofIntegrity method to check the integrity of the
+	// proof, which checks steps 0 to 7 (excluding step 1b that needs the
+	// previous asset snapshot).
+	tapCommitment, err := p.VerifyProofIntegrity(ctx, vCtx, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1b. A transaction that spends the previous asset output has a valid
+	// merkle proof within a block in the chain.
+	if prev != nil && p.PrevOut != prev.OutPoint {
+		return nil, fmt.Errorf("%w: prev output mismatch",
+			commitment.ErrInvalidTaprootProof)
+	}
+
+	// 8. Either a set of asset inputs with valid witnesses is included that
+	// satisfy the resulting state transition or a challenge witness is
+	// provided as part of an ownership proof.
+	var splitAsset bool
+	switch {
+	case prev == nil && p.ChallengeWitness != nil:
+		splitAsset, err = p.verifyChallengeWitness(
+			ctx, chainLookup, verificationParams.ChallengeBytes,
+		)
+
+	default:
+		splitAsset, err = p.verifyAssetStateTransition(
+			ctx, prev, chainLookup, vCtx,
+		)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// 8. At this point we know there is an inclusion proof, which must be
+	// a commitment proof. So we can extract the tapscript preimage directly
+	// from there.
+	tapscriptPreimage := p.InclusionProof.CommitmentProof.TapSiblingPreimage
+
+	// TODO(roasbeef): need tx index as well
+
+	return &AssetSnapshot{
+		Asset:             &p.Asset,
+		OutPoint:          p.OutPoint(),
+		AnchorBlockHash:   p.BlockHeader.BlockHash(),
+		AnchorBlockHeight: p.BlockHeight,
+		AnchorTx:          &p.AnchorTx,
+		OutputIndex:       p.InclusionProof.OutputIndex,
+		InternalKey:       p.InclusionProof.InternalKey,
+		ScriptRoot:        tapCommitment,
+		TapscriptSibling:  tapscriptPreimage,
+		SplitAsset:        splitAsset,
+		MetaReveal:        p.MetaReveal,
+	}, nil
+}
+
+// VerifyProofIntegrity verifies the integrity of the proof by checking all
+// fields that can be checked without knowing the previous asset snapshot. These
+// include steps 1 up to 7, but not 8 of the proof verification process as
+// described in the BIP.
+func (p *Proof) VerifyProofIntegrity(ctx context.Context, vCtx VerifierCtx,
+	opts ...ProofVerificationOption) (*commitment.TapCommitment, error) {
+
+	var verificationParams proofVerificationParams
 	for _, opt := range opts {
 		opt(&verificationParams)
 	}
@@ -850,8 +917,8 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 
 	// Ensure proof asset is valid.
 	if err := p.Asset.Validate(); err != nil {
-		return nil, fmt.Errorf("failed to validate proof asset: "+
-			"%w", err)
+		return nil, fmt.Errorf("failed to validate proof asset: %w",
+			err)
 	}
 
 	assetPoint := AssetPoint{
@@ -873,16 +940,12 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 			"%w", err)
 	}
 	if fail {
-		return prev, fmt.Errorf("%w: asset_point=%v is ignored",
+		return nil, fmt.Errorf("%w: asset_point=%v is ignored",
 			ErrProofInvalid, assetPoint)
 	}
 
 	// 1. A transaction that spends the previous asset output has a valid
 	// merkle proof within a block in the chain.
-	if prev != nil && p.PrevOut != prev.OutPoint {
-		return nil, fmt.Errorf("%w: prev output mismatch",
-			commitment.ErrInvalidTaprootProof)
-	}
 	if !txSpendsPrevOut(&p.AnchorTx, &p.PrevOut) {
 		return nil, fmt.Errorf("%w: doesn't spend prev output",
 			commitment.ErrInvalidTaprootProof)
@@ -974,45 +1037,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		}
 	}
 
-	// 8. Either a set of asset inputs with valid witnesses is included that
-	// satisfy the resulting state transition or a challenge witness is
-	// provided as part of an ownership proof.
-	var splitAsset bool
-	switch {
-	case prev == nil && p.ChallengeWitness != nil:
-		splitAsset, err = p.verifyChallengeWitness(
-			ctx, chainLookup, verificationParams.ChallengeBytes,
-		)
-
-	default:
-		splitAsset, err = p.verifyAssetStateTransition(
-			ctx, prev, chainLookup, vCtx,
-		)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	// 8. At this point we know there is an inclusion proof, which must be
-	// a commitment proof. So we can extract the tapscript preimage directly
-	// from there.
-	tapscriptPreimage := p.InclusionProof.CommitmentProof.TapSiblingPreimage
-
-	// TODO(roasbeef): need tx index as well
-
-	return &AssetSnapshot{
-		Asset:             &p.Asset,
-		OutPoint:          p.OutPoint(),
-		AnchorBlockHash:   p.BlockHeader.BlockHash(),
-		AnchorBlockHeight: p.BlockHeight,
-		AnchorTx:          &p.AnchorTx,
-		OutputIndex:       p.InclusionProof.OutputIndex,
-		InternalKey:       p.InclusionProof.InternalKey,
-		ScriptRoot:        tapCommitment,
-		TapscriptSibling:  tapscriptPreimage,
-		SplitAsset:        splitAsset,
-		MetaReveal:        p.MetaReveal,
-	}, nil
+	return tapCommitment, nil
 }
 
 // VerifyProofs verifies the inclusion and exclusion proofs as well as the split
