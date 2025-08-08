@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
 
 // proofRegistration is a struct that holds all proofs that need to be watched
@@ -69,6 +70,10 @@ type ReOrgWatcherConfig struct {
 	// ProofArchive is the storage backend for proofs to which we store
 	// updated proofs.
 	ProofArchive proof.Archiver
+
+	// IgnoreChecker is an optional function that can be used to check if
+	// a proof should be ignored.
+	IgnoreChecker lfn.Option[proof.IgnoreChecker]
 
 	// NonBuriedAssetFetcher is a function that returns all assets that are
 	// not yet sufficiently deep buried.
@@ -587,6 +592,7 @@ func (w *ReOrgWatcher) DefaultUpdateCallback() proof.UpdateCallback {
 			MerkleVerifier: proof.DefaultMerkleVerifier,
 			GroupVerifier:  w.cfg.GroupVerifier,
 			ChainLookupGen: w.cfg.ChainBridge,
+			IgnoreChecker:  w.cfg.IgnoreChecker,
 		}
 		for idx := range proofs {
 			err := proof.ReplaceProofInBlob(

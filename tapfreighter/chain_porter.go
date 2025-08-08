@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -96,6 +97,10 @@ type ChainPorterConfig struct {
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.
 	ProofWatcher proof.Watcher
+
+	// IgnoreChecker is an optional function that can be used to check if
+	// a proof should be ignored.
+	IgnoreChecker lfn.Option[proof.IgnoreChecker]
 
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
@@ -500,6 +505,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		MerkleVerifier: proof.DefaultMerkleVerifier,
 		GroupVerifier:  p.cfg.GroupVerifier,
 		ChainLookupGen: p.cfg.ChainBridge,
+		IgnoreChecker:  p.cfg.IgnoreChecker,
 	}
 
 	log.Infof("Importing %d passive asset proofs into local Proof "+
@@ -584,6 +590,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 			MerkleVerifier: proof.DefaultMerkleVerifier,
 			GroupVerifier:  p.cfg.GroupVerifier,
 			ChainLookupGen: p.cfg.ChainBridge,
+			IgnoreChecker:  p.cfg.IgnoreChecker,
 		}
 
 		// Before we import the proof into the proof archive, we'll
