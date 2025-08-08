@@ -73,6 +73,15 @@
   [related PR](https://github.com/lightninglabs/taproot-assets/pull/1613) for
   more info.
 
+- [Two new configuration values were added to improve privacy when using public
+  or untrusted third-party price
+  oracles](https://github.com/lightninglabs/taproot-assets/pull/1677):
+  `experimental.rfq.sendpricehint` controls whether a price hint is queried
+  from the local price oracle and sent to the peer when requesting a price
+  quote (opt-in, default `false`). `experimental.rfq.priceoraclesendpeerid`
+  controls whether the peer's identity public key is sent to the local price
+  oracle when querying asset price rates.
+
 ## RPC Additions
 
 - The [price oracle RPC calls now have an intent, optional peer ID and metadata

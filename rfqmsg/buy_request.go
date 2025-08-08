@@ -59,12 +59,20 @@ type BuyRequest struct {
 	// initiate the RFQ negotiation process and may differ from the final
 	// agreed rate.
 	AssetRateHint fn.Option[AssetRate]
+
+	// PriceOracleMetadata is an optional text field that can be used to
+	// provide additional metadata about the buy request to the price
+	// oracle. This can include information about the wallet end user that
+	// initiated the transaction, or any authentication information that the
+	// price oracle can use to give out a more accurate (or discount) asset
+	// rate. The maximum length of this field is 32'768 bytes.
+	PriceOracleMetadata string
 }
 
 // NewBuyRequest creates a new asset buy quote request.
 func NewBuyRequest(peer route.Vertex, assetSpecifier asset.Specifier,
-	assetMaxAmt uint64, assetRateHint fn.Option[AssetRate]) (*BuyRequest,
-	error) {
+	assetMaxAmt uint64, assetRateHint fn.Option[AssetRate],
+	oracleMetadata string) (*BuyRequest, error) {
 
 	id, err := NewID()
 	if err != nil {
@@ -72,13 +80,20 @@ func NewBuyRequest(peer route.Vertex, assetSpecifier asset.Specifier,
 			"quote request id: %w", err)
 	}
 
+	// Cap the user-defined string to avoid p2p message size limits.
+	if len(oracleMetadata) > MaxOracleMetadataLength {
+		return nil, fmt.Errorf("price oracle metadata exceeds maximum "+
+			"length of %d bytes", MaxOracleMetadataLength)
+	}
+
 	return &BuyRequest{
-		Peer:           peer,
-		Version:        latestBuyRequestVersion,
-		ID:             id,
-		AssetSpecifier: assetSpecifier,
-		AssetMaxAmt:    assetMaxAmt,
-		AssetRateHint:  assetRateHint,
+		Peer:                peer,
+		Version:             latestBuyRequestVersion,
+		ID:                  id,
+		AssetSpecifier:      assetSpecifier,
+		AssetMaxAmt:         assetMaxAmt,
+		AssetRateHint:       assetRateHint,
+		PriceOracleMetadata: oracleMetadata,
 	}, nil
 }
 
@@ -147,6 +162,10 @@ func NewBuyRequestFromWire(wireMsg WireMessage,
 		AssetRateHint:  assetRateHint,
 	}
 
+	msgData.PriceOracleMetadata.ValOpt().WhenSome(func(metaBytes []byte) {
+		req.PriceOracleMetadata = string(metaBytes)
+	})
+
 	// Perform basic sanity checks on the quote request.
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("unable to validate buy request: %w",
@@ -168,6 +187,12 @@ func (q *BuyRequest) Validate() error {
 	if q.Version != latestBuyRequestVersion {
 		return fmt.Errorf("unsupported buy request message version: %d",
 			q.Version)
+	}
+
+	// Cap the user-defined string to avoid p2p message size limits.
+	if len(q.PriceOracleMetadata) > MaxOracleMetadataLength {
+		return fmt.Errorf("price oracle metadata exceeds maximum "+
+			"length of %d bytes", MaxOracleMetadataLength)
 	}
 
 	// Ensure that the suggested asset rate has not expired.

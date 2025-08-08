@@ -22,6 +22,10 @@ const (
 type CliConfig struct {
 	PriceOracleAddress string `long:"priceoracleaddress" description:"Price oracle gRPC server address (rfqrpc://<hostname>:<port>). To use the integrated mock, use the following value: use_mock_price_oracle_service_promise_to_not_use_on_mainnet"`
 
+	SendPriceHint bool `long:"sendpricehint" description:"Send a price hint from the local price oracle to the RFQ peer when requesting a quote. For privacy reasons, this should only be turned on for self-hosted or trusted price oracles."`
+
+	PriceOracleSendPeerId bool `long:"priceoraclesendpeerid" description:"Send the peer ID (public key of the peer) to the price oracle when requesting a price rate. For privacy reasons, this should only be turned on for self-hosted or trusted price oracles."`
+
 	AcceptPriceDeviationPpm uint64 `long:"acceptpricedeviationppm" description:"The default price deviation in parts per million that is accepted by the RFQ negotiator"`
 
 	SkipAcceptQuotePriceCheck bool `long:"skipacceptquotepricecheck" description:"Accept any price quote returned by RFQ peer, skipping price validation"`
