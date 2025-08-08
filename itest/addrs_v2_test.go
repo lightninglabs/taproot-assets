@@ -356,11 +356,11 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 		[]uint64{0, totalAmount/2 - 50, 50, 0, totalAmount / 2}, 1,
 		2, 5, true,
 	)
-	AssertAddrEventByStatus(t.t, t.tapd, statusCompleted, 1)
 	AssertBalanceByGroup(
 		t.t, t.tapd, hex.EncodeToString(groupKey), totalAmount,
 		WithNumUtxos(4),
 	)
+	AssertAddrEventByStatus(t.t, t.tapd, statusCompleted, 2)
 
 	// The sending node should only have two tombstone outputs, but the
 	// total value should be zero.

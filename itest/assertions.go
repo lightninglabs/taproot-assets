@@ -941,8 +941,9 @@ func AssertAddrEventByStatus(t *testing.T, client taprpc.TaprootAssetsClient,
 		require.NoError(t, err)
 
 		if len(resp.Events) != numEvents {
-			return fmt.Errorf("got %d events, wanted %d",
-				len(resp.Events), numEvents)
+			return fmt.Errorf("got %d events, wanted %d, events: "+
+				"%v", len(resp.Events), numEvents,
+				toJSON(t, resp))
 		}
 
 		for _, event := range resp.Events {
