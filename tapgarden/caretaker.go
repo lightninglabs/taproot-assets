@@ -24,6 +24,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
@@ -1609,5 +1610,6 @@ func (b *BatchCaretaker) verifierCtx(ctx context.Context) proof.VerifierCtx {
 		GroupVerifier:       groupVerifier,
 		GroupAnchorVerifier: groupAnchorVerifier,
 		ChainLookupGen:      b.cfg.ChainBridge,
+		IgnoreChecker:       lfn.Some(b.cfg.IgnoreChecker),
 	}
 }
