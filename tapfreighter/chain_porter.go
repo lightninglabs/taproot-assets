@@ -1342,7 +1342,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 			logPacket(vPkt, "Generating Taproot Asset witnesses")
 
-			_, err := p.cfg.AssetWallet.SignVirtualPacket(vPkt)
+			_, err := p.cfg.AssetWallet.SignVirtualPacket(ctx, vPkt)
 			if err != nil {
 				p.unlockInputs(ctx, &currentPkg)
 
@@ -1450,7 +1450,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		log.Debugf("Signing %d passive assets",
 			len(currentPkg.PassiveAssets))
 
-		err = wallet.SignPassiveAssets(currentPkg.PassiveAssets)
+		err = wallet.SignPassiveAssets(ctx, currentPkg.PassiveAssets)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
 

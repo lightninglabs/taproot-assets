@@ -368,8 +368,9 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 
 		// With everything set, we can now sign the new leaf we'll
 		// sweep into.
+		ctxb := context.Background()
 		signed, err := a.cfg.Signer.SignVirtualPacket(
-			vPacket, tapfreighter.SkipInputProofVerify(),
+			ctxb, vPacket, tapfreighter.SkipInputProofVerify(),
 			tapfreighter.WithValidator(&schnorrSigValidator{
 				pubKey:     signingKey,
 				tapLeaf:    lfn.Some(leafToSign),

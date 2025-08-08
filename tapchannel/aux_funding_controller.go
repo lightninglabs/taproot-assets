@@ -974,7 +974,9 @@ func (f *FundingController) sendInputOwnershipProofs(peerPub btcec.PublicKey,
 	// can't actually broadcast this without our signed Bitcoin inputs.
 	for idx := range vPackets {
 		vPkt := vPackets[idx]
-		signedInputs, err := f.cfg.AssetWallet.SignVirtualPacket(vPkt)
+		signedInputs, err := f.cfg.AssetWallet.SignVirtualPacket(
+			ctx, vPkt,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to sign funding inputs: %w",
 				err)
@@ -1047,7 +1049,9 @@ func (f *FundingController) signAllVPackets(ctx context.Context,
 
 		log.Debugf("Active packet %d: %x", idx, encoded)
 
-		_, err = f.cfg.AssetWallet.SignVirtualPacket(activePackets[idx])
+		_, err = f.cfg.AssetWallet.SignVirtualPacket(
+			ctx, activePackets[idx],
+		)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("unable to sign and "+
 				"commit virtual packet: %w", err)
@@ -1061,7 +1065,7 @@ func (f *FundingController) signAllVPackets(ctx context.Context,
 		return nil, nil, nil, fmt.Errorf("unable to create passive "+
 			"assets: %w", err)
 	}
-	err = f.cfg.AssetWallet.SignPassiveAssets(passivePkts)
+	err = f.cfg.AssetWallet.SignPassiveAssets(ctx, passivePkts)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("unable to sign passive "+
 			"assets: %w", err)

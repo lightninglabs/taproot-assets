@@ -2547,7 +2547,7 @@ func (r *rpcServer) SignVirtualPsbt(ctx context.Context,
 		}
 	}
 
-	signedInputs, err := r.cfg.AssetWallet.SignVirtualPacket(vPkt)
+	signedInputs, err := r.cfg.AssetWallet.SignVirtualPacket(ctx, vPkt)
 	if err != nil {
 		return nil, fmt.Errorf("error signing packet: %w", err)
 	}
@@ -3737,7 +3737,7 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 
 	// Now we can sign the packet and send it to the chain.
 	vPkt := fundResp.VPackets[0]
-	_, err = r.cfg.AssetWallet.SignVirtualPacket(vPkt)
+	_, err = r.cfg.AssetWallet.SignVirtualPacket(ctx, vPkt)
 	if err != nil {
 		return nil, fmt.Errorf("error signing packet: %w", err)
 	}
@@ -4013,6 +4013,9 @@ func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal request: %w", err)
 	}
+
+	rpcsLog.Debugf("[IgnoreAssetOutPoint]: request to ignore %s",
+		req.AssetAnchorPoint)
 
 	assetID := req.AssetAnchorPoint.ID
 
