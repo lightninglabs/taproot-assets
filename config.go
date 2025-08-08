@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
+	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
@@ -198,6 +199,11 @@ type Config struct {
 	SupplyCommitManager *supplycommit.Manager
 
 	IgnoreChecker *tapdb.CachingIgnoreChecker
+
+	// SupplyVerifyManager is a service that is used to verify supply
+	// commitments for assets. Supply commitments are issuer published
+	// attestations of the total supply of an asset.
+	SupplyVerifyManager *supplyverifier.Manager
 
 	UniverseArchive *universe.Archive
 
