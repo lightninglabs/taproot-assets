@@ -4595,6 +4595,111 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 	}, nil
 }
 
+// InsertSupplyLeaves inserts the set of supply leaves for the given asset
+// specifier.
+func (r *rpcServer) InsertSupplyLeaves(ctx context.Context,
+	req *unirpc.InsertSupplyLeavesRequest) (
+	*unirpc.InsertSupplyLeavesResponse, error) {
+
+	// Parse asset group key from the request.
+	var groupPubKey btcec.PublicKey
+
+	switch {
+	case len(req.GetGroupKeyBytes()) > 0:
+		gk, err := btcec.ParsePubKey(req.GetGroupKeyBytes())
+		if err != nil {
+			return nil, fmt.Errorf("parsing group key: %w", err)
+		}
+
+		groupPubKey = *gk
+
+	case len(req.GetGroupKeyStr()) > 0:
+		groupKeyBytes, err := hex.DecodeString(req.GetGroupKeyStr())
+		if err != nil {
+			return nil, fmt.Errorf("decoding group key: %w", err)
+		}
+
+		gk, err := btcec.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("parsing group key: %w", err)
+		}
+
+		groupPubKey = *gk
+
+	default:
+		return nil, fmt.Errorf("group key unspecified")
+	}
+
+	// Log the operation for debugging purposes.
+	rpcsLog.Debugf("InsertSupplyLeaves called for group key: %x",
+		groupPubKey.SerializeCompressed())
+
+	// Initialize the SupplyLeaves structure to collect all unmarshalled
+	// events.
+	var supplyLeaves supplycommit.SupplyLeaves
+
+	// Process issuance leaves.
+	supplyLeaves.IssuanceLeafEntries = make(
+		[]supplycommit.NewMintEvent, 0, len(req.IssuanceLeaves),
+	)
+	for _, rpcLeaf := range req.IssuanceLeaves {
+		mintEvent, err := unmarshalMintSupplyLeaf(rpcLeaf)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal issuance "+
+				"leaf: %w", err)
+		}
+		supplyLeaves.IssuanceLeafEntries = append(
+			supplyLeaves.IssuanceLeafEntries, *mintEvent,
+		)
+	}
+
+	// Process burn leaves.
+	supplyLeaves.BurnLeafEntries = make(
+		[]supplycommit.NewBurnEvent, 0, len(req.BurnLeaves),
+	)
+	for _, rpcLeaf := range req.BurnLeaves {
+		burnEvent, err := unmarshalBurnSupplyLeaf(rpcLeaf)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal burn "+
+				"leaf: %w", err)
+		}
+		supplyLeaves.BurnLeafEntries = append(
+			supplyLeaves.BurnLeafEntries, *burnEvent,
+		)
+	}
+
+	// Process ignore leaves.
+	supplyLeaves.IgnoreLeafEntries = make(
+		[]supplycommit.NewIgnoreEvent, 0, len(req.IgnoreLeaves),
+	)
+	for _, rpcLeaf := range req.IgnoreLeaves {
+		ignoreEvent, err := unmarshalIgnoreSupplyLeaf(rpcLeaf)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal ignore "+
+				"leaf: %w", err)
+		}
+		supplyLeaves.IgnoreLeafEntries = append(
+			supplyLeaves.IgnoreLeafEntries, *ignoreEvent,
+		)
+	}
+
+	rpcsLog.Debugf("Successfully unmarshalled %d issuance, %d burn, "+
+		"and %d ignore leaves", len(supplyLeaves.IssuanceLeafEntries),
+		len(supplyLeaves.BurnLeafEntries),
+		len(supplyLeaves.IgnoreLeafEntries))
+
+	assetSpec := asset.NewSpecifierFromGroupKey(groupPubKey)
+	err := r.cfg.SupplyVerifyManager.VerifySupplyLeaves(
+		ctx, assetSpec, supplyLeaves,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify supply leaves: %w",
+			err)
+	}
+
+	return &unirpc.InsertSupplyLeavesResponse{}, nil
+}
+
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(

@@ -2598,6 +2598,9 @@
         }
       }
     },
+    "universerpcInsertSupplyLeavesResponse": {
+      "type": "object"
+    },
     "universerpcIssuanceData": {
       "type": "object",
       "properties": {

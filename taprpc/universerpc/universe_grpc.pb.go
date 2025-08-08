@@ -135,6 +135,11 @@ type UniverseClient interface {
 	// within a specified block height range. The leaves include issuance, burn,
 	// and ignore leaves, which represent the supply changes for the asset group.
 	FetchSupplyLeaves(ctx context.Context, in *FetchSupplyLeavesRequest, opts ...grpc.CallOption) (*FetchSupplyLeavesResponse, error)
+	// tapcli: `universe supplyleaves insert`
+	// InsertSupplyLeaves inserts the supply leaves for a specific asset group.
+	// The leaves include issuance, burn, and ignore leaves, which represent the
+	// supply changes for the asset group.
+	InsertSupplyLeaves(ctx context.Context, in *InsertSupplyLeavesRequest, opts ...grpc.CallOption) (*InsertSupplyLeavesResponse, error)
 }
 
 type universeClient struct {
@@ -352,6 +357,15 @@ func (c *universeClient) FetchSupplyLeaves(ctx context.Context, in *FetchSupplyL
 	return out, nil
 }
 
+func (c *universeClient) InsertSupplyLeaves(ctx context.Context, in *InsertSupplyLeavesRequest, opts ...grpc.CallOption) (*InsertSupplyLeavesResponse, error) {
+	out := new(InsertSupplyLeavesResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/InsertSupplyLeaves", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UniverseServer is the server API for Universe service.
 // All implementations must embed UnimplementedUniverseServer
 // for forward compatibility
@@ -473,6 +487,11 @@ type UniverseServer interface {
 	// within a specified block height range. The leaves include issuance, burn,
 	// and ignore leaves, which represent the supply changes for the asset group.
 	FetchSupplyLeaves(context.Context, *FetchSupplyLeavesRequest) (*FetchSupplyLeavesResponse, error)
+	// tapcli: `universe supplyleaves insert`
+	// InsertSupplyLeaves inserts the supply leaves for a specific asset group.
+	// The leaves include issuance, burn, and ignore leaves, which represent the
+	// supply changes for the asset group.
+	InsertSupplyLeaves(context.Context, *InsertSupplyLeavesRequest) (*InsertSupplyLeavesResponse, error)
 	mustEmbedUnimplementedUniverseServer()
 }
 
@@ -548,6 +567,9 @@ func (UnimplementedUniverseServer) FetchSupplyCommit(context.Context, *FetchSupp
 }
 func (UnimplementedUniverseServer) FetchSupplyLeaves(context.Context, *FetchSupplyLeavesRequest) (*FetchSupplyLeavesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FetchSupplyLeaves not implemented")
+}
+func (UnimplementedUniverseServer) InsertSupplyLeaves(context.Context, *InsertSupplyLeavesRequest) (*InsertSupplyLeavesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InsertSupplyLeaves not implemented")
 }
 func (UnimplementedUniverseServer) mustEmbedUnimplementedUniverseServer() {}
 
@@ -976,6 +998,24 @@ func _Universe_FetchSupplyLeaves_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Universe_InsertSupplyLeaves_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InsertSupplyLeavesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).InsertSupplyLeaves(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/InsertSupplyLeaves",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).InsertSupplyLeaves(ctx, req.(*InsertSupplyLeavesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Universe_ServiceDesc is the grpc.ServiceDesc for Universe service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1074,6 +1114,10 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FetchSupplyLeaves",
 			Handler:    _Universe_FetchSupplyLeaves_Handler,
+		},
+		{
+			MethodName: "InsertSupplyLeaves",
+			Handler:    _Universe_InsertSupplyLeaves_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
