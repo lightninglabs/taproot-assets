@@ -159,6 +159,12 @@ type Storage interface {
 	// database.
 	FetchAllAssetMeta(
 		ctx context.Context) (map[asset.ID]*proof.MetaReveal, error)
+
+	// FetchInternalKeyLocator attempts to fetch the key locator information
+	// for the given raw internal key. If the key cannot be found, then
+	// ErrInternalKeyNotFound is returned.
+	FetchInternalKeyLocator(ctx context.Context,
+		rawKey *btcec.PublicKey) (keychain.KeyLocator, error)
 }
 
 // KeyRing is used to create script and internal keys for Taproot Asset
@@ -829,3 +835,73 @@ func (b *Book) RemoveSubscriber(
 
 	return nil
 }
+
+// DelegationKeyChecker is used to verify that we control the delegation key
+// for a given asset, which is required for creating supply commitments.
+type DelegationKeyChecker interface {
+	// HasDelegationKey checks if we control the delegation key for the
+	// given asset ID. Returns true if we have the private key for the
+	// asset's delegation key, false otherwise.
+	HasDelegationKey(ctx context.Context, assetID asset.ID) (bool, error)
+}
+
+// HasDelegationKey checks if we control the delegation key for the given
+// asset ID. Returns true if we have the private key for the asset's
+// delegation key, false otherwise.
+//
+// NOTE: This is part of the DelegationKeyChecker interface.
+func (b *Book) HasDelegationKey(ctx context.Context,
+	assetID asset.ID) (bool, error) {
+
+	assetGroup, err := b.cfg.Store.QueryAssetGroup(ctx, assetID)
+	if err != nil {
+		return false, fmt.Errorf("fail to find asset group given "+
+			"asset ID: %w", err)
+	}
+
+	// If the asset doesn't have a group, it can't have a delegation key. So
+	// we just return false here.
+	if assetGroup == nil || assetGroup.GroupKey == nil {
+		return false, nil
+	}
+
+	// Retrieve asset meta reveal for the asset ID. This will be used to
+	// obtain the supply commitment delegation key.
+	metaReveal, err := b.cfg.Store.FetchAssetMetaForAsset(ctx, assetID)
+	if err != nil {
+		return false, fmt.Errorf("failed to fetch asset meta: %w", err)
+	}
+
+	// If there's no meta reveal or delegation key, we can't control it.
+	if metaReveal == nil || metaReveal.DelegationKey.IsNone() {
+		return false, nil
+	}
+
+	delegationPubKey, err := metaReveal.DelegationKey.UnwrapOrErr(
+		fmt.Errorf("delegation key not found for given asset"),
+	)
+	if err != nil {
+		return false, err
+	}
+
+	// Now that we have the delegation key, we'll see if we know of the
+	// internal key loactor. If we do, then this means that we were the ones
+	// that created it in the first place.
+	_, err = b.cfg.Store.FetchInternalKeyLocator(ctx, &delegationPubKey)
+	switch {
+	// If we get this error, then we don't control this delegation key.
+	case errors.Is(err, ErrInternalKeyNotFound):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("failed to fetch delegation key "+
+			"locator: %w", err)
+	}
+
+	// If we reached this point, then we know that we control the delegation
+	// key.
+	return true, nil
+}
+
+// A compile-time assertion to ensure Book implements the DelegationKeyChecker
+// interface.
+var _ DelegationKeyChecker = (*Book)(nil)
