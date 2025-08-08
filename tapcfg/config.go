@@ -143,6 +143,10 @@ const (
 	// defaultMailboxAuthTimeout is the default timeout we'll use for
 	// mailbox message retrieval client authentication.
 	defaultMailboxAuthTimeout = 10 * time.Second
+
+	// defaultPsbtMaxFeeRatio is the default maximum for fees to total
+	// output amount ratio to use when funding PSBTs.
+	defaultPsbtMaxFeeRatio = 0.75
 )
 
 var (
@@ -276,6 +280,17 @@ type LndConfig struct {
 	RPCTimeout time.Duration `long:"rpctimeout" description:"The timeout to use for RPC requests to lnd; a sufficiently long duration should be chosen to avoid issues with slow responses. Valid time units are {s, m, h}."`
 }
 
+// WalletConfig is the config that contains wallet related configurations.
+type WalletConfig struct {
+	// PsbtMaxFeeRatio is the maximum fees to total output amount ratio to
+	// use when funding PSBTs for asset transfers. Since taproot assets can
+	// be anchored to outpoints that may carry relatively small bitcoin
+	// amounts it is useful to pick a high value for this argument as in
+	// high fee environments the total fees paid may outweight the anchor
+	// amount. The allowed values for this argument range from 0.00 to 1.00.
+	PsbtMaxFeeRatio float64 `long:"psbt-max-fee-ratio" description:"The maximum fees to total output amount ratio to use when funding PSBTs for asset transfers. Value must be between 0.00 and 1.00"`
+}
+
 // UniverseConfig is the config that houses any Universe related config
 // values.
 type UniverseConfig struct {
@@ -354,6 +369,8 @@ type Config struct {
 	Postgres        *tapdb.PostgresConfig `group:"postgres" namespace:"postgres"`
 
 	Universe *UniverseConfig `group:"universe" namespace:"universe"`
+
+	Wallet *WalletConfig `group:"wallet" namespace:"wallet"`
 
 	AddrBook *AddrBookConfig `group:"address" namespace:"address"`
 
@@ -460,6 +477,9 @@ func DefaultConfig() Config {
 				tapdb.DefaultMultiverseCacheConfig(),
 			),
 			MboxAuthTimeout: defaultMailboxAuthTimeout,
+		},
+		Wallet: &WalletConfig{
+			PsbtMaxFeeRatio: defaultPsbtMaxFeeRatio,
 		},
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,
