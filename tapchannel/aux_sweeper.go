@@ -129,6 +129,10 @@ type AuxSweeperCfg struct {
 
 	// ChainBridge is used to fetch blocks from the main chain.
 	ChainBridge tapgarden.ChainBridge
+
+	// IgnoreChecker is an optional function that can be used to check if
+	// a proof should be ignored.
+	IgnoreChecker lfn.Option[proof.IgnoreChecker]
 }
 
 // AuxSweeper is used to sweep funds from a commitment transaction that has
@@ -1320,8 +1324,7 @@ func (a *AuxSweeper) importOutputScriptKeys(desc tapscriptSweepDescs) error {
 func importOutputProofs(scid lnwire.ShortChannelID,
 	outputProofs []*proof.Proof, courierAddr *url.URL,
 	proofDispatch proof.CourierDispatch, chainBridge tapgarden.ChainBridge,
-	headerVerifier proof.HeaderVerifier, groupVerifier proof.GroupVerifier,
-	proofArchive proof.Archiver) error {
+	vCtx proof.VerifierCtx, proofArchive proof.Archiver) error {
 
 	// TODO(roasbeef): should be part of post confirmation funding validate
 	// (chanvalidate)
@@ -1438,13 +1441,6 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 			return fmt.Errorf("unable to encode proof: %w", err)
 		}
 
-		vCtx := proof.VerifierCtx{
-			HeaderVerifier: headerVerifier,
-			MerkleVerifier: proof.DefaultMerkleVerifier,
-			GroupVerifier:  groupVerifier,
-			ChainLookupGen: chainBridge,
-		}
-
 		fundingUTXO := proofToImport.Asset
 		err = proofArchive.ImportProofs(
 			ctxb, vCtx, false, &proof.AnnotatedProof{
@@ -1520,11 +1516,17 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	// for the funding transaction here so we can properly recognize the
 	// spent input below.
 	if !req.Initiator {
+		vCtx := proof.VerifierCtx{
+			HeaderVerifier: a.cfg.HeaderVerifier,
+			MerkleVerifier: proof.DefaultMerkleVerifier,
+			GroupVerifier:  a.cfg.GroupVerifier,
+			ChainLookupGen: a.cfg.ChainBridge,
+			IgnoreChecker:  a.cfg.IgnoreChecker,
+		}
 		err := importOutputProofs(
 			req.ShortChanID, maps.Values(fundingInputProofs),
 			a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
-			a.cfg.ChainBridge, a.cfg.HeaderVerifier,
-			a.cfg.GroupVerifier, a.cfg.ProofArchive,
+			a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to import output "+
