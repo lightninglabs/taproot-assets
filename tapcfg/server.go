@@ -343,10 +343,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	}
 
 	reOrgWatcher := tapgarden.NewReOrgWatcher(&tapgarden.ReOrgWatcherConfig{
-		ChainBridge: chainBridge,
-		GroupVerifier: tapgarden.GenGroupVerifier(
-			context.Background(), assetMintingStore,
-		),
+		ChainBridge:   chainBridge,
+		GroupVerifier: groupVerifier,
 		ProofArchive:  proofArchive,
 		IgnoreChecker: ignoreCheckerOpt,
 		NonBuriedAssetFetcher: func(ctx context.Context,
@@ -418,6 +416,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		Signer:           virtualTxSigner,
 		TxValidator:      &tap.ValidatorV0{},
 		WitnessValidator: &tap.WitnessValidatorV0{},
+		ChainBridge:      chainBridge,
+		GroupVerifier:    groupVerifier,
+		IgnoreChecker:    ignoreCheckerOpt,
 		Wallet:           walletAnchor,
 		ChainParams:      &tapChainParams,
 	})
@@ -497,14 +498,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	chainPorter := tapfreighter.NewChainPorter(
 		&tapfreighter.ChainPorterConfig{
-			ChainParams: tapChainParams,
-			Signer:      virtualTxSigner,
-			TxValidator: &tap.ValidatorV0{},
-			ExportLog:   assetStore,
-			ChainBridge: chainBridge,
-			GroupVerifier: tapgarden.GenGroupVerifier(
-				context.Background(), assetMintingStore,
-			),
+			ChainParams:            tapChainParams,
+			Signer:                 virtualTxSigner,
+			TxValidator:            &tap.ValidatorV0{},
+			ExportLog:              assetStore,
+			ChainBridge:            chainBridge,
+			GroupVerifier:          groupVerifier,
 			Wallet:                 walletAnchor,
 			KeyRing:                keyRing,
 			AssetWallet:            assetWallet,
@@ -526,10 +525,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	channelFunder := lndservices.NewLndPbstChannelFunder(lndServices)
 	auxFundingController := tapchannel.NewFundingController(
 		tapchannel.FundingControllerCfg{
-			HeaderVerifier: headerVerifier,
-			GroupVerifier: tapgarden.GenGroupVerifier(
-				context.Background(), assetMintingStore,
-			),
+			HeaderVerifier:     headerVerifier,
+			GroupVerifier:      groupVerifier,
 			ErrReporter:        msgTransportClient,
 			AssetWallet:        assetWallet,
 			CoinSelector:       coinSelect,
@@ -573,11 +570,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ProofArchive:       proofArchive,
 			ProofFetcher:       proofCourierDispatcher,
 			HeaderVerifier:     headerVerifier,
-			GroupVerifier: tapgarden.GenGroupVerifier(
-				context.Background(), assetMintingStore,
-			),
-			ChainBridge:   chainBridge,
-			IgnoreChecker: ignoreCheckerOpt,
+			GroupVerifier:      groupVerifier,
+			ChainBridge:        chainBridge,
+			IgnoreChecker:      ignoreCheckerOpt,
 		},
 	)
 	auxSweeper := tapchannel.NewAuxSweeper(
@@ -590,11 +585,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ProofArchive:       proofArchive,
 			ProofFetcher:       proofCourierDispatcher,
 			HeaderVerifier:     headerVerifier,
-			GroupVerifier: tapgarden.GenGroupVerifier(
-				context.Background(), assetMintingStore,
-			),
-			ChainBridge:   chainBridge,
-			IgnoreChecker: ignoreCheckerOpt,
+			GroupVerifier:      groupVerifier,
+			ChainBridge:        chainBridge,
+			IgnoreChecker:      ignoreCheckerOpt,
 		},
 	)
 
@@ -663,12 +656,10 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}),
 		// nolint: lll
 		AssetCustodian: tapgarden.NewCustodian(&tapgarden.CustodianConfig{
-			ChainParams:  &tapChainParams,
-			WalletAnchor: walletAnchor,
-			ChainBridge:  chainBridge,
-			GroupVerifier: tapgarden.GenGroupVerifier(
-				context.Background(), assetMintingStore,
-			),
+			ChainParams:            &tapChainParams,
+			WalletAnchor:           walletAnchor,
+			ChainBridge:            chainBridge,
+			GroupVerifier:          groupVerifier,
 			AddrBook:               addrBook,
 			Signer:                 lndServices.Signer,
 			ProofArchive:           proofArchive,
