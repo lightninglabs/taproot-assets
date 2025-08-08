@@ -2,6 +2,7 @@ package tapchannel
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -231,9 +232,9 @@ type mockVirtualSigner struct {
 // returns the input indexes that were signed.
 //
 // NOTE: This is part of the VirtualPacketSigner interface.
-func (m *mockVirtualSigner) SignVirtualPacket(vPkt *tappsbt.VPacket,
-	_ ...tapfreighter.SignVirtualPacketOption) ([]uint32,
-	error) {
+func (m *mockVirtualSigner) SignVirtualPacket(_ context.Context,
+	vPkt *tappsbt.VPacket,
+	_ ...tapfreighter.SignVirtualPacketOption) ([]uint32, error) {
 
 	// A second-level HTLC transaction is always a one-in-one-out virtual
 	// transaction, so there's always just one (non-split) output.
