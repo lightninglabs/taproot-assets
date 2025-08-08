@@ -24,6 +24,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1080,8 +1081,10 @@ func newMockIgnoreChecker(ignoreAll bool,
 	}
 }
 
-func (m *mockIgnoreChecker) IsIgnored(assetPoint AssetPoint) bool {
-	return m.ignoreAll || m.ignoredAssetPoints.Contains(assetPoint)
+func (m *mockIgnoreChecker) IsIgnored(_ context.Context,
+	assetPoint AssetPoint) lfn.Result[bool] {
+
+	return lfn.Ok(m.ignoreAll || m.ignoredAssetPoints.Contains(assetPoint))
 }
 
 // MockUniverseServer is a mock implementation of the UniverseServer

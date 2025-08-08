@@ -45,7 +45,7 @@ type IgnoreChecker interface {
 	// IsIgnored returns true if the given prevID is known to be invalid. A
 	// prevID is used here, but the check should be tested against a proof
 	// result, or produced output.
-	IsIgnored(prevID AssetPoint) bool
+	IsIgnored(ctx context.Context, prevID AssetPoint) lfn.Result[bool]
 }
 
 // VerifierCtx is a context struct that is used to pass in various interfaces
@@ -863,9 +863,15 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// Before we do any other validation, we'll check to see if we can halt
 	// validation here, as the proof is already known to be invalid. This
 	// can be used as a rejection caching mechanism.
-	fail := lfn.MapOptionZ(vCtx.IgnoreChecker, func(c IgnoreChecker) bool {
-		return c.IsIgnored(assetPoint)
-	})
+	fail, err := lfn.MapOptionZ(
+		vCtx.IgnoreChecker, func(c IgnoreChecker) lfn.Result[bool] {
+			return c.IsIgnored(ctx, assetPoint)
+		},
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if proof is ignored: "+
+			"%w", err)
+	}
 	if fail {
 		return prev, fmt.Errorf("%w: asset_point=%v is ignored",
 			ErrProofInvalid, assetPoint)
@@ -883,7 +889,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	}
 
 	// Cross-check block header with a bitcoin node.
-	err := vCtx.HeaderVerifier(p.BlockHeader, p.BlockHeight)
+	err = vCtx.HeaderVerifier(p.BlockHeader, p.BlockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate proof block "+
 			"header: %w", err)
@@ -1103,8 +1109,9 @@ func (f *File) Verify(ctx context.Context,
 		// At this point, we'll check to see if we can halt validation
 		// here, as the proof is already known to be invalid. This can
 		// be used as a rejection caching mechanism.
-		fail := lfn.MapOptionZ(
-			vCtx.IgnoreChecker, func(checker IgnoreChecker) bool {
+		fail, err := lfn.MapOptionZ(
+			vCtx.IgnoreChecker,
+			func(checker IgnoreChecker) lfn.Result[bool] {
 				assetPoint := AssetPoint{
 					OutPoint: result.OutPoint,
 					ID:       result.Asset.ID(),
@@ -1113,9 +1120,13 @@ func (f *File) Verify(ctx context.Context,
 					),
 				}
 
-				return checker.IsIgnored(assetPoint)
+				return checker.IsIgnored(ctx, assetPoint)
 			},
-		)
+		).Unpack()
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if proof "+
+				"file is ignored: %w", err)
+		}
 		if fail {
 			return prev, ErrProofFileInvalid
 		}
