@@ -265,6 +265,10 @@ type FundingControllerCfg struct {
 	// to fund asset channels.
 	FeatureBits FeatureBitVerifer
 
+	// IgnoreChecker is an optional function that can be used to check if
+	// a proof should be ignored.
+	IgnoreChecker lfn.Option[proof.IgnoreChecker]
+
 	// ErrChan is used to report errors back to the main server.
 	ErrChan chan<- error
 }
@@ -1498,6 +1502,7 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 				MerkleVerifier: proof.DefaultMerkleVerifier,
 				GroupVerifier:  f.cfg.GroupVerifier,
 				ChainLookupGen: f.cfg.ChainBridge,
+				IgnoreChecker:  f.cfg.IgnoreChecker,
 			}
 
 			l, err := f.cfg.ChainBridge.GenProofChainLookup(&p)

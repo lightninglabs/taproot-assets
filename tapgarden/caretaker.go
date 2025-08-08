@@ -1609,5 +1609,6 @@ func (b *BatchCaretaker) verifierCtx(ctx context.Context) proof.VerifierCtx {
 		GroupVerifier:       groupVerifier,
 		GroupAnchorVerifier: groupAnchorVerifier,
 		ChainLookupGen:      b.cfg.ChainBridge,
+		IgnoreChecker:       b.cfg.IgnoreChecker,
 	}
 }
