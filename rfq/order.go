@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -283,6 +284,11 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 		fn.Some(c.AcceptedQuoteId),
 		fn.None[[]rfqmsg.ID](),
 	)
+
+	// We are about to create an outgoing HTLC that carries assets. Let's
+	// set the noop flag in order to eventually only settle the assets but
+	// never settle the sats anchor amount that will carry them.
+	htlcRecord.SetNoopAdd(rfqmsg.UseNoOpHTLCs)
 
 	customRecords, err := lnwire.ParseCustomRecords(htlcRecord.Bytes())
 	if err != nil {
@@ -731,7 +737,21 @@ func (h *OrderHandler) handleIncomingHtlc(ctx context.Context,
 	}
 
 	if !ok {
+		noopTLV := uint64(lnwallet.NoOpHtlcTLVEntry.TypeVal())
+		_, noopActive := htlc.InWireCustomRecords[noopTLV]
+
+		// If we don't have a matching policy for this HTLC but the
+		// sender set the noop flag, that means we were about to push
+		// some outgoing sats amount that we would eventually never
+		// receive. The HTLC must be failed.
+		if noopActive {
+			return &lndclient.InterceptedHtlcResponse{
+				Action: lndclient.InterceptorActionFail,
+			}, nil
+		}
+
 		log.Debug("Failed to find a policy for the HTLC. Resuming.")
+
 		return &lndclient.InterceptedHtlcResponse{
 			Action: lndclient.InterceptorActionResume,
 		}, nil
