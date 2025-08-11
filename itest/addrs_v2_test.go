@@ -319,8 +319,9 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 		WithNumUtxos(2),
 	)
 
-	// We now make sure we can send to the same address twice, using
-	// different amounts, in the same transaction.
+	// We now make sure we can send to two different addresses of the same
+	// group at the same time, using different amounts, in the same
+	// transaction.
 	groupAddrAlice1, _ := NewAddrWithEventStream(
 		t.t, t.tapd, &taprpc.NewAddrRequest{
 			AddressVersion: addrV2,
