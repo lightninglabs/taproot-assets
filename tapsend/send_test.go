@@ -63,9 +63,6 @@ type spendData struct {
 	address1                      address.Tap
 	address1CollectGroup          address.Tap
 	address2                      address.Tap
-	address1StateKey              [32]byte
-	address1CollectGroupStateKey  [32]byte
-	address2StateKey              [32]byte
 	asset1                        asset.Asset
 	asset1CollectGroup            asset.Asset
 	asset2                        asset.Asset
@@ -150,7 +147,6 @@ func initSpendScenario(t *testing.T) spendData {
 	})
 	require.NoError(t, err)
 	state.address1 = *address1
-	state.address1StateKey = state.address1.AssetCommitmentKey()
 
 	address1CollectGroup, err := address.New(address.NewAddressParams{
 		Version:          address.V0,
@@ -165,8 +161,6 @@ func initSpendScenario(t *testing.T) spendData {
 	})
 	require.NoError(t, err)
 	state.address1CollectGroup = *address1CollectGroup
-	state.address1CollectGroupStateKey = state.address1CollectGroup.
-		AssetCommitmentKey()
 
 	address2, err := address.New(address.NewAddressParams{
 		Version:          address.V0,
@@ -179,7 +173,6 @@ func initSpendScenario(t *testing.T) spendData {
 	})
 	require.NoError(t, err)
 	state.address2 = *address2
-	state.address2StateKey = state.address2.AssetCommitmentKey()
 
 	// Generate matching assets and PrevIDs.
 	updateScenarioAssets(t, &state)

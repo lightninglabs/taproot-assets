@@ -418,27 +418,9 @@ func (a *Tap) AttachGenesis(gen asset.Genesis) {
 	a.assetGen = gen
 }
 
-// TapCommitmentKey is the key that maps to the root commitment for the asset
-// group specified by a Taproot Asset address.
-func (a *Tap) TapCommitmentKey() [32]byte {
-	assetSpecifier := asset.NewSpecifierOptionalGroupPubKey(
-		a.AssetID, a.GroupKey,
-	)
-
-	return asset.TapCommitmentKey(assetSpecifier)
-}
-
-// AssetCommitmentKey is the key that maps to the asset leaf for the asset
-// specified by a Taproot Asset address.
-func (a *Tap) AssetCommitmentKey() [32]byte {
-	return asset.AssetCommitmentKey(
-		a.AssetID, &a.ScriptKey, a.GroupKey == nil,
-	)
-}
-
-// TapCommitment constructs the Taproot Asset commitment that is expected to
+// tapCommitment constructs the Taproot Asset commitment that is expected to
 // appear on chain when assets are being sent to this address.
-func (a *Tap) TapCommitment() (*commitment.TapCommitment, error) {
+func (a *Tap) tapCommitment() (*commitment.TapCommitment, error) {
 	// If this genesis wasn't actually set, then we'll fail here as we need
 	// it in order to make the asset template.
 	var zeroOp wire.OutPoint
@@ -484,7 +466,7 @@ func (a *Tap) TaprootOutputKey() (*btcec.PublicKey, error) {
 		))
 	}
 
-	c, err := a.TapCommitment()
+	c, err := a.tapCommitment()
 	if err != nil {
 		return nil, fmt.Errorf("unable to derive Taproot Asset "+
 			"commitment: %w", err)
