@@ -100,6 +100,27 @@ type SupplyLeaves struct {
 	IgnoreLeafEntries []NewIgnoreEvent
 }
 
+// AssetLookup is an interface that allows us to query for asset
+// information, such as asset groups and asset metadata.
+type AssetLookup interface {
+	// QueryAssetGroupByGroupKey fetches the asset group with a matching
+	// tweaked key, including the genesis information used to create the
+	// group.
+	QueryAssetGroupByGroupKey(ctx context.Context,
+		groupKey *btcec.PublicKey) (*asset.AssetGroup, error)
+
+	// FetchAssetMetaForAsset attempts to fetch an asset meta based on an
+	// asset ID.
+	FetchAssetMetaForAsset(ctx context.Context,
+		assetID asset.ID) (*proof.MetaReveal, error)
+
+	// FetchInternalKeyLocator attempts to fetch the key locator information
+	// for the given raw internal key. If the key cannot be found, then
+	// ErrInternalKeyNotFound is returned.
+	FetchInternalKeyLocator(ctx context.Context,
+		rawKey *btcec.PublicKey) (keychain.KeyLocator, error)
+}
+
 // SupplyTreeView is an interface that allows the state machine to obtain an up
 // to date snapshot of the root supply tree, as the sub trees (ignore, burn,
 // mint) committed in the main supply tree.

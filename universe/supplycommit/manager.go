@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/protofsm"
@@ -48,6 +49,10 @@ type ManagerCfg struct {
 
 	// Wallet is the interface used interact with the wallet.
 	Wallet Wallet
+
+	// AssetLookup is used to look up asset information such as asset groups
+	// and asset metadata.
+	AssetLookup AssetLookup
 
 	// KeyRing is the key ring used to derive new keys.
 	KeyRing KeyRing
