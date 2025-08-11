@@ -419,3 +419,35 @@ func (m *mockErrorReporter) GetReportedError() error {
 	defer m.mu.Unlock()
 	return m.reportedError
 }
+
+// mockAssetLookup is a mock implementation of the AssetLookup interface.
+type mockAssetLookup struct {
+	mock.Mock
+}
+
+func (m *mockAssetLookup) QueryAssetGroupByGroupKey(ctx context.Context,
+	groupKey *btcec.PublicKey) (*asset.AssetGroup, error) {
+
+	args := m.Called(ctx, groupKey)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*asset.AssetGroup), args.Error(1)
+}
+
+func (m *mockAssetLookup) FetchAssetMetaForAsset(ctx context.Context,
+	assetID asset.ID) (*proof.MetaReveal, error) {
+
+	args := m.Called(ctx, assetID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*proof.MetaReveal), args.Error(1)
+}
+
+func (m *mockAssetLookup) FetchInternalKeyLocator(ctx context.Context,
+	rawKey *btcec.PublicKey) (keychain.KeyLocator, error) {
+
+	args := m.Called(ctx, rawKey)
+	return args.Get(0).(keychain.KeyLocator), args.Error(1)
+}
