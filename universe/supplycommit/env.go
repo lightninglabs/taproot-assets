@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -98,6 +99,39 @@ type SupplyLeaves struct {
 
 	// IgnoreLeafEntries is a slice of ignore leaves.
 	IgnoreLeafEntries []NewIgnoreEvent
+}
+
+// NewSupplyLeavesFromEvents creates a SupplyLeaves instance from a slice of
+// SupplyUpdateEvent instances.
+func NewSupplyLeavesFromEvents(events []SupplyUpdateEvent) (SupplyLeaves,
+	error) {
+
+	var leaves SupplyLeaves
+	for idx := range events {
+		event := events[idx]
+
+		switch e := event.(type) {
+		case *NewMintEvent:
+			leaves.IssuanceLeafEntries = append(
+				leaves.IssuanceLeafEntries, *e,
+			)
+
+		case *NewBurnEvent:
+			leaves.BurnLeafEntries = append(
+				leaves.BurnLeafEntries, *e,
+			)
+
+		case *NewIgnoreEvent:
+			leaves.IgnoreLeafEntries = append(
+				leaves.IgnoreLeafEntries, *e,
+			)
+
+		default:
+			return leaves, fmt.Errorf("unknown event type: %T", e)
+		}
+	}
+
+	return leaves, nil
 }
 
 // AssetLookup is an interface that allows us to query for asset
@@ -525,6 +559,17 @@ type StateMachineStore interface {
 		asset.Specifier) ([]SupplyUpdateEvent, error)
 }
 
+// SupplySyncer is an interface that allows the state machine to insert
+// supply commitments into the remote universe server.
+type SupplySyncer interface {
+	// PushSupplyCommitment pushes a supply commitment to the remote
+	// universe server. This function should block until the sync insertion
+	// is complete.
+	PushSupplyCommitment(ctx context.Context, assetSpec asset.Specifier,
+		commitment RootCommitment, updateLeaves SupplyLeaves,
+		chainProof ChainProof, canonicalUniverses []url.URL) error
+}
+
 // Environment is a set of dependencies that a state machine may need to carry
 // out the logic for a given state transition. All fields are to be considered
 // immutable, and will be fixed for the lifetime of the state machine.
@@ -545,6 +590,10 @@ type Environment struct {
 	// Wallet is the main wallet interface used to managed PSBT packets.
 	Wallet Wallet
 
+	// AssetLookup is used to look up asset information such as asset groups
+	// and asset metadata.
+	AssetLookup AssetLookup
+
 	// KeyRing is the main key ring interface used to manage keys.
 	KeyRing KeyRing
 
@@ -552,6 +601,10 @@ type Environment struct {
 	//
 	// TODO(roasbeef): can make a slimmer version of
 	Chain tapgarden.ChainBridge
+
+	// SupplySyncer is used to insert supply commitments into the remote
+	// universe server.
+	SupplySyncer SupplySyncer
 
 	// StateLog is the main state log that is used to track the state of the
 	// state machine. This is used to persist the state of the state machine

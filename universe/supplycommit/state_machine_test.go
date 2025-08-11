@@ -120,15 +120,16 @@ type supplyCommitTestHarness struct {
 	stateMachine *StateMachine
 	env          *Environment
 
-	mockTreeView    *mockSupplyTreeView
-	mockCommits     *mockCommitmentTracker
-	mockWallet      *mockWallet
-	mockKeyRing     *mockKeyRing
-	mockChain       *mockChainBridge
-	mockStateLog    *mockStateMachineStore
-	mockDaemon      *mockDaemonAdapters
-	mockErrReporter *mockErrorReporter
-	mockAssetLookup *mockAssetLookup
+	mockTreeView     *mockSupplyTreeView
+	mockCommits      *mockCommitmentTracker
+	mockWallet       *mockWallet
+	mockKeyRing      *mockKeyRing
+	mockChain        *mockChainBridge
+	mockStateLog     *mockStateMachineStore
+	mockDaemon       *mockDaemonAdapters
+	mockErrReporter  *mockErrorReporter
+	mockAssetLookup  *mockAssetLookup
+	mockSupplySyncer *mockSupplySyncer
 
 	stateSub protofsm.StateSubscriber[Event, *Environment]
 }
@@ -145,6 +146,7 @@ func newSupplyCommitTestHarness(t *testing.T,
 	mockDaemon := newMockDaemonAdapters()
 	mockErrReporter := &mockErrorReporter{}
 	mockAssetLookup := &mockAssetLookup{}
+	mockSupplySyncer := &mockSupplySyncer{}
 
 	env := &Environment{
 		AssetSpec:        cfg.assetSpec,
@@ -155,6 +157,7 @@ func newSupplyCommitTestHarness(t *testing.T,
 		Chain:            mockChain,
 		StateLog:         mockStateLog,
 		AssetLookup:      mockAssetLookup,
+		SupplySyncer:     mockSupplySyncer,
 		CommitConfTarget: DefaultCommitConfTarget,
 	}
 
@@ -171,19 +174,20 @@ func newSupplyCommitTestHarness(t *testing.T,
 	stateMachine := protofsm.NewStateMachine(fsmCfg)
 
 	h := &supplyCommitTestHarness{
-		t:               t,
-		cfg:             cfg,
-		stateMachine:    &stateMachine,
-		env:             env,
-		mockTreeView:    mockTreeView,
-		mockCommits:     mockCommits,
-		mockWallet:      mockWallet,
-		mockKeyRing:     mockKey,
-		mockChain:       mockChain,
-		mockStateLog:    mockStateLog,
-		mockDaemon:      mockDaemon,
-		mockErrReporter: mockErrReporter,
-		mockAssetLookup: mockAssetLookup,
+		t:                t,
+		cfg:              cfg,
+		stateMachine:     &stateMachine,
+		env:              env,
+		mockTreeView:     mockTreeView,
+		mockCommits:      mockCommits,
+		mockWallet:       mockWallet,
+		mockKeyRing:      mockKey,
+		mockChain:        mockChain,
+		mockStateLog:     mockStateLog,
+		mockDaemon:       mockDaemon,
+		mockErrReporter:  mockErrReporter,
+		mockAssetLookup:  mockAssetLookup,
+		mockSupplySyncer: mockSupplySyncer,
 	}
 
 	h.stateSub = stateMachine.RegisterStateEvents()
@@ -290,6 +294,7 @@ func (h *supplyCommitTestHarness) expectFullCommitmentCycleMocks(
 	h.expectPsbtSigning()
 	h.expectInsertSignedCommitTx()
 	h.expectAssetLookup()
+	h.expectSupplySyncer()
 	h.expectBroadcastAndConfRegistration()
 }
 
@@ -553,6 +558,16 @@ func (h *supplyCommitTestHarness) expectAssetLookup() {
 	).Return(dummyMetaReveal, nil).Maybe()
 }
 
+// expectSupplySyncer sets up the mock expectations for SupplySyncer calls.
+func (h *supplyCommitTestHarness) expectSupplySyncer() {
+	h.t.Helper()
+
+	h.mockSupplySyncer.On(
+		"PushSupplyCommitment", mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+}
+
 // expectFreezePendingTransition sets up the mock expectation for the
 // FreezePendingTransition call.
 func (h *supplyCommitTestHarness) expectFreezePendingTransition() {
@@ -639,7 +654,10 @@ func TestSupplyCommitUpdatesPendingStateTransitions(t *testing.T) {
 	t.Parallel()
 
 	testScriptKey := test.RandPubKey(t)
-	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
+	randGroupKey := test.RandPubKey(t)
+	defaultAssetSpec := asset.NewSpecifierOptionalGroupPubKey(
+		testAssetID, randGroupKey,
+	)
 	initialMintEvent := newTestMintEvent(t, testScriptKey, randOutPoint(t))
 
 	// Verify that when the UpdatesPendingState receives a
@@ -753,7 +771,10 @@ func TestSupplyCommitUpdatesPendingStateTransitions(t *testing.T) {
 func TestSupplyCommitTreeCreateStateTransitions(t *testing.T) {
 	t.Parallel()
 
-	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
+	randGroupKey := test.RandPubKey(t)
+	defaultAssetSpec := asset.NewSpecifierOptionalGroupPubKey(
+		testAssetID, randGroupKey,
+	)
 	mintEvent := newTestMintEvent(t, test.RandPubKey(t), randOutPoint(t))
 
 	// Verify that a CommitTickEvent received by the CommitTreeCreateState
@@ -845,7 +866,11 @@ func TestSupplyCommitTreeCreateStateTransitions(t *testing.T) {
 func TestSupplyCommitTxCreateStateTransitions(t *testing.T) {
 	t.Parallel()
 
-	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
+	randGroupKey := test.RandPubKey(t)
+	defaultAssetSpec := asset.NewSpecifierOptionalGroupPubKey(
+		testAssetID, randGroupKey,
+	)
+
 	initialTransition := SupplyStateTransition{
 		NewCommitment: RootCommitment{
 			SupplyRoot: mssmt.NewBranch(
@@ -853,6 +878,7 @@ func TestSupplyCommitTxCreateStateTransitions(t *testing.T) {
 				mssmt.NewLeafNode([]byte("right"), 0),
 			),
 		},
+		ChainProof: lfn.Some(ChainProof{}),
 	}
 
 	// Verify that a CreateTxEvent received by the CommitTxCreateState leads
@@ -929,7 +955,11 @@ func TestSupplyCommitTxCreateStateTransitions(t *testing.T) {
 func TestSupplyCommitTxSignStateTransitions(t *testing.T) {
 	t.Parallel()
 
-	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
+	randGroupKey := test.RandPubKey(t)
+	defaultAssetSpec := asset.NewSpecifierOptionalGroupPubKey(
+		testAssetID, randGroupKey,
+	)
+
 	dummyTx := wire.NewMsgTx(2)
 	dummyTx.AddTxOut(&wire.TxOut{PkScript: []byte("test"), Value: 1})
 
@@ -941,6 +971,7 @@ func TestSupplyCommitTxSignStateTransitions(t *testing.T) {
 			InternalKey: internalKey,
 			TxOutIdx:    0,
 		},
+		ChainProof: lfn.Some(ChainProof{}),
 	}
 
 	// This test verifies that a SignTxEvent received by the
@@ -1023,10 +1054,9 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 	t.Parallel()
 
 	randGroupKey := test.RandPubKey(t)
-	defaultAssetSpec, err := asset.NewExclusiveSpecifier(
-		&testAssetID, randGroupKey,
+	defaultAssetSpec := asset.NewSpecifierOptionalGroupPubKey(
+		testAssetID, randGroupKey,
 	)
-	require.NoError(t, err)
 
 	dummyTx := wire.NewMsgTx(2)
 	dummyTx.AddTxOut(&wire.TxOut{PkScript: []byte("testscript"), Value: 1})
@@ -1057,6 +1087,7 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 		signedPsbt := newTestSignedPsbt(t, dummyTx)
 
 		h.expectAssetLookup()
+		h.expectSupplySyncer()
 		h.expectBroadcastAndConfRegistration()
 
 		broadcastEvent := &BroadcastEvent{
@@ -1083,6 +1114,7 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 		defer h.stopAndAssert()
 
 		h.expectAssetLookup()
+		h.expectSupplySyncer()
 		h.expectCommitState()
 		h.expectApplyStateTransition()
 
@@ -1126,6 +1158,7 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 		defer h.stopAndAssert()
 
 		h.expectAssetLookup()
+		h.expectSupplySyncer()
 		h.expectApplyStateTransition()
 
 		// Mock the binding of dangling updates to return a new set of
@@ -1213,7 +1246,11 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 func TestSupplyCommitFinalizeStateTransitions(t *testing.T) {
 	t.Parallel()
 
-	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
+	randGroupKey := test.RandPubKey(t)
+	defaultAssetSpec := asset.NewSpecifierOptionalGroupPubKey(
+		testAssetID, randGroupKey,
+	)
+
 	initialTransition := SupplyStateTransition{
 		NewCommitment: RootCommitment{
 			SupplyRoot: mssmt.NewBranch(
@@ -1221,6 +1258,7 @@ func TestSupplyCommitFinalizeStateTransitions(t *testing.T) {
 				mssmt.NewLeafNode([]byte("leaf"), 0),
 			),
 		},
+		ChainProof: lfn.Some(ChainProof{}),
 	}
 
 	// This test verifies that a FinalizeEvent received by the
@@ -1236,6 +1274,8 @@ func TestSupplyCommitFinalizeStateTransitions(t *testing.T) {
 		h.start()
 		defer h.stopAndAssert()
 
+		h.expectAssetLookup()
+		h.expectSupplySyncer()
 		h.expectApplyStateTransition()
 		h.expectBindDanglingUpdatesWithEvents([]SupplyUpdateEvent{})
 
@@ -1736,7 +1776,10 @@ func TestSpendEventMethods(t *testing.T) {
 func TestDanglingUpdatesFullCycle(t *testing.T) {
 	t.Parallel()
 
-	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
+	randGroupKey := test.RandPubKey(t)
+	defaultAssetSpec := asset.NewSpecifierOptionalGroupPubKey(
+		testAssetID, randGroupKey,
+	)
 
 	// Start with an initial mint event that triggers the first cycle.
 	initialMintEvent := newTestMintEvent(
@@ -1753,7 +1796,9 @@ func TestDanglingUpdatesFullCycle(t *testing.T) {
 	defer h.stopAndAssert()
 
 	// Freeze the pending transition when we start the commit cycle, and set
-	// up the mocks that we need..
+	// up the mocks that we need.
+	h.expectAssetLookup()
+	h.expectSupplySyncer()
 	h.expectFreezePendingTransition()
 	h.expectFullCommitmentCycleMocks(true)
 
@@ -1844,7 +1889,11 @@ func TestDanglingUpdatesFullCycle(t *testing.T) {
 func TestDanglingUpdatesAcrossStates(t *testing.T) {
 	t.Parallel()
 
-	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
+	randGroupKey := test.RandPubKey(t)
+	defaultAssetSpec := asset.NewSpecifierOptionalGroupPubKey(
+		testAssetID, randGroupKey,
+	)
+
 	initialMintEvent := newTestMintEvent(
 		t, test.RandPubKey(t), randOutPoint(t),
 	)
@@ -1891,6 +1940,8 @@ func TestDanglingUpdatesAcrossStates(t *testing.T) {
 			&CommitBroadcastState{},
 		)
 
+		h.expectAssetLookup()
+		h.expectSupplySyncer()
 		h.expectCommitState()
 		h.expectApplyStateTransition()
 
