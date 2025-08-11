@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -128,6 +129,7 @@ type supplyCommitTestHarness struct {
 	mockCache       *mockIgnoreCheckerCache
 	mockDaemon      *mockDaemonAdapters
 	mockErrReporter *mockErrorReporter
+	mockAssetLookup *mockAssetLookup
 
 	stateSub protofsm.StateSubscriber[Event, *Environment]
 }
@@ -144,6 +146,7 @@ func newSupplyCommitTestHarness(t *testing.T,
 	mockDaemon := newMockDaemonAdapters()
 	mockErrReporter := &mockErrorReporter{}
 	mockCache := &mockIgnoreCheckerCache{}
+	mockAssetLookup := &mockAssetLookup{}
 
 	env := &Environment{
 		AssetSpec:          cfg.assetSpec,
@@ -153,6 +156,7 @@ func newSupplyCommitTestHarness(t *testing.T,
 		KeyRing:            mockKey,
 		Chain:              mockChain,
 		StateLog:           mockStateLog,
+		AssetLookup:        mockAssetLookup,
 		CommitConfTarget:   DefaultCommitConfTarget,
 		IgnoreCheckerCache: mockCache,
 	}
@@ -183,6 +187,7 @@ func newSupplyCommitTestHarness(t *testing.T,
 		mockCache:       mockCache,
 		mockDaemon:      mockDaemon,
 		mockErrReporter: mockErrReporter,
+		mockAssetLookup: mockAssetLookup,
 	}
 
 	h.stateSub = stateMachine.RegisterStateEvents()
@@ -288,6 +293,7 @@ func (h *supplyCommitTestHarness) expectFullCommitmentCycleMocks(
 	h.expectPsbtFunding()
 	h.expectPsbtSigning()
 	h.expectInsertSignedCommitTx()
+	h.expectAssetLookup()
 	h.expectBroadcastAndConfRegistration()
 }
 
@@ -521,6 +527,38 @@ func (h *supplyCommitTestHarness) expectBindDanglingUpdatesWithEvents(
 
 func (h *supplyCommitTestHarness) expectIgnoreCheckerCacheInvalidation() {
 	h.mockCache.On("InvalidateCache", mock.Anything).Return()
+}
+
+// expectAssetLookup sets up the mock expectations for AssetLookup calls.
+func (h *supplyCommitTestHarness) expectAssetLookup() {
+	h.t.Helper()
+
+	// Mock the asset group lookup
+	dummyAssetGroup := &asset.AssetGroup{
+		Genesis: &asset.Genesis{
+			FirstPrevOut: wire.OutPoint{
+				Hash:  chainhash.Hash{},
+				Index: 0,
+			},
+			Tag:         "test-asset",
+			OutputIndex: 0,
+			Type:        asset.Normal,
+		},
+	}
+
+	h.mockAssetLookup.On(
+		"QueryAssetGroupByGroupKey", mock.Anything, mock.Anything,
+	).Return(dummyAssetGroup, nil).Maybe()
+
+	// Mock the asset metadata lookup
+	dummyMetaReveal := &proof.MetaReveal{
+		Data: []byte("test-metadata"),
+		Type: proof.MetaOpaque,
+	}
+
+	h.mockAssetLookup.On(
+		"FetchAssetMetaForAsset", mock.Anything, mock.Anything,
+	).Return(dummyMetaReveal, nil).Maybe()
 }
 
 // expectFreezePendingTransition sets up the mock expectation for the
@@ -1004,6 +1042,7 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 				mssmt.NewLeafNode([]byte("R"), 0),
 			),
 		},
+		ChainProof: lfn.Some(ChainProof{}),
 	}
 
 	// This test verifies that a BroadcastEvent received by the
@@ -1021,6 +1060,7 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 
 		signedPsbt := newTestSignedPsbt(t, dummyTx)
 
+		h.expectAssetLookup()
 		h.expectBroadcastAndConfRegistration()
 
 		broadcastEvent := &BroadcastEvent{
@@ -1046,6 +1086,7 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 		h.start()
 		defer h.stopAndAssert()
 
+		h.expectAssetLookup()
 		h.expectCommitState()
 		h.expectApplyStateTransition()
 
@@ -1089,6 +1130,7 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 		h.start()
 		defer h.stopAndAssert()
 
+		h.expectAssetLookup()
 		h.expectApplyStateTransition()
 
 		// Mock the binding of dangling updates to return a new set of

@@ -50,6 +50,10 @@ type ManagerCfg struct {
 	// Wallet is the interface used interact with the wallet.
 	Wallet Wallet
 
+	// AssetLookup is used to look up asset information such as asset groups
+	// and asset metadata.
+	AssetLookup AssetLookup
+
 	// KeyRing is the key ring used to derive new keys.
 	KeyRing KeyRing
 
