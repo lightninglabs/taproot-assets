@@ -580,12 +580,18 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
 		}
 	}
 
-	baseAddr, err := New(
-		addrVersion, *assetGroup.Genesis, groupKey, groupWitness,
-		*scriptKey.PubKey, *internalKeyDesc.PubKey, amount,
-		tapscriptSibling, &b.cfg.Chain, proofCourierAddr,
-		addrOpts...,
-	)
+	baseAddr, err := New(NewAddressParams{
+		Version:          addrVersion,
+		ChainParams:      &b.cfg.Chain,
+		Amount:           amount,
+		Genesis:          *assetGroup.Genesis,
+		GroupKey:         groupKey,
+		GroupWitness:     groupWitness,
+		ScriptKey:        *scriptKey.PubKey,
+		InternalKey:      *internalKeyDesc.PubKey,
+		TapscriptSibling: tapscriptSibling,
+		ProofCourierAddr: proofCourierAddr,
+	}, addrOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make new addr: %w", err)
 	}

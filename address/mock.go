@@ -122,12 +122,18 @@ func RandAddrWithVersionAndScriptKey(t testing.TB, params *ChainParams,
 		require.NoError(t, err)
 	}
 
-	tapAddr, err := New(
-		addrVersion, genesis, groupPubKey, groupWitness,
-		*scriptKey.PubKey, *internalKey.PubKey(), amount,
-		tapscriptSibling, params, proofCourierAddr,
-		WithAssetVersion(assetVersion),
-	)
+	tapAddr, err := New(NewAddressParams{
+		Version:          addrVersion,
+		ChainParams:      params,
+		Amount:           amount,
+		Genesis:          genesis,
+		GroupKey:         groupPubKey,
+		GroupWitness:     groupWitness,
+		ScriptKey:        *scriptKey.PubKey,
+		InternalKey:      *internalKey.PubKey(),
+		TapscriptSibling: tapscriptSibling,
+		ProofCourierAddr: proofCourierAddr,
+	}, WithAssetVersion(assetVersion))
 	require.NoError(t, err)
 
 	taprootOutputKey, err := tapAddr.TaprootOutputKey()

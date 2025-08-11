@@ -139,31 +139,44 @@ func initSpendScenario(t *testing.T) spendData {
 	// Store the receiver StateKeys as well.
 	proofCourierAddr := address.RandProofCourierAddr(t)
 
-	address1, err := address.New(
-		address.V0, state.genesis1, nil, nil, state.receiverPubKey,
-		state.receiverPubKey, state.normalAmt1, nil,
-		&address.MainNetTap, proofCourierAddr,
-	)
+	address1, err := address.New(address.NewAddressParams{
+		Version:          address.V0,
+		ChainParams:      &address.MainNetTap,
+		Amount:           state.normalAmt1,
+		Genesis:          state.genesis1,
+		ScriptKey:        state.receiverPubKey,
+		InternalKey:      state.receiverPubKey,
+		ProofCourierAddr: proofCourierAddr,
+	})
 	require.NoError(t, err)
 	state.address1 = *address1
 	state.address1StateKey = state.address1.AssetCommitmentKey()
 
-	address1CollectGroup, err := address.New(
-		address.V0, state.genesis1collect, &state.groupKey.GroupPubKey,
-		state.groupKey.Witness, state.receiverPubKey,
-		state.receiverPubKey, state.collectAmt, nil,
-		&address.TestNet3Tap, proofCourierAddr,
-	)
+	address1CollectGroup, err := address.New(address.NewAddressParams{
+		Version:          address.V0,
+		ChainParams:      &address.TestNet3Tap,
+		Amount:           state.collectAmt,
+		Genesis:          state.genesis1collect,
+		GroupKey:         &state.groupKey.GroupPubKey,
+		GroupWitness:     state.groupKey.Witness,
+		ScriptKey:        state.receiverPubKey,
+		InternalKey:      state.receiverPubKey,
+		ProofCourierAddr: proofCourierAddr,
+	})
 	require.NoError(t, err)
 	state.address1CollectGroup = *address1CollectGroup
 	state.address1CollectGroupStateKey = state.address1CollectGroup.
 		AssetCommitmentKey()
 
-	address2, err := address.New(
-		address.V0, state.genesis1, nil, nil, state.receiverPubKey,
-		state.receiverPubKey, state.normalAmt2, nil,
-		&address.MainNetTap, proofCourierAddr,
-	)
+	address2, err := address.New(address.NewAddressParams{
+		Version:          address.V0,
+		ChainParams:      &address.MainNetTap,
+		Amount:           state.normalAmt2,
+		Genesis:          state.genesis1,
+		ScriptKey:        state.receiverPubKey,
+		InternalKey:      state.receiverPubKey,
+		ProofCourierAddr: proofCourierAddr,
+	})
 	require.NoError(t, err)
 	state.address2 = *address2
 	state.address2StateKey = state.address2.AssetCommitmentKey()
@@ -1951,11 +1964,15 @@ func TestPayToAddrScript(t *testing.T) {
 
 	// Create an address for receiving the 2 units and make sure it matches
 	// the script above.
-	addr1, err := address.New(
-		address.V0, gen, nil, nil, *recipientScriptKey.PubKey,
-		*internalKey, sendAmt, nil, &address.RegressionNetTap,
-		address.RandProofCourierAddr(t),
-	)
+	addr1, err := address.New(address.NewAddressParams{
+		Version:          address.V0,
+		ChainParams:      &address.RegressionNetTap,
+		Amount:           sendAmt,
+		Genesis:          gen,
+		ScriptKey:        *recipientScriptKey.PubKey,
+		InternalKey:      *internalKey,
+		ProofCourierAddr: address.RandProofCourierAddr(t),
+	})
 	require.NoError(t, err)
 
 	addrOutputKey, err := addr1.TaprootOutputKey()
@@ -1969,11 +1986,17 @@ func TestPayToAddrScript(t *testing.T) {
 		[]byte("not a valid script"),
 	))
 	require.NoError(t, err)
-	addr2, err := address.New(
-		address.V0, gen, nil, nil, *recipientScriptKey.PubKey,
-		*internalKey, sendAmt, sibling, &address.RegressionNetTap,
-		address.RandProofCourierAddr(t),
-	)
+
+	addr2, err := address.New(address.NewAddressParams{
+		Version:          address.V0,
+		ChainParams:      &address.RegressionNetTap,
+		Amount:           sendAmt,
+		Genesis:          gen,
+		ScriptKey:        *recipientScriptKey.PubKey,
+		InternalKey:      *internalKey,
+		TapscriptSibling: sibling,
+		ProofCourierAddr: address.RandProofCourierAddr(t),
+	})
 	require.NoError(t, err)
 
 	siblingHash, err := sibling.TapHash()

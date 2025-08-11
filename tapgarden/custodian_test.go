@@ -1013,10 +1013,17 @@ func mustMakeAddr(t *testing.T,
 
 	var p btcec.PublicKey
 	proofCourierAddr := address.RandProofCourierAddr(t)
-	addr, err := address.New(
-		address.V0, gen, groupKey, groupWitness, scriptKey,
-		p, 1, nil, &address.TestNet3Tap, proofCourierAddr,
-	)
+	addr, err := address.New(address.NewAddressParams{
+		Version:          address.V0,
+		ChainParams:      &address.TestNet3Tap,
+		Amount:           1,
+		Genesis:          gen,
+		GroupKey:         groupKey,
+		GroupWitness:     groupWitness,
+		ScriptKey:        scriptKey,
+		InternalKey:      p,
+		ProofCourierAddr: proofCourierAddr,
+	})
 	require.NoError(t, err)
 
 	return addr

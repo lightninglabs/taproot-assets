@@ -99,11 +99,18 @@ func randAddress(t *testing.T, net *ChainParams, v *Version, groupPubKey,
 		proofCourierAddr = *courier
 	}
 
-	return New(
-		vers, genesis, groupKey, groupWitness, scriptKey, internalKey,
-		amount, tapscriptSibling, net, proofCourierAddr,
-		addrOpts...,
-	)
+	return New(NewAddressParams{
+		Version:          vers,
+		ChainParams:      net,
+		Amount:           amount,
+		Genesis:          genesis,
+		GroupKey:         groupKey,
+		GroupWitness:     groupWitness,
+		ScriptKey:        scriptKey,
+		InternalKey:      internalKey,
+		TapscriptSibling: tapscriptSibling,
+		ProofCourierAddr: proofCourierAddr,
+	}, addrOpts...)
 }
 
 func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey,

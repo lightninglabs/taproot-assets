@@ -543,15 +543,20 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 					"courier address: %w", err)
 			}
 
-			tapAddr, err := address.New(
-				address.Version(addr.Version), assetGenesis,
-				groupKey, groupWitness, *scriptKey.PubKey,
-				*internalKey, uint64(addr.Amount),
-				tapscriptSibling, t.params, *proofCourierAddr,
-				address.WithAssetVersion(
-					asset.Version(addr.AssetVersion),
-				),
-			)
+			tapAddr, err := address.New(address.NewAddressParams{
+				Version:          address.Version(addr.Version),
+				ChainParams:      t.params,
+				Amount:           uint64(addr.Amount),
+				Genesis:          assetGenesis,
+				GroupKey:         groupKey,
+				GroupWitness:     groupWitness,
+				ScriptKey:        *scriptKey.PubKey,
+				InternalKey:      *internalKey,
+				TapscriptSibling: tapscriptSibling,
+				ProofCourierAddr: *proofCourierAddr,
+			}, address.WithAssetVersion(
+				asset.Version(addr.AssetVersion),
+			))
 			if err != nil {
 				return fmt.Errorf("unable to make addr: %w", err)
 			}
@@ -716,13 +721,18 @@ func parseAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 			"address: %w", err)
 	}
 
-	tapAddr, err := address.New(
-		address.Version(dbAddr.Version), genesis, groupKey,
-		groupWitness, *scriptKey.PubKey, *internalKey,
-		uint64(dbAddr.Amount), tapscriptSibling, params,
-		*proofCourierAddr,
-		address.WithAssetVersion(asset.Version(dbAddr.AssetVersion)),
-	)
+	tapAddr, err := address.New(address.NewAddressParams{
+		Version:          address.Version(dbAddr.Version),
+		ChainParams:      params,
+		Amount:           uint64(dbAddr.Amount),
+		Genesis:          genesis,
+		GroupKey:         groupKey,
+		GroupWitness:     groupWitness,
+		ScriptKey:        *scriptKey.PubKey,
+		InternalKey:      *internalKey,
+		TapscriptSibling: tapscriptSibling,
+		ProofCourierAddr: *proofCourierAddr,
+	}, address.WithAssetVersion(asset.Version(dbAddr.AssetVersion)))
 	if err != nil {
 		return nil, fmt.Errorf("unable to make addr: %w", err)
 	}
