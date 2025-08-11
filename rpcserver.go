@@ -4153,8 +4153,7 @@ func (r *rpcServer) UpdateSupplyCommit(ctx context.Context,
 	assetSpec := asset.NewSpecifierFromGroupKey(groupPubKey)
 
 	// Send a commit tick event to the supply commitment manager.
-	event := supplycommit.CommitTickEvent{}
-	err = r.cfg.SupplyCommitManager.SendEvent(ctx, assetSpec, &event)
+	err = r.cfg.SupplyCommitManager.StartSupplyPublishFlow(ctx, assetSpec)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send commit tick event: %w",
 			err)
