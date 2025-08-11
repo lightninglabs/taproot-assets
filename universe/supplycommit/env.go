@@ -121,6 +121,40 @@ type AssetLookup interface {
 		rawKey *btcec.PublicKey) (keychain.KeyLocator, error)
 }
 
+// fetchLatestAssetMetadata returns the latest asset metadata for the
+// given asset specifier.
+func fetchLatestAssetMetadata(ctx context.Context, lookup AssetLookup,
+	assetSpec asset.Specifier) (proof.MetaReveal, error) {
+
+	var zero proof.MetaReveal
+
+	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
+	if err != nil {
+		return zero, err
+	}
+
+	// TODO(ffranr): This currently retrieves asset metadata using the
+	//  genesis ID. Update it to retrieve by the latest asset ID instead,
+	//  which will provide access to the most up-to-date canonical universe
+	//  list.
+	assetGroup, err := lookup.QueryAssetGroupByGroupKey(ctx, groupKey)
+	if err != nil {
+		return zero, fmt.Errorf("unable to fetch asset group "+
+			"by group key: %w", err)
+	}
+
+	// Retrieve the asset metadata for the asset group. This will
+	// include the delegation key and universe commitment flag.
+	metaReveal, err := lookup.FetchAssetMetaForAsset(
+		ctx, assetGroup.Genesis.ID(),
+	)
+	if err != nil {
+		return zero, fmt.Errorf("faild to fetch asset meta: %w", err)
+	}
+
+	return *metaReveal, nil
+}
+
 // SupplyTreeView is an interface that allows the state machine to obtain an up
 // to date snapshot of the root supply tree, as the sub trees (ignore, burn,
 // mint) committed in the main supply tree.
