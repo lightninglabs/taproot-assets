@@ -1382,7 +1382,7 @@ func AssertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 		actual.AddressVersion == taprpc.AddrVersion_ADDR_VERSION_V2 {
 
 		require.Equal(
-			t, fn.ByteSlice(asset.ID{}), actual.AssetId,
+			t, fn.ByteSlice(asset.ZeroID), actual.AssetId,
 		)
 	} else {
 		require.Equal(t, expected.AssetGenesis.AssetId, actual.AssetId)

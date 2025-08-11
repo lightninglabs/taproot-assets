@@ -300,7 +300,7 @@ func New(params NewAddressParams, opts ...NewAddrOpt) (*Tap, error) {
 		// the address, as it doesn't make sense (we'll ignore it anyway
 		// when sending assets to this address).
 		if params.GroupKey != nil {
-			addressAssetID = asset.ID{}
+			addressAssetID = asset.ZeroID
 		}
 	}
 

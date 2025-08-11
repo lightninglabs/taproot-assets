@@ -326,7 +326,9 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 				err      error
 			)
 			switch {
-			case addr.GroupKey != nil && addr.AssetID == asset.ID{}:
+			case addr.GroupKey != nil &&
+				addr.AssetID == asset.ZeroID:
+
 				gkBytes := addr.GroupKey.SerializeCompressed()
 				assetGen, err = db.FetchGenesisByGroupKey(
 					ctx, gkBytes,

@@ -2261,7 +2261,7 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 		// use here.
 		var assetGroup *asset.AssetGroup
 		switch {
-		case addr.GroupKey != nil && addr.AssetID == asset.ID{}:
+		case addr.GroupKey != nil && addr.AssetID == asset.ZeroID:
 			book := r.cfg.TapAddrBook
 			assetGroup, err = book.QueryAssetGroupByGroupKey(
 				ctx, addr.GroupKey,
@@ -3388,7 +3388,7 @@ func marshalAddr(addr *address.Tap,
 		ctx              = context.Background()
 	)
 	switch {
-	case addr.GroupKey != nil && addr.AssetID == asset.ID{}:
+	case addr.GroupKey != nil && addr.AssetID == asset.ZeroID:
 		assetGroup, err = db.QueryAssetGroupByGroupKey(
 			ctx, addr.GroupKey,
 		)
