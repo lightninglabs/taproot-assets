@@ -223,6 +223,21 @@ func (m *Manager) SendEvent(ctx context.Context,
 	return nil
 }
 
+// StartSupplyPublishFlow triggers the state machine to build and publish
+// a new supply commitment if pending supply tree updates exist.
+func (m *Manager) StartSupplyPublishFlow(ctx context.Context,
+	assetSpec asset.Specifier) error {
+
+	sm, err := m.fetchStateMachine(assetSpec)
+	if err != nil {
+		return fmt.Errorf("unable to get or create state machine: %w",
+			err)
+	}
+
+	sm.SendEvent(ctx, &CommitTickEvent{})
+	return nil
+}
+
 // CanHandle determines if the state machine associated with the given asset
 // specifier can handle the given message. If a state machine for the asset
 // group does not exist, it will be created and started.
