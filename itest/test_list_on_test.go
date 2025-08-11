@@ -77,6 +77,10 @@ var allTestCases = []*testCase{
 		test: testReOrgSend,
 	},
 	{
+		name: "re-org send v2 address",
+		test: testReOrgSendV2Address,
+	},
+	{
 		name: "re-org mint and send",
 		test: testReOrgMintAndSend,
 	},
