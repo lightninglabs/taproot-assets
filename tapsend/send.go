@@ -166,9 +166,10 @@ func CreateDummyOutput() *wire.TxOut {
 // AssetGroupQuerier is an interface that allows us to query for asset groups by
 // asset ID.
 type AssetGroupQuerier interface {
-	// QueryAssetGroup attempts to locate the asset group information
+	// QueryAssetGroupByID attempts to locate the asset group information
 	// (genesis + group key) associated with a given asset.
-	QueryAssetGroup(context.Context, asset.ID) (*asset.AssetGroup, error)
+	QueryAssetGroupByID(context.Context, asset.ID) (*asset.AssetGroup,
+		error)
 }
 
 // FundingDescriptor describes the information that is needed to select and
@@ -216,7 +217,9 @@ func DescribeRecipients(ctx context.Context, vPkt *tappsbt.VPacket,
 	firstInput := vPkt.Inputs[0]
 
 	var groupPubKey *btcec.PublicKey
-	groupKey, err := groupQuerier.QueryAssetGroup(ctx, firstInput.PrevID.ID)
+	groupKey, err := groupQuerier.QueryAssetGroupByID(
+		ctx, firstInput.PrevID.ID,
+	)
 	switch {
 	case err == nil && groupKey.GroupKey != nil:
 		groupPubKey = &groupKey.GroupPubKey

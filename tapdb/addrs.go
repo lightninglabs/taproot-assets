@@ -1295,9 +1295,9 @@ func (t *TapAddressBook) LastEventHeightByVersion(ctx context.Context,
 	return uint32(lastHeight), nil
 }
 
-// QueryAssetGroup attempts to fetch an asset group by its asset ID. If the
+// QueryAssetGroupByID attempts to fetch an asset group by its asset ID. If the
 // asset group cannot be found, then ErrAssetGroupUnknown is returned.
-func (t *TapAddressBook) QueryAssetGroup(ctx context.Context,
+func (t *TapAddressBook) QueryAssetGroupByID(ctx context.Context,
 	assetID asset.ID) (*asset.AssetGroup, error) {
 
 	var assetGroup asset.AssetGroup

@@ -63,9 +63,9 @@ var (
 // rfq manager to check asset IDs against asset specifiers.
 type GroupLookupMock struct{}
 
-// QueryAssetGroup fetches the group information of an asset, if it belongs in a
-// group.
-func (g *GroupLookupMock) QueryAssetGroup(_ context.Context,
+// QueryAssetGroupByID fetches the group information of an asset, if it belongs
+// in a group.
+func (g *GroupLookupMock) QueryAssetGroupByID(_ context.Context,
 	id asset.ID) (*asset.AssetGroup, error) {
 
 	// We only consider testAssetID1 and testAssetID2 to be in the group.

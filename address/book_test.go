@@ -43,7 +43,7 @@ func TestBook_NewAddress(t *testing.T) {
 			PubKey: test.RandPubKey(t),
 		}, nil).
 		Twice()
-	mockStorage.On("QueryAssetGroup", ctx, assetID).
+	mockStorage.On("QueryAssetGroupByID", ctx, assetID).
 		Return(&asset.AssetGroup{
 			Genesis: &asset.Genesis{
 				Tag:          "tag",
@@ -96,7 +96,7 @@ func TestBook_QueryAssetInfo(t *testing.T) {
 		name:      "asset found by ID",
 		specifier: asset.NewSpecifierFromId(assetID),
 		setupMocks: func(ms *MockStorage, msync *MockAssetSyncer) {
-			ms.On("QueryAssetGroup", ctx, assetID).
+			ms.On("QueryAssetGroupByID", ctx, assetID).
 				Return(assetGroup, nil).
 				Once()
 		},
@@ -115,7 +115,7 @@ func TestBook_QueryAssetInfo(t *testing.T) {
 		specifier: asset.NewSpecifierFromId(assetID),
 		setupMocks: func(ms *MockStorage, msync *MockAssetSyncer) {
 			errUnknown := ErrAssetGroupUnknown
-			ms.On("QueryAssetGroup", ctx, assetID).
+			ms.On("QueryAssetGroupByID", ctx, assetID).
 				Return((*asset.AssetGroup)(nil), errUnknown).
 				Once()
 			msync.On("SyncAssetInfo", ctx, mock.Anything).
@@ -129,13 +129,13 @@ func TestBook_QueryAssetInfo(t *testing.T) {
 		specifier: asset.NewSpecifierFromId(assetID),
 		setupMocks: func(ms *MockStorage, msync *MockAssetSyncer) {
 			errUnknown := ErrAssetGroupUnknown
-			ms.On("QueryAssetGroup", ctx, assetID).
+			ms.On("QueryAssetGroupByID", ctx, assetID).
 				Return((*asset.AssetGroup)(nil), errUnknown).
 				Once()
 			msync.On("SyncAssetInfo", ctx, mock.Anything).
 				Return(nil).
 				Once()
-			ms.On("QueryAssetGroup", ctx, assetID).
+			ms.On("QueryAssetGroupByID", ctx, assetID).
 				Return(assetGroup, nil).
 				Once()
 			msync.On("EnableAssetSync", ctx, assetGroup).
@@ -237,7 +237,7 @@ func (m *MockStorage) QueryAddrs(ctx context.Context,
 	return args.Get(0).([]AddrWithKeyInfo), args.Error(1)
 }
 
-func (m *MockStorage) QueryAssetGroup(ctx context.Context,
+func (m *MockStorage) QueryAssetGroupByID(ctx context.Context,
 	id asset.ID) (*asset.AssetGroup, error) {
 
 	args := m.Called(ctx, id)
