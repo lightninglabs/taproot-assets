@@ -237,6 +237,13 @@ func (m *MockStorage) QueryAddrs(ctx context.Context,
 	return args.Get(0).([]AddrWithKeyInfo), args.Error(1)
 }
 
+func (m *MockStorage) QueryAssetGroup(ctx context.Context,
+	specifier asset.Specifier) (*asset.AssetGroup, error) {
+
+	args := m.Called(ctx, specifier)
+	return args.Get(0).(*asset.AssetGroup), args.Error(1)
+}
+
 func (m *MockStorage) QueryAssetGroupByID(ctx context.Context,
 	id asset.ID) (*asset.AssetGroup, error) {
 

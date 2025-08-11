@@ -1295,6 +1295,35 @@ func (t *TapAddressBook) LastEventHeightByVersion(ctx context.Context,
 	return uint32(lastHeight), nil
 }
 
+// QueryAssetGroup attempts to locate the asset group information
+// (genesis + group key) associated with a given asset specifier.
+func (t *TapAddressBook) QueryAssetGroup(ctx context.Context,
+	specifier asset.Specifier) (*asset.AssetGroup, error) {
+
+	switch {
+	case specifier.HasGroupPubKey() && !specifier.HasId():
+		groupKey, err := specifier.UnwrapGroupKeyOrErr()
+		if err != nil {
+			return nil, fmt.Errorf("unable to unwrap group key: %w",
+				err)
+		}
+
+		return t.QueryAssetGroupByGroupKey(ctx, groupKey)
+
+	case specifier.HasId():
+		id, err := specifier.UnwrapIdOrErr()
+		if err != nil {
+			return nil, fmt.Errorf("unable to unwrap asset ID: %w",
+				err)
+		}
+		return t.QueryAssetGroupByID(ctx, id)
+
+	default:
+		return nil, fmt.Errorf("asset specifier must have either "+
+			"group key or asset ID, got: %v", specifier)
+	}
+}
+
 // QueryAssetGroupByID attempts to fetch an asset group by its asset ID. If the
 // asset group cannot be found, then ErrAssetGroupUnknown is returned.
 func (t *TapAddressBook) QueryAssetGroupByID(ctx context.Context,

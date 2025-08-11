@@ -101,6 +101,11 @@ type Storage interface {
 	QueryAddrs(ctx context.Context,
 		params QueryParams) ([]AddrWithKeyInfo, error)
 
+	// QueryAssetGroup attempts to locate the asset group information
+	// (genesis + group key) associated with a given asset specifier.
+	QueryAssetGroup(context.Context, asset.Specifier) (*asset.AssetGroup,
+		error)
+
 	// QueryAssetGroupByID attempts to locate the asset group information
 	// (genesis + group key) associated with a given asset.
 	QueryAssetGroupByID(context.Context, asset.ID) (*asset.AssetGroup,
