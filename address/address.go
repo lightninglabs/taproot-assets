@@ -418,6 +418,22 @@ func (a *Tap) AttachGenesis(gen asset.Genesis) {
 	a.assetGen = gen
 }
 
+// Specifier returns the asset specifier for this address. For backward
+// compatibility with V0/V1 addresses, we create a specifier with a group key
+// only if the asset ID is zero. For V0 and V1 addresses the group key can be
+// set, but it is not actually used, so we always must include the asset ID in
+// the specifier.
+func (a *Tap) Specifier() asset.Specifier {
+	switch {
+	case a.GroupKey != nil && a.AssetID == asset.ZeroID:
+		return asset.NewSpecifierFromGroupKey(*a.GroupKey)
+	default:
+		return asset.NewSpecifierOptionalGroupPubKey(
+			a.AssetID, a.GroupKey,
+		)
+	}
+}
+
 // tapCommitment constructs the Taproot Asset commitment that is expected to
 // appear on chain when assets are being sent to this address.
 func (a *Tap) tapCommitment() (*commitment.TapCommitment, error) {

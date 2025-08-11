@@ -317,19 +317,15 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 
 			// If this is an address for a grouped asset, then we
 			// need to fetch the genesis from the group key.
-			// TODO(guggero): We should use an asset specifier in
-			// the address and remove the need for the embedded
-			// genesis struct. Then we can have a
-			// QueryAssetBySpecifier method that we can use here.
 			var (
-				assetGen sqlc.GenesisInfoView
-				err      error
+				specifier = addr.Specifier()
+				assetGen  sqlc.GenesisInfoView
+				err       error
 			)
 			switch {
-			case addr.GroupKey != nil &&
-				addr.AssetID == asset.ZeroID:
-
-				gkBytes := addr.GroupKey.SerializeCompressed()
+			case specifier.HasGroupPubKey() && !specifier.HasId():
+				gkBytes := specifier.UnwrapGroupKeyToPtr().
+					SerializeCompressed()
 				assetGen, err = db.FetchGenesisByGroupKey(
 					ctx, gkBytes,
 				)
