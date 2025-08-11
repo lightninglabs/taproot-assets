@@ -518,7 +518,14 @@ func (a *Tap) EncodeRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 9)
 	records = append(records, newAddressVersionRecord(&a.Version))
 	records = append(records, newAddressAssetVersionRecord(&a.AssetVersion))
-	records = append(records, newAddressAssetID(&a.AssetID))
+
+	// For V2 addresses, the asset ID is zeroed out if a group key is set.
+	// We can save some spaces by not including it in that case. The decoded
+	// result will still be the same, as an all-empty asset ID is the
+	// default upon decoding.
+	if a.AssetID != asset.ZeroID {
+		records = append(records, newAddressAssetID(&a.AssetID))
+	}
 
 	if a.GroupKey != nil {
 		records = append(records, newAddressGroupKeyRecord(&a.GroupKey))

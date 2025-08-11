@@ -186,6 +186,10 @@ func NewTestFromAddress(t testing.TB, a *Tap) *TestAddress {
 		UnknownOddTypes:  a.UnknownOddTypes,
 	}
 
+	if a.AssetID == asset.ZeroID {
+		ta.AssetID = ""
+	}
+
 	if a.GroupKey != nil {
 		ta.GroupKey = test.HexPubKey(a.GroupKey)
 	}
@@ -225,8 +229,8 @@ func (ta *TestAddress) ToAddress(t testing.TB) *Tap {
 		panic("invalid chain params HRP")
 	}
 
-	if ta.AssetID == "" {
-		panic("missing asset ID")
+	if ta.AssetID == "" && ta.GroupKey == "" {
+		panic("missing asset ID or group key")
 	}
 
 	if ta.ScriptKey == "" {

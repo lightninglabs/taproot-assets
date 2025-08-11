@@ -1381,9 +1381,7 @@ func AssertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 	if len(actual.GroupKey) > 0 &&
 		actual.AddressVersion == taprpc.AddrVersion_ADDR_VERSION_V2 {
 
-		require.Equal(
-			t, fn.ByteSlice(asset.ZeroID), actual.AssetId,
-		)
+		require.Empty(t, actual.AssetId)
 	} else {
 		require.Equal(t, expected.AssetGenesis.AssetId, actual.AssetId)
 	}

@@ -457,6 +457,24 @@ func TestAddressEncoding(t *testing.T) {
 			err: nil,
 		},
 		{
+			name: "testnet4 address v2 with group key only",
+			f: func() (*Tap, string, error) {
+				someAmount := uint64(7_908_878)
+				v2 := V2
+				addr, err := randAddress(
+					t, &TestNet4Tap, &v2, true, false,
+					&someAmount, asset.Normal, nil,
+				)
+				if err != nil {
+					return nil, "", err
+				}
+
+				str, err := addr.EncodeAddress()
+				return addr, str, err
+			},
+			err: nil,
+		},
+		{
 			name: "unsupported hrp",
 			f: func() (*Tap, string, error) {
 				return randEncodedAddress(

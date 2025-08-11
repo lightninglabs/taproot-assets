@@ -3425,7 +3425,10 @@ func marshalAddr(addr *address.Tap,
 		return nil, err
 	}
 
-	id := addr.AssetID
+	var id []byte
+	if addr.AssetID != asset.ZeroID {
+		id = addr.AssetID[:]
+	}
 	rpcAddr := &taprpc.Addr{
 		AssetVersion:     assetVersion,
 		AddressVersion:   addrVersion,
