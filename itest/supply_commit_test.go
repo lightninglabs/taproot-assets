@@ -247,10 +247,6 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 			GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
 				GroupKeyBytes: groupKeyBytes,
 			},
-			IgnoreLeafKeys: [][]byte{
-				respIgnore.LeafKey,
-				respIgnore2.LeafKey,
-			},
 		},
 	)
 	require.Nil(t.t, fetchRespNil)
@@ -284,10 +280,6 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 			ctxb, &unirpc.FetchSupplyCommitRequest{
 				GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
 					GroupKeyBytes: groupKeyBytes,
-				},
-				IgnoreLeafKeys: [][]byte{
-					respIgnore.LeafKey,
-					respIgnore2.LeafKey,
 				},
 			},
 		)
@@ -328,10 +320,27 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 		ignoreRootLeafKey, supplyTreeIgnoreLeafNode,
 	)
 
+	// Now fetch the inclusion proofs using FetchSupplyLeaves instead of
+	// FetchSupplyCommit.
+	t.Log("Fetch supply leaves with inclusion proofs")
+	// nolint: lll
+	fetchLeavesResp, err := t.tapd.FetchSupplyLeaves(
+		ctxb, &unirpc.FetchSupplyLeavesRequest{
+			GroupKey: &unirpc.FetchSupplyLeavesRequest_GroupKeyBytes{
+				GroupKeyBytes: groupKeyBytes,
+			},
+			IgnoreLeafKeys: [][]byte{
+				respIgnore.LeafKey,
+				respIgnore2.LeafKey,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
 	// Unmarshal ignore tree leaf inclusion proof to verify that the
 	// ignored asset outpoint is included in the ignore tree.
-	require.Len(t.t, fetchResp.IgnoreLeafInclusionProofs, 2)
-	inclusionProofBytes := fetchResp.IgnoreLeafInclusionProofs[0]
+	require.Len(t.t, fetchLeavesResp.IgnoreLeafInclusionProofs, 2)
+	inclusionProofBytes := fetchLeavesResp.IgnoreLeafInclusionProofs[0]
 
 	// Verify that the ignore tree root can be computed from the ignore leaf
 	// inclusion proof.
