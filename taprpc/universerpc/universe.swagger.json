@@ -1423,6 +1423,42 @@
             "required": false,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "issuance_leaf_keys",
+            "description": "Optional: A list of issuance leaf keys. For each key in this list,\nthe endpoint will generate and return an inclusion proof.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "byte"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "burn_leaf_keys",
+            "description": "Optional: A list of burn leaf keys. For each key in this list,\nthe endpoint will generate and return an inclusion proof.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "byte"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "ignore_leaf_keys",
+            "description": "Optional: A list of ignore leaf keys. For each key in this list, the\nendpoint will generate and return an inclusion proof.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "byte"
+            },
+            "collectionFormat": "multi"
           }
         ],
         "tags": [
@@ -1503,42 +1539,6 @@
             "required": false,
             "type": "string",
             "format": "byte"
-          },
-          {
-            "name": "issuance_leaf_keys",
-            "description": "Optional: A list of issuance leaf keys. For each key in this list,\nthe endpoint will generate and return an inclusion proof.",
-            "in": "query",
-            "required": false,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "byte"
-            },
-            "collectionFormat": "multi"
-          },
-          {
-            "name": "burn_leaf_keys",
-            "description": "Optional: A list of burn leaf keys. For each key in this list,\nthe endpoint will generate and return an inclusion proof.",
-            "in": "query",
-            "required": false,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "byte"
-            },
-            "collectionFormat": "multi"
-          },
-          {
-            "name": "ignore_leaf_keys",
-            "description": "Optional: A list of ignore leaf keys. For each key in this list, the\nendpoint will generate and return an inclusion proof.",
-            "in": "query",
-            "required": false,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "byte"
-            },
-            "collectionFormat": "multi"
           }
         ],
         "tags": [
@@ -2520,30 +2520,6 @@
         "ignore_subtree_root": {
           "$ref": "#/definitions/universerpcSupplyCommitSubtreeRoot",
           "description": "The root of the ignore tree for the specified asset."
-        },
-        "issuance_leaf_inclusion_proofs": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "format": "byte"
-          },
-          "description": "Inclusion proofs for each issuance leaf key provided in the request.\nEach entry corresponds to the key at the same index in\n`issuance_leaf_keys`."
-        },
-        "burn_leaf_inclusion_proofs": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "format": "byte"
-          },
-          "description": "Inclusion proofs for each burn leaf key provided in the request.\nEach entry corresponds to the key at the same index in `burn_leaf_keys`."
-        },
-        "ignore_leaf_inclusion_proofs": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "format": "byte"
-          },
-          "description": "Inclusion proofs for each ignored leaf key provided in the request.\nEach entry corresponds to the key at the same index in\n`ignore_leaf_keys`."
         }
       }
     },
@@ -2570,6 +2546,30 @@
             "type": "object",
             "$ref": "#/definitions/universerpcSupplyLeafEntry"
           }
+        },
+        "issuance_leaf_inclusion_proofs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Inclusion proofs for each issuance leaf key provided in the request.\nEach entry corresponds to the key at the same index in\n`issuance_leaf_keys`."
+        },
+        "burn_leaf_inclusion_proofs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Inclusion proofs for each burn leaf key provided in the request.\nEach entry corresponds to the key at the same index in `burn_leaf_keys`."
+        },
+        "ignore_leaf_inclusion_proofs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Inclusion proofs for each ignored leaf key provided in the request.\nEach entry corresponds to the key at the same index in\n`ignore_leaf_keys`."
         }
       }
     },
