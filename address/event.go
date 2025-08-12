@@ -183,7 +183,7 @@ func NewTransferFromWalletTx(addr *AddrWithKeyInfo,
 		}
 	}
 
-	expectedCommitment, err := addr.TapCommitment()
+	expectedCommitment, err := addr.tapCommitment()
 	if err != nil {
 		return empty, fmt.Errorf("error getting taproot asset "+
 			"commitment: %w", err)

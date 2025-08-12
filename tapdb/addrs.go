@@ -317,17 +317,15 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 
 			// If this is an address for a grouped asset, then we
 			// need to fetch the genesis from the group key.
-			// TODO(guggero): We should use an asset specifier in
-			// the address and remove the need for the embedded
-			// genesis struct. Then we can have a
-			// QueryAssetBySpecifier method that we can use here.
 			var (
-				assetGen sqlc.GenesisInfoView
-				err      error
+				specifier = addr.Specifier()
+				assetGen  sqlc.GenesisInfoView
+				err       error
 			)
 			switch {
-			case addr.GroupKey != nil && addr.AssetID == asset.ID{}:
-				gkBytes := addr.GroupKey.SerializeCompressed()
+			case specifier.HasGroupPubKey() && !specifier.HasId():
+				gkBytes := specifier.UnwrapGroupKeyToPtr().
+					SerializeCompressed()
 				assetGen, err = db.FetchGenesisByGroupKey(
 					ctx, gkBytes,
 				)
@@ -543,15 +541,20 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 					"courier address: %w", err)
 			}
 
-			tapAddr, err := address.New(
-				address.Version(addr.Version), assetGenesis,
-				groupKey, groupWitness, *scriptKey.PubKey,
-				*internalKey, uint64(addr.Amount),
-				tapscriptSibling, t.params, *proofCourierAddr,
-				address.WithAssetVersion(
-					asset.Version(addr.AssetVersion),
-				),
-			)
+			tapAddr, err := address.New(address.NewAddressParams{
+				Version:          address.Version(addr.Version),
+				ChainParams:      t.params,
+				Amount:           uint64(addr.Amount),
+				Genesis:          assetGenesis,
+				GroupKey:         groupKey,
+				GroupWitness:     groupWitness,
+				ScriptKey:        *scriptKey.PubKey,
+				InternalKey:      *internalKey,
+				TapscriptSibling: tapscriptSibling,
+				ProofCourierAddr: *proofCourierAddr,
+			}, address.WithAssetVersion(
+				asset.Version(addr.AssetVersion),
+			))
 			if err != nil {
 				return fmt.Errorf("unable to make addr: %w", err)
 			}
@@ -716,13 +719,18 @@ func parseAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 			"address: %w", err)
 	}
 
-	tapAddr, err := address.New(
-		address.Version(dbAddr.Version), genesis, groupKey,
-		groupWitness, *scriptKey.PubKey, *internalKey,
-		uint64(dbAddr.Amount), tapscriptSibling, params,
-		*proofCourierAddr,
-		address.WithAssetVersion(asset.Version(dbAddr.AssetVersion)),
-	)
+	tapAddr, err := address.New(address.NewAddressParams{
+		Version:          address.Version(dbAddr.Version),
+		ChainParams:      params,
+		Amount:           uint64(dbAddr.Amount),
+		Genesis:          genesis,
+		GroupKey:         groupKey,
+		GroupWitness:     groupWitness,
+		ScriptKey:        *scriptKey.PubKey,
+		InternalKey:      *internalKey,
+		TapscriptSibling: tapscriptSibling,
+		ProofCourierAddr: *proofCourierAddr,
+	}, address.WithAssetVersion(asset.Version(dbAddr.AssetVersion)))
 	if err != nil {
 		return nil, fmt.Errorf("unable to make addr: %w", err)
 	}
@@ -1283,9 +1291,38 @@ func (t *TapAddressBook) LastEventHeightByVersion(ctx context.Context,
 	return uint32(lastHeight), nil
 }
 
-// QueryAssetGroup attempts to fetch an asset group by its asset ID. If the
-// asset group cannot be found, then ErrAssetGroupUnknown is returned.
+// QueryAssetGroup attempts to locate the asset group information
+// (genesis + group key) associated with a given asset specifier.
 func (t *TapAddressBook) QueryAssetGroup(ctx context.Context,
+	specifier asset.Specifier) (*asset.AssetGroup, error) {
+
+	switch {
+	case specifier.HasGroupPubKey() && !specifier.HasId():
+		groupKey, err := specifier.UnwrapGroupKeyOrErr()
+		if err != nil {
+			return nil, fmt.Errorf("unable to unwrap group key: %w",
+				err)
+		}
+
+		return t.QueryAssetGroupByGroupKey(ctx, groupKey)
+
+	case specifier.HasId():
+		id, err := specifier.UnwrapIdOrErr()
+		if err != nil {
+			return nil, fmt.Errorf("unable to unwrap asset ID: %w",
+				err)
+		}
+		return t.QueryAssetGroupByID(ctx, id)
+
+	default:
+		return nil, fmt.Errorf("asset specifier must have either "+
+			"group key or asset ID, got: %v", specifier)
+	}
+}
+
+// QueryAssetGroupByID attempts to fetch an asset group by its asset ID. If the
+// asset group cannot be found, then ErrAssetGroupUnknown is returned.
+func (t *TapAddressBook) QueryAssetGroupByID(ctx context.Context,
 	assetID asset.ID) (*asset.AssetGroup, error) {
 
 	var assetGroup asset.AssetGroup

@@ -102,8 +102,14 @@ type Storage interface {
 		params QueryParams) ([]AddrWithKeyInfo, error)
 
 	// QueryAssetGroup attempts to locate the asset group information
+	// (genesis + group key) associated with a given asset specifier.
+	QueryAssetGroup(context.Context, asset.Specifier) (*asset.AssetGroup,
+		error)
+
+	// QueryAssetGroupByID attempts to locate the asset group information
 	// (genesis + group key) associated with a given asset.
-	QueryAssetGroup(context.Context, asset.ID) (*asset.AssetGroup, error)
+	QueryAssetGroupByID(context.Context, asset.ID) (*asset.AssetGroup,
+		error)
 
 	// QueryAssetGroupByGroupKey fetches the asset group with a matching
 	// tweaked key, including the genesis information used to create the
@@ -274,7 +280,7 @@ func (b *Book) queryAssetInfoByID(ctx context.Context,
 	id asset.ID) lfn.Result[asset.AssetGroup] {
 
 	// Check if we know of this asset ID already.
-	assetGroup, err := b.cfg.Store.QueryAssetGroup(ctx, id)
+	assetGroup, err := b.cfg.Store.QueryAssetGroupByID(ctx, id)
 	switch {
 	case assetGroup != nil:
 		return lfn.Ok(*assetGroup)
@@ -300,7 +306,7 @@ func (b *Book) queryAssetInfoByID(ctx context.Context,
 
 	// The asset genesis info may have been synced from a universe
 	// server; query for the asset ID again.
-	assetGroup, err = b.cfg.Store.QueryAssetGroup(ctx, id)
+	assetGroup, err = b.cfg.Store.QueryAssetGroupByID(ctx, id)
 	if err != nil {
 		return lfn.Err[asset.AssetGroup](err)
 	}
@@ -580,12 +586,18 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
 		}
 	}
 
-	baseAddr, err := New(
-		addrVersion, *assetGroup.Genesis, groupKey, groupWitness,
-		*scriptKey.PubKey, *internalKeyDesc.PubKey, amount,
-		tapscriptSibling, &b.cfg.Chain, proofCourierAddr,
-		addrOpts...,
-	)
+	baseAddr, err := New(NewAddressParams{
+		Version:          addrVersion,
+		ChainParams:      &b.cfg.Chain,
+		Amount:           amount,
+		Genesis:          *assetGroup.Genesis,
+		GroupKey:         groupKey,
+		GroupWitness:     groupWitness,
+		ScriptKey:        *scriptKey.PubKey,
+		InternalKey:      *internalKeyDesc.PubKey,
+		TapscriptSibling: tapscriptSibling,
+		ProofCourierAddr: proofCourierAddr,
+	}, addrOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make new addr: %w", err)
 	}

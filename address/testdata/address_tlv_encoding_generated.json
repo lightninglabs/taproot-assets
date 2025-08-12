@@ -188,6 +188,23 @@
       },
       "expected": "taptb1qqqsyqspqqzzqmxkf8k70p0hngg6yf7vls0ax2gzcvkrnmrrxeqs0w7cvkpl69exqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqsqrp8v96hg6rdv95kccn00q4h2mnfwejhyum9wfcxxw309anx7mewvfshyw33xqcrywgrwcyqj",
       "comment": "testnet4 address v2 with zero amount"
+    },
+    {
+      "address": {
+        "version": 2,
+        "chain_params_hrp": "taptb",
+        "asset_version": 0,
+        "asset_id": "",
+        "group_key": "03eed3936a8f5bfed45276063b594dea658c73502d5d5a3a555f3c513ad105a1a4",
+        "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "tapscript_sibling": "",
+        "amount": 7908878,
+        "proof_courier_addr": "authmailbox+universerpc://foo.bar:10029",
+        "unknown_odd_types": null
+      },
+      "expected": "taptb1qqqsyqspqqzjzqlw6wfk4r6mlm29yasx8dv5m6n933e4qt2atga92heu2yadzpdp5srzzq4q4l43vhcwcd5gpd5wpw4tmxkeccharf564xvtcv8f5drzqts83uyzzq4q4l43vhcwcd5gpd5wpw4tmxkeccharf564xvtcv8f5drzqts83u9qtlsq0zhqurp8v96hg6rdv95kccn00q4h2mnfwejhyum9wfcxxw309anx7mewvfshyw33xqcrywg77ca5k",
+      "comment": "testnet4 address v2 with group key only"
     }
   ],
   "error_test_cases": null

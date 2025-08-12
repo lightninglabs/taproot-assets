@@ -2255,22 +2255,9 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 		// that means we don't know anything about what it should look
 		// like on chain (the genesis is required to derive the taproot
 		// output key).
-		// TODO(guggero): We should use an asset specifier in the
-		// address and remove the need for the embedded genesis struct.
-		// Then we can have a QueryAssetBySpecifier method that we can
-		// use here.
-		var assetGroup *asset.AssetGroup
-		switch {
-		case addr.GroupKey != nil && addr.AssetID == asset.ID{}:
-			book := r.cfg.TapAddrBook
-			assetGroup, err = book.QueryAssetGroupByGroupKey(
-				ctx, addr.GroupKey,
-			)
-		default:
-			assetGroup, err = r.cfg.TapAddrBook.QueryAssetGroup(
-				ctx, addr.AssetID,
-			)
-		}
+		assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(
+			ctx, addr.Specifier(),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unknown asset=%x: %w",
 				addr.AssetID[:], err)
@@ -3379,22 +3366,11 @@ func marshalAddr(addr *address.Tap,
 	// We can only derive the taproot output if we already know the genesis
 	// for this asset, as that's required to make the template asset that
 	// will be committed to in the tapscript tree.
-	// TODO(guggero): We should use an asset specifier in the address and
-	// remove the need for the embedded genesis struct. Then we can have
-	// a QueryAssetBySpecifier method that we can use here.
 	var (
 		taprootOutputKey []byte
-		assetGroup       *asset.AssetGroup
 		ctx              = context.Background()
 	)
-	switch {
-	case addr.GroupKey != nil && addr.AssetID == asset.ID{}:
-		assetGroup, err = db.QueryAssetGroupByGroupKey(
-			ctx, addr.GroupKey,
-		)
-	default:
-		assetGroup, err = db.QueryAssetGroup(ctx, addr.AssetID)
-	}
+	assetGroup, err := db.QueryAssetGroup(ctx, addr.Specifier())
 	if err == nil {
 		addr.AttachGenesis(*assetGroup.Genesis)
 
@@ -3425,7 +3401,10 @@ func marshalAddr(addr *address.Tap,
 		return nil, err
 	}
 
-	id := addr.AssetID
+	var id []byte
+	if addr.AssetID != asset.ZeroID {
+		id = addr.AssetID[:]
+	}
 	rpcAddr := &taprpc.Addr{
 		AssetVersion:     assetVersion,
 		AddressVersion:   addrVersion,
@@ -3708,7 +3687,7 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 	}
 
 	var groupKey *btcec.PublicKey
-	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(ctx, assetID)
+	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByID(ctx, assetID)
 	switch {
 	case err == nil && assetGroup.GroupKey != nil:
 		// We found the asset group, so we can use the group key to
@@ -4036,7 +4015,7 @@ func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
 	assetID := req.AssetAnchorPoint.ID
 
 	// Fetch the asset group for the given asset ID.
-	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(ctx, assetID)
+	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByID(ctx, assetID)
 	if err != nil {
 		return nil, fmt.Errorf("fail to find asset group given "+
 			"asset ID: %w", err)
@@ -6094,7 +6073,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 	rpcsLog.Debugf("No roots found for asset %v, checking if this "+
 		"asset is part of a group", groupedAssetID.String())
 
-	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(
+	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByID(
 		ctx, groupedAssetID,
 	)
 
@@ -8317,7 +8296,7 @@ func (r *rpcServer) specifierWithGroupKeyLookup(ctx context.Context,
 	var result asset.Specifier
 
 	if assetID != nil && groupKey == nil {
-		dbGroupKey, err := r.cfg.TapAddrBook.QueryAssetGroup(
+		dbGroupKey, err := r.cfg.TapAddrBook.QueryAssetGroupByID(
 			ctx, *assetID,
 		)
 		switch {

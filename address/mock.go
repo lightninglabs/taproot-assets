@@ -122,12 +122,18 @@ func RandAddrWithVersionAndScriptKey(t testing.TB, params *ChainParams,
 		require.NoError(t, err)
 	}
 
-	tapAddr, err := New(
-		addrVersion, genesis, groupPubKey, groupWitness,
-		*scriptKey.PubKey, *internalKey.PubKey(), amount,
-		tapscriptSibling, params, proofCourierAddr,
-		WithAssetVersion(assetVersion),
-	)
+	tapAddr, err := New(NewAddressParams{
+		Version:          addrVersion,
+		ChainParams:      params,
+		Amount:           amount,
+		Genesis:          genesis,
+		GroupKey:         groupPubKey,
+		GroupWitness:     groupWitness,
+		ScriptKey:        *scriptKey.PubKey,
+		InternalKey:      *internalKey.PubKey(),
+		TapscriptSibling: tapscriptSibling,
+		ProofCourierAddr: proofCourierAddr,
+	}, WithAssetVersion(assetVersion))
 	require.NoError(t, err)
 
 	taprootOutputKey, err := tapAddr.TaprootOutputKey()
@@ -180,6 +186,10 @@ func NewTestFromAddress(t testing.TB, a *Tap) *TestAddress {
 		UnknownOddTypes:  a.UnknownOddTypes,
 	}
 
+	if a.AssetID == asset.ZeroID {
+		ta.AssetID = ""
+	}
+
 	if a.GroupKey != nil {
 		ta.GroupKey = test.HexPubKey(a.GroupKey)
 	}
@@ -219,8 +229,8 @@ func (ta *TestAddress) ToAddress(t testing.TB) *Tap {
 		panic("invalid chain params HRP")
 	}
 
-	if ta.AssetID == "" {
-		panic("missing asset ID")
+	if ta.AssetID == "" && ta.GroupKey == "" {
+		panic("missing asset ID or group key")
 	}
 
 	if ta.ScriptKey == "" {

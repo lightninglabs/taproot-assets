@@ -121,7 +121,7 @@ func assertIDInList(t testing.TB, leaves []universe.MultiverseLeaf,
 
 	require.True(t, fn.Any(leaves, func(l universe.MultiverseLeaf) bool {
 		switch {
-		case l.ID.AssetID != asset.ID{}:
+		case l.ID.AssetID != asset.ZeroID:
 			return l.ID.AssetID == id.AssetID
 
 		case l.ID.GroupKey != nil:

@@ -197,16 +197,58 @@ func WithAssetVersion(v asset.Version) NewAddrOpt {
 	}
 }
 
-// New creates an address for receiving a Taproot asset.
-//
-// TODO(ffranr): This function takes many arguments. Add a struct to better
-// organise its arguments.
-func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
-	groupWitness wire.TxWitness, scriptKey btcec.PublicKey,
-	internalKey btcec.PublicKey, amt uint64,
-	tapscriptSibling *commitment.TapscriptPreimage, net *ChainParams,
-	proofCourierAddr url.URL, opts ...NewAddrOpt) (*Tap, error) {
+// NewAddressParams is a set of parameters that can be used to create a new
+// Taproot Asset address.
+type NewAddressParams struct {
+	// Version is the version of the address to create.
+	Version Version
 
+	// ChainParams is the chain parameters that the address will be used on.
+	ChainParams *ChainParams
+
+	// Amount is the number of asset units being requested by the receiver.
+	// The amount is allowed to be zero for V2 addresses, where the sender
+	// can choose the amount to send.
+	Amount uint64
+
+	// Genesis is the asset genesis metadata that this address is created
+	// for. This is used to derive the asset ID of the address and is
+	// optional for V2 addresses that have a group key set.
+	Genesis asset.Genesis
+
+	// GroupKey is the asset group key that is used to receive assets. For
+	// V0/V1 addresses, this is purely informational and is not used. For V2
+	// addresses this must be used for assets that belong to a group, as
+	// receiving through just a single asset ID is not desired for grouped
+	// assets.
+	GroupKey *btcec.PublicKey
+
+	// GroupWitness is the witness that proves the group key is valid. This
+	// must only be set if the GroupKey is set.
+	GroupWitness wire.TxWitness
+
+	// ScriptKey is the Taproot output key that is used to lock the assets
+	// received to this address.
+	ScriptKey btcec.PublicKey
+
+	// InternalKey is the on-chain Taproot internal key that is used to
+	// derive the Taproot output key for the address.
+	InternalKey btcec.PublicKey
+
+	// TapscriptSibling is the tapscript sibling preimage of the script that
+	// will be committed to alongside the assets received through this
+	// address. This is optional and can be nil if no tapscript sibling is
+	// desired. If set, it must be a valid tapscript sibling that is not a
+	// Taproot Asset commitment.
+	TapscriptSibling *commitment.TapscriptPreimage
+
+	// ProofCourierAddr is the address of the proof courier that will be
+	// used to distribute related proofs for this address.
+	ProofCourierAddr url.URL
+}
+
+// New creates an address for receiving a Taproot asset.
+func New(params NewAddressParams, opts ...NewAddrOpt) (*Tap, error) {
 	options := defaultNewAddrOptions()
 	for _, opt := range opts {
 		opt(options)
@@ -215,14 +257,14 @@ func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
 	// Check for invalid combinations of asset type and amount.
 	// Collectible assets must have an amount of 1, and Normal assets must
 	// have a non-zero amount. We also reject invalid asset types.
-	switch genesis.Type {
+	switch params.Genesis.Type {
 	case asset.Collectible:
-		if amt != 1 {
+		if params.Amount != 1 {
 			return nil, ErrInvalidAmountCollectible
 		}
 
 	case asset.Normal:
-		if amt == 0 && version != V2 {
+		if params.Amount == 0 && params.Version != V2 {
 			return nil, ErrInvalidAmountNormal
 		}
 
@@ -230,63 +272,63 @@ func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
 		return nil, ErrUnsupportedAssetType
 	}
 
-	if !IsBech32MTapPrefix(net.TapHRP + "1") {
+	if !IsBech32MTapPrefix(params.ChainParams.TapHRP + "1") {
 		return nil, ErrUnsupportedHRP
 	}
 
 	// Check the version of the address format.
-	if IsUnknownVersion(version) {
+	if IsUnknownVersion(params.Version) {
 		return nil, ErrUnknownVersion
 	}
 
 	// Version 2 addresses behave slightly differently than V0 and V1
 	// addresses.
-	addressAssetID := genesis.ID()
-	if version == V2 {
+	addressAssetID := params.Genesis.ID()
+	if params.Version == V2 {
 		// Addresses with version 2 or later must use the new
 		// authmailbox proof courier type.
-		if proofCourierAddr.Scheme !=
+		if params.ProofCourierAddr.Scheme !=
 			proof.AuthMailboxUniRpcCourierType {
 
 			return nil, fmt.Errorf("%w: address version %d must "+
 				"use the '%s' proof courier type",
-				ErrInvalidProofCourierAddr, version,
+				ErrInvalidProofCourierAddr, params.Version,
 				proof.AuthMailboxUniRpcCourierType)
 		}
 
 		// If a group key is provided, then we zero out the asset ID in
 		// the address, as it doesn't make sense (we'll ignore it anyway
 		// when sending assets to this address).
-		if groupKey != nil {
-			addressAssetID = asset.ID{}
+		if params.GroupKey != nil {
+			addressAssetID = asset.ZeroID
 		}
 	}
 
 	// We can only use a tapscript sibling that is not a Taproot Asset
 	// commitment.
-	if tapscriptSibling != nil {
-		if _, err := tapscriptSibling.TapHash(); err != nil {
+	if params.TapscriptSibling != nil {
+		if _, err := params.TapscriptSibling.TapHash(); err != nil {
 			return nil, errors.New("address: tapscript sibling " +
 				"is invalid")
 		}
 	}
 
-	if groupKey != nil && len(groupWitness) == 0 {
+	if params.GroupKey != nil && len(params.GroupWitness) == 0 {
 		return nil, fmt.Errorf("address: missing group signature")
 	}
 
 	payload := Tap{
-		Version:          version,
-		ChainParams:      net,
+		Version:          params.Version,
+		ChainParams:      params.ChainParams,
 		AssetVersion:     options.assetVersion,
 		AssetID:          addressAssetID,
-		GroupKey:         groupKey,
-		ScriptKey:        scriptKey,
-		InternalKey:      internalKey,
-		TapscriptSibling: tapscriptSibling,
-		Amount:           amt,
-		assetGen:         genesis,
-		ProofCourierAddr: proofCourierAddr,
+		GroupKey:         params.GroupKey,
+		ScriptKey:        params.ScriptKey,
+		InternalKey:      params.InternalKey,
+		TapscriptSibling: params.TapscriptSibling,
+		Amount:           params.Amount,
+		assetGen:         params.Genesis,
+		ProofCourierAddr: params.ProofCourierAddr,
 	}
 	return &payload, nil
 }
@@ -376,27 +418,25 @@ func (a *Tap) AttachGenesis(gen asset.Genesis) {
 	a.assetGen = gen
 }
 
-// TapCommitmentKey is the key that maps to the root commitment for the asset
-// group specified by a Taproot Asset address.
-func (a *Tap) TapCommitmentKey() [32]byte {
-	assetSpecifier := asset.NewSpecifierOptionalGroupPubKey(
-		a.AssetID, a.GroupKey,
-	)
-
-	return asset.TapCommitmentKey(assetSpecifier)
+// Specifier returns the asset specifier for this address. For backward
+// compatibility with V0/V1 addresses, we create a specifier with a group key
+// only if the asset ID is zero. For V0 and V1 addresses the group key can be
+// set, but it is not actually used, so we always must include the asset ID in
+// the specifier.
+func (a *Tap) Specifier() asset.Specifier {
+	switch {
+	case a.GroupKey != nil && a.AssetID == asset.ZeroID:
+		return asset.NewSpecifierFromGroupKey(*a.GroupKey)
+	default:
+		return asset.NewSpecifierOptionalGroupPubKey(
+			a.AssetID, a.GroupKey,
+		)
+	}
 }
 
-// AssetCommitmentKey is the key that maps to the asset leaf for the asset
-// specified by a Taproot Asset address.
-func (a *Tap) AssetCommitmentKey() [32]byte {
-	return asset.AssetCommitmentKey(
-		a.AssetID, &a.ScriptKey, a.GroupKey == nil,
-	)
-}
-
-// TapCommitment constructs the Taproot Asset commitment that is expected to
+// tapCommitment constructs the Taproot Asset commitment that is expected to
 // appear on chain when assets are being sent to this address.
-func (a *Tap) TapCommitment() (*commitment.TapCommitment, error) {
+func (a *Tap) tapCommitment() (*commitment.TapCommitment, error) {
 	// If this genesis wasn't actually set, then we'll fail here as we need
 	// it in order to make the asset template.
 	var zeroOp wire.OutPoint
@@ -442,7 +482,7 @@ func (a *Tap) TaprootOutputKey() (*btcec.PublicKey, error) {
 		))
 	}
 
-	c, err := a.TapCommitment()
+	c, err := a.tapCommitment()
 	if err != nil {
 		return nil, fmt.Errorf("unable to derive Taproot Asset "+
 			"commitment: %w", err)
@@ -476,7 +516,14 @@ func (a *Tap) EncodeRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 9)
 	records = append(records, newAddressVersionRecord(&a.Version))
 	records = append(records, newAddressAssetVersionRecord(&a.AssetVersion))
-	records = append(records, newAddressAssetID(&a.AssetID))
+
+	// For V2 addresses, the asset ID is zeroed out if a group key is set.
+	// We can save some spaces by not including it in that case. The decoded
+	// result will still be the same, as an all-empty asset ID is the
+	// default upon decoding.
+	if a.AssetID != asset.ZeroID {
+		records = append(records, newAddressAssetID(&a.AssetID))
+	}
 
 	if a.GroupKey != nil {
 		records = append(records, newAddressGroupKeyRecord(&a.GroupKey))

@@ -14,7 +14,7 @@
       "address": {
         "chain_params_hrp": "tapbc"
       },
-      "error": "missing asset ID"
+      "error": "missing asset ID or group key"
     },
     {
       "address": {

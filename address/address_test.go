@@ -99,11 +99,18 @@ func randAddress(t *testing.T, net *ChainParams, v *Version, groupPubKey,
 		proofCourierAddr = *courier
 	}
 
-	return New(
-		vers, genesis, groupKey, groupWitness, scriptKey, internalKey,
-		amount, tapscriptSibling, net, proofCourierAddr,
-		addrOpts...,
-	)
+	return New(NewAddressParams{
+		Version:          vers,
+		ChainParams:      net,
+		Amount:           amount,
+		Genesis:          genesis,
+		GroupKey:         groupKey,
+		GroupWitness:     groupWitness,
+		ScriptKey:        scriptKey,
+		InternalKey:      internalKey,
+		TapscriptSibling: tapscriptSibling,
+		ProofCourierAddr: proofCourierAddr,
+	}, addrOpts...)
 }
 
 func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey,
@@ -439,6 +446,24 @@ func TestAddressEncoding(t *testing.T) {
 				addr, err := randAddress(
 					t, &TestNet4Tap, &v2, false, false,
 					&zeroAmt, asset.Normal, nil,
+				)
+				if err != nil {
+					return nil, "", err
+				}
+
+				str, err := addr.EncodeAddress()
+				return addr, str, err
+			},
+			err: nil,
+		},
+		{
+			name: "testnet4 address v2 with group key only",
+			f: func() (*Tap, string, error) {
+				someAmount := uint64(7_908_878)
+				v2 := V2
+				addr, err := randAddress(
+					t, &TestNet4Tap, &v2, true, false,
+					&someAmount, asset.Normal, nil,
 				)
 				if err != nil {
 					return nil, "", err

@@ -255,6 +255,9 @@ var (
 	// asset split leaves.
 	ZeroPrevID PrevID
 
+	// ZeroID is the zero asset ID, indicating the absence of an ID.
+	ZeroID ID
+
 	// EmptyGenesis is the empty Genesis struct used for alt leaves.
 	EmptyGenesis Genesis
 

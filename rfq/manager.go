@@ -75,9 +75,10 @@ type (
 // GroupLookup is an interface that helps us look up a group of an asset based
 // on the asset ID.
 type GroupLookup interface {
-	// QueryAssetGroup fetches the group information of an asset, if it
+	// QueryAssetGroupByID fetches the group information of an asset, if it
 	// belongs in a group.
-	QueryAssetGroup(context.Context, asset.ID) (*asset.AssetGroup, error)
+	QueryAssetGroupByID(context.Context, asset.ID) (*asset.AssetGroup,
+		error)
 }
 
 // ManagerCfg is a struct that holds the configuration parameters for the RFQ
@@ -932,7 +933,7 @@ func (m *Manager) getAssetGroupKey(ctx context.Context,
 	}
 
 	// Perform the DB query.
-	group, err := m.cfg.GroupLookup.QueryAssetGroup(ctx, id)
+	group, err := m.cfg.GroupLookup.QueryAssetGroupByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, address.ErrAssetGroupUnknown) {
 			return fn.None[btcec.PublicKey](), nil
