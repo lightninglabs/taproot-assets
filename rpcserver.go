@@ -4331,38 +4331,6 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 			"root: %w", err)
 	}
 
-	// Get inclusion proofs for any issuance leaf key specified in the
-	// request.
-	issuanceTree := resp.Subtrees[supplycommit.MintTreeType]
-	issuanceInclusionProofs, err := inclusionProofs(
-		ctx, issuanceTree, req.IssuanceLeafKeys,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch issuance tree "+
-			"inclusion proofs: %w", err)
-	}
-
-	// Get inclusion proofs for any burn leaf key specified in the request.
-	burnTree := resp.Subtrees[supplycommit.BurnTreeType]
-	burnInclusionProofs, err := inclusionProofs(
-		ctx, burnTree, req.BurnLeafKeys,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch burn tree "+
-			"inclusion proofs: %w", err)
-	}
-
-	// Get inclusion proofs for any ignore leaf key specified in the
-	// request.
-	ignoreTree := resp.Subtrees[supplycommit.IgnoreTreeType]
-	ignoreInclusionProofs, err := inclusionProofs(
-		ctx, ignoreTree, req.IgnoreLeafKeys,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch ignore tree "+
-			"inclusion proofs: %w", err)
-	}
-
 	// Sanity check: ensure the supply root derived from the supply tree
 	// matches the root provided in the chain commitment.
 	if resp.ChainCommitment.SupplyRoot.NodeHash() !=
@@ -4408,10 +4376,6 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 		IssuanceSubtreeRoot: rpcIssuanceSubtreeRoot,
 		BurnSubtreeRoot:     rpcBurnSubtreeRoot,
 		IgnoreSubtreeRoot:   rpcIgnoreSubtreeRoot,
-
-		IssuanceLeafInclusionProofs: issuanceInclusionProofs,
-		BurnLeafInclusionProofs:     burnInclusionProofs,
-		IgnoreLeafInclusionProofs:   ignoreInclusionProofs,
 	}, nil
 }
 
@@ -4459,6 +4423,24 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch supply leaves: %w", err)
+	}
+
+	// Check if inclusion proofs are requested.
+	needsInclusionProofs := len(req.IssuanceLeafKeys) > 0 ||
+		len(req.BurnLeafKeys) > 0 || len(req.IgnoreLeafKeys) > 0
+
+	// If inclusion proofs are requested, fetch the subtrees.
+	var subtrees supplycommit.SupplyTrees
+	if needsInclusionProofs {
+		subtreeResult, err := r.cfg.SupplyCommitManager.FetchSubTrees(
+			ctx, assetSpec,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch subtrees for "+
+				"inclusion proofs: %w", err)
+		}
+
+		subtrees = subtreeResult
 	}
 
 	rpcMarshalLeafEntry := func(leafEntry supplycommit.SupplyUpdateEvent) (
@@ -4552,10 +4534,56 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 		rpcIgnoreLeaves = append(rpcIgnoreLeaves, rpcLeaf)
 	}
 
+	// Generate inclusion proofs if requested.
+	var (
+		issuanceInclusionProofs [][]byte
+		burnInclusionProofs     [][]byte
+		ignoreInclusionProofs   [][]byte
+	)
+
+	if needsInclusionProofs {
+		// Get inclusion proofs for any issuance leaf key specified in
+		// the request.
+		issuanceTree := subtrees[supplycommit.MintTreeType]
+		var err error
+		issuanceInclusionProofs, err = inclusionProofs(
+			ctx, issuanceTree, req.IssuanceLeafKeys,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch issuance tree "+
+				"inclusion proofs: %w", err)
+		}
+
+		// Get inclusion proofs for any burn leaf key specified in the
+		// request.
+		burnTree := subtrees[supplycommit.BurnTreeType]
+		burnInclusionProofs, err = inclusionProofs(
+			ctx, burnTree, req.BurnLeafKeys,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch burn tree "+
+				"inclusion proofs: %w", err)
+		}
+
+		// Get inclusion proofs for any ignore leaf key specified in the
+		// request.
+		ignoreTree := subtrees[supplycommit.IgnoreTreeType]
+		ignoreInclusionProofs, err = inclusionProofs(
+			ctx, ignoreTree, req.IgnoreLeafKeys,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch ignore tree "+
+				"inclusion proofs: %w", err)
+		}
+	}
+
 	return &unirpc.FetchSupplyLeavesResponse{
-		IssuanceLeaves: rpcIssuanceLeaves,
-		BurnLeaves:     rpcBurnLeaves,
-		IgnoreLeaves:   rpcIgnoreLeaves,
+		IssuanceLeaves:              rpcIssuanceLeaves,
+		BurnLeaves:                  rpcBurnLeaves,
+		IgnoreLeaves:                rpcIgnoreLeaves,
+		IssuanceLeafInclusionProofs: issuanceInclusionProofs,
+		BurnLeafInclusionProofs:     burnInclusionProofs,
+		IgnoreLeafInclusionProofs:   ignoreInclusionProofs,
 	}, nil
 }
 
