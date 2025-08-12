@@ -803,18 +803,6 @@ message FetchSupplyCommitRequest {
         // REST).
         string group_key_str = 2;
     }
-
-    // Optional: A list of issuance leaf keys. For each key in this list,
-    // the endpoint will generate and return an inclusion proof.
-    repeated bytes issuance_leaf_keys = 3;
-
-    // Optional: A list of burn leaf keys. For each key in this list,
-    // the endpoint will generate and return an inclusion proof.
-    repeated bytes burn_leaf_keys = 4;
-
-    // Optional: A list of ignore leaf keys. For each key in this list, the
-    // endpoint will generate and return an inclusion proof.
-    repeated bytes ignore_leaf_keys = 5;
 }
 
 message SupplyCommitSubtreeRoot {
@@ -870,20 +858,6 @@ message FetchSupplyCommitResponse {
 
     // The root of the ignore tree for the specified asset.
     SupplyCommitSubtreeRoot ignore_subtree_root = 11;
-
-    // Inclusion proofs for each issuance leaf key provided in the request.
-    // Each entry corresponds to the key at the same index in
-    // `issuance_leaf_keys`.
-    repeated bytes issuance_leaf_inclusion_proofs = 12;
-
-    // Inclusion proofs for each burn leaf key provided in the request.
-    // Each entry corresponds to the key at the same index in `burn_leaf_keys`.
-    repeated bytes burn_leaf_inclusion_proofs = 13;
-
-    // Inclusion proofs for each ignored leaf key provided in the request.
-    // Each entry corresponds to the key at the same index in
-    // `ignore_leaf_keys`.
-    repeated bytes ignore_leaf_inclusion_proofs = 14;
 }
 
 message FetchSupplyLeavesRequest {
@@ -903,6 +877,18 @@ message FetchSupplyLeavesRequest {
 
     // The end block height for the range of supply leaves to fetch.
     uint32 block_height_end = 4;
+
+    // Optional: A list of issuance leaf keys. For each key in this list,
+    // the endpoint will generate and return an inclusion proof.
+    repeated bytes issuance_leaf_keys = 5;
+
+    // Optional: A list of burn leaf keys. For each key in this list,
+    // the endpoint will generate and return an inclusion proof.
+    repeated bytes burn_leaf_keys = 6;
+
+    // Optional: A list of ignore leaf keys. For each key in this list, the
+    // endpoint will generate and return an inclusion proof.
+    repeated bytes ignore_leaf_keys = 7;
 }
 
 // SupplyLeafKey identifies a supply leaf entry. It contains the components
@@ -939,6 +925,20 @@ message FetchSupplyLeavesResponse {
     repeated SupplyLeafEntry issuance_leaves = 1;
     repeated SupplyLeafEntry burn_leaves = 2;
     repeated SupplyLeafEntry ignore_leaves = 3;
+
+    // Inclusion proofs for each issuance leaf key provided in the request.
+    // Each entry corresponds to the key at the same index in
+    // `issuance_leaf_keys`.
+    repeated bytes issuance_leaf_inclusion_proofs = 4;
+
+    // Inclusion proofs for each burn leaf key provided in the request.
+    // Each entry corresponds to the key at the same index in `burn_leaf_keys`.
+    repeated bytes burn_leaf_inclusion_proofs = 5;
+
+    // Inclusion proofs for each ignored leaf key provided in the request.
+    // Each entry corresponds to the key at the same index in
+    // `ignore_leaf_keys`.
+    repeated bytes ignore_leaf_inclusion_proofs = 6;
 }
 
 // SupplyCommitChainData represents the on-chain artifacts for a supply
