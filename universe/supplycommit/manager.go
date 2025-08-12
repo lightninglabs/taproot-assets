@@ -552,6 +552,20 @@ func (m *Manager) FetchSupplyLeavesByHeight(
 	return resp, nil
 }
 
+// FetchSubTrees returns all the sub trees for the given asset specifier.
+func (m *Manager) FetchSubTrees(ctx context.Context,
+	assetSpec asset.Specifier) (SupplyTrees, error) {
+
+	var zero SupplyTrees
+
+	subtrees, err := m.cfg.TreeView.FetchSubTrees(ctx, assetSpec).Unpack()
+	if err != nil {
+		return zero, fmt.Errorf("unable to fetch sub trees: %w", err)
+	}
+
+	return subtrees, nil
+}
+
 // stateMachineCache is a thread-safe cache mapping an asset group's public key
 // to its supply commitment state machine.
 type stateMachineCache struct {

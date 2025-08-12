@@ -1638,21 +1638,6 @@ var fetchSupplyCommitCmd = cli.Command{
 			Usage:    "the group key of the asset group to fetch",
 			Required: true,
 		},
-		&cli.StringSliceFlag{
-			Name: "issuance_leaf_keys",
-			Usage: "a list of issuance leaf keys to fetch " +
-				"inclusion proofs for",
-		},
-		&cli.StringSliceFlag{
-			Name: "burn_leaf_keys",
-			Usage: "a list of burn leaf keys to fetch inclusion " +
-				"proofs for",
-		},
-		&cli.StringSliceFlag{
-			Name: "ignore_leaf_keys",
-			Usage: "a list of ignore leaf keys to fetch " +
-				"inclusion proofs for",
-		},
 	},
 	Action: fetchSupplyCommit,
 }
@@ -1667,26 +1652,6 @@ func fetchSupplyCommit(ctx *cli.Context) error {
 			GroupKeyStr: ctx.String("group_key"),
 		},
 	}
-
-	issuanceKeys, err := parseHexStrings(
-		ctx.StringSlice("issuance_leaf_keys"),
-	)
-	if err != nil {
-		return fmt.Errorf("invalid issuance_leaf_keys: %w", err)
-	}
-	req.IssuanceLeafKeys = issuanceKeys
-
-	burnKeys, err := parseHexStrings(ctx.StringSlice("burn_leaf_keys"))
-	if err != nil {
-		return fmt.Errorf("invalid burn_leaf_keys: %w", err)
-	}
-	req.BurnLeafKeys = burnKeys
-
-	ignoreKeys, err := parseHexStrings(ctx.StringSlice("ignore_leaf_keys"))
-	if err != nil {
-		return fmt.Errorf("invalid ignore_leaf_keys: %w", err)
-	}
-	req.IgnoreLeafKeys = ignoreKeys
 
 	resp, err := client.FetchSupplyCommit(cliCtx, req)
 	if err != nil {
@@ -1719,6 +1684,21 @@ var fetchSupplyLeavesCmd = cli.Command{
 			Usage:    "the end of the block height range",
 			Required: true,
 		},
+		&cli.StringSliceFlag{
+			Name: "issuance_leaf_keys",
+			Usage: "a list of issuance leaf keys to fetch " +
+				"inclusion proofs for",
+		},
+		&cli.StringSliceFlag{
+			Name: "burn_leaf_keys",
+			Usage: "a list of burn leaf keys to fetch inclusion " +
+				"proofs for",
+		},
+		&cli.StringSliceFlag{
+			Name: "ignore_leaf_keys",
+			Usage: "a list of ignore leaf keys to fetch " +
+				"inclusion proofs for",
+		},
 	},
 	Action: fetchSupplyLeaves,
 }
@@ -1735,6 +1715,26 @@ func fetchSupplyLeaves(ctx *cli.Context) error {
 		BlockHeightStart: uint32(ctx.Uint64("block_height_start")),
 		BlockHeightEnd:   uint32(ctx.Uint64("block_height_end")),
 	}
+
+	issuanceKeys, err := parseHexStrings(
+		ctx.StringSlice("issuance_leaf_keys"),
+	)
+	if err != nil {
+		return fmt.Errorf("invalid issuance_leaf_keys: %w", err)
+	}
+	req.IssuanceLeafKeys = issuanceKeys
+
+	burnKeys, err := parseHexStrings(ctx.StringSlice("burn_leaf_keys"))
+	if err != nil {
+		return fmt.Errorf("invalid burn_leaf_keys: %w", err)
+	}
+	req.BurnLeafKeys = burnKeys
+
+	ignoreKeys, err := parseHexStrings(ctx.StringSlice("ignore_leaf_keys"))
+	if err != nil {
+		return fmt.Errorf("invalid ignore_leaf_keys: %w", err)
+	}
+	req.IgnoreLeafKeys = ignoreKeys
 
 	resp, err := client.FetchSupplyLeaves(cliCtx, req)
 	if err != nil {
