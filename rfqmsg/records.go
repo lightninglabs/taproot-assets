@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -169,6 +170,13 @@ type Htlc struct {
 	// picked when an HTLC is sent over to a peer. When one of these RFQ IDs
 	// gets picked it will be encoded as an Htlc.RfqID (see above field).
 	AvailableRfqIDs tlv.OptionalRecordT[AvailableRfqIDsType, HtlcRfqIDs]
+
+	// NoopAdd is a flag that indicates whether this HTLC should be marked
+	// as a noop_add for LND. A noop_add HTLC behaves identically to a
+	// normal HTLC except for the settlement step, where the satoshi amount
+	// is returned back to the sender, but the commitment blob is still
+	// updated to reflect the asset balance changes.
+	NoopAdd bool
 }
 
 // NewHtlc creates a new Htlc record with the given funded assets.
@@ -258,7 +266,17 @@ func (h *Htlc) Records() []tlv.Record {
 		},
 	)
 
+	if h.NoopAdd {
+		r := tlv.NewPrimitiveRecord[lnwallet.NoOpHtlcTLVType](true)
+		records = append(records, r.Record())
+	}
+
 	return records
+}
+
+// SetNoopAdd flags the HTLC as a noop_add.
+func (h *Htlc) SetNoopAdd(noopActive bool) {
+	h.NoopAdd = noopActive
 }
 
 // Encode serializes the Htlc to the given io.Writer.
