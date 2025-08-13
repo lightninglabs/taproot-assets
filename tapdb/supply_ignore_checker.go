@@ -1,10 +1,14 @@
 package tapdb
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -13,12 +17,87 @@ import (
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
 
+const (
+	// DefaultNegativeLookupCacheSize is the default size of the supply
+	// ignore checker's negative lookup LRU cache.
+	DefaultNegativeLookupCacheSize = 10_000
+)
+
 var (
 	// nonGroupedAsset is a zeroed out public key that is used to identify a
 	// non-existent group key (for an asset that does not belong to a
 	// group).
 	nonGroupedAsset = asset.SerializedKey{}
 )
+
+// emptyCacheEntry is a type that implements the lru.CacheEntry interface
+// with a size of 1 but doesn't store any data for the entry. This is useful for
+// LRU caches that only need to track a certain number of keys, but not their
+// values.
+type emptyCacheEntry struct{}
+
+// Size just returns 1 as we're limiting based on the total number different
+// keys in the cache, not the size of the values.
+func (c *emptyCacheEntry) Size() (uint64, error) {
+	return 1, nil
+}
+
+// nonIgnoredCache is a type that implements a simple LRU cache for
+// proof.AssetPoint keys, which are used to track asset points that are known
+// to not be ignored. This cache is used to speed up the lookup of asset points
+// that are not ignored, so we don't need to query the database again for the
+// same asset point in the near future. The cache is evicted whenever there is a
+// possibility that the list of ignored asset points changes, such as when a new
+// ignore tuple is added to the asset group.
+type nonIgnoredCache struct {
+	cache *lru.Cache[proof.AssetPoint, *emptyCacheEntry]
+
+	*cacheLogger
+}
+
+// HasEntry checks if the given asset point is in the list of non-ignored
+// asset points.
+func (c *nonIgnoredCache) HasEntry(key proof.AssetPoint) bool {
+	val, notFoundErr := c.cache.Get(key)
+	if notFoundErr == nil && val != nil {
+		c.Hit()
+
+		log.Tracef("Asset point %s is known to currently not be "+
+			"ignored", key)
+
+		return true
+	}
+
+	log.Tracef("Asset point %s is not in non-ignore cache", key)
+	c.Miss()
+
+	return false
+}
+
+// AddEntry adds a new asset point to the non-ignored cache.
+func (c *nonIgnoredCache) AddEntry(key proof.AssetPoint) error {
+	if _, err := c.cache.Put(key, &emptyCacheEntry{}); err != nil {
+		return fmt.Errorf("failed to add asset point %s to negative "+
+			"lookup cache: %v", key, err)
+	}
+
+	return nil
+}
+
+// newAssetPointCache creates a new LRU cache for proof.AssetPoint keys (without
+// values).
+func newNonIgnoredCache(cacheSize uint64) *nonIgnoredCache {
+	if cacheSize == 0 {
+		cacheSize = DefaultNegativeLookupCacheSize
+	}
+
+	return &nonIgnoredCache{
+		cache: lru.NewCache[proof.AssetPoint, *emptyCacheEntry](
+			cacheSize,
+		),
+		cacheLogger: newCacheLogger("non-ignored asset points"),
+	}
+}
 
 // IgnoreCheckerStore is an interface that defines the methods required to
 // fetch supply leaves for the ignore checker. It abstracts away the storage
@@ -50,6 +129,10 @@ type IgnoreCheckerCfg struct {
 
 	// Store is used to fetch supply leaves for the ignore checker.
 	Store IgnoreCheckerStore
+
+	// NegativeLookupCacheSize is the size of the negative cache for
+	// asset points that are known to not be ignored.
+	NegativeLookupCacheSize uint64
 }
 
 // CachingIgnoreChecker is a proof.IgnoreChecker that caches the results of
@@ -85,6 +168,15 @@ type CachingIgnoreChecker struct {
 	// asset is ignored. The set uses the asset point as the key, which
 	// includes the outpoint, asset ID, and script key.
 	ignoredAssetPoints fn.Set[proof.AssetPoint]
+
+	// nonIgnoredAssetPoints is a "negative" cache that stores asset points
+	// that are known to (currently!) not be ignored. This is used to speed
+	// up the lookup of asset points that are not ignored if we look up the
+	// same ancestor multiple times. It is imperative that this cache is
+	// evicted whenever there is a possibility that the list of ignored
+	// asset points changes, such as when a new ignore tuple is added to the
+	// asset group.
+	nonIgnoredAssetPoints *nonIgnoredCache
 }
 
 // NewCachingIgnoreChecker creates a new instance of CachingIgnoreChecker
@@ -95,6 +187,9 @@ func NewCachingIgnoreChecker(cfg IgnoreCheckerCfg) *CachingIgnoreChecker {
 		groupKeyLookup:     make(map[asset.ID]asset.SerializedKey),
 		bestHeightLookup:   make(map[asset.SerializedKey]uint32),
 		ignoredAssetPoints: make(fn.Set[proof.AssetPoint]),
+		nonIgnoredAssetPoints: newNonIgnoredCache(
+			cfg.NegativeLookupCacheSize,
+		),
 	}
 }
 
@@ -119,6 +214,17 @@ func (c *CachingIgnoreChecker) IsIgnored(ctx context.Context,
 		log.Tracef("Asset point %s is already known to be ignored",
 			prevID)
 		return lfn.Ok(true)
+	}
+
+	// We also do a direct lookup to find out if the asset point currently
+	// is _NOT_ ignored. This cache will only be populated for some time
+	// before it is evicted, to make sure we don't miss new asset points
+	// being ignored.
+	if c.nonIgnoredAssetPoints.HasEntry(prevID) {
+		log.Tracef("Asset point %s is known to currently not be "+
+			"ignored", prevID)
+
+		return lfn.Ok(false)
 	}
 
 	// If it's not known to be ignored, we need to look up the group key for
@@ -220,5 +326,59 @@ func (c *CachingIgnoreChecker) IsIgnored(ctx context.Context,
 	c.bestHeightLookup[groupKey] = bestHeight
 
 	// And now we can check if the previous ID is in our ignored assets set.
-	return lfn.Ok(c.ignoredAssetPoints.Contains(prevID))
+	isIgnored := c.ignoredAssetPoints.Contains(prevID)
+
+	// If the asset point is currently not ignored, we add it to the
+	// negative lookup cache, so we don't need to query the database again
+	// for this asset point in the near future.
+	if !isIgnored {
+		log.Tracef("Asset point %s is not ignored, adding to "+
+			"negative lookup cache", prevID)
+
+		if err := c.nonIgnoredAssetPoints.AddEntry(prevID); err != nil {
+			return lfn.Err[bool](err)
+		}
+	}
+
+	log.Debugf("Asset point %s is ignored: %v", prevID, isIgnored)
+	return lfn.Ok(isIgnored)
+}
+
+// InvalidateCache is used to clear the negative lookup cache for asset points
+// that are known to not be ignored. This should be called whenever there is a
+// possibility that the list of ignored asset points changes, such as when a new
+// ignore tuple is added to the asset group.
+func (c *CachingIgnoreChecker) InvalidateCache(groupKey btcec.PublicKey) {
+	c.Lock()
+	defer c.Unlock()
+
+	log.Debugf("Invalidating ignore checker negative lookup cache for "+
+		"group key %x", groupKey.SerializeCompressed())
+
+	invalidatedGroupKeyBytes := groupKey.SerializeCompressed()
+	c.nonIgnoredAssetPoints.cache.Range(
+		func(key proof.AssetPoint, _ *emptyCacheEntry) bool {
+			groupKeyInCache, ok := c.groupKeyLookup[key.ID]
+			if !ok {
+				// If we don't have the group key for this
+				// asset point, we can't invalidate it. We know
+				// for certain that we would have an entry in
+				// the group key lookup map if we added an asset
+				// point to the non-ignored cache.
+				return true
+			}
+
+			// If the asset ID belongs to the group that we want to
+			// invalidate entries for, then we remove it from the
+			// non-ignored asset points cache.
+			if bytes.Equal(
+				groupKeyInCache[:], invalidatedGroupKeyBytes,
+			) {
+
+				c.nonIgnoredAssetPoints.cache.Delete(key)
+			}
+
+			return true
+		},
+	)
 }

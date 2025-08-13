@@ -260,3 +260,61 @@ func TestCachingIgnoreChecker_IsIgnored(t *testing.T) {
 		})
 	}
 }
+
+// TestNegativeLookupCacheLogger tests the negative lookup cache and
+// validates the cache logger's hit/miss ratio for cache hits and misses.
+func TestNegativeLookupCacheLogger(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	assetID := asset.ID{1, 2, 3}
+	groupPubKey := test.RandPubKey(t)
+	groupKeySpecifier := asset.NewSpecifierFromGroupKey(*groupPubKey)
+	outPoint := test.RandOp(t)
+	scriptKey := [33]byte{2}
+	assetPoint := proof.AssetPoint{
+		OutPoint:  outPoint,
+		ID:        assetID,
+		ScriptKey: scriptKey,
+	}
+
+	groupQuery := &mockGroupQuery{}
+	store := &mockIgnoreStore{}
+
+	groupQuery.On(
+		"QueryAssetGroupByID", mock.Anything, assetID,
+	).Return(&asset.AssetGroup{
+		GroupKey: &asset.GroupKey{
+			GroupPubKey: *groupPubKey,
+		},
+	}, nil).Once()
+	store.On(
+		"FetchSupplyLeavesByType",
+		mock.Anything, groupKeySpecifier,
+		supplycommit.IgnoreTreeType, uint32(0), uint32(0),
+	).Return(lfn.Ok(supplycommit.SupplyLeaves{})).Once()
+
+	checker := NewCachingIgnoreChecker(IgnoreCheckerCfg{
+		GroupQuery:              groupQuery,
+		Store:                   store,
+		NegativeLookupCacheSize: 100,
+	})
+
+	// First call: should be a cache miss, asset point added to negative
+	// cache.
+	res, err := checker.IsIgnored(ctx, assetPoint).Unpack()
+	require.NoError(t, err)
+	require.False(t, res)
+	misses := checker.nonIgnoredAssetPoints.cacheLogger.miss.Load()
+	require.EqualValues(t, 1, misses)
+
+	// Second call: should be a cache hit, no DB call.
+	res, err = checker.IsIgnored(ctx, assetPoint).Unpack()
+	require.NoError(t, err)
+	require.False(t, res)
+	misses = checker.nonIgnoredAssetPoints.cacheLogger.miss.Load()
+	require.EqualValues(t, 1, misses)
+	hits := checker.nonIgnoredAssetPoints.cacheLogger.hit.Load()
+	require.EqualValues(t, 1, hits)
+}
