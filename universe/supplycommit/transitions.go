@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -990,6 +991,24 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 			return &StateTransition{
 				NextState: &DefaultState{},
 			}, nil
+		}
+
+		groupKey, err := env.AssetSpec.UnwrapGroupKeyOrErr()
+		if err != nil {
+			return nil, fmt.Errorf("group key must be specified "+
+				"for supply tree: %w", err)
+		}
+
+		// We know our tree has been updated, so we need to make sure
+		// the negative lookup cache of the ignore checker is flushed
+		// and the new ignore leaves are loaded from disk.
+		hasIgnoreUpdates := fn.Any(
+			danglingUpdates, func(u SupplyUpdateEvent) bool {
+				return u.SupplySubTreeType() == IgnoreTreeType
+			},
+		)
+		if hasIgnoreUpdates {
+			env.IgnoreCheckerCache.InvalidateCache(*groupKey)
 		}
 
 		// Otherwise, we have more work to do! We'll kick off a new
