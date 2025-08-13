@@ -173,8 +173,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	// components in here.
 	supplyTreeStore := tapdb.NewSupplyTreeStore(uniDB)
 	ignoreChecker := tapdb.NewCachingIgnoreChecker(tapdb.IgnoreCheckerCfg{
-		GroupQuery: tapdbAddrBook,
-		Store:      supplyTreeStore,
+		GroupQuery:              tapdbAddrBook,
+		Store:                   supplyTreeStore,
+		NegativeLookupCacheSize: cfg.Universe.SupplyIgnoreCacheSize,
 	})
 
 	var ignoreCheckerIface proof.IgnoreChecker = ignoreChecker
