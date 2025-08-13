@@ -9,7 +9,9 @@ import (
 )
 
 const (
-	dbSizeMetric = "total_db_size"
+	dbSizeMetric        = "total_db_size"
+	dbCacheHitsMetric   = "db_cache_hits_total"
+	dbCacheMissesMetric = "db_cache_misses_total"
 
 	assetProofSizesHistogram = "asset_proofs_sizes"
 )
@@ -24,6 +26,8 @@ type dbCollector struct {
 
 	dbSize              prometheus.Gauge
 	proofSizesHistogram prometheus.Histogram
+	dbCacheHits         *prometheus.CounterVec
+	dbCacheMisses       *prometheus.CounterVec
 }
 
 func newDbCollector(cfg *PrometheusConfig,
@@ -47,6 +51,21 @@ func newDbCollector(cfg *PrometheusConfig,
 			},
 		),
 		proofSizesHistogram: newProofSizesHistogram(),
+		dbCacheHits: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: dbCacheHitsMetric,
+				Help: "Total number of cache hits",
+			},
+			[]string{"cache_name"},
+		),
+
+		dbCacheMisses: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: dbCacheMissesMetric,
+				Help: "Total number of cache misses",
+			},
+			[]string{"cache_name"},
+		),
 	}, nil
 }
 
@@ -75,6 +94,8 @@ func (a *dbCollector) Describe(ch chan<- *prometheus.Desc) {
 
 	a.dbSize.Describe(ch)
 	a.proofSizesHistogram.Describe(ch)
+	a.dbCacheHits.Describe(ch)
+	a.dbCacheMisses.Describe(ch)
 }
 
 // Collect is called by the Prometheus registry when collecting metrics.
@@ -117,4 +138,23 @@ func (a *dbCollector) Collect(ch chan<- prometheus.Metric) {
 
 	a.proofSizesHistogram.Collect(ch)
 	a.dbSize.Collect(ch)
+
+	// If we don't have a cache stats function, then we skip the cache
+	// stats collection.
+	if a.cfg.CacheStats == nil {
+		return
+	}
+
+	// Fetch all db cache hits and misses.
+	var (
+		cacheHits   = make(map[string]int64)
+		cacheMisses = make(map[string]int64)
+	)
+	a.cfg.CacheStats(cacheHits, cacheMisses)
+	for cacheName, hits := range cacheHits {
+		a.dbCacheHits.WithLabelValues(cacheName).Add(float64(hits))
+	}
+	for cacheName, misses := range cacheMisses {
+		a.dbCacheMisses.WithLabelValues(cacheName).Add(float64(misses))
+	}
 }

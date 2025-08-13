@@ -429,6 +429,15 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		// minter.
 		s.cfg.Prometheus.AssetMinter = s.cfg.AssetMinter
 
+		s.cfg.Prometheus.CacheStats = func(hits map[string]int64,
+			misses map[string]int64) {
+
+			s.cfg.DatabaseConfig.Multiverse.CollectCacheStats(
+				hits, misses,
+			)
+			s.cfg.IgnoreChecker.CollectCacheStats(hits, misses)
+		}
+
 		promExporter, err := monitoring.NewPrometheusExporter(
 			&s.cfg.Prometheus,
 		)
