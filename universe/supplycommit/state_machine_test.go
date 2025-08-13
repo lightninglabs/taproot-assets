@@ -93,6 +93,7 @@ func newTestMintEvent(t *testing.T, scriptKey *btcec.PublicKey,
 		LeafKey:       leafKey,
 		IssuanceProof: issuanceProof,
 		MintHeight:    1000,
+		Done:          make(chan error, 1),
 	}
 }
 
@@ -326,6 +327,32 @@ func (h *supplyCommitTestHarness) sendEvent(event Event) {
 	h.t.Helper()
 
 	h.stateMachine.SendEvent(context.Background(), event)
+
+	// If this is a SyncSupplyUpdateEvent with a done channel, wait for it.
+	if syncEvent, ok := event.(SyncSupplyUpdateEvent); ok {
+		// Check if the event has a done channel by attempting to wait.
+		// We use a short timeout to avoid blocking indefinitely.
+		ctx, cancel := context.WithTimeout(
+			context.Background(), testTimeout,
+		)
+		defer cancel()
+
+		err := syncEvent.WaitForDone(ctx)
+
+		switch {
+		// If the done channel is nil, this is async mode - not an
+		// error.
+		case errors.Is(err, ErrNilDoneChannel):
+			return
+
+		// If we got a timeout, that's a real error.
+		case errors.Is(err, ErrEventTimeout):
+			require.NoError(h.t, err, "sync event timed out")
+		}
+
+		// For other errors (e.g., database errors), tests should verify
+		// them through other means (e.g., assertNoStateTransitions).
+	}
 }
 
 func (h *supplyCommitTestHarness) expectInsertPendingUpdate(
@@ -1418,7 +1445,9 @@ func TestSupplyUpdateEventTypes(t *testing.T) {
 
 		// Finally, we assert that the RawProof field of the decoded
 		// event matches the original serialized proof bytes, confirming
-		// a successful round trip.
+		// a successful round trip. Note: We don't encode/decode the Done
+		// channel, so we clear it before comparison.
+		originalMintEvent.Done = nil
 		require.Equal(t, originalMintEvent, decodedMintEvent)
 
 		require.Equal(
@@ -1901,5 +1930,83 @@ func TestStateAndEventMethods(t *testing.T) {
 		// Check terminal state explicitly.
 		require.True(t, (&CommitFinalizeState{}).IsTerminal())
 		require.False(t, (&DefaultState{}).IsTerminal())
+	})
+}
+
+// TestSyncSupplyUpdateEventEdgeCases tests edge cases for synchronous event
+// handling.
+func TestSyncSupplyUpdateEventEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	testScriptKey := test.RandPubKey(t)
+	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
+
+	// Test that if we get an error during processing, it propagates..
+	t.Run("error_propagation", func(t *testing.T) {
+		h := newSupplyCommitTestHarness(t, &harnessCfg{
+			initialState: &DefaultState{},
+			assetSpec:    defaultAssetSpec,
+		})
+		h.start()
+		defer h.stopAndAssert()
+
+		mintEvent := newTestMintEvent(
+			t, testScriptKey, randOutPoint(t),
+		)
+
+		// Expect the insert to fail.
+		insertErr := errors.New("database error")
+		h.mockStateLog.On(
+			"InsertPendingUpdate", mock.Anything, h.cfg.assetSpec,
+			mintEvent,
+		).Return(insertErr).Once()
+
+		h.expectFailure(insertErr)
+		h.sendEvent(mintEvent)
+
+		// The sendEvent method should have already waited and checked
+		// the error. We're verifying that the test harness correctly
+		// propagated the error.
+		h.assertNoStateTransitions()
+	})
+
+	// If we cancel the context, WaitForDone should return an error.
+	t.Run("context_cancellation", func(t *testing.T) {
+		mintEvent := newTestMintEvent(
+			t, testScriptKey, randOutPoint(t),
+		)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := mintEvent.WaitForDone(ctx)
+		require.Error(t, err, "expected context cancellation error")
+		require.ErrorIs(t, err, ErrEventTimeout)
+		require.ErrorIs(t, err, context.Canceled)
+	})
+
+	// Passing a nil done channel should return an error.
+	t.Run("nil_done_channel", func(t *testing.T) {
+		mintEvent := &NewMintEvent{
+			LeafKey: universe.AssetLeafKey{
+				BaseLeafKey: universe.BaseLeafKey{
+					OutPoint: randOutPoint(t),
+					ScriptKey: &asset.ScriptKey{
+						PubKey: testScriptKey,
+					},
+				},
+				AssetID: testAssetID,
+			},
+			IssuanceProof: universe.Leaf{
+				GenesisWithGroup: universe.GenesisWithGroup{
+					Genesis: testGenesis,
+				},
+			},
+			MintHeight: 1000,
+		}
+
+		err := mintEvent.WaitForDone(context.Background())
+		require.Error(t, err, "expected error for nil done channel")
+		require.ErrorIs(t, err, ErrNilDoneChannel)
 	})
 }
