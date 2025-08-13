@@ -374,6 +374,14 @@ type KeyRing interface {
 		error)
 }
 
+// IgnoreCheckerCache is an interface that allows the state machine to
+// invalidate the ignore checker cache when a new supply commitment is created.
+type IgnoreCheckerCache interface {
+	// InvalidateCache is used to invalidate the ignore checker cache when
+	// a new supply commitment is created.
+	InvalidateCache()
+}
+
 // StateMachineStore is an interface that allows the state machine to persist
 // its state across restarts. This is used to track the state of the state
 // machine, and the set of pending updates that are being applied to the
@@ -483,6 +491,10 @@ type Environment struct {
 	// ChainParams is the chain parameters for the chain that we're
 	// operating on.
 	ChainParams chaincfg.Params
+
+	// IgnoreCheckerCache is used to invalidate the ignore cache when a new
+	// supply commitment is created.
+	IgnoreCheckerCache IgnoreCheckerCache
 }
 
 // SupplyCommitTxn encapsulates the details of the transaction that creates a

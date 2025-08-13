@@ -984,6 +984,11 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 				"dangling updates: %w", err)
 		}
 
+		// We know our tree has been updated, so we need to make sure
+		// the negative lookup cache of the ignore checker is flushed
+		// and the new ignore leaves are loaded from disk.
+		env.IgnoreCheckerCache.InvalidateCache()
+
 		// If there are no dangling updates, we can transition back to
 		// our idle default state.
 		if len(danglingUpdates) == 0 {

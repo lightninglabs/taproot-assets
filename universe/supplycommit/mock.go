@@ -419,3 +419,11 @@ func (m *mockErrorReporter) GetReportedError() error {
 	defer m.mu.Unlock()
 	return m.reportedError
 }
+
+type mockIgnoreCheckerCache struct {
+	mock.Mock
+}
+
+func (c *mockIgnoreCheckerCache) InvalidateCache() {
+	c.Called()
+}

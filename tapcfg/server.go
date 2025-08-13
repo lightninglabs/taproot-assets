@@ -618,14 +618,15 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	// manage the supply commitment state machines for each asset group.
 	supplyCommitManager := supplycommit.NewMultiStateMachineManager(
 		supplycommit.MultiStateMachineManagerCfg{
-			TreeView:       supplyTreeStore,
-			Commitments:    supplyCommitStore,
-			Wallet:         walletAnchor,
-			KeyRing:        keyRing,
-			Chain:          chainBridge,
-			DaemonAdapters: lndFsmDaemonAdapters,
-			StateLog:       supplyCommitStore,
-			ChainParams:    *tapChainParams.Params,
+			TreeView:           supplyTreeStore,
+			Commitments:        supplyCommitStore,
+			Wallet:             walletAnchor,
+			KeyRing:            keyRing,
+			Chain:              chainBridge,
+			DaemonAdapters:     lndFsmDaemonAdapters,
+			StateLog:           supplyCommitStore,
+			ChainParams:        *tapChainParams.Params,
+			IgnoreCheckerCache: ignoreChecker,
 		},
 	)
 
