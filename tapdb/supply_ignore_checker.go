@@ -95,7 +95,7 @@ func newNonIgnoredCache(cacheSize uint64) *nonIgnoredCache {
 		cache: lru.NewCache[proof.AssetPoint, *emptyCacheEntry](
 			cacheSize,
 		),
-		cacheLogger: newCacheLogger("non-ignored asset points"),
+		cacheLogger: newCacheLogger("non_ignored_asset_points"),
 	}
 }
 
@@ -381,4 +381,23 @@ func (c *CachingIgnoreChecker) InvalidateCache(groupKey btcec.PublicKey) {
 			return true
 		},
 	)
+}
+
+// CollectCacheStats collects the cache stats for the supply ignore checker and
+// adds them to the provided hits and misses maps. The keys in the maps are
+// prefixed with "supply_ignore_" to distinguish them from other caches.
+func (c *CachingIgnoreChecker) CollectCacheStats(hits,
+	misses map[string]int64) {
+
+	caches := []*cacheLogger{
+		c.nonIgnoredAssetPoints.cacheLogger,
+	}
+	for _, cache := range caches {
+		if cache == nil {
+			continue
+		}
+
+		hits["supply_ignore_"+cache.name] = cache.hit.Load()
+		misses["supply_ignore_"+cache.name] = cache.miss.Load()
+	}
 }

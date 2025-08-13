@@ -10024,11 +10024,12 @@ func (r *rpcServer) ProofVerifierCtx(ctx context.Context) proof.VerifierCtx {
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
 
+	var ignoreChecker proof.IgnoreChecker = r.cfg.IgnoreChecker
 	return proof.VerifierCtx{
 		HeaderVerifier: headerVerifier,
 		MerkleVerifier: proof.DefaultMerkleVerifier,
 		GroupVerifier:  groupVerifier,
 		ChainLookupGen: r.cfg.ChainBridge,
-		IgnoreChecker:  lfn.Some(r.cfg.IgnoreChecker),
+		IgnoreChecker:  lfn.Some(ignoreChecker),
 	}
 }
