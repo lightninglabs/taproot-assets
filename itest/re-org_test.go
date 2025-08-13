@@ -192,10 +192,23 @@ func testReOrgSend(t *harnessTest) {
 	bobAssets, err := secondTapd.ListAssets(ctxb, listAssetRequest)
 	require.NoError(t.t, err)
 
+	AssertBalances(
+		t.t, t.tapd, sendAsset.Amount-sendAmount,
+		WithAssetID(sendAssetGen.AssetId), WithNumUtxos(1),
+	)
+	AssertBalances(
+		t.t, t.tapd, assetList[1].Amount,
+		WithAssetID(assetList[1].AssetGenesis.AssetId), WithNumUtxos(1),
+	)
 	for idx := range aliceAssets.Assets {
 		a := aliceAssets.Assets[idx]
 		AssertAssetProofsInvalid(t.t, t.tapd, a)
 	}
+
+	AssertBalances(
+		t.t, secondTapd, sendAmount, WithAssetID(sendAssetGen.AssetId),
+		WithNumUtxos(1),
+	)
 	for idx := range bobAssets.Assets {
 		a := bobAssets.Assets[idx]
 		AssertAssetProofsInvalid(t.t, secondTapd, a)
@@ -231,6 +244,163 @@ func testReOrgSend(t *harnessTest) {
 	// Let's now bury the proofs under sufficient blocks to allow the re-org
 	// watcher to stop watching the TX.
 	t.lndHarness.MineBlocks(8)
+
+	// Make sure the balances are shown correctly after the re-org.
+	AssertBalances(
+		t.t, t.tapd, sendAsset.Amount-sendAmount,
+		WithAssetID(sendAssetGen.AssetId), WithNumUtxos(1),
+	)
+	AssertBalances(
+		t.t, t.tapd, assetList[1].Amount,
+		WithAssetID(assetList[1].AssetGenesis.AssetId), WithNumUtxos(1),
+	)
+	AssertBalances(
+		t.t, secondTapd, sendAmount, WithAssetID(sendAssetGen.AssetId),
+		WithNumUtxos(1),
+	)
+}
+
+// testReOrgSendV2Address tests that when a re-org occurs with a v2 address,
+// sent asset proofs are updated accordingly.
+func testReOrgSendV2Address(t *harnessTest) {
+	// First, we'll mint a few assets and confirm the batch TX.
+	mintRequests := []*mintrpc.MintAssetRequest{
+		issuableAssets[0], issuableAssets[1],
+	}
+	lndMiner := t.lndHarness.Miner()
+	assetList := MintAssetsConfirmBatch(
+		t.t, lndMiner.Client, t.tapd, mintRequests,
+	)
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets. The existing tapd
+	// node will be used to synchronize universe state.
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	// Before we mine a block to confirm the mint TX, we create a temporary
+	// miner.
+	tempMiner := spawnTempMiner(t.t, t, ctxt)
+
+	// Now to the second part of the test: We'll send an asset to Bob, and
+	// then re-org the chain again.
+	sendAsset := assetList[0]
+	sendAssetGen := sendAsset.AssetGenesis
+	sendAmount := uint64(500)
+	bobAddrV2, err := secondTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		GroupKey:       sendAsset.AssetGroup.TweakedGroupKey,
+		Amt:            sendAmount,
+		AddressVersion: addrV2,
+	})
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, secondTapd, sendAsset, bobAddrV2)
+
+	sendResp, _ := sendAssetsToAddr(t, t.tapd, bobAddrV2)
+	initialBlock := ConfirmAndAssertOutboundTransfer(
+		t.t, lndMiner.Client, t.tapd, sendResp, sendAssetGen.AssetId,
+		[]uint64{sendAsset.Amount - sendAmount, sendAmount}, 0, 1,
+	)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
+	initialBlockHash := initialBlock.BlockHash()
+
+	// Make sure the original send TX was mined in the first block.
+	sendTXID, err := chainhash.NewHash(sendResp.Transfer.AnchorTxHash)
+	require.NoError(t.t, err)
+	lndMiner.AssertTxInBlock(initialBlock, *sendTXID)
+	t.Logf("Send TX %v mined in block %v", sendTXID, initialBlockHash)
+
+	// We now generate the re-org. That should put the minting TX back into
+	// the mempool.
+	generateReOrg(t.t, t.lndHarness, tempMiner, 3, 2)
+	lndMiner.AssertNumTxsInMempool(1)
+
+	// This should have caused a reorg, and Alice should sync to the longer
+	// chain, where the funding transaction is not confirmed.
+	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
+	require.NoError(t.t, err, "unable to get current block height")
+	t.lndHarness.WaitForNodeBlockHeight(t.tapd.cfg.LndNode, tempMinerHeight)
+
+	// At this point, the all asset proofs should be invalid, since the send
+	// TX was re-organized out, and it also contained passive assets.
+	listAssetRequest := &taprpc.ListAssetRequest{}
+	aliceAssets, err := t.tapd.ListAssets(ctxb, listAssetRequest)
+	require.NoError(t.t, err)
+	bobAssets, err := secondTapd.ListAssets(ctxb, listAssetRequest)
+	require.NoError(t.t, err)
+
+	AssertBalances(
+		t.t, t.tapd, sendAsset.Amount-sendAmount,
+		WithAssetID(sendAssetGen.AssetId), WithNumUtxos(1),
+	)
+	AssertBalances(
+		t.t, t.tapd, assetList[1].Amount,
+		WithAssetID(assetList[1].AssetGenesis.AssetId), WithNumUtxos(1),
+	)
+	for idx := range aliceAssets.Assets {
+		a := aliceAssets.Assets[idx]
+		AssertAssetProofsInvalid(t.t, t.tapd, a)
+	}
+
+	AssertBalances(
+		t.t, secondTapd, sendAmount, WithAssetID(sendAssetGen.AssetId),
+		WithNumUtxos(1),
+	)
+	for idx := range bobAssets.Assets {
+		a := bobAssets.Assets[idx]
+		AssertAssetProofsInvalid(t.t, secondTapd, a)
+	}
+
+	// Cleanup by mining the minting tx again.
+	newBlock := t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)[0]
+	newBlockHash := newBlock.BlockHash()
+	_, newBlockHeight := lndMiner.GetBestBlock()
+	lndMiner.AssertTxInBlock(newBlock, *sendTXID)
+	t.Logf("Send TX %v re-mined in block %v", sendTXID, newBlockHash)
+
+	// Let's wait until we see that the proof for the first asset was
+	// updated to the new block height.
+	WaitForProofUpdate(t.t, t.tapd, aliceAssets.Assets[0], newBlockHeight)
+	WaitForProofUpdate(t.t, secondTapd, bobAssets.Assets[0], newBlockHeight)
+
+	// We now try to validate the send proofs of the delivered, change and
+	// passive assets. The re-org watcher should have updated the proofs and
+	// pushed them to the proof store. They should be valid now.
+	aliceChainClient := t.tapd.cfg.LndNode.RPC.ChainKit
+	for idx := range aliceAssets.Assets {
+		a := aliceAssets.Assets[idx]
+		AssertAssetProofs(t.t, t.tapd, aliceChainClient, a)
+	}
+
+	bobChainClient := secondTapd.cfg.LndNode.RPC.ChainKit
+	for idx := range bobAssets.Assets {
+		a := bobAssets.Assets[idx]
+		AssertAssetProofs(t.t, secondTapd, bobChainClient, a)
+	}
+
+	// Let's now bury the proofs under sufficient blocks to allow the re-org
+	// watcher to stop watching the TX.
+	t.lndHarness.MineBlocks(8)
+
+	// Make sure the balances are shown correctly after the re-org.
+	AssertBalances(
+		t.t, t.tapd, sendAsset.Amount-sendAmount,
+		WithAssetID(sendAssetGen.AssetId), WithNumUtxos(1),
+	)
+	AssertBalances(
+		t.t, t.tapd, assetList[1].Amount,
+		WithAssetID(assetList[1].AssetGenesis.AssetId), WithNumUtxos(1),
+	)
+	AssertBalances(
+		t.t, secondTapd, sendAmount, WithAssetID(sendAssetGen.AssetId),
+		WithNumUtxos(1),
+	)
 }
 
 // testReOrgMintAndSend tests that when a re-org occurs, minted and directly
