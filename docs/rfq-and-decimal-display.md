@@ -208,6 +208,42 @@ convert from mSAT to asset units as follows:
   `price_in_asset`
    * `Y` is the number of asset units per BTC, specified by `price_out_asset`
 
+### Price oracle interaction
+
+```mermaid
+sequenceDiagram
+    actor User
+    box Seller (user)
+    participant NodeA as Node A
+    participant OracleA as Price Oracle A
+    end
+    box Buyer (edge node)
+    participant NodeB as Node B
+    participant OracleB as Price Oracle B
+    end
+
+    User->>+NodeA: SendPayment
+    
+    NodeA->>+NodeA: AddAssetSellOrder
+
+    NodeA->>+OracleA: Get price rate hint<br/>(QueryAssetRate[type=SALE,intent=PAY_INVOICE_HINT,peer=NodeB])
+    OracleA-->>-NodeA: Price rate hint
+
+    NodeA->>+NodeB: Send sell request with price<br/>rate hint over p2p
+
+    NodeB->>+OracleB: Determine actual price<br/>rate using suggested price<br/>(QueryAssetRate[type=PURCHASE,intent=PAY_INVOICE,peer=NodeA])
+    OracleB-->>-NodeB: Actual price rate
+
+    NodeB-->>-NodeA: Return actual price rate
+
+    NodeA->>+OracleA: Validate actual price rate<br/>(QueryAssetRate[type=SALE,intent=PAY_INVOICE_QUALIFY,peer=NodeB])
+    OracleA-->>-NodeA: Approve actual price rate
+    
+    NodeA->>-NodeA: Send payment over LN using approved actual price rate
+    
+    NodeA->>-User: Payment result
+```
+
 ## Buy Order (Receiving via an Invoice)
 
 The buy order covers the second user story: The user wants to get paid, they
@@ -244,6 +280,43 @@ node as:
     * `Y` is the number of asset units per BTC, specified by `price_out_asset`
     * `M` is the number of mSAT in a BTC (100,000,000,000), specified by
       `price_in_asset`
+
+### Price oracle interaction
+
+```mermaid
+sequenceDiagram
+    actor User
+    box Buyer (user)
+        participant NodeA as Node A
+        participant OracleA as Price Oracle A
+    end
+    box Seller (edge node)
+        participant NodeB as Node B
+        participant OracleB as Price Oracle B
+    end
+
+    User->>+NodeA: AddInvoice
+
+    NodeA->>+NodeA: AddAssetBuyOrder
+
+    NodeA->>+OracleA: Get price rate hint<br/>(QueryAssetRate[type=PURCHASE,intent=RECV_PAYMENT_HINT,peer=NodeB])
+    OracleA-->>-NodeA: Price rate hint
+
+    NodeA->>+NodeB: Send buy request with price<br/>rate hint over p2p
+
+    NodeB->>+OracleB: Determine actual price<br/>rate using suggested price<br/>(QueryAssetRate[type=SALE,intent=RECV_PAYMENT,peer=NodeA])
+    OracleB-->>-NodeB: Actual price rate
+
+    NodeB-->>-NodeA: Return actual price rate
+
+    NodeA->>+OracleA: Validate actual price rate<br/>(QueryAssetRate[type=PURCHASE,intent=RECV_PAYMENT_QUALIFY,peer=NodeB])
+    OracleA-->>-NodeA: Approve actual price rate
+
+    NodeA->>-NodeA: Create invoice using actual price rate
+
+    NodeA->>-User: Invoice
+```
+
 
 ## Examples
 

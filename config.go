@@ -211,6 +211,8 @@ type Config struct {
 
 	PriceOracle rfq.PriceOracle
 
+	PriceOracleSendPeerID bool
+
 	UniverseStats universe.Telemetry
 
 	AuxLeafSigner *tapchannel.AuxLeafSigner

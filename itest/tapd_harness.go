@@ -134,6 +134,10 @@ type harnessOpts struct {
 	// disableSyncCache is a flag that can be set to true to disable the
 	// universe syncer cache.
 	disableSyncCache bool
+
+	// sendPriceHint indicates whether the tapd should send price hints from
+	// the local oracle to the counterparty when requesting a quote.
+	sendPriceHint bool
 }
 
 type harnessOption func(*harnessOpts)
@@ -314,6 +318,10 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 
 	if !opts.disableSyncCache {
 		finalCfg.Universe.MultiverseCaches.SyncerCacheEnabled = true
+	}
+
+	if opts.sendPriceHint {
+		finalCfg.Experimental.Rfq.SendPriceHint = true
 	}
 
 	return &tapdHarness{
