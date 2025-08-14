@@ -9,8 +9,8 @@ require (
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c
-	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084
-	github.com/btcsuite/btcwallet v0.16.14
+	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
+	github.com/btcsuite/btcwallet v0.16.15-0.20250805011126-a3632ae48ab3
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.5
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.6
 	github.com/caddyserver/certmagic v0.17.2
@@ -27,10 +27,10 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/lightninglabs/aperture v0.3.13-beta
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.3
-	github.com/lightninglabs/lndclient v0.19.0-9
+	github.com/lightninglabs/lndclient v0.19.0-11
 	github.com/lightninglabs/neutrino/cache v1.1.2
 	github.com/lightninglabs/taproot-assets/taprpc v1.0.9
-	github.com/lightningnetwork/lnd v0.19.2-beta
+	github.com/lightningnetwork/lnd v0.19.3-beta.rc1
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.8
