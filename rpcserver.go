@@ -7778,7 +7778,7 @@ func (r *rpcServer) AddAssetBuyOrder(ctx context.Context,
 	}()
 
 	// Upsert the buy order into the RFQ manager.
-	err = r.cfg.RfqManager.UpsertAssetBuyOrder(*buyOrder)
+	id, err := r.cfg.RfqManager.UpsertAssetBuyOrder(*buyOrder)
 	if err != nil {
 		return nil, fmt.Errorf("error upserting buy order into RFQ "+
 			"manager: %w", err)
@@ -7786,34 +7786,50 @@ func (r *rpcServer) AddAssetBuyOrder(ctx context.Context,
 
 	timeout := time.After(time.Second * time.Duration(req.TimeoutSeconds))
 
+	type (
+		targetEventType = *rfq.PeerAcceptedBuyQuoteEvent
+		rejectEventType = *rfq.InvalidQuoteRespEvent
+	)
+
 	for {
-		type targetEventType = *rfq.PeerAcceptedBuyQuoteEvent
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			acceptedQuote, ok := event.(targetEventType)
-			if !ok {
+			switch e := event.(type) {
+			case rejectEventType:
+				if e.QuoteResponse.MsgID() == id {
+					return nil, fmt.Errorf("peer %s "+
+						"rejected quote %v",
+						peer.String(),
+						e.QuoteResponse.String())
+				}
+
+			case targetEventType:
+				if !e.MatchesOrder(*buyOrder) {
+					rpcsLog.Debugf("Received event of "+
+						"type %T but order doesn't "+
+						"match, skipping", event)
+
+					continue
+				}
+
+				resp, err := rfq.NewAddAssetBuyOrderResponse(
+					event,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("error "+
+						"marshalling buy order "+
+						"response: %w", err)
+				}
+
+				return resp, nil
+
+			default:
 				rpcsLog.Debugf("Received event of type %T "+
 					"but expected accepted sell quote, "+
 					"skipping", event)
 
 				continue
 			}
-
-			if !acceptedQuote.MatchesOrder(*buyOrder) {
-				rpcsLog.Debugf("Received event of type %T "+
-					"but order doesn't match, skipping",
-					event)
-
-				continue
-			}
-
-			resp, err := rfq.NewAddAssetBuyOrderResponse(event)
-			if err != nil {
-				return nil, fmt.Errorf("error marshalling "+
-					"buy order response: %w", err)
-			}
-
-			return resp, nil
 
 		case <-r.quit:
 			return nil, fmt.Errorf("server shutting down")
@@ -7972,7 +7988,7 @@ func (r *rpcServer) AddAssetSellOrder(ctx context.Context,
 	}()
 
 	// Upsert the order into the RFQ manager.
-	err = r.cfg.RfqManager.UpsertAssetSellOrder(*sellOrder)
+	id, err := r.cfg.RfqManager.UpsertAssetSellOrder(*sellOrder)
 	if err != nil {
 		return nil, fmt.Errorf("error upserting sell order into RFQ "+
 			"manager: %w", err)
@@ -7980,34 +7996,50 @@ func (r *rpcServer) AddAssetSellOrder(ctx context.Context,
 
 	timeout := time.After(time.Second * time.Duration(req.TimeoutSeconds))
 
+	type (
+		targetEventType = *rfq.PeerAcceptedSellQuoteEvent
+		rejectEventType = *rfq.InvalidQuoteRespEvent
+	)
+
 	for {
-		type targetEventType = *rfq.PeerAcceptedSellQuoteEvent
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			acceptedQuote, ok := event.(targetEventType)
-			if !ok {
+			switch e := event.(type) {
+			case rejectEventType:
+				if e.QuoteResponse.MsgID() == id {
+					return nil, fmt.Errorf("peer %s "+
+						"rejected quote %v",
+						peer.String(),
+						e.QuoteResponse.String())
+				}
+
+			case targetEventType:
+				if !e.MatchesOrder(*sellOrder) {
+					rpcsLog.Debugf("Received event of "+
+						"type %T but order doesn't "+
+						"match, skipping", event)
+
+					continue
+				}
+
+				resp, err := rfq.NewAddAssetSellOrderResponse(
+					event,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("error "+
+						"marshalling sell order "+
+						"response: %w", err)
+				}
+
+				return resp, nil
+
+			default:
 				rpcsLog.Debugf("Received event of type %T "+
 					"but expected accepted sell quote, "+
 					"skipping", event)
 
 				continue
 			}
-
-			if !acceptedQuote.MatchesOrder(*sellOrder) {
-				rpcsLog.Debugf("Received event of type %T "+
-					"but order doesn't match, skipping",
-					event)
-
-				continue
-			}
-
-			resp, err := rfq.NewAddAssetSellOrderResponse(event)
-			if err != nil {
-				return nil, fmt.Errorf("error marshalling "+
-					"sell order response: %w", err)
-			}
-
-			return resp, nil
 
 		case <-r.quit:
 			return nil, fmt.Errorf("server shutting down")

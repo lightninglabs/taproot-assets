@@ -737,22 +737,24 @@ type BuyOrder struct {
 }
 
 // UpsertAssetBuyOrder upserts an asset buy order for management.
-func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) error {
+func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) (rfqmsg.ID, error) {
 	// For now, a peer must be specified.
 	//
 	// TODO(ffranr): Add support for peerless buy orders. The negotiator
 	//  should be able to determine the optimal peer.
 	if order.Peer.IsNone() {
-		return fmt.Errorf("buy order peer must be specified")
+		return rfqmsg.ID{}, fmt.Errorf("buy order peer must be " +
+			"specified")
 	}
 
 	// Request a quote from a peer via the negotiator.
-	err := m.negotiator.HandleOutgoingBuyOrder(order)
+	id, err := m.negotiator.HandleOutgoingBuyOrder(order)
 	if err != nil {
-		return fmt.Errorf("error registering asset buy order: %w", err)
+		return rfqmsg.ID{}, fmt.Errorf("error registering asset buy "+
+			"order: %w", err)
 	}
 
-	return nil
+	return id, nil
 }
 
 // SellOrder instructs the RFQ (Request For Quote) system to request a quote
@@ -789,20 +791,19 @@ type SellOrder struct {
 }
 
 // UpsertAssetSellOrder upserts an asset sell order for management.
-func (m *Manager) UpsertAssetSellOrder(order SellOrder) error {
+func (m *Manager) UpsertAssetSellOrder(order SellOrder) (rfqmsg.ID, error) {
 	// For now, a peer must be specified.
 	//
 	// TODO(ffranr): Add support for peerless sell orders. The negotiator
 	//  should be able to determine the optimal peer.
 	if order.Peer.IsNone() {
-		return fmt.Errorf("sell order peer must be specified")
+		return rfqmsg.ID{}, fmt.Errorf("sell order peer must be " +
+			"specified")
 	}
 
 	// Pass the asset sell order to the negotiator which will generate sell
 	// request messages to send to peers.
-	m.negotiator.HandleOutgoingSellOrder(order)
-
-	return nil
+	return m.negotiator.HandleOutgoingSellOrder(order)
 }
 
 // PeerAcceptedBuyQuotes returns buy quotes that were requested by our node and
