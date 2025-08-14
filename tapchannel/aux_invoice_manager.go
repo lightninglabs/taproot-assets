@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -196,7 +197,26 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 
 			resp.CancelSet = true
 		} else {
-			iLog.Tracef("has no asset custom records, ignoring")
+			noopTLV := uint64(lnwallet.NoOpHtlcTLVEntry.TypeVal())
+			_, isNoop := req.WireCustomRecords[noopTLV]
+
+			// If the HTLC does not carry assets and the invoice is
+			// also not expecting assets then we do not want to
+			// modify anything as assets are not involved. If for
+			// any reason the noop flag is set (which is meant for
+			// asset HTLCs) we want to log a warning and cancel the
+			// HTLCs. Letting this HTLC through at this point means
+			// that we would be accounting a certain sats amount
+			// in favor of our invoice, without ever receiving that
+			// amount.
+			if isNoop {
+				resp.CancelSet = true
+				iLog.Warnf("sats HTLC without assets " +
+					"attempted a noop-add, cancelling set")
+			} else {
+				iLog.Tracef("has no asset custom records, " +
+					"ignoring")
+			}
 		}
 
 		return resp, nil
