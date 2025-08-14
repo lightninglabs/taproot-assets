@@ -799,8 +799,11 @@ message AssetTransfer {
     // The timestamp of the transfer in UTC Unix time seconds.
     int64 transfer_timestamp = 1;
 
-    // The new transaction that commits to the set of Taproot Assets found
-    // at the above new anchor point.
+    // The new transaction that commits to the set of Taproot Assets found at
+    // the above new anchor point. Note that this is in raw byte format, not
+    // the reversed hex string format that is used for displayed txids. When
+    // listing assets on the CLI we purposefully use the display format so it
+    // is easier to copy and paste into other tools.
     bytes anchor_tx_hash = 2;
 
     // The height hint of the anchor transaction. This is the height at which
