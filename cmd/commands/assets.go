@@ -1243,16 +1243,24 @@ var listTransfersCommand = cli.Command{
 	Name:      "transfers",
 	ShortName: "t",
 	Usage:     "list asset transfers",
-	Description: "list outgoing transfers of all assets or a selected " +
-		"asset",
+	Description: "list outgoing transfer for a specific anchor or if " +
+		"not set, all transfers",
 	Action: listTransfers,
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name: assetIDName,
-			Usage: "A specific asset ID to list outgoing " +
-				"transfers for",
+			Name: anchorTxidName,
+			Usage: "A specific anchor transaction ID to run the " +
+				" transfer query against. If not set, all " +
+				" transfers will be returned.",
 		},
 	},
+}
+
+// reverseByteOrder reverses the byte order of the byte slice in place.
+func reverseByteOrder(b []byte) {
+	for i, j := 0, len(b)-1; i < j; i, j = i+1, j-1 {
+		b[i], b[j] = b[j], b[i]
+	}
 }
 
 func listTransfers(ctx *cli.Context) error {
@@ -1260,10 +1268,19 @@ func listTransfers(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &taprpc.ListTransfersRequest{}
+	req := &taprpc.ListTransfersRequest{
+		AnchorTxid: ctx.String(anchorTxidName),
+	}
 	resp, err := client.ListTransfers(ctxc, req)
 	if err != nil {
 		return fmt.Errorf("unable to list asset transfers: %w", err)
+	}
+
+	// As the anchor TX hash is returned in a byte slice we need to reverse
+	// the byte order to match the expected hex format of string serialized
+	// transaction IDs.
+	for _, transfer := range resp.Transfers {
+		reverseByteOrder(transfer.AnchorTxHash)
 	}
 
 	printRespJSON(resp)
