@@ -950,7 +950,7 @@
         "anchor_tx_hash": {
           "type": "string",
           "format": "byte",
-          "description": "The new transaction that commits to the set of Taproot Assets found\nat the above new anchor point."
+          "description": "The new transaction that commits to the set of Taproot Assets found at\nthe above new anchor point. Note that this is in raw byte format, not\nthe reversed hex string format that is used for displayed txids. When\nlisting assets on the CLI we purposefully use the display format so it\nis easier to copy and paste into other tools."
         },
         "anchor_tx_height_hint": {
           "type": "integer",

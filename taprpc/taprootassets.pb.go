@@ -3050,8 +3050,11 @@ type AssetTransfer struct {
 
 	// The timestamp of the transfer in UTC Unix time seconds.
 	TransferTimestamp int64 `protobuf:"varint,1,opt,name=transfer_timestamp,json=transferTimestamp,proto3" json:"transfer_timestamp,omitempty"`
-	// The new transaction that commits to the set of Taproot Assets found
-	// at the above new anchor point.
+	// The new transaction that commits to the set of Taproot Assets found at
+	// the above new anchor point. Note that this is in raw byte format, not
+	// the reversed hex string format that is used for displayed txids. When
+	// listing assets on the CLI we purposefully use the display format so it
+	// is easier to copy and paste into other tools.
 	AnchorTxHash []byte `protobuf:"bytes,2,opt,name=anchor_tx_hash,json=anchorTxHash,proto3" json:"anchor_tx_hash,omitempty"`
 	// The height hint of the anchor transaction. This is the height at which
 	// the anchor transaction was published, so the actual inclusion height
