@@ -450,6 +450,8 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 func AssertInclusionProof(t *harnessTest, expectedRootHash [32]byte,
 	inclusionProofBytes []byte, leafKey [32]byte, leafNode mssmt.Node) {
 
+	t.t.Helper()
+
 	// Decode the inclusion proof bytes into a compressed proof.
 	var compressedProof mssmt.CompressedProof
 	err := compressedProof.Decode(bytes.NewReader(inclusionProofBytes))
@@ -468,4 +470,55 @@ func AssertInclusionProof(t *harnessTest, expectedRootHash [32]byte,
 		t.t.Fatalf("expected root hash %x, got %x",
 			expectedRootHash[:], derivedRootHash)
 	}
+}
+
+// AssertSubtreeInclusionProof verifies that a subtree is properly included in
+// the supply commitment tree by checking the inclusion proof.
+func AssertSubtreeInclusionProof(t *harnessTest,
+	supplyRootHash []byte, subtreeRoot *unirpc.SupplyCommitSubtreeRoot) {
+
+	require.NotNil(t.t, subtreeRoot)
+
+	// Convert to fixed-size arrays for verification.
+	rootHash := fn.ToArray[[32]byte](supplyRootHash)
+	leafKey := fn.ToArray[[32]byte](subtreeRoot.SupplyTreeLeafKey)
+
+	// Create the leaf node for the subtree.
+	leafNode := mssmt.NewLeafNode(
+		subtreeRoot.RootNode.RootHash,
+		uint64(subtreeRoot.RootNode.RootSum),
+	)
+
+	// Verify the inclusion proof.
+	AssertInclusionProof(
+		t, rootHash,
+		subtreeRoot.SupplyTreeInclusionProof,
+		leafKey, leafNode,
+	)
+}
+
+// MintAssetWithSupplyCommit mints an asset with supply commitments enabled
+// and verifies the pre-commitment output.
+func MintAssetWithSupplyCommit(t *harnessTest,
+	mintReq *mintrpc.MintAssetRequest,
+	expectedDelegationKey fn.Option[btcec.PublicKey]) (*taprpc.Asset,
+	btcec.PublicKey) {
+
+	// Ensure supply commitments are enabled.
+	mintReq.Asset.EnableSupplyCommitments = true
+
+	// Mint the asset.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{mintReq},
+	)
+	require.Len(t.t, rpcAssets, 1, "expected one minted asset")
+	rpcAsset := rpcAssets[0]
+
+	// Verify the pre-commitment output.
+	delegationKey := assertAnchorTxPreCommitOut(
+		t, t.tapd, rpcAsset, expectedDelegationKey,
+	)
+
+	return rpcAsset, delegationKey
 }
