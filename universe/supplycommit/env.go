@@ -268,6 +268,14 @@ type CommitmentBlock struct {
 	// the block.
 	TxIndex uint32
 
+	// BlockHeader is the block header of the block that contains the
+	// commitment.
+	BlockHeader *wire.BlockHeader
+
+	// MerkleProof is the merkle proof that proves that the supply
+	// commitment transaction is included in the block.
+	MerkleProof *proof.TxMerkleProof
+
 	// ChainFees is the amount in sats paid in on-chain fees for the
 	// supply commitment transaction.
 	ChainFees int64
@@ -496,9 +504,8 @@ type StateMachineStore interface {
 	// error will be returned.
 	//
 	// TODO(roasbeef): also have it return the next event if exists?
-	FetchState(context.Context, asset.Specifier) (
-		State, lfn.Option[SupplyStateTransition], error,
-	)
+	FetchState(context.Context, asset.Specifier) (State,
+		lfn.Option[SupplyStateTransition], error)
 
 	// ApplyStateTransition is used to apply a new state transition to the
 	// target state machine. Once the transition has been applied, the state
@@ -530,6 +537,20 @@ type StateMachineStore interface {
 	// found, it returns an empty slice and no error.
 	BindDanglingUpdatesToTransition(context.Context,
 		asset.Specifier) ([]SupplyUpdateEvent, error)
+
+	// FetchCommitmentByOutpoint fetches a supply commitment by its outpoint
+	// and group key. If no commitment is found, it returns
+	// ErrCommitmentNotFound.
+	FetchCommitmentByOutpoint(ctx context.Context,
+		assetSpec asset.Specifier,
+		outpoint wire.OutPoint) (*RootCommitment, error)
+
+	// FetchCommitmentBySpentOutpoint fetches a supply commitment by the
+	// outpoint it spent and group key. If no commitment is found, it
+	// returns ErrCommitmentNotFound.
+	FetchCommitmentBySpentOutpoint(ctx context.Context,
+		assetSpec asset.Specifier,
+		spentOutpoint wire.OutPoint) (*RootCommitment, error)
 }
 
 // SupplySyncer is an interface that allows the state machine to insert

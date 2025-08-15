@@ -875,11 +875,18 @@ CREATE TABLE supply_commitments (
 
     -- The root sum of the supply commitment at this snapshot.
     supply_root_sum BIGINT
-);
+, spent_commitment BIGINT
+        REFERENCES supply_commitments(commit_id));
 
 CREATE INDEX supply_commitments_chain_txn_id_idx ON supply_commitments(chain_txn_id);
 
 CREATE INDEX supply_commitments_group_key_idx ON supply_commitments(group_key);
+
+CREATE INDEX supply_commitments_output_index_idx
+    ON supply_commitments(output_index);
+
+CREATE INDEX supply_commitments_spent_commitment_idx
+    ON supply_commitments(spent_commitment);
 
 CREATE TABLE supply_syncer_log (
     id INTEGER PRIMARY KEY,

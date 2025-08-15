@@ -30,8 +30,11 @@ func (q *Queries) FetchSupplySyncerLog(ctx context.Context, groupKey []byte) (Fe
 }
 
 const UpsertSupplySyncerLog = `-- name: UpsertSupplySyncerLog :exec
-INSERT INTO supply_syncer_log (group_key, max_fetched_block_height, max_inserted_block_height)
-VALUES ($1, $2, $3)
+INSERT INTO supply_syncer_log (
+   group_key, max_fetched_block_height, max_inserted_block_height
+) VALUES (
+  $1, $2, $3
+)
 ON CONFLICT (group_key) DO UPDATE SET
     max_fetched_block_height = COALESCE($2, supply_syncer_log.max_fetched_block_height),
     max_inserted_block_height = COALESCE($3, supply_syncer_log.max_inserted_block_height)
