@@ -4457,34 +4457,32 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 // both a supplycommit.RootCommitment and supplycommit.ChainProof.
 func unmarshalSupplyCommitChainData(
 	rpcData *unirpc.SupplyCommitChainData) (*supplycommit.RootCommitment,
-	*supplycommit.ChainProof, error) {
+	error) {
 
 	if rpcData == nil {
-		return nil, nil, fmt.Errorf("supply commit chain data is nil")
+		return nil, fmt.Errorf("supply commit chain data is nil")
 	}
 
 	var txn wire.MsgTx
 	err := txn.Deserialize(bytes.NewReader(rpcData.Txn))
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to deserialize "+
-			"transaction: %w", err)
+		return nil, fmt.Errorf("unable to deserialize transaction: %w",
+			err)
 	}
 
 	internalKey, err := btcec.ParsePubKey(rpcData.InternalKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to parse internal key: %w",
-			err)
+		return nil, fmt.Errorf("unable to parse internal key: %w", err)
 	}
 
 	outputKey, err := btcec.ParsePubKey(rpcData.OutputKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to parse output key: %w",
-			err)
+		return nil, fmt.Errorf("unable to parse output key: %w", err)
 	}
 
 	// Convert supply root hash.
 	if len(rpcData.SupplyRootHash) != 32 {
-		return nil, nil, fmt.Errorf("invalid supply root hash size: "+
+		return nil, fmt.Errorf("invalid supply root hash size: "+
 			"expected %d, got %d", 32, len(rpcData.SupplyRootHash))
 	}
 	var supplyRootHash mssmt.NodeHash
@@ -4494,7 +4492,7 @@ func unmarshalSupplyCommitChainData(
 	var commitmentBlock fn.Option[supplycommit.CommitmentBlock]
 	if len(rpcData.BlockHash) > 0 {
 		if len(rpcData.BlockHash) != chainhash.HashSize {
-			return nil, nil, fmt.Errorf("invalid block hash size: "+
+			return nil, fmt.Errorf("invalid block hash size: "+
 				"expected %d, got %d", chainhash.HashSize,
 				len(rpcData.BlockHash))
 		}
@@ -4524,25 +4522,25 @@ func unmarshalSupplyCommitChainData(
 	var blockHeader wire.BlockHeader
 	err = blockHeader.Deserialize(bytes.NewReader(rpcData.BlockHeader))
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to deserialize block "+
-			"header: %w", err)
+		return nil, fmt.Errorf("unable to deserialize block header: "+
+			"%w", err)
 	}
 
 	var merkleProof proof.TxMerkleProof
 	err = merkleProof.Decode(bytes.NewReader(rpcData.TxBlockMerkleProof))
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to decode merkle proof: %w",
-			err)
+		return nil, fmt.Errorf("unable to decode merkle proof: %w", err)
 	}
 
-	chainProof := &supplycommit.ChainProof{
-		Header:      blockHeader,
-		BlockHeight: rpcData.BlockHeight,
-		MerkleProof: merkleProof,
+	rootCommitment.CommitmentBlock = fn.Some(supplycommit.CommitmentBlock{
+		Height:      rpcData.BlockHeight,
+		Hash:        blockHeader.BlockHash(),
 		TxIndex:     rpcData.TxIndex,
-	}
+		BlockHeader: &blockHeader,
+		MerkleProof: &merkleProof,
+	})
 
-	return rootCommitment, chainProof, nil
+	return rootCommitment, nil
 }
 
 // InsertSupplyCommit stores a verified supply commitment for the given
@@ -4563,12 +4561,22 @@ func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
 		groupPubKey.SerializeCompressed())
 
 	// Unmarshal the supply commit chain data.
-	rootCommitment, chainProof, err := unmarshalSupplyCommitChainData(
-		req.ChainData,
-	)
+	rootCommitment, err := unmarshalSupplyCommitChainData(req.ChainData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal chain data: %w",
 			err)
+	}
+
+	if req.SpentCommitmentOutpoint != nil {
+		op, err := rpcutils.UnmarshalOutPoint(
+			req.SpentCommitmentOutpoint,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse spent "+
+				"commitment outpoint: %w", err)
+		}
+
+		rootCommitment.SpentCommitment = fn.Some(op)
 	}
 
 	supplyLeaves, err := unmarshalSupplyLeaves(
@@ -4587,7 +4595,7 @@ func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
 
 	assetSpec := asset.NewSpecifierFromGroupKey(*groupPubKey)
 	err = r.cfg.SupplyVerifyManager.InsertSupplyCommit(
-		ctx, assetSpec, *rootCommitment, *supplyLeaves, *chainProof,
+		ctx, assetSpec, *rootCommitment, *supplyLeaves,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert supply commitment: %w",

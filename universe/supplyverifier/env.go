@@ -44,6 +44,11 @@ type SupplyCommitView interface {
 	// ErrCommitmentNotFound.
 	FetchStartingCommitment(ctx context.Context,
 		assetSpec asset.Specifier) (*supplycommit.RootCommitment, error)
+
+	// InsertSupplyCommit inserts a supply commitment into the database.
+	InsertSupplyCommit(ctx context.Context,
+		assetSpec asset.Specifier, commit supplycommit.RootCommitment,
+		leaves supplycommit.SupplyLeaves) error
 }
 
 // Environment is a struct that holds all the dependencies that the supply

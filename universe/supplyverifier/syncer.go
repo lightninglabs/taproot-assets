@@ -177,21 +177,36 @@ func (s *SupplySyncer) PushSupplyCommitment(ctx context.Context,
 	chainProof supplycommit.ChainProof,
 	canonicalUniverses []url.URL) error {
 
-	// TODO(ffranr): Execute the push in parallel for each universe addr.
-	//  Onc failed attempt should not cancel the others.
-	for idx := range canonicalUniverses {
-		serverAddr := canonicalUniverses[idx]
+	pushErrs, err := fn.ParSliceErrCollect(
+		ctx, canonicalUniverses, func(ctx context.Context,
+			serverAddr url.URL) error {
 
-		// Push the supply commitment to the universe server.
-		err := s.pushUniServer(
-			ctx, assetSpec, commitment, updateLeaves, chainProof,
-			serverAddr,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to push supply commitment "+
-				"to %s: %w", serverAddr.String(), err)
-		}
+			// Push the supply commitment to the universe server.
+			err := s.pushUniServer(
+				ctx, assetSpec, commitment, updateLeaves,
+				chainProof, serverAddr,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to push supply "+
+					"commitment to %s: %w",
+					serverAddr.String(), err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to push supply commitment: %w", err)
 	}
 
-	return nil
+	// Report any errors encountered while fetching the leaves. If there was
+	// no error, then the map is empty and this will remain nil.
+	var lastError error
+	for idx, fetchErr := range pushErrs {
+		log.Errorf("Error pushing supply commit to server %s: %v",
+			canonicalUniverses[idx].String(), fetchErr)
+		lastError = fetchErr
+	}
+
+	return lastError
 }

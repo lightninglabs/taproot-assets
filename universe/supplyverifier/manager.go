@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightningnetwork/lnd/msgmux"
@@ -224,14 +226,51 @@ func (m *Manager) VerifySupplyLeaves(ctx context.Context,
 // group in the node's local database.
 func (m *Manager) InsertSupplyCommit(ctx context.Context,
 	assetSpec asset.Specifier, commitment supplycommit.RootCommitment,
-	leaves supplycommit.SupplyLeaves,
-	chainProof supplycommit.ChainProof) error {
+	leaves supplycommit.SupplyLeaves) error {
 
-	// TODO(ffranr): Verify supply commit without starting a state machine.
-	//  This is effectively where universe server supply commit verification
-	//  takes place.
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, m.cfg.Chain)
 
-	return nil
+	// Do the static on-chain verification of the supply commitment.
+	err := commitment.Verify(proof.DefaultMerkleVerifier, headerVerifier)
+	if err != nil {
+		return fmt.Errorf("unable to verify supply commitment: %w", err)
+	}
+
+	// Now that we know the supply commitment's chain information is valid
+	// and at least some work was spent to get a transaction into a block,
+	// we query the database to see if we already have the previous supply
+	// commitment that is being spent by this one.
+	err = fn.MapOptionZ(
+		commitment.SpentCommitment, func(op wire.OutPoint) error {
+			view := m.cfg.SupplyCommitView
+			_, err := view.FetchCommitmentByOutpoint(
+				ctx, assetSpec, op,
+			)
+			return err
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to verify spent commitment: %w", err)
+	}
+
+	// The above checks that _if_ a previous supply commit is being spent,
+	// that we have it in our database already. But we also need to check
+	// whether we _need_ to have a previous supply commit, or whether this
+	// is the very first commit for the asset group.
+	if commitment.SpentCommitment.IsNone() {
+		// TODO(guggero): Find out what condition we can check this
+		// on... E.g. how can we find out if this is actually the very
+		// first commitment for an asset group? Only then should this
+		// be allowed.
+	}
+
+	// TODO(guggero): Validate in-memory that the current supply root with
+	// the new supply leaves applied matches the new supply root. Only
+	// then do we proceed to store the supply commitment in the database.
+
+	return m.cfg.SupplyCommitView.InsertSupplyCommit(
+		ctx, assetSpec, commitment, leaves,
+	)
 }
 
 // CanHandle determines if the state machine associated with the given asset
