@@ -4085,7 +4085,9 @@ func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
 	ignoreEvent := supplycommit.NewIgnoreEvent{
 		SignedIgnoreTuple: signedIgnore,
 	}
-	err = r.cfg.SupplyCommitManager.SendEvent(ctx, assetSpec, &ignoreEvent)
+	err = r.cfg.SupplyCommitManager.SendEventSync(
+		ctx, assetSpec, &ignoreEvent,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to upsert ignore tuple: %w", err)
 	}

@@ -2,6 +2,7 @@ package supplycommit
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 
@@ -20,6 +21,14 @@ var (
 	// ErrInvalidStateTransition is returned when we receive an unexpected
 	// event for a given state.
 	ErrInvalidStateTransition = fmt.Errorf("invalid state transition")
+
+	// ErrEventTimeout is returned when waiting for a synchronous event
+	// times out due to context cancellation.
+	ErrEventTimeout = fmt.Errorf("event processing timeout")
+
+	// ErrNilDoneChannel is returned when attempting to wait for a
+	// synchronous event that doesn't have a done channel.
+	ErrNilDoneChannel = fmt.Errorf("done channel is nil")
 )
 
 // Event is a special interface used to create the equivalent of a sum-type, but
@@ -96,14 +105,67 @@ type SupplyUpdateEvent interface {
 	Encode(io.Writer) error
 }
 
+// SyncSupplyUpdateEvent is an interface that extends SupplyUpdateEvent with
+// the ability to signal completion when the event has been processed.
+type SyncSupplyUpdateEvent interface {
+	SupplyUpdateEvent
+
+	// SignalDone signals completion on the done channel if it exists.
+	// It sends the error (or nil for success) and does not block.
+	SignalDone(error)
+
+	// WaitForDone waits for the event to be processed by waiting on its
+	// done channel. This is a helper method that can be used by callers who
+	// want synchronous confirmation that their event has been persisted.
+	WaitForDone(context.Context) error
+}
+
+// waitForDone is an internal helper function that waits for an event to be
+// processed by waiting on its done channel.
+func waitForDone(ctx context.Context, done chan error) error {
+	if done == nil {
+		return ErrNilDoneChannel
+	}
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("%w: %w", ErrEventTimeout, ctx.Err())
+	}
+}
+
 // NewIgnoreEvent signals that a caller wishes to update the ignore portion of
 // the supply tree with a new outpoint + script key combo.
 type NewIgnoreEvent struct {
 	universe.SignedIgnoreTuple
+
+	// Done is an optional channel that will receive an error (or nil for
+	// success) when the event has been processed and written to disk. If
+	// nil, the event is processed asynchronously.
+	Done chan error
 }
 
 // eventSealed is a special method that is used to seal the interface.
 func (n *NewIgnoreEvent) eventSealed() {}
+
+// SignalDone signals completion on the done channel if it exists. It sends the
+// error (or nil for success) and does not block.
+func (n *NewIgnoreEvent) SignalDone(err error) {
+	if n.Done != nil {
+		select {
+		case n.Done <- err:
+		default:
+		}
+	}
+}
+
+// WaitForDone waits for the event to be processed by waiting on its done
+// channel. This is a helper method that can be used by callers who want
+// synchronous confirmation that their event has been persisted.
+func (n *NewIgnoreEvent) WaitForDone(ctx context.Context) error {
+	return waitForDone(ctx, n.Done)
+}
 
 // BlockHeight returns the block height of the update.
 func (n *NewIgnoreEvent) BlockHeight() uint32 {
@@ -141,14 +203,41 @@ func (n *NewIgnoreEvent) Encode(w io.Writer) error {
 // SupplyUpdateEvent interface.
 var _ SupplyUpdateEvent = (*NewIgnoreEvent)(nil)
 
+// A compile time assertion to ensure that NewIgnoreEvent implements the
+// SyncSupplyUpdateEvent interface.
+var _ SyncSupplyUpdateEvent = (*NewIgnoreEvent)(nil)
+
 // NewBurnEvent signals that a caller wishes to update the burn portion of
 // the supply tree with a new burnt asset.
 type NewBurnEvent struct {
 	universe.BurnLeaf
+
+	// Done is an optional channel that will receive an error (or nil for
+	// success) when the event has been processed and written to disk.
+	// If nil, the event is processed asynchronously.
+	Done chan error
 }
 
 // eventSealed is a special method that is used to seal the interface.
 func (n *NewBurnEvent) eventSealed() {}
+
+// SignalDone signals completion on the done channel if it exists. It sends
+// the error (or nil for success) and does not block.
+func (n *NewBurnEvent) SignalDone(err error) {
+	if n.Done != nil {
+		select {
+		case n.Done <- err:
+		default:
+		}
+	}
+}
+
+// WaitForDone waits for the event to be processed by waiting on its done
+// channel. This is a helper method that can be used by callers who want
+// synchronous confirmation that their event has been persisted.
+func (n *NewBurnEvent) WaitForDone(ctx context.Context) error {
+	return waitForDone(ctx, n.Done)
+}
 
 // BlockHeight returns the block height of the update.
 func (n *NewBurnEvent) BlockHeight() uint32 {
@@ -187,6 +276,10 @@ func (n *NewBurnEvent) Encode(w io.Writer) error {
 // SupplyUpdateEvent interface.
 var _ SupplyUpdateEvent = (*NewBurnEvent)(nil)
 
+// A compile time assertion to ensure that NewBurnEvent implements the
+// SyncSupplyUpdateEvent interface.
+var _ SyncSupplyUpdateEvent = (*NewBurnEvent)(nil)
+
 // NewMintEvent signals that a caller wishes to update the mint portion of the
 // supply tree with a new minted asset.
 type NewMintEvent struct {
@@ -198,6 +291,11 @@ type NewMintEvent struct {
 
 	// MintHeight is the height of the block that contains the mint.
 	MintHeight uint32
+
+	// Done is an optional channel that will receive an error (or nil for
+	// success) when the event has been processed and written to disk.
+	// If nil, the event is processed asynchronously.
+	Done chan error
 }
 
 // BlockHeight returns the block height of the update.
@@ -207,6 +305,24 @@ func (n *NewMintEvent) BlockHeight() uint32 {
 
 // eventSealed is a special method that is used to seal the interface.
 func (n *NewMintEvent) eventSealed() {}
+
+// SignalDone signals completion on the done channel if it exists. It sends
+// the error (or nil for success) and does not block.
+func (n *NewMintEvent) SignalDone(err error) {
+	if n.Done != nil {
+		select {
+		case n.Done <- err:
+		default:
+		}
+	}
+}
+
+// WaitForDone waits for the event to be processed by waiting on its done
+// channel. This is a helper method that can be used by callers who want
+// synchronous confirmation that their event has been persisted.
+func (n *NewMintEvent) WaitForDone(ctx context.Context) error {
+	return waitForDone(ctx, n.Done)
+}
 
 // ScriptKey returns the script key that is used to identify the target
 // asset.
@@ -278,6 +394,10 @@ func (n *NewMintEvent) Decode(r io.Reader) error {
 // A compile time assertion to ensure that NewMintEvent implements the
 // SupplyUpdateEvent interface.
 var _ SupplyUpdateEvent = (*NewMintEvent)(nil)
+
+// A compile time assertion to ensure that NewMintEvent implements the
+// SyncSupplyUpdateEvent interface.
+var _ SyncSupplyUpdateEvent = (*NewMintEvent)(nil)
 
 // DefaultState is the idle state of the state machine. We start in this state
 // when there are no pending changes that need to committed.

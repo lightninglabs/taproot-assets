@@ -225,6 +225,46 @@ func (m *MultiStateMachineManager) SendEvent(ctx context.Context,
 	return nil
 }
 
+// SendEventSync sends an event to the state machine and waits for it to be
+// processed and written to disk. This method provides synchronous confirmation
+// that the event has been durably persisted. If the event doesn't support
+// synchronous processing (i.e., it's not a SupplyUpdateEvent), this method will
+// return an error.
+func (m *MultiStateMachineManager) SendEventSync(ctx context.Context,
+	assetSpec asset.Specifier, event SyncSupplyUpdateEvent) error {
+
+	// Only SupplyUpdateEvents can be processed synchronously.
+	supplyEvent, ok := event.(SupplyUpdateEvent)
+	if !ok {
+		return fmt.Errorf("event type %T does not support "+
+			"synchronous processing", event)
+	}
+
+	// We'll use this channel to signal when the event has been processed.
+	done := make(chan error, 1)
+
+	// As the event has already been created, we'll set the done channel
+	// directly.
+	switch e := supplyEvent.(type) {
+	case *NewMintEvent:
+		e.Done = done
+	case *NewBurnEvent:
+		e.Done = done
+	case *NewIgnoreEvent:
+		e.Done = done
+	default:
+		return fmt.Errorf("unexpected supply update event type: %T",
+			supplyEvent)
+	}
+
+	// Send the event to the state machine, the pause and wait until it
+	// signals that the event has been fully processed.
+	if err := m.SendEvent(ctx, assetSpec, supplyEvent); err != nil {
+		return err
+	}
+	return event.WaitForDone(ctx)
+}
+
 // CanHandle determines if the state machine associated with the given asset
 // specifier can handle the given message. If a state machine for the asset
 // group does not exist, it will be created and started.

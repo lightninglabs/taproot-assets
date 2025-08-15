@@ -70,8 +70,7 @@ func (d *DefaultState) ProcessEvent(event Event,
 	// mint, or a new ignore. For all three types, we'll emit this as an
 	// internal event as we transition to the UpdatePendingState.
 	switch supplyEvent := event.(type) {
-	case SupplyUpdateEvent:
-
+	case SyncSupplyUpdateEvent:
 		// Before we transition to the next state, we'll add this event
 		// to our update log. This ensures that we'll remember to
 		// process from this state after a restart.
@@ -82,9 +81,13 @@ func (d *DefaultState) ProcessEvent(event Event,
 			ctx, env.AssetSpec, supplyEvent,
 		)
 		if err != nil {
+			supplyEvent.SignalDone(err)
+
 			return nil, fmt.Errorf("unable to insert "+
 				"pending update: %w", err)
 		}
+
+		supplyEvent.SignalDone(nil)
 
 		// We'll go to the next state, caching the pendingUpdate we just
 		// received.
@@ -120,8 +123,7 @@ func (u *UpdatesPendingState) ProcessEvent(event Event, env *Environment) (
 	switch newEvent := event.(type) {
 	// We've received a new update event, we'll stage this in our local
 	// state, and do a self transition.
-	case SupplyUpdateEvent:
-
+	case SyncSupplyUpdateEvent:
 		// We just got a new pending update in addition to the one that
 		// made us transition to this state. This ensures that we'll
 		// remember to process from this state after a restart.
@@ -130,9 +132,13 @@ func (u *UpdatesPendingState) ProcessEvent(event Event, env *Environment) (
 			ctx, env.AssetSpec, newEvent,
 		)
 		if err != nil {
+			newEvent.SignalDone(err)
+
 			return nil, fmt.Errorf("unable to insert "+
 				"pending update: %w", err)
 		}
+
+		newEvent.SignalDone(nil)
 
 		// We'll go to the next state, caching the pendingUpdate we just
 		// received.
@@ -254,15 +260,19 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 	switch newEvent := event.(type) {
 	// If we get a supply update event while we're creating the tree,
 	// we'll just insert it as a dangling update and do a self-transition.
-	case SupplyUpdateEvent:
+	case SyncSupplyUpdateEvent:
 		ctx := context.Background()
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
 		)
 		if err != nil {
+			newEvent.SignalDone(err)
+
 			return nil, fmt.Errorf("unable to insert "+
 				"pending update: %w", err)
 		}
+
+		newEvent.SignalDone(nil)
 
 		return &StateTransition{
 			NextState: c,
@@ -598,15 +608,19 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 	switch newEvent := event.(type) {
 	// If we get a supply update event while we're creating the commit tx,
 	// we'll just insert it as a dangling update and do a self-transition.
-	case SupplyUpdateEvent:
+	case SyncSupplyUpdateEvent:
 		ctx := context.Background()
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
 		)
 		if err != nil {
+			newEvent.SignalDone(err)
+
 			return nil, fmt.Errorf("unable to insert "+
 				"pending update: %w", err)
 		}
+
+		newEvent.SignalDone(nil)
 
 		return &StateTransition{
 			NextState: c,
@@ -697,15 +711,19 @@ func (s *CommitTxSignState) ProcessEvent(event Event,
 	switch newEvent := event.(type) {
 	// If we get a supply update event while we're signing the commit tx,
 	// we'll just insert it as a dangling update and do a self-transition.
-	case SupplyUpdateEvent:
+	case SyncSupplyUpdateEvent:
 		ctx := context.Background()
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
 		)
 		if err != nil {
+			newEvent.SignalDone(err)
+
 			return nil, fmt.Errorf("unable to insert "+
 				"pending update: %w", err)
 		}
+
+		newEvent.SignalDone(nil)
 
 		return &StateTransition{
 			NextState: s,
@@ -788,15 +806,19 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 	// If we get a supply update event while we're broadcasting the commit
 	// tx, we'll just insert it as a dangling update and do a
 	// self-transition.
-	case SupplyUpdateEvent:
+	case SyncSupplyUpdateEvent:
 		ctx := context.Background()
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
 		)
 		if err != nil {
+			newEvent.SignalDone(err)
+
 			return nil, fmt.Errorf("unable to insert "+
 				"pending update: %w", err)
 		}
+
+		newEvent.SignalDone(nil)
 
 		return &StateTransition{
 			NextState: c,
@@ -938,15 +960,19 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 	switch newEvent := event.(type) {
 	// If we get a supply update event while we're finalizing the commit,
 	// we'll just insert it as a dangling update and do a self-transition.
-	case SupplyUpdateEvent:
+	case SyncSupplyUpdateEvent:
 		ctx := context.Background()
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
 		)
 		if err != nil {
+			newEvent.SignalDone(err)
+
 			return nil, fmt.Errorf("unable to insert "+
 				"pending update: %w", err)
 		}
+
+		newEvent.SignalDone(nil)
 
 		return &StateTransition{
 			NextState: c,
