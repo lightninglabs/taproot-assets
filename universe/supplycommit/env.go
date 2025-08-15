@@ -307,6 +307,11 @@ type RootCommitment struct {
 	// asset supply. This may be None if the commitment has not yet
 	// been mined.
 	CommitmentBlock fn.Option[CommitmentBlock]
+
+	// SpentCommitment is the outpoint of the previous root commitment that
+	// this root commitment is spending. This will be None if this is the
+	// first root commitment for the asset.
+	SpentCommitment fn.Option[wire.OutPoint]
 }
 
 // TxIn returns the transaction input that corresponds to the root commitment.
