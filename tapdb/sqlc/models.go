@@ -311,6 +311,7 @@ type MintAnchorUniCommitment struct {
 	GroupKey             []byte
 	TaprootInternalKeyID int64
 	SpentBy              sql.NullInt64
+	Outpoint             []byte
 }
 
 type MssmtNode struct {
