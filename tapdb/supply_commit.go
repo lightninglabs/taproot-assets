@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -188,6 +189,11 @@ type SupplyCommitStore interface {
 	// commitment of an asset group.
 	QueryStartingSupplyCommitment(ctx context.Context,
 		groupKey []byte) (sqlc.QueryStartingSupplyCommitmentRow, error)
+
+	// QuerySupplyCommitmentOutpoint fetches the outpoint of a supply
+	// commitment by its ID.
+	QuerySupplyCommitmentOutpoint(ctx context.Context,
+		commitID int64) (sqlc.QuerySupplyCommitmentOutpointRow, error)
 
 	// FetchChainTx fetches a chain transaction by its TXID.
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error)
@@ -1239,6 +1245,30 @@ func parseSupplyCommitmentRow(ctx context.Context, commit SupplyCommitment,
 				commit.CommitID, blockHeader == nil,
 				merkleProof == nil)
 		}
+	}
+
+	if commit.SpentCommitment.Valid {
+		spentRow, err := db.QuerySupplyCommitmentOutpoint(
+			ctx, commit.SpentCommitment.Int64,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query spent "+
+				"commitment with ID %d for commit %d: %w",
+				commit.SpentCommitment.Int64, commit.CommitID,
+				err)
+		}
+
+		hash, err := chainhash.NewHash(spentRow.Txid)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse spent "+
+				"commitment txid %x for commit %d: %w",
+				spentRow.Txid, commit.CommitID, err)
+		}
+
+		rootCommitment.SpentCommitment = fn.Some(wire.OutPoint{
+			Hash:  *hash,
+			Index: uint32(spentRow.OutputIndex.Int32),
+		})
 	}
 
 	return rootCommitment, nil
