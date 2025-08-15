@@ -434,6 +434,8 @@ func newRootCommitment(ctx context.Context,
 
 		witnessUtxo := r.Txn.TxOut[r.TxOutIdx]
 
+		commitTapscriptRoot, _ := r.TapscriptRoot()
+
 		packetPInputs = append(packetPInputs, psbt.PInput{
 			WitnessUtxo: witnessUtxo,
 			Bip32Derivation: []*psbt.Bip32Derivation{
@@ -443,6 +445,7 @@ func newRootCommitment(ctx context.Context,
 				trBip32Derivation,
 			},
 			TaprootInternalKey: trBip32Derivation.XOnlyPubKey,
+			TaprootMerkleRoot:  commitTapscriptRoot,
 		})
 	})
 
