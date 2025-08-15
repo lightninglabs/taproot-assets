@@ -4110,33 +4110,11 @@ func (r *rpcServer) UpdateSupplyCommit(ctx context.Context,
 	req *unirpc.UpdateSupplyCommitRequest) (
 	*unirpc.UpdateSupplyCommitResponse, error) {
 
-	// Parse asset group key from the request.
-	var groupPubKey btcec.PublicKey
-
-	switch {
-	case len(req.GetGroupKeyBytes()) > 0:
-		gk, err := btcec.ParsePubKey(req.GetGroupKeyBytes())
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	case len(req.GetGroupKeyStr()) > 0:
-		groupKeyBytes, err := hex.DecodeString(req.GetGroupKeyStr())
-		if err != nil {
-			return nil, fmt.Errorf("decoding group key: %w", err)
-		}
-
-		gk, err := btcec.ParsePubKey(groupKeyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	default:
-		return nil, fmt.Errorf("group key unspecified")
+	groupPubKey, err := unmarshalGroupKey(
+		req.GetGroupKeyBytes(), req.GetGroupKeyStr(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse group key: %w", err)
 	}
 
 	// We will now check to ensure that universe commitments are enabled for
@@ -4144,7 +4122,7 @@ func (r *rpcServer) UpdateSupplyCommit(ctx context.Context,
 	//
 	// Look up the asset group by the group key.
 	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByGroupKey(
-		ctx, &groupPubKey,
+		ctx, groupPubKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find asset group "+
@@ -4166,7 +4144,7 @@ func (r *rpcServer) UpdateSupplyCommit(ctx context.Context,
 	}
 
 	// Formulate an asset specifier from the asset group key.
-	assetSpec := asset.NewSpecifierFromGroupKey(groupPubKey)
+	assetSpec := asset.NewSpecifierFromGroupKey(*groupPubKey)
 
 	// Send a commit tick event to the supply commitment manager.
 	err = r.cfg.SupplyCommitManager.StartSupplyPublishFlow(ctx, assetSpec)
@@ -4259,37 +4237,15 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 	req *unirpc.FetchSupplyCommitRequest) (
 	*unirpc.FetchSupplyCommitResponse, error) {
 
-	// Parse asset group key from the request.
-	var groupPubKey btcec.PublicKey
-
-	switch {
-	case len(req.GetGroupKeyBytes()) > 0:
-		gk, err := btcec.ParsePubKey(req.GetGroupKeyBytes())
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	case len(req.GetGroupKeyStr()) > 0:
-		groupKeyBytes, err := hex.DecodeString(req.GetGroupKeyStr())
-		if err != nil {
-			return nil, fmt.Errorf("decoding group key: %w", err)
-		}
-
-		gk, err := btcec.ParsePubKey(groupKeyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	default:
-		return nil, fmt.Errorf("group key unspecified")
+	groupPubKey, err := unmarshalGroupKey(
+		req.GetGroupKeyBytes(), req.GetGroupKeyStr(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse group key: %w", err)
 	}
 
 	// Formulate an asset specifier from the asset group key.
-	assetSpec := asset.NewSpecifierFromGroupKey(groupPubKey)
+	assetSpec := asset.NewSpecifierFromGroupKey(*groupPubKey)
 
 	// Fetch the supply commitment for the asset specifier.
 	respOpt, err := r.cfg.SupplyCommitManager.FetchCommitment(
@@ -4401,37 +4357,15 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 	req *unirpc.FetchSupplyLeavesRequest) (
 	*unirpc.FetchSupplyLeavesResponse, error) {
 
-	// Parse asset group key from the request.
-	var groupPubKey btcec.PublicKey
-
-	switch {
-	case len(req.GetGroupKeyBytes()) > 0:
-		gk, err := btcec.ParsePubKey(req.GetGroupKeyBytes())
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	case len(req.GetGroupKeyStr()) > 0:
-		groupKeyBytes, err := hex.DecodeString(req.GetGroupKeyStr())
-		if err != nil {
-			return nil, fmt.Errorf("decoding group key: %w", err)
-		}
-
-		gk, err := btcec.ParsePubKey(groupKeyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	default:
-		return nil, fmt.Errorf("group key unspecified")
+	groupPubKey, err := unmarshalGroupKey(
+		req.GetGroupKeyBytes(), req.GetGroupKeyStr(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse group key: %w", err)
 	}
 
 	// Formulate an asset specifier from the asset group key.
-	assetSpec := asset.NewSpecifierFromGroupKey(groupPubKey)
+	assetSpec := asset.NewSpecifierFromGroupKey(*groupPubKey)
 
 	// Fetch supply leaves for the asset specifier.
 	resp, err := r.cfg.SupplyCommitManager.FetchSupplyLeavesByHeight(
@@ -4459,95 +4393,11 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 		subtrees = subtreeResult
 	}
 
-	rpcMarshalLeafEntry := func(leafEntry supplycommit.SupplyUpdateEvent) (
-		*unirpc.SupplyLeafEntry, error) {
-
-		leafNode, err := leafEntry.UniverseLeafNode()
-		if err != nil {
-			rpcsLog.Errorf("Failed to get universe leaf node "+
-				"from leaf entry: %v (leaf_entry=%s)", err,
-				spew.Sdump(leafEntry))
-
-			return nil, fmt.Errorf("failed to get universe leaf "+
-				"node from leaf entry: %w", err)
-		}
-
-		leafKey := leafEntry.UniverseLeafKey()
-
-		outPoint := leafKey.LeafOutPoint()
-		rpcOutPoint := unirpc.Outpoint{
-			HashStr: outPoint.Hash.String(),
-			Index:   int32(outPoint.Index),
-		}
-
-		// Encode the leaf as a byte slice.
-		var leafBuf bytes.Buffer
-		err = leafEntry.Encode(&leafBuf)
-		if err != nil {
-			return nil, fmt.Errorf("failed to encode leaf entry: "+
-				"%w", err)
-		}
-
-		return &unirpc.SupplyLeafEntry{
-			LeafKey: &unirpc.SupplyLeafKey{
-				Outpoint: &rpcOutPoint,
-				ScriptKey: schnorr.SerializePubKey(
-					leafKey.LeafScriptKey().PubKey,
-				),
-				AssetId: fn.ByteSlice(leafKey.LeafAssetID()),
-			},
-			LeafNode:    marshalMssmtNode(leafNode),
-			BlockHeight: leafEntry.BlockHeight(),
-			RawLeaf:     leafBuf.Bytes(),
-		}, nil
-	}
-
-	// Marshal issuance supply leaves into the RPC format.
-	rpcIssuanceLeaves := make(
-		[]*unirpc.SupplyLeafEntry, 0, len(resp.IssuanceLeafEntries),
+	issuanceLeaves, burnLeaves, ignoreLeaves, err := marshalSupplyLeaves(
+		resp,
 	)
-	for idx := range resp.IssuanceLeafEntries {
-		leafEntry := resp.IssuanceLeafEntries[idx]
-
-		rpcLeaf, err := rpcMarshalLeafEntry(&leafEntry)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal supply "+
-				"leaf entry: %w", err)
-		}
-
-		rpcIssuanceLeaves = append(rpcIssuanceLeaves, rpcLeaf)
-	}
-
-	// Marshal burn supply leaves into the RPC format.
-	rpcBurnLeaves := make(
-		[]*unirpc.SupplyLeafEntry, 0, len(resp.BurnLeafEntries),
-	)
-	for idx := range resp.BurnLeafEntries {
-		leafEntry := resp.BurnLeafEntries[idx]
-
-		rpcLeaf, err := rpcMarshalLeafEntry(&leafEntry)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal supply "+
-				"leaf entry: %w", err)
-		}
-
-		rpcBurnLeaves = append(rpcBurnLeaves, rpcLeaf)
-	}
-
-	// Marshal ignore supply leaves into the RPC format.
-	rpcIgnoreLeaves := make(
-		[]*unirpc.SupplyLeafEntry, 0, len(resp.IgnoreLeafEntries),
-	)
-	for idx := range resp.IgnoreLeafEntries {
-		leafEntry := resp.IgnoreLeafEntries[idx]
-
-		rpcLeaf, err := rpcMarshalLeafEntry(&leafEntry)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal supply "+
-				"leaf entry: %w", err)
-		}
-
-		rpcIgnoreLeaves = append(rpcIgnoreLeaves, rpcLeaf)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal supply leaves: %w", err)
 	}
 
 	// Generate inclusion proofs if requested.
@@ -4594,9 +4444,9 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 	}
 
 	return &unirpc.FetchSupplyLeavesResponse{
-		IssuanceLeaves:              rpcIssuanceLeaves,
-		BurnLeaves:                  rpcBurnLeaves,
-		IgnoreLeaves:                rpcIgnoreLeaves,
+		IssuanceLeaves:              issuanceLeaves,
+		BurnLeaves:                  burnLeaves,
+		IgnoreLeaves:                ignoreLeaves,
 		IssuanceLeafInclusionProofs: issuanceInclusionProofs,
 		BurnLeafInclusionProofs:     burnInclusionProofs,
 		IgnoreLeafInclusionProofs:   ignoreInclusionProofs,
@@ -4701,33 +4551,11 @@ func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
 	req *unirpc.InsertSupplyCommitRequest) (
 	*unirpc.InsertSupplyCommitResponse, error) {
 
-	// Parse asset group key from the request.
-	var groupPubKey btcec.PublicKey
-
-	switch {
-	case len(req.GetGroupKeyBytes()) > 0:
-		gk, err := btcec.ParsePubKey(req.GetGroupKeyBytes())
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	case len(req.GetGroupKeyStr()) > 0:
-		groupKeyBytes, err := hex.DecodeString(req.GetGroupKeyStr())
-		if err != nil {
-			return nil, fmt.Errorf("decoding group key: %w", err)
-		}
-
-		gk, err := btcec.ParsePubKey(groupKeyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	default:
-		return nil, fmt.Errorf("group key unspecified")
+	groupPubKey, err := unmarshalGroupKey(
+		req.GetGroupKeyBytes(), req.GetGroupKeyStr(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse group key: %w", err)
 	}
 
 	// Log the operation for debugging purposes.
@@ -4743,53 +4571,12 @@ func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
 			err)
 	}
 
-	// Initialize the SupplyLeaves structure to collect all unmarshalled
-	// events.
-	var supplyLeaves supplycommit.SupplyLeaves
-
-	// Process issuance leaves.
-	supplyLeaves.IssuanceLeafEntries = make(
-		[]supplycommit.NewMintEvent, 0, len(req.IssuanceLeaves),
+	supplyLeaves, err := unmarshalSupplyLeaves(
+		req.IssuanceLeaves, req.BurnLeaves, req.IgnoreLeaves,
 	)
-	for _, rpcLeaf := range req.IssuanceLeaves {
-		mintEvent, err := unmarshalMintSupplyLeaf(rpcLeaf)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal issuance "+
-				"leaf: %w", err)
-		}
-		supplyLeaves.IssuanceLeafEntries = append(
-			supplyLeaves.IssuanceLeafEntries, *mintEvent,
-		)
-	}
-
-	// Process burn leaves.
-	supplyLeaves.BurnLeafEntries = make(
-		[]supplycommit.NewBurnEvent, 0, len(req.BurnLeaves),
-	)
-	for _, rpcLeaf := range req.BurnLeaves {
-		burnEvent, err := unmarshalBurnSupplyLeaf(rpcLeaf)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal burn "+
-				"leaf: %w", err)
-		}
-		supplyLeaves.BurnLeafEntries = append(
-			supplyLeaves.BurnLeafEntries, *burnEvent,
-		)
-	}
-
-	// Process ignore leaves.
-	supplyLeaves.IgnoreLeafEntries = make(
-		[]supplycommit.NewIgnoreEvent, 0, len(req.IgnoreLeaves),
-	)
-	for _, rpcLeaf := range req.IgnoreLeaves {
-		ignoreEvent, err := unmarshalIgnoreSupplyLeaf(rpcLeaf)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal ignore "+
-				"leaf: %w", err)
-		}
-		supplyLeaves.IgnoreLeafEntries = append(
-			supplyLeaves.IgnoreLeafEntries, *ignoreEvent,
-		)
+	if err != nil {
+		return nil, fmt.Errorf("unable to unmarshal supply leaves: %w",
+			err)
 	}
 
 	rpcsLog.Debugf("Successfully unmarshalled commitment, %d issuance, "+
@@ -4798,9 +4585,9 @@ func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
 		len(supplyLeaves.BurnLeafEntries),
 		len(supplyLeaves.IgnoreLeafEntries))
 
-	assetSpec := asset.NewSpecifierFromGroupKey(groupPubKey)
+	assetSpec := asset.NewSpecifierFromGroupKey(*groupPubKey)
 	err = r.cfg.SupplyVerifyManager.InsertSupplyCommit(
-		ctx, assetSpec, *rootCommitment, supplyLeaves, *chainProof,
+		ctx, assetSpec, *rootCommitment, *supplyLeaves, *chainProof,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert supply commitment: %w",
@@ -6917,6 +6704,43 @@ func unmarshalUniverseKey(key *unirpc.UniverseKey) (universe.Identifier,
 	}
 
 	return uniID, leafKey, nil
+}
+
+// unmarshalGroupKey attempts to parse a group key from either the byte slice
+// or hex string form. If the group key is specified in both forms, the byte
+// slice form takes precedence (which usually can't be the case because we use
+// this for `oneof` gRPC fields that can't specify both).
+func unmarshalGroupKey(groupKeyBytes []byte,
+	groupKeyStr string) (*btcec.PublicKey, error) {
+
+	switch {
+	case len(groupKeyBytes) > 0:
+		gk, err := btcec.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing group key: %w",
+				err)
+		}
+
+		return gk, nil
+
+	case len(groupKeyStr) > 0:
+		groupKeyBytes, err := hex.DecodeString(groupKeyStr)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding group key: %w",
+				err)
+		}
+
+		gk, err := btcec.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing group key: %w",
+				err)
+		}
+
+		return gk, nil
+
+	default:
+		return nil, fmt.Errorf("group key unspecified")
+	}
 }
 
 // unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.
