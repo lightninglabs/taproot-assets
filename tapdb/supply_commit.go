@@ -855,7 +855,7 @@ func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
 	groupKeyBytes := groupKey.SerializeCompressed()
 
 	commitTx := commitDetails.Txn
-	internalKey := commitDetails.InternalKey
+	internalKeyDesc := commitDetails.InternalKey
 	outputKey := commitDetails.OutputKey
 	outputIndex := commitDetails.OutputIndex
 
@@ -897,15 +897,18 @@ func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
 				"%w", err)
 		}
 
-		// Upsert the internal key to get its ID. We assume key family
-		// and index 0 for now, as this key is likely externally.
+		// Upsert the internal key to get its ID, preserving the full
+		// key derivation information for proper PSBT signing later.
 		internalKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
-			RawKey: internalKey.SerializeCompressed(),
+			RawKey:    internalKeyDesc.PubKey.SerializeCompressed(),
+			KeyFamily: int32(internalKeyDesc.Family),
+			KeyIndex:  int32(internalKeyDesc.Index),
 		})
 		if err != nil {
-			return fmt.Errorf("failed to upsert internal key %x: "+
-				"%w",
-				internalKey.SerializeCompressed(), err)
+			return fmt.Errorf("failed to upsert "+
+				"internal key %x: %w",
+				internalKeyDesc.PubKey.SerializeCompressed(),
+				err)
 		}
 
 		// Insert the new commitment record. Chain details (block
