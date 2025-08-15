@@ -1435,6 +1435,50 @@ func (s *SupplyCommitMachine) ApplyStateTransition(
 				"confirmation: %w", err)
 		}
 
+		// Mark the specific pre-commitments that were spent in this
+		// transaction as spent by the new commitment. We identify them
+		// by looking at the transaction inputs.
+		for _, txIn := range newCommitment.Txn.TxIn {
+			outpointBytes, err := encodeOutpoint(
+				txIn.PreviousOutPoint,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to encode "+
+					"outpoint %v: %w",
+					txIn.PreviousOutPoint, err)
+			}
+
+			log.Infof("Attempting to mark outpoint as "+
+				"spent: %v (hash=%x, index=%d)",
+				txIn.PreviousOutPoint,
+				txIn.PreviousOutPoint.Hash[:],
+				txIn.PreviousOutPoint.Index)
+
+			// Mark this specific pre-commitment as spent.
+			err = db.MarkPreCommitmentSpentByOutpoint(ctx,
+				sqlc.MarkPreCommitmentSpentByOutpointParams{
+					SpentByCommitID: sqlInt64(
+						newCommitmentID,
+					),
+					Outpoint: outpointBytes,
+				},
+			)
+			if err != nil {
+				// It's OK if this outpoint doesn't exist in our
+				// table - it might be an old commitment output
+				// or a wallet input for fees. We only care
+				// about marking actual pre-commitments as
+				// spent.
+				log.Debugf("Could not mark outpoint %v as "+
+					"spent (may not be a "+
+					"pre-commitment): %v",
+					txIn.PreviousOutPoint, err)
+			} else {
+				log.Infof("Successfully marked outpoint "+
+					"as spent: %v", txIn.PreviousOutPoint)
+			}
+		}
+
 		// To finish up our book keeping, we'll now finalize the state
 		// transition on disk.
 		err = db.FinalizeSupplyCommitTransition(ctx, transitionID)
