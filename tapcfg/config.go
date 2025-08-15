@@ -298,6 +298,8 @@ type UniverseConfig struct {
 	MboxAuthTimeout time.Duration `long:"mbox-auth-timeout" description:"The timeout for mailbox message retrieval client authentication. Valid time units are {s, m, h}."`
 
 	MultiverseCaches *tapdb.MultiverseCacheConfig `group:"multiverse-caches" namespace:"multiverse-caches"`
+
+	SupplyIgnoreCacheSize uint64 `long:"supply-ignore-cache-size" description:"The maximum number of entries in the supply ignore checker's negative lookup LRU cache."`
 }
 
 // AddrBookConfig is the config that houses any address Book related config
@@ -459,7 +461,8 @@ func DefaultConfig() Config {
 			MultiverseCaches: fn.Ptr(
 				tapdb.DefaultMultiverseCacheConfig(),
 			),
-			MboxAuthTimeout: defaultMailboxAuthTimeout,
+			MboxAuthTimeout:       defaultMailboxAuthTimeout,
+			SupplyIgnoreCacheSize: tapdb.DefaultNegativeLookupCacheSize,
 		},
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,

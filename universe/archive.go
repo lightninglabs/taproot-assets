@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
 
 // ArchiveConfig is the main config for the archive. This includes all the items
@@ -47,6 +48,10 @@ type ArchiveConfig struct {
 	// ChainLookupGenerator is the main interface for generating a chain
 	// lookup interface that is required to validate proofs.
 	ChainLookupGenerator proof.ChainLookupGenerator
+
+	// IgnoreChecker is an optional function that can be used to check if
+	// a proof should be ignored.
+	IgnoreChecker lfn.Option[proof.IgnoreChecker]
 
 	// TODO(roasbeef): query re genesis asset known?
 
@@ -354,6 +359,7 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 		MerkleVerifier: a.cfg.MerkleVerifier,
 		GroupVerifier:  a.cfg.GroupVerifier,
 		ChainLookupGen: a.cfg.ChainLookupGenerator,
+		IgnoreChecker:  a.cfg.IgnoreChecker,
 	}
 
 	lookup, err := a.cfg.ChainLookupGenerator.GenProofChainLookup(newProof)

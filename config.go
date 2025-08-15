@@ -197,6 +197,8 @@ type Config struct {
 	// attestations of the total supply of an asset.
 	SupplyCommitManager *supplycommit.MultiStateMachineManager
 
+	IgnoreChecker *tapdb.CachingIgnoreChecker
+
 	UniverseArchive *universe.Archive
 
 	UniverseSyncer universe.Syncer

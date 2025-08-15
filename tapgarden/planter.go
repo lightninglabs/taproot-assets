@@ -81,6 +81,10 @@ type GardenKit struct {
 	// UniversePushBatchSize is the number of minted items to push to the
 	// local universe in a single batch.
 	UniversePushBatchSize int
+
+	// IgnoreChecker is an optional function that can be used to check if
+	// a proof should be ignored.
+	IgnoreChecker lfn.Option[proof.IgnoreChecker]
 }
 
 // PlanterConfig is the main config for the ChainPlanter.
@@ -3145,6 +3149,7 @@ func (c *ChainPlanter) verifierCtx(ctx context.Context) proof.VerifierCtx {
 		MerkleVerifier: merkleVerifier,
 		GroupVerifier:  groupVerifier,
 		ChainLookupGen: c.cfg.ChainBridge,
+		IgnoreChecker:  c.cfg.IgnoreChecker,
 	}
 }
 

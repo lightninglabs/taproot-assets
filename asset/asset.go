@@ -772,6 +772,12 @@ func (id PrevID) Hash() [sha256.Size]byte {
 	return *(*[sha256.Size]byte)(h.Sum(nil))
 }
 
+// String returns a human-readable description of the PrevID.
+func (id PrevID) String() string {
+	return fmt.Sprintf("PrevID(outpoint=%s, id=%s, script_key=%x)",
+		id.OutPoint.String(), id.ID.String(), id.ScriptKey.CopyBytes())
+}
+
 // AnchorPoint is a type alias for an asset anchor outpoint. It relates the
 // on-chain anchor outpoint (txid:vout) to the corresponding committed asset.
 type AnchorPoint = PrevID

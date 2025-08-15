@@ -182,6 +182,24 @@ func namespaceForProof(proofType universe.ProofType) (string, error) {
 	}
 }
 
+// CollectCacheStats collects the cache stats for the multiverse store and
+// adds them to the provided hits and misses maps. The keys in the maps are
+// prefixed with "multiverse_" to distinguish them from other caches.
+func (b *MultiverseStore) CollectCacheStats(hits, misses map[string]int64) {
+	caches := []*cacheLogger{
+		b.syncerCache.cacheLogger, b.rootNodeCache.cacheLogger,
+		b.proofCache.cacheLogger, b.leafKeysCache.cacheLogger,
+	}
+	for _, cache := range caches {
+		if cache == nil {
+			continue
+		}
+
+		hits["multiverse_"+cache.name] = cache.hit.Load()
+		misses["multiverse_"+cache.name] = cache.miss.Load()
+	}
+}
+
 // MultiverseRootNode returns the root multiverse node for the given proof
 // type.
 func (b *MultiverseStore) MultiverseRootNode(ctx context.Context,

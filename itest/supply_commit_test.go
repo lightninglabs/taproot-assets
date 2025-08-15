@@ -196,8 +196,10 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 	// Determine the transfer output owned by the secondary node.
 	// This is the output that we will ignore.
 	transferOutput := sendResp.RpcResp.Transfer.Outputs[0]
+	changeOutput := sendResp.RpcResp.Transfer.Outputs[1]
 	if sendResp.RpcResp.Transfer.Outputs[1].Amount == sendAssetAmount {
 		transferOutput = sendResp.RpcResp.Transfer.Outputs[1]
+		changeOutput = sendResp.RpcResp.Transfer.Outputs[0]
 	}
 
 	// Get block height at the time of the ignore request.
@@ -217,6 +219,21 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 	require.NotNil(t.t, respIgnore)
 	require.EqualValues(t.t, sendAssetAmount, respIgnore.Leaf.RootSum)
 
+	// We also ignore our change output, so we can later verify that the
+	// proof verifier correctly denies spending the change output.
+	ignoreReq2 := &unirpc.IgnoreAssetOutPointRequest{
+		AssetOutPoint: &taprpc.AssetOutPoint{
+			AnchorOutPoint: changeOutput.Anchor.Outpoint,
+			AssetId:        rpcAsset.AssetGenesis.AssetId,
+			ScriptKey:      changeOutput.ScriptKey,
+		},
+		Amount: sendChangeAmount,
+	}
+	respIgnore2, err := t.tapd.IgnoreAssetOutPoint(ctxb, ignoreReq2)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, respIgnore2)
+	require.EqualValues(t.t, sendChangeAmount, respIgnore2.Leaf.RootSum)
+
 	// Assert that the mempool is empty.
 	mempool := t.lndHarness.Miner().GetRawMempool()
 	require.Empty(t.t, mempool)
@@ -232,6 +249,7 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 			},
 			IgnoreLeafKeys: [][]byte{
 				respIgnore.LeafKey,
+				respIgnore2.LeafKey,
 			},
 		},
 	)
@@ -256,6 +274,7 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 	minedBlocks := MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 
 	t.Log("Fetch updated supply commitment")
+
 	// Ensure that the supply commitment reflects the ignored asset
 	// outpoint owned by the secondary node.
 	var fetchResp *unirpc.FetchSupplyCommitResponse
@@ -268,6 +287,7 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 				},
 				IgnoreLeafKeys: [][]byte{
 					respIgnore.LeafKey,
+					respIgnore2.LeafKey,
 				},
 			},
 		)
@@ -283,7 +303,7 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 		// Once the ignore tree includes the ignored asset outpoint, we
 		// know that the supply commitment has been updated.
 		return fetchResp.IgnoreSubtreeRoot.RootNode.RootSum ==
-			int64(sendAssetAmount)
+			int64(sendAssetAmount+sendChangeAmount)
 	}, defaultWaitTimeout, time.Second)
 
 	// Verify that the supply commitment tree commits to the ignore subtree.
@@ -310,7 +330,7 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 
 	// Unmarshal ignore tree leaf inclusion proof to verify that the
 	// ignored asset outpoint is included in the ignore tree.
-	require.Len(t.t, fetchResp.IgnoreLeafInclusionProofs, 1)
+	require.Len(t.t, fetchResp.IgnoreLeafInclusionProofs, 2)
 	inclusionProofBytes := fetchResp.IgnoreLeafInclusionProofs[0]
 
 	// Verify that the ignore tree root can be computed from the ignore leaf
@@ -408,11 +428,11 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 	require.NoError(t.t, err)
 	require.NotNil(t.t, respLeaves)
 
-	require.Len(t.t, respLeaves.IgnoreLeaves, 1)
+	require.Len(t.t, respLeaves.IgnoreLeaves, 2)
 
 	ignoreLeafEntry := respLeaves.IgnoreLeaves[0]
 	require.EqualValues(
-		t.t, 10, ignoreLeafEntry.LeafNode.RootSum,
+		t.t, sendAssetAmount, ignoreLeafEntry.LeafNode.RootSum,
 	)
 	require.EqualValues(
 		t.t, newIgnoreBlockHeight, ignoreLeafEntry.BlockHeight,
@@ -432,6 +452,11 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 		"asset script key mismatch in ignore leaf",
 	)
 
+	ignoreLeafEntry2 := respLeaves.IgnoreLeaves[1]
+	require.EqualValues(
+		t.t, sendChangeAmount, ignoreLeafEntry2.LeafNode.RootSum,
+	)
+
 	transferOutPoint, err := wire.NewOutPointFromString(
 		transferOutput.Anchor.Outpoint,
 	)
@@ -443,6 +468,27 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 		t.t, transferOutPoint.Index,
 		ignoreLeafEntry.LeafKey.Outpoint.Index,
 	)
+
+	// We now add our change output to the ignore list as well, then try to
+	// spend it.
+	bobAddr, err := secondTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: rpcAsset.AssetGenesis.AssetId,
+		Amt:     sendChangeAmount / 2,
+	})
+	require.NoError(t.t, err)
+	sendAsset(
+		t, t.tapd, withReceiverAddresses(bobAddr),
+		withError("is ignored"),
+	)
+
+	// TODO(ffranr): The above only tests that the node that issued the
+	// ignore request has it in its ignore tree and can then deny spending
+	// it. What we should also test is that the secondary node can sync the
+	// ignore tree and then also deny spending the ignored asset outpoint
+	// they received from the primary node.
+	// Another test case we should add is that a node that _does not_ sync
+	// the ignore tree can _send_ an ignored asset, but a synced node will
+	// deny accepting it (transfer will never complete).
 }
 
 // AssertInclusionProof checks that the inclusion proof for a given leaf key
