@@ -482,6 +482,7 @@ func newRootCommitment(ctx context.Context,
 	// as an input to the new transaction. Pre-commitments are only present
 	// on mint transactions where as the old commitment is the last
 	// commitment that was broadcast.
+	var spentCommitOp fn.Option[wire.OutPoint]
 	oldCommitment.WhenSome(func(r RootCommitment) {
 		logger.WhenSome(func(l btclog.Logger) {
 			l.Infof("Re-using prior commitment as outpoint=%v: %v",
@@ -510,6 +511,8 @@ func newRootCommitment(ctx context.Context,
 			TaprootInternalKey: trBip32Derivation.XOnlyPubKey,
 			TaprootMerkleRoot:  commitTapscriptRoot,
 		})
+
+		spentCommitOp = fn.Some(r.CommitPoint())
 	})
 
 	// TODO(roasbef): do CreateTaprootSignature instead?
@@ -581,11 +584,12 @@ func newRootCommitment(ctx context.Context,
 	//
 	// TODO(roasbeef): use diff internal key?
 	newSupplyCommit := RootCommitment{
-		Txn:         newCommitTx,
-		TxOutIdx:    0,
-		InternalKey: commitInternalKey,
-		OutputKey:   tapOutKey,
-		SupplyRoot:  newSupplyRoot,
+		Txn:             newCommitTx,
+		TxOutIdx:        0,
+		InternalKey:     commitInternalKey,
+		OutputKey:       tapOutKey,
+		SupplyRoot:      newSupplyRoot,
+		SpentCommitment: spentCommitOp,
 	}
 
 	logger.WhenSome(func(l btclog.Logger) {
