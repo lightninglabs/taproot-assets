@@ -750,7 +750,7 @@ func (s *CommitTxSignState) ProcessEvent(event Event,
 		newCommit := &stateTransition.NewCommitment
 		commitTxnDetails := SupplyCommitTxn{
 			Txn:         commitTx,
-			InternalKey: newCommit.InternalKey.PubKey,
+			InternalKey: newCommit.InternalKey,
 			OutputKey:   newCommit.OutputKey,
 			OutputIndex: newCommit.TxOutIdx,
 		}

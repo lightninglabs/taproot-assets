@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/stretchr/testify/require"
 )
@@ -126,8 +127,8 @@ func (h *supplyCommitTestHarness) addTestMintingBatch() ([]byte, int64,
 		Txid:  mintTxID[:],
 		RawTx: mintTxBytes,
 	})
-	require.NoError(h.t, err)
 
+	require.NoError(h.t, err)
 	genesisPointBytes, err := encodeOutpoint(genesisPoint)
 	require.NoError(h.t, err)
 	err = db.AnchorGenesisPoint(ctx, sqlc.AnchorGenesisPointParams{
@@ -158,7 +159,7 @@ func (h *supplyCommitTestHarness) addTestMintingBatch() ([]byte, int64,
 // transition performed by performSingleTransition.
 type stateTransitionOutput struct {
 	appliedUpdates []supplycommit.SupplyUpdateEvent
-	internalKey    *btcec.PublicKey
+	internalKey    keychain.KeyDescriptor
 	outputKey      *btcec.PublicKey
 	commitTx       *wire.MsgTx
 	chainProof     supplycommit.ChainProof
@@ -720,6 +721,7 @@ func (h *supplyCommitTestHarness) performSingleTransition(
 	// Next, we'll generate a new "fake" commitment transaction along with
 	// sample internal and output keys.
 	commitTx := randTx(h.t, 1)
+
 	// Add inputs to the transaction that spend the pre-commitment outputs.
 	for _, outpoint := range preCommitOutpoints {
 		commitTx.TxIn = append(commitTx.TxIn, &wire.TxIn{
@@ -735,7 +737,7 @@ func (h *supplyCommitTestHarness) performSingleTransition(
 	// and commit that.
 	commitDetails := supplycommit.SupplyCommitTxn{
 		Txn:         commitTx,
-		InternalKey: internalKey.PubKey,
+		InternalKey: internalKey,
 		OutputKey:   outputKey,
 		OutputIndex: 1,
 	}
@@ -810,7 +812,7 @@ func (h *supplyCommitTestHarness) performSingleTransition(
 
 	return stateTransitionOutput{
 		appliedUpdates: updates,
-		internalKey:    internalKey.PubKey,
+		internalKey:    internalKey,
 		outputKey:      outputKey,
 		commitTx:       commitTx,
 		chainProof:     chainProof,
@@ -1017,7 +1019,7 @@ func (h *supplyCommitTestHarness) assertTransitionApplied(
 	// The keys should also be inserted, and the db commitment should match
 	// what we inserted.
 	require.Equal(
-		h.t, internalKey.SerializeCompressed(),
+		h.t, internalKey.PubKey.SerializeCompressed(),
 		h.fetchInternalKeyByID(dbCommitment.InternalKeyID).RawKey,
 		"internalKey mismatch",
 	)
@@ -1161,7 +1163,7 @@ func (h *supplyCommitTestHarness) assertTransitionApplied(
 		"SupplyCommit returned wrong Txn hash",
 	)
 	require.Equal(
-		h.t, output.internalKey.SerializeCompressed(),
+		h.t, output.internalKey.PubKey.SerializeCompressed(),
 		fetchedCommit.InternalKey.PubKey.SerializeCompressed(),
 		"SupplyCommit returned wrong InternalKey",
 	)
@@ -1401,7 +1403,7 @@ func TestSupplyCommitInsertSignedCommitTx(t *testing.T) {
 	commitTxid2 := commitTx2.TxHash()
 
 	// Insert the signed commitment with the updated transaction.
-	internalKey := test.RandPubKey(t)
+	internalKey, _ := test.RandKeyDesc(t)
 	outputKey := test.RandPubKey(t)
 	commitDetails := supplycommit.SupplyCommitTxn{
 		Txn:         commitTx2,
@@ -1440,7 +1442,7 @@ func TestSupplyCommitInsertSignedCommitTx(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, chainTx2Record.TxnID, newDbCommitment.ChainTxnID)
 	require.Equal(t,
-		internalKey.SerializeCompressed(),
+		internalKey.PubKey.SerializeCompressed(),
 		h.fetchInternalKeyByID(newDbCommitment.InternalKeyID).RawKey,
 	)
 	require.Equal(
@@ -1463,7 +1465,7 @@ func TestSupplyCommitInsertSignedCommitTx(t *testing.T) {
 		t, commitTxid2, fetchedTransition.NewCommitment.Txn.TxHash(),
 	)
 	require.Equal(
-		t, internalKey.SerializeCompressed(),
+		t, internalKey.PubKey.SerializeCompressed(),
 		fetchedTransition.NewCommitment.InternalKey.PubKey.SerializeCompressed(), //nolint:lll
 	)
 	require.Equal(
@@ -1577,7 +1579,7 @@ func TestSupplyCommitFetchState(t *testing.T) {
 
 	// Next, we'll insert a signed commitment transaction.
 	commitTx := randTx(t, 1)
-	internalKey := test.RandPubKey(t)
+	internalKey, _ := test.RandKeyDesc(t)
 	outputKey := test.RandPubKey(t)
 
 	commitDetails := supplycommit.SupplyCommitTxn{
