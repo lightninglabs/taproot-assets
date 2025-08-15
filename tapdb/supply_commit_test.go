@@ -212,9 +212,10 @@ func newSupplyCommitTestHarness(t *testing.T) *supplyCommitTestHarness {
 }
 
 // addTestMintAnchorUniCommitment inserts a mint_anchor_uni_commitments record
-// using harness data.
+// using harness data and returns both the commitment ID and the outpoint.
 func (h *supplyCommitTestHarness) addTestMintAnchorUniCommitment(
-	batchKeyBytes []byte, spentBy sql.NullInt64) int64 {
+	batchKeyBytes []byte, spentBy sql.NullInt64,
+	mintTxid chainhash.Hash) (int64, wire.OutPoint) {
 
 	h.t.Helper()
 
@@ -228,7 +229,16 @@ func (h *supplyCommitTestHarness) addTestMintAnchorUniCommitment(
 	)
 	require.NoError(h.t, err)
 
-	txOutputIndex := int32(test.RandInt[uint32]() % 100)
+	txOutputIndex := int32(test.RandInt[uint32]())
+
+	outpoint := wire.OutPoint{
+		Hash:  mintTxid,
+		Index: uint32(txOutputIndex),
+	}
+
+	var outpointBuf bytes.Buffer
+	err = wire.WriteOutPoint(&outpointBuf, 0, 0, &outpoint)
+	require.NoError(h.t, err)
 
 	anchorCommitID, err := h.db.UpsertMintAnchorUniCommitment(
 		h.ctx, sqlc.UpsertMintAnchorUniCommitmentParams{
@@ -237,11 +247,12 @@ func (h *supplyCommitTestHarness) addTestMintAnchorUniCommitment(
 			TaprootInternalKeyID: internalKeyID,
 			GroupKey:             h.groupKeyBytes,
 			SpentBy:              spentBy,
+			Outpoint:             outpointBuf.Bytes(),
 		},
 	)
 	require.NoError(h.t, err)
 
-	return anchorCommitID
+	return anchorCommitID, outpoint
 }
 
 // currentState fetches the current state of the state machine via FetchState.
@@ -687,7 +698,8 @@ func (h *supplyCommitTestHarness) confirmChainTx(txID int64, txidBytes,
 // list of updates applied, the generated keys, the commit TX, and the simulated
 // chain proof details for assertion purposes.
 func (h *supplyCommitTestHarness) performSingleTransition(
-	updates []supplycommit.SupplyUpdateEvent) stateTransitionOutput {
+	updates []supplycommit.SupplyUpdateEvent,
+	preCommitOutpoints []wire.OutPoint) stateTransitionOutput {
 
 	h.t.Helper()
 
@@ -709,6 +721,13 @@ func (h *supplyCommitTestHarness) performSingleTransition(
 	// Next, we'll generate a new "fake" commitment transaction along with
 	// sample internal and output keys.
 	commitTx := randTx(h.t, 1)
+	// Add inputs to the transaction that spend the pre-commitment outputs.
+	for _, outpoint := range preCommitOutpoints {
+		commitTx.TxIn = append(commitTx.TxIn, &wire.TxIn{
+			PreviousOutPoint: outpoint,
+		})
+	}
+
 	internalKey, _ := test.RandKeyDesc(h.t)
 	outputKey := test.RandPubKey(h.t)
 
@@ -1255,7 +1274,10 @@ func TestBindDanglingUpdatesToTransition(t *testing.T) {
 	// To create dangling updates, we first need a state machine and a
 	// finalized transition.
 	updates1 := []supplycommit.SupplyUpdateEvent{h.randMintEvent()}
-	stateTransition1 := h.performSingleTransition(updates1)
+	// Pass empty outpoints since this test doesn't need pre-commitments
+	stateTransition1 := h.performSingleTransition(
+		updates1, []wire.OutPoint{},
+	)
 	h.assertTransitionApplied(stateTransition1)
 
 	// Now, with the machine in DefaultState, we'll manually insert some
@@ -1644,6 +1666,47 @@ func TestSupplyCommitApplyStateTransition(t *testing.T) {
 
 	h := newSupplyCommitTestHarness(t)
 
+	// First, let's create some pre-commitments that should be spent when we
+	// apply the state transition. We'll create mint transactions and track
+	// their outpoints.
+	batchKeyBytes1, _, _, mintTxidBytes1, _ := h.addTestMintingBatch()
+	var mintTxid1 chainhash.Hash
+	copy(mintTxid1[:], mintTxidBytes1)
+	_, outpoint1 := h.addTestMintAnchorUniCommitment(
+		batchKeyBytes1, sql.NullInt64{}, mintTxid1,
+	)
+	batchKeyBytes2, _, _, mintTxidBytes2, _ := h.addTestMintingBatch()
+	var mintTxid2 chainhash.Hash
+	copy(mintTxid2[:], mintTxidBytes2)
+	_, outpoint2 := h.addTestMintAnchorUniCommitment(
+		batchKeyBytes2, sql.NullInt64{}, mintTxid2,
+	)
+
+	// Create an additional pre-commitment that should NOT be spent. This
+	// tests that we're only marking the specific pre-commitments referenced
+	// in the transaction inputs as spent.
+	//nolint:lll
+	batchKeyBytesExtra, _, _, mintTxidBytesExtra, _ := h.addTestMintingBatch()
+	var mintTxidExtra chainhash.Hash
+	copy(mintTxidExtra[:], mintTxidBytesExtra)
+	_, outpointExtra := h.addTestMintAnchorUniCommitment(
+		batchKeyBytesExtra, sql.NullInt64{}, mintTxidExtra,
+	)
+
+	// Collect only the first two outpoints for the transaction inputs. The
+	// extra one should remain unspent
+	preCommitOutpoints := []wire.OutPoint{outpoint1, outpoint2}
+
+	// Verify we have all three unspent pre-commitments before the
+	// transition.
+	precommitsRes := h.commitMachine.UnspentPrecommits(h.ctx, h.assetSpec)
+	precommits, err := precommitsRes.Unpack()
+	require.NoError(t, err)
+	require.Len(
+		t, precommits, 3, "should have 3 unspent pre-commitments "+
+			"before transition",
+	)
+
 	// To kick off our test, we'll perform a single state transition. This
 	// entails: adding a set of pending updates, committing the signed
 	// commit tx, and finally applying the state transition. After
@@ -1653,17 +1716,74 @@ func TestSupplyCommitApplyStateTransition(t *testing.T) {
 	updates1 := []supplycommit.SupplyUpdateEvent{
 		h.randMintEvent(), h.randBurnEvent(),
 	}
-	stateTransition1 := h.performSingleTransition(updates1)
+	stateTransition1 := h.performSingleTransition(
+		updates1, preCommitOutpoints,
+	)
 	h.assertTransitionApplied(stateTransition1)
+
+	// After the first transition, only the two pre-commitments that were
+	// included in the transaction inputs should be marked as spent.
+	// The extra pre-commitment should remain unspent.
+	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, h.assetSpec)
+	precommits, err = precommitsRes.Unpack()
+	require.NoError(t, err)
+	require.Len(
+		t, precommits, 1, "should have 1 unspent pre-commitment after "+
+			"first transition (the one not included in tx inputs)",
+	)
+
+	// Verify that the remaining unspent pre-commitment is the extra one
+	// by checking its outpoint
+	remainingPrecommit := precommits[0]
+	remainingOutpoint := wire.OutPoint{
+		Hash:  remainingPrecommit.MintingTxn.TxHash(),
+		Index: remainingPrecommit.OutIdx,
+	}
+
+	require.Equal(
+		t, outpointExtra, remainingOutpoint,
+		"the remaining unspent pre-commitment should be the extra one",
+	)
+
+	// Now create new pre-commitments for the second transition.
+	batchKeyBytes3, _, _, mintTxidBytes3, _ := h.addTestMintingBatch()
+	var mintTxid3 chainhash.Hash
+	copy(mintTxid3[:], mintTxidBytes3)
+	_, outpoint3 := h.addTestMintAnchorUniCommitment(
+		batchKeyBytes3, sql.NullInt64{}, mintTxid3,
+	)
+
+	// Verify we have the extra one from before plus the new one.
+	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, h.assetSpec)
+	precommits, err = precommitsRes.Unpack()
+	require.NoError(t, err)
+	require.Len(
+		t, precommits, 2, "should have 2 unspent pre-commitments "+
+			"before second transition (extra from first + new one)",
+	)
 
 	// To ensure that we can perform multiple transitions, we'll now do
 	// another one, with a new set of events, and then assert that it's been
-	// applied properly.
+	// applied properly. This time we'll spend both the extra pre-commitment
+	// from the first round and the new one.
 	updates2 := []supplycommit.SupplyUpdateEvent{
 		h.randMintEvent(), h.randIgnoreEvent(),
 	}
-	stateTransition2 := h.performSingleTransition(updates2)
+	preCommitOutpoints2 := []wire.OutPoint{outpointExtra, outpoint3}
+	stateTransition2 := h.performSingleTransition(
+		updates2, preCommitOutpoints2,
+	)
 	h.assertTransitionApplied(stateTransition2)
+
+	// After the second transition, the new pre-commitment should also be
+	// spent. Finally, verify that no unspent pre-commitments remain.
+	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, h.assetSpec)
+	precommits, err = precommitsRes.Unpack()
+	require.NoError(t, err)
+	require.Empty(
+		t, precommits, "should have no unspent pre-commitments after "+
+			"all transitions",
+	)
 }
 
 // TestSupplyCommitUnspentPrecommits tests the UnspentPrecommits method.
@@ -1685,8 +1805,12 @@ func TestSupplyCommitUnspentPrecommits(t *testing.T) {
 	require.Empty(t, precommits)
 
 	// Next, we'll add a new minting batch, and a pre-commit along with it.
-	batchKeyBytes, _, mintTx1, _, _ := h.addTestMintingBatch()
-	_ = h.addTestMintAnchorUniCommitment(batchKeyBytes, sql.NullInt64{})
+	batchKeyBytes, _, mintTx1, mintTxidBytes, _ := h.addTestMintingBatch()
+	var mintTxid chainhash.Hash
+	copy(mintTxid[:], mintTxidBytes)
+	_, _ = h.addTestMintAnchorUniCommitment(
+		batchKeyBytes, sql.NullInt64{}, mintTxid,
+	)
 
 	// At this point, we should find a single pre commitment on disk.
 	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, spec)
@@ -1698,12 +1822,15 @@ func TestSupplyCommitUnspentPrecommits(t *testing.T) {
 	// Next, we'll add another pre commitment, and this time associate it
 	// (spend it) by a supply commitment.
 	//nolint:lll
-	batchKeyBytes, commitTxDbID2, _, commitTxid2, commitRawTx2 :=
-		h.addTestMintingBatch()
+	batchKeyBytes, commitTxDbID2, _, commitTxidBytes2, commitRawTx2 := h.addTestMintingBatch()
+	var commitTxid2 chainhash.Hash
+	copy(commitTxid2[:], commitTxidBytes2)
 	commitID2 := h.addTestSupplyCommitment(
-		commitTxDbID2, commitTxid2, commitRawTx2, false,
+		commitTxDbID2, commitTxidBytes2, commitRawTx2, false,
 	)
-	_ = h.addTestMintAnchorUniCommitment(batchKeyBytes, sqlInt64(commitID2))
+	_, _ = h.addTestMintAnchorUniCommitment(
+		batchKeyBytes, sqlInt64(commitID2), commitTxid2,
+	)
 
 	// We should now find two pre-commitments.
 	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, spec)
@@ -1717,7 +1844,7 @@ func TestSupplyCommitUnspentPrecommits(t *testing.T) {
 	blockHeight := sqlInt32(123)
 	txIndex := sqlInt32(1)
 	_, err = h.db.UpsertChainTx(h.ctx, sqlc.UpsertChainTxParams{
-		Txid:        commitTxid2,
+		Txid:        commitTxid2[:],
 		RawTx:       commitRawTx2,
 		ChainFees:   0,
 		BlockHash:   blockHash,
