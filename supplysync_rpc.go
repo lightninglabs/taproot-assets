@@ -69,58 +69,15 @@ func (r *RpcSupplySync) FetchSupplyLeaves(ctx context.Context,
 			err)
 	}
 
-	// Convert the RPC response into a SupplyLeaves instance.
-	supplyLeaves := supplycommit.SupplyLeaves{
-		IssuanceLeafEntries: make(
-			[]supplycommit.NewMintEvent, 0,
-			len(resp.IssuanceLeaves),
-		),
-		BurnLeafEntries: make(
-			[]supplycommit.NewBurnEvent, 0, len(resp.BurnLeaves),
-		),
-		IgnoreLeafEntries: make(
-			[]supplycommit.NewIgnoreEvent, 0,
-			len(resp.IgnoreLeaves),
-		),
+	parsedLeaves, err := unmarshalSupplyLeaves(
+		resp.IssuanceLeaves, resp.BurnLeaves, resp.IgnoreLeaves,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("unable to unmarshal supply leaves: %w",
+			err)
 	}
 
-	for _, rpcLeaf := range resp.IssuanceLeaves {
-		mintEvent, err := unmarshalMintSupplyLeaf(rpcLeaf)
-		if err != nil {
-			return zero, fmt.Errorf("unable to unmarshal mint "+
-				"event: %w", err)
-		}
-
-		supplyLeaves.IssuanceLeafEntries = append(
-			supplyLeaves.IssuanceLeafEntries, *mintEvent,
-		)
-	}
-
-	for _, rpcLeaf := range resp.BurnLeaves {
-		burnEvent, err := unmarshalBurnSupplyLeaf(rpcLeaf)
-		if err != nil {
-			return zero, fmt.Errorf("unable to unmarshal burn "+
-				"event: %w", err)
-		}
-
-		supplyLeaves.BurnLeafEntries = append(
-			supplyLeaves.BurnLeafEntries, *burnEvent,
-		)
-	}
-
-	for _, rpcLeaf := range resp.IgnoreLeaves {
-		ignoreEvent, err := unmarshalIgnoreSupplyLeaf(rpcLeaf)
-		if err != nil {
-			return zero, fmt.Errorf("unable to unmarshal ignore "+
-				"event: %w", err)
-		}
-
-		supplyLeaves.IgnoreLeafEntries = append(
-			supplyLeaves.IgnoreLeafEntries, *ignoreEvent,
-		)
-	}
-
-	return supplyLeaves, nil
+	return *parsedLeaves, nil
 }
 
 // InsertSupplyCommit inserts a supply commitment for a specific asset
@@ -143,49 +100,11 @@ func (r *RpcSupplySync) InsertSupplyCommit(ctx context.Context,
 		return fmt.Errorf("unable to marshal chain data: %w", err)
 	}
 
-	// Marshal issuance leaves to RPC format.
-	rpcIssuanceLeaves := make(
-		[]*unirpc.SupplyLeafEntry, 0, len(leaves.IssuanceLeafEntries),
+	issuanceLeaves, burnLeaves, ignoreLeaves, err := marshalSupplyLeaves(
+		leaves,
 	)
-	for idx := range leaves.IssuanceLeafEntries {
-		leafEntry := &leaves.IssuanceLeafEntries[idx]
-		rpcLeaf, err := marshalSupplyUpdateEvent(leafEntry)
-		if err != nil {
-			return fmt.Errorf("unable to marshal issuance leaf: %w",
-				err)
-		}
-
-		rpcIssuanceLeaves = append(rpcIssuanceLeaves, rpcLeaf)
-	}
-
-	// Marshal burn leaves to RPC format.
-	rpcBurnLeaves := make(
-		[]*unirpc.SupplyLeafEntry, 0, len(leaves.BurnLeafEntries),
-	)
-	for idx := range leaves.BurnLeafEntries {
-		leafEntry := &leaves.BurnLeafEntries[idx]
-		rpcLeaf, err := marshalSupplyUpdateEvent(leafEntry)
-		if err != nil {
-			return fmt.Errorf("unable to marshal burn leaf: %w",
-				err)
-		}
-
-		rpcBurnLeaves = append(rpcBurnLeaves, rpcLeaf)
-	}
-
-	// Marshal ignore leaves to RPC format.
-	rpcIgnoreLeaves := make(
-		[]*unirpc.SupplyLeafEntry, 0, len(leaves.IgnoreLeafEntries),
-	)
-	for idx := range leaves.IgnoreLeafEntries {
-		leafEntry := &leaves.IgnoreLeafEntries[idx]
-		rpcLeaf, err := marshalSupplyUpdateEvent(leafEntry)
-		if err != nil {
-			return fmt.Errorf("unable to marshal ignore leaf: %w",
-				err)
-		}
-
-		rpcIgnoreLeaves = append(rpcIgnoreLeaves, rpcLeaf)
+	if err != nil {
+		return fmt.Errorf("unable to marshal supply leaves: %w", err)
 	}
 
 	req := &unirpc.InsertSupplyCommitRequest{
@@ -193,9 +112,9 @@ func (r *RpcSupplySync) InsertSupplyCommit(ctx context.Context,
 			GroupKeyBytes: groupKey.SerializeCompressed(),
 		},
 		ChainData:      rpcChainData,
-		IssuanceLeaves: rpcIssuanceLeaves,
-		BurnLeaves:     rpcBurnLeaves,
-		IgnoreLeaves:   rpcIgnoreLeaves,
+		IssuanceLeaves: issuanceLeaves,
+		BurnLeaves:     burnLeaves,
+		IgnoreLeaves:   ignoreLeaves,
 	}
 
 	_, err = r.conn.InsertSupplyCommit(ctx, req)
@@ -267,6 +186,83 @@ func marshalSupplyCommitChainData(
 	)
 
 	return rpcChainData, nil
+}
+
+// unmarshalSupplyLeaves converts the RPC supply leaves into a SupplyLeaves
+// struct that can be used by the supply commitment verifier.
+func unmarshalSupplyLeaves(issuanceLeaves, burnLeaves,
+	ignoreLeaves []*unirpc.SupplyLeafEntry) (*supplycommit.SupplyLeaves,
+	error) {
+
+	var (
+		supplyLeaves supplycommit.SupplyLeaves
+		err          error
+	)
+	supplyLeaves.IssuanceLeafEntries, err = fn.MapErrWithPtr(
+		issuanceLeaves, unmarshalMintSupplyLeaf,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to unmarshal mint event: %w",
+			err)
+	}
+
+	supplyLeaves.BurnLeafEntries, err = fn.MapErrWithPtr(
+		burnLeaves, unmarshalBurnSupplyLeaf,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to unmarshal burn event: %w",
+			err)
+	}
+
+	supplyLeaves.IgnoreLeafEntries, err = fn.MapErrWithPtr(
+		ignoreLeaves, unmarshalIgnoreSupplyLeaf,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to unmarshal ignore event: %w",
+			err)
+	}
+
+	return &supplyLeaves, nil
+}
+
+// mapSupplyLeaves is a generic helper that converts a slice of supply update
+// events into a slice of RPC SupplyLeafEntry objects.
+func mapSupplyLeaves[E any](entries []E) ([]*unirpc.SupplyLeafEntry, error) {
+	return fn.MapErr(entries, func(i E) (*unirpc.SupplyLeafEntry, error) {
+		ifaceType, ok := any(i).(supplycommit.SupplyUpdateEvent)
+		if !ok {
+			return nil, fmt.Errorf("expected supply update event, "+
+				"got %T", i)
+		}
+		return marshalSupplyUpdateEvent(ifaceType)
+	})
+}
+
+// marshalSupplyLeaves converts a SupplyLeaves struct into the corresponding
+// RPC SupplyLeafEntry slices for issuance, burn, and ignore leaves.
+func marshalSupplyLeaves(
+	leaves supplycommit.SupplyLeaves) ([]*unirpc.SupplyLeafEntry,
+	[]*unirpc.SupplyLeafEntry, []*unirpc.SupplyLeafEntry, error) {
+
+	rpcIssuanceLeaves, err := mapSupplyLeaves(leaves.IssuanceLeafEntries)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to marshal issuance "+
+			"leaf: %w", err)
+	}
+
+	rpcBurnLeaves, err := mapSupplyLeaves(leaves.BurnLeafEntries)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to marshal burn "+
+			"leaf: %w", err)
+	}
+
+	rpcIgnoreLeaves, err := mapSupplyLeaves(leaves.IgnoreLeafEntries)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to marshal burn "+
+			"leaf: %w", err)
+	}
+
+	return rpcIssuanceLeaves, rpcBurnLeaves, rpcIgnoreLeaves, nil
 }
 
 // unmarshalMintSupplyLeaf converts an RPC SupplyLeafEntry into a NewMintEvent.
