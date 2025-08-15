@@ -2,6 +2,7 @@ package supplycommit
 
 import (
 	"github.com/btcsuite/btclog/v2"
+	"github.com/davecgh/go-spew/spew"
 )
 
 // Subsystem defines the logging code for this subsystem.
@@ -16,6 +17,13 @@ var log = btclog.Disabled
 // by default until UseLogger is called.
 func DisableLog() {
 	UseLogger(btclog.Disabled)
+}
+
+// limitSpewer is a spew.ConfigState that limits the depth of the output to 4
+// levels, so it can safely be used for things that contain an MS-SMT tree.
+var limitSpewer = &spew.ConfigState{
+	Indent:   "  ",
+	MaxDepth: 4,
 }
 
 // UseLogger uses a specified Logger to output package logging info.
