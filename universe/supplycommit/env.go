@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -523,6 +524,9 @@ type Environment struct {
 	// IgnoreCheckerCache is used to invalidate the ignore cache when a new
 	// supply commitment is created.
 	IgnoreCheckerCache IgnoreCheckerCache
+
+	// Log is the prefixed logger for this supply commitment state machine.
+	Log btclog.Logger
 }
 
 // SupplyCommitTxn encapsulates the details of the transaction that creates a
@@ -547,4 +551,15 @@ type SupplyCommitTxn struct {
 // is based on the channel ID.
 func (e *Environment) Name() string {
 	return fmt.Sprintf("universe_supply_commit(%v)", e.AssetSpec)
+}
+
+// Logger returns the logger for this environment. If a logger was provided in
+// the environment configuration, it returns that logger. Otherwise, it returns
+// the package-level logger with an asset-specific prefix.
+func (e *Environment) Logger() btclog.Logger {
+	if e.Log != nil {
+		return e.Log
+	}
+
+	return NewAssetLogger(e.AssetSpec.String())
 }
