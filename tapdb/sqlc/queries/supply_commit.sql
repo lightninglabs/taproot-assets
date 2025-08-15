@@ -173,6 +173,13 @@ FROM supply_commitments AS sc
 WHERE sc.spent_commitment IS NULL AND
     sc.group_key = @group_key;
 
+-- name: QuerySupplyCommitmentOutpoint :one
+SELECT ct.txid, sc.output_index
+FROM supply_commitments AS sc
+    JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.commit_id = @commit_id;
+
 -- name: UpdateSupplyCommitTransitionCommitment :exec
 UPDATE supply_commit_transitions
 SET new_commitment_id = @new_commitment_id,

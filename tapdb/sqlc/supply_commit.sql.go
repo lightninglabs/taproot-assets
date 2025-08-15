@@ -620,6 +620,26 @@ func (q *Queries) QuerySupplyCommitmentBySpentOutpoint(ctx context.Context, arg 
 	return i, err
 }
 
+const QuerySupplyCommitmentOutpoint = `-- name: QuerySupplyCommitmentOutpoint :one
+SELECT ct.txid, sc.output_index
+FROM supply_commitments AS sc
+    JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.commit_id = $1
+`
+
+type QuerySupplyCommitmentOutpointRow struct {
+	Txid        []byte
+	OutputIndex sql.NullInt32
+}
+
+func (q *Queries) QuerySupplyCommitmentOutpoint(ctx context.Context, commitID int64) (QuerySupplyCommitmentOutpointRow, error) {
+	row := q.db.QueryRowContext(ctx, QuerySupplyCommitmentOutpoint, commitID)
+	var i QuerySupplyCommitmentOutpointRow
+	err := row.Scan(&i.Txid, &i.OutputIndex)
+	return i, err
+}
+
 const QuerySupplyUpdateEvents = `-- name: QuerySupplyUpdateEvents :many
 SELECT
     ue.event_id,
