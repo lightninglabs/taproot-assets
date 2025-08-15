@@ -518,8 +518,9 @@ type SupplyCommitTxn struct {
 	// Txn is the transaction that creates the supply commitment.
 	Txn *wire.MsgTx
 
-	// InternalKey is the internal key used for the commitment output.
-	InternalKey *btcec.PublicKey
+	// InternalKey is the internal key descriptor used for the commitment
+	// output. This preserves the full key derivation information.
+	InternalKey keychain.KeyDescriptor
 
 	// OutputKey is the taproot output key used for the commitment output.
 	OutputKey *btcec.PublicKey
