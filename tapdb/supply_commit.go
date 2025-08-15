@@ -1326,16 +1326,6 @@ func (s *SupplyCommitMachine) ApplyStateTransition(
 		dbTransition := dbTransitionRow.SupplyCommitTransition
 		transitionID := dbTransition.TransitionID
 
-		// Next, we'll apply all the pending updates to the supply
-		// sub-trees, then use that to update the root tree.
-		_, err = applySupplyUpdatesInternal(
-			ctx, db, assetSpec, transition.PendingUpdates,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to apply SMT updates: "+
-				"%w", err)
-		}
-
 		// Next, we'll update the supply commitment data, before we do
 		// that, perform some basic sanity checks.
 		if !dbTransition.NewCommitmentID.Valid {
@@ -1349,8 +1339,9 @@ func (s *SupplyCommitMachine) ApplyStateTransition(
 		}
 		chainTxnID := dbTransition.PendingCommitTxnID.Int64
 
-		// Update the commitment record with the calculated root hash
-		// and sum.
+		// Next, we'll apply all the pending updates to the supply
+		// sub-trees, then use that to update the root tree.
+		//
 		finalRootSupplyRoot, err := applySupplyUpdatesInternal(
 			ctx, db, assetSpec, transition.PendingUpdates,
 		)
@@ -1358,6 +1349,9 @@ func (s *SupplyCommitMachine) ApplyStateTransition(
 			return fmt.Errorf("failed to apply SMT updates: "+
 				"%w", err)
 		}
+
+		// Update the commitment record with the calculated root hash
+		// and sum.
 		finalRootHash := finalRootSupplyRoot.NodeHash()
 		finalRootSum := finalRootSupplyRoot.NodeSum()
 		err = db.UpdateSupplyCommitmentRoot(
