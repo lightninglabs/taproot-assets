@@ -380,6 +380,10 @@ var allTestCases = []*testCase{
 		test: testAddressV2WithGroupKey,
 	},
 	{
+		name: "address v2 with group key multiple round trips",
+		test: testAddressV2WithGroupKeyMultipleRoundTrips,
+	},
+	{
 		name: "address v2 with group key restart",
 		test: testAddressV2WithGroupKeyRestart,
 	},

@@ -396,6 +396,264 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 	)
 }
 
+// testAddressV2WithGroupKeyMultipleRoundTrips tests what we can send assets
+// back and forth multiple times using V2 addresses.
+func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
+	// We begin by minting a new asset group with a group key.
+	firstTrancheReq := CopyRequest(issuableAssets[0])
+
+	firstTrancheReq.Asset.Amount = 212e5
+
+	firstTranche := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{firstTrancheReq},
+	)
+	firstAsset := firstTranche[0]
+	firstAssetID := firstAsset.AssetGenesis.AssetId
+	groupKey := firstAsset.AssetGroup.TweakedGroupKey
+
+	// And then we mint a second tranche of the same asset group.
+	secondTrancheReq := CopyRequest(firstTrancheReq)
+	secondTrancheReq.Asset.Name = "itestbuxx-money-printer-brrr-tranche-2"
+	secondTrancheReq.Asset.GroupedAsset = true
+	secondTrancheReq.Asset.NewGroupedAsset = false
+	secondTrancheReq.Asset.GroupKey = groupKey
+
+	secondTrancheReq.Asset.Amount = 202e5
+
+	secondTranche := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{secondTrancheReq},
+	)
+	secondAsset := secondTranche[0]
+	secondAssetID := secondAsset.AssetGenesis.AssetId
+
+	// And then we mint a third tranche of the same asset group.
+	thirdTrancheReq := CopyRequest(firstTrancheReq)
+	thirdTrancheReq.Asset.Name = "itestbuxx-money-printer-brrr-tranche-3"
+	thirdTrancheReq.Asset.GroupedAsset = true
+	thirdTrancheReq.Asset.NewGroupedAsset = false
+	thirdTrancheReq.Asset.GroupKey = groupKey
+
+	thirdTrancheReq.Asset.Amount = 182e5
+
+	thirdTranche := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{thirdTrancheReq},
+	)
+	thirdAsset := thirdTranche[0]
+	thirdAssetID := thirdAsset.AssetGenesis.AssetId
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	totalAmount := firstAsset.Amount + secondAsset.Amount +
+		thirdAsset.Amount
+	t.Logf("Minted %d units for group %x", totalAmount, groupKey)
+
+	// Now we can create an address with the group key.
+	// We'll make a second node now that'll be the receiver of all the
+	// assets made above.
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bobTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
+	defer func() {
+		require.NoError(t.t, bobTapd.stop(!*noDelete))
+	}()
+
+	groupAddrBob, _ := NewAddrWithEventStream(
+		t.t, bobTapd, &taprpc.NewAddrRequest{
+			AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V2,
+			GroupKey:       groupKey,
+		},
+	)
+
+	t.Logf("Got group addr: %v", toJSON(t.t, groupAddrBob))
+
+	currentTransferIdx := -1
+	numTransfers := 0
+
+	bobCurrentTransferIdx := -1
+	bobNumTransfers := 0
+
+	// We send the first tranche from alice to bob.
+	currentTransferIdx += 1
+	numTransfers += 1
+
+	sendResp, err := t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+		AddressesWithAmounts: []*taprpc.AddressWithAmount{
+			{
+				TapAddr: groupAddrBob.Encoded,
+				Amount:  firstAsset.Amount,
+			},
+		},
+	})
+	require.NoError(t.t, err)
+	t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		sendResp.Transfer, [][]byte{firstAssetID},
+		[]uint64{0, firstAsset.Amount}, currentTransferIdx,
+		numTransfers, 2, true,
+	)
+
+	AssertAddrEventByStatus(t.t, bobTapd, statusCompleted, numTransfers)
+
+	// Then we send the second tranche from alice to bob.
+	currentTransferIdx += 1
+	numTransfers += 1
+
+	sendResp, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+		AddressesWithAmounts: []*taprpc.AddressWithAmount{
+			{
+				TapAddr: groupAddrBob.Encoded,
+				Amount:  secondAsset.Amount,
+			},
+		},
+	})
+	require.NoError(t.t, err)
+	t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		sendResp.Transfer, [][]byte{secondAssetID},
+		[]uint64{0, secondAsset.Amount}, currentTransferIdx,
+		numTransfers, 2, true,
+	)
+
+	AssertAddrEventByStatus(t.t, bobTapd, statusCompleted, numTransfers)
+
+	// And now the third tranche from alice to bob.
+	currentTransferIdx += 1
+	numTransfers += 1
+
+	sendResp, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+		AddressesWithAmounts: []*taprpc.AddressWithAmount{
+			{
+				TapAddr: groupAddrBob.Encoded,
+				Amount:  thirdAsset.Amount,
+			},
+		},
+	})
+	require.NoError(t.t, err)
+	t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		sendResp.Transfer, [][]byte{thirdAssetID},
+		[]uint64{0, thirdAsset.Amount}, currentTransferIdx,
+		numTransfers, 2, true,
+	)
+
+	AssertAddrEventByStatus(t.t, bobTapd, statusCompleted, numTransfers)
+
+	// We now make sure we can spend those assets again by sending
+	// them from bob back to Alice, using an address with an amount.
+	// this time, we'll send back all 3 tranches at once.
+	groupAddrAlice, _ := NewAddrWithEventStream(
+		t.t, t.tapd, &taprpc.NewAddrRequest{
+			Amt:            totalAmount,
+			AddressVersion: addrV2,
+			GroupKey:       groupKey,
+		},
+	)
+
+	t.Logf("Got group addr: %v", toJSON(t.t, groupAddrAlice))
+
+	bobCurrentTransferIdx += 1
+	bobNumTransfers += 1
+
+	sendResp, err = bobTapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+		AddressesWithAmounts: []*taprpc.AddressWithAmount{
+			{
+				TapAddr: groupAddrAlice.Encoded,
+			},
+		},
+	})
+	require.NoError(t.t, err)
+
+	t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
+
+	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+
+	AssertAddrEventByStatus(t.t, t.tapd, statusCompleted, bobNumTransfers)
+
+	// Now we send back from alice to bob again, but this time all at once
+	// instead of individually.
+	for i := 0; i < 4; i++ {
+		currentTransferIdx += 1
+		numTransfers += 1
+
+		sendResp, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+			AddressesWithAmounts: []*taprpc.AddressWithAmount{
+				{
+					TapAddr: groupAddrBob.Encoded,
+					Amount:  totalAmount,
+				},
+			},
+		})
+		require.NoError(t.t, err)
+		t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
+		MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+		AssertAddrEventByStatus(
+			t.t, bobTapd, statusCompleted, numTransfers,
+		)
+
+		// We again return all three tranches back to Alice.
+		bobCurrentTransferIdx += 1
+		bobNumTransfers += 1
+
+		addrReq := []*taprpc.AddressWithAmount{
+			{
+				TapAddr: groupAddrAlice.Encoded,
+			},
+		}
+		sendResp, err = bobTapd.SendAsset(
+			ctxt, &taprpc.SendAssetRequest{
+				AddressesWithAmounts: addrReq,
+			},
+		)
+		require.NoError(t.t, err)
+		t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
+		MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+		AssertAddrEventByStatus(
+			t.t, t.tapd, statusCompleted, bobNumTransfers,
+		)
+	}
+
+	// We now send each tranche back to bob individually, to make sure they
+	// are spendable individually.
+	amounts := []uint64{
+		firstAsset.Amount, secondAsset.Amount, thirdAsset.Amount,
+	}
+	assetIDs := [][]byte{
+		firstAssetID, secondAssetID, thirdAssetID,
+	}
+	for idx, amount := range amounts {
+		currentTransferIdx += 1
+		numTransfers += 1
+
+		sendResp, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+			AddressesWithAmounts: []*taprpc.AddressWithAmount{
+				{
+					TapAddr: groupAddrBob.Encoded,
+					Amount:  amount,
+				},
+			},
+		})
+		require.NoError(t.t, err)
+		t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
+		AssertAssetOutboundTransferWithOutputs(
+			t.t, t.lndHarness.Miner().Client, t.tapd,
+			sendResp.Transfer, [][]byte{assetIDs[idx]},
+			[]uint64{0, amount}, currentTransferIdx, numTransfers,
+			2, true,
+		)
+
+		AssertAddrEventByStatus(
+			t.t, bobTapd, statusCompleted, numTransfers,
+		)
+	}
+}
+
 // testAddressV2WithGroupKeyRestart tests that we can re-try and properly
 // continue the address v2 send process in various scenarios.
 func testAddressV2WithGroupKeyRestart(t *harnessTest) {
