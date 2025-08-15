@@ -542,20 +542,6 @@ type StateMachineStore interface {
 	// found, it returns an empty slice and no error.
 	BindDanglingUpdatesToTransition(context.Context,
 		asset.Specifier) ([]SupplyUpdateEvent, error)
-
-	// FetchCommitmentByOutpoint fetches a supply commitment by its outpoint
-	// and group key. If no commitment is found, it returns
-	// ErrCommitmentNotFound.
-	FetchCommitmentByOutpoint(ctx context.Context,
-		assetSpec asset.Specifier,
-		outpoint wire.OutPoint) (*RootCommitment, error)
-
-	// FetchCommitmentBySpentOutpoint fetches a supply commitment by the
-	// outpoint it spent and group key. If no commitment is found, it
-	// returns ErrCommitmentNotFound.
-	FetchCommitmentBySpentOutpoint(ctx context.Context,
-		assetSpec asset.Specifier,
-		spentOutpoint wire.OutPoint) (*RootCommitment, error)
 }
 
 // SupplySyncer is an interface that allows the state machine to insert

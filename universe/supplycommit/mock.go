@@ -344,28 +344,6 @@ func (m *mockStateMachineStore) BindDanglingUpdatesToTransition(
 	return args.Get(0).([]SupplyUpdateEvent), args.Error(1)
 }
 
-func (m *mockStateMachineStore) FetchCommitmentByOutpoint(ctx context.Context,
-	assetSpec asset.Specifier,
-	outpoint wire.OutPoint) (*RootCommitment, error) {
-
-	args := m.Called(ctx, assetSpec, outpoint)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*RootCommitment), args.Error(1)
-}
-
-func (m *mockStateMachineStore) FetchCommitmentBySpentOutpoint(
-	ctx context.Context, assetSpec asset.Specifier,
-	spentOutpoint wire.OutPoint) (*RootCommitment, error) {
-
-	args := m.Called(ctx, assetSpec, spentOutpoint)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*RootCommitment), args.Error(1)
-}
-
 // mockDaemonAdapters is a mock implementation of the protofsm.DaemonAdapters
 // interface.
 type mockDaemonAdapters struct {
