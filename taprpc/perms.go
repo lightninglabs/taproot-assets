@@ -263,6 +263,10 @@ var (
 			Entity: "universe",
 			Action: "write",
 		}},
+		"/universerpc.Universe/InsertSupplyCommit": {{
+			Entity: "universe",
+			Action: "write",
+		}},
 		"/universerpc.Universe/FetchSupplyCommit": {{
 			Entity: "universe",
 			Action: "read",
@@ -370,13 +374,15 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 	// nolint: lll
 	if allowUniPublicAccessRead || allowPublicUniProofCourier {
 		whitelist["/universerpc.Universe/QueryProof"] = struct{}{}
-		whitelist["/universerpc.Universe/FetchSupplyLeaves"] = struct{}{}
+		whitelist["/universerpc.Universe/FetchSupplyCommit"] = struct{}{}
 		whitelist["/authmailboxrpc.Mailbox/ReceiveMessages"] = struct{}{}
 	}
 
 	// Conditionally whitelist universe server write methods.
+	// nolint: lll
 	if allowUniPublicAccessWrite || allowPublicUniProofCourier {
 		whitelist["/universerpc.Universe/InsertProof"] = struct{}{}
+		whitelist["/universerpc.Universe/InsertSupplyCommit"] = struct{}{}
 		whitelist["/authmailboxrpc.Mailbox/SendMessage"] = struct{}{}
 	}
 

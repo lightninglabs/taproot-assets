@@ -1,9 +1,11 @@
 package supplycommit
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -21,6 +23,10 @@ import (
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+)
+
+var (
+	ErrNoBlockInfo = fmt.Errorf("no block info available")
 )
 
 const (
@@ -98,6 +104,117 @@ type SupplyLeaves struct {
 
 	// IgnoreLeafEntries is a slice of ignore leaves.
 	IgnoreLeafEntries []NewIgnoreEvent
+}
+
+// AllUpdates returns a slice of all supply update events contained within
+// the SupplyLeaves instance. This includes mints, burns, and ignores.
+func (s SupplyLeaves) AllUpdates() []SupplyUpdateEvent {
+	mint := func(e NewMintEvent) SupplyUpdateEvent {
+		return &e
+	}
+	burn := func(e NewBurnEvent) SupplyUpdateEvent {
+		return &e
+	}
+	ignore := func(e NewIgnoreEvent) SupplyUpdateEvent {
+		return &e
+	}
+	allUpdates := make(
+		[]SupplyUpdateEvent, 0, len(s.IssuanceLeafEntries)+
+			len(s.BurnLeafEntries)+len(s.IgnoreLeafEntries),
+	)
+	allUpdates = append(allUpdates, fn.Map(s.IssuanceLeafEntries, mint)...)
+	allUpdates = append(allUpdates, fn.Map(s.BurnLeafEntries, burn)...)
+	allUpdates = append(allUpdates, fn.Map(s.IgnoreLeafEntries, ignore)...)
+
+	return allUpdates
+}
+
+// NewSupplyLeavesFromEvents creates a SupplyLeaves instance from a slice of
+// SupplyUpdateEvent instances.
+func NewSupplyLeavesFromEvents(events []SupplyUpdateEvent) (SupplyLeaves,
+	error) {
+
+	var leaves SupplyLeaves
+	for idx := range events {
+		event := events[idx]
+
+		switch e := event.(type) {
+		case *NewMintEvent:
+			leaves.IssuanceLeafEntries = append(
+				leaves.IssuanceLeafEntries, *e,
+			)
+
+		case *NewBurnEvent:
+			leaves.BurnLeafEntries = append(
+				leaves.BurnLeafEntries, *e,
+			)
+
+		case *NewIgnoreEvent:
+			leaves.IgnoreLeafEntries = append(
+				leaves.IgnoreLeafEntries, *e,
+			)
+
+		default:
+			return leaves, fmt.Errorf("unknown event type: %T", e)
+		}
+	}
+
+	return leaves, nil
+}
+
+// AssetLookup is an interface that allows us to query for asset
+// information, such as asset groups and asset metadata.
+type AssetLookup interface {
+	// QueryAssetGroupByGroupKey fetches the asset group with a matching
+	// tweaked key, including the genesis information used to create the
+	// group.
+	QueryAssetGroupByGroupKey(ctx context.Context,
+		groupKey *btcec.PublicKey) (*asset.AssetGroup, error)
+
+	// FetchAssetMetaForAsset attempts to fetch an asset meta based on an
+	// asset ID.
+	FetchAssetMetaForAsset(ctx context.Context,
+		assetID asset.ID) (*proof.MetaReveal, error)
+
+	// FetchInternalKeyLocator attempts to fetch the key locator information
+	// for the given raw internal key. If the key cannot be found, then
+	// ErrInternalKeyNotFound is returned.
+	FetchInternalKeyLocator(ctx context.Context,
+		rawKey *btcec.PublicKey) (keychain.KeyLocator, error)
+}
+
+// fetchLatestAssetMetadata returns the latest asset metadata for the
+// given asset specifier.
+func fetchLatestAssetMetadata(ctx context.Context, lookup AssetLookup,
+	assetSpec asset.Specifier) (proof.MetaReveal, error) {
+
+	var zero proof.MetaReveal
+
+	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
+	if err != nil {
+		return zero, err
+	}
+
+	// TODO(ffranr): This currently retrieves asset metadata using the
+	//  genesis ID. Update it to retrieve by the latest asset ID instead,
+	//  which will provide access to the most up-to-date canonical universe
+	//  list.
+	assetGroup, err := lookup.QueryAssetGroupByGroupKey(ctx, groupKey)
+	if err != nil {
+		return zero, fmt.Errorf("unable to fetch asset group "+
+			"by group key: %w", err)
+	}
+
+	// Retrieve the asset metadata for the asset group. This will
+	// include the delegation key and universe commitment flag.
+	metaReveal, err := lookup.FetchAssetMetaForAsset(
+		ctx, assetGroup.Genesis.ID(),
+	)
+	if err != nil {
+		return zero, fmt.Errorf("faild to fetch asset meta: %w", err)
+	}
+
+	return *metaReveal, nil
 }
 
 // SupplyTreeView is an interface that allows the state machine to obtain an up
@@ -179,6 +296,14 @@ type CommitmentBlock struct {
 	// the block.
 	TxIndex uint32
 
+	// BlockHeader is the block header of the block that contains the
+	// commitment.
+	BlockHeader *wire.BlockHeader
+
+	// MerkleProof is the merkle proof that proves that the supply
+	// commitment transaction is included in the block.
+	MerkleProof *proof.TxMerkleProof
+
 	// ChainFees is the amount in sats paid in on-chain fees for the
 	// supply commitment transaction.
 	ChainFees int64
@@ -210,6 +335,11 @@ type RootCommitment struct {
 	// asset supply. This may be None if the commitment has not yet
 	// been mined.
 	CommitmentBlock fn.Option[CommitmentBlock]
+
+	// SpentCommitment is the outpoint of the previous root commitment that
+	// this root commitment is spending. This will be None if this is the
+	// first root commitment for the asset.
+	SpentCommitment fn.Option[wire.OutPoint]
 }
 
 // TxIn returns the transaction input that corresponds to the root commitment.
@@ -233,6 +363,93 @@ func (r *RootCommitment) TxOut() (*wire.TxOut, error) {
 	)
 
 	return txOut, err
+}
+
+// Verify checks that the root commitment is formally valid. This includes
+// checking that the on-chain information is correct.
+func (r *RootCommitment) Verify(merkleVerifier proof.MerkleVerifier,
+	headerVerifier proof.HeaderVerifier) error {
+
+	block, err := r.CommitmentBlock.UnwrapOrErr(ErrNoBlockInfo)
+	if err != nil {
+		return fmt.Errorf("unable to verify root commitment: %w", err)
+	}
+
+	if block.MerkleProof == nil {
+		return fmt.Errorf("merkle proof is missing")
+	}
+
+	if block.BlockHeader == nil {
+		return fmt.Errorf("block header is missing")
+	}
+
+	if block.Hash != block.BlockHeader.BlockHash() {
+		return fmt.Errorf("block hash %v does not match block header "+
+			"hash %v", block.Hash, block.BlockHeader.BlockHash())
+	}
+
+	if r.Txn == nil {
+		return fmt.Errorf("root commitment transaction is missing")
+	}
+
+	if r.SupplyRoot == nil {
+		return fmt.Errorf("supply root is missing")
+	}
+
+	err = fn.MapOptionZ(
+		r.SpentCommitment, func(prevOut wire.OutPoint) error {
+			if !proof.TxSpendsPrevOut(r.Txn, &prevOut) {
+				return fmt.Errorf("commitment TX doesn't " +
+					"spend previous commitment outpoint")
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to verify spent commitment: %w", err)
+	}
+
+	err = merkleVerifier(
+		r.Txn, block.MerkleProof, block.BlockHeader.MerkleRoot,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to verify merkle proof: %w", err)
+	}
+
+	err = headerVerifier(*block.BlockHeader, block.Height)
+	if err != nil {
+		return fmt.Errorf("unable to verify block header: %w", err)
+	}
+
+	if r.TxOutIdx >= uint32(len(r.Txn.TxOut)) {
+		return fmt.Errorf("tx out index %d is out of bounds for "+
+			"transaction with %d outputs", r.TxOutIdx,
+			len(r.Txn.TxOut))
+	}
+
+	txOut := r.Txn.TxOut[r.TxOutIdx]
+	expectedOut, _, err := RootCommitTxOut(
+		r.InternalKey.PubKey, nil, r.SupplyRoot.NodeHash(),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to create expected output: %w", err)
+	}
+
+	if txOut.Value != expectedOut.Value {
+		return fmt.Errorf("tx out value %d does not match expected "+
+			"value %d", txOut.Value, expectedOut.Value)
+	}
+
+	if !bytes.Equal(txOut.PkScript, expectedOut.PkScript) {
+		return fmt.Errorf("tx out pk script %x does not match "+
+			"expected pk script %x", txOut.PkScript,
+			expectedOut.PkScript)
+	}
+
+	// Everything that we can check just from the static information
+	// provided checks out.
+	return nil
 }
 
 // RootCommitTxOut returns the transaction output that corresponds to the root
@@ -407,9 +624,8 @@ type StateMachineStore interface {
 	// error will be returned.
 	//
 	// TODO(roasbeef): also have it return the next event if exists?
-	FetchState(context.Context, asset.Specifier) (
-		State, lfn.Option[SupplyStateTransition], error,
-	)
+	FetchState(context.Context, asset.Specifier) (State,
+		lfn.Option[SupplyStateTransition], error)
 
 	// ApplyStateTransition is used to apply a new state transition to the
 	// target state machine. Once the transition has been applied, the state
@@ -443,6 +659,17 @@ type StateMachineStore interface {
 		asset.Specifier) ([]SupplyUpdateEvent, error)
 }
 
+// SupplySyncer is an interface that allows the state machine to insert
+// supply commitments into the remote universe server.
+type SupplySyncer interface {
+	// PushSupplyCommitment pushes a supply commitment to the remote
+	// universe server. This function should block until the sync insertion
+	// is complete.
+	PushSupplyCommitment(ctx context.Context, assetSpec asset.Specifier,
+		commitment RootCommitment, updateLeaves SupplyLeaves,
+		chainProof ChainProof, canonicalUniverses []url.URL) error
+}
+
 // Environment is a set of dependencies that a state machine may need to carry
 // out the logic for a given state transition. All fields are to be considered
 // immutable, and will be fixed for the lifetime of the state machine.
@@ -463,6 +690,10 @@ type Environment struct {
 	// Wallet is the main wallet interface used to managed PSBT packets.
 	Wallet Wallet
 
+	// AssetLookup is used to look up asset information such as asset groups
+	// and asset metadata.
+	AssetLookup AssetLookup
+
 	// KeyRing is the main key ring interface used to manage keys.
 	KeyRing KeyRing
 
@@ -470,6 +701,10 @@ type Environment struct {
 	//
 	// TODO(roasbeef): can make a slimmer version of
 	Chain tapgarden.ChainBridge
+
+	// SupplySyncer is used to insert supply commitments into the remote
+	// universe server.
+	SupplySyncer SupplySyncer
 
 	// StateLog is the main state log that is used to track the state of the
 	// state machine. This is used to persist the state of the state machine
