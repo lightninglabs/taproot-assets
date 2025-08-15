@@ -198,6 +198,11 @@ type SupplyCommitStore interface {
 	FinalizeSupplyCommitTransition(ctx context.Context,
 		transitionID int64) error
 
+	// MarkPreCommitmentSpentByOutpoint marks a pre-commitment as spent
+	// by its outpoint.
+	MarkPreCommitmentSpentByOutpoint(ctx context.Context,
+		arg sqlc.MarkPreCommitmentSpentByOutpointParams) error
+
 	// QueryExistingPendingTransition fetches the ID of an existing
 	// non-finalized transition for a group key. Returns sql.ErrNoRows if
 	// none exists.

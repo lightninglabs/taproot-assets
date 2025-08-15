@@ -328,6 +328,24 @@ func (q *Queries) LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDa
 	return err
 }
 
+const MarkPreCommitmentSpentByOutpoint = `-- name: MarkPreCommitmentSpentByOutpoint :exec
+UPDATE mint_anchor_uni_commitments
+SET spent_by = $1
+WHERE outpoint = $2
+    AND spent_by IS NULL
+`
+
+type MarkPreCommitmentSpentByOutpointParams struct {
+	SpentByCommitID sql.NullInt64
+	Outpoint        []byte
+}
+
+// Mark a specific pre-commitment output as spent by its outpoint.
+func (q *Queries) MarkPreCommitmentSpentByOutpoint(ctx context.Context, arg MarkPreCommitmentSpentByOutpointParams) error {
+	_, err := q.db.ExecContext(ctx, MarkPreCommitmentSpentByOutpoint, arg.SpentByCommitID, arg.Outpoint)
+	return err
+}
+
 const QueryDanglingSupplyUpdateEvents = `-- name: QueryDanglingSupplyUpdateEvents :many
 SELECT
     ue.event_id,
