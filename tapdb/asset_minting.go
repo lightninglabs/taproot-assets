@@ -439,12 +439,22 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 		},
 	)
 
+	outPoint := wire.OutPoint{
+		Hash:  anchorPackage.Pkt.UnsignedTx.TxHash(),
+		Index: preCommitOut.OutIdx,
+	}
+	outPointBytes, err := encodeOutpoint(outPoint)
+	if err != nil {
+		return fmt.Errorf("unable to encode outpoint: %w", err)
+	}
+
 	_, err = q.UpsertMintAnchorUniCommitment(
 		ctx, MintAnchorUniCommitParams{
 			BatchKey:             rawBatchKey,
 			TxOutputIndex:        int32(preCommitOut.OutIdx),
 			TaprootInternalKeyID: internalKeyID,
 			GroupKey:             groupPubKey,
+			Outpoint:             outPointBytes,
 		},
 	)
 	if err != nil {
@@ -1625,12 +1635,22 @@ func upsertPreCommit(ctx context.Context, q PendingAssetStore,
 		},
 	)
 
+	outPoint := wire.OutPoint{
+		Hash:  genesisPkt.Pkt.UnsignedTx.TxHash(),
+		Index: preCommit.OutIdx,
+	}
+	outPointBytes, err := encodeOutpoint(outPoint)
+	if err != nil {
+		return fmt.Errorf("unable to encode outpoint: %w", err)
+	}
+
 	_, err = q.UpsertMintAnchorUniCommitment(
 		ctx, MintAnchorUniCommitParams{
 			BatchKey:             batchKey,
 			TxOutputIndex:        int32(preCommit.OutIdx),
 			TaprootInternalKeyID: internalKeyID,
 			GroupKey:             groupPubKeyBytes,
+			Outpoint:             outPointBytes,
 		},
 	)
 	if err != nil {
