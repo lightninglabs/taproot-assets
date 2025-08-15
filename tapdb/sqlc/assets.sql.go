@@ -3243,19 +3243,20 @@ WITH target_batch AS (
     -- internal key associated with the batch.
     SELECT keys.key_id AS batch_id
     FROM internal_keys keys
-    WHERE keys.raw_key = $5
+    WHERE keys.raw_key = $6
 )
 INSERT INTO mint_anchor_uni_commitments (
-    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by
+    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by, outpoint
 )
 VALUES (
     (SELECT batch_id FROM target_batch), $1, 
-    $2, $3, $4
+    $2, $3, $4, $5
 )
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
     taproot_internal_key_id = EXCLUDED.taproot_internal_key_id,
-    group_key = EXCLUDED.group_key
+    group_key = EXCLUDED.group_key,
+    outpoint = EXCLUDED.outpoint
 RETURNING id
 `
 
@@ -3264,6 +3265,7 @@ type UpsertMintAnchorUniCommitmentParams struct {
 	TaprootInternalKeyID int64
 	GroupKey             []byte
 	SpentBy              sql.NullInt64
+	Outpoint             []byte
 	BatchKey             []byte
 }
 
@@ -3276,6 +3278,7 @@ func (q *Queries) UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertM
 		arg.TaprootInternalKeyID,
 		arg.GroupKey,
 		arg.SpentBy,
+		arg.Outpoint,
 		arg.BatchKey,
 	)
 	var id int64
