@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -22,13 +21,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 )
 
-// commitmentChainInfo holds optional chain confirmation details for a
-// commitment.
-type commitmentChainInfo struct {
-	BlockHeader *wire.BlockHeader
-	MerkleProof *proof.TxMerkleProof
-	BlockHeight uint32
-}
+var (
+	// ErrCommitmentNotFound is returned when a supply commitment is not
+	// found.
+	ErrCommitmentNotFound = fmt.Errorf("commitment not found")
+)
 
 type (
 	// UnspentPrecommits is an alias for the sqlc type representing an
@@ -145,9 +142,8 @@ type SupplyCommitStore interface {
 		arg InsertSupplyUpdateEvent) error
 
 	// UpsertChainTx upserts a chain transaction.
-	UpsertChainTx(
-		ctx context.Context, arg UpsertChainTxParams,
-	) (int64, error)
+	UpsertChainTx(ctx context.Context,
+		arg UpsertChainTxParams) (int64, error)
 
 	// UpdateSupplyCommitTransitionCommitment updates the pending commit tx
 	// ID for a
@@ -179,7 +175,24 @@ type SupplyCommitStore interface {
 
 	// QuerySupplyCommitment fetches a specific supply commitment by ID.
 	QuerySupplyCommitment(ctx context.Context,
-		commitID int64) (sqlc.SupplyCommitment, error)
+		commitID int64) (sqlc.QuerySupplyCommitmentRow, error)
+
+	// QuerySupplyCommitmentByOutpoint fetches a supply commitment by its
+	// outpoint.
+	QuerySupplyCommitmentByOutpoint(ctx context.Context,
+		arg sqlc.QuerySupplyCommitmentByOutpointParams) (
+		sqlc.QuerySupplyCommitmentByOutpointRow, error)
+
+	// QuerySupplyCommitmentBySpentOutpoint fetches a supply commitment by
+	// its spent outpoint.
+	QuerySupplyCommitmentBySpentOutpoint(ctx context.Context,
+		arg sqlc.QuerySupplyCommitmentBySpentOutpointParams) (
+		sqlc.QuerySupplyCommitmentBySpentOutpointRow, error)
+
+	// QueryStartingSupplyCommitment fetches the very first supply
+	// commitment of an asset group.
+	QueryStartingSupplyCommitment(ctx context.Context,
+		groupKey []byte) (sqlc.QueryStartingSupplyCommitmentRow, error)
 
 	// FetchChainTx fetches a chain transaction by its TXID.
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error)
@@ -345,91 +358,15 @@ func (s *SupplyCommitMachine) SupplyCommit(ctx context.Context,
 				err)
 		}
 
-		internalKey, err := parseInternalKey(row.InternalKey)
-		if err != nil {
-			return fmt.Errorf("error parsing internal key: %w", err)
-		}
-
-		outputKey, err := btcec.ParsePubKey(row.OutputKey)
-		if err != nil {
-			return fmt.Errorf("error parsing output key: %w", err)
-		}
-
-		var commitTx wire.MsgTx
-		err = commitTx.Deserialize(bytes.NewReader(row.RawTx))
-		if err != nil {
-			return fmt.Errorf("error deserializing commit tx: %w",
-				err)
-		}
-
-		// Parse block related data from row if present.
-		var commitmentBlock fn.Option[supplycommit.CommitmentBlock]
-		if len(row.BlockHash) > 0 {
-			// Parse block height if present, otherwise return an
-			// error as it must be set if block hash is set.
-			if !row.BlockHeight.Valid {
-				return fmt.Errorf("block height must be set " +
-					"if block hash is set")
-			}
-
-			blockHeight := uint32(row.BlockHeight.Int32)
-
-			// Parse the block hash, which should be valid at this
-			// point.
-			blockHash, err := chainhash.NewHash(row.BlockHash)
-			if err != nil {
-				return fmt.Errorf("parsing block hash: %w", err)
-			}
-
-			// Parse transaction block index which should be set
-			// if the block height is set.
-			if !row.TxIndex.Valid {
-				return fmt.Errorf("transaction index must be " +
-					"set if block height is set")
-			}
-			txIndex := uint32(row.TxIndex.Int32)
-
-			commitmentBlock = fn.Some(supplycommit.CommitmentBlock{
-				Hash:      *blockHash,
-				Height:    blockHeight,
-				TxIndex:   txIndex,
-				ChainFees: row.ChainFees,
-			})
-		}
-
-		// Construct the root node directly from the stored hash and
-		// sum. Handle potential NULL values if the root wasn't set yet
-		// (though FetchSupplyCommit filters for confirmed TX, so it
-		// should be set).
-		var (
-			rootHash mssmt.NodeHash
-			rootSum  uint64
-			rootNode *mssmt.BranchNode
+		rootCommitment, err := parseSupplyCommitmentRow(
+			ctx, row.SupplyCommitment, row.TxIndex, db,
 		)
-		if len(row.RootHash) != 0 && row.RootSum.Valid {
-			copy(rootHash[:], row.RootHash)
-			rootSum = uint64(row.RootSum.Int64)
-			rootNode = mssmt.NewComputedBranch(rootHash, rootSum)
-		} else {
-			// Should not happen due to query filter, but handle
-			// defensively.
-			log.Warnf("SupplyCommit: Fetched confirmed commit %d "+
-				"but root hash/sum is NULL", row.CommitID)
-
-			rootNode = mssmt.NewComputedBranch(
-				mssmt.EmptyTreeRootHash, 0,
-			)
+		if err != nil {
+			return fmt.Errorf("failed to query commitment %d: %w",
+				row.SupplyCommitment.CommitID, err)
 		}
 
-		rootCommitment := supplycommit.RootCommitment{
-			Txn:             &commitTx,
-			TxOutIdx:        uint32(row.OutputIndex.Int32),
-			InternalKey:     internalKey,
-			OutputKey:       outputKey,
-			SupplyRoot:      rootNode,
-			CommitmentBlock: commitmentBlock,
-		}
-		rootCommitmentOpt = lfn.Some(rootCommitment)
+		rootCommitmentOpt = lfn.Some(*rootCommitment)
 
 		return nil
 	})
@@ -845,8 +782,8 @@ func (s *SupplyCommitMachine) BindDanglingUpdatesToTransition(
 // InsertSignedCommitTx associates a new signed commitment anchor transaction
 // with the current active supply commitment state transition.
 func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
-	assetSpec asset.Specifier, commitDetails supplycommit.SupplyCommitTxn,
-) error {
+	assetSpec asset.Specifier,
+	commitDetails supplycommit.SupplyCommitTxn) error {
 
 	groupKey := assetSpec.UnwrapGroupKeyToPtr()
 	if groupKey == nil {
@@ -905,24 +842,26 @@ func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
 			KeyIndex:  int32(internalKeyDesc.Index),
 		})
 		if err != nil {
-			return fmt.Errorf("failed to upsert "+
-				"internal key %x: %w",
+			return fmt.Errorf("error upserting internal key %x: %w",
 				internalKeyDesc.PubKey.SerializeCompressed(),
 				err)
 		}
 
 		// Insert the new commitment record. Chain details (block
 		// height, header, proof, output index) are NULL at this stage.
-		//nolint:lll
-		newCommitmentID, err := db.InsertSupplyCommitment(ctx, sqlc.InsertSupplyCommitmentParams{
-			GroupKey:       groupKeyBytes,
-			ChainTxnID:     chainTxID,
-			InternalKeyID:  internalKeyID,
-			OutputKey:      outputKey.SerializeCompressed(),
-			SupplyRootHash: nil,
-			SupplyRootSum:  sql.NullInt64{},
-			OutputIndex:    sqlInt32(outputIndex),
-		})
+		newCommitmentID, err := db.InsertSupplyCommitment(
+			//nolint:lll
+			ctx, sqlc.InsertSupplyCommitmentParams{
+				GroupKey:        groupKeyBytes,
+				ChainTxnID:      chainTxID,
+				InternalKeyID:   internalKeyID,
+				OutputKey:       outputKey.SerializeCompressed(),
+				SupplyRootHash:  nil,
+				SupplyRootSum:   sql.NullInt64{},
+				OutputIndex:     sqlInt32(outputIndex),
+				SpentCommitment: pendingTransition.OldCommitmentID,
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("failed to insert new supply "+
 				"commitment: %w", err)
@@ -1003,36 +942,206 @@ func (s *SupplyCommitMachine) CommitState(ctx context.Context,
 }
 
 // fetchCommitment is a helper to fetch and reconstruct a RootCommitment and
-// its associated chain confirmation details.
+// its associated chain confirmation details. If no commitment is found,
+// it returns None for both the commitment and chain info.
 func fetchCommitment(ctx context.Context, db SupplyCommitStore,
-	commitID sql.NullInt64, groupKeyBytes []byte,
-) (lfn.Option[supplycommit.RootCommitment],
-	lfn.Option[commitmentChainInfo], error) {
+	commitID sql.NullInt64) (lfn.Option[supplycommit.RootCommitment],
+	error) {
 
 	noneRootCommit := lfn.None[supplycommit.RootCommitment]()
-	noneChainInfo := lfn.None[commitmentChainInfo]()
 
 	if !commitID.Valid {
-		return noneRootCommit, noneChainInfo, nil
+		return noneRootCommit, nil
 	}
 
 	// First, fetch the supply commitment itself.
-	commit, err := db.QuerySupplyCommitment(ctx, commitID.Int64)
+	commitRow, err := db.QuerySupplyCommitment(ctx, commitID.Int64)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return noneRootCommit, noneChainInfo, nil
+			return noneRootCommit, nil
 		}
-		return noneRootCommit, noneChainInfo, fmt.Errorf("failed to "+
-			"query commitment %d: %w", commitID.Int64, err)
+		return noneRootCommit, fmt.Errorf("failed to query "+
+			"commitment %d: %w", commitID.Int64, err)
 	}
+
+	commit, err := parseSupplyCommitmentRow(
+		ctx, commitRow.SupplyCommitment, commitRow.TxIndex, db,
+	)
+	if err != nil {
+		return noneRootCommit, fmt.Errorf("failed to query "+
+			"commitment %d: %w", commitID.Int64, err)
+	}
+
+	return lfn.Some(*commit), nil
+}
+
+// FetchCommitmentByOutpoint fetches a supply commitment by its outpoint and
+// group key. If no commitment is found, it returns ErrCommitmentNotFound.
+func (s *SupplyCommitMachine) FetchCommitmentByOutpoint(ctx context.Context,
+	assetSpec asset.Specifier,
+	outpoint wire.OutPoint) (*supplycommit.RootCommitment, error) {
+
+	groupKey := assetSpec.UnwrapGroupKeyToPtr()
+	if groupKey == nil {
+		return nil, ErrMissingGroupKey
+	}
+
+	var (
+		writeTx       = WriteTxOption()
+		groupKeyBytes = groupKey.SerializeCompressed()
+		commit        *supplycommit.RootCommitment
+	)
+	dbErr := s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
+		// First, fetch the supply commitment by group key and outpoint.
+		commitRow, err := db.QuerySupplyCommitmentByOutpoint(
+			ctx, sqlc.QuerySupplyCommitmentByOutpointParams{
+				GroupKey:    groupKeyBytes,
+				OutputIndex: sqlInt32(outpoint.Index),
+				Txid:        outpoint.Hash[:],
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to query commitment for "+
+				"outpoint %s: %w", outpoint, err)
+		}
+
+		commit, err = parseSupplyCommitmentRow(
+			ctx, commitRow.SupplyCommitment, commitRow.TxIndex, db,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to parse commitment for "+
+				"outpoint %s: %w", outpoint, err)
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		if errors.Is(dbErr, sql.ErrNoRows) {
+			return nil, ErrCommitmentNotFound
+		}
+
+		return nil, fmt.Errorf("failed to fetch commitment by "+
+			"outpoint %s: %w", outpoint, dbErr)
+	}
+
+	return commit, nil
+}
+
+// FetchCommitmentBySpentOutpoint fetches a supply commitment by the outpoint it
+// spent and group key. If no commitment is found, it returns
+// ErrCommitmentNotFound.
+func (s *SupplyCommitMachine) FetchCommitmentBySpentOutpoint(
+	ctx context.Context, assetSpec asset.Specifier,
+	spentOutpoint wire.OutPoint) (*supplycommit.RootCommitment, error) {
+
+	groupKey := assetSpec.UnwrapGroupKeyToPtr()
+	if groupKey == nil {
+		return nil, ErrMissingGroupKey
+	}
+
+	var (
+		writeTx       = WriteTxOption()
+		groupKeyBytes = groupKey.SerializeCompressed()
+		commit        *supplycommit.RootCommitment
+	)
+	dbErr := s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
+		// First, fetch the supply commitment by group key and outpoint.
+		commitRow, err := db.QuerySupplyCommitmentBySpentOutpoint(
+			ctx, sqlc.QuerySupplyCommitmentBySpentOutpointParams{
+				GroupKey:    groupKeyBytes,
+				OutputIndex: sqlInt32(spentOutpoint.Index),
+				Txid:        spentOutpoint.Hash[:],
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to query commitment for "+
+				"spent outpoint %s: %w", spentOutpoint, err)
+		}
+
+		commit, err = parseSupplyCommitmentRow(
+			ctx, commitRow.SupplyCommitment, commitRow.TxIndex, db,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to parse commitment for "+
+				"spent outpoint %s: %w", spentOutpoint, err)
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		if errors.Is(dbErr, sql.ErrNoRows) {
+			return nil, ErrCommitmentNotFound
+		}
+
+		return nil, fmt.Errorf("failed to fetch commitment by spent "+
+			"outpoint %s: %w", spentOutpoint, dbErr)
+	}
+
+	return commit, nil
+}
+
+// FetchStartingCommitment fetches the very first supply commitment of an asset
+// group. If no commitment is found, it returns ErrCommitmentNotFound.
+func (s *SupplyCommitMachine) FetchStartingCommitment(ctx context.Context,
+	assetSpec asset.Specifier) (*supplycommit.RootCommitment, error) {
+
+	groupKey := assetSpec.UnwrapGroupKeyToPtr()
+	if groupKey == nil {
+		return nil, ErrMissingGroupKey
+	}
+
+	var (
+		writeTx       = WriteTxOption()
+		groupKeyBytes = groupKey.SerializeCompressed()
+		commit        *supplycommit.RootCommitment
+	)
+	dbErr := s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
+		// First, fetch the supply commitment by group key.
+		commitRow, err := db.QueryStartingSupplyCommitment(
+			ctx, groupKeyBytes,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to query starting "+
+				"commitment for group %x: %w", groupKeyBytes,
+				err)
+		}
+
+		commit, err = parseSupplyCommitmentRow(
+			ctx, commitRow.SupplyCommitment, commitRow.TxIndex, db,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to parse starting "+
+				"commitment for group %x: %w", groupKeyBytes,
+				err)
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		if errors.Is(dbErr, sql.ErrNoRows) {
+			return nil, ErrCommitmentNotFound
+		}
+
+		return nil, fmt.Errorf("failed to fetch starting commitment "+
+			"for group %x: %w", groupKeyBytes, dbErr)
+	}
+
+	return commit, nil
+}
+
+// parseSupplyCommitmentRow parses a SupplyCommitment row into a
+// supplycommit.RootCommitment and optional commitmentChainInfo.
+func parseSupplyCommitmentRow(ctx context.Context, commit SupplyCommitment,
+	txIndex sql.NullInt32,
+	db SupplyCommitStore) (*supplycommit.RootCommitment, error) {
 
 	internalKeyRow, err := db.FetchInternalKeyByID(
 		ctx, commit.InternalKeyID,
 	)
 	if err != nil {
-		return noneRootCommit, noneChainInfo, fmt.Errorf("failed to "+
-			"fetch internal key %d for commit %d: %w",
-			commit.InternalKeyID, commitID.Int64, err)
+		return nil, fmt.Errorf("failed to fetch internal key %d for "+
+			"commit %d: %w", commit.InternalKeyID, commit.CommitID,
+			err)
 	}
 	internalKey, err := parseInternalKey(sqlc.InternalKey{
 		RawKey:    internalKeyRow.RawKey,
@@ -1040,39 +1149,36 @@ func fetchCommitment(ctx context.Context, db SupplyCommitStore,
 		KeyIndex:  internalKeyRow.KeyIndex,
 	})
 	if err != nil {
-		return noneRootCommit, noneChainInfo, fmt.Errorf("failed to "+
-			"parse internal key for commit %d: %w", commitID.Int64,
-			err)
+		return nil, fmt.Errorf("failed to parse internal key for "+
+			"commit %d: %w", commit.CommitID, err)
 	}
 	outputKey, err := btcec.ParsePubKey(commit.OutputKey)
 	if err != nil {
-		return noneRootCommit, noneChainInfo, fmt.Errorf("failed to "+
-			"parse output key for commit %d: %w", commitID.Int64,
-			err)
+		return nil, fmt.Errorf("failed to parse output key for commit "+
+			"%d: %w", commit.CommitID, err)
 	}
 
 	// Fetch and deserialize the transaction.
 	var commitTx wire.MsgTx
 	chainTxRow, err := db.FetchChainTxByID(ctx, commit.ChainTxnID)
 	if err != nil {
-		return noneRootCommit, noneChainInfo, fmt.Errorf("failed to "+
-			"fetch chain tx %d for commit %d: %w",
-			commit.ChainTxnID, commitID.Int64, err)
+		return nil, fmt.Errorf("failed to fetch chain tx %d for "+
+			"commit %d: %w", commit.ChainTxnID, commit.CommitID,
+			err)
 	}
 	err = commitTx.Deserialize(bytes.NewReader(chainTxRow.RawTx))
 	if err != nil {
-		return noneRootCommit, noneChainInfo, fmt.Errorf("failed to "+
-			"deserialize commit tx for commit %d: %w",
-			commitID.Int64, err)
+		return nil, fmt.Errorf("failed to deserialize commit tx for "+
+			"commit %d: %w", commit.CommitID, err)
 	}
 
 	// Construct the SMT root node from the stored hash and sum. If they are
 	// NULL (e.g., initial commit before ApplyStateTransition ran), use the
 	// empty root.
 	var rootNode *mssmt.BranchNode
-	if commit.SupplyRootHash == nil || !commit.SupplyRootSum.Valid {
+	if len(commit.SupplyRootHash) == 0 || !commit.SupplyRootSum.Valid {
 		log.Warnf("fetchCommitment: Supply root hash/sum is NULL for "+
-			"commit %d, using empty root", commitID.Int64)
+			"commit %d, using empty root", commit.CommitID)
 		rootNode = mssmt.NewComputedBranch(mssmt.EmptyTreeRootHash, 0)
 	} else {
 		var rootHash mssmt.NodeHash
@@ -1081,16 +1187,13 @@ func fetchCommitment(ctx context.Context, db SupplyCommitStore,
 		rootNode = mssmt.NewComputedBranch(rootHash, rootSum)
 	}
 
-	rootCommitment := supplycommit.RootCommitment{
+	rootCommitment := &supplycommit.RootCommitment{
 		Txn:         &commitTx,
 		TxOutIdx:    uint32(commit.OutputIndex.Int32),
 		InternalKey: internalKey,
 		OutputKey:   outputKey,
 		SupplyRoot:  rootNode,
 	}
-
-	// Now, attempt to construct the chain info if confirmed.
-	var chainInfoOpt lfn.Option[commitmentChainInfo]
 
 	// If we have a valid block height, then that means that the block
 	// header and/or merkle proof may also be present.
@@ -1107,7 +1210,7 @@ func fetchCommitment(ctx context.Context, db SupplyCommitStore,
 				// Log error but don't fail the whole fetch
 				log.Errorf("fetchCommitment: failed to "+
 					"deserialize block header "+
-					"for commit %d: %v", commitID.Int64,
+					"for commit %d: %v", commit.CommitID,
 					err)
 				blockHeader = nil
 			}
@@ -1122,26 +1225,30 @@ func fetchCommitment(ctx context.Context, db SupplyCommitStore,
 			if err != nil {
 				log.Errorf("fetchCommitment: failed to "+
 					"decode merkle proof for commit %d: "+
-					"%v", commitID.Int64, err)
+					"%v", commit.CommitID, err)
 				merkleProof = nil
 			}
 		}
 
 		if blockHeader != nil && merkleProof != nil {
-			chainInfoOpt = lfn.Some(commitmentChainInfo{
-				BlockHeader: blockHeader,
-				MerkleProof: merkleProof,
-				BlockHeight: blockHeight,
-			})
+			rootCommitment.CommitmentBlock = fn.Some(
+				supplycommit.CommitmentBlock{
+					Height:      blockHeight,
+					Hash:        blockHeader.BlockHash(),
+					TxIndex:     uint32(txIndex.Int32),
+					BlockHeader: blockHeader,
+					MerkleProof: merkleProof,
+				},
+			)
 		} else {
 			log.Warnf("fetchCommitment: commit %d has block "+
 				"height but missing header (%v) or proof (%v)",
-				commitID.Int64, blockHeader == nil,
+				commit.CommitID, blockHeader == nil,
 				merkleProof == nil)
 		}
 	}
 
-	return lfn.Some(rootCommitment), chainInfoOpt, nil
+	return rootCommitment, nil
 }
 
 // FetchState attempts to fetch the state of the state machine for the
@@ -1237,35 +1344,42 @@ func (s *SupplyCommitMachine) FetchState(ctx context.Context,
 		// Next, we'll fetch the old and new commitments. If this is the
 		// very first state transition, there won't be an old
 		// commitment.
-		oldCommitmentOpt, _, err = fetchCommitment(
-			ctx, db, dbTransition.OldCommitmentID, groupKeyBytes,
+		oldCommitmentOpt, err = fetchCommitment(
+			ctx, db, dbTransition.OldCommitmentID,
 		)
 		if err != nil {
 			return fmt.Errorf("failed fetching old "+
 				"commitment: %w", err)
 		}
-		newCommitmentOpt, newCommitChainInfoOpt, err := fetchCommitment(
-			ctx, db, dbTransition.NewCommitmentID, groupKeyBytes,
+		newCommitmentOpt, err := fetchCommitment(
+			ctx, db, dbTransition.NewCommitmentID,
 		)
 		if err != nil {
 			return fmt.Errorf("failed fetching new "+
 				"commitment: %w", err)
 		}
 
-		// Construct the ChainProof if the new commitment's chain info
-		// is present.
-		newCommitChainInfoOpt.WhenSome(func(info commitmentChainInfo) {
-			if info.BlockHeader != nil && info.MerkleProof != nil {
-				chainProofOpt = lfn.Some(supplycommit.ChainProof{ //nolint:lll
-					Header:      *info.BlockHeader,
-					BlockHeight: info.BlockHeight,
-					MerkleProof: *info.MerkleProof,
-				})
-			}
-		})
-
 		newCommit = newCommitmentOpt.UnwrapOr(
 			supplycommit.RootCommitment{},
+		)
+
+		newCommit.CommitmentBlock.WhenSome(
+			func(b supplycommit.CommitmentBlock) {
+				if b.BlockHeader == nil ||
+					b.MerkleProof == nil {
+
+					return
+				}
+
+				chainProofOpt = lfn.Some(
+					supplycommit.ChainProof{
+						Header:      *b.BlockHeader,
+						BlockHeight: b.Height,
+						MerkleProof: *b.MerkleProof,
+						TxIndex:     b.TxIndex,
+					},
+				)
+			},
 		)
 
 		return nil
@@ -1507,7 +1621,8 @@ func (s *SupplyCommitMachine) ApplyStateTransition(
 				GroupKey:           groupKeyBytes,
 				StateName:          sqlStr(defaultStateName),
 				LatestCommitmentID: dbTransition.NewCommitmentID, //nolint:lll
-			})
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("failed to update state machine to "+
 				"default: %w", err)

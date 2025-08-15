@@ -401,17 +401,18 @@ type SupplyCommitUpdateType struct {
 }
 
 type SupplyCommitment struct {
-	CommitID       int64
-	GroupKey       []byte
-	ChainTxnID     int64
-	OutputIndex    sql.NullInt32
-	InternalKeyID  int64
-	OutputKey      []byte
-	BlockHeader    []byte
-	BlockHeight    sql.NullInt32
-	MerkleProof    []byte
-	SupplyRootHash []byte
-	SupplyRootSum  sql.NullInt64
+	CommitID        int64
+	GroupKey        []byte
+	ChainTxnID      int64
+	OutputIndex     sql.NullInt32
+	InternalKeyID   int64
+	OutputKey       []byte
+	BlockHeader     []byte
+	BlockHeight     sql.NullInt32
+	MerkleProof     []byte
+	SupplyRootHash  []byte
+	SupplyRootSum   sql.NullInt64
+	SpentCommitment sql.NullInt64
 }
 
 type SupplySyncerLog struct {

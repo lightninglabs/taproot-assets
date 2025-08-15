@@ -268,6 +268,14 @@ type CommitmentBlock struct {
 	// the block.
 	TxIndex uint32
 
+	// BlockHeader is the block header of the block that contains the
+	// commitment.
+	BlockHeader *wire.BlockHeader
+
+	// MerkleProof is the merkle proof that proves that the supply
+	// commitment transaction is included in the block.
+	MerkleProof *proof.TxMerkleProof
+
 	// ChainFees is the amount in sats paid in on-chain fees for the
 	// supply commitment transaction.
 	ChainFees int64
@@ -523,9 +531,8 @@ type StateMachineStore interface {
 	// error will be returned.
 	//
 	// TODO(roasbeef): also have it return the next event if exists?
-	FetchState(context.Context, asset.Specifier) (
-		State, lfn.Option[SupplyStateTransition], error,
-	)
+	FetchState(context.Context, asset.Specifier) (State,
+		lfn.Option[SupplyStateTransition], error)
 
 	// ApplyStateTransition is used to apply a new state transition to the
 	// target state machine. Once the transition has been applied, the state
