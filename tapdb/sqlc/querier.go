@@ -193,6 +193,7 @@ type Querier interface {
 	QuerySupplyCommitment(ctx context.Context, commitID int64) (QuerySupplyCommitmentRow, error)
 	QuerySupplyCommitmentByOutpoint(ctx context.Context, arg QuerySupplyCommitmentByOutpointParams) (QuerySupplyCommitmentByOutpointRow, error)
 	QuerySupplyCommitmentBySpentOutpoint(ctx context.Context, arg QuerySupplyCommitmentBySpentOutpointParams) (QuerySupplyCommitmentBySpentOutpointRow, error)
+	QuerySupplyCommitmentOutpoint(ctx context.Context, commitID int64) (QuerySupplyCommitmentOutpointRow, error)
 	QuerySupplyLeavesByHeight(ctx context.Context, arg QuerySupplyLeavesByHeightParams) ([]QuerySupplyLeavesByHeightRow, error)
 	QuerySupplyUpdateEvents(ctx context.Context, transitionID sql.NullInt64) ([]QuerySupplyUpdateEventsRow, error)
 	// TODO(roasbeef): use the universe id instead for the grouping? so namespace
