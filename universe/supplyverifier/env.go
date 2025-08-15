@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
@@ -22,6 +23,18 @@ type SupplyCommitView interface {
 	// spec.
 	SupplyCommit(ctx context.Context,
 		assetSpec asset.Specifier) supplycommit.RootCommitResp
+
+	// FetchCommitmentByOutpoint fetches a supply commitment by its outpoint
+	// and group key. If no commitment is found, it returns
+	// ErrCommitmentNotFound.
+	FetchCommitmentByOutpoint(ctx context.Context,
+		assetSpec asset.Specifier,
+		outpoint wire.OutPoint) (*supplycommit.RootCommitment, error)
+
+	// InsertSupplyCommit inserts a supply commitment into the database.
+	InsertSupplyCommit(ctx context.Context,
+		assetSpec asset.Specifier, commit supplycommit.RootCommitment,
+		leaves supplycommit.SupplyLeaves) error
 }
 
 // Environment is a struct that holds all the dependencies that the supply
