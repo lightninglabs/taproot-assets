@@ -2756,3 +2756,58 @@ func LargestUtxo(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	return outputs[0]
 }
+
+// UpdateAndMineSupplyCommit updates the on-chain supply commitment for an asset
+// group and mines the commitment transaction.
+func UpdateAndMineSupplyCommit(t *testing.T, ctx context.Context,
+	tapd unirpc.UniverseClient, miner *rpcclient.Client,
+	groupKeyBytes []byte, expectedTxsInBlock int) []*wire.MsgBlock {
+
+	groupKeyUpdate := &unirpc.UpdateSupplyCommitRequest_GroupKeyBytes{
+		GroupKeyBytes: groupKeyBytes,
+	}
+
+	respUpdate, err := tapd.UpdateSupplyCommit(
+		ctx, &unirpc.UpdateSupplyCommitRequest{
+			GroupKey: groupKeyUpdate,
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, respUpdate)
+
+	// Mine the supply commitment transaction.
+	minedBlocks := MineBlocks(t, miner, 1, expectedTxsInBlock)
+	require.Len(t, minedBlocks, 1)
+
+	return minedBlocks
+}
+
+// WaitForSupplyCommit waits for a supply commitment to be available and returns
+// it when the specified condition is met.
+func WaitForSupplyCommit(t *testing.T, ctx context.Context,
+	tapd unirpc.UniverseClient, groupKeyBytes []byte,
+	condition func(*unirpc.FetchSupplyCommitResponse) bool,
+) *unirpc.FetchSupplyCommitResponse {
+
+	groupKeyReq := &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
+		GroupKeyBytes: groupKeyBytes,
+	}
+
+	var fetchResp *unirpc.FetchSupplyCommitResponse
+	var err error
+
+	require.Eventually(t, func() bool {
+		fetchResp, err = tapd.FetchSupplyCommit(
+			ctx, &unirpc.FetchSupplyCommitRequest{
+				GroupKey: groupKeyReq,
+			},
+		)
+		if err != nil {
+			return false
+		}
+
+		return fetchResp != nil && condition(fetchResp)
+	}, defaultWaitTimeout, time.Second)
+
+	return fetchResp
+}
