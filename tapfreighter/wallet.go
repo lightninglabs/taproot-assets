@@ -503,13 +503,19 @@ func createPassivePacket(passiveAsset *asset.Asset,
 	params := activePackets[0].ChainParams
 
 	// Specify virtual input.
-	inputAsset := passiveAsset.Copy()
+	inputAsset := inputProof.Asset.Copy()
 	vInput := tappsbt.VInput{
 		Proof: inputProof,
 		PInput: psbt.PInput{
 			SighashType: txscript.SigHashDefault,
 		},
 	}
+
+	// The passive asset is the asset queried from the database, and it
+	// might contain the script key internal key and type (which the asset
+	// from the proof won't have). So we copy over the script key to make
+	// sure we have all the required signing information.
+	inputAsset.ScriptKey = passiveAsset.ScriptKey
 
 	err := tapsend.ValidateVPacketVersions(activePackets)
 	if err != nil {

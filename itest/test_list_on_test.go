@@ -340,6 +340,10 @@ var allTestCases = []*testCase{
 		test: testAnchorMultipleVirtualTransactions,
 	},
 	{
+		name: "anchor multiple virtual split transactions",
+		test: testAnchorMultipleVirtualSplitTransactions,
+	},
+	{
 		name: "channel RPCs",
 		test: testChannelRPCs,
 	},
