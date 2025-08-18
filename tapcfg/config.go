@@ -221,6 +221,10 @@ type ChainConfig struct {
 	SigNetChallenge string `long:"signetchallenge" description:"Connect to a custom signet network defined by this challenge instead of using the global default signet test network -- Can be specified multiple times"`
 }
 
+type ChannelConfig struct {
+	NoopHTLCs bool `long:"noop-htlcs" description:"toggles the use of noop HTLCs over tap channels"`
+}
+
 // RpcConfig houses the set of config options that affect how clients connect
 // to the main RPC server.
 type RpcConfig struct {
@@ -357,6 +361,8 @@ type Config struct {
 
 	AddrBook *AddrBookConfig `group:"address" namespace:"address"`
 
+	Channel *ChannelConfig `group:"channel" namespace:"channel"`
+
 	Prometheus monitoring.PrometheusConfig `group:"prometheus" namespace:"prometheus"`
 
 	Experimental *ExperimentalConfig `group:"experimental" namespace:"experimental"`
@@ -463,6 +469,9 @@ func DefaultConfig() Config {
 		},
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,
+		},
+		Channel: &ChannelConfig{
+			NoopHTLCs: false,
 		},
 		Experimental: &ExperimentalConfig{
 			Rfq: rfq.CliConfig{

@@ -123,6 +123,10 @@ type ManagerCfg struct {
 	// messages (this means that the price oracle will not be queried).
 	SkipAcceptQuotePriceCheck bool
 
+	// NoOpHTLCs is a boolean indicating whether the daemon configuration
+	// wants us to produce NoOp HTLCs.
+	NoOpHTLCs bool
+
 	// ErrChan is the main error channel which will be used to report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -244,6 +248,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 		HtlcSubscriber:   m.cfg.HtlcSubscriber,
 		AcceptHtlcEvents: m.acceptHtlcEvents,
 		SpecifierChecker: m.AssetMatchesSpecifier,
+		NoOpHTLCs:        m.cfg.NoOpHTLCs,
 	})
 	if err != nil {
 		return fmt.Errorf("error initializing RFQ order handler: %w",

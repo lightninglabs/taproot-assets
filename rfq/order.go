@@ -121,13 +121,17 @@ type AssetSalePolicy struct {
 	// that they carry.
 	htlcToAmt map[models.CircuitKey]lnwire.MilliSatoshi
 
+	// NoOpHTLCs is a boolean indicating whether the daemon configuration
+	// wants us to produce NoOp HTLCs.
+	NoOpHTLCs bool
+
 	// expiry is the policy's expiry unix timestamp after which the policy
 	// is no longer valid.
 	expiry uint64
 }
 
 // NewAssetSalePolicy creates a new asset sale policy.
-func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
+func NewAssetSalePolicy(quote rfqmsg.BuyAccept, noop bool) *AssetSalePolicy {
 	htlcToAmtMap := make(map[models.CircuitKey]lnwire.MilliSatoshi)
 
 	return &AssetSalePolicy{
@@ -137,6 +141,7 @@ func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
 		AskAssetRate:           quote.AssetRate.Rate,
 		expiry:                 uint64(quote.AssetRate.Expiry.Unix()),
 		htlcToAmt:              htlcToAmtMap,
+		NoOpHTLCs:              noop,
 	}
 }
 
@@ -288,7 +293,9 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 	// We are about to create an outgoing HTLC that carries assets. Let's
 	// set the noop flag in order to eventually only settle the assets but
 	// never settle the sats anchor amount that will carry them.
-	htlcRecord.SetNoopAdd(rfqmsg.UseNoOpHTLCs)
+	if c.NoOpHTLCs {
+		htlcRecord.SetNoopAdd(rfqmsg.UseNoOpHTLCs)
+	}
 
 	customRecords, err := lnwire.ParseCustomRecords(htlcRecord.Bytes())
 	if err != nil {
@@ -675,6 +682,10 @@ type OrderHandlerCfg struct {
 	// SpecifierChecker is an interface that contains methods for
 	// checking certain properties related to asset specifiers.
 	SpecifierChecker rfqmsg.SpecifierChecker
+
+	// NoOpHTLCs is a boolean indicating whether the daemon configuration
+	// wants us to produce NoOp HTLCs.
+	NoOpHTLCs bool
 }
 
 // OrderHandler orchestrates management of accepted quote bundles. It monitors
@@ -929,7 +940,7 @@ func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
 	log.Debugf("Order handler is registering an asset sale policy given a "+
 		"buy accept message: %s", buyAccept.String())
 
-	policy := NewAssetSalePolicy(buyAccept)
+	policy := NewAssetSalePolicy(buyAccept, h.cfg.NoOpHTLCs)
 	h.policies.Store(policy.AcceptedQuoteId.Scid(), policy)
 }
 

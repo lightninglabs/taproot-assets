@@ -29,6 +29,10 @@ type TrafficShaperConfig struct {
 	ChainParams *address.ChainParams
 
 	RfqManager *rfq.Manager
+
+	// NoOpHTLCs is a boolean indicating whether the daemon configuration
+	// wants us to produce NoOp HTLCs.
+	NoopHTLCs bool
 }
 
 // AuxTrafficShaper is a Taproot Asset auxiliary traffic shaper that can be used
@@ -474,7 +478,10 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 		log.Tracef("Already have asset amount (sum %d) in HTLC, not "+
 			"producing extra data", htlc.Amounts.Val.Sum())
 
-		htlc.SetNoopAdd(rfqmsg.UseNoOpHTLCs)
+		if s.cfg.NoopHTLCs {
+			htlc.SetNoopAdd(rfqmsg.UseNoOpHTLCs)
+		}
+
 		updatedRecords, err := htlc.ToCustomRecords()
 		if err != nil {
 			return 0, nil, err
@@ -580,7 +587,9 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	// Now we set the flag that marks this HTLC as a noop_add, which means
 	// that the above dust will eventually return to us. This means that
 	// only the assets will be sent and not any btc balance.
-	htlc.SetNoopAdd(rfqmsg.UseNoOpHTLCs)
+	if s.cfg.NoopHTLCs {
+		htlc.SetNoopAdd(rfqmsg.UseNoOpHTLCs)
+	}
 
 	updatedRecords, err := htlc.ToCustomRecords()
 	if err != nil {
