@@ -469,6 +469,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			AcceptPriceDeviationPpm: rfqCfg.AcceptPriceDeviationPpm,
 			// nolint: lll
 			SkipAcceptQuotePriceCheck: rfqCfg.SkipAcceptQuotePriceCheck,
+			NoOpHTLCs:                 cfg.Channel.NoopHTLCs,
 			ErrChan:                   mainErrChan,
 		},
 	)
@@ -539,6 +540,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		&tapchannel.TrafficShaperConfig{
 			ChainParams: &tapChainParams,
 			RfqManager:  rfqManager,
+			NoopHTLCs:   cfg.Channel.NoopHTLCs,
 		},
 	)
 	auxInvoiceManager := tapchannel.NewAuxInvoiceManager(

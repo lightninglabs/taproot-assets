@@ -73,6 +73,14 @@
   [related PR](https://github.com/lightninglabs/taproot-assets/pull/1613) for
   more info.
 
+- Asset HTLCs that are received or sent do not shift the satoshi balance of the
+  channel. This is because now the default behavior is to use
+  [Noop HTLCs](https://github.com/lightninglabs/taproot-assets/pull/1567) which
+  lock some above-dust sats amount with the HTLC as long as it's in-flight, but
+  nullifies it upon settlement. This is currently hidden behind the dev build
+  tag and also needs to be toggled on via the `channel.noop-htlcs` configuration
+  option.
+
 ## RPC Additions
 
 - The [price oracle RPC calls now have an intent, optional peer ID and metadata

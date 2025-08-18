@@ -29,6 +29,10 @@ type TrafficShaperConfig struct {
 	ChainParams *address.ChainParams
 
 	RfqManager *rfq.Manager
+
+	// NoOpHTLCs is a boolean indicating whether the daemon configuration
+	// wants us to produce NoOp HTLCs.
+	NoopHTLCs bool
 }
 
 // AuxTrafficShaper is a Taproot Asset auxiliary traffic shaper that can be used
@@ -473,7 +477,17 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	if htlc.Amounts.Val.Sum() > 0 {
 		log.Tracef("Already have asset amount (sum %d) in HTLC, not "+
 			"producing extra data", htlc.Amounts.Val.Sum())
-		return totalAmount, htlcCustomRecords, nil
+
+		if s.cfg.NoopHTLCs {
+			htlc.SetNoopAdd(rfqmsg.UseNoOpHTLCs)
+		}
+
+		updatedRecords, err := htlc.ToCustomRecords()
+		if err != nil {
+			return 0, nil, err
+		}
+
+		return totalAmount, updatedRecords, nil
 	}
 
 	// Within the context of a payment we may negotiate multiple quotes. All
@@ -569,6 +583,14 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	// amount that should be sent on-chain, which is a value in satoshi that
 	// is just above the dust limit.
 	htlcAmountMSat := rfqmath.DefaultOnChainHtlcMSat
+
+	// Now we set the flag that marks this HTLC as a noop_add, which means
+	// that the above dust will eventually return to us. This means that
+	// only the assets will be sent and not any btc balance.
+	if s.cfg.NoopHTLCs {
+		htlc.SetNoopAdd(rfqmsg.UseNoOpHTLCs)
+	}
+
 	updatedRecords, err := htlc.ToCustomRecords()
 	if err != nil {
 		return 0, nil, fmt.Errorf("error encoding HTLC blob: %w", err)
