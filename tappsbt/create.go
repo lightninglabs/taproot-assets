@@ -39,8 +39,47 @@ func FromAddresses(receiverAddrs []*address.Tap,
 	switch firstAddr.Version {
 	case address.V0:
 		pkt.Version = V0
-	case address.V1, address.V2:
+	case address.V1:
 		pkt.Version = V1
+	case address.V2:
+		pkt.Version = V1
+
+		// All sends to V0 and V1 addresses _NEED_ to be non-
+		// interactive, because the receiver needs to be able to predict
+		// the final on-chain Taproot output key all the way up,
+		// starting at the asset leaf, assuming a split output.
+		// For V2 addresses that is no longer the case, since we are
+		// relying on the output list to be sent in a separate message
+		// and the proofs being fetched from a universe server. So we
+		// can use interactive (e.g. full value sends without tombstone)
+		// sends to V2 addresses.
+		for idx := range receiverAddrs {
+			addr := receiverAddrs[idx]
+			if addr.Version != firstAddr.Version {
+				return nil, fmt.Errorf("mixed address versions")
+			}
+
+			//nolint:lll
+			pkt.Outputs = append(pkt.Outputs, &VOutput{
+				AssetVersion: addr.AssetVersion,
+				Amount:       addr.Amount,
+				Interactive:  true,
+				// We can directly use the index as the anchor
+				// output here, a change output will be added
+				// by the funding logic at the end if necessary.
+				AnchorOutputIndex: uint32(idx),
+				ScriptKey: asset.NewScriptKey(
+					&addr.ScriptKey,
+				),
+				AnchorOutputInternalKey:      &addr.InternalKey,
+				AnchorOutputTapscriptSibling: addr.TapscriptSibling,
+				ProofDeliveryAddress:         &addr.ProofCourierAddr,
+				Address:                      addr,
+			})
+		}
+
+		return pkt, nil
+
 	default:
 		return nil, address.ErrUnknownVersion
 	}

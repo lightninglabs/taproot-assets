@@ -271,8 +271,7 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner().Client, t.tapd,
 		sendResp.Transfer, [][]byte{firstAssetID, secondAssetID},
-		[]uint64{0, firstAsset.Amount, 0, secondAsset.Amount}, 0,
-		1, 4, true,
+		[]uint64{firstAsset.Amount, secondAsset.Amount}, 0, 1, 2, true,
 	)
 	AssertReceiveEventsCustom(t.t, addrEvents, []taprpc.AddrEventStatus{
 		statusConfirmed,
@@ -282,13 +281,6 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 	AssertBalanceByGroup(
 		t.t, bobTapd, hex.EncodeToString(groupKey), totalAmount,
 		WithNumUtxos(2),
-	)
-
-	// The sending node should only have two tombstone outputs, but the
-	// total value should be zero.
-	AssertBalanceByGroup(
-		t.t, t.tapd, hex.EncodeToString(groupKey), 0, WithNumUtxos(2),
-		WithAllScriptKeyTypes(),
 	)
 
 	// We now make sure we can spend those assets again by sending
@@ -354,8 +346,8 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner().Client, bobTapd,
 		sendResp3.Transfer, [][]byte{firstAssetID, secondAssetID},
-		[]uint64{0, totalAmount/2 - 50, 50, 0, totalAmount / 2}, 1,
-		2, 5, true,
+		[]uint64{totalAmount/2 - 50, 50, totalAmount / 2}, 1, 2, 3,
+		true,
 	)
 	AssertBalanceByGroup(
 		t.t, t.tapd, hex.EncodeToString(groupKey), totalAmount,
@@ -493,8 +485,8 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner().Client, t.tapd,
 		sendResp.Transfer, [][]byte{firstAssetID},
-		[]uint64{0, firstAsset.Amount}, currentTransferIdx,
-		numTransfers, 2, true,
+		[]uint64{firstAsset.Amount}, currentTransferIdx,
+		numTransfers, 1, true,
 	)
 
 	AssertAddrEventByStatus(t.t, bobTapd, statusCompleted, numTransfers)
@@ -516,8 +508,8 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner().Client, t.tapd,
 		sendResp.Transfer, [][]byte{secondAssetID},
-		[]uint64{0, secondAsset.Amount}, currentTransferIdx,
-		numTransfers, 2, true,
+		[]uint64{secondAsset.Amount}, currentTransferIdx,
+		numTransfers, 1, true,
 	)
 
 	AssertAddrEventByStatus(t.t, bobTapd, statusCompleted, numTransfers)
@@ -539,8 +531,8 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner().Client, t.tapd,
 		sendResp.Transfer, [][]byte{thirdAssetID},
-		[]uint64{0, thirdAsset.Amount}, currentTransferIdx,
-		numTransfers, 2, true,
+		[]uint64{thirdAsset.Amount}, currentTransferIdx,
+		numTransfers, 1, true,
 	)
 
 	AssertAddrEventByStatus(t.t, bobTapd, statusCompleted, numTransfers)
@@ -644,8 +636,8 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 		AssertAssetOutboundTransferWithOutputs(
 			t.t, t.lndHarness.Miner().Client, t.tapd,
 			sendResp.Transfer, [][]byte{assetIDs[idx]},
-			[]uint64{0, amount}, currentTransferIdx, numTransfers,
-			2, true,
+			[]uint64{amount}, currentTransferIdx, numTransfers, 1,
+			true,
 		)
 
 		AssertAddrEventByStatus(

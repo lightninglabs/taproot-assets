@@ -29,35 +29,11 @@
         ],
         "outputs": [
           {
-            "amount": 0,
-            "type": 1,
-            "asset_version": 0,
-            "interactive": false,
-            "anchor_output_index": 0,
-            "anchor_output_internal_key": "",
-            "anchor_output_bip32_derivation": null,
-            "anchor_output_tr_bip32_derivation": null,
-            "anchor_output_tapscript_sibling": "",
-            "asset": null,
-            "split_asset": null,
-            "pk_script": "51207c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3e6d540b3653fe",
-            "bip32_derivation": null,
-            "tr_bip32_derivation": null,
-            "tr_internal_key": "",
-            "tr_merkle_root": "",
-            "proof_delivery_address": "",
-            "proof_suffix": null,
-            "relative_lock_time": 0,
-            "lock_time": 0,
-            "alt_leaves": null,
-            "address": null
-          },
-          {
             "amount": 1,
             "type": 0,
             "asset_version": 1,
-            "interactive": false,
-            "anchor_output_index": 1,
+            "interactive": true,
+            "anchor_output_index": 0,
             "anchor_output_internal_key": "02daf785f20dcb5bb06bef717296c3894ed2564d5e3f8325d2f6bad1315aaad16c",
             "anchor_output_bip32_derivation": null,
             "anchor_output_tr_bip32_derivation": null,
@@ -116,7 +92,7 @@
         "version": 1,
         "chain_params_hrp": "tapbc"
       },
-      "expected": "cHNidP8BALQCAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAIlEgfHm5sm5GOJXu9WedhViULIbErSIzre8BvD5tVAs2U/4BAAAAAAAAACJRIGgYBPh4kJp3/4EzkUHRtV02t2os1/Ccg4oetn/qmDcAAAAAAAAAAAAiUSBjFU6eReYqJ8Q/KzNCsMSbii9J0CY9zBjzQXK2as/vCQAAAAABcAEBAXEFdGFwYmMBcgEBAAFwZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXEIAAAAAAAAAAABcgABcwgAAAAAAAAAAAF1AAF4AAABcAEBAXEBAAFyCAAAAAAAAAAAAXkBAAF8CAAAAAAAAAAAAX0IAAAAAAAAAAAAAXABAAFxAQABcggAAAAAAAAAAQFzIQLa94XyDctbsGvvcXKWw4lO0lZNXj+DJdL2utExWqrRbAF4FQDAEm5vdCBhIHZhbGlkIHNjcmlwdAF5AQEBeidhdXRobWFpbGJveCt1bml2ZXJzZXJwYzovL2Zvby5iYXI6MTAwMjkBfAgAAAAAAAAAAAF9CAAAAAAAAAAAAX+yAAECAgEBBSECL4A3VoZ30SIMCONSXooiWNo0baEd84sWe3Yv8I5t4KEGIQJoGAT4eJCad/+BM5FB0bVdNrdqLNfwnIOKHrZ/6pg3AAghAtr3hfINy1uwa+9xcpbDiU7SVk1eP4Ml0va60TFaqtFsCRUAwBJub3QgYSB2YWxpZCBzY3JpcHQKAQEMJ2F1dGhtYWlsYm94K3VuaXZlcnNlcnBjOi8vZm9vLmJhcjoxMDAyOQABcAEAAXEBAAFyCAAAAAAAAAAAAXkBAAF8CAAAAAAAAAAAAX0IAAAAAAAAAAAA",
+      "expected": "cHNidP8BAIkCAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgEAAAAAAAAAIlEgaBgE+HiQmnf/gTORQdG1XTa3aizX8JyDih62f+qYNwAAAAAAAAAAACJRIGMVTp5F5ionxD8rM0KwxJuKL0nQJj3MGPNBcrZqz+8JAAAAAAFwAQEBcQV0YXBiYwFyAQEAAXBlAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABcQgAAAAAAAAAAAFyAAFzCAAAAAAAAAAAAXUAAXgAAAFwAQABcQEBAXIIAAAAAAAAAAABcyEC2veF8g3LW7Br73FylsOJTtJWTV4/gyXS9rrRMVqq0WwBeBUAwBJub3QgYSB2YWxpZCBzY3JpcHQBeQEBAXonYXV0aG1haWxib3grdW5pdmVyc2VycGM6Ly9mb28uYmFyOjEwMDI5AXwIAAAAAAAAAAABfQgAAAAAAAAAAAF/sgABAgIBAQUhAi+AN1aGd9EiDAjjUl6KIljaNG2hHfOLFnt2L/CObeChBiECaBgE+HiQmnf/gTORQdG1XTa3aizX8JyDih62f+qYNwAIIQLa94XyDctbsGvvcXKWw4lO0lZNXj+DJdL2utExWqrRbAkVAMASbm90IGEgdmFsaWQgc2NyaXB0CgEBDCdhdXRobWFpbGJveCt1bml2ZXJzZXJwYzovL2Zvby5iYXI6MTAwMjkAAXABAAFxAQABcggAAAAAAAAAAAF5AQABfAgAAAAAAAAAAAF9CAAAAAAAAAAAAA==",
       "comment": "minimal packet"
     },
     {
