@@ -225,7 +225,7 @@ func (r *rpcServer) Start(cfg *Config) error {
 		r.cfg.UniverseQueriesPerSecond, r.cfg.UniverseQueriesBurst,
 	)
 
-	rpcsLog.Infof("Starting RPC Server")
+	rpcsLog.Infof("Starting Taproot Assets RPC Server")
 
 	return nil
 }
@@ -237,7 +237,7 @@ func (r *rpcServer) Stop() error {
 		return nil
 	}
 
-	rpcsLog.Infof("Stopping RPC Server")
+	rpcsLog.Infof("Stopping Taproot Assets RPC Server")
 
 	close(r.quit)
 
