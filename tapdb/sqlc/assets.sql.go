@@ -2863,9 +2863,10 @@ func (q *Queries) UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLeaseParams
 const UpsertAsset = `-- name: UpsertAsset :one
 INSERT INTO assets (
     genesis_id, version, script_key_id, asset_group_witness_id, script_version, 
-    amount, lock_time, relative_lock_time, anchor_utxo_id, spent
+    amount, lock_time, relative_lock_time, anchor_utxo_id, spent,
+    split_commitment_root_hash, split_commitment_root_value
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 )
 ON CONFLICT (genesis_id, script_key_id, anchor_utxo_id)
     -- This is a NOP, anchor_utxo_id is one of the unique fields that caused the
@@ -2875,16 +2876,18 @@ RETURNING asset_id
 `
 
 type UpsertAssetParams struct {
-	GenesisID           int64
-	Version             int32
-	ScriptKeyID         int64
-	AssetGroupWitnessID sql.NullInt64
-	ScriptVersion       int32
-	Amount              int64
-	LockTime            sql.NullInt32
-	RelativeLockTime    sql.NullInt32
-	AnchorUtxoID        sql.NullInt64
-	Spent               bool
+	GenesisID                int64
+	Version                  int32
+	ScriptKeyID              int64
+	AssetGroupWitnessID      sql.NullInt64
+	ScriptVersion            int32
+	Amount                   int64
+	LockTime                 sql.NullInt32
+	RelativeLockTime         sql.NullInt32
+	AnchorUtxoID             sql.NullInt64
+	Spent                    bool
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
 }
 
 func (q *Queries) UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64, error) {
@@ -2899,6 +2902,8 @@ func (q *Queries) UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64
 		arg.RelativeLockTime,
 		arg.AnchorUtxoID,
 		arg.Spent,
+		arg.SplitCommitmentRootHash,
+		arg.SplitCommitmentRootValue,
 	)
 	var asset_id int64
 	err := row.Scan(&asset_id)

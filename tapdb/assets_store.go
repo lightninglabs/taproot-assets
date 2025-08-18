@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -2343,10 +2344,18 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 		// Verify that the constructed Taproot Asset commitment matches
 		// the commitment root stored in the managed UTXO.
 		commitmentRoot := tapCommitment.TapscriptRoot(nil)
+
+		tapsend.LogCommitment(
+			"reconstructed input", int(anchorPoint.Index),
+			tapCommitment, &btcec.PublicKey{}, nil, nil,
+		)
+
 		anchorCommitmentRoot := anchorUTXO.TaprootAssetRoot
 		if !bytes.Equal(anchorCommitmentRoot, commitmentRoot[:]) {
-			return nil, fmt.Errorf("mismatch of managed utxo and " +
-				"constructed tap commitment root")
+			return nil, fmt.Errorf("mismatch of managed utxo and "+
+				"constructed tap commitment root, "+
+				"utxoRoot=%x, reconstructedRoot=%x",
+				anchorCommitmentRoot, commitmentRoot[:])
 		}
 
 		anchorPointToCommitment[anchorPoint] = tapCommitment

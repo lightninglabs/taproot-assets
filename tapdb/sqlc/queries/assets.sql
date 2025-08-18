@@ -218,9 +218,10 @@ RETURNING gen_asset_id;
 -- name: UpsertAsset :one
 INSERT INTO assets (
     genesis_id, version, script_key_id, asset_group_witness_id, script_version, 
-    amount, lock_time, relative_lock_time, anchor_utxo_id, spent
+    amount, lock_time, relative_lock_time, anchor_utxo_id, spent,
+    split_commitment_root_hash, split_commitment_root_value
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 )
 ON CONFLICT (genesis_id, script_key_id, anchor_utxo_id)
     -- This is a NOP, anchor_utxo_id is one of the unique fields that caused the
