@@ -14,11 +14,13 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -125,13 +127,23 @@ type AssetSalePolicy struct {
 	// wants us to produce NoOp HTLCs.
 	NoOpHTLCs bool
 
+	// auxChannelNegotiator is used to query the supported feature bits that
+	// are supported by a peer, or a channel.
+	auxChanNegotiator *tapfeatures.AuxChannelNegotiator
+
+	// peer is the peer pub key of the peer we established this policy with.
+	peer route.Vertex
+
 	// expiry is the policy's expiry unix timestamp after which the policy
 	// is no longer valid.
 	expiry uint64
 }
 
 // NewAssetSalePolicy creates a new asset sale policy.
-func NewAssetSalePolicy(quote rfqmsg.BuyAccept, noop bool) *AssetSalePolicy {
+func NewAssetSalePolicy(quote rfqmsg.BuyAccept, noop bool,
+	chanNegotiator *tapfeatures.AuxChannelNegotiator,
+	peer route.Vertex) *AssetSalePolicy {
+
 	htlcToAmtMap := make(map[models.CircuitKey]lnwire.MilliSatoshi)
 
 	return &AssetSalePolicy{
@@ -142,6 +154,8 @@ func NewAssetSalePolicy(quote rfqmsg.BuyAccept, noop bool) *AssetSalePolicy {
 		expiry:                 uint64(quote.AssetRate.Expiry.Unix()),
 		htlcToAmt:              htlcToAmtMap,
 		NoOpHTLCs:              noop,
+		auxChanNegotiator:      chanNegotiator,
+		peer:                   peer,
 	}
 }
 
@@ -290,10 +304,13 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 		fn.None[[]rfqmsg.ID](),
 	)
 
+	peerFeatures := c.auxChanNegotiator.GetPeerFeatures(c.peer)
+	supportNoOp := peerFeatures.HasFeature(tapfeatures.NoOpHTLCsOptional)
+
 	// We are about to create an outgoing HTLC that carries assets. Let's
 	// set the noop flag in order to eventually only settle the assets but
 	// never settle the sats anchor amount that will carry them.
-	if c.NoOpHTLCs {
+	if c.NoOpHTLCs && supportNoOp {
 		htlcRecord.SetNoopAdd(rfqmsg.UseNoOpHTLCs)
 	}
 
@@ -686,6 +703,11 @@ type OrderHandlerCfg struct {
 	// NoOpHTLCs is a boolean indicating whether the daemon configuration
 	// wants us to produce NoOp HTLCs.
 	NoOpHTLCs bool
+
+	// AuxChannelNegotiator is responsible for producing the extra tlv blob
+	// that is encapsulated in the init and reestablish peer messages. This
+	// helps us communicate custom feature bits with our peer.
+	AuxChanNegotiator *tapfeatures.AuxChannelNegotiator
 }
 
 // OrderHandler orchestrates management of accepted quote bundles. It monitors
@@ -940,7 +962,11 @@ func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
 	log.Debugf("Order handler is registering an asset sale policy given a "+
 		"buy accept message: %s", buyAccept.String())
 
-	policy := NewAssetSalePolicy(buyAccept, h.cfg.NoOpHTLCs)
+	policy := NewAssetSalePolicy(
+		buyAccept, h.cfg.NoOpHTLCs, h.cfg.AuxChanNegotiator,
+		buyAccept.Peer,
+	)
+
 	h.policies.Store(policy.AcceptedQuoteId.Scid(), policy)
 }
 
