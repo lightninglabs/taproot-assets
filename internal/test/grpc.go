@@ -18,7 +18,7 @@ import (
 var (
 	// ListenAddrTemplate is the template for the address the mock server
 	// listens on.
-	ListenAddrTemplate = "localhost:%d"
+	ListenAddrTemplate = "127.0.0.1:%d"
 
 	// StartupWaitTime is the time we wait for the server to start up.
 	StartupWaitTime = 50 * time.Millisecond
