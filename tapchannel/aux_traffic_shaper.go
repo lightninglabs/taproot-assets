@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
+	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -29,6 +30,8 @@ type TrafficShaperConfig struct {
 	ChainParams *address.ChainParams
 
 	RfqManager *rfq.Manager
+
+	AuxChanNegotiator *tapfeatures.AuxChannelNegotiator
 
 	// NoOpHTLCs is a boolean indicating whether the daemon configuration
 	// wants us to produce NoOp HTLCs.
@@ -464,6 +467,9 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 		return totalAmount, nil, nil
 	}
 
+	peerFeatures := s.cfg.AuxChanNegotiator.GetPeerFeatures(peer)
+	supportNoOp := peerFeatures.HasFeature(tapfeatures.NoOpHTLCsOptional)
+
 	// We need to do a round trip to convert the custom records to a blob
 	// that we can then parse into the correct struct again.
 	htlc, err := rfqmsg.HtlcFromCustomRecords(htlcCustomRecords)
@@ -478,7 +484,7 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 		log.Tracef("Already have asset amount (sum %d) in HTLC, not "+
 			"producing extra data", htlc.Amounts.Val.Sum())
 
-		if s.cfg.NoopHTLCs {
+		if s.cfg.NoopHTLCs && supportNoOp {
 			htlc.SetNoopAdd(rfqmsg.UseNoOpHTLCs)
 		}
 
@@ -587,7 +593,7 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	// Now we set the flag that marks this HTLC as a noop_add, which means
 	// that the above dust will eventually return to us. This means that
 	// only the assets will be sent and not any btc balance.
-	if s.cfg.NoopHTLCs {
+	if s.cfg.NoopHTLCs && supportNoOp {
 		htlc.SetNoopAdd(rfqmsg.UseNoOpHTLCs)
 	}
 
