@@ -1279,3 +1279,50 @@ func (s *Server) NotifyBroadcast(req *sweep.BumpRequest,
 
 	return s.cfg.AuxSweeper.NotifyBroadcast(req, tx, fee, outpointToTxIndex)
 }
+
+// GetInitFeatures is called when sending an init message to a peer. It returns
+// custom feature bits to include in the init message TLVs. The implementation
+// can decide which features to advertise based on the peer's identity.
+func (s *Server) GetInitFeatures(peer route.Vertex) (tlv.Blob, error) {
+	// There's no need to wait for the server to be ready, this action acts
+	// only within the aux chan negotiator instance.
+	return s.cfg.AuxChanNegotiator.GetInitFeatures(peer)
+}
+
+// ProcessInitFeatures handles received init feature TLVs from a peer. The
+// implementation can store state internally to affect future channel operations
+// with this peer.
+func (s *Server) ProcessInitFeatures(peer route.Vertex,
+	features tlv.Blob) error {
+
+	// There's no need to wait for the server to be ready, this action acts
+	// only within the aux chan negotiator instance.
+	return s.cfg.AuxChanNegotiator.ProcessInitFeatures(peer, features)
+}
+
+// GetReestablishFeatures is called when sending a channel_reestablish message.
+// It returns feature bits based on the specific channel identified by its
+// funding outpoint and aux channel blob.
+func (s *Server) GetReestablishFeatures(fundingPoint wire.OutPoint,
+	auxChanBlob tlv.Blob) (tlv.Blob, error) {
+
+	// There's no need to wait for the server to be ready, this action acts
+	// only within the aux chan negotiator instance.
+	return s.cfg.AuxChanNegotiator.GetReestablishFeatures(
+		fundingPoint, auxChanBlob,
+	)
+}
+
+// ProcessReestablishFeatures handles received channel_reestablish feature TLVs.
+// This is a blocking call - the channel link will wait for this method to
+// complete before continuing channel operations. The implementation can modify
+// aux channel behavior based on the negotiated features.
+func (s *Server) ProcessReestablishFeatures(fundingPoint wire.OutPoint,
+	features tlv.Blob, auxChanBlob tlv.Blob) error {
+
+	// There's no need to wait for the server to be ready, this action acts
+	// only within the aux chan negotiator instance.
+	return s.cfg.AuxChanNegotiator.ProcessReestablishFeatures(
+		fundingPoint, features, auxChanBlob,
+	)
+}
