@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapdb"
+	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -220,6 +221,8 @@ type Config struct {
 	AuxFundingController *tapchannel.FundingController
 
 	AuxTrafficShaper *tapchannel.AuxTrafficShaper
+
+	AuxChanNegotiator *tapfeatures.AuxChannelNegotiator
 
 	AuxInvoiceManager *tapchannel.AuxInvoiceManager
 

@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapscript"
@@ -455,6 +456,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
+	// Construct the AuxChannelNegotiator.
+	auxChanNegotiator := tapfeatures.NewAuxChannelNegotiator()
+
 	// Construct the RFQ manager.
 	rfqManager, err := rfq.NewManager(rfq.ManagerCfg{
 		PeerMessenger:             msgTransportClient,
@@ -463,6 +467,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		PriceOracle:               priceOracle,
 		ChannelLister:             lndServices.Client,
 		GroupLookup:               tapdbAddrBook,
+		AuxChanNegotiator:         auxChanNegotiator,
 		AliasManager:              lndRouterClient,
 		AcceptPriceDeviationPpm:   rfqCfg.AcceptPriceDeviationPpm,
 		SkipAcceptQuotePriceCheck: rfqCfg.SkipAcceptQuotePriceCheck,
@@ -536,9 +541,10 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	auxTrafficShaper := tapchannel.NewAuxTrafficShaper(
 		&tapchannel.TrafficShaperConfig{
-			ChainParams: &tapChainParams,
-			RfqManager:  rfqManager,
-			NoopHTLCs:   cfg.Channel.NoopHTLCs,
+			ChainParams:       &tapChainParams,
+			RfqManager:        rfqManager,
+			NoopHTLCs:         cfg.Channel.NoopHTLCs,
+			AuxChanNegotiator: auxChanNegotiator,
 		},
 	)
 	auxInvoiceManager := tapchannel.NewAuxInvoiceManager(
@@ -693,6 +699,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AuxFundingController:     auxFundingController,
 		AuxChanCloser:            auxChanCloser,
 		AuxTrafficShaper:         auxTrafficShaper,
+		AuxChanNegotiator:        auxChanNegotiator,
 		AuxInvoiceManager:        auxInvoiceManager,
 		AuxSweeper:               auxSweeper,
 		LogWriter:                cfg.LogWriter,
