@@ -57,7 +57,7 @@ var (
 	// finish setting them up properly with a root logger.
 	tapdLog = addTapPkgLogger("TAPD")
 	srvrLog = addTapPkgLogger("TSVR")
-	rpcsLog = addTapPkgLogger("RPCS")
+	rpcsLog = addTapPkgLogger("TRPC")
 )
 
 // genSubLogger creates a logger for a subsystem. We provide an instance of a
