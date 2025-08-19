@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -111,6 +112,11 @@ type ManagerCfg struct {
 	// AliasManager is the SCID alias manager. This component is injected
 	// into the manager once lnd and tapd are hooked together.
 	AliasManager ScidAliasManager
+
+	// AuxChannelNegotiator is responsible for producing the extra tlv blob
+	// that is encapsulated in the init and reestablish peer messages. This
+	// helps us communicate custom feature bits with our peer.
+	AuxChanNegotiator *tapfeatures.AuxChannelNegotiator
 
 	// AcceptPriceDeviationPpm is the price deviation in
 	// parts per million that is accepted by the RFQ negotiator.
@@ -251,12 +257,13 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 
 	// Initialise and start the order handler.
 	m.orderHandler, err = NewOrderHandler(OrderHandlerCfg{
-		CleanupInterval:  CacheCleanupInterval,
-		HtlcInterceptor:  m.cfg.HtlcInterceptor,
-		HtlcSubscriber:   m.cfg.HtlcSubscriber,
-		AcceptHtlcEvents: m.acceptHtlcEvents,
-		SpecifierChecker: m.AssetMatchesSpecifier,
-		NoOpHTLCs:        m.cfg.NoOpHTLCs,
+		CleanupInterval:   CacheCleanupInterval,
+		HtlcInterceptor:   m.cfg.HtlcInterceptor,
+		HtlcSubscriber:    m.cfg.HtlcSubscriber,
+		AcceptHtlcEvents:  m.acceptHtlcEvents,
+		SpecifierChecker:  m.AssetMatchesSpecifier,
+		NoOpHTLCs:         m.cfg.NoOpHTLCs,
+		AuxChanNegotiator: m.cfg.AuxChanNegotiator,
 	})
 	if err != nil {
 		return fmt.Errorf("error initializing RFQ order handler: %w",
