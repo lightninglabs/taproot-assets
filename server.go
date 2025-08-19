@@ -1296,3 +1296,67 @@ func (s *Server) NotifyBroadcast(req *sweep.BumpRequest,
 
 	return s.cfg.AuxSweeper.NotifyBroadcast(req, tx, fee, outpointToTxIndex)
 }
+
+// GetInitRecords is called when sending an init message to a peer. It returns
+// custom records to include in the init message TLVs. The implementation can
+// decide which records to include based on the peer identity.
+func (s *Server) GetInitRecords(
+	peer route.Vertex) (lnwire.CustomRecords, error) {
+
+	srvrLog.Tracef("GetInitRecords called, peer=%s", peer)
+
+	if err := s.waitForReady(); err != nil {
+		return nil, err
+	}
+
+	return s.cfg.AuxChanNegotiator.GetInitRecords(peer)
+}
+
+// ProcessInitRecords handles received init records from a peer. The
+// implementation can store state internally to affect future channel operations
+// with this peer.
+func (s *Server) ProcessInitRecords(peer route.Vertex,
+	customRecords lnwire.CustomRecords) error {
+
+	srvrLog.Tracef("ProcessInitRecords called, peer=%s", peer)
+
+	if err := s.waitForReady(); err != nil {
+		return err
+	}
+
+	return s.cfg.AuxChanNegotiator.ProcessInitRecords(peer, customRecords)
+}
+
+// ProcessReestablishFeatures handles received channel_reestablish feature TLVs.
+// This is a blocking call - the channel link will wait for this method to
+// complete before continuing channel operations. The implementation can modify
+// aux channel behavior based on the negotiated features.
+func (s *Server) ProcessReestablish(cid lnwire.ChannelID, peer route.Vertex) {
+	srvrLog.Tracef("ProcessReestablishFeatures called, cid=%s",
+		cid.String())
+
+	if err := s.waitForReady(); err != nil {
+		srvrLog.Errorf("Failed to handle ProcessReestablish, server " +
+			"not ready")
+	}
+
+	s.cfg.AuxChanNegotiator.ProcessReestablish(
+		cid, peer,
+	)
+}
+
+// ProcessChannelReady handles the event of marking a channel identified by its
+// channel ID as ready to use. We also provide the peer the channel was
+// established with.
+func (s *Server) ProcessChannelReady(cid lnwire.ChannelID, peer route.Vertex) {
+	srvrLog.Tracef("ProcessChannelReady called, cid=%s, peer=%s", cid, peer)
+
+	if err := s.waitForReady(); err != nil {
+		srvrLog.Errorf("ProcessChannelReady got error while waiting " +
+			"for server ready")
+
+		return
+	}
+
+	s.cfg.AuxChanNegotiator.ProcessChannelReady(cid, peer)
+}
