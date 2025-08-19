@@ -67,6 +67,9 @@ type ManagerCfg struct {
 	// pre-commitments.
 	SupplyCommitView SupplyCommitView
 
+	// SupplyTreeView is used to fetch supply leaves by height.
+	SupplyTreeView SupplyTreeView
+
 	// SupplySyncer is used to retrieve supply leaves from a universe and
 	// persist them to the local database.
 	SupplySyncer SupplySyncer
@@ -271,6 +274,105 @@ func (m *Manager) InsertSupplyCommit(ctx context.Context,
 	return m.cfg.SupplyCommitView.InsertSupplyCommit(
 		ctx, assetSpec, commitment, leaves,
 	)
+}
+
+// ChainCommitment is a struct that contains the on-chain characteristics of a
+// supply commitment, including the root commitment, the supply leaves, and the
+// chain proof that links the supply leaves to the root commitment.
+// TODO(guggero): Use this everywhere where we currently have three distinct
+// params.
+type ChainCommitment struct {
+	Commitment supplycommit.RootCommitment
+	Leaves     supplycommit.SupplyLeaves
+}
+
+// LocatorType is an enum that indicates the type of locator used to identify
+// a supply commitment in the database.
+type LocatorType uint8
+
+const (
+	// LocatorTypeOutpoint indicates that the locator type is the outpoint
+	// of a supply commitment transaction output.
+	LocatorTypeOutpoint LocatorType = 0
+
+	// LocatorTypeSpentOutpoint indicates that the locator type is the
+	// outpoint spent by a supply commitment transaction.
+	LocatorTypeSpentOutpoint LocatorType = 1
+
+	// LocatorTypeVeryFirst indicates that the locator type is the very
+	// first supply commitment transaction output for an asset group.
+	LocatorTypeVeryFirst LocatorType = 2
+)
+
+// ChainCommitmentLocator is used to locate a supply commitment in the database
+// based on its on-chain characteristics.
+type ChainCommitmentLocator struct {
+	// LocatorType indicates the type of locator used to identify the
+	// supply commitment.
+	LocatorType LocatorType
+
+	// Outpoint is the outpoint used to locate a supply commitment.
+	// Depending on the LocatorType, this may be the outpoint created by a
+	// supply commitment, the outpoint spent by a supply commitment, or an
+	// empty outpoint for the very first supply commitment of an asset
+	// group.
+	Outpoint wire.OutPoint
+}
+
+// FetchCommitment fetches the commitment with the given locator from the local
+// database view.
+func (m *Manager) FetchCommitment(ctx context.Context,
+	assetSpec asset.Specifier,
+	locator ChainCommitmentLocator) (*ChainCommitment, error) {
+
+	var (
+		view       = m.cfg.SupplyCommitView
+		commitment *supplycommit.RootCommitment
+		err        error
+	)
+	switch locator.LocatorType {
+	case LocatorTypeOutpoint:
+		commitment, err = view.FetchCommitmentByOutpoint(
+			ctx, assetSpec, locator.Outpoint,
+		)
+
+	case LocatorTypeSpentOutpoint:
+		commitment, err = view.FetchCommitmentBySpentOutpoint(
+			ctx, assetSpec, locator.Outpoint,
+		)
+
+	case LocatorTypeVeryFirst:
+		commitment, err = view.FetchStartingCommitment(ctx, assetSpec)
+
+	default:
+		return nil, fmt.Errorf("unknown locator type: %d",
+			locator.LocatorType)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch supply commitment "+
+			"for asset specifier %s: %w", assetSpec.String(), err)
+	}
+
+	block, err := commitment.CommitmentBlock.UnwrapOrErr(
+		supplycommit.ErrNoBlockInfo,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to unwrap commitment block "+
+			"for asset specifier %s: %w", assetSpec.String(), err)
+	}
+
+	leaves, err := m.cfg.SupplyTreeView.FetchSupplyLeavesByHeight(
+		ctx, assetSpec, block.Height, block.Height,
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch supply leaves for "+
+			"asset specifier %s: %w", assetSpec.String(), err)
+	}
+
+	return &ChainCommitment{
+		Commitment: *commitment,
+		Leaves:     leaves,
+	}, nil
 }
 
 // CanHandle determines if the state machine associated with the given asset

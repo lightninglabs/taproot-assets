@@ -57,6 +57,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
+	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -4247,74 +4248,25 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 	// Formulate an asset specifier from the asset group key.
 	assetSpec := asset.NewSpecifierFromGroupKey(*groupPubKey)
 
+	locator, err := unmarshalCommitmentLocator(
+		req.GetCommitOutpoint(), req.GetSpentCommitOutpoint(),
+		req.GetVeryFirst(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse commitment "+
+			"locator: %w", err)
+	}
+
 	// Fetch the supply commitment for the asset specifier.
-	respOpt, err := r.cfg.SupplyCommitManager.FetchCommitment(
-		ctx, assetSpec,
+	commit, err := r.cfg.SupplyVerifyManager.FetchCommitment(
+		ctx, assetSpec, locator,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch supply commit: %w",
 			err)
 	}
-	if respOpt.IsNone() {
-		return nil, fmt.Errorf("supply commitment not found for "+
-			"asset group with key %x",
-			groupPubKey.SerializeCompressed())
-	}
-	resp, err := respOpt.UnwrapOrErr(fmt.Errorf("unexpected None value " +
-		"for supply commitment response"))
-	if err != nil {
-		return nil, err
-	}
-
-	supplyTreeRoot, err := resp.SupplyTree.Root(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get supply tree root: %w",
-			err)
-	}
-
-	// Fetch subtree commitment root and inclusion proofs for the issuance
-	// subtree.
-	rpcIssuanceSubtreeRoot, err := supplySubtreeRoot(
-		ctx, resp.SupplyTree, resp.Subtrees, supplycommit.MintTreeType,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch supply issuance "+
-			"subtree root: %w", err)
-	}
-
-	// Fetch subtree commitment root and inclusion proofs for the burn
-	// subtree.
-	rpcBurnSubtreeRoot, err := supplySubtreeRoot(
-		ctx, resp.SupplyTree, resp.Subtrees, supplycommit.BurnTreeType,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch supply burn subtree "+
-			"root: %w", err)
-	}
-
-	// Fetch subtree commitment root and inclusion proofs for the ignore
-	// subtree.
-	rpcIgnoreSubtreeRoot, err := supplySubtreeRoot(
-		ctx, resp.SupplyTree, resp.Subtrees,
-		supplycommit.IgnoreTreeType,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch supply ignore subtree "+
-			"root: %w", err)
-	}
-
-	// Sanity check: ensure the supply root derived from the supply tree
-	// matches the root provided in the chain commitment.
-	if resp.ChainCommitment.SupplyRoot.NodeHash() !=
-		supplyTreeRoot.NodeHash() {
-
-		return nil, fmt.Errorf("mismatched supply commitment root: "+
-			"expected %x, got %x",
-			resp.ChainCommitment.SupplyRoot.NodeHash(),
-			supplyTreeRoot.NodeHash())
-	}
-
-	txOutInternalKey := resp.ChainCommitment.InternalKey.PubKey
+	rootCommit := commit.Commitment
+	txOutInternalKey := rootCommit.InternalKey.PubKey
 
 	// Extract the block height and hash from the chain commitment if
 	// present.
@@ -4324,7 +4276,7 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 		txIndex     uint32
 		chainFees   int64
 	)
-	resp.ChainCommitment.CommitmentBlock.WhenSome(
+	rootCommit.CommitmentBlock.WhenSome(
 		func(b supplycommit.CommitmentBlock) {
 			blockHeight = b.Height
 			blockHash = b.Hash[:]
@@ -4333,11 +4285,18 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 		},
 	)
 
-	return &unirpc.FetchSupplyCommitResponse{
-		SupplyCommitmentRoot: marshalMssmtNode(supplyTreeRoot),
+	issuanceLeaves, burnLeaves, ignoreLeaves, err := marshalSupplyLeaves(
+		commit.Leaves,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal supply leaves: %w",
+			err)
+	}
 
-		AnchorTxid:             resp.ChainCommitment.Txn.TxID(),
-		AnchorTxOutIdx:         resp.ChainCommitment.TxOutIdx,
+	return &unirpc.FetchSupplyCommitResponse{
+		SupplyCommitmentRoot:   marshalMssmtNode(rootCommit.SupplyRoot),
+		AnchorTxid:             rootCommit.Txn.TxID(),
+		AnchorTxOutIdx:         rootCommit.TxOutIdx,
 		AnchorTxOutInternalKey: txOutInternalKey.SerializeCompressed(),
 
 		BlockHeight:     blockHeight,
@@ -4345,9 +4304,15 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 		BlockTxIndex:    txIndex,
 		TxChainFeesSats: chainFees,
 
-		IssuanceSubtreeRoot: rpcIssuanceSubtreeRoot,
-		BurnSubtreeRoot:     rpcBurnSubtreeRoot,
-		IgnoreSubtreeRoot:   rpcIgnoreSubtreeRoot,
+		// TODO(guggero): figure out how to calculate the tree root at
+		// the height of the commitment.
+		//IssuanceSubtreeRoot: rpcIssuanceSubtreeRoot,
+		//BurnSubtreeRoot:     rpcBurnSubtreeRoot,
+		//IgnoreSubtreeRoot:   rpcIgnoreSubtreeRoot,
+
+		IssuanceLeaves: issuanceLeaves,
+		BurnLeaves:     burnLeaves,
+		IgnoreLeaves:   ignoreLeaves,
 	}, nil
 }
 
@@ -6748,6 +6713,50 @@ func unmarshalGroupKey(groupKeyBytes []byte,
 
 	default:
 		return nil, fmt.Errorf("group key unspecified")
+	}
+}
+
+// unmarshalCommitmentLocator attempts to parse a commitment locator from the
+// RPC form.
+func unmarshalCommitmentLocator(outpoint, spentOutpoint *taprpc.OutPoint,
+	veryFirst bool) (supplyverifier.ChainCommitmentLocator, error) {
+
+	var zero supplyverifier.ChainCommitmentLocator
+
+	// These values come from a gRPC `oneof` field, so only one can be set
+	// at a time.
+	switch {
+	case outpoint != nil:
+		op, err := rpcutils.UnmarshalOutPoint(outpoint)
+		if err != nil {
+			return zero, fmt.Errorf("error parsing outpoint: %w",
+				err)
+		}
+
+		return supplyverifier.ChainCommitmentLocator{
+			LocatorType: supplyverifier.LocatorTypeOutpoint,
+			Outpoint:    op,
+		}, nil
+
+	case spentOutpoint != nil:
+		op, err := rpcutils.UnmarshalOutPoint(spentOutpoint)
+		if err != nil {
+			return zero, fmt.Errorf("error parsing spent "+
+				"outpoint: %w", err)
+		}
+
+		return supplyverifier.ChainCommitmentLocator{
+			LocatorType: supplyverifier.LocatorTypeSpentOutpoint,
+			Outpoint:    op,
+		}, nil
+
+	case veryFirst:
+		return supplyverifier.ChainCommitmentLocator{
+			LocatorType: supplyverifier.LocatorTypeVeryFirst,
+		}, nil
+
+	default:
+		return zero, fmt.Errorf("commitment locator must be set")
 	}
 }
 

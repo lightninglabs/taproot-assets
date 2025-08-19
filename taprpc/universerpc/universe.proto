@@ -803,6 +803,26 @@ message FetchSupplyCommitRequest {
         // REST).
         string group_key_str = 2;
     }
+
+    // Specifies which supply commit to fetch.
+    oneof locator {
+        // Fetch the the supply commitment that created this new commitment
+        // output on chain.
+        taprpc.OutPoint commit_outpoint = 3;
+
+        // Fetch the supply commitment that spent the specified commitment
+        // output on chain to create a new supply commitment. This can be used
+        // to traverse the chain of supply commitments by watching the spend of
+        // the commitment output.
+        taprpc.OutPoint spent_commit_outpoint = 4;
+
+        // Fetch the very first supply commitment for the asset group. This
+        // returns the initial supply commitment that spent the pre-commitment
+        // output of the very first asset mint of a grouped asset (also known
+        // as the group anchor). This is useful as the starting point to fetch
+        // all supply commitments for a grouped asset one by one.
+        bool very_first = 5;
+    }
 }
 
 message SupplyCommitSubtreeRoot {
@@ -820,6 +840,8 @@ message SupplyCommitSubtreeRoot {
     bytes supply_tree_inclusion_proof = 4;
 }
 
+// TODO(guggero): Create a supply commit message that can be used for both
+// inserting and fetching... Lots of duplication otherwise.
 message FetchSupplyCommitResponse {
     // The supply commitment merkle sum root node for the specified asset.
     MerkleSumNode supply_commitment_root = 1;
@@ -858,6 +880,26 @@ message FetchSupplyCommitResponse {
 
     // The root of the ignore tree for the specified asset.
     SupplyCommitSubtreeRoot ignore_subtree_root = 11;
+
+    // The issuance leaves that were added by this supply commitment. Does not
+    // include leaves that were already present in the issuance subtree before
+    // the block height at which this supply commitment was anchored.
+    repeated SupplyLeafEntry issuance_leaves = 12;
+
+    // The burn leaves that were added by this supply commitment. Does not
+    // include leaves that were already present in the burn subtree before
+    // the block height at which this supply commitment was anchored.
+    repeated SupplyLeafEntry burn_leaves = 13;
+
+    // The ignore leaves that were added by this supply commitment. Does not
+    // include leaves that were already present in the ignore subtree before
+    // the block height at which this supply commitment was anchored.
+    repeated SupplyLeafEntry ignore_leaves = 14;
+
+    // The outpoint of the previous commitment that this new commitment is
+    // spending. This must be set unless this is the very first supply
+    // commitment of a grouped asset.
+    taprpc.OutPoint spent_commitment_outpoint = 15;
 }
 
 message FetchSupplyLeavesRequest {

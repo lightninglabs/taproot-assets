@@ -51,6 +51,14 @@ type SupplyCommitView interface {
 		leaves supplycommit.SupplyLeaves) error
 }
 
+type SupplyTreeView interface {
+	// FetchSupplyLeavesByHeight fetches all supply leaves for a given asset
+	// specifier within a given block height range.
+	FetchSupplyLeavesByHeight(ctx context.Context, spec asset.Specifier,
+		startHeight,
+		endHeight uint32) lfn.Result[supplycommit.SupplyLeaves]
+}
+
 // Environment is a struct that holds all the dependencies that the supply
 // verifier needs to carry out its duties.
 type Environment struct {
