@@ -92,6 +92,15 @@ var (
 	}
 )
 
+// ErrUnknownRejectWithCustomMsg produces the "unknown" error code, but
+// pairs it with a custom error message
+func ErrUnknownRejectWithCustomMsg(msg string) RejectErr {
+	return RejectErr{
+		Code: 0,
+		Msg:  msg,
+	}
+}
+
 const (
 	// latestRejectVersion is the latest supported reject wire message data
 	// field version.
