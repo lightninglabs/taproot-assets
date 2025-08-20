@@ -946,7 +946,7 @@ func (p *Proof) VerifyProofIntegrity(ctx context.Context, vCtx VerifierCtx,
 
 	// 1. A transaction that spends the previous asset output has a valid
 	// merkle proof within a block in the chain.
-	if !txSpendsPrevOut(&p.AnchorTx, &p.PrevOut) {
+	if !TxSpendsPrevOut(&p.AnchorTx, &p.PrevOut) {
 		return nil, fmt.Errorf("%w: doesn't spend prev output",
 			commitment.ErrInvalidTaprootProof)
 	}
