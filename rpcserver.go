@@ -4393,95 +4393,12 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 		subtrees = subtreeResult
 	}
 
-	rpcMarshalLeafEntry := func(leafEntry supplycommit.SupplyUpdateEvent) (
-		*unirpc.SupplyLeafEntry, error) {
-
-		leafNode, err := leafEntry.UniverseLeafNode()
-		if err != nil {
-			rpcsLog.Errorf("Failed to get universe leaf node "+
-				"from leaf entry: %v (leaf_entry=%s)", err,
-				spew.Sdump(leafEntry))
-
-			return nil, fmt.Errorf("failed to get universe leaf "+
-				"node from leaf entry: %w", err)
-		}
-
-		leafKey := leafEntry.UniverseLeafKey()
-
-		outPoint := leafKey.LeafOutPoint()
-		rpcOutPoint := unirpc.Outpoint{
-			HashStr: outPoint.Hash.String(),
-			Index:   int32(outPoint.Index),
-		}
-
-		// Encode the leaf as a byte slice.
-		var leafBuf bytes.Buffer
-		err = leafEntry.Encode(&leafBuf)
-		if err != nil {
-			return nil, fmt.Errorf("failed to encode leaf entry: "+
-				"%w", err)
-		}
-
-		return &unirpc.SupplyLeafEntry{
-			LeafKey: &unirpc.SupplyLeafKey{
-				Outpoint: &rpcOutPoint,
-				ScriptKey: schnorr.SerializePubKey(
-					leafKey.LeafScriptKey().PubKey,
-				),
-				AssetId: fn.ByteSlice(leafKey.LeafAssetID()),
-			},
-			LeafNode:    marshalMssmtNode(leafNode),
-			BlockHeight: leafEntry.BlockHeight(),
-			RawLeaf:     leafBuf.Bytes(),
-		}, nil
-	}
-
-	// Marshal issuance supply leaves into the RPC format.
-	rpcIssuanceLeaves := make(
-		[]*unirpc.SupplyLeafEntry, 0, len(resp.IssuanceLeafEntries),
+	issuanceLeaves, burnLeaves, ignoreLeaves, err := marshalSupplyLeaves(
+		resp,
 	)
-	for idx := range resp.IssuanceLeafEntries {
-		leafEntry := resp.IssuanceLeafEntries[idx]
-
-		rpcLeaf, err := rpcMarshalLeafEntry(&leafEntry)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal supply "+
-				"leaf entry: %w", err)
-		}
-
-		rpcIssuanceLeaves = append(rpcIssuanceLeaves, rpcLeaf)
-	}
-
-	// Marshal burn supply leaves into the RPC format.
-	rpcBurnLeaves := make(
-		[]*unirpc.SupplyLeafEntry, 0, len(resp.BurnLeafEntries),
-	)
-	for idx := range resp.BurnLeafEntries {
-		leafEntry := resp.BurnLeafEntries[idx]
-
-		rpcLeaf, err := rpcMarshalLeafEntry(&leafEntry)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal supply "+
-				"leaf entry: %w", err)
-		}
-
-		rpcBurnLeaves = append(rpcBurnLeaves, rpcLeaf)
-	}
-
-	// Marshal ignore supply leaves into the RPC format.
-	rpcIgnoreLeaves := make(
-		[]*unirpc.SupplyLeafEntry, 0, len(resp.IgnoreLeafEntries),
-	)
-	for idx := range resp.IgnoreLeafEntries {
-		leafEntry := resp.IgnoreLeafEntries[idx]
-
-		rpcLeaf, err := rpcMarshalLeafEntry(&leafEntry)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal supply "+
-				"leaf entry: %w", err)
-		}
-
-		rpcIgnoreLeaves = append(rpcIgnoreLeaves, rpcLeaf)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal supply leaves: %w",
+			err)
 	}
 
 	// Generate inclusion proofs if requested.
@@ -4528,9 +4445,9 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 	}
 
 	return &unirpc.FetchSupplyLeavesResponse{
-		IssuanceLeaves:              rpcIssuanceLeaves,
-		BurnLeaves:                  rpcBurnLeaves,
-		IgnoreLeaves:                rpcIgnoreLeaves,
+		IssuanceLeaves:              issuanceLeaves,
+		BurnLeaves:                  burnLeaves,
+		IgnoreLeaves:                ignoreLeaves,
 		IssuanceLeafInclusionProofs: issuanceInclusionProofs,
 		BurnLeafInclusionProofs:     burnInclusionProofs,
 		IgnoreLeafInclusionProofs:   ignoreInclusionProofs,
@@ -4815,53 +4732,12 @@ func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
 			err)
 	}
 
-	// Initialize the SupplyLeaves structure to collect all unmarshalled
-	// events.
-	var supplyLeaves supplycommit.SupplyLeaves
-
-	// Process issuance leaves.
-	supplyLeaves.IssuanceLeafEntries = make(
-		[]supplycommit.NewMintEvent, 0, len(req.IssuanceLeaves),
+	supplyLeaves, err := unmarshalSupplyLeaves(
+		req.IssuanceLeaves, req.BurnLeaves, req.IgnoreLeaves,
 	)
-	for _, rpcLeaf := range req.IssuanceLeaves {
-		mintEvent, err := unmarshalMintSupplyLeaf(rpcLeaf)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal issuance "+
-				"leaf: %w", err)
-		}
-		supplyLeaves.IssuanceLeafEntries = append(
-			supplyLeaves.IssuanceLeafEntries, *mintEvent,
-		)
-	}
-
-	// Process burn leaves.
-	supplyLeaves.BurnLeafEntries = make(
-		[]supplycommit.NewBurnEvent, 0, len(req.BurnLeaves),
-	)
-	for _, rpcLeaf := range req.BurnLeaves {
-		burnEvent, err := unmarshalBurnSupplyLeaf(rpcLeaf)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal burn "+
-				"leaf: %w", err)
-		}
-		supplyLeaves.BurnLeafEntries = append(
-			supplyLeaves.BurnLeafEntries, *burnEvent,
-		)
-	}
-
-	// Process ignore leaves.
-	supplyLeaves.IgnoreLeafEntries = make(
-		[]supplycommit.NewIgnoreEvent, 0, len(req.IgnoreLeaves),
-	)
-	for _, rpcLeaf := range req.IgnoreLeaves {
-		ignoreEvent, err := unmarshalIgnoreSupplyLeaf(rpcLeaf)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal ignore "+
-				"leaf: %w", err)
-		}
-		supplyLeaves.IgnoreLeafEntries = append(
-			supplyLeaves.IgnoreLeafEntries, *ignoreEvent,
-		)
+	if err != nil {
+		return nil, fmt.Errorf("unable to unmarshal supply leaves: %w",
+			err)
 	}
 
 	rpcsLog.Debugf("Successfully unmarshalled commitment, %d issuance, "+
@@ -4872,7 +4748,7 @@ func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
 
 	assetSpec := asset.NewSpecifierFromGroupKey(*groupPubKey)
 	err = r.cfg.SupplyVerifyManager.InsertSupplyCommit(
-		ctx, assetSpec, *rootCommitment, supplyLeaves, *chainProof,
+		ctx, assetSpec, *rootCommitment, *supplyLeaves, *chainProof,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert supply commitment: %w",
