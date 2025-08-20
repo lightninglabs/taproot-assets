@@ -346,7 +346,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 			// Send a reject message to the peer.
 			msg := rfqmsg.NewReject(
 				request.Peer, request.ID,
-				rfqmsg.ErrUnknownReject,
+				rfqmsg.ErrUnknownRejectWithCustomMsg(err.Error()),
 			)
 			sendOutgoingMsg(msg)
 
@@ -441,7 +441,7 @@ func (n *Negotiator) HandleIncomingSellRequest(
 			// Send a reject message to the peer.
 			msg := rfqmsg.NewReject(
 				request.Peer, request.ID,
-				rfqmsg.ErrUnknownReject,
+				rfqmsg.ErrUnknownRejectWithCustomMsg(err.Error()),
 			)
 			sendOutgoingMsg(msg)
 
