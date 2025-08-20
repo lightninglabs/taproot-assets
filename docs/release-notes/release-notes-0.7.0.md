@@ -147,6 +147,10 @@
   [PR](https://github.com/lightninglabs/taproot-assets/pull/1640) addresses the
   issue.
 
+- Errors received from a price oracle [are now relayed to a requesting
+  peer](https://github.com/lightninglabs/taproot-assets/pull/1751) in
+  the reject message sent to them, instead of being ignored.
+
 ## RPC Updates
 
 ## tapcli Updates
@@ -217,5 +221,6 @@
 
 - ffranr
 - George Tsagkarelis
+- Jared Tobin
 - Olaoluwa Osuntokun
 - Oliver Gugger
