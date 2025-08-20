@@ -637,7 +637,11 @@ CREATE TABLE mint_anchor_uni_commitments (
     group_key BLOB
 , taproot_internal_key_id
 BIGINT REFERENCES internal_keys(key_id)
-NOT NULL, spent_by BIGINT REFERENCES supply_commitments(commit_id));
+NOT NULL, spent_by BIGINT REFERENCES supply_commitments(commit_id), outpoint BLOB);
+
+CREATE INDEX mint_anchor_uni_commitments_outpoint_idx 
+    ON mint_anchor_uni_commitments(outpoint)
+    WHERE outpoint IS NOT NULL;
 
 CREATE UNIQUE INDEX mint_anchor_uni_commitments_unique
     ON mint_anchor_uni_commitments (batch_id, tx_output_index);
