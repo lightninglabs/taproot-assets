@@ -4789,6 +4789,18 @@ func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
 			err)
 	}
 
+	if req.SpentCommitmentOutpoint != nil {
+		op, err := rpcutils.UnmarshalOutPoint(
+			req.SpentCommitmentOutpoint,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse spent "+
+				"commitment outpoint: %w", err)
+		}
+
+		rootCommitment.SpentCommitment = fn.Some(op)
+	}
+
 	supplyLeaves, err := unmarshalSupplyLeaves(
 		req.IssuanceLeaves, req.BurnLeaves, req.IgnoreLeaves,
 	)
