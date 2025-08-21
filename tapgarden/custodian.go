@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/proof"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
@@ -151,6 +152,10 @@ type CustodianConfig struct {
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.
 	ProofWatcher proof.Watcher
+
+	// IgnoreChecker is an optional function that can be used to check if
+	// a proof should be ignored.
+	IgnoreChecker lfn.Option[proof.IgnoreChecker]
 
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
@@ -1609,5 +1614,6 @@ func (c *Custodian) verifierCtx(ctx context.Context) proof.VerifierCtx {
 		MerkleVerifier: merkleVerifier,
 		GroupVerifier:  c.cfg.GroupVerifier,
 		ChainLookupGen: c.cfg.ChainBridge,
+		IgnoreChecker:  c.cfg.IgnoreChecker,
 	}
 }

@@ -43,6 +43,11 @@ type PrometheusConfig struct {
 	// asset minter.
 	AssetMinter tapgarden.Planter
 
+	// CacheStats is a function that can be used to collect cache stats
+	// from the daemon. This is used to export cache hits and misses for
+	// various caches used in the daemon.
+	CacheStats func(hits, misses map[string]int64)
+
 	// PerfHistograms indicates if the additional histogram information for
 	// latency, and handling time of gRPC calls should be enabled. This
 	// generates additional data, and consume more memory for the

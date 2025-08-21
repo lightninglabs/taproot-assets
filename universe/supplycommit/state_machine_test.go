@@ -125,6 +125,7 @@ type supplyCommitTestHarness struct {
 	mockKeyRing     *mockKeyRing
 	mockChain       *mockChainBridge
 	mockStateLog    *mockStateMachineStore
+	mockCache       *mockIgnoreCheckerCache
 	mockDaemon      *mockDaemonAdapters
 	mockErrReporter *mockErrorReporter
 
@@ -142,16 +143,18 @@ func newSupplyCommitTestHarness(t *testing.T,
 	mockStateLog := &mockStateMachineStore{}
 	mockDaemon := newMockDaemonAdapters()
 	mockErrReporter := &mockErrorReporter{}
+	mockCache := &mockIgnoreCheckerCache{}
 
 	env := &Environment{
-		AssetSpec:        cfg.assetSpec,
-		TreeView:         mockTreeView,
-		Commitments:      mockCommits,
-		Wallet:           mockWallet,
-		KeyRing:          mockKey,
-		Chain:            mockChain,
-		StateLog:         mockStateLog,
-		CommitConfTarget: DefaultCommitConfTarget,
+		AssetSpec:          cfg.assetSpec,
+		TreeView:           mockTreeView,
+		Commitments:        mockCommits,
+		Wallet:             mockWallet,
+		KeyRing:            mockKey,
+		Chain:              mockChain,
+		StateLog:           mockStateLog,
+		CommitConfTarget:   DefaultCommitConfTarget,
+		IgnoreCheckerCache: mockCache,
 	}
 
 	fsmCfg := Config{
@@ -177,6 +180,7 @@ func newSupplyCommitTestHarness(t *testing.T,
 		mockKeyRing:     mockKey,
 		mockChain:       mockChain,
 		mockStateLog:    mockStateLog,
+		mockCache:       mockCache,
 		mockDaemon:      mockDaemon,
 		mockErrReporter: mockErrReporter,
 	}
@@ -513,6 +517,10 @@ func (h *supplyCommitTestHarness) expectBindDanglingUpdatesWithEvents(
 	h.mockStateLog.On(
 		"BindDanglingUpdatesToTransition", mock.Anything, mock.Anything,
 	).Return(events, nil).Once()
+}
+
+func (h *supplyCommitTestHarness) expectIgnoreCheckerCacheInvalidation() {
+	h.mockCache.On("InvalidateCache", mock.Anything).Return()
 }
 
 // expectFreezePendingTransition sets up the mock expectation for the
@@ -984,7 +992,8 @@ func TestSupplyCommitTxSignStateTransitions(t *testing.T) {
 func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 	t.Parallel()
 
-	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
+	randGroupKey := test.RandPubKey(t)
+	defaultAssetSpec := asset.NewSpecifierFromGroupKey(*randGroupKey)
 	dummyTx := wire.NewMsgTx(2)
 	dummyTx.AddTxOut(&wire.TxOut{PkScript: []byte("testscript"), Value: 1})
 	initialTransition := SupplyStateTransition{
@@ -1043,6 +1052,7 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 		// After applying the transition, the state machine checks for
 		// dangling updates.
 		h.expectBindDanglingUpdates()
+		h.expectIgnoreCheckerCacheInvalidation()
 
 		// A dummy block containing the transaction is created for the
 		// ConfEvent.
@@ -1089,6 +1099,7 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 		h.expectBindDanglingUpdatesWithEvents(
 			[]SupplyUpdateEvent{danglingUpdate},
 		)
+		h.expectIgnoreCheckerCacheInvalidation()
 
 		// Set up expectations for the new commitment cycle that should
 		// be triggered immediately.
@@ -1166,7 +1177,8 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 func TestSupplyCommitFinalizeStateTransitions(t *testing.T) {
 	t.Parallel()
 
-	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
+	randGroupKey := test.RandPubKey(t)
+	defaultAssetSpec := asset.NewSpecifierFromGroupKey(*randGroupKey)
 	initialTransition := SupplyStateTransition{
 		NewCommitment: RootCommitment{
 			SupplyRoot: mssmt.NewBranch(
@@ -1191,6 +1203,7 @@ func TestSupplyCommitFinalizeStateTransitions(t *testing.T) {
 
 		h.expectApplyStateTransition()
 		h.expectBindDanglingUpdatesWithEvents([]SupplyUpdateEvent{})
+		h.expectIgnoreCheckerCacheInvalidation()
 
 		finalizeEvent := &FinalizeEvent{}
 		h.sendEvent(finalizeEvent)
@@ -1214,6 +1227,7 @@ func TestSupplyCommitFinalizeStateTransitions(t *testing.T) {
 			t, test.RandPubKey(t), randOutPoint(t),
 		)
 		h.expectInsertPendingUpdate(mintEvent)
+		h.expectIgnoreCheckerCacheInvalidation()
 
 		h.sendEvent(mintEvent)
 		h.assertStateTransitions(&CommitFinalizeState{})
@@ -1233,6 +1247,35 @@ func TestSupplyCommitFinalizeStateTransitions(t *testing.T) {
 
 		h.assertHandlesInvalidEvent(
 			&unknownEvent{}, ErrInvalidStateTransition,
+		)
+	})
+
+	t.Run("finalize_with_asset_id_specifier", func(t *testing.T) {
+		assetIDSpec := asset.NewSpecifierFromId(testAssetID)
+
+		expectedErr := errors.New("group key must be specified for " +
+			"supply tree: unable to unwrap asset group public key")
+
+		h := newSupplyCommitTestHarness(t, &harnessCfg{
+			initialState: &CommitFinalizeState{
+				SupplyTransition: initialTransition,
+			},
+			assetSpec: assetIDSpec,
+		})
+		h.start()
+		defer h.stopAndAssert()
+
+		h.expectApplyStateTransition()
+		h.expectFailure(expectedErr)
+
+		finalizeEvent := &FinalizeEvent{}
+		h.sendEvent(finalizeEvent)
+
+		h.assertNoStateTransitions()
+
+		require.ErrorContains(
+			t, h.mockErrReporter.GetReportedError(),
+			expectedErr.Error(),
 		)
 	})
 }
@@ -1689,7 +1732,8 @@ func TestSpendEventMethods(t *testing.T) {
 func TestDanglingUpdatesFullCycle(t *testing.T) {
 	t.Parallel()
 
-	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
+	randGroupKey := test.RandPubKey(t)
+	defaultAssetSpec := asset.NewSpecifierFromGroupKey(*randGroupKey)
 
 	// Start with an initial mint event that triggers the first cycle.
 	initialMintEvent := newTestMintEvent(
@@ -1750,6 +1794,7 @@ func TestDanglingUpdatesFullCycle(t *testing.T) {
 	h.expectBindDanglingUpdatesWithEvents([]SupplyUpdateEvent{
 		danglingMint1, danglingMint2,
 	})
+	h.expectIgnoreCheckerCacheInvalidation()
 
 	// Set up expectations for the second commitment cycle that will
 	// automatically start due to dangling updates.
@@ -1797,7 +1842,8 @@ func TestDanglingUpdatesFullCycle(t *testing.T) {
 func TestDanglingUpdatesAcrossStates(t *testing.T) {
 	t.Parallel()
 
-	defaultAssetSpec := asset.NewSpecifierFromId(testAssetID)
+	randGroupKey := test.RandPubKey(t)
+	defaultAssetSpec := asset.NewSpecifierFromGroupKey(*randGroupKey)
 	initialMintEvent := newTestMintEvent(
 		t, test.RandPubKey(t), randOutPoint(t),
 	)
@@ -1851,6 +1897,7 @@ func TestDanglingUpdatesAcrossStates(t *testing.T) {
 		h.expectBindDanglingUpdatesWithEvents(
 			[]SupplyUpdateEvent{update1, update2},
 		)
+		h.expectIgnoreCheckerCacheInvalidation()
 
 		// Now, we'll set up again for the next cycle.
 		h.expectFullCommitmentCycleMocks(true)
