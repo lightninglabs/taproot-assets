@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math"
@@ -15,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -25,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,8 +52,17 @@ var (
 // As a final step (which is not part of this test), Bob's node will transfer
 // the tap asset to Carol's node.
 func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
+	// For this test we'll use an actual oracle RPC server harness.
+	oracleAddr := fmt.Sprintf("localhost:%d", port.NextAvailablePort())
+	oracle := newOracleHarness(oracleAddr)
+	oracle.start(t.t)
+	t.t.Cleanup(oracle.stop)
+
+	// We need to craft the oracle server URL in the correct format.
+	oracleURL := fmt.Sprintf("rfqrpc://%s", oracleAddr)
+
 	// Initialize a new test scenario.
-	ts := newRfqTestScenario(t)
+	ts := newRfqTestScenario(t, WithRfqOracleServer(oracleURL))
 
 	// Mint an asset with Bob's tapd node.
 	rpcAssets := MintAssetsConfirmBatch(
@@ -108,8 +120,74 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 		// node.
 		PeerPubKey: ts.BobLnd.PubKey[:],
 
-		TimeoutSeconds: uint32(rfqTimeout.Seconds()),
+		TimeoutSeconds:      uint32(rfqTimeout.Seconds()),
+		PriceOracleMetadata: "buy-order-1",
 	}
+
+	// We now set up the expected calls that should come in to the mock
+	// oracle server during the process.
+	buySpecifier := &oraclerpc.AssetSpecifier{
+		Id: &oraclerpc.AssetSpecifier_AssetId{
+			AssetId: mintedAssetId,
+		},
+	}
+	btcSpecifier := &oraclerpc.AssetSpecifier{
+		Id: &oraclerpc.AssetSpecifier_AssetId{
+			AssetId: bytes.Repeat([]byte{0}, 32),
+		},
+	}
+	mockResult := &oraclerpc.QueryAssetRatesResponse{
+		Result: &oraclerpc.QueryAssetRatesResponse_Ok{
+			Ok: &oraclerpc.QueryAssetRatesOkResponse{
+				AssetRates: &oraclerpc.AssetRates{
+					SubjectAssetRate: &oraclerpc.FixedPoint{
+						Coefficient: "1000000",
+						Scale:       3,
+					},
+					ExpiryTimestamp: uint64(
+						time.Now().Add(time.Minute).
+							Unix(),
+					),
+				},
+			},
+		},
+	}
+
+	// The first call is expected to be the rate hint call for the local
+	// oracle, using the hint intent.
+	oracle.On(
+		"QueryAssetRates", oraclerpc.TransactionType_PURCHASE,
+		buySpecifier, purchaseAssetAmt, btcSpecifier,
+		mock.Anything, mock.Anything,
+		oraclerpc.Intent_INTENT_RECV_PAYMENT_HINT,
+		mock.Anything, "buy-order-1",
+	).Return(mockResult, nil).Once()
+
+	// Then the counterparty will do a sale call with the intent to receive
+	// a payment.
+	oracle.On(
+		"QueryAssetRates", oraclerpc.TransactionType_SALE,
+		buySpecifier, purchaseAssetAmt, btcSpecifier,
+		mock.Anything, mock.Anything,
+		oraclerpc.Intent_INTENT_RECV_PAYMENT,
+		mock.Anything, "buy-order-1",
+	).Return(mockResult, nil).Once()
+
+	// And finally, we'll qualify (validate) the price again on our end.
+	oracle.On(
+		"QueryAssetRates", oraclerpc.TransactionType_PURCHASE,
+		buySpecifier, purchaseAssetAmt, btcSpecifier,
+		mock.Anything, mock.Anything,
+		oraclerpc.Intent_INTENT_RECV_PAYMENT_QUALIFY,
+		mock.Anything, "buy-order-1",
+	).Return(mockResult, nil).Once()
+
+	// At the end of the test, we also want to make sure each call came in
+	// as expected.
+	defer func() {
+		oracle.AssertExpectations(t.t)
+	}()
+
 	_, err = ts.AliceTapd.AddAssetBuyOrder(ctxt, buyReq)
 	require.ErrorContains(
 		t.t, err, "error checking peer channel: error checking asset "+
@@ -236,8 +314,17 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 // validation between three peers. The RFQ negotiation is initiated by an asset
 // sell request.
 func testRfqAssetSellHtlcIntercept(t *harnessTest) {
+	// For this test we'll use an actual oracle RPC server harness.
+	oracleAddr := fmt.Sprintf("localhost:%d", port.NextAvailablePort())
+	oracle := newOracleHarness(oracleAddr)
+	oracle.start(t.t)
+	t.t.Cleanup(oracle.stop)
+
+	// We need to craft the oracle server URL in the correct format.
+	oracleURL := fmt.Sprintf("rfqrpc://%s", oracleAddr)
+
 	// Initialize a new test scenario.
-	ts := newRfqTestScenario(t)
+	ts := newRfqTestScenario(t, WithRfqOracleServer(oracleURL))
 
 	// Mint an asset with Alice's tapd node.
 	rpcAssets := MintAssetsConfirmBatch(
@@ -297,8 +384,74 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		// Bob's node.
 		PeerPubKey: ts.BobLnd.PubKey[:],
 
-		TimeoutSeconds: uint32(rfqTimeout.Seconds()),
+		TimeoutSeconds:      uint32(rfqTimeout.Seconds()),
+		PriceOracleMetadata: "sell-order-1",
 	}
+
+	// We now set up the expected calls that should come in to the mock
+	// oracle server during the process.
+	buySpecifier := &oraclerpc.AssetSpecifier{
+		Id: &oraclerpc.AssetSpecifier_AssetId{
+			AssetId: mintedAssetIdBytes,
+		},
+	}
+	btcSpecifier := &oraclerpc.AssetSpecifier{
+		Id: &oraclerpc.AssetSpecifier_AssetId{
+			AssetId: bytes.Repeat([]byte{0}, 32),
+		},
+	}
+	mockResult := &oraclerpc.QueryAssetRatesResponse{
+		Result: &oraclerpc.QueryAssetRatesResponse_Ok{
+			Ok: &oraclerpc.QueryAssetRatesOkResponse{
+				AssetRates: &oraclerpc.AssetRates{
+					SubjectAssetRate: &oraclerpc.FixedPoint{
+						Coefficient: "1000000",
+						Scale:       3,
+					},
+					ExpiryTimestamp: uint64(
+						time.Now().Add(time.Minute).
+							Unix(),
+					),
+				},
+			},
+		},
+	}
+
+	// The first call is expected to be the rate hint call for the local
+	// oracle, using the hint intent.
+	oracle.On(
+		"QueryAssetRates", oraclerpc.TransactionType_SALE,
+		buySpecifier, mock.Anything, btcSpecifier,
+		askAmt, mock.Anything,
+		oraclerpc.Intent_INTENT_PAY_INVOICE_HINT,
+		mock.Anything, "sell-order-1",
+	).Return(mockResult, nil).Once()
+
+	// Then the counterparty will do a sale call with the intent to receive
+	// a payment.
+	oracle.On(
+		"QueryAssetRates", oraclerpc.TransactionType_PURCHASE,
+		buySpecifier, mock.Anything, btcSpecifier,
+		askAmt, mock.Anything,
+		oraclerpc.Intent_INTENT_PAY_INVOICE,
+		mock.Anything, "sell-order-1",
+	).Return(mockResult, nil).Once()
+
+	// And finally, we'll qualify (validate) the price again on our end.
+	oracle.On(
+		"QueryAssetRates", oraclerpc.TransactionType_SALE,
+		buySpecifier, mock.Anything, btcSpecifier,
+		askAmt, mock.Anything,
+		oraclerpc.Intent_INTENT_PAY_INVOICE_QUALIFY,
+		mock.Anything, "sell-order-1",
+	).Return(mockResult, nil).Once()
+
+	// At the end of the test, we also want to make sure each call came in
+	// as expected.
+	defer func() {
+		oracle.AssertExpectations(t.t)
+	}()
+
 	_, err = ts.AliceTapd.AddAssetSellOrder(ctxt, sellReq)
 	require.ErrorContains(
 		t.t, err, "error checking peer channel: error checking asset "+
@@ -690,18 +843,18 @@ func newRfqTestScenario(t *harnessTest, opts ...RfqOption) *rfqTestScenario {
 	aliceTapd := setupTapdHarness(
 		t.t, t, aliceLnd, t.universeServer, WithOracleServer(
 			rfqOpts.oracleServerAddr, rfqOpts.oracleServerAlice,
-		),
+		), WithSendPriceHint(),
 	)
 
 	bobTapd := setupTapdHarness(
 		t.t, t, bobLnd, t.universeServer, WithOracleServer(
 			rfqOpts.oracleServerAddr, rfqOpts.oracleServerBob,
-		),
+		), WithSendPriceHint(),
 	)
 	carolTapd := setupTapdHarness(
 		t.t, t, carolLnd, t.universeServer, WithOracleServer(
 			rfqOpts.oracleServerAddr, rfqOpts.oracleServerCarol,
-		),
+		), WithSendPriceHint(),
 	)
 
 	ts := rfqTestScenario{

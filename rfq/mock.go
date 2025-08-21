@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -50,16 +51,18 @@ func NewMockPriceOracleSatPerAsset(expiryDelay uint64,
 	}
 }
 
-// QueryAskPrice returns the ask price for the given asset amount.
-func (m *MockPriceOracle) QueryAskPrice(ctx context.Context,
+// QuerySellPrice returns the sell price for the given asset amount.
+func (m *MockPriceOracle) QuerySellPrice(ctx context.Context,
 	assetSpecifier asset.Specifier,
 	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
-	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
+	assetRateHint fn.Option[rfqmsg.AssetRate],
+	counterparty fn.Option[route.Vertex], metadata string,
+	intent PriceQueryIntent) (*OracleResponse, error) {
 
 	// Return early with default value if no expected calls are predefined
 	// for this method.
-	if !hasExpectedCall(m.ExpectedCalls, "QueryAskPrice") {
+	if !hasExpectedCall(m.ExpectedCalls, "QuerySellPrice") {
 		// Calculate the rate expiry timestamp.
 		lifetime := time.Duration(m.expiryDelay) * time.Second
 		expiry := time.Now().Add(lifetime).UTC()
@@ -71,24 +74,27 @@ func (m *MockPriceOracle) QueryAskPrice(ctx context.Context,
 		}, nil
 	}
 
-	// If an expected call exist, call normally.
+	// If an expected call exists, call normally.
 	args := m.Called(
 		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
+		counterparty, metadata, intent,
 	)
 	resp, _ := args.Get(0).(*OracleResponse)
 	return resp, args.Error(1)
 }
 
-// QueryBidPrice returns a bid price for the given asset amount.
-func (m *MockPriceOracle) QueryBidPrice(ctx context.Context,
+// QueryBuyPrice returns a buy price for the given asset amount.
+func (m *MockPriceOracle) QueryBuyPrice(ctx context.Context,
 	assetSpecifier asset.Specifier,
 	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
-	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
+	assetRateHint fn.Option[rfqmsg.AssetRate],
+	counterparty fn.Option[route.Vertex], metadata string,
+	intent PriceQueryIntent) (*OracleResponse, error) {
 
 	// Return early with default value if no expected calls are predefined
 	// for this method.
-	if !hasExpectedCall(m.ExpectedCalls, "QueryBidPrice") {
+	if !hasExpectedCall(m.ExpectedCalls, "QueryBuyPrice") {
 		// Calculate the rate expiry timestamp.
 		lifetime := time.Duration(m.expiryDelay) * time.Second
 		expiry := time.Now().Add(lifetime).UTC()
@@ -100,9 +106,10 @@ func (m *MockPriceOracle) QueryBidPrice(ctx context.Context,
 		}, nil
 	}
 
-	// If an expected call exist, call normally.
+	// If an expected call exists, call normally.
 	args := m.Called(
 		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
+		counterparty, metadata, intent,
 	)
 	resp, _ := args.Get(0).(*OracleResponse)
 	return resp, args.Error(1)

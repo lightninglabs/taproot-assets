@@ -14,9 +14,72 @@ import (
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+)
+
+// PriceQueryIntent is an enum that represents the intent of a price rate
+// query. It is used to indicate the purpose of the price rate request, such as
+// whether the user is requesting a hint for paying an invoice, or if they are
+// qualifying a rate for an invoice payment. This information is used by the
+// price oracle service to provide the appropriate asset rate for the requested
+// intent.
+type PriceQueryIntent uint8
+
+const (
+	// IntentUnspecified is used to indicate that the intent of the price
+	// rate query is not specified. This is the fallback default value and
+	// should not be used in production code. It is primarily used for
+	// backward compatibility with older versions of the protocol that did
+	// not include intent information.
+	IntentUnspecified PriceQueryIntent = 0
+
+	// IntentPayInvoiceHint is used to indicate that the user is requesting
+	// a price rate hint for paying an invoice. This is typically used by
+	// the payer of an invoice to provide a suggestion of the expected asset
+	// rate to the RFQ peer (edge node) that will determine the actual rate
+	// for the payment.
+	IntentPayInvoiceHint PriceQueryIntent = 1
+
+	// IntentPayInvoice is used to indicate that a peer wants to pay an
+	// invoice with assets. This is typically used by the edge node that
+	// facilitates the swap from assets to BTC for the payer of an invoice.
+	// This intent is used to provide the actual asset rate for the payment,
+	// which may differ from the hint provided by the payer.
+	IntentPayInvoice PriceQueryIntent = 2
+
+	// IntentPayInvoiceQualify is used to indicate that the payer of an
+	// invoice has received an asset rate from their RFQ peer (edge node)
+	// and is qualifying the rate for the payment. This is typically used by
+	// the payer of an invoice to ensure that the asset rate provided by
+	// their peer (edge node) is acceptable before proceeding with the
+	// payment.
+	IntentPayInvoiceQualify PriceQueryIntent = 3
+
+	// IntentRecvPaymentHint is used to indicate that the user is requesting
+	// a price rate hint for receiving a payment through an invoice. This is
+	// typically used by the creator of an invoice to provide a suggestion
+	// of the expected asset rate to the RFQ peer (edge node) that will
+	// determine the actual rate used for creating an invoice.
+	IntentRecvPaymentHint PriceQueryIntent = 4
+
+	// IntentRecvPayment is used to indicate that a peer wants to create an
+	// invoice to receive a payment with assets. This is typically used by
+	// the edge node that facilitates the swap from BTC to assets for the
+	// receiver of a payment. This intent is used to provide the actual
+	// asset rate for the invoice creation, which may differ from the hint
+	// provided by the receiver.
+	IntentRecvPayment PriceQueryIntent = 5
+
+	// IntentRecvPaymentQualify is used to indicate that the creator of an
+	// invoice received an asset rate from their RFQ peer (edge node) and is
+	// qualifying the rate for the creation of the invoice. This is
+	// typically used by the creator of an invoice to ensure that the asset
+	// rate provided by their peer (edge node) is acceptable before
+	// proceeding with creating the invoice.
+	IntentRecvPaymentQualify PriceQueryIntent = 6
 )
 
 // OracleError is a struct that holds an error returned by the price oracle
@@ -91,23 +154,25 @@ func ParsePriceOracleAddress(addrStr string) (*OracleAddr, error) {
 // PriceOracle is an interface that provides exchange rate information for
 // assets.
 type PriceOracle interface {
-	// QueryAskPrice returns the ask price for a given asset amount.
-	// The ask price is the amount the oracle suggests a peer should accept
+	// QuerySellPrice returns the sell price for a given asset amount. The
+	// sell price is the amount the oracle suggests a peer should accept
 	// from another peer to provide the specified asset amount.
-	QueryAskPrice(ctx context.Context, assetSpecifier asset.Specifier,
+	QuerySellPrice(ctx context.Context, assetSpecifier asset.Specifier,
 		assetMaxAmt fn.Option[uint64],
 		paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
-		assetRateHint fn.Option[rfqmsg.AssetRate]) (
-		*OracleResponse, error)
+		assetRateHint fn.Option[rfqmsg.AssetRate],
+		counterparty fn.Option[route.Vertex], metadata string,
+		intent PriceQueryIntent) (*OracleResponse, error)
 
-	// QueryBidPrice returns the bid price for a given asset amount.
-	// The bid price is the amount the oracle suggests a peer should pay
-	// to another peer to receive the specified asset amount.
-	QueryBidPrice(ctx context.Context, assetSpecifier asset.Specifier,
+	// QueryBuyPrice returns the buy price for a given asset amount. The buy
+	// price is the amount the oracle suggests a peer should pay to another
+	// peer to receive the specified asset amount.
+	QueryBuyPrice(ctx context.Context, assetSpecifier asset.Specifier,
 		assetMaxAmt fn.Option[uint64],
 		paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
-		assetRateHint fn.Option[rfqmsg.AssetRate]) (
-		*OracleResponse, error)
+		assetRateHint fn.Option[rfqmsg.AssetRate],
+		counterparty fn.Option[route.Vertex], metadata string,
+		intent PriceQueryIntent) (*OracleResponse, error)
 }
 
 // RpcPriceOracle is a price oracle that uses an external RPC server to get
@@ -189,12 +254,19 @@ func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
 	}, nil
 }
 
-// QueryAskPrice returns the ask price for the given asset amount.
-func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
+// QuerySellPrice returns the sell price for the given asset amount.
+func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
 	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
-	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse,
-	error) {
+	assetRateHint fn.Option[rfqmsg.AssetRate],
+	counterparty fn.Option[route.Vertex], metadata string,
+	intent PriceQueryIntent) (*OracleResponse, error) {
+
+	if len(metadata) > rfqmsg.MaxOracleMetadataLength {
+		return nil, fmt.Errorf("metadata exceeds maximum length of %d "+
+			"bytes: %d bytes", rfqmsg.MaxOracleMetadataLength,
+			len(metadata))
+	}
 
 	// The payment asset ID is BTC, so we leave it at all zeroes.
 	var paymentAssetId = make([]byte, 32)
@@ -215,6 +287,16 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 		paymentMaxAmt.UnwrapOr(lnwire.MilliSatoshi(0)),
 	)
 
+	rpcIntent, err := rpcMarshalIntent(intent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal intent: %w", err)
+	}
+
+	var counterpartyBytes []byte
+	counterparty.WhenSome(func(c route.Vertex) {
+		counterpartyBytes = c[:]
+	})
+
 	req := &oraclerpc.QueryAssetRatesRequest{
 		TransactionType:       oraclerpc.TransactionType_SALE,
 		SubjectAsset:          rpcMarshalAssetSpecifier(assetSpecifier),
@@ -226,6 +308,9 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 		},
 		PaymentAssetMaxAmount: paymentAssetMaxAmount,
 		AssetRatesHint:        rpcAssetRatesHint,
+		Intent:                rpcIntent,
+		CounterpartyId:        counterpartyBytes,
+		Metadata:              metadata,
 	}
 
 	// Perform query.
@@ -280,12 +365,19 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 	}
 }
 
-// QueryBidPrice returns a bid price for the given asset amount.
-func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
+// QueryBuyPrice returns a buy price for the given asset amount.
+func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context,
 	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
-	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse,
-	error) {
+	assetRateHint fn.Option[rfqmsg.AssetRate],
+	counterparty fn.Option[route.Vertex], metadata string,
+	intent PriceQueryIntent) (*OracleResponse, error) {
+
+	if len(metadata) > rfqmsg.MaxOracleMetadataLength {
+		return nil, fmt.Errorf("metadata exceeds maximum length of %d "+
+			"bytes: %d bytes", rfqmsg.MaxOracleMetadataLength,
+			len(metadata))
+	}
 
 	// The payment asset ID is BTC, so we leave it at all zeroes.
 	var paymentAssetId = make([]byte, 32)
@@ -306,6 +398,16 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
 		return nil, err
 	}
 
+	rpcIntent, err := rpcMarshalIntent(intent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal intent: %w", err)
+	}
+
+	var counterpartyBytes []byte
+	counterparty.WhenSome(func(c route.Vertex) {
+		counterpartyBytes = c[:]
+	})
+
 	req := &oraclerpc.QueryAssetRatesRequest{
 		TransactionType:       oraclerpc.TransactionType_PURCHASE,
 		SubjectAsset:          rpcMarshalAssetSpecifier(assetSpecifier),
@@ -317,6 +419,9 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
 		},
 		PaymentAssetMaxAmount: paymentAssetMaxAmount,
 		AssetRatesHint:        rpcAssetRatesHint,
+		Intent:                rpcIntent,
+		CounterpartyId:        counterpartyBytes,
+		Metadata:              metadata,
 	}
 
 	// Perform query.
@@ -396,4 +501,29 @@ func rpcMarshalAssetSpecifier(
 	}
 
 	return &subjectSpecifier
+}
+
+// rpcMarshalIntent converts a PriceQueryIntent to the corresponding
+// oraclerpc.Intent type. It returns an error if the intent is unknown.
+func rpcMarshalIntent(intent PriceQueryIntent) (oraclerpc.Intent,
+	error) {
+
+	switch intent {
+	case IntentUnspecified:
+		return oraclerpc.Intent_INTENT_UNSPECIFIED, nil
+	case IntentPayInvoiceHint:
+		return oraclerpc.Intent_INTENT_PAY_INVOICE_HINT, nil
+	case IntentPayInvoice:
+		return oraclerpc.Intent_INTENT_PAY_INVOICE, nil
+	case IntentPayInvoiceQualify:
+		return oraclerpc.Intent_INTENT_PAY_INVOICE_QUALIFY, nil
+	case IntentRecvPaymentHint:
+		return oraclerpc.Intent_INTENT_RECV_PAYMENT_HINT, nil
+	case IntentRecvPayment:
+		return oraclerpc.Intent_INTENT_RECV_PAYMENT, nil
+	case IntentRecvPaymentQualify:
+		return oraclerpc.Intent_INTENT_RECV_PAYMENT_QUALIFY, nil
+	default:
+		return 0, fmt.Errorf("unknown price query intent: %d", intent)
+	}
 }
