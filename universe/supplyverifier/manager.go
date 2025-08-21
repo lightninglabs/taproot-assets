@@ -205,8 +205,7 @@ func (m *Manager) fetchStateMachine(assetSpec asset.Specifier) (*StateMachine,
 // group in the node's local database.
 func (m *Manager) InsertSupplyCommit(ctx context.Context,
 	assetSpec asset.Specifier, commitment supplycommit.RootCommitment,
-	leaves supplycommit.SupplyLeaves,
-	chainProof supplycommit.ChainProof) error {
+	leaves supplycommit.SupplyLeaves) error {
 
 	// TODO(ffranr): Verify supply commit without starting a state machine.
 	//  This is effectively where universe server supply commit verification
