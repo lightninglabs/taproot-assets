@@ -1000,10 +1000,15 @@ message InsertSupplyCommitRequest {
     // chain proof information.
     SupplyCommitChainData chain_data = 3;
 
+    // The outpoint of the previous commitment that this new commitment is
+    // spending. This must be set unless this is the very first supply
+    // commitment of a grouped asset.
+    taprpc.OutPoint spent_commitment_outpoint = 4;
+
     // The supply leaves that represent the supply changes for the asset group.
-    repeated SupplyLeafEntry issuance_leaves = 4;
-    repeated SupplyLeafEntry burn_leaves = 5;
-    repeated SupplyLeafEntry ignore_leaves = 6;
+    repeated SupplyLeafEntry issuance_leaves = 5;
+    repeated SupplyLeafEntry burn_leaves = 6;
+    repeated SupplyLeafEntry ignore_leaves = 7;
 }
 
 message InsertSupplyCommitResponse {
