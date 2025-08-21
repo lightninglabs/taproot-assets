@@ -340,6 +340,10 @@ var allTestCases = []*testCase{
 		test: testAnchorMultipleVirtualTransactions,
 	},
 	{
+		name: "anchor multiple virtual split transactions",
+		test: testAnchorMultipleVirtualSplitTransactions,
+	},
+	{
 		name: "channel RPCs",
 		test: testChannelRPCs,
 	},
@@ -374,6 +378,10 @@ var allTestCases = []*testCase{
 	{
 		name: "address v2 with group key",
 		test: testAddressV2WithGroupKey,
+	},
+	{
+		name: "address v2 with group key multiple round trips",
+		test: testAddressV2WithGroupKeyMultipleRoundTrips,
 	},
 	{
 		name: "address v2 with group key restart",

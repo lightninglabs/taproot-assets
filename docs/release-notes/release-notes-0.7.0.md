@@ -26,6 +26,16 @@
 - [An integration test flake was
   fixed](https://github.com/lightninglabs/taproot-assets/pull/1651).
 
+- Fixed two send related bugs that would lead to either a `invalid transfer 
+  asset witness` or `unable to fund address send: error funding packet: unable 
+  to list eligible coins: unable to query commitments: mismatch of managed utxo
+  and constructed tap commitment root` error when sending assets.
+  The [PR that fixed the two
+  bugs](https://github.com/lightninglabs/taproot-assets/pull/1741) also
+  optimized sending to V2 TAP addresses by removing the need for creating
+  tombstone outputs on a full-value send (by using interactive transfers for V2
+  addresses).
+
 # New Features
 
 ## Functional Enhancements

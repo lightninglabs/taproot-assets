@@ -276,18 +276,32 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 			continue
 		}
 
+		var (
+			splitCommitmentRootHash  []byte
+			splitCommitmentRootValue sql.NullInt64
+		)
+		if a.SplitCommitmentRoot != nil {
+			splitRootHash := a.SplitCommitmentRoot.NodeHash()
+			splitCommitmentRootHash = splitRootHash[:]
+			splitCommitmentRootValue = sqlInt64(
+				a.SplitCommitmentRoot.NodeSum(),
+			)
+		}
+
 		// With all the dependent data inserted, we can now insert the
 		// base asset information itself.
 		assetIDs[idx], err = q.UpsertAsset(ctx, sqlc.UpsertAssetParams{
-			GenesisID:           genAssetID,
-			Version:             int32(a.Version),
-			ScriptKeyID:         scriptKeyID,
-			AssetGroupWitnessID: groupWitnessID,
-			ScriptVersion:       int32(a.ScriptVersion),
-			Amount:              int64(a.Amount),
-			LockTime:            sqlInt32(a.LockTime),
-			RelativeLockTime:    sqlInt32(a.RelativeLockTime),
-			AnchorUtxoID:        anchorUtxoID,
+			GenesisID:                genAssetID,
+			Version:                  int32(a.Version),
+			ScriptKeyID:              scriptKeyID,
+			AssetGroupWitnessID:      groupWitnessID,
+			ScriptVersion:            int32(a.ScriptVersion),
+			Amount:                   int64(a.Amount),
+			LockTime:                 sqlInt32(a.LockTime),
+			RelativeLockTime:         sqlInt32(a.RelativeLockTime),
+			AnchorUtxoID:             anchorUtxoID,
+			SplitCommitmentRootHash:  splitCommitmentRootHash,
+			SplitCommitmentRootValue: splitCommitmentRootValue,
 		})
 		if err != nil {
 			return 0, nil, fmt.Errorf("unable to insert asset: %w",

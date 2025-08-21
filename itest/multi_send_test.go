@@ -395,3 +395,185 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 		t.t, bobTapd, assetYTranche1.AssetGenesis.AssetId, assetsToSend,
 	)
 }
+
+// testAnchorMultipleVirtualSplitTransactions tests that we can spend assets
+// from multiple anchor outputs in a single virtual transaction, resulting in an
+// on-chain transaction with multiple asset inputs.
+func testAnchorMultipleVirtualSplitTransactions(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// In our first batch we create multiple units of the grouped asset X
+	// and Y.
+	firstBatch := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			{
+				Asset: assetXTranche1Req,
+			},
+		},
+	)
+
+	groupKeyX := firstBatch[0].AssetGroup.TweakedGroupKey
+	assetXTranche3Req.GroupKey = groupKeyX
+
+	// In our second batch we create the third tranche of the grouped asset
+	// X and Y as well as a passive asset Q.
+	secondBatch := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			{
+				Asset: assetXTranche3Req,
+			},
+		},
+	)
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	var (
+		aliceTapd = t.tapd
+		bobTapd   = secondTapd
+	)
+
+	// We now want to send all units of X to Bob. Since we can't yet select
+	// coins by just group key, we just ask for all units of tranche 1 and
+	// then promote some of the passive assets to active assets.
+	scriptKey1, anchorInternalKeyDesc1 := DeriveKeys(t.t, bobTapd)
+	scriptKey2, _ := DeriveKeys(t.t, bobTapd)
+	var (
+		assetXTranche1   = firstBatch[0]
+		assetXTranche2   = secondBatch[0]
+		assetXTranche1ID asset.ID
+		assetXTranche2ID asset.ID
+	)
+	copy(assetXTranche1ID[:], assetXTranche1.AssetGenesis.AssetId)
+	copy(assetXTranche2ID[:], assetXTranche2.AssetGenesis.AssetId)
+
+	vPktFirstBatch := tappsbt.ForInteractiveSend(
+		assetXTranche1ID, assetXTranche1.Amount-1, scriptKey1, 0, 0, 0,
+		anchorInternalKeyDesc1, asset.V0, chainParams,
+	)
+	fundRespFirstBatch := fundPacket(t, aliceTapd, vPktFirstBatch)
+
+	// Now we collect all the active assets, which are all tranches of
+	// asset X.
+	activePackets := make([]*tappsbt.VPacket, 0, 2)
+	tranche1, err := tappsbt.Decode(fundRespFirstBatch.FundedPsbt)
+	require.NoError(t.t, err)
+	activePackets = append(activePackets, tranche1)
+
+	vPktSecondBatch := tappsbt.ForInteractiveSend(
+		assetXTranche2ID, assetXTranche2.Amount-1, scriptKey2, 0, 0, 0,
+		anchorInternalKeyDesc1, asset.V0, chainParams,
+	)
+	fundRespSecondBatch := fundPacket(t, aliceTapd, vPktSecondBatch)
+	tranche2, err := tappsbt.Decode(fundRespSecondBatch.FundedPsbt)
+	require.NoError(t.t, err)
+
+	activePackets = append(activePackets, tranche2)
+
+	// Because we funded two separate packets, the change output anchor
+	// information of both packets will be different. We need to use the
+	// same, as we're going to merge them together.
+	// The funding logic always places the change output at index 0,
+	// but the anchor output index will be at index 1 since our
+	// destination output uses that.
+	firstChangeOutput := activePackets[0].Outputs[0]
+	secondChangeOutput := activePackets[1].Outputs[0]
+	secondChangeOutput.AnchorOutputBip32Derivation =
+		firstChangeOutput.AnchorOutputBip32Derivation
+	secondChangeOutput.AnchorOutputTaprootBip32Derivation =
+		firstChangeOutput.AnchorOutputTaprootBip32Derivation
+	secondChangeOutput.AnchorOutputInternalKey =
+		firstChangeOutput.AnchorOutputInternalKey
+
+	// Let's now sign all the active packets.
+	signedPackets := make([][]byte, len(activePackets))
+	for idx := range activePackets {
+		signedPacket := signVirtualPacket(
+			t.t, aliceTapd, activePackets[idx],
+		)
+
+		signedPackets[idx], err = tappsbt.Encode(signedPacket)
+		require.NoError(t.t, err)
+	}
+
+	// Now we'll attempt to complete the transfer.
+	sendResp, err := aliceTapd.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: signedPackets,
+		},
+	)
+	require.NoError(t.t, err)
+
+	t.Logf("Transfer response: %v", toJSON(t.t, sendResp))
+
+	// We'll attempt to list assets immediately after initiating the
+	// transfer. The unconfirmed assets should not be listed yet, but the
+	// unconfirmed transfer count should be 1.
+	aliceAssets, err := aliceTapd.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Nil(t.t, aliceAssets.Assets)
+	require.EqualValues(t.t, aliceAssets.UnconfirmedTransfers, 1)
+
+	t.Logf("Send response: %v", toJSON(t.t, sendResp))
+
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner().Client, aliceTapd, sendResp,
+		assetXTranche1ID[:], []uint64{1, 299, 1, 299}, 0, 1, 4,
+	)
+
+	// This is an interactive transfer, so we do need to manually send the
+	// proofs from the sender to the receiver.
+	sendProof(
+		t, aliceTapd, bobTapd, sendResp,
+		scriptKey1.PubKey.SerializeCompressed(),
+		assetXTranche1.AssetGenesis,
+	)
+	sendProof(
+		t, aliceTapd, bobTapd, sendResp,
+		scriptKey2.PubKey.SerializeCompressed(),
+		assetXTranche2.AssetGenesis,
+	)
+
+	aliceAssets, err = aliceTapd.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, aliceAssets.Assets, 2)
+
+	t.Logf("Alice assets: %v", toJSON(t.t, aliceAssets))
+
+	bobAssets, err := bobTapd.ListAssets(ctxt, &taprpc.ListAssetRequest{})
+	require.NoError(t.t, err)
+	require.Len(t.t, bobAssets.Assets, 2)
+
+	t.Logf("Bob assets: %v", toJSON(t.t, bobAssets))
+
+	// Finally, we make sure we can still send back the assets individually.
+	sendAssetAndAssert(
+		ctxt, t, bobTapd, aliceTapd, assetXTranche1.Amount-1, 0,
+		assetXTranche1.AssetGenesis, assetXTranche1, 0, 1, 1,
+	)
+
+	bobAssets, err = bobTapd.ListAssets(ctxt, &taprpc.ListAssetRequest{
+		WithWitness: true,
+	})
+	require.NoError(t.t, err)
+
+	t.Logf("Bob assets after first send: %v", toJSON(t.t, bobAssets))
+
+	sendAssetAndAssert(
+		ctxt, t, bobTapd, aliceTapd, assetXTranche2.Amount-1, 0,
+		assetXTranche2.AssetGenesis, assetXTranche2, 1, 2, 2,
+	)
+}

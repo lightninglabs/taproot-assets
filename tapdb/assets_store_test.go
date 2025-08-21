@@ -3247,3 +3247,139 @@ func TestShouldSkipAssetCreation(t *testing.T) {
 		})
 	}
 }
+
+// createTestProofWithAnchor creates an annotated proof with specific anchor
+// index.
+func createTestProofWithAnchor(t *testing.T, testAsset *asset.Asset,
+	anchorIndex uint32) *proof.AnnotatedProof {
+
+	var blockHash chainhash.Hash
+	_, err := rand.Read(blockHash[:])
+	require.NoError(t, err)
+
+	anchorTx := wire.NewMsgTx(2)
+	anchorTx.AddTxIn(&wire.TxIn{})
+
+	// Add enough outputs to cover the requested index
+	for i := uint32(0); i <= anchorIndex; i++ {
+		anchorTx.AddTxOut(&wire.TxOut{
+			PkScript: bytes.Repeat([]byte{0x01}, 34),
+			Value:    10,
+		})
+	}
+
+	assetRoot, err := commitment.NewAssetCommitment(testAsset)
+	require.NoError(t, err)
+
+	commitVersion := test.RandFlip(nil, fn.Ptr(commitment.TapCommitmentV2))
+	taprootAssetRoot, err := commitment.NewTapCommitment(
+		commitVersion, assetRoot,
+	)
+	require.NoError(t, err)
+
+	testProof := randProof(t, testAsset)
+	proofBlob, err := testProof.Bytes()
+	require.NoError(t, err)
+
+	assetID := testAsset.ID()
+	anchorPoint := wire.OutPoint{
+		Hash:  anchorTx.TxHash(),
+		Index: anchorIndex,
+	}
+
+	return &proof.AnnotatedProof{
+		Locator: proof.Locator{
+			AssetID:   &assetID,
+			ScriptKey: *testAsset.ScriptKey.PubKey,
+		},
+		Blob: proofBlob,
+		AssetSnapshot: &proof.AssetSnapshot{
+			Asset:             testAsset,
+			OutPoint:          anchorPoint,
+			AnchorBlockHash:   blockHash,
+			AnchorBlockHeight: uint32(test.RandIntn(1000) + 1),
+			AnchorTxIndex:     test.RandInt[uint32](),
+			AnchorTx:          anchorTx,
+			OutputIndex:       anchorIndex,
+			InternalKey:       test.RandPubKey(t),
+			ScriptRoot:        taprootAssetRoot,
+		},
+	}
+}
+
+// TestUpsertAssetsWithSplitCommitments tests that split commitment data is
+// properly stored and retrieved during asset upsert operations.
+func TestUpsertAssetsWithSplitCommitments(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		hasSplitCommit bool
+		splitValue     uint64
+	}{
+		{
+			name:           "asset with split commitment",
+			hasSplitCommit: true,
+			splitValue:     12345,
+		},
+		{
+			name:           "asset without split commitment",
+			hasSplitCommit: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			dbHandle := NewDbHandle(t)
+
+			testAsset := randAsset(t)
+
+			var expectedHash mssmt.NodeHash
+			if tc.hasSplitCommit {
+				splitHash := test.RandBytes(32)
+				copy(expectedHash[:], splitHash)
+
+				rootNode := mssmt.NewComputedNode(
+					expectedHash, tc.splitValue,
+				)
+				testAsset.SplitCommitmentRoot = rootNode
+			}
+
+			annotatedProof := createTestProofWithAnchor(
+				t, testAsset, 0,
+			)
+
+			err := dbHandle.AssetStore.ImportProofs(
+				ctx, proof.MockVerifierCtx, false,
+				annotatedProof,
+			)
+			require.NoError(t, err)
+
+			assets, err := dbHandle.AssetStore.FetchAllAssets(
+				ctx, false, false, nil,
+			)
+			require.NoError(t, err)
+			require.Len(t, assets, 1)
+
+			dbAsset := assets[0].Asset
+
+			root := dbAsset.SplitCommitmentRoot
+			if tc.hasSplitCommit {
+				require.NotNil(t, root)
+				gotHash := root.NodeHash()
+				require.Equal(t, expectedHash, gotHash)
+				require.Equal(
+					t, tc.splitValue, root.NodeSum(),
+				)
+			} else {
+				require.Nil(
+					t, root,
+					"Split commitment root should be nil",
+				)
+			}
+		})
+	}
+}
