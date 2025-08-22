@@ -113,6 +113,10 @@ func createProofSuffix(t *testing.T, stxoProof bool, expectedErr string) {
 	)
 	addBip86Output(t, anchorTx.FundedPsbt.Pkt)
 
+	// Change on outputCommitment to the legacy marker.
+	outputCommitments[2], err = outputCommitments[2].Downgrade()
+	require.NoError(t, err)
+
 	// Create a proof suffix for all 4 packets now and validate it.
 	for _, vPkt := range testPackets {
 		for outIdx := range vPkt.Outputs {

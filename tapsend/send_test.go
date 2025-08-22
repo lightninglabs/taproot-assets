@@ -1637,6 +1637,96 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		return nil
 	},
 	err: nil,
+}, {
+	name: "MarkerV0 asset send",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+
+		pkt := createPacket(
+			t, state.address1, state.asset1PrevID,
+			state, state.asset1InputAssets, true,
+		)
+		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
+		require.NoError(t, err)
+		err = tapsend.SignVirtualTransaction(
+			pkt, state.signer, state.witnessValidator,
+		)
+		require.NoError(t, err)
+
+		outputCommitments, err := tapsend.CreateOutputCommitments(
+			[]*tappsbt.VPacket{pkt},
+		)
+		require.NoError(t, err)
+
+		// Transform the output commitment into a MarkerV0 commitment.
+		// When UpdateTaprootOutputKeys is called is called, it will
+		// call ultimately commitment.TapLeaf which will then create a
+		// TapLeaf for the TapCommitment with the MarkerV0 digest.
+		recvIdx := pkt.Outputs[0].AnchorOutputIndex
+
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
+		require.NoError(t, err)
+
+		// Change on outputCommitment to the legacy marker.
+		for key := range outputCommitments {
+			c, err := outputCommitments[key].Downgrade()
+			require.NoError(t, err)
+
+			outputCommitments[key] = c
+		}
+
+		err = tapsend.UpdateTaprootOutputKeys(
+			btcPkt, pkt, outputCommitments,
+		)
+		require.NoError(t, err)
+
+		checkTaprootOutputs(
+			t, pkt.Outputs, outputCommitments, btcPkt,
+			&state.asset1, false,
+		)
+
+		receiverAsset := pkt.Outputs[0].Asset
+		receiverInternalKey, _ := schnorr.ParsePubKey(
+			btcPkt.Outputs[recvIdx].TaprootInternalKey,
+		)
+		receiverTapTree := outputCommitments[recvIdx]
+		_, receiverTapProof, err := receiverTapTree.Proof(
+			receiverAsset.TapCommitmentKey(),
+			receiverAsset.AssetCommitmentKey(),
+		)
+		require.NoError(t, err)
+
+		receiverProof := &proof.TaprootProof{
+			OutputIndex: recvIdx,
+			InternalKey: receiverInternalKey,
+			CommitmentProof: &proof.CommitmentProof{
+				Proof:              *receiverTapProof,
+				TapSiblingPreimage: nil,
+			},
+			TapscriptProof: nil,
+		}
+		recvProofKeys, err := receiverProof.DeriveByAssetInclusion(
+			receiverAsset, nil,
+		)
+		require.NoError(t, err)
+
+		unsignedTxOut := btcPkt.UnsignedTx.TxOut
+		recvPsbtKey := unsignedTxOut[recvIdx].PkScript[2:]
+
+		for proofKey, commit := range recvProofKeys {
+			if commit.Version == commitment.TapCommitmentV2 {
+				continue
+			}
+
+			// Check that the output is a MarkerV0 commitment.
+			require.Equal(
+				t, proofKey.SchnorrSerialized(), recvPsbtKey,
+			)
+		}
+
+		return nil
+	},
+	err: nil,
 }}
 
 func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,

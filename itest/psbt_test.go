@@ -20,6 +20,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -340,6 +341,50 @@ func testPsbtNormalInteractiveFullValueSend(t *harnessTest) {
 	runPsbtInteractiveFullValueSendTest(
 		ctxt, t, t.tapd, secondTapd, genInfo, mintedAsset,
 		rpcAssets[1],
+	)
+}
+
+// testPsbtMarkerV0MixedVersions tests that we get an error if we mix V0 and
+// V2 commitments.
+func testPsbtMarkerV0MixedVersions(t *harnessTest) {
+	// First, we'll make a normal asset with a bunch of units that we are
+	// going to send back and forth. We're also minting a passive asset that
+	// should remain where it is.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: taprpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &taprpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
+	)
+
+	mintedAsset := rpcAssets[0]
+	genInfo := mintedAsset.AssetGenesis
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	runPsbtInteractiveMarkerV0MixedVersions(
+		ctxt, t, t.tapd, secondTapd, genInfo, mintedAsset,
 	)
 }
 
@@ -733,6 +778,84 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 	sendAssetAndAssert(
 		ctxt, t, alice, bob, passiveAsset.Amount, 0,
 		passiveGen, passiveAsset, 2, 3, 1,
+	)
+}
+
+// runPsbtInteractiveFullValueSendTest runs a single test of creating a mixed
+// version asset commitment that should result in an error.
+func runPsbtInteractiveMarkerV0MixedVersions(ctxt context.Context,
+	t *harnessTest, alice, bob *tapdHarness, genInfo *taprpc.GenesisInfo,
+	mintedAsset *taprpc.Asset) {
+
+	var (
+		sender      = alice
+		receiver    = bob
+		id          [32]byte
+		fullAmt     = mintedAsset.Amount
+		chainParams = &address.RegressionNetTap
+	)
+	copy(id[:], genInfo.AssetId)
+
+	// We need to derive two keys, one for the new script key and
+	// one for the internal key.
+	receiverScriptKey, receiverAnchorIntKeyDesc := DeriveKeys(
+		t.t, receiver,
+	)
+
+	vPkt := tappsbt.ForInteractiveSend(
+		id, fullAmt, receiverScriptKey, 0, 0, 0,
+		receiverAnchorIntKeyDesc, asset.V0, chainParams,
+	)
+
+	// Next, we'll attempt to complete a transfer with PSBTs from
+	// our sender node to our receiver, using the full amount.
+	fundResp := fundPacket(t, sender, vPkt)
+
+	signResp, err := sender.SignVirtualPsbt(
+		ctxt, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: fundResp.FundedPsbt,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Here we need to create a separate case for the 0th iteration.
+	// Instead of using AnchorVirtualPsbts we will use
+	// CommitVirtualPsbts and PublishAndLogTransfer. This way we can create
+	// a legacy marker commitment that we try to spend on the next
+	// iteration.
+	signedPkt := deserializeVPacket(t.t, signResp.SignedPsbt)
+	activePkt := []*tappsbt.VPacket{signedPkt}
+
+	var passivePkt []*tappsbt.VPacket
+	for idx := range fundResp.PassiveAssetPsbts {
+		passiveBytes := fundResp.PassiveAssetPsbts[idx]
+		passiveSign, err := sender.SignVirtualPsbt(
+			ctxt, &wrpc.SignVirtualPsbtRequest{
+				FundedPsbt: passiveBytes,
+			},
+		)
+		require.NoError(t.t, err)
+
+		passivePkt = append(passivePkt, deserializeVPacket(
+			t.t, passiveSign.SignedPsbt,
+		))
+	}
+
+	allPackets := append(activePkt, passivePkt...)
+	btcPkt, err := tapsend.PrepareAnchoringTemplate(allPackets)
+	require.NoError(t.t, err)
+	var commitResp *wrpc.CommitVirtualPsbtsResponse
+	btcPkt, activePkt, passivePkt, commitResp = commitMarkerV0VirtualPsbts(
+		ctxt, t, sender, btcPkt, activePkt, passivePkt, -1,
+	)
+	require.NoError(t.t, err)
+
+	btcPkt = signPacket(t.t, sender.cfg.LndNode, btcPkt)
+	btcPkt = FinalizePacket(t.t, sender.cfg.LndNode.RPC, btcPkt)
+	PublishAndLogTransfer(
+		t.t, sender, btcPkt, activePkt, passivePkt, commitResp,
+		withExpectedErr("error validating input assets: mixed virtual "+
+			"packet versions"),
 	)
 }
 
@@ -3744,4 +3867,197 @@ func getAddressBip32Derivation(t testing.TB, addr string,
 			XOnlyPubKey: pubKeyBytes[1:],
 			Bip32Path:   path,
 		}
+}
+
+// commitMarkerV0VirtualPsbts creates the output commitments and proofs for the
+// given virtual transactions by committing them to the BTC level anchor
+// transaction with MarkerV0 legacy commitment.
+func commitMarkerV0VirtualPsbts(ctxt context.Context, t *harnessTest,
+	funder commands.RpcClientsBundle, packet *psbt.Packet,
+	activePackets []*tappsbt.VPacket, passivePackets []*tappsbt.VPacket,
+	changeOutputIndex int32) (*psbt.Packet, []*tappsbt.VPacket,
+	[]*tappsbt.VPacket, *wrpc.CommitVirtualPsbtsResponse) {
+
+	t.Logf("Funding packet: %v", spew.Sdump(packet))
+
+	var buf bytes.Buffer
+	err := packet.Serialize(&buf)
+	require.NoError(t.t, err)
+
+	req := &wrpc.CommitVirtualPsbtsRequest{
+		AnchorPsbt: buf.Bytes(),
+		Fees: &wrpc.CommitVirtualPsbtsRequest_SatPerVbyte{
+			SatPerVbyte: uint64(feeRateSatPerKVByte / 1000),
+		},
+	}
+
+	type existingIndex = wrpc.CommitVirtualPsbtsRequest_ExistingOutputIndex
+	if changeOutputIndex < 0 {
+		req.AnchorChangeOutput = &wrpc.CommitVirtualPsbtsRequest_Add{
+			Add: true,
+		}
+	} else {
+		req.AnchorChangeOutput = &existingIndex{
+			ExistingOutputIndex: changeOutputIndex,
+		}
+	}
+
+	req.VirtualPsbts = make([][]byte, len(activePackets))
+	for idx := range activePackets {
+		req.VirtualPsbts[idx], err = tappsbt.Encode(
+			activePackets[idx],
+		)
+		require.NoError(t.t, err)
+	}
+	req.PassiveAssetPsbts = make([][]byte, len(passivePackets))
+	for idx := range passivePackets {
+		req.PassiveAssetPsbts[idx], err = tappsbt.Encode(
+			passivePackets[idx],
+		)
+		require.NoError(t.t, err)
+	}
+
+	// Now we can map the virtual packets to the PSBT.
+	commitResponse, err := funder.CommitVirtualPsbts(ctxt, req)
+	require.NoError(t.t, err)
+
+	// Rework the output commitments.
+	activePackets = make(
+		[]*tappsbt.VPacket, len(commitResponse.VirtualPsbts),
+	)
+	for idx := range commitResponse.VirtualPsbts {
+		activePackets[idx], err = tappsbt.Decode(
+			commitResponse.VirtualPsbts[idx],
+		)
+		require.NoError(t.t, err)
+	}
+
+	passivePackets = make(
+		[]*tappsbt.VPacket, len(commitResponse.PassiveAssetPsbts),
+	)
+	for idx := range commitResponse.PassiveAssetPsbts {
+		passivePackets[idx], err = tappsbt.Decode(
+			commitResponse.PassiveAssetPsbts[idx],
+		)
+		require.NoError(t.t, err)
+	}
+
+	fundedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(commitResponse.AnchorPsbt), false,
+	)
+	require.NoError(t.t, err)
+
+	allPackets := append([]*tappsbt.VPacket{}, activePackets...)
+	allPackets = append(allPackets, passivePackets...)
+
+	// We're going to re-create the output commitments using the v0 marker,
+	// which will add the alt leaves again. So we need to clear them first.
+	for _, vPkt := range allPackets {
+		for _, vOut := range vPkt.Outputs {
+			vOut.AltLeaves = nil
+		}
+	}
+
+	// Recreate the output commitments.
+	outputCommitments, err := tapsend.CreateOutputCommitments(allPackets)
+	require.NoError(t.t, err)
+
+	// Now we change the output commitments to `MarkerV0`.
+	for _, vPkt := range activePackets {
+		vPkt.Version = 0
+
+		err = updateTaprootOutputKeysMarkerV0(
+			fundedPacket, vPkt, outputCommitments,
+		)
+		require.NoError(t.t, err)
+	}
+
+	// New output commitments need new proof suffixes.
+	for idx := range activePackets {
+		vPkt := activePackets[idx]
+
+		for vOutIdx := range vPkt.Outputs {
+			proofSuffix, err := tapsend.CreateProofSuffix(
+				fundedPacket.UnsignedTx, fundedPacket.Outputs,
+				vPkt, outputCommitments,
+				vOutIdx, allPackets,
+			)
+			require.NoError(t.t, err)
+
+			vPkt.Outputs[vOutIdx].ProofSuffix = proofSuffix
+		}
+	}
+
+	commitResponse.AnchorPsbt, err = fn.Serialize(fundedPacket)
+	require.NoError(t.t, err)
+
+	return fundedPacket, activePackets, passivePackets, commitResponse
+}
+
+func updateTaprootOutputKeysMarkerV0(btcPacket *psbt.Packet,
+	vPkt *tappsbt.VPacket,
+	outputCommitments tappsbt.OutputCommitments) error {
+
+	// Add the commitment outputs to the BTC level PSBT now.
+	for idx := range vPkt.Outputs {
+		vOut := vPkt.Outputs[idx]
+		anchorCommitment := outputCommitments[vOut.AnchorOutputIndex]
+
+		// The commitment must be defined at this point.
+		if anchorCommitment == nil {
+			return tapsend.ErrMissingTapCommitment
+		}
+
+		// The external output index cannot be out of bounds of the
+		// actual TX outputs. This should be checked earlier and is just
+		// a final safeguard here.
+		if vOut.AnchorOutputIndex >= uint32(len(btcPacket.Outputs)) {
+			return tapsend.ErrInvalidOutputIndexes
+		}
+
+		btcOut := &btcPacket.Outputs[vOut.AnchorOutputIndex]
+		internalKey, err := schnorr.ParsePubKey(
+			btcOut.TaprootInternalKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		// We have all the information now to calculate the actual
+		// commitment output script.
+
+		anchorCommitment, err = anchorCommitment.Downgrade()
+		if err != nil {
+			return err
+		}
+
+		//nolint:lll
+		script, merkleRoot, taprootAssetRoot, err := tapsend.AnchorOutputScript(
+			internalKey, vOut.AnchorOutputTapscriptSibling,
+			anchorCommitment,
+		)
+		if err != nil {
+			return err
+		}
+
+		btcTxOut := btcPacket.UnsignedTx.TxOut[vOut.AnchorOutputIndex]
+		btcTxOut.PkScript = script
+
+		// Also set some additional fields in the PSBT output to make
+		// it easier to create the transfer database entry later.
+		btcOut.Unknowns = tappsbt.AddCustomField(
+			btcOut.Unknowns,
+			tappsbt.PsbtKeyTypeOutputTaprootMerkleRoot,
+			merkleRoot[:],
+		)
+		btcOut.Unknowns = tappsbt.AddCustomField(
+			btcOut.Unknowns,
+			tappsbt.PsbtKeyTypeOutputAssetRoot,
+			taprootAssetRoot[:],
+		)
+
+		outputCommitments[vOut.AnchorOutputIndex] = anchorCommitment
+	}
+
+	return nil
 }
