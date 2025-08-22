@@ -4,10 +4,17 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+)
+
+var (
+	// ErrCommitmentNotFound is returned when a supply commitment is not
+	// found.
+	ErrCommitmentNotFound = fmt.Errorf("commitment not found")
 )
 
 // SupplyCommitView is an interface that is used to look up supply commitments
@@ -22,6 +29,27 @@ type SupplyCommitView interface {
 	// spec.
 	SupplyCommit(ctx context.Context,
 		assetSpec asset.Specifier) supplycommit.RootCommitResp
+
+	// FetchCommitmentByOutpoint fetches a supply commitment by its outpoint
+	// and group key. If no commitment is found, it returns
+	// ErrCommitmentNotFound.
+	FetchCommitmentByOutpoint(ctx context.Context,
+		assetSpec asset.Specifier,
+		outpoint wire.OutPoint) (*supplycommit.RootCommitment, error)
+
+	// FetchCommitmentBySpentOutpoint fetches a supply commitment by the
+	// outpoint it spent and group key. If no commitment is found, it
+	// returns ErrCommitmentNotFound.
+	FetchCommitmentBySpentOutpoint(ctx context.Context,
+		assetSpec asset.Specifier,
+		spentOutpoint wire.OutPoint) (*supplycommit.RootCommitment,
+		error)
+
+	// FetchStartingCommitment fetches the very first supply commitment of
+	// an asset group. If no commitment is found, it returns
+	// ErrCommitmentNotFound.
+	FetchStartingCommitment(ctx context.Context,
+		assetSpec asset.Specifier) (*supplycommit.RootCommitment, error)
 }
 
 // Environment is a struct that holds all the dependencies that the supply
