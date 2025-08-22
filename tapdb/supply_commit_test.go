@@ -607,27 +607,30 @@ func (h *supplyCommitTestHarness) fetchCommitmentByID(
 
 	var commitment sqlc.SupplyCommitment
 	readTx := ReadTxOption()
-	err := h.commitMachine.db.ExecTx(h.ctx, readTx,
-		func(db SupplyCommitStore) error {
-			var txErr error
-			commitment, txErr = db.QuerySupplyCommitment(
-				h.ctx, commitID,
-			)
-			return txErr
+	err := h.commitMachine.db.ExecTx(
+		h.ctx, readTx, func(db SupplyCommitStore) error {
+			row, err := db.QuerySupplyCommitment(h.ctx, commitID)
+			if err != nil {
+				return err
+			}
+
+			commitment = row.SupplyCommitment
+
+			return nil
 		},
 	)
 	return commitment, err
 }
 
 // fetchInternalKeyByID fetches an internal key by ID directly via SQL.
-//
-//nolint:lll
-func (h *supplyCommitTestHarness) fetchInternalKeyByID(keyID int64) FetchInternalKeyByIDRow {
+func (h *supplyCommitTestHarness) fetchInternalKeyByID(
+	keyID int64) FetchInternalKeyByIDRow {
+
 	h.t.Helper()
 	var keyRow FetchInternalKeyByIDRow
 	readTx := ReadTxOption()
-	err := h.commitMachine.db.ExecTx(h.ctx, readTx,
-		func(db SupplyCommitStore) error {
+	err := h.commitMachine.db.ExecTx(
+		h.ctx, readTx, func(db SupplyCommitStore) error {
 			var txErr error
 			keyRow, txErr = db.FetchInternalKeyByID(h.ctx, keyID)
 			return txErr
@@ -638,13 +641,13 @@ func (h *supplyCommitTestHarness) fetchInternalKeyByID(keyID int64) FetchInterna
 }
 
 // fetchChainTxByID fetches a chain tx by ID directly via SQL.
-func (h *supplyCommitTestHarness) fetchChainTxByID(txID int64,
-) (FetchChainTxByIDRow, error) {
+func (h *supplyCommitTestHarness) fetchChainTxByID(
+	txID int64) (FetchChainTxByIDRow, error) {
 
 	var chainTx FetchChainTxByIDRow
 	readTx := ReadTxOption()
-	err := h.commitMachine.db.ExecTx(h.ctx, readTx,
-		func(db SupplyCommitStore) error {
+	err := h.commitMachine.db.ExecTx(
+		h.ctx, readTx, func(db SupplyCommitStore) error {
 			var txErr error
 			chainTx, txErr = db.FetchChainTxByID(h.ctx, txID)
 			return txErr
@@ -1945,17 +1948,7 @@ func TestSupplyCommitMachineFetch(t *testing.T) {
 	require.False(t, commitOpt.IsNone())
 
 	// Fetch the commitment details directly for comparison.
-	var dbCommit sqlc.SupplyCommitment
-	readTx := ReadTxOption()
-	err = h.commitMachine.db.ExecTx(
-		h.ctx, readTx, func(dbtx SupplyCommitStore) error {
-			var txErr error
-			dbCommit, txErr = dbtx.QuerySupplyCommitment(
-				h.ctx, commitID1,
-			)
-			return txErr
-		},
-	)
+	dbCommit, err := h.fetchCommitmentByID(commitID1)
 	require.NoError(t, err)
 
 	// We'll now assert that the populated commitment we just read matches
