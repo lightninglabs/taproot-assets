@@ -233,6 +233,30 @@ func (s *SupplyTreeStore) FetchSubTrees(ctx context.Context,
 	return lfn.Ok(trees)
 }
 
+// fetchRootSupplyTreeInternal fetches and copies the root supply tree within
+// an existing database transaction. Returned tree is a copy in memory.
+func fetchRootSupplyTreeInternal(ctx context.Context, db BaseUniverseStore,
+	groupKey *btcec.PublicKey) (mssmt.Tree, error) {
+
+	rootNs := rootSupplyNamespace(groupKey)
+
+	// Create a wrapper for the persistent tree store.
+	persistentStore := newTreeStoreWrapperTx(db, rootNs)
+	persistentTree := mssmt.NewCompactedTree(persistentStore)
+
+	// Create a new in-memory tree to copy into.
+	memTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+	// Copy the persistent tree to the in-memory tree.
+	err := persistentTree.Copy(ctx, memTree)
+	if err != nil {
+		return nil, fmt.Errorf("unable to copy root supply "+
+			"tree %s: %w", rootNs, err)
+	}
+
+	return memTree, nil
+}
+
 // FetchRootSupplyTree returns a copy of the root supply tree for the given
 // asset spec.
 func (s *SupplyTreeStore) FetchRootSupplyTree(ctx context.Context,
@@ -245,24 +269,13 @@ func (s *SupplyTreeStore) FetchRootSupplyTree(ctx context.Context,
 		)
 	}
 
-	rootNs := rootSupplyNamespace(groupKey)
-
 	var treeCopy mssmt.Tree
 
 	readTx := NewBaseUniverseReadTx()
 	err = s.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
-		// Create a wrapper for the persistent tree store.
-		persistentStore := newTreeStoreWrapperTx(db, rootNs)
-		persistentTree := mssmt.NewCompactedTree(persistentStore)
-
-		// Create a new in-memory tree to copy into.
-		memTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
-
-		// Copy the persistent tree to the in-memory tree.
-		err := persistentTree.Copy(ctx, memTree)
+		memTree, err := fetchRootSupplyTreeInternal(ctx, db, groupKey)
 		if err != nil {
-			return fmt.Errorf("unable to copy root supply "+
-				"tree %s: %w", rootNs, err)
+			return err
 		}
 
 		treeCopy = memTree
