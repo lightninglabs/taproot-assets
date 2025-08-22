@@ -207,9 +207,9 @@ func insertIntoTree(tree mssmt.Tree, leafKey [32]byte,
 	return tree.Insert(ctx, leafKey, leafValue)
 }
 
-// applyTreeUpdates takes the set of pending updates, and applies them to the
+// ApplyTreeUpdates takes the set of pending updates, and applies them to the
 // given supply trees. It returns a new map containing the updated trees.
-func applyTreeUpdates(supplyTrees SupplyTrees,
+func ApplyTreeUpdates(supplyTrees SupplyTrees,
 	pendingUpdates []SupplyUpdateEvent) (SupplyTrees, error) {
 
 	ctx := context.Background()
@@ -332,7 +332,7 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 
 		// Next, based on the type of event, we'll create a new key+leaf
 		// to insert into the respective sub-tree.
-		newSupplyTrees, err := applyTreeUpdates(
+		newSupplyTrees, err := ApplyTreeUpdates(
 			oldSupplyTrees, pendingUpdates,
 		)
 		if err != nil {
