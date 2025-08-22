@@ -262,6 +262,44 @@ func ApplyTreeUpdates(supplyTrees SupplyTrees,
 	return updatedSupplyTrees, nil
 }
 
+// UpdateRootSupplyTree takes the given root supply tree, and updates it with
+// the set of subtrees. It returns a new tree instance with the updated values.
+func UpdateRootSupplyTree(ctx context.Context, rootTree mssmt.Tree,
+	subTrees SupplyTrees) (mssmt.Tree, error) {
+
+	updatedRoot := rootTree
+
+	// Now we'll insert/update each of the read subtrees into the root
+	// supply tree.
+	for treeType, subTree := range subTrees {
+		subTreeRoot, err := subTree.Root(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch "+
+				"sub-tree root: %w", err)
+		}
+
+		if subTreeRoot.NodeSum() == 0 {
+			continue
+		}
+
+		rootTreeLeaf := mssmt.NewLeafNode(
+			lnutils.ByteSlice(subTreeRoot.NodeHash()),
+			subTreeRoot.NodeSum(),
+		)
+
+		rootTreeKey := treeType.UniverseKey()
+		updatedRoot, err = insertIntoTree(
+			updatedRoot, rootTreeKey, rootTreeLeaf,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert "+
+				"sub-tree into root supply tree: %w", err)
+		}
+	}
+
+	return updatedRoot, nil
+}
+
 // ProcessEvent processes incoming events for the CommitTreeCreateState. From
 // this state, we'll take the set of pending changes, then create/read the
 // components of the sub-supply trees, then use that to create the new finalized
@@ -351,33 +389,12 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 				"supply tree: %w", err)
 		}
 
-		// Now we'll insert/update each of the read sub-trees into the
-		// root supply tree.
-		for treeType, subTree := range newSupplyTrees {
-			subTreeRoot, err := subTree.Root(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("unable to fetch "+
-					"sub-tree root: %w", err)
-			}
-
-			if subTreeRoot.NodeSum() == 0 {
-				continue
-			}
-
-			rootTreeLeaf := mssmt.NewLeafNode(
-				lnutils.ByteSlice(subTreeRoot.NodeHash()),
-				subTreeRoot.NodeSum(),
-			)
-
-			rootTreeKey := treeType.UniverseKey()
-			rootSupplyTree, err = insertIntoTree(
-				rootSupplyTree, rootTreeKey, rootTreeLeaf,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to insert "+
-					"sub-tree into root supply tree: %w",
-					err)
-			}
+		rootSupplyTree, err = UpdateRootSupplyTree(
+			ctx, rootSupplyTree, newSupplyTrees,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to update root "+
+				"supply tree: %w", err)
 		}
 
 		// Construct the state transition object. We'll begin to
