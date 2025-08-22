@@ -288,6 +288,55 @@ func (s *SupplyTreeStore) FetchRootSupplyTree(ctx context.Context,
 	return lfn.Ok(treeCopy)
 }
 
+// FetchSupplyTrees returns a copy of the root supply tree and subtrees for the
+// given asset spec.
+func (s *SupplyTreeStore) FetchSupplyTrees(ctx context.Context,
+	spec asset.Specifier) (mssmt.Tree, *supplycommit.SupplyTrees, error) {
+
+	groupKey, err := spec.UnwrapGroupKeyOrErr()
+	if err != nil {
+		return nil, nil, fmt.Errorf(
+			"group key must be specified for supply tree: %w", err,
+		)
+	}
+
+	var (
+		rootTree mssmt.Tree
+		subTrees = make(supplycommit.SupplyTrees)
+	)
+
+	readTx := NewBaseUniverseReadTx()
+	err = s.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
+		// Fetch the root supply tree.
+		memTree, err := fetchRootSupplyTreeInternal(ctx, db, groupKey)
+		if err != nil {
+			return err
+		}
+
+		rootTree = memTree
+
+		// Fetch all the subtrees.
+		for _, treeType := range allSupplyTreeTypes {
+			subTree, fetchErr := fetchSubTreeInternal(
+				ctx, db, groupKey, treeType,
+			)
+			if fetchErr != nil {
+				return fmt.Errorf("failed to fetch subtree "+
+					"%v: %w", treeType, fetchErr)
+			}
+
+			subTrees[treeType] = subTree
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to execute db tx: %w", err)
+	}
+
+	return rootTree, &subTrees, nil
+}
+
 // registerMintSupplyInternal inserts a new minting leaf into the mint supply
 // sub-tree within an existing database transaction. It returns the universe
 // proof containing the new sub-tree root.
