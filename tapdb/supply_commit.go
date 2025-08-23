@@ -907,6 +907,200 @@ func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
 	})
 }
 
+// InsertSupplyCommit inserts a new, fully complete supply commitment into the
+// database.
+func (s *SupplyCommitMachine) InsertSupplyCommit(ctx context.Context,
+	assetSpec asset.Specifier, commit supplycommit.RootCommitment,
+	leaves supplycommit.SupplyLeaves) error {
+
+	groupKey := assetSpec.UnwrapGroupKeyToPtr()
+	if groupKey == nil {
+		return ErrMissingGroupKey
+	}
+	groupKeyBytes := groupKey.SerializeCompressed()
+
+	commitTx := commit.Txn
+	internalKey := commit.InternalKey
+	outputKey := commit.OutputKey
+	outputIndex := commit.TxOutIdx
+
+	block, err := commit.CommitmentBlock.UnwrapOrErr(
+		supplycommit.ErrNoBlockInfo,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to unwrap commitment block: %w", err)
+	}
+
+	writeTx := WriteTxOption()
+	return s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
+		// Next, we'll upsert the chain transaction on disk. The block
+		// related fields are nil as this hasn't been confirmed yet.
+		var txBytes bytes.Buffer
+		if err := commitTx.Serialize(&txBytes); err != nil {
+			return fmt.Errorf("failed to serialize commit "+
+				"tx: %w", err)
+		}
+		txid := commitTx.TxHash()
+		chainTxID, err := db.UpsertChainTx(ctx, UpsertChainTxParams{
+			Txid:  txid[:],
+			RawTx: txBytes.Bytes(),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to upsert commit chain tx: "+
+				"%w", err)
+		}
+
+		// Upsert the internal key to get its ID. We assume key family
+		// and index 0 for now, as this key is likely externally.
+		internalKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
+			RawKey:    internalKey.PubKey.SerializeCompressed(),
+			KeyFamily: int32(internalKey.Family),
+			KeyIndex:  int32(internalKey.Index),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to upsert internal key %x: "+
+				"%w", internalKey.PubKey.SerializeCompressed(),
+				err)
+		}
+
+		// Now we fetch the previous commitment that is being spent by
+		// this one.
+		var spentCommitment sql.NullInt64
+		err = fn.MapOptionZ(
+			commit.SpentCommitment, func(op wire.OutPoint) error {
+				q := sqlc.QuerySupplyCommitmentByOutpointParams{
+					GroupKey:    groupKeyBytes,
+					Txid:        op.Hash[:],
+					OutputIndex: sqlInt32(op.Index),
+				}
+				row, err := db.QuerySupplyCommitmentByOutpoint(
+					ctx, q,
+				)
+				if err != nil {
+					return fmt.Errorf("failed to query "+
+						"spent commitment: %w", err)
+				}
+
+				spentCommitment = sqlInt64(
+					row.SupplyCommitment.CommitID,
+				)
+
+				return nil
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to fetch spent commitment: "+
+				"%w", err)
+		}
+
+		// Insert the new commitment record. Chain details (block
+		// height, header, proof, output index) are NULL at this stage.
+		params := sqlc.InsertSupplyCommitmentParams{
+			GroupKey:        groupKeyBytes,
+			ChainTxnID:      chainTxID,
+			InternalKeyID:   internalKeyID,
+			OutputKey:       outputKey.SerializeCompressed(),
+			SupplyRootHash:  nil,
+			SupplyRootSum:   sql.NullInt64{},
+			OutputIndex:     sqlInt32(outputIndex),
+			SpentCommitment: spentCommitment,
+		}
+		newCommitmentID, err := db.InsertSupplyCommitment(ctx, params)
+		if err != nil {
+			return fmt.Errorf("failed to insert new supply "+
+				"commitment: %w", err)
+		}
+
+		// Update the commitment record with the calculated root hash
+		// and sum.
+		finalRootSupplyRoot, err := applySupplyUpdatesInternal(
+			ctx, db, assetSpec, leaves.AllUpdates(),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to apply SMT updates: "+
+				"%w", err)
+		}
+		finalRootHash := finalRootSupplyRoot.NodeHash()
+		finalRootSum := finalRootSupplyRoot.NodeSum()
+		err = db.UpdateSupplyCommitmentRoot(
+			ctx, UpdateSupplyCommitmentRootParams{
+				CommitID:       newCommitmentID,
+				SupplyRootHash: finalRootHash[:],
+				SupplyRootSum:  sqlInt64(int64(finalRootSum)),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update commitment root "+
+				"hash/sum for commit %d: %w",
+				newCommitmentID, err)
+		}
+
+		// Next, we'll serialize the merkle proofs and block header, so
+		// we can update them on disk.
+		var (
+			proofBuf  bytes.Buffer
+			headerBuf bytes.Buffer
+		)
+
+		err = block.MerkleProof.Encode(&proofBuf)
+		if err != nil {
+			return fmt.Errorf("failed to encode "+
+				"merkle proof: %w", err)
+		}
+		err = block.BlockHeader.Serialize(&headerBuf)
+		if err != nil {
+			return fmt.Errorf("failed to "+
+				"serialize block header: %w",
+				err)
+		}
+		blockHeight := sqlInt32(block.Height)
+
+		// With all the information serialized above, we'll now update
+		// the chain proof information for this current supply commit.
+		err = db.UpdateSupplyCommitmentChainDetails(
+			ctx, SupplyCommitChainDetails{
+				CommitID:    newCommitmentID,
+				MerkleProof: proofBuf.Bytes(),
+				OutputIndex: sqlInt32(commit.TxOutIdx),
+				BlockHeader: headerBuf.Bytes(),
+				ChainTxnID:  chainTxID,
+				BlockHeight: blockHeight,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update commitment chain "+
+				"details: %w", err)
+		}
+
+		// Also update the chain_txns record itself with the
+		// confirmation details (block hash, height, index).
+		var commitTxBytes bytes.Buffer
+		err = commit.Txn.Serialize(&commitTxBytes)
+		if err != nil {
+			return fmt.Errorf("failed to serialize commit tx for "+
+				"update: %w", err)
+		}
+		commitTxid := commit.Txn.TxHash()
+
+		_, err = db.UpsertChainTx(ctx, UpsertChainTxParams{
+			Txid:      commitTxid[:],
+			RawTx:     commitTxBytes.Bytes(),
+			ChainFees: 0,
+			BlockHash: lnutils.ByteSlice(
+				block.BlockHeader.BlockHash(),
+			),
+			BlockHeight: blockHeight,
+			TxIndex:     sqlInt32(block.TxIndex),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to update chain_txns "+
+				"confirmation: %w", err)
+		}
+
+		return nil
+	})
+}
+
 // CommitState commits the state of the state machine to disk.
 func (s *SupplyCommitMachine) CommitState(ctx context.Context,
 	assetSpec asset.Specifier, state supplycommit.State) error {
