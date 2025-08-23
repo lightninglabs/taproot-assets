@@ -303,6 +303,14 @@ type MintingStore interface {
 		groupKey btcec.PublicKey) (fn.Option[DelegationKey], error)
 }
 
+// GroupFetcher is an interface that allows fetching of asset groups.
+type GroupFetcher interface {
+	// FetchGroupByGroupKey fetches the asset group with a matching tweaked
+	// key, including the genesis information used to create the group.
+	FetchGroupByGroupKey(ctx context.Context,
+		groupKey *btcec.PublicKey) (*asset.AssetGroup, error)
+}
+
 // ChainBridge is our bridge to the target chain. It's used to get confirmation
 // notifications, the current height, publish transactions, and also estimate
 // fees.

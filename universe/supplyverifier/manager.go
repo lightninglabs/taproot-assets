@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -61,9 +62,22 @@ type ManagerCfg struct {
 	// Chain is our access to the current main chain.
 	Chain tapgarden.ChainBridge
 
+	// AssetLookup is used to look up asset information such as asset groups
+	// and asset metadata.
+	AssetLookup supplycommit.AssetLookup
+
+	// Lnd is a collection of useful LND clients.
+	Lnd *lndclient.LndServices
+
 	// SupplyCommitView allows us to look up supply commitments and
 	// pre-commitments.
 	SupplyCommitView SupplyCommitView
+
+	// SupplyTreeView is used to fetch supply leaves by height.
+	SupplyTreeView SupplyTreeView
+
+	// GroupFetcher is used to fetch asset group information.
+	GroupFetcher tapgarden.GroupFetcher
 
 	// IssuanceSubscriptions registers verifier state machines to receive
 	// new asset group issuance event notifications.
@@ -207,10 +221,30 @@ func (m *Manager) InsertSupplyCommit(ctx context.Context,
 	assetSpec asset.Specifier, commitment supplycommit.RootCommitment,
 	leaves supplycommit.SupplyLeaves) error {
 
-	// TODO(ffranr): Verify supply commit without starting a state machine.
-	//  This is effectively where universe server supply commit verification
-	//  takes place. Once verified, we can store the commitment in the
-	//  local database.
+	// First, we verify the supply commitment to ensure it is valid and
+	// consistent with the given supply leaves.
+	verifier, err := NewVerifier(
+		VerifierCfg{
+			ChainBridge:      m.cfg.Chain,
+			AssetLookup:      m.cfg.AssetLookup,
+			Lnd:              m.cfg.Lnd,
+			GroupFetcher:     m.cfg.GroupFetcher,
+			SupplyCommitView: m.cfg.SupplyCommitView,
+			SupplyTreeView:   m.cfg.SupplyTreeView,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to create supply verifier: %w", err)
+	}
+
+	err = verifier.VerifyCommit(ctx, assetSpec, commitment, leaves)
+	if err != nil {
+		return fmt.Errorf("supply commitment verification failed: %w",
+			err)
+	}
+
+	// TODO(ffranr): Insert the commitment and leaves into the local
+	//  database.
 
 	return nil
 }

@@ -1597,7 +1597,7 @@ type emptyCacheVal = singleCacheValue[emptyVal]
 // GenGroupVerifier generates a group key verification callback function given a
 // DB handle.
 func GenGroupVerifier(ctx context.Context,
-	mintingStore MintingStore) func(*btcec.PublicKey) error {
+	mintingStore GroupFetcher) func(*btcec.PublicKey) error {
 
 	// Cache known group keys that were previously fetched.
 	assetGroups := lru.NewCache[asset.SerializedKey, emptyCacheVal](
@@ -1633,7 +1633,7 @@ func GenGroupVerifier(ctx context.Context,
 // GenGroupAnchorVerifier generates a caching group anchor verification
 // callback function given a DB handle.
 func GenGroupAnchorVerifier(ctx context.Context,
-	mintingStore MintingStore) func(*asset.Genesis, *asset.GroupKey) error {
+	mintingStore GroupFetcher) func(*asset.Genesis, *asset.GroupKey) error {
 
 	// Cache anchors for groups that were previously fetched.
 	groupAnchors := lru.NewCache[
