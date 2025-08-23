@@ -229,10 +229,9 @@ func (m *Manager) InsertSupplyCommit(ctx context.Context,
 			err)
 	}
 
-	// TODO(ffranr): Insert the commitment and leaves into the local
-	//  database.
-
-	return nil
+	return m.cfg.SupplyCommitView.InsertSupplyCommit(
+		ctx, assetSpec, commitment, leaves,
+	)
 }
 
 // CanHandle determines if the state machine associated with the given asset
