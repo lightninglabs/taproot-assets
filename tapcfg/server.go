@@ -547,6 +547,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		supplyverifier.ManagerCfg{
 			Chain:                 chainBridge,
 			SupplyCommitView:      supplyCommitStore,
+			SupplyTreeView:        supplyTreeStore,
 			IssuanceSubscriptions: universeSyncer,
 			DaemonAdapters:        lndFsmDaemonAdapters,
 		},

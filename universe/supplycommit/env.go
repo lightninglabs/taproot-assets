@@ -1,6 +1,7 @@
 package supplycommit
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -23,6 +24,12 @@ import (
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+)
+
+var (
+	// ErrNoBlockInfo is returned when a root commitment is expected to have
+	// block information, but it is missing.
+	ErrNoBlockInfo = fmt.Errorf("no block info available")
 )
 
 const (
@@ -108,6 +115,53 @@ type SupplyLeaves struct {
 
 	// IgnoreLeafEntries is a slice of ignore leaves.
 	IgnoreLeafEntries []NewIgnoreEvent
+}
+
+// AllUpdates returns a slice of all supply update events contained within
+// the SupplyLeaves instance. This includes mints, burns, and ignores.
+func (s SupplyLeaves) AllUpdates() []SupplyUpdateEvent {
+	mint := func(e NewMintEvent) SupplyUpdateEvent {
+		return &e
+	}
+	burn := func(e NewBurnEvent) SupplyUpdateEvent {
+		return &e
+	}
+	ignore := func(e NewIgnoreEvent) SupplyUpdateEvent {
+		return &e
+	}
+	allUpdates := make(
+		[]SupplyUpdateEvent, 0, len(s.IssuanceLeafEntries)+
+			len(s.BurnLeafEntries)+len(s.IgnoreLeafEntries),
+	)
+	allUpdates = append(allUpdates, fn.Map(s.IssuanceLeafEntries, mint)...)
+	allUpdates = append(allUpdates, fn.Map(s.BurnLeafEntries, burn)...)
+	allUpdates = append(allUpdates, fn.Map(s.IgnoreLeafEntries, ignore)...)
+
+	return allUpdates
+}
+
+// Validate performs basic validation on the supply leaves.
+func (s SupplyLeaves) Validate() error {
+	// Block height must be non-zero for all leaves.
+	for _, leaf := range s.IssuanceLeafEntries {
+		if leaf.BlockHeight() == 0 {
+			return fmt.Errorf("mint leaf has zero block height")
+		}
+	}
+
+	for _, leaf := range s.BurnLeafEntries {
+		if leaf.BlockHeight() == 0 {
+			return fmt.Errorf("burn leaf has zero block height")
+		}
+	}
+
+	for _, leaf := range s.IgnoreLeafEntries {
+		if leaf.BlockHeight() == 0 {
+			return fmt.Errorf("ignore leaf has zero block height")
+		}
+	}
+
+	return nil
 }
 
 // NewSupplyLeavesFromEvents creates a SupplyLeaves instance from a slice of
@@ -252,10 +306,17 @@ type PreCommitment struct {
 // TxIn returns the transaction input that corresponds to the pre-commitment.
 func (p *PreCommitment) TxIn() *wire.TxIn {
 	return &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{
-			Hash:  p.MintingTxn.TxHash(),
-			Index: p.OutIdx,
-		},
+		PreviousOutPoint: p.OutPoint(),
+	}
+}
+
+// OutPoint returns the outpoint that corresponds to the pre-commitment output.
+// This is the output that is spent by the supply commitment anchoring
+// transaction.
+func (p *PreCommitment) OutPoint() wire.OutPoint {
+	return wire.OutPoint{
+		Hash:  p.MintingTxn.TxHash(),
+		Index: p.OutIdx,
 	}
 }
 
@@ -377,6 +438,92 @@ func computeSupplyCommitTapscriptRoot(supplyRootHash mssmt.NodeHash,
 func (r *RootCommitment) TapscriptRoot() ([]byte, error) {
 	supplyRootHash := r.SupplyRoot.NodeHash()
 	return computeSupplyCommitTapscriptRoot(supplyRootHash)
+}
+
+// VerifyChainAnchor checks that the on-chain information is correct.
+func (r *RootCommitment) VerifyChainAnchor(merkleVerifier proof.MerkleVerifier,
+	headerVerifier proof.HeaderVerifier) error {
+
+	block, err := r.CommitmentBlock.UnwrapOrErr(ErrNoBlockInfo)
+	if err != nil {
+		return fmt.Errorf("unable to verify root commitment: %w", err)
+	}
+
+	if block.MerkleProof == nil {
+		return fmt.Errorf("merkle proof is missing")
+	}
+
+	if block.BlockHeader == nil {
+		return fmt.Errorf("block header is missing")
+	}
+
+	if block.Hash != block.BlockHeader.BlockHash() {
+		return fmt.Errorf("block hash %v does not match block header "+
+			"hash %v", block.Hash, block.BlockHeader.BlockHash())
+	}
+
+	if r.Txn == nil {
+		return fmt.Errorf("root commitment transaction is missing")
+	}
+
+	if r.SupplyRoot == nil {
+		return fmt.Errorf("supply root is missing")
+	}
+
+	err = fn.MapOptionZ(
+		r.SpentCommitment, func(prevOut wire.OutPoint) error {
+			if !proof.TxSpendsPrevOut(r.Txn, &prevOut) {
+				return fmt.Errorf("commitment TX doesn't " +
+					"spend previous commitment outpoint")
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to verify spent commitment: %w", err)
+	}
+
+	err = merkleVerifier(
+		r.Txn, block.MerkleProof, block.BlockHeader.MerkleRoot,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to verify merkle proof: %w", err)
+	}
+
+	err = headerVerifier(*block.BlockHeader, block.Height)
+	if err != nil {
+		return fmt.Errorf("unable to verify block header: %w", err)
+	}
+
+	if r.TxOutIdx >= uint32(len(r.Txn.TxOut)) {
+		return fmt.Errorf("tx out index %d is out of bounds for "+
+			"transaction with %d outputs", r.TxOutIdx,
+			len(r.Txn.TxOut))
+	}
+
+	txOut := r.Txn.TxOut[r.TxOutIdx]
+	expectedOut, _, err := RootCommitTxOut(
+		r.InternalKey.PubKey, nil, r.SupplyRoot.NodeHash(),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to create expected output: %w", err)
+	}
+
+	if txOut.Value != expectedOut.Value {
+		return fmt.Errorf("tx out value %d does not match expected "+
+			"value %d", txOut.Value, expectedOut.Value)
+	}
+
+	if !bytes.Equal(txOut.PkScript, expectedOut.PkScript) {
+		return fmt.Errorf("tx out pk script %x does not match "+
+			"expected pk script %x", txOut.PkScript,
+			expectedOut.PkScript)
+	}
+
+	// Everything that we can check just from the static information
+	// provided checks out.
+	return nil
 }
 
 // RootCommitTxOut returns the transaction output that corresponds to the root
