@@ -552,7 +552,11 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	supplyVerifyManager := supplyverifier.NewManager(
 		supplyverifier.ManagerCfg{
 			Chain:                 chainBridge,
+			AssetLookup:           tapdbAddrBook,
+			Lnd:                   lndServices,
 			SupplyCommitView:      supplyCommitStore,
+			SupplyTreeView:        supplyTreeStore,
+			GroupFetcher:          assetMintingStore,
 			IssuanceSubscriptions: universeSyncer,
 			DaemonAdapters:        lndFsmDaemonAdapters,
 		},
