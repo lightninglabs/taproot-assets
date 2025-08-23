@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -15,6 +16,11 @@ var (
 	// ErrCommitmentNotFound is returned when a supply commitment is not
 	// found.
 	ErrCommitmentNotFound = fmt.Errorf("commitment not found")
+
+	// ErrPrevCommitmentNotFound is returned when we try to fetch a
+	// previous supply commitment, but it is not found in the database.
+	ErrPrevCommitmentNotFound = fmt.Errorf("previous supply commitment " +
+		"not found")
 )
 
 // SupplyCommitView is an interface that is used to look up supply commitments
@@ -50,6 +56,13 @@ type SupplyCommitView interface {
 	// ErrCommitmentNotFound.
 	FetchStartingCommitment(ctx context.Context,
 		assetSpec asset.Specifier) (*supplycommit.RootCommitment, error)
+}
+
+type SupplyTreeView interface {
+	// FetchSupplyTrees returns a copy of the root supply tree and subtrees
+	// for the given asset spec.
+	FetchSupplyTrees(ctx context.Context, spec asset.Specifier) (mssmt.Tree,
+		*supplycommit.SupplyTrees, error)
 }
 
 // Environment is a struct that holds all the dependencies that the supply
