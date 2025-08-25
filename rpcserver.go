@@ -4407,7 +4407,7 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 	var subtrees supplycommit.SupplyTrees
 	if needsInclusionProofs {
 		subtreeResult, err := r.cfg.SupplyCommitManager.FetchSubTrees(
-			ctx, assetSpec,
+			ctx, assetSpec, fn.None[uint32](),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch subtrees for "+
