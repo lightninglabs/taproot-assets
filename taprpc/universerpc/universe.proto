@@ -803,6 +803,26 @@ message FetchSupplyCommitRequest {
         // REST).
         string group_key_str = 2;
     }
+
+    // Specifies which supply commit to fetch.
+    oneof locator {
+        // Fetch the the supply commitment that created this new commitment
+        // output on chain.
+        taprpc.OutPoint commit_outpoint = 3;
+
+        // Fetch the supply commitment that spent the specified commitment
+        // output on chain to create a new supply commitment. This can be used
+        // to traverse the chain of supply commitments by watching the spend of
+        // the commitment output.
+        taprpc.OutPoint spent_commit_outpoint = 4;
+
+        // Fetch the very first supply commitment for the asset group. This
+        // returns the initial supply commitment that spent the pre-commitment
+        // output of the very first asset mint of a grouped asset (also known
+        // as the group anchor). This is useful as the starting point to fetch
+        // all supply commitments for a grouped asset one by one.
+        bool very_first = 5;
+    }
 }
 
 message SupplyCommitSubtreeRoot {
@@ -821,43 +841,46 @@ message SupplyCommitSubtreeRoot {
 }
 
 message FetchSupplyCommitResponse {
-    // The supply commitment merkle sum root node for the specified asset.
-    MerkleSumNode supply_commitment_root = 1;
-
-    // The txid of the anchor transaction that commits to the supply
-    // commitment for the specified asset.
-    string anchor_txid = 2;
-
-    // The output index of the anchor transaction that commits to the supply
-    // commitment for the specified asset.
-    uint32 anchor_tx_out_idx = 3;
-
-    // The transaction output taproot internal key of the anchor transaction
-    // that commits to the supply commitment for the specified asset.
-    bytes anchor_tx_out_internal_key = 4;
-
-    // The height of the block at which the supply commitment was anchored.
-    uint32 block_height = 5;
-
-    // The hash of the block at which the supply commitment was anchored.
-    bytes block_hash = 6;
-
-    // The index of the transaction in the block that commits to the supply
-    // commitment.
-    uint32 block_tx_index = 7;
+    // The supply commitment chain data that contains both the commitment and
+    // chain proof information.
+    SupplyCommitChainData chain_data = 1;
 
     // The total number of satoshis in on-chain fees paid by the supply
     // commitment transaction.
-    int64 tx_chain_fees_sats = 8;
+    int64 tx_chain_fees_sats = 2;
 
     // The root of the issuance tree for the specified asset.
-    SupplyCommitSubtreeRoot issuance_subtree_root = 9;
+    SupplyCommitSubtreeRoot issuance_subtree_root = 3;
 
     // The root of the burn tree for the specified asset.
-    SupplyCommitSubtreeRoot burn_subtree_root = 10;
+    SupplyCommitSubtreeRoot burn_subtree_root = 4;
 
     // The root of the ignore tree for the specified asset.
-    SupplyCommitSubtreeRoot ignore_subtree_root = 11;
+    SupplyCommitSubtreeRoot ignore_subtree_root = 5;
+
+    // The issuance leaves that were added by this supply commitment. Does not
+    // include leaves that were already present in the issuance subtree before
+    // the block height at which this supply commitment was anchored.
+    repeated SupplyLeafEntry issuance_leaves = 6;
+
+    // The burn leaves that were added by this supply commitment. Does not
+    // include leaves that were already present in the burn subtree before
+    // the block height at which this supply commitment was anchored.
+    repeated SupplyLeafEntry burn_leaves = 7;
+
+    // The ignore leaves that were added by this supply commitment. Does not
+    // include leaves that were already present in the ignore subtree before
+    // the block height at which this supply commitment was anchored.
+    repeated SupplyLeafEntry ignore_leaves = 8;
+
+    // The total outstanding supply of the asset after applying all the supply
+    // changes (issuance, burn, ignore) included in this supply commitment.
+    uint64 total_outstanding_supply = 9;
+
+    // The outpoint of the previous commitment that this new commitment is
+    // spending. This must be set unless this is the very first supply
+    // commitment of a grouped asset.
+    taprpc.OutPoint spent_commitment_outpoint = 10;
 }
 
 message FetchSupplyLeavesRequest {
