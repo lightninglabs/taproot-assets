@@ -7,9 +7,11 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightningnetwork/lnd/msgmux"
@@ -246,6 +248,245 @@ func (m *Manager) InsertSupplyCommit(ctx context.Context,
 	return m.cfg.SupplyCommitView.InsertSupplyCommit(
 		ctx, assetSpec, commitment, leaves,
 	)
+}
+
+// SupplyCommitSnapshot packages the on-chain state of a supply commitment at a
+// specific block height: the root commitment, the supply tree,
+// the subtrees at that height, the new leaves since the previous commitment,
+// and the chain proof that links the leaves to the root.
+//
+// TODO(guggero): Replace call sites that pass three separate params with
+// this struct.
+type SupplyCommitSnapshot struct {
+	// Commitment is the root supply commitment that commits to all supply
+	// leaves up to the block height recorded in CommitmentBlock.
+	Commitment supplycommit.RootCommitment
+
+	// SupplyTree is the upper supply tree as of CommitmentBlock.
+	SupplyTree mssmt.Tree
+
+	// Subtrees are the supply subtrees as of CommitmentBlock.
+	Subtrees supplycommit.SupplyTrees
+
+	// Leaves are the supply leaves added after the previous commitment's
+	// block height (exclusive) and up to this commitment's block height
+	// (inclusive).
+	Leaves supplycommit.SupplyLeaves
+}
+
+// LocatorType is an enum that indicates the type of locator used to identify
+// a supply commitment in the database.
+type LocatorType uint8
+
+const (
+	// LocatorTypeOutpoint indicates that the locator type is the outpoint
+	// of a supply commitment transaction output.
+	LocatorTypeOutpoint LocatorType = 0
+
+	// LocatorTypeSpentOutpoint indicates that the locator type is the
+	// outpoint spent by a supply commitment transaction.
+	LocatorTypeSpentOutpoint LocatorType = 1
+
+	// LocatorTypeVeryFirst indicates that the locator type is the very
+	// first supply commitment transaction output for an asset group.
+	LocatorTypeVeryFirst LocatorType = 2
+)
+
+// CommitLocator is used to locate a supply commitment in the database based on
+// its on-chain characteristics.
+type CommitLocator struct {
+	// LocatorType indicates the type of locator used to identify the
+	// supply commitment.
+	LocatorType LocatorType
+
+	// Outpoint is the outpoint used to locate a supply commitment.
+	// Depending on the LocatorType, this may be the outpoint created by a
+	// supply commitment, the outpoint spent by a supply commitment, or an
+	// empty outpoint for the very first supply commitment of an asset
+	// group.
+	Outpoint wire.OutPoint
+}
+
+// BlockHeightRange represents a range of block heights, inclusive of both
+// start and end.
+type BlockHeightRange struct {
+	// Start is the starting block height of the range.
+	Start uint32
+
+	// End is the ending block height of the range.
+	End uint32
+}
+
+// fetchCommitmentBlockRange returns the block height range for fetching supply
+// leaves for the given commitment.
+//
+// The range starts from the block height of the previous commitment
+// (exclusive) to the block height of the given commitment (inclusive). If
+// there is no previous commitment, the range starts from block height zero.
+func (m *Manager) fetchCommitmentBlockRange(ctx context.Context,
+	assetSpec asset.Specifier,
+	commitment supplycommit.RootCommitment) (BlockHeightRange, error) {
+
+	var (
+		zero BlockHeightRange
+		view = m.cfg.SupplyCommitView
+	)
+
+	commitmentBlock, err := commitment.CommitmentBlock.UnwrapOrErr(
+		supplycommit.ErrNoBlockInfo,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("unable to fetch commitment block: %w",
+			err)
+	}
+
+	// Determine the block height range for fetching supply leaves.
+	//
+	// If there is no preceding commitment, the block height range starts
+	// from zero.
+	if commitment.SpentCommitment.IsNone() {
+		heightRange := BlockHeightRange{
+			Start: 0,
+			End:   commitmentBlock.Height,
+		}
+
+		return heightRange, nil
+	}
+
+	// Otherwise, we need to fetch the previous commitment to determine
+	// the starting block height.
+	prevCommitmentOutPoint, err := commitment.SpentCommitment.UnwrapOrErr(
+		fmt.Errorf("supply commitment unexpectedly has no spent " +
+			"outpoint"),
+	)
+	if err != nil {
+		return zero, err
+	}
+
+	spentCommitment, err := view.FetchCommitmentByOutpoint(
+		ctx, assetSpec, prevCommitmentOutPoint,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("unable to fetch commitment by "+
+			"outpoint: %w", err)
+	}
+
+	spentCommitmentBlock, err := spentCommitment.CommitmentBlock.
+		UnwrapOrErr(supplycommit.ErrNoBlockInfo)
+	if err != nil {
+		return zero, fmt.Errorf("unable to fetch spent commitment "+
+			"block: %w", err)
+	}
+
+	return BlockHeightRange{
+		Start: spentCommitmentBlock.Height,
+		End:   commitmentBlock.Height,
+	}, nil
+}
+
+// FetchCommitment fetches the commitment with the given locator from the local
+// database view.
+func (m *Manager) FetchCommitment(ctx context.Context,
+	assetSpec asset.Specifier, locator CommitLocator) (SupplyCommitSnapshot,
+	error) {
+
+	var (
+		zero SupplyCommitSnapshot
+		err  error
+
+		view       = m.cfg.SupplyCommitView
+		commitment *supplycommit.RootCommitment
+	)
+	switch locator.LocatorType {
+	case LocatorTypeOutpoint:
+		commitment, err = view.FetchCommitmentByOutpoint(
+			ctx, assetSpec, locator.Outpoint,
+		)
+		if err != nil {
+			return zero, fmt.Errorf("unable to fetch commitment "+
+				"by outpoint: %w", err)
+		}
+
+	case LocatorTypeSpentOutpoint:
+		commitment, err = view.FetchCommitmentBySpentOutpoint(
+			ctx, assetSpec, locator.Outpoint,
+		)
+		if err != nil {
+			return zero, fmt.Errorf("unable to fetch commitment "+
+				"by spent outpoint: %w", err)
+		}
+
+	case LocatorTypeVeryFirst:
+		commitment, err = view.FetchStartingCommitment(ctx, assetSpec)
+		if err != nil {
+			return zero, fmt.Errorf("unable to fetch starting "+
+				"commitment: %w", err)
+		}
+
+	default:
+		return zero, fmt.Errorf("unknown supply commit locator "+
+			"type: %d", locator.LocatorType)
+	}
+
+	// Fetch block height range for fetching supply leaves.
+	blockHeightRange, err := m.fetchCommitmentBlockRange(
+		ctx, assetSpec, *commitment,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("unable to fetch block height "+
+			"range: %w", err)
+	}
+
+	leaves, err := m.cfg.SupplyTreeView.FetchSupplyLeavesByHeight(
+		ctx, assetSpec, blockHeightRange.Start, blockHeightRange.End,
+	).Unpack()
+	if err != nil {
+		return zero, fmt.Errorf("unable to fetch supply leaves for "+
+			"asset specifier %s: %w", assetSpec.String(), err)
+	}
+
+	// Fetch supply subtrees at block height.
+	subtrees, err := m.cfg.SupplyTreeView.FetchSubTrees(
+		ctx, assetSpec, fn.Some(blockHeightRange.End),
+	).Unpack()
+	if err != nil {
+		return zero, fmt.Errorf("unable to fetch supply subtrees for "+
+			"asset specifier %s: %w", assetSpec.String(), err)
+	}
+
+	// Formulate supply tree at correct height from subtrees.
+	bareSupplyTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+	supplyTree, err := supplycommit.UpdateRootSupplyTree(
+		ctx, bareSupplyTree, subtrees,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("unable to formulate supply tree "+
+			"for asset specifier %s: %w", assetSpec.String(), err)
+	}
+
+	// Sanity check that the derived upper supply tree root matches the
+	// commitment.
+	expectedSupplyRoot, err := supplyTree.Root(ctx)
+	if err != nil {
+		return zero, fmt.Errorf("unable to fetch upper supply tree "+
+			"root for asset specifier %s: %w",
+			assetSpec.String(), err)
+	}
+
+	expectedRootHash := expectedSupplyRoot.NodeHash()
+	actualRootHash := commitment.SupplyRoot.NodeHash()
+	if expectedRootHash != actualRootHash {
+		return zero, fmt.Errorf("supply root mismatch for asset "+
+			"specifier %s: expected %s, got %s",
+			assetSpec.String(), expectedRootHash, actualRootHash)
+	}
+
+	return SupplyCommitSnapshot{
+		Commitment: *commitment,
+		SupplyTree: supplyTree,
+		Subtrees:   subtrees,
+		Leaves:     leaves,
+	}, nil
 }
 
 // CanHandle determines if the state machine associated with the given asset
