@@ -1,6 +1,7 @@
 package rfq
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -146,10 +147,9 @@ func (n *Negotiator) queryBuyFromPriceOracle(assetSpecifier asset.Specifier,
 	}
 
 	// Now we will check for an error in the response from the price oracle.
-	// If present, we will convert it to a string and return it as an error.
+	// If present, we will simply relay it.
 	if oracleResponse.Err != nil {
-		return nil, fmt.Errorf("failed to query price oracle for "+
-			"buy price: %s", oracleResponse.Err)
+		return nil, oracleResponse.Err
 	}
 
 	// By this point, the price oracle did not return an error or a buy
@@ -282,10 +282,9 @@ func (n *Negotiator) querySellFromPriceOracle(assetSpecifier asset.Specifier,
 	}
 
 	// Now we will check for an error in the response from the price oracle.
-	// If present, we will convert it to a string and return it as an error.
+	// If present, we will simply relay it.
 	if oracleResponse.Err != nil {
-		return nil, fmt.Errorf("failed to query price oracle for "+
-			"sell price: %s", oracleResponse.Err)
+		return nil, oracleResponse.Err
 	}
 
 	// By this point, the price oracle did not return an error or a sell
@@ -372,10 +371,12 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 			peerID, request.PriceOracleMetadata, IntentRecvPayment,
 		)
 		if err != nil {
-			// Send a reject message to the peer.
+			// Construct an appropriate RejectErr based on
+			// the oracle's response, and send it to the
+			// peer.
 			msg := rfqmsg.NewReject(
 				request.Peer, request.ID,
-				rfqmsg.ErrUnknownReject,
+				createCustomRejectErr(err),
 			)
 			sendOutgoingMsg(msg)
 
@@ -473,10 +474,12 @@ func (n *Negotiator) HandleIncomingSellRequest(
 			peerID, request.PriceOracleMetadata, IntentPayInvoice,
 		)
 		if err != nil {
-			// Send a reject message to the peer.
+			// Construct an appropriate RejectErr based on
+			// the oracle's response, and send it to the
+			// peer.
 			msg := rfqmsg.NewReject(
 				request.Peer, request.ID,
-				rfqmsg.ErrUnknownReject,
+				createCustomRejectErr(err),
 			)
 			sendOutgoingMsg(msg)
 
@@ -493,6 +496,35 @@ func (n *Negotiator) HandleIncomingSellRequest(
 	}()
 
 	return nil
+}
+
+// createCustomRejectErr creates a RejectErr with code 0 and a custom message
+// based on an error response from a price oracle.
+func createCustomRejectErr(err error) rfqmsg.RejectErr {
+	var oracleError *OracleError
+
+	if errors.As(err, &oracleError) {
+		// The error is of the expected type, so switch on the error
+		// code returned by the oracle. If the code is benign, then the
+		// RejectErr will simply relay the oracle's message. Otherwise,
+		// we'll return an opaque rejection message.
+		switch oracleError.Code {
+		// The rejection message will state that the oracle doesn't
+		// support the asset.
+		case ErrUnsupportedOracleAsset:
+			msg := oracleError.Msg
+			return rfqmsg.ErrRejectWithCustomMsg(msg)
+
+		// The rejection message will be opaque, with the error
+		// unspecified.
+		default:
+			return rfqmsg.ErrUnknownReject
+		}
+	} else {
+		// The error is of an unexpected type, so just return an opaque
+		// error message.
+		return rfqmsg.ErrUnknownReject
+	}
 }
 
 // HandleOutgoingSellOrder handles an outgoing sell order by constructing sell

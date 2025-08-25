@@ -26,8 +26,8 @@
 - [An integration test flake was
   fixed](https://github.com/lightninglabs/taproot-assets/pull/1651).
 
-- Fixed two send related bugs that would lead to either a `invalid transfer 
-  asset witness` or `unable to fund address send: error funding packet: unable 
+- Fixed two send related bugs that would lead to either a `invalid transfer
+  asset witness` or `unable to fund address send: error funding packet: unable
   to list eligible coins: unable to query commitments: mismatch of managed utxo
   and constructed tap commitment root` error when sending assets.
   The [PR that fixed the two
@@ -119,17 +119,25 @@
   when requesting quotes. The field can contain optional user or authentication
   information that helps the price oracle to decide on the optimal price rate to
   return.
+
+- The error code returned in a response from a price oracle now has a
+  [structured
+  form](https://github.com/lightninglabs/taproot-assets/pull/1766),
+  allowing price oracles to either indicate that a given asset is
+  unsupported, or simply to return an opaque error. "Unsupported asset"
+  errors are forwarded in reject messages sent to peers.
+
 - [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the
   `MintAsset` RPC message field from `universe_commitments` to
   `enable_supply_commitments`.
-- The `SubscribeSendEvents` RPC now supports [historical event replay of 
+- The `SubscribeSendEvents` RPC now supports [historical event replay of
   completed sends with efficient database-level
   filtering](https://github.com/lightninglabs/taproot-assets/pull/1685).
 - [Add universe RPC endpoint FetchSupplyLeaves](https://github.com/lightninglabs/taproot-assets/pull/1693)
   that allows users to fetch the supply leaves of a universe supply commitment.
   This is useful for verification.
 
-- A [new field `unconfirmed_transfers` was added to the response of the 
+- A [new field `unconfirmed_transfers` was added to the response of the
   `ListBalances` RPC
   method](https://github.com/lightninglabs/taproot-assets/pull/1691) to indicate
   that unconfirmed asset-related transactions don't count toward the balance.
@@ -236,5 +244,6 @@
 
 - ffranr
 - George Tsagkarelis
+- jtobin
 - Olaoluwa Osuntokun
 - Oliver Gugger

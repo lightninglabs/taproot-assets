@@ -86,11 +86,25 @@ const (
 // service.
 type OracleError struct {
 	// Code is a code which uniquely identifies the error type.
-	Code uint8
+	Code OracleErrorCode
 
 	// Msg is a human-readable error message.
 	Msg string
 }
+
+// OracleErrorCode uniquely identifies the kinds of error an oracle may
+// return.
+type OracleErrorCode uint8
+
+const (
+	// ErrUnspecifiedOracleError represents the case where the oracle has
+	// declined to give a more specific reason for the error.
+	ErrUnspecifiedOracleError OracleErrorCode = iota
+
+	// ErrUnsupportedOracleAsset represents the case in which an oracle does
+	// not provide quotes for the requested asset.
+	ErrUnsupportedOracleAsset
+)
 
 // Error returns a human-readable string representation of the error.
 func (o *OracleError) Error() string {
@@ -356,12 +370,26 @@ func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
 
 		return &OracleResponse{
 			Err: &OracleError{
-				Msg: result.Error.Message,
+				Msg:  result.Error.Message,
+				Code: marshallErrorCode(result.Error.Code),
 			},
 		}, nil
 
 	default:
 		return nil, fmt.Errorf("unexpected response type: %T", result)
+	}
+}
+
+// marshallErrorCode marshalls an over-the-wire error code into an
+// OracleErrorCode.
+func marshallErrorCode(code oraclerpc.ErrorCode) OracleErrorCode {
+	switch code {
+	case oraclerpc.ErrorCode_ERROR_UNSPECIFIED:
+		return ErrUnspecifiedOracleError
+	case oraclerpc.ErrorCode_ERROR_UNSUPPORTED:
+		return ErrUnsupportedOracleAsset
+	default:
+		return ErrUnspecifiedOracleError
 	}
 }
 
@@ -467,7 +495,8 @@ func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context,
 
 		return &OracleResponse{
 			Err: &OracleError{
-				Msg: result.Error.Message,
+				Msg:  result.Error.Message,
+				Code: marshallErrorCode(result.Error.Code),
 			},
 		}, nil
 
