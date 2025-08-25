@@ -531,7 +531,9 @@ func (m *Manager) FetchCommitment(ctx context.Context,
 			"supply tree: %w", err)
 	}
 
-	subtrees, err := m.cfg.TreeView.FetchSubTrees(ctx, assetSpec).Unpack()
+	subtrees, err := m.cfg.TreeView.FetchSubTrees(
+		ctx, assetSpec, fn.None[uint32](),
+	).Unpack()
 	if err != nil {
 		return zero, fmt.Errorf("unable to fetch supply commit sub "+
 			"trees: %w", err)
@@ -565,11 +567,14 @@ func (m *Manager) FetchSupplyLeavesByHeight(
 
 // FetchSubTrees returns all the sub trees for the given asset specifier.
 func (m *Manager) FetchSubTrees(ctx context.Context,
-	assetSpec asset.Specifier) (SupplyTrees, error) {
+	assetSpec asset.Specifier,
+	blockHeightEnd fn.Option[uint32]) (SupplyTrees, error) {
 
 	var zero SupplyTrees
 
-	subtrees, err := m.cfg.TreeView.FetchSubTrees(ctx, assetSpec).Unpack()
+	subtrees, err := m.cfg.TreeView.FetchSubTrees(
+		ctx, assetSpec, blockHeightEnd,
+	).Unpack()
 	if err != nil {
 		return zero, fmt.Errorf("unable to fetch sub trees: %w", err)
 	}

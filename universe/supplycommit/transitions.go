@@ -372,7 +372,7 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 		//
 		// TODO(roasbeef): sanity check on population of map?
 		oldSupplyTrees, err := env.TreeView.FetchSubTrees(
-			ctx, env.AssetSpec,
+			ctx, env.AssetSpec, fn.None[uint32](),
 		).Unpack()
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch old sub "+
