@@ -269,9 +269,10 @@ type SupplyTreeView interface {
 	FetchSubTree(ctx context.Context, assetSpec asset.Specifier,
 		treeType SupplySubTree) lfn.Result[mssmt.Tree]
 
-	// FetchSubTrees returns all the sub trees for the given asset spec.
+	// FetchSubTrees returns all the subtrees for the given asset spec.
 	FetchSubTrees(ctx context.Context,
-		assetSpec asset.Specifier) lfn.Result[SupplyTrees]
+		assetSpec asset.Specifier,
+		blockHeightEnd fn.Option[uint32]) lfn.Result[SupplyTrees]
 
 	// FetchRootSupplyTree returns the root supply tree which contains a
 	// commitment to each of the sub trees.
