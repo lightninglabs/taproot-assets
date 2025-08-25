@@ -497,55 +497,6 @@ type FetchCommitmentResp struct {
 	ChainCommitment RootCommitment
 }
 
-// FetchCommitment fetches the supply commitment for the given asset specifier.
-func (m *Manager) FetchCommitment(ctx context.Context,
-	assetSpec asset.Specifier) (fn.Option[FetchCommitmentResp], error) {
-
-	var zero fn.Option[FetchCommitmentResp]
-
-	chainCommitOpt, err := m.cfg.Commitments.SupplyCommit(
-		ctx, assetSpec,
-	).Unpack()
-	if err != nil {
-		return zero, fmt.Errorf("unable to fetch supply commit: %w",
-			err)
-	}
-
-	if chainCommitOpt.IsNone() {
-		// If the chain commitment is not present, we return an empty
-		// response.
-		return zero, nil
-	}
-	chainCommit, err := chainCommitOpt.UnwrapOrErr(
-		fmt.Errorf("unable to fetch supply commit: %w", err),
-	)
-	if err != nil {
-		return zero, err
-	}
-
-	supplyTree, err := m.cfg.TreeView.FetchRootSupplyTree(
-		ctx, assetSpec,
-	).Unpack()
-	if err != nil {
-		return zero, fmt.Errorf("unable to fetch supply commit root "+
-			"supply tree: %w", err)
-	}
-
-	subtrees, err := m.cfg.TreeView.FetchSubTrees(
-		ctx, assetSpec, fn.None[uint32](),
-	).Unpack()
-	if err != nil {
-		return zero, fmt.Errorf("unable to fetch supply commit sub "+
-			"trees: %w", err)
-	}
-
-	return fn.Some(FetchCommitmentResp{
-		SupplyTree:      supplyTree,
-		Subtrees:        subtrees,
-		ChainCommitment: chainCommit,
-	}), nil
-}
-
 // FetchSupplyLeavesByHeight returns the set of supply leaves for the given
 // asset specifier within the specified height range.
 func (m *Manager) FetchSupplyLeavesByHeight(
