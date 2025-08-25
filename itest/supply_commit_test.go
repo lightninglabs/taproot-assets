@@ -247,11 +247,13 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 			GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
 				GroupKeyBytes: groupKeyBytes,
 			},
+			Locator: &unirpc.FetchSupplyCommitRequest_VeryFirst{
+				VeryFirst: true,
+			},
 		},
 	)
 	require.Nil(t.t, fetchRespNil)
-	require.ErrorContains(t.t, err, "supply commitment not found for "+
-		"asset group with key")
+	require.ErrorContains(t.t, err, "commitment not found")
 
 	t.Log("Update on-chain supply commitment for asset group")
 
@@ -281,6 +283,9 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 				GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
 					GroupKeyBytes: groupKeyBytes,
 				},
+				Locator: &unirpc.FetchSupplyCommitRequest_VeryFirst{
+					VeryFirst: true,
+				},
 			},
 		)
 		require.NoError(t.t, err)
@@ -288,19 +293,25 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 		// If the fetch response has no block height or hash,
 		// it means that the supply commitment transaction has not
 		// been mined yet, so we should retry.
-		if fetchResp.BlockHeight == 0 || len(fetchResp.BlockHash) == 0 {
+		if fetchResp.ChainData.BlockHeight == 0 ||
+			len(fetchResp.ChainData.BlockHash) == 0 {
+
 			return false
 		}
 
 		// Once the ignore tree includes the ignored asset outpoint, we
 		// know that the supply commitment has been updated.
+		if fetchResp.IgnoreSubtreeRoot == nil {
+			return false
+		}
+
 		return fetchResp.IgnoreSubtreeRoot.RootNode.RootSum ==
 			int64(sendAssetAmount+sendChangeAmount)
 	}, defaultWaitTimeout, time.Second)
 
 	// Verify that the supply commitment tree commits to the ignore subtree.
 	supplyCommitRootHash := fn.ToArray[[32]byte](
-		fetchResp.SupplyCommitmentRoot.RootHash,
+		fetchResp.ChainData.SupplyRootHash,
 	)
 
 	// Formulate the ignore leaf node as it should appear in the supply
@@ -369,18 +380,18 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 
 	// Ensure that the block hash and height matches the values in the fetch
 	// response.
-	fetchBlockHash, err := chainhash.NewHash(fetchResp.BlockHash)
+	fetchBlockHash, err := chainhash.NewHash(fetchResp.ChainData.BlockHash)
 	require.NoError(t.t, err)
 	require.True(t.t, fetchBlockHash.IsEqual(blockHash))
 
-	require.EqualValues(t.t, blockHeight, fetchResp.BlockHeight)
+	require.EqualValues(t.t, blockHeight, fetchResp.ChainData.BlockHeight)
 
 	// We expect two transactions in the block:
 	// 1. The supply commitment transaction.
 	// 2. The coinbase transaction.
 	require.Len(t.t, block.Transactions, 2)
 
-	internalKey, err := btcec.ParsePubKey(fetchResp.AnchorTxOutInternalKey)
+	internalKey, err := btcec.ParsePubKey(fetchResp.ChainData.InternalKey)
 	require.NoError(t.t, err)
 
 	expectedTxOut, _, err := supplycommit.RootCommitTxOut(
@@ -415,7 +426,9 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 	}
 
 	require.True(t.t, foundCommitTxOut)
-	require.EqualValues(t.t, actualBlockTxIndex, fetchResp.BlockTxIndex)
+	require.EqualValues(
+		t.t, actualBlockTxIndex, fetchResp.ChainData.TxIndex,
+	)
 
 	// If we try to ignore the same asset outpoint using the secondary
 	// node, it should fail because the secondary node does not have access

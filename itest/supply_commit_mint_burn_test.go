@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -48,18 +49,19 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 	// Update the on-chain supply commitment for the asset group.
 	//
 	// TODO(roasbeef): still rely on the time based ticker here?
-	t.Log("Updating and mining supply commitment for asset group")
+	t.Log("Create first supply commitment tx for asset group")
 	UpdateAndMineSupplyCommit(
 		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
 		groupKeyBytes, 1,
 	)
 
 	// Fetch the latest supply commitment for the asset group.
-	t.Log("Fetching supply commitment to verify mint leaves")
-	fetchResp := WaitForSupplyCommit(
-		t.t, ctxb, t.tapd, groupKeyBytes,
+	t.Log("Fetching first supply commitment to verify mint leaves")
+	fetchResp, supplyOutpoint := WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.None[wire.OutPoint](),
 		func(resp *unirpc.FetchSupplyCommitResponse) bool {
-			return resp.BlockHeight > 0 && len(resp.BlockHash) > 0
+			return resp.ChainData.BlockHeight > 0 &&
+				len(resp.ChainData.BlockHash) > 0
 		},
 	)
 
@@ -72,7 +74,7 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 
 	// Verify the issuance leaf inclusion in the supply tree.
 	AssertSubtreeInclusionProof(
-		t, fetchResp.SupplyCommitmentRoot.RootHash,
+		t, fetchResp.ChainData.SupplyRootHash,
 		fetchResp.IssuanceSubtreeRoot,
 	)
 
@@ -106,8 +108,6 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 	)
 
 	t.Log("Updating supply commitment after second mint")
-
-	// Update and mine the supply commitment after second mint.
 	UpdateAndMineSupplyCommit(
 		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
 		groupKeyBytes, 1,
@@ -119,8 +119,8 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 	expectedTotal := int64(
 		mintReq.Asset.Amount + secondMintReq.Asset.Amount,
 	)
-	fetchResp = WaitForSupplyCommit(
-		t.t, ctxb, t.tapd, groupKeyBytes,
+	fetchResp, supplyOutpoint = WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(supplyOutpoint),
 		func(resp *unirpc.FetchSupplyCommitResponse) bool {
 			return resp.IssuanceSubtreeRoot != nil &&
 				resp.IssuanceSubtreeRoot.RootNode.RootSum == expectedTotal //nolint:lll
@@ -175,7 +175,8 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 	t.Log("Verifying supply tree includes burn leaves")
 
 	// Fetch and verify the supply tree now includes burn leaves.
-	fetchResp = WaitForSupplyCommit(t.t, ctxb, t.tapd, groupKeyBytes,
+	fetchResp, _ = WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(supplyOutpoint),
 		func(resp *unirpc.FetchSupplyCommitResponse) bool {
 			return resp.BurnSubtreeRoot != nil &&
 				resp.BurnSubtreeRoot.RootNode.RootSum == int64(burnAmt) //nolint:lll
@@ -184,7 +185,7 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 
 	// Verify the burn subtree inclusion in the supply tree.
 	AssertSubtreeInclusionProof(
-		t, fetchResp.SupplyCommitmentRoot.RootHash,
+		t, fetchResp.ChainData.SupplyRootHash,
 		fetchResp.BurnSubtreeRoot,
 	)
 
@@ -234,16 +235,16 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 	block := finalMinedBlocks[0]
 	blockHash, _ := t.lndHarness.Miner().GetBestBlock()
 
-	fetchBlockHash, err := chainhash.NewHash(fetchResp.BlockHash)
+	fetchBlockHash, err := chainhash.NewHash(fetchResp.ChainData.BlockHash)
 	require.NoError(t.t, err)
 	require.True(t.t, fetchBlockHash.IsEqual(blockHash))
 
 	// Re-compute the supply commitment root hash from the latest fetch,
 	// then use that to derive the expected commitment output.
 	supplyCommitRootHash := fn.ToArray[[32]byte](
-		fetchResp.SupplyCommitmentRoot.RootHash,
+		fetchResp.ChainData.SupplyRootHash,
 	)
-	internalKey, err := btcec.ParsePubKey(fetchResp.AnchorTxOutInternalKey)
+	internalKey, err := btcec.ParsePubKey(fetchResp.ChainData.InternalKey)
 	require.NoError(t.t, err)
 	expectedTxOut, _, err := supplycommit.RootCommitTxOut(
 		internalKey, nil, supplyCommitRootHash,
