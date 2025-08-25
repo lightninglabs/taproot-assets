@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
@@ -63,11 +64,25 @@ type SupplyCommitView interface {
 		leaves supplycommit.SupplyLeaves) error
 }
 
+// SupplyTreeView is an interface that is used to look up the root (upper)
+// supply tree, subtrees, and leaves.
+//
+// nolint: lll
 type SupplyTreeView interface {
 	// FetchSupplyTrees returns a copy of the root supply tree and subtrees
 	// for the given asset spec.
 	FetchSupplyTrees(ctx context.Context, spec asset.Specifier) (mssmt.Tree,
 		*supplycommit.SupplyTrees, error)
+
+	// FetchSubTrees returns all the subtrees for the given asset spec.
+	FetchSubTrees(ctx context.Context, assetSpec asset.Specifier,
+		blockHeightEnd fn.Option[uint32]) lfn.Result[supplycommit.SupplyTrees]
+
+	// FetchSupplyLeavesByHeight fetches all supply leaves for a given asset
+	// specifier within a given block height range.
+	FetchSupplyLeavesByHeight(ctx context.Context, spec asset.Specifier,
+		startHeight,
+		endHeight uint32) lfn.Result[supplycommit.SupplyLeaves]
 }
 
 // Environment is a struct that holds all the dependencies that the supply
