@@ -2,6 +2,12 @@ package mssmt
 
 import "context"
 
+// CopyFilterPredicate is a type alias for a filter function used in CopyFilter.
+// It takes a key and leaf node as input and returns a boolean indicating
+// whether to include the leaf in the copy operation. A true value means the
+// leaf should be included, while false means it should be excluded.
+type CopyFilterPredicate = func([hashSize]byte, LeafNode) (bool, error)
+
 // Tree is an interface defining an abstract MSSMT tree type.
 type Tree interface {
 	// Root returns the root node of the MS-SMT.
@@ -39,4 +45,10 @@ type Tree interface {
 	// Copy copies all the key-value pairs from the source tree into the
 	// target tree.
 	Copy(ctx context.Context, targetTree Tree) error
+
+	// CopyFilter copies all the key-value pairs from the source tree into
+	// the target tree that pass the filter callback. The filter callback is
+	// invoked for each leaf-key pair.
+	CopyFilter(ctx context.Context, targetTree Tree,
+		filterFunc CopyFilterPredicate) error
 }
