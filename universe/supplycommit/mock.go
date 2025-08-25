@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -36,7 +37,8 @@ func (m *mockSupplyTreeView) FetchSubTree(_ context.Context,
 }
 
 func (m *mockSupplyTreeView) FetchSubTrees(_ context.Context,
-	assetSpec asset.Specifier) lfn.Result[SupplyTrees] {
+	assetSpec asset.Specifier,
+	blockHeightEnd fn.Option[uint32]) lfn.Result[SupplyTrees] {
 
 	args := m.Called(assetSpec)
 	return args.Get(0).(lfn.Result[SupplyTrees])

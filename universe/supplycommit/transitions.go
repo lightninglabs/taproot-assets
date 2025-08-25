@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -371,7 +372,7 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 		//
 		// TODO(roasbeef): sanity check on population of map?
 		oldSupplyTrees, err := env.TreeView.FetchSubTrees(
-			ctx, env.AssetSpec,
+			ctx, env.AssetSpec, fn.None[uint32](),
 		).Unpack()
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch old sub "+
