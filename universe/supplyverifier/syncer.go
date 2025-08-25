@@ -1,0 +1,145 @@
+package supplyverifier
+
+import (
+	"context"
+	"fmt"
+	"net/url"
+
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
+)
+
+// UniverseClient is an interface that represents a client connection to a
+// remote universe server.
+type UniverseClient interface {
+	// InsertSupplyCommit inserts a supply commitment for a specific
+	// asset group into the remote universe server.
+	InsertSupplyCommit(ctx context.Context, assetSpec asset.Specifier,
+		commitment supplycommit.RootCommitment,
+		updateLeaves supplycommit.SupplyLeaves,
+		chainProof supplycommit.ChainProof) error
+
+	// Close closes the fetcher and cleans up any resources.
+	Close() error
+}
+
+// UniverseClientFactory is a function type that creates UniverseClient
+// instances for a given universe server address.
+type UniverseClientFactory func(serverAddr url.URL) (UniverseClient, error)
+
+// SupplySyncerStore is an interface for storing synced leaves and state.
+type SupplySyncerStore interface {
+	// LogRemoteFetch stores a batch of supply update events fetched from
+	// a remote universe to the database without requiring a supply
+	// commitment transition.
+	LogRemoteFetch(ctx context.Context, spec asset.Specifier,
+		updates []supplycommit.SupplyUpdateEvent) error
+
+	// LogRemoteInsert logs that supply leaves have been successfully
+	// inserted into a remote universe.
+	LogRemoteInsert(ctx context.Context, spec asset.Specifier,
+		leaves supplycommit.SupplyLeaves) error
+}
+
+// SupplySyncer is a struct that is responsible for retrieving supply leaves
+// from a universe.
+type SupplySyncer struct {
+	// clientFactory is a factory function that creates UniverseClient
+	// instances for specific universe server addresses.
+	clientFactory UniverseClientFactory
+
+	// store is used to persist supply leaves to the local database.
+	store SupplySyncerStore
+}
+
+// NewSupplySyncer creates a new SupplySyncer with a factory function for
+// creating UniverseClient instances and a store for persisting leaves.
+func NewSupplySyncer(factory UniverseClientFactory,
+	store SupplySyncerStore) SupplySyncer {
+
+	return SupplySyncer{
+		clientFactory: factory,
+		store:         store,
+	}
+}
+
+// pushUniServer pushes the supply commitment to a specific universe server.
+func (s *SupplySyncer) pushUniServer(ctx context.Context,
+	assetSpec asset.Specifier, commitment supplycommit.RootCommitment,
+	updateLeaves supplycommit.SupplyLeaves,
+	chainProof supplycommit.ChainProof, serverAddr url.URL) error {
+
+	// Create a client for the specific universe server address.
+	client, err := s.clientFactory(serverAddr)
+	if err != nil {
+		return fmt.Errorf("unable to create universe client: %w", err)
+	}
+
+	// Ensure the client is properly closed when we're done.
+	defer func() {
+		if closeErr := client.Close(); closeErr != nil {
+			log.Errorf("unable to close universe client: %v",
+				closeErr)
+		}
+	}()
+
+	err = client.InsertSupplyCommit(
+		ctx, assetSpec, commitment, updateLeaves, chainProof,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to insert supply leaves: %w", err)
+	}
+
+	// Log the successful insertion to the remote universe.
+	err = s.store.LogRemoteInsert(ctx, assetSpec, updateLeaves)
+	if err != nil {
+		return fmt.Errorf("unable to log remote insert: %w", err)
+	}
+
+	return nil
+}
+
+// PushSupplyCommitment pushes a supply commitment to the remote universe
+// server. This function should block until the sync insertion is complete.
+//
+// NOTE: This function must be thread safe.
+func (s *SupplySyncer) PushSupplyCommitment(ctx context.Context,
+	assetSpec asset.Specifier, commitment supplycommit.RootCommitment,
+	updateLeaves supplycommit.SupplyLeaves,
+	chainProof supplycommit.ChainProof,
+	canonicalUniverses []url.URL) error {
+
+	pushErrs, err := fn.ParSliceErrCollect(
+		ctx, canonicalUniverses, func(ctx context.Context,
+			serverAddr url.URL) error {
+
+			// Push the supply commitment to the universe server.
+			err := s.pushUniServer(
+				ctx, assetSpec, commitment, updateLeaves,
+				chainProof, serverAddr,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to push supply "+
+					"commitment to %s: %w",
+					serverAddr.String(), err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to push supply commitment: %w", err)
+	}
+
+	// Report any errors encountered while fetching the leaves. If there was
+	// no error, then the map is empty and this will remain nil.
+	var lastError error
+	for idx, fetchErr := range pushErrs {
+		log.Errorf("Error pushing supply commit to server %s: %v",
+			canonicalUniverses[idx].String(), fetchErr)
+		lastError = fetchErr
+	}
+
+	return lastError
+}

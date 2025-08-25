@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -206,9 +207,9 @@ func insertIntoTree(tree mssmt.Tree, leafKey [32]byte,
 	return tree.Insert(ctx, leafKey, leafValue)
 }
 
-// applyTreeUpdates takes the set of pending updates, and applies them to the
+// ApplyTreeUpdates takes the set of pending updates, and applies them to the
 // given supply trees. It returns a new map containing the updated trees.
-func applyTreeUpdates(supplyTrees SupplyTrees,
+func ApplyTreeUpdates(supplyTrees SupplyTrees,
 	pendingUpdates []SupplyUpdateEvent) (SupplyTrees, error) {
 
 	ctx := context.Background()
@@ -259,6 +260,44 @@ func applyTreeUpdates(supplyTrees SupplyTrees,
 	}
 
 	return updatedSupplyTrees, nil
+}
+
+// UpdateRootSupplyTree takes the given root supply tree, and updates it with
+// the set of subtrees. It returns a new tree instance with the updated values.
+func UpdateRootSupplyTree(ctx context.Context, rootTree mssmt.Tree,
+	subTrees SupplyTrees) (mssmt.Tree, error) {
+
+	updatedRoot := rootTree
+
+	// Now we'll insert/update each of the read subtrees into the root
+	// supply tree.
+	for treeType, subTree := range subTrees {
+		subTreeRoot, err := subTree.Root(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch "+
+				"sub-tree root: %w", err)
+		}
+
+		if subTreeRoot.NodeSum() == 0 {
+			continue
+		}
+
+		rootTreeLeaf := mssmt.NewLeafNode(
+			lnutils.ByteSlice(subTreeRoot.NodeHash()),
+			subTreeRoot.NodeSum(),
+		)
+
+		rootTreeKey := treeType.UniverseKey()
+		updatedRoot, err = insertIntoTree(
+			updatedRoot, rootTreeKey, rootTreeLeaf,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert "+
+				"sub-tree into root supply tree: %w", err)
+		}
+	}
+
+	return updatedRoot, nil
 }
 
 // ProcessEvent processes incoming events for the CommitTreeCreateState. From
@@ -331,7 +370,7 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 
 		// Next, based on the type of event, we'll create a new key+leaf
 		// to insert into the respective sub-tree.
-		newSupplyTrees, err := applyTreeUpdates(
+		newSupplyTrees, err := ApplyTreeUpdates(
 			oldSupplyTrees, pendingUpdates,
 		)
 		if err != nil {
@@ -350,33 +389,12 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 				"supply tree: %w", err)
 		}
 
-		// Now we'll insert/update each of the read sub-trees into the
-		// root supply tree.
-		for treeType, subTree := range newSupplyTrees {
-			subTreeRoot, err := subTree.Root(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("unable to fetch "+
-					"sub-tree root: %w", err)
-			}
-
-			if subTreeRoot.NodeSum() == 0 {
-				continue
-			}
-
-			rootTreeLeaf := mssmt.NewLeafNode(
-				lnutils.ByteSlice(subTreeRoot.NodeHash()),
-				subTreeRoot.NodeSum(),
-			)
-
-			rootTreeKey := treeType.UniverseKey()
-			rootSupplyTree, err = insertIntoTree(
-				rootSupplyTree, rootTreeKey, rootTreeLeaf,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to insert "+
-					"sub-tree into root supply tree: %w",
-					err)
-			}
+		rootSupplyTree, err = UpdateRootSupplyTree(
+			ctx, rootSupplyTree, newSupplyTrees,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to update root "+
+				"supply tree: %w", err)
 		}
 
 		// Construct the state transition object. We'll begin to
@@ -1064,13 +1082,57 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 
 		prefixedLog.Infof("Finalizing supply commitment transition")
 
+		// Insert the finalized supply transition into the remote
+		// universe server via the syncer.
+		chainProof, err := c.SupplyTransition.ChainProof.UnwrapOrErr(
+			fmt.Errorf("supply transition in finalize state " +
+				"must have chain proof"),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Retrieve latest canonical universe list from the latest
+		// metadata for the asset group.
+		metadata, err := fetchLatestAssetMetadata(
+			ctx, env.AssetLookup, env.AssetSpec,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch latest asset "+
+				"metadata: %w", err)
+		}
+
+		// Insert the supply commitment into the remote universes. This
+		// call should block until push is complete.
+		canonicalUniverses := metadata.CanonicalUniverses.UnwrapOr(
+			[]url.URL{},
+		)
+
+		supplyLeaves, err := NewSupplyLeavesFromEvents(
+			c.SupplyTransition.PendingUpdates,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create "+
+				"supply leaves from pending updates: %w", err)
+		}
+
+		err = env.SupplySyncer.PushSupplyCommitment(
+			ctx, env.AssetSpec, c.SupplyTransition.NewCommitment,
+			supplyLeaves, chainProof, canonicalUniverses,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert "+
+				"supply commitment into remote universe "+
+				"server via syncer: %w", err)
+		}
+
 		// At this point, the commitment has been confirmed on disk, so
 		// we can update: the state machine state on disk, and swap in
 		// all the new supply tree information.
 		//
 		// First, we'll update the supply state on disk. This way when
 		// we restart his is idempotent.
-		err := env.StateLog.ApplyStateTransition(
+		err = env.StateLog.ApplyStateTransition(
 			ctx, env.AssetSpec, c.SupplyTransition,
 		)
 		if err != nil {
