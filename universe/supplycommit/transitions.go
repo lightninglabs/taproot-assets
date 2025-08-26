@@ -217,14 +217,24 @@ func ApplyTreeUpdates(supplyTrees SupplyTrees,
 
 	// Create a copy of the input map to avoid mutating the original.
 	updatedSupplyTrees := make(SupplyTrees)
-	for k, v := range supplyTrees {
-		// Create a new tree for each entry in the map.
+
+	// To ensure consistency, we'll create a new empty tree for any subtree
+	// types that don't exist in the given subtree map.
+	for _, subtreeType := range AllSupplySubTrees {
+		subtree, exists := supplyTrees[subtreeType]
+		if !exists {
+			updatedSupplyTrees[subtreeType] =
+				mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+			continue
+		}
+
+		// Copy existing subtree to the new map.
 		newTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
-		if err := v.Copy(ctx, newTree); err != nil {
+		if err := subtree.Copy(ctx, newTree); err != nil {
 			return nil, fmt.Errorf("unable to copy tree: %w", err)
 		}
 
-		updatedSupplyTrees[k] = newTree
+		updatedSupplyTrees[subtreeType] = newTree
 	}
 
 	// TODO(roasbeef): make new copy routine, passes in tree to copy into
