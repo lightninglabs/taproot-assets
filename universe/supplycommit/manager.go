@@ -266,11 +266,13 @@ func (m *Manager) SendEventSync(ctx context.Context, assetSpec asset.Specifier,
 
 // SendMintEvent sends a mint event to the supply commitment state machine.
 func (m *Manager) SendMintEvent(ctx context.Context, assetSpec asset.Specifier,
-	leafKey universe.UniqueLeafKey, issuanceProof universe.Leaf) error {
+	leafKey universe.UniqueLeafKey, issuanceProof universe.Leaf,
+	mintBlockHeight uint32) error {
 
 	mintEvent := &NewMintEvent{
 		LeafKey:       leafKey,
 		IssuanceProof: issuanceProof,
+		MintHeight:    mintBlockHeight,
 	}
 
 	return m.SendEventSync(ctx, assetSpec, mintEvent)
