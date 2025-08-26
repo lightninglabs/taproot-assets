@@ -204,18 +204,19 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 	_, newIgnoreBlockHeight := t.lndHarness.Miner().GetBestBlock()
 
 	// Ignore the asset outpoint owned by the secondary node.
+	ignoreAmt := sendAssetAmount
 	ignoreReq := &unirpc.IgnoreAssetOutPointRequest{
 		AssetOutPoint: &taprpc.AssetOutPoint{
 			AnchorOutPoint: transferOutput.Anchor.Outpoint,
 			AssetId:        rpcAsset.AssetGenesis.AssetId,
 			ScriptKey:      transferOutput.ScriptKey,
 		},
-		Amount: sendAssetAmount,
+		Amount: ignoreAmt,
 	}
 	respIgnore, err := t.tapd.IgnoreAssetOutPoint(ctxb, ignoreReq)
 	require.NoError(t.t, err)
 	require.NotNil(t.t, respIgnore)
-	require.EqualValues(t.t, sendAssetAmount, respIgnore.Leaf.RootSum)
+	require.EqualValues(t.t, ignoreAmt, respIgnore.Leaf.RootSum)
 
 	// Assert that the mempool is empty.
 	mempool := t.lndHarness.Miner().GetRawMempool()
@@ -288,7 +289,7 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 		}
 
 		return fetchResp.IgnoreSubtreeRoot.RootNode.RootSum ==
-			int64(sendAssetAmount)
+			int64(ignoreAmt)
 	}, defaultWaitTimeout, time.Second)
 
 	// Verify that the supply commitment tree commits to the ignore subtree.
@@ -465,6 +466,75 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 	require.EqualValues(
 		t.t, transferOutPoint.Index,
 		ignoreLeafEntry.LeafKey.Outpoint.Index,
+	)
+
+	t.Log("Fetch first supply commitment from universe server")
+	// Ensure that the supply commitment was pushed to the universe server
+	// and that it is retrievable.
+	var uniFetchResp *unirpc.FetchSupplyCommitResponse
+	require.Eventually(t.t, func() bool {
+		// nolint: lll
+		uniFetchResp, err = t.universeServer.service.FetchSupplyCommit(
+			ctxb, &unirpc.FetchSupplyCommitRequest{
+				GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
+					GroupKeyBytes: groupKeyBytes,
+				},
+				Locator: &unirpc.FetchSupplyCommitRequest_VeryFirst{
+					VeryFirst: true,
+				},
+			},
+		)
+		require.NoError(t.t, err)
+
+		// If the fetch response does not include a block height, the
+		// supply commitment transaction has not been mined yet, so we
+		// should retry.
+		if uniFetchResp.ChainData.BlockHeight == 0 {
+			return false
+		}
+
+		return true
+	}, defaultWaitTimeout, time.Second)
+
+	// Assert universe supply commitment fetch response.
+	require.Len(t.t, uniFetchResp.IssuanceLeaves, 1)
+	require.Len(t.t, uniFetchResp.BurnLeaves, 0)
+	require.Len(t.t, uniFetchResp.IgnoreLeaves, 1)
+
+	// Assert issuance leaf properties.
+	issuanceLeaf := uniFetchResp.IssuanceLeaves[0]
+	require.EqualValues(
+		t.t, rpcAsset.Amount, issuanceLeaf.LeafNode.RootSum,
+	)
+
+	// Assert ignored leaf properties.
+	uniIgnoreLeaf := uniFetchResp.IgnoreLeaves[0]
+	require.EqualValues(t.t, ignoreAmt, uniIgnoreLeaf.LeafNode.RootSum)
+
+	// Assert supply subtree root properties.
+	require.NotNil(t.t, uniFetchResp.IssuanceSubtreeRoot)
+	require.NotNil(t.t, uniFetchResp.BurnSubtreeRoot)
+	require.NotNil(t.t, uniFetchResp.IgnoreSubtreeRoot)
+
+	// Assert that the issuance subtree root sum matches the total
+	// amount of issued assets.
+	require.EqualValues(
+		t.t, rpcAsset.Amount,
+		uniFetchResp.IssuanceSubtreeRoot.RootNode.RootSum,
+	)
+
+	// Assert that the burn subtree root sum is zero, as no assets have
+	// been burned.
+	require.EqualValues(
+		t.t, 0,
+		uniFetchResp.BurnSubtreeRoot.RootNode.RootSum,
+	)
+
+	// Assert that the ignore subtree root sum matches the total amount
+	// of ignored assets.
+	require.EqualValues(
+		t.t, ignoreAmt,
+		uniFetchResp.IgnoreSubtreeRoot.RootNode.RootSum,
 	)
 }
 
