@@ -1527,7 +1527,7 @@ func (b *BatchCaretaker) sendSupplyCommitEvents(ctx context.Context,
 		// With the proof extracted, we can now create the universe
 		// key and leaf.
 		universeKey := universe.BaseLeafKey{
-			OutPoint:  mintedAsset.Genesis.FirstPrevOut,
+			OutPoint:  leafProof.OutPoint(),
 			ScriptKey: &mintedAsset.ScriptKey,
 		}
 		uniqueLeafKey := universe.AssetLeafKey{
