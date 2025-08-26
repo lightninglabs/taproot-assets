@@ -62,6 +62,13 @@ func (s SupplySubTree) String() string {
 	}
 }
 
+// AllSupplySubTrees contains all possible valid SupplySubTree values.
+var AllSupplySubTrees = []SupplySubTree{
+	MintTreeType,
+	BurnTreeType,
+	IgnoreTreeType,
+}
+
 // UniverseKey is the key used to identify the universe in the supply tree. This
 // is scoped to a root supply tree for a given asset specifier.
 func (s SupplySubTree) UniverseKey() [32]byte {
