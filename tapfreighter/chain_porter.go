@@ -815,7 +815,15 @@ func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
 		)
 	}
 
+	anchorTxBlockHeight := int32(pkg.TransferTxConfEvent.BlockHeight)
+	anchorTxBlockHeader := pkg.TransferTxConfEvent.Block.Header
+
 	// Now we scan through the VPacket for any burns.
+	//
+	// Once the anchor transaction is confirmed, we must populate the block
+	// header and block height in the proof suffixes of all outputs. Without
+	// the block height, burn events cannot be considered valid for
+	// inclusion in supply commitments.
 	var burns []*AssetBurn
 
 	for _, v := range pkg.VirtualPackets {
@@ -841,6 +849,10 @@ func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
 				OutPoint:   op,
 			}
 
+			// Set the block height and header in the burn proof.
+			b.Proof.BlockHeight = uint32(anchorTxBlockHeight)
+			b.Proof.BlockHeader = anchorTxBlockHeader
+
 			if o.Asset.GroupKey != nil {
 				groupKey := o.Asset.GroupKey.GroupPubKey
 				b.GroupKey = groupKey.SerializeCompressed()
@@ -862,7 +874,6 @@ func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	anchorTXID := pkg.OutboundPkg.AnchorTx.TxHash()
-	anchorTxBlockHeight := int32(pkg.TransferTxConfEvent.BlockHeight)
 	err = p.cfg.ExportLog.LogAnchorTxConfirm(ctx, &AssetConfirmEvent{
 		AnchorTXID:             anchorTXID,
 		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
