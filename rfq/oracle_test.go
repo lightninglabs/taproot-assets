@@ -141,7 +141,7 @@ func runQuerySalePriceTest(t *testing.T, tc *testCaseQuerySalePrice) {
 
 	// Create a new RPC price oracle client and connect to the mock service.
 	serviceAddr := fmt.Sprintf("rfqrpc://%s", testServiceAddress)
-	client, err := NewRpcPriceOracle(serviceAddr, true)
+	client, err := NewRpcPriceOracle(serviceAddr, DefaultTLSConfig())
 	require.NoError(t, err)
 
 	// Query for an ask price.
@@ -252,7 +252,7 @@ func runQueryPurchasePriceTest(t *testing.T, tc *testCaseQueryPurchasePrice) {
 
 	// Create a new RPC price oracle client and connect to the mock service.
 	serviceAddr := fmt.Sprintf("rfqrpc://%s", testServiceAddress)
-	client, err := NewRpcPriceOracle(serviceAddr, true)
+	client, err := NewRpcPriceOracle(serviceAddr, DefaultTLSConfig())
 	require.NoError(t, err)
 
 	// Query for an ask price.
