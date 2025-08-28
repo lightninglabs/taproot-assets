@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
+	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/signal"
@@ -513,18 +514,42 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	supplyTreeStore := tapdb.NewSupplyTreeStore(supplyTreeDb)
 
+	// Setup supply syncer.
+	supplySyncerStore := tapdb.NewSupplySyncerStore(uniDB)
+	supplySyncer := supplyverifier.NewSupplySyncer(
+		supplyverifier.SupplySyncerConfig{
+			ClientFactory:          tap.NewRpcSupplySync,
+			Store:                  supplySyncerStore,
+			UniverseFederationView: federationDB,
+		},
+	)
+
 	// Create the supply commitment state machine manager, which is used to
 	// manage the supply commitment state machines for each asset group.
-	supplyCommitManager := supplycommit.NewMultiStateMachineManager(
-		supplycommit.MultiStateMachineManagerCfg{
+	supplyCommitManager := supplycommit.NewManager(
+		supplycommit.ManagerCfg{
 			TreeView:       supplyTreeStore,
 			Commitments:    supplyCommitStore,
 			Wallet:         walletAnchor,
+			AssetLookup:    tapdbAddrBook,
 			KeyRing:        keyRing,
 			Chain:          chainBridge,
+			SupplySyncer:   &supplySyncer,
 			DaemonAdapters: lndFsmDaemonAdapters,
 			StateLog:       supplyCommitStore,
 			ChainParams:    *tapChainParams.Params,
+		},
+	)
+
+	// Set up the supply verifier, which validates supply commitment leaves
+	// published by asset issuers.
+	supplyVerifyManager := supplyverifier.NewManager(
+		supplyverifier.ManagerCfg{
+			Chain:                 chainBridge,
+			SupplyCommitView:      supplyCommitStore,
+			SupplyTreeView:        supplyTreeStore,
+			IssuanceSubscriptions: universeSyncer,
+			DaemonAdapters:        lndFsmDaemonAdapters,
 		},
 	)
 
@@ -685,6 +710,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		ChainPorter:              chainPorter,
 		FsmDaemonAdapters:        lndFsmDaemonAdapters,
 		SupplyCommitManager:      supplyCommitManager,
+		SupplyVerifyManager:      supplyVerifyManager,
 		UniverseArchive:          uniArchive,
 		UniverseSyncer:           universeSyncer,
 		UniverseFederation:       universeFederation,

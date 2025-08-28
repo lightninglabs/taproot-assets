@@ -978,6 +978,314 @@ func TestTreeCopy(t *testing.T) {
 	}
 }
 
+// testFilterScenario tests a single filter scenario for the CopyFilter method.
+func testFilterScenario(
+	t *testing.T, ctx context.Context, sourceTree mssmt.Tree,
+	targetTree mssmt.Tree, filterFunc mssmt.CopyFilterPredicate,
+	expectCount int, description string, leaves []treeLeaf,
+	initialTargetLeavesMap map[[hashSize]byte]*mssmt.LeafNode) {
+
+	// Pre-populate the target tree.
+	_, err := targetTree.InsertMany(ctx, initialTargetLeavesMap)
+	require.NoError(t, err)
+
+	// Perform the filtered copy.
+	err = sourceTree.CopyFilter(ctx, targetTree, filterFunc)
+	require.NoError(t, err)
+
+	// Calculate expected leaves based on the filter.
+	expectedLeaves := make(map[[hashSize]byte]*mssmt.LeafNode)
+
+	// Start with initial target leaves.
+	for key, leaf := range initialTargetLeavesMap {
+		expectedLeaves[key] = leaf
+	}
+
+	// Apply filter to source leaves.
+	if filterFunc == nil {
+		// Nil filter means include all.
+		for _, item := range leaves {
+			expectedLeaves[item.key] = item.leaf
+		}
+	} else {
+		for _, item := range leaves {
+			include, err := filterFunc(item.key, *item.leaf)
+			require.NoError(t, err)
+			if include {
+				expectedLeaves[item.key] = item.leaf
+			}
+		}
+	}
+
+	// Verify the expected count.
+	actualFilteredCount := len(expectedLeaves) - len(initialTargetLeavesMap)
+	require.Equal(t, expectCount, actualFilteredCount,
+		"filtered leaf count mismatch for %s", description,
+	)
+
+	// Create expected state tree for root comparison.
+	expectedStateStore := mssmt.NewDefaultStore()
+	expectedStateTree := mssmt.NewFullTree(expectedStateStore)
+
+	_, err = expectedStateTree.InsertMany(ctx, expectedLeaves)
+	require.NoError(t, err)
+
+	expectedRoot, err := expectedStateTree.Root(ctx)
+	require.NoError(t, err)
+
+	// Verify the target tree root matches the expected root.
+	targetRoot, err := targetTree.Root(ctx)
+	require.NoError(t, err)
+	require.True(
+		t, mssmt.IsEqualNode(expectedRoot, targetRoot),
+		"root mismatch after filtered copy with %s", description,
+	)
+
+	// Verify individual leaves in the target tree.
+	for key, expectedLeaf := range expectedLeaves {
+		targetLeaf, err := targetTree.Get(ctx, key)
+		require.NoError(t, err)
+		require.Equal(t, expectedLeaf, targetLeaf,
+			"leaf mismatch for key %x with %s", key, description,
+		)
+	}
+
+	// Verify that filtered-out leaves are not present.
+	if filterFunc == nil {
+		return
+	}
+
+	for _, item := range leaves {
+		include, err := filterFunc(item.key, *item.leaf)
+		require.NoError(t, err)
+		if include {
+			continue
+		}
+
+		// This leaf should not be in target tree unless it was in
+		// initial target leaves.
+		_, wasInitial := initialTargetLeavesMap[item.key]
+		if wasInitial {
+			continue
+		}
+
+		targetLeaf, err := targetTree.Get(ctx, item.key)
+		require.NoError(t, err)
+		require.True(
+			t, targetLeaf.IsEmpty(),
+			"filtered-out leaf %x should not be present", item.key,
+		)
+	}
+}
+
+// TestTreeCopyFilter tests the CopyFilter method with various filter scenarios.
+func TestTreeCopyFilter(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// Prepare source trees (Full and Compacted).
+	sourceFullStore := mssmt.NewDefaultStore()
+	sourceFullTree := mssmt.NewFullTree(sourceFullStore)
+
+	sourceCompactedStore := mssmt.NewDefaultStore()
+	sourceCompactedTree := mssmt.NewCompactedTree(sourceCompactedStore)
+
+	leaves := randTree(20)
+	for _, item := range leaves {
+		_, err := sourceFullTree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
+
+		_, err = sourceCompactedTree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
+	}
+
+	sourceFullRoot, err := sourceFullTree.Root(ctx)
+	require.NoError(t, err)
+
+	sourceCompactedRoot, err := sourceCompactedTree.Root(ctx)
+	require.NoError(t, err)
+
+	require.True(t, mssmt.IsEqualNode(sourceFullRoot, sourceCompactedRoot))
+
+	// Define some leaves to pre-populate the target tree.
+	initialTargetLeaves := []treeLeaf{
+		{key: test.RandHash(), leaf: randLeaf()},
+		{key: test.RandHash(), leaf: randLeaf()},
+	}
+	initialTargetLeavesMap := make(map[[hashSize]byte]*mssmt.LeafNode)
+	for _, item := range initialTargetLeaves {
+		initialTargetLeavesMap[item.key] = item.leaf
+	}
+
+	// Get first 5 keys for deterministic filtering.
+	var excludeKeys [][hashSize]byte
+	for i, item := range leaves {
+		if i < 5 {
+			excludeKeys = append(excludeKeys, item.key)
+			continue
+		}
+
+		break
+	}
+
+	// Define filter scenarios.
+	//
+	// nolint: lll
+	filterScenarios := []struct {
+		name        string
+		filterFunc  mssmt.CopyFilterPredicate
+		expectCount int
+		description string
+	}{
+		{
+			name: "include_all",
+			filterFunc: func(key [hashSize]byte, leaf mssmt.LeafNode) (bool, error) {
+				return true, nil
+			},
+			expectCount: len(leaves),
+			description: "filter that includes all leaves.",
+		},
+		{
+			name: "exclude_all",
+			filterFunc: func(key [hashSize]byte, leaf mssmt.LeafNode) (bool, error) {
+				return false, nil
+			},
+			expectCount: 0,
+			description: "filter that excludes all leaves.",
+		},
+		{
+			name: "exclude_five",
+			filterFunc: func(key [hashSize]byte, leaf mssmt.LeafNode) (bool, error) {
+				// Exclude exactly 5 specific leaves.
+				for _, excludeKey := range excludeKeys {
+					if key == excludeKey {
+						return false, nil
+					}
+				}
+				return true, nil
+			},
+			expectCount: len(leaves) - 5,
+			description: "filter that excludes exactly 5 " +
+				"specific leaves.",
+		},
+		{
+			name:        "nil_filter",
+			filterFunc:  nil,
+			expectCount: len(leaves),
+			description: "nil filter should include all leaves.",
+		},
+	}
+
+	// Define test cases for different tree type combinations.
+	testCases := []struct {
+		name       string
+		sourceTree mssmt.Tree
+		makeTarget func() mssmt.Tree
+	}{
+		{
+			name:       "Full -> Full",
+			sourceTree: sourceFullTree,
+			makeTarget: func() mssmt.Tree {
+				return mssmt.NewFullTree(
+					mssmt.NewDefaultStore(),
+				)
+			},
+		},
+		{
+			name:       "Full -> Compacted",
+			sourceTree: sourceFullTree,
+			makeTarget: func() mssmt.Tree {
+				return mssmt.NewCompactedTree(
+					mssmt.NewDefaultStore(),
+				)
+			},
+		},
+		{
+			name:       "Compacted -> Full",
+			sourceTree: sourceCompactedTree,
+			makeTarget: func() mssmt.Tree {
+				return mssmt.NewFullTree(
+					mssmt.NewDefaultStore(),
+				)
+			},
+		},
+		{
+			name:       "Compacted -> Compacted",
+			sourceTree: sourceCompactedTree,
+			makeTarget: func() mssmt.Tree {
+				return mssmt.NewCompactedTree(
+					mssmt.NewDefaultStore(),
+				)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, fs := range filterScenarios {
+				fs := fs
+
+				t.Run(fs.name, func(t *testing.T) {
+					t.Parallel()
+
+					testFilterScenario(
+						t, ctx, tc.sourceTree,
+						tc.makeTarget(),
+						fs.filterFunc, fs.expectCount,
+						fs.description, leaves,
+						initialTargetLeavesMap,
+					)
+				})
+			}
+		})
+	}
+}
+
+// TestTreeCopyFilterError tests error handling in CopyFilter method.
+func TestTreeCopyFilterError(t *testing.T) {
+	t.Parallel()
+
+	leaves := randTree(10)
+	ctx := context.Background()
+
+	// Prepare source tree.
+	sourceStore := mssmt.NewDefaultStore()
+	sourceTree := mssmt.NewFullTree(sourceStore)
+
+	for _, item := range leaves {
+		_, err := sourceTree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
+	}
+
+	// Prepare target tree.
+	targetStore := mssmt.NewDefaultStore()
+	targetTree := mssmt.NewFullTree(targetStore)
+
+	// Test filter function that returns an error.
+	errorFilter := func(key [hashSize]byte, leaf mssmt.LeafNode) (bool,
+		error) {
+
+		// Return error for the first key we encounter.
+		return false, fmt.Errorf("test filter error for key %x", key)
+	}
+
+	err := sourceTree.CopyFilter(ctx, targetTree, errorFilter)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "filter function for key")
+	require.Contains(t, err.Error(), "test filter error")
+
+	// Verify target tree remains unchanged after error.
+	targetRoot, err := targetTree.Root(ctx)
+	require.NoError(t, err)
+	require.True(t, mssmt.IsEqualNode(targetRoot, mssmt.EmptyTree[0]),
+		"target tree should remain empty after filter error")
+}
+
 // TestInsertMany tests inserting multiple leaves using the InsertMany method.
 func TestInsertMany(t *testing.T) {
 	t.Parallel()

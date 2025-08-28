@@ -877,7 +877,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		return nil, fmt.Errorf("%w: prev output mismatch",
 			commitment.ErrInvalidTaprootProof)
 	}
-	if !txSpendsPrevOut(&p.AnchorTx, &p.PrevOut) {
+	if !TxSpendsPrevOut(&p.AnchorTx, &p.PrevOut) {
 		return nil, fmt.Errorf("%w: doesn't spend prev output",
 			commitment.ErrInvalidTaprootProof)
 	}

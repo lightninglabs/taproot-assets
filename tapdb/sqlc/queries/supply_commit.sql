@@ -30,11 +30,11 @@ RETURNING current_state_id, latest_commitment_id;
 -- name: InsertSupplyCommitment :one
 INSERT INTO supply_commitments (
     group_key, chain_txn_id,
-    output_index, internal_key_id, output_key, -- Core fields
+    output_index, internal_key_id, output_key, spent_commitment, -- Core fields
     block_height, block_header, merkle_proof, -- Nullable chain details
     supply_root_hash, supply_root_sum -- Nullable root details
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 ) RETURNING commit_id;
 
 -- name: UpdateSupplyCommitmentChainDetails :exec
@@ -134,9 +134,51 @@ SET transition_id = @transition_id
 WHERE group_key = @group_key AND transition_id IS NULL;
 
 -- name: QuerySupplyCommitment :one
-SELECT *
-FROM supply_commitments
+SELECT sqlc.embed(sc), ct.tx_index
+FROM supply_commitments AS sc
+JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
 WHERE commit_id = @commit_id;
+
+-- name: QuerySupplyCommitmentByOutpoint :one
+SELECT sqlc.embed(sc), ct.tx_index
+FROM supply_commitments AS sc
+JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.group_key = @group_key AND
+    sc.output_index = @output_index AND
+    ct.txid = @txid;
+
+-- name: QuerySupplyCommitmentBySpentOutpoint :one
+WITH spent_commitment AS (
+    SELECT ssc.commit_id
+    FROM supply_commitments AS ssc
+        JOIN chain_txns AS ct
+        ON ssc.chain_txn_id = ct.txn_id
+    WHERE ssc.group_key = @group_key AND
+        ssc.output_index = @output_index AND
+        ct.txid = @txid
+)
+SELECT sqlc.embed(sc), ct.tx_index
+FROM supply_commitments AS sc
+    JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.spent_commitment = (SELECT commit_id FROM spent_commitment);
+
+-- name: QueryStartingSupplyCommitment :one
+SELECT sqlc.embed(sc), ct.tx_index
+FROM supply_commitments AS sc
+    JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.spent_commitment IS NULL AND
+    sc.group_key = @group_key;
+
+-- name: QuerySupplyCommitmentOutpoint :one
+SELECT ct.txid, sc.output_index
+FROM supply_commitments AS sc
+    JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.commit_id = @commit_id;
 
 -- name: UpdateSupplyCommitTransitionCommitment :exec
 UPDATE supply_commit_transitions
@@ -181,17 +223,7 @@ WHERE outpoint = @outpoint
 
 -- name: FetchSupplyCommit :one
 SELECT
-    sc.commit_id,
-    sc.output_index,
-    sc.output_key,
-    sqlc.embed(ik),
-    txn.raw_tx,
-    txn.block_height,
-    txn.block_hash,
-    txn.tx_index,
-    txn.chain_fees,
-    sc.supply_root_hash AS root_hash,
-    sc.supply_root_sum AS root_sum 
+    sqlc.embed(sc), txn.tx_index
 FROM supply_commit_state_machines sm
 JOIN supply_commitments sc
     ON sm.latest_commitment_id = sc.commit_id

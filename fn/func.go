@@ -93,6 +93,29 @@ func MapErr[I, O any, S []I](s S, f func(I) (O, error)) ([]O, error) {
 	return output, nil
 }
 
+// MapErrWithPtr applies the given fallible mapping function to each element of
+// the given slice and generates a new slice. This is identical to MapErr, but
+// can be used when the callback returns a pointer, and returns early if any
+// single mapping fails.
+func MapErrWithPtr[I, O any, S []I](s S, f func(I) (*O, error)) ([]O, error) {
+	output := make([]O, len(s))
+	for i, x := range s {
+		outPtr, err := f(x)
+		if err != nil {
+			return nil, err
+		}
+
+		if outPtr == nil {
+			return nil, fmt.Errorf("nil pointer returned for "+
+				"item %d", i)
+		}
+
+		output[i] = *outPtr
+	}
+
+	return output, nil
+}
+
 // FlatMapErr applies the given mapping function to each element of the given
 // slice, concatenates the results into a new slice, and returns an error if
 // the mapping function fails.

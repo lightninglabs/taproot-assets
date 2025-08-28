@@ -69,17 +69,7 @@ func (q *Queries) FetchInternalKeyByID(ctx context.Context, keyID int64) (FetchI
 
 const FetchSupplyCommit = `-- name: FetchSupplyCommit :one
 SELECT
-    sc.commit_id,
-    sc.output_index,
-    sc.output_key,
-    ik.key_id, ik.raw_key, ik.key_family, ik.key_index,
-    txn.raw_tx,
-    txn.block_height,
-    txn.block_hash,
-    txn.tx_index,
-    txn.chain_fees,
-    sc.supply_root_hash AS root_hash,
-    sc.supply_root_sum AS root_sum 
+    sc.commit_id, sc.group_key, sc.chain_txn_id, sc.output_index, sc.internal_key_id, sc.output_key, sc.block_header, sc.block_height, sc.merkle_proof, sc.supply_root_hash, sc.supply_root_sum, sc.spent_commitment, txn.tx_index
 FROM supply_commit_state_machines sm
 JOIN supply_commitments sc
     ON sm.latest_commitment_id = sc.commit_id
@@ -93,37 +83,27 @@ WHERE
 `
 
 type FetchSupplyCommitRow struct {
-	CommitID    int64
-	OutputIndex sql.NullInt32
-	OutputKey   []byte
-	InternalKey InternalKey
-	RawTx       []byte
-	BlockHeight sql.NullInt32
-	BlockHash   []byte
-	TxIndex     sql.NullInt32
-	ChainFees   int64
-	RootHash    []byte
-	RootSum     sql.NullInt64
+	SupplyCommitment SupplyCommitment
+	TxIndex          sql.NullInt32
 }
 
 func (q *Queries) FetchSupplyCommit(ctx context.Context, groupKey []byte) (FetchSupplyCommitRow, error) {
 	row := q.db.QueryRowContext(ctx, FetchSupplyCommit, groupKey)
 	var i FetchSupplyCommitRow
 	err := row.Scan(
-		&i.CommitID,
-		&i.OutputIndex,
-		&i.OutputKey,
-		&i.InternalKey.KeyID,
-		&i.InternalKey.RawKey,
-		&i.InternalKey.KeyFamily,
-		&i.InternalKey.KeyIndex,
-		&i.RawTx,
-		&i.BlockHeight,
-		&i.BlockHash,
+		&i.SupplyCommitment.CommitID,
+		&i.SupplyCommitment.GroupKey,
+		&i.SupplyCommitment.ChainTxnID,
+		&i.SupplyCommitment.OutputIndex,
+		&i.SupplyCommitment.InternalKeyID,
+		&i.SupplyCommitment.OutputKey,
+		&i.SupplyCommitment.BlockHeader,
+		&i.SupplyCommitment.BlockHeight,
+		&i.SupplyCommitment.MerkleProof,
+		&i.SupplyCommitment.SupplyRootHash,
+		&i.SupplyCommitment.SupplyRootSum,
+		&i.SupplyCommitment.SpentCommitment,
 		&i.TxIndex,
-		&i.ChainFees,
-		&i.RootHash,
-		&i.RootSum,
 	)
 	return i, err
 }
@@ -248,25 +228,26 @@ func (q *Queries) InsertSupplyCommitTransition(ctx context.Context, arg InsertSu
 const InsertSupplyCommitment = `-- name: InsertSupplyCommitment :one
 INSERT INTO supply_commitments (
     group_key, chain_txn_id,
-    output_index, internal_key_id, output_key, -- Core fields
+    output_index, internal_key_id, output_key, spent_commitment, -- Core fields
     block_height, block_header, merkle_proof, -- Nullable chain details
     supply_root_hash, supply_root_sum -- Nullable root details
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 ) RETURNING commit_id
 `
 
 type InsertSupplyCommitmentParams struct {
-	GroupKey       []byte
-	ChainTxnID     int64
-	OutputIndex    sql.NullInt32
-	InternalKeyID  int64
-	OutputKey      []byte
-	BlockHeight    sql.NullInt32
-	BlockHeader    []byte
-	MerkleProof    []byte
-	SupplyRootHash []byte
-	SupplyRootSum  sql.NullInt64
+	GroupKey        []byte
+	ChainTxnID      int64
+	OutputIndex     sql.NullInt32
+	InternalKeyID   int64
+	OutputKey       []byte
+	SpentCommitment sql.NullInt64
+	BlockHeight     sql.NullInt32
+	BlockHeader     []byte
+	MerkleProof     []byte
+	SupplyRootHash  []byte
+	SupplyRootSum   sql.NullInt64
 }
 
 func (q *Queries) InsertSupplyCommitment(ctx context.Context, arg InsertSupplyCommitmentParams) (int64, error) {
@@ -276,6 +257,7 @@ func (q *Queries) InsertSupplyCommitment(ctx context.Context, arg InsertSupplyCo
 		arg.OutputIndex,
 		arg.InternalKeyID,
 		arg.OutputKey,
+		arg.SpentCommitment,
 		arg.BlockHeight,
 		arg.BlockHeader,
 		arg.MerkleProof,
@@ -447,6 +429,41 @@ func (q *Queries) QueryPendingSupplyCommitTransition(ctx context.Context, groupK
 	return i, err
 }
 
+const QueryStartingSupplyCommitment = `-- name: QueryStartingSupplyCommitment :one
+SELECT sc.commit_id, sc.group_key, sc.chain_txn_id, sc.output_index, sc.internal_key_id, sc.output_key, sc.block_header, sc.block_height, sc.merkle_proof, sc.supply_root_hash, sc.supply_root_sum, sc.spent_commitment, ct.tx_index
+FROM supply_commitments AS sc
+    JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.spent_commitment IS NULL AND
+    sc.group_key = $1
+`
+
+type QueryStartingSupplyCommitmentRow struct {
+	SupplyCommitment SupplyCommitment
+	TxIndex          sql.NullInt32
+}
+
+func (q *Queries) QueryStartingSupplyCommitment(ctx context.Context, groupKey []byte) (QueryStartingSupplyCommitmentRow, error) {
+	row := q.db.QueryRowContext(ctx, QueryStartingSupplyCommitment, groupKey)
+	var i QueryStartingSupplyCommitmentRow
+	err := row.Scan(
+		&i.SupplyCommitment.CommitID,
+		&i.SupplyCommitment.GroupKey,
+		&i.SupplyCommitment.ChainTxnID,
+		&i.SupplyCommitment.OutputIndex,
+		&i.SupplyCommitment.InternalKeyID,
+		&i.SupplyCommitment.OutputKey,
+		&i.SupplyCommitment.BlockHeader,
+		&i.SupplyCommitment.BlockHeight,
+		&i.SupplyCommitment.MerkleProof,
+		&i.SupplyCommitment.SupplyRootHash,
+		&i.SupplyCommitment.SupplyRootSum,
+		&i.SupplyCommitment.SpentCommitment,
+		&i.TxIndex,
+	)
+	return i, err
+}
+
 const QuerySupplyCommitStateMachine = `-- name: QuerySupplyCommitStateMachine :one
 SELECT
     sm.group_key,
@@ -479,27 +496,147 @@ func (q *Queries) QuerySupplyCommitStateMachine(ctx context.Context, groupKey []
 }
 
 const QuerySupplyCommitment = `-- name: QuerySupplyCommitment :one
-SELECT commit_id, group_key, chain_txn_id, output_index, internal_key_id, output_key, block_header, block_height, merkle_proof, supply_root_hash, supply_root_sum
-FROM supply_commitments
+SELECT sc.commit_id, sc.group_key, sc.chain_txn_id, sc.output_index, sc.internal_key_id, sc.output_key, sc.block_header, sc.block_height, sc.merkle_proof, sc.supply_root_hash, sc.supply_root_sum, sc.spent_commitment, ct.tx_index
+FROM supply_commitments AS sc
+JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
 WHERE commit_id = $1
 `
 
-func (q *Queries) QuerySupplyCommitment(ctx context.Context, commitID int64) (SupplyCommitment, error) {
+type QuerySupplyCommitmentRow struct {
+	SupplyCommitment SupplyCommitment
+	TxIndex          sql.NullInt32
+}
+
+func (q *Queries) QuerySupplyCommitment(ctx context.Context, commitID int64) (QuerySupplyCommitmentRow, error) {
 	row := q.db.QueryRowContext(ctx, QuerySupplyCommitment, commitID)
-	var i SupplyCommitment
+	var i QuerySupplyCommitmentRow
 	err := row.Scan(
-		&i.CommitID,
-		&i.GroupKey,
-		&i.ChainTxnID,
-		&i.OutputIndex,
-		&i.InternalKeyID,
-		&i.OutputKey,
-		&i.BlockHeader,
-		&i.BlockHeight,
-		&i.MerkleProof,
-		&i.SupplyRootHash,
-		&i.SupplyRootSum,
+		&i.SupplyCommitment.CommitID,
+		&i.SupplyCommitment.GroupKey,
+		&i.SupplyCommitment.ChainTxnID,
+		&i.SupplyCommitment.OutputIndex,
+		&i.SupplyCommitment.InternalKeyID,
+		&i.SupplyCommitment.OutputKey,
+		&i.SupplyCommitment.BlockHeader,
+		&i.SupplyCommitment.BlockHeight,
+		&i.SupplyCommitment.MerkleProof,
+		&i.SupplyCommitment.SupplyRootHash,
+		&i.SupplyCommitment.SupplyRootSum,
+		&i.SupplyCommitment.SpentCommitment,
+		&i.TxIndex,
 	)
+	return i, err
+}
+
+const QuerySupplyCommitmentByOutpoint = `-- name: QuerySupplyCommitmentByOutpoint :one
+SELECT sc.commit_id, sc.group_key, sc.chain_txn_id, sc.output_index, sc.internal_key_id, sc.output_key, sc.block_header, sc.block_height, sc.merkle_proof, sc.supply_root_hash, sc.supply_root_sum, sc.spent_commitment, ct.tx_index
+FROM supply_commitments AS sc
+JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.group_key = $1 AND
+    sc.output_index = $2 AND
+    ct.txid = $3
+`
+
+type QuerySupplyCommitmentByOutpointParams struct {
+	GroupKey    []byte
+	OutputIndex sql.NullInt32
+	Txid        []byte
+}
+
+type QuerySupplyCommitmentByOutpointRow struct {
+	SupplyCommitment SupplyCommitment
+	TxIndex          sql.NullInt32
+}
+
+func (q *Queries) QuerySupplyCommitmentByOutpoint(ctx context.Context, arg QuerySupplyCommitmentByOutpointParams) (QuerySupplyCommitmentByOutpointRow, error) {
+	row := q.db.QueryRowContext(ctx, QuerySupplyCommitmentByOutpoint, arg.GroupKey, arg.OutputIndex, arg.Txid)
+	var i QuerySupplyCommitmentByOutpointRow
+	err := row.Scan(
+		&i.SupplyCommitment.CommitID,
+		&i.SupplyCommitment.GroupKey,
+		&i.SupplyCommitment.ChainTxnID,
+		&i.SupplyCommitment.OutputIndex,
+		&i.SupplyCommitment.InternalKeyID,
+		&i.SupplyCommitment.OutputKey,
+		&i.SupplyCommitment.BlockHeader,
+		&i.SupplyCommitment.BlockHeight,
+		&i.SupplyCommitment.MerkleProof,
+		&i.SupplyCommitment.SupplyRootHash,
+		&i.SupplyCommitment.SupplyRootSum,
+		&i.SupplyCommitment.SpentCommitment,
+		&i.TxIndex,
+	)
+	return i, err
+}
+
+const QuerySupplyCommitmentBySpentOutpoint = `-- name: QuerySupplyCommitmentBySpentOutpoint :one
+WITH spent_commitment AS (
+    SELECT ssc.commit_id
+    FROM supply_commitments AS ssc
+        JOIN chain_txns AS ct
+        ON ssc.chain_txn_id = ct.txn_id
+    WHERE ssc.group_key = $1 AND
+        ssc.output_index = $2 AND
+        ct.txid = $3
+)
+SELECT sc.commit_id, sc.group_key, sc.chain_txn_id, sc.output_index, sc.internal_key_id, sc.output_key, sc.block_header, sc.block_height, sc.merkle_proof, sc.supply_root_hash, sc.supply_root_sum, sc.spent_commitment, ct.tx_index
+FROM supply_commitments AS sc
+    JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.spent_commitment = (SELECT commit_id FROM spent_commitment)
+`
+
+type QuerySupplyCommitmentBySpentOutpointParams struct {
+	GroupKey    []byte
+	OutputIndex sql.NullInt32
+	Txid        []byte
+}
+
+type QuerySupplyCommitmentBySpentOutpointRow struct {
+	SupplyCommitment SupplyCommitment
+	TxIndex          sql.NullInt32
+}
+
+func (q *Queries) QuerySupplyCommitmentBySpentOutpoint(ctx context.Context, arg QuerySupplyCommitmentBySpentOutpointParams) (QuerySupplyCommitmentBySpentOutpointRow, error) {
+	row := q.db.QueryRowContext(ctx, QuerySupplyCommitmentBySpentOutpoint, arg.GroupKey, arg.OutputIndex, arg.Txid)
+	var i QuerySupplyCommitmentBySpentOutpointRow
+	err := row.Scan(
+		&i.SupplyCommitment.CommitID,
+		&i.SupplyCommitment.GroupKey,
+		&i.SupplyCommitment.ChainTxnID,
+		&i.SupplyCommitment.OutputIndex,
+		&i.SupplyCommitment.InternalKeyID,
+		&i.SupplyCommitment.OutputKey,
+		&i.SupplyCommitment.BlockHeader,
+		&i.SupplyCommitment.BlockHeight,
+		&i.SupplyCommitment.MerkleProof,
+		&i.SupplyCommitment.SupplyRootHash,
+		&i.SupplyCommitment.SupplyRootSum,
+		&i.SupplyCommitment.SpentCommitment,
+		&i.TxIndex,
+	)
+	return i, err
+}
+
+const QuerySupplyCommitmentOutpoint = `-- name: QuerySupplyCommitmentOutpoint :one
+SELECT ct.txid, sc.output_index
+FROM supply_commitments AS sc
+    JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.commit_id = $1
+`
+
+type QuerySupplyCommitmentOutpointRow struct {
+	Txid        []byte
+	OutputIndex sql.NullInt32
+}
+
+func (q *Queries) QuerySupplyCommitmentOutpoint(ctx context.Context, commitID int64) (QuerySupplyCommitmentOutpointRow, error) {
+	row := q.db.QueryRowContext(ctx, QuerySupplyCommitmentOutpoint, commitID)
+	var i QuerySupplyCommitmentOutpointRow
+	err := row.Scan(&i.Txid, &i.OutputIndex)
 	return i, err
 }
 

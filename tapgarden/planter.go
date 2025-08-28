@@ -37,8 +37,8 @@ type MintSupplyCommitter interface {
 	// SendMintEvent sends a mint event to the supply commitment state
 	// machine.
 	SendMintEvent(ctx context.Context, assetSpec asset.Specifier,
-		leafKey universe.UniqueLeafKey,
-		issuanceProof universe.Leaf) error
+		leafKey universe.UniqueLeafKey, issuanceProof universe.Leaf,
+		mintBlockHeight uint32) error
 }
 
 // GardenKit holds the set of shared fundamental interfaces all sub-systems of

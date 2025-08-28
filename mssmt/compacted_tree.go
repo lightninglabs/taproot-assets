@@ -521,6 +521,68 @@ func (t *CompactedTree) Copy(ctx context.Context, targetTree Tree) error {
 	return nil
 }
 
+// CopyFilter copies all the key-value pairs from the source tree into the
+// target tree that pass the filter callback. The filter callback is invoked for
+// each leaf-key pair.
+func (t *CompactedTree) CopyFilter(ctx context.Context, targetTree Tree,
+	filterFunc CopyFilterPredicate) error {
+
+	var leaves map[[hashSize]byte]*LeafNode
+	err := t.store.View(ctx, func(tx TreeStoreViewTx) error {
+		root, err := tx.RootNode()
+		if err != nil {
+			return fmt.Errorf("error getting root node: %w", err)
+		}
+
+		// Optimization: If the source tree is empty, there's nothing to
+		// copy.
+		if IsEqualNode(root, EmptyTree[0]) {
+			leaves = make(map[[hashSize]byte]*LeafNode)
+			return nil
+		}
+
+		// Start recursive collection from the root at depth 0.
+		leaves, err = collectLeavesRecursive(ctx, tx, root, 0)
+		if err != nil {
+			return fmt.Errorf("error collecting leaves: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Pass the leaves through the filter callback.
+	if filterFunc != nil {
+		var filteredLeaves = make(map[[hashSize]byte]*LeafNode)
+
+		for leafKey, leafNode := range leaves {
+			include, err := filterFunc(leafKey, *leafNode)
+			if err != nil {
+				return fmt.Errorf("filter function for key "+
+					"%x: %w", leafKey, err)
+			}
+
+			if include {
+				filteredLeaves[leafKey] = leafNode
+			}
+		}
+
+		leaves = filteredLeaves
+	}
+
+	// Insert all found leaves into the target tree using InsertMany for
+	// efficiency.
+	_, err = targetTree.InsertMany(ctx, leaves)
+	if err != nil {
+		return fmt.Errorf("error inserting leaves into "+
+			"target tree: %w", err)
+	}
+
+	return nil
+}
+
 // InsertMany inserts multiple leaf nodes provided in the leaves map within a
 // single database transaction.
 func (t *CompactedTree) InsertMany(ctx context.Context,

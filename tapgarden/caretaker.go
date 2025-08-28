@@ -1527,7 +1527,7 @@ func (b *BatchCaretaker) sendSupplyCommitEvents(ctx context.Context,
 		// With the proof extracted, we can now create the universe
 		// key and leaf.
 		universeKey := universe.BaseLeafKey{
-			OutPoint:  mintedAsset.Genesis.FirstPrevOut,
+			OutPoint:  leafProof.OutPoint(),
 			ScriptKey: &mintedAsset.ScriptKey,
 		}
 		uniqueLeafKey := universe.AssetLeafKey{
@@ -1550,6 +1550,7 @@ func (b *BatchCaretaker) sendSupplyCommitEvents(ctx context.Context,
 		// Finally we send all of the above to the supply commiter.
 		err = b.cfg.MintSupplyCommitter.SendMintEvent(
 			ctx, assetSpec, uniqueLeafKey, universeLeaf,
+			leafProof.BlockHeight,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to send mint event for "+
