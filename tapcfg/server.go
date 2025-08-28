@@ -515,7 +515,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	default:
 		priceOracle, err = rfq.NewRpcPriceOracle(
-			rfqCfg.PriceOracleAddress, false,
+			rfqCfg.PriceOracleAddress, rfq.DefaultTLSConfig(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create price "+

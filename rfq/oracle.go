@@ -253,7 +253,7 @@ func insecureServerDialOpts() ([]grpc.DialOption, error) {
 
 // NewRpcPriceOracle creates a new RPC price oracle handle given the address
 // of the price oracle RPC server.
-func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
+func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig) (*RpcPriceOracle,
 	error) {
 
 	addr, err := ParsePriceOracleAddress(addrStr)
@@ -266,6 +266,9 @@ func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
 	if err != nil {
 		return nil, err
 	}
+
+	// Determine whether we should skip certificate verification.
+	dialInsecure := tlsConfig.InsecureSkipVerify
 
 	// Allow connecting to a non-TLS (h2c, http over cleartext) gRPC server,
 	// should be used for testing only.
