@@ -284,8 +284,7 @@ type AddAssetBuyOrderRequest struct {
 	AssetMaxAmt uint64 `protobuf:"varint,2,opt,name=asset_max_amt,json=assetMaxAmt,proto3" json:"asset_max_amt,omitempty"`
 	// The unix timestamp in seconds after which the order is no longer valid.
 	Expiry uint64 `protobuf:"varint,3,opt,name=expiry,proto3" json:"expiry,omitempty"`
-	// peer_pub_key is an optional field for specifying the public key of the
-	// intended recipient peer for the order.
+	// The public key of the intended recipient peer for the order.
 	PeerPubKey []byte `protobuf:"bytes,4,opt,name=peer_pub_key,json=peerPubKey,proto3" json:"peer_pub_key,omitempty"`
 	// timeout_seconds is the number of seconds to wait for the peer to respond
 	// with an accepted quote (or a rejection).
@@ -500,8 +499,7 @@ type AddAssetSellOrderRequest struct {
 	PaymentMaxAmt uint64 `protobuf:"varint,2,opt,name=payment_max_amt,json=paymentMaxAmt,proto3" json:"payment_max_amt,omitempty"`
 	// The unix timestamp in seconds after which the order is no longer valid.
 	Expiry uint64 `protobuf:"varint,3,opt,name=expiry,proto3" json:"expiry,omitempty"`
-	// peer_pub_key is an optional field for specifying the public key of the
-	// intended recipient peer for the order.
+	// The public key of the intended recipient peer for the order.
 	PeerPubKey []byte `protobuf:"bytes,4,opt,name=peer_pub_key,json=peerPubKey,proto3" json:"peer_pub_key,omitempty"`
 	// timeout_seconds is the number of seconds to wait for the peer to respond
 	// with an accepted quote (or a rejection).
