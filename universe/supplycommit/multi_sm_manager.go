@@ -69,6 +69,10 @@ type MultiStateMachineManagerCfg struct {
 	// ChainParams is the chain parameters for the chain that we're
 	// operating on.
 	ChainParams chaincfg.Params
+
+	// IgnoreCheckerCache is used to invalidate the ignore cache when a new
+	// supply commitment is created.
+	IgnoreCheckerCache IgnoreCheckerCache
 }
 
 // MultiStateMachineManager is a manager for multiple supply commitment state
@@ -149,15 +153,16 @@ func (m *MultiStateMachineManager) fetchStateMachine(
 
 	// If the state machine is not found, create a new one.
 	env := &Environment{
-		AssetSpec:        assetSpec,
-		TreeView:         m.cfg.TreeView,
-		Commitments:      m.cfg.Commitments,
-		Wallet:           m.cfg.Wallet,
-		KeyRing:          m.cfg.KeyRing,
-		Chain:            m.cfg.Chain,
-		StateLog:         m.cfg.StateLog,
-		CommitConfTarget: DefaultCommitConfTarget,
-		ChainParams:      m.cfg.ChainParams,
+		AssetSpec:          assetSpec,
+		TreeView:           m.cfg.TreeView,
+		Commitments:        m.cfg.Commitments,
+		Wallet:             m.cfg.Wallet,
+		KeyRing:            m.cfg.KeyRing,
+		Chain:              m.cfg.Chain,
+		StateLog:           m.cfg.StateLog,
+		CommitConfTarget:   DefaultCommitConfTarget,
+		ChainParams:        m.cfg.ChainParams,
+		IgnoreCheckerCache: m.cfg.IgnoreCheckerCache,
 	}
 
 	// Before we start the state machine, we'll need to fetch the current

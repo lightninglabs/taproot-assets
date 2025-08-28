@@ -2,6 +2,7 @@ package tapchannel
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"math"
 	"math/big"
@@ -37,7 +38,7 @@ var shutdownErr = fmt.Errorf("tapd is shutting down")
 type VirtualPacketSigner interface {
 	// SignVirtualPacket signs the virtual transaction of the given packet
 	// and returns the input indexes that were signed.
-	SignVirtualPacket(vPkt *tappsbt.VPacket,
+	SignVirtualPacket(ctx context.Context, vPkt *tappsbt.VPacket,
 		signOpts ...tapfreighter.SignVirtualPacketOption) ([]uint32,
 		error)
 }
@@ -552,8 +553,9 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 		// check the full witness. Instead, we use a custom Schnorr
 		// signature validator to validate the single signature we
 		// produced.
+		ctxb := context.Background()
 		signed, err := s.cfg.Signer.SignVirtualPacket(
-			vPacket, tapfreighter.SkipInputProofVerify(),
+			ctxb, vPacket, tapfreighter.SkipInputProofVerify(),
 			tapfreighter.WithValidator(&schnorrSigValidator{
 				pubKey:     signingKey,
 				tapLeaf:    lfn.Some(leafToSign),

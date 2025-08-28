@@ -62,6 +62,10 @@ type AuxChanCloserCfg struct {
 
 	// ChainBridge is used to fetch blocks from the main chain.
 	ChainBridge tapgarden.ChainBridge
+
+	// IgnoreChecker is an optional function that can be used to check if
+	// a proof should be ignored.
+	IgnoreChecker lfn.Option[proof.IgnoreChecker]
 }
 
 // assetCloseInfo houses the information we need to finalize the close of an
@@ -698,11 +702,17 @@ func (a *AuxChanCloser) FinalizeClose(desc chancloser.AuxCloseDesc,
 				return &a.Proof.Val
 			},
 		)
+		vCtx := proof.VerifierCtx{
+			HeaderVerifier: a.cfg.HeaderVerifier,
+			MerkleVerifier: proof.DefaultMerkleVerifier,
+			GroupVerifier:  a.cfg.GroupVerifier,
+			ChainLookupGen: a.cfg.ChainBridge,
+			IgnoreChecker:  a.cfg.IgnoreChecker,
+		}
 		err = importOutputProofs(
 			desc.ShortChanID, fundingInputProofs,
 			a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
-			a.cfg.ChainBridge, a.cfg.HeaderVerifier,
-			a.cfg.GroupVerifier, a.cfg.ProofArchive,
+			a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to import output "+

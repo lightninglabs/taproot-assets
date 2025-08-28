@@ -1,7 +1,6 @@
 package tapfreighter
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -22,9 +21,11 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
@@ -88,7 +89,7 @@ type Wallet interface {
 
 	// SignVirtualPacket signs the virtual transaction of the given packet
 	// and returns the input indexes that were signed.
-	SignVirtualPacket(vPkt *tappsbt.VPacket,
+	SignVirtualPacket(ctx context.Context, vPkt *tappsbt.VPacket,
 		optFuncs ...SignVirtualPacketOption) ([]uint32, error)
 
 	// CreatePassiveAssets creates passive asset packets for the given
@@ -99,7 +100,8 @@ type Wallet interface {
 		error)
 
 	// SignPassiveAssets signs the given passive asset packets.
-	SignPassiveAssets(passiveAssets []*tappsbt.VPacket) error
+	SignPassiveAssets(ctx context.Context,
+		passiveAssets []*tappsbt.VPacket) error
 
 	// AnchorVirtualTransactions creates a BTC level anchor transaction that
 	// anchors all the virtual transactions of the given packets (for both
@@ -208,6 +210,17 @@ type WalletConfig struct {
 	// WitnessValidator allows us to validate the witnesses of vPSBTs
 	// we create.
 	WitnessValidator tapscript.WitnessValidator
+
+	// ChainBridge is our bridge to the chain we operate on.
+	ChainBridge ChainBridge
+
+	// GroupVerifier is used to verify the validity of the group key for a
+	// genesis proof.
+	GroupVerifier proof.GroupVerifier
+
+	// IgnoreChecker is an optional function that can be used to check if
+	// a proof should be ignored.
+	IgnoreChecker lfn.Option[proof.IgnoreChecker]
 
 	// Wallet is used to fund+sign PSBTs for the transfer transaction.
 	Wallet WalletAnchor
@@ -916,12 +929,22 @@ func WithValidator(
 // transaction's inputs).
 //
 // NOTE: This is part of the Wallet interface.
-func (f *AssetWallet) SignVirtualPacket(vPkt *tappsbt.VPacket,
-	signOpts ...SignVirtualPacketOption) ([]uint32, error) {
+func (f *AssetWallet) SignVirtualPacket(ctx context.Context,
+	vPkt *tappsbt.VPacket, signOpts ...SignVirtualPacketOption) ([]uint32,
+	error) {
 
 	opts := defaultSignVirtualPacketOptions(f.cfg.WitnessValidator)
 	for _, optFunc := range signOpts {
 		optFunc(opts)
+	}
+
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, f.cfg.ChainBridge)
+	vCtx := proof.VerifierCtx{
+		HeaderVerifier: headerVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		GroupVerifier:  f.cfg.GroupVerifier,
+		ChainLookupGen: f.cfg.ChainBridge,
+		IgnoreChecker:  f.cfg.IgnoreChecker,
 	}
 
 	for idx := range vPkt.Inputs {
@@ -933,7 +956,12 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *tappsbt.VPacket,
 			// Before we sign the transaction, we want to make sure
 			// the inclusion proof is valid and the asset is
 			// actually committed in the anchor transaction.
-			err := verifyInclusionProof(vPkt.Inputs[idx])
+			assetProof := vPkt.Inputs[idx].Proof
+			if assetProof == nil {
+				return nil, fmt.Errorf("input proof is nil")
+			}
+
+			_, err := assetProof.VerifyProofIntegrity(ctx, vCtx)
 			if err != nil {
 				return nil, fmt.Errorf("unable to verify "+
 					"inclusion proof: %w", err)
@@ -959,62 +987,6 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *tappsbt.VPacket,
 	}
 
 	return signedInputs, nil
-}
-
-// verifyInclusionProof verifies that the given virtual input's asset is
-// actually committed in the anchor transaction.
-func verifyInclusionProof(vIn *tappsbt.VInput) error {
-	assetProof := vIn.Proof
-
-	if assetProof == nil {
-		return fmt.Errorf("input proof is nil")
-	}
-
-	// Before we look at the inclusion proof, we'll make sure that the input
-	// anchor information matches the proof's anchor transaction.
-	//
-	// TODO(guggero): Also check if the block is in the chain by calling
-	// into ChainBridge.
-	op := vIn.PrevID.OutPoint
-	anchorTxHash := assetProof.AnchorTx.TxHash()
-
-	if op.Hash != anchorTxHash {
-		return fmt.Errorf("proof anchor tx hash %v doesn't match "+
-			"input anchor outpoint %v", anchorTxHash, op.Hash)
-	}
-	if op.Index >= uint32(len(assetProof.AnchorTx.TxOut)) {
-		return fmt.Errorf("input anchor outpoint index out of range")
-	}
-
-	anchorTxOut := assetProof.AnchorTx.TxOut[op.Index]
-	if !bytes.Equal(anchorTxOut.PkScript, vIn.Anchor.PkScript) {
-		return fmt.Errorf("proof anchor tx pk script %x doesn't "+
-			"match input anchor script %x", anchorTxOut.PkScript,
-			vIn.Anchor.PkScript)
-	}
-
-	anchorKey, err := proof.ExtractTaprootKeyFromScript(vIn.Anchor.PkScript)
-	if err != nil {
-		return fmt.Errorf("unable to parse anchor pk script %x "+
-			"taproot key: %w", vIn.Anchor.PkScript, err)
-	}
-
-	inclusionProof := assetProof.InclusionProof
-	proofKeys, err := inclusionProof.DeriveByAssetInclusion(
-		vIn.Asset(), nil,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to derive inclusion proof: %w", err)
-	}
-
-	anchorKeyBytes := schnorr.SerializePubKey(anchorKey)
-	for proofKey := range proofKeys {
-		if bytes.Equal(anchorKeyBytes, proofKey.SchnorrSerialized()) {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("proof key doesn't match anchor key")
 }
 
 // determinePassiveAssetAnchorOutput determines the best anchor output to attach
@@ -1222,13 +1194,13 @@ func CreatePassiveAssets(ctx context.Context, keyRing KeyRing,
 }
 
 // SignPassiveAssets signs the given passive asset packets.
-func (f *AssetWallet) SignPassiveAssets(
+func (f *AssetWallet) SignPassiveAssets(ctx context.Context,
 	passiveAssets []*tappsbt.VPacket) error {
 
 	// Sign all the passive assets virtual packets.
 	for idx := range passiveAssets {
 		passiveAsset := passiveAssets[idx]
-		_, err := f.SignVirtualPacket(passiveAsset)
+		_, err := f.SignVirtualPacket(ctx, passiveAsset)
 		if err != nil {
 			return fmt.Errorf("unable to sign passive asset "+
 				"virtual packet: %w", err)

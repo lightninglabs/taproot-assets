@@ -58,6 +58,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightningnetwork/lnd/build"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -1844,17 +1845,7 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 		return nil, fmt.Errorf("unable to decode proof file: %w", err)
 	}
 
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
-
-	vCtx := proof.VerifierCtx{
-		HeaderVerifier: headerVerifier,
-		MerkleVerifier: proof.DefaultMerkleVerifier,
-		GroupVerifier:  groupVerifier,
-		ChainLookupGen: r.cfg.ChainBridge,
-	}
-
-	_, err = proofFile.Verify(ctx, vCtx)
+	_, err = proofFile.Verify(ctx, r.ProofVerifierCtx(ctx))
 	if err != nil {
 		// We don't want to fail the RPC request because of a proof
 		// verification error, but we do want to log it for easier
@@ -2205,20 +2196,10 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 		return nil, fmt.Errorf("error extracting last proof: %w", err)
 	}
 
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
-
-	vCtx := proof.VerifierCtx{
-		HeaderVerifier: headerVerifier,
-		MerkleVerifier: proof.DefaultMerkleVerifier,
-		GroupVerifier:  groupVerifier,
-		ChainLookupGen: r.cfg.ChainBridge,
-	}
-
 	// Now that we know the proof file is at least present, we'll attempt
 	// to import it into the main archive.
 	err = r.cfg.ProofArchive.ImportProofs(
-		ctx, vCtx, false, &proof.AnnotatedProof{
+		ctx, r.ProofVerifierCtx(ctx), false, &proof.AnnotatedProof{
 			Locator: proof.Locator{
 				AssetID:   fn.Ptr(lastProof.Asset.ID()),
 				ScriptKey: *lastProof.Asset.ScriptKey.PubKey,
@@ -2553,7 +2534,7 @@ func (r *rpcServer) SignVirtualPsbt(ctx context.Context,
 		}
 	}
 
-	signedInputs, err := r.cfg.AssetWallet.SignVirtualPacket(vPkt)
+	signedInputs, err := r.cfg.AssetWallet.SignVirtualPacket(ctx, vPkt)
 	if err != nil {
 		return nil, fmt.Errorf("error signing packet: %w", err)
 	}
@@ -3735,7 +3716,7 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 
 	// Now we can sign the packet and send it to the chain.
 	vPkt := fundResp.VPackets[0]
-	_, err = r.cfg.AssetWallet.SignVirtualPacket(vPkt)
+	_, err = r.cfg.AssetWallet.SignVirtualPacket(ctx, vPkt)
 	if err != nil {
 		return nil, fmt.Errorf("error signing packet: %w", err)
 	}
@@ -4011,6 +3992,9 @@ func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal request: %w", err)
 	}
+
+	rpcsLog.Debugf("[IgnoreAssetOutPoint]: request to ignore %s",
+		req.AssetAnchorPoint)
 
 	assetID := req.AssetAnchorPoint.ID
 
@@ -7249,17 +7233,7 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("cannot decode proof: %w", err)
 	}
 
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
-
-	vCtx := proof.VerifierCtx{
-		HeaderVerifier: headerVerifier,
-		MerkleVerifier: proof.DefaultMerkleVerifier,
-		GroupVerifier:  groupVerifier,
-		ChainLookupGen: r.cfg.ChainBridge,
-	}
-
-	lastSnapshot, err := proofFile.Verify(ctx, vCtx)
+	lastSnapshot, err := proofFile.Verify(ctx, r.ProofVerifierCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("cannot verify proof: %w", err)
 	}
@@ -7330,28 +7304,17 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 			"%w", err)
 	}
 
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
-
 	var (
 		challengeBytes [32]byte
 		opts           []proof.ProofVerificationOption
 	)
-
 	if len(req.Challenge) == 32 {
 		copy(challengeBytes[:], req.Challenge[:32])
 		opts = append(opts, proof.WithChallengeBytes(challengeBytes))
 	}
 
-	vCtx := proof.VerifierCtx{
-		HeaderVerifier: headerVerifier,
-		MerkleVerifier: proof.DefaultMerkleVerifier,
-		GroupVerifier:  groupVerifier,
-		ChainLookupGen: r.cfg.ChainBridge,
-	}
-
 	snapShot, err := p.Verify(
-		ctx, nil, lookup, vCtx, opts...,
+		ctx, nil, lookup, r.ProofVerifierCtx(ctx), opts...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error verifying proof: %w", err)
@@ -9992,18 +9955,8 @@ func (r *rpcServer) RegisterTransfer(ctx context.Context,
 
 	// All seems well, we can now import the proof into our local proof
 	// archive, which will also materialize an asset in the asset database.
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
-
-	vCtx := proof.VerifierCtx{
-		HeaderVerifier: headerVerifier,
-		MerkleVerifier: proof.DefaultMerkleVerifier,
-		GroupVerifier:  groupVerifier,
-		ChainLookupGen: r.cfg.ChainBridge,
-	}
-
 	err = r.cfg.ProofArchive.ImportProofs(
-		ctx, vCtx, false, &proof.AnnotatedProof{
+		ctx, r.ProofVerifierCtx(ctx), false, &proof.AnnotatedProof{
 			Locator: locator,
 			Blob:    fullProvenance,
 		},
@@ -10043,4 +9996,20 @@ func (r *rpcServer) RegisterTransfer(ctx context.Context,
 	return &taprpc.RegisterTransferResponse{
 		RegisteredAsset: rpcAsset,
 	}, nil
+}
+
+// ProofVerifierCtx returns a proof.VerifierCtx that can be used to verify
+// proofs in the RPC server.
+func (r *rpcServer) ProofVerifierCtx(ctx context.Context) proof.VerifierCtx {
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
+
+	var ignoreChecker proof.IgnoreChecker = r.cfg.IgnoreChecker
+	return proof.VerifierCtx{
+		HeaderVerifier: headerVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		GroupVerifier:  groupVerifier,
+		ChainLookupGen: r.cfg.ChainBridge,
+		IgnoreChecker:  lfn.Some(ignoreChecker),
+	}
 }

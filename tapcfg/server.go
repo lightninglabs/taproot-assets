@@ -27,6 +27,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/clock"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/signal"
 )
 
@@ -167,6 +168,17 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		context.Background(), assetMintingStore,
 	)
 
+	// Construct the supply tree database backend so we can create the
+	// ignore checker that's used by a number of early initialized
+	// components in here.
+	supplyTreeStore := tapdb.NewSupplyTreeStore(uniDB)
+	ignoreChecker := tapdb.NewCachingIgnoreChecker(tapdb.IgnoreCheckerCfg{
+		GroupQuery:              tapdbAddrBook,
+		Store:                   supplyTreeStore,
+		NegativeLookupCacheSize: cfg.Universe.SupplyIgnoreCacheSize,
+	})
+
+	ignoreCheckerOpt := lfn.Some[proof.IgnoreChecker](ignoreChecker)
 	uniArchiveCfg := universe.ArchiveConfig{
 		// nolint: lll
 		NewBaseTree: func(id universe.Identifier) universe.StorageBackend {
@@ -180,6 +192,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		ChainLookupGenerator: chainBridge,
 		Multiverse:           multiverse,
 		UniverseStats:        universeStats,
+		IgnoreChecker:        ignoreCheckerOpt,
 	}
 
 	federationStore := tapdb.NewTransactionExecutor(db,
@@ -331,11 +344,10 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	}
 
 	reOrgWatcher := tapgarden.NewReOrgWatcher(&tapgarden.ReOrgWatcherConfig{
-		ChainBridge: chainBridge,
-		GroupVerifier: tapgarden.GenGroupVerifier(
-			context.Background(), assetMintingStore,
-		),
-		ProofArchive: proofArchive,
+		ChainBridge:   chainBridge,
+		GroupVerifier: groupVerifier,
+		ProofArchive:  proofArchive,
+		IgnoreChecker: ignoreCheckerOpt,
 		NonBuriedAssetFetcher: func(ctx context.Context,
 			minHeight int32) ([]*asset.ChainAsset, error) {
 
@@ -405,6 +417,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		Signer:           virtualTxSigner,
 		TxValidator:      &tap.ValidatorV0{},
 		WitnessValidator: &tap.WitnessValidatorV0{},
+		ChainBridge:      chainBridge,
+		GroupVerifier:    groupVerifier,
+		IgnoreChecker:    ignoreCheckerOpt,
 		Wallet:           walletAnchor,
 		ChainParams:      &tapChainParams,
 	})
@@ -483,14 +498,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	chainPorter := tapfreighter.NewChainPorter(
 		&tapfreighter.ChainPorterConfig{
-			ChainParams: tapChainParams,
-			Signer:      virtualTxSigner,
-			TxValidator: &tap.ValidatorV0{},
-			ExportLog:   assetStore,
-			ChainBridge: chainBridge,
-			GroupVerifier: tapgarden.GenGroupVerifier(
-				context.Background(), assetMintingStore,
-			),
+			ChainParams:            tapChainParams,
+			Signer:                 virtualTxSigner,
+			TxValidator:            &tap.ValidatorV0{},
+			ExportLog:              assetStore,
+			ChainBridge:            chainBridge,
+			GroupVerifier:          groupVerifier,
 			Wallet:                 walletAnchor,
 			KeyRing:                keyRing,
 			AssetWallet:            assetWallet,
@@ -498,6 +511,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ProofWriter:            proofFileStore,
 			ProofCourierDispatcher: proofCourierDispatcher,
 			ProofWatcher:           reOrgWatcher,
+			IgnoreChecker:          ignoreCheckerOpt,
 			ErrChan:                mainErrChan,
 		},
 	)
@@ -511,10 +525,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	channelFunder := lndservices.NewLndPbstChannelFunder(lndServices)
 	auxFundingController := tapchannel.NewFundingController(
 		tapchannel.FundingControllerCfg{
-			HeaderVerifier: headerVerifier,
-			GroupVerifier: tapgarden.GenGroupVerifier(
-				context.Background(), assetMintingStore,
-			),
+			HeaderVerifier:     headerVerifier,
+			GroupVerifier:      groupVerifier,
 			ErrReporter:        msgTransportClient,
 			AssetWallet:        assetWallet,
 			CoinSelector:       coinSelect,
@@ -531,6 +543,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			DefaultCourierAddr: proofCourierAddr,
 			AssetSyncer:        addrBook,
 			FeatureBits:        lndFeatureBitsVerifier,
+			IgnoreChecker:      ignoreCheckerOpt,
 			ErrChan:            mainErrChan,
 		},
 	)
@@ -558,10 +571,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ProofArchive:       proofArchive,
 			ProofFetcher:       proofCourierDispatcher,
 			HeaderVerifier:     headerVerifier,
-			GroupVerifier: tapgarden.GenGroupVerifier(
-				context.Background(), assetMintingStore,
-			),
-			ChainBridge: chainBridge,
+			GroupVerifier:      groupVerifier,
+			ChainBridge:        chainBridge,
+			IgnoreChecker:      ignoreCheckerOpt,
 		},
 	)
 	auxSweeper := tapchannel.NewAuxSweeper(
@@ -574,10 +586,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ProofArchive:       proofArchive,
 			ProofFetcher:       proofCourierDispatcher,
 			HeaderVerifier:     headerVerifier,
-			GroupVerifier: tapgarden.GenGroupVerifier(
-				context.Background(), assetMintingStore,
-			),
-			ChainBridge: chainBridge,
+			GroupVerifier:      groupVerifier,
+			ChainBridge:        chainBridge,
+			IgnoreChecker:      ignoreCheckerOpt,
 		},
 	)
 
@@ -601,26 +612,19 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	supplyCommitStore := tapdb.NewSupplyCommitMachine(supplyCommitDb)
 
-	// Construct the supply tree database backend.
-	supplyTreeDb := tapdb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tapdb.BaseUniverseStore {
-			return db.WithTx(tx)
-		},
-	)
-	supplyTreeStore := tapdb.NewSupplyTreeStore(supplyTreeDb)
-
 	// Create the supply commitment state machine manager, which is used to
 	// manage the supply commitment state machines for each asset group.
 	supplyCommitManager := supplycommit.NewMultiStateMachineManager(
 		supplycommit.MultiStateMachineManagerCfg{
-			TreeView:       supplyTreeStore,
-			Commitments:    supplyCommitStore,
-			Wallet:         walletAnchor,
-			KeyRing:        keyRing,
-			Chain:          chainBridge,
-			DaemonAdapters: lndFsmDaemonAdapters,
-			StateLog:       supplyCommitStore,
-			ChainParams:    *tapChainParams.Params,
+			TreeView:           supplyTreeStore,
+			Commitments:        supplyCommitStore,
+			Wallet:             walletAnchor,
+			KeyRing:            keyRing,
+			Chain:              chainBridge,
+			DaemonAdapters:     lndFsmDaemonAdapters,
+			StateLog:           supplyCommitStore,
+			ChainParams:        *tapChainParams.Params,
+			IgnoreCheckerCache: ignoreChecker,
 		},
 	)
 
@@ -633,6 +637,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		ChainParams:           tapChainParams,
 		ReOrgWatcher:          reOrgWatcher,
 		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
+			// nolint: lll
 			GardenKit: tapgarden.GardenKit{
 				Wallet:                walletAnchor,
 				ChainBridge:           chainBridge,
@@ -646,18 +651,17 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				Universe:              universeFederation,
 				ProofWatcher:          reOrgWatcher,
 				UniversePushBatchSize: defaultUniverseSyncBatchSize,
+				IgnoreChecker:         ignoreCheckerOpt,
 			},
 			ChainParams:  tapChainParams,
 			ProofUpdates: proofArchive,
 			ErrChan:      mainErrChan,
 		}),
 		AssetCustodian: tapgarden.NewCustodian(&tapgarden.CustodianConfig{
-			ChainParams:  &tapChainParams,
-			WalletAnchor: walletAnchor,
-			ChainBridge:  chainBridge,
-			GroupVerifier: tapgarden.GenGroupVerifier(
-				context.Background(), assetMintingStore,
-			),
+			ChainParams:            &tapChainParams,
+			WalletAnchor:           walletAnchor,
+			ChainBridge:            chainBridge,
+			GroupVerifier:          groupVerifier,
 			AddrBook:               addrBook,
 			Signer:                 lndServices.Signer,
 			ProofArchive:           proofArchive,
@@ -667,6 +671,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			MboxBackoffCfg:         cfg.UniverseRpcCourier.BackoffCfg,
 			ProofRetrievalDelay:    cfg.CustodianProofRetrievalDelay,
 			ProofWatcher:           reOrgWatcher,
+			IgnoreChecker:          ignoreCheckerOpt,
 		}),
 		ChainBridge:              chainBridge,
 		AddrBook:                 addrBook,
@@ -678,6 +683,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		ChainPorter:              chainPorter,
 		FsmDaemonAdapters:        lndFsmDaemonAdapters,
 		SupplyCommitManager:      supplyCommitManager,
+		IgnoreChecker:            ignoreChecker,
 		UniverseArchive:          uniArchive,
 		UniverseSyncer:           universeSyncer,
 		UniverseFederation:       universeFederation,
