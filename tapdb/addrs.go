@@ -233,6 +233,9 @@ type AddrBook interface {
 	// database.
 	FetchAllAssetMeta(ctx context.Context) ([]AllAssetMetaRow, error)
 
+	// FetchGroupedAssets fetches all assets with non-nil group keys.
+	FetchGroupedAssets(ctx context.Context) ([]RawGroupedAsset, error)
+
 	// QueryLastEventHeight queries the last event height for a given
 	// address version.
 	QueryLastEventHeight(ctx context.Context,
@@ -1635,6 +1638,102 @@ func (t *TapAddressBook) FetchInternalKeyLocator(ctx context.Context,
 	}
 
 	return keyLoc, nil
+}
+
+// FetchSupplyCommitAssets fetches all assets with non-nil group keys that could
+// potentially be involved in supply commitments.
+func (t *TapAddressBook) FetchSupplyCommitAssets(ctx context.Context,
+	localControlled bool) ([]btcec.PublicKey, error) {
+
+	var (
+		readOpts       = NewAddrBookReadTx()
+		assetGroupKeys []btcec.PublicKey
+	)
+
+	err := t.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
+		// Fetch all grouped assets from the database.
+		dbAssets, err := db.FetchGroupedAssets(ctx)
+		if err != nil {
+			return err
+		}
+
+		// Convert to our simplified format.
+		assetGroupKeys = make([]btcec.PublicKey, 0, len(dbAssets))
+		for idx := range dbAssets {
+			dbAsset := dbAssets[idx]
+
+			groupKey, err := btcec.ParsePubKey(
+				dbAsset.TweakedGroupKey,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to parse group "+
+					"key: %w", err)
+			}
+
+			// Get asset metadata for this group to check if it
+			// supports supply commitments.
+			metaRow, err := db.FetchAssetMetaForAsset(
+				ctx, dbAsset.AssetID,
+			)
+			if err != nil {
+				// If metadata not found, skip this asset group
+				// as it doesn't support supply commitments.
+				continue
+			}
+
+			// Check if the asset group supports supply commitments.
+			assetMetaRow := metaRow.AssetsMetum
+			if !assetMetaRow.MetaUniverseCommitments.Valid ||
+				!assetMetaRow.MetaUniverseCommitments.Bool {
+
+				continue
+			}
+
+			// Check if a delegation key is present (required for
+			// supply commitments).
+			if len(metaRow.AssetsMetum.MetaDelegationKey) == 0 {
+				continue
+			}
+
+			// Parse delegation key from metadata.
+			delegationPubKey, err := btcec.ParsePubKey(
+				metaRow.AssetsMetum.MetaDelegationKey,
+			)
+			if err != nil {
+				continue
+			}
+
+			// Filter based on localControlled parameter:
+			// - If localControlled=true: only return assets where
+			//   we own the delegation key
+			// - If localControlled=false: only return assets where
+			//   we DON'T own the delegation key
+			_, err = db.FetchInternalKeyLocator(
+				ctx, delegationPubKey.SerializeCompressed(),
+			)
+			weOwnDelegationKey := err == nil
+
+			if localControlled && !weOwnDelegationKey {
+				// We want assets under local control, but we do
+				// not own this one.
+				continue
+			}
+			if !localControlled && weOwnDelegationKey {
+				// We want assets not under local control, but
+				// we own this one.
+				continue
+			}
+
+			assetGroupKeys = append(assetGroupKeys, *groupKey)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return assetGroupKeys, nil
 }
 
 // A set of compile-time assertions to ensure that TapAddressBook meets the
