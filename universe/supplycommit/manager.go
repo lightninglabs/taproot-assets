@@ -191,45 +191,10 @@ func (m *Manager) ensureSupplyCommitSupport(ctx context.Context,
 	return nil
 }
 
-// fetchStateMachine retrieves a state machine from the cache or creates a
-// new one if it doesn't exist. If a new state machine is created, it is also
-// started.
-func (m *Manager) fetchStateMachine(
+// startAssetSM creates and starts a new supply commitment state
+// machine for the given asset specifier.
+func (m *Manager) startAssetSM(ctx context.Context,
 	assetSpec asset.Specifier) (*StateMachine, error) {
-
-	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
-	if err != nil {
-		return nil, fmt.Errorf("asset specifier missing group key: %w",
-			err)
-	}
-
-	// Check if the state machine for the asset group already exists in the
-	// cache.
-	sm, ok := m.smCache.Get(*groupKey)
-	if ok {
-		return sm, nil
-	}
-
-	// If the state machine is not found, create a new one.
-	//
-	// Before we can create a state machine, we need to ensure that the
-	// asset group supports supply commitments. If it doesn't, then we
-	// return an error.
-	ctx, cancel := m.WithCtxQuitNoTimeout()
-	defer cancel()
-
-	metaReveal, err := FetchLatestAssetMetadata(
-		ctx, m.cfg.AssetLookup, assetSpec,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("faild to fetch asset meta: %w", err)
-	}
-
-	err = m.ensureSupplyCommitSupport(ctx, metaReveal)
-	if err != nil {
-		return nil, fmt.Errorf("failed to ensure supply commit "+
-			"support for asset: %w", err)
-	}
 
 	env := &Environment{
 		AssetSpec:          assetSpec,
@@ -270,6 +235,12 @@ func (m *Manager) fetchStateMachine(
 	smCtx, _ := m.WithCtxQuitNoTimeout()
 	newSm.Start(smCtx)
 
+	// Assert that the state machine is running. Start should block until
+	// the state machine is running.
+	if !newSm.IsRunning() {
+		return nil, fmt.Errorf("state machine unexpectadly not running")
+	}
+
 	// If specific initial states are provided, we send the corresponding
 	// events to the state machine to ensure it begins ticking as expected.
 	switch initialState.(type) {
@@ -287,9 +258,62 @@ func (m *Manager) fetchStateMachine(
 		newSm.SendEvent(ctx, &FinalizeEvent{})
 	}
 
-	m.smCache.Set(*groupKey, &newSm)
-
 	return &newSm, nil
+}
+
+// fetchStateMachine retrieves a state machine from the cache or creates a
+// new one if it doesn't exist. If a new state machine is created, it is also
+// started.
+func (m *Manager) fetchStateMachine(
+	assetSpec asset.Specifier) (*StateMachine, error) {
+
+	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
+	if err != nil {
+		return nil, fmt.Errorf("asset specifier missing group key: %w",
+			err)
+	}
+
+	// Check if the state machine for the asset group already exists in the
+	// cache.
+	sm, ok := m.smCache.Get(*groupKey)
+	if ok {
+		// If the state machine is found and is running, return it.
+		if sm.IsRunning() {
+			return sm, nil
+		}
+
+		// If the state machine exists but is not running, replace it in
+		// the cache with a new running instance.
+	}
+
+	// Before we can create a state machine, we need to ensure that the
+	// asset group supports supply commitments. If it doesn't, then we
+	// return an error.
+	ctx, cancel := m.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	metaReveal, err := FetchLatestAssetMetadata(
+		ctx, m.cfg.AssetLookup, assetSpec,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("faild to fetch asset meta: %w", err)
+	}
+
+	err = m.ensureSupplyCommitSupport(ctx, metaReveal)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure supply commit "+
+			"support for asset: %w", err)
+	}
+
+	// Start the state machine and add it to the cache.
+	newSm, err := m.startAssetSM(ctx, assetSpec)
+	if err != nil {
+		return nil, fmt.Errorf("unable to start state machine: %w", err)
+	}
+
+	m.smCache.Set(*groupKey, newSm)
+
+	return newSm, nil
 }
 
 // SendEvent sends an event to the state machine associated with the given asset
