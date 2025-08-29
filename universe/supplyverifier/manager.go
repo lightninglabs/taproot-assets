@@ -78,6 +78,10 @@ type ManagerCfg struct {
 	// SupplyTreeView is used to fetch supply leaves by height.
 	SupplyTreeView SupplyTreeView
 
+	// SupplySyncer is used to retrieve supply leaves from a universe and
+	// persist them to the local database.
+	SupplySyncer SupplySyncer
+
 	// GroupFetcher is used to fetch asset group information.
 	GroupFetcher tapgarden.GroupFetcher
 
@@ -128,12 +132,71 @@ func NewManager(cfg ManagerCfg) *Manager {
 	}
 }
 
+// InitStateMachines initializes state machines for all asset groups that
+// support supply commitments. If a state machine for an asset group already
+// exists, it will be skipped.
+func (m *Manager) InitStateMachines() error {
+	ctx, cancel := m.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	// First, get all assets with group keys that could potentially be
+	// involved in supply commitments. The Manager will filter these
+	// based on delegation key ownership and other criteria.
+	assetGroupKeys, err := m.cfg.AssetLookup.FetchSupplyCommitAssets(
+		ctx, false,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to fetch supply commit assets: %w",
+			err)
+	}
+
+	for idx := range assetGroupKeys {
+		groupKey := assetGroupKeys[idx]
+
+		// Create asset specifier from group key.
+		assetSpec := asset.NewSpecifierFromGroupKey(groupKey)
+
+		// Check to ensure state machine for asset group does not
+		// already exist.
+		_, ok := m.smCache.Get(groupKey)
+		if ok {
+			continue
+		}
+
+		// Create and start a new state machine for the asset group.
+		newSm, err := m.startAssetSM(ctx, assetSpec)
+		if err != nil {
+			return fmt.Errorf("unable to start state machine for "+
+				"asset group (asset=%s): %w",
+				assetSpec.String(), err)
+		}
+
+		m.smCache.Set(groupKey, newSm)
+	}
+
+	return nil
+}
+
 // Start starts the multi state machine manager.
 func (m *Manager) Start() error {
+	var startErr error
+
 	m.startOnce.Do(func() {
 		// Initialize the state machine cache.
 		m.smCache = newStateMachineCache()
+
+		// Initialize state machines for each asset group that supports
+		// supply commitments.
+		err := m.InitStateMachines()
+		if err != nil {
+			startErr = fmt.Errorf("unable to initialize "+
+				"state machines: %v", err)
+			return
+		}
 	})
+	if startErr != nil {
+		return fmt.Errorf("unable to start manager: %w", startErr)
+	}
 
 	return nil
 }
@@ -643,6 +706,14 @@ func (c *stateMachineCache) StopAll() {
 		// Stop the state machine.
 		sm.Stop()
 	}
+}
+
+// Count returns the number of state machines in the cache.
+func (c *stateMachineCache) Count() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return len(c.cache)
 }
 
 // Get retrieves a state machine from the cache.
