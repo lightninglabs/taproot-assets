@@ -153,24 +153,10 @@ func (m *Manager) Stop() error {
 	return nil
 }
 
-// fetchStateMachine retrieves a state machine from the cache or creates a
-// new one if it doesn't exist. If a new state machine is created, it is also
-// started.
-func (m *Manager) fetchStateMachine(assetSpec asset.Specifier) (*StateMachine,
-	error) {
-
-	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
-	if err != nil {
-		return nil, fmt.Errorf("asset specifier missing group key: %w",
-			err)
-	}
-
-	// Check if the state machine for the asset group already exists in the
-	// cache.
-	sm, ok := m.smCache.Get(*groupKey)
-	if ok {
-		return sm, nil
-	}
+// startAssetSM creates and starts a new supply commitment state machine for the
+// given asset specifier.
+func (m *Manager) startAssetSM(ctx context.Context,
+	assetSpec asset.Specifier) (*StateMachine, error) {
 
 	// If the state machine is not found, create a new one.
 	env := &Environment{
@@ -183,9 +169,6 @@ func (m *Manager) fetchStateMachine(assetSpec asset.Specifier) (*StateMachine,
 
 	// Before we start the state machine, we'll need to fetch the current
 	// state from disk, to see if we need to emit any new events.
-	ctx, cancel := m.WithCtxQuitNoTimeout()
-	defer cancel()
-
 	initialState, err := m.cfg.StateLog.FetchState(ctx, assetSpec)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch current state: %w", err)
@@ -208,13 +191,61 @@ func (m *Manager) fetchStateMachine(assetSpec asset.Specifier) (*StateMachine,
 	smCtx, _ := m.WithCtxQuitNoTimeout()
 	newSm.Start(smCtx)
 
+	// Assert that the state machine is running. Start should block until
+	// the state machine is running.
+	if !newSm.IsRunning() {
+		return nil, fmt.Errorf("state machine unexpectadly not running")
+	}
+
 	// For supply verifier, we always start with an InitEvent to begin
 	// the verification process.
 	newSm.SendEvent(ctx, &InitEvent{})
 
-	m.smCache.Set(*groupKey, &newSm)
-
 	return &newSm, nil
+}
+
+// fetchStateMachine retrieves a state machine from the cache or creates a
+// new one if it doesn't exist. If a new state machine is created, it is also
+// started.
+func (m *Manager) fetchStateMachine(assetSpec asset.Specifier) (*StateMachine,
+	error) {
+
+	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
+	if err != nil {
+		return nil, fmt.Errorf("asset specifier missing group key: %w",
+			err)
+	}
+
+	// Check if the state machine for the asset group already exists in the
+	// cache.
+	sm, ok := m.smCache.Get(*groupKey)
+	if ok {
+		// If the state machine is found and is running, return it.
+		if sm.IsRunning() {
+			return sm, nil
+		}
+
+		// If the state machine exists but is not running, replace it in
+		// the cache with a new running instance.
+	}
+
+	ctx, cancel := m.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	// TODO(ffranr): Check that the asset group supports supply commitments
+	//  and that this node does not create supply commitments for the asset
+	//  group (i.e. it does not own the delegation key). We don't want to
+	//  run a verifier state machine for an asset group supply commitment
+	//  that we issue ourselves.
+
+	newSm, err := m.startAssetSM(ctx, assetSpec)
+	if err != nil {
+		return nil, fmt.Errorf("unable to start state machine: %w", err)
+	}
+
+	m.smCache.Set(*groupKey, newSm)
+
+	return newSm, nil
 }
 
 // InsertSupplyCommit stores a verified supply commitment for the given asset
