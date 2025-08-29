@@ -214,6 +214,11 @@ func NewSupplyLeavesFromEvents(events []SupplyUpdateEvent) (SupplyLeaves,
 // AssetLookup is an interface that allows us to query for asset
 // information, such as asset groups and asset metadata.
 type AssetLookup interface {
+	// FetchSupplyCommitAssets fetches all assets with non-nil group keys
+	// that are supply commitments enabled.
+	FetchSupplyCommitAssets(ctx context.Context,
+		localControlled bool) ([]btcec.PublicKey, error)
+
 	// QueryAssetGroupByGroupKey fetches the asset group with a matching
 	// tweaked key, including the genesis information used to create the
 	// group.

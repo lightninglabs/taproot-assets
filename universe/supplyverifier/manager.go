@@ -20,6 +20,10 @@ import (
 const (
 	// DefaultTimeout is the context guard default timeout.
 	DefaultTimeout = 30 * time.Second
+
+	// MaxStateMachines is the maximum number of supply verifier state
+	// machines that can be managed by the multi state machine manager.
+	MaxStateMachines = 50
 )
 
 // DaemonAdapters is a wrapper around the protofsm.DaemonAdapters interface
@@ -69,6 +73,10 @@ type ManagerCfg struct {
 
 	// SupplyTreeView is used to fetch supply leaves by height.
 	SupplyTreeView SupplyTreeView
+
+	// AssetLookup is used to look up asset information such as asset groups
+	// and asset metadata.
+	AssetLookup supplycommit.AssetLookup
 
 	// SupplySyncer is used to retrieve supply leaves from a universe and
 	// persist them to the local database.
@@ -121,12 +129,86 @@ func NewManager(cfg ManagerCfg) *Manager {
 	}
 }
 
+// InitStateMachines initializes state machines for all asset groups that
+// support supply commitments. If a state machine for an asset group already
+// exists, it will be skipped.
+func (m *Manager) InitStateMachines() error {
+	ctx, cancel := m.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	// First, get all assets with group keys that could potentially be
+	// involved in supply commitments. The Manager will filter these
+	// based on delegation key ownership and other criteria.
+	assetGroupKeys, err := m.cfg.AssetLookup.FetchSupplyCommitAssets(
+		ctx, false,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to fetch supply commit assets: %w",
+			err)
+	}
+
+	for idx := range assetGroupKeys {
+		groupKey := assetGroupKeys[idx]
+
+		// Create asset specifier from group key.
+		assetSpec := asset.NewSpecifierFromGroupKey(groupKey)
+
+		// Check to ensure state machine for asset group does not
+		// already exist.
+		_, ok := m.smCache.Get(groupKey)
+		if ok {
+			continue
+		}
+
+		// Safeguard against universe server misconfiguration or
+		// otherwise ending up with too many state machines.
+		//
+		// TODO(ffranr): Add config option instead of hard limit.
+		if m.smCache.Count() >= MaxStateMachines {
+			log.Infof("Maximum number of state machines (%d) "+
+				"reached, skipping initialization of new "+
+				"state machine", MaxStateMachines)
+			break
+		}
+
+		// Create and start a new state machine for the asset group.
+		newSm, err := m.startAssetSM(ctx, assetSpec)
+		if err != nil {
+			return fmt.Errorf("unable to start state machine for "+
+				"asset group (asset=%s): %w",
+				assetSpec.String(), err)
+		}
+
+		m.smCache.Set(groupKey, newSm)
+	}
+
+	return nil
+}
+
 // Start starts the multi state machine manager.
 func (m *Manager) Start() error {
+	var startErr error
+
 	m.startOnce.Do(func() {
 		// Initialize the state machine cache.
 		m.smCache = newStateMachineCache()
+
+		// Initialize state machines for all relevant asset groups.
+		//
+		// TODO(ffranr): Consider passing in tapd operation mode
+		//  (e.g. universe server, etc) to determine which asset groups
+		//  we should run state machines for.
+		err := m.InitStateMachines()
+		if err != nil {
+			startErr = fmt.Errorf("unable to initialize state "+
+				"machines: %v", err)
+			return
+		}
 	})
+
+	if startErr != nil {
+		return fmt.Errorf("unable to start manager: %w", startErr)
+	}
 
 	return nil
 }
@@ -629,6 +711,14 @@ func (c *stateMachineCache) StopAll() {
 		// Stop the state machine.
 		sm.Stop()
 	}
+}
+
+// Count returns the number of state machines in the cache.
+func (c *stateMachineCache) Count() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return len(c.cache)
 }
 
 // Get retrieves a state machine from the cache.
