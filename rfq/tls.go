@@ -25,13 +25,6 @@ type TLSConfig struct {
 	CustomCertificates []byte
 }
 
-// DefaultTLSConfig returns a default TLS configuration.
-func DefaultTLSConfig() *TLSConfig {
-	return &TLSConfig{
-		InsecureSkipVerify: true,
-	}
-}
-
 // configureTransportCredentials configures the TLS transport credentials to
 // be used for RPC connections.
 func configureTransportCredentials(
