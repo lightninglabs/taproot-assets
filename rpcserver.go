@@ -7715,7 +7715,7 @@ func (r *rpcServer) AddAssetBuyOrder(ctx context.Context,
 		return nil, fmt.Errorf("error unmarshalling buy order: %w", err)
 	}
 
-	// Currently, we require the peer to be specified in the buy order.
+	// Currently, we require the peer to be specified.
 	peer, err := buyOrder.Peer.UnwrapOrErr(
 		fmt.Errorf("buy order peer must be specified"),
 	)
@@ -7932,7 +7932,7 @@ func (r *rpcServer) AddAssetSellOrder(ctx context.Context,
 			err)
 	}
 
-	// Currently, we require the peer to be specified in the buy order.
+	// Currently, we require the peer to be specified.
 	peer, err := sellOrder.Peer.UnwrapOrErr(
 		fmt.Errorf("sell order peer must be specified"),
 	)

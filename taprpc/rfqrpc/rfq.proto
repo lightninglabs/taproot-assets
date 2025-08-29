@@ -131,8 +131,7 @@ message AddAssetBuyOrderRequest {
     // The unix timestamp in seconds after which the order is no longer valid.
     uint64 expiry = 3;
 
-    // peer_pub_key is an optional field for specifying the public key of the
-    // intended recipient peer for the order.
+    // The public key of the intended recipient peer for the order.
     bytes peer_pub_key = 4;
 
     // timeout_seconds is the number of seconds to wait for the peer to respond
@@ -183,8 +182,7 @@ message AddAssetSellOrderRequest {
     // The unix timestamp in seconds after which the order is no longer valid.
     uint64 expiry = 3;
 
-    // peer_pub_key is an optional field for specifying the public key of the
-    // intended recipient peer for the order.
+    // The public key of the intended recipient peer for the order.
     bytes peer_pub_key = 4;
 
     // timeout_seconds is the number of seconds to wait for the peer to respond

@@ -475,7 +475,7 @@
         "peer_pub_key": {
           "type": "string",
           "format": "byte",
-          "description": "peer_pub_key is an optional field for specifying the public key of the\nintended recipient peer for the order."
+          "description": "The public key of the intended recipient peer for the order."
         },
         "timeout_seconds": {
           "type": "integer",
@@ -560,7 +560,7 @@
         "peer_pub_key": {
           "type": "string",
           "format": "byte",
-          "description": "peer_pub_key is an optional field for specifying the public key of the\nintended recipient peer for the order."
+          "description": "The public key of the intended recipient peer for the order."
         },
         "timeout_seconds": {
           "type": "integer",
