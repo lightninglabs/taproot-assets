@@ -570,6 +570,21 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 // UniverseKey represents the key used to locate an item within a universe.
 type UniverseKey [32]byte
 
+// NewUniverseKeyFromBytes creates a new universe key from the given byte slice.
+func NewUniverseKeyFromBytes(b []byte) (UniverseKey, error) {
+	var zero UniverseKey
+
+	if len(b) != 32 {
+		return zero, fmt.Errorf("invalid length for universe key, "+
+			"expected 32 got %d", len(b))
+	}
+
+	var key UniverseKey
+	copy(key[:], b)
+
+	return key, nil
+}
+
 // getPrevAssetSnapshot returns the previous asset snapshot for the passed
 // proof. If the proof is a genesis proof, then nil is returned.
 func (a *Archive) getPrevAssetSnapshot(ctx context.Context,

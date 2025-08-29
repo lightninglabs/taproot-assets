@@ -56,6 +56,20 @@ const (
 	IgnoreTreeType
 )
 
+// NewSubtreeTypeFromStr returns the SupplySubTree type from a string.
+func NewSubtreeTypeFromStr(s string) (SupplySubTree, error) {
+	switch s {
+	case "mint_supply":
+		return MintTreeType, nil
+	case "burn":
+		return BurnTreeType, nil
+	case "ignore":
+		return IgnoreTreeType, nil
+	default:
+		return 0, fmt.Errorf("unknown supply subtree: %s", s)
+	}
+}
+
 // String returns the string representation of the supply sub tree.
 func (s SupplySubTree) String() string {
 	switch s {
