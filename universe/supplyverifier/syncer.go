@@ -4,11 +4,19 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"sync"
+	"time"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
+)
+
+const (
+	// defaultPullTimeout is the default timeout for a supply commitment
+	defaultPullTimeout = 30 * time.Second
 )
 
 // UniverseClient is an interface that represents a client connection to a
@@ -20,6 +28,12 @@ type UniverseClient interface {
 		commitment supplycommit.RootCommitment,
 		updateLeaves supplycommit.SupplyLeaves,
 		chainProof supplycommit.ChainProof) error
+
+	// FetchSupplyCommit fetches a supply commitment for a specific
+	// asset group from the remote universe server.
+	FetchSupplyCommit(ctx context.Context, assetSpec asset.Specifier,
+		spentCommitOutpoint fn.Option[wire.OutPoint]) (
+		supplycommit.FetchSupplyCommitResult, error)
 
 	// Close closes the fetcher and cleans up any resources.
 	Close() error
@@ -214,11 +228,160 @@ func (s *SupplySyncer) PushSupplyCommitment(ctx context.Context,
 	}
 
 	errorMap := make(map[string]error)
-	for idx, fetchErr := range pushErrs {
+	for idx, pushErr := range pushErrs {
 		serverAddr := targetAddrs[idx]
 		hostStr := serverAddr.HostStr()
-		errorMap[hostStr] = fetchErr
+		errorMap[hostStr] = pushErr
 	}
 
 	return errorMap, nil
+}
+
+// pullUniServer fetches the supply commitment from a specific universe server.
+func (s *SupplySyncer) pullUniServer(ctx context.Context,
+	assetSpec asset.Specifier, spentCommitOutpoint fn.Option[wire.OutPoint],
+	serverAddr universe.ServerAddr) (supplycommit.FetchSupplyCommitResult,
+	error) {
+
+	var zero supplycommit.FetchSupplyCommitResult
+
+	// Create a client for the specific universe server address.
+	client, err := s.cfg.ClientFactory(serverAddr)
+	if err != nil {
+		return zero, fmt.Errorf("unable to create universe client: %w",
+			err)
+	}
+
+	// Ensure the client is properly closed when we're done.
+	defer func() {
+		if closeErr := client.Close(); closeErr != nil {
+			log.Errorf("Unable to close supply syncer pull "+
+				"universe client: %v", closeErr)
+		}
+	}()
+
+	result, err := client.FetchSupplyCommit(
+		ctx, assetSpec, spentCommitOutpoint,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("unable to fetch supply commitment: %w",
+			err)
+	}
+
+	return result, nil
+}
+
+// SupplyCommitPullResult represents the result of a supply commitment pull
+// operation across multiple universe servers.
+type SupplyCommitPullResult struct {
+	// FetchResult contains the complete fetched supply commitment data.
+	FetchResult fn.Option[supplycommit.FetchSupplyCommitResult]
+
+	// ErrorMap contains errors encountered while pulling from each server,
+	// keyed by server host string. If empty, all pulls succeeded.
+	ErrorMap map[string]error
+}
+
+// PullSupplyCommitment fetches a supply commitment from remote universe
+// servers. This function attempts to fetch from all servers in parallel.
+//
+// Returns a SupplyCommitPullResult containing the fetched data and a map of
+// per-server errors, plus an internal error. If at least one server succeeds,
+// the result will contain the commitment data. If all servers fail, the
+// ErrorMap will contain all the errors and the commitment data will be nil.
+//
+// NOTE: This function must be thread safe.
+func (s *SupplySyncer) PullSupplyCommitment(ctx context.Context,
+	assetSpec asset.Specifier, spentCommitOutpoint fn.Option[wire.OutPoint],
+	canonicalUniverses []url.URL) (SupplyCommitPullResult, error) {
+
+	var zero SupplyCommitPullResult
+
+	targetAddrs, err := s.fetchServerAddrs(ctx, canonicalUniverses)
+	if err != nil {
+		// This is an internal error that prevents the operation from
+		// proceeding.
+		return zero, fmt.Errorf("unable to fetch target universe "+
+			"server addresses: %w", err)
+	}
+
+	// Pull the supply commitment from all target universe servers in
+	// parallel. Store both errors and successful results.
+	var muResults sync.Mutex
+	results := make(map[string]supplycommit.FetchSupplyCommitResult)
+
+	// Specify context timeout for the entire pull operation.
+	ctxPull, cancel := context.WithTimeout(ctx, defaultPullTimeout)
+	defer cancel()
+
+	pullErrs, err := fn.ParSliceErrCollect(
+		ctxPull, targetAddrs, func(ctx context.Context,
+			serverAddr universe.ServerAddr) error {
+
+			// Pull the supply commitment from the universe server.
+			result, err := s.pullUniServer(
+				ctx, assetSpec, spentCommitOutpoint, serverAddr,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to pull supply "+
+					"commitment (server_addr_id=%d, "+
+					"server_addr_host_str=%s): %w",
+					serverAddr.ID, serverAddr.HostStr(),
+					err)
+			}
+
+			muResults.Lock()
+			results[serverAddr.HostStr()] = result
+			muResults.Unlock()
+
+			return nil
+		},
+	)
+	if err != nil {
+		// This should not happen with ParSliceErrCollect, but handle it
+		// as an internal error.
+		return zero, fmt.Errorf("unable to pull supply commitment: %w",
+			err)
+	}
+
+	// Report results: log server address and supply tree root.
+	//
+	// If the supply commitment that was pulled fails verification later,
+	// we can use this log to trace back to the server it came from.
+	for serverAddr, res := range results {
+		// Format the spent outpoint if present, otherwise empty string.
+		spentOutpointStr := fn.MapOptionZ(
+			spentCommitOutpoint, func(op wire.OutPoint) string {
+				return op.String()
+			},
+		)
+
+		log.Infof("Pulled supply commitment from server "+
+			"(server_addr=%s, asset=%s, supply_tree_root=%s, "+
+			"spent_outpoint=%s)", serverAddr, assetSpec.String(),
+			res.RootCommitment.SupplyRoot.NodeHash().String(),
+			spentOutpointStr)
+	}
+
+	// Return one successful result, if available, as the final outcome.
+	var finalResult *supplycommit.FetchSupplyCommitResult
+	for _, res := range results {
+		finalResult = &res
+		break
+	}
+
+	// Build a map from server addresses to their corresponding errors.
+	errorMap := make(map[string]error)
+	for idx, pullErr := range pullErrs {
+		serverAddr := targetAddrs[idx]
+		hostStr := serverAddr.HostStr()
+		if pullErr != nil {
+			errorMap[hostStr] = pullErr
+		}
+	}
+
+	return SupplyCommitPullResult{
+		FetchResult: fn.MaybeSome(finalResult),
+		ErrorMap:    errorMap,
+	}, nil
 }
