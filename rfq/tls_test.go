@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Test certificate data - a valid self-signed certificate for testing
-const validTestCertPEM = `-----BEGIN CERTIFICATE-----
+// validCertificate is a valid certificate.
+const validCertificate = `-----BEGIN CERTIFICATE-----
 MIICmjCCAYICCQCuu1gzY+BBKjANBgkqhkiG9w0BAQsFADAPMQ0wCwYDVQQDDAR0
 ZXN0MB4XDTI1MDgyODEwNDA1NVoXDTI1MDgyOTEwNDA1NVowDzENMAsGA1UEAwwE
 dGVzdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALTWCm8l3d9nE2QK
@@ -24,62 +24,107 @@ Wo7g6udwyA48doEVJMjThFLPcW7xmsy6Ldew682m1kD8/ag+9qihX1IJyiqiEjha
 BcoNuBHB65RxQM5fpA7hkEFm1bxBoowGX2hx6VCCeBBwREISRfgvkUxZahUXNg==
 -----END CERTIFICATE-----`
 
-// Invalid PEM data for testing failure cases
-const invalidTestCertPEM = `-----BEGIN CERTIFICATE-----
+// invalidCertificate is an invalid certificate.
+const invalidCertificate = `-----BEGIN CERTIFICATE-----
 This is not a valid certificate
 -----END CERTIFICATE-----`
 
-// DefaultTLSConfig returns a default TLS configuration for testing.
+// testCaseConfigureTransportCredentials is a test case for the
+// configureTransportCredentials function.
+type testCaseConfigureTransportCredentials struct {
+	name string
+
+	expectInsecure bool
+
+	tlsConfig *TLSConfig
+}
+
+// runConfigureTransportCredentialsTest tests that we get the expected
+// security protocol from the provided test case.
+func runConfigureTransportCredentialsTest(t *testing.T,
+	tc *testCaseConfigureTransportCredentials) {
+
+	creds, err := configureTransportCredentials(tc.tlsConfig)
+
+	// We should never see an error here.
+	require.Nil(t, err)
+
+	protocol := creds.Info().SecurityProtocol
+
+	if tc.expectInsecure {
+		require.Equal(t, "insecure", protocol)
+		return
+	}
+
+	require.Equal(t, "tls", protocol)
+}
+
+// defaultTLSConfig is the default TLS config.
 func DefaultTLSConfig() *TLSConfig {
 	return &TLSConfig{
-		InsecureSkipVerify: true,
-	}
-}
-
-// TestConfigureTransportCredentials_InsecureSkipVerify tests the function
-// when InsecureSkipVerify is true.
-func TestConfigureTransportCredentials_InsecureSkipVerify(t *testing.T) {
-	config := &TLSConfig{
-		InsecureSkipVerify: true,
-	}
-
-	creds, err := configureTransportCredentials(config)
-
-	require.NoError(t, err)
-	require.NotNil(t, creds)
-
-	// Verify that we got insecure credentials by checking the type
-	require.Equal(t, "insecure", creds.Info().SecurityProtocol)
-}
-
-// TestConfigureTransportCredentials_ValidCustomCertificates tests the
-// function when valid custom certificates are provided.
-func TestConfigureTransportCredentials_ValidCustomCertificates(t *testing.T) {
-	config := &TLSConfig{
+		Enabled:            true,
 		InsecureSkipVerify: false,
-		CustomCertificates: []byte(validTestCertPEM),
+		TrustSystemRootCAs: true,
 	}
-
-	creds, err := configureTransportCredentials(config)
-
-	require.NoError(t, err)
-	require.NotNil(t, creds)
-
-	// Verify that we got TLS credentials (not insecure)
-	require.Equal(t, "tls", creds.Info().SecurityProtocol)
 }
 
-// TestConfigureTransportCredentials_NoCredentialsConfigured tests the
-// function when no credentials are configured.
-func TestConfigureTransportCredentials_NoCredentialsConfigured(t *testing.T) {
-	config := &TLSConfig{
-		InsecureSkipVerify: false,
-		CustomCertificates: nil,
+// TestConfigureTransportCredentials tests the configureTransportCredentials
+// function.
+func TestConfigureTransportCredentials(t *testing.T) {
+	testCases := []*testCaseConfigureTransportCredentials{
+		{
+			name:           "default configuration",
+			expectInsecure: false,
+			tlsConfig:      DefaultTLSConfig(),
+		},
+		{
+			name:           "tls disabled",
+			expectInsecure: true,
+			tlsConfig: &TLSConfig{
+				Enabled: false,
+			},
+		},
+		{
+			name:           "trust os root CAs",
+			expectInsecure: false,
+			tlsConfig: &TLSConfig{
+				Enabled:            true,
+				InsecureSkipVerify: false,
+				TrustSystemRootCAs: true,
+			},
+		},
+		{
+			name:           "no trust os root CAs",
+			expectInsecure: false,
+			tlsConfig: &TLSConfig{
+				Enabled:            true,
+				InsecureSkipVerify: false,
+				TrustSystemRootCAs: false,
+			},
+		},
+		{
+			name:           "valid custom certificate",
+			expectInsecure: false,
+			tlsConfig: &TLSConfig{
+				Enabled:            true,
+				InsecureSkipVerify: false,
+				TrustSystemRootCAs: false,
+				CustomCertificates: []byte(validCertificate),
+			},
+		},
+		{
+			name:           "invalid custom certificate",
+			expectInsecure: false,
+			tlsConfig: &TLSConfig{
+				Enabled:            true,
+				InsecureSkipVerify: false,
+				TrustSystemRootCAs: false,
+				CustomCertificates: []byte(invalidCertificate),
+			},
+		},
 	}
 
-	creds, err := configureTransportCredentials(config)
-
-	require.NoError(t, err)
-	require.NotNil(t, creds)
-	require.Equal(t, "tls", creds.Info().SecurityProtocol)
+	for _, tc := range testCases {
+		runConfigureTransportCredentialsTest(t, tc)
+	}
 }
