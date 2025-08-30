@@ -143,6 +143,21 @@ const (
 	// defaultMailboxAuthTimeout is the default timeout we'll use for
 	// mailbox message retrieval client authentication.
 	defaultMailboxAuthTimeout = 10 * time.Second
+
+	// defaultPriceOracleTLSInsecure is the default value we'll use for
+	// constructing TLS connections with price oracles. It is 'true' for
+	// now, but ought be changed to 'false' before any major feature
+	// release.
+	defaultPriceOracleTLSInsecure = true
+
+	// defaultPriceOracleNoSystemCAs is the default value we'll use
+	// regarding trust of the operating system's root CA list. We'll use
+	// 'false', i.e. we will trust the OS root CA list by default.
+	defaultPriceOracleTLSNoSystemCAs = false
+
+	// defaultPriceOracleTLSCertPath is the default (empty) path to a
+	// certificate to use for securing price oracle communication.
+	defaultPriceOracleTLSCertPath = ""
 )
 
 var (
@@ -317,8 +332,11 @@ type ExperimentalConfig struct {
 	Rfq rfq.CliConfig `group:"rfq" namespace:"rfq"`
 }
 
-// Validate returns an error if the configuration is invalid.
-func (c *ExperimentalConfig) Validate() error {
+// CleanAndValidate performs final processing on the ExperimentalConfig,
+// returning an error if the configuration is invalid.
+func (c *ExperimentalConfig) CleanAndValidate() error {
+	c.Rfq.PriceOracleTLSCertPath = CleanAndExpandPath(
+		c.Rfq.PriceOracleTLSCertPath)
 	return c.Rfq.Validate()
 }
 
@@ -478,7 +496,10 @@ func DefaultConfig() Config {
 		},
 		Experimental: &ExperimentalConfig{
 			Rfq: rfq.CliConfig{
-				AcceptPriceDeviationPpm: rfq.DefaultAcceptPriceDeviationPpm,
+				AcceptPriceDeviationPpm:   rfq.DefaultAcceptPriceDeviationPpm,
+				PriceOracleTLSInsecure:    defaultPriceOracleTLSInsecure,
+				PriceOracleTLSNoSystemCAs: defaultPriceOracleTLSNoSystemCAs,
+				PriceOracleTLSCertPath:    defaultPriceOracleTLSCertPath,
 			},
 		},
 	}
@@ -914,8 +935,8 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 		}
 	}
 
-	// Validate the experimental command line config.
-	err = cfg.Experimental.Validate()
+	// Clean and validate the experimental command line config.
+	err = cfg.Experimental.CleanAndValidate()
 	if err != nil {
 		return nil, fmt.Errorf("error in experimental command line "+
 			"config: %w", err)
@@ -1148,6 +1169,35 @@ func getCertificateConfig(cfg *Config, cfgLogger btclog.Logger) (*tls.Config,
 	}
 
 	return tlsCfg, restCreds, nil
+}
+
+// getPriceOracleTLSConfig returns a TLS configuration for a price oracle,
+// given a valid RFQ CLI configuration.
+func getPriceOracleTLSConfig(rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
+	var certBytes []byte
+
+	// Read any specified certificate data.
+	if rfqCfg.PriceOracleTLSCertPath != "" {
+		var err error
+		certBytes, err = os.ReadFile(
+			rfqCfg.PriceOracleTLSCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read "+
+				"price oracle certificate: %w", err)
+		}
+	}
+
+	// Construct the oracle's TLS configuration.
+	tlsConfig := &rfq.TLSConfig{
+		InsecureSkipVerify: rfqCfg.PriceOracleTLSInsecure,
+		// Note the subtle flip on the flag, since the user has
+		// configured whether or not to *not* trust the system
+		// CA's.
+		TrustSystemRootCAs: !rfqCfg.PriceOracleTLSNoSystemCAs,
+		CustomCertificates: certBytes,
+	}
+
+	return tlsConfig, nil
 }
 
 // fileExists reports whether the named file or directory exists.
