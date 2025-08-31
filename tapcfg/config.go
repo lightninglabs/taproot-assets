@@ -149,9 +149,9 @@ const (
 	// output amount ratio to use when funding PSBTs.
 	DefaultPsbtMaxFeeRatio = lndservices.DefaultPsbtMaxFeeRatio
 
-	// defaultPriceOracleTLS is the default TLS setting to use when
-	// communicating with price oracles.
-	defaultPriceOracleTLS = true
+	// defaultPriceOracleTLSDisable disables TLS for price oracle
+	// communication.
+	defaultPriceOracleTLSDisable = false
 
 	// defaultPriceOracleTLSInsecure is the default value we'll use for
 	// deciding to verify certificates in TLS connections with price
@@ -530,7 +530,7 @@ func DefaultConfig() Config {
 		Experimental: &ExperimentalConfig{
 			Rfq: rfq.CliConfig{
 				AcceptPriceDeviationPpm:   rfq.DefaultAcceptPriceDeviationPpm,
-				PriceOracleTLS:            defaultPriceOracleTLS,
+				PriceOracleTLSDisable:     defaultPriceOracleTLSDisable,
 				PriceOracleTLSInsecure:    defaultPriceOracleTLSInsecure,
 				PriceOracleTLSNoSystemCAs: defaultPriceOracleTLSNoSystemCAs,
 				PriceOracleTLSCertPath:    defaultPriceOracleTLSCertPath,
@@ -1252,7 +1252,9 @@ func getPriceOracleTLSConfig(rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
 
 	// Construct the oracle's TLS configuration.
 	tlsConfig := &rfq.TLSConfig{
-		Enabled:            rfqCfg.PriceOracleTLS,
+		// Note the subtle flip on the flag, since the user has
+		// configured whether to *disable* TLS.
+		Enabled:            !rfqCfg.PriceOracleTLSDisable,
 		InsecureSkipVerify: rfqCfg.PriceOracleTLSInsecure,
 		// Note the subtle flip on the flag, since the user has
 		// configured whether to *not* trust the system CA's.
