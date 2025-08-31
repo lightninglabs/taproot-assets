@@ -22,9 +22,9 @@ const (
 type CliConfig struct {
 	PriceOracleAddress string `long:"priceoracleaddress" description:"Price oracle gRPC server address (rfqrpc://<hostname>:<port>). To use the integrated mock, use the following value: use_mock_price_oracle_service_promise_to_not_use_on_mainnet"`
 
-	PriceOracleTLS bool `long:"priceoracletls" description:"Enable TLS for communication with a price oracle."`
+	PriceOracleTLSDisable bool `long:"priceoracletlsdisable" description:"Disable TLS for price oracle communication."`
 
-	PriceOracleTLSInsecure bool `long:"priceoracletlsinsecure" description:"Disable verification of price oracle certificates."`
+	PriceOracleTLSInsecure bool `long:"priceoracletlsinsecure" description:"Disable price oracle certificate verification."`
 
 	PriceOracleTLSNoSystemCAs bool `long:"priceoracletlsnosystemcas" description:"Disable use of the operating system's list of root CA's when verifying price oracle certificates."`
 
