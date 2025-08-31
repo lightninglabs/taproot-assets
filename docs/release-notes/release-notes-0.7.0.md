@@ -26,8 +26,8 @@
 - [An integration test flake was
   fixed](https://github.com/lightninglabs/taproot-assets/pull/1651).
 
-- Fixed two send related bugs that would lead to either a `invalid transfer 
-  asset witness` or `unable to fund address send: error funding packet: unable 
+- Fixed two send related bugs that would lead to either a `invalid transfer
+  asset witness` or `unable to fund address send: error funding packet: unable
   to list eligible coins: unable to query commitments: mismatch of managed utxo
   and constructed tap commitment root` error when sending assets.
   The [PR that fixed the two
@@ -101,6 +101,18 @@
   controls whether the peer's identity public key is sent to the local price
   oracle when querying asset price rates.
 
+- [TLS connections with price oracles will now be constructed by
+  default](https://github.com/lightninglabs/taproot-assets/pull/1775), using
+  the operating system's root CA list for certificate verification.
+  `experimental.rfq.priceoracletls` (default `true`) can be set to `false`
+  to disable TLS entirely. For certificate-level configuration,
+  `experimental.rfq.priceoracletlsnosystemcas` (default `false`) can be set
+  to `true` to disable use of the OS's root CA list, and
+  `experimental.rfq.priceoracletlscertpath` allows a custom (root CA or
+  self-signed) certificate to be used.
+  `experimental.rfq.priceoracletlsinsecure` can be used to skip certificate
+  verification (default `false`).
+
 ## RPC Additions
 
 - The [price oracle RPC calls now have an intent, optional peer ID and metadata
@@ -123,14 +135,14 @@
 - [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the
   `MintAsset` RPC message field from `universe_commitments` to
   `enable_supply_commitments`.
-- The `SubscribeSendEvents` RPC now supports [historical event replay of 
+- The `SubscribeSendEvents` RPC now supports [historical event replay of
   completed sends with efficient database-level
   filtering](https://github.com/lightninglabs/taproot-assets/pull/1685).
 - [Add universe RPC endpoint FetchSupplyLeaves](https://github.com/lightninglabs/taproot-assets/pull/1693)
   that allows users to fetch the supply leaves of a universe supply commitment.
   This is useful for verification.
 
-- A [new field `unconfirmed_transfers` was added to the response of the 
+- A [new field `unconfirmed_transfers` was added to the response of the
   `ListBalances` RPC
   method](https://github.com/lightninglabs/taproot-assets/pull/1691) to indicate
   that unconfirmed asset-related transactions don't count toward the balance.
