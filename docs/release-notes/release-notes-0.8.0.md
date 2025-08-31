@@ -51,6 +51,18 @@
 
 ## RPC Updates
 
+- [TLS connections with price oracles will now be constructed by
+  default](https://github.com/lightninglabs/taproot-assets/pull/1775), using
+  the operating system's root CA list for certificate verification.
+  `experimental.rfq.priceoracletls` (default `true`) can be set to `false`
+  to disable TLS entirely. For certificate-level configuration,
+  `experimental.rfq.priceoracletlsnosystemcas` (default `false`) can be set
+  to `true` to disable use of the OS's root CA list, and
+  `experimental.rfq.priceoracletlscertpath` allows a custom (root CA or
+  self-signed) certificate to be used.
+  `experimental.rfq.priceoracletlsinsecure` can be used to skip certificate
+  verification (default `false`).
+
 - [PR#1841](https://github.com/lightninglabs/taproot-assets/pull/1841): Remove
   the defaultMacaroonWhitelist map and inline its entries directly
   into the conditional logic within MacaroonWhitelist. This ensures that
