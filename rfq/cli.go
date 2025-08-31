@@ -25,9 +25,9 @@ type CliConfig struct {
 	// PortfolioPilotAddress is the portfolio pilot gRPC server address.
 	PortfolioPilotAddress string `long:"portfoliopilotaddress" description:"Portfolio pilot gRPC server address (portfoliopilotrpc://<hostname>:<port>)"`
 
-	PriceOracleTLS bool `long:"priceoracletls" description:"Enable TLS for communication with a price oracle."`
+	PriceOracleTLSDisable bool `long:"priceoracletlsdisable" description:"Disable TLS for price oracle communication."`
 
-	PriceOracleTLSInsecure bool `long:"priceoracletlsinsecure" description:"Disable verification of price oracle certificates."`
+	PriceOracleTLSInsecure bool `long:"priceoracletlsinsecure" description:"Disable price oracle certificate verification."`
 
 	PriceOracleTLSNoSystemCAs bool `long:"priceoracletlsnosystemcas" description:"Disable use of the operating system's list of root CA's when verifying price oracle certificates."`
 
