@@ -192,6 +192,7 @@ type Querier interface {
 	QueryFederationProofSyncLog(ctx context.Context, arg QueryFederationProofSyncLogParams) ([]QueryFederationProofSyncLogRow, error)
 	QueryFederationUniSyncConfigs(ctx context.Context) ([]QueryFederationUniSyncConfigsRow, error)
 	QueryLastEventHeight(ctx context.Context, version int16) (int64, error)
+	QueryLatestSupplyCommitment(ctx context.Context, groupKey []byte) (QueryLatestSupplyCommitmentRow, error)
 	QueryMultiverseLeaves(ctx context.Context, arg QueryMultiverseLeavesParams) ([]QueryMultiverseLeavesRow, error)
 	QueryPassiveAssets(ctx context.Context, transferID int64) ([]QueryPassiveAssetsRow, error)
 	QueryPendingSupplyCommitTransition(ctx context.Context, groupKey []byte) (QueryPendingSupplyCommitTransitionRow, error)

@@ -173,6 +173,15 @@ FROM supply_commitments AS sc
 WHERE sc.spent_commitment IS NULL AND
     sc.group_key = @group_key;
 
+-- name: QueryLatestSupplyCommitment :one
+SELECT sqlc.embed(sc), ct.tx_index
+FROM supply_commitments AS sc
+JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.group_key = @group_key
+ORDER BY ct.block_height DESC
+    LIMIT 1;
+
 -- name: QuerySupplyCommitmentOutpoint :one
 SELECT ct.txid, sc.output_index
 FROM supply_commitments AS sc

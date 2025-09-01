@@ -205,6 +205,11 @@ type SupplyCommitStore interface {
 	QueryStartingSupplyCommitment(ctx context.Context,
 		groupKey []byte) (sqlc.QueryStartingSupplyCommitmentRow, error)
 
+	// QueryLatestSupplyCommitment fetches the latest supply commitment
+	// of an asset group based on highest block height.
+	QueryLatestSupplyCommitment(ctx context.Context,
+		groupKey []byte) (sqlc.QueryLatestSupplyCommitmentRow, error)
+
 	// QuerySupplyCommitmentOutpoint fetches the outpoint of a supply
 	// commitment by its ID.
 	QuerySupplyCommitmentOutpoint(ctx context.Context,
