@@ -35,19 +35,6 @@ type DaemonAdapters interface {
 	Stop() error
 }
 
-// StateMachineStore is an interface that allows the state machine to persist
-// its state across restarts. This is used to track the state of the state
-// machine for supply verification.
-type StateMachineStore interface {
-	// CommitState is used to commit the state of the state machine to disk.
-	CommitState(context.Context, asset.Specifier, State) error
-
-	// FetchState attempts to fetch the state of the state machine for the
-	// target asset specifier. If the state machine doesn't exist, then a
-	// default state will be returned.
-	FetchState(context.Context, asset.Specifier) (State, error)
-}
-
 // IssuanceSubscriptions allows verifier state machines to subscribe to
 // asset group issuance events.
 type IssuanceSubscriptions interface {
@@ -92,11 +79,6 @@ type ManagerCfg struct {
 	// DaemonAdapters is a set of adapters that allow the state machine to
 	// interact with external daemons whilst processing internal events.
 	DaemonAdapters DaemonAdapters
-
-	// StateLog is the main state log that is used to track the state of the
-	// state machine. This is used to persist the state of the state machine
-	// across restarts.
-	StateLog StateMachineStore
 
 	// ErrChan is the channel that is used to send errors to the caller.
 	ErrChan chan<- error
@@ -230,21 +212,14 @@ func (m *Manager) startAssetSM(ctx context.Context,
 		QuitChan:         m.Quit,
 	}
 
-	// Before we start the state machine, we'll need to fetch the current
-	// state from disk, to see if we need to emit any new events.
-	initialState, err := m.cfg.StateLog.FetchState(ctx, assetSpec)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch current state: %w", err)
-	}
-
 	// Create a new error reporter for the state machine.
 	errorReporter := NewErrorReporter(assetSpec)
 
 	fsmCfg := protofsm.StateMachineCfg[Event, *Environment]{
 		ErrorReporter: &errorReporter,
-		InitialState:  initialState,
-		Env:           env,
-		Daemon:        m.cfg.DaemonAdapters,
+		// TODO(ffranr): Set InitialState here.
+		Env:    env,
+		Daemon: m.cfg.DaemonAdapters,
 	}
 	newSm := protofsm.NewStateMachine[Event, *Environment](fsmCfg)
 
