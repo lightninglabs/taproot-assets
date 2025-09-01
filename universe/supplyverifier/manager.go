@@ -295,11 +295,18 @@ func (m *Manager) fetchStateMachine(assetSpec asset.Specifier) (*StateMachine,
 	ctx, cancel := m.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	// TODO(ffranr): Check that the asset group supports supply commitments
-	//  and that this node does not create supply commitments for the asset
-	//  group (i.e. it does not own the delegation key). We don't want to
-	//  run a verifier state machine for an asset group supply commitment
-	//  that we issue ourselves.
+	// Check that the asset group supports supply commitments and that
+	// this node does not create supply commitments for the asset group
+	// (i.e. it does not own the delegation key). We don't want to run
+	// a verifier state machine for an asset group supply commitment
+	// that we issue ourselves.
+	err = supplycommit.CheckSupplyCommitSupport(
+		ctx, m.cfg.AssetLookup, assetSpec, false,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("asset group is not suitable for "+
+			"supply verifier state machine: %w", err)
+	}
 
 	newSm, err := m.startAssetSM(ctx, assetSpec)
 	if err != nil {
