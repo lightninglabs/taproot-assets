@@ -238,6 +238,8 @@ func (m *Manager) startAssetSM(ctx context.Context,
 		AssetSpec:        assetSpec,
 		Chain:            m.cfg.Chain,
 		SupplyCommitView: m.cfg.SupplyCommitView,
+		SupplyTreeView:   m.cfg.SupplyTreeView,
+		SupplySyncer:     m.cfg.SupplySyncer,
 		ErrChan:          m.cfg.ErrChan,
 		QuitChan:         m.Quit,
 	}
