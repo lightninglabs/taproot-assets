@@ -1418,6 +1418,56 @@ func (s *SupplyCommitMachine) FetchStartingCommitment(ctx context.Context,
 	return commit, nil
 }
 
+// FetchLatestCommitment fetches the latest supply commitment of an asset
+// group based on highest block height. If no commitment is found, it returns
+// ErrCommitmentNotFound.
+func (s *SupplyCommitMachine) FetchLatestCommitment(ctx context.Context,
+	assetSpec asset.Specifier) (*supplycommit.RootCommitment, error) {
+
+	groupKey := assetSpec.UnwrapGroupKeyToPtr()
+	if groupKey == nil {
+		return nil, ErrMissingGroupKey
+	}
+
+	var (
+		writeTx       = WriteTxOption()
+		groupKeyBytes = groupKey.SerializeCompressed()
+		commit        *supplycommit.RootCommitment
+	)
+	dbErr := s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
+		// First, fetch the supply commitment by group key.
+		commitRow, err := db.QueryLatestSupplyCommitment(
+			ctx, groupKeyBytes,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to query latest "+
+				"commitment for group %x: %w", groupKeyBytes,
+				err)
+		}
+
+		commit, err = parseSupplyCommitmentRow(
+			ctx, commitRow.SupplyCommitment, commitRow.TxIndex, db,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to parse latest "+
+				"commitment for group %x: %w", groupKeyBytes,
+				err)
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		if errors.Is(dbErr, sql.ErrNoRows) {
+			return nil, supplyverifier.ErrCommitmentNotFound
+		}
+
+		return nil, fmt.Errorf("failed to fetch latest commitment "+
+			"for group %x: %w", groupKeyBytes, dbErr)
+	}
+
+	return commit, nil
+}
+
 // parseSupplyCommitmentRow parses a SupplyCommitment row into a
 // supplycommit.RootCommitment and optional commitmentChainInfo.
 func parseSupplyCommitmentRow(ctx context.Context, commit SupplyCommitment,
