@@ -571,6 +571,7 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 		fakePrevState, lndOpenChan, assetOpenChan, whoseCommit,
 		localSatBalance, remoteSatBalance, fakeView,
 		pendingFunding.chainParams, keyRing.GetForParty(whoseCommit),
+		false,
 	)
 	if err != nil {
 		return nil, lnwallet.CommitAuxLeaves{}, err
