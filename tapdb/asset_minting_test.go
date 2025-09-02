@@ -1883,10 +1883,10 @@ func assertSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 	ctx := context.Background()
 	readOpts := NewAssetStoreReadTx()
 
-	var preCommit *sqlc.FetchMintAnchorUniCommitmentRow
+	var preCommit *sqlc.FetchSupplyPreCommitsRow
 	readMintAnchorCommitment := func(q PendingAssetStore) error {
-		fetchRes, err := q.FetchMintAnchorUniCommitment(
-			ctx, FetchPreCommitParams{
+		fetchRes, err := q.FetchSupplyPreCommits(
+			ctx, FetchPreCommitsParams{
 				BatchKey: batchKey,
 			},
 		)

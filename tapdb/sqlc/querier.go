@@ -90,9 +90,6 @@ type Querier interface {
 	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (FetchInternalKeyLocatorRow, error)
 	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error)
-	// Fetch records from the supply_pre_commits table with optional
-	// filtering.
-	FetchMintAnchorUniCommitment(ctx context.Context, arg FetchMintAnchorUniCommitmentParams) ([]FetchMintAnchorUniCommitmentRow, error)
 	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchMultiverseRoot(ctx context.Context, namespaceRoot string) (FetchMultiverseRootRow, error)
@@ -103,6 +100,9 @@ type Querier interface {
 	FetchSeedlingID(ctx context.Context, arg FetchSeedlingIDParams) (int64, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error)
 	FetchSupplyCommit(ctx context.Context, groupKey []byte) (FetchSupplyCommitRow, error)
+	// Fetch records from the supply_pre_commits table with optional
+	// filtering.
+	FetchSupplyPreCommits(ctx context.Context, arg FetchSupplyPreCommitsParams) ([]FetchSupplyPreCommitsRow, error)
 	// Fetches all push log entries for a given asset group, ordered by
 	// creation time with the most recent entries first.
 	FetchSupplySyncerPushLogs(ctx context.Context, groupKey []byte) ([]SupplySyncerPushLog, error)

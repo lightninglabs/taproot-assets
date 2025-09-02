@@ -116,9 +116,9 @@ type (
 	// database ID.
 	ProofUpdateByID = sqlc.UpsertAssetProofByIDParams
 
-	// FetchPreCommitParams is a type alias for the params used to fetch
-	// mint anchor pre-commitments.
-	FetchPreCommitParams = sqlc.FetchMintAnchorUniCommitmentParams
+	// FetchPreCommitsParams is a type alias for the params used to fetch
+	// mint anchor supply pre-commitments.
+	FetchPreCommitsParams = sqlc.FetchSupplyPreCommitsParams
 
 	// FetchAssetID is used to fetch the primary key ID of an asset, by
 	// outpoint and tweaked script key.
@@ -248,10 +248,10 @@ type PendingAssetStore interface {
 	FetchAssetMetaForAsset(ctx context.Context,
 		assetID []byte) (sqlc.FetchAssetMetaForAssetRow, error)
 
-	// FetchMintAnchorUniCommitment fetches mint anchor pre-commitments.
-	FetchMintAnchorUniCommitment(ctx context.Context,
-		arg FetchPreCommitParams) (
-		[]sqlc.FetchMintAnchorUniCommitmentRow, error)
+	// FetchSupplyPreCommits fetches mint anchor pre-commitments.
+	FetchSupplyPreCommits(ctx context.Context,
+		arg FetchPreCommitsParams) (
+		[]sqlc.FetchSupplyPreCommitsRow, error)
 
 	// UpsertMintAnchorUniCommitment inserts a new or updates an existing
 	// mint anchor uni commitment on disk.
@@ -1347,8 +1347,8 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		// the pre-commitment output index from the database.
 		var preCommitOut fn.Option[tapgarden.PreCommitmentOutput]
 		if dbBatch.UniverseCommitments {
-			fetchRes, err := q.FetchMintAnchorUniCommitment(
-				ctx, FetchPreCommitParams{
+			fetchRes, err := q.FetchSupplyPreCommits(
+				ctx, FetchPreCommitsParams{
 					BatchKey: dbBatch.RawKey,
 				},
 			)
@@ -1545,8 +1545,8 @@ func (a *AssetMintingStore) FetchDelegationKey(ctx context.Context,
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
-		fetchRow, err := q.FetchMintAnchorUniCommitment(
-			ctx, FetchPreCommitParams{
+		fetchRow, err := q.FetchSupplyPreCommits(
+			ctx, FetchPreCommitsParams{
 				GroupKey: groupKeyBytes,
 			},
 		)
