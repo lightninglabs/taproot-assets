@@ -90,7 +90,7 @@ type Querier interface {
 	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (FetchInternalKeyLocatorRow, error)
 	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error)
-	// Fetch records from the mint_anchor_uni_commitments table with optional
+	// Fetch records from the supply_pre_commits table with optional
 	// filtering.
 	FetchMintAnchorUniCommitment(ctx context.Context, arg FetchMintAnchorUniCommitmentParams) ([]FetchMintAnchorUniCommitmentRow, error)
 	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)
@@ -234,7 +234,7 @@ type Querier interface {
 	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int64, error)
 	UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int64, error)
 	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int64, error)
-	// Upsert a record into the mint_anchor_uni_commitments table.
+	// Upsert a record into the supply_pre_commits table.
 	// If a record with the same batch ID and tx output index already exists, update
 	// the existing record. Otherwise, insert a new record.
 	UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error)
