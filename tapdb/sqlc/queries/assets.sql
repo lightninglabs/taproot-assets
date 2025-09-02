@@ -1062,7 +1062,7 @@ JOIN genesis_assets
     ON genesis_assets.meta_data_id = assets_meta.meta_id
 ORDER BY assets_meta.meta_id;
 
--- name: UpsertMintAnchorUniCommitment :one
+-- name: UpsertSupplyPreCommit :one
 -- Upsert a record into the supply_pre_commits table.
 -- If a record with the same batch ID and tx output index already exists, update
 -- the existing record. Otherwise, insert a new record.

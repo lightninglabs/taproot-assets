@@ -1858,8 +1858,8 @@ func storeSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 		opBytes, err := encodeOutpoint(outpoint)
 		require.NoError(t, err)
 
-		_, err = q.UpsertMintAnchorUniCommitment(
-			ctx, sqlc.UpsertMintAnchorUniCommitmentParams{
+		_, err = q.UpsertSupplyPreCommit(
+			ctx, UpsertPreCommitParams{
 				BatchKey:             batchKey,
 				TxOutputIndex:        txOutputIndex,
 				TaprootInternalKeyID: internalKeyID,

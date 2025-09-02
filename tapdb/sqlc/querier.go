@@ -234,10 +234,6 @@ type Querier interface {
 	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int64, error)
 	UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int64, error)
 	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int64, error)
-	// Upsert a record into the supply_pre_commits table.
-	// If a record with the same batch ID and tx output index already exists, update
-	// the existing record. Otherwise, insert a new record.
-	UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error)
 	UpsertMultiverseLeaf(ctx context.Context, arg UpsertMultiverseLeafParams) (int64, error)
 	UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error)
 	UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error
@@ -245,6 +241,10 @@ type Querier interface {
 	// Return the ID of the state that was actually set (either inserted or updated),
 	// and the latest commitment ID that was set.
 	UpsertSupplyCommitStateMachine(ctx context.Context, arg UpsertSupplyCommitStateMachineParams) (UpsertSupplyCommitStateMachineRow, error)
+	// Upsert a record into the supply_pre_commits table.
+	// If a record with the same batch ID and tx output index already exists, update
+	// the existing record. Otherwise, insert a new record.
+	UpsertSupplyPreCommit(ctx context.Context, arg UpsertSupplyPreCommitParams) (int64, error)
 	UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error)
 	UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error)
 	UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error)

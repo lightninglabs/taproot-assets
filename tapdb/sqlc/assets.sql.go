@@ -3237,55 +3237,6 @@ func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOPa
 	return utxo_id, err
 }
 
-const UpsertMintAnchorUniCommitment = `-- name: UpsertMintAnchorUniCommitment :one
-WITH target_batch AS (
-    -- This CTE is used to fetch the ID of a batch, based on the serialized
-    -- internal key associated with the batch.
-    SELECT keys.key_id AS batch_id
-    FROM internal_keys keys
-    WHERE keys.raw_key = $6
-)
-INSERT INTO supply_pre_commits (
-    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by, outpoint
-)
-VALUES (
-    (SELECT batch_id FROM target_batch), $1, 
-    $2, $3, $4, $5
-)
-ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
-    -- The following fields are updated if a conflict occurs.
-    taproot_internal_key_id = EXCLUDED.taproot_internal_key_id,
-    group_key = EXCLUDED.group_key,
-    outpoint = EXCLUDED.outpoint
-RETURNING id
-`
-
-type UpsertMintAnchorUniCommitmentParams struct {
-	TxOutputIndex        int32
-	TaprootInternalKeyID int64
-	GroupKey             []byte
-	SpentBy              sql.NullInt64
-	Outpoint             []byte
-	BatchKey             []byte
-}
-
-// Upsert a record into the supply_pre_commits table.
-// If a record with the same batch ID and tx output index already exists, update
-// the existing record. Otherwise, insert a new record.
-func (q *Queries) UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, UpsertMintAnchorUniCommitment,
-		arg.TxOutputIndex,
-		arg.TaprootInternalKeyID,
-		arg.GroupKey,
-		arg.SpentBy,
-		arg.Outpoint,
-		arg.BatchKey,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
 const UpsertScriptKey = `-- name: UpsertScriptKey :one
 INSERT INTO script_keys (
     internal_key_id, tweaked_script_key, tweak, key_type
@@ -3331,6 +3282,55 @@ func (q *Queries) UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams
 	var script_key_id int64
 	err := row.Scan(&script_key_id)
 	return script_key_id, err
+}
+
+const UpsertSupplyPreCommit = `-- name: UpsertSupplyPreCommit :one
+WITH target_batch AS (
+    -- This CTE is used to fetch the ID of a batch, based on the serialized
+    -- internal key associated with the batch.
+    SELECT keys.key_id AS batch_id
+    FROM internal_keys keys
+    WHERE keys.raw_key = $6
+)
+INSERT INTO supply_pre_commits (
+    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by, outpoint
+)
+VALUES (
+    (SELECT batch_id FROM target_batch), $1, 
+    $2, $3, $4, $5
+)
+ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
+    -- The following fields are updated if a conflict occurs.
+    taproot_internal_key_id = EXCLUDED.taproot_internal_key_id,
+    group_key = EXCLUDED.group_key,
+    outpoint = EXCLUDED.outpoint
+RETURNING id
+`
+
+type UpsertSupplyPreCommitParams struct {
+	TxOutputIndex        int32
+	TaprootInternalKeyID int64
+	GroupKey             []byte
+	SpentBy              sql.NullInt64
+	Outpoint             []byte
+	BatchKey             []byte
+}
+
+// Upsert a record into the supply_pre_commits table.
+// If a record with the same batch ID and tx output index already exists, update
+// the existing record. Otherwise, insert a new record.
+func (q *Queries) UpsertSupplyPreCommit(ctx context.Context, arg UpsertSupplyPreCommitParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertSupplyPreCommit,
+		arg.TxOutputIndex,
+		arg.TaprootInternalKeyID,
+		arg.GroupKey,
+		arg.SpentBy,
+		arg.Outpoint,
+		arg.BatchKey,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const UpsertTapscriptTreeEdge = `-- name: UpsertTapscriptTreeEdge :one

@@ -132,9 +132,9 @@ type (
 	// disk.
 	NewAssetMeta = sqlc.UpsertAssetMetaParams
 
-	// MintAnchorUniCommitParams wraps the params needed to insert a new
-	// mint anchor uni commitment on disk.
-	MintAnchorUniCommitParams = sqlc.UpsertMintAnchorUniCommitmentParams
+	// UpsertPreCommitParams wraps the params needed to insert a new
+	// supply pre-commit on disk.
+	UpsertPreCommitParams = sqlc.UpsertSupplyPreCommitParams
 )
 
 // PendingAssetStore is a sub-set of the main sqlc.Querier interface that
@@ -253,10 +253,10 @@ type PendingAssetStore interface {
 		arg FetchPreCommitsParams) (
 		[]sqlc.FetchSupplyPreCommitsRow, error)
 
-	// UpsertMintAnchorUniCommitment inserts a new or updates an existing
+	// UpsertSupplyPreCommit inserts a new or updates an existing
 	// mint anchor uni commitment on disk.
-	UpsertMintAnchorUniCommitment(ctx context.Context,
-		arg MintAnchorUniCommitParams) (int64, error)
+	UpsertSupplyPreCommit(ctx context.Context,
+		arg UpsertPreCommitParams) (int64, error)
 }
 
 var (
@@ -448,8 +448,8 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 		return fmt.Errorf("unable to encode outpoint: %w", err)
 	}
 
-	_, err = q.UpsertMintAnchorUniCommitment(
-		ctx, MintAnchorUniCommitParams{
+	_, err = q.UpsertSupplyPreCommit(
+		ctx, UpsertPreCommitParams{
 			BatchKey:             rawBatchKey,
 			TxOutputIndex:        int32(preCommitOut.OutIdx),
 			TaprootInternalKeyID: internalKeyID,
@@ -1644,8 +1644,8 @@ func upsertPreCommit(ctx context.Context, q PendingAssetStore,
 		return fmt.Errorf("unable to encode outpoint: %w", err)
 	}
 
-	_, err = q.UpsertMintAnchorUniCommitment(
-		ctx, MintAnchorUniCommitParams{
+	_, err = q.UpsertSupplyPreCommit(
+		ctx, UpsertPreCommitParams{
 			BatchKey:             batchKey,
 			TxOutputIndex:        int32(preCommit.OutIdx),
 			TaprootInternalKeyID: internalKeyID,
