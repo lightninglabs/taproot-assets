@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightninglabs/taproot-assets/universe"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -66,6 +67,22 @@ func (s SupplySubTree) String() string {
 		return "ignore"
 	default:
 		return "unknown"
+	}
+}
+
+// ToUniverseProofType converts the supply subtree type to the corresponding
+// universe proof type.
+func (s SupplySubTree) ToUniverseProofType() (universe.ProofType, error) {
+	switch s {
+	case MintTreeType:
+		return universe.ProofTypeMintSupply, nil
+	case BurnTreeType:
+		return universe.ProofTypeBurn, nil
+	case IgnoreTreeType:
+		return universe.ProofTypeIgnore, nil
+	default:
+		return universe.ProofTypeUnspecified, fmt.Errorf("unknown "+
+			"supply subtree type: %s", s)
 	}
 }
 

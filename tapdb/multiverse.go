@@ -802,7 +802,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		}
 
 		uniProof, err = universeUpsertProofLeaf(
-			ctx, dbTx, id.String(), id.ProofType.String(),
+			ctx, dbTx, id.String(), id.ProofType,
 			id.GroupKey, key, leaf, metaReveal, blockHeight,
 		)
 		if err != nil {
@@ -883,7 +883,7 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 				// start with.
 				uniProof, err := universeUpsertProofLeaf(
 					ctx, store, item.ID.String(),
-					item.ID.ProofType.String(),
+					item.ID.ProofType,
 					item.ID.GroupKey, item.Key, item.Leaf,
 					item.MetaReveal, blockHeight,
 				)

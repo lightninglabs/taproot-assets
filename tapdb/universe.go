@@ -599,7 +599,7 @@ func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 		}
 
 		issuanceProof, err := universeUpsertProofLeaf(
-			ctx, dbTx, namespace, b.id.ProofType.String(),
+			ctx, dbTx, namespace, b.id.ProofType,
 			b.id.GroupKey, key, leaf, metaReveal, blockHeight,
 		)
 		if err != nil {
@@ -728,7 +728,8 @@ func upsertMultiverseLeafEntry(ctx context.Context, dbTx BaseUniverseStore,
 // NOTE: This function accepts a db transaction, as it's used when making
 // broader DB updates.
 func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
-	namespace string, proofTypeStr string, groupKey *btcec.PublicKey,
+	namespace string, proofType universe.ProofType,
+	groupKey *btcec.PublicKey,
 	key universe.LeafKey, leaf *universe.Leaf, metaReveal *proof.MetaReveal,
 	blockHeight lfn.Option[uint32]) (*universe.Proof, error) {
 
@@ -774,7 +775,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		NamespaceRoot: namespace,
 		AssetID:       fn.ByteSlice(leaf.ID()),
 		GroupKey:      groupKeyBytes,
-		ProofType:     sqlStr(proofTypeStr),
+		ProofType:     sqlStr(proofType.String()),
 	})
 	if err != nil {
 		return nil, err
