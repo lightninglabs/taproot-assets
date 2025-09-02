@@ -497,7 +497,7 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	whoseCommit lntypes.ChannelParty, ourBalance,
 	theirBalance lnwire.MilliSatoshi, originalView lnwallet.AuxHtlcView,
 	chainParams *address.ChainParams,
-	keys lnwallet.CommitmentKeyRing) ([]*tapsend.Allocation,
+	keys lnwallet.CommitmentKeyRing, stxo bool) ([]*tapsend.Allocation,
 	*cmsg.Commitment, error) {
 
 	log.Tracef("Generating allocations, whoseCommit=%v, ourBalance=%d, "+
@@ -589,8 +589,18 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 			"packets: %w", err)
 	}
 
+	var (
+		opts      []tapsend.OutputCommitmentOption
+		proofOpts []proof.GenOption
+	)
+
+	if !stxo {
+		opts = append(opts, tapsend.WithNoSTXOProofs())
+		proofOpts = append(proofOpts, proof.WithNoSTXOProofs())
+	}
+
 	outCommitments, err := tapsend.CreateOutputCommitments(
-		vPackets, tapsend.WithNoSTXOProofs(),
+		vPackets, opts...,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create output "+
@@ -626,7 +636,7 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 				fakeCommitTx, vPkt, outCommitments, outIdx,
 				vPackets, tapsend.NonAssetExclusionProofs(
 					allocations,
-				), proof.WithNoSTXOProofs(),
+				), proofOpts...,
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("unable to create "+
@@ -1432,7 +1442,7 @@ func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 	commitTx *wire.MsgTx, htlcAmt btcutil.Amount,
 	keys lnwallet.CommitmentKeyRing, chainParams *address.ChainParams,
 	htlcOutputs []*cmsg.AssetOutput, htlcTimeout fn.Option[uint32],
-	htlcIndex uint64) (input.AuxTapLeaf, error) {
+	htlcIndex uint64, stxo bool) (input.AuxTapLeaf, error) {
 
 	none := input.NoneTapLeaf()
 
@@ -1445,8 +1455,13 @@ func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 			"packets: %w", err)
 	}
 
+	var opts []tapsend.OutputCommitmentOption
+	if !stxo {
+		opts = append(opts, tapsend.WithNoSTXOProofs())
+	}
+
 	outCommitments, err := tapsend.CreateOutputCommitments(
-		vPackets, tapsend.WithNoSTXOProofs(),
+		vPackets, opts...,
 	)
 	if err != nil {
 		return none, fmt.Errorf("unable to create output commitments: "+
