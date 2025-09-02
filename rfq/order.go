@@ -86,8 +86,9 @@ type Policy interface {
 	// GenerateInterceptorResponse generates an interceptor response for the
 	// HTLC interceptor from the policy.
 	GenerateInterceptorResponse(
-		lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
-		error)
+		lndclient.InterceptedHtlc,
+		*tapfeatures.AuxChannelNegotiator,
+	) (*lndclient.InterceptedHtlcResponse, error)
 }
 
 // AssetSalePolicy is a struct that holds the terms which determine whether an
@@ -127,10 +128,6 @@ type AssetSalePolicy struct {
 	// wants us to produce NoOp HTLCs.
 	NoOpHTLCs bool
 
-	// auxChannelNegotiator is used to query the supported feature bits that
-	// are supported by a peer, or a channel.
-	auxChanNegotiator *tapfeatures.AuxChannelNegotiator
-
 	// peer is the peer pub key of the peer we established this policy with.
 	peer route.Vertex
 
@@ -140,10 +137,7 @@ type AssetSalePolicy struct {
 }
 
 // NewAssetSalePolicy creates a new asset sale policy.
-func NewAssetSalePolicy(quote rfqmsg.BuyAccept, noop bool,
-	chanNegotiator *tapfeatures.AuxChannelNegotiator,
-	peer route.Vertex) *AssetSalePolicy {
-
+func NewAssetSalePolicy(quote rfqmsg.BuyAccept, noop bool) *AssetSalePolicy {
 	htlcToAmtMap := make(map[models.CircuitKey]lnwire.MilliSatoshi)
 
 	return &AssetSalePolicy{
@@ -154,8 +148,7 @@ func NewAssetSalePolicy(quote rfqmsg.BuyAccept, noop bool,
 		expiry:                 uint64(quote.AssetRate.Expiry.Unix()),
 		htlcToAmt:              htlcToAmtMap,
 		NoOpHTLCs:              noop,
-		auxChanNegotiator:      chanNegotiator,
-		peer:                   peer,
+		peer:                   quote.Peer,
 	}
 }
 
@@ -265,8 +258,9 @@ func (c *AssetSalePolicy) Scid() uint64 {
 
 // GenerateInterceptorResponse generates an interceptor response for the policy.
 func (c *AssetSalePolicy) GenerateInterceptorResponse(
-	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
-	error) {
+	htlc lndclient.InterceptedHtlc,
+	auxChanNegotiator *tapfeatures.AuxChannelNegotiator,
+) (*lndclient.InterceptedHtlcResponse, error) {
 
 	outgoingAmt := rfqmath.DefaultOnChainHtlcMSat
 
@@ -304,7 +298,7 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 		fn.None[[]rfqmsg.ID](),
 	)
 
-	peerFeatures := c.auxChanNegotiator.GetPeerFeatures(c.peer)
+	peerFeatures := auxChanNegotiator.GetPeerFeatures(c.peer)
 	supportNoOp := peerFeatures.HasFeature(tapfeatures.NoOpHTLCsOptional)
 
 	// We are about to create an outgoing HTLC that carries assets. Let's
@@ -510,8 +504,9 @@ func (c *AssetPurchasePolicy) Scid() uint64 {
 
 // GenerateInterceptorResponse generates an interceptor response for the policy.
 func (c *AssetPurchasePolicy) GenerateInterceptorResponse(
-	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
-	error) {
+	htlc lndclient.InterceptedHtlc,
+	_ *tapfeatures.AuxChannelNegotiator,
+) (*lndclient.InterceptedHtlcResponse, error) {
 
 	htlcRecord, err := parseHtlcCustomRecords(htlc.InWireCustomRecords)
 	if err != nil {
@@ -639,11 +634,12 @@ func (a *AssetForwardPolicy) Scid() uint64 {
 
 // GenerateInterceptorResponse generates an interceptor response for the policy.
 func (a *AssetForwardPolicy) GenerateInterceptorResponse(
-	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
-	error) {
+	htlc lndclient.InterceptedHtlc,
+	auxChanNegotiator *tapfeatures.AuxChannelNegotiator,
+) (*lndclient.InterceptedHtlcResponse, error) {
 
 	incomingResponse, err := a.incomingPolicy.GenerateInterceptorResponse(
-		htlc,
+		htlc, auxChanNegotiator,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error generating incoming interceptor "+
@@ -651,7 +647,7 @@ func (a *AssetForwardPolicy) GenerateInterceptorResponse(
 	}
 
 	outgoingResponse, err := a.outgoingPolicy.GenerateInterceptorResponse(
-		htlc,
+		htlc, auxChanNegotiator,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error generating outgoing interceptor "+
@@ -815,7 +811,7 @@ func (h *OrderHandler) handleIncomingHtlc(ctx context.Context,
 	log.Debug("HTLC complies with policy. Broadcasting accept event.")
 	h.cfg.AcceptHtlcEvents <- NewAcceptHtlcEvent(htlc, policy)
 
-	return policy.GenerateInterceptorResponse(htlc)
+	return policy.GenerateInterceptorResponse(htlc, h.cfg.AuxChanNegotiator)
 }
 
 // setupHtlcIntercept sets up HTLC interception.
@@ -962,10 +958,7 @@ func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
 	log.Debugf("Order handler is registering an asset sale policy given a "+
 		"buy accept message: %s", buyAccept.String())
 
-	policy := NewAssetSalePolicy(
-		buyAccept, h.cfg.NoOpHTLCs, h.cfg.AuxChanNegotiator,
-		buyAccept.Peer,
-	)
+	policy := NewAssetSalePolicy(buyAccept, h.cfg.NoOpHTLCs)
 
 	h.policies.Store(policy.AcceptedQuoteId.Scid(), policy)
 }
