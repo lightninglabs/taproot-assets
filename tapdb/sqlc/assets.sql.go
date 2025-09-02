@@ -3344,6 +3344,52 @@ func (q *Queries) UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams
 	return script_key_id, err
 }
 
+const UpsertSupplyPreCommit = `-- name: UpsertSupplyPreCommit :one
+INSERT INTO supply_pre_commits (
+    group_key,
+    taproot_internal_key,
+    outpoint,
+    chain_txn_db_id,
+    spent_by
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5
+)
+ON CONFLICT(outpoint) DO UPDATE SET
+    group_key            = EXCLUDED.group_key,
+    taproot_internal_key = EXCLUDED.taproot_internal_key,
+    outpoint             = EXCLUDED.outpoint,
+    chain_txn_db_id      = EXCLUDED.chain_txn_db_id,
+    spent_by             = EXCLUDED.spent_by
+RETURNING id
+`
+
+type UpsertSupplyPreCommitParams struct {
+	GroupKey           []byte
+	TaprootInternalKey []byte
+	Outpoint           []byte
+	ChainTxnDbID       int64
+	SpentBy            sql.NullInt64
+}
+
+// Upsert a supply pre-commit output that is not tied to a minting batch.
+func (q *Queries) UpsertSupplyPreCommit(ctx context.Context, arg UpsertSupplyPreCommitParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertSupplyPreCommit,
+		arg.GroupKey,
+		arg.TaprootInternalKey,
+		arg.Outpoint,
+		arg.ChainTxnDbID,
+		arg.SpentBy,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const UpsertTapscriptTreeEdge = `-- name: UpsertTapscriptTreeEdge :one
 INSERT INTO tapscript_edges (
     root_hash_id, node_index, raw_node_id

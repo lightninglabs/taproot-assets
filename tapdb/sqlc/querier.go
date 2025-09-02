@@ -251,6 +251,8 @@ type Querier interface {
 	// Return the ID of the state that was actually set (either inserted or updated),
 	// and the latest commitment ID that was set.
 	UpsertSupplyCommitStateMachine(ctx context.Context, arg UpsertSupplyCommitStateMachineParams) (UpsertSupplyCommitStateMachineRow, error)
+	// Upsert a supply pre-commit output that is not tied to a minting batch.
+	UpsertSupplyPreCommit(ctx context.Context, arg UpsertSupplyPreCommitParams) (int64, error)
 	UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error)
 	UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error)
 	UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error)

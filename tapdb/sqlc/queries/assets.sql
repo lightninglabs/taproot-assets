@@ -1062,6 +1062,30 @@ JOIN genesis_assets
     ON genesis_assets.meta_data_id = assets_meta.meta_id
 ORDER BY assets_meta.meta_id;
 
+-- name: UpsertSupplyPreCommit :one
+-- Upsert a supply pre-commit output that is not tied to a minting batch.
+INSERT INTO supply_pre_commits (
+    group_key,
+    taproot_internal_key,
+    outpoint,
+    chain_txn_db_id,
+    spent_by
+)
+VALUES (
+    @group_key,
+    @taproot_internal_key,
+    @outpoint,
+    @chain_txn_db_id,
+    sqlc.narg('spent_by')
+)
+ON CONFLICT(outpoint) DO UPDATE SET
+    group_key            = EXCLUDED.group_key,
+    taproot_internal_key = EXCLUDED.taproot_internal_key,
+    outpoint             = EXCLUDED.outpoint,
+    chain_txn_db_id      = EXCLUDED.chain_txn_db_id,
+    spent_by             = EXCLUDED.spent_by
+RETURNING id;
+
 -- name: UpsertMintSupplyPreCommit :one
 -- Upsert a supply pre-commit that is tied to a minting batch.
 -- The batch is resolved from @batch_key
