@@ -1835,8 +1835,9 @@ func TestTapscriptTreeManager(t *testing.T) {
 	loadTapscriptTreeChecked(t, ctx, assetStore, tree5, tree5Hash)
 }
 
-// storeMintAnchorUniCommitment stores a mint anchor commitment in the DB.
-func storeMintAnchorUniCommitment(t *testing.T, assetStore AssetMintingStore,
+// storeMintSupplyPreCommit stores a mint anchor supply pre-commitment in the
+// DB.
+func storeMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 	batchKey []byte, txOutputIndex int32,
 	taprootInternalKey keychain.KeyDescriptor, groupKey []byte) {
 
@@ -1869,9 +1870,10 @@ func storeMintAnchorUniCommitment(t *testing.T, assetStore AssetMintingStore,
 	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, upsertMintAnchorPreCommit)
 }
 
-// assertMintAnchorUniCommitment is a helper function that reads a mint anchor
-// commitment from the DB and asserts that it matches the expected values.
-func assertMintAnchorUniCommitment(t *testing.T, assetStore AssetMintingStore,
+// assertMintSupplyPreCommit is a helper function that reads a mint anchor
+// supply pre-commitment from the DB and asserts that it matches the expected
+// values.
+func assertMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 	batchKey []byte, txOutputIndex int32,
 	preCommitInternalKey keychain.KeyDescriptor, groupPubKeyBytes []byte) {
 
@@ -1914,10 +1916,10 @@ func assertMintAnchorUniCommitment(t *testing.T, assetStore AssetMintingStore,
 	require.Equal(t, groupPubKeyBytes, preCommit.GroupKey)
 }
 
-// TestUpsertMintAnchorUniCommitment tests the UpsertMintAnchorUniCommitment
-// FetchMintAnchorUniCommitment and SQL queries. In particular, it tests that
-// upsert works correctly.
-func TestUpsertMintAnchorUniCommitment(t *testing.T) {
+// TestUpsertMintSupplyPreCommit tests the UpsertSupplyPreCommit and
+// FetchSupplyPreCommits SQL queries. In particular, it tests that upsert works
+// correctly.
+func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -1955,13 +1957,13 @@ func TestUpsertMintAnchorUniCommitment(t *testing.T) {
 
 	// Upsert a mint anchor commitment for the batch.
 	txOutputIndex := int32(2)
-	storeMintAnchorUniCommitment(
+	storeMintSupplyPreCommit(
 		t, *assetStore, batchKey, txOutputIndex,
 		preCommitInternalKey, groupPubKeyBytes,
 	)
 
 	// Retrieve and inspect the mint anchor commitment we just inserted.
-	assertMintAnchorUniCommitment(
+	assertMintSupplyPreCommit(
 		t, *assetStore, batchKey, txOutputIndex,
 		preCommitInternalKey, groupPubKeyBytes,
 	)
@@ -1970,12 +1972,12 @@ func TestUpsertMintAnchorUniCommitment(t *testing.T) {
 	// overwrite the existing one.
 	internalKey2, _ := test.RandKeyDesc(t)
 
-	storeMintAnchorUniCommitment(
+	storeMintSupplyPreCommit(
 		t, *assetStore, batchKey, txOutputIndex, internalKey2,
 		groupPubKeyBytes,
 	)
 
-	assertMintAnchorUniCommitment(
+	assertMintSupplyPreCommit(
 		t, *assetStore, batchKey, txOutputIndex, internalKey2,
 		groupPubKeyBytes,
 	)
@@ -1985,12 +1987,12 @@ func TestUpsertMintAnchorUniCommitment(t *testing.T) {
 	groupPubKey2 := test.RandPubKey(t)
 	groupPubKey2Bytes := groupPubKey2.SerializeCompressed()
 
-	storeMintAnchorUniCommitment(
+	storeMintSupplyPreCommit(
 		t, *assetStore, batchKey, txOutputIndex, internalKey2,
 		groupPubKey2Bytes,
 	)
 
-	assertMintAnchorUniCommitment(
+	assertMintSupplyPreCommit(
 		t, *assetStore, batchKey, txOutputIndex, internalKey2,
 		groupPubKey2Bytes,
 	)
