@@ -10,11 +10,14 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/fn"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
+	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	lnwl "github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -24,10 +27,22 @@ const (
 	DefaultTimeout = 30 * time.Second
 )
 
+// FeatureBitFetcher is responsible for fetching feature bits either by
+// referencing a remote peer, or an established channel.
+type FeatureBitFetcher interface {
+	// GetPeerFeatures returns the negotiated features with the given peer.
+	GetPeerFeatures(peer route.Vertex) *lnwire.FeatureVector
+
+	// GetChannelFeatures returns the negotiated features that are active
+	// over the channel identifier by the provided channelID.
+	GetChannelFeatures(cid lnwire.ChannelID) *lnwire.FeatureVector
+}
+
 // FetchLeavesFromView attempts to fetch the auxiliary leaves that correspond to
 // the passed aux blob, and pending fully evaluated HTLC view.
 func FetchLeavesFromView(chainParams *address.ChainParams,
-	in lnwl.CommitDiffAuxInput) lfn.Result[lnwl.CommitDiffAuxResult] {
+	in lnwl.CommitDiffAuxInput,
+	bitFetcher FeatureBitFetcher) lfn.Result[lnwl.CommitDiffAuxResult] {
 
 	type returnType = lnwl.CommitDiffAuxResult
 
@@ -50,10 +65,16 @@ func FetchLeavesFromView(chainParams *address.ChainParams,
 			"commit state: %w", err))
 	}
 
+	supportsSTXO := bitFetcher.GetChannelFeatures(
+		lnwire.NewChanIDFromOutPoint(
+			in.ChannelState.FundingOutpoint,
+		),
+	).HasFeature(tapfeatures.STXOOptional)
+
 	allocations, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
 		in.OurBalance, in.TheirBalance, in.UnfilteredView, chainParams,
-		in.KeyRing, false,
+		in.KeyRing, supportsSTXO,
 	)
 	if err != nil {
 		return lfn.Err[returnType](fmt.Errorf("unable to generate "+
@@ -80,8 +101,8 @@ func FetchLeavesFromView(chainParams *address.ChainParams,
 // to the passed aux blob, and an existing channel commitment.
 func FetchLeavesFromCommit(chainParams *address.ChainParams,
 	chanState lnwl.AuxChanState, com channeldb.ChannelCommitment,
-	keys lnwl.CommitmentKeyRing,
-	whoseCommit lntypes.ChannelParty) lfn.Result[lnwl.CommitDiffAuxResult] {
+	keys lnwl.CommitmentKeyRing, whoseCommit lntypes.ChannelParty,
+	bitFetcher FeatureBitFetcher) lfn.Result[lnwl.CommitDiffAuxResult] {
 
 	type returnType = lnwl.CommitDiffAuxResult
 
@@ -89,6 +110,9 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 	if com.CustomBlob.IsNone() {
 		return lfn.Ok(lnwl.CommitDiffAuxResult{})
 	}
+
+	supportSTXO := bitFetcher.GetPeerFeatures(chanState.PeerPubKey).
+		HasFeature(tapfeatures.STXOOptional)
 
 	commitment, err := cmsg.DecodeCommitment(
 		com.CustomBlob.UnsafeFromSome(),
@@ -129,7 +153,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, chainParams, htlcOutputs, cltvTimeout,
-				htlc.HtlcIndex, false,
+				htlc.HtlcIndex, supportSTXO,
 			)
 			if err != nil {
 				return lfn.Err[returnType](fmt.Errorf("unable "+
@@ -170,7 +194,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, chainParams, htlcOutputs, cltvTimeout,
-				htlc.HtlcIndex, false,
+				htlc.HtlcIndex, supportSTXO,
 			)
 			if err != nil {
 				return lfn.Err[returnType](fmt.Errorf("unable "+
@@ -225,7 +249,8 @@ func FetchLeavesFromRevocation(
 // channel's blob. Given the old blob, and an HTLC view, then a new
 // blob should be returned that reflects the pending updates.
 func ApplyHtlcView(chainParams *address.ChainParams,
-	in lnwl.CommitDiffAuxInput) lfn.Result[lfn.Option[tlv.Blob]] {
+	in lnwl.CommitDiffAuxInput,
+	bitFetcher FeatureBitFetcher) lfn.Result[lfn.Option[tlv.Blob]] {
 
 	type returnType = lfn.Option[tlv.Blob]
 
@@ -248,10 +273,18 @@ func ApplyHtlcView(chainParams *address.ChainParams,
 			"commit state: %w", err))
 	}
 
+	supportSTXO := bitFetcher.GetChannelFeatures(
+		lnwire.NewChanIDFromOutPoint(
+			in.ChannelState.FundingOutpoint,
+		),
+	).HasFeature(
+		tapfeatures.STXOOptional,
+	)
+
 	_, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
 		in.OurBalance, in.TheirBalance, in.UnfilteredView, chainParams,
-		in.KeyRing, false,
+		in.KeyRing, supportSTXO,
 	)
 	if err != nil {
 		return lfn.Err[returnType](fmt.Errorf("unable to generate "+
