@@ -536,6 +536,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			DefaultCourierAddr: proofCourierAddr,
 			AssetSyncer:        addrBook,
 			FeatureBits:        lndFeatureBitsVerifier,
+			AuxChanNegotiator:  auxChanNegotiator,
 			ErrChan:            mainErrChan,
 		},
 	)
