@@ -868,7 +868,9 @@ func (s *Server) FetchLeavesFromView(
 
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.
-	return tapchannel.FetchLeavesFromView(s.chainParams, in)
+	return tapchannel.FetchLeavesFromView(
+		s.chainParams, in, s.cfg.AuxChanNegotiator,
+	)
 }
 
 // FetchLeavesFromCommit attempts to fetch the auxiliary leaves that
@@ -924,7 +926,9 @@ func (s *Server) ApplyHtlcView(
 
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.
-	return tapchannel.ApplyHtlcView(s.chainParams, in)
+	return tapchannel.ApplyHtlcView(
+		s.chainParams, in, s.cfg.AuxChanNegotiator,
+	)
 }
 
 // InlineParseCustomData replaces any custom data binary blob in the given RPC
