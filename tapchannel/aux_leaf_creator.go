@@ -53,7 +53,7 @@ func FetchLeavesFromView(chainParams *address.ChainParams,
 	allocations, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
 		in.OurBalance, in.TheirBalance, in.UnfilteredView, chainParams,
-		in.KeyRing,
+		in.KeyRing, false,
 	)
 	if err != nil {
 		return lfn.Err[returnType](fmt.Errorf("unable to generate "+
@@ -129,7 +129,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, chainParams, htlcOutputs, cltvTimeout,
-				htlc.HtlcIndex,
+				htlc.HtlcIndex, false,
 			)
 			if err != nil {
 				return lfn.Err[returnType](fmt.Errorf("unable "+
@@ -170,7 +170,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, chainParams, htlcOutputs, cltvTimeout,
-				htlc.HtlcIndex,
+				htlc.HtlcIndex, false,
 			)
 			if err != nil {
 				return lfn.Err[returnType](fmt.Errorf("unable "+
@@ -251,7 +251,7 @@ func ApplyHtlcView(chainParams *address.ChainParams,
 	_, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
 		in.OurBalance, in.TheirBalance, in.UnfilteredView, chainParams,
-		in.KeyRing,
+		in.KeyRing, false,
 	)
 	if err != nil {
 		return lfn.Err[returnType](fmt.Errorf("unable to generate "+
