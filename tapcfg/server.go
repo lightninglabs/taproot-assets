@@ -628,6 +628,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			AssetSyncer:        addrBook,
 			FeatureBits:        lndFeatureBitsVerifier,
 			IgnoreChecker:      ignoreCheckerOpt,
+			AuxChanNegotiator:  auxChanNegotiator,
 			ErrChan:            mainErrChan,
 		},
 	)
