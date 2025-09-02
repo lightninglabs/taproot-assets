@@ -28,6 +28,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfq"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapdb"
+	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -41,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 const (
@@ -265,6 +267,11 @@ type FundingControllerCfg struct {
 	// to fund asset channels.
 	FeatureBits FeatureBitVerifer
 
+	// AuxChanNegotiator is responsible for producing the extra tlv blob
+	// that is encapsulated in the init and reestablish peer messages. This
+	// helps us communicate custom feature bits with our peer.
+	AuxChanNegotiator *tapfeatures.AuxChannelNegotiator
+
 	// ErrChan is used to report errors back to the main server.
 	ErrChan chan<- error
 }
@@ -415,6 +422,8 @@ type pendingAssetFunding struct {
 
 	initiator bool
 
+	stxo bool
+
 	amt uint64
 
 	pushAmt btcutil.Amount
@@ -520,7 +529,8 @@ func (p *pendingAssetFunding) addInputProofChunk(
 func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 	lndOpenChan lnwallet.AuxChanState, assetOpenChan *cmsg.OpenChannel,
 	keyRing lntypes.Dual[lnwallet.CommitmentKeyRing],
-	whoseCommit lntypes.ChannelParty) ([]byte, lnwallet.CommitAuxLeaves,
+	whoseCommit lntypes.ChannelParty,
+	stxo bool) ([]byte, lnwallet.CommitAuxLeaves,
 	error) {
 
 	chanAssets := assetOpenChan.FundedAssets.Val.Outputs
@@ -567,6 +577,7 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 		fakePrevState, lndOpenChan, assetOpenChan, whoseCommit,
 		localSatBalance, remoteSatBalance, fakeView,
 		pendingFunding.chainParams, keyRing.GetForParty(whoseCommit),
+		stxo,
 	)
 	if err != nil {
 		return nil, lnwallet.CommitAuxLeaves{}, err
@@ -609,12 +620,14 @@ func (p *pendingAssetFunding) toAuxFundingDesc(req *bindFundingReq,
 	// This will be the information for the very first state (state 0).
 	localCommitBlob, localAuxLeaves, err := newCommitBlobAndLeaves(
 		p, req.openChan, openChanDesc, req.keyRing, lntypes.Local,
+		p.stxo,
 	)
 	if err != nil {
 		return nil, err
 	}
 	remoteCommitBlob, remoteAuxLeaves, err := newCommitBlobAndLeaves(
 		p, req.openChan, openChanDesc, req.keyRing, lntypes.Remote,
+		p.stxo,
 	)
 	if err != nil {
 		return nil, err
@@ -1078,12 +1091,15 @@ func (f *FundingController) signAllVPackets(ctx context.Context,
 // complete, but unsigned PSBT packet that can be used to create out asset
 // channel.
 func (f *FundingController) anchorVPackets(fundedPkt *tapsend.FundedPsbt,
-	allPackets []*tappsbt.VPacket) ([]*proof.Proof, error) {
+	allPackets []*tappsbt.VPacket, stxo bool) ([]*proof.Proof, error) {
 
 	log.Infof("Anchoring funding vPackets to funding PSBT")
 
 	// Given the set of vPackets we've created, we'll now merge them all to
 	// create a map from output index to final tap commitment.
+	// We don't use STXO proofs here as we already manually added the
+	// corresponding alt-leaves in a previous step. Creating the commitments
+	// here with STXO generation will lead to a conflict in the alt leaves.
 	outputCommitments, err := tapsend.CreateOutputCommitments(
 		allPackets, tapsend.WithNoSTXOProofs(),
 	)
@@ -1114,11 +1130,16 @@ func (f *FundingController) anchorVPackets(fundedPkt *tapsend.FundedPsbt,
 	for idx := range allPackets {
 		vPkt := allPackets[idx]
 
+		var opts []proof.GenOption
+		if !stxo {
+			opts = append(opts, proof.WithNoSTXOProofs())
+		}
+
 		for vOutIdx := range vPkt.Outputs {
 			proofSuffix, err := tapsend.CreateProofSuffix(
 				fundedPkt.Pkt.UnsignedTx, fundedPkt.Pkt.Outputs,
 				vPkt, outputCommitments, vOutIdx, allPackets,
-				proof.WithNoSTXOProofs(),
+				opts...,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to create "+
@@ -1211,7 +1232,8 @@ func (f *FundingController) sendAssetFundingCreated(ctx context.Context,
 // ultimately broadcasting the funding transaction.
 func (f *FundingController) completeChannelFunding(ctx context.Context,
 	fundingState *pendingAssetFunding,
-	fundedVpkt *tapfreighter.FundedVPacket) (*wire.OutPoint, error) {
+	fundedVpkt *tapfreighter.FundedVPacket,
+	stxoEnabled bool) (*wire.OutPoint, error) {
 
 	log.Debugf("Finalizing funding vPackets and PSBT...")
 
@@ -1322,7 +1344,7 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	// PSBT. This'll update all the pkScripts for our funding output and
 	// change.
 	fundingOutputProofs, err := f.anchorVPackets(
-		finalFundedPsbt, signedPkts,
+		finalFundedPsbt, signedPkts, stxoEnabled,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to anchor vPackets: %w", err)
@@ -1547,6 +1569,28 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 				"commitment: %w", err)
 		}
 
+		supportSTXO := f.cfg.AuxChanNegotiator.GetPeerFeatures(
+			route.Vertex(msg.PeerPub.SerializeCompressed()),
+		).HasFeature(tapfeatures.STXOOptional)
+
+		assetFunding.stxo = supportSTXO
+
+		// If we've the feature bit negotiation resulted in the use of
+		// STXO proofs, then we need to collect the alt leaves and
+		// merge them to the funding commitment.
+		if supportSTXO {
+			altLeaves, err := asset.CollectSTXO(
+				&assetProof.AssetOutput.Val,
+			)
+			if err != nil {
+				return tempPID, err
+			}
+
+			assetFunding.fundingAssetCommitment.MergeAltLeaves(
+				altLeaves,
+			)
+		}
+
 		// Do we expect more proofs to be incoming?
 		if !assetProof.Last.Val {
 			return tempPID, nil
@@ -1704,6 +1748,13 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 		}
 	}
 
+	// Now let's see if we should be using STXOs for this channel funding.
+	supportSTXO := f.cfg.AuxChanNegotiator.GetPeerFeatures(
+		route.Vertex(fundReq.PeerPub.SerializeCompressed()),
+	).HasFeature(tapfeatures.STXOOptional)
+
+	fundingState.stxo = supportSTXO
+
 	// Register a defer to execute if none of the setup below succeeds.
 	// This ensures we always unlock the UTXO.
 	var setupSuccess bool
@@ -1740,12 +1791,38 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 				"packet: %w", err)
 		}
 
+		// If our peer supports STXO we go ahead and append the
+		// appropriate alt leaves to each VOutput. This is needed in
+		// this step as this tapscript root will be kept as reference by
+		// LND to identify the funding outpoint. Later when we continue
+		// the funding process we'll skip creating/merging the leaves
+		// again to avoid a conflict in the alt leaf tree.
+		if supportSTXO {
+			for _, o := range pkt.Outputs {
+				altLeaves, err := asset.CollectSTXO(o.Asset)
+				if err != nil {
+					return err
+				}
+
+				o.AltLeaves = append(o.AltLeaves, altLeaves...)
+			}
+		}
+
 		err = fundingState.addToFundingCommitment(
 			fundingOut.Asset.Copy(),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to add asset to funding "+
 				"commitment: %w", err)
+		}
+
+		// We now merge the alt leaves to the funding commitment.
+		for _, o := range pkt.Outputs {
+			commitment := fundingState.fundingAssetCommitment
+			err = commitment.MergeAltLeaves(o.AltLeaves)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1805,7 +1882,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 		}
 
 		chanPoint, err := f.completeChannelFunding(
-			fundReq.ctx, fundingState, fundingVpkt,
+			fundReq.ctx, fundingState, fundingVpkt, supportSTXO,
 		)
 		if err != nil {
 			// If anything went wrong during the funding process,
