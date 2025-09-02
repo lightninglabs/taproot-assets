@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -577,6 +578,137 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 	return genAssetID, nil
 }
 
+// maybeUpsertSupplyPreCommit inserts a supply pre-commitment output if the
+// asset group supports supply commitments and this is an issuance proof.
+func maybeUpsertSupplyPreCommit(ctx context.Context, dbTx UpsertAssetStore,
+	proofType universe.ProofType, issuanceProof proof.Proof,
+	metaReveal *proof.MetaReveal) error {
+
+	// We only care about supply commitments for issuance proofs.
+	if proofType != universe.ProofTypeIssuance {
+		return nil
+	}
+
+	// We only care about asset groups.
+	if issuanceProof.Asset.GroupKey == nil {
+		return nil
+	}
+
+	// If there's no meta reveal, then we can't determine if there's a
+	// pre-commit to insert. So we'll just return early.
+	if metaReveal == nil {
+		return nil
+	}
+
+	// If the meta reveal doesn't indicate that the asset group supports
+	// supply commitments, then we can return early.
+	if !metaReveal.UniverseCommitments {
+		return nil
+	}
+
+	// At this point, we know that the asset group supports supply
+	// commitments, so we must have a delegation key to proceed.
+	if metaReveal.DelegationKey.IsNone() {
+		return fmt.Errorf("supply commitment metareveal requires a " +
+			"delegation key")
+	}
+
+	delegationKey, err := metaReveal.DelegationKey.UnwrapOrErr(
+		errors.New("missing delegation key"),
+	)
+	if err != nil {
+		return err
+	}
+
+	preCommitOutput, err := supplyverifier.ExtractPreCommitOutput(
+		issuanceProof, delegationKey,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to extract pre-commit "+
+			"output: %w", err)
+	}
+
+	outPointBytes, err := encodeOutpoint(preCommitOutput.OutPoint())
+	if err != nil {
+		return fmt.Errorf("unable to encode supply pre-commit "+
+			"outpoint: %w", err)
+	}
+
+	// Upsert the supply pre-commitment output.
+	//
+	// Encode the group key and taproot internal key.
+	groupKeyBytes :=
+		issuanceProof.Asset.GroupKey.GroupPubKey.SerializeCompressed()
+	taprootInternalKeyBytes :=
+		preCommitOutput.InternalKey.PubKey.SerializeCompressed()
+
+	// Try to fetch an existing chain tx row from the database. We fetch
+	// first instead of blindly upserting to avoid overwriting existing data
+	// with null values.
+	var chainTxDbID fn.Option[int64]
+
+	txIDBytes := fn.ByteSlice(issuanceProof.AnchorTx.TxHash())
+	chainTxn, err := dbTx.FetchChainTx(ctx, txIDBytes)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// No existing chain tx, we'll insert a new one below.
+
+	case err != nil:
+		return fmt.Errorf("unable to fetch chain tx: %w", err)
+
+	default:
+		// We found an existing chain tx. If it has a valid block
+		// height, then we'll use it. Otherwise, we'll insert a new one
+		// below.
+		if chainTxn.BlockHeight.Valid {
+			chainTxDbID = fn.Some(chainTxn.TxnID)
+		}
+	}
+
+	// If we didn't find an existing chain tx, then we'll insert a new
+	// one now.
+	if chainTxDbID.IsNone() {
+		blockHash := issuanceProof.BlockHeader.BlockHash()
+		txBytes, err := fn.Serialize(&issuanceProof.AnchorTx)
+		if err != nil {
+			return fmt.Errorf("failed to serialize tx: %w", err)
+		}
+
+		txDbID, err := dbTx.UpsertChainTx(ctx, ChainTxParams{
+			Txid:        txIDBytes,
+			RawTx:       txBytes,
+			BlockHeight: sqlInt32(issuanceProof.BlockHeight),
+			BlockHash:   blockHash.CloneBytes(),
+		})
+		if err != nil {
+			return fmt.Errorf("unable to upsert chain tx: %w", err)
+		}
+
+		chainTxDbID = fn.Some(txDbID)
+	}
+
+	txDbID, err := chainTxDbID.UnwrapOrErr(
+		errors.New("missing chain tx db id"),
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = dbTx.UpsertSupplyPreCommit(
+		ctx, sqlc.UpsertSupplyPreCommitParams{
+			TaprootInternalKey: taprootInternalKeyBytes,
+			GroupKey:           groupKeyBytes,
+			Outpoint:           outPointBytes,
+			ChainTxnDbID:       txDbID,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to upsert supply pre-commit: %w", err)
+	}
+
+	return nil
+}
+
 // UpsertProofLeaf inserts or updates a proof leaf within the universe tree,
 // stored at the base key. The metaReveal type is purely optional, and should be
 // specified if the genesis proof committed to a non-zero meta hash.
@@ -795,11 +927,25 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		return nil, fmt.Errorf("unable to decode proof: %w", err)
 	}
 
+	// Upsert into the DB: the genesis point, asset genesis,
+	// group key reveal, and the anchoring transaction for the issuance or
+	// transfer.
 	assetGenID, err := upsertAssetGen(
 		ctx, dbTx, leaf.Genesis, leaf.GroupKey, &leafProof,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// If the asset group supports supply commitments and this is an
+	// issuance proof, then we may need to log the supply pre-commitment
+	// output.
+	err = maybeUpsertSupplyPreCommit(
+		ctx, dbTx, proofType, leafProof, metaReveal,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to upsert supply "+
+			"pre-commit: %w", err)
 	}
 
 	// If the block height isn't specified, then we'll attempt to extract it
