@@ -1087,7 +1087,7 @@ ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     outpoint = EXCLUDED.outpoint
 RETURNING id;
 
--- name: FetchMintAnchorUniCommitment :many
+-- name: FetchMintSupplyPreCommits :many
 -- Fetch records from the mint_anchor_uni_commitments table with optional
 -- filtering.
 SELECT

@@ -1600,7 +1600,7 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 	return items, nil
 }
 
-const FetchMintAnchorUniCommitment = `-- name: FetchMintAnchorUniCommitment :many
+const FetchMintSupplyPreCommits = `-- name: FetchMintSupplyPreCommits :many
 SELECT
     mint_anchor_uni_commitments.id,
     mint_anchor_uni_commitments.batch_id,
@@ -1624,13 +1624,13 @@ WHERE (
 )
 `
 
-type FetchMintAnchorUniCommitmentParams struct {
+type FetchMintSupplyPreCommitsParams struct {
 	BatchKey              []byte
 	GroupKey              []byte
 	TaprootInternalKeyRaw []byte
 }
 
-type FetchMintAnchorUniCommitmentRow struct {
+type FetchMintSupplyPreCommitsRow struct {
 	ID                   int64
 	BatchID              int32
 	TxOutputIndex        int32
@@ -1643,15 +1643,15 @@ type FetchMintAnchorUniCommitmentRow struct {
 
 // Fetch records from the mint_anchor_uni_commitments table with optional
 // filtering.
-func (q *Queries) FetchMintAnchorUniCommitment(ctx context.Context, arg FetchMintAnchorUniCommitmentParams) ([]FetchMintAnchorUniCommitmentRow, error) {
-	rows, err := q.db.QueryContext(ctx, FetchMintAnchorUniCommitment, arg.BatchKey, arg.GroupKey, arg.TaprootInternalKeyRaw)
+func (q *Queries) FetchMintSupplyPreCommits(ctx context.Context, arg FetchMintSupplyPreCommitsParams) ([]FetchMintSupplyPreCommitsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchMintSupplyPreCommits, arg.BatchKey, arg.GroupKey, arg.TaprootInternalKeyRaw)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []FetchMintAnchorUniCommitmentRow
+	var items []FetchMintSupplyPreCommitsRow
 	for rows.Next() {
-		var i FetchMintAnchorUniCommitmentRow
+		var i FetchMintSupplyPreCommitsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.BatchID,
