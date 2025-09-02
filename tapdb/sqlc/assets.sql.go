@@ -1609,6 +1609,7 @@ SELECT
     precommits.spent_by,
     batch_internal_keys.raw_key AS batch_key,
     precommits.taproot_internal_key_id,
+    precommits.outpoint,
     taproot_internal_keys.key_id, taproot_internal_keys.raw_key, taproot_internal_keys.key_family, taproot_internal_keys.key_index
 FROM mint_supply_pre_commits AS precommits
     JOIN internal_keys taproot_internal_keys
@@ -1638,6 +1639,7 @@ type FetchMintSupplyPreCommitsRow struct {
 	SpentBy              sql.NullInt64
 	BatchKey             []byte
 	TaprootInternalKeyID int64
+	Outpoint             []byte
 	InternalKey          InternalKey
 }
 
@@ -1660,6 +1662,7 @@ func (q *Queries) FetchMintSupplyPreCommits(ctx context.Context, arg FetchMintSu
 			&i.SpentBy,
 			&i.BatchKey,
 			&i.TaprootInternalKeyID,
+			&i.Outpoint,
 			&i.InternalKey.KeyID,
 			&i.InternalKey.RawKey,
 			&i.InternalKey.KeyFamily,

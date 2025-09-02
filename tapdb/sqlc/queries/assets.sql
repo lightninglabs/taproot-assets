@@ -1106,6 +1106,7 @@ SELECT
     precommits.spent_by,
     batch_internal_keys.raw_key AS batch_key,
     precommits.taproot_internal_key_id,
+    precommits.outpoint,
     sqlc.embed(taproot_internal_keys)
 FROM mint_supply_pre_commits AS precommits
     JOIN internal_keys taproot_internal_keys

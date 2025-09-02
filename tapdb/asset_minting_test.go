@@ -1880,7 +1880,8 @@ func storeMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 // values.
 func assertMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 	batchKey []byte, txOutputIndex int32,
-	preCommitInternalKey keychain.KeyDescriptor, groupPubKeyBytes []byte) {
+	preCommitInternalKey keychain.KeyDescriptor, groupPubKeyBytes []byte,
+	outpoint wire.OutPoint) {
 
 	ctx := context.Background()
 	readOpts := NewAssetStoreReadTx()
@@ -1919,6 +1920,10 @@ func assertMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 		preCommit.InternalKey.KeyFamily,
 	)
 	require.Equal(t, groupPubKeyBytes, preCommit.GroupKey)
+
+	opBytes, err := encodeOutpoint(outpoint)
+	require.NoError(t, err)
+	require.Equal(t, opBytes, preCommit.Outpoint)
 }
 
 // TestUpsertMintSupplyPreCommit tests the UpsertMintSupplyPreCommit and
@@ -1981,7 +1986,7 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	// Retrieve and inspect the mint anchor commitment we just inserted.
 	assertMintSupplyPreCommit(
 		t, *assetStore, batchKey, txOutputIndex,
-		preCommitInternalKey, groupPubKeyBytes,
+		preCommitInternalKey, groupPubKeyBytes, preCommitOutpoint,
 	)
 
 	// Upsert-ing a new taproot internal key for the same pre-commit
@@ -1995,7 +2000,7 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 
 	assertMintSupplyPreCommit(
 		t, *assetStore, batchKey, txOutputIndex, internalKey2,
-		groupPubKeyBytes,
+		groupPubKeyBytes, preCommitOutpoint,
 	)
 
 	// Upsert-ing a new group key for the same pre-commit outpoint should
@@ -2010,7 +2015,7 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 
 	assertMintSupplyPreCommit(
 		t, *assetStore, batchKey, txOutputIndex, internalKey2,
-		groupPubKey2Bytes,
+		groupPubKey2Bytes, preCommitOutpoint,
 	)
 }
 
