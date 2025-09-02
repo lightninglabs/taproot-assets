@@ -1839,7 +1839,8 @@ func TestTapscriptTreeManager(t *testing.T) {
 // DB.
 func storeMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 	batchKey []byte, txOutputIndex int32,
-	taprootInternalKey keychain.KeyDescriptor, groupKey []byte) {
+	taprootInternalKey keychain.KeyDescriptor, groupKey []byte,
+	outpoint wire.OutPoint) {
 
 	ctx := context.Background()
 
@@ -1855,12 +1856,16 @@ func storeMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 		})
 		require.NoError(t, err)
 
+		opBytes, err := encodeOutpoint(outpoint)
+		require.NoError(t, err)
+
 		_, err = q.UpsertMintSupplyPreCommit(
 			ctx, UpsertBatchPreCommitParams{
 				BatchKey:             batchKey,
 				TxOutputIndex:        txOutputIndex,
 				TaprootInternalKeyID: internalKeyID,
 				GroupKey:             groupKey,
+				Outpoint:             opBytes,
 			},
 		)
 		require.NoError(t, err)
@@ -1950,16 +1955,27 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 		},
 	)
 
+	// Define pre-commit outpoint for the batch mint anchor tx.
+	txOutputIndex := int32(2)
+	txidStr := mintingBatch.GenesisPacket.FundedPsbt.Pkt.UnsignedTx.TxID()
+
+	txid, err := chainhash.NewHashFromStr(txidStr)
+	require.NoError(t, err)
+
+	preCommitOutpoint := wire.OutPoint{
+		Hash:  *txid,
+		Index: uint32(txOutputIndex),
+	}
+
 	// Serialize keys into bytes for easier handling.
 	preCommitInternalKey, _ := test.RandKeyDesc(t)
 
 	groupPubKeyBytes := group.GroupPubKey.SerializeCompressed()
 
 	// Upsert a mint anchor commitment for the batch.
-	txOutputIndex := int32(2)
 	storeMintSupplyPreCommit(
 		t, *assetStore, batchKey, txOutputIndex,
-		preCommitInternalKey, groupPubKeyBytes,
+		preCommitInternalKey, groupPubKeyBytes, preCommitOutpoint,
 	)
 
 	// Retrieve and inspect the mint anchor commitment we just inserted.
@@ -1968,13 +1984,13 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 		preCommitInternalKey, groupPubKeyBytes,
 	)
 
-	// Upsert-ing a new taproot internal key for the same batch should
-	// overwrite the existing one.
+	// Upsert-ing a new taproot internal key for the same pre-commit
+	// outpoint should overwrite the existing one.
 	internalKey2, _ := test.RandKeyDesc(t)
 
 	storeMintSupplyPreCommit(
 		t, *assetStore, batchKey, txOutputIndex, internalKey2,
-		groupPubKeyBytes,
+		groupPubKeyBytes, preCommitOutpoint,
 	)
 
 	assertMintSupplyPreCommit(
@@ -1982,14 +1998,14 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 		groupPubKeyBytes,
 	)
 
-	// Upsert-ing a new group key for the same batch should overwrite the
-	// existing one.
+	// Upsert-ing a new group key for the same pre-commit outpoint should
+	// overwrite the existing one.
 	groupPubKey2 := test.RandPubKey(t)
 	groupPubKey2Bytes := groupPubKey2.SerializeCompressed()
 
 	storeMintSupplyPreCommit(
 		t, *assetStore, batchKey, txOutputIndex, internalKey2,
-		groupPubKey2Bytes,
+		groupPubKey2Bytes, preCommitOutpoint,
 	)
 
 	assertMintSupplyPreCommit(

@@ -204,7 +204,7 @@ SELECT
     mac.group_key,
     mint_txn.block_height,
     mint_txn.raw_tx
-FROM mint_anchor_uni_commitments mac
+FROM mint_supply_pre_commits mac
 JOIN asset_minting_batches amb ON mac.batch_id = amb.batch_id
 JOIN genesis_points gp ON amb.genesis_id = gp.genesis_id
 JOIN chain_txns mint_txn ON gp.anchor_tx_id = mint_txn.txn_id
@@ -219,7 +219,7 @@ WHERE
 -- Mark a supply pre-commitment output as spent by its outpoint. The
 -- pre-commitment corresponds to an asset issuance where the local node acted as
 -- the issuer.
-UPDATE mint_anchor_uni_commitments
+UPDATE mint_supply_pre_commits
 SET spent_by = @spent_by_commit_id
 WHERE outpoint = @outpoint
     AND spent_by IS NULL;

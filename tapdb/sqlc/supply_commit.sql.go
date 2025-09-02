@@ -115,7 +115,7 @@ SELECT
     mac.group_key,
     mint_txn.block_height,
     mint_txn.raw_tx
-FROM mint_anchor_uni_commitments mac
+FROM mint_supply_pre_commits mac
 JOIN asset_minting_batches amb ON mac.batch_id = amb.batch_id
 JOIN genesis_points gp ON amb.genesis_id = gp.genesis_id
 JOIN chain_txns mint_txn ON gp.anchor_tx_id = mint_txn.txn_id
@@ -312,7 +312,7 @@ func (q *Queries) LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDa
 }
 
 const MarkMintPreCommitSpentByOutpoint = `-- name: MarkMintPreCommitSpentByOutpoint :exec
-UPDATE mint_anchor_uni_commitments
+UPDATE mint_supply_pre_commits
 SET spent_by = $1
 WHERE outpoint = $2
     AND spent_by IS NULL

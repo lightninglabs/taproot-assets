@@ -304,7 +304,7 @@ type ManagedUtxo struct {
 	RootVersion      sql.NullInt16
 }
 
-type MintAnchorUniCommitment struct {
+type MintSupplyPreCommit struct {
 	ID                   int64
 	BatchID              int32
 	TxOutputIndex        int32

@@ -90,7 +90,7 @@ type Querier interface {
 	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (FetchInternalKeyLocatorRow, error)
 	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error)
-	// Fetch records from the mint_anchor_uni_commitments table with optional
+	// Fetch records from the supply_pre_commits table with optional
 	// filtering.
 	FetchMintSupplyPreCommits(ctx context.Context, arg FetchMintSupplyPreCommitsParams) ([]FetchMintSupplyPreCommitsRow, error)
 	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)
@@ -236,9 +236,13 @@ type Querier interface {
 	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int64, error)
 	UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int64, error)
 	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int64, error)
-	// Upsert a record into the mint_anchor_uni_commitments table.
-	// If a record with the same batch ID and tx output index already exists, update
-	// the existing record. Otherwise, insert a new record.
+	// Upsert a supply pre-commit that is tied to a minting batch.
+	// The batch is resolved from @batch_key
+	// (internal_keys -> asset_minting_batches).
+	// The key is (batch_id, tx_output_index), where tx_output_index is the
+	// pre-commit output index in the batch’s mint anchor transaction.
+	// If a row exists for the same batch and index, update non-key fields only;
+	// the batch association is not changed.
 	UpsertMintSupplyPreCommit(ctx context.Context, arg UpsertMintSupplyPreCommitParams) (int64, error)
 	UpsertMultiverseLeaf(ctx context.Context, arg UpsertMultiverseLeafParams) (int64, error)
 	UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error)
