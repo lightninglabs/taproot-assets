@@ -242,8 +242,8 @@ type Querier interface {
 	// and the latest commitment ID that was set.
 	UpsertSupplyCommitStateMachine(ctx context.Context, arg UpsertSupplyCommitStateMachineParams) (UpsertSupplyCommitStateMachineRow, error)
 	// Upsert a record into the supply_pre_commits table.
-	// If a record with the same batch ID and tx output index already exists, update
-	// the existing record. Otherwise, insert a new record.
+	// If a record with the same outpoint exists, update it; otherwise insert a new
+	// record.
 	UpsertSupplyPreCommit(ctx context.Context, arg UpsertSupplyPreCommitParams) (int64, error)
 	UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error)
 	UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error)

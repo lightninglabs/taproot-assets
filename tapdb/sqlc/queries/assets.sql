@@ -1064,26 +1064,28 @@ ORDER BY assets_meta.meta_id;
 
 -- name: UpsertSupplyPreCommit :one
 -- Upsert a record into the supply_pre_commits table.
--- If a record with the same batch ID and tx output index already exists, update
--- the existing record. Otherwise, insert a new record.
+-- If a record with the same outpoint exists, update it; otherwise insert a new
+-- record.
 WITH target_batch AS (
-    -- This CTE is used to fetch the ID of a batch, based on the serialized
-    -- internal key associated with the batch.
     SELECT keys.key_id AS batch_id
-    FROM internal_keys keys
+    FROM internal_keys AS keys
     WHERE keys.raw_key = @batch_key
 )
 INSERT INTO supply_pre_commits (
-    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by, outpoint
+    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by,
+    outpoint
 )
 VALUES (
-    (SELECT batch_id FROM target_batch), @tx_output_index, 
-    @taproot_internal_key_id, @group_key, sqlc.narg('spent_by'), sqlc.narg('outpoint')
+    (SELECT batch_id FROM target_batch), @tx_output_index,
+    @taproot_internal_key_id, @group_key, sqlc.narg('spent_by'),
+    sqlc.narg('outpoint')
 )
-ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
-    -- The following fields are updated if a conflict occurs.
+ON CONFLICT(outpoint) DO UPDATE SET
+    batch_id = EXCLUDED.batch_id,
+    tx_output_index = EXCLUDED.tx_output_index,
     taproot_internal_key_id = EXCLUDED.taproot_internal_key_id,
     group_key = EXCLUDED.group_key,
+    spent_by = EXCLUDED.spent_by,
     outpoint = EXCLUDED.outpoint
 RETURNING id;
 
