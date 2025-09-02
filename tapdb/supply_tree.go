@@ -462,8 +462,14 @@ func registerMintSupplyInternal(ctx context.Context, dbTx BaseUniverseStore,
 	subNs := subTreeNamespace(groupKey, supplycommit.MintTreeType)
 
 	// Upsert the leaf into the mint supply sub-tree SMT and DB.
+	uniProofType, err := supplycommit.MintTreeType.ToUniverseProofType()
+	if err != nil {
+		return nil, fmt.Errorf("unable to map mint supply tree type "+
+			"to universe proof type: %w", err)
+	}
+
 	mintSupplyProof, err := universeUpsertProofLeaf(
-		ctx, dbTx, subNs, supplycommit.MintTreeType.String(), groupKey,
+		ctx, dbTx, subNs, uniProofType, groupKey,
 		key, leaf, metaReveal, blockHeight,
 	)
 	if err != nil {
