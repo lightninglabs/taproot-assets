@@ -1855,8 +1855,8 @@ func storeMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 		})
 		require.NoError(t, err)
 
-		_, err = q.UpsertMintAnchorUniCommitment(
-			ctx, sqlc.UpsertMintAnchorUniCommitmentParams{
+		_, err = q.UpsertMintSupplyPreCommit(
+			ctx, UpsertBatchPreCommitParams{
 				BatchKey:             batchKey,
 				TxOutputIndex:        txOutputIndex,
 				TaprootInternalKeyID: internalKeyID,
@@ -1916,7 +1916,7 @@ func assertMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 	require.Equal(t, groupPubKeyBytes, preCommit.GroupKey)
 }
 
-// TestUpsertMintSupplyPreCommit tests the UpsertSupplyPreCommit and
+// TestUpsertMintSupplyPreCommit tests the UpsertMintSupplyPreCommit and
 // FetchSupplyPreCommits SQL queries. In particular, it tests that upsert works
 // correctly.
 func TestUpsertMintSupplyPreCommit(t *testing.T) {

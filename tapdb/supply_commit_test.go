@@ -242,8 +242,8 @@ func (h *supplyCommitTestHarness) addTestMintAnchorUniCommitment(
 	err = wire.WriteOutPoint(&outpointBuf, 0, 0, &outpoint)
 	require.NoError(h.t, err)
 
-	anchorCommitID, err := h.db.UpsertMintAnchorUniCommitment(
-		h.ctx, sqlc.UpsertMintAnchorUniCommitmentParams{
+	anchorCommitID, err := h.db.UpsertMintSupplyPreCommit(
+		h.ctx, UpsertBatchPreCommitParams{
 			BatchKey:             batchKeyBytes,
 			TxOutputIndex:        txOutputIndex,
 			TaprootInternalKeyID: internalKeyID,

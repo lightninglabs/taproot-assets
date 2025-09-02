@@ -1062,7 +1062,7 @@ JOIN genesis_assets
     ON genesis_assets.meta_data_id = assets_meta.meta_id
 ORDER BY assets_meta.meta_id;
 
--- name: UpsertMintAnchorUniCommitment :one
+-- name: UpsertMintSupplyPreCommit :one
 -- Upsert a record into the mint_anchor_uni_commitments table.
 -- If a record with the same batch ID and tx output index already exists, update
 -- the existing record. Otherwise, insert a new record.
@@ -1074,11 +1074,13 @@ WITH target_batch AS (
     WHERE keys.raw_key = @batch_key
 )
 INSERT INTO mint_anchor_uni_commitments (
-    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by, outpoint
+    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by,
+    outpoint
 )
 VALUES (
     (SELECT batch_id FROM target_batch), @tx_output_index, 
-    @taproot_internal_key_id, @group_key, sqlc.narg('spent_by'), sqlc.narg('outpoint')
+    @taproot_internal_key_id, @group_key, sqlc.narg('spent_by'),
+    sqlc.narg('outpoint')
 )
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.

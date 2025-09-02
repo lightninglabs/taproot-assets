@@ -3237,7 +3237,7 @@ func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOPa
 	return utxo_id, err
 }
 
-const UpsertMintAnchorUniCommitment = `-- name: UpsertMintAnchorUniCommitment :one
+const UpsertMintSupplyPreCommit = `-- name: UpsertMintSupplyPreCommit :one
 WITH target_batch AS (
     -- This CTE is used to fetch the ID of a batch, based on the serialized
     -- internal key associated with the batch.
@@ -3246,11 +3246,13 @@ WITH target_batch AS (
     WHERE keys.raw_key = $6
 )
 INSERT INTO mint_anchor_uni_commitments (
-    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by, outpoint
+    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by,
+    outpoint
 )
 VALUES (
     (SELECT batch_id FROM target_batch), $1, 
-    $2, $3, $4, $5
+    $2, $3, $4,
+    $5
 )
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
@@ -3260,7 +3262,7 @@ ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
 RETURNING id
 `
 
-type UpsertMintAnchorUniCommitmentParams struct {
+type UpsertMintSupplyPreCommitParams struct {
 	TxOutputIndex        int32
 	TaprootInternalKeyID int64
 	GroupKey             []byte
@@ -3272,8 +3274,8 @@ type UpsertMintAnchorUniCommitmentParams struct {
 // Upsert a record into the mint_anchor_uni_commitments table.
 // If a record with the same batch ID and tx output index already exists, update
 // the existing record. Otherwise, insert a new record.
-func (q *Queries) UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, UpsertMintAnchorUniCommitment,
+func (q *Queries) UpsertMintSupplyPreCommit(ctx context.Context, arg UpsertMintSupplyPreCommitParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertMintSupplyPreCommit,
 		arg.TxOutputIndex,
 		arg.TaprootInternalKeyID,
 		arg.GroupKey,
