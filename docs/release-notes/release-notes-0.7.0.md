@@ -35,6 +35,10 @@
   optimized sending to V2 TAP addresses by removing the need for creating
   tombstone outputs on a full-value send (by using interactive transfers for V2
   addresses).
+- [Updated](https://github.com/lightninglabs/taproot-assets/pull/1774) 
+  `BuyOrderRequest` and `SellOrderRequest` proto docs to mark `peer_pub_key` as
+  required. Previously, the field was incorrectly documented as optional.
+  This change corrects the documentation to match the current implementation.
 
 # New Features
 
