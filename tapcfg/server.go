@@ -519,6 +519,16 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	supplyCommitStore := tapdb.NewSupplyCommitMachine(supplyCommitDb)
 
+	// Setup supply syncer.
+	supplySyncerStore := tapdb.NewSupplySyncerStore(uniDB)
+	supplySyncer := supplyverifier.NewSupplySyncer(
+		supplyverifier.SupplySyncerConfig{
+			ClientFactory:          tap.NewRpcSupplySync,
+			Store:                  supplySyncerStore,
+			UniverseFederationView: federationDB,
+		},
+	)
+
 	// Create the supply commitment state machine manager, which is used to
 	// manage the supply commitment state machines for each asset group.
 	supplyCommitManager := supplycommit.NewManager(
@@ -529,6 +539,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			AssetLookup:        tapdbAddrBook,
 			KeyRing:            keyRing,
 			Chain:              chainBridge,
+			SupplySyncer:       &supplySyncer,
 			DaemonAdapters:     lndFsmDaemonAdapters,
 			StateLog:           supplyCommitStore,
 			ChainParams:        *tapChainParams.Params,
