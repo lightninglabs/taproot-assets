@@ -150,8 +150,10 @@ type Querier interface {
 	LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error
 	LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error
 	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
-	// Mark a specific pre-commitment output as spent by its outpoint.
-	MarkPreCommitmentSpentByOutpoint(ctx context.Context, arg MarkPreCommitmentSpentByOutpointParams) error
+	// Mark a supply pre-commitment output as spent by its outpoint. The
+	// pre-commitment corresponds to an asset issuance where the local node acted as
+	// the issuer.
+	MarkMintPreCommitSpentByOutpoint(ctx context.Context, arg MarkMintPreCommitSpentByOutpointParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	QueryAddr(ctx context.Context, arg QueryAddrParams) (QueryAddrRow, error)
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll

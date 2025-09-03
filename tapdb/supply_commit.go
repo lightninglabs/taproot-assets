@@ -213,10 +213,11 @@ type SupplyCommitStore interface {
 	FinalizeSupplyCommitTransition(ctx context.Context,
 		transitionID int64) error
 
-	// MarkPreCommitmentSpentByOutpoint marks a pre-commitment as spent
-	// by its outpoint.
-	MarkPreCommitmentSpentByOutpoint(ctx context.Context,
-		arg sqlc.MarkPreCommitmentSpentByOutpointParams) error
+	// MarkMintPreCommitSpentByOutpoint marks a supply pre-commitment as
+	// spent by its outpoint. The pre-commitment corresponds to an asset
+	// issuance where the local node acted as the issuer.
+	MarkMintPreCommitSpentByOutpoint(ctx context.Context,
+		arg sqlc.MarkMintPreCommitSpentByOutpointParams) error
 
 	// QueryExistingPendingTransition fetches the ID of an existing
 	// non-finalized transition for a group key. Returns sql.ErrNoRows if
@@ -1792,8 +1793,8 @@ func (s *SupplyCommitMachine) ApplyStateTransition(
 				txIn.PreviousOutPoint.Index)
 
 			// Mark this specific pre-commitment as spent.
-			err = db.MarkPreCommitmentSpentByOutpoint(ctx,
-				sqlc.MarkPreCommitmentSpentByOutpointParams{
+			err = db.MarkMintPreCommitSpentByOutpoint(ctx,
+				sqlc.MarkMintPreCommitSpentByOutpointParams{
 					SpentByCommitID: sqlInt64(
 						newCommitmentID,
 					),

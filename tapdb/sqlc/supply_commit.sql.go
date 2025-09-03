@@ -311,21 +311,23 @@ func (q *Queries) LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDa
 	return err
 }
 
-const MarkPreCommitmentSpentByOutpoint = `-- name: MarkPreCommitmentSpentByOutpoint :exec
+const MarkMintPreCommitSpentByOutpoint = `-- name: MarkMintPreCommitSpentByOutpoint :exec
 UPDATE mint_anchor_uni_commitments
 SET spent_by = $1
 WHERE outpoint = $2
     AND spent_by IS NULL
 `
 
-type MarkPreCommitmentSpentByOutpointParams struct {
+type MarkMintPreCommitSpentByOutpointParams struct {
 	SpentByCommitID sql.NullInt64
 	Outpoint        []byte
 }
 
-// Mark a specific pre-commitment output as spent by its outpoint.
-func (q *Queries) MarkPreCommitmentSpentByOutpoint(ctx context.Context, arg MarkPreCommitmentSpentByOutpointParams) error {
-	_, err := q.db.ExecContext(ctx, MarkPreCommitmentSpentByOutpoint, arg.SpentByCommitID, arg.Outpoint)
+// Mark a supply pre-commitment output as spent by its outpoint. The
+// pre-commitment corresponds to an asset issuance where the local node acted as
+// the issuer.
+func (q *Queries) MarkMintPreCommitSpentByOutpoint(ctx context.Context, arg MarkMintPreCommitSpentByOutpointParams) error {
+	_, err := q.db.ExecContext(ctx, MarkMintPreCommitSpentByOutpoint, arg.SpentByCommitID, arg.Outpoint)
 	return err
 }
 

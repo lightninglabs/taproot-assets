@@ -215,8 +215,10 @@ WHERE
     mac.group_key = @group_key AND
     (mac.spent_by IS NULL OR commit_txn.block_hash IS NULL);
 
--- name: MarkPreCommitmentSpentByOutpoint :exec
--- Mark a specific pre-commitment output as spent by its outpoint.
+-- name: MarkMintPreCommitSpentByOutpoint :exec
+-- Mark a supply pre-commitment output as spent by its outpoint. The
+-- pre-commitment corresponds to an asset issuance where the local node acted as
+-- the issuer.
 UPDATE mint_anchor_uni_commitments
 SET spent_by = @spent_by_commit_id
 WHERE outpoint = @outpoint
