@@ -4559,6 +4559,332 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 	}, nil
 }
 
+// unmarshalMintSupplyLeaf converts an RPC SupplyLeafEntry into a NewMintEvent.
+func unmarshalMintSupplyLeaf(
+	rpcLeaf *unirpc.SupplyLeafEntry) (*supplycommit.NewMintEvent, error) {
+
+	if rpcLeaf == nil {
+		return nil, fmt.Errorf("supply leaf entry is nil")
+	}
+
+	if rpcLeaf.LeafKey == nil {
+		return nil, fmt.Errorf("supply leaf key is nil")
+	}
+
+	if rpcLeaf.LeafNode == nil {
+		return nil, fmt.Errorf("supply leaf node is nil")
+	}
+
+	if len(rpcLeaf.RawLeaf) == 0 {
+		return nil, fmt.Errorf("missing RawLeaf data for mint event")
+	}
+
+	var mintEvent supplycommit.NewMintEvent
+	err := mintEvent.Decode(bytes.NewReader(rpcLeaf.RawLeaf))
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode mint event: %w", err)
+	}
+
+	// Validate that the decoded event matches the provided metadata.
+	if mintEvent.BlockHeight() != rpcLeaf.BlockHeight {
+		return nil, fmt.Errorf("block height mismatch: "+
+			"decoded=%d, provided=%d", mintEvent.BlockHeight(),
+			rpcLeaf.BlockHeight)
+	}
+
+	return &mintEvent, nil
+}
+
+// unmarshalBurnSupplyLeaf converts an RPC SupplyLeafEntry into a NewBurnEvent.
+func unmarshalBurnSupplyLeaf(
+	rpcLeaf *unirpc.SupplyLeafEntry) (*supplycommit.NewBurnEvent, error) {
+
+	if rpcLeaf == nil {
+		return nil, fmt.Errorf("supply leaf entry is nil")
+	}
+
+	if rpcLeaf.LeafKey == nil {
+		return nil, fmt.Errorf("supply leaf key is nil")
+	}
+
+	if rpcLeaf.LeafNode == nil {
+		return nil, fmt.Errorf("supply leaf node is nil")
+	}
+
+	if len(rpcLeaf.RawLeaf) == 0 {
+		return nil, fmt.Errorf("missing RawLeaf data for burn event")
+	}
+
+	// Create and decode the burn leaf from raw leaf bytes.
+	var burnLeaf universe.BurnLeaf
+	err := burnLeaf.Decode(bytes.NewReader(rpcLeaf.RawLeaf))
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode burn leaf: %w", err)
+	}
+
+	burnEvent := &supplycommit.NewBurnEvent{
+		BurnLeaf: burnLeaf,
+	}
+
+	// Validate that the decoded event matches the provided metadata.
+	if burnEvent.BlockHeight() != rpcLeaf.BlockHeight {
+		return nil, fmt.Errorf("block height mismatch: "+
+			"decoded=%d, provided=%d", burnEvent.BlockHeight(),
+			rpcLeaf.BlockHeight)
+	}
+
+	return burnEvent, nil
+}
+
+// unmarshalIgnoreSupplyLeaf converts an RPC SupplyLeafEntry into a
+// NewIgnoreEvent.
+func unmarshalIgnoreSupplyLeaf(
+	rpcLeaf *unirpc.SupplyLeafEntry) (*supplycommit.NewIgnoreEvent, error) {
+
+	if rpcLeaf == nil {
+		return nil, fmt.Errorf("supply leaf entry is nil")
+	}
+
+	if rpcLeaf.LeafKey == nil {
+		return nil, fmt.Errorf("supply leaf key is nil")
+	}
+
+	if rpcLeaf.LeafNode == nil {
+		return nil, fmt.Errorf("supply leaf node is nil")
+	}
+
+	if len(rpcLeaf.RawLeaf) == 0 {
+		return nil, fmt.Errorf("missing RawLeaf data for ignore event")
+	}
+
+	var signedIgnoreTuple universe.SignedIgnoreTuple
+	err := signedIgnoreTuple.Decode(bytes.NewReader(rpcLeaf.RawLeaf))
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode signed ignore "+
+			"tuple: %w", err)
+	}
+
+	ignoreEvent := &supplycommit.NewIgnoreEvent{
+		SignedIgnoreTuple: signedIgnoreTuple,
+	}
+
+	// Validate that the decoded event matches the provided metadata.
+	if ignoreEvent.BlockHeight() != rpcLeaf.BlockHeight {
+		return nil, fmt.Errorf("block height mismatch: "+
+			"decoded=%d, provided=%d", ignoreEvent.BlockHeight(),
+			rpcLeaf.BlockHeight)
+	}
+
+	return ignoreEvent, nil
+}
+
+// unmarshalSupplyCommitChainData converts an RPC SupplyCommitChainData into
+// both a supplycommit.RootCommitment and supplycommit.ChainProof.
+func unmarshalSupplyCommitChainData(
+	rpcData *unirpc.SupplyCommitChainData) (*supplycommit.RootCommitment,
+	*supplycommit.ChainProof, error) {
+
+	if rpcData == nil {
+		return nil, nil, fmt.Errorf("supply commit chain data is nil")
+	}
+
+	var txn wire.MsgTx
+	err := txn.Deserialize(bytes.NewReader(rpcData.Txn))
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to deserialize "+
+			"transaction: %w", err)
+	}
+
+	internalKey, err := btcec.ParsePubKey(rpcData.InternalKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to parse internal key: %w",
+			err)
+	}
+
+	outputKey, err := btcec.ParsePubKey(rpcData.OutputKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to parse output key: %w",
+			err)
+	}
+
+	// Convert supply root hash.
+	if len(rpcData.SupplyRootHash) != 32 {
+		return nil, nil, fmt.Errorf("invalid supply root hash size: "+
+			"expected %d, got %d", 32, len(rpcData.SupplyRootHash))
+	}
+	var supplyRootHash mssmt.NodeHash
+	copy(supplyRootHash[:], rpcData.SupplyRootHash)
+
+	// Create commitment block from the hash.
+	var commitmentBlock fn.Option[supplycommit.CommitmentBlock]
+	if len(rpcData.BlockHash) > 0 {
+		if len(rpcData.BlockHash) != chainhash.HashSize {
+			return nil, nil, fmt.Errorf("invalid block hash size: "+
+				"expected %d, got %d", chainhash.HashSize,
+				len(rpcData.BlockHash))
+		}
+		var blockHash chainhash.Hash
+		copy(blockHash[:], rpcData.BlockHash)
+
+		commitmentBlock = fn.Some(supplycommit.CommitmentBlock{
+			Height:  rpcData.BlockHeight,
+			Hash:    blockHash,
+			TxIndex: rpcData.TxIndex,
+		})
+	}
+
+	rootCommitment := &supplycommit.RootCommitment{
+		Txn:      &txn,
+		TxOutIdx: rpcData.TxOutIdx,
+		InternalKey: keychain.KeyDescriptor{
+			PubKey: internalKey,
+		},
+		OutputKey: outputKey,
+		SupplyRoot: mssmt.NewComputedBranch(
+			supplyRootHash, rpcData.SupplyRootSum,
+		),
+		CommitmentBlock: commitmentBlock,
+	}
+
+	var blockHeader wire.BlockHeader
+	err = blockHeader.Deserialize(bytes.NewReader(rpcData.BlockHeader))
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to deserialize block "+
+			"header: %w", err)
+	}
+
+	var merkleProof proof.TxMerkleProof
+	err = merkleProof.Decode(bytes.NewReader(rpcData.TxBlockMerkleProof))
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to decode merkle proof: %w",
+			err)
+	}
+
+	chainProof := &supplycommit.ChainProof{
+		Header:      blockHeader,
+		BlockHeight: rpcData.BlockHeight,
+		MerkleProof: merkleProof,
+		TxIndex:     rpcData.TxIndex,
+	}
+
+	return rootCommitment, chainProof, nil
+}
+
+// InsertSupplyCommit stores a verified supply commitment for the given
+// asset group in the node's local database.
+func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
+	req *unirpc.InsertSupplyCommitRequest) (
+	*unirpc.InsertSupplyCommitResponse, error) {
+
+	// Parse asset group key from the request.
+	var groupPubKey btcec.PublicKey
+
+	switch {
+	case len(req.GetGroupKeyBytes()) > 0:
+		gk, err := btcec.ParsePubKey(req.GetGroupKeyBytes())
+		if err != nil {
+			return nil, fmt.Errorf("parsing group key: %w", err)
+		}
+
+		groupPubKey = *gk
+
+	case len(req.GetGroupKeyStr()) > 0:
+		groupKeyBytes, err := hex.DecodeString(req.GetGroupKeyStr())
+		if err != nil {
+			return nil, fmt.Errorf("decoding group key: %w", err)
+		}
+
+		gk, err := btcec.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("parsing group key: %w", err)
+		}
+
+		groupPubKey = *gk
+
+	default:
+		return nil, fmt.Errorf("group key unspecified")
+	}
+
+	// Log the operation for debugging purposes.
+	rpcsLog.Debugf("InsertSupplyCommitment called for group key: %x",
+		groupPubKey.SerializeCompressed())
+
+	// Unmarshal the supply commit chain data.
+	rootCommitment, chainProof, err := unmarshalSupplyCommitChainData(
+		req.ChainData,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal chain data: %w",
+			err)
+	}
+
+	// Initialize the SupplyLeaves structure to collect all unmarshalled
+	// events.
+	var supplyLeaves supplycommit.SupplyLeaves
+
+	// Process issuance leaves.
+	supplyLeaves.IssuanceLeafEntries = make(
+		[]supplycommit.NewMintEvent, 0, len(req.IssuanceLeaves),
+	)
+	for _, rpcLeaf := range req.IssuanceLeaves {
+		mintEvent, err := unmarshalMintSupplyLeaf(rpcLeaf)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal issuance "+
+				"leaf: %w", err)
+		}
+		supplyLeaves.IssuanceLeafEntries = append(
+			supplyLeaves.IssuanceLeafEntries, *mintEvent,
+		)
+	}
+
+	// Process burn leaves.
+	supplyLeaves.BurnLeafEntries = make(
+		[]supplycommit.NewBurnEvent, 0, len(req.BurnLeaves),
+	)
+	for _, rpcLeaf := range req.BurnLeaves {
+		burnEvent, err := unmarshalBurnSupplyLeaf(rpcLeaf)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal burn "+
+				"leaf: %w", err)
+		}
+		supplyLeaves.BurnLeafEntries = append(
+			supplyLeaves.BurnLeafEntries, *burnEvent,
+		)
+	}
+
+	// Process ignore leaves.
+	supplyLeaves.IgnoreLeafEntries = make(
+		[]supplycommit.NewIgnoreEvent, 0, len(req.IgnoreLeaves),
+	)
+	for _, rpcLeaf := range req.IgnoreLeaves {
+		ignoreEvent, err := unmarshalIgnoreSupplyLeaf(rpcLeaf)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal ignore "+
+				"leaf: %w", err)
+		}
+		supplyLeaves.IgnoreLeafEntries = append(
+			supplyLeaves.IgnoreLeafEntries, *ignoreEvent,
+		)
+	}
+
+	rpcsLog.Debugf("Successfully unmarshalled commitment, %d issuance, "+
+		"%d burn, and %d ignore leaves, and chain proof",
+		len(supplyLeaves.IssuanceLeafEntries),
+		len(supplyLeaves.BurnLeafEntries),
+		len(supplyLeaves.IgnoreLeafEntries))
+
+	assetSpec := asset.NewSpecifierFromGroupKey(groupPubKey)
+	err = r.cfg.SupplyVerifyManager.InsertSupplyCommit(
+		ctx, assetSpec, *rootCommitment, supplyLeaves, *chainProof,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert supply commitment: %w",
+			err)
+	}
+
+	return &unirpc.InsertSupplyCommitResponse{}, nil
+}
+
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(
