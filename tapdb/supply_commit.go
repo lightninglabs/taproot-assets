@@ -24,9 +24,9 @@ import (
 )
 
 type (
-	// UnspentPrecommits is an alias for the sqlc type representing an
-	// unspent pre-commitment row.
-	UnspentPrecommits = sqlc.FetchUnspentPrecommitsRow
+	// UnspentMintPreCommits is an alias for the sqlc type representing an
+	// unspent supply pre-commitment row.
+	UnspentMintPreCommits = sqlc.FetchUnspentMintSupplyPreCommitsRow
 
 	// SupplyCommit is an alias for the sqlc type.
 	SupplyCommit = sqlc.FetchSupplyCommitRow
@@ -103,10 +103,11 @@ type SupplyCommitStore interface {
 	TreeStore
 	BaseUniverseStore
 
-	// FetchUnspentPrecommits fetches all unspent pre-commitments for a
-	// given group key.
-	FetchUnspentPrecommits(ctx context.Context,
-		groupKey []byte) ([]UnspentPrecommits, error)
+	// FetchUnspentMintSupplyPreCommits fetches all unspent supply
+	// pre-commitments for the specified asset group key where the local
+	// node was the issuer.
+	FetchUnspentMintSupplyPreCommits(ctx context.Context,
+		groupKey []byte) ([]UnspentMintPreCommits, error)
 
 	// FetchSupplyCommit fetches the latest confirmed supply commitment for
 	// a given group key.
@@ -276,7 +277,9 @@ func (s *SupplyCommitMachine) UnspentPrecommits(ctx context.Context,
 	var preCommits supplycommit.PreCommits
 	readTx := ReadTxOption()
 	dbErr := s.db.ExecTx(ctx, readTx, func(db SupplyCommitStore) error {
-		rows, err := db.FetchUnspentPrecommits(ctx, groupKeyBytes)
+		rows, err := db.FetchUnspentMintSupplyPreCommits(
+			ctx, groupKeyBytes,
+		)
 		if err != nil {
 			// It's okay if there are no unspent pre-commits.
 			if errors.Is(err, sql.ErrNoRows) {
