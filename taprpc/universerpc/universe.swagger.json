@@ -1430,6 +1430,46 @@
         ]
       }
     },
+    "/v1/taproot-assets/universe/supply/update/{group_key_str}": {
+      "post": {
+        "summary": "tapcli: `universe updatesupplycommit`\nUpdateSupplyCommit updates the on-chain supply commitment for a specific\nasset group.",
+        "operationId": "Universe_UpdateSupplyCommit",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcUpdateSupplyCommitResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/UniverseUpdateSupplyCommitBody"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/supply/{group_key_str}": {
       "get": {
         "summary": "tapcli: `universe fetchsupplycommit`\nFetchSupplyCommit fetches the on-chain supply commitment for a specific\nasset group.",
@@ -1506,13 +1546,13 @@
         ]
       },
       "post": {
-        "summary": "tapcli: `universe updatesupplycommit`\nUpdateSupplyCommit updates the on-chain supply commitment for a specific\nasset group.",
-        "operationId": "Universe_UpdateSupplyCommit",
+        "summary": "tapcli: `universe supplycommit insert`\nInsertSupplyCommit inserts a supply commitment for a specific asset\ngroup. This includes the commitment details, supply leaves (issuance, burn,\nand ignore), and chain proof that proves the commitment has been mined.",
+        "operationId": "Universe_InsertSupplyCommit",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/universerpcUpdateSupplyCommitResponse"
+              "$ref": "#/definitions/universerpcInsertSupplyCommitResponse"
             }
           },
           "default": {
@@ -1535,7 +1575,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/UniverseUpdateSupplyCommitBody"
+              "$ref": "#/definitions/UniverseInsertSupplyCommitBody"
             }
           }
         ],
@@ -1687,6 +1727,42 @@
         "asset_leaf": {
           "$ref": "#/definitions/universerpcAssetLeaf",
           "description": "The asset leaf to insert into the Universe tree."
+        }
+      }
+    },
+    "UniverseInsertSupplyCommitBody": {
+      "type": "object",
+      "properties": {
+        "group_key_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+        },
+        "chain_data": {
+          "$ref": "#/definitions/universerpcSupplyCommitChainData",
+          "description": "The supply commitment chain data that contains both the commitment and\nchain proof information."
+        },
+        "issuance_leaves": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/universerpcSupplyLeafEntry"
+          },
+          "description": "The supply leaves that represent the supply changes for the asset group."
+        },
+        "burn_leaves": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/universerpcSupplyLeafEntry"
+          }
+        },
+        "ignore_leaves": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/universerpcSupplyLeafEntry"
+          }
         }
       }
     },
@@ -2598,6 +2674,9 @@
         }
       }
     },
+    "universerpcInsertSupplyCommitResponse": {
+      "type": "object"
+    },
     "universerpcIssuanceData": {
       "type": "object",
       "properties": {
@@ -2800,6 +2879,67 @@
           "format": "int64"
         }
       }
+    },
+    "universerpcSupplyCommitChainData": {
+      "type": "object",
+      "properties": {
+        "txn": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw transaction that created the root commitment."
+        },
+        "tx_out_idx": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the output in the transaction where the commitment resides."
+        },
+        "internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The internal key used to create the commitment output."
+        },
+        "output_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The taproot output key used to create the commitment output."
+        },
+        "supply_root_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The root hash of the supply tree that contains the set of\nsub-commitments. The sum value of this tree is the outstanding supply\nvalue."
+        },
+        "supply_root_sum": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The sum value of the supply root tree, representing the outstanding\nsupply amount."
+        },
+        "block_header": {
+          "type": "string",
+          "format": "byte",
+          "description": "The block header of the block that contains the supply commitment\ntransaction."
+        },
+        "block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the block that contains the commitment."
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The block height of the block that contains the supply commitment\ntransaction."
+        },
+        "tx_block_merkle_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "The merkle proof that proves that the supply commitment transaction is\nincluded in the block."
+        },
+        "tx_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the supply commitment transaction in the block."
+        }
+      },
+      "description": "SupplyCommitChainData represents the on-chain artifacts for a supply\ncommitment update."
     },
     "universerpcSupplyCommitSubtreeRoot": {
       "type": "object",
