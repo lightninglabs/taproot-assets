@@ -65,6 +65,10 @@ type ManagerCfg struct {
 	// TODO(roasbeef): can make a slimmer version of
 	Chain tapgarden.ChainBridge
 
+	// SupplySyncer is used to insert supply commitments into the remote
+	// universe server.
+	SupplySyncer SupplySyncer
+
 	// DaemonAdapters is a set of adapters that allow the state machine to
 	// interact with external daemons whilst processing internal events.
 	DaemonAdapters DaemonAdapters
@@ -232,8 +236,10 @@ func (m *Manager) fetchStateMachine(
 		TreeView:           m.cfg.TreeView,
 		Commitments:        m.cfg.Commitments,
 		Wallet:             m.cfg.Wallet,
+		AssetLookup:        m.cfg.AssetLookup,
 		KeyRing:            m.cfg.KeyRing,
 		Chain:              m.cfg.Chain,
+		SupplySyncer:       m.cfg.SupplySyncer,
 		StateLog:           m.cfg.StateLog,
 		CommitConfTarget:   DefaultCommitConfTarget,
 		ChainParams:        m.cfg.ChainParams,
