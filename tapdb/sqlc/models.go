@@ -415,6 +415,15 @@ type SupplyCommitment struct {
 	SpentCommitment sql.NullInt64
 }
 
+type SupplyPreCommit struct {
+	ID                 int64
+	GroupKey           []byte
+	TaprootInternalKey []byte
+	Outpoint           []byte
+	ChainTxnDbID       int64
+	SpentBy            sql.NullInt64
+}
+
 type SupplySyncerPushLog struct {
 	ID                   int64
 	GroupKey             []byte
