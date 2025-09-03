@@ -1262,11 +1262,7 @@ func (s *Server) ExtraBudgetForInputs(
 	srvrLog.Tracef("ExtraBudgetForInputs called, inputs=%v",
 		lnutils.SpewLogClosure(inputs))
 
-	if err := s.waitForReady(); err != nil {
-		return lfn.Err[btcutil.Amount](err)
-	}
-
-	return s.cfg.AuxSweeper.ExtraBudgetForInputs(inputs)
+	return tapchannel.ExtraBudgetForInputs(inputs)
 }
 
 // NotifyBroadcast is used to notify external callers of the broadcast of a
