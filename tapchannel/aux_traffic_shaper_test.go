@@ -19,7 +19,7 @@ func TestUnitConversionTolerance(t *testing.T) {
 	)
 	var (
 		rate = rfqmath.BigIntFixedPoint{
-			Coefficient: rfqmath.NewBigIntFromUint64(9852216748),
+			Coefficient: rfqmath.NewBigIntFromUint64(9_852_216_748),
 			Scale:       0,
 		}
 	)
@@ -61,8 +61,12 @@ func TestUnitConversionTolerance(t *testing.T) {
 		newMarginAssetUnits, rate,
 	)
 
+	proposedMargin := rfqmath.UnitsToMilliSatoshi(marginAssetUnits, rate) +
+		lnwire.MilliSatoshi(numHTLCs)
+
 	t.Logf("Old tolerance allowed in msat: %d", allowedMarginMSat)
 	t.Logf("New tolerance allowed in msat: %d", newAllowedMarginMSat)
+	t.Logf("Proposed tolerance allowed in msat: %d", proposedMargin)
 }
 
 // TestUnitConversionToleranceRapid uses rapid to randomly draw invoice amounts,
@@ -74,7 +78,7 @@ func TestUnitConversionToleranceRapid(t *testing.T) {
 			Draw(t, "invoiceAmtUnits")
 		numHTLCs := rapid.Uint64Range(1, 16).
 			Draw(t, "numHTLCs")
-		coefficient := rapid.Uint64Range(1, 20_000_000_000).
+		coefficient := rapid.Uint64Range(1, 300_000_000_000).
 			Draw(t, "coefficient")
 
 		rate := rfqmath.BigIntFixedPoint{
@@ -89,26 +93,46 @@ func TestUnitConversionToleranceRapid(t *testing.T) {
 
 		shardSizeMSat := invoiceAmtMsat / lnwire.MilliSatoshi(numHTLCs)
 		shardSizeFP := rfqmath.MilliSatoshiToUnits(shardSizeMSat, rate)
-		shardSizeUnit := shardSizeFP.ScaleTo(0).ToUint64()
 
-		shardSumFP := rfqmath.NewBigIntFixedPoint(
-			shardSizeUnit*numHTLCs, 0,
+		// In order to account for the full invoice amt we need to also
+		// somehow carry the remainder of invoiceAmt/numHTLCs. We do so
+		// by appending it to the last shard.
+		invoiceMod := invoiceAmtMsat % lnwire.MilliSatoshi(numHTLCs)
+		lastShardMsat := shardSizeMSat + invoiceMod
+		lastShardFP := rfqmath.MilliSatoshiToUnits(lastShardMsat, rate)
+
+		var inboundAmountMSat lnwire.MilliSatoshi
+
+		// Each shard calls individually into the rfqmath library. This
+		// allows for a total error that scales with the number of
+		// shards. We go up to numHTLCS-1 because we want to add any
+		// leftovers to the last shard.
+		for range numHTLCs - 1 {
+			shardPartialSum := rfqmath.UnitsToMilliSatoshi(
+				shardSizeFP, rate,
+			)
+
+			inboundAmountMSat += shardPartialSum
+		}
+
+		// Make a single pass over the last shard, which may also carry
+		// the remainder of the payment amt.
+		lastShardMsat = rfqmath.UnitsToMilliSatoshi(lastShardFP, rate)
+		inboundAmountMSat += lastShardMsat
+
+		allowedMarginUnits := rfqmath.NewBigIntFixedPoint(
+			numHTLCs, 0,
 		)
-		inboundAmountMSat := rfqmath.UnitsToMilliSatoshi(
-			shardSumFP, rate,
+		marginAmt := rfqmath.UnitsToMilliSatoshi(
+			allowedMarginUnits, rate,
 		)
 
-		newMarginAssetUnits := rfqmath.NewBigIntFixedPoint(
-			numHTLCs+1, 0,
-		)
-		newAllowedMarginMSat := rfqmath.UnitsToMilliSatoshi(
-			newMarginAssetUnits, rate,
-		)
+		marginAmt += lnwire.MilliSatoshi(numHTLCs)
 
 		// The difference should be within the newly allowed margin.
 		require.LessOrEqual(
 			t,
-			invoiceAmtMsat-inboundAmountMSat, newAllowedMarginMSat,
+			invoiceAmtMsat-inboundAmountMSat, marginAmt,
 		)
 	})
 }
