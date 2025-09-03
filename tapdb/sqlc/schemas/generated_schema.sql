@@ -624,28 +624,6 @@ CREATE TABLE managed_utxos (
     lease_expiry TIMESTAMP
 , root_version SMALLINT);
 
-CREATE TABLE mint_anchor_uni_commitments (
-    id INTEGER PRIMARY KEY,
-
-    -- The ID of the minting batch this universe commitment relates to.
-    batch_id INTEGER NOT NULL REFERENCES asset_minting_batches(batch_id),
-
-    -- The index of the mint batch anchor transaction pre-commitment output.
-    tx_output_index INTEGER NOT NULL,
-
-    -- The Taproot output internal key for the pre-commitment output.
-    group_key BLOB
-, taproot_internal_key_id
-BIGINT REFERENCES internal_keys(key_id)
-NOT NULL, spent_by BIGINT REFERENCES supply_commitments(commit_id), outpoint BLOB);
-
-CREATE INDEX mint_anchor_uni_commitments_outpoint_idx 
-    ON mint_anchor_uni_commitments(outpoint)
-    WHERE outpoint IS NOT NULL;
-
-CREATE UNIQUE INDEX mint_anchor_uni_commitments_unique
-    ON mint_anchor_uni_commitments (batch_id, tx_output_index);
-
 CREATE TABLE mssmt_nodes (
     -- hash_key is the hash key by which we reference all nodes.
     hash_key BLOB NOT NULL,
@@ -891,6 +869,32 @@ CREATE UNIQUE INDEX supply_commitments_outpoint_uk
 
 CREATE INDEX supply_commitments_spent_commitment_idx
     ON supply_commitments(spent_commitment);
+
+CREATE TABLE supply_pre_commits (
+    id INTEGER PRIMARY KEY,
+
+    -- The ID of the minting batch this universe commitment relates to.
+    -- Now nullable to allow universe commitments without a specific batch.
+    batch_id INTEGER REFERENCES asset_minting_batches(batch_id),
+
+    -- The index of the mint batch anchor transaction pre-commitment output.
+    tx_output_index INTEGER NOT NULL,
+
+    -- The Taproot output internal key for the pre-commitment output.
+    group_key BLOB,
+
+    -- The taproot internal key ID reference.
+    taproot_internal_key_id BIGINT REFERENCES internal_keys(key_id) NOT NULL,
+
+    -- Reference to supply commitments.
+    spent_by BIGINT REFERENCES supply_commitments(commit_id),
+
+    -- The outpoint for this commitment.
+    outpoint BLOB NOT NULL CHECK(length(outpoint) > 0)
+);
+
+CREATE UNIQUE INDEX supply_pre_commits_unique_outpoint
+    ON supply_pre_commits(outpoint);
 
 CREATE TABLE supply_syncer_push_log (
     id INTEGER PRIMARY KEY,

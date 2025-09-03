@@ -1109,7 +1109,7 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 
 		// Retrieve latest canonical universe list from the latest
 		// metadata for the asset group.
-		metadata, err := fetchLatestAssetMetadata(
+		metadata, err := FetchLatestAssetMetadata(
 			ctx, env.AssetLookup, env.AssetSpec,
 		)
 		if err != nil {

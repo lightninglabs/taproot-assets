@@ -794,6 +794,9 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		return nil, fmt.Errorf("unable to decode proof: %w", err)
 	}
 
+	// Upsert into the DB: the genesis point, asset genesis,
+	// group key reveal, and the anchoring transaction for the issuance or
+	// transfer.
 	assetGenID, err := upsertAssetGen(
 		ctx, dbTx, leaf.Genesis, leaf.GroupKey, &leafProof,
 	)

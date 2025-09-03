@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 )
 
 const (
@@ -22,6 +23,20 @@ var (
 
 // NodeHash represents the key of a MS-SMT node.
 type NodeHash [hashSize]byte
+
+// NewNodeHashFromBytes creates a new NodeHash from a byte slice.
+func NewNodeHashFromBytes(b []byte) (NodeHash, error) {
+	var zero NodeHash
+
+	if len(b) != hashSize {
+		return zero, fmt.Errorf("invalid hash size: %d", len(b))
+	}
+
+	var h NodeHash
+	copy(h[:], b)
+
+	return h, nil
+}
 
 // String returns a NodeHash as a hex-encoded string.
 func (k NodeHash) String() string {

@@ -116,9 +116,9 @@ type (
 	// database ID.
 	ProofUpdateByID = sqlc.UpsertAssetProofByIDParams
 
-	// FetchPreCommitParams is a type alias for the params used to fetch
-	// mint anchor pre-commitments.
-	FetchPreCommitParams = sqlc.FetchMintAnchorUniCommitmentParams
+	// FetchPreCommitsParams is a type alias for the params used to fetch
+	// mint anchor supply pre-commitments.
+	FetchPreCommitsParams = sqlc.FetchSupplyPreCommitsParams
 
 	// FetchAssetID is used to fetch the primary key ID of an asset, by
 	// outpoint and tweaked script key.
@@ -132,9 +132,9 @@ type (
 	// disk.
 	NewAssetMeta = sqlc.UpsertAssetMetaParams
 
-	// MintAnchorUniCommitParams wraps the params needed to insert a new
-	// mint anchor uni commitment on disk.
-	MintAnchorUniCommitParams = sqlc.UpsertMintAnchorUniCommitmentParams
+	// UpsertPreCommitParams wraps the params needed to insert a new
+	// supply pre-commit on disk.
+	UpsertPreCommitParams = sqlc.UpsertSupplyPreCommitParams
 )
 
 // PendingAssetStore is a sub-set of the main sqlc.Querier interface that
@@ -248,15 +248,15 @@ type PendingAssetStore interface {
 	FetchAssetMetaForAsset(ctx context.Context,
 		assetID []byte) (sqlc.FetchAssetMetaForAssetRow, error)
 
-	// FetchMintAnchorUniCommitment fetches mint anchor pre-commitments.
-	FetchMintAnchorUniCommitment(ctx context.Context,
-		arg FetchPreCommitParams) (
-		[]sqlc.FetchMintAnchorUniCommitmentRow, error)
+	// FetchSupplyPreCommits fetches mint anchor pre-commitments.
+	FetchSupplyPreCommits(ctx context.Context,
+		arg FetchPreCommitsParams) (
+		[]sqlc.FetchSupplyPreCommitsRow, error)
 
-	// UpsertMintAnchorUniCommitment inserts a new or updates an existing
+	// UpsertSupplyPreCommit inserts a new or updates an existing
 	// mint anchor uni commitment on disk.
-	UpsertMintAnchorUniCommitment(ctx context.Context,
-		arg MintAnchorUniCommitParams) (int64, error)
+	UpsertSupplyPreCommit(ctx context.Context,
+		arg UpsertPreCommitParams) (int64, error)
 }
 
 var (
@@ -448,8 +448,8 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 		return fmt.Errorf("unable to encode outpoint: %w", err)
 	}
 
-	_, err = q.UpsertMintAnchorUniCommitment(
-		ctx, MintAnchorUniCommitParams{
+	_, err = q.UpsertSupplyPreCommit(
+		ctx, UpsertPreCommitParams{
 			BatchKey:             rawBatchKey,
 			TxOutputIndex:        int32(preCommitOut.OutIdx),
 			TaprootInternalKeyID: internalKeyID,
@@ -1347,8 +1347,8 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		// the pre-commitment output index from the database.
 		var preCommitOut fn.Option[tapgarden.PreCommitmentOutput]
 		if dbBatch.UniverseCommitments {
-			fetchRes, err := q.FetchMintAnchorUniCommitment(
-				ctx, FetchPreCommitParams{
+			fetchRes, err := q.FetchSupplyPreCommits(
+				ctx, FetchPreCommitsParams{
 					BatchKey: dbBatch.RawKey,
 				},
 			)
@@ -1545,8 +1545,8 @@ func (a *AssetMintingStore) FetchDelegationKey(ctx context.Context,
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
-		fetchRow, err := q.FetchMintAnchorUniCommitment(
-			ctx, FetchPreCommitParams{
+		fetchRow, err := q.FetchSupplyPreCommits(
+			ctx, FetchPreCommitsParams{
 				GroupKey: groupKeyBytes,
 			},
 		)
@@ -1644,8 +1644,8 @@ func upsertPreCommit(ctx context.Context, q PendingAssetStore,
 		return fmt.Errorf("unable to encode outpoint: %w", err)
 	}
 
-	_, err = q.UpsertMintAnchorUniCommitment(
-		ctx, MintAnchorUniCommitParams{
+	_, err = q.UpsertSupplyPreCommit(
+		ctx, UpsertPreCommitParams{
 			BatchKey:             batchKey,
 			TxOutputIndex:        int32(preCommit.OutIdx),
 			TaprootInternalKeyID: internalKeyID,

@@ -115,7 +115,7 @@ SELECT
     mac.group_key,
     mint_txn.block_height,
     mint_txn.raw_tx
-FROM mint_anchor_uni_commitments mac
+FROM supply_pre_commits mac
 JOIN asset_minting_batches amb ON mac.batch_id = amb.batch_id
 JOIN genesis_points gp ON amb.genesis_id = gp.genesis_id
 JOIN chain_txns mint_txn ON gp.anchor_tx_id = mint_txn.txn_id
@@ -311,7 +311,7 @@ func (q *Queries) LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDa
 }
 
 const MarkPreCommitmentSpentByOutpoint = `-- name: MarkPreCommitmentSpentByOutpoint :exec
-UPDATE mint_anchor_uni_commitments
+UPDATE supply_pre_commits
 SET spent_by = $1
 WHERE outpoint = $2
     AND spent_by IS NULL
@@ -392,6 +392,42 @@ func (q *Queries) QueryExistingPendingTransition(ctx context.Context, groupKey [
 	var transition_id int64
 	err := row.Scan(&transition_id)
 	return transition_id, err
+}
+
+const QueryLatestSupplyCommitment = `-- name: QueryLatestSupplyCommitment :one
+SELECT sc.commit_id, sc.group_key, sc.chain_txn_id, sc.output_index, sc.internal_key_id, sc.output_key, sc.block_header, sc.block_height, sc.merkle_proof, sc.supply_root_hash, sc.supply_root_sum, sc.spent_commitment, ct.tx_index
+FROM supply_commitments AS sc
+JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.group_key = $1
+ORDER BY ct.block_height DESC
+    LIMIT 1
+`
+
+type QueryLatestSupplyCommitmentRow struct {
+	SupplyCommitment SupplyCommitment
+	TxIndex          sql.NullInt32
+}
+
+func (q *Queries) QueryLatestSupplyCommitment(ctx context.Context, groupKey []byte) (QueryLatestSupplyCommitmentRow, error) {
+	row := q.db.QueryRowContext(ctx, QueryLatestSupplyCommitment, groupKey)
+	var i QueryLatestSupplyCommitmentRow
+	err := row.Scan(
+		&i.SupplyCommitment.CommitID,
+		&i.SupplyCommitment.GroupKey,
+		&i.SupplyCommitment.ChainTxnID,
+		&i.SupplyCommitment.OutputIndex,
+		&i.SupplyCommitment.InternalKeyID,
+		&i.SupplyCommitment.OutputKey,
+		&i.SupplyCommitment.BlockHeader,
+		&i.SupplyCommitment.BlockHeight,
+		&i.SupplyCommitment.MerkleProof,
+		&i.SupplyCommitment.SupplyRootHash,
+		&i.SupplyCommitment.SupplyRootSum,
+		&i.SupplyCommitment.SpentCommitment,
+		&i.TxIndex,
+	)
+	return i, err
 }
 
 const QueryPendingSupplyCommitTransition = `-- name: QueryPendingSupplyCommitTransition :one

@@ -1062,52 +1062,54 @@ JOIN genesis_assets
     ON genesis_assets.meta_data_id = assets_meta.meta_id
 ORDER BY assets_meta.meta_id;
 
--- name: UpsertMintAnchorUniCommitment :one
--- Upsert a record into the mint_anchor_uni_commitments table.
--- If a record with the same batch ID and tx output index already exists, update
--- the existing record. Otherwise, insert a new record.
+-- name: UpsertSupplyPreCommit :one
+-- Upsert a record into the supply_pre_commits table.
+-- If a record with the same outpoint exists, update it; otherwise insert a new
+-- record.
 WITH target_batch AS (
-    -- This CTE is used to fetch the ID of a batch, based on the serialized
-    -- internal key associated with the batch.
     SELECT keys.key_id AS batch_id
-    FROM internal_keys keys
+    FROM internal_keys AS keys
     WHERE keys.raw_key = @batch_key
 )
-INSERT INTO mint_anchor_uni_commitments (
-    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by, outpoint
+INSERT INTO supply_pre_commits (
+    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by,
+    outpoint
 )
 VALUES (
-    (SELECT batch_id FROM target_batch), @tx_output_index, 
-    @taproot_internal_key_id, @group_key, sqlc.narg('spent_by'), sqlc.narg('outpoint')
+    (SELECT batch_id FROM target_batch), @tx_output_index,
+    @taproot_internal_key_id, @group_key, sqlc.narg('spent_by'),
+    sqlc.narg('outpoint')
 )
-ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
-    -- The following fields are updated if a conflict occurs.
+ON CONFLICT(outpoint) DO UPDATE SET
+    batch_id = EXCLUDED.batch_id,
+    tx_output_index = EXCLUDED.tx_output_index,
     taproot_internal_key_id = EXCLUDED.taproot_internal_key_id,
     group_key = EXCLUDED.group_key,
+    spent_by = EXCLUDED.spent_by,
     outpoint = EXCLUDED.outpoint
 RETURNING id;
 
--- name: FetchMintAnchorUniCommitment :many
--- Fetch records from the mint_anchor_uni_commitments table with optional
+-- name: FetchSupplyPreCommits :many
+-- Fetch records from the supply_pre_commits table with optional
 -- filtering.
 SELECT
-    mint_anchor_uni_commitments.id,
-    mint_anchor_uni_commitments.batch_id,
-    mint_anchor_uni_commitments.tx_output_index,
-    mint_anchor_uni_commitments.group_key,
-    mint_anchor_uni_commitments.spent_by,
+    precommits.id,
+    precommits.batch_id,
+    precommits.tx_output_index,
+    precommits.group_key,
+    precommits.spent_by,
     batch_internal_keys.raw_key AS batch_key,
-    mint_anchor_uni_commitments.taproot_internal_key_id,
+    precommits.taproot_internal_key_id,
     sqlc.embed(taproot_internal_keys)
-FROM mint_anchor_uni_commitments
+FROM supply_pre_commits AS precommits
     JOIN internal_keys taproot_internal_keys
-        ON mint_anchor_uni_commitments.taproot_internal_key_id = taproot_internal_keys.key_id
+        ON precommits.taproot_internal_key_id = taproot_internal_keys.key_id
     LEFT JOIN asset_minting_batches batches
-        ON mint_anchor_uni_commitments.batch_id = batches.batch_id
+        ON precommits.batch_id = batches.batch_id
     LEFT JOIN internal_keys batch_internal_keys
         ON batches.batch_id = batch_internal_keys.key_id
 WHERE (
     (batch_internal_keys.raw_key = sqlc.narg('batch_key') OR sqlc.narg('batch_key') IS NULL) AND
-    (mint_anchor_uni_commitments.group_key = sqlc.narg('group_key') OR sqlc.narg('group_key') IS NULL) AND
+    (precommits.group_key = sqlc.narg('group_key') OR sqlc.narg('group_key') IS NULL) AND
     (taproot_internal_keys.raw_key = sqlc.narg('taproot_internal_key_raw') OR sqlc.narg('taproot_internal_key_raw') IS NULL)
 );

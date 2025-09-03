@@ -20,6 +20,10 @@ import (
 const (
 	// DefaultTimeout is the context guard default timeout.
 	DefaultTimeout = 30 * time.Second
+
+	// MaxStateMachines is the maximum number of supply verifier state
+	// machines that can be managed by the multi state machine manager.
+	MaxStateMachines = 50
 )
 
 // DaemonAdapters is a wrapper around the protofsm.DaemonAdapters interface
@@ -32,19 +36,6 @@ type DaemonAdapters interface {
 
 	// Stop stops the daemon adapters handler service.
 	Stop() error
-}
-
-// StateMachineStore is an interface that allows the state machine to persist
-// its state across restarts. This is used to track the state of the state
-// machine for supply verification.
-type StateMachineStore interface {
-	// CommitState is used to commit the state of the state machine to disk.
-	CommitState(context.Context, asset.Specifier, State) error
-
-	// FetchState attempts to fetch the state of the state machine for the
-	// target asset specifier. If the state machine doesn't exist, then a
-	// default state will be returned.
-	FetchState(context.Context, asset.Specifier) (State, error)
 }
 
 // IssuanceSubscriptions allows verifier state machines to subscribe to
@@ -70,6 +61,10 @@ type ManagerCfg struct {
 	// SupplyTreeView is used to fetch supply leaves by height.
 	SupplyTreeView SupplyTreeView
 
+	// AssetLookup is used to look up asset information such as asset groups
+	// and asset metadata.
+	AssetLookup supplycommit.AssetLookup
+
 	// SupplySyncer is used to retrieve supply leaves from a universe and
 	// persist them to the local database.
 	SupplySyncer SupplySyncer
@@ -81,11 +76,6 @@ type ManagerCfg struct {
 	// DaemonAdapters is a set of adapters that allow the state machine to
 	// interact with external daemons whilst processing internal events.
 	DaemonAdapters DaemonAdapters
-
-	// StateLog is the main state log that is used to track the state of the
-	// state machine. This is used to persist the state of the state machine
-	// across restarts.
-	StateLog StateMachineStore
 
 	// ErrChan is the channel that is used to send errors to the caller.
 	ErrChan chan<- error
@@ -121,12 +111,86 @@ func NewManager(cfg ManagerCfg) *Manager {
 	}
 }
 
+// InitStateMachines initializes state machines for all asset groups that
+// support supply commitments. If a state machine for an asset group already
+// exists, it will be skipped.
+func (m *Manager) InitStateMachines() error {
+	ctx, cancel := m.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	// First, get all assets with group keys that could potentially be
+	// involved in supply commitments. The Manager will filter these
+	// based on delegation key ownership and other criteria.
+	assetGroupKeys, err := m.cfg.AssetLookup.FetchSupplyCommitAssets(
+		ctx, false,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to fetch supply commit assets: %w",
+			err)
+	}
+
+	for idx := range assetGroupKeys {
+		groupKey := assetGroupKeys[idx]
+
+		// Create asset specifier from group key.
+		assetSpec := asset.NewSpecifierFromGroupKey(groupKey)
+
+		// Check to ensure state machine for asset group does not
+		// already exist.
+		_, ok := m.smCache.Get(groupKey)
+		if ok {
+			continue
+		}
+
+		// Safeguard against universe server misconfiguration or
+		// otherwise ending up with too many state machines.
+		//
+		// TODO(ffranr): Add config option instead of hard limit.
+		if m.smCache.Count() >= MaxStateMachines {
+			log.Infof("Maximum number of state machines (%d) "+
+				"reached, skipping initialization of new "+
+				"state machine", MaxStateMachines)
+			break
+		}
+
+		// Create and start a new state machine for the asset group.
+		newSm, err := m.startAssetSM(ctx, assetSpec)
+		if err != nil {
+			return fmt.Errorf("unable to start state machine for "+
+				"asset group (asset=%s): %w",
+				assetSpec.String(), err)
+		}
+
+		m.smCache.Set(groupKey, newSm)
+	}
+
+	return nil
+}
+
 // Start starts the multi state machine manager.
 func (m *Manager) Start() error {
+	var startErr error
+
 	m.startOnce.Do(func() {
 		// Initialize the state machine cache.
 		m.smCache = newStateMachineCache()
+
+		// Initialize state machines for all relevant asset groups.
+		//
+		// TODO(ffranr): Consider passing in tapd operation mode
+		//  (e.g. universe server, etc) to determine which asset groups
+		//  we should run state machines for.
+		err := m.InitStateMachines()
+		if err != nil {
+			startErr = fmt.Errorf("unable to initialize state "+
+				"machines: %v", err)
+			return
+		}
 	})
+
+	if startErr != nil {
+		return fmt.Errorf("unable to start manager: %w", startErr)
+	}
 
 	return nil
 }
@@ -146,6 +210,52 @@ func (m *Manager) Stop() error {
 	return nil
 }
 
+// startAssetSM creates and starts a new supply commitment state machine for the
+// given asset specifier.
+func (m *Manager) startAssetSM(ctx context.Context,
+	assetSpec asset.Specifier) (*StateMachine, error) {
+
+	// If the state machine is not found, create a new one.
+	env := &Environment{
+		AssetSpec:        assetSpec,
+		Chain:            m.cfg.Chain,
+		SupplyCommitView: m.cfg.SupplyCommitView,
+		SupplyTreeView:   m.cfg.SupplyTreeView,
+		SupplySyncer:     m.cfg.SupplySyncer,
+		ErrChan:          m.cfg.ErrChan,
+		QuitChan:         m.Quit,
+	}
+
+	// Create a new error reporter for the state machine.
+	errorReporter := NewErrorReporter(assetSpec)
+
+	fsmCfg := protofsm.StateMachineCfg[Event, *Environment]{
+		ErrorReporter: &errorReporter,
+		InitialState:  &InitState{},
+		Env:           env,
+		Daemon:        m.cfg.DaemonAdapters,
+	}
+	newSm := protofsm.NewStateMachine[Event, *Environment](fsmCfg)
+
+	// Ensure that the state machine is running. We use the manager's
+	// context guard to derive a sub context which will be cancelled when
+	// the manager is stopped.
+	smCtx, _ := m.WithCtxQuitNoTimeout()
+	newSm.Start(smCtx)
+
+	// Assert that the state machine is running. Start should block until
+	// the state machine is running.
+	if !newSm.IsRunning() {
+		return nil, fmt.Errorf("state machine unexpectadly not running")
+	}
+
+	// For supply verifier, we always start with an InitEvent to begin
+	// the verification process.
+	newSm.SendEvent(ctx, &InitEvent{})
+
+	return &newSm, nil
+}
+
 // fetchStateMachine retrieves a state machine from the cache or creates a
 // new one if it doesn't exist. If a new state machine is created, it is also
 // started.
@@ -162,52 +272,39 @@ func (m *Manager) fetchStateMachine(assetSpec asset.Specifier) (*StateMachine,
 	// cache.
 	sm, ok := m.smCache.Get(*groupKey)
 	if ok {
-		return sm, nil
+		// If the state machine is found and is running, return it.
+		if sm.IsRunning() {
+			return sm, nil
+		}
+
+		// If the state machine exists but is not running, replace it in
+		// the cache with a new running instance.
 	}
 
-	// If the state machine is not found, create a new one.
-	env := &Environment{
-		AssetSpec:        assetSpec,
-		Chain:            m.cfg.Chain,
-		SupplyCommitView: m.cfg.SupplyCommitView,
-		ErrChan:          m.cfg.ErrChan,
-		QuitChan:         m.Quit,
-	}
-
-	// Before we start the state machine, we'll need to fetch the current
-	// state from disk, to see if we need to emit any new events.
 	ctx, cancel := m.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	initialState, err := m.cfg.StateLog.FetchState(ctx, assetSpec)
+	// Check that the asset group supports supply commitments and that
+	// this node does not create supply commitments for the asset group
+	// (i.e. it does not own the delegation key). We don't want to run
+	// a verifier state machine for an asset group supply commitment
+	// that we issue ourselves.
+	err = supplycommit.CheckSupplyCommitSupport(
+		ctx, m.cfg.AssetLookup, assetSpec, false,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch current state: %w", err)
+		return nil, fmt.Errorf("asset group is not suitable for "+
+			"supply verifier state machine: %w", err)
 	}
 
-	// Create a new error reporter for the state machine.
-	errorReporter := NewErrorReporter(assetSpec)
-
-	fsmCfg := protofsm.StateMachineCfg[Event, *Environment]{
-		ErrorReporter: &errorReporter,
-		InitialState:  initialState,
-		Env:           env,
-		Daemon:        m.cfg.DaemonAdapters,
+	newSm, err := m.startAssetSM(ctx, assetSpec)
+	if err != nil {
+		return nil, fmt.Errorf("unable to start state machine: %w", err)
 	}
-	newSm := protofsm.NewStateMachine[Event, *Environment](fsmCfg)
 
-	// Ensure that the state machine is running. We use the manager's
-	// context guard to derive a sub context which will be cancelled when
-	// the manager is stopped.
-	smCtx, _ := m.WithCtxQuitNoTimeout()
-	newSm.Start(smCtx)
+	m.smCache.Set(*groupKey, newSm)
 
-	// For supply verifier, we always start with an InitEvent to begin
-	// the verification process.
-	newSm.SendEvent(ctx, &InitEvent{})
-
-	m.smCache.Set(*groupKey, &newSm)
-
-	return &newSm, nil
+	return newSm, nil
 }
 
 // InsertSupplyCommit stores a verified supply commitment for the given asset
@@ -598,6 +695,14 @@ func (c *stateMachineCache) StopAll() {
 		// Stop the state machine.
 		sm.Stop()
 	}
+}
+
+// Count returns the number of state machines in the cache.
+func (c *stateMachineCache) Count() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return len(c.cache)
 }
 
 // Get retrieves a state machine from the cache.

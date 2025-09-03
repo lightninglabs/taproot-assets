@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -54,6 +56,20 @@ const (
 	// IgnoreTreeType is the sub tree that tracks ignores.
 	IgnoreTreeType
 )
+
+// NewSubtreeTypeFromStr returns the SupplySubTree type from a string.
+func NewSubtreeTypeFromStr(s string) (SupplySubTree, error) {
+	switch s {
+	case "mint_supply":
+		return MintTreeType, nil
+	case "burn":
+		return BurnTreeType, nil
+	case "ignore":
+		return IgnoreTreeType, nil
+	default:
+		return 0, fmt.Errorf("unknown supply subtree: %s", s)
+	}
+}
 
 // String returns the string representation of the supply sub tree.
 func (s SupplySubTree) String() string {
@@ -200,6 +216,11 @@ func NewSupplyLeavesFromEvents(events []SupplyUpdateEvent) (SupplyLeaves,
 // AssetLookup is an interface that allows us to query for asset
 // information, such as asset groups and asset metadata.
 type AssetLookup interface {
+	// FetchSupplyCommitAssets fetches all assets with non-nil group keys
+	// that are supply commitments enabled.
+	FetchSupplyCommitAssets(ctx context.Context,
+		localControlled bool) ([]btcec.PublicKey, error)
+
 	// QueryAssetGroupByGroupKey fetches the asset group with a matching
 	// tweaked key, including the genesis information used to create the
 	// group.
@@ -218,9 +239,9 @@ type AssetLookup interface {
 		rawKey *btcec.PublicKey) (keychain.KeyLocator, error)
 }
 
-// fetchLatestAssetMetadata returns the latest asset metadata for the
+// FetchLatestAssetMetadata returns the latest asset metadata for the
 // given asset specifier.
-func fetchLatestAssetMetadata(ctx context.Context, lookup AssetLookup,
+func FetchLatestAssetMetadata(ctx context.Context, lookup AssetLookup,
 	assetSpec asset.Specifier) (proof.MetaReveal, error) {
 
 	var zero proof.MetaReveal
@@ -250,6 +271,68 @@ func fetchLatestAssetMetadata(ctx context.Context, lookup AssetLookup,
 	}
 
 	return *metaReveal, nil
+}
+
+// CheckSupplyCommitSupport verifies that the asset group for the given
+// asset specifier supports supply commitments, and that this node can generate
+// supply commitments for it.
+func CheckSupplyCommitSupport(ctx context.Context, assetLookup AssetLookup,
+	assetSpec asset.Specifier, locallyControlled bool) error {
+
+	// Fetch the latest asset metadata for the asset group.
+	metaReveal, err := FetchLatestAssetMetadata(
+		ctx, assetLookup, assetSpec,
+	)
+	if err != nil {
+		return fmt.Errorf("faild to fetch asset meta: %w", err)
+	}
+
+	// If the universe commitment flag is not set on the asset metadata,
+	// then the asset group does not support supply commitments.
+	if !metaReveal.UniverseCommitments {
+		return fmt.Errorf("asset group metadata universe " +
+			"commitments flag indicates that asset does not " +
+			"support supply commitments")
+	}
+
+	// If a delegation key is not present, then the asset group does not
+	// support supply commitments.
+	if metaReveal.DelegationKey.IsNone() {
+		return fmt.Errorf("asset group metadata does not " +
+			"specify delegation key, which is required for " +
+			"supply commitments")
+	}
+
+	// Extract supply commitment delegation pub key from the asset metadata.
+	delegationPubKey, err := metaReveal.DelegationKey.UnwrapOrErr(
+		fmt.Errorf("delegation key not found for given asset"),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Fetch the delegation key locator. We need to ensure that the
+	// delegation key is owned by this node, so that we can generate
+	// supply commitments (ignore tuples) for this asset group.
+	_, err = assetLookup.FetchInternalKeyLocator(
+		ctx, &delegationPubKey,
+	)
+	switch {
+	case errors.Is(err, address.ErrInternalKeyNotFound):
+		// If local key control is expected, then we return an error
+		// if the delegation key locator is not found.
+		if locallyControlled {
+			return fmt.Errorf("delegation key locator not found; " +
+				"only delegation key owners can generate " +
+				"supply commitments")
+		}
+
+	case err != nil:
+		return fmt.Errorf("failed to fetch delegation key locator: %w",
+			err)
+	}
+
+	return nil
 }
 
 // SupplyTreeView is an interface that allows the state machine to obtain an up

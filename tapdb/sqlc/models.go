@@ -304,16 +304,6 @@ type ManagedUtxo struct {
 	RootVersion      sql.NullInt16
 }
 
-type MintAnchorUniCommitment struct {
-	ID                   int64
-	BatchID              int32
-	TxOutputIndex        int32
-	GroupKey             []byte
-	TaprootInternalKeyID int64
-	SpentBy              sql.NullInt64
-	Outpoint             []byte
-}
-
 type MssmtNode struct {
 	HashKey   []byte
 	LHashKey  []byte
@@ -413,6 +403,16 @@ type SupplyCommitment struct {
 	SupplyRootHash  []byte
 	SupplyRootSum   sql.NullInt64
 	SpentCommitment sql.NullInt64
+}
+
+type SupplyPreCommit struct {
+	ID                   int64
+	BatchID              sql.NullInt32
+	TxOutputIndex        int32
+	GroupKey             []byte
+	TaprootInternalKeyID int64
+	SpentBy              sql.NullInt64
+	Outpoint             []byte
 }
 
 type SupplySyncerPushLog struct {

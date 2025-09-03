@@ -173,6 +173,15 @@ FROM supply_commitments AS sc
 WHERE sc.spent_commitment IS NULL AND
     sc.group_key = @group_key;
 
+-- name: QueryLatestSupplyCommitment :one
+SELECT sqlc.embed(sc), ct.tx_index
+FROM supply_commitments AS sc
+JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.group_key = @group_key
+ORDER BY ct.block_height DESC
+    LIMIT 1;
+
 -- name: QuerySupplyCommitmentOutpoint :one
 SELECT ct.txid, sc.output_index
 FROM supply_commitments AS sc
@@ -203,7 +212,7 @@ SELECT
     mac.group_key,
     mint_txn.block_height,
     mint_txn.raw_tx
-FROM mint_anchor_uni_commitments mac
+FROM supply_pre_commits mac
 JOIN asset_minting_batches amb ON mac.batch_id = amb.batch_id
 JOIN genesis_points gp ON amb.genesis_id = gp.genesis_id
 JOIN chain_txns mint_txn ON gp.anchor_tx_id = mint_txn.txn_id
@@ -216,7 +225,7 @@ WHERE
 
 -- name: MarkPreCommitmentSpentByOutpoint :exec
 -- Mark a specific pre-commitment output as spent by its outpoint.
-UPDATE mint_anchor_uni_commitments
+UPDATE supply_pre_commits
 SET spent_by = @spent_by_commit_id
 WHERE outpoint = @outpoint
     AND spent_by IS NULL;
