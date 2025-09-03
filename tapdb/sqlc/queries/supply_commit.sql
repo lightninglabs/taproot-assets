@@ -172,6 +172,13 @@ WHERE
     mac.group_key = @group_key AND
     (mac.spent_by IS NULL OR commit_txn.block_hash IS NULL);
 
+-- name: MarkPreCommitmentSpentByOutpoint :exec
+-- Mark a specific pre-commitment output as spent by its outpoint.
+UPDATE mint_anchor_uni_commitments
+SET spent_by = @spent_by_commit_id
+WHERE outpoint = @outpoint
+    AND spent_by IS NULL;
+
 -- name: FetchSupplyCommit :one
 SELECT
     sc.commit_id,

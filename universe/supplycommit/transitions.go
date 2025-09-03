@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -67,11 +68,16 @@ func createCommitmentTxLabel(assetSpec asset.Specifier,
 func (d *DefaultState) ProcessEvent(event Event,
 	env *Environment) (*StateTransition, error) {
 
+	prefixedLog := env.Logger()
+
 	// In this state, we'll receive one of three events: a new burn, a new
 	// mint, or a new ignore. For all three types, we'll emit this as an
 	// internal event as we transition to the UpdatePendingState.
 	switch supplyEvent := event.(type) {
 	case SyncSupplyUpdateEvent:
+		prefixedLog.Infof("Received new supply update event: %T",
+			supplyEvent)
+
 		// Before we transition to the next state, we'll add this event
 		// to our update log. This ensures that we'll remember to
 		// process from this state after a restart.
@@ -121,10 +127,15 @@ func (d *DefaultState) ProcessEvent(event Event,
 func (u *UpdatesPendingState) ProcessEvent(event Event, env *Environment) (
 	*StateTransition, error) {
 
+	prefixedLog := env.Logger()
+
 	switch newEvent := event.(type) {
 	// We've received a new update event, we'll stage this in our local
 	// state, and do a self transition.
 	case SyncSupplyUpdateEvent:
+		prefixedLog.Infof("Received new supply update event: %T",
+			newEvent)
+
 		// We just got a new pending update in addition to the one that
 		// made us transition to this state. This ensures that we'll
 		// remember to process from this state after a restart.
@@ -163,6 +174,9 @@ func (u *UpdatesPendingState) ProcessEvent(event Event, env *Environment) (
 			return nil, fmt.Errorf("unable to freeze "+
 				"pending transition: %w", err)
 		}
+
+		prefixedLog.Infof("Received tick event, committing %d "+
+			"supply updates", len(u.pendingUpdates))
 
 		return &StateTransition{
 			NextState: &CommitTreeCreateState{},
@@ -255,6 +269,8 @@ func applyTreeUpdates(supplyTrees SupplyTrees,
 func (c *CommitTreeCreateState) ProcessEvent(event Event,
 	env *Environment) (*StateTransition, error) {
 
+	prefixedLog := env.Logger()
+
 	// TODO(roasbeef): cache attemps to add new elements? or main state
 	// driver still single threaded?
 
@@ -262,6 +278,9 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 	// If we get a supply update event while we're creating the tree,
 	// we'll just insert it as a dangling update and do a self-transition.
 	case SyncSupplyUpdateEvent:
+		prefixedLog.Infof("Received new supply update event: %T",
+			newEvent)
+
 		ctx := context.Background()
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
@@ -291,6 +310,10 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 	// have.
 	case *CreateTreeEvent:
 		pendingUpdates := newEvent.updatesToCommit
+
+		prefixedLog.Infof("Creating new supply trees "+
+			"with %d pending updates",
+			len(pendingUpdates))
 
 		// TODO(ffranr): Pass in context?
 		ctx := context.Background()
@@ -396,8 +419,14 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 func newRootCommitment(ctx context.Context,
 	oldCommitment lfn.Option[RootCommitment],
 	unspentPreCommits []PreCommitment, newSupplyRoot *mssmt.BranchNode,
-	wallet Wallet, keyRing KeyRing,
-	chainParams chaincfg.Params) (*RootCommitment, *psbt.Packet, error) {
+	wallet Wallet, keyRing KeyRing, chainParams chaincfg.Params,
+	logger lfn.Option[btclog.Logger],
+) (*RootCommitment, *psbt.Packet, error) {
+
+	logger.WhenSome(func(l btclog.Logger) {
+		l.Infof("Creating new root commitment, spending %v "+
+			"pre-commits", len(unspentPreCommits))
+	})
 
 	newCommitTx := wire.NewMsgTx(2)
 
@@ -436,6 +465,11 @@ func newRootCommitment(ctx context.Context,
 	// on mint transactions where as the old commitment is the last
 	// commitment that was broadcast.
 	oldCommitment.WhenSome(func(r RootCommitment) {
+		logger.WhenSome(func(l btclog.Logger) {
+			l.Infof("Re-using prior commitment as outpoint=%v: %v",
+				r.CommitPoint(), limitSpewer.Sdump(r))
+		})
+
 		newCommitTx.AddTxIn(r.TxIn())
 
 		bip32Derivation, trBip32Derivation :=
@@ -444,6 +478,8 @@ func newRootCommitment(ctx context.Context,
 			)
 
 		witnessUtxo := r.Txn.TxOut[r.TxOutIdx]
+
+		commitTapscriptRoot, _ := r.TapscriptRoot()
 
 		packetPInputs = append(packetPInputs, psbt.PInput{
 			WitnessUtxo: witnessUtxo,
@@ -454,14 +490,16 @@ func newRootCommitment(ctx context.Context,
 				trBip32Derivation,
 			},
 			TaprootInternalKey: trBip32Derivation.XOnlyPubKey,
+			TaprootMerkleRoot:  commitTapscriptRoot,
 		})
 	})
 
+	// TODO(roasbef): do CreateTaprootSignature instead?
 	// With the inputs available, derive the supply commitment output.
 	//
-	// Determine the internal key to use for this output.
-	// If a prior root commitment exists, reuse its internal key;
-	// otherwise, generate a new one.
+	// Determine the internal key to use for this output. If a prior root
+	// commitment exists, reuse its internal key; otherwise, generate a new
+	// one.
 	iKeyOpt := lfn.MapOption(func(r RootCommitment) keychain.KeyDescriptor {
 		return r.InternalKey
 	})(oldCommitment)
@@ -531,6 +569,11 @@ func newRootCommitment(ctx context.Context,
 		OutputKey:   tapOutKey,
 		SupplyRoot:  newSupplyRoot,
 	}
+
+	logger.WhenSome(func(l btclog.Logger) {
+		l.Infof("Created new root commitment: %v",
+			limitSpewer.Sdump(newSupplyCommit))
+	})
 
 	commitPkt, err := psbt.NewFromUnsignedTx(newCommitTx)
 	if err != nil {
@@ -606,10 +649,15 @@ func fundSupplyCommitTx(ctx context.Context, supplyCommit *RootCommitment,
 func (c *CommitTxCreateState) ProcessEvent(event Event,
 	env *Environment) (*StateTransition, error) {
 
+	prefixedLog := env.Logger()
+
 	switch newEvent := event.(type) {
 	// If we get a supply update event while we're creating the commit tx,
 	// we'll just insert it as a dangling update and do a self-transition.
 	case SyncSupplyUpdateEvent:
+		prefixedLog.Infof("Received new supply update event: %T",
+			newEvent)
+
 		ctx := context.Background()
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
@@ -632,6 +680,8 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 	// commits to the root supply tree.
 	case *CreateTxEvent:
 		ctx := context.Background()
+
+		prefixedLog.Infof("Creating new supply commitment tx")
 
 		// To create the new commitment, we'll fetch the unspent pre
 		// commitments, the current supply root (which may not exist),
@@ -657,6 +707,7 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 		newSupplyCommit, commitPkt, err := newRootCommitment(
 			ctx, oldCommitment, preCommits, newSupplyRoot,
 			env.Wallet, env.KeyRing, env.ChainParams,
+			lfn.Some(prefixedLog),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create "+
@@ -709,6 +760,8 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 func (s *CommitTxSignState) ProcessEvent(event Event,
 	env *Environment) (*StateTransition, error) {
 
+	prefixedLog := env.Logger()
+
 	switch newEvent := event.(type) {
 	// If we get a supply update event while we're signing the commit tx,
 	// we'll just insert it as a dangling update and do a self-transition.
@@ -726,6 +779,9 @@ func (s *CommitTxSignState) ProcessEvent(event Event,
 
 		newEvent.SignalDone(nil)
 
+		prefixedLog.Infof("Received new supply update "+
+			"event: %T", newEvent)
+
 		return &StateTransition{
 			NextState: s,
 		}, nil
@@ -739,7 +795,7 @@ func (s *CommitTxSignState) ProcessEvent(event Event,
 		stateTransition := s.SupplyTransition
 
 		// After some initial validation, we'll now sign the PSBT.
-		log.Debug("Signing supply commitment PSBT")
+		prefixedLog.Debug("Signing supply commitment PSBT")
 		signedPsbt, err := env.Wallet.SignPsbt(
 			ctx, newEvent.CommitPkt.Pkt,
 		)
@@ -748,10 +804,13 @@ func (s *CommitTxSignState) ProcessEvent(event Event,
 				"commitment tx: %w", err)
 		}
 
+		prefixedLog.Infof("Signed supply "+
+			"commitment txn: %v", limitSpewer.Sdump(signedPsbt))
+
 		err = psbt.MaybeFinalizeAll(signedPsbt)
 		if err != nil {
-			return nil, fmt.Errorf("unable to finalize psbt: %w",
-				err)
+			return nil, fmt.Errorf("unable to finalize "+
+				"psbt: %w", err)
 		}
 
 		commitTx, err := psbt.Extract(signedPsbt)
@@ -769,7 +828,7 @@ func (s *CommitTxSignState) ProcessEvent(event Event,
 		newCommit := &stateTransition.NewCommitment
 		commitTxnDetails := SupplyCommitTxn{
 			Txn:         commitTx,
-			InternalKey: newCommit.InternalKey.PubKey,
+			InternalKey: newCommit.InternalKey,
 			OutputKey:   newCommit.OutputKey,
 			OutputIndex: newCommit.TxOutIdx,
 		}
@@ -803,11 +862,17 @@ func (s *CommitTxSignState) ProcessEvent(event Event,
 func (c *CommitBroadcastState) ProcessEvent(event Event,
 	env *Environment) (*StateTransition, error) {
 
+	prefixedLog := env.Logger()
+
 	switch newEvent := event.(type) {
 	// If we get a supply update event while we're broadcasting the commit
 	// tx, we'll just insert it as a dangling update and do a
 	// self-transition.
 	case SyncSupplyUpdateEvent:
+		prefixedLog.Infof("Received new supply update %T while "+
+			"finalizing prior commitment, inserting as dangling "+
+			"update", newEvent)
+
 		ctx := context.Background()
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
@@ -832,6 +897,11 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 		if c.SupplyTransition.NewCommitment.Txn == nil {
 			return nil, fmt.Errorf("commitment transaction is nil")
 		}
+
+		commitTxid := c.SupplyTransition.NewCommitment.Txn.TxHash()
+		prefixedLog.Infof("Broadcasting supply commitment "+
+			"txn (txid=%v): %v", commitTxid,
+			limitSpewer.Sdump(c.SupplyTransition.NewCommitment.Txn))
 
 		commitTx := c.SupplyTransition.NewCommitment.Txn
 
@@ -910,6 +980,9 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 				"proof: %w", err)
 		}
 
+		// Now that the transaction has been confirmed, we'll construct
+		// a merkle proof for the commitment transaction. This'll be
+		// used to prove that the supply commit is canonical.
 		stateTransition.ChainProof = lfn.Some(ChainProof{
 			Header:      newEvent.Block.Header,
 			BlockHeight: newEvent.BlockHeight,
@@ -917,11 +990,10 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 			TxIndex:     newEvent.TxIndex,
 		})
 
-		// Now that the transaction has been confirmed, we'll construct
-		// a merkle proof for the commitment transaction. This'll be
-		// used to prove that the supply commit is canonical.
-		//
-		// TODO(roasbeef): need header and txindex, etc to construct
+		prefixedLog.Infof("Supply commitment txn confirmed "+
+			"in block %d (hash=%v): %v",
+			newEvent.BlockHeight, newEvent.Block.Header.BlockHash(),
+			limitSpewer.Sdump(c.SupplyTransition.NewCommitment.Txn))
 
 		// The commitment has been confirmed, so we'll transition to the
 		// finalize state, but also log on disk that we no longer need
@@ -958,10 +1030,16 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 func (c *CommitFinalizeState) ProcessEvent(event Event,
 	env *Environment) (*StateTransition, error) {
 
+	prefixedLog := env.Logger()
+
 	switch newEvent := event.(type) {
 	// If we get a supply update event while we're finalizing the commit,
 	// we'll just insert it as a dangling update and do a self-transition.
 	case SyncSupplyUpdateEvent:
+		prefixedLog.Infof("Received new supply update %T while "+
+			"finalizing prior commitment, inserting as dangling "+
+			"update", newEvent)
+
 		ctx := context.Background()
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
@@ -984,6 +1062,8 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 	// update the supply trees.
 	case *FinalizeEvent:
 		ctx := context.Background()
+
+		prefixedLog.Infof("Finalizing supply commitment transition")
 
 		// At this point, the commitment has been confirmed on disk, so
 		// we can update: the state machine state on disk, and swap in
@@ -1037,6 +1117,9 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 				NextState: &DefaultState{},
 			}, nil
 		}
+
+		prefixedLog.Infof("Dangling updates found: %d",
+			len(danglingUpdates))
 
 		// Otherwise, we have more work to do! We'll kick off a new
 		// commitment cycle right away by transitioning to the tree

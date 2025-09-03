@@ -31,6 +31,16 @@ import (
 	"golang.org/x/exp/maps"
 )
 
+// MintSupplyCommitter is used during minting to update the on-chain supply
+// commitment of a new minted asset.
+type MintSupplyCommitter interface {
+	// SendMintEvent sends a mint event to the supply commitment state
+	// machine.
+	SendMintEvent(ctx context.Context, assetSpec asset.Specifier,
+		leafKey universe.UniqueLeafKey, issuanceProof universe.Leaf,
+		mintBlockHeight uint32) error
+}
+
 // GardenKit holds the set of shared fundamental interfaces all sub-systems of
 // the tapgarden need to function.
 type GardenKit struct {
@@ -85,6 +95,15 @@ type GardenKit struct {
 	// IgnoreChecker is an optional function that can be used to check if
 	// a proof should be ignored.
 	IgnoreChecker lfn.Option[proof.IgnoreChecker]
+
+	// MintSupplyCommitter is used to commit the minting of new assets to
+	// the supply commitment state machine.
+	MintSupplyCommitter MintSupplyCommitter
+
+	// DelegationKeyChecker is used to verify that we control the delegation
+	// key for a given asset, which is required for creating supply
+	// commitments.
+	DelegationKeyChecker address.DelegationKeyChecker
 }
 
 // PlanterConfig is the main config for the ChainPlanter.

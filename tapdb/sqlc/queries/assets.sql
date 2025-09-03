@@ -1074,16 +1074,17 @@ WITH target_batch AS (
     WHERE keys.raw_key = @batch_key
 )
 INSERT INTO mint_anchor_uni_commitments (
-    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by
+    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by, outpoint
 )
 VALUES (
     (SELECT batch_id FROM target_batch), @tx_output_index, 
-    @taproot_internal_key_id, @group_key, sqlc.narg('spent_by')
+    @taproot_internal_key_id, @group_key, sqlc.narg('spent_by'), sqlc.narg('outpoint')
 )
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
     taproot_internal_key_id = EXCLUDED.taproot_internal_key_id,
-    group_key = EXCLUDED.group_key
+    group_key = EXCLUDED.group_key,
+    outpoint = EXCLUDED.outpoint
 RETURNING id;
 
 -- name: FetchMintAnchorUniCommitment :many

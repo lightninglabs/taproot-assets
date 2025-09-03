@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -35,6 +36,7 @@ const (
 type SupplySubTree uint8
 
 const (
+
 	// MintTreeType is the sub tree that tracks mints.
 	MintTreeType SupplySubTree = iota
 
@@ -235,6 +237,39 @@ func (r *RootCommitment) TxOut() (*wire.TxOut, error) {
 	return txOut, err
 }
 
+// CommitPoint returns the outpoint that corresponds to the root commitment.
+func (r *RootCommitment) CommitPoint() wire.OutPoint {
+	return wire.OutPoint{
+		Hash:  r.Txn.TxHash(),
+		Index: r.TxOutIdx,
+	}
+}
+
+// computeSupplyCommitTapscriptRoot creates the tapscript root hash for a supply
+// commitment with the given supply root hash.
+func computeSupplyCommitTapscriptRoot(supplyRootHash mssmt.NodeHash,
+) ([]byte, error) {
+
+	// Create a non-spendable script leaf that commits to the supply root.
+	tapLeaf, err := asset.NewNonSpendableScriptLeaf(
+		asset.PedersenVersion, supplyRootHash[:],
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create leaf: %w", err)
+	}
+
+	tapscriptTree := txscript.AssembleTaprootScriptTree(tapLeaf)
+	rootHash := tapscriptTree.RootNode.TapHash()
+	return rootHash[:], nil
+}
+
+// TapscriptRoot returns the tapscript root hash that commits to the supply
+// root. This is tweaked with the internal key to derive the output key.
+func (r *RootCommitment) TapscriptRoot() ([]byte, error) {
+	supplyRootHash := r.SupplyRoot.NodeHash()
+	return computeSupplyCommitTapscriptRoot(supplyRootHash)
+}
+
 // RootCommitTxOut returns the transaction output that corresponds to the root
 // commitment. This is used to create a new commitment output.
 func RootCommitTxOut(internalKey *btcec.PublicKey,
@@ -245,21 +280,15 @@ func RootCommitTxOut(internalKey *btcec.PublicKey,
 	if tapOutKey == nil {
 		// We'll create a new unspendable output that contains a
 		// commitment to the root.
-		//
-		// TODO(roasbeef): need other version info here/
-		tapLeaf, err := asset.NewNonSpendableScriptLeaf(
-			asset.PedersenVersion, supplyRootHash[:],
+		rootHash, err := computeSupplyCommitTapscriptRoot(
+			supplyRootHash,
 		)
 		if err != nil {
-			return nil, nil, fmt.Errorf("unable to create leaf: %w",
-				err)
+			return nil, nil, err
 		}
 
-		tapscriptTree := txscript.AssembleTaprootScriptTree(tapLeaf)
-
-		rootHash := tapscriptTree.RootNode.TapHash()
 		taprootOutputKey = txscript.ComputeTaprootOutputKey(
-			internalKey, rootHash[:],
+			internalKey, rootHash,
 		)
 	} else {
 		taprootOutputKey = tapOutKey
@@ -495,6 +524,9 @@ type Environment struct {
 	// IgnoreCheckerCache is used to invalidate the ignore cache when a new
 	// supply commitment is created.
 	IgnoreCheckerCache IgnoreCheckerCache
+
+	// Log is the prefixed logger for this supply commitment state machine.
+	Log btclog.Logger
 }
 
 // SupplyCommitTxn encapsulates the details of the transaction that creates a
@@ -503,8 +535,9 @@ type SupplyCommitTxn struct {
 	// Txn is the transaction that creates the supply commitment.
 	Txn *wire.MsgTx
 
-	// InternalKey is the internal key used for the commitment output.
-	InternalKey *btcec.PublicKey
+	// InternalKey is the internal key descriptor used for the commitment
+	// output. This preserves the full key derivation information.
+	InternalKey keychain.KeyDescriptor
 
 	// OutputKey is the taproot output key used for the commitment output.
 	OutputKey *btcec.PublicKey
@@ -518,4 +551,15 @@ type SupplyCommitTxn struct {
 // is based on the channel ID.
 func (e *Environment) Name() string {
 	return fmt.Sprintf("universe_supply_commit(%v)", e.AssetSpec)
+}
+
+// Logger returns the logger for this environment. If a logger was provided in
+// the environment configuration, it returns that logger. Otherwise, it returns
+// the package-level logger with an asset-specific prefix.
+func (e *Environment) Logger() btclog.Logger {
+	if e.Log != nil {
+		return e.Log
+	}
+
+	return NewAssetLogger(e.AssetSpec.String())
 }

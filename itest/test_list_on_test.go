@@ -364,6 +364,10 @@ var allTestCases = []*testCase{
 		test: testSupplyCommitIgnoreAsset,
 	},
 	{
+		name: "supply commit mint burn",
+		test: testSupplyCommitMintBurn,
+	},
+	{
 		name: "auth mailbox message store and fetch",
 		test: testAuthMailboxStoreAndFetchMessage,
 	},

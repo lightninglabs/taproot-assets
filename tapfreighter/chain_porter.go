@@ -24,6 +24,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -48,6 +49,15 @@ type ProofImporter interface {
 	// proof.
 	ImportProofs(ctx context.Context, vCtx proof.VerifierCtx,
 		replace bool, proofs ...*proof.AnnotatedProof) error
+}
+
+// BurnSupplyCommitter is used by the chain porter to update the on-chain supply
+// commitment when burns 1st party burns are confirmed.
+type BurnSupplyCommitter interface {
+	// SendBurnEvent sends a burn event to the supply commitment state
+	// machine.
+	SendBurnEvent(ctx context.Context, assetSpec asset.Specifier,
+		burnLeaf universe.BurnLeaf) error
 }
 
 // ChainPorterConfig is the main config for the chain porter.
@@ -105,6 +115,15 @@ type ChainPorterConfig struct {
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
+
+	// BurnSupplyCommitter is used to track supply changes (burns) and
+	// create periodic on-chain supply commitments.
+	BurnCommitter BurnSupplyCommitter
+
+	// DelegationKeyChecker is used to verify that we control the delegation
+	// key for a given asset, which is required for creating supply
+	// commitments.
+	DelegationKeyChecker address.DelegationKeyChecker
 }
 
 // ChainPorter is the main sub-system of the tapfreighter package. The porter
@@ -684,6 +703,91 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	return nil
 }
 
+// sendBurnSupplyCommitEvents sends supply commitment events for all burned
+// assets to track them in the supply commitment state machine.
+func (p *ChainPorter) sendBurnSupplyCommitEvents(ctx context.Context,
+	burns []*AssetBurn) error {
+
+	// If no supply commit manager is configured, skip this step.
+	if p.cfg.BurnCommitter == nil {
+		return nil
+	}
+
+	// If no delegation key checker is configured, skip this step. We need
+	// it to figure out if this is an asset we created or not.
+	if p.cfg.DelegationKeyChecker == nil {
+		return nil
+	}
+
+	delChecker := p.cfg.DelegationKeyChecker
+
+	// We'll use a filter predicate to filter out the burns that we didn't
+	// do ourselves, i.e., those that don't have a delegation key.
+	burnsWithDelegation := fn.Filter(burns, func(burn *AssetBurn) bool {
+		var assetID asset.ID
+		copy(assetID[:], burn.AssetID)
+
+		// If the asset doesn't have a group, then this will return
+		// false.
+		hasDelegationKey, err := delChecker.HasDelegationKey(
+			ctx, assetID,
+		)
+		if err != nil {
+			log.Debugf("Error checking delegation key for "+
+				"asset %x: %v", assetID, err)
+			return false
+		}
+
+		if !hasDelegationKey {
+			log.Debugf("Skipping supply commit burn event "+
+				"for asset %x: delegation key not controlled "+
+				"locally",
+				assetID)
+		}
+
+		return hasDelegationKey
+	})
+
+	for _, burn := range burnsWithDelegation {
+		var assetID asset.ID
+		copy(assetID[:], burn.AssetID)
+
+		groupKeyBytes := burn.GroupKey
+		groupKey, err := btcec.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return fmt.Errorf("unable to parse group key: %w", err)
+		}
+
+		assetSpec := asset.NewSpecifierOptionalGroupPubKey(
+			assetID, groupKey,
+		)
+
+		burnLeaf := universe.BurnLeaf{
+			UniverseKey: universe.AssetLeafKey{
+				BaseLeafKey: universe.BaseLeafKey{
+					ScriptKey: burn.ScriptKey,
+					OutPoint:  burn.OutPoint,
+				},
+				AssetID: assetID,
+			},
+			BurnProof: burn.Proof,
+		}
+
+		err = p.cfg.BurnCommitter.SendBurnEvent(
+			ctx, assetSpec, burnLeaf,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to send burn event for "+
+				"asset %x: %w", assetID, err)
+		}
+
+		log.Infof("Sent supply commit burn event for asset %v",
+			assetID)
+	}
+
+	return nil
+}
+
 // storePackageAnchorTxConf logs the on-chain confirmation of the transfer
 // anchor transaction for the given package.
 func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
@@ -718,7 +822,15 @@ func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
 		)
 	}
 
+	anchorTxBlockHeight := int32(pkg.TransferTxConfEvent.BlockHeight)
+	anchorTxBlockHeader := pkg.TransferTxConfEvent.Block.Header
+
 	// Now we scan through the VPacket for any burns.
+	//
+	// Once the anchor transaction is confirmed, we must populate the block
+	// header and block height in the proof suffixes of all outputs. Without
+	// the block height, burn events cannot be considered valid for
+	// inclusion in supply commitments.
 	var burns []*AssetBurn
 
 	for _, v := range pkg.VirtualPackets {
@@ -730,12 +842,23 @@ func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
 			assetID := o.Asset.ID()
 
 			// We prepare the burn and add it to the list.
+			op := wire.OutPoint{
+				Hash:  pkg.OutboundPkg.AnchorTx.TxHash(),
+				Index: o.AnchorOutputIndex,
+			}
 			b := &AssetBurn{
 				AssetID:    assetID[:],
 				Amount:     o.Amount,
 				AnchorTxid: pkg.OutboundPkg.AnchorTx.TxHash(),
 				Note:       pkg.Note,
+				ScriptKey:  &o.Asset.ScriptKey,
+				Proof:      o.ProofSuffix,
+				OutPoint:   op,
 			}
+
+			// Set the block height and header in the burn proof.
+			b.Proof.BlockHeight = uint32(anchorTxBlockHeight)
+			b.Proof.BlockHeader = anchorTxBlockHeader
 
 			if o.Asset.GroupKey != nil {
 				groupKey := o.Asset.GroupKey.GroupPubKey
@@ -746,11 +869,19 @@ func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
 		}
 	}
 
+	// Send supply commitment events for all burned assets before confirming
+	// the transaction. This ensures that supply commitments are tracked
+	// before the burn is considered complete.
+	err := p.sendBurnSupplyCommitEvents(ctx, burns)
+	if err != nil {
+		return fmt.Errorf("unable to send burn supply commit "+
+			"events: %w", err)
+	}
+
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	anchorTXID := pkg.OutboundPkg.AnchorTx.TxHash()
-	anchorTxBlockHeight := int32(pkg.TransferTxConfEvent.BlockHeight)
-	err := p.cfg.ExportLog.LogAnchorTxConfirm(ctx, &AssetConfirmEvent{
+	err = p.cfg.ExportLog.LogAnchorTxConfirm(ctx, &AssetConfirmEvent{
 		AnchorTXID:             anchorTXID,
 		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
 		BlockHeight:            anchorTxBlockHeight,

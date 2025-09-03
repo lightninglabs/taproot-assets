@@ -198,6 +198,11 @@ type SupplyCommitStore interface {
 	FinalizeSupplyCommitTransition(ctx context.Context,
 		transitionID int64) error
 
+	// MarkPreCommitmentSpentByOutpoint marks a pre-commitment as spent
+	// by its outpoint.
+	MarkPreCommitmentSpentByOutpoint(ctx context.Context,
+		arg sqlc.MarkPreCommitmentSpentByOutpointParams) error
+
 	// QueryExistingPendingTransition fetches the ID of an existing
 	// non-finalized transition for a group key. Returns sql.ErrNoRows if
 	// none exists.
@@ -850,7 +855,7 @@ func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
 	groupKeyBytes := groupKey.SerializeCompressed()
 
 	commitTx := commitDetails.Txn
-	internalKey := commitDetails.InternalKey
+	internalKeyDesc := commitDetails.InternalKey
 	outputKey := commitDetails.OutputKey
 	outputIndex := commitDetails.OutputIndex
 
@@ -892,15 +897,18 @@ func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
 				"%w", err)
 		}
 
-		// Upsert the internal key to get its ID. We assume key family
-		// and index 0 for now, as this key is likely externally.
+		// Upsert the internal key to get its ID, preserving the full
+		// key derivation information for proper PSBT signing later.
 		internalKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
-			RawKey: internalKey.SerializeCompressed(),
+			RawKey:    internalKeyDesc.PubKey.SerializeCompressed(),
+			KeyFamily: int32(internalKeyDesc.Family),
+			KeyIndex:  int32(internalKeyDesc.Index),
 		})
 		if err != nil {
-			return fmt.Errorf("failed to upsert internal key %x: "+
-				"%w",
-				internalKey.SerializeCompressed(), err)
+			return fmt.Errorf("failed to upsert "+
+				"internal key %x: %w",
+				internalKeyDesc.PubKey.SerializeCompressed(),
+				err)
 		}
 
 		// Insert the new commitment record. Chain details (block
@@ -1321,16 +1329,6 @@ func (s *SupplyCommitMachine) ApplyStateTransition(
 		dbTransition := dbTransitionRow.SupplyCommitTransition
 		transitionID := dbTransition.TransitionID
 
-		// Next, we'll apply all the pending updates to the supply
-		// sub-trees, then use that to update the root tree.
-		_, err = applySupplyUpdatesInternal(
-			ctx, db, assetSpec, transition.PendingUpdates,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to apply SMT updates: "+
-				"%w", err)
-		}
-
 		// Next, we'll update the supply commitment data, before we do
 		// that, perform some basic sanity checks.
 		if !dbTransition.NewCommitmentID.Valid {
@@ -1344,8 +1342,9 @@ func (s *SupplyCommitMachine) ApplyStateTransition(
 		}
 		chainTxnID := dbTransition.PendingCommitTxnID.Int64
 
-		// Update the commitment record with the calculated root hash
-		// and sum.
+		// Next, we'll apply all the pending updates to the supply
+		// sub-trees, then use that to update the root tree.
+		//
 		finalRootSupplyRoot, err := applySupplyUpdatesInternal(
 			ctx, db, assetSpec, transition.PendingUpdates,
 		)
@@ -1353,6 +1352,9 @@ func (s *SupplyCommitMachine) ApplyStateTransition(
 			return fmt.Errorf("failed to apply SMT updates: "+
 				"%w", err)
 		}
+
+		// Update the commitment record with the calculated root hash
+		// and sum.
 		finalRootHash := finalRootSupplyRoot.NodeHash()
 		finalRootSum := finalRootSupplyRoot.NodeSum()
 		err = db.UpdateSupplyCommitmentRoot(
@@ -1434,6 +1436,50 @@ func (s *SupplyCommitMachine) ApplyStateTransition(
 		if err != nil {
 			return fmt.Errorf("failed to update chain_txns "+
 				"confirmation: %w", err)
+		}
+
+		// Mark the specific pre-commitments that were spent in this
+		// transaction as spent by the new commitment. We identify them
+		// by looking at the transaction inputs.
+		for _, txIn := range newCommitment.Txn.TxIn {
+			outpointBytes, err := encodeOutpoint(
+				txIn.PreviousOutPoint,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to encode "+
+					"outpoint %v: %w",
+					txIn.PreviousOutPoint, err)
+			}
+
+			log.Infof("Attempting to mark outpoint as "+
+				"spent: %v (hash=%x, index=%d)",
+				txIn.PreviousOutPoint,
+				txIn.PreviousOutPoint.Hash[:],
+				txIn.PreviousOutPoint.Index)
+
+			// Mark this specific pre-commitment as spent.
+			err = db.MarkPreCommitmentSpentByOutpoint(ctx,
+				sqlc.MarkPreCommitmentSpentByOutpointParams{
+					SpentByCommitID: sqlInt64(
+						newCommitmentID,
+					),
+					Outpoint: outpointBytes,
+				},
+			)
+			if err != nil {
+				// It's OK if this outpoint doesn't exist in our
+				// table - it might be an old commitment output
+				// or a wallet input for fees. We only care
+				// about marking actual pre-commitments as
+				// spent.
+				log.Debugf("Could not mark outpoint %v as "+
+					"spent (may not be a "+
+					"pre-commitment): %v",
+					txIn.PreviousOutPoint, err)
+			} else {
+				log.Infof("Successfully marked outpoint "+
+					"as spent: %v", txIn.PreviousOutPoint)
+			}
 		}
 
 		// To finish up our book keeping, we'll now finalize the state
