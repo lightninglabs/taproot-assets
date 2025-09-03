@@ -2,6 +2,7 @@ package supplycommit
 
 import (
 	"context"
+	"net/url"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -458,4 +459,26 @@ func (m *mockAssetLookup) FetchInternalKeyLocator(ctx context.Context,
 
 	args := m.Called(ctx, rawKey)
 	return args.Get(0).(keychain.KeyLocator), args.Error(1)
+}
+
+// mockSupplySyncer is a mock implementation of the SupplySyncer interface.
+type mockSupplySyncer struct {
+	mock.Mock
+}
+
+func (m *mockSupplySyncer) PushSupplyCommitment(ctx context.Context,
+	assetSpec asset.Specifier, commitment RootCommitment,
+	updateLeaves SupplyLeaves, chainProof ChainProof,
+	canonicalUniverses []url.URL) (map[string]error, error) {
+
+	args := m.Called(ctx, assetSpec, commitment, updateLeaves, chainProof,
+		canonicalUniverses)
+
+	// Handle both nil and map[string]error return types.
+	var errorMap map[string]error
+	if args.Get(0) != nil {
+		errorMap = args.Get(0).(map[string]error)
+	}
+
+	return errorMap, args.Error(1)
 }

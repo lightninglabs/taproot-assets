@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -1082,13 +1083,68 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 
 		prefixedLog.Infof("Finalizing supply commitment transition")
 
+		// Insert the finalized supply transition into the remote
+		// universe server via the syncer.
+		chainProof, err := c.SupplyTransition.ChainProof.UnwrapOrErr(
+			fmt.Errorf("supply transition in finalize state " +
+				"must have chain proof"),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Retrieve latest canonical universe list from the latest
+		// metadata for the asset group.
+		metadata, err := fetchLatestAssetMetadata(
+			ctx, env.AssetLookup, env.AssetSpec,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch latest asset "+
+				"metadata: %w", err)
+		}
+
+		// Insert the supply commitment into the remote universes. This
+		// call should block until push is complete.
+		canonicalUniverses := metadata.CanonicalUniverses.UnwrapOr(
+			[]url.URL{},
+		)
+
+		supplyLeaves, err := NewSupplyLeavesFromEvents(
+			c.SupplyTransition.PendingUpdates,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create "+
+				"supply leaves from pending updates: %w", err)
+		}
+
+		serverErrors, err := env.SupplySyncer.PushSupplyCommitment(
+			ctx, env.AssetSpec, c.SupplyTransition.NewCommitment,
+			supplyLeaves, chainProof, canonicalUniverses,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert "+
+				"supply commitment into remote universe "+
+				"server via syncer: %w", err)
+		}
+
+		// Log any per-server errors but continue with the operation.
+		//
+		// TODO(ffranr): Handle the case where we fail to push to
+		//  all servers. Also, if push fails because of
+		//  ErrPrevCommitmentNotFound then we need to sync older
+		//  commitments first.
+		for serverHost, serverErr := range serverErrors {
+			prefixedLog.Warnf("Failed to push supply commitment "+
+				"to server %s: %v", serverHost, serverErr)
+		}
+
 		// At this point, the commitment has been confirmed on disk, so
 		// we can update: the state machine state on disk, and swap in
 		// all the new supply tree information.
 		//
 		// First, we'll update the supply state on disk. This way when
 		// we restart his is idempotent.
-		err := env.StateLog.ApplyStateTransition(
+		err = env.StateLog.ApplyStateTransition(
 			ctx, env.AssetSpec, c.SupplyTransition,
 		)
 		if err != nil {
