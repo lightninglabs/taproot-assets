@@ -2040,10 +2040,10 @@ func TestBatchedAssetIssuance(t *testing.T) {
 	t.Helper()
 
 	for _, testCase := range testCases {
-		mintingStore := newMintingStore(t)
 		testCase := testCase
 
 		t.Run(testCase.name, func(t *testing.T) {
+			mintingStore := newMintingStore(t)
 			mintTest := newMintingTestHarness(t, mintingStore)
 			testCase.testFunc(mintTest)
 		})
