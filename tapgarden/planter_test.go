@@ -3,6 +3,7 @@ package tapgarden_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
@@ -1579,9 +1580,11 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	// to one TapCommitment.
 	var dummyRootSum [8]byte
 	binary.BigEndian.PutUint64(dummyRootSum[:], test.RandInt[uint64]())
+
+	tag := sha256.Sum256([]byte("taproot-assets:194243"))
 	dummyRootHashParts := [][]byte{
-		{byte(asset.V0)}, commitment.TaprootAssetsMarker[:],
-		fn.ByteSlice(test.RandHash()), dummyRootSum[:],
+		tag[:], {byte(asset.V0)}, fn.ByteSlice(test.RandHash()),
+		dummyRootSum[:],
 	}
 	dummyTapCommitmentRootHash := bytes.Join(dummyRootHashParts, nil)
 	dummyTapLeaf := txscript.NewBaseTapLeaf(dummyTapCommitmentRootHash)

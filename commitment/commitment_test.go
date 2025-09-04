@@ -3,6 +3,7 @@ package commitment
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"math/rand"
 	"testing"
@@ -1483,7 +1484,9 @@ func TestIsTaprootAssetCommitmentScript(t *testing.T) {
 	t.Parallel()
 
 	require.True(t, IsTaprootAssetCommitmentScript(testTapCommitmentScript))
-	require.False(t, IsTaprootAssetCommitmentScript(TaprootAssetsMarker[:]))
+
+	tag := sha256.Sum256(markerV2)
+	require.False(t, IsTaprootAssetCommitmentScript(tag[:]))
 }
 
 // TestAssetCommitmentNoWitness tests that an asset commitment of a v1 asset is
