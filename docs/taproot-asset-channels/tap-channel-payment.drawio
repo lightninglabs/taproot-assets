@@ -1,0 +1,141 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0" version="24.7.6">
+  <diagram name="Page-1" id="iTSEb-yD00TrhKPa6eN5">
+    <mxGraphModel dx="1272" dy="1503" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-1" value="Alice" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;verticalAlign=top;" parent="1" vertex="1">
+          <mxGeometry x="40" y="40" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-2" value="&lt;div&gt;Bob&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;verticalAlign=top;" parent="1" vertex="1">
+          <mxGeometry x="360" y="40" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-3" value="Charlie" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;verticalAlign=top;" parent="1" vertex="1">
+          <mxGeometry x="680" y="40" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-4" value="Dave" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;verticalAlign=top;" parent="1" vertex="1">
+          <mxGeometry x="1000" y="40" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-5" value="Invoice" style="shape=card;whiteSpace=wrap;html=1;fontSize=16;verticalAlign=top;" parent="1" vertex="1">
+          <mxGeometry x="930" y="-140" width="110" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-6" value="&lt;div align=&quot;left&quot;&gt;Hop Hint:&lt;br&gt;&amp;nbsp; - SCID 123&lt;br&gt;&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="970" y="-70" width="70" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-7" value="BuyOrder&lt;br&gt;RFQID cdef&lt;br&gt;SCID 123" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=2;rounded=0;entryX=0;entryY=0;entryDx=0;entryDy=0;exitX=1;exitY=0;exitDx=0;exitDy=0;labelBackgroundColor=none;" parent="1" source="TnjeQVd-uyHPG7ZBfWnN-3" target="TnjeQVd-uyHPG7ZBfWnN-4" edge="1">
+          <mxGeometry y="10" width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="850" y="10" as="sourcePoint" />
+            <mxPoint x="900" y="-40" as="targetPoint" />
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-8" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=2;rounded=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" target="TnjeQVd-uyHPG7ZBfWnN-5" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="930" y="40" as="sourcePoint" />
+            <mxPoint x="890" y="-60" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-9" value="50k sats" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="930" y="-110" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-10" value="I want to receive 10 beefbuxx" style="shape=callout;whiteSpace=wrap;html=1;perimeter=calloutPerimeter;dashed=1;position2=0.25;" parent="1" vertex="1">
+          <mxGeometry x="1090" y="-40" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-11" value="I want to pay this invoice, how many beefbuxx is this?" style="shape=callout;whiteSpace=wrap;html=1;perimeter=calloutPerimeter;dashed=1;position2=0.92;" parent="1" vertex="1">
+          <mxGeometry x="-70" y="-40" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-12" value="" style="endArrow=classic;html=1;rounded=0;entryX=0;entryY=0;entryDx=0;entryDy=0;exitX=1;exitY=0;exitDx=0;exitDy=0;exitPerimeter=0;dashed=1;" parent="1" source="TnjeQVd-uyHPG7ZBfWnN-11" target="TnjeQVd-uyHPG7ZBfWnN-9" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="430" y="-110" as="sourcePoint" />
+            <mxPoint x="480" y="-160" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-13" value="SellOrder&lt;br&gt;RFQID 1bac&lt;br&gt;SCID 987" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=2;rounded=0;entryX=0;entryY=0;entryDx=0;entryDy=0;exitX=1;exitY=0;exitDx=0;exitDy=0;labelBackgroundColor=none;" parent="1" edge="1">
+          <mxGeometry y="10" width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="160" y="40" as="sourcePoint" />
+            <mxPoint x="360" y="40" as="targetPoint" />
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-14" value="HTLC" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fontSize=16;verticalAlign=top;" parent="1" vertex="1">
+          <mxGeometry x="200" y="120" width="170" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-15" value="btc amount: 550sat&lt;br&gt;blob: beefbuxx:10&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp; RFQID:1bac" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="230" y="160" width="150" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-16" value="Channel Capacity&lt;br&gt;500 beefbuxx" style="endArrow=classic;html=1;rounded=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;exitX=1;exitY=0.75;exitDx=0;exitDy=0;labelBackgroundColor=none;" parent="1" source="TnjeQVd-uyHPG7ZBfWnN-1" target="TnjeQVd-uyHPG7ZBfWnN-2" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="160" y="84" as="sourcePoint" />
+            <mxPoint x="360" y="84" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-26" value="PayInvoice&lt;br&gt;FirstHopData: RFQID 1bac" style="endArrow=classic;html=1;rounded=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;labelBackgroundColor=none;" parent="1" target="TnjeQVd-uyHPG7ZBfWnN-1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="-150" y="50" as="sourcePoint" />
+            <mxPoint x="-40" y="50" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-28" value="Channel Capacity&lt;br&gt;1m sats" style="endArrow=classic;html=1;rounded=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;exitX=1;exitY=0.75;exitDx=0;exitDy=0;labelBackgroundColor=none;" parent="1" source="TnjeQVd-uyHPG7ZBfWnN-2" target="TnjeQVd-uyHPG7ZBfWnN-3" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="480" y="80" as="sourcePoint" />
+            <mxPoint x="680" y="80" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-29" value="HTLC" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fontSize=16;verticalAlign=top;" parent="1" vertex="1">
+          <mxGeometry x="520" y="120" width="170" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-30" value="btc amount: 50001 sat" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="550" y="160" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-33" value="" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" parent="1" target="TnjeQVd-uyHPG7ZBfWnN-15" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="91.33333333333326" y="118.66666666666674" as="sourcePoint" />
+            <mxPoint x="240" y="60" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-36" value="Chooses outgoing channel&lt;br style=&quot;font-size: 10px;&quot;&gt;&lt;div&gt;Generates the HTLC blob&lt;/div&gt;Overwrites HTLC btc amount" style="shape=callout;whiteSpace=wrap;html=1;perimeter=calloutPerimeter;dashed=1;flipV=1;position2=1;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="-120" y="120" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-37" value="&lt;div&gt;HtlcInterceptor&lt;/div&gt;" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="370" y="90" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-38" value="Checks incoming RFQ ID+amount&lt;br&gt;Overwrites HTLC btc amount&lt;br&gt;to 50001 sat" style="shape=callout;whiteSpace=wrap;html=1;perimeter=calloutPerimeter;dashed=1;flipV=1;position2=0.53;fontSize=10;size=90;position=0.5;base=10;" parent="1" vertex="1">
+          <mxGeometry x="360" y="120" width="160" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-39" value="Channel Capacity&lt;br&gt;1000 beefbuxx" style="endArrow=classic;html=1;rounded=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;exitX=1;exitY=0.75;exitDx=0;exitDy=0;labelBackgroundColor=none;" parent="1" source="TnjeQVd-uyHPG7ZBfWnN-3" target="TnjeQVd-uyHPG7ZBfWnN-4" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="740" y="140" as="sourcePoint" />
+            <mxPoint x="940" y="140" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-40" value="&lt;div&gt;HtlcInterceptor&lt;/div&gt;" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="690" y="90" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-41" value="Checks incoming SCID, checks amount, overwrites HTLC btc amount for check&lt;br&gt;generates HTLC blob" style="shape=callout;whiteSpace=wrap;html=1;perimeter=calloutPerimeter;dashed=1;flipV=1;position2=0.53;fontSize=10;size=90;position=0.5;base=10;" parent="1" vertex="1">
+          <mxGeometry x="680" y="120" width="160" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-44" value="HTLC" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fontSize=16;verticalAlign=top;" parent="1" vertex="1">
+          <mxGeometry x="850" y="120" width="170" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-45" value="btc amount: 550sat&lt;br&gt;blob: beefbuxx:10&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp; RFQID:cdef" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="880" y="160" width="150" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="TnjeQVd-uyHPG7ZBfWnN-46" value="" style="endArrow=classic;html=1;rounded=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;exitX=1;exitY=0.75;exitDx=0;exitDy=0;" parent="1" source="TnjeQVd-uyHPG7ZBfWnN-40" target="TnjeQVd-uyHPG7ZBfWnN-45" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="840" y="110" as="sourcePoint" />
+            <mxPoint x="890" y="60" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="3_ThkS30kiCf4IjlnYfN-1" value="TrafficShaper" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="20" y="90" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="3_ThkS30kiCf4IjlnYfN-2" value="InvoiceHtlcModifier" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="90" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="3_ThkS30kiCf4IjlnYfN-3" value="Modifies the btc amount of incoming HTLCs" style="shape=callout;whiteSpace=wrap;html=1;perimeter=calloutPerimeter;dashed=1;flipV=1;position2=0.53;fontSize=10;size=90;position=0.5;base=10;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="120" width="160" height="120" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
