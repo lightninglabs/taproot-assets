@@ -925,6 +925,11 @@ type OutputCommitmentConfig struct {
 	// STXO proofs. This should only be done for asset channels to preserve
 	// the backward compatibility with older peers.
 	noSTXOProofs bool
+
+	// existingSTXOLeaves indicates whether we should be aware that alt
+	// leaves that correspond to stxo assets may already exist in asset
+	// outputs of the vpsbt.
+	existingSTXOLeaves bool
 }
 
 // OutputCommitmentOption is a functional option that can be used to configure
@@ -937,6 +942,16 @@ type OutputCommitmentOption func(*OutputCommitmentConfig)
 func WithNoSTXOProofs() OutputCommitmentOption {
 	return func(cfg *OutputCommitmentConfig) {
 		cfg.noSTXOProofs = true
+	}
+}
+
+// WithExistingSTXOLeaves is an option that can be used to let us know that some
+// outputs may have already acquired their alt leaves for stxo proofs. If that
+// is the case we'll simply skip adding the leaves again, but normally merge
+// them into the commitment.
+func WithExistingSTXOLeaves() OutputCommitmentOption {
+	return func(cfg *OutputCommitmentConfig) {
+		cfg.existingSTXOLeaves = true
 	}
 }
 
@@ -984,7 +999,10 @@ func CreateOutputCommitments(packets []*tappsbt.VPacket,
 	// And now we commit each packet to the respective anchor output
 	// commitments.
 	for _, vPkt := range packets {
-		err := commitPacket(vPkt, cfg.noSTXOProofs, outputCommitments)
+		err := commitPacket(
+			vPkt, cfg.noSTXOProofs, cfg.existingSTXOLeaves,
+			outputCommitments,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -995,7 +1013,7 @@ func CreateOutputCommitments(packets []*tappsbt.VPacket,
 
 // commitPacket creates the output commitments for a virtual packet and merges
 // it with the existing commitments for the anchor outputs.
-func commitPacket(vPkt *tappsbt.VPacket, noSTXOProofs bool,
+func commitPacket(vPkt *tappsbt.VPacket, noSTXOProofs, existingSTXOLeaves bool,
 	outputCommitments tappsbt.OutputCommitments) error {
 
 	inputs := vPkt.Inputs
@@ -1044,7 +1062,34 @@ func commitPacket(vPkt *tappsbt.VPacket, noSTXOProofs bool,
 			// If we have STXOs, we will encumber vOut.AltLeaves
 			// with them. They will be merged into the commitment
 			// later with MergeAltLeaves.
-			vOut.AltLeaves = append(vOut.AltLeaves, stxoAssets...)
+
+			// If there might already be STXO leaves, we need to
+			// only add them if they don't already exist. Otherwise
+			// they'd lead to an error later on during merging.
+			if existingSTXOLeaves {
+				newLeaves := append(
+					vOut.AltLeaves, stxoAssets...,
+				)
+
+				// Verify that the new set of alt leaves has
+				// unique keys.
+				err := asset.AddLeafKeysVerifyUnique(
+					asset.NewLeafKeySet(), newLeaves,
+				)
+				if err == nil {
+					// If we didn't get an error, then
+					// continue with appending the leaves.
+					vOut.AltLeaves = append(
+						vOut.AltLeaves, stxoAssets...,
+					)
+				}
+			} else {
+				// If we know that the vOut doesn't already have
+				// the stxo alt leaves, we'll just append.
+				vOut.AltLeaves = append(
+					vOut.AltLeaves, stxoAssets...,
+				)
+			}
 		}
 
 		// Because the receiver of this output might be receiving
