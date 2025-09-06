@@ -57,6 +57,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
+	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	"github.com/lightningnetwork/lnd/build"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -4094,33 +4095,11 @@ func (r *rpcServer) UpdateSupplyCommit(ctx context.Context,
 	req *unirpc.UpdateSupplyCommitRequest) (
 	*unirpc.UpdateSupplyCommitResponse, error) {
 
-	// Parse asset group key from the request.
-	var groupPubKey btcec.PublicKey
-
-	switch {
-	case len(req.GetGroupKeyBytes()) > 0:
-		gk, err := btcec.ParsePubKey(req.GetGroupKeyBytes())
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	case len(req.GetGroupKeyStr()) > 0:
-		groupKeyBytes, err := hex.DecodeString(req.GetGroupKeyStr())
-		if err != nil {
-			return nil, fmt.Errorf("decoding group key: %w", err)
-		}
-
-		gk, err := btcec.ParsePubKey(groupKeyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	default:
-		return nil, fmt.Errorf("group key unspecified")
+	groupPubKey, err := unmarshalGroupKey(
+		req.GetGroupKeyBytes(), req.GetGroupKeyStr(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse group key: %w", err)
 	}
 
 	// We will now check to ensure that universe commitments are enabled for
@@ -4128,7 +4107,7 @@ func (r *rpcServer) UpdateSupplyCommit(ctx context.Context,
 	//
 	// Look up the asset group by the group key.
 	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByGroupKey(
-		ctx, &groupPubKey,
+		ctx, groupPubKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find asset group "+
@@ -4150,11 +4129,10 @@ func (r *rpcServer) UpdateSupplyCommit(ctx context.Context,
 	}
 
 	// Formulate an asset specifier from the asset group key.
-	assetSpec := asset.NewSpecifierFromGroupKey(groupPubKey)
+	assetSpec := asset.NewSpecifierFromGroupKey(*groupPubKey)
 
 	// Send a commit tick event to the supply commitment manager.
-	event := supplycommit.CommitTickEvent{}
-	err = r.cfg.SupplyCommitManager.SendEvent(ctx, assetSpec, &event)
+	err = r.cfg.SupplyCommitManager.StartSupplyPublishFlow(ctx, assetSpec)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send commit tick event: %w",
 			err)
@@ -4197,8 +4175,9 @@ func inclusionProofs(ctx context.Context, tree mssmt.Tree,
 	return proofs, nil
 }
 
-// supplySubtreeRoot fetches the root of a specific supply subtree and its
-// supply tree inclusion proof.
+// supplySubtreeRoot formulates an inclusion proof for a supply subtree.
+// The inclusion proof can be used to verify that the subtree root is indeed
+// part of the supply commitment root.
 func supplySubtreeRoot(ctx context.Context, supplyTree mssmt.Tree,
 	subtrees supplycommit.SupplyTrees,
 	subtreeType supplycommit.SupplySubTree) (
@@ -4244,67 +4223,48 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 	req *unirpc.FetchSupplyCommitRequest) (
 	*unirpc.FetchSupplyCommitResponse, error) {
 
-	// Parse asset group key from the request.
-	var groupPubKey btcec.PublicKey
-
-	switch {
-	case len(req.GetGroupKeyBytes()) > 0:
-		gk, err := btcec.ParsePubKey(req.GetGroupKeyBytes())
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	case len(req.GetGroupKeyStr()) > 0:
-		groupKeyBytes, err := hex.DecodeString(req.GetGroupKeyStr())
-		if err != nil {
-			return nil, fmt.Errorf("decoding group key: %w", err)
-		}
-
-		gk, err := btcec.ParsePubKey(groupKeyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	default:
-		return nil, fmt.Errorf("group key unspecified")
+	groupPubKey, err := unmarshalGroupKey(
+		req.GetGroupKeyBytes(), req.GetGroupKeyStr(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse group key: %w", err)
 	}
 
 	// Formulate an asset specifier from the asset group key.
-	assetSpec := asset.NewSpecifierFromGroupKey(groupPubKey)
+	assetSpec := asset.NewSpecifierFromGroupKey(*groupPubKey)
+
+	locator, err := unmarshalCommitLocator(
+		req.GetCommitOutpoint(), req.GetSpentCommitOutpoint(),
+		req.GetVeryFirst(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse commitment "+
+			"locator: %w", err)
+	}
 
 	// Fetch the supply commitment for the asset specifier.
-	respOpt, err := r.cfg.SupplyCommitManager.FetchCommitment(
-		ctx, assetSpec,
+	commit, err := r.cfg.SupplyVerifyManager.FetchCommitment(
+		ctx, assetSpec, locator,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch supply commit: %w",
 			err)
 	}
-	if respOpt.IsNone() {
-		return nil, fmt.Errorf("supply commitment not found for "+
-			"asset group with key %x",
-			groupPubKey.SerializeCompressed())
-	}
-	resp, err := respOpt.UnwrapOrErr(fmt.Errorf("unexpected None value " +
-		"for supply commitment response"))
-	if err != nil {
-		return nil, err
-	}
+	rootCommit := commit.Commitment
 
-	supplyTreeRoot, err := resp.SupplyTree.Root(ctx)
+	issuanceLeaves, burnLeaves, ignoreLeaves, err := marshalSupplyLeaves(
+		commit.Leaves,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get supply tree root: %w",
+		return nil, fmt.Errorf("unable to marshal supply leaves: %w",
 			err)
 	}
 
 	// Fetch subtree commitment root and inclusion proofs for the issuance
 	// subtree.
 	rpcIssuanceSubtreeRoot, err := supplySubtreeRoot(
-		ctx, resp.SupplyTree, resp.Subtrees, supplycommit.MintTreeType,
+		ctx, commit.SupplyTree, commit.Subtrees,
+		supplycommit.MintTreeType,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch supply issuance "+
@@ -4314,7 +4274,8 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 	// Fetch subtree commitment root and inclusion proofs for the burn
 	// subtree.
 	rpcBurnSubtreeRoot, err := supplySubtreeRoot(
-		ctx, resp.SupplyTree, resp.Subtrees, supplycommit.BurnTreeType,
+		ctx, commit.SupplyTree, commit.Subtrees,
+		supplycommit.BurnTreeType,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch supply burn subtree "+
@@ -4324,7 +4285,7 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 	// Fetch subtree commitment root and inclusion proofs for the ignore
 	// subtree.
 	rpcIgnoreSubtreeRoot, err := supplySubtreeRoot(
-		ctx, resp.SupplyTree, resp.Subtrees,
+		ctx, commit.SupplyTree, commit.Subtrees,
 		supplycommit.IgnoreTreeType,
 	)
 	if err != nil {
@@ -4332,88 +4293,109 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 			"root: %w", err)
 	}
 
-	// Get inclusion proofs for any issuance leaf key specified in the
-	// request.
-	issuanceTree := resp.Subtrees[supplycommit.MintTreeType]
-	issuanceInclusionProofs, err := inclusionProofs(
-		ctx, issuanceTree, req.IssuanceLeafKeys,
+	// Create a chain proof from the commitment block data.
+	commitBlock, err := rootCommit.CommitmentBlock.UnwrapOrErr(
+		fmt.Errorf("commitment block not found"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch issuance tree "+
-			"inclusion proofs: %w", err)
+		return nil, err
 	}
 
-	// Get inclusion proofs for any burn leaf key specified in the request.
-	burnTree := resp.Subtrees[supplycommit.BurnTreeType]
-	burnInclusionProofs, err := inclusionProofs(
-		ctx, burnTree, req.BurnLeafKeys,
-	)
+	// Sanity check commitment block data.
+	if commitBlock.BlockHeader == nil || commitBlock.MerkleProof == nil {
+		return nil, fmt.Errorf("commitment block data is incomplete")
+	}
+
+	chainProof := supplycommit.ChainProof{
+		Header:      *commitBlock.BlockHeader,
+		BlockHeight: commitBlock.Height,
+		MerkleProof: *commitBlock.MerkleProof,
+		TxIndex:     commitBlock.TxIndex,
+	}
+
+	// Marshal the chain data using the existing function.
+	chainData, err := marshalSupplyCommitChainData(rootCommit, chainProof)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch burn tree "+
-			"inclusion proofs: %w", err)
+		return nil, fmt.Errorf("failed to marshal supply commit "+
+			"chain data: %w", err)
 	}
 
-	// Get inclusion proofs for any ignore leaf key specified in the
-	// request.
-	ignoreTree := resp.Subtrees[supplycommit.IgnoreTreeType]
-	ignoreInclusionProofs, err := inclusionProofs(
-		ctx, ignoreTree, req.IgnoreLeafKeys,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch ignore tree "+
-			"inclusion proofs: %w", err)
-	}
-
-	// Sanity check: ensure the supply root derived from the supply tree
-	// matches the root provided in the chain commitment.
-	if resp.ChainCommitment.SupplyRoot.NodeHash() !=
-		supplyTreeRoot.NodeHash() {
-
-		return nil, fmt.Errorf("mismatched supply commitment root: "+
-			"expected %x, got %x",
-			resp.ChainCommitment.SupplyRoot.NodeHash(),
-			supplyTreeRoot.NodeHash())
-	}
-
-	txOutInternalKey := resp.ChainCommitment.InternalKey.PubKey
-
-	// Extract the block height and hash from the chain commitment if
-	// present.
-	var (
-		blockHeight uint32
-		blockHash   []byte
-		txIndex     uint32
-		chainFees   int64
-	)
-	resp.ChainCommitment.CommitmentBlock.WhenSome(
-		func(b supplycommit.CommitmentBlock) {
-			blockHeight = b.Height
-			blockHash = b.Hash[:]
-			txIndex = b.TxIndex
-			chainFees = b.ChainFees
+	// Marshal the spent commitment outpoint if available.
+	var spentCommitmentOutpoint *taprpc.OutPoint
+	rootCommit.SpentCommitment.WhenSome(
+		func(outpoint wire.OutPoint) {
+			spentCommitmentOutpoint = &taprpc.OutPoint{
+				Txid:        outpoint.Hash[:],
+				OutputIndex: outpoint.Index,
+			}
 		},
 	)
 
+	// Calculate the total outstanding supply based on the supply
+	// subtrees.
+	totalOutstandingSupply, err := supplycommit.CalcTotalOutstandingSupply(
+		ctx, commit.Subtrees,
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate total "+
+			"outstanding supply: %w", err)
+	}
+
 	return &unirpc.FetchSupplyCommitResponse{
-		SupplyCommitmentRoot: marshalMssmtNode(supplyTreeRoot),
-
-		AnchorTxid:             resp.ChainCommitment.Txn.TxID(),
-		AnchorTxOutIdx:         resp.ChainCommitment.TxOutIdx,
-		AnchorTxOutInternalKey: txOutInternalKey.SerializeCompressed(),
-
-		BlockHeight:     blockHeight,
-		BlockHash:       blockHash,
-		BlockTxIndex:    txIndex,
-		TxChainFeesSats: chainFees,
+		ChainData:       chainData,
+		TxChainFeesSats: commitBlock.ChainFees,
 
 		IssuanceSubtreeRoot: rpcIssuanceSubtreeRoot,
 		BurnSubtreeRoot:     rpcBurnSubtreeRoot,
 		IgnoreSubtreeRoot:   rpcIgnoreSubtreeRoot,
 
-		IssuanceLeafInclusionProofs: issuanceInclusionProofs,
-		BurnLeafInclusionProofs:     burnInclusionProofs,
-		IgnoreLeafInclusionProofs:   ignoreInclusionProofs,
+		IssuanceLeaves: issuanceLeaves,
+		BurnLeaves:     burnLeaves,
+		IgnoreLeaves:   ignoreLeaves,
+
+		TotalOutstandingSupply:  totalOutstandingSupply,
+		SpentCommitmentOutpoint: spentCommitmentOutpoint,
 	}, nil
+}
+
+// mapSupplyLeaves is a generic helper that converts a slice of supply update
+// events into a slice of RPC SupplyLeafEntry objects.
+func mapSupplyLeaves[E any](entries []E) ([]*unirpc.SupplyLeafEntry, error) {
+	return fn.MapErr(entries, func(i E) (*unirpc.SupplyLeafEntry, error) {
+		interfaceType, ok := any(&i).(supplycommit.SupplyUpdateEvent)
+		if !ok {
+			return nil, fmt.Errorf("expected supply update event, "+
+				"got %T", i)
+		}
+		return marshalSupplyUpdateEvent(interfaceType)
+	})
+}
+
+// marshalSupplyLeaves converts a SupplyLeaves struct into the corresponding
+// RPC SupplyLeafEntry slices for issuance, burn, and ignore leaves.
+func marshalSupplyLeaves(
+	leaves supplycommit.SupplyLeaves) ([]*unirpc.SupplyLeafEntry,
+	[]*unirpc.SupplyLeafEntry, []*unirpc.SupplyLeafEntry, error) {
+
+	rpcIssuanceLeaves, err := mapSupplyLeaves(leaves.IssuanceLeafEntries)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to marshal issuance "+
+			"leaf: %w", err)
+	}
+
+	rpcBurnLeaves, err := mapSupplyLeaves(leaves.BurnLeafEntries)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to marshal burn "+
+			"leaf: %w", err)
+	}
+
+	rpcIgnoreLeaves, err := mapSupplyLeaves(leaves.IgnoreLeafEntries)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to marshal burn "+
+			"leaf: %w", err)
+	}
+
+	return rpcIssuanceLeaves, rpcBurnLeaves, rpcIgnoreLeaves, nil
 }
 
 // FetchSupplyLeaves returns the set of supply leaves for the given asset
@@ -4422,37 +4404,15 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 	req *unirpc.FetchSupplyLeavesRequest) (
 	*unirpc.FetchSupplyLeavesResponse, error) {
 
-	// Parse asset group key from the request.
-	var groupPubKey btcec.PublicKey
-
-	switch {
-	case len(req.GetGroupKeyBytes()) > 0:
-		gk, err := btcec.ParsePubKey(req.GetGroupKeyBytes())
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	case len(req.GetGroupKeyStr()) > 0:
-		groupKeyBytes, err := hex.DecodeString(req.GetGroupKeyStr())
-		if err != nil {
-			return nil, fmt.Errorf("decoding group key: %w", err)
-		}
-
-		gk, err := btcec.ParsePubKey(groupKeyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("parsing group key: %w", err)
-		}
-
-		groupPubKey = *gk
-
-	default:
-		return nil, fmt.Errorf("group key unspecified")
+	groupPubKey, err := unmarshalGroupKey(
+		req.GetGroupKeyBytes(), req.GetGroupKeyStr(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse group key: %w", err)
 	}
 
 	// Formulate an asset specifier from the asset group key.
-	assetSpec := asset.NewSpecifierFromGroupKey(groupPubKey)
+	assetSpec := asset.NewSpecifierFromGroupKey(*groupPubKey)
 
 	// Fetch supply leaves for the asset specifier.
 	resp, err := r.cfg.SupplyCommitManager.FetchSupplyLeavesByHeight(
@@ -4462,102 +4422,432 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 		return nil, fmt.Errorf("failed to fetch supply leaves: %w", err)
 	}
 
-	rpcMarshalLeafEntry := func(leafEntry supplycommit.SupplyUpdateEvent) (
-		*unirpc.SupplyLeafEntry, error) {
+	// Check if inclusion proofs are requested.
+	needsInclusionProofs := len(req.IssuanceLeafKeys) > 0 ||
+		len(req.BurnLeafKeys) > 0 || len(req.IgnoreLeafKeys) > 0
 
-		leafNode, err := leafEntry.UniverseLeafNode()
+	// If inclusion proofs are requested, fetch the subtrees.
+	var subtrees supplycommit.SupplyTrees
+	if needsInclusionProofs {
+		subtreeResult, err := r.cfg.SupplyCommitManager.FetchSubTrees(
+			ctx, assetSpec, fn.None[uint32](),
+		)
 		if err != nil {
-			rpcsLog.Errorf("Failed to get universe leaf node "+
-				"from leaf entry: %v (leaf_entry=%s)", err,
-				spew.Sdump(leafEntry))
-
-			return nil, fmt.Errorf("failed to get universe leaf "+
-				"node from leaf entry: %w", err)
+			return nil, fmt.Errorf("failed to fetch subtrees for "+
+				"inclusion proofs: %w", err)
 		}
 
-		leafKey := leafEntry.UniverseLeafKey()
-
-		outPoint := leafKey.LeafOutPoint()
-		rpcOutPoint := unirpc.Outpoint{
-			HashStr: outPoint.Hash.String(),
-			Index:   int32(outPoint.Index),
-		}
-
-		// Encode the leaf as a byte slice.
-		var leafBuf bytes.Buffer
-		err = leafEntry.Encode(&leafBuf)
-		if err != nil {
-			return nil, fmt.Errorf("failed to encode leaf entry: "+
-				"%w", err)
-		}
-
-		return &unirpc.SupplyLeafEntry{
-			LeafKey: &unirpc.SupplyLeafKey{
-				Outpoint: &rpcOutPoint,
-				ScriptKey: schnorr.SerializePubKey(
-					leafKey.LeafScriptKey().PubKey,
-				),
-				AssetId: fn.ByteSlice(leafKey.LeafAssetID()),
-			},
-			LeafNode:    marshalMssmtNode(leafNode),
-			BlockHeight: leafEntry.BlockHeight(),
-			RawLeaf:     leafBuf.Bytes(),
-		}, nil
+		subtrees = subtreeResult
 	}
 
-	// Marshal issuance supply leaves into the RPC format.
-	rpcIssuanceLeaves := make(
-		[]*unirpc.SupplyLeafEntry, 0, len(resp.IssuanceLeafEntries),
+	issuanceLeaves, burnLeaves, ignoreLeaves, err := marshalSupplyLeaves(
+		resp,
 	)
-	for idx := range resp.IssuanceLeafEntries {
-		leafEntry := resp.IssuanceLeafEntries[idx]
-
-		rpcLeaf, err := rpcMarshalLeafEntry(&leafEntry)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal supply "+
-				"leaf entry: %w", err)
-		}
-
-		rpcIssuanceLeaves = append(rpcIssuanceLeaves, rpcLeaf)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal supply leaves: %w",
+			err)
 	}
 
-	// Marshal burn supply leaves into the RPC format.
-	rpcBurnLeaves := make(
-		[]*unirpc.SupplyLeafEntry, 0, len(resp.BurnLeafEntries),
+	// Generate inclusion proofs if requested.
+	var (
+		issuanceInclusionProofs [][]byte
+		burnInclusionProofs     [][]byte
+		ignoreInclusionProofs   [][]byte
 	)
-	for idx := range resp.BurnLeafEntries {
-		leafEntry := resp.BurnLeafEntries[idx]
 
-		rpcLeaf, err := rpcMarshalLeafEntry(&leafEntry)
+	if needsInclusionProofs {
+		// Get inclusion proofs for any issuance leaf key specified in
+		// the request.
+		issuanceTree := subtrees[supplycommit.MintTreeType]
+		var err error
+		issuanceInclusionProofs, err = inclusionProofs(
+			ctx, issuanceTree, req.IssuanceLeafKeys,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal supply "+
-				"leaf entry: %w", err)
+			return nil, fmt.Errorf("failed to fetch issuance tree "+
+				"inclusion proofs: %w", err)
 		}
 
-		rpcBurnLeaves = append(rpcBurnLeaves, rpcLeaf)
-	}
-
-	// Marshal ignore supply leaves into the RPC format.
-	rpcIgnoreLeaves := make(
-		[]*unirpc.SupplyLeafEntry, 0, len(resp.IgnoreLeafEntries),
-	)
-	for idx := range resp.IgnoreLeafEntries {
-		leafEntry := resp.IgnoreLeafEntries[idx]
-
-		rpcLeaf, err := rpcMarshalLeafEntry(&leafEntry)
+		// Get inclusion proofs for any burn leaf key specified in the
+		// request.
+		burnTree := subtrees[supplycommit.BurnTreeType]
+		burnInclusionProofs, err = inclusionProofs(
+			ctx, burnTree, req.BurnLeafKeys,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal supply "+
-				"leaf entry: %w", err)
+			return nil, fmt.Errorf("failed to fetch burn tree "+
+				"inclusion proofs: %w", err)
 		}
 
-		rpcIgnoreLeaves = append(rpcIgnoreLeaves, rpcLeaf)
+		// Get inclusion proofs for any ignore leaf key specified in the
+		// request.
+		ignoreTree := subtrees[supplycommit.IgnoreTreeType]
+		ignoreInclusionProofs, err = inclusionProofs(
+			ctx, ignoreTree, req.IgnoreLeafKeys,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch ignore tree "+
+				"inclusion proofs: %w", err)
+		}
 	}
 
 	return &unirpc.FetchSupplyLeavesResponse{
-		IssuanceLeaves: rpcIssuanceLeaves,
-		BurnLeaves:     rpcBurnLeaves,
-		IgnoreLeaves:   rpcIgnoreLeaves,
+		IssuanceLeaves:              issuanceLeaves,
+		BurnLeaves:                  burnLeaves,
+		IgnoreLeaves:                ignoreLeaves,
+		IssuanceLeafInclusionProofs: issuanceInclusionProofs,
+		BurnLeafInclusionProofs:     burnInclusionProofs,
+		IgnoreLeafInclusionProofs:   ignoreInclusionProofs,
 	}, nil
+}
+
+// unmarshalMintSupplyLeaf converts an RPC SupplyLeafEntry into a NewMintEvent.
+func unmarshalMintSupplyLeaf(
+	rpcLeaf *unirpc.SupplyLeafEntry) (*supplycommit.NewMintEvent, error) {
+
+	if rpcLeaf == nil {
+		return nil, fmt.Errorf("supply leaf entry is nil")
+	}
+
+	if rpcLeaf.LeafKey == nil {
+		return nil, fmt.Errorf("supply leaf key is nil")
+	}
+
+	if rpcLeaf.LeafNode == nil {
+		return nil, fmt.Errorf("supply leaf node is nil")
+	}
+
+	if len(rpcLeaf.RawLeaf) == 0 {
+		return nil, fmt.Errorf("missing RawLeaf data for mint event")
+	}
+
+	var mintEvent supplycommit.NewMintEvent
+	err := mintEvent.Decode(bytes.NewReader(rpcLeaf.RawLeaf))
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode mint event: %w", err)
+	}
+
+	// Validate that the decoded event matches the provided metadata.
+	if mintEvent.BlockHeight() != rpcLeaf.BlockHeight {
+		return nil, fmt.Errorf("block height mismatch: "+
+			"decoded=%d, provided=%d", mintEvent.BlockHeight(),
+			rpcLeaf.BlockHeight)
+	}
+
+	return &mintEvent, nil
+}
+
+// unmarshalBurnSupplyLeaf converts an RPC SupplyLeafEntry into a NewBurnEvent.
+func unmarshalBurnSupplyLeaf(
+	rpcLeaf *unirpc.SupplyLeafEntry) (*supplycommit.NewBurnEvent, error) {
+
+	if rpcLeaf == nil {
+		return nil, fmt.Errorf("supply leaf entry is nil")
+	}
+
+	if rpcLeaf.LeafKey == nil {
+		return nil, fmt.Errorf("supply leaf key is nil")
+	}
+
+	if rpcLeaf.LeafNode == nil {
+		return nil, fmt.Errorf("supply leaf node is nil")
+	}
+
+	if len(rpcLeaf.RawLeaf) == 0 {
+		return nil, fmt.Errorf("missing RawLeaf data for burn event")
+	}
+
+	// Create and decode the burn leaf from raw leaf bytes.
+	var burnLeaf universe.BurnLeaf
+	err := burnLeaf.Decode(bytes.NewReader(rpcLeaf.RawLeaf))
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode burn leaf: %w", err)
+	}
+
+	burnEvent := &supplycommit.NewBurnEvent{
+		BurnLeaf: burnLeaf,
+	}
+
+	// Validate that the decoded event matches the provided metadata.
+	if burnEvent.BlockHeight() != rpcLeaf.BlockHeight {
+		return nil, fmt.Errorf("block height mismatch: "+
+			"decoded=%d, provided=%d", burnEvent.BlockHeight(),
+			rpcLeaf.BlockHeight)
+	}
+
+	return burnEvent, nil
+}
+
+// unmarshalIgnoreSupplyLeaf converts an RPC SupplyLeafEntry into a
+// NewIgnoreEvent.
+func unmarshalIgnoreSupplyLeaf(
+	rpcLeaf *unirpc.SupplyLeafEntry) (*supplycommit.NewIgnoreEvent, error) {
+
+	if rpcLeaf == nil {
+		return nil, fmt.Errorf("supply leaf entry is nil")
+	}
+
+	if rpcLeaf.LeafKey == nil {
+		return nil, fmt.Errorf("supply leaf key is nil")
+	}
+
+	if rpcLeaf.LeafNode == nil {
+		return nil, fmt.Errorf("supply leaf node is nil")
+	}
+
+	if len(rpcLeaf.RawLeaf) == 0 {
+		return nil, fmt.Errorf("missing RawLeaf data for ignore event")
+	}
+
+	var signedIgnoreTuple universe.SignedIgnoreTuple
+	err := signedIgnoreTuple.Decode(bytes.NewReader(rpcLeaf.RawLeaf))
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode signed ignore "+
+			"tuple: %w", err)
+	}
+
+	ignoreEvent := &supplycommit.NewIgnoreEvent{
+		SignedIgnoreTuple: signedIgnoreTuple,
+	}
+
+	// Validate that the decoded event matches the provided metadata.
+	if ignoreEvent.BlockHeight() != rpcLeaf.BlockHeight {
+		return nil, fmt.Errorf("block height mismatch: "+
+			"decoded=%d, provided=%d", ignoreEvent.BlockHeight(),
+			rpcLeaf.BlockHeight)
+	}
+
+	return ignoreEvent, nil
+}
+
+// marshalSupplyUpdateEvent converts a SupplyUpdateEvent into an RPC
+// SupplyLeafEntry.
+func marshalSupplyUpdateEvent(
+	leafEntry supplycommit.SupplyUpdateEvent) (*unirpc.SupplyLeafEntry,
+	error) {
+
+	leafNode, err := leafEntry.UniverseLeafNode()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get universe leaf node "+
+			"from leaf entry: %w", err)
+	}
+
+	leafKey := leafEntry.UniverseLeafKey()
+
+	outPoint := leafKey.LeafOutPoint()
+	rpcOutPoint := unirpc.Outpoint{
+		HashStr: outPoint.Hash.String(),
+		Index:   int32(outPoint.Index),
+	}
+
+	// Encode the leaf as a byte slice.
+	var leafBuf bytes.Buffer
+	err = leafEntry.Encode(&leafBuf)
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode leaf entry: %w", err)
+	}
+
+	return &unirpc.SupplyLeafEntry{
+		LeafKey: &unirpc.SupplyLeafKey{
+			Outpoint: &rpcOutPoint,
+			ScriptKey: schnorr.SerializePubKey(
+				leafKey.LeafScriptKey().PubKey,
+			),
+			AssetId: fn.ByteSlice(leafKey.LeafAssetID()),
+		},
+		LeafNode:    marshalMssmtNode(leafNode),
+		BlockHeight: leafEntry.BlockHeight(),
+		RawLeaf:     leafBuf.Bytes(),
+	}, nil
+}
+
+// unmarshalSupplyCommitChainData converts an RPC SupplyCommitChainData into
+// both a supplycommit.RootCommitment and supplycommit.ChainProof.
+func unmarshalSupplyCommitChainData(
+	rpcData *unirpc.SupplyCommitChainData) (*supplycommit.RootCommitment,
+	error) {
+
+	if rpcData == nil {
+		return nil, fmt.Errorf("supply commit chain data is nil")
+	}
+
+	var txn wire.MsgTx
+	err := txn.Deserialize(bytes.NewReader(rpcData.Txn))
+	if err != nil {
+		return nil, fmt.Errorf("unable to deserialize transaction: %w",
+			err)
+	}
+
+	internalKey, err := btcec.ParsePubKey(rpcData.InternalKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse internal key: %w", err)
+	}
+
+	outputKey, err := btcec.ParsePubKey(rpcData.OutputKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse output key: %w", err)
+	}
+
+	// Convert supply root hash.
+	if len(rpcData.SupplyRootHash) != 32 {
+		return nil, fmt.Errorf("invalid supply root hash size: "+
+			"expected %d, got %d", 32, len(rpcData.SupplyRootHash))
+	}
+	var supplyRootHash mssmt.NodeHash
+	copy(supplyRootHash[:], rpcData.SupplyRootHash)
+
+	// Create commitment block from the hash.
+	var commitmentBlock fn.Option[supplycommit.CommitmentBlock]
+	if len(rpcData.BlockHash) > 0 {
+		if len(rpcData.BlockHash) != chainhash.HashSize {
+			return nil, fmt.Errorf("invalid block hash size: "+
+				"expected %d, got %d", chainhash.HashSize,
+				len(rpcData.BlockHash))
+		}
+		var blockHash chainhash.Hash
+		copy(blockHash[:], rpcData.BlockHash)
+
+		commitmentBlock = fn.Some(supplycommit.CommitmentBlock{
+			Height:  rpcData.BlockHeight,
+			Hash:    blockHash,
+			TxIndex: rpcData.TxIndex,
+		})
+	}
+
+	rootCommitment := &supplycommit.RootCommitment{
+		Txn:      &txn,
+		TxOutIdx: rpcData.TxOutIdx,
+		InternalKey: keychain.KeyDescriptor{
+			PubKey: internalKey,
+		},
+		OutputKey: outputKey,
+		SupplyRoot: mssmt.NewComputedBranch(
+			supplyRootHash, rpcData.SupplyRootSum,
+		),
+		CommitmentBlock: commitmentBlock,
+	}
+
+	var blockHeader wire.BlockHeader
+	err = blockHeader.Deserialize(bytes.NewReader(rpcData.BlockHeader))
+	if err != nil {
+		return nil, fmt.Errorf("unable to deserialize block header: "+
+			"%w", err)
+	}
+
+	var merkleProof proof.TxMerkleProof
+	err = merkleProof.Decode(bytes.NewReader(rpcData.TxBlockMerkleProof))
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode merkle proof: %w", err)
+	}
+
+	rootCommitment.CommitmentBlock = fn.Some(supplycommit.CommitmentBlock{
+		Height:      rpcData.BlockHeight,
+		Hash:        blockHeader.BlockHash(),
+		TxIndex:     rpcData.TxIndex,
+		BlockHeader: &blockHeader,
+		MerkleProof: &merkleProof,
+	})
+
+	return rootCommitment, nil
+}
+
+// unmarshalSupplyLeaves converts the RPC supply leaves into a SupplyLeaves
+// struct that can be used by the supply commitment verifier.
+func unmarshalSupplyLeaves(issuanceLeaves, burnLeaves,
+	ignoreLeaves []*unirpc.SupplyLeafEntry) (*supplycommit.SupplyLeaves,
+	error) {
+
+	var (
+		supplyLeaves supplycommit.SupplyLeaves
+		err          error
+	)
+	supplyLeaves.IssuanceLeafEntries, err = fn.MapErrWithPtr(
+		issuanceLeaves, unmarshalMintSupplyLeaf,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to unmarshal mint event: %w",
+			err)
+	}
+
+	supplyLeaves.BurnLeafEntries, err = fn.MapErrWithPtr(
+		burnLeaves, unmarshalBurnSupplyLeaf,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to unmarshal burn event: %w",
+			err)
+	}
+
+	supplyLeaves.IgnoreLeafEntries, err = fn.MapErrWithPtr(
+		ignoreLeaves, unmarshalIgnoreSupplyLeaf,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to unmarshal ignore event: %w",
+			err)
+	}
+
+	return &supplyLeaves, nil
+}
+
+// InsertSupplyCommit stores a verified supply commitment for the given
+// asset group in the node's local database.
+func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
+	req *unirpc.InsertSupplyCommitRequest) (
+	*unirpc.InsertSupplyCommitResponse, error) {
+
+	groupPubKey, err := unmarshalGroupKey(
+		req.GetGroupKeyBytes(), req.GetGroupKeyStr(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse group key: %w", err)
+	}
+
+	// Log the operation for debugging purposes.
+	rpcsLog.Debugf("InsertSupplyCommitment called for group key: %x",
+		groupPubKey.SerializeCompressed())
+
+	// Unmarshal the supply commit chain data.
+	rootCommitment, err := unmarshalSupplyCommitChainData(req.ChainData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal chain data: %w",
+			err)
+	}
+
+	if req.SpentCommitmentOutpoint != nil {
+		op, err := rpcutils.UnmarshalOutPoint(
+			req.SpentCommitmentOutpoint,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse spent "+
+				"commitment outpoint: %w", err)
+		}
+
+		rootCommitment.SpentCommitment = fn.Some(op)
+	}
+
+	supplyLeaves, err := unmarshalSupplyLeaves(
+		req.IssuanceLeaves, req.BurnLeaves, req.IgnoreLeaves,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to unmarshal supply leaves: %w",
+			err)
+	}
+
+	rpcsLog.Debugf("Successfully unmarshalled commitment, %d issuance, "+
+		"%d burn, and %d ignore leaves, and chain proof",
+		len(supplyLeaves.IssuanceLeafEntries),
+		len(supplyLeaves.BurnLeafEntries),
+		len(supplyLeaves.IgnoreLeafEntries))
+
+	assetSpec := asset.NewSpecifierFromGroupKey(*groupPubKey)
+	err = r.cfg.SupplyVerifyManager.InsertSupplyCommit(
+		ctx, assetSpec, *rootCommitment, *supplyLeaves,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert supply commitment: %w",
+			err)
+	}
+
+	return &unirpc.InsertSupplyCommitResponse{}, nil
 }
 
 // SubscribeSendAssetEventNtfns registers a subscription to the event
@@ -6667,6 +6957,87 @@ func unmarshalUniverseKey(key *unirpc.UniverseKey) (universe.Identifier,
 	}
 
 	return uniID, leafKey, nil
+}
+
+// unmarshalGroupKey attempts to parse a group key from either the byte slice
+// or hex string form. If the group key is specified in both forms, the byte
+// slice form takes precedence (which usually can't be the case because we use
+// this for `oneof` gRPC fields that can't specify both).
+func unmarshalGroupKey(groupKeyBytes []byte,
+	groupKeyStr string) (*btcec.PublicKey, error) {
+
+	switch {
+	case len(groupKeyBytes) > 0:
+		gk, err := btcec.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing group key: %w",
+				err)
+		}
+
+		return gk, nil
+
+	case len(groupKeyStr) > 0:
+		groupKeyBytes, err := hex.DecodeString(groupKeyStr)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding group key: %w",
+				err)
+		}
+
+		gk, err := btcec.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing group key: %w",
+				err)
+		}
+
+		return gk, nil
+
+	default:
+		return nil, fmt.Errorf("group key unspecified")
+	}
+}
+
+// unmarshalCommitLocator attempts to parse a commitment locator from the
+// RPC form.
+func unmarshalCommitLocator(outpoint, spentOutpoint *taprpc.OutPoint,
+	veryFirst bool) (supplyverifier.CommitLocator, error) {
+
+	var zero supplyverifier.CommitLocator
+
+	// These values come from a gRPC `oneof` field, so only one can be set
+	// at a time.
+	switch {
+	case outpoint != nil:
+		op, err := rpcutils.UnmarshalOutPoint(outpoint)
+		if err != nil {
+			return zero, fmt.Errorf("error parsing outpoint: %w",
+				err)
+		}
+
+		return supplyverifier.CommitLocator{
+			LocatorType: supplyverifier.LocatorTypeOutpoint,
+			Outpoint:    op,
+		}, nil
+
+	case spentOutpoint != nil:
+		op, err := rpcutils.UnmarshalOutPoint(spentOutpoint)
+		if err != nil {
+			return zero, fmt.Errorf("error parsing spent "+
+				"outpoint: %w", err)
+		}
+
+		return supplyverifier.CommitLocator{
+			LocatorType: supplyverifier.LocatorTypeSpentOutpoint,
+			Outpoint:    op,
+		}, nil
+
+	case veryFirst:
+		return supplyverifier.CommitLocator{
+			LocatorType: supplyverifier.LocatorTypeVeryFirst,
+		}, nil
+
+	default:
+		return zero, fmt.Errorf("commitment locator must be set")
+	}
 }
 
 // unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.

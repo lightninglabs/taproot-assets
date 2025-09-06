@@ -2786,8 +2786,9 @@ func UpdateAndMineSupplyCommit(t *testing.T, ctx context.Context,
 // it when the specified condition is met.
 func WaitForSupplyCommit(t *testing.T, ctx context.Context,
 	tapd unirpc.UniverseClient, groupKeyBytes []byte,
+	spentCommitOutpoint fn.Option[wire.OutPoint],
 	condition func(*unirpc.FetchSupplyCommitResponse) bool,
-) *unirpc.FetchSupplyCommitResponse {
+) (*unirpc.FetchSupplyCommitResponse, wire.OutPoint) {
 
 	groupKeyReq := &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
 		GroupKeyBytes: groupKeyBytes,
@@ -2796,12 +2797,30 @@ func WaitForSupplyCommit(t *testing.T, ctx context.Context,
 	var fetchResp *unirpc.FetchSupplyCommitResponse
 	var err error
 
-	require.Eventually(t, func() bool {
-		fetchResp, err = tapd.FetchSupplyCommit(
-			ctx, &unirpc.FetchSupplyCommitRequest{
-				GroupKey: groupKeyReq,
+	// By default, we start the fetch from the very first commitment.
+	// If a spent outpoint is given, we start from there.
+	req := &unirpc.FetchSupplyCommitRequest{
+		GroupKey: groupKeyReq,
+		Locator: &unirpc.FetchSupplyCommitRequest_VeryFirst{
+			VeryFirst: true,
+		},
+	}
+
+	// nolint: lll
+	spentCommitOutpoint.WhenSome(func(outPoint wire.OutPoint) {
+		req = &unirpc.FetchSupplyCommitRequest{
+			GroupKey: groupKeyReq,
+			Locator: &unirpc.FetchSupplyCommitRequest_SpentCommitOutpoint{
+				SpentCommitOutpoint: &taprpc.OutPoint{
+					Txid:        outPoint.Hash[:],
+					OutputIndex: outPoint.Index,
+				},
 			},
-		)
+		}
+	})
+
+	require.Eventually(t, func() bool {
+		fetchResp, err = tapd.FetchSupplyCommit(ctx, req)
 		if err != nil {
 			return false
 		}
@@ -2809,5 +2828,19 @@ func WaitForSupplyCommit(t *testing.T, ctx context.Context,
 		return fetchResp != nil && condition(fetchResp)
 	}, defaultWaitTimeout, time.Second)
 
-	return fetchResp
+	// Return the supply commit outpoint used to fetch the next supply
+	// commitment. The next commitment is retrieved by referencing the
+	// outpoint of the previously spent commitment.
+	require.NotNil(t, fetchResp)
+
+	var msgTx wire.MsgTx
+	err = msgTx.Deserialize(bytes.NewReader(fetchResp.ChainData.Txn))
+	require.NoError(t, err)
+
+	supplyCommitOutpoint := wire.OutPoint{
+		Hash:  msgTx.TxHash(),
+		Index: fetchResp.ChainData.TxOutIdx,
+	}
+
+	return fetchResp, supplyCommitOutpoint
 }
