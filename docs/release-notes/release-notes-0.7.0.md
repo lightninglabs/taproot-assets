@@ -47,6 +47,12 @@
   rounding errors that accumulate when converting between asset units and
   millisatoshis across multiple HTLCs.
 
+- [Fixed a blocking startup issue where the server would hang during
+  initialization](https://github.com/lightninglabs/taproot-assets/pull/1780).
+  The `ExtraBudgetForInputs` function was refactored to be callable without
+  requiring a fully initialized AuxSweeper, allowing sweep operations to proceed
+  during server startup.
+
 # New Features
 
 ## Functional Enhancements

@@ -2557,9 +2557,7 @@ func (a *AuxSweeper) DeriveSweepAddr(inputs []input.Input,
 
 // ExtraBudgetForInputs takes a set of inputs and maybe returns an extra budget
 // that should be added to the sweep transaction.
-func (a *AuxSweeper) ExtraBudgetForInputs(
-	inputs []input.Input) lfn.Result[btcutil.Amount] {
-
+func ExtraBudgetForInputs(inputs []input.Input) lfn.Result[btcutil.Amount] {
 	inputsWithBlobs := fn.Filter(inputs, func(i input.Input) bool {
 		return i.ResolutionBlob().IsSome()
 	})
@@ -2579,6 +2577,14 @@ func (a *AuxSweeper) ExtraBudgetForInputs(
 	}
 
 	return lfn.Ok(extraBudget)
+}
+
+// ExtraBudgetForInputs takes a set of inputs and maybe returns an extra budget
+// that should be added to the sweep transaction.
+func (a *AuxSweeper) ExtraBudgetForInputs(
+	inputs []input.Input) lfn.Result[btcutil.Amount] {
+
+	return ExtraBudgetForInputs(inputs)
 }
 
 // NotifyBroadcast is used to notify external callers of the broadcast of a
