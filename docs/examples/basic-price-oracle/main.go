@@ -306,6 +306,7 @@ func (p *RpcPriceOracleServer) QueryAssetRates(_ context.Context,
 				Error: &oraclerpc.QueryAssetRatesErrResponse{
 					Message: "unsupported payment asset, " +
 						"only BTC is supported",
+					Code: 1,
 				},
 			},
 		}, nil
@@ -326,6 +327,7 @@ func (p *RpcPriceOracleServer) QueryAssetRates(_ context.Context,
 			Result: &oraclerpc.QueryAssetRatesResponse_Error{
 				Error: &oraclerpc.QueryAssetRatesErrResponse{
 					Message: "unsupported subject asset",
+					Code: 1,
 				},
 			},
 		}, nil
