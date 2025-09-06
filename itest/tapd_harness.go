@@ -238,6 +238,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	case len(opts.oracleServerAddress) > 0:
 		tapCfg.Experimental.Rfq.PriceOracleAddress =
 			opts.oracleServerAddress
+		tapCfg.Experimental.Rfq.PriceOracleTLSInsecure = true
 
 	default:
 		// Set the experimental config for the RFQ service.
