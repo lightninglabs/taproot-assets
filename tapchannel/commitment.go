@@ -651,7 +651,7 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	// Next, we can convert the allocations to auxiliary leaves and from
 	// those construct our Commitment struct that will in the end also hold
 	// our proof suffixes.
-	newCommitment, err := ToCommitment(allocations, vPackets)
+	newCommitment, err := ToCommitment(allocations, vPackets, stxo)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to convert to commitment: "+
 			"%w", err)
@@ -1155,7 +1155,7 @@ func LeavesFromTapscriptScriptTree(
 
 // ToCommitment converts the allocations to a Commitment struct.
 func ToCommitment(allocations []*tapsend.Allocation,
-	vPackets []*tappsbt.VPacket) (*cmsg.Commitment, error) {
+	vPackets []*tappsbt.VPacket, stxo bool) (*cmsg.Commitment, error) {
 
 	var (
 		localAssets   []*cmsg.AssetOutput
@@ -1278,7 +1278,7 @@ func ToCommitment(allocations []*tapsend.Allocation,
 
 	return cmsg.NewCommitment(
 		localAssets, remoteAssets, outgoingHtlcs, incomingHtlcs,
-		auxLeaves, false,
+		auxLeaves, stxo,
 	), nil
 }
 
