@@ -453,13 +453,17 @@ type Commitment struct {
 
 	// AuxLeaves are the auxiliary leaves that correspond to the commitment.
 	AuxLeaves tlv.RecordT[tlv.TlvType4, AuxLeaves]
+
+	// STXO is a flag indicating whether this commitment supports stxo
+	// proofs.
+	STXO tlv.RecordT[tlv.TlvType5, bool]
 }
 
 // NewCommitment creates a new Commitment record with the given local and remote
 // assets, and incoming and outgoing HTLCs.
 func NewCommitment(localAssets, remoteAssets []*AssetOutput, outgoingHtlcs,
 	incomingHtlcs map[input.HtlcIndex][]*AssetOutput,
-	auxLeaves lnwallet.CommitAuxLeaves) *Commitment {
+	auxLeaves lnwallet.CommitAuxLeaves, stxo bool) *Commitment {
 
 	return &Commitment{
 		LocalAssets: tlv.NewRecordT[tlv.TlvType0](
@@ -485,6 +489,7 @@ func NewCommitment(localAssets, remoteAssets []*AssetOutput, outgoingHtlcs,
 				auxLeaves.IncomingHtlcLeaves,
 			),
 		),
+		STXO: tlv.NewPrimitiveRecord[tlv.TlvType5](stxo),
 	}
 }
 
@@ -496,6 +501,7 @@ func (c *Commitment) records() []tlv.Record {
 		c.OutgoingHtlcAssets.Record(),
 		c.IncomingHtlcAssets.Record(),
 		c.AuxLeaves.Record(),
+		c.STXO.Record(),
 	}
 }
 
