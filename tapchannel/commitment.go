@@ -1278,7 +1278,7 @@ func ToCommitment(allocations []*tapsend.Allocation,
 
 	return cmsg.NewCommitment(
 		localAssets, remoteAssets, outgoingHtlcs, incomingHtlcs,
-		auxLeaves,
+		auxLeaves, false,
 	), nil
 }
 
