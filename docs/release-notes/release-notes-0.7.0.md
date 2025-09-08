@@ -149,6 +149,14 @@
   controls whether the peer's identity public key is sent to the local price
   oracle when querying asset price rates.
 
+- Tap channels now use
+  [feature bits](https://github.com/lightninglabs/taproot-assets/pull/1748), in
+  order to provide a safe way to upgrade the channels into using new features
+  without breaking backwards compatibility. This way a new feature will become
+  active over a channel only when both peers decide to use it. When funding a
+  channel or upon reconnection we check that the required features are supported
+  by the remote party before proceeding.
+
 ## RPC Additions
 
 - The [price oracle RPC calls now have an intent, optional peer ID and metadata
