@@ -45,9 +45,9 @@ func unpackBits(bytes []byte) []bool {
 	return bits
 }
 
-// txSpendsPrevOut returns whether the given prevout is spent by the given
+// TxSpendsPrevOut returns whether the given prevout is spent by the given
 // transaction.
-func txSpendsPrevOut(tx *wire.MsgTx, prevOut *wire.OutPoint) bool {
+func TxSpendsPrevOut(tx *wire.MsgTx, prevOut *wire.OutPoint) bool {
 	for _, txIn := range tx.TxIn {
 		if txIn.PreviousOutPoint == *prevOut {
 			return true

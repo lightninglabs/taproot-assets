@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -207,23 +208,33 @@ func insertIntoTree(tree mssmt.Tree, leafKey [32]byte,
 	return tree.Insert(ctx, leafKey, leafValue)
 }
 
-// applyTreeUpdates takes the set of pending updates, and applies them to the
+// ApplyTreeUpdates takes the set of pending updates, and applies them to the
 // given supply trees. It returns a new map containing the updated trees.
-func applyTreeUpdates(supplyTrees SupplyTrees,
+func ApplyTreeUpdates(supplyTrees SupplyTrees,
 	pendingUpdates []SupplyUpdateEvent) (SupplyTrees, error) {
 
 	ctx := context.Background()
 
 	// Create a copy of the input map to avoid mutating the original.
 	updatedSupplyTrees := make(SupplyTrees)
-	for k, v := range supplyTrees {
-		// Create a new tree for each entry in the map.
+
+	// To ensure consistency, we'll create a new empty tree for any subtree
+	// types that don't exist in the given subtree map.
+	for _, subtreeType := range AllSupplySubTrees {
+		subtree, exists := supplyTrees[subtreeType]
+		if !exists {
+			updatedSupplyTrees[subtreeType] =
+				mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+			continue
+		}
+
+		// Copy existing subtree to the new map.
 		newTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
-		if err := v.Copy(ctx, newTree); err != nil {
+		if err := subtree.Copy(ctx, newTree); err != nil {
 			return nil, fmt.Errorf("unable to copy tree: %w", err)
 		}
 
-		updatedSupplyTrees[k] = newTree
+		updatedSupplyTrees[subtreeType] = newTree
 	}
 
 	// TODO(roasbeef): make new copy routine, passes in tree to copy into
@@ -260,6 +271,44 @@ func applyTreeUpdates(supplyTrees SupplyTrees,
 	}
 
 	return updatedSupplyTrees, nil
+}
+
+// UpdateRootSupplyTree takes the given root supply tree, and updates it with
+// the set of subtrees. It returns a new tree instance with the updated values.
+func UpdateRootSupplyTree(ctx context.Context, rootTree mssmt.Tree,
+	subTrees SupplyTrees) (mssmt.Tree, error) {
+
+	updatedRoot := rootTree
+
+	// Now we'll insert/update each of the read subtrees into the root
+	// supply tree.
+	for treeType, subTree := range subTrees {
+		subTreeRoot, err := subTree.Root(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch "+
+				"sub-tree root: %w", err)
+		}
+
+		if subTreeRoot.NodeSum() == 0 {
+			continue
+		}
+
+		rootTreeLeaf := mssmt.NewLeafNode(
+			lnutils.ByteSlice(subTreeRoot.NodeHash()),
+			subTreeRoot.NodeSum(),
+		)
+
+		rootTreeKey := treeType.UniverseKey()
+		updatedRoot, err = insertIntoTree(
+			updatedRoot, rootTreeKey, rootTreeLeaf,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert "+
+				"sub-tree into root supply tree: %w", err)
+		}
+	}
+
+	return updatedRoot, nil
 }
 
 // ProcessEvent processes incoming events for the CommitTreeCreateState. From
@@ -323,7 +372,7 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 		//
 		// TODO(roasbeef): sanity check on population of map?
 		oldSupplyTrees, err := env.TreeView.FetchSubTrees(
-			ctx, env.AssetSpec,
+			ctx, env.AssetSpec, fn.None[uint32](),
 		).Unpack()
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch old sub "+
@@ -332,7 +381,7 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 
 		// Next, based on the type of event, we'll create a new key+leaf
 		// to insert into the respective sub-tree.
-		newSupplyTrees, err := applyTreeUpdates(
+		newSupplyTrees, err := ApplyTreeUpdates(
 			oldSupplyTrees, pendingUpdates,
 		)
 		if err != nil {
@@ -351,33 +400,12 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 				"supply tree: %w", err)
 		}
 
-		// Now we'll insert/update each of the read sub-trees into the
-		// root supply tree.
-		for treeType, subTree := range newSupplyTrees {
-			subTreeRoot, err := subTree.Root(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("unable to fetch "+
-					"sub-tree root: %w", err)
-			}
-
-			if subTreeRoot.NodeSum() == 0 {
-				continue
-			}
-
-			rootTreeLeaf := mssmt.NewLeafNode(
-				lnutils.ByteSlice(subTreeRoot.NodeHash()),
-				subTreeRoot.NodeSum(),
-			)
-
-			rootTreeKey := treeType.UniverseKey()
-			rootSupplyTree, err = insertIntoTree(
-				rootSupplyTree, rootTreeKey, rootTreeLeaf,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to insert "+
-					"sub-tree into root supply tree: %w",
-					err)
-			}
+		rootSupplyTree, err = UpdateRootSupplyTree(
+			ctx, rootSupplyTree, newSupplyTrees,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to update root "+
+				"supply tree: %w", err)
 		}
 
 		// Construct the state transition object. We'll begin to
@@ -464,6 +492,7 @@ func newRootCommitment(ctx context.Context,
 	// as an input to the new transaction. Pre-commitments are only present
 	// on mint transactions where as the old commitment is the last
 	// commitment that was broadcast.
+	var spentCommitOp fn.Option[wire.OutPoint]
 	oldCommitment.WhenSome(func(r RootCommitment) {
 		logger.WhenSome(func(l btclog.Logger) {
 			l.Infof("Re-using prior commitment as outpoint=%v: %v",
@@ -492,6 +521,8 @@ func newRootCommitment(ctx context.Context,
 			TaprootInternalKey: trBip32Derivation.XOnlyPubKey,
 			TaprootMerkleRoot:  commitTapscriptRoot,
 		})
+
+		spentCommitOp = fn.Some(r.CommitPoint())
 	})
 
 	// TODO(roasbef): do CreateTaprootSignature instead?
@@ -563,11 +594,12 @@ func newRootCommitment(ctx context.Context,
 	//
 	// TODO(roasbeef): use diff internal key?
 	newSupplyCommit := RootCommitment{
-		Txn:         newCommitTx,
-		TxOutIdx:    0,
-		InternalKey: commitInternalKey,
-		OutputKey:   tapOutKey,
-		SupplyRoot:  newSupplyRoot,
+		Txn:             newCommitTx,
+		TxOutIdx:        0,
+		InternalKey:     commitInternalKey,
+		OutputKey:       tapOutKey,
+		SupplyRoot:      newSupplyRoot,
+		SpentCommitment: spentCommitOp,
 	}
 
 	logger.WhenSome(func(l btclog.Logger) {
@@ -1065,13 +1097,68 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 
 		prefixedLog.Infof("Finalizing supply commitment transition")
 
+		// Insert the finalized supply transition into the remote
+		// universe server via the syncer.
+		chainProof, err := c.SupplyTransition.ChainProof.UnwrapOrErr(
+			fmt.Errorf("supply transition in finalize state " +
+				"must have chain proof"),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Retrieve latest canonical universe list from the latest
+		// metadata for the asset group.
+		metadata, err := FetchLatestAssetMetadata(
+			ctx, env.AssetLookup, env.AssetSpec,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch latest asset "+
+				"metadata: %w", err)
+		}
+
+		// Insert the supply commitment into the remote universes. This
+		// call should block until push is complete.
+		canonicalUniverses := metadata.CanonicalUniverses.UnwrapOr(
+			[]url.URL{},
+		)
+
+		supplyLeaves, err := NewSupplyLeavesFromEvents(
+			c.SupplyTransition.PendingUpdates,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create "+
+				"supply leaves from pending updates: %w", err)
+		}
+
+		serverErrors, err := env.SupplySyncer.PushSupplyCommitment(
+			ctx, env.AssetSpec, c.SupplyTransition.NewCommitment,
+			supplyLeaves, chainProof, canonicalUniverses,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert "+
+				"supply commitment into remote universe "+
+				"server via syncer: %w", err)
+		}
+
+		// Log any per-server errors but continue with the operation.
+		//
+		// TODO(ffranr): Handle the case where we fail to push to
+		//  all servers. Also, if push fails because of
+		//  ErrPrevCommitmentNotFound then we need to sync older
+		//  commitments first.
+		for serverHost, serverErr := range serverErrors {
+			prefixedLog.Warnf("Failed to push supply commitment "+
+				"to server %s: %v", serverHost, serverErr)
+		}
+
 		// At this point, the commitment has been confirmed on disk, so
 		// we can update: the state machine state on disk, and swap in
 		// all the new supply tree information.
 		//
 		// First, we'll update the supply state on disk. This way when
 		// we restart his is idempotent.
-		err := env.StateLog.ApplyStateTransition(
+		err = env.StateLog.ApplyStateTransition(
 			ctx, env.AssetSpec, c.SupplyTransition,
 		)
 		if err != nil {

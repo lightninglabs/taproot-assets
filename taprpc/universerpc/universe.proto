@@ -187,6 +187,14 @@ service Universe {
     */
     rpc FetchSupplyLeaves (FetchSupplyLeavesRequest)
         returns (FetchSupplyLeavesResponse);
+
+    /* tapcli: `universe supplycommit insert`
+    InsertSupplyCommit inserts a supply commitment for a specific asset
+    group. This includes the commitment details, supply leaves (issuance, burn,
+    and ignore), and chain proof that proves the commitment has been mined.
+    */
+    rpc InsertSupplyCommit (InsertSupplyCommitRequest)
+        returns (InsertSupplyCommitResponse);
 }
 
 message MultiverseRootRequest {
@@ -796,17 +804,25 @@ message FetchSupplyCommitRequest {
         string group_key_str = 2;
     }
 
-    // Optional: A list of issuance leaf keys. For each key in this list,
-    // the endpoint will generate and return an inclusion proof.
-    repeated bytes issuance_leaf_keys = 3;
+    // Specifies which supply commit to fetch.
+    oneof locator {
+        // Fetch the the supply commitment that created this new commitment
+        // output on chain.
+        taprpc.OutPoint commit_outpoint = 3;
 
-    // Optional: A list of burn leaf keys. For each key in this list,
-    // the endpoint will generate and return an inclusion proof.
-    repeated bytes burn_leaf_keys = 4;
+        // Fetch the supply commitment that spent the specified commitment
+        // output on chain to create a new supply commitment. This can be used
+        // to traverse the chain of supply commitments by watching the spend of
+        // the commitment output.
+        taprpc.OutPoint spent_commit_outpoint = 4;
 
-    // Optional: A list of ignore leaf keys. For each key in this list, the
-    // endpoint will generate and return an inclusion proof.
-    repeated bytes ignore_leaf_keys = 5;
+        // Fetch the very first supply commitment for the asset group. This
+        // returns the initial supply commitment that spent the pre-commitment
+        // output of the very first asset mint of a grouped asset (also known
+        // as the group anchor). This is useful as the starting point to fetch
+        // all supply commitments for a grouped asset one by one.
+        bool very_first = 5;
+    }
 }
 
 message SupplyCommitSubtreeRoot {
@@ -825,57 +841,46 @@ message SupplyCommitSubtreeRoot {
 }
 
 message FetchSupplyCommitResponse {
-    // The supply commitment merkle sum root node for the specified asset.
-    MerkleSumNode supply_commitment_root = 1;
-
-    // The txid of the anchor transaction that commits to the supply
-    // commitment for the specified asset.
-    string anchor_txid = 2;
-
-    // The output index of the anchor transaction that commits to the supply
-    // commitment for the specified asset.
-    uint32 anchor_tx_out_idx = 3;
-
-    // The transaction output taproot internal key of the anchor transaction
-    // that commits to the supply commitment for the specified asset.
-    bytes anchor_tx_out_internal_key = 4;
-
-    // The height of the block at which the supply commitment was anchored.
-    uint32 block_height = 5;
-
-    // The hash of the block at which the supply commitment was anchored.
-    bytes block_hash = 6;
-
-    // The index of the transaction in the block that commits to the supply
-    // commitment.
-    uint32 block_tx_index = 7;
+    // The supply commitment chain data that contains both the commitment and
+    // chain proof information.
+    SupplyCommitChainData chain_data = 1;
 
     // The total number of satoshis in on-chain fees paid by the supply
     // commitment transaction.
-    int64 tx_chain_fees_sats = 8;
+    int64 tx_chain_fees_sats = 2;
 
     // The root of the issuance tree for the specified asset.
-    SupplyCommitSubtreeRoot issuance_subtree_root = 9;
+    SupplyCommitSubtreeRoot issuance_subtree_root = 3;
 
     // The root of the burn tree for the specified asset.
-    SupplyCommitSubtreeRoot burn_subtree_root = 10;
+    SupplyCommitSubtreeRoot burn_subtree_root = 4;
 
     // The root of the ignore tree for the specified asset.
-    SupplyCommitSubtreeRoot ignore_subtree_root = 11;
+    SupplyCommitSubtreeRoot ignore_subtree_root = 5;
 
-    // Inclusion proofs for each issuance leaf key provided in the request.
-    // Each entry corresponds to the key at the same index in
-    // `issuance_leaf_keys`.
-    repeated bytes issuance_leaf_inclusion_proofs = 12;
+    // The issuance leaves that were added by this supply commitment. Does not
+    // include leaves that were already present in the issuance subtree before
+    // the block height at which this supply commitment was anchored.
+    repeated SupplyLeafEntry issuance_leaves = 6;
 
-    // Inclusion proofs for each burn leaf key provided in the request.
-    // Each entry corresponds to the key at the same index in `burn_leaf_keys`.
-    repeated bytes burn_leaf_inclusion_proofs = 13;
+    // The burn leaves that were added by this supply commitment. Does not
+    // include leaves that were already present in the burn subtree before
+    // the block height at which this supply commitment was anchored.
+    repeated SupplyLeafEntry burn_leaves = 7;
 
-    // Inclusion proofs for each ignored leaf key provided in the request.
-    // Each entry corresponds to the key at the same index in
-    // `ignore_leaf_keys`.
-    repeated bytes ignore_leaf_inclusion_proofs = 14;
+    // The ignore leaves that were added by this supply commitment. Does not
+    // include leaves that were already present in the ignore subtree before
+    // the block height at which this supply commitment was anchored.
+    repeated SupplyLeafEntry ignore_leaves = 8;
+
+    // The total outstanding supply of the asset after applying all the supply
+    // changes (issuance, burn, ignore) included in this supply commitment.
+    uint64 total_outstanding_supply = 9;
+
+    // The outpoint of the previous commitment that this new commitment is
+    // spending. This must be set unless this is the very first supply
+    // commitment of a grouped asset.
+    taprpc.OutPoint spent_commitment_outpoint = 10;
 }
 
 message FetchSupplyLeavesRequest {
@@ -895,6 +900,18 @@ message FetchSupplyLeavesRequest {
 
     // The end block height for the range of supply leaves to fetch.
     uint32 block_height_end = 4;
+
+    // Optional: A list of issuance leaf keys. For each key in this list,
+    // the endpoint will generate and return an inclusion proof.
+    repeated bytes issuance_leaf_keys = 5;
+
+    // Optional: A list of burn leaf keys. For each key in this list,
+    // the endpoint will generate and return an inclusion proof.
+    repeated bytes burn_leaf_keys = 6;
+
+    // Optional: A list of ignore leaf keys. For each key in this list, the
+    // endpoint will generate and return an inclusion proof.
+    repeated bytes ignore_leaf_keys = 7;
 }
 
 // SupplyLeafKey identifies a supply leaf entry. It contains the components
@@ -931,4 +948,91 @@ message FetchSupplyLeavesResponse {
     repeated SupplyLeafEntry issuance_leaves = 1;
     repeated SupplyLeafEntry burn_leaves = 2;
     repeated SupplyLeafEntry ignore_leaves = 3;
+
+    // Inclusion proofs for each issuance leaf key provided in the request.
+    // Each entry corresponds to the key at the same index in
+    // `issuance_leaf_keys`.
+    repeated bytes issuance_leaf_inclusion_proofs = 4;
+
+    // Inclusion proofs for each burn leaf key provided in the request.
+    // Each entry corresponds to the key at the same index in `burn_leaf_keys`.
+    repeated bytes burn_leaf_inclusion_proofs = 5;
+
+    // Inclusion proofs for each ignored leaf key provided in the request.
+    // Each entry corresponds to the key at the same index in
+    // `ignore_leaf_keys`.
+    repeated bytes ignore_leaf_inclusion_proofs = 6;
+}
+
+// SupplyCommitChainData represents the on-chain artifacts for a supply
+// commitment update.
+message SupplyCommitChainData {
+    // The raw transaction that created the root commitment.
+    bytes txn = 1;
+
+    // The index of the output in the transaction where the commitment resides.
+    uint32 tx_out_idx = 2;
+
+    // The internal key used to create the commitment output.
+    bytes internal_key = 3;
+
+    // The taproot output key used to create the commitment output.
+    bytes output_key = 4;
+
+    // The root hash of the supply tree that contains the set of
+    // sub-commitments. The sum value of this tree is the outstanding supply
+    // value.
+    bytes supply_root_hash = 5;
+
+    // The sum value of the supply root tree, representing the outstanding
+    // supply amount.
+    uint64 supply_root_sum = 6;
+
+    // The block header of the block that contains the supply commitment
+    // transaction.
+    bytes block_header = 7;
+
+    // The hash of the block that contains the commitment.
+    bytes block_hash = 8;
+
+    // The block height of the block that contains the supply commitment
+    // transaction.
+    uint32 block_height = 9;
+
+    // The merkle proof that proves that the supply commitment transaction is
+    // included in the block.
+    bytes tx_block_merkle_proof = 10;
+
+    // The index of the supply commitment transaction in the block.
+    uint32 tx_index = 11;
+}
+
+message InsertSupplyCommitRequest {
+    // The unique identifier for the target asset group whose supply commitment
+    // is being inserted.
+    oneof group_key {
+        // The 32-byte asset group key specified as raw bytes (gRPC only).
+        bytes group_key_bytes = 1;
+
+        // The 32-byte asset group key encoded as hex string (use this for
+        // REST).
+        string group_key_str = 2;
+    }
+
+    // The supply commitment chain data that contains both the commitment and
+    // chain proof information.
+    SupplyCommitChainData chain_data = 3;
+
+    // The outpoint of the previous commitment that this new commitment is
+    // spending. This must be set unless this is the very first supply
+    // commitment of a grouped asset.
+    taprpc.OutPoint spent_commitment_outpoint = 4;
+
+    // The supply leaves that represent the supply changes for the asset group.
+    repeated SupplyLeafEntry issuance_leaves = 5;
+    repeated SupplyLeafEntry burn_leaves = 6;
+    repeated SupplyLeafEntry ignore_leaves = 7;
+}
+
+message InsertSupplyCommitResponse {
 }

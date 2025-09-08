@@ -2,6 +2,7 @@ package supplycommit
 
 import (
 	"context"
+	"net/url"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -10,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -35,7 +37,8 @@ func (m *mockSupplyTreeView) FetchSubTree(_ context.Context,
 }
 
 func (m *mockSupplyTreeView) FetchSubTrees(_ context.Context,
-	assetSpec asset.Specifier) lfn.Result[SupplyTrees] {
+	assetSpec asset.Specifier,
+	blockHeightEnd fn.Option[uint32]) lfn.Result[SupplyTrees] {
 
 	args := m.Called(assetSpec)
 	return args.Get(0).(lfn.Result[SupplyTrees])
@@ -426,4 +429,68 @@ type mockIgnoreCheckerCache struct {
 
 func (c *mockIgnoreCheckerCache) InvalidateCache(groupKey btcec.PublicKey) {
 	c.Called(groupKey)
+}
+
+// mockAssetLookup is a mock implementation of the AssetLookup interface.
+type mockAssetLookup struct {
+	mock.Mock
+}
+
+func (m *mockAssetLookup) QueryAssetGroupByID(ctx context.Context,
+	assetID asset.ID) (*asset.AssetGroup, error) {
+
+	args := m.Called(ctx, assetID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*asset.AssetGroup), args.Error(1)
+}
+
+func (m *mockAssetLookup) QueryAssetGroupByGroupKey(ctx context.Context,
+	groupKey *btcec.PublicKey) (*asset.AssetGroup, error) {
+
+	args := m.Called(ctx, groupKey)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*asset.AssetGroup), args.Error(1)
+}
+
+func (m *mockAssetLookup) FetchAssetMetaForAsset(ctx context.Context,
+	assetID asset.ID) (*proof.MetaReveal, error) {
+
+	args := m.Called(ctx, assetID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*proof.MetaReveal), args.Error(1)
+}
+
+func (m *mockAssetLookup) FetchInternalKeyLocator(ctx context.Context,
+	rawKey *btcec.PublicKey) (keychain.KeyLocator, error) {
+
+	args := m.Called(ctx, rawKey)
+	return args.Get(0).(keychain.KeyLocator), args.Error(1)
+}
+
+// mockSupplySyncer is a mock implementation of the SupplySyncer interface.
+type mockSupplySyncer struct {
+	mock.Mock
+}
+
+func (m *mockSupplySyncer) PushSupplyCommitment(ctx context.Context,
+	assetSpec asset.Specifier, commitment RootCommitment,
+	updateLeaves SupplyLeaves, chainProof ChainProof,
+	canonicalUniverses []url.URL) (map[string]error, error) {
+
+	args := m.Called(ctx, assetSpec, commitment, updateLeaves, chainProof,
+		canonicalUniverses)
+
+	// Handle both nil and map[string]error return types.
+	var errorMap map[string]error
+	if args.Get(0) != nil {
+		errorMap = args.Get(0).(map[string]error)
+	}
+
+	return errorMap, args.Error(1)
 }

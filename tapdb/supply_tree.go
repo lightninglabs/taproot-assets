@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -196,10 +197,108 @@ func fetchSubTreeInternal(ctx context.Context, db BaseUniverseStore,
 	return memTree, nil
 }
 
-// FetchSubTrees returns copies of all sub-trees (mint, burn, ignore) for the
+// filterSubTree applies filtering to the leaves of a subtree.
+func filterSubTree(ctx context.Context,
+	treeType supplycommit.SupplySubTree, subTree mssmt.Tree,
+	blockHeightEnd fn.Option[uint32]) (mssmt.Tree, error) {
+
+	if blockHeightEnd.IsNone() {
+		// No filtering needed, return the original tree.
+		return subTree, nil
+	}
+
+	// Create a new in-memory tree to copy into.
+	filteredSubTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+	// Create a predicate function to filter leaves based on block height.
+	filterPredicate := func(key [32]byte, leaf mssmt.LeafNode) (bool,
+		error) {
+
+		blockHeightEndVal, err := blockHeightEnd.UnwrapOrErr(
+			fmt.Errorf("block height end not set"),
+		)
+		if err != nil {
+			return false, err
+		}
+
+		// Decode the leaf based on the tree type to extract block
+		// height.
+		switch treeType {
+		case supplycommit.MintTreeType:
+			// For mint trees, decode mint event to get block
+			// height.
+			var mintEvent supplycommit.NewMintEvent
+			err := mintEvent.Decode(bytes.NewReader(leaf.Value))
+			if err != nil {
+				return false, fmt.Errorf("unable to decode "+
+					"mint event: %w", err)
+			}
+
+			// Extract block height directly from the mint event.
+			mintBlockHeight := mintEvent.MintHeight
+
+			// Include the leaf if it's within range.
+			return mintBlockHeight <= blockHeightEndVal, nil
+
+		case supplycommit.BurnTreeType:
+			// For burn trees, decode burn leaf to get block height.
+			var burnLeaf universe.BurnLeaf
+			err := burnLeaf.Decode(bytes.NewReader(leaf.Value))
+			if err != nil {
+				return false, fmt.Errorf("unable to decode "+
+					"burn leaf: %w", err)
+			}
+
+			// Extract block height directly from the burn proof.
+			proofBlockHeight := burnLeaf.BurnProof.BlockHeight
+
+			// Include the leaf if it's within range.
+			return proofBlockHeight <= blockHeightEndVal, nil
+
+		case supplycommit.IgnoreTreeType:
+			// For ignore trees, decode signed ignore tuple to get
+			// block height.
+			var signedIgnoreTuple universe.SignedIgnoreTuple
+			err := signedIgnoreTuple.Decode(
+				bytes.NewReader(leaf.Value),
+			)
+			if err != nil {
+				return false, fmt.Errorf("unable to decode "+
+					"signed ignore tuple: %w", err)
+			}
+
+			// Extract block height directly from the "ignore"
+			// tuple.
+			tupleBlockHeight :=
+				signedIgnoreTuple.IgnoreTuple.Val.BlockHeight
+
+			// Include the leaf if it's within range.
+			return tupleBlockHeight <= blockHeightEndVal, nil
+
+		default:
+			return false, fmt.Errorf("unknown tree type: %v",
+				treeType)
+		}
+	}
+
+	// Copy the persistent tree to the in-memory tree with filtering.
+	err := subTree.CopyFilter(ctx, filteredSubTree, filterPredicate)
+	if err != nil {
+		return nil, fmt.Errorf("unable to copy "+
+			"sub-tree: %w", err)
+	}
+
+	return filteredSubTree, nil
+}
+
+// FetchSubTrees returns copies of all subtrees (mint, burn, ignore) for the
 // given asset spec.
+//
+// If blockHeightEnd is specified, only leaves with a block height less than
+// or equal to the given height are included in the returned subtrees.
 func (s *SupplyTreeStore) FetchSubTrees(ctx context.Context,
-	spec asset.Specifier) lfn.Result[supplycommit.SupplyTrees] {
+	spec asset.Specifier,
+	blockHeightEnd fn.Option[uint32]) lfn.Result[supplycommit.SupplyTrees] {
 
 	groupKey, err := spec.UnwrapGroupKeyOrErr()
 	if err != nil {
@@ -222,7 +321,15 @@ func (s *SupplyTreeStore) FetchSubTrees(ctx context.Context,
 					"sub-tree %v: %w", treeType, fetchErr)
 			}
 
-			trees[treeType] = subTree
+			filteredSubTree, err := filterSubTree(
+				ctx, treeType, subTree, blockHeightEnd,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to filter "+
+					"sub-tree %v: %w", treeType, err)
+			}
+
+			trees[treeType] = filteredSubTree
 		}
 		return nil
 	})
@@ -231,6 +338,30 @@ func (s *SupplyTreeStore) FetchSubTrees(ctx context.Context,
 	}
 
 	return lfn.Ok(trees)
+}
+
+// fetchRootSupplyTreeInternal fetches and copies the root supply tree within
+// an existing database transaction. Returned tree is a copy in memory.
+func fetchRootSupplyTreeInternal(ctx context.Context, db BaseUniverseStore,
+	groupKey *btcec.PublicKey) (mssmt.Tree, error) {
+
+	rootNs := rootSupplyNamespace(groupKey)
+
+	// Create a wrapper for the persistent tree store.
+	persistentStore := newTreeStoreWrapperTx(db, rootNs)
+	persistentTree := mssmt.NewCompactedTree(persistentStore)
+
+	// Create a new in-memory tree to copy into.
+	memTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+	// Copy the persistent tree to the in-memory tree.
+	err := persistentTree.Copy(ctx, memTree)
+	if err != nil {
+		return nil, fmt.Errorf("unable to copy root supply "+
+			"tree %s: %w", rootNs, err)
+	}
+
+	return memTree, nil
 }
 
 // FetchRootSupplyTree returns a copy of the root supply tree for the given
@@ -245,24 +376,13 @@ func (s *SupplyTreeStore) FetchRootSupplyTree(ctx context.Context,
 		)
 	}
 
-	rootNs := rootSupplyNamespace(groupKey)
-
 	var treeCopy mssmt.Tree
 
 	readTx := NewBaseUniverseReadTx()
 	err = s.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
-		// Create a wrapper for the persistent tree store.
-		persistentStore := newTreeStoreWrapperTx(db, rootNs)
-		persistentTree := mssmt.NewCompactedTree(persistentStore)
-
-		// Create a new in-memory tree to copy into.
-		memTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
-
-		// Copy the persistent tree to the in-memory tree.
-		err := persistentTree.Copy(ctx, memTree)
+		memTree, err := fetchRootSupplyTreeInternal(ctx, db, groupKey)
 		if err != nil {
-			return fmt.Errorf("unable to copy root supply "+
-				"tree %s: %w", rootNs, err)
+			return err
 		}
 
 		treeCopy = memTree
@@ -273,6 +393,55 @@ func (s *SupplyTreeStore) FetchRootSupplyTree(ctx context.Context,
 	}
 
 	return lfn.Ok(treeCopy)
+}
+
+// FetchSupplyTrees returns a copy of the root supply tree and subtrees for the
+// given asset spec.
+func (s *SupplyTreeStore) FetchSupplyTrees(ctx context.Context,
+	spec asset.Specifier) (mssmt.Tree, *supplycommit.SupplyTrees, error) {
+
+	groupKey, err := spec.UnwrapGroupKeyOrErr()
+	if err != nil {
+		return nil, nil, fmt.Errorf(
+			"group key must be specified for supply tree: %w", err,
+		)
+	}
+
+	var (
+		rootTree mssmt.Tree
+		subTrees = make(supplycommit.SupplyTrees)
+	)
+
+	readTx := NewBaseUniverseReadTx()
+	err = s.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
+		// Fetch the root supply tree.
+		memTree, err := fetchRootSupplyTreeInternal(ctx, db, groupKey)
+		if err != nil {
+			return err
+		}
+
+		rootTree = memTree
+
+		// Fetch all the subtrees.
+		for _, treeType := range allSupplyTreeTypes {
+			subTree, fetchErr := fetchSubTreeInternal(
+				ctx, db, groupKey, treeType,
+			)
+			if fetchErr != nil {
+				return fmt.Errorf("failed to fetch subtree "+
+					"%v: %w", treeType, fetchErr)
+			}
+
+			subTrees[treeType] = subTree
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to execute db tx: %w", err)
+	}
+
+	return rootTree, &subTrees, nil
 }
 
 // registerMintSupplyInternal inserts a new minting leaf into the mint supply

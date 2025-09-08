@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
+	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
 )
@@ -114,6 +115,10 @@ func SetupLoggers(root *build.SubLoggerManager,
 	AddSubLogger(
 		root, supplycommit.Subsystem, interceptor,
 		supplycommit.UseLogger,
+	)
+	AddSubLogger(
+		root, supplycommit.Subsystem, interceptor,
+		supplyverifier.UseLogger,
 	)
 	AddSubLogger(
 		root, commitment.Subsystem, interceptor, commitment.UseLogger,

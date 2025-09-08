@@ -138,6 +138,16 @@ type BaseUniverseStore interface {
 	QuerySupplyLeavesByHeight(ctx context.Context,
 		arg QuerySupplyLeavesByHeightParams) (
 		[]sqlc.QuerySupplyLeavesByHeightRow, error)
+
+	// InsertSupplySyncerPushLog inserts a supply syncer push log entry to
+	// track a successful push to a remote universe server.
+	InsertSupplySyncerPushLog(ctx context.Context,
+		arg sqlc.InsertSupplySyncerPushLogParams) error
+
+	// FetchSupplySyncerPushLogs fetches all push log entries for
+	// a given asset group, ordered by creation time (newest first).
+	FetchSupplySyncerPushLogs(ctx context.Context,
+		groupKey []byte) ([]sqlc.SupplySyncerPushLog, error)
 }
 
 // getUniverseTreeSum retrieves the sum of a universe tree specified by its
