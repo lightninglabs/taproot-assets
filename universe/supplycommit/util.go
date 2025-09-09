@@ -140,3 +140,26 @@ func CheckSupplyCommitSupport(ctx context.Context, assetLookup AssetLookup,
 
 	return nil
 }
+
+// IsSupplySupported checks whether the asset group for the given asset
+// specifier supports supply commitments. If locallyControlled is true,
+// then we also check that this node can generate supply commitments for it.
+//
+// NOTE: This is a convenience wrapper around CheckSupplyCommitSupport.
+func IsSupplySupported(ctx context.Context, assetLookup AssetLookup,
+	assetSpec asset.Specifier, locallyControlled bool) (bool, error) {
+
+	err := CheckSupplyCommitSupport(
+		ctx, assetLookup, assetSpec, locallyControlled,
+	)
+	switch {
+	case errors.Is(err, ErrSupplyNotSupported):
+		return false, nil
+
+	case err != nil:
+		return false, fmt.Errorf("failed to check asset for supply "+
+			"support: %w", err)
+	}
+
+	return true, nil
+}

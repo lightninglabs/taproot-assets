@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/protofsm"
@@ -42,6 +43,10 @@ type IssuanceSubscriptions interface {
 	// issuance events.
 	RegisterSubscriber(receiver *fn.EventReceiver[fn.Event],
 		deliverExisting bool, _ bool) error
+
+	// RemoveSubscriber removes the given subscriber and also stops it from
+	// processing events.
+	RemoveSubscriber(subscriber *fn.EventReceiver[fn.Event]) error
 }
 
 // ManagerCfg is the configuration for the
@@ -216,12 +221,135 @@ func (m *Manager) Start() error {
 				"state machines: %v", err)
 			return
 		}
+
+		// Start a goroutine to handle universe syncer issuance events.
+		m.ContextGuard.Goroutine(
+			m.MonitorUniSyncEvents, func(err error) {
+				log.Errorf("MonitorUniIssuanceSyncEvents: %v",
+					err)
+			},
+		)
 	})
 	if startErr != nil {
 		return fmt.Errorf("unable to start manager: %w", startErr)
 	}
 
 	return nil
+}
+
+// handleUniSyncEvent handles a single universe syncer event. If the event is an
+// issuance event for an asset group that supports supply commitments, it will
+// ensure that a state machine for the asset group exists, creating and
+// starting it if necessary.
+func (m *Manager) handleUniSyncEvent(event fn.Event) error {
+	// Disregard event if it is not of type
+	// universe.SyncDiffEvent.
+	syncDiffEvent, ok := event.(*universe.SyncDiffEvent)
+	if !ok {
+		return nil
+	}
+
+	// If the sync diff is not a new issuance, we disregard it.
+	universeID := syncDiffEvent.SyncDiff.NewUniverseRoot.ID
+	if universeID.ProofType != universe.ProofTypeIssuance {
+		return nil
+	}
+
+	// If the asset is not a group key asset, we
+	// disregard it.
+	if universeID.GroupKey == nil {
+		return nil
+	}
+
+	// If there are no new leaf proofs, we disregard the sync event.
+	if len(syncDiffEvent.SyncDiff.NewLeafProofs) == 0 {
+		return nil
+	}
+
+	// Get genesis asset ID from the first synced leaf and formulate an
+	// asset specifier.
+	//
+	// TODO(ffranr): Revisit this. We select any asset ID to aid in metdata
+	//  retrieval, but we should be able to do this with just the group key.
+	//  However, QueryAssetGroupByGroupKey currently fails for the asset
+	//  group.
+	assetID := syncDiffEvent.SyncDiff.NewLeafProofs[0].Genesis.ID()
+
+	assetSpec := asset.NewSpecifierOptionalGroupPubKey(
+		assetID, universeID.GroupKey,
+	)
+
+	// Check that the asset group supports supply
+	// commitments.
+	ctx, cancelCtx := m.WithCtxQuitNoTimeout()
+	isSupported, err := supplycommit.IsSupplySupported(
+		ctx, m.cfg.AssetLookup, assetSpec, false,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to check supply support: %w", err)
+	}
+	cancelCtx()
+
+	if !isSupported {
+		return nil
+	}
+
+	// Fetch the state machine for the asset group, creating and starting it
+	// if it doesn't exist.
+	log.Debugf("Ensure supply verifier state machine for asset "+
+		"group due to universe syncer issuance event (asset=%s)",
+		assetSpec.String())
+	_, err = m.fetchStateMachine(assetSpec)
+	if err != nil {
+		return fmt.Errorf("unable to get or create state machine: %w",
+			err)
+	}
+
+	return nil
+}
+
+// MonitorUniSyncEvents registers an event receiver to receive universe
+// syncer issuance events.
+//
+// NOTE: This method must be run as a goroutine.
+func (m *Manager) MonitorUniSyncEvents() error {
+	// Register an event receiver to receive universe syncer events. These
+	// events relate to asset issuance proofs.
+	eventReceiver := fn.NewEventReceiver[fn.Event](
+		fn.DefaultQueueSize,
+	)
+	err := m.cfg.IssuanceSubscriptions.RegisterSubscriber(
+		eventReceiver, false, true,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to register universe syncer "+
+			"issuance event subscriber: %w", err)
+	}
+
+	// Ensure we remove the subscriber when we exit.
+	defer func() {
+		err := m.cfg.IssuanceSubscriptions.RemoveSubscriber(
+			eventReceiver,
+		)
+		if err != nil {
+			log.Errorf("unable to remove universe syncer "+
+				"issuance event subscriber: %v", err)
+		}
+	}()
+
+	for {
+		select {
+		case <-m.Quit:
+			return nil
+
+		case event := <-eventReceiver.NewItemCreated.ChanOut():
+			err := m.handleUniSyncEvent(event)
+			if err != nil {
+				return fmt.Errorf("unable to handle "+
+					"universe issuance sync event: %w", err)
+			}
+		}
+	}
 }
 
 // Stop stops the multi state machine manager, which in turn stops all asset
