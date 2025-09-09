@@ -397,6 +397,7 @@ func (h *supplyCommitTestHarness) expectTreeFetches() {
 func (h *supplyCommitTestHarness) expectCommitmentFetches() {
 	h.mockCommits.On(
 		"UnspentPrecommits", mock.Anything, mock.Anything,
+		mock.Anything,
 	).Return(
 		lfn.Ok[PreCommits](nil),
 	).Once()

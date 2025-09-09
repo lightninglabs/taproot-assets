@@ -66,9 +66,10 @@ type mockCommitmentTracker struct {
 }
 
 func (m *mockCommitmentTracker) UnspentPrecommits(ctx context.Context,
-	assetSpec asset.Specifier) lfn.Result[PreCommits] {
+	assetSpec asset.Specifier,
+	localIssuerOnly bool) lfn.Result[PreCommits] {
 
-	args := m.Called(ctx, assetSpec)
+	args := m.Called(ctx, assetSpec, localIssuerOnly)
 	return args.Get(0).(lfn.Result[PreCommits])
 }
 

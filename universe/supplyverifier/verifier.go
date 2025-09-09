@@ -97,7 +97,7 @@ func (v *Verifier) ensurePrecommitsSpent(ctx context.Context,
 
 	// Fetch all unspent pre-commitment outputs for the asset group.
 	allPreCommits, err := v.cfg.SupplyCommitView.UnspentPrecommits(
-		ctx, assetSpec,
+		ctx, assetSpec, false,
 	).Unpack()
 	if err != nil {
 		return fmt.Errorf("unable to fetch unspent pre-commitments: %w",
