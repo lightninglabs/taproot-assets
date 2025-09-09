@@ -719,7 +719,7 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 		// commitments, the current supply root (which may not exist),
 		// and the new supply root.
 		preCommits, err := env.Commitments.UnspentPrecommits(
-			ctx, env.AssetSpec,
+			ctx, env.AssetSpec, true,
 		).Unpack()
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch "+

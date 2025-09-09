@@ -645,8 +645,8 @@ type CommitmentTracker interface {
 	// UnspentPrecommits returns the set of unspent pre-commitments for a
 	// given asset spec. The asset spec will only specify a group key, and
 	// not also an asset ID.
-	UnspentPrecommits(ctx context.Context,
-		assetSpec asset.Specifier) lfn.Result[PreCommits]
+	UnspentPrecommits(ctx context.Context, assetSpec asset.Specifier,
+		localIssuerOnly bool) lfn.Result[PreCommits]
 
 	// SupplyCommit returns the root commitment for a given asset spec. From
 	// the PoV of the chain, this is a singleton instance.
