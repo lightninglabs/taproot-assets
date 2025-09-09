@@ -194,6 +194,23 @@ WHERE transition_id = @transition_id;
 DELETE FROM supply_update_events
 WHERE transition_id = @transition_id;
 
+-- name: FetchUnspentSupplyPreCommits :many
+-- Fetch unspent supply pre-commitment outputs. Each pre-commitment output
+-- comes from a mint anchor transaction and relates to an asset issuance
+-- where a peer node acted as the issuer. Rows in this table do not relate to an
+-- issuance where the local node acted as the issuer.
+SELECT
+    chain_txns.block_height,
+    chain_txns.raw_tx,
+    pre_commit.outpoint,
+    pre_commit.taproot_internal_key,
+    pre_commit.group_key
+FROM supply_pre_commits pre_commit
+    JOIN chain_txns ON pre_commit.chain_txn_db_id = chain_txns.txn_id
+WHERE
+    pre_commit.group_key = @group_key AND
+    pre_commit.spent_by IS NULL;
+
 -- name: FetchUnspentMintSupplyPreCommits :many
 -- Fetch unspent supply pre-commitment outputs. Each pre-commitment output
 -- comes from a mint anchor transaction and relates to an asset issuance
