@@ -170,6 +170,61 @@ func (q *Queries) FetchUnspentMintSupplyPreCommits(ctx context.Context, groupKey
 	return items, nil
 }
 
+const FetchUnspentSupplyPreCommits = `-- name: FetchUnspentSupplyPreCommits :many
+SELECT
+    chain_txns.block_height,
+    chain_txns.raw_tx,
+    pre_commit.outpoint,
+    pre_commit.taproot_internal_key,
+    pre_commit.group_key
+FROM supply_pre_commits pre_commit
+    JOIN chain_txns ON pre_commit.chain_txn_db_id = chain_txns.txn_id
+WHERE
+    pre_commit.group_key = $1 AND
+    pre_commit.spent_by IS NULL
+`
+
+type FetchUnspentSupplyPreCommitsRow struct {
+	BlockHeight        sql.NullInt32
+	RawTx              []byte
+	Outpoint           []byte
+	TaprootInternalKey []byte
+	GroupKey           []byte
+}
+
+// Fetch unspent supply pre-commitment outputs. Each pre-commitment output
+// comes from a mint anchor transaction and relates to an asset issuance
+// where a peer node acted as the issuer. Rows in this table do not relate to an
+// issuance where the local node acted as the issuer.
+func (q *Queries) FetchUnspentSupplyPreCommits(ctx context.Context, groupKey []byte) ([]FetchUnspentSupplyPreCommitsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchUnspentSupplyPreCommits, groupKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchUnspentSupplyPreCommitsRow
+	for rows.Next() {
+		var i FetchUnspentSupplyPreCommitsRow
+		if err := rows.Scan(
+			&i.BlockHeight,
+			&i.RawTx,
+			&i.Outpoint,
+			&i.TaprootInternalKey,
+			&i.GroupKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FinalizeSupplyCommitTransition = `-- name: FinalizeSupplyCommitTransition :exec
 UPDATE supply_commit_transitions
 SET finalized = TRUE
