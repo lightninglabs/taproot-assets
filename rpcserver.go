@@ -4223,6 +4223,12 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 	req *unirpc.FetchSupplyCommitRequest) (
 	*unirpc.FetchSupplyCommitResponse, error) {
 
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
 	groupPubKey, err := unmarshalGroupKey(
 		req.GetGroupKeyBytes(), req.GetGroupKeyStr(),
 	)
@@ -4793,6 +4799,12 @@ func unmarshalSupplyLeaves(issuanceLeaves, burnLeaves,
 func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
 	req *unirpc.InsertSupplyCommitRequest) (
 	*unirpc.InsertSupplyCommitResponse, error) {
+
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, err
+	}
 
 	groupPubKey, err := unmarshalGroupKey(
 		req.GetGroupKeyBytes(), req.GetGroupKeyStr(),
