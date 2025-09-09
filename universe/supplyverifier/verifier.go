@@ -104,11 +104,12 @@ func (v *Verifier) ensurePrecommitsSpent(ctx context.Context,
 			err)
 	}
 
-	// TODO(ffranr): If commitment.SpentCommitment is none, then we
-	//  should ensure that at least one pre-commitment is spent.
-	//  Before implementing this check, we need to ensure that
-	//  remote issued supply pre-commitments are correctly populated and
-	//  retrieved from the db.
+	// If no supply-commitment spend is recorded, require at least one
+	// unspent mint pre-commitment output for the initial supply commitment.
+	if commitment.SpentCommitment.IsNone() && len(allPreCommits) == 0 {
+		return fmt.Errorf("no unspent supply pre-commitment outputs " +
+			"for the initial supply commitment")
+	}
 
 	// Filter pre-commits to only include those that are at block heights
 	// less than or equal to the commitment's anchor block height. All
