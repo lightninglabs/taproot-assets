@@ -20,13 +20,20 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
 )
 
 type (
 	// UnspentMintPreCommits is an alias for the sqlc type representing an
-	// unspent supply pre-commitment row.
+	// unspent supply pre-commitment row where the local node was the
+	// issuer.
 	UnspentMintPreCommits = sqlc.FetchUnspentMintSupplyPreCommitsRow
+
+	// UnspentPreCommits is an alias for the sqlc type representing an
+	// unspent supply pre-commitment row where a remote node was the
+	// issuer.
+	UnspentPreCommits = sqlc.FetchUnspentSupplyPreCommitsRow
 
 	// SupplyCommit is an alias for the sqlc type.
 	SupplyCommit = sqlc.FetchSupplyCommitRow
@@ -108,6 +115,12 @@ type SupplyCommitStore interface {
 	// node was the issuer.
 	FetchUnspentMintSupplyPreCommits(ctx context.Context,
 		groupKey []byte) ([]UnspentMintPreCommits, error)
+
+	// FetchUnspentSupplyPreCommits fetches all unspent supply
+	// pre-commitments for the specified asset group key where a remote
+	// node was the issuer.
+	FetchUnspentSupplyPreCommits(ctx context.Context,
+		groupKey []byte) ([]UnspentPreCommits, error)
 
 	// FetchSupplyCommit fetches the latest confirmed supply commitment for
 	// a given group key.
@@ -267,7 +280,8 @@ func NewSupplyCommitMachine(db BatchedSupplyCommitStore) *SupplyCommitMachine {
 // asset spec. The asset spec will only specify a group key, and not also an
 // asset ID.
 func (s *SupplyCommitMachine) UnspentPrecommits(ctx context.Context,
-	assetSpec asset.Specifier) lfn.Result[supplycommit.PreCommits] {
+	assetSpec asset.Specifier,
+	localIssuerOnly bool) lfn.Result[supplycommit.PreCommits] {
 
 	groupKey := assetSpec.UnwrapGroupKeyToPtr()
 	if groupKey == nil {
@@ -278,23 +292,25 @@ func (s *SupplyCommitMachine) UnspentPrecommits(ctx context.Context,
 	var preCommits supplycommit.PreCommits
 	readTx := ReadTxOption()
 	dbErr := s.db.ExecTx(ctx, readTx, func(db SupplyCommitStore) error {
-		rows, err := db.FetchUnspentMintSupplyPreCommits(
+		mintRows, err := db.FetchUnspentMintSupplyPreCommits(
 			ctx, groupKeyBytes,
 		)
-		if err != nil {
-			// It's okay if there are no unspent pre-commits.
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil
-			}
-			return fmt.Errorf("error fetching unspent "+
-				"precommits: %w", err)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			// No unspent pre-commits minted by this local node
+			// exist for this group key. Proceed to query for
+			// pre-commits from other issuers.
+
+		case err != nil:
+			return fmt.Errorf("failed to fetch unspent local node "+
+				"issued pre-commit outputs: %w", err)
 		}
 
 		// For each pre-commitment, parse the internal key and group
 		// key, and assemble the final struct as needed by the
 		// interface.
-		preCommits = make(supplycommit.PreCommits, 0, len(rows))
-		for _, row := range rows {
+		preCommits = make(supplycommit.PreCommits, 0, len(mintRows))
+		for _, row := range mintRows {
 			internalKey, err := parseInternalKey(row.InternalKey)
 			if err != nil {
 				return fmt.Errorf("failed to parse "+
@@ -320,6 +336,76 @@ func (s *SupplyCommitMachine) UnspentPrecommits(ctx context.Context,
 				),
 				MintingTxn:  &mintingTx,
 				OutIdx:      uint32(row.TxOutputIndex),
+				InternalKey: internalKey,
+				GroupPubKey: *groupPubKey,
+			}
+			preCommits = append(preCommits, preCommit)
+		}
+
+		// If any pre-commits were found where we acted as the issuer,
+		// return early and skip querying for pre-commits from other
+		// issuers. Also return early if the caller explicitly requested
+		// only pre-commits issued by the local node.
+		if len(preCommits) > 0 || localIssuerOnly {
+			return nil
+		}
+
+		// No pre-commits found where we were the issuer. So now
+		// we'll query for pre-commits from other issuers.
+		rows, err := db.FetchUnspentSupplyPreCommits(
+			ctx, groupKeyBytes,
+		)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			// No unspent pre-commits minted by peer issuer nodes
+			// exist for this group key. Return early.
+			return nil
+
+		case err != nil:
+			return fmt.Errorf("failed to fetch unspent remote "+
+				"node issued pre-commit outputs: %w", err)
+		}
+
+		// Parse rows into pre-commitment structs.
+		for _, row := range rows {
+			pubKey, err := btcec.ParsePubKey(row.TaprootInternalKey)
+			if err != nil {
+				return fmt.Errorf("failed to parse internal "+
+					"raw key: %w", err)
+			}
+
+			internalKey := keychain.KeyDescriptor{
+				PubKey: pubKey,
+			}
+
+			groupPubKey, err := btcec.ParsePubKey(row.GroupKey)
+			if err != nil {
+				return fmt.Errorf("error parsing group key: %w",
+					err)
+			}
+
+			var mintingTx wire.MsgTx
+			err = mintingTx.Deserialize(bytes.NewReader(row.RawTx))
+			if err != nil {
+				return fmt.Errorf("error deserializing "+
+					"minting tx: %w", err)
+			}
+
+			var outpoint wire.OutPoint
+			err = readOutPoint(
+				bytes.NewReader(row.Outpoint), 0, 0, &outpoint,
+			)
+			if err != nil {
+				return fmt.Errorf("%w: %w", ErrReadOutpoint,
+					err)
+			}
+
+			preCommit := supplycommit.PreCommitment{
+				BlockHeight: uint32(
+					row.BlockHeight.Int32,
+				),
+				MintingTxn:  &mintingTx,
+				OutIdx:      outpoint.Index,
 				InternalKey: internalKey,
 				GroupPubKey: *groupPubKey,
 			}

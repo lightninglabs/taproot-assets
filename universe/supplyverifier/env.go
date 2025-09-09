@@ -30,7 +30,8 @@ type SupplyCommitView interface {
 	// UnspentPrecommits returns the set of unspent pre-commitments for a
 	// given asset spec.
 	UnspentPrecommits(ctx context.Context,
-		assetSpec asset.Specifier) lfn.Result[supplycommit.PreCommits]
+		assetSpec asset.Specifier,
+		localIssuerOnly bool) lfn.Result[supplycommit.PreCommits]
 
 	// SupplyCommit returns the latest supply commitment for a given asset
 	// spec.
