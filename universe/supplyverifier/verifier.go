@@ -462,7 +462,7 @@ func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 		return fmt.Errorf("missing group key in issuance leaf")
 	}
 
-	if issuanceProof.Asset.GroupKey == issuanceLeaf.GroupKey {
+	if !issuanceProof.Asset.GroupKey.IsEqual(issuanceLeaf.GroupKey) {
 		return fmt.Errorf("group key in issuance leaf does not match " +
 			"group key in issuance proof")
 	}
