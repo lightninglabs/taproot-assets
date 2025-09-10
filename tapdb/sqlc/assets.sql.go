@@ -1600,37 +1600,38 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 	return items, nil
 }
 
-const FetchMintAnchorUniCommitment = `-- name: FetchMintAnchorUniCommitment :many
+const FetchMintSupplyPreCommits = `-- name: FetchMintSupplyPreCommits :many
 SELECT
-    mint_anchor_uni_commitments.id,
-    mint_anchor_uni_commitments.batch_id,
-    mint_anchor_uni_commitments.tx_output_index,
-    mint_anchor_uni_commitments.group_key,
-    mint_anchor_uni_commitments.spent_by,
+    precommits.id,
+    precommits.batch_id,
+    precommits.tx_output_index,
+    precommits.group_key,
+    precommits.spent_by,
     batch_internal_keys.raw_key AS batch_key,
-    mint_anchor_uni_commitments.taproot_internal_key_id,
+    precommits.taproot_internal_key_id,
+    precommits.outpoint,
     taproot_internal_keys.key_id, taproot_internal_keys.raw_key, taproot_internal_keys.key_family, taproot_internal_keys.key_index
-FROM mint_anchor_uni_commitments
+FROM mint_supply_pre_commits AS precommits
     JOIN internal_keys taproot_internal_keys
-        ON mint_anchor_uni_commitments.taproot_internal_key_id = taproot_internal_keys.key_id
+        ON precommits.taproot_internal_key_id = taproot_internal_keys.key_id
     LEFT JOIN asset_minting_batches batches
-        ON mint_anchor_uni_commitments.batch_id = batches.batch_id
+        ON precommits.batch_id = batches.batch_id
     LEFT JOIN internal_keys batch_internal_keys
         ON batches.batch_id = batch_internal_keys.key_id
 WHERE (
     (batch_internal_keys.raw_key = $1 OR $1 IS NULL) AND
-    (mint_anchor_uni_commitments.group_key = $2 OR $2 IS NULL) AND
+    (precommits.group_key = $2 OR $2 IS NULL) AND
     (taproot_internal_keys.raw_key = $3 OR $3 IS NULL)
 )
 `
 
-type FetchMintAnchorUniCommitmentParams struct {
+type FetchMintSupplyPreCommitsParams struct {
 	BatchKey              []byte
 	GroupKey              []byte
 	TaprootInternalKeyRaw []byte
 }
 
-type FetchMintAnchorUniCommitmentRow struct {
+type FetchMintSupplyPreCommitsRow struct {
 	ID                   int64
 	BatchID              int32
 	TxOutputIndex        int32
@@ -1638,20 +1639,21 @@ type FetchMintAnchorUniCommitmentRow struct {
 	SpentBy              sql.NullInt64
 	BatchKey             []byte
 	TaprootInternalKeyID int64
+	Outpoint             []byte
 	InternalKey          InternalKey
 }
 
-// Fetch records from the mint_anchor_uni_commitments table with optional
+// Fetch records from the supply_pre_commits table with optional
 // filtering.
-func (q *Queries) FetchMintAnchorUniCommitment(ctx context.Context, arg FetchMintAnchorUniCommitmentParams) ([]FetchMintAnchorUniCommitmentRow, error) {
-	rows, err := q.db.QueryContext(ctx, FetchMintAnchorUniCommitment, arg.BatchKey, arg.GroupKey, arg.TaprootInternalKeyRaw)
+func (q *Queries) FetchMintSupplyPreCommits(ctx context.Context, arg FetchMintSupplyPreCommitsParams) ([]FetchMintSupplyPreCommitsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchMintSupplyPreCommits, arg.BatchKey, arg.GroupKey, arg.TaprootInternalKeyRaw)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []FetchMintAnchorUniCommitmentRow
+	var items []FetchMintSupplyPreCommitsRow
 	for rows.Next() {
-		var i FetchMintAnchorUniCommitmentRow
+		var i FetchMintSupplyPreCommitsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.BatchID,
@@ -1660,6 +1662,7 @@ func (q *Queries) FetchMintAnchorUniCommitment(ctx context.Context, arg FetchMin
 			&i.SpentBy,
 			&i.BatchKey,
 			&i.TaprootInternalKeyID,
+			&i.Outpoint,
 			&i.InternalKey.KeyID,
 			&i.InternalKey.RawKey,
 			&i.InternalKey.KeyFamily,
@@ -3237,20 +3240,24 @@ func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOPa
 	return utxo_id, err
 }
 
-const UpsertMintAnchorUniCommitment = `-- name: UpsertMintAnchorUniCommitment :one
+const UpsertMintSupplyPreCommit = `-- name: UpsertMintSupplyPreCommit :one
 WITH target_batch AS (
     -- This CTE is used to fetch the ID of a batch, based on the serialized
     -- internal key associated with the batch.
-    SELECT keys.key_id AS batch_id
-    FROM internal_keys keys
-    WHERE keys.raw_key = $6
+    -- Only yield a batch_id when the batch actually exists.
+    SELECT b.batch_id
+    FROM asset_minting_batches AS b
+             JOIN internal_keys AS k ON k.key_id = b.batch_id
+    WHERE k.raw_key = $6
 )
-INSERT INTO mint_anchor_uni_commitments (
-    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by, outpoint
+INSERT INTO mint_supply_pre_commits (
+    batch_id, tx_output_index, taproot_internal_key_id, group_key, spent_by,
+    outpoint
 )
 VALUES (
-    (SELECT batch_id FROM target_batch), $1, 
-    $2, $3, $4, $5
+    (SELECT batch_id FROM target_batch), $1,
+    $2, $3, $4,
+    $5
 )
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
@@ -3260,7 +3267,7 @@ ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
 RETURNING id
 `
 
-type UpsertMintAnchorUniCommitmentParams struct {
+type UpsertMintSupplyPreCommitParams struct {
 	TxOutputIndex        int32
 	TaprootInternalKeyID int64
 	GroupKey             []byte
@@ -3269,11 +3276,15 @@ type UpsertMintAnchorUniCommitmentParams struct {
 	BatchKey             []byte
 }
 
-// Upsert a record into the mint_anchor_uni_commitments table.
-// If a record with the same batch ID and tx output index already exists, update
-// the existing record. Otherwise, insert a new record.
-func (q *Queries) UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, UpsertMintAnchorUniCommitment,
+// Upsert a supply pre-commit that is tied to a minting batch.
+// The batch is resolved from @batch_key
+// (internal_keys -> asset_minting_batches).
+// The key is (batch_id, tx_output_index), where tx_output_index is the
+// pre-commit output index in the batch’s mint anchor transaction.
+// If a row exists for the same batch and index, update non-key fields only;
+// the batch association is not changed.
+func (q *Queries) UpsertMintSupplyPreCommit(ctx context.Context, arg UpsertMintSupplyPreCommitParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertMintSupplyPreCommit,
 		arg.TxOutputIndex,
 		arg.TaprootInternalKeyID,
 		arg.GroupKey,
@@ -3331,6 +3342,52 @@ func (q *Queries) UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams
 	var script_key_id int64
 	err := row.Scan(&script_key_id)
 	return script_key_id, err
+}
+
+const UpsertSupplyPreCommit = `-- name: UpsertSupplyPreCommit :one
+INSERT INTO supply_pre_commits (
+    group_key,
+    taproot_internal_key,
+    outpoint,
+    chain_txn_db_id,
+    spent_by
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5
+)
+ON CONFLICT(outpoint) DO UPDATE SET
+    group_key            = EXCLUDED.group_key,
+    taproot_internal_key = EXCLUDED.taproot_internal_key,
+    outpoint             = EXCLUDED.outpoint,
+    chain_txn_db_id      = EXCLUDED.chain_txn_db_id,
+    spent_by             = EXCLUDED.spent_by
+RETURNING id
+`
+
+type UpsertSupplyPreCommitParams struct {
+	GroupKey           []byte
+	TaprootInternalKey []byte
+	Outpoint           []byte
+	ChainTxnDbID       int64
+	SpentBy            sql.NullInt64
+}
+
+// Upsert a supply pre-commit output that is not tied to a minting batch.
+func (q *Queries) UpsertSupplyPreCommit(ctx context.Context, arg UpsertSupplyPreCommitParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertSupplyPreCommit,
+		arg.GroupKey,
+		arg.TaprootInternalKey,
+		arg.Outpoint,
+		arg.ChainTxnDbID,
+		arg.SpentBy,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const UpsertTapscriptTreeEdge = `-- name: UpsertTapscriptTreeEdge :one

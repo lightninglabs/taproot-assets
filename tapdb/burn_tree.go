@@ -125,9 +125,16 @@ func insertBurnsInternal(ctx context.Context, db BaseUniverseStore,
 
 		// Call the generic upsert function for the burn sub-tree to
 		// update DB records. MetaReveal is nil for burns.
+		uniProofType, err :=
+			supplycommit.BurnTreeType.ToUniverseProofType()
+		if err != nil {
+			return nil, fmt.Errorf("unable to map burn supply "+
+				"tree type to universe proof type: %w", err)
+		}
+
 		_, err = universeUpsertProofLeaf(
-			ctx, db, subNs, supplycommit.BurnTreeType.String(),
-			groupKey, leafKey, leaf, nil, blockHeight,
+			ctx, db, subNs, uniProofType, groupKey, leafKey, leaf,
+			nil, blockHeight,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to upsert burn "+

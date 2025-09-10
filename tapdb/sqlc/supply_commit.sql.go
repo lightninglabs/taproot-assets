@@ -108,14 +108,14 @@ func (q *Queries) FetchSupplyCommit(ctx context.Context, groupKey []byte) (Fetch
 	return i, err
 }
 
-const FetchUnspentPrecommits = `-- name: FetchUnspentPrecommits :many
+const FetchUnspentMintSupplyPreCommits = `-- name: FetchUnspentMintSupplyPreCommits :many
 SELECT
     mac.tx_output_index,
     ik.key_id, ik.raw_key, ik.key_family, ik.key_index,
     mac.group_key,
     mint_txn.block_height,
     mint_txn.raw_tx
-FROM mint_anchor_uni_commitments mac
+FROM mint_supply_pre_commits mac
 JOIN asset_minting_batches amb ON mac.batch_id = amb.batch_id
 JOIN genesis_points gp ON amb.genesis_id = gp.genesis_id
 JOIN chain_txns mint_txn ON gp.anchor_tx_id = mint_txn.txn_id
@@ -127,7 +127,7 @@ WHERE
     (mac.spent_by IS NULL OR commit_txn.block_hash IS NULL)
 `
 
-type FetchUnspentPrecommitsRow struct {
+type FetchUnspentMintSupplyPreCommitsRow struct {
 	TxOutputIndex int32
 	InternalKey   InternalKey
 	GroupKey      []byte
@@ -135,17 +135,18 @@ type FetchUnspentPrecommitsRow struct {
 	RawTx         []byte
 }
 
-// Fetch unspent pre-commitment outputs. A pre-commitment output is a mint
-// anchor transaction output which relates to the supply commitment feature.
-func (q *Queries) FetchUnspentPrecommits(ctx context.Context, groupKey []byte) ([]FetchUnspentPrecommitsRow, error) {
-	rows, err := q.db.QueryContext(ctx, FetchUnspentPrecommits, groupKey)
+// Fetch unspent supply pre-commitment outputs. Each pre-commitment output
+// comes from a mint anchor transaction and relates to an asset issuance
+// where the local node acted as the issuer.
+func (q *Queries) FetchUnspentMintSupplyPreCommits(ctx context.Context, groupKey []byte) ([]FetchUnspentMintSupplyPreCommitsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchUnspentMintSupplyPreCommits, groupKey)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []FetchUnspentPrecommitsRow
+	var items []FetchUnspentMintSupplyPreCommitsRow
 	for rows.Next() {
-		var i FetchUnspentPrecommitsRow
+		var i FetchUnspentMintSupplyPreCommitsRow
 		if err := rows.Scan(
 			&i.TxOutputIndex,
 			&i.InternalKey.KeyID,
@@ -155,6 +156,61 @@ func (q *Queries) FetchUnspentPrecommits(ctx context.Context, groupKey []byte) (
 			&i.GroupKey,
 			&i.BlockHeight,
 			&i.RawTx,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const FetchUnspentSupplyPreCommits = `-- name: FetchUnspentSupplyPreCommits :many
+SELECT
+    chain_txns.block_height,
+    chain_txns.raw_tx,
+    pre_commit.outpoint,
+    pre_commit.taproot_internal_key,
+    pre_commit.group_key
+FROM supply_pre_commits pre_commit
+    JOIN chain_txns ON pre_commit.chain_txn_db_id = chain_txns.txn_id
+WHERE
+    pre_commit.group_key = $1 AND
+    pre_commit.spent_by IS NULL
+`
+
+type FetchUnspentSupplyPreCommitsRow struct {
+	BlockHeight        sql.NullInt32
+	RawTx              []byte
+	Outpoint           []byte
+	TaprootInternalKey []byte
+	GroupKey           []byte
+}
+
+// Fetch unspent supply pre-commitment outputs. Each pre-commitment output
+// comes from a mint anchor transaction and relates to an asset issuance
+// where a peer node acted as the issuer. Rows in this table do not relate to an
+// issuance where the local node acted as the issuer.
+func (q *Queries) FetchUnspentSupplyPreCommits(ctx context.Context, groupKey []byte) ([]FetchUnspentSupplyPreCommitsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchUnspentSupplyPreCommits, groupKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchUnspentSupplyPreCommitsRow
+	for rows.Next() {
+		var i FetchUnspentSupplyPreCommitsRow
+		if err := rows.Scan(
+			&i.BlockHeight,
+			&i.RawTx,
+			&i.Outpoint,
+			&i.TaprootInternalKey,
+			&i.GroupKey,
 		); err != nil {
 			return nil, err
 		}
@@ -310,21 +366,23 @@ func (q *Queries) LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDa
 	return err
 }
 
-const MarkPreCommitmentSpentByOutpoint = `-- name: MarkPreCommitmentSpentByOutpoint :exec
-UPDATE mint_anchor_uni_commitments
+const MarkMintPreCommitSpentByOutpoint = `-- name: MarkMintPreCommitSpentByOutpoint :exec
+UPDATE mint_supply_pre_commits
 SET spent_by = $1
 WHERE outpoint = $2
     AND spent_by IS NULL
 `
 
-type MarkPreCommitmentSpentByOutpointParams struct {
+type MarkMintPreCommitSpentByOutpointParams struct {
 	SpentByCommitID sql.NullInt64
 	Outpoint        []byte
 }
 
-// Mark a specific pre-commitment output as spent by its outpoint.
-func (q *Queries) MarkPreCommitmentSpentByOutpoint(ctx context.Context, arg MarkPreCommitmentSpentByOutpointParams) error {
-	_, err := q.db.ExecContext(ctx, MarkPreCommitmentSpentByOutpoint, arg.SpentByCommitID, arg.Outpoint)
+// Mark a supply pre-commitment output as spent by its outpoint. The
+// pre-commitment corresponds to an asset issuance where the local node acted as
+// the issuer.
+func (q *Queries) MarkMintPreCommitSpentByOutpoint(ctx context.Context, arg MarkMintPreCommitSpentByOutpointParams) error {
+	_, err := q.db.ExecContext(ctx, MarkMintPreCommitSpentByOutpoint, arg.SpentByCommitID, arg.Outpoint)
 	return err
 }
 

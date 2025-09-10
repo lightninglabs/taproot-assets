@@ -37,6 +37,9 @@ type UpsertAssetStore interface {
 	// DB.
 	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int64, error)
 
+	// FetchChainTx fetches a chain tx from the DB.
+	FetchChainTx(ctx context.Context, txid []byte) (ChainTx, error)
+
 	// UpsertGenesisAsset inserts a new or updates an existing genesis asset
 	// (the base asset info) in the DB, and returns the primary key.
 	//
@@ -97,6 +100,10 @@ type UpsertAssetStore interface {
 	// UpsertTapscriptTreeRootHash inserts a new tapscript tree root hash.
 	UpsertTapscriptTreeRootHash(ctx context.Context,
 		arg TapscriptTreeRootHash) (int64, error)
+
+	// UpsertSupplyPreCommit inserts a new supply pre-commit record.
+	UpsertSupplyPreCommit(ctx context.Context,
+		arg sqlc.UpsertSupplyPreCommitParams) (int64, error)
 }
 
 var (

@@ -90,9 +90,9 @@ type Querier interface {
 	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (FetchInternalKeyLocatorRow, error)
 	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error)
-	// Fetch records from the mint_anchor_uni_commitments table with optional
+	// Fetch records from the supply_pre_commits table with optional
 	// filtering.
-	FetchMintAnchorUniCommitment(ctx context.Context, arg FetchMintAnchorUniCommitmentParams) ([]FetchMintAnchorUniCommitmentRow, error)
+	FetchMintSupplyPreCommits(ctx context.Context, arg FetchMintSupplyPreCommitsParams) ([]FetchMintSupplyPreCommitsRow, error)
 	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchMultiverseRoot(ctx context.Context, namespaceRoot string) (FetchMultiverseRootRow, error)
@@ -114,9 +114,15 @@ type Querier interface {
 	FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error)
 	FetchUniverseSupplyRoot(ctx context.Context, namespaceRoot string) (FetchUniverseSupplyRootRow, error)
 	FetchUnknownTypeScriptKeys(ctx context.Context) ([]FetchUnknownTypeScriptKeysRow, error)
-	// Fetch unspent pre-commitment outputs. A pre-commitment output is a mint
-	// anchor transaction output which relates to the supply commitment feature.
-	FetchUnspentPrecommits(ctx context.Context, groupKey []byte) ([]FetchUnspentPrecommitsRow, error)
+	// Fetch unspent supply pre-commitment outputs. Each pre-commitment output
+	// comes from a mint anchor transaction and relates to an asset issuance
+	// where the local node acted as the issuer.
+	FetchUnspentMintSupplyPreCommits(ctx context.Context, groupKey []byte) ([]FetchUnspentMintSupplyPreCommitsRow, error)
+	// Fetch unspent supply pre-commitment outputs. Each pre-commitment output
+	// comes from a mint anchor transaction and relates to an asset issuance
+	// where a peer node acted as the issuer. Rows in this table do not relate to an
+	// issuance where the local node acted as the issuer.
+	FetchUnspentSupplyPreCommits(ctx context.Context, groupKey []byte) ([]FetchUnspentSupplyPreCommitsRow, error)
 	FinalizeSupplyCommitTransition(ctx context.Context, transitionID int64) error
 	FreezePendingTransition(ctx context.Context, groupKey []byte) error
 	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
@@ -149,8 +155,10 @@ type Querier interface {
 	LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error
 	LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error
 	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
-	// Mark a specific pre-commitment output as spent by its outpoint.
-	MarkPreCommitmentSpentByOutpoint(ctx context.Context, arg MarkPreCommitmentSpentByOutpointParams) error
+	// Mark a supply pre-commitment output as spent by its outpoint. The
+	// pre-commitment corresponds to an asset issuance where the local node acted as
+	// the issuer.
+	MarkMintPreCommitSpentByOutpoint(ctx context.Context, arg MarkMintPreCommitSpentByOutpointParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	QueryAddr(ctx context.Context, arg QueryAddrParams) (QueryAddrRow, error)
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
@@ -233,10 +241,14 @@ type Querier interface {
 	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int64, error)
 	UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int64, error)
 	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int64, error)
-	// Upsert a record into the mint_anchor_uni_commitments table.
-	// If a record with the same batch ID and tx output index already exists, update
-	// the existing record. Otherwise, insert a new record.
-	UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error)
+	// Upsert a supply pre-commit that is tied to a minting batch.
+	// The batch is resolved from @batch_key
+	// (internal_keys -> asset_minting_batches).
+	// The key is (batch_id, tx_output_index), where tx_output_index is the
+	// pre-commit output index in the batch’s mint anchor transaction.
+	// If a row exists for the same batch and index, update non-key fields only;
+	// the batch association is not changed.
+	UpsertMintSupplyPreCommit(ctx context.Context, arg UpsertMintSupplyPreCommitParams) (int64, error)
 	UpsertMultiverseLeaf(ctx context.Context, arg UpsertMultiverseLeafParams) (int64, error)
 	UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error)
 	UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error
@@ -244,6 +256,8 @@ type Querier interface {
 	// Return the ID of the state that was actually set (either inserted or updated),
 	// and the latest commitment ID that was set.
 	UpsertSupplyCommitStateMachine(ctx context.Context, arg UpsertSupplyCommitStateMachineParams) (UpsertSupplyCommitStateMachineRow, error)
+	// Upsert a supply pre-commit output that is not tied to a minting batch.
+	UpsertSupplyPreCommit(ctx context.Context, arg UpsertSupplyPreCommitParams) (int64, error)
 	UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error)
 	UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error)
 	UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error)

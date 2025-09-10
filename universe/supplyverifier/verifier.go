@@ -97,18 +97,19 @@ func (v *Verifier) ensurePrecommitsSpent(ctx context.Context,
 
 	// Fetch all unspent pre-commitment outputs for the asset group.
 	allPreCommits, err := v.cfg.SupplyCommitView.UnspentPrecommits(
-		ctx, assetSpec,
+		ctx, assetSpec, false,
 	).Unpack()
 	if err != nil {
 		return fmt.Errorf("unable to fetch unspent pre-commitments: %w",
 			err)
 	}
 
-	// TODO(ffranr): If commitment.SpentCommitment is none, then we
-	//  should ensure that at least one pre-commitment is spent.
-	//  Before implementing this check, we need to ensure that
-	//  remote issued supply pre-commitments are correctly populated and
-	//  retrieved from the db.
+	// If no supply-commitment spend is recorded, require at least one
+	// unspent mint pre-commitment output for the initial supply commitment.
+	if commitment.SpentCommitment.IsNone() && len(allPreCommits) == 0 {
+		return fmt.Errorf("no unspent supply pre-commitment outputs " +
+			"for the initial supply commitment")
+	}
 
 	// Filter pre-commits to only include those that are at block heights
 	// less than or equal to the commitment's anchor block height. All
@@ -422,7 +423,7 @@ func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 
 	_, err = issuanceProof.Verify(ctx, nil, lookup, vCtx)
 	if err != nil {
-		return fmt.Errorf("burn leaf proof failed verification: %w",
+		return fmt.Errorf("issuance proof failed verification: %w",
 			err)
 	}
 
@@ -439,7 +440,7 @@ func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 	}
 
 	if issuanceLeaf.IsBurn {
-		return fmt.Errorf("IsBurn is enexpectedly true for issuance " +
+		return fmt.Errorf("IsBurn is unexpectedly true for issuance " +
 			"leaf")
 	}
 
@@ -462,7 +463,9 @@ func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 		return fmt.Errorf("missing group key in issuance leaf")
 	}
 
-	if issuanceProof.Asset.GroupKey == issuanceLeaf.GroupKey {
+	proofGroupPubKey := issuanceProof.Asset.GroupKey.GroupPubKey
+	leafGroupPubKey := issuanceLeaf.GroupKey.GroupPubKey
+	if !proofGroupPubKey.IsEqual(&leafGroupPubKey) {
 		return fmt.Errorf("group key in issuance leaf does not match " +
 			"group key in issuance proof")
 	}

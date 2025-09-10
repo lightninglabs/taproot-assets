@@ -194,16 +194,34 @@ WHERE transition_id = @transition_id;
 DELETE FROM supply_update_events
 WHERE transition_id = @transition_id;
 
--- name: FetchUnspentPrecommits :many
--- Fetch unspent pre-commitment outputs. A pre-commitment output is a mint
--- anchor transaction output which relates to the supply commitment feature.
+-- name: FetchUnspentSupplyPreCommits :many
+-- Fetch unspent supply pre-commitment outputs. Each pre-commitment output
+-- comes from a mint anchor transaction and relates to an asset issuance
+-- where a peer node acted as the issuer. Rows in this table do not relate to an
+-- issuance where the local node acted as the issuer.
+SELECT
+    chain_txns.block_height,
+    chain_txns.raw_tx,
+    pre_commit.outpoint,
+    pre_commit.taproot_internal_key,
+    pre_commit.group_key
+FROM supply_pre_commits pre_commit
+    JOIN chain_txns ON pre_commit.chain_txn_db_id = chain_txns.txn_id
+WHERE
+    pre_commit.group_key = @group_key AND
+    pre_commit.spent_by IS NULL;
+
+-- name: FetchUnspentMintSupplyPreCommits :many
+-- Fetch unspent supply pre-commitment outputs. Each pre-commitment output
+-- comes from a mint anchor transaction and relates to an asset issuance
+-- where the local node acted as the issuer.
 SELECT
     mac.tx_output_index,
     sqlc.embed(ik),
     mac.group_key,
     mint_txn.block_height,
     mint_txn.raw_tx
-FROM mint_anchor_uni_commitments mac
+FROM mint_supply_pre_commits mac
 JOIN asset_minting_batches amb ON mac.batch_id = amb.batch_id
 JOIN genesis_points gp ON amb.genesis_id = gp.genesis_id
 JOIN chain_txns mint_txn ON gp.anchor_tx_id = mint_txn.txn_id
@@ -214,9 +232,11 @@ WHERE
     mac.group_key = @group_key AND
     (mac.spent_by IS NULL OR commit_txn.block_hash IS NULL);
 
--- name: MarkPreCommitmentSpentByOutpoint :exec
--- Mark a specific pre-commitment output as spent by its outpoint.
-UPDATE mint_anchor_uni_commitments
+-- name: MarkMintPreCommitSpentByOutpoint :exec
+-- Mark a supply pre-commitment output as spent by its outpoint. The
+-- pre-commitment corresponds to an asset issuance where the local node acted as
+-- the issuer.
+UPDATE mint_supply_pre_commits
 SET spent_by = @spent_by_commit_id
 WHERE outpoint = @outpoint
     AND spent_by IS NULL;

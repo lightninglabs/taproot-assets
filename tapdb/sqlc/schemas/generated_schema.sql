@@ -624,7 +624,14 @@ CREATE TABLE managed_utxos (
     lease_expiry TIMESTAMP
 , root_version SMALLINT);
 
-CREATE TABLE mint_anchor_uni_commitments (
+CREATE INDEX mint_anchor_uni_commitments_outpoint_idx 
+    ON "mint_supply_pre_commits"(outpoint)
+    WHERE outpoint IS NOT NULL;
+
+CREATE UNIQUE INDEX mint_anchor_uni_commitments_unique
+    ON "mint_supply_pre_commits" (batch_id, tx_output_index);
+
+CREATE TABLE "mint_supply_pre_commits" (
     id INTEGER PRIMARY KEY,
 
     -- The ID of the minting batch this universe commitment relates to.
@@ -638,13 +645,6 @@ CREATE TABLE mint_anchor_uni_commitments (
 , taproot_internal_key_id
 BIGINT REFERENCES internal_keys(key_id)
 NOT NULL, spent_by BIGINT REFERENCES supply_commitments(commit_id), outpoint BLOB);
-
-CREATE INDEX mint_anchor_uni_commitments_outpoint_idx 
-    ON mint_anchor_uni_commitments(outpoint)
-    WHERE outpoint IS NOT NULL;
-
-CREATE UNIQUE INDEX mint_anchor_uni_commitments_unique
-    ON mint_anchor_uni_commitments (batch_id, tx_output_index);
 
 CREATE TABLE mssmt_nodes (
     -- hash_key is the hash key by which we reference all nodes.
@@ -891,6 +891,33 @@ CREATE UNIQUE INDEX supply_commitments_outpoint_uk
 
 CREATE INDEX supply_commitments_spent_commitment_idx
     ON supply_commitments(spent_commitment);
+
+CREATE TABLE supply_pre_commits (
+    id INTEGER PRIMARY KEY,
+
+    -- The asset group key for this supply pre-commitment.
+    -- Stored in canonical 32-byte x-only form as defined in BIP340
+    -- (schnorr.SerializePubKey).
+    group_key BLOB NOT NULL CHECK(length(group_key) = 32),
+
+    -- The taproot internal key of the pre-commitment transaction output.
+    taproot_internal_key BLOB NOT NULL CHECK(length(taproot_internal_key) = 33),
+
+    -- The pre-commit outpoint from the mint anchor transaction.
+    outpoint BLOB NOT NULL CHECK(length(outpoint) > 0),
+
+    -- The chain transaction that included this pre-commitment output.
+    chain_txn_db_id BIGINT NOT NULL REFERENCES chain_txns(txn_id),
+
+    -- Reference to supply commitment which spends this pre-commitment.
+    spent_by BIGINT REFERENCES supply_commitments(commit_id)
+);
+
+CREATE INDEX supply_pre_commits_idx_group_key
+    ON supply_pre_commits(group_key);
+
+CREATE UNIQUE INDEX supply_pre_commits_unique_outpoint
+    ON supply_pre_commits(outpoint);
 
 CREATE TABLE supply_syncer_push_log (
     id INTEGER PRIMARY KEY,

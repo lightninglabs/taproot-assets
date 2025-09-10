@@ -242,8 +242,8 @@ func (h *supplyCommitTestHarness) addTestMintAnchorUniCommitment(
 	err = wire.WriteOutPoint(&outpointBuf, 0, 0, &outpoint)
 	require.NoError(h.t, err)
 
-	anchorCommitID, err := h.db.UpsertMintAnchorUniCommitment(
-		h.ctx, sqlc.UpsertMintAnchorUniCommitmentParams{
+	anchorCommitID, err := h.db.UpsertMintSupplyPreCommit(
+		h.ctx, UpsertBatchPreCommitParams{
 			BatchKey:             batchKeyBytes,
 			TxOutputIndex:        txOutputIndex,
 			TaprootInternalKeyID: internalKeyID,
@@ -1705,7 +1705,9 @@ func TestSupplyCommitApplyStateTransition(t *testing.T) {
 
 	// Verify we have all three unspent pre-commitments before the
 	// transition.
-	precommitsRes := h.commitMachine.UnspentPrecommits(h.ctx, h.assetSpec)
+	precommitsRes := h.commitMachine.UnspentPrecommits(
+		h.ctx, h.assetSpec, true,
+	)
 	precommits, err := precommitsRes.Unpack()
 	require.NoError(t, err)
 	require.Len(
@@ -1730,7 +1732,9 @@ func TestSupplyCommitApplyStateTransition(t *testing.T) {
 	// After the first transition, only the two pre-commitments that were
 	// included in the transaction inputs should be marked as spent.
 	// The extra pre-commitment should remain unspent.
-	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, h.assetSpec)
+	precommitsRes = h.commitMachine.UnspentPrecommits(
+		h.ctx, h.assetSpec, true,
+	)
 	precommits, err = precommitsRes.Unpack()
 	require.NoError(t, err)
 	require.Len(
@@ -1760,7 +1764,9 @@ func TestSupplyCommitApplyStateTransition(t *testing.T) {
 	)
 
 	// Verify we have the extra one from before plus the new one.
-	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, h.assetSpec)
+	precommitsRes = h.commitMachine.UnspentPrecommits(
+		h.ctx, h.assetSpec, true,
+	)
 	precommits, err = precommitsRes.Unpack()
 	require.NoError(t, err)
 	require.Len(
@@ -1783,7 +1789,9 @@ func TestSupplyCommitApplyStateTransition(t *testing.T) {
 
 	// After the second transition, the new pre-commitment should also be
 	// spent. Finally, verify that no unspent pre-commitments remain.
-	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, h.assetSpec)
+	precommitsRes = h.commitMachine.UnspentPrecommits(
+		h.ctx, h.assetSpec, true,
+	)
 	precommits, err = precommitsRes.Unpack()
 	require.NoError(t, err)
 	require.Empty(
@@ -1805,7 +1813,7 @@ func TestSupplyCommitUnspentPrecommits(t *testing.T) {
 	)
 
 	// To start with, we shouldn't have any precommits.
-	precommitsRes := h.commitMachine.UnspentPrecommits(h.ctx, spec)
+	precommitsRes := h.commitMachine.UnspentPrecommits(h.ctx, spec, true)
 	precommits, err := precommitsRes.Unpack()
 	require.NoError(t, err)
 	require.Empty(t, precommits)
@@ -1819,7 +1827,7 @@ func TestSupplyCommitUnspentPrecommits(t *testing.T) {
 	)
 
 	// At this point, we should find a single pre commitment on disk.
-	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, spec)
+	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, spec, true)
 	precommits, err = precommitsRes.Unpack()
 	require.NoError(t, err)
 	require.Len(t, precommits, 1)
@@ -1839,7 +1847,7 @@ func TestSupplyCommitUnspentPrecommits(t *testing.T) {
 	)
 
 	// We should now find two pre-commitments.
-	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, spec)
+	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, spec, true)
 	precommits, err = precommitsRes.Unpack()
 	require.NoError(t, err)
 	require.Len(t, precommits, 2)
@@ -1861,7 +1869,7 @@ func TestSupplyCommitUnspentPrecommits(t *testing.T) {
 
 	// As the transaction was confirmed above, we should now only have a
 	// single pre commitment on disk.
-	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, spec)
+	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, spec, true)
 	precommits, err = precommitsRes.Unpack()
 	require.NoError(t, err)
 	require.Len(t, precommits, 1)
@@ -1872,14 +1880,18 @@ func TestSupplyCommitUnspentPrecommits(t *testing.T) {
 	otherSpec := asset.NewSpecifierOptionalGroupPubKey(
 		asset.RandID(t), otherGroupKey,
 	)
-	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, otherSpec)
+	precommitsRes = h.commitMachine.UnspentPrecommits(
+		h.ctx, otherSpec, true,
+	)
 	precommits, err = precommitsRes.Unpack()
 	require.NoError(t, err)
 	require.Empty(t, precommits)
 
 	// Finally, trying with a missing group key should yield an error.
 	emptySpec := asset.NewSpecifierOptionalGroupKey(asset.RandID(t), nil)
-	precommitsRes = h.commitMachine.UnspentPrecommits(h.ctx, emptySpec)
+	precommitsRes = h.commitMachine.UnspentPrecommits(
+		h.ctx, emptySpec, true,
+	)
 	require.ErrorIs(t, precommitsRes.Err(), ErrMissingGroupKey)
 }
 
