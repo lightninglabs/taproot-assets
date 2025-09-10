@@ -423,7 +423,7 @@ func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 
 	_, err = issuanceProof.Verify(ctx, nil, lookup, vCtx)
 	if err != nil {
-		return fmt.Errorf("burn leaf proof failed verification: %w",
+		return fmt.Errorf("issuance proof failed verification: %w",
 			err)
 	}
 
@@ -440,7 +440,7 @@ func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 	}
 
 	if issuanceLeaf.IsBurn {
-		return fmt.Errorf("IsBurn is enexpectedly true for issuance " +
+		return fmt.Errorf("IsBurn is unexpectedly true for issuance " +
 			"leaf")
 	}
 
@@ -463,7 +463,9 @@ func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 		return fmt.Errorf("missing group key in issuance leaf")
 	}
 
-	if issuanceProof.Asset.GroupKey == issuanceLeaf.GroupKey {
+	if issuanceProof.Asset.GroupKey.GroupPubKey !=
+		issuanceLeaf.GroupKey.GroupPubKey {
+
 		return fmt.Errorf("group key in issuance leaf does not match " +
 			"group key in issuance proof")
 	}
