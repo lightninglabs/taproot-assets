@@ -268,6 +268,24 @@ func FetchLatestAssetMetadata(ctx context.Context, lookup AssetLookup,
 
 	var zero proof.MetaReveal
 
+	// If the asset specifier has an asset ID, then we'll use that to
+	// fetch the asset metadata.
+	if assetSpec.HasId() {
+		assetID, err := assetSpec.UnwrapIdOrErr()
+		if err != nil {
+			return zero, err
+		}
+
+		metaReveal, err := lookup.FetchAssetMetaForAsset(ctx, assetID)
+		if err != nil {
+			return zero, fmt.Errorf("faild to fetch asset meta: %w",
+				err)
+		}
+
+		return *metaReveal, nil
+	}
+
+	// Otherwise, we'll need to fetch the asset group using the group key.
 	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
 	if err != nil {
 		return zero, err

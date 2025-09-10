@@ -1339,11 +1339,16 @@ func TestSupplyCommitFinalizeStateTransitions(t *testing.T) {
 			},
 			assetSpec: assetIDSpec,
 		})
+
+		h.expectAssetLookup()
+		h.expectSupplySyncer()
+		h.expectApplyStateTransition()
+
 		h.start()
 		defer h.stopAndAssert()
 
-		expectedErr := errors.New("unable to fetch latest asset " +
-			"metadata: unable to unwrap asset group public key")
+		expectedErr := errors.New("group key must be specified for " +
+			"supply tree: unable to unwrap asset group public key")
 		h.expectFailure(expectedErr)
 
 		finalizeEvent := &FinalizeEvent{}
