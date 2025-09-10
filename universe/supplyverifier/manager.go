@@ -84,6 +84,43 @@ type ManagerCfg struct {
 	ErrChan chan<- error
 }
 
+// Validate validates the ManagerCfg.
+func (m *ManagerCfg) Validate() error {
+	if m.Chain == nil {
+		return fmt.Errorf("chain is required")
+	}
+
+	if m.AssetLookup == nil {
+		return fmt.Errorf("asset lookup is required")
+	}
+
+	if m.Lnd == nil {
+		return fmt.Errorf("lnd is required")
+	}
+
+	if m.SupplyCommitView == nil {
+		return fmt.Errorf("supply commit view is required")
+	}
+
+	if m.SupplyTreeView == nil {
+		return fmt.Errorf("supply tree view is required")
+	}
+
+	if m.GroupFetcher == nil {
+		return fmt.Errorf("group fetcher is required")
+	}
+
+	if m.IssuanceSubscriptions == nil {
+		return fmt.Errorf("issuance subscriptions is required")
+	}
+
+	if m.DaemonAdapters == nil {
+		return fmt.Errorf("daemon adapters is required")
+	}
+
+	return nil
+}
+
 // Manager is a manager for multiple supply verifier state machines, one for
 // each asset group. It is responsible for starting and stopping the state
 // machines, as well as forwarding events to them.
@@ -104,14 +141,18 @@ type Manager struct {
 }
 
 // NewManager creates a new multi state machine manager.
-func NewManager(cfg ManagerCfg) *Manager {
+func NewManager(cfg ManagerCfg) (*Manager, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
 	return &Manager{
 		cfg: cfg,
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
 		},
-	}
+	}, nil
 }
 
 // InitStateMachines initializes state machines for all asset groups that
