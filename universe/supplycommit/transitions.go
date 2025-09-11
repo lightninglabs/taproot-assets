@@ -452,7 +452,7 @@ func newRootCommitment(ctx context.Context,
 ) (*RootCommitment, *psbt.Packet, error) {
 
 	logger.WhenSome(func(l btclog.Logger) {
-		l.Infof("Creating new root commitment, spending %v "+
+		l.Debugf("Creating new root commitment, spending %v "+
 			"pre-commits", len(unspentPreCommits))
 	})
 
@@ -495,7 +495,7 @@ func newRootCommitment(ctx context.Context,
 	var spentCommitOp fn.Option[wire.OutPoint]
 	oldCommitment.WhenSome(func(r RootCommitment) {
 		logger.WhenSome(func(l btclog.Logger) {
-			l.Infof("Re-using prior commitment as outpoint=%v: %v",
+			l.Tracef("Re-using prior commitment as outpoint=%v: %v",
 				r.CommitPoint(), limitSpewer.Sdump(r))
 		})
 
@@ -603,7 +603,7 @@ func newRootCommitment(ctx context.Context,
 	}
 
 	logger.WhenSome(func(l btclog.Logger) {
-		l.Infof("Created new root commitment: %v",
+		l.Tracef("Created new root commitment: %v",
 			limitSpewer.Sdump(newSupplyCommit))
 	})
 
@@ -836,7 +836,7 @@ func (s *CommitTxSignState) ProcessEvent(event Event,
 				"commitment tx: %w", err)
 		}
 
-		prefixedLog.Infof("Signed supply "+
+		prefixedLog.Tracef("Signed supply "+
 			"commitment txn: %v", limitSpewer.Sdump(signedPsbt))
 
 		err = psbt.MaybeFinalizeAll(signedPsbt)
@@ -931,7 +931,7 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 		}
 
 		commitTxid := c.SupplyTransition.NewCommitment.Txn.TxHash()
-		prefixedLog.Infof("Broadcasting supply commitment "+
+		prefixedLog.Tracef("Broadcasting supply commitment "+
 			"txn (txid=%v): %v", commitTxid,
 			limitSpewer.Sdump(c.SupplyTransition.NewCommitment.Txn))
 
@@ -1022,7 +1022,7 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 			TxIndex:     newEvent.TxIndex,
 		})
 
-		prefixedLog.Infof("Supply commitment txn confirmed "+
+		prefixedLog.Tracef("Supply commitment txn confirmed "+
 			"in block %d (hash=%v): %v",
 			newEvent.BlockHeight, newEvent.Block.Header.BlockHash(),
 			limitSpewer.Sdump(c.SupplyTransition.NewCommitment.Txn))
