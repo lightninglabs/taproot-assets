@@ -815,11 +815,16 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			len(fundedPkt.VPackets))
 	}
 
-	// Check if we're doing a full burn. If so, we need to create a tombstone output as change.
-	firstOut := fundedPkt.VPackets[0].Outputs[0]
-	if len(fundedPkt.VPackets[0].Outputs) == 1 &&
-		firstOut.Amount == fundDesc.Amount {
+	// Check if we're doing a full burn (burning all selected assets).
+	// Calculate total amount of selected assets for this burn.
+	var totalSelectedAmount uint64
+	for _, activeAsset := range activeAssets {
+		totalSelectedAmount += activeAsset.Asset.Amount
+	}
 
+	// If we're burning exactly all selected assets and there are no other assets
+	// in the same commitments, we need a tombstone.
+	if totalSelectedAmount == fundDesc.Amount {
 		otherAssets, err := hasOtherAssets(
 			fundedPkt.InputCommitments, fundedPkt.VPackets,
 		)
@@ -829,6 +834,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 
 		if !otherAssets {
 			// Full burn case: Create a tombstone output as change.
+			firstOut := fundedPkt.VPackets[0].Outputs[0]
 			tombstoneOut := &tappsbt.VOutput{
 				Amount:            0,
 				Type:              tappsbt.TypeSplitRoot,

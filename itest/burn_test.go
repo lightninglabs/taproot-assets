@@ -525,7 +525,7 @@ func testBurnGroupedAssets(t *harnessTest) {
 	require.Equal(t.t, assetGroupKey, burn.TweakedGroupKey)
 }
 
-// testFullBurnAssets tests that we can burn the full amount of an asset UTXO, creating a tombstone.
+// testFullBurnAssets tests that we can burn the full amount of an asset UTXO.
 func testFullBurnAssets(t *harnessTest) {
 	minerClient := t.lndHarness.Miner().Client
 	rpcAssets := MintAssetsConfirmBatch(
