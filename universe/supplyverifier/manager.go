@@ -22,6 +22,13 @@ import (
 const (
 	// DefaultTimeout is the context guard default timeout.
 	DefaultTimeout = 30 * time.Second
+
+	// DefaultSpendSyncDelay is the default delay to wait after a spend
+	// notification is received before starting the sync of the
+	// corresponding supply commitment. The delay allows the peer node to
+	// submit the new commitment to the universe server and for it to be
+	// available for retrieval
+	DefaultSpendSyncDelay = 5 * time.Second
 )
 
 // DaemonAdapters is a wrapper around the protofsm.DaemonAdapters interface
@@ -372,11 +379,20 @@ func (m *Manager) Stop() error {
 func (m *Manager) startAssetSM(ctx context.Context,
 	assetSpec asset.Specifier) (*StateMachine, error) {
 
+	log.Infof("Starting supply verifier state machine (asset=%s)",
+		assetSpec.String())
+
 	// If the state machine is not found, create a new one.
 	env := &Environment{
 		AssetSpec:        assetSpec,
 		Chain:            m.cfg.Chain,
 		SupplyCommitView: m.cfg.SupplyCommitView,
+		SupplyTreeView:   m.cfg.SupplyTreeView,
+		AssetLookup:      m.cfg.AssetLookup,
+		Lnd:              m.cfg.Lnd,
+		GroupFetcher:     m.cfg.GroupFetcher,
+		SupplySyncer:     m.cfg.SupplySyncer,
+		SpendSyncDelay:   DefaultSpendSyncDelay,
 		ErrChan:          m.cfg.ErrChan,
 		QuitChan:         m.Quit,
 	}
@@ -386,9 +402,9 @@ func (m *Manager) startAssetSM(ctx context.Context,
 
 	fsmCfg := protofsm.StateMachineCfg[Event, *Environment]{
 		ErrorReporter: &errorReporter,
-		// TODO(ffranr): Set InitialState here.
-		Env:    env,
-		Daemon: m.cfg.DaemonAdapters,
+		InitialState:  &InitState{},
+		Env:           env,
+		Daemon:        m.cfg.DaemonAdapters,
 	}
 	newSm := protofsm.NewStateMachine[Event, *Environment](fsmCfg)
 
@@ -435,6 +451,9 @@ func (m *Manager) fetchStateMachine(assetSpec asset.Specifier) (*StateMachine,
 		// If the state machine exists but is not running, replace it in
 		// the cache with a new running instance.
 	}
+
+	log.Debugf("Creating new supply verifier state machine for "+
+		"group: %x", groupKey.SerializeCompressed())
 
 	ctx, cancel := m.WithCtxQuitNoTimeout()
 	defer cancel()

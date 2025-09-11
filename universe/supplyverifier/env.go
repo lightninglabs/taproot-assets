@@ -3,8 +3,10 @@ package supplyverifier
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -33,10 +35,17 @@ type SupplyCommitView interface {
 		assetSpec asset.Specifier,
 		localIssuerOnly bool) lfn.Result[supplycommit.PreCommits]
 
-	// SupplyCommit returns the latest supply commitment for a given asset
-	// spec.
-	SupplyCommit(ctx context.Context,
-		assetSpec asset.Specifier) supplycommit.RootCommitResp
+	// FetchStartingCommitment fetches the very first supply commitment of
+	// an asset group. If no commitment is found, it returns
+	// ErrCommitmentNotFound.
+	FetchStartingCommitment(ctx context.Context,
+		assetSpec asset.Specifier) (*supplycommit.RootCommitment, error)
+
+	// FetchLatestCommitment fetches the latest supply commitment of an
+	// asset group. If no commitment is found, it returns
+	// ErrCommitmentNotFound.
+	FetchLatestCommitment(ctx context.Context,
+		assetSpec asset.Specifier) (*supplycommit.RootCommitment, error)
 
 	// FetchCommitmentByOutpoint fetches a supply commitment by its outpoint
 	// and group key. If no commitment is found, it returns
@@ -52,12 +61,6 @@ type SupplyCommitView interface {
 		assetSpec asset.Specifier,
 		spentOutpoint wire.OutPoint) (*supplycommit.RootCommitment,
 		error)
-
-	// FetchStartingCommitment fetches the very first supply commitment of
-	// an asset group. If no commitment is found, it returns
-	// ErrCommitmentNotFound.
-	FetchStartingCommitment(ctx context.Context,
-		assetSpec asset.Specifier) (*supplycommit.RootCommitment, error)
 
 	// InsertSupplyCommit inserts a supply commitment into the database.
 	InsertSupplyCommit(ctx context.Context,
@@ -99,6 +102,29 @@ type Environment struct {
 	// SupplyCommitView allows us to look up supply commitments and
 	// pre-commitments.
 	SupplyCommitView SupplyCommitView
+
+	// SupplyTreeView is used to fetch supply leaves by height.
+	SupplyTreeView SupplyTreeView
+
+	// AssetLookup is used to look up asset information such as asset groups
+	// and asset metadata.
+	AssetLookup supplycommit.AssetLookup
+
+	// Lnd is a collection of useful LND clients.
+	Lnd *lndclient.LndServices
+
+	// GroupFetcher is used to fetch asset groups.
+	GroupFetcher tapgarden.GroupFetcher
+
+	// SupplySyncer is used to retrieve supply commitments from a universe
+	// server.
+	SupplySyncer SupplySyncer
+
+	// SpendSyncDelay is the wait time after detecting a spend before
+	// starting the sync of the corresponding supply commitment. The delay
+	// allows the peer node to submit the new commitment to the universe
+	// server and for it to be available for retrieval.
+	SpendSyncDelay time.Duration
 
 	// ErrChan is the channel that is used to send errors to the caller.
 	ErrChan chan<- error

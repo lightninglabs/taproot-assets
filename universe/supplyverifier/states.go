@@ -12,17 +12,6 @@ var (
 	ErrInvalidStateTransition = fmt.Errorf("invalid state transition")
 )
 
-// Event is a special interface used to create the equivalent of a sum-type, but
-// using a "sealed" interface.
-type Event interface {
-	eventSealed()
-}
-
-// Events is a special type constraint that enumerates all the possible protocol
-// events.
-type Events interface {
-}
-
 // StateTransition is the StateTransition type specific to the supply verifier
 // state machine.
 type StateTransition = protofsm.StateTransition[Event, *Environment]
@@ -36,6 +25,59 @@ type State interface {
 	String() string
 }
 
+// InitState is the starting state of the machine. In this state we decide
+// whether to start syncing immediately or wait for spends before syncing.
+type InitState struct {
+}
+
+// stateSealed is a special method that is used to seal the interface.
+func (s *InitState) stateSealed() {}
+
+// IsTerminal returns true if the target state is a terminal state.
+func (s *InitState) IsTerminal() bool {
+	return false
+}
+
+// String returns the name of the state.
+func (s *InitState) String() string {
+	return "InitState"
+}
+
+// SyncVerifyState is the state where we sync proofs related to a
+// supply commitment transaction.
+type SyncVerifyState struct{}
+
+// stateSealed is a special method that is used to seal the interface.
+func (s *SyncVerifyState) stateSealed() {}
+
+// IsTerminal returns true if the target state is a terminal state.
+func (s *SyncVerifyState) IsTerminal() bool {
+	return false
+}
+
+// String returns the name of the state.
+func (s *SyncVerifyState) String() string {
+	return "SyncVerifyState"
+}
+
+// WatchOutputsState waits for one of the watched outputs to be spent.
+// If an output is already spent, we transition immediately.
+// This state avoids wasted sync polling of universe servers.
+type WatchOutputsState struct{}
+
+// stateSealed is a special method that is used to seal the interface.
+func (s *WatchOutputsState) stateSealed() {}
+
+// IsTerminal returns true if the target state is a terminal state.
+func (s *WatchOutputsState) IsTerminal() bool {
+	return false
+}
+
+// String returns the name of the state.
+func (s *WatchOutputsState) String() string {
+	return "WatchOutputsState"
+}
+
 // StateMachine is a state machine that handles verifying the on-chain supply
 // commitment for a given asset.
 type StateMachine = protofsm.StateMachine[Event, *Environment]
@@ -47,16 +89,6 @@ type Config = protofsm.StateMachineCfg[Event, *Environment]
 // FsmState is a type alias for the state of the supply verifier state machine.
 type FsmState = protofsm.State[Event, *Environment]
 
-// FsmEvent is a type alias for the event type of the supply verifier state
-// machine.
-type FsmEvent = protofsm.EmittedEvent[Event]
-
 // StateSub is a type alias for the state subscriber of the supply verifier
 // state machine.
 type StateSub = protofsm.StateSubscriber[Event, *Environment]
-
-// InitEvent is the first event that is sent to the state machine.
-type InitEvent struct{}
-
-// eventSealed is a special method that is used to seal the interface.
-func (i *InitEvent) eventSealed() {}
