@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
+
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
 
