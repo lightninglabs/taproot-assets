@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -53,7 +54,7 @@ func NewSupplyTreeStore(db BatchedUniverseTree) *SupplyTreeStore {
 // rootSupplyNamespace generates the SMT namespace for the root supply tree
 // associated with a given group key.
 func rootSupplyNamespace(groupKey *btcec.PublicKey) string {
-	keyHex := hex.EncodeToString(groupKey.SerializeCompressed())
+	keyHex := hex.EncodeToString(schnorr.SerializePubKey(groupKey))
 	return fmt.Sprintf("%s-%s", supplyRootNS, keyHex)
 }
 
@@ -62,7 +63,7 @@ func rootSupplyNamespace(groupKey *btcec.PublicKey) string {
 func subTreeNamespace(groupKey *btcec.PublicKey,
 	treeType supplycommit.SupplySubTree) string {
 
-	keyHex := hex.EncodeToString(groupKey.SerializeCompressed())
+	keyHex := hex.EncodeToString(schnorr.SerializePubKey(groupKey))
 	return fmt.Sprintf("%s-%s-%s", supplySubTreeNS,
 		treeType.String(), keyHex)
 }
@@ -83,7 +84,7 @@ func upsertSupplyTreeLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	rootID, err := dbTx.UpsertUniverseSupplyRoot(ctx,
 		UpsertUniverseSupplyRoot{
 			NamespaceRoot: rootNs,
-			GroupKey:      groupKey.SerializeCompressed(),
+			GroupKey:      schnorr.SerializePubKey(groupKey),
 		},
 	)
 	if err != nil {

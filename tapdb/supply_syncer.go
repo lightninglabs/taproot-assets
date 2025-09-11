@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -73,7 +74,7 @@ func (s *SupplySyncerStore) LogSupplyCommitPush(ctx context.Context,
 			"syncer log: %w", err)
 	}
 
-	groupKeyBytes := groupKey.SerializeCompressed()
+	groupKeyBytes := schnorr.SerializePubKey(groupKey)
 
 	// Extract the outpoint (transaction ID and output index) from the
 	// commitment.

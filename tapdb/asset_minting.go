@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -433,9 +434,9 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 	// Serialize the group key if it is defined. The key may be unset when
 	// there is no existing group and the minting batch is funded but not
 	// yet sealed.
-	groupPubKey := fn.MapOptionZ(
+	groupPubKeyBytes := fn.MapOptionZ(
 		preCommitOut.GroupPubKey, func(pubKey btcec.PublicKey) []byte {
-			return pubKey.SerializeCompressed()
+			return schnorr.SerializePubKey(&pubKey)
 		},
 	)
 
@@ -453,7 +454,7 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 			BatchKey:             rawBatchKey,
 			TxOutputIndex:        int32(preCommitOut.OutIdx),
 			TaprootInternalKeyID: internalKeyID,
-			GroupKey:             groupPubKey,
+			GroupKey:             groupPubKeyBytes,
 			Outpoint:             outPointBytes,
 		},
 	)
@@ -1375,7 +1376,7 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 			// Parse the group public key from the database.
 			var groupPubKey fn.Option[btcec.PublicKey]
 			if res.GroupKey != nil {
-				gk, err := btcec.ParsePubKey(res.GroupKey)
+				gk, err := schnorr.ParsePubKey(res.GroupKey)
 				if err != nil {
 					return nil, fmt.Errorf("error parsing "+
 						"group public key: %w", err)
@@ -1539,7 +1540,7 @@ func (a *AssetMintingStore) FetchDelegationKey(ctx context.Context,
 	groupKey btcec.PublicKey) (fn.Option[tapgarden.DelegationKey], error) {
 
 	var zero fn.Option[tapgarden.DelegationKey]
-	groupKeyBytes := groupKey.SerializeCompressed()
+	groupKeyBytes := schnorr.SerializePubKey(&groupKey)
 
 	var delegationKey fn.Option[tapgarden.DelegationKey]
 
@@ -1631,7 +1632,7 @@ func upsertPreCommit(ctx context.Context, q PendingAssetStore,
 
 	groupPubKeyBytes := fn.MapOptionZ(
 		preCommit.GroupPubKey, func(groupKey btcec.PublicKey) []byte {
-			return groupKey.SerializeCompressed()
+			return schnorr.SerializePubKey(&groupKey)
 		},
 	)
 
