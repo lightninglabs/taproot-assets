@@ -524,3 +524,46 @@ func testBurnGroupedAssets(t *harnessTest) {
 	require.Equal(t.t, burnNote, burn.Note)
 	require.Equal(t.t, assetGroupKey, burn.TweakedGroupKey)
 }
+
+// testFullBurnAssets tests that we can burn the full amount of an asset UTXO, creating a tombstone.
+func testFullBurnAssets(t *harnessTest) {
+	minerClient := t.lndHarness.Miner().Client
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, minerClient, t.tapd, []*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+		},
+	)
+	require.Len(t.t, rpcAssets, 1)
+	fullAsset := rpcAssets[0]
+	fullAssetID := fullAsset.AssetGenesis.AssetId
+
+	ctxt, cancel := context.WithTimeout(context.Background(), defaultWaitTimeout)
+	defer cancel()
+
+	burnResp, err := t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
+		Asset: &taprpc.BurnAssetRequest_AssetId{
+			AssetId: fullAssetID,
+		},
+		AmountToBurn:     fullAsset.Amount,
+		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+	})
+	require.NoError(t.t, err)
+
+	// Assert the burn succeeded.
+	burnTransfer := burnResp.BurnTransfer
+	require.Len(t.t, burnTransfer.Outputs, 1) // tombstones are not returned.
+
+	// Confirm the burn tx.
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, minerClient, t.tapd, burnTransfer,
+		[][]byte{fullAssetID}, []uint64{fullAsset.Amount}, 0, 1, 1, true,
+	)
+
+	// Balance should now be 0.
+	AssertBalanceByID(t.t, t.tapd, fullAssetID, 0)
+
+	// Check ListBurns shows the full burn.
+	burns := AssertNumBurns(t.t, t.tapd, 1, &taprpc.ListBurnsRequest{AssetId: fullAssetID})
+	burn := burns[0]
+	require.Equal(t.t, fullAsset.Amount, burn.Amount)
+}

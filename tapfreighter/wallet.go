@@ -815,20 +815,11 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			len(fundedPkt.VPackets))
 	}
 
-	// We want to avoid a BTC output being created that just sits there
-	// without an actual commitment in it. So if we are not getting any
-	// change or passive assets in this output, we'll not want to go through
-	// with it.
+	// Check if we're doing a full burn. If so, we need to create a tombstone output as change.
 	firstOut := fundedPkt.VPackets[0].Outputs[0]
 	if len(fundedPkt.VPackets[0].Outputs) == 1 &&
 		firstOut.Amount == fundDesc.Amount {
 
-		// A burn is an interactive transfer. So we don't expect there
-		// to be a tombstone unless there are passive assets in the same
-		// commitment, in which case the wallet has marked the change
-		// output as tappsbt.TypePassiveSplitRoot. If that's not the
-		// case, we'll return as burning all assets in an anchor output
-		// is not supported.
 		otherAssets, err := hasOtherAssets(
 			fundedPkt.InputCommitments, fundedPkt.VPackets,
 		)
@@ -837,7 +828,27 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		}
 
 		if !otherAssets {
-			return nil, ErrFullBurnNotSupported
+			// Full burn case: Create a tombstone output as change.
+			tombstoneOut := &tappsbt.VOutput{
+				Amount:            0,
+				Type:              tappsbt.TypeSplitRoot,
+				Interactive:       true,
+				AnchorOutputIndex: firstOut.AnchorOutputIndex,
+				AssetVersion:      maxVersion,
+				ScriptKey:         asset.NUMSScriptKey,
+			}
+
+			// Add tombstone as first output.
+			vPkt.Outputs = slices.Insert(vPkt.Outputs, 0, tombstoneOut)
+
+			// Re-create the funded packet with the tombstone output.
+			fundedPkt, err = createFundedPacketWithInputs(
+				ctx, f.cfg.AssetProofs, f.cfg.KeyRing, f.cfg.AddrBook, fundDesc,
+				vPkt, selectedCommitments,
+			)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
