@@ -57,11 +57,6 @@ var (
 		0x19, 0xde, 0xeb, 0xc0, 0x34, 0xad, 0x80, 0x66,
 		0x4f, 0xb7, 0x4e, 0xc2, 0xad, 0x6e, 0x11, 0xd7,
 	}
-
-	// ErrFullBurnNotSupported is returned when we attempt to burn all
-	// assets of an anchor output, which is not supported.
-	ErrFullBurnNotSupported = errors.New("burning all assets of an " +
-		"anchor output is not supported")
 )
 
 // Wallet is an interface for funding and signing asset transfers.
@@ -846,12 +841,15 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			}
 
 			// Add tombstone as first output.
-			vPkt.Outputs = slices.Insert(vPkt.Outputs, 0, tombstoneOut)
+			vPkt.Outputs = slices.Insert(
+				vPkt.Outputs, 0, tombstoneOut,
+			)
 
 			// Re-create the packet with the tombstone output.
 			fundedPkt, err = createFundedPacketWithInputs(
-				ctx, f.cfg.AssetProofs, f.cfg.KeyRing, f.cfg.AddrBook,
-				fundDesc, vPkt, selectedCommitments,
+				ctx, f.cfg.AssetProofs, f.cfg.KeyRing,
+				f.cfg.AddrBook, fundDesc, vPkt,
+				selectedCommitments,
 			)
 			if err != nil {
 				return nil, err

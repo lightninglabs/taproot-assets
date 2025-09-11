@@ -8,7 +8,6 @@ import (
 	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -111,23 +110,7 @@ func testBurnAssets(t *harnessTest) {
 		t.t, t.tapd, simpleAssetGen.AssetId, simpleAsset.Amount,
 	)
 
-	// Test case 1: We'll now try to the exact amount of the largest output,
-	// which should still select exactly that one largest output, which is
-	// located alone in an anchor output. When attempting to burn this, we
-	// should get an error saying that we cannot completely burn all assets
-	// in an output.
-	_, err = t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: simpleAssetID[:],
-		},
-		AmountToBurn:     outputAmounts[3],
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
-	})
-	require.ErrorContains(
-		t.t, err, tapfreighter.ErrFullBurnNotSupported.Error(),
-	)
-
-	// Test case 2: We'll now try to burn a small amount of assets, which
+	// Test case 1: We'll now try to burn a small amount of assets, which
 	// should select the largest output, which is located alone in an anchor
 	// output.
 	const (
@@ -208,7 +191,7 @@ func testBurnAssets(t *harnessTest) {
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
 	AssertReceiveEvents(t.t, fullSendAddr, stream)
 
-	// Test case 3: Burn all assets of one asset ID (in this case a single
+	// Test case 2: Burn all assets of one asset ID (in this case a single
 	// collectible from the original mint TX), while there are other,
 	// passive assets in the anchor output.
 	burnResp, err = t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
@@ -237,7 +220,7 @@ func testBurnAssets(t *harnessTest) {
 		WithScriptKeyType(asset.ScriptKeyBurn),
 	)
 
-	// Test case 4: Burn assets from multiple inputs. This will select the
+	// Test case 3: Burn assets from multiple inputs. This will select the
 	// two largest inputs we have, the one over 1500 we sent above and the
 	// 1200 from the initial fan out transfer.
 	const changeAmt = 300
@@ -283,7 +266,7 @@ func testBurnAssets(t *harnessTest) {
 	require.NoError(t.t, err)
 	t.Logf("All assets before last burn: %v", assets)
 
-	// Test case 5: Burn some units of a grouped asset. We start by making
+	// Test case 4: Burn some units of a grouped asset. We start by making
 	// sure we still have the full balance before burning.
 	AssertBalanceByID(
 		t.t, t.tapd, simpleGroupGen.AssetId, simpleGroup.Amount,
@@ -344,7 +327,7 @@ func testBurnAssets(t *harnessTest) {
 
 	require.Equal(t.t, groupBurn.Note, "")
 
-	// Test case 6: Burn the single unit of a grouped collectible. We start
+	// Test case 5: Burn the single unit of a grouped collectible. We start
 	// by making sure we still have the full balance before burning.
 	AssertBalanceByID(
 		t.t, t.tapd, simpleGroupCollectGen.AssetId,
@@ -565,7 +548,11 @@ func testFullBurnAssets(t *harnessTest) {
 	AssertBalanceByID(t.t, t.tapd, fullAssetID, 0)
 
 	// Check ListBurns shows the full burn.
-	burns := AssertNumBurns(t.t, t.tapd, 1, &taprpc.ListBurnsRequest{AssetId: fullAssetID})
+	burns := AssertNumBurns(
+		t.t, t.tapd, 1, &taprpc.ListBurnsRequest{
+			AssetId: fullAssetID,
+		},
+	)
 	burn := burns[0]
 	require.Equal(t.t, fullAsset.Amount, burn.Amount)
 }
