@@ -537,7 +537,8 @@ func testFullBurnAssets(t *harnessTest) {
 	fullAsset := rpcAssets[0]
 	fullAssetID := fullAsset.AssetGenesis.AssetId
 
-	ctxt, cancel := context.WithTimeout(context.Background(), defaultWaitTimeout)
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
 	burnResp, err := t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
@@ -551,12 +552,13 @@ func testFullBurnAssets(t *harnessTest) {
 
 	// Assert the burn succeeded.
 	burnTransfer := burnResp.BurnTransfer
-	require.Len(t.t, burnTransfer.Outputs, 1) // tombstones are not returned.
+	require.Len(t.t, burnTransfer.Outputs, 1) // tombstones not returned.
 
 	// Confirm the burn tx.
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, minerClient, t.tapd, burnTransfer,
-		[][]byte{fullAssetID}, []uint64{fullAsset.Amount}, 0, 1, 1, true,
+		[][]byte{fullAssetID}, []uint64{fullAsset.Amount}, 0, 1, 1,
+		true,
 	)
 
 	// Balance should now be 0.

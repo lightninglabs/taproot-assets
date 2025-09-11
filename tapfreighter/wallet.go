@@ -822,8 +822,9 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		totalSelectedAmount += activeAsset.Asset.Amount
 	}
 
-	// If we're burning exactly all selected assets and there are no other assets
-	// in the same commitments, we need a tombstone.
+	// If we're burning exactly all selected assets
+	// and there are no other assets in the same commitments,
+	// we need a tombstone.
 	if totalSelectedAmount == fundDesc.Amount {
 		otherAssets, err := hasOtherAssets(
 			fundedPkt.InputCommitments, fundedPkt.VPackets,
@@ -847,10 +848,10 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			// Add tombstone as first output.
 			vPkt.Outputs = slices.Insert(vPkt.Outputs, 0, tombstoneOut)
 
-			// Re-create the funded packet with the tombstone output.
+			// Re-create the packet with the tombstone output.
 			fundedPkt, err = createFundedPacketWithInputs(
-				ctx, f.cfg.AssetProofs, f.cfg.KeyRing, f.cfg.AddrBook, fundDesc,
-				vPkt, selectedCommitments,
+				ctx, f.cfg.AssetProofs, f.cfg.KeyRing, f.cfg.AddrBook,
+				fundDesc, vPkt, selectedCommitments,
 			)
 			if err != nil {
 				return nil, err
