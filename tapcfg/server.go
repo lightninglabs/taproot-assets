@@ -549,6 +549,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	// Set up the supply verifier, which validates supply commitment leaves
 	// published by asset issuers.
+	//
+	// nolint: lll
 	supplyVerifyManager, err := supplyverifier.NewManager(
 		supplyverifier.ManagerCfg{
 			Chain:                 chainBridge,
@@ -560,6 +562,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			GroupFetcher:          assetMintingStore,
 			IssuanceSubscriptions: universeSyncer,
 			DaemonAdapters:        lndFsmDaemonAdapters,
+			DisableChainWatch:     cfg.Universe.DisableSupplyVerifierChainWatch,
 		},
 	)
 	if err != nil {

@@ -94,6 +94,13 @@ type ManagerCfg struct {
 
 	// ErrChan is the channel that is used to send errors to the caller.
 	ErrChan chan<- error
+
+	// DisableChainWatch, when true, prevents the supply verifier from
+	// starting state machines to watch on-chain outputs for spends. This
+	// option is intended for universe servers, where supply verification
+	// should only occur for commitments submitted by peers, not via
+	// on-chain spend detection.
+	DisableChainWatch bool
 }
 
 // Validate validates the ManagerCfg.
@@ -227,8 +234,18 @@ func (m *Manager) Start() error {
 	m.startOnce.Do(func() {
 		log.Infof("Starting supply verifier manager")
 
-		// Initialize the state machine cache.
+		// Initialize the state machine cache unconditionally to prevent
+		// potential nil pointer dereferences, even if it ends up
+		// unused.
 		m.smCache = newStateMachineCache()
+
+		// If chain watching is disabled, return early. We won't start
+		// any state machines in this mode.
+		if m.cfg.DisableChainWatch {
+			log.Infof("Supply verifier chain watch disabled, " +
+				"skip state machine initialization")
+			return
+		}
 
 		// Initialize state machines for each asset group that supports
 		// supply commitments.
@@ -400,9 +417,17 @@ func (m *Manager) Stop() error {
 }
 
 // startAssetSM creates and starts a new supply commitment state machine for the
-// given asset specifier.
+// given asset specifier. If DisableChainWatch is true, an error is returned.
 func (m *Manager) startAssetSM(ctx context.Context,
 	assetSpec asset.Specifier) (*StateMachine, error) {
+
+	// If chain watching is disabled, return an error.
+	if m.cfg.DisableChainWatch {
+		log.Debugf("Supply verifier chain watch disabled, not "+
+			"starting state machine (asset=%s)", assetSpec.String())
+		return nil, fmt.Errorf("supply verifier chain watch is " +
+			"disabled")
+	}
 
 	log.Infof("Starting supply verifier state machine (asset=%s)",
 		assetSpec.String())
@@ -455,9 +480,17 @@ func (m *Manager) startAssetSM(ctx context.Context,
 
 // fetchStateMachine retrieves a state machine from the cache or creates a
 // new one if it doesn't exist. If a new state machine is created, it is also
-// started.
+// started. If DisableChainWatch is true, an error is returned.
 func (m *Manager) fetchStateMachine(assetSpec asset.Specifier) (*StateMachine,
 	error) {
+
+	// If chain watching is disabled, return an error.
+	if m.cfg.DisableChainWatch {
+		log.Debugf("Supply verifier chain watch disabled, not "+
+			"fetching state machine (asset=%s)", assetSpec.String())
+		return nil, fmt.Errorf("supply verifier chain watch is " +
+			"disabled")
+	}
 
 	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
 	if err != nil {
@@ -894,6 +927,10 @@ func newStateMachineCache() *stateMachineCache {
 
 // StopAll stops all state machines in the cache.
 func (c *stateMachineCache) StopAll() {
+	if c == nil {
+		return
+	}
+
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
