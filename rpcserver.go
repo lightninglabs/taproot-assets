@@ -2271,6 +2271,14 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 		sqlQuery.StatusTo = &status
 	}
 
+	// Add timestamp filtering if specified
+	if req.CreatedAfter > 0 {
+		creationTime := time.Unix(
+			int64(req.CreatedAfter), 0,
+		)
+		sqlQuery.CreationTimeFrom = &creationTime
+	}
+
 	events, err := r.cfg.AddrBook.QueryEvents(ctx, sqlQuery)
 	if err != nil {
 		return nil, fmt.Errorf("error querying events: %w", err)
