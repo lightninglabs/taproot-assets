@@ -42,7 +42,7 @@ const (
 	AppMajor uint = 0
 
 	// AppMinor defines the minor version of this binary.
-	AppMinor uint = 6
+	AppMinor uint = 7
 
 	// AppPatch defines the application patch for this binary.
 	AppPatch uint = 0
@@ -52,7 +52,7 @@ const (
 
 	// AppPreRelease defines the pre-release version of this binary.
 	// It MUST only contain characters from the semantic versioning spec.
-	AppPreRelease = ""
+	AppPreRelease = "rc1"
 
 	// GitTagIncludeStatus indicates whether the status should be included
 	// in the git tag name.
