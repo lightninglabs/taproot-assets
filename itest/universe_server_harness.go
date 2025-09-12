@@ -23,10 +23,12 @@ type universeServerHarness struct {
 func newUniverseServerHarness(t *testing.T, ht *harnessTest,
 	lndHarness *node.HarnessNode) *universeServerHarness {
 
-	service, err := newTapdHarness(t, ht, tapdConfig{
-		NetParams: harnessNetParams,
-		LndNode:   lndHarness,
-	})
+	service, err := newTapdHarness(
+		t, ht, tapdConfig{
+			NetParams: harnessNetParams,
+			LndNode:   lndHarness,
+		}, withDisableSupplyVerifierChainWatch(),
+	)
 	require.NoError(t, err)
 
 	return &universeServerHarness{
