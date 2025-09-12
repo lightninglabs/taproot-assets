@@ -21,17 +21,59 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
+// DefaultPsbtMaxFeeRatio is the maximum ratio between fees paid and total
+// output amount produced. Since taproot assets can be anchored to outpoints
+// that may carry relatively small bitcoin amounts, we want to bump the allowed
+// ratio between fees paid and total produced output amount. This can prove
+// useful in high fee environments where we'd otherwise fail to fund the psbt.
+const DefaultPsbtMaxFeeRatio = 0.75
+
 // LndRpcWalletAnchor is an implementation of the tapgarden.WalletAnchor
 // interfaced backed by an active remote lnd node.
 type LndRpcWalletAnchor struct {
 	lnd *lndclient.LndServices
+	cfg *WalletAnchorConfig
+}
+
+// WalletAnchorConfig is a configuration for the wallet anchor.
+type WalletAnchorConfig struct {
+	psbtMaxFeeRatio float64
+}
+
+// defaultWalletAnchorConfig returns the default configuration for the wallet
+// anchor.
+func defaultWalletAnchorConfig() *WalletAnchorConfig {
+	return &WalletAnchorConfig{
+		psbtMaxFeeRatio: DefaultPsbtMaxFeeRatio,
+	}
+}
+
+// WalletAnchorOption is an optional argument that modifies the wallet anchor
+// configuration.
+type WalletAnchorOption func(cfg *WalletAnchorConfig)
+
+// WithPsbtMaxFeeRatio is an optional argument that provides a custom psbt
+// max fee ratio.
+func WithPsbtMaxFeeRatio(val float64) WalletAnchorOption {
+	return func(cfg *WalletAnchorConfig) {
+		cfg.psbtMaxFeeRatio = val
+	}
 }
 
 // NewLndRpcWalletAnchor returns a new wallet anchor instance using the passed
 // lnd node.
-func NewLndRpcWalletAnchor(lnd *lndclient.LndServices) *LndRpcWalletAnchor {
+func NewLndRpcWalletAnchor(lnd *lndclient.LndServices,
+	opts ...WalletAnchorOption) *LndRpcWalletAnchor {
+
+	cfg := defaultWalletAnchorConfig()
+
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	return &LndRpcWalletAnchor{
 		lnd: lnd,
+		cfg: cfg,
 	}
 }
 
@@ -82,8 +124,9 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 			Fees: &walletrpc.FundPsbtRequest_SatPerKw{
 				SatPerKw: uint64(feeRate),
 			},
-			MinConfs:   int32(minConfs),
-			ChangeType: defaultChangeType,
+			MinConfs:    int32(minConfs),
+			ChangeType:  defaultChangeType,
+			MaxFeeRatio: l.cfg.psbtMaxFeeRatio,
 		},
 	)
 	if err != nil {
