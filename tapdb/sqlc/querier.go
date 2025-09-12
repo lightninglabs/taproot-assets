@@ -159,6 +159,10 @@ type Querier interface {
 	// pre-commitment corresponds to an asset issuance where the local node acted as
 	// the issuer.
 	MarkMintPreCommitSpentByOutpoint(ctx context.Context, arg MarkMintPreCommitSpentByOutpointParams) error
+	// Mark a supply pre-commitment output as spent by its outpoint. The
+	// pre-commitment corresponds to an asset issuance where a remote node acted as
+	// the issuer.
+	MarkPreCommitSpentByOutpoint(ctx context.Context, arg MarkPreCommitSpentByOutpointParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	QueryAddr(ctx context.Context, arg QueryAddrParams) (QueryAddrRow, error)
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll

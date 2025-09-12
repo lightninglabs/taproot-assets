@@ -238,6 +238,12 @@ type SupplyCommitStore interface {
 	MarkMintPreCommitSpentByOutpoint(ctx context.Context,
 		arg sqlc.MarkMintPreCommitSpentByOutpointParams) error
 
+	// MarkPreCommitSpentByOutpoint marks a supply pre-commitment as spent
+	// by its outpoint. The pre-commitment corresponds to an asset issuance
+	// where a remote node acted as the issuer.
+	MarkPreCommitSpentByOutpoint(ctx context.Context,
+		arg sqlc.MarkPreCommitSpentByOutpointParams) error
+
 	// QueryExistingPendingTransition fetches the ID of an existing
 	// non-finalized transition for a group key. Returns sql.ErrNoRows if
 	// none exists.
