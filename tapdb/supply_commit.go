@@ -205,6 +205,11 @@ type SupplyCommitStore interface {
 	QueryStartingSupplyCommitment(ctx context.Context,
 		groupKey []byte) (sqlc.QueryStartingSupplyCommitmentRow, error)
 
+	// QueryLatestSupplyCommitment fetches the latest supply commitment
+	// of an asset group based on highest block height.
+	QueryLatestSupplyCommitment(ctx context.Context,
+		groupKey []byte) (sqlc.QueryLatestSupplyCommitmentRow, error)
+
 	// QuerySupplyCommitmentOutpoint fetches the outpoint of a supply
 	// commitment by its ID.
 	QuerySupplyCommitmentOutpoint(ctx context.Context,
@@ -288,7 +293,7 @@ func (s *SupplyCommitMachine) UnspentPrecommits(ctx context.Context,
 	if groupKey == nil {
 		return lfn.Err[supplycommit.PreCommits](ErrMissingGroupKey)
 	}
-	groupKeyBytes := groupKey.SerializeCompressed()
+	groupKeyBytes := schnorr.SerializePubKey(groupKey)
 
 	var preCommits supplycommit.PreCommits
 	readTx := ReadTxOption()
@@ -318,7 +323,7 @@ func (s *SupplyCommitMachine) UnspentPrecommits(ctx context.Context,
 					"pre-commitment internal key: %w", err)
 			}
 
-			groupPubKey, err := btcec.ParsePubKey(row.GroupKey)
+			groupPubKey, err := schnorr.ParsePubKey(row.GroupKey)
 			if err != nil {
 				return fmt.Errorf("error parsing group key: %w",
 					err)
@@ -433,7 +438,7 @@ func (s *SupplyCommitMachine) SupplyCommit(ctx context.Context,
 			ErrMissingGroupKey,
 		)
 	}
-	groupKeyBytes := groupKey.SerializeCompressed()
+	groupKeyBytes := schnorr.SerializePubKey(groupKey)
 
 	var rootCommitmentOpt lfn.Option[supplycommit.RootCommitment]
 
@@ -613,7 +618,7 @@ func (s *SupplyCommitMachine) InsertPendingUpdate(ctx context.Context,
 	if groupKey == nil {
 		return ErrMissingGroupKey
 	}
-	groupKeyBytes := groupKey.SerializeCompressed()
+	groupKeyBytes := schnorr.SerializePubKey(groupKey)
 
 	writeTx := WriteTxOption()
 	return s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
@@ -766,7 +771,7 @@ func (s *SupplyCommitMachine) FreezePendingTransition(ctx context.Context,
 	if groupKey == nil {
 		return ErrMissingGroupKey
 	}
-	groupKeyBytes := groupKey.SerializeCompressed()
+	groupKeyBytes := schnorr.SerializePubKey(groupKey)
 
 	writeTx := WriteTxOption()
 	return s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
@@ -787,7 +792,7 @@ func (s *SupplyCommitMachine) BindDanglingUpdatesToTransition(
 	if groupKey == nil {
 		return nil, ErrMissingGroupKey
 	}
-	groupKeyBytes := groupKey.SerializeCompressed()
+	groupKeyBytes := schnorr.SerializePubKey(groupKey)
 
 	var (
 		boundEvents []supplycommit.SupplyUpdateEvent
@@ -881,7 +886,7 @@ func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
 	if groupKey == nil {
 		return ErrMissingGroupKey
 	}
-	groupKeyBytes := groupKey.SerializeCompressed()
+	groupKeyBytes := schnorr.SerializePubKey(groupKey)
 
 	commitTx := commitDetails.Txn
 	internalKeyDesc := commitDetails.InternalKey
@@ -1008,7 +1013,7 @@ func (s *SupplyCommitMachine) InsertSupplyCommit(ctx context.Context,
 	if groupKey == nil {
 		return ErrMissingGroupKey
 	}
-	groupKeyBytes := groupKey.SerializeCompressed()
+	groupKeyBytes := schnorr.SerializePubKey(groupKey)
 
 	commitTx := commit.Txn
 	internalKey := commit.InternalKey
@@ -1200,7 +1205,7 @@ func (s *SupplyCommitMachine) CommitState(ctx context.Context,
 	if groupKey == nil {
 		return ErrMissingGroupKey
 	}
-	groupKeyBytes := groupKey.SerializeCompressed()
+	groupKeyBytes := schnorr.SerializePubKey(groupKey)
 
 	newStateName, err := stateToDBString(state)
 	if err != nil {
@@ -1272,7 +1277,7 @@ func (s *SupplyCommitMachine) FetchCommitmentByOutpoint(ctx context.Context,
 
 	var (
 		writeTx       = WriteTxOption()
-		groupKeyBytes = groupKey.SerializeCompressed()
+		groupKeyBytes = schnorr.SerializePubKey(groupKey)
 		commit        *supplycommit.RootCommitment
 	)
 	dbErr := s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
@@ -1325,7 +1330,7 @@ func (s *SupplyCommitMachine) FetchCommitmentBySpentOutpoint(
 
 	var (
 		writeTx       = WriteTxOption()
-		groupKeyBytes = groupKey.SerializeCompressed()
+		groupKeyBytes = schnorr.SerializePubKey(groupKey)
 		commit        *supplycommit.RootCommitment
 	)
 	dbErr := s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
@@ -1376,7 +1381,7 @@ func (s *SupplyCommitMachine) FetchStartingCommitment(ctx context.Context,
 
 	var (
 		writeTx       = WriteTxOption()
-		groupKeyBytes = groupKey.SerializeCompressed()
+		groupKeyBytes = schnorr.SerializePubKey(groupKey)
 		commit        *supplycommit.RootCommitment
 	)
 	dbErr := s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
@@ -1407,6 +1412,56 @@ func (s *SupplyCommitMachine) FetchStartingCommitment(ctx context.Context,
 		}
 
 		return nil, fmt.Errorf("failed to fetch starting commitment "+
+			"for group %x: %w", groupKeyBytes, dbErr)
+	}
+
+	return commit, nil
+}
+
+// FetchLatestCommitment fetches the latest supply commitment of an asset
+// group based on highest block height. If no commitment is found, it returns
+// ErrCommitmentNotFound.
+func (s *SupplyCommitMachine) FetchLatestCommitment(ctx context.Context,
+	assetSpec asset.Specifier) (*supplycommit.RootCommitment, error) {
+
+	groupKey := assetSpec.UnwrapGroupKeyToPtr()
+	if groupKey == nil {
+		return nil, ErrMissingGroupKey
+	}
+
+	var (
+		writeTx       = WriteTxOption()
+		groupKeyBytes = groupKey.SerializeCompressed()
+		commit        *supplycommit.RootCommitment
+	)
+	dbErr := s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
+		// First, fetch the supply commitment by group key.
+		commitRow, err := db.QueryLatestSupplyCommitment(
+			ctx, groupKeyBytes,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to query latest "+
+				"commitment for group %x: %w", groupKeyBytes,
+				err)
+		}
+
+		commit, err = parseSupplyCommitmentRow(
+			ctx, commitRow.SupplyCommitment, commitRow.TxIndex, db,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to parse latest "+
+				"commitment for group %x: %w", groupKeyBytes,
+				err)
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		if errors.Is(dbErr, sql.ErrNoRows) {
+			return nil, supplyverifier.ErrCommitmentNotFound
+		}
+
+		return nil, fmt.Errorf("failed to fetch latest commitment "+
 			"for group %x: %w", groupKeyBytes, dbErr)
 	}
 
@@ -1570,7 +1625,7 @@ func (s *SupplyCommitMachine) FetchState(ctx context.Context,
 		return nil, lfn.None[supplycommit.SupplyStateTransition](),
 			ErrMissingGroupKey
 	}
-	groupKeyBytes := groupKey.SerializeCompressed()
+	groupKeyBytes := schnorr.SerializePubKey(groupKey)
 
 	var (
 		state            supplycommit.State
@@ -1721,7 +1776,7 @@ func (s *SupplyCommitMachine) ApplyStateTransition(
 	if groupKey == nil {
 		return ErrMissingGroupKey
 	}
-	groupKeyBytes := groupKey.SerializeCompressed()
+	groupKeyBytes := schnorr.SerializePubKey(groupKey)
 
 	// Ensure we have the new commitment details.
 	newCommitment := transition.NewCommitment

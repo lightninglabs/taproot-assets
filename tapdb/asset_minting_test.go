@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -1975,7 +1976,7 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	// Serialize keys into bytes for easier handling.
 	preCommitInternalKey, _ := test.RandKeyDesc(t)
 
-	groupPubKeyBytes := group.GroupPubKey.SerializeCompressed()
+	groupPubKeyBytes := schnorr.SerializePubKey(&group.GroupPubKey)
 
 	// Upsert a mint anchor commitment for the batch.
 	storeMintSupplyPreCommit(
@@ -2006,7 +2007,7 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	// Upsert-ing a new group key for the same pre-commit outpoint should
 	// overwrite the existing one.
 	groupPubKey2 := test.RandPubKey(t)
-	groupPubKey2Bytes := groupPubKey2.SerializeCompressed()
+	groupPubKey2Bytes := schnorr.SerializePubKey(groupPubKey2)
 
 	storeMintSupplyPreCommit(
 		t, *assetStore, batchKey, txOutputIndex, internalKey2,

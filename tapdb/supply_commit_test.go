@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -204,7 +205,7 @@ func newSupplyCommitTestHarness(t *testing.T) *supplyCommitTestHarness {
 		commitMachine:   setup.commitMachine,
 		db:              setup.db,
 		groupPubKey:     setup.groupPubKey,
-		groupKeyBytes:   setup.groupPubKey.SerializeCompressed(),
+		groupKeyBytes:   schnorr.SerializePubKey(setup.groupPubKey),
 		assetSpec:       spec,
 		baseGenesis:     setup.baseGenesis,
 		groupKey:        groupKey,

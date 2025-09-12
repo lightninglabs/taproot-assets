@@ -452,6 +452,42 @@ func (q *Queries) QueryExistingPendingTransition(ctx context.Context, groupKey [
 	return transition_id, err
 }
 
+const QueryLatestSupplyCommitment = `-- name: QueryLatestSupplyCommitment :one
+SELECT sc.commit_id, sc.group_key, sc.chain_txn_id, sc.output_index, sc.internal_key_id, sc.output_key, sc.block_header, sc.block_height, sc.merkle_proof, sc.supply_root_hash, sc.supply_root_sum, sc.spent_commitment, ct.tx_index
+FROM supply_commitments AS sc
+JOIN chain_txns AS ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.group_key = $1
+ORDER BY ct.block_height DESC
+    LIMIT 1
+`
+
+type QueryLatestSupplyCommitmentRow struct {
+	SupplyCommitment SupplyCommitment
+	TxIndex          sql.NullInt32
+}
+
+func (q *Queries) QueryLatestSupplyCommitment(ctx context.Context, groupKey []byte) (QueryLatestSupplyCommitmentRow, error) {
+	row := q.db.QueryRowContext(ctx, QueryLatestSupplyCommitment, groupKey)
+	var i QueryLatestSupplyCommitmentRow
+	err := row.Scan(
+		&i.SupplyCommitment.CommitID,
+		&i.SupplyCommitment.GroupKey,
+		&i.SupplyCommitment.ChainTxnID,
+		&i.SupplyCommitment.OutputIndex,
+		&i.SupplyCommitment.InternalKeyID,
+		&i.SupplyCommitment.OutputKey,
+		&i.SupplyCommitment.BlockHeader,
+		&i.SupplyCommitment.BlockHeight,
+		&i.SupplyCommitment.MerkleProof,
+		&i.SupplyCommitment.SupplyRootHash,
+		&i.SupplyCommitment.SupplyRootSum,
+		&i.SupplyCommitment.SpentCommitment,
+		&i.TxIndex,
+	)
+	return i, err
+}
+
 const QueryPendingSupplyCommitTransition = `-- name: QueryPendingSupplyCommitTransition :one
 WITH target_machine AS (
     SELECT group_key

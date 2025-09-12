@@ -624,14 +624,14 @@ CREATE TABLE managed_utxos (
     lease_expiry TIMESTAMP
 , root_version SMALLINT);
 
-CREATE INDEX mint_anchor_uni_commitments_outpoint_idx 
-    ON "mint_supply_pre_commits"(outpoint)
+CREATE INDEX mint_anchor_uni_commitments_outpoint_idx
+    ON mint_supply_pre_commits(outpoint)
     WHERE outpoint IS NOT NULL;
 
 CREATE UNIQUE INDEX mint_anchor_uni_commitments_unique
-    ON "mint_supply_pre_commits" (batch_id, tx_output_index);
+    ON mint_supply_pre_commits (batch_id, tx_output_index);
 
-CREATE TABLE "mint_supply_pre_commits" (
+CREATE TABLE mint_supply_pre_commits (
     id INTEGER PRIMARY KEY,
 
     -- The ID of the minting batch this universe commitment relates to.
@@ -640,11 +640,20 @@ CREATE TABLE "mint_supply_pre_commits" (
     -- The index of the mint batch anchor transaction pre-commitment output.
     tx_output_index INTEGER NOT NULL,
 
+    -- The asset group key for this pre-commitment.
+    -- Stored in canonical 32-byte x-only form as defined in BIP340
+    -- (schnorr.SerializePubKey).
+    group_key BLOB CHECK(length(group_key) = 32),
+
     -- The Taproot output internal key for the pre-commitment output.
-    group_key BLOB
-, taproot_internal_key_id
-BIGINT REFERENCES internal_keys(key_id)
-NOT NULL, spent_by BIGINT REFERENCES supply_commitments(commit_id), outpoint BLOB);
+    taproot_internal_key_id BIGINT NOT NULL REFERENCES internal_keys(key_id),
+
+    -- The commitment that spent this pre-commitment output, if any.
+    spent_by BIGINT REFERENCES supply_commitments(commit_id),
+
+    -- The outpoint of the pre-commitment output (txid || vout).
+    outpoint BLOB
+);
 
 CREATE TABLE mssmt_nodes (
     -- hash_key is the hash key by which we reference all nodes.
@@ -792,8 +801,10 @@ CREATE TABLE script_keys (
 CREATE INDEX status_idx ON addr_events(status);
 
 CREATE TABLE supply_commit_state_machines (
-    -- The tweaked group key identifying the asset group's state machine.
-    group_key BLOB PRIMARY KEY CHECK(length(group_key) = 33),
+    -- The asset group key identifying the asset group's state machine.
+    -- Stored in canonical 32-byte x-only form as defined in BIP340
+    -- (schnorr.SerializePubKey).
+    group_key BLOB PRIMARY KEY CHECK(length(group_key) = 32),
 
     -- The current state of the state machine.
     current_state_id INTEGER NOT NULL REFERENCES supply_commit_states(id),
@@ -839,7 +850,8 @@ CREATE TABLE supply_commit_transitions (
 CREATE UNIQUE INDEX supply_commit_transitions_single_pending_idx
     ON supply_commit_transitions (state_machine_group_key) WHERE finalized = FALSE;
 
-CREATE INDEX supply_commit_transitions_state_machine_group_key_idx ON supply_commit_transitions(state_machine_group_key);
+CREATE INDEX supply_commit_transitions_state_machine_group_key_idx
+    ON supply_commit_transitions(state_machine_group_key);
 
 CREATE TABLE supply_commit_update_types (
     id INTEGER PRIMARY KEY,
@@ -849,8 +861,10 @@ CREATE TABLE supply_commit_update_types (
 CREATE TABLE supply_commitments (
     commit_id INTEGER PRIMARY KEY,
 
-    -- The tweaked group key identifying the asset group this commitment belongs to.
-    group_key BLOB NOT NULL CHECK(length(group_key) = 33),
+    -- The asset group key identifying the asset group this commitment belongs to.
+    -- Stored in canonical 32-byte x-only form as defined in BIP340
+    -- (schnorr.SerializePubKey).
+    group_key BLOB NOT NULL CHECK(length(group_key) = 32),
 
     -- The chain transaction that included this commitment.
     chain_txn_id BIGINT NOT NULL REFERENCES chain_txns(txn_id),
@@ -878,19 +892,18 @@ CREATE TABLE supply_commitments (
     supply_root_hash BLOB,
 
     -- The root sum of the supply commitment at this snapshot.
-    supply_root_sum BIGINT
-, spent_commitment BIGINT
-        REFERENCES supply_commitments(commit_id));
+    supply_root_sum BIGINT,
+
+    spent_commitment BIGINT REFERENCES supply_commitments(commit_id)
+);
 
 CREATE INDEX supply_commitments_chain_txn_id_idx ON supply_commitments(chain_txn_id);
 
 CREATE INDEX supply_commitments_group_key_idx ON supply_commitments(group_key);
 
-CREATE UNIQUE INDEX supply_commitments_outpoint_uk
-    ON supply_commitments(chain_txn_id, output_index);
+CREATE UNIQUE INDEX supply_commitments_outpoint_uk ON supply_commitments(chain_txn_id, output_index);
 
-CREATE INDEX supply_commitments_spent_commitment_idx
-    ON supply_commitments(spent_commitment);
+CREATE INDEX supply_commitments_spent_commitment_idx ON supply_commitments(spent_commitment);
 
 CREATE TABLE supply_pre_commits (
     id INTEGER PRIMARY KEY,
@@ -913,18 +926,17 @@ CREATE TABLE supply_pre_commits (
     spent_by BIGINT REFERENCES supply_commitments(commit_id)
 );
 
-CREATE INDEX supply_pre_commits_idx_group_key
-    ON supply_pre_commits(group_key);
+CREATE INDEX supply_pre_commits_idx_group_key ON supply_pre_commits(group_key);
 
-CREATE UNIQUE INDEX supply_pre_commits_unique_outpoint
-    ON supply_pre_commits(outpoint);
+CREATE UNIQUE INDEX supply_pre_commits_unique_outpoint ON supply_pre_commits(outpoint);
 
 CREATE TABLE supply_syncer_push_log (
     id INTEGER PRIMARY KEY,
 
-    -- The tweaked group key identifying the asset group this push log belongs
-    -- to. This should match the group_key format used in universe_supply_roots.
-    group_key BLOB NOT NULL CHECK(length(group_key) = 33),
+    -- The asset group key identifying the asset group this push log belongs to.
+    -- Stored in canonical 32-byte x-only form as defined in BIP340
+    -- (schnorr.SerializePubKey).
+    group_key BLOB NOT NULL CHECK(length(group_key) = 32),
 
     -- The highest block height among all supply leaves in this push.
     max_pushed_block_height INTEGER NOT NULL,
@@ -946,18 +958,18 @@ CREATE TABLE supply_syncer_push_log (
     created_at BIGINT NOT NULL
 );
 
-CREATE INDEX supply_syncer_push_log_group_key_idx
-    ON supply_syncer_push_log(group_key);
+CREATE INDEX supply_syncer_push_log_group_key_idx ON supply_syncer_push_log(group_key);
 
-CREATE INDEX supply_syncer_push_log_server_address_idx
-    ON supply_syncer_push_log(server_address);
+CREATE INDEX supply_syncer_push_log_server_address_idx ON supply_syncer_push_log(server_address);
 
 CREATE TABLE supply_update_events (
     event_id INTEGER PRIMARY KEY,
 
     -- The group key of the asset group this event belongs to.
     -- This is needed to query for dangling events for a specific group.
-    group_key BLOB NOT NULL CHECK(length(group_key) = 33),
+    -- Stored in canonical 32-byte x-only form as defined in BIP340
+    -- (schnorr.SerializePubKey).
+    group_key BLOB NOT NULL CHECK(length(group_key) = 32),
 
     -- Reference to the state transition this event is part of.
     -- Can be NULL if the event is staged while another transition is active.
@@ -1158,14 +1170,15 @@ CREATE TABLE universe_supply_leaves (
     sub_tree_type TEXT NOT NULL REFERENCES proof_types(proof_type),
 
     -- The key used for this leaf within the root supply tree's MS-SMT.
-    -- This typically corresponds to a hash identifying the sub-tree type.
+    -- Typically a hash identifying the subtree type.
     leaf_node_key BLOB NOT NULL,
 
-    -- The namespace within mssmt_nodes where the actual sub-tree root node resides.
+    -- The namespace within mssmt_nodes where the actual subtree root node resides.
     leaf_node_namespace VARCHAR NOT NULL
 );
 
-CREATE UNIQUE INDEX universe_supply_leaves_supply_root_id_type_idx ON universe_supply_leaves(supply_root_id, sub_tree_type);
+CREATE UNIQUE INDEX universe_supply_leaves_supply_root_id_type_idx
+    ON universe_supply_leaves (supply_root_id, sub_tree_type);
 
 CREATE TABLE universe_supply_roots (
     id INTEGER PRIMARY KEY,
@@ -1177,8 +1190,10 @@ CREATE TABLE universe_supply_roots (
     -- is violated.
     namespace_root VARCHAR UNIQUE NOT NULL REFERENCES mssmt_roots(namespace) DEFERRABLE INITIALLY DEFERRED,
 
-    -- The tweaked group key identifying the asset group this supply tree belongs to.
-    group_key BLOB UNIQUE NOT NULL CHECK(length(group_key) = 33)
+    -- The asset group key for this supply pre-commitment.
+    -- Stored in canonical 32-byte x-only form as defined in BIP340
+    -- (schnorr.SerializePubKey).
+    group_key BLOB UNIQUE NOT NULL CHECK(length(group_key) = 32)
 );
 
 CREATE INDEX universe_supply_roots_group_key_idx ON universe_supply_roots(group_key);

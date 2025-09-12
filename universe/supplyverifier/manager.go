@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/protofsm"
@@ -21,6 +22,13 @@ import (
 const (
 	// DefaultTimeout is the context guard default timeout.
 	DefaultTimeout = 30 * time.Second
+
+	// DefaultSpendSyncDelay is the default delay to wait after a spend
+	// notification is received before starting the sync of the
+	// corresponding supply commitment. The delay allows the peer node to
+	// submit the new commitment to the universe server and for it to be
+	// available for retrieval
+	DefaultSpendSyncDelay = 5 * time.Second
 )
 
 // DaemonAdapters is a wrapper around the protofsm.DaemonAdapters interface
@@ -35,19 +43,6 @@ type DaemonAdapters interface {
 	Stop() error
 }
 
-// StateMachineStore is an interface that allows the state machine to persist
-// its state across restarts. This is used to track the state of the state
-// machine for supply verification.
-type StateMachineStore interface {
-	// CommitState is used to commit the state of the state machine to disk.
-	CommitState(context.Context, asset.Specifier, State) error
-
-	// FetchState attempts to fetch the state of the state machine for the
-	// target asset specifier. If the state machine doesn't exist, then a
-	// default state will be returned.
-	FetchState(context.Context, asset.Specifier) (State, error)
-}
-
 // IssuanceSubscriptions allows verifier state machines to subscribe to
 // asset group issuance events.
 type IssuanceSubscriptions interface {
@@ -55,6 +50,10 @@ type IssuanceSubscriptions interface {
 	// issuance events.
 	RegisterSubscriber(receiver *fn.EventReceiver[fn.Event],
 		deliverExisting bool, _ bool) error
+
+	// RemoveSubscriber removes the given subscriber and also stops it from
+	// processing events.
+	RemoveSubscriber(subscriber *fn.EventReceiver[fn.Event]) error
 }
 
 // ManagerCfg is the configuration for the
@@ -78,6 +77,10 @@ type ManagerCfg struct {
 	// SupplyTreeView is used to fetch supply leaves by height.
 	SupplyTreeView SupplyTreeView
 
+	// SupplySyncer is used to retrieve supply leaves from a universe and
+	// persist them to the local database.
+	SupplySyncer SupplySyncer
+
 	// GroupFetcher is used to fetch asset group information.
 	GroupFetcher tapgarden.GroupFetcher
 
@@ -89,13 +92,45 @@ type ManagerCfg struct {
 	// interact with external daemons whilst processing internal events.
 	DaemonAdapters DaemonAdapters
 
-	// StateLog is the main state log that is used to track the state of the
-	// state machine. This is used to persist the state of the state machine
-	// across restarts.
-	StateLog StateMachineStore
-
 	// ErrChan is the channel that is used to send errors to the caller.
 	ErrChan chan<- error
+}
+
+// Validate validates the ManagerCfg.
+func (m *ManagerCfg) Validate() error {
+	if m.Chain == nil {
+		return fmt.Errorf("chain is required")
+	}
+
+	if m.AssetLookup == nil {
+		return fmt.Errorf("asset lookup is required")
+	}
+
+	if m.Lnd == nil {
+		return fmt.Errorf("lnd is required")
+	}
+
+	if m.SupplyCommitView == nil {
+		return fmt.Errorf("supply commit view is required")
+	}
+
+	if m.SupplyTreeView == nil {
+		return fmt.Errorf("supply tree view is required")
+	}
+
+	if m.GroupFetcher == nil {
+		return fmt.Errorf("group fetcher is required")
+	}
+
+	if m.IssuanceSubscriptions == nil {
+		return fmt.Errorf("issuance subscriptions is required")
+	}
+
+	if m.DaemonAdapters == nil {
+		return fmt.Errorf("daemon adapters is required")
+	}
+
+	return nil
 }
 
 // Manager is a manager for multiple supply verifier state machines, one for
@@ -118,24 +153,210 @@ type Manager struct {
 }
 
 // NewManager creates a new multi state machine manager.
-func NewManager(cfg ManagerCfg) *Manager {
+func NewManager(cfg ManagerCfg) (*Manager, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
 	return &Manager{
 		cfg: cfg,
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
 		},
+	}, nil
+}
+
+// InitStateMachines initializes state machines for all asset groups that
+// support supply commitments. If a state machine for an asset group already
+// exists, it will be skipped.
+func (m *Manager) InitStateMachines() error {
+	ctx, cancel := m.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	// First, get all assets with group keys that could potentially be
+	// involved in supply commitments. The Manager will filter these
+	// based on delegation key ownership and other criteria.
+	assetGroupKeys, err := m.cfg.AssetLookup.FetchSupplyCommitAssets(
+		ctx, false,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to fetch supply commit assets: %w",
+			err)
 	}
+
+	for idx := range assetGroupKeys {
+		groupKey := assetGroupKeys[idx]
+
+		// Create asset specifier from group key.
+		assetSpec := asset.NewSpecifierFromGroupKey(groupKey)
+
+		// Check to ensure state machine for asset group does not
+		// already exist.
+		_, ok := m.smCache.Get(groupKey)
+		if ok {
+			continue
+		}
+
+		// Create and start a new state machine for the asset group.
+		newSm, err := m.startAssetSM(ctx, assetSpec)
+		if err != nil {
+			return fmt.Errorf("unable to start state machine for "+
+				"asset group (asset=%s): %w",
+				assetSpec.String(), err)
+		}
+
+		m.smCache.Set(groupKey, newSm)
+	}
+
+	return nil
 }
 
 // Start starts the multi state machine manager.
 func (m *Manager) Start() error {
+	var startErr error
+
 	m.startOnce.Do(func() {
 		// Initialize the state machine cache.
 		m.smCache = newStateMachineCache()
+
+		// Initialize state machines for each asset group that supports
+		// supply commitments.
+		err := m.InitStateMachines()
+		if err != nil {
+			startErr = fmt.Errorf("unable to initialize "+
+				"state machines: %v", err)
+			return
+		}
+
+		// Start a goroutine to handle universe syncer issuance events.
+		m.ContextGuard.Goroutine(
+			m.MonitorUniSyncEvents, func(err error) {
+				log.Errorf("MonitorUniIssuanceSyncEvents: %v",
+					err)
+			},
+		)
 	})
+	if startErr != nil {
+		return fmt.Errorf("unable to start manager: %w", startErr)
+	}
 
 	return nil
+}
+
+// handleUniSyncEvent handles a single universe syncer event. If the event is an
+// issuance event for an asset group that supports supply commitments, it will
+// ensure that a state machine for the asset group exists, creating and
+// starting it if necessary.
+func (m *Manager) handleUniSyncEvent(event fn.Event) error {
+	// Disregard event if it is not of type
+	// universe.SyncDiffEvent.
+	syncDiffEvent, ok := event.(*universe.SyncDiffEvent)
+	if !ok {
+		return nil
+	}
+
+	// If the sync diff is not a new issuance, we disregard it.
+	universeID := syncDiffEvent.SyncDiff.NewUniverseRoot.ID
+	if universeID.ProofType != universe.ProofTypeIssuance {
+		return nil
+	}
+
+	// If the asset is not a group key asset, we
+	// disregard it.
+	if universeID.GroupKey == nil {
+		return nil
+	}
+
+	// If there are no new leaf proofs, we disregard the sync event.
+	if len(syncDiffEvent.SyncDiff.NewLeafProofs) == 0 {
+		return nil
+	}
+
+	// Get genesis asset ID from the first synced leaf and formulate an
+	// asset specifier.
+	//
+	// TODO(ffranr): Revisit this. We select any asset ID to aid in metdata
+	//  retrieval, but we should be able to do this with just the group key.
+	//  However, QueryAssetGroupByGroupKey currently fails for the asset
+	//  group.
+	assetID := syncDiffEvent.SyncDiff.NewLeafProofs[0].Genesis.ID()
+
+	assetSpec := asset.NewSpecifierOptionalGroupPubKey(
+		assetID, universeID.GroupKey,
+	)
+
+	// Check that the asset group supports supply
+	// commitments.
+	ctx, cancelCtx := m.WithCtxQuitNoTimeout()
+	isSupported, err := supplycommit.IsSupplySupported(
+		ctx, m.cfg.AssetLookup, assetSpec, false,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to check supply support: %w", err)
+	}
+	cancelCtx()
+
+	if !isSupported {
+		return nil
+	}
+
+	// Fetch the state machine for the asset group, creating and starting it
+	// if it doesn't exist.
+	log.Debugf("Ensure supply verifier state machine for asset "+
+		"group due to universe syncer issuance event (asset=%s)",
+		assetSpec.String())
+	_, err = m.fetchStateMachine(assetSpec)
+	if err != nil {
+		return fmt.Errorf("unable to get or create state machine: %w",
+			err)
+	}
+
+	return nil
+}
+
+// MonitorUniSyncEvents registers an event receiver to receive universe
+// syncer issuance events.
+//
+// NOTE: This method must be run as a goroutine.
+func (m *Manager) MonitorUniSyncEvents() error {
+	// Register an event receiver to receive universe syncer events. These
+	// events relate to asset issuance proofs.
+	eventReceiver := fn.NewEventReceiver[fn.Event](
+		fn.DefaultQueueSize,
+	)
+	err := m.cfg.IssuanceSubscriptions.RegisterSubscriber(
+		eventReceiver, false, true,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to register universe syncer "+
+			"issuance event subscriber: %w", err)
+	}
+
+	// Ensure we remove the subscriber when we exit.
+	defer func() {
+		err := m.cfg.IssuanceSubscriptions.RemoveSubscriber(
+			eventReceiver,
+		)
+		if err != nil {
+			log.Errorf("unable to remove universe syncer "+
+				"issuance event subscriber: %v", err)
+		}
+	}()
+
+	for {
+		select {
+		case <-m.Quit:
+			return nil
+
+		case event := <-eventReceiver.NewItemCreated.ChanOut():
+			err := m.handleUniSyncEvent(event)
+			if err != nil {
+				return fmt.Errorf("unable to handle "+
+					"universe issuance sync event: %w", err)
+			}
+		}
+	}
 }
 
 // Stop stops the multi state machine manager, which in turn stops all asset
@@ -151,6 +372,59 @@ func (m *Manager) Stop() error {
 	})
 
 	return nil
+}
+
+// startAssetSM creates and starts a new supply commitment state machine for the
+// given asset specifier.
+func (m *Manager) startAssetSM(ctx context.Context,
+	assetSpec asset.Specifier) (*StateMachine, error) {
+
+	log.Infof("Starting supply verifier state machine (asset=%s)",
+		assetSpec.String())
+
+	// If the state machine is not found, create a new one.
+	env := &Environment{
+		AssetSpec:        assetSpec,
+		Chain:            m.cfg.Chain,
+		SupplyCommitView: m.cfg.SupplyCommitView,
+		SupplyTreeView:   m.cfg.SupplyTreeView,
+		AssetLookup:      m.cfg.AssetLookup,
+		Lnd:              m.cfg.Lnd,
+		GroupFetcher:     m.cfg.GroupFetcher,
+		SupplySyncer:     m.cfg.SupplySyncer,
+		SpendSyncDelay:   DefaultSpendSyncDelay,
+		ErrChan:          m.cfg.ErrChan,
+		QuitChan:         m.Quit,
+	}
+
+	// Create a new error reporter for the state machine.
+	errorReporter := NewErrorReporter(assetSpec)
+
+	fsmCfg := protofsm.StateMachineCfg[Event, *Environment]{
+		ErrorReporter: &errorReporter,
+		InitialState:  &InitState{},
+		Env:           env,
+		Daemon:        m.cfg.DaemonAdapters,
+	}
+	newSm := protofsm.NewStateMachine[Event, *Environment](fsmCfg)
+
+	// Ensure that the state machine is running. We use the manager's
+	// context guard to derive a sub context which will be cancelled when
+	// the manager is stopped.
+	smCtx, _ := m.WithCtxQuitNoTimeout()
+	newSm.Start(smCtx)
+
+	// Assert that the state machine is running. Start should block until
+	// the state machine is running.
+	if !newSm.IsRunning() {
+		return nil, fmt.Errorf("state machine unexpectadly not running")
+	}
+
+	// For supply verifier, we always start with an InitEvent to begin
+	// the verification process.
+	newSm.SendEvent(ctx, &InitEvent{})
+
+	return &newSm, nil
 }
 
 // fetchStateMachine retrieves a state machine from the cache or creates a
@@ -169,52 +443,42 @@ func (m *Manager) fetchStateMachine(assetSpec asset.Specifier) (*StateMachine,
 	// cache.
 	sm, ok := m.smCache.Get(*groupKey)
 	if ok {
-		return sm, nil
+		// If the state machine is found and is running, return it.
+		if sm.IsRunning() {
+			return sm, nil
+		}
+
+		// If the state machine exists but is not running, replace it in
+		// the cache with a new running instance.
 	}
 
-	// If the state machine is not found, create a new one.
-	env := &Environment{
-		AssetSpec:        assetSpec,
-		Chain:            m.cfg.Chain,
-		SupplyCommitView: m.cfg.SupplyCommitView,
-		ErrChan:          m.cfg.ErrChan,
-		QuitChan:         m.Quit,
-	}
+	log.Debugf("Creating new supply verifier state machine for "+
+		"group: %x", groupKey.SerializeCompressed())
 
-	// Before we start the state machine, we'll need to fetch the current
-	// state from disk, to see if we need to emit any new events.
 	ctx, cancel := m.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	initialState, err := m.cfg.StateLog.FetchState(ctx, assetSpec)
+	// Check that the asset group supports supply commitments and that
+	// this node does not create supply commitments for the asset group
+	// (i.e. it does not own the delegation key). We don't want to run
+	// a verifier state machine for an asset group supply commitment
+	// that we issue ourselves.
+	err = supplycommit.CheckSupplyCommitSupport(
+		ctx, m.cfg.AssetLookup, assetSpec, false,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch current state: %w", err)
+		return nil, fmt.Errorf("asset group is not suitable for "+
+			"supply verifier state machine: %w", err)
 	}
 
-	// Create a new error reporter for the state machine.
-	errorReporter := NewErrorReporter(assetSpec)
-
-	fsmCfg := protofsm.StateMachineCfg[Event, *Environment]{
-		ErrorReporter: &errorReporter,
-		InitialState:  initialState,
-		Env:           env,
-		Daemon:        m.cfg.DaemonAdapters,
+	newSm, err := m.startAssetSM(ctx, assetSpec)
+	if err != nil {
+		return nil, fmt.Errorf("unable to start state machine: %w", err)
 	}
-	newSm := protofsm.NewStateMachine[Event, *Environment](fsmCfg)
 
-	// Ensure that the state machine is running. We use the manager's
-	// context guard to derive a sub context which will be cancelled when
-	// the manager is stopped.
-	smCtx, _ := m.WithCtxQuitNoTimeout()
-	newSm.Start(smCtx)
+	m.smCache.Set(*groupKey, newSm)
 
-	// For supply verifier, we always start with an InitEvent to begin
-	// the verification process.
-	newSm.SendEvent(ctx, &InitEvent{})
-
-	m.smCache.Set(*groupKey, &newSm)
-
-	return &newSm, nil
+	return newSm, nil
 }
 
 // InsertSupplyCommit stores a verified supply commitment for the given asset
@@ -612,6 +876,14 @@ func (c *stateMachineCache) StopAll() {
 		// Stop the state machine.
 		sm.Stop()
 	}
+}
+
+// Count returns the number of state machines in the cache.
+func (c *stateMachineCache) Count() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return len(c.cache)
 }
 
 // Get retrieves a state machine from the cache.

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -397,6 +398,19 @@ func (v *Verifier) proofVerifierCtx(ctx context.Context) proof.VerifierCtx {
 	}
 }
 
+// IsEquivalentPubKeys reports whether two public keys are equivalent
+// when compared in their BIP340-serialized form. This avoids issues
+// with multiple encodings of the same elliptic curve point, since
+// BIP340 serialization provides a unique, canonical byte representation.
+//
+// TODO(ffranr): This should be a method on btcec.PublicKey.
+func IsEquivalentPubKeys(a, b *btcec.PublicKey) bool {
+	return bytes.Equal(
+		schnorr.SerializePubKey(a),
+		schnorr.SerializePubKey(b),
+	)
+}
+
 // verifyIssuanceLeaf verifies a single issuance leaf entry.
 func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 	assetSpec asset.Specifier, delegationKey btcec.PublicKey,
@@ -463,9 +477,11 @@ func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 		return fmt.Errorf("missing group key in issuance leaf")
 	}
 
+	// Check to ensure that the group key in the issuance leaf matches
+	// the group key in the issuance proof.
 	proofGroupPubKey := issuanceProof.Asset.GroupKey.GroupPubKey
 	leafGroupPubKey := issuanceLeaf.GroupKey.GroupPubKey
-	if !proofGroupPubKey.IsEqual(&leafGroupPubKey) {
+	if !IsEquivalentPubKeys(&proofGroupPubKey, &leafGroupPubKey) {
 		return fmt.Errorf("group key in issuance leaf does not match " +
 			"group key in issuance proof")
 	}
@@ -492,7 +508,7 @@ func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 	}
 	leafGroupKey := issuanceProof.Asset.GroupKey.GroupPubKey
 
-	if leafGroupKey != *expectedGroupKey {
+	if !IsEquivalentPubKeys(&leafGroupKey, expectedGroupKey) {
 		return fmt.Errorf("asset group key in issuance proof " +
 			"does not match expected asset group key")
 	}
@@ -558,7 +574,7 @@ func (v *Verifier) verifyIgnoreLeaf(ctx context.Context,
 			"specifier when verifying ignore leaf: %w", err)
 	}
 
-	if assetGroup.GroupPubKey != *expectedGroupKey {
+	if !IsEquivalentPubKeys(&assetGroup.GroupPubKey, expectedGroupKey) {
 		return fmt.Errorf("asset group key for ignore leaf asset " +
 			"does not match expected asset group key")
 	}
@@ -617,7 +633,7 @@ func (v *Verifier) verifyBurnLeaf(ctx context.Context,
 	}
 	leafGroupKey := burnProof.Asset.GroupKey.GroupPubKey
 
-	if leafGroupKey != *expectedGroupKey {
+	if !IsEquivalentPubKeys(&leafGroupKey, expectedGroupKey) {
 		return fmt.Errorf("asset group key in burn proof " +
 			"does not match expected asset group key")
 	}

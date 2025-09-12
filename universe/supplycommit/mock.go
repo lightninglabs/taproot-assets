@@ -437,6 +437,16 @@ type mockAssetLookup struct {
 	mock.Mock
 }
 
+func (m *mockAssetLookup) FetchSupplyCommitAssets(ctx context.Context,
+	localControlled bool) ([]btcec.PublicKey, error) {
+
+	args := m.Called(ctx, localControlled)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]btcec.PublicKey), args.Error(1)
+}
+
 func (m *mockAssetLookup) QueryAssetGroupByID(ctx context.Context,
 	assetID asset.ID) (*asset.AssetGroup, error) {
 

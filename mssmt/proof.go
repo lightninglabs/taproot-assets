@@ -1,6 +1,7 @@
 package mssmt
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -39,6 +40,38 @@ func NewProof(nodes []Node) *Proof {
 	return &Proof{
 		Nodes: nodes,
 	}
+}
+
+// NewProofFromCompressedBytes initializes a new merkle proof from its
+// compressed byte representation.
+func NewProofFromCompressedBytes(compressedProofBytes []byte) (Proof, error) {
+	var zero Proof
+
+	if len(compressedProofBytes) == 0 {
+		return zero, fmt.Errorf("compressed proof bytes are empty")
+	}
+
+	var compressedProof CompressedProof
+	reader := bytes.NewReader(compressedProofBytes)
+	if err := compressedProof.Decode(reader); err != nil {
+		return zero, fmt.Errorf("decode compressed proof: %w", err)
+	}
+
+	// Fail if extra data follows a valid proof encoding.
+	if remaining := reader.Len(); remaining != 0 {
+		return zero, fmt.Errorf("trailing data after compressed "+
+			"proof: %d bytes", remaining)
+	}
+
+	p, err := compressedProof.Decompress()
+	if err != nil {
+		return zero, fmt.Errorf("decompress proof: %w", err)
+	}
+	if p == nil {
+		return zero, fmt.Errorf("decompressor returned nil proof")
+	}
+
+	return *p, nil
 }
 
 // Root returns the root node obtained by walking up the tree.

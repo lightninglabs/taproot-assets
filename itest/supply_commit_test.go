@@ -3,6 +3,7 @@ package itest
 import (
 	"bytes"
 	"context"
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -585,6 +586,60 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 	require.EqualValues(
 		t.t, rpcAsset.Amount,
 		uniFetchResp.IgnoreSubtreeRoot.RootNode.RootSum,
+	)
+
+	t.Log("Attempting to fetch supply commit from secondary node")
+
+	var peerFetchResp *unirpc.FetchSupplyCommitResponse
+	require.Eventually(t.t, func() bool {
+		// nolint: lll
+		peerFetchResp, err = secondTapd.FetchSupplyCommit(
+			ctxb, &unirpc.FetchSupplyCommitRequest{
+				GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
+					GroupKeyBytes: groupKeyBytes,
+				},
+				Locator: &unirpc.FetchSupplyCommitRequest_VeryFirst{
+					VeryFirst: true,
+				},
+			},
+		)
+		if err != nil &&
+			strings.Contains(err.Error(), "commitment not found") {
+
+			return false
+		}
+		require.NoError(t.t, err)
+
+		// If the fetch response has no block height or hash,
+		// it means that the supply commitment transaction has not
+		// been mined yet, so we should retry.
+		if peerFetchResp.ChainData.BlockHeight == 0 ||
+			len(peerFetchResp.ChainData.BlockHash) == 0 {
+
+			return false
+		}
+
+		// Once the ignore tree includes the ignored asset outpoint, we
+		// know that the supply commitment has been updated.
+		if peerFetchResp.IgnoreSubtreeRoot == nil {
+			return false
+		}
+
+		return true
+	}, defaultWaitTimeout, time.Second)
+
+	require.NotNil(t.t, peerFetchResp)
+	require.Len(t.t, peerFetchResp.IssuanceLeaves, 1)
+	require.Len(t.t, peerFetchResp.BurnLeaves, 0)
+	require.Len(t.t, peerFetchResp.IgnoreLeaves, 2)
+
+	require.EqualValues(
+		t.t, rpcAsset.Amount,
+		peerFetchResp.IssuanceLeaves[0].LeafNode.RootSum,
+	)
+	require.EqualValues(
+		t.t, rpcAsset.Amount,
+		peerFetchResp.IgnoreSubtreeRoot.RootNode.RootSum,
 	)
 }
 

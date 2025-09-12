@@ -56,6 +56,20 @@ const (
 	IgnoreTreeType
 )
 
+// NewSubtreeTypeFromStr returns the SupplySubTree type from a string.
+func NewSubtreeTypeFromStr(s string) (SupplySubTree, error) {
+	switch s {
+	case "mint_supply":
+		return MintTreeType, nil
+	case "burn":
+		return BurnTreeType, nil
+	case "ignore":
+		return IgnoreTreeType, nil
+	default:
+		return 0, fmt.Errorf("unknown supply subtree: %s", s)
+	}
+}
+
 // String returns the string representation of the supply sub tree.
 func (s SupplySubTree) String() string {
 	switch s {
@@ -218,6 +232,11 @@ func NewSupplyLeavesFromEvents(events []SupplyUpdateEvent) (SupplyLeaves,
 // AssetLookup is an interface that allows us to query for asset
 // information, such as asset groups and asset metadata.
 type AssetLookup interface {
+	// FetchSupplyCommitAssets fetches all assets with non-nil group keys
+	// that are supply commitments enabled.
+	FetchSupplyCommitAssets(ctx context.Context,
+		localControlled bool) ([]btcec.PublicKey, error)
+
 	// QueryAssetGroupByID attempts to fetch an asset group by its asset ID.
 	// If the asset group cannot be found, then ErrAssetGroupUnknown is
 	// returned.
@@ -249,6 +268,24 @@ func FetchLatestAssetMetadata(ctx context.Context, lookup AssetLookup,
 
 	var zero proof.MetaReveal
 
+	// If the asset specifier has an asset ID, then we'll use that to
+	// fetch the asset metadata.
+	if assetSpec.HasId() {
+		assetID, err := assetSpec.UnwrapIdOrErr()
+		if err != nil {
+			return zero, err
+		}
+
+		metaReveal, err := lookup.FetchAssetMetaForAsset(ctx, assetID)
+		if err != nil {
+			return zero, fmt.Errorf("faild to fetch asset meta: %w",
+				err)
+		}
+
+		return *metaReveal, nil
+	}
+
+	// Otherwise, we'll need to fetch the asset group using the group key.
 	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
 	if err != nil {
 		return zero, err

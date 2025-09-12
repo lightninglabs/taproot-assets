@@ -2,18 +2,15 @@ package supplycommit
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
-	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/msgmux"
@@ -142,94 +139,10 @@ func (m *Manager) Stop() error {
 	return nil
 }
 
-// ensureSupplyCommitSupport verifies that the asset group for the given
-// asset specifier supports supply commitments, and that this node can generate
-// supply commitments for it.
-func (m *Manager) ensureSupplyCommitSupport(ctx context.Context,
-	metaReveal proof.MetaReveal) error {
-
-	// If the universe commitment flag is not set on the asset metadata,
-	// then the asset group does not support supply commitments.
-	if !metaReveal.UniverseCommitments {
-		return fmt.Errorf("asset group metadata universe " +
-			"commitments flag indicates that asset does not " +
-			"support supply commitments")
-	}
-
-	// If a delegation key is not present, then the asset group does not
-	// support supply commitments.
-	if metaReveal.DelegationKey.IsNone() {
-		return fmt.Errorf("asset group metadata does not " +
-			"specify delegation key, which is required for " +
-			"supply commitments")
-	}
-
-	// Extract supply commitment delegation pub key from the asset metadata.
-	delegationPubKey, err := metaReveal.DelegationKey.UnwrapOrErr(
-		fmt.Errorf("delegation key not found for given asset"),
-	)
-	if err != nil {
-		return err
-	}
-
-	// Fetch the delegation key locator. We need to ensure that the
-	// delegation key is owned by this node, so that we can generate
-	// supply commitments (ignore tuples) for this asset group.
-	_, err = m.cfg.AssetLookup.FetchInternalKeyLocator(
-		ctx, &delegationPubKey,
-	)
-	switch {
-	case errors.Is(err, address.ErrInternalKeyNotFound):
-		return fmt.Errorf("delegation key locator not found; "+
-			"only delegation key owners can ignore asset "+
-			"outpoints for this asset group: %w", err)
-	case err != nil:
-		return fmt.Errorf("failed to fetch delegation key locator: %w",
-			err)
-	}
-
-	return nil
-}
-
-// fetchStateMachine retrieves a state machine from the cache or creates a
-// new one if it doesn't exist. If a new state machine is created, it is also
-// started.
-func (m *Manager) fetchStateMachine(
+// startAssetSM creates and starts a new supply commitment state
+// machine for the given asset specifier.
+func (m *Manager) startAssetSM(ctx context.Context,
 	assetSpec asset.Specifier) (*StateMachine, error) {
-
-	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
-	if err != nil {
-		return nil, fmt.Errorf("asset specifier missing group key: %w",
-			err)
-	}
-
-	// Check if the state machine for the asset group already exists in the
-	// cache.
-	sm, ok := m.smCache.Get(*groupKey)
-	if ok {
-		return sm, nil
-	}
-
-	// If the state machine is not found, create a new one.
-	//
-	// Before we can create a state machine, we need to ensure that the
-	// asset group supports supply commitments. If it doesn't, then we
-	// return an error.
-	ctx, cancel := m.WithCtxQuitNoTimeout()
-	defer cancel()
-
-	metaReveal, err := FetchLatestAssetMetadata(
-		ctx, m.cfg.AssetLookup, assetSpec,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("faild to fetch asset meta: %w", err)
-	}
-
-	err = m.ensureSupplyCommitSupport(ctx, metaReveal)
-	if err != nil {
-		return nil, fmt.Errorf("failed to ensure supply commit "+
-			"support for asset: %w", err)
-	}
 
 	env := &Environment{
 		AssetSpec:          assetSpec,
@@ -270,6 +183,12 @@ func (m *Manager) fetchStateMachine(
 	smCtx, _ := m.WithCtxQuitNoTimeout()
 	newSm.Start(smCtx)
 
+	// Assert that the state machine is running. Start should block until
+	// the state machine is running.
+	if !newSm.IsRunning() {
+		return nil, fmt.Errorf("state machine unexpectadly not running")
+	}
+
 	// If specific initial states are provided, we send the corresponding
 	// events to the state machine to ensure it begins ticking as expected.
 	switch initialState.(type) {
@@ -287,9 +206,55 @@ func (m *Manager) fetchStateMachine(
 		newSm.SendEvent(ctx, &FinalizeEvent{})
 	}
 
-	m.smCache.Set(*groupKey, &newSm)
-
 	return &newSm, nil
+}
+
+// fetchStateMachine retrieves a state machine from the cache or creates a
+// new one if it doesn't exist. If a new state machine is created, it is also
+// started.
+func (m *Manager) fetchStateMachine(
+	assetSpec asset.Specifier) (*StateMachine, error) {
+
+	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
+	if err != nil {
+		return nil, fmt.Errorf("asset specifier missing group key: %w",
+			err)
+	}
+
+	// Check if the state machine for the asset group already exists in the
+	// cache.
+	sm, ok := m.smCache.Get(*groupKey)
+	if ok {
+		// If the state machine is found and is running, return it.
+		if sm.IsRunning() {
+			return sm, nil
+		}
+
+		// If the state machine exists but is not running, replace it in
+		// the cache with a new running instance.
+	}
+
+	// Before we can create a state machine, we need to ensure that the
+	// asset group supports supply commitments. If it doesn't, then we
+	// return an error.
+	ctx, cancel := m.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	err = CheckSupplyCommitSupport(ctx, m.cfg.AssetLookup, assetSpec, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure supply commit "+
+			"support for asset: %w", err)
+	}
+
+	// Start the state machine and add it to the cache.
+	newSm, err := m.startAssetSM(ctx, assetSpec)
+	if err != nil {
+		return nil, fmt.Errorf("unable to start state machine: %w", err)
+	}
+
+	m.smCache.Set(*groupKey, newSm)
+
+	return newSm, nil
 }
 
 // SendEvent sends an event to the state machine associated with the given asset

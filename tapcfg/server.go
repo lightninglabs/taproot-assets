@@ -549,18 +549,23 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	// Set up the supply verifier, which validates supply commitment leaves
 	// published by asset issuers.
-	supplyVerifyManager := supplyverifier.NewManager(
+	supplyVerifyManager, err := supplyverifier.NewManager(
 		supplyverifier.ManagerCfg{
 			Chain:                 chainBridge,
 			AssetLookup:           tapdbAddrBook,
 			Lnd:                   lndServices,
 			SupplyCommitView:      supplyCommitStore,
 			SupplyTreeView:        supplyTreeStore,
+			SupplySyncer:          supplySyncer,
 			GroupFetcher:          assetMintingStore,
 			IssuanceSubscriptions: universeSyncer,
 			DaemonAdapters:        lndFsmDaemonAdapters,
 		},
 	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create supply verifier: %w",
+			err)
+	}
 
 	// For the porter, we'll make a multi-notifier comprised of all the
 	// possible proof file sources to ensure it can always fetch input

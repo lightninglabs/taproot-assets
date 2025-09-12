@@ -138,37 +138,37 @@ type supplyCommitTestHarness struct {
 func newSupplyCommitTestHarness(t *testing.T,
 	cfg *harnessCfg) *supplyCommitTestHarness {
 
-	mockTreeView := &mockSupplyTreeView{}
-	mockCommits := &mockCommitmentTracker{}
-	mockWallet := &mockWallet{}
-	mockKey := &mockKeyRing{}
-	mockChain := &mockChainBridge{}
-	mockStateLog := &mockStateMachineStore{}
-	mockDaemon := newMockDaemonAdapters()
-	mockErrReporter := &mockErrorReporter{}
-	mockCache := &mockIgnoreCheckerCache{}
-	mockAssetLookup := &mockAssetLookup{}
-	mockSupplySyncer := &mockSupplySyncer{}
+	mTreeView := &mockSupplyTreeView{}
+	mCommits := &mockCommitmentTracker{}
+	mWallet := &mockWallet{}
+	mKey := &mockKeyRing{}
+	mChain := &mockChainBridge{}
+	mStateLog := &mockStateMachineStore{}
+	mDaemon := newMockDaemonAdapters()
+	mErrReporter := &mockErrorReporter{}
+	mCache := &mockIgnoreCheckerCache{}
+	mAssetLookup := &mockAssetLookup{}
+	mSupplySyncer := &mockSupplySyncer{}
 
 	env := &Environment{
 		AssetSpec:          cfg.assetSpec,
-		TreeView:           mockTreeView,
-		Commitments:        mockCommits,
-		Wallet:             mockWallet,
-		KeyRing:            mockKey,
-		Chain:              mockChain,
-		StateLog:           mockStateLog,
-		AssetLookup:        mockAssetLookup,
-		SupplySyncer:       mockSupplySyncer,
+		TreeView:           mTreeView,
+		Commitments:        mCommits,
+		Wallet:             mWallet,
+		KeyRing:            mKey,
+		Chain:              mChain,
+		StateLog:           mStateLog,
+		AssetLookup:        mAssetLookup,
+		SupplySyncer:       mSupplySyncer,
 		CommitConfTarget:   DefaultCommitConfTarget,
-		IgnoreCheckerCache: mockCache,
+		IgnoreCheckerCache: mCache,
 	}
 
 	fsmCfg := Config{
 		InitialState:       cfg.initialState,
 		Env:                env,
-		Daemon:             mockDaemon,
-		ErrorReporter:      mockErrReporter,
+		Daemon:             mDaemon,
+		ErrorReporter:      mErrReporter,
 		InitEvent:          lfn.None[protofsm.DaemonEvent](),
 		MsgMapper:          lfn.None[protofsm.MsgMapper[Event]](),
 		CustomPollInterval: lfn.Some(time.Second),
@@ -181,17 +181,17 @@ func newSupplyCommitTestHarness(t *testing.T,
 		cfg:              cfg,
 		stateMachine:     &stateMachine,
 		env:              env,
-		mockTreeView:     mockTreeView,
-		mockCommits:      mockCommits,
-		mockWallet:       mockWallet,
-		mockKeyRing:      mockKey,
-		mockChain:        mockChain,
-		mockStateLog:     mockStateLog,
-		mockCache:        mockCache,
-		mockDaemon:       mockDaemon,
-		mockErrReporter:  mockErrReporter,
-		mockAssetLookup:  mockAssetLookup,
-		mockSupplySyncer: mockSupplySyncer,
+		mockTreeView:     mTreeView,
+		mockCommits:      mCommits,
+		mockWallet:       mWallet,
+		mockKeyRing:      mKey,
+		mockChain:        mChain,
+		mockStateLog:     mStateLog,
+		mockCache:        mCache,
+		mockDaemon:       mDaemon,
+		mockErrReporter:  mErrReporter,
+		mockAssetLookup:  mAssetLookup,
+		mockSupplySyncer: mSupplySyncer,
 	}
 
 	h.stateSub = stateMachine.RegisterStateEvents()
@@ -1339,11 +1339,16 @@ func TestSupplyCommitFinalizeStateTransitions(t *testing.T) {
 			},
 			assetSpec: assetIDSpec,
 		})
+
+		h.expectAssetLookup()
+		h.expectSupplySyncer()
+		h.expectApplyStateTransition()
+
 		h.start()
 		defer h.stopAndAssert()
 
-		expectedErr := errors.New("unable to fetch latest asset " +
-			"metadata: unable to unwrap asset group public key")
+		expectedErr := errors.New("group key must be specified for " +
+			"supply tree: unable to unwrap asset group public key")
 		h.expectFailure(expectedErr)
 
 		finalizeEvent := &FinalizeEvent{}
