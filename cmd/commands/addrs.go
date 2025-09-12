@@ -283,6 +283,11 @@ var receivesAddrCommand = cli.Command{
 			Name:  addrName,
 			Usage: "show transfers of a single address only",
 		},
+		cli.Uint64Flag{
+			Name: "created_after",
+			Usage: "filter transfers created after this " +
+				"unix timestamp(seconds)",
+		},
 	},
 	Action: addrReceives,
 }
@@ -302,7 +307,8 @@ func addrReceives(ctx *cli.Context) error {
 	}
 
 	resp, err := client.AddrReceives(ctxc, &taprpc.AddrReceivesRequest{
-		FilterAddr: addr,
+		FilterAddr:   addr,
+		CreatedAfter: ctx.Uint64("created_after"),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to query addr receives: %w", err)
