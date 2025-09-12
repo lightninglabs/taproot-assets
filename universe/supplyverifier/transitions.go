@@ -240,7 +240,7 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 		// Store the verified commitment.
 		err = env.SupplyCommitView.InsertSupplyCommit(
 			ctx, env.AssetSpec, supplyCommit.RootCommitment,
-			supplyCommit.SupplyLeaves,
+			supplyCommit.SupplyLeaves, unspentPreCommits,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to store supply "+

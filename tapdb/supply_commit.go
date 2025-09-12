@@ -1013,7 +1013,8 @@ func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
 // database.
 func (s *SupplyCommitMachine) InsertSupplyCommit(ctx context.Context,
 	assetSpec asset.Specifier, commit supplycommit.RootCommitment,
-	leaves supplycommit.SupplyLeaves) error {
+	leaves supplycommit.SupplyLeaves,
+	unspentPreCommits supplycommit.PreCommits) error {
 
 	groupKey := assetSpec.UnwrapGroupKeyToPtr()
 	if groupKey == nil {
@@ -1135,6 +1136,29 @@ func (s *SupplyCommitMachine) InsertSupplyCommit(ctx context.Context,
 			return fmt.Errorf("failed to update commitment root "+
 				"hash/sum for commit %d: %w",
 				newCommitmentID, err)
+		}
+
+		// Mark all the included pre-commitments as spent by this
+		// commitment.
+		for idx := range unspentPreCommits {
+			preCommit := unspentPreCommits[idx]
+			outpointBytes, err := encodeOutpoint(
+				preCommit.OutPoint(),
+			)
+			if err != nil {
+				return fmt.Errorf("failed to encode "+
+					"pre-commit outpoint: %w", err)
+			}
+
+			markParams := sqlc.MarkPreCommitSpentByOutpointParams{
+				SpentByCommitID: sqlInt64(newCommitmentID),
+				Outpoint:        outpointBytes,
+			}
+			err = db.MarkPreCommitSpentByOutpoint(ctx, markParams)
+			if err != nil {
+				return fmt.Errorf("failed to mark pre-commit "+
+					"output as spent: %w", err)
+			}
 		}
 
 		// Next, we'll serialize the merkle proofs and block header, so

@@ -66,7 +66,8 @@ type SupplyCommitView interface {
 	// InsertSupplyCommit inserts a supply commitment into the database.
 	InsertSupplyCommit(ctx context.Context,
 		assetSpec asset.Specifier, commit supplycommit.RootCommitment,
-		leaves supplycommit.SupplyLeaves) error
+		leaves supplycommit.SupplyLeaves,
+		unspentPreCommits supplycommit.PreCommits) error
 }
 
 // SupplyTreeView is an interface that is used to look up the root (upper)

@@ -586,7 +586,7 @@ func (m *Manager) InsertSupplyCommit(ctx context.Context,
 	}
 
 	return m.cfg.SupplyCommitView.InsertSupplyCommit(
-		ctx, assetSpec, commitment, leaves,
+		ctx, assetSpec, commitment, leaves, unspentPreCommits,
 	)
 }
 
