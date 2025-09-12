@@ -145,13 +145,24 @@ func testPreCommitOutput(t *harnessTest) {
 //
 //  1. Mints an asset group with universe supply commitments enabled.
 //  2. Transfers a portion of the asset to a secondary node.
-//  3. Instructs the primary node to ignore the outpoint now owned by the
-//     secondary node.
-//  4. Updates the asset group’s supply commitment, which should now include
-//     the ignored outpoint in the “ignore” subtree.
+//  3. Instructs the primary node to ignore both the transfer output and change
+//     output from the transfer.
+//  4. Updates the asset group's supply commitment, which should now include
+//     the ignored outpoints in the "ignore" subtree.
 //  5. Mines the commitment transaction.
 //  6. Retrieves the updated supply commitment transaction and asserts that the
-//     ignored subtree contains the expected outpoint.
+//     ignored subtree contains the expected outpoints.
+//  7. Verifies inclusion proofs for the ignored assets in the supply commitment
+//     tree.
+//  8. Verifies that the mined transaction correctly commits to the supply
+//     commitment tree.
+//  9. Attempts to ignore the same asset outpoint from the secondary node
+//     (should fail due to lack of delegation key).
+//  10. Attempts to spend the ignored change output (should fail).
+//  11. Verifies that the supply commitment is retrievable from the universe
+//     server.
+//  12. Verifies that the supply commitment is retrievable from the secondary
+//     node after it has synced the supply commitment.
 func testSupplyCommitIgnoreAsset(t *harnessTest) {
 	ctxb := context.Background()
 
