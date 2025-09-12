@@ -24,6 +24,7 @@ cmd/tapd/tapd
 /itest/itest.test
 
 /docs/examples/basic-price-oracle/basic-price-oracle
+/docs/examples/basic-price-oracle/basic-price-oracle-example.log
 
 # Load test binaries and config
 /loadtest
