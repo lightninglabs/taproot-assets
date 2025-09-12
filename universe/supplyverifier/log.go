@@ -1,6 +1,8 @@
 package supplyverifier
 
 import (
+	"fmt"
+
 	"github.com/btcsuite/btclog/v2"
 )
 
@@ -23,4 +25,11 @@ func DisableLog() {
 // using btclog.
 func UseLogger(logger btclog.Logger) {
 	log = logger
+}
+
+// NewAssetLogger creates a new prefixed logger for a specific asset. This
+// logger will automatically include the asset specifier in all log messages,
+// using the format "SupplyVerifier(asset): message".
+func NewAssetLogger(assetSpec string) btclog.Logger {
+	return log.WithPrefix(fmt.Sprintf("SupplyVerifier(%v): ", assetSpec))
 }

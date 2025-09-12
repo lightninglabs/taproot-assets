@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -96,6 +97,9 @@ type Environment struct {
 	// that we're maintaining a supply commit for.
 	AssetSpec asset.Specifier
 
+	// AssetLog is the asset-specific logger for this state machine.
+	AssetLog btclog.Logger
+
 	// Chain is our access to the current main chain.
 	Chain tapgarden.ChainBridge
 
@@ -137,4 +141,15 @@ type Environment struct {
 // Name returns the name of the environment.
 func (e *Environment) Name() string {
 	return fmt.Sprintf("supply_verifier(%s)", e.AssetSpec.String())
+}
+
+// Logger returns the logger for the environment. If a logger is configured in
+// the environment configuration, it returns that logger. Otherwise, it returns
+// the package-level logger with an asset-specific prefix.
+func (e *Environment) Logger() btclog.Logger {
+	if e.AssetLog != nil {
+		return e.AssetLog
+	}
+
+	return NewAssetLogger(e.AssetSpec.String())
 }

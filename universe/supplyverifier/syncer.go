@@ -99,6 +99,9 @@ func (s *SupplySyncer) pushUniServer(ctx context.Context,
 	chainProof supplycommit.ChainProof,
 	serverAddr universe.ServerAddr) error {
 
+	log.Debugf("Pushing supply commitment to server: %s, asset: %s",
+		serverAddr.HostStr(), assetSpec.String())
+
 	// Create a client for the specific universe server address.
 	client, err := s.cfg.ClientFactory(serverAddr)
 	if err != nil {
@@ -127,6 +130,11 @@ func (s *SupplySyncer) pushUniServer(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("unable to log supply commit push: %w", err)
 	}
+
+	log.Infof("Successfully pushed supply commitment to server: %s, "+
+		"asset: %s, commitment_outpoint=%s",
+		serverAddr.HostStr(), assetSpec.String(),
+		commitment.CommitPoint().String())
 
 	return nil
 }
@@ -182,6 +190,9 @@ func (s *SupplySyncer) PushSupplyCommitment(ctx context.Context,
 	updateLeaves supplycommit.SupplyLeaves,
 	chainProof supplycommit.ChainProof,
 	canonicalUniverses []url.URL) (map[string]error, error) {
+
+	log.Infof("Starting push of supply commitment for asset: %s to "+
+		"%d servers", assetSpec.String(), len(canonicalUniverses))
 
 	targetAddrs, err := s.fetchServerAddrs(ctx, canonicalUniverses)
 	if err != nil {
@@ -245,6 +256,10 @@ func (s *SupplySyncer) pullUniServer(ctx context.Context,
 
 	var zero supplycommit.FetchSupplyCommitResult
 
+	log.Debugf("Pulling supply commitment from server: %s, asset: %s, "+
+		"spent_outpoint=%v", serverAddr.HostStr(), assetSpec.String(),
+		spentCommitOutpoint.IsSome())
+
 	// Create a client for the specific universe server address.
 	client, err := s.cfg.ClientFactory(serverAddr)
 	if err != nil {
@@ -267,6 +282,9 @@ func (s *SupplySyncer) pullUniServer(ctx context.Context,
 		return zero, fmt.Errorf("unable to fetch supply commitment: %w",
 			err)
 	}
+
+	log.Infof("Successfully pulled supply commitment from server: %s, "+
+		"asset: %s", serverAddr.HostStr(), assetSpec.String())
 
 	return result, nil
 }
@@ -296,6 +314,11 @@ func (s *SupplySyncer) PullSupplyCommitment(ctx context.Context,
 	canonicalUniverses []url.URL) (SupplyCommitPullResult, error) {
 
 	var zero SupplyCommitPullResult
+
+	log.Infof("Starting pull of supply commitment for asset: %s, "+
+		"spent_outpoint=%v, canonical_universes=%d",
+		assetSpec.String(), spentCommitOutpoint.IsSome(),
+		len(canonicalUniverses))
 
 	targetAddrs, err := s.fetchServerAddrs(ctx, canonicalUniverses)
 	if err != nil {
