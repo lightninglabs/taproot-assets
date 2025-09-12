@@ -990,3 +990,271 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 
 	t.Log("Supply commit mint and burn test completed successfully")
 }
+
+// testSupplyVerifyPeerNode verifies that a secondary node can sync and fetch
+// multiple supply commitments published by the primary node. It:
+//
+//  1. Mints an asset group with universe supply commitments enabled.
+//  2. Publishes the first supply commitment and mines it.
+//  3. Sends some of the asset to a secondary node.
+//  4. Verifies the secondary node can fetch the first supply commitment.
+//  5. Ignores the asset outpoint sent to the secondary node.
+//  6. Publishes the second supply commitment and mines it.
+//  7. Verifies the secondary node can fetch the updated supply commitment.
+func testSupplyVerifyPeerNode(t *harnessTest) {
+	ctxb := context.Background()
+
+	t.Log("Minting initial asset group with universe/supply " +
+		"commitments enabled")
+
+	// Create a mint request for a grouped asset with supply commitments.
+	mintReq := CopyRequest(issuableAssets[0])
+	mintReq.Asset.Amount = 5000
+
+	rpcFirstAsset, _ := MintAssetWithSupplyCommit(
+		t, mintReq, fn.None[btcec.PublicKey](),
+	)
+
+	// Parse out the group key from the minted asset.
+	groupKeyBytes := rpcFirstAsset.AssetGroup.TweakedGroupKey
+	require.NotNil(t.t, groupKeyBytes)
+
+	UpdateAndMineSupplyCommit(
+		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		groupKeyBytes, 1,
+	)
+
+	t.Log("Fetching first supply commitment to verify mint leaves")
+	fetchResp, supplyOutpoint := WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.None[wire.OutPoint](),
+		func(resp *unirpc.FetchSupplyCommitResponse) bool {
+			return resp.ChainData.BlockHeight > 0 &&
+				len(resp.ChainData.BlockHash) > 0
+		},
+	)
+
+	// Verify the issuance subtree root exists and has the correct amount.
+	require.NotNil(t.t, fetchResp.IssuanceSubtreeRoot)
+	require.Equal(
+		t.t, int64(mintReq.Asset.Amount),
+		fetchResp.IssuanceSubtreeRoot.RootNode.RootSum,
+	)
+
+	t.Log("Setting up secondary node as recipient of asset")
+	secondLnd := t.lndHarness.NewNodeWithCoins("SecondLnd", nil)
+	secondTapd := setupTapdHarness(t.t, t, secondLnd, t.universeServer)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	t.Log("Sending asset to secondary node")
+	sendAssetAmount := uint64(1000)
+	sendChangeAmount := rpcFirstAsset.Amount - sendAssetAmount
+
+	sendResp := sendAssetAndAssert(
+		ctxb, t, t.tapd, secondTapd, sendAssetAmount, sendChangeAmount,
+		rpcFirstAsset.AssetGenesis, rpcFirstAsset, 0, 1, 1,
+	)
+	require.Len(t.t, sendResp.RpcResp.Transfer.Outputs, 2)
+	t.Log("Asset transfer completed successfully")
+
+	t.Log("Verifying secondary node can fetch first supply commitment")
+	var peerFetchResp *unirpc.FetchSupplyCommitResponse
+	require.Eventually(t.t, func() bool {
+		var err error
+		// nolint: lll
+		peerFetchResp, err = secondTapd.FetchSupplyCommit(
+			ctxb, &unirpc.FetchSupplyCommitRequest{
+				GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
+					GroupKeyBytes: groupKeyBytes,
+				},
+				Locator: &unirpc.FetchSupplyCommitRequest_VeryFirst{
+					VeryFirst: true,
+				},
+			},
+		)
+		if err != nil {
+			return false
+		}
+
+		// Check if the supply commitment has been mined.
+		return peerFetchResp != nil &&
+			peerFetchResp.ChainData.BlockHeight > 0 &&
+			len(peerFetchResp.ChainData.BlockHash) > 0
+	}, defaultWaitTimeout, time.Second)
+
+	require.NotNil(t.t, peerFetchResp)
+	require.Equal(
+		t.t, int64(mintReq.Asset.Amount),
+		peerFetchResp.IssuanceSubtreeRoot.RootNode.RootSum,
+	)
+
+	t.Log("Ignoring asset outpoint sent to secondary node")
+
+	// Determine the transfer output owned by the secondary node.
+	// This is the output that we will ignore.
+	transferOutput := sendResp.RpcResp.Transfer.Outputs[0]
+	if sendResp.RpcResp.Transfer.Outputs[1].Amount == sendAssetAmount {
+		transferOutput = sendResp.RpcResp.Transfer.Outputs[1]
+	}
+
+	// Ignore the asset outpoint owned by the secondary node.
+	ignoreReq := &unirpc.IgnoreAssetOutPointRequest{
+		AssetOutPoint: &taprpc.AssetOutPoint{
+			AnchorOutPoint: transferOutput.Anchor.Outpoint,
+			AssetId:        rpcFirstAsset.AssetGenesis.AssetId,
+			ScriptKey:      transferOutput.ScriptKey,
+		},
+		Amount: sendAssetAmount,
+	}
+	respIgnore, err := t.tapd.IgnoreAssetOutPoint(ctxb, ignoreReq)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, respIgnore)
+	require.EqualValues(t.t, sendAssetAmount, respIgnore.Leaf.RootSum)
+
+	t.Log("Updating supply commitment after ignoring asset outpoint")
+	UpdateAndMineSupplyCommit(
+		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		groupKeyBytes, 1,
+	)
+
+	t.Log("Verifying retrieval of second supply commitment from primary " +
+		"node")
+	fetchResp, _ = WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(supplyOutpoint),
+		func(resp *unirpc.FetchSupplyCommitResponse) bool {
+			ignoreRoot := resp.IgnoreSubtreeRoot
+			if ignoreRoot == nil {
+				return false
+			}
+
+			// Check if the supply commitment has been updated with
+			// ignored assets.
+			return ignoreRoot.RootNode.RootSum ==
+				int64(sendAssetAmount)
+		},
+	)
+
+	require.Equal(
+		t.t, int64(sendAssetAmount),
+		fetchResp.IgnoreSubtreeRoot.RootNode.RootSum,
+	)
+
+	t.Log("Verifying retrieval of second supply commitment from universe " +
+		"server")
+	var uniFetchResp *unirpc.FetchSupplyCommitResponse
+	require.Eventually(t.t, func() bool {
+		var err error
+		// nolint: lll
+		uniFetchResp, err = t.universeServer.service.FetchSupplyCommit(
+			ctxb, &unirpc.FetchSupplyCommitRequest{
+				GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
+					GroupKeyBytes: groupKeyBytes,
+				},
+				Locator: &unirpc.FetchSupplyCommitRequest_SpentCommitOutpoint{
+					SpentCommitOutpoint: fetchResp.SpentCommitmentOutpoint,
+				},
+			},
+		)
+		if err != nil {
+			return false
+		}
+
+		if uniFetchResp == nil {
+			return false
+		}
+
+		if uniFetchResp.IgnoreSubtreeRoot == nil {
+			return false
+		}
+
+		// Check if the supply commitment has been updated with ignored
+		// assets.
+		return uniFetchResp.IgnoreSubtreeRoot.RootNode.RootSum ==
+			int64(sendAssetAmount)
+	}, defaultWaitTimeout, time.Second)
+
+	require.NotNil(t.t, uniFetchResp)
+	require.Equal(
+		t.t, int64(sendAssetAmount),
+		uniFetchResp.IgnoreSubtreeRoot.RootNode.RootSum,
+	)
+
+	// Verify that the universe server's supply commitment matches the
+	// primary's.
+	require.Equal(
+		t.t, fetchResp.ChainData.BlockHeight,
+		uniFetchResp.ChainData.BlockHeight,
+	)
+	require.True(
+		t.t, bytes.Equal(
+			fetchResp.ChainData.BlockHash,
+			uniFetchResp.ChainData.BlockHash,
+		),
+	)
+	require.True(
+		t.t, bytes.Equal(
+			fetchResp.ChainData.SupplyRootHash,
+			uniFetchResp.ChainData.SupplyRootHash,
+		),
+	)
+
+	t.Log("Verifying retrieval of second supply commitment from " +
+		"secondary node")
+	var peerFetchResp2 *unirpc.FetchSupplyCommitResponse
+	require.Eventually(t.t, func() bool {
+		var err error
+		// nolint: lll
+		peerFetchResp2, err = secondTapd.FetchSupplyCommit(
+			ctxb, &unirpc.FetchSupplyCommitRequest{
+				GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
+					GroupKeyBytes: groupKeyBytes,
+				},
+				Locator: &unirpc.FetchSupplyCommitRequest_SpentCommitOutpoint{
+					SpentCommitOutpoint: fetchResp.SpentCommitmentOutpoint,
+				},
+			},
+		)
+		if err != nil {
+			return false
+		}
+
+		if peerFetchResp2 == nil {
+			return false
+		}
+
+		if peerFetchResp2.IgnoreSubtreeRoot == nil {
+			return false
+		}
+
+		// Check if the supply commitment has been updated with ignored
+		// assets.
+		return peerFetchResp2.IgnoreSubtreeRoot.RootNode.RootSum ==
+			int64(sendAssetAmount)
+	}, defaultWaitTimeout, time.Second)
+
+	require.NotNil(t.t, peerFetchResp2)
+	require.Equal(
+		t.t, int64(sendAssetAmount),
+		peerFetchResp2.IgnoreSubtreeRoot.RootNode.RootSum,
+	)
+
+	// Verify that the secondary node's supply commitment matches the
+	// primary's.
+	require.Equal(
+		t.t, fetchResp.ChainData.BlockHeight,
+		peerFetchResp2.ChainData.BlockHeight,
+	)
+	require.True(
+		t.t, bytes.Equal(
+			fetchResp.ChainData.BlockHash,
+			peerFetchResp2.ChainData.BlockHash,
+		),
+	)
+	require.True(
+		t.t, bytes.Equal(
+			fetchResp.ChainData.SupplyRootHash,
+			peerFetchResp2.ChainData.SupplyRootHash,
+		),
+	)
+}
