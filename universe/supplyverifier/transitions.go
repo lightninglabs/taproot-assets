@@ -21,6 +21,9 @@ func (s *InitState) ProcessEvent(event Event,
 
 	switch event.(type) {
 	case *InitEvent:
+		log.Debugf("Processing InitEvent for asset: %s",
+			env.AssetSpec.String())
+
 		ctx := context.Background()
 
 		// Retrieve the set of unspent pre-commitments for the asset
@@ -53,6 +56,12 @@ func (s *InitState) ProcessEvent(event Event,
 			return nil, fmt.Errorf("no pre-commitments or " +
 				"verified supply commitment found")
 		}
+
+		log.Infof("Transitioning from InitState to "+
+			"WatchOutputsState for asset: %s, "+
+			"pre_commits=%d, has_latest_commit=%v",
+			env.AssetSpec.String(), len(preCommits),
+			latestCommit != nil)
 
 		return &StateTransition{
 			NextState: &WatchOutputsState{},
@@ -102,6 +111,9 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 
 	switch e := event.(type) {
 	case *SyncVerifyEvent:
+		log.Debugf("Processing SyncVerifyEvent for asset: %s",
+			env.AssetSpec.String())
+
 		ctx := context.Background()
 
 		// Check to ensure that we haven't already processed a supply
@@ -132,6 +144,10 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 				if err != nil {
 					return nil, err
 				}
+
+				log.Debugf("Supply commitment already " +
+					"processed, transitioning to " +
+					"WatchOutputsState")
 
 				watchEvent := WatchOutputsEvent{
 					SupplyCommit: &commit,
@@ -185,6 +201,7 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 
 		verifier, err := NewVerifier(
 			VerifierCfg{
+				AssetSpec:        env.AssetSpec,
 				ChainBridge:      env.Chain,
 				AssetLookup:      env.AssetLookup,
 				Lnd:              env.Lnd,
@@ -207,6 +224,8 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 				"commitment: %w", err)
 		}
 
+		log.Debugf("Storing verified supply commitment")
+
 		// Store the verified commitment.
 		err = env.SupplyCommitView.InsertSupplyCommit(
 			ctx, env.AssetSpec, supplyCommit.RootCommitment,
@@ -216,6 +235,11 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 			return nil, fmt.Errorf("unable to store supply "+
 				"commitment: %w", err)
 		}
+
+		log.Infof("Successfully synced and verified supply "+
+			"commitment for asset: %s, "+
+			"transitioning to WatchOutputsState",
+			env.AssetSpec.String())
 
 		// After syncing, verifying, and storing the latest supply
 		// commitment, transition to the watch state to await its spend.
@@ -232,12 +256,18 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 		}, nil
 
 	case *SpendEvent:
+		log.Infof("Received SpendEvent for asset: %s, spend_tx=%s",
+			env.AssetSpec.String(),
+			e.SpendDetail.SpendingTx.TxHash())
+
 		// A watched output has been spent, so transition to the sync
 		// state to fetch the new supply commitment. Before syncing,
 		// apply a delay to give the issuer time to publish it.
 		switch {
 		case e.WatchStartTimestamp.IsZero():
 			// No watch start timestamp: wait the full sync delay.
+			log.Debugf("Waiting full sync delay of %v before "+
+				"syncing", env.SpendSyncDelay)
 			time.Sleep(env.SpendSyncDelay)
 
 		default:
@@ -246,6 +276,10 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 			timeSinceWatch := time.Since(e.WatchStartTimestamp)
 			if timeSinceWatch < env.SpendSyncDelay {
 				delay := env.SpendSyncDelay - timeSinceWatch
+
+				env.Logger().Debugf("Waiting remaining sync "+
+					"delay of %v before syncing", delay)
+
 				time.Sleep(delay)
 			}
 		}
@@ -283,6 +317,8 @@ func (s *WatchOutputsState) ProcessEvent(event Event,
 
 	switch e := event.(type) {
 	case *WatchOutputsEvent:
+		env.Logger().Debugf("Processing WatchOutputsEvent")
+
 		preCommits := e.PreCommits
 
 		// If no pre-commitments were provided, then we'll query our
@@ -342,6 +378,11 @@ func (s *WatchOutputsState) ProcessEvent(event Event,
 				Hash:  e.SupplyCommit.Txn.TxHash(),
 				Index: e.SupplyCommit.TxOutIdx,
 			}
+
+			env.Logger().Debugf("Registering spend watch for "+
+				"supply commitment outpoint: %s",
+				outpoint.String())
+
 			txOutIdx := e.SupplyCommit.TxOutIdx
 			txOut := e.SupplyCommit.Txn.TxOut[txOutIdx]
 
@@ -364,6 +405,9 @@ func (s *WatchOutputsState) ProcessEvent(event Event,
 				),
 			})
 		}
+
+		env.Logger().Infof("Transitioning to SyncVerifyState, "+
+			"watching %d outputs", len(events))
 
 		// Otherwise, we'll transition to the verify state to await
 		// a spend of one of the outputs we're watching.

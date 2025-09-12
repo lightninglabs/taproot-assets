@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -20,6 +21,9 @@ import (
 
 // VerifierCfg is the configuration for the verifier.
 type VerifierCfg struct {
+	// AssetSpec is the asset specifier for the asset group being verified.
+	AssetSpec asset.Specifier
+
 	// Chain is our access to the chain.
 	ChainBridge tapgarden.ChainBridge
 
@@ -74,6 +78,9 @@ func (v *VerifierCfg) Validate() error {
 type Verifier struct {
 	// cfg is the configuration for the verifier.
 	cfg VerifierCfg
+
+	// assetLog is the asset-specific logger for this verifier.
+	assetLog btclog.Logger
 }
 
 // NewVerifier creates a new Verifier with the given configuration.
@@ -84,8 +91,12 @@ func NewVerifier(cfg VerifierCfg) (Verifier, error) {
 		return zero, fmt.Errorf("invalid verifier config: %w", err)
 	}
 
+	assetLog := NewAssetLogger(cfg.AssetSpec.String())
+	assetLog.Debugf("Created new supply verifier")
+
 	return Verifier{
-		cfg: cfg,
+		cfg:      cfg,
+		assetLog: assetLog,
 	}, nil
 }
 
@@ -96,6 +107,8 @@ func (v *Verifier) ensurePrecommitsSpent(ctx context.Context,
 	assetSpec asset.Specifier,
 	commitment supplycommit.RootCommitment) error {
 
+	v.assetLog.Debugf("Verifying pre-commitments spent")
+
 	// Fetch all unspent pre-commitment outputs for the asset group.
 	allPreCommits, err := v.cfg.SupplyCommitView.UnspentPrecommits(
 		ctx, assetSpec, false,
@@ -104,6 +117,9 @@ func (v *Verifier) ensurePrecommitsSpent(ctx context.Context,
 		return fmt.Errorf("unable to fetch unspent pre-commitments: %w",
 			err)
 	}
+
+	v.assetLog.Tracef("Found %d unspent pre-commitments",
+		len(allPreCommits))
 
 	// If no supply-commitment spend is recorded, require at least one
 	// unspent mint pre-commitment output for the initial supply commitment.
@@ -161,14 +177,17 @@ func (v *Verifier) ensurePrecommitsSpent(ctx context.Context,
 			}
 		}
 
-		log.Errorf("Unmatched pre-commitment outpoints in supply "+
-			"commit anchor tx inputs set:\n%s",
+		v.assetLog.Errorf("Unmatched pre-commitment outpoints in "+
+			"supply commit anchor tx inputs set:\n%s",
 			strings.Join(unmatched, "\n"))
 
 		return fmt.Errorf("supply commitment does not spend all "+
 			"known pre-commitments: expected %d, found %d",
 			len(preCommits), len(matchedOutPoints))
 	}
+
+	v.assetLog.Debugf("Successfully verified %d pre-commitment spends",
+		len(matchedOutPoints))
 
 	return nil
 }
@@ -178,6 +197,8 @@ func (v *Verifier) ensurePrecommitsSpent(ctx context.Context,
 func (v *Verifier) verifyInitialCommit(ctx context.Context,
 	assetSpec asset.Specifier, commitment supplycommit.RootCommitment,
 	leaves supplycommit.SupplyLeaves) error {
+
+	v.assetLog.Infof("Verifying initial supply commitment")
 
 	// Assert that the given commitment does not specify a spent outpoint.
 	// This must be the case for an initial commitment (which is what this
@@ -268,6 +289,9 @@ func (v *Verifier) verifyInitialCommit(ctx context.Context,
 			"commitment supply root")
 	}
 
+	v.assetLog.Infof("Successfully verified initial supply commitment, "+
+		"root_hash=%x", genRoot.NodeHash())
+
 	return nil
 }
 
@@ -279,6 +303,8 @@ func (v *Verifier) verifyIncrementalCommit(ctx context.Context,
 	assetSpec asset.Specifier, commitment supplycommit.RootCommitment,
 	leaves supplycommit.SupplyLeaves) error {
 
+	v.assetLog.Infof("Verifying incremental supply commitment")
+
 	// Fetch previous supply commitment based on the spent outpoint. This
 	// step ensures that we have already verified the previous
 	// commitment, and that it is present in the database.
@@ -288,6 +314,9 @@ func (v *Verifier) verifyIncrementalCommit(ctx context.Context,
 	if err != nil {
 		return err
 	}
+
+	v.assetLog.Debugf("Fetching previous commitment at outpoint: %s",
+		spentOutPoint.String())
 
 	spentCommit, err :=
 		v.cfg.SupplyCommitView.FetchCommitmentByOutpoint(
@@ -376,6 +405,10 @@ func (v *Verifier) verifyIncrementalCommit(ctx context.Context,
 			"commitment supply root")
 	}
 
+	v.assetLog.Infof("Successfully verified incremental supply "+
+		"commitment, root_hash=%x, spent_outpoint=%s",
+		expectedRoot.NodeHash(), spentOutPoint.String())
+
 	return nil
 }
 
@@ -415,6 +448,8 @@ func IsEquivalentPubKeys(a, b *btcec.PublicKey) bool {
 func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 	assetSpec asset.Specifier, delegationKey btcec.PublicKey,
 	issuanceEntry supplycommit.NewMintEvent) error {
+
+	v.assetLog.Tracef("Verifying issuance leaf")
 
 	issuanceLeaf := issuanceEntry.IssuanceProof
 
@@ -529,6 +564,8 @@ func (v *Verifier) verifyIgnoreLeaf(ctx context.Context,
 	assetSpec asset.Specifier, delegationPubKey btcec.PublicKey,
 	ignoreEntry supplycommit.NewIgnoreEvent) error {
 
+	v.assetLog.Tracef("Verifying ignore leaf")
+
 	signedIgnore := ignoreEntry.SignedIgnoreTuple
 	sigBytes := signedIgnore.Sig.Val.Signature.Serialize()
 
@@ -585,6 +622,8 @@ func (v *Verifier) verifyIgnoreLeaf(ctx context.Context,
 // verifyBurnLeaf verifies a single burn leaf entry.
 func (v *Verifier) verifyBurnLeaf(ctx context.Context,
 	assetSpec asset.Specifier, burnEntry supplycommit.NewBurnEvent) error {
+
+	v.assetLog.Tracef("Verifying burn leaf")
 
 	burnProof := burnEntry.BurnProof
 	if burnProof == nil {
@@ -646,6 +685,11 @@ func (v *Verifier) verifySupplyLeaves(ctx context.Context,
 	assetSpec asset.Specifier, delegationPubKey btcec.PublicKey,
 	leaves supplycommit.SupplyLeaves) error {
 
+	v.assetLog.Debugf("Verifying supply leaves, "+
+		"issuance_leaves=%d, ignore_leaves=%d, burn_leaves=%d",
+		len(leaves.IssuanceLeafEntries),
+		len(leaves.IgnoreLeafEntries), len(leaves.BurnLeafEntries))
+
 	// Ensure that all supply leaf block heights are set.
 	err := leaves.ValidateBlockHeights()
 	if err != nil {
@@ -689,6 +733,8 @@ func (v *Verifier) verifySupplyLeaves(ctx context.Context,
 		}
 	}
 
+	v.assetLog.Debugf("Successfully verified all supply leaves")
+
 	return nil
 }
 
@@ -724,12 +770,17 @@ func (v *Verifier) VerifyCommit(ctx context.Context,
 	assetSpec asset.Specifier, commitment supplycommit.RootCommitment,
 	leaves supplycommit.SupplyLeaves) error {
 
+	v.assetLog.Infof("Starting supply commitment verification, "+
+		"commitment_outpoint=%s",
+		commitment.CommitPoint().String())
+
 	// TODO(ffranr): Consider: should we require some leaves to be present?
 	//  Or for forward compatibility, allow no leaves?
 
 	// Perform static on-chain verification of the supply commitment's
 	// anchoring block header. This provides a basic proof-of-work guarantee
 	// that gates further verification steps.
+	v.assetLog.Debugf("Verifying chain anchor for commitment")
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, v.cfg.ChainBridge)
 	err := commitment.VerifyChainAnchor(
 		proof.DefaultMerkleVerifier, headerVerifier,
@@ -746,10 +797,14 @@ func (v *Verifier) VerifyCommit(ctx context.Context,
 	switch {
 	case err == nil:
 		// Found commitment, assume already verified and stored.
+		v.assetLog.Debugf("Commitment already verified and stored: %s",
+			commitment.CommitPoint().String())
 		return nil
 
 	case errors.Is(err, ErrCommitmentNotFound):
 		// Do nothing, continue to verification of given commitment.
+		v.assetLog.Debugf("Commitment not found in database, " +
+			"proceeding with verification")
 
 	default:
 		return fmt.Errorf("failed to check for existing supply "+

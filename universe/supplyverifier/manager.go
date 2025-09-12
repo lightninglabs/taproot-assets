@@ -174,6 +174,8 @@ func (m *Manager) InitStateMachines() error {
 	ctx, cancel := m.WithCtxQuitNoTimeout()
 	defer cancel()
 
+	log.Infof("Initializing supply verifier state machines")
+
 	// First, get all assets with group keys that could potentially be
 	// involved in supply commitments. The Manager will filter these
 	// based on delegation key ownership and other criteria.
@@ -185,6 +187,9 @@ func (m *Manager) InitStateMachines() error {
 			err)
 	}
 
+	log.Debugf("Found %d potential asset groups for supply verification",
+		len(assetGroupKeys))
+
 	for idx := range assetGroupKeys {
 		groupKey := assetGroupKeys[idx]
 
@@ -195,6 +200,9 @@ func (m *Manager) InitStateMachines() error {
 		// already exist.
 		_, ok := m.smCache.Get(groupKey)
 		if ok {
+			log.Tracef("State machine already exists for "+
+				"asset group: %x",
+				groupKey.SerializeCompressed())
 			continue
 		}
 
@@ -217,6 +225,8 @@ func (m *Manager) Start() error {
 	var startErr error
 
 	m.startOnce.Do(func() {
+		log.Infof("Starting supply verifier manager")
+
 		// Initialize the state machine cache.
 		m.smCache = newStateMachineCache()
 
@@ -229,6 +239,8 @@ func (m *Manager) Start() error {
 			return
 		}
 
+		log.Debugf("Starting universe syncer event monitor")
+
 		// Start a goroutine to handle universe syncer issuance events.
 		m.ContextGuard.Goroutine(
 			m.MonitorUniSyncEvents, func(err error) {
@@ -236,6 +248,8 @@ func (m *Manager) Start() error {
 					err)
 			},
 		)
+
+		log.Infof("Supply verifier manager started successfully")
 	})
 	if startErr != nil {
 		return fmt.Errorf("unable to start manager: %w", startErr)
@@ -273,6 +287,10 @@ func (m *Manager) handleUniSyncEvent(event fn.Event) error {
 		return nil
 	}
 
+	log.Tracef("Processing universe sync event for group key: %x, "+
+		"new_leaf_proofs=%d", universeID.GroupKey.SerializeCompressed(),
+		len(syncDiffEvent.SyncDiff.NewLeafProofs))
+
 	// Get genesis asset ID from the first synced leaf and formulate an
 	// asset specifier.
 	//
@@ -298,14 +316,17 @@ func (m *Manager) handleUniSyncEvent(event fn.Event) error {
 	cancelCtx()
 
 	if !isSupported {
+		log.Tracef("Asset does not support supply commitments: %s",
+			assetSpec.String())
 		return nil
 	}
 
-	// Fetch the state machine for the asset group, creating and starting it
-	// if it doesn't exist.
 	log.Debugf("Ensure supply verifier state machine for asset "+
 		"group due to universe syncer issuance event (asset=%s)",
 		assetSpec.String())
+
+	// Fetch the state machine for the asset group, creating and starting it
+	// if it doesn't exist.
 	_, err = m.fetchStateMachine(assetSpec)
 	if err != nil {
 		return fmt.Errorf("unable to get or create state machine: %w",
@@ -363,12 +384,16 @@ func (m *Manager) MonitorUniSyncEvents() error {
 // group key specific supply verifier state machines.
 func (m *Manager) Stop() error {
 	m.stopOnce.Do(func() {
+		log.Infof("Stopping supply verifier manager")
+
 		// Cancel the state machine context to signal all state machines
 		// to stop.
 		close(m.Quit)
 
 		// Stop all state machines.
 		m.smCache.StopAll()
+
+		log.Infof("Supply verifier manager stopped")
 	})
 
 	return nil
@@ -385,6 +410,7 @@ func (m *Manager) startAssetSM(ctx context.Context,
 	// If the state machine is not found, create a new one.
 	env := &Environment{
 		AssetSpec:        assetSpec,
+		AssetLog:         NewAssetLogger(assetSpec.String()),
 		Chain:            m.cfg.Chain,
 		SupplyCommitView: m.cfg.SupplyCommitView,
 		SupplyTreeView:   m.cfg.SupplyTreeView,
@@ -487,10 +513,15 @@ func (m *Manager) InsertSupplyCommit(ctx context.Context,
 	assetSpec asset.Specifier, commitment supplycommit.RootCommitment,
 	leaves supplycommit.SupplyLeaves) error {
 
+	log.Infof("Inserting supply commitment for asset: %s, "+
+		"commitment_outpoint=%s", assetSpec.String(),
+		commitment.CommitPoint().String())
+
 	// First, we verify the supply commitment to ensure it is valid and
 	// consistent with the given supply leaves.
 	verifier, err := NewVerifier(
 		VerifierCfg{
+			AssetSpec:        assetSpec,
 			ChainBridge:      m.cfg.Chain,
 			AssetLookup:      m.cfg.AssetLookup,
 			Lnd:              m.cfg.Lnd,
