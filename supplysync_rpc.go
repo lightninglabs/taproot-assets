@@ -128,6 +128,12 @@ func (r *RpcSupplySync) FetchSupplyCommit(ctx context.Context,
 		return zero, fmt.Errorf("unable to unwrap group key: %w", err)
 	}
 
+	srvrLog.Infof("[RpcSupplySync.FetchSupplyCommit]: fetching supply "+
+		"commitment from remote server "+
+		"(server_addr=%s, asset=%s, spent_outpoint=%v)",
+		r.serverAddr.HostStr(), assetSpec.String(),
+		spentCommitOutpoint.IsSome())
+
 	req := &unirpc.FetchSupplyCommitRequest{
 		GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
 			GroupKeyBytes: groupKey.SerializeCompressed(),
@@ -140,6 +146,8 @@ func (r *RpcSupplySync) FetchSupplyCommit(ctx context.Context,
 	// If a spent commit outpoint is provided, use that to locate the next
 	// supply commitment.
 	spentCommitOutpoint.WhenSome(func(outpoint wire.OutPoint) {
+		srvrLog.Debugf("Using spent commitment outpoint as locator: %s",
+			outpoint.String())
 		// nolint: lll
 		req.Locator = &unirpc.FetchSupplyCommitRequest_SpentCommitOutpoint{
 			SpentCommitOutpoint: &taprpc.OutPoint{
@@ -222,7 +230,7 @@ func (r *RpcSupplySync) FetchSupplyCommit(ctx context.Context,
 			"root: %w", err)
 	}
 
-	return supplycommit.FetchSupplyCommitResult{
+	result := supplycommit.FetchSupplyCommitResult{
 		RootCommitment:  *rootCommitment,
 		SupplyLeaves:    *supplyLeaves,
 		ChainProof:      chainProof,
@@ -233,7 +241,15 @@ func (r *RpcSupplySync) FetchSupplyCommit(ctx context.Context,
 		IgnoreSubtreeRoot:   ignoreSubtreeRoot,
 
 		SpentCommitmentOutpoint: respSpentCommitOutpoint,
-	}, nil
+	}
+
+	srvrLog.Infof("[RpcSupplySync.FetchSupplyCommit]: succeeded in "+
+		"fetching supply commitment "+
+		"(server_addr=%s, asset=%s, supply_tree_root_hash=%x)",
+		r.serverAddr.HostStr(), assetSpec.String(),
+		rootCommitment.SupplyRoot.NodeHash())
+
+	return result, nil
 }
 
 // Close closes the RPC connection to the universe server.
