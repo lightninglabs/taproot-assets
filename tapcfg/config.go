@@ -304,6 +304,8 @@ type UniverseConfig struct {
 	MultiverseCaches *tapdb.MultiverseCacheConfig `group:"multiverse-caches" namespace:"multiverse-caches"`
 
 	SupplyIgnoreCacheSize uint64 `long:"supply-ignore-cache-size" description:"The maximum number of entries in the supply ignore checker's negative lookup LRU cache."`
+
+	DisableSupplyVerifierChainWatch bool `long:"disable-supply-verifier-chain-watch" description:"Disable chain outpoint watching in supply verifier. If true, the supply verifier will not start state machines to watch on-chain outputs for spends. This option is intended for universe servers, where supply verification should only occur for commitments submitted by peers, not via on-chain spend detection."`
 }
 
 // AddrBookConfig is the config that houses any address Book related config
@@ -467,8 +469,9 @@ func DefaultConfig() Config {
 			MultiverseCaches: fn.Ptr(
 				tapdb.DefaultMultiverseCacheConfig(),
 			),
-			MboxAuthTimeout:       defaultMailboxAuthTimeout,
-			SupplyIgnoreCacheSize: tapdb.DefaultNegativeLookupCacheSize,
+			MboxAuthTimeout:                 defaultMailboxAuthTimeout,
+			SupplyIgnoreCacheSize:           tapdb.DefaultNegativeLookupCacheSize,
+			DisableSupplyVerifierChainWatch: false,
 		},
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,
