@@ -1288,6 +1288,11 @@
         "filter_status": {
           "$ref": "#/definitions/taprpcAddrEventStatus",
           "description": "Filter receives by a specific status. Leave empty to get all receives."
+        },
+        "created_after": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Filter receives by creation time greater than or equal to this timestamp.\nIf not set, no time filtering is applied."
         }
       }
     },

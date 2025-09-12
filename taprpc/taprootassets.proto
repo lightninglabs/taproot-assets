@@ -1513,6 +1513,10 @@ message AddrReceivesRequest {
 
     // Filter receives by a specific status. Leave empty to get all receives.
     AddrEventStatus filter_status = 2;
+
+    // Filter receives by creation time greater than or equal to this timestamp.
+    // If not set, no time filtering is applied.
+    uint64 created_after = 3;
 }
 
 message AddrReceivesResponse {
