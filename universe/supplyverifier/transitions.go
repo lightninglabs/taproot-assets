@@ -199,6 +199,17 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 			return nil, err
 		}
 
+		// Fetch all known unspent pre-commitment outputs for the asset
+		// group.
+		unspentPreCommits, err :=
+			env.SupplyCommitView.UnspentPrecommits(
+				ctx, env.AssetSpec, false,
+			).Unpack()
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch unspent "+
+				"pre-commitments: %w", err)
+		}
+
 		verifier, err := NewVerifier(
 			VerifierCfg{
 				AssetSpec:        env.AssetSpec,
@@ -217,7 +228,7 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 
 		err = verifier.VerifyCommit(
 			ctx, env.AssetSpec, supplyCommit.RootCommitment,
-			supplyCommit.SupplyLeaves,
+			supplyCommit.SupplyLeaves, unspentPreCommits,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to verify supply "+
