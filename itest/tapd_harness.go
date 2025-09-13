@@ -138,6 +138,13 @@ type harnessOpts struct {
 	// sendPriceHint indicates whether the tapd should send price hints from
 	// the local oracle to the counterparty when requesting a quote.
 	sendPriceHint bool
+
+	// disableSupplyVerifierChainWatch when true prevents the supply
+	// verifier from starting state machines to watch on-chain outputs for
+	// spends. This option is intended for universe servers, where supply
+	// verification should only occur for commitments submitted by peers,
+	// not via on-chain spend detection.
+	disableSupplyVerifierChainWatch bool
 }
 
 type harnessOption func(*harnessOpts)
@@ -151,6 +158,16 @@ func defaultHarnessOpts() *harnessOpts {
 func withOracleAddress(addr string) harnessOption {
 	return func(ho *harnessOpts) {
 		ho.oracleServerAddress = addr
+	}
+}
+
+// withDisableSupplyVerifierChainWatch is a functional option that disables
+// the supply verifier chain watch functionality. This is intended for universe
+// servers where supply verification should only occur for commitments submitted
+// by peers, not via on-chain spend detection.
+func withDisableSupplyVerifierChainWatch() harnessOption {
+	return func(ho *harnessOpts) {
+		ho.disableSupplyVerifierChainWatch = true
 	}
 }
 
@@ -233,6 +250,11 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	// Pass through the address asset syncer disable flag. If the option
 	// was not set, this will be false, which is the default.
 	tapCfg.AddrBook.DisableSyncer = opts.addrAssetSyncerDisable
+
+	// Pass through the supply verifier chain watch disable flag. If the option
+	// was not set, this will be false, which is the default.
+	// nolint: lll
+	tapCfg.Universe.DisableSupplyVerifierChainWatch = opts.disableSupplyVerifierChainWatch
 
 	switch {
 	case len(opts.oracleServerAddress) > 0:
