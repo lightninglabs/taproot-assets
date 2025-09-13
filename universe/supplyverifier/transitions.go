@@ -388,10 +388,7 @@ func (s *WatchOutputsState) ProcessEvent(event Event,
 		// If a supply commitment was provided, we'll also register a
 		// spend event for its output.
 		if e.SupplyCommit != nil {
-			outpoint := wire.OutPoint{
-				Hash:  e.SupplyCommit.Txn.TxHash(),
-				Index: e.SupplyCommit.TxOutIdx,
-			}
+			outpoint := e.SupplyCommit.CommitPoint()
 
 			env.Logger().Debugf("Registering spend watch for "+
 				"supply commitment outpoint: %s",
@@ -399,6 +396,14 @@ func (s *WatchOutputsState) ProcessEvent(event Event,
 
 			txOutIdx := e.SupplyCommit.TxOutIdx
 			txOut := e.SupplyCommit.Txn.TxOut[txOutIdx]
+
+			commitBlock, err :=
+				e.SupplyCommit.CommitmentBlock.UnwrapOrErr(
+					fmt.Errorf("commitment block missing"),
+				)
+			if err != nil {
+				return nil, err
+			}
 
 			sc := e.SupplyCommit
 			mapper := func(spend *chainntnfs.SpendDetail) Event {
@@ -412,8 +417,9 @@ func (s *WatchOutputsState) ProcessEvent(event Event,
 			}
 
 			events = append(events, &protofsm.RegisterSpend[Event]{
-				OutPoint: outpoint,
-				PkScript: txOut.PkScript,
+				OutPoint:   outpoint,
+				PkScript:   txOut.PkScript,
+				HeightHint: commitBlock.Height,
 				PostSpendEvent: lfn.Some(
 					protofsm.SpendMapper[Event](mapper),
 				),
