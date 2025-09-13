@@ -111,8 +111,8 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 
 	switch e := event.(type) {
 	case *SyncVerifyEvent:
-		log.Debugf("Processing SyncVerifyEvent for asset: %s",
-			env.AssetSpec.String())
+		log.Debugf("Processing SyncVerifyEvent (has_spent_commit=%v)",
+			e.SpentCommitOutpoint.IsSome())
 
 		ctx := context.Background()
 
@@ -126,6 +126,9 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 			if err != nil {
 				return nil, err
 			}
+
+			log.Debugf("SyncVerifyEvent with spent commit "+
+				"outpoint: %s", spentOutpoint.String())
 
 			commitOpt, err := maybeFetchSupplyCommit(
 				ctx, env, spentOutpoint,
@@ -417,8 +420,10 @@ func (s *WatchOutputsState) ProcessEvent(event Event,
 			})
 		}
 
-		env.Logger().Infof("Transitioning to SyncVerifyState, "+
-			"watching %d outputs", len(events))
+		env.Logger().Infof("WatchOutputsState: transitioning to "+
+			"SyncVerifyState (watch_precommit_outputs=%d, "+
+			"watch_supply_commit=%v)", len(preCommits),
+			e.SupplyCommit != nil)
 
 		// Otherwise, we'll transition to the verify state to await
 		// a spend of one of the outputs we're watching.
