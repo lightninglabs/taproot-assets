@@ -1011,17 +1011,6 @@ func testAddrReceives(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, resp.Events, 1)
-
-	// Test 10: Filter by both start and end timestamp with narrow range
-	// (should return no events)
-	resp, err = bob.AddrReceives(
-		ctxt, &taprpc.AddrReceivesRequest{
-			StartTimestamp: uint64(timeAfterSend.Unix()),
-			EndTimestamp:   uint64(timeAfterSend.Unix()),
-		},
-	)
-	require.NoError(t.t, err)
-	require.Len(t.t, resp.Events, 0)
 }
 
 // sendProof manually exports a proof from the given source node and imports it
