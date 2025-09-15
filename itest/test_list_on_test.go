@@ -54,8 +54,8 @@ var allTestCases = []*testCase{
 		test: testAddresses,
 	},
 	{
-		name: "addr receives timestamp range filtering",
-		test: testAddrReceivesTimestampFiltering,
+		name: "addr receives",
+		test: testAddrReceives,
 	},
 	{
 		name: "multi address",

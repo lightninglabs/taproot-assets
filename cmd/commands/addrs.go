@@ -284,12 +284,14 @@ var receivesAddrCommand = cli.Command{
 			Usage: "show transfers of a single address only",
 		},
 		cli.Uint64Flag{
-			Name:  "start_timestamp",
-			Usage: "filter transfers created after this unix timestamp (seconds)",
+			Name: "start_timestamp",
+			Usage: "filter transfers created after this + " +
+				"unix timestamp (seconds)",
 		},
 		cli.Uint64Flag{
-			Name:  "end_timestamp",
-			Usage: "filter transfers created before this unix timestamp (seconds)",
+			Name: "end_timestamp",
+			Usage: "filter transfers created before this + " +
+				"unix timestamp (seconds)",
 		},
 	},
 	Action: addrReceives,

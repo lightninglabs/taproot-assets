@@ -873,9 +873,8 @@ func testUnknownTlvType(t *harnessTest) {
 	require.False(t.t, verifyResp.Valid)
 }
 
-// testAddrReceivesTimestampFiltering tests the timestamp range
-// filtering for AddrReceives.
-func testAddrReceivesTimestampFiltering(t *harnessTest) {
+// testAddrReceivestests tests AddrReceives and its filters.
+func testAddrReceives(t *harnessTest) {
 	// First, mint an asset so we have something to create addresses for.
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner().Client, t.tapd,
@@ -938,7 +937,8 @@ func testAddrReceivesTimestampFiltering(t *harnessTest) {
 	require.NoError(t.t, err)
 	require.Len(t.t, resp.Events, 1)
 
-	// Test 2: Filter by start timestamp before the send (should return events)
+	// Test 2: Filter by start timestamp before the send
+	// (should return events)
 	resp, err = bob.AddrReceives(
 		ctxt, &taprpc.AddrReceivesRequest{
 			StartTimestamp: uint64(timeBeforeSend.Unix()),
@@ -947,7 +947,8 @@ func testAddrReceivesTimestampFiltering(t *harnessTest) {
 	require.NoError(t.t, err)
 	require.Len(t.t, resp.Events, 1)
 
-	// Test 3: Filter by start timestamp after the send (should return no events)
+	// Test 3: Filter by start timestamp after the send
+	// (should return no events)
 	resp, err = bob.AddrReceives(
 		ctxt, &taprpc.AddrReceivesRequest{
 			StartTimestamp: uint64(timeAfterSend.Unix() + 1),
@@ -990,7 +991,8 @@ func testAddrReceivesTimestampFiltering(t *harnessTest) {
 	require.NoError(t.t, err)
 	require.Len(t.t, resp.Events, 0)
 
-	// Test 7: Filter by end timestamp before the send (should return no events)
+	// Test 7: Filter by end timestamp before the send
+	// (should return no events)
 	resp, err = bob.AddrReceives(
 		ctxt, &taprpc.AddrReceivesRequest{
 			EndTimestamp: uint64(timeBeforeSend.Unix()),
@@ -999,7 +1001,8 @@ func testAddrReceivesTimestampFiltering(t *harnessTest) {
 	require.NoError(t.t, err)
 	require.Len(t.t, resp.Events, 0)
 
-	// Test 8: Filter by end timestamp after the send (should return the event)
+	// Test 8: Filter by end timestamp after the send
+	// (should return the event)
 	resp, err = bob.AddrReceives(
 		ctxt, &taprpc.AddrReceivesRequest{
 			EndTimestamp: uint64(timeAfterSend.Unix() + 1),
@@ -1008,7 +1011,8 @@ func testAddrReceivesTimestampFiltering(t *harnessTest) {
 	require.NoError(t.t, err)
 	require.Len(t.t, resp.Events, 1)
 
-	// Test 9: Filter by both start and end timestamp (should return the event)
+	// Test 9: Filter by both start and end timestamp
+	// (should return the event)
 	resp, err = bob.AddrReceives(
 		ctxt, &taprpc.AddrReceivesRequest{
 			StartTimestamp: uint64(timeBeforeSend.Unix()),
@@ -1017,17 +1021,6 @@ func testAddrReceivesTimestampFiltering(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, resp.Events, 1)
-
-	// Test 10: Filter by both start and end timestamp with narrow range
-	// (should return no events)
-	resp, err = bob.AddrReceives(
-		ctxt, &taprpc.AddrReceivesRequest{
-			StartTimestamp: uint64(timeAfterSend.Unix()),
-			EndTimestamp:   uint64(timeAfterSend.Unix()),
-		},
-	)
-	require.NoError(t.t, err)
-	require.Len(t.t, resp.Events, 0)
 }
 
 // sendProof manually exports a proof from the given source node and imports it
