@@ -60,6 +60,11 @@ type EventQueryParams struct {
 	// (inclusive). Can be set to nil to return events of all creation
 	// times.
 	CreationTimeFrom *time.Time
+
+	// CreationTimeTo is the latest creation time to query for
+	// (inclusive). Can be set to nil to return events of all creation
+	// times.
+	CreationTimeTo *time.Time
 }
 
 // AssetOutput holds the information about a single asset output that was sent
