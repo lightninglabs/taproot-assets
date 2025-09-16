@@ -151,7 +151,6 @@ type Querier interface {
 	InsertSupplySyncerPushLog(ctx context.Context, arg InsertSupplySyncerPushLogParams) error
 	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error
 	InsertTxProof(ctx context.Context, arg InsertTxProofParams) error
-	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
 	LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error
 	LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error
 	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
@@ -264,6 +263,9 @@ type Querier interface {
 	UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error)
 	UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) error
 	UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int64, error)
+	// Upserts a universe server by inserting or updating the last sync time for a
+	// given server host.
+	UpsertUniverseServer(ctx context.Context, arg UpsertUniverseServerParams) error
 	UpsertUniverseSupplyLeaf(ctx context.Context, arg UpsertUniverseSupplyLeafParams) (int64, error)
 	UpsertUniverseSupplyRoot(ctx context.Context, arg UpsertUniverseSupplyRootParams) (int64, error)
 }
