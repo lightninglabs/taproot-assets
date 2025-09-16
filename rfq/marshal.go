@@ -3,6 +3,9 @@ package rfq
 import (
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
@@ -37,7 +40,7 @@ func MarshalAcceptedSellQuote(
 		rfqmath.DefaultOnChainHtlcMSat, accept.AssetRate.Rate,
 	)
 
-	return &rfqrpc.PeerAcceptedSellQuote{
+	quote := &rfqrpc.PeerAcceptedSellQuote{
 		Peer:                 accept.Peer.String(),
 		Id:                   accept.ID[:],
 		Scid:                 uint64(accept.ShortChannelId()),
@@ -47,6 +50,28 @@ func MarshalAcceptedSellQuote(
 		MinTransportableMsat: uint64(minTransportableMSat),
 		PriceOracleMetadata:  accept.Request.PriceOracleMetadata,
 	}
+
+	// Populate asset ID and/or group key based on the asset specifier.
+	accept.Request.AssetSpecifier.WhenId(func(assetId asset.ID) {
+		if quote.AssetSpec == nil {
+			quote.AssetSpec = &rfqrpc.AssetSpec{}
+		}
+
+		quote.AssetSpec.Id = assetId[:]
+	})
+
+	accept.Request.AssetSpecifier.WhenGroupPubKey(
+		func(groupKey btcec.PublicKey) {
+			if quote.AssetSpec == nil {
+				quote.AssetSpec = &rfqrpc.AssetSpec{}
+			}
+
+			quote.AssetSpec.GroupPubKey =
+				schnorr.SerializePubKey(&groupKey)
+		},
+	)
+
+	return quote
 }
 
 // MarshalAcceptedBuyQuote marshals a peer accepted buy quote to its RPC
@@ -59,7 +84,7 @@ func MarshalAcceptedBuyQuote(q rfqmsg.BuyAccept) *rfqrpc.PeerAcceptedBuyQuote {
 		rfqmath.DefaultOnChainHtlcMSat, q.AssetRate.Rate,
 	).ScaleTo(0).ToUint64()
 
-	return &rfqrpc.PeerAcceptedBuyQuote{
+	quote := &rfqrpc.PeerAcceptedBuyQuote{
 		Peer:           q.Peer.String(),
 		Id:             q.ID[:],
 		Scid:           uint64(q.ShortChannelId()),
@@ -72,6 +97,28 @@ func MarshalAcceptedBuyQuote(q rfqmsg.BuyAccept) *rfqrpc.PeerAcceptedBuyQuote {
 		MinTransportableUnits: minTransportableUnits,
 		PriceOracleMetadata:   q.Request.PriceOracleMetadata,
 	}
+
+	// Populate asset ID and/or group key based on the asset specifier.
+	q.Request.AssetSpecifier.WhenId(func(assetId asset.ID) {
+		if quote.AssetSpec == nil {
+			quote.AssetSpec = &rfqrpc.AssetSpec{}
+		}
+
+		quote.AssetSpec.Id = assetId[:]
+	})
+
+	q.Request.AssetSpecifier.WhenGroupPubKey(
+		func(groupKey btcec.PublicKey) {
+			if quote.AssetSpec == nil {
+				quote.AssetSpec = &rfqrpc.AssetSpec{}
+			}
+
+			quote.AssetSpec.GroupPubKey =
+				schnorr.SerializePubKey(&groupKey)
+		},
+	)
+
+	return quote
 }
 
 // MarshalInvalidQuoteRespEvent marshals an invalid quote response event to
