@@ -7402,24 +7402,9 @@ func (r *rpcServer) AddFederationServer(ctx context.Context,
 ) (*unirpc.AddFederationServerResponse, error) {
 
 	serversToAdd := fn.Map(req.Servers, unmarshalUniverseServer)
-
-	for idx := range serversToAdd {
-		server := serversToAdd[idx]
-
-		// Before we add the server as a federation member, we check
-		// that we can actually connect to it and that it isn't
-		// ourselves.
-		err := CheckFederationServer(
-			r.cfg.RuntimeID, universe.DefaultTimeout, server,
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	err := r.cfg.UniverseFederation.AddServer(serversToAdd...)
+	_, err := r.cfg.UniverseFederation.AddServer(ctx, true, serversToAdd...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to add server: %w", err)
 	}
 
 	return &unirpc.AddFederationServerResponse{}, nil
