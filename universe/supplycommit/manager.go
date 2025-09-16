@@ -2,12 +2,15 @@ package supplycommit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -39,7 +42,7 @@ type DaemonAdapters interface {
 // manage multiple supply commitment state machines, one for each asset group.
 type ManagerCfg struct {
 	// TreeView is the interface that allows the state machine to obtain an
-	// up to date snapshot of the root supply tree, and the relevant set of
+	// up-to-date snapshot of the root supply tree, and the relevant set of
 	// subtrees.
 	TreeView SupplyTreeView
 
@@ -53,6 +56,10 @@ type ManagerCfg struct {
 	// AssetLookup is used to look up asset information such as asset groups
 	// and asset metadata.
 	AssetLookup AssetLookup
+
+	// Signer is used to sign messages with a key specified by a key
+	// locator.
+	Signer lndclient.SignerClient
 
 	// KeyRing is the key ring used to derive new keys.
 	KeyRing KeyRing
@@ -271,6 +278,125 @@ func (m *Manager) SendEvent(ctx context.Context,
 
 	sm.SendEvent(ctx, event)
 	return nil
+}
+
+// IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
+// as ignored. An ignored outpoint will be included in the next universe
+// commitment transaction that is published.
+func (m *Manager) IgnoreAssetOutPoint(ctx context.Context,
+	assetSpec asset.Specifier, assetAnchorPoint asset.AnchorPoint,
+	amount uint64) (universe.SignedIgnoreTuple, error) {
+
+	var zero universe.SignedIgnoreTuple
+
+	assetID, err := assetSpec.UnwrapIdOrErr()
+	if err != nil {
+		return zero, err
+	}
+
+	// Fetch the asset group for the given asset ID. If a group key was
+	// provided, use it for verification; otherwise, fall back to this
+	// group key.
+	assetGroup, err := m.cfg.AssetLookup.QueryAssetGroupByID(ctx, assetID)
+	if err != nil {
+		return zero, fmt.Errorf("failed to find asset group given "+
+			"asset ID: %w", err)
+	}
+
+	// If the asset specifier includes a group key, ensure it matches the
+	// group key of the asset group fetched from the database.
+	if assetSpec.HasGroupPubKey() {
+		givenGroupKey, err := assetSpec.UnwrapGroupKeyOrErr()
+		if err != nil {
+			return zero, err
+		}
+
+		if !assetGroup.GroupKey.GroupPubKey.IsEqual(givenGroupKey) {
+			return zero, fmt.Errorf("provided group key does " +
+				"not match asset group")
+		}
+	}
+
+	// Formulate an asset specifier from the asset ID and group key.
+	assetSpec = asset.NewSpecifierOptionalGroupKey(
+		assetID, assetGroup.GroupKey,
+	)
+
+	// Check that the asset supports supply commitments. While the signing
+	// step would also fail without support, performing this check here
+	// provides a clearer error and makes the assumption explicit.
+	err = CheckSupplyCommitSupport(ctx, m.cfg.AssetLookup, assetSpec, true)
+	if err != nil {
+		return zero, fmt.Errorf("asset does not support supply "+
+			"commitments: %w", err)
+	}
+
+	// Retrieve asset meta reveal for the asset ID. This will be used to
+	// obtain the supply commitment delegation key.
+	metaReveal, err := m.cfg.AssetLookup.FetchAssetMetaForAsset(
+		ctx, assetID,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("failed to fetch asset meta: %w", err)
+	}
+
+	// Extract supply commitment delegation pub key from the asset metadata.
+	delegationPubKey, err := metaReveal.DelegationKey.UnwrapOrErr(
+		fmt.Errorf("delegation key not found for given asset"),
+	)
+	if err != nil {
+		return zero, err
+	}
+
+	// Fetch the delegation key locator.
+	delegationKeyLoc, err := m.cfg.AssetLookup.FetchInternalKeyLocator(
+		ctx, &delegationPubKey,
+	)
+	switch {
+	case errors.Is(err, address.ErrInternalKeyNotFound):
+		return zero, fmt.Errorf("delegation key locator not found; " +
+			"only delegation key owners can ignore asset " +
+			"outpoints for this asset group")
+	case err != nil:
+		return zero, fmt.Errorf("failed to fetch delegation key "+
+			"locator: %w", err)
+	}
+
+	// Determine the current block height and add it to the ignore tuple.
+	// A supply commitment verifier can then validate each commitment
+	// against historical snapshots of the supply subtrees.
+	currentBlockHeight, err := m.cfg.Chain.CurrentHeight(ctx)
+	if err != nil {
+		return zero, fmt.Errorf("failed to get current block height "+
+			"for new ignore tuple: %w", err)
+	}
+
+	// Formulate the ignore entry and sign it with the delegation key.
+	ignoreTuple := universe.IgnoreTuple{
+		PrevID:      assetAnchorPoint,
+		Amount:      amount,
+		BlockHeight: currentBlockHeight,
+	}
+
+	signedIgnore, err := ignoreTuple.GenSignedIgnore(
+		ctx, m.cfg.Signer, delegationKeyLoc,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("failed to sign ignore tuple: %w", err)
+	}
+
+	// Upsert a signed ignore tuple into the ignore tree archive and
+	// get back the authenticated ignore tuples.
+	ignoreEvent := NewIgnoreEvent{
+		SignedIgnoreTuple: signedIgnore,
+	}
+	err = m.SendEventSync(ctx, assetSpec, &ignoreEvent)
+	if err != nil {
+		return zero, fmt.Errorf("failed to upsert ignore tuple: %w",
+			err)
+	}
+
+	return signedIgnore, nil
 }
 
 // SendEventSync sends an event to the state machine and waits for it to be
