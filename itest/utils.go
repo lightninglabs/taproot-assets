@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/itest/rpcassert"
 	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
@@ -1011,8 +1012,7 @@ func NewAddrWithEventStream(t *testing.T, tapd commands.RpcClientsBundle,
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	addr, err := tapd.NewAddr(ctxt, req)
-	require.NoError(t, err)
+	addr := rpcassert.NewAddrRPC(t, ctxt, tapd, nil, req)
 
 	ctxc, cancel := context.WithCancel(ctxb)
 	stream, err := tapd.SubscribeReceiveEvents(
