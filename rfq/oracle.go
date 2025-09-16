@@ -2,7 +2,6 @@ package rfq
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"math"
 	"net/url"
@@ -16,8 +15,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // PriceQueryIntent is an enum that represents the intent of a price rate
@@ -186,35 +183,9 @@ type RpcPriceOracle struct {
 	rawConn *grpc.ClientConn
 }
 
-// serverDialOpts returns the set of server options needed to connect to the
-// price oracle RPC server using a TLS connection.
-func serverDialOpts() ([]grpc.DialOption, error) {
-	var opts []grpc.DialOption
-
-	// Skip TLS certificate verification.
-	tlsConfig := tls.Config{InsecureSkipVerify: true}
-	transportCredentials := credentials.NewTLS(&tlsConfig)
-	opts = append(opts, grpc.WithTransportCredentials(transportCredentials))
-
-	return opts, nil
-}
-
-// insecureServerDialOpts returns the set of server options needed to connect to
-// the price oracle RPC server using a TLS connection.
-func insecureServerDialOpts() ([]grpc.DialOption, error) {
-	var opts []grpc.DialOption
-
-	// Skip TLS certificate verification.
-	opts = append(opts, grpc.WithTransportCredentials(
-		insecure.NewCredentials(),
-	))
-
-	return opts, nil
-}
-
 // NewRpcPriceOracle creates a new RPC price oracle handle given the address
 // of the price oracle RPC server.
-func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
+func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig) (*RpcPriceOracle,
 	error) {
 
 	addr, err := ParsePriceOracleAddress(addrStr)
@@ -222,24 +193,21 @@ func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
 		return nil, err
 	}
 
-	// Connect to the RPC server.
-	dialOpts, err := serverDialOpts()
+	// Create transport credentials and dial options from the supplied TLS
+	// config.
+	transportCredentials, err := configureTransportCredentials(tlsConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	// Allow connecting to a non-TLS (h2c, http over cleartext) gRPC server,
-	// should be used for testing only.
-	if dialInsecure {
-		dialOpts, err = insecureServerDialOpts()
-		if err != nil {
-			return nil, err
-		}
+	dialOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(transportCredentials),
 	}
 
 	// Formulate the server address dial string.
 	serverAddr := fmt.Sprintf("%s:%s", addr.Hostname(), addr.Port())
 
+	// Connect to the RPC server.
 	conn, err := grpc.Dial(serverAddr, dialOpts...)
 	if err != nil {
 		return nil, err
