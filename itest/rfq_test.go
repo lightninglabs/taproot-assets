@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -205,8 +206,13 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 		event, err := carolEventNtfns.Recv()
 		require.NoError(t.t, err)
 
-		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
+		e, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
 		require.True(t.t, ok, "unexpected event: %v", event)
+
+		quote := e.PeerAcceptedBuyQuote.PeerAcceptedBuyQuote
+		actualAssetID := quote.AssetSpec.Id
+		expectedAssetID := mintedAssetId
+		require.Equal(t.t, expectedAssetID, actualAssetID)
 	}, rfqTimeout)
 
 	// Carol should have received an accepted quote from Bob. This accepted
@@ -216,6 +222,11 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	)
 	require.NoError(t.t, err, "unable to query accepted quotes")
 	require.Len(t.t, acceptedQuotes.BuyQuotes, 1)
+
+	acceptedQuote := acceptedQuotes.BuyQuotes[0]
+	actualAssetID := acceptedQuote.AssetSpec.Id
+	expectedAssetID := mintedAssetId
+	require.Equal(t.t, expectedAssetID, actualAssetID)
 
 	// Carol will now use the accepted quote (received from Bob) to create
 	// a lightning invoice which will be given to and settled by Alice.
@@ -230,7 +241,6 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	// pays the invoice, the payment will arrive to Bob's node with the
 	// expected scid. Bob will then use the scid to identify the HTLC as
 	// relating to the accepted quote.
-	acceptedQuote := acceptedQuotes.BuyQuotes[0]
 	t.Logf("Accepted quote scid: %d", acceptedQuote.Scid)
 	scid := lnwire.NewShortChanIDFromInt(acceptedQuote.Scid)
 
@@ -469,8 +479,13 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		event, err := aliceEventNtfns.Recv()
 		require.NoError(t.t, err)
 
-		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedSellQuote)
+		e, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedSellQuote)
 		require.True(t.t, ok, "unexpected event: %v", event)
+
+		quote := e.PeerAcceptedSellQuote.PeerAcceptedSellQuote
+		actualAssetID := quote.AssetSpec.Id
+		expectedAssetID := mintedAssetIdBytes
+		require.Equal(t.t, expectedAssetID, actualAssetID)
 	}, rfqTimeout)
 
 	// Alice should have received an accepted quote from Bob. This accepted
@@ -482,6 +497,10 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	require.Len(t.t, acceptedQuotes.SellQuotes, 1)
 
 	acceptedQuote := acceptedQuotes.SellQuotes[0]
+
+	actualAssetID := acceptedQuote.AssetSpec.Id
+	expectedAssetID := mintedAssetIdBytes
+	require.Equal(t.t, expectedAssetID, actualAssetID)
 
 	// Type cast the accepted quote ID bytes to an `rfqmsg.ID`.
 	var acceptedQuoteId rfqmsg.ID
@@ -666,8 +685,13 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 		event, err := aliceEventNtfns.Recv()
 		require.NoError(t.t, err)
 
-		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedSellQuote)
+		e, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedSellQuote)
 		require.True(t.t, ok, "unexpected event: %v", event)
+
+		quote := e.PeerAcceptedSellQuote.PeerAcceptedSellQuote
+		actualGroupKeyBytes := quote.AssetSpec.GroupPubKey
+		expectedGroupKeyBytes := schnorr.SerializePubKey(groupKey)
+		require.Equal(t.t, expectedGroupKeyBytes, actualGroupKeyBytes)
 	}, rfqTimeout)
 
 	// We now repeat the same flow, where Alice is making a BuyOrderRequest.
@@ -702,8 +726,13 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 		event, err := aliceEventNtfns.Recv()
 		require.NoError(t.t, err)
 
-		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
+		e, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
 		require.True(t.t, ok, "unexpected event: %v", event)
+
+		quote := e.PeerAcceptedBuyQuote.PeerAcceptedBuyQuote
+		actualGroupKeyBytes := quote.AssetSpec.GroupPubKey
+		expectedGroupKeyBytes := schnorr.SerializePubKey(groupKey)
+		require.Equal(t.t, expectedGroupKeyBytes, actualGroupKeyBytes)
 	}, rfqTimeout)
 }
 
