@@ -247,6 +247,16 @@ message AddAssetBuyOfferResponse {
 message QueryPeerAcceptedQuotesRequest {
 }
 
+message AssetSpec {
+    // The 32-byte asset ID specified as raw bytes.
+    bytes id = 1;
+
+    // The 32-byte asset group public key, serialized in BIP340 format.
+    // BIP340 defines a canonical encoding for Schnorr public keys.
+    // This field is serialized using schnorr.SerializePubKey.
+    bytes group_pub_key = 2;
+}
+
 message PeerAcceptedBuyQuote {
     // Quote counterparty peer.
     string peer = 1;
@@ -283,6 +293,9 @@ message PeerAcceptedBuyQuote {
     // authentication information that the price oracle can use to give out a
     // more accurate (or discount) asset rate.
     string price_oracle_metadata = 8;
+
+    // The subject asset specifier.
+    AssetSpec asset_spec = 9;
 }
 
 message PeerAcceptedSellQuote {
@@ -319,6 +332,9 @@ message PeerAcceptedSellQuote {
     // authentication information that the price oracle can use to give out a
     // more accurate (or discount) asset rate.
     string price_oracle_metadata = 8;
+
+    // The subject asset specifier.
+    AssetSpec asset_spec = 9;
 }
 
 // QuoteRespStatus is an enum that represents the status of a quote response.
