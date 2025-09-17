@@ -314,6 +314,10 @@ var allTestCases = []*testCase{
 		test: testBurnGroupedAssets,
 	},
 	{
+		name: "full burn assets",
+		test: testFullBurnUTXO,
+	},
+	{
 		name: "federation sync config",
 		test: testFederationSyncConfig,
 	},
