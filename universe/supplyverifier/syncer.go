@@ -191,9 +191,6 @@ func (s *SupplySyncer) PushSupplyCommitment(ctx context.Context,
 	chainProof supplycommit.ChainProof,
 	canonicalUniverses []url.URL) (map[string]error, error) {
 
-	log.Infof("Starting push of supply commitment for asset: %s to "+
-		"%d servers", assetSpec.String(), len(canonicalUniverses))
-
 	targetAddrs, err := s.fetchServerAddrs(ctx, canonicalUniverses)
 	if err != nil {
 		// This is an internal error that prevents the operation from
@@ -201,6 +198,9 @@ func (s *SupplySyncer) PushSupplyCommitment(ctx context.Context,
 		return nil, fmt.Errorf("unable to fetch target universe "+
 			"server addresses: %w", err)
 	}
+
+	log.Infof("Starting push of supply commitment for asset: %s to "+
+		"%d servers", assetSpec.String(), len(targetAddrs))
 
 	// Push the supply commitment to all target universe servers in
 	// parallel. Any error for a specific server will be captured in the

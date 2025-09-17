@@ -250,6 +250,15 @@ SET spent_by = @spent_by_commit_id
 WHERE outpoint = @outpoint
     AND spent_by IS NULL;
 
+-- name: MarkPreCommitSpentByOutpoint :exec
+-- Mark a supply pre-commitment output as spent by its outpoint. The
+-- pre-commitment corresponds to an asset issuance where a remote node acted as
+-- the issuer.
+UPDATE supply_pre_commits
+SET spent_by = @spent_by_commit_id
+WHERE outpoint = @outpoint
+  AND spent_by IS NULL;
+
 -- name: FetchSupplyCommit :one
 SELECT
     sqlc.embed(sc), txn.tx_index

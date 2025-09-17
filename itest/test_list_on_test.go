@@ -372,6 +372,10 @@ var allTestCases = []*testCase{
 		test: testSupplyCommitMintBurn,
 	},
 	{
+		name: "supply verify peer node",
+		test: testSupplyVerifyPeerNode,
+	},
+	{
 		name: "auth mailbox message store and fetch",
 		test: testAuthMailboxStoreAndFetchMessage,
 	},

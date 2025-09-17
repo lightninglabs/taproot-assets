@@ -100,26 +100,13 @@ func NewVerifier(cfg VerifierCfg) (Verifier, error) {
 	}, nil
 }
 
-// ensurePrecommitsSpent verifies that all unspent pre-commitment outputs for
+// verifyPrecommitsSpent verifies that all unspent pre-commitment outputs for
 // the specified asset group, which could have been spent by the supply
 // commitment transaction, were actually spent.
-func (v *Verifier) ensurePrecommitsSpent(ctx context.Context,
-	assetSpec asset.Specifier,
-	commitment supplycommit.RootCommitment) error {
+func (v *Verifier) verifyPrecommitsSpent(commitment supplycommit.RootCommitment,
+	allPreCommits supplycommit.PreCommits) error {
 
 	v.assetLog.Debugf("Verifying pre-commitments spent")
-
-	// Fetch all unspent pre-commitment outputs for the asset group.
-	allPreCommits, err := v.cfg.SupplyCommitView.UnspentPrecommits(
-		ctx, assetSpec, false,
-	).Unpack()
-	if err != nil {
-		return fmt.Errorf("unable to fetch unspent pre-commitments: %w",
-			err)
-	}
-
-	v.assetLog.Tracef("Found %d unspent pre-commitments",
-		len(allPreCommits))
 
 	// If no supply-commitment spend is recorded, require at least one
 	// unspent mint pre-commitment output for the initial supply commitment.
@@ -196,7 +183,8 @@ func (v *Verifier) ensurePrecommitsSpent(ctx context.Context,
 // given asset group.
 func (v *Verifier) verifyInitialCommit(ctx context.Context,
 	assetSpec asset.Specifier, commitment supplycommit.RootCommitment,
-	leaves supplycommit.SupplyLeaves) error {
+	leaves supplycommit.SupplyLeaves,
+	unspentPreCommits supplycommit.PreCommits) error {
 
 	v.assetLog.Infof("Verifying initial supply commitment")
 
@@ -245,7 +233,7 @@ func (v *Verifier) verifyInitialCommit(ctx context.Context,
 	// that were created at the time of asset issuance, and are the
 	// starting point for the supply commitment chain. Each asset issuance
 	// anchor transaction can have at most one pre-commitment output.
-	err = v.ensurePrecommitsSpent(ctx, assetSpec, commitment)
+	err = v.verifyPrecommitsSpent(commitment, unspentPreCommits)
 	if err != nil {
 		return fmt.Errorf("unable to verify pre-commitment spends: %w",
 			err)
@@ -301,7 +289,8 @@ func (v *Verifier) verifyInitialCommit(ctx context.Context,
 // consistent with the commitment root.
 func (v *Verifier) verifyIncrementalCommit(ctx context.Context,
 	assetSpec asset.Specifier, commitment supplycommit.RootCommitment,
-	leaves supplycommit.SupplyLeaves) error {
+	leaves supplycommit.SupplyLeaves,
+	unspentPreCommits supplycommit.PreCommits) error {
 
 	v.assetLog.Infof("Verifying incremental supply commitment")
 
@@ -344,7 +333,7 @@ func (v *Verifier) verifyIncrementalCommit(ctx context.Context,
 
 	// Verify that every unspent pre-commitment output eligible by block
 	// height is actually spent by the supply commitment transaction.
-	err = v.ensurePrecommitsSpent(ctx, assetSpec, commitment)
+	err = v.verifyPrecommitsSpent(commitment, unspentPreCommits)
 	if err != nil {
 		return fmt.Errorf("unable to verify pre-commitment spends: %w",
 			err)
@@ -768,7 +757,8 @@ func (v *Verifier) fetchDelegationKey(ctx context.Context,
 // asset issuance anchoring transaction and its pre-commitment output(s).
 func (v *Verifier) VerifyCommit(ctx context.Context,
 	assetSpec asset.Specifier, commitment supplycommit.RootCommitment,
-	leaves supplycommit.SupplyLeaves) error {
+	leaves supplycommit.SupplyLeaves,
+	unspentPreCommits supplycommit.PreCommits) error {
 
 	v.assetLog.Infof("Starting supply commitment verification, "+
 		"commitment_outpoint=%s",
@@ -832,12 +822,18 @@ func (v *Verifier) VerifyCommit(ctx context.Context,
 	// If the commitment does not specify a spent outpoint, then we dispatch
 	// to the initial commitment verification routine.
 	if commitment.SpentCommitment.IsNone() {
-		return v.verifyInitialCommit(ctx, assetSpec, commitment, leaves)
+		return v.verifyInitialCommit(
+			ctx, assetSpec, commitment, leaves,
+			unspentPreCommits,
+		)
 	}
 
 	// Otherwise, we dispatch to the incremental commitment verification
 	// routine.
-	return v.verifyIncrementalCommit(ctx, assetSpec, commitment, leaves)
+	return v.verifyIncrementalCommit(
+		ctx, assetSpec, commitment, leaves,
+		unspentPreCommits,
+	)
 }
 
 // ExtractPreCommitOutput extracts and returns the supply pre-commitment output

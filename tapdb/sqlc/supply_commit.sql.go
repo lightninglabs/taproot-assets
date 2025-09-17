@@ -386,6 +386,26 @@ func (q *Queries) MarkMintPreCommitSpentByOutpoint(ctx context.Context, arg Mark
 	return err
 }
 
+const MarkPreCommitSpentByOutpoint = `-- name: MarkPreCommitSpentByOutpoint :exec
+UPDATE supply_pre_commits
+SET spent_by = $1
+WHERE outpoint = $2
+  AND spent_by IS NULL
+`
+
+type MarkPreCommitSpentByOutpointParams struct {
+	SpentByCommitID sql.NullInt64
+	Outpoint        []byte
+}
+
+// Mark a supply pre-commitment output as spent by its outpoint. The
+// pre-commitment corresponds to an asset issuance where a remote node acted as
+// the issuer.
+func (q *Queries) MarkPreCommitSpentByOutpoint(ctx context.Context, arg MarkPreCommitSpentByOutpointParams) error {
+	_, err := q.db.ExecContext(ctx, MarkPreCommitSpentByOutpoint, arg.SpentByCommitID, arg.Outpoint)
+	return err
+}
+
 const QueryDanglingSupplyUpdateEvents = `-- name: QueryDanglingSupplyUpdateEvents :many
 SELECT
     ue.event_id,

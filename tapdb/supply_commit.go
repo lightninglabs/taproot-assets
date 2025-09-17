@@ -238,6 +238,12 @@ type SupplyCommitStore interface {
 	MarkMintPreCommitSpentByOutpoint(ctx context.Context,
 		arg sqlc.MarkMintPreCommitSpentByOutpointParams) error
 
+	// MarkPreCommitSpentByOutpoint marks a supply pre-commitment as spent
+	// by its outpoint. The pre-commitment corresponds to an asset issuance
+	// where a remote node acted as the issuer.
+	MarkPreCommitSpentByOutpoint(ctx context.Context,
+		arg sqlc.MarkPreCommitSpentByOutpointParams) error
+
 	// QueryExistingPendingTransition fetches the ID of an existing
 	// non-finalized transition for a group key. Returns sql.ErrNoRows if
 	// none exists.
@@ -1007,7 +1013,8 @@ func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
 // database.
 func (s *SupplyCommitMachine) InsertSupplyCommit(ctx context.Context,
 	assetSpec asset.Specifier, commit supplycommit.RootCommitment,
-	leaves supplycommit.SupplyLeaves) error {
+	leaves supplycommit.SupplyLeaves,
+	unspentPreCommits supplycommit.PreCommits) error {
 
 	groupKey := assetSpec.UnwrapGroupKeyToPtr()
 	if groupKey == nil {
@@ -1129,6 +1136,29 @@ func (s *SupplyCommitMachine) InsertSupplyCommit(ctx context.Context,
 			return fmt.Errorf("failed to update commitment root "+
 				"hash/sum for commit %d: %w",
 				newCommitmentID, err)
+		}
+
+		// Mark all the included pre-commitments as spent by this
+		// commitment.
+		for idx := range unspentPreCommits {
+			preCommit := unspentPreCommits[idx]
+			outpointBytes, err := encodeOutpoint(
+				preCommit.OutPoint(),
+			)
+			if err != nil {
+				return fmt.Errorf("failed to encode "+
+					"pre-commit outpoint: %w", err)
+			}
+
+			markParams := sqlc.MarkPreCommitSpentByOutpointParams{
+				SpentByCommitID: sqlInt64(newCommitmentID),
+				Outpoint:        outpointBytes,
+			}
+			err = db.MarkPreCommitSpentByOutpoint(ctx, markParams)
+			if err != nil {
+				return fmt.Errorf("failed to mark pre-commit "+
+					"output as spent: %w", err)
+			}
 		}
 
 		// Next, we'll serialize the merkle proofs and block header, so

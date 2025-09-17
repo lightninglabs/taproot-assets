@@ -111,8 +111,8 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 
 	switch e := event.(type) {
 	case *SyncVerifyEvent:
-		log.Debugf("Processing SyncVerifyEvent for asset: %s",
-			env.AssetSpec.String())
+		log.Debugf("Processing SyncVerifyEvent (has_spent_commit=%v)",
+			e.SpentCommitOutpoint.IsSome())
 
 		ctx := context.Background()
 
@@ -126,6 +126,9 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 			if err != nil {
 				return nil, err
 			}
+
+			log.Debugf("SyncVerifyEvent with spent commit "+
+				"outpoint: %s", spentOutpoint.String())
 
 			commitOpt, err := maybeFetchSupplyCommit(
 				ctx, env, spentOutpoint,
@@ -199,6 +202,17 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 			return nil, err
 		}
 
+		// Fetch all known unspent pre-commitment outputs for the asset
+		// group.
+		unspentPreCommits, err :=
+			env.SupplyCommitView.UnspentPrecommits(
+				ctx, env.AssetSpec, false,
+			).Unpack()
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch unspent "+
+				"pre-commitments: %w", err)
+		}
+
 		verifier, err := NewVerifier(
 			VerifierCfg{
 				AssetSpec:        env.AssetSpec,
@@ -217,7 +231,7 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 
 		err = verifier.VerifyCommit(
 			ctx, env.AssetSpec, supplyCommit.RootCommitment,
-			supplyCommit.SupplyLeaves,
+			supplyCommit.SupplyLeaves, unspentPreCommits,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to verify supply "+
@@ -229,7 +243,7 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 		// Store the verified commitment.
 		err = env.SupplyCommitView.InsertSupplyCommit(
 			ctx, env.AssetSpec, supplyCommit.RootCommitment,
-			supplyCommit.SupplyLeaves,
+			supplyCommit.SupplyLeaves, unspentPreCommits,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to store supply "+
@@ -374,10 +388,7 @@ func (s *WatchOutputsState) ProcessEvent(event Event,
 		// If a supply commitment was provided, we'll also register a
 		// spend event for its output.
 		if e.SupplyCommit != nil {
-			outpoint := wire.OutPoint{
-				Hash:  e.SupplyCommit.Txn.TxHash(),
-				Index: e.SupplyCommit.TxOutIdx,
-			}
+			outpoint := e.SupplyCommit.CommitPoint()
 
 			env.Logger().Debugf("Registering spend watch for "+
 				"supply commitment outpoint: %s",
@@ -385,6 +396,14 @@ func (s *WatchOutputsState) ProcessEvent(event Event,
 
 			txOutIdx := e.SupplyCommit.TxOutIdx
 			txOut := e.SupplyCommit.Txn.TxOut[txOutIdx]
+
+			commitBlock, err :=
+				e.SupplyCommit.CommitmentBlock.UnwrapOrErr(
+					fmt.Errorf("commitment block missing"),
+				)
+			if err != nil {
+				return nil, err
+			}
 
 			sc := e.SupplyCommit
 			mapper := func(spend *chainntnfs.SpendDetail) Event {
@@ -398,16 +417,19 @@ func (s *WatchOutputsState) ProcessEvent(event Event,
 			}
 
 			events = append(events, &protofsm.RegisterSpend[Event]{
-				OutPoint: outpoint,
-				PkScript: txOut.PkScript,
+				OutPoint:   outpoint,
+				PkScript:   txOut.PkScript,
+				HeightHint: commitBlock.Height,
 				PostSpendEvent: lfn.Some(
 					protofsm.SpendMapper[Event](mapper),
 				),
 			})
 		}
 
-		env.Logger().Infof("Transitioning to SyncVerifyState, "+
-			"watching %d outputs", len(events))
+		env.Logger().Infof("WatchOutputsState: transitioning to "+
+			"SyncVerifyState (watch_precommit_outputs=%d, "+
+			"watch_supply_commit=%v)", len(preCommits),
+			e.SupplyCommit != nil)
 
 		// Otherwise, we'll transition to the verify state to await
 		// a spend of one of the outputs we're watching.
