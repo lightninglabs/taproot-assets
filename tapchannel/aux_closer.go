@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapchannelmsg"
+	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -66,6 +67,11 @@ type AuxChanCloserCfg struct {
 	// IgnoreChecker is an optional function that can be used to check if
 	// a proof should be ignored.
 	IgnoreChecker lfn.Option[proof.IgnoreChecker]
+
+	// AuxChanNegotiator is responsible for producing the extra tlv blob
+	// that is encapsulated in the init and reestablish peer messages. This
+	// helps us communicate custom feature bits with our peer.
+	AuxChanNegotiator *tapfeatures.AuxChannelNegotiator
 }
 
 // assetCloseInfo houses the information we need to finalize the close of an
@@ -454,11 +460,21 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 			"packets: %w", err)
 	}
 
+	features := a.cfg.AuxChanNegotiator.GetChannelFeatures(
+		lnwire.NewChanIDFromOutPoint(desc.ChanPoint),
+	)
+	supportSTXO := features.HasFeature(tapfeatures.STXOOptional)
+
+	var opts []tapsend.OutputCommitmentOption
+	if !supportSTXO {
+		opts = append(opts, tapsend.WithNoSTXOProofs())
+	}
+
 	// With the outputs prepared, we can now create the set of output
 	// commitments, then with the output index locations known, we can set
 	// the output indexes in the allocations.
 	outCommitments, err := tapsend.CreateOutputCommitments(
-		vPackets, tapsend.WithNoSTXOProofs(),
+		vPackets, opts...,
 	)
 	if err != nil {
 		return none, fmt.Errorf("unable to create output "+
@@ -733,10 +749,22 @@ func (a *AuxChanCloser) FinalizeClose(desc chancloser.AuxCloseDesc,
 				closeInfo.allocations,
 			)
 
+			features := a.cfg.AuxChanNegotiator.GetChannelFeatures(
+				lnwire.NewChanIDFromOutPoint(desc.ChanPoint),
+			)
+			supportSTXO := features.HasFeature(
+				tapfeatures.STXOOptional,
+			)
+
+			var opts []proof.GenOption
+			if !supportSTXO {
+				opts = append(opts, proof.WithNoSTXOProofs())
+			}
+
 			proofSuffix, err := tapsend.CreateProofSuffixCustom(
 				closeTx, vPkt, closeInfo.outputCommitments,
 				outIdx, closeInfo.vPackets, exclusionCreator,
-				proof.WithNoSTXOProofs(),
+				opts...,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to create proof "+

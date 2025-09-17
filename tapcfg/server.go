@@ -588,6 +588,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			AssetSyncer:        addrBook,
 			FeatureBits:        lndFeatureBitsVerifier,
 			IgnoreChecker:      ignoreCheckerOpt,
+			AuxChanNegotiator:  auxChanNegotiator,
 			ErrChan:            mainErrChan,
 		},
 	)
@@ -619,6 +620,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			GroupVerifier:      groupVerifier,
 			ChainBridge:        chainBridge,
 			IgnoreChecker:      ignoreCheckerOpt,
+			AuxChanNegotiator:  auxChanNegotiator,
 		},
 	)
 	auxSweeper := tapchannel.NewAuxSweeper(
