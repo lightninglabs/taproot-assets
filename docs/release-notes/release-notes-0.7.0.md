@@ -146,6 +146,12 @@
 - [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the
   `MintAsset` RPC message field from `universe_commitments` to
   `enable_supply_commitments`.
+- [Enhanced RFQ accepted quote messages with asset identification fields](https://github.com/lightninglabs/taproot-assets/pull/1805):
+  The `PeerAcceptedBuyQuote` and `PeerAcceptedSellQuote` proto messages
+  now include asset ID and asset group pub key fields (via the `AssetSpecBytes`
+  message), allowing clients to directly associate quotes with their
+  corresponding assets without manual tracking.
+
 - The `SubscribeSendEvents` RPC now supports [historical event replay of 
   completed sends with efficient database-level
   filtering](https://github.com/lightninglabs/taproot-assets/pull/1685).
