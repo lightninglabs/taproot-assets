@@ -3998,83 +3998,14 @@ func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
 		req.AssetAnchorPoint)
 
 	assetID := req.AssetAnchorPoint.ID
+	assetSpec := asset.NewSpecifierFromId(assetID)
 
-	// Fetch the asset group for the given asset ID.
-	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByID(ctx, assetID)
-	if err != nil {
-		return nil, fmt.Errorf("fail to find asset group given "+
-			"asset ID: %w", err)
-	}
-
-	// Formulate an asset specifier from the asset ID and group key.
-	assetSpec := asset.NewSpecifierOptionalGroupKey(
-		assetID, assetGroup.GroupKey,
-	)
-
-	// Retrieve asset meta reveal for the asset ID. This will be used to
-	// obtain the supply commitment delegation key.
-	metaReveal, err := r.cfg.TapAddrBook.FetchAssetMetaForAsset(
-		ctx, assetID,
+	signedIgnore, err := r.cfg.SupplyCommitManager.IgnoreAssetOutPoint(
+		ctx, assetSpec, req.AssetAnchorPoint, req.Amount,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("faild to fetch asset meta: %w", err)
-	}
-
-	// Extract supply commitment delegation pub key from the asset metadata.
-	delegationPubKey, err := metaReveal.DelegationKey.UnwrapOrErr(
-		fmt.Errorf("delegation key not found for given asset"),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Fetch the delegation key locator.
-	delegationKeyLoc, err := r.cfg.TapAddrBook.FetchInternalKeyLocator(
-		ctx, &delegationPubKey,
-	)
-	switch {
-	case errors.Is(err, address.ErrInternalKeyNotFound):
-		return nil, fmt.Errorf("delegation key locator not found; " +
-			"only delegation key owners can ignore asset " +
-			"outpoints for this asset group")
-	case err != nil:
-		return nil, fmt.Errorf("failed to fetch delegation key "+
-			"locator: %w", err)
-	}
-
-	// Determine the current block height and add it to the ignore tuple.
-	// A supply commitment verifier can then validate each commitment
-	// against historical snapshots of the supply subtrees.
-	currentBlockHeight, err := r.cfg.ChainBridge.CurrentHeight(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current block height "+
-			"for new ignore tuple: %w", err)
-	}
-
-	// Formulate the ignore entry and sign it with the delegation key.
-	ignoreTuple := universe.IgnoreTuple{
-		PrevID:      req.AssetAnchorPoint,
-		Amount:      req.Amount,
-		BlockHeight: currentBlockHeight,
-	}
-
-	signedIgnore, err := ignoreTuple.GenSignedIgnore(
-		ctx, r.cfg.Lnd.Signer, delegationKeyLoc,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign ignore tuple: %w", err)
-	}
-
-	// Upsert a signed ignore tuple into the ignore tree archive and
-	// get back the authenticated ignore tuples.
-	ignoreEvent := supplycommit.NewIgnoreEvent{
-		SignedIgnoreTuple: signedIgnore,
-	}
-	err = r.cfg.SupplyCommitManager.SendEventSync(
-		ctx, assetSpec, &ignoreEvent,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to upsert ignore tuple: %w", err)
+		return nil, fmt.Errorf("failed to handle ignore asset "+
+			"request: %w", err)
 	}
 
 	leafNode, err := signedIgnore.UniverseLeafNode()
