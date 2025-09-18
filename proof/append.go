@@ -221,7 +221,7 @@ func CreateTransitionProof(prevOut wire.OutPoint, params *TransitionParams,
 			// Generate an STXO inclusion proof for each prev
 			// witness.
 			_, stxoProof, err := params.TaprootAssetRoot.Proof(
-				asset.EmptyGenesisID,
+				spentAsset.TapCommitmentKey(),
 				spentAsset.AssetCommitmentKey(),
 			)
 			if err != nil {
