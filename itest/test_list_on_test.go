@@ -54,6 +54,10 @@ var allTestCases = []*testCase{
 		test: testAddresses,
 	},
 	{
+		name: "addr receives",
+		test: testAddrReceives,
+	},
+	{
 		name: "multi address",
 		test: testMultiAddress,
 	},

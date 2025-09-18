@@ -2271,6 +2271,16 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 		sqlQuery.StatusTo = &status
 	}
 
+	// Add timestamp filtering if specified
+	if req.StartTimestamp > 0 {
+		startTime := time.Unix(int64(req.StartTimestamp), 0)
+		sqlQuery.CreationTimeFrom = &startTime
+	}
+	if req.EndTimestamp > 0 {
+		endTime := time.Unix(int64(req.EndTimestamp), 0)
+		sqlQuery.CreationTimeTo = &endTime
+	}
+
 	events, err := r.cfg.AddrBook.QueryEvents(ctx, sqlQuery)
 	if err != nil {
 		return nil, fmt.Errorf("error querying events: %w", err)
@@ -4154,12 +4164,6 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 	req *unirpc.FetchSupplyCommitRequest) (
 	*unirpc.FetchSupplyCommitResponse, error) {
 
-	// Check the rate limiter to see if we need to wait at all. If not then
-	// this'll be a noop.
-	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
-		return nil, err
-	}
-
 	groupPubKey, err := unmarshalGroupKey(
 		req.GetGroupKeyBytes(), req.GetGroupKeyStr(),
 	)
@@ -4730,12 +4734,6 @@ func unmarshalSupplyLeaves(issuanceLeaves, burnLeaves,
 func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
 	req *unirpc.InsertSupplyCommitRequest) (
 	*unirpc.InsertSupplyCommitResponse, error) {
-
-	// Check the rate limiter to see if we need to wait at all. If not then
-	// this'll be a noop.
-	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
-		return nil, err
-	}
 
 	groupPubKey, err := unmarshalGroupKey(
 		req.GetGroupKeyBytes(), req.GetGroupKeyStr(),

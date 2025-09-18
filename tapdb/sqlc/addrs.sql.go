@@ -412,6 +412,7 @@ WHERE addr_events.status >= $1
   AND addr_events.status <= $2
   AND COALESCE($3, addrs.taproot_output_key) = addrs.taproot_output_key
   AND addr_events.creation_time >= $4
+  AND addr_events.creation_time <= $5
 ORDER by addr_events.creation_time
 `
 
@@ -420,6 +421,7 @@ type QueryEventIDsParams struct {
 	StatusTo       int16
 	AddrTaprootKey []byte
 	CreatedAfter   time.Time
+	CreatedBefore  time.Time
 }
 
 type QueryEventIDsRow struct {
@@ -433,6 +435,7 @@ func (q *Queries) QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([
 		arg.StatusTo,
 		arg.AddrTaprootKey,
 		arg.CreatedAfter,
+		arg.CreatedBefore,
 	)
 	if err != nil {
 		return nil, err
