@@ -99,12 +99,16 @@ ORDER BY
     CASE WHEN sqlc.narg('sort_direction') = 1 THEN universe_roots.id END DESC
 LIMIT @num_limit OFFSET @num_offset;
 
--- name: InsertUniverseServer :exec
+-- name: UpsertUniverseServer :exec
+-- Upserts a universe server by inserting or updating the last sync time for a
+-- given server host.
 INSERT INTO universe_servers(
     server_host, last_sync_time
 ) VALUES (
-    @server_host, @last_sync_time
-);
+     @server_host, @last_sync_time
+ )
+ON CONFLICT(server_host)
+    DO UPDATE SET last_sync_time = EXCLUDED.last_sync_time;
 
 -- name: DeleteUniverseServer :exec
 DELETE FROM universe_servers
