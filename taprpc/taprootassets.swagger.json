@@ -1670,6 +1670,29 @@
       "default": "META_TYPE_OPAQUE",
       "description": " - META_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs.\n - META_TYPE_JSON: JSON is used for asset meta blobs that are to be interpreted as valid JSON\nstrings."
     },
+    "taprpcAssetSpecifier": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
+        },
+        "asset_id_str": {
+          "type": "string",
+          "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+        },
+        "group_key_str": {
+          "type": "string",
+          "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
+        }
+      }
+    },
     "taprpcAssetTransfer": {
       "type": "object",
       "properties": {
@@ -1753,11 +1776,11 @@
         "asset_id": {
           "type": "string",
           "format": "byte",
-          "description": "The asset ID of the asset to burn units of."
+          "description": "Deprecated, the asset ID of the asset to burn units of."
         },
         "asset_id_str": {
           "type": "string",
-          "description": "The hex encoded asset ID of the asset to burn units of."
+          "description": "Deprecated, the hex encoded asset ID of the asset to burn units of."
         },
         "amount_to_burn": {
           "type": "string",
@@ -1771,6 +1794,10 @@
         "note": {
           "type": "string",
           "description": "A note that may contain user defined metadata related to this burn."
+        },
+        "asset_specifier": {
+          "$ref": "#/definitions/taprpcAssetSpecifier",
+          "description": "The asset to burn units of."
         }
       }
     },
