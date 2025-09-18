@@ -1011,8 +1011,18 @@ func NewAddrWithEventStream(t *testing.T, tapd commands.RpcClientsBundle,
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	addr, err := tapd.NewAddr(ctxt, req)
+	var addr *taprpc.Addr
+	err := wait.NoError(func() error {
+		var err error
+		addr, err = tapd.NewAddr(ctxt, req)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}, defaultWaitTimeout)
 	require.NoError(t, err)
+	require.NotNil(t, addr)
 
 	ctxc, cancel := context.WithCancel(ctxb)
 	stream, err := tapd.SubscribeReceiveEvents(
