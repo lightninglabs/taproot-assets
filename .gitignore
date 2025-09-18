@@ -55,3 +55,6 @@ vendor/
 # Release builds
 /taproot-assets-*
 .aider*
+
+# Environment variables
+.env
