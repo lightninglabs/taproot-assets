@@ -45,16 +45,6 @@ func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 		map[asset.PrevID]*AnchoredCommitment, len(selectedCommitments),
 	)
 	for _, anchorAsset := range selectedCommitments {
-		// We only use the inputs of assets of the same TAP commitment
-		// as we want to fund for. These are the active assets that
-		// we're going to distribute. All other assets are passive and
-		// will be detected and added later.
-		if anchorAsset.Asset.TapCommitmentKey() !=
-			fundDesc.TapCommitmentKey() {
-
-			continue
-		}
-
 		// We'll also include an inclusion proof for the input asset in
 		// the virtual transaction. With that a signer can verify that
 		// the asset was actually committed to in the anchor output.
@@ -136,15 +126,6 @@ func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate output anchor "+
 			"internal keys: %w", err)
-	}
-
-	for _, vPkt := range allPackets {
-		if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
-			log.Errorf("Error preparing output assets: %v, "+
-				"packets: %v", err, limitSpewer.Sdump(vPkt))
-			return nil, fmt.Errorf("unable to prepare outputs: %w",
-				err)
-		}
 	}
 
 	// Extract just the TAP commitments by input from the selected anchored
