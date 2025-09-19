@@ -3678,24 +3678,6 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 
 	rpcsLog.Debug("Executing asset burn")
 
-	var assetID asset.ID
-	switch {
-	case len(in.GetAssetId()) > 0:
-		copy(assetID[:], in.GetAssetId())
-
-	case len(in.GetAssetIdStr()) > 0:
-		assetIDBytes, err := hex.DecodeString(in.GetAssetIdStr())
-		if err != nil {
-			return nil, fmt.Errorf("error decoding asset ID: %w",
-				err)
-		}
-
-		copy(assetID[:], assetIDBytes)
-
-	default:
-		return nil, fmt.Errorf("asset ID must be specified")
-	}
-
 	if in.AmountToBurn == 0 {
 		return nil, fmt.Errorf("amount to burn must be specified")
 	}
@@ -3705,36 +3687,95 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 			"accidental asset burns")
 	}
 
-	var groupKey *btcec.PublicKey
-	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByID(ctx, assetID)
-	switch {
-	case err == nil && assetGroup.GroupKey != nil:
-		// We found the asset group, so we can use the group key to
-		// burn the asset.
-		groupKey = &assetGroup.GroupPubKey
-
-	case errors.Is(err, address.ErrAssetGroupUnknown):
-		// We don't know the asset group, so we'll try to burn the
-		// asset using the asset ID only.
-		rpcsLog.Debug("Asset group key not found, asset may not be " +
-			"part of a group")
-
-	case err != nil:
-		return nil, fmt.Errorf("error querying asset group: %w", err)
-	}
-
-	var serializedGroupKey []byte
-	if groupKey != nil {
-		serializedGroupKey = groupKey.SerializeCompressed()
-	}
-
-	rpcsLog.Infof("Burning asset (asset_id=%x, group_key=%x, "+
-		"burn_amount=%d)", assetID[:], serializedGroupKey,
-		in.AmountToBurn)
-
-	assetSpecifier := asset.NewSpecifierOptionalGroupPubKey(
-		assetID, groupKey,
+	var (
+		assetID  *asset.ID
+		groupKey *btcec.PublicKey
+		err      error
 	)
+
+	// TODO(darioAnongba): Remove this switch once the deprecated asset
+	// field is removed. Keep only the AssetSpecifier case.
+	// Added in v0.8.0.
+	switch {
+	case in.Asset != nil:
+		rpcsLog.Warnf("using deprecated asset field, please use " +
+			"asset_specifier instead")
+
+		switch {
+		case len(in.GetAssetId()) > 0:
+			var assetIdBytes [32]byte
+			copy(assetIdBytes[:], in.GetAssetId())
+			id := asset.ID(assetIdBytes)
+			assetID = &id
+
+		case len(in.GetAssetIdStr()) > 0:
+			assetIDBytes, err := hex.DecodeString(
+				in.GetAssetIdStr(),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding "+
+					"asset ID: %w",
+					err)
+			}
+
+			var id asset.ID
+			copy(id[:], assetIDBytes)
+			assetID = &id
+
+		default:
+			return nil, fmt.Errorf("asset ID must be specified")
+		}
+
+	case in.AssetSpecifier != nil:
+		assetID, groupKey, err = parseAssetSpecifier(
+			in.AssetSpecifier.GetAssetId(),
+			in.AssetSpecifier.GetAssetIdStr(),
+			in.AssetSpecifier.GetGroupKey(),
+			in.AssetSpecifier.GetGroupKeyStr(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse asset "+
+				"specifier: %w", err)
+		}
+
+	default:
+		return nil, fmt.Errorf("asset_specifier field unset")
+	}
+
+	// If the asset ID is set but the group key is not, we need to query
+	// the asset group by the asset ID to get the group key.
+	if assetID != nil && groupKey == nil {
+		assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByID(
+			ctx, *assetID,
+		)
+		switch {
+		case err == nil && assetGroup.GroupKey != nil:
+			// We found the asset group, so we can use the
+			// group key to burn the asset.
+			groupKey = &assetGroup.GroupPubKey
+
+		case errors.Is(err, address.ErrAssetGroupUnknown):
+			// We don't know the asset group, so we'll try to
+			// burn the asset using the asset ID only.
+			rpcsLog.Trace("Asset group key not found, asset " +
+				"may not be part of a group")
+
+		case err != nil:
+			return nil, fmt.Errorf("error querying asset "+
+				"group: %w", err)
+		}
+	}
+
+	assetSpecifier, err := asset.NewSpecifier(
+		assetID, groupKey, nil, true,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create asset specifier: %w",
+			err)
+	}
+
+	rpcsLog.Infof("Burning asset (asset_specifier=%v, burn_amount=%d)",
+		assetSpecifier, in.AmountToBurn)
 
 	fundResp, err := r.cfg.AssetWallet.FundBurn(
 		ctx, &tapsend.FundingDescriptor{
@@ -3746,17 +3787,13 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 		return nil, fmt.Errorf("error funding burn: %w", err)
 	}
 
-	// We don't support burning by group key yet, so we only expect a single
-	// vPacket (which implies a single asset ID is involved).
-	if len(fundResp.VPackets) > 1 {
-		return nil, fmt.Errorf("only one packet supported")
-	}
-
-	// Now we can sign the packet and send it to the chain.
-	vPkt := fundResp.VPackets[0]
-	_, err = r.cfg.AssetWallet.SignVirtualPacket(ctx, vPkt)
-	if err != nil {
-		return nil, fmt.Errorf("error signing packet: %w", err)
+	// Sign all virtual packets created for this burn
+	// (may be more than one when burning by group key).
+	for _, vPkt := range fundResp.VPackets {
+		_, err = r.cfg.AssetWallet.SignVirtualPacket(ctx, vPkt)
+		if err != nil {
+			return nil, fmt.Errorf("error signing packet: %w", err)
+		}
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
@@ -3774,28 +3811,29 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 			err)
 	}
 
-	var burnProof *taprpc.DecodedProof
-	for idx := range resp.Outputs {
-		vOut := vPkt.Outputs[idx]
-		tOut := resp.Outputs[idx]
-		if vOut.Asset.IsBurn() {
-			p, err := proof.Decode(tOut.ProofSuffix)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding "+
-					"burn proof: %w", err)
-			}
-
-			burnProof, err = r.marshalProof(ctx, p, true, false)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding "+
-					"burn proof: %w", err)
-			}
+	var burnProofs []*taprpc.DecodedProof
+	for _, tOut := range resp.Outputs {
+		p, err := proof.Decode(tOut.ProofSuffix)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding burn proof: %w",
+				err)
 		}
+
+		if !p.Asset.IsBurn() {
+			continue
+		}
+
+		burnProof, err := r.marshalProof(ctx, p, true, false)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding burn proof: %w",
+				err)
+		}
+		burnProofs = append(burnProofs, burnProof)
 	}
 
 	return &taprpc.BurnAssetResponse{
 		BurnTransfer: parcel,
-		BurnProof:    burnProof,
+		BurnProofs:   burnProofs,
 	}, nil
 }
 
