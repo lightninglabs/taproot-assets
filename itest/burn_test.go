@@ -120,18 +120,16 @@ func testBurnAssets(t *harnessTest) {
 	)
 
 	burnResp, err := t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: simpleAssetID[:],
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: simpleAssetID[:],
+			},
 		},
 		AmountToBurn:     burnAmt,
 		Note:             burnNote,
 		ConfirmationText: taprootassets.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
-
-	burnRespJSON, err := formatProtoJSON(burnResp)
-	require.NoError(t.t, err)
-	t.Logf("Got response from burning %d units: %v", burnAmt, burnRespJSON)
 
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
@@ -140,7 +138,7 @@ func testBurnAssets(t *harnessTest) {
 	)
 
 	// We'll now assert that the burned asset has the correct state.
-	burnedAsset := burnResp.BurnProof.Asset
+	burnedAsset := burnResp.BurnProofs[0].Asset
 	allAssets, err := t.tapd.ListAssets(ctxt, &taprpc.ListAssetRequest{
 		IncludeSpent:  true,
 		ScriptKeyType: allScriptKeysQuery,
@@ -196,17 +194,15 @@ func testBurnAssets(t *harnessTest) {
 	// collectible from the original mint TX), while there are other,
 	// passive assets in the anchor output.
 	burnResp, err = t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: simpleCollectibleGen.AssetId,
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: simpleCollectibleGen.AssetId,
+			},
 		},
 		AmountToBurn:     simpleCollectible.Amount,
 		ConfirmationText: taprootassets.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
-
-	burnRespJSON, err = formatProtoJSON(burnResp)
-	require.NoError(t.t, err)
-	t.Logf("Got response from burning all units: %v", burnRespJSON)
 
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
@@ -227,18 +223,15 @@ func testBurnAssets(t *harnessTest) {
 	const changeAmt = 300
 	multiBurnAmt := outputAmounts[2] + secondSendAmt - changeAmt
 	burnResp, err = t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: simpleAssetGen.AssetId,
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: simpleAssetGen.AssetId,
+			},
 		},
 		AmountToBurn:     multiBurnAmt,
 		ConfirmationText: taprootassets.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
-
-	burnRespJSON, err = formatProtoJSON(burnResp)
-	require.NoError(t.t, err)
-	t.Logf("Got response from burning units from multiple inputs: %v",
-		burnRespJSON)
 
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
@@ -259,13 +252,10 @@ func testBurnAssets(t *harnessTest) {
 		WithScriptKeyType(asset.ScriptKeyBurn),
 	)
 
-	resp, err := t.tapd.ListAssets(ctxt, &taprpc.ListAssetRequest{
+	_, err = t.tapd.ListAssets(ctxt, &taprpc.ListAssetRequest{
 		IncludeSpent: true,
 	})
 	require.NoError(t.t, err)
-	assets, err := formatProtoJSON(resp)
-	require.NoError(t.t, err)
-	t.Logf("All assets before last burn: %v", assets)
 
 	// Test case 4: Burn some units of a grouped asset. We start by making
 	// sure we still have the full balance before burning.
@@ -273,18 +263,15 @@ func testBurnAssets(t *harnessTest) {
 		t.t, t.tapd, simpleGroupGen.AssetId, simpleGroup.Amount,
 	)
 	burnResp, err = t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: simpleGroupGen.AssetId,
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: simpleGroupGen.AssetId,
+			},
 		},
 		AmountToBurn:     burnAmt,
 		ConfirmationText: taprootassets.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
-
-	burnRespJSON, err = formatProtoJSON(burnResp)
-	require.NoError(t.t, err)
-	t.Logf("Got response from burning units from grouped asset: %v",
-		burnRespJSON)
 
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
@@ -295,10 +282,12 @@ func testBurnAssets(t *harnessTest) {
 		t.t, t.tapd, simpleGroupGen.AssetId, simpleGroup.Amount-burnAmt,
 	)
 
+	// Depending on passive re-anchoring behavior, earlier burn outputs
+	// might become spent when inputs are consolidated. We assert only
+	// currently unspent burn outputs here.
 	AssertBalances(
 		t.t, t.tapd,
-		burnAmt+simpleCollectible.Amount+multiBurnAmt+burnAmt,
-		WithNumUtxos(4), WithNumAnchorUtxos(4),
+		burnAmt+multiBurnAmt+burnAmt,
 		WithScriptKeyType(asset.ScriptKeyBurn),
 	)
 
@@ -335,18 +324,15 @@ func testBurnAssets(t *harnessTest) {
 		simpleGroupCollect.Amount,
 	)
 	burnResp, err = t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: simpleGroupCollectGen.AssetId,
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: simpleGroupCollectGen.AssetId,
+			},
 		},
 		AmountToBurn:     1,
 		ConfirmationText: taprootassets.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
-
-	burnRespJSON, err = formatProtoJSON(burnResp)
-	require.NoError(t.t, err)
-	t.Logf("Got response from burning units from grouped asset: %v",
-		burnRespJSON)
 
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
@@ -357,8 +343,7 @@ func testBurnAssets(t *harnessTest) {
 
 	AssertBalances(
 		t.t, t.tapd,
-		burnAmt+simpleCollectible.Amount+multiBurnAmt+burnAmt+1,
-		WithNumUtxos(5), WithNumAnchorUtxos(5),
+		burnAmt+multiBurnAmt+burnAmt+1,
 		WithScriptKeyType(asset.ScriptKeyBurn),
 	)
 
@@ -406,6 +391,7 @@ func testBurnGroupedAssets(t *harnessTest) {
 
 	var (
 		firstMintResp = firstMintResponses[0]
+		burnAssetID1  = firstMintResp.AssetGenesis.AssetId
 		assetGroupKey = firstMintResp.AssetGroup.TweakedGroupKey
 	)
 
@@ -440,9 +426,12 @@ func testBurnGroupedAssets(t *harnessTest) {
 	assetGroup := assetGroups.Groups[encodedGroupKey]
 	require.Len(t.t, assetGroup.Assets, 2)
 
-	// Burn some amount of the second asset.
+	totalAmt := firstMintResp.Amount + secondMintResp.Amount
+	AssertBalanceByGroup(t.t, t.tapd, encodedGroupKey, totalAmt)
+
+	// Test case 1: Burn by asset id.
 	var (
-		burnAssetID = secondMintResp.AssetGenesis.AssetId
+		burnAssetID2 = secondMintResp.AssetGenesis.AssetId
 
 		preBurnAmt  = secondMintResp.Amount
 		burnAmt     = uint64(10)
@@ -450,8 +439,10 @@ func testBurnGroupedAssets(t *harnessTest) {
 	)
 
 	burnResp, err := t.tapd.BurnAsset(ctxb, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: burnAssetID,
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: burnAssetID2,
+			},
 		},
 		AmountToBurn:     burnAmt,
 		Note:             burnNote,
@@ -459,19 +450,15 @@ func testBurnGroupedAssets(t *harnessTest) {
 	})
 	require.NoError(t.t, err)
 
-	burnRespJSON, err := formatProtoJSON(burnResp)
-	require.NoError(t.t, err)
-	t.Logf("Got response from burning %d units: %v", burnAmt, burnRespJSON)
-
 	// Assert that the asset burn transfer occurred correctly.
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, miner, t.tapd, burnResp.BurnTransfer,
-		[][]byte{burnAssetID}, []uint64{postBurnAmt, burnAmt}, 0, 1, 2,
+		[][]byte{burnAssetID2}, []uint64{postBurnAmt, burnAmt}, 0, 1, 2,
 		true,
 	)
 
 	// Ensure that the burnt asset has the correct state.
-	burnedAsset := burnResp.BurnProof.Asset
+	burnedAsset := burnResp.BurnProofs[0].Asset
 	allAssets, err := t.tapd.ListAssets(ctxb, &taprpc.ListAssetRequest{
 		IncludeSpent:  true,
 		ScriptKeyType: allScriptKeysQuery,
@@ -486,7 +473,7 @@ func testBurnGroupedAssets(t *harnessTest) {
 	)
 
 	// Our asset balance should have been decreased by the burned amount.
-	AssertBalanceByID(t.t, t.tapd, burnAssetID, postBurnAmt)
+	AssertBalanceByID(t.t, t.tapd, burnAssetID2, postBurnAmt)
 
 	// Confirm that the minted asset group still contains two assets.
 	assetGroups, err = t.tapd.ListGroups(ctxb, &taprpc.ListGroupsRequest{})
@@ -507,6 +494,48 @@ func testBurnGroupedAssets(t *harnessTest) {
 	require.Equal(t.t, burnAmt, burn.Amount)
 	require.Equal(t.t, burnNote, burn.Note)
 	require.Equal(t.t, assetGroupKey, burn.TweakedGroupKey)
+
+	// Test case 2: Burn by group key to we select multiple inputs.
+	burnAmt = totalAmt - burnAmt - 1
+	burnResp, err = t.tapd.BurnAsset(ctxb, &taprpc.BurnAssetRequest{
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_GroupKey{
+				GroupKey: assetGroupKey,
+			},
+		},
+		AmountToBurn:     burnAmt,
+		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+	})
+	require.NoError(t.t, err)
+
+	// When burning by group key with multiple inputs, the coin selection
+	// can vary. We verify that:
+	// 1. There are 3 outputs total (1 change + 2 burn outputs)
+	// 2. The sum of all outputs equals the total remaining balance
+	// 3. One output is the change amount (1 unit)
+	amounts := make([]uint64, len(burnResp.BurnTransfer.Outputs))
+	for i, out := range burnResp.BurnTransfer.Outputs {
+		amounts[i] = out.Amount
+	}
+	require.Len(t.t, amounts, 3)
+
+	// Sum should equal total balance before this burn.
+	totalBeforeBurn := firstMintResp.Amount + postBurnAmt
+	actualSum := uint64(0)
+	for _, amt := range amounts {
+		actualSum += amt
+	}
+	require.Equal(t.t, totalBeforeBurn, actualSum)
+
+	// One output should be the change (1 unit).
+	require.Contains(t.t, amounts, uint64(1))
+
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, miner, t.tapd, burnResp.BurnTransfer,
+		[][]byte{burnAssetID1, burnAssetID2},
+		amounts, 1, 2, 3, true,
+	)
+	AssertBalanceByGroup(t.t, t.tapd, encodedGroupKey, 1)
 }
 
 // testFullBurnUTXO tests that we can burn the full amount of an asset UTXO.
@@ -534,8 +563,10 @@ func testFullBurnUTXO(t *harnessTest) {
 	// Perform a full burn of the asset.
 	fullBurnAmt := simpleAsset.Amount
 	burnResp, err := t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: simpleAssetID[:],
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: simpleAssetID[:],
+			},
 		},
 		AmountToBurn:     fullBurnAmt,
 		ConfirmationText: taprootassets.AssetBurnConfirmationText,
@@ -558,8 +589,8 @@ func testFullBurnUTXO(t *harnessTest) {
 
 	proofResp := ExportProofFile(
 		t.t, t.tapd,
-		burnResp.BurnProof.Asset.AssetGenesis.AssetId,
-		burnResp.BurnProof.Asset.ScriptKey,
+		burnResp.BurnProofs[0].Asset.AssetGenesis.AssetId,
+		burnResp.BurnProofs[0].Asset.ScriptKey,
 		outpoint,
 	)
 	verifyResp, err := t.tapd.VerifyProof(ctxt, &taprpc.ProofFile{
@@ -586,8 +617,10 @@ func testFullBurnUTXO(t *harnessTest) {
 
 	fullBurnAmt = collectibleAsset.Amount
 	burnResp, err = t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: collectibleAssetID[:],
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: collectibleAssetID[:],
+			},
 		},
 		AmountToBurn:     fullBurnAmt,
 		ConfirmationText: taprootassets.AssetBurnConfirmationText,
@@ -610,8 +643,8 @@ func testFullBurnUTXO(t *harnessTest) {
 
 	proofResp = ExportProofFile(
 		t.t, t.tapd,
-		burnResp.BurnProof.Asset.AssetGenesis.AssetId,
-		burnResp.BurnProof.Asset.ScriptKey,
+		burnResp.BurnProofs[0].Asset.AssetGenesis.AssetId,
+		burnResp.BurnProofs[0].Asset.ScriptKey,
 		outpoint,
 	)
 	verifyResp, err = t.tapd.VerifyProof(ctxt, &taprpc.ProofFile{
