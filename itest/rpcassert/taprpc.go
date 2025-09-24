@@ -50,3 +50,40 @@ func NewAddrRPC(t *testing.T, ctx context.Context,
 
 	return resp
 }
+
+// ListBalancesRPC calls ListBalances RPC with the given request until the
+// given assertion predicate returns no error or the timeout is reached. If the
+// predicate is nil, only basic checks are performed (non-nil response).
+//
+// If the assertion fails, the test is failed.
+func ListBalancesRPC(t *testing.T, ctx context.Context,
+	client taprpc.TaprootAssetsClient,
+	assertPredicate func(*taprpc.ListBalancesResponse) error,
+	req *taprpc.ListBalancesRequest) *taprpc.ListBalancesResponse {
+
+	t.Helper()
+
+	var resp *taprpc.ListBalancesResponse
+	err := wait.NoError(func() error {
+		var err error
+		resp, err = client.ListBalances(ctx, req)
+		if err != nil {
+			return err
+		}
+
+		if resp == nil {
+			return fmt.Errorf("nil response")
+		}
+
+		if assertPredicate != nil {
+			return assertPredicate(resp)
+		}
+
+		return nil
+	}, defaultWaitTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return resp
+}
