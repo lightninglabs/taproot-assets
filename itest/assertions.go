@@ -2550,74 +2550,86 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 		},
 	)
 
-	utxoList, err := client.ListUtxos(ctxt, &taprpc.ListUtxosRequest{
-		IncludeLeased: config.includeLeased,
-		ScriptKeyType: rpcTypeQuery,
-	})
-	require.NoError(t, err)
-
 	// Make sure the ListUtxos call returns the same number of (asset) UTXOs
 	// as the ListAssets call.
-	var (
-		numAnchorUtxos uint32
-		totalBalance   uint64
-		numUtxos       uint32
-	)
+	assertPredUtxos := func(resp *taprpc.ListUtxosResponse) error {
+		var (
+			numAnchorUtxos uint32
+			totalBalance   uint64
+			numUtxos       uint32
+		)
 
-	for _, btcUtxo := range utxoList.ManagedUtxos {
-		numAnchorUtxos++
-		for _, assetUtxo := range btcUtxo.Assets {
-			if len(config.assetID) > 0 {
-				if !bytes.Equal(
-					assetUtxo.AssetGenesis.AssetId,
-					config.assetID,
-				) {
+		for _, btcUtxo := range resp.ManagedUtxos {
+			numAnchorUtxos++
+			for _, assetUtxo := range btcUtxo.Assets {
+				if len(config.assetID) > 0 {
+					if !bytes.Equal(
+						assetUtxo.AssetGenesis.AssetId,
+						config.assetID,
+					) {
 
-					continue
+						continue
+					}
 				}
+
+				if len(config.groupKey) > 0 {
+					if assetUtxo.AssetGroup == nil {
+						continue
+					}
+
+					// nolint: lll
+					actualGK := assetUtxo.AssetGroup.TweakedGroupKey
+
+					if !bytes.Equal(
+						actualGK, config.groupKey,
+					) {
+
+						continue
+					}
+				}
+
+				if len(config.scriptKey) > 0 {
+					if !bytes.Equal(
+						assetUtxo.ScriptKey,
+						config.scriptKey,
+					) {
+
+						continue
+					}
+				}
+
+				totalBalance += assetUtxo.Amount
+				numUtxos++
 			}
-
-			if len(config.groupKey) > 0 {
-				if assetUtxo.AssetGroup == nil {
-					continue
-				}
-
-				if !bytes.Equal(
-					assetUtxo.AssetGroup.TweakedGroupKey,
-					config.groupKey,
-				) {
-
-					continue
-				}
-			}
-
-			if len(config.scriptKey) > 0 {
-				if !bytes.Equal(
-					assetUtxo.ScriptKey, config.scriptKey,
-				) {
-
-					continue
-				}
-			}
-
-			totalBalance += assetUtxo.Amount
-			numUtxos++
 		}
-	}
-	require.Equal(t, balance, totalBalance, "ListUtxos balance")
 
-	if config.numAnchorUtxos > 0 {
-		require.Equal(
-			t, config.numAnchorUtxos, numAnchorUtxos, "num anchor "+
-				"utxos",
-		)
+		if balance != totalBalance {
+			return fmt.Errorf("ListUtxos balance, wanted %d, "+
+				"got: %v", balance, toJSON(t, resp))
+		}
+
+		if config.numAnchorUtxos > 0 {
+			if config.numAnchorUtxos != numAnchorUtxos {
+				return fmt.Errorf("unexpected number of " +
+					"anchor UTXOs")
+			}
+		}
+		if config.numAssetUtxos > 0 {
+			if config.numAssetUtxos != numUtxos {
+				return fmt.Errorf("unexpected number of " +
+					"asset UTXOs")
+			}
+		}
+
+		return nil
 	}
-	if config.numAssetUtxos > 0 {
-		require.Equal(
-			t, config.numAssetUtxos, numUtxos, "ListUtxos num "+
-				"asset utxos",
-		)
-	}
+
+	rpcassert.ListUtxosRPC(t, ctxt, client, assertPredUtxos,
+		&taprpc.ListUtxosRequest{
+			IncludeLeased: config.includeLeased,
+			ScriptKeyType: rpcTypeQuery,
+		},
+	)
 }
 
 func assertGroups(t *testing.T, client taprpc.TaprootAssetsClient,
