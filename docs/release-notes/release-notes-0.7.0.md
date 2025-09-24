@@ -238,6 +238,12 @@
   `ChainPorter` state machine by removing a goroutine and simplifying
   event emission. Fixes an itest flake.
 
+- [The Golang version used was bumped to `v1.23.12` to fix a potential issue
+  with the SQL API](https://github.com/lightninglabs/taproot-assets/pull/1713).
+
+- [The Golang version used was bumped to `v1.24.6` in order to keep up with the
+  dependencies (LND).](https://github.com/lightninglabs/taproot-assets/pull/1815)
+
 ## Breaking Changes
 
 ## Performance Improvements
@@ -251,11 +257,6 @@
 ## Testing
 
 ## Database
-
-## Code Health
-
-- [The Golang version used was bumped to `v1.23.12` to fix a potential issue
-  with the SQL API](https://github.com/lightninglabs/taproot-assets/pull/1713).
 
 ## Tooling and Documentation
 
