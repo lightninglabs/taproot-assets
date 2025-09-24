@@ -237,7 +237,7 @@ func checkAliasing(t *testing.T, debug, strict bool, f1, f2 reflect.Value,
 				"(shared %s)", path, f1.Kind())
 
 			if strict {
-				t.Fatalf(msg)
+				t.Fatal(msg)
 			}
 
 			if debug {
