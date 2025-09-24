@@ -727,30 +727,6 @@ func (v *Verifier) verifySupplyLeaves(ctx context.Context,
 	return nil
 }
 
-// fetchDelegationKey fetches the delegation key for the given asset specifier.
-func (v *Verifier) fetchDelegationKey(ctx context.Context,
-	assetSpec asset.Specifier) (btcec.PublicKey, error) {
-
-	var zero btcec.PublicKey
-
-	metaReveal, err := supplycommit.FetchLatestAssetMetadata(
-		ctx, v.cfg.AssetLookup, assetSpec,
-	)
-	if err != nil {
-		return zero, fmt.Errorf("unable to fetch asset "+
-			"metadata: %w", err)
-	}
-
-	delegationKey, err := metaReveal.DelegationKey.UnwrapOrErr(
-		fmt.Errorf("missing delegation key in asset metadata"),
-	)
-	if err != nil {
-		return zero, err
-	}
-
-	return delegationKey, nil
-}
-
 // VerifyCommit verifies a supply commitment for a given asset group.
 // Verification succeeds only if all previous supply commitment dependencies
 // are known and verified. The dependency chain must be traceable back to the
@@ -801,7 +777,9 @@ func (v *Verifier) VerifyCommit(ctx context.Context,
 			"commitment with given outpoint: %w", err)
 	}
 
-	delegationKey, err := v.fetchDelegationKey(ctx, assetSpec)
+	delegationKey, err := FetchDelegationKey(
+		ctx, v.cfg.AssetLookup, assetSpec,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to fetch delegation key: %w", err)
 	}
