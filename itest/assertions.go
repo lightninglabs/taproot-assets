@@ -2487,62 +2487,68 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	// Finally, we assert that the sum of all assets queried with the given
 	// query parameters matches the expected balance.
-	assetList, err := client.ListAssets(ctxt, &taprpc.ListAssetRequest{
-		IncludeLeased: config.includeLeased,
-		ScriptKeyType: rpcTypeQuery,
-	})
-	require.NoError(t, err)
-
-	var (
-		totalBalance uint64
-		numUtxos     uint32
-	)
-	for _, a := range assetList.Assets {
-		if len(config.assetID) > 0 {
-			if !bytes.Equal(
-				a.AssetGenesis.AssetId, config.assetID,
-			) {
-
-				continue
-			}
-		}
-
-		if len(config.groupKey) > 0 {
-			if a.AssetGroup == nil {
-				continue
-			}
-
-			if !bytes.Equal(
-				a.AssetGroup.TweakedGroupKey, config.groupKey,
-			) {
-
-				continue
-			}
-		}
-
-		if len(config.scriptKey) > 0 {
-			if !bytes.Equal(a.ScriptKey, config.scriptKey) {
-				continue
-			}
-		}
-
-		totalBalance += a.Amount
-		numUtxos++
-	}
-	require.Equalf(
-		t, balance, totalBalance, "ListAssets balance, wanted %d, "+
-			"got: %v", balance, toJSON(t, assetList),
-	)
-
-	// The number of UTXOs means asset outputs in this case. We check the
-	// BTC-level UTXOs below as well, but that's just to make sure the
-	// output of that RPC lists the same assets.
-	if config.numAssetUtxos > 0 {
-		require.Equal(
-			t, config.numAssetUtxos, numUtxos, "ListAssets num "+
-				"asset utxos",
+	assertPred := func(resp *taprpc.ListAssetResponse) error {
+		var (
+			totalBalance uint64
+			numUtxos     uint32
 		)
+
+		for _, a := range resp.Assets {
+			if len(config.assetID) > 0 {
+				if !bytes.Equal(
+					a.AssetGenesis.AssetId, config.assetID,
+				) {
+
+					continue
+				}
+			}
+
+			if len(config.groupKey) > 0 {
+				if a.AssetGroup == nil {
+					continue
+				}
+
+				if !bytes.Equal(
+					a.AssetGroup.TweakedGroupKey,
+					config.groupKey,
+				) {
+
+					continue
+				}
+			}
+
+			if len(config.scriptKey) > 0 {
+				if !bytes.Equal(a.ScriptKey, config.scriptKey) {
+					continue
+				}
+			}
+
+			totalBalance += a.Amount
+			numUtxos++
+		}
+		if balance != totalBalance {
+			return fmt.Errorf("ListAssets balance, wanted %d, "+
+				"got: %v", balance, toJSON(t, resp))
+		}
+
+		// The number of UTXOs means asset outputs in this case. We
+		// check the BTC-level UTXOs below as well, but that's just to
+		// make sure the output of that RPC lists the same assets.
+		if config.numAssetUtxos > 0 {
+			if config.numAssetUtxos != numUtxos {
+				return fmt.Errorf("unexpected number of UTXOs")
+			}
+		}
+
+		return nil
 	}
+
+	rpcassert.ListAssetsRPC(t, ctxt, client, assertPred,
+		&taprpc.ListAssetRequest{
+			IncludeLeased: config.includeLeased,
+			ScriptKeyType: rpcTypeQuery,
+		},
+	)
 
 	utxoList, err := client.ListUtxos(ctxt, &taprpc.ListUtxosRequest{
 		IncludeLeased: config.includeLeased,
@@ -2552,9 +2558,12 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	// Make sure the ListUtxos call returns the same number of (asset) UTXOs
 	// as the ListAssets call.
-	var numAnchorUtxos uint32
-	totalBalance = 0
-	numUtxos = 0
+	var (
+		numAnchorUtxos uint32
+		totalBalance   uint64
+		numUtxos       uint32
+	)
+
 	for _, btcUtxo := range utxoList.ManagedUtxos {
 		numAnchorUtxos++
 		for _, assetUtxo := range btcUtxo.Assets {
