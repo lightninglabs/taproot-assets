@@ -16,7 +16,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
-	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // VerifierCfg is the configuration for the verifier.
@@ -539,7 +538,9 @@ func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 
 	// Attempt to extract the pre-commitment output from the issuance proof
 	// anchor transaction.
-	_, err = ExtractPreCommitOutput(issuanceProof, delegationKey)
+	_, err = supplycommit.NewPreCommitFromProof(
+		issuanceProof, delegationKey,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to extract pre-commit output from "+
 			"issuance proof anchor tx: %w", err)
@@ -821,54 +822,4 @@ func (v *Verifier) VerifyCommit(ctx context.Context,
 		ctx, assetSpec, commitment, leaves,
 		unspentPreCommits,
 	)
-}
-
-// ExtractPreCommitOutput extracts and returns the supply pre-commitment output
-// from the given issuance proof and asset metadata reveal.
-func ExtractPreCommitOutput(issuanceProof proof.Proof,
-	delegationKey btcec.PublicKey) (supplycommit.PreCommitment, error) {
-
-	var zero supplycommit.PreCommitment
-
-	// Identify txOut in mint anchor transaction which corresponds to the
-	// supply pre-commitment output.
-	//
-	// Construct the expected pre-commit tx out.
-	expectedTxOut, err := tapgarden.PreCommitTxOut(delegationKey)
-	if err != nil {
-		return zero, fmt.Errorf("unable to derive expected pre-commit "+
-			"txout: %w", err)
-	}
-
-	var preCommitTxOutIndex int32 = -1
-	for idx := range issuanceProof.AnchorTx.TxOut {
-		txOut := *issuanceProof.AnchorTx.TxOut[idx]
-
-		// Compare txOut to the expected pre-commit tx out.
-		isValueEqual := txOut.Value == expectedTxOut.Value
-		isPkScriptEqual := bytes.Equal(
-			txOut.PkScript, expectedTxOut.PkScript,
-		)
-
-		if isValueEqual && isPkScriptEqual {
-			preCommitTxOutIndex = int32(idx)
-		}
-	}
-
-	// If we didn't find the pre-commit tx out, then return an error.
-	if preCommitTxOutIndex == -1 {
-		return zero, fmt.Errorf("unable to find pre-commit tx out in " +
-			"issuance anchor tx")
-	}
-
-	// Calculate the outpoint of the supply pre-commitment.
-	return supplycommit.PreCommitment{
-		BlockHeight: issuanceProof.BlockHeight,
-		MintingTxn:  &issuanceProof.AnchorTx,
-		OutIdx:      uint32(preCommitTxOutIndex),
-		InternalKey: keychain.KeyDescriptor{
-			PubKey: &delegationKey,
-		},
-		GroupPubKey: issuanceProof.Asset.GroupKey.GroupPubKey,
-	}, nil
 }
