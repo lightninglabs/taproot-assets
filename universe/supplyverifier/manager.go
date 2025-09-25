@@ -630,6 +630,10 @@ const (
 	// LocatorTypeVeryFirst indicates that the locator type is the very
 	// first supply commitment transaction output for an asset group.
 	LocatorTypeVeryFirst LocatorType = 2
+
+	// LocatorTypeLatest indicates that the locator type is the latest
+	// supply commitment for an asset group.
+	LocatorTypeLatest LocatorType = 3
 )
 
 // CommitLocator is used to locate a supply commitment in the database based on
@@ -760,6 +764,13 @@ func (m *Manager) FetchCommitment(ctx context.Context,
 		commitment, err = view.FetchStartingCommitment(ctx, assetSpec)
 		if err != nil {
 			return zero, fmt.Errorf("unable to fetch starting "+
+				"commitment: %w", err)
+		}
+
+	case LocatorTypeLatest:
+		commitment, err = view.FetchLatestCommitment(ctx, assetSpec)
+		if err != nil {
+			return zero, fmt.Errorf("unable to fetch latest "+
 				"commitment: %w", err)
 		}
 
