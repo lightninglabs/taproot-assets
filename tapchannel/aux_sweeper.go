@@ -1585,6 +1585,8 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 		}
 	}
 
+	supportSTXO := commitState.STXO.Val
+
 	// We can now add the witness for the OP_TRUE spend of the commitment
 	// output to the vPackets.
 	vPackets := maps.Values(vPktsByAssetID)
@@ -1593,8 +1595,13 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 			"packets: %w", err)
 	}
 
+	var opts []tapsend.OutputCommitmentOption
+	if !supportSTXO {
+		opts = append(opts, tapsend.WithNoSTXOProofs())
+	}
+
 	outCommitments, err := tapsend.CreateOutputCommitments(
-		vPackets, tapsend.WithNoSTXOProofs(),
+		vPackets, opts...,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to create output "+
@@ -1612,10 +1619,14 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	for idx := range vPackets {
 		vPkt := vPackets[idx]
 		for outIdx := range vPkt.Outputs {
+			var opts []proof.GenOption
+			if !supportSTXO {
+				opts = append(opts, proof.WithNoSTXOProofs())
+			}
+
 			proofSuffix, err := tapsend.CreateProofSuffixCustom(
 				req.CommitTx, vPkt, outCommitments, outIdx,
-				vPackets, exclusionCreator,
-				proof.WithNoSTXOProofs(),
+				vPackets, exclusionCreator, opts...,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to create "+
@@ -2225,9 +2236,7 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 
 	// Now that we have our set of resolutions, we'll make a new commitment
 	// out of all the vPackets contained.
-	outCommitments, err := tapsend.CreateOutputCommitments(
-		directPkts, tapsend.WithNoSTXOProofs(),
-	)
+	outCommitments, err := tapsend.CreateOutputCommitments(directPkts)
 	if err != nil {
 		return lfn.Errf[returnType]("unable to create "+
 			"output commitments: %w", err)
@@ -2408,9 +2417,7 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	}
 
 	// Now that we have our vPkts, we'll re-create the output commitments.
-	outCommitments, err := tapsend.CreateOutputCommitments(
-		vPkts.allPkts(), tapsend.WithNoSTXOProofs(),
-	)
+	outCommitments, err := tapsend.CreateOutputCommitments(vPkts.allPkts())
 	if err != nil {
 		return fmt.Errorf("unable to create output "+
 			"commitments: %w", err)
@@ -2454,7 +2461,7 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 
 			proofSuffix, err := tapsend.CreateProofSuffixCustom(
 				sweepTx, vPkt, outCommitments, outIdx, allVpkts,
-				exclusionCreator, proof.WithNoSTXOProofs(),
+				exclusionCreator,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to create proof "+
