@@ -1628,15 +1628,33 @@ func updateSupplyCommit(ctx *cli.Context) error {
 }
 
 var fetchSupplyCommitCmd = cli.Command{
-	Name:  "fetch",
-	Usage: "fetches the on-chain supply commitment for an asset group",
-	Description: "This command fetches the on-chain supply " +
-		"commitment for a specific asset group.",
+	Name: "fetch",
+	Usage: "fetches the on-chain supply commitment for " +
+		"an asset group",
+	Description: `
+	Fetch the on-chain supply commitment for a specific asset group.
+
+	At most one of --outpoint and --spent_outpoint may be provided. If
+	neither is provided, the very first supply commitment for the asset
+	group will be fetched.
+	`,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "group_key",
 			Usage:    "the group key of the asset group to fetch",
 			Required: true,
+		},
+		&cli.StringFlag{
+			Name: "outpoint",
+			Usage: "(format <txid>:<vout>) fetch the supply " +
+				"commitment that created this " +
+				"output on chain",
+		},
+		&cli.StringFlag{
+			Name: "spent_outpoint",
+			Usage: "(format <txid>:<vout>) fetch the supply " +
+				"commitment created by " +
+				"spending this output on chain",
 		},
 	},
 	Action: fetchSupplyCommit,
@@ -1647,10 +1665,54 @@ func fetchSupplyCommit(ctx *cli.Context) error {
 	client, cleanUp := getUniverseClient(ctx)
 	defer cleanUp()
 
+	outpointSet := ctx.IsSet("outpoint")
+	spentOutpointSet := ctx.IsSet("spent_outpoint")
+
+	if outpointSet && spentOutpointSet {
+		return fmt.Errorf(
+			"only one of --outpoint or --spent_outpoint can be set",
+		)
+	}
+
 	req := &unirpc.FetchSupplyCommitRequest{
 		GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyStr{
 			GroupKeyStr: ctx.String("group_key"),
 		},
+	}
+
+	switch {
+	case outpointSet:
+		arg := ctx.String("outpoint")
+		outpoint, err := wire.NewOutPointFromString(arg)
+		if err != nil {
+			return fmt.Errorf("error parsing outpoint: %w", err)
+		}
+		req.Locator = &unirpc.FetchSupplyCommitRequest_CommitOutpoint{
+			CommitOutpoint: &taprpc.OutPoint{
+				Txid:        outpoint.Hash[:],
+				OutputIndex: outpoint.Index,
+			},
+		}
+
+	case spentOutpointSet:
+		arg := ctx.String("spent_outpoint")
+		outpoint, err := wire.NewOutPointFromString(arg)
+		if err != nil {
+			return fmt.Errorf("error parsing spent "+
+				"outpoint: %w", err)
+		}
+		req.Locator =
+			&unirpc.FetchSupplyCommitRequest_SpentCommitOutpoint{
+				SpentCommitOutpoint: &taprpc.OutPoint{
+					Txid:        outpoint.Hash[:],
+					OutputIndex: outpoint.Index,
+				},
+			}
+
+	default:
+		req.Locator = &unirpc.FetchSupplyCommitRequest_VeryFirst{
+			VeryFirst: true,
+		}
 	}
 
 	resp, err := client.FetchSupplyCommit(cliCtx, req)
