@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/urfave/cli"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -193,16 +193,36 @@ func getContext() context.Context {
 	return ctxc
 }
 
+// printJSON prints any JSON serializable object to stdout in a pretty format.
 func printJSON(resp interface{}) {
-	b, err := json.Marshal(resp)
+	var (
+		b   []byte
+		err error
+	)
+
+	switch m := resp.(type) {
+	case proto.Message:
+		mo := protojson.MarshalOptions{
+			Multiline:       true,
+			Indent:          "\t",
+			EmitUnpopulated: true,
+			UseProtoNames:   true,
+		}
+		b, err = mo.Marshal(m)
+
+	default:
+		// This does not emit unpopulated fields.
+		b, err = json.MarshalIndent(resp, "", "\t")
+	}
+
 	if err != nil {
 		Fatal(err)
 	}
 
-	var out bytes.Buffer
-	_ = json.Indent(&out, b, "", "\t")
-	out.WriteString("\n")
-	_, _ = out.WriteTo(os.Stdout)
+	_, err = os.Stdout.Write(append(b, '\n'))
+	if err != nil {
+		Fatal(err)
+	}
 }
 
 func printRespJSON(resp proto.Message) {
