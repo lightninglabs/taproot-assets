@@ -1001,6 +1001,9 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 //  5. Ignores the asset outpoint sent to the secondary node.
 //  6. Publishes the second supply commitment and mines it.
 //  7. Verifies the secondary node can fetch the updated supply commitment.
+//  8. Primary node mints another asset into the group and publishes the
+//     third supply commitment.
+//  9. Verifies the secondary node can fetch the third supply commitment.
 func testSupplyVerifyPeerNode(t *harnessTest) {
 	ctxb := context.Background()
 
@@ -1008,11 +1011,11 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 		"commitments enabled")
 
 	// Create a mint request for a grouped asset with supply commitments.
-	mintReq := CopyRequest(issuableAssets[0])
-	mintReq.Asset.Amount = 5000
+	firstMintReq := CopyRequest(issuableAssets[0])
+	firstMintReq.Asset.Amount = 5000
 
 	rpcFirstAsset, _ := MintAssetWithSupplyCommit(
-		t, mintReq, fn.None[btcec.PublicKey](),
+		t, firstMintReq, fn.None[btcec.PublicKey](),
 	)
 
 	// Parse out the group key from the minted asset.
@@ -1036,7 +1039,7 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 	// Verify the issuance subtree root exists and has the correct amount.
 	require.NotNil(t.t, fetchResp.IssuanceSubtreeRoot)
 	require.Equal(
-		t.t, int64(mintReq.Asset.Amount),
+		t.t, int64(firstMintReq.Asset.Amount),
 		fetchResp.IssuanceSubtreeRoot.RootNode.RootSum,
 	)
 
@@ -1085,7 +1088,7 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 
 	require.NotNil(t.t, peerFetchResp)
 	require.Equal(
-		t.t, int64(mintReq.Asset.Amount),
+		t.t, int64(firstMintReq.Asset.Amount),
 		peerFetchResp.IssuanceSubtreeRoot.RootNode.RootSum,
 	)
 
@@ -1120,7 +1123,7 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 
 	t.Log("Verifying retrieval of second supply commitment from primary " +
 		"node")
-	fetchResp, _ = WaitForSupplyCommit(
+	fetchResp, supplyOutpoint = WaitForSupplyCommit(
 		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(supplyOutpoint),
 		func(resp *unirpc.FetchSupplyCommitResponse) bool {
 			ignoreRoot := resp.IgnoreSubtreeRoot
@@ -1257,4 +1260,109 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 			peerFetchResp2.ChainData.SupplyRootHash,
 		),
 	)
+
+	// Step 8: Primary node mints another asset into the group and publishes
+	// the third supply commitment.
+	t.Log("Minting second asset into the same asset group")
+
+	secondMintReq := &mintrpc.MintAssetRequest{
+		Asset: &mintrpc.MintAsset{
+			AssetType: taprpc.AssetType_NORMAL,
+			Name:      "itestbuxx-supply-commit-tranche-2",
+			AssetMeta: &taprpc.AssetMeta{
+				Data: []byte("second tranche metadata"),
+			},
+			Amount:          2000,
+			AssetVersion:    taprpc.AssetVersion_ASSET_VERSION_V1,
+			NewGroupedAsset: false,
+			GroupedAsset:    true,
+			GroupKey:        groupKeyBytes,
+
+			EnableSupplyCommitments: true,
+		},
+	}
+
+	MintAssetWithSupplyCommit(
+		t, secondMintReq, fn.None[btcec.PublicKey](),
+	)
+
+	t.Log("Updating supply commitment after second mint (creating third " +
+		"supply commitment)")
+	UpdateAndMineSupplyCommit(
+		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		groupKeyBytes, 1,
+	)
+
+	// Step 9: Verify the secondary node can fetch the third supply
+	// commitment.
+	t.Log("Verifying secondary node can fetch third supply commitment")
+
+	// Wait for the third supply commitment to be available.
+	expectedTotalAfterSecondMint := int64(
+		firstMintReq.Asset.Amount + secondMintReq.Asset.Amount,
+	)
+	var thirdSupplyCommitResp *unirpc.FetchSupplyCommitResponse
+	thirdSupplyCommitResp, _ = WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(supplyOutpoint),
+		func(resp *unirpc.FetchSupplyCommitResponse) bool {
+			actualRootSum :=
+				resp.IssuanceSubtreeRoot.RootNode.RootSum
+
+			return resp.IssuanceSubtreeRoot != nil &&
+				actualRootSum == expectedTotalAfterSecondMint
+		},
+	)
+
+	// Verify the secondary node can fetch the third supply commitment.
+	var peerFetchResp3 *unirpc.FetchSupplyCommitResponse
+	require.Eventually(t.t, func() bool {
+		var err error
+		// nolint: lll
+		peerFetchResp3, err = secondTapd.FetchSupplyCommit(
+			ctxb, &unirpc.FetchSupplyCommitRequest{
+				GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
+					GroupKeyBytes: groupKeyBytes,
+				},
+				Locator: &unirpc.FetchSupplyCommitRequest_SpentCommitOutpoint{
+					SpentCommitOutpoint: thirdSupplyCommitResp.SpentCommitmentOutpoint,
+				},
+			},
+		)
+		if err != nil {
+			return false
+		}
+
+		if peerFetchResp3 == nil {
+			return false
+		}
+
+		if peerFetchResp3.IssuanceSubtreeRoot == nil {
+			return false
+		}
+
+		// Check if the supply commitment includes the second mint.
+		return peerFetchResp3.IssuanceSubtreeRoot.RootNode.RootSum ==
+			expectedTotalAfterSecondMint
+	}, defaultWaitTimeout, time.Second)
+
+	// Verify that the secondary node's third supply commitment matches the
+	// primary's.
+	require.Equal(
+		t.t, thirdSupplyCommitResp.ChainData.BlockHeight,
+		peerFetchResp3.ChainData.BlockHeight,
+	)
+	require.True(
+		t.t, bytes.Equal(
+			thirdSupplyCommitResp.ChainData.BlockHash,
+			peerFetchResp3.ChainData.BlockHash,
+		),
+	)
+	require.True(
+		t.t, bytes.Equal(
+			thirdSupplyCommitResp.ChainData.SupplyRootHash,
+			peerFetchResp3.ChainData.SupplyRootHash,
+		),
+	)
+
+	t.Log("Successfully verified third supply commitment on secondary node")
 }
