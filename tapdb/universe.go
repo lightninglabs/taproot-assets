@@ -611,52 +611,27 @@ func shouldInsertPreCommit(proofType universe.ProofType,
 	return true
 }
 
-// maybeUpsertSupplyPreCommit inserts a supply pre-commitment output if the
-// asset group supports supply commitments and this is an issuance proof.
-func maybeUpsertSupplyPreCommit(ctx context.Context, dbTx UpsertAssetStore,
-	proofType universe.ProofType, issuanceProof proof.Proof,
-	metaReveal *proof.MetaReveal) error {
+// upsertSupplyPreCommit upserts a supply pre-commitment into the database.
+func upsertSupplyPreCommit(ctx context.Context, dbTx UpsertAssetStore,
+	preCommit supplycommit.PreCommitment) error {
 
-	if !shouldInsertPreCommit(proofType, issuanceProof, metaReveal) {
-		return nil
-	}
+	// Encode the group key, taproot internal key, and pre-commit outpoint.
+	groupKeyBytes := schnorr.SerializePubKey(&preCommit.GroupPubKey)
+	taprootInternalKeyBytes :=
+		preCommit.InternalKey.PubKey.SerializeCompressed()
 
-	delegationKey, err := metaReveal.DelegationKey.UnwrapOrErr(
-		errors.New("missing delegation key"),
-	)
-	if err != nil {
-		return err
-	}
-
-	preCommitOutput, err := supplycommit.NewPreCommitFromProof(
-		issuanceProof, delegationKey,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to extract pre-commit "+
-			"output: %w", err)
-	}
-
-	outPointBytes, err := encodeOutpoint(preCommitOutput.OutPoint())
+	outPointBytes, err := encodeOutpoint(preCommit.OutPoint())
 	if err != nil {
 		return fmt.Errorf("unable to encode supply pre-commit "+
 			"outpoint: %w", err)
 	}
-
-	// Upsert the supply pre-commitment output.
-	//
-	// Encode the group key and taproot internal key.
-	groupKeyBytes := schnorr.SerializePubKey(
-		&issuanceProof.Asset.GroupKey.GroupPubKey,
-	)
-	taprootInternalKeyBytes :=
-		preCommitOutput.InternalKey.PubKey.SerializeCompressed()
 
 	// Try to fetch an existing chain tx row from the database. We fetch
 	// first instead of blindly upserting to avoid overwriting existing data
 	// with null values.
 	var chainTxDbID fn.Option[int64]
 
-	txIDBytes := fn.ByteSlice(issuanceProof.AnchorTx.TxHash())
+	txIDBytes := fn.ByteSlice(preCommit.MintingTxn.TxHash())
 	chainTxn, err := dbTx.FetchChainTx(ctx, txIDBytes)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -677,8 +652,7 @@ func maybeUpsertSupplyPreCommit(ctx context.Context, dbTx UpsertAssetStore,
 	// If we didn't find an existing chain tx, then we'll insert a new
 	// one now.
 	if chainTxDbID.IsNone() {
-		blockHash := issuanceProof.BlockHeader.BlockHash()
-		txBytes, err := fn.Serialize(&issuanceProof.AnchorTx)
+		txBytes, err := fn.Serialize(preCommit.MintingTxn)
 		if err != nil {
 			return fmt.Errorf("failed to serialize tx: %w", err)
 		}
@@ -686,8 +660,7 @@ func maybeUpsertSupplyPreCommit(ctx context.Context, dbTx UpsertAssetStore,
 		txDbID, err := dbTx.UpsertChainTx(ctx, ChainTxParams{
 			Txid:        txIDBytes,
 			RawTx:       txBytes,
-			BlockHeight: sqlInt32(issuanceProof.BlockHeight),
-			BlockHash:   blockHash.CloneBytes(),
+			BlockHeight: sqlInt32(preCommit.BlockHeight),
 		})
 		if err != nil {
 			return fmt.Errorf("unable to upsert chain tx: %w", err)
@@ -711,6 +684,39 @@ func maybeUpsertSupplyPreCommit(ctx context.Context, dbTx UpsertAssetStore,
 			ChainTxnDbID:       txDbID,
 		},
 	)
+	if err != nil {
+		return fmt.Errorf("unable to upsert supply pre-commit: %w", err)
+	}
+
+	return nil
+}
+
+// maybeUpsertSupplyPreCommit inserts a supply pre-commitment output if the
+// asset group supports supply commitments and this is an issuance proof.
+func maybeUpsertSupplyPreCommit(ctx context.Context, dbTx UpsertAssetStore,
+	proofType universe.ProofType, issuanceProof proof.Proof,
+	metaReveal *proof.MetaReveal) error {
+
+	if !shouldInsertPreCommit(proofType, issuanceProof, metaReveal) {
+		return nil
+	}
+
+	delegationKey, err := metaReveal.DelegationKey.UnwrapOrErr(
+		errors.New("missing delegation key"),
+	)
+	if err != nil {
+		return err
+	}
+
+	preCommit, err := supplycommit.NewPreCommitFromProof(
+		issuanceProof, delegationKey,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to extract pre-commit "+
+			"output: %w", err)
+	}
+
+	err = upsertSupplyPreCommit(ctx, dbTx, preCommit)
 	if err != nil {
 		return fmt.Errorf("unable to upsert supply pre-commit: %w", err)
 	}
