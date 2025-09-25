@@ -1578,6 +1578,13 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "latest",
+            "description": "Fetch the latest supply commitment for the asset group. This returns\nthe most recent supply commitment that is anchored on chain for the\nasset group. This is useful to always get the current supply state\nof the asset group.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [

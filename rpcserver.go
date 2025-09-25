@@ -4176,7 +4176,7 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 
 	locator, err := unmarshalCommitLocator(
 		req.GetCommitOutpoint(), req.GetSpentCommitOutpoint(),
-		req.GetVeryFirst(),
+		req.GetVeryFirst(), req.GetLatest(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse commitment "+
@@ -6940,7 +6940,7 @@ func unmarshalGroupKey(groupKeyBytes []byte,
 // unmarshalCommitLocator attempts to parse a commitment locator from the
 // RPC form.
 func unmarshalCommitLocator(outpoint, spentOutpoint *taprpc.OutPoint,
-	veryFirst bool) (supplyverifier.CommitLocator, error) {
+	veryFirst bool, latest bool) (supplyverifier.CommitLocator, error) {
 
 	var zero supplyverifier.CommitLocator
 
@@ -6974,6 +6974,11 @@ func unmarshalCommitLocator(outpoint, spentOutpoint *taprpc.OutPoint,
 	case veryFirst:
 		return supplyverifier.CommitLocator{
 			LocatorType: supplyverifier.LocatorTypeVeryFirst,
+		}, nil
+
+	case latest:
+		return supplyverifier.CommitLocator{
+			LocatorType: supplyverifier.LocatorTypeLatest,
 		}, nil
 
 	default:
