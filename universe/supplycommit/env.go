@@ -416,6 +416,25 @@ func NewPreCommitFromProof(issuanceProof proof.Proof,
 	}, nil
 }
 
+// NewPreCommitFromMintEvent extracts and returns the supply pre-commitment
+// from the given mint event.
+func NewPreCommitFromMintEvent(issuanceEntry NewMintEvent,
+	delegationKey btcec.PublicKey) (PreCommitment, error) {
+
+	var zero PreCommitment
+
+	issuanceLeaf := issuanceEntry.IssuanceProof
+
+	var issuanceProof proof.Proof
+	err := issuanceProof.Decode(bytes.NewReader(issuanceLeaf.RawProof))
+	if err != nil {
+		return zero, fmt.Errorf("unable to decode issuance proof: %w",
+			err)
+	}
+
+	return NewPreCommitFromProof(issuanceProof, delegationKey)
+}
+
 // TxIn returns the transaction input that corresponds to the pre-commitment.
 func (p *PreCommitment) TxIn() *wire.TxIn {
 	return &wire.TxIn{
