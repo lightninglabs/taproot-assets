@@ -1219,6 +1219,22 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 	// primary's.
 	assertFetchCommitResponse(t, fetchResp, uniFetchResp)
 
+	// If we query for the latest supply commitment from the universe server
+	// we should get the same result as well.
+	req := unirpc.FetchSupplyCommitRequest{
+		GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
+			GroupKeyBytes: groupKeyBytes,
+		},
+		Locator: &unirpc.FetchSupplyCommitRequest_Latest{
+			Latest: true,
+		},
+	}
+	uniFetchRespLatest, err := t.universeServer.service.FetchSupplyCommit(
+		ctxb, &req,
+	)
+	require.NoError(t.t, err)
+	assertFetchCommitResponse(t, uniFetchResp, uniFetchRespLatest)
+
 	t.Log("Verifying retrieval of second supply commitment from " +
 		"secondary node")
 	var peerFetchResp2 *unirpc.FetchSupplyCommitResponse
