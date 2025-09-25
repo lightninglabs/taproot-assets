@@ -78,6 +78,7 @@
    - https://github.com/lightninglabs/taproot-assets/pull/1797
    - https://github.com/lightninglabs/taproot-assets/pull/1823
    - https://github.com/lightninglabs/taproot-assets/pull/1822
+   - https://github.com/lightninglabs/taproot-assets/pull/1820
 
 - A new [address version 2 was introduced that supports grouped assets and
   custom (sender-defined)
