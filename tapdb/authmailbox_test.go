@@ -69,14 +69,17 @@ func TestQueryMessages(t *testing.T) {
 	mailboxStore, _ := newMailboxStore(t)
 	ctx := context.Background()
 
+	// Use a fixed base timestamp to avoid flaky tests.
+	baseTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+
 	const numMessages = 5
 	for i := 0; i < numMessages; i++ {
 		txProof := proof.MockTxProof(t)
 		msg := &authmailbox.Message{
 			ReceiverKey:      *receiverKey,
 			EncryptedPayload: []byte("payload"),
-			ArrivalTimestamp: time.Now().Add(
-				time.Duration(i) * time.Second,
+			ArrivalTimestamp: baseTime.Add(
+				time.Duration(i) * time.Hour,
 			),
 		}
 
@@ -84,10 +87,11 @@ func TestQueryMessages(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Query messages created after the second message.
+	// Query messages created after the second message (after 1 hour from
+	// base time).
 	filter := authmailbox.MessageFilter{
 		ReceiverKey: *receiverKey,
-		After:       time.Now().Add(time.Second),
+		After:       baseTime.Add(time.Hour),
 	}
 	messages, err := mailboxStore.QueryMessages(ctx, filter)
 	require.NoError(t, err)
