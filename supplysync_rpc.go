@@ -303,6 +303,7 @@ func marshalSupplyCommitChainData(
 		BlockHeight:        chainProof.BlockHeight,
 		TxBlockMerkleProof: merkleProofBuf.Bytes(),
 		TxIndex:            chainProof.TxIndex,
+		CommitOutpoint:     rootCommitment.CommitPoint().String(),
 	}
 
 	// Handle optional commitment block hash.
