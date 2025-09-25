@@ -76,6 +76,7 @@
    - https://github.com/lightninglabs/taproot-assets/pull/1777
    - https://github.com/lightninglabs/taproot-assets/pull/1796
    - https://github.com/lightninglabs/taproot-assets/pull/1797
+   - https://github.com/lightninglabs/taproot-assets/pull/1823
 
 - A new [address version 2 was introduced that supports grouped assets and
   custom (sender-defined)
@@ -191,6 +192,11 @@
 
 - The `tapcli addrs receives` command now supports 
   [new `--start_timestamp` and `--end_timestamp` flags](https://github.com/lightninglabs/taproot-assets/pull/1794).
+
+- The `fetchsupplycommit` command [now supports](https://github.com/lightninglabs/taproot-assets/pull/1823)
+  a `--first` flag to fetch the very first supply commitment; if no flag is
+  provided, it defaults to fetching the latest. Only one of `--first`,
+  `--outpoint`, or `--spent_outpoint` may be set.
 
 # Improvements
 
