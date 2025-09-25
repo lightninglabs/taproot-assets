@@ -3007,6 +3007,10 @@
           "type": "integer",
           "format": "int64",
           "description": "The index of the supply commitment transaction in the block."
+        },
+        "commit_outpoint": {
+          "type": "string",
+          "description": "The outpoint in the transaction where the commitment resides."
         }
       },
       "description": "SupplyCommitChainData represents the on-chain artifacts for a supply\ncommitment update."

@@ -1011,6 +1011,9 @@ message SupplyCommitChainData {
 
     // The index of the supply commitment transaction in the block.
     uint32 tx_index = 11;
+
+    // The outpoint in the transaction where the commitment resides.
+    string commit_outpoint = 12;
 }
 
 message InsertSupplyCommitRequest {
