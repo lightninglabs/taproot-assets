@@ -324,24 +324,6 @@ func (q *Queries) InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEvent
 	return err
 }
 
-const InsertUniverseServer = `-- name: InsertUniverseServer :exec
-INSERT INTO universe_servers(
-    server_host, last_sync_time
-) VALUES (
-    $1, $2
-)
-`
-
-type InsertUniverseServerParams struct {
-	ServerHost   string
-	LastSyncTime time.Time
-}
-
-func (q *Queries) InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error {
-	_, err := q.db.ExecContext(ctx, InsertUniverseServer, arg.ServerHost, arg.LastSyncTime)
-	return err
-}
-
 const LogServerSync = `-- name: LogServerSync :exec
 UPDATE universe_servers
 SET last_sync_time = $1
@@ -1359,4 +1341,26 @@ func (q *Queries) UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRoot
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const UpsertUniverseServer = `-- name: UpsertUniverseServer :exec
+INSERT INTO universe_servers(
+    server_host, last_sync_time
+) VALUES (
+     $1, $2
+ )
+ON CONFLICT(server_host)
+    DO UPDATE SET last_sync_time = EXCLUDED.last_sync_time
+`
+
+type UpsertUniverseServerParams struct {
+	ServerHost   string
+	LastSyncTime time.Time
+}
+
+// Upserts a universe server by inserting or updating the last sync time for a
+// given server host.
+func (q *Queries) UpsertUniverseServer(ctx context.Context, arg UpsertUniverseServerParams) error {
+	_, err := q.db.ExecContext(ctx, UpsertUniverseServer, arg.ServerHost, arg.LastSyncTime)
+	return err
 }
