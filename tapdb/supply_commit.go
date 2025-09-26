@@ -1461,7 +1461,7 @@ func (s *SupplyCommitMachine) FetchLatestCommitment(ctx context.Context,
 
 	var (
 		writeTx       = WriteTxOption()
-		groupKeyBytes = groupKey.SerializeCompressed()
+		groupKeyBytes = schnorr.SerializePubKey(groupKey)
 		commit        *supplycommit.RootCommitment
 	)
 	dbErr := s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {

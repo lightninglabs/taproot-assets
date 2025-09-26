@@ -1634,15 +1634,19 @@ var fetchSupplyCommitCmd = cli.Command{
 	Description: `
 	Fetch the on-chain supply commitment for a specific asset group.
 
-	At most one of --outpoint and --spent_outpoint may be provided. If
-	neither is provided, the very first supply commitment for the asset
-	group will be fetched.
+	At most one of --first, --outpoint, and --spent_outpoint may be
+	provided. If none are provided, the latest supply commitment for the
+	asset group will be fetched.
 	`,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "group_key",
 			Usage:    "the group key of the asset group to fetch",
 			Required: true,
+		},
+		&cli.BoolFlag{
+			Name:  "first",
+			Usage: "fetch the very first supply commitment",
 		},
 		&cli.StringFlag{
 			Name: "outpoint",
@@ -1665,13 +1669,25 @@ func fetchSupplyCommit(ctx *cli.Context) error {
 	client, cleanUp := getUniverseClient(ctx)
 	defer cleanUp()
 
+	firstSet := ctx.IsSet("first")
 	outpointSet := ctx.IsSet("outpoint")
 	spentOutpointSet := ctx.IsSet("spent_outpoint")
 
-	if outpointSet && spentOutpointSet {
-		return fmt.Errorf(
-			"only one of --outpoint or --spent_outpoint can be set",
-		)
+	// Check that at most one of the three flags is set.
+	flagsSet := 0
+	if firstSet {
+		flagsSet++
+	}
+	if outpointSet {
+		flagsSet++
+	}
+	if spentOutpointSet {
+		flagsSet++
+	}
+
+	if flagsSet > 1 {
+		return fmt.Errorf("only one of --first, --outpoint, or " +
+			"--spent_outpoint can be set")
 	}
 
 	req := &unirpc.FetchSupplyCommitRequest{
@@ -1681,6 +1697,11 @@ func fetchSupplyCommit(ctx *cli.Context) error {
 	}
 
 	switch {
+	case firstSet:
+		req.Locator = &unirpc.FetchSupplyCommitRequest_VeryFirst{
+			VeryFirst: true,
+		}
+
 	case outpointSet:
 		arg := ctx.String("outpoint")
 		outpoint, err := wire.NewOutPointFromString(arg)
@@ -1710,8 +1731,8 @@ func fetchSupplyCommit(ctx *cli.Context) error {
 			}
 
 	default:
-		req.Locator = &unirpc.FetchSupplyCommitRequest_VeryFirst{
-			VeryFirst: true,
+		req.Locator = &unirpc.FetchSupplyCommitRequest_Latest{
+			Latest: true,
 		}
 	}
 
