@@ -880,6 +880,7 @@ func NewMockKeyRing() *MockKeyRing {
 func (m *MockKeyRing) DeriveNextTaprootAssetKey(
 	ctx context.Context) (keychain.KeyDescriptor, error) {
 
+	// No need to lock mutex here, DeriveNextKey does that for us.
 	m.Called(ctx)
 
 	return m.DeriveNextKey(ctx, asset.TaprootAssetsKeyFamily)
@@ -888,6 +889,12 @@ func (m *MockKeyRing) DeriveNextTaprootAssetKey(
 func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 	keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
 
+	m.Lock()
+	defer func() {
+		m.KeyIndex++
+		m.Unlock()
+	}()
+
 	m.Called(ctx, keyFam)
 
 	select {
@@ -895,12 +902,6 @@ func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 		return keychain.KeyDescriptor{}, fmt.Errorf("shutting down")
 	default:
 	}
-
-	m.Lock()
-	defer func() {
-		m.KeyIndex++
-		m.Unlock()
-	}()
 
 	priv, err := btcec.NewPrivateKey()
 	if err != nil {
@@ -925,10 +926,10 @@ func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 func (m *MockKeyRing) IsLocalKey(ctx context.Context,
 	d keychain.KeyDescriptor) bool {
 
-	m.Called(ctx, d)
+	m.Lock()
+	defer m.Unlock()
 
-	m.RLock()
-	defer m.RUnlock()
+	m.Called(ctx, d)
 
 	priv, ok := m.Keys[d.KeyLocator]
 	if ok && priv.PubKey().IsEqual(d.PubKey) {
@@ -945,8 +946,8 @@ func (m *MockKeyRing) IsLocalKey(ctx context.Context,
 }
 
 func (m *MockKeyRing) PubKeyAt(t *testing.T, idx uint32) *btcec.PublicKey {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 
 	loc := keychain.KeyLocator{
 		Index:  idx,
@@ -962,8 +963,8 @@ func (m *MockKeyRing) PubKeyAt(t *testing.T, idx uint32) *btcec.PublicKey {
 }
 
 func (m *MockKeyRing) ScriptKeyAt(t *testing.T, idx uint32) asset.ScriptKey {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 
 	loc := keychain.KeyLocator{
 		Index:  idx,
@@ -984,12 +985,12 @@ func (m *MockKeyRing) ScriptKeyAt(t *testing.T, idx uint32) asset.ScriptKey {
 func (m *MockKeyRing) DeriveSharedKey(_ context.Context, key *btcec.PublicKey,
 	locator *keychain.KeyLocator) ([sha256.Size]byte, error) {
 
+	m.Lock()
+	defer m.Unlock()
+
 	if locator == nil {
 		return [32]byte{}, fmt.Errorf("locator is nil")
 	}
-
-	m.RLock()
-	defer m.RUnlock()
 
 	priv, ok := m.Keys[*locator]
 	if !ok {
