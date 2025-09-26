@@ -168,6 +168,9 @@
   user to specify a custom amount to send to a V2 address that doesn't have an
   amount specified.
 
+- The `AddrReceives` RPC has new fields `limit`, `offset` and `direction` that
+  allows pagination and sorting. [See PR](https://github.com/lightninglabs/taproot-assets/pull/1813).
+
 ## tapcli Additions
 
 - [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the mint
@@ -185,6 +188,9 @@
 - CLI JSON output [now](https://github.com/lightninglabs/taproot-assets/pull/1821)
   includes unset and zero-valued proto fields (e.g. transaction output indexes).
   This ensures consistent output shape across all proto messages.
+  
+- The `tapcli addrs receives` command now has new flags `--limit`, `--offset` and
+  `--direction` that allows pagination and sorting. [See PR](https://github.com/lightninglabs/taproot-assets/pull/1813).
 
 # Improvements
 
