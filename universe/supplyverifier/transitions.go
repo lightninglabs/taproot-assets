@@ -204,10 +204,11 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 
 		// Fetch all known unspent pre-commitment outputs for the asset
 		// group.
-		unspentPreCommits, err :=
-			env.SupplyCommitView.UnspentPrecommits(
-				ctx, env.AssetSpec, false,
-			).Unpack()
+		mintEvents := supplyCommit.SupplyLeaves.IssuanceLeafEntries
+		preCommits, err := FetchPreCommits(
+			ctx, env.AssetLookup, env.SupplyCommitView,
+			env.AssetSpec, supplyCommit.RootCommitment, mintEvents,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch unspent "+
 				"pre-commitments: %w", err)
@@ -231,7 +232,7 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 
 		err = verifier.VerifyCommit(
 			ctx, env.AssetSpec, supplyCommit.RootCommitment,
-			supplyCommit.SupplyLeaves, unspentPreCommits,
+			supplyCommit.SupplyLeaves, preCommits,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to verify supply "+
@@ -243,7 +244,7 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 		// Store the verified commitment.
 		err = env.SupplyCommitView.InsertSupplyCommit(
 			ctx, env.AssetSpec, supplyCommit.RootCommitment,
-			supplyCommit.SupplyLeaves, unspentPreCommits,
+			supplyCommit.SupplyLeaves, preCommits,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to store supply "+
