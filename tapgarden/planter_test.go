@@ -336,13 +336,26 @@ func (t *mintingTestHarness) assertPendingBatchExists(numSeedlings int) {
 
 	// The planter is a state machine, so we need to wait until it has
 	// reached the expected state.
-	require.Eventually(t, func() bool {
+	err := wait.NoError(func() error {
 		batch, err := t.planter.PendingBatch()
-		require.NoError(t, err)
+		if err != nil {
+			return fmt.Errorf("unable to fetch pending batch: %w",
+				err)
+		}
 
-		require.NotNil(t, batch)
-		return len(batch.Seedlings) == numSeedlings
-	}, defaultTimeout, wait.PollInterval)
+		if batch == nil {
+			return fmt.Errorf("expected pending batch to be " +
+				"non-nil")
+		}
+
+		if len(batch.Seedlings) < numSeedlings {
+			return fmt.Errorf("expected %d seedlings, got %d",
+				numSeedlings, len(batch.Seedlings))
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, err)
 }
 
 // assertNoActiveBatch asserts that no pending batch exists.
