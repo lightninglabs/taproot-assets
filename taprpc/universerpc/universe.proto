@@ -823,6 +823,11 @@ message FetchSupplyCommitRequest {
         // all supply commitments for a grouped asset one by one.
         bool very_first = 5;
     }
+
+    // If true, return all leaves that contribute to the fetched commitment.
+    // If false, return only the incremental set of leaves since the previous
+    // commitment.
+    bool all_leaves = 6;
 }
 
 message SupplyCommitSubtreeRoot {
@@ -858,19 +863,25 @@ message FetchSupplyCommitResponse {
     // The root of the ignore tree for the specified asset.
     SupplyCommitSubtreeRoot ignore_subtree_root = 5;
 
-    // The issuance leaves that were added by this supply commitment. Does not
-    // include leaves that were already present in the issuance subtree before
-    // the block height at which this supply commitment was anchored.
+    // The issuance leaves returned for this supply commitment.
+    // Default: incremental set added by this commitment, excluding leaves
+    // included in any previous supply commitment for this asset group.
+    // If all_leaves was requested: full set of issuance leaves up to and
+    // including this commitment.
     repeated SupplyLeafEntry issuance_leaves = 6;
 
-    // The burn leaves that were added by this supply commitment. Does not
-    // include leaves that were already present in the burn subtree before
-    // the block height at which this supply commitment was anchored.
+    // The burn leaves returned for this supply commitment.
+    // Default: incremental set added by this commitment, excluding leaves
+    // included in any previous supply commitment for this asset group.
+    // If all_leaves was requested: full set of burn leaves up to and
+    // including this commitment.
     repeated SupplyLeafEntry burn_leaves = 7;
 
-    // The ignore leaves that were added by this supply commitment. Does not
-    // include leaves that were already present in the ignore subtree before
-    // the block height at which this supply commitment was anchored.
+    // The ignore leaves returned for this supply commitment.
+    // Default: incremental set added by this commitment, excluding leaves
+    // included in any previous supply commitment for this asset group.
+    // If all_leaves was requested: full set of ignore leaves up to and
+    // including this commitment.
     repeated SupplyLeafEntry ignore_leaves = 8;
 
     // The total outstanding supply of the asset after applying all the supply

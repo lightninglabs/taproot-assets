@@ -1578,6 +1578,13 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "all_leaves",
+            "description": "If true, return all leaves that contribute to the fetched commitment.\nIf false, return only the incremental set of leaves since the previous\ncommitment.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -2557,7 +2564,7 @@
             "type": "object",
             "$ref": "#/definitions/universerpcSupplyLeafEntry"
           },
-          "description": "The issuance leaves that were added by this supply commitment. Does not\ninclude leaves that were already present in the issuance subtree before\nthe block height at which this supply commitment was anchored."
+          "description": "The issuance leaves returned for this supply commitment.\nDefault: incremental set added by this commitment, excluding leaves\nincluded in any previous supply commitment for this asset group.\nIf all_leaves was requested: full set of issuance leaves up to and\nincluding this commitment."
         },
         "burn_leaves": {
           "type": "array",
@@ -2565,7 +2572,7 @@
             "type": "object",
             "$ref": "#/definitions/universerpcSupplyLeafEntry"
           },
-          "description": "The burn leaves that were added by this supply commitment. Does not\ninclude leaves that were already present in the burn subtree before\nthe block height at which this supply commitment was anchored."
+          "description": "The burn leaves returned for this supply commitment.\nDefault: incremental set added by this commitment, excluding leaves\nincluded in any previous supply commitment for this asset group.\nIf all_leaves was requested: full set of burn leaves up to and\nincluding this commitment."
         },
         "ignore_leaves": {
           "type": "array",
@@ -2573,7 +2580,7 @@
             "type": "object",
             "$ref": "#/definitions/universerpcSupplyLeafEntry"
           },
-          "description": "The ignore leaves that were added by this supply commitment. Does not\ninclude leaves that were already present in the ignore subtree before\nthe block height at which this supply commitment was anchored."
+          "description": "The ignore leaves returned for this supply commitment.\nDefault: incremental set added by this commitment, excluding leaves\nincluded in any previous supply commitment for this asset group.\nIf all_leaves was requested: full set of ignore leaves up to and\nincluding this commitment."
         },
         "total_outstanding_supply": {
           "type": "string",
