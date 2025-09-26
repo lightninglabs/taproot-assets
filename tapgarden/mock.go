@@ -869,8 +869,11 @@ func NewMockKeyRing() *MockKeyRing {
 	keyRing.On(
 		"DeriveNextKey", mock.Anything,
 		keychain.KeyFamily(asset.TaprootAssetsKeyFamily),
-	).Return(nil)
-	keyRing.On("DeriveNextTaprootAssetKey", mock.Anything).Return(nil)
+	).Return(keychain.KeyDescriptor{}, nil)
+
+	keyRing.On(
+		"DeriveNextTaprootAssetKey", mock.Anything,
+	).Return(keychain.KeyDescriptor{}, nil)
 
 	return keyRing
 }
