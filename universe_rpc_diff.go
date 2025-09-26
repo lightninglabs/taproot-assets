@@ -7,6 +7,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -85,7 +86,7 @@ func (r *RpcUniverseDiff) RootNodes(ctx context.Context,
 			WithAmountsById: q.WithAmountsById,
 			Offset:          q.Offset,
 			Limit:           q.Limit,
-			Direction:       unirpc.SortDirection(q.SortDirection),
+			Direction:       taprpc.SortDirection(q.SortDirection),
 		},
 	)
 	if err != nil {
@@ -147,7 +148,7 @@ func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
 	assetKeys, err := r.conn.AssetLeafKeys(
 		ctx, &unirpc.AssetLeafKeysRequest{
 			Id:        uniID,
-			Direction: unirpc.SortDirection(q.SortDirection),
+			Direction: taprpc.SortDirection(q.SortDirection),
 			Offset:    q.Offset,
 			Limit:     q.Limit,
 		},

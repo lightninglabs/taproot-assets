@@ -701,6 +701,164 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	}
 }
 
+// testAddrReceives tests the fetching of address events.
+func testAddrReceives(t *harnessTest) {
+	// First, mint a few assets, so we have some to create addresses for.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			simpleAssets[0], issuableAssets[0],
+		},
+	)
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// We'll make a second node now that'll be the receiver of all the
+	// assets made above.
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	const numAddresses = 6
+	for i := range numAddresses {
+		// Use different assets for variety.
+		assetIdx := i % len(rpcAssets)
+		asset := rpcAssets[assetIdx]
+
+		addr, events := NewAddrWithEventStream(
+			t.t, secondTapd, &taprpc.NewAddrRequest{
+				AssetId:      asset.AssetGenesis.AssetId,
+				Amt:          uint64(10),
+				AssetVersion: asset.Version,
+			},
+		)
+
+		AssertAddrCreated(t.t, secondTapd, asset, addr)
+
+		// Send assets to the address.
+		_, sendEvents := sendAssetsToAddr(t, t.tapd, addr)
+
+		AssertAddrEvent(t.t, secondTapd, addr, 1, statusDetected)
+
+		// Mine a block to make sure the events are marked as confirmed.
+		MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+
+		// Eventually the event should be marked as confirmed.
+		AssertAddrEvent(t.t, secondTapd, addr, 1, statusConfirmed)
+
+		// Make sure we have imported and finalized all proofs.
+		AssertNonInteractiveRecvComplete(t.t, secondTapd, i+1)
+		AssertSendEventsComplete(t.t, addr.ScriptKey, sendEvents)
+
+		// Make sure the receiver has received all events in order for
+		// the address.
+		AssertReceiveEvents(t.t, addr, events)
+	}
+
+	// Test 1: limit.
+	resp, err := secondTapd.AddrReceives(ctxt, &taprpc.AddrReceivesRequest{
+		Limit: 3,
+	})
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Events, 3)
+
+	// Test 2: offset.
+	resp, err = secondTapd.AddrReceives(ctxt, &taprpc.AddrReceivesRequest{
+		Offset: 2,
+		Limit:  3,
+	})
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Events, 3)
+
+	// Test 3: Ascending direction (default).
+	resp, err = secondTapd.AddrReceives(ctxt, &taprpc.AddrReceivesRequest{
+		Limit:     5,
+		Direction: taprpc.SortDirection_SORT_DIRECTION_ASC,
+	})
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Events, 5)
+
+	// Verify ascending order by checking creation times.
+	for i := 1; i < len(resp.Events); i++ {
+		require.LessOrEqual(t.t,
+			resp.Events[i-1].CreationTimeUnixSeconds,
+			resp.Events[i].CreationTimeUnixSeconds,
+		)
+	}
+
+	// Test 4: Descending direction.
+	resp, err = secondTapd.AddrReceives(ctxt, &taprpc.AddrReceivesRequest{
+		Limit:     5,
+		Direction: taprpc.SortDirection_SORT_DIRECTION_DESC,
+	})
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Events, 5)
+
+	// Verify descending order by checking creation times.
+	for i := 1; i < len(resp.Events); i++ {
+		require.GreaterOrEqual(t.t,
+			resp.Events[i-1].CreationTimeUnixSeconds,
+			resp.Events[i].CreationTimeUnixSeconds,
+		)
+	}
+
+	// Test 5: Offset out of bounds.
+	resp, err = secondTapd.AddrReceives(ctxt,
+		&taprpc.AddrReceivesRequest{
+			Offset: 100,
+			Limit:  10,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Events, 0)
+
+	// Test 6: Test pagination through all results.
+	var allPaginatedEvents []*taprpc.AddrEvent
+	offset := int32(0)
+	limit := int32(3)
+
+	for {
+		resp, err := secondTapd.AddrReceives(ctxt,
+			&taprpc.AddrReceivesRequest{
+				Offset: offset,
+				Limit:  limit,
+			},
+		)
+		require.NoError(t.t, err)
+
+		if len(resp.Events) == 0 {
+			break
+		}
+
+		allPaginatedEvents = append(allPaginatedEvents, resp.Events...)
+		offset += limit
+	}
+
+	// Should have collected all events.
+	require.Len(t.t, allPaginatedEvents, numAddresses)
+
+	// Test 7: Test negative offset and limit error.
+	_, err = secondTapd.AddrReceives(ctxt,
+		&taprpc.AddrReceivesRequest{
+			Offset: -5,
+		},
+	)
+	require.Error(t.t, err)
+	require.Contains(t.t, err.Error(), "offset must be non-negative")
+
+	_, err = secondTapd.AddrReceives(ctxt,
+		&taprpc.AddrReceivesRequest{
+			Limit: -5,
+		},
+	)
+	require.Error(t.t, err)
+	require.Contains(t.t, err.Error(), "limit must be non-negative")
+}
+
 // testUnknownTlvType tests that we can create an address with an unknown TLV
 // type and that assets can be sent to it. We then modify a proof similarly and
 // make sure it can be imported by a node correctly.

@@ -1288,6 +1288,20 @@
         "filter_status": {
           "$ref": "#/definitions/taprpcAddrEventStatus",
           "description": "Filter receives by a specific status. Leave empty to get all receives."
+        },
+        "offset": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of events to skip."
+        },
+        "limit": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The max number of events returned."
+        },
+        "direction": {
+          "$ref": "#/definitions/taprpcSortDirection",
+          "description": "The direction of the page. Sorted by creation time."
         }
       }
     },
@@ -2668,6 +2682,15 @@
           "description": "The next send state that will be executed."
         }
       }
+    },
+    "taprpcSortDirection": {
+      "type": "string",
+      "enum": [
+        "SORT_DIRECTION_ASC",
+        "SORT_DIRECTION_DESC"
+      ],
+      "default": "SORT_DIRECTION_ASC",
+      "description": " - SORT_DIRECTION_ASC: Sort results in ascending order.\n - SORT_DIRECTION_DESC: Sort results in descending order."
     },
     "taprpcSplitCommitment": {
       "type": "object",

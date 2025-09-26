@@ -408,11 +408,14 @@ SELECT
 FROM addr_events
 JOIN addrs
   ON addr_events.addr_id = addrs.id
-WHERE addr_events.status >= $1 
+WHERE addr_events.status >= $1
   AND addr_events.status <= $2
   AND COALESCE($3, addrs.taproot_output_key) = addrs.taproot_output_key
   AND addr_events.creation_time >= $4
-ORDER by addr_events.creation_time
+ORDER BY
+    CASE WHEN $5 = 1 THEN addr_events.id END DESC,
+    CASE WHEN $5 = 2 THEN addr_events.id END ASC
+LIMIT $7 OFFSET $6
 `
 
 type QueryEventIDsParams struct {
@@ -420,6 +423,9 @@ type QueryEventIDsParams struct {
 	StatusTo       int16
 	AddrTaprootKey []byte
 	CreatedAfter   time.Time
+	SortDirection  interface{}
+	NumOffset      int32
+	NumLimit       int32
 }
 
 type QueryEventIDsRow struct {
@@ -433,6 +439,9 @@ func (q *Queries) QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([
 		arg.StatusTo,
 		arg.AddrTaprootKey,
 		arg.CreatedAfter,
+		arg.SortDirection,
+		arg.NumOffset,
+		arg.NumLimit,
 	)
 	if err != nil {
 		return nil, err
