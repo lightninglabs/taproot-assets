@@ -4181,7 +4181,7 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 
 	// Fetch the supply commitment for the asset specifier.
 	commit, err := r.cfg.SupplyVerifyManager.FetchCommitment(
-		ctx, assetSpec, locator,
+		ctx, assetSpec, locator, req.AllLeaves,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch supply commit: %w",

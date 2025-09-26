@@ -727,8 +727,8 @@ func (m *Manager) fetchCommitmentBlockRange(ctx context.Context,
 // FetchCommitment fetches the commitment with the given locator from the local
 // database view.
 func (m *Manager) FetchCommitment(ctx context.Context,
-	assetSpec asset.Specifier, locator CommitLocator) (SupplyCommitSnapshot,
-	error) {
+	assetSpec asset.Specifier, locator CommitLocator,
+	allLeaves bool) (SupplyCommitSnapshot, error) {
 
 	var (
 		zero SupplyCommitSnapshot
@@ -777,8 +777,16 @@ func (m *Manager) FetchCommitment(ctx context.Context,
 			"range: %w", err)
 	}
 
+	// If allLeaves is true, fetch the full set of leaves by starting from
+	// block height 0. If false, fetch only the incremental set by starting
+	// from the previous commitment’s block height (exclusive).
+	startBlockHeight := uint32(0)
+	if !allLeaves {
+		startBlockHeight = blockHeightRange.Start
+	}
+
 	leaves, err := m.cfg.SupplyTreeView.FetchSupplyLeavesByHeight(
-		ctx, assetSpec, blockHeightRange.Start, blockHeightRange.End,
+		ctx, assetSpec, startBlockHeight, blockHeightRange.End,
 	).Unpack()
 	if err != nil {
 		return zero, fmt.Errorf("unable to fetch supply leaves for "+
