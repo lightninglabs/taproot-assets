@@ -990,9 +990,10 @@ func (t *TapAddressBook) QueryAddrEvents(
 	error) {
 
 	sqlQuery := AddrEventQuery{
-		StatusFrom:   int16(address.StatusTransactionDetected),
-		StatusTo:     int16(address.StatusCompleted),
-		CreatedAfter: time.Unix(0, 0).UTC(),
+		StatusFrom:    int16(address.StatusTransactionDetected),
+		StatusTo:      int16(address.StatusCompleted),
+		CreatedAfter:  time.Unix(0, 0).UTC(),
+		CreatedBefore: time.Now().UTC(),
 	}
 	if len(params.AddrTaprootOutputKey) > 0 {
 		sqlQuery.AddrTaprootKey = params.AddrTaprootOutputKey
@@ -1005,6 +1006,13 @@ func (t *TapAddressBook) QueryAddrEvents(
 	}
 	if params.CreationTimeFrom != nil && !params.CreationTimeFrom.IsZero() {
 		sqlQuery.CreatedAfter = params.CreationTimeFrom.UTC()
+	}
+	if params.CreationTimeTo != nil && !params.CreationTimeTo.IsZero() {
+		sqlQuery.CreatedBefore = params.CreationTimeTo.UTC()
+	}
+	if sqlQuery.CreatedAfter.After(sqlQuery.CreatedBefore) {
+		return nil, fmt.Errorf("created after time after " +
+			"created before time")
 	}
 
 	var (

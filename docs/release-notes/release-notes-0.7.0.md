@@ -168,6 +168,9 @@
   user to specify a custom amount to send to a V2 address that doesn't have an
   amount specified.
 
+- The `AddrReceives` RPC now supports timestamp filtering with
+  [new `StartTimestamp` and `EndTimestamp` fields](https://github.com/lightninglabs/taproot-assets/pull/1794).
+
 ## tapcli Additions
 
 - [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the mint
@@ -185,6 +188,9 @@
 - CLI JSON output [now](https://github.com/lightninglabs/taproot-assets/pull/1821)
   includes unset and zero-valued proto fields (e.g. transaction output indexes).
   This ensures consistent output shape across all proto messages.
+
+- The `tapcli addrs receives` command now supports 
+  [new `--start_timestamp` and `--end_timestamp` flags](https://github.com/lightninglabs/taproot-assets/pull/1794).
 
 # Improvements
 
