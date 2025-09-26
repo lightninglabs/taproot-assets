@@ -182,6 +182,10 @@
   allows users to specify the amount to send to a V2 address that allows custom
   amounts (which is the case when a V2 address is created with an amount of 0).
 
+- CLI JSON output [now](https://github.com/lightninglabs/taproot-assets/pull/1821)
+  includes unset and zero-valued proto fields (e.g. transaction output indexes).
+  This ensures consistent output shape across all proto messages.
+
 # Improvements
 
 ## Functional Updates
