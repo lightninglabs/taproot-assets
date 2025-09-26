@@ -3641,22 +3641,8 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 
 	rpcsLog.Debug("Executing asset burn")
 
-	var assetID asset.ID
-	switch {
-	case len(in.GetAssetId()) > 0:
-		copy(assetID[:], in.GetAssetId())
-
-	case len(in.GetAssetIdStr()) > 0:
-		assetIDBytes, err := hex.DecodeString(in.GetAssetIdStr())
-		if err != nil {
-			return nil, fmt.Errorf("error decoding asset ID: %w",
-				err)
-		}
-
-		copy(assetID[:], assetIDBytes)
-
-	default:
-		return nil, fmt.Errorf("asset ID must be specified")
+	if in.Asset == nil {
+		return nil, fmt.Errorf("asset must be specified")
 	}
 
 	if in.AmountToBurn == 0 {
@@ -3668,36 +3654,37 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 			"accidental asset burns")
 	}
 
-	var groupKey *btcec.PublicKey
-	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByID(ctx, assetID)
-	switch {
-	case err == nil && assetGroup.GroupKey != nil:
-		// We found the asset group, so we can use the group key to
-		// burn the asset.
-		groupKey = &assetGroup.GroupPubKey
-
-	case errors.Is(err, address.ErrAssetGroupUnknown):
-		// We don't know the asset group, so we'll try to burn the
-		// asset using the asset ID only.
-		rpcsLog.Debug("Asset group key not found, asset may not be " +
-			"part of a group")
-
-	case err != nil:
-		return nil, fmt.Errorf("error querying asset group: %w", err)
+	assetID, groupKey, err := parseAssetSpecifier(
+		in.Asset.GetAssetId(), in.Asset.GetAssetIdStr(),
+		in.Asset.GetGroupKey(), in.Asset.GetGroupKeyStr(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse asset specifier: %w",
+			err)
 	}
 
-	var serializedGroupKey []byte
+	var (
+		assetIDBytes       []byte
+		serializedGroupKey []byte
+	)
+	if assetID != nil {
+		id := *assetID
+		assetIDBytes = id[:]
+	}
 	if groupKey != nil {
 		serializedGroupKey = groupKey.SerializeCompressed()
 	}
-
 	rpcsLog.Infof("Burning asset (asset_id=%x, group_key=%x, "+
-		"burn_amount=%d)", assetID[:], serializedGroupKey,
+		"burn_amount=%d)", assetIDBytes, serializedGroupKey,
 		in.AmountToBurn)
 
-	assetSpecifier := asset.NewSpecifierOptionalGroupPubKey(
-		assetID, groupKey,
+	assetSpecifier, err := asset.NewSpecifier(
+		assetID, groupKey, nil, true,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create asset specifier: %w",
+			err)
+	}
 
 	fundResp, err := r.cfg.AssetWallet.FundBurn(
 		ctx, &tapsend.FundingDescriptor{
@@ -3709,17 +3696,13 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 		return nil, fmt.Errorf("error funding burn: %w", err)
 	}
 
-	// We don't support burning by group key yet, so we only expect a single
-	// vPacket (which implies a single asset ID is involved).
-	if len(fundResp.VPackets) > 1 {
-		return nil, fmt.Errorf("only one packet supported")
-	}
-
-	// Now we can sign the packet and send it to the chain.
-	vPkt := fundResp.VPackets[0]
-	_, err = r.cfg.AssetWallet.SignVirtualPacket(ctx, vPkt)
-	if err != nil {
-		return nil, fmt.Errorf("error signing packet: %w", err)
+	// Sign all virtual packets created for this burn
+	// (may be more than one when burning by group key).
+	for _, vPkt := range fundResp.VPackets {
+		_, err = r.cfg.AssetWallet.SignVirtualPacket(ctx, vPkt)
+		if err != nil {
+			return nil, fmt.Errorf("error signing packet: %w", err)
+		}
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
@@ -3737,23 +3720,23 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 			err)
 	}
 
+	// Return the first burn proof found.
 	var burnProof *taprpc.DecodedProof
-	for idx := range resp.Outputs {
-		vOut := vPkt.Outputs[idx]
-		tOut := resp.Outputs[idx]
-		if vOut.Asset.IsBurn() {
-			p, err := proof.Decode(tOut.ProofSuffix)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding "+
-					"burn proof: %w", err)
-			}
-
-			burnProof, err = r.marshalProof(ctx, p, true, false)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding "+
-					"burn proof: %w", err)
-			}
+	for _, tOut := range resp.Outputs {
+		p, err := proof.Decode(tOut.ProofSuffix)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding burn proof: %w",
+				err)
 		}
+		if !p.Asset.IsBurn() {
+			continue
+		}
+		burnProof, err = r.marshalProof(ctx, p, true, false)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding burn proof: %w",
+				err)
+		}
+		break
 	}
 
 	return &taprpc.BurnAssetResponse{

@@ -1682,13 +1682,8 @@ message FetchAssetMetaResponse {
 }
 
 message BurnAssetRequest {
-    oneof asset {
-        // The asset ID of the asset to burn units of.
-        bytes asset_id = 1;
-
-        // The hex encoded asset ID of the asset to burn units of.
-        string asset_id_str = 2;
-    }
+    // The asset to burn units of.
+    AssetSpecifier asset = 1;
 
     // The number of asset units to burn. This must be greater than zero.
     uint64 amount_to_burn = 3;
