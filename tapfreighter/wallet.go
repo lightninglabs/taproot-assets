@@ -57,11 +57,6 @@ var (
 		0x19, 0xde, 0xeb, 0xc0, 0x34, 0xad, 0x80, 0x66,
 		0x4f, 0xb7, 0x4e, 0xc2, 0xad, 0x6e, 0x11, 0xd7,
 	}
-
-	// ErrFullBurnNotSupported is returned when we attempt to burn all
-	// assets of an anchor output, which is not supported.
-	ErrFullBurnNotSupported = errors.New("burning all assets of an " +
-		"anchor output is not supported")
 )
 
 // Wallet is an interface for funding and signing asset transfers.
@@ -815,70 +810,10 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			len(fundedPkt.VPackets))
 	}
 
-	// We want to avoid a BTC output being created that just sits there
-	// without an actual commitment in it. So if we are not getting any
-	// change or passive assets in this output, we'll not want to go through
-	// with it.
-	firstOut := fundedPkt.VPackets[0].Outputs[0]
-	if len(fundedPkt.VPackets[0].Outputs) == 1 &&
-		firstOut.Amount == fundDesc.Amount {
-
-		// A burn is an interactive transfer. So we don't expect there
-		// to be a tombstone unless there are passive assets in the same
-		// commitment, in which case the wallet has marked the change
-		// output as tappsbt.TypePassiveSplitRoot. If that's not the
-		// case, we'll return as burning all assets in an anchor output
-		// is not supported.
-		otherAssets, err := hasOtherAssets(
-			fundedPkt.InputCommitments, fundedPkt.VPackets,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		if !otherAssets {
-			return nil, ErrFullBurnNotSupported
-		}
-	}
-
 	// Don't release the coins we've selected, as so far we've been
 	// successful.
 	success = true
 	return fundedPkt, nil
-}
-
-// hasOtherAssets returns true if the given input commitments contain any other
-// assets than the ones given in the virtual packets.
-func hasOtherAssets(inputCommitments tappsbt.InputCommitments,
-	vPackets []*tappsbt.VPacket) (bool, error) {
-
-	for idx := range inputCommitments {
-		tapCommitment := inputCommitments[idx]
-
-		passiveCommitments, err := tapsend.RemovePacketsFromCommitment(
-			tapCommitment, vPackets,
-		)
-		if err != nil {
-			return false, err
-		}
-
-		// We're trying to find out if there are any other assets in the
-		// commitment. We don't want to count alt leaves as "assets" per
-		// se in this context, so we trim them out, just for the next
-		// check.
-		trimmedPassiveCommitments, _, err := commitment.TrimAltLeaves(
-			passiveCommitments,
-		)
-		if err != nil {
-			return false, err
-		}
-
-		if len(trimmedPassiveCommitments.CommittedAssets()) > 0 {
-			return true, nil
-		}
-	}
-
-	return false, nil
 }
 
 // SignVirtualPacketOptions is a set of functional options that allow callers to
