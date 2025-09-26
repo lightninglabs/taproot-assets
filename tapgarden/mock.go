@@ -857,6 +857,10 @@ type MockKeyRing struct {
 	KeyIndex uint32
 
 	Keys map[keychain.KeyLocator]*btcec.PrivateKey
+
+	// deriveNextKeyCallCount is used to track the number of calls to
+	// DeriveNextKey.
+	deriveNextKeyCallCount atomic.Uint64
 }
 
 var _ KeyRing = (*MockKeyRing)(nil)
@@ -899,6 +903,7 @@ func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 	}()
 
 	m.Called(ctx, keyFam)
+	m.deriveNextKeyCallCount.Add(1)
 
 	select {
 	case <-ctx.Done():
@@ -1005,6 +1010,19 @@ func (m *MockKeyRing) DeriveSharedKey(_ context.Context, key *btcec.PublicKey,
 		PrivKey: priv,
 	}
 	return ecdh.ECDH(key)
+}
+
+// DeriveNextKeyCallCount returns the number of calls to DeriveNextKey. This is
+// useful in tests to assert that the key ring was used as expected in
+// concurrent scenarios.
+func (m *MockKeyRing) DeriveNextKeyCallCount() int {
+	return int(m.deriveNextKeyCallCount.Load())
+}
+
+// ResetDeriveNextKeyCallCount resets the call counter for DeriveNextKey to
+// zero. This is useful in tests to ensure a clean state for assertions.
+func (m *MockKeyRing) ResetDeriveNextKeyCallCount() {
+	m.deriveNextKeyCallCount.Store(0)
 }
 
 type MockGenSigner struct {
