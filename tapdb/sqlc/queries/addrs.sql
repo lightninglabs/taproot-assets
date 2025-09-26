@@ -222,11 +222,14 @@ SELECT
 FROM addr_events
 JOIN addrs
   ON addr_events.addr_id = addrs.id
-WHERE addr_events.status >= @status_from 
+WHERE addr_events.status >= @status_from
   AND addr_events.status <= @status_to
   AND COALESCE(@addr_taproot_key, addrs.taproot_output_key) = addrs.taproot_output_key
   AND addr_events.creation_time >= @created_after
-ORDER by addr_events.creation_time;
+ORDER BY
+    CASE WHEN sqlc.narg('sort_direction') = 1 THEN addr_events.id END DESC,
+    CASE WHEN sqlc.narg('sort_direction') = 2 THEN addr_events.id END ASC
+LIMIT @num_limit OFFSET @num_offset;
 
 -- name: QueryLastEventHeight :one
 SELECT cast(coalesce(max(chain_txns.block_height), 0) AS BIGINT) AS last_height
