@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/itest/rpcassert"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -2395,17 +2396,7 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	// First, we'll ensure that we're able to get the balances of all the
 	// assets grouped by their asset IDs.
-	assetIDBalances, err := client.ListBalances(
-		ctxt, &taprpc.ListBalancesRequest{
-			GroupBy:        groupBalancesByAssetID,
-			IncludeLeased:  config.includeLeased,
-			ScriptKeyType:  rpcTypeQuery,
-			AssetFilter:    config.assetID,
-			GroupKeyFilter: config.groupKey,
-		},
-	)
-	require.NoError(t, err)
-
+	//
 	// Spent assets (burns/tombstones) are never included in the balance,
 	// even if we specifically query for their type. So we skip the balance
 	// check in that case. We also skip if we're looking for a specific
@@ -2415,36 +2406,76 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 			*config.scriptKeyType != asset.ScriptKeyTombstone)) &&
 		len(config.scriptKey) == 0
 	if checkBalance {
-		require.Equal(
-			t, balance, balanceSum(assetIDBalances, false),
-			"asset balance, wanted %d, got: %v", balance,
-			toJSON(t, assetIDBalances),
-		)
+		assertPred := func(resp *taprpc.ListBalancesResponse) error {
+			actualBalance := balanceSum(resp, false)
+			if balance != actualBalance {
+				return fmt.Errorf("asset balance, wanted %d, "+
+					"got: %v", balance, toJSON(t, resp))
+			}
 
-		// If we query for grouped asset balances too, it means we do
-		// have at least some assets with a group key. So the output of
-		// the ListBalances call should contain at least one asset
-		// balance with a group key set.
-		if config.groupedAssetBalance > 0 {
-			numGrouped := 0
-			for _, bal := range assetIDBalances.AssetBalances {
-				if len(bal.GroupKey) > 0 {
-					numGrouped++
+			// If we query for grouped asset balances too, it means
+			// we do have at least some assets with a group key. So
+			// the output of the ListBalances call should contain at
+			// least one asset balance with a group key set.
+			if config.groupedAssetBalance > 0 {
+				numGrouped := 0
+				for _, bal := range resp.AssetBalances {
+					if len(bal.GroupKey) > 0 {
+						numGrouped++
+					}
+				}
+				if numGrouped == 0 {
+					return fmt.Errorf("expected at least " +
+						"one asset in ListBalances " +
+						"response to have a group " +
+						"key set")
 				}
 			}
-			require.Greater(
-				t, numGrouped, 0, "expected at least one "+
-					"asset in ListBalances response to "+
-					"have a group key set",
-			)
+
+			return nil
 		}
+
+		rpcassert.ListBalancesRPC(
+			t, ctxt, client, assertPred,
+			&taprpc.ListBalancesRequest{
+				GroupBy:        groupBalancesByAssetID,
+				IncludeLeased:  config.includeLeased,
+				ScriptKeyType:  rpcTypeQuery,
+				AssetFilter:    config.assetID,
+				GroupKeyFilter: config.groupKey,
+			},
+		)
 	}
 
 	// Next, we do the same but grouped by group keys (if requested, since
 	// this only returns the balances for actually grouped assets).
-	if config.groupedAssetBalance > 0 {
-		assetGroupBalances, err := client.ListBalances(
-			ctxt, &taprpc.ListBalancesRequest{
+	if config.groupedAssetBalance > 0 && checkBalance {
+		assertPred := func(resp *taprpc.ListBalancesResponse) error {
+			actualBalance := balanceSum(resp, true)
+			if config.groupedAssetBalance != actualBalance {
+				return fmt.Errorf("grouped asset balance, "+
+					"wanted %d, got: %v", balance,
+					toJSON(t, resp))
+			}
+
+			// Because we query for grouped assets, the group key
+			// field should be set for all asset balances.
+			for _, bal := range resp.AssetBalances {
+				if !bytes.Equal(config.groupKey, bal.GroupKey) {
+					return fmt.Errorf("expected group "+
+						"key %x, got: %x",
+						config.groupKey, bal)
+				}
+
+				require.Equal(t, config.groupKey, bal.GroupKey)
+			}
+
+			return nil
+		}
+
+		rpcassert.ListBalancesRPC(
+			t, ctxt, client, assertPred,
+			&taprpc.ListBalancesRequest{
 				GroupBy:        groupBalancesByGroupKey,
 				IncludeLeased:  config.includeLeased,
 				ScriptKeyType:  rpcTypeQuery,
@@ -2452,104 +2483,20 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 				GroupKeyFilter: config.groupKey,
 			},
 		)
-		require.NoError(t, err)
-
-		// Spent assets (burns/tombstones) are never included in the
-		// balance, even if we specifically query for their type. So we
-		// skip the balance check in that case.
-		if checkBalance {
-			require.Equalf(
-				t, config.groupedAssetBalance,
-				balanceSum(assetGroupBalances, true),
-				"grouped balance, wanted %d, got: %v", balance,
-				toJSON(t, assetGroupBalances),
-			)
-
-			// Because we query for grouped assets, the group key
-			// field should be set for all asset balances.
-			for _, bal := range assetGroupBalances.AssetBalances {
-				require.Equal(t, config.groupKey, bal.GroupKey)
-			}
-		}
 	}
 
 	// Finally, we assert that the sum of all assets queried with the given
 	// query parameters matches the expected balance.
-	assetList, err := client.ListAssets(ctxt, &taprpc.ListAssetRequest{
-		IncludeLeased: config.includeLeased,
-		ScriptKeyType: rpcTypeQuery,
-	})
-	require.NoError(t, err)
-
-	var (
-		totalBalance uint64
-		numUtxos     uint32
-	)
-	for _, a := range assetList.Assets {
-		if len(config.assetID) > 0 {
-			if !bytes.Equal(
-				a.AssetGenesis.AssetId, config.assetID,
-			) {
-
-				continue
-			}
-		}
-
-		if len(config.groupKey) > 0 {
-			if a.AssetGroup == nil {
-				continue
-			}
-
-			if !bytes.Equal(
-				a.AssetGroup.TweakedGroupKey, config.groupKey,
-			) {
-
-				continue
-			}
-		}
-
-		if len(config.scriptKey) > 0 {
-			if !bytes.Equal(a.ScriptKey, config.scriptKey) {
-				continue
-			}
-		}
-
-		totalBalance += a.Amount
-		numUtxos++
-	}
-	require.Equalf(
-		t, balance, totalBalance, "ListAssets balance, wanted %d, "+
-			"got: %v", balance, toJSON(t, assetList),
-	)
-
-	// The number of UTXOs means asset outputs in this case. We check the
-	// BTC-level UTXOs below as well, but that's just to make sure the
-	// output of that RPC lists the same assets.
-	if config.numAssetUtxos > 0 {
-		require.Equal(
-			t, config.numAssetUtxos, numUtxos, "ListAssets num "+
-				"asset utxos",
+	assertPred := func(resp *taprpc.ListAssetResponse) error {
+		var (
+			totalBalance uint64
+			numUtxos     uint32
 		)
-	}
 
-	utxoList, err := client.ListUtxos(ctxt, &taprpc.ListUtxosRequest{
-		IncludeLeased: config.includeLeased,
-		ScriptKeyType: rpcTypeQuery,
-	})
-	require.NoError(t, err)
-
-	// Make sure the ListUtxos call returns the same number of (asset) UTXOs
-	// as the ListAssets call.
-	var numAnchorUtxos uint32
-	totalBalance = 0
-	numUtxos = 0
-	for _, btcUtxo := range utxoList.ManagedUtxos {
-		numAnchorUtxos++
-		for _, assetUtxo := range btcUtxo.Assets {
+		for _, a := range resp.Assets {
 			if len(config.assetID) > 0 {
 				if !bytes.Equal(
-					assetUtxo.AssetGenesis.AssetId,
-					config.assetID,
+					a.AssetGenesis.AssetId, config.assetID,
 				) {
 
 					continue
@@ -2557,12 +2504,12 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 			}
 
 			if len(config.groupKey) > 0 {
-				if assetUtxo.AssetGroup == nil {
+				if a.AssetGroup == nil {
 					continue
 				}
 
 				if !bytes.Equal(
-					assetUtxo.AssetGroup.TweakedGroupKey,
+					a.AssetGroup.TweakedGroupKey,
 					config.groupKey,
 				) {
 
@@ -2571,32 +2518,118 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 			}
 
 			if len(config.scriptKey) > 0 {
-				if !bytes.Equal(
-					assetUtxo.ScriptKey, config.scriptKey,
-				) {
-
+				if !bytes.Equal(a.ScriptKey, config.scriptKey) {
 					continue
 				}
 			}
 
-			totalBalance += assetUtxo.Amount
+			totalBalance += a.Amount
 			numUtxos++
 		}
-	}
-	require.Equal(t, balance, totalBalance, "ListUtxos balance")
+		if balance != totalBalance {
+			return fmt.Errorf("ListAssets balance, wanted %d, "+
+				"got: %v", balance, toJSON(t, resp))
+		}
 
-	if config.numAnchorUtxos > 0 {
-		require.Equal(
-			t, config.numAnchorUtxos, numAnchorUtxos, "num anchor "+
-				"utxos",
-		)
+		// The number of UTXOs means asset outputs in this case. We
+		// check the BTC-level UTXOs below as well, but that's just to
+		// make sure the output of that RPC lists the same assets.
+		if config.numAssetUtxos > 0 {
+			if config.numAssetUtxos != numUtxos {
+				return fmt.Errorf("unexpected number of UTXOs")
+			}
+		}
+
+		return nil
 	}
-	if config.numAssetUtxos > 0 {
-		require.Equal(
-			t, config.numAssetUtxos, numUtxos, "ListUtxos num "+
-				"asset utxos",
+
+	rpcassert.ListAssetsRPC(t, ctxt, client, assertPred,
+		&taprpc.ListAssetRequest{
+			IncludeLeased: config.includeLeased,
+			ScriptKeyType: rpcTypeQuery,
+		},
+	)
+
+	// Make sure the ListUtxos call returns the same number of (asset) UTXOs
+	// as the ListAssets call.
+	assertPredUtxos := func(resp *taprpc.ListUtxosResponse) error {
+		var (
+			numAnchorUtxos uint32
+			totalBalance   uint64
+			numUtxos       uint32
 		)
+
+		for _, btcUtxo := range resp.ManagedUtxos {
+			numAnchorUtxos++
+			for _, assetUtxo := range btcUtxo.Assets {
+				if len(config.assetID) > 0 {
+					if !bytes.Equal(
+						assetUtxo.AssetGenesis.AssetId,
+						config.assetID,
+					) {
+
+						continue
+					}
+				}
+
+				if len(config.groupKey) > 0 {
+					if assetUtxo.AssetGroup == nil {
+						continue
+					}
+
+					// nolint: lll
+					actualGK := assetUtxo.AssetGroup.TweakedGroupKey
+
+					if !bytes.Equal(
+						actualGK, config.groupKey,
+					) {
+
+						continue
+					}
+				}
+
+				if len(config.scriptKey) > 0 {
+					if !bytes.Equal(
+						assetUtxo.ScriptKey,
+						config.scriptKey,
+					) {
+
+						continue
+					}
+				}
+
+				totalBalance += assetUtxo.Amount
+				numUtxos++
+			}
+		}
+
+		if balance != totalBalance {
+			return fmt.Errorf("ListUtxos balance, wanted %d, "+
+				"got: %v", balance, toJSON(t, resp))
+		}
+
+		if config.numAnchorUtxos > 0 {
+			if config.numAnchorUtxos != numAnchorUtxos {
+				return fmt.Errorf("unexpected number of " +
+					"anchor UTXOs")
+			}
+		}
+		if config.numAssetUtxos > 0 {
+			if config.numAssetUtxos != numUtxos {
+				return fmt.Errorf("unexpected number of " +
+					"asset UTXOs")
+			}
+		}
+
+		return nil
 	}
+
+	rpcassert.ListUtxosRPC(t, ctxt, client, assertPredUtxos,
+		&taprpc.ListUtxosRequest{
+			IncludeLeased: config.includeLeased,
+			ScriptKeyType: rpcTypeQuery,
+		},
+	)
 }
 
 func assertGroups(t *testing.T, client taprpc.TaprootAssetsClient,
