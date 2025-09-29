@@ -59,13 +59,13 @@ func (m *mockSupplyTreeView) FetchSupplyLeavesByHeight(_ context.Context,
 	return args.Get(0).(lfn.Result[SupplyLeaves])
 }
 
-// mockCommitmentTracker is a mock implementation of the CommitmentTracker
+// MockCommitmentTracker is a mock implementation of the CommitmentTracker
 // interface.
-type mockCommitmentTracker struct {
+type MockCommitmentTracker struct {
 	mock.Mock
 }
 
-func (m *mockCommitmentTracker) UnspentPrecommits(ctx context.Context,
+func (m *MockCommitmentTracker) UnspentPrecommits(ctx context.Context,
 	assetSpec asset.Specifier,
 	localIssuerOnly bool) lfn.Result[PreCommits] {
 
@@ -73,7 +73,7 @@ func (m *mockCommitmentTracker) UnspentPrecommits(ctx context.Context,
 	return args.Get(0).(lfn.Result[PreCommits])
 }
 
-func (m *mockCommitmentTracker) SupplyCommit(ctx context.Context,
+func (m *MockCommitmentTracker) SupplyCommit(ctx context.Context,
 	assetSpec asset.Specifier) RootCommitResp {
 
 	args := m.Called(ctx, assetSpec)
@@ -432,12 +432,12 @@ func (c *mockIgnoreCheckerCache) InvalidateCache(groupKey btcec.PublicKey) {
 	c.Called(groupKey)
 }
 
-// mockAssetLookup is a mock implementation of the AssetLookup interface.
-type mockAssetLookup struct {
+// MockAssetLookup is a mock implementation of the AssetLookup interface.
+type MockAssetLookup struct {
 	mock.Mock
 }
 
-func (m *mockAssetLookup) FetchSupplyCommitAssets(ctx context.Context,
+func (m *MockAssetLookup) FetchSupplyCommitAssets(ctx context.Context,
 	localControlled bool) ([]btcec.PublicKey, error) {
 
 	args := m.Called(ctx, localControlled)
@@ -447,7 +447,7 @@ func (m *mockAssetLookup) FetchSupplyCommitAssets(ctx context.Context,
 	return args.Get(0).([]btcec.PublicKey), args.Error(1)
 }
 
-func (m *mockAssetLookup) QueryAssetGroupByID(ctx context.Context,
+func (m *MockAssetLookup) QueryAssetGroupByID(ctx context.Context,
 	assetID asset.ID) (*asset.AssetGroup, error) {
 
 	args := m.Called(ctx, assetID)
@@ -457,7 +457,7 @@ func (m *mockAssetLookup) QueryAssetGroupByID(ctx context.Context,
 	return args.Get(0).(*asset.AssetGroup), args.Error(1)
 }
 
-func (m *mockAssetLookup) QueryAssetGroupByGroupKey(ctx context.Context,
+func (m *MockAssetLookup) QueryAssetGroupByGroupKey(ctx context.Context,
 	groupKey *btcec.PublicKey) (*asset.AssetGroup, error) {
 
 	args := m.Called(ctx, groupKey)
@@ -467,7 +467,7 @@ func (m *mockAssetLookup) QueryAssetGroupByGroupKey(ctx context.Context,
 	return args.Get(0).(*asset.AssetGroup), args.Error(1)
 }
 
-func (m *mockAssetLookup) FetchAssetMetaForAsset(ctx context.Context,
+func (m *MockAssetLookup) FetchAssetMetaForAsset(ctx context.Context,
 	assetID asset.ID) (*proof.MetaReveal, error) {
 
 	args := m.Called(ctx, assetID)
@@ -477,7 +477,7 @@ func (m *mockAssetLookup) FetchAssetMetaForAsset(ctx context.Context,
 	return args.Get(0).(*proof.MetaReveal), args.Error(1)
 }
 
-func (m *mockAssetLookup) FetchInternalKeyLocator(ctx context.Context,
+func (m *MockAssetLookup) FetchInternalKeyLocator(ctx context.Context,
 	rawKey *btcec.PublicKey) (keychain.KeyLocator, error) {
 
 	args := m.Called(ctx, rawKey)
