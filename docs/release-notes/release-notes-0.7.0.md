@@ -173,6 +173,11 @@
 
 - The `AddrReceives` RPC now supports timestamp filtering with
   [new `StartTimestamp` and `EndTimestamp` fields](https://github.com/lightninglabs/taproot-assets/pull/1794).
+  
+- The `BurnAsset` RPC now supports a 
+  [new `AssetSpecifier` field](https://github.com/lightninglabs/taproot-assets/pull/1812)
+  that allows the user to  specify the asset to burn by ID or GroupKey.
+  The `asset` field is now deprecated.
 
 - The `AddrReceives` RPC has new fields `limit`, `offset` and `direction` that
   allows pagination and sorting. [See PR](https://github.com/lightninglabs/taproot-assets/pull/1813).
@@ -194,6 +199,10 @@
 - CLI JSON output [now](https://github.com/lightninglabs/taproot-assets/pull/1821)
   includes unset and zero-valued proto fields (e.g. transaction output indexes).
   This ensures consistent output shape across all proto messages.
+  
+- The `tapcli assets burn` command now has a
+  [new `--group_key` flag](https://github.com/lightninglabs/taproot-assets/pull/1812)
+  that allows users to burn assets by group key.
 
 - The `tapcli addrs receives` command now supports 
   [new `--start_timestamp` and `--end_timestamp` flags](https://github.com/lightninglabs/taproot-assets/pull/1794).
