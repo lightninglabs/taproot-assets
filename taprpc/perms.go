@@ -364,34 +364,46 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 	allowUniPublicAccessWrite bool, allowPublicUniProofCourier bool,
 	allowPublicStats bool) map[string]struct{} {
 
-	// Make a copy of the default whitelist.
 	whitelist := make(map[string]struct{})
+
+	// addEndpoints adds the given endpoints to the whitelist map.
+	addEndpoints := func(endpoints ...string) {
+		for _, endpoint := range endpoints {
+			whitelist[endpoint] = struct{}{}
+		}
+	}
+
+	// Make a copy of the default whitelist.
 	for k, v := range defaultMacaroonWhitelist {
 		whitelist[k] = v
 	}
 
 	// Conditionally whitelist universe server read methods.
-	// nolint: lll
 	if allowUniPublicAccessRead || allowPublicUniProofCourier {
-		whitelist["/universerpc.Universe/QueryProof"] = struct{}{}
-		whitelist["/universerpc.Universe/FetchSupplyCommit"] = struct{}{}
-		whitelist["/universerpc.Universe/FetchSupplyLeaves"] = struct{}{}
-		whitelist["/authmailboxrpc.Mailbox/ReceiveMessages"] = struct{}{}
+		addEndpoints(
+			"/universerpc.Universe/QueryProof",
+			"/universerpc.Universe/FetchSupplyCommit",
+			"/universerpc.Universe/FetchSupplyLeaves",
+			"/authmailboxrpc.Mailbox/ReceiveMessages",
+		)
 	}
 
 	// Conditionally whitelist universe server write methods.
-	// nolint: lll
 	if allowUniPublicAccessWrite || allowPublicUniProofCourier {
-		whitelist["/universerpc.Universe/InsertProof"] = struct{}{}
-		whitelist["/universerpc.Universe/InsertSupplyCommit"] = struct{}{}
-		whitelist["/authmailboxrpc.Mailbox/SendMessage"] = struct{}{}
+		addEndpoints(
+			"/universerpc.Universe/InsertProof",
+			"/universerpc.Universe/InsertSupplyCommit",
+			"/authmailboxrpc.Mailbox/SendMessage",
+		)
 	}
 
 	// Conditionally add public stats RPC endpoints to the whitelist.
 	if allowPublicStats {
-		whitelist["/universerpc.Universe/QueryAssetStats"] = struct{}{}
-		whitelist["/universerpc.Universe/UniverseStats"] = struct{}{}
-		whitelist["/universerpc.Universe/QueryEvents"] = struct{}{}
+		addEndpoints(
+			"/universerpc.Universe/QueryAssetStats",
+			"/universerpc.Universe/UniverseStats",
+			"/universerpc.Universe/QueryEvents",
+		)
 	}
 
 	return whitelist
