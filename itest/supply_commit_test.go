@@ -707,6 +707,41 @@ func AssertSubtreeInclusionProof(t *harnessTest,
 	)
 }
 
+// assertFetchCommitResponse compares two FetchSupplyCommitResponse objects
+// and asserts that their key fields match. This is a helper function to reduce
+// repetitive assertions in tests.
+func assertFetchCommitResponse(t *harnessTest, expected,
+	actual *unirpc.FetchSupplyCommitResponse) {
+
+	t.t.Helper()
+
+	require.NotNil(t.t, expected)
+	require.NotNil(t.t, actual)
+
+	require.NotNil(t.t, expected.ChainData)
+	require.NotNil(t.t, actual.ChainData)
+
+	require.Equal(
+		t.t, expected.ChainData.BlockHeight,
+		actual.ChainData.BlockHeight,
+		"block height mismatch",
+	)
+	require.True(
+		t.t, bytes.Equal(
+			expected.ChainData.BlockHash,
+			actual.ChainData.BlockHash,
+		),
+		"block hash mismatch",
+	)
+	require.True(
+		t.t, bytes.Equal(
+			expected.ChainData.SupplyRootHash,
+			actual.ChainData.SupplyRootHash,
+		),
+		"supply root hash mismatch",
+	)
+}
+
 // MintAssetWithSupplyCommit mints an asset with supply commitments enabled
 // and verifies the pre-commitment output.
 func MintAssetWithSupplyCommit(t *harnessTest,
@@ -1182,22 +1217,7 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 
 	// Verify that the universe server's supply commitment matches the
 	// primary's.
-	require.Equal(
-		t.t, fetchResp.ChainData.BlockHeight,
-		uniFetchResp.ChainData.BlockHeight,
-	)
-	require.True(
-		t.t, bytes.Equal(
-			fetchResp.ChainData.BlockHash,
-			uniFetchResp.ChainData.BlockHash,
-		),
-	)
-	require.True(
-		t.t, bytes.Equal(
-			fetchResp.ChainData.SupplyRootHash,
-			uniFetchResp.ChainData.SupplyRootHash,
-		),
-	)
+	assertFetchCommitResponse(t, fetchResp, uniFetchResp)
 
 	t.Log("Verifying retrieval of second supply commitment from " +
 		"secondary node")
@@ -1241,20 +1261,5 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 
 	// Verify that the secondary node's supply commitment matches the
 	// primary's.
-	require.Equal(
-		t.t, fetchResp.ChainData.BlockHeight,
-		peerFetchResp2.ChainData.BlockHeight,
-	)
-	require.True(
-		t.t, bytes.Equal(
-			fetchResp.ChainData.BlockHash,
-			peerFetchResp2.ChainData.BlockHash,
-		),
-	)
-	require.True(
-		t.t, bytes.Equal(
-			fetchResp.ChainData.SupplyRootHash,
-			peerFetchResp2.ChainData.SupplyRootHash,
-		),
-	)
+	assertFetchCommitResponse(t, fetchResp, peerFetchResp2)
 }
