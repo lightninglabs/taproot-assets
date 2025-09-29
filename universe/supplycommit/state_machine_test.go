@@ -121,7 +121,7 @@ type supplyCommitTestHarness struct {
 	env          *Environment
 
 	mockTreeView     *mockSupplyTreeView
-	mockCommits      *mockCommitmentTracker
+	mockCommits      *MockCommitmentTracker
 	mockWallet       *mockWallet
 	mockKeyRing      *mockKeyRing
 	mockChain        *mockChainBridge
@@ -129,7 +129,7 @@ type supplyCommitTestHarness struct {
 	mockCache        *mockIgnoreCheckerCache
 	mockDaemon       *mockDaemonAdapters
 	mockErrReporter  *mockErrorReporter
-	mockAssetLookup  *mockAssetLookup
+	MockAssetLookup  *MockAssetLookup
 	mockSupplySyncer *mockSupplySyncer
 
 	stateSub protofsm.StateSubscriber[Event, *Environment]
@@ -139,7 +139,7 @@ func newSupplyCommitTestHarness(t *testing.T,
 	cfg *harnessCfg) *supplyCommitTestHarness {
 
 	mTreeView := &mockSupplyTreeView{}
-	mCommits := &mockCommitmentTracker{}
+	mCommits := &MockCommitmentTracker{}
 	mWallet := &mockWallet{}
 	mKey := &mockKeyRing{}
 	mChain := &mockChainBridge{}
@@ -147,7 +147,7 @@ func newSupplyCommitTestHarness(t *testing.T,
 	mDaemon := newMockDaemonAdapters()
 	mErrReporter := &mockErrorReporter{}
 	mCache := &mockIgnoreCheckerCache{}
-	mAssetLookup := &mockAssetLookup{}
+	mAssetLookup := &MockAssetLookup{}
 	mSupplySyncer := &mockSupplySyncer{}
 
 	env := &Environment{
@@ -190,7 +190,7 @@ func newSupplyCommitTestHarness(t *testing.T,
 		mockCache:        mCache,
 		mockDaemon:       mDaemon,
 		mockErrReporter:  mErrReporter,
-		mockAssetLookup:  mAssetLookup,
+		MockAssetLookup:  mAssetLookup,
 		mockSupplySyncer: mSupplySyncer,
 	}
 
@@ -552,7 +552,7 @@ func (h *supplyCommitTestHarness) expectAssetLookup() {
 		},
 	}
 
-	h.mockAssetLookup.On(
+	h.MockAssetLookup.On(
 		"QueryAssetGroupByGroupKey", mock.Anything, mock.Anything,
 	).Return(dummyAssetGroup, nil).Maybe()
 
@@ -562,7 +562,7 @@ func (h *supplyCommitTestHarness) expectAssetLookup() {
 		Type: proof.MetaOpaque,
 	}
 
-	h.mockAssetLookup.On(
+	h.MockAssetLookup.On(
 		"FetchAssetMetaForAsset", mock.Anything, mock.Anything,
 	).Return(dummyMetaReveal, nil).Maybe()
 }
