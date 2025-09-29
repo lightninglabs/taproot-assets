@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/clock"
@@ -1320,6 +1321,116 @@ func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
 	return managedUtxos, nil
 }
 
+// ListZeroValueAnchors returns the set of managed anchor UTXOs that only
+// contain tombstone/burn commitments and therefore have zero effective asset
+// value.
+//
+// NOTE: This implements the tapfreighter.ZeroValueAnchorLister interface.
+// ListZeroValueAnchors implements both the tapfreighter and tapgarden lister
+// flavors by returning tapfreighter.ZeroValueAnchor; tapgarden wraps it via a
+// thin adapter in planter.
+func (a *AssetStore) ListZeroValueAnchors(ctx context.Context) (
+	[]*tapfreighter.ZeroValueAnchor, error) {
+
+	managedUtxos, err := a.FetchManagedUTXOs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	now := a.clock.Now().UTC()
+	anchors := make([]*tapfreighter.ZeroValueAnchor, 0)
+
+	for _, utxo := range managedUtxos {
+		// Skip entries that are currently leased.
+		if len(utxo.LeaseOwner) != 0 {
+			if utxo.LeaseExpiry.IsZero() || !utxo.LeaseExpiry.Before(now) {
+				continue
+			}
+		}
+
+		anchorPointBytes, err := encodeOutpoint(utxo.OutPoint)
+		if err != nil {
+			return nil, err
+		}
+
+		filter := QueryAssetFilters{
+			AnchorPoint: anchorPointBytes,
+			Spent:       sqlBool(false),
+			Leased:      sqlBool(false),
+			Now: sql.NullTime{
+				Time:  now,
+				Valid: true,
+			},
+		}
+
+		commitments, err := a.queryCommitments(ctx, filter)
+		var (
+			anchorCommitment *commitment.TapCommitment
+			assets           []*asset.Asset
+		)
+
+		switch {
+		case errors.Is(err, tapfreighter.ErrMatchingAssetsNotFound):
+			// No spendable assets anchored here, which is exactly the
+			// situation we want to sweep.
+		case err != nil:
+			return nil, err
+		default:
+			if len(commitments) > 0 {
+				anchorCommitment = commitments[0].Commitment
+				assets = anchorCommitment.CommittedAssets()
+			}
+		}
+
+		zeroValue := len(assets) == 0
+		for _, asset := range assets {
+			if asset.Amount > 0 && !asset.IsBurn() {
+				zeroValue = false
+				break
+			}
+		}
+
+		if !zeroValue {
+			continue
+		}
+
+		anchors = append(anchors, &tapfreighter.ZeroValueAnchor{
+			OutPoint:         utxo.OutPoint,
+			Value:            utxo.OutputValue,
+			InternalKey:      utxo.InternalKey,
+			Commitment:       anchorCommitment,
+			TaprootAssetRoot: append([]byte(nil), utxo.TaprootAssetRoot...),
+			MerkleRoot:       append([]byte(nil), utxo.MerkleRoot...),
+			TapscriptSibling: append([]byte(nil), utxo.TapscriptSibling...),
+		})
+	}
+
+	return anchors, nil
+}
+
+// ListZeroValueAnchorsMint adapts the store to the tapgarden.MintAnchorLister
+// by mapping to the tapfreighter variant.
+func (a *AssetStore) ListZeroValueAnchorsMint(ctx context.Context) (
+	[]*tapgarden.MintZeroValueAnchor, error) {
+	anchors, err := a.ListZeroValueAnchors(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*tapgarden.MintZeroValueAnchor, 0, len(anchors))
+	for _, z := range anchors {
+		out = append(out, &tapgarden.MintZeroValueAnchor{
+			OutPoint:         z.OutPoint,
+			Value:            z.Value,
+			InternalKey:      z.InternalKey,
+			Commitment:       z.Commitment,
+			TaprootAssetRoot: append([]byte(nil), z.TaprootAssetRoot...),
+			MerkleRoot:       append([]byte(nil), z.MerkleRoot...),
+			TapscriptSibling: append([]byte(nil), z.TapscriptSibling...),
+		})
+	}
+	return out, nil
+}
+
 // FetchAssetProofsSizes fetches the sizes of the proofs in the db.
 func (a *AssetStore) FetchAssetProofsSizes(
 	ctx context.Context) ([]AssetProofSize, error) {
@@ -2473,6 +2584,26 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 			if err != nil {
 				return fmt.Errorf("unable to insert asset "+
 					"transfer input: %w", err)
+			}
+		}
+
+		for _, zeroAnchor := range spend.ZeroValueAnchors {
+			anchorPointBytes, err := encodeOutpoint(zeroAnchor)
+			if err != nil {
+				return err
+			}
+
+			err = q.UpdateUTXOLease(ctx, UpdateUTXOLease{
+				LeaseOwner: finalLeaseOwner[:],
+				LeaseExpiry: sql.NullTime{
+					Time:  finalLeaseExpiry.UTC(),
+					Valid: true,
+				},
+				Outpoint: anchorPointBytes,
+			})
+			if err != nil {
+				return fmt.Errorf("unable to lease zero value "+
+					"anchor: %w", err)
 			}
 		}
 

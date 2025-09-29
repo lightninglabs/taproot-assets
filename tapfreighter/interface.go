@@ -192,6 +192,12 @@ type CoinSelector interface {
 		maxVersion commitment.TapCommitmentVersion,
 	) ([]*AnchoredCommitment, error)
 
+	// LeaseCoins leases/locks/reserves coins for the given lease owner
+	// until the given expiry. This is used to prevent multiple concurrent
+	// coin selection attempts from selecting the same coin(s).
+	LeaseCoins(ctx context.Context, leaseOwner [32]byte, expiry time.Time,
+		utxoOutpoints ...wire.OutPoint) error
+
 	// ReleaseCoins releases/unlocks coins that were previously leased and
 	// makes them available for coin selection again.
 	ReleaseCoins(ctx context.Context, utxoOutpoints ...wire.OutPoint) error
@@ -242,6 +248,44 @@ type Anchor struct {
 
 	// PkScript is the pkScript of the anchor output.
 	PkScript []byte
+}
+
+// ZeroValueAnchor describes a managed anchor UTXO whose commitment only holds
+// tombstones/burns and therefore carries zero effective asset value.
+type ZeroValueAnchor struct {
+	// OutPoint is the BTC outpoint of the anchor UTXO.
+	OutPoint wire.OutPoint
+
+	// Value is the BTC value locked in the anchor output.
+	Value btcutil.Amount
+
+	// InternalKey is the internal key that anchors the commitment in the
+	// outpoint.
+	InternalKey keychain.KeyDescriptor
+
+	// Commitment is the full Taproot Asset commitment anchored at the
+	// outpoint if one can be reconstructed from the asset data stored on
+	// disk. For anchors that only contain tombstones/burns, this might be
+	// nil.
+	Commitment *commitment.TapCommitment
+
+	// TaprootAssetRoot is the Taproot Asset commitment root hash committed
+	// to by this outpoint.
+	TaprootAssetRoot []byte
+
+	// MerkleRoot is the tapscript merkle root that includes the Taproot
+	// Asset commitment and an optional sibling.
+	MerkleRoot []byte
+
+	// TapscriptSibling is the serialized tapscript sibling preimage for the
+	// anchor output (if present).
+	TapscriptSibling []byte
+}
+
+// ZeroValueAnchorLister lists managed anchor UTXOs whose asset commitments
+// carry no spendable value.
+type ZeroValueAnchorLister interface {
+	ListZeroValueAnchors(ctx context.Context) ([]*ZeroValueAnchor, error)
 }
 
 // OutputIdentifier is a key that can be used to uniquely identify a transfer
@@ -467,6 +511,10 @@ type OutboundParcel struct {
 	// during the parcel confirmation process.
 	PassiveAssets []*tappsbt.VPacket
 
+	// ZeroValueAnchors lists the tombstone/burn anchors that were swept as
+	// additional BTC inputs when constructing the anchor transaction.
+	ZeroValueAnchors []wire.OutPoint
+
 	// PassiveAssetsAnchor is the anchor point for the passive assets. This
 	// might be a distinct anchor from any active transfer in case the
 	// active transfers don't create any change going back to us.
@@ -498,6 +546,7 @@ func (o *OutboundParcel) Copy() *OutboundParcel {
 		ChainFees:             o.ChainFees,
 		Inputs:                fn.CopySlice(o.Inputs),
 		Outputs:               fn.CopySlice(o.Outputs),
+		ZeroValueAnchors:      fn.CopySlice(o.ZeroValueAnchors),
 		Label:                 o.Label,
 		SkipAnchorTxBroadcast: o.SkipAnchorTxBroadcast,
 	}

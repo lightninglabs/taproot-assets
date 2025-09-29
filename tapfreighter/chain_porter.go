@@ -1589,7 +1589,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"assets: %w", err)
 		}
 
-		anchorTx, err := wallet.AnchorVirtualTransactions(
+		anchorTx, sweptAnchors, err := wallet.AnchorVirtualTransactions(
 			ctx, &AnchorVTxnsParams{
 				FeeRate:        feeRate,
 				ActivePackets:  currentPkg.VirtualPackets,
@@ -1608,6 +1608,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// signing process with a copy to avoid clearing the info on
 		// finalization.
 		currentPkg.AnchorTx = anchorTx
+		currentPkg.ZeroValueAnchors = sweptAnchors
 
 		// For the final validation, we need to also supply the assets
 		// that were committed to the input tree but pruned because they
@@ -1655,6 +1656,13 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// local means the lnd node connected to this daemon knows how
 		// to derive the key.
 		isLocalKey := func(key asset.ScriptKey) (bool, error) {
+			// Tombstone outputs use the NUMS key and are always controlled by
+			// the local daemon so we treat them as local regardless of whether
+			// the key was explicitly declared before.
+			if key.PubKey != nil && key.PubKey.IsEqual(asset.NUMSPubKey) {
+				return true, nil
+			}
+
 			// To make sure we have the correct internal key with
 			// the family and index set, we attempt to fetch it
 			// from the database. If it exists, then we know we
@@ -1695,7 +1703,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		parcel, err := ConvertToTransfer(
 			currentHeight, currentPkg.VirtualPackets,
 			currentPkg.AnchorTx, currentPkg.PassiveAssets,
-			isLocalKey, currentPkg.Label,
+			currentPkg.ZeroValueAnchors, isLocalKey, currentPkg.Label,
 			currentPkg.SkipAnchorTxBroadcast,
 		)
 		if err != nil {
