@@ -166,7 +166,11 @@ func applyMigrations(fs fs.FS, driver database.Driver, path, dbName string,
 		return err
 	}
 
-	migrationVersion, _, _ := sqlMigrate.Version()
+	migrationVersion, _, err := sqlMigrate.Version()
+	if err != nil && !errors.Is(err, migrate.ErrNilVersion) {
+		return fmt.Errorf("unable to determine current migration "+
+			"version: %w", err)
+	}
 
 	// As the down migrations may end up *dropping* data, we want to
 	// prevent that without explicit accounting.
