@@ -922,6 +922,7 @@ func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
 
 		// Next, we'll upsert the chain transaction on disk. The block
 		// related fields are nil as this hasn't been confirmed yet.
+		// Block related fields are populated once the tx confirms.
 		var txBytes bytes.Buffer
 		if err := commitTx.Serialize(&txBytes); err != nil {
 			return fmt.Errorf("failed to serialize commit "+

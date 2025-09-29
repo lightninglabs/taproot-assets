@@ -809,7 +809,8 @@ func (h *supplyCommitTestHarness) confirmChainTx(txID int64, txidBytes,
 // chain proof details for assertion purposes.
 func (h *supplyCommitTestHarness) performSingleTransition(
 	updates []supplycommit.SupplyUpdateEvent,
-	preCommitOutpoints []wire.OutPoint) stateTransitionOutput {
+	preCommitOutpoints []wire.OutPoint,
+	blockHeight uint32) stateTransitionOutput {
 
 	h.t.Helper()
 
@@ -874,7 +875,6 @@ func (h *supplyCommitTestHarness) performSingleTransition(
 		Bits:  []bool{test.RandBool()},
 		Nodes: []chainhash.Hash{test.RandHash()},
 	}
-	blockHeight := uint32(test.RandInt[int32]())
 	chainProof := supplycommit.ChainProof{
 		Header:      *blockHeader,
 		BlockHeight: blockHeight,
@@ -1056,7 +1056,7 @@ func (h *supplyCommitTestHarness) calculateExpectedRoot(
 		require.NoError(h.t, err)
 	}
 
-	// Obtain the finalroot tree after our insertions.
+	// Obtain the final root tree after our insertions.
 	finalRoot, err := tempRootTree.Root(h.ctx)
 	require.NoError(h.t, err)
 
@@ -1116,6 +1116,7 @@ func (h *supplyCommitTestHarness) assertTransitionApplied(
 	// We should be able to fetch the latest commitment on disk now.
 	dbCommitment, err := h.fetchCommitmentByID(latestCommitmentID)
 	require.NoError(h.t, err)
+	h.assertLatestCommit(dbCommitment)
 
 	// The transaction we inserted on disk as the latest commitment tx
 	// should also be found now.
@@ -1387,7 +1388,7 @@ func TestBindDanglingUpdatesToTransition(t *testing.T) {
 	updates1 := []supplycommit.SupplyUpdateEvent{h.randMintEvent()}
 	// Pass empty outpoints since this test doesn't need pre-commitments
 	stateTransition1 := h.performSingleTransition(
-		updates1, []wire.OutPoint{},
+		updates1, []wire.OutPoint{}, 442,
 	)
 	h.assertTransitionApplied(stateTransition1)
 
@@ -1830,7 +1831,7 @@ func TestSupplyCommitApplyStateTransition(t *testing.T) {
 		h.randMintEvent(), h.randBurnEvent(),
 	}
 	stateTransition1 := h.performSingleTransition(
-		updates1, preCommitOutpoints,
+		updates1, preCommitOutpoints, 1,
 	)
 	h.assertTransitionApplied(stateTransition1)
 
@@ -1888,7 +1889,7 @@ func TestSupplyCommitApplyStateTransition(t *testing.T) {
 	}
 	preCommitOutpoints2 := []wire.OutPoint{outpointExtra, outpoint3}
 	stateTransition2 := h.performSingleTransition(
-		updates2, preCommitOutpoints2,
+		updates2, preCommitOutpoints2, 2,
 	)
 	h.assertTransitionApplied(stateTransition2)
 
