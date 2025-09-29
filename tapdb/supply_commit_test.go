@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
+	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -639,6 +640,109 @@ func (h *supplyCommitTestHarness) fetchInternalKeyByID(
 	)
 	require.NoError(h.t, err)
 	return keyRow
+}
+
+// assertDbCommit checks that the given db supply commitment matches the
+// expected root commitment and returns an error if they don't match.
+func (h *supplyCommitTestHarness) assertDbCommit(
+	dbSupplyCommit sqlc.SupplyCommitment,
+	expectedCommit supplycommit.RootCommitment) error {
+
+	// Verify the supply root matches (if set).
+	if len(dbSupplyCommit.SupplyRootHash) > 0 &&
+		dbSupplyCommit.SupplyRootSum.Valid {
+
+		if expectedCommit.SupplyRoot == nil {
+			return fmt.Errorf("expected root commitment has nil " +
+				"SupplyRoot")
+		}
+
+		expectedSum := int64(expectedCommit.SupplyRoot.NodeSum())
+		if dbSupplyCommit.SupplyRootSum.Int64 != expectedSum {
+			return fmt.Errorf("supply root sum mismatch: db=%d, "+
+				"expected=%d",
+				dbSupplyCommit.SupplyRootSum.Int64, expectedSum)
+		}
+
+		expectedRootHash := lnutils.ByteSlice(
+			expectedCommit.SupplyRoot.NodeHash(),
+		)
+		if !bytes.Equal(
+			dbSupplyCommit.SupplyRootHash, expectedRootHash,
+		) {
+
+			return fmt.Errorf("supply root hash mismatch: db=%x, "+
+				"expected=%x", dbSupplyCommit.SupplyRootHash,
+				expectedRootHash)
+		}
+	}
+
+	// Verify the transaction hash matches.
+	expectedTxRow, err := h.fetchChainTxByID(dbSupplyCommit.ChainTxnID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch chain tx by ID %d: %w",
+			dbSupplyCommit.ChainTxnID, err)
+	}
+
+	var expectedTx wire.MsgTx
+	err = expectedTx.Deserialize(bytes.NewReader(expectedTxRow.RawTx))
+	if err != nil {
+		return fmt.Errorf("failed to deserialize expected tx: %w", err)
+	}
+
+	if expectedTx.TxHash() != expectedCommit.Txn.TxHash() {
+		return fmt.Errorf("transaction hash mismatch: db=%s, "+
+			"expected=%s", expectedTx.TxHash(),
+			expectedCommit.Txn.TxHash())
+	}
+
+	// Verify the output index matches.
+	expectedOutIdx := uint32(dbSupplyCommit.OutputIndex.Int32)
+	if expectedOutIdx != expectedCommit.TxOutIdx {
+		return fmt.Errorf("output index mismatch: db=%d, expected=%d",
+			expectedOutIdx, expectedCommit.TxOutIdx)
+	}
+
+	// Verify the internal key matches.
+	dbInternalKeyRow := h.fetchInternalKeyByID(
+		dbSupplyCommit.InternalKeyID,
+	)
+	expectedInternalKeyBytes :=
+		expectedCommit.InternalKey.PubKey.SerializeCompressed()
+	if !bytes.Equal(dbInternalKeyRow.RawKey, expectedInternalKeyBytes) {
+		return fmt.Errorf("internal key mismatch: db=%x, expected=%x",
+			dbInternalKeyRow.RawKey, expectedInternalKeyBytes)
+	}
+
+	// Verify the output key matches.
+	expectedOutputKeyBytes :=
+		expectedCommit.OutputKey.SerializeCompressed()
+	if !bytes.Equal(dbSupplyCommit.OutputKey, expectedOutputKeyBytes) {
+		return fmt.Errorf("output key mismatch: db=%x, expected=%x",
+			dbSupplyCommit.OutputKey, expectedOutputKeyBytes)
+	}
+
+	return nil
+}
+
+// assertLatestCommit fetches the latest supply commitment using the public
+// FetchLatestCommitment method and asserts it matches the given db supply
+// commitment.
+func (h *supplyCommitTestHarness) assertLatestCommit(
+	dbSupplyCommit sqlc.SupplyCommitment) {
+
+	h.t.Helper()
+
+	// Fetch the latest commitment using the public method.
+	latestCommit, err := h.commitMachine.FetchLatestCommitment(
+		h.ctx, h.assetSpec,
+	)
+	require.NoError(h.t, err)
+	require.NotNil(h.t, latestCommit)
+
+	// Verify the commitments are equal.
+	err = h.assertDbCommit(dbSupplyCommit, *latestCommit)
+	require.NoError(h.t, err)
 }
 
 // fetchChainTxByID fetches a chain tx by ID directly via SQL.
@@ -2000,6 +2104,133 @@ func TestSupplyCommitMachineFetch(t *testing.T) {
 	emptySpec := asset.NewSpecifierOptionalGroupKey(asset.RandID(t), nil)
 	commitRes = h.commitMachine.SupplyCommit(h.ctx, emptySpec)
 	require.ErrorIs(t, commitRes.Err(), ErrMissingGroupKey)
+}
+
+// TestSupplyCommitFetchLatestCommitment tests the FetchLatestCommitment method.
+func TestSupplyCommitFetchLatestCommitment(t *testing.T) {
+	t.Parallel()
+
+	h := newSupplyCommitTestHarness(t)
+
+	spec := asset.NewSpecifierOptionalGroupPubKey(
+		asset.RandID(t), h.groupPubKey,
+	)
+
+	// At the very start, we shouldn't have any commitments at all for this
+	// spec.
+	_, err := h.commitMachine.FetchLatestCommitment(h.ctx, spec)
+	require.ErrorIs(t, err, supplyverifier.ErrCommitmentNotFound)
+
+	// Add a state machine with no commitment.
+	h.addTestStateMachine(sql.NullInt64{})
+	_, err = h.commitMachine.FetchLatestCommitment(h.ctx, spec)
+	require.ErrorIs(t, err, supplyverifier.ErrCommitmentNotFound)
+
+	// Create the first supply commitment.
+	_, commitTxDbID1, _, commitTxid1, commitRawTx1 :=
+		h.addTestMintingBatch()
+	commitID1 := h.addTestSupplyCommitment(
+		commitTxDbID1, commitTxid1, commitRawTx1, false,
+	)
+
+	// Confirm the first commitment at block height 100.
+	blockHash1 := test.RandBytes(32)
+	blockHeight1 := sqlInt32(100)
+	txIndex1 := sqlInt32(1)
+	_, err = h.db.UpsertChainTx(h.ctx, sqlc.UpsertChainTxParams{
+		Txid:        commitTxid1,
+		RawTx:       commitRawTx1,
+		ChainFees:   0,
+		BlockHash:   blockHash1,
+		BlockHeight: blockHeight1,
+		TxIndex:     txIndex1,
+	})
+	require.NoError(t, err)
+
+	// Update the state machine to point to the first commitment.
+	h.addTestStateMachine(sqlInt64(commitID1))
+
+	// Fetch the first commitment from the DB for comparison.
+	dbCommitment1, err := h.fetchCommitmentByID(commitID1)
+	require.NoError(t, err)
+
+	// FetchLatestCommitment should return the first commitment.
+	h.assertLatestCommit(dbCommitment1)
+
+	// Create a second supply commitment.
+	_, commitTxDbID2, _, commitTxid2, commitRawTx2 :=
+		h.addTestMintingBatch()
+	commitID2 := h.addTestSupplyCommitment(
+		commitTxDbID2, commitTxid2, commitRawTx2, false,
+	)
+
+	// Confirm the second commitment at block height 200.
+	blockHash2 := test.RandBytes(32)
+	blockHeight2 := sqlInt32(200)
+	txIndex2 := sqlInt32(1)
+	_, err = h.db.UpsertChainTx(h.ctx, sqlc.UpsertChainTxParams{
+		Txid:        commitTxid2,
+		RawTx:       commitRawTx2,
+		ChainFees:   0,
+		BlockHash:   blockHash2,
+		BlockHeight: blockHeight2,
+		TxIndex:     txIndex2,
+	})
+	require.NoError(t, err)
+
+	// Update the state machine to point to the second commitment.
+	h.addTestStateMachine(sqlInt64(commitID2))
+
+	// Fetch the second commitment from the DB for comparison.
+	dbCommitment2, err := h.fetchCommitmentByID(commitID2)
+	require.NoError(t, err)
+
+	// FetchLatestCommitment should now return the second commitment (higher
+	// block height).
+	h.assertLatestCommit(dbCommitment2)
+
+	// Create a third supply commitment at a lower block height 150 (but
+	// inserted later).
+	_, commitTxDbID3, _, commitTxid3, commitRawTx3 :=
+		h.addTestMintingBatch()
+	_ = h.addTestSupplyCommitment(
+		commitTxDbID3, commitTxid3, commitRawTx3, false,
+	)
+
+	// Confirm the third commitment at block height 150.
+	blockHash3 := test.RandBytes(32)
+	blockHeight3 := sqlInt32(150)
+	txIndex3 := sqlInt32(1)
+	_, err = h.db.UpsertChainTx(h.ctx, sqlc.UpsertChainTxParams{
+		Txid:        commitTxid3,
+		RawTx:       commitRawTx3,
+		ChainFees:   0,
+		BlockHash:   blockHash3,
+		BlockHeight: blockHeight3,
+		TxIndex:     txIndex3,
+	})
+	require.NoError(t, err)
+
+	// FetchLatestCommitment should still return the second commitment
+	// (highest block height 200), not the third one (block height 150).
+	h.assertLatestCommit(dbCommitment2)
+
+	// Test with a different group key should return ErrCommitmentNotFound.
+	otherGroupKey := test.RandPubKey(t)
+	otherSpec := asset.NewSpecifierOptionalGroupPubKey(
+		asset.RandID(t), otherGroupKey,
+	)
+	_, err = h.commitMachine.FetchLatestCommitment(
+		h.ctx, otherSpec,
+	)
+	require.ErrorIs(t, err, supplyverifier.ErrCommitmentNotFound)
+
+	// Test with missing group key should yield an error.
+	emptySpec := asset.NewSpecifierOptionalGroupKey(asset.RandID(t), nil)
+	_, err = h.commitMachine.FetchLatestCommitment(
+		h.ctx, emptySpec,
+	)
+	require.ErrorIs(t, err, ErrMissingGroupKey)
 }
 
 // randTx creates a random transaction for testing purposes.
