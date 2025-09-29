@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -19,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1096,4 +1098,214 @@ func TestMultiverseRootSum(t *testing.T) {
 			runTestCase(t, testCase)
 		})
 	}
+}
+
+// TestShouldInsertPreCommit tests the shouldInsertPreCommit function with
+// various combinations of proof types, asset groups, and meta reveals.
+func TestShouldInsertPreCommit(t *testing.T) {
+	t.Parallel()
+
+	// Create test data.
+	groupKey := test.RandPubKey(t)
+	assetWithGroup := asset.RandAsset(t, asset.Normal)
+	assetWithGroup.GroupKey = &asset.GroupKey{
+		GroupPubKey: *groupKey,
+	}
+	assetWithoutGroup := asset.RandAsset(t, asset.Normal)
+	assetWithoutGroup.GroupKey = nil
+
+	delegationKey := test.RandPubKey(t)
+
+	testCases := []struct {
+		name        string
+		proofType   universe.ProofType
+		asset       *asset.Asset
+		metaReveal  *proof.MetaReveal
+		expected    bool
+		description string
+	}{
+		{
+			name:      "transfer proof type",
+			proofType: universe.ProofTypeTransfer,
+			asset:     assetWithGroup,
+			metaReveal: &proof.MetaReveal{
+				UniverseCommitments: true,
+				DelegationKey:       fn.Some(*delegationKey),
+			},
+			expected: false,
+			description: "Transfer proofs should not insert " +
+				"pre-commits",
+		},
+		{
+			name:       "issuance proof without group key",
+			proofType:  universe.ProofTypeIssuance,
+			asset:      assetWithoutGroup,
+			metaReveal: nil,
+			expected:   false,
+			description: "Assets without group key should not " +
+				"insert pre-commits",
+		},
+		{
+			name: "issuance proof with group key but no " +
+				"meta reveal",
+			proofType:  universe.ProofTypeIssuance,
+			asset:      assetWithGroup,
+			metaReveal: nil,
+			expected:   false,
+			description: "Missing meta reveal should not insert " +
+				"pre-commits",
+		},
+		{
+			name: "issuance proof with group key but no " +
+				"universe commitments",
+			proofType: universe.ProofTypeIssuance,
+			asset:     assetWithGroup,
+			metaReveal: &proof.MetaReveal{
+				UniverseCommitments: false,
+				DelegationKey:       fn.Some(*delegationKey),
+			},
+			expected: false,
+			description: "Meta reveal without universe " +
+				"commitments should not insert pre-commits",
+		},
+		{
+			name: "issuance proof with group key but no " +
+				"delegation key",
+			proofType: universe.ProofTypeIssuance,
+			asset:     assetWithGroup,
+			metaReveal: &proof.MetaReveal{
+				UniverseCommitments: true,
+				DelegationKey:       fn.None[btcec.PublicKey](),
+			},
+			expected: false,
+			description: "Meta reveal without delegation key " +
+				"should not insert pre-commits",
+		},
+		{
+			name:      "valid issuance proof with all requirements",
+			proofType: universe.ProofTypeIssuance,
+			asset:     assetWithGroup,
+			metaReveal: &proof.MetaReveal{
+				UniverseCommitments: true,
+				DelegationKey:       fn.Some(*delegationKey),
+			},
+			expected: true,
+			description: "Valid issuance proof with all " +
+				"requirements should insert pre-commits",
+		},
+		{
+			name:      "unspecified proof type",
+			proofType: universe.ProofTypeUnspecified,
+			asset:     assetWithGroup,
+			metaReveal: &proof.MetaReveal{
+				UniverseCommitments: true,
+				DelegationKey:       fn.Some(*delegationKey),
+			},
+			expected: false,
+			description: "Unspecified proof type should not " +
+				"insert pre-commits",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create a proof with the test asset.
+			testProof := randProof(t, tc.asset)
+
+			result := shouldInsertPreCommit(
+				tc.proofType, *testProof, tc.metaReveal,
+			)
+
+			require.Equal(t, tc.expected, result, tc.description)
+		})
+	}
+}
+
+// TestUpsertSupplyPreCommit tests the upsertSupplyPreCommit function with
+// various scenarios including new inserts and updates.
+func TestUpsertSupplyPreCommit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := NewTestDB(t)
+
+	// Create test data.
+	groupKey := test.RandPubKey(t)
+	internalKey, _ := test.RandKeyDesc(t)
+	mintingTx := wire.NewMsgTx(2)
+	mintingTx.AddTxOut(&wire.TxOut{Value: 1000})
+	blockHeight := uint32(100)
+
+	preCommit := supplycommit.PreCommitment{
+		GroupPubKey: *groupKey,
+		InternalKey: internalKey,
+		MintingTxn:  mintingTx,
+		OutIdx:      0,
+		BlockHeight: blockHeight,
+	}
+
+	t.Run("successful insert", func(t *testing.T) {
+		err := upsertSupplyPreCommit(ctx, db, preCommit)
+		require.NoError(t, err)
+
+		// Verify the pre-commit was inserted by fetching unspent
+		// pre-commits for this group key.
+		groupKeyBytes := schnorr.SerializePubKey(&preCommit.GroupPubKey)
+		rows, err := db.FetchUnspentSupplyPreCommits(ctx, groupKeyBytes)
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		require.Equal(t, groupKeyBytes, rows[0].GroupKey)
+		require.Equal(t,
+			preCommit.InternalKey.PubKey.SerializeCompressed(),
+			rows[0].TaprootInternalKey,
+		)
+	})
+
+	t.Run("successful update", func(t *testing.T) {
+		// Update with a different group key.
+		newGroupKey := test.RandPubKey(t)
+		updatedPreCommit := preCommit
+		updatedPreCommit.GroupPubKey = *newGroupKey
+
+		err := upsertSupplyPreCommit(ctx, db, updatedPreCommit)
+		require.NoError(t, err)
+
+		// Verify the pre-commit was updated by fetching pre-commits for
+		// the new group key.
+		newGroupKeyBytes := schnorr.SerializePubKey(newGroupKey)
+		rows, err := db.FetchUnspentSupplyPreCommits(
+			ctx, newGroupKeyBytes,
+		)
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		require.Equal(t, newGroupKeyBytes, rows[0].GroupKey)
+	})
+
+	t.Run("existing chain tx with block height", func(t *testing.T) {
+		// First, insert a chain tx with a block height.
+		txBytes, err := fn.Serialize(mintingTx)
+		require.NoError(t, err)
+
+		_, err = db.UpsertChainTx(ctx, ChainTxParams{
+			Txid:        fn.ByteSlice(mintingTx.TxHash()),
+			RawTx:       txBytes,
+			BlockHeight: sqlInt32(200),
+		})
+		require.NoError(t, err)
+
+		// Create a new pre-commit with different outpoint.
+		newPreCommit := preCommit
+		newPreCommit.OutIdx = 1
+
+		err = upsertSupplyPreCommit(ctx, db, newPreCommit)
+		require.NoError(t, err)
+
+		// Verify it was inserted successfully by fetching pre-commits.
+		groupKeyBytes := schnorr.SerializePubKey(
+			&newPreCommit.GroupPubKey,
+		)
+		rows, err := db.FetchUnspentSupplyPreCommits(ctx, groupKeyBytes)
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+	})
 }
