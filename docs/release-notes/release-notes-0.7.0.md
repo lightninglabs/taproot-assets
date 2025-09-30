@@ -174,6 +174,11 @@
 - The `AddrReceives` RPC now supports timestamp filtering with
   [new `StartTimestamp` and `EndTimestamp` fields](https://github.com/lightninglabs/taproot-assets/pull/1794).
 
+- The [FetchSupplyLeaves RPC endpoint](https://github.com/lightninglabs/taproot-assets/pull/1829)  
+  is now accessible without authentication when the universe server is  
+  configured with public read access. This matches the behavior of the  
+  existing FetchSupplyCommit RPC endpoint.
+
 ## tapcli Additions
 
 - [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the mint
