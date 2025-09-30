@@ -41,6 +41,33 @@ const (
 	StatusCompleted Status = 3
 )
 
+// SortDirection is an enum used to specify the order of returned events.
+type SortDirection uint8
+
+const (
+	// UndefinedSortDirection indicates that the sort direction
+	// is not specified.
+	UndefinedSortDirection SortDirection = iota
+
+	// DescSortDirection indicates that the sort should be in
+	// descending order.
+	DescSortDirection
+
+	// AscSortDirection indicates that the sort should be in
+	// ascending order.
+	AscSortDirection
+)
+
+const (
+	// DefaultEventQueryLimit is the number of events returned
+	// when no limit is provided.
+	DefaultEventQueryLimit = 512
+
+	// MaxEventQueryLimit is the maximum number of events that can be
+	// returned in a single query.
+	MaxEventQueryLimit = 16384
+)
+
 // EventQueryParams holds the set of query params for address events.
 type EventQueryParams struct {
 	// AddrTaprootOutputKey is the optional 32-byte x-only serialized
@@ -65,6 +92,17 @@ type EventQueryParams struct {
 	// (inclusive). Can be set to nil to return events of all creation
 	// times.
 	CreationTimeTo *time.Time
+
+	// Offset is the offset into the result set to start returning events.
+	Offset int32
+
+	// Limit is the max number of events that should be returned. If zero,
+	// then DefaultEventQueryLimit will be used.
+	Limit int32
+
+	// SortDirection is the sort direction to use when returning the
+	// events. The default zero value sorts the events in ascending order.
+	SortDirection SortDirection
 }
 
 // AssetOutput holds the information about a single asset output that was sent
