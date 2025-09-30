@@ -21,7 +21,7 @@
   - [Buy Order Processing](#buy-order-processing)
   - [Sell Order Processing](#sell-order-processing)
   - [Quote Storage and Lifecycle](#quote-storage-and-lifecycle)
-- [Auxiliary Interfaces: Bridging Two Worlds](#auxiliary-interfaces-bridging-two-worlds)
+- [Auxiliary Interfaces](#auxiliary-interfaces)
   - [AuxTrafficShaper: Routing Control](#auxtrafficshaper-routing-control)
     - [Traffic Shaper Decision Flow](#traffic-shaper-decision-flow)
     - [Asset Unit Bandwidth Calculation](#asset-unit-bandwidth-calculation)
@@ -29,8 +29,8 @@
   - [AuxHTLCModifier: Payment Transformation Engine](#auxhtlcmodifier-payment-transformation-engine)
     - [HTLC Modification Flow](#htlc-modification-flow)
   - [Data Flow Integration](#data-flow-integration)
-- [Fixed-Point Arithmetic: Precision in Every Calculation](#fixed-point-arithmetic-precision-in-every-calculation)
-  - [The Architecture of Precision](#the-architecture-of-precision)
+- [Fixed-Point Arithmetic](#fixed-point-arithmetic)
+  - [The FixedPoint Type](#the-fixedpoint-type)
   - [Precision and Scale Management](#precision-and-scale-management)
   - [Scale Alignment and Conversion](#scale-alignment-and-conversion)
   - [MilliSatoshi Conversion Operations](#millisatoshi-conversion-operations)
@@ -38,7 +38,7 @@
     - [Converting Asset Units to MilliSatoshi](#converting-asset-units-to-millisatoshi)
   - [Rate Quote Lifecycle](#rate-quote-lifecycle)
   - [Rate Conversion and Tolerance Mechanics](#rate-conversion-and-tolerance-mechanics)
-- [HTLC Transformation: The Heart of Asset Payments](#htlc-transformation-the-heart-of-asset-payments)
+- [HTLC Transformation](#htlc-transformation)
   - [Policy-Driven Interception](#policy-driven-interception)
   - [The NoOp Settlement Pattern](#the-noop-settlement-pattern)
   - [HTLC Interception Flow](#htlc-interception-flow)
@@ -47,12 +47,12 @@
   - [TLV Record Structure for Asset HTLCs](#tlv-record-structure-for-asset-htlcs)
   - [NoOp Implementation Details](#noop-implementation-details)
   - [Multi-Hop Coordination](#multi-hop-coordination)
-- [Asset Invoice Flows: Bridging the Payment Gap](#asset-invoice-flows-bridging-the-payment-gap)
-  - [Creating an Asset Invoice: The Receiver's Journey](#creating-an-asset-invoice-the-receivers-journey)
-  - [Paying an Asset Invoice: The Sender's Perspective](#paying-an-asset-invoice-the-senders-perspective)
+- [Asset Invoice Flows](#asset-invoice-flows)
+  - [Creating an Asset Invoice](#creating-an-asset-invoice)
+  - [Paying an Asset Invoice](#paying-an-asset-invoice)
   - [Handling Disconnected Parties](#handling-disconnected-parties)
   - [Rate Arbitrage and Market Making](#rate-arbitrage-and-market-making)
-- [Security Architecture: Defense in Depth](#security-architecture-defense-in-depth)
+- [Security Architecture](#security-architecture)
   - [Cryptographic Integrity](#cryptographic-integrity)
   - [Rate Manipulation Prevention](#rate-manipulation-prevention)
   - [Temporal Security and Expiry Management](#temporal-security-and-expiry-management)
@@ -625,7 +625,7 @@ quotes are used when initiating payments, while local accepted quotes govern
 incoming HTLC acceptance. The Manager implements automatic expiry management,
 removing stale quotes during access to prevent execution at outdated rates.
 
-## Auxiliary Interfaces: Bridging Two Worlds
+## Auxiliary Interfaces
 
 The auxiliary interface system enables taproot-assets to extend lnd's behavior
 without requiring modifications to Lightning's core protocol. Each interface
@@ -869,13 +869,13 @@ performance crucial. The implementations use caching and pre-computation where
 possible to minimize latency impact. For example, asset compatibility matrices
 are pre-computed when channels are opened rather than checked for each HTLC.
 
-## Fixed-Point Arithmetic: Precision in Every Calculation
+## Fixed-Point Arithmetic
 
 The fixed-point arithmetic system ensures precise financial calculations
 throughout the RFQ protocol. This system maintains exact precision while
 performing rate calculations and conversions.
 
-### The Architecture of Precision
+### The FixedPoint Type
 
 At the heart of the system lies the `FixedPoint` type, a generic structure that
 encapsulates an integer coefficient and a scale factor. The coefficient
@@ -1084,7 +1084,7 @@ system follows deterministic rounding rules that all nodes can reproduce. This
 prevents discrepancies where different nodes might calculate slightly different
 values for the same conversion.
 
-## HTLC Transformation: The Heart of Asset Payments
+## HTLC Transformation
 
 The HTLC transformation pipeline intercepts standard Lightning HTLCs and
 transforms them to carry asset transfer semantics while maintaining
@@ -1479,13 +1479,13 @@ it performs rate conversion and record injection. If transitioning from an asset
 channel to a Bitcoin channel, it extracts the asset information and ensures
 proper settlement of the asset portion while forwarding the Bitcoin value.
 
-## Asset Invoice Flows: Bridging the Payment Gap
+## Asset Invoice Flows
 
 The RFQ protocol enables two invoice flows that allow users to send and receive
 asset payments even when they're not directly connected. These flows coordinate
 multi-party interactions for asset payments.
 
-### Creating an Asset Invoice: The Receiver's Journey
+### Creating an Asset Invoice
 
 When a user wants to receive assets through Lightning, they create an asset
 invoice that encodes all the information necessary for a payer to route assets
@@ -1560,7 +1560,7 @@ route through the edge node to reach the receiver. This hop hint provides the
 bridge between the standard Lightning Network and the asset channel, even though
 the payer may have no awareness that assets are involved.
 
-### Paying an Asset Invoice: The Sender's Perspective
+### Paying an Asset Invoice
 
 When a user wants to pay an asset invoice, they need to send assets to a
 receiver who may be multiple hops away, potentially through nodes they've never
@@ -1701,7 +1701,7 @@ quotes prevents edge nodes from changing terms after acceptance. The atomic
 nature of HTLCs ensures that edge nodes cannot steal funds during conversion.
 The automatic expiry of quotes limits the risk exposure from rate fluctuations.
 
-## Security Architecture: Defense in Depth
+## Security Architecture
 
 The RFQ protocol implements multiple layers of security controls that protect
 against both technical attacks and economic manipulation. This defense-in-depth
