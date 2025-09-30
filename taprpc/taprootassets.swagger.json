@@ -1298,6 +1298,20 @@
           "type": "string",
           "format": "uint64",
           "description": "Filter receives by creation time less than or equal to this timestamp.\nIf not set, no end time filtering is applied."
+        },
+        "offset": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of events to skip."
+        },
+        "limit": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The max number of events returned."
+        },
+        "direction": {
+          "$ref": "#/definitions/taprpcSortDirection",
+          "description": "The direction of the page. Sorted by creation time."
         }
       }
     },
@@ -2678,6 +2692,15 @@
           "description": "The next send state that will be executed."
         }
       }
+    },
+    "taprpcSortDirection": {
+      "type": "string",
+      "enum": [
+        "SORT_DIRECTION_DESC",
+        "SORT_DIRECTION_ASC"
+      ],
+      "default": "SORT_DIRECTION_DESC",
+      "description": " - SORT_DIRECTION_DESC: Sort results in descending order.\n - SORT_DIRECTION_ASC: Sort results in ascending order."
     },
     "taprpcSplitCommitment": {
       "type": "object",
