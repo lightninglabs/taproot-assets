@@ -174,6 +174,9 @@
 - The `AddrReceives` RPC now supports timestamp filtering with
   [new `StartTimestamp` and `EndTimestamp` fields](https://github.com/lightninglabs/taproot-assets/pull/1794).
 
+- The `AddrReceives` RPC has new fields `limit`, `offset` and `direction` that
+  allows pagination and sorting. [See PR](https://github.com/lightninglabs/taproot-assets/pull/1813).
+
 ## tapcli Additions
 
 - [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the mint
@@ -194,6 +197,9 @@
 
 - The `tapcli addrs receives` command now supports 
   [new `--start_timestamp` and `--end_timestamp` flags](https://github.com/lightninglabs/taproot-assets/pull/1794).
+
+- The `tapcli addrs receives` command now has new flags `--limit`, `--offset` and
+  `--direction` that allows pagination and sorting. [See PR](https://github.com/lightninglabs/taproot-assets/pull/1813).
 
 - The `fetchsupplycommit` command [now supports](https://github.com/lightninglabs/taproot-assets/pull/1823)
   a `--first` flag to fetch the very first supply commitment; if no flag is
