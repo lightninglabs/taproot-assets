@@ -365,6 +365,76 @@ type PreCommitment struct {
 	GroupPubKey btcec.PublicKey
 }
 
+// NewPreCommitFromProof extracts and returns the supply pre-commitment from the
+// given issuance proof and delegation key.
+func NewPreCommitFromProof(issuanceProof proof.Proof,
+	delegationKey btcec.PublicKey) (PreCommitment, error) {
+
+	var zero PreCommitment
+
+	// Identify txOut in mint anchor transaction which corresponds to the
+	// supply pre-commitment output.
+	//
+	// Construct the expected pre-commit tx out.
+	expectedTxOut, err := tapgarden.PreCommitTxOut(delegationKey)
+	if err != nil {
+		return zero, fmt.Errorf("unable to derive expected pre-commit "+
+			"txout: %w", err)
+	}
+
+	var preCommitTxOutIndex int32 = -1
+	for idx := range issuanceProof.AnchorTx.TxOut {
+		txOut := *issuanceProof.AnchorTx.TxOut[idx]
+
+		// Compare txOut to the expected pre-commit tx out.
+		isValueEqual := txOut.Value == expectedTxOut.Value
+		isPkScriptEqual := bytes.Equal(
+			txOut.PkScript, expectedTxOut.PkScript,
+		)
+
+		if isValueEqual && isPkScriptEqual {
+			preCommitTxOutIndex = int32(idx)
+			break
+		}
+	}
+
+	// If we didn't find the pre-commit tx out, then return an error.
+	if preCommitTxOutIndex == -1 {
+		return zero, fmt.Errorf("unable to find pre-commit tx out in " +
+			"issuance anchor tx")
+	}
+
+	// Calculate the outpoint of the supply pre-commitment.
+	return PreCommitment{
+		BlockHeight: issuanceProof.BlockHeight,
+		MintingTxn:  &issuanceProof.AnchorTx,
+		OutIdx:      uint32(preCommitTxOutIndex),
+		InternalKey: keychain.KeyDescriptor{
+			PubKey: &delegationKey,
+		},
+		GroupPubKey: issuanceProof.Asset.GroupKey.GroupPubKey,
+	}, nil
+}
+
+// NewPreCommitFromMintEvent extracts and returns the supply pre-commitment
+// from the given mint event.
+func NewPreCommitFromMintEvent(issuanceEntry NewMintEvent,
+	delegationKey btcec.PublicKey) (PreCommitment, error) {
+
+	var zero PreCommitment
+
+	issuanceLeaf := issuanceEntry.IssuanceProof
+
+	var issuanceProof proof.Proof
+	err := issuanceProof.Decode(bytes.NewReader(issuanceLeaf.RawProof))
+	if err != nil {
+		return zero, fmt.Errorf("unable to decode issuance proof: %w",
+			err)
+	}
+
+	return NewPreCommitFromProof(issuanceProof, delegationKey)
+}
+
 // TxIn returns the transaction input that corresponds to the pre-commitment.
 func (p *PreCommitment) TxIn() *wire.TxIn {
 	return &wire.TxIn{
