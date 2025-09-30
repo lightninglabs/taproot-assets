@@ -813,6 +813,15 @@ func (v *Verifier) VerifyCommit(ctx context.Context,
 			"group when verifying supply commitment: %w", err)
 	}
 
+	// Verify that we have at least as many supply pre-commitments as
+	// new issuance leaves. Each issuance leaf must correspond to a
+	// pre-commitment output created at the time of asset issuance.
+	if len(unspentPreCommits) < len(leaves.IssuanceLeafEntries) {
+		return fmt.Errorf("not enough unspent supply pre-commitment "+
+			"outputs for issuance leaves: have %d, need %d",
+			len(unspentPreCommits), len(leaves.IssuanceLeafEntries))
+	}
+
 	// Perform validation of the provided supply leaves.
 	err = v.verifySupplyLeaves(ctx, assetSpec, delegationKey, leaves)
 	if err != nil {
