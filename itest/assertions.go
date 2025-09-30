@@ -2875,5 +2875,10 @@ func WaitForSupplyCommit(t *testing.T, ctx context.Context,
 		Index: fetchResp.ChainData.TxOutIdx,
 	}
 
+	require.Equal(
+		t, supplyCommitOutpoint.String(),
+		fetchResp.ChainData.CommitOutpoint,
+	)
+
 	return fetchResp, supplyCommitOutpoint
 }
