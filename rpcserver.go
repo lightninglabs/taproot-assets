@@ -2224,6 +2224,33 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 
 	var sqlQuery address.EventQueryParams
 
+	if req.Offset < 0 {
+		return nil, fmt.Errorf("offset must be non-negative")
+	}
+	if req.Limit < 0 {
+		return nil, fmt.Errorf("limit must be non-negative")
+	}
+	if req.Limit > address.MaxEventQueryLimit {
+		return nil, fmt.Errorf("limit must be less than %d",
+			address.MaxEventQueryLimit)
+	}
+
+	sqlQuery.Offset = req.Offset
+	sqlQuery.Limit = req.Limit
+	sqlQuery.SortDirection = address.DescSortDirection
+
+	switch req.GetDirection() {
+	case taprpc.SortDirection_SORT_DIRECTION_DESC:
+		sqlQuery.SortDirection = address.DescSortDirection
+
+	case taprpc.SortDirection_SORT_DIRECTION_ASC:
+		sqlQuery.SortDirection = address.AscSortDirection
+
+	default:
+		return nil, fmt.Errorf("invalid sort direction: %v",
+			req.GetDirection())
+	}
+
 	if len(req.FilterAddr) > 0 {
 		addr, err := address.DecodeAddress(
 			req.FilterAddr, &r.cfg.ChainParams,
