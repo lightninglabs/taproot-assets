@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/hex"
 
+	"github.com/btcsuite/btcd/wire"
 	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -111,23 +111,7 @@ func testBurnAssets(t *harnessTest) {
 		t.t, t.tapd, simpleAssetGen.AssetId, simpleAsset.Amount,
 	)
 
-	// Test case 1: We'll now try to the exact amount of the largest output,
-	// which should still select exactly that one largest output, which is
-	// located alone in an anchor output. When attempting to burn this, we
-	// should get an error saying that we cannot completely burn all assets
-	// in an output.
-	_, err = t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: simpleAssetID[:],
-		},
-		AmountToBurn:     outputAmounts[3],
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
-	})
-	require.ErrorContains(
-		t.t, err, tapfreighter.ErrFullBurnNotSupported.Error(),
-	)
-
-	// Test case 2: We'll now try to burn a small amount of assets, which
+	// Test case 1: We'll now try to burn a small amount of assets, which
 	// should select the largest output, which is located alone in an anchor
 	// output.
 	const (
@@ -208,7 +192,7 @@ func testBurnAssets(t *harnessTest) {
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
 	AssertReceiveEvents(t.t, fullSendAddr, stream)
 
-	// Test case 3: Burn all assets of one asset ID (in this case a single
+	// Test case 2: Burn all assets of one asset ID (in this case a single
 	// collectible from the original mint TX), while there are other,
 	// passive assets in the anchor output.
 	burnResp, err = t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
@@ -237,7 +221,7 @@ func testBurnAssets(t *harnessTest) {
 		WithScriptKeyType(asset.ScriptKeyBurn),
 	)
 
-	// Test case 4: Burn assets from multiple inputs. This will select the
+	// Test case 3: Burn assets from multiple inputs. This will select the
 	// two largest inputs we have, the one over 1500 we sent above and the
 	// 1200 from the initial fan out transfer.
 	const changeAmt = 300
@@ -283,7 +267,7 @@ func testBurnAssets(t *harnessTest) {
 	require.NoError(t.t, err)
 	t.Logf("All assets before last burn: %v", assets)
 
-	// Test case 5: Burn some units of a grouped asset. We start by making
+	// Test case 4: Burn some units of a grouped asset. We start by making
 	// sure we still have the full balance before burning.
 	AssertBalanceByID(
 		t.t, t.tapd, simpleGroupGen.AssetId, simpleGroup.Amount,
@@ -344,7 +328,7 @@ func testBurnAssets(t *harnessTest) {
 
 	require.Equal(t.t, groupBurn.Note, "")
 
-	// Test case 6: Burn the single unit of a grouped collectible. We start
+	// Test case 5: Burn the single unit of a grouped collectible. We start
 	// by making sure we still have the full balance before burning.
 	AssertBalanceByID(
 		t.t, t.tapd, simpleGroupCollectGen.AssetId,
@@ -523,4 +507,121 @@ func testBurnGroupedAssets(t *harnessTest) {
 	require.Equal(t.t, burnAmt, burn.Amount)
 	require.Equal(t.t, burnNote, burn.Note)
 	require.Equal(t.t, assetGroupKey, burn.TweakedGroupKey)
+}
+
+// testFullBurnUTXO tests that we can burn the full amount of an asset UTXO.
+func testFullBurnUTXO(t *harnessTest) {
+	minerClient := t.lndHarness.Miner().Client
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Test 1: Burn the full amount of a simple asset.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, minerClient, t.tapd, []*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+		},
+	)
+	simpleAsset := rpcAssets[0]
+	simpleAssetGen := simpleAsset.AssetGenesis
+	var simpleAssetID [32]byte
+	copy(simpleAssetID[:], simpleAssetGen.AssetId)
+
+	AssertBalanceByID(
+		t.t, t.tapd, simpleAssetGen.AssetId, simpleAsset.Amount,
+	)
+
+	// Perform a full burn of the asset.
+	fullBurnAmt := simpleAsset.Amount
+	burnResp, err := t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
+		Asset: &taprpc.BurnAssetRequest_AssetId{
+			AssetId: simpleAssetID[:],
+		},
+		AmountToBurn:     fullBurnAmt,
+		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+	})
+	require.NoError(t.t, err)
+
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
+		[][]byte{simpleAssetGen.AssetId},
+		[]uint64{fullBurnAmt}, 0, 1, 1, true,
+	)
+	AssertBalanceByID(t.t, t.tapd, simpleAssetGen.AssetId, 0)
+
+	// Export and verify the burn proof for the simple asset.
+	wop, err := wire.NewOutPointFromString(
+		burnResp.BurnTransfer.Outputs[0].Anchor.Outpoint,
+	)
+	require.NoError(t.t, err)
+	outpoint := &taprpc.OutPoint{Txid: wop.Hash[:], OutputIndex: wop.Index}
+
+	proofResp := ExportProofFile(
+		t.t, t.tapd,
+		burnResp.BurnProof.Asset.AssetGenesis.AssetId,
+		burnResp.BurnProof.Asset.ScriptKey,
+		outpoint,
+	)
+	verifyResp, err := t.tapd.VerifyProof(ctxt, &taprpc.ProofFile{
+		RawProofFile: proofResp.RawProofFile,
+	})
+	require.NoError(t.t, err)
+	require.True(t.t, verifyResp.Valid)
+
+	// Test 2: Burn the full amount of a collectible asset.
+	rpcAssets = MintAssetsConfirmBatch(
+		t.t, minerClient, t.tapd, []*mintrpc.MintAssetRequest{
+			simpleAssets[1],
+		},
+	)
+	collectibleAsset := rpcAssets[0]
+	collectibleAssetGen := collectibleAsset.AssetGenesis
+	var collectibleAssetID [32]byte
+	copy(collectibleAssetID[:], collectibleAssetGen.AssetId)
+
+	AssertBalanceByID(
+		t.t, t.tapd, collectibleAssetGen.AssetId,
+		collectibleAsset.Amount,
+	)
+
+	fullBurnAmt = collectibleAsset.Amount
+	burnResp, err = t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
+		Asset: &taprpc.BurnAssetRequest_AssetId{
+			AssetId: collectibleAssetID[:],
+		},
+		AmountToBurn:     fullBurnAmt,
+		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+	})
+	require.NoError(t.t, err)
+
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
+		[][]byte{collectibleAssetID[:]},
+		[]uint64{fullBurnAmt}, 1, 2, 1, true,
+	)
+	AssertBalanceByID(t.t, t.tapd, collectibleAssetID[:], 0)
+
+	// Export and verify the burn proof for the collectible.
+	wop, err = wire.NewOutPointFromString(
+		burnResp.BurnTransfer.Outputs[0].Anchor.Outpoint,
+	)
+	require.NoError(t.t, err)
+	outpoint = &taprpc.OutPoint{Txid: wop.Hash[:], OutputIndex: wop.Index}
+
+	proofResp = ExportProofFile(
+		t.t, t.tapd,
+		burnResp.BurnProof.Asset.AssetGenesis.AssetId,
+		burnResp.BurnProof.Asset.ScriptKey,
+		outpoint,
+	)
+	verifyResp, err = t.tapd.VerifyProof(ctxt, &taprpc.ProofFile{
+		RawProofFile: proofResp.RawProofFile,
+	})
+	require.NoError(t.t, err)
+	require.True(t.t, verifyResp.Valid)
+
+	// Verify that we have 2 burns.
+	burns := AssertNumBurns(t.t, t.tapd, 2, nil)
+	require.Equal(t.t, simpleAssetGen.AssetId, burns[0].AssetId)
+	require.Equal(t.t, collectibleAssetGen.AssetId, burns[1].AssetId)
 }

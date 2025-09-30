@@ -220,6 +220,9 @@
   `wallet.psbt-max-fee-ratio` and is introduced by
   [PR #1545](https://github.com/lightninglabs/taproot-assets/pull/1545).
 
+- Enable [burning the full amount of an asset](https://github.com/lightninglabs/taproot-assets/pull/1791)
+  when it is the sole one anchored to a Bitcoin UTXO.
+
 ## RPC Updates
 
 ## tapcli Updates
