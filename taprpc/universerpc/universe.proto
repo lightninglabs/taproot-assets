@@ -822,6 +822,12 @@ message FetchSupplyCommitRequest {
         // as the group anchor). This is useful as the starting point to fetch
         // all supply commitments for a grouped asset one by one.
         bool very_first = 5;
+
+        // Fetch the latest supply commitment for the asset group. This returns
+        // the most recent supply commitment that is anchored on chain for the
+        // asset group. This is useful to always get the current supply state
+        // of the asset group.
+        bool latest = 6;
     }
 }
 
