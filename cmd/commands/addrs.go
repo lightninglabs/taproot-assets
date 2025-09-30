@@ -158,6 +158,8 @@ const (
 	limitName = "limit"
 
 	offsetName = "offset"
+
+	directionName = "direction"
 )
 
 var queryAddrsCommand = cli.Command{
@@ -293,6 +295,20 @@ var receivesAddrCommand = cli.Command{
 			Usage: "filter transfers created before this + " +
 				"unix timestamp (seconds)",
 		},
+		cli.Int64Flag{
+			Name:  limitName,
+			Usage: "the max number of events returned",
+		},
+		cli.Int64Flag{
+			Name:  offsetName,
+			Usage: "the number of events to skip",
+		},
+		cli.StringFlag{
+			Name: directionName,
+			Usage: "the sort direction for events (asc or desc). " +
+				"Defaults to desc.",
+			Value: "desc",
+		},
 	},
 	Action: addrReceives,
 }
@@ -311,10 +327,18 @@ func addrReceives(ctx *cli.Context) error {
 		addr = ctx.Args().First()
 	}
 
+	direction := taprpc.SortDirection_SORT_DIRECTION_DESC
+	if ctx.String(directionName) == "asc" {
+		direction = taprpc.SortDirection_SORT_DIRECTION_ASC
+	}
+
 	resp, err := client.AddrReceives(ctxc, &taprpc.AddrReceivesRequest{
 		FilterAddr:     addr,
 		StartTimestamp: ctx.Uint64("start_timestamp"),
 		EndTimestamp:   ctx.Uint64("end_timestamp"),
+		Limit:          int32(ctx.Int64(limitName)),
+		Offset:         int32(ctx.Int64(offsetName)),
+		Direction:      direction,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to query addr receives: %w", err)
