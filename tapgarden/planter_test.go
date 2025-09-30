@@ -272,8 +272,9 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(isFunded bool,
 
 	for i, seedling := range seedlings {
 		seedling := seedling
+
+		t.keyRing.ResetDeriveNextKeyCallCount()
 		keyCount := 0
-		t.keyRing.Calls = nil
 
 		// For the first seedling sent, we should get a new request,
 		// representing the batch internal key.
@@ -310,18 +311,21 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(isFunded bool,
 		// The received update should be a state of MintingStateSeed.
 		require.Equal(t, tapgarden.MintingStateSeed, update.NewState)
 
-		require.Eventually(t, func() bool {
+		err = wait.NoError(func() error {
 			// Assert that the key ring method DeriveNextKey was
 			// called the expected number of times.
-			count := 0
-			for _, call := range t.keyRing.Calls {
-				if call.Method == "DeriveNextKey" {
-					count++
-				}
+			expectedCount := keyCount
+			actualCount := t.keyRing.DeriveNextKeyCallCount()
+
+			if actualCount < expectedCount {
+				return fmt.Errorf("expected %d calls to key "+
+					"derivation, got %d", expectedCount,
+					actualCount)
 			}
 
-			return count == keyCount
-		}, defaultTimeout, wait.PollInterval)
+			return nil
+		}, defaultTimeout)
+		require.NoError(t, err)
 	}
 }
 
@@ -332,13 +336,26 @@ func (t *mintingTestHarness) assertPendingBatchExists(numSeedlings int) {
 
 	// The planter is a state machine, so we need to wait until it has
 	// reached the expected state.
-	require.Eventually(t, func() bool {
+	err := wait.NoError(func() error {
 		batch, err := t.planter.PendingBatch()
-		require.NoError(t, err)
+		if err != nil {
+			return fmt.Errorf("unable to fetch pending batch: %w",
+				err)
+		}
 
-		require.NotNil(t, batch)
-		return len(batch.Seedlings) == numSeedlings
-	}, defaultTimeout, wait.PollInterval)
+		if batch == nil {
+			return fmt.Errorf("expected pending batch to be " +
+				"non-nil")
+		}
+
+		if len(batch.Seedlings) < numSeedlings {
+			return fmt.Errorf("expected %d seedlings, got %d",
+				numSeedlings, len(batch.Seedlings))
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, err)
 }
 
 // assertNoActiveBatch asserts that no pending batch exists.
