@@ -3,6 +3,7 @@ package tapdb
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -693,4 +694,81 @@ func TestMigration37(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, burns, 5)
+}
+
+// TestDirtySqliteVersion tests that if a migration fails and leaves an Sqlite
+// database backend in a dirty state, any attempts of re-executing migrations on
+// the db (i.e. restart tapd), will fail with an error indicating that the
+// database is in a dirty state. This is regardless of whether the failing
+// migration is the latest migration or an intermediate migration.
+func TestDirtySqliteVersion(t *testing.T) {
+	var (
+		err       error
+		testError = errors.New("test error")
+
+		// testPostMigrationChecks1 is a map that will trigger a
+		// migration callback for migration 2 which always returns an
+		// error. This is used to simulate an intermediate migration
+		// that fails and leaves the db in a dirty state.
+		testPostMigrationChecks1 = map[uint]postMigrationCheck{
+			2: func(ctx context.Context, q sqlc.Querier) error {
+				return testError
+			},
+		}
+
+		// testPostMigrationChecks2 is a map that will trigger a
+		// migration callback for the latest migration which always
+		// returns an error. This is used to simulate that the latest
+		// migration fails and leaves the db in a dirty state.
+		testPostMigrationChecks2 = map[uint]postMigrationCheck{
+			LatestMigrationVersion: func(ctx context.Context,
+				q sqlc.Querier) error {
+
+				return testError
+			},
+		}
+	)
+
+	// First, we'll test that intermediate migration that fails and leaves
+	// the db in a dirty state is detected on subsequent migration attempts.
+	// Note that this test only targets Sqlite database backends, and
+	// therefore we create a new Sqlite test db for this.
+	db1 := NewTestSqliteDBWithVersion(t, 1)
+
+	// As intend that the failing migration version should be an
+	// intermediate migration, we use the testPostMigrationChecks1 when
+	// executing the migration. Note that we use the `backupAndMigrate` func
+	// as the MigrationTarget, to simulate what is used in production for
+	// Sqlite database backends.
+	err = db1.ExecuteMigrations(db1.backupAndMigrate, WithPostStepCallbacks(
+		makePostStepCallbacks(db1, testPostMigrationChecks1),
+	))
+	require.ErrorIs(t, err, testError)
+
+	// If we now attempt to execute migrations again, it should fail with an
+	// error indicating that the db is in a dirty state.
+	err = db1.ExecuteMigrations(db1.backupAndMigrate, WithPostStepCallbacks(
+		makePostStepCallbacks(db1, testPostMigrationChecks1),
+	))
+	require.ErrorContains(t, err, "database is in a dirty state")
+
+	// Next, we'll test that if the **latest** migration fails and leaves
+	// the db in a dirty state, that this is also detected on subsequent
+	// migration attempts.
+	db2 := NewTestSqliteDBWithVersion(t, 1)
+
+	// As we intend that the failing migration version should be the latest
+	// migration, we now use the testPostMigrationChecks2 when executing
+	// the migration.
+	err = db2.ExecuteMigrations(db2.backupAndMigrate, WithPostStepCallbacks(
+		makePostStepCallbacks(db2, testPostMigrationChecks2),
+	))
+	require.ErrorIs(t, err, testError)
+
+	// If we now attempt to execute migrations again, it should fail with an
+	// error indicating that the db is in a dirty state.
+	err = db2.ExecuteMigrations(db2.backupAndMigrate, WithPostStepCallbacks(
+		makePostStepCallbacks(db2, testPostMigrationChecks2),
+	))
+	require.ErrorContains(t, err, "database is in a dirty state")
 }
