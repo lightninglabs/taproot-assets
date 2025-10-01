@@ -935,6 +935,102 @@ func TestQueryAddrEvents(t *testing.T) {
 	require.Equal(t, event.Outpoint, events[0].Outpoint)
 }
 
+// TestQueryAddrEventsPagination tests that query parameters for pagination are
+// applied when listing address events.
+func TestQueryAddrEventsPagination(t *testing.T) {
+	t.Parallel()
+
+	// First, make a new addr book instance we'll use in the test below.
+	testClock := clock.NewTestClock(time.Now())
+	addrBook, _ := newAddrBook(t, testClock)
+
+	ctx := context.Background()
+
+	// Insert a test address.
+	addrVersion := test.RandFlip(address.V0, address.V1)
+	proofCourierAddr := address.RandProofCourierAddrForVersion(
+		t, addrVersion,
+	)
+	addr, assetGen, assetGroup := address.RandAddrWithVersion(
+		t, chainParams, proofCourierAddr, addrVersion,
+	)
+	err := addrBook.db.ExecTx(
+		ctx, WriteTxOption(),
+		insertFullAssetGen(ctx, assetGen, assetGroup),
+	)
+	require.NoError(t, err)
+	require.NoError(t, addrBook.InsertAddrs(ctx, *addr))
+
+	// Insert events.
+	const numEvents = 3
+	events := make([]*address.Event, numEvents)
+	baseTime := testClock.Now().Add(-time.Duration(numEvents) * time.Second)
+	for i := range numEvents {
+		testClock.SetTime(baseTime.Add(time.Duration(i) * time.Second))
+		tx := randWalletTx()
+		event, err := addrBook.GetOrCreateEvent(
+			ctx, address.StatusTransactionDetected,
+			newTransfer(t, addr, tx, 0),
+		)
+		require.NoError(t, err)
+		events[i] = event
+	}
+
+	testCases := []struct {
+		testName       string
+		params         address.EventQueryParams
+		expectedEvents []*address.Event
+	}{
+		{
+			testName:       "all events",
+			params:         address.EventQueryParams{},
+			expectedEvents: events,
+		},
+		{
+			testName: "limit",
+			params: address.EventQueryParams{
+				Limit: 2,
+			},
+			expectedEvents: events[:2],
+		},
+		{
+			testName: "offset and limit",
+			params: address.EventQueryParams{
+				Limit:  2,
+				Offset: 2,
+			},
+			expectedEvents: events[2:3],
+		},
+		{
+			testName: "ordering asc",
+			params: address.EventQueryParams{
+				SortDirection: address.AscSortDirection,
+			},
+			expectedEvents: events,
+		},
+		{
+			testName: "ordering desc",
+			params: address.EventQueryParams{
+				SortDirection: address.DescSortDirection,
+			},
+			expectedEvents: []*address.Event{
+				events[2], events[1], events[0],
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.testName, func(t *testing.T) {
+			dbEvents, err := addrBook.QueryAddrEvents(
+				ctx, tc.params,
+			)
+			require.NoError(t, err)
+
+			assertEqualAddrEvents(t, tc.expectedEvents, dbEvents)
+		})
+	}
+}
+
 // TestAddrByScriptKeyAndVersion tests that we can retrieve an address by its
 // script key and version.
 func TestAddrByScriptKeyAndVersion(t *testing.T) {

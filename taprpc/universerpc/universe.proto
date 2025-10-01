@@ -225,7 +225,7 @@ message AssetRootRequest {
     int32 limit = 3;
 
     // The direction of the page.
-    SortDirection direction = 4;
+    taprpc.SortDirection direction = 4;
 
     // TODO(roasbeef): filter by asset ID, etc?
 }
@@ -352,7 +352,7 @@ message AssetLeafKeysRequest {
     int32 limit = 3;
 
     // The direction of the page.
-    SortDirection direction = 4;
+    taprpc.SortDirection direction = 4;
 }
 
 message AssetLeafKeyResponse {
@@ -566,12 +566,6 @@ enum AssetQuerySort {
     SORT_BY_TOTAL_SUPPLY = 7;
 }
 
-enum SortDirection {
-    SORT_DIRECTION_ASC = 0;
-
-    SORT_DIRECTION_DESC = 1;
-}
-
 enum AssetTypeFilter {
     FILTER_ASSET_NONE = 0;
 
@@ -606,7 +600,7 @@ message AssetStatsQuery {
     // The direction of the sort. If this is set to SORT_DIRECTION_ASC, then
     // the results are sorted in ascending order. If set to
     // SORT_DIRECTION_DESC, then the results are sorted in descending order.
-    SortDirection direction = 7;
+    taprpc.SortDirection direction = 7;
 }
 
 message AssetStatsSnapshot {

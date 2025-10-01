@@ -551,13 +551,12 @@ func (m *Manager) InsertSupplyCommit(ctx context.Context,
 		commitment.CommitPoint().String())
 
 	// Fetch all known unspent pre-commitment outputs for the asset group.
-	unspentPreCommits, err :=
-		m.cfg.SupplyCommitView.UnspentPrecommits(
-			ctx, assetSpec, false,
-		).Unpack()
+	preCommits, err := FetchPreCommits(ctx,
+		m.cfg.AssetLookup, m.cfg.SupplyCommitView, assetSpec,
+		commitment, leaves.IssuanceLeafEntries,
+	)
 	if err != nil {
-		return fmt.Errorf("unable to fetch unspent pre-commitments: %w",
-			err)
+		return fmt.Errorf("unable to fetch pre-commitments: %w", err)
 	}
 
 	// First, we verify the supply commitment to ensure it is valid and
@@ -578,7 +577,7 @@ func (m *Manager) InsertSupplyCommit(ctx context.Context,
 	}
 
 	err = verifier.VerifyCommit(
-		ctx, assetSpec, commitment, leaves, unspentPreCommits,
+		ctx, assetSpec, commitment, leaves, preCommits,
 	)
 	if err != nil {
 		return fmt.Errorf("supply commitment verification failed: %w",
@@ -586,7 +585,7 @@ func (m *Manager) InsertSupplyCommit(ctx context.Context,
 	}
 
 	return m.cfg.SupplyCommitView.InsertSupplyCommit(
-		ctx, assetSpec, commitment, leaves, unspentPreCommits,
+		ctx, assetSpec, commitment, leaves, preCommits,
 	)
 }
 

@@ -34,3 +34,11 @@ message AssetOutPoint {
     // asset is locked to.
     bytes script_key = 3;
 }
+
+enum SortDirection {
+    // Sort results in descending order.
+    SORT_DIRECTION_DESC = 0;
+
+    // Sort results in ascending order.
+    SORT_DIRECTION_ASC = 1;
+}

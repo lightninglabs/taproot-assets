@@ -995,6 +995,9 @@ func (t *TapAddressBook) QueryAddrEvents(
 		StatusTo:      int16(address.StatusCompleted),
 		CreatedAfter:  time.Unix(0, 0).UTC(),
 		CreatedBefore: now,
+		NumLimit:      params.Limit,
+		NumOffset:     params.Offset,
+		SortDirection: sqlInt16(params.SortDirection),
 	}
 
 	if len(params.AddrTaprootOutputKey) > 0 {
@@ -1018,6 +1021,9 @@ func (t *TapAddressBook) QueryAddrEvents(
 	if sqlQuery.CreatedAfter.After(sqlQuery.CreatedBefore) {
 		return nil, fmt.Errorf("created after time after " +
 			"created before time")
+	}
+	if params.Limit == 0 {
+		sqlQuery.NumLimit = int32(address.DefaultEventQueryLimit)
 	}
 
 	var (

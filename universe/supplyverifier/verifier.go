@@ -16,7 +16,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
-	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // VerifierCfg is the configuration for the verifier.
@@ -539,7 +538,9 @@ func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 
 	// Attempt to extract the pre-commitment output from the issuance proof
 	// anchor transaction.
-	_, err = ExtractPreCommitOutput(issuanceProof, delegationKey)
+	_, err = supplycommit.NewPreCommitFromProof(
+		issuanceProof, delegationKey,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to extract pre-commit output from "+
 			"issuance proof anchor tx: %w", err)
@@ -727,30 +728,6 @@ func (v *Verifier) verifySupplyLeaves(ctx context.Context,
 	return nil
 }
 
-// fetchDelegationKey fetches the delegation key for the given asset specifier.
-func (v *Verifier) fetchDelegationKey(ctx context.Context,
-	assetSpec asset.Specifier) (btcec.PublicKey, error) {
-
-	var zero btcec.PublicKey
-
-	metaReveal, err := supplycommit.FetchLatestAssetMetadata(
-		ctx, v.cfg.AssetLookup, assetSpec,
-	)
-	if err != nil {
-		return zero, fmt.Errorf("unable to fetch asset "+
-			"metadata: %w", err)
-	}
-
-	delegationKey, err := metaReveal.DelegationKey.UnwrapOrErr(
-		fmt.Errorf("missing delegation key in asset metadata"),
-	)
-	if err != nil {
-		return zero, err
-	}
-
-	return delegationKey, nil
-}
-
 // VerifyCommit verifies a supply commitment for a given asset group.
 // Verification succeeds only if all previous supply commitment dependencies
 // are known and verified. The dependency chain must be traceable back to the
@@ -801,7 +778,9 @@ func (v *Verifier) VerifyCommit(ctx context.Context,
 			"commitment with given outpoint: %w", err)
 	}
 
-	delegationKey, err := v.fetchDelegationKey(ctx, assetSpec)
+	delegationKey, err := FetchDelegationKey(
+		ctx, v.cfg.AssetLookup, assetSpec,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to fetch delegation key: %w", err)
 	}
@@ -811,6 +790,15 @@ func (v *Verifier) VerifyCommit(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("asset specifier must specify an asset "+
 			"group when verifying supply commitment: %w", err)
+	}
+
+	// Verify that we have at least as many supply pre-commitments as
+	// new issuance leaves. Each issuance leaf must correspond to a
+	// pre-commitment output created at the time of asset issuance.
+	if len(unspentPreCommits) < len(leaves.IssuanceLeafEntries) {
+		return fmt.Errorf("not enough unspent supply pre-commitment "+
+			"outputs for issuance leaves: have %d, need %d",
+			len(unspentPreCommits), len(leaves.IssuanceLeafEntries))
 	}
 
 	// Perform validation of the provided supply leaves.
@@ -834,54 +822,4 @@ func (v *Verifier) VerifyCommit(ctx context.Context,
 		ctx, assetSpec, commitment, leaves,
 		unspentPreCommits,
 	)
-}
-
-// ExtractPreCommitOutput extracts and returns the supply pre-commitment output
-// from the given issuance proof and asset metadata reveal.
-func ExtractPreCommitOutput(issuanceProof proof.Proof,
-	delegationKey btcec.PublicKey) (supplycommit.PreCommitment, error) {
-
-	var zero supplycommit.PreCommitment
-
-	// Identify txOut in mint anchor transaction which corresponds to the
-	// supply pre-commitment output.
-	//
-	// Construct the expected pre-commit tx out.
-	expectedTxOut, err := tapgarden.PreCommitTxOut(delegationKey)
-	if err != nil {
-		return zero, fmt.Errorf("unable to derive expected pre-commit "+
-			"txout: %w", err)
-	}
-
-	var preCommitTxOutIndex int32 = -1
-	for idx := range issuanceProof.AnchorTx.TxOut {
-		txOut := *issuanceProof.AnchorTx.TxOut[idx]
-
-		// Compare txOut to the expected pre-commit tx out.
-		isValueEqual := txOut.Value == expectedTxOut.Value
-		isPkScriptEqual := bytes.Equal(
-			txOut.PkScript, expectedTxOut.PkScript,
-		)
-
-		if isValueEqual && isPkScriptEqual {
-			preCommitTxOutIndex = int32(idx)
-		}
-	}
-
-	// If we didn't find the pre-commit tx out, then return an error.
-	if preCommitTxOutIndex == -1 {
-		return zero, fmt.Errorf("unable to find pre-commit tx out in " +
-			"issuance anchor tx")
-	}
-
-	// Calculate the outpoint of the supply pre-commitment.
-	return supplycommit.PreCommitment{
-		BlockHeight: issuanceProof.BlockHeight,
-		MintingTxn:  &issuanceProof.AnchorTx,
-		OutIdx:      uint32(preCommitTxOutIndex),
-		InternalKey: keychain.KeyDescriptor{
-			PubKey: &delegationKey,
-		},
-		GroupPubKey: issuanceProof.Asset.GroupKey.GroupPubKey,
-	}, nil
 }

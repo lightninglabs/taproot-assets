@@ -1521,6 +1521,15 @@ message AddrReceivesRequest {
     // Filter receives by creation time less than or equal to this timestamp.
     // If not set, no end time filtering is applied.
     uint64 end_timestamp = 4;
+
+    // The number of events to skip.
+    int32 offset = 5;
+
+    // The max number of events returned.
+    int32 limit = 6;
+
+    // The direction of the page. Sorted by creation time.
+    SortDirection direction = 7;
 }
 
 message AddrReceivesResponse {

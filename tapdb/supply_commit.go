@@ -1151,6 +1151,12 @@ func (s *SupplyCommitMachine) InsertSupplyCommit(ctx context.Context,
 					"pre-commit outpoint: %w", err)
 			}
 
+			err = upsertSupplyPreCommit(ctx, db, preCommit)
+			if err != nil {
+				return fmt.Errorf("failed to upsert "+
+					"pre-commit: %w", err)
+			}
+
 			markParams := sqlc.MarkPreCommitSpentByOutpointParams{
 				SpentByCommitID: sqlInt64(newCommitmentID),
 				Outpoint:        outpointBytes,
