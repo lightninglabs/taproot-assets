@@ -5,12 +5,15 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	taprootassets "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/itest/rpcassert"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -18,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/stretchr/testify/require"
 )
@@ -1030,6 +1034,356 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 	)
 
 	t.Log("Supply commit mint and burn test completed successfully")
+}
+
+// testFetchSupplyLeaves tests the FetchSupplyLeaves RPC endpoint by:
+//
+//  1. Minting an asset group with supply commitments enabled.
+//  2. Calling FetchSupplyLeaves to verify initial mint leaves.
+//  3. Burning some of the asset and updating the supply commit.
+//  4. Calling FetchSupplyLeaves to verify burn leaves are included.
+//  5. Minting another tranche into the same group.
+//  6. Calling FetchSupplyLeaves to verify all leaves are present.
+//  7. Testing inclusion proof generation for various leaf types.
+func testFetchSupplyLeaves(t *harnessTest) {
+	ctxb := context.Background()
+
+	t.Log("Minting initial asset group with supply commitments enabled")
+	mintReq := CopyRequest(issuableAssets[0])
+	mintReq.Asset.Amount = 8000
+
+	rpcFirstAsset, _ := MintAssetWithSupplyCommit(
+		t, mintReq, fn.None[btcec.PublicKey](),
+	)
+
+	groupKeyBytes := rpcFirstAsset.AssetGroup.TweakedGroupKey
+	require.NotNil(t.t, groupKeyBytes)
+
+	t.Log("Creating first supply commitment transaction")
+	UpdateAndMineSupplyCommit(
+		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		groupKeyBytes, 1,
+	)
+
+	t.Log("Waiting for first supply commitment to be mined")
+	_, supplyOutpoint := WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.None[wire.OutPoint](),
+		func(resp *unirpc.FetchSupplyCommitResponse) bool {
+			return resp.ChainData.BlockHeight > 0 &&
+				len(resp.ChainData.BlockHash) > 0
+		},
+	)
+
+	t.Log("Fetching supply leaves after initial mint")
+	req := unirpc.FetchSupplyLeavesRequest{
+		GroupKey: &unirpc.FetchSupplyLeavesRequest_GroupKeyBytes{
+			GroupKeyBytes: groupKeyBytes,
+		},
+	}
+	leavesResp1, err := t.tapd.FetchSupplyLeaves(ctxb, &req)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, leavesResp1)
+
+	// Verify we have one issuance leaf and no burn/ignore leaves.
+	require.Len(
+		t.t, leavesResp1.IssuanceLeaves, 1,
+		"expected 1 issuance leaf after first mint",
+	)
+	require.Len(
+		t.t, leavesResp1.BurnLeaves, 0,
+		"expected 0 burn leaves after first mint",
+	)
+	require.Len(
+		t.t, leavesResp1.IgnoreLeaves, 0,
+		"expected 0 ignore leaves after first mint",
+	)
+
+	// Verify the issuance leaf amount.
+	issuanceLeaf1 := leavesResp1.IssuanceLeaves[0]
+	require.EqualValues(
+		t.t, mintReq.Asset.Amount, issuanceLeaf1.LeafNode.RootSum,
+		"issuance leaf amount mismatch",
+	)
+
+	t.Log("Burning portion of the asset")
+	const (
+		burnAmt  = 1500
+		burnNote = "FetchSupplyLeaves burn test"
+	)
+
+	burnResp, err := t.tapd.BurnAsset(ctxb, &taprpc.BurnAssetRequest{
+		Asset: &taprpc.BurnAssetRequest_AssetId{
+			AssetId: rpcFirstAsset.AssetGenesis.AssetId,
+		},
+		AmountToBurn:     burnAmt,
+		Note:             burnNote,
+		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+	})
+	require.NoError(t.t, err)
+	require.NotNil(t.t, burnResp)
+
+	t.Log("Confirming burn transaction")
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner().Client, t.tapd, burnResp.BurnTransfer,
+		[][]byte{rpcFirstAsset.AssetGenesis.AssetId},
+		[]uint64{mintReq.Asset.Amount - burnAmt, burnAmt},
+		0, 1, 2, true,
+	)
+
+	t.Log("Updating supply commitment after burn")
+	UpdateAndMineSupplyCommit(
+		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		groupKeyBytes, 1,
+	)
+
+	// Wait for the supply commitment to include the burn.
+	_, supplyOutpoint = WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(supplyOutpoint),
+		func(resp *unirpc.FetchSupplyCommitResponse) bool {
+			if resp.BurnSubtreeRoot == nil {
+				return false
+			}
+
+			actualBurnSum := resp.BurnSubtreeRoot.RootNode.RootSum
+			return actualBurnSum == int64(burnAmt)
+		},
+	)
+
+	t.Log("Fetching supply leaves after burn")
+	req = unirpc.FetchSupplyLeavesRequest{
+		GroupKey: &unirpc.FetchSupplyLeavesRequest_GroupKeyBytes{
+			GroupKeyBytes: groupKeyBytes,
+		},
+	}
+	leavesResp2, err := t.tapd.FetchSupplyLeaves(ctxb, &req)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, leavesResp2)
+
+	// Verify we have one issuance leaf and one burn leaf.
+	require.Len(
+		t.t, leavesResp2.IssuanceLeaves, 1,
+		"expected 1 issuance leaf after burn",
+	)
+	require.Len(
+		t.t, leavesResp2.BurnLeaves, 1,
+		"expected 1 burn leaf after burn",
+	)
+	require.Len(
+		t.t, leavesResp2.IgnoreLeaves, 0,
+		"expected 0 ignore leaves after burn",
+	)
+
+	burnLeaf := leavesResp2.BurnLeaves[0]
+	require.EqualValues(t.t, burnAmt, burnLeaf.LeafNode.RootSum,
+		"burn leaf amount mismatch")
+
+	t.Log("Minting second tranche into the same asset group")
+	secondMintReq := &mintrpc.MintAssetRequest{
+		Asset: &mintrpc.MintAsset{
+			AssetType: taprpc.AssetType_NORMAL,
+			Name:      "itestbuxx-fetchsupplyleaves-tranche-2",
+			AssetMeta: &taprpc.AssetMeta{
+				Data: []byte("second tranche for " +
+					"FetchSupplyLeaves test"),
+			},
+			Amount:          3500,
+			AssetVersion:    taprpc.AssetVersion_ASSET_VERSION_V1,
+			NewGroupedAsset: false,
+			GroupedAsset:    true,
+			GroupKey:        groupKeyBytes,
+
+			EnableSupplyCommitments: true,
+		},
+	}
+
+	rpcSecondAsset := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{secondMintReq},
+	)
+	require.Len(t.t, rpcSecondAsset, 1, "expected one minted asset")
+	require.EqualValues(
+		t.t, groupKeyBytes,
+		rpcSecondAsset[0].AssetGroup.TweakedGroupKey,
+	)
+
+	t.Log("Updating supply commitment after second mint")
+	UpdateAndMineSupplyCommit(
+		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		groupKeyBytes, 1,
+	)
+
+	// Wait for the supply commitment to include both mints.
+	expectedIssuanceTotal := int64(
+		mintReq.Asset.Amount + secondMintReq.Asset.Amount,
+	)
+	_, _ = WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(supplyOutpoint),
+		func(resp *unirpc.FetchSupplyCommitResponse) bool {
+			return resp.IssuanceSubtreeRoot != nil &&
+				resp.IssuanceSubtreeRoot.RootNode.RootSum ==
+					expectedIssuanceTotal
+		},
+	)
+
+	t.Log("Fetching supply leaves after second mint")
+	req = unirpc.FetchSupplyLeavesRequest{
+		GroupKey: &unirpc.FetchSupplyLeavesRequest_GroupKeyBytes{
+			GroupKeyBytes: groupKeyBytes,
+		},
+	}
+	leavesResp3, err := t.tapd.FetchSupplyLeaves(ctxb, &req)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, leavesResp3)
+
+	// Verify we have two issuance leaves and one burn leaf.
+	require.Len(
+		t.t, leavesResp3.IssuanceLeaves, 2,
+		"expected 2 issuance leaves after second mint",
+	)
+	require.Len(
+		t.t, leavesResp3.BurnLeaves, 1,
+		"expected 1 burn leaf after second mint",
+	)
+	require.Len(
+		t.t, leavesResp3.IgnoreLeaves, 0,
+		"expected 0 ignore leaves after second mint",
+	)
+
+	// Verify the total issuance amount across both leaves.
+	totalIssuanceAmount := int64(0)
+	for _, leaf := range leavesResp3.IssuanceLeaves {
+		totalIssuanceAmount += leaf.LeafNode.RootSum
+	}
+	require.EqualValues(
+		t.t, expectedIssuanceTotal, totalIssuanceAmount,
+		"total issuance amount mismatch",
+	)
+
+	t.Log("Testing inclusion proof generation for supply leaves")
+
+	// Collect leaf keys for inclusion proof request.
+	var issuanceLeafKeys [][]byte
+	var burnLeafKeys [][]byte
+	for _, leaf := range leavesResp3.IssuanceLeaves {
+		issuanceLeafKeys = append(
+			issuanceLeafKeys,
+			unmarshalRPCSupplyLeafKey(t.t, leaf.LeafKey),
+		)
+	}
+	for _, leaf := range leavesResp3.BurnLeaves {
+		burnLeafKeys = append(
+			burnLeafKeys,
+			unmarshalRPCSupplyLeafKey(t.t, leaf.LeafKey),
+		)
+	}
+
+	// Request supply leaves with inclusion proofs.
+	req = unirpc.FetchSupplyLeavesRequest{
+		GroupKey: &unirpc.FetchSupplyLeavesRequest_GroupKeyBytes{
+			GroupKeyBytes: groupKeyBytes,
+		},
+		IssuanceLeafKeys: issuanceLeafKeys,
+		BurnLeafKeys:     burnLeafKeys,
+	}
+	leavesRespWithProofs, err := t.tapd.FetchSupplyLeaves(ctxb, &req)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, leavesRespWithProofs)
+
+	// Verify that inclusion proofs are provided.
+	require.Len(
+		t.t, leavesRespWithProofs.IssuanceLeafInclusionProofs,
+		len(issuanceLeafKeys),
+		"expected inclusion proofs for all issuance leaf keys",
+	)
+	require.Len(
+		t.t, leavesRespWithProofs.BurnLeafInclusionProofs,
+		len(burnLeafKeys),
+		"expected inclusion proofs for all burn leaf keys",
+	)
+
+	t.Log("Verifying inclusion proof validity")
+
+	// Fetch the current supply commitment to get the subtree roots.
+	reqFetchCommit := unirpc.FetchSupplyCommitRequest{
+		GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
+			GroupKeyBytes: groupKeyBytes,
+		},
+		Locator: &unirpc.FetchSupplyCommitRequest_Latest{
+			Latest: true,
+		},
+	}
+	fetchResp, err := t.tapd.FetchSupplyCommit(ctxb, &reqFetchCommit)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, fetchResp)
+
+	// Verify issuance leaf inclusion proofs.
+	inclusionProofs := leavesRespWithProofs.IssuanceLeafInclusionProofs
+	for i, proofBytes := range inclusionProofs {
+		leafKey := fn.ToArray[[32]byte](issuanceLeafKeys[i])
+		leafNode := unmarshalMerkleSumNode(
+			leavesRespWithProofs.IssuanceLeaves[i].LeafNode,
+		)
+
+		expectedSubtreeRootHash := fn.ToArray[[32]byte](
+			fetchResp.IssuanceSubtreeRoot.RootNode.RootHash,
+		)
+
+		AssertInclusionProof(
+			t, expectedSubtreeRootHash, proofBytes,
+			leafKey, leafNode,
+		)
+	}
+
+	// Verify burn leaf inclusion proofs.
+	inclusionProofs = leavesRespWithProofs.BurnLeafInclusionProofs
+	for i, proofBytes := range inclusionProofs {
+		leafKey := fn.ToArray[[32]byte](burnLeafKeys[i])
+		leafNode := unmarshalMerkleSumNode(
+			leavesRespWithProofs.BurnLeaves[i].LeafNode,
+		)
+
+		expectedSubtreeRootHash := fn.ToArray[[32]byte](
+			fetchResp.BurnSubtreeRoot.RootNode.RootHash,
+		)
+
+		AssertInclusionProof(
+			t, expectedSubtreeRootHash, proofBytes,
+			leafKey, leafNode,
+		)
+	}
+}
+
+// unmarshalRPCSupplyLeafKey converts a *unirpc.SupplyLeafKey to a byte slice
+// using the same method as the universe key serialization.
+func unmarshalRPCSupplyLeafKey(t *testing.T,
+	leafKey *unirpc.SupplyLeafKey) []byte {
+
+	t.Helper()
+
+	hash, err := chainhash.NewHashFromStr(leafKey.Outpoint.HashStr)
+	require.NoError(t, err)
+
+	outpoint := wire.OutPoint{
+		Hash:  *hash,
+		Index: uint32(leafKey.Outpoint.Index),
+	}
+
+	scriptKeyPubKey, err := schnorr.ParsePubKey(leafKey.ScriptKey)
+	require.NoError(t, err)
+
+	scriptKey := asset.NewScriptKey(scriptKeyPubKey)
+
+	assetID := fn.ToArray[[32]byte](leafKey.AssetId)
+	assetLeafKey := universe.AssetLeafKey{
+		BaseLeafKey: universe.BaseLeafKey{
+			OutPoint:  outpoint,
+			ScriptKey: &scriptKey,
+		},
+		AssetID: assetID,
+	}
+
+	universeKey := assetLeafKey.UniverseKey()
+	return universeKey[:]
 }
 
 // testSupplyVerifyPeerNode verifies that a secondary node can sync and fetch

@@ -4339,8 +4339,9 @@ func marshalSupplyLeaves(
 	return rpcIssuanceLeaves, rpcBurnLeaves, rpcIgnoreLeaves, nil
 }
 
-// FetchSupplyLeaves returns the set of supply leaves for the given asset
-// specifier within the specified height range.
+// FetchSupplyLeaves fetches the supply leaves for a specific asset group
+// within a specified block height range. The leaves include issuance, burn,
+// and ignore leaves, which represent the supply changes for the asset group.
 func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 	req *unirpc.FetchSupplyLeavesRequest) (
 	*unirpc.FetchSupplyLeavesResponse, error) {

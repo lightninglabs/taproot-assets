@@ -384,6 +384,10 @@ var allTestCases = []*testCase{
 		test: testSupplyVerifyPeerNode,
 	},
 	{
+		name: "fetch supply leaves",
+		test: testFetchSupplyLeaves,
+	},
+	{
 		name: "auth mailbox message store and fetch",
 		test: testAuthMailboxStoreAndFetchMessage,
 	},
