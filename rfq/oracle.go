@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
 
 // PriceQueryIntent is an enum that represents the intent of a price rate
@@ -196,6 +197,21 @@ func serverDialOpts() ([]grpc.DialOption, error) {
 	transportCredentials := credentials.NewTLS(&tlsConfig)
 	opts = append(opts, grpc.WithTransportCredentials(transportCredentials))
 
+	// Configure client-side keepalive parameters. These settings ensure
+	// the client actively probes the connection health and prevents idle
+	// connections from being silently closed by intermediaries or the
+	// server.
+	opts = append(opts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
+		// Ping server after 30 seconds of inactivity.
+		Time: 30 * time.Second,
+		// Wait 20 seconds for ping response.
+		Timeout: 20 * time.Second,
+		// Permit keepalive pings even when there are no active
+		// streams. This is critical for long-lived connections with
+		// infrequent RFQ requests.
+		PermitWithoutStream: true,
+	}))
+
 	return opts, nil
 }
 
@@ -208,6 +224,21 @@ func insecureServerDialOpts() ([]grpc.DialOption, error) {
 	opts = append(opts, grpc.WithTransportCredentials(
 		insecure.NewCredentials(),
 	))
+
+	// Configure client-side keepalive parameters. These settings ensure
+	// the client actively probes the connection health and prevents idle
+	// connections from being silently closed by intermediaries or the
+	// server.
+	opts = append(opts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
+		// Ping server after 30 seconds of inactivity.
+		Time: 30 * time.Second,
+		// Wait 20 seconds for ping response.
+		Timeout: 20 * time.Second,
+		// Permit keepalive pings even when there are no active
+		// streams. This is critical for long-lived connections with
+		// infrequent RFQ requests.
+		PermitWithoutStream: true,
+	}))
 
 	return opts, nil
 }
