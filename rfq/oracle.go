@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
 
 // PriceQueryIntent is an enum that represents the intent of a price rate
@@ -186,15 +187,37 @@ type RpcPriceOracle struct {
 	rawConn *grpc.ClientConn
 }
 
+// clientKeepaliveDialOption configures bidirectional health probing to prevent
+// idle RFQ connections from being silently terminated by network intermediaries
+// (NATs, load balancers) or aggressive server timeouts. Without active
+// keepalive, the first price query after an idle period would fail with
+// "connection reset by peer" and require a retry.
+var clientKeepaliveDialOption = grpc.WithKeepaliveParams(
+	keepalive.ClientParameters{
+		// Ping server after 30 seconds of inactivity.
+		Time: 30 * time.Second,
+
+		// Wait 20 seconds for ping response.
+		Timeout: 20 * time.Second,
+
+		// Permit keepalive pings even when there are no active
+		// streams. This is critical for long-lived connections with
+		// infrequent RFQ requests.
+		PermitWithoutStream: true,
+	},
+)
+
 // serverDialOpts returns the set of server options needed to connect to the
 // price oracle RPC server using a TLS connection.
 func serverDialOpts() ([]grpc.DialOption, error) {
 	var opts []grpc.DialOption
 
-	// Skip TLS certificate verification.
 	tlsConfig := tls.Config{InsecureSkipVerify: true}
 	transportCredentials := credentials.NewTLS(&tlsConfig)
+
 	opts = append(opts, grpc.WithTransportCredentials(transportCredentials))
+
+	opts = append(opts, clientKeepaliveDialOption)
 
 	return opts, nil
 }
@@ -208,6 +231,8 @@ func insecureServerDialOpts() ([]grpc.DialOption, error) {
 	opts = append(opts, grpc.WithTransportCredentials(
 		insecure.NewCredentials(),
 	))
+
+	opts = append(opts, clientKeepaliveDialOption)
 
 	return opts, nil
 }
