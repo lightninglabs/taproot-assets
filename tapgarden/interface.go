@@ -404,6 +404,23 @@ type WalletAnchor interface {
 	MinRelayFee(ctx context.Context) (chainfee.SatPerKWeight, error)
 }
 
+// MintZeroValueAnchor describes a managed anchor UTXO whose asset commitment
+// carries no spendable asset value and can be swept to fund future anchors.
+type MintZeroValueAnchor struct {
+	OutPoint         wire.OutPoint
+	Value            btcutil.Amount
+	InternalKey      keychain.KeyDescriptor
+	Commitment       *commitment.TapCommitment
+	TaprootAssetRoot []byte
+	MerkleRoot       []byte
+	TapscriptSibling []byte
+}
+
+// MintAnchorLister lists managed anchor UTXOs that can be swept during minting.
+type MintAnchorLister interface {
+	ListZeroValueAnchorsMint(ctx context.Context) ([]*MintZeroValueAnchor, error)
+}
+
 // KeyRing is a mirror of the keychain.KeyRing interface, with the addition of
 // a passed context which allows for cancellation of requests.
 type KeyRing interface {

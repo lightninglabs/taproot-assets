@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -107,7 +108,8 @@ type Wallet interface {
 	// signed and finalized anchor TX along with the total amount of sats
 	// paid in chain fees by the anchor TX.
 	AnchorVirtualTransactions(ctx context.Context,
-		params *AnchorVTxnsParams) (*tapsend.AnchorTransaction, error)
+		params *AnchorVTxnsParams) (*tapsend.AnchorTransaction,
+		[]wire.OutPoint, error)
 
 	// SignOwnershipProof creates and signs an ownership proof for the given
 	// owned asset. The ownership proof consists of a valid witness of a
@@ -179,6 +181,11 @@ type WalletConfig struct {
 	// CoinSelector is the interface used to select input coins (assets)
 	// for the transfer.
 	CoinSelector CoinSelector
+
+	// AnchorLister is used to query managed anchor UTXOs that only hold
+	// zero-value tombstone/burn commitments and can therefore be swept when
+	// creating a new anchor transaction.
+	AnchorLister ZeroValueAnchorLister
 
 	// AssetProofs is used to write the proof files on disk for the
 	// receiver during a transfer.
@@ -1154,21 +1161,49 @@ func (f *AssetWallet) SignPassiveAssets(ctx context.Context,
 // anchor TX along with the total amount of sats paid in chain fees by the
 // anchor TX.
 func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
-	params *AnchorVTxnsParams) (*tapsend.AnchorTransaction, error) {
+	params *AnchorVTxnsParams) (*tapsend.AnchorTransaction, []wire.OutPoint, error) {
 
 	allPackets := append([]*tappsbt.VPacket{}, params.ActivePackets...)
 	allPackets = append(allPackets, params.PassivePackets...)
 	outputCommitments, err := tapsend.CreateOutputCommitments(allPackets)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create new output "+
+		return nil, nil, fmt.Errorf("unable to create new output "+
 			"commitments: %w", err)
+	}
+
+	existingInputs := make(map[wire.OutPoint]struct{})
+	for _, vPkt := range allPackets {
+		for _, vIn := range vPkt.Inputs {
+			existingInputs[vIn.PrevID.OutPoint] = struct{}{}
+		}
+	}
+
+	zeroAnchorInputs, zeroAnchorOutpoints, err := f.zeroValueAnchorInputs(
+		ctx, existingInputs,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	success := false
+	if len(zeroAnchorOutpoints) > 0 {
+		defer func() {
+			if success {
+				return
+			}
+			if err := f.cfg.CoinSelector.ReleaseCoins(
+				ctx, zeroAnchorOutpoints...,
+			); err != nil {
+				log.Warnf("Unable to release zero value anchors: %v", err)
+			}
+		}()
 	}
 
 	// Construct our template PSBT to commits to the set of dummy locators
 	// we use to make fee estimation work.
 	sendPacket, err := tapsend.CreateAnchorTx(allPackets)
 	if err != nil {
-		return nil, fmt.Errorf("error creating anchor TX: %w", err)
+		return nil, nil, fmt.Errorf("error creating anchor TX: %w", err)
 	}
 
 	// TODO(roasbeef): also want to log the total fee to disk for
@@ -1181,7 +1216,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 			sendPacket, vPkt, outputCommitments,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("error updating taproot "+
+			return nil, zeroAnchorOutpoints, fmt.Errorf("error updating taproot "+
 				"output keys: %w", err)
 		}
 	}
@@ -1189,14 +1224,14 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// Now that all the real outputs are in the PSBT, we'll also
 	// add our anchor inputs as well, since the wallet can sign for
 	// it itself.
-	addAnchorPsbtInputs(sendPacket, params.ActivePackets)
+	addAnchorPsbtInputs(sendPacket, params.ActivePackets, zeroAnchorInputs)
 
 	// We now fund the packet, placing the change on the last output.
 	anchorPkt, err := f.cfg.Wallet.FundPsbt(
 		ctx, sendPacket, 1, params.FeeRate, -1,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fund psbt: %w", err)
+		return nil, zeroAnchorOutpoints, fmt.Errorf("unable to fund psbt: %w", err)
 	}
 
 	log.Infof("Received funded PSBT packet")
@@ -1209,7 +1244,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	log.Tracef("PSBT: %s", spew.Sdump(anchorPkt))
 	signedPsbt, err := f.cfg.Wallet.SignPsbt(ctx, anchorPkt.Pkt)
 	if err != nil {
-		return nil, fmt.Errorf("unable to sign psbt: %w", err)
+		return nil, zeroAnchorOutpoints, fmt.Errorf("unable to sign psbt: %w", err)
 	}
 	log.Debugf("Got signed PSBT")
 	log.Tracef("PSBT: %s", spew.Sdump(signedPsbt))
@@ -1218,27 +1253,27 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// we pay.
 	chainFees, err := signedPsbt.GetTxFee()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get on-chain fees for psbt: "+
+		return nil, zeroAnchorOutpoints, fmt.Errorf("unable to get on-chain fees for psbt: "+
 			"%w", err)
 	}
 	log.Infof("PSBT absolute fee: %d sats", chainFees)
 
 	err = psbt.MaybeFinalizeAll(signedPsbt)
 	if err != nil {
-		return nil, fmt.Errorf("unable to finalize psbt: %w", err)
+		return nil, zeroAnchorOutpoints, fmt.Errorf("unable to finalize psbt: %w", err)
 	}
 
 	// Extract the final packet from the PSBT transaction (has all sigs
 	// included).
 	finalTx, err := psbt.Extract(signedPsbt)
 	if err != nil {
-		return nil, fmt.Errorf("unable to extract psbt: %w", err)
+		return nil, zeroAnchorOutpoints, fmt.Errorf("unable to extract psbt: %w", err)
 	}
 
 	// Final TX sanity check.
 	err = blockchain.CheckTransactionSanity(btcutil.NewTx(finalTx))
 	if err != nil {
-		return nil, fmt.Errorf("anchor TX failed final checks: %w", err)
+		return nil, zeroAnchorOutpoints, fmt.Errorf("anchor TX failed final checks: %w", err)
 	}
 
 	anchorTx := &tapsend.AnchorTransaction{
@@ -1259,7 +1294,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 				outputCommitments, outIdx, allPackets,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create "+
+				return nil, zeroAnchorOutpoints, fmt.Errorf("failed to create "+
 					"proof: %w", err)
 			}
 
@@ -1278,14 +1313,15 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 			outputCommitments, outIndex, allPackets,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create re-anchor "+
+			return nil, zeroAnchorOutpoints, fmt.Errorf("failed to create re-anchor "+
 				"proof: %w", err)
 		}
 
 		passiveAsset.Outputs[outIndex].ProofSuffix = passiveProof
 	}
 
-	return anchorTx, nil
+	success = true
+	return anchorTx, zeroAnchorOutpoints, nil
 }
 
 // SignOwnershipProof creates and signs an ownership proof for the given owned
@@ -1339,7 +1375,13 @@ func (f *AssetWallet) ReleaseCoins(ctx context.Context,
 
 // addAnchorPsbtInputs adds anchor information from all inputs to the PSBT
 // packet. This is called after the PSBT has been funded, but before signing.
-func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket) {
+type anchorPsbtInput struct {
+	outPoint wire.OutPoint
+	input    psbt.PInput
+}
+
+func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket,
+	extraAnchors []anchorPsbtInput) {
 	for _, vPkt := range vPackets {
 		for idx := range vPkt.Inputs {
 			// With the BIP-0032 information completed, we'll now
@@ -1379,4 +1421,131 @@ func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket) {
 		}
 
 	}
+
+	for _, anchor := range extraAnchors {
+		if tapsend.HasInput(btcPkt.UnsignedTx, anchor.outPoint) {
+			continue
+		}
+
+		btcPkt.Inputs = append(btcPkt.Inputs, anchor.input)
+		btcPkt.UnsignedTx.TxIn = append(
+			btcPkt.UnsignedTx.TxIn, &wire.TxIn{
+				PreviousOutPoint: anchor.outPoint,
+			},
+		)
+	}
+}
+
+func (f *AssetWallet) zeroValueAnchorInputs(ctx context.Context,
+	skip map[wire.OutPoint]struct{}) ([]anchorPsbtInput, []wire.OutPoint, error) {
+
+	if f.cfg.AnchorLister == nil {
+		return nil, nil, nil
+	}
+
+	anchors, err := f.cfg.AnchorLister.ListZeroValueAnchors(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to list zero value anchors: %w", err)
+	}
+
+	inputs := make([]anchorPsbtInput, 0, len(anchors))
+	outpoints := make([]wire.OutPoint, 0, len(anchors))
+
+	for _, anchor := range anchors {
+		if anchor.Value == 0 {
+			continue
+		}
+		if anchor.InternalKey.PubKey == nil {
+			log.Debugf("Skipping zero value anchor %v with missing "+
+				"internal key", anchor.OutPoint)
+			continue
+		}
+		if _, ok := skip[anchor.OutPoint]; ok {
+			continue
+		}
+
+		var (
+			script     []byte
+			merkleRoot chainhash.Hash
+			err        error
+		)
+
+		if anchor.Commitment != nil {
+			var siblingPreimage *commitment.TapscriptPreimage
+			if len(anchor.TapscriptSibling) != 0 {
+				siblingPreimage, _, err = commitment.MaybeDecodeTapscriptPreimage(
+					anchor.TapscriptSibling,
+				)
+				if err != nil {
+					log.Warnf("Unable to decode tapscript sibling for "+
+						"anchor %v: %v", anchor.OutPoint, err)
+					continue
+				}
+			}
+
+			script, merkleRoot, _, err = tapsend.AnchorOutputScript(
+				anchor.InternalKey.PubKey, siblingPreimage, anchor.Commitment,
+			)
+			if err != nil {
+				log.Warnf("Unable to derive anchor script for %v: %v",
+					anchor.OutPoint, err)
+				continue
+			}
+		} else {
+			if len(anchor.MerkleRoot) != chainhash.HashSize {
+				log.Warnf("Zero value anchor %v has invalid merkle root",
+					anchor.OutPoint)
+				continue
+			}
+			copy(merkleRoot[:], anchor.MerkleRoot)
+
+			outputKey := txscript.ComputeTaprootOutputKey(
+				anchor.InternalKey.PubKey, merkleRoot[:],
+			)
+			script, err = txscript.PayToTaprootScript(outputKey)
+			if err != nil {
+				log.Warnf("Unable to derive anchor script for %v: %v",
+					anchor.OutPoint, err)
+				continue
+			}
+		}
+
+		derivation, trDerivation := tappsbt.Bip32DerivationFromKeyDesc(
+			anchor.InternalKey, f.cfg.ChainParams.HDCoinType,
+		)
+
+		inputs = append(inputs, anchorPsbtInput{
+			outPoint: anchor.OutPoint,
+			input: psbt.PInput{
+				WitnessUtxo: &wire.TxOut{
+					Value:    int64(anchor.Value),
+					PkScript: script,
+				},
+				SighashType:     txscript.SigHashDefault,
+				Bip32Derivation: []*psbt.Bip32Derivation{derivation},
+				TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+					trDerivation,
+				},
+				TaprootInternalKey: schnorr.SerializePubKey(
+					anchor.InternalKey.PubKey,
+				),
+				TaprootMerkleRoot: append([]byte(nil), merkleRoot[:]...),
+			},
+		})
+		outpoints = append(outpoints, anchor.OutPoint)
+	}
+
+	if len(inputs) == 0 {
+		return nil, nil, nil
+	}
+
+	expiry := time.Now().Add(defaultCoinLeaseDuration)
+	if err := f.cfg.CoinSelector.LeaseCoins(
+		ctx, defaultWalletLeaseIdentifier, expiry, outpoints...,
+	); err != nil {
+		return nil, nil, fmt.Errorf("unable to lease zero value anchors: %w",
+			err)
+	}
+
+	return inputs, outpoints, nil
 }

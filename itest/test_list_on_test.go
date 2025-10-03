@@ -168,6 +168,10 @@ var allTestCases = []*testCase{
 		test: testFullValueSend,
 	},
 	{
+		name: "zero value anchor sweep",
+		test: testZeroValueAnchorSweep,
+	},
+	{
 		name:             "collectible send hashmail courier",
 		test:             testCollectibleSend,
 		proofCourierType: proof.HashmailCourierType,

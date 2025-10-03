@@ -104,6 +104,10 @@ type GardenKit struct {
 	// key for a given asset, which is required for creating supply
 	// commitments.
 	DelegationKeyChecker address.DelegationKeyChecker
+
+	// AnchorLister allows fetching zero-value anchor UTXOs that can be used
+	// to fund mint/sweep transactions.
+	AnchorLister MintAnchorLister
 }
 
 // PlanterConfig is the main config for the ChainPlanter.
@@ -1022,6 +1026,49 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 				"minrelayfee from %s to %s", batchKey[:],
 				feeRate.String(), minRelayFee.String())
 			feeRate = minRelayFee
+		}
+	}
+
+	// If available, try to pre-attach zero-value anchors as PSBT inputs to
+	// help lnd finalize change and allow sweeping tombstones while minting.
+	if c.cfg.AnchorLister != nil {
+		anchors, err := c.cfg.AnchorLister.ListZeroValueAnchorsMint(ctx)
+		if err == nil {
+			for _, a := range anchors {
+				if a == nil || a.Value == 0 || a.InternalKey.PubKey == nil {
+					continue
+				}
+				// Build a minimal partial input for lnd to sign. We need
+				// witness UTXO, internal key and merkle root, similar to
+				// how send path assembles anchor inputs.
+				var merkleRoot [32]byte
+				if len(a.MerkleRoot) == len(merkleRoot) {
+					copy(merkleRoot[:], a.MerkleRoot)
+				} else {
+					// Skip anchors without valid merkle root.
+					continue
+				}
+				// Compute output script from internal key + merkle.
+				outputKey := txscript.ComputeTaprootOutputKey(
+					a.InternalKey.PubKey, merkleRoot[:],
+				)
+				pkScript, err := txscript.PayToTaprootScript(outputKey)
+				if err != nil {
+					continue
+				}
+				// Only add if not already present.
+				if tapsend.HasInput(genesisPkt.UnsignedTx, a.OutPoint) {
+					continue
+				}
+				genesisPkt.Inputs = append(genesisPkt.Inputs, psbt.PInput{
+					WitnessUtxo:        &wire.TxOut{Value: int64(a.Value), PkScript: pkScript},
+					TaprootInternalKey: schnorr.SerializePubKey(a.InternalKey.PubKey),
+					TaprootMerkleRoot:  append([]byte(nil), merkleRoot[:]...),
+				})
+				genesisPkt.UnsignedTx.TxIn = append(
+					genesisPkt.UnsignedTx.TxIn, &wire.TxIn{PreviousOutPoint: a.OutPoint},
+				)
+			}
 		}
 	}
 
@@ -2540,7 +2587,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 		batchWithGroupInfo.Seedlings[assetName].GroupInfo = group
 	}
 
-	// Persist the newly generated group-key metadata in the batch’s
+	// Persist the newly generated group-key metadata in the batch's
 	// pre-commitment output—needed only when Universe Commitments are on—
 	// before passing the batch to the minting store.
 	if batchWithGroupInfo.SupplyCommitments {

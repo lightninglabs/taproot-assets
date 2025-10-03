@@ -494,6 +494,10 @@ type sendPackage struct {
 	// PassiveAssets is the data used in re-anchoring passive assets.
 	PassiveAssets []*tappsbt.VPacket
 
+	// ZeroValueAnchors keeps track of tombstone/burn anchors that were added
+	// as extra BTC inputs to the anchor transaction for garbage collection.
+	ZeroValueAnchors []wire.OutPoint
+
 	// Parcel is the asset transfer request that kicked off this transfer.
 	Parcel Parcel
 
@@ -546,6 +550,7 @@ type sendPackage struct {
 // they were already committed at.
 func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 	anchorTx *tapsend.AnchorTransaction, passiveAssets []*tappsbt.VPacket,
+	zeroValueAnchors []wire.OutPoint,
 	isLocalKey func(asset.ScriptKey) (bool, error), label string,
 	skipAnchorTxBroadcast bool) (*OutboundParcel, error) {
 
@@ -584,6 +589,7 @@ func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 		),
 		PassiveAssets:         passiveAssets,
 		PassiveAssetsAnchor:   passiveAssetAnchor,
+		ZeroValueAnchors:      fn.CopySlice(zeroValueAnchors),
 		Label:                 label,
 		SkipAnchorTxBroadcast: skipAnchorTxBroadcast,
 	}
