@@ -370,11 +370,34 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	serverOpts = append(serverOpts, rpcServerOpts...)
 	serverOpts = append(serverOpts, ServerMaxMsgReceiveSize)
 
-	keepAliveParams := keepalive.ServerParameters{
-		MaxConnectionIdle: time.Minute * 2,
+	// Configure server-side keepalive parameters. These settings allow the
+	// server to actively probe the connection health and ensure connections
+	// stay alive during idle periods.
+	serverKeepalive := keepalive.ServerParameters{
+		// Ping client after 1 minute of inactivity.
+		Time: time.Minute,
+		// Wait 20 seconds for ping response.
+		Timeout: 20 * time.Second,
+		// Allow connections to remain idle for extended periods. This
+		// is particularly important for RFQ operations where price
+		// oracle connections may be idle for long periods.
+		MaxConnectionIdle: time.Hour * 24,
 	}
 
-	serverOpts = append(serverOpts, grpc.KeepaliveParams(keepAliveParams))
+	// Configure client enforcement policy. This allows clients to send
+	// keepalive pings even when there are no active streams, which is
+	// crucial for long-lived connections with infrequent activity.
+	clientKeepalive := keepalive.EnforcementPolicy{
+		// Minimum time between client pings.
+		MinTime: 5 * time.Second,
+		// Allow pings without active RPCs.
+		PermitWithoutStream: true,
+	}
+
+	serverOpts = append(
+		serverOpts, grpc.KeepaliveParams(serverKeepalive),
+		grpc.KeepaliveEnforcementPolicy(clientKeepalive),
+	)
 
 	grpcServer := grpc.NewServer(serverOpts...)
 	defer grpcServer.Stop()
