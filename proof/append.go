@@ -211,6 +211,7 @@ func CreateTransitionProof(prevOut wire.OutPoint, params *TransitionParams,
 			map[asset.SerializedKey]commitment.Proof,
 			len(proof.Asset.PrevWitnesses),
 		)
+
 		for _, wit := range proof.Asset.PrevWitnesses {
 			spentAsset, err := asset.MakeSpentAsset(wit)
 			if err != nil {
@@ -227,6 +228,19 @@ func CreateTransitionProof(prevOut wire.OutPoint, params *TransitionParams,
 			if err != nil {
 				return nil, err
 			}
+
+			// Sanity-check the STXO proof to ensure the asset proof
+			// is present. STXO inclusion proofs must always include
+			// a valid asset proof.
+			if stxoProof == nil {
+				return nil, fmt.Errorf("stxo inclusion proof " +
+					"is nil")
+			}
+
+			if stxoProof.AssetProof == nil {
+				return nil, commitment.ErrMissingAssetProof
+			}
+
 			keySerialized := asset.ToSerialized(
 				spentAsset.ScriptKey.PubKey,
 			)
