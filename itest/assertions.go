@@ -2882,3 +2882,20 @@ func WaitForSupplyCommit(t *testing.T, ctx context.Context,
 
 	return fetchResp, supplyCommitOutpoint
 }
+
+// AssertSupplyLeafBlockHeaders makes sure that the given block header exists
+// in the map of block headers and that its contents matches the expected
+// values.
+func AssertSupplyLeafBlockHeaders(t *testing.T, expectedBlockHeight uint32,
+	expectedTimestamp int64, expectedBlockHash chainhash.Hash,
+	actualBlockHeaders map[uint32]*unirpc.SupplyLeafBlockHeader) {
+
+	actualBlockMeta, ok := actualBlockHeaders[expectedBlockHeight]
+	require.True(t, ok, "no block header for height %d",
+		expectedBlockHeight)
+
+	require.EqualValues(
+		t, fn.ByteSlice(expectedBlockHash), actualBlockMeta.Hash,
+	)
+	require.EqualValues(t, expectedTimestamp, actualBlockMeta.Timestamp)
+}

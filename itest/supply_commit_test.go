@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/itest/rpcassert"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -1105,6 +1106,30 @@ func testFetchSupplyLeaves(t *harnessTest) {
 		"issuance leaf amount mismatch",
 	)
 
+	actualMintEvent := new(supplycommit.NewMintEvent)
+	err = actualMintEvent.Decode(bytes.NewReader(issuanceLeaf1.RawLeaf))
+	require.NoError(t.t, err)
+
+	// Compare the issuance leaf proof block details with those given in
+	// *unirpc.SupplyLeafBlockHeader message field.
+	//
+	// Decode the block header from the issuance raw proof.
+	var actualBlockHeader wire.BlockHeader
+	err = proof.SparseDecode(
+		bytes.NewReader(actualMintEvent.IssuanceProof.RawProof),
+		proof.BlockHeaderRecord(&actualBlockHeader),
+	)
+	require.NoError(t.t, err)
+
+	proofBlockHeight := actualMintEvent.BlockHeight()
+	proofBlockTimestamp := actualBlockHeader.Timestamp.Unix()
+	proofBlockHash := actualBlockHeader.BlockHash()
+
+	AssertSupplyLeafBlockHeaders(
+		t.t, proofBlockHeight, proofBlockTimestamp, proofBlockHash,
+		leavesResp1.BlockHeaders,
+	)
+
 	t.Log("Burning portion of the asset")
 	const (
 		burnAmt  = 1500
@@ -1176,6 +1201,24 @@ func testFetchSupplyLeaves(t *harnessTest) {
 	burnLeaf := leavesResp2.BurnLeaves[0]
 	require.EqualValues(t.t, burnAmt, burnLeaf.LeafNode.RootSum,
 		"burn leaf amount mismatch")
+
+	// Compare the burn leaf proof block details with those given in
+	// *unirpc.SupplyLeafBlockHeader message field.
+	//
+	// Decode the burn raw proof.
+	actualBurnEvent := new(supplycommit.NewBurnEvent)
+	err = actualBurnEvent.Decode(bytes.NewReader(burnLeaf.RawLeaf))
+	require.NoError(t.t, err)
+
+	proofBlockHeight = actualBurnEvent.BurnProof.BlockHeight
+	proofBlockTimestamp =
+		actualBurnEvent.BurnProof.BlockHeader.Timestamp.Unix()
+	proofBlockHash = actualBurnEvent.BurnProof.BlockHeader.BlockHash()
+
+	AssertSupplyLeafBlockHeaders(
+		t.t, proofBlockHeight, proofBlockTimestamp, proofBlockHash,
+		leavesResp2.BlockHeaders,
+	)
 
 	t.Log("Minting second tranche into the same asset group")
 	secondMintReq := &mintrpc.MintAssetRequest{
