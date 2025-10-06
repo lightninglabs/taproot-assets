@@ -4282,6 +4282,17 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 			"outstanding supply: %w", err)
 	}
 
+	// Extract block headers for all block heights that have supply leaves.
+	// And then marshal them into the RPC format.
+	heightHeaderMap, err := supplycommit.ExtractSupplyLeavesBlockHeaders(
+		ctx, r.cfg.ChainBridge, commit.Leaves,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract block headers for "+
+			"supply leaves: %w", err)
+	}
+	rpcHeightHeaderMap := marshalSupplyLeafBlockHeaders(heightHeaderMap)
+
 	return &unirpc.FetchSupplyCommitResponse{
 		ChainData:       chainData,
 		TxChainFeesSats: commitBlock.ChainFees,
@@ -4296,6 +4307,8 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 
 		TotalOutstandingSupply:  totalOutstandingSupply,
 		SpentCommitmentOutpoint: spentCommitmentOutpoint,
+
+		BlockHeaders: rpcHeightHeaderMap,
 	}, nil
 }
 

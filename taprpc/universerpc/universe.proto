@@ -887,6 +887,10 @@ message FetchSupplyCommitResponse {
     // spending. This must be set unless this is the very first supply
     // commitment of a grouped asset.
     taprpc.OutPoint spent_commitment_outpoint = 10;
+
+    // A map of block height to supply leaf block header for all block heights
+    // referenced in supply leaves.
+    map<uint32, SupplyLeafBlockHeader> block_headers = 11;
 }
 
 message FetchSupplyLeavesRequest {

@@ -2590,6 +2590,13 @@
         "spent_commitment_outpoint": {
           "$ref": "#/definitions/taprpcOutPoint",
           "description": "The outpoint of the previous commitment that this new commitment is\nspending. This must be set unless this is the very first supply\ncommitment of a grouped asset."
+        },
+        "block_headers": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/universerpcSupplyLeafBlockHeader"
+          },
+          "description": "A map of block height to supply leaf block header for all block heights\nreferenced in supply leaves."
         }
       }
     },
