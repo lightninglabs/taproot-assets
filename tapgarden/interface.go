@@ -350,6 +350,10 @@ type ChainBridge interface {
 	// height.
 	GetBlockTimestamp(context.Context, uint32) int64
 
+	// GetBlockHeaderByHeight returns a block header given the block height.
+	GetBlockHeaderByHeight(ctx context.Context,
+		blockHeight int64) (*wire.BlockHeader, error)
+
 	// PublishTransaction attempts to publish a new transaction to the
 	// network.
 	PublishTransaction(context.Context, *wire.MsgTx, string) error
