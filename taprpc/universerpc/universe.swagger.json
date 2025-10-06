@@ -2640,6 +2640,13 @@
             "format": "byte"
           },
           "description": "Inclusion proofs for each ignored leaf key provided in the request.\nEach entry corresponds to the key at the same index in\n`ignore_leaf_keys`."
+        },
+        "block_headers": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/universerpcSupplyLeafBlockHeader"
+          },
+          "description": "A map of block height to supply leaf block header for all block heights\nreferenced in supply leaves."
         }
       }
     },
@@ -3035,6 +3042,21 @@
           "type": "string",
           "format": "byte",
           "description": "The inclusion proof for the supply commit subtree root node."
+        }
+      }
+    },
+    "universerpcSupplyLeafBlockHeader": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Block header timestamp in seconds since unix epoch."
+        },
+        "hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "32-byte block header hash."
         }
       }
     },
