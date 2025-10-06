@@ -375,6 +375,7 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 	if allowUniPublicAccessRead || allowPublicUniProofCourier {
 		whitelist["/universerpc.Universe/QueryProof"] = struct{}{}
 		whitelist["/universerpc.Universe/FetchSupplyCommit"] = struct{}{}
+		whitelist["/universerpc.Universe/FetchSupplyLeaves"] = struct{}{}
 		whitelist["/authmailboxrpc.Mailbox/ReceiveMessages"] = struct{}{}
 	}
 
