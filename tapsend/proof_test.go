@@ -37,10 +37,9 @@ func TestCreateProofSuffix(t *testing.T) {
 			stxoProof: true,
 		},
 		{
-			name:      "No stxo proof",
-			stxoProof: false,
-			expectedErr: "error verifying STXO proof: missing " +
-				"asset proof",
+			name:        "No stxo proof",
+			stxoProof:   false,
+			expectedErr: "no alt leaves for transfer root asset",
 		},
 	}
 	for _, tc := range testCases {
@@ -125,7 +124,14 @@ func createProofSuffix(t *testing.T, stxoProof bool, expectedErr string) {
 				outputCommitments, outIdx, testPackets,
 				proof.WithVersion(proof.TransitionV1),
 			)
-			require.NoError(t, err)
+			switch {
+			case err != nil:
+				require.Nil(t, proofSuffix)
+				require.ErrorContains(t, err, expectedErr)
+				continue
+			default:
+				require.NoError(t, err)
+			}
 
 			ctx := context.Background()
 			prev := &proof.AssetSnapshot{

@@ -207,10 +207,35 @@ func CreateTransitionProof(prevOut wire.OutPoint, params *TransitionParams,
 	}
 
 	if proof.Asset.IsTransferRoot() && !cfg.NoSTXOProofs {
+		assetCommitments := params.TaprootAssetRoot.Commitments()
+		altCommitment, ok := assetCommitments[asset.EmptyGenesisID]
+		if !ok {
+			return nil, fmt.Errorf("no alt leaves for transfer " +
+				"root asset")
+		}
+
+		// If this is a transfer root, then we also expect there to be
+		// prev witnesses.
+		if len(proof.Asset.PrevWitnesses) == 0 {
+			return nil, fmt.Errorf("no prev witnesses for " +
+				"transfer root asset")
+		}
+
+		// We should have at least as many alt leaves as we have
+		// prev witnesses. We may have additional alt leaves which are
+		// not related to stxo proofs.
+		//
+		// nolint: lll
+		if len(altCommitment.Assets()) < len(proof.Asset.PrevWitnesses) {
+			return nil, fmt.Errorf("not enough alt leaves for " +
+				"transfer root asset")
+		}
+
 		stxoInclusionProofs := make(
 			map[asset.SerializedKey]commitment.Proof,
 			len(proof.Asset.PrevWitnesses),
 		)
+
 		for _, wit := range proof.Asset.PrevWitnesses {
 			spentAsset, err := asset.MakeSpentAsset(wit)
 			if err != nil {
@@ -227,10 +252,34 @@ func CreateTransitionProof(prevOut wire.OutPoint, params *TransitionParams,
 			if err != nil {
 				return nil, err
 			}
+
+			// Sanity-check the STXO proof to ensure the asset proof
+			// is present. STXO inclusion proofs must always include
+			// a valid asset proof.
+			if stxoProof == nil {
+				return nil, fmt.Errorf("stxo inclusion proof " +
+					"is nil")
+			}
+
+			if stxoProof.AssetProof == nil {
+				return nil, commitment.ErrMissingAssetProof
+			}
+
 			keySerialized := asset.ToSerialized(
 				spentAsset.ScriptKey.PubKey,
 			)
 			stxoInclusionProofs[keySerialized] = *stxoProof
+		}
+
+		// For assets representing a root transfer (normal assets), each
+		// spent input corresponds to an entry in PrevWitnesses.
+		// Therefore, the number of PrevWitnesses should match the
+		// number of STXO inclusion proofs.
+		if len(stxoInclusionProofs) != len(proof.Asset.PrevWitnesses) {
+			return nil, fmt.Errorf("stxo inclusion proof count "+
+				"mismatch: expected %d, got %d",
+				len(proof.Asset.PrevWitnesses),
+				len(stxoInclusionProofs))
 		}
 
 		if len(stxoInclusionProofs) == 0 {
