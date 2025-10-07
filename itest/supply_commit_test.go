@@ -1045,7 +1045,9 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 //  4. Calling FetchSupplyLeaves to verify burn leaves are included.
 //  5. Minting another tranche into the same group.
 //  6. Calling FetchSupplyLeaves to verify all leaves are present.
-//  7. Testing inclusion proof generation for various leaf types.
+//  7. Ignoring an asset outpoint from the second mint.
+//  8. Calling FetchSupplyLeaves to verify ignore leaves are included.
+//  9. Testing inclusion proof generation for various leaf types.
 func testFetchSupplyLeaves(t *harnessTest) {
 	ctxb := context.Background()
 
@@ -1259,7 +1261,7 @@ func testFetchSupplyLeaves(t *harnessTest) {
 	expectedIssuanceTotal := int64(
 		mintReq.Asset.Amount + secondMintReq.Asset.Amount,
 	)
-	_, _ = WaitForSupplyCommit(
+	_, supplyOutpoint = WaitForSupplyCommit(
 		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(supplyOutpoint),
 		func(resp *unirpc.FetchSupplyCommitResponse) bool {
 			return resp.IssuanceSubtreeRoot != nil &&
@@ -1300,6 +1302,103 @@ func testFetchSupplyLeaves(t *harnessTest) {
 	require.EqualValues(
 		t.t, expectedIssuanceTotal, totalIssuanceAmount,
 		"total issuance amount mismatch",
+	)
+
+	t.Log("Ignoring an asset outpoint from the second mint")
+
+	// Get the outpoint from the second minted asset to ignore it.
+	// We must ignore the entire asset at the outpoint, not just a portion.
+	ignoreAmount := rpcSecondAsset[0].Amount
+	ignoreAssetOutpoint := taprpc.AssetOutPoint{
+		AnchorOutPoint: rpcSecondAsset[0].ChainAnchor.AnchorOutpoint,
+		AssetId:        rpcSecondAsset[0].AssetGenesis.AssetId,
+		ScriptKey:      rpcSecondAsset[0].ScriptKey,
+	}
+	ignoreReq := &unirpc.IgnoreAssetOutPointRequest{
+		AssetOutPoint: &ignoreAssetOutpoint,
+		Amount:        ignoreAmount,
+	}
+
+	respIgnore, err := t.tapd.IgnoreAssetOutPoint(ctxb, ignoreReq)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, respIgnore)
+	require.EqualValues(t.t, ignoreAmount, respIgnore.Leaf.RootSum)
+
+	t.Log("Updating supply commitment after ignoring asset outpoint")
+	UpdateAndMineSupplyCommit(
+		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		groupKeyBytes, 1,
+	)
+
+	t.Log("Wait for the supply commitment to include the ignored outpoint.")
+	_, _ = WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(supplyOutpoint),
+		func(resp *unirpc.FetchSupplyCommitResponse) bool {
+			if resp.IgnoreSubtreeRoot == nil {
+				return false
+			}
+
+			return resp.IgnoreSubtreeRoot.RootNode.RootSum ==
+				int64(ignoreAmount)
+		},
+	)
+
+	t.Log("Fetching supply leaves after ignoring asset outpoint")
+	req = unirpc.FetchSupplyLeavesRequest{
+		GroupKey: &unirpc.FetchSupplyLeavesRequest_GroupKeyBytes{
+			GroupKeyBytes: groupKeyBytes,
+		},
+	}
+	leavesResp4, err := t.tapd.FetchSupplyLeaves(ctxb, &req)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, leavesResp4)
+
+	// Verify we have two issuance leaves, one burn leaf, and one ignore
+	// leaf.
+	require.Len(
+		t.t, leavesResp4.IssuanceLeaves, 2,
+		"expected 2 issuance leaves after ignore",
+	)
+	require.Len(
+		t.t, leavesResp4.BurnLeaves, 1,
+		"expected 1 burn leaf after ignore",
+	)
+	require.Len(
+		t.t, leavesResp4.IgnoreLeaves, 1,
+		"expected 1 ignore leaf after ignore",
+	)
+
+	// Verify the ignore leaf amount.
+	ignoreLeaf := leavesResp4.IgnoreLeaves[0]
+	require.EqualValues(
+		t.t, ignoreAmount, ignoreLeaf.LeafNode.RootSum,
+		"ignore leaf amount mismatch",
+	)
+
+	// Compare the ignore leaf block data with that given in
+	// *unirpc.SupplyLeafBlockHeader message field.
+	//
+	// TODO(ffranr): Extend t.lndHarness.Miner() with
+	//  GetBlockHeaderByHeight and use here.
+	//
+	// We can't retrieve the block header from the miner based on block
+	// height, so we fetch it given the block hash in the field we are
+	// testing. This is not ideal, but it covers timestamp and height
+	// verification.
+	expectedBlockHeight := ignoreLeaf.BlockHeight
+	ignoreLeafBlockHeader :=
+		leavesResp4.BlockHeaders[expectedBlockHeight]
+
+	ignoreBlockHash, err := chainhash.NewHash(ignoreLeafBlockHeader.Hash)
+	require.NoError(t.t, err)
+
+	ignoreLeafBlock := t.lndHarness.Miner().GetBlock(ignoreBlockHash)
+	require.NotNil(t.t, ignoreLeafBlock)
+	expectedBlockTimestamp := ignoreLeafBlock.Header.Timestamp.Unix()
+
+	AssertSupplyLeafBlockHeaders(
+		t.t, expectedBlockHeight, expectedBlockTimestamp,
+		*ignoreBlockHash, leavesResp4.BlockHeaders,
 	)
 
 	t.Log("Testing inclusion proof generation for supply leaves")
