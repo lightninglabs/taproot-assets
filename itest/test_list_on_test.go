@@ -102,6 +102,10 @@ var allTestCases = []*testCase{
 		test: testMinRelayFeeBump,
 	},
 	{
+		name: "zero value anchor sweep",
+		test: testZeroValueAnchorSweep,
+	},
+	{
 		name: "restart receiver check balance",
 		test: testRestartReceiverCheckBalance,
 	},
