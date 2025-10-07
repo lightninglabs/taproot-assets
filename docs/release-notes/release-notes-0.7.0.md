@@ -53,6 +53,16 @@
   requiring a fully initialized AuxSweeper, allowing sweep operations to proceed
   during server startup.
 
+- [Ensure that tapd won't start if the latest db migration errors and sets the
+  db to a dirty state for sqlite database
+  backends](https://github.com/lightninglabs/taproot-assets/pull/1826).
+  If the latest migration errors and sets the db to a dirty state, startup of
+  tapd will now be prevented for all database backend types. Previously, this
+  safeguard did not work correctly for SQLite backends if the most recent
+  migration failed. Tapd could then still start even though the database was
+  dirty. This issue has been resolved, and the behavior is now consistent across
+  all database backend types.
+
 # New Features
 
 ## Functional Enhancements

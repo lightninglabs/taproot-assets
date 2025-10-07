@@ -166,7 +166,19 @@ func applyMigrations(fs fs.FS, driver database.Driver, path, dbName string,
 		return err
 	}
 
-	migrationVersion, _, _ := sqlMigrate.Version()
+	migrationVersion, dirty, err := sqlMigrate.Version()
+	if err != nil && !errors.Is(err, migrate.ErrNilVersion) {
+		return fmt.Errorf("unable to determine current migration "+
+			"version: %w", err)
+	}
+
+	// If the migration version is dirty, we should not proceed with further
+	// migrations, as this indicates that a previous migration did not
+	// complete successfully and requires manual intervention.
+	if dirty {
+		return fmt.Errorf("database is in a dirty state at version "+
+			"%v, manual intervention required", migrationVersion)
+	}
 
 	// As the down migrations may end up *dropping* data, we want to
 	// prevent that without explicit accounting.
