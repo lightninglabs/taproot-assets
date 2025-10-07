@@ -179,6 +179,15 @@
   configured with public read access. This matches the behavior of the  
   existing FetchSupplyCommit RPC endpoint.
 
+- [PR#1839](https://github.com/lightninglabs/taproot-assets/pull/1839) The
+  `FetchSupplyLeaves` and `FetchSupplyCommit` RPC endpoints now
+  include a new `block_headers` field. This field is a map from block
+  height to a `SupplyLeafBlockHeader` message, which provides the block
+  header timestamp (in seconds since the Unix epoch) and the 32-byte
+  block header hash. This allows clients to obtain block timing and hash
+  information directly from the RPC response without performing separate
+  blockchain queries.
+
 ## tapcli Additions
 
 - [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the mint
