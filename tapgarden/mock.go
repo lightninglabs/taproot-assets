@@ -688,6 +688,13 @@ func (m *MockChainBridge) GetBlock(ctx context.Context,
 	return block, nil
 }
 
+// GetBlockHeaderByHeight returns a block header given the block height.
+func (m *MockChainBridge) GetBlockHeaderByHeight(ctx context.Context,
+	blockHeight int64) (*wire.BlockHeader, error) {
+
+	return &wire.BlockHeader{}, nil
+}
+
 // GetBlockHash returns the hash of the block in the best blockchain at the
 // given height.
 func (m *MockChainBridge) GetBlockHash(ctx context.Context,

@@ -242,6 +242,17 @@ func (m *mockChainBridge) GetBlock(ctx context.Context,
 	return args.Get(0).(*wire.MsgBlock), args.Error(1)
 }
 
+// GetBlockHeaderByHeight returns a block header given the block height.
+func (m *mockChainBridge) GetBlockHeaderByHeight(ctx context.Context,
+	blockHeight int64) (*wire.BlockHeader, error) {
+
+	args := m.Called(ctx, blockHeight)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*wire.BlockHeader), args.Error(1)
+}
+
 func (m *mockChainBridge) GetBlockHash(ctx context.Context,
 	height int64) (chainhash.Hash, error) {
 

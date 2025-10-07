@@ -4282,6 +4282,17 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 			"outstanding supply: %w", err)
 	}
 
+	// Extract block headers for all block heights that have supply leaves.
+	// And then marshal them into the RPC format.
+	heightHeaderMap, err := supplycommit.ExtractSupplyLeavesBlockHeaders(
+		ctx, r.cfg.ChainBridge, commit.Leaves,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract block headers for "+
+			"supply leaves: %w", err)
+	}
+	rpcHeightHeaderMap := marshalSupplyLeafBlockHeaders(heightHeaderMap)
+
 	return &unirpc.FetchSupplyCommitResponse{
 		ChainData:       chainData,
 		TxChainFeesSats: commitBlock.ChainFees,
@@ -4296,6 +4307,8 @@ func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
 
 		TotalOutstandingSupply:  totalOutstandingSupply,
 		SpentCommitmentOutpoint: spentCommitmentOutpoint,
+
+		BlockHeaders: rpcHeightHeaderMap,
 	}, nil
 }
 
@@ -4337,6 +4350,25 @@ func marshalSupplyLeaves(
 	}
 
 	return rpcIssuanceLeaves, rpcBurnLeaves, rpcIgnoreLeaves, nil
+}
+
+// marshalSupplyLeafBlockHeaders converts a map of block heights to block
+// headers into a map of block heights to RPC SupplyLeafBlockHeader objects.
+//
+// nolint: lll
+func marshalSupplyLeafBlockHeaders(
+	heightHeaderMap map[uint32]wire.BlockHeader) map[uint32]*unirpc.SupplyLeafBlockHeader {
+
+	rpcHeightHeader := make(map[uint32]*unirpc.SupplyLeafBlockHeader)
+
+	for height, header := range heightHeaderMap {
+		rpcHeightHeader[height] = &unirpc.SupplyLeafBlockHeader{
+			Timestamp: header.Timestamp.Unix(),
+			Hash:      fn.ByteSlice(header.BlockHash()),
+		}
+	}
+
+	return rpcHeightHeader
 }
 
 // FetchSupplyLeaves fetches the supply leaves for a specific asset group
@@ -4433,6 +4465,17 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 		}
 	}
 
+	// Extract block headers for all block heights that have supply leaves.
+	// And then marshal them into the RPC format.
+	heightHeaderMap, err := supplycommit.ExtractSupplyLeavesBlockHeaders(
+		ctx, r.cfg.ChainBridge, resp,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract block headers for "+
+			"supply leaves: %w", err)
+	}
+	rpcHeightHeaderMap := marshalSupplyLeafBlockHeaders(heightHeaderMap)
+
 	return &unirpc.FetchSupplyLeavesResponse{
 		IssuanceLeaves:              issuanceLeaves,
 		BurnLeaves:                  burnLeaves,
@@ -4440,6 +4483,7 @@ func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
 		IssuanceLeafInclusionProofs: issuanceInclusionProofs,
 		BurnLeafInclusionProofs:     burnInclusionProofs,
 		IgnoreLeafInclusionProofs:   ignoreInclusionProofs,
+		BlockHeaders:                rpcHeightHeaderMap,
 	}, nil
 }
 

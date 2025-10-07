@@ -887,6 +887,10 @@ message FetchSupplyCommitResponse {
     // spending. This must be set unless this is the very first supply
     // commitment of a grouped asset.
     taprpc.OutPoint spent_commitment_outpoint = 10;
+
+    // A map of block height to supply leaf block header for all block heights
+    // referenced in supply leaves.
+    map<uint32, SupplyLeafBlockHeader> block_headers = 11;
 }
 
 message FetchSupplyLeavesRequest {
@@ -950,6 +954,14 @@ message SupplyLeafEntry {
     bytes raw_leaf = 4;
 }
 
+message SupplyLeafBlockHeader {
+    // Block header timestamp in seconds since unix epoch.
+    int64 timestamp = 1;
+
+    // 32-byte block header hash.
+    bytes hash = 2;
+}
+
 message FetchSupplyLeavesResponse {
     repeated SupplyLeafEntry issuance_leaves = 1;
     repeated SupplyLeafEntry burn_leaves = 2;
@@ -968,6 +980,10 @@ message FetchSupplyLeavesResponse {
     // Each entry corresponds to the key at the same index in
     // `ignore_leaf_keys`.
     repeated bytes ignore_leaf_inclusion_proofs = 6;
+
+    // A map of block height to supply leaf block header for all block heights
+    // referenced in supply leaves.
+    map<uint32, SupplyLeafBlockHeader> block_headers = 7;
 }
 
 // SupplyCommitChainData represents the on-chain artifacts for a supply

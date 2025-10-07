@@ -151,6 +151,50 @@ func (l *LndRpcChainBridge) GetBlockHeader(ctx context.Context,
 	)
 }
 
+// GetBlockHeaderByHeight returns a block header given the block height.
+func (l *LndRpcChainBridge) GetBlockHeaderByHeight(ctx context.Context,
+	blockHeight int64) (*wire.BlockHeader, error) {
+
+	// First, we need to resolve the block hash at the given height.
+	blockHash, err := fn.RetryFuncN(
+		ctx, l.retryConfig, func() (chainhash.Hash, error) {
+			var zero chainhash.Hash
+
+			blockHash, err := l.lnd.ChainKit.GetBlockHash(
+				ctx, blockHeight,
+			)
+			if err != nil {
+				return zero, fmt.Errorf(
+					"unable to retrieve block hash: %w",
+					err,
+				)
+			}
+
+			return blockHash, nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve block hash: %w", err)
+	}
+
+	// Now that we have the block hash, we can fetch the block header.
+	return fn.RetryFuncN(
+		ctx, l.retryConfig, func() (*wire.BlockHeader, error) {
+			header, err := l.lnd.ChainKit.GetBlockHeader(
+				ctx, blockHash,
+			)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"unable to retrieve block header: %w",
+					err,
+				)
+			}
+
+			return header, nil
+		},
+	)
+}
+
 // GetBlockHash returns the hash of the block in the best blockchain at the
 // given height.
 func (l *LndRpcChainBridge) GetBlockHash(ctx context.Context,

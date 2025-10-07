@@ -1,12 +1,16 @@
 package supplycommit
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/fn/v2"
 )
 
@@ -162,4 +166,69 @@ func IsSupplySupported(ctx context.Context, assetLookup AssetLookup,
 	}
 
 	return true, nil
+}
+
+// ExtractSupplyLeavesBlockHeaders is a helper method which extracts the block
+// headers from the supply leaves. The returned map is keyed by block height.
+func ExtractSupplyLeavesBlockHeaders(ctx context.Context,
+	chain tapgarden.ChainBridge,
+	supplyLeaves SupplyLeaves) (map[uint32]wire.BlockHeader, error) {
+
+	blockHeaders := make(map[uint32]wire.BlockHeader)
+
+	// Extract block headers from issuance leaves.
+	for idx := range supplyLeaves.IssuanceLeafEntries {
+		leaf := supplyLeaves.IssuanceLeafEntries[idx]
+
+		// Sparse decode the block header from the issuance proof.
+		var blockHeader wire.BlockHeader
+		err := proof.SparseDecode(
+			bytes.NewReader(leaf.IssuanceProof.RawProof),
+			proof.BlockHeaderRecord(&blockHeader),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to sparse decode "+
+				"block header from proof: %w", err)
+		}
+
+		blockHeaders[leaf.BlockHeight()] = blockHeader
+	}
+
+	// Extract block headers from burn leaves.
+	for idx := range supplyLeaves.BurnLeafEntries {
+		leaf := supplyLeaves.BurnLeafEntries[idx]
+
+		if leaf.BurnProof == nil {
+			return nil, fmt.Errorf("burn proof is nil for burn " +
+				"leaf")
+		}
+
+		blockHeader := leaf.BurnProof.BlockHeader
+		blockHeaders[leaf.BlockHeight()] = blockHeader
+	}
+
+	// Extract block headers from ignore leaves.
+	for idx := range supplyLeaves.IgnoreLeafEntries {
+		leaf := supplyLeaves.IgnoreLeafEntries[idx]
+		blockHeight := leaf.BlockHeight()
+
+		// If we already have the block header for this height, skip
+		// fetching it again from the chain backend.
+		if _, ok := blockHeaders[blockHeight]; ok {
+			continue
+		}
+
+		blockHeader, err := chain.GetBlockHeaderByHeight(
+			ctx, int64(blockHeight),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch block "+
+				"header at height %d: %w",
+				blockHeight, err)
+		}
+
+		blockHeaders[blockHeight] = *blockHeader
+	}
+
+	return blockHeaders, nil
 }
