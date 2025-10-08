@@ -379,7 +379,7 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 	}
 
 	// Conditionally whitelist universe server read methods.
-	if allowUniPublicAccessRead || allowPublicUniProofCourier {
+	if allowUniPublicAccessRead {
 		addEndpoints(
 			"/universerpc.Universe/QueryProof",
 			"/universerpc.Universe/FetchSupplyCommit",
@@ -389,7 +389,7 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 	}
 
 	// Conditionally whitelist universe server write methods.
-	if allowUniPublicAccessWrite || allowPublicUniProofCourier {
+	if allowUniPublicAccessWrite {
 		addEndpoints(
 			"/universerpc.Universe/InsertProof",
 			"/universerpc.Universe/InsertSupplyCommit",
@@ -403,6 +403,17 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 			"/universerpc.Universe/QueryAssetStats",
 			"/universerpc.Universe/UniverseStats",
 			"/universerpc.Universe/QueryEvents",
+		)
+	}
+
+	// Conditionally whitelist public universe server proof courier methods.
+	if allowPublicUniProofCourier {
+		addEndpoints(
+			"/universerpc.Universe/InsertProof",
+			"/universerpc.Universe/QueryProof",
+
+			"/authmailboxrpc.Mailbox/SendMessage",
+			"/authmailboxrpc.Mailbox/ReceiveMessages",
 		)
 	}
 
