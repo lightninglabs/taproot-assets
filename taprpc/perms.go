@@ -341,21 +341,6 @@ var (
 		}},
 		"/authmailboxrpc.Mailbox/MailboxInfo": {{}},
 	}
-
-	// defaultMacaroonWhitelist defines a default set of RPC endpoints that
-	// don't require macaroons authentication.
-	//
-	// For now, these are the Universe related read/write methods. We permit
-	// InsertProof as a valid proof requires an on-chain transaction, so we
-	// gain a layer of DoS defense.
-	defaultMacaroonWhitelist = map[string]struct{}{
-		"/universerpc.Universe/AssetRoots":      {},
-		"/universerpc.Universe/QueryAssetRoots": {},
-		"/universerpc.Universe/AssetLeafKeys":   {},
-		"/universerpc.Universe/AssetLeaves":     {},
-		"/universerpc.Universe/Info":            {},
-		"/authmailboxrpc.Mailbox/MailboxInfo":   {},
-	}
 )
 
 // MacaroonWhitelist returns the set of RPC endpoints that don't require
@@ -373,17 +358,21 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 		}
 	}
 
-	// Make a copy of the default whitelist.
-	for k, v := range defaultMacaroonWhitelist {
-		whitelist[k] = v
-	}
-
 	// Conditionally whitelist universe server read methods.
 	if allowUniPublicAccessRead {
 		addEndpoints(
+			"/universerpc.Universe/Info",
+
+			"/universerpc.Universe/AssetRoots",
+			"/universerpc.Universe/QueryAssetRoots",
+			"/universerpc.Universe/AssetLeafKeys",
+			"/universerpc.Universe/AssetLeaves",
 			"/universerpc.Universe/QueryProof",
+
 			"/universerpc.Universe/FetchSupplyCommit",
 			"/universerpc.Universe/FetchSupplyLeaves",
+
+			"/authmailboxrpc.Mailbox/MailboxInfo",
 			"/authmailboxrpc.Mailbox/ReceiveMessages",
 		)
 	}
@@ -409,9 +398,11 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 	// Conditionally whitelist public universe server proof courier methods.
 	if allowPublicUniProofCourier {
 		addEndpoints(
+			"/universerpc.Universe/Info",
 			"/universerpc.Universe/InsertProof",
 			"/universerpc.Universe/QueryProof",
 
+			"/authmailboxrpc.Mailbox/MailboxInfo",
 			"/authmailboxrpc.Mailbox/SendMessage",
 			"/authmailboxrpc.Mailbox/ReceiveMessages",
 		)
