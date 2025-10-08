@@ -183,6 +183,10 @@ var (
 			Entity: "mint",
 			Action: "read",
 		}},
+		"/universerpc.Universe/Info": {{
+			Entity: "universe",
+			Action: "read",
+		}},
 		"/universerpc.Universe/MultiverseRoot": {{
 			Entity: "universe",
 			Action: "read",
@@ -339,7 +343,10 @@ var (
 			Entity: "mailbox",
 			Action: "read",
 		}},
-		"/authmailboxrpc.Mailbox/MailboxInfo": {{}},
+		"/authmailboxrpc.Mailbox/MailboxInfo": {{
+			Entity: "mailbox",
+			Action: "read",
+		}},
 	}
 )
 
