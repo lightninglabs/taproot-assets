@@ -1319,9 +1319,9 @@ func (c *UniverseRpcCourier) ensureConnect(ctx context.Context) error {
 	c.mboxClient = mboxrpc.NewMailboxClient(conn)
 	c.rawConn = conn
 
-	// Make sure we initiate the connection. The GetInfo RPC method is in
-	// the base macaroon white list, so it doesn't require any
-	// authentication, independent of the universe's configuration.
+	// Ensure the connection is established by calling the `Info` RPC
+	// endpoint. This endpoint does not require authentication when the
+	// universe server is configured to act as a proof courier.
 	_, err = c.client.Info(ctx, &unirpc.InfoRequest{})
 	if err != nil {
 		// If we fail to connect, we'll close the connection and return
