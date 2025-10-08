@@ -331,11 +331,15 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(isFunded bool,
 
 // assertPendingBatchExists asserts that a pending batch is found and it has
 // numSeedlings assets registered.
-func (t *mintingTestHarness) assertPendingBatchExists(numSeedlings int) {
-	t.Helper()
+func (t *mintingTestHarness) assertPendingBatchExists(
+	expectedSeedlings []*tapgarden.Seedling) {
 
 	// The planter is a state machine, so we need to wait until it has
 	// reached the expected state.
+	var (
+		numExpectedSeedlings = len(expectedSeedlings)
+		lastActualSeedlings  map[string]*tapgarden.Seedling
+	)
 	err := wait.NoError(func() error {
 		batch, err := t.planter.PendingBatch()
 		if err != nil {
@@ -348,14 +352,43 @@ func (t *mintingTestHarness) assertPendingBatchExists(numSeedlings int) {
 				"non-nil")
 		}
 
-		if len(batch.Seedlings) < numSeedlings {
+		lastActualSeedlings = batch.Seedlings
+
+		if len(batch.Seedlings) < numExpectedSeedlings {
 			return fmt.Errorf("expected %d seedlings, got %d",
-				numSeedlings, len(batch.Seedlings))
+				numExpectedSeedlings, len(batch.Seedlings))
 		}
 
 		return nil
 	}, defaultTimeout)
-	require.NoError(t, err)
+	if err != nil {
+		// Report any missing seedlings.
+		spewCfg := spew.ConfigState{
+			// Disable .String() and other methods.
+			DisableMethods: true,
+			Indent:         "  ",
+		}
+
+		for idx := range expectedSeedlings {
+			expectedSeedling := expectedSeedlings[idx]
+			if lastActualSeedlings == nil {
+				t.Logf("Missing expected seedling: %s",
+					spewCfg.Sdump(expectedSeedling))
+				continue
+			}
+
+			_, ok := lastActualSeedlings[expectedSeedling.AssetName]
+			if !ok {
+				t.Logf("Missing expected seedling: %s",
+					spewCfg.Sdump(expectedSeedling))
+			}
+		}
+
+		t.Fatalf("Batch seedling mismatch: \nactual seedlings: %s\n"+
+			"expected seedlings: %s\nerror: %v",
+			spew.Sdump(lastActualSeedlings),
+			spew.Sdump(expectedSeedlings), err)
+	}
 }
 
 // assertNoActiveBatch asserts that no pending batch exists.
@@ -1089,7 +1122,7 @@ func (t *mintingTestHarness) queueInitialBatch(
 
 	// At this point, there should be a single pending batch with 5
 	// seedlings. The batch stored in the log should also match up exactly.
-	t.assertPendingBatchExists(numSeedlings)
+	t.assertPendingBatchExists(seedlings)
 
 	// Before we tick the batch, we record all existing batches, so we can
 	// make sure a new one was created.
@@ -1329,7 +1362,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	}
 	t.queueSeedlingsInBatch(false, seedlings...)
 
-	t.assertPendingBatchExists(numSeedlings)
+	t.assertPendingBatchExists(seedlings)
 	t.assertSeedlingsExist(seedlings, nil)
 
 	// If we attempt to queue a seedling with the same name as a pending
@@ -1781,7 +1814,7 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	// Add the seedlings modified earlier to the batch, and check that they
 	// were added correctly.
 	t.queueSeedlingsInBatch(true, seedlings...)
-	t.assertPendingBatchExists(numSeedlings)
+	t.assertPendingBatchExists(seedlings)
 	t.assertSeedlingsExist(seedlings, nil)
 
 	verboseBatches, err := t.planter.ListBatches(
