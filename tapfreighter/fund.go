@@ -26,7 +26,8 @@ import (
 func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 	keyRing KeyRing, addrBook AddrBook, fundDesc *tapsend.FundingDescriptor,
 	vPktTemplate *tappsbt.VPacket,
-	selectedCommitments []*AnchoredCommitment) (*FundedVPacket, error) {
+	selectedCommitments []*AnchoredCommitment,
+	zeroValueInputs []*ZeroValueInput) (*FundedVPacket, error) {
 
 	if vPktTemplate.ChainParams == nil {
 		return nil, errors.New("chain params not set in virtual packet")
@@ -159,6 +160,7 @@ func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 	return &FundedVPacket{
 		VPackets:         allPackets,
 		InputCommitments: inputCommitments,
+		ZeroValueInputs:  zeroValueInputs,
 	}, nil
 }
 
