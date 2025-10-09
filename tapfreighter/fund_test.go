@@ -321,6 +321,7 @@ func TestFundPacket(t *testing.T) {
 		vPkt                     *tappsbt.VPacket
 		inputProofs              []*proof.Proof
 		selectedCommitments      []*AnchoredCommitment
+		zeroValueInputs          []*ZeroValueInput
 		keysDerived              int
 		expectedErr              string
 		expectedInputCommitments tappsbt.InputCommitments
@@ -350,6 +351,28 @@ func TestFundPacket(t *testing.T) {
 				Commitment:  inputCommitment,
 				Asset:       &inputAsset,
 			}},
+			zeroValueInputs: []*ZeroValueInput{
+				{
+					OutPoint: wire.OutPoint{
+						Hash:  test.RandHash(),
+						Index: 1,
+					},
+					OutputValue: 1000,
+					InternalKey: internalKey,
+					MerkleRoot:  test.RandBytes(32),
+					PkScript:    test.RandBytes(34),
+				},
+				{
+					OutPoint: wire.OutPoint{
+						Hash:  test.RandHash(),
+						Index: 0,
+					},
+					OutputValue: 546,
+					InternalKey: internalKey,
+					MerkleRoot:  test.RandBytes(32),
+					PkScript:    test.RandBytes(34),
+				},
+			},
 			keysDerived: 3,
 			expectedInputCommitments: tappsbt.InputCommitments{
 				inputPrevID: inputCommitment,
@@ -765,6 +788,7 @@ func TestFundPacket(t *testing.T) {
 			result, err := createFundedPacketWithInputs(
 				ctx, exporter, keyRing, addrBook,
 				tc.fundDesc, tc.vPkt, tc.selectedCommitments,
+				tc.zeroValueInputs,
 			)
 
 			keyRing.AssertNumberOfCalls(
@@ -787,6 +811,13 @@ func TestFundPacket(t *testing.T) {
 			assertOutputsEqual(
 				tt, result.VPackets,
 				tc.expectedOutputs(tt, keyRing),
+			)
+
+			// Verify zero-value inputs are correctly added to the
+			// result.
+			require.Len(
+				tt, result.ZeroValueInputs,
+				len(tc.zeroValueInputs),
 			)
 		})
 	}
