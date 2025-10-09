@@ -2671,8 +2671,17 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 			prevID.OutPoint.String())
 	}
 
+	// Fetch zero-value UTXOs that should be swept as additional inputs.
+	zeroValueInputs, err := r.cfg.AssetStore.FetchOrphanUTXOs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch zero-value "+
+			"UTXOs: %w", err)
+	}
+
 	resp, err := r.cfg.ChainPorter.RequestShipment(
-		tapfreighter.NewPreSignedParcel(vPackets, inputCommitments, ""),
+		tapfreighter.NewPreSignedParcel(
+			vPackets, inputCommitments, zeroValueInputs, "",
+		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error requesting delivery: %w", err)
@@ -3785,7 +3794,8 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewPreSignedParcel(
-			fundResp.VPackets, fundResp.InputCommitments, in.Note,
+			fundResp.VPackets, fundResp.InputCommitments,
+			fundResp.ZeroValueInputs, in.Note,
 		),
 	)
 	if err != nil {
