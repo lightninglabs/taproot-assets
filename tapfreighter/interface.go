@@ -168,6 +168,10 @@ type CoinLister interface {
 
 	// DeleteExpiredLeases deletes all expired leases from the database.
 	DeleteExpiredLeases(ctx context.Context) error
+
+	// FetchOrphanUTXOs fetches all managed UTXOs that contain only
+	// zero-value assets (tombstones and burns).
+	FetchOrphanUTXOs(ctx context.Context) ([]*ZeroValueInput, error)
 }
 
 // MultiCommitmentSelectStrategy is an enum that describes the strategy that
@@ -195,6 +199,29 @@ type CoinSelector interface {
 	// ReleaseCoins releases/unlocks coins that were previously leased and
 	// makes them available for coin selection again.
 	ReleaseCoins(ctx context.Context, utxoOutpoints ...wire.OutPoint) error
+
+	// SelectOrphanCoins selects all managed UTXOs that contain only
+	// zero-value assets (tombstones and burns). The selected UTXOs are
+	// leased for the default lease duration.
+	SelectOrphanCoins(ctx context.Context) ([]*ZeroValueInput, error)
+}
+
+// ZeroValueInput represents a zero-value UTXO that should be swept.
+type ZeroValueInput struct {
+	// OutPoint is the outpoint of the zero-value UTXO.
+	OutPoint wire.OutPoint
+
+	// OutputValue is the satoshi value of the zero-value UTXO.
+	OutputValue btcutil.Amount
+
+	// InternalKey is the internal key descriptor for the zero-value UTXO.
+	InternalKey keychain.KeyDescriptor
+
+	// MerkleRoot is the taproot merkle root for the zero-value UTXO.
+	MerkleRoot []byte
+
+	// PkScript is the pkScript of the anchor output.
+	PkScript []byte
 }
 
 // TransferInput represents the database level input to an asset transfer.
@@ -431,6 +458,24 @@ func (out *TransferOutput) UniqueKey() (OutputIdentifier, error) {
 	), nil
 }
 
+// IsTombstone returns true if the transfer output is a tombstone.
+func (out *TransferOutput) IsTombstone() bool {
+	return out.Amount == 0 && out.ScriptKey.PubKey.IsEqual(asset.NUMSPubKey)
+}
+
+// IsBurn returns true if the transfer output is a burn.
+func (out *TransferOutput) IsBurn() bool {
+	return out.Amount == 0 && len(out.WitnessData) > 0 &&
+		asset.IsBurnKey(
+			out.ScriptKey.PubKey, out.WitnessData[0],
+		)
+}
+
+// IsLocal returns true if the transfer output is a local script key.
+func (out *TransferOutput) IsLocal() bool {
+	return out.ScriptKeyLocal
+}
+
 // OutboundParcel represents the database level delta of an outbound Taproot
 // Asset parcel (outbound spend). A spend will destroy a series of assets listed
 // as inputs, and re-create them as new outputs. Along the way some assets may
@@ -480,6 +525,10 @@ type OutboundParcel struct {
 	// transfer.
 	Outputs []TransferOutput
 
+	// ZeroValueInputs is the set of zero-value UTXOs that are being swept
+	// as additional inputs to the Bitcoin transaction.
+	ZeroValueInputs []*ZeroValueInput
+
 	// Label is a user provided label for the transfer.
 	Label string
 
@@ -498,6 +547,7 @@ func (o *OutboundParcel) Copy() *OutboundParcel {
 		ChainFees:             o.ChainFees,
 		Inputs:                fn.CopySlice(o.Inputs),
 		Outputs:               fn.CopySlice(o.Outputs),
+		ZeroValueInputs:       fn.CopySlice(o.ZeroValueInputs),
 		Label:                 o.Label,
 		SkipAnchorTxBroadcast: o.SkipAnchorTxBroadcast,
 	}
@@ -574,6 +624,10 @@ type AssetConfirmEvent struct {
 	// PassiveAssetProofFiles is the set of passive asset proof files that
 	// are re-anchored during the parcel confirmation process.
 	PassiveAssetProofFiles map[asset.ID][]*proof.AnnotatedProof
+
+	// ZeroValueInputs is the set of zero-value UTXOs that were swept as
+	// additional inputs to the Bitcoin transaction.
+	ZeroValueInputs []*ZeroValueInput
 }
 
 // ExportLog is used to track the state of outbound Taproot Asset parcels

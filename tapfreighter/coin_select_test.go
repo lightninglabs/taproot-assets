@@ -60,6 +60,12 @@ func (m *mockCoinLister) DeleteExpiredLeases(ctx context.Context) error {
 	return nil
 }
 
+func (m *mockCoinLister) FetchOrphanUTXOs(
+	context.Context) ([]*ZeroValueInput, error) {
+
+	return nil, nil
+}
+
 // TestCoinSelector tests that the coin selector behaves as expected.
 func TestCoinSelector(t *testing.T) {
 	var (

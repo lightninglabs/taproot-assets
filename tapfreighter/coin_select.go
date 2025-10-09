@@ -114,20 +114,6 @@ func (s *CoinSelect) SelectCoins(ctx context.Context,
 	return selectedCoins, nil
 }
 
-// LeaseCoins leases/locks/reserves coins for the given lease owner until the
-// given expiry. This is used to prevent multiple concurrent coin selection
-// attempts from selecting the same coin(s).
-func (s *CoinSelect) LeaseCoins(ctx context.Context, leaseOwner [32]byte,
-	expiry time.Time, utxoOutpoints ...wire.OutPoint) error {
-
-	s.coinLock.Lock()
-	defer s.coinLock.Unlock()
-
-	return s.coinLister.LeaseCoins(
-		ctx, leaseOwner, expiry, utxoOutpoints...,
-	)
-}
-
 // ReleaseCoins releases/unlocks coins that were previously leased and makes
 // them available for coin selection again.
 func (s *CoinSelect) ReleaseCoins(ctx context.Context,
@@ -197,6 +183,48 @@ func (s *CoinSelect) selectForAmount(minTotalAmount uint64,
 			amountSum, minTotalAmount)
 	}
 	return selectedCommitments, nil
+}
+
+// SelectOrphanCoins fetches all managed UTXOs that contain only
+// zero-value assets (tombstones and burns). The selected UTXOs are
+// leased for the default lease duration.
+func (s *CoinSelect) SelectOrphanCoins(ctx context.Context) (
+	[]*ZeroValueInput, error) {
+
+	s.coinLock.Lock()
+	defer s.coinLock.Unlock()
+
+	// Fetch all zero-value UTXOs that are eligible for sweeping.
+	zeroValueInputs, err := s.coinLister.FetchOrphanUTXOs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch zero-value UTXOs: %w",
+			err)
+	}
+
+	// We now need to lock/lease/reserve those selected coins so
+	// that they can't be used by other processes.
+	if len(zeroValueInputs) > 0 {
+		expiry := time.Now().UTC().Add(defaultCoinLeaseDuration)
+		zeroValueOutpoints := fn.Map(
+			zeroValueInputs,
+			func(z *ZeroValueInput) wire.OutPoint {
+				return z.OutPoint
+			},
+		)
+		err = s.coinLister.LeaseCoins(
+			ctx, defaultWalletLeaseIdentifier, expiry,
+			zeroValueOutpoints...,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to lease zero-value "+
+				"UTXOs: %w", err)
+		}
+
+		log.Debugf("Selected and leased %d zero-value UTXOs",
+			len(zeroValueInputs))
+	}
+
+	return zeroValueInputs, nil
 }
 
 var _ CoinSelector = (*CoinSelect)(nil)

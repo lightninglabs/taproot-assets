@@ -888,6 +888,7 @@ func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
 		TxIndex:                int32(pkg.TransferTxConfEvent.TxIndex),
 		FinalProofs:            pkg.FinalProofs,
 		PassiveAssetProofFiles: passiveAssetProofFiles,
+		ZeroValueInputs:        pkg.ZeroValueInputs,
 	}, burns)
 	if err != nil {
 		return fmt.Errorf("unable to log parcel delivery "+
@@ -1248,9 +1249,11 @@ func (p *ChainPorter) importLocalAddresses(ctx context.Context,
 	for idx := range parcel.Outputs {
 		out := &parcel.Outputs[idx]
 
-		// Skip non-local outputs, those are going to a receiver outside
-		// of this daemon.
-		if !out.ScriptKeyLocal {
+		isImportable := out.IsLocal() || out.IsTombstone() ||
+			out.IsBurn()
+
+		// Determine if the output should be imported into the wallet.
+		if !isImportable {
 			continue
 		}
 
@@ -1267,23 +1270,30 @@ func (p *ChainPorter) importLocalAddresses(ctx context.Context,
 			return err
 		}
 
+		log.Infof("Importing anchor output key for output %d "+
+			"(isTombstone=%v, isBurn=%v): outpoint=%v, key=%x",
+			idx, out.IsTombstone(), out.IsBurn(),
+			out.Anchor.OutPoint,
+			anchorOutputKey.SerializeCompressed())
+
 		// Before we broadcast the transaction to the network, we'll
 		// import the new anchor output into the wallet so it watches
 		// it for spends and also takes account of the BTC we used in
 		// the transfer.
 		_, err = p.cfg.Wallet.ImportTaprootOutput(ctx, anchorOutputKey)
-		switch {
-		case err == nil:
-			break
+		if err != nil {
+			// On restart, we'll get an error that the output has
+			// already been added to the wallet, so we'll catch this
+			// now and move along if so.
+			if strings.Contains(err.Error(), "already exists") {
+				log.Tracef("Anchor output key already exists "+
+					"(outpoint=%v): %w",
+					out.Anchor.OutPoint, err)
+				continue
+			}
 
-		// On restart, we'll get an error that the output has already
-		// been added to the wallet, so we'll catch this now and move
-		// along if so.
-		case strings.Contains(err.Error(), "already exists"):
-			break
-
-		default:
-			return err
+			return fmt.Errorf("unable to import anchor output "+
+				"key: %w", err)
 		}
 	}
 
@@ -1446,6 +1456,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		currentPkg.VirtualPackets = fundSendRes.VPackets
 		currentPkg.InputCommitments = fundSendRes.InputCommitments
+		currentPkg.ZeroValueInputs = fundSendRes.ZeroValueInputs
 
 		currentPkg.SendState = SendStateVirtualSign
 
@@ -1591,9 +1602,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		anchorTx, err := wallet.AnchorVirtualTransactions(
 			ctx, &AnchorVTxnsParams{
-				FeeRate:        feeRate,
-				ActivePackets:  currentPkg.VirtualPackets,
-				PassivePackets: currentPkg.PassiveAssets,
+				FeeRate:         feeRate,
+				ActivePackets:   currentPkg.VirtualPackets,
+				PassivePackets:  currentPkg.PassiveAssets,
+				ZeroValueInputs: currentPkg.ZeroValueInputs,
 			},
 		)
 		if err != nil {
@@ -1695,8 +1707,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		parcel, err := ConvertToTransfer(
 			currentHeight, currentPkg.VirtualPackets,
 			currentPkg.AnchorTx, currentPkg.PassiveAssets,
-			isLocalKey, currentPkg.Label,
-			currentPkg.SkipAnchorTxBroadcast,
+			currentPkg.ZeroValueInputs, isLocalKey,
+			currentPkg.Label, currentPkg.SkipAnchorTxBroadcast,
 		)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
@@ -1715,6 +1727,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// Write the parcel to disk as a pending parcel. This step also
 		// records the transfer details (e.g., reference to the anchor
 		// transaction ID, transfer outputs and inputs) to the database.
+		// This will also extend the leases for both asset inputs and
+		// zero-value UTXOs to prevent them from being used elsewhere.
 		err = p.cfg.ExportLog.LogPendingParcel(
 			ctx, parcel, defaultWalletLeaseIdentifier,
 			time.Now().Add(defaultBroadcastCoinLeaseDuration),
@@ -1883,18 +1897,33 @@ func (p *ChainPorter) unlockInputs(ctx context.Context, pkg *sendPackage) {
 	// sanity-check that we have known input commitments to unlock, since
 	// that might not always be the case (for example if another party
 	// contributes inputs).
-	if pkg.SendState < SendStateStorePreBroadcast &&
-		len(pkg.InputCommitments) > 0 {
+	// Also unlock any zero-value UTXOs that were leased for this package.
+	if pkg.SendState < SendStateStorePreBroadcast {
+		// Gather all outpoints to unlock in a single array.
+		var outpoints []wire.OutPoint
 
+		// Add input commitment outpoints
 		for prevID := range pkg.InputCommitments {
 			log.Debugf("Unlocking input %v", prevID.OutPoint)
+			outpoints = append(outpoints, prevID.OutPoint)
+		}
 
+		// Add zero-value inputs.
+		zeroValueOutpoints := fn.Map(
+			pkg.ZeroValueInputs,
+			func(z *ZeroValueInput) wire.OutPoint {
+				return z.OutPoint
+			},
+		)
+		outpoints = append(outpoints, zeroValueOutpoints...)
+
+		// Release all coins in a single call.
+		if len(outpoints) > 0 {
 			err := p.cfg.AssetWallet.ReleaseCoins(
-				ctx, prevID.OutPoint,
+				ctx, outpoints...,
 			)
 			if err != nil {
-				log.Warnf("Unable to unlock input %v: %v",
-					prevID.OutPoint, err)
+				log.Warnf("Unable to unlock inputs: %v", err)
 			}
 		}
 	}

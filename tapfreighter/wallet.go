@@ -172,6 +172,10 @@ type AnchorVTxnsParams struct {
 	// PassivePackets is a list of all the virtual transactions which
 	// re-anchor passive assets.
 	PassivePackets []*tappsbt.VPacket
+
+	// ZeroValueInputs is a list of zero-value UTXOs that should be swept
+	// as additional inputs to the transaction.
+	ZeroValueInputs []*ZeroValueInput
 }
 
 // WalletConfig holds the configuration for a new Wallet.
@@ -248,6 +252,10 @@ type FundedVPacket struct {
 	// InputCommitments is a map from virtual package input index to its
 	// associated Taproot Asset commitment.
 	InputCommitments tappsbt.InputCommitments
+
+	// ZeroValueInputs is a list of zero-value UTXOs that should be swept
+	// as additional inputs to the transaction.
+	ZeroValueInputs []*ZeroValueInput
 }
 
 // FundAddressSend funds a virtual transaction, selecting assets to spend in
@@ -656,7 +664,9 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		return nil, err
 	}
 
-	// If we return with an error, we want to release the coins we've
+	var zeroValueInputs []*ZeroValueInput
+
+	// If we return with an error, we want to release all the coins we've
 	// selected.
 	success := false
 	defer func() {
@@ -667,6 +677,16 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 					return c.AnchorPoint
 				},
 			)
+
+			// Also release any zero-value UTXOs we may have leased.
+			zeroValueOutpoints := fn.Map(
+				zeroValueInputs,
+				func(z *ZeroValueInput) wire.OutPoint {
+					return z.OutPoint
+				},
+			)
+			outpoints = append(outpoints, zeroValueOutpoints...)
+
 			err := f.cfg.CoinSelector.ReleaseCoins(
 				ctx, outpoints...,
 			)
@@ -676,9 +696,17 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		}
 	}()
 
+	if f.cfg.SweepOrphanUtxos {
+		zeroValueInputs, err = f.cfg.CoinSelector.SelectOrphanCoins(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to select zero-value "+
+				"UTXOs: %w", err)
+		}
+	}
+
 	pkt, err := createFundedPacketWithInputs(
 		ctx, f.cfg.AssetProofs, f.cfg.KeyRing, f.cfg.AddrBook, fundDesc,
-		vPkt, selectedCommitments,
+		vPkt, selectedCommitments, zeroValueInputs,
 	)
 	if err != nil {
 		return nil, err
@@ -713,7 +741,9 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		return nil, err
 	}
 
-	// If we return with an error, we want to release the coins we've
+	var zeroValueInputs []*ZeroValueInput
+
+	// If we return with an error, we want to release all the coins we've
 	// selected.
 	success := false
 	defer func() {
@@ -724,6 +754,16 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 					return c.AnchorPoint
 				},
 			)
+
+			// Also release any zero-value UTXOs we may have leased.
+			zeroValueOutpoints := fn.Map(
+				zeroValueInputs,
+				func(z *ZeroValueInput) wire.OutPoint {
+					return z.OutPoint
+				},
+			)
+			outpoints = append(outpoints, zeroValueOutpoints...)
+
 			err := f.cfg.CoinSelector.ReleaseCoins(
 				ctx, outpoints...,
 			)
@@ -732,6 +772,16 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			}
 		}
 	}()
+
+	if f.cfg.SweepOrphanUtxos {
+		zeroValueInputs, err = f.cfg.CoinSelector.SelectOrphanCoins(
+			ctx,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to select zero-value "+
+				"UTXOs: %w", err)
+		}
+	}
 
 	activeAssets := fn.Filter(
 		selectedCommitments, func(c *AnchoredCommitment) bool {
@@ -797,7 +847,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 	// split commitment and other data.
 	fundedPkt, err := createFundedPacketWithInputs(
 		ctx, f.cfg.AssetProofs, f.cfg.KeyRing, f.cfg.AddrBook, fundDesc,
-		vPkt, selectedCommitments,
+		vPkt, selectedCommitments, zeroValueInputs,
 	)
 	if err != nil {
 		return nil, err
@@ -1191,6 +1241,16 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// it itself.
 	addAnchorPsbtInputs(sendPacket, params.ActivePackets)
 
+	// Add zero-value inputs that should be swept as additional inputs.
+	numZeroValueInputs := len(params.ZeroValueInputs)
+	if numZeroValueInputs > 0 {
+		log.DebugS(ctx, "Sweeping zero-value UTXOs",
+			"n", numZeroValueInputs)
+		addZeroValuePsbtInputs(
+			sendPacket, params.ZeroValueInputs, f.cfg.ChainParams,
+		)
+	}
+
 	// We now fund the packet, placing the change on the last output.
 	anchorPkt, err := f.cfg.Wallet.FundPsbt(
 		ctx, sendPacket, 1, params.FeeRate, -1,
@@ -1198,21 +1258,16 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("unable to fund psbt: %w", err)
 	}
-
-	log.Infof("Received funded PSBT packet")
-	log.Tracef("Packet: %v", spew.Sdump(anchorPkt.Pkt))
+	log.Tracef("Got funded PSBT packet: %v", spew.Sdump(anchorPkt.Pkt))
 
 	// With all the input and output information in the packet, we
 	// can now ask lnd to sign it, and then extract the final
 	// version ourselves.
-	log.Debugf("Signing PSBT")
-	log.Tracef("PSBT: %s", spew.Sdump(anchorPkt))
 	signedPsbt, err := f.cfg.Wallet.SignPsbt(ctx, anchorPkt.Pkt)
 	if err != nil {
 		return nil, fmt.Errorf("unable to sign psbt: %w", err)
 	}
-	log.Debugf("Got signed PSBT")
-	log.Tracef("PSBT: %s", spew.Sdump(signedPsbt))
+	log.Tracef("Got signed PSBT: %s", spew.Sdump(signedPsbt))
 
 	// Before we finalize, we need to calculate the actual, final fees that
 	// we pay.
@@ -1378,5 +1433,46 @@ func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket) {
 			)
 		}
 
+	}
+}
+
+// addZeroValuePsbtInputs adds zero-value UTXOs as inputs to the PSBT.
+func addZeroValuePsbtInputs(btcPkt *psbt.Packet,
+	zeroValueInputs []*ZeroValueInput, chainParams *address.ChainParams) {
+
+	for _, utxo := range zeroValueInputs {
+		// Check if this input is already added to avoid duplicates.
+		if tapsend.HasInput(btcPkt.UnsignedTx, utxo.OutPoint) {
+			continue
+		}
+
+		// Create the BIP32 derivation info for signing.
+		bip32Derivation, trDerivation := tappsbt.
+			Bip32DerivationFromKeyDesc(
+				utxo.InternalKey, chainParams.HDCoinType,
+			)
+
+		btcPkt.Inputs = append(btcPkt.Inputs, psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				Value:    int64(utxo.OutputValue),
+				PkScript: utxo.PkScript,
+			},
+			SighashType: txscript.SigHashDefault,
+			Bip32Derivation: []*psbt.Bip32Derivation{
+				bip32Derivation,
+			},
+			TaprootInternalKey: schnorr.SerializePubKey(
+				utxo.InternalKey.PubKey,
+			),
+			TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+				trDerivation,
+			},
+			TaprootMerkleRoot: utxo.MerkleRoot,
+		})
+		btcPkt.UnsignedTx.TxIn = append(
+			btcPkt.UnsignedTx.TxIn, &wire.TxIn{
+				PreviousOutPoint: utxo.OutPoint,
+			},
+		)
 	}
 }
