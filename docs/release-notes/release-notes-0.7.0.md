@@ -189,6 +189,9 @@
   configured with public read access. This matches the behavior of the  
   existing FetchSupplyCommit RPC endpoint.
 
+- The [`ListUtxos` RPC now returns a `Swept` field](https://github.com/lightninglabs/taproot-assets/pull/1832)
+  indicating whether the output is spent.
+
 - [PR#1839](https://github.com/lightninglabs/taproot-assets/pull/1839) The
   `FetchSupplyLeaves` and `FetchSupplyCommit` RPC endpoints now
   include a new `block_headers` field. This field is a map from block
@@ -248,6 +251,9 @@
 
 - Enable [burning the full amount of an asset](https://github.com/lightninglabs/taproot-assets/pull/1791)
   when it is the sole one anchored to a Bitcoin UTXO.
+
+- [Garbage collection of zero-value UTXOs](https://github.com/lightninglabs/taproot-assets/pull/1832)
+  by sweeping tombstones and burn outputs when executing onchain transactions.
 
 ## RPC Updates
 
