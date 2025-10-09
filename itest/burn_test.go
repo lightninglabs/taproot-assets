@@ -300,6 +300,7 @@ func testBurnAssets(t *harnessTest) {
 		burnAmt+simpleCollectible.Amount+multiBurnAmt+burnAmt,
 		WithNumUtxos(4), WithNumAnchorUtxos(4),
 		WithScriptKeyType(asset.ScriptKeyBurn),
+		WithIncludeLeased(),
 	)
 
 	burns = AssertNumBurns(t.t, t.tapd, 4, nil)
@@ -360,6 +361,7 @@ func testBurnAssets(t *harnessTest) {
 		burnAmt+simpleCollectible.Amount+multiBurnAmt+burnAmt+1,
 		WithNumUtxos(5), WithNumAnchorUtxos(5),
 		WithScriptKeyType(asset.ScriptKeyBurn),
+		WithIncludeLeased(),
 	)
 
 	// We now perform some queries to test the filters of the ListBurns
