@@ -345,8 +345,9 @@ func NewGenesisTx(t testing.TB, feeRate chainfee.SatPerKWeight) psbt.Packet {
 	return *genesisPkt
 }
 
-// FundGenesisTx add a genesis input and change output to a 1-output TX.
-func FundGenesisTx(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) {
+// FundGenesisTx add a genesis input and change output to a 1-output TX and
+// returns the index of the change output.
+func FundGenesisTx(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) uint32 {
 	const anchorBalance = int64(100000)
 
 	// Take the PSBT packet and add an additional input and output to
@@ -382,7 +383,10 @@ func FundGenesisTx(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) {
 		[][]byte{tapsend.GenesisDummyScript}, packet.UnsignedTx.TxOut,
 		feeRate,
 	)
-	packet.UnsignedTx.TxOut[1].Value -= int64(fee)
+	changeOutputIdx := len(packet.UnsignedTx.TxOut) - 1
+	packet.UnsignedTx.TxOut[changeOutputIdx].Value -= int64(fee)
+
+	return uint32(changeOutputIdx)
 }
 
 // FundPsbt funds a PSBT.
