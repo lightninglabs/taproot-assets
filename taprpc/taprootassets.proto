@@ -649,6 +649,9 @@ message ManagedUtxo {
     // The expiry time as a unix time stamp for this lease. If blank the utxo
     // isn't leased.
     int64 lease_expiry_unix = 8;
+
+    // Whether this UTXO has been swept in a Bitcoin transaction.
+    bool swept = 9;
 }
 
 message ListUtxosResponse {
