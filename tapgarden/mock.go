@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -163,6 +164,9 @@ type MintBatchOptions struct {
 	// universeCommitments specifies whether to generate universe
 	// commitments for the asset groups in this minting batch.
 	universeCommitments bool
+
+	// skipFunding specifies whether to skip funding the genesis PSBT.
+	skipFunding bool
 }
 
 // MintBatchOption is a functional option for creating a new minting batch.
@@ -195,6 +199,13 @@ func WithTotalGroups(counts []int) MintBatchOption {
 func WithUniverseCommitments(enabled bool) MintBatchOption {
 	return func(options *MintBatchOptions) {
 		options.universeCommitments = enabled
+	}
+}
+
+// WithSkipFunding specifies whether to skip funding the genesis PSBT.
+func WithSkipFunding() MintBatchOption {
+	return func(options *MintBatchOptions) {
+		options.skipFunding = true
 	}
 }
 
@@ -258,6 +269,32 @@ func RandMintingBatch(t testing.TB, opts ...MintBatchOption) *MintingBatch {
 	// ensure that the total number of seedlings generated matches the
 	// requested amount. This check might help debug flakes in tests.
 	require.Equal(t, options.totalSeedlings, len(batch.Seedlings))
+
+	// Return early if funding is to be skipped.
+	if options.skipFunding {
+		return batch
+	}
+
+	walletFundPsbt := func(ctx context.Context,
+		anchorPkt psbt.Packet) (tapsend.FundedPsbt, error) {
+
+		changeOutputIdx := FundGenesisTx(
+			&anchorPkt, chainfee.FeePerKwFloor,
+		)
+
+		return tapsend.FundedPsbt{
+			Pkt:               &anchorPkt,
+			ChangeOutputIndex: int32(changeOutputIdx),
+		}, nil
+	}
+
+	// Fund genesis packet.
+	ctx := context.Background()
+	fundedPsbt, err := fundGenesisPsbt(
+		ctx, address.TestNet3Tap, batch, walletFundPsbt,
+	)
+	require.NoError(t, err)
+	batch.GenesisPacket = &fundedPsbt
 
 	return batch
 }
