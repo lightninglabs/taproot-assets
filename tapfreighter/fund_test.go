@@ -765,6 +765,7 @@ func TestFundPacket(t *testing.T) {
 			result, err := createFundedPacketWithInputs(
 				ctx, exporter, keyRing, addrBook,
 				tc.fundDesc, tc.vPkt, tc.selectedCommitments,
+				nil,
 			)
 
 			keyRing.AssertNumberOfCalls(
