@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -146,6 +147,15 @@ type Allocation struct {
 	// InternalKey is the internal key used for the on-chain transaction
 	// output.
 	InternalKey *btcec.PublicKey
+
+	// Bip32Derivation is the BIP32 derivation info for the internal key.
+	// This is used to preserve the key derivation through the allocation
+	// flow so that PSBTs can be properly signed.
+	Bip32Derivation []*psbt.Bip32Derivation
+
+	// TaprootBip32Derivation is the taproot BIP32 derivation info for the
+	// internal key.
+	TaprootBip32Derivation []*psbt.TaprootBip32Derivation
 
 	// NonAssetLeaves is the full list of TapLeaf nodes that aren't any
 	// asset commitments. This is used to construct the tapscript sibling
@@ -616,17 +626,19 @@ func allocatePiece(p piece, a Allocation, toFill uint64,
 
 	deliveryAddr := a.ProofDeliveryAddress
 	vOut := &tappsbt.VOutput{
-		AssetVersion:                 a.AssetVersion,
-		Interactive:                  interactive,
-		AnchorOutputIndex:            a.OutputIndex,
-		AnchorOutputInternalKey:      a.InternalKey,
-		AnchorOutputTapscriptSibling: sibling,
-		ScriptKey:                    scriptKey,
-		ProofDeliveryAddress:         deliveryAddr,
-		LockTime:                     a.LockTime,
-		RelativeLockTime:             uint64(a.Sequence),
-		AltLeaves:                    a.AltLeaves,
-		Address:                      a.Address,
+		AssetVersion:                       a.AssetVersion,
+		Interactive:                        interactive,
+		AnchorOutputIndex:                  a.OutputIndex,
+		AnchorOutputInternalKey:            a.InternalKey,
+		AnchorOutputBip32Derivation:        a.Bip32Derivation,
+		AnchorOutputTaprootBip32Derivation: a.TaprootBip32Derivation,
+		AnchorOutputTapscriptSibling:       sibling,
+		ScriptKey:                          scriptKey,
+		ProofDeliveryAddress:               deliveryAddr,
+		LockTime:                           a.LockTime,
+		RelativeLockTime:                   uint64(a.Sequence),
+		AltLeaves:                          a.AltLeaves,
+		Address:                            a.Address,
 	}
 
 	// If we've allocated all pieces, or we don't need to allocate anything
@@ -845,6 +857,8 @@ func setAllocationFieldsFromOutput(alloc *Allocation, vOut *tappsbt.VOutput) {
 	alloc.AssetVersion = vOut.AssetVersion
 	alloc.OutputIndex = vOut.AnchorOutputIndex
 	alloc.InternalKey = vOut.AnchorOutputInternalKey
+	alloc.Bip32Derivation = vOut.AnchorOutputBip32Derivation
+	alloc.TaprootBip32Derivation = vOut.AnchorOutputTaprootBip32Derivation
 	alloc.GenScriptKey = StaticScriptKeyGen(vOut.ScriptKey)
 	alloc.Sequence = uint32(vOut.RelativeLockTime)
 	alloc.LockTime = vOut.LockTime
