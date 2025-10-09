@@ -672,6 +672,10 @@ type OrderHandlerCfg struct {
 	// intercept and accept/reject HTLCs.
 	HtlcInterceptor HtlcInterceptor
 
+	// AliasManager is the SCID alias manager. This component is used to add
+	// and remove SCID aliases.
+	AliasManager ScidAliasManager
+
 	// AcceptHtlcEvents is a channel that receives accepted HTLCs.
 	AcceptHtlcEvents chan<- *AcceptHtlcEvent
 
@@ -897,7 +901,7 @@ func (h *OrderHandler) subscribeHtlcs(ctx context.Context) error {
 func (h *OrderHandler) Start() error {
 	var startErr error
 	h.startOnce.Do(func() {
-		// Start the main event loop in a separate goroutine.
+		// Start the HTLC interceptor in a separate go routine.
 		h.Wg.Add(1)
 		go func() {
 			defer h.Wg.Done()
@@ -911,6 +915,12 @@ func (h *OrderHandler) Start() error {
 					"interception: %v", startErr)
 				return
 			}
+		}()
+
+		// Start the main event loop in a separate go routine.
+		h.Wg.Add(1)
+		go func() {
+			defer h.Wg.Done()
 
 			h.mainEventLoop()
 		}()
@@ -944,8 +954,8 @@ func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
 	h.policies.Store(policy.AcceptedQuoteId.Scid(), policy)
 }
 
-// RegisterAssetPurchasePolicy generates and registers an asset buy policy with the
-// order handler. This function takes an incoming sell accept message as an
+// RegisterAssetPurchasePolicy generates and registers an asset buy policy with
+// the order handler. This function takes an incoming sell accept message as an
 // argument.
 func (h *OrderHandler) RegisterAssetPurchasePolicy(
 	sellAccept rfqmsg.SellAccept) {
@@ -1088,9 +1098,41 @@ func (h *OrderHandler) cleanupStalePolicies() {
 
 	h.policies.ForEach(
 		func(scid SerialisedScid, policy Policy) error {
-			if policy.HasExpired() {
-				staleCounter++
-				h.policies.Delete(scid)
+			if !policy.HasExpired() {
+				return nil
+			}
+
+			staleCounter++
+
+			// Delete the local entry of this policy.
+			h.policies.Delete(scid)
+
+			ctx, cancel := h.WithCtxQuitCustomTimeout(
+				h.DefaultTimeout,
+			)
+			defer cancel()
+
+			aliasScid := lnwire.NewShortChanIDFromInt(
+				uint64(scid),
+			)
+
+			// Find the base SCID for the alias.
+			baseScid, err := h.cfg.AliasManager.FindBaseAlias(
+				ctx, aliasScid,
+			)
+			if err != nil {
+				log.Warnf("Error finding base SCID for alias "+
+					"%d: %v", scid, err)
+				return nil
+			}
+
+			// Delete the alias scid mapping on LND.
+			err = h.cfg.AliasManager.DeleteLocalAlias(
+				ctx, aliasScid, baseScid,
+			)
+			if err != nil {
+				log.Warnf("Error deleting SCID alias %d: %v",
+					scid, err)
 			}
 
 			return nil
