@@ -323,29 +323,6 @@ func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 	return seedlings
 }
 
-// RandSeedlingMintingBatch creates a new minting batch with only random
-// seedlings populated for testing.
-//
-// TODO(ffranr): Replace this function with RandMintingBatch. Note also function
-// addRandGroupToBatch.
-func RandSeedlingMintingBatch(t testing.TB, numSeedlings int) *MintingBatch {
-	genesisTx := NewGenesisTx(t, chainfee.FeePerKwFloor)
-	BatchKey, _ := test.RandKeyDesc(t)
-	return &MintingBatch{
-		BatchKey:     BatchKey,
-		Seedlings:    RandSeedlings(t, numSeedlings),
-		HeightHint:   test.RandInt[uint32](),
-		CreationTime: time.Now(),
-		GenesisPacket: &FundedMintAnchorPsbt{
-			FundedPsbt: tapsend.FundedPsbt{
-				Pkt:               &genesisTx,
-				ChangeOutputIndex: 1,
-			},
-			AssetAnchorOutIdx: 0,
-		},
-	}
-}
-
 type MockWalletAnchor struct {
 	FundPsbtSignal     chan *tapsend.FundedPsbt
 	SignPsbtSignal     chan struct{}
