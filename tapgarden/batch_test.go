@@ -110,13 +110,13 @@ func TestValidateUniCommitment(t *testing.T) {
 			// Ensures that a group anchor candidate seedling
 			// with universe commitments can be added to an empty
 			// batch.
-			name: "empty batch; candidate seedling is group " +
-				"anchor; is valid",
+			name: "empty unfunded batch; candidate seedling is " +
+				"group anchor; is valid",
 
 			candidateSeedling: RandGroupAnchorSeedling(
 				t, "some-anchor-name", true,
 			),
-			batch:     RandMintingBatch(t),
+			batch:     RandMintingBatch(t, WithSkipFunding()),
 			expectErr: false,
 		},
 	}
