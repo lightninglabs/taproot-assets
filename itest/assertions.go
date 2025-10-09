@@ -2093,9 +2093,13 @@ func AssertAssetsMinted(t *testing.T, tapClient commands.RpcClientsBundle,
 		assetList     []*taprpc.Asset
 	)
 
+	// List only the assets that were minted in the anchor transaction.
 	listRespConfirmed, err := tapClient.ListAssets(
 		ctxt, &taprpc.ListAssetRequest{
 			ScriptKeyType: allScriptKeysQuery,
+			AnchorOutpoint: &taprpc.OutPoint{
+				Txid: mintTXID[:],
+			},
 		},
 	)
 	require.NoError(t, err)
