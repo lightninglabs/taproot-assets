@@ -1275,11 +1275,6 @@ func AssertAssetOutboundTransferWithOutputs(t *testing.T,
 		outpoints[o.Anchor.Outpoint] = struct{}{}
 		scripts[string(o.ScriptKey)] = struct{}{}
 	}
-
-	sendRespJSON, err := formatProtoJSON(transfer)
-	require.NoError(t, err)
-	t.Logf("Got response from sending assets: %v", sendRespJSON)
-
 	// Mine a block to force the send event to complete (confirm on-chain).
 	var newBlock *wire.MsgBlock
 	if confirm {
@@ -1318,23 +1313,11 @@ func AssertAssetOutboundTransferWithOutputs(t *testing.T,
 			inputAssetIDs, hex.EncodeToString,
 		)
 
-		t.Logf("Want input asset IDs: %v, got: %v",
-			expectedInputAssetIDs, actualInputAssetIDs)
 		return fn.All(
 			expectedInputAssetIDs, func(id string) bool {
 				return slices.Contains(actualInputAssetIDs, id)
 			})
 	}, defaultTimeout, wait.PollInterval)
-	require.NoError(t, err)
-
-	transferResp, err := sender.ListTransfers(
-		ctxb, &taprpc.ListTransfersRequest{},
-	)
-	require.NoError(t, err)
-
-	transferRespJSON, err := formatProtoJSON(transferResp)
-	require.NoError(t, err)
-	t.Logf("Got response from list transfers: %v", transferRespJSON)
 
 	return newBlock
 }

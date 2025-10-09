@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -45,8 +46,12 @@ var (
 
 	// logLevel is a command line flag for setting the log level of the
 	// integration test output.
-	logLevel = flag.String("loglevel", "info", "Set the log level of the "+
+	logLevel = flag.String("loglevel", "debug", "Set the log level of the "+
 		"integration test output")
+
+	// logDir is the directory for tapd and test logs.
+	// We hardcode this to match the Makefile's -logdir=regtest flag.
+	logDir = &[]string{"regtest"}[0]
 )
 
 const (
@@ -201,12 +206,18 @@ func (h *harnessTest) shutdown(_ *testing.T) error {
 func (h *harnessTest) setupLogging() {
 	h.logWriter = build.NewRotatingLogWriter()
 
+	// Initialize the log rotator with a file in the log directory.
 	logConfig := build.DefaultLogConfig()
+	// Disable console logging to avoid mixing with test output
+	logConfig.Console.Disable = true
+	logFile := filepath.Join(*logDir, "tapd.log")
+	err := h.logWriter.InitLogRotator(logConfig.File, logFile)
+	require.NoError(h.t, err)
+
 	h.logMgr = build.NewSubLoggerManager(
 		build.NewDefaultLogHandlers(logConfig, h.logWriter)...,
 	)
 
-	var err error
 	h.interceptor, err = signal.Intercept()
 	require.NoError(h.t, err)
 
