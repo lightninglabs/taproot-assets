@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"fmt"
 	"math/rand"
 	"os"
 	"testing"
@@ -1839,7 +1840,7 @@ func TestTapscriptTreeManager(t *testing.T) {
 // storeMintSupplyPreCommit stores a mint anchor supply pre-commitment in the
 // DB.
 func storeMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
-	batchKey []byte, txOutputIndex int32,
+	batchKey []byte, txOutputIndex uint32,
 	taprootInternalKey keychain.KeyDescriptor, groupKey []byte,
 	outpoint wire.OutPoint) {
 
@@ -1863,7 +1864,7 @@ func storeMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 		_, err = q.UpsertMintSupplyPreCommit(
 			ctx, UpsertBatchPreCommitParams{
 				BatchKey:             batchKey,
-				TxOutputIndex:        txOutputIndex,
+				TxOutputIndex:        int32(txOutputIndex),
 				TaprootInternalKeyID: internalKeyID,
 				GroupKey:             groupKey,
 				Outpoint:             opBytes,
@@ -1880,7 +1881,7 @@ func storeMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 // supply pre-commitment from the DB and asserts that it matches the expected
 // values.
 func assertMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
-	batchKey []byte, txOutputIndex int32,
+	batchKey []byte, txOutputIndex uint32,
 	preCommitInternalKey keychain.KeyDescriptor, groupPubKeyBytes []byte,
 	outpoint wire.OutPoint) {
 
@@ -1906,7 +1907,7 @@ func assertMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 	// Ensure the mint anchor commitment matches the one we inserted.
 	require.NotNil(t, preCommit)
 	require.Equal(t, batchKey, preCommit.BatchKey)
-	require.Equal(t, txOutputIndex, preCommit.TxOutputIndex)
+	require.EqualValues(t, txOutputIndex, preCommit.TxOutputIndex)
 
 	rawInternalKey := preCommitInternalKey.PubKey.SerializeCompressed()
 	require.Equal(
@@ -1927,6 +1928,39 @@ func assertMintSupplyPreCommit(t *testing.T, assetStore AssetMintingStore,
 	require.Equal(t, opBytes, preCommit.Outpoint)
 }
 
+// storeSeedlingGroupGenesis stores the group genesis and an initial asset
+// associated with the given seedling in the DB. This is necessary before we can
+// commit a minting batch that contains the seedling.
+func storeSeedlingGroupGenesis(t *testing.T, ctx context.Context,
+	assetStore *AssetMintingStore, seedling tapgarden.Seedling) {
+
+	genesis := seedling.GroupInfo.Genesis
+	groupKey := seedling.GroupInfo.GroupKey
+	initialAsset := asset.RandAssetWithValues(
+		t, *genesis, groupKey, asset.RandScriptKey(t),
+	)
+
+	upsertAsset := func(q PendingAssetStore) error {
+		_, err := maybeUpsertAssetMeta(ctx, q, genesis, nil)
+		require.NoError(t, err)
+
+		// Insert a random managed UTXO.
+		utxoID := addRandomManagedUTXO(t, ctx, q, initialAsset)
+
+		_, _, err = upsertAssetsWithGenesis(
+			ctx, q, genesis.FirstPrevOut,
+			[]*asset.Asset{initialAsset},
+			[]sql.NullInt64{sqlInt64(utxoID)},
+		)
+		require.NoError(t, err)
+		return nil
+	}
+
+	var writeTxOpts AssetStoreTxOptions
+	err := assetStore.db.ExecTx(ctx, &writeTxOpts, upsertAsset)
+	require.NoError(t, err)
+}
+
 // TestUpsertMintSupplyPreCommit tests the UpsertMintSupplyPreCommit and
 // FetchSupplyPreCommits SQL queries. In particular, it tests that upsert works
 // correctly.
@@ -1937,12 +1971,20 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	assetStore, _, _ := newAssetStore(t)
 
 	// Create a new batch with one asset group seedling.
-	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, 1)
-	mintingBatch.SupplyCommitments = true
-
-	_, _, group := addRandGroupToBatch(
-		t, assetStore, ctx, mintingBatch.Seedlings,
+	mintingBatch := tapgarden.RandMintingBatch(
+		t, tapgarden.WithTotalGroups([]int{1}),
+		tapgarden.WithUniverseCommitments(true),
 	)
+
+	// Store group genesis associated with seedling. This is necessary
+	// before we can commit the batch.
+	require.Len(t, mintingBatch.Seedlings, 1)
+	var seedling tapgarden.Seedling
+	for _, s := range mintingBatch.Seedlings {
+		seedling = *s
+		break
+	}
+	storeSeedlingGroupGenesis(t, ctx, assetStore, seedling)
 
 	// Commit batch.
 	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
@@ -1962,32 +2004,34 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	)
 
 	// Define pre-commit outpoint for the batch mint anchor tx.
-	txOutputIndex := int32(2)
-	txidStr := mintingBatch.GenesisPacket.FundedPsbt.Pkt.UnsignedTx.TxID()
+	genesisPkt := mintingBatch.GenesisPacket
+	require.NotNil(t, genesisPkt)
 
+	preCommitOut, err := genesisPkt.PreCommitmentOutput.UnwrapOrErr(
+		fmt.Errorf("no pre-commitment output"),
+	)
+	require.NoError(t, err)
+
+	txidStr := genesisPkt.FundedPsbt.Pkt.UnsignedTx.TxID()
 	txid, err := chainhash.NewHashFromStr(txidStr)
 	require.NoError(t, err)
 
 	preCommitOutpoint := wire.OutPoint{
 		Hash:  *txid,
-		Index: uint32(txOutputIndex),
+		Index: preCommitOut.OutIdx,
 	}
 
 	// Serialize keys into bytes for easier handling.
-	preCommitInternalKey, _ := test.RandKeyDesc(t)
-
-	groupPubKeyBytes := schnorr.SerializePubKey(&group.GroupPubKey)
-
-	// Upsert a mint anchor commitment for the batch.
-	storeMintSupplyPreCommit(
-		t, *assetStore, batchKey, txOutputIndex,
-		preCommitInternalKey, groupPubKeyBytes, preCommitOutpoint,
+	preCommitGroupKey, err := preCommitOut.GroupPubKey.UnwrapOrErr(
+		fmt.Errorf("no group key"),
 	)
+	require.NoError(t, err)
+	groupPubKeyBytes := schnorr.SerializePubKey(&preCommitGroupKey)
 
 	// Retrieve and inspect the mint anchor commitment we just inserted.
 	assertMintSupplyPreCommit(
-		t, *assetStore, batchKey, txOutputIndex,
-		preCommitInternalKey, groupPubKeyBytes, preCommitOutpoint,
+		t, *assetStore, batchKey, preCommitOut.OutIdx,
+		preCommitOut.InternalKey, groupPubKeyBytes, preCommitOutpoint,
 	)
 
 	// Upsert-ing a new taproot internal key for the same pre-commit
@@ -1995,12 +2039,12 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	internalKey2, _ := test.RandKeyDesc(t)
 
 	storeMintSupplyPreCommit(
-		t, *assetStore, batchKey, txOutputIndex, internalKey2,
+		t, *assetStore, batchKey, preCommitOut.OutIdx, internalKey2,
 		groupPubKeyBytes, preCommitOutpoint,
 	)
 
 	assertMintSupplyPreCommit(
-		t, *assetStore, batchKey, txOutputIndex, internalKey2,
+		t, *assetStore, batchKey, preCommitOut.OutIdx, internalKey2,
 		groupPubKeyBytes, preCommitOutpoint,
 	)
 
@@ -2010,12 +2054,12 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	groupPubKey2Bytes := schnorr.SerializePubKey(groupPubKey2)
 
 	storeMintSupplyPreCommit(
-		t, *assetStore, batchKey, txOutputIndex, internalKey2,
+		t, *assetStore, batchKey, preCommitOut.OutIdx, internalKey2,
 		groupPubKey2Bytes, preCommitOutpoint,
 	)
 
 	assertMintSupplyPreCommit(
-		t, *assetStore, batchKey, txOutputIndex, internalKey2,
+		t, *assetStore, batchKey, preCommitOut.OutIdx, internalKey2,
 		groupPubKey2Bytes, preCommitOutpoint,
 	)
 }
