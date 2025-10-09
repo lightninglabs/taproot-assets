@@ -900,8 +900,10 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 	)
 
 	burnResp, err := t.tapd.BurnAsset(ctxb, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: rpcFirstAsset.AssetGenesis.AssetId,
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: rpcFirstAsset.AssetGenesis.AssetId,
+			},
 		},
 		AmountToBurn:     burnAmt,
 		Note:             burnNote,
