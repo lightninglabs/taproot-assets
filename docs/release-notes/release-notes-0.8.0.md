@@ -32,6 +32,12 @@
 
 ## Functional Updates
 
+- [Garbage collection of orphaned UTXOs](https://github.com/lightninglabs/taproot-assets/pull/1832)
+  by sweeping tombstones and burn outputs when executing onchain transactions.
+  Garbage collection will be executed on every burn, transfer or call to
+  `AnchorVirtualPsbts`. A new configuration is available to control the sweeping 
+  via the flag `wallet.sweep-orphan-utxos`.
+
 ## RPC Updates
 
 - [PR#1841](https://github.com/lightninglabs/taproot-assets/pull/1841): Remove
