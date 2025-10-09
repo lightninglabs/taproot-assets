@@ -302,6 +302,7 @@ type ManagedUtxo struct {
 	LeaseOwner       []byte
 	LeaseExpiry      sql.NullTime
 	RootVersion      sql.NullInt16
+	Swept            bool
 }
 
 type MintSupplyPreCommit struct {
