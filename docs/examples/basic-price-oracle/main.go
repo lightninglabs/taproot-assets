@@ -29,6 +29,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 )
 
 const (
@@ -455,11 +456,44 @@ func main() {
 		log.Fatalf("Failed to generate TLS certificate: %v", err)
 	}
 
-	// Create the gRPC server with TLS
+	// Configure server-side keepalive parameters. These settings ensure the
+	// server actively probes client connection health and allows long-lived
+	// idle connections.
+	serverKeepalive := keepalive.ServerParameters{
+		// Ping clients after 1 minute of inactivity.
+		Time: time.Minute,
+
+		// Wait 20 seconds for ping response.
+		Timeout: 20 * time.Second,
+
+		// Allow connections to stay idle for 24 hours. The active
+		// pinging mechanism (via Time parameter) handles health
+		// checking, so we don't need aggressive idle timeouts.
+		MaxConnectionIdle: time.Hour * 24,
+	}
+
+	// Configure client keepalive enforcement policy. This tells the server
+	// how to handle client keepalive pings.
+	clientKeepalive := keepalive.EnforcementPolicy{
+		// Allow client to ping even when there are no active RPCs.
+		// This is critical for long-lived connections with infrequent
+		// price queries.
+		PermitWithoutStream: true,
+
+		// Prevent abusive clients from pinging too frequently (DoS
+		// protection).
+		MinTime: 5 * time.Second,
+	}
+
+	// Create the gRPC server with TLS and keepalive configuration.
 	transportCredentials := credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{tlsCert},
 	})
-	backendService := grpc.NewServer(grpc.Creds(transportCredentials))
+	backendService := grpc.NewServer(
+		grpc.Creds(transportCredentials),
+		grpc.KeepaliveParams(serverKeepalive),
+		grpc.KeepaliveEnforcementPolicy(clientKeepalive),
+	)
 
 	err = startService(backendService)
 	if err != nil {
