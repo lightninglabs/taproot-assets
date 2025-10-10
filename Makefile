@@ -96,7 +96,7 @@ DOCKER_TOOLS = $(DOCKER) run \
   -v $$(pwd):/build taproot-assets-tools
 endif
 
-GO_VERSION = 1.24.9
+GO_VERSION = 1.25.2
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
