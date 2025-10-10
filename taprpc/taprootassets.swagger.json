@@ -2295,6 +2295,10 @@
           "type": "string",
           "format": "int64",
           "description": "The expiry time as a unix time stamp for this lease. If blank the utxo\nisn't leased."
+        },
+        "swept": {
+          "type": "boolean",
+          "description": "Whether this UTXO has been swept in a Bitcoin transaction."
         }
       }
     },

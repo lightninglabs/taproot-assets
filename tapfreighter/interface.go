@@ -168,6 +168,10 @@ type CoinLister interface {
 
 	// DeleteExpiredLeases deletes all expired leases from the database.
 	DeleteExpiredLeases(ctx context.Context) error
+
+	// FetchZeroValueAnchorUTXOs fetches all managed UTXOs that contain only
+	// zero-value assets (tombstones and burns).
+	FetchZeroValueAnchorUTXOs(ctx context.Context) ([]ZeroValueInput, error)
 }
 
 // MultiCommitmentSelectStrategy is an enum that describes the strategy that
@@ -195,6 +199,31 @@ type CoinSelector interface {
 	// ReleaseCoins releases/unlocks coins that were previously leased and
 	// makes them available for coin selection again.
 	ReleaseCoins(ctx context.Context, utxoOutpoints ...wire.OutPoint) error
+
+	// SelectZeroValueCoins selects all managed UTXOs that contain only
+	// zero-value assets (tombstones and burns). The selected UTXOs are
+	// leased for the default lease duration.
+	SelectZeroValueCoins(ctx context.Context) ([]ZeroValueInput, error)
+}
+
+// ZeroValueInput represents a zero-value UTXO that should be swept.
+type ZeroValueInput interface {
+	// GetOutPoint returns the outpoint of the zero-value UTXO.
+	GetOutPoint() wire.OutPoint
+
+	// GetOutputValue returns the satoshi value of the zero-value UTXO.
+	GetOutputValue() btcutil.Amount
+
+	// GetInternalKey returns the internal key descriptor for the
+	// zero-value UTXO.
+	GetInternalKey() keychain.KeyDescriptor
+
+	// GetMerkleRoot returns the taproot merkle root for the zero-value
+	// UTXO.
+	GetMerkleRoot() []byte
+
+	// GetPkScript returns the pkScript of the anchor output.
+	GetPkScript() []byte
 }
 
 // TransferInput represents the database level input to an asset transfer.
@@ -480,6 +509,10 @@ type OutboundParcel struct {
 	// transfer.
 	Outputs []TransferOutput
 
+	// ZeroValueInputs is the set of zero-value UTXOs that are being swept
+	// as additional inputs to the Bitcoin transaction.
+	ZeroValueInputs []ZeroValueInput
+
 	// Label is a user provided label for the transfer.
 	Label string
 
@@ -498,6 +531,7 @@ func (o *OutboundParcel) Copy() *OutboundParcel {
 		ChainFees:             o.ChainFees,
 		Inputs:                fn.CopySlice(o.Inputs),
 		Outputs:               fn.CopySlice(o.Outputs),
+		ZeroValueInputs:       fn.CopySlice(o.ZeroValueInputs),
 		Label:                 o.Label,
 		SkipAnchorTxBroadcast: o.SkipAnchorTxBroadcast,
 	}
@@ -574,6 +608,10 @@ type AssetConfirmEvent struct {
 	// PassiveAssetProofFiles is the set of passive asset proof files that
 	// are re-anchored during the parcel confirmation process.
 	PassiveAssetProofFiles map[asset.ID][]*proof.AnnotatedProof
+
+	// ZeroValueInputs is the set of zero-value UTXOs that were swept as
+	// additional inputs to the Bitcoin transaction.
+	ZeroValueInputs []ZeroValueInput
 }
 
 // ExportLog is used to track the state of outbound Taproot Asset parcels

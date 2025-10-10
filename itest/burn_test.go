@@ -216,8 +216,8 @@ func testBurnAssets(t *harnessTest) {
 	AssertSendEventsComplete(t.t, fullSendAddr.ScriptKey, sendEvents)
 
 	AssertBalances(
-		t.t, t.tapd, burnAmt+simpleCollectible.Amount,
-		WithNumUtxos(2), WithNumAnchorUtxos(2),
+		t.t, t.tapd, simpleCollectible.Amount,
+		WithNumUtxos(1), WithNumAnchorUtxos(1),
 		WithScriptKeyType(asset.ScriptKeyBurn),
 	)
 
