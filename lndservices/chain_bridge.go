@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -21,12 +20,6 @@ import (
 )
 
 const (
-	// maxNumBlocksInCache is the maximum number of blocks we'll cache
-	// timestamps for. With 400k blocks we should only take up approximately
-	// 3200kB of memory (4 bytes for the block height and 4 bytes for the
-	// timestamp, not including any map/cache overhead).
-	maxNumBlocksInCache = 400_000
-
 	// medianTimeBlocks is the number of previous blocks which should be
 	// used to calculate the median time used to validate block timestamps.
 	medianTimeBlocks = 11
@@ -38,25 +31,16 @@ var (
 	errTxNotFound = fmt.Errorf("transaction not found in proof file")
 )
 
-// cacheableTimestamp is a wrapper around an uint32 that can be used as a value
-// in an LRU cache.
-type cacheableTimestamp uint32
-
-// Size returns the size of the cacheable timestamp. Since we scale the cache by
-// the number of items and not the total memory size, we can simply return 1
-// here to count each timestamp as 1 item.
-func (c cacheableTimestamp) Size() (uint64, error) {
-	return 1, nil
-}
-
 // LndRpcChainBridge is an implementation of the tapgarden.ChainBridge
 // interface backed by an active remote lnd node.
 type LndRpcChainBridge struct {
+	// lnd is the active lnd services client.
 	lnd *lndclient.LndServices
 
-	blockTimestampCache *lru.Cache[uint32, cacheableTimestamp]
-	retryConfig         fn.RetryConfig
+	// retryConfig is the configuration used for retrying operations.
+	retryConfig fn.RetryConfig
 
+	// assetStore is a handle to the asset store.
 	assetStore *tapdb.AssetStore
 }
 
@@ -66,10 +50,7 @@ func NewLndRpcChainBridge(lnd *lndclient.LndServices,
 	assetStore *tapdb.AssetStore) *LndRpcChainBridge {
 
 	return &LndRpcChainBridge{
-		lnd: lnd,
-		blockTimestampCache: lru.NewCache[uint32, cacheableTimestamp](
-			maxNumBlocksInCache,
-		),
+		lnd:         lnd,
 		retryConfig: fn.DefaultRetryConfig(),
 		assetStore:  assetStore,
 	}
@@ -268,38 +249,20 @@ func (l *LndRpcChainBridge) CurrentHeight(ctx context.Context) (uint32, error) {
 
 // GetBlockTimestamp returns the timestamp of the block at the given height.
 func (l *LndRpcChainBridge) GetBlockTimestamp(ctx context.Context,
-	height uint32) int64 {
+	height uint32) (int64, error) {
 
 	// Shortcut any lookup in case we don't have a valid height in the first
 	// place.
 	if height == 0 {
-		return 0
+		return 0, nil
 	}
 
-	cacheTS, err := l.blockTimestampCache.Get(height)
-	if err == nil {
-		return int64(cacheTS)
-	}
-
-	hash, err := fn.RetryFuncN(
-		ctx, l.retryConfig, func() (chainhash.Hash, error) {
-			return l.lnd.ChainKit.GetBlockHash(ctx, int64(height))
-		},
-	)
+	blockHeader, err := l.GetBlockHeaderByHeight(ctx, int64(height))
 	if err != nil {
-		return 0
+		return 0, fmt.Errorf("unable to fetch block header: %w", err)
 	}
 
-	// Get block header.
-	header, err := l.GetBlockHeader(ctx, hash)
-	if err != nil {
-		return 0
-	}
-
-	ts := uint32(header.Timestamp.Unix())
-	_, _ = l.blockTimestampCache.Put(height, cacheableTimestamp(ts))
-
-	return int64(ts)
+	return blockHeader.Timestamp.Unix(), nil
 }
 
 // PublishTransaction attempts to publish a new transaction to the
@@ -472,7 +435,14 @@ func (l *ProofChainLookup) MeanBlockTimestamp(ctx context.Context,
 			break
 		}
 
-		unixTs := l.chainBridge.GetBlockTimestamp(ctx, blockHeight-i)
+		unixTs, err := l.chainBridge.GetBlockTimestamp(
+			ctx, blockHeight-i,
+		)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("unable to fetch block "+
+				"header timestamp: %w", err)
+		}
+
 		if unixTs == 0 {
 			return time.Time{}, fmt.Errorf("couldn't find "+
 				"timestamp for block height %d", blockHeight)
