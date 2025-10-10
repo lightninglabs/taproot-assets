@@ -734,8 +734,10 @@ func (m *MockChainBridge) CurrentHeight(_ context.Context) (uint32, error) {
 	return 0, nil
 }
 
-func (m *MockChainBridge) GetBlockTimestamp(_ context.Context, _ uint32) int64 {
-	return 0
+func (m *MockChainBridge) GetBlockTimestamp(_ context.Context, _ uint32) (int64,
+	error) {
+
+	return 0, nil
 }
 
 func (m *MockChainBridge) PublishTransaction(_ context.Context,
