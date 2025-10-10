@@ -63,6 +63,18 @@
   dirty. This issue has been resolved, and the behavior is now consistent across
   all database backend types.
 
+- [Fixed "connection reset by peer" errors in RFQ price oracle
+  connections](https://github.com/lightninglabs/taproot-assets/pull/1834) by
+  implementing comprehensive bidirectional gRPC keepalive configuration. The
+  issue occurred when connections sat idle between RFQ price queries and were
+  silently closed by the network layer or server timeout, causing the first
+  payment attempt after an idle period to fail. The fix adds client-side
+  keepalive pings every 30 seconds and extends the server's idle connection
+  timeout from 2 minutes to 24 hours, while enabling active health checking on
+  both sides. This ensures connections remain alive during infrequent RFQ
+  operations and any network issues are detected promptly rather than
+  discovered only when the next RPC fails.
+
 # New Features
 
 ## Functional Enhancements
