@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -163,6 +164,9 @@ type MintBatchOptions struct {
 	// universeCommitments specifies whether to generate universe
 	// commitments for the asset groups in this minting batch.
 	universeCommitments bool
+
+	// skipFunding specifies whether to skip funding the genesis PSBT.
+	skipFunding bool
 }
 
 // MintBatchOption is a functional option for creating a new minting batch.
@@ -195,6 +199,13 @@ func WithTotalGroups(counts []int) MintBatchOption {
 func WithUniverseCommitments(enabled bool) MintBatchOption {
 	return func(options *MintBatchOptions) {
 		options.universeCommitments = enabled
+	}
+}
+
+// WithSkipFunding specifies whether to skip funding the genesis PSBT.
+func WithSkipFunding() MintBatchOption {
+	return func(options *MintBatchOptions) {
+		options.skipFunding = true
 	}
 }
 
@@ -259,6 +270,32 @@ func RandMintingBatch(t testing.TB, opts ...MintBatchOption) *MintingBatch {
 	// requested amount. This check might help debug flakes in tests.
 	require.Equal(t, options.totalSeedlings, len(batch.Seedlings))
 
+	// Return early if funding is to be skipped.
+	if options.skipFunding {
+		return batch
+	}
+
+	walletFundPsbt := func(ctx context.Context,
+		anchorPkt psbt.Packet) (tapsend.FundedPsbt, error) {
+
+		changeOutputIdx := FundGenesisTx(
+			&anchorPkt, chainfee.FeePerKwFloor,
+		)
+
+		return tapsend.FundedPsbt{
+			Pkt:               &anchorPkt,
+			ChangeOutputIndex: int32(changeOutputIdx),
+		}, nil
+	}
+
+	// Fund genesis packet.
+	ctx := context.Background()
+	fundedPsbt, err := fundGenesisPsbt(
+		ctx, address.TestNet3Tap, batch, walletFundPsbt,
+	)
+	require.NoError(t, err)
+	batch.GenesisPacket = &fundedPsbt
+
 	return batch
 }
 
@@ -284,29 +321,6 @@ func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 	}
 
 	return seedlings
-}
-
-// RandSeedlingMintingBatch creates a new minting batch with only random
-// seedlings populated for testing.
-//
-// TODO(ffranr): Replace this function with RandMintingBatch. Note also function
-// addRandGroupToBatch.
-func RandSeedlingMintingBatch(t testing.TB, numSeedlings int) *MintingBatch {
-	genesisTx := NewGenesisTx(t, chainfee.FeePerKwFloor)
-	BatchKey, _ := test.RandKeyDesc(t)
-	return &MintingBatch{
-		BatchKey:     BatchKey,
-		Seedlings:    RandSeedlings(t, numSeedlings),
-		HeightHint:   test.RandInt[uint32](),
-		CreationTime: time.Now(),
-		GenesisPacket: &FundedMintAnchorPsbt{
-			FundedPsbt: tapsend.FundedPsbt{
-				Pkt:               &genesisTx,
-				ChangeOutputIndex: 1,
-			},
-			AssetAnchorOutIdx: 0,
-		},
-	}
 }
 
 type MockWalletAnchor struct {
@@ -345,8 +359,9 @@ func NewGenesisTx(t testing.TB, feeRate chainfee.SatPerKWeight) psbt.Packet {
 	return *genesisPkt
 }
 
-// FundGenesisTx add a genesis input and change output to a 1-output TX.
-func FundGenesisTx(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) {
+// FundGenesisTx add a genesis input and change output to a 1-output TX and
+// returns the index of the change output.
+func FundGenesisTx(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) uint32 {
 	const anchorBalance = int64(100000)
 
 	// Take the PSBT packet and add an additional input and output to
@@ -382,7 +397,10 @@ func FundGenesisTx(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) {
 		[][]byte{tapsend.GenesisDummyScript}, packet.UnsignedTx.TxOut,
 		feeRate,
 	)
-	packet.UnsignedTx.TxOut[1].Value -= int64(fee)
+	changeOutputIdx := len(packet.UnsignedTx.TxOut) - 1
+	packet.UnsignedTx.TxOut[changeOutputIdx].Value -= int64(fee)
+
+	return uint32(changeOutputIdx)
 }
 
 // FundPsbt funds a PSBT.
