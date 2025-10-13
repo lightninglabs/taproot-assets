@@ -112,14 +112,30 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		lndServices,
 		lndservices.WithPsbtMaxFeeRatio(cfg.Wallet.PsbtMaxFeeRatio),
 	)
-	chainBridge := lndservices.NewLndRpcChainBridge(lndServices, assetStore)
+
+	// Create a block header cache with default configuration.
+	headerCache, err := lndservices.NewBlockHeaderCache(
+		lndservices.DefaultBlockHeaderCacheConfig(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create block header cache: "+
+			"%w", err)
+	}
+
+	chainBridge := lndservices.NewLndRpcChainBridge(
+		lndServices, assetStore, headerCache,
+	)
+
 	msgTransportClient := lndservices.NewLndMsgTransportClient(lndServices)
 	lndRouterClient := lndservices.NewLndRouterClient(lndServices)
 	lndInvoicesClient := lndservices.NewLndInvoicesClient(lndServices)
 	lndFeatureBitsVerifier := lndservices.NewLndFeatureBitVerifier(
 		lndServices,
 	)
-	lndFsmDaemonAdapters := lndservices.NewLndFsmDaemonAdapters(lndServices)
+
+	lndFsmDaemonAdapters := lndservices.NewLndFsmDaemonAdapters(
+		lndServices, headerCache,
+	)
 
 	uniDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.BaseUniverseStore {
