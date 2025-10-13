@@ -42,17 +42,22 @@ type LndRpcChainBridge struct {
 
 	// assetStore is a handle to the asset store.
 	assetStore *tapdb.AssetStore
+
+	// headerCache is a cache for block headers to reduce RPC calls.
+	headerCache *BlockHeaderCache
 }
 
 // NewLndRpcChainBridge creates a new chain bridge from an active lnd services
 // client.
 func NewLndRpcChainBridge(lnd *lndclient.LndServices,
-	assetStore *tapdb.AssetStore) *LndRpcChainBridge {
+	assetStore *tapdb.AssetStore,
+	headerCache *BlockHeaderCache) *LndRpcChainBridge {
 
 	return &LndRpcChainBridge{
 		lnd:         lnd,
 		retryConfig: fn.DefaultRetryConfig(),
 		assetStore:  assetStore,
+		headerCache: headerCache,
 	}
 }
 
@@ -118,6 +123,11 @@ func (l *LndRpcChainBridge) GetBlock(ctx context.Context,
 func (l *LndRpcChainBridge) GetBlockHeader(ctx context.Context,
 	hash chainhash.Hash) (*wire.BlockHeader, error) {
 
+	// First, check the cache for the requested block header.
+	if header, ok := l.headerCache.GetByHash(hash); ok {
+		return &header, nil
+	}
+
 	return fn.RetryFuncN(
 		ctx, l.retryConfig, func() (*wire.BlockHeader, error) {
 			header, err := l.lnd.ChainKit.GetBlockHeader(ctx, hash)
@@ -135,6 +145,14 @@ func (l *LndRpcChainBridge) GetBlockHeader(ctx context.Context,
 // GetBlockHeaderByHeight returns a block header given the block height.
 func (l *LndRpcChainBridge) GetBlockHeaderByHeight(ctx context.Context,
 	blockHeight int64) (*wire.BlockHeader, error) {
+
+	// Convert to uint32 for cache operations.
+	height := uint32(blockHeight)
+
+	// First, check the cache for the requested block header by height.
+	if header, ok := l.headerCache.GetByHeight(height); ok {
+		return &header, nil
+	}
 
 	// First, we need to resolve the block hash at the given height.
 	blockHash, err := fn.RetryFuncN(
@@ -169,6 +187,13 @@ func (l *LndRpcChainBridge) GetBlockHeaderByHeight(ctx context.Context,
 					"unable to retrieve block header: %w",
 					err,
 				)
+			}
+
+			// Store the retrieved header in the cache.
+			err = l.headerCache.Put(height, *header)
+			if err != nil {
+				return nil, fmt.Errorf("failed to cache block "+
+					"header: %w", err)
 			}
 
 			return header, nil
