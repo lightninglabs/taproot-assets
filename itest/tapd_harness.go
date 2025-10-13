@@ -190,7 +190,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	}
 
 	tapCfg := tapcfg.DefaultConfig()
-	tapCfg.LogDir = "."
+	tapCfg.LogDir = *logDir
 	tapCfg.MaxLogFiles = 99
 	tapCfg.MaxLogFileSize = 999
 
