@@ -8,9 +8,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -1092,6 +1094,10 @@ var burnAssetsCommand = cli.Command{
 			Name:  assetIDName,
 			Usage: "the asset ID to burn units from",
 		},
+		cli.StringFlag{
+			Name:  assetGroupKeyName,
+			Usage: "the group key to burn units from",
+		},
 		cli.Uint64Flag{
 			Name:  assetAmountName,
 			Usage: "the amount of units to burn/destroy",
@@ -1106,15 +1112,66 @@ var burnAssetsCommand = cli.Command{
 	Action: burnAssets,
 }
 
+// buildAssetSpecifier validates and constructs an asset.Specifier from
+// CLI context
+func buildAssetSpecifier(ctx *cli.Context) (*asset.Specifier, error) {
+	assetIDHex := ctx.String(assetIDName)
+	groupKeyHex := ctx.String(assetGroupKeyName)
+
+	// At least one of asset ID or group key must be provided.
+	if assetIDHex == "" && groupKeyHex == "" {
+		return nil, fmt.Errorf("either asset ID or " +
+			"group key must be specified")
+	}
+
+	var (
+		assetID  *asset.ID
+		groupKey *btcec.PublicKey
+		err      error
+	)
+
+	// Parse asset ID if provided.
+	if assetIDHex != "" {
+		assetIDBytes, err := hex.DecodeString(assetIDHex)
+		if err != nil {
+			return nil, fmt.Errorf("invalid asset ID: %w", err)
+		}
+
+		var id asset.ID
+		copy(id[:], assetIDBytes)
+		assetID = &id
+	}
+
+	// Parse group key if provided.
+	if groupKeyHex != "" {
+		groupKeyBytes, err := hex.DecodeString(groupKeyHex)
+		if err != nil {
+			return nil, fmt.Errorf("invalid group key: %w", err)
+		}
+
+		groupKey, err = btcec.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid group key: %w", err)
+		}
+	}
+
+	// Construct the asset specifier.
+	assetSpecifier, err := asset.NewSpecifier(assetID, groupKey, nil, true)
+	if err != nil {
+		return nil, fmt.Errorf("invalid asset specifier: %w", err)
+	}
+
+	return &assetSpecifier, nil
+}
+
 func burnAssets(ctx *cli.Context) error {
 	if ctx.NArg() != 0 || ctx.NumFlags() == 0 {
 		return cli.ShowSubcommandHelp(ctx)
 	}
 
-	assetIDHex := ctx.String(assetIDName)
-	assetIDBytes, err := hex.DecodeString(assetIDHex)
+	assetSpecifier, err := buildAssetSpecifier(ctx)
 	if err != nil {
-		return fmt.Errorf("invalid asset ID")
+		return fmt.Errorf("invalid asset specifier: %w", err)
 	}
 
 	burnAmount := ctx.Uint64(assetAmountName)
@@ -1126,33 +1183,72 @@ func burnAssets(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	if !ctx.Bool(burnOverrideConfirmationName) {
-		balance, err := client.ListBalances(
-			ctxc, &taprpc.ListBalancesRequest{
-				GroupBy: &taprpc.ListBalancesRequest_AssetId{
-					AssetId: true,
-				},
-				AssetFilter: assetIDBytes,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("unable to list current asset "+
-				"balances: %w", err)
-		}
+	assetIDBytes, groupKeyBytes := assetSpecifier.AsBytes()
 
-		assetBalance, ok := balance.AssetBalances[assetIDHex]
-		if !ok {
-			return fmt.Errorf("couldn't fetch balance for asset %x",
-				assetIDBytes)
+	if !ctx.Bool(burnOverrideConfirmationName) {
+		var currBalance uint64
+
+		// When both asset ID and group key are provided,
+		// prioritize asset ID for balance checking since
+		// it's more specific.
+		switch {
+		case len(assetIDBytes) > 0:
+			// nolint: lll
+			balance, err := client.ListBalances(ctxc,
+				&taprpc.ListBalancesRequest{
+					GroupBy: &taprpc.ListBalancesRequest_AssetId{
+						AssetId: true,
+					},
+					AssetFilter: assetIDBytes,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to list current "+
+					"asset balances: %w", err)
+			}
+
+			idHex := hex.EncodeToString(assetIDBytes)
+			assetBalance, ok := balance.AssetBalances[idHex]
+			if !ok {
+				return fmt.Errorf("couldn't fetch balance for "+
+					"asset ID %x", assetIDBytes)
+			}
+
+			currBalance = assetBalance.Balance
+
+		case len(groupKeyBytes) > 0:
+			// nolint: lll
+			balance, err := client.ListBalances(ctxc,
+				&taprpc.ListBalancesRequest{
+					GroupBy: &taprpc.ListBalancesRequest_GroupKey{
+						GroupKey: true,
+					},
+					AssetFilter: groupKeyBytes,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to list current "+
+					"asset balances: %w", err)
+			}
+
+			gkHex := hex.EncodeToString(groupKeyBytes)
+			groupBalance, ok := balance.AssetGroupBalances[gkHex]
+			if !ok {
+				return fmt.Errorf("couldn't fetch balance for "+
+					"group key %x", groupKeyBytes)
+			}
+
+			currBalance = groupBalance.Balance
 		}
 
 		msg := fmt.Sprintf("Please confirm destructive action.\n"+
-			"Asset ID: %x\nCurrent available balance: %d\n"+
+			"%s\nCurrent available balance: %d\n"+
 			"Amount to burn: %d\n Are you sure you want to "+
 			"irreversibly burn (destroy, remove from circulation) "+
 			"the specified amount of assets?\nPlease answer 'yes' "+
-			"or 'no' and press enter: ", assetIDBytes,
-			assetBalance.Balance, burnAmount)
+			"or 'no' and press enter: ",
+			assetSpecifier.String(), currBalance, burnAmount,
+		)
 
 		if !promptForConfirmation(msg) {
 			return nil
@@ -1160,8 +1256,9 @@ func burnAssets(ctx *cli.Context) error {
 	}
 
 	resp, err := client.BurnAsset(ctxc, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: assetIDBytes,
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id:       assetIDBytes,
+			GroupKey: groupKeyBytes,
 		},
 		AmountToBurn:     burnAmount,
 		ConfirmationText: taprootassets.AssetBurnConfirmationText,
