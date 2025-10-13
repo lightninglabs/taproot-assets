@@ -641,21 +641,6 @@
         }
       }
     },
-    "rfqrpcAssetSpec": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "format": "byte",
-          "description": "The 32-byte asset ID specified as raw bytes."
-        },
-        "group_pub_key": {
-          "type": "string",
-          "format": "byte",
-          "description": "The 32-byte asset group public key, serialized in BIP340 format.\nBIP340 defines a canonical encoding for Schnorr public keys.\nThis field is serialized using schnorr.SerializePubKey."
-        }
-      }
-    },
     "rfqrpcAssetSpecifier": {
       "type": "object",
       "properties": {
@@ -754,7 +739,7 @@
           "description": "An optional user-provided text field used to provide additional metadata\nabout the buy order to the price oracle. This can include information\nabout the wallet end user that initiated the transaction, or any\nauthentication information that the price oracle can use to give out a\nmore accurate (or discount) asset rate."
         },
         "asset_spec": {
-          "$ref": "#/definitions/rfqrpcAssetSpec",
+          "$ref": "#/definitions/taprpcAssetSpecifier",
           "description": "The subject asset specifier."
         }
       }
@@ -814,7 +799,7 @@
           "description": "An optional user-provided text field used to provide additional metadata\nabout the sell order to the price oracle. This can include information\nabout the wallet end user that initiated the transaction, or any\nauthentication information that the price oracle can use to give out a\nmore accurate (or discount) asset rate."
         },
         "asset_spec": {
-          "$ref": "#/definitions/rfqrpcAssetSpec",
+          "$ref": "#/definitions/taprpcAssetSpecifier",
           "description": "The subject asset specifier."
         }
       }
@@ -924,6 +909,21 @@
             "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
+        }
+      }
+    },
+    "taprpcAssetSpecifier": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset ID specified."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset group key specified."
         }
       }
     }

@@ -1684,6 +1684,21 @@
       "default": "META_TYPE_OPAQUE",
       "description": " - META_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs.\n - META_TYPE_JSON: JSON is used for asset meta blobs that are to be interpreted as valid JSON\nstrings."
     },
+    "taprpcAssetSpecifier": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset ID specified."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset group key specified."
+        }
+      }
+    },
     "taprpcAssetTransfer": {
       "type": "object",
       "properties": {
@@ -1767,11 +1782,11 @@
         "asset_id": {
           "type": "string",
           "format": "byte",
-          "description": "The asset ID of the asset to burn units of."
+          "title": "Deprecated, the asset ID of the asset to burn units of.\nUse asset_specifier instead"
         },
         "asset_id_str": {
           "type": "string",
-          "description": "The hex encoded asset ID of the asset to burn units of."
+          "title": "Deprecated, the hex encoded asset ID of the asset to burn units of.\nUse asset_specifier instead"
         },
         "amount_to_burn": {
           "type": "string",
@@ -1785,6 +1800,10 @@
         "note": {
           "type": "string",
           "description": "A note that may contain user defined metadata related to this burn."
+        },
+        "asset_specifier": {
+          "$ref": "#/definitions/taprpcAssetSpecifier",
+          "description": "The asset to burn units of."
         }
       }
     },
@@ -1795,9 +1814,13 @@
           "$ref": "#/definitions/taprpcAssetTransfer",
           "description": "The asset transfer that contains the asset burn as an output."
         },
-        "burn_proof": {
-          "$ref": "#/definitions/taprpcDecodedProof",
-          "description": "The burn transition proof for the asset burn output."
+        "burn_proofs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/taprpcDecodedProof"
+          },
+          "description": "The burn transition proofs for the asset burn output."
         }
       }
     },
