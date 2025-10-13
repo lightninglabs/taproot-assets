@@ -26,6 +26,11 @@
 
 ## RPC Additions
 
+- The `BurnAsset` RPC now supports a 
+  [new `AssetSpecifier` field](https://github.com/lightninglabs/taproot-assets/pull/1812)
+  that allows the user to  specify the asset to burn by ID or GroupKey.
+  The `asset` field is now deprecated.
+
 ## tapcli Additions
 
 # Improvements
@@ -46,6 +51,10 @@
   /authmailboxrpc.Mailbox/MailboxInfo.
 
 ## tapcli Updates
+
+- The `tapcli assets burn` command now has a
+  [new `--group_key` flag](https://github.com/lightninglabs/taproot-assets/pull/1812)
+  that allows users to burn assets by group key.
 
 ## Code Health
 
