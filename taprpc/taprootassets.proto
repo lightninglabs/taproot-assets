@@ -1735,8 +1735,10 @@ message BurnAssetResponse {
     // The asset transfer that contains the asset burn as an output.
     AssetTransfer burn_transfer = 1;
 
+    reserved 2;
+
     // The burn transition proofs for the asset burn output.
-    repeated DecodedProof burn_proofs = 2;
+    repeated DecodedProof burn_proofs = 3;
 }
 
 message ListBurnsRequest {

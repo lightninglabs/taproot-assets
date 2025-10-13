@@ -3702,24 +3702,6 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 
 	rpcsLog.Debug("Executing asset burn")
 
-	var assetID asset.ID
-	switch {
-	case len(in.GetAssetId()) > 0:
-		copy(assetID[:], in.GetAssetId())
-
-	case len(in.GetAssetIdStr()) > 0:
-		assetIDBytes, err := hex.DecodeString(in.GetAssetIdStr())
-		if err != nil {
-			return nil, fmt.Errorf("error decoding asset ID: %w",
-				err)
-		}
-
-		copy(assetID[:], assetIDBytes)
-
-	default:
-		return nil, fmt.Errorf("asset ID must be specified")
-	}
-
 	if in.AmountToBurn == 0 {
 		return nil, fmt.Errorf("amount to burn must be specified")
 	}
@@ -3729,36 +3711,120 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 			"accidental asset burns")
 	}
 
-	var groupKey *btcec.PublicKey
-	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByID(ctx, assetID)
-	switch {
-	case err == nil && assetGroup.GroupKey != nil:
-		// We found the asset group, so we can use the group key to
-		// burn the asset.
-		groupKey = &assetGroup.GroupPubKey
-
-	case errors.Is(err, address.ErrAssetGroupUnknown):
-		// We don't know the asset group, so we'll try to burn the
-		// asset using the asset ID only.
-		rpcsLog.Debug("Asset group key not found, asset may not be " +
-			"part of a group")
-
-	case err != nil:
-		return nil, fmt.Errorf("error querying asset group: %w", err)
-	}
-
-	var serializedGroupKey []byte
-	if groupKey != nil {
-		serializedGroupKey = groupKey.SerializeCompressed()
-	}
-
-	rpcsLog.Infof("Burning asset (asset_id=%x, group_key=%x, "+
-		"burn_amount=%d)", assetID[:], serializedGroupKey,
-		in.AmountToBurn)
-
-	assetSpecifier := asset.NewSpecifierOptionalGroupPubKey(
-		assetID, groupKey,
+	var (
+		assetID  *asset.ID
+		groupKey *btcec.PublicKey
+		err      error
 	)
+
+	// TODO(darioAnongba): Remove this switch once the deprecated asset
+	// field is removed. Keep only the AssetSpecifier case.
+	// Added in v0.8.0.
+	switch {
+	case in.Asset != nil:
+		rpcsLog.Warnf("using deprecated asset field, please use " +
+			"asset_specifier instead")
+
+		switch {
+		case len(in.GetAssetId()) > 0:
+			var assetIdBytes [32]byte
+			copy(assetIdBytes[:], in.GetAssetId())
+			id := asset.ID(assetIdBytes)
+			assetID = &id
+
+		case len(in.GetAssetIdStr()) > 0:
+			assetIDBytes, err := hex.DecodeString(
+				in.GetAssetIdStr(),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding "+
+					"asset ID: %w",
+					err)
+			}
+
+			var id asset.ID
+			copy(id[:], assetIDBytes)
+			assetID = &id
+
+		default:
+			return nil, fmt.Errorf("asset ID must be specified")
+		}
+
+	case in.AssetSpecifier != nil:
+		assetID, groupKey, err = parseAssetSpecifier(
+			in.AssetSpecifier.GetId(),
+			"",
+			in.AssetSpecifier.GetGroupKey(),
+			"",
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse asset "+
+				"specifier: %w", err)
+		}
+
+	default:
+		return nil, fmt.Errorf("asset_specifier field unset")
+	}
+
+	// Handle different scenarios based on what was provided:
+	// 1. If only assetID is provided, look up the group key.
+	// 2. If only groupKey is provided, use it directly
+	// 3. If both are provided, validate consistency.
+	switch {
+	case assetID != nil && groupKey == nil:
+		assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByID(
+			ctx, *assetID,
+		)
+		switch {
+		case err == nil && assetGroup.GroupKey != nil:
+			groupKey = &assetGroup.GroupPubKey
+
+		case errors.Is(err, address.ErrAssetGroupUnknown):
+			rpcsLog.Trace("Asset group key not found, asset " +
+				"may not be part of a group")
+
+		case err != nil:
+			return nil, fmt.Errorf("error querying asset "+
+				"group: %w", err)
+		}
+
+	case assetID != nil && groupKey != nil:
+		assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByID(
+			ctx, *assetID,
+		)
+		switch {
+		case err == nil && assetGroup.GroupKey != nil:
+			if !groupKey.IsEqual(&assetGroup.GroupPubKey) {
+				return nil, fmt.Errorf("inconsistent asset " +
+					"ID for given group key")
+			}
+
+		case errors.Is(err, address.ErrAssetGroupUnknown):
+			return nil, fmt.Errorf("asset is not part of a group")
+
+		case err != nil:
+			return nil, fmt.Errorf("error querying asset "+
+				"group: %w", err)
+		}
+
+	case assetID == nil && groupKey != nil:
+		// Only group key provided - use it directly
+
+	default:
+		// Should be unreachable by assertion.
+		return nil, fmt.Errorf("invalid asset specifier state")
+	}
+
+	assetSpecifier, err := asset.NewSpecifier(
+		assetID, groupKey, nil, true,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create asset specifier: %w",
+			err)
+	}
+
+	rpcsLog.Infof("Burning asset (asset_specifier=%v, burn_amount=%d)",
+		assetSpecifier, in.AmountToBurn)
 
 	fundResp, err := r.cfg.AssetWallet.FundBurn(
 		ctx, &tapsend.FundingDescriptor{
@@ -3770,17 +3836,13 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 		return nil, fmt.Errorf("error funding burn: %w", err)
 	}
 
-	// We don't support burning by group key yet, so we only expect a single
-	// vPacket (which implies a single asset ID is involved).
-	if len(fundResp.VPackets) > 1 {
-		return nil, fmt.Errorf("only one packet supported")
-	}
-
-	// Now we can sign the packet and send it to the chain.
-	vPkt := fundResp.VPackets[0]
-	_, err = r.cfg.AssetWallet.SignVirtualPacket(ctx, vPkt)
-	if err != nil {
-		return nil, fmt.Errorf("error signing packet: %w", err)
+	// Sign all virtual packets created for this burn
+	// (may be more than one when burning by group key).
+	for _, vPkt := range fundResp.VPackets {
+		_, err = r.cfg.AssetWallet.SignVirtualPacket(ctx, vPkt)
+		if err != nil {
+			return nil, fmt.Errorf("error signing packet: %w", err)
+		}
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
@@ -3798,28 +3860,29 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 			err)
 	}
 
-	var burnProof *taprpc.DecodedProof
-	for idx := range resp.Outputs {
-		vOut := vPkt.Outputs[idx]
-		tOut := resp.Outputs[idx]
-		if vOut.Asset.IsBurn() {
-			p, err := proof.Decode(tOut.ProofSuffix)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding "+
-					"burn proof: %w", err)
-			}
-
-			burnProof, err = r.marshalProof(ctx, p, true, false)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding "+
-					"burn proof: %w", err)
-			}
+	var burnProofs []*taprpc.DecodedProof
+	for _, tOut := range resp.Outputs {
+		p, err := proof.Decode(tOut.ProofSuffix)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding burn proof: %w",
+				err)
 		}
+
+		if !p.Asset.IsBurn() {
+			continue
+		}
+
+		burnProof, err := r.marshalProof(ctx, p, true, false)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding burn proof: %w",
+				err)
+		}
+		burnProofs = append(burnProofs, burnProof)
 	}
 
 	return &taprpc.BurnAssetResponse{
 		BurnTransfer: parcel,
-		BurnProof:    burnProof,
+		BurnProofs:   burnProofs,
 	}, nil
 }
 
@@ -8002,19 +8065,14 @@ func parseAssetSpecifier(reqAssetID []byte, reqAssetIDStr string,
 	reqGroupKey []byte, reqGroupKeyStr string) (*asset.ID, *btcec.PublicKey,
 	error) {
 
-	// Attempt to decode the asset specifier from the RPC request. In cases
-	// where both the asset ID and asset group key are provided, we will
-	// give precedence to the asset ID due to its higher level of
-	// specificity.
 	var (
 		assetID  *asset.ID
 		groupKey *btcec.PublicKey
 		err      error
 	)
 
-	switch {
-	// Parse the asset ID if it's set.
-	case len(reqAssetID) > 0:
+	// Parse the asset ID if it's set (either as bytes or string).
+	if len(reqAssetID) > 0 {
 		if len(reqAssetID) != sha256.Size {
 			return nil, nil, fmt.Errorf("asset ID must be 32 bytes")
 		}
@@ -8023,35 +8081,30 @@ func parseAssetSpecifier(reqAssetID []byte, reqAssetIDStr string,
 		copy(assetIdBytes[:], reqAssetID)
 		id := asset.ID(assetIdBytes)
 		assetID = &id
-
-	case len(reqAssetIDStr) > 0:
+	} else if len(reqAssetIDStr) > 0 {
 		assetIDBytes, err := hex.DecodeString(reqAssetIDStr)
 		if err != nil {
-			return nil, nil, fmt.Errorf("error decoding asset "+
-				"ID: %w", err)
-		}
-
-		if len(assetIDBytes) != sha256.Size {
-			return nil, nil, fmt.Errorf("asset ID must be 32 bytes")
+			return nil, nil, fmt.Errorf("error decoding "+
+				"asset ID: %w", err)
 		}
 
 		var id asset.ID
 		copy(id[:], assetIDBytes)
 		assetID = &id
+	}
 
-	// Parse the group key if it's set.
-	case len(reqGroupKey) > 0:
+	// Parse the group key if it's set (either as bytes or string).
+	if len(reqGroupKey) > 0 {
 		groupKey, err = btcec.ParsePubKey(reqGroupKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error parsing group "+
 				"key: %w", err)
 		}
-
-	case len(reqGroupKeyStr) > 0:
+	} else if len(reqGroupKeyStr) > 0 {
 		groupKeyBytes, err := hex.DecodeString(reqGroupKeyStr)
 		if err != nil {
-			return nil, nil, fmt.Errorf("error decoding group "+
-				"key: %w", err)
+			return nil, nil, fmt.Errorf("error decoding "+
+				"group key: %w", err)
 		}
 
 		groupKey, err = btcec.ParsePubKey(groupKeyBytes)
@@ -8059,10 +8112,10 @@ func parseAssetSpecifier(reqAssetID []byte, reqAssetIDStr string,
 			return nil, nil, fmt.Errorf("error parsing group "+
 				"key: %w", err)
 		}
+	}
 
-	default:
-		// At this point, we know that neither the asset ID nor the
-		// group key are specified. Return an error.
+	// Validate that at least one is specified.
+	if assetID == nil && groupKey == nil {
 		return nil, nil, fmt.Errorf("either asset ID or asset group " +
 			"key must be specified")
 	}
