@@ -244,6 +244,15 @@
       },
       "description": "AssetSpecifier is a union type for specifying an asset by either its asset ID\nor group key."
     },
+    "priceoraclerpcErrorCode": {
+      "type": "string",
+      "enum": [
+        "UNSPECIFIED_ORACLE_ERROR_CODE",
+        "UNSUPPORTED_ASSET_ORACLE_ERROR_CODE"
+      ],
+      "default": "UNSPECIFIED_ORACLE_ERROR_CODE",
+      "description": "ErrorCode represents the possible error codes that can be returned in a\nQueryAssetRatesErrResponse.\n\n - UNSPECIFIED_ORACLE_ERROR_CODE: UNSPECIFIED_ORACLE_ERROR_CODE indicates an unspecified error.\n - UNSUPPORTED_ASSET_ORACLE_ERROR_CODE: UNSUPPORTED_ASSET_ORACLE_ERROR_CODE indicates the asset is not\nsupported."
+    },
     "priceoraclerpcFixedPoint": {
       "type": "object",
       "properties": {
@@ -281,8 +290,7 @@
           "description": "error is the error message."
         },
         "code": {
-          "type": "integer",
-          "format": "int64",
+          "$ref": "#/definitions/priceoraclerpcErrorCode",
           "description": "code is the error code."
         }
       },

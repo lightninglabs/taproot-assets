@@ -81,6 +81,17 @@ enum Intent {
     INTENT_RECV_PAYMENT_QUALIFY = 6;
 }
 
+// ErrorCode represents the possible error codes that can be returned in a
+// QueryAssetRatesErrResponse.
+enum ErrorCode {
+    // UNSPECIFIED_ORACLE_ERROR_CODE indicates an unspecified error.
+    UNSPECIFIED_ORACLE_ERROR_CODE = 0;
+
+    // UNSUPPORTED_ASSET_ORACLE_ERROR_CODE indicates the asset is not
+    // supported.
+    UNSUPPORTED_ASSET_ORACLE_ERROR_CODE = 1;
+}
+
 // FixedPoint is a scaled integer representation of a fractional number.
 //
 // This type consists of two integer fields: a coefficient and a scale.
@@ -228,7 +239,7 @@ message QueryAssetRatesErrResponse {
     string message = 1;
 
     // code is the error code.
-    uint32 code = 2;
+    ErrorCode code = 2;
 }
 
 // QueryAssetRatesResponse is the response from a QueryAssetRates RPC call.
