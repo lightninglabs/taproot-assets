@@ -1707,11 +1707,13 @@ message FetchAssetMetaResponse {
 
 message BurnAssetRequest {
     oneof asset {
-        // The asset ID of the asset to burn units of.
-        bytes asset_id = 1;
+        // Deprecated, the asset ID of the asset to burn units of.
+        // Use asset_specifier instead
+        bytes asset_id = 1 [deprecated = true];
 
-        // The hex encoded asset ID of the asset to burn units of.
-        string asset_id_str = 2;
+        // Deprecated, the hex encoded asset ID of the asset to burn units of.
+        // Use asset_specifier instead
+        string asset_id_str = 2 [deprecated = true];
     }
 
     // The number of asset units to burn. This must be greater than zero.
@@ -1724,14 +1726,17 @@ message BurnAssetRequest {
 
     // A note that may contain user defined metadata related to this burn.
     string note = 5;
+
+    // The asset to burn units of.
+    AssetSpecifier asset_specifier = 6;
 }
 
 message BurnAssetResponse {
     // The asset transfer that contains the asset burn as an output.
     AssetTransfer burn_transfer = 1;
 
-    // The burn transition proof for the asset burn output.
-    DecodedProof burn_proof = 2;
+    // The burn transition proofs for the asset burn output.
+    repeated DecodedProof burn_proofs = 2;
 }
 
 message ListBurnsRequest {
