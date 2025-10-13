@@ -87,11 +87,25 @@ const (
 // service.
 type OracleError struct {
 	// Code is a code which uniquely identifies the error type.
-	Code uint8
+	Code OracleErrorCode
 
 	// Msg is a human-readable error message.
 	Msg string
 }
+
+// OracleErrorCode uniquely identifies the kinds of error an oracle may
+// return.
+type OracleErrorCode uint8
+
+const (
+	// UnspecifiedOracleErrorCode represents the case where the oracle has
+	// declined to give a more specific reason for the error.
+	UnspecifiedOracleErrorCode OracleErrorCode = 0
+
+	// UnsupportedAssetOracleErrorCode represents the case in which an
+	// oracle does not provide quotes for the requested asset.
+	UnsupportedAssetOracleErrorCode OracleErrorCode = 1
+)
 
 // Error returns a human-readable string representation of the error.
 func (o *OracleError) Error() string {
