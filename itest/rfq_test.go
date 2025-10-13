@@ -689,7 +689,7 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 		require.True(t.t, ok, "unexpected event: %v", event)
 
 		quote := e.PeerAcceptedSellQuote.PeerAcceptedSellQuote
-		actualGroupKeyBytes := quote.AssetSpec.GroupPubKey
+		actualGroupKeyBytes := quote.AssetSpec.GetGroupKey()
 		expectedGroupKeyBytes := schnorr.SerializePubKey(groupKey)
 		require.Equal(t.t, expectedGroupKeyBytes, actualGroupKeyBytes)
 	}, rfqTimeout)
@@ -730,7 +730,7 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 		require.True(t.t, ok, "unexpected event: %v", event)
 
 		quote := e.PeerAcceptedBuyQuote.PeerAcceptedBuyQuote
-		actualGroupKeyBytes := quote.AssetSpec.GroupPubKey
+		actualGroupKeyBytes := quote.AssetSpec.GetGroupKey()
 		expectedGroupKeyBytes := schnorr.SerializePubKey(groupKey)
 		require.Equal(t.t, expectedGroupKeyBytes, actualGroupKeyBytes)
 	}, rfqTimeout)
