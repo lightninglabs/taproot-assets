@@ -497,7 +497,7 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	whoseCommit lntypes.ChannelParty, ourBalance,
 	theirBalance lnwire.MilliSatoshi, originalView lnwallet.AuxHtlcView,
 	chainParams *address.ChainParams,
-	keys lnwallet.CommitmentKeyRing) ([]*tapsend.Allocation,
+	keys lnwallet.CommitmentKeyRing, stxo bool) ([]*tapsend.Allocation,
 	*cmsg.Commitment, error) {
 
 	log.Tracef("Generating allocations, whoseCommit=%v, ourBalance=%d, "+
@@ -589,8 +589,18 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 			"packets: %w", err)
 	}
 
+	var (
+		opts      []tapsend.OutputCommitmentOption
+		proofOpts []proof.GenOption
+	)
+
+	if !stxo {
+		opts = append(opts, tapsend.WithNoSTXOProofs())
+		proofOpts = append(proofOpts, proof.WithNoSTXOProofs())
+	}
+
 	outCommitments, err := tapsend.CreateOutputCommitments(
-		vPackets, tapsend.WithNoSTXOProofs(),
+		vPackets, opts...,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create output "+
@@ -626,7 +636,7 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 				fakeCommitTx, vPkt, outCommitments, outIdx,
 				vPackets, tapsend.NonAssetExclusionProofs(
 					allocations,
-				), proof.WithNoSTXOProofs(),
+				), proofOpts...,
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("unable to create "+
@@ -641,7 +651,7 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	// Next, we can convert the allocations to auxiliary leaves and from
 	// those construct our Commitment struct that will in the end also hold
 	// our proof suffixes.
-	newCommitment, err := ToCommitment(allocations, vPackets)
+	newCommitment, err := ToCommitment(allocations, vPackets, stxo)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to convert to commitment: "+
 			"%w", err)
@@ -1145,7 +1155,7 @@ func LeavesFromTapscriptScriptTree(
 
 // ToCommitment converts the allocations to a Commitment struct.
 func ToCommitment(allocations []*tapsend.Allocation,
-	vPackets []*tappsbt.VPacket) (*cmsg.Commitment, error) {
+	vPackets []*tappsbt.VPacket, stxo bool) (*cmsg.Commitment, error) {
 
 	var (
 		localAssets   []*cmsg.AssetOutput
@@ -1268,7 +1278,7 @@ func ToCommitment(allocations []*tapsend.Allocation,
 
 	return cmsg.NewCommitment(
 		localAssets, remoteAssets, outgoingHtlcs, incomingHtlcs,
-		auxLeaves,
+		auxLeaves, stxo,
 	), nil
 }
 
@@ -1432,7 +1442,7 @@ func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 	commitTx *wire.MsgTx, htlcAmt btcutil.Amount,
 	keys lnwallet.CommitmentKeyRing, chainParams *address.ChainParams,
 	htlcOutputs []*cmsg.AssetOutput, htlcTimeout fn.Option[uint32],
-	htlcIndex uint64) (input.AuxTapLeaf, error) {
+	htlcIndex uint64, stxo bool) (input.AuxTapLeaf, error) {
 
 	none := input.NoneTapLeaf()
 
@@ -1445,8 +1455,13 @@ func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 			"packets: %w", err)
 	}
 
+	var opts []tapsend.OutputCommitmentOption
+	if !stxo {
+		opts = append(opts, tapsend.WithNoSTXOProofs())
+	}
+
 	outCommitments, err := tapsend.CreateOutputCommitments(
-		vPackets, tapsend.WithNoSTXOProofs(),
+		vPackets, opts...,
 	)
 	if err != nil {
 		return none, fmt.Errorf("unable to create output commitments: "+
