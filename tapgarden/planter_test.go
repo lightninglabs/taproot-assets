@@ -1453,7 +1453,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.assertNoPendingBatch()
 	t.assertNumCaretakersActive(caretakerCount)
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFrozen)
-	t.assertFinalizeBatch(&wg, respChan, "unable to estimate fee")
+	t.assertFinalizeBatch(&wg, respChan, "failed to estimate fee")
 
 	// Queue another batch, reset fee estimation behavior, and set TX
 	// confirmation registration to fail.
