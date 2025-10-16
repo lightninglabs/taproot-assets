@@ -535,7 +535,7 @@ func (b *Book) NewAddress(ctx context.Context, addrVersion Version,
 	error) {
 
 	// Before we proceed and make new keys, make sure that we actually know
-	// of this asset ID, or can import it.
+	// of this asset, or can import it.
 	if _, err := b.QueryAssetInfo(ctx, specifier); err != nil {
 		return nil, fmt.Errorf("unable to make address for unknown "+
 			"asset %s: %w", &specifier, err)

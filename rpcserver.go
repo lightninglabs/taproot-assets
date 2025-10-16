@@ -1626,6 +1626,8 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 func (r *rpcServer) NewAddr(ctx context.Context,
 	req *taprpc.NewAddrRequest) (*taprpc.Addr, error) {
 
+	rpcsLog.TraceS(ctx, "[NewAddr]: Called", "req", spew.Sdump(req))
+
 	// Parse the proof courier address if one was provided, otherwise use
 	// the default specified in the config.
 	courierAddr := r.cfg.DefaultProofCourierAddr
@@ -1660,9 +1662,6 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 			err)
 	}
 
-	rpcsLog.Infof("[NewAddr]: making new addr: specifier=%s, amt=%v",
-		&specifier, req.Amt)
-
 	err = r.checkBalanceOverflow(ctx, assetID, groupKey, req.Amt)
 	if err != nil {
 		return nil, err
@@ -1694,6 +1693,10 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 
 		addrVersion = address.V2
 	}
+
+	rpcsLog.Infof("[NewAddr]: Making new addr: specifier=%s, amt=%v, "+
+		"courier=%v, addr_version=%v, asset_version=%v", &specifier,
+		req.Amt, courierAddr, addrVersion, assetVersion)
 
 	// Addresses with version 2 must use the new authmailbox proof courier
 	// type.
@@ -1790,8 +1793,8 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 			address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to make new addr: %w",
-				err)
+			return nil, fmt.Errorf("unable to make new addr with "+
+				"keys: %w", err)
 		}
 	}
 
