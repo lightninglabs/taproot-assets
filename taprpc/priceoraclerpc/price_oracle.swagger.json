@@ -289,6 +289,10 @@
           "type": "string",
           "description": "error is the error message."
         },
+        "public": {
+          "type": "boolean",
+          "description": "public is a flag indicating that the error can be forwarded to peers."
+        },
         "code": {
           "$ref": "#/definitions/priceoraclerpcErrorCode",
           "description": "code is the error code."

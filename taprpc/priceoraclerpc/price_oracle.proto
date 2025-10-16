@@ -238,8 +238,11 @@ message QueryAssetRatesErrResponse {
     // error is the error message.
     string message = 1;
 
+    // public is a flag indicating that the error can be forwarded to peers.
+    bool public = 2;
+
     // code is the error code.
-    ErrorCode code = 2;
+    ErrorCode code = 3;
 }
 
 // QueryAssetRatesResponse is the response from a QueryAssetRates RPC call.
