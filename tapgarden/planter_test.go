@@ -1336,10 +1336,9 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	// harness.
 	t.refreshChainPlanter()
 
-	// Create an initial batch of 5 seedlings.
-	const numSeedlings = 5
+	// Create an initial set of seedlings.
+	const numSeedlings = 4
 	seedlings := t.queueInitialBatch(numSeedlings)
-	firstSeedling := seedlings[0]
 
 	// If we cancel the current batch, the pending batch should be cleared,
 	// but the seedlings should still exist on disk.
@@ -1353,9 +1352,8 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	t.finalizeBatchAssertFrozen(true)
 	t.cancelMintingBatch(true)
 
-	// Next, make another 5 random seedlings and continue with minting.
+	// Next, make another set of random seedlings and continue with minting.
 	seedlings = t.newRandSeedlings(numSeedlings)
-	seedlings[0] = firstSeedling
 	seedlings[0].ScriptKey = asset.ScriptKey{}
 	if seedlings[0].EnableEmission {
 		seedlings[0].GroupInternalKey = nil
@@ -1367,7 +1365,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 
 	// If we attempt to queue a seedling with the same name as a pending
 	// seedling, the planter should reject it.
-	updates, err := t.planter.QueueNewSeedling(firstSeedling)
+	updates, err := t.planter.QueueNewSeedling(seedlings[0])
 	require.NoError(t, err)
 	planterErr := <-updates
 	require.NotNil(t, planterErr.Error)
