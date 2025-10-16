@@ -249,8 +249,9 @@ func (s *receiveSubscription) connectServerStream(ctx context.Context,
 		if backoff > s.cfg.MaxBackoff {
 			backoff = s.cfg.MaxBackoff
 		}
-		log.DebugS(ctx, "Connect failed with error, canceling and "+
-			"backing off", "backoff", backoff, "err", err)
+		log.WarnS(ctx, "Connect failed with error, canceling and "+
+			"backing off", err, "backoff", backoff, "client_config",
+			s.cfg)
 
 		if i < numRetries-1 {
 			log.InfoS(ctx, "Connection to server failed, will try "+
@@ -278,7 +279,8 @@ func (s *receiveSubscription) connectServerStream(ctx context.Context,
 
 	// Read incoming messages and send them to the channel where the caller
 	// is listening to.
-	log.InfoS(ctx, "Successfully connected to mailbox server")
+	log.InfoS(ctx, "Successfully connected to mailbox server",
+		"server_addr", s.cfg.ServerAddress)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
