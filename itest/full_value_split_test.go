@@ -61,10 +61,11 @@ func testFullValueSend(t *harnessTest) {
 		1, 2,
 	)
 
-	// Alice should have one more zero-value tombstones in her wallet.
+	// After the second run, Alice's previous tombstons were swept. She now
+	// has 1 new tombstone UTXO from the last full-value send.
 	AssertBalances(
 		t.t, t.tapd, 0, WithScriptKeyType(asset.ScriptKeyTombstone),
-		WithNumUtxos(3), WithNumAnchorUtxos(3),
+		WithNumUtxos(1), WithNumAnchorUtxos(1),
 	)
 	AssertBalances(
 		t.t, secondTapd, mintedAsset.Amount+mintedGroupAsset.Amount,
