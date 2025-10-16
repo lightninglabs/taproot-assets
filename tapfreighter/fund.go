@@ -138,15 +138,6 @@ func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 			"internal keys: %w", err)
 	}
 
-	for _, vPkt := range allPackets {
-		if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
-			log.Errorf("Error preparing output assets: %v, "+
-				"packets: %v", err, limitSpewer.Sdump(vPkt))
-			return nil, fmt.Errorf("unable to prepare outputs: %w",
-				err)
-		}
-	}
-
 	// Extract just the TAP commitments by input from the selected anchored
 	// commitments.
 	inputCommitments := make(

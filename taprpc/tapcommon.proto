@@ -42,3 +42,11 @@ enum SortDirection {
     // Sort results in ascending order.
     SORT_DIRECTION_ASC = 1;
 }
+
+message AssetSpecifier {
+    // The 32-byte asset ID specified.
+    bytes id = 1;
+
+    // The 32-byte asset group key specified.
+    bytes group_key = 2;
+}
