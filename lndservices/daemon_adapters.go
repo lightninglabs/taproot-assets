@@ -51,14 +51,16 @@ type LndFsmDaemonAdapters struct {
 }
 
 // NewLndFsmDaemonAdapters creates a new instance of LndFsmDaemonAdapters.
-func NewLndFsmDaemonAdapters(lnd *lndclient.LndServices) *LndFsmDaemonAdapters {
+func NewLndFsmDaemonAdapters(lnd *lndclient.LndServices,
+	headerCache *BlockHeaderCache) *LndFsmDaemonAdapters {
+
 	retryConfig := fn.DefaultRetryConfig()
 
 	msgTransport := NewLndMsgTransportClient(lnd)
 
 	// Initialize the chain bridge without the asset store, as it is not
 	// needed for the FSM adapters.
-	chainBridge := NewLndRpcChainBridge(lnd, nil)
+	chainBridge := NewLndRpcChainBridge(lnd, nil, headerCache)
 	chainBridge.retryConfig = retryConfig
 
 	return &LndFsmDaemonAdapters{

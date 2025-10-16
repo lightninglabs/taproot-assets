@@ -348,7 +348,7 @@ type ChainBridge interface {
 
 	// GetBlockTimestamp returns the timestamp of the block at the given
 	// height.
-	GetBlockTimestamp(context.Context, uint32) int64
+	GetBlockTimestamp(context.Context, uint32) (int64, error)
 
 	// GetBlockHeaderByHeight returns a block header given the block height.
 	GetBlockHeaderByHeight(ctx context.Context,
