@@ -556,6 +556,12 @@ func customRejectErr(err error) rfqmsg.RejectErr {
 		return rfqmsg.ErrUnknownReject
 	}
 
+	// If the price oracle has indicated that this error should not be
+	// forwarded to peers, then return an opaque rejection error.
+	if !oracleError.Public {
+		return rfqmsg.ErrUnknownReject
+	}
+
 	switch oracleError.Code {
 	// The price oracle has indicated that it doesn't support the asset,
 	// so return a rejection error indicating that.
