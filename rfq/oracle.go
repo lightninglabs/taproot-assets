@@ -89,6 +89,10 @@ type OracleError struct {
 	// Code is a code which uniquely identifies the error type.
 	Code OracleErrorCode
 
+	// Public is a flag that indicates the error can be relayed to
+	// peers.
+	Public bool
+
 	// Msg is a human-readable error message.
 	Msg string
 }
@@ -395,8 +399,9 @@ func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
 
 		return &OracleResponse{
 			Err: &OracleError{
-				Msg:  result.Error.Message,
-				Code: marshallErrorCode(result.Error.Code),
+				Msg:    result.Error.Message,
+				Public: result.Error.Public,
+				Code:   marshallErrorCode(result.Error.Code),
 			},
 		}, nil
 
@@ -522,8 +527,9 @@ func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context,
 
 		return &OracleResponse{
 			Err: &OracleError{
-				Msg:  result.Error.Message,
-				Code: marshallErrorCode(result.Error.Code),
+				Msg:    result.Error.Message,
+				Public: result.Error.Public,
+				Code:   marshallErrorCode(result.Error.Code),
 			},
 		}, nil
 

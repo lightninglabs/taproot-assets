@@ -511,17 +511,15 @@ func customRejectErr(err error) rfqmsg.RejectErr {
 		return rfqmsg.ErrUnknownReject
 	}
 
-	switch oracleError.Code {
-	// The price oracle has indicated that it doesn't support the asset,
-	// so return a rejection error indicating that.
-	case UnsupportedAssetOracleErrorCode:
-		return rfqmsg.NewRejectErr(oracleError.Msg)
-
-	// The error code is either unspecified or unknown, so return an
-	// opaque rejection error.
-	default:
+	// If the price oracle has indicated that this error should not be
+	// forwarded to peers, then return an opaque rejection error.
+	if !oracleError.Public {
 		return rfqmsg.ErrUnknownReject
 	}
+
+	// Otherwise, return a rejection error that relays the price oracle's
+	// message.
+	return rfqmsg.NewRejectErr(oracleError.Msg)
 }
 
 // HandleOutgoingSellOrder handles an outgoing sell order by constructing sell
