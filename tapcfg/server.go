@@ -490,6 +490,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
+	// Create the forwarding event store using the main database.
+	fwdEventDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) sqlc.Querier {
+			return db.WithTx(tx)
+		},
+	)
+	fwdEventStore := tapdb.NewRfqForwardingEventStore(fwdEventDB)
+
 	// Construct the RFQ manager.
 	rfqManager, err := rfq.NewManager(rfq.ManagerCfg{
 		PeerMessenger:             msgTransportClient,
@@ -504,6 +512,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		SendPriceHint:             rfqCfg.SendPriceHint,
 		SendPeerId:                rfqCfg.PriceOracleSendPeerId,
 		NoOpHTLCs:                 cfg.Channel.NoopHTLCs,
+		ForwardingEventLogger:     fwdEventStore,
 		ErrChan:                   mainErrChan,
 	})
 	if err != nil {

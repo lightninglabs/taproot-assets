@@ -135,9 +135,20 @@ type ManagerCfg struct {
 	// key of the peer) to the price oracle when requesting a price rate.
 	SendPeerId bool
 
+	// ForwardingEventLogger is the logger that is used to log forwarding
+	// events to the database.
+	ForwardingEventLogger ForwardingEventLogger
+
 	// ErrChan is the main error channel which will be used to report back
 	// critical errors to the main server.
 	ErrChan chan<- error
+}
+
+// ForwardingEventLogger is an interface that defines the method for logging
+// forwarding events. This is kept minimal to avoid circular dependencies.
+type ForwardingEventLogger interface {
+	// LogAcceptHtlcEvent logs an accept HTLC event to the database.
+	LogAcceptHtlcEvent(ctx context.Context, event *AcceptHtlcEvent) error
 }
 
 // Manager is a struct that manages the request for quote (RFQ) system.
@@ -655,6 +666,22 @@ func (m *Manager) mainEventLoop() {
 		case acceptHtlcEvent := <-m.acceptHtlcEvents:
 			// Handle a HTLC accept event. Notify any subscribers.
 			m.publishSubscriberEvent(acceptHtlcEvent)
+
+			// Log the forwarding event to the database if the
+			// logger is configured.
+			if m.cfg.ForwardingEventLogger != nil {
+				ctx, cancel := m.WithCtxQuitNoTimeout()
+				err := m.cfg.ForwardingEventLogger.
+					LogAcceptHtlcEvent(
+						ctx, acceptHtlcEvent,
+					)
+				cancel()
+
+				if err != nil {
+					log.Errorf("Failed to log "+
+						"forwarding event: %v", err)
+				}
+			}
 
 		// Handle subsystem errors.
 		case err := <-m.subsystemErrChan:

@@ -138,6 +138,7 @@ type Querier interface {
 	InsertBranch(ctx context.Context, arg InsertBranchParams) error
 	InsertBurn(ctx context.Context, arg InsertBurnParams) (int64, error)
 	InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error
+	InsertForwardingEvent(ctx context.Context, arg InsertForwardingEventParams) error
 	InsertLeaf(ctx context.Context, arg InsertLeafParams) error
 	InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error
 	InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error
@@ -195,6 +196,7 @@ type Querier interface {
 	// Join on genesis_info_view to get leaf related fields.
 	QueryFederationProofSyncLog(ctx context.Context, arg QueryFederationProofSyncLogParams) ([]QueryFederationProofSyncLogRow, error)
 	QueryFederationUniSyncConfigs(ctx context.Context) ([]QueryFederationUniSyncConfigsRow, error)
+	QueryForwardingEvents(ctx context.Context, arg QueryForwardingEventsParams) ([]ForwardingEvent, error)
 	QueryLastEventHeight(ctx context.Context, version int16) (int64, error)
 	QueryLatestSupplyCommitment(ctx context.Context, groupKey []byte) (QueryLatestSupplyCommitmentRow, error)
 	QueryMultiverseLeaves(ctx context.Context, arg QueryMultiverseLeavesParams) ([]QueryMultiverseLeavesRow, error)

@@ -63,6 +63,10 @@ type RfqClient interface {
 	QueryPeerAcceptedQuotes(ctx context.Context, in *QueryPeerAcceptedQuotesRequest, opts ...grpc.CallOption) (*QueryPeerAcceptedQuotesResponse, error)
 	// SubscribeRfqEventNtfns is used to subscribe to RFQ events.
 	SubscribeRfqEventNtfns(ctx context.Context, in *SubscribeRfqEventNtfnsRequest, opts ...grpc.CallOption) (Rfq_SubscribeRfqEventNtfnsClient, error)
+	// tapcli: `rfq forwardinghistory`
+	// QueryForwardingHistory is used to query the forwarding history of the node.
+	// This includes all asset forwards that have been accepted and processed.
+	QueryForwardingHistory(ctx context.Context, in *QueryForwardingHistoryRequest, opts ...grpc.CallOption) (*QueryForwardingHistoryResponse, error)
 }
 
 type rfqClient struct {
@@ -150,6 +154,15 @@ func (x *rfqSubscribeRfqEventNtfnsClient) Recv() (*RfqEvent, error) {
 	return m, nil
 }
 
+func (c *rfqClient) QueryForwardingHistory(ctx context.Context, in *QueryForwardingHistoryRequest, opts ...grpc.CallOption) (*QueryForwardingHistoryResponse, error) {
+	out := new(QueryForwardingHistoryResponse)
+	err := c.cc.Invoke(ctx, "/rfqrpc.Rfq/QueryForwardingHistory", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RfqServer is the server API for Rfq service.
 // All implementations must embed UnimplementedRfqServer
 // for forward compatibility
@@ -199,6 +212,10 @@ type RfqServer interface {
 	QueryPeerAcceptedQuotes(context.Context, *QueryPeerAcceptedQuotesRequest) (*QueryPeerAcceptedQuotesResponse, error)
 	// SubscribeRfqEventNtfns is used to subscribe to RFQ events.
 	SubscribeRfqEventNtfns(*SubscribeRfqEventNtfnsRequest, Rfq_SubscribeRfqEventNtfnsServer) error
+	// tapcli: `rfq forwardinghistory`
+	// QueryForwardingHistory is used to query the forwarding history of the node.
+	// This includes all asset forwards that have been accepted and processed.
+	QueryForwardingHistory(context.Context, *QueryForwardingHistoryRequest) (*QueryForwardingHistoryResponse, error)
 	mustEmbedUnimplementedRfqServer()
 }
 
@@ -223,6 +240,9 @@ func (UnimplementedRfqServer) QueryPeerAcceptedQuotes(context.Context, *QueryPee
 }
 func (UnimplementedRfqServer) SubscribeRfqEventNtfns(*SubscribeRfqEventNtfnsRequest, Rfq_SubscribeRfqEventNtfnsServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeRfqEventNtfns not implemented")
+}
+func (UnimplementedRfqServer) QueryForwardingHistory(context.Context, *QueryForwardingHistoryRequest) (*QueryForwardingHistoryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryForwardingHistory not implemented")
 }
 func (UnimplementedRfqServer) mustEmbedUnimplementedRfqServer() {}
 
@@ -348,6 +368,24 @@ func (x *rfqSubscribeRfqEventNtfnsServer) Send(m *RfqEvent) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _Rfq_QueryForwardingHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryForwardingHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RfqServer).QueryForwardingHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rfqrpc.Rfq/QueryForwardingHistory",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RfqServer).QueryForwardingHistory(ctx, req.(*QueryForwardingHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Rfq_ServiceDesc is the grpc.ServiceDesc for Rfq service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -374,6 +412,10 @@ var Rfq_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "QueryPeerAcceptedQuotes",
 			Handler:    _Rfq_QueryPeerAcceptedQuotes_Handler,
+		},
+		{
+			MethodName: "QueryForwardingHistory",
+			Handler:    _Rfq_QueryForwardingHistory_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

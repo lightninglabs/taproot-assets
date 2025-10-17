@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "tapcommon.proto";
+
 package rfqrpc;
 
 option go_package = "github.com/lightninglabs/taproot-assets/taprpc/rfqrpc";
@@ -68,6 +70,13 @@ service Rfq {
     */
     rpc SubscribeRfqEventNtfns (SubscribeRfqEventNtfnsRequest)
         returns (stream RfqEvent);
+
+    /* tapcli: `rfq forwardinghistory`
+    QueryForwardingHistory is used to query the forwarding history of the node.
+    This includes all asset forwards that have been accepted and processed.
+    */
+    rpc QueryForwardingHistory (QueryForwardingHistoryRequest)
+        returns (QueryForwardingHistoryResponse);
 }
 
 message AssetSpecifier {
@@ -433,4 +442,65 @@ message RfqEvent {
         // RFQ service.
         AcceptHtlcEvent accept_htlc = 3;
     }
+}
+
+message QueryForwardingHistoryRequest {
+    // start_time is the starting time of the query as a unix timestamp in
+    // seconds. If not specified, the query will start from the beginning.
+    uint64 start_time = 1;
+
+    // end_time is the ending time of the query as a unix timestamp in seconds.
+    // If not specified, the query will end at the current time.
+    uint64 end_time = 2;
+
+    // asset_id_filter filters the forwarding history by asset ID. If not
+    // specified, all assets are included.
+    bytes asset_id_filter = 3;
+
+    // The offset for the page.
+    int32 offset = 4;
+
+    // The length limit for the page.
+    int32 limit = 5;
+
+    // The direction of the page.
+    taprpc.SortDirection direction = 6;
+}
+
+message ForwardingHistoryEvent {
+    // timestamp is the time when the forwarding event occurred as a unix
+    // timestamp in seconds.
+    uint64 timestamp = 1;
+
+    // incoming_htlc_id is the ID of the incoming HTLC.
+    uint64 incoming_htlc_id = 2;
+
+    // outgoing_htlc_id is the ID of the outgoing HTLC.
+    uint64 outgoing_htlc_id = 3;
+
+    // asset_id is the 32-byte asset ID of the forwarded asset.
+    bytes asset_id = 4;
+
+    // amount_in_msat is the incoming amount in millisatoshis.
+    uint64 amount_in_msat = 5;
+
+    // amount_out_msat is the outgoing amount in millisatoshis.
+    uint64 amount_out_msat = 6;
+
+    // rate is the exchange rate used for this forward.
+    FixedPoint rate = 7;
+
+    // fee_msat is the fee earned in millisatoshis.
+    uint64 fee_msat = 8;
+
+    // incoming_channel_id is the incoming channel ID.
+    uint64 incoming_channel_id = 9;
+
+    // outgoing_channel_id is the outgoing channel ID.
+    uint64 outgoing_channel_id = 10;
+}
+
+message QueryForwardingHistoryResponse {
+    // events is the list of forwarding events.
+    repeated ForwardingHistoryEvent events = 1;
 }

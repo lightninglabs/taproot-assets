@@ -79,6 +79,8 @@ type DatabaseConfig struct {
 	Multiverse *tapdb.MultiverseStore
 
 	FederationDB *tapdb.UniverseFederationDB
+
+	ForwardingEventStore tapdb.ForwardingEventStore
 }
 
 // UniversePublicAccessStatus is a type that indicates the status of public

@@ -54,4 +54,7 @@ vendor/
 
 # Release builds
 /taproot-assets-*
+
+# AI agents
 .aider*
+.cursor/

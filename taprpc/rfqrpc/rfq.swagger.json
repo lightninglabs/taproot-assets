@@ -694,6 +694,60 @@
       },
       "description": "FixedPoint is a scaled integer representation of a fractional number.\n\nThis type consists of two integer fields: a coefficient and a scale.\nUsing this format enables precise and consistent representation of fractional\nnumbers while avoiding floating-point data types, which are prone to\nprecision errors.\n\nThe relationship between the fractional representation and its fixed-point\nrepresentation is expressed as:\n```\nV = F_c / (10^F_s)\n```\nwhere:\n\n* `V` is the fractional value.\n\n* `F_c` is the coefficient component of the fixed-point representation. It is\n   the scaled-up fractional value represented as an integer.\n\n* `F_s` is the scale component. It is an integer specifying how\n  many decimal places `F_c` should be divided by to obtain the fractional\n  representation."
     },
+    "rfqrpcForwardingHistoryEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "uint64",
+          "description": "timestamp is the time when the forwarding event occurred as a unix\ntimestamp in seconds."
+        },
+        "incoming_htlc_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "incoming_htlc_id is the ID of the incoming HTLC."
+        },
+        "outgoing_htlc_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "outgoing_htlc_id is the ID of the outgoing HTLC."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "asset_id is the 32-byte asset ID of the forwarded asset."
+        },
+        "amount_in_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "amount_in_msat is the incoming amount in millisatoshis."
+        },
+        "amount_out_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "amount_out_msat is the outgoing amount in millisatoshis."
+        },
+        "rate": {
+          "$ref": "#/definitions/rfqrpcFixedPoint",
+          "description": "rate is the exchange rate used for this forward."
+        },
+        "fee_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "fee_msat is the fee earned in millisatoshis."
+        },
+        "incoming_channel_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "incoming_channel_id is the incoming channel ID."
+        },
+        "outgoing_channel_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "outgoing_channel_id is the outgoing channel ID."
+        }
+      }
+    },
     "rfqrpcInvalidQuoteResponse": {
       "type": "object",
       "properties": {
@@ -833,6 +887,19 @@
         }
       }
     },
+    "rfqrpcQueryForwardingHistoryResponse": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/rfqrpcForwardingHistoryEvent"
+          },
+          "description": "events is the list of forwarding events."
+        }
+      }
+    },
     "rfqrpcQueryPeerAcceptedQuotesResponse": {
       "type": "object",
       "properties": {
@@ -926,6 +993,15 @@
           }
         }
       }
+    },
+    "taprpcSortDirection": {
+      "type": "string",
+      "enum": [
+        "SORT_DIRECTION_DESC",
+        "SORT_DIRECTION_ASC"
+      ],
+      "default": "SORT_DIRECTION_DESC",
+      "description": " - SORT_DIRECTION_DESC: Sort results in descending order.\n - SORT_DIRECTION_ASC: Sort results in ascending order."
     }
   }
 }

@@ -8598,6 +8598,89 @@ func (r *rpcServer) SubscribeRfqEventNtfns(
 	)
 }
 
+// QueryForwardingHistory queries the forwarding history of the node.
+func (r *rpcServer) QueryForwardingHistory(ctx context.Context,
+	req *rfqrpc.QueryForwardingHistoryRequest) (
+	*rfqrpc.QueryForwardingHistoryResponse, error) {
+
+	// Parse the start and end times from the request.
+	var startTime, endTime time.Time
+	if req.StartTime > 0 {
+		startTime = time.Unix(int64(req.StartTime), 0)
+	}
+	if req.EndTime > 0 {
+		endTime = time.Unix(int64(req.EndTime), 0)
+	}
+
+	// Parse the asset ID filter if provided.
+	var assetID *asset.ID
+	if len(req.AssetIdFilter) > 0 {
+		if len(req.AssetIdFilter) != 32 {
+			return nil, fmt.Errorf("asset ID must be 32 bytes")
+		}
+		var aid asset.ID
+		copy(aid[:], req.AssetIdFilter)
+		assetID = &aid
+	}
+
+	// Set default limit if not specified.
+	limit := req.Limit
+	if limit == 0 {
+		limit = 100
+	}
+
+	// Determine sort direction (DESC by default for most recent first).
+	sortDesc := true
+	if req.Direction == taprpc.SortDirection_SORT_DIRECTION_ASC {
+		sortDesc = false
+	}
+
+	// Get the forwarding event store from the database config.
+	fwdStore := r.cfg.DatabaseConfig.ForwardingEventStore
+	if fwdStore == nil {
+		return nil, fmt.Errorf("forwarding event store not configured")
+	}
+
+	events, err := fwdStore.QueryForwardingEvents(
+		ctx, tapdb.QueryForwardingEventsParams{
+			StartTime: startTime,
+			EndTime:   endTime,
+			AssetID:   assetID,
+			Offset:    req.Offset,
+			Limit:     limit,
+			SortDesc:  sortDesc,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query forwarding events: %w",
+			err)
+	}
+
+	// Convert the events to RPC format.
+	rpcEvents := make([]*rfqrpc.ForwardingHistoryEvent, len(events))
+	for i, event := range events {
+		rpcEvents[i] = &rfqrpc.ForwardingHistoryEvent{
+			Timestamp:      uint64(event.Timestamp.Unix()),
+			IncomingHtlcId: event.IncomingHTLCID,
+			OutgoingHtlcId: event.OutgoingHTLCID,
+			AssetId:        event.AssetID[:],
+			AmountInMsat:   uint64(event.AmountInMsat),
+			AmountOutMsat:  uint64(event.AmountOutMsat),
+			Rate: &rfqrpc.FixedPoint{
+				Coefficient: event.Rate.Coefficient.String(),
+				Scale:       uint32(event.Rate.Scale),
+			},
+			FeeMsat:           uint64(event.FeeMsat),
+			IncomingChannelId: event.IncomingChannelID,
+			OutgoingChannelId: event.OutgoingChannelID,
+		}
+	}
+
+	return &rfqrpc.QueryForwardingHistoryResponse{
+		Events: rpcEvents,
+	}, nil
+}
+
 // FundChannel initiates the channel funding negotiation with a peer for the
 // creation of a channel that contains a specified amount of a given asset.
 func (r *rpcServer) FundChannel(ctx context.Context,
