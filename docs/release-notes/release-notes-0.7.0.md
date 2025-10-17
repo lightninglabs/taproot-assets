@@ -271,6 +271,12 @@
 
 ## RPC Updates
 
+- [PR](https://github.com/lightninglabs/taproot-assets/pull/1854) The `NewAddr`
+  RPC now performs a proof courier connectivity check for all tap address types
+  using a universe RPC URL scheme. A new flag allows skipping this check for
+  offline address generation. Additionally, an early sanity check ensures the
+  asset is recognized locally before attempting any courier connection check.
+
 ## tapcli Updates
 
 - The default script key type in the `tapcli assets list`,
