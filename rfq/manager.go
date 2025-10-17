@@ -416,9 +416,6 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 		}
 
 	case *rfqmsg.BuyAccept:
-		// TODO(ffranr): The stream handler should ensure that the
-		//  accept message corresponds to a request.
-
 		finaliseCallback := func(msg rfqmsg.BuyAccept,
 			invalidQuoteEvent fn.Option[InvalidQuoteRespEvent]) {
 
@@ -472,9 +469,6 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 		}
 
 	case *rfqmsg.SellAccept:
-		// TODO(ffranr): The stream handler should ensure that the
-		//  accept message corresponds to a request.
-
 		finaliseCallback := func(msg rfqmsg.SellAccept,
 			invalidQuoteEvent fn.Option[InvalidQuoteRespEvent]) {
 
