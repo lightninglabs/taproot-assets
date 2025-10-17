@@ -1662,6 +1662,12 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 			err)
 	}
 
+	// Sanity check early to ensure that the asset is known.
+	_, err = r.cfg.AddrBook.QueryAssetInfo(ctx, specifier)
+	if err != nil {
+		return nil, fmt.Errorf("unable to find asset or group: %w", err)
+	}
+
 	err = r.checkBalanceOverflow(ctx, assetID, groupKey, req.Amt)
 	if err != nil {
 		return nil, err
