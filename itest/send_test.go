@@ -1180,9 +1180,10 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 	// (due to the proof courier being shut down). We will generate a new
 	// address for this new transaction.
 	recvAddr, err = recvTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
-		AssetId:          genInfo.AssetId,
-		Amt:              42,
-		ProofCourierAddr: proofCourierAddr,
+		AssetId:                   genInfo.AssetId,
+		Amt:                       42,
+		ProofCourierAddr:          proofCourierAddr,
+		SkipProofCourierConnCheck: true,
 	})
 	require.NoError(t.t, err)
 	AssertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
