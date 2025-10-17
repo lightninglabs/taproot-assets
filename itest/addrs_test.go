@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -491,7 +492,12 @@ func testAddressAssetSyncer(t *harnessTest) {
 
 	thirdAsset := secondRpcAssets[2]
 	thirdGroup := thirdAsset.AssetGroup
-	v2Courier := address.RandProofCourierAddrForVersion(t.t, address.V2)
+
+	v2Courier, err := url.Parse(
+		"authmailbox+universerpc://" + t.universeServer.ListenAddr,
+	)
+	require.NoError(t.t, err)
+
 	_, err = bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
 		AddressVersion:   taprpc.AddrVersion_ADDR_VERSION_V2,
 		GroupKey:         thirdGroup.TweakedGroupKey,

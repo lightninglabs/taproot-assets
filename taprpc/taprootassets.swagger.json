@@ -2340,6 +2340,10 @@
           "type": "string",
           "format": "byte",
           "description": "The group key to receive assets for. This can only be specified for V2\naddresses. If this field is set, the asset_id field must be empty."
+        },
+        "skip_proof_courier_conn_check": {
+          "type": "boolean",
+          "description": "If set, the daemon skips the connectivity check to the proof courier service\nwhen creating an address. Connection checks currently apply only to certain\naddress schemes. Use this to create addresses while offline."
         }
       }
     },

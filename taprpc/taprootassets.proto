@@ -1177,6 +1177,13 @@ message NewAddrRequest {
     addresses. If this field is set, the asset_id field must be empty.
     */
     bytes group_key = 9;
+
+    /*
+    If set, the daemon skips the connectivity check to the proof courier service
+    when creating an address. Connection checks currently apply only to certain
+    address schemes. Use this to create addresses while offline.
+    */
+    bool skip_proof_courier_conn_check = 10;
 }
 
 enum ScriptKeyType {

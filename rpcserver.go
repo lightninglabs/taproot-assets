@@ -1704,12 +1704,11 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		"courier=%v, addr_version=%v, asset_version=%v", &specifier,
 		req.Amt, courierAddr, addrVersion, assetVersion)
 
-	// Addresses with version 2 must use the new authmailbox proof courier
+	// Addresses with version 2 must use the new auth mailbox proof courier
 	// type.
-	protocol := courierAddr.Scheme
 	switch {
 	case addrVersion == address.V2 &&
-		protocol == proof.UniverseRpcCourierType:
+		courierAddr.Scheme == proof.UniverseRpcCourierType:
 
 		// We assume that any proof courier running an RPC universe
 		// server will upgrade soon to support the new auth mailbox
@@ -1717,25 +1716,35 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// one.
 		courierAddr.Scheme = proof.AuthMailboxUniRpcCourierType
 
-		// Let's make sure the proof courier actually supports the
-		// auth mailbox courier type.
-		err := proof.CheckUniverseRpcCourierConnection(
-			ctx, proofCourierCheckTimeout, courierAddr,
-		)
-		if err != nil {
-			return nil, err
-		}
-
 	case addrVersion == address.V2 &&
-		protocol == proof.AuthMailboxUniRpcCourierType:
+		courierAddr.Scheme == proof.AuthMailboxUniRpcCourierType:
 
 		// Great, nothing to do here, this is the courier type we want.
 
-	case addrVersion == address.V2 && protocol == proof.HashmailCourierType:
+	case addrVersion == address.V2 &&
+		courierAddr.Scheme == proof.HashmailCourierType:
+
 		return nil, fmt.Errorf("%w: address version %d must use the "+
 			"'%s' proof courier type",
 			address.ErrInvalidProofCourierAddr, addrVersion,
 			proof.AuthMailboxUniRpcCourierType)
+	}
+
+	// If the courier is an (auth mailbox) universe RPC type we will check
+	// that we can connect to it.
+	connCheckScheme := courierAddr.Scheme == proof.UniverseRpcCourierType ||
+		courierAddr.Scheme == proof.AuthMailboxUniRpcCourierType
+	if !req.SkipProofCourierConnCheck && connCheckScheme {
+		rpcsLog.DebugS(ctx, "Checking connection to universe server "+
+			"RPC", "courier_addr", courierAddr.String())
+
+		err := proof.CheckUniverseRpcCourierConnection(
+			ctx, proofCourierCheckTimeout, courierAddr,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("connection check failed for "+
+				"universe server RPC proof courier: %w", err)
+		}
 	}
 
 	var addr *address.AddrWithKeyInfo
