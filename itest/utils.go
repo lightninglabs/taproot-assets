@@ -453,6 +453,9 @@ func FinalizeBatchUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 		ctxt, &taprpc.ListAssetRequest{
 			IncludeUnconfirmedMints: true,
 			ScriptKeyType:           allScriptKeysQuery,
+			AnchorOutpoint: &taprpc.OutPoint{
+				Txid: hashes[0][:],
+			},
 		},
 	)
 	require.NoError(t, err)
