@@ -1202,6 +1202,13 @@ type UniverseRpcCourierCfg struct {
 	// a courier service to handle our outgoing request during a connection
 	// attempt, or when delivering or retrieving a proof.
 	ServiceRequestTimeout time.Duration `long:"servicerequestimeout" description:"The maximum duration we'll wait for a courier service to handle our outgoing request during a connection attempt, or when delivering or retrieving a proof."`
+
+	// FallbackMboxURLStrings specifies additional proof courier
+	// AuthMailbox services using the authmailbox+universerpc:// scheme. The
+	// daemon subscribes to receive events from each fallback service in
+	// addition to any proof courier URL specified in a Taproot Asset
+	// address. Repeat the flag to add multiple entries.
+	FallbackMboxURLStrings []string `long:"fallbackauthmailboxurl" description:"Fallback proof courier AuthMailbox service URLs using the authmailbox+universerpc:// scheme. The daemon subscribes to receive events from each fallback service in addition to any proof courier URL specified in a Taproot Asset address. Repeat to add multiple."`
 }
 
 // UniverseRpcCourier is a universe RPC proof courier service handle. It
