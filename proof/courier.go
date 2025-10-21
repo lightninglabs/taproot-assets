@@ -267,6 +267,24 @@ func ValidateCourierAddress(addr *url.URL) error {
 	}
 }
 
+// ParseMboxCourierAddress parses and validates that the given address is a
+// valid authmailbox+universerpc courier address.
+func ParseMboxCourierAddress(addrStr string) (url.URL, error) {
+	var zero url.URL
+
+	addr, err := ParseCourierAddress(addrStr)
+	if err != nil {
+		return zero, err
+	}
+
+	if addr.Scheme != AuthMailboxUniRpcCourierType {
+		return zero, fmt.Errorf("expected authmailbox+universerpc "+
+			"scheme, got %s", addr.Scheme)
+	}
+
+	return *addr, nil
+}
+
 // ProofMailbox represents an abstract store-and-forward mailbox that can be
 // used to send/receive proofs.
 type ProofMailbox interface {
@@ -1209,6 +1227,22 @@ type UniverseRpcCourierCfg struct {
 	// addition to any proof courier URL specified in a Taproot Asset
 	// address. Repeat the flag to add multiple entries.
 	FallbackMboxURLStrings []string `long:"fallbackauthmailboxurl" description:"Fallback proof courier AuthMailbox service URLs using the authmailbox+universerpc:// scheme. The daemon subscribes to receive events from each fallback service in addition to any proof courier URL specified in a Taproot Asset address. Repeat to add multiple."`
+}
+
+// Validate validates the universe RPC courier configuration.
+func (c *UniverseRpcCourierCfg) Validate() error {
+	// Check that all fallback auth mailbox URLs are valid.
+	for idx := range c.FallbackMboxURLStrings {
+		urlStr := c.FallbackMboxURLStrings[idx]
+
+		_, err := ParseMboxCourierAddress(urlStr)
+		if err != nil {
+			return fmt.Errorf("invalid fallback authmailbox "+
+				"proof courier address: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // UniverseRpcCourier is a universe RPC proof courier service handle. It
