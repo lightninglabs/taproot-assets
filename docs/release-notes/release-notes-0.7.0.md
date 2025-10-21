@@ -26,8 +26,8 @@
 - [An integration test flake was
   fixed](https://github.com/lightninglabs/taproot-assets/pull/1651).
 
-- Fixed two send related bugs that would lead to either a `invalid transfer 
-  asset witness` or `unable to fund address send: error funding packet: unable 
+- Fixed two send related bugs that would lead to either a `invalid transfer
+  asset witness` or `unable to fund address send: error funding packet: unable
   to list eligible coins: unable to query commitments: mismatch of managed utxo
   and constructed tap commitment root` error when sending assets.
   The [PR that fixed the two
@@ -36,7 +36,7 @@
   tombstone outputs on a full-value send (by using interactive transfers for V2
   addresses).
 
-- [Updated](https://github.com/lightninglabs/taproot-assets/pull/1774) 
+- [Updated](https://github.com/lightninglabs/taproot-assets/pull/1774)
   `BuyOrderRequest` and `SellOrderRequest` proto docs to mark `peer_pub_key` as
   required. Previously, the field was incorrectly documented as optional.
   This change corrects the documentation to match the current implementation.
@@ -179,20 +179,21 @@
 - [Rename](https://github.com/lightninglabs/taproot-assets/pull/1682) the
   `MintAsset` RPC message field from `universe_commitments` to
   `enable_supply_commitments`.
+
 - [Enhanced RFQ accepted quote messages with asset identification fields](https://github.com/lightninglabs/taproot-assets/pull/1805):
   The `PeerAcceptedBuyQuote` and `PeerAcceptedSellQuote` proto messages
   now include asset ID and asset group pub key fields (via the `AssetSpecBytes`
   message), allowing clients to directly associate quotes with their
   corresponding assets without manual tracking.
 
-- The `SubscribeSendEvents` RPC now supports [historical event replay of 
+- The `SubscribeSendEvents` RPC now supports [historical event replay of
   completed sends with efficient database-level
   filtering](https://github.com/lightninglabs/taproot-assets/pull/1685).
 - [Add universe RPC endpoint FetchSupplyLeaves](https://github.com/lightninglabs/taproot-assets/pull/1693)
   that allows users to fetch the supply leaves of a universe supply commitment.
   This is useful for verification.
 
-- A [new field `unconfirmed_transfers` was added to the response of the 
+- A [new field `unconfirmed_transfers` was added to the response of the
   `ListBalances` RPC
   method](https://github.com/lightninglabs/taproot-assets/pull/1691) to indicate
   that unconfirmed asset-related transactions don't count toward the balance.
@@ -204,9 +205,9 @@
 - The `AddrReceives` RPC now supports timestamp filtering with
   [new `StartTimestamp` and `EndTimestamp` fields](https://github.com/lightninglabs/taproot-assets/pull/1794).
 
-- The [FetchSupplyLeaves RPC endpoint](https://github.com/lightninglabs/taproot-assets/pull/1829)  
-  is now accessible without authentication when the universe server is  
-  configured with public read access. This matches the behavior of the  
+- The [FetchSupplyLeaves RPC endpoint](https://github.com/lightninglabs/taproot-assets/pull/1829)
+  is now accessible without authentication when the universe server is
+  configured with public read access. This matches the behavior of the
   existing FetchSupplyCommit RPC endpoint.
 
 - [PR#1839](https://github.com/lightninglabs/taproot-assets/pull/1839) The
@@ -239,7 +240,7 @@
   includes unset and zero-valued proto fields (e.g. transaction output indexes).
   This ensures consistent output shape across all proto messages.
 
-- The `tapcli addrs receives` command now supports 
+- The `tapcli addrs receives` command now supports
   [new `--start_timestamp` and `--end_timestamp` flags](https://github.com/lightninglabs/taproot-assets/pull/1794).
 
 - The `tapcli addrs receives` command now has new flags `--limit`, `--offset` and
