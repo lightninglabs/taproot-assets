@@ -1480,7 +1480,7 @@ func (q *Queries) FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (F
 }
 
 const FetchManagedUTXO = `-- name: FetchManagedUTXO :one
-SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, root_version, key_id, raw_key, key_family, key_index
+SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, root_version, swept, key_id, raw_key, key_family, key_index
 FROM managed_utxos utxos
 JOIN internal_keys keys
     ON utxos.internal_key_id = keys.key_id
@@ -1507,6 +1507,7 @@ type FetchManagedUTXORow struct {
 	LeaseOwner       []byte
 	LeaseExpiry      sql.NullTime
 	RootVersion      sql.NullInt16
+	Swept            bool
 	KeyID            int64
 	RawKey           []byte
 	KeyFamily        int32
@@ -1528,6 +1529,7 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOPara
 		&i.LeaseOwner,
 		&i.LeaseExpiry,
 		&i.RootVersion,
+		&i.Swept,
 		&i.KeyID,
 		&i.RawKey,
 		&i.KeyFamily,
@@ -1537,7 +1539,7 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOPara
 }
 
 const FetchManagedUTXOs = `-- name: FetchManagedUTXOs :many
-SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, root_version, key_id, raw_key, key_family, key_index
+SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, root_version, swept, key_id, raw_key, key_family, key_index
 FROM managed_utxos utxos
 JOIN internal_keys keys
     ON utxos.internal_key_id = keys.key_id
@@ -1555,6 +1557,7 @@ type FetchManagedUTXOsRow struct {
 	LeaseOwner       []byte
 	LeaseExpiry      sql.NullTime
 	RootVersion      sql.NullInt16
+	Swept            bool
 	KeyID            int64
 	RawKey           []byte
 	KeyFamily        int32
@@ -1582,6 +1585,7 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 			&i.LeaseOwner,
 			&i.LeaseExpiry,
 			&i.RootVersion,
+			&i.Swept,
 			&i.KeyID,
 			&i.RawKey,
 			&i.KeyFamily,
@@ -2321,6 +2325,17 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 		arg.DelegationKeyID,
 		arg.UniverseCommitments,
 	)
+	return err
+}
+
+const MarkManagedUTXOAsSwept = `-- name: MarkManagedUTXOAsSwept :exec
+UPDATE managed_utxos
+SET swept = TRUE
+WHERE outpoint = $1
+`
+
+func (q *Queries) MarkManagedUTXOAsSwept(ctx context.Context, outpoint []byte) error {
+	_, err := q.db.ExecContext(ctx, MarkManagedUTXOAsSwept, outpoint)
 	return err
 }
 
@@ -3203,9 +3218,9 @@ WITH target_key(key_id) AS (
 )
 INSERT INTO managed_utxos (
     outpoint, amt_sats, internal_key_id, tapscript_sibling, merkle_root, txn_id,
-    taproot_asset_root, root_version
+    taproot_asset_root, root_version, swept
 ) VALUES (
-    $2, $3, (SELECT key_id FROM target_key), $4, $5, $6, $7, $8
+    $2, $3, (SELECT key_id FROM target_key), $4, $5, $6, $7, $8, FALSE
 ) ON CONFLICT (outpoint)
    -- Not a NOP but instead update any nullable fields that aren't null in the
    -- args.

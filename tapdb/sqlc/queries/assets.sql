@@ -608,9 +608,9 @@ WITH target_key(key_id) AS (
 )
 INSERT INTO managed_utxos (
     outpoint, amt_sats, internal_key_id, tapscript_sibling, merkle_root, txn_id,
-    taproot_asset_root, root_version
+    taproot_asset_root, root_version, swept
 ) VALUES (
-    $2, $3, (SELECT key_id FROM target_key), $4, $5, $6, $7, $8
+    $2, $3, (SELECT key_id FROM target_key), $4, $5, $6, $7, $8, FALSE
 ) ON CONFLICT (outpoint)
    -- Not a NOP but instead update any nullable fields that aren't null in the
    -- args.
@@ -853,6 +853,11 @@ ORDER BY witness_index;
 
 -- name: DeleteManagedUTXO :exec
 DELETE FROM managed_utxos
+WHERE outpoint = $1;
+
+-- name: MarkManagedUTXOAsSwept :exec
+UPDATE managed_utxos
+SET swept = TRUE
 WHERE outpoint = $1;
 
 -- name: UpdateUTXOLease :exec
