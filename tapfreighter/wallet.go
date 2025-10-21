@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"slices"
 	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -684,6 +683,16 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		return nil, err
 	}
 
+	for _, vPkt := range pkt.VPackets {
+		if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
+			log.Errorf("Error preparing output assets: %v, "+
+				"packets: %v", err, limitSpewer.Sdump(vPkt))
+
+			return nil, fmt.Errorf("unable to prepare outputs: %w",
+				err)
+		}
+	}
+
 	success = true
 	return pkt, nil
 }
@@ -692,12 +701,6 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 // the given asset.
 func (f *AssetWallet) FundBurn(ctx context.Context,
 	fundDesc *tapsend.FundingDescriptor) (*FundedVPacket, error) {
-
-	// Extract the asset ID and group key from the funding descriptor.
-	assetId, err := fundDesc.AssetSpecifier.UnwrapIdOrErr()
-	if err != nil {
-		return nil, err
-	}
 
 	// We need to find a commitment that has enough assets to satisfy this
 	// send request. We'll map the address to a set of constraints, so we
@@ -733,11 +736,10 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		}
 	}()
 
-	activeAssets := fn.Filter(
-		selectedCommitments, func(c *AnchoredCommitment) bool {
-			return c.Asset.ID() == assetId
-		},
-	)
+	// Determine the highest asset version across all selected inputs. We'll
+	// use this as a default for the output version; we'll refine per packet
+	// later once inputs are assigned.
+	activeAssets := selectedCommitments
 
 	maxVersion := asset.V0
 	for _, activeAsset := range activeAssets {
@@ -746,52 +748,23 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		}
 	}
 
-	// Now that we know what inputs we're going to spend, we know that by
-	// definition, we use the first input's info as the burn's PrevID. But
-	// to know which input will actually be assigned as the first input in
-	// the allocated virtual packet, we first apply the same sorting that
-	// the allocation code will also apply.
-	slices.SortFunc(activeAssets, func(a, b *AnchoredCommitment) int {
-		return tapsend.AssetSortForInputs(*a.Asset, *b.Asset)
-	})
-	firstInput := activeAssets[0]
-	firstPrevID := asset.PrevID{
-		OutPoint: firstInput.AnchorPoint,
-		ID:       firstInput.Asset.ID(),
-		ScriptKey: asset.ToSerialized(
-			firstInput.Asset.ScriptKey.PubKey,
-		),
-	}
-	burnKey := asset.NewScriptKey(asset.DeriveBurnKey(firstPrevID))
-	newInternalKey, err := f.cfg.KeyRing.DeriveNextKey(
-		ctx, asset.TaprootAssetsKeyFamily,
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	// We want both the burn output and the change to be in the same anchor
 	// output, that's why we create the packet manually.
 	vPkt := &tappsbt.VPacket{
-		Inputs: []*tappsbt.VInput{{
-			PrevID: asset.PrevID{
-				ID: assetId,
-			},
-		}},
+		// No inputs are set here; they'll be populated during funding.
 		Outputs: []*tappsbt.VOutput{{
 			Amount:            fundDesc.Amount,
 			Type:              tappsbt.TypeSimple,
 			Interactive:       true,
 			AnchorOutputIndex: 0,
 			AssetVersion:      maxVersion,
-			ScriptKey:         burnKey,
+			// We'll set the burn script key per packet after
+			// inputs are selected so we use a placeholder here.
+			ScriptKey: asset.NUMSScriptKey,
 		}},
 		ChainParams: f.cfg.ChainParams,
 		Version:     tappsbt.V1,
 	}
-	vPkt.Outputs[0].SetAnchorInternalKey(
-		newInternalKey, f.cfg.ChainParams.HDCoinType,
-	)
 
 	// The virtual transaction is now ready to be further enriched with the
 	// split commitment and other data.
@@ -803,11 +776,41 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		return nil, err
 	}
 
-	// We don't support burning by group key yet, so we only expect a single
-	// vPacket (which implies a single asset ID is involved).
-	if len(fundedPkt.VPackets) != 1 {
-		return nil, fmt.Errorf("expected a single vPacket, got %d",
-			len(fundedPkt.VPackets))
+	// Now that inputs are assigned, set the proper burn script key and
+	// output versions per virtual packet, and build the outputs.
+	for _, pkt := range fundedPkt.VPackets {
+		if len(pkt.Inputs) == 0 {
+			return nil, fmt.Errorf("no inputs in funded burn +" +
+				"packet")
+		}
+
+		// Determine the per-packet max asset version from its inputs.
+		pktMaxVersion := asset.V0
+		for _, in := range pkt.Inputs {
+			if in.Asset().Version > pktMaxVersion {
+				pktMaxVersion = in.Asset().Version
+			}
+		}
+
+		// The burn output is the interactive, non-split output.
+		for _, out := range pkt.Outputs {
+			if out.Type.IsSplitRoot() || !out.Interactive {
+				continue
+			}
+
+			// Compute burn key from the first input's PrevID.
+			firstPrevID := pkt.Inputs[0].PrevID
+			burnKey := asset.NewScriptKey(
+				asset.DeriveBurnKey(firstPrevID),
+			)
+			out.ScriptKey = burnKey
+			out.AssetVersion = pktMaxVersion
+		}
+
+		if err := tapsend.PrepareOutputAssets(ctx, pkt); err != nil {
+			return nil, fmt.Errorf("unable to prepare burn + "+
+				"outputs: %w", err)
+		}
 	}
 
 	// Don't release the coins we've selected, as so far we've been
