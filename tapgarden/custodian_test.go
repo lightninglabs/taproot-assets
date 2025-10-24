@@ -450,7 +450,7 @@ func randAddrV2(h *custodianHarness, proofCourier url.URL,
 
 func randWalletTx(addr *address.AddrWithKeyInfo) (int, *lndclient.Transaction) {
 	tx := &lndclient.Transaction{
-		Tx:        wire.NewMsgTx(2),
+		Tx:        wire.NewMsgTx(3),
 		Timestamp: time.Now(),
 	}
 	numInputs := rand.Intn(10) + 1

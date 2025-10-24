@@ -333,7 +333,7 @@ func TestNonSpendableLeafScript(t *testing.T) {
 
 			// Finally, we'll make the dummy spend transaction, and
 			// the output script that we'll attempt to spend.
-			spendTx := wire.NewMsgTx(1)
+			spendTx := wire.NewMsgTx(3)
 			spendTx.AddTxIn(&wire.TxIn{})
 
 			leafScript, err := txscript.PayToTaprootScript(

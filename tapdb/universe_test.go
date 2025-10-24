@@ -1245,7 +1245,7 @@ func TestUpsertSupplyPreCommit(t *testing.T) {
 	// Create test data.
 	groupKey := test.RandPubKey(t)
 	internalKey, _ := test.RandKeyDesc(t)
-	mintingTx := wire.NewMsgTx(2)
+	mintingTx := wire.NewMsgTx(3)
 	mintingTx.AddTxOut(&wire.TxOut{Value: 1000})
 	blockHeight := uint32(100)
 

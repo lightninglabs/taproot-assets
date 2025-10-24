@@ -635,7 +635,7 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 		[]byte{txscript.OP_1, txscript.OP_DATA_32},
 		bytes.Repeat([]byte{0x00}, 32)...,
 	)
-	txTemplate := wire.NewMsgTx(2)
+	txTemplate := wire.NewMsgTx(3)
 	txTemplate.AddTxOut(&wire.TxOut{
 		Value:    int64(btcutil.Amount(1000)),
 		PkScript: bytes.Clone(genesisDummyScript),

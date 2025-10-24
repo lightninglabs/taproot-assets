@@ -69,7 +69,7 @@ func newReOrgWatcherHarness(t *testing.T) *reOrgWatcherHarness {
 }
 
 func makeTx() *wire.MsgTx {
-	anchorTx := wire.NewMsgTx(2)
+	anchorTx := wire.NewMsgTx(3)
 	anchorTx.TxOut = []*wire.TxOut{{
 		PkScript: test.RandBytes(32),
 		Value:    100,

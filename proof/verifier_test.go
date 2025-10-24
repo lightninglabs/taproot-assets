@@ -1,7 +1,11 @@
 package proof
 
 import (
+	"bytes"
+	"encoding/hex"
+	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -155,7 +159,7 @@ func makeV0InclusionProof(t *testing.T, opts ...createProofOpt) ([]*Proof,
 
 	internalKey := test.RandPubKey(t)
 
-	anchorTx := wire.NewMsgTx(2)
+	anchorTx := wire.NewMsgTx(3)
 	anchorTx.TxOut = make([]*wire.TxOut, len(tapCommitments))
 
 	indexes := maps.Keys(tapCommitments)
@@ -1156,4 +1160,54 @@ func TestVerifyV1ExclusionProof(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// TestTransactionVersionInProofSystem verifies that the current codebase
+// creates v3 transactions.
+func TestTransactionVersionInProofSystem(t *testing.T) {
+	t.Parallel()
+
+	proofs, _ := makeV0InclusionProof(t)
+	require.Len(t, proofs, 1)
+	proof := proofs[0]
+
+	require.Equal(t, int32(3), proof.AnchorTx.Version,
+		"Post-commit b3562461: all new transactions should be v3")
+}
+
+// TestBackwardsCompatibilityWithExistingProofs tests that existing proof files
+// (which contain v2 transactions) can still be loaded and verified by the
+// current v3-enabled codebase.
+func TestBackwardsCompatibilityWithExistingProofs(t *testing.T) {
+	t.Parallel()
+
+	const fileName = "testdata/proof-file.hex"
+
+	// Load the existing proof file (created pre-v3).
+	proofHex, err := os.ReadFile(fileName)
+	require.NoError(t, err, "Failed to load %s", fileName)
+
+	proofBytes, err := hex.DecodeString(
+		strings.TrimSpace(string(proofHex)),
+	)
+	require.NoError(t, err)
+
+	// Decode the proof file.
+	var proofFile File
+	err = proofFile.Decode(bytes.NewReader(proofBytes))
+	require.NoError(t, err, "v3-enabled code must decode existing proofs")
+
+	// Get the last proof from the file.
+	lastProof, err := proofFile.LastProof()
+	require.NoError(t, err)
+
+	t.Logf("Proof file %s uses tx version: %d",
+		fileName, lastProof.AnchorTx.Version)
+
+	require.Equal(t, int32(2), lastProof.AnchorTx.Version)
+
+	_, err = lastProof.verifyExclusionProofs()
+	require.NoError(
+		t, err, "v3-enabled code must verify existing v2 proofs",
+	)
 }

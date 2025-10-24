@@ -1115,7 +1115,8 @@ func CreateAnchorTx(vPackets []*tappsbt.VPacket) (*psbt.Packet, error) {
 		}
 	}
 
-	txTemplate := wire.NewMsgTx(2)
+	// TODO(bhandras)
+	txTemplate := wire.NewMsgTx(3)
 
 	// Zero is a valid anchor output index, so we need to do <= here.
 	for i := uint32(0); i <= maxOutputIndex; i++ {

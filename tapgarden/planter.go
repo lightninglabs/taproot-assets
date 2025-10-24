@@ -709,7 +709,7 @@ func unfundedAnchorPsbt(preCommitmentTxOut fn.Option[wire.TxOut]) (psbt.Packet,
 	var zero psbt.Packet
 
 	// Construct a template transaction for our minting anchor transaction.
-	txTemplate := wire.NewMsgTx(2)
+	txTemplate := wire.NewMsgTx(3)
 
 	// Add one output to anchor all assets which are being minted.
 	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
