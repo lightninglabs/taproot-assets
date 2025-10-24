@@ -440,7 +440,7 @@ func (h *supplyCommitTestHarness) expectPsbtFunding() {
 		changeIdx int32,
 	) (*tapsend.FundedPsbt, error) {
 
-		fundedTx := wire.NewMsgTx(2)
+		fundedTx := wire.NewMsgTx(3)
 		fundedTx.AddTxIn(
 			&wire.TxIn{PreviousOutPoint: randOutPoint(h.t)},
 		)
@@ -969,7 +969,7 @@ func TestSupplyCommitTxSignStateTransitions(t *testing.T) {
 		testAssetID, randGroupKey,
 	)
 
-	dummyTx := wire.NewMsgTx(2)
+	dummyTx := wire.NewMsgTx(3)
 	dummyTx.AddTxOut(&wire.TxOut{PkScript: []byte("test"), Value: 1})
 
 	internalKey, _ := test.RandKeyDesc(t)
@@ -1064,7 +1064,7 @@ func TestSupplyCommitBroadcastStateTransitions(t *testing.T) {
 
 	randGroupKey := test.RandPubKey(t)
 	defaultAssetSpec := asset.NewSpecifierFromGroupKey(*randGroupKey)
-	dummyTx := wire.NewMsgTx(2)
+	dummyTx := wire.NewMsgTx(3)
 	dummyTx.AddTxOut(&wire.TxOut{PkScript: []byte("testscript"), Value: 1})
 	initialTransition := SupplyStateTransition{
 		NewCommitment: RootCommitment{
@@ -1407,7 +1407,7 @@ func TestSupplyUpdateEventTypes(t *testing.T) {
 
 		// A random block containing a transaction is generated to serve
 		// as part of the proof.
-		dummyTx := wire.NewMsgTx(2)
+		dummyTx := wire.NewMsgTx(3)
 		dummyTx.AddTxOut(
 			&wire.TxOut{Value: 1000, PkScript: []byte("dummy")},
 		)
@@ -1506,7 +1506,7 @@ func TestSupplyUpdateEventTypes(t *testing.T) {
 		scriptKey := test.RandPubKey(t)
 		outpoint := randOutPoint(t)
 
-		dummyTx := wire.NewMsgTx(2)
+		dummyTx := wire.NewMsgTx(3)
 		dummyTx.AddTxIn(
 			&wire.TxIn{PreviousOutPoint: outpoint},
 		)
@@ -1598,7 +1598,7 @@ func TestTxInMethods(t *testing.T) {
 	t.Parallel()
 
 	t.Run("pre_commitment_tx_in", func(t *testing.T) {
-		mintingTx := wire.NewMsgTx(2)
+		mintingTx := wire.NewMsgTx(3)
 		mintingTx.AddTxOut(
 			&wire.TxOut{Value: 1000, PkScript: []byte("test")},
 		)
@@ -1616,7 +1616,7 @@ func TestTxInMethods(t *testing.T) {
 
 	t.Run("root_commitment_tx_in", func(t *testing.T) {
 		rootCommit := RootCommitment{
-			Txn:      wire.NewMsgTx(2),
+			Txn:      wire.NewMsgTx(3),
 			TxOutIdx: 1,
 		}
 
@@ -1794,7 +1794,7 @@ func TestSupplySubTreeUniverseKey(t *testing.T) {
 func TestSpendEventMethods(t *testing.T) {
 	t.Parallel()
 
-	tx := wire.NewMsgTx(2)
+	tx := wire.NewMsgTx(3)
 
 	spendDetail := &chainntnfs.SpendDetail{
 		SpendingTx:     tx,
@@ -1886,7 +1886,7 @@ func TestDanglingUpdatesFullCycle(t *testing.T) {
 	h.expectFullCommitmentCycleMocks(true)
 
 	// We'll now make a dummy block to send the confirmation event.
-	dummyTx := wire.NewMsgTx(2)
+	dummyTx := wire.NewMsgTx(3)
 	dummyTx.AddTxOut(&wire.TxOut{PkScript: []byte("test"), Value: 1})
 	block := &wire.MsgBlock{
 		Header:       wire.BlockHeader{Timestamp: time.Now()},
@@ -1989,7 +1989,7 @@ func TestDanglingUpdatesAcrossStates(t *testing.T) {
 		// Now, we'll set up again for the next cycle.
 		h.expectFullCommitmentCycleMocks(true)
 
-		dummyTx := wire.NewMsgTx(2)
+		dummyTx := wire.NewMsgTx(3)
 		dummyTx.AddTxOut(
 			&wire.TxOut{PkScript: []byte("test"), Value: 1},
 		)

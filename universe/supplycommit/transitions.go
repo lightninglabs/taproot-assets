@@ -456,7 +456,7 @@ func newRootCommitment(ctx context.Context,
 			"pre-commits", len(unspentPreCommits))
 	})
 
-	newCommitTx := wire.NewMsgTx(2)
+	newCommitTx := wire.NewMsgTx(3)
 
 	// With the set of pre-commits, we'll add them to as inputs into the new
 	// transaction.
