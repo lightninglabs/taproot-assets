@@ -443,6 +443,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		IgnoreChecker:    ignoreCheckerOpt,
 		Wallet:           walletAnchor,
 		ChainParams:      &tapChainParams,
+		SweepOrphanUtxos: cfg.Wallet.SweepOrphanUtxos,
 	})
 
 	// Addresses can have different proof couriers configured, but both
@@ -750,6 +751,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AssetWallet:              assetWallet,
 		CoinSelect:               coinSelect,
 		ChainPorter:              chainPorter,
+		SweepOrphanUtxos:         cfg.Wallet.SweepOrphanUtxos,
 		FsmDaemonAdapters:        lndFsmDaemonAdapters,
 		SupplyCommitManager:      supplyCommitManager,
 		IgnoreChecker:            ignoreChecker,

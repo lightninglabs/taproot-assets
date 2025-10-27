@@ -294,6 +294,10 @@ type WalletConfig struct {
 	// high fee environments the total fees paid may outweigh the anchor
 	// amount. The allowed values for this argument range from 0.00 to 1.00.
 	PsbtMaxFeeRatio float64 `long:"psbt-max-fee-ratio" description:"The maximum fees to total output amount ratio to use when funding PSBTs for asset transfers. Value must be between 0.00 and 1.00"`
+
+	// SweepOrphanUtxos, when true, sweeps orphaned UTXOs into anchor
+	// transactions created during sends and burns.
+	SweepOrphanUtxos bool `long:"sweep-orphan-utxos" description:"Sweep orphaned UTXOs into anchor transactions created during sends and burns. Disabled by default."`
 }
 
 // UniverseConfig is the config that houses any Universe related config
@@ -492,7 +496,8 @@ func DefaultConfig() Config {
 			DisableSupplyVerifierChainWatch: false,
 		},
 		Wallet: &WalletConfig{
-			PsbtMaxFeeRatio: DefaultPsbtMaxFeeRatio,
+			PsbtMaxFeeRatio:  DefaultPsbtMaxFeeRatio,
+			SweepOrphanUtxos: false,
 		},
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,
