@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"sort"
 	"sync/atomic"
@@ -39,7 +38,7 @@ type (
 	ProofSyncLogEntry = sqlc.QueryFederationProofSyncLogRow
 
 	// NewUniverseServer is used to create a new universe server.
-	NewUniverseServer = sqlc.InsertUniverseServerParams
+	NewUniverseServer = sqlc.UpsertUniverseServerParams
 
 	// DelUniverseServer is used to delete a universe server.
 	DelUniverseServer = sqlc.DeleteUniverseServerParams
@@ -131,8 +130,8 @@ type UniverseServerStore interface {
 	FederationSyncConfigStore
 	FederationProofSyncLogStore
 
-	// InsertUniverseServer inserts a new universe server in to the DB.
-	InsertUniverseServer(ctx context.Context, arg NewUniverseServer) error
+	// UpsertUniverseServer upserts a new universe server in to the DB.
+	UpsertUniverseServer(ctx context.Context, arg NewUniverseServer) error
 
 	// DeleteUniverseServer removes a universe server from the store.
 	DeleteUniverseServer(ctx context.Context, r DelUniverseServer) error
@@ -249,19 +248,14 @@ func (u *UniverseFederationDB) AddServers(ctx context.Context,
 		return fn.ForEachErr(addrs, func(a universe.ServerAddr) error {
 			addr := NewUniverseServer{
 				ServerHost:   a.HostStr(),
-				LastSyncTime: time.Now(),
+				LastSyncTime: time.Now().UTC(),
 			}
-			return db.InsertUniverseServer(ctx, addr)
+			return db.UpsertUniverseServer(ctx, addr)
 		})
 	})
 	if err != nil {
-		// Add context to unique constraint errors.
-		var uniqueConstraintErr *ErrSqlUniqueConstraintViolation
-		if errors.As(err, &uniqueConstraintErr) {
-			return universe.ErrDuplicateUniverse
-		}
-
-		return err
+		return fmt.Errorf("failed to upsert universe server addr: %w",
+			err)
 	}
 
 	return nil
