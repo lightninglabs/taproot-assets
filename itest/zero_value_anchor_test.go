@@ -136,7 +136,7 @@ func testZeroValueAnchorSweep(t *harnessTest) {
 			AssetId: genInfo3.AssetId,
 		},
 		AmountToBurn:     assetAmount,
-		ConfirmationText: "assets will be destroyed",
+		ConfirmationText: taprootassets.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
 
@@ -313,7 +313,7 @@ func testZeroValueAnchorAccumulation(t *harnessTest) {
 	require.NoError(t.t, t.tapd.stop(false))
 
 	// Enable sweeping in the config.
-	t.tapd.clientCfg.Wallet.SweepZeroValueAnchorUtxos = true
+	t.tapd.clientCfg.Wallet.SweepOrphanUtxos = true
 
 	// Restart with the modified config.
 	require.NoError(t.t, t.tapd.start(false))

@@ -2671,11 +2671,18 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 			prevID.OutPoint.String())
 	}
 
-	// Fetch zero-value UTXOs that should be swept as additional inputs.
-	zeroValueInputs, err := r.cfg.AssetStore.FetchOrphanUTXOs(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch zero-value "+
-			"UTXOs: %w", err)
+	// Fetch orphan UTXOs that should be swept as additional inputs if
+	// the feature is enabled.
+	var (
+		zeroValueInputs []*tapfreighter.ZeroValueInput
+		err             error
+	)
+	if r.cfg.SweepOrphanUtxos {
+		zeroValueInputs, err = r.cfg.AssetStore.FetchOrphanUTXOs(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch zero-value "+
+				"UTXOs: %w", err)
+		}
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(

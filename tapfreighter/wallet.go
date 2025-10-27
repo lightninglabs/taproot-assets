@@ -226,6 +226,10 @@ type WalletConfig struct {
 
 	// ChainParams is the chain params of the chain we operate on.
 	ChainParams *address.ChainParams
+
+	// SweepOrphanUtxos specifies whether orphaned UTXOs should be swept
+	// into send and burn anchor transactions.
+	SweepOrphanUtxos bool
 }
 
 // AssetWallet is an implementation of the Wallet interface that can create
