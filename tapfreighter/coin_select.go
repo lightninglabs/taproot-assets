@@ -185,17 +185,17 @@ func (s *CoinSelect) selectForAmount(minTotalAmount uint64,
 	return selectedCommitments, nil
 }
 
-// SelectZeroValueCoins fetches all managed UTXOs that contain only
+// SelectOrphanCoins fetches all managed UTXOs that contain only
 // zero-value assets (tombstones and burns). The selected UTXOs are
 // leased for the default lease duration.
-func (s *CoinSelect) SelectZeroValueCoins(ctx context.Context) (
+func (s *CoinSelect) SelectOrphanCoins(ctx context.Context) (
 	[]*ZeroValueInput, error) {
 
 	s.coinLock.Lock()
 	defer s.coinLock.Unlock()
 
 	// Fetch all zero-value UTXOs that are eligible for sweeping.
-	zeroValueInputs, err := s.coinLister.FetchZeroValueAnchorUTXOs(ctx)
+	zeroValueInputs, err := s.coinLister.FetchOrphanUTXOs(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch zero-value UTXOs: %w",
 			err)

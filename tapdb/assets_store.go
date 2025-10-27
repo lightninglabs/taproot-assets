@@ -1349,9 +1349,9 @@ func (a *AssetStore) MarkManagedUTXOAsSwept(ctx context.Context,
 	})
 }
 
-// FetchZeroValueAnchorUTXOs fetches all managed UTXOs that contain only
+// FetchOrphanUTXOs fetches all managed UTXOs that contain only
 // zero-value assets (tombstones and burns).
-func (a *AssetStore) FetchZeroValueAnchorUTXOs(ctx context.Context) (
+func (a *AssetStore) FetchOrphanUTXOs(ctx context.Context) (
 	[]*tapfreighter.ZeroValueInput, error) {
 
 	// Strategy: fetch all managed UTXOs and filter in-memory.

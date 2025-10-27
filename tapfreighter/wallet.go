@@ -225,6 +225,10 @@ type WalletConfig struct {
 
 	// ChainParams is the chain params of the chain we operate on.
 	ChainParams *address.ChainParams
+
+	// SweepOrphanUtxos specifies whether orphaned UTXOs should be swept
+	// into send and burn anchor transactions.
+	SweepOrphanUtxos bool
 }
 
 // AssetWallet is an implementation of the Wallet interface that can create
@@ -663,10 +667,13 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		return nil, err
 	}
 
-	zeroValueInputs, err := f.cfg.CoinSelector.SelectZeroValueCoins(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("unable to select zero-value "+
-			"UTXOs: %w", err)
+	var zeroValueInputs []*ZeroValueInput
+	if f.cfg.SweepOrphanUtxos {
+		zeroValueInputs, err = f.cfg.CoinSelector.SelectOrphanCoins(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to select zero-value "+
+				"UTXOs: %w", err)
+		}
 	}
 
 	// If we return with an error, we want to release all the coins we've
@@ -740,10 +747,15 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		return nil, err
 	}
 
-	zeroValueInputs, err := f.cfg.CoinSelector.SelectZeroValueCoins(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("unable to select zero-value "+
-			"UTXOs: %w", err)
+	var zeroValueInputs []*ZeroValueInput
+	if f.cfg.SweepOrphanUtxos {
+		zeroValueInputs, err = f.cfg.CoinSelector.SelectOrphanCoins(
+			ctx,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to select zero-value "+
+				"UTXOs: %w", err)
+		}
 	}
 
 	// If we return with an error, we want to release all the coins we've

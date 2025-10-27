@@ -60,7 +60,7 @@ func (m *mockCoinLister) DeleteExpiredLeases(ctx context.Context) error {
 	return nil
 }
 
-func (m *mockCoinLister) FetchZeroValueAnchorUTXOs(
+func (m *mockCoinLister) FetchOrphanUTXOs(
 	context.Context) ([]*ZeroValueInput, error) {
 
 	return nil, nil

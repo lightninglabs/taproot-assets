@@ -169,10 +169,9 @@ type CoinLister interface {
 	// DeleteExpiredLeases deletes all expired leases from the database.
 	DeleteExpiredLeases(ctx context.Context) error
 
-	// FetchZeroValueAnchorUTXOs fetches all managed UTXOs that contain only
+	// FetchOrphanUTXOs fetches all managed UTXOs that contain only
 	// zero-value assets (tombstones and burns).
-	FetchZeroValueAnchorUTXOs(ctx context.Context) ([]*ZeroValueInput,
-		error)
+	FetchOrphanUTXOs(ctx context.Context) ([]*ZeroValueInput, error)
 }
 
 // MultiCommitmentSelectStrategy is an enum that describes the strategy that
@@ -201,10 +200,10 @@ type CoinSelector interface {
 	// makes them available for coin selection again.
 	ReleaseCoins(ctx context.Context, utxoOutpoints ...wire.OutPoint) error
 
-	// SelectZeroValueCoins selects all managed UTXOs that contain only
+	// SelectOrphanCoins selects all managed UTXOs that contain only
 	// zero-value assets (tombstones and burns). The selected UTXOs are
 	// leased for the default lease duration.
-	SelectZeroValueCoins(ctx context.Context) ([]*ZeroValueInput, error)
+	SelectOrphanCoins(ctx context.Context) ([]*ZeroValueInput, error)
 }
 
 // ZeroValueInput represents a zero-value UTXO that should be swept.
