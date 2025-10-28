@@ -244,6 +244,7 @@ func NewCustodian(cfg *CustodianConfig) *Custodian {
 					MinBackoff: backoffCfg.InitialBackoff,
 					MaxBackoff: backoffCfg.MaxBackoff,
 				},
+				FallbackMboxURLs: cfg.FallbackMboxURLs,
 			},
 		),
 		ContextGuard: &fn.ContextGuard{

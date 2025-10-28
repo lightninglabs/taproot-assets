@@ -53,6 +53,9 @@ type MultiSubscriptionConfig struct {
 	// clients. All fields except the ServerAddress are used to create
 	// new mailbox clients when needed.
 	BaseClientConfig ClientConfig
+
+	// FallbackMboxURLs are fallback proof courier AuthMailbox services.
+	FallbackMboxURLs []url.URL
 }
 
 // NewMultiSubscription creates a new MultiSubscription instance.
