@@ -51,11 +51,11 @@ type CommitmentConstraints struct {
 	// PrevIDs are the set of inputs allowed to be used.
 	PrevIDs []asset.PrevID
 
-	// DistinctSpecifier indicates whether we _only_ look at either the
-	// group key _or_ the asset ID but not both. That means, if the group
-	// key is set, we ignore the asset ID and allow multiple inputs of the
-	// same group to be selected.
-	DistinctSpecifier bool
+	// GroupScoped indicates that matching should occur at the group scope
+	// rather than the individual asset (tranche) scope. When true and a
+	// group key is set, the asset ID is ignored, allowing multiple assets
+	// within the same group to match.
+	GroupScoped bool
 
 	// ScriptKeyType is the type of script key the assets are expected to
 	// have. If this is fn.None, then any script key type is allowed.

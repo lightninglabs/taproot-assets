@@ -632,11 +632,11 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	// send request. We'll map the address to a set of constraints, so we
 	// can use that to do Taproot asset coin selection.
 	constraints := CommitmentConstraints{
-		AssetSpecifier:    fundDesc.AssetSpecifier,
-		MinAmt:            fundDesc.Amount,
-		ScriptKeyType:     fundDesc.ScriptKeyType,
-		PrevIDs:           fundDesc.PrevIDs,
-		DistinctSpecifier: fundDesc.GroupScoped,
+		AssetSpecifier: fundDesc.AssetSpecifier,
+		MinAmt:         fundDesc.Amount,
+		ScriptKeyType:  fundDesc.ScriptKeyType,
+		PrevIDs:        fundDesc.PrevIDs,
+		GroupScoped:    fundDesc.GroupScoped,
 	}
 
 	anchorVersion, err := tappsbt.CommitmentVersion(vPkt.Version)

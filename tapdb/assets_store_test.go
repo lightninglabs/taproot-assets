@@ -733,7 +733,7 @@ func filterMaxAmt(amt uint64) filterOpt {
 
 func filterDistinctSpecifier() filterOpt {
 	return func(f *AssetQueryFilters) {
-		f.DistinctSpecifier = true
+		f.GroupScoped = true
 	}
 }
 
