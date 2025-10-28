@@ -636,7 +636,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		MinAmt:            fundDesc.Amount,
 		ScriptKeyType:     fundDesc.ScriptKeyType,
 		PrevIDs:           fundDesc.PrevIDs,
-		DistinctSpecifier: fundDesc.DistinctSpecifier,
+		DistinctSpecifier: fundDesc.GroupScoped,
 	}
 
 	anchorVersion, err := tappsbt.CommitmentVersion(vPkt.Version)
