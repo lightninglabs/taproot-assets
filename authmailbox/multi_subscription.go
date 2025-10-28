@@ -5,10 +5,18 @@ import (
 	"fmt"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
+)
+
+const (
+	// DefaultTimeout is the default timeout we use for RPC and database
+	// operations.
+	DefaultTimeout = 30 * time.Second
 )
 
 // clientSubscriptions holds the subscriptions and cancel functions for a
@@ -131,6 +139,10 @@ type MultiSubscription struct {
 	// message channel that can be used to receive messages from any
 	// subscribed account, regardless of which mailbox server it belongs to.
 	msgQueue *lfn.ConcurrentQueue[*ReceivedMessages]
+
+	// ContextGuard provides a wait group and main quit channel that can be
+	// used to create guarded contexts.
+	*fn.ContextGuard
 }
 
 // MultiSubscriptionConfig holds the configuration parameters for creating a
@@ -154,15 +166,69 @@ func NewMultiSubscription(cfg MultiSubscriptionConfig) *MultiSubscription {
 		cfg:      cfg,
 		registry: newClientRegistry(),
 		msgQueue: queue,
+		ContextGuard: &fn.ContextGuard{
+			DefaultTimeout: DefaultTimeout,
+			Quit:           make(chan struct{}),
+		},
 	}
 }
 
-// Subscribe adds a new subscription for the specified client URL and receiver
-// key. It starts a new mailbox client if one does not already exist for the
-// given URL. The subscription will receive messages that match the provided
-// filter and will send them to the shared message queue.
-func (m *MultiSubscription) Subscribe(ctx context.Context, serverURL url.URL,
-	receiverKey keychain.KeyDescriptor, filter MessageFilter) error {
+// Subscribe adds a subscription for the given client URL and receiver key.
+// It launches a goroutine to asynchronously establish any fallback
+// subscriptions.
+func (m *MultiSubscription) Subscribe(ctx context.Context,
+	primaryServerURL url.URL, receiverKey keychain.KeyDescriptor,
+	filter MessageFilter) error {
+
+	// Attempt to subscribe to all fallback mailbox servers in parallel and
+	// in a non-blocking manner.
+	m.Goroutine(func() error {
+		errMap, err := fn.ParSliceErrCollect(
+			ctx, m.cfg.FallbackMboxURLs,
+			func(ctx context.Context, serverURL url.URL) error {
+				return m.establishSubscription(
+					ctx, serverURL, receiverKey, filter,
+				)
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("parallel subscription attempt "+
+				"failed: %w", err)
+		}
+
+		for idx, subErr := range errMap {
+			serverURL := m.cfg.FallbackMboxURLs[idx]
+
+			log.ErrorS(ctx, "Subscription to fallback server "+
+				"failed", subErr, "server_addr",
+				serverURL.String())
+		}
+
+		return nil
+	}, func(err error) {
+		log.ErrorS(ctx, "Fallback server subscription goroutine "+
+			"exited with error", err)
+	})
+
+	// Subscribe to the primary mailbox server in a blocking manner. This
+	// ensures that we have at least one active subscription before
+	// returning.
+	err := m.establishSubscription(
+		ctx, primaryServerURL, receiverKey, filter,
+	)
+	if err != nil {
+		return fmt.Errorf("primary server subscription failed: %w", err)
+	}
+
+	return nil
+}
+
+// establishSubscription synchronously subscribes to a server.
+// It creates a mailbox client for the URL if none exists.
+// The subscription routes messages matching the filter to the shared queue.
+func (m *MultiSubscription) establishSubscription(ctx context.Context,
+	serverURL url.URL, receiverKey keychain.KeyDescriptor,
+	filter MessageFilter) error {
 
 	// Get or create a client for the given server URL. This call is
 	// thread-safe and will handle locking internally.
