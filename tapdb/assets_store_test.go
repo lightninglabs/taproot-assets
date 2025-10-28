@@ -731,7 +731,7 @@ func filterMaxAmt(amt uint64) filterOpt {
 	}
 }
 
-func filterDistinctSpecifier() filterOpt {
+func filterGroupScoped() filterOpt {
 	return func(f *AssetQueryFilters) {
 		f.GroupScoped = true
 	}
@@ -999,11 +999,11 @@ func TestFetchAllAssets(t *testing.T) {
 		),
 		numAssets: 1,
 	}, {
-		name: "query by group key and asset ID but distinct",
+		name: "query by group key and asset ID but group scoped",
 		filter: makeFilter(
 			filterSpecifier(asset.NewSpecifierOptionalGroupPubKey(
 				lastAsset.ID(), &lastAsset.GroupKey.GroupPubKey,
-			)), filterDistinctSpecifier(),
+			)), filterGroupScoped(),
 		),
 		numAssets: 2,
 	}, {
