@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -143,6 +144,9 @@ type CustodianConfig struct {
 	// accessed over an insecure connection (without TLS). This is only used
 	// for testing.
 	MboxInsecure bool
+
+	// FallbackMboxURLs are fallback proof courier AuthMailbox services.
+	FallbackMboxURLs []url.URL
 
 	// ProofRetrievalDelay is the time duration the custodian waits having
 	// identified an asset transfer on-chain and before retrieving the
