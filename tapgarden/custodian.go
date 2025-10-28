@@ -235,12 +235,15 @@ func NewCustodian(cfg *CustodianConfig) *Custodian {
 		statusEventsSubs:  statusEventsSubs,
 		events:            make(map[wire.OutPoint]*address.Event),
 		mboxSubscriptions: mbox.NewMultiSubscription(
-			mbox.ClientConfig{
-				Insecure:      cfg.MboxInsecure,
-				SkipTlsVerify: !cfg.MboxInsecure,
-				Signer:        cfg.Signer,
-				MinBackoff:    backoffCfg.InitialBackoff,
-				MaxBackoff:    backoffCfg.MaxBackoff,
+			mbox.MultiSubscriptionConfig{
+				BaseClientConfig: mbox.ClientConfig{
+					Insecure:      cfg.MboxInsecure,
+					SkipTlsVerify: !cfg.MboxInsecure,
+
+					Signer:     cfg.Signer,
+					MinBackoff: backoffCfg.InitialBackoff,
+					MaxBackoff: backoffCfg.MaxBackoff,
+				},
 			},
 		),
 		ContextGuard: &fn.ContextGuard{

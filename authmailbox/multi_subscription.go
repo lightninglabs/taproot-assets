@@ -31,10 +31,8 @@ type clientSubscriptions struct {
 // mailbox servers. It manages subscriptions and message queues for each client
 // and provides a unified interface for receiving messages.
 type MultiSubscription struct {
-	// baseClientConfig holds the basic configuration for the mailbox
-	// clients. All fields except the ServerAddress are used to create
-	// new mailbox clients when needed.
-	baseClientConfig ClientConfig
+	// cfg holds the configuration for the MultiSubscription instance.
+	cfg MultiSubscriptionConfig
 
 	// clients holds the active mailbox clients, keyed by their server URL.
 	clients map[url.URL]*clientSubscriptions
@@ -48,15 +46,24 @@ type MultiSubscription struct {
 	sync.RWMutex
 }
 
+// MultiSubscriptionConfig holds the configuration parameters for creating a
+// MultiSubscription instance.
+type MultiSubscriptionConfig struct {
+	// baseClientConfig holds the basic configuration for the mailbox
+	// clients. All fields except the ServerAddress are used to create
+	// new mailbox clients when needed.
+	BaseClientConfig ClientConfig
+}
+
 // NewMultiSubscription creates a new MultiSubscription instance.
-func NewMultiSubscription(baseClientConfig ClientConfig) *MultiSubscription {
+func NewMultiSubscription(cfg MultiSubscriptionConfig) *MultiSubscription {
 	queue := lfn.NewConcurrentQueue[*ReceivedMessages](lfn.DefaultQueueSize)
 	queue.Start()
 
 	return &MultiSubscription{
-		baseClientConfig: baseClientConfig,
-		clients:          make(map[url.URL]*clientSubscriptions),
-		msgQueue:         queue,
+		cfg:      cfg,
+		clients:  make(map[url.URL]*clientSubscriptions),
+		msgQueue: queue,
 	}
 }
 
@@ -69,7 +76,7 @@ func (m *MultiSubscription) Subscribe(ctx context.Context, serverURL url.URL,
 
 	// We hold the mutex for access to common resources.
 	m.Lock()
-	cfgCopy := m.baseClientConfig
+	cfgCopy := m.cfg.BaseClientConfig
 	client, ok := m.clients[serverURL]
 
 	// If this is the first time we're seeing a server URL, we first create
