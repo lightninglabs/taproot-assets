@@ -196,10 +196,71 @@ type FundingDescriptor struct {
 	ScriptKeyType fn.Option[asset.ScriptKeyType]
 }
 
-// TapCommitmentKey is the key that maps to the root commitment for the asset
-// group specified by a recipient descriptor.
-func (r *FundingDescriptor) TapCommitmentKey() [32]byte {
-	return asset.TapCommitmentKey(r.AssetSpecifier)
+// AssetSpecMatch reports whether a candidate asset satisfies the funding
+// descriptor.
+//
+// Semantics:
+//   - Ok(true)  => match
+//   - Ok(false) => clean non-match
+//   - Err(...)  => evaluation failed
+//
+// Matching rules:
+//   - If GroupScoped is true and a group key is specified, only the group
+//     key is checked. The asset ID is ignored to allow multiple inputs from the
+//     same group.
+//   - Otherwise, each specified constraint must match: asset ID and then group
+//     key if present.
+func (fd *FundingDescriptor) AssetSpecMatch(
+	candidate asset.Asset) lfn.Result[bool] {
+
+	spec := fd.AssetSpecifier
+
+	// Require at least one constraint.
+	if err := spec.AssertNotEmpty(); err != nil {
+		return lfn.Err[bool](err)
+	}
+
+	// Group scoped only: ignore asset ID if group key is set.
+	if fd.GroupScoped && spec.HasGroupPubKey() {
+		want, err := spec.UnwrapGroupKeyOrErr()
+		if err != nil {
+			return lfn.Err[bool](err)
+		}
+
+		gk := candidate.GroupKey
+		if gk == nil || !gk.GroupPubKey.IsEqual(want) {
+			return lfn.Ok(false)
+		}
+
+		return lfn.Ok(true)
+	}
+
+	// Match on asset ID if present.
+	if spec.HasId() {
+		id, err := spec.UnwrapIdOrErr()
+		if err != nil {
+			return lfn.Err[bool](err)
+		}
+
+		if candidate.ID() != id {
+			return lfn.Ok(false)
+		}
+	}
+
+	// Match on group key if present.
+	if spec.HasGroupPubKey() {
+		want, err := spec.UnwrapGroupKeyOrErr()
+		if err != nil {
+			return lfn.Err[bool](err)
+		}
+
+		gk := candidate.GroupKey
+		if gk == nil || !gk.GroupPubKey.IsEqual(want) {
+			return lfn.Ok(false)
+		}
+	}
+
+	return lfn.Ok(true)
 }
 
 // DescribeRecipients extracts the recipient descriptors from a Taproot Asset

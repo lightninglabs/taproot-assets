@@ -45,13 +45,23 @@ func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 		map[asset.PrevID]*AnchoredCommitment, len(selectedCommitments),
 	)
 	for _, anchorAsset := range selectedCommitments {
-		// We only use the inputs of assets of the same TAP commitment
-		// as we want to fund for. These are the active assets that
-		// we're going to distribute. All other assets are passive and
-		// will be detected and added later.
-		if anchorAsset.Asset.TapCommitmentKey() !=
-			fundDesc.TapCommitmentKey() {
+		if anchorAsset.Asset == nil {
+			return nil, fmt.Errorf("nil asset in selected "+
+				"commitment for prevID %v",
+				anchorAsset.PrevID())
+		}
 
+		// Only consider inputs that satisfy the funding descriptor.
+		descSatisfied, err := fundDesc.AssetSpecMatch(
+			*anchorAsset.Asset,
+		).Unpack()
+		if err != nil {
+			return nil, fmt.Errorf("checking if funding "+
+				"descriptor is satisfied by input asset: %w",
+				err)
+		}
+
+		if !descSatisfied {
 			continue
 		}
 
