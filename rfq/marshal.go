@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 )
 
@@ -54,7 +55,7 @@ func MarshalAcceptedSellQuote(
 	// Populate asset ID and/or group key based on the asset specifier.
 	accept.Request.AssetSpecifier.WhenId(func(assetId asset.ID) {
 		if quote.AssetSpec == nil {
-			quote.AssetSpec = &rfqrpc.AssetSpec{}
+			quote.AssetSpec = &taprpc.AssetSpecifier{}
 		}
 
 		quote.AssetSpec.Id = assetId[:]
@@ -63,10 +64,10 @@ func MarshalAcceptedSellQuote(
 	accept.Request.AssetSpecifier.WhenGroupPubKey(
 		func(groupKey btcec.PublicKey) {
 			if quote.AssetSpec == nil {
-				quote.AssetSpec = &rfqrpc.AssetSpec{}
+				quote.AssetSpec = &taprpc.AssetSpecifier{}
 			}
 
-			quote.AssetSpec.GroupPubKey =
+			quote.AssetSpec.GroupKey =
 				schnorr.SerializePubKey(&groupKey)
 		},
 	)
@@ -101,7 +102,7 @@ func MarshalAcceptedBuyQuote(q rfqmsg.BuyAccept) *rfqrpc.PeerAcceptedBuyQuote {
 	// Populate asset ID and/or group key based on the asset specifier.
 	q.Request.AssetSpecifier.WhenId(func(assetId asset.ID) {
 		if quote.AssetSpec == nil {
-			quote.AssetSpec = &rfqrpc.AssetSpec{}
+			quote.AssetSpec = &taprpc.AssetSpecifier{}
 		}
 
 		quote.AssetSpec.Id = assetId[:]
@@ -110,10 +111,10 @@ func MarshalAcceptedBuyQuote(q rfqmsg.BuyAccept) *rfqrpc.PeerAcceptedBuyQuote {
 	q.Request.AssetSpecifier.WhenGroupPubKey(
 		func(groupKey btcec.PublicKey) {
 			if quote.AssetSpec == nil {
-				quote.AssetSpec = &rfqrpc.AssetSpec{}
+				quote.AssetSpec = &taprpc.AssetSpecifier{}
 			}
 
-			quote.AssetSpec.GroupPubKey =
+			quote.AssetSpec.GroupKey =
 				schnorr.SerializePubKey(&groupKey)
 		},
 	)
