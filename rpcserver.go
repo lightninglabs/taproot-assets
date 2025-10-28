@@ -3712,9 +3712,8 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 	}
 
 	var (
-		assetID  *asset.ID
-		groupKey *btcec.PublicKey
-		err      error
+		assetSpec asset.Specifier
+		err       error
 	)
 
 	// TODO(darioAnongba): Remove this switch once the deprecated asset
@@ -3722,7 +3721,7 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 	// Added in v0.8.0.
 	switch {
 	case in.Asset != nil:
-		rpcsLog.Warnf("using deprecated asset field, please use " +
+		rpcsLog.Warnf("Using deprecated asset field, please use " +
 			"asset_specifier instead")
 
 		switch {
@@ -3730,28 +3729,27 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 			var assetIdBytes [32]byte
 			copy(assetIdBytes[:], in.GetAssetId())
 			id := asset.ID(assetIdBytes)
-			assetID = &id
+			assetSpec = asset.NewSpecifierFromId(id)
 
 		case len(in.GetAssetIdStr()) > 0:
 			assetIDBytes, err := hex.DecodeString(
 				in.GetAssetIdStr(),
 			)
 			if err != nil {
-				return nil, fmt.Errorf("error decoding "+
-					"asset ID: %w",
+				return nil, fmt.Errorf("decoding asset ID: %w",
 					err)
 			}
 
 			var id asset.ID
 			copy(id[:], assetIDBytes)
-			assetID = &id
+			assetSpec = asset.NewSpecifierFromId(id)
 
 		default:
 			return nil, fmt.Errorf("asset ID must be specified")
 		}
 
 	case in.AssetSpecifier != nil:
-		assetID, groupKey, err = parseAssetSpecifier(
+		assetID, groupKey, err := parseAssetSpecifier(
 			in.AssetSpecifier.GetId(),
 			"",
 			in.AssetSpecifier.GetGroupKey(),
@@ -3762,73 +3760,56 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 				"specifier: %w", err)
 		}
 
+		assetSpec, err = asset.NewSpecifier(
+			assetID, groupKey, nil, true,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create asset "+
+				"specifier: %w", err)
+		}
+
 	default:
 		return nil, fmt.Errorf("asset_specifier field unset")
 	}
 
-	// Handle different scenarios based on what was provided:
-	// 1. If only assetID is provided, look up the group key.
-	// 2. If only groupKey is provided, use it directly
-	// 3. If both are provided, validate consistency.
-	switch {
-	case assetID != nil && groupKey == nil:
-		assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByID(
-			ctx, *assetID,
+	// If both a group key and an asset ID are provided, ensure they
+	// correspond.
+	if assetSpec.HasId() && assetSpec.HasGroupPubKey() {
+		assetID, err := assetSpec.ID().UnwrapOrErr(
+			fmt.Errorf("code error: asset ID missing"),
 		)
-		switch {
-		case err == nil && assetGroup.GroupKey != nil:
-			groupKey = &assetGroup.GroupPubKey
-
-		case errors.Is(err, address.ErrAssetGroupUnknown):
-			rpcsLog.Trace("Asset group key not found, asset " +
-				"may not be part of a group")
-
-		case err != nil:
-			return nil, fmt.Errorf("error querying asset "+
-				"group: %w", err)
+		if err != nil {
+			return nil, err
 		}
 
-	case assetID != nil && groupKey != nil:
 		assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroupByID(
-			ctx, *assetID,
+			ctx, assetID,
 		)
-		switch {
-		case err == nil && assetGroup.GroupKey != nil:
-			if !groupKey.IsEqual(&assetGroup.GroupPubKey) {
-				return nil, fmt.Errorf("inconsistent asset " +
-					"ID for given group key")
-			}
-
-		case errors.Is(err, address.ErrAssetGroupUnknown):
-			return nil, fmt.Errorf("asset is not part of a group")
-
-		case err != nil:
-			return nil, fmt.Errorf("error querying asset "+
-				"group: %w", err)
+		if err != nil {
+			return nil, fmt.Errorf("querying asset group: %w", err)
 		}
 
-	case assetID == nil && groupKey != nil:
-		// Only group key provided - use it directly
+		// The group key retrieved from the database must match the key
+		// provided in the request.
+		groupPubKey, err := assetSpec.GroupKey().UnwrapOrErr(
+			fmt.Errorf("code error: asset group key missing"),
+		)
+		if err != nil {
+			return nil, err
+		}
 
-	default:
-		// Should be unreachable by assertion.
-		return nil, fmt.Errorf("invalid asset specifier state")
-	}
-
-	assetSpecifier, err := asset.NewSpecifier(
-		assetID, groupKey, nil, true,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create asset specifier: %w",
-			err)
+		if !groupPubKey.IsEqual(&assetGroup.GroupPubKey) {
+			return nil, fmt.Errorf("provided group key does " +
+				"not match provided asset ID")
+		}
 	}
 
 	rpcsLog.Infof("Burning asset (asset_specifier=%v, burn_amount=%d)",
-		assetSpecifier, in.AmountToBurn)
+		assetSpec, in.AmountToBurn)
 
 	fundResp, err := r.cfg.AssetWallet.FundBurn(
 		ctx, &tapsend.FundingDescriptor{
-			AssetSpecifier: assetSpecifier,
+			AssetSpecifier: assetSpec,
 			Amount:         in.AmountToBurn,
 		},
 	)
