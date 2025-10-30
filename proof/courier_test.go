@@ -146,3 +146,61 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 		})
 	}
 }
+
+// TestParseCourierAddress tests the ParseCourierAddress function with various
+// inputs.
+func TestParseCourierAddress(t *testing.T) {
+	tests := []struct {
+		name      string
+		addr      string
+		expectErr string
+	}{
+		{
+			name: "valid hashmail address",
+			addr: "hashmail://example.com:443",
+		},
+		{
+			name: "valid universerpc address",
+			addr: "universerpc://example.com:10029",
+		},
+		{
+			name: "valid authmailbox+universerpc address",
+			addr: "authmailbox+universerpc://example.com:10029",
+		},
+		{
+			name: "valid mockcourier address",
+			addr: "mockcourier://example.com:8080",
+		},
+		{
+			name:      "invalid address no scheme",
+			addr:      "example.com:443",
+			expectErr: "proof courier URI address port unspecified",
+		},
+		{
+			name:      "invalid address no port",
+			addr:      "hashmail://example.com",
+			expectErr: "proof courier URI address port unspecified",
+		},
+		{
+			name:      "unsupported scheme",
+			addr:      "http://example.com:443",
+			expectErr: "unknown courier address protocol",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsedURL, err := ParseCourierAddress(tt.addr)
+
+			if tt.expectErr != "" {
+				require.Error(t, err)
+				require.ErrorContains(t, err, tt.expectErr)
+				require.Nil(t, parsedURL)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, parsedURL)
+		})
+	}
+}

@@ -157,7 +157,9 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 
 	// We also add a multi-subscription to the same two keys, so we can make
 	// sure we can receive messages from multiple clients at once.
-	multiSub := NewMultiSubscription(*clientCfg)
+	multiSub := NewMultiSubscription(MultiSubscriptionConfig{
+		BaseClientConfig: *clientCfg,
+	})
 	err := multiSub.Subscribe(
 		ctx, url.URL{Host: clientCfg.ServerAddress}, clientKey1, filter,
 	)
