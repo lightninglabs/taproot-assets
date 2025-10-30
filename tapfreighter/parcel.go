@@ -283,6 +283,10 @@ type PreSignedParcel struct {
 	// spent in the virtual transaction.
 	inputCommitments tappsbt.InputCommitments
 
+	// zeroValueInputs is the list of zero-value UTXOs that should be swept
+	// as additional inputs to the transaction.
+	zeroValueInputs []*ZeroValueInput
+
 	// note is a string that provides any user defined description for this
 	// transfer.
 	note string
@@ -295,7 +299,7 @@ var _ Parcel = (*PreSignedParcel)(nil)
 // NewPreSignedParcel creates a new PreSignedParcel.
 func NewPreSignedParcel(vPackets []*tappsbt.VPacket,
 	inputCommitments tappsbt.InputCommitments,
-	note string) *PreSignedParcel {
+	zeroValueInputs []*ZeroValueInput, note string) *PreSignedParcel {
 
 	return &PreSignedParcel{
 		parcelKit: &parcelKit{
@@ -304,6 +308,7 @@ func NewPreSignedParcel(vPackets []*tappsbt.VPacket,
 		},
 		vPackets:         vPackets,
 		inputCommitments: inputCommitments,
+		zeroValueInputs:  zeroValueInputs,
 		note:             note,
 	}
 }
@@ -320,6 +325,7 @@ func (p *PreSignedParcel) pkg() *sendPackage {
 		SendState:        SendStateAnchorSign,
 		VirtualPackets:   p.vPackets,
 		InputCommitments: p.inputCommitments,
+		ZeroValueInputs:  p.zeroValueInputs,
 		Note:             p.note,
 	}
 }
@@ -486,6 +492,10 @@ type sendPackage struct {
 	// associated Taproot Asset commitment.
 	InputCommitments tappsbt.InputCommitments
 
+	// ZeroValueInputs is a list of zero-value UTXOs that should be swept
+	// as additional inputs to the transaction.
+	ZeroValueInputs []*ZeroValueInput
+
 	// SendManifests is a map of send manifests that need to be sent to the
 	// auth mailbox server to complete an address V2 transfer. It is keyed
 	// by the anchor output index.
@@ -546,6 +556,7 @@ type sendPackage struct {
 // they were already committed at.
 func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 	anchorTx *tapsend.AnchorTransaction, passiveAssets []*tappsbt.VPacket,
+	zeroValueInputs []*ZeroValueInput,
 	isLocalKey func(asset.ScriptKey) (bool, error), label string,
 	skipAnchorTxBroadcast bool) (*OutboundParcel, error) {
 
@@ -584,6 +595,7 @@ func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 		),
 		PassiveAssets:         passiveAssets,
 		PassiveAssetsAnchor:   passiveAssetAnchor,
+		ZeroValueInputs:       zeroValueInputs,
 		Label:                 label,
 		SkipAnchorTxBroadcast: skipAnchorTxBroadcast,
 	}
