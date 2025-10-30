@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - 'main'
+      - '*-staging'
   pull_request:
     branches:
       - '*'
   merge_group:
     branches:
       - 'main'
+      - '*-staging'
 
 defaults:
   run:
