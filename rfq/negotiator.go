@@ -1,6 +1,7 @@
 package rfq
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -26,6 +27,29 @@ const (
 	// NOTE: This value is set to 5% (50,000 ppm).
 	DefaultAcceptPriceDeviationPpm = 50_000
 )
+
+// QueryError represents an error with additional context about the price
+// oracle query that led to it.
+type QueryError struct {
+	// Err is the error returned from a query attempt, possibly from a
+	// price oracle.
+	Err error
+
+	// Context is the context of the price oracle query that led to the
+	// error.
+	Context string
+}
+
+// Error returns a human-readable version of the QueryError, implementing the
+// main error interface.
+func (err *QueryError) Error() string {
+	// If there's no context, just fall back to the wrapped error.
+	if err.Context == "" {
+		return err.Err.Error()
+	}
+	// Otherwise prepend the context.
+	return err.Context + ": " + err.Err.Error()
+}
 
 // NegotiatorCfg holds the configuration for the negotiator.
 type NegotiatorCfg struct {
@@ -141,22 +165,29 @@ func (n *Negotiator) queryBuyFromPriceOracle(assetSpecifier asset.Specifier,
 		counterparty, metadata, intent,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query price oracle for "+
-			"buy price: %w", err)
+		return nil, &QueryError{
+			Err:     err,
+			Context: "failed to query price oracle for buy price",
+		}
 	}
 
 	// Now we will check for an error in the response from the price oracle.
-	// If present, we will convert it to a string and return it as an error.
+	// If present, we will relay it with context.
 	if oracleResponse.Err != nil {
-		return nil, fmt.Errorf("failed to query price oracle for "+
-			"buy price: %s", oracleResponse.Err)
+		return nil, &QueryError{
+			Err:     oracleResponse.Err,
+			Context: "failed to query price oracle for buy price",
+		}
 	}
 
 	// By this point, the price oracle did not return an error or a buy
 	// price. We will therefore return an error.
 	if oracleResponse.AssetRate.Rate.ToUint64() == 0 {
-		return nil, fmt.Errorf("price oracle did not specify a " +
-			"buy price")
+		return nil, &QueryError{
+			Err: errors.New("price oracle didn't specify " +
+				"a price"),
+			Context: "failed to query price oracle for buy price",
+		}
 	}
 
 	// TODO(ffranr): Check that the buy price is reasonable.
@@ -277,22 +308,29 @@ func (n *Negotiator) querySellFromPriceOracle(assetSpecifier asset.Specifier,
 		counterparty, metadata, intent,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query price oracle for "+
-			"sell price: %w", err)
+		return nil, &QueryError{
+			Err:     err,
+			Context: "failed to query price oracle for sell price",
+		}
 	}
 
 	// Now we will check for an error in the response from the price oracle.
-	// If present, we will convert it to a string and return it as an error.
+	// If present, we will relay it with context.
 	if oracleResponse.Err != nil {
-		return nil, fmt.Errorf("failed to query price oracle for "+
-			"sell price: %s", oracleResponse.Err)
+		return nil, &QueryError{
+			Err:     oracleResponse.Err,
+			Context: "failed to query price oracle for sell price",
+		}
 	}
 
 	// By this point, the price oracle did not return an error or a sell
 	// price. We will therefore return an error.
 	if oracleResponse.AssetRate.Rate.Coefficient.ToUint64() == 0 {
-		return nil, fmt.Errorf("price oracle did not specify an " +
-			"asset to BTC rate")
+		return nil, &QueryError{
+			Err: errors.New("price oracle didn't specify " +
+				"a price"),
+			Context: "failed to query price oracle for sell price",
+		}
 	}
 
 	// TODO(ffranr): Check that the sell price is reasonable.
@@ -372,10 +410,12 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 			peerID, request.PriceOracleMetadata, IntentRecvPayment,
 		)
 		if err != nil {
-			// Send a reject message to the peer.
+			// Construct an appropriate RejectErr based on
+			// the oracle's response, and send it to the
+			// peer.
 			msg := rfqmsg.NewReject(
 				request.Peer, request.ID,
-				rfqmsg.ErrUnknownReject,
+				customRejectErr(err),
 			)
 			sendOutgoingMsg(msg)
 
@@ -473,10 +513,12 @@ func (n *Negotiator) HandleIncomingSellRequest(
 			peerID, request.PriceOracleMetadata, IntentPayInvoice,
 		)
 		if err != nil {
-			// Send a reject message to the peer.
+			// Construct an appropriate RejectErr based on
+			// the oracle's response, and send it to the
+			// peer.
 			msg := rfqmsg.NewReject(
 				request.Peer, request.ID,
-				rfqmsg.ErrUnknownReject,
+				customRejectErr(err),
 			)
 			sendOutgoingMsg(msg)
 
@@ -493,6 +535,44 @@ func (n *Negotiator) HandleIncomingSellRequest(
 	}()
 
 	return nil
+}
+
+// customRejectErr creates a RejectErr with an opaque rejection code and a
+// custom message based on an error response from a price oracle.
+func customRejectErr(err error) rfqmsg.RejectErr {
+	var queryError *QueryError
+
+	// Check if the error we've received is the expected QueryError, and
+	// return an opaque rejection error if not.
+	if !errors.As(err, &queryError) {
+		return rfqmsg.ErrUnknownReject
+	}
+
+	var oracleError *OracleError
+
+	// Check if the QueryError contains the expected OracleError, and
+	// return an opaque rejection error if not.
+	if !errors.As(queryError, &oracleError) {
+		return rfqmsg.ErrUnknownReject
+	}
+
+	// If the price oracle has indicated that this error should not be
+	// forwarded to peers, then return an opaque rejection error.
+	if !oracleError.Public {
+		return rfqmsg.ErrUnknownReject
+	}
+
+	switch oracleError.Code {
+	// The price oracle has indicated that it doesn't support the asset,
+	// so return a rejection error indicating that.
+	case UnsupportedAssetOracleErrorCode:
+		return rfqmsg.NewRejectErr(oracleError.Msg)
+
+	// The error code is either unspecified or unknown, so return an
+	// opaque rejection error.
+	default:
+		return rfqmsg.ErrUnknownReject
+	}
 }
 
 // HandleOutgoingSellOrder handles an outgoing sell order by constructing sell
