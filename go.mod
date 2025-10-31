@@ -27,13 +27,13 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/lightninglabs/aperture v0.3.13-beta
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.3
-	github.com/lightninglabs/lndclient v0.20.0-1
+	github.com/lightninglabs/lndclient v0.20.0-5
 	github.com/lightninglabs/neutrino/cache v1.1.2
 	github.com/lightninglabs/taproot-assets/taprpc v1.0.9
-	github.com/lightningnetwork/lnd v0.19.0-beta.rc5.0.20250925062351-f293566849f2
+	github.com/lightningnetwork/lnd v0.20.0-beta
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
-	github.com/lightningnetwork/lnd/fn/v2 v2.0.8
+	github.com/lightningnetwork/lnd/fn/v2 v2.0.9
 	github.com/lightningnetwork/lnd/tlv v1.3.2
 	github.com/lightningnetwork/lnd/tor v1.1.6
 	github.com/ory/dockertest/v3 v3.10.0
@@ -132,7 +132,7 @@ require (
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
 	github.com/lightningnetwork/lnd/kvdb v1.4.16 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
-	github.com/lightningnetwork/lnd/sqldb v1.0.11-0.20250925062351-f293566849f2 // indirect
+	github.com/lightningnetwork/lnd/sqldb v1.0.11 // indirect
 	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -148,7 +148,7 @@ require (
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
-	github.com/opencontainers/runc v1.2.0 // indirect
+	github.com/opencontainers/runc v1.2.8 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.37.0 // indirect
