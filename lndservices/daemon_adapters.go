@@ -172,7 +172,7 @@ func (l *LndFsmDaemonAdapters) RegisterConfirmationsNtfn(
 
 	return &chainntnfs.ConfirmationEvent{
 		Confirmed:    spendDetail,
-		Updates:      make(chan chainntnfs.TxUpdateInfo),
+		Updates:      make(chan uint32),
 		NegativeConf: make(chan int32),
 		Done:         make(chan struct{}),
 		Cancel:       cancel,
