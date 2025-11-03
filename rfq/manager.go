@@ -118,6 +118,9 @@ type ManagerCfg struct {
 	// helps us communicate custom feature bits with our peer.
 	AuxChanNegotiator *tapfeatures.AuxChannelNegotiator
 
+	// PolicyStore provides persistence for agreed RFQ policies.
+	PolicyStore PolicyStore
+
 	// AcceptPriceDeviationPpm is the price deviation in
 	// parts per million that is accepted by the RFQ negotiator.
 	//
@@ -179,34 +182,6 @@ type Manager struct {
 	// events.
 	acceptHtlcEvents chan *AcceptHtlcEvent
 
-	// peerAcceptedBuyQuotes holds buy quotes for assets that our node has
-	// requested and that have been accepted by peer nodes. These quotes are
-	// exclusively used by our node for the acquisition of assets, as they
-	// represent agreed-upon terms for purchase transactions with our peers.
-	peerAcceptedBuyQuotes lnutils.SyncMap[SerialisedScid, rfqmsg.BuyAccept]
-
-	// peerAcceptedSellQuotes holds sell quotes for assets that our node has
-	// requested and that have been accepted by peer nodes. These quotes are
-	// exclusively used by our node for the sale of assets, as they
-	// represent agreed-upon terms for sale transactions with our peers.
-	peerAcceptedSellQuotes lnutils.SyncMap[
-		SerialisedScid, rfqmsg.SellAccept,
-	]
-
-	// localAcceptedBuyQuotes holds buy quotes for assets that our node has
-	// accepted and that have been requested by peer nodes. These quotes are
-	// exclusively used by our node for the acquisition of assets, as they
-	// represent agreed-upon terms for purchase transactions with our peers.
-	localAcceptedBuyQuotes lnutils.SyncMap[SerialisedScid, rfqmsg.BuyAccept]
-
-	// localAcceptedSellQuotes holds sell quotes for assets that our node
-	// has accepted and that have been requested by peer nodes. These quotes
-	// are exclusively used by our node for the sale of assets, as they
-	// represent agreed-upon terms for sale transactions with our peers.
-	localAcceptedSellQuotes lnutils.SyncMap[
-		SerialisedScid, rfqmsg.SellAccept,
-	]
-
 	// groupKeyLookupCache is a map that helps us quickly perform an
 	// in-memory look up of the group an asset belongs to. Since this
 	// information is static and generated during minting, it is not
@@ -234,10 +209,6 @@ func NewManager(cfg ManagerCfg) (*Manager, error) {
 		outgoingMessages: make(chan rfqmsg.OutgoingMsg),
 
 		acceptHtlcEvents: make(chan *AcceptHtlcEvent),
-		peerAcceptedBuyQuotes: lnutils.SyncMap[
-			SerialisedScid, rfqmsg.BuyAccept]{},
-		peerAcceptedSellQuotes: lnutils.SyncMap[
-			SerialisedScid, rfqmsg.SellAccept]{},
 
 		subscribers: lnutils.SyncMap[
 			uint64, *fn.EventReceiver[fn.Event]]{},
@@ -264,13 +235,14 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 		SpecifierChecker:  m.AssetMatchesSpecifier,
 		NoOpHTLCs:         m.cfg.NoOpHTLCs,
 		AuxChanNegotiator: m.cfg.AuxChanNegotiator,
+		PolicyStore:       m.cfg.PolicyStore,
 	})
 	if err != nil {
 		return fmt.Errorf("error initializing RFQ order handler: %w",
 			err)
 	}
 
-	if err := m.orderHandler.Start(); err != nil {
+	if err := m.orderHandler.Start(ctx); err != nil {
 		return fmt.Errorf("unable to start RFQ order handler: %w", err)
 	}
 
@@ -435,7 +407,7 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 			// quote so that it can be used to send a payment by our
 			// lightning node.
 			scid := msg.ShortChannelId()
-			m.peerAcceptedBuyQuotes.Store(scid, msg)
+			m.orderHandler.peerBuyQuotes.Store(scid, msg)
 
 			// Since we're going to buy assets from our peer, we
 			// need to make sure we can identify the incoming asset
@@ -488,7 +460,7 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 			// quote so that it can be used to send a payment by our
 			// lightning node.
 			scid := msg.ShortChannelId()
-			m.peerAcceptedSellQuotes.Store(scid, msg)
+			m.orderHandler.peerSellQuotes.Store(scid, msg)
 
 			// Notify subscribers of the incoming peer accepted
 			// asset sell quote.
@@ -522,16 +494,16 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 		// we inform our peer of our decision, we inform the order
 		// handler that we are willing to sell the asset subject to a
 		// sale policy.
-		m.orderHandler.RegisterAssetSalePolicy(*msg)
-
-		// We want to store that we accepted the buy quote, in case we
-		// need to look it up for a direct peer payment.
-		m.localAcceptedBuyQuotes.Store(msg.ShortChannelId(), *msg)
+		err := m.orderHandler.RegisterAssetSalePolicy(*msg)
+		if err != nil {
+			return fmt.Errorf("registering asset sale "+
+				"policy: %w", err)
+		}
 
 		// Since our peer is going to buy assets from us, we need to
 		// make sure we can identify the forwarded asset payment by the
 		// outgoing SCID alias within the onion packet.
-		err := m.addScidAlias(
+		err = m.addScidAlias(
 			uint64(msg.ShortChannelId()),
 			msg.Request.AssetSpecifier, msg.Peer,
 		)
@@ -545,11 +517,11 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 		// we inform our peer of our decision, we inform the order
 		// handler that we are willing to buy the asset subject to a
 		// purchase policy.
-		m.orderHandler.RegisterAssetPurchasePolicy(*msg)
-
-		// We want to store that we accepted the sell quote, in case we
-		// need to look it up for a direct peer payment.
-		m.localAcceptedSellQuotes.Store(msg.ShortChannelId(), *msg)
+		err := m.orderHandler.RegisterAssetPurchasePolicy(*msg)
+		if err != nil {
+			return fmt.Errorf("registering asset purchase "+
+				"policy: %w", err)
+		}
 	}
 
 	// Send the outgoing message to the peer.
@@ -842,10 +814,10 @@ func (m *Manager) PeerAcceptedBuyQuotes() BuyAcceptMap {
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
 	buyQuotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
-	m.peerAcceptedBuyQuotes.ForEach(
+	m.orderHandler.peerBuyQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.BuyAccept) error {
 			if time.Now().After(accept.AssetRate.Expiry) {
-				m.peerAcceptedBuyQuotes.Delete(scid)
+				m.orderHandler.peerBuyQuotes.Delete(scid)
 				return nil
 			}
 
@@ -864,10 +836,10 @@ func (m *Manager) PeerAcceptedSellQuotes() SellAcceptMap {
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
 	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
-	m.peerAcceptedSellQuotes.ForEach(
+	m.orderHandler.peerSellQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.SellAccept) error {
 			if time.Now().After(accept.AssetRate.Expiry) {
-				m.peerAcceptedSellQuotes.Delete(scid)
+				m.orderHandler.peerSellQuotes.Delete(scid)
 				return nil
 			}
 
@@ -886,10 +858,10 @@ func (m *Manager) LocalAcceptedBuyQuotes() BuyAcceptMap {
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
 	buyQuotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
-	m.localAcceptedBuyQuotes.ForEach(
+	m.orderHandler.localBuyQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.BuyAccept) error {
 			if time.Now().After(accept.AssetRate.Expiry) {
-				m.localAcceptedBuyQuotes.Delete(scid)
+				m.orderHandler.localBuyQuotes.Delete(scid)
 				return nil
 			}
 
@@ -908,10 +880,10 @@ func (m *Manager) LocalAcceptedSellQuotes() SellAcceptMap {
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
 	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
-	m.localAcceptedSellQuotes.ForEach(
+	m.orderHandler.localSellQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.SellAccept) error {
 			if time.Now().After(accept.AssetRate.Expiry) {
-				m.localAcceptedSellQuotes.Delete(scid)
+				m.orderHandler.localSellQuotes.Delete(scid)
 				return nil
 			}
 

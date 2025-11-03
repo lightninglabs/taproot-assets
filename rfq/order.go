@@ -325,6 +325,11 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 	}, nil
 }
 
+// QuoteID returns the RFQ identifier that originated this policy.
+func (c *AssetSalePolicy) QuoteID() (rfqmsg.ID, bool) {
+	return c.AcceptedQuoteId, true
+}
+
 // Ensure that AssetSalePolicy implements the Policy interface.
 var _ Policy = (*AssetSalePolicy)(nil)
 
@@ -674,6 +679,13 @@ func (a *AssetForwardPolicy) GenerateInterceptorResponse(
 	}, nil
 }
 
+// QuoteID returns the RFQ identifier that originated this policy.
+//
+// Forward policies do not map to a single quote, hence we return false.
+func (a *AssetForwardPolicy) QuoteID() (rfqmsg.ID, bool) {
+	return rfqmsg.ID{}, false
+}
+
 // Ensure that AssetForwardPolicy implements the Policy interface.
 var _ Policy = (*AssetForwardPolicy)(nil)
 
@@ -707,6 +719,9 @@ type OrderHandlerCfg struct {
 	// that is encapsulated in the init and reestablish peer messages. This
 	// helps us communicate custom feature bits with our peer.
 	AuxChanNegotiator *tapfeatures.AuxChannelNegotiator
+
+	// PolicyStore persists agreed RFQ policies.
+	PolicyStore PolicyStore
 }
 
 // OrderHandler orchestrates management of accepted quote bundles. It monitors
@@ -719,9 +734,40 @@ type OrderHandler struct {
 	// cfg holds the configuration parameters for the RFQ order handler.
 	cfg OrderHandlerCfg
 
+	// policyStore provides persistence for agreed policies.
+	policyStore PolicyStore
+
 	// policies is a map of serialised short channel IDs (SCIDs) to
 	// associated asset transaction policies.
 	policies lnutils.SyncMap[SerialisedScid, Policy]
+
+	// peerBuyQuotes holds buy quotes for assets that our node has
+	// requested and that have been accepted by peer nodes. These quotes are
+	// exclusively used by our node for the acquisition of assets, as they
+	// represent agreed-upon terms for purchase transactions with our peers.
+	peerBuyQuotes lnutils.SyncMap[SerialisedScid, rfqmsg.BuyAccept]
+
+	// peerSellQuotes holds sell quotes for assets that our node has
+	// requested and that have been accepted by peer nodes. These quotes are
+	// exclusively used by our node for the sale of assets, as they
+	// represent agreed-upon terms for sale transactions with our peers.
+	peerSellQuotes lnutils.SyncMap[
+		SerialisedScid, rfqmsg.SellAccept,
+	]
+
+	// localBuyQuotes holds buy quotes for assets that our node has
+	// accepted and that have been requested by peer nodes. These quotes are
+	// exclusively used by our node for the acquisition of assets, as they
+	// represent agreed-upon terms for purchase transactions with our peers.
+	localBuyQuotes lnutils.SyncMap[SerialisedScid, rfqmsg.BuyAccept]
+
+	// localSellQuotes holds sell quotes for assets that our node
+	// has accepted and that have been requested by peer nodes. These quotes
+	// are exclusively used by our node for the sale of assets, as they
+	// represent agreed-upon terms for sale transactions with our peers.
+	localSellQuotes lnutils.SyncMap[
+		SerialisedScid, rfqmsg.SellAccept,
+	]
 
 	// htlcToPolicy maps an HTLC circuit key to the policy that applies to
 	// it. We need this map because for failed HTLCs we don't have the RFQ
@@ -736,8 +782,9 @@ type OrderHandler struct {
 // NewOrderHandler creates a new struct instance.
 func NewOrderHandler(cfg OrderHandlerCfg) (*OrderHandler, error) {
 	return &OrderHandler{
-		cfg:      cfg,
-		policies: lnutils.SyncMap[SerialisedScid, Policy]{},
+		cfg:         cfg,
+		policyStore: cfg.PolicyStore,
+		policies:    lnutils.SyncMap[SerialisedScid, Policy]{},
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -849,7 +896,6 @@ func (h *OrderHandler) mainEventLoop() {
 			log.Debug("Cleaning up any stale policy from the " +
 				"order handler")
 			h.cleanupStalePolicies()
-
 		case <-h.Quit:
 			log.Debug("Received quit signal. Stopping negotiator " +
 				"event loop")
@@ -915,9 +961,17 @@ func (h *OrderHandler) subscribeHtlcs(ctx context.Context) error {
 }
 
 // Start starts the service.
-func (h *OrderHandler) Start() error {
+func (h *OrderHandler) Start(ctx context.Context) error {
 	var startErr error
+
 	h.startOnce.Do(func() {
+		startErr = h.restorePersistedPolicies(ctx)
+		if startErr != nil {
+			log.Errorf("error restoring persisted RFQ "+
+				"policies: %w", startErr)
+			return
+		}
+
 		// Start the main event loop in a separate goroutine.
 		h.Wg.Add(1)
 		go func() {
@@ -957,7 +1011,9 @@ func (h *OrderHandler) Start() error {
 // RegisterAssetSalePolicy generates and registers an asset sale policy with the
 // order handler. This function takes an outgoing buy accept message as an
 // argument.
-func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
+func (h *OrderHandler) RegisterAssetSalePolicy(
+	buyAccept rfqmsg.BuyAccept) error {
+
 	log.Debugf("Order handler is registering an asset sale policy given a "+
 		"buy accept message: %s", buyAccept.String())
 
@@ -965,20 +1021,84 @@ func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
 		buyAccept, h.cfg.NoOpHTLCs, h.cfg.AuxChanNegotiator,
 	)
 
+	ctx, cancel := h.WithCtxQuit()
+	defer cancel()
+
+	err := h.policyStore.StoreSalePolicy(ctx, buyAccept)
+	if err != nil {
+		return fmt.Errorf("unable to persist asset sale policy "+
+			"(id=%x): %w",
+			buyAccept.ID[:], err)
+	}
+
 	h.policies.Store(policy.AcceptedQuoteId.Scid(), policy)
+
+	// We want to store that we accepted the buy quote, in case we
+	// need to look it up for a direct peer payment.
+	h.localBuyQuotes.Store(buyAccept.ShortChannelId(), buyAccept)
+
+	return nil
 }
 
 // RegisterAssetPurchasePolicy generates and registers an asset buy policy with the
 // order handler. This function takes an incoming sell accept message as an
 // argument.
 func (h *OrderHandler) RegisterAssetPurchasePolicy(
-	sellAccept rfqmsg.SellAccept) {
+	sellAccept rfqmsg.SellAccept) error {
 
 	log.Debugf("Order handler is registering an asset buy policy given a "+
 		"sell accept message: %s", sellAccept.String())
 
 	policy := NewAssetPurchasePolicy(sellAccept)
+
+	ctx, cancel := h.WithCtxQuit()
+	defer cancel()
+
+	err := h.policyStore.StorePurchasePolicy(ctx, sellAccept)
+	if err != nil {
+		return fmt.Errorf("unable to persist asset purchase policy "+
+			"(id=%x): %w", sellAccept.ID[:], err)
+	}
+
 	h.policies.Store(policy.scid, policy)
+
+	// We want to store that we accepted the sell quote, in case we
+	// need to look it up for a direct peer payment.
+	h.localSellQuotes.Store(sellAccept.ShortChannelId(), sellAccept)
+
+	return nil
+}
+
+// restorePersistedPolicies restores persisted policies from the policy store.
+func (h *OrderHandler) restorePersistedPolicies(ctx context.Context) error {
+	buyAccepts, sellAccepts, err := h.cfg.PolicyStore.FetchAcceptedQuotes(
+		ctx,
+	)
+	if err != nil {
+		return fmt.Errorf("error fetching persisted policies: %w", err)
+	}
+
+	for _, accept := range buyAccepts {
+		policy := NewAssetSalePolicy(
+			accept, h.cfg.NoOpHTLCs, h.cfg.AuxChanNegotiator,
+		)
+		h.policies.Store(policy.AcceptedQuoteId.Scid(), policy)
+	}
+
+	for _, accept := range sellAccepts {
+		policy := NewAssetPurchasePolicy(accept)
+		h.policies.Store(policy.scid, policy)
+	}
+
+	for _, accept := range buyAccepts {
+		h.localBuyQuotes.Store(accept.ShortChannelId(), accept)
+	}
+
+	for _, accept := range sellAccepts {
+		h.localSellQuotes.Store(accept.ShortChannelId(), accept)
+	}
+
+	return nil
 }
 
 // fetchPolicy fetches a policy which is relevant to a given HTLC. If a policy
@@ -1049,12 +1169,10 @@ func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
 		outgoingPolicy := outPolicy
 
 		if incomingPolicy.HasExpired() {
-			scid := incomingPolicy.Scid()
-			h.policies.Delete(SerialisedScid(scid))
+			h.policies.Delete(inScid)
 		}
 		if outgoingPolicy.HasExpired() {
-			scid := outgoingPolicy.Scid()
-			h.policies.Delete(SerialisedScid(scid))
+			h.policies.Delete(SerialisedScid(outgoingPolicy.Scid()))
 		}
 
 		// If either the incoming or outgoing policy has expired, we
