@@ -40,6 +40,18 @@ func sqlInt64[T constraints.Integer](num T) sql.NullInt64 {
 	}
 }
 
+// sqlPtrInt64 turns a pointer to a numerical integer type into the NullInt64
+// that sql/sqlc uses.
+func sqlPtrInt64[T constraints.Integer](num *T) sql.NullInt64 {
+	if num == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{
+		Int64: int64(*num),
+		Valid: true,
+	}
+}
+
 // sqlInt32 turns a numerical integer type into the NullInt32 that sql/sqlc
 // uses when an integer field can be permitted to be NULL.
 //
@@ -48,6 +60,18 @@ func sqlInt64[T constraints.Integer](num T) sql.NullInt64 {
 func sqlInt32[T constraints.Integer](num T) sql.NullInt32 {
 	return sql.NullInt32{
 		Int32: int32(num),
+		Valid: true,
+	}
+}
+
+// sqlPtrInt32 turns a pointer to a numerical integer type into the NullInt32
+// that sql/sqlc uses.
+func sqlPtrInt32[T constraints.Integer](num *T) sql.NullInt32 {
+	if num == nil {
+		return sql.NullInt32{}
+	}
+	return sql.NullInt32{
+		Int32: int32(*num),
 		Valid: true,
 	}
 }
@@ -132,11 +156,29 @@ func extractSqlInt64[T constraints.Integer](num sql.NullInt64) T {
 	return T(num.Int64)
 }
 
+// extractSqlInt64Ptr turns a NullInt64 into a pointer to a numerical type.
+func extractSqlInt64Ptr[T constraints.Integer](num sql.NullInt64) *T {
+	if !num.Valid {
+		return nil
+	}
+	val := T(num.Int64)
+	return &val
+}
+
 // extractSqlInt32 turns a NullInt32 into a numerical type. This can be useful
 // when reading directly from the database, as this function handles extracting
 // the inner value from the "option"-like struct.
 func extractSqlInt32[T constraints.Integer](num sql.NullInt32) T {
 	return T(num.Int32)
+}
+
+// extractSqlInt32Ptr turns a NullInt32 into a pointer to a numerical type.
+func extractSqlInt32Ptr[T constraints.Integer](num sql.NullInt32) *T {
+	if !num.Valid {
+		return nil
+	}
+	val := T(num.Int32)
+	return &val
 }
 
 // extractOptSqlInt32 turns a NullInt32 into an option of a numerical type.
