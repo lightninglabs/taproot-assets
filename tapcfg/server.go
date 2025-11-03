@@ -127,6 +127,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		lndservices.WithPsbtMaxFeeRatio(cfg.Wallet.PsbtMaxFeeRatio),
 	)
 
+	rfqPolicyDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.RfqPolicyStore {
+			return db.WithTx(tx)
+		},
+	)
+	policyStore := tapdb.NewPersistedPolicyStore(rfqPolicyDB)
+
 	// Create a block header cache with default configuration.
 	headerCache, err := lndservices.NewBlockHeaderCache(
 		lndservices.DefaultBlockHeaderCacheConfig(),
@@ -526,6 +533,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		SendPriceHint:             rfqCfg.SendPriceHint,
 		SendPeerId:                rfqCfg.PriceOracleSendPeerId,
 		NoOpHTLCs:                 cfg.Channel.NoopHTLCs,
+		PolicyStore:               policyStore,
 		ErrChan:                   mainErrChan,
 	})
 	if err != nil {
