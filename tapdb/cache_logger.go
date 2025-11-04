@@ -46,6 +46,6 @@ func (c *cacheLogger) log() {
 	total := hit + miss
 	ratio := float64(hit) / float64(total) * 100
 
-	log.Infof("db cache %s: %d hits, %d misses, %.2f%% hit ratio",
+	log.Infof("cacheLogger(name=%s, hits=%d, misses=%d, hit_ratio=%.2f%%)",
 		c.name, hit, miss, ratio)
 }
