@@ -181,10 +181,10 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 	)
 
 	return nil, fmt.Errorf("%w: derived_keys=%s, expected_key=%x, "+
-		"output_index=%d, internal_key=%x, method=%s",
+		"output_index=%d, internal_key=%x, asset_id=%s, method=%s",
 		commitment.ErrInvalidTaprootProof, keysForLog, expectedKey,
 		proof.OutputIndex, proof.InternalKey.SerializeCompressed(),
-		method)
+		a.ID().String(), method)
 }
 
 // verifyInclusionProof verifies the InclusionProof is valid.
