@@ -144,6 +144,11 @@ type MultiverseStore struct {
 func NewMultiverseStore(db BatchedMultiverse,
 	cfg *MultiverseStoreConfig) (*MultiverseStore, error) {
 
+	proofCacheSize, err := cfg.Caches.maxProofCacheSizeBytes()
+	if err != nil {
+		return nil, fmt.Errorf("parse max proof cache size: %w", err)
+	}
+
 	return &MultiverseStore{
 		db:  db,
 		cfg: cfg,
@@ -154,9 +159,7 @@ func NewMultiverseStore(db BatchedMultiverse,
 		rootNodeCache: newRootNodeCache(
 			cfg.Caches.RootNodePageCacheSize,
 		),
-		proofCache: newUniverseProofCache(
-			cfg.Caches.ProofsPerUniverse,
-		),
+		proofCache: newUniverseProofCache(proofCacheSize),
 		leafKeysCache: newUniverseLeafPageCache(
 			cfg.Caches.LeavesNumCachedUniverses,
 			cfg.Caches.LeavesPerUniverse,

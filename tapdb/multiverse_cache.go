@@ -2,14 +2,23 @@ package tapdb
 
 import (
 	"bytes"
+	"fmt"
 	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
 
+	"github.com/dustin/go-humanize"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lnutils"
+)
+
+const (
+	// defaultMaxProofCacheSize is the default maximum size of the proof
+	// cache expressed as a human-readable string type so that we can
+	// present it directly to CLI users.
+	defaultMaxProofCacheSize = "32MB"
 )
 
 // MultiverseCacheConfig is the configuration for the different multiverse
@@ -17,12 +26,9 @@ import (
 //
 //nolint:lll
 type MultiverseCacheConfig struct {
-	// ProofsPerUniverse is the number of proofs that are cached per
-	// universe. This number needs to be multiplied by the total number of
-	// universes to get the total number of proofs that are cached. There is
-	// no limit to the number of universes that can hold cached keys, so a
-	// cache is created for each universe that receives a request.
-	ProofsPerUniverse uint64 `long:"proofs-per-universe" description:"The number of proofs that are cached per universe."`
+	// MaxProofCacheSize is the maximum size of the proof cache expressed
+	// as a human-readable string, for example, "32MB" or "1GB".
+	MaxProofCacheSize string `long:"max-proof-cache-size" description:"The maximum total size of the cached proofs. Accepts human readable values such as 32MB or 1GB."`
 
 	// LeavesNumCachedUniverses is the number of universes that can have a
 	// cache of leaf keys. Each cached universe can have up to
@@ -56,13 +62,29 @@ type MultiverseCacheConfig struct {
 // multiverse cache.
 func DefaultMultiverseCacheConfig() MultiverseCacheConfig {
 	return MultiverseCacheConfig{
-		ProofsPerUniverse:        5,
+		MaxProofCacheSize:        defaultMaxProofCacheSize,
 		LeavesNumCachedUniverses: 2_000,
 		LeavesPerUniverse:        50,
 		SyncerCacheEnabled:       false,
 		SyncerCachePreAllocSize:  100_000,
 		RootNodePageCacheSize:    20 * universe.RequestPageSize,
 	}
+}
+
+// maxProofCacheSizeBytes returns the parsed byte representation of the proof
+// cache size limit.
+func (c MultiverseCacheConfig) maxProofCacheSizeBytes() (uint64, error) {
+	sizeStr := c.MaxProofCacheSize
+	if sizeStr == "" {
+		sizeStr = defaultMaxProofCacheSize
+	}
+
+	sizeBytes, err := humanize.ParseBytes(sizeStr)
+	if err != nil {
+		return 0, fmt.Errorf("parse max proof cache size: %w", err)
+	}
+
+	return sizeBytes, nil
 }
 
 // cachedProofs is a list of cached proof leaves.
