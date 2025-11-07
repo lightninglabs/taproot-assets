@@ -142,7 +142,7 @@ type MultiverseStore struct {
 
 // NewMultiverseStore creates a new multiverse DB store handle.
 func NewMultiverseStore(db BatchedMultiverse,
-	cfg *MultiverseStoreConfig) *MultiverseStore {
+	cfg *MultiverseStoreConfig) (*MultiverseStore, error) {
 
 	return &MultiverseStore{
 		db:  db,
@@ -162,7 +162,7 @@ func NewMultiverseStore(db BatchedMultiverse,
 			cfg.Caches.LeavesPerUniverse,
 		),
 		transferProofDistributor: fn.NewEventDistributor[proof.Blob](),
-	}
+	}, nil
 }
 
 // namespaceForProof returns the multiverse namespace used for the given proof
