@@ -8,6 +8,7 @@
     - [Functional Updates](#functional-updates)
     - [RPC Updates](#rpc-updates)
     - [tapcli Updates](#tapcli-updates)
+    - [Config Changes](#config-changes)
     - [Breaking Changes](#breaking-changes)
     - [Performance Improvements](#performance-improvements)
     - [Deprecations](#deprecations)
@@ -35,6 +36,8 @@
 ## RPC Updates
 
 ## tapcli Updates
+
+## Config Changes
 
 ## Code Health
 

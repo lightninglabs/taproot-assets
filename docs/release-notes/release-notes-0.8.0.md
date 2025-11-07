@@ -8,6 +8,7 @@
     - [Functional Updates](#functional-updates)
     - [RPC Updates](#rpc-updates)
     - [tapcli Updates](#tapcli-updates)
+    - [Config Changes](#config-changes)
     - [Breaking Changes](#breaking-changes)
     - [Performance Improvements](#performance-improvements)
     - [Deprecations](#deprecations)
@@ -55,6 +56,13 @@
 - The `tapcli assets burn` command now has a
   [new `--group_key` flag](https://github.com/lightninglabs/taproot-assets/pull/1812)
   that allows users to burn assets by group key.
+
+## Config Changes
+
+- [PR#1870](https://github.com/lightninglabs/taproot-assets/pull/1870)
+  The `proofs-per-universe` configuration option is removed. New option 
+  `max-proof-cache-size` sets the proof cache limit in bytes and accepts
+  human-readable values such as `32MB`.
 
 ## Code Health
 
