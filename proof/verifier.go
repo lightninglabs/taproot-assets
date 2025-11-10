@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -178,10 +181,10 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 	)
 
 	return nil, fmt.Errorf("%w: derived_keys=%s, expected_key=%x, "+
-		"output_index=%d, internal_key=%x, method=%s",
+		"output_index=%d, internal_key=%x, asset_id=%s, method=%s",
 		commitment.ErrInvalidTaprootProof, keysForLog, expectedKey,
 		proof.OutputIndex, proof.InternalKey.SerializeCompressed(),
-		method)
+		a.ID().String(), method)
 }
 
 // verifyInclusionProof verifies the InclusionProof is valid.
@@ -373,9 +376,26 @@ func (p *Proof) verifyV0ExclusionProofs(
 	// Correctly validated proofs are removed from the set. That means, if
 	// there are any outputs left in the set, it means that there are
 	// missing proofs for those outputs.
-	if len(p2trOutputs) > 0 {
-		return nil, fmt.Errorf("%w: missing exclusion proof(s)",
-			ErrInvalidCommitmentProof)
+	if len(p2trOutputs) != 0 {
+		// Collect and sort the missing output indexes for stable
+		// logging/errors.
+		indexes := make([]int, 0, len(p2trOutputs))
+		for i := range p2trOutputs {
+			indexes = append(indexes, int(i))
+		}
+		sort.Ints(indexes)
+
+		// Format as "0, 3, 7".
+		parts := make([]string, len(indexes))
+		for i, v := range indexes {
+			parts[i] = strconv.Itoa(v)
+		}
+		missing := strings.Join(parts, ", ")
+
+		log.Errorf("Missing exclusion proofs for p2tr output "+
+			"indexes: %s", missing)
+		return nil, fmt.Errorf("%w: missing exclusion proofs for "+
+			"outputs", ErrInvalidCommitmentProof)
 	}
 
 	return commitVersions, nil

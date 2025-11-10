@@ -1311,7 +1311,7 @@ func (b *BatchCaretaker) batchStreamUniverseItems(ctx context.Context,
 			err := uni.UpsertProofLeafBatch(ctx, batch)
 			if err != nil {
 				return fmt.Errorf("unable to register "+
-					"issuance batch: %w", err)
+					"proof leaf batch: %w", err)
 			}
 
 			log.Infof("Inserted %d new leaves (%d of %d) into "+

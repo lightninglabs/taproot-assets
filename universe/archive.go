@@ -428,8 +428,8 @@ func extractBatchDeps(batch []*Item) map[UniverseKey]*asset.Asset {
 func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 	items []*Item) error {
 
-	log.Infof("Verifying %d new proofs for insertion into Universe",
-		len(items))
+	log.InfoS(ctx, "Verifying new proofs for insertion into Universe",
+		"count", len(items))
 
 	// Issuance proofs that also create an asset group (a.k.a. group
 	// anchors) must be verified and stored before any issuance proofs that
@@ -529,12 +529,12 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 		return err
 	}
 
-	log.Infof("Inserting %d verified group anchor proofs into Universe",
-		len(anchorItems))
+	log.InfoS(ctx, "Inserting verified group anchor proofs into Universe",
+		"count", len(anchorItems))
 	err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, anchorItems)
 	if err != nil {
-		return fmt.Errorf("unable to register new group anchor "+
-			"issuance proofs: %w", err)
+		return fmt.Errorf("upsert group anchor proof leaf batch "+
+			"(count=%d): %w", len(anchorItems), err)
 	}
 
 	err = verifyBatch(nonAnchorItems)
@@ -542,12 +542,12 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 		return err
 	}
 
-	log.Infof("Inserting %d verified proofs into Universe",
-		len(nonAnchorItems))
+	log.InfoS(ctx, "Inserting verified proofs into Universe",
+		"count", len(nonAnchorItems))
 	err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, nonAnchorItems)
 	if err != nil {
-		return fmt.Errorf("unable to register new issuance proofs: %w",
-			err)
+		return fmt.Errorf("upsert proof leaf batch (count=%d): %w",
+			len(nonAnchorItems), err)
 	}
 
 	// Log a sync event for the newly inserted leaf in the background as an
