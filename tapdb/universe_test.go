@@ -93,17 +93,29 @@ func newTestMultiverse(t testing.TB) (*MultiverseStore, sqlc.Querier) {
 		},
 	)
 
-	return NewMultiverseStore(dbTxer, DefaultMultiverseStoreConfig()), db
+	multiverseStore, err := NewMultiverseStore(
+		dbTxer, DefaultMultiverseStoreConfig(),
+	)
+	require.NoError(t, err)
+
+	return multiverseStore, db
 }
 
-func newTestMultiverseWithDb(db *BaseDB) (*MultiverseStore, sqlc.Querier) {
+func newTestMultiverseWithDb(t *testing.T, db *BaseDB) (*MultiverseStore,
+	sqlc.Querier) {
+
 	dbTxer := NewTransactionExecutor(
 		db, func(tx *sql.Tx) BaseMultiverseStore {
 			return db.WithTx(tx)
 		},
 	)
 
-	return NewMultiverseStore(dbTxer, DefaultMultiverseStoreConfig()), db
+	multiverseStore, err := NewMultiverseStore(
+		dbTxer, DefaultMultiverseStoreConfig(),
+	)
+	require.NoError(t, err)
+
+	return multiverseStore, db
 }
 
 func newTestUniverseWithDb(db *BaseDB,
@@ -262,7 +274,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	)
 	db := NewTestDB(t)
 	baseUniverse, _ := newTestUniverseWithDb(db.BaseDB, id)
-	multiverse, _ := newTestMultiverseWithDb(db.BaseDB)
+	multiverse, _ := newTestMultiverseWithDb(t, db.BaseDB)
 
 	const numLeaves = 4
 
@@ -558,9 +570,10 @@ func TestUniverseTreeIsolation(t *testing.T) {
 			return db.WithTx(tx)
 		},
 	)
-	multiverse := NewMultiverseStore(
+	multiverse, err := NewMultiverseStore(
 		multiverseDB, DefaultMultiverseStoreConfig(),
 	)
+	require.NoError(t, err)
 
 	rootNodes, err := multiverse.RootNodes(
 		ctx, universe.RootNodesQuery{
@@ -620,7 +633,7 @@ func TestUniverseTreeIsolation(t *testing.T) {
 		// TODO(roasbeef): need base universe -> universe cache
 		// invalidation or delete thru multiverse
 		multiverse.rootNodeCache.wipeCache()
-		multiverse.proofCache.delProofsForAsset(rootNode.ID)
+		multiverse.proofCache.RemoveUniverseProofs(rootNode.ID)
 	}
 
 	// The deleted universe should not be present in the multiverse.

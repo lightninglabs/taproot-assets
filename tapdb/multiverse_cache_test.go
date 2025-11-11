@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -230,6 +231,111 @@ func TestSyncerCacheMemoryUsage(t *testing.T) {
 	}
 }
 
+// TestUniverseProofCache exercises the basic behaviors of the universe proof
+// cache to ensure inserts, fetches, evictions, and removals behave as
+// expected.
+func TestUniverseProofCache(t *testing.T) {
+	t.Parallel()
+
+	// 1 MiB cache for most subtests.
+	const testCacheSizeBytes = 1 << 20
+
+	t.Run("insert and fetch", func(t *testing.T) {
+		cache := newUniverseProofCache(testCacheSizeBytes)
+
+		id := randUniverseID(t, false)
+		leafKey := randLeafKey(t)
+		proofs := newTestUniverseProofs(t, 1)
+
+		// The cache should miss until an entry is inserted.
+		require.Nil(t, cache.fetchProof(id, leafKey))
+		require.EqualValues(t, 0, cache.hit.Load())
+		require.EqualValues(t, 1, cache.miss.Load())
+
+		cache.insertProofs(id, leafKey, proofs)
+
+		cached := cache.fetchProof(id, leafKey)
+		require.Equal(t, proofs, cached)
+		require.EqualValues(t, 1, cache.hit.Load())
+		require.EqualValues(t, 1, cache.miss.Load())
+	})
+
+	t.Run("eviction respects capacity", func(t *testing.T) {
+		// Configure the cache to hold only two entries worth of data so
+		// the eviction order is deterministic once a third entry
+		// arrives.
+		baseProofs := newTestUniverseProofs(t, 1)
+		proofSize := proofCacheEntrySize(t, baseProofs)
+		maxBytes := proofSize * 2
+		cache := newUniverseProofCache(maxBytes)
+
+		id := randUniverseID(t, false)
+		keys := []universe.LeafKey{
+			randLeafKey(t),
+			randLeafKey(t),
+			randLeafKey(t),
+		}
+
+		for _, key := range keys {
+			cache.insertProofs(id, key, cloneProofSlice(baseProofs))
+		}
+
+		require.Equal(t, 2, cache.cache.Len())
+		require.LessOrEqual(t, cache.cache.Size(), maxBytes)
+
+		// The oldest entry should have been evicted while the most
+		// recently inserted entries remain.
+		require.Nil(t, cache.fetchProof(id, keys[0]))
+		require.NotNil(t, cache.fetchProof(id, keys[1]))
+		require.NotNil(t, cache.fetchProof(id, keys[2]))
+	})
+
+	t.Run("removals", func(t *testing.T) {
+		cache := newUniverseProofCache(testCacheSizeBytes)
+
+		id1 := randUniverseID(t, false)
+		id2 := randUniverseID(t, false)
+
+		leaf1 := randLeafKey(t)
+		leaf2 := randLeafKey(t)
+
+		cache.insertProofs(id1, leaf1, newTestUniverseProofs(t, 1))
+		cache.insertProofs(id1, leaf2, newTestUniverseProofs(t, 1))
+		cache.insertProofs(id2, leaf1, newTestUniverseProofs(t, 1))
+
+		cache.RemoveLeafKeyProofs(id1, leaf1)
+		require.Nil(t, cache.fetchProof(id1, leaf1))
+		require.NotNil(t, cache.fetchProof(id1, leaf2))
+		require.NotNil(t, cache.fetchProof(id2, leaf1))
+
+		cache.RemoveUniverseProofs(id1)
+		require.Nil(t, cache.fetchProof(id1, leaf2))
+		require.NotNil(t, cache.fetchProof(id2, leaf1))
+	})
+
+	t.Run("cache logger default size formatting", func(t *testing.T) {
+		cache := newUniverseProofCache(testCacheSizeBytes)
+
+		require.NotNil(t, cache.cacheLogger.cacheSize)
+		require.Equal(
+			t, humanize.Bytes(0), cache.cacheLogger.cacheSize(),
+		)
+
+		id := randUniverseID(t, false)
+		leafKey := randLeafKey(t)
+		proofs := newTestUniverseProofs(t, 1)
+
+		cache.insertProofs(id, leafKey, proofs)
+		require.Equal(t, humanize.Bytes(cache.cache.Size()),
+			cache.cacheLogger.cacheSize())
+
+		cache.RemoveLeafKeyProofs(id, leafKey)
+		require.Equal(
+			t, humanize.Bytes(0), cache.cacheLogger.cacheSize(),
+		)
+	})
+}
+
 func queryRoots(t *testing.T, multiverse *MultiverseStore,
 	pageSize int32) []universe.Root {
 
@@ -274,4 +380,50 @@ func assertAllLeavesInRoots(t *testing.T, allLeaves []*universe.Item,
 		require.Truef(t, haveRoot, "no root found for leaf with ID %s "+
 			"idx %d", leaf.ID.StringForLog(), idx)
 	}
+}
+
+// newTestUniverseProofs returns a slice of random universe proofs for use in
+// cache tests.
+func newTestUniverseProofs(t *testing.T, count int) []*universe.Proof {
+	t.Helper()
+
+	proofs := make([]*universe.Proof, count)
+	for i := 0; i < count; i++ {
+		leaf := randMintingLeaf(
+			t, asset.RandGenesis(t, asset.Normal), nil,
+		)
+		leafCopy := leaf
+
+		proofs[i] = &universe.Proof{
+			Leaf:                     &leafCopy,
+			LeafKey:                  randLeafKey(t),
+			UniverseRoot:             leafCopy.SmtLeafNode(),
+			UniverseInclusionProof:   &mssmt.Proof{},
+			MultiverseRoot:           leafCopy.SmtLeafNode(),
+			MultiverseInclusionProof: &mssmt.Proof{},
+		}
+	}
+
+	return proofs
+}
+
+// proofCacheEntrySize returns the computed cache size for a single cache entry.
+func proofCacheEntrySize(t *testing.T, proofs []*universe.Proof) uint64 {
+	t.Helper()
+
+	cached := cachedProofs(proofs)
+	size, err := (&cached).Size()
+	require.NoError(t, err)
+	require.NotZero(t, size)
+
+	return size
+}
+
+// cloneProofSlice returns a shallow copy of the provided proof slice so that
+// callers can reuse deterministic proof fixtures without sharing slice headers.
+func cloneProofSlice(proofs []*universe.Proof) []*universe.Proof {
+	cloned := make([]*universe.Proof, len(proofs))
+	copy(cloned, proofs)
+
+	return cloned
 }
