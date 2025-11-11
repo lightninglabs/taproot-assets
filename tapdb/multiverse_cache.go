@@ -154,10 +154,22 @@ type universeProofCache struct {
 
 // newUniverseProofCache creates a new proof cache.
 func newUniverseProofCache(maxCacheByteSize uint64) *universeProofCache {
+	cache := newProofCache(maxCacheByteSize)
+
+	// Formulate a callback function that returns the cache size in a
+	// human-readable format. This will be called by the cache logger to get
+	// the current cache size.
+	cacheSizeLogStr := func() string {
+		return humanize.Bytes(cache.Size())
+	}
+	cacheLogger := newCacheLogger(
+		"universe_proofs", withCacheSizeFunc(cacheSizeLogStr),
+	)
+
 	return &universeProofCache{
 		maxCacheByteSize: maxCacheByteSize,
-		cache:            newProofCache(maxCacheByteSize),
-		cacheLogger:      newCacheLogger("universe_proofs"),
+		cache:            cache,
+		cacheLogger:      cacheLogger,
 	}
 }
 

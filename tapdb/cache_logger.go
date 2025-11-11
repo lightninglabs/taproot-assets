@@ -11,13 +11,34 @@ type cacheLogger struct {
 
 	hit  atomic.Int64
 	miss atomic.Int64
+
+	// cacheSize is a callback that returns the cache size as a
+	// human-readable string.
+	cacheSize func() string
+}
+
+// cacheLoggerOption defines a functional option for configuring a cacheLogger.
+type cacheLoggerOption func(*cacheLogger)
+
+// withCacheSizeFunc sets a callback that returns the cache size as a human
+// readable string.
+func withCacheSizeFunc(sizeFunc func() string) cacheLoggerOption {
+	return func(c *cacheLogger) {
+		c.cacheSize = sizeFunc
+	}
 }
 
 // newCacheLogger returns a new cacheLogger with the given name.
-func newCacheLogger(name string) *cacheLogger {
-	return &cacheLogger{
+func newCacheLogger(name string, opts ...cacheLoggerOption) *cacheLogger {
+	logger := &cacheLogger{
 		name: name,
 	}
+
+	for _, opt := range opts {
+		opt(logger)
+	}
+
+	return logger
 }
 
 // Hit increments the hit counter for the cacheLogger. Every 100th call to this
@@ -46,6 +67,11 @@ func (c *cacheLogger) log() {
 	total := hit + miss
 	ratio := float64(hit) / float64(total) * 100
 
-	log.Infof("cacheLogger(name=%s, hits=%d, misses=%d, hit_ratio=%.2f%%)",
-		c.name, hit, miss, ratio)
+	size := ""
+	if c.cacheSize != nil {
+		size = c.cacheSize()
+	}
+
+	log.Infof("cacheLogger(name=%s, hits=%d, misses=%d, "+
+		"hit_ratio=%.2f%%, size=%s)", c.name, hit, miss, ratio, size)
 }
