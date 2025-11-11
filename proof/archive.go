@@ -119,8 +119,32 @@ func (l *Locator) Hash() ([32]byte, error) {
 		}
 	}
 
-	// Hash the buffer.
 	return sha256.Sum256(buf.Bytes()), nil
+}
+
+// LogString returns a human-readable representation of the locator. This is
+// primarily used for logging purposes.
+func (l *Locator) LogString() (string, error) {
+	var zero string
+
+	assetSpec, err := asset.NewSpecifier(l.AssetID, l.GroupKey, nil, true)
+	if err != nil {
+		return zero, fmt.Errorf("unable to create asset specifier: %w",
+			err)
+	}
+
+	var outpointStr string
+	if l.OutPoint != nil {
+		outpointStr = l.OutPoint.String()
+	}
+
+	locatorHash, err := l.Hash()
+	if err != nil {
+		return zero, fmt.Errorf("hashing locator: %w", err)
+	}
+
+	return fmt.Sprintf("Locator(asset_spec=%s, outpoint=%s, hash=%x)",
+		assetSpec.String(), outpointStr, locatorHash), nil
 }
 
 // AnnotatedProof an annotated proof contains the raw proof blob along with a
