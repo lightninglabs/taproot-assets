@@ -751,8 +751,8 @@ func (f *FederationEnvoy) SyncServers(serverAddrs []ServerAddr) error {
 	syncServer := func(ctx context.Context, serverAddr ServerAddr) error {
 		err := f.syncServerState(ctx, serverAddr, *syncConfigs)
 		if err != nil {
-			log.Warnf("encountered an error whilst syncing with "+
-				"server=%v: %v", spew.Sdump(serverAddr), err)
+			log.WarnS(ctx, "Error syncing with universe", err,
+				"server", serverAddr.HostStr())
 		}
 		return nil
 	}

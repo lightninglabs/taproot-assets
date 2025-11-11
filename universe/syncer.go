@@ -301,8 +301,8 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 
 	// If the local root matches the remote root, then we're done here.
 	case err == nil && mssmt.IsEqualNode(localRoot, remoteRoot):
-		log.Debugf("Root for %v matches, no sync needed",
-			uniID.String())
+		log.DebugS(ctx, "Universe roots match, no sync needed",
+			"universe", uniID.StringForLog())
 
 		return nil
 
