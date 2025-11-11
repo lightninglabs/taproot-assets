@@ -129,7 +129,8 @@ func withUni[T any](fetcher uniFetcher, id Identifier,
 func (a *Archive) RootNode(ctx context.Context,
 	id Identifier) (Root, error) {
 
-	log.Debugf("Looking up root node for base Universe %v", spew.Sdump(id))
+	log.TraceS(ctx, "Looking up universe root node", "universe",
+		id.StringForLog())
 
 	return a.cfg.Multiverse.UniverseRootNode(ctx, id)
 }
