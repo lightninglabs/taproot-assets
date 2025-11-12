@@ -114,7 +114,7 @@ func (h *supplyCommitTestHarness) addTestMintingBatch() ([]byte, int64,
 	genesisPointID, err := upsertGenesisPoint(ctx, db, genesisPoint)
 	require.NoError(h.t, err)
 
-	mintingTx := wire.NewMsgTx(2)
+	mintingTx := wire.NewMsgTx(3)
 	mintingTx.AddTxIn(&wire.TxIn{
 		PreviousOutPoint: genesisPoint,
 	})
@@ -2238,7 +2238,7 @@ func TestSupplyCommitFetchLatestCommitment(t *testing.T) {
 func randTx(t *testing.T, numOutputs int) *wire.MsgTx {
 	t.Helper()
 
-	tx := wire.NewMsgTx(2)
+	tx := wire.NewMsgTx(3)
 	tx.AddTxIn(&wire.TxIn{
 		PreviousOutPoint: test.RandOp(t),
 	})
@@ -2265,7 +2265,7 @@ func TestSupplyCommitMultipleSupplyCommitments(t *testing.T) {
 	// Helper to generate unique transaction data for each commitment
 	genTxData := func() (int64, []byte, []byte) {
 		genesisPoint := test.RandOp(h.t)
-		tx := wire.NewMsgTx(2)
+		tx := wire.NewMsgTx(3)
 		tx.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: genesisPoint,
 		})
@@ -2323,7 +2323,7 @@ func TestSupplySyncerPushLog(t *testing.T) {
 	// TestSupplyCommitMultipleSupplyCommitments.
 	genTxData := func() (int64, []byte, []byte) {
 		genesisPoint := test.RandOp(h.t)
-		tx := wire.NewMsgTx(2)
+		tx := wire.NewMsgTx(3)
 		tx.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: genesisPoint,
 		})
