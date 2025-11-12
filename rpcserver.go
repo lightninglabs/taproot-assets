@@ -3138,7 +3138,7 @@ func (r *rpcServer) PublishAndLogTransfer(ctx context.Context,
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewPreAnchoredParcel(
 			activePackets, passivePackets, anchorTx,
-			req.SkipAnchorTxBroadcast, req.Label,
+			req.SkipAnchorTxBroadcast, req.Label, purgedAssets,
 		),
 	)
 	if err != nil {

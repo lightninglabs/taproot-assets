@@ -390,6 +390,10 @@ type PreAnchoredParcel struct {
 
 	anchorTx *tapsend.AnchorTransaction
 
+	// prunedAssets holds any assets that were part of the input commitment
+	// but are not recreated by the virtual packets (e.g. tombstones).
+	prunedAssets map[wire.OutPoint][]*asset.Asset
+
 	// skipAnchorTxBroadcast bool is a flag that indicates whether the
 	// anchor transaction broadcast should be skipped. This is useful when
 	// an external system handles broadcasting, such as in custom
@@ -407,7 +411,8 @@ var _ Parcel = (*PreAnchoredParcel)(nil)
 // NewPreAnchoredParcel creates a new PreAnchoredParcel.
 func NewPreAnchoredParcel(vPackets []*tappsbt.VPacket,
 	passiveAssets []*tappsbt.VPacket, anchorTx *tapsend.AnchorTransaction,
-	skipAnchorTxBroadcast bool, label string) *PreAnchoredParcel {
+	skipAnchorTxBroadcast bool, label string,
+	prunedAssets map[wire.OutPoint][]*asset.Asset) *PreAnchoredParcel {
 
 	return &PreAnchoredParcel{
 		parcelKit: &parcelKit{
@@ -417,6 +422,7 @@ func NewPreAnchoredParcel(vPackets []*tappsbt.VPacket,
 		virtualPackets:        vPackets,
 		passiveAssets:         passiveAssets,
 		anchorTx:              anchorTx,
+		prunedAssets:          prunedAssets,
 		skipAnchorTxBroadcast: skipAnchorTxBroadcast,
 		label:                 label,
 	}
@@ -431,10 +437,11 @@ func (p *PreAnchoredParcel) pkg() *sendPackage {
 	// commitment.
 	return &sendPackage{
 		Parcel:                p,
-		SendState:             SendStateStorePreBroadcast,
+		SendState:             SendStateVerifyPreBroadcast,
 		VirtualPackets:        p.virtualPackets,
 		PassiveAssets:         p.passiveAssets,
 		AnchorTx:              p.anchorTx,
+		PrunedAssets:          p.prunedAssets,
 		Label:                 p.label,
 		SkipAnchorTxBroadcast: p.skipAnchorTxBroadcast,
 	}
@@ -492,6 +499,10 @@ type sendPackage struct {
 	// InputCommitments is a map from virtual package input index to its
 	// associated Taproot Asset commitment.
 	InputCommitments tappsbt.InputCommitments
+
+	// PrunedAssets holds any assets that were part of the input commitment
+	// but are not recreated by the virtual packets (e.g. tombstones).
+	PrunedAssets map[wire.OutPoint][]*asset.Asset
 
 	// SendManifests is a map of send manifests that need to be sent to the
 	// auth mailbox server to complete an address V2 transfer. It is keyed

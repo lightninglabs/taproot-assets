@@ -1619,8 +1619,14 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// For the final validation, we need to also supply the assets
 		// that were committed to the input tree but pruned because they
-		// were burns or tombstones.
+		// were burns or tombstones. Some parcels (like the pre-anchored
+		// flow) already provide those pruned assets up-front.
 		prunedAssets := make(map[wire.OutPoint][]*asset.Asset)
+		for outpoint, assets := range currentPkg.PrunedAssets {
+			prunedAssets[outpoint] = append(
+				prunedAssets[outpoint], assets...,
+			)
+		}
 		for prevID := range currentPkg.InputCommitments {
 			c := currentPkg.InputCommitments[prevID]
 			prunedAssets[prevID.OutPoint] = append(
