@@ -315,6 +315,9 @@
 - [The Golang version used was bumped to `v1.24.6` in order to keep up with the
   dependencies (LND).](https://github.com/lightninglabs/taproot-assets/pull/1815)
 
+- [PR](https://github.com/lightninglabs/taproot-assets/pull/1861): Bump
+  `lnd` to `v0.20.0-beta` as prep for non-RC release of taproot-assets.
+
 ## Breaking Changes
 
 ## Performance Improvements
