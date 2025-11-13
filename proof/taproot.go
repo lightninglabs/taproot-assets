@@ -423,7 +423,7 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 	// asset ID, but we want to verify that the particular asset we care
 	// about isn't included.
 	default:
-		log.Debugf("Deriving commitment by asset exclusion")
+		log.Tracef("Deriving commitment by asset exclusion")
 		tapCommitment, err = p.CommitmentProof.
 			DeriveByAssetExclusion(assetCommitmentKey)
 	}
@@ -485,7 +485,7 @@ func deriveCommitmentKeys(commitment *commitment.TapCommitment,
 		commitmentKeys[downgradePubKey] = downgradedCommitment
 	}
 
-	log.Debugf("Derived Taproot Asset commitment by %s "+
+	log.Tracef("Derived Taproot Asset commitment by %s "+
 		"taproot_asset_root=%x, internal_key=%x, Commitment V2 "+
 		"taproot_key=%x, NonV2 taproot_key=%x",
 		proofType, fn.ByteSlice(commitment.TapscriptRoot(nil)),

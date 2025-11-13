@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -613,12 +614,12 @@ func (b *BackoffHandler) initialDelay(ctx context.Context,
 		return nil
 	}
 
-	locatorHash, err := proofLocator.Hash()
+	locatorStr, err := proofLocator.LogString()
 	if err != nil {
 		return err
 	}
-	log.Debugf("Handling initial proof transfer delay (locator_hash=%x)",
-		locatorHash[:])
+	log.DebugS(ctx, "Handling initial proof transfer delay", "locator",
+		locatorStr)
 
 	// Query delivery log to ensure a sensible rate of delivery attempts.
 	timestamps, err := b.transferLog.QueryProofTransferLog(
@@ -630,8 +631,8 @@ func (b *BackoffHandler) initialDelay(ctx context.Context,
 	}
 
 	if len(timestamps) == 0 {
-		log.Debugf("No previous transfer attempts found for proof "+
-			"(locator_hash=%x)", locatorHash[:])
+		log.DebugS(ctx, "No previous transfer attempts found for proof",
+			"locator", locatorStr)
 		return nil
 	}
 
@@ -648,9 +649,9 @@ func (b *BackoffHandler) initialDelay(ctx context.Context,
 	backoffResetWait := b.cfg.BackoffResetWait
 	if timeSinceLastAttempt < backoffResetWait {
 		waitDuration := backoffResetWait - timeSinceLastAttempt
-		log.Debugf("Waiting %v before attempting to transfer proof "+
-			"(locator_hash=%x) using backoff procedure",
-			waitDuration, locatorHash[:])
+		log.DebugS(ctx, "Backoff: waiting before attempting to "+
+			"transfer proof", "wait_duration", waitDuration,
+			"locator", locatorStr)
 
 		err := b.wait(ctx, waitDuration)
 		if err != nil {
@@ -672,13 +673,13 @@ func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
 		return fmt.Errorf("backoff config not specified")
 	}
 
-	locatorHash, err := proofLocator.Hash()
+	locatorStr, err := proofLocator.LogString()
 	if err != nil {
-		return err
+		return fmt.Errorf("generate locator log string: %w", err)
 	}
-	log.Infof("Starting proof transfer backoff procedure "+
-		"(transfer_type=%s, locator_hash=%x)", transferType,
-		locatorHash[:])
+
+	log.InfoS(ctx, "Starting proof transfer backoff procedure",
+		"transfer_type", transferType, "locator", locatorStr)
 
 	// Conditionally perform an initial delay based on the transfer log to
 	// ensure that we don't spam the courier service with proof transfer
@@ -708,7 +709,7 @@ func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
 				"attempt: %w", err)
 		}
 
-		// Execute target proof transfer function.
+		// Execute the target proof transfer function.
 		errExec = transferFunc()
 		if errExec == nil {
 			// The target function executed successfully, we can
@@ -732,10 +733,10 @@ func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
 		)
 		subscriberEvent(waitEvent)
 
-		log.Debugf("Proof transfer failed with error. Backing off. "+
-			"(transfer_type=%s, locator_hash=%x, backoff=%s, "+
-			"attempt=%d): %v",
-			transferType, locatorHash[:], backoff, i, errExec)
+		log.DebugS(ctx, "Backing off: proof transfer failed",
+			"transfer_type", transferType, "locator",
+			locatorStr, "backoff", backoff, "attempt", i, "err",
+			errExec)
 
 		// Wait before reattempting execution.
 		err := b.wait(ctx, backoff)
@@ -976,8 +977,10 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context, recipient Recipient,
 
 		return nil
 	}
+
+	backoffCtx := btclog.WithCtx(ctx, "addr", h.addr.String())
 	err := h.backoffHandle.Exec(
-		ctx, proof.Locator, SendTransferType, deliveryExec,
+		backoffCtx, proof.Locator, SendTransferType, deliveryExec,
 		h.publishSubscriberEvent,
 	)
 	if err != nil {
@@ -1550,8 +1553,10 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 
 			return nil
 		}
+
+		backoffCtx := btclog.WithCtx(ctx, "addr", c.addr.String())
 		err = c.backoffHandle.Exec(
-			ctx, loc, SendTransferType, deliverFunc,
+			backoffCtx, loc, SendTransferType, deliverFunc,
 			c.publishSubscriberEvent,
 		)
 		if err != nil {
@@ -1626,8 +1631,10 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 
 			return nil
 		}
+
+		backoffCtx := btclog.WithCtx(ctx, "addr", c.addr.String())
 		err := c.backoffHandle.Exec(
-			ctx, loc, ReceiveTransferType, receiveFunc,
+			backoffCtx, loc, ReceiveTransferType, receiveFunc,
 			c.publishSubscriberEvent,
 		)
 		if err != nil {
