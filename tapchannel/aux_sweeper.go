@@ -3,6 +3,7 @@ package tapchannel
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"net/url"
@@ -351,17 +352,59 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 		// single asset from our commitment output.
 		vIn := vPacket.Inputs[0]
 
-		// Next, we'll apply the sign desc to the vIn, setting the PSBT
-		// specific fields. Along the way, we'll apply any relevant
-		// tweaks to generate the key we'll use to verify the
-		// signature.
-		signingKey, leafToSign := applySignDescToVIn(
-			signDesc, vIn, &a.cfg.ChainParams, tapTweak,
+		// Check if we're doing keyspend (no control block) or
+		// scriptspend (control block present). HTLC revocations use
+		// keyspend.
+		isKeySpend := len(ctrlBlock) == 0
+
+		var (
+			signingKey btcec.PublicKey
+			leafToSign txscript.TapLeaf
+			signMethod input.SignMethod
+			tapLeafOpt lfn.Option[txscript.TapLeaf]
 		)
 
-		// In this case, the witness isn't special, so we'll set the
-		// control block now for it.
-		vIn.TaprootLeafScript[0].ControlBlock = ctrlBlock
+		if isKeySpend {
+			// For keyspend with HTLC revocations, we use the common
+			// function to apply the sign descriptor. This function
+			// correctly applies both DoubleTweak (revocation) and
+			// SingleTweak (HTLC index) to derive the private key
+			// for signing.
+			signingKey, leafToSign = applySignDescToVIn(
+				signDesc, vIn, &a.cfg.ChainParams, tapTweak,
+				true,
+			)
+
+			// For keyspend, we need to verify the signature against
+			// the asset's script key, not the derived signing key.
+			// The asset script key was set during commitment
+			// creation and incorporates both the revocation key
+			// derivation and the HTLC index tweak via
+			// TweakHtlcTree(), which also recomputes the taproot
+			// output key with the script root.
+			//
+			// The derived signingKey from applySignDescToVIn is
+			// used to derive the PRIVATE key for signing, but for
+			// verification we use the asset's actual script key.
+			inputAsset := vIn.Asset()
+			signingKey = *inputAsset.ScriptKey.PubKey
+			signMethod = input.TaprootKeySpendSignMethod
+
+			tapLeafOpt = lfn.None[txscript.TapLeaf]()
+		} else {
+			signingKey, leafToSign = applySignDescToVIn(
+				signDesc, vIn, &a.cfg.ChainParams, tapTweak,
+				false,
+			)
+
+			// In this case, the witness isn't special, so we'll set
+			// the control block now for it.
+			vIn.TaprootLeafScript[0].ControlBlock = ctrlBlock
+
+			signMethod = input.TaprootScriptSpendSignMethod
+
+			tapLeafOpt = lfn.Some(leafToSign)
+		}
 
 		log.Debugf("signing vPacket for input=%v",
 			limitSpewer.Sdump(vIn.PrevID))
@@ -373,8 +416,8 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 			ctxb, vPacket, tapfreighter.SkipInputProofVerify(),
 			tapfreighter.WithValidator(&schnorrSigValidator{
 				pubKey:     signingKey,
-				tapLeaf:    lfn.Some(leafToSign),
-				signMethod: input.TaprootScriptSpendSignMethod,
+				tapLeaf:    tapLeafOpt,
+				signMethod: signMethod,
 			}),
 		)
 		if err != nil {
@@ -550,6 +593,19 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 				return aux.SignDetails.SignDesc
 			},
 		)(desc.auxSigInfo).UnwrapOr(resReq.SignDesc)
+
+		// For HTLC revocation sweeps, we need to apply the HTLC index
+		// tweak to the SignDesc. The HTLC index is passed in
+		// resReq.HtlcID. This tweak is applied at the ASSET level only
+		// (not Bitcoin level).
+		resReq.HtlcID.WhenSome(func(htlcID input.HtlcIndex) {
+			// Convert HTLC index to single tweak bytes.
+			// Add 1 to ensure non-zero value.
+			indexTweak := uint64(htlcID) + 1
+			var singleTweak [32]byte
+			binary.BigEndian.PutUint64(singleTweak[24:], indexTweak)
+			signDesc.SingleTweak = singleTweak[:]
+		})
 
 		err := a.signSweepVpackets(
 			vPkts, signDesc, desc.scriptTree.TapTweak(),
@@ -1012,6 +1068,185 @@ func localHtlcSuccessSweepDesc(req lnwallet.ResolutionReq,
 			secondLevelSigIndex: sigIndex,
 		},
 		secondLevel: lfn.Some(secondLevelDesc),
+	})
+}
+
+// htlcOfferedRevokeSweepDesc creates a sweep descriptor for a revoked HTLC
+// where htlc.Incoming=false in the remote's commitment log (meaning we're
+// sending to them). We use the revocation path to sweep immediately.
+//
+// IMPORTANT: Like all other HTLC sweep descriptors, we must use a TWEAKED
+// keyring where the RevocationKey has the HTLC index tweak applied. This
+// matches how the HTLC was created during commitment generation.
+func htlcOfferedRevokeSweepDesc(originalKeyRing *lnwallet.CommitmentKeyRing,
+	payHash []byte, htlcExpiry uint32,
+	index input.HtlcIndex) lfn.Result[tapscriptSweepDescs] {
+
+	type returnType = tapscriptSweepDescs
+
+	// IMPORTANT: We must match the creation flow exactly:
+	// 1. Create script tree with UNTWEAKED keyring
+	// 2. Then apply HTLC index tweak to the tree's internal key
+	htlcScriptTree, err := input.ReceiverHTLCScriptTaproot(
+		htlcExpiry, originalKeyRing.LocalHtlcKey,
+		originalKeyRing.RemoteHtlcKey, originalKeyRing.RevocationKey,
+		payHash, lntypes.Remote, input.NoneTapLeaf(),
+	)
+	if err != nil {
+		return lfn.Err[returnType](err)
+	}
+
+	// Now apply the HTLC index tweak to the tree, matching how HTLCs
+	// are created in commitment.go.
+	tweakedTree := TweakHtlcTree(htlcScriptTree.ScriptTree, index)
+
+	// Create a new HtlcScriptTree with the tweaked keys but the same
+	// leaves and type.
+	tweakedHtlcTree := &input.HtlcScriptTree{
+		ScriptTree: input.ScriptTree{
+			InternalKey:   tweakedTree.InternalKey,
+			TaprootKey:    tweakedTree.TaprootKey,
+			TapscriptTree: htlcScriptTree.TapscriptTree,
+			TapscriptRoot: htlcScriptTree.TapscriptRoot,
+		},
+		SuccessTapLeaf: htlcScriptTree.SuccessTapLeaf,
+		TimeoutTapLeaf: htlcScriptTree.TimeoutTapLeaf,
+		AuxLeaf:        htlcScriptTree.AuxLeaf,
+	}
+
+	// For revoked HTLCs, we use keyspend (not scriptspend), so we don't
+	// need a control block. The revocation key spend path allows immediate
+	// sweep without CSV delays.
+	return lfn.Ok(tapscriptSweepDescs{
+		firstLevel: tapscriptSweepDesc{
+			scriptTree: tweakedHtlcTree,
+		},
+	})
+}
+
+// htlcAcceptedRevokeSweepDesc creates a sweep descriptor for a revoked HTLC
+// that was accepted by the remote party (incoming from their perspective). We
+// use the revocation path to sweep immediately.
+//
+// IMPORTANT: Like all other HTLC sweep descriptors, we must use a TWEAKED
+// keyring where the RevocationKey has the HTLC index tweak applied. This
+// matches how the HTLC was created during commitment generation.
+func htlcAcceptedRevokeSweepDesc(originalKeyRing *lnwallet.CommitmentKeyRing,
+	payHash []byte, index input.HtlcIndex) lfn.Result[tapscriptSweepDescs] {
+
+	type returnType = tapscriptSweepDescs
+
+	// IMPORTANT: We must match the creation flow exactly:
+	// 1. Create script tree with UNTWEAKED keyring
+	// 2. Then apply HTLC index tweak to the tree's internal key
+	//
+	// During creation, GenTaprootHtlcScript is called with the untweaked
+	// keyring, then TweakHtlcTree applies the index tweak. We must do
+	// the same here.
+	//
+	// For TaprootHtlcAcceptedRevoke (htlc.Incoming=true in remote's log),
+	// this means incoming to us (they're sending to us).
+	// On remote's commitment with them sending, GenTaprootHtlcScript uses:
+	//   isIncoming && whoseCommit.IsRemote() → SenderHTLCScriptTaproot
+	// with parameters: RemoteHtlcKey, LocalHtlcKey (in that order!)
+	// where RemoteHtlcKey = sender (them), LocalHtlcKey = receiver (us)
+	htlcScriptTree, err := input.SenderHTLCScriptTaproot(
+		originalKeyRing.RemoteHtlcKey, originalKeyRing.LocalHtlcKey,
+		originalKeyRing.RevocationKey, payHash, lntypes.Remote,
+		input.NoneTapLeaf(),
+	)
+	if err != nil {
+		return lfn.Err[returnType](err)
+	}
+
+	// Now apply the HTLC index tweak to the tree, matching how HTLCs
+	// are created in commitment.go.
+	tweakedTree := TweakHtlcTree(htlcScriptTree.ScriptTree, index)
+
+	// Create a new HtlcScriptTree with the tweaked keys but the same
+	// leaves and type.
+	tweakedHtlcTree := &input.HtlcScriptTree{
+		ScriptTree: input.ScriptTree{
+			InternalKey:   tweakedTree.InternalKey,
+			TaprootKey:    tweakedTree.TaprootKey,
+			TapscriptTree: htlcScriptTree.TapscriptTree,
+			TapscriptRoot: htlcScriptTree.TapscriptRoot,
+		},
+		SuccessTapLeaf: htlcScriptTree.SuccessTapLeaf,
+		TimeoutTapLeaf: htlcScriptTree.TimeoutTapLeaf,
+		AuxLeaf:        htlcScriptTree.AuxLeaf,
+	}
+
+	// For revoked HTLCs, we use keyspend (not scriptspend), so we don't
+	// need a control block. The revocation key spend path allows immediate
+	// sweep without CSV delays.
+	return lfn.Ok(tapscriptSweepDescs{
+		firstLevel: tapscriptSweepDesc{
+			scriptTree: tweakedHtlcTree,
+		},
+	})
+}
+
+// htlcSecondLevelRevokeSweepDesc creates a sweep descriptor for a revoked
+// second-level HTLC transaction. We use the revocation path to sweep
+// immediately.
+//
+// IMPORTANT: Like all other HTLC sweep descriptors, we must use a TWEAKED
+// keyring where the RevocationKey has the HTLC index tweak applied. This
+// matches how the HTLC was created during commitment generation.
+func htlcSecondLevelRevokeSweepDesc(originalKeyRing *lnwallet.CommitmentKeyRing,
+	csvDelay uint32, index input.HtlcIndex) lfn.Result[tapscriptSweepDescs] {
+
+	type returnType = tapscriptSweepDescs
+
+	// IMPORTANT: We must match the creation flow exactly:
+	// 1. Create script tree with UNTWEAKED keyring
+	// 2. Then apply HTLC index tweak to the tree's internal key
+	//
+	// During creation, the second-level script is created with the
+	// untweaked keyring, then TweakHtlcTree applies the index tweak.
+	secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
+		originalKeyRing.RevocationKey, originalKeyRing.ToLocalKey,
+		csvDelay, lfn.None[txscript.TapLeaf](),
+	)
+	if err != nil {
+		return lfn.Err[returnType](err)
+	}
+
+	// Now apply the HTLC index tweak to the tree, matching how HTLCs
+	// are created in commitment.go.
+	tweakedTree := TweakHtlcTree(secondLevelScriptTree.ScriptTree, index)
+
+	// Create a new SecondLevelScriptTree with the tweaked keys.
+	tweakedScriptTree := &input.SecondLevelScriptTree{
+		ScriptTree: input.ScriptTree{
+			InternalKey:   tweakedTree.InternalKey,
+			TaprootKey:    tweakedTree.TaprootKey,
+			TapscriptTree: secondLevelScriptTree.TapscriptTree,
+			TapscriptRoot: secondLevelScriptTree.TapscriptRoot,
+		},
+	}
+
+	// Now that we have the script tree, we'll make the control block
+	// needed to spend it using the revocation path.
+	ctrlBlock, err := tweakedScriptTree.CtrlBlockForPath(
+		input.ScriptPathRevocation,
+	)
+	if err != nil {
+		return lfn.Err[returnType](err)
+	}
+	ctrlBlockBytes, err := ctrlBlock.ToBytes()
+	if err != nil {
+		return lfn.Err[returnType](err)
+	}
+
+	// For second-level revocations, we use the revocation script path
+	// which requires a control block.
+	return lfn.Ok(tapscriptSweepDescs{
+		firstLevel: tapscriptSweepDesc{
+			scriptTree:     tweakedScriptTree,
+			ctrlBlockBytes: ctrlBlockBytes,
+		},
 	})
 }
 
@@ -1664,9 +1899,6 @@ func (a *AuxSweeper) resolveContract(
 		return lfn.Err[tlv.Blob](nil)
 	}
 
-	log.Infof("Generating resolution_blob for contract_type=%v, "+
-		"chan_point=%v", req.Type, req.ChanPoint)
-
 	// As we have a commit blob, we'll decode the commit blob, so we can
 	// have access to all the active outputs. We'll also decode the funding
 	// blob, so we can make vInt from it.
@@ -1803,14 +2035,76 @@ func (a *AuxSweeper) resolveContract(
 
 		needsSecondLevel = true
 
-	default:
-		// TODO(guggero): Need to do HTLC revocation cases here.
-		// IMPORTANT: Remember that we applied the HTLC index as a tweak
-		// to the revocation key on the asset level! That means the
-		// tweak to the first-level HTLC script key's internal key
-		// (which is the revocation key) MUST be applied when creating
-		// a breach sweep transaction!
+	// Revoked HTLC offered by remote party (outgoing HTLC from their side).
+	// We sweep this using the revocation path.
+	case input.TaprootHtlcOfferedRevoke:
+		// Filter for the specific HTLC we're sweeping. This is an
+		// outgoing HTLC from the remote party's perspective (they
+		// offered it), so it's in their OutgoingHtlcAssets, which is
+		// stored in commitState.OutgoingHtlcAssets (since commitState
+		// is from their revoked commitment).
+		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
+		htlcOutputs := commitState.OutgoingHtlcAssets.Val
+		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
 
+		payHash, err := req.PayHash.UnwrapOrErr(errNoPayHash)
+		if err != nil {
+			return lfn.Err[tlv.Blob](err)
+		}
+
+		htlcExpiry := req.CltvDelay.UnwrapOr(0)
+
+		// Create sweep descriptor for revoked offered HTLC.
+		sweepDesc = htlcOfferedRevokeSweepDesc(
+			req.KeyRing, payHash[:], htlcExpiry, htlcID,
+		)
+
+	// Revoked HTLC accepted by remote party (incoming HTLC from their side).
+	// We sweep this using the revocation path.
+	case input.TaprootHtlcAcceptedRevoke:
+		// Filter for the specific HTLC we're sweeping. This is an
+		// incoming HTLC from the remote party's perspective (they
+		// accepted it), so it's in their IncomingHtlcAssets, which is
+		// stored in commitState.IncomingHtlcAssets (since commitState
+		// is from their revoked commitment).
+		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
+		htlcOutputs := commitState.IncomingHtlcAssets.Val
+		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
+
+		payHash, err := req.PayHash.UnwrapOrErr(errNoPayHash)
+		if err != nil {
+			return lfn.Err[tlv.Blob](err)
+		}
+
+		// Create sweep descriptor for revoked accepted HTLC.
+		sweepDesc = htlcAcceptedRevokeSweepDesc(
+			req.KeyRing, payHash[:], htlcID,
+		)
+
+	// Revoked second-level HTLC transaction. We sweep this using the
+	// revocation path.
+	case input.TaprootHtlcSecondLevelRevoke:
+		// For second-level HTLCs, we need to determine if this was
+		// originally an offered or accepted HTLC to know which asset
+		// outputs to filter.
+		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
+
+		// Try outgoing first (offered HTLCs).
+		htlcOutputs := commitState.OutgoingHtlcAssets.Val
+		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
+
+		// If not found in outgoing, try incoming (accepted HTLCs).
+		if len(assetOutputs) == 0 {
+			htlcOutputs = commitState.IncomingHtlcAssets.Val
+			assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
+		}
+
+		// Create sweep descriptor for revoked second-level HTLC.
+		sweepDesc = htlcSecondLevelRevokeSweepDesc(
+			req.KeyRing, req.CsvDelay, htlcID,
+		)
+
+	default:
 		return lfn.Errf[returnType]("unknown resolution type: %v",
 			req.Type)
 	}
