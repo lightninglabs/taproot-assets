@@ -155,6 +155,7 @@ type Querier interface {
 	LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error
 	LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error
 	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
+	MarkManagedUTXOAsSwept(ctx context.Context, arg MarkManagedUTXOAsSweptParams) error
 	// Mark a supply pre-commitment output as spent by its outpoint. The
 	// pre-commitment corresponds to an asset issuance where the local node acted as
 	// the issuer.
