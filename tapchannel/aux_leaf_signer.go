@@ -438,51 +438,53 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 // applySignDescToVIn applies the sign descriptor to the virtual input. This
 // entails updating all the input bip32, taproot, and witness fields with the
 // information from the sign descriptor. This function returns the public key
-// that should be used to verify the generated signature, and also the leaf to
-// be signed.
+// that should be used to verify the generated signature. For scriptspend, it
+// also returns the leaf to be signed. For keyspend, the leaf will be empty.
 func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
-	chainParams *address.ChainParams,
-	tapscriptRoot []byte) (btcec.PublicKey, txscript.TapLeaf) {
+	chainParams *address.ChainParams, tapscriptRoot []byte,
+	isKeySpend bool) (btcec.PublicKey, txscript.TapLeaf) {
 
-	leafToSign := txscript.TapLeaf{
-		Script:      signDesc.WitnessScript,
-		LeafVersion: txscript.BaseLeafVersion,
-	}
-	vIn.TaprootLeafScript = []*psbt.TaprootTapLeafScript{
-		{
-			Script:      leafToSign.Script,
-			LeafVersion: leafToSign.LeafVersion,
-		},
-	}
+	var leafToSign txscript.TapLeaf
 
+	// Set up derivation paths for the key.
 	deriv, trDeriv := tappsbt.Bip32DerivationFromKeyDesc(
 		signDesc.KeyDesc, chainParams.HDCoinType,
 	)
 	vIn.Bip32Derivation = []*psbt.Bip32Derivation{deriv}
-	vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
-		trDeriv,
+	vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{trDeriv}
+
+	if !isKeySpend {
+		// For scriptspend, set up the leaf script.
+		leafToSign = txscript.TapLeaf{
+			Script:      signDesc.WitnessScript,
+			LeafVersion: txscript.BaseLeafVersion,
+		}
+		vIn.TaprootLeafScript = []*psbt.TaprootTapLeafScript{
+			{
+				Script:      leafToSign.Script,
+				LeafVersion: leafToSign.LeafVersion,
+			},
+		}
+		vIn.TaprootBip32Derivation[0].LeafHashes = [][]byte{
+			fn.ByteSlice(leafToSign.TapHash()),
+		}
 	}
-	vIn.TaprootBip32Derivation[0].LeafHashes = [][]byte{
-		fn.ByteSlice(leafToSign.TapHash()),
-	}
+
 	vIn.SighashType = signDesc.HashType
 	vIn.TaprootMerkleRoot = tapscriptRoot
 
-	// Apply single or double tweaks if present in the sign
-	// descriptor. At the same time, we apply the tweaks to a copy
-	// of the public key, so we can validate the produced signature.
+	// Apply single or double tweaks if present in the sign descriptor. At
+	// the same time, we apply the tweaks to a copy of the public key, so we
+	// can validate the produced signature.
+	//
+	// IMPORTANT: For HTLC revocations, the order matters:
+	// 1. DoubleTweak (commitment secret) must be applied FIRST
+	// 2. SingleTweak (HTLC index) must be applied SECOND
+	//
+	// This matches how keys are derived during commitment creation:
+	// - RevocationKey = DeriveRevocationPubkey(RevocationBase, commitPoint)
+	// - TweakedKey = RevocationKey + (htlc_index + 1) * G
 	signingKey := signDesc.KeyDesc.PubKey
-	if len(signDesc.SingleTweak) > 0 {
-		key := btcwallet.PsbtKeyTypeInputSignatureTweakSingle
-		vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
-			Key:   key,
-			Value: signDesc.SingleTweak,
-		})
-
-		signingKey = input.TweakPubKeyWithTweak(
-			signingKey, signDesc.SingleTweak,
-		)
-	}
 	if signDesc.DoubleTweak != nil {
 		key := btcwallet.PsbtKeyTypeInputSignatureTweakDouble
 		vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
@@ -492,6 +494,17 @@ func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
 
 		signingKey = input.DeriveRevocationPubkey(
 			signingKey, signDesc.DoubleTweak.PubKey(),
+		)
+	}
+	if len(signDesc.SingleTweak) > 0 {
+		key := btcwallet.PsbtKeyTypeInputSignatureTweakSingle
+		vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
+			Key:   key,
+			Value: signDesc.SingleTweak,
+		})
+
+		signingKey = input.TweakPubKeyWithTweak(
+			signingKey, signDesc.SingleTweak,
 		)
 	}
 
@@ -543,7 +556,7 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 		vIn := vPacket.Inputs[0]
 
 		signingKey, leafToSign := applySignDescToVIn(
-			signDesc, vIn, s.cfg.ChainParams, tapscriptRoot,
+			signDesc, vIn, s.cfg.ChainParams, tapscriptRoot, false,
 		)
 
 		// We can now sign this virtual packet, as we've given the
