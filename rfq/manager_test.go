@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	tpchmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -58,6 +59,26 @@ var (
 	peer1        = route.Vertex{88}
 	peer2        = route.Vertex{77}
 )
+
+type mockPolicyStore struct{}
+
+func (mockPolicyStore) StoreSalePolicy(context.Context,
+	rfqmsg.BuyAccept) error {
+
+	return nil
+}
+
+func (mockPolicyStore) StorePurchasePolicy(context.Context,
+	rfqmsg.SellAccept) error {
+
+	return nil
+}
+
+func (mockPolicyStore) FetchAcceptedQuotes(context.Context) (
+	[]rfqmsg.BuyAccept, []rfqmsg.SellAccept, error) {
+
+	return nil, nil, nil
+}
 
 // GroupLookupMock mocks the GroupLookup interface that is required by the
 // rfq manager to check asset IDs against asset specifiers.
@@ -141,6 +162,7 @@ func assertComputeChannelAssetBalance(t *testing.T,
 	mockGroupLookup := &GroupLookupMock{}
 	cfg := ManagerCfg{
 		GroupLookup: mockGroupLookup,
+		PolicyStore: mockPolicyStore{},
 	}
 	manager, err := NewManager(cfg)
 	require.NoError(t, err)
