@@ -2687,7 +2687,8 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 	// Make sure the assets given fully satisfy the input commitments.
 	allPackets := append([]*tappsbt.VPacket{}, activePackets...)
 	allPackets = append(allPackets, passivePackets...)
-	err = r.validateInputAssets(ctx, pkt, allPackets)
+	purgedAssets := r.collectPurgedAssets(ctx, allPackets)
+	err = r.validateInputAssets(ctx, pkt, allPackets, purgedAssets)
 	if err != nil {
 		return nil, fmt.Errorf("error validating input assets: %w", err)
 	}
@@ -2877,10 +2878,77 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 	return response, nil
 }
 
+// collectPurgedAssets gathers the assets that are being purged for each input
+// commitment across all virtual packets.
+func (r *rpcServer) collectPurgedAssets(ctx context.Context,
+	vPackets []*tappsbt.VPacket) map[wire.OutPoint][]*asset.Asset {
+
+	purgedAssetsDeDup := make(map[wire.OutPoint]map[[32]byte]*asset.Asset)
+	for _, vPkt := range vPackets {
+		for _, vIn := range vPkt.Inputs {
+			inputAsset := vIn.Asset()
+			outpoint := vIn.PrevID.OutPoint
+
+			input, err := r.cfg.AssetStore.FetchCommitment(
+				ctx, inputAsset.ID(), outpoint,
+				inputAsset.GroupKey, &inputAsset.ScriptKey,
+				true,
+			)
+			if err != nil {
+				// If we can't fetch the input commitment, it
+				// means this input asset isn't ours. We cannot
+				// find out if there were any purged assets in
+				// the commitment, so we just rely on all assets
+				// being present. If some purged assets are
+				// missing, then the anchor input equality check
+				// further down will fail.
+				rpcsLog.Warnf("Could not fetch input "+
+					"commitment for outpoint %v: %v",
+					outpoint, err)
+
+				continue
+			}
+
+			assetsToPurge := tapsend.ExtractUnSpendable(
+				input.Commitment,
+			)
+			if len(assetsToPurge) == 0 {
+				continue
+			}
+
+			assetMap := purgedAssetsDeDup[outpoint]
+			if assetMap == nil {
+				assetMap = make(map[[32]byte]*asset.Asset)
+				purgedAssetsDeDup[outpoint] = assetMap
+			}
+
+			for _, a := range assetsToPurge {
+				key := a.AssetCommitmentKey()
+				assetMap[key] = a
+			}
+		}
+	}
+
+	// With the assets de-duplicated by their asset commitment key, we can
+	// now collect them grouped by input outpoint.
+	purgedAssets := make(map[wire.OutPoint][]*asset.Asset)
+	for outpoint, assets := range purgedAssetsDeDup {
+		for key := range assets {
+			purgedAssets[outpoint] = append(
+				purgedAssets[outpoint], assets[key],
+			)
+		}
+	}
+
+	return purgedAssets
+}
+
 // validateInputAssets makes sure that the input assets are correct and their
 // combined commitments match the inputs of the BTC level anchor transaction.
+// The purgedAssets map contains the commitment leftovers per anchor input.
 func (r *rpcServer) validateInputAssets(ctx context.Context,
-	btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket) error {
+	btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket,
+	purgedAssets map[wire.OutPoint][]*asset.Asset) error {
 
 	err := tapsend.ValidateVPacketVersions(vPackets)
 	if err != nil {
@@ -2936,65 +3004,6 @@ func (r *rpcServer) validateInputAssets(ctx context.Context,
 		pIn.Bip32Derivation = []*psbt.Bip32Derivation{derivation}
 		pIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
 			trDerivation,
-		}
-	}
-
-	// We also want to make sure we actually have the assets that are being
-	// spent in our database. We fetch the input commitments of all packets
-	// to asset that. And while we're doing that, we also extract all the
-	// pruned assets that are not re-created in the outputs, which we need
-	// for the final validation. We de-duplicate the pruned assets in a
-	// temporary map keyed by input outpoint and the asset commitment key.
-	purgedAssetsDeDup := make(map[wire.OutPoint]map[[32]byte]*asset.Asset)
-	for _, vPkt := range vPackets {
-		for _, vIn := range vPkt.Inputs {
-			inputAsset := vIn.Asset()
-			outpoint := vIn.PrevID.OutPoint
-
-			input, err := r.cfg.AssetStore.FetchCommitment(
-				ctx, inputAsset.ID(), outpoint,
-				inputAsset.GroupKey, &inputAsset.ScriptKey,
-				true,
-			)
-			if err != nil {
-				// If we can't fetch the input commitment, it
-				// means this input asset isn't ours. We cannot
-				// find out if there were any purged assets in
-				// the commitment, so we just rely on all assets
-				// being present. If some purged assets are
-				// missing, then the anchor input equality check
-				// further down will fail.
-				rpcsLog.Warnf("Could not fetch input "+
-					"commitment for outpoint %v: %v",
-					outpoint, err)
-
-				continue
-			}
-
-			assetsToPurge := tapsend.ExtractUnSpendable(
-				input.Commitment,
-			)
-			for _, a := range assetsToPurge {
-				key := a.AssetCommitmentKey()
-				if purgedAssetsDeDup[outpoint] == nil {
-					purgedAssetsDeDup[outpoint] = make(
-						map[[32]byte]*asset.Asset,
-					)
-				}
-
-				purgedAssetsDeDup[outpoint][key] = a
-			}
-		}
-	}
-
-	// With the assets de-duplicated by their asset commitment key, we can
-	// now collect them grouped by input outpoint.
-	purgedAssets := make(map[wire.OutPoint][]*asset.Asset)
-	for outpoint, assets := range purgedAssetsDeDup {
-		for key := range assets {
-			purgedAssets[outpoint] = append(
-				purgedAssets[outpoint], assets[key],
-			)
 		}
 	}
 
@@ -3072,7 +3081,8 @@ func (r *rpcServer) PublishAndLogTransfer(ctx context.Context,
 	// sure everything is in order. We start by validating the inputs.
 	allPackets := append([]*tappsbt.VPacket{}, activePackets...)
 	allPackets = append(allPackets, passivePackets...)
-	err = r.validateInputAssets(ctx, pkt, allPackets)
+	purgedAssets := r.collectPurgedAssets(ctx, allPackets)
+	err = r.validateInputAssets(ctx, pkt, allPackets, purgedAssets)
 	if err != nil {
 		return nil, fmt.Errorf("error validating input assets: %w", err)
 	}
