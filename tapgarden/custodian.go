@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -144,6 +145,9 @@ type CustodianConfig struct {
 	// for testing.
 	MboxInsecure bool
 
+	// FallbackMboxURLs are fallback proof courier AuthMailbox services.
+	FallbackMboxURLs []url.URL
+
 	// ProofRetrievalDelay is the time duration the custodian waits having
 	// identified an asset transfer on-chain and before retrieving the
 	// corresponding proof via the proof courier service.
@@ -231,12 +235,16 @@ func NewCustodian(cfg *CustodianConfig) *Custodian {
 		statusEventsSubs:  statusEventsSubs,
 		events:            make(map[wire.OutPoint]*address.Event),
 		mboxSubscriptions: mbox.NewMultiSubscription(
-			mbox.ClientConfig{
-				Insecure:      cfg.MboxInsecure,
-				SkipTlsVerify: !cfg.MboxInsecure,
-				Signer:        cfg.Signer,
-				MinBackoff:    backoffCfg.InitialBackoff,
-				MaxBackoff:    backoffCfg.MaxBackoff,
+			mbox.MultiSubscriptionConfig{
+				BaseClientConfig: mbox.ClientConfig{
+					Insecure:      cfg.MboxInsecure,
+					SkipTlsVerify: !cfg.MboxInsecure,
+
+					Signer:     cfg.Signer,
+					MinBackoff: backoffCfg.InitialBackoff,
+					MaxBackoff: backoffCfg.MaxBackoff,
+				},
+				FallbackMboxURLs: cfg.FallbackMboxURLs,
 			},
 		),
 		ContextGuard: &fn.ContextGuard{

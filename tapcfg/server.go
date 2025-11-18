@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
+	"net/url"
 
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
@@ -362,6 +363,21 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			return nil, fmt.Errorf("unable to parse default proof "+
 				"courier address: %w", err)
 		}
+	}
+
+	// Parse fallback authmailbox proof courier addresses into URLs.
+	fallbackMboxUrlStrings := cfg.UniverseRpcCourier.FallbackMboxURLStrings
+	fallbackMboxURLs := make([]url.URL, 0, len(fallbackMboxUrlStrings))
+	for idx := range fallbackMboxUrlStrings {
+		urlStr := fallbackMboxUrlStrings[idx]
+
+		parsedURL, err := proof.ParseMboxCourierAddress(urlStr)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse fallback "+
+				"authmailbox URL: %w", err)
+		}
+
+		fallbackMboxURLs = append(fallbackMboxURLs, parsedURL)
 	}
 
 	reOrgWatcher := tapgarden.NewReOrgWatcher(&tapgarden.ReOrgWatcherConfig{
@@ -738,6 +754,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ErrChan:                mainErrChan,
 			ProofCourierDispatcher: proofCourierDispatcher,
 			MboxBackoffCfg:         cfg.UniverseRpcCourier.BackoffCfg,
+			FallbackMboxURLs:       fallbackMboxURLs,
 			ProofRetrievalDelay:    cfg.CustodianProofRetrievalDelay,
 			ProofWatcher:           reOrgWatcher,
 			IgnoreChecker:          ignoreCheckerOpt,

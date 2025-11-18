@@ -202,9 +202,6 @@ func (c *Client) connectAndAuthenticate(ctx context.Context,
 	msgChan chan<- *ReceivedMessages, acctKey keychain.KeyDescriptor,
 	filter MessageFilter) (*receiveSubscription, error) {
 
-	var receiverKey [33]byte
-	copy(receiverKey[:], acctKey.PubKey.SerializeCompressed())
-
 	// Before we can expect to receive any updates, we need to perform the
 	// 3-way authentication handshake.
 	sub := newReceiveSubscription(c.cfg, msgChan, acctKey, filter, c.client)

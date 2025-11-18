@@ -963,6 +963,12 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 			"range of 0.00 to 1.00")
 	}
 
+	err = cfg.UniverseRpcCourier.Validate()
+	if err != nil {
+		return nil, fmt.Errorf("invalid universe rpc courier config: "+
+			"%w", err)
+	}
+
 	// All good, return the sanitized result.
 	return &cfg, nil
 }
