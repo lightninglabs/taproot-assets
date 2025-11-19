@@ -1398,6 +1398,45 @@ func (p *ChainPorter) prelimCheckAddrParcel(addrParcel AddressParcel) error {
 	return nil
 }
 
+// verifyPacketInputProofs ensures that each virtual packet's inputs reference
+// a valid Taproot Asset commitment before the package is broadcast.
+func (p *ChainPorter) verifyPacketInputProofs(ctx context.Context,
+	packets []*tappsbt.VPacket) error {
+
+	if len(packets) == 0 {
+		return nil
+	}
+
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
+	vCtx := proof.VerifierCtx{
+		HeaderVerifier: headerVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		GroupVerifier:  p.cfg.GroupVerifier,
+		ChainLookupGen: p.cfg.ChainBridge,
+		IgnoreChecker:  p.cfg.IgnoreChecker,
+	}
+
+	for pktIdx := range packets {
+		vPkt := packets[pktIdx]
+		for inputIdx := range vPkt.Inputs {
+			assetProof := vPkt.Inputs[inputIdx].Proof
+			if assetProof == nil {
+				return fmt.Errorf("packet %d input %d proof "+
+					"is nil", pktIdx, inputIdx)
+			}
+
+			_, err := assetProof.VerifyProofIntegrity(ctx, vCtx)
+			if err != nil {
+				return fmt.Errorf("unable to verify "+
+					"inclusion proof for packet %d "+
+					"input %d: %w", pktIdx, inputIdx, err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // stateStep attempts to step through the state machine to complete a Taproot
 // Asset transfer.
 func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
@@ -1631,8 +1670,30 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"package: %w", err)
 		}
 
-		currentPkg.SendState = SendStateStorePreBroadcast
+		currentPkg.SendState = SendStateVerifyPreBroadcast
+		return &currentPkg, nil
 
+	// Run final pre-broadcast checks on the package.
+	case SendStateVerifyPreBroadcast:
+		ctx, cancel := p.WithCtxQuitNoTimeout()
+		defer cancel()
+
+		totalVPacketsCount :=
+			len(currentPkg.VirtualPackets) +
+				len(currentPkg.PassiveAssets)
+		allPackets := make([]*tappsbt.VPacket, 0, totalVPacketsCount)
+		allPackets = append(allPackets, currentPkg.VirtualPackets...)
+		allPackets = append(allPackets, currentPkg.PassiveAssets...)
+
+		err := p.verifyPacketInputProofs(ctx, allPackets)
+		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
+			return nil, fmt.Errorf("unable to verify input "+
+				"proofs: %w", err)
+		}
+
+		currentPkg.SendState = SendStateStorePreBroadcast
 		return &currentPkg, nil
 
 	// In this state, the parcel state is stored before the fully signed
