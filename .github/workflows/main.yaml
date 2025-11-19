@@ -175,7 +175,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: Setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v5
@@ -280,11 +283,11 @@ jobs:
     name: run itests
     runs-on: ubuntu-latest
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
       - name: git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: Setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v5
@@ -323,11 +326,11 @@ jobs:
     name: run itests postgres
     runs-on: ubuntu-latest
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
       - name: git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: Setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v5
@@ -367,11 +370,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
       - name: git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: Setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v5
