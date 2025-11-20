@@ -1259,9 +1259,15 @@ func (r *rpcServer) MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 
 	// Ensure the block timestamp is set if a block height is set.
 	if a.AnchorBlockTimestamp == 0 && a.AnchorBlockHeight > 0 {
-		a.AnchorBlockTimestamp = r.cfg.ChainBridge.GetBlockTimestamp(
+		timestamp, err := r.cfg.ChainBridge.GetBlockTimestamp(
 			ctx, a.AnchorBlockHeight,
 		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch block header "+
+				"timestamp: %w", err)
+		}
+
+		a.AnchorBlockTimestamp = timestamp
 	}
 
 	return rpcutils.MarshalChainAsset(
@@ -2241,6 +2247,33 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 	error) {
 
 	var sqlQuery address.EventQueryParams
+
+	if req.Offset < 0 {
+		return nil, fmt.Errorf("offset must be non-negative")
+	}
+	if req.Limit < 0 {
+		return nil, fmt.Errorf("limit must be non-negative")
+	}
+	if req.Limit > address.MaxEventQueryLimit {
+		return nil, fmt.Errorf("limit must be less than %d",
+			address.MaxEventQueryLimit)
+	}
+
+	sqlQuery.Offset = req.Offset
+	sqlQuery.Limit = req.Limit
+	sqlQuery.SortDirection = address.DescSortDirection
+
+	switch req.GetDirection() {
+	case taprpc.SortDirection_SORT_DIRECTION_DESC:
+		sqlQuery.SortDirection = address.DescSortDirection
+
+	case taprpc.SortDirection_SORT_DIRECTION_ASC:
+		sqlQuery.SortDirection = address.AscSortDirection
+
+	default:
+		return nil, fmt.Errorf("invalid sort direction: %v",
+			req.GetDirection())
+	}
 
 	if len(req.FilterAddr) > 0 {
 		addr, err := address.DecodeAddress(
@@ -7734,24 +7767,31 @@ func (r *rpcServer) UniverseStats(ctx context.Context,
 // marshalAssetSyncSnapshot maps a universe asset sync stat snapshot to the RPC
 // counterpart.
 func (r *rpcServer) marshalAssetSyncSnapshot(ctx context.Context,
-	a universe.AssetSyncSnapshot) *unirpc.AssetStatsSnapshot {
+	a universe.AssetSyncSnapshot) (*unirpc.AssetStatsSnapshot, error) {
 
 	resp := &unirpc.AssetStatsSnapshot{
 		TotalSyncs:  int64(a.TotalSyncs),
 		TotalProofs: int64(a.TotalProofs),
 		GroupSupply: int64(a.GroupSupply),
 	}
+
+	blockTimestamp, err := r.cfg.ChainBridge.GetBlockTimestamp(
+		ctx, a.GenesisHeight,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query block header "+
+			"timestamp for genesis height: %w", err)
+	}
+
 	rpcAsset := &unirpc.AssetStatsAsset{
-		AssetId:       a.AssetID[:],
-		GenesisPoint:  a.GenesisPoint.String(),
-		AssetName:     a.AssetName,
-		AssetType:     taprpc.AssetType(a.AssetType),
-		TotalSupply:   int64(a.TotalSupply),
-		GenesisHeight: int32(a.GenesisHeight),
-		GenesisTimestamp: r.cfg.ChainBridge.GetBlockTimestamp(
-			ctx, a.GenesisHeight,
-		),
-		AnchorPoint: a.AnchorPoint.String(),
+		AssetId:          a.AssetID[:],
+		GenesisPoint:     a.GenesisPoint.String(),
+		AssetName:        a.AssetName,
+		AssetType:        taprpc.AssetType(a.AssetType),
+		TotalSupply:      int64(a.TotalSupply),
+		GenesisHeight:    int32(a.GenesisHeight),
+		GenesisTimestamp: blockTimestamp,
+		AnchorPoint:      a.AnchorPoint.String(),
 	}
 
 	decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(ctx, a.AssetID)
@@ -7768,7 +7808,7 @@ func (r *rpcServer) marshalAssetSyncSnapshot(ctx context.Context,
 		resp.Asset = rpcAsset
 	}
 
-	return resp
+	return resp, nil
 }
 
 // QueryAssetStats returns a set of statistics for a given set of assets.
@@ -7812,7 +7852,13 @@ func (r *rpcServer) QueryAssetStats(ctx context.Context,
 		),
 	}
 	for idx, snapshot := range assetStats.SyncStats {
-		resp.AssetStats[idx] = r.marshalAssetSyncSnapshot(ctx, snapshot)
+		rpcSnapshot, err := r.marshalAssetSyncSnapshot(ctx, snapshot)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal asset "+
+				"snapshot: %w", err)
+		}
+
+		resp.AssetStats[idx] = rpcSnapshot
 	}
 
 	return resp, nil

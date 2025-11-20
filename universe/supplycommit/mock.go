@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -268,10 +269,10 @@ func (m *mockChainBridge) VerifyBlock(ctx context.Context,
 }
 
 func (m *mockChainBridge) GetBlockTimestamp(ctx context.Context,
-	height uint32) int64 {
+	height uint32) (int64, error) {
 
 	args := m.Called(ctx, height)
-	return args.Get(0).(int64)
+	return args.Get(0).(int64), args.Error(1)
 }
 
 func (m *mockChainBridge) GenFileChainLookup(f *proof.File) asset.ChainLookup {
@@ -288,6 +289,9 @@ func (m *mockChainBridge) GenProofChainLookup(
 	}
 	return args.Get(0).(asset.ChainLookup), args.Error(1)
 }
+
+// Ensure mockChainBridge implements the tapgarden.ChainBridge interface.
+var _ tapgarden.ChainBridge = (*mockChainBridge)(nil)
 
 // mockStateMachineStore is a mock implementation of the StateMachineStore
 // interface.

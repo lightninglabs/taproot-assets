@@ -183,6 +183,10 @@ var (
 			Entity: "mint",
 			Action: "read",
 		}},
+		"/universerpc.Universe/Info": {{
+			Entity: "universe",
+			Action: "read",
+		}},
 		"/universerpc.Universe/MultiverseRoot": {{
 			Entity: "universe",
 			Action: "read",
@@ -339,22 +343,10 @@ var (
 			Entity: "mailbox",
 			Action: "read",
 		}},
-		"/authmailboxrpc.Mailbox/MailboxInfo": {{}},
-	}
-
-	// defaultMacaroonWhitelist defines a default set of RPC endpoints that
-	// don't require macaroons authentication.
-	//
-	// For now, these are the Universe related read/write methods. We permit
-	// InsertProof as a valid proof requires an on-chain transaction, so we
-	// gain a layer of DoS defense.
-	defaultMacaroonWhitelist = map[string]struct{}{
-		"/universerpc.Universe/AssetRoots":      {},
-		"/universerpc.Universe/QueryAssetRoots": {},
-		"/universerpc.Universe/AssetLeafKeys":   {},
-		"/universerpc.Universe/AssetLeaves":     {},
-		"/universerpc.Universe/Info":            {},
-		"/authmailboxrpc.Mailbox/MailboxInfo":   {},
+		"/authmailboxrpc.Mailbox/MailboxInfo": {{
+			Entity: "mailbox",
+			Action: "read",
+		}},
 	}
 )
 
@@ -364,34 +356,63 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 	allowUniPublicAccessWrite bool, allowPublicUniProofCourier bool,
 	allowPublicStats bool) map[string]struct{} {
 
-	// Make a copy of the default whitelist.
 	whitelist := make(map[string]struct{})
-	for k, v := range defaultMacaroonWhitelist {
-		whitelist[k] = v
+
+	// addEndpoints adds the given endpoints to the whitelist map.
+	addEndpoints := func(endpoints ...string) {
+		for _, endpoint := range endpoints {
+			whitelist[endpoint] = struct{}{}
+		}
 	}
 
 	// Conditionally whitelist universe server read methods.
-	// nolint: lll
-	if allowUniPublicAccessRead || allowPublicUniProofCourier {
-		whitelist["/universerpc.Universe/QueryProof"] = struct{}{}
-		whitelist["/universerpc.Universe/FetchSupplyCommit"] = struct{}{}
-		whitelist["/universerpc.Universe/FetchSupplyLeaves"] = struct{}{}
-		whitelist["/authmailboxrpc.Mailbox/ReceiveMessages"] = struct{}{}
+	if allowUniPublicAccessRead {
+		addEndpoints(
+			"/universerpc.Universe/Info",
+
+			"/universerpc.Universe/AssetRoots",
+			"/universerpc.Universe/QueryAssetRoots",
+			"/universerpc.Universe/AssetLeafKeys",
+			"/universerpc.Universe/AssetLeaves",
+			"/universerpc.Universe/QueryProof",
+
+			"/universerpc.Universe/FetchSupplyCommit",
+			"/universerpc.Universe/FetchSupplyLeaves",
+
+			"/authmailboxrpc.Mailbox/MailboxInfo",
+			"/authmailboxrpc.Mailbox/ReceiveMessages",
+		)
 	}
 
 	// Conditionally whitelist universe server write methods.
-	// nolint: lll
-	if allowUniPublicAccessWrite || allowPublicUniProofCourier {
-		whitelist["/universerpc.Universe/InsertProof"] = struct{}{}
-		whitelist["/universerpc.Universe/InsertSupplyCommit"] = struct{}{}
-		whitelist["/authmailboxrpc.Mailbox/SendMessage"] = struct{}{}
+	if allowUniPublicAccessWrite {
+		addEndpoints(
+			"/universerpc.Universe/InsertProof",
+			"/universerpc.Universe/InsertSupplyCommit",
+			"/authmailboxrpc.Mailbox/SendMessage",
+		)
 	}
 
 	// Conditionally add public stats RPC endpoints to the whitelist.
 	if allowPublicStats {
-		whitelist["/universerpc.Universe/QueryAssetStats"] = struct{}{}
-		whitelist["/universerpc.Universe/UniverseStats"] = struct{}{}
-		whitelist["/universerpc.Universe/QueryEvents"] = struct{}{}
+		addEndpoints(
+			"/universerpc.Universe/QueryAssetStats",
+			"/universerpc.Universe/UniverseStats",
+			"/universerpc.Universe/QueryEvents",
+		)
+	}
+
+	// Conditionally whitelist public universe server proof courier methods.
+	if allowPublicUniProofCourier {
+		addEndpoints(
+			"/universerpc.Universe/Info",
+			"/universerpc.Universe/InsertProof",
+			"/universerpc.Universe/QueryProof",
+
+			"/authmailboxrpc.Mailbox/MailboxInfo",
+			"/authmailboxrpc.Mailbox/SendMessage",
+			"/authmailboxrpc.Mailbox/ReceiveMessages",
+		)
 	}
 
 	return whitelist

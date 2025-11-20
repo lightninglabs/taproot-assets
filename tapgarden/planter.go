@@ -921,24 +921,101 @@ func fetchPreCommitGroupKey(
 	return fn.Some(groupAnchorSeedling.GroupInfo.GroupPubKey), nil
 }
 
+// anchorTxFeeRate computes the fee rate for the anchor transaction. If a fee
+// rate is manually assigned for the batch, it is used. Otherwise, the fee rate
+// is estimated based on the current network conditions.
+func (c *ChainPlanter) anchorTxFeeRate(ctx context.Context,
+	manualFeeRateOpt fn.Option[chainfee.SatPerKWeight]) (
+	chainfee.SatPerKWeight, error) {
+
+	var zero chainfee.SatPerKWeight
+
+	// First, we'll fetch the minimum relay fee for the target chain.
+	// We'll use this to ensure that the fee rate we use meets the
+	// minimum requirements.
+	minRelayFee, err := c.cfg.Wallet.MinRelayFee(ctx)
+	if err != nil {
+		return zero, fmt.Errorf("unable to obtain min relay fee: %w",
+			err)
+	}
+
+	// If provided and valid, use the manual fee rate.
+	if manualFeeRateOpt.IsSome() {
+		manualFeeRate, err := manualFeeRateOpt.UnwrapOrErr(
+			fmt.Errorf("code error: no manual fee rate"),
+		)
+		if err != nil {
+			return zero, err
+		}
+
+		log.Debug("Manual fee rate specified for batch anchor tx: %s",
+			manualFeeRate.String())
+
+		// Ensure that the manual fee rate is above the minimum relay
+		// fee.
+		if manualFeeRate < minRelayFee {
+			return zero, fmt.Errorf("manual fee rate less than "+
+				"min relay fee: (manual_fee_rate=%s, "+
+				"min_relay_fee=%s)", manualFeeRate.String(),
+				minRelayFee.String())
+		}
+
+		return manualFeeRate, nil
+	}
+
+	log.Debug("No manual fee rate specified for batch, " +
+		"querying chain backend for fee rate")
+
+	// We'll ask the chain backend to estimate a fee rate that should get
+	// the batch anchor tx into the next block.
+	chainFeeRate, err := c.cfg.ChainBridge.EstimateFee(
+		ctx, GenesisConfTarget,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("failed to call chain backend for "+
+			"fee estimate: %w", err)
+	}
+
+	log.Debugf("Chain backend returned fee rate: %s", chainFeeRate.String())
+
+	// If the chain backend provided fee rate is less than the minimum relay
+	// fee, we'll use the min relay fee instead.
+	if chainFeeRate < minRelayFee {
+		log.Debugf("Chain backend provided fee rate less than min "+
+			"relay fee, using min relay fee "+
+			"(chain_backend_fee_rate=%s, min_relay_fee=%s)",
+			chainFeeRate.String(), minRelayFee.String())
+		return minRelayFee, nil
+	}
+
+	// Otherwise, we'll use the fee rate as provided by the chain
+	// backend.
+	log.Debugf("Using fee rate from chain backend: %s",
+		chainFeeRate.String())
+	return chainFeeRate, nil
+}
+
+// WalletFundPsbt is a function that funds a PSBT packet.
+type WalletFundPsbt = func(ctx context.Context,
+	anchorPkt psbt.Packet) (tapsend.FundedPsbt, error)
+
 // fundGenesisPsbt generates a PSBT packet we'll use to create an asset.  In
 // order to be able to create an asset, we need an initial genesis outpoint. To
 // obtain this we'll ask the wallet to fund a PSBT template for GenesisAmtSats
 // (all outputs need to hold some BTC to not be dust), and with a dummy script.
 // We need to use a dummy script as we can't know the actual script key since
 // that's dependent on the genesis outpoint.
-func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
-	batchKey asset.SerializedKey,
-	manualFeeRate *chainfee.SatPerKWeight) (FundedMintAnchorPsbt, error) {
+func fundGenesisPsbt(ctx context.Context, chainParams address.ChainParams,
+	pendingBatch *MintingBatch,
+	walletFundPsbt WalletFundPsbt) (FundedMintAnchorPsbt, error) {
 
 	var zero FundedMintAnchorPsbt
-	log.Infof("Attempting to fund batch: %x", batchKey)
 
 	// If universe commitments are enabled, we formulate a pre-commitment
 	// output. This output is spent by the universe commitment transaction.
 	var delegationKey fn.Option[DelegationKey]
-	if c.pendingBatch != nil && c.pendingBatch.SupplyCommitments {
-		delegationK, err := fetchDelegationKey(c.pendingBatch)
+	if pendingBatch != nil && pendingBatch.SupplyCommitments {
+		delegationK, err := fetchDelegationKey(pendingBatch)
 		if err != nil {
 			return zero, fmt.Errorf("unable to create "+
 				"pre-commitment output: %w", err)
@@ -975,59 +1052,7 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 	}
 	log.Tracef("Unfunded batch anchor PSBT: %v", spew.Sdump(genesisPkt))
 
-	// Compute the anchor transaction fee rate.
-	var feeRate chainfee.SatPerKWeight
-	switch {
-	// If a fee rate was manually assigned for this batch, use that instead
-	// of a fee rate estimate.
-	case manualFeeRate != nil:
-		feeRate = *manualFeeRate
-		log.Infof("using manual fee rate for batch: %x, %s, %d sat/vB",
-			batchKey[:], feeRate.String(),
-			feeRate.FeePerKVByte()/1000)
-
-	default:
-		feeRate, err = c.cfg.ChainBridge.EstimateFee(
-			ctx, GenesisConfTarget,
-		)
-		if err != nil {
-			return zero, fmt.Errorf("unable to estimate fee: %w",
-				err)
-		}
-
-		log.Infof("estimated fee rate for batch: %x, %s",
-			batchKey[:], feeRate.FeePerKVByte().String())
-	}
-
-	minRelayFee, err := c.cfg.Wallet.MinRelayFee(ctx)
-	if err != nil {
-		return zero, fmt.Errorf("unable to obtain minrelayfee: %w", err)
-	}
-
-	// If the fee rate is below the minimum relay fee, we'll
-	// bump it up.
-	if feeRate < minRelayFee {
-		switch {
-		// If a fee rate was manually assigned for this batch, we err
-		// out, otherwise we silently bump the feerate.
-		case manualFeeRate != nil:
-			// This case should already have been handled by the
-			// `checkFeeRateSanity` of `rpcserver.go`. We check here
-			// again to be safe.
-			return zero, fmt.Errorf("feerate does not meet "+
-				"minrelayfee: (fee_rate=%s, minrelayfee=%s)",
-				feeRate.String(), minRelayFee.String())
-		default:
-			log.Infof("Bump fee rate for batch %x to meet "+
-				"minrelayfee from %s to %s", batchKey[:],
-				feeRate.String(), minRelayFee.String())
-			feeRate = minRelayFee
-		}
-	}
-
-	fundedGenesisPkt, err := c.cfg.Wallet.FundPsbt(
-		ctx, &genesisPkt, 1, feeRate, -1,
-	)
+	fundedGenesisPkt, err := walletFundPsbt(ctx, genesisPkt)
 	if err != nil {
 		return zero, fmt.Errorf("unable to fund psbt: %w", err)
 	}
@@ -1038,12 +1063,11 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 			"funded anchor transaction")
 	}
 
-	log.Infof("Funded GenesisPacket for batch: %x", batchKey)
 	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
 
 	// Classify anchor transaction output indexes.
 	anchorOutIndexes, err := anchorTxOutputIndexes(
-		*fundedGenesisPkt, preCommitmentTxOut,
+		fundedGenesisPkt, preCommitmentTxOut,
 	)
 	if err != nil {
 		return zero, fmt.Errorf("unable to determine output indexes: "+
@@ -1076,7 +1100,7 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 
 	// If there is a group pub key to associate with the pre-commitment
 	// output, fetch it now.
-	preCommitGroupPubKey, err := fetchPreCommitGroupKey(c.pendingBatch)
+	preCommitGroupPubKey, err := fetchPreCommitGroupKey(pendingBatch)
 	if err != nil {
 		return zero, fmt.Errorf("unable to fetch pre-commitment "+
 			"group key: %w", err)
@@ -1110,7 +1134,7 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 		// we just need to set the corresponding fields in the PSBT.
 		bip32Derivation, trBip32Derivation :=
 			tappsbt.Bip32DerivationFromKeyDesc(
-				dKey, c.cfg.ChainParams.HDCoinType,
+				dKey, chainParams.HDCoinType,
 			)
 
 		pOut := &fundedGenesisPkt.Pkt.Outputs[outIdx]
@@ -1124,7 +1148,7 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 
 	// Formulate a funded minting anchor PSBT from the funded PSBT.
 	fundedMintAnchorPsbt, err := NewFundedMintAnchorPsbt(
-		*fundedGenesisPkt, anchorOutIndexes, preCommitOut,
+		fundedGenesisPkt, anchorOutIndexes, preCommitOut,
 	)
 	if err != nil {
 		return zero, fmt.Errorf("unable to create funded minting "+
@@ -2104,7 +2128,6 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 	workingBatch *MintingBatch) error {
 
 	var (
-		feeRate  *chainfee.SatPerKWeight
 		rootHash *chainhash.Hash
 		err      error
 	)
@@ -2112,7 +2135,6 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 	// If a tapscript tree was specified for this batch, we'll store it on
 	// disk. The caretaker we start for this batch will use it when deriving
 	// the final Taproot output key.
-	feeRate = params.FeeRate.UnwrapToPtr()
 	params.SiblingTapTree.WhenSome(func(tn asset.TapscriptTreeNodes) {
 		rootHash, err = c.cfg.TreeStore.StoreTapscriptTree(ctx, tn)
 	})
@@ -2130,13 +2152,42 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 		}
 
 		// Fund the batch with the specified fee rate.
+		feeRate, err := c.anchorTxFeeRate(ctx, params.FeeRate)
+		if err != nil {
+			return fmt.Errorf("unable to determine anchor TX "+
+				"fee rate: %w", err)
+		}
+
 		batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
-		mintAnchorTx, err := c.fundGenesisPsbt(ctx, batchKey, feeRate)
+
+		// walletFundPsbt is a closure that will be used to fund the
+		// batch with the specified fee rate.
+		walletFundPsbt := func(ctx context.Context,
+			anchorPkt psbt.Packet) (tapsend.FundedPsbt, error) {
+
+			var zero tapsend.FundedPsbt
+
+			fundedPkt, err := c.cfg.Wallet.FundPsbt(
+				ctx, &anchorPkt, 1, feeRate, -1,
+			)
+			if err != nil {
+				return zero, err
+			}
+
+			return *fundedPkt, nil
+		}
+
+		log.Infof("Attempting to fund batch: %x", batchKey)
+		mintAnchorTx, err := fundGenesisPsbt(
+			ctx, c.cfg.ChainParams, c.pendingBatch,
+			walletFundPsbt,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to fund minting PSBT for "+
 				"batch: %x %w", batchKey[:], err)
 		}
 
+		log.Infof("Funded GenesisPacket for batch: %x", batchKey)
 		batch.GenesisPacket = &mintAnchorTx
 
 		return nil
