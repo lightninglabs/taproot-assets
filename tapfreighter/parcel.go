@@ -431,7 +431,7 @@ func (p *PreAnchoredParcel) pkg() *sendPackage {
 	// commitment.
 	return &sendPackage{
 		Parcel:                p,
-		SendState:             SendStateStorePreBroadcast,
+		SendState:             SendStateVerifyPreBroadcast,
 		VirtualPackets:        p.virtualPackets,
 		PassiveAssets:         p.passiveAssets,
 		AnchorTx:              p.anchorTx,
