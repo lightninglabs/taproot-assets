@@ -1609,10 +1609,24 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// finalization.
 		currentPkg.AnchorTx = anchorTx
 
+		currentPkg.SendState = SendStateVerifyPreBroadcast
+		return &currentPkg, nil
+
+	// Run final pre-broadcast checks on the send package.
+	case SendStateVerifyPreBroadcast:
+		ctx, cancel := p.WithCtxQuitNoTimeout()
+		defer cancel()
+
 		// For the final validation, we need to also supply the assets
 		// that were committed to the input tree but pruned because they
-		// were burns or tombstones.
+		// were burns or tombstones. Some parcels (like the pre-anchored
+		// flow) already provide those pruned assets up-front.
 		prunedAssets := make(map[wire.OutPoint][]*asset.Asset)
+		for outpoint, assets := range currentPkg.PrunedAssets {
+			prunedAssets[outpoint] = append(
+				prunedAssets[outpoint], assets...,
+			)
+		}
 		for prevID := range currentPkg.InputCommitments {
 			c := currentPkg.InputCommitments[prevID]
 			prunedAssets[prevID.OutPoint] = append(
@@ -1622,7 +1636,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		// Make sure everything is ready for the finalization.
-		err = currentPkg.validateReadyForPublish(prunedAssets)
+		err := currentPkg.validateReadyForPublish(prunedAssets)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
 
@@ -1630,8 +1644,11 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"package: %w", err)
 		}
 
-		currentPkg.SendState = SendStateStorePreBroadcast
+		// TODO(ffranr): Extend this state with input proof
+		//  verification and also possibly partial output proof
+		//  verification.
 
+		currentPkg.SendState = SendStateStorePreBroadcast
 		return &currentPkg, nil
 
 	// In this state, the parcel state is stored before the fully signed

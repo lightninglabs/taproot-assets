@@ -1457,7 +1457,7 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 		FinalTx:   signedFundingTx,
 	}
 	preSignedParcel := tapfreighter.NewPreAnchoredParcel(
-		activePkts, passivePkts, anchorTx, false, "",
+		activePkts, passivePkts, anchorTx, false, "", nil,
 	)
 	_, err = f.cfg.TxSender.RequestShipment(preSignedParcel)
 	if err != nil {
