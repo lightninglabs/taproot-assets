@@ -622,7 +622,7 @@ CREATE TABLE managed_utxos (
     -- expiry is NULL or the timestamp is in the past, then the lease is not
     -- valid and the UTXO is available for coin selection.
     lease_expiry TIMESTAMP
-, root_version SMALLINT);
+, root_version SMALLINT, swept_txn_id BIGINT REFERENCES chain_txns(txn_id));
 
 CREATE INDEX mint_anchor_uni_commitments_outpoint_idx
     ON mint_supply_pre_commits(outpoint)

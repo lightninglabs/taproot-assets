@@ -145,6 +145,10 @@ type harnessOpts struct {
 	// verification should only occur for commitments submitted by peers,
 	// not via on-chain spend detection.
 	disableSupplyVerifierChainWatch bool
+
+	// sweepOrphanUtxos indicates whether orphaned anchor UTXOs should be
+	// swept into anchor transactions.
+	sweepOrphanUtxos bool
 }
 
 type harnessOption func(*harnessOpts)
@@ -255,6 +259,10 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	// was not set, this will be false, which is the default.
 	// nolint: lll
 	tapCfg.Universe.DisableSupplyVerifierChainWatch = opts.disableSupplyVerifierChainWatch
+
+	// Pass through the sweep orphan UTXOs flag. If the option was not set,
+	// this will be false, which is the default.
+	tapCfg.Wallet.SweepOrphanUtxos = opts.sweepOrphanUtxos
 
 	switch {
 	case len(opts.oracleServerAddress) > 0:

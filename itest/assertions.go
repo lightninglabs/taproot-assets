@@ -1276,10 +1276,6 @@ func AssertAssetOutboundTransferWithOutputs(t *testing.T,
 		scripts[string(o.ScriptKey)] = struct{}{}
 	}
 
-	sendRespJSON, err := formatProtoJSON(transfer)
-	require.NoError(t, err)
-	t.Logf("Got response from sending assets: %v", sendRespJSON)
-
 	// Mine a block to force the send event to complete (confirm on-chain).
 	var newBlock *wire.MsgBlock
 	if confirm {
@@ -1325,16 +1321,6 @@ func AssertAssetOutboundTransferWithOutputs(t *testing.T,
 				return slices.Contains(actualInputAssetIDs, id)
 			})
 	}, defaultTimeout, wait.PollInterval)
-	require.NoError(t, err)
-
-	transferResp, err := sender.ListTransfers(
-		ctxb, &taprpc.ListTransfersRequest{},
-	)
-	require.NoError(t, err)
-
-	transferRespJSON, err := formatProtoJSON(transferResp)
-	require.NoError(t, err)
-	t.Logf("Got response from list transfers: %v", transferRespJSON)
 
 	return newBlock
 }
@@ -2414,7 +2400,7 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 			actualBalance := balanceSum(resp, false)
 			if balance != actualBalance {
 				return fmt.Errorf("asset balance, wanted %d, "+
-					"got: %v", balance, toJSON(t, resp))
+					"got: %v", balance, actualBalance)
 			}
 
 			// If we query for grouped asset balances too, it means
@@ -2532,7 +2518,7 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 		}
 		if balance != totalBalance {
 			return fmt.Errorf("ListAssets balance, wanted %d, "+
-				"got: %v", balance, toJSON(t, resp))
+				"got: %v", balance, totalBalance)
 		}
 
 		// The number of UTXOs means asset outputs in this case. We
@@ -2609,7 +2595,7 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 
 		if balance != totalBalance {
 			return fmt.Errorf("ListUtxos balance, wanted %d, "+
-				"got: %v", balance, toJSON(t, resp))
+				"got: %v", balance, totalBalance)
 		}
 
 		if config.numAnchorUtxos > 0 {

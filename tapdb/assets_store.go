@@ -97,6 +97,10 @@ type (
 	// ManagedUTXORow wraps a managed UTXO listing row.
 	ManagedUTXORow = sqlc.FetchManagedUTXOsRow
 
+	// MarkManagedUTXOAsSweptParams wraps the params needed to associate a
+	// managed UTXO with the chain transaction that swept it.
+	MarkManagedUTXOAsSweptParams = sqlc.MarkManagedUTXOAsSweptParams
+
 	// UpdateUTXOLease wraps the params needed to lease a managed UTXO.
 	UpdateUTXOLease = sqlc.UpdateUTXOLeaseParams
 
@@ -278,6 +282,11 @@ type ActiveAssetsStore interface {
 	// DeleteManagedUTXO deletes the managed utxo identified by the passed
 	// serialized outpoint.
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
+
+	// MarkManagedUTXOAsSwept marks a managed UTXO as swept by recording
+	// the chain transaction that spent it.
+	MarkManagedUTXOAsSwept(ctx context.Context,
+		arg MarkManagedUTXOAsSweptParams) error
 
 	// UpdateUTXOLease leases a managed UTXO identified by the passed
 	// serialized outpoint.
@@ -1318,6 +1327,155 @@ func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
 	}
 
 	return managedUtxos, nil
+}
+
+// FetchOrphanUTXOs fetches all managed UTXOs that contain only
+// zero-value assets (tombstones and burns).
+func (a *AssetStore) FetchOrphanUTXOs(ctx context.Context) (
+	[]*tapfreighter.ZeroValueInput, error) {
+
+	// Strategy: fetch all managed UTXOs and filter in-memory.
+	//  A UTXO is a "zero-value anchor" if all assets are either tombstones
+	// (NUMS key with amount 0) or burns.
+	// We exclude leased and spent UTXOs.
+
+	var results []*tapfreighter.ZeroValueInput
+
+	readOpts := NewAssetStoreReadTx()
+	now := a.clock.Now().UTC()
+
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		utxos, err := q.FetchManagedUTXOs(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to fetch managed "+
+				"utxos: %w", err)
+		}
+
+		for _, u := range utxos {
+			if len(u.LeaseOwner) > 0 &&
+				u.LeaseExpiry.Valid &&
+				u.LeaseExpiry.Time.UTC().After(now) {
+
+				continue
+			}
+
+			if u.SweptTxnID.Valid {
+				continue
+			}
+
+			var anchorPoint wire.OutPoint
+			err := readOutPoint(
+				bytes.NewReader(u.Outpoint), 0, 0, &anchorPoint,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to read "+
+					"outpoint: %w", err)
+			}
+
+			// Query all assets anchored at this outpoint.
+			// We include spent assets here because tombstones are
+			// marked as spent when created.
+			assetsAtAnchor, err := a.queryChainAssets(
+				ctx, q, QueryAssetFilters{
+					AnchorPoint: u.Outpoint,
+					Now: sql.NullTime{
+						Time:  now,
+						Valid: true,
+					},
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("failed to query chain "+
+					"assets at anchor: %w", err)
+			}
+
+			if len(assetsAtAnchor) == 0 {
+				continue
+			}
+
+			// Determine if all assets are tombstones or burns.
+			// A tombstone asset is marked as "spent" at the asset
+			// level but its anchor UTXO may still be unspent
+			// on-chain and available for sweeping.
+			allZeroValue := true
+			for _, chainAsset := range assetsAtAnchor {
+				aAsset := chainAsset.Asset
+
+				if !aAsset.IsTombstone() && !aAsset.IsBurn() {
+					allZeroValue = false
+					break
+				}
+			}
+
+			if !allZeroValue {
+				continue
+			}
+
+			log.DebugS(ctx, "adding orphan utxo to sweep list",
+				"outpoint", anchorPoint.String())
+
+			internalKey, err := btcec.ParsePubKey(u.RawKey)
+			if err != nil {
+				return fmt.Errorf("failed to parse internal"+
+					"key: %w", err)
+			}
+
+			// Fetch the chain transaction to get the actual
+			// pkScript.
+			chainTx, err := q.FetchChainTx(ctx, anchorPoint.Hash[:])
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					log.Warnf("chain tx not found for "+
+						"outpoint%v: %w, skipping",
+						anchorPoint, err)
+
+					continue
+				}
+
+				return fmt.Errorf("failed to fetch chain tx "+
+					"for outpoint %v: %w", anchorPoint, err)
+			}
+
+			// Extract the pkScript from the transaction.
+			var tx wire.MsgTx
+			err = tx.Deserialize(
+				bytes.NewReader(chainTx.RawTx),
+			)
+			if err != nil {
+				return fmt.Errorf("failed to deserialize "+
+					"chain tx for outpoint %v: %w",
+					anchorPoint, err)
+			}
+
+			pkScript := tx.TxOut[anchorPoint.Index].PkScript
+
+			mu := &tapfreighter.ZeroValueInput{
+				OutPoint:    anchorPoint,
+				OutputValue: btcutil.Amount(u.AmtSats),
+				InternalKey: keychain.KeyDescriptor{
+					PubKey: internalKey,
+					KeyLocator: keychain.KeyLocator{
+						Index: uint32(u.KeyIndex),
+						Family: keychain.KeyFamily(
+							u.KeyFamily,
+						),
+					},
+				},
+				MerkleRoot: u.MerkleRoot,
+				PkScript:   pkScript,
+			}
+
+			results = append(results, mu)
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, fmt.Errorf("failed to fetch orphan "+
+			"utxos: %w", dbErr)
+	}
+
+	return results, nil
 }
 
 // FetchAssetProofsSizes fetches the sizes of the proofs in the db.
@@ -2476,6 +2634,30 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 			}
 		}
 
+		// Also extend leases for any zero-value UTXOs being swept.
+		for _, zeroValueInput := range spend.ZeroValueInputs {
+			outpointBytes, err := encodeOutpoint(
+				zeroValueInput.OutPoint,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to encode "+
+					"zero-value outpoint: %w", err)
+			}
+
+			err = q.UpdateUTXOLease(ctx, UpdateUTXOLease{
+				LeaseOwner: finalLeaseOwner[:],
+				LeaseExpiry: sql.NullTime{
+					Time:  finalLeaseExpiry.UTC(),
+					Valid: true,
+				},
+				Outpoint: outpointBytes,
+			})
+			if err != nil {
+				return fmt.Errorf("unable to extend "+
+					" zero-value UTXO lease: %w", err)
+			}
+		}
+
 		// Then the passive assets.
 		if len(spend.PassiveAssets) > 0 {
 			if spend.PassiveAssetsAnchor == nil {
@@ -3302,9 +3484,30 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 		// Keep the old proofs as a reference for when we list past
 		// transfers.
 
-		// At this point we could delete the managed UTXO since it's no
-		// longer an unspent output, however we'll keep it in order to
-		// be able to reconstruct transfer history.
+		// Mark all zero-value UTXOs as swept since they were spent
+		// as additional inputs to the Bitcoin transaction.
+		for _, zeroValueInput := range conf.ZeroValueInputs {
+			outpoint := zeroValueInput.OutPoint
+			outpointBytes, err := encodeOutpoint(outpoint)
+			if err != nil {
+				return fmt.Errorf("failed to encode "+
+					"zero-value outpoint: %w", err)
+			}
+
+			err = q.MarkManagedUTXOAsSwept(ctx,
+				MarkManagedUTXOAsSweptParams{
+					Outpoint:     outpointBytes,
+					SweepingTxid: conf.AnchorTXID[:],
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to mark zero-value "+
+					"UTXO as swept: %w", err)
+			}
+
+			log.Debugf("Marked zero-value UTXO %v as swept",
+				outpoint)
+		}
 
 		// We now insert in the DB any burns that may have been present
 		// in the transfer.

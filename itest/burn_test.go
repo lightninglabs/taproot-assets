@@ -246,11 +246,6 @@ func testBurnAssets(t *harnessTest) {
 		WithScriptKeyType(asset.ScriptKeyBurn),
 	)
 
-	_, err = t.tapd.ListAssets(ctxt, &taprpc.ListAssetRequest{
-		IncludeSpent: true,
-	})
-	require.NoError(t.t, err)
-
 	// Test case 4: Burn some units of a grouped asset. We start by making
 	// sure we still have the full balance before burning.
 	AssertBalanceByID(
