@@ -666,8 +666,9 @@ func shipChannelTxn(txSender tapfreighter.Porter, chanTx *wire.MsgTx,
 		ChainFees: closeFee,
 		FinalTx:   chanTx,
 	}
+	parcelLabel := fmt.Sprintf("channel-tx-%s", chanTx.TxHash().String())
 	preSignedParcel := tapfreighter.NewPreAnchoredParcel(
-		vPkts, nil, closeAnchor, false, "",
+		vPkts, nil, closeAnchor, false, parcelLabel,
 	)
 	_, err = txSender.RequestShipment(preSignedParcel)
 	if err != nil {

@@ -367,7 +367,8 @@ func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 	// Continue state transitions whilst state complete has not yet
 	// been reached.
 	for pkg.SendState <= SendStateComplete {
-		log.Infof("ChainPorter executing state: %v", pkg.SendState)
+		log.Infof("ChainPorter executing state: %v (label=%s)",
+			pkg.SendState, pkg.Label)
 
 		// Before we attempt a state transition, make sure that
 		// we aren't trying to shut down.
