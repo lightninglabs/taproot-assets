@@ -18,14 +18,14 @@ import (
 )
 
 const (
-	// Migration33ScriptKeyType is the version of the migration that
-	// introduces the script key type.
-	Migration33ScriptKeyType = 33
+	// Migration48ScriptKeyType is the version of the code migration that
+	// runs the script key type detection/backfill.
+	Migration48ScriptKeyType = 48
 
-	// Migration37InsertAssetBurns is the version of the migration that
+	// Migration49InsertAssetBurns is the version of the code migration that
 	// inserts the asset burns into the specific asset burns table by
 	// querying all assets and detecting burns from their witnesses.
-	Migration37InsertAssetBurns = 37
+	Migration49InsertAssetBurns = 49
 )
 
 // postMigrationCheck is a function type for a function that performs a
@@ -38,8 +38,8 @@ var (
 	// applied. These functions are used to perform additional checks on the
 	// database state that are not fully expressible in SQL.
 	postMigrationChecks = map[uint]postMigrationCheck{
-		Migration33ScriptKeyType:    determineAndAssignScriptKeyType,
-		Migration37InsertAssetBurns: insertAssetBurns,
+		Migration48ScriptKeyType:    determineAndAssignScriptKeyType,
+		Migration49InsertAssetBurns: insertAssetBurns,
 	}
 )
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -573,6 +574,10 @@ func TestMigration33(t *testing.T) {
 
 	// And now that we have test data inserted, we can migrate to the latest
 	// version.
+	// NOTE: the post-migration check was originally run at migration
+	// version 33, but was later moved to version 48. Targeting the latest
+	// migration, will execute post-migration check, but at version 48
+	// instead of 33.
 	err := db.ExecuteMigrations(TargetLatest, WithPostStepCallbacks(
 		makePostStepCallbacks(db, postMigrationChecks),
 	))
@@ -672,6 +677,116 @@ func TestMigration33(t *testing.T) {
 	)
 }
 
+// TestMigration48ScriptKeyTypeReplay makes sure that if the script key type
+// backfill already ran for a user (originally at migration 33), the replay at
+// migration 48 is a no-op and doesn't rewrite any data.
+func TestMigration48ScriptKeyTypeReplay(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 32)
+
+	InsertTestdata(t, db.BaseDB, "migrations_test_00033_dummy_data.sql")
+
+	// We simulate that a user previously ran migration 33, which at the
+	// time also contained the code migration which has now been separated
+	// to migration 48.
+	err := db.ExecuteMigrations(TargetVersion(33), WithPostStepCallbacks(
+		makePostStepCallbacks(db, map[uint]postMigrationCheck{
+			33: determineAndAssignScriptKeyType,
+		}),
+	))
+	require.NoError(t, err)
+
+	const (
+		key1 = "039c571fffcac1a1a7cd3372bd202ad8562f28e48b90f8a4eb714" +
+			"eca062f576ee6"
+		key2 = "029c571fffcac1a1a7cd3372bd202ad8562f28e48b90f8a4eb714" +
+			"eca062f576ee6"
+		key3 = "03f9cdf1ff7c9fbb0ea3c8533cd7048994f41ea20a79764469c22" +
+			"aa18aa6696169"
+		key4 = "027c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3" +
+			"e6d540b3653fe"
+		key5 = "0350aaeb166f4234650d84a2d8a130987aeaf6950206e0905401e" +
+			"e74ff3f8d18e6"
+		key6 = "02248bca7dbb12dcf0b490263a1d521691691aa2541842b7472c8" +
+			"3acac0e88443b"
+	)
+
+	expectedKeyTypes := map[string]asset.ScriptKeyType{
+		key1: asset.ScriptKeyUnknown,
+		key2: asset.ScriptKeyBip86,
+		key3: asset.ScriptKeyScriptPathExternal,
+		key4: asset.ScriptKeyTombstone,
+		key5: asset.ScriptKeyScriptPathChannel,
+		key6: asset.ScriptKeyBurn,
+	}
+
+	// fetchTypes returns the script key types currently persisted in the
+	// database keyed by their tweaked hex representation.
+	fetchTypes := func() map[string]asset.ScriptKeyType {
+		currentTypes := make(map[string]asset.ScriptKeyType)
+
+		for keyHex := range expectedKeyTypes {
+			keyBytes, err := hex.DecodeString(keyHex)
+			require.NoError(t, err)
+
+			dbKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+				ctx, keyBytes,
+			)
+			require.NoError(t, err)
+
+			currentTypes[keyHex] =
+				extractSqlInt16[asset.ScriptKeyType](
+					dbKey.ScriptKey.KeyType,
+				)
+		}
+
+		return currentTypes
+	}
+
+	// Verify that the database contains the expected script keys after the
+	// first migration has been run.
+	require.Equal(t, expectedKeyTypes, fetchTypes())
+
+	// Now let's change the ScriptKey type for one of the entries, to an
+	// incorrect value. When the code migration is rerun, this value should
+	// not be changed despite being incorrect, as the replay of the code
+	// migration won't act on values which have already been assigned.
+	keyBytes, err := hex.DecodeString(key5)
+	require.NoError(t, err)
+
+	dbKey, err := db.BaseDB.FetchScriptKeyByTweakedKey(
+		ctx, keyBytes,
+	)
+	require.NoError(t, err)
+
+	_, err = db.BaseDB.UpsertScriptKey(ctx, NewScriptKey{
+		InternalKeyID:    dbKey.InternalKey.KeyID,
+		TweakedScriptKey: dbKey.ScriptKey.TweakedScriptKey,
+		Tweak:            dbKey.ScriptKey.Tweak,
+		KeyType:          sqlInt16(asset.ScriptKeyBip86),
+	})
+	require.NoError(t, err)
+
+	// Executing the code migration again (now at migration 48) should not
+	// change or add any new values than the values assigned when the code
+	// migration was run for migration version 33.
+	err = db.ExecuteMigrations(TargetLatest, WithPostStepCallbacks(
+		makePostStepCallbacks(db, postMigrationChecks),
+	))
+	require.NoError(t, err)
+
+	// As we changed the value for key5 to an incorrect value, we expect
+	// that the db still contains that, hence not being equal to the
+	// expectedKeyTypes.
+	require.NotEqual(t, expectedKeyTypes, fetchTypes())
+
+	// If we change the expectedKeyTypes to contain the incorrect value,
+	// they should however be equal.
+	expectedKeyTypes[key5] = asset.ScriptKeyBip86
+	require.Equal(t, expectedKeyTypes, fetchTypes())
+}
+
 // TestMigration37 tests that the Golang based post-migration check for the
 // asset burn insertion works as expected.
 func TestMigration37(t *testing.T) {
@@ -685,6 +800,10 @@ func TestMigration37(t *testing.T) {
 
 	// And now that we have test data inserted, we can migrate to the latest
 	// version.
+	// NOTE: the post-migration check was originally run at migration
+	// version 37, but was later moved to version 49. Targeting the latest
+	// migration, will execute post-migration check, but at version 49
+	// instead of 37.
 	err := db.ExecuteMigrations(TargetLatest, WithPostStepCallbacks(
 		makePostStepCallbacks(db, postMigrationChecks),
 	))
@@ -694,6 +813,71 @@ func TestMigration37(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, burns, 5)
+}
+
+// TestMigration49BurnReplay makes sure that if the asset burn code migration
+// already ran for a user (originally at migration 37), the replay at migration
+// 49 is a no-op and doesn't insert duplicate burns.
+func TestMigration49BurnReplay(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 36)
+
+	InsertTestdata(t, db.BaseDB, "migrations_test_00037_dummy_data.sql")
+
+	// The test data inserts 3 burns into the database before the migration
+	// is run. After the migration is run, 2 more entries will be added.
+	burnsBefore, err := db.QueryBurns(ctx, QueryBurnsFilters{})
+	require.NoError(t, err)
+	require.Len(t, burnsBefore, 3)
+
+	// We simulate that a user previously ran migration 37, which at the
+	// time also contained the code migration which has now been separated
+	// to migration 49.
+	err = db.ExecuteMigrations(TargetVersion(37), WithPostStepCallbacks(
+		makePostStepCallbacks(db, map[uint]postMigrationCheck{
+			37: insertAssetBurns,
+		}),
+	))
+	require.NoError(t, err)
+
+	// Since the migration was insertAssetBurns code migration was run for
+	// version 37, the database should now contain 5 entries.
+	burnsAfterFirstMigration, err := db.QueryBurns(ctx, QueryBurnsFilters{})
+	require.NoError(t, err)
+	require.Len(t, burnsAfterFirstMigration, 5)
+
+	normalizeBurns := func(burns []sqlc.QueryBurnsRow) []string {
+		result := make([]string, 0, len(burns))
+
+		for _, burn := range burns {
+			result = append(result, fmt.Sprintf("%x:%x:%x:%d",
+				burn.AnchorTxid, burn.AssetID, burn.GroupKey,
+				burn.Amount))
+		}
+
+		sort.Strings(result)
+
+		return result
+	}
+
+	// Execute the rest of the migrations, which will trigger the migration
+	// version 49 code migration.
+	err = db.ExecuteMigrations(TargetLatest, WithPostStepCallbacks(
+		makePostStepCallbacks(db, postMigrationChecks),
+	))
+	require.NoError(t, err)
+
+	burnsAfter, err := db.QueryBurns(ctx, QueryBurnsFilters{})
+	require.NoError(t, err)
+
+	// Despite that the code migration in migration version 49 was executed
+	// once more, the asset burns persisted in the database should not have
+	// changed.
+	require.Equal(
+		t, normalizeBurns(burnsAfterFirstMigration),
+		normalizeBurns(burnsAfter),
+	)
 }
 
 // TestDirtySqliteVersion tests that if a migration fails and leaves an Sqlite
