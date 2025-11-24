@@ -855,6 +855,16 @@ ORDER BY witness_index;
 DELETE FROM managed_utxos
 WHERE outpoint = $1;
 
+-- name: MarkManagedUTXOAsSwept :exec
+WITH spending_tx AS (
+    SELECT txn_id
+    FROM chain_txns
+    WHERE txid = @sweeping_txid
+)
+UPDATE managed_utxos
+SET swept_txn_id = (SELECT txn_id FROM spending_tx)
+WHERE outpoint = @outpoint;
+
 -- name: UpdateUTXOLease :exec
 UPDATE managed_utxos
 SET lease_owner = @lease_owner, lease_expiry = @lease_expiry

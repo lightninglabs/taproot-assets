@@ -1803,6 +1803,16 @@ func (a *Asset) IsBurn() bool {
 	return IsBurnKey(a.ScriptKey.PubKey, a.PrevWitnesses[0])
 }
 
+// IsTombstone returns true if an asset uses the NUMS script key and has zero
+// value.
+func (a *Asset) IsTombstone() bool {
+	if a.ScriptKey.PubKey == nil {
+		return false
+	}
+
+	return a.Amount == 0 && a.ScriptKey.PubKey.IsEqual(NUMSPubKey)
+}
+
 // PrimaryPrevID returns the primary prev ID of an asset. This is the prev ID of
 // the first witness, unless the first witness is a split-commitment witness,
 // in which case it is the prev ID of the first witness of the root asset.
