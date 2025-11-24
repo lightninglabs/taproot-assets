@@ -125,7 +125,8 @@ func (l *LndRpcChainBridge) GetBlock(ctx context.Context,
 			block, err := l.lnd.ChainKit.GetBlock(ctx, hash)
 			if err != nil {
 				return nil, fmt.Errorf(
-					"unable to retrieve block: %w", err,
+					"unable to retrieve block (hash=%s): "+
+						"%w", hash.String(), err,
 				)
 			}
 			return block, nil
