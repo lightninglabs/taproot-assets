@@ -134,6 +134,36 @@ func (l *LndRpcChainBridge) GetBlock(ctx context.Context,
 	)
 }
 
+// GetBlockByHeight returns a chain block given the block height.
+func (l *LndRpcChainBridge) GetBlockByHeight(ctx context.Context,
+	blockHeight int64) (*wire.MsgBlock, error) {
+
+	// First, we need to resolve the block hash at the given height.
+	blockHash, err := fn.RetryFuncN(
+		ctx, l.retryConfig, func() (chainhash.Hash, error) {
+			var zero chainhash.Hash
+
+			blockHash, err := l.lnd.ChainKit.GetBlockHash(
+				ctx, blockHeight,
+			)
+			if err != nil {
+				return zero, fmt.Errorf(
+					"unable to retrieve block hash: %w",
+					err,
+				)
+			}
+
+			return blockHash, nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve block hash: %w", err)
+	}
+
+	// Now that we have the block hash, we can fetch the block.
+	return l.GetBlock(ctx, blockHash)
+}
+
 // GetBlockHeader returns a block header given its hash.
 func (l *LndRpcChainBridge) GetBlockHeader(ctx context.Context,
 	hash chainhash.Hash) (*wire.BlockHeader, error) {
