@@ -9,6 +9,25 @@ if [ ! -d "$migrations_path" ]; then
   exit 1
 fi
 
+# is_sql_migration checks if a .up.sql file contains executable SQL
+# statements and not just comments/whitespace/semicolons. The logic mirrors the
+# Go helper the `migrate` package dependency uses in the `migrate.go` file.
+is_sql_migration() {
+  local file="$1"
+  local cleaned
+
+  cleaned=$(
+    perl -0777 -pe '
+      s/^\x{FEFF}//;
+      s{/\*.*?\*/}{}gs;
+      s{--[^\r\n]*}{}g;
+    ' "$file" 2>/dev/null | \
+    sed -E 's/[[:space:];]+//g'
+  )
+
+  [ -n "$cleaned" ]
+}
+
 # Get all unique prefixes (e.g., 000001, always 6 digits) from .up.sql files.
 prefixes=($(ls "$migrations_path"/*.up.sql 2>/dev/null | \
     sed -E 's/.*\/([0-9]{6})_.*\.up\.sql/\1/' | sort))
@@ -34,7 +53,11 @@ for i in "${!prefixes[@]}"; do
   base_filename=$(ls "$migrations_path/${prefixes[$i]}"_*.up.sql | \
       sed -E 's/\.up\.sql//')
 
-  if [ ! -f "$base_filename.down.sql" ]; then
+  # Error if the .up.sql is an SQL migration, but we're missing the
+  # corresponding .down.sql. This doesn't apply if the .up.sql file is a
+  # programmatic migration.
+  if is_sql_migration "$base_filename.up.sql" && \
+      [ ! -f "$base_filename.down.sql" ]; then
     echo "Error: Missing .down.sql file for migration $expected_prefix."
     exit 1
   fi
