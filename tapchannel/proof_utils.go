@@ -66,3 +66,38 @@ func updateProofsFromShortChanID(ctx context.Context,
 
 	return nil
 }
+
+// proofParamsForCommitTx creates proof params using the given block height and
+// commitment transaction. The transaction must be included in the block at that
+// height.
+func proofParamsForCommitTx(ctx context.Context,
+	chainBridge tapgarden.ChainBridge, blockHeight uint32,
+	commitTx wire.MsgTx) (proof.BaseProofParams, error) {
+
+	var zero proof.BaseProofParams
+
+	block, err := chainBridge.GetBlockByHeight(ctx, int64(blockHeight))
+	if err != nil {
+		return zero, err
+	}
+
+	txHash := commitTx.TxHash()
+	txIdx := -1
+	for idx, tx := range block.Transactions {
+		if tx.TxHash() == txHash {
+			txIdx = idx
+			break
+		}
+	}
+	if txIdx < 0 {
+		return zero, fmt.Errorf("commit tx %v not found in block %v",
+			txHash, block.BlockHash())
+	}
+
+	return proof.BaseProofParams{
+		Block:       block,
+		BlockHeight: blockHeight,
+		Tx:          block.Transactions[txIdx],
+		TxIndex:     txIdx,
+	}, nil
+}

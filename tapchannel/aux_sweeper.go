@@ -1090,6 +1090,84 @@ func assetOutputToVPacket(fundingInputProofs map[asset.ID]*proof.Proof,
 	return nil
 }
 
+// reanchorAssetOutputs updates each asset output proof so that it references
+// the actual commitment transaction output. Proofs are initially built using
+// a synthetic commitment template. Once the real commitment transaction is
+// known, we rewrite the proof's anchor transaction and output indexes.
+func reanchorAssetOutputs(ctx context.Context,
+	chainBridge tapgarden.ChainBridge, commitTx wire.MsgTx,
+	commitTxBlockHeight uint32, outputs []*cmsg.AssetOutput) error {
+
+	if len(outputs) == 0 {
+		return nil
+	}
+
+	// Only fetch block data if any proof is missing it.
+	proofBlockParams, err := proofParamsForCommitTx(
+		ctx, chainBridge, commitTxBlockHeight, commitTx,
+	)
+	if err != nil {
+		return fmt.Errorf("constructing proof block params: %w", err)
+	}
+
+	for _, output := range outputs {
+		p := &output.Proof.Val
+
+		// Derive the Taproot output script for this proof so we can
+		// locate the correct output index in the real commitment
+		// transaction.
+		pkScript, tapKey, err := p.TaprootOutputScript()
+		if err != nil {
+			return err
+		}
+
+		var idx = -1
+		for outIdx, txOut := range commitTx.TxOut {
+			if bytes.Equal(txOut.PkScript, pkScript) {
+				idx = outIdx
+				break
+			}
+		}
+
+		if idx < 0 {
+			return fmt.Errorf("no matching commit output found "+
+				"for asset %x (tap_key=%x)", output.AssetID.Val,
+				schnorr.SerializePubKey(tapKey))
+		}
+
+		err = p.UpdateTransitionProof(&proofBlockParams)
+		if err != nil {
+			return fmt.Errorf("failed to populate proof block: %w",
+				err)
+		}
+
+		// Ensure the anchor transaction actually spends the previous
+		// asset outpoint. Return an error if the stored PrevOut doesn't
+		// match any input.
+		if len(commitTx.TxIn) == 0 {
+			return fmt.Errorf("commit tx %v has no inputs",
+				commitTx.TxHash())
+		}
+		prevMatches := false
+		for _, txIn := range commitTx.TxIn {
+			if txIn.PreviousOutPoint == p.PrevOut {
+				prevMatches = true
+				break
+			}
+		}
+		if !prevMatches {
+			return fmt.Errorf("commit tx does not spend PrevOut "+
+				"(txid=%s, prev_out=%s)",
+				commitTx.TxHash().String(), p.PrevOut.String())
+		}
+
+		p.AnchorTx = commitTx
+		p.InclusionProof.OutputIndex = uint32(idx)
+	}
+
+	return nil
+}
+
 // anchorOutputAllocations is a helper function that creates a set of
 // allocations for the anchor outputs. We'll use this later to create the proper
 // exclusion proofs.
@@ -1846,11 +1924,21 @@ func (a *AuxSweeper) resolveContract(
 			"skipping", req.CommitTx.TxHash())
 	}
 
+	if req.CommitTx == nil {
+		return lfn.Errf[returnType]("no commitment transaction "+
+			"found for chan_point=%v", req.ChanPoint)
+	}
+	commitTx := *req.CommitTx
+
 	// The input proofs above were made originally using the fake commit tx
-	// as an anchor. We now know the real commit tx, so we'll swap that in
-	// to ensure the outpoints used below are correct.
-	for _, assetOut := range assetOutputs {
-		assetOut.Proof.Val.AnchorTx = *req.CommitTx
+	// as an anchor. We now know the real commit tx, so we'll bind each
+	// proof to the actual commitment output that carries the asset.
+	if err := reanchorAssetOutputs(
+		ctx, a.cfg.ChainBridge, commitTx, req.CommitTxBlockHeight,
+		assetOutputs,
+	); err != nil {
+		return lfn.Errf[returnType]("unable to re-anchor asset "+
+			"outputs: %w", err)
 	}
 
 	log.Infof("Sweeping %v asset outputs (second_level=%v): %v",
