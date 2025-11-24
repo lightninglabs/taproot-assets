@@ -1399,23 +1399,8 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 		// Before we combine the proofs below, we'll be sure to update
 		// the transition proof to include the proper block+merkle proof
 		// information.
-		blockHash, err := chainBridge.GetBlockHash(
-			ctxb, int64(scid.BlockHeight),
-		)
-		if err != nil {
-			return fmt.Errorf("unable to get block hash: %w", err)
-		}
-		block, err := chainBridge.GetBlock(ctxb, blockHash)
-		if err != nil {
-			return fmt.Errorf("unable to get block: %w", err)
-		}
-		err = proofToImport.UpdateTransitionProof(
-			&proof.BaseProofParams{
-				Block:       block,
-				BlockHeight: scid.BlockHeight,
-				Tx:          block.Transactions[scid.TxIndex],
-				TxIndex:     int(scid.TxIndex),
-			},
+		err = updateProofsFromShortChanID(
+			ctxb, chainBridge, scid, []*proof.Proof{proofToImport},
 		)
 		if err != nil {
 			return fmt.Errorf("error updating transition "+
@@ -1533,6 +1518,14 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 			return fmt.Errorf("unable to import output "+
 				"proofs: %w", err)
 		}
+	}
+
+	err = updateProofsFromShortChanID(
+		ctxb, a.cfg.ChainBridge, req.ShortChanID,
+		maps.Values(fundingInputProofs),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to update funding proofs: %w", err)
 	}
 
 	// With the funding proof for each asset ID known, we can now make the

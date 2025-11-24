@@ -259,6 +259,8 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 			"state: %w", err)
 	}
 
+	ctxb := context.Background()
+
 	// Each of the co-op close outputs needs to ref a funding input, so
 	// we'll map a map of asset ID to the funding output now.
 	inputProofs := make(
@@ -266,6 +268,14 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 	)
 	for _, fundingInput := range fundingInfo.FundedAssets.Val.Outputs {
 		inputProofs = append(inputProofs, &fundingInput.Proof.Val)
+	}
+
+	err = updateProofsFromShortChanID(
+		ctxb, a.cfg.ChainBridge, desc.ShortChanID, inputProofs,
+	)
+	if err != nil {
+		return none, fmt.Errorf("unable to update funding proofs: %w",
+			err)
 	}
 
 	// We'll also decode the shutdown blobs, so we can extract the shutdown
@@ -454,7 +464,6 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 
 	// We can now add the witness for the OP_TRUE spend of the commitment
 	// output to the vPackets.
-	ctxb := context.Background()
 	if err := signCommitVirtualPackets(ctxb, vPackets); err != nil {
 		return none, fmt.Errorf("error signing commit virtual "+
 			"packets: %w", err)
