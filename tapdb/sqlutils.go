@@ -97,6 +97,15 @@ func sqlStr(s string) sql.NullString {
 	}
 }
 
+// sqlTime turns a time.Time into the NullTime that sql/sqlc
+// uses when a time field can be permitted to be NULL.
+func sqlTime(t time.Time) sql.NullTime {
+	return sql.NullTime{
+		Time:  t,
+		Valid: true,
+	}
+}
+
 // SparseDecodeBlockHeight sparse decodes a proof to extract the block height.
 func SparseDecodeBlockHeight(rawProof []byte) (lfn.Option[uint32], error) {
 	var blockHeightVal uint32

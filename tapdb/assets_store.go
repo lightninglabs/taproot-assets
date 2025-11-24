@@ -854,10 +854,7 @@ func (a *AssetStore) constraintsToDbFilter(
 	query *AssetQueryFilters) (QueryAssetFilters, error) {
 
 	assetFilter := QueryAssetFilters{
-		Now: sql.NullTime{
-			Time:  a.clock.Now().UTC(),
-			Valid: true,
-		},
+		Now: sqlTime(a.clock.Now().UTC()),
 	}
 	if query != nil {
 		if query.MinAmt != 0 {
@@ -949,10 +946,7 @@ func (a *AssetStore) specificAssetFilter(id asset.ID, anchorPoint wire.OutPoint,
 	filter := QueryAssetFilters{
 		AssetIDFilter: id[:],
 		AnchorPoint:   anchorPointBytes,
-		Now: sql.NullTime{
-			Time:  a.clock.Now().UTC(),
-			Valid: true,
-		},
+		Now:           sqlTime(a.clock.Now().UTC()),
 	}
 
 	if groupKey != nil {
@@ -1032,10 +1026,7 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 	// We'll now map the application level filtering to the type of
 	// filtering our database query understands.
 	assetBalancesFilter := QueryAssetBalancesByAssetFilters{
-		Now: sql.NullTime{
-			Time:  a.clock.Now().UTC(),
-			Valid: true,
-		},
+		Now: sqlTime(a.clock.Now().UTC()),
 	}
 
 	// We exclude the assets that are specifically used for funding custom
@@ -1111,10 +1102,7 @@ func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
 	// We'll now map the application level filtering to the type of
 	// filtering our database query understands.
 	assetBalancesFilter := QueryAssetBalancesByGroupFilters{
-		Now: sql.NullTime{
-			Time:  a.clock.Now().UTC(),
-			Valid: true,
-		},
+		Now: sqlTime(a.clock.Now().UTC()),
 	}
 
 	// We exclude the assets that are specifically used for funding custom
@@ -1378,10 +1366,7 @@ func (a *AssetStore) FetchOrphanUTXOs(ctx context.Context) (
 			assetsAtAnchor, err := a.queryChainAssets(
 				ctx, q, QueryAssetFilters{
 					AnchorPoint: u.Outpoint,
-					Now: sql.NullTime{
-						Time:  now,
-						Valid: true,
-					},
+					Now:         sqlTime(now),
 				},
 			)
 			if err != nil {
@@ -2266,12 +2251,9 @@ func (a *AssetStore) LeaseCoins(ctx context.Context, leaseOwner [32]byte,
 			}
 
 			err = q.UpdateUTXOLease(ctx, UpdateUTXOLease{
-				LeaseOwner: leaseOwner[:],
-				LeaseExpiry: sql.NullTime{
-					Time:  expiry.UTC(),
-					Valid: true,
-				},
-				Outpoint: outpoint,
+				LeaseOwner:  leaseOwner[:],
+				LeaseExpiry: sqlTime(expiry.UTC()),
+				Outpoint:    outpoint,
 			})
 			if err != nil {
 				return err
@@ -2319,10 +2301,10 @@ func (a *AssetStore) ReleaseCoins(ctx context.Context,
 func (a *AssetStore) DeleteExpiredLeases(ctx context.Context) error {
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
-		return q.DeleteExpiredUTXOLeases(ctx, sql.NullTime{
-			Time:  a.clock.Now().UTC(),
-			Valid: true,
-		})
+		return q.DeleteExpiredUTXOLeases(
+			ctx,
+			sqlTime(a.clock.Now().UTC()),
+		)
 	})
 }
 
@@ -2377,10 +2359,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 			}
 			outpointQuery := QueryAssetFilters{
 				AnchorPoint: anchorPointBytes,
-				Now: sql.NullTime{
-					Time:  a.clock.Now().UTC(),
-					Valid: true,
-				},
+				Now:         sqlTime(a.clock.Now().UTC()),
 			}
 
 			anchoredAssets, err := a.queryChainAssets(
@@ -2645,12 +2624,9 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 			}
 
 			err = q.UpdateUTXOLease(ctx, UpdateUTXOLease{
-				LeaseOwner: finalLeaseOwner[:],
-				LeaseExpiry: sql.NullTime{
-					Time:  finalLeaseExpiry.UTC(),
-					Valid: true,
-				},
-				Outpoint: outpointBytes,
+				LeaseOwner:  finalLeaseOwner[:],
+				LeaseExpiry: sqlTime(finalLeaseExpiry.UTC()),
+				Outpoint:    outpointBytes,
 			})
 			if err != nil {
 				return fmt.Errorf("unable to extend "+
@@ -2715,12 +2691,9 @@ func insertAssetTransferInput(ctx context.Context, q ActiveAssetsStore,
 	// transaction, even if we restart. So we need to make sure the UTXO is
 	// leased for basically forever.
 	return q.UpdateUTXOLease(ctx, UpdateUTXOLease{
-		LeaseOwner: finalLeaseOwner[:],
-		LeaseExpiry: sql.NullTime{
-			Time:  finalLeaseExpiry.UTC(),
-			Valid: true,
-		},
-		Outpoint: anchorPointBytes,
+		LeaseOwner:  finalLeaseOwner[:],
+		LeaseExpiry: sqlTime(finalLeaseExpiry.UTC()),
+		Outpoint:    anchorPointBytes,
 	})
 }
 
@@ -3740,10 +3713,7 @@ func (a *AssetStore) queryParcelsWithFilters(ctx context.Context,
 		}
 
 		if !startTime.IsZero() {
-			transferQuery.StartTime = sql.NullTime{
-				Time:  startTime,
-				Valid: true,
-			}
+			transferQuery.StartTime = sqlTime(startTime)
 		}
 
 		// Add label filter if provided.

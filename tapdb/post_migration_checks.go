@@ -111,10 +111,7 @@ func determineAndAssignScriptKeyType(ctx context.Context,
 	// a list of the burn keys from the assets (because burn keys can only
 	// be calculated from the asset's witness).
 	assetFilter := QueryAssetFilters{
-		Now: sql.NullTime{
-			Time:  defaultClock.Now().UTC(),
-			Valid: true,
-		},
+		Now: sqlTime(defaultClock.Now().UTC()),
 	}
 	dbAssets, assetWitnesses, err := fetchAssetsWithWitness(
 		ctx, q, assetFilter,
@@ -235,10 +232,7 @@ func insertAssetBurns(ctx context.Context, q sqlc.Querier) error {
 	// a list of the burn keys from the assets (because burn keys can only
 	// be calculated from the asset's witness).
 	assetFilter := QueryAssetFilters{
-		Now: sql.NullTime{
-			Time:  defaultClock.Now().UTC(),
-			Valid: true,
-		},
+		Now: sqlTime(defaultClock.Now().UTC()),
 	}
 	dbAssets, assetWitnesses, err := fetchAssetsWithWitness(
 		ctx, q, assetFilter,

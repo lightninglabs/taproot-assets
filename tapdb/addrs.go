@@ -761,10 +761,7 @@ func (t *TapAddressBook) SetAddrManaged(ctx context.Context,
 	var writeTxOpts AddrBookTxOptions
 	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
 		return db.SetAddrManaged(ctx, AddrManaged{
-			ManagedFrom: sql.NullTime{
-				Time:  managedFrom.UTC(),
-				Valid: true,
-			},
+			ManagedFrom: sqlTime(managedFrom.UTC()),
 			TaprootOutputKey: schnorr.SerializePubKey(
 				&addr.TaprootOutputKey,
 			),
