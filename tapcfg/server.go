@@ -50,7 +50,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	// If we're using sqlite, we need to ensure that the temp directory is
 	// writable otherwise we might encounter an error at an unexpected
 	// time.
-	if cfg.DatabaseBackend == DatabaseBackendSqlite {
+	if !cfg.Sqlite.SkipTmpDirCheck &&
+		cfg.DatabaseBackend == DatabaseBackendSqlite {
+
 		err = checkSQLiteTempDir()
 		if err != nil {
 			return nil, fmt.Errorf("unable to ensure sqlite tmp "+

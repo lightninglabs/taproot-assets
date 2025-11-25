@@ -57,6 +57,10 @@ type SqliteConfig struct {
 	// be created before applying migrations.
 	SkipMigrationDbBackup bool `long:"skipmigrationdbbackup" description:"Skip creating a backup of the database before applying migrations."`
 
+	// SkipTmpDirCheck disables the writable temp directory check performed
+	// before opening the database.
+	SkipTmpDirCheck bool `long:"skiptmpdircheck" description:"Skip checking that the temp directory is writable before opening the database."`
+
 	// DatabaseFileName is the full file path where the database file can be
 	// found.
 	DatabaseFileName string `long:"dbfile" description:"The full path to the database."`
