@@ -47,6 +47,17 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		dbType sqlc.BackendType
 	)
 
+	// If we're using sqlite, we need to ensure that the temp directory is
+	// writable otherwise we might encounter an error at an unexpected
+	// time.
+	if cfg.DatabaseBackend == DatabaseBackendSqlite {
+		err = checkSQLiteTempDir()
+		if err != nil {
+			return nil, fmt.Errorf("unable to ensure sqlite tmp "+
+				"dir is writable: %w", err)
+		}
+	}
+
 	// Now that we know where the database will live, we'll go ahead and
 	// open up the default implementation of it.
 	switch cfg.DatabaseBackend {
