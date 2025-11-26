@@ -242,6 +242,10 @@ var allTestCases = []*testCase{
 		test: testPsbtRelativeLockTimeSendProofFail,
 	},
 	{
+		name: "psbt invalid input proof rejection",
+		test: testPsbtInvalidInputProofRejection,
+	},
+	{
 		name: "psbt normal interactive split send",
 		test: testPsbtNormalInteractiveSplitSend,
 	},

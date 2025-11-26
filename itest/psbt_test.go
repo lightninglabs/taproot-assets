@@ -4061,3 +4061,134 @@ func updateTaprootOutputKeysMarkerV0(btcPacket *psbt.Packet,
 
 	return nil
 }
+
+// testPsbtInvalidInputProofRejection tests that the ChainPorter correctly
+// rejects pre-anchored send packages with invalid input proofs at the
+// SendStateVerifyPreBroadcast state, preventing broadcast of transactions with
+// corrupted proofs. This validates the core invariant that invalid input
+// proofs cannot be broadcast.
+func testPsbtInvalidInputProofRejection(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	alice := t.tapd
+
+	// Mint a simple asset to Alice.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, alice,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	mintedAsset := rpcAssets[0]
+	genInfo := mintedAsset.AssetGenesis
+	assetID := genInfo.AssetId
+	fullAmt := mintedAsset.Amount
+
+	t.t.Logf("Minted asset %x with amount %d", assetID, fullAmt)
+
+	// Create Bob node to receive the initial transfer.
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bob := setupTapdHarness(t.t, t, lndBob, t.universeServer)
+	defer func() {
+		require.NoError(t.t, bob.stop(!*noDelete))
+	}()
+
+	// Transfer from Alice to Bob, creating a valid input proof for Bob.
+	bobAddr, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId: assetID,
+		Amt:     fullAmt,
+	})
+	require.NoError(t.t, err)
+
+	sendResp, _ := sendAssetsToAddr(t, alice, bobAddr)
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner().Client, alice, sendResp,
+		assetID, []uint64{0, fullAmt}, 0, 1,
+	)
+	AssertNonInteractiveRecvComplete(t.t, bob, 1)
+
+	// Bob now has the asset with a valid proof chain.
+	assertNumAssetOutputs(t.t, alice, assetID, 0)
+	assertNumAssetOutputs(t.t, bob, assetID, 1)
+
+	// Create valid spend transaction Bob -> Alice.
+	aliceScriptKey, aliceInternalKey := DeriveKeys(t.t, alice)
+
+	var (
+		id          [32]byte
+		chainParams = &address.RegressionNetTap
+	)
+	copy(id[:], assetID)
+
+	// Fund the virtual packet, creating valid input proofs.
+	fundResp := fundPacket(t, bob, tappsbt.ForInteractiveSend(
+		id, fullAmt, aliceScriptKey, 0, 0, 0, aliceInternalKey,
+		asset.V0, chainParams,
+	))
+
+	// Sign the virtual packet.
+	signResp, err := bob.SignVirtualPsbt(
+		ctxt, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: fundResp.FundedPsbt,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Decode to get vPacket structure.
+	vPacket, err := tappsbt.Decode(signResp.SignedPsbt)
+	require.NoError(t.t, err)
+
+	// Prepare anchoring template and commit.
+	vPackets := []*tappsbt.VPacket{vPacket}
+	btcPacket, err := tapsend.PrepareAnchoringTemplate(vPackets)
+	require.NoError(t.t, err)
+
+	btcPacket, vPackets, _, commitResp := CommitVirtualPsbts(
+		t.t, bob, btcPacket, vPackets, nil, -1,
+	)
+
+	// Now we want to corrupt the input proof. First, make a copy to avoid
+	// modifying the original.
+	corruptedVPacket := vPackets[0].Copy()
+
+	// Get the input proof.
+	require.NotEmpty(t.t, corruptedVPacket.Inputs,
+		"vPacket should have inputs")
+
+	inputProof := corruptedVPacket.Inputs[0].Proof
+	require.NotNil(t.t, inputProof, "input proof should exist")
+
+	// Modify the block header's PrevBlock hash. This will cause
+	// VerifyProofIntegrity to fail during header verification, but won't
+	// affect validity of the BTC-level anchor transaction.
+	inputProof.BlockHeader.PrevBlock = chainhash.Hash{}
+
+	// Finalize and publish the anchor transaction.
+	btcPacket = signPacket(t.t, lndBob, btcPacket)
+	btcPacket = FinalizePacket(t.t, lndBob.RPC, btcPacket)
+	anchorTx, err := psbt.Extract(btcPacket)
+	require.NoError(t.t, err)
+
+	anchorTxBytes, err := fn.Serialize(anchorTx)
+	require.NoError(t.t, err)
+
+	_, err = lndBob.RPC.WalletKit.PublishTransaction(
+		ctxt, &walletrpc.Transaction{
+			TxHex: anchorTxBytes,
+		},
+	)
+	require.NoError(t.t, err)
+	t.lndHarness.Miner().AssertNumTxsInMempool(1)
+
+	// Attempt to publish the corrupted proof. This creates a pre-anchored
+	// parcel that starts at SendStateVerifyPreBroadcast. The state machine
+	// should detect the invalid proof and reject it with an error.
+	PublishAndLogTransfer(
+		t.t, bob, btcPacket,
+		[]*tappsbt.VPacket{corruptedVPacket},
+		nil,
+		commitResp,
+		withExpectedErr("unable to verify"),
+	)
+}
