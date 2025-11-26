@@ -88,7 +88,22 @@ func (c MultiverseCacheConfig) maxProofCacheSizeBytes() (uint64, error) {
 }
 
 // cachedProofs is a list of cached proof leaves.
-type cachedProofs []*universe.Proof
+type cachedProofs struct {
+	// proofs is the list of cached proofs.
+	proofs []*universe.Proof
+
+	// proofSizeCache is a map of proof universe key to the size of the
+	// proof in bytes.
+	proofSizeCache map[[32]byte]uint64
+}
+
+// newCachedProofs creates a new cached proofs list.
+func newCachedProofs(proofs []*universe.Proof) cachedProofs {
+	return cachedProofs{
+		proofs:         proofs,
+		proofSizeCache: make(map[[32]byte]uint64, len(proofs)),
+	}
+}
 
 // Size returns the total byte size of all cached proofs.
 func (c *cachedProofs) Size() (uint64, error) {
@@ -97,12 +112,22 @@ func (c *cachedProofs) Size() (uint64, error) {
 	}
 
 	totalBytes := uint64(0)
-	for _, proof := range *c {
+	for _, proof := range c.proofs {
 		if proof == nil {
 			continue
 		}
 
-		totalBytes += proof.LowerBoundByteSize()
+		// Look up the cached size for this proof. If absent, compute
+		// the lower-bound size and cache it under the proof’s universe
+		// key.
+		universeKey := proof.LeafKey.UniverseKey()
+		size, ok := c.proofSizeCache[universeKey]
+		if !ok {
+			size = proof.LowerBoundByteSize()
+			c.proofSizeCache[universeKey] = size
+		}
+
+		totalBytes += size
 	}
 
 	return totalBytes, nil
@@ -181,7 +206,7 @@ func (p *universeProofCache) fetchProof(id universe.Identifier,
 	proofFromCache, err := p.cache.Get(uniProofKey)
 	if err == nil {
 		p.Hit()
-		return *proofFromCache
+		return proofFromCache.proofs
 	}
 
 	p.Miss()
@@ -198,7 +223,7 @@ func (p *universeProofCache) insertProofs(id universe.Identifier,
 	log.Debugf("Storing proof(s) in cache (universe_id=%v, leaf_key=%v, "+
 		"count=%d)", id.StringForLog(), leafKey, len(proofs))
 
-	proofVal := cachedProofs(proofs)
+	proofVal := newCachedProofs(proofs)
 	if _, err := p.cache.Put(uniProofKey, &proofVal); err != nil {
 		log.Errorf("Unable to insert proof into universe proof "+
 			"cache: %v", err)

@@ -411,7 +411,7 @@ func newTestUniverseProofs(t *testing.T, count int) []*universe.Proof {
 func proofCacheEntrySize(t *testing.T, proofs []*universe.Proof) uint64 {
 	t.Helper()
 
-	cached := cachedProofs(proofs)
+	cached := newCachedProofs(proofs)
 	size, err := (&cached).Size()
 	require.NoError(t, err)
 	require.NotZero(t, size)
