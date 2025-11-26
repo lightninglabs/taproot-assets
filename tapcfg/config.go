@@ -449,6 +449,7 @@ func DefaultConfig() Config {
 		DatabaseBackend: DatabaseBackendSqlite,
 		Sqlite: &tapdb.SqliteConfig{
 			DatabaseFileName: defaultSqliteDatabasePath,
+			SkipTmpDirCheck:  false,
 		},
 		Postgres: &tapdb.PostgresConfig{
 			Host:               "localhost",
