@@ -356,7 +356,7 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 		// tweaks to generate the key we'll use to verify the
 		// signature.
 		signingKey, leafToSign := applySignDescToVIn(
-			signDesc, vIn, &a.cfg.ChainParams, tapTweak,
+			signDesc, vIn, &a.cfg.ChainParams, tapTweak, false,
 		)
 
 		// In this case, the witness isn't special, so we'll set the
