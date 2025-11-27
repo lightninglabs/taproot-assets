@@ -442,10 +442,18 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 // also returns the leaf to be signed. For keyspend (breach scenarios), the
 // leaf will be empty.
 func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
-	chainParams *address.ChainParams, tapscriptRoot []byte,
-	isBreach bool) (btcec.PublicKey, txscript.TapLeaf) {
+	chainParams *address.ChainParams,
+	tapscriptRoot []byte) (btcec.PublicKey, txscript.TapLeaf) {
 
 	var leafToSign txscript.TapLeaf
+
+	// Detect breach scenario by checking if both SingleTweak and
+	// DoubleTweak are present. In breach scenarios (HTLC revocations), both
+	// tweaks are needed: DoubleTweak for the revocation key and SingleTweak
+	// for the HTLC index. In normal force close scenarios, only one tweak
+	// is present at a time.
+	isKeyspend := len(signDesc.SingleTweak) > 0 &&
+		signDesc.DoubleTweak != nil
 
 	// Set up derivation paths for the key.
 	deriv, trDeriv := tappsbt.Bip32DerivationFromKeyDesc(
@@ -454,7 +462,7 @@ func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
 	vIn.Bip32Derivation = []*psbt.Bip32Derivation{deriv}
 	vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{trDeriv}
 
-	if !isBreach {
+	if !isKeyspend {
 		// For normal sweeps (scriptspend), set up the leaf script.
 		leafToSign = txscript.TapLeaf{
 			Script:      signDesc.WitnessScript,
@@ -478,17 +486,16 @@ func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
 	// the same time, we apply the tweaks to a copy of the public key, so we
 	// can validate the produced signature.
 	//
-	// IMPORTANT: For HTLC revocations (breach scenarios), both DoubleTweak
+	// IMPORTANT: For HTLC revocations (keyspend scenarios) both DoubleTweak
 	// and SingleTweak are present, and the order matters:
 	// 1. DoubleTweak (revocation key) must be applied FIRST
 	// 2. SingleTweak (HTLC index) must be applied SECOND
 	//
 	// For normal force closes, only one tweak is present at a time, so the
-	// order doesn't matter. We detect breach scenarios by checking if both
-	// tweaks are set.
+	// order doesn't matter.
 	signingKey := signDesc.KeyDesc.PubKey
 
-	if isBreach {
+	if isKeyspend {
 		// Breach scenario: Apply DoubleTweak first, then SingleTweak.
 		key := btcwallet.PsbtKeyTypeInputSignatureTweakDouble
 		vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
@@ -584,7 +591,7 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 		vIn := vPacket.Inputs[0]
 
 		signingKey, leafToSign := applySignDescToVIn(
-			signDesc, vIn, s.cfg.ChainParams, tapscriptRoot, false,
+			signDesc, vIn, s.cfg.ChainParams, tapscriptRoot,
 		)
 
 		// We can now sign this virtual packet, as we've given the

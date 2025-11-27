@@ -3,6 +3,7 @@ package tapchannel
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"net/url"
@@ -351,17 +352,55 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 		// single asset from our commitment output.
 		vIn := vPacket.Inputs[0]
 
-		// Next, we'll apply the sign desc to the vIn, setting the PSBT
-		// specific fields. Along the way, we'll apply any relevant
-		// tweaks to generate the key we'll use to verify the
-		// signature.
-		signingKey, leafToSign := applySignDescToVIn(
-			signDesc, vIn, &a.cfg.ChainParams, tapTweak, false,
+		// Check if this is a keyspend scenario (HTLC revocation). Keyspend
+		// scenarios have no control block, while normal force close sweeps
+		// use scriptspend (control block present).
+		isKeyspend := len(ctrlBlock) == 0
+
+		var (
+			signingKey btcec.PublicKey
+			leafToSign txscript.TapLeaf
+			signMethod input.SignMethod
+			tapLeafOpt lfn.Option[txscript.TapLeaf]
 		)
 
-		// In this case, the witness isn't special, so we'll set the
-		// control block now for it.
-		vIn.TaprootLeafScript[0].ControlBlock = ctrlBlock
+		if isKeyspend {
+			// For keyspend scenarios (HTLC revocations), the common
+			// function applies both DoubleTweak (revocation) and
+			// SingleTweak (HTLC index) to derive the private key for
+			// signing. We discard the returned signingKey because for
+			// keyspend verification we use the asset's script key
+			// instead (see below).
+			_, leafToSign = applySignDescToVIn(
+				signDesc, vIn, &a.cfg.ChainParams, tapTweak,
+			)
+
+			// For keyspend, we need to verify the signature against
+			// the asset's script key, not the derived signing key.
+			// The asset script key was set during commitment
+			// creation and incorporates both the revocation key
+			// derivation and the HTLC index tweak via
+			// TweakHtlcTree(), which also recomputes the taproot
+			// output key with the script root.
+			inputAsset := vIn.Asset()
+			signingKey = *inputAsset.ScriptKey.PubKey
+			signMethod = input.TaprootKeySpendSignMethod
+
+			tapLeafOpt = lfn.None[txscript.TapLeaf]()
+		} else {
+			// For normal force close sweeps, we use scriptspend.
+			signingKey, leafToSign = applySignDescToVIn(
+				signDesc, vIn, &a.cfg.ChainParams, tapTweak,
+			)
+
+			// In this case, the witness isn't special, so we'll set
+			// the control block now for it.
+			vIn.TaprootLeafScript[0].ControlBlock = ctrlBlock
+
+			signMethod = input.TaprootScriptSpendSignMethod
+
+			tapLeafOpt = lfn.Some(leafToSign)
+		}
 
 		log.Debugf("signing vPacket for input=%v",
 			limitSpewer.Sdump(vIn.PrevID))
@@ -373,8 +412,8 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 			ctxb, vPacket, tapfreighter.SkipInputProofVerify(),
 			tapfreighter.WithValidator(&schnorrSigValidator{
 				pubKey:     signingKey,
-				tapLeaf:    lfn.Some(leafToSign),
-				signMethod: input.TaprootScriptSpendSignMethod,
+				tapLeaf:    tapLeafOpt,
+				signMethod: signMethod,
 			}),
 		)
 		if err != nil {
@@ -550,6 +589,31 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 				return aux.SignDetails.SignDesc
 			},
 		)(desc.auxSigInfo).UnwrapOr(resReq.SignDesc)
+
+		// For HTLC revocation sweeps (keyspend scenarios), we need to
+		// apply the HTLC index tweak to the SignDesc. This is indicated
+		// by an empty control block (keyspend path). The HTLC index is
+		// passed in resReq.HtlcID. This tweak is applied at the ASSET
+		// level only (not Bitcoin level).
+		//
+		// IMPORTANT: Only apply this for keyspend scenarios, NOT for
+		// normal force close HTLC sweeps.
+		isKeyspend := len(desc.ctrlBlockBytes) == 0
+		if isKeyspend {
+			// For keyspend scenarios, the HTLC ID must be present
+			// to compute the single tweak.
+			htlcID, err := resReq.HtlcID.UnwrapOrErr(errNoHtlcID)
+			if err != nil {
+				return lfn.Err[returnType](err)
+			}
+
+			// Convert HTLC index to single tweak bytes.
+			// Add 1 to ensure non-zero value.
+			indexTweak := uint64(htlcID) + 1
+			var singleTweak [32]byte
+			binary.BigEndian.PutUint64(singleTweak[24:], indexTweak)
+			signDesc.SingleTweak = singleTweak[:]
+		}
 
 		err := a.signSweepVpackets(
 			vPkts, signDesc, desc.scriptTree.TapTweak(),
@@ -1017,7 +1081,7 @@ func localHtlcSuccessSweepDesc(req lnwallet.ResolutionReq,
 
 // htlcOfferedRevokeSweepDesc creates a sweep descriptor for a revoked HTLC
 // where htlc.Incoming=false in the remote's commitment log (meaning we're
-// sending to them). We use the revocation path to sweep immediately.
+// sending to them). We use the revocation key to keyspend immediately.
 //
 // IMPORTANT: Like all other HTLC sweep descriptors, we must use a TWEAKED
 // keyring where the RevocationKey has the HTLC index tweak applied. This
@@ -1070,7 +1134,7 @@ func htlcOfferedRevokeSweepDesc(originalKeyRing *lnwallet.CommitmentKeyRing,
 
 // htlcAcceptedRevokeSweepDesc creates a sweep descriptor for a revoked HTLC
 // that was accepted by the remote party (incoming from their perspective). We
-// use the revocation path to sweep immediately.
+// use the revocation key to keyspend immediately.
 //
 // IMPORTANT: Like all other HTLC sweep descriptors, we must use a TWEAKED
 // keyring where the RevocationKey has the HTLC index tweak applied. This
@@ -1916,6 +1980,10 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 
 // errNoPayHash is an error returned when no payment hash is provided.
 var errNoPayHash = fmt.Errorf("no payment hash provided")
+
+// errNoHtlcID is an error returned when no HTLC ID is provided for a keyspend
+// scenario that requires it.
+var errNoHtlcID = fmt.Errorf("no HTLC ID provided for keyspend")
 
 // resolveContract takes in a resolution request and resolves it by creating a
 // serialized resolution blob that contains the virtual packets needed to sweep
