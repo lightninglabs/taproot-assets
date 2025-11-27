@@ -409,7 +409,7 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 	for _, entry := range nonAssetView.OurUpdates {
 		if !lnwallet.HtlcIsDust(
 			chanType, false, whoseCommit, feePerKw,
-			entry.Amount.ToSatoshis(), dustLimit,
+			entry.Amount.ToSatoshis(), dustLimit, false,
 		) {
 
 			numHTLCs++
@@ -418,7 +418,7 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 	for _, entry := range nonAssetView.TheirUpdates {
 		if !lnwallet.HtlcIsDust(
 			chanType, true, whoseCommit, feePerKw,
-			entry.Amount.ToSatoshis(), dustLimit,
+			entry.Amount.ToSatoshis(), dustLimit, false,
 		) {
 
 			numHTLCs++
@@ -430,7 +430,7 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 	for _, entry := range assetView.OurUpdates {
 		isDust := lnwallet.HtlcIsDust(
 			chanType, false, whoseCommit, feePerKw,
-			entry.Amount.ToSatoshis(), dustLimit,
+			entry.Amount.ToSatoshis(), dustLimit, false,
 		)
 		if rfqmsg.Sum(entry.AssetBalances) > 0 && isDust {
 			return false, false, fmt.Errorf("outgoing HTLC asset "+
@@ -445,7 +445,7 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 	for _, entry := range assetView.TheirUpdates {
 		isDust := lnwallet.HtlcIsDust(
 			chanType, true, whoseCommit, feePerKw,
-			entry.Amount.ToSatoshis(), dustLimit,
+			entry.Amount.ToSatoshis(), dustLimit, false,
 		)
 		if rfqmsg.Sum(entry.AssetBalances) > 0 && isDust {
 			return false, false, fmt.Errorf("incoming HTLC asset "+
@@ -785,7 +785,7 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 		isDust := lnwallet.HtlcIsDust(
 			chanState.ChanType, isIncoming, whoseCommit,
 			filteredView.FeePerKw, htlc.Amount.ToSatoshis(),
-			dustLimit,
+			dustLimit, false,
 		)
 		if isDust {
 			// We need to error out, as a dust HTLC carrying assets
@@ -882,7 +882,7 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 		isDust := lnwallet.HtlcIsDust(
 			chanState.ChanType, isIncoming, whoseCommit,
 			filteredView.FeePerKw, htlc.Amount.ToSatoshis(),
-			dustLimit,
+			dustLimit, false,
 		)
 		if isDust {
 			return nil

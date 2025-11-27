@@ -1,6 +1,6 @@
 module github.com/lightninglabs/taproot-assets
 
-go 1.24.11
+go 1.25.5
 
 require (
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6
@@ -220,3 +220,7 @@ replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
 
 // Needed for healthcheck import.
 replace github.com/prometheus/common => github.com/prometheus/common v0.26.0
+
+replace github.com/lightningnetwork/lnd => github.com/GeorgeTsagk/lnd v0.0.0-20260309152417-4cd51dc8fd46
+
+replace github.com/lightningnetwork/lnd/sqldb => github.com/GeorgeTsagk/lnd/sqldb v0.0.0-20260309152417-4cd51dc8fd46
