@@ -1320,7 +1320,7 @@ func (s *Server) ExtraBudgetForInputs(
 // NOTE: This method is part of the sweep.AuxSweeper interface.
 func (s *Server) NotifyBroadcast(req *sweep.BumpRequest,
 	tx *wire.MsgTx, fee btcutil.Amount,
-	outpointToTxIndex map[wire.OutPoint]int) error {
+	outpointToTxIndex map[wire.OutPoint]int, skipBroadcast bool) error {
 
 	srvrLog.Tracef("NotifyBroadcast called, req=%v, tx=%v, fee=%v, "+
 		"out_index=%v", lnutils.SpewLogClosure(req),
