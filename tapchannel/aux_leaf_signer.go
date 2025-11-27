@@ -438,52 +438,67 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 // applySignDescToVIn applies the sign descriptor to the virtual input. This
 // entails updating all the input bip32, taproot, and witness fields with the
 // information from the sign descriptor. This function returns the public key
-// that should be used to verify the generated signature, and also the leaf to
-// be signed.
+// that should be used to verify the generated signature. For scriptspend, it
+// also returns the leaf to be signed. For breach scenarios (keyspend), the
+// leaf will be empty.
 func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
 	chainParams *address.ChainParams,
 	tapscriptRoot []byte) (btcec.PublicKey, txscript.TapLeaf) {
 
-	leafToSign := txscript.TapLeaf{
-		Script:      signDesc.WitnessScript,
-		LeafVersion: txscript.BaseLeafVersion,
-	}
-	vIn.TaprootLeafScript = []*psbt.TaprootTapLeafScript{
-		{
-			Script:      leafToSign.Script,
-			LeafVersion: leafToSign.LeafVersion,
-		},
-	}
+	var leafToSign txscript.TapLeaf
 
+	// Detect breach scenario by checking if both SingleTweak and
+	// DoubleTweak are present. In breach scenarios (HTLC revocations), both
+	// tweaks are needed: DoubleTweak for the revocation key and SingleTweak
+	// for the HTLC index. In normal force close scenarios, only one tweak
+	// is present at a time.
+	isBreach := len(signDesc.SingleTweak) > 0 &&
+		signDesc.DoubleTweak != nil
+
+	// Set up derivation paths for the key.
 	deriv, trDeriv := tappsbt.Bip32DerivationFromKeyDesc(
 		signDesc.KeyDesc, chainParams.HDCoinType,
 	)
 	vIn.Bip32Derivation = []*psbt.Bip32Derivation{deriv}
-	vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
-		trDeriv,
+	vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{trDeriv}
+
+	if !isBreach {
+		// For normal sweeps (scriptspend), set up the leaf script.
+		leafToSign = txscript.TapLeaf{
+			Script:      signDesc.WitnessScript,
+			LeafVersion: txscript.BaseLeafVersion,
+		}
+		vIn.TaprootLeafScript = []*psbt.TaprootTapLeafScript{
+			{
+				Script:      leafToSign.Script,
+				LeafVersion: leafToSign.LeafVersion,
+			},
+		}
+		vIn.TaprootBip32Derivation[0].LeafHashes = [][]byte{
+			fn.ByteSlice(leafToSign.TapHash()),
+		}
 	}
-	vIn.TaprootBip32Derivation[0].LeafHashes = [][]byte{
-		fn.ByteSlice(leafToSign.TapHash()),
-	}
+
 	vIn.SighashType = signDesc.HashType
 	vIn.TaprootMerkleRoot = tapscriptRoot
 
-	// Apply single or double tweaks if present in the sign
-	// descriptor. At the same time, we apply the tweaks to a copy
-	// of the public key, so we can validate the produced signature.
+	// Apply single or double tweaks if present in the sign descriptor. At
+	// the same time, we apply the tweaks to a copy of the public key, so we
+	// can validate the produced signature.
+	//
+	// For breach scenarios, both DoubleTweak and SingleTweak are present.
+	// Both are added to the PSBT unknowns keyed by their type, so the
+	// append order here doesn't matter — the signer identifies them by
+	// key type, not position. However, when deriving the verification
+	// public key below, we must apply DoubleTweak (revocation) before
+	// SingleTweak (HTLC index) because DeriveRevocationPubkey hashes
+	// its input key, making the operations non-commutative.
+	//
+	// For normal force closes, only one tweak is present at a time.
 	signingKey := signDesc.KeyDesc.PubKey
-	if len(signDesc.SingleTweak) > 0 {
-		key := btcwallet.PsbtKeyTypeInputSignatureTweakSingle
-		vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
-			Key:   key,
-			Value: signDesc.SingleTweak,
-		})
 
-		signingKey = input.TweakPubKeyWithTweak(
-			signingKey, signDesc.SingleTweak,
-		)
-	}
-	if signDesc.DoubleTweak != nil {
+	if isBreach {
+		// Breach scenario: set both tweaks in PSBT unknowns.
 		key := btcwallet.PsbtKeyTypeInputSignatureTweakDouble
 		vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
 			Key:   key,
@@ -493,6 +508,41 @@ func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
 		signingKey = input.DeriveRevocationPubkey(
 			signingKey, signDesc.DoubleTweak.PubKey(),
 		)
+
+		key = btcwallet.PsbtKeyTypeInputSignatureTweakSingle
+		vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
+			Key:   key,
+			Value: signDesc.SingleTweak,
+		})
+
+		signingKey = input.TweakPubKeyWithTweak(
+			signingKey, signDesc.SingleTweak,
+		)
+	} else {
+		// Normal force close: Apply tweaks in the original order.
+		// Apply SingleTweak first (if present), then DoubleTweak.
+		if len(signDesc.SingleTweak) > 0 {
+			key := btcwallet.PsbtKeyTypeInputSignatureTweakSingle
+			vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
+				Key:   key,
+				Value: signDesc.SingleTweak,
+			})
+
+			signingKey = input.TweakPubKeyWithTweak(
+				signingKey, signDesc.SingleTweak,
+			)
+		}
+		if signDesc.DoubleTweak != nil {
+			key := btcwallet.PsbtKeyTypeInputSignatureTweakDouble
+			vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
+				Key:   key,
+				Value: signDesc.DoubleTweak.Serialize(),
+			})
+
+			signingKey = input.DeriveRevocationPubkey(
+				signingKey, signDesc.DoubleTweak.PubKey(),
+			)
+		}
 	}
 
 	return *signingKey, leafToSign
