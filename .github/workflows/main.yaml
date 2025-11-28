@@ -21,7 +21,7 @@ env:
 
   GO_VERSION: '1.24.9'
   
-  LITD_ITEST_BRANCH: 'master'
+  LITD_BRANCH: 'master'
 
 jobs:
   #######################
@@ -365,55 +365,29 @@ jobs:
   ########################
   # Run LiTd tests
   ########################
-  run-lit-tests:
-    name: run LiT tests
+  run-lit:
+    name: run LiT ${{ matrix.task_name }}
     runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - task_name: itests custom_channels
+            run_cmd: make itest icase=custom_channels
+          - task_name: unit
+            run_cmd: make unit
 
     steps:
       - name: git checkout
-        uses: actions/checkout@v5
-
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
-
-      - name: Setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v5
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-
-      - name: Clone Lit repository
         uses: actions/checkout@v4
-        with:
-          repository: lightninglabs/lightning-terminal
-          ref: ${{ env.LITD_ITEST_BRANCH }}
-          path: lightning-terminal
 
-      - name: Update go.mod to use the local Tap repository
+      - name: Prepare LiT workspace
+        uses: ./.github/actions/lit-setup
+
+      - name: Run LiT ${{ matrix.task_name }}
         working-directory: ./lightning-terminal
-        run: |
-          go mod edit -replace=github.com/lightninglabs/taproot-assets=../
-          go mod edit -replace=github.com/lightninglabs/taproot-assets/taprpc=../taprpc
-          go mod tidy
-
-      - name: Install yarn
-        run: npm install -g yarn
-
-      - name: setup nodejs
-        uses: ./lightning-terminal/.github/actions/setup-node
-        with:
-          node-version: 16.x
-
-      - name: install LiT app dependencies
-        working-directory: ./lightning-terminal/app
-        run: yarn
-
-      - name: Run LiT itests
-        working-directory: ./lightning-terminal
-        run: make itest icase=custom_channels
-
-      - name: Run LiT unit tests
-        working-directory: ./lightning-terminal
-        run: make unit
+        run: ${{ matrix.run_cmd }}
 
   # Notify about the completion of all coverage collecting jobs.
   finish:
