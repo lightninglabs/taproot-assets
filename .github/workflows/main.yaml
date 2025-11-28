@@ -173,6 +173,18 @@ jobs:
   cross-compile:
     name: cross compilation
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sys:
+          - darwin-amd64
+          - darwin-arm64
+          - linux-386
+          - linux-amd64
+          - linux-armv6
+          - linux-armv7
+          - linux-arm64
+          - windows-amd64
     steps:
       - name: git checkout
         uses: actions/checkout@v5
@@ -185,8 +197,8 @@ jobs:
         with:
           go-version: '${{ env.GO_VERSION }}'
 
-      - name: build release for all architectures
-        run: make release
+      - name: build release for ${{ matrix.sys }}
+        run: make release sys=${{ matrix.sys }}
 
   ########################
   # Lint check.
