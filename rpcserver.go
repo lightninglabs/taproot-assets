@@ -3169,6 +3169,13 @@ func (r *rpcServer) PublishAndLogTransfer(ctx context.Context,
 		anchorTx.FundedPsbt.LockedUTXOs[idx] = op
 	}
 
+	parcelLabel := fmt.Sprintf(
+		"pubandlog-%s", anchorTx.FinalTx.TxHash().String(),
+	)
+	if req.Label != "" {
+		parcelLabel = req.Label
+	}
+
 	// We now have everything to ship the pre-anchored parcel using the
 	// freighter. This will publish the TX, create the transfer database
 	// entries and ship the proofs to the counterparties. It'll also wait
@@ -3177,7 +3184,7 @@ func (r *rpcServer) PublishAndLogTransfer(ctx context.Context,
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewPreAnchoredParcel(
 			activePackets, passivePackets, anchorTx,
-			req.SkipAnchorTxBroadcast, req.Label,
+			req.SkipAnchorTxBroadcast, parcelLabel,
 		),
 	)
 	if err != nil {
@@ -3603,9 +3610,14 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 		return nil, err
 	}
 
+	label := req.Label
+	if req.Label == "" {
+		label = fmt.Sprintf("rpcsendasset-%s", tapAddrs[0].String())
+	}
+
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewAddressParcel(
-			feeRate, req.Label, req.SkipProofCourierPingCheck,
+			feeRate, label, req.SkipProofCourierPingCheck,
 			tapAddrs...,
 		),
 	)
