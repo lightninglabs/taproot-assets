@@ -7,9 +7,12 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -551,6 +554,45 @@ func (p *Proof) ToChainAsset() (asset.ChainAsset, error) {
 		AnchorMerkleRoot:       merkleRoot[:],
 		AnchorTapscriptSibling: tsSibling,
 	}, nil
+}
+
+// TaprootOutputScript derives the taproot output script and taproot key
+// anchoring this proof using its inclusion path.
+func (p *Proof) TaprootOutputScript() ([]byte, *btcec.PublicKey, error) {
+	commitmentKeys, err := p.InclusionProof.DeriveByAssetInclusion(
+		&p.Asset, fn.Ptr(false),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("derive inclusion commitment: %w",
+			err)
+	}
+
+	tapCommitment, err := commitmentKeys.GetCommitment()
+	if err != nil {
+		return nil, nil, fmt.Errorf("get taproot commitment: %w", err)
+	}
+
+	siblingPreimage := p.InclusionProof.CommitmentProof.TapSiblingPreimage
+	_, sibling, err := commitment.MaybeEncodeTapscriptPreimage(
+		siblingPreimage,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encode tapscript sibling: %w", err)
+	}
+
+	tapKey, err := deriveTaprootKeyFromTapCommitment(
+		tapCommitment, sibling, p.InclusionProof.InternalKey,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("derive taproot key: %w", err)
+	}
+
+	pkScript, err := txscript.PayToTaprootScript(tapKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("derive taproot script: %w", err)
+	}
+
+	return pkScript, tapKey, nil
 }
 
 // Ensure Proof implements the tlv.RecordProducer interface.

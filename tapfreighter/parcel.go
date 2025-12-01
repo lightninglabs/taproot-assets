@@ -41,6 +41,10 @@ const (
 	// then finalize to place the necessary signatures in the transaction.
 	SendStateAnchorSign
 
+	// SendStateVerifyPreBroadcast runs final pre-broadcast checks on the
+	// send-package.
+	SendStateVerifyPreBroadcast
+
 	// SendStateStorePreBroadcast is the state in which the finalized fully
 	// signed transaction is written to persistent storage before broadcast.
 	SendStateStorePreBroadcast
@@ -84,6 +88,9 @@ func (s SendState) String() string {
 
 	case SendStateAnchorSign:
 		return "SendStateAnchorSign"
+
+	case SendStateVerifyPreBroadcast:
+		return "SendStateVerifyPreBroadcast"
 
 	case SendStateStorePreBroadcast:
 		return "SendStateStorePreBroadcast"
@@ -424,7 +431,7 @@ func (p *PreAnchoredParcel) pkg() *sendPackage {
 	// commitment.
 	return &sendPackage{
 		Parcel:                p,
-		SendState:             SendStateStorePreBroadcast,
+		SendState:             SendStateVerifyPreBroadcast,
 		VirtualPackets:        p.virtualPackets,
 		PassiveAssets:         p.passiveAssets,
 		AnchorTx:              p.anchorTx,
