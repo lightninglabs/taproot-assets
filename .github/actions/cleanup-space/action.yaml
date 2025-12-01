@@ -7,26 +7,46 @@ runs:
     - name: Free up disk space
       shell: bash
       run: |
+        set -euo pipefail
+
         echo "Removing large toolsets to free up disk space..."
         echo "Disk space before cleanup:"
-        df -h
+        df -h || true
 
-        # Remove dotnet to save disk space.
-        sudo rm -rf /usr/share/dotnet
-        # Remove android to save disk space.
-        sudo rm -rf /usr/local/lib/android
-        # Remove ghc to save disk space.
-        sudo rm -rf /opt/ghc
-        # Remove large packages.
-        sudo rm -rf /usr/share/swift
-        sudo rm -rf /usr/local/julia*
-        sudo rm -rf /opt/hostedtoolcache
+        shopt -s nullglob
+
+        remove_path() {
+          local path="$1"
+          if [ -e "$path" ] || [ -L "$path" ]; then
+            echo "Removing $path"
+            sudo rm -rf "$path"
+          fi
+        }
+
+        # Remove large toolsets and caches.
+        remove_path /usr/share/dotnet
+        remove_path /usr/local/lib/android
+        remove_path /opt/ghc
+        remove_path /usr/share/swift
+        for path in /usr/local/julia*; do remove_path "$path"; done
+        remove_path /opt/hostedtoolcache
+
+        # Remove caches.
+        remove_path /usr/local/share/boost
+        if [ -n "${AGENT_TOOLSDIRECTORY:-}" ]; then
+          remove_path "$AGENT_TOOLSDIRECTORY"
+        fi
 
         # Remove docker images to save space.
-        docker image prune -a -f || true
+        if command -v docker >/dev/null 2>&1; then
+          docker image prune -a -f || true
+        else
+          echo "Docker not available; skipping image prune."
+        fi
 
-        # Remove large apt packages.
-        sudo apt-get remove -y \
+        # Remove large apt packages when available.
+        if command -v apt-get >/dev/null 2>&1; then
+          sudo apt-get remove -y \
             '^aspnetcore-.*' \
             '^dotnet-.*' \
             '^llvm-.*' \
@@ -39,12 +59,11 @@ runs:
             powershell \
             mono-devel \
             libgl1-mesa-dri 2>/dev/null || true
-        sudo apt-get autoremove -y
-        sudo apt-get clean
-
-        # Remove caches.
-        sudo rm -rf /usr/local/share/boost
-        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo apt-get autoremove -y || true
+          sudo apt-get clean || true
+        else
+          echo "apt-get not available; skipping package removals."
+        fi
 
         echo "Disk space after cleanup:"
-        df -h
+        df -h || true

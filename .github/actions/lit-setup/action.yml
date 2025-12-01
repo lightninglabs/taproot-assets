@@ -1,0 +1,40 @@
+name: LiT setup
+description: Prepare LiT workspace with Taproot-Assets replaces, caches, and dependencies
+runs:
+  using: composite
+  steps:
+    - name: setup go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '~${{ env.GO_VERSION }}'
+        cache: true
+        cache-dependency-path: |
+          lightning-terminal/go.sum
+          go.sum
+
+    - name: Clone LiT repository
+      uses: actions/checkout@v5
+      with:
+        repository: lightninglabs/lightning-terminal
+        ref: ${{ env.LITD_BRANCH }}
+        path: lightning-terminal
+
+    - name: Update go.mod to use the local repository
+      working-directory: ./lightning-terminal
+      run: |
+        go mod edit -replace=github.com/lightninglabs/taproot-assets=../
+        go mod edit -replace=github.com/lightninglabs/taproot-assets/taprpc=../taprpc
+        go mod tidy
+      shell: bash
+
+    - name: Setup Node.js and cache Yarn dependencies
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'yarn'
+        cache-dependency-path: lightning-terminal/app/yarn.lock
+
+    - name: Install LiT app dependencies
+      working-directory: ./lightning-terminal/app
+      run: yarn
+      shell: bash
