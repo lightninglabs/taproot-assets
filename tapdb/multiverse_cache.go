@@ -2,16 +2,23 @@ package tapdb
 
 import (
 	"bytes"
-	"crypto/sha256"
+	"fmt"
 	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
 
+	"github.com/dustin/go-humanize"
 	"github.com/lightninglabs/neutrino/cache/lru"
-	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lnutils"
+)
+
+const (
+	// defaultMaxProofCacheSize is the default maximum size of the proof
+	// cache expressed as a human-readable string type so that we can
+	// present it directly to CLI users.
+	defaultMaxProofCacheSize = "32MB"
 )
 
 // MultiverseCacheConfig is the configuration for the different multiverse
@@ -19,12 +26,9 @@ import (
 //
 //nolint:lll
 type MultiverseCacheConfig struct {
-	// ProofsPerUniverse is the number of proofs that are cached per
-	// universe. This number needs to be multiplied by the total number of
-	// universes to get the total number of proofs that are cached. There is
-	// no limit to the number of universes that can hold cached keys, so a
-	// cache is created for each universe that receives a request.
-	ProofsPerUniverse uint64 `long:"proofs-per-universe" description:"The number of proofs that are cached per universe."`
+	// MaxProofCacheSize is the maximum size of the proof cache expressed
+	// as a human-readable string, for example, "32MB" or "1GB".
+	MaxProofCacheSize string `long:"max-proof-cache-size" description:"The maximum total size of the cached proofs. Accepts human readable values such as 32MB or 1GB."`
 
 	// LeavesNumCachedUniverses is the number of universes that can have a
 	// cache of leaf keys. Each cached universe can have up to
@@ -58,7 +62,7 @@ type MultiverseCacheConfig struct {
 // multiverse cache.
 func DefaultMultiverseCacheConfig() MultiverseCacheConfig {
 	return MultiverseCacheConfig{
-		ProofsPerUniverse:        5,
+		MaxProofCacheSize:        defaultMaxProofCacheSize,
 		LeavesNumCachedUniverses: 2_000,
 		LeavesPerUniverse:        50,
 		SyncerCacheEnabled:       false,
@@ -67,63 +71,130 @@ func DefaultMultiverseCacheConfig() MultiverseCacheConfig {
 	}
 }
 
-// ProofKey is used to uniquely identify a proof within a universe. This is
-// used for the LRU cache for the proofs themselves, which are considered to be
-// immutable.
-type ProofKey [32]byte
+// maxProofCacheSizeBytes returns the parsed byte representation of the proof
+// cache size limit.
+func (c MultiverseCacheConfig) maxProofCacheSizeBytes() (uint64, error) {
+	sizeStr := c.MaxProofCacheSize
+	if sizeStr == "" {
+		sizeStr = defaultMaxProofCacheSize
+	}
 
-// NewProofKey takes a universe identifier and leaf key, and returns a proof
-// key.
-func NewProofKey(id universe.Identifier, key universe.LeafKey) ProofKey {
-	idBytes := id.Bytes()
-	leafKeyBytes := key.UniverseKey()
+	sizeBytes, err := humanize.ParseBytes(sizeStr)
+	if err != nil {
+		return 0, fmt.Errorf("parse max proof cache size: %w", err)
+	}
 
-	// The proof key maps down the ID and the leaf key into a single
-	// 32-byte value: sha256(id || leaf_key)..
-	h := sha256.New()
-	h.Write(idBytes[:])
-	h.Write(leafKeyBytes[:])
-
-	return fn.ToArray[ProofKey](h.Sum(nil))
+	return sizeBytes, nil
 }
 
 // cachedProofs is a list of cached proof leaves.
-type cachedProofs []*universe.Proof
+type cachedProofs struct {
+	// proofs is the list of cached proofs.
+	proofs []*universe.Proof
 
-// Size just returns 1 as we're limiting based on the total number different
-// leaf keys we query by. So we might store more than one proof per cache entry
-// if the universe key's script key isn't set. But we only want a certain number
-// of different keys stored in the cache.
+	// proofSizeCache is a map of proof universe key to the size of the
+	// proof in bytes.
+	proofSizeCache map[[32]byte]uint64
+}
+
+// newCachedProofs creates a new cached proofs list.
+func newCachedProofs(proofs []*universe.Proof) cachedProofs {
+	return cachedProofs{
+		proofs:         proofs,
+		proofSizeCache: make(map[[32]byte]uint64, len(proofs)),
+	}
+}
+
+// Size returns the total byte size of all cached proofs.
 func (c *cachedProofs) Size() (uint64, error) {
-	return 1, nil
+	if c == nil {
+		return 0, nil
+	}
+
+	totalBytes := uint64(0)
+	for _, proof := range c.proofs {
+		if proof == nil {
+			continue
+		}
+
+		// Look up the cached size for this proof. If absent, compute
+		// the lower-bound size and cache it under the proof’s universe
+		// key.
+		universeKey := proof.LeafKey.UniverseKey()
+		size, ok := c.proofSizeCache[universeKey]
+		if !ok {
+			size = proof.LowerBoundByteSize()
+			c.proofSizeCache[universeKey] = size
+		}
+
+		totalBytes += size
+	}
+
+	return totalBytes, nil
 }
 
 // newProofCache creates a new leaf proof cache.
-func newProofCache(proofCacheSize uint64) *lru.Cache[ProofKey, *cachedProofs] {
-	return lru.NewCache[ProofKey, *cachedProofs](proofCacheSize)
+//
+// nolint: lll
+func newProofCache(totalCacheBytesSize uint64) *lru.Cache[UniverseProofKey, *cachedProofs] {
+	return lru.NewCache[UniverseProofKey, *cachedProofs](
+		totalCacheBytesSize,
+	)
 }
 
-// universeIDKey is a cache key that is used to uniquely identify a universe
-// within a multiverse tree cache.
+// universeIDKey is a cache key used to uniquely identify a universe within a
+// multiverse tree cache.
 type universeIDKey = string
+
+// UniverseProofKey houses the components of a universe proof key. All fields
+// must be comparable.
+type UniverseProofKey struct {
+	// uniIDKey is the universe ID key to which the proof belongs.
+	uniIDKey universe.IdentifierKey
+
+	// leafKey is the leaf key of the proof.
+	leafKeyBytes [32]byte
+}
+
+// NewUniverseProofKey creates a new universe proof key.
+func NewUniverseProofKey(uniID universe.Identifier,
+	leafKey universe.LeafKey) UniverseProofKey {
+
+	return UniverseProofKey{
+		uniIDKey:     uniID.Key(),
+		leafKeyBytes: leafKey.UniverseKey(),
+	}
+}
 
 // universeProofCache a map of proof caches for each proof type.
 type universeProofCache struct {
-	proofsPerUniverse uint64
+	// maxCacheByteSize is the maximum size of the cache in bytes.
+	maxCacheByteSize uint64
 
-	lnutils.SyncMap[universeIDKey, *lru.Cache[ProofKey, *cachedProofs]]
+	// cache is the LRU cache for the proofs themselves.
+	cache *lru.Cache[UniverseProofKey, *cachedProofs]
 
 	*cacheLogger
 }
 
 // newUniverseProofCache creates a new proof cache.
-func newUniverseProofCache(proofsPerUniverse uint64) *universeProofCache {
+func newUniverseProofCache(maxCacheByteSize uint64) *universeProofCache {
+	cache := newProofCache(maxCacheByteSize)
+
+	// Formulate a callback function that returns the cache size in a
+	// human-readable format. This will be called by the cache logger to get
+	// the current cache size.
+	cacheSizeLogStr := func() string {
+		return humanize.Bytes(cache.Size())
+	}
+	cacheLogger := newCacheLogger(
+		"universe_proofs", withCacheSizeFunc(cacheSizeLogStr),
+	)
+
 	return &universeProofCache{
-		proofsPerUniverse: proofsPerUniverse,
-		SyncMap: lnutils.SyncMap[
-			universeIDKey, *lru.Cache[ProofKey, *cachedProofs],
-		]{},
-		cacheLogger: newCacheLogger("universe_proofs"),
+		maxCacheByteSize: maxCacheByteSize,
+		cache:            cache,
+		cacheLogger:      cacheLogger,
 	}
 }
 
@@ -131,19 +202,11 @@ func newUniverseProofCache(proofsPerUniverse uint64) *universeProofCache {
 func (p *universeProofCache) fetchProof(id universe.Identifier,
 	leafKey universe.LeafKey) []*universe.Proof {
 
-	// First, get the sub-cache for this universe ID from the map of
-	// caches.
-	assetProofCache, _ := p.LoadOrStore(
-		id.String(), newProofCache(p.proofsPerUniverse),
-	)
-
-	// With that lower level cache obtained, we can check to see if we have
-	// a hit or not.
-	proofKey := NewProofKey(id, leafKey)
-	proofFromCache, err := assetProofCache.Get(proofKey)
+	uniProofKey := NewUniverseProofKey(id, leafKey)
+	proofFromCache, err := p.cache.Get(uniProofKey)
 	if err == nil {
 		p.Hit()
-		return *proofFromCache
+		return proofFromCache.proofs
 	}
 
 	p.Miss()
@@ -153,28 +216,46 @@ func (p *universeProofCache) fetchProof(id universe.Identifier,
 
 // insertProofs inserts the given proofs into the cache.
 func (p *universeProofCache) insertProofs(id universe.Identifier,
-	leafKey universe.LeafKey, proof []*universe.Proof) {
+	leafKey universe.LeafKey, proofs []*universe.Proof) {
 
-	assetProofCache, _ := p.LoadOrStore(
-		id.String(), newProofCache(p.proofsPerUniverse),
-	)
+	uniProofKey := NewUniverseProofKey(id, leafKey)
 
-	proofKey := NewProofKey(id, leafKey)
+	log.Debugf("Storing proof(s) in cache (universe_id=%v, leaf_key=%v, "+
+		"count=%d)", id.StringForLog(), leafKey, len(proofs))
 
-	log.Debugf("storing proof for %v+%v in cache, key=%x",
-		id.StringForLog(), leafKey, proofKey[:])
-
-	proofVal := cachedProofs(proof)
-	if _, err := assetProofCache.Put(proofKey, &proofVal); err != nil {
-		log.Errorf("unable to insert into proof cache: %v", err)
+	proofVal := newCachedProofs(proofs)
+	if _, err := p.cache.Put(uniProofKey, &proofVal); err != nil {
+		log.Errorf("Unable to insert proof into universe proof "+
+			"cache: %v", err)
 	}
 }
 
-// delProofsForAsset deletes all the proofs for the given asset.
-func (p *universeProofCache) delProofsForAsset(id universe.Identifier) {
-	log.Debugf("wiping proofs for %v from cache", id)
+// RemoveUniverseProofs deletes all the proofs for the given universe ID.
+func (p *universeProofCache) RemoveUniverseProofs(id universe.Identifier) {
+	log.Debugf("Removing universe proofs (universe_id=%s)",
+		id.StringForLog())
 
-	p.Delete(id.String())
+	targetIDKey := id.Key()
+	p.cache.Range(
+		func(key UniverseProofKey, proofs *cachedProofs) bool {
+			if key.uniIDKey == targetIDKey {
+				p.cache.Delete(key)
+			}
+			return true
+		},
+	)
+}
+
+// RemoveLeafKeyProofs deletes all the proofs for the given universe ID and leaf
+// key.
+func (p *universeProofCache) RemoveLeafKeyProofs(id universe.Identifier,
+	leafKey universe.LeafKey) {
+
+	log.Debugf("Removing leaf key proofs (universe_id=%s, leaf_key=%v)",
+		id.StringForLog(), leafKey)
+
+	targetCacheKey := NewUniverseProofKey(id, leafKey)
+	p.cache.Delete(targetCacheKey)
 }
 
 // rootPageQueryKey is a cache key that wraps around a query to fetch all the
@@ -374,8 +455,8 @@ func (r *syncerRootNodeCache) fetchRoots(q universe.RootNodesQuery,
 		if !ok {
 			// This should never happen, the two maps should be in
 			// sync.
-			log.Errorf("Root key %x found in cache list but not "+
-				"in map", id[:])
+			log.Errorf("Root key found in cache list but not "+
+				"in map (key=%x)", id[:])
 			r.Miss()
 
 			return nil, false
@@ -558,7 +639,7 @@ func (r *rootNodeCache) fetchRoots(q universe.RootNodesQuery,
 func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 	rootNodes []universe.Root) {
 
-	log.Debugf("caching num_roots=%v", len(rootNodes))
+	log.Debugf("Caching root node (count=%v)", len(rootNodes))
 
 	// Store the main root pointer, then update the root index.
 	rootPageCache := r.allRoots.Load()
@@ -576,7 +657,7 @@ func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 
 // wipeCache wipes all the cached roots.
 func (r *rootNodeCache) wipeCache() {
-	log.Debugf("wiping universe cache")
+	log.Debugf("Wiping universe root node cache")
 
 	r.allRoots.wipe(r.cacheSize)
 	r.rootIndex.wipe()
@@ -653,8 +734,8 @@ func (u *universeLeafPageCache) fetchLeafKeys(
 		leafKeys, err := leafPageCache.Get(newLeafQuery(q))
 		if err == nil {
 			u.Hit()
-			log.Tracef("read leaf keys for %v from cache",
-				q.Id.StringForLog())
+			log.Tracef("Read leaf keys from page cache "+
+				"(universe_id=%v)", q.Id.StringForLog())
 			return *leafKeys
 		}
 	}
@@ -672,7 +753,8 @@ func (u *universeLeafPageCache) cacheLeafKeys(q universe.UniverseLeafKeysQuery,
 
 	idStr := q.Id.String()
 
-	log.Debugf("storing leaf keys for %v in cache", q.Id.StringForLog())
+	log.Debugf("Storing leaf key(s) in cache (universe_id=%v)",
+		q.Id.StringForLog())
 
 	pageCache, err := u.leafCache.Get(idStr)
 	if err != nil {
@@ -687,21 +769,21 @@ func (u *universeLeafPageCache) cacheLeafKeys(q universe.UniverseLeafKeysQuery,
 		if _, err := u.leafCache.Put(idStr, pageCache); err != nil {
 			// If we encounter an error here, we'll exit to avoid a
 			// panic below.
-			log.Errorf("unable to store entry in page cache: %v",
+			log.Errorf("Unable to store entry in page cache: %v",
 				err)
 			return
 		}
 	}
 
-	// Add the to the page cache.
+	// Add the cached keys to the page cache.
 	if _, err := pageCache.Put(newLeafQuery(q), &cachedKeys); err != nil {
-		log.Errorf("unable to store leaf resp: %v", err)
+		log.Errorf("Unable to store leaf resp: %v", err)
 	}
 }
 
 // wipeCache wipes the cache of leaf keys for a given universe ID.
 func (u *universeLeafPageCache) wipeCache(id universeIDKey) {
-	log.Debugf("wiping leaf keys for %s in cache", id)
+	log.Debugf("Wiping leaf keys from page cache (universe_id=%s)", id)
 
 	u.leafCache.Delete(id)
 }

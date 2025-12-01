@@ -142,7 +142,12 @@ type MultiverseStore struct {
 
 // NewMultiverseStore creates a new multiverse DB store handle.
 func NewMultiverseStore(db BatchedMultiverse,
-	cfg *MultiverseStoreConfig) *MultiverseStore {
+	cfg *MultiverseStoreConfig) (*MultiverseStore, error) {
+
+	proofCacheSize, err := cfg.Caches.maxProofCacheSizeBytes()
+	if err != nil {
+		return nil, fmt.Errorf("parse max proof cache size: %w", err)
+	}
 
 	return &MultiverseStore{
 		db:  db,
@@ -154,15 +159,13 @@ func NewMultiverseStore(db BatchedMultiverse,
 		rootNodeCache: newRootNodeCache(
 			cfg.Caches.RootNodePageCacheSize,
 		),
-		proofCache: newUniverseProofCache(
-			cfg.Caches.ProofsPerUniverse,
-		),
+		proofCache: newUniverseProofCache(proofCacheSize),
 		leafKeysCache: newUniverseLeafPageCache(
 			cfg.Caches.LeavesNumCachedUniverses,
 			cfg.Caches.LeavesPerUniverse,
 		),
 		transferProofDistributor: fn.NewEventDistributor[proof.Blob](),
-	}
+	}, nil
 }
 
 // namespaceForProof returns the multiverse namespace used for the given proof
@@ -834,7 +837,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 
 	// Invalidate the cache since we just updated the root.
 	b.rootNodeCache.wipeCache()
-	b.proofCache.delProofsForAsset(id)
+	b.proofCache.RemoveLeafKeyProofs(id, key)
 	b.leafKeysCache.wipeCache(id.String())
 	b.syncerCache.addOrReplace(universe.Root{
 		ID:        id,
@@ -952,8 +955,12 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	)
 
 	for id := range idsToDelete {
-		b.proofCache.Delete(id)
 		b.leafKeysCache.wipeCache(id)
+	}
+
+	for idx := range items {
+		item := items[idx]
+		b.proofCache.RemoveLeafKeyProofs(item.ID, item.Key)
 	}
 
 	return nil
@@ -990,7 +997,7 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 	// Wipe the cache items from this node.
 	b.rootNodeCache.wipeCache()
 
-	b.proofCache.Delete(id.String())
+	b.proofCache.RemoveUniverseProofs(id)
 	b.leafKeysCache.wipeCache(id.String())
 	b.syncerCache.remove(id.Key())
 

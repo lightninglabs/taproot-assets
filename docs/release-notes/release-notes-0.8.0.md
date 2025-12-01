@@ -8,6 +8,7 @@
     - [Functional Updates](#functional-updates)
     - [RPC Updates](#rpc-updates)
     - [tapcli Updates](#tapcli-updates)
+    - [Config Changes](#config-changes)
     - [Breaking Changes](#breaking-changes)
     - [Performance Improvements](#performance-improvements)
     - [Deprecations](#deprecations)
@@ -52,6 +53,13 @@
   /authmailboxrpc.Mailbox/MailboxInfo.
 
 ## tapcli Updates
+
+## Config Changes
+
+- [PR#1870](https://github.com/lightninglabs/taproot-assets/pull/1870)
+  The `proofs-per-universe` configuration option is removed. New option 
+  `max-proof-cache-size` sets the proof cache limit in bytes and accepts
+  human-readable values such as `64MB`.
 
 ## Code Health
 

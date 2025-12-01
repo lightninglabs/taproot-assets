@@ -16,6 +16,7 @@ require (
 	github.com/caddyserver/certmagic v0.17.2
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0
+	github.com/dustin/go-humanize v1.0.1
 	github.com/go-errors/errors v1.0.1
 	github.com/golang-migrate/migrate/v4 v4.17.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
@@ -28,7 +29,7 @@ require (
 	github.com/lightninglabs/aperture v0.3.13-beta
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.3
 	github.com/lightninglabs/lndclient v0.20.0-5
-	github.com/lightninglabs/neutrino/cache v1.1.2
+	github.com/lightninglabs/neutrino/cache v1.1.3
 	github.com/lightninglabs/taproot-assets/taprpc v1.0.9
 	github.com/lightningnetwork/lnd v0.20.0-beta
 	github.com/lightningnetwork/lnd/cert v1.2.2
@@ -85,7 +86,6 @@ require (
 	github.com/docker/docker v28.1.1+incompatible // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fergusstrange/embedded-postgres v1.25.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

@@ -241,7 +241,7 @@ func (d *DbHandler) AddRandomServerAddrs(t *testing.T,
 }
 
 // newDbHandleFromDb creates a new database store handle given a database store.
-func newDbHandleFromDb(db *BaseDB) *DbHandler {
+func newDbHandleFromDb(t *testing.T, db *BaseDB) *DbHandler {
 	testClock := clock.NewTestClock(time.Now())
 
 	// Gain a handle to the pending (minting) universe federation store.
@@ -258,9 +258,10 @@ func newDbHandleFromDb(db *BaseDB) *DbHandler {
 			return db.WithTx(tx)
 		},
 	)
-	multiverseStore := NewMultiverseStore(
+	multiverseStore, err := NewMultiverseStore(
 		multiverseTxCreator, DefaultMultiverseStoreConfig(),
 	)
+	require.NoError(t, err)
 
 	// Gain a handle to the pending (minting) assets store.
 	assetMintingDB := NewTransactionExecutor(
@@ -301,12 +302,12 @@ func newDbHandleFromDb(db *BaseDB) *DbHandler {
 // path.
 func NewDbHandleFromPath(t *testing.T, dbPath string) *DbHandler {
 	db := NewTestDbHandleFromPath(t, dbPath)
-	return newDbHandleFromDb(db.BaseDB)
+	return newDbHandleFromDb(t, db.BaseDB)
 }
 
 // NewDbHandle creates a new database store handle.
 func NewDbHandle(t *testing.T) *DbHandler {
 	// Create a new test database with the default database file path.
 	db := NewTestDB(t)
-	return newDbHandleFromDb(db.BaseDB)
+	return newDbHandleFromDb(t, db.BaseDB)
 }

@@ -393,17 +393,22 @@ type Proof struct {
 	MultiverseInclusionProof *mssmt.Proof
 }
 
+// LowerBoundByteSize returns the lower bound on the byte size of the proof.
+func (p *Proof) LowerBoundByteSize() uint64 {
+	return fn.LowerBoundByteSize(p)
+}
+
 // VerifyRoot verifies that the inclusion proof for the root node matches the
 // specified root. This is useful for sanity checking an issuance proof against
-// the purported root, and the included leaf.
-func (i *Proof) VerifyRoot(expectedRoot mssmt.Node) bool {
-	leafNode := i.Leaf.SmtLeafNode()
+// the purported root and the included leaf.
+func (p *Proof) VerifyRoot(expectedRoot mssmt.Node) bool {
+	leafNode := p.Leaf.SmtLeafNode()
 
-	reconstructedRoot := i.UniverseInclusionProof.Root(
-		i.LeafKey.UniverseKey(), leafNode,
+	reconstructedRoot := p.UniverseInclusionProof.Root(
+		p.LeafKey.UniverseKey(), leafNode,
 	)
 
-	return mssmt.IsEqualNode(i.UniverseRoot, expectedRoot) &&
+	return mssmt.IsEqualNode(p.UniverseRoot, expectedRoot) &&
 		mssmt.IsEqualNode(reconstructedRoot, expectedRoot)
 }
 

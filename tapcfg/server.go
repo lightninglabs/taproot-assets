@@ -165,11 +165,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	cfgLogger.Debugf("multiverse_cache=%v",
 		spew.Sdump(cfg.Universe.MultiverseCaches))
 
-	multiverse := tapdb.NewMultiverseStore(
+	multiverse, err := tapdb.NewMultiverseStore(
 		multiverseDB, &tapdb.MultiverseStoreConfig{
 			Caches: *cfg.Universe.MultiverseCaches,
 		},
 	)
+	if err != nil {
+		return nil, fmt.Errorf("create multiverse store: %w", err)
+	}
 
 	uniStatsDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.UniverseStatsStore {

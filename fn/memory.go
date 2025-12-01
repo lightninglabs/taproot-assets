@@ -1,11 +1,23 @@
 package fn
 
-import "errors"
+import (
+	"errors"
+	"reflect"
+	"unsafe"
+)
 
 var (
 	// ErrNilPointerDeference is returned when a nil pointer is
 	// dereferenced.
 	ErrNilPointerDeference = errors.New("nil pointer dereference")
+)
+
+var (
+	// sliceHeaderSize is the size of a slice header.
+	sliceHeaderSize = uint64(unsafe.Sizeof([]byte(nil)))
+
+	// stringHeaderSize is the size of a string header.
+	stringHeaderSize = uint64(unsafe.Sizeof(""))
 )
 
 // Ptr returns the pointer of the given value. This is useful in instances
@@ -67,4 +79,147 @@ func DerefPanic[T any](ptr *T) T {
 	}
 
 	return *ptr
+}
+
+// LowerBoundByteSize returns a conservative deep-size estimate in bytes.
+//
+// Notes:
+//   - Pointer-recursive and cycle safe; each heap allocation is counted once
+//     using its data pointer.
+//   - Lower bound: ignores allocator overhead, GC metadata, unused slice
+//     capacity, map buckets/overflow, evacuation, rounding, and runtime
+//     internals (chan/func).
+func LowerBoundByteSize(x any) uint64 {
+	// seen is a map of heap object identities which have already been
+	// counted.
+	seen := make(map[uintptr]struct{})
+	return byteSizeVisit(reflect.ValueOf(x), true, seen)
+}
+
+// byteSizeVisit returns a conservative lower-bound byte count for `subject`.
+//
+// Notes:
+//   - addSelf: include subject’s inline bytes when true. Parents pass false.
+//   - seen: set of heap data pointers to avoid double counting and break
+//     cycles.
+//
+// Lower bound: ignores allocator overhead, GC metadata, unused capacity, and
+// runtime internals.
+func byteSizeVisit(subject reflect.Value, addSelf bool,
+	seen map[uintptr]struct{}) uint64 {
+
+	if !subject.IsValid() {
+		return 0
+	}
+
+	subjectType := subject.Type()
+	subjectTypeKind := subjectType.Kind()
+
+	if subjectTypeKind == reflect.Interface {
+		n := uint64(unsafe.Sizeof(subject.Interface()))
+		if !subject.IsNil() {
+			n += byteSizeVisit(subject.Elem(), true, seen)
+		}
+		return n
+	}
+
+	switch subjectTypeKind {
+	case reflect.Ptr:
+		if subject.IsNil() {
+			return 0
+		}
+
+		ptr := subject.Pointer()
+		if markSeen(ptr, seen) {
+			return 0
+		}
+
+		return byteSizeVisit(subject.Elem(), true, seen)
+
+	case reflect.Struct:
+		n := uint64(0)
+		if addSelf {
+			n += uint64(subjectType.Size())
+		}
+
+		for i := 0; i < subject.NumField(); i++ {
+			n += byteSizeVisit(subject.Field(i), false, seen)
+		}
+
+		return n
+
+	case reflect.Array:
+		n := uint64(0)
+		if addSelf {
+			n += uint64(subjectType.Size())
+		}
+
+		for i := 0; i < subject.Len(); i++ {
+			n += byteSizeVisit(subject.Index(i), false, seen)
+		}
+
+		return n
+
+	case reflect.Slice:
+		if subject.IsNil() {
+			return 0
+		}
+
+		n := sliceHeaderSize
+		dataPtr := subject.Pointer()
+		if dataPtr != 0 && !markSeen(dataPtr, seen) {
+			elem := subjectType.Elem()
+			n += uint64(subject.Len()) * uint64(elem.Size())
+		}
+
+		for i := 0; i < subject.Len(); i++ {
+			n += byteSizeVisit(subject.Index(i), false, seen)
+		}
+
+		return n
+
+	case reflect.String:
+		n := stringHeaderSize
+		dataPtr := subject.Pointer()
+		if dataPtr != 0 && markSeen(dataPtr, seen) {
+			return n
+		}
+
+		return n + uint64(subject.Len())
+
+	case reflect.Map:
+		n := uint64(unsafe.Sizeof(subject.Interface()))
+		if subject.IsNil() {
+			return n
+		}
+
+		it := subject.MapRange()
+		for it.Next() {
+			n += byteSizeVisit(it.Key(), false, seen)
+			n += byteSizeVisit(it.Value(), false, seen)
+		}
+
+		return n
+
+	case reflect.Chan, reflect.Func, reflect.UnsafePointer:
+		return uint64(unsafe.Sizeof(subject.Interface()))
+
+	default:
+		if addSelf {
+			return uint64(subjectType.Size())
+		}
+
+		return 0
+	}
+}
+
+// markSeen marks the given pointer as seen and returns true if it was already
+// seen.
+func markSeen(ptr uintptr, seen map[uintptr]struct{}) bool {
+	if _, ok := seen[ptr]; ok {
+		return true
+	}
+
+	seen[ptr] = struct{}{}
+	return false
 }
