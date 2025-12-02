@@ -34,10 +34,17 @@ type BuyAccept struct {
 
 	// sig is a signature over the serialized contents of the message.
 	sig [64]byte
+
+	// AgreedAt is the time at which the quote was accepted. Represents the
+	// time the wire message was parsed or accept message was generated.
+	AgreedAt time.Time
 }
 
 // NewBuyAcceptFromRequest creates a new instance of a quote accept message
-// given a quote request message.
+// given a quote request message. Note that this function sets the AgreedAt
+// timestamp to the current time. If callers need to preserve an existing
+// AgreedAt value (e.g., when reconstructing from storage), they should
+// manually construct the BuyAccept.
 func NewBuyAcceptFromRequest(request BuyRequest,
 	assetRate AssetRate) *BuyAccept {
 
@@ -47,6 +54,7 @@ func NewBuyAcceptFromRequest(request BuyRequest,
 		Version:   latestBuyAcceptVersion,
 		ID:        request.ID,
 		AssetRate: assetRate,
+		AgreedAt:  time.Now().UTC(),
 	}
 }
 
@@ -74,6 +82,7 @@ func newBuyAcceptFromWireMsg(wireMsg WireMessage,
 		ID:        msgData.ID.Val,
 		AssetRate: NewAssetRate(assetRate, expiry),
 		sig:       msgData.Sig.Val,
+		AgreedAt:  time.Now().UTC(),
 	}, nil
 }
 
