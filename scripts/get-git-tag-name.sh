@@ -15,6 +15,12 @@ get_git_tag_name() {
       exit 1
   fi
 
+  grep_version=$(grep --version)
+  if [[ ! "$grep_version" =~ "GNU grep" ]]; then
+    echo "GNU grep is required, but cannot be found."
+    exit 1
+  fi
+
   # Read and parse the version fields. We interpret these fields using regex
   # matching which effectively serves as a basic sanity check.
   local app_major
