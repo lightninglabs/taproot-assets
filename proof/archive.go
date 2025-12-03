@@ -1135,11 +1135,17 @@ func ReplaceProofInFiles(newProof *Proof,
 				fTxHash == newProof.AnchorTx.TxHash() &&
 				fBlockHash != newProof.BlockHeader.BlockHash()
 		})
-		if err != nil {
-			// Either we failed to decode the proof for some reason,
-			// or we didn't find a proof that needs updating. In
-			// either case, we can skip this file.
+		switch {
+		// This proof file doesn't contain a proof that needs to be
+		// updated, so we can skip it.
+		case errors.Is(err, ErrNoProofAvailable):
 			continue
+
+		// Any other error during proof location is fatal and should be
+		// returned.
+		case err != nil:
+			return nil, fmt.Errorf("unable to locate "+
+				"proof to update: %w", err)
 		}
 
 		log.Debugf("Updating descendant proof at index %d "+
