@@ -45,8 +45,7 @@ var (
 	// is valid.
 	emptyKey btcec.PublicKey
 
-	// ErrProofNotFound is returned when a user attempts to look up a proof
-	// based on a Locator, but we can't find it on disk.
+	// ErrProofNotFound reports that no proof satisfies the lookup criteria.
 	ErrProofNotFound = fmt.Errorf("unable to find proof")
 
 	// ErrInvalidLocatorID is returned when a specified has an invalid
@@ -1138,7 +1137,7 @@ func ReplaceProofInFiles(newProof *Proof,
 		switch {
 		// This proof file doesn't contain a proof that needs to be
 		// updated, so we can skip it.
-		case errors.Is(err, ErrNoProofAvailable):
+		case errors.Is(err, ErrProofNotFound):
 			continue
 
 		// Any other error during proof location is fatal and should be
