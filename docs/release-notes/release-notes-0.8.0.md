@@ -63,6 +63,9 @@
 
 ## Code Health
 
+- [PR#1897](https://github.com/lightninglabs/taproot-assets/pull/1897)
+  Fix witness writeback issue when a split commitment is present.
+
 ## Breaking Changes
 
 ## Performance Improvements
