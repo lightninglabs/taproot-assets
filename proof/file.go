@@ -107,7 +107,8 @@ func NewFile(v Version, proofs ...Proof) (*File, error) {
 
 		proofBytes, err := proof.Bytes()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encoding proof (idx=%d): %w",
+				idx, err)
 		}
 
 		linkedProofs[idx] = &hashedProof{
@@ -127,7 +128,7 @@ func NewFile(v Version, proofs ...Proof) (*File, error) {
 func (f *File) Encode(w io.Writer) error {
 	num, err := w.Write(FilePrefixMagicBytes[:])
 	if err != nil {
-		return err
+		return fmt.Errorf("writing prefix magic bytes: %w", err)
 	}
 	if num != PrefixMagicBytesLength {
 		return errors.New("failed to write prefix magic bytes")
@@ -135,14 +136,14 @@ func (f *File) Encode(w io.Writer) error {
 
 	err = binary.Write(w, binary.BigEndian, uint32(f.Version))
 	if err != nil {
-		return err
+		return fmt.Errorf("writing proof file version: %w", err)
 	}
 
 	var tlvBuf [8]byte
 	if err := tlv.WriteVarInt(w, uint64(len(f.proofs)), &tlvBuf); err != nil {
-		return err
+		return fmt.Errorf("writing proof count: %w", err)
 	}
-	for _, proof := range f.proofs {
+	for idx, proof := range f.proofs {
 		proof := proof
 
 		// To the file we write the proof, followed by its hash, which
@@ -153,18 +154,23 @@ func (f *File) Encode(w io.Writer) error {
 		// other hand, if we want to append a proof to a file, we just
 		// need to read the last proof, use its hash as the prev_hash
 		// for the one to append, and we're done.
-		err := tlv.WriteVarInt(w, uint64(len(proof.proofBytes)), &tlvBuf)
+		err := tlv.WriteVarInt(
+			w, uint64(len(proof.proofBytes)), &tlvBuf,
+		)
 		if err != nil {
-			return err
+			return fmt.Errorf("writing proof length (idx=%d): %w",
+				idx, err)
 		}
 		if _, err := w.Write(proof.proofBytes); err != nil {
-			return err
+			return fmt.Errorf("writing proof bytes (idx=%d): %w",
+				idx, err)
 		}
 
 		// The hash is not part of the proof's TLV stream, so we didn't
 		// count it above.
 		if _, err := w.Write(proof.hash[:]); err != nil {
-			return err
+			return fmt.Errorf("writing proof hash (idx=%d): %w",
+				idx, err)
 		}
 	}
 
@@ -176,7 +182,7 @@ func (f *File) Decode(r io.Reader) error {
 	var prefixMagicBytes [PrefixMagicBytesLength]byte
 	num, err := r.Read(prefixMagicBytes[:])
 	if err != nil {
-		return err
+		return fmt.Errorf("reading prefix magic bytes: %w", err)
 	}
 	if num != PrefixMagicBytesLength {
 		return errors.New("failed to read prefix magic bytes")
@@ -190,14 +196,14 @@ func (f *File) Decode(r io.Reader) error {
 
 	var version uint32
 	if err := binary.Read(r, binary.BigEndian, &version); err != nil {
-		return err
+		return fmt.Errorf("reading proof file version: %w", err)
 	}
 	f.Version = Version(version)
 
 	var tlvBuf [8]byte
 	numProofs, err := tlv.ReadVarInt(r, &tlvBuf)
 	if err != nil {
-		return err
+		return fmt.Errorf("reading proof count: %w", err)
 	}
 
 	// Cap the number of proofs there can be within a single file to avoid
@@ -215,7 +221,8 @@ func (f *File) Decode(r io.Reader) error {
 		// so we can limit the TLV reader.
 		numProofBytes, err := tlv.ReadVarInt(r, &tlvBuf)
 		if err != nil {
-			return err
+			return fmt.Errorf("reading proof length (idx=%d): %w",
+				i, err)
 		}
 
 		// We also need to cap the size of an individual proof. See the
@@ -230,13 +237,15 @@ func (f *File) Decode(r io.Reader) error {
 		// proof itself as we usually only need the last proof anyway.
 		proofBytes := make([]byte, numProofBytes)
 		if _, err := io.ReadFull(r, proofBytes); err != nil {
-			return err
+			return fmt.Errorf("reading proof bytes (idx=%d): %w", i,
+				err)
 		}
 
 		// We now read the proof's hash in the file which reflects the
 		// current checksum.
 		if _, err := io.ReadFull(r, proofHash[:]); err != nil {
-			return err
+			return fmt.Errorf("reading proof hash (idx=%d): %w", i,
+				err)
 		}
 
 		// Now that we have read both the proof and the expected
@@ -295,7 +304,7 @@ func (f *File) NumProofs() int {
 // returns ErrNoProofAvailable.
 func (f *File) ProofAt(index uint32) (*Proof, error) {
 	if err := f.IsValid(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validating proof file: %w", err)
 	}
 
 	if index > uint32(len(f.proofs))-1 {
@@ -321,7 +330,8 @@ func (f *File) LocateProof(cb func(*Proof) bool) (*Proof, uint32, error) {
 	for i := f.NumProofs() - 1; i >= 0; i-- {
 		p, err := f.ProofAt(uint32(i))
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, fmt.Errorf("locating proof at index "+
+				"%d: %w", i, err)
 		}
 		if cb(p) {
 			return p, uint32(i), nil
@@ -335,7 +345,7 @@ func (f *File) LocateProof(cb func(*Proof) bool) (*Proof, uint32, error) {
 // file is empty, this returns nil.
 func (f *File) RawProofAt(index uint32) ([]byte, error) {
 	if err := f.IsValid(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validating proof file: %w", err)
 	}
 
 	if index > uint32(len(f.proofs))-1 {
@@ -352,7 +362,7 @@ func (f *File) RawProofAt(index uint32) ([]byte, error) {
 // empty, this return nil.
 func (f *File) LastProof() (*Proof, error) {
 	if err := f.IsValid(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validating proof file: %w", err)
 	}
 
 	return f.ProofAt(uint32(len(f.proofs)) - 1)
@@ -362,7 +372,7 @@ func (f *File) LastProof() (*Proof, error) {
 // slice. If the file is empty, this return nil.
 func (f *File) RawLastProof() ([]byte, error) {
 	if err := f.IsValid(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validating proof file: %w", err)
 	}
 
 	return f.RawProofAt(uint32(len(f.proofs)) - 1)
@@ -381,7 +391,7 @@ func (f *File) AppendProof(proof Proof) error {
 
 	proofBytes, err := proof.Bytes()
 	if err != nil {
-		return err
+		return fmt.Errorf("encoding proof to append: %w", err)
 	}
 
 	f.proofs = append(f.proofs, &hashedProof{
@@ -422,7 +432,7 @@ func (f *File) ReplaceLastProof(proof Proof) error {
 // one, updating its chained hash in the process.
 func (f *File) ReplaceProofAt(index uint32, proof Proof) error {
 	if err := f.IsValid(); err != nil {
-		return err
+		return fmt.Errorf("validating proof file: %w", err)
 	}
 
 	if index >= uint32(len(f.proofs)) {
@@ -438,7 +448,7 @@ func (f *File) ReplaceProofAt(index uint32, proof Proof) error {
 
 	proofBytes, err := proof.Bytes()
 	if err != nil {
-		return err
+		return fmt.Errorf("encoding proof (idx=%d): %w", index, err)
 	}
 
 	f.proofs[index] = &hashedProof{
