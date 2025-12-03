@@ -21,9 +21,8 @@ var (
 	// checksum is detected while deserializing it.
 	ErrInvalidChecksum = errors.New("invalid proof file checksum")
 
-	// ErrNoProofAvailable is the error that's returned when a proof is
-	// attempted to be fetched from an empty file.
-	ErrNoProofAvailable = errors.New("no proof available")
+	// ErrEmptyProofFile reports that the proof file contains no entries.
+	ErrEmptyProofFile = errors.New("empty proof file")
 
 	// ErrUnknownVersion is returned when a proof with an unknown proof
 	// version is being used.
@@ -277,7 +276,7 @@ func (f *File) IsEmpty() bool {
 // IsValid combines multiple sanity checks for proof file validity.
 func (f *File) IsValid() error {
 	if f.IsEmpty() {
-		return ErrNoProofAvailable
+		return ErrEmptyProofFile
 	}
 
 	if f.IsUnknownVersion() {
@@ -329,7 +328,7 @@ func (f *File) LocateProof(cb func(*Proof) bool) (*Proof, uint32, error) {
 		}
 	}
 
-	return nil, 0, ErrNoProofAvailable
+	return nil, 0, ErrProofNotFound
 }
 
 // RawProofAt returns the raw proof at the given index as a byte slice. If the
