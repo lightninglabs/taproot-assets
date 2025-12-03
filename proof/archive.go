@@ -1090,42 +1090,36 @@ func (m *MultiArchiver) RemoveSubscriber(
 // NotifyArchiver interface.
 var _ NotifyArchiver = (*MultiArchiver)(nil)
 
-// ReplaceProofInBlob attempts to replace a proof in all proof files we have for
-// assets of the same ID. This is useful when we want to update the proof with a
-// new one after a re-org.
-func ReplaceProofInBlob(ctx context.Context, p *Proof, archive Archiver,
-	vCtx VerifierCtx) error {
+// ReplaceProofInFiles attempts to replace a proof in all provided proof files
+// for assets of the same ID and returns the updated proof blobs. This is useful
+// when we want to update the proof with a new one after a re-org.
+func ReplaceProofInFiles(newProof *Proof,
+	proofFiles []*AnnotatedProof) ([]*AnnotatedProof, error) {
 
-	// This is a bit of a hacky part. If we have a chain of transactions
-	// that were re-organized, we can't verify the whole chain until all of
-	// the transactions were confirmed and all proofs were updated with the
-	// new blocks and merkle roots. So we'll skip the verification here
-	// since we don't know if the whole chain has been updated yet (the
-	// confirmations might come in out of order).
-	// TODO(guggero): Find a better way to do this.
-	vCtx.HeaderVerifier = func(wire.BlockHeader, uint32) error {
-		return nil
-	}
+	var (
+		updatedProofs []*AnnotatedProof
 
-	assetID := p.Asset.ID()
-	scriptPubKeyOfUpdate := p.Asset.ScriptKey.PubKey
+		scriptPubKeyOfUpdate = newProof.Asset.ScriptKey.PubKey
+		targetAssetID        = newProof.Asset.ID()
+	)
 
-	// We now fetch all proofs of that same asset ID and filter out those
-	// that need updating.
-	proofs, err := archive.FetchProofs(ctx, assetID)
-	if err != nil {
-		return fmt.Errorf("unable to fetch all proofs for asset ID "+
-			"%x: %w", assetID[:], err)
-	}
+	for idx := range proofFiles {
+		proofFile := proofFiles[idx]
 
-	for idx := range proofs {
-		existingProof := proofs[idx]
+		// Sanity check: make sure the asset ID of the proof file
+		// matches the target asset ID.
+		if *proofFile.Locator.AssetID != targetAssetID {
+			return nil, fmt.Errorf("mismatched asset ID: "+
+				"expected %s, got %s",
+				proofFile.Locator.AssetID.String(),
+				targetAssetID.String())
+		}
 
 		f := &File{}
-		err := f.Decode(bytes.NewReader(existingProof.Blob))
+		err := f.Decode(bytes.NewReader(proofFile.Blob))
 		if err != nil {
-			return fmt.Errorf("unable to decode current proof: %w",
-				err)
+			return nil, fmt.Errorf("unable to decode current "+
+				"proof: %w", err)
 		}
 
 		// We only need to update proofs that contain this asset in the
@@ -1133,12 +1127,13 @@ func ReplaceProofInBlob(ctx context.Context, p *Proof, archive Archiver,
 		// the proof is different from the block hash of the proof we
 		// want to update).
 		_, indexToUpdate, err := f.LocateProof(func(fp *Proof) bool {
-			fileScriptKey := fp.Asset.ScriptKey.PubKey
-			fileTxHash := fp.AnchorTx.TxHash()
-			fileBlockHash := fp.BlockHeader.BlockHash()
-			return fileScriptKey.IsEqual(scriptPubKeyOfUpdate) &&
-				fileTxHash == p.AnchorTx.TxHash() &&
-				fileBlockHash != p.BlockHeader.BlockHash()
+			fScriptKey := fp.Asset.ScriptKey.PubKey
+			fTxHash := fp.AnchorTx.TxHash()
+			fBlockHash := fp.BlockHeader.BlockHash()
+
+			return fScriptKey.IsEqual(scriptPubKeyOfUpdate) &&
+				fTxHash == newProof.AnchorTx.TxHash() &&
+				fBlockHash != newProof.BlockHeader.BlockHash()
 		})
 		if err != nil {
 			// Either we failed to decode the proof for some reason,
@@ -1154,29 +1149,25 @@ func ReplaceProofInBlob(ctx context.Context, p *Proof, archive Archiver,
 
 		// All good, we can now replace the proof in the file with the
 		// new one.
-		err = f.ReplaceProofAt(indexToUpdate, *p)
+		err = f.ReplaceProofAt(indexToUpdate, *newProof)
 		if err != nil {
-			return fmt.Errorf("unable to replace proof at index "+
-				"%d with updated one: %w", indexToUpdate, err)
+			return nil, fmt.Errorf("unable to replace proof at "+
+				"index %d with updated one: %w", indexToUpdate,
+				err)
 		}
 
 		var buf bytes.Buffer
 		if err := f.Encode(&buf); err != nil {
-			return fmt.Errorf("unable to encode updated proof: %w",
-				err)
+			return nil, fmt.Errorf("unable to encode updated "+
+				"proof: %w", err)
 		}
 
-		// We now update this direct proof in the archive.
-		directProof := &AnnotatedProof{
-			Locator: existingProof.Locator,
+		updatedProof := &AnnotatedProof{
+			Locator: proofFile.Locator,
 			Blob:    buf.Bytes(),
 		}
-		err = archive.ImportProofs(ctx, vCtx, true, directProof)
-		if err != nil {
-			return fmt.Errorf("unable to import updated proof: %w",
-				err)
-		}
+		updatedProofs = append(updatedProofs, updatedProof)
 	}
 
-	return nil
+	return updatedProofs, nil
 }
