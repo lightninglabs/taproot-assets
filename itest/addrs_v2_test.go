@@ -665,12 +665,13 @@ func testAddressV2WithGroupKeyRestart(t *harnessTest) {
 
 	// Now we can create two more tapd nodes that we can start and stop
 	// independently. To save some time, we'll use the same lnd node.
-	bobCharlieLnd := t.lndHarness.NewNodeWithCoins("BobAndCharlie", nil)
-	bobTapd := setupTapdHarness(t.t, t, bobCharlieLnd, t.universeServer)
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bobTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, bobTapd.stop(!*noDelete))
 	}()
-	charlieTapd := setupTapdHarness(t.t, t, bobCharlieLnd, t.universeServer)
+	charlieLnd := t.lndHarness.NewNodeWithCoins("Charlie", nil)
+	charlieTapd := setupTapdHarness(t.t, t, charlieLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, charlieTapd.stop(!*noDelete))
 	}()
