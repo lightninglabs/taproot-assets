@@ -1576,26 +1576,24 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 		fundingInputProofs[inputProof.Asset.ID()] = inputProof
 	}
 
-	// If we're the responder, then we'll also fetch+complete the proofs
-	// for the funding transaction here so we can properly recognize the
-	// spent input below.
-	if !req.Initiator {
-		vCtx := proof.VerifierCtx{
-			HeaderVerifier: a.cfg.HeaderVerifier,
-			MerkleVerifier: proof.DefaultMerkleVerifier,
-			GroupVerifier:  a.cfg.GroupVerifier,
-			ChainLookupGen: a.cfg.ChainBridge,
-			IgnoreChecker:  a.cfg.IgnoreChecker,
-		}
-		err := importOutputProofs(
-			req.ShortChanID, maps.Values(fundingInputProofs),
-			a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
-			a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to import output "+
-				"proofs: %w", err)
-		}
+	// We'll always attempt to import the proof for the funding outputs.
+	// It's possible that the initiator failed to do so after the funding
+	// transaction confirmed.
+	vCtx := proof.VerifierCtx{
+		HeaderVerifier: a.cfg.HeaderVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		GroupVerifier:  a.cfg.GroupVerifier,
+		ChainLookupGen: a.cfg.ChainBridge,
+		IgnoreChecker:  a.cfg.IgnoreChecker,
+	}
+	err = importOutputProofs(
+		req.ShortChanID, maps.Values(fundingInputProofs),
+		a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
+		a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to import output "+
+			"proofs: %w", err)
 	}
 
 	err = updateProofsFromShortChanID(
