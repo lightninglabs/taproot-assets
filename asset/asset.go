@@ -1855,8 +1855,13 @@ func (a *Asset) UpdateTxWitness(prevWitnessIndex int,
 
 	targetPrevWitness := &a.PrevWitnesses[prevWitnessIndex]
 	if a.HasSplitCommitmentWitness() {
-		rootAsset := targetPrevWitness.SplitCommitment.RootAsset
-		targetPrevWitness = &rootAsset.PrevWitnesses[prevWitnessIndex]
+		// When a split commitment is present, the witness must be
+		// written back to the root asset within the split commitment
+		// itself to ensure the change is persisted.
+		rootAsset := &targetPrevWitness.SplitCommitment.RootAsset
+		rootAsset.PrevWitnesses[prevWitnessIndex].TxWitness = witness
+
+		return nil
 	}
 
 	targetPrevWitness.TxWitness = witness
