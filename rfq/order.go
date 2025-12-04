@@ -707,6 +707,10 @@ type OrderHandlerCfg struct {
 	// that is encapsulated in the init and reestablish peer messages. This
 	// helps us communicate custom feature bits with our peer.
 	AuxChanNegotiator *tapfeatures.AuxChannelNegotiator
+
+	// ErrChan is the main error channel that is used to propagate critical
+	// errors back to the parent manager/server.
+	ErrChan chan<- error
 }
 
 // OrderHandler orchestrates management of accepted quote bundles. It monitors
@@ -928,8 +932,14 @@ func (h *OrderHandler) Start() error {
 
 			startErr = h.setupHtlcIntercept(ctx)
 			if startErr != nil {
-				log.Errorf("Error setting up HTLC "+
-					"interception: %v", startErr)
+				startErr = fmt.Errorf("setting up HTLC "+
+					"interception: %w", startErr)
+
+				// Failing to start HTLC interception is a
+				// critical error for the order handler, so we
+				// propagate it upward.
+				h.ReportCriticalError(startErr)
+
 				return
 			}
 
@@ -952,6 +962,20 @@ func (h *OrderHandler) Start() error {
 	})
 
 	return startErr
+}
+
+// ReportCriticalError reports a critical error to the main error channel.
+func (h *OrderHandler) ReportCriticalError(err error) {
+	critErr := fn.NewCriticalError(err)
+	log.Errorf("Order handler reporting critical error: %v", critErr)
+
+	// Propagate the error to the main error channel to trigger a full
+	// daemon shutdown.
+	select {
+	case h.cfg.ErrChan <- critErr:
+	case <-h.Quit:
+	default:
+	}
 }
 
 // RegisterAssetSalePolicy generates and registers an asset sale policy with the
