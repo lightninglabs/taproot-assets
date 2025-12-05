@@ -87,11 +87,29 @@ const (
 // service.
 type OracleError struct {
 	// Code is a code which uniquely identifies the error type.
-	Code uint8
+	Code OracleErrorCode
+
+	// Public is a flag that indicates the error can be relayed to
+	// peers.
+	Public bool
 
 	// Msg is a human-readable error message.
 	Msg string
 }
+
+// OracleErrorCode uniquely identifies the kinds of error an oracle may
+// return.
+type OracleErrorCode uint8
+
+const (
+	// UnspecifiedOracleErrorCode represents the case where the oracle has
+	// declined to give a more specific reason for the error.
+	UnspecifiedOracleErrorCode OracleErrorCode = iota
+
+	// UnsupportedAssetOracleErrorCode represents the case in which an
+	// oracle does not provide quotes for the requested asset.
+	UnsupportedAssetOracleErrorCode
+)
 
 // Error returns a human-readable string representation of the error.
 func (o *OracleError) Error() string {
@@ -381,12 +399,29 @@ func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
 
 		return &OracleResponse{
 			Err: &OracleError{
-				Msg: result.Error.Message,
+				Msg:    result.Error.Message,
+				Public: result.Error.Public,
+				Code:   marshallErrorCode(result.Error.Code),
 			},
 		}, nil
 
 	default:
 		return nil, fmt.Errorf("unexpected response type: %T", result)
+	}
+}
+
+// marshallErrorCode marshalls an over-the-wire error code into an
+// OracleErrorCode.
+func marshallErrorCode(code oraclerpc.ErrorCode) OracleErrorCode {
+	switch code {
+	case oraclerpc.ErrorCode_UNSPECIFIED_ORACLE_ERROR_CODE:
+		return UnspecifiedOracleErrorCode
+
+	case oraclerpc.ErrorCode_UNSUPPORTED_ASSET_ORACLE_ERROR_CODE:
+		return UnsupportedAssetOracleErrorCode
+
+	default:
+		return UnspecifiedOracleErrorCode
 	}
 }
 
@@ -492,7 +527,9 @@ func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context,
 
 		return &OracleResponse{
 			Err: &OracleError{
-				Msg: result.Error.Message,
+				Msg:    result.Error.Message,
+				Public: result.Error.Public,
+				Code:   marshallErrorCode(result.Error.Code),
 			},
 		}, nil
 
