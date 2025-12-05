@@ -39,6 +39,14 @@ RUN apk --no-cache add \
 COPY --from=builder /go/bin/tapcli /bin/
 COPY --from=builder /go/bin/tapd /bin/
 
+# Copy the verification script and keys for signature verification.
+COPY --from=builder \
+  /go/src/github.com/lightninglabs/taproot-assets/scripts/verify-install.sh \
+  /verify-install.sh
+COPY --from=builder \
+  /go/src/github.com/lightninglabs/taproot-assets/scripts/keys \
+  /keys
+
 # Store the SHA256 hash of the binaries that were just produced for later
 # verification.
 RUN sha256sum /bin/tapd /bin/tapcli > /shasums.txt \

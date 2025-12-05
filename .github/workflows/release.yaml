@@ -37,16 +37,16 @@ jobs:
             exit 1
           fi
 
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v5
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-
       - name: checkout release tag
         run: git checkout ${{ env.RELEASE_VERSION }}
 
+      - name: build release helper docker image
+        run: |
+          docker build -t taproot-assets-release-helper \
+            -f make/builder.Dockerfile make/
+
       - name: build release for all architectures
-        run: make release tag=${{ env.RELEASE_VERSION }}
+        run: make docker-release tag=${{ env.RELEASE_VERSION }}
 
       - name: Create Release
         uses: lightninglabs/gh-actions/action-gh-release@2024.07.24.00
