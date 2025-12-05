@@ -781,7 +781,7 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset, witnesses assetWitnesses,
 			}
 		}
 
-		anchorTx := wire.NewMsgTx(2)
+		anchorTx := wire.NewMsgTx(3)
 		err = anchorTx.Deserialize(bytes.NewBuffer(sprout.AnchorTx))
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode tx: %w", err)
@@ -3765,7 +3765,7 @@ func (a *AssetStore) queryParcelsWithFilters(ctx context.Context,
 					"%w", err)
 			}
 
-			anchorTx := wire.NewMsgTx(2)
+			anchorTx := wire.NewMsgTx(3)
 			err = anchorTx.Deserialize(bytes.NewReader(
 				dbAnchorTx.RawTx,
 			))
