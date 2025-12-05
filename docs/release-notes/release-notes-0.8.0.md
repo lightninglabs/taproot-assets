@@ -39,6 +39,10 @@
   `AnchorVirtualPsbts`. A new configuration is available to control the sweeping 
   via the flag `wallet.sweep-orphan-utxos`.
 
+- [RFQ buy/sell accepts are now written to the database](https://github.com/lightninglabs/taproot-assets/pull/1863)
+  `rfq_policies` table whenever a policy is agreed, giving us an audit trail
+  and keeping quotes alive across restarts.
+
 ## RPC Updates
 
 - [PR#1841](https://github.com/lightninglabs/taproot-assets/pull/1841): Remove
