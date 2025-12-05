@@ -1413,9 +1413,14 @@ func (p *ChainPorter) prelimCheckAddrParcel(addrParcel AddressParcel) error {
 func (p *ChainPorter) verifyVPackets(ctx context.Context,
 	packets []*tappsbt.VPacket) error {
 
-	err := p.verifyPacketInputProofs(ctx, packets)
-	if err != nil {
-		return fmt.Errorf("verify packet input proofs: %w", err)
+	for pktIdx := range packets {
+		vPkt := packets[pktIdx]
+
+		err := p.verifyPacketInputProofs(ctx, *vPkt)
+		if err != nil {
+			return fmt.Errorf("verify packet input proofs "+
+				"(vpkt_idx=%d): %w", pktIdx, err)
+		}
 	}
 
 	return nil
@@ -1424,11 +1429,7 @@ func (p *ChainPorter) verifyVPackets(ctx context.Context,
 // verifyPacketInputProofs ensures that each virtual packet's inputs reference
 // a valid Taproot Asset commitment before the package is broadcast.
 func (p *ChainPorter) verifyPacketInputProofs(ctx context.Context,
-	packets []*tappsbt.VPacket) error {
-
-	if len(packets) == 0 {
-		return nil
-	}
+	vPkt tappsbt.VPacket) error {
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 	vCtx := proof.VerifierCtx{
@@ -1439,21 +1440,18 @@ func (p *ChainPorter) verifyPacketInputProofs(ctx context.Context,
 		IgnoreChecker:  p.cfg.IgnoreChecker,
 	}
 
-	for pktIdx := range packets {
-		vPkt := packets[pktIdx]
-		for inputIdx := range vPkt.Inputs {
-			assetProof := vPkt.Inputs[inputIdx].Proof
-			if assetProof == nil {
-				return fmt.Errorf("packet %d input %d proof "+
-					"is nil", pktIdx, inputIdx)
-			}
+	for inputIdx := range vPkt.Inputs {
+		assetProof := vPkt.Inputs[inputIdx].Proof
+		if assetProof == nil {
+			return fmt.Errorf("packet input proof is nil "+
+				"(input_idx=%d)", inputIdx)
+		}
 
-			_, err := assetProof.VerifyProofIntegrity(ctx, vCtx)
-			if err != nil {
-				return fmt.Errorf("unable to verify "+
-					"inclusion proof for packet %d "+
-					"input %d: %w", pktIdx, inputIdx, err)
-			}
+		_, err := assetProof.VerifyProofIntegrity(ctx, vCtx)
+		if err != nil {
+			return fmt.Errorf("unable to verify "+
+				"inclusion proof for packet input "+
+				"(input_idx=%d): %w", inputIdx, err)
 		}
 	}
 
