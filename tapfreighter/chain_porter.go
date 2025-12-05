@@ -1408,6 +1408,19 @@ func (p *ChainPorter) prelimCheckAddrParcel(addrParcel AddressParcel) error {
 	return nil
 }
 
+// verifyVPackets performs various verification checks on the given virtual
+// packets.
+func (p *ChainPorter) verifyVPackets(ctx context.Context,
+	packets []*tappsbt.VPacket) error {
+
+	err := p.verifyPacketInputProofs(ctx, packets)
+	if err != nil {
+		return fmt.Errorf("verify packet input proofs: %w", err)
+	}
+
+	return nil
+}
+
 // verifyPacketInputProofs ensures that each virtual packet's inputs reference
 // a valid Taproot Asset commitment before the package is broadcast.
 func (p *ChainPorter) verifyPacketInputProofs(ctx context.Context,
@@ -1697,12 +1710,11 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		allPackets = append(allPackets, currentPkg.VirtualPackets...)
 		allPackets = append(allPackets, currentPkg.PassiveAssets...)
 
-		err := p.verifyPacketInputProofs(ctx, allPackets)
+		err := p.verifyVPackets(ctx, allPackets)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
 
-			return nil, fmt.Errorf("unable to verify input "+
-				"proofs: %w", err)
+			return nil, fmt.Errorf("verifying vPackets: %w", err)
 		}
 
 		currentPkg.SendState = SendStateStorePreBroadcast
