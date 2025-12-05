@@ -1415,7 +1415,26 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 	// the funding outputs we need.
 	//
 	// TODO(roasbeef): assume single asset for now, also additional inputs
+	ctxb := context.Background()
 	for _, proofToImport := range outputProofs {
+		// Check if the proof is already imported to avoid redundant
+		// work.
+		fundingLocator := proof.Locator{
+			AssetID:   fn.Ptr(proofToImport.Asset.ID()),
+			ScriptKey: *proofToImport.Asset.ScriptKey.PubKey,
+			OutPoint:  fn.Ptr(proofToImport.OutPoint()),
+		}
+		proofExists, err := proofArchive.HasProof(ctxb, fundingLocator)
+		if err != nil {
+			return fmt.Errorf("unable to check if proof "+
+				"exists: %w", err)
+		}
+		if proofExists {
+			log.Infof("Proof already imported for %v, skipping",
+				limitSpewer.Sdump(fundingLocator))
+			continue
+		}
+
 		proofPrevID, err := proofToImport.Asset.PrimaryPrevID()
 		if err != nil {
 			return fmt.Errorf("unable to get primary prev "+
@@ -1443,7 +1462,6 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 
 		// First, we'll make a courier to use in fetching the proofs we
 		// need.
-		ctxb := context.Background()
 		proofFetcher, err := proofDispatch.NewCourier(
 			ctxb, courierAddr, true,
 		)
@@ -1505,18 +1523,10 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 			return fmt.Errorf("unable to encode proof: %w", err)
 		}
 
-		fundingUTXO := proofToImport.Asset
 		err = proofArchive.ImportProofs(
 			ctxb, vCtx, false, &proof.AnnotatedProof{
-				//nolint:lll
-				Locator: proof.Locator{
-					AssetID:   fn.Ptr(fundingUTXO.ID()),
-					ScriptKey: *fundingUTXO.ScriptKey.PubKey,
-					OutPoint: fn.Ptr(
-						proofToImport.OutPoint(),
-					),
-				},
-				Blob: finalProofBuf.Bytes(),
+				Locator: fundingLocator,
+				Blob:    finalProofBuf.Bytes(),
 			},
 		)
 		if err != nil {
@@ -1576,26 +1586,24 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 		fundingInputProofs[inputProof.Asset.ID()] = inputProof
 	}
 
-	// If we're the responder, then we'll also fetch+complete the proofs
-	// for the funding transaction here so we can properly recognize the
-	// spent input below.
-	if !req.Initiator {
-		vCtx := proof.VerifierCtx{
-			HeaderVerifier: a.cfg.HeaderVerifier,
-			MerkleVerifier: proof.DefaultMerkleVerifier,
-			GroupVerifier:  a.cfg.GroupVerifier,
-			ChainLookupGen: a.cfg.ChainBridge,
-			IgnoreChecker:  a.cfg.IgnoreChecker,
-		}
-		err := importOutputProofs(
-			req.ShortChanID, maps.Values(fundingInputProofs),
-			a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
-			a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to import output "+
-				"proofs: %w", err)
-		}
+	// We'll always attempt to import the proof for the funding outputs.
+	// It's possible that the initiator failed to do so after the funding
+	// transaction confirmed.
+	vCtx := proof.VerifierCtx{
+		HeaderVerifier: a.cfg.HeaderVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		GroupVerifier:  a.cfg.GroupVerifier,
+		ChainLookupGen: a.cfg.ChainBridge,
+		IgnoreChecker:  a.cfg.IgnoreChecker,
+	}
+	err = importOutputProofs(
+		req.ShortChanID, maps.Values(fundingInputProofs),
+		a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
+		a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to import output "+
+			"proofs: %w", err)
 	}
 
 	err = updateProofsFromShortChanID(
