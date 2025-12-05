@@ -1421,6 +1421,12 @@ func (p *ChainPorter) verifyVPackets(ctx context.Context,
 			return fmt.Errorf("verify packet input proofs "+
 				"(vpkt_idx=%d): %w", pktIdx, err)
 		}
+
+		err = verifySplitCommitmentWitnesses(*vPkt)
+		if err != nil {
+			return fmt.Errorf("verify split commitment "+
+				"witnesses (vpkt_idx=%d): %w", pktIdx, err)
+		}
 	}
 
 	return nil
@@ -1452,6 +1458,45 @@ func (p *ChainPorter) verifyPacketInputProofs(ctx context.Context,
 			return fmt.Errorf("unable to verify "+
 				"inclusion proof for packet input "+
 				"(input_idx=%d): %w", inputIdx, err)
+		}
+	}
+
+	return nil
+}
+
+// verifySplitCommitmentWitnesses ensures split leaf outputs embed a split root
+// that actually carries a witness. Split leaves intentionally keep their own
+// TxWitness empty and rely on the embedded root witness for validation.
+func verifySplitCommitmentWitnesses(vPkt tappsbt.VPacket) error {
+	for outIdx := range vPkt.Outputs {
+		vOut := vPkt.Outputs[outIdx]
+
+		if vOut.Asset == nil ||
+			!vOut.Asset.HasSplitCommitmentWitness() {
+
+			continue
+		}
+
+		splitCommitment := vOut.Asset.PrevWitnesses[0].SplitCommitment
+		if splitCommitment == nil {
+			return fmt.Errorf("output missing split commitment "+
+				"(output_idx=%d)", outIdx)
+		}
+
+		root := &splitCommitment.RootAsset
+		if len(root.PrevWitnesses) == 0 {
+			return fmt.Errorf("output split root has no prev "+
+				"witnesses (output_idx=%d)", outIdx)
+		}
+
+		hasWitness := fn.Any(
+			root.PrevWitnesses, func(wit asset.Witness) bool {
+				return len(wit.TxWitness) > 0
+			},
+		)
+		if !hasWitness {
+			return fmt.Errorf("output split root witness empty "+
+				"(output_idx=%d)", outIdx)
 		}
 	}
 
