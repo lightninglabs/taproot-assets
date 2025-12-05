@@ -36,7 +36,7 @@
 - [Garbage collection of orphaned UTXOs](https://github.com/lightninglabs/taproot-assets/pull/1832)
   by sweeping tombstones and burn outputs when executing onchain transactions.
   Garbage collection will be executed on every burn, transfer or call to
-  `AnchorVirtualPsbts`. A new configuration is available to control the sweeping 
+  `AnchorVirtualPsbts`. A new configuration is available to control the sweeping
   via the flag `wallet.sweep-orphan-utxos`.
 
 ## RPC Updates
@@ -57,7 +57,7 @@
 ## Config Changes
 
 - [PR#1870](https://github.com/lightninglabs/taproot-assets/pull/1870)
-  The `proofs-per-universe` configuration option is removed. New option 
+  The `proofs-per-universe` configuration option is removed. New option
   `max-proof-cache-size` sets the proof cache limit in bytes and accepts
   human-readable values such as `64MB`.
 
@@ -65,6 +65,12 @@
 
 - [PR#1897](https://github.com/lightninglabs/taproot-assets/pull/1897)
   Fix witness writeback issue when a split commitment is present.
+
+- A [bug in `btcwallet` and `lnd` was fixed that prevented `tapd` from running
+  properly when connected to an `lnd` node that is running in remote-signing
+  mode](https://github.com/lightninglabs/taproot-assets/pull/1694). A new
+  integration test suite now asserts that `tapd` fully supports remote-signing
+  `lnd` backends.
 
 ## Breaking Changes
 
