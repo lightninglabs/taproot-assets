@@ -38,6 +38,12 @@
   Garbage collection will be executed on every burn, transfer or call to
   `AnchorVirtualPsbts`. A new configuration is available to control the sweeping 
   via the flag `wallet.sweep-orphan-utxos`.
+- [PR](https://github.com/lightninglabs/taproot-assets/pull/1899) tapd now
+  treats HTLC interceptor setup failures as fatal during RFQ subsystem startup.
+  If the RFQ subsystem cannot install its interceptor, tapd shuts down instead
+  of continuing in a degraded state. This ensures that any running tapd
+  instance has a fully functional RFQ pipeline and surfaces configuration or
+  lnd-level conflicts immediately.
 
 ## RPC Updates
 
