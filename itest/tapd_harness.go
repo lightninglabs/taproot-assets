@@ -261,7 +261,9 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	tapCfg.Universe.DisableSupplyVerifierChainWatch = opts.disableSupplyVerifierChainWatch
 
 	// Pass through the sweep orphan UTXOs flag. If the option was not set,
-	// this will be false, which is the default.
+	// this will be false. Note: The production default is true, but we
+	// disable it by default in tests to avoid interference with test
+	// assertions unless explicitly enabled via WithSweepOrphanUtxos().
 	tapCfg.Wallet.SweepOrphanUtxos = opts.sweepOrphanUtxos
 
 	switch {
