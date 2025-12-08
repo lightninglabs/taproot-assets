@@ -808,7 +808,8 @@ func testUnknownTlvType(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// We make a new node to import the modified proof.
-	charlie := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
+	charlieLnd := t.lndHarness.NewNodeWithCoins("Charlie", nil)
+	charlie := setupTapdHarness(t.t, t, charlieLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, charlie.stop(!*noDelete))
 	}()
