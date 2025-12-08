@@ -1398,14 +1398,34 @@ func (p *ChainPorter) prelimCheckAddrParcel(addrParcel AddressParcel) error {
 	return nil
 }
 
+// verifyVPackets performs various verification checks on the given virtual
+// packets.
+func (p *ChainPorter) verifyVPackets(ctx context.Context,
+	packets []*tappsbt.VPacket) error {
+
+	for pktIdx := range packets {
+		vPkt := packets[pktIdx]
+
+		err := p.verifyPacketInputProofs(ctx, *vPkt)
+		if err != nil {
+			return fmt.Errorf("verify packet input proofs "+
+				"(vpkt_idx=%d): %w", pktIdx, err)
+		}
+
+		err = verifySplitCommitmentWitnesses(*vPkt)
+		if err != nil {
+			return fmt.Errorf("verify split commitment "+
+				"witnesses (vpkt_idx=%d): %w", pktIdx, err)
+		}
+	}
+
+	return nil
+}
+
 // verifyPacketInputProofs ensures that each virtual packet's inputs reference
 // a valid Taproot Asset commitment before the package is broadcast.
 func (p *ChainPorter) verifyPacketInputProofs(ctx context.Context,
-	packets []*tappsbt.VPacket) error {
-
-	if len(packets) == 0 {
-		return nil
-	}
+	vPkt tappsbt.VPacket) error {
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 	vCtx := proof.VerifierCtx{
@@ -1416,21 +1436,57 @@ func (p *ChainPorter) verifyPacketInputProofs(ctx context.Context,
 		IgnoreChecker:  p.cfg.IgnoreChecker,
 	}
 
-	for pktIdx := range packets {
-		vPkt := packets[pktIdx]
-		for inputIdx := range vPkt.Inputs {
-			assetProof := vPkt.Inputs[inputIdx].Proof
-			if assetProof == nil {
-				return fmt.Errorf("packet %d input %d proof "+
-					"is nil", pktIdx, inputIdx)
-			}
+	for inputIdx := range vPkt.Inputs {
+		assetProof := vPkt.Inputs[inputIdx].Proof
+		if assetProof == nil {
+			return fmt.Errorf("packet input proof is nil "+
+				"(input_idx=%d)", inputIdx)
+		}
 
-			_, err := assetProof.VerifyProofIntegrity(ctx, vCtx)
-			if err != nil {
-				return fmt.Errorf("unable to verify "+
-					"inclusion proof for packet %d "+
-					"input %d: %w", pktIdx, inputIdx, err)
-			}
+		_, err := assetProof.VerifyProofIntegrity(ctx, vCtx)
+		if err != nil {
+			return fmt.Errorf("unable to verify "+
+				"inclusion proof for packet input "+
+				"(input_idx=%d): %w", inputIdx, err)
+		}
+	}
+
+	return nil
+}
+
+// verifySplitCommitmentWitnesses ensures split leaf outputs embed a split root
+// that actually carries a witness. Split leaves intentionally keep their own
+// TxWitness empty and rely on the embedded root witness for validation.
+func verifySplitCommitmentWitnesses(vPkt tappsbt.VPacket) error {
+	for outIdx := range vPkt.Outputs {
+		vOut := vPkt.Outputs[outIdx]
+
+		if vOut.Asset == nil ||
+			!vOut.Asset.HasSplitCommitmentWitness() {
+
+			continue
+		}
+
+		splitCommitment := vOut.Asset.PrevWitnesses[0].SplitCommitment
+		if splitCommitment == nil {
+			return fmt.Errorf("output missing split commitment "+
+				"(output_idx=%d)", outIdx)
+		}
+
+		root := &splitCommitment.RootAsset
+		if len(root.PrevWitnesses) == 0 {
+			return fmt.Errorf("output split root has no prev "+
+				"witnesses (output_idx=%d)", outIdx)
+		}
+
+		hasWitness := fn.Any(
+			root.PrevWitnesses, func(wit asset.Witness) bool {
+				return len(wit.TxWitness) > 0
+			},
+		)
+		if !hasWitness {
+			return fmt.Errorf("output split root witness empty "+
+				"(output_idx=%d)", outIdx)
 		}
 	}
 
@@ -1685,12 +1741,11 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		allPackets = append(allPackets, currentPkg.VirtualPackets...)
 		allPackets = append(allPackets, currentPkg.PassiveAssets...)
 
-		err := p.verifyPacketInputProofs(ctx, allPackets)
+		err := p.verifyVPackets(ctx, allPackets)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
 
-			return nil, fmt.Errorf("unable to verify input "+
-				"proofs: %w", err)
+			return nil, fmt.Errorf("verifying vPackets: %w", err)
 		}
 
 		currentPkg.SendState = SendStateStorePreBroadcast
