@@ -594,13 +594,48 @@ func (w *ReOrgWatcher) DefaultUpdateCallback() proof.UpdateCallback {
 			ChainLookupGen: w.cfg.ChainBridge,
 			IgnoreChecker:  w.cfg.IgnoreChecker,
 		}
+
+		// This is a bit of a hacky part. If we have a chain of
+		// transactions that were re-organized, we can't verify the
+		// whole chain until all of the transactions were confirmed and
+		// all proofs were updated with the new blocks and merkle roots.
+		// So we'll skip the verification here since we don't know if
+		// the whole chain has been updated yet (the confirmations might
+		// come in out of order).
+		// TODO(guggero): Find a better way to do this.
+		vCtx.HeaderVerifier = func(wire.BlockHeader, uint32) error {
+			return nil
+		}
+
 		for idx := range proofs {
-			err := proof.ReplaceProofInBlob(
-				ctxt, proofs[idx], w.cfg.ProofArchive, vCtx,
+			proofToUpdate := proofs[idx]
+
+			existingProofs, err := w.cfg.ProofArchive.FetchProofs(
+				ctxt, proofToUpdate.Asset.ID(),
+			)
+			if err != nil {
+				return fmt.Errorf("unable to fetch proofs: %w",
+					err)
+			}
+
+			updatedProofs, err := proof.ReplaceProofInFiles(
+				proofToUpdate, existingProofs,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to update proofs: %w",
 					err)
+			}
+
+			if len(updatedProofs) == 0 {
+				continue
+			}
+
+			err = w.cfg.ProofArchive.ImportProofs(
+				ctxt, vCtx, true, updatedProofs...,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to import updated "+
+					"proofs: %w", err)
 			}
 		}
 

@@ -333,3 +333,129 @@ func TestMigrateOldFileNames(t *testing.T) {
 	require.NoError(t, err)
 	assertProofAtNewName(proof6)
 }
+
+// TestReplaceProofInFilesUpdatesProof ensures that when a matching proof is
+// found, it is replaced with the updated version and returned.
+func TestReplaceProofInFilesUpdatesProof(t *testing.T) {
+	t.Parallel()
+
+	encodeProof := func(p Proof) []byte {
+		file, err := NewFile(V0, p)
+		require.NoError(t, err)
+
+		var buf bytes.Buffer
+		require.NoError(t, file.Encode(&buf))
+
+		return buf.Bytes()
+	}
+
+	testBlocks := readTestData(t)
+
+	genesis := asset.RandGenesis(t, asset.Collectible)
+	scriptKey := test.RandPubKey(t)
+
+	oldProof := RandProof(t, genesis, scriptKey, testBlocks[0], 0, 1)
+	locator := Locator{
+		AssetID:   fn.Ptr(oldProof.Asset.ID()),
+		ScriptKey: *oldProof.Asset.ScriptKey.PubKey,
+		OutPoint:  fn.Ptr(oldProof.OutPoint()),
+	}
+	oldProofAnnotated := &AnnotatedProof{
+		Locator: locator,
+		Blob:    encodeProof(oldProof),
+	}
+
+	newProof := oldProof
+	newProof.BlockHeader = testBlocks[1].Header
+	newProof.BlockHeight = oldProof.BlockHeight + 1
+
+	updated, err := ReplaceProofInFiles(
+		&newProof, []*AnnotatedProof{oldProofAnnotated},
+	)
+	require.NoError(t, err)
+	require.Len(t, updated, 1)
+	require.Equal(t, locator, updated[0].Locator)
+
+	var updatedFile File
+	err = updatedFile.Decode(bytes.NewReader(updated[0].Blob))
+	require.NoError(t, err)
+
+	updatedProof, err := updatedFile.ProofAt(0)
+	require.NoError(t, err)
+
+	require.Equal(
+		t, newProof.BlockHeader.BlockHash(),
+		updatedProof.BlockHeader.BlockHash(),
+	)
+	require.Equal(
+		t, newProof.AnchorTx.TxHash(), updatedProof.AnchorTx.TxHash(),
+	)
+}
+
+// TestReplaceProofInFilesSkipsNonMatchingProof ensures that proofs that do not
+// match the update predicate are left untouched and not returned.
+func TestReplaceProofInFilesSkipsNonMatchingProof(t *testing.T) {
+	t.Parallel()
+
+	testBlocks := readTestData(t)
+	genesis := asset.RandGenesis(t, asset.Collectible)
+	scriptKey := test.RandPubKey(t)
+
+	oldProof := RandProof(t, genesis, scriptKey, testBlocks[0], 0, 1)
+	newProof := RandProof(t, genesis, scriptKey, testBlocks[0], 1, 1)
+
+	oldProofFile, err := NewFile(V0, oldProof)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, oldProofFile.Encode(&buf))
+
+	locator := Locator{
+		AssetID:   fn.Ptr(oldProof.Asset.ID()),
+		ScriptKey: *oldProof.Asset.ScriptKey.PubKey,
+		OutPoint:  fn.Ptr(oldProof.OutPoint()),
+	}
+	oldProofAnnotated := &AnnotatedProof{
+		Locator: locator,
+		Blob:    buf.Bytes(),
+	}
+
+	updated, err := ReplaceProofInFiles(
+		&newProof, []*AnnotatedProof{oldProofAnnotated},
+	)
+	require.NoError(t, err)
+	require.Empty(t, updated)
+}
+
+// TestReplaceProofInFilesMismatchedAsset ensures we error if a proof file has
+// a different asset ID than the proof being updated.
+func TestReplaceProofInFilesMismatchedAsset(t *testing.T) {
+	t.Parallel()
+
+	testBlocks := readTestData(t)
+	genesis := asset.RandGenesis(t, asset.Collectible)
+	scriptKey := test.RandPubKey(t)
+
+	proof := RandProof(t, genesis, scriptKey, testBlocks[0], 0, 1)
+
+	file, err := NewFile(V0, proof)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, file.Encode(&buf))
+
+	mismatchedLocator := Locator{
+		AssetID:   fn.Ptr(asset.RandGenesis(t, asset.Collectible).ID()),
+		ScriptKey: *proof.Asset.ScriptKey.PubKey,
+		OutPoint:  fn.Ptr(proof.OutPoint()),
+	}
+
+	_, err = ReplaceProofInFiles(
+		&proof, []*AnnotatedProof{{
+			Locator: mismatchedLocator,
+			Blob:    buf.Bytes(),
+		}},
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "mismatched asset ID")
+}

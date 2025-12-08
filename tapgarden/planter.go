@@ -3087,15 +3087,44 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 	ctx, cancel := c.WithCtxQuitNoTimeout()
 	defer cancel()
 
+	// This is a bit of a hacky part. If we have a chain of transactions
+	// that were re-organized, we can't verify the whole chain until all of
+	// the transactions were confirmed and all proofs were updated with the
+	// new blocks and merkle roots. So we'll skip the verification here
+	// since we don't know if the whole chain has been updated yet (the
+	// confirmations might come in out of order).
+	// TODO(guggero): Find a better way to do this.
+	vCtx := c.verifierCtx(ctx)
+	vCtx.HeaderVerifier = func(wire.BlockHeader, uint32) error {
+		return nil
+	}
+
 	for idx := range proofs {
 		p := proofs[idx]
 
-		err := proof.ReplaceProofInBlob(
-			ctx, p, c.cfg.ProofUpdates, c.verifierCtx(ctx),
+		existingProofs, err := c.cfg.ProofUpdates.FetchProofs(
+			ctx, p.Asset.ID(),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch proofs: %w", err)
+		}
+
+		updatedProofs, err := proof.ReplaceProofInFiles(
+			p, existingProofs,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to update minted proofs: %w",
 				err)
+		}
+
+		if len(updatedProofs) > 0 {
+			err = c.cfg.ProofUpdates.ImportProofs(
+				ctx, vCtx, true, updatedProofs...,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to import updated "+
+					"minted proofs: %w", err)
+			}
 		}
 
 		// The universe ID serves to identify the universe root we want
