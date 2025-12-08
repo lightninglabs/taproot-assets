@@ -122,7 +122,8 @@ func (m *MintingBatch) Copy() *MintingBatch {
 			map[string]*Seedling, len(m.Seedlings),
 		)
 		for k, v := range m.Seedlings {
-			batchCopy.Seedlings[k] = v
+			seedlingCopy := *v
+			batchCopy.Seedlings[k] = &seedlingCopy
 		}
 	}
 

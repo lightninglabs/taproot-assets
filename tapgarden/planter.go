@@ -1897,8 +1897,15 @@ func (c *ChainPlanter) gardener() {
 			//
 			// TODO(roasbeef): extend the ticker by a certain
 			// portion?
+
+			// Copy the pending batch to prevent potential
+			// concurrent read/write issues.
+			var batchCopy *MintingBatch
+			if c.pendingBatch != nil {
+				batchCopy = c.pendingBatch.Copy()
+			}
 			req.updates <- SeedlingUpdate{
-				PendingBatch: c.pendingBatch,
+				PendingBatch: batchCopy,
 				NewState:     MintingStateSeed,
 			}
 
@@ -1929,7 +1936,13 @@ func (c *ChainPlanter) gardener() {
 		case req := <-c.stateReqs:
 			switch req.Type() {
 			case reqTypePendingBatch:
-				req.Resolve(c.pendingBatch)
+				// Resolve a copy of the state to prevent
+				// potential concurrent read/write issues.
+				if c.pendingBatch == nil {
+					req.Resolve((*MintingBatch)(nil))
+				} else {
+					req.Resolve(c.pendingBatch.Copy())
+				}
 
 			case reqTypeNumActiveBatches:
 				req.Resolve(len(c.caretakers))
@@ -2031,7 +2044,13 @@ func (c *ChainPlanter) gardener() {
 					c.pendingBatch = sealedBatch
 				}
 
-				req.Resolve(c.pendingBatch)
+				// Resolve a copy of the state to prevent
+				// potential concurrent read/write issues.
+				if c.pendingBatch == nil {
+					req.Resolve((*MintingBatch)(nil))
+				} else {
+					req.Resolve(c.pendingBatch.Copy())
+				}
 
 			case reqTypeFinalizeBatch:
 				if c.pendingBatch == nil {
