@@ -3383,3 +3383,262 @@ func TestUpsertAssetsWithSplitCommitments(t *testing.T) {
 		})
 	}
 }
+
+// TestFetchOrphanUTXOs tests that FetchOrphanUTXOs:
+// 1. Filters out UTXOs with missing signing info (KeyFamily=0 AND KeyIndex=0)
+// 2. Respects the MaxOrphanUTXOs limit.
+func TestFetchOrphanUTXOs(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		utxosToInsert [][2]int32
+		expectedCount int
+		checkFunc     func(t *testing.T,
+			orphans []*tapfreighter.ZeroValueInput)
+	}{
+		{
+			name: "filters missing signing info",
+			utxosToInsert: [][2]int32{
+				{212, 5}, // Valid signing info.
+				{0, 0},   // Missing signing info.
+			},
+			expectedCount: 1,
+			checkFunc: func(t *testing.T,
+				orphans []*tapfreighter.ZeroValueInput) {
+
+				require.Equal(
+					t, keychain.KeyFamily(212),
+					orphans[0].InternalKey.Family,
+				)
+				require.Equal(
+					t, uint32(5),
+					orphans[0].InternalKey.Index,
+				)
+			},
+		},
+		{
+			name: "respects max limit",
+			// Insert MaxOrphanUTXOs + 10 UTXOs with valid signing
+			// info.
+			utxosToInsert: func() [][2]int32 {
+				utxos := make([][2]int32, MaxOrphanUTXOs+10)
+				for i := range utxos {
+					utxos[i] = [2]int32{
+						int32(i + 1), int32(i + 1),
+					}
+				}
+				return utxos
+			}(),
+			expectedCount: MaxOrphanUTXOs,
+			checkFunc: func(t *testing.T,
+				orphans []*tapfreighter.ZeroValueInput) {
+
+				// Verify all returned UTXOs have valid signing
+				// info.
+				for _, orphan := range orphans {
+					require.NotZero(
+						t, orphan.InternalKey.Family,
+					)
+					require.NotZero(
+						t, orphan.InternalKey.Index,
+					)
+				}
+			},
+		},
+		{
+			name: "ignores invalid even if total exceeds limit",
+			utxosToInsert: func() [][2]int32 {
+				utxos := make([][2]int32, 0, MaxOrphanUTXOs+1)
+
+				// Add MaxOrphanUTXOs entries with missing
+				// signing info.
+				for range MaxOrphanUTXOs {
+					utxos = append(utxos, [2]int32{0, 0})
+				}
+
+				// Add a single valid entry that should still
+				// be returned.
+				utxos = append(utxos, [2]int32{99, 42})
+
+				return utxos
+			}(),
+			expectedCount: 1,
+			checkFunc: func(t *testing.T,
+				orphans []*tapfreighter.ZeroValueInput) {
+
+				require.Equal(
+					t, keychain.KeyFamily(99),
+					orphans[0].InternalKey.Family,
+				)
+				require.Equal(
+					t, uint32(42),
+					orphans[0].InternalKey.Index,
+				)
+			},
+		},
+		{
+			name: "filters invalid before enforcing max limit",
+			utxosToInsert: func() [][2]int32 {
+				utxos := make([][2]int32, 0, MaxOrphanUTXOs*2+1)
+
+				// Add MaxOrphanUTXOs invalid entries that
+				// should be filtered out.
+				for range MaxOrphanUTXOs {
+					utxos = append(utxos, [2]int32{0, 0})
+				}
+
+				// Add MaxOrphanUTXOs+1 valid entries; only
+				// MaxOrphanUTXOs should be returned.
+				for i := range MaxOrphanUTXOs + 1 {
+					val := int32(i) + 1
+					utxos = append(
+						utxos, [2]int32{val, val},
+					)
+				}
+
+				return utxos
+			}(),
+			expectedCount: MaxOrphanUTXOs,
+			checkFunc: func(t *testing.T,
+				orphans []*tapfreighter.ZeroValueInput) {
+
+				for _, orphan := range orphans {
+					require.NotZero(
+						t, orphan.InternalKey.Family,
+					)
+					require.NotZero(
+						t, orphan.InternalKey.Index,
+					)
+				}
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, assetsStore, db := newAssetStore(t)
+			ctx := context.Background()
+
+			// Insert all UTXOs for this test case.
+			for _, keyInfo := range tc.utxosToInsert {
+				insertOrphanUTXO(
+					t, ctx, db, assetsStore,
+					keyInfo[0], keyInfo[1],
+				)
+			}
+
+			// Fetch orphan UTXOs.
+			orphans, err := assetsStore.FetchOrphanUTXOs(ctx)
+			require.NoError(t, err)
+
+			require.Len(t, orphans, tc.expectedCount)
+
+			if tc.checkFunc != nil {
+				tc.checkFunc(t, orphans)
+			}
+		})
+	}
+}
+
+// insertOrphanUTXO inserts a managed UTXO with a tombstone asset and the
+// specified KeyFamily and KeyIndex values for the internal key.
+func insertOrphanUTXO(t *testing.T, ctx context.Context, db sqlc.Querier,
+	assetsStore *AssetStore, keyFamily, keyIndex int32) wire.OutPoint {
+
+	internalKey := test.RandPubKey(t)
+
+	// Insert the internal key with specific KeyFamily and KeyIndex.
+	_, err := db.UpsertInternalKey(ctx, sqlc.UpsertInternalKeyParams{
+		RawKey:    internalKey.SerializeCompressed(),
+		KeyFamily: keyFamily,
+		KeyIndex:  keyIndex,
+	})
+	require.NoError(t, err)
+
+	// Create a chain transaction.
+	anchorTx := wire.NewMsgTx(2)
+	anchorTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: test.RandOp(t),
+	})
+	anchorTx.AddTxOut(&wire.TxOut{
+		PkScript: bytes.Repeat([]byte{0x01}, 34),
+		Value:    1000,
+	})
+
+	txBytes, err := fn.Serialize(anchorTx)
+	require.NoError(t, err)
+
+	txHash := anchorTx.TxHash()
+	chainTxID, err := db.UpsertChainTx(ctx, sqlc.UpsertChainTxParams{
+		Txid:        txHash[:],
+		RawTx:       txBytes,
+		BlockHeight: sqlInt32(100),
+	})
+	require.NoError(t, err)
+
+	outpoint := wire.OutPoint{
+		Hash:  txHash,
+		Index: 0,
+	}
+	outpointBytes, err := encodeOutpoint(outpoint)
+	require.NoError(t, err)
+
+	// Insert the managed UTXO.
+	_, err = db.UpsertManagedUTXO(ctx, sqlc.UpsertManagedUTXOParams{
+		RawKey:           internalKey.SerializeCompressed(),
+		Outpoint:         outpointBytes,
+		AmtSats:          1000,
+		TaprootAssetRoot: test.RandBytes(32),
+		MerkleRoot:       test.RandBytes(32),
+		TxnID:            chainTxID,
+	})
+	require.NoError(t, err)
+
+	// Create and insert a tombstone asset for this UTXO.
+	gen := asset.RandGenesis(t, asset.Normal)
+	gen.FirstPrevOut = outpoint
+	tombstone := asset.NewAssetNoErr(
+		t, gen, 0, 0, 0, asset.NUMSScriptKey, nil,
+	)
+
+	assetCommitment, err := commitment.NewAssetCommitment(tombstone)
+	require.NoError(t, err)
+
+	tapCommitment, err := commitment.NewTapCommitment(nil, assetCommitment)
+	require.NoError(t, err)
+
+	txMerkleProof, err := proof.NewTxMerkleProof([]*wire.MsgTx{anchorTx}, 0)
+	require.NoError(t, err)
+
+	assetProof := proof.Proof{
+		AnchorTx:      *anchorTx,
+		BlockHeight:   100,
+		TxMerkleProof: *txMerkleProof,
+		Asset:         *tombstone,
+		InclusionProof: proof.TaprootProof{
+			OutputIndex: 0,
+			InternalKey: internalKey,
+		},
+	}
+
+	proofBlob, err := proof.EncodeAsProofFile(&assetProof)
+	require.NoError(t, err)
+
+	err = assetsStore.ImportProofs(
+		ctx, proof.MockVerifierCtx, false,
+		&proof.AnnotatedProof{
+			AssetSnapshot: &proof.AssetSnapshot{
+				AnchorTx:          anchorTx,
+				InternalKey:       internalKey,
+				Asset:             tombstone,
+				ScriptRoot:        tapCommitment,
+				AnchorBlockHeight: 100,
+			},
+			Blob: proofBlob,
+		},
+	)
+	require.NoError(t, err)
+
+	return outpoint
+}
