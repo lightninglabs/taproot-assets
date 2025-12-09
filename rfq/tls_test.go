@@ -36,6 +36,8 @@ type testCaseConfigureTransportCredentials struct {
 
 	expectInsecure bool
 
+	expectError bool
+
 	tlsConfig *TLSConfig
 }
 
@@ -46,8 +48,16 @@ func runConfigureTransportCredentialsTest(t *testing.T,
 
 	creds, err := configureTransportCredentials(tc.tlsConfig)
 
-	// We should never see an error here.
+	// If we expect an error, verify we got one and return.
+	if tc.expectError {
+		require.Error(t, err)
+		require.Nil(t, creds)
+		return
+	}
+
+	// Otherwise, we should not see an error.
 	require.Nil(t, err)
+	require.NotNil(t, creds)
 
 	protocol := creds.Info().SecurityProtocol
 
@@ -115,6 +125,7 @@ func TestConfigureTransportCredentials(t *testing.T) {
 		{
 			name:           "invalid custom certificate",
 			expectInsecure: false,
+			expectError:    true,
 			tlsConfig: &TLSConfig{
 				Enabled:            true,
 				InsecureSkipVerify: false,

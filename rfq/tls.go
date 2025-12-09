@@ -3,6 +3,7 @@ package rfq
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -52,7 +53,13 @@ func configureTransportCredentials(
 
 	// If we have any custom certificates, add them to the certificate
 	// pool.
-	certPool.AppendCertsFromPEM(config.CustomCertificates)
+	if len(config.CustomCertificates) > 0 {
+		ok := certPool.AppendCertsFromPEM(config.CustomCertificates)
+		if !ok {
+			return nil, fmt.Errorf("failed to parse any valid " +
+				"custom certificates")
+		}
+	}
 
 	// Return the constructed transport credentials.
 	return credentials.NewClientTLSFromCert(certPool, ""), nil
