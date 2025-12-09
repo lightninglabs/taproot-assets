@@ -47,6 +47,7 @@ type Querier interface {
 	DeleteUniverseSupplyLeaf(ctx context.Context, arg DeleteUniverseSupplyLeafParams) error
 	DeleteUniverseSupplyLeaves(ctx context.Context, namespaceRoot string) error
 	DeleteUniverseSupplyRoot(ctx context.Context, namespaceRoot string) error
+	FetchActiveRfqPolicies(ctx context.Context, minExpiry int64) ([]RfqPolicy, error)
 	FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventRow, error)
 	FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg FetchAddrEventByAddrKeyAndOutpointParams) (FetchAddrEventByAddrKeyAndOutpointRow, error)
 	FetchAddrEventOutputs(ctx context.Context, addrEventID int64) ([]FetchAddrEventOutputsRow, error)
@@ -142,6 +143,7 @@ type Querier interface {
 	InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error
 	InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error
 	InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error
+	InsertRfqPolicy(ctx context.Context, arg InsertRfqPolicyParams) (int64, error)
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	InsertSupplyCommitTransition(ctx context.Context, arg InsertSupplyCommitTransitionParams) (int64, error)
 	InsertSupplyCommitment(ctx context.Context, arg InsertSupplyCommitmentParams) (int64, error)

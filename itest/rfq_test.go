@@ -228,6 +228,19 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	expectedAssetID := mintedAssetId
 	require.Equal(t.t, expectedAssetID, actualAssetID)
 
+	// Restart Bob's tapd to ensure the accepted quote policy survives a
+	// restart and is restored.
+	require.NoError(t.t, ts.BobTapd.stop(false))
+	require.NoError(t.t, ts.BobTapd.start(false))
+
+	// Carol should still see the accepted quote after Bob's restart.
+	acceptedQuotes, err = ts.CarolTapd.QueryPeerAcceptedQuotes(
+		ctxt, &rfqrpc.QueryPeerAcceptedQuotesRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, acceptedQuotes.BuyQuotes, 1)
+	acceptedQuote = acceptedQuotes.BuyQuotes[0]
+
 	// Carol will now use the accepted quote (received from Bob) to create
 	// a lightning invoice which will be given to and settled by Alice.
 	//
