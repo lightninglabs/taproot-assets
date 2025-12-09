@@ -356,10 +356,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 	// Query the price oracle asynchronously using a separate goroutine.
 	// The price oracle might be an external service, responses could be
 	// delayed.
-	n.Wg.Add(1)
-	go func() {
-		defer n.Wg.Done()
-
+	n.Goroutine(func() error {
 		var peerID fn.Option[route.Vertex]
 		if n.cfg.SendPeerId {
 			peerID = fn.Some(request.Peer)
@@ -378,18 +375,18 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 				rfqmsg.ErrUnknownReject,
 			)
 			sendOutgoingMsg(msg)
-
-			// Add an error to the error channel and return.
-			err = fmt.Errorf("failed to query sell price from "+
+			return fmt.Errorf("failed to query sell price from "+
 				"oracle: %w", err)
-			n.cfg.ErrChan <- err
-			return
 		}
 
 		// Construct and send a buy accept message.
 		msg := rfqmsg.NewBuyAcceptFromRequest(request, *assetRate)
 		sendOutgoingMsg(msg)
-	}()
+
+		return nil
+	}, func(err error) {
+		n.cfg.ErrChan <- err
+	})
 
 	return nil
 }
