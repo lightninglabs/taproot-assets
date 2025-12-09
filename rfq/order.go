@@ -968,7 +968,7 @@ func (h *OrderHandler) Start(ctx context.Context) error {
 			return
 		}
 
-		// Start the main event loop in a separate goroutine.
+		// Start the HTLC interceptor in a separate go routine.
 		h.Wg.Add(1)
 		go func() {
 			defer h.Wg.Done()
@@ -990,6 +990,12 @@ func (h *OrderHandler) Start(ctx context.Context) error {
 
 				return
 			}
+		}()
+
+		// Start the main event loop in a separate go routine.
+		h.Wg.Add(1)
+		go func() {
+			defer h.Wg.Done()
 
 			h.mainEventLoop()
 		}()
