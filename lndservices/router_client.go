@@ -45,6 +45,13 @@ func (l *LndRouterClient) DeleteLocalAlias(ctx context.Context, alias,
 	return l.lnd.Router.XDeleteLocalChanAlias(ctx, alias, baseScid)
 }
 
+// FetchBaseAlias finds the base channel ID for a given alias.
+func (l *LndRouterClient) FetchBaseAlias(ctx context.Context,
+	alias lnwire.ShortChannelID) (lnwire.ShortChannelID, error) {
+
+	return l.lnd.Router.XFindBaseLocalChanAlias(ctx, alias)
+}
+
 // SubscribeHtlcEvents subscribes to a stream of events related to
 // HTLC updates.
 func (l *LndRouterClient) SubscribeHtlcEvents(
