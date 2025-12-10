@@ -580,3 +580,13 @@ func NewIncomingRequestFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 			"transfer type: %d", msgData.TransferType.Val)
 	}
 }
+
+// Request represents an RFQ quote request.
+type Request interface {
+	IncomingMsg
+	OutgoingMsg
+
+	// requestMarker is an unexported marker method that ensures only rfqmsg
+	// package types may satisfy this interface.
+	requestMarker()
+}
