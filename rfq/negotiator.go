@@ -334,64 +334,46 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 		}
 	}
 
-	// Reject the quote request if a price oracle is unavailable.
-	if n.cfg.PriceOracle == nil {
-		msg := rfqmsg.NewReject(
-			request.Peer, request.ID,
-			rfqmsg.ErrPriceOracleUnavailable,
-		)
-		go sendOutgoingMsg(msg)
-		return nil
-	}
-
-	// Ensure that we have a suitable sell offer for the asset that is being
-	// requested. Here we can handle the case where this node does not wish
-	// to sell a particular asset.
-	offerAvailable := n.HasAssetSellOffer(
-		request.AssetSpecifier, request.AssetMaxAmt,
-	)
-	if !offerAvailable {
-		log.Infof("Would reject buy request: no suitable buy offer, " +
-			"but ignoring for now")
-
-		// TODO(ffranr): Re-enable pre-price oracle rejection (i.e.
-		//  reject on missing offer)
-
-		// If we do not have a suitable sell offer, then we will reject
-		// the quote request with an error.
-		// reject := rfqmsg.NewReject(
-		//	request.Peer, request.ID,
-		//	rfqmsg.ErrNoSuitableSellOffer,
-		// )
-		// go sendOutgoingMsg(reject)
-		//
-		// return nil
-	}
-
 	// Query the price oracle asynchronously using a separate goroutine.
 	// The price oracle might be an external service, responses could be
 	// delayed.
 	n.Goroutine(func() error {
-		var peerID fn.Option[route.Vertex]
-		if n.cfg.SendPeerId {
-			peerID = fn.Some(request.Peer)
-		}
+		ctx, cancel := n.WithCtxQuitNoTimeout()
+		defer cancel()
 
-		// Query the price oracle for a sale price.
-		assetRate, err := n.querySellFromPriceOracle(
-			request.AssetSpecifier, fn.Some(request.AssetMaxAmt),
-			fn.None[lnwire.MilliSatoshi](), request.AssetRateHint,
-			peerID, request.PriceOracleMetadata, IntentRecvPayment,
+		resp, err := n.cfg.PortfolioPilot.ResolveBuyRequest(
+			ctx, request,
 		)
 		if err != nil {
-			// Send a reject message to the peer.
+			return fmt.Errorf("resolve buy request: %w", err)
+		}
+
+		if resp.IsReject() {
+			reason := rfqmsg.ErrUnknownReject
+			resp.WhenReject(func(err rfqmsg.RejectErr) {
+				reason = err
+			})
+
+			msg := rfqmsg.NewReject(
+				request.Peer, request.ID, reason,
+			)
+			sendOutgoingMsg(msg)
+			return nil
+		}
+
+		var assetRate *rfqmsg.AssetRate
+		resp.WhenAccept(func(rate rfqmsg.AssetRate) {
+			assetRate = &rate
+		})
+		if assetRate == nil {
 			msg := rfqmsg.NewReject(
 				request.Peer, request.ID,
 				rfqmsg.ErrUnknownReject,
 			)
 			sendOutgoingMsg(msg)
-			return fmt.Errorf("failed to query sell price from "+
-				"oracle: %w", err)
+
+			return fmt.Errorf("resolve buy request: missing " +
+				"asset rate on accept decision")
 		}
 
 		// Construct and send a buy accept message.
@@ -1013,57 +995,6 @@ func (n *Negotiator) RemoveAssetSellOffer(assetID *asset.ID,
 	}
 
 	return nil
-}
-
-// HasAssetSellOffer returns true if the negotiator has an asset sell offer
-// which matches the given asset ID/group and asset amount.
-//
-// TODO(ffranr): This method should return errors which can be used to
-// differentiate between a missing offer and an invalid offer.
-func (n *Negotiator) HasAssetSellOffer(assetSpecifier asset.Specifier,
-	assetAmt uint64) bool {
-
-	// If the asset group key is not nil, then we will use it as the key for
-	// the offer. Otherwise, we will use the asset ID as the key.
-	var sellOffer *SellOffer
-
-	assetSpecifier.WhenGroupPubKey(func(assetGroupKey btcec.PublicKey) {
-		keyFixedBytes := asset.ToSerialized(&assetGroupKey)
-		offer, ok := n.assetGroupSellOffers.Load(keyFixedBytes)
-		if !ok {
-			// Corresponding offer not found.
-			return
-		}
-
-		sellOffer = &offer
-	})
-
-	assetSpecifier.WhenId(func(assetID asset.ID) {
-		offer, ok := n.assetSellOffers.Load(assetID)
-		if !ok {
-			// Corresponding offer not found.
-			return
-		}
-
-		sellOffer = &offer
-	})
-
-	// We should never have a nil sell offer at this point. Check added here
-	// for robustness.
-	if sellOffer == nil {
-		return false
-	}
-
-	// If the asset amount is greater than the maximum asset amount under
-	// offer, then we will return false (we do not have a suitable offer).
-	if assetAmt > sellOffer.MaxUnits {
-		log.Warnf("asset amount is greater than sell offer max units "+
-			"(asset_amt=%d, sell_offer_max_units=%d)", assetAmt,
-			sellOffer.MaxUnits)
-		return false
-	}
-
-	return true
 }
 
 // BuyOffer is a struct that represents an asset buy offer. This data structure
