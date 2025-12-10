@@ -413,72 +413,52 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		}
 	}
 
-	// Reject the quote request if a price oracle is unavailable.
-	if n.cfg.PriceOracle == nil {
-		msg := rfqmsg.NewReject(
-			request.Peer, request.ID,
-			rfqmsg.ErrPriceOracleUnavailable,
-		)
-		go sendOutgoingMsg(msg)
-		return nil
-	}
-
-	// The sell request is attempting to sell some amount of an asset to our
-	// node. Here we ensure that we have a suitable buy offer for the asset.
-	// A buy offer is the criteria that this node uses to determine whether
-	// it is willing to buy a particular asset (before price is considered).
-	// At this point we can handle the case where this node does not wish
-	// to buy some amount of a particular asset regardless of its price.
-	//
-	// TODO(ffranr): Reformulate once BuyOffer fields have been revised.
-	offerAvailable := n.HasAssetBuyOffer(
-		request.AssetSpecifier, uint64(request.PaymentMaxAmt),
-	)
-	if !offerAvailable {
-		log.Infof("Would reject sell request: no suitable buy offer, " +
-			"but ignoring for now")
-
-		// TODO(ffranr): Re-enable pre-price oracle rejection (i.e.
-		//  reject on missing offer)
-
-		// If we do not have a suitable buy offer, then we will reject
-		// the asset sell quote request with an error.
-		// reject := rfqmsg.NewReject(
-		//	request.Peer, request.ID,
-		//	rfqmsg.ErrNoSuitableBuyOffer,
-		// )
-		// go sendOutgoingMsg(reject)
-		//
-		// return nil
-	}
-
-	// Query the price oracle asynchronously using a separate goroutine.
-	// The price oracle might be an external service, responses could be
+	// Query the portfolio pilot synchronously using a separate goroutine.
+	// The portfolio pilot might be an external service, responses could be
 	// delayed.
 	n.Goroutine(func() error {
-		var peerID fn.Option[route.Vertex]
-		if n.cfg.SendPeerId {
-			peerID = fn.Some(request.Peer)
-		}
+		ctx, cancel := n.WithCtxQuitNoTimeout()
+		defer cancel()
 
-		// Query the price oracle for a buy price. This is the price we
-		// are willing to pay for the asset that our peer is trying to
-		// sell to us.
-		assetRate, err := n.queryBuyFromPriceOracle(
-			request.AssetSpecifier, fn.None[uint64](),
-			fn.Some(request.PaymentMaxAmt), request.AssetRateHint,
-			peerID, request.PriceOracleMetadata, IntentPayInvoice,
+		resp, err := n.cfg.PortfolioPilot.ResolveRequest(
+			ctx, &request,
 		)
 		if err != nil {
-			// Send a reject message to the peer.
 			msg := rfqmsg.NewReject(
 				request.Peer, request.ID,
 				rfqmsg.ErrUnknownReject,
 			)
 			sendOutgoingMsg(msg)
 
-			return fmt.Errorf("failed to query buy price from "+
-				"oracle: %w", err)
+			return fmt.Errorf("resolve sell request: %w", err)
+		}
+
+		if resp.IsReject() {
+			reason := rfqmsg.ErrUnknownReject
+			resp.WhenReject(func(err rfqmsg.RejectErr) {
+				reason = err
+			})
+
+			msg := rfqmsg.NewReject(
+				request.Peer, request.ID, reason,
+			)
+			sendOutgoingMsg(msg)
+			return nil
+		}
+
+		var assetRate *rfqmsg.AssetRate
+		resp.WhenAccept(func(rate rfqmsg.AssetRate) {
+			assetRate = &rate
+		})
+		if assetRate == nil {
+			msg := rfqmsg.NewReject(
+				request.Peer, request.ID,
+				rfqmsg.ErrUnknownReject,
+			)
+			sendOutgoingMsg(msg)
+
+			return fmt.Errorf("resolve sell request: missing " +
+				"asset rate on accept decision")
 		}
 
 		// Construct and send a sell accept message.
