@@ -1,0 +1,557 @@
+package rfq
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
+	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+)
+
+// expectQuerySellPrice configures the shared MockPriceOracle to return the
+// supplied response/error.
+func expectQuerySellPrice(oracle *MockPriceOracle, resp *OracleResponse,
+	err error) {
+
+	oracle.On(
+		"QuerySellPrice", mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
+	).Return(resp, err).Once()
+}
+
+// expectQueryBuyPrice configures the shared MockPriceOracle to return the
+// supplied response/error.
+func expectQueryBuyPrice(oracle *MockPriceOracle, resp *OracleResponse,
+	err error) {
+
+	oracle.On(
+		"QueryBuyPrice", mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
+	).Return(resp, err).Once()
+}
+
+// assertSellPriceCall verifies the recorded QuerySellPrice call arguments.
+func assertSellPriceCall(t *testing.T, oracle *MockPriceOracle,
+	idx int, expAssetSpec asset.Specifier,
+	expAssetMax fn.Option[uint64],
+	expPaymentMax fn.Option[lnwire.MilliSatoshi],
+	expRateHint fn.Option[rfqmsg.AssetRate],
+	expCounterparty fn.Option[route.Vertex], expMetadata string,
+	expIntent PriceQueryIntent) {
+
+	t.Helper()
+
+	// idx is zero-based while AssertNumberOfCalls expects the total count,
+	// hence the +1.
+	oracle.AssertNumberOfCalls(t, "QuerySellPrice", idx+1)
+
+	call := oracle.Calls[idx]
+	require.Equal(t, "QuerySellPrice", call.Method)
+
+	require.Equal(t, expAssetSpec, call.Arguments[1].(asset.Specifier))
+	require.Equal(t, expAssetMax, call.Arguments[2].(fn.Option[uint64]))
+	require.Equal(
+		t, expPaymentMax,
+		call.Arguments[3].(fn.Option[lnwire.MilliSatoshi]),
+	)
+	require.Equal(
+		t, expRateHint,
+		call.Arguments[4].(fn.Option[rfqmsg.AssetRate]),
+	)
+	require.Equal(
+		t, expCounterparty,
+		call.Arguments[5].(fn.Option[route.Vertex]),
+	)
+	require.Equal(t, expMetadata, call.Arguments[6].(string))
+	require.Equal(t, expIntent, call.Arguments[7].(PriceQueryIntent))
+}
+
+// assertBuyPriceCall verifies the recorded QueryBuyPrice call arguments.
+func assertBuyPriceCall(t *testing.T, oracle *MockPriceOracle,
+	idx int, expAssetSpec asset.Specifier,
+	expAssetMax fn.Option[uint64],
+	expPaymentMax fn.Option[lnwire.MilliSatoshi],
+	expRateHint fn.Option[rfqmsg.AssetRate],
+	expCounterparty fn.Option[route.Vertex], expMetadata string,
+	expIntent PriceQueryIntent) {
+
+	t.Helper()
+
+	// idx is zero-based while AssertNumberOfCalls expects the total count.
+	oracle.AssertNumberOfCalls(t, "QueryBuyPrice", idx+1)
+
+	call := oracle.Calls[idx]
+	require.Equal(t, "QueryBuyPrice", call.Method)
+
+	require.Equal(t, expAssetSpec, call.Arguments[1].(asset.Specifier))
+	require.Equal(t, expAssetMax, call.Arguments[2].(fn.Option[uint64]))
+	require.Equal(
+		t, expPaymentMax,
+		call.Arguments[3].(fn.Option[lnwire.MilliSatoshi]),
+	)
+	require.Equal(
+		t, expRateHint,
+		call.Arguments[4].(fn.Option[rfqmsg.AssetRate]),
+	)
+	require.Equal(
+		t, expCounterparty,
+		call.Arguments[5].(fn.Option[route.Vertex]),
+	)
+	require.Equal(t, expMetadata, call.Arguments[6].(string))
+	require.Equal(t, expIntent, call.Arguments[7].(PriceQueryIntent))
+}
+
+// TestResolveRequest exercises buy and sell request handling across error and
+// success scenarios.
+func TestResolveRequest(t *testing.T) {
+	newBuyReq := func(
+		t *testing.T, assetID byte,
+		rateHint fn.Option[rfqmsg.AssetRate],
+	) *rfqmsg.BuyRequest {
+
+		t.Helper()
+
+		req, err := rfqmsg.NewBuyRequest(
+			route.Vertex{0x01, 0x02, 0x03},
+			asset.NewSpecifierFromId(asset.ID{assetID}), 100,
+			rateHint, "order-metadata",
+		)
+		require.NoError(t, err)
+		return req
+	}
+
+	newSellReq := func(
+		t *testing.T, assetID byte, paymentMax lnwire.MilliSatoshi,
+		rateHint fn.Option[rfqmsg.AssetRate],
+	) *rfqmsg.SellRequest {
+
+		t.Helper()
+
+		req, err := rfqmsg.NewSellRequest(
+			route.Vertex{0x0A, 0x0B, 0x0C},
+			asset.NewSpecifierFromId(asset.ID{assetID}),
+			paymentMax, rateHint, "order-metadata",
+		)
+		require.NoError(t, err)
+		return req
+	}
+
+	hintExpiry := time.Now().Add(2 * time.Minute).UTC()
+	requestRateHint := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(75, 0), hintExpiry,
+	)
+	buyResponseExpiry := time.Now().Add(5 * time.Minute).UTC()
+	expectedBuyRate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(125, 0), buyResponseExpiry,
+	)
+
+	sellResponseExpiry := time.Now().Add(3 * time.Minute).UTC()
+	expectedSellRate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(200, 0), sellResponseExpiry,
+	)
+
+	tests := []struct {
+		// name describes the subtest case.
+		name string
+
+		// forwardPeer controls whether the pilot forwards the peer to
+		// the oracle.
+		forwardPeer bool
+
+		// makeReq builds the request for the test case.
+		makeReq func(t *testing.T) rfqmsg.Request
+
+		// setupOracle registers expectations on the mock oracle.
+		setupOracle func(*MockPriceOracle)
+
+		// expectErr, if non-empty, is the substring expected in the
+		// error.
+		expectErr string
+
+		// assertFn performs per-case assertions.
+		assertFn func(
+			t *testing.T, resp ResolveResp, req rfqmsg.Request,
+			oracle *MockPriceOracle,
+		)
+	}{
+		{
+			name:        "buy: oracle query error",
+			forwardPeer: true,
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				return newBuyReq(
+					t, 0x02, fn.Some(requestRateHint),
+				)
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				err := errors.New("oracle unreachable")
+				expectQuerySellPrice(o, nil, err)
+			},
+			expectErr: "query sell price",
+			assertFn: func(
+				t *testing.T, resp ResolveResp,
+				req rfqmsg.Request, oracle *MockPriceOracle,
+			) {
+
+				buyReq := req.(*rfqmsg.BuyRequest)
+
+				assertSellPriceCall(
+					t, oracle, 0, buyReq.AssetSpecifier,
+					fn.Some(buyReq.AssetMaxAmt),
+					fn.None[lnwire.MilliSatoshi](),
+					buyReq.AssetRateHint,
+					fn.Some(buyReq.Peer),
+					buyReq.PriceOracleMetadata,
+					IntentRecvPayment,
+				)
+			},
+		},
+		{
+			name: "buy: oracle returned error",
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				return newBuyReq(
+					t, 0x03, fn.None[rfqmsg.AssetRate](),
+				)
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				resp := OracleResponse{
+					Err: &OracleError{
+						Code: 7,
+						Msg:  "rate unavailable",
+					},
+				}
+				expectQuerySellPrice(o, &resp, nil)
+			},
+			expectErr: "price oracle returned error",
+		},
+		{
+			name: "buy: nil oracle response",
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				return newBuyReq(
+					t, 0x06, fn.None[rfqmsg.AssetRate](),
+				)
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				expectQuerySellPrice(o, nil, nil)
+			},
+			expectErr: "nil response",
+		},
+		{
+			name: "buy: missing asset rate",
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				return newBuyReq(
+					t, 0x04, fn.None[rfqmsg.AssetRate](),
+				)
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				assetRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(0, 0),
+					time.Now().Add(time.Minute).UTC(),
+				)
+				expectQuerySellPrice(
+					o, &OracleResponse{
+						AssetRate: assetRate,
+					}, nil,
+				)
+			},
+			expectErr: "price oracle did not specify an asset rate",
+		},
+		{
+			name:        "buy: success forward peer",
+			forwardPeer: true,
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				return newBuyReq(
+					t, 0x05, fn.Some(requestRateHint),
+				)
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				expectQuerySellPrice(
+					o, &OracleResponse{
+						AssetRate: expectedBuyRate,
+					}, nil,
+				)
+			},
+			assertFn: func(
+				t *testing.T, resp ResolveResp,
+				req rfqmsg.Request,
+				oracle *MockPriceOracle,
+			) {
+
+				buyReq := req.(*rfqmsg.BuyRequest)
+
+				require.True(t, resp.IsAccept())
+
+				var assetRate rfqmsg.AssetRate
+				resp.WhenAccept(func(rate rfqmsg.AssetRate) {
+					assetRate = rate
+				})
+				require.Equal(t, expectedBuyRate, assetRate)
+
+				assertSellPriceCall(
+					t, oracle, 0, buyReq.AssetSpecifier,
+					fn.Some(buyReq.AssetMaxAmt),
+					fn.None[lnwire.MilliSatoshi](),
+					buyReq.AssetRateHint,
+					fn.Some(buyReq.Peer),
+					buyReq.PriceOracleMetadata,
+					IntentRecvPayment,
+				)
+			},
+		},
+		{
+			name: "buy: success without forwarding peer",
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				return newBuyReq(
+					t, 0x05, fn.Some(requestRateHint),
+				)
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				expectQuerySellPrice(
+					o, &OracleResponse{
+						AssetRate: expectedBuyRate,
+					}, nil,
+				)
+			},
+			assertFn: func(
+				t *testing.T, resp ResolveResp,
+				req rfqmsg.Request,
+				oracle *MockPriceOracle,
+			) {
+
+				buyReq := req.(*rfqmsg.BuyRequest)
+
+				require.True(t, resp.IsAccept())
+
+				var assetRate rfqmsg.AssetRate
+				resp.WhenAccept(func(rate rfqmsg.AssetRate) {
+					assetRate = rate
+				})
+				require.Equal(t, expectedBuyRate, assetRate)
+
+				assertSellPriceCall(
+					t, oracle, 0, buyReq.AssetSpecifier,
+					fn.Some(buyReq.AssetMaxAmt),
+					fn.None[lnwire.MilliSatoshi](),
+					buyReq.AssetRateHint,
+					fn.None[route.Vertex](),
+					buyReq.PriceOracleMetadata,
+					IntentRecvPayment,
+				)
+			},
+		},
+		{
+			name:        "sell: oracle query error",
+			forwardPeer: true,
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				return newSellReq(
+					t, 0x07, lnwire.MilliSatoshi(2500),
+					fn.None[rfqmsg.AssetRate](),
+				)
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				err := errors.New("oracle unreachable")
+				expectQueryBuyPrice(o, nil, err)
+			},
+			expectErr: "query buy price",
+			assertFn: func(
+				t *testing.T, resp ResolveResp,
+				req rfqmsg.Request, oracle *MockPriceOracle,
+			) {
+
+				sellReq := req.(*rfqmsg.SellRequest)
+
+				assertBuyPriceCall(
+					t, oracle, 0, sellReq.AssetSpecifier,
+					fn.None[uint64](),
+					fn.Some(sellReq.PaymentMaxAmt),
+					fn.None[rfqmsg.AssetRate](),
+					fn.Some(sellReq.Peer),
+					sellReq.PriceOracleMetadata,
+					IntentPayInvoice,
+				)
+			},
+		},
+		{
+			name: "sell: oracle returned error",
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				return newSellReq(
+					t, 0x08, lnwire.MilliSatoshi(5000),
+					fn.None[rfqmsg.AssetRate](),
+				)
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				resp := OracleResponse{
+					Err: &OracleError{
+						Code: 9,
+						Msg:  "rate unavailable",
+					},
+				}
+				expectQueryBuyPrice(o, &resp, nil)
+			},
+			expectErr: "price oracle returned error",
+		},
+		{
+			name: "sell: nil oracle response",
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				return newSellReq(
+					t, 0x09, lnwire.MilliSatoshi(7500),
+					fn.None[rfqmsg.AssetRate](),
+				)
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				expectQueryBuyPrice(o, nil, nil)
+			},
+			expectErr: "nil response",
+		},
+		{
+			name: "sell: missing asset rate",
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				return newSellReq(
+					t, 0x0A, lnwire.MilliSatoshi(9000),
+					fn.None[rfqmsg.AssetRate](),
+				)
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				assetRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(0, 0),
+					time.Now().Add(time.Minute).UTC(),
+				)
+				expectQueryBuyPrice(
+					o, &OracleResponse{
+						AssetRate: assetRate,
+					}, nil,
+				)
+			},
+			expectErr: "price oracle did not specify an asset rate",
+		},
+		{
+			name:        "sell: success forward peer",
+			forwardPeer: true,
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				return newSellReq(
+					t, 0x0D, lnwire.MilliSatoshi(11111),
+					fn.None[rfqmsg.AssetRate](),
+				)
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				expectQueryBuyPrice(
+					o, &OracleResponse{
+						AssetRate: expectedSellRate,
+					}, nil,
+				)
+			},
+			assertFn: func(
+				t *testing.T, resp ResolveResp,
+				req rfqmsg.Request, oracle *MockPriceOracle,
+			) {
+
+				sellReq := req.(*rfqmsg.SellRequest)
+
+				require.True(t, resp.IsAccept())
+
+				var assetRate rfqmsg.AssetRate
+				resp.WhenAccept(func(rate rfqmsg.AssetRate) {
+					assetRate = rate
+				})
+				require.Equal(t, expectedSellRate, assetRate)
+
+				assertBuyPriceCall(
+					t, oracle, 0, sellReq.AssetSpecifier,
+					fn.None[uint64](),
+					fn.Some(sellReq.PaymentMaxAmt),
+					fn.None[rfqmsg.AssetRate](),
+					fn.Some(sellReq.Peer),
+					sellReq.PriceOracleMetadata,
+					IntentPayInvoice,
+				)
+			},
+		},
+		{
+			name: "sell: success without forwarding peer",
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				return newSellReq(
+					t, 0x0D, lnwire.MilliSatoshi(11111),
+					fn.None[rfqmsg.AssetRate](),
+				)
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				expectQueryBuyPrice(
+					o, &OracleResponse{
+						AssetRate: expectedSellRate,
+					}, nil,
+				)
+			},
+			assertFn: func(
+				t *testing.T, resp ResolveResp,
+				req rfqmsg.Request, oracle *MockPriceOracle,
+			) {
+
+				sellReq := req.(*rfqmsg.SellRequest)
+
+				require.True(t, resp.IsAccept())
+
+				var assetRate rfqmsg.AssetRate
+				resp.WhenAccept(func(rate rfqmsg.AssetRate) {
+					assetRate = rate
+				})
+				require.Equal(t, expectedSellRate, assetRate)
+
+				assertBuyPriceCall(
+					t, oracle, 0, sellReq.AssetSpecifier,
+					fn.None[uint64](),
+					fn.Some(sellReq.PaymentMaxAmt),
+					fn.None[rfqmsg.AssetRate](),
+					fn.None[route.Vertex](),
+					sellReq.PriceOracleMetadata,
+					IntentPayInvoice,
+				)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			req := tc.makeReq(t)
+			oracle := &MockPriceOracle{}
+			tc.setupOracle(oracle)
+
+			pilot, err := NewInternalPortfolioPilot(
+				InternalPortfolioPilotConfig{
+					PriceOracle:           oracle,
+					ForwardPeerIDToOracle: tc.forwardPeer,
+				},
+			)
+			require.NoError(t, err)
+
+			ctx := context.Background()
+			resp, err := pilot.ResolveRequest(ctx, req)
+			switch {
+			case tc.expectErr != "":
+				require.ErrorContains(t, err, tc.expectErr)
+				require.False(t, resp.IsAccept())
+				require.False(t, resp.IsReject())
+
+			default:
+				require.NoError(t, err)
+				require.False(t, resp.IsReject())
+			}
+
+			if tc.assertFn != nil {
+				tc.assertFn(t, resp, req, oracle)
+			}
+
+			oracle.AssertExpectations(t)
+		})
+	}
+}
