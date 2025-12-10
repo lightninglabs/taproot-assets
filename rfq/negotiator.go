@@ -410,77 +410,44 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		}
 	}
 
-	// Reject the quote request if a price oracle is unavailable.
-	if n.cfg.PriceOracle == nil {
-		msg := rfqmsg.NewReject(
-			request.Peer, request.ID,
-			rfqmsg.ErrPriceOracleUnavailable,
-		)
-		go sendOutgoingMsg(msg)
-		return nil
-	}
-
-	// The sell request is attempting to sell some amount of an asset to our
-	// node. Here we ensure that we have a suitable buy offer for the asset.
-	// A buy offer is the criteria that this node uses to determine whether
-	// it is willing to buy a particular asset (before price is considered).
-	// At this point we can handle the case where this node does not wish
-	// to buy some amount of a particular asset regardless of its price.
-	//
-	// TODO(ffranr): Reformulate once BuyOffer fields have been revised.
-	offerAvailable := n.HasAssetBuyOffer(
-		request.AssetSpecifier, uint64(request.PaymentMaxAmt),
-	)
-	if !offerAvailable {
-		log.Infof("Would reject sell request: no suitable buy offer, " +
-			"but ignoring for now")
-
-		// TODO(ffranr): Re-enable pre-price oracle rejection (i.e.
-		//  reject on missing offer)
-
-		// If we do not have a suitable buy offer, then we will reject
-		// the asset sell quote request with an error.
-		// reject := rfqmsg.NewReject(
-		//	request.Peer, request.ID,
-		//	rfqmsg.ErrNoSuitableBuyOffer,
-		// )
-		// go sendOutgoingMsg(reject)
-		//
-		// return nil
-	}
-
-	// Query the price oracle asynchronously using a separate goroutine.
-	// The price oracle might be an external service, responses could be
+	// Query the portfolio pilot synchronously using a separate goroutine.
+	// The portfolio pilot might be an external service, responses could be
 	// delayed.
 	n.Goroutine(func() error {
-		var peerID fn.Option[route.Vertex]
-		if n.cfg.SendPeerId {
-			peerID = fn.Some(request.Peer)
-		}
+		ctx, cancel := n.WithCtxQuitCustomTimeout(
+			DefaultPortfolioPilotTimeout,
+		)
+		defer cancel()
 
-		// Query the price oracle for a buy price. This is the price we
-		// are willing to pay for the asset that our peer is trying to
-		// sell to us.
-		assetRate, err := n.queryBuyFromPriceOracle(
-			request.AssetSpecifier, fn.None[uint64](),
-			fn.Some(request.PaymentMaxAmt), request.AssetRateHint,
-			peerID, request.PriceOracleMetadata, IntentPayInvoice,
+		resp, err := n.cfg.PortfolioPilot.ResolveRequest(
+			ctx, &request,
 		)
 		if err != nil {
-			// Send a reject message to the peer.
 			msg := rfqmsg.NewReject(
 				request.Peer, request.ID,
 				rfqmsg.ErrUnknownReject,
 			)
 			sendOutgoingMsg(msg)
 
-			return fmt.Errorf("failed to query buy price from "+
-				"oracle: %w", err)
+			return fmt.Errorf("resolve sell request: %w", err)
 		}
 
-		// Construct and send a sell accept message.
-		msg := rfqmsg.NewSellAcceptFromRequest(request, *assetRate)
-		sendOutgoingMsg(msg)
+		if resp.IsReject() {
+			resp.WhenReject(func(reason rfqmsg.RejectErr) {
+				msg := rfqmsg.NewReject(
+					request.Peer, request.ID, reason,
+				)
+				sendOutgoingMsg(msg)
+			})
+			return nil
+		}
+
+		resp.WhenAccept(func(assetRate rfqmsg.AssetRate) {
+			msg := rfqmsg.NewSellAcceptFromRequest(
+				request, assetRate,
+			)
+			sendOutgoingMsg(msg)
+		})
 
 		return nil
 	}, func(err error) {
@@ -1063,60 +1030,6 @@ func (n *Negotiator) UpsertAssetBuyOffer(offer BuyOffer) error {
 	}
 
 	return nil
-}
-
-// HasAssetBuyOffer returns true if the negotiator has an asset buy offer which
-// matches the given asset ID/group and asset amount.
-//
-// TODO(ffranr): This method should return errors which can be used to
-// differentiate between a missing offer and an invalid offer.
-func (n *Negotiator) HasAssetBuyOffer(assetSpecifier asset.Specifier,
-	assetAmt uint64) bool {
-
-	// If the asset group key is not nil, then we will use it as the lookup
-	// key to retrieve an offer. Otherwise, we will use the asset ID as the
-	// lookup key.
-	var buyOffer *BuyOffer
-
-	assetSpecifier.WhenGroupPubKey(func(assetGroupKey btcec.PublicKey) {
-		keyFixedBytes := asset.ToSerialized(&assetGroupKey)
-		offer, ok := n.assetGroupBuyOffers.Load(keyFixedBytes)
-		if !ok {
-			// Corresponding offer not found.
-			return
-		}
-
-		buyOffer = &offer
-	})
-
-	assetSpecifier.WhenId(func(assetID asset.ID) {
-		offer, ok := n.assetBuyOffers.Load(assetID)
-		if !ok {
-			// Corresponding offer not found.
-			return
-		}
-
-		buyOffer = &offer
-	})
-
-	// We should never have a nil buy offer at this point. Check added here
-	// for robustness.
-	if buyOffer == nil {
-		return false
-	}
-
-	// If the asset amount is greater than the maximum asset amount under
-	// offer, then we will return false (we do not have a suitable offer).
-	if assetAmt > buyOffer.MaxUnits {
-		// At this point, the sell request is asking us to buy more of
-		// the asset than we are willing to purchase.
-		log.Warnf("asset amount is greater than buy offer max units "+
-			"(asset_amt=%d, buy_offer_max_units=%d)", assetAmt,
-			buyOffer.MaxUnits)
-		return false
-	}
-
-	return true
 }
 
 // Start starts the service.
