@@ -33,6 +33,9 @@ type NegotiatorCfg struct {
 	// determine whether a quote is accepted or rejected.
 	PriceOracle PriceOracle
 
+	// PortfolioPilot makes financial decisions when evaluating quotes.
+	PortfolioPilot PortfolioPilot
+
 	// OutgoingMessages is a channel which is populated with outgoing peer
 	// messages. These are messages which are destined to be sent to peers.
 	OutgoingMessages chan<- rfqmsg.OutgoingMsg
@@ -93,6 +96,24 @@ type Negotiator struct {
 
 // NewNegotiator creates a new quote negotiator.
 func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
+	// If the portfolio pilot is not specified, then we will use the
+	// internal portfolio pilot.
+	if cfg.PortfolioPilot == nil {
+		cfgPortfolioPilot := InternalPortfolioPilotConfig{
+			PriceOracle:           cfg.PriceOracle,
+			ForwardPeerIDToOracle: cfg.SendPeerId,
+		}
+		portfolioPilot, err := NewInternalPortfolioPilot(
+			cfgPortfolioPilot,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create internal portfolio "+
+				"pilot: %w", err)
+		}
+
+		cfg.PortfolioPilot = &portfolioPilot
+	}
+
 	return &Negotiator{
 		cfg: cfg,
 
