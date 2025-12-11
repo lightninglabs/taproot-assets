@@ -255,7 +255,7 @@ func (c *Custodian) Start() error {
 		// Start the main event handler loop that will process new
 		// addresses being added and new incoming on-chain transactions.
 		c.Goroutine(func() error {
-			err := c.watchInboundAssets()
+			err := c.mainEventLoop()
 			if err != nil {
 				// We don't currently have a means to recover
 				// from this error, so we'll treat it as
@@ -355,10 +355,12 @@ func (c *Custodian) handleError(err error) {
 	}
 }
 
-// watchInboundAssets processes new Taproot Asset addresses being created and
-// new transactions being received and attempts to match the two things into
-// inbound asset events.
-func (c *Custodian) watchInboundAssets() error {
+// mainEventLoop is the main event loop of the custodian.
+//
+// It processes new Taproot Asset addresses being created and new transactions
+// being received and attempts to match the two things into inbound asset
+// events.
+func (c *Custodian) mainEventLoop() error {
 	// We first start the transaction subscription, so we don't miss any new
 	// transactions that come in while we still process the existing ones.
 	log.Debugf("Subscribing to new on-chain transactions")
