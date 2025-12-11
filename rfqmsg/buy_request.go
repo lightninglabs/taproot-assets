@@ -246,6 +246,10 @@ func (q *BuyRequest) MsgID() ID {
 	return q.ID
 }
 
+// requestMarker makes BuyRequest satisfy the Request interface while keeping
+// implementations local to this package.
+func (q *BuyRequest) requestMarker() {}
+
 // String returns a human-readable string representation of the message.
 func (q *BuyRequest) String() string {
 	// Convert the asset rate hint to a string representation. Use empty
@@ -268,3 +272,6 @@ var _ OutgoingMsg = (*BuyRequest)(nil)
 
 // Ensure that the message type implements the IncomingMsg interface.
 var _ IncomingMsg = (*BuyRequest)(nil)
+
+// Ensure that the message type implements the Request interface.
+var _ Request = (*BuyRequest)(nil)
