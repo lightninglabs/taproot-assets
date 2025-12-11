@@ -67,15 +67,17 @@ var (
 // migrationOption is a functional option that can be passed to migrate related
 // methods to modify their behavior.
 type migrateOptions struct {
-	latestVersion     fn.Option[uint]
-	postStepCallbacks map[uint]migrate.PostStepCallback
+	latestVersion          fn.Option[uint]
+	programmaticMigrations map[uint]migrate.ProgrammaticMigrEntry
 }
 
 // defaultMigrateOptions returns a new migrateOptions instance with default
 // settings.
 func defaultMigrateOptions() *migrateOptions {
 	return &migrateOptions{
-		postStepCallbacks: make(map[uint]migrate.PostStepCallback),
+		programmaticMigrations: make(
+			map[uint]migrate.ProgrammaticMigrEntry,
+		),
 	}
 }
 
@@ -91,18 +93,15 @@ func WithLatestVersion(version uint) MigrateOpt {
 	}
 }
 
-// WithPostStepCallbacks is an option that can be used to set a map of
-// PostStepCallback functions that can be used to execute a Golang based
-// migration step after a SQL based migration step has been executed. The key is
-// the migration version and the value is the callback function that should be
-// run _after_ the step was executed (but before the version is marked as
-// cleanly executed). An error returned from the callback will cause the
-// migration to fail and the step to be marked as dirty.
-func WithPostStepCallbacks(
-	postStepCallbacks map[uint]migrate.PostStepCallback) MigrateOpt {
+// WithProgrammaticMigrations is an option that can be used to set a map of
+// ProgrammaticMigrEntry functions that can be used to execute a Golang based
+// migration step. The key is the migration version and the value is the
+// Golang migration function entry that should be run for the migration version.
+func WithProgrammaticMigrations(
+	programmaticMigrs map[uint]migrate.ProgrammaticMigrEntry) MigrateOpt {
 
 	return func(o *migrateOptions) {
-		o.postStepCallbacks = postStepCallbacks
+		o.programmaticMigrations = programmaticMigrs
 	}
 }
 
@@ -160,7 +159,9 @@ func applyMigrations(fs fs.FS, driver database.Driver, path, dbName string,
 	// above.
 	sqlMigrate, err := migrate.NewWithInstance(
 		"migrations", migrateFileServer, dbName, driver,
-		migrate.WithPostStepCallbacks(opts.postStepCallbacks),
+		migrate.WithProgrammaticMigrations(
+			opts.programmaticMigrations,
+		),
 	)
 	if err != nil {
 		return err

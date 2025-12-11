@@ -575,7 +575,7 @@ func TestMigration31(t *testing.T) {
 	)
 }
 
-// TestMigration33 tests that the Golang based post migration check for the
+// TestMigration33 tests that the Golang based programmatic migration for the
 // script key type detection works as expected. It verifies that the script key
 // types are detected correctly and that the migration to version 31 works as
 // expected.
@@ -590,12 +590,12 @@ func TestMigration33(t *testing.T) {
 
 	// And now that we have test data inserted, we can migrate to the latest
 	// version.
-	// NOTE: the post-migration check was originally run at migration
+	// NOTE: the programmatic migration was originally run at migration
 	// version 33, but was later moved to version 50. Targeting the latest
-	// migration, will execute post-migration check, but at version 50
+	// migration will execute the programmatic migration at version 50
 	// instead of 33.
-	err := db.ExecuteMigrations(TargetLatest, WithPostStepCallbacks(
-		makePostStepCallbacks(db, postMigrationChecks),
+	err := db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
 	))
 	require.NoError(t, err)
 
@@ -705,8 +705,8 @@ func TestMigration50ScriptKeyTypeReplay(t *testing.T) {
 
 	// We simulate that a user previously ran migration 33, which at the
 	// time contained both the SQL and the programmatic migration. To avoid
-	// mixing SQL and programmatic migrations in the same version which will
-	// no longer be allowed by the migrate dependency, we first run only the
+	// mixing SQL and programmatic migrations in the same version as that
+	// is no longer allowed by the migrate dependency, we first run only the
 	// SQL migrations up to version 33, then execute the programmatic
 	// migration manually.
 	err := db.ExecuteMigrations(TargetVersion(OldScriptKeyTypeMigr))
@@ -801,8 +801,10 @@ func TestMigration50ScriptKeyTypeReplay(t *testing.T) {
 	// should not change or add any new values than the values assigned when
 	// the programmatic migration was run for migration version 33.
 	err = db.ExecuteMigrations(TargetVersion(Migration50ScriptKeyType),
-		WithPostStepCallbacks(
-			makePostStepCallbacks(db, postMigrationChecks),
+		WithProgrammaticMigrations(
+			makeProgrammaticMigrations(
+				db, programmaticMigrations, true,
+			),
 		),
 	)
 	require.NoError(t, err)
@@ -818,7 +820,7 @@ func TestMigration50ScriptKeyTypeReplay(t *testing.T) {
 	require.Equal(t, expectedKeyTypes, fetchTypes())
 }
 
-// TestMigration37 tests that the Golang based post-migration check for the
+// TestMigration37 tests that the Golang based programmatic migration for the
 // asset burn insertion works as expected.
 func TestMigration37(t *testing.T) {
 	ctx := context.Background()
@@ -831,12 +833,12 @@ func TestMigration37(t *testing.T) {
 
 	// And now that we have test data inserted, we can migrate to the latest
 	// version.
-	// NOTE: the post-migration check was originally run at migration
+	// NOTE: the programmatic migration was originally run at migration
 	// version 37, but was later moved to version 51. Targeting the latest
-	// migration, will execute post-migration check, but at version 51
+	// migration will execute the programmatic migration at version 51
 	// instead of 37.
-	err := db.ExecuteMigrations(TargetLatest, WithPostStepCallbacks(
-		makePostStepCallbacks(db, postMigrationChecks),
+	err := db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
 	))
 	require.NoError(t, err)
 
@@ -864,8 +866,8 @@ func TestMigration51BurnReplay(t *testing.T) {
 
 	// We simulate that a user previously ran migration 37, which at the
 	// time contained both the SQL and the programmatic migration. To avoid
-	// mixing SQL and programmatic migrations in the same version which will
-	// no longer be allowed by the migrate dependency, we first run only the
+	// mixing SQL and programmatic migrations in the same version as that is
+	// no longer allowed by the migrate dependency, we first run only the
 	// SQL migrations up to version 37, then execute the programmatic
 	// migration manually.
 	err = db.ExecuteMigrations(TargetVersion(OldInsertAssetBurnsMigr))
@@ -907,8 +909,10 @@ func TestMigration51BurnReplay(t *testing.T) {
 	// Execute the rest of the migrations, which will trigger the migration
 	// version 51 programmatic migration.
 	err = db.ExecuteMigrations(TargetVersion(Migration51InsertAssetBurns),
-		WithPostStepCallbacks(
-			makePostStepCallbacks(db, postMigrationChecks),
+		WithProgrammaticMigrations(
+			makeProgrammaticMigrations(
+				db, programmaticMigrations, true,
+			),
 		),
 	)
 	require.NoError(t, err)
@@ -932,18 +936,19 @@ func TestMigration51BurnReplay(t *testing.T) {
 // migration is the targeted migration or an intermediate migration.
 //
 // NOTE: This test defines custom programmatic migrations for version 50 & 51,
-// simulating that the programmatic migrations at those version errors,
-// leaving the DB in a dirty state.
+// with the resetVersionOnError flag set to false, simulating that the
+// programmatic migrations at those version errors, leaving the DB in a
+// dirty state.
 func TestDirtySqliteVersion(t *testing.T) {
 	var (
 		err       error
 		testError = errors.New("test error")
 
-		// testPostMigrationChecks1 is a map that will trigger a
+		// testProgrammaticMigrations1 is a map that will trigger a
 		// programmatic for migration 50 which always returns an
 		// error. This is used to simulate an intermediate migration
 		// that fails and leaves the db in a dirty state.
-		testPostMigrationChecks1 = map[uint]postMigrationCheck{
+		testProgrammaticMigrations1 = map[uint]programmaticMigration{
 			Migration50ScriptKeyType: func(ctx context.Context,
 				q sqlc.Querier) error {
 
@@ -951,12 +956,12 @@ func TestDirtySqliteVersion(t *testing.T) {
 			},
 		}
 
-		// testPostMigrationChecks2 is a map that will trigger a
+		// testProgrammaticMigrations2 is a map that will trigger a
 		// migration callback for the targeted migration (i.e. latest)
 		// which always returns an error. This is used to simulate that
 		// the latest migration fails and leaves the db in a dirty
 		// state.
-		testPostMigrationChecks2 = map[uint]postMigrationCheck{
+		testProgrammaticMigrations2 = map[uint]programmaticMigration{
 			Migration51InsertAssetBurns: func(ctx context.Context,
 				q sqlc.Querier) error {
 
@@ -972,14 +977,16 @@ func TestDirtySqliteVersion(t *testing.T) {
 	db1 := NewTestSqliteDBWithVersion(t, 1)
 
 	// As intend that the failing migration version should be an
-	// intermediate migration, we use the testPostMigrationChecks1 when
+	// intermediate migration, we use the testProgrammaticMigrations1 when
 	// executing the migration. Note that we use the `backupAndMigrate` func
 	// as the MigrationTarget, to simulate what is used in production for
 	// Sqlite database backends. As set the migration version 51 as the
 	// latest migration version, that version will be targeted.
 	err = db1.ExecuteMigrations(db1.backupAndMigrate,
-		WithPostStepCallbacks(
-			makePostStepCallbacks(db1, testPostMigrationChecks1),
+		WithProgrammaticMigrations(
+			makeProgrammaticMigrations(
+				db1, testProgrammaticMigrations1, false,
+			),
 		),
 		WithLatestVersion(Migration51InsertAssetBurns),
 	)
@@ -988,8 +995,10 @@ func TestDirtySqliteVersion(t *testing.T) {
 	// If we now attempt to execute migrations again, it should fail with an
 	// error indicating that the db is in a dirty state.
 	err = db1.ExecuteMigrations(db1.backupAndMigrate,
-		WithPostStepCallbacks(
-			makePostStepCallbacks(db1, testPostMigrationChecks1),
+		WithProgrammaticMigrations(
+			makeProgrammaticMigrations(
+				db1, testProgrammaticMigrations1, false,
+			),
 		),
 		WithLatestVersion(Migration51InsertAssetBurns),
 	)
@@ -1001,13 +1010,15 @@ func TestDirtySqliteVersion(t *testing.T) {
 	db2 := NewTestSqliteDBWithVersion(t, 1)
 
 	// As we intend that the failing migration version should be the latest
-	// migration, we now use the testPostMigrationChecks2 when executing
+	// migration, we now use the testProgrammaticMigrations2 when executing
 	// the migration.
 	// Note that we're targeting the same version that the programmatic
 	// migration is defined for, i.e. and is therefore the latest version.
 	err = db2.ExecuteMigrations(db2.backupAndMigrate,
-		WithPostStepCallbacks(
-			makePostStepCallbacks(db2, testPostMigrationChecks2),
+		WithProgrammaticMigrations(
+			makeProgrammaticMigrations(
+				db2, testProgrammaticMigrations2, false,
+			),
 		),
 		WithLatestVersion(Migration51InsertAssetBurns),
 	)
@@ -1016,8 +1027,10 @@ func TestDirtySqliteVersion(t *testing.T) {
 	// If we now attempt to execute migrations again, it should fail with an
 	// error indicating that the db is in a dirty state.
 	err = db2.ExecuteMigrations(db2.backupAndMigrate,
-		WithPostStepCallbacks(
-			makePostStepCallbacks(db2, testPostMigrationChecks2),
+		WithProgrammaticMigrations(
+			makeProgrammaticMigrations(
+				db2, testProgrammaticMigrations2, false,
+			),
 		),
 		WithLatestVersion(Migration51InsertAssetBurns),
 	)
