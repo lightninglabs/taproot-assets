@@ -4955,7 +4955,8 @@ func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
 			return e.Status == address.StatusCompleted, nil
 
 		default:
-			return false, fmt.Errorf("unknown event type: %T", e)
+			// We're not interested in any other events.
+			return false, nil
 		}
 	}
 
@@ -5048,11 +5049,12 @@ func (r *rpcServer) SubscribeReceiveEvents(
 			return false, nil
 
 		default:
-			return false, fmt.Errorf("unknown event type: %T", e)
+			// We're not interested in any other events.
+			return false, nil
 		}
 
 		// If we're not filtering on a specific address, we return all
-		// events.
+		// events subject to the above type check.
 		if addrString == "" {
 			return true, nil
 		}
