@@ -238,3 +238,13 @@ func NewIncomingAcceptFromWire(wireMsg WireMessage,
 			"accept message: %T", request)
 	}
 }
+
+// Accept represents an RFQ quote accept message.
+type Accept interface {
+	IncomingMsg
+	OutgoingMsg
+
+	// acceptMarker is an unexported marker method that ensures only rfqmsg
+	// package types may satisfy this interface.
+	acceptMarker()
+}
