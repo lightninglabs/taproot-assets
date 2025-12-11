@@ -129,6 +129,34 @@ func (e *AddrImportErrEvent) Timestamp() time.Time {
 // Ensure that AddrImportErrEvent implements the Event interface.
 var _ fn.Event = (*AddrImportErrEvent)(nil)
 
+// AddrImportCompleteEvent is an event sent to subscriber(s) once the custodian
+// has successfully imported an address.
+type AddrImportCompleteEvent struct {
+	// timestamp is the time the event was created.
+	timestamp time.Time
+
+	// Address is the address associated with the import attempt.
+	Address address.AddrWithKeyInfo
+}
+
+// NewAddrImportCompleteEvent creates a new AddrImportCompleteEvent.
+func NewAddrImportCompleteEvent(
+	addr address.AddrWithKeyInfo) *AddrImportCompleteEvent {
+
+	return &AddrImportCompleteEvent{
+		timestamp: time.Now().UTC(),
+		Address:   addr,
+	}
+}
+
+// Timestamp returns the timestamp of the event.
+func (e *AddrImportCompleteEvent) Timestamp() time.Time {
+	return e.timestamp
+}
+
+// Ensure that AddrImportCompleteEvent implements the Event interface.
+var _ fn.Event = (*AddrImportCompleteEvent)(nil)
+
 // CustodianConfig houses all the items that the Custodian needs to carry out
 // its duties.
 type CustodianConfig struct {
@@ -527,14 +555,23 @@ func (c *Custodian) mainEventLoop() error {
 		select {
 		case newAddr := <-c.addrSubscription.NewItemCreated.ChanOut():
 			importErr := c.importAddrToWallet(ctxStream, newAddr)
-			if importErr != nil {
-				// Log the error and notify subscribers
-				// but do not terminate the main event loop.
+			switch {
+			// If we failed to import the address, log the error and
+			// notify subscribers but do not terminate the main
+			// event loop.
+			case importErr != nil:
 				log.Errorf("Unable to import new address "+
-					"%s: %v", newAddr.String(), err)
+					"%s: %v", newAddr.String(), importErr)
 
+				event := NewAddrImportErrEvent(
+					*newAddr, importErr,
+				)
+				c.publishSubscriberStatusEvent(event)
+
+			// Notify subscribers that the address was imported.
+			default:
 				c.publishSubscriberStatusEvent(
-					NewAddrImportErrEvent(*newAddr, err),
+					NewAddrImportCompleteEvent(*newAddr),
 				)
 			}
 
