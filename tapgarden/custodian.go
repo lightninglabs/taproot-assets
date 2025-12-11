@@ -254,8 +254,24 @@ func (c *Custodian) Start() error {
 
 		// Start the main event handler loop that will process new
 		// addresses being added and new incoming on-chain transactions.
-		c.Wg.Add(1)
-		go c.watchInboundAssets()
+		c.Goroutine(func() error {
+			err := c.watchInboundAssets()
+			if err != nil {
+				// We don't currently have a means to recover
+				// from this error, so we'll treat it as
+				// critical.
+				err = fn.NewCriticalError(err)
+
+				return fmt.Errorf("main event loop: %w", err)
+			}
+
+			return nil
+		}, func(err error) {
+			log.Errorf("Aborting main custodian event loop: %v",
+				err)
+
+			c.handleError(err)
+		})
 
 		// We instruct the address book to also deliver all existing
 		// addresses that haven't been added to the internal wallet for
@@ -320,30 +336,41 @@ func (c *Custodian) Stop() error {
 	return stopErr
 }
 
-// watchInboundAssets processes new Taproot Asset addresses being created and
-// new transactions being received and attempts to match the two things into
-// inbound asset events.
-func (c *Custodian) watchInboundAssets() {
-	defer c.Wg.Done()
+// handleError logs an error and sends it to the main server error channel if
+// it is a critical error.
+func (c *Custodian) handleError(err error) {
+	if err == nil {
+		return
+	}
 
-	reportErr := func(err error) {
+	log.Errorf("Error in custodian: %v", err)
+
+	// If the error is a critical error, send it to the main server error
+	// channel, which will cause the daemon to shut down.
+	if fn.ErrorAs[*fn.CriticalError](err) {
 		select {
 		case c.cfg.ErrChan <- err:
 		case <-c.Quit:
 		}
 	}
+}
 
+// watchInboundAssets processes new Taproot Asset addresses being created and
+// new transactions being received and attempts to match the two things into
+// inbound asset events.
+func (c *Custodian) watchInboundAssets() error {
 	// We first start the transaction subscription, so we don't miss any new
 	// transactions that come in while we still process the existing ones.
 	log.Debugf("Subscribing to new on-chain transactions")
+
 	ctxStream, cancel := c.WithCtxQuitNoTimeout()
 	defer cancel()
+
 	newTxChan, txErrChan, err := c.cfg.WalletAnchor.SubscribeTransactions(
 		ctxStream,
 	)
 	if err != nil {
-		reportErr(err)
-		return
+		return err
 	}
 
 	// Fetch all pending events that we wish to process.
@@ -352,8 +379,7 @@ func (c *Custodian) watchInboundAssets() {
 	events, err := c.cfg.AddrBook.GetPendingEvents(ctxt)
 	cancel()
 	if err != nil {
-		reportErr(err)
-		return
+		return err
 	}
 
 	// Fetching start height for querying new auth mailbox messages. We
@@ -369,8 +395,7 @@ func (c *Custodian) watchInboundAssets() {
 	)
 	cancel()
 	if err != nil {
-		reportErr(err)
-		return
+		return err
 	}
 
 	c.mboxRequestStartHeight.Store(lastHeight)
@@ -398,8 +423,7 @@ func (c *Custodian) watchInboundAssets() {
 				),
 			)
 
-			reportErr(err)
-			return
+			return err
 		}
 
 		// If we did find a proof, we did import it now and are done.
@@ -430,7 +454,9 @@ func (c *Custodian) watchInboundAssets() {
 				),
 			)
 
-			reportErr(err)
+			// TODO(ffranr): Figure out if we can recover from this
+			//  error.
+			c.handleError(fn.NewCriticalError(err))
 		})
 	}
 
@@ -445,8 +471,7 @@ func (c *Custodian) watchInboundAssets() {
 	)
 	cancel()
 	if err != nil {
-		reportErr(err)
-		return
+		return err
 	}
 
 	// Keep a cache of all events that are currently ongoing.
@@ -455,8 +480,7 @@ func (c *Custodian) watchInboundAssets() {
 	for idx := range walletTxns {
 		err := c.inspectWalletTx(&walletTxns[idx])
 		if err != nil {
-			reportErr(err)
-			return
+			return err
 		}
 	}
 
@@ -485,21 +509,17 @@ func (c *Custodian) watchInboundAssets() {
 			break
 
 		case <-c.Quit:
-			return
+			return nil
 		}
 
 		if err != nil {
 			// We'll report the error to the main daemon, but only
 			// if this isn't a context cancel.
 			if fn.IsCanceled(err) {
-				return
+				return nil
 			}
 
-			log.Errorf("Aborting main custodian event loop: %v",
-				err)
-
-			reportErr(err)
-			return
+			return err
 		}
 	}
 }
