@@ -297,7 +297,7 @@ type WalletConfig struct {
 
 	// SweepOrphanUtxos, when true, sweeps orphaned UTXOs into anchor
 	// transactions created during sends and burns.
-	SweepOrphanUtxos bool `long:"sweep-orphan-utxos" description:"Sweep orphaned UTXOs into anchor transactions created during sends and burns. Disabled by default."`
+	SweepOrphanUtxos bool `long:"sweep-orphan-utxos" description:"Sweep orphaned UTXOs into anchor transactions created during sends and burns. Enabled by default."`
 }
 
 // UniverseConfig is the config that houses any Universe related config
@@ -498,7 +498,7 @@ func DefaultConfig() Config {
 		},
 		Wallet: &WalletConfig{
 			PsbtMaxFeeRatio:  DefaultPsbtMaxFeeRatio,
-			SweepOrphanUtxos: false,
+			SweepOrphanUtxos: true,
 		},
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,

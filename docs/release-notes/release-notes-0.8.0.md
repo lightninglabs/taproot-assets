@@ -49,6 +49,15 @@
   `rfq_policies` table whenever a policy is agreed, giving us an audit trail
   and keeping quotes alive across restarts.
 
+- [Improve orphan UTXO sweeping](https://github.com/lightninglabs/taproot-assets/pull/1905):
+  Fixed two issues with fetching orphan UTXOs for sweeping during transaction
+  building:
+  - Added filtering to exclude orphan UTXOs with missing signing information
+    (KeyFamily=0 and KeyIndex=0). These UTXOs were created in prior versions
+    that didn't store this information, causing LND to fail when signing.
+  - Added a limit (`MaxOrphanUTXOs = 20`) to prevent transactions from becoming
+    too large when sweeping many orphan UTXOs at once.
+
 ## RPC Updates
 
 - [PR#1841](https://github.com/lightninglabs/taproot-assets/pull/1841): Remove
@@ -70,6 +79,11 @@
   The `proofs-per-universe` configuration option is removed. New option 
   `max-proof-cache-size` sets the proof cache limit in bytes and accepts
   human-readable values such as `64MB`.
+
+- [Enable orphan UTXO sweeping by default](https://github.com/lightninglabs/taproot-assets/pull/1905):
+  The `wallet.sweep-orphan-utxos` configuration option is now enabled by
+  default. This automatically sweeps tombstone and burn outputs when executing
+  on-chain transactions. Set to `false` to disable.
 
 ## Code Health
 

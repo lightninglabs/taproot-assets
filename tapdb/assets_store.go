@@ -188,6 +188,13 @@ type (
 	QueryBurnsFilters = sqlc.QueryBurnsParams
 )
 
+const (
+	// MaxOrphanUTXOs is the maximum number of orphan UTXOs that can be
+	// fetched at once. This limit prevents transactions from becoming too
+	// large when sweeping orphan UTXOs.
+	MaxOrphanUTXOs = 20
+)
+
 // ActiveAssetsStore is a sub-set of the main sqlc.Querier interface that
 // contains methods related to querying the set of confirmed assets.
 type ActiveAssetsStore interface {
@@ -1340,6 +1347,12 @@ func (a *AssetStore) FetchOrphanUTXOs(ctx context.Context) (
 		}
 
 		for _, u := range utxos {
+			if len(results) >= MaxOrphanUTXOs {
+				log.DebugS(ctx, "reached max orphan UTXOs "+
+					"limit", "limit", MaxOrphanUTXOs)
+				break
+			}
+
 			if len(u.LeaseOwner) > 0 &&
 				u.LeaseExpiry.Valid &&
 				u.LeaseExpiry.Time.UTC().After(now) {
@@ -1348,6 +1361,17 @@ func (a *AssetStore) FetchOrphanUTXOs(ctx context.Context) (
 			}
 
 			if u.SweptTxnID.Valid {
+				continue
+			}
+
+			// Skip UTXOs with missing signing information. In prior
+			// versions, we didn't store KeyFamily and KeyIndex for
+			// orphan UTXOs. If both are 0, LND will fail to sign
+			// the transaction.
+			if u.KeyFamily == 0 && u.KeyIndex == 0 {
+				log.DebugS(ctx, "skipping orphan utxo with "+
+					"missing signing info",
+					"raw_key", fmt.Sprintf("%x", u.RawKey))
 				continue
 			}
 
