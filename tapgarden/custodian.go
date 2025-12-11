@@ -66,6 +66,9 @@ func (e *AssetReceiveEvent) Timestamp() time.Time {
 	return e.timestamp
 }
 
+// Ensure that AssetReceiveEvent implements the Event interface.
+var _ fn.Event = (*AssetReceiveEvent)(nil)
+
 // NewAssetReceiveEvent creates a new AssetReceiveEvent.
 func NewAssetReceiveEvent(addr address.Tap, outpoint wire.OutPoint,
 	confHeight uint32, status address.Status) *AssetReceiveEvent {
@@ -93,6 +96,38 @@ func NewAssetReceiveErrorEvent(err error, addr address.Tap,
 		Error:              err,
 	}
 }
+
+// AddrImportErrEvent is an event sent to subscriber(s) if the custodian fails
+// to import an address.
+type AddrImportErrEvent struct {
+	// timestamp is the time the event was created.
+	timestamp time.Time
+
+	// Address is the address associated with the import attempt.
+	Address address.AddrWithKeyInfo
+
+	// Err is the error that occurred during the import attempt.
+	Err error
+}
+
+// NewAddrImportErrEvent creates a new AddrImportErrEvent.
+func NewAddrImportErrEvent(
+	addr address.AddrWithKeyInfo, err error) *AddrImportErrEvent {
+
+	return &AddrImportErrEvent{
+		timestamp: time.Now().UTC(),
+		Address:   addr,
+		Err:       err,
+	}
+}
+
+// Timestamp returns the timestamp of the event.
+func (e *AddrImportErrEvent) Timestamp() time.Time {
+	return e.timestamp
+}
+
+// Ensure that AddrImportErrEvent implements the Event interface.
+var _ fn.Event = (*AddrImportErrEvent)(nil)
 
 // CustodianConfig houses all the items that the Custodian needs to carry out
 // its duties.
@@ -491,7 +526,17 @@ func (c *Custodian) mainEventLoop() error {
 		var err error
 		select {
 		case newAddr := <-c.addrSubscription.NewItemCreated.ChanOut():
-			err = c.importAddrToWallet(ctxStream, newAddr)
+			importErr := c.importAddrToWallet(ctxStream, newAddr)
+			if importErr != nil {
+				// Log the error and notify subscribers
+				// but do not terminate the main event loop.
+				log.Errorf("Unable to import new address "+
+					"%s: %v", newAddr.String(), err)
+
+				c.publishSubscriberStatusEvent(
+					NewAddrImportErrEvent(*newAddr, err),
+				)
+			}
 
 		case tx := <-newTxChan:
 			err = c.inspectWalletTx(&tx)
