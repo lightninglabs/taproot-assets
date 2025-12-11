@@ -248,3 +248,18 @@ type Accept interface {
 	// package types may satisfy this interface.
 	acceptMarker()
 }
+
+// NewQuoteAcceptFromRequest creates a new instance of a quote accept message
+// given a quote request message.
+func NewQuoteAcceptFromRequest(request Request, assetRate AssetRate) (Accept,
+	error) {
+
+	switch req := request.(type) {
+	case *BuyRequest:
+		return NewBuyAcceptFromRequest(*req, assetRate), nil
+	case *SellRequest:
+		return NewSellAcceptFromRequest(*req, assetRate), nil
+	default:
+		return nil, fmt.Errorf("unknown request type: %T", request)
+	}
+}
