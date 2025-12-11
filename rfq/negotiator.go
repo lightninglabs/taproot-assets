@@ -316,9 +316,9 @@ func (n *Negotiator) querySellFromPriceOracle(assetSpecifier asset.Specifier,
 	return &oracleResponse.AssetRate, nil
 }
 
-// HandleIncomingBuyRequest handles an incoming asset buy quote request.
-func (n *Negotiator) HandleIncomingBuyRequest(
-	request rfqmsg.BuyRequest) error {
+// HandleIncomingQuoteRequest handles an incoming quote request.
+func (n *Negotiator) HandleIncomingQuoteRequest(
+	request rfqmsg.Request) error {
 
 	// Define a thread safe helper function for adding outgoing message to
 	// the outgoing messages channel.
@@ -341,12 +341,10 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 		ctx, cancel := n.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		resp, err := n.cfg.PortfolioPilot.ResolveRequest(
-			ctx, &request,
-		)
+		resp, err := n.cfg.PortfolioPilot.ResolveRequest(ctx, request)
 		if err != nil {
 			msg := rfqmsg.NewReject(
-				request.Peer, request.ID,
+				request.MsgPeer(), request.MsgID(),
 				rfqmsg.ErrUnknownReject,
 			)
 			sendOutgoingMsg(msg)
@@ -361,7 +359,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 			})
 
 			msg := rfqmsg.NewReject(
-				request.Peer, request.ID, reason,
+				request.MsgPeer(), request.MsgID(), reason,
 			)
 			sendOutgoingMsg(msg)
 			return nil
@@ -373,96 +371,17 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 		})
 		if assetRate == nil {
 			msg := rfqmsg.NewReject(
-				request.Peer, request.ID,
+				request.MsgPeer(), request.MsgID(),
 				rfqmsg.ErrUnknownReject,
 			)
 			sendOutgoingMsg(msg)
 
-			return fmt.Errorf("resolve buy request: missing " +
+			return fmt.Errorf("resolve quote request: missing " +
 				"asset rate on accept decision")
 		}
 
-		// Construct and send a buy accept message.
-		msg := rfqmsg.NewBuyAcceptFromRequest(request, *assetRate)
-		sendOutgoingMsg(msg)
-
-		return nil
-	}, func(err error) {
-		n.cfg.ErrChan <- err
-	})
-
-	return nil
-}
-
-// HandleIncomingSellRequest handles an incoming asset sell quote request.
-// This is a request by our peer to sell an asset to us.
-func (n *Negotiator) HandleIncomingSellRequest(
-	request rfqmsg.SellRequest) error {
-
-	// Define a thread safe helper function for adding outgoing message to
-	// the outgoing messages channel.
-	sendOutgoingMsg := func(msg rfqmsg.OutgoingMsg) {
-		sendSuccess := fn.SendOrQuit(
-			n.cfg.OutgoingMessages, msg, n.Quit,
-		)
-		if !sendSuccess {
-			err := fmt.Errorf("negotiator failed to add message "+
-				"to the outgoing messages channel (msg=%v)",
-				msg)
-			n.cfg.ErrChan <- err
-		}
-	}
-
-	// Query the portfolio pilot synchronously using a separate goroutine.
-	// The portfolio pilot might be an external service, responses could be
-	// delayed.
-	n.Goroutine(func() error {
-		ctx, cancel := n.WithCtxQuitNoTimeout()
-		defer cancel()
-
-		resp, err := n.cfg.PortfolioPilot.ResolveRequest(
-			ctx, &request,
-		)
-		if err != nil {
-			msg := rfqmsg.NewReject(
-				request.Peer, request.ID,
-				rfqmsg.ErrUnknownReject,
-			)
-			sendOutgoingMsg(msg)
-
-			return fmt.Errorf("resolve sell request: %w", err)
-		}
-
-		if resp.IsReject() {
-			reason := rfqmsg.ErrUnknownReject
-			resp.WhenReject(func(err rfqmsg.RejectErr) {
-				reason = err
-			})
-
-			msg := rfqmsg.NewReject(
-				request.Peer, request.ID, reason,
-			)
-			sendOutgoingMsg(msg)
-			return nil
-		}
-
-		var assetRate *rfqmsg.AssetRate
-		resp.WhenAccept(func(rate rfqmsg.AssetRate) {
-			assetRate = &rate
-		})
-		if assetRate == nil {
-			msg := rfqmsg.NewReject(
-				request.Peer, request.ID,
-				rfqmsg.ErrUnknownReject,
-			)
-			sendOutgoingMsg(msg)
-
-			return fmt.Errorf("resolve sell request: missing " +
-				"asset rate on accept decision")
-		}
-
-		// Construct and send a sell accept message.
-		msg := rfqmsg.NewSellAcceptFromRequest(request, *assetRate)
+		// Construct and send a quote accept message.
+		msg := rfqmsg.NewQuoteAcceptFromRequest(request, *assetRate)
 		sendOutgoingMsg(msg)
 
 		return nil

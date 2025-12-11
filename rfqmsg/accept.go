@@ -238,3 +238,26 @@ func NewIncomingAcceptFromWire(wireMsg WireMessage,
 			"accept message: %T", request)
 	}
 }
+
+// Accept represents an RFQ quote accept message.
+type Accept interface {
+	IncomingMsg
+	OutgoingMsg
+
+	// acceptMarker is an unexported marker method that ensures only rfqmsg
+	// package types may satisfy this interface.
+	acceptMarker()
+}
+
+// NewQuoteAcceptFromRequest creates a new instance of a quote accept message
+// given a quote request message.
+func NewQuoteAcceptFromRequest(request Request, assetRate AssetRate) Accept {
+	switch req := request.(type) {
+	case *BuyRequest:
+		return NewBuyAcceptFromRequest(*req, assetRate)
+	case *SellRequest:
+		return NewSellAcceptFromRequest(*req, assetRate)
+	default:
+		return nil
+	}
+}
