@@ -1376,7 +1376,7 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 	}
 
 	// Expected minimum number of events to receive.
-	expectedEventCount := 3
+	expectedEventCount := uint32(3)
 
 	// Context timeout scales with expected number of events.
 	timeout := time.Duration(expectedEventCount) *
@@ -1500,7 +1500,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	}
 
 	// Lower bound number of proof delivery attempts.
-	expectedEventCount := 20
+	expectedEventCount := uint32(20)
 
 	// Events must be received before a timeout.
 	timeout := 5 * time.Second
@@ -1524,7 +1524,7 @@ type assetRpcEvent interface {
 // stream is closed.
 func assertAssetNtfsEvent[T assetRpcEvent](t *harnessTest,
 	stream *EventSubscription[T], timeout time.Duration,
-	targetEventSelector func(T) bool, expectedCount int) {
+	targetEventSelector func(T) bool, expectedCount uint32) {
 
 	success := make(chan struct{})
 	timeoutChan := time.After(timeout)
@@ -1542,7 +1542,7 @@ func assertAssetNtfsEvent[T assetRpcEvent](t *harnessTest,
 		}
 	}()
 
-	countFound := 0
+	countFound := uint32(0)
 	for {
 		// Ensure that the context has not been cancelled.
 		select {

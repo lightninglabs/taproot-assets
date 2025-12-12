@@ -567,6 +567,11 @@ func (e *BackoffExecError) Error() string {
 	return fmt.Sprintf("backoff exec error: %s", e.execErr.Error())
 }
 
+// DefaultProofTransferNumTries is the built-in maximum number of attempts
+// made during a proof transfer backoff run when the config's NumTries field
+// is left unset.
+const DefaultProofTransferNumTries = 2000
+
 // BackoffCfg configures the behaviour of the proof delivery backoff procedure.
 //
 // nolint:lll
@@ -580,9 +585,10 @@ type BackoffCfg struct {
 	// resetting the backoff counter to its initial state.
 	BackoffResetWait time.Duration `long:"backoffresetwait" description:"The amount of time to wait before resetting the backoff counter. Valid time units are {s, m, h}."`
 
-	// NumTries is the number of times we'll try to deliver the proof to the
-	// receiver before the BackoffResetWait delay is enforced.
-	NumTries int `long:"numtries" description:"The number of proof delivery attempts before the backoff counter is reset."`
+	// NumTries is the maximum number of attempts in a backoff run before
+	// giving up (or before a caller-applied reset delay). A value of zero
+	// means use the built-in default limit.
+	NumTries uint32 `long:"numtries" description:"Maximum number of attempts in a backoff run before giving up (or before the reset delay applies, if used). Zero means use the built-in default limit."`
 
 	// InitialBackoff is the initial backoff time we'll use to wait before
 	// retrying to deliver the proof to the receiver.
@@ -698,7 +704,11 @@ func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
 		errExec error = nil
 	)
 
-	for i := 0; i < numTries; i++ {
+	if numTries == 0 {
+		numTries = DefaultProofTransferNumTries
+	}
+
+	for i := uint32(0); i < numTries; i++ {
 		// Before attempting to deliver the proof, log that
 		// an attempted delivery is about to occur.
 		err = b.transferLog.LogProofTransferAttempt(
