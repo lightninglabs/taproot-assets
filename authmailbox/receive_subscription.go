@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"sync"
 	"time"
 
@@ -15,12 +14,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightningnetwork/lnd/keychain"
-)
-
-const (
-	// reconnectRetries is the number of times we try to reconnect to
-	// the mailbox server after a shutdown.
-	reconnectRetries = math.MaxInt16
 )
 
 // ReceivedMessages holds the messages received from the mailbox server for a
@@ -104,7 +97,9 @@ func (s *receiveSubscription) connectAndAuthenticate(ctx context.Context,
 
 	log.DebugS(ctx, "Establishing initial connection to server")
 
-	err := s.connectServerStream(ctx, initialBackoff, reconnectRetries)
+	err := s.connectServerStream(
+		ctx, initialBackoff, s.cfg.MaxConnectAttempts,
+	)
 	if err != nil {
 		if errors.Is(err, ErrClientShutdown) {
 			log.DebugS(ctx, "Client is shutting down, not "+
@@ -202,13 +197,13 @@ func (s *receiveSubscription) IsSubscribed() bool {
 // connectServerStream opens the initial connection to the server for the stream
 // of account updates and handles reconnect trials with incremental backoff.
 func (s *receiveSubscription) connectServerStream(ctx context.Context,
-	initialBackoff time.Duration, numRetries int) error {
+	initialBackoff time.Duration, numRetries uint32) error {
 
 	var (
 		backoff = initialBackoff
 		err     error
 	)
-	for i := 0; i < numRetries; i++ {
+	for i := uint32(0); i < numRetries; i++ {
 		// If we're shutting down, we don't want to re-try connecting.
 		select {
 		case <-s.quit:

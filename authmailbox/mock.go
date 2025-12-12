@@ -20,9 +20,10 @@ import (
 )
 
 var (
-	testTimeout    = time.Second
-	testMinBackoff = time.Millisecond * 20
-	testMaxBackoff = time.Millisecond * 100
+	testTimeout            = time.Second
+	testMinBackoff         = time.Millisecond * 20
+	testMaxBackoff         = time.Millisecond * 100
+	testMaxConnectAttempts = uint32(200)
 )
 
 type MockMsgStore struct {
@@ -170,11 +171,12 @@ func NewMockServerWithSigner(t *testing.T,
 		ListenAddr: listenAddr,
 		cfg:        serverCfg,
 		clientCfg: &ClientConfig{
-			ServerAddress: listenAddr,
-			Insecure:      true,
-			Signer:        signer,
-			MinBackoff:    testMinBackoff,
-			MaxBackoff:    testMaxBackoff,
+			ServerAddress:      listenAddr,
+			Insecure:           true,
+			Signer:             signer,
+			MinBackoff:         testMinBackoff,
+			MaxBackoff:         testMaxBackoff,
+			MaxConnectAttempts: testMaxConnectAttempts,
 		},
 		mockMsgStore: inMemMsgStore,
 	}
