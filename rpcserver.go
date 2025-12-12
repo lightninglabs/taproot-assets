@@ -1753,6 +1753,34 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		}
 	}
 
+	// Subscribe to the custodian to ensure we receive notifications when
+	// the address import is complete. We register the subscriber before
+	// creating the address to avoid racing the event emission.
+	importSub := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
+	defer importSub.Stop()
+
+	var subRegistered bool
+	defer func() {
+		if !subRegistered {
+			return
+		}
+
+		err := r.cfg.AssetCustodian.RemoveSubscriber(importSub)
+		if err != nil {
+			rpcsLog.Errorf("Error unsubscribing address import "+
+				"subscriber: %v", err)
+		}
+	}()
+
+	err = r.cfg.AssetCustodian.RegisterSubscriber(
+		importSub, false, time.Time{},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register custodian "+
+			"subscriber: %w", err)
+	}
+	subRegistered = true
+
 	var addr *address.AddrWithKeyInfo
 	switch {
 	// No key was specified, we'll let the address book derive them.
@@ -1817,6 +1845,32 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 			return nil, fmt.Errorf("unable to make new addr with "+
 				"keys: %w", err)
 		}
+	}
+
+	addrStr, err := addr.EncodeAddress()
+	if err != nil {
+		return nil, fmt.Errorf("encode addr: %w", err)
+	}
+
+	waitCtx, waitCancel := context.WithTimeout(ctx, 20*time.Second)
+	defer waitCancel()
+	status, err := tapgarden.WaitForAddrImport(waitCtx, importSub, addrStr)
+	if err != nil {
+		return nil, fmt.Errorf("waiting for addr import: %w", err)
+	}
+
+	switch status {
+	// The custodian imported the address successfully; continue.
+	case tapgarden.AddrImportStatusSuccess:
+
+	// We timed out or were canceled; the import outcome is unknown.
+	case tapgarden.AddrImportStatusUndefined:
+		return nil, fmt.Errorf("address import status unknown, " +
+			"check logs")
+
+	// An error event was seen; it is already wrapped above.
+	case tapgarden.AddrImportStatusError:
+		return nil, fmt.Errorf("address import failed")
 	}
 
 	// With our addr obtained, we'll marshal it as an RPC message then send
