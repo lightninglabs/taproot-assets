@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,10 @@ const (
 	// defaultMboxMaxBackoff is the maximum backoff time used for connecting
 	// to the auth mailbox service.
 	defaultMboxMaxBackoff = 10 * time.Second
+
+	// defaultMboxMaxConnectNumTries is the maximum number of connection
+	// attempts to make when connecting to the auth mailbox service.
+	defaultMboxMaxConnectNumTries = uint32(math.MaxUint32)
 )
 
 // AssetReceiveEvent is an event that is sent to a subscriber once the
@@ -284,6 +289,7 @@ func NewCustodian(cfg *CustodianConfig) *Custodian {
 		backoffCfg = &proof.BackoffCfg{
 			InitialBackoff: defaultMboxInitialBackoff,
 			MaxBackoff:     defaultMboxMaxBackoff,
+			NumTries:       defaultMboxMaxConnectNumTries,
 		}
 	}
 
@@ -295,11 +301,12 @@ func NewCustodian(cfg *CustodianConfig) *Custodian {
 		events:            make(map[wire.OutPoint]*address.Event),
 		mboxSubscriptions: mbox.NewMultiSubscription(
 			mbox.ClientConfig{
-				Insecure:      cfg.MboxInsecure,
-				SkipTlsVerify: !cfg.MboxInsecure,
-				Signer:        cfg.Signer,
-				MinBackoff:    backoffCfg.InitialBackoff,
-				MaxBackoff:    backoffCfg.MaxBackoff,
+				Insecure:           cfg.MboxInsecure,
+				SkipTlsVerify:      !cfg.MboxInsecure,
+				Signer:             cfg.Signer,
+				MinBackoff:         backoffCfg.InitialBackoff,
+				MaxBackoff:         backoffCfg.MaxBackoff,
+				MaxConnectAttempts: backoffCfg.NumTries,
 			},
 		),
 		ContextGuard: &fn.ContextGuard{
