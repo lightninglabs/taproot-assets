@@ -1721,3 +1721,72 @@ func (c *Custodian) verifierCtx(ctx context.Context) proof.VerifierCtx {
 		IgnoreChecker:  c.cfg.IgnoreChecker,
 	}
 }
+
+// AddrImportStatus represents the outcome of waiting for an address import.
+type AddrImportStatus uint8
+
+const (
+	// AddrImportStatusUndefined indicates that the import status is unknown
+	// (for example because the wait context was canceled).
+	AddrImportStatusUndefined = 0
+
+	// AddrImportStatusSuccess indicates that the address import succeeded.
+	AddrImportStatusSuccess = 1
+
+	// AddrImportStatusError indicates that the address import failed.
+	AddrImportStatusError = 2
+)
+
+// WaitForAddrImport waits on the given subscriber for a matching address import
+// result (success or failure). It expects the subscriber to already be
+// registered with the custodian. Returns status success, undefined (e.g. ctx
+// canceled/timeout), or error (with the wrapped error).
+func WaitForAddrImport(ctx context.Context, sub *fn.EventReceiver[fn.Event],
+	addrStr string) (AddrImportStatus, error) {
+
+	handleEvent := func(event fn.Event) (AddrImportStatus, error) {
+		switch e := event.(type) {
+		case *AddrImportCompleteEvent:
+			eventAddr, err := e.Address.EncodeAddress()
+			if err != nil {
+				return AddrImportStatusError, fmt.Errorf(
+					"encoding address: %w", err)
+			}
+
+			if eventAddr == addrStr {
+				return AddrImportStatusSuccess, nil
+			}
+
+		case *AddrImportErrEvent:
+			eventAddr, err := e.Address.EncodeAddress()
+			if err != nil {
+				return AddrImportStatusError, fmt.Errorf(
+					"encoding address: %w", err)
+			}
+
+			if eventAddr == addrStr {
+				return AddrImportStatusError, fmt.Errorf(
+					"import address event: %w", e.Err)
+			}
+		}
+
+		return AddrImportStatusUndefined, nil
+	}
+
+	for {
+		select {
+		case event := <-sub.NewItemCreated.ChanOut():
+			status, err := handleEvent(event)
+			if err != nil {
+				return status, err
+			}
+
+			if status == AddrImportStatusSuccess {
+				return status, nil
+			}
+
+		case <-ctx.Done():
+			return AddrImportStatusUndefined, nil
+		}
+	}
+}
