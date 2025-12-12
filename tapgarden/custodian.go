@@ -279,12 +279,17 @@ func NewCustodian(cfg *CustodianConfig) *Custodian {
 	proofSub := fn.NewEventReceiver[proof.Blob](fn.DefaultQueueSize)
 	statusEventsSubs := make(map[uint64]*fn.EventReceiver[fn.Event])
 
-	backoffCfg := cfg.MboxBackoffCfg
-	if backoffCfg == nil {
-		backoffCfg = &proof.BackoffCfg{
+	mboxBackoffCfg := cfg.MboxBackoffCfg
+	if mboxBackoffCfg == nil {
+		mboxBackoffCfg = &proof.BackoffCfg{
 			InitialBackoff: defaultMboxInitialBackoff,
 			MaxBackoff:     defaultMboxMaxBackoff,
+			NumTries:       mbox.DefaultMboxMaxConnectNumTries,
 		}
+	}
+
+	if mboxBackoffCfg.NumTries == 0 {
+		mboxBackoffCfg.NumTries = mbox.DefaultMboxMaxConnectNumTries
 	}
 
 	return &Custodian{
@@ -294,12 +299,14 @@ func NewCustodian(cfg *CustodianConfig) *Custodian {
 		statusEventsSubs:  statusEventsSubs,
 		events:            make(map[wire.OutPoint]*address.Event),
 		mboxSubscriptions: mbox.NewMultiSubscription(
+			// nolint:lll
 			mbox.ClientConfig{
-				Insecure:      cfg.MboxInsecure,
-				SkipTlsVerify: !cfg.MboxInsecure,
-				Signer:        cfg.Signer,
-				MinBackoff:    backoffCfg.InitialBackoff,
-				MaxBackoff:    backoffCfg.MaxBackoff,
+				Insecure:           cfg.MboxInsecure,
+				SkipTlsVerify:      !cfg.MboxInsecure,
+				Signer:             cfg.Signer,
+				MinBackoff:         mboxBackoffCfg.InitialBackoff,
+				MaxBackoff:         mboxBackoffCfg.MaxBackoff,
+				MaxConnectAttempts: mboxBackoffCfg.NumTries,
 			},
 		),
 		ContextGuard: &fn.ContextGuard{
