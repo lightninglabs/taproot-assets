@@ -149,8 +149,10 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 	// schemas based on our embedded in-memory file system.
 	if !cfg.SkipMigrations {
 		err := s.ExecuteMigrations(
-			s.backupAndMigrate, WithPostStepCallbacks(
-				makePostStepCallbacks(s, postMigrationChecks),
+			s.backupAndMigrate, WithProgrammaticMigrations(
+				makeProgrammaticMigrations(
+					s, programmaticMigrations, true,
+				),
 			),
 		)
 		if err != nil {
@@ -307,8 +309,10 @@ func NewTestSqliteDBWithVersion(t testing.TB, version uint) *SqliteStore {
 	require.NoError(t, err)
 
 	err = sqlDB.ExecuteMigrations(
-		TargetVersion(version), WithPostStepCallbacks(
-			makePostStepCallbacks(sqlDB, postMigrationChecks),
+		TargetVersion(version), WithProgrammaticMigrations(
+			makeProgrammaticMigrations(
+				sqlDB, programmaticMigrations, true,
+			),
 		),
 	)
 	require.NoError(t, err)

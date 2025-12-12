@@ -18,37 +18,40 @@ import (
 )
 
 const (
-	// Migration33ScriptKeyType is the version of the migration that
-	// introduces the script key type.
-	Migration33ScriptKeyType = 33
+	// Migration50ScriptKeyType is the version of the programmatic migration
+	// that runs the script key type detection/backfill.
+	Migration50ScriptKeyType = 50
 
-	// Migration37InsertAssetBurns is the version of the migration that
-	// inserts the asset burns into the specific asset burns table by
-	// querying all assets and detecting burns from their witnesses.
-	Migration37InsertAssetBurns = 37
+	// Migration51InsertAssetBurns is the version of the programmatic
+	// migration that inserts the asset burns into the specific asset burns
+	// table by querying all assets and detecting burns from their
+	// witnesses.
+	Migration51InsertAssetBurns = 51
 )
 
-// postMigrationCheck is a function type for a function that performs a
-// post-migration check on the database.
-type postMigrationCheck func(context.Context, sqlc.Querier) error
+// programmaticMigration is a function type for a function that performs a
+// Golang-based migration on the database.
+type programmaticMigration func(context.Context, sqlc.Querier) error
 
 var (
-	// postMigrationChecks is a map of functions that are run after the
-	// database migration with the version specified in the key has been
-	// applied. These functions are used to perform additional checks on the
+	// programmaticMigrations is a map of functions that are run in the
+	// database migration stream with the version specified in the key.
+	// These functions are used to perform additional checks on the
 	// database state that are not fully expressible in SQL.
-	postMigrationChecks = map[uint]postMigrationCheck{
-		Migration33ScriptKeyType:    determineAndAssignScriptKeyType,
-		Migration37InsertAssetBurns: insertAssetBurns,
+	programmaticMigrations = map[uint]programmaticMigration{
+		Migration50ScriptKeyType:    determineAndAssignScriptKeyType,
+		Migration51InsertAssetBurns: insertAssetBurns,
 	}
 )
 
-// makePostStepCallbacks turns the post migration checks into a map of post
-// step callbacks that can be used with the migrate package. The keys of the map
-// are the migration versions, and the values are the callbacks that will be
-// executed after the migration with the corresponding version is applied.
-func makePostStepCallbacks(db DatabaseBackend,
-	checks map[uint]postMigrationCheck) map[uint]migrate.PostStepCallback {
+// makeProgrammaticMigrations turns the programmatic migrations into a map of
+// ProgrammaticMigrEntry instances that can be used with the migrate package.
+// The keys of the map are the migration versions, and the values are the
+// programmatic migrations that will be executed as part of the migration with
+// the corresponding version.
+func makeProgrammaticMigrations(db DatabaseBackend,
+	migrations map[uint]programmaticMigration,
+	resetVersionOnError bool) map[uint]migrate.ProgrammaticMigrEntry {
 
 	var (
 		ctx  = context.Background()
@@ -60,22 +63,29 @@ func makePostStepCallbacks(db DatabaseBackend,
 		writeTxOpts AssetStoreTxOptions
 	)
 
-	postStepCallbacks := make(map[uint]migrate.PostStepCallback)
-	for version, check := range checks {
-		runCheck := func(m *migrate.Migration, q sqlc.Querier) error {
-			log.Infof("Running post-migration check for version %d",
-				version)
+	programmaticMigrEntries := make(map[uint]migrate.ProgrammaticMigrEntry)
+
+	for version, migration := range migrations {
+		version := version
+		migration := migration
+
+		runMigration := func(_ *migrate.Migration,
+			q sqlc.Querier) error {
+
+			log.Infof("Running programmatic migration "+
+				"for version %d", version)
 			start := time.Now()
 
-			err := check(ctx, q)
+			err := migration(ctx, q)
 			if err != nil {
-				return fmt.Errorf("post-migration "+
-					"check failed for version %d: "+
-					"%w", version, err)
+				return fmt.Errorf("programmatic "+
+					"migration failed for version "+
+					"%d: %w", version, err)
 			}
 
-			log.Infof("Post-migration check for version %d "+
-				"completed in %v", version, time.Since(start))
+			log.Infof("Programmatic migration for version "+
+				"%d completed in %v", version,
+				time.Since(start))
 
 			return nil
 		}
@@ -84,18 +94,25 @@ func makePostStepCallbacks(db DatabaseBackend,
 		// we use migrate.NewWithInstance() to create the migration
 		// instance from our already instantiated database backend that
 		// is also passed into this function.
-		postStepCallbacks[version] = func(m *migrate.Migration,
-			_ database.Driver) error {
+		programmaticMigrEntries[version] =
+			migrate.ProgrammaticMigrEntry{
+				ResetVersionOnError: resetVersionOnError,
+				ProgrammaticMigr: func(m *migrate.Migration,
+					_ database.Driver) error {
 
-			return txDb.ExecTx(
-				ctx, &writeTxOpts, func(q sqlc.Querier) error {
-					return runCheck(m, q)
+					return txDb.ExecTx(
+						ctx, &writeTxOpts,
+						func(q sqlc.Querier) error {
+							return runMigration(
+								m, q,
+							)
+						},
+					)
 				},
-			)
-		}
+			}
 	}
 
-	return postStepCallbacks
+	return programmaticMigrEntries
 }
 
 // determineAndAssignScriptKeyType attempts to detect the type of the script
