@@ -86,7 +86,7 @@ func createProofSuffix(t *testing.T, stxoProof bool, expectedErr string) {
 		createPacket(t, testAssets[3], false, internalKey2, 2),
 	}
 
-	wireTx := wire.NewMsgTx(2)
+	wireTx := wire.NewMsgTx(3)
 	wireTx.TxIn = []*wire.TxIn{{
 		PreviousOutPoint: wire.OutPoint{},
 	}}
