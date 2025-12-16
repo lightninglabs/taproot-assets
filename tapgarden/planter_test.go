@@ -591,6 +591,11 @@ func (t *mintingTestHarness) finalizeBatchAssertFrozen(
 	t.finalizeBatch(&wg, respChan, nil)
 
 	if noBatch {
+		// Wait for the FinalizeBatch goroutine to complete before
+		// returning. This prevents a race where the goroutine's
+		// stateReqs message could interleave with subsequent seedling
+		// requests, potentially corrupting batch state.
+		wg.Wait()
 		t.assertNoPendingBatch()
 		return nil
 	}
