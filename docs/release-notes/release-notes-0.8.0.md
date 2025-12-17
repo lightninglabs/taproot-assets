@@ -71,6 +71,11 @@
   default RPC permissions for RPC endpoints universerpc.Universe/Info and
   /authmailboxrpc.Mailbox/MailboxInfo.
 
+- [PR#1915](https://github.com/lightninglabs/taproot-assets/pull/1915)
+  `NewAddr` now registers a custodian subscriber and waits for the address
+  import result (with a timeout) before returning, surfacing mailbox courier
+  import failures instead of racing and returning success early.
+
 ## tapcli Updates
 
 ## Config Changes
@@ -101,6 +106,11 @@
 ## BIP/bLIP Spec Updates
 
 ## Testing
+
+- [PR#1915](https://github.com/lightninglabs/taproot-assets/pull/1915)
+  Add an integration test that verifies tapd stays running when V2 address
+  creation hits an unreachable mailbox courier with the upfront connection
+  check skipped, ensuring mailbox subscription failures do not crash tapd.
 
 ## Database
 

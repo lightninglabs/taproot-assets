@@ -17,12 +17,6 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
-const (
-	// reconnectRetries is the number of times we try to reconnect to
-	// the mailbox server after a shutdown.
-	reconnectRetries = math.MaxInt16
-)
-
 // ReceivedMessages holds the messages received from the mailbox server for a
 // specific receiver. This is used to return the messages to the caller after
 // the 3-way authentication handshake is complete. The receiver is included to
@@ -35,6 +29,10 @@ type ReceivedMessages struct {
 	// Messages is the list of messages that were received from the server.
 	Messages []*mboxrpc.MailboxMessage
 }
+
+// DefaultMboxMaxConnectNumTries is the built-in retry limit used when no
+// explicit limit is configured.
+const DefaultMboxMaxConnectNumTries = uint32(math.MaxUint32)
 
 // ReceiveSubscription is the interface returned from a client to the caller for
 // receiving messages from the server that are intended for a specific receiver.
@@ -104,7 +102,14 @@ func (s *receiveSubscription) connectAndAuthenticate(ctx context.Context,
 
 	log.DebugS(ctx, "Establishing initial connection to server")
 
-	err := s.connectServerStream(ctx, initialBackoff, reconnectRetries)
+	maxConnectAttempts := s.cfg.MaxConnectAttempts
+	if maxConnectAttempts == 0 {
+		maxConnectAttempts = DefaultMboxMaxConnectNumTries
+	}
+
+	err := s.connectServerStream(
+		ctx, initialBackoff, maxConnectAttempts,
+	)
 	if err != nil {
 		if errors.Is(err, ErrClientShutdown) {
 			log.DebugS(ctx, "Client is shutting down, not "+
@@ -202,13 +207,17 @@ func (s *receiveSubscription) IsSubscribed() bool {
 // connectServerStream opens the initial connection to the server for the stream
 // of account updates and handles reconnect trials with incremental backoff.
 func (s *receiveSubscription) connectServerStream(ctx context.Context,
-	initialBackoff time.Duration, numRetries int) error {
+	initialBackoff time.Duration, numRetries uint32) error {
+
+	if numRetries == 0 {
+		numRetries = DefaultMboxMaxConnectNumTries
+	}
 
 	var (
 		backoff = initialBackoff
 		err     error
 	)
-	for i := 0; i < numRetries; i++ {
+	for i := uint32(0); i < numRetries; i++ {
 		// If we're shutting down, we don't want to re-try connecting.
 		select {
 		case <-s.quit:
