@@ -77,6 +77,11 @@ type ClientConfig struct {
 
 	// MaxBackoff is the maximum time waited between connection attempts.
 	MaxBackoff time.Duration
+
+	// MaxConnectAttempts optionally limits the number of connection
+	// attempts before giving up. If 0, the client uses the default
+	// internal retry limit.
+	MaxConnectAttempts uint32
 }
 
 // Client performs the client side part of mailbox message exchange.
