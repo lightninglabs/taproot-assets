@@ -107,6 +107,10 @@ type ManagerCfg struct {
 	// determine whether a quote is accepted or rejected.
 	PriceOracle PriceOracle
 
+	// PortfolioPilot is the portfolio pilot that will make financial
+	// decisions based on RFQ requests.
+	PortfolioPilot PortfolioPilot
+
 	// ChannelLister is the channel lister that the RFQ manager will use to
 	// determine the available channels for routing.
 	ChannelLister ChannelLister
@@ -274,6 +278,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 	// Initialise and start the quote negotiator.
 	m.negotiator, err = NewNegotiator(NegotiatorCfg{
 		PriceOracle:               m.cfg.PriceOracle,
+		PortfolioPilot:            m.cfg.PortfolioPilot,
 		OutgoingMessages:          m.outgoingMessages,
 		AcceptPriceDeviationPpm:   m.cfg.AcceptPriceDeviationPpm,
 		SkipAcceptQuotePriceCheck: m.cfg.SkipAcceptQuotePriceCheck,
