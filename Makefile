@@ -106,9 +106,6 @@ build-itest-binary:
 	@$(call print, "Building itest binary for ${backend} backend.")
 	CGO_ENABLED=0 $(GOTEST) -v $(ITEST_COVERAGE) ./itest -tags="$(ITEST_TAGS)" -c -o itest/itest.test
 
-build-loadtest:
-	CGO_ENABLED=0 $(GOTEST) -c -tags="$(LOADTEST_TAGS)" -o loadtest $(PKG)/itest/loadtest
-
 build-docs-examples:
 	@$(call print, "Building docs examples.")
 	$(MAKE) -C ./docs/examples build
@@ -147,7 +144,7 @@ docker-release:
 
 	# Run the actual compilation inside the docker image. We pass in all flags
 	# that we might want to overwrite in manual tests.
-	$(DOCKER_RELEASE_HELPER) make release tag="$(tag)" sys="$(sys)" COMMIT="$(COMMIT)" 
+	$(DOCKER_RELEASE_HELPER) make release tag="$(tag)" sys="$(sys)" COMMIT="$(COMMIT)"
 
 docker-tools:
 	@$(call print, "Building tools docker image.")
@@ -376,7 +373,6 @@ clean:
 	$(RM) -r itest/chantools
 	$(RM) itest/btcd-itest
 	$(RM) itest/lnd-itest
-	$(RM) loadtest
 	$(RM) tapd-debug
 	$(RM) tapcli-debug
 	$(RM) -r taproot-assets-v*
