@@ -127,6 +127,11 @@ type Parcel interface {
 	// necessary fields being present in order for the porter not to panic.
 	// Any business logic validation is assumed to already have happened.
 	Validate() error
+
+	// HeightHint returns an optional height hint for the anchor tx
+	// confirmation. If set, this should be preferred to the current
+	// chain height when registering for confirmation notifications.
+	HeightHint() fn.Option[uint32]
 }
 
 // parcelKit is a struct that contains the channels that are used to deliver
@@ -234,6 +239,13 @@ func (p *AddressParcel) Validate() error {
 	return nil
 }
 
+// HeightHint returns an optional height hint for the anchor tx confirmation.
+// For AddressParcel, this is always None as the transaction hasn't been
+// broadcast yet.
+func (p *AddressParcel) HeightHint() fn.Option[uint32] {
+	return fn.None[uint32]()
+}
+
 // PendingParcel is a parcel that has not yet completed delivery.
 type PendingParcel struct {
 	*parcelKit
@@ -275,6 +287,15 @@ func (p *PendingParcel) kit() *parcelKit {
 func (p *PendingParcel) Validate() error {
 	// A pending parcel should have already been validated.
 	return nil
+}
+
+// HeightHint returns an optional height hint for the anchor tx confirmation.
+// For PendingParcel, we use the height hint from the stored outbound package.
+func (p *PendingParcel) HeightHint() fn.Option[uint32] {
+	if p.outboundPkg != nil && p.outboundPkg.AnchorTxHeightHint > 0 {
+		return fn.Some(p.outboundPkg.AnchorTxHeightHint)
+	}
+	return fn.None[uint32]()
 }
 
 // PreSignedParcel is a request to issue an asset transfer of a pre-signed
@@ -384,6 +405,13 @@ func (p *PreSignedParcel) Validate() error {
 	return nil
 }
 
+// HeightHint returns an optional height hint for the anchor tx confirmation.
+// For PreSignedParcel, this is always None as the transaction hasn't been
+// broadcast yet.
+func (p *PreSignedParcel) HeightHint() fn.Option[uint32] {
+	return fn.None[uint32]()
+}
+
 // PreAnchoredParcel is a request to log and publish an asset transfer of a
 // pre-anchored parcel. All virtual PSBTs and the on-chain BTC level anchor
 // transaction must be fully signed and ready to be broadcast.
@@ -404,6 +432,10 @@ type PreAnchoredParcel struct {
 
 	// label is an optional user provided transfer label.
 	label string
+
+	// anchorTxHeightHint is an optional height hint for the anchor
+	// transaction.
+	anchorTxHeightHint fn.Option[uint32]
 }
 
 // A compile-time assertion to ensure PreAnchoredParcel implements the Parcel
@@ -413,7 +445,8 @@ var _ Parcel = (*PreAnchoredParcel)(nil)
 // NewPreAnchoredParcel creates a new PreAnchoredParcel.
 func NewPreAnchoredParcel(vPackets []*tappsbt.VPacket,
 	passiveAssets []*tappsbt.VPacket, anchorTx *tapsend.AnchorTransaction,
-	skipAnchorTxBroadcast bool, label string) *PreAnchoredParcel {
+	skipAnchorTxBroadcast bool, label string,
+	anchorTxHeightHint fn.Option[uint32]) *PreAnchoredParcel {
 
 	return &PreAnchoredParcel{
 		parcelKit: &parcelKit{
@@ -425,6 +458,7 @@ func NewPreAnchoredParcel(vPackets []*tappsbt.VPacket,
 		anchorTx:              anchorTx,
 		skipAnchorTxBroadcast: skipAnchorTxBroadcast,
 		label:                 label,
+		anchorTxHeightHint:    anchorTxHeightHint,
 	}
 }
 
@@ -485,6 +519,13 @@ func (p *PreAnchoredParcel) Validate() error {
 	}
 
 	return nil
+}
+
+// HeightHint returns an optional height hint for the anchor tx confirmation.
+// For PreAnchoredParcel, this returns the configured height hint which may be
+// set for historical transactions that have already confirmed.
+func (p *PreAnchoredParcel) HeightHint() fn.Option[uint32] {
+	return p.anchorTxHeightHint
 }
 
 // sendPackage houses the information we need to complete a package transfer.
