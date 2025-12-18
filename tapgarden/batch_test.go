@@ -215,17 +215,67 @@ func TestValidateUniCommitment(t *testing.T) {
 
 // TestMintingBatchCopy tests that MintingBatch.Copy() works as expected.
 func TestMintingBatchCopy(t *testing.T) {
-	// Set to true to debug print.
-	debug := false
+	t.Run("deep copy seedlings", func(t *testing.T) {
+		// Set to true to debug print.
+		debug := false
 
-	// Please set the depth value carefully. Sometimes our copy functions
-	// are deeply nested in other packages and do not need changes. Often
-	// types are recursive and too deep copy may end up in stack-overlow.
-	const maxDepth = 6
-	p := &MintingBatch{}
-	test.FillFakeData(t, debug, maxDepth, p)
+		// Please set the depth value carefully. Sometimes our copy
+		// functions are deeply nested in other packages and do not need
+		// changes. Often types are recursive and too deep copy may end
+		// up in stack-overlow.
+		const maxDepth = 6
+		p := &MintingBatch{}
+		test.FillFakeData(t, debug, maxDepth, p)
 
-	// We allow aliasing here deep down (for now).
-	strict := false
-	test.AssertCopyEqual(t, debug, strict, p)
+		// Ensure we have deterministic seedlings to probe for aliasing.
+		p.Seedlings = map[string]*Seedling{
+			"seed-a": {
+				AssetName: "seed-a",
+				Amount:    1,
+			},
+			"seed-b": {
+				AssetName: "seed-b",
+				Amount:    2,
+			},
+		}
+
+		// We allow aliasing here deep down (for now).
+		strict := false
+		test.AssertCopyEqual(t, debug, strict, p)
+
+		copyBatch := p.Copy()
+
+		// Mutate the original to ensure the seedlings map and its
+		// entries were deep copied.
+		p.Seedlings["seed-a"].Amount = 999
+		delete(p.Seedlings, "seed-b")
+		p.Seedlings["seed-c"] = &Seedling{
+			AssetName: "seed-c",
+			Amount:    3,
+		}
+
+		require.Len(t, copyBatch.Seedlings, 2)
+		require.Contains(t, copyBatch.Seedlings, "seed-a")
+		require.Contains(t, copyBatch.Seedlings, "seed-b")
+		require.NotContains(t, copyBatch.Seedlings, "seed-c")
+		require.Equal(
+			t, uint64(1), copyBatch.Seedlings["seed-a"].Amount,
+		)
+	})
+
+	t.Run("nil and empty seedlings map", func(t *testing.T) {
+		var batch MintingBatch
+
+		nilCopy := batch.Copy()
+		require.Nil(t, nilCopy.Seedlings)
+
+		batch.Seedlings = map[string]*Seedling{}
+		emptyCopy := batch.Copy()
+
+		require.NotNil(t, emptyCopy.Seedlings)
+		require.Empty(t, emptyCopy.Seedlings)
+
+		batch.Seedlings["new"] = &Seedling{AssetName: "new"}
+		require.Empty(t, emptyCopy.Seedlings)
+	})
 }
