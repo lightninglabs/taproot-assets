@@ -25,10 +25,6 @@ cmd/tapd/tapd
 
 /docs/examples/basic-price-oracle/basic-price-oracle
 
-# Load test binaries and config
-/loadtest
-/loadtest.conf
-
 # Test binary, built with `go test -c`
 *.test
 
