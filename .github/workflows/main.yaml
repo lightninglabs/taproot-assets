@@ -21,7 +21,7 @@ env:
 
   GO_VERSION: '1.24.9'
 
-  LITD_BRANCH: 'master'
+  LITD_BRANCH: 'new-migrate-dependency'
 
 jobs:
   # Validate generated SQL models stay in sync with queries.
