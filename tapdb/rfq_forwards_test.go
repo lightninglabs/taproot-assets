@@ -206,7 +206,7 @@ func TestLogForward(t *testing.T) {
 
 			return []rfq.ForwardInput{input1, input2}, nil
 		},
-		expectErr:         "UNIQUE constraint failed",
+		expectErr:         "sql unique constraint violation",
 		expectErrOnSecond: true,
 	}, {
 		name: "forward with group key",
@@ -306,13 +306,6 @@ func TestLogForward(t *testing.T) {
 			for _, r := range records {
 				require.Equal(t, rfqID, r.RfqID)
 			}
-
-			// Total asset volume should be 5 * 100 = 500.
-			total, err := store.SumAssetVolume(
-				ctx, rfq.QueryForwardsParams{},
-			)
-			require.NoError(t, err)
-			require.Equal(t, uint64(500), total)
 		},
 	}}
 
@@ -577,129 +570,6 @@ func TestCountForwards(t *testing.T) {
 			count, err := forwardStore.CountForwards(ctx, tc.params)
 			require.NoError(t, err)
 			require.Equal(t, tc.expCount, count)
-		})
-	}
-}
-
-// TestSumAssetVolume tests the SumAssetVolume method.
-func TestSumAssetVolume(t *testing.T) {
-	t.Parallel()
-
-	testCases := []struct {
-		name string
-
-		// setupFn sets up test data and returns expected volume sum.
-		setupFn func(t *testing.T, ctx context.Context,
-			store *PersistedForwardStore, db sqlc.Querier) (
-			rfq.QueryForwardsParams, uint64)
-	}{{
-		name: "sum all volume",
-		setupFn: func(t *testing.T, ctx context.Context,
-			store *PersistedForwardStore,
-			db sqlc.Querier) (rfq.QueryForwardsParams, uint64) {
-
-			rfqID := randRfqID(t)
-			peer := randPeer(t)
-			assetID := asset.RandID(t)
-
-			insertTestPolicy(
-				t, ctx, db, rfqID, rfq.RfqPolicyTypeAssetSale,
-				peer, &assetID, nil,
-			)
-
-			amounts := []uint64{100, 200, 300, 400, 500}
-			for i, amt := range amounts {
-				input := rfq.ForwardInput{
-					SettledAt: time.Now(),
-					RfqID:     rfqID,
-					ChanIDIn:  uint64(100 + i),
-					ChanIDOut: 200,
-					HtlcID:    uint64(i),
-					AssetAmt:  amt,
-				}
-				_, err := store.LogForward(ctx, input)
-				require.NoError(t, err)
-			}
-
-			return rfq.QueryForwardsParams{}, 1500
-		},
-	}, {
-		name: "sum volume empty",
-		setupFn: func(t *testing.T, ctx context.Context,
-			store *PersistedForwardStore,
-			db sqlc.Querier) (rfq.QueryForwardsParams, uint64) {
-
-			// No forwards inserted.
-			return rfq.QueryForwardsParams{}, 0
-		},
-	}, {
-		name: "sum volume with asset filter",
-		setupFn: func(t *testing.T, ctx context.Context,
-			store *PersistedForwardStore,
-			db sqlc.Querier) (rfq.QueryForwardsParams, uint64) {
-
-			rfqID1 := randRfqID(t)
-			rfqID2 := randRfqID(t)
-			peer := randPeer(t)
-			assetID1 := asset.RandID(t)
-			assetID2 := asset.RandID(t)
-
-			insertTestPolicy(
-				t, ctx, db, rfqID1, rfq.RfqPolicyTypeAssetSale,
-				peer, &assetID1, nil,
-			)
-			insertTestPolicy(
-				t, ctx, db, rfqID2, rfq.RfqPolicyTypeAssetSale,
-				peer, &assetID2, nil,
-			)
-
-			// Insert forwards for assetID1 with amounts 100, 200.
-			for i := 0; i < 2; i++ {
-				input := rfq.ForwardInput{
-					SettledAt: time.Now(),
-					RfqID:     rfqID1,
-					ChanIDIn:  uint64(100 + i),
-					ChanIDOut: 200,
-					HtlcID:    uint64(i),
-					AssetAmt:  uint64((i + 1) * 100),
-				}
-				_, err := store.LogForward(ctx, input)
-				require.NoError(t, err)
-			}
-
-			// Insert forwards for assetID2 with amount 500.
-			input := rfq.ForwardInput{
-				SettledAt: time.Now(),
-				RfqID:     rfqID2,
-				ChanIDIn:  300,
-				ChanIDOut: 400,
-				HtlcID:    0,
-				AssetAmt:  500,
-			}
-			_, err := store.LogForward(ctx, input)
-			require.NoError(t, err)
-
-			// Filter by assetID1, expect sum of 100 + 200 = 300.
-			return rfq.QueryForwardsParams{
-				AssetID: &assetID1,
-			}, 300
-		},
-	}}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := context.Background()
-			forwardStore, _, db := newForwardStore(t)
-
-			params, expectedSum := tc.setupFn(
-				t, ctx, forwardStore, db,
-			)
-
-			total, err := forwardStore.SumAssetVolume(ctx, params)
-			require.NoError(t, err)
-			require.Equal(t, expectedSum, total)
 		})
 	}
 }

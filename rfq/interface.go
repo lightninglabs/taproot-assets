@@ -143,10 +143,4 @@ type ForwardStore interface {
 	// filters.
 	CountForwards(ctx context.Context, params QueryForwardsParams) (int64,
 		error)
-
-	// SumAssetVolume returns the sum of asset amounts for forward records
-	// matching the filters. This represents total swap volume in asset
-	// units.
-	SumAssetVolume(ctx context.Context, params QueryForwardsParams) (uint64,
-		error)
 }
