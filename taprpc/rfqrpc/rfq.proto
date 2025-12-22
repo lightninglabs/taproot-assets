@@ -483,11 +483,6 @@ message QueryRfqForwardsResponse {
     // total_count is the total number of forwards matching the filter (before
     // pagination is applied). This can be used for pagination.
     int64 total_count = 2;
-
-    // total_asset_volume is the sum of asset amounts for all forwards
-    // matching the filter (before pagination is applied). This represents
-    // the total swap volume in asset units.
-    uint64 total_asset_volume = 3;
 }
 
 message RfqForward {

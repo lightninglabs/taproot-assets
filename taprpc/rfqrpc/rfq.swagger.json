@@ -964,11 +964,6 @@
           "type": "string",
           "format": "int64",
           "description": "total_count is the total number of forwards matching the filter (before\npagination is applied). This can be used for pagination."
-        },
-        "total_asset_volume": {
-          "type": "string",
-          "format": "uint64",
-          "description": "total_asset_volume is the sum of asset amounts for all forwards\nmatching the filter (before pagination is applied). This represents\nthe total swap volume in asset units."
         }
       }
     },
