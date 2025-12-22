@@ -44,3 +44,63 @@ SELECT
     agreed_at
 FROM rfq_policies
 WHERE expiry >= sqlc.arg('min_expiry');
+
+-- name: InsertRfqForward :one
+INSERT INTO rfq_forwards (
+    settled_at,
+    rfq_id,
+    chan_id_in,
+    chan_id_out,
+    htlc_id,
+    asset_amt
+)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id;
+
+-- name: QueryRfqForwards :many
+SELECT
+    f.id,
+    f.settled_at,
+    f.rfq_id,
+    f.chan_id_in,
+    f.chan_id_out,
+    f.htlc_id,
+    f.asset_amt,
+    p.policy_type,
+    p.peer,
+    p.asset_id,
+    p.asset_group_key,
+    p.rate_coefficient,
+    p.rate_scale
+FROM rfq_forwards f
+JOIN rfq_policies p ON f.rfq_id = p.rfq_id
+WHERE
+    (sqlc.narg('min_timestamp') IS NULL OR f.settled_at >= sqlc.narg('min_timestamp'))
+    AND (sqlc.narg('max_timestamp') IS NULL OR f.settled_at <= sqlc.narg('max_timestamp'))
+    AND (sqlc.narg('peer') IS NULL OR p.peer = sqlc.narg('peer'))
+    AND (sqlc.narg('asset_id') IS NULL OR p.asset_id = sqlc.narg('asset_id'))
+    AND (sqlc.narg('asset_group_key') IS NULL OR p.asset_group_key = sqlc.narg('asset_group_key'))
+ORDER BY f.settled_at DESC
+LIMIT sqlc.arg('query_limit')
+OFFSET sqlc.arg('query_offset');
+
+-- name: CountRfqForwards :one
+SELECT COUNT(*) as total
+FROM rfq_forwards f
+JOIN rfq_policies p ON f.rfq_id = p.rfq_id
+WHERE
+    (sqlc.narg('min_timestamp') IS NULL OR f.settled_at >= sqlc.narg('min_timestamp'))
+    AND (sqlc.narg('max_timestamp') IS NULL OR f.settled_at <= sqlc.narg('max_timestamp'))
+    AND (sqlc.narg('peer') IS NULL OR p.peer = sqlc.narg('peer'))
+    AND (sqlc.narg('asset_id') IS NULL OR p.asset_id = sqlc.narg('asset_id'))
+    AND (sqlc.narg('asset_group_key') IS NULL OR p.asset_group_key = sqlc.narg('asset_group_key'));
+
+-- name: SumRfqAssetVolume :one
+SELECT COALESCE(SUM(f.asset_amt), 0) as total_volume
+FROM rfq_forwards f
+JOIN rfq_policies p ON f.rfq_id = p.rfq_id
+WHERE
+    (sqlc.narg('min_timestamp') IS NULL OR f.settled_at >= sqlc.narg('min_timestamp'))
+    AND (sqlc.narg('max_timestamp') IS NULL OR f.settled_at <= sqlc.narg('max_timestamp'))
+    AND (sqlc.narg('asset_id') IS NULL OR p.asset_id = sqlc.narg('asset_id'))
+    AND (sqlc.narg('asset_group_key') IS NULL OR p.asset_group_key = sqlc.narg('asset_group_key'));

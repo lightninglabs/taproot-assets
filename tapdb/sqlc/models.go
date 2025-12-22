@@ -366,6 +366,16 @@ type ProofType struct {
 	ProofType string
 }
 
+type RfqForward struct {
+	ID        int64
+	SettledAt int64
+	RfqID     []byte
+	ChanIDIn  int64
+	ChanIDOut int64
+	HtlcID    int64
+	AssetAmt  int64
+}
+
 type RfqPolicy struct {
 	ID                    int64
 	PolicyType            string

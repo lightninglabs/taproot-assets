@@ -26,6 +26,7 @@ type Querier interface {
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
 	CountAuthMailboxMessages(ctx context.Context) (int64, error)
+	CountRfqForwards(ctx context.Context, arg CountRfqForwardsParams) (int64, error)
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
 	DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error
@@ -143,6 +144,7 @@ type Querier interface {
 	InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error
 	InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error
 	InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error
+	InsertRfqForward(ctx context.Context, arg InsertRfqForwardParams) (int64, error)
 	InsertRfqPolicy(ctx context.Context, arg InsertRfqPolicyParams) (int64, error)
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	InsertSupplyCommitTransition(ctx context.Context, arg InsertSupplyCommitTransitionParams) (int64, error)
@@ -204,6 +206,7 @@ type Querier interface {
 	QueryPassiveAssets(ctx context.Context, transferID int64) ([]QueryPassiveAssetsRow, error)
 	QueryPendingSupplyCommitTransition(ctx context.Context, groupKey []byte) (QueryPendingSupplyCommitTransitionRow, error)
 	QueryProofTransferAttempts(ctx context.Context, arg QueryProofTransferAttemptsParams) ([]time.Time, error)
+	QueryRfqForwards(ctx context.Context, arg QueryRfqForwardsParams) ([]QueryRfqForwardsRow, error)
 	QueryStartingSupplyCommitment(ctx context.Context, groupKey []byte) (QueryStartingSupplyCommitmentRow, error)
 	QuerySupplyCommitStateMachine(ctx context.Context, groupKey []byte) (QuerySupplyCommitStateMachineRow, error)
 	QuerySupplyCommitment(ctx context.Context, commitID int64) (QuerySupplyCommitmentRow, error)
@@ -223,6 +226,7 @@ type Querier interface {
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
 	SetTransferOutputProofDeliveryStatus(ctx context.Context, arg SetTransferOutputProofDeliveryStatusParams) error
+	SumRfqAssetVolume(ctx context.Context, arg SumRfqAssetVolumeParams) (interface{}, error)
 	UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error)
 	UniverseRoots(ctx context.Context, arg UniverseRootsParams) ([]UniverseRootsRow, error)
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
