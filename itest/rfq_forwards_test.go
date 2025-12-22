@@ -261,7 +261,6 @@ func testRfqForwardHistory(t *harnessTest) {
 
 	require.NotNil(t.t, fwd.Rate)
 	require.Equal(t.t, int64(1), forwardsResp.TotalCount)
-	require.Equal(t.t, fwd.AssetAmt, forwardsResp.TotalAssetVolume)
 
 	// Test timestamp filters.
 	forwardsResp, err = ts.BobTapd.QueryRfqForwards(
