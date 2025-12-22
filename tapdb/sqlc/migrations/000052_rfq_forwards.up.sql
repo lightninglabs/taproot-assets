@@ -1,8 +1,8 @@
 CREATE TABLE IF NOT EXISTS rfq_forwards (
     id INTEGER PRIMARY KEY,
 
-    -- settled_at is the unix timestamp when the forward settled.
-    settled_at BIGINT NOT NULL,
+    -- settled_at is the timestamp when the forward settled.
+    settled_at TIMESTAMP NOT NULL,
 
     -- rfq_id is the foreign key to the RFQ policy.
     rfq_id BLOB NOT NULL CHECK (length(rfq_id) = 32)

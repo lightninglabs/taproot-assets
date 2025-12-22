@@ -368,7 +368,7 @@ type ProofType struct {
 
 type RfqForward struct {
 	ID        int64
-	SettledAt int64
+	SettledAt time.Time
 	RfqID     []byte
 	ChanIDIn  int64
 	ChanIDOut int64

@@ -785,8 +785,8 @@ CREATE TABLE proof_types (
 CREATE TABLE rfq_forwards (
     id INTEGER PRIMARY KEY,
 
-    -- settled_at is the unix timestamp when the forward settled.
-    settled_at BIGINT NOT NULL,
+    -- settled_at is the timestamp when the forward settled.
+    settled_at TIMESTAMP NOT NULL,
 
     -- rfq_id is the foreign key to the RFQ policy.
     rfq_id BLOB NOT NULL CHECK (length(rfq_id) = 32)
@@ -801,7 +801,7 @@ CREATE TABLE rfq_forwards (
     -- htlc_id is the HTLC ID on the incoming channel.
     htlc_id BIGINT NOT NULL,
 
-    -- asset_amt is the asset amount.
+    -- asset_amt is the asset amount involved in this swap.
     asset_amt BIGINT NOT NULL,
 
     UNIQUE(chan_id_in, htlc_id)

@@ -8,32 +8,34 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const CountRfqForwards = `-- name: CountRfqForwards :one
 SELECT COUNT(*) as total
 FROM rfq_forwards f
 JOIN rfq_policies p ON f.rfq_id = p.rfq_id
-WHERE
-    ($1 IS NULL OR f.settled_at >= $1)
-    AND ($2 IS NULL OR f.settled_at <= $2)
-    AND ($3 IS NULL OR p.peer = $3)
-    AND ($4 IS NULL OR p.asset_id = $4)
-    AND ($5 IS NULL OR p.asset_group_key = $5)
+WHERE f.settled_at >= $1
+    AND f.settled_at <= $2
+    AND (p.peer = $3 OR $3 IS NULL)
+    AND (p.asset_id = $4 OR
+         $4 IS NULL)
+    AND (p.asset_group_key = $5 OR
+         $5 IS NULL)
 `
 
 type CountRfqForwardsParams struct {
-	MinTimestamp  interface{}
-	MaxTimestamp  interface{}
-	Peer          interface{}
-	AssetID       interface{}
-	AssetGroupKey interface{}
+	SettledAfter  time.Time
+	SettledBefore time.Time
+	Peer          []byte
+	AssetID       []byte
+	AssetGroupKey []byte
 }
 
 func (q *Queries) CountRfqForwards(ctx context.Context, arg CountRfqForwardsParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, CountRfqForwards,
-		arg.MinTimestamp,
-		arg.MaxTimestamp,
+		arg.SettledAfter,
+		arg.SettledBefore,
 		arg.Peer,
 		arg.AssetID,
 		arg.AssetGroupKey,
@@ -121,7 +123,7 @@ RETURNING id
 `
 
 type InsertRfqForwardParams struct {
-	SettledAt int64
+	SettledAt time.Time
 	RfqID     []byte
 	ChanIDIn  int64
 	ChanIDOut int64
@@ -229,30 +231,30 @@ SELECT
     p.rate_scale
 FROM rfq_forwards f
 JOIN rfq_policies p ON f.rfq_id = p.rfq_id
-WHERE
-    ($1 IS NULL OR f.settled_at >= $1)
-    AND ($2 IS NULL OR f.settled_at <= $2)
-    AND ($3 IS NULL OR p.peer = $3)
-    AND ($4 IS NULL OR p.asset_id = $4)
-    AND ($5 IS NULL OR p.asset_group_key = $5)
+WHERE f.settled_at >= $1
+    AND f.settled_at <= $2
+    AND (p.peer = $3 OR $3 IS NULL)
+    AND (p.asset_id = $4 OR
+         $4 IS NULL)
+    AND (p.asset_group_key = $5 OR
+         $5 IS NULL)
 ORDER BY f.settled_at DESC
-LIMIT $7
-OFFSET $6
+LIMIT $7 OFFSET $6
 `
 
 type QueryRfqForwardsParams struct {
-	MinTimestamp  interface{}
-	MaxTimestamp  interface{}
-	Peer          interface{}
-	AssetID       interface{}
-	AssetGroupKey interface{}
-	QueryOffset   int32
-	QueryLimit    int32
+	SettledAfter  time.Time
+	SettledBefore time.Time
+	Peer          []byte
+	AssetID       []byte
+	AssetGroupKey []byte
+	NumOffset     int32
+	NumLimit      int32
 }
 
 type QueryRfqForwardsRow struct {
 	ID              int64
-	SettledAt       int64
+	SettledAt       time.Time
 	RfqID           []byte
 	ChanIDIn        int64
 	ChanIDOut       int64
@@ -268,13 +270,13 @@ type QueryRfqForwardsRow struct {
 
 func (q *Queries) QueryRfqForwards(ctx context.Context, arg QueryRfqForwardsParams) ([]QueryRfqForwardsRow, error) {
 	rows, err := q.db.QueryContext(ctx, QueryRfqForwards,
-		arg.MinTimestamp,
-		arg.MaxTimestamp,
+		arg.SettledAfter,
+		arg.SettledBefore,
 		arg.Peer,
 		arg.AssetID,
 		arg.AssetGroupKey,
-		arg.QueryOffset,
-		arg.QueryLimit,
+		arg.NumOffset,
+		arg.NumLimit,
 	)
 	if err != nil {
 		return nil, err
@@ -309,34 +311,4 @@ func (q *Queries) QueryRfqForwards(ctx context.Context, arg QueryRfqForwardsPara
 		return nil, err
 	}
 	return items, nil
-}
-
-const SumRfqAssetVolume = `-- name: SumRfqAssetVolume :one
-SELECT COALESCE(SUM(f.asset_amt), 0) as total_volume
-FROM rfq_forwards f
-JOIN rfq_policies p ON f.rfq_id = p.rfq_id
-WHERE
-    ($1 IS NULL OR f.settled_at >= $1)
-    AND ($2 IS NULL OR f.settled_at <= $2)
-    AND ($3 IS NULL OR p.asset_id = $3)
-    AND ($4 IS NULL OR p.asset_group_key = $4)
-`
-
-type SumRfqAssetVolumeParams struct {
-	MinTimestamp  interface{}
-	MaxTimestamp  interface{}
-	AssetID       interface{}
-	AssetGroupKey interface{}
-}
-
-func (q *Queries) SumRfqAssetVolume(ctx context.Context, arg SumRfqAssetVolumeParams) (interface{}, error) {
-	row := q.db.QueryRowContext(ctx, SumRfqAssetVolume,
-		arg.MinTimestamp,
-		arg.MaxTimestamp,
-		arg.AssetID,
-		arg.AssetGroupKey,
-	)
-	var total_volume interface{}
-	err := row.Scan(&total_volume)
-	return total_volume, err
 }

@@ -226,7 +226,6 @@ type Querier interface {
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
 	SetTransferOutputProofDeliveryStatus(ctx context.Context, arg SetTransferOutputProofDeliveryStatusParams) error
-	SumRfqAssetVolume(ctx context.Context, arg SumRfqAssetVolumeParams) (interface{}, error)
 	UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error)
 	UniverseRoots(ctx context.Context, arg UniverseRootsParams) ([]UniverseRootsRow, error)
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
