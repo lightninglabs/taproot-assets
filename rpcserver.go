@@ -8706,6 +8706,126 @@ func (r *rpcServer) SubscribeRfqEventNtfns(
 	)
 }
 
+// QueryRfqForwards queries the historical records of asset forwards.
+func (r *rpcServer) QueryRfqForwards(ctx context.Context,
+	req *rfqrpc.QueryRfqForwardsRequest) (*rfqrpc.QueryRfqForwardsResponse,
+	error) {
+
+	// Build the query parameters.
+	params := rfq.QueryForwardsParams{
+		Limit:  req.Limit,
+		Offset: req.Offset,
+	}
+
+	// Parse timestamp filters if provided.
+	if req.MinTimestamp > 0 {
+		params.MinTimestamp = time.Unix(int64(req.MinTimestamp), 0)
+	}
+	if req.MaxTimestamp > 0 {
+		params.MaxTimestamp = time.Unix(int64(req.MaxTimestamp), 0)
+	}
+
+	// Parse peer filter if provided.
+	if len(req.Peer) > 0 {
+		peer, err := route.NewVertexFromBytes(req.Peer)
+		if err != nil {
+			return nil, fmt.Errorf("invalid peer public key: %w",
+				err)
+		}
+		params.Peer = &peer
+	}
+
+	// Parse asset specifier if provided.
+	if req.AssetSpecifier != nil {
+		assetID, groupKey, err := unmarshalAssetSpecifier(
+			req.AssetSpecifier,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing asset "+
+				"specifier: %w", err)
+		}
+		params.AssetID = assetID
+		params.AssetGroupKey = groupKey
+	}
+
+	// Set default limit if not provided.
+	if params.Limit == 0 {
+		params.Limit = 100
+	}
+
+	// Query the forwards.
+	forwards, err := r.cfg.RfqManager.QueryForwards(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("error querying forwards: %w", err)
+	}
+
+	// Get total count for pagination info.
+	totalCount, err := r.cfg.RfqManager.CountForwards(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("error counting forwards: %w", err)
+	}
+
+	// Get total asset volume for the filtered results.
+	totalVolume, err := r.cfg.RfqManager.SumAssetVolume(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("error summing asset volume: %w", err)
+	}
+
+	// Convert the forwards to RPC format.
+	rpcForwards := make([]*rfqrpc.RfqForward, len(forwards))
+	for i, fwd := range forwards {
+		rpcForwards[i] = marshalRfqForward(fwd)
+	}
+
+	return &rfqrpc.QueryRfqForwardsResponse{
+		Forwards:         rpcForwards,
+		TotalCount:       totalCount,
+		TotalAssetVolume: totalVolume,
+	}, nil
+}
+
+// marshalRfqForward converts a database forward record to its RPC
+// representation.
+func marshalRfqForward(fwd rfq.RfqForwardRecord) *rfqrpc.RfqForward {
+	rpcForward := &rfqrpc.RfqForward{
+		Id:        fwd.ID,
+		SettledAt: uint64(fwd.SettledAt.Unix()),
+		RfqId:     fwd.RfqID[:],
+		ChanIdIn:  fwd.ChanIDIn,
+		ChanIdOut: fwd.ChanIDOut,
+		HtlcId:    fwd.HtlcID,
+		AssetAmt:  fwd.AssetAmt,
+		Peer:      fwd.Peer.String(),
+		Rate: &rfqrpc.FixedPoint{
+			Coefficient: fwd.Rate.Coefficient.String(),
+			Scale:       uint32(fwd.Rate.Scale),
+		},
+	}
+
+	// Convert policy type.
+	if fwd.PolicyType == rfq.RfqPolicyTypeAssetSale {
+		rpcForward.PolicyType =
+			rfqrpc.RfqPolicyType_RFQ_POLICY_TYPE_SALE
+	} else {
+		rpcForward.PolicyType =
+			rfqrpc.RfqPolicyType_RFQ_POLICY_TYPE_PURCHASE
+	}
+
+	// Add asset specifier if available.
+	if fwd.AssetID != nil || fwd.AssetGroupKey != nil {
+		rpcForward.AssetSpec = &rfqrpc.AssetSpec{}
+		if fwd.AssetID != nil {
+			rpcForward.AssetSpec.Id = fwd.AssetID[:]
+		}
+		if fwd.AssetGroupKey != nil {
+			rpcForward.AssetSpec.GroupPubKey =
+				schnorr.SerializePubKey(fwd.AssetGroupKey)
+		}
+	}
+
+	return rpcForward
+}
+
 // FundChannel initiates the channel funding negotiation with a peer for the
 // creation of a channel that contains a specified amount of a given asset.
 func (r *rpcServer) FundChannel(ctx context.Context,
