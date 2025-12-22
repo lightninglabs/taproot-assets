@@ -1333,18 +1333,6 @@ func (m *Manager) CountForwards(ctx context.Context,
 	return m.cfg.ForwardStore.CountForwards(ctx, params)
 }
 
-// SumAssetVolume returns the sum of asset amounts for RFQ forward records
-// matching the given filters. This represents total swap volume in asset units.
-func (m *Manager) SumAssetVolume(ctx context.Context,
-	params QueryForwardsParams) (uint64, error) {
-
-	if m.cfg.ForwardStore == nil {
-		return 0, fmt.Errorf("forward store not configured")
-	}
-
-	return m.cfg.ForwardStore.SumAssetVolume(ctx, params)
-}
-
 // EstimateAssetUnits is a helper function that queries our price oracle to find
 // out how many units of an asset are needed to evaluate to the provided amount
 // in milli satoshi.
