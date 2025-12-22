@@ -8765,12 +8765,6 @@ func (r *rpcServer) QueryRfqForwards(ctx context.Context,
 		return nil, fmt.Errorf("error counting forwards: %w", err)
 	}
 
-	// Get total asset volume for the filtered results.
-	totalVolume, err := r.cfg.RfqManager.SumAssetVolume(ctx, params)
-	if err != nil {
-		return nil, fmt.Errorf("error summing asset volume: %w", err)
-	}
-
 	// Convert the forwards to RPC format.
 	rpcForwards := make([]*rfqrpc.RfqForward, len(forwards))
 	for i, fwd := range forwards {
@@ -8778,9 +8772,8 @@ func (r *rpcServer) QueryRfqForwards(ctx context.Context,
 	}
 
 	return &rfqrpc.QueryRfqForwardsResponse{
-		Forwards:         rpcForwards,
-		TotalCount:       totalCount,
-		TotalAssetVolume: totalVolume,
+		Forwards:   rpcForwards,
+		TotalCount: totalCount,
 	}, nil
 }
 
