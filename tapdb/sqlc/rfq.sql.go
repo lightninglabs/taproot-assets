@@ -8,7 +8,42 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
+
+const CountRfqForwards = `-- name: CountRfqForwards :one
+SELECT COUNT(*) as total
+FROM rfq_forwards f
+JOIN rfq_policies p ON f.rfq_id = p.rfq_id
+WHERE f.settled_at >= $1
+    AND f.settled_at <= $2
+    AND (p.peer = $3 OR $3 IS NULL)
+    AND (p.asset_id = $4 OR
+         $4 IS NULL)
+    AND (p.asset_group_key = $5 OR
+         $5 IS NULL)
+`
+
+type CountRfqForwardsParams struct {
+	SettledAfter  time.Time
+	SettledBefore time.Time
+	Peer          []byte
+	AssetID       []byte
+	AssetGroupKey []byte
+}
+
+func (q *Queries) CountRfqForwards(ctx context.Context, arg CountRfqForwardsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, CountRfqForwards,
+		arg.SettledAfter,
+		arg.SettledBefore,
+		arg.Peer,
+		arg.AssetID,
+		arg.AssetGroupKey,
+	)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
 
 const FetchActiveRfqPolicies = `-- name: FetchActiveRfqPolicies :many
 SELECT
@@ -72,6 +107,42 @@ func (q *Queries) FetchActiveRfqPolicies(ctx context.Context, minExpiry int64) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const InsertRfqForward = `-- name: InsertRfqForward :one
+INSERT INTO rfq_forwards (
+    settled_at,
+    rfq_id,
+    chan_id_in,
+    chan_id_out,
+    htlc_id,
+    asset_amt
+)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id
+`
+
+type InsertRfqForwardParams struct {
+	SettledAt time.Time
+	RfqID     []byte
+	ChanIDIn  int64
+	ChanIDOut int64
+	HtlcID    int64
+	AssetAmt  int64
+}
+
+func (q *Queries) InsertRfqForward(ctx context.Context, arg InsertRfqForwardParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, InsertRfqForward,
+		arg.SettledAt,
+		arg.RfqID,
+		arg.ChanIDIn,
+		arg.ChanIDOut,
+		arg.HtlcID,
+		arg.AssetAmt,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const InsertRfqPolicy = `-- name: InsertRfqPolicy :one
@@ -141,4 +212,103 @@ func (q *Queries) InsertRfqPolicy(ctx context.Context, arg InsertRfqPolicyParams
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const QueryRfqForwards = `-- name: QueryRfqForwards :many
+SELECT
+    f.id,
+    f.settled_at,
+    f.rfq_id,
+    f.chan_id_in,
+    f.chan_id_out,
+    f.htlc_id,
+    f.asset_amt,
+    p.policy_type,
+    p.peer,
+    p.asset_id,
+    p.asset_group_key,
+    p.rate_coefficient,
+    p.rate_scale
+FROM rfq_forwards f
+JOIN rfq_policies p ON f.rfq_id = p.rfq_id
+WHERE f.settled_at >= $1
+    AND f.settled_at <= $2
+    AND (p.peer = $3 OR $3 IS NULL)
+    AND (p.asset_id = $4 OR
+         $4 IS NULL)
+    AND (p.asset_group_key = $5 OR
+         $5 IS NULL)
+ORDER BY f.settled_at DESC
+LIMIT $7 OFFSET $6
+`
+
+type QueryRfqForwardsParams struct {
+	SettledAfter  time.Time
+	SettledBefore time.Time
+	Peer          []byte
+	AssetID       []byte
+	AssetGroupKey []byte
+	NumOffset     int32
+	NumLimit      int32
+}
+
+type QueryRfqForwardsRow struct {
+	ID              int64
+	SettledAt       time.Time
+	RfqID           []byte
+	ChanIDIn        int64
+	ChanIDOut       int64
+	HtlcID          int64
+	AssetAmt        int64
+	PolicyType      string
+	Peer            []byte
+	AssetID         []byte
+	AssetGroupKey   []byte
+	RateCoefficient []byte
+	RateScale       int32
+}
+
+func (q *Queries) QueryRfqForwards(ctx context.Context, arg QueryRfqForwardsParams) ([]QueryRfqForwardsRow, error) {
+	rows, err := q.db.QueryContext(ctx, QueryRfqForwards,
+		arg.SettledAfter,
+		arg.SettledBefore,
+		arg.Peer,
+		arg.AssetID,
+		arg.AssetGroupKey,
+		arg.NumOffset,
+		arg.NumLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryRfqForwardsRow
+	for rows.Next() {
+		var i QueryRfqForwardsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SettledAt,
+			&i.RfqID,
+			&i.ChanIDIn,
+			&i.ChanIDOut,
+			&i.HtlcID,
+			&i.AssetAmt,
+			&i.PolicyType,
+			&i.Peer,
+			&i.AssetID,
+			&i.AssetGroupKey,
+			&i.RateCoefficient,
+			&i.RateScale,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

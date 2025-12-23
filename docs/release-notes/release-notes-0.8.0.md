@@ -25,9 +25,26 @@
 
 ## Functional Enhancements
 
+- [RFQ Forward History Tracking](https://github.com/lightninglabs/taproot-assets/pull/1921):
+  Routing nodes can now track and query historical RFQ asset forward events.
+  When a node successfully routes an asset payment, the forward event is logged.
+  This provides edge nodes with an audit trail of their swap activity.
+
 ## RPC Additions
 
+- [QueryRfqForwards RPC](https://github.com/lightninglabs/taproot-assets/pull/1921):
+  New RPC endpoint `rfqrpc.QueryRfqForwards` allows querying historical RFQ
+  forward events with filtering and pagination support. Filters include:
+  timestamp range (min/max), peer public key, asset ID, and asset group key.
+
 ## tapcli Additions
+
+- [tapcli rfqrpc forwards](https://github.com/lightninglabs/taproot-assets/pull/1921):
+  New CLI command `tapcli rfqrpc forwards` (alias: `f`) to query RFQ forward
+  history. Supports flags for filtering by timestamp (`--min-timestamp`,
+  `--max-timestamp`), peer (`--peer`), asset ID (`--asset-id`), and asset
+  group key (`--group-key`). Includes pagination support via `--limit` and
+  `--offset` flags.
 
 # Improvements
 
@@ -112,7 +129,14 @@
   creation hits an unreachable mailbox courier with the upfront connection
   check skipped, ensuring mailbox subscription failures do not crash tapd.
 
+- [RFQ Forwards Integration Test](https://github.com/lightninglabs/taproot-assets/pull/1921):
+  New integration test `testRfqForwardHistory` verifies that RFQ forwards are
+  properly logged when routing asset payments.
+
 ## Database
+
+- [rfq_forwards table](https://github.com/lightninglabs/taproot-assets/pull/1921):
+  New database table `rfq_forwards` stores historical RFQ forward events.
 
 ## Code Health
 

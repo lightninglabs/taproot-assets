@@ -34,6 +34,9 @@ http:
     - selector: rfqrpc.Rfq.QueryPeerAcceptedQuotes
       get: "/v1/taproot-assets/rfq/quotes/peeraccepted"
 
+    - selector: rfqrpc.Rfq.QueryRfqForwards
+      get: "/v1/taproot-assets/rfq/forwards"
+
     - selector: rfqrpc.Rfq.SubscribeRfqEventNtfns
       post: "/v1/taproot-assets/rfq/ntfs"
       body: "*"
