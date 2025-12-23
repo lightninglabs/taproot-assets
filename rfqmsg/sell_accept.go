@@ -136,6 +136,10 @@ func (q *SellAccept) MsgID() ID {
 	return q.ID
 }
 
+// acceptMarker makes SellAccept satisfy the Accept interface while keeping
+// implementations local to this package.
+func (q *SellAccept) acceptMarker() {}
+
 // String returns a human-readable string representation of the message.
 func (q *SellAccept) String() string {
 	return fmt.Sprintf("SellAccept(peer=%x, id=%x, asset_rate=%s, "+
@@ -148,3 +152,6 @@ var _ OutgoingMsg = (*SellAccept)(nil)
 
 // Ensure that the message type implements the IncomingMsg interface.
 var _ IncomingMsg = (*SellAccept)(nil)
+
+// Ensure that the message type implements the Accept interface.
+var _ Accept = (*SellAccept)(nil)

@@ -1,6 +1,8 @@
 package rfq
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -32,6 +34,23 @@ type testCaseIncomingSellAccept struct {
 
 	// quoteRespStatus is the expected status of the quote check.
 	quoteRespStatus fn.Option[QuoteRespStatus]
+}
+
+// mockPortfolioPilot is a minimal portfolio pilot used to control
+// ResolveRequest responses in tests.
+type mockPortfolioPilot struct {
+	// resp is the response returned by the portfolio pilot.
+	resp ResolveResp
+
+	// err is the error returned by the portfolio pilot.
+	err error
+}
+
+// ResolveRequest returns the configured response.
+func (s *mockPortfolioPilot) ResolveRequest(context.Context,
+	rfqmsg.Request) (ResolveResp, error) {
+
+	return s.resp, s.err
 }
 
 // assertIncomingSellAcceptTestCase asserts the handling of an incoming sell
@@ -383,5 +402,89 @@ func TestHandleIncomingBuyAccept(t *testing.T) {
 		if !success {
 			break
 		}
+	}
+}
+
+// TestHandleIncomingQuoteRequestError sends a reject to the peer when the
+// portfolio pilot returns an error.
+func TestHandleIncomingQuoteRequestError(t *testing.T) {
+	pilotErr := errors.New("pilot failure")
+	assetSpec := asset.NewSpecifierFromId(asset.ID{8, 8, 8})
+
+	testCases := []struct {
+		name    string
+		request rfqmsg.Request
+	}{
+		{
+			name: "buy request",
+			request: &rfqmsg.BuyRequest{
+				Peer:           route.Vertex{9, 9, 9},
+				ID:             rfqmsg.ID{7, 7, 7},
+				AssetSpecifier: assetSpec,
+				AssetMaxAmt:    123,
+			},
+		},
+		{
+			name: "sell request",
+			request: &rfqmsg.SellRequest{
+				Peer:           route.Vertex{9, 9, 9},
+				ID:             rfqmsg.ID{7, 7, 7},
+				AssetSpecifier: assetSpec,
+				PaymentMaxAmt:  lnwire.MilliSatoshi(123),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			outgoing := make(chan rfqmsg.OutgoingMsg, 1)
+			errChan := make(chan error, 1)
+
+			negotiator, err := NewNegotiator(NegotiatorCfg{
+				PortfolioPilot: &mockPortfolioPilot{
+					err: pilotErr,
+				},
+				OutgoingMessages: outgoing,
+				ErrChan:          errChan,
+			})
+			require.NoError(t, err)
+
+			err = negotiator.HandleIncomingQuoteRequest(tc.request)
+			require.NoError(t, err)
+			negotiator.Wg.Wait()
+
+			select {
+			case msg := <-outgoing:
+				reject, ok := msg.(*rfqmsg.Reject)
+				require.True(t, ok, "expected reject message")
+				require.Equal(
+					t, tc.request.MsgPeer(),
+					reject.MsgPeer(),
+				)
+				require.Equal(
+					t, tc.request.MsgID(), reject.MsgID(),
+				)
+				require.Equal(
+					t, rfqmsg.ErrUnknownReject,
+					reject.Err.Val,
+				)
+
+			default:
+				t.Fatalf("expected reject message on " +
+					"outgoing channel")
+			}
+
+			select {
+			case err := <-errChan:
+				require.ErrorContains(
+					t, err, "resolve quote request",
+				)
+				require.ErrorIs(t, err, pilotErr)
+			default:
+				t.Fatalf("expected error on errChan")
+			}
+		})
 	}
 }
