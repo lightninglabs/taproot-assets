@@ -1720,10 +1720,18 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	// TODO(roasbeef): import proof for receiver instead?
 
 	// With all the vPKts created, we can now ship the transaction off to
-	// the porter for final delivery.
+	// the porter for final delivery. We use the commitment tx's block
+	// height as the height hint so that the chain notifier can find the
+	// confirmation even if the transaction was confirmed while we were
+	// offline.
+	heightHint := fn.None[uint32]()
+	if req.CommitTxBlockHeight > 0 {
+		heightHint = fn.Some(req.CommitTxBlockHeight)
+	}
+
 	return shipChannelTxn(
 		a.cfg.TxSender, req.CommitTx, outCommitments, vPackets,
-		int64(req.CommitFee),
+		int64(req.CommitFee), heightHint,
 	)
 }
 
@@ -2566,11 +2574,9 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 
 	// With the output commitments re-created, we have all we need to log
 	// and ship the transaction.
-	//
-	// We pass false for the last arg as we already updated our suffix
-	// proofs here.
 	return shipChannelTxn(
 		a.cfg.TxSender, sweepTx, outCommitments, allVpkts, int64(fee),
+		fn.None[uint32](),
 	)
 }
 
