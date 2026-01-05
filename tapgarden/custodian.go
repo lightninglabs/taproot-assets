@@ -495,7 +495,10 @@ func (c *Custodian) mainEventLoop() error {
 				),
 			)
 
-			return err
+			log.Errorf("Unable to check proof availability for "+
+				"event (outpoint=%v): %v", event.Outpoint, err)
+
+			continue
 		}
 
 		// If we did find a proof, we did import it now and are done.
@@ -526,9 +529,8 @@ func (c *Custodian) mainEventLoop() error {
 				),
 			)
 
-			// TODO(ffranr): Figure out if we can recover from this
-			//  error.
-			c.handleError(fn.NewCriticalError(err))
+			log.Errorf("Unable to receive proof for pending "+
+				"event (outpoint=%v): %v", event.Outpoint, err)
 		})
 	}
 
@@ -552,7 +554,8 @@ func (c *Custodian) mainEventLoop() error {
 	for idx := range walletTxns {
 		err := c.inspectWalletTx(&walletTxns[idx])
 		if err != nil {
-			return err
+			log.Errorf("Unable to inspect wallet transaction %v: "+
+				"%v", walletTxns[idx].Tx.TxHash(), err)
 		}
 	}
 
@@ -606,11 +609,10 @@ func (c *Custodian) mainEventLoop() error {
 		if err != nil {
 			// We'll report the error to the main daemon, but only
 			// if this isn't a context cancel.
-			if fn.IsCanceled(err) {
-				return nil
+			if !fn.IsCanceled(err) {
+				log.Errorf("Custodian event loop error: %v",
+					err)
 			}
-
-			return err
 		}
 	}
 }
