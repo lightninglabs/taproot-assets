@@ -216,10 +216,15 @@ type URLDispatch struct {
 }
 
 // NewCourierDispatch creates a new proof courier dispatch.
-func NewCourierDispatch(cfg *CourierCfg) *URLDispatch {
+func NewCourierDispatch(cfg *CourierCfg) (*URLDispatch, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("validate proof courier dispatch cfg: "+
+			"%w", err)
+	}
+
 	return &URLDispatch{
 		cfg: cfg,
-	}
+	}, nil
 }
 
 // NewCourier instantiates a new courier service handle given a service URL

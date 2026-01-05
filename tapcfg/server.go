@@ -472,12 +472,18 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	// Addresses can have different proof couriers configured, but both
 	// types of couriers that currently exist will receive this config upon
 	// initialization.
-	proofCourierDispatcher := proof.NewCourierDispatch(&proof.CourierCfg{
-		HashMailCfg:    cfg.HashMailCourier,
-		UniverseRpcCfg: cfg.UniverseRpcCourier,
-		TransferLog:    assetStore,
-		LocalArchive:   proofArchive,
-	})
+	proofCourierDispatcher, err := proof.NewCourierDispatch(
+		&proof.CourierCfg{
+			HashMailCfg:    cfg.HashMailCourier,
+			UniverseRpcCfg: cfg.UniverseRpcCourier,
+			TransferLog:    assetStore,
+			LocalArchive:   proofArchive,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create proof courier "+
+			"dispatcher: %w", err)
+	}
 
 	multiNotifier := proof.NewMultiArchiveNotifier(assetStore, multiverse)
 
