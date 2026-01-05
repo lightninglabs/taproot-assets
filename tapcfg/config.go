@@ -672,7 +672,7 @@ func applyProofBackoffDefaults(cfg *proof.BackoffCfg) {
 		return
 	}
 
-	if cfg.NumTries == 0 {
+	if cfg.NumTries == 0 && !cfg.UnlimitedTries {
 		cfg.NumTries = proof.DefaultProofTransferNumTries
 	}
 }

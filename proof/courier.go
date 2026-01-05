@@ -587,8 +587,14 @@ type BackoffCfg struct {
 
 	// NumTries is the maximum number of attempts in a backoff run before
 	// giving up (or before a caller-applied reset delay). A value of zero
-	// means use the built-in default limit.
-	NumTries uint32 `long:"numtries" description:"Maximum number of attempts in a backoff run before giving up (or before the reset delay applies, if used). Zero means use the built-in default limit."`
+	// means use the built-in default limit unless UnlimitedTries is set.
+	// If NumTries is non-zero, then UnlimitedTries must be false.
+	NumTries uint32 `long:"numtries" description:"Maximum number of attempts in a backoff run before giving up (or before the reset delay applies, if used). Zero means use the built-in default limit unless unlimitedtries is set."`
+
+	// UnlimitedTries indicates that we should retry indefinitely until the
+	// transfer succeeds or the context is canceled. If true, NumTries must
+	// be zero.
+	UnlimitedTries bool `long:"unlimitedtries" description:"Retry indefinitely instead of stopping after a fixed number of attempts."`
 
 	// InitialBackoff is the initial backoff time we'll use to wait before
 	// retrying to deliver the proof to the receiver.
@@ -704,11 +710,11 @@ func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
 		errExec error = nil
 	)
 
-	if numTries == 0 {
+	if numTries == 0 && !b.cfg.UnlimitedTries {
 		numTries = DefaultProofTransferNumTries
 	}
 
-	for i := uint32(0); i < numTries; i++ {
+	for i := uint32(0); b.cfg.UnlimitedTries || i < numTries; i++ {
 		// Before attempting to deliver the proof, log that
 		// an attempted delivery is about to occur.
 		err = b.transferLog.LogProofTransferAttempt(
