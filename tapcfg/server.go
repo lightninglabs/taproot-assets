@@ -485,6 +485,43 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			"dispatcher: %w", err)
 	}
 
+	// Formulate a custodian (proof receive) courier dispatcher.
+	custodianCourierCfg := &proof.CourierCfg{
+		HashMailCfg:    cfg.HashMailCourier,
+		UniverseRpcCfg: cfg.UniverseRpcCourier,
+		TransferLog:    assetStore,
+		LocalArchive:   proofArchive,
+	}
+
+	if cfg.HashMailCourier != nil {
+		hashmailCfg := *cfg.HashMailCourier
+		if hashmailCfg.BackoffCfg != nil {
+			backoffCfg := *hashmailCfg.BackoffCfg
+			backoffCfg.UnlimitedTries = true
+			backoffCfg.NumTries = 0
+			hashmailCfg.BackoffCfg = &backoffCfg
+		}
+		custodianCourierCfg.HashMailCfg = &hashmailCfg
+	}
+
+	if cfg.UniverseRpcCourier != nil {
+		universeCfg := *cfg.UniverseRpcCourier
+		if universeCfg.BackoffCfg != nil {
+			backoffCfg := *universeCfg.BackoffCfg
+			backoffCfg.UnlimitedTries = true
+			backoffCfg.NumTries = 0
+			universeCfg.BackoffCfg = &backoffCfg
+		}
+		custodianCourierCfg.UniverseRpcCfg = &universeCfg
+	}
+	custodianProofCourierDispatcher, err := proof.NewCourierDispatch(
+		custodianCourierCfg,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create custodian proof "+
+			"courier dispatcher: %w", err)
+	}
+
 	multiNotifier := proof.NewMultiArchiveNotifier(assetStore, multiverse)
 
 	// Determine whether we should use the mock price oracle service or a
@@ -767,7 +804,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ProofArchive:           proofArchive,
 			ProofNotifier:          multiNotifier,
 			ErrChan:                mainErrChan,
-			ProofCourierDispatcher: proofCourierDispatcher,
+			ProofCourierDispatcher: custodianProofCourierDispatcher,
 			MboxBackoffCfg:         cfg.UniverseRpcCourier.BackoffCfg,
 			ProofRetrievalDelay:    cfg.CustodianProofRetrievalDelay,
 			ProofWatcher:           reOrgWatcher,
