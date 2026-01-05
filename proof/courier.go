@@ -105,6 +105,34 @@ type CourierCfg struct {
 	LocalArchive Archiver
 }
 
+// Validate checks the courier configuration for invalid values.
+func (c *CourierCfg) Validate() error {
+	if c == nil {
+		return nil
+	}
+
+	if c.HashMailCfg != nil {
+		if err := c.HashMailCfg.Validate(); err != nil {
+			return err
+		}
+	}
+	if c.UniverseRpcCfg != nil {
+		if err := c.UniverseRpcCfg.Validate(); err != nil {
+			return err
+		}
+	}
+
+	if c.TransferLog == nil {
+		return fmt.Errorf("transfer log is nil")
+	}
+
+	if c.LocalArchive == nil {
+		return fmt.Errorf("local archive is nil")
+	}
+
+	return nil
+}
+
 // CourierConnStatus is an enum that represents the different states a courier
 // connection can be in.
 type CourierConnStatus int
@@ -605,6 +633,33 @@ type BackoffCfg struct {
 	MaxBackoff time.Duration `long:"maxbackoff" description:"The maximum backoff time to wait before retrying to deliver the proof to the receiver. Valid time units are {s, m, h}."`
 }
 
+// Validate checks the backoff configuration for invalid or conflicting values.
+func (b *BackoffCfg) Validate() error {
+	if b == nil {
+		return nil
+	}
+
+	switch {
+	case b.UnlimitedTries && b.NumTries != 0:
+		return fmt.Errorf("numtries must be 0 when unlimitedtries is " +
+			"set")
+
+	case b.BackoffResetWait < 0:
+		return fmt.Errorf("backoffresetwait must be >= 0")
+
+	case b.InitialBackoff < 0:
+		return fmt.Errorf("initialbackoff must be >= 0")
+
+	case b.MaxBackoff < 0:
+		return fmt.Errorf("maxbackoff must be >= 0")
+
+	case b.MaxBackoff > 0 && b.InitialBackoff > b.MaxBackoff:
+		return fmt.Errorf("initialbackoff must not exceed maxbackoff")
+	}
+
+	return nil
+}
+
 // BackoffHandler is a handler for the backoff procedure.
 type BackoffHandler struct {
 	// cfg contains the backoff configuration parameters.
@@ -806,6 +861,19 @@ type HashMailCourierCfg struct {
 	// BackoffCfg configures the behaviour of the proof delivery
 	// functionality.
 	BackoffCfg *BackoffCfg
+}
+
+// Validate checks the hashmail courier configuration for invalid values.
+func (h *HashMailCourierCfg) Validate() error {
+	if h == nil {
+		return nil
+	}
+
+	if h.BackoffCfg != nil {
+		return h.BackoffCfg.Validate()
+	}
+
+	return nil
 }
 
 // HashMailCourier is a hashmail proof courier service handle. It implements the
@@ -1221,6 +1289,19 @@ type UniverseRpcCourierCfg struct {
 	// a courier service to handle our outgoing request during a connection
 	// attempt, or when delivering or retrieving a proof.
 	ServiceRequestTimeout time.Duration `long:"servicerequestimeout" description:"The maximum duration we'll wait for a courier service to handle our outgoing request during a connection attempt, or when delivering or retrieving a proof."`
+}
+
+// Validate checks the universe RPC courier configuration for invalid values.
+func (u *UniverseRpcCourierCfg) Validate() error {
+	if u == nil {
+		return nil
+	}
+
+	if u.BackoffCfg != nil {
+		return u.BackoffCfg.Validate()
+	}
+
+	return nil
 }
 
 // UniverseRpcCourier is a universe RPC proof courier service handle. It
