@@ -21,6 +21,10 @@
 
 # Bug Fixes
 
+- [PR#1927](https://github.com/lightninglabs/taproot-assets/pull/1927) Custodian
+  proof retrieval now retries indefinitely and no longer crashes tapd when a
+  universe proof is temporarily unavailable.
+
 # New Features
 
 ## Functional Enhancements
