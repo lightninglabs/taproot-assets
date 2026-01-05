@@ -495,7 +495,14 @@ func (c *Custodian) mainEventLoop() error {
 				),
 			)
 
-			return err
+			log.Errorf("Unable to check proof availability for "+
+				"event (outpoint=%v): %v", event.Outpoint, err)
+
+			if fn.ErrorAs[*fn.CriticalError](err) {
+				return err
+			}
+
+			continue
 		}
 
 		// If we did find a proof, we did import it now and are done.
@@ -552,7 +559,8 @@ func (c *Custodian) mainEventLoop() error {
 	for idx := range walletTxns {
 		err := c.inspectWalletTx(&walletTxns[idx])
 		if err != nil {
-			return err
+			log.Errorf("Unable to inspect wallet transaction %v: "+
+				"%v", walletTxns[idx].Tx.TxHash(), err)
 		}
 	}
 
@@ -610,7 +618,12 @@ func (c *Custodian) mainEventLoop() error {
 				return nil
 			}
 
-			return err
+			if fn.ErrorAs[*fn.CriticalError](err) {
+				return err
+			}
+
+			log.Errorf("Non-critical custodian event loop error: "+
+				"%v", err)
 		}
 	}
 }
