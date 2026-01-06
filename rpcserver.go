@@ -3195,6 +3195,7 @@ func (r *rpcServer) PublishAndLogTransfer(ctx context.Context,
 		tapfreighter.NewPreAnchoredParcel(
 			activePackets, passivePackets, anchorTx,
 			req.SkipAnchorTxBroadcast, parcelLabel,
+			fn.None[uint32](),
 		),
 	)
 	if err != nil {
