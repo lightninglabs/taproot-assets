@@ -8,9 +8,19 @@ VERSION_TAG = $(tag)
 VERSION_CHECK = ./scripts/release.sh check-tag "$(VERSION_TAG)" "$(VERSION_GO_FILE)"
 endif
 
-DOCKER_RELEASE_HELPER = docker run \
+# Use DOCKER/IS_PODMAN from Makefile.
+
+# For Podman rootless, use --user=0:0 to avoid permission issues.
+# For Docker, use current user to ensure generated files are user-owned.
+ifeq ($(IS_PODMAN),1)
+USER_ARGS = --user=0:0
+else
+USER_ARGS = --user $(shell id -u):$(shell id -g)
+endif
+
+DOCKER_RELEASE_HELPER = $(DOCKER) run \
   --rm \
-  --user $(shell id -u):$(shell id -g) \
+  $(USER_ARGS) \
   -v $(shell pwd):/tmp/build/taproot-assets \
   -v $(shell bash -c "go env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
   -v $(shell bash -c "go env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
