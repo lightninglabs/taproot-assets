@@ -1768,15 +1768,25 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	case SendStateStorePreBroadcast:
 		// We won't broadcast in this state, but in preparation for
 		// broadcasting, we will find out the current height to use as
-		// a height hint.
+		// a height hint. If the parcel provides its own height hint,
+		// we'll use that instead.
 		ctx, cancel := p.WithCtxQuit()
 		defer cancel()
-		currentHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
+
+		parcelHint := currentPkg.Parcel.HeightHint()
+		parcelHint.WhenSome(func(h uint32) {
+			log.Debugf("Using parcel-provided height hint: %d", h)
+		})
+		heightHint, err := parcelHint.UnwrapOrFuncErr(
+			func() (uint32, error) {
+				return p.cfg.ChainBridge.CurrentHeight(ctx)
+			},
+		)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
 
-			return nil, fmt.Errorf("unable to get current height: "+
-				"%w", err)
+			return nil, fmt.Errorf("unable to get current "+
+				"height: %w", err)
 		}
 
 		// We now need to find out if this is a transfer to ourselves
@@ -1822,7 +1832,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// We need to prepare the parcel for storage.
 		parcel, err := ConvertToTransfer(
-			currentHeight, currentPkg.VirtualPackets,
+			heightHint, currentPkg.VirtualPackets,
 			currentPkg.AnchorTx, currentPkg.PassiveAssets,
 			currentPkg.ZeroValueInputs, isLocalKey,
 			currentPkg.Label, currentPkg.SkipAnchorTxBroadcast,

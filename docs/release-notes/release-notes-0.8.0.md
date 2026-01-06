@@ -21,6 +21,11 @@
 
 # Bug Fixes
 
+* [PR #1920](https://github.com/lightninglabs/taproot-assets/pull/1920)
+  addresses a bug in which Neutrino-backed nodes could fail to import
+  transfer proofs for remote-initiated force close transactions if they
+  were not online to see them broadcast.
+
 # New Features
 
 ## Functional Enhancements
@@ -36,7 +41,7 @@
 - [Garbage collection of orphaned UTXOs](https://github.com/lightninglabs/taproot-assets/pull/1832)
   by sweeping tombstones and burn outputs when executing onchain transactions.
   Garbage collection will be executed on every burn, transfer or call to
-  `AnchorVirtualPsbts`. A new configuration is available to control the sweeping 
+  `AnchorVirtualPsbts`. A new configuration is available to control the sweeping
   via the flag `wallet.sweep-orphan-utxos`.
 - [PR](https://github.com/lightninglabs/taproot-assets/pull/1899) tapd now
   treats HTLC interceptor setup failures as fatal during RFQ subsystem startup.
@@ -81,7 +86,7 @@
 ## Config Changes
 
 - [PR#1870](https://github.com/lightninglabs/taproot-assets/pull/1870)
-  The `proofs-per-universe` configuration option is removed. New option 
+  The `proofs-per-universe` configuration option is removed. New option
   `max-proof-cache-size` sets the proof cache limit in bytes and accepts
   human-readable values such as `64MB`.
 
