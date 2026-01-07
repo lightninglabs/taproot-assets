@@ -526,12 +526,13 @@ func TestResolveRequest(t *testing.T) {
 			oracle := &MockPriceOracle{}
 			tc.setupOracle(oracle)
 
-			pilot, err := NewInternalPortfolioPilot(
-				InternalPortfolioPilotConfig{
-					PriceOracle:           oracle,
-					ForwardPeerIDToOracle: tc.forwardPeer,
-				},
-			)
+			cfg := InternalPortfolioPilotConfig{
+				PriceOracle:                 oracle,
+				ForwardPeerIDToOracle:       tc.forwardPeer,
+				AcceptPriceDeviationPpm:     50_000, // 5%
+				MinAssetRatesExpiryLifetime: 10,
+			}
+			pilot, err := NewInternalPortfolioPilot(cfg)
 			require.NoError(t, err)
 
 			ctx := context.Background()
@@ -549,6 +550,395 @@ func TestResolveRequest(t *testing.T) {
 
 			if tc.assertFn != nil {
 				tc.assertFn(t, resp, req, oracle)
+			}
+
+			oracle.AssertExpectations(t)
+		})
+	}
+}
+
+// TestVerifyAcceptQuote exercises the VerifyAcceptQuote method across various
+// error and success scenarios for both buy and sell accept messages.
+func TestVerifyAcceptQuote(t *testing.T) {
+	t.Parallel()
+
+	// Common test fixtures.
+	assetSpec := asset.NewSpecifierFromId(asset.ID{0x01, 0x02, 0x03})
+	peerID := route.Vertex{0x0A, 0x0B, 0x0C}
+
+	// Expiry times for testing.
+	expiredTime := time.Now().Add(-1 * time.Minute)
+	validExpiryFuture := time.Now().Add(30 * time.Second)
+
+	// Price rates for testing.
+	peerRate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(100, 0), validExpiryFuture,
+	)
+	oracleRateMatch := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(100, 0), validExpiryFuture,
+	)
+	// Within 5% tolerance (50,000 PPM).
+	oracleRateWithinTolerance := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(104, 0), validExpiryFuture,
+	)
+	// Outside 5% tolerance.
+	oracleRateOutsideTolerance := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(110, 0), validExpiryFuture,
+	)
+
+	tests := []struct {
+		name string
+
+		// makeAccept creates the accept message for this test.
+		makeAccept func(t *testing.T) rfqmsg.Accept
+
+		// setupOracle configures the mock price oracle expectations.
+		setupOracle func(*MockPriceOracle)
+
+		// expectStatus is the expected QuoteRespStatus.
+		// ValidAcceptQuoteRespStatus means success; other values mean
+		// validation failure.
+		expectStatus QuoteRespStatus
+
+		// expectErr indicates whether we expect an error.
+		expectErr bool
+
+		// expectErrSubstring is expected to be in the error message
+		// (only checked when expectErr is true).
+		expectErrSubstring string
+	}{
+		{
+			name: "buy accept: expired quote",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				expiredRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(100, 0),
+					expiredTime,
+				)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: expiredRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				// Oracle should not be called for expired
+				// quotes.
+			},
+			expectStatus: InvalidExpiryQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "buy accept: oracle query error",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQueryBuyPrice(
+					p, nil, errors.New("oracle down"),
+				)
+			},
+			expectStatus:       PriceOracleQueryErrQuoteRespStatus,
+			expectErr:          true,
+			expectErrSubstring: "query buy price from oracle",
+		},
+		{
+			name: "buy accept: oracle nil response",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQueryBuyPrice(p, nil, nil)
+			},
+			expectStatus: PriceOracleQueryErrQuoteRespStatus,
+			expectErr:    true,
+			expectErrSubstring: "price oracle returned nil " +
+				"response",
+		},
+		{
+			name: "buy accept: oracle error response",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				resp := &OracleResponse{
+					Err: &OracleError{
+						Code: 42,
+						Msg:  "rate unavailable",
+					},
+				}
+				expectQueryBuyPrice(p, resp, nil)
+			},
+			// Oracle returning an error response is expected
+			// (the oracle rejected the quote).
+			expectStatus: PriceOracleQueryErrQuoteRespStatus,
+			expectErr:    true,
+		},
+		{
+			name: "buy accept: price exactly matches",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQueryBuyPrice(
+					p, &OracleResponse{
+						AssetRate: oracleRateMatch,
+					}, nil,
+				)
+			},
+			expectStatus: ValidAcceptQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "buy accept: price within tolerance",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				resp := OracleResponse{
+					AssetRate: oracleRateWithinTolerance,
+				}
+				expectQueryBuyPrice(p, &resp, nil)
+			},
+			expectStatus: ValidAcceptQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "buy accept: price outside tolerance",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				resp := OracleResponse{
+					AssetRate: oracleRateOutsideTolerance,
+				}
+				expectQueryBuyPrice(p, &resp, nil)
+			},
+			// Price outside tolerance is an expected validation
+			// failure (no Go error).
+			expectStatus: InvalidAssetRatesQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "sell accept: expired quote",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				sellReq, err := rfqmsg.NewSellRequest(
+					peerID, assetSpec,
+					lnwire.MilliSatoshi(1000),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				expiredRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(100, 0),
+					expiredTime,
+				)
+
+				return &rfqmsg.SellAccept{
+					Peer:      peerID,
+					Request:   *sellReq,
+					AssetRate: expiredRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				// Oracle should not be called for expired
+				// quotes.
+			},
+			expectStatus: InvalidExpiryQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "sell accept: oracle query error",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				sellReq, err := rfqmsg.NewSellRequest(
+					peerID, assetSpec,
+					lnwire.MilliSatoshi(1000),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.SellAccept{
+					Peer:      peerID,
+					Request:   *sellReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQuerySellPrice(
+					p, nil, errors.New("oracle down"),
+				)
+			},
+			expectStatus:       PriceOracleQueryErrQuoteRespStatus,
+			expectErr:          true,
+			expectErrSubstring: "query sell price from oracle",
+		},
+		{
+			name: "sell accept: price within tolerance",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				sellReq, err := rfqmsg.NewSellRequest(
+					peerID, assetSpec,
+					lnwire.MilliSatoshi(1000),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.SellAccept{
+					Peer:      peerID,
+					Request:   *sellReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				resp := OracleResponse{
+					AssetRate: oracleRateWithinTolerance,
+				}
+				expectQuerySellPrice(p, &resp, nil)
+			},
+			expectStatus: ValidAcceptQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "sell accept: price outside tolerance",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				sellReq, err := rfqmsg.NewSellRequest(
+					peerID, assetSpec,
+					lnwire.MilliSatoshi(1000),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.SellAccept{
+					Peer:      peerID,
+					Request:   *sellReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				resp := OracleResponse{
+					AssetRate: oracleRateOutsideTolerance,
+				}
+				expectQuerySellPrice(p, &resp, nil)
+			},
+			// Price outside tolerance is an expected validation
+			// failure (no Go error).
+			expectStatus: InvalidAssetRatesQuoteRespStatus,
+			expectErr:    false,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			accept := tc.makeAccept(t)
+			oracle := &MockPriceOracle{}
+			tc.setupOracle(oracle)
+
+			cfg := InternalPortfolioPilotConfig{
+				PriceOracle:                 oracle,
+				ForwardPeerIDToOracle:       false,
+				AcceptPriceDeviationPpm:     50_000, // 5%
+				MinAssetRatesExpiryLifetime: 10,
+			}
+			pilot, err := NewInternalPortfolioPilot(cfg)
+			require.NoError(t, err)
+
+			ctx := context.Background()
+			status, err := pilot.VerifyAcceptQuote(ctx, accept)
+
+			// Verify the status matches expectations.
+			require.Equal(t, tc.expectStatus, status)
+
+			// Check error expectations.
+			if tc.expectErr {
+				// Unexpected error case: err should be non-nil.
+				require.Error(t, err)
+				require.Contains(
+					t, err.Error(), tc.expectErrSubstring,
+				)
+			} else {
+				// Expected validation failure or success:
+				// err should be nil.
+				require.NoError(t, err)
 			}
 
 			oracle.AssertExpectations(t)
