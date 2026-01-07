@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
-	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -104,9 +103,12 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 	// If the portfolio pilot is not specified, then we will use the
 	// internal portfolio pilot.
 	if cfg.PortfolioPilot == nil {
+		// nolint: lll
 		cfgPortfolioPilot := InternalPortfolioPilotConfig{
-			PriceOracle:           cfg.PriceOracle,
-			ForwardPeerIDToOracle: cfg.SendPeerId,
+			PriceOracle:                 cfg.PriceOracle,
+			ForwardPeerIDToOracle:       cfg.SendPeerId,
+			AcceptPriceDeviationPpm:     cfg.AcceptPriceDeviationPpm,
+			MinAssetRatesExpiryLifetime: minAssetRatesExpiryLifetime,
 		}
 		portfolioPilot, err := NewInternalPortfolioPilot(
 			cfgPortfolioPilot,
@@ -512,49 +514,12 @@ func (n *Negotiator) HandleOutgoingSellOrder(
 	return request.ID, err
 }
 
-// expiryWithinBounds checks if a quote expiry unix timestamp (in seconds) is
-// within acceptable bounds. This check ensures that the expiry timestamp is far
-// enough in the future for the quote to be useful.
-func expiryWithinBounds(expiry time.Time, minExpiryLifetime uint64) bool {
-	diff := expiry.Unix() - time.Now().Unix()
-	return diff >= int64(minExpiryLifetime)
-}
-
 // HandleIncomingBuyAccept handles an incoming buy accept message. This method
 // is called when a peer accepts a quote request from this node. The method
-// checks the price and expiry time of the quote accept message. Once validation
-// is complete, the finalise callback function is called.
+// delegates validation to the portfolio pilot. Once validation is complete,
+// the finalise callback function is called.
 func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	finalise func(rfqmsg.BuyAccept, fn.Option[InvalidQuoteRespEvent])) {
-
-	// Ensure that the quote expiry time is within acceptable bounds.
-	//
-	// TODO(ffranr): Sanity check the buy accept quote expiry
-	//  timestamp given the expiry timestamp in our outgoing buy request.
-	//  The expiry timestamp in the outgoing request relates to the lifetime
-	//  of the lightning invoice.
-	if !expiryWithinBounds(
-		msg.AssetRate.Expiry, minAssetRatesExpiryLifetime,
-	) {
-		// The expiry time is not within the acceptable bounds.
-		log.Debugf("Buy accept quote expiry time is not within "+
-			"acceptable bounds (asset_rate=%s)",
-			msg.AssetRate.String())
-
-		// Construct an invalid quote response event so that we can
-		// inform the peer that the quote response has not validated
-		// successfully.
-		invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
-			&msg, InvalidExpiryQuoteRespStatus,
-		)
-		finalise(
-			msg, fn.Some[InvalidQuoteRespEvent](
-				*invalidQuoteRespEvent,
-			),
-		)
-
-		return
-	}
 
 	if n.cfg.SkipAcceptQuotePriceCheck {
 		// Skip the price check.
@@ -562,166 +527,57 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		return
 	}
 
-	// Reject the quote response if a price oracle is unavailable.
-	if n.cfg.PriceOracle == nil {
-		invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
-			&msg, PriceOracleQueryErrQuoteRespStatus,
+	// Verify the accepted quote asynchronously in a separate goroutine.
+	// This avoids blocking, as the portfolio pilot may be an external
+	// service.
+	n.Goroutine(func() error {
+		ctx, cancel := n.WithCtxQuitCustomTimeout(
+			DefaultPortfolioPilotTimeout,
 		)
-		finalise(msg, fn.Some[InvalidQuoteRespEvent](
+		defer cancel()
+
+		// Use the portfolio pilot to verify the accept quote.
+		status, err := n.cfg.PortfolioPilot.VerifyAcceptQuote(
+			ctx, &msg,
+		)
+		if err != nil {
+			invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
+				&msg, PortfolioPilotErrQuoteRespStatus,
+			)
+			finalise(
+				msg, fn.Some[InvalidQuoteRespEvent](
+					*invalidQuoteRespEvent,
+				),
+			)
+
+			return fmt.Errorf("portfolio pilot verify accept "+
+				"quote: %w", err)
+		}
+
+		if status == ValidAcceptQuoteRespStatus {
+			finalise(msg, fn.None[InvalidQuoteRespEvent]())
+			return nil
+		}
+
+		invalidQuoteRespEvent := NewInvalidQuoteRespEvent(&msg, status)
+		event := fn.Some[InvalidQuoteRespEvent](
 			*invalidQuoteRespEvent,
-		))
-		return
-	}
-
-	// Query the price oracle asynchronously using a separate goroutine.
-	n.Wg.Add(1)
-	go func() {
-		defer n.Wg.Done()
-
-		var peerID fn.Option[route.Vertex]
-		if n.cfg.SendPeerId {
-			peerID = fn.Some(msg.Peer)
-		}
-
-		// The buy accept message includes an sell price, which
-		// represents the amount the peer is willing to accept for the
-		// asset we are purchasing.
-		//
-		// To validate this sell, we will query our price oracle for a
-		// buy price and compare it with the peer's sell price. If the
-		// two prices fall within an acceptable tolerance, we will
-		// approve the quote.
-		//
-		// When querying the price oracle, we will provide the peer's
-		// sell price as a hint. The oracle may factor this into its
-		// calculations to generate a more relevant buy price.
-		assetRate, err := n.queryBuyFromPriceOracle(
-			msg.Request.AssetSpecifier,
-			fn.Some(msg.Request.AssetMaxAmt),
-			fn.None[lnwire.MilliSatoshi](), fn.Some(msg.AssetRate),
-			peerID, msg.Request.PriceOracleMetadata,
-			IntentRecvPaymentQualify,
 		)
-		if err != nil {
-			// The price oracle returned an error. We will return
-			// without calling the quote accept callback.
-			err = fmt.Errorf("negotiator failed to query price "+
-				"oracle when handling incoming buy accept "+
-				"message: %w", err)
-			log.Errorf("Error calling price oracle: %v", err)
-			n.cfg.ErrChan <- err
+		finalise(msg, event)
 
-			// Construct an invalid quote response event so that we
-			// can inform the peer that the quote response has not
-			// validated successfully.
-			invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
-				&msg, PriceOracleQueryErrQuoteRespStatus,
-			)
-			finalise(
-				msg, fn.Some[InvalidQuoteRespEvent](
-					*invalidQuoteRespEvent,
-				),
-			)
-
-			return
-		}
-
-		// The price returned by the oracle may not always align with
-		// our specific interests, depending on the oracle's pricing
-		// methodology. In other words, it may provide a general market
-		// price rather than one optimized for our needs.
-		//
-		// To account for this, we allow some tolerance in price
-		// deviation, ensuring that we can accept a reasonable range of
-		// prices while maintaining flexibility.
-		tolerance := rfqmath.NewBigIntFromUint64(
-			n.cfg.AcceptPriceDeviationPpm,
-		)
-		acceptablePrice, err := msg.AssetRate.Rate.WithinTolerance(
-			assetRate.Rate, tolerance,
-		)
-		if err != nil {
-			// The tolerance check failed. We will return without
-			// calling the quote accept callback.
-			err = fmt.Errorf("failed to check tolerance: %w", err)
-			log.Errorf("Error checking tolerance: %v", err)
-
-			// Construct an invalid quote response event so that we
-			// can inform the peer that the quote response has not
-			// validated successfully.
-			invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
-				&msg, InvalidAssetRatesQuoteRespStatus,
-			)
-			finalise(
-				msg, fn.Some[InvalidQuoteRespEvent](
-					*invalidQuoteRespEvent,
-				),
-			)
-
-			return
-		}
-
-		if !acceptablePrice {
-			// The price is not within the acceptable tolerance.
-			// We will return without calling the quote accept
-			// callback.
-			log.Debugf("Buy accept price is not within "+
-				"acceptable bounds (peer_asset_rate=%s, "+
-				"oracle_asset_rate=%s)", msg.AssetRate.String(),
-				assetRate.String())
-
-			// Construct an invalid quote response event so that we
-			// can inform the peer that the quote response has not
-			// validated successfully.
-			invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
-				&msg, InvalidAssetRatesQuoteRespStatus,
-			)
-			finalise(
-				msg, fn.Some[InvalidQuoteRespEvent](
-					*invalidQuoteRespEvent,
-				),
-			)
-
-			return
-		}
-
-		finalise(msg, fn.None[InvalidQuoteRespEvent]())
-	}()
+		return nil
+	}, func(err error) {
+		log.Errorf("Error verifying buy accept quote: %v", err)
+		n.cfg.ErrChan <- err
+	})
 }
 
 // HandleIncomingSellAccept handles an incoming sell accept message. This method
 // is called when a peer accepts a quote request from this node. The method
-// checks the price and expiry time of the quote accept message. Once validation
-// is complete, the finalise callback function is called.
+// delegates validation to the portfolio pilot. Once validation is complete,
+// the finalise callback function is called.
 func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 	finalise func(rfqmsg.SellAccept, fn.Option[InvalidQuoteRespEvent])) {
-
-	// Ensure that the quote expiry time is within acceptable bounds.
-	//
-	// TODO(ffranr): Sanity check the quote expiry timestamp given
-	//  the expiry timestamp provided by the price oracle.
-	if !expiryWithinBounds(
-		msg.AssetRate.Expiry, minAssetRatesExpiryLifetime,
-	) {
-		// The expiry time is not within the acceptable bounds.
-		log.Debugf("Sell accept quote expiry time is not within "+
-			"acceptable bounds (asset_rate=%s)",
-			msg.AssetRate.String())
-
-		// Construct an invalid quote response event so that we can
-		// inform the peer that the quote response has not validated
-		// successfully.
-		invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
-			&msg, InvalidExpiryQuoteRespStatus,
-		)
-		finalise(
-			msg, fn.Some[InvalidQuoteRespEvent](
-				*invalidQuoteRespEvent,
-			),
-		)
-
-		return
-	}
 
 	if n.cfg.SkipAcceptQuotePriceCheck {
 		// Skip the price check.
@@ -729,125 +585,44 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		return
 	}
 
-	// Reject the quote response if a price oracle is unavailable.
-	if n.cfg.PriceOracle == nil {
-		invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
-			&msg, PriceOracleQueryErrQuoteRespStatus,
+	// Verify the accepted quote asynchronously in a separate goroutine.
+	// This avoids blocking, as the portfolio pilot may be an external
+	// service.
+	n.Goroutine(func() error {
+		ctx, cancel := n.WithCtxQuitCustomTimeout(
+			DefaultPortfolioPilotTimeout,
 		)
-		finalise(msg, fn.Some[InvalidQuoteRespEvent](
-			*invalidQuoteRespEvent,
-		))
-		return
-	}
+		defer cancel()
 
-	// Query the price oracle asynchronously using a separate goroutine.
-	n.ContextGuard.Goroutine(func() error {
-		var peerID fn.Option[route.Vertex]
-		if n.cfg.SendPeerId {
-			peerID = fn.Some(msg.Peer)
-		}
-
-		// The sell accept message includes a buy price, which
-		// represents the amount the peer is willing to pay for the
-		// asset we are selling.
-		//
-		// To validate this buy, we will query our price oracle for an
-		// sell price and compare it with the peer's buy. If the two
-		// prices fall within an acceptable tolerance, we will accept
-		// the quote.
-		//
-		// When querying the price oracle, we will provide the peer's
-		// buy as a hint. The oracle may incorporate this buy into its
-		// calculations to determine a more accurate sell price.
-		assetRate, err := n.querySellFromPriceOracle(
-			msg.Request.AssetSpecifier, fn.None[uint64](),
-			fn.Some(msg.Request.PaymentMaxAmt),
-			fn.Some(msg.AssetRate), peerID,
-			msg.Request.PriceOracleMetadata,
-			IntentPayInvoiceQualify,
+		// Use the portfolio pilot to verify the accept quote.
+		status, err := n.cfg.PortfolioPilot.VerifyAcceptQuote(
+			ctx, &msg,
 		)
 		if err != nil {
-			// The price oracle returned an error.
-			//
-			// Construct an invalid quote response event so that we
-			// can inform the peer that the quote response has not
-			// validated successfully.
 			invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
-				&msg, PriceOracleQueryErrQuoteRespStatus,
+				&msg, PortfolioPilotErrQuoteRespStatus,
 			)
-			finalise(
-				msg, fn.Some[InvalidQuoteRespEvent](
-					*invalidQuoteRespEvent,
-				),
+			event := fn.Some[InvalidQuoteRespEvent](
+				*invalidQuoteRespEvent,
 			)
+			finalise(msg, event)
 
-			return fmt.Errorf("negotiator failed to query price "+
-				"oracle when handling incoming sell accept "+
-				"message: %w", err)
+			return fmt.Errorf("portfolio pilot verify accept "+
+				"quote: %w", err)
 		}
 
-		// The price returned by the oracle may not always align with
-		// our specific interests, depending on the oracle's pricing
-		// methodology. In other words, it may provide a general market
-		// price rather than one optimized for our needs.
-		//
-		// To account for this, we allow some tolerance in price
-		// deviation, ensuring that we can accept a reasonable range of
-		// prices while maintaining flexibility.
-		tolerance := rfqmath.NewBigIntFromUint64(
-			n.cfg.AcceptPriceDeviationPpm,
-		)
-		acceptablePrice, err := msg.AssetRate.Rate.WithinTolerance(
-			assetRate.Rate, tolerance,
-		)
-		if err != nil {
-			// The tolerance check failed.
-			//
-			// Construct an invalid quote response event so that we
-			// can inform the peer that the quote response has not
-			// validated successfully.
-			invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
-				&msg, InvalidAssetRatesQuoteRespStatus,
-			)
-			finalise(
-				msg, fn.Some[InvalidQuoteRespEvent](
-					*invalidQuoteRespEvent,
-				),
-			)
-
-			return fmt.Errorf("failed to check tolerance: %w", err)
-		}
-
-		if !acceptablePrice {
-			// The price is not within the acceptable bounds.
-			// We will return without calling the quote accept
-			// callback.
-			log.Debugf("Sell accept quote price is not within "+
-				"acceptable bounds (asset_rate=%v, "+
-				"oracle_asset_rate=%v)", msg.AssetRate,
-				assetRate)
-
-			// Construct an invalid quote response event so that we
-			// can inform the peer that the quote response has not
-			// validated successfully.
-			invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
-				&msg, InvalidAssetRatesQuoteRespStatus,
-			)
-			finalise(
-				msg, fn.Some[InvalidQuoteRespEvent](
-					*invalidQuoteRespEvent,
-				),
-			)
-
+		if status == ValidAcceptQuoteRespStatus {
+			finalise(msg, fn.None[InvalidQuoteRespEvent]())
 			return nil
 		}
 
-		finalise(msg, fn.None[InvalidQuoteRespEvent]())
+		invalidQuoteRespEvent := NewInvalidQuoteRespEvent(&msg, status)
+		event := fn.Some[InvalidQuoteRespEvent](*invalidQuoteRespEvent)
+		finalise(msg, event)
+
 		return nil
 	}, func(err error) {
-		log.Errorf("Error checking incoming sell accept asset rate: %v",
-			err)
-
+		log.Errorf("Error verifying sell accept quote: %v", err)
 		n.cfg.ErrChan <- err
 	})
 }
