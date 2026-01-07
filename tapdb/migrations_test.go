@@ -2,6 +2,7 @@ package tapdb
 
 import (
 	"context"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -703,15 +704,24 @@ func TestMigration50ScriptKeyTypeReplay(t *testing.T) {
 	InsertTestdata(t, db.BaseDB, "migrations_test_00033_dummy_data.sql")
 
 	// We simulate that a user previously ran migration 33, which at the
-	// time also contained the programmatic migration which has now been
-	// separated to migration 50.
-	callbacks := map[uint]postMigrationCheck{
-		OldScriptKeyTypeMigr: determineAndAssignScriptKeyType,
-	}
+	// time contained both the SQL and the programmatic migration. To avoid
+	// mixing SQL and programmatic migrations in the same version which will
+	// no longer be allowed by the migrate dependency, we first run only the
+	// SQL migrations up to version 33, then execute the programmatic
+	// migration manually.
+	err := db.ExecuteMigrations(TargetVersion(OldScriptKeyTypeMigr))
+	require.NoError(t, err)
 
-	err := db.ExecuteMigrations(
-		TargetVersion(OldScriptKeyTypeMigr),
-		WithPostStepCallbacks(makePostStepCallbacks(db, callbacks)),
+	// Manually execute the programmatic migration, which was initially run
+	// at migration version 33 (post the SQL migration).
+	txDb := NewTransactionExecutor(
+		db, func(tx *sql.Tx) sqlc.Querier { return db.WithTx(tx) },
+	)
+	err = txDb.ExecTx(
+		ctx, &AssetStoreTxOptions{},
+		func(q sqlc.Querier) error {
+			return determineAndAssignScriptKeyType(ctx, q)
+		},
 	)
 	require.NoError(t, err)
 
