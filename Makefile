@@ -51,6 +51,22 @@ ifneq ($(workers),)
 LINT_WORKERS = --concurrency=$(workers)
 endif
 
+# Worktree support: golangci-lint's issues.new-from-rev compares against git
+# history, but worktrees keep .git metadata outside the worktree root. When
+# lint runs in Docker without those dirs mounted, new-from-rev cannot resolve,
+# so we bind-mount the git dir/common dir into the container.
+GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null)
+GIT_COMMON_DIR := $(shell git rev-parse --git-common-dir 2>/dev/null)
+DOCKER_GIT_MOUNTS :=
+ifneq ($(filter /%,$(GIT_DIR)),)
+DOCKER_GIT_MOUNTS += -v $(GIT_DIR):$(GIT_DIR)
+endif
+ifneq ($(filter /%,$(GIT_COMMON_DIR)),)
+ifneq ($(GIT_COMMON_DIR),$(GIT_DIR))
+DOCKER_GIT_MOUNTS += -v $(GIT_COMMON_DIR):$(GIT_COMMON_DIR)
+endif
+endif
+
 # Docker cache mounting strategy:
 # - CI (GitHub Actions): Use bind mounts to host paths that GA caches persist.
 # - Local: Use Docker named volumes (much faster on macOS/Windows due to
@@ -63,6 +79,7 @@ DOCKER_TOOLS = docker run \
   -v $${HOME}/.cache/go-build:/tmp/build/.cache \
   -v $${HOME}/go/pkg/mod:/tmp/build/.modcache \
   -v $${HOME}/.cache/golangci-lint:/root/.cache/golangci-lint \
+  $(DOCKER_GIT_MOUNTS) \
   -v $$(pwd):/build taproot-assets-tools
 else
 # Local mode: Docker named volumes for fast macOS/Windows performance.
@@ -71,6 +88,7 @@ DOCKER_TOOLS = docker run \
   -v tapd-go-build-cache:/tmp/build/.cache \
   -v tapd-go-mod-cache:/tmp/build/.modcache \
   -v tapd-go-lint-cache:/root/.cache/golangci-lint \
+  $(DOCKER_GIT_MOUNTS) \
   -v $$(pwd):/build taproot-assets-tools
 endif
 
