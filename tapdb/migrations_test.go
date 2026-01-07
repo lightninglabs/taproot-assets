@@ -929,28 +929,35 @@ func TestMigration51BurnReplay(t *testing.T) {
 // database backend in a dirty state, any attempts of re-executing migrations on
 // the db (i.e. restart tapd), will fail with an error indicating that the
 // database is in a dirty state. This is regardless of whether the failing
-// migration is the latest migration or an intermediate migration.
+// migration is the targeted migration or an intermediate migration.
+//
+// NOTE: This test defines custom programmatic migrations for version 50 & 51,
+// simulating that the programmatic migrations at those version errors,
+// leaving the DB in a dirty state.
 func TestDirtySqliteVersion(t *testing.T) {
 	var (
 		err       error
 		testError = errors.New("test error")
 
 		// testPostMigrationChecks1 is a map that will trigger a
-		// migration callback for migration 2 which always returns an
+		// programmatic for migration 50 which always returns an
 		// error. This is used to simulate an intermediate migration
 		// that fails and leaves the db in a dirty state.
 		testPostMigrationChecks1 = map[uint]postMigrationCheck{
-			2: func(ctx context.Context, q sqlc.Querier) error {
+			Migration50ScriptKeyType: func(ctx context.Context,
+				q sqlc.Querier) error {
+
 				return testError
 			},
 		}
 
 		// testPostMigrationChecks2 is a map that will trigger a
-		// migration callback for the latest migration which always
-		// returns an error. This is used to simulate that the latest
-		// migration fails and leaves the db in a dirty state.
+		// migration callback for the targeted migration (i.e. latest)
+		// which always returns an error. This is used to simulate that
+		// the latest migration fails and leaves the db in a dirty
+		// state.
 		testPostMigrationChecks2 = map[uint]postMigrationCheck{
-			LatestMigrationVersion: func(ctx context.Context,
+			Migration51InsertAssetBurns: func(ctx context.Context,
 				q sqlc.Querier) error {
 
 				return testError
@@ -968,17 +975,24 @@ func TestDirtySqliteVersion(t *testing.T) {
 	// intermediate migration, we use the testPostMigrationChecks1 when
 	// executing the migration. Note that we use the `backupAndMigrate` func
 	// as the MigrationTarget, to simulate what is used in production for
-	// Sqlite database backends.
-	err = db1.ExecuteMigrations(db1.backupAndMigrate, WithPostStepCallbacks(
-		makePostStepCallbacks(db1, testPostMigrationChecks1),
-	))
+	// Sqlite database backends. As set the migration version 51 as the
+	// latest migration version, that version will be targeted.
+	err = db1.ExecuteMigrations(db1.backupAndMigrate,
+		WithPostStepCallbacks(
+			makePostStepCallbacks(db1, testPostMigrationChecks1),
+		),
+		WithLatestVersion(Migration51InsertAssetBurns),
+	)
 	require.ErrorIs(t, err, testError)
 
 	// If we now attempt to execute migrations again, it should fail with an
 	// error indicating that the db is in a dirty state.
-	err = db1.ExecuteMigrations(db1.backupAndMigrate, WithPostStepCallbacks(
-		makePostStepCallbacks(db1, testPostMigrationChecks1),
-	))
+	err = db1.ExecuteMigrations(db1.backupAndMigrate,
+		WithPostStepCallbacks(
+			makePostStepCallbacks(db1, testPostMigrationChecks1),
+		),
+		WithLatestVersion(Migration51InsertAssetBurns),
+	)
 	require.ErrorContains(t, err, "database is in a dirty state")
 
 	// Next, we'll test that if the **latest** migration fails and leaves
@@ -989,15 +1003,23 @@ func TestDirtySqliteVersion(t *testing.T) {
 	// As we intend that the failing migration version should be the latest
 	// migration, we now use the testPostMigrationChecks2 when executing
 	// the migration.
-	err = db2.ExecuteMigrations(db2.backupAndMigrate, WithPostStepCallbacks(
-		makePostStepCallbacks(db2, testPostMigrationChecks2),
-	))
+	// Note that we're targeting the same version that the programmatic
+	// migration is defined for, i.e. and is therefore the latest version.
+	err = db2.ExecuteMigrations(db2.backupAndMigrate,
+		WithPostStepCallbacks(
+			makePostStepCallbacks(db2, testPostMigrationChecks2),
+		),
+		WithLatestVersion(Migration51InsertAssetBurns),
+	)
 	require.ErrorIs(t, err, testError)
 
 	// If we now attempt to execute migrations again, it should fail with an
 	// error indicating that the db is in a dirty state.
-	err = db2.ExecuteMigrations(db2.backupAndMigrate, WithPostStepCallbacks(
-		makePostStepCallbacks(db2, testPostMigrationChecks2),
-	))
+	err = db2.ExecuteMigrations(db2.backupAndMigrate,
+		WithPostStepCallbacks(
+			makePostStepCallbacks(db2, testPostMigrationChecks2),
+		),
+		WithLatestVersion(Migration51InsertAssetBurns),
+	)
 	require.ErrorContains(t, err, "database is in a dirty state")
 }
