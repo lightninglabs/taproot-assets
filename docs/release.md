@@ -1,125 +1,112 @@
 # `taproot-assets`'s Reproducible Build System
 
-This package contains the build script that the `taproot-assets` project uses in
-order to build binaries for each new release. As of `go1.13`, with some new
-build flags, binaries are now reproducible, allowing developers to build the
-binary on distinct machines, and end up with a byte-for-byte identical binary.
-However, this wasn't _fully_ solved in `go1.13`, as the build system still
-includes the directory the binary is built into the binary itself. As a result,
-our scripts utilize a work around needed until `go1.13.2`.  
+Our release artifacts are designed to be reproducible, meaning, for any
+release version:
 
-## Building a New Release
+1) Release binaries produced for any target architecture correspond
+   byte-for-byte, independent of what host machine or architecture was
+   used to perform the build. For example: if a darwin-arm64 machine and
+   a linux-amd64 machine each build release binaries for windows-amd64,
+   then those produced binaries will match exactly.
 
-### MacOS
+2) These binaries, as well as the source and vendored dependencies
+   used to build them, are packaged in archives that can be reproduced
+   exactly.
 
-The first requirement is to have [`docker`](https://www.docker.com/)
-installed locally and running. The second requirement is to have `make`
-installed. Everything else (including `golang`) is included in the release
-helper image.
+In each case, we confirm an "exact match" by comparing SHA256 digests.
 
-To build a release, run the following commands:
+## Building a Release
 
-```shell
-$  git clone https://github.com/lightninglabs/taproot-assets.git
-$  cd taproot-assets
-$  git checkout <TAG> # <TAG> is the name of the next release/tag
-$  make docker-release tag=<TAG>
-```
-
-Where `<TAG>` is the name of the next release of `taproot-assets`.
-
-### Linux/Windows (WSL)
-
-No prior set up is needed on Linux or macOS is required in order to build the
-release binaries. However, on Windows, the only way to build the release
-binaries at the moment is by using the Windows Subsystem Linux. One can build
-the release binaries following these steps:
+To build a release, ensure `make` and `git` are installed, and that
+[`Docker`](https://www.docker.com/) is installed locally and running.
+Then:
 
 ```shell
-$  git clone https://github.com/lightninglabs/taproot-assets.git
-$  cd taproot-assets
-$  git checkout <TAG> # <TAG> is the name of the next release/tag
-$  make release tag=<TAG>
+$ git clone https://github.com/lightninglabs/taproot-assets.git
+$ cd taproot-assets
+$ git checkout "$TAG"
+$ make docker-release tag="$TAG"
 ```
 
-This will then create a directory of the form `taproot-assets-<TAG>` containing
-archives of the release binaries for each supported operating system and
-architecture, and a manifest file containing the hash of each archive.
+Where `$TAG` is the name of the desired release of `taproot-assets`.
+
+Note that you can also run `make release` to avoid the dependency on
+Docker and any base images, but, for verification purposes, you must
+ensure to use the same Go toolchain used by the Docker image in order to
+produce release binaries consistent with it.
 
 ## Verifying a Release
 
-With `go1.13`, it's now possible for third parties to verify release binaries.
-Before this version of `go`, one had to trust the release manager(s) to build the
-proper binary. With this new system, third parties can now _independently_ run
-the release process, and verify that all the hashes of the release binaries
-match exactly that of the release binaries produced by said third parties.
+To manually verify a release, ensure that `gpg`/`gpg2`, `shasum`, and
+`tar`/`unzip` are installed locally, and then proceed with the following
+steps:
 
-To verify a release, one must obtain the following tools (many of these come
-installed by default in most Unix systems): `gpg`/`gpg2`, `shashum`, and
-`tar`/`unzip`.
+1. Download the release manifest (`manifest-$TAG.txt`), as
+   well as any desired detached signatures that have been made
+   for it (typically named `manifest-$SIGNER-$TAG.sig`). These
+   are typically available from the Taproot Assets
+   [Releases page][ghrelease] on GitHub, under the 'Assets' header for
+   any given release.
 
-Once done, verifiers can proceed with the following steps:
+   Note that the tag itself can be verified via:
 
-1. Acquire the archive containing the release binaries for one's specific
-   operating system and architecture, and the manifest file along with its
-   signature.
-2. Verify the signature of the manifest file with `gpg --verify
-   manifest-<TAG>.txt.sig`. This will require obtaining the PGP keys which
-   signed the manifest file, which are included in the release notes.
-3. Recompute the `SHA256` hash of the archive with `shasum -a 256 <filename>`,
-   locate the corresponding one in the manifest file, and ensure they match
-   __exactly__.
+   `git verify-tag "$TAG"`
 
-At this point, verifiers can use the release binaries acquired if they trust
-the integrity of the release manager(s). Otherwise, one can proceed with the
-guide to verify the release binaries were built properly by obtaining `shasum`
-and `go` (matching the same version used in the release):
+2. Verify the detached signature of the manifest file with:
 
-4. Extract the release binaries contained within the archive, compute their
-   hashes as done above, and note them down.
-5. Ensure `go` is installed, matching the same version as noted in the release
-   notes. 
-6. Obtain a copy of `taproot-assets`'s source code with `git clone
-   https://github.com/lightninglabs/taproot-assets` and checkout the source code of the
-   release with `git checkout <TAG>`.
-7. Proceed to verify the tag with `git verify-tag <TAG>` and compile the
-   binaries from source for the intended operating system and architecture with
-   `make release sys=OS-ARCH tag=<TAG>`.
-8. Extract the archive found in the `taproot-assets-<TAG>` directory created by
-   the release script and recompute the `SHA256` hash of the release binaries
-   (`tapd` and `tapcli`) with `shasum -a 256 <filename>`. These should match
-   __exactly__ as the ones noted above.
+   `gpg --verify "manifest-$SIGNER-$TAG.sig" "manifest-$TAG.txt"`
 
-## Verifying Docker Images
+   PGP public keys of Taproot Assets developers can be found in the
+   scripts/keys subdirectory of the repository root.
 
-To verify the `tapd` and `tapcli` binaries inside the
-[official provided docker images](https://hub.docker.com/r/lightninglabs/taproot-assets)
-against the signed, reproducible release binaries, there is a verification
-script in the image that can be called (before starting the container for
-example):
+3. Procure the other release artifacts, either by building the release from
+   source as [described above](#building-a-release), or by downloading
+   the desired archive(s) containing the release binaries from the
+   Taproot Assets [Releases page][ghrelease] on GitHub.
+
+4. Recompute the SHA256 hash of each artifact with e.g.  `shasum -a 256
+   <filename>`, locate the corresponding digest in the manifest file,
+   and ensure they match exactly.
+
+## Verifying Release Binaries in Official Docker Images
+
+To verify the `tapd` and `tapcli` binaries inside the [official provided
+Docker images](https://hub.docker.com/r/lightninglabs/taproot-assets)
+against the signed, reproducible release binaries, there is a
+verification script in the image that can be called (before starting the
+container for example):
 
 ```shell
-$  docker run --rm --entrypoint="" lightninglabs/taproot-assets:v0.3.0 /verify-install.sh v0.3.0
-$  OK=$?
-$  if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
-$  docker run lightninglabs/taproot-assets [command-line options]
+$ docker run --rm --entrypoint="" \
+    lightninglabs/taproot-assets:"$TAG" /verify-install.sh "$TAG"
+$ OK=$?
+$ if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
+$ docker run lightninglabs/taproot-assets [command-line options]
 ```
 
-# Signing an Existing Manifest File
+Note that Docker images published for versions v0.7.0 and earlier don't
+support this script.
 
-If you're a developer of `taproot-assets` and are interested in attaching your
-signature to the final release archive, the manifest MUST be signed in a manner
-that allows your signature to be verified by our verify script
-`scripts/verify-install.sh`. 
+# Attesting a Manifest File
 
-Assuming you've done a local build for _all_ release targets, then you should
-have a file called `manifest-TAG.txt` where `TAG` is the actual release tag
-description being signed. The release script expects a particular file name for
-each included signature, so we'll need to modify the name of our output
-signature during signing.
+If you're a developer of `taproot-assets` and want to attest a
+build manifest, the manifest MUST be signed in a manner that
+allows your signature to be verified by our verify script
+`scripts/verify-install.sh`.
 
-Assuming `USERNAME` is your current nick as a developer, then the following
-command will generate a proper signature:
+You will first need to make a pull request adding your signing public
+key, named `$SIGNER.asc`, to the scripts/keys subdirectory. Then, build
+the release artifacts for *all* targets as described in [Building
+a Release](#building-a-release). This will include the checksummed
+artifacts manifest, `manifest-$TAG.txt`.
+
+To generate a detached signature for the manifest, perform the following:
+
 ```shell
-$  gpg --detach-sig --output manifest-USERNAME-TAG.sig manifest-TAG.txt
+$ gpg --detach-sig --output "manifest-$SIGNER-$TAG.sig" "manifest-$TAG.txt"
 ```
+
+and then upload it to the 'Assets' of the target release [on
+GitHub][ghrelease].
+
+[ghrelease]: https://github.com/lightninglabs/taproot-assets/releases
