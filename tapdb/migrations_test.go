@@ -863,14 +863,24 @@ func TestMigration51BurnReplay(t *testing.T) {
 	require.Len(t, burnsBefore, 3)
 
 	// We simulate that a user previously ran migration 37, which at the
-	// time also contained the programmatic migration which has now been
-	// separated to migration 51.
-	err = db.ExecuteMigrations(TargetVersion(OldInsertAssetBurnsMigr),
-		WithPostStepCallbacks(
-			makePostStepCallbacks(db, map[uint]postMigrationCheck{
-				OldInsertAssetBurnsMigr: insertAssetBurns,
-			}),
-		),
+	// time contained both the SQL and the programmatic migration. To avoid
+	// mixing SQL and programmatic migrations in the same version which will
+	// no longer be allowed by the migrate dependency, we first run only the
+	// SQL migrations up to version 37, then execute the programmatic
+	// migration manually.
+	err = db.ExecuteMigrations(TargetVersion(OldInsertAssetBurnsMigr))
+	require.NoError(t, err)
+
+	// Manually execute the programmatic migration, which was initially run
+	// at migration version 37 (post the SQL migration).
+	txDb := NewTransactionExecutor(
+		db, func(tx *sql.Tx) sqlc.Querier { return db.WithTx(tx) },
+	)
+	err = txDb.ExecTx(
+		ctx, &AssetStoreTxOptions{},
+		func(q sqlc.Querier) error {
+			return insertAssetBurns(ctx, q)
+		},
 	)
 	require.NoError(t, err)
 
