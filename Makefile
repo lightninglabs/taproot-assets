@@ -29,6 +29,10 @@ MAKE := make
 XARGS := xargs -L 1
 UNAME_S := $(shell uname -s)
 
+# Use docker by default; allow overrides and detect podman wrapper.
+DOCKER ?= docker
+IS_PODMAN := $(shell $(DOCKER) --version 2>/dev/null | grep -qi podman && echo 1 || echo 0)
+
 include make/testing_flags.mk
 include make/release_flags.mk
 include make/fuzz_flags.mk
@@ -74,7 +78,7 @@ endif
 # Paths inside container must match GOCACHE/GOMODCACHE in tools/Dockerfile.
 ifdef CI
 # CI mode: bind mount to host paths that GitHub Actions caches.
-DOCKER_TOOLS = docker run \
+DOCKER_TOOLS = $(DOCKER) run \
   --rm \
   -v $${HOME}/.cache/go-build:/tmp/build/.cache \
   -v $${HOME}/go/pkg/mod:/tmp/build/.modcache \
@@ -83,7 +87,7 @@ DOCKER_TOOLS = docker run \
   -v $$(pwd):/build taproot-assets-tools
 else
 # Local mode: Docker named volumes for fast macOS/Windows performance.
-DOCKER_TOOLS = docker run \
+DOCKER_TOOLS = $(DOCKER) run \
   --rm \
   -v tapd-go-build-cache:/tmp/build/.cache \
   -v tapd-go-mod-cache:/tmp/build/.modcache \
@@ -175,7 +179,7 @@ docker-release:
 	@$(call print, "Building release helper docker image.")
 	if [ "$(tag)" = "" ]; then echo "Must specify tag=<commit_or_tag>!"; exit 1; fi
 
-	docker build -t taproot-assets-release-helper -f make/builder.Dockerfile make/
+	$(DOCKER) build -t taproot-assets-release-helper -f make/builder.Dockerfile make/
 
 	# Run the actual compilation inside the docker image. We pass in all flags
 	# that we might want to overwrite in manual tests.
@@ -183,7 +187,7 @@ docker-release:
 
 docker-tools:
 	@$(call print, "Building tools docker image.")
-	docker build -q -t taproot-assets-tools $(TOOLS_DIR)
+	$(DOCKER) build -q -t taproot-assets-tools $(TOOLS_DIR)
 
 scratch: build
 

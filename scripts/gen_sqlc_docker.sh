@@ -2,6 +2,12 @@
 
 set -e
 
+# Directory of the script file, independent of where it's called from.
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source Docker/Podman detection helper.
+source "$DIR/docker_helpers.sh"
+
 # restore_files is a function to restore original schema files.
 restore_files() {
 	echo "Restoring SQLite bigint patch..."
@@ -13,9 +19,6 @@ restore_files() {
 # Set trap to call restore_files on script exit. This makes sure the old files
 # are always restored.
 trap restore_files EXIT
-
-# Directory of the script file, independent of where it's called from.
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Use the user's cache directories.
 GOCACHE=$(go env GOCACHE)
@@ -40,9 +43,9 @@ echo "Generating sql models and queries in go..."
 
 # Run the script to generate the new generated code. Once the script exits, we
 # use `trap` to make sure all files are restored.
-docker run \
+"$DOCKER" run \
 	--rm \
-	--user "$UID:$(id -g)" \
+	"${user_args[@]}" \
 	-e UID=$UID \
 	-v "$DIR/../:/build" \
 	-w /build \
