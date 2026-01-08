@@ -131,6 +131,17 @@ func (q *BuyAccept) MsgID() ID {
 	return q.ID
 }
 
+// AcceptedRate returns the asset rate that was accepted in this quote.
+func (q *BuyAccept) AcceptedRate() AssetRate {
+	return q.AssetRate
+}
+
+// OriginalRequest returns the original quote request that this accept message
+// responds to.
+func (q *BuyAccept) OriginalRequest() Request {
+	return &q.Request
+}
+
 // acceptMarker makes BuyAccept satisfy the Accept interface while keeping
 // implementations local to this package.
 func (q *BuyAccept) acceptMarker() {}
