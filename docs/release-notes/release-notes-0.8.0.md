@@ -21,7 +21,22 @@
 
 # Bug Fixes
 
-* [PR #1920](https://github.com/lightninglabs/taproot-assets/pull/1920)
+- [PR#1897](https://github.com/lightninglabs/taproot-assets/pull/1897)
+  Fix witness writeback issue when a split commitment is present.
+  `UpdateTxWitness` was mutating a pointer into a copied root asset when a
+  split commitment was present, causing the updated witness to never propagate
+  back into `SplitCommitment.RootAsset`. This left the root witness empty and
+  produced invalid split proofs and transactions.
+
+- [PR#1898](https://github.com/lightninglabs/taproot-assets/pull/1898)
+  The funding output proofs are now always imported during force close handling
+  for both channel initiator and responder. Previously, proofs were only
+  imported for the responder, which could lead to issues if the initiator
+  failed to properly import funding proofs after the funding transaction
+  confirmed. This ensures both parties can properly recognize and spend funding
+  outputs regardless of any prior import failures.
+
+- [PR#1920](https://github.com/lightninglabs/taproot-assets/pull/1920)
   addresses a bug in which Neutrino-backed nodes could fail to import
   transfer proofs for remote-initiated force close transactions if they
   were not online to see them broadcast.
@@ -37,6 +52,19 @@
 # Improvements
 
 ## Functional Updates
+
+- [PR#1884](https://github.com/lightninglabs/taproot-assets/pull/1884)
+  Introduce pre-broadcast validation state in the ChainPorter state machine.
+  A new `SendStateVerifyPreBroadcast` state performs validation checks on send
+  packages before broadcasting transactions. This validates input proofs and
+  provides infrastructure for additional pre-broadcast checks.
+
+- [PR#1904](https://github.com/lightninglabs/taproot-assets/pull/1904)
+  Enforce split root witness validation before broadcasting transactions.
+  Split leaf outputs must now embed a split root that carries a valid witness.
+  Split leaves intentionally keep their own `TxWitness` empty and rely on the
+  embedded root witness for validation. This check prevents invalid split
+  transactions from being broadcast.
 
 - [Garbage collection of orphaned UTXOs](https://github.com/lightninglabs/taproot-assets/pull/1832)
   by sweeping tombstones and burn outputs when executing onchain transactions.
@@ -94,11 +122,6 @@
   The `wallet.sweep-orphan-utxos` configuration option is now enabled by
   default. This automatically sweeps tombstone and burn outputs when executing
   on-chain transactions. Set to `false` to disable.
-
-## Code Health
-
-- [PR#1897](https://github.com/lightninglabs/taproot-assets/pull/1897)
-  Fix witness writeback issue when a split commitment is present.
 
 ## Breaking Changes
 
