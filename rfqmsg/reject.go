@@ -12,7 +12,8 @@ import (
 // rejectErrEncoder is a function that encodes a RejectErr into a writer.
 func rejectErrEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if typ, ok := val.(*RejectErr); ok {
-		if err := tlv.EUint8(w, &typ.Code, buf); err != nil {
+		code := uint8(typ.Code)
+		if err := tlv.EUint8(w, &code, buf); err != nil {
 			return err
 		}
 
@@ -42,7 +43,7 @@ func rejectErrDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		}
 
 		*typ = RejectErr{
-			Code: rejectCode,
+			Code: RejectCode(rejectCode),
 			Msg:  string(errMsgBytes),
 		}
 
@@ -56,7 +57,7 @@ func rejectErrDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 // reject message.
 type RejectErr struct {
 	// Code is the error code that provides the reason for the rejection.
-	Code uint8
+	Code RejectCode
 
 	// Msg is the error message that provides the reason for the rejection.
 	Msg string
@@ -76,21 +77,44 @@ func (v *RejectErr) Record() tlv.Record {
 	)
 }
 
+// RejectCode is a uint8 that represents a reject error code.
+type RejectCode uint8
+
+const (
+	// PriceOracleUnspecifiedRejectCode indicates that a request-for-quote
+	// was rejected, without necessarily providing any further detail as to
+	// why.
+	PriceOracleUnspecifiedRejectCode RejectCode = 0
+
+	// PriceOracleUnavailableRejectCode indicates that a request-for-quote
+	// was rejected as a price oracle was unavailable.
+	PriceOracleUnavailableRejectCode RejectCode = 1
+)
+
 var (
 	// ErrUnknownReject is the error code for when the quote is rejected
 	// for an unspecified reason.
 	ErrUnknownReject = RejectErr{
-		Code: 0,
+		Code: PriceOracleUnspecifiedRejectCode,
 		Msg:  "unknown reject error",
 	}
 
-	// ErrPriceOracleUnavailable is the error code for when the price oracle
-	// is unavailable.
+	// ErrPriceOracleUnavailable is the error code for when the price
+	// oracle is unavailable.
 	ErrPriceOracleUnavailable = RejectErr{
-		Code: 1,
+		Code: PriceOracleUnavailableRejectCode,
 		Msg:  "price oracle unavailable",
 	}
 )
+
+// NewRejectErr produces the "unknown" error code, but pairs it with a
+// custom error message.
+func NewRejectErr(msg string) RejectErr {
+	return RejectErr{
+		Code: PriceOracleUnspecifiedRejectCode,
+		Msg:  msg,
+	}
+}
 
 const (
 	// latestRejectVersion is the latest supported reject wire message data

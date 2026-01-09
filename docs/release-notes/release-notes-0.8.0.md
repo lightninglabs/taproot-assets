@@ -93,6 +93,11 @@
 
 ## RPC Updates
 
+- [PR#1766](https://github.com/lightninglabs/taproot-assets/pull/1766):
+  Introduces structured price oracle errors that allow oracles to return
+  specific error codes. Also, adds a new error code that oracles can use
+  to indicate that an asset is unsupported.
+
 - [PR#1841](https://github.com/lightninglabs/taproot-assets/pull/1841): Remove
   the defaultMacaroonWhitelist map and inline its entries directly
   into the conditional logic within MacaroonWhitelist. This ensures that

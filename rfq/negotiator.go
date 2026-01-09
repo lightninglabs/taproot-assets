@@ -1,6 +1,7 @@
 package rfq
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -171,17 +172,17 @@ func (n *Negotiator) queryBuyFromPriceOracle(assetSpecifier asset.Specifier,
 	}
 
 	// Now we will check for an error in the response from the price oracle.
-	// If present, we will convert it to a string and return it as an error.
+	// If present, we will relay it with context.
 	if oracleResponse.Err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
-			"buy price: %s", oracleResponse.Err)
+			"buy price: %w", oracleResponse.Err)
 	}
 
 	// By this point, the price oracle did not return an error or a buy
 	// price. We will therefore return an error.
 	if oracleResponse.AssetRate.Rate.ToUint64() == 0 {
-		return nil, fmt.Errorf("price oracle did not specify a " +
-			"buy price")
+		return nil, fmt.Errorf("failed to query price oracle for " +
+			"buy price: price oracle didn't specify a price")
 	}
 
 	// TODO(ffranr): Check that the buy price is reasonable.
@@ -307,17 +308,17 @@ func (n *Negotiator) querySellFromPriceOracle(assetSpecifier asset.Specifier,
 	}
 
 	// Now we will check for an error in the response from the price oracle.
-	// If present, we will convert it to a string and return it as an error.
+	// If present, we will relay it with context.
 	if oracleResponse.Err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
-			"sell price: %s", oracleResponse.Err)
+			"sell price: %w", oracleResponse.Err)
 	}
 
 	// By this point, the price oracle did not return an error or a sell
 	// price. We will therefore return an error.
 	if oracleResponse.AssetRate.Rate.Coefficient.ToUint64() == 0 {
-		return nil, fmt.Errorf("price oracle did not specify an " +
-			"asset to BTC rate")
+		return nil, fmt.Errorf("failed to query price oracle for " +
+			"sell price: price oracle didn't specify a price")
 	}
 
 	// TODO(ffranr): Check that the sell price is reasonable.
@@ -359,9 +360,12 @@ func (n *Negotiator) HandleIncomingQuoteRequest(
 
 		resp, err := n.cfg.PortfolioPilot.ResolveRequest(ctx, request)
 		if err != nil {
+			// Construct an appropriate RejectErr based on
+			// the oracle's response, and send it to the
+			// peer.
 			msg := rfqmsg.NewReject(
 				request.MsgPeer(), request.MsgID(),
-				rfqmsg.ErrUnknownReject,
+				customRejectErr(err),
 			)
 			sendOutgoingMsg(msg)
 
@@ -403,6 +407,30 @@ func (n *Negotiator) HandleIncomingQuoteRequest(
 	})
 
 	return nil
+}
+
+// customRejectErr creates a RejectErr with an opaque rejection code and a
+// custom message based on an error response from a price oracle.
+func customRejectErr(err error) rfqmsg.RejectErr {
+	var oracleError *OracleError
+
+	// Check if the error chain contains an OracleError, and return an
+	// opaque rejection error if not.
+	if !errors.As(err, &oracleError) {
+		return rfqmsg.ErrUnknownReject
+	}
+
+	switch oracleError.Code {
+	// The price oracle has indicated that it doesn't support the asset,
+	// so return a rejection error indicating that.
+	case UnsupportedAssetOracleErrorCode:
+		return rfqmsg.NewRejectErr(oracleError.Msg)
+
+	// The error code is either unspecified or unknown, so return an
+	// opaque rejection error.
+	default:
+		return rfqmsg.ErrUnknownReject
+	}
 }
 
 // HandleOutgoingSellOrder handles an outgoing sell order by constructing sell
