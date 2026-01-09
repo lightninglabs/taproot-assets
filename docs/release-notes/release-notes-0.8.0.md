@@ -48,6 +48,10 @@
   inspections are now logged instead of being treated as fatal, allowing the
   daemon to remain operational and continue processing other events.
 
+* [PR#1943](https://github.com/lightninglabs/taproot-assets/pull/1943)
+  addresses a bug in which passive assets would incorrectly be included in
+  channel funding proofs.
+
 # New Features
 
 ## Functional Enhancements
