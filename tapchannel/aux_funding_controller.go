@@ -86,6 +86,10 @@ const (
 	// message is 64k bytes, we leave some breathing room for the chunk
 	// metadata.
 	proofChunkSize = 60_000
+
+	// FundingOutputIndex is the anchor output index for channel funding.
+	// Funding outputs are always at index 0; passive assets use index >= 1.
+	FundingOutputIndex uint32 = 0
 )
 
 // ErrorReporter is used to report an error back to the caller and/or peer that
@@ -1114,6 +1118,13 @@ func (f *FundingController) signAllVPackets(ctx context.Context,
 	return allPackets, activePackets, passivePkts, nil
 }
 
+// isFundingOutput returns true if the output should be included in channel
+// funding proofs.
+func isFundingOutput(vOut *tappsbt.VOutput) bool {
+	return vOut.Type == tappsbt.TypeSimple &&
+		vOut.AnchorOutputIndex == FundingOutputIndex
+}
+
 // anchorVPackets anchors the vPackets to the funding PSBT, creating a
 // complete, but unsigned PSBT packet that can be used to create out asset
 // channel.
@@ -1178,13 +1189,9 @@ func (f *FundingController) anchorVPackets(fundedPkt *tapsend.FundedPsbt,
 
 			vPkt.Outputs[vOutIdx].ProofSuffix = proofSuffix
 
-			// Any output that isn't a split root output is a
-			// channel funding output, so we'll store the proofs
-			// for those outputs. If there is change, that will be
-			// the split root output. And if there is no change,
-			// there is no split root output, as it's an interactive
-			// transfer.
-			if vPkt.Outputs[vOutIdx].Type == tappsbt.TypeSimple {
+			// Only include outputs destined for the funding
+			// output.
+			if isFundingOutput(vPkt.Outputs[vOutIdx]) {
 				fundingProofs = append(
 					fundingProofs, proofSuffix,
 				)
