@@ -132,8 +132,10 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	// schemas based on our embedded in-memory file system.
 	if !cfg.SkipMigrations {
 		err := s.ExecuteMigrations(
-			TargetLatest, WithPostStepCallbacks(
-				makePostStepCallbacks(s, postMigrationChecks),
+			TargetLatest, WithProgrammaticMigrations(
+				makeProgrammaticMigrations(
+					s, programmaticMigrations, true,
+				),
 			),
 		)
 		if err != nil {
