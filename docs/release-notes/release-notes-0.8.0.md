@@ -41,6 +41,13 @@
   transfer proofs for remote-initiated force close transactions if they
   were not online to see them broadcast.
 
+- [PR#1941](https://github.com/lightninglabs/taproot-assets/pull/1941)
+  `tapgarden` now avoids a full `tapd` shutdown when the `Custodian` encounters
+  non-critical errors during its operation. Errors occurring during proof
+  availability checks, proof retrieval, or initial wallet transaction
+  inspections are now logged instead of being treated as fatal, allowing the
+  daemon to remain operational and continue processing other events.
+
 # New Features
 
 ## Functional Enhancements
