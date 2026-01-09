@@ -26,6 +26,10 @@
   transfer proofs for remote-initiated force close transactions if they
   were not online to see them broadcast.
 
+* [PR #1940](https://github.com/lightninglabs/taproot-assets/pull/1940)
+  addresses a bug in which passive assets would incorrectly be included in
+  channel funding proofs.
+
 # New Features
 
 ## Functional Enhancements
