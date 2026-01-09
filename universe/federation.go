@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +19,13 @@ const (
 	// DefaultTimeout is the default timeout we use for RPC and database
 	// operations.
 	DefaultTimeout = 30 * time.Second
+)
+
+var (
+	// ErrUniConnFailed is returned when we fail to connect to a remote
+	// universe server.
+	ErrUniConnFailed = errors.New("connection to remote universe " +
+		"server failed")
 )
 
 // FederationConfig is a config that the FederationEnvoy will use to
@@ -139,26 +147,15 @@ func (f *FederationEnvoy) Start() error {
 	f.startOnce.Do(func() {
 		log.Infof("Starting FederationEnvoy")
 
+		ctx, cancel := f.WithCtxQuit()
+		defer cancel()
+
 		// Before we start the main goroutine, we'll add the set of
 		// static Universe servers.
 		addrs := f.cfg.StaticFederationMembers
 		serverAddrs := fn.Map(addrs, NewServerAddrFromStr)
 
-		serverAddrs = fn.Filter(serverAddrs, func(a ServerAddr) bool {
-			// Before we add the server as a federation member, we
-			// check that we can actually connect to it and that it
-			// isn't ourselves.
-			if err := f.cfg.ServerChecker(a); err != nil {
-				log.Warnf("Not adding server to federation: %v",
-					err)
-
-				return false
-			}
-
-			return true
-		})
-
-		err := f.AddServer(serverAddrs...)
+		_, err := f.AddServer(ctx, true, serverAddrs...)
 		// On restart, we'll get an error for universe servers already
 		// inserted in our DB, since we can't store duplicates.
 		// We can safely ignore that error.
@@ -703,20 +700,161 @@ func (f *FederationEnvoy) UpsertProofLeafBatch(_ context.Context,
 	return err
 }
 
+// ServerAddReport contains the result of attempting to add a server to the
+// federation.
+type ServerAddReport struct {
+	// Addr is the address of the server being added.
+	Addr ServerAddr
+
+	// ConnectionSuccess indicates if the connection to the server was
+	// successful. If connection checks were disabled, this will be None.
+	ConnectionSuccess fn.Option[bool]
+
+	// KnownServer is true if the server was already known to the
+	// federation.
+	KnownServer bool
+
+	// Error contains any error encountered while adding the server.
+	Error error
+}
+
 // AddServer adds a new set of servers to the federation, then immediately
 // performs a new background sync.
-func (f *FederationEnvoy) AddServer(addrs ...ServerAddr) error {
-	ctx, cancel := f.WithCtxQuit()
-	defer cancel()
+func (f *FederationEnvoy) AddServer(ctx context.Context, connectionCheck bool,
+	addrsArg ...ServerAddr) ([]ServerAddReport, error) {
 
-	log.Infof("Adding new Universe server to Federation, addrs=%v",
-		spew.Sdump(addrs))
+	// Make the addrs set unique.
+	var uniqueAddrsMap = make(map[string]struct{})
+	var reports []ServerAddReport
+	for idx := range addrsArg {
+		addr := addrsArg[idx]
+		addrStr := addr.HostStr()
 
-	if err := f.cfg.FederationDB.AddServers(ctx, addrs...); err != nil {
-		return err
+		if _, exists := uniqueAddrsMap[addrStr]; !exists {
+			reports = append(reports, ServerAddReport{
+				Addr: addr,
+			})
+		}
+
+		uniqueAddrsMap[addrStr] = struct{}{}
 	}
 
-	return f.SyncServers(addrs)
+	log.Debugf("Attempting to add %d unique server(s) to federation",
+		len(reports))
+
+	var instanceErrors map[int]error
+	if connectionCheck {
+		// Before we add the new server to our set of federation
+		// members, we'll ensure that we can actually connect to
+		// them.
+		//
+		// Define a connection check function that we'll use to
+		// validate each server in parallel.
+		connCheck := func(_ context.Context,
+			addReport ServerAddReport) error {
+
+			err := f.cfg.ServerChecker(addReport.Addr)
+			if err != nil {
+				addrStr := addReport.Addr.HostStr()
+				return fmt.Errorf("%s: %w", addrStr,
+					ErrUniConnFailed)
+			}
+
+			return nil
+		}
+
+		// Run the connection checks in parallel.
+		var err error
+		instanceErrors, err = fn.ParSliceErrCollect(
+			ctx, reports, connCheck,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to validate server "+
+				"connections: %w", err)
+		}
+
+		// Update reports with connection results.
+		for idx := range reports {
+			if errInstance, exists := instanceErrors[idx]; exists {
+				reports[idx].ConnectionSuccess = fn.Some(false)
+				reports[idx].Error = errInstance
+				continue
+			}
+
+			reports[idx].ConnectionSuccess = fn.Some(true)
+		}
+	}
+
+	// Get a full list of existing servers to check for duplicates.
+	knownServers, err := f.cfg.FederationDB.UniverseServers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query existing servers: %w",
+			err)
+	}
+
+	knownServersSet := fn.NewSet[string](
+		fn.Map(knownServers, func(a ServerAddr) string {
+			return a.HostStr()
+		})...,
+	)
+
+	// Mark known servers in the reports.
+	for idx := range reports {
+		addReport := reports[idx]
+
+		reports[idx].KnownServer =
+			knownServersSet.Contains(addReport.Addr.HostStr())
+	}
+
+	// Filter out candidate servers that either failed the connection check
+	// or are already known.
+	var filteredAddrs []ServerAddr
+	for idx := range reports {
+		report := reports[idx]
+
+		if report.ConnectionSuccess == fn.Some(false) {
+			log.Debugf("Skipping server add to db, connection "+
+				"check failed: %s", report.Addr.HostStr())
+			continue
+		}
+
+		if report.KnownServer {
+			log.Debugf("Skipping server add to db, already a "+
+				"known server: %s", report.Addr.HostStr())
+			continue
+		}
+
+		filteredAddrs = append(filteredAddrs, report.Addr)
+	}
+
+	if len(filteredAddrs) == 0 {
+		log.Infof("No new Universe servers to add to Federation")
+		return reports, nil
+	}
+
+	log.Infof("Adding new Universe server(s) to Federation, addrs:\n%v",
+		strings.Join(fn.Map(filteredAddrs, func(a ServerAddr) string {
+			return "- " + a.HostStr()
+		}), "\n"))
+
+	// Add the filtered set of universe servers to the federation database.
+	//
+	// Note: This operation may still encounter a duplicate universe error
+	// because the known universe server set is queried in a separate
+	// database transaction.
+	err = f.cfg.FederationDB.AddServers(ctx, filteredAddrs...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add servers to federation "+
+			"db: %w", err)
+	}
+
+	err = f.SyncServers(filteredAddrs)
+	if err != nil {
+		return nil, fmt.Errorf("unable to sync with new servers: %w",
+			err)
+	}
+
+	return reports, nil
 }
 
 // QuerySyncConfigs returns the current sync configs for the federation.
