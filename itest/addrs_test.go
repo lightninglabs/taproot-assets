@@ -1235,7 +1235,7 @@ func sendAsset(t *harnessTest, sender *tapdHarness,
 	opts ...sendOption) (*taprpc.SendAssetResponse,
 	*EventSubscription[*taprpc.SendEvent]) {
 
-	ctxb := context.Background()
+	ctx := context.Background()
 
 	// Create base request that will be modified by options.
 	options := &sendOptions{}
@@ -1258,7 +1258,7 @@ func sendAsset(t *harnessTest, sender *tapdHarness,
 	}
 
 	// Construct send event stream.
-	ctxc, streamCancel := context.WithCancel(ctxb)
+	ctxc, streamCancel := context.WithCancel(ctx)
 	stream, err := sender.SubscribeSendEvents(
 		ctxc, &taprpc.SubscribeSendEventsRequest{
 			FilterLabel: options.sendAssetRequest.Label,
@@ -1297,9 +1297,7 @@ func sendAsset(t *harnessTest, sender *tapdHarness,
 	time.Sleep(time.Second)
 
 	// Kick off the send asset request.
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-	resp, err := sender.SendAsset(ctxt, &options.sendAssetRequest)
+	resp, err := sender.SendAsset(ctx, &options.sendAssetRequest)
 	if options.errText != "" {
 		require.ErrorContains(t.t, err, options.errText)
 		return nil, nil

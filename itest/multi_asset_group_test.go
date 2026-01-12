@@ -376,11 +376,9 @@ func testMultiAssetGroupSend(t *harnessTest) {
 func assetIDWithBalance(t *testing.T, node *tapdHarness,
 	minBalance uint64, assetType taprpc.AssetType) *taprpc.Asset {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
-	balances, err := node.ListBalances(ctxt, &taprpc.ListBalancesRequest{
+	balances, err := node.ListBalances(ctx, &taprpc.ListBalancesRequest{
 		GroupBy: &taprpc.ListBalancesRequest_AssetId{
 			AssetId: true,
 		},
@@ -395,7 +393,7 @@ func assetIDWithBalance(t *testing.T, node *tapdHarness,
 			require.NoError(t, err)
 
 			assets, err := node.ListAssets(
-				ctxt, &taprpc.ListAssetRequest{},
+				ctx, &taprpc.ListAssetRequest{},
 			)
 			require.NoError(t, err)
 

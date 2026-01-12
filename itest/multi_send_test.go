@@ -87,9 +87,7 @@ var (
 // multiple anchor outputs in a single virtual transaction, resulting in an
 // on-chain transaction with multiple asset inputs.
 func testAnchorMultipleVirtualTransactions(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// In our first batch we create multiple units of the grouped asset X
 	// and Y as well as a passive asset P.
@@ -240,7 +238,7 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := aliceTapd.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: signedPackets,
 		},
 	)
@@ -250,7 +248,7 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 	// transfer. The unconfirmed assets should not be listed yet, but the
 	// unconfirmed transfer count should be 1.
 	aliceAssets, err := aliceTapd.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctx, &taprpc.ListAssetRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Nil(t.t, aliceAssets.Assets)
@@ -282,14 +280,14 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 	)
 
 	aliceAssets, err = aliceTapd.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctx, &taprpc.ListAssetRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, aliceAssets.Assets, 5)
 
 	t.Logf("Alice assets: %v", toJSON(t.t, aliceAssets))
 
-	bobAssets, err := bobTapd.ListAssets(ctxt, &taprpc.ListAssetRequest{})
+	bobAssets, err := bobTapd.ListAssets(ctx, &taprpc.ListAssetRequest{})
 	require.NoError(t.t, err)
 	require.Len(t.t, bobAssets.Assets, 3)
 
@@ -302,17 +300,17 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 	// still send out the assets that are in the same commitment as the
 	// tombstones, using the CommitVirtualPsbts method.
 	sendAssetAndAssert(
-		ctxt, t, aliceTapd, bobTapd, assetP.Amount, 0,
+		ctx, t, aliceTapd, bobTapd, assetP.Amount, 0,
 		assetP.AssetGenesis, assetP, 1, 2, 1,
 	)
 	sendAssetAndAssert(
-		ctxt, t, aliceTapd, bobTapd, assetQ.Amount, 0,
+		ctx, t, aliceTapd, bobTapd, assetQ.Amount, 0,
 		assetQ.AssetGenesis, assetQ, 2, 3, 2,
 	)
 
 	// Fund a new packet for sending asset Y from tranche 1 to Bob.
 	assetsToSend := uint64(100)
-	bobAddr, err := bobTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	bobAddr, err := bobTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId: assetYTranche1.AssetGenesis.AssetId,
 		Amt:     assetsToSend,
 	})
@@ -324,7 +322,7 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 		bobAddr.Encoded: bobAddr.Amount,
 	}
 	fundResp, err := aliceTapd.FundVirtualPsbt(
-		ctxt, &wrpc.FundVirtualPsbtRequest{
+		ctx, &wrpc.FundVirtualPsbtRequest{
 			Template: &wrpc.FundVirtualPsbtRequest_Raw{
 				Raw: &wrpc.TxTemplate{
 					Recipients: recipients,
@@ -400,9 +398,7 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 // from multiple anchor outputs in a single virtual transaction, resulting in an
 // on-chain transaction with multiple asset inputs.
 func testAnchorMultipleVirtualSplitTransactions(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// In our first batch we create multiple units of the grouped asset X
 	// and Y.
@@ -507,7 +503,7 @@ func testAnchorMultipleVirtualSplitTransactions(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := aliceTapd.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: signedPackets,
 		},
 	)
@@ -519,7 +515,7 @@ func testAnchorMultipleVirtualSplitTransactions(t *harnessTest) {
 	// transfer. The unconfirmed assets should not be listed yet, but the
 	// unconfirmed transfer count should be 1.
 	aliceAssets, err := aliceTapd.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctx, &taprpc.ListAssetRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Nil(t.t, aliceAssets.Assets)
@@ -546,14 +542,14 @@ func testAnchorMultipleVirtualSplitTransactions(t *harnessTest) {
 	)
 
 	aliceAssets, err = aliceTapd.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctx, &taprpc.ListAssetRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, aliceAssets.Assets, 2)
 
 	t.Logf("Alice assets: %v", toJSON(t.t, aliceAssets))
 
-	bobAssets, err := bobTapd.ListAssets(ctxt, &taprpc.ListAssetRequest{})
+	bobAssets, err := bobTapd.ListAssets(ctx, &taprpc.ListAssetRequest{})
 	require.NoError(t.t, err)
 	require.Len(t.t, bobAssets.Assets, 2)
 
@@ -561,11 +557,11 @@ func testAnchorMultipleVirtualSplitTransactions(t *harnessTest) {
 
 	// Finally, we make sure we can still send back the assets individually.
 	sendAssetAndAssert(
-		ctxt, t, bobTapd, aliceTapd, assetXTranche1.Amount-1, 0,
+		ctx, t, bobTapd, aliceTapd, assetXTranche1.Amount-1, 0,
 		assetXTranche1.AssetGenesis, assetXTranche1, 0, 1, 1,
 	)
 
-	bobAssets, err = bobTapd.ListAssets(ctxt, &taprpc.ListAssetRequest{
+	bobAssets, err = bobTapd.ListAssets(ctx, &taprpc.ListAssetRequest{
 		WithWitness: true,
 	})
 	require.NoError(t.t, err)
@@ -573,7 +569,7 @@ func testAnchorMultipleVirtualSplitTransactions(t *harnessTest) {
 	t.Logf("Bob assets after first send: %v", toJSON(t.t, bobAssets))
 
 	sendAssetAndAssert(
-		ctxt, t, bobTapd, aliceTapd, assetXTranche2.Amount-1, 0,
+		ctx, t, bobTapd, aliceTapd, assetXTranche2.Amount-1, 0,
 		assetXTranche2.AssetGenesis, assetXTranche2, 1, 2, 2,
 	)
 }

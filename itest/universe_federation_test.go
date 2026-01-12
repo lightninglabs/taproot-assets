@@ -41,12 +41,10 @@ func testMintProofRepeatFedSyncAttempt(t *harnessTest) {
 
 	// Register the fedServerNode as a federation universe server with the
 	// minting node.
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	_, err := mintingNode.AddFederationServer(
-		ctxt, &unirpc.AddFederationServerRequest{
+		ctx, &unirpc.AddFederationServerRequest{
 			Servers: []*unirpc.UniverseFederationServer{
 				{
 					Host: fedServerNodeRpcHost,

@@ -72,14 +72,12 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	)
 	mintedAssetId := rpcAssets[0].AssetGenesis.AssetId
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Upsert an asset sell offer to Bob's tapd node. This will allow Bob to
 	// sell the newly minted asset to Carol.
 	_, err := ts.BobTapd.AddAssetSellOffer(
-		ctxt, &rfqrpc.AddAssetSellOfferRequest{
+		ctx, &rfqrpc.AddAssetSellOfferRequest{
 			AssetSpecifier: &rfqrpc.AssetSpecifier{
 				Id: &rfqrpc.AssetSpecifier_AssetId{
 					AssetId: mintedAssetId,
@@ -92,7 +90,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 
 	// Subscribe to Carol's RFQ events stream.
 	carolEventNtfns, err := ts.CarolTapd.SubscribeRfqEventNtfns(
-		ctxb, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -189,7 +187,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 		oracle.AssertExpectations(t.t)
 	}()
 
-	_, err = ts.AliceTapd.AddAssetBuyOrder(ctxt, buyReq)
+	_, err = ts.AliceTapd.AddAssetBuyOrder(ctx, buyReq)
 	require.ErrorContains(
 		t.t, err, "error checking peer channel: error checking asset "+
 			"channel",
@@ -197,7 +195,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 
 	// Now we set the skip flag and we shouldn't get an error anymore.
 	buyReq.SkipAssetChannelCheck = true
-	_, err = ts.CarolTapd.AddAssetBuyOrder(ctxt, buyReq)
+	_, err = ts.CarolTapd.AddAssetBuyOrder(ctx, buyReq)
 	require.NoError(t.t, err, "unable to upsert asset buy order")
 
 	// Wait until Carol receives an incoming quote accept message (sent from
@@ -218,7 +216,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	// Carol should have received an accepted quote from Bob. This accepted
 	// quote can be used by Carol to make a payment to Bob.
 	acceptedQuotes, err := ts.CarolTapd.QueryPeerAcceptedQuotes(
-		ctxt, &rfqrpc.QueryPeerAcceptedQuotesRequest{},
+		ctx, &rfqrpc.QueryPeerAcceptedQuotesRequest{},
 	)
 	require.NoError(t.t, err, "unable to query accepted quotes")
 	require.Len(t.t, acceptedQuotes.BuyQuotes, 1)
@@ -235,7 +233,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 
 	// Carol should still see the accepted quote after Bob's restart.
 	acceptedQuotes, err = ts.CarolTapd.QueryPeerAcceptedQuotes(
-		ctxt, &rfqrpc.QueryPeerAcceptedQuotesRequest{},
+		ctx, &rfqrpc.QueryPeerAcceptedQuotesRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, acceptedQuotes.BuyQuotes, 1)
@@ -291,7 +289,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	// to wait for Bob to receive the HTLC with the asset transfer specific
 	// scid.
 	bobEventNtfns, err := ts.BobTapd.SubscribeRfqEventNtfns(
-		ctxb, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -360,14 +358,12 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	var mintedAssetId asset.ID
 	copy(mintedAssetId[:], mintedAssetIdBytes[:])
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Upsert an asset buy offer to Bob's tapd node. This will allow Bob to
 	// buy the newly minted asset from Alice.
 	_, err := ts.BobTapd.AddAssetBuyOffer(
-		ctxt, &rfqrpc.AddAssetBuyOfferRequest{
+		ctx, &rfqrpc.AddAssetBuyOfferRequest{
 			AssetSpecifier: &rfqrpc.AssetSpecifier{
 				Id: &rfqrpc.AssetSpecifier_AssetId{
 					AssetId: mintedAssetIdBytes,
@@ -380,7 +376,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 
 	// Subscribe to Alice's RFQ events stream.
 	aliceEventNtfns, err := ts.AliceTapd.SubscribeRfqEventNtfns(
-		ctxb, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -475,7 +471,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		oracle.AssertExpectations(t.t)
 	}()
 
-	_, err = ts.AliceTapd.AddAssetSellOrder(ctxt, sellReq)
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReq)
 	require.ErrorContains(
 		t.t, err, "error checking peer channel: error checking asset "+
 			"channel",
@@ -483,7 +479,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 
 	// Now we set the skip flag and we shouldn't get an error anymore.
 	sellReq.SkipAssetChannelCheck = true
-	_, err = ts.AliceTapd.AddAssetSellOrder(ctxt, sellReq)
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReq)
 	require.NoError(t.t, err, "unable to upsert asset sell order")
 
 	// Wait until Alice receives an incoming sell quote accept message (sent
@@ -504,7 +500,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	// Alice should have received an accepted quote from Bob. This accepted
 	// quote can be used by Alice to make a payment to Bob.
 	acceptedQuotes, err := ts.AliceTapd.QueryPeerAcceptedQuotes(
-		ctxt, &rfqrpc.QueryPeerAcceptedQuotesRequest{},
+		ctx, &rfqrpc.QueryPeerAcceptedQuotesRequest{},
 	)
 	require.NoError(t.t, err, "unable to query accepted quotes")
 	require.Len(t.t, acceptedQuotes.SellQuotes, 1)
@@ -523,7 +519,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	// to wait for Bob to receive the HTLC with the asset transfer specific
 	// scid.
 	bobEventNtfns, err := ts.BobTapd.SubscribeRfqEventNtfns(
-		ctxb, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -647,13 +643,11 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 
 	oracle.setPrice(specifierGK, bidPrice, askPrice)
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Subscribe to Alice's RFQ events stream.
 	aliceEventNtfns, err := ts.AliceTapd.SubscribeRfqEventNtfns(
-		ctxb, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -682,14 +676,14 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 
 		TimeoutSeconds: uint32(rfqTimeout.Seconds()),
 	}
-	_, err = ts.AliceTapd.AddAssetSellOrder(ctxt, sellReq)
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReq)
 	require.ErrorContains(
 		t.t, err, "no asset channel balance found",
 	)
 
 	// Now we set the skip flag and we shouldn't get an error anymore.
 	sellReq.SkipAssetChannelCheck = true
-	_, err = ts.AliceTapd.AddAssetSellOrder(ctxt, sellReq)
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReq)
 	require.NoError(t.t, err, "unable to upsert asset sell order")
 
 	// Wait until Alice receives an incoming sell quote accept message (sent
@@ -723,14 +717,14 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 		TimeoutSeconds: uint32(rfqTimeout.Seconds()),
 	}
 
-	_, err = ts.AliceTapd.AddAssetBuyOrder(ctxt, buyReq)
+	_, err = ts.AliceTapd.AddAssetBuyOrder(ctx, buyReq)
 	require.ErrorContains(
 		t.t, err, "no asset channel balance found",
 	)
 
 	// Now we set the skip flag and we shouldn't get an error anymore.
 	buyReq.SkipAssetChannelCheck = true
-	_, err = ts.AliceTapd.AddAssetBuyOrder(ctxt, buyReq)
+	_, err = ts.AliceTapd.AddAssetBuyOrder(ctx, buyReq)
 	require.NoError(t.t, err)
 
 	// Wait until Alice receives an incoming buy quote accept message (sent
