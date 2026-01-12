@@ -133,9 +133,7 @@ func testAssetMeta(t *harnessTest) {
 // asset with a specific decimal display value, and that the value is correctly
 // encoded in the metadata field of the mint.
 func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	mintName := "test-asset-decimal-places"
 	jsonData := []byte(`{"field1": "value1", "field2": "value2"}`)
@@ -194,7 +192,7 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 
 	// Re-issuance should fail if the decimal display does not match the
 	// group anchor.
-	_, err = t.tapd.MintAsset(ctxt, secondAssetReq)
+	_, err = t.tapd.MintAsset(ctx, secondAssetReq)
 	require.ErrorContains(t.t, err, "decimal display does not match")
 
 	// Attempting to set a different decimal display in the JSON meta data
@@ -204,7 +202,7 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 		Type: taprpc.AssetMetaType_META_TYPE_JSON,
 		Data: []byte(`{"foo": "bar", "decimal_display": 3}`),
 	}
-	_, err = t.tapd.MintAsset(ctxt, secondAssetReq)
+	_, err = t.tapd.MintAsset(ctx, secondAssetReq)
 	require.ErrorContains(
 		t.t, err, "decimal display in JSON asset meta does not match",
 	)
@@ -225,7 +223,7 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	// For an asset with a JSON metadata type, we also expect the decimal
 	// display to be encoded in the metadata JSON.
 	metaResp, err := t.tapd.FetchAssetMeta(
-		ctxt, &taprpc.FetchAssetMetaRequest{
+		ctx, &taprpc.FetchAssetMetaRequest{
 			Asset: &taprpc.FetchAssetMetaRequest_AssetId{
 				AssetId: secondAssets[0].AssetGenesis.AssetId,
 			},
