@@ -819,19 +819,27 @@ func AssertAddrCreated(t *testing.T, client tapClient,
 	// Does the decoded address still show everything correctly?
 	AssertAddr(t, expected, decoded)
 
-	allAddrs, err := client.QueryAddrs(ctxt, &taprpc.QueryAddrRequest{})
-	require.NoError(t, err)
-	require.NotEmpty(t, allAddrs.Addrs)
-
 	// Can we find the address in the list of all addresses?
 	var rpcAddr *taprpc.Addr
-	for idx := range allAddrs.Addrs {
-		if allAddrs.Addrs[idx].Encoded == actual.Encoded {
-			rpcAddr = allAddrs.Addrs[idx]
-			break
+	err = wait.NoError(func() error {
+		allAddrs, err := client.QueryAddrs(
+			ctxt, &taprpc.QueryAddrRequest{},
+		)
+		if err != nil {
+			return err
 		}
-	}
-	require.NotNil(t, rpcAddr)
+
+		for idx := range allAddrs.Addrs {
+			if allAddrs.Addrs[idx].Encoded == actual.Encoded {
+				rpcAddr = allAddrs.Addrs[idx]
+				return nil
+			}
+		}
+
+		return fmt.Errorf("address %s not found in list",
+			actual.Encoded)
+	}, defaultWaitTimeout)
+	require.NoError(t, err)
 
 	// Does the address in the list contain all information we expect?
 	AssertAddr(t, expected, rpcAddr)

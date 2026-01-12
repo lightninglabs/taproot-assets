@@ -26,10 +26,6 @@ func testFullValueSend(t *harnessTest) {
 	genInfo := mintedAsset.AssetGenesis
 	groupGenInfo := mintedGroupAsset.AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
 	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
@@ -39,9 +35,7 @@ func testFullValueSend(t *harnessTest) {
 	}()
 
 	// Run the test scenario with the normal asset.
-	runFullValueSendTests(
-		ctxt, t, t.tapd, secondTapd, genInfo, mintedAsset, 0, 1,
-	)
+	runFullValueSendTests(t, t.tapd, secondTapd, genInfo, mintedAsset, 0, 1)
 
 	// After the first run, we should've sent everything to Bob. But Alice
 	// should have two zero-value tombstones in her wallet.
@@ -57,8 +51,7 @@ func testFullValueSend(t *harnessTest) {
 
 	// Run the same scenario with the grouped asset.
 	runFullValueSendTests(
-		ctxt, t, t.tapd, secondTapd, groupGenInfo, mintedGroupAsset,
-		1, 2,
+		t, t.tapd, secondTapd, groupGenInfo, mintedGroupAsset, 1, 2,
 	)
 
 	// Alice should have one more zero-value tombstones in her wallet.
@@ -74,9 +67,9 @@ func testFullValueSend(t *harnessTest) {
 }
 
 // runFullValueSendTests runs the full value send tests for a single asset.
-func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
-	bob *tapdHarness, genInfo *taprpc.GenesisInfo,
-	mintedAsset *taprpc.Asset, runIdx, numRuns int) {
+func runFullValueSendTests(t *harnessTest, alice, bob *tapdHarness,
+	genInfo *taprpc.GenesisInfo, mintedAsset *taprpc.Asset, runIdx,
+	numRuns int) {
 
 	// Next, we'll attempt to complete three transfers of the full value of
 	// the asset between our main node and Bob.
@@ -94,8 +87,9 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 		// start with Bob receiving the asset, then sending it back
 		// to the main node, and so on.
 		if i%2 == 0 {
+			ctx := context.Background()
 			receiverAddr, err = bob.NewAddr(
-				ctxt, &taprpc.NewAddrRequest{
+				ctx, &taprpc.NewAddrRequest{
 					AssetId: genInfo.AssetId,
 					Amt:     fullAmount,
 				},
@@ -120,8 +114,9 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 			)
 			senderTransferIdx++
 		} else {
+			ctx := context.Background()
 			receiverAddr, err = alice.NewAddr(
-				ctxt, &taprpc.NewAddrRequest{
+				ctx, &taprpc.NewAddrRequest{
 					AssetId: genInfo.AssetId,
 					Amt:     fullAmount,
 				},
