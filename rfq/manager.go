@@ -131,6 +131,11 @@ type ManagerCfg struct {
 	// PolicyStore provides persistence for agreed RFQ policies.
 	PolicyStore PolicyStore
 
+	// ForwardStore provides persistence for forwarding events. This is
+	// used for edge node accounting. If nil, forwarding event logging is
+	// disabled.
+	ForwardStore ForwardStore
+
 	// AcceptPriceDeviationPpm is the price deviation in
 	// parts per million that is accepted by the RFQ negotiator.
 	//
@@ -248,6 +253,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 		AuxChanNegotiator: m.cfg.AuxChanNegotiator,
 		ErrChan:           m.subsystemErrChan,
 		PolicyStore:       m.cfg.PolicyStore,
+		ForwardStore:      m.cfg.ForwardStore,
 	})
 	if err != nil {
 		return fmt.Errorf("error initializing RFQ order handler: %w",
@@ -1302,6 +1308,32 @@ func (m *Manager) publishSubscriberEvent(event fn.Event) {
 			return true
 		},
 	)
+}
+
+// QueryForwards retrieves historical forwarding event records matching the
+// given
+// filters. This is used for edge node accounting.
+func (m *Manager) QueryForwards(ctx context.Context,
+	params QueryForwardsParams) ([]ForwardingEvent, error) {
+
+	if m.cfg.ForwardStore == nil {
+		return nil, fmt.Errorf("forward store not configured")
+	}
+
+	return m.cfg.ForwardStore.QueryForwards(ctx, params)
+}
+
+// CountForwards returns the count of forwarding event records matching the
+// given
+// filters.
+func (m *Manager) CountForwards(ctx context.Context,
+	params QueryForwardsParams) (int64, error) {
+
+	if m.cfg.ForwardStore == nil {
+		return 0, fmt.Errorf("forward store not configured")
+	}
+
+	return m.cfg.ForwardStore.CountForwards(ctx, params)
 }
 
 // EstimateAssetUnits is a helper function that queries our price oracle to find
