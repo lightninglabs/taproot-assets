@@ -95,9 +95,7 @@ var (
 // testMintAssets tests that we're able to mint assets, retrieve their proofs
 // and that we're able to import the proofs into a new node.
 func testMintAssets(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	rpcSimpleAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner().Client, t.tapd, simpleAssets,
@@ -130,7 +128,7 @@ func testMintAssets(t *harnessTest) {
 	invalidRequest.Asset.AssetMeta.Data = make(
 		[]byte, proof.MetaDataMaxSizeBytes+1,
 	)
-	_, err := t.tapd.MintAsset(ctxt, invalidRequest)
+	_, err := t.tapd.MintAsset(ctx, invalidRequest)
 	require.ErrorContains(t.t, err, proof.ErrMetaDataTooLarge.Error())
 
 	// Make sure the proof files for the freshly minted assets can be
@@ -168,9 +166,7 @@ func testMintAssets(t *harnessTest) {
 // testMintBatchResume tests that we're able to create a pending batch, restart
 // the node, and finalize the pending batch on restart.
 func testMintBatchResume(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Build one batch, but leave it as pending.
 	BuildMintingBatch(t.t, t.tapd, simpleAssets)
@@ -178,13 +174,13 @@ func testMintBatchResume(t *harnessTest) {
 	// The batch is pending and unfunded, so the verbose batch listing
 	// should return an empty list. An anchor transaction (BTC funding) is
 	// required for verbose listing to include group key requests.
-	batchResp, err := t.tapd.ListBatches(ctxt, &mintrpc.ListBatchRequest{
+	batchResp, err := t.tapd.ListBatches(ctx, &mintrpc.ListBatchRequest{
 		Verbose: true,
 	})
 	require.NoError(t.t, err)
 	require.Empty(t.t, batchResp.Batches)
 
-	batchResp, err = t.tapd.ListBatches(ctxt, &mintrpc.ListBatchRequest{})
+	batchResp, err = t.tapd.ListBatches(ctx, &mintrpc.ListBatchRequest{})
 	require.NoError(t.t, err)
 	require.Len(t.t, batchResp.Batches, 1)
 	t.Logf("batches: %v", toJSON(t.t, batchResp))
@@ -208,13 +204,13 @@ func testMintBatchResume(t *harnessTest) {
 	block := MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)[0]
 	blockHash := block.BlockHash()
 	WaitForBatchState(
-		t.t, ctxt, t.tapd, defaultWaitTimeout, batchKey,
+		t.t, ctx, t.tapd, defaultWaitTimeout, batchKey,
 		mintrpc.BatchState_BATCH_STATE_FINALIZED,
 	)
 
 	// We should be able to fetch the batch, and also find that the txid of
 	// the batch tx is populated.
-	batchResp, err = t.tapd.ListBatches(ctxt, &mintrpc.ListBatchRequest{
+	batchResp, err = t.tapd.ListBatches(ctx, &mintrpc.ListBatchRequest{
 		Filter: &mintrpc.ListBatchRequest_BatchKey{
 			BatchKey: batchKey,
 		},
@@ -235,9 +231,7 @@ func testMintBatchResume(t *harnessTest) {
 func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 	assets []*taprpc.Asset, shouldShowUpAsLocal bool) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// TODO(roasbeef): modify import call, can't work as is
 	//  * proof file only contains the tweaked script key
@@ -256,7 +250,7 @@ func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 	}
 
 	listResp, err := dst.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{
+		ctx, &taprpc.ListAssetRequest{
 			ScriptKeyType: allScriptKeysQuery,
 		},
 	)
@@ -329,9 +323,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 		},
 	}
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	equalityCheck := func(a *mintrpc.MintAsset, b *mintrpc.PendingAsset) {
 		require.Equal(t.t, a.AssetType, b.AssetType)
@@ -354,19 +346,19 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 
 	// If we attempt to add both assets to the same batch, the second mint
 	// call should fail.
-	collideResp, err := t.tapd.MintAsset(ctxt, &assetCollide)
+	collideResp, err := t.tapd.MintAsset(ctx, &assetCollide)
 	require.NoError(t.t, err)
 	require.NotNil(t.t, collideResp.PendingBatch)
 	require.NotNil(t.t, collideResp.PendingBatch.BatchKey)
 	require.Len(t.t, collideResp.PendingBatch.Assets, 1)
 
-	_, batchNameErr := t.tapd.MintAsset(ctxt, &assetMint)
+	_, batchNameErr := t.tapd.MintAsset(ctx, &assetMint)
 	require.ErrorContains(t.t, batchNameErr, "already in batch")
 
 	// If we cancel the batch, we should still be able to fetch it from the
 	// daemon, and be able to refer to it by the batch key.
 	rpcBatches, err := t.tapd.ListBatches(
-		ctxt, &mintrpc.ListBatchRequest{},
+		ctx, &mintrpc.ListBatchRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -389,7 +381,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	equalityCheck(assetCollide.Asset, batchCollide.Batch.Assets[0])
 
 	cancelBatchKey, err := t.tapd.CancelBatch(
-		ctxt, &mintrpc.CancelBatchRequest{},
+		ctx, &mintrpc.CancelBatchRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Equal(
@@ -398,7 +390,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 
 	// The only change in the returned batch after cancellation should be
 	// the batch state.
-	cancelBatch, err := t.tapd.ListBatches(ctxt, &mintrpc.ListBatchRequest{
+	cancelBatch, err := t.tapd.ListBatches(ctx, &mintrpc.ListBatchRequest{
 		Filter: &mintrpc.ListBatchRequest_BatchKey{
 			BatchKey: collideResp.PendingBatch.BatchKey,
 		},
@@ -433,9 +425,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 // with a tapscript sibling, and that the genesis output from that mint can be
 // spend via the script path.
 func testMintAssetsWithTapscriptSibling(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Build the tapscript tree.
 	sigLockPrivKey := test.RandPrivKey()
@@ -471,7 +461,7 @@ func testMintAssetsWithTapscriptSibling(t *harnessTest) {
 
 	// Filter the managed UTXOs to select the genesis UTXO with the
 	// tapscript sibling.
-	utxos, err := t.tapd.ListUtxos(ctxt, &taprpc.ListUtxosRequest{})
+	utxos, err := t.tapd.ListUtxos(ctx, &taprpc.ListUtxosRequest{})
 	require.NoError(t.t, err)
 
 	utxoWithTapSibling := func(utxo *taprpc.ManagedUtxo) bool {
@@ -562,14 +552,14 @@ func testMintAssetsWithTapscriptSibling(t *harnessTest) {
 // the finalized batch state, and observe the same batch state after a transfer
 // of an asset from the batch.
 func testMintBatchAndTransfer(t *harnessTest) {
-	ctxb := context.Background()
+	ctx := context.Background()
 	rpcSimpleAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner().Client, t.tapd, simpleAssets,
 	)
 
 	// List the batch right after minting.
 	originalBatches, err := t.tapd.ListBatches(
-		ctxb, &mintrpc.ListBatchRequest{},
+		ctx, &mintrpc.ListBatchRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -618,7 +608,7 @@ func testMintBatchAndTransfer(t *harnessTest) {
 	AssertReceiveEvents(t.t, addr, events)
 
 	afterBatches, err := t.tapd.ListBatches(
-		ctxb, &mintrpc.ListBatchRequest{},
+		ctx, &mintrpc.ListBatchRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -660,9 +650,7 @@ func testMintBatchAndTransfer(t *harnessTest) {
 //  3. Ensures that leased assets are reflected correctly in the balance
 //     retrieval, with and without the `include_leased` flag.
 func testAssetBalances(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Mint assets for testing.
 	rpcSimpleAssets := MintAssetsConfirmBatch(
@@ -699,7 +687,7 @@ func testAssetBalances(t *harnessTest) {
 	}()
 
 	const assetsToSend = 1000
-	bobAddr, err := bobTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	bobAddr, err := bobTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId: targetAssetGenesis.AssetId,
 		Amt:     assetsToSend,
 	})
@@ -814,7 +802,7 @@ func testAssetBalances(t *harnessTest) {
 		// Now we can create our virtual transaction and ask Alice's
 		// tapd to fund it.
 		_, err := aliceTapd.FundVirtualPsbt(
-			ctxt, &wrpc.FundVirtualPsbtRequest{
+			ctx, &wrpc.FundVirtualPsbtRequest{
 				Template: &wrpc.FundVirtualPsbtRequest_Raw{
 					Raw: &wrpc.TxTemplate{
 						Recipients: recipients,
@@ -847,7 +835,7 @@ func testAssetBalances(t *harnessTest) {
 		// Unlock the input if provided so it can be reused.
 		for _, input := range tt.inputs {
 			_, err = aliceTapd.RemoveUTXOLease(
-				ctxb, &wrpc.RemoveUTXOLeaseRequest{
+				ctx, &wrpc.RemoveUTXOLeaseRequest{
 					Outpoint: input.Outpoint,
 				},
 			)
