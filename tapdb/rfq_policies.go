@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -15,27 +16,11 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-// RfqPolicyType denotes the type of a persisted RFQ policy.
-type RfqPolicyType string
-
-const (
-	// RfqPolicyTypeAssetSale identifies an asset sale policy.
-	RfqPolicyTypeAssetSale RfqPolicyType = "RFQ_POLICY_TYPE_SALE"
-
-	// RfqPolicyTypeAssetPurchase identifies an asset purchase policy.
-	RfqPolicyTypeAssetPurchase RfqPolicyType = "RFQ_POLICY_TYPE_PURCHASE"
-)
-
-// String converts the policy type to its string representation.
-func (t RfqPolicyType) String() string {
-	return string(t)
-}
-
 // rfqPolicy is the database model for an RFQ policy. It contains all the
 // necessary fields to reconstruct a BuyAccept or SellAccept message.
 type rfqPolicy struct {
 	// PolicyType denotes the type of the policy (buy or sell).
-	PolicyType RfqPolicyType
+	PolicyType rfq.RfqPolicyType
 
 	// Scid is the short channel ID associated with the policy.
 	Scid uint64
@@ -121,7 +106,7 @@ func (s *PersistedPolicyStore) StoreSalePolicy(ctx context.Context,
 	expiry := acpt.AssetRate.Expiry.UTC()
 
 	record := rfqPolicy{
-		PolicyType:          RfqPolicyTypeAssetSale,
+		PolicyType:          rfq.RfqPolicyTypeAssetSale,
 		Scid:                uint64(acpt.ShortChannelId()),
 		RfqID:               rfqIDArray(acpt.ID),
 		Peer:                serializePeer(acpt.Peer),
@@ -150,7 +135,7 @@ func (s *PersistedPolicyStore) StorePurchasePolicy(ctx context.Context,
 	paymentMax := int64(acpt.Request.PaymentMaxAmt)
 
 	record := rfqPolicy{
-		PolicyType:            RfqPolicyTypeAssetPurchase,
+		PolicyType:            rfq.RfqPolicyTypeAssetPurchase,
 		Scid:                  uint64(acpt.ShortChannelId()),
 		RfqID:                 rfqIDArray(acpt.ID),
 		Peer:                  serializePeer(acpt.Peer),
@@ -205,7 +190,7 @@ func (s *PersistedPolicyStore) FetchAcceptedQuotes(ctx context.Context) (
 			policy := policyFromRow(row)
 
 			switch policy.PolicyType {
-			case RfqPolicyTypeAssetSale:
+			case rfq.RfqPolicyTypeAssetSale:
 				accept, err := buyAcceptFromStored(policy)
 				if err != nil {
 					return fmt.Errorf("error restoring "+
@@ -213,7 +198,7 @@ func (s *PersistedPolicyStore) FetchAcceptedQuotes(ctx context.Context) (
 				}
 				buyAccepts = append(buyAccepts, accept)
 
-			case RfqPolicyTypeAssetPurchase:
+			case rfq.RfqPolicyTypeAssetPurchase:
 				accept, err := sellAcceptFromStored(policy)
 				if err != nil {
 					return fmt.Errorf("error restoring "+
@@ -313,7 +298,7 @@ func policyFromRow(row sqlc.RfqPolicy) rfqPolicy {
 	}
 
 	policy := rfqPolicy{
-		PolicyType:      RfqPolicyType(row.PolicyType),
+		PolicyType:      rfq.RfqPolicyType(row.PolicyType),
 		Scid:            uint64(row.Scid),
 		RfqID:           rfqID,
 		Peer:            peer,
