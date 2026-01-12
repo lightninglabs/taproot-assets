@@ -54,9 +54,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -87,7 +85,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	rootHash := tapscript.ControlBlock.RootHash(leaf1.Script)
 
 	sendToTapscriptAddr(
-		ctxt, t, alice, bob, numUnits, genInfo, mintedAsset,
+		ctx, t, alice, bob, numUnits, genInfo, mintedAsset,
 		bobScriptKey, bobInternalKey, tapscript, rootHash,
 	)
 	AssertBalances(
@@ -96,7 +94,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	)
 
 	// Now try to send back those assets using the PSBT flow.
-	aliceAddr, err := alice.NewAddr(ctxb, &taprpc.NewAddrRequest{
+	aliceAddr, err := alice.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId: genInfo.AssetId,
 		Amt:     numUnits / 2,
 	})
@@ -138,7 +136,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := bob.AnchorVirtualPsbts(
-		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{fundedPktBytes},
 		},
 	)
@@ -152,7 +150,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	AssertNonInteractiveRecvComplete(t.t, alice, 1)
 	AssertAddrEvent(t.t, alice, aliceAddr, 1, statusCompleted)
 
-	aliceAssets, err := alice.ListAssets(ctxb, &taprpc.ListAssetRequest{
+	aliceAssets, err := alice.ListAssets(ctx, &taprpc.ListAssetRequest{
 		WithWitness: true,
 	})
 	require.NoError(t.t, err)
@@ -180,9 +178,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -214,7 +210,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	rootHash := tapscript.ControlBlock.RootHash(leaf2.Script)
 
 	sendToTapscriptAddr(
-		ctxt, t, alice, bob, numUnits, genInfo, mintedAsset,
+		ctx, t, alice, bob, numUnits, genInfo, mintedAsset,
 		bobScriptKey, bobInternalKey, tapscript, rootHash,
 	)
 
@@ -224,7 +220,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	)
 
 	// Now try to send back those assets using the PSBT flow.
-	aliceAddr, err := alice.NewAddr(ctxb, &taprpc.NewAddrRequest{
+	aliceAddr, err := alice.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:      genInfo.AssetId,
 		Amt:          numUnits / 2,
 		AssetVersion: mintedAsset.Version,
@@ -260,7 +256,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	signedResp, err := bob.SignVirtualPsbt(
-		ctxb, &wrpc.SignVirtualPsbtRequest{
+		ctx, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundedPktBytes,
 		},
 	)
@@ -269,7 +265,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := bob.AnchorVirtualPsbts(
-		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signedResp.SignedPsbt},
 		},
 	)
@@ -283,7 +279,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	AssertNonInteractiveRecvComplete(t.t, alice, 1)
 	AssertAddrEvent(t.t, alice, aliceAddr, 1, statusCompleted)
 
-	aliceAssets, err := alice.ListAssets(ctxb, &taprpc.ListAssetRequest{
+	aliceAssets, err := alice.ListAssets(ctx, &taprpc.ListAssetRequest{
 		WithWitness: true,
 	})
 	require.NoError(t.t, err)
@@ -326,9 +322,7 @@ func testPsbtNormalInteractiveFullValueSend(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := mintedAsset.AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -339,7 +333,7 @@ func testPsbtNormalInteractiveFullValueSend(t *harnessTest) {
 	}()
 
 	runPsbtInteractiveFullValueSendTest(
-		ctxt, t, t.tapd, secondTapd, genInfo, mintedAsset,
+		ctx, t, t.tapd, secondTapd, genInfo, mintedAsset,
 		rpcAssets[1],
 	)
 }
@@ -371,9 +365,7 @@ func testPsbtMarkerV0MixedVersions(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := mintedAsset.AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -384,16 +376,14 @@ func testPsbtMarkerV0MixedVersions(t *harnessTest) {
 	}()
 
 	runPsbtInteractiveMarkerV0MixedVersions(
-		ctxt, t, t.tapd, secondTapd, genInfo, mintedAsset,
+		ctx, t, t.tapd, secondTapd, genInfo, mintedAsset,
 	)
 }
 
 // testPsbtMultiVersionSend tests that funding a V1 vPkt succeeds, but funding
 // a V0 vPkt fails.
 func testPsbtMultiVersionSend(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// First, we'll mint two assets.
 	firstRpcAsset := MintAssetsConfirmBatch(
@@ -485,19 +475,19 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 	}
 
 	numAssets := 1
-	AssertNumAssets(t.t, ctxb, sender, numAssets)
+	AssertNumAssets(t.t, ctx, sender, numAssets)
 	firstAsset, _, _ = ManualMintSimpleAsset(
 		t, lndBob, sender, commitment.TapCommitmentV0, &firstReq,
 	)
 
 	numAssets += 1
-	AssertNumAssets(t.t, ctxb, sender, numAssets)
+	AssertNumAssets(t.t, ctx, sender, numAssets)
 	secondAsset, _, _ = ManualMintSimpleAsset(
 		t, lndBob, sender, commitment.TapCommitmentV1, &secondReq,
 	)
 
 	numAssets += 1
-	AssertNumAssets(t.t, ctxb, sender, numAssets)
+	AssertNumAssets(t.t, ctx, sender, numAssets)
 
 	// Build new vPkts to receive the assets; the first packet will be V0,
 	// and cause a split of the first asset.
@@ -523,7 +513,7 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 	for _, vPkt := range vPkts {
 		fundResp := fundPacket(t, sender, vPkt)
 		signResp, err := sender.SignVirtualPsbt(
-			ctxt, &wrpc.SignVirtualPsbtRequest{
+			ctx, &wrpc.SignVirtualPsbtRequest{
 				FundedPsbt: fundResp.FundedPsbt,
 			},
 		)
@@ -536,7 +526,7 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 	// If we try to anchor the packets together, that should fail, as they
 	// have mismatched versions.
 	_, err = sender.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: signedPkts,
 		},
 	)
@@ -545,7 +535,7 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 	// Anchoring the packets and completing the transfers separately should
 	// succeed.
 	send1Resp, err := sender.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signedPkts[0]},
 		},
 	)
@@ -559,7 +549,7 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 	)
 
 	send2Resp, err := sender.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signedPkts[1]},
 		},
 	)
@@ -583,10 +573,10 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 		receiverScriptKey2.PubKey.SerializeCompressed(),
 		secondAsset.AssetGenesis,
 	)
-	AssertNumAssets(t.t, ctxb, receiver, 2)
+	AssertNumAssets(t.t, ctx, receiver, 2)
 
 	receiverAssets, err := receiver.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctx, &taprpc.ListAssetRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -621,9 +611,7 @@ func testPsbtGroupedInteractiveFullValueSend(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := mintedAsset.AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -634,7 +622,7 @@ func testPsbtGroupedInteractiveFullValueSend(t *harnessTest) {
 	}()
 
 	runPsbtInteractiveFullValueSendTest(
-		ctxt, t, t.tapd, secondTapd, genInfo, mintedAsset,
+		ctx, t, t.tapd, secondTapd, genInfo, mintedAsset,
 		rpcAssets[1],
 	)
 }
@@ -887,9 +875,7 @@ func testPsbtNormalInteractiveSplitSend(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -900,7 +886,7 @@ func testPsbtNormalInteractiveSplitSend(t *harnessTest) {
 	}()
 
 	runPsbtInteractiveSplitSendTest(
-		ctxt, t, t.tapd, secondTapd, genInfo, mintedAsset,
+		ctx, t, t.tapd, secondTapd, genInfo, mintedAsset,
 		rpcAssets[1],
 	)
 }
@@ -933,9 +919,7 @@ func testPsbtGroupedInteractiveSplitSend(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -946,7 +930,7 @@ func testPsbtGroupedInteractiveSplitSend(t *harnessTest) {
 	}()
 
 	runPsbtInteractiveSplitSendTest(
-		ctxt, t, t.tapd, secondTapd, genInfo, mintedAsset,
+		ctx, t, t.tapd, secondTapd, genInfo, mintedAsset,
 		rpcAssets[1],
 	)
 }
@@ -1118,9 +1102,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -1190,7 +1172,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 	require.Nil(t.t, fundedvPkt.Outputs[2].AltLeaves)
 
 	signActiveResp, err := sender.SignVirtualPsbt(
-		ctxt, &wrpc.SignVirtualPsbtRequest{
+		ctx, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundResp.FundedPsbt,
 		},
 	)
@@ -1198,7 +1180,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 	require.Len(t.t, fundResp.PassiveAssetPsbts, 1)
 
 	signPassiveResp, err := sender.SignVirtualPsbt(
-		ctxt, &wrpc.SignVirtualPsbtRequest{
+		ctx, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundResp.PassiveAssetPsbts[0],
 		},
 	)
@@ -1218,7 +1200,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 	// Anchoring this vPkt should fail when creating the Tap commitments for
 	// each anchor output.
 	_, err = sender.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signedvPktBytes},
 		},
 	)
@@ -1244,7 +1226,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 			Add: true,
 		},
 	}
-	_, err = sender.CommitVirtualPsbts(ctxt, commitReq)
+	_, err = sender.CommitVirtualPsbts(ctx, commitReq)
 	require.ErrorContains(t.t, err, asset.ErrDuplicateAltLeafKey.Error())
 
 	// Now, let's set non-conflicting altLeaves for the second vOutput, and
@@ -1255,7 +1237,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	commitReq.VirtualPsbts = [][]byte{signedvPktBytes}
-	commitResp, err := sender.CommitVirtualPsbts(ctxt, commitReq)
+	commitResp, err := sender.CommitVirtualPsbts(ctx, commitReq)
 	require.NoError(t.t, err)
 
 	commitPacket, err := psbt.NewFromRawBytes(
@@ -1300,7 +1282,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 	// Now, both output proofs should contain altLeaf sets 1 and 2, since
 	// our two vOutputs should be committed in the same anchor output.
 	receiverAssets, err := receiver.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctx, &taprpc.ListAssetRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -1328,9 +1310,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	genInfo := rpcAssets[0].AssetGenesis
 	chainParams := &address.RegressionNetTap
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -1372,7 +1352,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	// bob, using the partial amount.
 	fundResp := fundPacket(t, alice, vPkt)
 	signResp, err := alice.SignVirtualPsbt(
-		ctxt, &wrpc.SignVirtualPsbtRequest{
+		ctx, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundResp.FundedPsbt,
 		},
 	)
@@ -1380,7 +1360,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := alice.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signResp.SignedPsbt},
 		},
 	)
@@ -1399,7 +1379,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	)
 
 	senderAssets, err := alice.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{
+		ctx, &taprpc.ListAssetRequest{
 			ScriptKeyType: allScriptKeysQuery,
 		},
 	)
@@ -1407,7 +1387,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	require.Len(t.t, senderAssets.Assets, 1)
 
 	receiverAssets, err := bob.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{
+		ctx, &taprpc.ListAssetRequest{
 			ScriptKeyType: allScriptKeysQuery,
 		},
 	)
@@ -1424,7 +1404,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 
 	// And finally, make sure we can spend the asset again.
 	sendAssetAndAssert(
-		ctxt, t, bob, alice, sendAmt/2, sendAmt/2, genInfo,
+		ctx, t, bob, alice, sendAmt/2, sendAmt/2, genInfo,
 		rpcAssets[0], 0, 1, 1,
 	)
 }
@@ -1456,9 +1436,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	genInfo := rpcAssets[0].AssetGenesis
 	chainParams := &address.RegressionNetTap
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// With the asset created, we'll set up a new node that will act as the
 	// receiver of the transfer.
@@ -1517,7 +1495,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	// our sender node to our receiver, using the partial amount.
 	fundResp := fundPacket(t, sender, vPkt)
 	signResp, err := sender.SignVirtualPsbt(
-		ctxt, &wrpc.SignVirtualPsbtRequest{
+		ctx, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundResp.FundedPsbt,
 		},
 	)
@@ -1525,7 +1503,7 @@ func testPsbtMultiSend(t *harnessTest) {
 
 	// Before we anchor the transaction, we'll subscribe for send events, so
 	// we can track the state of the parcel.
-	ctxc, streamCancel := context.WithCancel(ctxb)
+	ctxc, streamCancel := context.WithCancel(ctx)
 	scriptKey1Bytes := receiverScriptKey1.PubKey.SerializeCompressed()
 	stream, err := sender.SubscribeSendEvents(
 		ctxc, &taprpc.SubscribeSendEventsRequest{
@@ -1540,7 +1518,7 @@ func testPsbtMultiSend(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := sender.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signResp.SignedPsbt},
 		},
 	)
@@ -1579,7 +1557,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	)
 
 	senderAssets, err := sender.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{
+		ctx, &taprpc.ListAssetRequest{
 			ScriptKeyType: allScriptKeysQuery,
 		},
 	)
@@ -1587,7 +1565,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	require.Len(t.t, senderAssets.Assets, 4)
 
 	receiverAssets, err := receiver.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{
+		ctx, &taprpc.ListAssetRequest{
 			ScriptKeyType: allScriptKeysQuery,
 		},
 	)
@@ -1598,7 +1576,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	passiveAsset := rpcAssets[1]
 	passiveGen := rpcAssets[1].AssetGenesis
 	sendAssetAndAssert(
-		ctxt, t, t.tapd, secondTapd, passiveAsset.Amount, 0,
+		ctx, t, t.tapd, secondTapd, passiveAsset.Amount, 0,
 		passiveGen, passiveAsset, 1, 2, 1,
 	)
 
@@ -1606,7 +1584,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	// that shared the anchor output and the other one is treated as a
 	// passive asset.
 	sendAssetAndAssert(
-		ctxt, t, t.tapd, secondTapd, outputAmounts[3], 0,
+		ctx, t, t.tapd, secondTapd, outputAmounts[3], 0,
 		genInfo, rpcAssets[0], 2, 3, 2,
 	)
 }
@@ -1938,9 +1916,7 @@ func testPsbtSighashNone(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -1972,12 +1948,12 @@ func testPsbtSighashNone(t *harnessTest) {
 	rootHash := tapScript.ControlBlock.RootHash(leaf2.Script)
 
 	sendToTapscriptAddr(
-		ctxt, t, alice, bob, numUnits, genInfo, mintedAsset,
+		ctx, t, alice, bob, numUnits, genInfo, mintedAsset,
 		bobScriptKey, bobInternalKey, tapScript, rootHash,
 	)
 
 	// Now try to send back those assets using the PSBT flow.
-	aliceAddr, err := alice.NewAddr(ctxb, &taprpc.NewAddrRequest{
+	aliceAddr, err := alice.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:      genInfo.AssetId,
 		Amt:          numUnits / 5,
 		AssetVersion: mintedAsset.Version,
@@ -2019,7 +1995,7 @@ func testPsbtSighashNone(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	signedResp, err := bob.SignVirtualPsbt(
-		ctxb, &wrpc.SignVirtualPsbtRequest{
+		ctx, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundedPktBytes,
 		},
 	)
@@ -2060,7 +2036,7 @@ func testPsbtSighashNone(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := bob.AnchorVirtualPsbts(
-		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signedBytes},
 		},
 	)
@@ -2079,7 +2055,7 @@ func testPsbtSighashNone(t *harnessTest) {
 
 	// If Bob was successful in his attempt to edit the outputs, Alice
 	// should see an asset with an amount of 399.
-	aliceAssets, err := alice.ListAssets(ctxb, &taprpc.ListAssetRequest{
+	aliceAssets, err := alice.ListAssets(ctx, &taprpc.ListAssetRequest{
 		WithWitness: true,
 	})
 	require.NoError(t.t, err)
@@ -2108,9 +2084,7 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -2142,12 +2116,12 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 	rootHash := tapScript.ControlBlock.RootHash(leaf2.Script)
 
 	sendToTapscriptAddr(
-		ctxt, t, alice, bob, numUnits, genInfo, mintedAsset,
+		ctx, t, alice, bob, numUnits, genInfo, mintedAsset,
 		bobScriptKey, bobInternalKey, tapScript, rootHash,
 	)
 
 	// Now try to send back those assets using the PSBT flow.
-	aliceAddr, err := alice.NewAddr(ctxb, &taprpc.NewAddrRequest{
+	aliceAddr, err := alice.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:      genInfo.AssetId,
 		Amt:          numUnits / 5,
 		AssetVersion: mintedAsset.Version,
@@ -2187,7 +2161,7 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	signedResp, err := bob.SignVirtualPsbt(
-		ctxb, &wrpc.SignVirtualPsbtRequest{
+		ctx, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundedPktBytes,
 		},
 	)
@@ -2226,7 +2200,7 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 	signedBytes, err := fn.Serialize(signedPacket)
 	require.NoError(t.t, err)
 
-	ctxc, streamCancel := context.WithCancel(ctxb)
+	ctxc, streamCancel := context.WithCancel(ctx)
 	stream, err := bob.SubscribeSendEvents(
 		ctxc, &taprpc.SubscribeSendEventsRequest{},
 	)
@@ -2238,7 +2212,7 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := bob.AnchorVirtualPsbts(
-		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signedBytes},
 		},
 	)
@@ -2650,9 +2624,7 @@ func testPsbtSTXOExclusionProofs(t *harnessTest) {
 		},
 	)
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
@@ -2686,7 +2658,7 @@ func testPsbtSTXOExclusionProofs(t *harnessTest) {
 	// alice to bob, using the partial amount.
 	fundResp := fundPacket(t, alice, vPkt)
 	signResp, err := alice.SignVirtualPsbt(
-		ctxt, &wrpc.SignVirtualPsbtRequest{
+		ctx, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundResp.FundedPsbt,
 		},
 	)
@@ -2694,7 +2666,7 @@ func testPsbtSTXOExclusionProofs(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := alice.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signResp.SignedPsbt},
 		},
 	)
@@ -2799,9 +2771,7 @@ func testPsbtSTXOExclusionProofs(t *harnessTest) {
 // PublishAndLogTransfer RPCs. The test case moves some assets into an output
 // that has a hash lock tapscript.
 func testPsbtExternalCommit(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// We mint some grouped assets to use in the test. These assets are
 	// minted on the default tapd instance that is always created in the
@@ -2856,7 +2826,7 @@ func testPsbtExternalCommit(t *harnessTest) {
 	// be the Bob node, but the custody will be shared between Alice and Bob
 	// on both levels.
 	const assetsToSend = 1000
-	bobAddr, err := bobTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	bobAddr, err := bobTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:          targetAssetGenesis.AssetId,
 		Amt:              assetsToSend,
 		TapscriptSibling: siblingPreimageBytes,
@@ -2869,7 +2839,7 @@ func testPsbtExternalCommit(t *harnessTest) {
 		bobAddr.Encoded: bobAddr.Amount,
 	}
 	fundResp, err := aliceTapd.FundVirtualPsbt(
-		ctxt, &wrpc.FundVirtualPsbtRequest{
+		ctx, &wrpc.FundVirtualPsbtRequest{
 			Template: &wrpc.FundVirtualPsbtRequest_Raw{
 				Raw: &wrpc.TxTemplate{
 					Recipients: recipients,
@@ -2924,7 +2894,7 @@ func testPsbtExternalCommit(t *harnessTest) {
 
 	// Subscribe to the send event stream so we can verify the sender's
 	// state transitions during this test.
-	ctx, streamCancel := context.WithCancel(ctxb)
+	ctx, streamCancel := context.WithCancel(ctx)
 	stream, err := aliceTapd.SubscribeSendEvents(
 		ctx, &taprpc.SubscribeSendEventsRequest{
 			FilterLabel: transferLabel,
@@ -3044,9 +3014,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := mintedAsset.AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -3092,7 +3060,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 
 	// We need to let the wallet of Bob know that we're going to use a
 	// script key with a custom root.
-	_, err = bob.DeclareScriptKey(ctxt, &wrpc.DeclareScriptKeyRequest{
+	_, err = bob.DeclareScriptKey(ctx, &wrpc.DeclareScriptKeyRequest{
 		ScriptKey: rpcutils.MarshalScriptKey(bobAssetScriptKey),
 	})
 	require.NoError(t.t, err)
@@ -3104,7 +3072,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 
 	// We now sign the vPSBT.
 	signRespLock, err := alice.SignVirtualPsbt(
-		ctxt, &wrpc.SignVirtualPsbtRequest{
+		ctx, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundRespLock.FundedPsbt,
 		},
 	)
@@ -3112,7 +3080,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := alice.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signRespLock.SignedPsbt},
 		},
 	)
@@ -3180,7 +3148,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 	spendTxBytes, err := fn.Serialize(spendTx)
 	require.NoError(t.t, err)
 	_, err = bobLnd.RPC.WalletKit.PublishTransaction(
-		ctxt, &walletrpc.Transaction{
+		ctx, &walletrpc.Transaction{
 			TxHex: spendTxBytes,
 		},
 	)
@@ -3195,7 +3163,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 	signedPsbtBytes, err := tappsbt.Encode(fundedPsbtSpend)
 	require.NoError(t.t, err)
 	sendRespSpend, err := bob.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signedPsbtBytes},
 		},
 	)
@@ -3208,7 +3176,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 	)
 
 	// Make sure the transfer shows the lock time.
-	resp, err := bob.ListTransfers(ctxb, &taprpc.ListTransfersRequest{})
+	resp, err := bob.ListTransfers(ctx, &taprpc.ListTransfersRequest{})
 	require.NoError(t.t, err)
 	require.Len(t.t, resp.Transfers, numTransfers)
 	require.EqualValues(
@@ -3262,9 +3230,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := mintedAsset.AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -3307,7 +3273,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 
 	// We need to let the wallet of Bob know that we're going to use a
 	// script key with a custom root.
-	_, err = bob.DeclareScriptKey(ctxt, &wrpc.DeclareScriptKeyRequest{
+	_, err = bob.DeclareScriptKey(ctx, &wrpc.DeclareScriptKeyRequest{
 		ScriptKey: rpcutils.MarshalScriptKey(bobAssetScriptKey),
 	})
 	require.NoError(t.t, err)
@@ -3319,7 +3285,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 
 	// We now sign the vPSBT.
 	signRespLock, err := alice.SignVirtualPsbt(
-		ctxt, &wrpc.SignVirtualPsbtRequest{
+		ctx, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundRespLock.FundedPsbt,
 		},
 	)
@@ -3327,7 +3293,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := alice.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signRespLock.SignedPsbt},
 		},
 	)
@@ -3395,7 +3361,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 	spendTxBytes, err := fn.Serialize(spendTx)
 	require.NoError(t.t, err)
 	_, err = lndBob.RPC.WalletKit.PublishTransaction(
-		ctxt, &walletrpc.Transaction{
+		ctx, &walletrpc.Transaction{
 			TxHex: spendTxBytes,
 		},
 	)
@@ -3410,7 +3376,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 	signedPsbtBytes, err := tappsbt.Encode(fundedPsbtSpend)
 	require.NoError(t.t, err)
 	sendRespSpend, err := bob.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signedPsbtBytes},
 		},
 	)
@@ -3423,7 +3389,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 	)
 
 	// Make sure the transfer shows the lock time.
-	resp, err := bob.ListTransfers(ctxb, &taprpc.ListTransfersRequest{})
+	resp, err := bob.ListTransfers(ctx, &taprpc.ListTransfersRequest{})
 	require.NoError(t.t, err)
 	require.Len(t.t, resp.Transfers, numTransfers)
 	require.EqualValues(
@@ -3478,9 +3444,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := mintedAsset.AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -3523,7 +3487,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 
 	// We need to let the wallet of Bob know that we're going to use a
 	// script key with a custom root.
-	_, err = bob.DeclareScriptKey(ctxt, &wrpc.DeclareScriptKeyRequest{
+	_, err = bob.DeclareScriptKey(ctx, &wrpc.DeclareScriptKeyRequest{
 		ScriptKey: rpcutils.MarshalScriptKey(bobAssetScriptKey),
 	})
 	require.NoError(t.t, err)
@@ -3535,7 +3499,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 
 	// We now sign the vPSBT.
 	signRespLock, err := alice.SignVirtualPsbt(
-		ctxt, &wrpc.SignVirtualPsbtRequest{
+		ctx, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundRespLock.FundedPsbt,
 		},
 	)
@@ -3543,7 +3507,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := alice.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signRespLock.SignedPsbt},
 		},
 	)
@@ -3613,7 +3577,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 	spendTxBytes, err := fn.Serialize(spendTxTimeLocked)
 	require.NoError(t.t, err)
 	_, err = lndBob.RPC.WalletKit.PublishTransaction(
-		ctxt, &walletrpc.Transaction{
+		ctx, &walletrpc.Transaction{
 			TxHex: spendTxBytes,
 		},
 	)
@@ -3637,14 +3601,14 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 	spendTxBytes, err = fn.Serialize(spendTxTimeLocked)
 	require.NoError(t.t, err)
 	_, err = lndBob.RPC.WalletKit.PublishTransaction(
-		ctxt, &walletrpc.Transaction{
+		ctx, &walletrpc.Transaction{
 			TxHex: spendTxBytes,
 		},
 	)
 	require.NoError(t.t, err)
 	t.lndHarness.Miner().AssertNumTxsInMempool(1)
 
-	ctxc, streamCancel := context.WithCancel(ctxb)
+	ctxc, streamCancel := context.WithCancel(ctx)
 	aliceScriptKeyBytes := aliceScriptKey.PubKey.SerializeCompressed()
 	stream, err := bob.SubscribeSendEvents(
 		ctxc, &taprpc.SubscribeSendEventsRequest{
@@ -3676,14 +3640,12 @@ func signVirtualPacket(t *testing.T, tapd *tapdHarness,
 	packet *tappsbt.VPacket) *tappsbt.VPacket {
 
 	ctx := context.Background()
-	ctxt, cancel := context.WithTimeout(ctx, defaultTimeout)
-	defer cancel()
 
 	rawPacket, err := tappsbt.Encode(packet)
 	require.NoError(t, err)
 
 	signResp, err := tapd.SignVirtualPsbt(
-		ctxt, &wrpc.SignVirtualPsbtRequest{
+		ctx, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: rawPacket,
 		},
 	)
