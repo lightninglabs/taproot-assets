@@ -8707,6 +8707,136 @@ func (r *rpcServer) SubscribeRfqEventNtfns(
 	)
 }
 
+// ForwardingHistory queries the historical records of asset forwarding events.
+func (r *rpcServer) ForwardingHistory(ctx context.Context,
+	req *rfqrpc.ForwardingHistoryRequest) (
+	*rfqrpc.ForwardingHistoryResponse, error) {
+
+	// Build the query parameters.
+	params := rfq.QueryForwardsParams{
+		Limit:  req.Limit,
+		Offset: req.Offset,
+	}
+
+	// Parse timestamp filters if provided.
+	if req.MinTimestamp > 0 {
+		params.MinTimestamp = fn.Some(time.Unix(
+			int64(req.MinTimestamp), 0))
+	}
+	if req.MaxTimestamp > 0 {
+		params.MaxTimestamp = fn.Some(time.Unix(
+			int64(req.MaxTimestamp), 0))
+	}
+
+	// Parse peer filter if provided.
+	if len(req.Peer) > 0 {
+		peer, err := route.NewVertexFromBytes(req.Peer)
+		if err != nil {
+			return nil, fmt.Errorf("invalid peer public key: %w",
+				err)
+		}
+		params.Peer = &peer
+	}
+
+	// Parse asset specifier if provided.
+	if req.AssetSpecifier != nil {
+		assetID, groupKey, err := unmarshalAssetSpecifier(
+			req.AssetSpecifier,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing asset "+
+				"specifier: %w", err)
+		}
+
+		specifier, err := asset.NewSpecifier(
+			assetID, groupKey, nil, true,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error building asset "+
+				"specifier: %w", err)
+		}
+		params.AssetSpecifier = &specifier
+	}
+
+	// Set default limit if not provided.
+	if params.Limit == 0 {
+		params.Limit = 100
+	}
+
+	// Query the forwarding events and total count.
+	forwards, totalCount, err := r.cfg.RfqManager.QueryForwardsWithCount(
+		ctx, params,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error querying forwarding events: "+
+			"%w", err)
+	}
+
+	// Convert the forwarding events to RPC format.
+	rpcForwards := make([]*rfqrpc.ForwardingEvent, len(forwards))
+	for i, fwd := range forwards {
+		rpcForwards[i] = marshalForwardingEvent(fwd)
+	}
+
+	return &rfqrpc.ForwardingHistoryResponse{
+		Forwards:   rpcForwards,
+		TotalCount: totalCount,
+	}, nil
+}
+
+// marshalForwardingEvent converts a database forwarding event record to its RPC
+// representation.
+func marshalForwardingEvent(fwd rfq.ForwardingEvent) *rfqrpc.ForwardingEvent {
+	rpcForward := &rfqrpc.ForwardingEvent{
+		OpenedAt:   uint64(fwd.OpenedAt.Unix()),
+		RfqId:      fwd.RfqID[:],
+		ChanIdIn:   fwd.ChanIDIn,
+		ChanIdOut:  fwd.ChanIDOut,
+		HtlcId:     fwd.HtlcID,
+		AssetAmt:   fwd.AssetAmt,
+		AmtInMsat:  fwd.AmtInMsat,
+		AmtOutMsat: fwd.AmtOutMsat,
+		Peer:       fwd.Peer.String(),
+		Rate: &rfqrpc.FixedPoint{
+			Coefficient: fwd.Rate.Coefficient.String(),
+			Scale:       uint32(fwd.Rate.Scale),
+		},
+	}
+
+	// Set timestamps if available.
+	if fwd.SettledAt != nil {
+		rpcForward.SettledAt = uint64(fwd.SettledAt.Unix())
+	}
+	if fwd.FailedAt != nil {
+		rpcForward.FailedAt = uint64(fwd.FailedAt.Unix())
+	}
+
+	// Convert policy type.
+	if fwd.PolicyType == rfq.RfqPolicyTypeAssetSale {
+		rpcForward.PolicyType =
+			rfqrpc.RfqPolicyType_RFQ_POLICY_TYPE_SALE
+	} else {
+		rpcForward.PolicyType =
+			rfqrpc.RfqPolicyType_RFQ_POLICY_TYPE_PURCHASE
+	}
+
+	// Add asset specifier if available.
+	if fwd.AssetSpecifier.IsSome() {
+		rpcForward.AssetSpec = &rfqrpc.AssetSpec{}
+		assetID := fwd.AssetSpecifier.UnwrapIdToPtr()
+		if assetID != nil {
+			rpcForward.AssetSpec.Id = assetID[:]
+		}
+		groupKey := fwd.AssetSpecifier.UnwrapGroupKeyToPtr()
+		if groupKey != nil {
+			rpcForward.AssetSpec.GroupPubKey =
+				schnorr.SerializePubKey(groupKey)
+		}
+	}
+
+	return rpcForward
+}
+
 // FundChannel initiates the channel funding negotiation with a peer for the
 // creation of a channel that contains a specified amount of a given asset.
 func (r *rpcServer) FundChannel(ctx context.Context,
