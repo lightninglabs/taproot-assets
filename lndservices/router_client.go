@@ -5,6 +5,7 @@ import (
 
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -59,6 +60,23 @@ func (l *LndRouterClient) SubscribeHtlcEvents(
 	<-chan error, error) {
 
 	return l.lnd.Router.SubscribeHtlcEvents(ctx)
+}
+
+// LookupHtlcResolution retrieves the final resolution for an HTLC.
+func (l *LndRouterClient) LookupHtlcResolution(ctx context.Context,
+	chanID uint64, htlcID uint64) (*lnrpc.LookupHtlcResolutionResponse,
+	error) {
+
+	rpcCtx, timeout, client := l.lnd.Client.RawClientWithMacAuth(ctx)
+	rpcCtx, cancel := context.WithTimeout(rpcCtx, timeout)
+	defer cancel()
+
+	return client.LookupHtlcResolution(rpcCtx,
+		&lnrpc.LookupHtlcResolutionRequest{
+			ChanId:    chanID,
+			HtlcIndex: htlcID,
+		},
+	)
 }
 
 // Ensure LndRouterClient implements the rfq.HtlcInterceptor interface.
