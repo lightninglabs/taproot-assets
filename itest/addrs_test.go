@@ -45,10 +45,6 @@ func testAddresses(t *harnessTest) {
 		},
 	)
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
 	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
@@ -57,6 +53,7 @@ func testAddresses(t *harnessTest) {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
+	ctx := context.Background()
 	var addresses []*taprpc.Addr
 	for idx, a := range rpcAssets {
 		// In order to force a split, we don't try to send the full
@@ -98,7 +95,7 @@ func testAddresses(t *harnessTest) {
 
 		// Make sure the asset meta is also fetched correctly.
 		assetResp, err := secondTapd.FetchAssetMeta(
-			ctxt, &taprpc.FetchAssetMetaRequest{
+			ctx, &taprpc.FetchAssetMetaRequest{
 				Asset: &taprpc.FetchAssetMetaRequest_AssetId{
 					AssetId: a.AssetGenesis.AssetId,
 				},
@@ -111,7 +108,7 @@ func testAddresses(t *harnessTest) {
 	// Now sanity check that we can actually list the transfer.
 	err := wait.NoError(func() error {
 		resp, err := t.tapd.ListTransfers(
-			ctxt, &taprpc.ListTransfersRequest{},
+			ctx, &taprpc.ListTransfersRequest{},
 		)
 		require.NoError(t.t, err)
 
@@ -140,7 +137,7 @@ func testAddresses(t *harnessTest) {
 
 		// Generate the ownership proof on the receiver node.
 		proveResp, err := secondTapd.ProveAssetOwnership(
-			ctxt, &wrpc.ProveAssetOwnershipRequest{
+			ctx, &wrpc.ProveAssetOwnershipRequest{
 				AssetId:   receiverAddr.AssetId,
 				ScriptKey: receiverAddr.ScriptKey,
 			},
@@ -150,7 +147,7 @@ func testAddresses(t *harnessTest) {
 		// Verify the ownership proof on the sender node.
 		t.Logf("Got ownership proof: %x", proveResp.ProofWithWitness)
 		verifyResp, err := t.tapd.VerifyAssetOwnership(
-			ctxt, &wrpc.VerifyAssetOwnershipRequest{
+			ctx, &wrpc.VerifyAssetOwnershipRequest{
 				ProofWithWitness: proveResp.ProofWithWitness,
 			},
 		)
@@ -161,7 +158,7 @@ func testAddresses(t *harnessTest) {
 	// Since the assets have been spent to version 1 addresses, trying to
 	// receive them to a version 0 address should fail.
 	simpleAsset := rpcAssets[0]
-	legacyAddr, err := t.tapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	legacyAddr, err := t.tapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:        simpleAsset.AssetGenesis.AssetId,
 		Amt:            simpleAsset.Amount / 2,
 		AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V0,
@@ -170,7 +167,7 @@ func testAddresses(t *harnessTest) {
 
 	AssertAddrCreated(t.t, t.tapd, simpleAsset, legacyAddr)
 
-	_, err = secondTapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	_, err = secondTapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		TapAddrs: []string{legacyAddr.Encoded},
 	})
 	require.ErrorContains(
@@ -193,7 +190,7 @@ func testAddresses(t *harnessTest) {
 	)
 
 	numAssets := 2
-	AssertNumAssets(t.t, ctxb, t.tapd, numAssets+1)
+	AssertNumAssets(t.t, ctx, t.tapd, numAssets+1)
 	respJSON, err := formatProtoJSON(manualAsset)
 	require.NoError(t.t, err)
 
@@ -207,7 +204,7 @@ func testAddresses(t *harnessTest) {
 	// succeed.
 	manualAssetID := manualAsset.AssetGenesis.AssetId
 	oldAddrAmt := manualAsset.Amount / 2
-	oldAddr, err := secondTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	oldAddr, err := secondTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:        manualAssetID,
 		Amt:            oldAddrAmt,
 		AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V0,
@@ -216,7 +213,7 @@ func testAddresses(t *harnessTest) {
 
 	AssertAddrCreated(t.t, secondTapd, manualAsset, oldAddr)
 
-	_, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	_, err = t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		TapAddrs: []string{oldAddr.Encoded},
 	})
 	require.NoError(t.t, err)
@@ -228,7 +225,7 @@ func testAddresses(t *harnessTest) {
 
 	// Trying to receive the new asset to a version 1 address should also
 	// succeed.
-	newAddr, err := secondTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	newAddr, err := secondTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:        manualAsset.AssetGenesis.AssetId,
 		Amt:            manualAsset.Amount / 2,
 		AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V1,
@@ -237,7 +234,7 @@ func testAddresses(t *harnessTest) {
 
 	AssertAddrCreated(t.t, secondTapd, manualAsset, newAddr)
 
-	_, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	_, err = t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		TapAddrs: []string{newAddr.Encoded},
 	})
 	require.NoError(t.t, err)
@@ -266,9 +263,7 @@ func testMultiAddress(t *harnessTest) {
 	genInfo := mintedAsset.AssetGenesis
 	groupGenInfo := mintedGroupAsset.AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
@@ -279,15 +274,15 @@ func testMultiAddress(t *harnessTest) {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
-	runMultiSendTest(ctxt, t, alice, bob, genInfo, mintedAsset, 0, 1)
+	runMultiSendTest(ctx, t, alice, bob, genInfo, mintedAsset, 0, 1)
 	runMultiSendTest(
-		ctxt, t, alice, bob, groupGenInfo, mintedGroupAsset, 1, 2,
+		ctx, t, alice, bob, groupGenInfo, mintedGroupAsset, 1, 2,
 	)
 
 	// If the second node tries to send assets to a set of addresses with
 	// mixed versions, that should fail early.
 	const sendAmt = 25
-	aliceAddr1, err := alice.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	aliceAddr1, err := alice.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:        genInfo.AssetId,
 		Amt:            sendAmt,
 		AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V0,
@@ -296,7 +291,7 @@ func testMultiAddress(t *harnessTest) {
 
 	AssertAddrCreated(t.t, alice, mintedAsset, aliceAddr1)
 
-	aliceAddr2, err := alice.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	aliceAddr2, err := alice.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:        genInfo.AssetId,
 		Amt:            sendAmt,
 		AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V1,
@@ -305,7 +300,7 @@ func testMultiAddress(t *harnessTest) {
 
 	AssertAddrCreated(t.t, alice, mintedAsset, aliceAddr2)
 
-	_, err = bob.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	_, err = bob.SendAsset(ctx, &taprpc.SendAssetRequest{
 		TapAddrs: []string{aliceAddr1.Encoded, aliceAddr2.Encoded},
 	})
 
@@ -328,9 +323,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	miner := t.lndHarness.Miner().Client
 
@@ -345,7 +338,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 	// Bob should not be able to make an address for any assets minted by
 	// Alice, as he has not added her as a Universe server.
 	firstAsset := rpcAssets[0]
-	_, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	_, err := bob.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:      firstAsset.AssetGenesis.AssetId,
 		Amt:          firstAsset.Amount / 2,
 		AssetVersion: firstAsset.Version,
@@ -356,7 +349,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 	// federation. We expect that their state is synchronized shortly after
 	// the call returns.
 	_, err = bob.AddFederationServer(
-		ctxt, &unirpc.AddFederationServerRequest{
+		ctx, &unirpc.AddFederationServerRequest{
 			Servers: []*unirpc.UniverseFederationServer{
 				{
 					Host: t.tapd.rpcHost(),
@@ -372,7 +365,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 	// Bob should not be able to make an address for a random asset ID
 	// that he nor Alice are aware of.
 	randAssetId := test.RandBytes(32)
-	_, err = bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	_, err = bob.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId: randAssetId,
 		Amt:     1,
 	})
@@ -394,14 +387,14 @@ func testAddressAssetSyncer(t *harnessTest) {
 	}
 
 	_, err = bob.UniverseClient.SetFederationSyncConfig(
-		ctxb, &unirpc.SetFederationSyncConfigRequest{
+		ctx, &unirpc.SetFederationSyncConfigRequest{
 			GlobalSyncConfigs: globalConfigs,
 		},
 	)
 	require.NoError(t.t, err)
 
 	configResp, err := bob.UniverseClient.QueryFederationSyncConfig(
-		ctxb, &unirpc.QueryFederationSyncConfigRequest{},
+		ctx, &unirpc.QueryFederationSyncConfigRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -439,7 +432,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 
 	// Verify that Bob will not sync to Alice by default by manually
 	// triggering a sync.
-	syncDiff, err := bob.SyncUniverse(ctxt, &unirpc.SyncRequest{
+	syncDiff, err := bob.SyncUniverse(ctx, &unirpc.SyncRequest{
 		UniverseHost: t.tapd.rpcHost(),
 		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
 	})
@@ -459,14 +452,14 @@ func testAddressAssetSyncer(t *harnessTest) {
 		)
 
 		_, err = bob.UniverseClient.SetFederationSyncConfig(
-			ctxb, &unirpc.SetFederationSyncConfigRequest{
+			ctx, &unirpc.SetFederationSyncConfigRequest{
 				GlobalSyncConfigs: globalConfigs,
 			},
 		)
 		require.NoError(t.t, err)
 
 		_, err = bob.AddFederationServer(
-			ctxt, &unirpc.AddFederationServerRequest{
+			ctx, &unirpc.AddFederationServerRequest{
 				Servers: []*unirpc.UniverseFederationServer{
 					{
 						Host: t.tapd.rpcHost(),
@@ -483,7 +476,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 	// assets.
 	restartBobNoUniSync(true)
 	firstAsset = secondRpcAssets[0]
-	_, err = bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	_, err = bob.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:      firstAsset.AssetGenesis.AssetId,
 		Amt:          firstAsset.Amount,
 		AssetVersion: firstAsset.Version,
@@ -498,7 +491,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
-	_, err = bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	_, err = bob.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AddressVersion:   taprpc.AddrVersion_ADDR_VERSION_V2,
 		GroupKey:         thirdGroup.TweakedGroupKey,
 		Amt:              0,
@@ -512,7 +505,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 	// not synced their issuance proofs.
 	restartBobNoUniSync(false)
 	firstAsset = secondRpcAssets[0]
-	firstAddr, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	firstAddr, err := bob.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:      firstAsset.AssetGenesis.AssetId,
 		Amt:          firstAsset.Amount,
 		AssetVersion: firstAsset.Version,
@@ -522,7 +515,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 
 	secondAsset := secondRpcAssets[1]
 	secondGroup := secondAsset.AssetGroup
-	secondAddr, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	secondAddr, err := bob.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:      secondAsset.AssetGenesis.AssetId,
 		Amt:          secondAsset.Amount,
 		AssetVersion: secondAsset.Version,
@@ -530,7 +523,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 	require.NoError(t.t, err)
 	AssertAddr(t.t, secondAsset, secondAddr)
 
-	thirdAddr, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	thirdAddr, err := bob.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AddressVersion:   taprpc.AddrVersion_ADDR_VERSION_V2,
 		GroupKey:         thirdAsset.AssetGroup.TweakedGroupKey,
 		Amt:              0,
@@ -543,7 +536,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 	// Ensure that the asset group of the second and third asset has a
 	// matching universe config so Bob will sync future issuance events.
 	resp, err := bob.UniverseClient.QueryFederationSyncConfig(
-		ctxt, &unirpc.QueryFederationSyncConfigRequest{},
+		ctx, &unirpc.QueryFederationSyncConfigRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, resp.AssetSyncConfigs, 2)
@@ -586,7 +579,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 	)
 	require.Len(t.t, reissuedAsset, 1)
 
-	syncDiff, err = bob.SyncUniverse(ctxt, &unirpc.SyncRequest{
+	syncDiff, err = bob.SyncUniverse(ctx, &unirpc.SyncRequest{
 		UniverseHost: t.tapd.rpcHost(),
 		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
 	})
@@ -596,7 +589,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 
 // runMultiSendTest runs a test that sends assets to multiple addresses at the
 // same time.
-func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
+func runMultiSendTest(ctx context.Context, t *harnessTest, alice,
 	bob *tapdHarness, genInfo *taprpc.GenesisInfo,
 	mintedAsset *taprpc.Asset, runIdx, numRuns int) {
 
@@ -678,7 +671,7 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	changeAmt := mintedAsset.Amount - (sendAmt * numAddrs)
 	err = wait.NoError(func() error {
 		resp, err := alice.ListTransfers(
-			ctxt, &taprpc.ListTransfersRequest{},
+			ctx, &taprpc.ListTransfersRequest{},
 		)
 		require.NoError(t.t, err)
 		require.Len(t.t, resp.Transfers, numRuns)
@@ -701,9 +694,9 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	// in each round we turn one of the assets into 3 pieces (two
 	// self-transfers via addresses and one change output).
 	if runIdx == 0 {
-		AssertNumAssets(t.t, ctxt, alice, 3+1)
+		AssertNumAssets(t.t, ctx, alice, 3+1)
 	} else {
-		AssertNumAssets(t.t, ctxt, alice, 3+(runIdx*3))
+		AssertNumAssets(t.t, ctx, alice, 3+(runIdx*3))
 	}
 }
 
@@ -721,9 +714,7 @@ func testUnknownTlvType(t *harnessTest) {
 	mintedAsset := rpcAssets[0]
 	genInfo := mintedAsset.AssetGenesis
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
@@ -735,7 +726,7 @@ func testUnknownTlvType(t *harnessTest) {
 	}()
 
 	// We now create an address for Bob and add some unknown TLV type to it.
-	bobAddr, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	bobAddr, err := bob.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId: genInfo.AssetId,
 		Amt:     123,
 	})
@@ -840,7 +831,7 @@ func testUnknownTlvType(t *harnessTest) {
 
 	// The proof should also still be valid. Importing the proof validates
 	// it, but we also want to do it explicitly.
-	verifyResp, err := charlie.VerifyProof(ctxb, &taprpc.ProofFile{
+	verifyResp, err := charlie.VerifyProof(ctx, &taprpc.ProofFile{
 		RawProofFile: modifiedBlob,
 		GenesisPoint: genInfo.GenesisPoint,
 	})
@@ -872,7 +863,7 @@ func testUnknownTlvType(t *harnessTest) {
 	modifiedBlob2, err := proof.EncodeFile(f2)
 	require.NoError(t.t, err)
 
-	verifyResp, err = charlie.VerifyProof(ctxb, &taprpc.ProofFile{
+	verifyResp, err = charlie.VerifyProof(ctx, &taprpc.ProofFile{
 		RawProofFile: modifiedBlob2,
 		GenesisPoint: genInfo.GenesisPoint,
 	})
@@ -890,9 +881,7 @@ func testAddrReceives(t *harnessTest) {
 		},
 	)
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
@@ -944,20 +933,20 @@ func testAddrReceives(t *harnessTest) {
 
 	// Test all events.
 	resp, err := bob.AddrReceives(
-		ctxt, &taprpc.AddrReceivesRequest{},
+		ctx, &taprpc.AddrReceivesRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, resp.Events, numAddresses)
 
 	// Test limit.
-	resp, err = bob.AddrReceives(ctxt, &taprpc.AddrReceivesRequest{
+	resp, err = bob.AddrReceives(ctx, &taprpc.AddrReceivesRequest{
 		Limit: 3,
 	})
 	require.NoError(t.t, err)
 	require.Len(t.t, resp.Events, 3)
 
 	// Test offset.
-	resp, err = bob.AddrReceives(ctxt, &taprpc.AddrReceivesRequest{
+	resp, err = bob.AddrReceives(ctx, &taprpc.AddrReceivesRequest{
 		Offset: 2,
 		Limit:  3,
 	})
@@ -965,7 +954,7 @@ func testAddrReceives(t *harnessTest) {
 	require.Len(t.t, resp.Events, 3)
 
 	// Test descending direction (default).
-	resp, err = bob.AddrReceives(ctxt, &taprpc.AddrReceivesRequest{
+	resp, err = bob.AddrReceives(ctx, &taprpc.AddrReceivesRequest{
 		Limit: 5,
 	})
 	require.NoError(t.t, err)
@@ -980,7 +969,7 @@ func testAddrReceives(t *harnessTest) {
 	}
 
 	// Test ascending direction.
-	resp, err = bob.AddrReceives(ctxt, &taprpc.AddrReceivesRequest{
+	resp, err = bob.AddrReceives(ctx, &taprpc.AddrReceivesRequest{
 		Limit:     5,
 		Direction: taprpc.SortDirection_SORT_DIRECTION_ASC,
 	})
@@ -996,7 +985,7 @@ func testAddrReceives(t *harnessTest) {
 	}
 
 	// Test offset out of bounds.
-	resp, err = bob.AddrReceives(ctxt,
+	resp, err = bob.AddrReceives(ctx,
 		&taprpc.AddrReceivesRequest{
 			Offset: 100,
 			Limit:  10,
@@ -1011,7 +1000,7 @@ func testAddrReceives(t *harnessTest) {
 	limit := int32(3)
 
 	for {
-		resp, err := bob.AddrReceives(ctxt,
+		resp, err := bob.AddrReceives(ctx,
 			&taprpc.AddrReceivesRequest{
 				Offset: offset,
 				Limit:  limit,
@@ -1031,7 +1020,7 @@ func testAddrReceives(t *harnessTest) {
 	require.Len(t.t, allPaginatedEvents, numAddresses)
 
 	// Test negative offset and limit error.
-	_, err = bob.AddrReceives(ctxt,
+	_, err = bob.AddrReceives(ctx,
 		&taprpc.AddrReceivesRequest{
 			Offset: -5,
 		},
@@ -1039,7 +1028,7 @@ func testAddrReceives(t *harnessTest) {
 	require.Error(t.t, err)
 	require.Contains(t.t, err.Error(), "offset must be non-negative")
 
-	_, err = bob.AddrReceives(ctxt,
+	_, err = bob.AddrReceives(ctx,
 		&taprpc.AddrReceivesRequest{
 			Limit: -5,
 		},
@@ -1050,7 +1039,7 @@ func testAddrReceives(t *harnessTest) {
 	// Test filter by start timestamp before the send
 	// (should return events).
 	resp, err = bob.AddrReceives(
-		ctxt, &taprpc.AddrReceivesRequest{
+		ctx, &taprpc.AddrReceivesRequest{
 			StartTimestamp: uint64(timeBeforeSend.Unix() - 1),
 		},
 	)
@@ -1060,7 +1049,7 @@ func testAddrReceives(t *harnessTest) {
 	// Test filter by start timestamp exactly at the send time
 	// (should return all events).
 	resp, err = bob.AddrReceives(
-		ctxt, &taprpc.AddrReceivesRequest{
+		ctx, &taprpc.AddrReceivesRequest{
 			StartTimestamp: uint64(timeBeforeSend.Unix()),
 		},
 	)
@@ -1070,7 +1059,7 @@ func testAddrReceives(t *harnessTest) {
 	// Test filter by end timestamp before the send
 	// (should return no events).
 	resp, err = bob.AddrReceives(
-		ctxt, &taprpc.AddrReceivesRequest{
+		ctx, &taprpc.AddrReceivesRequest{
 			EndTimestamp: uint64(timeBeforeSend.Unix() - 1),
 		},
 	)
@@ -1080,7 +1069,7 @@ func testAddrReceives(t *harnessTest) {
 	// Test filter by end timestamp after the send
 	// (should return all events).
 	resp, err = bob.AddrReceives(
-		ctxt, &taprpc.AddrReceivesRequest{
+		ctx, &taprpc.AddrReceivesRequest{
 			EndTimestamp: uint64(timeAfterSend.Unix() + 1),
 		},
 	)
@@ -1090,7 +1079,7 @@ func testAddrReceives(t *harnessTest) {
 	// Test filter by both start and end timestamp
 	// (should return all events).
 	resp, err = bob.AddrReceives(
-		ctxt, &taprpc.AddrReceivesRequest{
+		ctx, &taprpc.AddrReceivesRequest{
 			StartTimestamp: uint64(timeBeforeSend.Unix()),
 			EndTimestamp:   uint64(timeAfterSend.Unix() + 1),
 		},
@@ -1247,8 +1236,6 @@ func sendAsset(t *harnessTest, sender *tapdHarness,
 	*EventSubscription[*taprpc.SendEvent]) {
 
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
 
 	// Create base request that will be modified by options.
 	options := &sendOptions{}
@@ -1310,6 +1297,8 @@ func sendAsset(t *harnessTest, sender *tapdHarness,
 	time.Sleep(time.Second)
 
 	// Kick off the send asset request.
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
 	resp, err := sender.SendAsset(ctxt, &options.sendAssetRequest)
 	if options.errText != "" {
 		require.ErrorContains(t.t, err, options.errText)
