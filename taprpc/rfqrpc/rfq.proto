@@ -68,6 +68,13 @@ service Rfq {
     */
     rpc SubscribeRfqEventNtfns (SubscribeRfqEventNtfnsRequest)
         returns (stream RfqEvent);
+
+    /* tapcli: `rfq forwardinghistory`
+    ForwardingHistory is used to query for completed asset forwarding events.
+    These are historical records of HTLCs that were settled successfully.
+    */
+    rpc ForwardingHistory (ForwardingHistoryRequest)
+        returns (ForwardingHistoryResponse);
 }
 
 message AssetSpecifier {
@@ -433,4 +440,100 @@ message RfqEvent {
         // RFQ service.
         AcceptHtlcEvent accept_htlc = 3;
     }
+}
+
+// RfqPolicyType indicates the type of policy of an RFQ session.
+enum RfqPolicyType {
+    // RFQ_POLICY_TYPE_SALE indicates that the RFQ session was a sale.
+    RFQ_POLICY_TYPE_SALE = 0;
+
+    // RFQ_POLICY_TYPE_PURCHASE indicates that the RFQ session was a purchase.
+    RFQ_POLICY_TYPE_PURCHASE = 1;
+}
+
+message ForwardingHistoryRequest {
+    // min_timestamp is the minimum Unix timestamp in seconds. Only forwarding
+    // events that settled at or after this time are returned. If not set, there
+    // is no lower bound.
+    uint64 min_timestamp = 1;
+
+    // max_timestamp is the maximum Unix timestamp in seconds. Only forwarding
+    // events that settled at or before this time are returned. If not set,
+    // there is no upper bound.
+    uint64 max_timestamp = 2;
+
+    // peer is the optional counterparty peer's public key. If set,
+    // only forwarding events involving this peer are returned.
+    bytes peer = 3;
+
+    // asset_specifier optionally filters forwarding events by asset ID or group
+    // key.
+    AssetSpecifier asset_specifier = 4;
+
+    // limit is the maximum number of records to return.
+    int32 limit = 5;
+
+    // offset is the number of records to skip for pagination.
+    int32 offset = 6;
+}
+
+message ForwardingHistoryResponse {
+    // forwards is the list of completed asset forwarding events matching the
+    // query.
+    repeated ForwardingEvent forwards = 1;
+
+    // total_count is the total number of forwards matching the filter (before
+    // pagination is applied). This can be used for pagination.
+    int64 total_count = 2;
+}
+
+message ForwardingEvent {
+    // rfq_id is the unique identifier of the RFQ session that governed this
+    // forward.
+    bytes rfq_id = 1;
+
+    // chan_id_in is the short channel ID of the incoming channel.
+    uint64 chan_id_in = 2;
+
+    // chan_id_out is the short channel ID of the outgoing channel.
+    uint64 chan_id_out = 3;
+
+    // htlc_id is the HTLC ID on the incoming channel.
+    uint64 htlc_id = 4;
+
+    // opened_at is the Unix timestamp in seconds when the forward was
+    // initiated.
+    uint64 opened_at = 5;
+
+    // settled_at is the Unix timestamp in seconds when the forward settled.
+    // A value of 0 means the forward has not settled yet.
+    uint64 settled_at = 6;
+
+    // failed_at is the Unix timestamp in seconds when the forward failed.
+    // A value of 0 means the forward has not failed.
+    uint64 failed_at = 7;
+
+    // asset_amt is the asset amount that was swapped.
+    uint64 asset_amt = 8;
+
+    // amt_in_msat is the actual amount received on the incoming channel in
+    // millisatoshis.
+    uint64 amt_in_msat = 9;
+
+    // amt_out_msat is the actual amount sent on the outgoing channel in
+    // millisatoshis.
+    uint64 amt_out_msat = 10;
+
+    // policy_type indicates whether this was a sale or purchase of assets
+    // from the edge node's perspective.
+    RfqPolicyType policy_type = 11;
+
+    // peer is the counterparty peer's public key as a hex string.
+    string peer = 12;
+
+    // asset_specifier identifies the asset that was swapped.
+    AssetSpec asset_spec = 13;
+
+    // rate is the exchange rate that was used for this swap.
+    FixedPoint rate = 14;
 }
