@@ -180,6 +180,101 @@
         ]
       }
     },
+    "/v1/taproot-assets/rfq/forwardinghistory": {
+      "get": {
+        "summary": "tapcli: `rfq forwardinghistory`\nForwardingHistory is used to query for completed asset forwarding events.\nThese are historical records of HTLCs that were settled successfully.",
+        "operationId": "Rfq_ForwardingHistory",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/rfqrpcForwardingHistoryResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "min_timestamp",
+            "description": "min_timestamp is the minimum Unix timestamp in seconds. Only forwarding\nevents that settled at or after this time are returned. If not set, there\nis no lower bound.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "max_timestamp",
+            "description": "max_timestamp is the maximum Unix timestamp in seconds. Only forwarding\nevents that settled at or before this time are returned. If not set,\nthere is no upper bound.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "peer",
+            "description": "peer is the optional counterparty peer's public key. If set,\nonly forwarding events involving this peer are returned.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "asset_specifier.asset_id",
+            "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "asset_specifier.asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "asset_specifier.group_key",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "asset_specifier.group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "description": "limit is the maximum number of records to return.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "offset",
+            "description": "offset is the number of records to skip for pagination.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "Rfq"
+        ]
+      }
+    },
     "/v1/taproot-assets/rfq/ntfs": {
       "post": {
         "summary": "SubscribeRfqEventNtfns is used to subscribe to RFQ events.",
@@ -694,6 +789,95 @@
       },
       "description": "FixedPoint is a scaled integer representation of a fractional number.\n\nThis type consists of two integer fields: a coefficient and a scale.\nUsing this format enables precise and consistent representation of fractional\nnumbers while avoiding floating-point data types, which are prone to\nprecision errors.\n\nThe relationship between the fractional representation and its fixed-point\nrepresentation is expressed as:\n```\nV = F_c / (10^F_s)\n```\nwhere:\n\n* `V` is the fractional value.\n\n* `F_c` is the coefficient component of the fixed-point representation. It is\n   the scaled-up fractional value represented as an integer.\n\n* `F_s` is the scale component. It is an integer specifying how\n  many decimal places `F_c` should be divided by to obtain the fractional\n  representation."
     },
+    "rfqrpcForwardingEvent": {
+      "type": "object",
+      "properties": {
+        "rfq_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "rfq_id is the unique identifier of the RFQ session that governed this\nforward."
+        },
+        "chan_id_in": {
+          "type": "string",
+          "format": "uint64",
+          "description": "chan_id_in is the short channel ID of the incoming channel."
+        },
+        "chan_id_out": {
+          "type": "string",
+          "format": "uint64",
+          "description": "chan_id_out is the short channel ID of the outgoing channel."
+        },
+        "htlc_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "htlc_id is the HTLC ID on the incoming channel."
+        },
+        "opened_at": {
+          "type": "string",
+          "format": "uint64",
+          "description": "opened_at is the Unix timestamp in seconds when the forward was\ninitiated."
+        },
+        "settled_at": {
+          "type": "string",
+          "format": "uint64",
+          "description": "settled_at is the Unix timestamp in seconds when the forward settled.\nA value of 0 means the forward has not settled yet."
+        },
+        "failed_at": {
+          "type": "string",
+          "format": "uint64",
+          "description": "failed_at is the Unix timestamp in seconds when the forward failed.\nA value of 0 means the forward has not failed."
+        },
+        "asset_amt": {
+          "type": "string",
+          "format": "uint64",
+          "description": "asset_amt is the asset amount that was swapped."
+        },
+        "amt_in_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "amt_in_msat is the actual amount received on the incoming channel in\nmillisatoshis."
+        },
+        "amt_out_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "amt_out_msat is the actual amount sent on the outgoing channel in\nmillisatoshis."
+        },
+        "policy_type": {
+          "$ref": "#/definitions/rfqrpcRfqPolicyType",
+          "description": "policy_type indicates whether this was a sale or purchase of assets\nfrom the edge node's perspective."
+        },
+        "peer": {
+          "type": "string",
+          "description": "peer is the counterparty peer's public key as a hex string."
+        },
+        "asset_spec": {
+          "$ref": "#/definitions/rfqrpcAssetSpec",
+          "description": "asset_specifier identifies the asset that was swapped."
+        },
+        "rate": {
+          "$ref": "#/definitions/rfqrpcFixedPoint",
+          "description": "rate is the exchange rate that was used for this swap."
+        }
+      }
+    },
+    "rfqrpcForwardingHistoryResponse": {
+      "type": "object",
+      "properties": {
+        "forwards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/rfqrpcForwardingEvent"
+          },
+          "description": "forwards is the list of completed asset forwarding events matching the\nquery."
+        },
+        "total_count": {
+          "type": "string",
+          "format": "int64",
+          "description": "total_count is the total number of forwards matching the filter (before\npagination is applied). This can be used for pagination."
+        }
+      }
+    },
     "rfqrpcInvalidQuoteResponse": {
       "type": "object",
       "properties": {
@@ -906,6 +1090,15 @@
           "description": "accept_htlc is an event that is sent when a HTLC is accepted by the\nRFQ service."
         }
       }
+    },
+    "rfqrpcRfqPolicyType": {
+      "type": "string",
+      "enum": [
+        "RFQ_POLICY_TYPE_SALE",
+        "RFQ_POLICY_TYPE_PURCHASE"
+      ],
+      "default": "RFQ_POLICY_TYPE_SALE",
+      "description": "RfqPolicyType indicates the type of policy of an RFQ session.\n\n - RFQ_POLICY_TYPE_SALE: RFQ_POLICY_TYPE_SALE indicates that the RFQ session was a sale.\n - RFQ_POLICY_TYPE_PURCHASE: RFQ_POLICY_TYPE_PURCHASE indicates that the RFQ session was a purchase."
     },
     "rfqrpcSubscribeRfqEventNtfnsRequest": {
       "type": "object"
