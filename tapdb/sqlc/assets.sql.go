@@ -88,10 +88,11 @@ func (q *Queries) AllInternalKeys(ctx context.Context) ([]InternalKey, error) {
 }
 
 const AllMintingBatches = `-- name: AllMintingBatches :many
-SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, assets_output_index, universe_commitments, key_id, raw_key, key_family, key_index 
+SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, assets_output_index, universe_commitments, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches
-JOIN internal_keys 
+JOIN internal_keys
 ON asset_minting_batches.batch_id = internal_keys.key_id
+ORDER BY batch_id ASC
 `
 
 type AllMintingBatchesRow struct {
