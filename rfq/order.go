@@ -3,6 +3,7 @@ package rfq
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -16,12 +17,15 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // parseHtlcCustomRecords parses a HTLC custom record to extract any data which
@@ -57,6 +61,56 @@ func parseHtlcCustomRecords(customRecords map[uint64][]byte) (*rfqmsg.Htlc,
 // SerialisedScid is a serialised short channel id (SCID).
 type SerialisedScid = rfqmsg.SerialisedScid
 
+// computeHtlcAssetAmount derives the asset amount carried by the HTLC from the
+// custom records or computes it from the msat amount and rate.
+func computeHtlcAssetAmount(ctx context.Context, policy Policy,
+	htlc lndclient.InterceptedHtlc,
+	specifierChecker rfqmsg.SpecifierChecker) (uint64, error) {
+
+	switch p := policy.(type) {
+	case *AssetSalePolicy:
+		// For asset sales (BTC in, assets out), compute the asset
+		// amount from the outgoing msat amount using the agreed rate.
+		assetAmt := rfqmath.MilliSatoshiToUnits(
+			htlc.AmountOutMsat, p.AskAssetRate,
+		)
+
+		return assetAmt.ToUint64(), nil
+
+	case *AssetPurchasePolicy:
+		// For asset purchases (assets in, BTC out), extract the asset
+		// amount from the incoming HTLC's custom records.
+		htlcRecord, err := parseHtlcCustomRecords(
+			htlc.InWireCustomRecords,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("parsing HTLC custom records "+
+				"failed: %w", err)
+		}
+
+		assetAmt, err := htlcRecord.SumAssetBalance(
+			ctx, p.AssetSpecifier, specifierChecker,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("summing asset balance failed: "+
+				"%w", err)
+		}
+
+		return assetAmt.ToUint64(), nil
+
+	case *AssetForwardPolicy:
+		// Asset-to-asset forwards use the incoming purchase policy to
+		// determine the asset amount.
+		return computeHtlcAssetAmount(
+			ctx, p.incomingPolicy, htlc, specifierChecker,
+		)
+
+	default:
+		return 0, fmt.Errorf("unsupported policy type %T for HTLC "+
+			"asset extraction", policy)
+	}
+}
+
 // Policy is an interface that abstracts the terms which determine whether an
 // asset sale/purchase channel HTLC is accepted or rejected.
 type Policy interface {
@@ -74,6 +128,9 @@ type Policy interface {
 	// Scid returns the serialised short channel ID (SCID) of the channel to
 	// which the policy applies.
 	Scid() uint64
+
+	// RfqID returns the RFQ session identifier for this policy.
+	RfqID() rfqmsg.ID
 
 	// TrackAcceptedHtlc makes the policy aware of this new accepted HTLC.
 	// This is important in cases where the set of existing HTLCs may affect
@@ -260,6 +317,11 @@ func (c *AssetSalePolicy) HasExpired() bool {
 // the policy applies.
 func (c *AssetSalePolicy) Scid() uint64 {
 	return uint64(c.AcceptedQuoteId.Scid())
+}
+
+// RfqID returns the RFQ session identifier for this policy.
+func (c *AssetSalePolicy) RfqID() rfqmsg.ID {
+	return c.AcceptedQuoteId
 }
 
 // GenerateInterceptorResponse generates an interceptor response for the policy.
@@ -507,6 +569,11 @@ func (c *AssetPurchasePolicy) Scid() uint64 {
 	return uint64(c.scid)
 }
 
+// RfqID returns the RFQ session identifier for this policy.
+func (c *AssetPurchasePolicy) RfqID() rfqmsg.ID {
+	return c.AcceptedQuoteId
+}
+
 // GenerateInterceptorResponse generates an interceptor response for the policy.
 func (c *AssetPurchasePolicy) GenerateInterceptorResponse(
 	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
@@ -636,6 +703,12 @@ func (a *AssetForwardPolicy) Scid() uint64 {
 	return a.incomingPolicy.Scid()
 }
 
+// RfqID returns the RFQ session identifier for this policy. For forward
+// policies, we use the incoming policy's RFQ ID.
+func (a *AssetForwardPolicy) RfqID() rfqmsg.ID {
+	return a.incomingPolicy.RfqID()
+}
+
 // GenerateInterceptorResponse generates an interceptor response for the policy.
 func (a *AssetForwardPolicy) GenerateInterceptorResponse(
 	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
@@ -718,6 +791,10 @@ type OrderHandlerCfg struct {
 
 	// PolicyStore persists agreed RFQ policies.
 	PolicyStore PolicyStore
+
+	// ForwardStore persists forwarding events for accounting.
+	// If nil, forwarding event logging is disabled.
+	ForwardStore ForwardStore
 }
 
 // OrderHandler orchestrates management of accepted quote bundles. It monitors
@@ -770,6 +847,13 @@ type OrderHandler struct {
 	// data available, so we need to cache this info.
 	htlcToPolicy lnutils.SyncMap[models.CircuitKey, Policy]
 
+	// htlcToForward maps an HTLC circuit key to the forward input data
+	// needed for logging. This is populated when an HTLC is accepted.
+	htlcToForward lnutils.SyncMap[models.CircuitKey, *ForwardInput]
+
+	// forwardStore persists forwarding events for accounting.
+	forwardStore ForwardStore
+
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
 	*fn.ContextGuard
@@ -778,9 +862,10 @@ type OrderHandler struct {
 // NewOrderHandler creates a new struct instance.
 func NewOrderHandler(cfg OrderHandlerCfg) (*OrderHandler, error) {
 	return &OrderHandler{
-		cfg:         cfg,
-		policyStore: cfg.PolicyStore,
-		policies:    lnutils.SyncMap[SerialisedScid, Policy]{},
+		cfg:          cfg,
+		policyStore:  cfg.PolicyStore,
+		forwardStore: cfg.ForwardStore,
+		policies:     lnutils.SyncMap[SerialisedScid, Policy]{},
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -854,6 +939,52 @@ func (h *OrderHandler) handleIncomingHtlc(ctx context.Context,
 	// accepted HTLC.
 	policy.TrackAcceptedHtlc(htlc.IncomingCircuitKey, htlc.AmountOutMsat)
 
+	// Log the forwarding event when the HTLC is accepted. We store the
+	// circuit key
+	// so we can later update the record when the HTLC settles or fails.
+	if h.forwardStore != nil {
+		assetAmt, err := computeHtlcAssetAmount(
+			ctx, policy, htlc, h.cfg.SpecifierChecker,
+		)
+		if err != nil {
+			log.Warnf("Skipping forwarding event logging, "+
+				"failed to extract asset amount from HTLC: %v",
+				err)
+		} else {
+			chanIdIn := htlc.IncomingCircuitKey.ChanID.ToUint64()
+			fwdInput := ForwardInput{
+				OpenedAt:   time.Now().UTC(),
+				RfqID:      policy.RfqID(),
+				ChanIDIn:   chanIdIn,
+				ChanIDOut:  htlc.OutgoingChannelID.ToUint64(),
+				HtlcID:     htlc.IncomingCircuitKey.HtlcID,
+				AssetAmt:   assetAmt,
+				AmtInMsat:  uint64(htlc.AmountInMsat),
+				AmtOutMsat: uint64(htlc.AmountOutMsat),
+			}
+
+			// Store the circuit key so we can update the record
+			// later.
+			h.htlcToForward.Store(htlc.IncomingCircuitKey,
+				&fwdInput)
+
+			// Log the forwarding event immediately when it opens.
+			err := h.forwardStore.UpsertForward(ctx, fwdInput)
+			rfqIDHex := hex.EncodeToString(fwdInput.RfqID[:])
+			if err != nil {
+				log.Errorf("Failed to log forward for "+
+					"RFQ %x: %v", rfqIDHex, err)
+			} else {
+				log.DebugS(ctx, "Logged forwarding event",
+					"rfq_id", rfqIDHex,
+					"asset_amt", fwdInput.AssetAmt,
+					"amt_in_msat", fwdInput.AmtInMsat,
+					"amt_out_msat", fwdInput.AmtOutMsat,
+				)
+			}
+		}
+	}
+
 	log.Debug("HTLC complies with policy. Broadcasting accept event.")
 	h.cfg.AcceptHtlcEvents <- NewAcceptHtlcEvent(htlc, policy)
 
@@ -901,8 +1032,9 @@ func (h *OrderHandler) mainEventLoop() {
 }
 
 // subscribeHtlcs subscribes the OrderHandler to HTLC events provided by the lnd
-// RPC interface. We use this subscription to track HTLC forwarding failures,
-// which we use to perform a live update of our policies.
+// RPC interface. We use this subscription to track HTLC forwarding failures
+// and settlements, which we use to perform live updates of our policies and
+// to log forward events for accounting.
 func (h *OrderHandler) subscribeHtlcs(ctx context.Context) error {
 	events, chErr, err := h.cfg.HtlcSubscriber.SubscribeHtlcEvents(ctx)
 	if err != nil {
@@ -917,9 +1049,10 @@ func (h *OrderHandler) subscribeHtlcs(ctx context.Context) error {
 				continue
 			}
 
-			// Retrieve the two instances that may be relevant.
+			// Retrieve the event instances that may be relevant.
 			failEvent := event.GetForwardFailEvent()
 			linkFail := event.GetLinkFailEvent()
+			settleEvent := event.GetSettleEvent()
 
 			// Craft the circuit key that identifies this HTLC.
 			circuitKey := models.CircuitKey{
@@ -930,21 +1063,18 @@ func (h *OrderHandler) subscribeHtlcs(ctx context.Context) error {
 			}
 
 			switch {
+			case settleEvent != nil:
+				// HTLC settled successfully - update the
+				// forwarding event record.
+				h.handleHtlcSettle(ctx, circuitKey)
+
 			case failEvent != nil:
 				fallthrough
 			case linkFail != nil:
-				// Fetch the policy that is related to this
-				// HTLC.
-				policy, found := h.htlcToPolicy.LoadAndDelete(
-					circuitKey,
-				)
-
-				if !found {
-					continue
-				}
-
-				// Stop tracking this HTLC as it failed.
-				policy.UntrackHtlc(circuitKey)
+				// HTLC failed - update the forwarding event
+				// record
+				// with the failure timestamp.
+				h.handleHtlcFail(ctx, circuitKey)
 			}
 
 		case err := <-chErr:
@@ -954,6 +1084,220 @@ func (h *OrderHandler) subscribeHtlcs(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
+}
+
+// handleHtlcSettle handles an HTLC settle event by updating the forwarding
+// event record
+// in the database with the settlement timestamp.
+func (h *OrderHandler) handleHtlcSettle(ctx context.Context,
+	circuitKey models.CircuitKey) {
+
+	// Clean up the policy tracking first.
+	policy, found := h.htlcToPolicy.LoadAndDelete(circuitKey)
+	if found {
+		policy.UntrackHtlc(circuitKey)
+	}
+
+	// If forwarding event logging is disabled, nothing more to do.
+	if h.forwardStore == nil {
+		return
+	}
+
+	// Get the forward input we stored when we accepted the HTLC.
+	fwdInput, found := h.htlcToForward.LoadAndDelete(circuitKey)
+	if !found {
+		// This HTLC wasn't one we tracked (not an RFQ HTLC).
+		return
+	}
+
+	// Update the forwarding event record with the settlement timestamp.
+	settledAt := time.Now().UTC()
+	updatedInput := *fwdInput
+	updatedInput.SettledAt = fn.Some(settledAt)
+
+	err := h.forwardStore.UpsertForward(ctx, updatedInput)
+	rfqIDHex := hex.EncodeToString(fwdInput.RfqID[:])
+	if err != nil {
+		log.Errorf("Failed to settle forwarding event (rfq_id=%x): %v",
+			rfqIDHex, err)
+		return
+	}
+
+	log.DebugS(ctx, "Settled forwarding event",
+		"rfq_id", rfqIDHex,
+		"asset_amt", fwdInput.AssetAmt,
+	)
+}
+
+// handleHtlcFail handles an HTLC failure event by updating the forwarding
+// event record
+// in the database with the failure timestamp.
+func (h *OrderHandler) handleHtlcFail(ctx context.Context,
+	circuitKey models.CircuitKey) {
+
+	// Clean up the policy tracking first.
+	policy, found := h.htlcToPolicy.LoadAndDelete(circuitKey)
+	if found {
+		policy.UntrackHtlc(circuitKey)
+	}
+
+	// If forwarding event logging is disabled, nothing more to do.
+	if h.forwardStore == nil {
+		return
+	}
+
+	// Get the forward input we stored when we accepted the HTLC.
+	fwdInput, found := h.htlcToForward.LoadAndDelete(circuitKey)
+	if !found {
+		// This HTLC wasn't one we tracked (not an RFQ HTLC).
+		return
+	}
+
+	// Update the forwarding event record with the failure timestamp.
+	failedAt := time.Now().UTC()
+	updatedInput := *fwdInput
+	updatedInput.FailedAt = fn.Some(failedAt)
+
+	err := h.forwardStore.UpsertForward(ctx, updatedInput)
+	rfqIDHex := hex.EncodeToString(fwdInput.RfqID[:])
+	if err != nil {
+		log.Errorf("Failed to mark forwarding event as failed "+
+			"(rfq_id=%x): %v", rfqIDHex, err)
+		return
+	}
+
+	log.DebugS(ctx, "Failed forwarding event", "rfq_id", rfqIDHex,
+		"asset_amt", fwdInput.AssetAmt,
+	)
+}
+
+// restorePendingForwards reconciles pending forwarding events and repopulates
+// the
+// in-memory forward caches.
+func (h *OrderHandler) restorePendingForwards(ctx context.Context) error {
+	pendingForwards, err := h.forwardStore.PendingForwards(ctx)
+	if err != nil {
+		return fmt.Errorf("error fetching pending forwarding events: "+
+			"%w", err)
+	}
+
+	if len(pendingForwards) == 0 {
+		return nil
+	}
+
+	log.Debugf("Reconciling %d pending forwarding events",
+		len(pendingForwards))
+
+	for _, forward := range pendingForwards {
+		circuitKey := models.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(
+				forward.ChanIDIn,
+			),
+			HtlcID: forward.HtlcID,
+		}
+
+		res, err := h.cfg.HtlcSubscriber.LookupHtlcResolution(
+			ctx, forward.ChanIDIn, forward.HtlcID,
+		)
+		if err != nil {
+			switch status.Code(err) {
+			case codes.NotFound:
+				h.restorePendingForward(circuitKey, forward)
+			default:
+				log.Warnf("Unable to lookup HTLC resolution "+
+					"chan_id=%d htlc_id=%d: %v",
+					forward.ChanIDIn, forward.HtlcID, err)
+				h.restorePendingForward(circuitKey, forward)
+			}
+
+			continue
+		}
+
+		updated := forward
+		resolvedAt := time.Now().UTC()
+		if res.Settled {
+			updated.SettledAt = fn.Some(resolvedAt)
+		} else {
+			updated.FailedAt = fn.Some(resolvedAt)
+		}
+
+		err = h.forwardStore.UpsertForward(ctx, updated)
+		rfqIDHex := hex.EncodeToString(forward.RfqID[:])
+		if err != nil {
+			log.Errorf("Failed to reconcile forwarding event "+
+				"(rfq_id=%x): %v", rfqIDHex, err)
+			continue
+		}
+
+		log.DebugS(ctx, "Reconciled forwarding event",
+			"rfq_id", rfqIDHex,
+			"settled", res.Settled,
+		)
+	}
+
+	return nil
+}
+
+// restorePendingForward repopulates caches for a pending forward.
+func (h *OrderHandler) restorePendingForward(
+	circuitKey models.CircuitKey, forward ForwardInput) {
+
+	forwardCopy := forward
+	h.htlcToForward.Store(circuitKey, &forwardCopy)
+
+	policy, ok := h.policyForForward(forward)
+	if !ok {
+		return
+	}
+
+	policy.TrackAcceptedHtlc(
+		circuitKey, lnwire.MilliSatoshi(forward.AmtOutMsat),
+	)
+	h.htlcToPolicy.Store(circuitKey, policy)
+}
+
+// policyForForward attempts to reconstruct the policy for a pending forward.
+func (h *OrderHandler) policyForForward(
+	forward ForwardInput) (Policy, bool) {
+
+	inScid := SerialisedScid(forward.ChanIDIn)
+	outScid := SerialisedScid(forward.ChanIDOut)
+
+	inPolicy, haveIn := h.policies.Load(inScid)
+	outPolicy, haveOut := h.policies.Load(outScid)
+
+	if haveIn && haveOut {
+		forwardPolicy, err := NewAssetForwardPolicy(
+			inPolicy, outPolicy,
+		)
+		if err == nil {
+			return forwardPolicy, true
+		}
+
+		log.Warnf("Unable to restore forward policy "+
+			"(scid_in=%d, scid_out=%d): %v",
+			forward.ChanIDIn, forward.ChanIDOut, err)
+	}
+
+	if haveIn {
+		return inPolicy, true
+	}
+
+	if haveOut {
+		return outPolicy, true
+	}
+
+	var matched Policy
+	h.policies.Range(func(_ SerialisedScid, policy Policy) bool {
+		if policy.RfqID() == forward.RfqID {
+			matched = policy
+			return false
+		}
+
+		return true
+	})
+
+	return matched, matched != nil
 }
 
 // Start starts the service.
@@ -966,6 +1310,11 @@ func (h *OrderHandler) Start(ctx context.Context) error {
 			log.Errorf("error restoring persisted RFQ "+
 				"policies: %w", startErr)
 			return
+		}
+
+		if err := h.restorePendingForwards(ctx); err != nil {
+			log.Errorf("restoring pending forwarding events: "+
+				"%v", err)
 		}
 
 		// Start the HTLC interceptor in a separate go routine.
@@ -1328,4 +1677,8 @@ type HtlcSubscriber interface {
 	// HTLC updates.
 	SubscribeHtlcEvents(ctx context.Context) (<-chan *routerrpc.HtlcEvent,
 		<-chan error, error)
+
+	// LookupHtlcResolution retrieves the final resolution for an HTLC.
+	LookupHtlcResolution(ctx context.Context, chanID uint64,
+		htlcID uint64) (*lnrpc.LookupHtlcResolutionResponse, error)
 }
