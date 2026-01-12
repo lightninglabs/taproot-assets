@@ -56,9 +56,7 @@ func testMintFundSealAssets(t *harnessTest) {
 		require.NoError(t.t, bobTapd.stop(!*noDelete))
 	}()
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	aliceLndKeyRing := lndservices.NewLndRpcKeyRing(
 		&aliceLndClient.LndServices,
@@ -67,7 +65,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	// Let's derive the keys and tapscript trees we'll use.
 	// tweakedScript will have an internal key not managed by a tapd, and
 	// a tapscript root with a hashlock and a single sig script.
-	tweakedScriptDesc := deriveRandomKey(t.t, ctxt, aliceLndKeyRing)
+	tweakedScriptDesc := deriveRandomKey(t.t, ctx, aliceLndKeyRing)
 	tweakedScriptSigLock := test.ScriptSchnorrSig(
 		t.t, tweakedScriptDesc.PubKey,
 	)
@@ -89,7 +87,7 @@ func testMintFundSealAssets(t *harnessTest) {
 
 	// groupExternal will be a group internal key not managed by a tapd,
 	// that will also have a tapscript tweak.
-	groupExternalDesc := deriveRandomKey(t.t, ctxt, aliceLndKeyRing)
+	groupExternalDesc := deriveRandomKey(t.t, ctx, aliceLndKeyRing)
 
 	// groupExternalTweak will be the tapscript tweak we apply to
 	// groupExternal. We'll use random bytes as we don't intend to use the
@@ -147,7 +145,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	fundReq := &mintrpc.FundBatchRequest{
 		BatchSibling: &siblingReq,
 	}
-	fundResp, err := aliceTapd.FundBatch(ctxt, fundReq)
+	fundResp, err := aliceTapd.FundBatch(ctx, fundReq)
 	require.NoError(t.t, err)
 	require.NotEmpty(t.t, fundResp.Batch)
 	require.Equal(
@@ -162,9 +160,10 @@ func testMintFundSealAssets(t *harnessTest) {
 	// If we request a verbose list of batches, we should receive asset
 	// group information for exactly 3 assets.
 	listBatchResp, err := aliceTapd.ListBatches(
-		ctxt, &mintrpc.ListBatchRequest{
+		ctx, &mintrpc.ListBatchRequest{
 			Verbose: true,
-		})
+		},
+	)
 	require.NoError(t.t, err)
 	require.Len(t.t, listBatchResp.Batches, 1)
 
@@ -297,7 +296,7 @@ func testMintFundSealAssets(t *harnessTest) {
 			&groupMemberWitness, &groupedExternalWitness,
 		},
 	}
-	sealResp, err := aliceTapd.SealBatch(ctxt, &sealReq)
+	sealResp, err := aliceTapd.SealBatch(ctx, &sealReq)
 	require.NoError(t.t, err)
 	require.NotEmpty(t.t, sealResp.Batch)
 
@@ -344,7 +343,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	// Let's make sure Bob receives minting proofs for this batch, and
 	// verify that he syncs the assets correctly.
 	SyncUniverses(
-		ctxt, t.t, bobTapd, aliceTapd, aliceTapd.rpcHost(),
+		ctx, t.t, bobTapd, aliceTapd, aliceTapd.rpcHost(),
 		defaultTimeout,
 	)
 
@@ -359,7 +358,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 	collectibleGroupLeaves, err := bobTapd.AssetLeaves(
-		ctxt, rpcCollectibleGroupUniID,
+		ctx, rpcCollectibleGroupUniID,
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, collectibleGroupLeaves.Leaves, 2)
@@ -383,7 +382,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	// Now, let's try to transfer the ungrouped asset minted with a tweaked
 	// script key to Bob. We'll use the PSBT flow to add witnesses for the
 	// asset script key and minting anchor output.
-	bobAddr, err := bobTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	bobAddr, err := bobTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId: assetTweakedScriptKey.AssetGenesis.AssetId,
 		Amt:     assetTweakedScriptKey.Amount / 2,
 	})
@@ -393,7 +392,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	// assets should result in an error.
 	const bip86Only = wrpc.CoinSelectType_COIN_SELECT_BIP86_ONLY
 	_, err = aliceTapd.FundVirtualPsbt(
-		ctxt, &wrpc.FundVirtualPsbtRequest{
+		ctx, &wrpc.FundVirtualPsbtRequest{
 			Template: &wrpc.FundVirtualPsbtRequest_Raw{
 				Raw: &wrpc.TxTemplate{
 					Recipients: map[string]uint64{
@@ -410,7 +409,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	)
 
 	signedAddrPsbt, signedPassivePsbts := signTransferWithTweakedScriptKey(
-		t, ctxt, aliceTapd, bobAddr, &tweakedScript, 2,
+		t, ctx, aliceTapd, bobAddr, &tweakedScript, 2,
 		tweakedScriptSigLock, tweakedScriptTapTree,
 	)
 
@@ -438,7 +437,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	// output is currently leased for the transfer we're constructing.
 	assetInputIdx := uint32(0)
 	aliceUtxoResp, err := aliceTapd.ListUtxos(
-		ctxt, &taprpc.ListUtxosRequest{
+		ctx, &taprpc.ListUtxosRequest{
 			IncludeLeased: true,
 		},
 	)

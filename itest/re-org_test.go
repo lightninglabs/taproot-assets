@@ -30,19 +30,17 @@ func testReOrgMint(t *harnessTest) {
 		t.t, lndMiner.Client, t.tapd, mintRequests,
 	)
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Before we mine a block to confirm the mint TX, we create a temporary
 	// miner.
-	tempMiner := spawnTempMiner(t.t, t, ctxt)
+	tempMiner := spawnTempMiner(t.t, t, ctx)
 
 	// And now we mine a block to confirm the assets.
 	initialBlock := MineBlocks(t.t, lndMiner.Client, 1, 1)[0]
 	initialBlockHash := initialBlock.BlockHash()
 	WaitForBatchState(
-		t.t, ctxt, t.tapd, defaultWaitTimeout, batchKey,
+		t.t, ctx, t.tapd, defaultWaitTimeout, batchKey,
 		mintrpc.BatchState_BATCH_STATE_FINALIZED,
 	)
 
@@ -107,7 +105,7 @@ func testReOrgMint(t *harnessTest) {
 	AssertUniverseRootEquality(t.t, t.tapd, secondTapd, false)
 
 	// A universe sync should now bring both nodes back into sync.
-	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
+	ctxt, cancel := context.WithTimeout(ctx, defaultWaitTimeout)
 	defer cancel()
 	syncDiff, err := secondTapd.SyncUniverse(ctxt, &unirpc.SyncRequest{
 		UniverseHost: t.tapd.rpcHost(),
@@ -131,9 +129,7 @@ func testReOrgSend(t *harnessTest) {
 		t.t, lndMiner.Client, t.tapd, mintRequests,
 	)
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets. The existing tapd
@@ -146,14 +142,14 @@ func testReOrgSend(t *harnessTest) {
 
 	// Before we mine a block to confirm the mint TX, we create a temporary
 	// miner.
-	tempMiner := spawnTempMiner(t.t, t, ctxt)
+	tempMiner := spawnTempMiner(t.t, t, ctx)
 
 	// Now to the second part of the test: We'll send an asset to Bob, and
 	// then re-org the chain again.
 	sendAsset := assetList[0]
 	sendAssetGen := sendAsset.AssetGenesis
 	sendAmount := uint64(500)
-	bobAddr, err := secondTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	bobAddr, err := secondTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId: sendAssetGen.AssetId,
 		Amt:     sendAmount,
 	})
@@ -187,9 +183,9 @@ func testReOrgSend(t *harnessTest) {
 	// At this point, the all asset proofs should be invalid, since the send
 	// TX was re-organized out, and it also contained passive assets.
 	listAssetRequest := &taprpc.ListAssetRequest{}
-	aliceAssets, err := t.tapd.ListAssets(ctxb, listAssetRequest)
+	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)
-	bobAssets, err := secondTapd.ListAssets(ctxb, listAssetRequest)
+	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)
 
 	AssertBalances(
@@ -272,9 +268,7 @@ func testReOrgSendV2Address(t *harnessTest) {
 		t.t, lndMiner.Client, t.tapd, mintRequests,
 	)
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets. The existing tapd
@@ -287,14 +281,14 @@ func testReOrgSendV2Address(t *harnessTest) {
 
 	// Before we mine a block to confirm the mint TX, we create a temporary
 	// miner.
-	tempMiner := spawnTempMiner(t.t, t, ctxt)
+	tempMiner := spawnTempMiner(t.t, t, ctx)
 
 	// Now to the second part of the test: We'll send an asset to Bob, and
 	// then re-org the chain again.
 	sendAsset := assetList[0]
 	sendAssetGen := sendAsset.AssetGenesis
 	sendAmount := uint64(500)
-	bobAddrV2, err := secondTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	bobAddrV2, err := secondTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		GroupKey:       sendAsset.AssetGroup.TweakedGroupKey,
 		Amt:            sendAmount,
 		AddressVersion: addrV2,
@@ -330,9 +324,9 @@ func testReOrgSendV2Address(t *harnessTest) {
 	// At this point, the all asset proofs should be invalid, since the send
 	// TX was re-organized out, and it also contained passive assets.
 	listAssetRequest := &taprpc.ListAssetRequest{}
-	aliceAssets, err := t.tapd.ListAssets(ctxb, listAssetRequest)
+	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)
-	bobAssets, err := secondTapd.ListAssets(ctxb, listAssetRequest)
+	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)
 
 	AssertBalances(
@@ -406,9 +400,7 @@ func testReOrgSendV2Address(t *harnessTest) {
 // testReOrgMintAndSend tests that when a re-org occurs, minted and directly
 // sent asset proofs are updated accordingly.
 func testReOrgMintAndSend(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// We create a second node for the second tapd instance. But because
 	// NewNodeWithCoins mines a block, we need to do it before we spawn the
@@ -417,7 +409,7 @@ func testReOrgMintAndSend(t *harnessTest) {
 
 	// Before we do anything, we spawn a miner. This is where the fork in
 	// the chain starts.
-	tempMiner := spawnTempMiner(t.t, t, ctxt)
+	tempMiner := spawnTempMiner(t.t, t, ctx)
 	lndMiner := t.lndHarness.Miner()
 
 	// Then, we'll mint a few assets and confirm the batch TX.
@@ -441,7 +433,7 @@ func testReOrgMintAndSend(t *harnessTest) {
 	sendAsset := assetList[0]
 	sendAssetGen := sendAsset.AssetGenesis
 	sendAmount := uint64(500)
-	bobAddr, err := secondTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	bobAddr, err := secondTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId: sendAssetGen.AssetId,
 		Amt:     sendAmount,
 	})
@@ -475,9 +467,9 @@ func testReOrgMintAndSend(t *harnessTest) {
 	// At this point, the all asset proofs should be invalid, since the send
 	// TX was re-organized out, and it also contained passive assets.
 	listAssetRequest := &taprpc.ListAssetRequest{}
-	aliceAssets, err := t.tapd.ListAssets(ctxb, listAssetRequest)
+	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)
-	bobAssets, err := secondTapd.ListAssets(ctxb, listAssetRequest)
+	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)
 
 	for idx := range aliceAssets.Assets {

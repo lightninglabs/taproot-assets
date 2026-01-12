@@ -150,11 +150,9 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 
 // testGetInfo tests the GetInfo RPC call.
 func testGetInfo(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
-	resp, err := t.tapd.GetInfo(ctxt, &taprpc.GetInfoRequest{})
+	resp, err := t.tapd.GetInfo(ctx, &taprpc.GetInfoRequest{})
 	require.NoError(t.t, err)
 
 	// Ensure network field is set correctly.
@@ -162,7 +160,7 @@ func testGetInfo(t *harnessTest) {
 	require.Equal(t.t, expectedNetwork, resp.Network)
 
 	// Attempt to get the info using the CLI.
-	respGeneric, err := ExecTapCLI(ctxt, t.tapd, "getinfo")
+	respGeneric, err := ExecTapCLI(ctx, t.tapd, "getinfo")
 	require.NoError(t.t, err)
 
 	// Type assert the response to the expected type.

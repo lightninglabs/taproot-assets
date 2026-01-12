@@ -50,9 +50,7 @@ func testFeeEstimation(t *harnessTest) {
 		}
 	)
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Set the initial state of the wallet of the first node. The wallet
 	// state will reset at the end of this test.
@@ -159,7 +157,7 @@ func testFeeEstimation(t *harnessTest) {
 	)
 
 	AssertAddrCreated(t.t, t.tapd, normalAsset, addr3)
-	_, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	_, err = t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		TapAddrs: []string{addr3.Encoded},
 	})
 	require.ErrorContains(
@@ -169,7 +167,7 @@ func testFeeEstimation(t *harnessTest) {
 	// The transfer should also be rejected if the manually-specified
 	// fee rate fails the sanity check against the fee estimator's fee floor
 	// of 253 sat/kw, or 1.012 sat/vB.
-	_, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	_, err = t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		TapAddrs: []string{addr3.Encoded},
 		FeeRate:  uint32(chainfee.FeePerKwFloor) - 1,
 	})

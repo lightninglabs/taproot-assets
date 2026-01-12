@@ -17,9 +17,7 @@ import (
 // the Pedersen unique tweak type, which is used for assets that are sent using
 // the future address V2 scheme.
 func testScriptKeyTypePedersenUnique(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner().Client, t.tapd,
@@ -94,7 +92,7 @@ func testScriptKeyTypePedersenUnique(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := t.tapd.AnchorVirtualPsbts(
-		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{
 				activeBytes,
 				passiveBytes,
@@ -121,7 +119,7 @@ func testScriptKeyTypePedersenUnique(t *harnessTest) {
 		WithScriptKeyType(asset.ScriptKeyUniquePedersen),
 	)
 
-	aliceAssets, err := t.tapd.ListAssets(ctxb, &taprpc.ListAssetRequest{})
+	aliceAssets, err := t.tapd.ListAssets(ctx, &taprpc.ListAssetRequest{})
 	require.NoError(t.t, err)
 
 	assetsJSON, err := formatProtoJSON(aliceAssets)
@@ -131,7 +129,7 @@ func testScriptKeyTypePedersenUnique(t *harnessTest) {
 	// We should now be able to spend all the outputs, the Pedersen keys
 	// should be signed correctly both in the active and passive assets.
 	sendAssetAndAssert(
-		ctxt, t, t.tapd, t.tapd, 4900, 100, activeAsset.AssetGenesis,
+		ctx, t, t.tapd, t.tapd, 4900, 100, activeAsset.AssetGenesis,
 		activeAsset, 1, 2, 1,
 	)
 }

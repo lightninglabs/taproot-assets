@@ -28,9 +28,7 @@ func testAddressV2WithSimpleAsset(t *harnessTest) {
 		},
 	)
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
@@ -91,7 +89,7 @@ func testAddressV2WithSimpleAsset(t *harnessTest) {
 
 		// Make sure the asset meta is also fetched correctly.
 		assetResp, err := secondTapd.FetchAssetMeta(
-			ctxt, &taprpc.FetchAssetMetaRequest{
+			ctx, &taprpc.FetchAssetMetaRequest{
 				Asset: &taprpc.FetchAssetMetaRequest_AssetId{
 					AssetId: a.AssetGenesis.AssetId,
 				},
@@ -105,7 +103,7 @@ func testAddressV2WithSimpleAsset(t *harnessTest) {
 		// one.
 		if a.AssetGenesis.AssetType == taprpc.AssetType_COLLECTIBLE {
 			_, err := secondTapd.NewAddr(
-				ctxt, &taprpc.NewAddrRequest{
+				ctx, &taprpc.NewAddrRequest{
 					AssetId:        a.AssetGenesis.AssetId,
 					AssetVersion:   a.Version,
 					AddressVersion: addrV2,
@@ -120,7 +118,7 @@ func testAddressV2WithSimpleAsset(t *harnessTest) {
 	// Now sanity-check that we can actually list the transfer.
 	err := wait.NoError(func() error {
 		resp, err := t.tapd.ListTransfers(
-			ctxt, &taprpc.ListTransfersRequest{},
+			ctx, &taprpc.ListTransfersRequest{},
 		)
 		require.NoError(t.t, err)
 
@@ -232,13 +230,11 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 		require.NoError(t.t, bobTapd.stop(!*noDelete))
 	}()
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// We don't want the user to be able to create a V2 address that just
 	// specifies the asset ID but is for a grouped asset.
-	_, err := bobTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	_, err := bobTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V2,
 		AssetId:        firstAssetID,
 	})
@@ -256,7 +252,7 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 
 	t.Logf("Got group addr: %v", toJSON(t.t, groupAddrBob))
 
-	sendResp, err := t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	sendResp, err := t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		AddressesWithAmounts: []*taprpc.AddressWithAmount{
 			{
 				TapAddr: groupAddrBob.Encoded,
@@ -295,7 +291,7 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 
 	t.Logf("Got group addr: %v", toJSON(t.t, groupAddrBob2))
 
-	_, err = bobTapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	_, err = bobTapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		AddressesWithAmounts: []*taprpc.AddressWithAmount{
 			{
 				TapAddr: groupAddrBob2.Encoded,
@@ -329,7 +325,7 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 	t.Logf("Got group addr: %v", toJSON(t.t, groupAddrAlice1))
 	t.Logf("Got group addr: %v", toJSON(t.t, groupAddrAlice2))
 
-	sendResp3, err := bobTapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	sendResp3, err := bobTapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		AddressesWithAmounts: []*taprpc.AddressWithAmount{
 			{
 				TapAddr: groupAddrAlice1.Encoded,
@@ -366,7 +362,7 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 	// to send assets. This will spend the largest UTXO by default, which
 	// we'll need to know to make the assertion below.
 	bobUtxo := LargestUtxo(t.t, t.tapd, nil, groupKey)
-	sendResp4, err := t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	sendResp4, err := t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		AddressesWithAmounts: []*taprpc.AddressWithAmount{
 			{
 				TapAddr: groupAddrBob.Encoded,
@@ -436,10 +432,6 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	thirdAsset := thirdTranche[0]
 	thirdAssetID := thirdAsset.AssetGenesis.AssetId
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
 	totalAmount := firstAsset.Amount + secondAsset.Amount +
 		thirdAsset.Amount
 	t.Logf("Minted %d units for group %x", totalAmount, groupKey)
@@ -472,7 +464,8 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	currentTransferIdx += 1
 	numTransfers += 1
 
-	sendResp, err := t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	ctx := context.Background()
+	sendResp, err := t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		AddressesWithAmounts: []*taprpc.AddressWithAmount{
 			{
 				TapAddr: groupAddrBob.Encoded,
@@ -495,7 +488,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	currentTransferIdx += 1
 	numTransfers += 1
 
-	sendResp, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	sendResp, err = t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		AddressesWithAmounts: []*taprpc.AddressWithAmount{
 			{
 				TapAddr: groupAddrBob.Encoded,
@@ -518,7 +511,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	currentTransferIdx += 1
 	numTransfers += 1
 
-	sendResp, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	sendResp, err = t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		AddressesWithAmounts: []*taprpc.AddressWithAmount{
 			{
 				TapAddr: groupAddrBob.Encoded,
@@ -553,7 +546,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	bobCurrentTransferIdx += 1
 	bobNumTransfers += 1
 
-	sendResp, err = bobTapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	sendResp, err = bobTapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		AddressesWithAmounts: []*taprpc.AddressWithAmount{
 			{
 				TapAddr: groupAddrAlice.Encoded,
@@ -574,7 +567,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 		currentTransferIdx += 1
 		numTransfers += 1
 
-		sendResp, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+		sendResp, err = t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 			AddressesWithAmounts: []*taprpc.AddressWithAmount{
 				{
 					TapAddr: groupAddrBob.Encoded,
@@ -599,7 +592,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 			},
 		}
 		sendResp, err = bobTapd.SendAsset(
-			ctxt, &taprpc.SendAssetRequest{
+			ctx, &taprpc.SendAssetRequest{
 				AddressesWithAmounts: addrReq,
 			},
 		)
@@ -623,7 +616,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 		currentTransferIdx += 1
 		numTransfers += 1
 
-		sendResp, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+		sendResp, err = t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 			AddressesWithAmounts: []*taprpc.AddressWithAmount{
 				{
 					TapAddr: groupAddrBob.Encoded,
@@ -649,9 +642,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 // testAddressV2WithGroupKeyRestart tests that we can re-try and properly
 // continue the address v2 send process in various scenarios.
 func testAddressV2WithGroupKeyRestart(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// We start by minting an asset group with a group key. We'll only use
 	// one tranche for this test.
@@ -678,12 +669,12 @@ func testAddressV2WithGroupKeyRestart(t *harnessTest) {
 
 	// We now create an address with the group key on Bob's and Charlie's
 	// tapd node.
-	bobAddr, err := bobTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	bobAddr, err := bobTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AddressVersion: addrV2,
 		GroupKey:       groupKey,
 	})
 	require.NoError(t.t, err)
-	charlieAddr, err := charlieTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	charlieAddr, err := charlieTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AddressVersion: addrV2,
 		GroupKey:       groupKey,
 	})
@@ -693,7 +684,7 @@ func testAddressV2WithGroupKeyRestart(t *harnessTest) {
 	// to make sure that Charlie can receive two transfers from different
 	// auth mailboxes at the same time.
 	charlieAddrBobUni, err := charlieTapd.NewAddr(
-		ctxt, &taprpc.NewAddrRequest{
+		ctx, &taprpc.NewAddrRequest{
 			AddressVersion: addrV2,
 			GroupKey:       groupKey,
 			ProofCourierAddr: fmt.Sprintf(
@@ -797,7 +788,7 @@ func testAddressV2WithGroupKeyRestart(t *harnessTest) {
 
 	// We now forward the assets from Bob to Charlie, using the address
 	// where Bob is the universe.
-	sendResp2, err := bobTapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	sendResp2, err := bobTapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		AddressesWithAmounts: []*taprpc.AddressWithAmount{
 			{
 				TapAddr: charlieAddrBobUni.Encoded,
@@ -834,9 +825,7 @@ func testAddressV2WithGroupKeyRestart(t *harnessTest) {
 // mailbox, the address import fails as expected, and the failure does not cause
 // tapd to crash or terminate.
 func testAddressV2ImportFailsWithoutCourier(t *harnessTest) {
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Spin up a dedicated tapd with aggressive backoff so the mailbox
 	// subscription fails quickly within the test deadline.
@@ -865,7 +854,7 @@ func testAddressV2ImportFailsWithoutCourier(t *harnessTest) {
 	)
 
 	t.Logf("Trying to create an address with bad mailbox %s", badCourier)
-	_, err := tapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	_, err := tapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:          asset.AssetGenesis.AssetId,
 		Amt:              asset.Amount,
 		AssetVersion:     asset.Version,
@@ -882,7 +871,7 @@ func testAddressV2ImportFailsWithoutCourier(t *harnessTest) {
 	)
 
 	t.Logf("Ensure tapd is still up and running")
-	infoCtx, infoCancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	infoCtx, infoCancel := context.WithTimeout(ctx, defaultWaitTimeout)
 	defer infoCancel()
 
 	_, err = tapd.GetInfo(infoCtx, &taprpc.GetInfoRequest{})

@@ -396,9 +396,7 @@ func CommitVirtualPsbts(t *testing.T, funder commands.RpcClientsBundle,
 	changeOutputIndex int32) (*psbt.Packet, []*tappsbt.VPacket,
 	[]*tappsbt.VPacket, *wrpc.CommitVirtualPsbtsResponse) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	t.Logf("Funding packet: %v\n", spew.Sdump(packet))
 
@@ -439,7 +437,7 @@ func CommitVirtualPsbts(t *testing.T, funder commands.RpcClientsBundle,
 	}
 
 	// Now we can map the virtual packets to the PSBT.
-	commitResponse, err := funder.CommitVirtualPsbts(ctxt, request)
+	commitResponse, err := funder.CommitVirtualPsbts(ctx, request)
 	require.NoError(t, err)
 
 	fundedPacket, err := psbt.NewFromRawBytes(
@@ -552,9 +550,7 @@ func PublishAndLogTransfer(t *testing.T, tapd commands.RpcClientsBundle,
 		opt(options)
 	}
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	btcPktBytes, err := fn.Serialize(btcPkt)
 	require.NoError(t, err)
@@ -582,7 +578,7 @@ func PublishAndLogTransfer(t *testing.T, tapd commands.RpcClientsBundle,
 		require.NoError(t, err)
 	}
 
-	resp, err := tapd.PublishAndLogTransfer(ctxt, request)
+	resp, err := tapd.PublishAndLogTransfer(ctx, request)
 
 	if options.expectedErr != "" {
 		require.Error(t, err)
@@ -742,12 +738,10 @@ func (m *muSig2PartialSigner) SignVirtualTx(_ *lndclient.SignDescriptor,
 		return nil, err
 	}
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	sign, err := m.lnd.Signer.MuSig2Sign(
-		ctxt, &signrpc.MuSig2SignRequest{
+		ctx, &signrpc.MuSig2SignRequest{
 			SessionId:     m.sessID,
 			MessageDigest: sigHash,
 			Cleanup:       false,
@@ -776,13 +770,11 @@ func tapMuSig2Session(t *testing.T, lnd *rpc.HarnessRPC,
 	localKey keychain.KeyDescriptor, otherKey []byte,
 	localNonces musig2.Nonces, otherNonces [][]byte) []byte {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	version := signrpc.MuSig2Version_MUSIG2_VERSION_V100RC2
 	sess, err := lnd.Signer.MuSig2CreateSession(
-		ctxt, &signrpc.MuSig2SessionRequest{
+		ctx, &signrpc.MuSig2SessionRequest{
 			KeyLoc: &signrpc.KeyLocator{
 				KeyFamily: int32(localKey.Family),
 				KeyIndex:  int32(localKey.Index),
@@ -809,9 +801,7 @@ func partialSignWithKey(t *testing.T, lnd *rpc.HarnessRPC,
 	key keychain.KeyDescriptor, controlBlockBytes []byte,
 	tapLeaf txscript.TapLeaf) []byte {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	leafToSign := []*psbt.TaprootTapLeafScript{{
 		ControlBlock: controlBlockBytes,
@@ -840,7 +830,7 @@ func partialSignWithKey(t *testing.T, lnd *rpc.HarnessRPC,
 	require.NoError(t, err)
 
 	resp, err := lnd.WalletKit.SignPsbt(
-		ctxt, &walletrpc.SignPsbtRequest{
+		ctx, &walletrpc.SignPsbtRequest{
 			FundedPsbt: pktBytes,
 		},
 	)

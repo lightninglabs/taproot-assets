@@ -620,7 +620,7 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 	req *mintrpc.MintAsset) (*taprpc.Asset, proof.Blob, string) {
 
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	ctx, cancel := context.WithCancel(ctxb)
 	defer cancel()
 
 	// Set up the needed clients.
@@ -644,7 +644,7 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 	require.NoError(t.t, err)
 
 	fundedPkt, err := walletAnchor.FundPsbt(
-		ctxt, genesisPkt, 1, chainfee.SatPerKWeight(3000), -1,
+		ctx, genesisPkt, 1, chainfee.SatPerKWeight(3000), -1,
 	)
 	require.NoError(t.t, err)
 
@@ -698,7 +698,7 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 	// Add the genesis script to the funded PSBT, and then sign at the
 	// anchor level.
 	fundedPkt.Pkt.UnsignedTx.TxOut[anchorIdx].PkScript = genesisScript
-	signedPkt, err := walletAnchor.SignAndFinalizePsbt(ctxt, fundedPkt.Pkt)
+	signedPkt, err := walletAnchor.SignAndFinalizePsbt(ctx, fundedPkt.Pkt)
 	require.NoError(t.t, err)
 
 	signedTx, err := psbt.Extract(signedPkt)
@@ -708,15 +708,15 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 	// can build the issuance proofs.
 	genesisTxHash := signedTx.TxHash()
 	err = lndServices.WalletKit.PublishTransaction(
-		ctxt, signedTx, tapgarden.IssuanceTxLabel,
+		ctx, signedTx, tapgarden.IssuanceTxLabel,
 	)
 	require.NoError(t.t, err)
 
-	lndInfo, err := lndServices.Client.GetInfo(ctxt)
+	lndInfo, err := lndServices.Client.GetInfo(ctx)
 	require.NoError(t.t, err)
 
 	confChan, _, err := lndServices.ChainNotifier.RegisterConfirmationsNtfn(
-		ctxt, &genesisTxHash, signedTx.TxOut[0].PkScript, 1,
+		ctx, &genesisTxHash, signedTx.TxOut[0].PkScript, 1,
 		int32(lndInfo.BlockHeight), lndclient.WithIncludeBlock(),
 	)
 	require.NoError(t.t, err)
@@ -1011,13 +1011,11 @@ func NewAddrWithEventStream(t *testing.T, tapd commands.RpcClientsBundle,
 	req *taprpc.NewAddrRequest) (*taprpc.Addr,
 	*EventSubscription[*taprpc.ReceiveEvent]) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
-	addr := rpcassert.NewAddrRPC(t, ctxt, tapd, nil, req)
+	addr := rpcassert.NewAddrRPC(t, ctx, tapd, nil, req)
 
-	ctxc, cancel := context.WithCancel(ctxb)
+	ctxc, cancel := context.WithCancel(ctx)
 	stream, err := tapd.SubscribeReceiveEvents(
 		ctxc, &taprpc.SubscribeReceiveEventsRequest{
 			FilterAddr: addr.Encoded,
@@ -1067,11 +1065,8 @@ func ImportProofFile(t *harnessTest, dst commands.RpcClientsBundle,
 
 	t.Logf("Importing proof %x", rawFile)
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
-	resp, err := dst.UnpackProofFile(ctxt, &taprpc.UnpackProofFileRequest{
+	ctx := context.Background()
+	resp, err := dst.UnpackProofFile(ctx, &taprpc.UnpackProofFileRequest{
 		RawProofFile: rawFile,
 	})
 	require.NoError(t.t, err)
@@ -1088,7 +1083,7 @@ func ImportProofFile(t *harnessTest, dst commands.RpcClientsBundle,
 	// The proof leaf only contains the actual asset and none of the
 	// taprpc.ChainAsset fields. So for anything related to the actual chain
 	// output, we need to decode the proof in the leaf.
-	decodeResp, err := dst.DecodeProof(ctxt, &taprpc.DecodeProofRequest{
+	decodeResp, err := dst.DecodeProof(ctx, &taprpc.DecodeProofRequest{
 		RawProof: lastProof.AssetLeaf.Proof,
 	})
 	require.NoError(t.t, err)
@@ -1106,7 +1101,7 @@ func ImportProofFile(t *harnessTest, dst commands.RpcClientsBundle,
 	// In order for Bob to expect this incoming transfer, we need to
 	// register it with the internal wallet of Bob.
 	registerResp, err := dst.RegisterTransfer(
-		ctxb, &taprpc.RegisterTransferRequest{
+		ctx, &taprpc.RegisterTransferRequest{
 			AssetId:   proofAsset.AssetGenesis.AssetId,
 			GroupKey:  groupKey,
 			ScriptKey: proofAsset.ScriptKey,
@@ -1150,9 +1145,7 @@ func ExportProofFileFromUniverse(t *testing.T, src commands.RpcClientsBundle,
 	assetIDBytes, scriptKey []byte, outpoint string,
 	group *taprpc.AssetGroup) *proof.File {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	var assetID asset.ID
 	copy(assetID[:], assetIDBytes)
@@ -1216,7 +1209,7 @@ func ExportProofFileFromUniverse(t *testing.T, src commands.RpcClientsBundle,
 	var proofFile *proof.File
 	err = wait.NoError(func() error {
 		proofFile, err = proof.FetchProofProvenance(
-			ctxt, nil, loc, fetchUniProof,
+			ctx, nil, loc, fetchUniProof,
 		)
 		return err
 	}, defaultWaitTimeout)
@@ -1230,11 +1223,8 @@ func ExportProofFileFromUniverse(t *testing.T, src commands.RpcClientsBundle,
 func InsertProofIntoUniverse(t *testing.T, dst commands.RpcClientsBundle,
 	proofBytes proof.Blob) *unirpc.AssetProofResponse {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
-	resp, err := dst.DecodeProof(ctxt, &taprpc.DecodeProofRequest{
+	ctx := context.Background()
+	resp, err := dst.DecodeProof(ctx, &taprpc.DecodeProofRequest{
 		RawProof:          proofBytes,
 		WithMetaReveal:    true,
 		WithPrevWitnesses: true,
@@ -1263,7 +1253,7 @@ func InsertProofIntoUniverse(t *testing.T, dst commands.RpcClientsBundle,
 	rpcUniID, err := taprootassets.MarshalUniID(uniID)
 	require.NoError(t, err)
 
-	importResp, err := dst.InsertProof(ctxt, &unirpc.AssetProof{
+	importResp, err := dst.InsertProof(ctx, &unirpc.AssetProof{
 		Key: &unirpc.UniverseKey{
 			Id: rpcUniID,
 			LeafKey: &unirpc.AssetKey{

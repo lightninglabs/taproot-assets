@@ -53,23 +53,19 @@ func testUniverseSync(t *harnessTest) {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Before we start, we'll fetch the complete set of Universe roots from
 	// our primary node.
 	universeRoots, err := t.tapd.AssetRoots(
-		ctxt, &unirpc.AssetRootRequest{},
+		ctx, &unirpc.AssetRootRequest{},
 	)
 	require.NoError(t.t, err)
 
 	// Now we have an initial benchmark, so we'll kick off the universe
 	// sync with Bob syncing off the primary harness node that created the
 	// assets.
-	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-	syncDiff, err := bob.SyncUniverse(ctxt, &unirpc.SyncRequest{
+	syncDiff, err := bob.SyncUniverse(ctx, &unirpc.SyncRequest{
 		UniverseHost: t.tapd.rpcHost(),
 		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
 	})
@@ -132,7 +128,7 @@ func testUniverseSync(t *harnessTest) {
 	// Now we'll fetch the Universe roots from Bob. These should match the
 	// same roots that we got from the main universe node earlier.
 	universeRootsBob, err := bob.AssetRoots(
-		ctxt, &unirpc.AssetRootRequest{},
+		ctx, &unirpc.AssetRootRequest{},
 	)
 	require.NoError(t.t, err)
 	require.True(
@@ -179,7 +175,7 @@ func testUniverseSync(t *harnessTest) {
 
 	// The asset fetched from the universe should match the asset minted
 	// on the main node, ignoring the zero prev witness from minting.
-	firstAssetUniProof, err := bob.QueryProof(ctxt, &firstAssetProofQuery)
+	firstAssetUniProof, err := bob.QueryProof(ctx, &firstAssetProofQuery)
 	require.NoError(t.t, err)
 
 	// Verify the multiverse inclusion proof for the first asset.
@@ -220,7 +216,7 @@ func testUniverseSync(t *harnessTest) {
 	AssertAsset(t.t, rpcSimpleAssets[0], firstAssetFromUni)
 
 	// Now we'll delete a universe root on Bob's node, and then re-sync it.
-	_, err = bob.DeleteAssetRoot(ctxt, &unirpc.DeleteRootQuery{
+	_, err = bob.DeleteAssetRoot(ctx, &unirpc.DeleteRootQuery{
 		Id: &unirpc.ID{
 			Id: &unirpc.ID_AssetId{
 				AssetId: firstAssetID,
@@ -231,7 +227,7 @@ func testUniverseSync(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	universeRootsBob, err = bob.AssetRoots(
-		ctxt, &unirpc.AssetRootRequest{},
+		ctx, &unirpc.AssetRootRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -242,7 +238,7 @@ func testUniverseSync(t *harnessTest) {
 	_, ok := universeRootsBob.UniverseRoots[firstAssetUniID]
 	require.False(t.t, ok)
 
-	syncDiff, err = bob.SyncUniverse(ctxt, &unirpc.SyncRequest{
+	syncDiff, err = bob.SyncUniverse(ctx, &unirpc.SyncRequest{
 		UniverseHost: t.tapd.rpcHost(),
 		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
 	})
@@ -257,7 +253,7 @@ func testUniverseSync(t *harnessTest) {
 
 	// After re-sync, both universes should match again.
 	universeRootsBob, err = bob.AssetRoots(
-		ctxt, &unirpc.AssetRootRequest{},
+		ctx, &unirpc.AssetRootRequest{},
 	)
 	require.NoError(t.t, err)
 	require.True(
@@ -266,7 +262,7 @@ func testUniverseSync(t *harnessTest) {
 
 	// Test the multiverse root is equal for both nodes.
 	multiverseRootAlice, err := t.tapd.MultiverseRoot(
-		ctxt, &unirpc.MultiverseRootRequest{
+		ctx, &unirpc.MultiverseRootRequest{
 			ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
 		},
 	)
@@ -274,7 +270,7 @@ func testUniverseSync(t *harnessTest) {
 
 	// For Bob we query with the actual IDs of the universe we are aware of.
 	multiverseRootBob, err := bob.MultiverseRoot(
-		ctxt, &unirpc.MultiverseRootRequest{
+		ctx, &unirpc.MultiverseRootRequest{
 			ProofType:   unirpc.ProofType_PROOF_TYPE_ISSUANCE,
 			SpecificIds: uniIDs,
 		},
@@ -316,9 +312,7 @@ func testUniverseManualSync(t *harnessTest) {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// We now side load the issuance proof of our first asset into Bob's
 	// universe.
@@ -356,12 +350,12 @@ func testUniverseManualSync(t *harnessTest) {
 	}
 
 	// We should now be able to query for the asset proof.
-	_, err = bob.QueryProof(ctxt, &firstAssetProofQuery)
+	_, err = bob.QueryProof(ctx, &firstAssetProofQuery)
 	require.NoError(t.t, err)
 
 	// We should now also be able to fetch the meta data and group key for
 	// the asset.
-	metaData, err := bob.FetchAssetMeta(ctxt, &taprpc.FetchAssetMetaRequest{
+	metaData, err := bob.FetchAssetMeta(ctx, &taprpc.FetchAssetMetaRequest{
 		Asset: &taprpc.FetchAssetMetaRequest_MetaHash{
 			MetaHash: firstAssetGen.MetaHash,
 		},
@@ -371,7 +365,7 @@ func testUniverseManualSync(t *harnessTest) {
 
 	// We should be able to create a new address for the asset, since that
 	// requires us to know the full genesis and group key.
-	_, err = bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	_, err = bob.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId: firstAssetGen.AssetId,
 		Amt:     500,
 	})
@@ -512,9 +506,7 @@ func testUniverseFederation(t *harnessTest) {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	miner := t.lndHarness.Miner().Client
 
@@ -524,7 +516,7 @@ func testUniverseFederation(t *harnessTest) {
 
 	// Make sure we can't add ourselves to the universe.
 	_, err := t.tapd.AddFederationServer(
-		ctxt, &unirpc.AddFederationServerRequest{
+		ctx, &unirpc.AddFederationServerRequest{
 			Servers: []*unirpc.UniverseFederationServer{{
 				Host: t.tapd.rpcHost(),
 			}},
@@ -534,7 +526,7 @@ func testUniverseFederation(t *harnessTest) {
 
 	// Make sure we can't add an invalid server to the universe.
 	_, err = t.tapd.AddFederationServer(
-		ctxt, &unirpc.AddFederationServerRequest{
+		ctx, &unirpc.AddFederationServerRequest{
 			Servers: []*unirpc.UniverseFederationServer{{
 				Host: "foobar this is not even a valid address",
 			}},
@@ -546,7 +538,7 @@ func testUniverseFederation(t *harnessTest) {
 	// federation. We expect that their state is synchronized shortly after
 	// the call returns.
 	_, err = bob.AddFederationServer(
-		ctxt, &unirpc.AddFederationServerRequest{
+		ctx, &unirpc.AddFederationServerRequest{
 			Servers: []*unirpc.UniverseFederationServer{
 				{
 					Host: t.tapd.rpcHost(),
@@ -559,7 +551,7 @@ func testUniverseFederation(t *harnessTest) {
 	// If we fetch the set of federation nodes, then the main node should
 	// be shown as being a part of that set.
 	fedNodes, err := bob.ListFederationServers(
-		ctxt, &unirpc.ListFederationServersRequest{},
+		ctx, &unirpc.ListFederationServersRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Equal(t.t, 1, len(fedNodes.Servers))
@@ -575,7 +567,7 @@ func testUniverseFederation(t *harnessTest) {
 	AssertUniverseStats(t.t, bob, 1, 1, 0)
 
 	// Test the content of the universe info call.
-	info, err := bob.Info(ctxt, &unirpc.InfoRequest{})
+	info, err := bob.Info(ctx, &unirpc.InfoRequest{})
 	require.NoError(t.t, err)
 	require.NotZero(t.t, info.RuntimeId)
 
@@ -608,7 +600,7 @@ func testUniverseFederation(t *harnessTest) {
 
 		waitErr := wait.NoError(func() error {
 			_, err := bob.QueryAssetRoots(
-				ctxt, &unirpc.AssetRootQuery{
+				ctx, &unirpc.AssetRootQuery{
 					Id: uniID,
 				},
 			)
@@ -631,7 +623,7 @@ func testUniverseFederation(t *harnessTest) {
 		},
 	}
 	groupUniRoots, err := t.tapd.QueryAssetRoots(
-		ctxt, &unirpc.AssetRootQuery{
+		ctx, &unirpc.AssetRootQuery{
 			Id: uniIDNoGroupKey,
 		},
 	)
@@ -674,7 +666,7 @@ func testUniverseFederation(t *harnessTest) {
 
 	// Next, we'll try to delete the main node from the federation.
 	_, err = bob.DeleteFederationServer(
-		ctxt, &unirpc.DeleteFederationServerRequest{
+		ctx, &unirpc.DeleteFederationServerRequest{
 			Servers: []*unirpc.UniverseFederationServer{
 				{
 					Host: t.tapd.rpcHost(),
@@ -687,7 +679,7 @@ func testUniverseFederation(t *harnessTest) {
 	// If we fetch the set of federation nodes, then the main node should
 	// no longer be present.
 	fedNodes, err = bob.ListFederationServers(
-		ctxt, &unirpc.ListFederationServersRequest{},
+		ctx, &unirpc.ListFederationServersRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Equal(t.t, 0, len(fedNodes.Servers))
@@ -696,7 +688,7 @@ func testUniverseFederation(t *harnessTest) {
 	// get an empty response. In a future version, this should be a
 	// universe.ErrNoUniverseRoot error.
 	dummyAssetIDBytes := fn.ByteSlice([32]byte{0x01})
-	rootResp, err := bob.QueryAssetRoots(ctxt, &unirpc.AssetRootQuery{
+	rootResp, err := bob.QueryAssetRoots(ctx, &unirpc.AssetRootQuery{
 		Id: &unirpc.ID{
 			Id: &unirpc.ID_AssetId{
 				AssetId: dummyAssetIDBytes,
@@ -729,7 +721,7 @@ func testUniverseFederation(t *harnessTest) {
 		},
 		ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
 	}
-	syncResp, err := bob.SyncUniverse(ctxt, &unirpc.SyncRequest{
+	syncResp, err := bob.SyncUniverse(ctx, &unirpc.SyncRequest{
 		UniverseHost: t.tapd.rpcHost(),
 		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
 		SyncTargets: []*unirpc.SyncTarget{
