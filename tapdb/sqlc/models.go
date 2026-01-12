@@ -236,6 +236,20 @@ type FederationUniSyncConfig struct {
 	ProofType       sql.NullString
 }
 
+type Forward struct {
+	ID         int64
+	OpenedAt   time.Time
+	SettledAt  sql.NullTime
+	FailedAt   sql.NullTime
+	RfqID      []byte
+	ChanIDIn   int64
+	ChanIDOut  int64
+	HtlcID     int64
+	AssetAmt   int64
+	AmtInMsat  int64
+	AmtOutMsat int64
+}
+
 type GenesisAsset struct {
 	GenAssetID     int64
 	AssetID        []byte
