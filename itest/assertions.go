@@ -494,14 +494,12 @@ func WaitForProofUpdate(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	t.Helper()
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*2)
-	defer cancel()
+	ctx := context.Background()
 
 	require.Eventually(t, func() bool {
 		// Export the proof, then decode it.
 		exportResp, err := client.ExportProof(
-			ctxt, &taprpc.ExportProofRequest{
+			ctx, &taprpc.ExportProofRequest{
 				AssetId:   a.AssetGenesis.AssetId,
 				ScriptKey: a.ScriptKey,
 			},
@@ -527,12 +525,10 @@ func AssertAssetProofs(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 
 	t.Helper()
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	exportResp, err := tapClient.ExportProof(
-		ctxt, &taprpc.ExportProofRequest{
+		ctx, &taprpc.ExportProofRequest{
 			AssetId:   a.AssetGenesis.AssetId,
 			ScriptKey: a.ScriptKey,
 		},
@@ -562,9 +558,7 @@ func AssertProofAltLeaves(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 	a *taprpc.Asset, leafMap map[string][]*asset.Asset) {
 
 	t.Helper()
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// Fetch the latest proof for the given asset.
 	scriptKey := a.ScriptKey
@@ -572,13 +566,13 @@ func AssertProofAltLeaves(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 		AssetId:   a.AssetGenesis.AssetId,
 		ScriptKey: scriptKey,
 	}
-	exportResp, err := tapClient.ExportProof(ctxt, &proofReq)
+	exportResp, err := tapClient.ExportProof(ctx, &proofReq)
 	require.NoError(t, err)
 
 	decodeReq := taprpc.DecodeProofRequest{
 		RawProof: exportResp.RawProofFile,
 	}
-	decodeResp, err := tapClient.DecodeProof(ctxt, &decodeReq)
+	decodeResp, err := tapClient.DecodeProof(ctx, &decodeReq)
 	require.NoError(t, err)
 
 	// Check if we expect the asset to be anchored alongside alt leaves or
@@ -618,13 +612,10 @@ func AssertMintingProofs(t *testing.T, tapd *tapdHarness,
 
 	t.Helper()
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
+	ctx := context.Background()
 	for idx, a := range assets {
 		exportResp, err := tapd.ExportProof(
-			ctxt, &taprpc.ExportProofRequest{
+			ctx, &taprpc.ExportProofRequest{
 				AssetId:   a.AssetGenesis.AssetId,
 				ScriptKey: a.ScriptKey,
 			},
@@ -632,7 +623,7 @@ func AssertMintingProofs(t *testing.T, tapd *tapdHarness,
 		require.NoError(t, err)
 
 		// Also make sure that the RPC can verify the proof as well.
-		verifyResp, err := tapd.VerifyProof(ctxt, &taprpc.ProofFile{
+		verifyResp, err := tapd.VerifyProof(ctx, &taprpc.ProofFile{
 			RawProofFile: exportResp.RawProofFile,
 		})
 		require.NoError(t, err)
@@ -640,7 +631,7 @@ func AssertMintingProofs(t *testing.T, tapd *tapdHarness,
 
 		// Also make sure that the RPC can decode the proof as well.
 		decodeResp, err := tapd.DecodeProof(
-			ctxt, &taprpc.DecodeProofRequest{
+			ctx, &taprpc.DecodeProofRequest{
 				RawProof:       exportResp.RawProofFile,
 				WithMetaReveal: true,
 			},
@@ -667,11 +658,8 @@ func AssertAssetProofsInvalid(t *testing.T, tapd *tapdHarness,
 
 	t.Helper()
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
-	exportResp, err := tapd.ExportProof(ctxt, &taprpc.ExportProofRequest{
+	ctx := context.Background()
+	exportResp, err := tapd.ExportProof(ctx, &taprpc.ExportProofRequest{
 		AssetId:   a.AssetGenesis.AssetId,
 		ScriptKey: a.ScriptKey,
 	})
@@ -681,7 +669,7 @@ func AssertAssetProofsInvalid(t *testing.T, tapd *tapdHarness,
 	require.NoError(t, f.Decode(bytes.NewReader(exportResp.RawProofFile)))
 
 	// Also make sure that the RPC can verify the proof as well.
-	verifyResp, err := tapd.VerifyProof(ctxt, &taprpc.ProofFile{
+	verifyResp, err := tapd.VerifyProof(ctx, &taprpc.ProofFile{
 		RawProofFile: exportResp.RawProofFile,
 	})
 	require.NoError(t, err)
@@ -694,15 +682,13 @@ func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 	chainClient chainrpc.ChainKitClient, a *taprpc.Asset,
 	blob proof.Blob) (*proof.File, *proof.AssetSnapshot) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	f := &proof.File{}
 	require.NoError(t, f.Decode(bytes.NewReader(blob)))
 
 	// Also make sure that the RPC can verify the proof as well.
-	verifyResp, err := tapClient.VerifyProof(ctxt, &taprpc.ProofFile{
+	verifyResp, err := tapClient.VerifyProof(ctx, &taprpc.ProofFile{
 		RawProofFile: blob,
 	})
 	require.NoError(t, err)
@@ -710,7 +696,7 @@ func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 
 	// Also make sure that the RPC can decode the proof as well.
 	decodeResp, err := tapClient.DecodeProof(
-		ctxt, &taprpc.DecodeProofRequest{
+		ctx, &taprpc.DecodeProofRequest{
 			RawProof: blob,
 		},
 	)
@@ -737,7 +723,7 @@ func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 			BlockHeight: int64(height),
 		}
 		blockHashResp, err := chainClient.GetBlockHash(
-			ctxb, blockHashReq,
+			ctx, blockHashReq,
 		)
 		if err != nil {
 			return err
@@ -758,7 +744,7 @@ func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 		req := &chainrpc.GetBlockRequest{
 			BlockHash: hash.CloneBytes(),
 		}
-		_, err = chainClient.GetBlock(ctxb, req)
+		_, err = chainClient.GetBlock(ctx, req)
 		return err
 	}
 
@@ -769,7 +755,7 @@ func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 
 		// The given group key should be listed as a known group.
 		assetGroups, err := tapClient.ListGroups(
-			ctxt, &taprpc.ListGroupsRequest{},
+			ctx, &taprpc.ListGroupsRequest{},
 		)
 		require.NoError(t, err)
 
@@ -789,7 +775,7 @@ func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 		ChainLookupGen: proof.MockChainLookup,
 	}
 
-	snapshot, err := f.Verify(ctxt, vCtx)
+	snapshot, err := f.Verify(ctx, vCtx)
 	require.NoError(t, err)
 
 	return f, snapshot
@@ -803,11 +789,9 @@ func AssertAddrCreated(t *testing.T, client tapClient,
 	// Was the address created correctly?
 	AssertAddr(t, expected, actual)
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
-	decoded, err := client.DecodeAddr(ctxt, &taprpc.DecodeAddrRequest{
+	decoded, err := client.DecodeAddr(ctx, &taprpc.DecodeAddrRequest{
 		Addr: actual.Encoded,
 	})
 	require.NoError(t, err)
@@ -823,7 +807,7 @@ func AssertAddrCreated(t *testing.T, client tapClient,
 	var rpcAddr *taprpc.Addr
 	err = wait.NoError(func() error {
 		allAddrs, err := client.QueryAddrs(
-			ctxt, &taprpc.QueryAddrRequest{},
+			ctx, &taprpc.QueryAddrRequest{},
 		)
 		if err != nil {
 			return err
@@ -847,7 +831,7 @@ func AssertAddrCreated(t *testing.T, client tapClient,
 	// We also make sure we can query the script and internal keys of the
 	// address correctly.
 	scriptKeyResp, err := client.QueryScriptKey(
-		ctxt, &wrpc.QueryScriptKeyRequest{
+		ctx, &wrpc.QueryScriptKeyRequest{
 			TweakedScriptKey: actual.ScriptKey,
 		},
 	)
@@ -865,7 +849,7 @@ func AssertAddrCreated(t *testing.T, client tapClient,
 	)
 
 	internalKeyResp, err := client.QueryInternalKey(
-		ctxt, &wrpc.QueryInternalKeyRequest{
+		ctx, &wrpc.QueryInternalKeyRequest{
 			InternalKey: actual.InternalKey,
 		},
 	)
@@ -899,13 +883,11 @@ func AssertAddrEventCustomTimeout(t *testing.T,
 	client taprpc.TaprootAssetsClient, addr *taprpc.Addr, numEvents int,
 	expectedStatus taprpc.AddrEventStatus, timeout time.Duration) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, timeout)
-	defer cancel()
+	ctx := context.Background()
 
 	err := wait.NoError(func() error {
 		resp, err := client.AddrReceives(
-			ctxt, &taprpc.AddrReceivesRequest{
+			ctx, &taprpc.AddrReceivesRequest{
 				FilterAddr: addr.Encoded,
 			},
 		)
@@ -937,13 +919,11 @@ func AssertAddrEventCustomTimeout(t *testing.T,
 func AssertAddrEventByStatus(t *testing.T, client taprpc.TaprootAssetsClient,
 	filterStatus taprpc.AddrEventStatus, numEvents int) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	err := wait.NoError(func() error {
 		resp, err := client.AddrReceives(
-			ctxt, &taprpc.AddrReceivesRequest{
+			ctx, &taprpc.AddrReceivesRequest{
 				FilterStatus: filterStatus,
 			},
 		)
@@ -1773,14 +1753,12 @@ func AssertNumAssets(t *testing.T, ctx context.Context,
 func AssertUniverseRootEquality(t *testing.T,
 	clientA, clientB unirpc.UniverseClient, expectedEquality bool) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	rootRequest := &unirpc.AssetRootRequest{}
-	universeRootsAlice, err := clientA.AssetRoots(ctxt, rootRequest)
+	universeRootsAlice, err := clientA.AssetRoots(ctx, rootRequest)
 	require.NoError(t, err)
-	universeRootsBob, err := clientB.AssetRoots(ctxt, rootRequest)
+	universeRootsBob, err := clientB.AssetRoots(ctx, rootRequest)
 	require.NoError(t, err)
 	require.Equal(t, expectedEquality, AssertUniverseRootsEqual(
 		universeRootsAlice, universeRootsBob,
@@ -1792,15 +1770,13 @@ func AssertUniverseRootEquality(t *testing.T,
 func AssertUniverseRootEqualityEventually(t *testing.T,
 	clientA, clientB unirpc.UniverseClient) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	err := wait.NoError(func() error {
 		rootRequest := &unirpc.AssetRootRequest{}
-		universeRootsAlice, err := clientA.AssetRoots(ctxt, rootRequest)
+		universeRootsAlice, err := clientA.AssetRoots(ctx, rootRequest)
 		require.NoError(t, err)
-		universeRootsBob, err := clientB.AssetRoots(ctxt, rootRequest)
+		universeRootsBob, err := clientB.AssetRoots(ctx, rootRequest)
 		require.NoError(t, err)
 
 		if !AssertUniverseRootsEqual(
@@ -2089,9 +2065,7 @@ func AssertAssetsMinted(t *testing.T, tapClient commands.RpcClientsBundle,
 	assetRequests []*mintrpc.MintAssetRequest, mintTXID,
 	blockHash chainhash.Hash) []*taprpc.Asset {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// The rest of the anchor information should now be populated as well.
 	// We also check that the anchor outpoint of all assets is the same,
@@ -2103,7 +2077,7 @@ func AssertAssetsMinted(t *testing.T, tapClient commands.RpcClientsBundle,
 
 	// List only the assets that were minted in the anchor transaction.
 	listRespConfirmed, err := tapClient.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{
+		ctx, &taprpc.ListAssetRequest{
 			ScriptKeyType: allScriptKeysQuery,
 			AnchorOutpoint: &taprpc.OutPoint{
 				Txid: mintTXID[:],
@@ -2212,14 +2186,12 @@ func AssertMintedAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	t.Helper()
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// First, we'll ensure that we're able to get the balances of all the
 	// assets grouped by their asset IDs.
 	assetIDBalances, err := client.ListBalances(
-		ctxt, &taprpc.ListBalancesRequest{
+		ctx, &taprpc.ListBalancesRequest{
 			GroupBy:       groupBalancesByAssetID,
 			IncludeLeased: includeLeased,
 		},
@@ -2255,7 +2227,7 @@ func AssertMintedAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	// We should also ensure that the total balance returned by
 	// `ListBalances` matches the total balance returned by `ListAssets`.
-	assetList, err := client.ListAssets(ctxt, &taprpc.ListAssetRequest{
+	assetList, err := client.ListAssets(ctx, &taprpc.ListAssetRequest{
 		IncludeLeased: includeLeased,
 	})
 	require.NoError(t, err)
@@ -2270,7 +2242,7 @@ func AssertMintedAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 	// We'll also ensure that we're able to get the balance by key group
 	// for all the assets that have one specified.
 	assetGroupBalances, err := client.ListBalances(
-		ctxt, &taprpc.ListBalancesRequest{
+		ctx, &taprpc.ListBalancesRequest{
 			GroupBy: groupBalancesByGroupKey,
 		},
 	)
@@ -2402,9 +2374,7 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 		return totalBalance
 	}
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// First, we'll ensure that we're able to get the balances of all the
 	// assets grouped by their asset IDs.
@@ -2448,7 +2418,7 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 		}
 
 		rpcassert.ListBalancesRPC(
-			t, ctxt, client, assertPred,
+			t, ctx, client, assertPred,
 			&taprpc.ListBalancesRequest{
 				GroupBy:        groupBalancesByAssetID,
 				IncludeLeased:  config.includeLeased,
@@ -2486,7 +2456,7 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 		}
 
 		rpcassert.ListBalancesRPC(
-			t, ctxt, client, assertPred,
+			t, ctx, client, assertPred,
 			&taprpc.ListBalancesRequest{
 				GroupBy:        groupBalancesByGroupKey,
 				IncludeLeased:  config.includeLeased,
@@ -2555,7 +2525,7 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 		return nil
 	}
 
-	rpcassert.ListAssetsRPC(t, ctxt, client, assertPred,
+	rpcassert.ListAssetsRPC(t, ctx, client, assertPred,
 		&taprpc.ListAssetRequest{
 			IncludeLeased: config.includeLeased,
 			ScriptKeyType: rpcTypeQuery,
@@ -2636,7 +2606,7 @@ func AssertBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 		return nil
 	}
 
-	rpcassert.ListUtxosRPC(t, ctxt, client, assertPredUtxos,
+	rpcassert.ListUtxosRPC(t, ctx, client, assertPredUtxos,
 		&taprpc.ListUtxosRequest{
 			IncludeLeased: config.includeLeased,
 			ScriptKeyType: rpcTypeQuery,
@@ -2649,13 +2619,11 @@ func assertGroups(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	t.Helper()
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	// We should be able to fetch two groups of one asset each.
 	assetGroups, err := client.ListGroups(
-		ctxt, &taprpc.ListGroupsRequest{},
+		ctx, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t, err)
 
@@ -2740,11 +2708,9 @@ func assetRoots(ctx context.Context, uni unirpc.UniverseClient,
 func assertNumAssetOutputs(t *testing.T, client taprpc.TaprootAssetsClient,
 	assetID []byte, numPieces int) []*taprpc.Asset {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
+	ctx := context.Background()
 
-	resp, err := client.ListAssets(ctxt, &taprpc.ListAssetRequest{
+	resp, err := client.ListAssets(ctx, &taprpc.ListAssetRequest{
 		IncludeLeased: true,
 		ScriptKeyType: allScriptKeysQuery,
 	})
@@ -2769,11 +2735,9 @@ func assertNumAssetOutputs(t *testing.T, client taprpc.TaprootAssetsClient,
 func LargestUtxo(t *testing.T, client taprpc.TaprootAssetsClient,
 	assetID, groupKey []byte) *taprpc.Asset {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
+	ctx := context.Background()
 
-	resp, err := client.ListAssets(ctxt, &taprpc.ListAssetRequest{})
+	resp, err := client.ListAssets(ctx, &taprpc.ListAssetRequest{})
 	require.NoError(t, err)
 
 	var outputs []*taprpc.Asset
