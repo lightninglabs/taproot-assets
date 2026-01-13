@@ -330,6 +330,12 @@ jobs:
           chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/chantools/chantools
           mkdir -p ~/.aperture
 
+      - name: CPU info
+        run: |
+          echo "nproc (available to process): $(nproc)"
+          echo "nproc --all (online): $(nproc --all)"
+          lscpu || true
+
       - name: run itest
         run: scripts/itest_part.sh ${{ matrix.tranche }} 4 0 --verbose
 
@@ -381,6 +387,12 @@ jobs:
         run: |
           chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/chantools/chantools
           mkdir -p ~/.aperture
+
+      - name: CPU info
+        run: |
+          echo "nproc (available to process): $(nproc)"
+          echo "nproc --all (online): $(nproc --all)"
+          lscpu || true
 
       - name: run itest
         run: scripts/itest_part.sh ${{ matrix.tranche }} 4 0 -dbbackend=postgres --verbose
