@@ -374,12 +374,15 @@ func BuildMintingBatch(t *testing.T, tapClient commands.RpcClientsBundle,
 	}
 
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, options.mintingTimeout)
-	defer cancel()
 
 	// Mint all the assets in the same batch.
 	for idx, assetRequest := range assetRequests {
+		ctxt, cancel := context.WithTimeout(
+			ctxb, options.mintingTimeout,
+		)
 		assetResp, err := tapClient.MintAsset(ctxt, assetRequest)
+		cancel()
+
 		require.NoError(t, err)
 		require.NotEmpty(t, assetResp.PendingBatch)
 		require.Len(t, assetResp.PendingBatch.Assets, idx+1)
@@ -817,14 +820,10 @@ func MintAssetExternalSigner(t *harnessTest, tapNode *tapdHarness,
 	BuildMintingBatch(t.t, tapNode, assetReqs)
 
 	// Fund mint batch with BTC.
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	ctx := context.Background()
 
-	fundResp, err := tapNode.FundBatch(ctxt, &mintrpc.FundBatchRequest{})
+	fundResp, err := tapNode.FundBatch(ctx, &mintrpc.FundBatchRequest{})
 	require.NoError(t.t, err)
-
-	// Cancel the context for the fund request call.
-	cancel()
 
 	require.NotEmpty(t.t, fundResp.Batch)
 	require.Equal(
@@ -856,25 +855,20 @@ func MintAssetExternalSigner(t *harnessTest, tapNode *tapdHarness,
 	}
 
 	// Seal the batch with the group witnesses.
-	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
-
 	sealReq := mintrpc.SealBatchRequest{
 		SignedGroupVirtualPsbts: signedGroupVirtualPsbts,
 	}
-	sealResp, err := tapNode.SealBatch(ctxt, &sealReq)
+	sealResp, err := tapNode.SealBatch(ctx, &sealReq)
 	require.NoError(t.t, err)
-
-	// Cancel the context for the seal request call.
-	cancel()
 
 	require.NotEmpty(t.t, sealResp.Batch)
 
 	// With the batch sealed successfully, we can now finalize it and
 	// broadcast the anchor TX.
-	ctxt, cancel = context.WithCancel(context.Background())
+	ctxc, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stream, err := tapNode.SubscribeMintEvents(
-		ctxt, &mintrpc.SubscribeMintEventsRequest{},
+		ctxc, &mintrpc.SubscribeMintEventsRequest{},
 	)
 	require.NoError(t.t, err)
 	sub := &EventSubscription[*mintrpc.MintEvent]{
@@ -1034,13 +1028,11 @@ func NewAddrWithEventStream(t *testing.T, tapd commands.RpcClientsBundle,
 func ExportProofFile(t *testing.T, src *tapdHarness, assetID, scriptKey []byte,
 	outpoint *taprpc.OutPoint) *taprpc.ProofFile {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*2)
-	defer cancel()
+	ctx := context.Background()
 
 	var proofResp *taprpc.ProofFile
 	waitErr := wait.NoError(func() error {
-		resp, err := src.ExportProof(ctxt, &taprpc.ExportProofRequest{
+		resp, err := src.ExportProof(ctx, &taprpc.ExportProofRequest{
 			AssetId:   assetID,
 			ScriptKey: scriptKey,
 			Outpoint:  outpoint,
@@ -1126,11 +1118,8 @@ func ImportProofFileDeprecated(t *harnessTest, dst commands.RpcClientsBundle,
 
 	t.Logf("Importing proof %x", rawFile)
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*2)
-	defer cancel()
-
-	importResp, err := dst.ImportProof(ctxt, &tapdevrpc.ImportProofRequest{
+	ctx := context.Background()
+	importResp, err := dst.ImportProof(ctx, &tapdevrpc.ImportProofRequest{
 		ProofFile:    rawFile,
 		GenesisPoint: genesisPoint,
 	})

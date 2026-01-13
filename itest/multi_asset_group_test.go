@@ -272,11 +272,7 @@ func testMintMultiAssetGroupErrors(t *harnessTest) {
 // testMultiAssetGroupSend tests that we can randomly send assets from a group
 // of collectibles one after another from one node to the other.
 func testMultiAssetGroupSend(t *harnessTest) {
-	// We use a hashmail proof courier for this test, which takes a bit
-	// longer to send proofs. So we use a longer timeout.
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*3)
-	defer cancel()
+	ctx := context.Background()
 
 	// First, we'll build a batch to mint.
 	issuableAsset := CopyRequest(simpleAssets[1])
@@ -299,7 +295,7 @@ func testMultiAssetGroupSend(t *harnessTest) {
 	groupCount := 1
 	AssertNumGroups(t.t, t.tapd, groupCount)
 	balancesResp, err := t.tapd.ListBalances(
-		ctxt, &taprpc.ListBalancesRequest{
+		ctx, &taprpc.ListBalancesRequest{
 			GroupBy: &taprpc.ListBalancesRequest_GroupKey{
 				GroupKey: true,
 			},
@@ -351,7 +347,7 @@ func testMultiAssetGroupSend(t *harnessTest) {
 		t.Logf("Attempt %d: Sending %d asset(s) with ID %x from "+
 			"alice to bob", i+1, numUnits, genInfo.AssetId)
 
-		addr, err := secondTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		addr, err := secondTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     numUnits,
 		})

@@ -360,12 +360,9 @@ func testCollectibleGroupSend(t *harnessTest) {
 	t.Logf("Running send test, sending %d asset(s) of type %v %d times",
 		numAssets, sendType, numSends)
 
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*numSends)
-	defer cancel()
-
 	for i := 1; i <= numSends; i++ {
 		send, receive, ok := pickSendNode(
-			t.t, ctxt, numAssets, sendType, t.tapd, secondTapd,
+			t.t, ctxb, numAssets, sendType, t.tapd, secondTapd,
 		)
 		if !ok {
 			t.Fatalf("Aborting send test at attempt %d of %d as "+
@@ -376,7 +373,7 @@ func testCollectibleGroupSend(t *harnessTest) {
 		}
 
 		sendAssets(
-			t.t, ctxt, numAssets, sendType, send, receive,
+			t.t, ctxb, numAssets, sendType, send, receive,
 			t.lndHarness.Miner().Client,
 		)
 

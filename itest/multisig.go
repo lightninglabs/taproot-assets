@@ -63,9 +63,6 @@ func MultiSigTest(t *testing.T, ctx context.Context, aliceTapd,
 	bitcoinClient *rpcclient.Client, aliceLnd, bobLnd *rpc.HarnessRPC,
 	params *chaincfg.Params, testTimeout time.Duration) {
 
-	ctxt, cancel := context.WithTimeout(ctx, testTimeout)
-	defer cancel()
-
 	// We mint some grouped assets to use in the test. These assets are
 	// minted on the default tapd instance that is always created in the
 	// integration test (connected to lnd "Alice").
@@ -169,7 +166,7 @@ func MultiSigTest(t *testing.T, ctx context.Context, aliceTapd,
 	// be the Bob node, but the custody will be shared between Alice and Bob
 	// on both levels.
 	const assetsToSend = 1000
-	muSig2Addr, err := bobTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	muSig2Addr, err := bobTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId:   firstBatchGenesis.AssetId,
 		Amt:       assetsToSend,
 		ScriptKey: rpcutils.MarshalScriptKey(tapScriptKey),
@@ -182,7 +179,7 @@ func MultiSigTest(t *testing.T, ctx context.Context, aliceTapd,
 
 	// Now we can create our virtual transaction and ask Alice's tapd to
 	// fund it.
-	sendResp, err := aliceTapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+	sendResp, err := aliceTapd.SendAsset(ctx, &taprpc.SendAssetRequest{
 		TapAddrs: []string{muSig2Addr.Encoded},
 	})
 	require.NoError(t, err)
@@ -229,7 +226,7 @@ func MultiSigTest(t *testing.T, ctx context.Context, aliceTapd,
 	// We have now stored our assets in a double-multisig protected TAP
 	// address. Let's now try to spend them back to Alice. Let's create a
 	// virtual transaction that sends half of the assets back to Alice.
-	withdrawAddr, err := aliceTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+	withdrawAddr, err := aliceTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId: firstBatchGenesis.AssetId,
 		Amt:     assetsToSend / 2,
 	})
@@ -241,7 +238,7 @@ func MultiSigTest(t *testing.T, ctx context.Context, aliceTapd,
 		withdrawAddr.Encoded: withdrawAddr.Amount,
 	}
 	withdrawFundResp, err := bobTapd.FundVirtualPsbt(
-		ctxt, &wrpc.FundVirtualPsbtRequest{
+		ctx, &wrpc.FundVirtualPsbtRequest{
 			Template: &wrpc.FundVirtualPsbtRequest_Raw{
 				Raw: &wrpc.TxTemplate{
 					Recipients: withdrawRecipients,
@@ -364,11 +361,9 @@ func DeriveKeys(t *testing.T, tapd commands.RpcClientsBundle) (asset.ScriptKey,
 	keychain.KeyDescriptor) {
 
 	ctx := context.Background()
-	ctxt, cancel := context.WithTimeout(ctx, defaultTimeout)
-	defer cancel()
 
 	scriptKeyDesc, err := tapd.NextScriptKey(
-		ctxt, &wrpc.NextScriptKeyRequest{
+		ctx, &wrpc.NextScriptKeyRequest{
 			KeyFamily: uint32(asset.TaprootAssetsKeyFamily),
 		},
 	)
@@ -377,7 +372,7 @@ func DeriveKeys(t *testing.T, tapd commands.RpcClientsBundle) (asset.ScriptKey,
 	require.NoError(t, err)
 
 	internalKeyDesc, err := tapd.NextInternalKey(
-		ctxt, &wrpc.NextInternalKeyRequest{
+		ctx, &wrpc.NextInternalKeyRequest{
 			KeyFamily: uint32(asset.TaprootAssetsKeyFamily),
 		},
 	)
@@ -852,12 +847,9 @@ func combineSigs(t *testing.T, lnd *rpc.HarnessRPC, sessID,
 	tree *txscript.IndexedTapScriptTree,
 	controlBlock *txscript.ControlBlock) wire.TxWitness {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
+	ctx := context.Background()
 	resp, err := lnd.Signer.MuSig2CombineSig(
-		ctxt, &signrpc.MuSig2CombineSigRequest{
+		ctx, &signrpc.MuSig2CombineSigRequest{
 			SessionId:              sessID,
 			OtherPartialSignatures: [][]byte{otherPartialSig},
 		},
