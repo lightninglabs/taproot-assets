@@ -639,6 +639,10 @@ func (c *ChainPlanter) Stop() error {
 		close(c.Quit)
 		c.Wg.Wait()
 
+		// Stop all active caretakers after the gardener has exited.
+		// This ensures no concurrent access to the caretakers map.
+		c.stopCaretakers()
+
 		// Remove all subscribers.
 		c.subscriberMtx.Lock()
 		defer c.subscriberMtx.Unlock()

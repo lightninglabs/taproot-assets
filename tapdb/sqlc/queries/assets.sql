@@ -96,10 +96,11 @@ SELECT *
 FROM internal_keys;
 
 -- name: AllMintingBatches :many
-SELECT * 
+SELECT *
 FROM asset_minting_batches
-JOIN internal_keys 
-ON asset_minting_batches.batch_id = internal_keys.key_id;
+JOIN internal_keys
+ON asset_minting_batches.batch_id = internal_keys.key_id
+ORDER BY batch_id ASC;
 
 -- name: InsertAssetSeedlingIntoBatch :exec
 WITH target_key_id AS (
