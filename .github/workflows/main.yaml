@@ -274,9 +274,9 @@ jobs:
           format: 'golang'
           parallel: true
 
-  # Integration tests on SQLite backend.
-  integration-test:
-    name: run itests
+  # Build integration test binaries once, shared by all itest jobs.
+  build-itest:
+    name: build itest binaries
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
@@ -290,19 +290,59 @@ jobs:
         with:
           go-version: '${{ env.GO_VERSION }}'
 
+      - name: Build itest binaries
+        run: make build-itest build-itest-binary
+
+      - name: Upload itest binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: itest-binaries
+          path: |
+            itest/itest.test
+            itest/btcd-itest
+            itest/lnd-itest
+            itest/chantools/chantools
+
+  # Integration tests on SQLite backend.
+  integration-test:
+    name: run itests
+    runs-on: ubuntu-latest
+    needs: build-itest
+    strategy:
+      fail-fast: false
+      matrix:
+        tranche: [0, 1, 2, 3]
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v5
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
+      - name: Download itest binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: itest-binaries
+          path: itest
+
+      - name: Initialize environment
+        run: |
+          chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/chantools/chantools
+          mkdir -p ~/.aperture
+
       - name: run itest
-        run: make itest-parallel
+        run: scripts/itest_part.sh ${{ matrix.tranche }} 4 0 --verbose
 
       - name: Zip log files on failure
         if: ${{ failure() }}
-        run: 7z a logs-itest.zip itest/**/*.log
+        run: 7z a logs-itest-${{ matrix.tranche }}.zip itest/**/*.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
-          name: logs-itest
-          path: logs-itest.zip
+          name: logs-itest-${{ matrix.tranche }}
+          path: logs-itest-${{ matrix.tranche }}.zip
           retention-days: 5
 
       - name: Send coverage
@@ -310,8 +350,8 @@ jobs:
         if: ${{ success() }}
         continue-on-error: true
         with:
-          file: itest/coverage.txt
-          flag-name: 'itest'
+          file: itest/regtest/cover/coverage-tranche${{ matrix.tranche }}.txt
+          flag-name: 'itest-${{ matrix.tranche }}'
           format: 'golang'
           parallel: true
 
@@ -319,6 +359,11 @@ jobs:
   integration-test-postgres:
     name: run itests postgres
     runs-on: ubuntu-latest
+    needs: build-itest
+    strategy:
+      fail-fast: false
+      matrix:
+        tranche: [0, 1, 2, 3]
     steps:
       - name: git checkout
         uses: actions/checkout@v5
@@ -326,24 +371,30 @@ jobs:
       - name: Clean up runner space
         uses: ./.github/actions/cleanup-space
 
-      - name: Setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v5
+      - name: Download itest binaries
+        uses: actions/download-artifact@v4
         with:
-          go-version: '${{ env.GO_VERSION }}'
+          name: itest-binaries
+          path: itest
+
+      - name: Initialize environment
+        run: |
+          chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/chantools/chantools
+          mkdir -p ~/.aperture
 
       - name: run itest
-        run: make itest-parallel dbbackend=postgres tranches=4
+        run: scripts/itest_part.sh ${{ matrix.tranche }} 4 0 -dbbackend=postgres --verbose
 
       - name: Zip log files on failure
         if: ${{ failure() }}
-        run: 7z a logs-itest-postgres.zip itest/**/*.log
+        run: 7z a logs-itest-postgres-${{ matrix.tranche }}.zip itest/**/*.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
-          name: logs-itest-postgres
-          path: logs-itest-postgres.zip
+          name: logs-itest-postgres-${{ matrix.tranche }}
+          path: logs-itest-postgres-${{ matrix.tranche }}.zip
           retention-days: 5
 
       - name: Send coverage
@@ -351,8 +402,8 @@ jobs:
         if: ${{ success() }}
         continue-on-error: true
         with:
-          file: itest/coverage.txt
-          flag-name: 'itest'
+          file: itest/regtest/cover/coverage-tranche${{ matrix.tranche }}.txt
+          flag-name: 'itest-postgres-${{ matrix.tranche }}'
           format: 'golang'
           parallel: true
 
