@@ -232,12 +232,8 @@ func (h *harnessTest) newLndClient(
 func (h *harnessTest) syncUniverseState(target, syncer *tapdHarness,
 	numExpectedAssets int) {
 
-	ctxt, cancel := context.WithTimeout(
-		context.Background(), defaultWaitTimeout,
-	)
-	defer cancel()
-
-	syncDiff, err := syncer.SyncUniverse(ctxt, &unirpc.SyncRequest{
+	ctx := context.Background()
+	syncDiff, err := syncer.SyncUniverse(ctx, &unirpc.SyncRequest{
 		UniverseHost: target.rpcHost(),
 		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
 	})
