@@ -23,6 +23,11 @@ env:
 
   LITD_BRANCH: 'master'
 
+  # Number of parallel itest jobs in the matrix and tranches per job.
+  # Total tranches = NUM_ITEST_JOBS * ITEST_PARALLELISM.
+  NUM_ITEST_JOBS: 4
+  ITEST_PARALLELISM: 4
+
 jobs:
   # Validate generated SQL models stay in sync with queries.
   sqlc-check:
@@ -330,8 +335,39 @@ jobs:
           chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/chantools/chantools
           mkdir -p ~/.aperture
 
+      - name: CPU info
+        run: |
+          echo "nproc (available to process): $(nproc)"
+          echo "nproc --all (online): $(nproc --all)"
+          lscpu || true
+
       - name: run itest
-        run: scripts/itest_part.sh ${{ matrix.tranche }} 4 0 --verbose
+        run: |
+          # Run multiple tranches in parallel within this job.
+          PARALLEL=${{ env.ITEST_PARALLELISM }}
+          NUM_JOBS=${{ env.NUM_ITEST_JOBS }}
+          TOTAL_TRANCHES=$((NUM_JOBS * PARALLEL))
+          BASE_TRANCHE=$(( ${{ matrix.tranche }} * PARALLEL ))
+
+          echo "Running $PARALLEL tranches in parallel (tranches $BASE_TRANCHE to $((BASE_TRANCHE + PARALLEL - 1)) of $TOTAL_TRANCHES total)"
+
+          # Start all tranches in parallel.
+          pids=()
+          for i in $(seq 0 $((PARALLEL - 1))); do
+            scripts/itest_part.sh $((BASE_TRANCHE + i)) $TOTAL_TRANCHES 0 --verbose &
+            pids+=($!)
+          done
+
+          # Wait for all and track failures.
+          exit_code=0
+          for pid in "${pids[@]}"; do
+            wait $pid || exit_code=1
+          done
+
+          if [ $exit_code -ne 0 ]; then
+            echo "One or more tranches failed"
+            exit 1
+          fi
 
       - name: Zip log files on failure
         if: ${{ failure() }}
@@ -345,12 +381,24 @@ jobs:
           path: logs-itest-${{ matrix.tranche }}.zip
           retention-days: 5
 
+      - name: Build coverage file list
+        if: ${{ success() }}
+        id: coverage-files
+        run: |
+          PARALLEL=${{ env.ITEST_PARALLELISM }}
+          BASE_TRANCHE=$(( ${{ matrix.tranche }} * PARALLEL ))
+          FILES=""
+          for i in $(seq 0 $((PARALLEL - 1))); do
+            FILES="$FILES itest/regtest/cover/coverage-tranche$((BASE_TRANCHE + i)).txt"
+          done
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+
       - name: Send coverage
         uses: coverallsapp/github-action@v2
         if: ${{ success() }}
         continue-on-error: true
         with:
-          file: itest/regtest/cover/coverage-tranche${{ matrix.tranche }}.txt
+          files: ${{ steps.coverage-files.outputs.files }}
           flag-name: 'itest-${{ matrix.tranche }}'
           format: 'golang'
           parallel: true
@@ -382,8 +430,39 @@ jobs:
           chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/chantools/chantools
           mkdir -p ~/.aperture
 
+      - name: CPU info
+        run: |
+          echo "nproc (available to process): $(nproc)"
+          echo "nproc --all (online): $(nproc --all)"
+          lscpu || true
+
       - name: run itest
-        run: scripts/itest_part.sh ${{ matrix.tranche }} 4 0 -dbbackend=postgres --verbose
+        run: |
+          # Run multiple tranches in parallel within this job.
+          PARALLEL=${{ env.ITEST_PARALLELISM }}
+          NUM_JOBS=${{ env.NUM_ITEST_JOBS }}
+          TOTAL_TRANCHES=$((NUM_JOBS * PARALLEL))
+          BASE_TRANCHE=$(( ${{ matrix.tranche }} * PARALLEL ))
+
+          echo "Running $PARALLEL tranches in parallel (tranches $BASE_TRANCHE to $((BASE_TRANCHE + PARALLEL - 1)) of $TOTAL_TRANCHES total)"
+
+          # Start all tranches in parallel.
+          pids=()
+          for i in $(seq 0 $((PARALLEL - 1))); do
+            scripts/itest_part.sh $((BASE_TRANCHE + i)) $TOTAL_TRANCHES 0 -dbbackend=postgres --verbose &
+            pids+=($!)
+          done
+
+          # Wait for all and track failures.
+          exit_code=0
+          for pid in "${pids[@]}"; do
+            wait $pid || exit_code=1
+          done
+
+          if [ $exit_code -ne 0 ]; then
+            echo "One or more tranches failed"
+            exit 1
+          fi
 
       - name: Zip log files on failure
         if: ${{ failure() }}
@@ -397,12 +476,24 @@ jobs:
           path: logs-itest-postgres-${{ matrix.tranche }}.zip
           retention-days: 5
 
+      - name: Build coverage file list
+        if: ${{ success() }}
+        id: coverage-files
+        run: |
+          PARALLEL=${{ env.ITEST_PARALLELISM }}
+          BASE_TRANCHE=$(( ${{ matrix.tranche }} * PARALLEL ))
+          FILES=""
+          for i in $(seq 0 $((PARALLEL - 1))); do
+            FILES="$FILES itest/regtest/cover/coverage-tranche$((BASE_TRANCHE + i)).txt"
+          done
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+
       - name: Send coverage
         uses: coverallsapp/github-action@v2
         if: ${{ success() }}
         continue-on-error: true
         with:
-          file: itest/regtest/cover/coverage-tranche${{ matrix.tranche }}.txt
+          files: ${{ steps.coverage-files.outputs.files }}
           flag-name: 'itest-postgres-${{ matrix.tranche }}'
           format: 'golang'
           parallel: true
