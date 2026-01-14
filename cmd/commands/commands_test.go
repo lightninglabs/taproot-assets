@@ -1,6 +1,10 @@
 package commands
 
 import (
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -79,4 +83,171 @@ func TestCommandShortNamesUnique(t *testing.T) {
 
 	// Check top-level commands.
 	checkLevel(app.Commands, "")
+}
+
+// TestDetectNodeNetwork tests the detectNodeNetwork function with various
+// config file scenarios.
+func TestDetectNodeNetwork(t *testing.T) {
+	tests := []struct {
+		name         string
+		configContent string
+		expectedNetwork string
+	}{
+		{
+			name: "mainnet config",
+			configContent: `network=mainnet
+tlscertpath=/path/to/cert
+`,
+			expectedNetwork: "mainnet",
+		},
+		{
+			name: "testnet config",
+			configContent: `# Comment line
+network=testnet
+; Another comment
+tlscertpath=/path/to/cert
+`,
+			expectedNetwork: "testnet",
+		},
+		{
+			name: "testnet4 config",
+			configContent: `network=testnet4
+debuglevel=info
+`,
+			expectedNetwork: "testnet4",
+		},
+		{
+			name: "no network setting",
+			configContent: `tlscertpath=/path/to/cert
+debuglevel=info
+`,
+			expectedNetwork: "",
+		},
+		{
+			name: "invalid network",
+			configContent: `network=invalid
+tlscertpath=/path/to/cert
+`,
+			expectedNetwork: "",
+		},
+		{
+			name: "empty config",
+			configContent: "",
+			expectedNetwork: "",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tempDir, err := os.MkdirTemp("", "tapd-config-test")
+			require.NoError(t, err)
+			defer os.RemoveAll(tempDir)
+
+			configPath := filepath.Join(tempDir, "tapd.conf")
+			err = os.WriteFile(configPath, []byte(test.configContent), 0644)
+			require.NoError(t, err)
+
+			// Test the function
+			detectedNetwork := detectNodeNetwork(tempDir)
+			require.Equal(t, test.expectedNetwork, detectedNetwork)
+		})
+	}
+
+	t.Run("config file does not exist", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp("", "tapd-config-test")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		// Test with non-existent config file
+		detectedNetwork := detectNodeNetwork(tempDir)
+		require.Equal(t, "", detectedNetwork)
+	})
+}
+
+// TestNetworkMismatchError tests that network mismatch errors provide helpful
+// suggestions with corrected command arguments.
+func TestNetworkMismatchError(t *testing.T) {
+	tests := []struct {
+		name             string
+		requestedNetwork string
+		configNetwork    string
+		originalArgs     []string
+		expectedErrorContains []string
+	}{
+		{
+			name:             "testnet to mainnet with --network flag",
+			requestedNetwork: "testnet",
+			configNetwork:    "mainnet",
+			originalArgs:     []string{"tapcli", "--network=testnet", "universe", "roots"},
+			expectedErrorContains: []string{
+				"[ERR] Network mismatch detected!",
+				"Requested network: testnet",
+				"Node configured for: mainnet",
+				"--network=mainnet",
+			},
+		},
+		{
+			name:             "mainnet to testnet with -n flag",
+			requestedNetwork: "mainnet",
+			configNetwork:    "testnet",
+			originalArgs:     []string{"tapcli", "-n", "mainnet", "universe", "info"},
+			expectedErrorContains: []string{
+				"[ERR] Network mismatch detected!",
+				"Requested network: mainnet",
+				"Node configured for: testnet",
+				"-n testnet",
+			},
+		},
+		{
+			name:             "regtest to signet without explicit network flag",
+			requestedNetwork: "regtest",
+			configNetwork:    "signet",
+			originalArgs:     []string{"tapcli", "universe", "federation", "sync"},
+			expectedErrorContains: []string{
+				"[ERR] Network mismatch detected!",
+				"Requested network: regtest",
+				"Node configured for: signet",
+				"--network=signet",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tempDir, err := os.MkdirTemp("", "tapd-network-test")
+			require.NoError(t, err)
+			defer os.RemoveAll(tempDir)
+
+			// Create tapd.conf with the configured network
+			configContent := fmt.Sprintf("network=%s\n", test.configNetwork)
+			configPath := filepath.Join(tempDir, "tapd.conf")
+			err = os.WriteFile(configPath, []byte(configContent), 0644)
+			require.NoError(t, err)
+
+			// Set up the CLI context
+			app := cli.NewApp()
+			set := flag.NewFlagSet("test", flag.ContinueOnError)
+			set.String("network", test.requestedNetwork, "")
+			set.String("tapddir", tempDir, "")
+			set.String("macaroonpath", "", "")
+
+			ctx := cli.NewContext(app, set, nil)
+
+			// Mock os.Args for the test
+			oldArgs := os.Args
+			os.Args = test.originalArgs
+			defer func() { os.Args = oldArgs }()
+
+			// Call profileFromContext - it should fail with network mismatch
+			_, err = profileFromContext(ctx, false, false)
+
+			// Verify the error contains expected elements
+			require.Error(t, err)
+			errorMsg := err.Error()
+			for _, expected := range test.expectedErrorContains {
+				require.Contains(t, errorMsg, expected,
+					"Error message should contain: %s", expected)
+			}
+		})
+	}
 }
