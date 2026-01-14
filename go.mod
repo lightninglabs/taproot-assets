@@ -1,6 +1,6 @@
 module github.com/lightninglabs/taproot-assets
 
-go 1.24.9
+go 1.24.11
 
 require (
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6
@@ -26,9 +26,9 @@ require (
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/lib/pq v1.10.9
-	github.com/lightninglabs/aperture v0.3.13-beta
-	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.3
-	github.com/lightninglabs/lndclient v0.20.0-5
+	github.com/lightninglabs/aperture v0.4.0
+	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.4-0.20250610182311-2f1d46ef18b7
+	github.com/lightninglabs/lndclient v0.20.0-6
 	github.com/lightninglabs/neutrino/cache v1.1.3
 	github.com/lightninglabs/taproot-assets/taprpc v1.0.9
 	github.com/lightningnetwork/lnd v0.20.0-beta.rc4.0.20251127014118-f8b5cb0e8918
@@ -75,6 +75,7 @@ require (
 	github.com/btcsuite/winsvc v1.0.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
+	github.com/coder/websocket v1.8.13 // indirect
 	github.com/containerd/continuity v0.3.0 // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf // indirect
@@ -125,8 +126,8 @@ require (
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/libdns/libdns v0.2.1 // indirect
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
-	github.com/lightninglabs/lightning-node-connect/gbn v1.0.1 // indirect
-	github.com/lightninglabs/lightning-node-connect/mailbox v1.0.1 // indirect
+	github.com/lightninglabs/lightning-node-connect/gbn v1.0.2-0.20250610182311-2f1d46ef18b7 // indirect
+	github.com/lightninglabs/lightning-node-connect/mailbox v1.0.2-0.20250610182311-2f1d46ef18b7 // indirect
 	github.com/lightninglabs/neutrino v0.16.1 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240815225420-8b40adf04ab9 // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
@@ -203,7 +204,6 @@ require (
 	modernc.org/libc v1.55.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect
 	modernc.org/memory v1.8.0 // indirect
-	nhooyr.io/websocket v1.8.7 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
 
