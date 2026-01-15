@@ -32,6 +32,10 @@ const (
 	// defaultMboxMaxBackoff is the maximum backoff time used for connecting
 	// to the auth mailbox service.
 	defaultMboxMaxBackoff = 10 * time.Second
+
+	// txResubscriptionDelay is the delay we wait before attempting to
+	// resubscribe to the transaction stream after it has ended.
+	txResubscriptionDelay = 10 * time.Second
 )
 
 // AssetReceiveEvent is an event that is sent to a subscriber once the
@@ -438,11 +442,36 @@ func (c *Custodian) mainEventLoop() error {
 	ctxStream, cancel := c.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	newTxChan, txErrChan, err := c.cfg.WalletAnchor.SubscribeTransactions(
+	var (
+		err error
+
+		newTxChan <-chan lndclient.Transaction
+		txErrChan <-chan error
+	)
+	newTxChan, txErrChan, err = c.cfg.WalletAnchor.SubscribeTransactions(
 		ctxStream,
 	)
 	if err != nil {
 		return err
+	}
+
+	// scheduleTxResubscribe disables tx channels and arms a retry timer.
+	// This avoids a tight loop on closed channels and gives lnd time to
+	// recover before we reconnect.
+	var resubscribeTimer <-chan time.Time
+
+	scheduleTxResubscribe := func(reason string) {
+		if resubscribeTimer != nil {
+			return
+		}
+
+		log.Warnf("Transaction subscription ended (%s), "+
+			"resubscribing in %s", reason,
+			txResubscriptionDelay.String())
+
+		newTxChan = nil
+		txErrChan = nil
+		resubscribeTimer = time.After(txResubscriptionDelay)
 	}
 
 	// Fetch all pending events that we wish to process.
@@ -495,7 +524,10 @@ func (c *Custodian) mainEventLoop() error {
 				),
 			)
 
-			return err
+			log.Errorf("Unable to check proof availability for "+
+				"event (outpoint=%v): %v", event.Outpoint, err)
+
+			continue
 		}
 
 		// If we did find a proof, we did import it now and are done.
@@ -526,9 +558,8 @@ func (c *Custodian) mainEventLoop() error {
 				),
 			)
 
-			// TODO(ffranr): Figure out if we can recover from this
-			//  error.
-			c.handleError(fn.NewCriticalError(err))
+			log.Errorf("Unable to receive proof for pending "+
+				"event (outpoint=%v): %v", event.Outpoint, err)
 		})
 	}
 
@@ -552,7 +583,8 @@ func (c *Custodian) mainEventLoop() error {
 	for idx := range walletTxns {
 		err := c.inspectWalletTx(&walletTxns[idx])
 		if err != nil {
-			return err
+			log.Errorf("Unable to inspect wallet transaction %v: "+
+				"%v", walletTxns[idx].Tx.TxHash(), err)
 		}
 	}
 
@@ -582,7 +614,13 @@ func (c *Custodian) mainEventLoop() error {
 				)
 			}
 
-		case tx := <-newTxChan:
+		// Tx stream ended; schedule a delayed resubscribe.
+		case tx, ok := <-newTxChan:
+			if !ok {
+				scheduleTxResubscribe("tx channel closed")
+				continue
+			}
+
 			err = c.inspectWalletTx(&tx)
 
 		case newProof := <-c.proofSubscription.NewItemCreated.ChanOut():
@@ -596,8 +634,46 @@ func (c *Custodian) mainEventLoop() error {
 
 			err = c.handleMailboxMessages(newMsg)
 
-		case err = <-txErrChan:
-			break
+		// Error stream ended or returned an error; schedule retry.
+		case txErr, ok := <-txErrChan:
+			if !ok {
+				scheduleTxResubscribe("tx error channel closed")
+				continue
+			}
+			if fn.IsCanceled(txErr) {
+				return nil
+			}
+
+			if txErr != nil {
+				scheduleTxResubscribe(fmt.Sprintf(
+					"tx subscription error: %v", txErr,
+				))
+				continue
+			}
+
+			scheduleTxResubscribe("tx subscription ended")
+			continue
+
+		// Timer fired; attempt to resubscribe to the tx stream.
+		case <-resubscribeTimer:
+			resubscribeTimer = nil
+
+			newTxChan, txErrChan, err =
+				c.cfg.WalletAnchor.SubscribeTransactions(
+					ctxStream,
+				)
+			if err != nil {
+				if fn.IsCanceled(err) {
+					return nil
+				}
+
+				scheduleTxResubscribe(fmt.Sprintf(
+					"resubscribe error: %v", err,
+				))
+				continue
+			}
+
+			log.Infof("Resubscribed to new on-chain transactions")
 
 		case <-c.Quit:
 			return nil
@@ -606,11 +682,10 @@ func (c *Custodian) mainEventLoop() error {
 		if err != nil {
 			// We'll report the error to the main daemon, but only
 			// if this isn't a context cancel.
-			if fn.IsCanceled(err) {
-				return nil
+			if !fn.IsCanceled(err) {
+				log.Errorf("Custodian event loop error: %v",
+					err)
 			}
-
-			return err
 		}
 	}
 }
