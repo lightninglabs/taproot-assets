@@ -274,10 +274,11 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	default:
 		// Set the experimental config for the RFQ service.
 		tapCfg.Experimental = &tapcfg.ExperimentalConfig{
+			// nolint: lll
 			Rfq: rfq.CliConfig{
-				//nolint:lll
-				PriceOracleAddress:     rfq.MockPriceOracleServiceAddress,
-				MockOracleAssetsPerBTC: 5_820_600,
+				PriceOracleAddress:      rfq.MockPriceOracleServiceAddress,
+				MockOracleAssetsPerBTC:  5_820_600,
+				AcceptPriceDeviationPpm: rfq.DefaultAcceptPriceDeviationPpm,
 			},
 		}
 	}

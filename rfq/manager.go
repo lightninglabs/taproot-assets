@@ -1395,6 +1395,14 @@ const (
 	// PriceOracleQueryErrQuoteRespStatus indicates that an error occurred
 	// when querying the price oracle whilst evaluating the quote response.
 	PriceOracleQueryErrQuoteRespStatus QuoteRespStatus = 2
+
+	// PortfolioPilotErrQuoteRespStatus indicates that an unexpected error
+	// occurred in the portfolio pilot while evaluating the quote response.
+	PortfolioPilotErrQuoteRespStatus QuoteRespStatus = 3
+
+	// ValidAcceptQuoteRespStatus indicates that the accepted quote passed
+	// all validation checks successfully.
+	ValidAcceptQuoteRespStatus QuoteRespStatus = 4
 )
 
 // InvalidQuoteRespEvent is an event that is broadcast when the RFQ manager

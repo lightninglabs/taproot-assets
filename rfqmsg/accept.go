@@ -244,6 +244,13 @@ type Accept interface {
 	IncomingMsg
 	OutgoingMsg
 
+	// AcceptedRate returns the asset rate that was accepted in this quote.
+	AcceptedRate() AssetRate
+
+	// OriginalRequest returns the original quote request that this accept
+	// message responds to.
+	OriginalRequest() Request
+
 	// acceptMarker is an unexported marker method that ensures only rfqmsg
 	// package types may satisfy this interface.
 	acceptMarker()

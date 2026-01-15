@@ -53,6 +53,14 @@ func (s *mockPortfolioPilot) ResolveRequest(context.Context,
 	return s.resp, s.err
 }
 
+// VerifyAcceptQuote verifies that an accepted quote from a peer meets
+// acceptable conditions.
+func (s *mockPortfolioPilot) VerifyAcceptQuote(context.Context,
+	rfqmsg.Accept) (QuoteRespStatus, error) {
+
+	return ValidAcceptQuoteRespStatus, nil
+}
+
 // assertIncomingSellAcceptTestCase asserts the handling of an incoming sell
 // accept message for a test case.
 func assertIncomingSellAcceptTestCase(

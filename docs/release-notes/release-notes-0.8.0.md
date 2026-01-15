@@ -56,6 +56,11 @@
 
 ## Functional Enhancements
 
+- [PR#1935](https://github.com/lightninglabs/taproot-assets/pull/1935)
+  Delegate buy/sell accept validation to the PortfolioPilot interface via a new
+  `VerifyAcceptQuote` method, centralizing quote acceptance logic and improving
+  code organization.
+
 ## RPC Additions
 
 ## tapcli Additions
