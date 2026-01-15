@@ -201,7 +201,7 @@ func addRandomManagedUTXO(t *testing.T, ctx context.Context,
 	_, err = rand.Read(blockHash[:])
 	require.NoError(t, err)
 
-	anchorTx := wire.NewMsgTx(2)
+	anchorTx := wire.NewMsgTx(3)
 	anchorTx.AddTxIn(&wire.TxIn{})
 	anchorTx.AddTxOut(&wire.TxOut{
 		PkScript: bytes.Repeat([]byte{0x01}, 34),

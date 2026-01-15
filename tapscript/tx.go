@@ -210,6 +210,11 @@ func VirtualTx(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 
 	// With our single input and output mapped, we're ready to construct our
 	// virtual transaction.
+	//
+	// IMPORTANT: The virtual transaction version must remain at v2 for
+	// backwards compatibility. Changing the version would invalidate all
+	// existing asset witness signatures. Only the anchor (real Bitcoin)
+	// transactions use v3.
 	virtualTx := wire.NewMsgTx(2)
 	virtualTx.AddTxIn(txIn)
 	virtualTx.AddTxOut(txOut)
