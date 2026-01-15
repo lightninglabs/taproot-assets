@@ -134,6 +134,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	policyStore := tapdb.NewPersistedPolicyStore(rfqPolicyDB)
 
+	rfqForwardDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.ForwardStore {
+			return db.WithTx(tx)
+		},
+	)
+	forwardStore := tapdb.NewPersistedForwardStore(rfqForwardDB)
+
 	// Create a block header cache with default configuration.
 	headerCache, err := lndservices.NewBlockHeaderCache(
 		lndservices.DefaultBlockHeaderCacheConfig(),
@@ -534,6 +541,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		SendPeerId:                rfqCfg.PriceOracleSendPeerId,
 		NoOpHTLCs:                 cfg.Channel.NoopHTLCs,
 		PolicyStore:               policyStore,
+		ForwardStore:              forwardStore,
 		ErrChan:                   mainErrChan,
 	})
 	if err != nil {

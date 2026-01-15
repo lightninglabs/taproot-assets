@@ -303,6 +303,10 @@ var (
 			Entity: "rfq",
 			Action: "write",
 		}},
+		"/rfqrpc.Rfq/ForwardingHistory": {{
+			Entity: "rfq",
+			Action: "read",
+		}},
 		"/tapchannelrpc.TaprootAssetChannels/FundChannel": {{
 			Entity: "channels",
 			Action: "write",

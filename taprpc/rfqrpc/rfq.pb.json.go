@@ -187,4 +187,29 @@ func RegisterRfqJSONCallbacks(registry map[string]func(ctx context.Context,
 			}
 		}()
 	}
+
+	registry["rfqrpc.Rfq.ForwardingHistory"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &ForwardingHistoryRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewRfqClient(conn)
+		resp, err := client.ForwardingHistory(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
 }

@@ -352,6 +352,10 @@ var allTestCases = []*testCase{
 		test: testRfqNegotiationGroupKey,
 	},
 	{
+		name: "rfq forwarding history",
+		test: testForwardingEventHistory,
+	},
+	{
 		name: "multi signature on all levels",
 		test: testMultiSignature,
 	},

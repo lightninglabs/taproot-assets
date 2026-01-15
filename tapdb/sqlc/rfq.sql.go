@@ -8,27 +8,48 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
+
+const CountForwards = `-- name: CountForwards :one
+SELECT COUNT(*) as total
+FROM forwards f
+JOIN rfq_policies p ON f.rfq_id = p.rfq_id
+WHERE f.opened_at >= $1 AND f.opened_at <= $2
+    AND (p.peer = $3 OR $3 IS NULL)
+    AND (p.asset_id = $4 OR
+         $4 IS NULL)
+    AND (p.asset_group_key = $5 OR
+         $5 IS NULL)
+`
+
+type CountForwardsParams struct {
+	OpenedAfter   time.Time
+	OpenedBefore  time.Time
+	Peer          []byte
+	AssetID       []byte
+	AssetGroupKey []byte
+}
+
+func (q *Queries) CountForwards(ctx context.Context, arg CountForwardsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, CountForwards,
+		arg.OpenedAfter,
+		arg.OpenedBefore,
+		arg.Peer,
+		arg.AssetID,
+		arg.AssetGroupKey,
+	)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
 
 const FetchActiveRfqPolicies = `-- name: FetchActiveRfqPolicies :many
 SELECT
-    id,
-    policy_type,
-    scid,
-    rfq_id,
-    peer,
-    asset_id,
-    asset_group_key,
-    rate_coefficient,
-    rate_scale,
-    expiry,
-    max_out_asset_amt,
-    payment_max_msat,
-    request_asset_max_amt,
-    request_payment_max_msat,
-    price_oracle_metadata,
-    request_version,
-    agreed_at
+    id, policy_type, scid, rfq_id, peer, asset_id, asset_group_key,
+    rate_coefficient, rate_scale, expiry, max_out_asset_amt, payment_max_msat,
+    request_asset_max_amt, request_payment_max_msat, price_oracle_metadata,
+    request_version, agreed_at
 FROM rfq_policies
 WHERE expiry >= $1
 `
@@ -76,22 +97,10 @@ func (q *Queries) FetchActiveRfqPolicies(ctx context.Context, minExpiry int64) (
 
 const InsertRfqPolicy = `-- name: InsertRfqPolicy :one
 INSERT INTO rfq_policies (
-    policy_type,
-    scid,
-    rfq_id,
-    peer,
-    asset_id,
-    asset_group_key,
-    rate_coefficient,
-    rate_scale,
-    expiry,
-    max_out_asset_amt,
-    payment_max_msat,
-    request_asset_max_amt,
-    request_payment_max_msat,
-    price_oracle_metadata,
-    request_version,
-    agreed_at
+    policy_type, scid, rfq_id, peer, asset_id, asset_group_key,
+    rate_coefficient, rate_scale, expiry, max_out_asset_amt, payment_max_msat,
+    request_asset_max_amt, request_payment_max_msat, price_oracle_metadata,
+    request_version, agreed_at
 )
 VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9,
@@ -137,6 +146,204 @@ func (q *Queries) InsertRfqPolicy(ctx context.Context, arg InsertRfqPolicyParams
 		arg.PriceOracleMetadata,
 		arg.RequestVersion,
 		arg.AgreedAt,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const QueryForwards = `-- name: QueryForwards :many
+SELECT
+    f.id, f.opened_at, f.settled_at, f.failed_at, f.rfq_id,
+    f.chan_id_in, f.chan_id_out, f.htlc_id, f.asset_amt, f.amt_in_msat,
+    f.amt_out_msat, p.policy_type, p.peer, p.asset_id, p.asset_group_key,
+    p.rate_coefficient, p.rate_scale
+FROM forwards f
+JOIN rfq_policies p ON f.rfq_id = p.rfq_id
+WHERE f.opened_at >= $1 AND f.opened_at <= $2
+    AND (p.peer = $3 OR $3 IS NULL)
+    AND (p.asset_id = $4 OR
+         $4 IS NULL)
+    AND (p.asset_group_key = $5 OR
+         $5 IS NULL)
+ORDER BY f.opened_at DESC
+LIMIT $7 OFFSET $6
+`
+
+type QueryForwardsParams struct {
+	OpenedAfter   time.Time
+	OpenedBefore  time.Time
+	Peer          []byte
+	AssetID       []byte
+	AssetGroupKey []byte
+	NumOffset     int32
+	NumLimit      int32
+}
+
+type QueryForwardsRow struct {
+	ID              int64
+	OpenedAt        time.Time
+	SettledAt       sql.NullTime
+	FailedAt        sql.NullTime
+	RfqID           []byte
+	ChanIDIn        int64
+	ChanIDOut       int64
+	HtlcID          int64
+	AssetAmt        int64
+	AmtInMsat       int64
+	AmtOutMsat      int64
+	PolicyType      string
+	Peer            []byte
+	AssetID         []byte
+	AssetGroupKey   []byte
+	RateCoefficient []byte
+	RateScale       int32
+}
+
+func (q *Queries) QueryForwards(ctx context.Context, arg QueryForwardsParams) ([]QueryForwardsRow, error) {
+	rows, err := q.db.QueryContext(ctx, QueryForwards,
+		arg.OpenedAfter,
+		arg.OpenedBefore,
+		arg.Peer,
+		arg.AssetID,
+		arg.AssetGroupKey,
+		arg.NumOffset,
+		arg.NumLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryForwardsRow
+	for rows.Next() {
+		var i QueryForwardsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OpenedAt,
+			&i.SettledAt,
+			&i.FailedAt,
+			&i.RfqID,
+			&i.ChanIDIn,
+			&i.ChanIDOut,
+			&i.HtlcID,
+			&i.AssetAmt,
+			&i.AmtInMsat,
+			&i.AmtOutMsat,
+			&i.PolicyType,
+			&i.Peer,
+			&i.AssetID,
+			&i.AssetGroupKey,
+			&i.RateCoefficient,
+			&i.RateScale,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const QueryPendingForwards = `-- name: QueryPendingForwards :many
+SELECT
+    f.opened_at, f.rfq_id, f.chan_id_in, f.chan_id_out, f.htlc_id,
+    f.asset_amt, f.amt_in_msat, f.amt_out_msat
+FROM forwards f
+WHERE f.settled_at IS NULL AND f.failed_at IS NULL
+ORDER BY f.opened_at DESC
+`
+
+type QueryPendingForwardsRow struct {
+	OpenedAt   time.Time
+	RfqID      []byte
+	ChanIDIn   int64
+	ChanIDOut  int64
+	HtlcID     int64
+	AssetAmt   int64
+	AmtInMsat  int64
+	AmtOutMsat int64
+}
+
+func (q *Queries) QueryPendingForwards(ctx context.Context) ([]QueryPendingForwardsRow, error) {
+	rows, err := q.db.QueryContext(ctx, QueryPendingForwards)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryPendingForwardsRow
+	for rows.Next() {
+		var i QueryPendingForwardsRow
+		if err := rows.Scan(
+			&i.OpenedAt,
+			&i.RfqID,
+			&i.ChanIDIn,
+			&i.ChanIDOut,
+			&i.HtlcID,
+			&i.AssetAmt,
+			&i.AmtInMsat,
+			&i.AmtOutMsat,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const UpsertForward = `-- name: UpsertForward :one
+INSERT INTO forwards (
+    opened_at, settled_at, failed_at, rfq_id, chan_id_in, chan_id_out,
+    htlc_id, asset_amt, amt_in_msat, amt_out_msat
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+ON CONFLICT(chan_id_in, htlc_id) DO UPDATE SET
+    opened_at = excluded.opened_at,
+    settled_at = COALESCE(excluded.settled_at, forwards.settled_at),
+    failed_at = COALESCE(excluded.failed_at, forwards.failed_at),
+    rfq_id = excluded.rfq_id,
+    chan_id_out = excluded.chan_id_out,
+    asset_amt = excluded.asset_amt,
+    amt_in_msat = excluded.amt_in_msat,
+    amt_out_msat = excluded.amt_out_msat
+RETURNING id
+`
+
+type UpsertForwardParams struct {
+	OpenedAt   time.Time
+	SettledAt  sql.NullTime
+	FailedAt   sql.NullTime
+	RfqID      []byte
+	ChanIDIn   int64
+	ChanIDOut  int64
+	HtlcID     int64
+	AssetAmt   int64
+	AmtInMsat  int64
+	AmtOutMsat int64
+}
+
+func (q *Queries) UpsertForward(ctx context.Context, arg UpsertForwardParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertForward,
+		arg.OpenedAt,
+		arg.SettledAt,
+		arg.FailedAt,
+		arg.RfqID,
+		arg.ChanIDIn,
+		arg.ChanIDOut,
+		arg.HtlcID,
+		arg.AssetAmt,
+		arg.AmtInMsat,
+		arg.AmtOutMsat,
 	)
 	var id int64
 	err := row.Scan(&id)
