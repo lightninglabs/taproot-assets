@@ -1480,7 +1480,7 @@ func (q *Queries) FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (F
 }
 
 const FetchManagedUTXO = `-- name: FetchManagedUTXO :one
-SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, root_version, key_id, raw_key, key_family, key_index
+SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, root_version, swept_txn_id, key_id, raw_key, key_family, key_index
 FROM managed_utxos utxos
 JOIN internal_keys keys
     ON utxos.internal_key_id = keys.key_id
@@ -1507,6 +1507,7 @@ type FetchManagedUTXORow struct {
 	LeaseOwner       []byte
 	LeaseExpiry      sql.NullTime
 	RootVersion      sql.NullInt16
+	SweptTxnID       sql.NullInt64
 	KeyID            int64
 	RawKey           []byte
 	KeyFamily        int32
@@ -1528,6 +1529,7 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOPara
 		&i.LeaseOwner,
 		&i.LeaseExpiry,
 		&i.RootVersion,
+		&i.SweptTxnID,
 		&i.KeyID,
 		&i.RawKey,
 		&i.KeyFamily,
@@ -1537,7 +1539,7 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOPara
 }
 
 const FetchManagedUTXOs = `-- name: FetchManagedUTXOs :many
-SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, root_version, key_id, raw_key, key_family, key_index
+SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, root_version, swept_txn_id, key_id, raw_key, key_family, key_index
 FROM managed_utxos utxos
 JOIN internal_keys keys
     ON utxos.internal_key_id = keys.key_id
@@ -1555,6 +1557,7 @@ type FetchManagedUTXOsRow struct {
 	LeaseOwner       []byte
 	LeaseExpiry      sql.NullTime
 	RootVersion      sql.NullInt16
+	SweptTxnID       sql.NullInt64
 	KeyID            int64
 	RawKey           []byte
 	KeyFamily        int32
@@ -1582,6 +1585,7 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 			&i.LeaseOwner,
 			&i.LeaseExpiry,
 			&i.RootVersion,
+			&i.SweptTxnID,
 			&i.KeyID,
 			&i.RawKey,
 			&i.KeyFamily,
