@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/x509"
 	"encoding/json"
@@ -151,6 +152,41 @@ func capturePassword(instruction string, optional bool,
 	}
 }
 
+// detectNodeNetwork attempts to detect the network that the tapd node is
+// configured to run on by reading the tapd.conf file in the specified tapddir.
+// Returns the detected network name or an empty string if detection fails.
+func detectNodeNetwork(tapdDir string) string {
+	configPath := filepath.Join(tapdDir, "tapd.conf")
+	file, err := os.Open(configPath)
+	if err != nil {
+		// Config file doesn't exist or isn't readable
+		return ""
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		// Skip comments and empty lines
+		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") || line == "" {
+			continue
+		}
+
+		// Look for network setting
+		if after, ok :=strings.CutPrefix(line, "network="); ok  {
+			network := after
+			network = strings.TrimSpace(network)
+			// Validate it's a known network
+			switch network {
+			case "mainnet", "testnet", "testnet4", "regtest", "simnet", "signet":
+				return network
+			}
+		}
+	}
+
+	return ""
+}
+
 // profileFromContext creates an ephemeral profile entry from the global options
 // set in the CLI context.
 func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
@@ -193,6 +229,44 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 	// Now load and possibly encrypt the macaroon file.
 	macBytes, err := os.ReadFile(macPath)
 	if err != nil {
+		// Check if this might be a network mismatch by trying to detect
+		// the node's configured network from the config file.
+		requestedNetwork := ctx.GlobalString("network")
+		tapdDir := entry.TapdDir
+		detectedNetwork := detectNodeNetwork(tapdDir)
+
+		if detectedNetwork != "" && detectedNetwork != requestedNetwork {
+			// Build the corrected command by replacing the network flag
+			args := make([]string, 0, len(os.Args))
+			foundNetworkFlag := false
+			for i, arg := range os.Args {
+				if arg == "--network" || arg == "-n" {
+					if i+1 < len(os.Args) {
+						args = append(args, arg, detectedNetwork)
+						foundNetworkFlag = true
+						continue
+					}
+				}
+				if strings.HasPrefix(arg, "--network=") {
+					args = append(args, "--network="+detectedNetwork)
+					foundNetworkFlag = true
+					continue
+				}
+				args = append(args, arg)
+			}
+
+			// If we didn't find an explicit network flag, we need to add one
+			if !foundNetworkFlag {
+				args = append(args, "--network="+detectedNetwork)
+			}
+
+			suggestedCmd := strings.Join(args, " ")
+			return nil, fmt.Errorf("[ERR] Network mismatch detected!\n"+
+				"Requested network: %s\n"+
+				"Node configured for: %s\n"+
+				"Try: %s", requestedNetwork, detectedNetwork, suggestedCmd)
+		}
+
 		return nil, fmt.Errorf("unable to read macaroon path (check "+
 			"the network setting!): %w", err)
 	}
