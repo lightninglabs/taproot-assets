@@ -1,10 +1,10 @@
-FROM golang:1.24.9-bookworm
+FROM golang:1.25.2-bookworm
 
-MAINTAINER Olaoluwa Osuntokun <laolu@lightning.engineering>
+LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 
 # Golang build related environment variables that are static and used for all
 # architectures/OSes.
-ENV GODEBUG netdns=cgo
+ENV GODEBUG=netdns=cgo
 ENV CGO_ENABLED=0
 
 # Set up cache directories. Those will be mounted from the host system to speed

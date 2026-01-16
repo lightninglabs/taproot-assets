@@ -9,7 +9,6 @@ VERSION_CHECK = ./scripts/release.sh check-tag "$(VERSION_TAG)" "$(VERSION_GO_FI
 endif
 
 DOCKER_RELEASE_HELPER = docker run \
-  -it \
   --rm \
   --user $(shell id -u):$(shell id -g) \
   -v $(shell pwd):/tmp/build/taproot-assets \

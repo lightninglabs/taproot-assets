@@ -3663,7 +3663,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 
 	AssertSendEvents(
 		t.t, aliceScriptKeyBytes, sendEvents,
-		tapfreighter.SendStateStorePreBroadcast,
+		tapfreighter.SendStateVerifyPreBroadcast,
 		tapfreighter.SendStateWaitTxConf,
 	)
 

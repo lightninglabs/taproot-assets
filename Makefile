@@ -57,7 +57,7 @@ DOCKER_TOOLS = docker run \
   -v $(shell bash -c "mkdir -p /tmp/go-lint-cache; echo /tmp/go-lint-cache"):/root/.cache/golangci-lint \
   -v $$(pwd):/build taproot-assets-tools
 
-GO_VERSION = 1.24.9
+GO_VERSION = 1.25.2
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -106,9 +106,6 @@ build-itest-binary:
 	@$(call print, "Building itest binary for ${backend} backend.")
 	CGO_ENABLED=0 $(GOTEST) -v $(ITEST_COVERAGE) ./itest -tags="$(ITEST_TAGS)" -c -o itest/itest.test
 
-build-loadtest:
-	CGO_ENABLED=0 $(GOTEST) -c -tags="$(LOADTEST_TAGS)" -o loadtest $(PKG)/itest/loadtest
-
 build-docs-examples:
 	@$(call print, "Building docs examples.")
 	$(MAKE) -C ./docs/examples build
@@ -147,7 +144,7 @@ docker-release:
 
 	# Run the actual compilation inside the docker image. We pass in all flags
 	# that we might want to overwrite in manual tests.
-	$(DOCKER_RELEASE_HELPER) make release tag="$(tag)" sys="$(sys)" COMMIT="$(COMMIT)" 
+	$(DOCKER_RELEASE_HELPER) make release tag="$(tag)" sys="$(sys)" COMMIT="$(COMMIT)"
 
 docker-tools:
 	@$(call print, "Building tools docker image.")
@@ -376,7 +373,6 @@ clean:
 	$(RM) -r itest/chantools
 	$(RM) itest/btcd-itest
 	$(RM) itest/lnd-itest
-	$(RM) loadtest
 	$(RM) tapd-debug
 	$(RM) tapcli-debug
 	$(RM) -r taproot-assets-v*

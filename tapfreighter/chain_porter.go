@@ -367,7 +367,8 @@ func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 	// Continue state transitions whilst state complete has not yet
 	// been reached.
 	for pkg.SendState <= SendStateComplete {
-		log.Infof("ChainPorter executing state: %v", pkg.SendState)
+		log.Infof("ChainPorter executing state: %v (label=%s)",
+			pkg.SendState, pkg.Label)
 
 		// Before we attempt a state transition, make sure that
 		// we aren't trying to shut down.
@@ -1397,6 +1398,101 @@ func (p *ChainPorter) prelimCheckAddrParcel(addrParcel AddressParcel) error {
 	return nil
 }
 
+// verifyVPackets performs various verification checks on the given virtual
+// packets.
+func (p *ChainPorter) verifyVPackets(ctx context.Context,
+	packets []*tappsbt.VPacket) error {
+
+	for pktIdx := range packets {
+		vPkt := packets[pktIdx]
+
+		err := p.verifyPacketInputProofs(ctx, *vPkt)
+		if err != nil {
+			return fmt.Errorf("verify packet input proofs "+
+				"(vpkt_idx=%d): %w", pktIdx, err)
+		}
+
+		err = verifySplitCommitmentWitnesses(*vPkt)
+		if err != nil {
+			return fmt.Errorf("verify split commitment "+
+				"witnesses (vpkt_idx=%d): %w", pktIdx, err)
+		}
+	}
+
+	return nil
+}
+
+// verifyPacketInputProofs ensures that each virtual packet's inputs reference
+// a valid Taproot Asset commitment before the package is broadcast.
+func (p *ChainPorter) verifyPacketInputProofs(ctx context.Context,
+	vPkt tappsbt.VPacket) error {
+
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
+	vCtx := proof.VerifierCtx{
+		HeaderVerifier: headerVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		GroupVerifier:  p.cfg.GroupVerifier,
+		ChainLookupGen: p.cfg.ChainBridge,
+		IgnoreChecker:  p.cfg.IgnoreChecker,
+	}
+
+	for inputIdx := range vPkt.Inputs {
+		assetProof := vPkt.Inputs[inputIdx].Proof
+		if assetProof == nil {
+			return fmt.Errorf("packet input proof is nil "+
+				"(input_idx=%d)", inputIdx)
+		}
+
+		_, err := assetProof.VerifyProofIntegrity(ctx, vCtx)
+		if err != nil {
+			return fmt.Errorf("unable to verify "+
+				"inclusion proof for packet input "+
+				"(input_idx=%d): %w", inputIdx, err)
+		}
+	}
+
+	return nil
+}
+
+// verifySplitCommitmentWitnesses ensures split leaf outputs embed a split root
+// that actually carries a witness. Split leaves intentionally keep their own
+// TxWitness empty and rely on the embedded root witness for validation.
+func verifySplitCommitmentWitnesses(vPkt tappsbt.VPacket) error {
+	for outIdx := range vPkt.Outputs {
+		vOut := vPkt.Outputs[outIdx]
+
+		if vOut.Asset == nil ||
+			!vOut.Asset.HasSplitCommitmentWitness() {
+
+			continue
+		}
+
+		splitCommitment := vOut.Asset.PrevWitnesses[0].SplitCommitment
+		if splitCommitment == nil {
+			return fmt.Errorf("output missing split commitment "+
+				"(output_idx=%d)", outIdx)
+		}
+
+		root := &splitCommitment.RootAsset
+		if len(root.PrevWitnesses) == 0 {
+			return fmt.Errorf("output split root has no prev "+
+				"witnesses (output_idx=%d)", outIdx)
+		}
+
+		hasWitness := fn.Any(
+			root.PrevWitnesses, func(wit asset.Witness) bool {
+				return len(wit.TxWitness) > 0
+			},
+		)
+		if !hasWitness {
+			return fmt.Errorf("output split root witness empty "+
+				"(output_idx=%d)", outIdx)
+		}
+	}
+
+	return nil
+}
+
 // stateStep attempts to step through the state machine to complete a Taproot
 // Asset transfer.
 func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
@@ -1630,8 +1726,29 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"package: %w", err)
 		}
 
-		currentPkg.SendState = SendStateStorePreBroadcast
+		currentPkg.SendState = SendStateVerifyPreBroadcast
+		return &currentPkg, nil
 
+	// Run final pre-broadcast checks on the package.
+	case SendStateVerifyPreBroadcast:
+		ctx, cancel := p.WithCtxQuitNoTimeout()
+		defer cancel()
+
+		totalVPacketsCount :=
+			len(currentPkg.VirtualPackets) +
+				len(currentPkg.PassiveAssets)
+		allPackets := make([]*tappsbt.VPacket, 0, totalVPacketsCount)
+		allPackets = append(allPackets, currentPkg.VirtualPackets...)
+		allPackets = append(allPackets, currentPkg.PassiveAssets...)
+
+		err := p.verifyVPackets(ctx, allPackets)
+		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
+			return nil, fmt.Errorf("verifying vPackets: %w", err)
+		}
+
+		currentPkg.SendState = SendStateStorePreBroadcast
 		return &currentPkg, nil
 
 	// In this state, the parcel state is stored before the fully signed
@@ -1639,15 +1756,25 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	case SendStateStorePreBroadcast:
 		// We won't broadcast in this state, but in preparation for
 		// broadcasting, we will find out the current height to use as
-		// a height hint.
+		// a height hint. If the parcel provides its own height hint,
+		// we'll use that instead.
 		ctx, cancel := p.WithCtxQuit()
 		defer cancel()
-		currentHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
+
+		parcelHint := currentPkg.Parcel.HeightHint()
+		parcelHint.WhenSome(func(h uint32) {
+			log.Debugf("Using parcel-provided height hint: %d", h)
+		})
+		heightHint, err := parcelHint.UnwrapOrFuncErr(
+			func() (uint32, error) {
+				return p.cfg.ChainBridge.CurrentHeight(ctx)
+			},
+		)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
 
-			return nil, fmt.Errorf("unable to get current height: "+
-				"%w", err)
+			return nil, fmt.Errorf("unable to get current "+
+				"height: %w", err)
 		}
 
 		// We now need to find out if this is a transfer to ourselves
@@ -1693,7 +1820,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// We need to prepare the parcel for storage.
 		parcel, err := ConvertToTransfer(
-			currentHeight, currentPkg.VirtualPackets,
+			heightHint, currentPkg.VirtualPackets,
 			currentPkg.AnchorTx, currentPkg.PassiveAssets,
 			isLocalKey, currentPkg.Label,
 			currentPkg.SkipAnchorTxBroadcast,

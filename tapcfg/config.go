@@ -87,7 +87,7 @@ const (
 
 	// defaultProofTransferNumTries is the default number of times we'll
 	// attempt to transfer a proof before ending the backoff procedure.
-	defaultProofTransferNumTries = 2000
+	defaultProofTransferNumTries = proof.DefaultProofTransferNumTries
 
 	// defaultProofTransferInitialBackoff is the default initial backoff
 	// time we'll use for proof transfers.
@@ -659,6 +659,18 @@ func (u *usageError) Error() string {
 	return u.err.Error()
 }
 
+// applyProofBackoffDefaults fills in optional proof courier backoff values that
+// signal "use defaults" when unset.
+func applyProofBackoffDefaults(cfg *proof.BackoffCfg) {
+	if cfg == nil {
+		return
+	}
+
+	if cfg.NumTries == 0 {
+		cfg.NumTries = proof.DefaultProofTransferNumTries
+	}
+}
+
 // ValidateConfig check the given configuration to be sane. This makes sure no
 // illegal values or combination of values are set. All file system paths are
 // normalized. The cleaned up config is returned on success.
@@ -710,6 +722,13 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	cfg.RpcConf.TLSKeyPath = CleanAndExpandPath(cfg.RpcConf.TLSKeyPath)
 	cfg.LogDir = CleanAndExpandPath(cfg.LogDir)
 	cfg.RpcConf.MacaroonPath = CleanAndExpandPath(cfg.RpcConf.MacaroonPath)
+
+	if cfg.HashMailCourier != nil {
+		applyProofBackoffDefaults(cfg.HashMailCourier.BackoffCfg)
+	}
+	if cfg.UniverseRpcCourier != nil {
+		applyProofBackoffDefaults(cfg.UniverseRpcCourier.BackoffCfg)
+	}
 
 	// Multiple networks can't be selected simultaneously.  Count number of
 	// network flags passed; assign active network params

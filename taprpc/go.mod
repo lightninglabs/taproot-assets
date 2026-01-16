@@ -1,6 +1,6 @@
 module github.com/lightninglabs/taproot-assets/taprpc
 
-go 1.24.9
+go 1.24.11
 
 require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.20.0

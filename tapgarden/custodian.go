@@ -32,6 +32,10 @@ const (
 	// defaultMboxMaxBackoff is the maximum backoff time used for connecting
 	// to the auth mailbox service.
 	defaultMboxMaxBackoff = 10 * time.Second
+
+	// txResubscriptionDelay is the delay we wait before attempting to
+	// resubscribe to the transaction stream after it has ended.
+	txResubscriptionDelay = 10 * time.Second
 )
 
 // AssetReceiveEvent is an event that is sent to a subscriber once the
@@ -66,6 +70,9 @@ func (e *AssetReceiveEvent) Timestamp() time.Time {
 	return e.timestamp
 }
 
+// Ensure that AssetReceiveEvent implements the Event interface.
+var _ fn.Event = (*AssetReceiveEvent)(nil)
+
 // NewAssetReceiveEvent creates a new AssetReceiveEvent.
 func NewAssetReceiveEvent(addr address.Tap, outpoint wire.OutPoint,
 	confHeight uint32, status address.Status) *AssetReceiveEvent {
@@ -93,6 +100,66 @@ func NewAssetReceiveErrorEvent(err error, addr address.Tap,
 		Error:              err,
 	}
 }
+
+// AddrImportErrEvent is an event sent to subscriber(s) if the custodian fails
+// to import an address.
+type AddrImportErrEvent struct {
+	// timestamp is the time the event was created.
+	timestamp time.Time
+
+	// Address is the address associated with the import attempt.
+	Address address.AddrWithKeyInfo
+
+	// Err is the error that occurred during the import attempt.
+	Err error
+}
+
+// NewAddrImportErrEvent creates a new AddrImportErrEvent.
+func NewAddrImportErrEvent(
+	addr address.AddrWithKeyInfo, err error) *AddrImportErrEvent {
+
+	return &AddrImportErrEvent{
+		timestamp: time.Now().UTC(),
+		Address:   addr,
+		Err:       err,
+	}
+}
+
+// Timestamp returns the timestamp of the event.
+func (e *AddrImportErrEvent) Timestamp() time.Time {
+	return e.timestamp
+}
+
+// Ensure that AddrImportErrEvent implements the Event interface.
+var _ fn.Event = (*AddrImportErrEvent)(nil)
+
+// AddrImportCompleteEvent is an event sent to subscriber(s) once the custodian
+// has successfully imported an address.
+type AddrImportCompleteEvent struct {
+	// timestamp is the time the event was created.
+	timestamp time.Time
+
+	// Address is the address associated with the import attempt.
+	Address address.AddrWithKeyInfo
+}
+
+// NewAddrImportCompleteEvent creates a new AddrImportCompleteEvent.
+func NewAddrImportCompleteEvent(
+	addr address.AddrWithKeyInfo) *AddrImportCompleteEvent {
+
+	return &AddrImportCompleteEvent{
+		timestamp: time.Now().UTC(),
+		Address:   addr,
+	}
+}
+
+// Timestamp returns the timestamp of the event.
+func (e *AddrImportCompleteEvent) Timestamp() time.Time {
+	return e.timestamp
+}
+
+// Ensure that AddrImportCompleteEvent implements the Event interface.
+var _ fn.Event = (*AddrImportCompleteEvent)(nil)
 
 // CustodianConfig houses all the items that the Custodian needs to carry out
 // its duties.
@@ -216,12 +283,17 @@ func NewCustodian(cfg *CustodianConfig) *Custodian {
 	proofSub := fn.NewEventReceiver[proof.Blob](fn.DefaultQueueSize)
 	statusEventsSubs := make(map[uint64]*fn.EventReceiver[fn.Event])
 
-	backoffCfg := cfg.MboxBackoffCfg
-	if backoffCfg == nil {
-		backoffCfg = &proof.BackoffCfg{
+	mboxBackoffCfg := cfg.MboxBackoffCfg
+	if mboxBackoffCfg == nil {
+		mboxBackoffCfg = &proof.BackoffCfg{
 			InitialBackoff: defaultMboxInitialBackoff,
 			MaxBackoff:     defaultMboxMaxBackoff,
+			NumTries:       mbox.DefaultMboxMaxConnectNumTries,
 		}
+	}
+
+	if mboxBackoffCfg.NumTries == 0 {
+		mboxBackoffCfg.NumTries = mbox.DefaultMboxMaxConnectNumTries
 	}
 
 	return &Custodian{
@@ -231,12 +303,14 @@ func NewCustodian(cfg *CustodianConfig) *Custodian {
 		statusEventsSubs:  statusEventsSubs,
 		events:            make(map[wire.OutPoint]*address.Event),
 		mboxSubscriptions: mbox.NewMultiSubscription(
+			// nolint:lll
 			mbox.ClientConfig{
-				Insecure:      cfg.MboxInsecure,
-				SkipTlsVerify: !cfg.MboxInsecure,
-				Signer:        cfg.Signer,
-				MinBackoff:    backoffCfg.InitialBackoff,
-				MaxBackoff:    backoffCfg.MaxBackoff,
+				Insecure:           cfg.MboxInsecure,
+				SkipTlsVerify:      !cfg.MboxInsecure,
+				Signer:             cfg.Signer,
+				MinBackoff:         mboxBackoffCfg.InitialBackoff,
+				MaxBackoff:         mboxBackoffCfg.MaxBackoff,
+				MaxConnectAttempts: mboxBackoffCfg.NumTries,
 			},
 		),
 		ContextGuard: &fn.ContextGuard{
@@ -254,8 +328,24 @@ func (c *Custodian) Start() error {
 
 		// Start the main event handler loop that will process new
 		// addresses being added and new incoming on-chain transactions.
-		c.Wg.Add(1)
-		go c.watchInboundAssets()
+		c.Goroutine(func() error {
+			err := c.mainEventLoop()
+			if err != nil {
+				// We don't currently have a means to recover
+				// from this error, so we'll treat it as
+				// critical.
+				err = fn.NewCriticalError(err)
+
+				return fmt.Errorf("main event loop: %w", err)
+			}
+
+			return nil
+		}, func(err error) {
+			log.Errorf("Aborting main custodian event loop: %v",
+				err)
+
+			c.handleError(err)
+		})
 
 		// We instruct the address book to also deliver all existing
 		// addresses that haven't been added to the internal wallet for
@@ -320,30 +410,68 @@ func (c *Custodian) Stop() error {
 	return stopErr
 }
 
-// watchInboundAssets processes new Taproot Asset addresses being created and
-// new transactions being received and attempts to match the two things into
-// inbound asset events.
-func (c *Custodian) watchInboundAssets() {
-	defer c.Wg.Done()
+// handleError logs an error and sends it to the main server error channel if
+// it is a critical error.
+func (c *Custodian) handleError(err error) {
+	if err == nil {
+		return
+	}
 
-	reportErr := func(err error) {
+	log.Errorf("Error in custodian: %v", err)
+
+	// If the error is a critical error, send it to the main server error
+	// channel, which will cause the daemon to shut down.
+	if fn.ErrorAs[*fn.CriticalError](err) {
 		select {
 		case c.cfg.ErrChan <- err:
 		case <-c.Quit:
 		}
 	}
+}
 
+// mainEventLoop is the main event loop of the custodian.
+//
+// It processes new Taproot Asset addresses being created and new transactions
+// being received and attempts to match the two things into inbound asset
+// events.
+func (c *Custodian) mainEventLoop() error {
 	// We first start the transaction subscription, so we don't miss any new
 	// transactions that come in while we still process the existing ones.
 	log.Debugf("Subscribing to new on-chain transactions")
+
 	ctxStream, cancel := c.WithCtxQuitNoTimeout()
 	defer cancel()
-	newTxChan, txErrChan, err := c.cfg.WalletAnchor.SubscribeTransactions(
+
+	var (
+		err error
+
+		newTxChan <-chan lndclient.Transaction
+		txErrChan <-chan error
+	)
+	newTxChan, txErrChan, err = c.cfg.WalletAnchor.SubscribeTransactions(
 		ctxStream,
 	)
 	if err != nil {
-		reportErr(err)
-		return
+		return err
+	}
+
+	// scheduleTxResubscribe disables tx channels and arms a retry timer.
+	// This avoids a tight loop on closed channels and gives lnd time to
+	// recover before we reconnect.
+	var resubscribeTimer <-chan time.Time
+
+	scheduleTxResubscribe := func(reason string) {
+		if resubscribeTimer != nil {
+			return
+		}
+
+		log.Warnf("Transaction subscription ended (%s), "+
+			"resubscribing in %s", reason,
+			txResubscriptionDelay.String())
+
+		newTxChan = nil
+		txErrChan = nil
+		resubscribeTimer = time.After(txResubscriptionDelay)
 	}
 
 	// Fetch all pending events that we wish to process.
@@ -352,8 +480,7 @@ func (c *Custodian) watchInboundAssets() {
 	events, err := c.cfg.AddrBook.GetPendingEvents(ctxt)
 	cancel()
 	if err != nil {
-		reportErr(err)
-		return
+		return err
 	}
 
 	// Fetching start height for querying new auth mailbox messages. We
@@ -369,8 +496,7 @@ func (c *Custodian) watchInboundAssets() {
 	)
 	cancel()
 	if err != nil {
-		reportErr(err)
-		return
+		return err
 	}
 
 	c.mboxRequestStartHeight.Store(lastHeight)
@@ -398,8 +524,10 @@ func (c *Custodian) watchInboundAssets() {
 				),
 			)
 
-			reportErr(err)
-			return
+			log.Errorf("Unable to check proof availability for "+
+				"event (outpoint=%v): %v", event.Outpoint, err)
+
+			continue
 		}
 
 		// If we did find a proof, we did import it now and are done.
@@ -430,7 +558,8 @@ func (c *Custodian) watchInboundAssets() {
 				),
 			)
 
-			reportErr(err)
+			log.Errorf("Unable to receive proof for pending "+
+				"event (outpoint=%v): %v", event.Outpoint, err)
 		})
 	}
 
@@ -445,8 +574,7 @@ func (c *Custodian) watchInboundAssets() {
 	)
 	cancel()
 	if err != nil {
-		reportErr(err)
-		return
+		return err
 	}
 
 	// Keep a cache of all events that are currently ongoing.
@@ -455,8 +583,8 @@ func (c *Custodian) watchInboundAssets() {
 	for idx := range walletTxns {
 		err := c.inspectWalletTx(&walletTxns[idx])
 		if err != nil {
-			reportErr(err)
-			return
+			log.Errorf("Unable to inspect wallet transaction %v: "+
+				"%v", walletTxns[idx].Tx.TxHash(), err)
 		}
 	}
 
@@ -465,9 +593,34 @@ func (c *Custodian) watchInboundAssets() {
 		var err error
 		select {
 		case newAddr := <-c.addrSubscription.NewItemCreated.ChanOut():
-			err = c.importAddrToWallet(ctxStream, newAddr)
+			importErr := c.importAddrToWallet(ctxStream, newAddr)
+			switch {
+			// If we failed to import the address, log the error and
+			// notify subscribers but do not terminate the main
+			// event loop.
+			case importErr != nil:
+				log.Errorf("Unable to import new address "+
+					"%s: %v", newAddr.String(), importErr)
 
-		case tx := <-newTxChan:
+				event := NewAddrImportErrEvent(
+					*newAddr, importErr,
+				)
+				c.publishSubscriberStatusEvent(event)
+
+			// Notify subscribers that the address was imported.
+			default:
+				c.publishSubscriberStatusEvent(
+					NewAddrImportCompleteEvent(*newAddr),
+				)
+			}
+
+		// Tx stream ended; schedule a delayed resubscribe.
+		case tx, ok := <-newTxChan:
+			if !ok {
+				scheduleTxResubscribe("tx channel closed")
+				continue
+			}
+
 			err = c.inspectWalletTx(&tx)
 
 		case newProof := <-c.proofSubscription.NewItemCreated.ChanOut():
@@ -481,25 +634,58 @@ func (c *Custodian) watchInboundAssets() {
 
 			err = c.handleMailboxMessages(newMsg)
 
-		case err = <-txErrChan:
-			break
+		// Error stream ended or returned an error; schedule retry.
+		case txErr, ok := <-txErrChan:
+			if !ok {
+				scheduleTxResubscribe("tx error channel closed")
+				continue
+			}
+			if fn.IsCanceled(txErr) {
+				return nil
+			}
+
+			if txErr != nil {
+				scheduleTxResubscribe(fmt.Sprintf(
+					"tx subscription error: %v", txErr,
+				))
+				continue
+			}
+
+			scheduleTxResubscribe("tx subscription ended")
+			continue
+
+		// Timer fired; attempt to resubscribe to the tx stream.
+		case <-resubscribeTimer:
+			resubscribeTimer = nil
+
+			newTxChan, txErrChan, err =
+				c.cfg.WalletAnchor.SubscribeTransactions(
+					ctxStream,
+				)
+			if err != nil {
+				if fn.IsCanceled(err) {
+					return nil
+				}
+
+				scheduleTxResubscribe(fmt.Sprintf(
+					"resubscribe error: %v", err,
+				))
+				continue
+			}
+
+			log.Infof("Resubscribed to new on-chain transactions")
 
 		case <-c.Quit:
-			return
+			return nil
 		}
 
 		if err != nil {
 			// We'll report the error to the main daemon, but only
 			// if this isn't a context cancel.
-			if fn.IsCanceled(err) {
-				return
+			if !fn.IsCanceled(err) {
+				log.Errorf("Custodian event loop error: %v",
+					err)
 			}
-
-			log.Errorf("Aborting main custodian event loop: %v",
-				err)
-
-			reportErr(err)
-			return
 		}
 	}
 }
@@ -1615,5 +1801,74 @@ func (c *Custodian) verifierCtx(ctx context.Context) proof.VerifierCtx {
 		GroupVerifier:  c.cfg.GroupVerifier,
 		ChainLookupGen: c.cfg.ChainBridge,
 		IgnoreChecker:  c.cfg.IgnoreChecker,
+	}
+}
+
+// AddrImportStatus represents the outcome of waiting for an address import.
+type AddrImportStatus uint8
+
+const (
+	// AddrImportStatusUndefined indicates that the import status is unknown
+	// (for example because the wait context was canceled).
+	AddrImportStatusUndefined = 0
+
+	// AddrImportStatusSuccess indicates that the address import succeeded.
+	AddrImportStatusSuccess = 1
+
+	// AddrImportStatusError indicates that the address import failed.
+	AddrImportStatusError = 2
+)
+
+// WaitForAddrImport waits on the given subscriber for a matching address import
+// result (success or failure). It expects the subscriber to already be
+// registered with the custodian. Returns status success, undefined (e.g. ctx
+// canceled/timeout), or error (with the wrapped error).
+func WaitForAddrImport(ctx context.Context, sub *fn.EventReceiver[fn.Event],
+	addrStr string) (AddrImportStatus, error) {
+
+	handleEvent := func(event fn.Event) (AddrImportStatus, error) {
+		switch e := event.(type) {
+		case *AddrImportCompleteEvent:
+			eventAddr, err := e.Address.EncodeAddress()
+			if err != nil {
+				return AddrImportStatusError, fmt.Errorf(
+					"encoding address: %w", err)
+			}
+
+			if eventAddr == addrStr {
+				return AddrImportStatusSuccess, nil
+			}
+
+		case *AddrImportErrEvent:
+			eventAddr, err := e.Address.EncodeAddress()
+			if err != nil {
+				return AddrImportStatusError, fmt.Errorf(
+					"encoding address: %w", err)
+			}
+
+			if eventAddr == addrStr {
+				return AddrImportStatusError, fmt.Errorf(
+					"import address event: %w", e.Err)
+			}
+		}
+
+		return AddrImportStatusUndefined, nil
+	}
+
+	for {
+		select {
+		case event := <-sub.NewItemCreated.ChanOut():
+			status, err := handleEvent(event)
+			if err != nil {
+				return status, err
+			}
+
+			if status == AddrImportStatusSuccess {
+				return status, nil
+			}
+
+		case <-ctx.Done():
+			return AddrImportStatusUndefined, nil
+		}
 	}
 }

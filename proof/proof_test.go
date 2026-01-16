@@ -203,6 +203,52 @@ func assertEqualGroupKeyReveal(t *testing.T, expected,
 	require.FailNow(t, "unexpected group key reveal type")
 }
 
+// TestProofTaprootOutputScript ensures the taproot key and script derived from
+// a proof match the tapscript root encoded in the inclusion proof.
+func TestProofTaprootOutputScript(t *testing.T) {
+	t.Parallel()
+
+	genesis := asset.RandGenesis(t, asset.Normal)
+	scriptKey := test.RandPubKey(t)
+
+	// Build a minimal block with a single transaction so RandProof can
+	// anchor the proof.
+	tx := wire.NewMsgTx(2)
+	tx.AddTxOut(&wire.TxOut{Value: 1})
+	block := wire.MsgBlock{
+		Transactions: []*wire.MsgTx{tx},
+	}
+
+	// RandProof gives us a full inclusion proof (with a non-nil sibling)
+	// that we can use to exercise the derivation logic.
+	p := RandProof(t, genesis, scriptKey, block, 0, 0)
+
+	pkScript, tapKey, err := p.TaprootOutputScript()
+	require.NoError(t, err)
+
+	commitmentProof := p.InclusionProof.CommitmentProof
+	tapCommitment, err := commitmentProof.Proof.DeriveByAssetInclusion(
+		&p.Asset,
+	)
+	require.NoError(t, err)
+
+	_, siblingHash, err := commitment.MaybeEncodeTapscriptPreimage(
+		commitmentProof.TapSiblingPreimage,
+	)
+	require.NoError(t, err)
+
+	expectedTapKey, err := deriveTaprootKeyFromTapCommitment(
+		tapCommitment, siblingHash, p.InclusionProof.InternalKey,
+	)
+	require.NoError(t, err)
+
+	expectedPkScript, err := txscript.PayToTaprootScript(expectedTapKey)
+	require.NoError(t, err)
+
+	require.Equal(t, expectedTapKey, tapKey)
+	require.Equal(t, expectedPkScript, pkScript)
+}
+
 func assertEqualProof(t *testing.T, expected, actual *Proof) {
 	t.Helper()
 

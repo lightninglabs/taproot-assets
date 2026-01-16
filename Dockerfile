@@ -1,4 +1,4 @@
-FROM golang:1.24.9-alpine as builder
+FROM golang:1.25.2-alpine as builder
 
 # Force Go to use the cgo based DNS resolver. This is required to ensure DNS
 # queries required to connect to linked containers succeed.
@@ -38,6 +38,14 @@ RUN apk --no-cache add \
 # Copy the binaries from the builder image.
 COPY --from=builder /go/bin/tapcli /bin/
 COPY --from=builder /go/bin/tapd /bin/
+
+# Copy the verification script and keys for signature verification.
+COPY --from=builder \
+  /go/src/github.com/lightninglabs/taproot-assets/scripts/verify-install.sh \
+  /verify-install.sh
+COPY --from=builder \
+  /go/src/github.com/lightninglabs/taproot-assets/scripts/keys \
+  /keys
 
 # Store the SHA256 hash of the binaries that were just produced for later
 # verification.

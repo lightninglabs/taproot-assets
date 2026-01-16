@@ -665,12 +665,13 @@ func testAddressV2WithGroupKeyRestart(t *harnessTest) {
 
 	// Now we can create two more tapd nodes that we can start and stop
 	// independently. To save some time, we'll use the same lnd node.
-	bobCharlieLnd := t.lndHarness.NewNodeWithCoins("BobAndCharlie", nil)
-	bobTapd := setupTapdHarness(t.t, t, bobCharlieLnd, t.universeServer)
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bobTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, bobTapd.stop(!*noDelete))
 	}()
-	charlieTapd := setupTapdHarness(t.t, t, bobCharlieLnd, t.universeServer)
+	charlieLnd := t.lndHarness.NewNodeWithCoins("Charlie", nil)
+	charlieTapd := setupTapdHarness(t.t, t, charlieLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, charlieTapd.stop(!*noDelete))
 	}()
@@ -825,4 +826,66 @@ func testAddressV2WithGroupKeyRestart(t *harnessTest) {
 		t.t, charlieTapd, hex.EncodeToString(groupKey),
 		charlieAmount+bobAmount/2, WithNumUtxos(2),
 	)
+}
+
+// testAddressV2ImportFailsWithoutCourier verifies that tapd remains running
+// when creating a V2 address with an unreachable mailbox courier and the
+// upfront connection check is skipped. The custodian fails to subscribe to the
+// mailbox, the address import fails as expected, and the failure does not cause
+// tapd to crash or terminate.
+func testAddressV2ImportFailsWithoutCourier(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Spin up a dedicated tapd with aggressive backoff so the mailbox
+	// subscription fails quickly within the test deadline.
+	lndHarness := t.lndHarness.NewNodeWithCoins("AddrV2CourierFail", nil)
+	tapd := setupTapdHarness(
+		t.t, t, lndHarness, t.universeServer,
+		func(p *tapdHarnessParams) {
+			p.proofSendBackoffCfg = &proof.BackoffCfg{
+				NumTries: 1,
+			}
+		},
+	)
+	defer func() {
+		require.NoError(t.t, tapd.stop(!*noDelete))
+	}()
+
+	assets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, tapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+	asset := assets[0]
+
+	badCourier := fmt.Sprintf(
+		"%s://%s", proof.AuthMailboxUniRpcCourierType,
+		"nonexistent.invalid:65500",
+	)
+
+	t.Logf("Trying to create an address with bad mailbox %s", badCourier)
+	_, err := tapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId:          asset.AssetGenesis.AssetId,
+		Amt:              asset.Amount,
+		AssetVersion:     asset.Version,
+		AddressVersion:   addrV2,
+		ProofCourierAddr: badCourier,
+
+		// Skip the upfront connection check, so we can test the
+		// authmailbox subscription attempt failure.
+		SkipProofCourierConnCheck: true,
+	})
+	require.Error(t.t, err)
+	require.Contains(
+		t.t, err.Error(), "unable to start mailbox subscription",
+	)
+
+	t.Logf("Ensure tapd is still up and running")
+	infoCtx, infoCancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer infoCancel()
+
+	_, err = tapd.GetInfo(infoCtx, &taprpc.GetInfoRequest{})
+	require.NoError(t.t, err)
+	t.Logf("Tapd is still up and running")
 }

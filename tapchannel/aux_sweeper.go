@@ -1090,6 +1090,84 @@ func assetOutputToVPacket(fundingInputProofs map[asset.ID]*proof.Proof,
 	return nil
 }
 
+// reanchorAssetOutputs updates each asset output proof so that it references
+// the actual commitment transaction output. Proofs are initially built using
+// a synthetic commitment template. Once the real commitment transaction is
+// known, we rewrite the proof's anchor transaction and output indexes.
+func reanchorAssetOutputs(ctx context.Context,
+	chainBridge tapgarden.ChainBridge, commitTx wire.MsgTx,
+	commitTxBlockHeight uint32, outputs []*cmsg.AssetOutput) error {
+
+	if len(outputs) == 0 {
+		return nil
+	}
+
+	// Only fetch block data if any proof is missing it.
+	proofBlockParams, err := proofParamsForCommitTx(
+		ctx, chainBridge, commitTxBlockHeight, commitTx,
+	)
+	if err != nil {
+		return fmt.Errorf("constructing proof block params: %w", err)
+	}
+
+	for _, output := range outputs {
+		p := &output.Proof.Val
+
+		// Derive the Taproot output script for this proof so we can
+		// locate the correct output index in the real commitment
+		// transaction.
+		pkScript, tapKey, err := p.TaprootOutputScript()
+		if err != nil {
+			return err
+		}
+
+		var idx = -1
+		for outIdx, txOut := range commitTx.TxOut {
+			if bytes.Equal(txOut.PkScript, pkScript) {
+				idx = outIdx
+				break
+			}
+		}
+
+		if idx < 0 {
+			return fmt.Errorf("no matching commit output found "+
+				"for asset %x (tap_key=%x)", output.AssetID.Val,
+				schnorr.SerializePubKey(tapKey))
+		}
+
+		err = p.UpdateTransitionProof(&proofBlockParams)
+		if err != nil {
+			return fmt.Errorf("failed to populate proof block: %w",
+				err)
+		}
+
+		// Ensure the anchor transaction actually spends the previous
+		// asset outpoint. Return an error if the stored PrevOut doesn't
+		// match any input.
+		if len(commitTx.TxIn) == 0 {
+			return fmt.Errorf("commit tx %v has no inputs",
+				commitTx.TxHash())
+		}
+		prevMatches := false
+		for _, txIn := range commitTx.TxIn {
+			if txIn.PreviousOutPoint == p.PrevOut {
+				prevMatches = true
+				break
+			}
+		}
+		if !prevMatches {
+			return fmt.Errorf("commit tx does not spend PrevOut "+
+				"(txid=%s, prev_out=%s)",
+				commitTx.TxHash().String(), p.PrevOut.String())
+		}
+
+		p.AnchorTx = commitTx
+		p.InclusionProof.OutputIndex = uint32(idx)
+	}
+
+	return nil
+}
+
 // anchorOutputAllocations is a helper function that creates a set of
 // allocations for the anchor outputs. We'll use this later to create the proper
 // exclusion proofs.
@@ -1337,7 +1415,26 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 	// the funding outputs we need.
 	//
 	// TODO(roasbeef): assume single asset for now, also additional inputs
+	ctxb := context.Background()
 	for _, proofToImport := range outputProofs {
+		// Check if the proof is already imported to avoid redundant
+		// work.
+		fundingLocator := proof.Locator{
+			AssetID:   fn.Ptr(proofToImport.Asset.ID()),
+			ScriptKey: *proofToImport.Asset.ScriptKey.PubKey,
+			OutPoint:  fn.Ptr(proofToImport.OutPoint()),
+		}
+		proofExists, err := proofArchive.HasProof(ctxb, fundingLocator)
+		if err != nil {
+			return fmt.Errorf("unable to check if proof "+
+				"exists: %w", err)
+		}
+		if proofExists {
+			log.Infof("Proof already imported for %v, skipping",
+				limitSpewer.Sdump(fundingLocator))
+			continue
+		}
+
 		proofPrevID, err := proofToImport.Asset.PrimaryPrevID()
 		if err != nil {
 			return fmt.Errorf("unable to get primary prev "+
@@ -1365,7 +1462,6 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 
 		// First, we'll make a courier to use in fetching the proofs we
 		// need.
-		ctxb := context.Background()
 		proofFetcher, err := proofDispatch.NewCourier(
 			ctxb, courierAddr, true,
 		)
@@ -1399,23 +1495,8 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 		// Before we combine the proofs below, we'll be sure to update
 		// the transition proof to include the proper block+merkle proof
 		// information.
-		blockHash, err := chainBridge.GetBlockHash(
-			ctxb, int64(scid.BlockHeight),
-		)
-		if err != nil {
-			return fmt.Errorf("unable to get block hash: %w", err)
-		}
-		block, err := chainBridge.GetBlock(ctxb, blockHash)
-		if err != nil {
-			return fmt.Errorf("unable to get block: %w", err)
-		}
-		err = proofToImport.UpdateTransitionProof(
-			&proof.BaseProofParams{
-				Block:       block,
-				BlockHeight: scid.BlockHeight,
-				Tx:          block.Transactions[scid.TxIndex],
-				TxIndex:     int(scid.TxIndex),
-			},
+		err = updateProofsFromShortChanID(
+			ctxb, chainBridge, scid, []*proof.Proof{proofToImport},
 		)
 		if err != nil {
 			return fmt.Errorf("error updating transition "+
@@ -1442,18 +1523,10 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 			return fmt.Errorf("unable to encode proof: %w", err)
 		}
 
-		fundingUTXO := proofToImport.Asset
 		err = proofArchive.ImportProofs(
 			ctxb, vCtx, false, &proof.AnnotatedProof{
-				//nolint:lll
-				Locator: proof.Locator{
-					AssetID:   fn.Ptr(fundingUTXO.ID()),
-					ScriptKey: *fundingUTXO.ScriptKey.PubKey,
-					OutPoint: fn.Ptr(
-						proofToImport.OutPoint(),
-					),
-				},
-				Blob: finalProofBuf.Bytes(),
+				Locator: fundingLocator,
+				Blob:    finalProofBuf.Bytes(),
 			},
 		)
 		if err != nil {
@@ -1513,26 +1586,32 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 		fundingInputProofs[inputProof.Asset.ID()] = inputProof
 	}
 
-	// If we're the responder, then we'll also fetch+complete the proofs
-	// for the funding transaction here so we can properly recognize the
-	// spent input below.
-	if !req.Initiator {
-		vCtx := proof.VerifierCtx{
-			HeaderVerifier: a.cfg.HeaderVerifier,
-			MerkleVerifier: proof.DefaultMerkleVerifier,
-			GroupVerifier:  a.cfg.GroupVerifier,
-			ChainLookupGen: a.cfg.ChainBridge,
-			IgnoreChecker:  a.cfg.IgnoreChecker,
-		}
-		err := importOutputProofs(
-			req.ShortChanID, maps.Values(fundingInputProofs),
-			a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
-			a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to import output "+
-				"proofs: %w", err)
-		}
+	// We'll always attempt to import the proof for the funding outputs.
+	// It's possible that the initiator failed to do so after the funding
+	// transaction confirmed.
+	vCtx := proof.VerifierCtx{
+		HeaderVerifier: a.cfg.HeaderVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		GroupVerifier:  a.cfg.GroupVerifier,
+		ChainLookupGen: a.cfg.ChainBridge,
+		IgnoreChecker:  a.cfg.IgnoreChecker,
+	}
+	err = importOutputProofs(
+		req.ShortChanID, maps.Values(fundingInputProofs),
+		a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
+		a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to import output "+
+			"proofs: %w", err)
+	}
+
+	err = updateProofsFromShortChanID(
+		ctxb, a.cfg.ChainBridge, req.ShortChanID,
+		maps.Values(fundingInputProofs),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to update funding proofs: %w", err)
 	}
 
 	// With the funding proof for each asset ID known, we can now make the
@@ -1641,10 +1720,18 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	// TODO(roasbeef): import proof for receiver instead?
 
 	// With all the vPKts created, we can now ship the transaction off to
-	// the porter for final delivery.
+	// the porter for final delivery. We use the commitment tx's block
+	// height as the height hint so that the chain notifier can find the
+	// confirmation even if the transaction was confirmed while we were
+	// offline.
+	heightHint := fn.None[uint32]()
+	if req.CommitTxBlockHeight > 0 {
+		heightHint = fn.Some(req.CommitTxBlockHeight)
+	}
+
 	return shipChannelTxn(
 		a.cfg.TxSender, req.CommitTx, outCommitments, vPackets,
-		int64(req.CommitFee),
+		int64(req.CommitFee), heightHint,
 	)
 }
 
@@ -1853,11 +1940,21 @@ func (a *AuxSweeper) resolveContract(
 			"skipping", req.CommitTx.TxHash())
 	}
 
+	if req.CommitTx == nil {
+		return lfn.Errf[returnType]("no commitment transaction "+
+			"found for chan_point=%v", req.ChanPoint)
+	}
+	commitTx := *req.CommitTx
+
 	// The input proofs above were made originally using the fake commit tx
-	// as an anchor. We now know the real commit tx, so we'll swap that in
-	// to ensure the outpoints used below are correct.
-	for _, assetOut := range assetOutputs {
-		assetOut.Proof.Val.AnchorTx = *req.CommitTx
+	// as an anchor. We now know the real commit tx, so we'll bind each
+	// proof to the actual commitment output that carries the asset.
+	if err := reanchorAssetOutputs(
+		ctx, a.cfg.ChainBridge, commitTx, req.CommitTxBlockHeight,
+		assetOutputs,
+	); err != nil {
+		return lfn.Errf[returnType]("unable to re-anchor asset "+
+			"outputs: %w", err)
 	}
 
 	log.Infof("Sweeping %v asset outputs (second_level=%v): %v",
@@ -2477,11 +2574,9 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 
 	// With the output commitments re-created, we have all we need to log
 	// and ship the transaction.
-	//
-	// We pass false for the last arg as we already updated our suffix
-	// proofs here.
 	return shipChannelTxn(
 		a.cfg.TxSender, sweepTx, outCommitments, allVpkts, int64(fee),
+		fn.None[uint32](),
 	)
 }
 

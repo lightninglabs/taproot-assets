@@ -389,6 +389,41 @@ func TestAssetEncoding(t *testing.T) {
 	test.WriteTestVectors(t, generatedTestVectorName, testVectors)
 }
 
+// TestUpdateTxWitnessSplitCommitment ensures witnesses are written back to the
+// split commitment root asset.
+func TestUpdateTxWitnessSplitCommitment(t *testing.T) {
+	t.Parallel()
+
+	// First, create a root asset that will be the root of our split
+	// commitment. We'll nil out its witness to ensure our update is what
+	// populates it.
+	root := testRootAsset.Copy()
+	root.PrevWitnesses[0].TxWitness = nil
+
+	// Next, create the split asset which contains a split commitment
+	// pointing to our root asset.
+	split := testSplitAsset.Copy()
+	split.PrevWitnesses[0].SplitCommitment = &SplitCommitment{
+		Proof:     *mssmt.RandProof(t),
+		RootAsset: *root,
+	}
+
+	// Now, create a new witness and update the split asset.
+	newWitness := wire.TxWitness{{1, 2, 3}}
+	err := split.UpdateTxWitness(0, newWitness)
+	require.NoError(t, err)
+
+	// Finally, assert that the witness was written to the root asset within
+	// the split commitment, and that the split asset's own witness remains
+	// empty.
+	require.Equal(
+		t, newWitness,
+		split.PrevWitnesses[0].SplitCommitment.RootAsset.
+			PrevWitnesses[0].TxWitness,
+	)
+	require.Empty(t, split.PrevWitnesses[0].TxWitness)
+}
+
 // TestAltLeafEncoding runs a property test for AltLeaf validation, encoding,
 // and decoding.
 func TestAltLeafEncoding(t *testing.T) {

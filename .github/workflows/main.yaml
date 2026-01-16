@@ -16,17 +16,15 @@ defaults:
     shell: bash
 
 env:
-  # go needs absolute directories, using the $HOME variable doesn't work here.
+  # Go needs absolute directories; using the $HOME variable doesn't work here.
   GOPATH: /home/runner/work/go
 
-  GO_VERSION: '1.24.9'
-  
-  LITD_ITEST_BRANCH: 'master'
+  GO_VERSION: '1.25.2'
+
+  LITD_BRANCH: 'master'
 
 jobs:
-  #######################
-  # sql model generation
-  #######################
+  # Validate generated SQL models stay in sync with queries.
   sqlc-check:
     name: Sqlc check
     runs-on: ubuntu-latest
@@ -46,6 +44,7 @@ jobs:
       - name: Generate sql models
         run: make sqlc-check
 
+  # Rebuild RPC stubs and REST annotations to detect drift.
   rpc-check:
     name: RPC check
     runs-on: ubuntu-latest
@@ -61,6 +60,7 @@ jobs:
       - name: Generate RPC stubs and check REST annotations
         run: make rpc-check
 
+  # Ensure go.mod and go.sum remain tidy.
   mod-check:
     name: go mod check
     runs-on: ubuntu-latest
@@ -76,6 +76,7 @@ jobs:
       - name: Run go mod tidy
         run: make mod-check
 
+  # Confirm deterministic test vectors are up to date.
   test-vector-check:
     name: test vector check
     runs-on: ubuntu-latest
@@ -91,6 +92,7 @@ jobs:
       - name: Run test vector creation check
         run: make test-vector-check
 
+  # Verify database migration numbering and versions.
   migration-check:
     name: migration version check
     runs-on: ubuntu-latest
@@ -101,9 +103,7 @@ jobs:
       - name: Run migration check
         run: make migration-check
 
-  ########################
-  # Compilation check.
-  ########################
+  # Build the codebase and docs examples to catch compilation regressions.
   compile-check:
     name: Compilation check
     runs-on: ubuntu-latest
@@ -122,9 +122,7 @@ jobs:
       - name: Compile docs examples
         run: make build-docs-examples
 
-  ########################
-  # sample configuration check
-  ########################
+  # Guard sample-tapd.conf defaults against accidental drift.
   sample-conf-check:
     name: sample configuration check
     runs-on: ubuntu-latest
@@ -140,9 +138,7 @@ jobs:
       - name: check default values in sample-tapd.conf file
         run: make sample-conf-check
 
-  ########################
-  # Docker build check.
-  ########################
+  # Smoke test Docker builds for default and dev images.
   docker-build-check:
     name: Docker build check
     runs-on: ubuntu-latest
@@ -167,27 +163,38 @@ jobs:
           file: dev.Dockerfile
           tags: 'dev-taproot-assets'
 
-  ########################
-  # cross compilation
-  ########################
+  # Cross-compile release binaries across supported targets.
   cross-compile:
     name: cross compilation
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sys:
+          - darwin-amd64
+          - darwin-arm64
+          - linux-386
+          - linux-amd64
+          - linux-armv6
+          - linux-armv7
+          - linux-arm64
+          - windows-amd64
     steps:
       - name: git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: Setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v5
         with:
           go-version: '${{ env.GO_VERSION }}'
 
-      - name: build release for all architectures
-        run: make release
+      - name: Build release for ${{ matrix.sys }}
+        run: make release sys=${{ matrix.sys }}
 
-  ########################
-  # Lint check.
-  ########################
+  # Run the lint suite for static analysis coverage.
   lint-check:
     name: Lint check
     runs-on: ubuntu-latest
@@ -205,9 +212,7 @@ jobs:
       - name: run lint
         run: make lint
 
-  ########################
-  # Format check.
-  ########################
+  # Enforce formatting consistency.
   format-check:
     name: Format check
     runs-on: ubuntu-latest
@@ -223,9 +228,7 @@ jobs:
       - name: run format
         run: make fmt
 
-  ########################
-  # check PR updates release notes
-  ########################
+  # Ensure pull requests update release notes unless explicitly skipped.
   milestone-check:
     name: Check release notes updated
     runs-on: ubuntu-latest
@@ -237,9 +240,7 @@ jobs:
       - name: Release notes check
         run: scripts/check-release-notes.sh
 
-  ########################
-  # run unit tests
-  ########################
+  # Unit tests with race detection, coverage, and Postgres backend variants.
   unit-test:
     name: run unit tests
     runs-on: ubuntu-latest
@@ -260,7 +261,7 @@ jobs:
         with:
           go-version: '${{ env.GO_VERSION }}'
 
-      - name: run ${{ matrix.unit_type }}
+      - name: Run ${{ matrix.unit_type }}
         run: make ${{ matrix.unit_type }}
 
       - name: Send coverage
@@ -273,18 +274,16 @@ jobs:
           format: 'golang'
           parallel: true
 
-  ########################
-  # run integration tests
-  ########################
+  # Integration tests on SQLite backend.
   integration-test:
     name: run itests
     runs-on: ubuntu-latest
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
       - name: git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: Setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v5
@@ -316,18 +315,16 @@ jobs:
           format: 'golang'
           parallel: true
 
-  ########################
-  # run integration tests with Postgres backend
-  ########################
+  # Integration tests on Postgres backend.
   integration-test-postgres:
     name: run itests postgres
     runs-on: ubuntu-latest
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
       - name: git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: Setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v5
@@ -359,60 +356,32 @@ jobs:
           format: 'golang'
           parallel: true
 
-  ########################
-  # Run LiTd tests
-  ########################
-  run-lit-tests:
-    name: run LiT tests
+  # LiT integration/unit tests with Taproot Assets replacements.
+  run-lit:
+    name: run LiT ${{ matrix.task_name }}
     runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - task_name: itests (custom_channels)
+            run_cmd: make itest icase=custom_channels
+          - task_name: unit
+            run_cmd: make unit
 
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
       - name: git checkout
         uses: actions/checkout@v4
 
-      - name: Setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v5
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - name: Prepare LiT workspace
+        uses: ./.github/actions/lit-setup
 
-      - name: Clone Lit repository
-        uses: actions/checkout@v4
-        with:
-          repository: lightninglabs/lightning-terminal
-          ref: ${{ env.LITD_ITEST_BRANCH }}
-          path: lightning-terminal
-
-      - name: Update go.mod to use the local Tap repository
+      - name: Run LiT ${{ matrix.task_name }}
         working-directory: ./lightning-terminal
-        run: |
-          go mod edit -replace=github.com/lightninglabs/taproot-assets=../
-          go mod edit -replace=github.com/lightninglabs/taproot-assets/taprpc=../taprpc
-          go mod tidy
+        run: ${{ matrix.run_cmd }}
 
-      - name: Install yarn
-        run: npm install -g yarn
-
-      - name: setup nodejs
-        uses: ./lightning-terminal/.github/actions/setup-node
-        with:
-          node-version: 16.x
-
-      - name: install LiT app dependencies
-        working-directory: ./lightning-terminal/app
-        run: yarn
-
-      - name: Run LiT itests
-        working-directory: ./lightning-terminal
-        run: make itest icase=custom_channels
-
-      - name: Run LiT unit tests
-        working-directory: ./lightning-terminal
-        run: make unit
-
-  # Notify about the completion of all coverage collecting jobs.
+  # Finalize Coveralls reporting after parallel coverage jobs.
   finish:
     if: ${{ always() }}
     needs: [ unit-test ]

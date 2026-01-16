@@ -259,6 +259,8 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 			"state: %w", err)
 	}
 
+	ctxb := context.Background()
+
 	// Each of the co-op close outputs needs to ref a funding input, so
 	// we'll map a map of asset ID to the funding output now.
 	inputProofs := make(
@@ -266,6 +268,14 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 	)
 	for _, fundingInput := range fundingInfo.FundedAssets.Val.Outputs {
 		inputProofs = append(inputProofs, &fundingInput.Proof.Val)
+	}
+
+	err = updateProofsFromShortChanID(
+		ctxb, a.cfg.ChainBridge, desc.ShortChanID, inputProofs,
+	)
+	if err != nil {
+		return none, fmt.Errorf("unable to update funding proofs: %w",
+			err)
 	}
 
 	// We'll also decode the shutdown blobs, so we can extract the shutdown
@@ -454,7 +464,6 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 
 	// We can now add the witness for the OP_TRUE spend of the commitment
 	// output to the vPackets.
-	ctxb := context.Background()
 	if err := signCommitVirtualPackets(ctxb, vPackets); err != nil {
 		return none, fmt.Errorf("error signing commit virtual "+
 			"packets: %w", err)
@@ -634,12 +643,13 @@ func (a *AuxChanCloser) ShutdownBlob(
 
 // shipChannelTxn takes a channel transaction, an output commitment, and the
 // set of vPackets used to make the output commitment and ships a complete
-// pre-singed package off to the porter. This'll insert a transfer for the
+// pre-signed package off to the porter. This'll insert a transfer for the
 // channel, send the final transaction to the network, and update any
 // transition proofs once a confirmation occurs.
 func shipChannelTxn(txSender tapfreighter.Porter, chanTx *wire.MsgTx,
 	outputCommitments tappsbt.OutputCommitments,
-	vPkts []*tappsbt.VPacket, closeFee int64) error {
+	vPkts []*tappsbt.VPacket, closeFee int64,
+	anchorTxHeightHint fn.Option[uint32]) error {
 
 	chanTxPsbt, err := tapsend.PrepareAnchoringTemplate(vPkts)
 	if err != nil {
@@ -666,8 +676,10 @@ func shipChannelTxn(txSender tapfreighter.Porter, chanTx *wire.MsgTx,
 		ChainFees: closeFee,
 		FinalTx:   chanTx,
 	}
+	parcelLabel := fmt.Sprintf("channel-tx-%s", chanTx.TxHash().String())
 	preSignedParcel := tapfreighter.NewPreAnchoredParcel(
-		vPkts, nil, closeAnchor, false, "",
+		vPkts, nil, closeAnchor, false, parcelLabel,
+		anchorTxHeightHint,
 	)
 	_, err = txSender.RequestShipment(preSignedParcel)
 	if err != nil {
@@ -777,9 +789,10 @@ func (a *AuxChanCloser) FinalizeClose(desc chancloser.AuxCloseDesc,
 
 	// With the proofs finalized above, we'll now ship the transaction off
 	// to the porter so it can insert a record on disk, and deliver the
-	// relevant set of proofs.
+	// relevant set of proofs. For co-op close, no height hint is needed
+	// as the transaction is being broadcast now.
 	return shipChannelTxn(
 		a.cfg.TxSender, closeTx, closeInfo.outputCommitments,
-		closeInfo.vPackets, closeInfo.closeFee,
+		closeInfo.vPackets, closeInfo.closeFee, fn.None[uint32](),
 	)
 }

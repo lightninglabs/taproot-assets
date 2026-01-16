@@ -411,6 +411,10 @@ var allTestCases = []*testCase{
 		name: "address v2 with group key restart",
 		test: testAddressV2WithGroupKeyRestart,
 	},
+	{
+		name: "address v2 import fails without courier",
+		test: testAddressV2ImportFailsWithoutCourier,
+	},
 }
 
 var optionalTestCases = []*testCase{

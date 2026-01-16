@@ -302,6 +302,7 @@ type ManagedUtxo struct {
 	LeaseOwner       []byte
 	LeaseExpiry      sql.NullTime
 	RootVersion      sql.NullInt16
+	SweptTxnID       sql.NullInt64
 }
 
 type MintSupplyPreCommit struct {
@@ -363,6 +364,26 @@ type ProofTransferLog struct {
 
 type ProofType struct {
 	ProofType string
+}
+
+type RfqPolicy struct {
+	ID                    int64
+	PolicyType            string
+	Scid                  int64
+	RfqID                 []byte
+	Peer                  []byte
+	AssetID               []byte
+	AssetGroupKey         []byte
+	RateCoefficient       []byte
+	RateScale             int32
+	Expiry                int64
+	MaxOutAssetAmt        sql.NullInt64
+	PaymentMaxMsat        sql.NullInt64
+	RequestAssetMaxAmt    sql.NullInt64
+	RequestPaymentMaxMsat sql.NullInt64
+	PriceOracleMetadata   sql.NullString
+	RequestVersion        sql.NullInt32
+	AgreedAt              int64
 }
 
 type ScriptKey struct {

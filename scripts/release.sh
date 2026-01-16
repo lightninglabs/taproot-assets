@@ -28,7 +28,7 @@ function reproducible_tar_gzip() {
   # work properly.
   tar_version=$(tar --version)
   if [[ ! "$tar_version" =~ "GNU tar" ]]; then
-    if ! command -v "gtar"; then
+    if ! command -v "gtar" &>/dev/null; then
       echo "GNU tar is required but cannot be found!"
       echo "On MacOS please run 'brew install gnu-tar' to install gtar."
       exit 1
@@ -55,6 +55,13 @@ function reproducible_zip() {
 
   # Pin down file name encoding and timestamp time zone.
   export TZ=UTC
+
+  # 'zip' is commonly missing on a number of Linux distributions, and
+  # may be missing in containers.
+  if ! command -v "zip" &>/dev/null; then
+    echo "zip(1) is required, but cannot be found."
+    exit 1
+  fi
 
   # Set the date of each file in the directory that's about to be packaged to
   # the same timestamp and make sure the same permissions are used everywhere.
@@ -125,6 +132,19 @@ function build_release() {
   local buildtags=$3
   local ldflags=$4
   local goversion=$5
+  local shasum_cmd="shasum -a 256"
+
+  # If we don't have a Perl installation available, then check for
+  # coreutils's 'sha256sum'.
+  if ! command -v "shasum" &>/dev/null; then
+    if ! command -v "sha256sum" &>/dev/null; then
+      echo "Either a Perl or GNU coreutils installation is required."
+      exit 1
+    else
+      # coreutils is installed, so use sha256sum instead.
+      shasum_cmd="sha256sum"
+    fi
+  fi
 
   # Check if the active Go version matches the specified Go version.
   active_go_version=$(go version | awk '{print $3}' | sed 's/go//')
@@ -159,7 +179,7 @@ required Go version ($goversion)."
   tar -xf "${package_source}.tar" -C ${package_source}
   rm "${package_source}.tar"
   reproducible_tar_gzip ${package_source}
-  mv "${package_source}.tar.gz" "${package_source}-$tag.tar.gz" 
+  mv "${package_source}.tar.gz" "${package_source}-$tag.tar.gz"
 
   for i in $sys; do
     os=$(echo "$i" | cut -f1 -d-)
@@ -183,9 +203,13 @@ required Go version ($goversion)."
     env CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" GOARM=$arm GOAMD64="v1" go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/tapcli
     popd
 
+    # Clear Go build cache to prevent disk space issues during multi-platform
+    # builds.
+    go clean -cache
+
     # Add the hashes for the individual binaries as well for easy verification
     # of a single installed binary.
-    shasum -a 256 "${dir}/"* >> "manifest-$tag.txt" 
+    $shasum_cmd "${dir}/"* >> "manifest-$tag.txt"
 
     if [[ $os == "windows" ]]; then
       reproducible_zip "${dir}"
@@ -195,7 +219,7 @@ required Go version ($goversion)."
   done
 
   # Add the hash of the packages too, then sort by the second column (name).
-  shasum -a 256 $PACKAGE-* vendor* >> "manifest-$tag.txt"
+  $shasum_cmd $PACKAGE-* vendor* >> "manifest-$tag.txt"
   LC_ALL=C sort -k2 -o "manifest-$tag.txt" "manifest-$tag.txt"
   cat "manifest-$tag.txt"
 }
