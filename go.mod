@@ -4,7 +4,7 @@ go 1.24.11
 
 require (
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6
-	github.com/btcsuite/btcd/btcec/v2 v2.3.4
+	github.com/btcsuite/btcd/btcec/v2 v2.3.6
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
@@ -217,3 +217,7 @@ replace github.com/golang-migrate/migrate/v4 => github.com/lightninglabs/migrate
 
 // Note this is a temproary replace and will be removed when taprpc is tagged.
 replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
+
+replace github.com/lightningnetwork/lnd => github.com/GeorgeTsagk/lnd v0.0.0-20251218161036-a63911832bb8
+
+replace github.com/lightningnetwork/lnd/sqldb => github.com/GeorgeTsagk/lnd/sqldb v0.0.0-20251218161036-a63911832bb8
