@@ -350,6 +350,14 @@ enum QuoteRespStatus {
     // PRICE_ORACLE_QUERY_ERR indicates that an error occurred when querying the
     // price oracle whilst evaluating the quote response.
     PRICE_ORACLE_QUERY_ERR = 2;
+
+    // PORTFOLIO_PILOT_ERR indicates that an unexpected error occurred in the
+    // portfolio pilot while evaluating the quote response.
+    PORTFOLIO_PILOT_ERR = 3;
+
+    // VALID_ACCEPT_QUOTE indicates that the accepted quote passed all
+    // validation checks successfully.
+    VALID_ACCEPT_QUOTE = 4;
 }
 
 // InvalidQuoteResponse is a message that is returned when a quote response is
