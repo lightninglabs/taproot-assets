@@ -28,7 +28,7 @@ type CliConfig struct {
 
 	AcceptPriceDeviationPpm uint64 `long:"acceptpricedeviationppm" description:"The default price deviation in parts per million that is accepted by the RFQ negotiator"`
 
-	SkipAcceptQuotePriceCheck bool `long:"skipacceptquotepricecheck" description:"Accept any price quote returned by RFQ peer, skipping price validation"`
+	SkipQuoteAcceptVerify bool `long:"skipquoteacceptverify" description:"Skip verification of quote accept messages returned by RFQ peer"`
 
 	MockOracleAssetsPerBTC uint64 `long:"mockoracleassetsperbtc" description:"Mock price oracle static asset units per BTC rate (for example number of USD cents per BTC if one asset unit represents a USD cent); whole numbers only, use either this or mockoraclesatsperasset depending on required precision"`
 

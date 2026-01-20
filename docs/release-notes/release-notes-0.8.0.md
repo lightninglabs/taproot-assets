@@ -141,6 +141,11 @@
 
 ## Breaking Changes
 
+- [PR#1935](https://github.com/lightninglabs/taproot-assets/pull/1935)
+  Renamed the RFQ configuration option `experimental.rfq.skipacceptquotepricecheck` 
+  to `experimental.rfq.skipquoteacceptverify` for improved clarity.
+  Update your configuration files to use the new option name.
+
 ## Performance Improvements
 
 ## Deprecations

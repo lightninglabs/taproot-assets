@@ -3,8 +3,10 @@ package rfq
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -68,6 +70,11 @@ type PortfolioPilot interface {
 	// for unexpected failures while evaluating the request.
 	ResolveRequest(context.Context, rfqmsg.Request) (ResolveResp,
 		error)
+
+	// VerifyAcceptQuote verifies that an accepted quote from a peer meets
+	// acceptable conditions.
+	VerifyAcceptQuote(context.Context, rfqmsg.Accept) (QuoteRespStatus,
+		error)
 }
 
 // InternalPortfolioPilotConfig holds settings for the built-in pilot that uses
@@ -81,12 +88,26 @@ type InternalPortfolioPilotConfig struct {
 	// to the oracle for peer-specific pricing. Disabling this avoids
 	// sharing caller identity with the oracle.
 	ForwardPeerIDToOracle bool
+
+	// AcceptPriceDeviationPpm specifies the maximum allowable price
+	// deviation in parts per million (PPM) when verifying accepted quotes.
+	// This defines the tolerance threshold for comparing peer quotes
+	// against oracle prices.
+	AcceptPriceDeviationPpm uint64
+
+	// MinAssetRatesExpiryLifetime specifies the minimum lifetime in
+	// seconds for an asset rate expiry to be considered valid.
+	MinAssetRatesExpiryLifetime uint64
 }
 
 // Validate checks the config for validity.
 func (c *InternalPortfolioPilotConfig) Validate() error {
 	if c.PriceOracle == nil {
 		return fmt.Errorf("price oracle is nil")
+	}
+
+	if c.MinAssetRatesExpiryLifetime == 0 {
+		return fmt.Errorf("MinAssetRatesExpiryLifetime must be > 0")
 	}
 
 	return nil
@@ -159,19 +180,102 @@ func (p *InternalPortfolioPilot) ResolveRequest(ctx context.Context,
 		return zero, fmt.Errorf("unsupported request type %T", req)
 	}
 
-	if resp == nil {
-		return zero, fmt.Errorf("price oracle returned nil response")
-	}
-
-	if resp.Err != nil {
-		return zero, fmt.Errorf("price oracle returned error: %w",
-			resp.Err)
-	}
-
-	if resp.AssetRate.Rate.Coefficient.ToUint64() == 0 {
-		return zero, fmt.Errorf("price oracle did not specify an " +
-			"asset rate")
+	if err := resp.Validate(); err != nil {
+		return zero, fmt.Errorf("invalid price oracle response: %w",
+			err)
 	}
 
 	return NewAcceptResolveResp(resp.AssetRate), nil
+}
+
+// VerifyAcceptQuote verifies that an accepted quote from a peer meets
+// acceptable conditions. It validates the quote expiry and checks that the
+// peer's proposed rate falls within acceptable tolerance of the oracle price.
+func (p *InternalPortfolioPilot) VerifyAcceptQuote(ctx context.Context,
+	accept rfqmsg.Accept) (QuoteRespStatus, error) {
+
+	// Extract counter rate from the accept quote message. The counter rate
+	// is the rate that the peer is offering.
+	counterRate := accept.AcceptedRate()
+
+	// Ensure that the quote expiry time is within acceptable bounds.
+	if !p.expiryWithinBounds(counterRate.Expiry) {
+		return InvalidExpiryQuoteRespStatus, nil
+	}
+
+	// Build peer ID option based on config.
+	peerID := fn.None[route.Vertex]()
+	if p.cfg.ForwardPeerIDToOracle {
+		peerID = fn.Some(accept.MsgPeer())
+	}
+
+	// Query the oracle based on the request type. For a buy request (peer
+	// selling to us), we query our buy price. For a sell request (peer
+	// buying from us), we query our sell price.
+	var resp *OracleResponse
+	var err error
+
+	req := accept.OriginalRequest()
+	switch r := req.(type) {
+	case *rfqmsg.BuyRequest:
+		resp, err = p.cfg.PriceOracle.QueryBuyPrice(
+			ctx, r.AssetSpecifier, fn.Some(r.AssetMaxAmt),
+			fn.None[lnwire.MilliSatoshi](), fn.Some(counterRate),
+			peerID, r.PriceOracleMetadata, IntentRecvPaymentQualify,
+		)
+		if err != nil {
+			return PriceOracleQueryErrQuoteRespStatus, fmt.Errorf(
+				"query buy price from oracle: %w", err,
+			)
+		}
+
+	case *rfqmsg.SellRequest:
+		resp, err = p.cfg.PriceOracle.QuerySellPrice(
+			ctx, r.AssetSpecifier, fn.None[uint64](),
+			fn.Some(r.PaymentMaxAmt), fn.Some(counterRate),
+			peerID, r.PriceOracleMetadata, IntentPayInvoiceQualify,
+		)
+		if err != nil {
+			return PriceOracleQueryErrQuoteRespStatus, fmt.Errorf(
+				"query sell price from oracle: %w", err,
+			)
+		}
+
+	default:
+		return PortfolioPilotErrQuoteRespStatus, fmt.Errorf(
+			"unknown request type: %T", req,
+		)
+	}
+
+	if err := resp.Validate(); err != nil {
+		return PriceOracleQueryErrQuoteRespStatus, fmt.Errorf(
+			"invalid price oracle response: %w", err,
+		)
+	}
+
+	// Check if the peer's price is within acceptable tolerance of the
+	// oracle's price.
+	tolerance := rfqmath.NewBigIntFromUint64(p.cfg.AcceptPriceDeviationPpm)
+	acceptablePrice, err := counterRate.Rate.WithinTolerance(
+		resp.AssetRate.Rate, tolerance,
+	)
+	if err != nil {
+		return PortfolioPilotErrQuoteRespStatus, fmt.Errorf(
+			"tolerance check failed: %w", err,
+		)
+	}
+
+	if !acceptablePrice {
+		return InvalidAssetRatesQuoteRespStatus, nil
+	}
+
+	return ValidAcceptQuoteRespStatus, nil
+}
+
+// expiryWithinBounds checks if a quote expiry unix timestamp (in seconds) is
+// within acceptable bounds. This check ensures that the expiry timestamp is far
+// enough in the future for the quote to be useful.
+func (p *InternalPortfolioPilot) expiryWithinBounds(expiry time.Time) bool {
+	diff := expiry.Unix() - time.Now().Unix()
+	return diff >= int64(p.cfg.MinAssetRatesExpiryLifetime)
 }
