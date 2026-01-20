@@ -137,10 +137,10 @@ type ManagerCfg struct {
 	// Example: 50,000 ppm => price deviation is set to 5% .
 	AcceptPriceDeviationPpm uint64
 
-	// SkipAcceptQuotePriceCheck is a flag that, when set, will cause the
-	// RFQ negotiator to skip price validation on incoming quote accept
+	// SkipQuoteAcceptVerify is a flag that, when set, will cause the
+	// RFQ negotiator to skip verification on incoming quote accept
 	// messages (this means that the price oracle will not be queried).
-	SkipAcceptQuotePriceCheck bool
+	SkipQuoteAcceptVerify bool
 
 	// NoOpHTLCs is a boolean indicating whether the daemon configuration
 	// wants us to produce NoOp HTLCs.
@@ -281,7 +281,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 		PortfolioPilot:          m.cfg.PortfolioPilot,
 		OutgoingMessages:        m.outgoingMessages,
 		AcceptPriceDeviationPpm: m.cfg.AcceptPriceDeviationPpm,
-		SkipQuoteAcceptVerify:   m.cfg.SkipAcceptQuotePriceCheck,
+		SkipQuoteAcceptVerify:   m.cfg.SkipQuoteAcceptVerify,
 		SendPriceHint:           m.cfg.SendPriceHint,
 		SendPeerId:              m.cfg.SendPeerId,
 		ErrChan:                 m.subsystemErrChan,
