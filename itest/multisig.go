@@ -482,6 +482,15 @@ func FinalizePacket(t *testing.T, lnd *rpc.HarnessRPC,
 	return signedPacket
 }
 
+// FinalizeFullySigned is a helper function that finalizes a PSBT packet
+// that is already fully signed. It will return the finalized packet.
+func FinalizeFullySigned(t *testing.T, pkt *psbt.Packet) *psbt.Packet {
+	err := psbt.MaybeFinalizeAll(pkt)
+	require.NoError(t, err)
+
+	return pkt
+}
+
 // PublishAndLogTransferOption defines a functional option for
 // PublishAndLogTransfer.
 type PublishAndLogTransferOption func(*publishAndLogTransferOptions)
