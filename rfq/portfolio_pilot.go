@@ -5,12 +5,90 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
+
+// AssetTransferDirection represents the direction of an asset transfer
+// from our perspective for pricing and rate queries.
+type AssetTransferDirection uint8
+
+const (
+	// AssetTransferUndefined is the zero value and indicates an unspecified
+	// direction.
+	AssetTransferUndefined = 0
+
+	// AssetTransferBuy indicates we want to buy the asset (receive asset
+	// from edge node peer, peer gets paid sats from the Lightning network).
+	AssetTransferBuy = 1
+
+	// AssetTransferSell indicates we want to sell the asset (send asset
+	// to edge node peer, peer forwards Lightning payment for us).
+	AssetTransferSell = 2
+)
+
+// String returns a human-readable representation of the AssetTransferDirection.
+func (d AssetTransferDirection) String() string {
+	switch d {
+	case AssetTransferUndefined:
+		return "undefined"
+	case AssetTransferBuy:
+		return "buy"
+	case AssetTransferSell:
+		return "sell"
+	default:
+		return "unknown"
+	}
+}
+
+// AssetTransferDirectionFromOrder determines the AssetTransferDirection from
+// the order type.
+func AssetTransferDirectionFromOrder(order Order) AssetTransferDirection {
+	switch order.(type) {
+	case *BuyOrder:
+		return AssetTransferBuy
+	case *SellOrder:
+		return AssetTransferSell
+	default:
+		return AssetTransferUndefined
+	}
+}
+
+// AssetRateQuery bundles parameters for querying asset rates for pricing
+// and rate discovery purposes.
+type AssetRateQuery struct {
+	// AssetSpecifier identifies the asset being queried.
+	AssetSpecifier asset.Specifier
+
+	// Direction specifies whether we want to buy or sell the asset.
+	Direction AssetTransferDirection
+
+	// Intent specifies the purpose of the query (e.g., paying an invoice,
+	// receiving payment, etc.). This determines the context for pricing.
+	Intent PriceQueryIntent
+
+	// AssetAmount is an optional constraint on the asset amount.
+	AssetAmount fn.Option[uint64]
+
+	// PaymentAmount is an optional constraint on the payment amount.
+	PaymentAmount fn.Option[lnwire.MilliSatoshi]
+
+	// PeerID is an optional peer identifier for peer-specific pricing.
+	PeerID fn.Option[route.Vertex]
+
+	// RateHint is an optional rate hint to guide pricing.
+	RateHint fn.Option[rfqmsg.AssetRate]
+
+	// OracleMetadata is optional metadata to pass to the price oracle.
+	OracleMetadata fn.Option[string]
+
+	// Expiry is an optional expiry time for the rate query.
+	Expiry fn.Option[time.Time]
+}
 
 // ResolveResp captures the portfolio pilot's resolution decision for an RFQ. It
 // carries either an accepted asset rate quote or a structured rejection reason.
@@ -74,6 +152,12 @@ type PortfolioPilot interface {
 	// VerifyAcceptQuote verifies that an accepted quote from a peer meets
 	// acceptable conditions.
 	VerifyAcceptQuote(context.Context, rfqmsg.Accept) (QuoteRespStatus,
+		error)
+
+	// QueryAssetRates returns current asset rate information for a given
+	// asset and direction. Can be used for rate discovery, outgoing RFQ
+	// request construction, or general pricing information.
+	QueryAssetRates(context.Context, AssetRateQuery) (rfqmsg.AssetRate,
 		error)
 }
 
@@ -278,4 +362,67 @@ func (p *InternalPortfolioPilot) VerifyAcceptQuote(ctx context.Context,
 func (p *InternalPortfolioPilot) expiryWithinBounds(expiry time.Time) bool {
 	diff := expiry.Unix() - time.Now().Unix()
 	return diff >= int64(p.cfg.MinAssetRatesExpiryLifetime)
+}
+
+// QueryAssetRates returns current asset rate information by querying the
+// configured price oracle based on the transfer direction and query parameters.
+func (p *InternalPortfolioPilot) QueryAssetRates(ctx context.Context,
+	query AssetRateQuery) (rfqmsg.AssetRate, error) {
+
+	var zero rfqmsg.AssetRate
+
+	if p.cfg.PriceOracle == nil {
+		return zero, fmt.Errorf("no price oracle found")
+	}
+
+	// Build peer ID option based on config.
+	peerID := fn.None[route.Vertex]()
+	if p.cfg.ForwardPeerIDToOracle && query.PeerID.IsSome() {
+		peerID = query.PeerID
+	}
+
+	// Extract metadata string from option.
+	metadata := query.OracleMetadata.UnwrapOr("")
+
+	var (
+		resp *OracleResponse
+		err  error
+	)
+
+	// Query the oracle based on the transfer direction using the caller's
+	// specified intent to provide the appropriate context.
+	switch query.Direction {
+	case AssetTransferBuy:
+		resp, err = p.cfg.PriceOracle.QueryBuyPrice(
+			ctx, query.AssetSpecifier, query.AssetAmount,
+			query.PaymentAmount, query.RateHint,
+			peerID, metadata, query.Intent,
+		)
+		if err != nil {
+			return zero, fmt.Errorf("query buy price for buy: %w",
+				err)
+		}
+
+	case AssetTransferSell:
+		resp, err = p.cfg.PriceOracle.QuerySellPrice(
+			ctx, query.AssetSpecifier, query.AssetAmount,
+			query.PaymentAmount, query.RateHint,
+			peerID, metadata, query.Intent,
+		)
+		if err != nil {
+			return zero, fmt.Errorf("query sell price for sell: %w",
+				err)
+		}
+
+	default:
+		return zero, fmt.Errorf("unsupported transfer direction: %d",
+			query.Direction)
+	}
+
+	if err := resp.Validate(); err != nil {
+		return zero, fmt.Errorf("invalid price oracle response: %w",
+			err)
+	}
+
+	return resp.AssetRate, nil
 }
