@@ -51,10 +51,10 @@ type NegotiatorCfg struct {
 	// for the node to consider using the accepted quote.
 	AcceptPriceDeviationPpm uint64
 
-	// SkipAcceptQuotePriceCheck is a flag that, if set, will skip the
-	// price check when validating an incoming quote accept message. This is
-	// useful for testing purposes.
-	SkipAcceptQuotePriceCheck bool
+	// SkipQuoteAcceptVerify is a flag that, if set, will skip the
+	// verification process when validating an incoming quote accept
+	// message. This is useful for testing purposes.
+	SkipQuoteAcceptVerify bool
 
 	// SendPriceHint is a flag that, if set, will send a price hint to the
 	// peer when requesting a quote.
@@ -521,8 +521,7 @@ func (n *Negotiator) HandleOutgoingSellOrder(
 func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	finalise func(rfqmsg.BuyAccept, fn.Option[InvalidQuoteRespEvent])) {
 
-	if n.cfg.SkipAcceptQuotePriceCheck {
-		// Skip the price check.
+	if n.cfg.SkipQuoteAcceptVerify {
 		finalise(msg, fn.None[InvalidQuoteRespEvent]())
 		return
 	}
@@ -579,8 +578,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 	finalise func(rfqmsg.SellAccept, fn.Option[InvalidQuoteRespEvent])) {
 
-	if n.cfg.SkipAcceptQuotePriceCheck {
-		// Skip the price check.
+	if n.cfg.SkipQuoteAcceptVerify {
 		finalise(msg, fn.None[InvalidQuoteRespEvent]())
 		return
 	}

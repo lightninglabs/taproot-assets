@@ -277,14 +277,14 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 
 	// Initialise and start the quote negotiator.
 	m.negotiator, err = NewNegotiator(NegotiatorCfg{
-		PriceOracle:               m.cfg.PriceOracle,
-		PortfolioPilot:            m.cfg.PortfolioPilot,
-		OutgoingMessages:          m.outgoingMessages,
-		AcceptPriceDeviationPpm:   m.cfg.AcceptPriceDeviationPpm,
-		SkipAcceptQuotePriceCheck: m.cfg.SkipAcceptQuotePriceCheck,
-		SendPriceHint:             m.cfg.SendPriceHint,
-		SendPeerId:                m.cfg.SendPeerId,
-		ErrChan:                   m.subsystemErrChan,
+		PriceOracle:             m.cfg.PriceOracle,
+		PortfolioPilot:          m.cfg.PortfolioPilot,
+		OutgoingMessages:        m.outgoingMessages,
+		AcceptPriceDeviationPpm: m.cfg.AcceptPriceDeviationPpm,
+		SkipQuoteAcceptVerify:   m.cfg.SkipAcceptQuotePriceCheck,
+		SendPriceHint:           m.cfg.SendPriceHint,
+		SendPeerId:              m.cfg.SendPeerId,
+		ErrChan:                 m.subsystemErrChan,
 	})
 	if err != nil {
 		return fmt.Errorf("error initializing RFQ negotiator: %w",
