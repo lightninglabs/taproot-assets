@@ -159,18 +159,9 @@ func (p *InternalPortfolioPilot) ResolveRequest(ctx context.Context,
 		return zero, fmt.Errorf("unsupported request type %T", req)
 	}
 
-	if resp == nil {
-		return zero, fmt.Errorf("price oracle returned nil response")
-	}
-
-	if resp.Err != nil {
-		return zero, fmt.Errorf("price oracle returned error: %w",
-			resp.Err)
-	}
-
-	if resp.AssetRate.Rate.Coefficient.ToUint64() == 0 {
-		return zero, fmt.Errorf("price oracle did not specify an " +
-			"asset rate")
+	if err := resp.Validate(); err != nil {
+		return zero, fmt.Errorf("invalid price oracle response: %w",
+			err)
 	}
 
 	return NewAcceptResolveResp(resp.AssetRate), nil
