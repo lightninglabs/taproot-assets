@@ -194,7 +194,7 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 	macBytes, err := os.ReadFile(macPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read macaroon path (check "+
-			"the network setting!): %w", err)
+			"the network setting or \"--network\" flag!): %w", err)
 	}
 	mac := &macaroon.Macaroon{}
 	if err = mac.UnmarshalBinary(macBytes); err != nil {
