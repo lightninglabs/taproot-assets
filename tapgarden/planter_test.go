@@ -1304,8 +1304,7 @@ func testMintingTicker(t *mintingTestHarness) {
 
 	// A single caretaker should have been launched as well. Next, assert
 	// that the batch is already funded.
-	t.assertBatchProgressing()
-	currentBatch := t.fetchLastBatch()
+	currentBatch := t.assertBatchProgressing()
 	t.assertBatchGenesisTx(&currentBatch.GenesisPacket.FundedPsbt)
 
 	// Now that the batch has been ticked, and the caretaker started, there
@@ -1403,8 +1402,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	require.NotNil(t, thirdBatch.BatchKey.PubKey)
 	thirdBatchKey := thirdBatch.BatchKey.PubKey
 
-	t.assertBatchProgressing()
-	thirdBatch = t.fetchLastBatch()
+	thirdBatch = t.assertBatchProgressing()
 	t.assertBatchGenesisTx(&thirdBatch.GenesisPacket.FundedPsbt)
 
 	// Now that the batch has been ticked, and the caretaker started, there
