@@ -487,4 +487,6 @@ clean:
 	rpc-format \
 	rpc-check \
 	vendor \
+	docker-release \
+	docker-verify \
 	clean
