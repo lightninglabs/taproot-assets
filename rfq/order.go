@@ -1329,3 +1329,90 @@ type HtlcSubscriber interface {
 	SubscribeHtlcEvents(ctx context.Context) (<-chan *routerrpc.HtlcEvent,
 		<-chan error, error)
 }
+
+// BuyOrder instructs the RFQ (Request For Quote) system to request a quote from
+// one or more peers for the acquisition of an asset.
+//
+// The normal use of a buy order is as follows:
+//  1. Alice, operating a wallet node, wants to receive a Tap asset as payment
+//     by issuing a Lightning invoice.
+//  2. Alice has an asset channel established with Bob's edge node.
+//  3. Before issuing the invoice, Alice needs to agree on an exchange rate with
+//     Bob, who will facilitate the asset transfer.
+//  4. To obtain the best exchange rate, Alice creates a buy order specifying
+//     the desired asset.
+//  5. Alice's RFQ subsystem processes the buy order and sends buy requests to
+//     relevant peers to find the best rate. In this example, Bob is the only
+//     available peer.
+//  6. Once Bob provides a satisfactory quote, Alice accepts it.
+//  7. Alice issues the Lightning invoice, which Charlie will pay.
+//  8. Instead of paying Alice directly, Charlie pays Bob.
+//  9. Bob then forwards the agreed amount of the Tap asset to Alice over their
+//     asset channel.
+type BuyOrder struct {
+	// AssetSpecifier is the asset that the buyer is interested in.
+	AssetSpecifier asset.Specifier
+
+	// AssetMaxAmt is the maximum amount of the asset that the provider must
+	// be willing to offer.
+	AssetMaxAmt uint64
+
+	// Expiry is the time at which the order expires.
+	Expiry time.Time
+
+	// Peer is the peer that the buy order is intended for. This field is
+	// optional.
+	//
+	// TODO(ffranr): Currently, this field must be specified. In the future,
+	//  the negotiator should be able to determine the optimal peer.
+	Peer fn.Option[route.Vertex]
+
+	// PriceOracleMetadata is an optional text field that can be used to
+	// provide additional metadata about the buy order to the price
+	// oracle. This can include information about the wallet end user that
+	// initiated the transaction, or any authentication information that the
+	// price oracle can use to give out a more accurate (or discount) asset
+	// rate. The maximum length of this field is 32'768 bytes.
+	PriceOracleMetadata string
+}
+
+// SellOrder instructs the RFQ (Request For Quote) system to request a quote
+// from one or more peers for the disposition of an asset.
+//
+// Normal usage of a sell order:
+//  1. Alice creates a Lightning invoice for Bob to pay.
+//  2. Bob wants to pay the invoice using a Tap asset. To do so, Bob pays an
+//     edge node with a Tap asset, and the edge node forwards the payment to the
+//     network to settle Alice's invoice. Bob submits a SellOrder to his local
+//     RFQ service.
+//  3. The RFQ service converts the SellOrder into one or more SellRequests.
+//     These requests are sent to Charlie (the edge node), who shares a relevant
+//     Tap asset channel with Bob and can forward payments to settle Alice's
+//     invoice.
+//  4. Charlie responds with a quote that satisfies Bob.
+//  5. Bob transfers the appropriate Tap asset amount to Charlie via their
+//     shared Tap asset channel, and Charlie forwards the corresponding amount
+//     to Alice to settle the Lightning invoice.
+type SellOrder struct {
+	// AssetSpecifier is the asset that the seller is interested in.
+	AssetSpecifier asset.Specifier
+
+	// PaymentMaxAmt is the maximum msat amount that the responding peer
+	// must agree to pay.
+	PaymentMaxAmt lnwire.MilliSatoshi
+
+	// Expiry is the time at which the order expires.
+	Expiry time.Time
+
+	// Peer is the peer that the buy order is intended for. This field is
+	// optional.
+	Peer fn.Option[route.Vertex]
+
+	// PriceOracleMetadata is an optional text field that can be used to
+	// provide additional metadata about the sell order to the price
+	// oracle. This can include information about the wallet end user that
+	// initiated the transaction, or any authentication information that the
+	// price oracle can use to give out a more accurate (or discount) asset
+	// rate. The maximum length of this field is 32'768 bytes.
+	PriceOracleMetadata string
+}
