@@ -11,7 +11,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnutils"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -139,60 +138,6 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 	}, nil
 }
 
-// queryBuyFromPriceOracle queries the price oracle for a buy price.
-// It returns an appropriate outgoing response message which should be sent to
-// the peer.
-func (n *Negotiator) queryBuyFromPriceOracle(assetSpecifier asset.Specifier,
-	assetMaxAmt fn.Option[uint64],
-	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
-	assetRateHint fn.Option[rfqmsg.AssetRate],
-	counterparty fn.Option[route.Vertex], metadata string,
-	intent PriceQueryIntent) (*rfqmsg.AssetRate, error) {
-
-	// TODO(ffranr): Optionally accept a peer's proposed sell price as an
-	//  arg to this func and pass it to the price oracle. The price oracle
-	//  service might be intelligent enough to use the peer's proposed sell
-	//  price as a factor when computing the buy price. This argument must
-	//  be optional because at some call sites we are initiating a request
-	//  and do not have a peer's proposed sell price.
-
-	ctx, cancel := n.WithCtxQuitNoTimeout()
-	defer cancel()
-
-	log.Debugf("Querying price oracle for buy price (asset_specifier=%s, "+
-		"asset_max_amt=%s, payment_max_amt=%s, asset_rate_hint=%s)",
-		assetSpecifier.String(), assetMaxAmt.String(),
-		paymentMaxAmt.String(), assetRateHint.String())
-
-	oracleResponse, err := n.cfg.PriceOracle.QueryBuyPrice(
-		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
-		counterparty, metadata, intent,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query price oracle for "+
-			"buy price: %w", err)
-	}
-
-	// Now we will check for an error in the response from the price oracle.
-	// If present, we will relay it with context.
-	if oracleResponse.Err != nil {
-		return nil, fmt.Errorf("failed to query price oracle for "+
-			"buy price: %w", oracleResponse.Err)
-	}
-
-	// By this point, the price oracle did not return an error or a buy
-	// price. We will therefore return an error.
-	if oracleResponse.AssetRate.Rate.ToUint64() == 0 {
-		return nil, fmt.Errorf("failed to query price oracle for " +
-			"buy price: price oracle didn't specify a price")
-	}
-
-	// TODO(ffranr): Check that the buy price is reasonable.
-	// TODO(ffranr): Ensure that the expiry time is valid and sufficient.
-
-	return &oracleResponse.AssetRate, nil
-}
-
 // HandleOutgoingBuyOrder handles an outgoing buy order by constructing buy
 // requests and passing them to the outgoing messages channel. These requests
 // are sent to peers.
@@ -217,12 +162,11 @@ func (n *Negotiator) HandleOutgoingBuyOrder(
 		return finalise(err)
 	}
 
-	// We calculate a proposed buy price for our peer's
-	// consideration. If a price oracle is not specified we will
-	// skip this step.
+	// We calculate a proposed buy rate for our peer's consideration. If a
+	// portfolio pilot is not specified we will skip this step.
 	var assetRateHint fn.Option[rfqmsg.AssetRate]
 
-	if n.cfg.PriceOracle != nil &&
+	if n.cfg.PortfolioPilot != nil &&
 		buyOrder.AssetSpecifier.IsSome() &&
 		n.cfg.SendPriceHint {
 
@@ -231,27 +175,36 @@ func (n *Negotiator) HandleOutgoingBuyOrder(
 			peerID = buyOrder.Peer
 		}
 
-		// Query the price oracle for a buy price.
-		//
-		// TODO(ffranr): Pass the BuyOrder expiry to the price
-		//  oracle at this point.
-		assetRate, err := n.queryBuyFromPriceOracle(
-			buyOrder.AssetSpecifier,
-			fn.Some(buyOrder.AssetMaxAmt),
-			fn.None[lnwire.MilliSatoshi](),
-			fn.None[rfqmsg.AssetRate](),
-			peerID, buyOrder.PriceOracleMetadata,
-			IntentRecvPaymentHint,
-		)
-		if err != nil {
-			// If we fail to query the price oracle for a
-			// buy price, we will log a warning and continue
-			// without a buy price.
-			log.Warnf("failed to query buy price from price "+
-				"oracle for outgoing buy request: %v", err)
+		// Query the portfolio pilot for a buy rate.
+		ctx, cancel := n.WithCtxQuitNoTimeout()
+		defer cancel()
+
+		var oracleMetadata fn.Option[string]
+		if buyOrder.PriceOracleMetadata != "" {
+			oracleMetadata = fn.Some(buyOrder.PriceOracleMetadata)
 		}
 
-		assetRateHint = fn.MaybeSome[rfqmsg.AssetRate](assetRate)
+		query := AssetRateQuery{
+			AssetSpecifier: buyOrder.AssetSpecifier,
+			Direction:      AssetTransferBuy,
+			AssetAmount:    fn.Some(buyOrder.AssetMaxAmt),
+			PeerID:         peerID,
+			OracleMetadata: oracleMetadata,
+			Expiry:         fn.Some(buyOrder.Expiry),
+		}
+		assetRate, err := n.cfg.PortfolioPilot.QueryAssetRates(
+			ctx, query,
+		)
+		if err != nil {
+			// If we fail to query the portfolio pilot for a
+			// buy rate, we will log a warning and continue
+			// without a buy rate since this is not a critical
+			// failure.
+			log.Warnf("Failed to query buy rate from portfolio "+
+				"pilot for outgoing buy request: %v", err)
+		}
+
+		assetRateHint = fn.MaybeSome(&assetRate)
 	}
 
 	// Construct a new buy request to send to the peer.
@@ -279,54 +232,6 @@ func (n *Negotiator) HandleOutgoingBuyOrder(
 	}
 
 	return request.ID, nil
-}
-
-// querySellFromPriceOracle queries the price oracle for a sell price. It
-// returns an appropriate outgoing response message which should be sent to the
-// peer.
-func (n *Negotiator) querySellFromPriceOracle(assetSpecifier asset.Specifier,
-	assetMaxAmt fn.Option[uint64],
-	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
-	assetRateHint fn.Option[rfqmsg.AssetRate],
-	counterparty fn.Option[route.Vertex], metadata string,
-	intent PriceQueryIntent) (*rfqmsg.AssetRate, error) {
-
-	// Query the price oracle for a sell price.
-	ctx, cancel := n.WithCtxQuitNoTimeout()
-	defer cancel()
-
-	log.Debugf("Querying price oracle for sell price (asset_specifier=%s, "+
-		"asset_max_amt=%s, payment_max_amt=%s, asset_rate_hint=%s)",
-		assetSpecifier.String(), assetMaxAmt.String(),
-		paymentMaxAmt.String(), assetRateHint.String())
-
-	oracleResponse, err := n.cfg.PriceOracle.QuerySellPrice(
-		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
-		counterparty, metadata, intent,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query price oracle for "+
-			"sell price: %w", err)
-	}
-
-	// Now we will check for an error in the response from the price oracle.
-	// If present, we will relay it with context.
-	if oracleResponse.Err != nil {
-		return nil, fmt.Errorf("failed to query price oracle for "+
-			"sell price: %w", oracleResponse.Err)
-	}
-
-	// By this point, the price oracle did not return an error or a sell
-	// price. We will therefore return an error.
-	if oracleResponse.AssetRate.Rate.Coefficient.ToUint64() == 0 {
-		return nil, fmt.Errorf("failed to query price oracle for " +
-			"sell price: price oracle didn't specify a price")
-	}
-
-	// TODO(ffranr): Check that the sell price is reasonable.
-	// TODO(ffranr): Ensure that the expiry time is valid and sufficient.
-
-	return &oracleResponse.AssetRate, nil
 }
 
 // HandleIncomingQuoteRequest handles an incoming asset buy or sell quote
@@ -459,12 +364,12 @@ func (n *Negotiator) HandleOutgoingSellOrder(
 		return finalise(err)
 	}
 
-	// We calculate a proposed sell price for our peer's
-	// consideration. If a price oracle is not specified we will
+	// We calculate a proposed sell rate for our peer's
+	// consideration. If a portfolio pilot is not specified we will
 	// skip this step.
 	var assetRateHint fn.Option[rfqmsg.AssetRate]
 
-	if n.cfg.PriceOracle != nil && order.AssetSpecifier.IsSome() &&
+	if n.cfg.PortfolioPilot != nil && order.AssetSpecifier.IsSome() &&
 		n.cfg.SendPriceHint {
 
 		var peerID fn.Option[route.Vertex]
@@ -472,23 +377,36 @@ func (n *Negotiator) HandleOutgoingSellOrder(
 			peerID = order.Peer
 		}
 
-		// Query the price oracle for a sell price.
-		//
-		// TODO(ffranr): Pass the SellOrder expiry to the
-		//  price oracle at this point.
-		assetRate, err := n.querySellFromPriceOracle(
-			order.AssetSpecifier, fn.None[uint64](),
-			fn.Some(order.PaymentMaxAmt),
-			fn.None[rfqmsg.AssetRate](), peerID,
-			order.PriceOracleMetadata, IntentPayInvoiceHint,
-		)
-		if err != nil {
-			err := fmt.Errorf("negotiator failed to handle price "+
-				"oracle response: %w", err)
-			return finalise(err)
+		// Query the portfolio pilot for a sell rate.
+		ctx, cancel := n.WithCtxQuitNoTimeout()
+		defer cancel()
+
+		var oracleMetadata fn.Option[string]
+		if order.PriceOracleMetadata != "" {
+			oracleMetadata = fn.Some(order.PriceOracleMetadata)
 		}
 
-		assetRateHint = fn.MaybeSome(assetRate)
+		query := AssetRateQuery{
+			AssetSpecifier: order.AssetSpecifier,
+			Direction:      AssetTransferSell,
+			PaymentAmount:  fn.Some(order.PaymentMaxAmt),
+			PeerID:         peerID,
+			OracleMetadata: oracleMetadata,
+			Expiry:         fn.Some(order.Expiry),
+		}
+
+		assetRate, err := n.cfg.PortfolioPilot.QueryAssetRates(
+			ctx, query,
+		)
+		if err != nil {
+			// If we fail to query the portfolio pilot for a
+			// rate, we will log a warning and continue without a
+			// rate since this is not a critical failure.
+			log.Warnf("Failed to query sell rate from portfolio "+
+				"pilot for outgoing sell request: %v", err)
+		}
+
+		assetRateHint = fn.MaybeSome(&assetRate)
 	}
 
 	request, err := rfqmsg.NewSellRequest(

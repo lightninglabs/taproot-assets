@@ -61,6 +61,17 @@ func (s *mockPortfolioPilot) VerifyAcceptQuote(context.Context,
 	return ValidAcceptQuoteRespStatus, nil
 }
 
+// QueryAssetRates returns mock asset rate information.
+func (s *mockPortfolioPilot) QueryAssetRates(context.Context,
+	AssetRateQuery) (rfqmsg.AssetRate, error) {
+
+	// Return a default asset rate for testing
+	return rfqmsg.AssetRate{
+		Rate:   rfqmath.NewBigIntFixedPoint(1000, 0),
+		Expiry: time.Now().Add(time.Hour),
+	}, nil
+}
+
 // assertIncomingSellAcceptTestCase asserts the handling of an incoming sell
 // accept message for a test case.
 func assertIncomingSellAcceptTestCase(
