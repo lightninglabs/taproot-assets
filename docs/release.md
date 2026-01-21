@@ -95,10 +95,16 @@ allows your signature to be verified by our verify script
 `scripts/verify-install.sh`.
 
 You will first need to make a pull request adding your signing public
-key, named `$SIGNER.asc`, to the scripts/keys subdirectory. Then, build
-the release artifacts for *all* targets as described in [Building
-a Release](#building-a-release). This will include the checksummed
-artifacts manifest, `manifest-$TAG.txt`.
+key, named `$SIGNER.asc`, to the scripts/keys subdirectory. To build the
+the release artifacts for all targets with a one-liner, use:
+
+```shell
+$ make docker-verify tag=$TAG
+```
+
+This will perform a shallow clone of the canonical GitHub repo at the
+specified tag and use that to build the release artifacts, which will
+include the checksummed artifacts manifest, `manifest-$TAG.txt`.
 
 To generate a detached signature for the manifest, perform the following:
 
