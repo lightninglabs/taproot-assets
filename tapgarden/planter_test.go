@@ -701,6 +701,27 @@ func (t *mintingTestHarness) assertBatchProgressing() *tapgarden.MintingBatch {
 	return progressingBatches[0]
 }
 
+// assertBatchCommitted polls FetchMintingBatch until the specified
+// batch reaches BatchStateCommitted or later.
+func (t *mintingTestHarness) assertBatchCommitted(
+	batchKey *btcec.PublicKey) *tapgarden.MintingBatch {
+
+	t.Helper()
+
+	var committedBatch *tapgarden.MintingBatch
+	err := wait.Predicate(func() bool {
+		batch, err := t.store.FetchMintingBatch(
+			context.Background(), batchKey,
+		)
+		require.NoError(t, err)
+		committedBatch = batch
+		return batchCommittedStates.Contains(batch.State())
+	}, defaultTimeout)
+	require.NoError(t, err)
+
+	return committedBatch
+}
+
 // assertNumCaretakersActive asserts that the specified number of caretakers
 // are active.
 func (t *mintingTestHarness) assertNumCaretakersActive(n int) {
@@ -1171,12 +1192,12 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 
 	// Now we'll force a batch tick which should kick off a new caretaker
 	// that starts to progress the batch all the way to broadcast.
-	t.finalizeBatchAssertFrozen(false)
+	frozenBatch := t.finalizeBatchAssertFrozen(false)
 
 	// We'll now restart the planter to ensure that it's able to properly
-	// resume all the caretakers. We need to sleep for a small amount to
-	// allow the planter to get the batch tick signal.
-	time.Sleep(time.Millisecond * 100)
+	// resume all the caretakers. Wait for the batch to be sealed and
+	// committed before we restart.
+	t.assertBatchCommitted(frozenBatch.BatchKey.PubKey)
 	t.refreshChainPlanter()
 
 	// Now that the planter is back up, a single caretaker should have been
@@ -1283,8 +1304,7 @@ func testMintingTicker(t *mintingTestHarness) {
 
 	// A single caretaker should have been launched as well. Next, assert
 	// that the batch is already funded.
-	t.assertBatchProgressing()
-	currentBatch := t.fetchLastBatch()
+	currentBatch := t.assertBatchProgressing()
 	t.assertBatchGenesisTx(&currentBatch.GenesisPacket.FundedPsbt)
 
 	// Now that the batch has been ticked, and the caretaker started, there
@@ -1382,8 +1402,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	require.NotNil(t, thirdBatch.BatchKey.PubKey)
 	thirdBatchKey := thirdBatch.BatchKey.PubKey
 
-	t.assertBatchProgressing()
-	thirdBatch = t.fetchLastBatch()
+	thirdBatch = t.assertBatchProgressing()
 	t.assertBatchGenesisTx(&thirdBatch.GenesisPacket.FundedPsbt)
 
 	// Now that the batch has been ticked, and the caretaker started, there
