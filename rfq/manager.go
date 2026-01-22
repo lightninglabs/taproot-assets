@@ -396,7 +396,7 @@ func (m *Manager) handleIncomingMessage(ctx context.Context,
 	// Perform type specific handling of the incoming message.
 	switch msg := incomingMsg.(type) {
 	case *rfqmsg.BuyRequest:
-		err := m.negotiator.HandleIncomingQuoteRequest(msg)
+		err := m.negotiator.HandleIncomingQuoteRequest(ctx, msg)
 		if err != nil {
 			return fmt.Errorf("error handling incoming buy "+
 				"request: %w", err)
@@ -451,7 +451,7 @@ func (m *Manager) handleIncomingMessage(ctx context.Context,
 		)
 
 	case *rfqmsg.SellRequest:
-		err := m.negotiator.HandleIncomingQuoteRequest(msg)
+		err := m.negotiator.HandleIncomingQuoteRequest(ctx, msg)
 		if err != nil {
 			return fmt.Errorf("error handling incoming sell "+
 				"request: %w", err)

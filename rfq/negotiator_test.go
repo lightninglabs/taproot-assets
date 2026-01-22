@@ -472,7 +472,10 @@ func TestHandleIncomingQuoteRequestError(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			err = negotiator.HandleIncomingQuoteRequest(tc.request)
+			ctx := context.Background()
+			err = negotiator.HandleIncomingQuoteRequest(
+				ctx, tc.request,
+			)
 			require.NoError(t, err)
 			negotiator.Wg.Wait()
 

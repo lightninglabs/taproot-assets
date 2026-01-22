@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -26,10 +25,6 @@ const (
 	//
 	// NOTE: This value is set to 5% (50,000 ppm).
 	DefaultAcceptPriceDeviationPpm = 50_000
-
-	// DefaultPortfolioPilotTimeout is the default timeout imposed when
-	// calling into the portfolio pilot.
-	DefaultPortfolioPilotTimeout = 20 * time.Second
 )
 
 // NegotiatorCfg holds the configuration for the negotiator.
@@ -270,7 +265,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(ctx context.Context,
 // queries the portfolio pilot to determine whether to accept or reject the
 // quote. Based on the pilot's decision, it sends either an accept message with
 // an asset rate or a reject message to outgoing messages channel.
-func (n *Negotiator) HandleIncomingQuoteRequest(
+func (n *Negotiator) HandleIncomingQuoteRequest(ctx context.Context,
 	request rfqmsg.Request) error {
 
 	// Define a thread safe helper function for adding outgoing message to
@@ -291,11 +286,6 @@ func (n *Negotiator) HandleIncomingQuoteRequest(
 	// The portfolio pilot might be an external service, responses could be
 	// delayed.
 	n.Goroutine(func() error {
-		ctx, cancel := n.WithCtxQuitCustomTimeout(
-			DefaultPortfolioPilotTimeout,
-		)
-		defer cancel()
-
 		resp, err := n.cfg.PortfolioPilot.ResolveRequest(ctx, request)
 		if err != nil {
 			// Construct an appropriate RejectErr based on
