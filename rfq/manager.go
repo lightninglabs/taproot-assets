@@ -515,7 +515,7 @@ func (m *Manager) handleOutgoingMessage(ctx context.Context,
 		// we inform our peer of our decision, we inform the order
 		// handler that we are willing to sell the asset subject to a
 		// sale policy.
-		err := m.orderHandler.RegisterAssetSalePolicy(*msg)
+		err := m.orderHandler.RegisterAssetSalePolicy(ctx, *msg)
 		if err != nil {
 			return fmt.Errorf("registering asset sale "+
 				"policy: %w", err)
@@ -538,7 +538,7 @@ func (m *Manager) handleOutgoingMessage(ctx context.Context,
 		// we inform our peer of our decision, we inform the order
 		// handler that we are willing to buy the asset subject to a
 		// purchase policy.
-		err := m.orderHandler.RegisterAssetPurchasePolicy(*msg)
+		err := m.orderHandler.RegisterAssetPurchasePolicy(ctx, *msg)
 		if err != nil {
 			return fmt.Errorf("registering asset purchase "+
 				"policy: %w", err)
