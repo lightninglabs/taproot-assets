@@ -1330,6 +1330,23 @@ type HtlcSubscriber interface {
 		<-chan error, error)
 }
 
+// Order is an interface that abstracts common functionality between buy and
+// sell orders.
+type Order interface {
+	// GetAssetSpecifier returns the asset specifier for this order.
+	GetAssetSpecifier() asset.Specifier
+
+	// GetPeer returns the optional peer for this order.
+	GetPeer() fn.Option[route.Vertex]
+
+	// GetPriceOracleMetadata returns the price oracle metadata for this
+	// order.
+	GetPriceOracleMetadata() string
+
+	// GetExpiry returns the expiry time for this order.
+	GetExpiry() time.Time
+}
+
 // BuyOrder instructs the RFQ (Request For Quote) system to request a quote from
 // one or more peers for the acquisition of an asset.
 //
@@ -1376,6 +1393,29 @@ type BuyOrder struct {
 	PriceOracleMetadata string
 }
 
+// GetAssetSpecifier returns the asset specifier for this buy order.
+func (b *BuyOrder) GetAssetSpecifier() asset.Specifier {
+	return b.AssetSpecifier
+}
+
+// GetPeer returns the optional peer for this buy order.
+func (b *BuyOrder) GetPeer() fn.Option[route.Vertex] {
+	return b.Peer
+}
+
+// GetPriceOracleMetadata returns the price oracle metadata for this buy order.
+func (b *BuyOrder) GetPriceOracleMetadata() string {
+	return b.PriceOracleMetadata
+}
+
+// GetExpiry returns the expiry time for this buy order.
+func (b *BuyOrder) GetExpiry() time.Time {
+	return b.Expiry
+}
+
+// Ensure that BuyOrder implements the Order interface.
+var _ Order = (*BuyOrder)(nil)
+
 // SellOrder instructs the RFQ (Request For Quote) system to request a quote
 // from one or more peers for the disposition of an asset.
 //
@@ -1416,3 +1456,26 @@ type SellOrder struct {
 	// rate. The maximum length of this field is 32'768 bytes.
 	PriceOracleMetadata string
 }
+
+// GetAssetSpecifier returns the asset specifier for this sell order.
+func (s *SellOrder) GetAssetSpecifier() asset.Specifier {
+	return s.AssetSpecifier
+}
+
+// GetPeer returns the optional peer for this sell order.
+func (s *SellOrder) GetPeer() fn.Option[route.Vertex] {
+	return s.Peer
+}
+
+// GetPriceOracleMetadata returns the price oracle metadata for this sell order.
+func (s *SellOrder) GetPriceOracleMetadata() string {
+	return s.PriceOracleMetadata
+}
+
+// GetExpiry returns the expiry time for this sell order.
+func (s *SellOrder) GetExpiry() time.Time {
+	return s.Expiry
+}
+
+// Ensure that SellOrder implements the Order interface.
+var _ Order = (*SellOrder)(nil)
