@@ -8321,7 +8321,7 @@ func (r *rpcServer) AddAssetBuyOrder(ctx context.Context,
 	}()
 
 	// Upsert the buy order into the RFQ manager.
-	id, err := r.cfg.RfqManager.UpsertAssetBuyOrder(*buyOrder)
+	id, err := r.cfg.RfqManager.UpsertAssetBuyOrder(ctx, *buyOrder)
 	if err != nil {
 		return nil, fmt.Errorf("error upserting buy order into RFQ "+
 			"manager: %w", err)
@@ -8538,7 +8538,7 @@ func (r *rpcServer) AddAssetSellOrder(ctx context.Context,
 	}()
 
 	// Upsert the order into the RFQ manager.
-	id, err := r.cfg.RfqManager.UpsertAssetSellOrder(*sellOrder)
+	id, err := r.cfg.RfqManager.UpsertAssetSellOrder(ctx, *sellOrder)
 	if err != nil {
 		return nil, fmt.Errorf("error upserting sell order into RFQ "+
 			"manager: %w", err)

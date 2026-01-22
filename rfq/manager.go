@@ -697,7 +697,9 @@ func (m *Manager) UpsertAssetBuyOffer(offer BuyOffer) error {
 }
 
 // UpsertAssetBuyOrder upserts an asset buy order for management.
-func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) (rfqmsg.ID, error) {
+func (m *Manager) UpsertAssetBuyOrder(ctx context.Context,
+	order BuyOrder) (rfqmsg.ID, error) {
+
 	// For now, a peer must be specified.
 	//
 	// TODO(ffranr): Add support for peerless buy orders. The negotiator
@@ -708,7 +710,7 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) (rfqmsg.ID, error) {
 	}
 
 	// Request a quote from a peer via the negotiator.
-	id, err := m.negotiator.HandleOutgoingBuyOrder(order)
+	id, err := m.negotiator.HandleOutgoingBuyOrder(ctx, order)
 	if err != nil {
 		return rfqmsg.ID{}, fmt.Errorf("error registering asset buy "+
 			"order: %w", err)
@@ -718,7 +720,9 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) (rfqmsg.ID, error) {
 }
 
 // UpsertAssetSellOrder upserts an asset sell order for management.
-func (m *Manager) UpsertAssetSellOrder(order SellOrder) (rfqmsg.ID, error) {
+func (m *Manager) UpsertAssetSellOrder(ctx context.Context,
+	order SellOrder) (rfqmsg.ID, error) {
+
 	// For now, a peer must be specified.
 	//
 	// TODO(ffranr): Add support for peerless sell orders. The negotiator
@@ -730,7 +734,7 @@ func (m *Manager) UpsertAssetSellOrder(order SellOrder) (rfqmsg.ID, error) {
 
 	// Pass the asset sell order to the negotiator which will generate sell
 	// request messages to send to peers.
-	return m.negotiator.HandleOutgoingSellOrder(order)
+	return m.negotiator.HandleOutgoingSellOrder(ctx, order)
 }
 
 // PeerAcceptedBuyQuotes returns buy quotes that were requested by our node and

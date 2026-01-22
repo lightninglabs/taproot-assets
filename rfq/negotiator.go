@@ -1,6 +1,7 @@
 package rfq
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -142,7 +143,7 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 // getAssetRateHint queries the portfolio pilot for an asset rate hint based on
 // the provided order. Returns None if portfolio pilot is not configured, price
 // hints are disabled, or the query fails.
-func (n *Negotiator) getAssetRateHint(order Order,
+func (n *Negotiator) getAssetRateHint(ctx context.Context, order Order,
 	assetAmount fn.Option[uint64],
 	paymentAmt fn.Option[lnwire.MilliSatoshi]) fn.Option[rfqmsg.AssetRate] {
 
@@ -177,10 +178,6 @@ func (n *Negotiator) getAssetRateHint(order Order,
 		peerID = order.GetPeer()
 	}
 
-	// Query the portfolio pilot for a rate.
-	ctx, cancel := n.WithCtxQuitNoTimeout()
-	defer cancel()
-
 	var oracleMetadata fn.Option[string]
 	if order.GetPriceOracleMetadata() != "" {
 		oracleMetadata = fn.Some(order.GetPriceOracleMetadata())
@@ -214,7 +211,7 @@ func (n *Negotiator) getAssetRateHint(order Order,
 // HandleOutgoingBuyOrder handles an outgoing buy order by constructing buy
 // requests and passing them to the outgoing messages channel. These requests
 // are sent to peers.
-func (n *Negotiator) HandleOutgoingBuyOrder(
+func (n *Negotiator) HandleOutgoingBuyOrder(ctx context.Context,
 	buyOrder BuyOrder) (rfqmsg.ID, error) {
 
 	// Whenever this method returns an error we want to notify both the RFQ
@@ -237,7 +234,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(
 
 	// We calculate a proposed buy rate for our peer's consideration.
 	assetRateHint := n.getAssetRateHint(
-		&buyOrder, fn.Some(buyOrder.AssetMaxAmt),
+		ctx, &buyOrder, fn.Some(buyOrder.AssetMaxAmt),
 		fn.None[lnwire.MilliSatoshi](),
 	)
 
@@ -377,7 +374,7 @@ func customRejectErr(err error) rfqmsg.RejectErr {
 // HandleOutgoingSellOrder handles an outgoing sell order by constructing sell
 // requests and passing them to the outgoing messages channel. These requests
 // are sent to peers.
-func (n *Negotiator) HandleOutgoingSellOrder(
+func (n *Negotiator) HandleOutgoingSellOrder(ctx context.Context,
 	order SellOrder) (rfqmsg.ID, error) {
 
 	// Whenever this method returns an error we want to notify both the RFQ
@@ -400,7 +397,7 @@ func (n *Negotiator) HandleOutgoingSellOrder(
 
 	// We calculate a proposed sell rate for our peer's consideration.
 	assetRateHint := n.getAssetRateHint(
-		&order, fn.None[uint64](), fn.Some(order.PaymentMaxAmt),
+		ctx, &order, fn.None[uint64](), fn.Some(order.PaymentMaxAmt),
 	)
 
 	request, err := rfqmsg.NewSellRequest(
