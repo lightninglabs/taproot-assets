@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnutils"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -138,6 +139,78 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 	}, nil
 }
 
+// getAssetRateHint queries the portfolio pilot for an asset rate hint based on
+// the provided order. Returns None if portfolio pilot is not configured, price
+// hints are disabled, or the query fails.
+func (n *Negotiator) getAssetRateHint(order Order,
+	assetAmount fn.Option[uint64],
+	paymentAmt fn.Option[lnwire.MilliSatoshi]) fn.Option[rfqmsg.AssetRate] {
+
+	if !n.cfg.SendPriceHint {
+		return fn.None[rfqmsg.AssetRate]()
+	}
+
+	assetSpec := order.GetAssetSpecifier()
+	if !assetSpec.IsSome() {
+		return fn.None[rfqmsg.AssetRate]()
+	}
+
+	// Determine the direction based on the order type.
+	direction := AssetTransferDirectionFromOrder(order)
+
+	// Determine the appropriate hint intent based on the order type.
+	var intent PriceQueryIntent
+	switch order.(type) {
+	case *SellOrder:
+		intent = IntentPayInvoiceHint
+	case *BuyOrder:
+		intent = IntentRecvPaymentHint
+	default:
+		// This shouldn't happen since AssetTransferDirectionFromOrder
+		// would have already caught unsupported order types.
+		log.Warnf("Unknown order type for asset rate hint: %T", order)
+		return fn.None[rfqmsg.AssetRate]()
+	}
+
+	var peerID fn.Option[route.Vertex]
+	if n.cfg.SendPeerId {
+		peerID = order.GetPeer()
+	}
+
+	// Query the portfolio pilot for a rate.
+	ctx, cancel := n.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	var oracleMetadata fn.Option[string]
+	if order.GetPriceOracleMetadata() != "" {
+		oracleMetadata = fn.Some(order.GetPriceOracleMetadata())
+	}
+
+	query := AssetRateQuery{
+		AssetSpecifier: assetSpec,
+		Direction:      direction,
+		Intent:         intent,
+		AssetAmount:    assetAmount,
+		PaymentAmount:  paymentAmt,
+		PeerID:         peerID,
+		OracleMetadata: oracleMetadata,
+		Expiry:         fn.Some(order.GetExpiry()),
+	}
+
+	assetRate, err := n.cfg.PortfolioPilot.QueryAssetRates(ctx, query)
+	if err != nil {
+		// If we fail to query the portfolio pilot for a rate, we
+		// will log a warning and continue without a rate since this
+		// is not a critical failure.
+		log.Warnf("Failed to query rate from portfolio pilot "+
+			"for outgoing request: (direction=%s, err=%v)",
+			direction.String(), err)
+		return fn.None[rfqmsg.AssetRate]()
+	}
+
+	return fn.Some(assetRate)
+}
+
 // HandleOutgoingBuyOrder handles an outgoing buy order by constructing buy
 // requests and passing them to the outgoing messages channel. These requests
 // are sent to peers.
@@ -162,50 +235,11 @@ func (n *Negotiator) HandleOutgoingBuyOrder(
 		return finalise(err)
 	}
 
-	// We calculate a proposed buy rate for our peer's consideration. If a
-	// portfolio pilot is not specified we will skip this step.
-	var assetRateHint fn.Option[rfqmsg.AssetRate]
-
-	if n.cfg.PortfolioPilot != nil &&
-		buyOrder.AssetSpecifier.IsSome() &&
-		n.cfg.SendPriceHint {
-
-		var peerID fn.Option[route.Vertex]
-		if n.cfg.SendPeerId {
-			peerID = buyOrder.Peer
-		}
-
-		// Query the portfolio pilot for a buy rate.
-		ctx, cancel := n.WithCtxQuitNoTimeout()
-		defer cancel()
-
-		var oracleMetadata fn.Option[string]
-		if buyOrder.PriceOracleMetadata != "" {
-			oracleMetadata = fn.Some(buyOrder.PriceOracleMetadata)
-		}
-
-		query := AssetRateQuery{
-			AssetSpecifier: buyOrder.AssetSpecifier,
-			Direction:      AssetTransferBuy,
-			AssetAmount:    fn.Some(buyOrder.AssetMaxAmt),
-			PeerID:         peerID,
-			OracleMetadata: oracleMetadata,
-			Expiry:         fn.Some(buyOrder.Expiry),
-		}
-		assetRate, err := n.cfg.PortfolioPilot.QueryAssetRates(
-			ctx, query,
-		)
-		if err != nil {
-			// If we fail to query the portfolio pilot for a
-			// buy rate, we will log a warning and continue
-			// without a buy rate since this is not a critical
-			// failure.
-			log.Warnf("Failed to query buy rate from portfolio "+
-				"pilot for outgoing buy request: %v", err)
-		}
-
-		assetRateHint = fn.MaybeSome(&assetRate)
-	}
+	// We calculate a proposed buy rate for our peer's consideration.
+	assetRateHint := n.getAssetRateHint(
+		&buyOrder, fn.Some(buyOrder.AssetMaxAmt),
+		fn.None[lnwire.MilliSatoshi](),
+	)
 
 	// Construct a new buy request to send to the peer.
 	request, err := rfqmsg.NewBuyRequest(
@@ -364,50 +398,10 @@ func (n *Negotiator) HandleOutgoingSellOrder(
 		return finalise(err)
 	}
 
-	// We calculate a proposed sell rate for our peer's
-	// consideration. If a portfolio pilot is not specified we will
-	// skip this step.
-	var assetRateHint fn.Option[rfqmsg.AssetRate]
-
-	if n.cfg.PortfolioPilot != nil && order.AssetSpecifier.IsSome() &&
-		n.cfg.SendPriceHint {
-
-		var peerID fn.Option[route.Vertex]
-		if n.cfg.SendPeerId {
-			peerID = order.Peer
-		}
-
-		// Query the portfolio pilot for a sell rate.
-		ctx, cancel := n.WithCtxQuitNoTimeout()
-		defer cancel()
-
-		var oracleMetadata fn.Option[string]
-		if order.PriceOracleMetadata != "" {
-			oracleMetadata = fn.Some(order.PriceOracleMetadata)
-		}
-
-		query := AssetRateQuery{
-			AssetSpecifier: order.AssetSpecifier,
-			Direction:      AssetTransferSell,
-			PaymentAmount:  fn.Some(order.PaymentMaxAmt),
-			PeerID:         peerID,
-			OracleMetadata: oracleMetadata,
-			Expiry:         fn.Some(order.Expiry),
-		}
-
-		assetRate, err := n.cfg.PortfolioPilot.QueryAssetRates(
-			ctx, query,
-		)
-		if err != nil {
-			// If we fail to query the portfolio pilot for a
-			// rate, we will log a warning and continue without a
-			// rate since this is not a critical failure.
-			log.Warnf("Failed to query sell rate from portfolio "+
-				"pilot for outgoing sell request: %v", err)
-		}
-
-		assetRateHint = fn.MaybeSome(&assetRate)
-	}
+	// We calculate a proposed sell rate for our peer's consideration.
+	assetRateHint := n.getAssetRateHint(
+		&order, fn.None[uint64](), fn.Some(order.PaymentMaxAmt),
+	)
 
 	request, err := rfqmsg.NewSellRequest(
 		peer, order.AssetSpecifier, order.PaymentMaxAmt, assetRateHint,
