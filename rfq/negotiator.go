@@ -427,7 +427,8 @@ func (n *Negotiator) HandleOutgoingSellOrder(ctx context.Context,
 // is called when a peer accepts a quote request from this node. The method
 // delegates validation to the portfolio pilot. Once validation is complete,
 // the finalise callback function is called.
-func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
+func (n *Negotiator) HandleIncomingBuyAccept(ctx context.Context,
+	msg rfqmsg.BuyAccept,
 	finalise func(rfqmsg.BuyAccept, fn.Option[InvalidQuoteRespEvent])) {
 
 	if n.cfg.SkipQuoteAcceptVerify {
@@ -439,11 +440,6 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	// This avoids blocking, as the portfolio pilot may be an external
 	// service.
 	n.Goroutine(func() error {
-		ctx, cancel := n.WithCtxQuitCustomTimeout(
-			DefaultPortfolioPilotTimeout,
-		)
-		defer cancel()
-
 		// Use the portfolio pilot to verify the accept quote.
 		status, err := n.cfg.PortfolioPilot.VerifyAcceptQuote(
 			ctx, &msg,
@@ -484,7 +480,8 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 // is called when a peer accepts a quote request from this node. The method
 // delegates validation to the portfolio pilot. Once validation is complete,
 // the finalise callback function is called.
-func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
+func (n *Negotiator) HandleIncomingSellAccept(ctx context.Context,
+	msg rfqmsg.SellAccept,
 	finalise func(rfqmsg.SellAccept, fn.Option[InvalidQuoteRespEvent])) {
 
 	if n.cfg.SkipQuoteAcceptVerify {
@@ -496,11 +493,6 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 	// This avoids blocking, as the portfolio pilot may be an external
 	// service.
 	n.Goroutine(func() error {
-		ctx, cancel := n.WithCtxQuitCustomTimeout(
-			DefaultPortfolioPilotTimeout,
-		)
-		defer cancel()
-
 		// Use the portfolio pilot to verify the accept quote.
 		status, err := n.cfg.PortfolioPilot.VerifyAcceptQuote(
 			ctx, &msg,

@@ -343,7 +343,7 @@ func (m *Manager) Start() error {
 			}()
 
 			log.Info("Starting RFQ manager main event loop")
-			m.mainEventLoop()
+			m.mainEventLoop(ctx)
 		}()
 	})
 	return startErr
@@ -390,7 +390,9 @@ func (m *Manager) stopSubsystems() error {
 
 // handleIncomingMessage handles an incoming message. These are messages that
 // have been received from a peer.
-func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
+func (m *Manager) handleIncomingMessage(ctx context.Context,
+	incomingMsg rfqmsg.IncomingMsg) error {
+
 	// Perform type specific handling of the incoming message.
 	switch msg := incomingMsg.(type) {
 	case *rfqmsg.BuyRequest:
@@ -444,7 +446,9 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 			m.publishSubscriberEvent(event)
 		}
 
-		m.negotiator.HandleIncomingBuyAccept(*msg, finaliseCallback)
+		m.negotiator.HandleIncomingBuyAccept(
+			ctx, *msg, finaliseCallback,
+		)
 
 	case *rfqmsg.SellRequest:
 		err := m.negotiator.HandleIncomingQuoteRequest(msg)
@@ -481,7 +485,9 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 			m.publishSubscriberEvent(event)
 		}
 
-		m.negotiator.HandleIncomingSellAccept(*msg, finaliseCallback)
+		m.negotiator.HandleIncomingSellAccept(
+			ctx, *msg, finaliseCallback,
+		)
 
 	case *rfqmsg.Reject:
 		// The quote request has been rejected. Notify subscribers of
@@ -609,7 +615,7 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 }
 
 // mainEventLoop is the main event loop of the RFQ manager.
-func (m *Manager) mainEventLoop() {
+func (m *Manager) mainEventLoop(ctx context.Context) {
 	for {
 		select {
 		// Handle incoming message.
@@ -617,7 +623,7 @@ func (m *Manager) mainEventLoop() {
 			log.Debugf("Manager handling incoming message: %s",
 				incomingMsg)
 
-			err := m.handleIncomingMessage(incomingMsg)
+			err := m.handleIncomingMessage(ctx, incomingMsg)
 			if err != nil {
 				m.handleError(
 					fmt.Errorf("failed to handle "+
