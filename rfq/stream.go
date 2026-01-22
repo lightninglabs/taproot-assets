@@ -133,7 +133,7 @@ func (h *StreamHandler) handleIncomingWireMessage(
 }
 
 // HandleOutgoingMessage handles an outgoing RFQ message.
-func (h *StreamHandler) HandleOutgoingMessage(
+func (h *StreamHandler) HandleOutgoingMessage(ctx context.Context,
 	outgoingMsg rfqmsg.OutgoingMsg) error {
 
 	log.Debugf("Stream handling outgoing message: %s", outgoingMsg)
@@ -149,10 +149,6 @@ func (h *StreamHandler) HandleOutgoingMessage(
 		MsgType: uint32(wireMsg.MsgType),
 		Data:    wireMsg.Data,
 	}
-
-	// Send the message to the peer.
-	ctx, cancel := h.WithCtxQuitNoTimeout()
-	defer cancel()
 
 	// We store the outgoing request in the request map, so we can interpret
 	// any response and map it to the original request. We do this before

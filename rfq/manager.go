@@ -504,7 +504,9 @@ func (m *Manager) handleIncomingMessage(ctx context.Context,
 
 // handleOutgoingMessage handles an outgoing message. Outgoing messages are
 // messages that will be sent to a peer.
-func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
+func (m *Manager) handleOutgoingMessage(ctx context.Context,
+	outgoingMsg rfqmsg.OutgoingMsg) error {
+
 	// Perform type specific handling of the outgoing message.
 	switch msg := outgoingMsg.(type) {
 	case *rfqmsg.BuyAccept:
@@ -544,7 +546,7 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 	}
 
 	// Send the outgoing message to the peer.
-	err := m.streamHandler.HandleOutgoingMessage(outgoingMsg)
+	err := m.streamHandler.HandleOutgoingMessage(ctx, outgoingMsg)
 	if err != nil {
 		return fmt.Errorf("error sending outgoing message to stream "+
 			"handler: %w", err)
@@ -636,7 +638,7 @@ func (m *Manager) mainEventLoop(ctx context.Context) {
 			log.Debugf("Manager handling outgoing message: %s",
 				outgoingMsg)
 
-			err := m.handleOutgoingMessage(outgoingMsg)
+			err := m.handleOutgoingMessage(ctx, outgoingMsg)
 			if err != nil {
 				m.handleError(
 					fmt.Errorf("failed to handle outgoing "+
