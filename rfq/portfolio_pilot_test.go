@@ -945,3 +945,80 @@ func TestVerifyAcceptQuote(t *testing.T) {
 		})
 	}
 }
+
+// TestResolveRequestWithoutPriceOracleRejects ensures that requests are
+// rejected during resolution if a price oracle is not configured for the
+// internal portfolio pilot.
+func TestResolveRequestWithoutPriceOracleRejects(t *testing.T) {
+	t.Parallel()
+
+	assetSpec := asset.NewSpecifierFromId(asset.ID{0x01, 0x02, 0x03})
+	peerID := route.Vertex{0x0A, 0x0B, 0x0C}
+
+	req, err := rfqmsg.NewBuyRequest(
+		peerID, assetSpec, 100,
+		fn.None[rfqmsg.AssetRate](),
+		"metadata",
+	)
+	require.NoError(t, err)
+
+	cfg := InternalPortfolioPilotConfig{
+		PriceOracle:                 nil,
+		ForwardPeerIDToOracle:       false,
+		AcceptPriceDeviationPpm:     50_000,
+		MinAssetRatesExpiryLifetime: 10,
+	}
+	pilot, err := NewInternalPortfolioPilot(cfg)
+	require.NoError(t, err)
+
+	resp, err := pilot.ResolveRequest(context.Background(), req)
+	require.NoError(t, err)
+	require.True(t, resp.IsReject())
+	require.False(t, resp.IsAccept())
+
+	called := false
+	resp.WhenReject(func(rejectErr rfqmsg.RejectErr) {
+		called = true
+		require.Equal(t, rfqmsg.ErrPriceOracleUnavailable, rejectErr)
+	})
+	require.True(t, called)
+}
+
+// TestVerifyAcceptQuoteWithoutPriceOracle ensures that quote accept messages
+// fail verification if a price oracle is not configured for the internal
+// portfolio pilot.
+func TestVerifyAcceptQuoteWithoutPriceOracle(t *testing.T) {
+	t.Parallel()
+
+	assetSpec := asset.NewSpecifierFromId(asset.ID{0x01, 0x02, 0x03})
+	peerID := route.Vertex{0x0A, 0x0B, 0x0C}
+	expiry := time.Now().Add(30 * time.Second)
+
+	buyReq, err := rfqmsg.NewBuyRequest(
+		peerID, assetSpec, 100,
+		fn.None[rfqmsg.AssetRate](),
+		"metadata",
+	)
+	require.NoError(t, err)
+
+	accept := &rfqmsg.BuyAccept{
+		Peer:    peerID,
+		Request: *buyReq,
+		AssetRate: rfqmsg.NewAssetRate(
+			rfqmath.NewBigIntFixedPoint(100, 0), expiry,
+		),
+	}
+
+	cfg := InternalPortfolioPilotConfig{
+		PriceOracle:                 nil,
+		ForwardPeerIDToOracle:       false,
+		AcceptPriceDeviationPpm:     50_000,
+		MinAssetRatesExpiryLifetime: 10,
+	}
+	pilot, err := NewInternalPortfolioPilot(cfg)
+	require.NoError(t, err)
+
+	status, err := pilot.VerifyAcceptQuote(context.Background(), accept)
+	require.NoError(t, err)
+	require.Equal(t, PriceOracleQueryErrQuoteRespStatus, status)
+}
