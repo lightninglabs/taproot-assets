@@ -102,10 +102,6 @@ type InternalPortfolioPilotConfig struct {
 
 // Validate checks the config for validity.
 func (c *InternalPortfolioPilotConfig) Validate() error {
-	if c.PriceOracle == nil {
-		return fmt.Errorf("price oracle is nil")
-	}
-
 	if c.MinAssetRatesExpiryLifetime == 0 {
 		return fmt.Errorf("MinAssetRatesExpiryLifetime must be > 0")
 	}
@@ -145,6 +141,12 @@ func (p *InternalPortfolioPilot) ResolveRequest(ctx context.Context,
 	request rfqmsg.Request) (ResolveResp, error) {
 
 	var zero ResolveResp
+
+	if p.cfg.PriceOracle == nil {
+		return NewRejectResolveResp(
+			rfqmsg.ErrPriceOracleUnavailable,
+		), nil
+	}
 
 	peerID := fn.None[route.Vertex]()
 	if p.cfg.ForwardPeerIDToOracle {
@@ -201,6 +203,10 @@ func (p *InternalPortfolioPilot) VerifyAcceptQuote(ctx context.Context,
 	// Ensure that the quote expiry time is within acceptable bounds.
 	if !p.expiryWithinBounds(counterRate.Expiry) {
 		return InvalidExpiryQuoteRespStatus, nil
+	}
+
+	if p.cfg.PriceOracle == nil {
+		return PriceOracleQueryErrQuoteRespStatus, nil
 	}
 
 	// Build peer ID option based on config.
