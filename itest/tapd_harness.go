@@ -122,6 +122,7 @@ type harnessOpts struct {
 	custodianProofRetrievalDelay *time.Duration
 	addrAssetSyncerDisable       bool
 	oracleServerAddress          string
+	portfolioPilotAddress        string
 
 	// fedSyncTickerInterval is the interval at which the federation envoy
 	// sync ticker will fire.
@@ -162,6 +163,14 @@ func defaultHarnessOpts() *harnessOpts {
 func withOracleAddress(addr string) harnessOption {
 	return func(ho *harnessOpts) {
 		ho.oracleServerAddress = addr
+	}
+}
+
+// withPortfolioPilotAddress is a functional option that sets the portfolio
+// pilot server address option to the provided string.
+func withPortfolioPilotAddress(addr string) harnessOption {
+	return func(ho *harnessOpts) {
+		ho.portfolioPilotAddress = addr
 	}
 }
 
@@ -266,21 +275,29 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	// assertions unless explicitly enabled via WithSweepOrphanUtxos().
 	tapCfg.Wallet.SweepOrphanUtxos = opts.sweepOrphanUtxos
 
+	if tapCfg.Experimental == nil {
+		tapCfg.Experimental = &tapcfg.ExperimentalConfig{}
+	}
+
+	if tapCfg.Experimental.Rfq.AcceptPriceDeviationPpm == 0 {
+		tapCfg.Experimental.Rfq.AcceptPriceDeviationPpm =
+			rfq.DefaultAcceptPriceDeviationPpm
+	}
+
 	switch {
 	case len(opts.oracleServerAddress) > 0:
 		tapCfg.Experimental.Rfq.PriceOracleAddress =
 			opts.oracleServerAddress
 
-	default:
-		// Set the experimental config for the RFQ service.
-		tapCfg.Experimental = &tapcfg.ExperimentalConfig{
-			// nolint: lll
-			Rfq: rfq.CliConfig{
-				PriceOracleAddress:      rfq.MockPriceOracleServiceAddress,
-				MockOracleAssetsPerBTC:  5_820_600,
-				AcceptPriceDeviationPpm: rfq.DefaultAcceptPriceDeviationPpm,
-			},
-		}
+	case tapCfg.Experimental.Rfq.PriceOracleAddress == "":
+		tapCfg.Experimental.Rfq.PriceOracleAddress =
+			rfq.MockPriceOracleServiceAddress
+		tapCfg.Experimental.Rfq.MockOracleAssetsPerBTC = 5_820_600
+	}
+
+	if len(opts.portfolioPilotAddress) > 0 {
+		tapCfg.Experimental.Rfq.PortfolioPilotAddress =
+			opts.portfolioPilotAddress
 	}
 
 	cfgLogger := tapCfg.LogMgr.GenSubLogger("CONF", nil)

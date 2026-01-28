@@ -766,6 +766,11 @@ type rfqTestScenarioOpts struct {
 	oracleServerAlice string
 	oracleServerBob   string
 	oracleServerCarol string
+
+	pilotServerAddr  string
+	pilotServerAlice string
+	pilotServerBob   string
+	pilotServerCarol string
 }
 
 // RfqOption is a functional option that edits an existing instance of rfq
@@ -807,6 +812,39 @@ func WithBobOracleServer(s string) RfqOption {
 func WithCarolOracleServer(s string) RfqOption {
 	return func(rtso *rfqTestScenarioOpts) {
 		rtso.oracleServerCarol = s
+	}
+}
+
+// WithRfqPortfolioPilotServer is a functional option that sets the portfolio
+// pilot server option to the provided string. This pilot server will be the
+// default pilot for all test scenario tapd nodes.
+func WithRfqPortfolioPilotServer(s string) RfqOption {
+	return func(rtso *rfqTestScenarioOpts) {
+		rtso.pilotServerAddr = s
+	}
+}
+
+// WithAlicePortfolioPilotServer sets the portfolio pilot server to be used by
+// Alice tapd. This will override the global pilot server option.
+func WithAlicePortfolioPilotServer(s string) RfqOption {
+	return func(rtso *rfqTestScenarioOpts) {
+		rtso.pilotServerAlice = s
+	}
+}
+
+// WithBobPortfolioPilotServer sets the portfolio pilot server to be used by
+// Bob tapd. This will override the global pilot server option.
+func WithBobPortfolioPilotServer(s string) RfqOption {
+	return func(rtso *rfqTestScenarioOpts) {
+		rtso.pilotServerBob = s
+	}
+}
+
+// WithCarolPortfolioPilotServer sets the portfolio pilot server to be used by
+// Carol tapd. This will override the global pilot server option.
+func WithCarolPortfolioPilotServer(s string) RfqOption {
+	return func(rtso *rfqTestScenarioOpts) {
+		rtso.pilotServerCarol = s
 	}
 }
 
@@ -879,17 +917,23 @@ func newRfqTestScenario(t *harnessTest, opts ...RfqOption) *rfqTestScenario {
 	aliceTapd := setupTapdHarness(
 		t.t, t, aliceLnd, t.universeServer, WithOracleServer(
 			rfqOpts.oracleServerAddr, rfqOpts.oracleServerAlice,
+		), WithPortfolioPilotServer(
+			rfqOpts.pilotServerAddr, rfqOpts.pilotServerAlice,
 		), WithSendPriceHint(),
 	)
 
 	bobTapd := setupTapdHarness(
 		t.t, t, bobLnd, t.universeServer, WithOracleServer(
 			rfqOpts.oracleServerAddr, rfqOpts.oracleServerBob,
+		), WithPortfolioPilotServer(
+			rfqOpts.pilotServerAddr, rfqOpts.pilotServerBob,
 		), WithSendPriceHint(),
 	)
 	carolTapd := setupTapdHarness(
 		t.t, t, carolLnd, t.universeServer, WithOracleServer(
 			rfqOpts.oracleServerAddr, rfqOpts.oracleServerCarol,
+		), WithPortfolioPilotServer(
+			rfqOpts.pilotServerAddr, rfqOpts.pilotServerCarol,
 		), WithSendPriceHint(),
 	)
 
