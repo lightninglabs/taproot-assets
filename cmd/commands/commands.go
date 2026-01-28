@@ -117,6 +117,7 @@ func NewApp(actionOpts ...ActionOption) cli.App {
 		debugLevelCommand,
 		profileSubCommand,
 		NewGetInfoCommand(actionOpts...),
+		NewBakeMacaroonCommand(actionOpts...),
 	}
 	app.Commands = append(app.Commands, assetsCommands...)
 	app.Commands = append(app.Commands, addrCommands...)
