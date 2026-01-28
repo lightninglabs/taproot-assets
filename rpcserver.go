@@ -39,6 +39,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapdb"
@@ -90,6 +91,10 @@ var (
 	// P2TRChangeType is the type of change address that should be used for
 	// funding PSBTs, as we'll always want to use P2TR change addresses.
 	P2TRChangeType = walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR
+
+	// errMacaroonDisabled is returned when macaroons are disabled.
+	errMacaroonDisabled = fmt.Errorf("macaroon authentication disabled, " +
+		"remove --no-macaroons flag to enable")
 )
 
 const (
@@ -439,6 +444,55 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		BlockHash:         blockHash.String(),
 		SyncToChain:       info.SyncedToChain,
 	}, nil
+}
+
+// BakeMacaroon allows the creation of a new macaroon with custom permissions.
+// No first-party caveats are added since this can be done offline.
+func (r *rpcServer) BakeMacaroon(ctx context.Context,
+	req *taprpc.BakeMacaroonRequest) (*taprpc.BakeMacaroonResponse, error) {
+
+	// If the --no-macaroons flag is used to start tapd, the macaroon
+	// baker is not initialized. Therefore, we can't bake new macaroons.
+	if r.cfg.MacaroonBaker == nil {
+		return nil, errMacaroonDisabled
+	}
+
+	newMacaroon, err := r.cfg.MacaroonBaker.BakeMacaroon(
+		ctx, unmarshalBakeMacaroonReq(req),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	macaroonBytes, err := newMacaroon.MarshalBinary()
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal macaroon into "+
+			"binary: %w", err)
+	}
+
+	return &taprpc.BakeMacaroonResponse{
+		Macaroon: hex.EncodeToString(macaroonBytes),
+	}, nil
+}
+
+// unmarshalBakeMacaroonReq converts an RPC BakeMacaroonRequest into the
+// internal rpcperms.BakeRequest representation.
+func unmarshalBakeMacaroonReq(
+	req *taprpc.BakeMacaroonRequest) rpcperms.BakeRequest {
+
+	permissions := make([]rpcperms.Permission, len(req.Permissions))
+	for idx, perm := range req.Permissions {
+		permissions[idx] = rpcperms.Permission{
+			Entity: perm.Entity,
+			Action: perm.Action,
+		}
+	}
+
+	return rpcperms.BakeRequest{
+		Permissions:              permissions,
+		RootKeyID:                req.RootKeyId,
+		AllowExternalPermissions: req.AllowExternalPermissions,
+	}
 }
 
 // MintAsset attempts to mint the set of assets (async by default to ensure
