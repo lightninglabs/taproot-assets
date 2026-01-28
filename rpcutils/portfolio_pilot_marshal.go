@@ -84,7 +84,7 @@ func UnmarshalPortfolioAssetRate(
 
 	rate, err := UnmarshalPortfolioFixedPoint(assetRate.Rate)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal fixed point: %w", err)
 	}
 
 	expiry := time.Unix(int64(assetRate.ExpiryTimestamp), 0).UTC()
