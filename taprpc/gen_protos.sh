@@ -8,8 +8,9 @@ function generate() {
 
   PROTOS="tapcommon.proto taprootassets.proto assetwalletrpc/assetwallet.proto
 mintrpc/mint.proto rfqrpc/rfq.proto priceoraclerpc/price_oracle.proto
-universerpc/universe.proto tapdevrpc/tapdev.proto
-tapchannelrpc/tapchannel.proto authmailboxrpc/mailbox.proto"
+portfoliopilotrpc/portfolio_pilot.proto universerpc/universe.proto
+tapdevrpc/tapdev.proto tapchannelrpc/tapchannel.proto
+authmailboxrpc/mailbox.proto"
 
   # For each of the sub-servers, we then generate their protos, but a restricted
   # set as they don't yet require REST proxies, or swagger docs.
@@ -56,7 +57,7 @@ tapchannelrpc/tapchannel.proto authmailboxrpc/mailbox.proto"
     taprootassets.proto
 
   PACKAGES="assetwalletrpc universerpc mintrpc rfqrpc priceoraclerpc
-  tapchannelrpc"
+  portfoliopilotrpc tapchannelrpc"
   for package in $PACKAGES; do
 
     opts="package_name=$package,manual_import=$manual_import,js_stubs=1"

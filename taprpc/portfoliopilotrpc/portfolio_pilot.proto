@@ -1,0 +1,332 @@
+syntax = "proto3";
+
+package portfoliopilotrpc;
+
+option go_package = "github.com/lightninglabs/taproot-assets/taprpc/portfoliopilotrpc";
+
+service PortfolioPilot {
+    /*
+    ResolveRequest resolves a quote request by returning either an accepted
+    asset rate or a rejection reason.
+    */
+    rpc ResolveRequest (ResolveRequestRequest) returns (ResolveRequestResponse);
+
+    /*
+    VerifyAcceptQuote verifies that an accepted quote from a peer meets
+    acceptable conditions.
+    */
+    rpc VerifyAcceptQuote (VerifyAcceptQuoteRequest)
+        returns (VerifyAcceptQuoteResponse);
+
+    /*
+    QueryAssetRates returns current asset rate information for a given asset
+    and direction. This can be used for rate discovery, outgoing RFQ request
+    construction, or general pricing information.
+    */
+    rpc QueryAssetRates (QueryAssetRatesRequest)
+        returns (QueryAssetRatesResponse);
+}
+
+// AssetTransferDirection represents the direction of an asset transfer from
+// our perspective for pricing and rate queries.
+enum AssetTransferDirection {
+    // ASSET_TRANSFER_DIRECTION_UNSPECIFIED indicates an unspecified direction.
+    ASSET_TRANSFER_DIRECTION_UNSPECIFIED = 0;
+
+    // ASSET_TRANSFER_DIRECTION_BUY indicates we want to buy the asset.
+    ASSET_TRANSFER_DIRECTION_BUY = 1;
+
+    // ASSET_TRANSFER_DIRECTION_SELL indicates we want to sell the asset.
+    ASSET_TRANSFER_DIRECTION_SELL = 2;
+}
+
+// Intent is an enum informing the portfolio pilot about the intent of the
+// price rate query. This is used to provide context for the asset rates being
+// requested, allowing the pilot to tailor the response based on the specific
+// use case, such as paying an invoice or receiving a payment and the different
+// stages involved in those.
+enum Intent {
+    // INTENT_UNSPECIFIED is used to indicate that the intent of the price rate
+    // query is not specified. This is the fallback default value and should not
+    // be used in production code. It is primarily used for backward
+    // compatibility with older versions of the protocol that did not include
+    // intent information.
+    INTENT_UNSPECIFIED = 0;
+
+    // INTENT_PAY_INVOICE_HINT is used to indicate that the user is requesting
+    // a price rate hint for paying an invoice. This is typically used by the
+    // payer of an invoice to provide a suggestion of the expected asset rate to
+    // the RFQ peer (edge node) that will determine the actual rate for the
+    // payment.
+    INTENT_PAY_INVOICE_HINT = 1;
+
+    // INTENT_PAY_INVOICE is used to indicate that a peer wants to pay an
+    // invoice with assets. This is typically used by the edge node that
+    // facilitates the swap from assets to BTC for the payer of an invoice. This
+    // intent is used to provide the actual asset rate for the payment, which
+    // may differ from the hint provided by the payer.
+    INTENT_PAY_INVOICE = 2;
+
+    // INTENT_PAY_INVOICE_QUALIFY is used to indicate that the payer of an
+    // invoice has received an asset rate from their RFQ peer (edge node) and is
+    // qualifying the rate for the payment. This is typically used by the payer
+    // of an invoice to ensure that the asset rate provided by their peer (edge
+    // node) is acceptable before proceeding with the payment.
+    INTENT_PAY_INVOICE_QUALIFY = 3;
+
+    // INTENT_RECV_PAYMENT_HINT is used to indicate that the user is requesting
+    // a price rate hint for receiving a payment through an invoice. This is
+    // typically used by the creator of an invoice to provide a suggestion of
+    // the expected asset rate to the RFQ peer (edge node) that will determine
+    // the actual rate used for creating an invoice.
+    INTENT_RECV_PAYMENT_HINT = 4;
+
+    // INTENT_RECV_PAYMENT is used to indicate that a peer wants to create an
+    // invoice to receive a payment with assets. This is typically used by the
+    // edge node that facilitates the swap from BTC to assets for the receiver
+    // of a payment. This intent is used to provide the actual asset rate for
+    // the invoice creation, which may differ from the hint provided by the
+    // receiver.
+    INTENT_RECV_PAYMENT = 5;
+
+    // INTENT_RECV_PAYMENT_QUALIFY is used to indicate that the creator of an
+    // invoice received an asset rate from their RFQ peer (edge node) and is
+    // qualifying the rate for the creation of the invoice. This is typically
+    // used by the creator of an invoice to ensure that the asset rate provided
+    // by their peer (edge node) is acceptable before proceeding with creating
+    // the invoice.
+    INTENT_RECV_PAYMENT_QUALIFY = 6;
+}
+
+// RejectCode represents the possible error codes that can be returned in a
+// ResolveRequestResponse reject result.
+enum RejectCode {
+    // REJECT_CODE_UNSPECIFIED indicates an unspecified error.
+    REJECT_CODE_UNSPECIFIED = 0;
+
+    // REJECT_CODE_PRICE_ORACLE_UNAVAILABLE indicates that pricing could not be
+    // provided due to an unavailable oracle.
+    REJECT_CODE_PRICE_ORACLE_UNAVAILABLE = 1;
+}
+
+// QuoteRespStatus is an enum that represents the status of a quote response.
+enum QuoteRespStatus {
+    // INVALID_ASSET_RATES indicates that at least one asset rate in the
+    // quote response is invalid.
+    INVALID_ASSET_RATES = 0;
+
+    // INVALID_EXPIRY indicates that the expiry in the quote response is
+    // invalid.
+    INVALID_EXPIRY = 1;
+
+    // PRICE_ORACLE_QUERY_ERR indicates that an error occurred when querying the
+    // price oracle whilst evaluating the quote response.
+    PRICE_ORACLE_QUERY_ERR = 2;
+
+    // PORTFOLIO_PILOT_ERR indicates that an unexpected error occurred in the
+    // portfolio pilot while evaluating the quote response.
+    PORTFOLIO_PILOT_ERR = 3;
+
+    // VALID_ACCEPT_QUOTE indicates that the accepted quote passed all
+    // validation checks successfully.
+    VALID_ACCEPT_QUOTE = 4;
+}
+
+// RejectErr captures a rejection reason for a quote request.
+message RejectErr {
+    // code is the error code.
+    RejectCode code = 1;
+
+    // message is a human-readable error message.
+    string message = 2;
+}
+
+message AssetSpecifier {
+    oneof id {
+        // The 32-byte asset ID specified as raw bytes (gRPC only).
+        bytes asset_id = 1;
+
+        // The 32-byte asset ID encoded as a hex string (use this for REST).
+        string asset_id_str = 2;
+
+        // The 32-byte asset group key specified as raw bytes (gRPC only).
+        bytes group_key = 3;
+
+        // The 32-byte asset group key encoded as hex string (use this for
+        // REST).
+        string group_key_str = 4;
+    }
+}
+
+// FixedPoint is a scaled integer representation of a fractional number.
+//
+// This type consists of two integer fields: a coefficient and a scale.
+// Using this format enables precise and consistent representation of fractional
+// numbers while avoiding floating-point data types, which are prone to
+// precision errors.
+//
+// The relationship between the fractional representation and its fixed-point
+// representation is expressed as:
+// ```
+// V = F_c / (10^F_s)
+// ```
+// where:
+//
+// * `V` is the fractional value.
+//
+// * `F_c` is the coefficient component of the fixed-point representation. It is
+//    the scaled-up fractional value represented as an integer.
+//
+// * `F_s` is the scale component. It is an integer specifying how
+//   many decimal places `F_c` should be divided by to obtain the fractional
+//   representation.
+message FixedPoint {
+    // The coefficient is the fractional value scaled-up as an integer. This
+    // integer is represented as a string as it may be too large to fit in a
+    // uint64.
+    string coefficient = 1;
+
+    // The scale is the component that determines how many decimal places
+    // the coefficient should be divided by to obtain the fractional value.
+    uint32 scale = 2;
+}
+
+// AssetRate represents the exchange rate of an asset to BTC along with an
+// expiry timestamp in seconds.
+message AssetRate {
+    // rate is the asset to BTC conversion rate represented as a fixed-point
+    // number.
+    FixedPoint rate = 1;
+
+    // expiry_timestamp is the Unix timestamp in seconds after which the rate
+    // is no longer valid.
+    uint64 expiry_timestamp = 2;
+}
+
+// BuyRequest represents a request to buy the subject asset.
+message BuyRequest {
+    // asset_specifier is the subject asset.
+    AssetSpecifier asset_specifier = 1;
+
+    // asset_max_amount is the maximum amount of the asset that the peer must
+    // be willing to offer.
+    uint64 asset_max_amount = 2;
+
+    // asset_rate_hint is an optional suggested asset rate for the request.
+    AssetRate asset_rate_hint = 3;
+
+    // price_oracle_metadata is optional metadata for pricing decisions.
+    string price_oracle_metadata = 4;
+
+    // peer_id is the 33-byte public key of the counterparty peer.
+    bytes peer_id = 5;
+}
+
+// SellRequest represents a request to sell the subject asset.
+message SellRequest {
+    // asset_specifier is the subject asset.
+    AssetSpecifier asset_specifier = 1;
+
+    // payment_max_amount is the maximum msat amount that the peer must agree
+    // to pay.
+    uint64 payment_max_amount = 2;
+
+    // asset_rate_hint is an optional suggested asset rate for the request.
+    AssetRate asset_rate_hint = 3;
+
+    // price_oracle_metadata is optional metadata for pricing decisions.
+    string price_oracle_metadata = 4;
+
+    // peer_id is the 33-byte public key of the counterparty peer.
+    bytes peer_id = 5;
+}
+
+// ResolveRequestRequest specifies a quote request to resolve.
+message ResolveRequestRequest {
+    oneof request {
+        // buy_request is a request to buy the subject asset.
+        BuyRequest buy_request = 1;
+
+        // sell_request is a request to sell the subject asset.
+        SellRequest sell_request = 2;
+    }
+}
+
+// ResolveRequestResponse is the response to a ResolveRequest call.
+message ResolveRequestResponse {
+    oneof result {
+        // accept is the accepted asset rate for the request.
+        AssetRate accept = 1;
+
+        // reject is the rejection reason for the request.
+        RejectErr reject = 2;
+    }
+}
+
+// AcceptedQuote bundles an accepted quote and its original request.
+message AcceptedQuote {
+    // peer_id is the 33-byte public key of the accepting peer.
+    bytes peer_id = 1;
+
+    // accepted_rate is the asset rate accepted by the peer.
+    AssetRate accepted_rate = 2;
+
+    oneof request {
+        // buy_request is the original buy request.
+        BuyRequest buy_request = 3;
+
+        // sell_request is the original sell request.
+        SellRequest sell_request = 4;
+    }
+}
+
+// VerifyAcceptQuoteRequest specifies an accepted quote to verify.
+message VerifyAcceptQuoteRequest {
+    // accept is the accepted quote and request details.
+    AcceptedQuote accept = 1;
+}
+
+// VerifyAcceptQuoteResponse is the response to a VerifyAcceptQuote call.
+message VerifyAcceptQuoteResponse {
+    // status is the verification result.
+    QuoteRespStatus status = 1;
+}
+
+// QueryAssetRatesRequest specifies the parameters for querying asset rates.
+message QueryAssetRatesRequest {
+    // asset_specifier identifies the subject asset.
+    AssetSpecifier asset_specifier = 1;
+
+    // direction specifies whether we want to buy or sell the asset.
+    AssetTransferDirection direction = 2;
+
+    // intent specifies the purpose of the query.
+    Intent intent = 3;
+
+    // asset_amount is an optional constraint on the asset amount. If set to
+    // zero, it is considered unset.
+    uint64 asset_amount = 4;
+
+    // payment_amount is an optional constraint on the payment amount in msat.
+    // If set to zero, it is considered unset.
+    uint64 payment_amount = 5;
+
+    // asset_rate_hint is an optional suggested asset rate.
+    AssetRate asset_rate_hint = 6;
+
+    // price_oracle_metadata is optional metadata for pricing decisions.
+    string price_oracle_metadata = 7;
+
+    // peer_id is the 33-byte public key of the counterparty peer.
+    bytes peer_id = 8;
+
+    // expiry_timestamp is an optional expiry Unix timestamp (seconds) for the
+    // query context. If set to zero, it is considered unset.
+    uint64 expiry_timestamp = 9;
+}
+
+// QueryAssetRatesResponse is the response to a QueryAssetRates call.
+message QueryAssetRatesResponse {
+    // asset_rate is the asset exchange rate response.
+    AssetRate asset_rate = 1;
+}
