@@ -802,3 +802,19 @@ func UnmarshalAssetOutPoint(
 		ScriptKey: serializedScriptKey,
 	}, nil
 }
+
+// ParseUserKey parses a public key from bytes, handling both schnorr (32-byte)
+// and compressed (33-byte) formats.
+func ParseUserKey(keyBytes []byte) (*btcec.PublicKey, error) {
+	switch len(keyBytes) {
+	case schnorr.PubKeyBytesLen:
+		return schnorr.ParsePubKey(keyBytes)
+
+	// Truncate the key and then parse as a Schnorr key.
+	case btcec.PubKeyBytesLenCompressed:
+		return schnorr.ParsePubKey(keyBytes[1:])
+
+	default:
+		return nil, fmt.Errorf("unknown key length: %v", len(keyBytes))
+	}
+}
