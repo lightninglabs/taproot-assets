@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
+	"github.com/lightninglabs/taproot-assets/tapconfig"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
@@ -63,7 +64,7 @@ type Server struct {
 
 	chainParams *address.ChainParams
 
-	cfg *Config
+	cfg *tapconfig.Config
 
 	*rpcServer
 	mboxServer      *authmailbox.Server
@@ -86,7 +87,7 @@ func NewServer(chainParams *address.ChainParams) *Server {
 
 // UpdateConfig updates the server's configuration. This MUST be called before
 // the server is started.
-func (s *Server) UpdateConfig(cfg *Config) {
+func (s *Server) UpdateConfig(cfg *tapconfig.Config) {
 	s.cfg = cfg
 }
 
@@ -134,10 +135,11 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	// macaroon service.
 	if !s.cfg.RPCConfig.NoMacaroons {
 		var err error
+		//nolint:lll
 		s.macaroonService, err = lndclient.NewMacaroonService(
 			&lndclient.MacaroonServiceConfig{
 				RootKeyStore:     s.cfg.DatabaseConfig.RootKeyStore,
-				MacaroonLocation: tapdMacaroonLocation,
+				MacaroonLocation: tapconfig.TapdMacaroonLocation,
 				MacaroonPath:     s.cfg.MacaroonPath,
 				Checkers: []macaroons.Checker{
 					macaroons.IPLockChecker,
@@ -549,7 +551,7 @@ func (s *Server) ValidateMacaroon(ctx context.Context,
 }
 
 // startGrpcListen starts the GRPC server on the passed listeners.
-func startGrpcListen(cfg *Config, grpcServer *grpc.Server,
+func startGrpcListen(cfg *tapconfig.Config, grpcServer *grpc.Server,
 	listeners []*lnd.ListenerWithSignal) error {
 
 	// Use a WaitGroup so we can be sure the instructions on how to input the
@@ -577,7 +579,7 @@ func startGrpcListen(cfg *Config, grpcServer *grpc.Server,
 
 // startRestProxy starts the given REST proxy on the listeners found in the
 // config.
-func startRestProxy(cfg *Config, rpcServer *rpcServer,
+func startRestProxy(cfg *tapconfig.Config, rpcServer *rpcServer,
 	mboxServer *authmailbox.Server) (func(), error) {
 
 	// We use the first RPC listener as the destination for our REST proxy.
