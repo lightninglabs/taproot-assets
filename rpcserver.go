@@ -42,6 +42,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
+	"github.com/lightninglabs/taproot-assets/tapconfig"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -98,10 +99,6 @@ var (
 )
 
 const (
-	// tapdMacaroonLocation is the value we use for the tapd macaroons'
-	// "Location" field when baking them.
-	tapdMacaroonLocation = "tapd"
-
 	// AssetBurnConfirmationText is the text that needs to be set on the
 	// RPC to confirm an asset burn.
 	AssetBurnConfirmationText = "assets will be destroyed"
@@ -204,7 +201,7 @@ type rpcServer struct {
 
 	interceptor signal.Interceptor
 
-	cfg *Config
+	cfg *tapconfig.Config
 
 	proofQueryRateLimiter *rate.Limiter
 
@@ -222,7 +219,7 @@ func newRPCServer() *rpcServer {
 // TODO(roasbeef): build in batching for asset creation?
 
 // Start signals that the RPC server starts accepting requests.
-func (r *rpcServer) Start(cfg *Config) error {
+func (r *rpcServer) Start(cfg *tapconfig.Config) error {
 	if atomic.AddInt32(&r.started, 1) != 1 {
 		return nil
 	}

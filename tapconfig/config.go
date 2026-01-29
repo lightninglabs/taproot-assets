@@ -1,4 +1,4 @@
-package taprootassets
+package tapconfig
 
 import (
 	"fmt"
@@ -27,6 +27,12 @@ import (
 	"github.com/lightningnetwork/lnd/signal"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
+)
+
+const (
+	// TapdMacaroonLocation is the value we use for the tapd macaroons'
+	// "Location" field when baking them.
+	TapdMacaroonLocation = "tapd"
 )
 
 // RPCConfig is a sub-config of the main server that packages up everything

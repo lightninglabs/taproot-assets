@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
+	"github.com/lightninglabs/taproot-assets/tapconfig"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfeatures"
@@ -39,7 +40,7 @@ import (
 // after generating the server config.
 func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	lndServices *lndclient.LndServices, enableChannelFeatures bool,
-	mainErrChan chan<- error) (*tap.Config, error) {
+	mainErrChan chan<- error) (*tapconfig.Config, error) {
 
 	var (
 		err    error
@@ -575,7 +576,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	channelFunder := lndservices.NewLndPbstChannelFunder(lndServices)
 
 	// Parse the universe public access status.
-	universePublicAccess, err := tap.ParseUniversePublicAccessStatus(
+	universePublicAccess, err := tapconfig.ParseUniversePublicAccessStatus(
 		cfg.Universe.PublicAccess,
 	)
 	if err != nil {
@@ -747,7 +748,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 
 	// nolint: lll
-	return &tap.Config{
+	return &tapconfig.Config{
 		DebugLevel:            cfg.DebugLevel,
 		RuntimeID:             runtimeID,
 		EnableChannelFeatures: enableChannelFeatures,
@@ -833,7 +834,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			MerkleVerifier: proof.DefaultMerkleVerifier,
 			MsgStore:       authMailboxStore,
 		},
-		DatabaseConfig: &tap.DatabaseConfig{
+		DatabaseConfig: &tapconfig.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),
 			MintingStore: assetMintingStore,
 			AssetStore:   assetStore,
@@ -884,7 +885,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	serverCfg.SignalInterceptor = shutdownInterceptor
 
-	serverCfg.RPCConfig = &tap.RPCConfig{
+	serverCfg.RPCConfig = &tapconfig.RPCConfig{
 		LisCfg:                     &lnd.ListenerCfg{},
 		RPCListeners:               cfg.rpcListeners,
 		RESTListeners:              cfg.restListeners,
@@ -922,7 +923,7 @@ func ConfigureSubServer(srv *tap.Server, cfg *Config, cfgLogger btclog.Logger,
 		return fmt.Errorf("unable to generate server config: %w", err)
 	}
 
-	serverCfg.RPCConfig = &tap.RPCConfig{
+	serverCfg.RPCConfig = &tapconfig.RPCConfig{
 		NoMacaroons:  cfg.RpcConf.NoMacaroons,
 		MacaroonPath: cfg.RpcConf.MacaroonPath,
 	}
