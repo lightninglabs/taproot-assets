@@ -16,7 +16,7 @@ import (
 	"syscall"
 
 	"github.com/btcsuite/btcd/btcutil"
-	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -270,7 +270,9 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		opts = append(opts, grpc.WithContextDialer(genericDialer))
 	}
 
-	opts = append(opts, grpc.WithDefaultCallOptions(tap.MaxMsgReceiveSize))
+	opts = append(
+		opts, grpc.WithDefaultCallOptions(rpcserver.MaxMsgReceiveSize),
+	)
 
 	conn, err := grpc.Dial(profile.RPCServer, opts...)
 	if err != nil {

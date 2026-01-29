@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapconfig"
 	"github.com/lightninglabs/taproot-assets/tapdb"
@@ -417,7 +418,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	universeSyncer := universe.NewSimpleSyncer(universe.SimpleSyncCfg{
 		LocalDiffEngine:     uniArchive,
-		NewRemoteDiffEngine: tap.NewRpcUniverseDiff,
+		NewRemoteDiffEngine: rpcserver.NewRpcUniverseDiff,
 		LocalRegistrar:      uniArchive,
 		SyncBatchSize:       defaultUniverseSyncBatchSize,
 	})
@@ -429,16 +430,17 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	}
 
 	runtimeID := int64(binary.BigEndian.Uint64(runtimeIDBytes[:]))
+	//nolint:lll
 	universeFederation := universe.NewFederationEnvoy(
 		universe.FederationConfig{
 			FederationDB:            federationDB,
 			UniverseSyncer:          universeSyncer,
 			LocalRegistrar:          uniArchive,
 			SyncInterval:            cfg.Universe.SyncInterval,
-			NewRemoteRegistrar:      tap.NewRpcUniverseRegistrar,
+			NewRemoteRegistrar:      rpcserver.NewRpcUniverseRegistrar,
 			StaticFederationMembers: federationMembers,
 			ServerChecker: func(addr universe.ServerAddr) error {
-				return tap.CheckFederationServer(
+				return rpcserver.CheckFederationServer(
 					runtimeID, universe.DefaultTimeout,
 					addr,
 				)
@@ -612,7 +614,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	supplySyncerStore := tapdb.NewSupplySyncerStore(uniDB)
 	supplySyncer := supplyverifier.NewSupplySyncer(
 		supplyverifier.SupplySyncerConfig{
-			ClientFactory:          tap.NewRpcSupplySync,
+			ClientFactory:          rpcserver.NewRpcSupplySync,
 			Store:                  supplySyncerStore,
 			UniverseFederationView: federationDB,
 		},
@@ -763,6 +765,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	// nolint: lll
 	return &tapconfig.Config{
 		DebugLevel:            cfg.DebugLevel,
+		Version:               tap.Version(),
 		RuntimeID:             runtimeID,
 		EnableChannelFeatures: enableChannelFeatures,
 		Lnd:                   lndServices,

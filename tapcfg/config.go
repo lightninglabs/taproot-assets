@@ -26,6 +26,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
@@ -1041,7 +1042,7 @@ func getTLSConfig(cfg *Config,
 	// in cmd/tapcli/main.go.
 	restDialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(restCreds),
-		grpc.WithDefaultCallOptions(tap.MaxMsgReceiveSize),
+		grpc.WithDefaultCallOptions(rpcserver.MaxMsgReceiveSize),
 	}
 
 	// Return a function closure that can be used to listen on a given

@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapconfig"
@@ -66,7 +67,7 @@ type Server struct {
 
 	cfg *tapconfig.Config
 
-	*rpcServer
+	rpcServer       *rpcserver.RPCServer
 	mboxServer      *authmailbox.Server
 	macaroonService *lndclient.MacaroonService
 
@@ -77,7 +78,7 @@ type Server struct {
 // NewServer creates a new server.
 func NewServer(chainParams *address.ChainParams) *Server {
 	return &Server{
-		rpcServer:   newRPCServer(),
+		rpcServer:   rpcserver.NewRPCServer(),
 		mboxServer:  authmailbox.NewServer(),
 		chainParams: chainParams,
 		ready:       make(chan bool),
@@ -375,7 +376,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		},
 	)
 	serverOpts = append(serverOpts, rpcServerOpts...)
-	serverOpts = append(serverOpts, ServerMaxMsgReceiveSize)
+	serverOpts = append(serverOpts, rpcserver.ServerMaxMsgReceiveSize)
 
 	// Configure server-side keepalive parameters. These settings allow the
 	// server to actively probe the connection health and ensure connections
@@ -579,7 +580,7 @@ func startGrpcListen(cfg *tapconfig.Config, grpcServer *grpc.Server,
 
 // startRestProxy starts the given REST proxy on the listeners found in the
 // config.
-func startRestProxy(cfg *tapconfig.Config, rpcServer *rpcServer,
+func startRestProxy(cfg *tapconfig.Config, rpcServer *rpcserver.RPCServer,
 	mboxServer *authmailbox.Server) (func(), error) {
 
 	// We use the first RPC listener as the destination for our REST proxy.
@@ -692,7 +693,9 @@ func startRestProxy(cfg *tapconfig.Config, rpcServer *rpcServer,
 			// through the following chain:
 			// req ---> CORS handler --> WS proxy --->
 			//   REST proxy --> gRPC endpoint
-			corsHandler := allowCORS(restHandler, cfg.RestCORS)
+			corsHandler := rpcserver.AllowCORS(
+				restHandler, cfg.RestCORS,
+			)
 
 			wg.Done()
 			err := http.Serve(lis, corsHandler) //nolint:gosec

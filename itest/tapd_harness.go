@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/tapconfig"
 	"github.com/lightninglabs/taproot-assets/tapdb"
@@ -607,7 +608,7 @@ func defaultDialOptions(serverCertPath, macaroonPath string) ([]grpc.DialOption,
 			Backoff:           backoff.DefaultConfig,
 			MinConnectTimeout: 10 * time.Second,
 		}),
-		grpc.WithDefaultCallOptions(tap.MaxMsgReceiveSize),
+		grpc.WithDefaultCallOptions(rpcserver.MaxMsgReceiveSize),
 	}
 
 	if serverCertPath != "" {
