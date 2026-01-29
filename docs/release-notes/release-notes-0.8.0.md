@@ -58,7 +58,13 @@
 
 ## RPC Additions
 
+- [PR#1960](https://github.com/lightninglabs/taproot-assets/pull/1960)
+  Add `BakeMacaroon` to mint custom macaroons with scoped permissions.
+
 ## tapcli Additions
+
+- [PR#1960](https://github.com/lightninglabs/taproot-assets/pull/1960)
+  Add `tapcli bakemacaroon` to bake custom macaroons with offline caveats.
 
 # Improvements
 

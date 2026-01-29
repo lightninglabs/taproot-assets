@@ -69,6 +69,10 @@ var allTestCases = []*testCase{
 		name: "address syncer",
 		test: testAddressAssetSyncer,
 	},
+	{
+		name: "bake macaroon permissions",
+		test: testBakeMacaroonPermissions,
+	},
 	// For some (yet unknown) reason, the Postgres itest is much more flaky
 	// if the re-org tests run last. So we run them toward the beginning to
 	// reduce the flakiness of the Postgres itest.

@@ -155,6 +155,10 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 			return err
 		}
 
+		s.cfg.MacaroonBaker = rpcperms.NewMacaroonBaker(
+			s.macaroonService, taprpc.RequiredPermissions,
+		)
+
 		shutdownFuncs["macaroonService"] = s.macaroonService.Stop
 
 		if interceptorChain != nil {

@@ -125,6 +125,13 @@ service TaprootAssets {
     */
     rpc GetInfo (GetInfoRequest) returns (GetInfoResponse);
 
+    /* tapcli: `bakemacaroon`
+    BakeMacaroon allows the creation of a new macaroon with custom
+    permissions. No first-party caveats are added since this can be done
+    offline.
+    */
+    rpc BakeMacaroon (BakeMacaroonRequest) returns (BakeMacaroonResponse);
+
     /* tapcli: `assets meta`
     FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
     either by the asset ID for that asset, or a meta hash.
@@ -1965,4 +1972,33 @@ message RegisterTransferRequest {
 message RegisterTransferResponse {
     // The asset transfer that was registered.
     Asset registered_asset = 1;
+}
+
+message MacaroonPermission {
+    // The entity a permission grants access to.
+    string entity = 1;
+
+    // The action that is granted.
+    string action = 2;
+}
+
+message BakeMacaroonRequest {
+    // The list of permissions the new macaroon should grant.
+    repeated MacaroonPermission permissions = 1;
+
+    /*
+    The root key ID used to create the macaroon, must be a non-negative integer.
+    */
+    uint64 root_key_id = 2;
+
+    /*
+    Informs the RPC on whether to allow external permissions that tapd is not
+    aware of.
+    */
+    bool allow_external_permissions = 3;
+}
+
+message BakeMacaroonResponse {
+    // The hex encoded macaroon, serialized in binary format.
+    string macaroon = 1;
 }

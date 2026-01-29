@@ -20,6 +20,10 @@ var (
 			Entity: "daemon",
 			Action: "read",
 		}},
+		"/taprpc.TaprootAssets/BakeMacaroon": {{
+			Entity: "macaroon",
+			Action: "write",
+		}},
 		"/taprpc.TaprootAssets/ListAssets": {{
 			Entity: "assets",
 			Action: "read",

@@ -938,6 +938,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/macaroon": {
+      "post": {
+        "summary": "tapcli: `bakemacaroon`\nBakeMacaroon allows the creation of a new macaroon with custom\npermissions. No first-party caveats are added since this can be done\noffline.",
+        "operationId": "TaprootAssets_BakeMacaroon",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcBakeMacaroonResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcBakeMacaroonRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/proofs/decode": {
       "post": {
         "summary": "tapcli: `proofs decode`\nDecodeProof attempts to decode a given proof file into human readable\nformat.",
@@ -1761,6 +1794,37 @@
       "default": "ASSET_VERSION_V0",
       "description": " - ASSET_VERSION_V0: ASSET_VERSION_V0 is the default asset version. This version will include\nthe witness vector in the leaf for a tap commitment.\n - ASSET_VERSION_V1: ASSET_VERSION_V1 is the asset version that leaves out the witness vector\nfrom the MS-SMT leaf encoding."
     },
+    "taprpcBakeMacaroonRequest": {
+      "type": "object",
+      "properties": {
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/taprpcMacaroonPermission"
+          },
+          "description": "The list of permissions the new macaroon should grant."
+        },
+        "root_key_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The root key ID used to create the macaroon, must be a non-negative integer."
+        },
+        "allow_external_permissions": {
+          "type": "boolean",
+          "description": "Informs the RPC on whether to allow external permissions that tapd is not\naware of."
+        }
+      }
+    },
+    "taprpcBakeMacaroonResponse": {
+      "type": "object",
+      "properties": {
+        "macaroon": {
+          "type": "string",
+          "description": "The hex encoded macaroon, serialized in binary format."
+        }
+      }
+    },
     "taprpcBurnAssetRequest": {
       "type": "object",
       "properties": {
@@ -2262,6 +2326,19 @@
             "$ref": "#/definitions/taprpcManagedUtxo"
           },
           "description": "The set of UTXOs managed by the daemon."
+        }
+      }
+    },
+    "taprpcMacaroonPermission": {
+      "type": "object",
+      "properties": {
+        "entity": {
+          "type": "string",
+          "description": "The entity a permission grants access to."
+        },
+        "action": {
+          "type": "string",
+          "description": "The action that is granted."
         }
       }
     },

@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfeatures"
@@ -160,6 +161,9 @@ type Config struct {
 	ChainParams address.ChainParams
 
 	Lnd *lndclient.LndServices
+
+	// MacaroonBaker validates bake requests and mints new macaroons.
+	MacaroonBaker rpcperms.MacaroonBaker
 
 	SignalInterceptor signal.Interceptor
 

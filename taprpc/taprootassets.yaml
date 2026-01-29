@@ -17,6 +17,10 @@ http:
     - selector: taprpc.TaprootAssets.GetInfo
       get: "/v1/taproot-assets/getinfo"
 
+    - selector: taprpc.TaprootAssets.BakeMacaroon
+      post: "/v1/taproot-assets/macaroon"
+      body: "*"
+
     - selector: taprpc.TaprootAssets.QueryAddrs
       get: "/v1/taproot-assets/addrs"
 

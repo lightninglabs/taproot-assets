@@ -97,6 +97,11 @@ type TaprootAssetsClient interface {
 	// tapcli: `getinfo`
 	// GetInfo returns the information for the node.
 	GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*GetInfoResponse, error)
+	// tapcli: `bakemacaroon`
+	// BakeMacaroon allows the creation of a new macaroon with custom
+	// permissions. No first-party caveats are added since this can be done
+	// offline.
+	BakeMacaroon(ctx context.Context, in *BakeMacaroonRequest, opts ...grpc.CallOption) (*BakeMacaroonResponse, error)
 	// tapcli: `assets meta`
 	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
 	// either by the asset ID for that asset, or a meta hash.
@@ -299,6 +304,15 @@ func (c *taprootAssetsClient) GetInfo(ctx context.Context, in *GetInfoRequest, o
 	return out, nil
 }
 
+func (c *taprootAssetsClient) BakeMacaroon(ctx context.Context, in *BakeMacaroonRequest, opts ...grpc.CallOption) (*BakeMacaroonResponse, error) {
+	out := new(BakeMacaroonResponse)
+	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/BakeMacaroon", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *taprootAssetsClient) FetchAssetMeta(ctx context.Context, in *FetchAssetMetaRequest, opts ...grpc.CallOption) (*FetchAssetMetaResponse, error) {
 	out := new(FetchAssetMetaResponse)
 	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/FetchAssetMeta", in, out, opts...)
@@ -464,6 +478,11 @@ type TaprootAssetsServer interface {
 	// tapcli: `getinfo`
 	// GetInfo returns the information for the node.
 	GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error)
+	// tapcli: `bakemacaroon`
+	// BakeMacaroon allows the creation of a new macaroon with custom
+	// permissions. No first-party caveats are added since this can be done
+	// offline.
+	BakeMacaroon(context.Context, *BakeMacaroonRequest) (*BakeMacaroonResponse, error)
 	// tapcli: `assets meta`
 	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
 	// either by the asset ID for that asset, or a meta hash.
@@ -548,6 +567,9 @@ func (UnimplementedTaprootAssetsServer) ListBurns(context.Context, *ListBurnsReq
 }
 func (UnimplementedTaprootAssetsServer) GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInfo not implemented")
+}
+func (UnimplementedTaprootAssetsServer) BakeMacaroon(context.Context, *BakeMacaroonRequest) (*BakeMacaroonResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BakeMacaroon not implemented")
 }
 func (UnimplementedTaprootAssetsServer) FetchAssetMeta(context.Context, *FetchAssetMetaRequest) (*FetchAssetMetaResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FetchAssetMeta not implemented")
@@ -916,6 +938,24 @@ func _TaprootAssets_GetInfo_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaprootAssets_BakeMacaroon_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BakeMacaroonRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetsServer).BakeMacaroon(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/taprpc.TaprootAssets/BakeMacaroon",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetsServer).BakeMacaroon(ctx, req.(*BakeMacaroonRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TaprootAssets_FetchAssetMeta_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(FetchAssetMetaRequest)
 	if err := dec(in); err != nil {
@@ -1076,6 +1116,10 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetInfo",
 			Handler:    _TaprootAssets_GetInfo_Handler,
+		},
+		{
+			MethodName: "BakeMacaroon",
+			Handler:    _TaprootAssets_BakeMacaroon_Handler,
 		},
 		{
 			MethodName: "FetchAssetMeta",
