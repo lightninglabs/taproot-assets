@@ -12,12 +12,12 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/itest/rpcassert"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -905,7 +905,7 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 		},
 		AmountToBurn:     burnAmt,
 		Note:             burnNote,
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
 	require.NotNil(t.t, burnResp)
@@ -1144,7 +1144,7 @@ func testFetchSupplyLeaves(t *harnessTest) {
 		},
 		AmountToBurn:     burnAmt,
 		Note:             burnNote,
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
 	require.NotNil(t.t, burnResp)

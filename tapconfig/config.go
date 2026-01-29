@@ -154,6 +154,9 @@ func ParseUniversePublicAccessStatus(
 type Config struct {
 	DebugLevel string
 
+	// Version is the tapd version string included in RPC responses.
+	Version string
+
 	// RuntimeID is a pseudo-random ID that is generated when the server
 	// starts. It is used to identify the server to itself, to avoid
 	// connecting to itself as a federation member.

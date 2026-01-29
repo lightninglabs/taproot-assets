@@ -1,4 +1,4 @@
-package taprootassets
+package rpcserver
 
 import (
 	"bytes"
@@ -185,9 +185,9 @@ type (
 	coinSelectExistingIndex = walletrpc.PsbtCoinSelect_ExistingOutputIndex
 )
 
-// rpcServer is the main RPC server for the Taproot Assets daemon that handles
+// RPCServer is the main RPC server for the Taproot Assets daemon that handles
 // gRPC/REST/Websockets incoming requests.
-type rpcServer struct {
+type RPCServer struct {
 	started  int32
 	shutdown int32
 
@@ -209,9 +209,9 @@ type rpcServer struct {
 	wg   sync.WaitGroup
 }
 
-// newRPCServer creates a new RPC sever.
-func newRPCServer() *rpcServer {
-	return &rpcServer{
+// NewRPCServer creates a new RPC sever.
+func NewRPCServer() *RPCServer {
+	return &RPCServer{
 		quit: make(chan struct{}),
 	}
 }
@@ -219,7 +219,7 @@ func newRPCServer() *rpcServer {
 // TODO(roasbeef): build in batching for asset creation?
 
 // Start signals that the RPC server starts accepting requests.
-func (r *rpcServer) Start(cfg *tapconfig.Config) error {
+func (r *RPCServer) Start(cfg *tapconfig.Config) error {
 	if atomic.AddInt32(&r.started, 1) != 1 {
 		return nil
 	}
@@ -241,7 +241,7 @@ func (r *rpcServer) Start(cfg *tapconfig.Config) error {
 
 // Stop signals that the RPC server should attempt a graceful shutdown and
 // cancel any outstanding requests.
-func (r *rpcServer) Stop() error {
+func (r *RPCServer) Stop() error {
 	if atomic.AddInt32(&r.shutdown, 1) != 1 {
 		return nil
 	}
@@ -255,9 +255,9 @@ func (r *rpcServer) Stop() error {
 	return nil
 }
 
-// RegisterWithGrpcServer registers the rpcServer with the passed root gRPC
+// RegisterWithGrpcServer registers the RPCServer with the passed root gRPC
 // server.
-func (r *rpcServer) RegisterWithGrpcServer(
+func (r *RPCServer) RegisterWithGrpcServer(
 	registrar grpc.ServiceRegistrar) error {
 
 	// Register the main RPC server.
@@ -273,7 +273,7 @@ func (r *rpcServer) RegisterWithGrpcServer(
 }
 
 // RegisterWithRestProxy registers the RPC server with the given rest proxy.
-func (r *rpcServer) RegisterWithRestProxy(restCtx context.Context,
+func (r *RPCServer) RegisterWithRestProxy(restCtx context.Context,
 	restMux *proxy.ServeMux, restDialOpts []grpc.DialOption,
 	restProxyDest string) error {
 
@@ -324,9 +324,9 @@ func (r *rpcServer) RegisterWithRestProxy(restCtx context.Context,
 	return nil
 }
 
-// allowCORS wraps the given http.Handler with a function that adds the
+// AllowCORS wraps the given http.Handler with a function that adds the
 // Access-Control-Allow-Origin header to the response.
-func allowCORS(handler http.Handler, origins []string) http.Handler {
+func AllowCORS(handler http.Handler, origins []string) http.Handler {
 	allowHeaders := "Access-Control-Allow-Headers"
 	allowMethods := "Access-Control-Allow-Methods"
 	allowOrigin := "Access-Control-Allow-Origin"
@@ -378,7 +378,7 @@ func allowCORS(handler http.Handler, origins []string) http.Handler {
 
 // StopDaemon will send a shutdown request to the interrupt handler, triggering
 // a graceful shutdown of the daemon.
-func (r *rpcServer) StopDaemon(_ context.Context,
+func (r *RPCServer) StopDaemon(_ context.Context,
 	_ *taprpc.StopRequest) (*taprpc.StopResponse, error) {
 
 	r.interceptor.RequestShutdown()
@@ -389,7 +389,7 @@ func (r *rpcServer) StopDaemon(_ context.Context,
 // tapd. The logging can be targeted according to a coarse daemon-wide logging
 // level, or in a granular fashion to specify the logging for a target
 // sub-system.
-func (r *rpcServer) DebugLevel(ctx context.Context,
+func (r *RPCServer) DebugLevel(ctx context.Context,
 	req *taprpc.DebugLevelRequest) (*taprpc.DebugLevelResponse, error) {
 
 	// If show is set, then we simply print out the list of available
@@ -416,7 +416,7 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 
 // GetInfo returns general information relating to the active daemon. For
 // example: its version, network, and lnd version.
-func (r *rpcServer) GetInfo(ctx context.Context,
+func (r *RPCServer) GetInfo(ctx context.Context,
 	_ *taprpc.GetInfoRequest) (*taprpc.GetInfoResponse, error) {
 
 	// Retrieve the best block hash and height from the chain backend.
@@ -432,7 +432,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	}
 
 	return &taprpc.GetInfoResponse{
-		Version:           Version(),
+		Version:           r.cfg.Version,
 		LndVersion:        r.cfg.Lnd.Version.Version,
 		Network:           r.cfg.ChainParams.Name,
 		LndIdentityPubkey: r.cfg.Lnd.NodePubkey.String(),
@@ -445,7 +445,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 
 // BakeMacaroon allows the creation of a new macaroon with custom permissions.
 // No first-party caveats are added since this can be done offline.
-func (r *rpcServer) BakeMacaroon(ctx context.Context,
+func (r *RPCServer) BakeMacaroon(ctx context.Context,
 	req *taprpc.BakeMacaroonRequest) (*taprpc.BakeMacaroonResponse, error) {
 
 	// If the --no-macaroons flag is used to start tapd, the macaroon
@@ -494,7 +494,7 @@ func unmarshalBakeMacaroonReq(
 
 // MintAsset attempts to mint the set of assets (async by default to ensure
 // proper batching) specified in the request.
-func (r *rpcServer) MintAsset(ctx context.Context,
+func (r *RPCServer) MintAsset(ctx context.Context,
 	req *mintrpc.MintAssetRequest) (*mintrpc.MintAssetResponse, error) {
 
 	if req.Asset == nil {
@@ -831,7 +831,7 @@ func checkFeeRateSanity(ctx context.Context, rpcFeeRate chainfee.SatPerKWeight,
 }
 
 // FundBatch attempts to fund the current pending batch.
-func (r *rpcServer) FundBatch(ctx context.Context,
+func (r *RPCServer) FundBatch(ctx context.Context,
 	req *mintrpc.FundBatchRequest) (*mintrpc.FundBatchResponse, error) {
 
 	feeRate, err := checkFeeRateSanity(
@@ -904,7 +904,7 @@ func UnmarshalGroupWitness(
 
 // SealBatch attempts to seal the current pending batch, validating provided
 // asset group witnesses and generating asset group witnesses as needed.
-func (r *rpcServer) SealBatch(ctx context.Context,
+func (r *RPCServer) SealBatch(ctx context.Context,
 	req *mintrpc.SealBatchRequest) (*mintrpc.SealBatchResponse, error) {
 
 	// Unmarshal group witnesses from the request.
@@ -956,7 +956,7 @@ func (r *rpcServer) SealBatch(ctx context.Context,
 }
 
 // FinalizeBatch attempts to finalize the current pending batch.
-func (r *rpcServer) FinalizeBatch(ctx context.Context,
+func (r *RPCServer) FinalizeBatch(ctx context.Context,
 	req *mintrpc.FinalizeBatchRequest) (*mintrpc.FinalizeBatchResponse,
 	error) {
 
@@ -1001,7 +1001,7 @@ func (r *rpcServer) FinalizeBatch(ctx context.Context,
 }
 
 // CancelBatch attempts to cancel the current pending batch.
-func (r *rpcServer) CancelBatch(_ context.Context,
+func (r *RPCServer) CancelBatch(_ context.Context,
 	_ *mintrpc.CancelBatchRequest) (*mintrpc.CancelBatchResponse,
 	error) {
 
@@ -1022,7 +1022,7 @@ func (r *rpcServer) CancelBatch(_ context.Context,
 
 // ListBatches lists the set of batches submitted for minting, including pending
 // and cancelled batches.
-func (r *rpcServer) ListBatches(_ context.Context,
+func (r *RPCServer) ListBatches(_ context.Context,
 	req *mintrpc.ListBatchRequest) (*mintrpc.ListBatchResponse, error) {
 
 	var (
@@ -1085,7 +1085,7 @@ func (r *rpcServer) ListBatches(_ context.Context,
 
 // checkBalanceOverflow ensures that the new asset amount will not overflow
 // the max allowed asset (or asset group) balance.
-func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
+func (r *RPCServer) checkBalanceOverflow(ctx context.Context,
 	assetID *asset.ID, groupPubKey *btcec.PublicKey,
 	newAmount uint64) error {
 
@@ -1146,7 +1146,7 @@ func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
 }
 
 // ListAssets lists the set of assets owned by the target daemon.
-func (r *rpcServer) ListAssets(ctx context.Context,
+func (r *RPCServer) ListAssets(ctx context.Context,
 	req *taprpc.ListAssetRequest) (*taprpc.ListAssetResponse, error) {
 
 	if req.IncludeSpent && req.IncludeLeased {
@@ -1260,7 +1260,7 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 	}, nil
 }
 
-func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
+func (r *RPCServer) fetchRpcAssets(ctx context.Context, withWitness,
 	includeSpent, includeLeased bool,
 	queryFilters *tapdb.AssetQueryFilters) ([]*taprpc.Asset, error) {
 
@@ -1290,7 +1290,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 }
 
 // MarshalChainAsset marshals the given chain asset into an RPC asset.
-func (r *rpcServer) MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
+func (r *RPCServer) MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 	meta *proof.MetaReveal, withWitness bool,
 	keyRing rpcutils.KeyLookup) (*taprpc.Asset, error) {
 
@@ -1331,7 +1331,7 @@ func (r *rpcServer) MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 	)
 }
 
-func (r *rpcServer) listBalancesByAsset(ctx context.Context,
+func (r *RPCServer) listBalancesByAsset(ctx context.Context,
 	assetID *asset.ID, includeLeased bool,
 	skt fn.Option[asset.ScriptKeyType]) (*taprpc.ListBalancesResponse,
 	error) {
@@ -1378,7 +1378,7 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 	return resp, nil
 }
 
-func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
+func (r *RPCServer) listBalancesByGroupKey(ctx context.Context,
 	groupKey *btcec.PublicKey, includeLeased bool,
 	skt fn.Option[asset.ScriptKeyType]) (*taprpc.ListBalancesResponse,
 	error) {
@@ -1426,7 +1426,7 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 
 // ListUtxos lists the UTXOs managed by the target daemon, and the assets they
 // hold.
-func (r *rpcServer) ListUtxos(ctx context.Context,
+func (r *RPCServer) ListUtxos(ctx context.Context,
 	req *taprpc.ListUtxosRequest) (*taprpc.ListUtxosResponse, error) {
 
 	scriptKeyType, includeSpent, err := rpcutils.ParseScriptKeyTypeQuery(
@@ -1495,7 +1495,7 @@ func (r *rpcServer) ListUtxos(ctx context.Context,
 }
 
 // ListGroups lists known groups and the assets held in each group.
-func (r *rpcServer) ListGroups(ctx context.Context,
+func (r *RPCServer) ListGroups(ctx context.Context,
 	_ *taprpc.ListGroupsRequest) (*taprpc.ListGroupsResponse, error) {
 
 	readableAssets, err := r.cfg.AssetStore.FetchGroupedAssets(ctx)
@@ -1543,7 +1543,7 @@ func (r *rpcServer) ListGroups(ctx context.Context,
 }
 
 // ListBalances lists the asset balances owned by the daemon.
-func (r *rpcServer) ListBalances(ctx context.Context,
+func (r *RPCServer) ListBalances(ctx context.Context,
 	req *taprpc.ListBalancesRequest) (*taprpc.ListBalancesResponse, error) {
 
 	scriptKeyType, _, err := rpcutils.ParseScriptKeyTypeQuery(
@@ -1600,7 +1600,7 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 
 // ListTransfers returns a list of all asset transfers managed by this daemon.
 // This includes both confirmed and unconfirmed transfers.
-func (r *rpcServer) ListTransfers(ctx context.Context,
+func (r *RPCServer) ListTransfers(ctx context.Context,
 	req *taprpc.ListTransfersRequest) (*taprpc.ListTransfersResponse,
 	error) {
 
@@ -1639,7 +1639,7 @@ func (r *rpcServer) ListTransfers(ctx context.Context,
 }
 
 // QueryAddrs queries the set of Taproot Asset addresses stored in the database.
-func (r *rpcServer) QueryAddrs(ctx context.Context,
+func (r *RPCServer) QueryAddrs(ctx context.Context,
 	req *taprpc.QueryAddrRequest) (*taprpc.QueryAddrResponse, error) {
 
 	query := address.QueryParams{
@@ -1685,7 +1685,7 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 }
 
 // NewAddr makes a new address from the set of request params.
-func (r *rpcServer) NewAddr(ctx context.Context,
+func (r *RPCServer) NewAddr(ctx context.Context,
 	req *taprpc.NewAddrRequest) (*taprpc.Addr, error) {
 
 	rpcsLog.TraceS(ctx, "[NewAddr]: Called", "req", spew.Sdump(req))
@@ -1941,7 +1941,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 
 // DecodeAddr decode a Taproot Asset address into a partial asset message that
 // represents the asset it wants to receive.
-func (r *rpcServer) DecodeAddr(_ context.Context,
+func (r *RPCServer) DecodeAddr(_ context.Context,
 	req *taprpc.DecodeAddrRequest) (*taprpc.Addr, error) {
 
 	if len(req.Addr) == 0 {
@@ -1963,7 +1963,7 @@ func (r *rpcServer) DecodeAddr(_ context.Context,
 
 // VerifyProof attempts to verify a given proof file that claims to be anchored
 // at the specified genesis point.
-func (r *rpcServer) VerifyProof(ctx context.Context,
+func (r *RPCServer) VerifyProof(ctx context.Context,
 	req *taprpc.ProofFile) (*taprpc.VerifyProofResponse, error) {
 
 	if !proof.IsProofFile(req.RawProofFile) {
@@ -2009,7 +2009,7 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 
 // DecodeProof attempts to decode a given proof file that claims to be anchored
 // at the specified genesis point.
-func (r *rpcServer) DecodeProof(ctx context.Context,
+func (r *RPCServer) DecodeProof(ctx context.Context,
 	req *taprpc.DecodeProofRequest) (*taprpc.DecodeProofResponse, error) {
 
 	var rpcProof *taprpc.DecodedProof
@@ -2080,7 +2080,7 @@ func (r *rpcServer) DecodeProof(ctx context.Context,
 
 // UnpackProofFile unpacks a proof file into a list of the individual raw
 // proofs in the proof chain.
-func (r *rpcServer) UnpackProofFile(_ context.Context,
+func (r *RPCServer) UnpackProofFile(_ context.Context,
 	req *taprpc.UnpackProofFileRequest) (*taprpc.UnpackProofFileResponse,
 	error) {
 
@@ -2105,7 +2105,7 @@ func (r *rpcServer) UnpackProofFile(_ context.Context,
 }
 
 // marshalProof turns a transition proof into an RPC DecodedProof.
-func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
+func (r *RPCServer) marshalProof(ctx context.Context, p *proof.Proof,
 	withPrevWitnesses, withMetaReveal bool) (*taprpc.DecodedProof, error) {
 
 	var (
@@ -2257,7 +2257,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 
 // ExportProof exports the latest raw proof file anchored at the specified
 // script_key.
-func (r *rpcServer) ExportProof(ctx context.Context,
+func (r *RPCServer) ExportProof(ctx context.Context,
 	req *taprpc.ExportProofRequest) (*taprpc.ProofFile, error) {
 
 	if len(req.ScriptKey) == 0 {
@@ -2310,7 +2310,7 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 // ImportProof attempts to import a proof file into the daemon. If successful, a
 // new asset will be inserted on disk, spendable using the specified target
 // script key, and internal key.
-func (r *rpcServer) ImportProof(ctx context.Context,
+func (r *RPCServer) ImportProof(ctx context.Context,
 	req *tapdevrpc.ImportProofRequest) (*tapdevrpc.ImportProofResponse,
 	error) {
 
@@ -2352,7 +2352,7 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 
 // AddrReceives lists all receives for incoming asset transfers for addresses
 // that were created previously.
-func (r *rpcServer) AddrReceives(ctx context.Context,
+func (r *RPCServer) AddrReceives(ctx context.Context,
 	req *taprpc.AddrReceivesRequest) (*taprpc.AddrReceivesResponse,
 	error) {
 
@@ -2466,7 +2466,7 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 
 // FundVirtualPsbt selects inputs from the available asset commitments to fund
 // a virtual transaction matching the template.
-func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
+func (r *RPCServer) FundVirtualPsbt(ctx context.Context,
 	req *wrpc.FundVirtualPsbtRequest) (*wrpc.FundVirtualPsbtResponse,
 	error) {
 
@@ -2656,7 +2656,7 @@ func unmarshalCoinSelectType(
 
 // SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
 // commitments of the inputs and outputs.
-func (r *rpcServer) SignVirtualPsbt(ctx context.Context,
+func (r *RPCServer) SignVirtualPsbt(ctx context.Context,
 	req *wrpc.SignVirtualPsbtRequest) (*wrpc.SignVirtualPsbtResponse,
 	error) {
 
@@ -2724,7 +2724,7 @@ func (r *rpcServer) SignVirtualPsbt(ctx context.Context,
 
 // AnchorVirtualPsbts merges and then commits multiple virtual transactions in
 // a single BTC level anchor transaction.
-func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
+func (r *RPCServer) AnchorVirtualPsbts(ctx context.Context,
 	req *wrpc.AnchorVirtualPsbtsRequest) (*taprpc.SendAssetResponse,
 	error) {
 
@@ -2819,7 +2819,7 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 // virtual transactions by committing them to the BTC level anchor transaction.
 // In addition, the BTC level anchor transaction is funded and prepared up to
 // the point where it is ready to be signed.
-func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
+func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 	req *wrpc.CommitVirtualPsbtsRequest) (*wrpc.CommitVirtualPsbtsResponse,
 	error) {
 
@@ -3038,7 +3038,7 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 
 // validateInputAssets makes sure that the input assets are correct and their
 // combined commitments match the inputs of the BTC level anchor transaction.
-func (r *rpcServer) validateInputAssets(ctx context.Context,
+func (r *RPCServer) validateInputAssets(ctx context.Context,
 	btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket) error {
 
 	err := tapsend.ValidateVPacketVersions(vPackets)
@@ -3204,7 +3204,7 @@ func (r *rpcServer) validateInputAssets(ctx context.Context,
 // and publishes it to the Bitcoin network. It also logs the transfer of the
 // given active and passive assets in the database and ships any outgoing proofs
 // to the counterparties.
-func (r *rpcServer) PublishAndLogTransfer(ctx context.Context,
+func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 	req *wrpc.PublishAndLogRequest) (*taprpc.SendAssetResponse, error) {
 
 	if len(req.VirtualPsbts) == 0 {
@@ -3319,7 +3319,7 @@ func (r *rpcServer) PublishAndLogTransfer(ctx context.Context,
 // also be used as the internal key of a script key, it is recommended to use
 // the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
 // is also recognized as a local key.
-func (r *rpcServer) NextInternalKey(ctx context.Context,
+func (r *RPCServer) NextInternalKey(ctx context.Context,
 	req *wrpc.NextInternalKeyRequest) (*wrpc.NextInternalKeyResponse,
 	error) {
 
@@ -3345,7 +3345,7 @@ func (r *rpcServer) NextInternalKey(ctx context.Context,
 // NextScriptKey derives the next script key (and its corresponding internal
 // key) and stores them both in the database to make sure they are identified
 // as local keys later on when importing proofs.
-func (r *rpcServer) NextScriptKey(ctx context.Context,
+func (r *RPCServer) NextScriptKey(ctx context.Context,
 	req *wrpc.NextScriptKeyRequest) (*wrpc.NextScriptKeyResponse,
 	error) {
 
@@ -3369,7 +3369,7 @@ func (r *rpcServer) NextScriptKey(ctx context.Context,
 }
 
 // QueryInternalKey returns the key descriptor for the given internal key.
-func (r *rpcServer) QueryInternalKey(ctx context.Context,
+func (r *RPCServer) QueryInternalKey(ctx context.Context,
 	req *wrpc.QueryInternalKeyRequest) (*wrpc.QueryInternalKeyResponse,
 	error) {
 
@@ -3424,7 +3424,7 @@ func (r *rpcServer) QueryInternalKey(ctx context.Context,
 // querySchnorrInternalKey returns the key descriptor for the given internal
 // key. This is a special method for the case where the key is a Schnorr key,
 // and we need to try both parities.
-func (r *rpcServer) querySchnorrInternalKey(ctx context.Context,
+func (r *RPCServer) querySchnorrInternalKey(ctx context.Context,
 	schnorrKey []byte) (*btcec.PublicKey, keychain.KeyLocator, error) {
 
 	var keyLocator keychain.KeyLocator
@@ -3464,7 +3464,7 @@ func (r *rpcServer) querySchnorrInternalKey(ctx context.Context,
 
 // QueryScriptKey returns the full script key descriptor for the given tweaked
 // script key.
-func (r *rpcServer) QueryScriptKey(ctx context.Context,
+func (r *RPCServer) QueryScriptKey(ctx context.Context,
 	req *wrpc.QueryScriptKeyRequest) (*wrpc.QueryScriptKeyResponse, error) {
 
 	var (
@@ -3683,7 +3683,7 @@ func marshalAddrEventStatus(status address.Status) (taprpc.AddrEventStatus,
 // complete an asset send. The method returns information w.r.t the on chain
 // send, as well as the proof file information the receiver needs to fully
 // receive the asset.
-func (r *rpcServer) SendAsset(ctx context.Context,
+func (r *RPCServer) SendAsset(ctx context.Context,
 	req *taprpc.SendAssetRequest) (*taprpc.SendAssetResponse, error) {
 
 	var rpcAddrs []*taprpc.AddressWithAmount
@@ -3836,7 +3836,7 @@ func parseAndValidateAddresses(rpcAddrs []*taprpc.AddressWithAmount,
 // a certain number of assets, reducing the total supply of the asset. Because
 // burning is such a destructive and non-reversible operation, some specific
 // values need to be set in the request to avoid accidental burns.
-func (r *rpcServer) BurnAsset(ctx context.Context,
+func (r *RPCServer) BurnAsset(ctx context.Context,
 	in *taprpc.BurnAssetRequest) (*taprpc.BurnAssetResponse, error) {
 
 	rpcsLog.Debug("Executing asset burn")
@@ -3965,7 +3965,7 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 
 // ListBurns returns a list of burnt assets. Some filters may be defined in the
 // request to return more specific results.
-func (r *rpcServer) ListBurns(ctx context.Context,
+func (r *RPCServer) ListBurns(ctx context.Context,
 	in *taprpc.ListBurnsRequest) (*taprpc.ListBurnsResponse, error) {
 
 	burns, err := r.cfg.AssetStore.QueryBurns(
@@ -4185,7 +4185,7 @@ func unmarshalIgnoreAssetOutPointRequest(
 // IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
 // as ignored. An ignored outpoint will be included in the next universe
 // commitment transaction that is published.
-func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
+func (r *RPCServer) IgnoreAssetOutPoint(ctx context.Context,
 	rpcReq *unirpc.IgnoreAssetOutPointRequest) (
 	*unirpc.IgnoreAssetOutPointResponse, error) {
 
@@ -4223,7 +4223,7 @@ func (r *rpcServer) IgnoreAssetOutPoint(ctx context.Context,
 
 // UpdateSupplyCommit updates the on-chain supply commitment for a specific
 // asset group.
-func (r *rpcServer) UpdateSupplyCommit(ctx context.Context,
+func (r *RPCServer) UpdateSupplyCommit(ctx context.Context,
 	req *unirpc.UpdateSupplyCommitRequest) (
 	*unirpc.UpdateSupplyCommitResponse, error) {
 
@@ -4351,7 +4351,7 @@ func supplySubtreeRoot(ctx context.Context, supplyTree mssmt.Tree,
 
 // FetchSupplyCommit fetches the on-chain supply commitment for a specific
 // asset group.
-func (r *rpcServer) FetchSupplyCommit(ctx context.Context,
+func (r *RPCServer) FetchSupplyCommit(ctx context.Context,
 	req *unirpc.FetchSupplyCommitRequest) (
 	*unirpc.FetchSupplyCommitResponse, error) {
 
@@ -4565,7 +4565,7 @@ func marshalSupplyLeafBlockHeaders(
 // FetchSupplyLeaves fetches the supply leaves for a specific asset group
 // within a specified block height range. The leaves include issuance, burn,
 // and ignore leaves, which represent the supply changes for the asset group.
-func (r *rpcServer) FetchSupplyLeaves(ctx context.Context,
+func (r *RPCServer) FetchSupplyLeaves(ctx context.Context,
 	req *unirpc.FetchSupplyLeavesRequest) (
 	*unirpc.FetchSupplyLeavesResponse, error) {
 
@@ -4967,7 +4967,7 @@ func unmarshalSupplyLeaves(issuanceLeaves, burnLeaves,
 
 // InsertSupplyCommit stores a verified supply commitment for the given
 // asset group in the node's local database.
-func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
+func (r *RPCServer) InsertSupplyCommit(ctx context.Context,
 	req *unirpc.InsertSupplyCommitRequest) (
 	*unirpc.InsertSupplyCommitResponse, error) {
 
@@ -5029,7 +5029,7 @@ func (r *rpcServer) InsertSupplyCommit(ctx context.Context,
 
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
-func (r *rpcServer) SubscribeSendAssetEventNtfns(
+func (r *RPCServer) SubscribeSendAssetEventNtfns(
 	_ *tapdevrpc.SubscribeSendAssetEventNtfnsRequest,
 	ntfnStream devSendEventStream) error {
 
@@ -5045,7 +5045,7 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 
 // SubscribeReceiveAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset receiving process.
-func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
+func (r *RPCServer) SubscribeReceiveAssetEventNtfns(
 	_ *tapdevrpc.SubscribeReceiveAssetEventNtfnsRequest,
 	ntfnStream devReceiveEventStream) error {
 
@@ -5079,7 +5079,7 @@ func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
 
 // SubscribeReceiveEvents registers a subscription to the event notification
 // stream which relates to the asset receiving process.
-func (r *rpcServer) SubscribeReceiveEvents(
+func (r *RPCServer) SubscribeReceiveEvents(
 	req *taprpc.SubscribeReceiveEventsRequest,
 	ntfnStream receiveEventStream) error {
 
@@ -5228,7 +5228,7 @@ func shouldNotifyAssetSendEvent(event tapfreighter.AssetSendEvent,
 
 // SubscribeSendEvents registers a subscription to the event notification
 // stream which relates to the asset sending process.
-func (r *rpcServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
+func (r *RPCServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
 	ntfnStream sendEventStream) error {
 
 	var targetScriptKey fn.Option[btcec.PublicKey]
@@ -5336,7 +5336,7 @@ func (r *rpcServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
 
 // SubscribeMintEvents allows a caller to subscribe to mint events for asset
 // creation batches.
-func (r *rpcServer) SubscribeMintEvents(req *mintrpc.SubscribeMintEventsRequest,
+func (r *RPCServer) SubscribeMintEvents(req *mintrpc.SubscribeMintEventsRequest,
 	ntfnStream mintEventStream) error {
 
 	marshaler := func(event fn.Event) (*mintrpc.MintEvent, error) {
@@ -6032,7 +6032,7 @@ func marshalBatchState(state tapgarden.BatchState) (mintrpc.BatchState, error) {
 	}
 }
 
-func (r *rpcServer) FetchAssetMeta(ctx context.Context,
+func (r *RPCServer) FetchAssetMeta(ctx context.Context,
 	req *taprpc.FetchAssetMetaRequest) (*taprpc.FetchAssetMetaResponse,
 	error) {
 
@@ -6233,7 +6233,7 @@ func marshalUniverseRoot(node universe.Root) (*unirpc.UniverseRoot, error) {
 // MultiverseRoot returns the root of the multiverse tree. This is useful to
 // determine the equality of two multiverse trees, since the root can directly
 // be compared to another multiverse root to find out if a sync is required.
-func (r *rpcServer) MultiverseRoot(ctx context.Context,
+func (r *RPCServer) MultiverseRoot(ctx context.Context,
 	req *unirpc.MultiverseRootRequest) (*unirpc.MultiverseRootResponse,
 	error) {
 
@@ -6285,7 +6285,7 @@ func (r *rpcServer) MultiverseRoot(ctx context.Context,
 
 // AssetRoots queries for the known Universe roots associated with each known
 // asset. These roots represent the supply/audit state for each known asset.
-func (r *rpcServer) AssetRoots(ctx context.Context,
+func (r *RPCServer) AssetRoots(ctx context.Context,
 	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
 
 	// Check the rate limiter to see if we need to wait at all. If not then
@@ -6457,7 +6457,7 @@ func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 
 // QueryAssetRoots attempts to locate the current Universe root for a specific
 // asset. This asset can be identified by its asset ID or group key.
-func (r *rpcServer) QueryAssetRoots(ctx context.Context,
+func (r *RPCServer) QueryAssetRoots(ctx context.Context,
 	req *unirpc.AssetRootQuery) (*unirpc.QueryRootResponse, error) {
 
 	universeID, err := UnmarshalUniID(req.Id)
@@ -6552,7 +6552,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 // queryAssetProofRoots attempts to locate the current Universe root for a
 // specific asset, for both proof types. The asset can be identified by its
 // asset ID or group key.
-func (r *rpcServer) queryAssetProofRoots(ctx context.Context,
+func (r *RPCServer) queryAssetProofRoots(ctx context.Context,
 	uniID universe.Identifier) (*unirpc.QueryRootResponse, error) {
 
 	var (
@@ -6601,7 +6601,7 @@ func (r *rpcServer) queryAssetProofRoots(ctx context.Context,
 
 // DeleteAssetRoot attempts to locate the current Universe root for a specific
 // asset, and deletes the associated Universe tree if found.
-func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
+func (r *RPCServer) DeleteAssetRoot(ctx context.Context,
 	req *unirpc.DeleteRootQuery) (*unirpc.DeleteRootResponse, error) {
 
 	universeID, err := UnmarshalUniID(req.Id)
@@ -6657,7 +6657,7 @@ func marshalLeafKey(leafKey universe.LeafKey) *unirpc.AssetKey {
 // where outpoint is an outpoint in the Bitcoin blockchain that anchors a valid
 // Taproot Asset commitment, and script_key is the script_key of the asset
 // within the Taproot Asset commitment for the given asset_id or group_key.
-func (r *rpcServer) AssetLeafKeys(ctx context.Context,
+func (r *RPCServer) AssetLeafKeys(ctx context.Context,
 	req *unirpc.AssetLeafKeysRequest) (*unirpc.AssetLeafKeyResponse, error) {
 
 	if req == nil {
@@ -6737,7 +6737,7 @@ func marshalAssetLeaf(ctx context.Context, keys rpcutils.KeyLookup,
 }
 
 // marshalAssetLeaf marshals an asset leaf into the RPC form.
-func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
+func (r *RPCServer) marshalAssetLeaf(ctx context.Context,
 	assetLeaf *universe.Leaf,
 	decDisplay fn.Option[uint32]) (*unirpc.AssetLeaf, error) {
 
@@ -6749,7 +6749,7 @@ func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
 // asset issuance events (they have a genesis witness) or asset transfers that
 // took place on chain. The leaves contain a normal Taproot asset proof, as well
 // as details for the asset.
-func (r *rpcServer) AssetLeaves(ctx context.Context,
+func (r *RPCServer) AssetLeaves(ctx context.Context,
 	req *unirpc.ID) (*unirpc.AssetLeafResponse, error) {
 
 	universeID, err := UnmarshalUniID(req)
@@ -6871,7 +6871,7 @@ func marshalMssmtProof(proof *mssmt.Proof) ([]byte, error) {
 }
 
 // marshalUniverseProofLeaf marshals a universe proof leaf into the RPC form.
-func (r *rpcServer) marshalUniverseProofLeaf(ctx context.Context,
+func (r *RPCServer) marshalUniverseProofLeaf(ctx context.Context,
 	req *unirpc.UniverseKey,
 	proof *universe.Proof) (*unirpc.AssetProofResponse, error) {
 
@@ -6983,7 +6983,7 @@ func (r *rpcServer) marshalUniverseProofLeaf(ctx context.Context,
 // for the Universe and Multiverse MS-SMTs. This allows a caller to verify the
 // known Universe root, Multiverse root, and transition or issuance proof for
 // the target asset.
-func (r *rpcServer) QueryProof(ctx context.Context,
+func (r *RPCServer) QueryProof(ctx context.Context,
 	req *unirpc.UniverseKey) (*unirpc.AssetProofResponse, error) {
 
 	universeID, leafKey, err := unmarshalUniverseKey(req)
@@ -7002,7 +7002,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 // queryProof attempts to query for an issuance or transfer proof for a given
 // asset based on its UniverseKey. A UniverseKey is composed of the Universe ID
 // (asset_id/group_key) and also a leaf key (outpoint || script_key).
-func (r *rpcServer) queryProof(ctx context.Context, uniID universe.Identifier,
+func (r *RPCServer) queryProof(ctx context.Context, uniID universe.Identifier,
 	leafKey universe.LeafKey) (*universe.Proof, error) {
 
 	rpcsLog.Tracef("[QueryProof]: fetching proof at (uniID=%v, "+
@@ -7236,7 +7236,7 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 // Universe tree specified by the UniverseKey. If valid, then the proof is
 // inserted into the database, with a new Universe root returned for the updated
 // asset_id/group_key.
-func (r *rpcServer) InsertProof(ctx context.Context,
+func (r *RPCServer) InsertProof(ctx context.Context,
 	req *unirpc.AssetProof) (*unirpc.AssetProofResponse, error) {
 
 	universeID, leafKey, err := unmarshalUniverseKey(req.Key)
@@ -7305,7 +7305,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 // PushProof attempts to query the local universe for a proof specified by a
 // UniverseKey. If found, a connection is made to a remote Universe server to
 // attempt to upload the asset leaf.
-func (r *rpcServer) PushProof(ctx context.Context,
+func (r *RPCServer) PushProof(ctx context.Context,
 	req *unirpc.PushProofRequest) (*unirpc.PushProofResponse, error) {
 
 	switch {
@@ -7375,7 +7375,7 @@ func (r *rpcServer) PushProof(ctx context.Context,
 // Info returns a set of information about the current state of the Universe
 // and allows a caller to check that a universe server is reachable and
 // configured correctly to allow proof courier access without macaroons.
-func (r *rpcServer) Info(ctx context.Context,
+func (r *RPCServer) Info(ctx context.Context,
 	_ *unirpc.InfoRequest) (*unirpc.InfoResponse, error) {
 
 	return &unirpc.InfoResponse{
@@ -7417,7 +7417,7 @@ func unmarshalSyncTargets(
 }
 
 // marshalUniverseDiff marshals a universe diff into the RPC form.
-func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
+func (r *RPCServer) marshalUniverseDiff(ctx context.Context,
 	uniDiff []universe.AssetSyncDiff) (*unirpc.SyncResponse, error) {
 
 	resp := &unirpc.SyncResponse{
@@ -7474,7 +7474,7 @@ func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
 // assets if none are specified. The sync process will attempt to query for the
 // latest known root for each asset, performing tree based reconciliation to
 // arrive at a new shared root.
-func (r *rpcServer) SyncUniverse(ctx context.Context,
+func (r *RPCServer) SyncUniverse(ctx context.Context,
 	req *unirpc.SyncRequest) (*unirpc.SyncResponse, error) {
 
 	// TODO(roasbeef): have another layer, only allow single outstanding
@@ -7529,7 +7529,7 @@ func marshalUniverseServer(
 // ListFederationServers lists the set of servers that make up the federation
 // of the local Universe server. These servers are used to push out new proofs,
 // and also periodically call sync new proofs from the remote server.
-func (r *rpcServer) ListFederationServers(ctx context.Context,
+func (r *RPCServer) ListFederationServers(ctx context.Context,
 	_ *unirpc.ListFederationServersRequest) (
 	*unirpc.ListFederationServersResponse, error) {
 
@@ -7552,7 +7552,7 @@ func unmarshalUniverseServer(
 // AddFederationServer adds a new server to the federation of the local
 // Universe server. Once a server is added, this call can also optionally be
 // used to trigger a sync of the remote server.
-func (r *rpcServer) AddFederationServer(ctx context.Context,
+func (r *RPCServer) AddFederationServer(ctx context.Context,
 	req *unirpc.AddFederationServerRequest,
 ) (*unirpc.AddFederationServerResponse, error) {
 
@@ -7582,7 +7582,7 @@ func (r *rpcServer) AddFederationServer(ctx context.Context,
 
 // DeleteFederationServer removes a server from the federation of the local
 // Universe server.
-func (r *rpcServer) DeleteFederationServer(ctx context.Context,
+func (r *RPCServer) DeleteFederationServer(ctx context.Context,
 	req *unirpc.DeleteFederationServerRequest,
 ) (*unirpc.DeleteFederationServerResponse, error) {
 
@@ -7608,7 +7608,7 @@ func (r *rpcServer) DeleteFederationServer(ctx context.Context,
 
 // SetFederationSyncConfig sets the configuration of the universe federation
 // sync.
-func (r *rpcServer) SetFederationSyncConfig(ctx context.Context,
+func (r *RPCServer) SetFederationSyncConfig(ctx context.Context,
 	req *unirpc.SetFederationSyncConfigRequest) (
 	*unirpc.SetFederationSyncConfigResponse, error) {
 
@@ -7661,7 +7661,7 @@ func (r *rpcServer) SetFederationSyncConfig(ctx context.Context,
 
 // QueryFederationSyncConfig queries the universe federation sync configuration
 // settings.
-func (r *rpcServer) QueryFederationSyncConfig(ctx context.Context,
+func (r *RPCServer) QueryFederationSyncConfig(ctx context.Context,
 	_ *unirpc.QueryFederationSyncConfigRequest,
 ) (*unirpc.QueryFederationSyncConfigResponse, error) {
 
@@ -7717,7 +7717,7 @@ func (r *rpcServer) QueryFederationSyncConfig(ctx context.Context,
 // transition proof. That ownership proof is a signed virtual transaction
 // spending the asset with a valid witness to prove the prover owns the keys
 // that can spend the asset.
-func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
+func (r *RPCServer) ProveAssetOwnership(ctx context.Context,
 	req *wrpc.ProveAssetOwnershipRequest) (*wrpc.ProveAssetOwnershipResponse,
 	error) {
 
@@ -7819,7 +7819,7 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 
 // VerifyAssetOwnership verifies the asset ownership proof embedded in the
 // given transition proof of an asset and returns true if the proof is valid.
-func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
+func (r *RPCServer) VerifyAssetOwnership(ctx context.Context,
 	req *wrpc.VerifyAssetOwnershipRequest) (*wrpc.VerifyAssetOwnershipResponse,
 	error) {
 
@@ -7873,7 +7873,7 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 
 // UniverseStats returns a set of aggregate statistics for the current state
 // of the Universe.
-func (r *rpcServer) UniverseStats(ctx context.Context,
+func (r *RPCServer) UniverseStats(ctx context.Context,
 	_ *unirpc.StatsRequest) (*unirpc.StatsResponse, error) {
 
 	universeStats, err := r.cfg.UniverseStats.AggregateSyncStats(ctx)
@@ -7891,7 +7891,7 @@ func (r *rpcServer) UniverseStats(ctx context.Context,
 
 // marshalAssetSyncSnapshot maps a universe asset sync stat snapshot to the RPC
 // counterpart.
-func (r *rpcServer) marshalAssetSyncSnapshot(ctx context.Context,
+func (r *RPCServer) marshalAssetSyncSnapshot(ctx context.Context,
 	a universe.AssetSyncSnapshot) (*unirpc.AssetStatsSnapshot, error) {
 
 	resp := &unirpc.AssetStatsSnapshot{
@@ -7940,7 +7940,7 @@ func (r *rpcServer) marshalAssetSyncSnapshot(ctx context.Context,
 // Stats can be queried for all assets, or based on the: asset ID, name, or
 // asset type. Pagination is supported via the offset and limit params.
 // Results can also be sorted based on any of the main query params.
-func (r *rpcServer) QueryAssetStats(ctx context.Context,
+func (r *RPCServer) QueryAssetStats(ctx context.Context,
 	req *unirpc.AssetStatsQuery) (*unirpc.UniverseAssetStats, error) {
 
 	assetStats, err := r.cfg.UniverseStats.QuerySyncStats(
@@ -7991,7 +7991,7 @@ func (r *rpcServer) QueryAssetStats(ctx context.Context,
 
 // QueryEvents returns the number of sync and proof events for a given time
 // period, grouped by day.
-func (r *rpcServer) QueryEvents(ctx context.Context,
+func (r *RPCServer) QueryEvents(ctx context.Context,
 	req *unirpc.QueryEventsRequest) (*unirpc.QueryEventsResponse, error) {
 
 	// If no start or end time is specified, default to the last 30 days.
@@ -8036,7 +8036,7 @@ func (r *rpcServer) QueryEvents(ctx context.Context,
 
 // RemoveUTXOLease removes the lease/lock/reservation of the given managed
 // UTXO.
-func (r *rpcServer) RemoveUTXOLease(ctx context.Context,
+func (r *RPCServer) RemoveUTXOLease(ctx context.Context,
 	req *wrpc.RemoveUTXOLeaseRequest) (*wrpc.RemoveUTXOLeaseResponse,
 	error) {
 
@@ -8252,7 +8252,7 @@ func unmarshalAssetBuyOrder(
 
 // AddAssetBuyOrder upserts a new buy order for the given asset into the RFQ
 // manager. If the order already exists for the given asset, it will be updated.
-func (r *rpcServer) AddAssetBuyOrder(ctx context.Context,
+func (r *RPCServer) AddAssetBuyOrder(ctx context.Context,
 	req *rfqrpc.AddAssetBuyOrderRequest) (*rfqrpc.AddAssetBuyOrderResponse,
 	error) {
 
@@ -8367,7 +8367,7 @@ func (r *rpcServer) AddAssetBuyOrder(ctx context.Context,
 // checkPeerChannel checks if there is a channel with the given peer. If the
 // asset channel check is enabled, it will also check if there is a channel with
 // the given asset with the peer.
-func (r *rpcServer) checkPeerChannel(ctx context.Context, peer route.Vertex,
+func (r *RPCServer) checkPeerChannel(ctx context.Context, peer route.Vertex,
 	specifier asset.Specifier, skipAssetChannelCheck bool) error {
 
 	// We want to make sure there is at least a channel between us and the
@@ -8468,7 +8468,7 @@ func unmarshalAssetSellOrder(
 
 // AddAssetSellOrder upserts a new sell order for the given asset into the RFQ
 // manager. If the order already exists for the given asset, it will be updated.
-func (r *rpcServer) AddAssetSellOrder(ctx context.Context,
+func (r *RPCServer) AddAssetSellOrder(ctx context.Context,
 	req *rfqrpc.AddAssetSellOrderRequest) (*rfqrpc.AddAssetSellOrderResponse,
 	error) {
 
@@ -8584,7 +8584,7 @@ func (r *rpcServer) AddAssetSellOrder(ctx context.Context,
 // AddAssetSellOffer upserts a new sell offer for the given asset into the
 // RFQ manager. If the offer already exists for the given asset, it will be
 // updated.
-func (r *rpcServer) AddAssetSellOffer(_ context.Context,
+func (r *RPCServer) AddAssetSellOffer(_ context.Context,
 	req *rfqrpc.AddAssetSellOfferRequest) (*rfqrpc.AddAssetSellOfferResponse,
 	error) {
 
@@ -8621,7 +8621,7 @@ func (r *rpcServer) AddAssetSellOffer(_ context.Context,
 //
 // A buy offer is used by the node to selectively accept or reject incoming
 // asset sell quote requests before price is considered.
-func (r *rpcServer) AddAssetBuyOffer(_ context.Context,
+func (r *RPCServer) AddAssetBuyOffer(_ context.Context,
 	req *rfqrpc.AddAssetBuyOfferRequest) (*rfqrpc.AddAssetBuyOfferResponse,
 	error) {
 
@@ -8653,7 +8653,7 @@ func (r *rpcServer) AddAssetBuyOffer(_ context.Context,
 
 // QueryPeerAcceptedQuotes is used to query for quotes that were requested by
 // our node and have been accepted our peers.
-func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
+func (r *RPCServer) QueryPeerAcceptedQuotes(_ context.Context,
 	_ *rfqrpc.QueryPeerAcceptedQuotesRequest) (
 	*rfqrpc.QueryPeerAcceptedQuotesResponse, error) {
 
@@ -8727,7 +8727,7 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 }
 
 // SubscribeRfqEventNtfns subscribes to RFQ event notifications.
-func (r *rpcServer) SubscribeRfqEventNtfns(
+func (r *RPCServer) SubscribeRfqEventNtfns(
 	_ *rfqrpc.SubscribeRfqEventNtfnsRequest,
 	ntfnStream rfqrpc.Rfq_SubscribeRfqEventNtfnsServer) error {
 
@@ -8742,7 +8742,7 @@ func (r *rpcServer) SubscribeRfqEventNtfns(
 }
 
 // ForwardingHistory queries the historical records of asset forwarding events.
-func (r *rpcServer) ForwardingHistory(ctx context.Context,
+func (r *RPCServer) ForwardingHistory(ctx context.Context,
 	req *rfqrpc.ForwardingHistoryRequest) (
 	*rfqrpc.ForwardingHistoryResponse, error) {
 
@@ -8873,7 +8873,7 @@ func marshalForwardingEvent(fwd rfq.ForwardingEvent) *rfqrpc.ForwardingEvent {
 
 // FundChannel initiates the channel funding negotiation with a peer for the
 // creation of a channel that contains a specified amount of a given asset.
-func (r *rpcServer) FundChannel(ctx context.Context,
+func (r *RPCServer) FundChannel(ctx context.Context,
 	req *tchrpc.FundChannelRequest) (*tchrpc.FundChannelResponse,
 	error) {
 
@@ -8935,7 +8935,7 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 
 // specifierWithGroupKeyLookup returns an asset specifier that has the group key
 // set if it's a grouped asset.
-func (r *rpcServer) specifierWithGroupKeyLookup(ctx context.Context,
+func (r *RPCServer) specifierWithGroupKeyLookup(ctx context.Context,
 	assetID *asset.ID, groupKey *btcec.PublicKey) (asset.Specifier, error) {
 
 	var result asset.Specifier
@@ -8962,7 +8962,7 @@ func (r *rpcServer) specifierWithGroupKeyLookup(ctx context.Context,
 // payment or other channel related RPCs. This RPC is completely stateless and
 // does not perform any checks on the data provided, other than pure format
 // validation.
-func (r *rpcServer) EncodeCustomRecords(_ context.Context,
+func (r *RPCServer) EncodeCustomRecords(_ context.Context,
 	in *tchrpc.EncodeCustomRecordsRequest) (
 	*tchrpc.EncodeCustomRecordsResponse, error) {
 
@@ -9038,7 +9038,7 @@ func (r *rpcServer) EncodeCustomRecords(_ context.Context,
 // with asset specific parameters. It allows RPC users to send asset keysend
 // payments (direct payments) or payments to an invoice with a specified asset
 // amount.
-func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
+func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 	stream tchrpc.TaprootAssetChannels_SendPaymentServer) error {
 
 	if len(req.AssetId) > 0 && len(req.GroupKey) > 0 {
@@ -9392,7 +9392,7 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 
 // parseRequest parses the payment request and returns the payment maximum
 // amount and the expiry time.
-func (r *rpcServer) parseRequest(
+func (r *RPCServer) parseRequest(
 	req *routerrpc.SendPaymentRequest) (lnwire.MilliSatoshi, time.Time,
 	error) {
 
@@ -9486,7 +9486,7 @@ func checkOverpayment(quote *rfqrpc.PeerAcceptedSellQuote,
 // AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
 // specific parameters. It allows RPC users to create invoices that correspond
 // to the specified asset amount.
-func (r *rpcServer) AddInvoice(ctx context.Context,
+func (r *RPCServer) AddInvoice(ctx context.Context,
 	req *tchrpc.AddInvoiceRequest) (*tchrpc.AddInvoiceResponse, error) {
 
 	if len(req.AssetId) > 0 && len(req.GroupKey) > 0 {
@@ -9974,7 +9974,7 @@ func validateInvoiceAmount(acceptedQuote *rfqrpc.PeerAcceptedBuyQuote,
 
 // acquireBuyOrder performs an RFQ negotiation with the target peer and quote
 // parameters and returns the quote if the negotiation was successful.
-func (r *rpcServer) acquireBuyOrder(ctx context.Context,
+func (r *RPCServer) acquireBuyOrder(ctx context.Context,
 	rpcSpecifier *rfqrpc.AssetSpecifier, assetMaxAmt uint64,
 	expiryTimestamp time.Time, peerPubKey *route.Vertex,
 	metadata string) (*rfqrpc.PeerAcceptedBuyQuote, error) {
@@ -10027,7 +10027,7 @@ func (r *rpcServer) acquireBuyOrder(ctx context.Context,
 // acquirePaymentQuotes attempts to asynchronously negotiate quotes for this
 // payment with all available peers. The list of successfully negotiated quotes
 // is returned.
-func (r *rpcServer) acquirePaymentQuotes(ctx context.Context,
+func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
 	rpcSpecifier *rfqrpc.AssetSpecifier, paymentMaxAmt lnwire.MilliSatoshi,
 	expiry time.Time, chanMap rfq.PeerChanMap, overpay bool, payHash string,
 	metadata string) []*rfqrpc.PeerAcceptedSellQuote {
@@ -10102,7 +10102,7 @@ func (r *rpcServer) acquirePaymentQuotes(ctx context.Context,
 
 // acquireSellQuote performs an RFQ negotiation with the target peer and quote
 // parameters and returns the quote if the negotiation was successful.
-func (r *rpcServer) acquireSellQuote(ctx context.Context,
+func (r *RPCServer) acquireSellQuote(ctx context.Context,
 	rpcSpecifier *rfqrpc.AssetSpecifier, paymentMaxAmt lnwire.MilliSatoshi,
 	expiry time.Time, peerPubKey *route.Vertex,
 	metadata string) (*rfqrpc.PeerAcceptedSellQuote, error) {
@@ -10147,7 +10147,7 @@ func (r *rpcServer) acquireSellQuote(ctx context.Context,
 // when the script key contains scripts, which would mean it wouldn't be
 // recognized by the wallet automatically. Declaring a script key will make any
 // assets sent to the script key be recognized as being local assets.
-func (r *rpcServer) DeclareScriptKey(ctx context.Context,
+func (r *RPCServer) DeclareScriptKey(ctx context.Context,
 	in *wrpc.DeclareScriptKeyRequest) (*wrpc.DeclareScriptKeyResponse,
 	error) {
 
@@ -10214,7 +10214,7 @@ func encodeVirtualPackets(packets []*tappsbt.VPacket) ([][]byte, error) {
 
 // getInboundPolicy returns the policy of the given channel that points towards
 // our node, so it's the policy set by the remote peer.
-func (r *rpcServer) getInboundPolicy(ctx context.Context, chanID uint64,
+func (r *RPCServer) getInboundPolicy(ctx context.Context, chanID uint64,
 	remotePubStr string) (*lnrpc.RoutingPolicy, error) {
 
 	rpcCtx, _, rawClient := r.cfg.Lnd.Client.RawClientWithMacAuth(ctx)
@@ -10237,7 +10237,7 @@ func (r *rpcServer) getInboundPolicy(ctx context.Context, chanID uint64,
 
 // assetInvoiceAmt calculates the amount of asset units to pay for an invoice
 // which is expressed in sats.
-func (r *rpcServer) assetInvoiceAmt(ctx context.Context,
+func (r *RPCServer) assetInvoiceAmt(ctx context.Context,
 	targetAsset asset.Specifier, metadata string,
 	invoiceAmt lnwire.MilliSatoshi) (uint64, error) {
 
@@ -10267,7 +10267,7 @@ func (r *rpcServer) assetInvoiceAmt(ctx context.Context,
 
 // DecodeAssetPayReq decodes an incoming invoice, then uses the RFQ system to
 // map the BTC amount to the amount of asset units for the specified asset ID.
-func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
+func (r *RPCServer) DecodeAssetPayReq(ctx context.Context,
 	payReq *tchrpc.AssetPayReq) (*tchrpc.AssetPayReqResponse, error) {
 
 	tapdLog.Debugf("Decoding asset pay req, asset_id=%x, group_key=%x,"+
@@ -10438,7 +10438,7 @@ func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
 // this group key. If not, it will sync the asset group and return the asset
 // ID of the first leaf found. If there are no leaves found after syncing, an
 // error is returned.
-func (r *rpcServer) syncAssetGroup(ctx context.Context,
+func (r *RPCServer) syncAssetGroup(ctx context.Context,
 	groupKey btcec.PublicKey) (asset.ID, error) {
 
 	// We first check if we already know any asset leaves associated with
@@ -10533,7 +10533,7 @@ func (r *rpcServer) syncAssetGroup(ctx context.Context,
 // local universe (e.g. through the use of the universerpc.InsertProof RPC or
 // the universe proof courier and universe sync mechanisms) and this call
 // simply instructs the daemon to detect the transfer as an asset it owns.
-func (r *rpcServer) RegisterTransfer(ctx context.Context,
+func (r *RPCServer) RegisterTransfer(ctx context.Context,
 	req *taprpc.RegisterTransferRequest) (*taprpc.RegisterTransferResponse,
 	error) {
 
@@ -10681,7 +10681,7 @@ func (r *rpcServer) RegisterTransfer(ctx context.Context,
 
 // ProofVerifierCtx returns a proof.VerifierCtx that can be used to verify
 // proofs in the RPC server.
-func (r *rpcServer) ProofVerifierCtx(ctx context.Context) proof.VerifierCtx {
+func (r *RPCServer) ProofVerifierCtx(ctx context.Context) proof.VerifierCtx {
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
 

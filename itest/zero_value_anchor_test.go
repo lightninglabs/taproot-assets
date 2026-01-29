@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/wire"
-	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/itest/rpcassert"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
@@ -136,7 +136,7 @@ func testZeroValueAnchorSweep(t *harnessTest) {
 			AssetId: genInfo3.AssetId,
 		},
 		AmountToBurn:     assetAmount,
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
 
@@ -261,7 +261,7 @@ func testZeroValueAnchorAccumulation(t *harnessTest) {
 			AssetId: genInfo2.AssetId,
 		},
 		AmountToBurn:     assetAmount,
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
 

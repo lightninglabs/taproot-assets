@@ -9,13 +9,13 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
-	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -543,7 +543,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 
 	var syncGroupKeys [][]byte
 	for _, groupConfig := range resp.AssetSyncConfigs {
-		groupUniID, err := tap.UnmarshalUniID(groupConfig.Id)
+		groupUniID, err := rpcserver.UnmarshalUniID(groupConfig.Id)
 		require.NoError(t.t, err)
 
 		require.NotNil(t.t, groupUniID.GroupKey)
