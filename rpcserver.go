@@ -2264,7 +2264,7 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 		return nil, fmt.Errorf("a valid script key must be specified")
 	}
 
-	scriptKey, err := parseUserKey(req.ScriptKey)
+	scriptKey, err := rpcutils.ParseUserKey(req.ScriptKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid script key: %w", err)
 	}
@@ -2525,7 +2525,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 					"outpoint: %w", err)
 			}
 
-			scriptKey, err := parseUserKey(input.ScriptKey)
+			scriptKey, err := rpcutils.ParseUserKey(input.ScriptKey)
 			if err != nil {
 				return nil, fmt.Errorf("input at index %d has "+
 					"invalid script key: %w", i, err)
@@ -6032,23 +6032,6 @@ func marshalBatchState(state tapgarden.BatchState) (mintrpc.BatchState, error) {
 	}
 }
 
-// parseUserKey parses a user-provided script or group key, which can be in
-// either the Schnorr or Compressed format.
-func parseUserKey(scriptKey []byte) (*btcec.PublicKey, error) {
-	switch len(scriptKey) {
-	case schnorr.PubKeyBytesLen:
-		return schnorr.ParsePubKey(scriptKey)
-
-	// Truncate the key and then parse as a Schnorr key.
-	case btcec.PubKeyBytesLenCompressed:
-		return schnorr.ParsePubKey(scriptKey[1:])
-
-	default:
-		return nil, fmt.Errorf("unknown script key length: %v",
-			len(scriptKey))
-	}
-}
-
 func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 	req *taprpc.FetchAssetMetaRequest) (*taprpc.FetchAssetMetaResponse,
 	error) {
@@ -6439,7 +6422,7 @@ func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 		}, nil
 
 	case rpcID.GetGroupKey() != nil:
-		groupKey, err := parseUserKey(rpcID.GetGroupKey())
+		groupKey, err := rpcutils.ParseUserKey(rpcID.GetGroupKey())
 		if err != nil {
 			return universe.Identifier{}, err
 		}
@@ -6457,7 +6440,7 @@ func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 
 		// TODO(roasbeef): reuse with above
 
-		groupKey, err := parseUserKey(groupKeyBytes)
+		groupKey, err := rpcutils.ParseUserKey(groupKeyBytes)
 		if err != nil {
 			return universe.Identifier{}, err
 		}
@@ -6815,7 +6798,7 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 
 	switch {
 	case key.GetScriptKeyBytes() != nil:
-		scriptKey, err := parseUserKey(key.GetScriptKeyBytes())
+		scriptKey, err := rpcutils.ParseUserKey(key.GetScriptKeyBytes())
 		if err != nil {
 			return leafKey, err
 		}
@@ -6830,7 +6813,7 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 			return leafKey, err
 		}
 
-		scriptKey, err := parseUserKey(scriptKeyBytes)
+		scriptKey, err := rpcutils.ParseUserKey(scriptKeyBytes)
 		if err != nil {
 			return leafKey, err
 		}
@@ -7742,7 +7725,7 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("a valid script key must be specified")
 	}
 
-	scriptKey, err := parseUserKey(req.ScriptKey)
+	scriptKey, err := rpcutils.ParseUserKey(req.ScriptKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid script key: %w", err)
 	}
