@@ -76,7 +76,8 @@ func newMockVerifier(t *testing.T) *mockVerifier {
 }
 
 func (m *mockVerifier) Verify(_ context.Context, r io.Reader,
-	_ proof.VerifierCtx) (*proof.AssetSnapshot, error) {
+	_ proof.VerifierCtx, _ ...proof.VerifyOption) (*proof.AssetSnapshot,
+	error) {
 
 	f := &proof.File{}
 	err := f.Decode(r)

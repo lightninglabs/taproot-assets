@@ -73,7 +73,31 @@ type Verifier interface {
 	// error if the proof file is valid. A valid file should return an
 	// AssetSnapshot of the final state transition of the file.
 	Verify(c context.Context, blobReader io.Reader,
-		ctx VerifierCtx) (*AssetSnapshot, error)
+		ctx VerifierCtx, opts ...VerifyOption) (*AssetSnapshot, error)
+}
+
+// VerifyOption is a functional option that modifies proof file verification
+// behavior.
+type VerifyOption func(*verifyOptions)
+
+// verifyOptions contains optional settings for proof file verification.
+type verifyOptions struct {
+	// skipChainForFinalProof skips header and merkle checks for the final
+	// proof in a file.
+	skipChainForFinalProof bool
+}
+
+// defaultVerifyOptions returns a default set of proof verification options.
+func defaultVerifyOptions() *verifyOptions {
+	return &verifyOptions{}
+}
+
+// WithSkipChainVerificationForFinalProof skips chain verification for the
+// final proof in the file.
+func WithSkipChainVerificationForFinalProof() VerifyOption {
+	return func(o *verifyOptions) {
+		o.skipChainForFinalProof = true
+	}
 }
 
 // BaseVerifier implements a simple verifier that loads the entire proof file
@@ -93,7 +117,7 @@ type CommittedVersions = map[uint32][]commitment.TapCommitmentVersion
 // error if the proof file is valid. A valid file should return an
 // AssetSnapshot of the final state transition of the file.
 func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
-	vCtx VerifierCtx) (*AssetSnapshot, error) {
+	vCtx VerifierCtx, opts ...VerifyOption) (*AssetSnapshot, error) {
 
 	var proofFile File
 	err := proofFile.Decode(blobReader)
@@ -101,7 +125,7 @@ func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
 		return nil, fmt.Errorf("unable to parse proof: %w", err)
 	}
 
-	return proofFile.Verify(ctx, vCtx)
+	return proofFile.Verify(ctx, vCtx, opts...)
 }
 
 // verifyTaprootProof attempts to verify a TaprootProof for inclusion or
@@ -830,6 +854,10 @@ type proofVerificationParams struct {
 	// ownership proof. This field is only populated when the corresponding
 	// ProofVerificationOption option is defined.
 	ChallengeBytes fn.Option[[32]byte]
+
+	// SkipChainVerification skips header and merkle checks during proof
+	// verification.
+	SkipChainVerification bool
 }
 
 // WithChallengeBytes is a ProofVerificationOption that defines some challenge
@@ -839,6 +867,13 @@ func WithChallengeBytes(challenge [32]byte) ProofVerificationOption {
 		var byteCopy [32]byte
 		copy(byteCopy[:], challenge[:])
 		p.ChallengeBytes = fn.Some(byteCopy)
+	}
+}
+
+// WithSkipChainVerification skips header and merkle verification for a proof.
+func WithSkipChainVerification() ProofVerificationOption {
+	return func(p *proofVerificationParams) {
+		p.SkipChainVerification = true
 	}
 }
 
@@ -971,20 +1006,24 @@ func (p *Proof) VerifyProofIntegrity(ctx context.Context, vCtx VerifierCtx,
 			commitment.ErrInvalidTaprootProof)
 	}
 
-	// Cross-check block header with a bitcoin node.
-	err = vCtx.HeaderVerifier(p.BlockHeader, p.BlockHeight)
-	if err != nil {
-		return nil, fmt.Errorf("failed to validate proof block "+
-			"header: %w", err)
-	}
+	if !verificationParams.SkipChainVerification {
+		// Cross-check block header with a bitcoin node.
+		err = vCtx.HeaderVerifier(p.BlockHeader, p.BlockHeight)
+		if err != nil {
+			return nil, fmt.Errorf("failed to validate proof "+
+				"block header: %w", err)
+		}
 
-	// Assert that the transaction is in the block via the merkle proof.
-	err = vCtx.MerkleVerifier(
-		&p.AnchorTx, &p.TxMerkleProof, p.BlockHeader.MerkleRoot,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: failed to validate merkle proof: "+
-			"%w", err, ErrInvalidTxMerkleProof)
+		// Assert that the transaction is in the block via the merkle
+		// proof.
+		err = vCtx.MerkleVerifier(
+			&p.AnchorTx, &p.TxMerkleProof, p.BlockHeader.MerkleRoot,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("%w: failed to validate "+
+				"merkle proof: %w", err,
+				ErrInvalidTxMerkleProof)
+		}
 	}
 
 	// TODO(jhb): check for genesis asset and populate asset fields before
@@ -1115,12 +1154,17 @@ func (p *Proof) VerifyProofs() (*commitment.TapCommitment, error) {
 //
 // TODO(roasbeef): pass in the expected genesis point here?
 func (f *File) Verify(ctx context.Context,
-	vCtx VerifierCtx) (*AssetSnapshot, error) {
+	vCtx VerifierCtx, opts ...VerifyOption) (*AssetSnapshot, error) {
 
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
+	}
+
+	verifyOpts := defaultVerifyOptions()
+	for _, opt := range opts {
+		opt(verifyOpts)
 	}
 
 	// Check only for the proof file version and not file emptiness,
@@ -1144,8 +1188,17 @@ func (f *File) Verify(ctx context.Context,
 			return nil, err
 		}
 
+		var proofOpts []ProofVerificationOption
+		if verifyOpts.skipChainForFinalProof &&
+			idx == len(f.proofs)-1 {
+
+			proofOpts = append(
+				proofOpts, WithSkipChainVerification(),
+			)
+		}
+
 		result, err := decodedProof.Verify(
-			ctx, prev, chainLookup, vCtx,
+			ctx, prev, chainLookup, vCtx, proofOpts...,
 		)
 		if err != nil {
 			return nil, err
