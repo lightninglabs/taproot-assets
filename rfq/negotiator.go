@@ -1,10 +1,10 @@
 package rfq
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -25,10 +25,6 @@ const (
 	//
 	// NOTE: This value is set to 5% (50,000 ppm).
 	DefaultAcceptPriceDeviationPpm = 50_000
-
-	// DefaultPortfolioPilotTimeout is the default timeout imposed when
-	// calling into the portfolio pilot.
-	DefaultPortfolioPilotTimeout = 20 * time.Second
 )
 
 // NegotiatorCfg holds the configuration for the negotiator.
@@ -142,7 +138,7 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 // getAssetRateHint queries the portfolio pilot for an asset rate hint based on
 // the provided order. Returns None if portfolio pilot is not configured, price
 // hints are disabled, or the query fails.
-func (n *Negotiator) getAssetRateHint(order Order,
+func (n *Negotiator) getAssetRateHint(ctx context.Context, order Order,
 	assetAmount fn.Option[uint64],
 	paymentAmt fn.Option[lnwire.MilliSatoshi]) fn.Option[rfqmsg.AssetRate] {
 
@@ -177,10 +173,6 @@ func (n *Negotiator) getAssetRateHint(order Order,
 		peerID = order.GetPeer()
 	}
 
-	// Query the portfolio pilot for a rate.
-	ctx, cancel := n.WithCtxQuitNoTimeout()
-	defer cancel()
-
 	var oracleMetadata fn.Option[string]
 	if order.GetPriceOracleMetadata() != "" {
 		oracleMetadata = fn.Some(order.GetPriceOracleMetadata())
@@ -214,7 +206,7 @@ func (n *Negotiator) getAssetRateHint(order Order,
 // HandleOutgoingBuyOrder handles an outgoing buy order by constructing buy
 // requests and passing them to the outgoing messages channel. These requests
 // are sent to peers.
-func (n *Negotiator) HandleOutgoingBuyOrder(
+func (n *Negotiator) HandleOutgoingBuyOrder(ctx context.Context,
 	buyOrder BuyOrder) (rfqmsg.ID, error) {
 
 	// Whenever this method returns an error we want to notify both the RFQ
@@ -237,7 +229,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(
 
 	// We calculate a proposed buy rate for our peer's consideration.
 	assetRateHint := n.getAssetRateHint(
-		&buyOrder, fn.Some(buyOrder.AssetMaxAmt),
+		ctx, &buyOrder, fn.Some(buyOrder.AssetMaxAmt),
 		fn.None[lnwire.MilliSatoshi](),
 	)
 
@@ -273,7 +265,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(
 // queries the portfolio pilot to determine whether to accept or reject the
 // quote. Based on the pilot's decision, it sends either an accept message with
 // an asset rate or a reject message to outgoing messages channel.
-func (n *Negotiator) HandleIncomingQuoteRequest(
+func (n *Negotiator) HandleIncomingQuoteRequest(ctx context.Context,
 	request rfqmsg.Request) error {
 
 	// Define a thread safe helper function for adding outgoing message to
@@ -294,11 +286,6 @@ func (n *Negotiator) HandleIncomingQuoteRequest(
 	// The portfolio pilot might be an external service, responses could be
 	// delayed.
 	n.Goroutine(func() error {
-		ctx, cancel := n.WithCtxQuitCustomTimeout(
-			DefaultPortfolioPilotTimeout,
-		)
-		defer cancel()
-
 		resp, err := n.cfg.PortfolioPilot.ResolveRequest(ctx, request)
 		if err != nil {
 			// Construct an appropriate RejectErr based on
@@ -377,7 +364,7 @@ func customRejectErr(err error) rfqmsg.RejectErr {
 // HandleOutgoingSellOrder handles an outgoing sell order by constructing sell
 // requests and passing them to the outgoing messages channel. These requests
 // are sent to peers.
-func (n *Negotiator) HandleOutgoingSellOrder(
+func (n *Negotiator) HandleOutgoingSellOrder(ctx context.Context,
 	order SellOrder) (rfqmsg.ID, error) {
 
 	// Whenever this method returns an error we want to notify both the RFQ
@@ -400,7 +387,7 @@ func (n *Negotiator) HandleOutgoingSellOrder(
 
 	// We calculate a proposed sell rate for our peer's consideration.
 	assetRateHint := n.getAssetRateHint(
-		&order, fn.None[uint64](), fn.Some(order.PaymentMaxAmt),
+		ctx, &order, fn.None[uint64](), fn.Some(order.PaymentMaxAmt),
 	)
 
 	request, err := rfqmsg.NewSellRequest(
@@ -430,7 +417,8 @@ func (n *Negotiator) HandleOutgoingSellOrder(
 // is called when a peer accepts a quote request from this node. The method
 // delegates validation to the portfolio pilot. Once validation is complete,
 // the finalise callback function is called.
-func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
+func (n *Negotiator) HandleIncomingBuyAccept(ctx context.Context,
+	msg rfqmsg.BuyAccept,
 	finalise func(rfqmsg.BuyAccept, fn.Option[InvalidQuoteRespEvent])) {
 
 	if n.cfg.SkipQuoteAcceptVerify {
@@ -442,11 +430,6 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	// This avoids blocking, as the portfolio pilot may be an external
 	// service.
 	n.Goroutine(func() error {
-		ctx, cancel := n.WithCtxQuitCustomTimeout(
-			DefaultPortfolioPilotTimeout,
-		)
-		defer cancel()
-
 		// Use the portfolio pilot to verify the accept quote.
 		status, err := n.cfg.PortfolioPilot.VerifyAcceptQuote(
 			ctx, &msg,
@@ -487,7 +470,8 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 // is called when a peer accepts a quote request from this node. The method
 // delegates validation to the portfolio pilot. Once validation is complete,
 // the finalise callback function is called.
-func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
+func (n *Negotiator) HandleIncomingSellAccept(ctx context.Context,
+	msg rfqmsg.SellAccept,
 	finalise func(rfqmsg.SellAccept, fn.Option[InvalidQuoteRespEvent])) {
 
 	if n.cfg.SkipQuoteAcceptVerify {
@@ -499,11 +483,6 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 	// This avoids blocking, as the portfolio pilot may be an external
 	// service.
 	n.Goroutine(func() error {
-		ctx, cancel := n.WithCtxQuitCustomTimeout(
-			DefaultPortfolioPilotTimeout,
-		)
-		defer cancel()
-
 		// Use the portfolio pilot to verify the accept quote.
 		status, err := n.cfg.PortfolioPilot.VerifyAcceptQuote(
 			ctx, &msg,

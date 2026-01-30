@@ -151,7 +151,8 @@ func assertIncomingSellAcceptTestCase(
 	}
 
 	// Handle the incoming sell accept message.
-	negotiator.HandleIncomingSellAccept(sellAccept, finalise)
+	ctx := context.Background()
+	negotiator.HandleIncomingSellAccept(ctx, sellAccept, finalise)
 
 	// Check that there are no errors.
 	select {
@@ -337,7 +338,8 @@ func assertIncomingBuyAcceptTestCase(
 	}
 
 	// Handle the incoming buy accept message.
-	negotiator.HandleIncomingBuyAccept(buyAccept, finalise)
+	ctx := context.Background()
+	negotiator.HandleIncomingBuyAccept(ctx, buyAccept, finalise)
 
 	// Check that there are no errors.
 	select {
@@ -470,7 +472,10 @@ func TestHandleIncomingQuoteRequestError(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			err = negotiator.HandleIncomingQuoteRequest(tc.request)
+			ctx := context.Background()
+			err = negotiator.HandleIncomingQuoteRequest(
+				ctx, tc.request,
+			)
 			require.NoError(t, err)
 			negotiator.Wg.Wait()
 

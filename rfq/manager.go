@@ -343,7 +343,7 @@ func (m *Manager) Start() error {
 			}()
 
 			log.Info("Starting RFQ manager main event loop")
-			m.mainEventLoop()
+			m.mainEventLoop(ctx)
 		}()
 	})
 	return startErr
@@ -390,11 +390,13 @@ func (m *Manager) stopSubsystems() error {
 
 // handleIncomingMessage handles an incoming message. These are messages that
 // have been received from a peer.
-func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
+func (m *Manager) handleIncomingMessage(ctx context.Context,
+	incomingMsg rfqmsg.IncomingMsg) error {
+
 	// Perform type specific handling of the incoming message.
 	switch msg := incomingMsg.(type) {
 	case *rfqmsg.BuyRequest:
-		err := m.negotiator.HandleIncomingQuoteRequest(msg)
+		err := m.negotiator.HandleIncomingQuoteRequest(ctx, msg)
 		if err != nil {
 			return fmt.Errorf("error handling incoming buy "+
 				"request: %w", err)
@@ -444,10 +446,12 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 			m.publishSubscriberEvent(event)
 		}
 
-		m.negotiator.HandleIncomingBuyAccept(*msg, finaliseCallback)
+		m.negotiator.HandleIncomingBuyAccept(
+			ctx, *msg, finaliseCallback,
+		)
 
 	case *rfqmsg.SellRequest:
-		err := m.negotiator.HandleIncomingQuoteRequest(msg)
+		err := m.negotiator.HandleIncomingQuoteRequest(ctx, msg)
 		if err != nil {
 			return fmt.Errorf("error handling incoming sell "+
 				"request: %w", err)
@@ -481,7 +485,9 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 			m.publishSubscriberEvent(event)
 		}
 
-		m.negotiator.HandleIncomingSellAccept(*msg, finaliseCallback)
+		m.negotiator.HandleIncomingSellAccept(
+			ctx, *msg, finaliseCallback,
+		)
 
 	case *rfqmsg.Reject:
 		// The quote request has been rejected. Notify subscribers of
@@ -498,7 +504,9 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 
 // handleOutgoingMessage handles an outgoing message. Outgoing messages are
 // messages that will be sent to a peer.
-func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
+func (m *Manager) handleOutgoingMessage(ctx context.Context,
+	outgoingMsg rfqmsg.OutgoingMsg) error {
+
 	// Perform type specific handling of the outgoing message.
 	switch msg := outgoingMsg.(type) {
 	case *rfqmsg.BuyAccept:
@@ -507,7 +515,7 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 		// we inform our peer of our decision, we inform the order
 		// handler that we are willing to sell the asset subject to a
 		// sale policy.
-		err := m.orderHandler.RegisterAssetSalePolicy(*msg)
+		err := m.orderHandler.RegisterAssetSalePolicy(ctx, *msg)
 		if err != nil {
 			return fmt.Errorf("registering asset sale "+
 				"policy: %w", err)
@@ -530,7 +538,7 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 		// we inform our peer of our decision, we inform the order
 		// handler that we are willing to buy the asset subject to a
 		// purchase policy.
-		err := m.orderHandler.RegisterAssetPurchasePolicy(*msg)
+		err := m.orderHandler.RegisterAssetPurchasePolicy(ctx, *msg)
 		if err != nil {
 			return fmt.Errorf("registering asset purchase "+
 				"policy: %w", err)
@@ -538,7 +546,7 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 	}
 
 	// Send the outgoing message to the peer.
-	err := m.streamHandler.HandleOutgoingMessage(outgoingMsg)
+	err := m.streamHandler.HandleOutgoingMessage(ctx, outgoingMsg)
 	if err != nil {
 		return fmt.Errorf("error sending outgoing message to stream "+
 			"handler: %w", err)
@@ -609,7 +617,7 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 }
 
 // mainEventLoop is the main event loop of the RFQ manager.
-func (m *Manager) mainEventLoop() {
+func (m *Manager) mainEventLoop(ctx context.Context) {
 	for {
 		select {
 		// Handle incoming message.
@@ -617,7 +625,7 @@ func (m *Manager) mainEventLoop() {
 			log.Debugf("Manager handling incoming message: %s",
 				incomingMsg)
 
-			err := m.handleIncomingMessage(incomingMsg)
+			err := m.handleIncomingMessage(ctx, incomingMsg)
 			if err != nil {
 				m.handleError(
 					fmt.Errorf("failed to handle "+
@@ -630,7 +638,7 @@ func (m *Manager) mainEventLoop() {
 			log.Debugf("Manager handling outgoing message: %s",
 				outgoingMsg)
 
-			err := m.handleOutgoingMessage(outgoingMsg)
+			err := m.handleOutgoingMessage(ctx, outgoingMsg)
 			if err != nil {
 				m.handleError(
 					fmt.Errorf("failed to handle outgoing "+
@@ -697,7 +705,9 @@ func (m *Manager) UpsertAssetBuyOffer(offer BuyOffer) error {
 }
 
 // UpsertAssetBuyOrder upserts an asset buy order for management.
-func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) (rfqmsg.ID, error) {
+func (m *Manager) UpsertAssetBuyOrder(ctx context.Context,
+	order BuyOrder) (rfqmsg.ID, error) {
+
 	// For now, a peer must be specified.
 	//
 	// TODO(ffranr): Add support for peerless buy orders. The negotiator
@@ -708,7 +718,7 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) (rfqmsg.ID, error) {
 	}
 
 	// Request a quote from a peer via the negotiator.
-	id, err := m.negotiator.HandleOutgoingBuyOrder(order)
+	id, err := m.negotiator.HandleOutgoingBuyOrder(ctx, order)
 	if err != nil {
 		return rfqmsg.ID{}, fmt.Errorf("error registering asset buy "+
 			"order: %w", err)
@@ -718,7 +728,9 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) (rfqmsg.ID, error) {
 }
 
 // UpsertAssetSellOrder upserts an asset sell order for management.
-func (m *Manager) UpsertAssetSellOrder(order SellOrder) (rfqmsg.ID, error) {
+func (m *Manager) UpsertAssetSellOrder(ctx context.Context,
+	order SellOrder) (rfqmsg.ID, error) {
+
 	// For now, a peer must be specified.
 	//
 	// TODO(ffranr): Add support for peerless sell orders. The negotiator
@@ -730,7 +742,7 @@ func (m *Manager) UpsertAssetSellOrder(order SellOrder) (rfqmsg.ID, error) {
 
 	// Pass the asset sell order to the negotiator which will generate sell
 	// request messages to send to peers.
-	return m.negotiator.HandleOutgoingSellOrder(order)
+	return m.negotiator.HandleOutgoingSellOrder(ctx, order)
 }
 
 // PeerAcceptedBuyQuotes returns buy quotes that were requested by our node and

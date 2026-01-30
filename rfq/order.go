@@ -1036,7 +1036,7 @@ func (h *OrderHandler) ReportMainChanError(err error) {
 // RegisterAssetSalePolicy generates and registers an asset sale policy with the
 // order handler. This function takes an outgoing buy accept message as an
 // argument.
-func (h *OrderHandler) RegisterAssetSalePolicy(
+func (h *OrderHandler) RegisterAssetSalePolicy(ctx context.Context,
 	buyAccept rfqmsg.BuyAccept) error {
 
 	log.Debugf("Order handler is registering an asset sale policy given a "+
@@ -1045,9 +1045,6 @@ func (h *OrderHandler) RegisterAssetSalePolicy(
 	policy := NewAssetSalePolicy(
 		buyAccept, h.cfg.NoOpHTLCs, h.cfg.AuxChanNegotiator,
 	)
-
-	ctx, cancel := h.WithCtxQuit()
-	defer cancel()
 
 	err := h.policyStore.StoreSalePolicy(ctx, buyAccept)
 	if err != nil {
@@ -1068,16 +1065,13 @@ func (h *OrderHandler) RegisterAssetSalePolicy(
 // RegisterAssetPurchasePolicy generates and registers an asset buy policy with
 // the order handler. This function takes an incoming sell accept message as an
 // argument.
-func (h *OrderHandler) RegisterAssetPurchasePolicy(
+func (h *OrderHandler) RegisterAssetPurchasePolicy(ctx context.Context,
 	sellAccept rfqmsg.SellAccept) error {
 
 	log.Debugf("Order handler is registering an asset buy policy given a "+
 		"sell accept message: %s", sellAccept.String())
 
 	policy := NewAssetPurchasePolicy(sellAccept)
-
-	ctx, cancel := h.WithCtxQuit()
-	defer cancel()
 
 	err := h.policyStore.StorePurchasePolicy(ctx, sellAccept)
 	if err != nil {
