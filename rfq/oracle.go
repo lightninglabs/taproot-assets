@@ -370,7 +370,11 @@ func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
 		Metadata:              metadata,
 	}
 
-	// Perform query.
+	log.Debugf("Querying price oracle for sell price (asset_specifier=%s, "+
+		"asset_max_amt=%s, payment_max_amt=%s, asset_rate_hint=%s)",
+		assetSpecifier.String(), assetMaxAmt.String(),
+		paymentMaxAmt.String(), assetRateHint.String())
+
 	resp, err := r.client.QueryAssetRates(ctx, req)
 	if err != nil {
 		return nil, err
@@ -497,7 +501,11 @@ func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context,
 		Metadata:              metadata,
 	}
 
-	// Perform query.
+	log.Debugf("Querying price oracle for buy price (asset_specifier=%s, "+
+		"asset_max_amt=%s, payment_max_amt=%s, asset_rate_hint=%s)",
+		assetSpecifier.String(), assetMaxAmt.String(),
+		paymentMaxAmt.String(), assetRateHint.String())
+
 	resp, err := r.client.QueryAssetRates(ctx, req)
 	if err != nil {
 		return nil, err
