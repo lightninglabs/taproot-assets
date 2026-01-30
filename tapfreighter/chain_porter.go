@@ -1408,10 +1408,21 @@ func (p *ChainPorter) prelimCheckAddrParcel(addrParcel AddressParcel) error {
 	return nil
 }
 
-// verifyVPackets performs various verification checks on the given virtual
-// packets.
-func (p *ChainPorter) verifyVPackets(ctx context.Context,
+// verifyVPacketsPreBroadcast performs verification checks on the given virtual
+// packets before the anchor transaction is broadcast.
+func (p *ChainPorter) verifyVPacketsPreBroadcast(ctx context.Context,
 	packets []*tappsbt.VPacket) error {
+
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
+	vCtx := proof.VerifierCtx{
+		HeaderVerifier: headerVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		GroupVerifier:  p.cfg.GroupVerifier,
+		ChainLookupGen: p.cfg.ChainBridge,
+		IgnoreChecker:  p.cfg.IgnoreChecker,
+	}
+
+	verifier := &proof.BaseVerifier{}
 
 	for pktIdx := range packets {
 		vPkt := packets[pktIdx]
@@ -1427,6 +1438,148 @@ func (p *ChainPorter) verifyVPackets(ctx context.Context,
 			return fmt.Errorf("verify split commitment "+
 				"witnesses (vpkt_idx=%d): %w", pktIdx, err)
 		}
+
+		// Partially verify the packet's output proofs.
+		for outIdx := range vPkt.Outputs {
+			err := p.verifyOutputProofPreBroadcast(
+				ctx, vCtx, verifier, vPkt, pktIdx, outIdx,
+			)
+			if err != nil {
+				return fmt.Errorf("verify output proofs "+
+					"(vpkt_idx=%d): %w", pktIdx, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// verifyOutputProofPreBroadcast verifies a single packet output proof by
+// assembling a full proof file and skipping chain and time lock verification
+// for the final proof, since the anchor transaction is not yet confirmed.
+func (p *ChainPorter) verifyOutputProofPreBroadcast(ctx context.Context,
+	vCtx proof.VerifierCtx, verifier proof.Verifier,
+	vPkt *tappsbt.VPacket, pktIdx, outIdx int) error {
+
+	vOut := vPkt.Outputs[outIdx]
+	if vOut.ProofSuffix == nil {
+		return fmt.Errorf("output proof suffix is nil "+
+			"(vpkt_idx=%d, output_idx=%d)",
+			pktIdx, outIdx)
+	}
+
+	if vOut.Asset == nil {
+		return fmt.Errorf("output asset is nil "+
+			"(vpkt_idx=%d, output_idx=%d)",
+			pktIdx, outIdx)
+	}
+
+	witnesses := vOut.Asset.Witnesses()
+	witnessPrevIDs := make(
+		map[asset.PrevID]struct{}, len(witnesses),
+	)
+	for _, witness := range witnesses {
+		if witness.PrevID == nil {
+			continue
+		}
+
+		witnessPrevIDs[*witness.PrevID] = struct{}{}
+	}
+
+	inputsForAsset := make(
+		[]asset.PrevID, 0, len(vPkt.Inputs),
+	)
+	for _, in := range vPkt.Inputs {
+		if _, ok := witnessPrevIDs[in.PrevID]; ok {
+			inputsForAsset = append(
+				inputsForAsset, in.PrevID,
+			)
+		}
+	}
+	if len(inputsForAsset) == 0 {
+		return fmt.Errorf("no inputs matched output "+
+			"witnesses (vpkt_idx=%d, "+
+			"output_idx=%d)", pktIdx, outIdx)
+	}
+
+	var suffixBuf bytes.Buffer
+	err := vOut.ProofSuffix.Encode(&suffixBuf)
+	if err != nil {
+		return fmt.Errorf("unable to encode proof "+
+			"suffix (vpkt_idx=%d, "+
+			"output_idx=%d): %w", pktIdx,
+			outIdx, err)
+	}
+
+	proofSuffix := &proof.Proof{}
+	if err := proofSuffix.Decode(
+		bytes.NewReader(suffixBuf.Bytes()),
+	); err != nil {
+		return fmt.Errorf("unable to decode proof "+
+			"suffix (vpkt_idx=%d, "+
+			"output_idx=%d): %w", pktIdx,
+			outIdx, err)
+	}
+
+	for idx := 1; idx < len(inputsForAsset); idx++ {
+		additionalInputProofFile, err :=
+			p.fetchInputProof(ctx, inputsForAsset[idx])
+		if err != nil {
+			return fmt.Errorf("error fetching "+
+				"additional input proof %d "+
+				"(vpkt_idx=%d, "+
+				"output_idx=%d): %w", idx,
+				pktIdx, outIdx, err)
+		}
+
+		proofSuffix.AdditionalInputs = append(
+			proofSuffix.AdditionalInputs,
+			*additionalInputProofFile,
+		)
+	}
+
+	inputProofFile, err := p.fetchInputProof(
+		ctx, inputsForAsset[0],
+	)
+	if err != nil {
+		return fmt.Errorf("error fetching input "+
+			"proof (vpkt_idx=%d, "+
+			"output_idx=%d): %w", pktIdx,
+			outIdx, err)
+	}
+
+	if err := inputProofFile.AppendProof(
+		*proofSuffix,
+	); err != nil {
+		return fmt.Errorf("error appending "+
+			"proof suffix (vpkt_idx=%d, "+
+			"output_idx=%d): %w", pktIdx,
+			outIdx, err)
+	}
+
+	var proofFileBuf bytes.Buffer
+	err = inputProofFile.Encode(&proofFileBuf)
+	if err != nil {
+		return fmt.Errorf("error encoding proof "+
+			"file (vpkt_idx=%d, "+
+			"output_idx=%d): %w", pktIdx,
+			outIdx, err)
+	}
+
+	// We skip locktime checks on the final proof (when a locktime is set)
+	// since pre-broadcast validation has no confirmed block to evaluate
+	// against.
+	_, err = verifier.Verify(
+		ctx, bytes.NewReader(proofFileBuf.Bytes()),
+		vCtx,
+		proof.WithSkipChainVerificationForFinalProof(),
+		proof.WithSkipTimeLockValidationForFinalProof(),
+	)
+	if err != nil {
+		return fmt.Errorf("output proof verification "+
+			"failed (vpkt_idx=%d, "+
+			"output_idx=%d): %w", pktIdx,
+			outIdx, err)
 	}
 
 	return nil
@@ -1753,7 +1906,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		allPackets = append(allPackets, currentPkg.VirtualPackets...)
 		allPackets = append(allPackets, currentPkg.PassiveAssets...)
 
-		err := p.verifyVPackets(ctx, allPackets)
+		err := p.verifyVPacketsPreBroadcast(ctx, allPackets)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
 
