@@ -131,24 +131,6 @@ type OracleResponse struct {
 	Err *OracleError
 }
 
-// Validate performs basic validation on the oracle response.
-func (r *OracleResponse) Validate() error {
-	if r == nil {
-		return fmt.Errorf("price oracle returned nil response")
-	}
-
-	// nolint: nilerr
-	if r.Err != nil {
-		return fmt.Errorf("price oracle returned error: %w", r.Err)
-	}
-
-	if r.AssetRate.Rate.Coefficient.ToUint64() == 0 {
-		return fmt.Errorf("price oracle did not specify an asset rate")
-	}
-
-	return nil
-}
-
 // OracleAddr is a type alias for a URL type that represents a price oracle
 // service address.
 type OracleAddr = url.URL
@@ -396,6 +378,10 @@ func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
 			return nil, err
 		}
 
+		if rate.Coefficient.ToUint64() == 0 {
+			return nil, fmt.Errorf("asset rate unspecified")
+		}
+
 		// Unmarshal the expiry timestamp.
 		if result.Ok.AssetRates.ExpiryTimestamp > math.MaxInt64 {
 			return nil, fmt.Errorf("expiry timestamp exceeds " +
@@ -525,6 +511,10 @@ func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context,
 		)
 		if err != nil {
 			return nil, err
+		}
+
+		if rate.Coefficient.ToUint64() == 0 {
+			return nil, fmt.Errorf("asset rate unspecified")
 		}
 
 		// Unmarshal the expiry timestamp.

@@ -218,6 +218,7 @@ func TestRpcPriceOracleQueryAskPrice(t *testing.T) {
 		{
 			name: "asset ID only; suggested asset " +
 				"rate 0",
+			expectError:        true,
 			assetId:            &assetId,
 			suggestedAssetRate: 0,
 		},

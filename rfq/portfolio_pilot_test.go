@@ -234,38 +234,6 @@ func TestResolveRequest(t *testing.T) {
 			expectErr: "price oracle returned error",
 		},
 		{
-			name: "buy: nil oracle response",
-			makeReq: func(t *testing.T) rfqmsg.Request {
-				return newBuyReq(
-					t, 0x06, fn.None[rfqmsg.AssetRate](),
-				)
-			},
-			setupOracle: func(o *MockPriceOracle) {
-				expectQuerySellPrice(o, nil, nil)
-			},
-			expectErr: "nil response",
-		},
-		{
-			name: "buy: missing asset rate",
-			makeReq: func(t *testing.T) rfqmsg.Request {
-				return newBuyReq(
-					t, 0x04, fn.None[rfqmsg.AssetRate](),
-				)
-			},
-			setupOracle: func(o *MockPriceOracle) {
-				assetRate := rfqmsg.NewAssetRate(
-					rfqmath.NewBigIntFixedPoint(0, 0),
-					time.Now().Add(time.Minute).UTC(),
-				)
-				expectQuerySellPrice(
-					o, &OracleResponse{
-						AssetRate: assetRate,
-					}, nil,
-				)
-			},
-			expectErr: "price oracle did not specify an asset rate",
-		},
-		{
 			name:        "buy: success forward peer",
 			forwardPeer: true,
 			makeReq: func(t *testing.T) rfqmsg.Request {
@@ -398,40 +366,6 @@ func TestResolveRequest(t *testing.T) {
 				expectQueryBuyPrice(o, &resp, nil)
 			},
 			expectErr: "price oracle returned error",
-		},
-		{
-			name: "sell: nil oracle response",
-			makeReq: func(t *testing.T) rfqmsg.Request {
-				return newSellReq(
-					t, 0x09, lnwire.MilliSatoshi(7500),
-					fn.None[rfqmsg.AssetRate](),
-				)
-			},
-			setupOracle: func(o *MockPriceOracle) {
-				expectQueryBuyPrice(o, nil, nil)
-			},
-			expectErr: "nil response",
-		},
-		{
-			name: "sell: missing asset rate",
-			makeReq: func(t *testing.T) rfqmsg.Request {
-				return newSellReq(
-					t, 0x0A, lnwire.MilliSatoshi(9000),
-					fn.None[rfqmsg.AssetRate](),
-				)
-			},
-			setupOracle: func(o *MockPriceOracle) {
-				assetRate := rfqmsg.NewAssetRate(
-					rfqmath.NewBigIntFixedPoint(0, 0),
-					time.Now().Add(time.Minute).UTC(),
-				)
-				expectQueryBuyPrice(
-					o, &OracleResponse{
-						AssetRate: assetRate,
-					}, nil,
-				)
-			},
-			expectErr: "price oracle did not specify an asset rate",
 		},
 		{
 			name:        "sell: success forward peer",
@@ -659,30 +593,6 @@ func TestVerifyAcceptQuote(t *testing.T) {
 			expectStatus:       PriceOracleQueryErrQuoteRespStatus,
 			expectErr:          true,
 			expectErrSubstring: "query buy price from oracle",
-		},
-		{
-			name: "buy accept: oracle nil response",
-			makeAccept: func(t *testing.T) rfqmsg.Accept {
-				buyReq, err := rfqmsg.NewBuyRequest(
-					peerID, assetSpec, 100,
-					fn.None[rfqmsg.AssetRate](),
-					"metadata",
-				)
-				require.NoError(t, err)
-
-				return &rfqmsg.BuyAccept{
-					Peer:      peerID,
-					Request:   *buyReq,
-					AssetRate: peerRate,
-				}
-			},
-			setupOracle: func(p *MockPriceOracle) {
-				expectQueryBuyPrice(p, nil, nil)
-			},
-			expectStatus: PriceOracleQueryErrQuoteRespStatus,
-			expectErr:    true,
-			expectErrSubstring: "price oracle returned nil " +
-				"response",
 		},
 		{
 			name: "buy accept: oracle error response",
