@@ -3,6 +3,7 @@ package proof
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -15,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/vm"
 	"github.com/stretchr/testify/require"
 )
 
@@ -103,6 +105,46 @@ func TestAppendTransition(t *testing.T) {
 			)
 		})
 	}
+}
+
+// TestFinalProofSkipTimeLockCLTV ensures time lock validation is skipped for
+// the final proof when a CLTV locktime is present.
+func TestFinalProofSkipTimeLockCLTV(t *testing.T) {
+	t.Parallel()
+
+	f := buildTransitionProofFile(t, 500, 0)
+
+	_, err := f.Verify(context.Background(), MockVerifierCtx)
+	require.Error(t, err)
+	var vmErr vm.Error
+	require.True(t, errors.As(err, &vmErr))
+	require.Equal(t, vm.ErrUnfinalizedAsset, vmErr.Kind)
+
+	_, err = f.Verify(
+		context.Background(), MockVerifierCtx,
+		WithSkipTimeLockValidationForFinalProof(),
+	)
+	require.NoError(t, err)
+}
+
+// TestFinalProofSkipTimeLockCSV ensures time lock validation is skipped for the
+// final proof when a CSV locktime is present.
+func TestFinalProofSkipTimeLockCSV(t *testing.T) {
+	t.Parallel()
+
+	f := buildTransitionProofFile(t, 0, 6)
+
+	_, err := f.Verify(context.Background(), MockVerifierCtx)
+	require.Error(t, err)
+	var vmErr vm.Error
+	require.True(t, errors.As(err, &vmErr))
+	require.Equal(t, vm.ErrUnfinalizedAsset, vmErr.Kind)
+
+	_, err = f.Verify(
+		context.Background(), MockVerifierCtx,
+		WithSkipTimeLockValidationForFinalProof(),
+	)
+	require.NoError(t, err)
 }
 
 // runAppendTransitionTest runs the test that makes sure a proof can be appended
@@ -559,6 +601,99 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	split3Snapshot := verifyBlob(t, split3Blob)
 
 	require.True(t, split3Snapshot.SplitAsset)
+}
+
+// buildTransitionProofFile constructs a proof file with a genesis proof and a
+// single transfer proof that uses the given lock times.
+func buildTransitionProofFile(t *testing.T, lockTime,
+	relativeLockTime uint64) *File {
+
+	t.Helper()
+
+	amt := uint64(100)
+	genesisProof, senderPrivKey := genRandomGenesisWithProof(
+		t, asset.Normal, &amt, nil, true, nil, nil, nil, nil, asset.V0,
+	)
+
+	recipientPrivKey := test.RandPrivKey()
+	newAsset := *genesisProof.Asset.Copy()
+	newAsset.ScriptKey = asset.NewScriptKeyBip86(
+		test.PubToKeyDesc(recipientPrivKey.PubKey()),
+	)
+	newAsset.LockTime = lockTime
+	newAsset.RelativeLockTime = relativeLockTime
+
+	signAssetTransfer(t, &genesisProof, &newAsset, senderPrivKey, nil)
+
+	assetCommitment, err := commitment.NewAssetCommitment(&newAsset)
+	require.NoError(t, err)
+	tapCommitment, err := commitment.NewTapCommitment(nil, assetCommitment)
+	require.NoError(t, err)
+
+	altLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
+	stxoAsset, err := asset.MakeSpentAsset(newAsset.PrevWitnesses[0])
+	require.NoError(t, err)
+
+	stxoLeaf := asset.ToAltLeaves([]*asset.Asset{stxoAsset})
+	altLeaves = append(altLeaves, stxoLeaf...)
+	require.NoError(t, tapCommitment.MergeAltLeaves(altLeaves))
+
+	recipientTaprootInternalKey := test.SchnorrPubKey(t, recipientPrivKey)
+	tapscriptRoot := tapCommitment.TapscriptRoot(nil)
+	taprootKey := txscript.ComputeTaprootOutputKey(
+		recipientTaprootInternalKey, tapscriptRoot[:],
+	)
+	taprootScript := test.ComputeTaprootScript(t, taprootKey)
+
+	chainTx := &wire.MsgTx{
+		Version: 2,
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: wire.OutPoint{
+				Hash:  genesisProof.AnchorTx.TxHash(),
+				Index: 0,
+			},
+		}},
+		TxOut: []*wire.TxOut{{
+			PkScript: taprootScript,
+			Value:    330,
+		}},
+	}
+
+	merkleTree := blockchain.BuildMerkleTreeStore(
+		[]*btcutil.Tx{btcutil.NewTx(chainTx)}, false,
+	)
+	merkleRoot := merkleTree[len(merkleTree)-1]
+	genesisHash := genesisProof.BlockHeader.BlockHash()
+	blockHeader := wire.NewBlockHeader(0, &genesisHash, merkleRoot, 0, 0)
+
+	transitionParams := &TransitionParams{
+		BaseProofParams: BaseProofParams{
+			Block: &wire.MsgBlock{
+				Header:       *blockHeader,
+				Transactions: []*wire.MsgTx{chainTx},
+			},
+			Tx:               chainTx,
+			TxIndex:          0,
+			OutputIndex:      0,
+			InternalKey:      recipientTaprootInternalKey,
+			TaprootAssetRoot: tapCommitment,
+		},
+		NewAsset: &newAsset,
+	}
+
+	lastPrevOut := wire.OutPoint{
+		Hash:  genesisProof.AnchorTx.TxHash(),
+		Index: genesisProof.InclusionProof.OutputIndex,
+	}
+	transitionProof, err := CreateTransitionProof(
+		lastPrevOut, transitionParams, WithVersion(TransitionV1),
+	)
+	require.NoError(t, err)
+
+	f := NewEmptyFile(V0)
+	require.NoError(t, f.AppendProof(genesisProof))
+	require.NoError(t, f.AppendProof(*transitionProof))
+	return f
 }
 
 // signAssetTransfer creates a virtual transaction for an asset transfer and
