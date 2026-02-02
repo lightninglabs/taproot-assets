@@ -85,6 +85,10 @@ type verifyOptions struct {
 	// skipChainForFinalProof skips header and merkle checks for the final
 	// proof in a file.
 	skipChainForFinalProof bool
+
+	// skipTimeLockValidationForFinalProof skips locktime checks for the
+	// final proof in a file.
+	skipTimeLockValidationForFinalProof bool
 }
 
 // defaultVerifyOptions returns a default set of proof verification options.
@@ -97,6 +101,14 @@ func defaultVerifyOptions() *verifyOptions {
 func WithSkipChainVerificationForFinalProof() VerifyOption {
 	return func(o *verifyOptions) {
 		o.skipChainForFinalProof = true
+	}
+}
+
+// WithSkipTimeLockValidationForFinalProof skips locktime checks for the final
+// proof in the file.
+func WithSkipTimeLockValidationForFinalProof() VerifyOption {
+	return func(o *verifyOptions) {
+		o.skipTimeLockValidationForFinalProof = true
 	}
 }
 
@@ -573,7 +585,7 @@ func assertVersionConsistency(
 // state transition represents an asset split.
 func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	prev *AssetSnapshot, chainLookup asset.ChainLookup,
-	vCtx VerifierCtx) (bool, error) {
+	vCtx VerifierCtx, skipTimeLockValidation bool) (bool, error) {
 
 	// Determine whether we have an asset split based on the resulting
 	// asset's witness. If so, extract the root asset from the split asset.
@@ -649,6 +661,9 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	verifyOpts := []vm.NewEngineOpt{
 		vm.WithChainLookup(chainLookup),
 		vm.WithBlockHeight(p.BlockHeight),
+	}
+	if skipTimeLockValidation {
+		verifyOpts = append(verifyOpts, vm.WithSkipTimeLockValidation())
 	}
 	engine, err := vm.New(newAsset, splitAssets, prevAssets, verifyOpts...)
 	if err != nil {
@@ -858,6 +873,10 @@ type proofVerificationParams struct {
 	// SkipChainVerification skips header and merkle checks during proof
 	// verification.
 	SkipChainVerification bool
+
+	// SkipTimeLockValidation skips locktime checks during proof
+	// verification.
+	SkipTimeLockValidation bool
 }
 
 // WithChallengeBytes is a ProofVerificationOption that defines some challenge
@@ -874,6 +893,13 @@ func WithChallengeBytes(challenge [32]byte) ProofVerificationOption {
 func WithSkipChainVerification() ProofVerificationOption {
 	return func(p *proofVerificationParams) {
 		p.SkipChainVerification = true
+	}
+}
+
+// WithSkipTimeLockValidation skips locktime checks for a proof.
+func WithSkipTimeLockValidation() ProofVerificationOption {
+	return func(p *proofVerificationParams) {
+		p.SkipTimeLockValidation = true
 	}
 }
 
@@ -925,6 +951,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	default:
 		splitAsset, err = p.verifyAssetStateTransition(
 			ctx, prev, chainLookup, vCtx,
+			verificationParams.SkipTimeLockValidation,
 		)
 	}
 	if err != nil {
@@ -1189,12 +1216,20 @@ func (f *File) Verify(ctx context.Context,
 		}
 
 		var proofOpts []ProofVerificationOption
-		if verifyOpts.skipChainForFinalProof &&
-			idx == len(f.proofs)-1 {
+		if idx == len(f.proofs)-1 {
+			if verifyOpts.skipChainForFinalProof {
+				proofOpts = append(
+					proofOpts, WithSkipChainVerification(),
+				)
+			}
 
-			proofOpts = append(
-				proofOpts, WithSkipChainVerification(),
-			)
+			if verifyOpts.skipTimeLockValidationForFinalProof &&
+				assetUsesTimeLock(&decodedProof.Asset) {
+
+				proofOpts = append(
+					proofOpts, WithSkipTimeLockValidation(),
+				)
+			}
 		}
 
 		result, err := decodedProof.Verify(
@@ -1233,4 +1268,22 @@ func (f *File) Verify(ctx context.Context,
 	}
 
 	return prev, nil
+}
+
+// assetUsesTimeLock returns true if the asset has an active CLTV/CSV locktime.
+func assetUsesTimeLock(a *asset.Asset) bool {
+	if a == nil {
+		return false
+	}
+
+	if a.LockTime != 0 {
+		return true
+	}
+
+	if a.RelativeLockTime == 0 {
+		return false
+	}
+
+	return a.RelativeLockTime&wire.SequenceLockTimeDisabled !=
+		wire.SequenceLockTimeDisabled
 }
