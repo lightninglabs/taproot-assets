@@ -32,6 +32,15 @@ ifneq ($(parallel),)
 ITEST_PARALLELISM = $(parallel)
 endif
 
+# Enable package-level parallelism for unit tests when requested.
+ifneq ($(unit-parallel),)
+UNIT_XARGS := $(XARGS) -P $(unit-parallel)
+UNIT_PARALLEL_FLAG := -p $(unit-parallel)
+else
+UNIT_XARGS := $(XARGS)
+UNIT_PARALLEL_FLAG :=
+endif
+
 # Set the seed for shuffling the test cases.
 ifneq ($(shuffleseed),)
 SHUFFLE_SEED = $(shuffleseed)
@@ -131,10 +140,10 @@ UNIT_RACE := $(GOTEST) $(UNIT_VERBOSE_FLAG) -tags="$(DEV_TAGS) $(LOG_TAGS) lowsc
 endif
 
 ifeq ($(UNIT_TARGETED), no)
-UNIT := $(GOLIST) | $(XARGS) env $(GOTEST) $(UNIT_VERBOSE_FLAG) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
-UNIT_COVER := $(GOTEST) $(UNIT_VERBOSE_FLAG) -coverprofile=coverage.txt -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) ./...
-UNIT_DEBUG := $(GOLIST) | $(XARGS) env $(GOTEST) -v -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
-UNIT_TRACE := $(GOLIST) | $(XARGS) env $(GOTEST) -v -tags="$(DEV_TAGS) stdout trace" $(TEST_FLAGS)
+UNIT := $(GOLIST) | $(UNIT_XARGS) env $(GOTEST) $(UNIT_VERBOSE_FLAG) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
+UNIT_COVER := $(GOTEST) $(UNIT_VERBOSE_FLAG) $(UNIT_PARALLEL_FLAG) -coverprofile=coverage.txt -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) ./...
+UNIT_DEBUG := $(GOLIST) | $(UNIT_XARGS) env $(GOTEST) -v -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
+UNIT_TRACE := $(GOLIST) | $(UNIT_XARGS) env $(GOTEST) -v -tags="$(DEV_TAGS) stdout trace" $(TEST_FLAGS)
 UNIT_RACE := $(UNIT) -race
 endif
 
