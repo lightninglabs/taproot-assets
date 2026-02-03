@@ -557,7 +557,7 @@ jobs:
       matrix:
         include:
           - task_name: itests (custom_channels)
-            run_cmd: make itest icase=custom_channels
+            run_cmd: make itest-parallel icase=custom_channels tranches=4
           - task_name: unit
             run_cmd: make unit
 
