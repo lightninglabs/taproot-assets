@@ -528,6 +528,20 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		IgnoreChecker:  p.cfg.IgnoreChecker,
 	}
 
+	// Before we import passive proofs into the archive, validate them.
+	verifier := &proof.BaseVerifier{}
+	for idx := range passiveAssetProofFiles {
+		passiveProof := passiveAssetProofFiles[idx]
+
+		_, err := verifier.Verify(
+			ctx, bytes.NewReader(passiveProof.Blob), vCtx,
+		)
+		if err != nil {
+			return fmt.Errorf("verifying passive asset proof %d: "+
+				"%w", idx, err)
+		}
+	}
+
 	log.Infof("Importing %d passive asset proofs into local Proof "+
 		"Archive", len(passiveAssetProofFiles))
 	err := p.cfg.ProofWriter.ImportProofs(
