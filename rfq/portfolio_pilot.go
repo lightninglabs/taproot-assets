@@ -266,9 +266,10 @@ func (p *InternalPortfolioPilot) ResolveRequest(ctx context.Context,
 		return zero, fmt.Errorf("unsupported request type %T", req)
 	}
 
-	if err := resp.Validate(); err != nil {
-		return zero, fmt.Errorf("invalid price oracle response: %w",
-			err)
+	//nolint:nilerr
+	if resp.Err != nil {
+		return zero, fmt.Errorf("price oracle returned error: %w",
+			resp.Err)
 	}
 
 	return NewAcceptResolveResp(resp.AssetRate), nil
@@ -337,10 +338,10 @@ func (p *InternalPortfolioPilot) VerifyAcceptQuote(ctx context.Context,
 		)
 	}
 
-	if err := resp.Validate(); err != nil {
-		return PriceOracleQueryErrQuoteRespStatus, fmt.Errorf(
-			"invalid price oracle response: %w", err,
-		)
+	//nolint:nilerr
+	if resp.Err != nil {
+		return PriceOracleQueryErrQuoteRespStatus,
+			fmt.Errorf("price oracle returned error: %w", resp.Err)
 	}
 
 	// Check if the peer's price is within acceptable tolerance of the
@@ -425,9 +426,10 @@ func (p *InternalPortfolioPilot) QueryAssetRates(ctx context.Context,
 			query.Direction)
 	}
 
-	if err := resp.Validate(); err != nil {
-		return zero, fmt.Errorf("invalid price oracle response: %w",
-			err)
+	//nolint:nilerr
+	if resp.Err != nil {
+		return zero, fmt.Errorf("price oracle returned error: %w",
+			resp.Err)
 	}
 
 	return resp.AssetRate, nil
