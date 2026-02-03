@@ -178,7 +178,7 @@ func NewMockVerifier(t *testing.T) *MockVerifier {
 }
 
 func (m *MockVerifier) Verify(context.Context, io.Reader,
-	VerifierCtx) (*AssetSnapshot, error) {
+	VerifierCtx, ...VerifyOption) (*AssetSnapshot, error) {
 
 	return &AssetSnapshot{
 		Asset: &asset.Asset{

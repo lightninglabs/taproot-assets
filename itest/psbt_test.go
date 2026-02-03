@@ -2200,40 +2200,18 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 	signedBytes, err := fn.Serialize(signedPacket)
 	require.NoError(t.t, err)
 
-	ctxc, streamCancel := context.WithCancel(ctx)
-	stream, err := bob.SubscribeSendEvents(
-		ctxc, &taprpc.SubscribeSendEventsRequest{},
-	)
-	require.NoError(t.t, err)
-	sendEvents := &EventSubscription[*taprpc.SendEvent]{
-		ClientEventStream: stream,
-		Cancel:            streamCancel,
-	}
-
 	// Now we'll attempt to complete the transfer.
-	sendResp, err := bob.AnchorVirtualPsbts(
+	//
+	// The invalid SIGHASH_NONE witness should be rejected during
+	// pre-broadcast proof verification, so this RPC must fail here.
+	_, err = bob.AnchorVirtualPsbts(
 		ctx, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signedBytes},
 		},
 	)
-	require.NoError(t.t, err)
-
-	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, bob, sendResp,
-		genInfo.AssetId,
-		[]uint64{(4*numUnits)/5 - 1, (numUnits / 5) + 1}, 0, 1,
-	)
-
-	AssertSendEvents(
-		t.t, aliceAddr.ScriptKey, sendEvents,
-		tapfreighter.SendStateAnchorSign,
-		tapfreighter.SendStateWaitTxConf,
-	)
-
-	msg, err := stream.Recv()
-	require.NoError(t.t, err)
+	require.Error(t.t, err)
 	require.Contains(
-		t.t, msg.Error, "signature not empty on failed checksig",
+		t.t, err.Error(), "signature not empty on failed checksig",
 	)
 }
 
