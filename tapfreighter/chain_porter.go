@@ -38,17 +38,14 @@ const (
 	DefaultSendFragmentExpiryDelta = 12_960
 )
 
-// ProofImporter is used to import proofs into the local proof archive after we
-// complete a trransfer.
-type ProofImporter interface {
-	// ImportProofs attempts to store fully populated proofs on disk. The
-	// previous outpoint of the first state transition will be used as the
-	// Genesis point. The final resting place of the asset will be used as
-	// the script key itself. If replace is specified, we expect a proof to
-	// already be present, and we just update (replace) it with the new
-	// proof.
-	ImportProofs(ctx context.Context, vCtx proof.VerifierCtx,
-		replace bool, proofs ...*proof.AnnotatedProof) error
+// VerifiedProofImporter is used to import verified proofs into the local proof
+// archive after we complete a transfer.
+type VerifiedProofImporter interface {
+	// ImportVerifiedProofs stores verified proofs without re-validating
+	// them. If replace is specified, we expect a proof to already be
+	// present, and we just update (replace) it with the new proof.
+	ImportVerifiedProofs(ctx context.Context, replace bool,
+		proofs ...proof.VerifiedAnnotatedProof) error
 }
 
 // BurnSupplyCommitter is used by the chain porter to update the on-chain supply
@@ -94,7 +91,7 @@ type ChainPorterConfig struct {
 	// virtual transactions.
 	AssetWallet Wallet
 
-	ProofWriter ProofImporter
+	ProofWriter VerifiedProofImporter
 
 	// ProofReader is used to fetch input proofs.
 	ProofReader proof.Exporter
@@ -528,10 +525,17 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		IgnoreChecker:  p.cfg.IgnoreChecker,
 	}
 
+	verifiedPassiveProofs, err := proof.VerifyAnnotatedProofs(
+		ctx, vCtx, passiveAssetProofFiles...,
+	)
+	if err != nil {
+		return fmt.Errorf("error verifying passive proofs: %w", err)
+	}
+
 	log.Infof("Importing %d passive asset proofs into local Proof "+
 		"Archive", len(passiveAssetProofFiles))
-	err := p.cfg.ProofWriter.ImportProofs(
-		ctx, vCtx, false, passiveAssetProofFiles...,
+	err = p.cfg.ProofWriter.ImportVerifiedProofs(
+		ctx, false, verifiedPassiveProofs...,
 	)
 	if err != nil {
 		return fmt.Errorf("error importing passive proof: %w", err)
@@ -613,11 +617,8 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 			IgnoreChecker:  p.cfg.IgnoreChecker,
 		}
 
-		// Before we import the proof into the proof archive, we'll
-		// validate it.
-		verifier := &proof.BaseVerifier{}
-		_, err = verifier.Verify(
-			ctx, bytes.NewReader(outputProof.Blob), vCtx,
+		verifiedOutputProofs, err := proof.VerifyAnnotatedProofs(
+			ctx, vCtx, outputProof,
 		)
 		if err != nil {
 			return fmt.Errorf("error verifying proof: %w", err)
@@ -626,8 +627,8 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		// Import proof into proof archive.
 		log.Infof("Importing proof for output %d into local Proof "+
 			"Archive", idx)
-		err = p.cfg.ProofWriter.ImportProofs(
-			ctx, vCtx, false, outputProof,
+		err = p.cfg.ProofWriter.ImportVerifiedProofs(
+			ctx, false, verifiedOutputProofs...,
 		)
 		if err != nil {
 			return fmt.Errorf("error importing proof: %w", err)
