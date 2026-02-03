@@ -108,6 +108,13 @@
   - Added a limit (`MaxOrphanUTXOs = 20`) to prevent transactions from becoming
     too large when sweeping many orphan UTXOs at once.
 
+* [PR#1965](https://github.com/lightninglabs/taproot-assets/pull/1965)
+  ensures that time-locked asset sends won't be broadcast until they're
+  actually spendable, and the BTC transaction carrying them is forced to
+  honour the same lock conditions. This prevents unintentionally burning
+  assets by sending too early, and also makes the send safe across chain
+  re-orgs.
+
 ## RPC Updates
 
 - [PR#1766](https://github.com/lightninglabs/taproot-assets/pull/1766):

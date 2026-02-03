@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightninglabs/taproot-assets/vm"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -1413,6 +1414,18 @@ func (p *ChainPorter) prelimCheckAddrParcel(addrParcel AddressParcel) error {
 func (p *ChainPorter) verifyVPackets(ctx context.Context,
 	packets []*tappsbt.VPacket) error {
 
+	// Get current block height for timelock validation.
+	blockHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to get current height: %w", err)
+	}
+
+	// Verify asset timelocks are satisfied at current height.
+	err = p.verifyAssetTimelocks(ctx, packets, blockHeight)
+	if err != nil {
+		return err
+	}
+
 	for pktIdx := range packets {
 		vPkt := packets[pktIdx]
 
@@ -1497,6 +1510,204 @@ func verifySplitCommitmentWitnesses(vPkt tappsbt.VPacket) error {
 		if !hasWitness {
 			return fmt.Errorf("output split root witness empty "+
 				"(output_idx=%d)", outIdx)
+		}
+	}
+
+	return nil
+}
+
+// verifyAssetTimelocks ensures all output assets with timelocks can be spent
+// at the current block height. This prevents broadcasting transactions that
+// would burn assets due to unsatisfied timelocks.
+func (p *ChainPorter) verifyAssetTimelocks(ctx context.Context,
+	packets []*tappsbt.VPacket, blockHeight uint32) error {
+
+	// Generate a ChainLookup for TxBlockHeight queries (relative locks).
+	// Use first available input proof; database fallback handles the rest.
+	var chainLookup asset.ChainLookup
+	for _, vPkt := range packets {
+		for _, vIn := range vPkt.Inputs {
+			if vIn.Proof != nil {
+				var err error
+				bridge := p.cfg.ChainBridge
+				chainLookup, err = bridge.GenProofChainLookup(
+					vIn.Proof,
+				)
+				if err != nil {
+					return fmt.Errorf("generating chain "+
+						"lookup: %w", err)
+				}
+				break
+			}
+		}
+		if chainLookup != nil {
+			break
+		}
+	}
+
+	for pktIdx, vPkt := range packets {
+		for outIdx, vOut := range vPkt.Outputs {
+			if vOut.Asset == nil {
+				continue
+			}
+
+			a := vOut.Asset
+			if a.LockTime == 0 && a.RelativeLockTime == 0 {
+				continue
+			}
+
+			// Check if chainLookup is required but unavailable.
+			// Timestamp-based CLTV (LockTime > threshold) and any
+			// CSV (RelativeLockTime != 0) require chain lookups.
+			needsChainLookup := a.RelativeLockTime != 0 ||
+				a.LockTime > txscript.LockTimeThreshold
+			if needsChainLookup && chainLookup == nil {
+				return fmt.Errorf("cannot verify timelock: "+
+					"no input proof available for chain "+
+					"lookup (vpkt=%d, out=%d)",
+					pktIdx, outIdx)
+			}
+
+			for witIdx := range a.PrevWitnesses {
+				wit := &a.PrevWitnesses[witIdx]
+				err := vm.CheckLockTime(
+					ctx, a, wit, blockHeight, chainLookup,
+				)
+				if err != nil {
+					return fmt.Errorf("asset timelock not "+
+						"satisfied (vpkt=%d, out=%d, "+
+						"wit=%d): %w", pktIdx, outIdx,
+						witIdx, err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// verifyAnchorTimeLocks verifies that the BTC anchor transaction has the
+// correct nLockTime and input nSequence values to enforce asset timelocks.
+// This provides re-org safety: even if the transaction is included in an
+// earlier block due to a re-org, the BTC-level constraints ensure the
+// transaction remains invalid until the timelock is satisfied.
+func verifyAnchorTimeLocks(anchorTx *tapsend.AnchorTransaction,
+	packets []*tappsbt.VPacket) error {
+
+	if anchorTx == nil || anchorTx.FinalTx == nil {
+		return nil
+	}
+
+	btcTx := anchorTx.FinalTx
+
+	// Find the maximum absolute locktime across all outputs.
+	// Use vOut.LockTime to match AssertAnchorTimeLocks.
+	var maxLockTime uint64
+	for _, vPkt := range packets {
+		for _, vOut := range vPkt.Outputs {
+			if vOut.LockTime > maxLockTime {
+				maxLockTime = vOut.LockTime
+			}
+		}
+	}
+
+	// Verify BTC tx has sufficient nLockTime for absolute locks.
+	if maxLockTime > 0 {
+		if uint64(btcTx.LockTime) < maxLockTime {
+			return fmt.Errorf("anchor tx nLockTime (%d) is less "+
+				"than required asset locktime (%d)",
+				btcTx.LockTime, maxLockTime)
+		}
+
+		// Ensure nLockTime is actually enforced: at least one input
+		// must have sequence < MaxTxInSequenceNum, otherwise nLockTime
+		// is ignored by consensus.
+		hasEnforcingInput := false
+		for _, txIn := range btcTx.TxIn {
+			if txIn.Sequence < wire.MaxTxInSequenceNum {
+				hasEnforcingInput = true
+				break
+			}
+		}
+		if !hasEnforcingInput {
+			return fmt.Errorf("anchor tx has nLockTime (%d) but "+
+				"all inputs have max sequence, making "+
+				"nLockTime unenforced", btcTx.LockTime)
+		}
+	}
+
+	// Build a map of input outpoints to their sequence numbers.
+	inputSequences := make(map[wire.OutPoint]uint32)
+	for _, txIn := range btcTx.TxIn {
+		inputSequences[txIn.PreviousOutPoint] = txIn.Sequence
+	}
+
+	// Verify each output's relative locktime is reflected in the
+	// corresponding BTC input's sequence. Use vOut.RelativeLockTime
+	// to match AssertAnchorTimeLocks.
+	for pktIdx, vPkt := range packets {
+		for outIdx, vOut := range vPkt.Outputs {
+			relLock := vOut.RelativeLockTime
+			if relLock == 0 {
+				continue
+			}
+
+			if vOut.Asset == nil {
+				continue
+			}
+
+			// For each witness, check the corresponding BTC input.
+			for witIdx, wit := range vOut.Asset.PrevWitnesses {
+				if wit.PrevID == nil {
+					continue
+				}
+
+				outPoint := wit.PrevID.OutPoint
+				seq, ok := inputSequences[outPoint]
+				if !ok {
+					return fmt.Errorf("no BTC input for "+
+						"asset input %v (pkt=%d, "+
+						"out=%d, wit=%d)", outPoint,
+						pktIdx, outIdx, witIdx)
+				}
+
+				// Check that CSV is not disabled on this input.
+				if seq&wire.SequenceLockTimeDisabled != 0 {
+					return fmt.Errorf("BTC input has "+
+						"CSV disabled (seq=0x%x) but "+
+						"asset requires relative lock "+
+						"(pkt=%d, out=%d, wit=%d)",
+						seq, pktIdx, outIdx, witIdx)
+				}
+
+				// Verify the time/block type flags match.
+				assetIsSeconds := relLock&
+					wire.SequenceLockTimeIsSeconds != 0
+				seqIsSeconds := seq&
+					wire.SequenceLockTimeIsSeconds != 0
+				if assetIsSeconds != seqIsSeconds {
+					return fmt.Errorf("CSV type mismatch: "+
+						"asset uses seconds=%v but "+
+						"input uses seconds=%v "+
+						"(vpkt=%d, out=%d, wit=%d)",
+						assetIsSeconds, seqIsSeconds,
+						pktIdx, outIdx, witIdx)
+				}
+
+				// Compare the lock values (low 16 bits).
+				mask := uint32(wire.SequenceLockTimeMask)
+				seqLock := uint64(seq & mask)
+				assetLock := relLock & uint64(mask)
+
+				if seqLock < assetLock {
+					return fmt.Errorf("BTC input sequence "+
+						"(%d) insufficient for asset "+
+						"relative lock (%d) (vpkt=%d, "+
+						"out=%d, wit=%d)",
+						seqLock, assetLock,
+						pktIdx, outIdx, witIdx)
+				}
+			}
 		}
 	}
 
@@ -1758,6 +1969,17 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			p.unlockInputs(ctx, &currentPkg)
 
 			return nil, fmt.Errorf("verifying vPackets: %w", err)
+		}
+
+		// Verify the BTC anchor transaction has proper nLockTime
+		// and nSequence to enforce asset timelocks at the BTC level.
+		// This provides re-org safety.
+		err = verifyAnchorTimeLocks(currentPkg.AnchorTx, allPackets)
+		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
+			return nil, fmt.Errorf("verifying anchor timelocks: "+
+				"%w", err)
 		}
 
 		currentPkg.SendState = SendStateStorePreBroadcast

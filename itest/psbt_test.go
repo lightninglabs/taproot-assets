@@ -3368,8 +3368,9 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 	require.ErrorContains(t.t, err, "non BIP68 final")
 	t.lndHarness.Miner().AssertNumTxsInMempool(0)
 
-	// After mining a single block, the error should go away.
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 0)
+	// After mining two more blocks, the error should go away (need 6 total
+	// for the CSV lock: 4 already mined + 2 more = 6).
+	MineBlocks(t.t, t.lndHarness.Miner().Client, 2, 0)
 
 	// Now we'll attempt to complete the transfer normally, which should
 	// succeed.
@@ -3586,9 +3587,10 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 
 	// We now do something very stupid and dangerous (don't try this at
 	// home) and manually overwrite the lock time in the anchor transaction.
-	// This should result in us being able to broadcast the transaction, but
-	// will effectively brick the asset in the process, because the
-	// asset-level VM verification of the lock time will fail.
+	// This will allow us to broadcast the transaction at the BTC level,
+	// but the pre-broadcast anchor timelock verification will catch the
+	// mismatch between the asset's relative lock time and the BTC input
+	// sequence.
 	for idx := range btcPacket.UnsignedTx.TxIn {
 		btcPacket.UnsignedTx.TxIn[idx].Sequence = 0
 	}
@@ -3608,32 +3610,17 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 	require.NoError(t.t, err)
 	t.lndHarness.Miner().AssertNumTxsInMempool(1)
 
-	ctxc, streamCancel := context.WithCancel(ctx)
-	aliceScriptKeyBytes := aliceScriptKey.PubKey.SerializeCompressed()
-	stream, err := bob.SubscribeSendEvents(
-		ctxc, &taprpc.SubscribeSendEventsRequest{
-			FilterScriptKey: aliceScriptKeyBytes,
-		},
+	// Mine the remaining blocks needed for the asset-level timelock to be
+	// satisfied (need 6 total: 4 already mined + 2 more = 6).
+	MineBlocks(t.t, t.lndHarness.Miner().Client, 2, 1)
+
+	// The pre-broadcast anchor timelock verification will catch the
+	// mismatch: the asset has RelativeLockTime=6 but the BTC input has
+	// sequence=0.
+	PublishAndLogTransfer(
+		t.t, bob, btcPacket, vPackets, nil, commitResp,
+		withExpectedErr("BTC input sequence"),
 	)
-	require.NoError(t.t, err)
-	sendEvents := &EventSubscription[*taprpc.SendEvent]{
-		ClientEventStream: stream,
-		Cancel:            streamCancel,
-	}
-
-	PublishAndLogTransfer(t.t, bob, btcPacket, vPackets, nil, commitResp)
-
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
-
-	AssertSendEvents(
-		t.t, aliceScriptKeyBytes, sendEvents,
-		tapfreighter.SendStateVerifyPreBroadcast,
-		tapfreighter.SendStateWaitTxConf,
-	)
-
-	msg, err := stream.Recv()
-	require.NoError(t.t, err)
-	require.Contains(t.t, msg.Error, "un-finalized asset")
 }
 
 func signVirtualPacket(t *testing.T, tapd *tapdHarness,

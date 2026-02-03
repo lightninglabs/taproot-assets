@@ -1237,7 +1237,7 @@ func AssertAnchorTimeLocks(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket) {
 		// Extract the highest used lock time, as that's per
 		// transaction.
 		if vOut.LockTime > maxLockTime {
-			maxLockTime = vOut.Asset.LockTime
+			maxLockTime = vOut.LockTime
 		}
 
 		// For each input, set the relative lock time as the sequence on
