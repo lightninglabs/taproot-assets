@@ -247,16 +247,19 @@ jobs:
 
   # Unit tests with race detection, coverage, and Postgres backend variants.
   unit-test:
-    name: run unit tests
+    name: run unit tests (${{ matrix.unit_type }})
     runs-on: ubuntu-latest
     strategy:
       # Allow other tests in the matrix to continue if one fails.
       fail-fast: false
       matrix:
-        unit_type:
-          - unit-race
-          - unit-cover
-          - unit dbbackend=postgres
+        include:
+          - unit_type: unit-race
+            parallel: 1
+          - unit_type: unit-cover
+            parallel: 4
+          - unit_type: unit dbbackend=postgres
+            parallel: 4
     steps:
       - name: git checkout
         uses: actions/checkout@v4
@@ -267,7 +270,7 @@ jobs:
           go-version: '${{ env.GO_VERSION }}'
 
       - name: Run ${{ matrix.unit_type }}
-        run: make ${{ matrix.unit_type }}
+        run: make ${{ matrix.unit_type }} unit-parallel=${{ matrix.parallel }}
 
       - name: Send coverage
         uses: coverallsapp/github-action@v2
