@@ -87,6 +87,12 @@ func sqlOptInt32[T constraints.Integer](num fn.Option[T]) sql.NullInt32 {
 	})
 }
 
+// sqlOptTime turns an option of a time.Time into the NullTime that sql/sqlc
+// uses when a time field can be permitted to be NULL.
+func sqlOptTime(num fn.Option[time.Time]) sql.NullTime {
+	return fn.MapOptionZ(num, sqlTime)
+}
+
 // sqlInt16 turns a numerical integer type into the NullInt16 that sql/sqlc
 // uses when an integer field can be permitted to be NULL.
 //

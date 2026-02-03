@@ -56,6 +56,13 @@
 
 ## Functional Enhancements
 
+- [Forwarding History Tracking](https://github.com/lightninglabs/taproot-assets/pull/1921):
+  Routing nodes can now track and query historical asset forwarding events.
+  When a node successfully routes an asset payment, the forward event is logged.
+  This provides edge nodes with an audit trail of their swap activity.
+  **Note:** For full functionality, it is highly recommended to start LND with
+  the `--store-final-htlc-resolutions` flag enabled, which is disabled by default.
+
 ## RPC Additions
 
 - [PR#1960](https://github.com/lightninglabs/taproot-assets/pull/1960)
@@ -65,6 +72,20 @@
 
 - [PR#1960](https://github.com/lightninglabs/taproot-assets/pull/1960)
   Add `tapcli bakemacaroon` to bake custom macaroons with offline caveats.
+
+- [ForwardingHistory RPC](https://github.com/lightninglabs/taproot-assets/pull/1921):
+  New RPC endpoint `rfqrpc.ForwardingHistory` allows querying historical
+  forwarding events with filtering and pagination support. Filters include:
+  timestamp range (min/max), peer public key, asset ID, and asset group key.
+
+## tapcli Additions
+
+- [tapcli rfq forwardinghistory](https://github.com/lightninglabs/taproot-assets/pull/1921):
+  New CLI command `tapcli rfq forwardinghistory` (alias: `f`) to query forwarding event
+  history. Supports flags for filtering by timestamp (`--min-timestamp`,
+  `--max-timestamp`), peer (`--peer`), asset ID (`--asset-id`), and asset
+  group key (`--group-key`). Includes pagination support via `--limit` and
+  `--offset` flags.
 
 # Improvements
 
@@ -167,7 +188,14 @@
   creation hits an unreachable mailbox courier with the upfront connection
   check skipped, ensuring mailbox subscription failures do not crash tapd.
 
+- [Forwarding History Integration Test](https://github.com/lightninglabs/taproot-assets/pull/1921):
+  New integration test `testForwardingEventHistory` verifies that forwarding events are
+  properly logged when routing asset payments.
+
 ## Database
+
+- [forwards table](https://github.com/lightninglabs/taproot-assets/pull/1921):
+  New database table `forwards` stores historical forwarding events.
 
 ## Code Health
 

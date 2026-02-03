@@ -26,6 +26,7 @@ type Querier interface {
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
 	CountAuthMailboxMessages(ctx context.Context) (int64, error)
+	CountForwards(ctx context.Context, arg CountForwardsParams) (int64, error)
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
 	DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error
@@ -198,10 +199,12 @@ type Querier interface {
 	// Join on genesis_info_view to get leaf related fields.
 	QueryFederationProofSyncLog(ctx context.Context, arg QueryFederationProofSyncLogParams) ([]QueryFederationProofSyncLogRow, error)
 	QueryFederationUniSyncConfigs(ctx context.Context) ([]QueryFederationUniSyncConfigsRow, error)
+	QueryForwards(ctx context.Context, arg QueryForwardsParams) ([]QueryForwardsRow, error)
 	QueryLastEventHeight(ctx context.Context, version int16) (int64, error)
 	QueryLatestSupplyCommitment(ctx context.Context, groupKey []byte) (QueryLatestSupplyCommitmentRow, error)
 	QueryMultiverseLeaves(ctx context.Context, arg QueryMultiverseLeavesParams) ([]QueryMultiverseLeavesRow, error)
 	QueryPassiveAssets(ctx context.Context, transferID int64) ([]QueryPassiveAssetsRow, error)
+	QueryPendingForwards(ctx context.Context) ([]QueryPendingForwardsRow, error)
 	QueryPendingSupplyCommitTransition(ctx context.Context, groupKey []byte) (QueryPendingSupplyCommitTransitionRow, error)
 	QueryProofTransferAttempts(ctx context.Context, arg QueryProofTransferAttemptsParams) ([]time.Time, error)
 	QueryStartingSupplyCommitment(ctx context.Context, groupKey []byte) (QueryStartingSupplyCommitmentRow, error)
@@ -245,6 +248,7 @@ type Querier interface {
 	UpsertFederationGlobalSyncConfig(ctx context.Context, arg UpsertFederationGlobalSyncConfigParams) error
 	UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFederationProofSyncLogParams) (int64, error)
 	UpsertFederationUniSyncConfig(ctx context.Context, arg UpsertFederationUniSyncConfigParams) error
+	UpsertForward(ctx context.Context, arg UpsertForwardParams) (int64, error)
 	UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int64, error)
 	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int64, error)
 	UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int64, error)
