@@ -28,6 +28,11 @@ env:
   NUM_ITEST_JOBS: 4
   ITEST_PARALLELISM: 4
 
+  # Number of parallel unit-race jobs in the matrix and tranches per job.
+  # Total tranches = NUM_UNIT_RACE_JOBS * UNIT_RACE_PARALLELISM.
+  NUM_UNIT_RACE_JOBS: 4
+  UNIT_RACE_PARALLELISM: 1
+
 jobs:
   # Validate generated SQL models stay in sync with queries.
   sqlc-check:
@@ -254,8 +259,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - unit_type: unit-race
-            parallel: 1
           - unit_type: unit-cover
             parallel: 4
           - unit_type: unit dbbackend=postgres
@@ -281,6 +284,49 @@ jobs:
           flag-name: 'unit'
           format: 'golang'
           parallel: true
+
+  unit-race:
+    name: run unit race
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tranche: [0, 1, 2, 3]
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v4
+
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+
+      - name: run unit race
+        run: |
+          PARALLEL=${{ env.UNIT_RACE_PARALLELISM }}
+          NUM_JOBS=${{ env.NUM_UNIT_RACE_JOBS }}
+          TOTAL_TRANCHES=$((NUM_JOBS * PARALLEL))
+          BASE_TRANCHE=$(( ${{ matrix.tranche }} * PARALLEL ))
+
+          echo "Running $PARALLEL tranches in parallel (tranches $BASE_TRANCHE to $((BASE_TRANCHE + PARALLEL - 1)) of $TOTAL_TRANCHES total)"
+
+          # Start all tranches in parallel.
+          pids=()
+          for i in $(seq 0 $((PARALLEL - 1))); do
+            make unit-race-parallel tranche=$((BASE_TRANCHE + i)) tranches=$TOTAL_TRANCHES &
+            pids+=($!)
+          done
+
+          # Wait for all and track failures.
+          exit_code=0
+          for pid in "${pids[@]}"; do
+            wait $pid || exit_code=1
+          done
+
+          if [ $exit_code -ne 0 ]; then
+            echo "One or more tranches failed"
+            exit 1
+          fi
 
   # Build integration test binaries once, shared by all itest jobs.
   build-itest:
