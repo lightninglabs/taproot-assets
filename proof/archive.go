@@ -770,6 +770,28 @@ func (f *FileArchiver) ImportProofs(_ context.Context, _ VerifierCtx,
 	return nil
 }
 
+// ImportVerifiedProofs stores verified proofs on disk without re-validating
+// them.
+func (f *FileArchiver) ImportVerifiedProofs(ctx context.Context,
+	replace bool, proofs ...VerifiedAnnotatedProof) error {
+
+	if len(proofs) == 0 {
+		return nil
+	}
+
+	annotatedProofs := make([]*AnnotatedProof, len(proofs))
+	for idx := range proofs {
+		verifiedProof := proofs[idx]
+		if verifiedProof == nil {
+			return fmt.Errorf("verified proof %d is nil", idx)
+		}
+
+		annotatedProofs[idx] = verifiedProof.AnnotatedProof()
+	}
+
+	return f.ImportProofs(ctx, VerifierCtx{}, replace, annotatedProofs...)
+}
+
 // RegisterSubscriber adds a new subscriber for receiving events. The
 // deliverExisting boolean indicates whether already existing items should be
 // sent to the NewItemCreated channel when the subscription is started. An
