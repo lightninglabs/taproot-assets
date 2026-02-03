@@ -230,6 +230,12 @@ unit-race:
 	@$(call print, "Running unit race tests.")
 	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
 
+unit-race-parallel:
+	@$(call print, "Running unit race tests in parallel.")
+	PKG="$(PKG)" DEV_TAGS="$(DEV_TAGS)" \
+		scripts/unit_race_part.sh $(tranche) $(tranches) \
+		$(UNIT_VERBOSE_FLAG) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
+
 itest: build-itest itest-only
 
 itest-trace: build-itest itest-only-trace
