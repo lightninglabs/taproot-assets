@@ -116,6 +116,17 @@ func NewRpcPortfolioPilot(addrStr string, dialInsecure bool) (
 	}, nil
 }
 
+// Close closes the underlying gRPC connection.
+func (r *RpcPortfolioPilot) Close() error {
+	if r == nil || r.rawConn == nil {
+		return nil
+	}
+
+	err := r.rawConn.Close()
+	r.rawConn = nil
+	return err
+}
+
 // ResolveRequest resolves a quote request by calling the portfolio pilot RPC
 // server.
 func (r *RpcPortfolioPilot) ResolveRequest(ctx context.Context,

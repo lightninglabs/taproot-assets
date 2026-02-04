@@ -391,6 +391,13 @@ func (m *Manager) stopSubsystems() error {
 			err)
 	}
 
+	if m.cfg.PortfolioPilot != nil {
+		if err := m.cfg.PortfolioPilot.Close(); err != nil {
+			return fmt.Errorf("error closing portfolio pilot: %w",
+				err)
+		}
+	}
+
 	return nil
 }
 
