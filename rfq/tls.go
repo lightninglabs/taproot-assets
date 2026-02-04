@@ -11,8 +11,8 @@ import (
 
 // TLSConfig represents TLS configuration options for oracle connections.
 type TLSConfig struct {
-	// Enabled indicates that we should use TLS.
-	Enabled bool
+	// Disabled indicates that we should not use TLS.
+	Disabled bool
 
 	// InsecureSkipVerify disables certificate verification.
 	InsecureSkipVerify bool
@@ -32,7 +32,7 @@ func configureTransportCredentials(
 	config *TLSConfig) (credentials.TransportCredentials, error) {
 
 	// If TLS is disabled, return insecure credentials.
-	if !config.Enabled {
+	if config.Disabled {
 		return insecure.NewCredentials(), nil
 	}
 
@@ -61,7 +61,6 @@ func configureTransportCredentials(
 		}
 	}
 
-	// Return the constructed transport credentials.
 	return credentials.NewClientTLSFromCert(certPool, ""), nil
 }
 

@@ -1243,7 +1243,8 @@ func getPriceOracleTLSConfig(rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
 	if rfqCfg.PriceOracleTLSCertPath != "" {
 		var err error
 		certBytes, err = os.ReadFile(
-			rfqCfg.PriceOracleTLSCertPath)
+			rfqCfg.PriceOracleTLSCertPath,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to read "+
 				"price oracle certificate: %w", err)
@@ -1252,9 +1253,7 @@ func getPriceOracleTLSConfig(rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
 
 	// Construct the oracle's TLS configuration.
 	tlsConfig := &rfq.TLSConfig{
-		// Note the subtle flip on the flag, since the user has
-		// configured whether to *disable* TLS.
-		Enabled:            !rfqCfg.PriceOracleTLSDisable,
+		Disabled:           rfqCfg.PriceOracleTLSDisable,
 		InsecureSkipVerify: rfqCfg.PriceOracleTLSInsecure,
 		// Note the subtle flip on the flag, since the user has
 		// configured whether to *not* trust the system CA's.

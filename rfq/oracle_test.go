@@ -141,7 +141,7 @@ func runQuerySalePriceTest(t *testing.T, tc *testCaseQuerySalePrice) {
 
 	// Create a new RPC price oracle client and connect to the mock service.
 	serviceAddr := fmt.Sprintf("rfqrpc://%s", testServiceAddress)
-	insecureTLS := &TLSConfig{Enabled: false}
+	insecureTLS := insecureTLS()
 	client, err := NewRpcPriceOracle(serviceAddr, insecureTLS)
 	require.NoError(t, err)
 
@@ -244,7 +244,7 @@ type testCaseQueryPurchasePrice struct {
 // insecureTLS returns a TLSConfig with TLS disabled.
 func insecureTLS() *TLSConfig {
 	return &TLSConfig{
-		Enabled: false,
+		Disabled: true,
 	}
 }
 

@@ -240,7 +240,6 @@ func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig) (*RpcPriceOracle,
 	// Formulate the server address dial string.
 	serverAddr := fmt.Sprintf("%s:%s", addr.Hostname(), addr.Port())
 
-	// Connect to the RPC server.
 	conn, err := grpc.Dial(serverAddr, dialOpts...)
 	if err != nil {
 		return nil, err
