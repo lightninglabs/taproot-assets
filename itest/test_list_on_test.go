@@ -360,6 +360,10 @@ var allTestCases = []*testCase{
 		test: testForwardingEventHistory,
 	},
 	{
+		name: "rfq portfolio pilot rpc",
+		test: testRfqPortfolioPilotRpc,
+	},
+	{
 		name: "multi signature on all levels",
 		test: testMultiSignature,
 	},

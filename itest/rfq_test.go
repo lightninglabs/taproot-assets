@@ -743,6 +743,97 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 	}, rfqTimeout)
 }
 
+// testRfqPortfolioPilotRpc tests RFQ negotiation with a portfolio pilot RPC
+// server.
+func testRfqPortfolioPilotRpc(t *harnessTest) {
+	// Start a mock price oracle RPC server.
+	oracleAddr := fmt.Sprintf("localhost:%d", port.NextAvailablePort())
+	oracle := newOracleHarness(oracleAddr)
+	oracle.start(t.t)
+	t.t.Cleanup(oracle.stop)
+
+	// Start a portfolio pilot RPC server.
+	pilotAddr := fmt.Sprintf("localhost:%d", port.NextAvailablePort())
+	pilot := newPortfolioPilotHarness(pilotAddr)
+	pilot.start(t.t)
+	t.t.Cleanup(pilot.stop)
+
+	oracleURL := fmt.Sprintf("rfqrpc://%s", oracleAddr)
+	pilotURL := fmt.Sprintf("portfoliopilotrpc://%s", pilotAddr)
+
+	ts := newRfqTestScenario(
+		t, WithRfqOracleServer(oracleURL),
+		WithRfqPortfolioPilotServer(pilotURL),
+	)
+
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, ts.BobTapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+	)
+	mintedAssetId := rpcAssets[0].AssetGenesis.AssetId
+
+	var assetID asset.ID
+	copy(assetID[:], mintedAssetId)
+	assetSpecifier := asset.NewSpecifierFromId(assetID)
+	askPrice := rfqmath.NewBigIntFixedPoint(99_000_00, 2)
+	bidPrice := rfqmath.NewBigIntFixedPoint(101_000_00, 2)
+	oracle.setPrice(assetSpecifier, bidPrice, askPrice)
+
+	ctx := context.Background()
+
+	_, err := ts.BobTapd.AddAssetSellOffer(
+		ctx, &rfqrpc.AddAssetSellOfferRequest{
+			AssetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetId{
+					AssetId: mintedAssetId,
+				},
+			},
+			MaxUnits: 1000,
+		},
+	)
+	require.NoError(t.t, err, "unable to upsert asset sell offer")
+
+	carolEventNtfns, err := ts.CarolTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	purchaseAssetAmt := uint64(6)
+	buyOrderExpiry := uint64(time.Now().Add(24 * time.Hour).Unix())
+	buyReq := &rfqrpc.AddAssetBuyOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		AssetMaxAmt: purchaseAssetAmt,
+		Expiry:      buyOrderExpiry,
+		PeerPubKey:  ts.BobLnd.PubKey[:],
+		TimeoutSeconds: uint32(
+			rfqTimeout.Seconds(),
+		),
+		SkipAssetChannelCheck: true,
+	}
+
+	_, err = ts.CarolTapd.AddAssetBuyOrder(ctx, buyReq)
+	require.NoError(t.t, err, "unable to upsert asset buy order")
+
+	BeforeTimeout(t.t, func() {
+		event, err := carolEventNtfns.Recv()
+		require.NoError(t.t, err)
+
+		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
+		require.True(t.t, ok, "unexpected event: %v", event)
+	}, rfqTimeout)
+
+	require.Eventually(t.t, func() bool {
+		resolveCalls, verifyCalls, queryCalls :=
+			pilot.callCounts()
+		return resolveCalls > 0 && verifyCalls > 0 &&
+			queryCalls > 0
+	}, rfqTimeout, 50*time.Millisecond)
+}
+
 // rfqTestScenario is a struct which holds test scenario helper infra.
 type rfqTestScenario struct {
 	testHarness *harnessTest
@@ -766,6 +857,11 @@ type rfqTestScenarioOpts struct {
 	oracleServerAlice string
 	oracleServerBob   string
 	oracleServerCarol string
+
+	pilotServerAddr  string
+	pilotServerAlice string
+	pilotServerBob   string
+	pilotServerCarol string
 }
 
 // RfqOption is a functional option that edits an existing instance of rfq
@@ -807,6 +903,39 @@ func WithBobOracleServer(s string) RfqOption {
 func WithCarolOracleServer(s string) RfqOption {
 	return func(rtso *rfqTestScenarioOpts) {
 		rtso.oracleServerCarol = s
+	}
+}
+
+// WithRfqPortfolioPilotServer is a functional option that sets the portfolio
+// pilot server option to the provided string. This pilot server will be the
+// default pilot for all test scenario tapd nodes.
+func WithRfqPortfolioPilotServer(s string) RfqOption {
+	return func(rtso *rfqTestScenarioOpts) {
+		rtso.pilotServerAddr = s
+	}
+}
+
+// WithAlicePortfolioPilotServer sets the portfolio pilot server to be used by
+// Alice tapd. This will override the global pilot server option.
+func WithAlicePortfolioPilotServer(s string) RfqOption {
+	return func(rtso *rfqTestScenarioOpts) {
+		rtso.pilotServerAlice = s
+	}
+}
+
+// WithBobPortfolioPilotServer sets the portfolio pilot server to be used by
+// Bob tapd. This will override the global pilot server option.
+func WithBobPortfolioPilotServer(s string) RfqOption {
+	return func(rtso *rfqTestScenarioOpts) {
+		rtso.pilotServerBob = s
+	}
+}
+
+// WithCarolPortfolioPilotServer sets the portfolio pilot server to be used by
+// Carol tapd. This will override the global pilot server option.
+func WithCarolPortfolioPilotServer(s string) RfqOption {
+	return func(rtso *rfqTestScenarioOpts) {
+		rtso.pilotServerCarol = s
 	}
 }
 
@@ -879,17 +1008,23 @@ func newRfqTestScenario(t *harnessTest, opts ...RfqOption) *rfqTestScenario {
 	aliceTapd := setupTapdHarness(
 		t.t, t, aliceLnd, t.universeServer, WithOracleServer(
 			rfqOpts.oracleServerAddr, rfqOpts.oracleServerAlice,
+		), WithPortfolioPilotServer(
+			rfqOpts.pilotServerAddr, rfqOpts.pilotServerAlice,
 		), WithSendPriceHint(),
 	)
 
 	bobTapd := setupTapdHarness(
 		t.t, t, bobLnd, t.universeServer, WithOracleServer(
 			rfqOpts.oracleServerAddr, rfqOpts.oracleServerBob,
+		), WithPortfolioPilotServer(
+			rfqOpts.pilotServerAddr, rfqOpts.pilotServerBob,
 		), WithSendPriceHint(),
 	)
 	carolTapd := setupTapdHarness(
 		t.t, t, carolLnd, t.universeServer, WithOracleServer(
 			rfqOpts.oracleServerAddr, rfqOpts.oracleServerCarol,
+		), WithPortfolioPilotServer(
+			rfqOpts.pilotServerAddr, rfqOpts.pilotServerCarol,
 		), WithSendPriceHint(),
 	)
 

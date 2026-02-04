@@ -68,6 +68,10 @@
 - [PR#1960](https://github.com/lightninglabs/taproot-assets/pull/1960)
   Add `BakeMacaroon` to mint custom macaroons with scoped permissions.
 
+- [PR#1962](https://github.com/lightninglabs/taproot-assets/pull/1962)
+  Add the PortfolioPilot RPC service for RFQ quote resolution, verification,
+  and asset rate queries.
+
 ## tapcli Additions
 
 - [PR#1960](https://github.com/lightninglabs/taproot-assets/pull/1960)
@@ -156,6 +160,10 @@
 
 ## Config Changes
 
+- [PR#1962](https://github.com/lightninglabs/taproot-assets/pull/1962)
+  Add `experimental.rfq.portfoliopilotaddress` to configure an external
+  PortfolioPilot RPC server.
+
 - [PR#1870](https://github.com/lightninglabs/taproot-assets/pull/1870)
   The `proofs-per-universe` configuration option is removed. New option
   `max-proof-cache-size` sets the proof cache limit in bytes and accepts
@@ -183,6 +191,9 @@
 
 ## Testing
 
+- [PR#1962](https://github.com/lightninglabs/taproot-assets/pull/1962)
+  Add an integration test that exercises the PortfolioPilot RPC flow.
+
 - [PR#1915](https://github.com/lightninglabs/taproot-assets/pull/1915)
   Add an integration test that verifies tapd stays running when V2 address
   creation hits an unreachable mailbox courier with the upfront connection
@@ -200,5 +211,8 @@
 ## Code Health
 
 ## Tooling and Documentation
+
+- [PR#1962](https://github.com/lightninglabs/taproot-assets/pull/1962)
+  Add a basic PortfolioPilot RPC example under `docs/examples`.
 
 # Contributors (Alphabetical Order)

@@ -159,6 +159,9 @@ type PortfolioPilot interface {
 	// request construction, or general pricing information.
 	QueryAssetRates(context.Context, AssetRateQuery) (rfqmsg.AssetRate,
 		error)
+
+	// Close releases any resources held by the portfolio pilot.
+	Close() error
 }
 
 // InternalPortfolioPilotConfig holds settings for the built-in pilot that uses
@@ -433,4 +436,10 @@ func (p *InternalPortfolioPilot) QueryAssetRates(ctx context.Context,
 	}
 
 	return resp.AssetRate, nil
+}
+
+// Close releases resources held by the internal portfolio pilot. The internal
+// pilot is in-memory only, so this is a no-op.
+func (p *InternalPortfolioPilot) Close() error {
+	return nil
 }

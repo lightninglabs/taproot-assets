@@ -22,6 +22,9 @@ const (
 type CliConfig struct {
 	PriceOracleAddress string `long:"priceoracleaddress" description:"Price oracle gRPC server address (rfqrpc://<hostname>:<port>). To use the integrated mock, use the following value: use_mock_price_oracle_service_promise_to_not_use_on_mainnet"`
 
+	// PortfolioPilotAddress is the portfolio pilot gRPC server address.
+	PortfolioPilotAddress string `long:"portfoliopilotaddress" description:"Portfolio pilot gRPC server address (portfoliopilotrpc://<hostname>:<port>)"`
+
 	SendPriceHint bool `long:"sendpricehint" description:"Send a price hint from the local price oracle to the RFQ peer when requesting a quote. For privacy reasons, this should only be turned on for self-hosted or trusted price oracles."`
 
 	PriceOracleSendPeerId bool `long:"priceoraclesendpeerid" description:"Send the peer ID (public key of the peer) to the price oracle when requesting a price rate. For privacy reasons, this should only be turned on for self-hosted or trusted price oracles."`
@@ -93,6 +96,15 @@ func (c *CliConfig) Validate() error {
 		if err != nil {
 			return fmt.Errorf("invalid price oracle service URI "+
 				"address: %w", err)
+		}
+	}
+
+	// Ensure that if the portfolio pilot address is set, it is valid.
+	if c.PortfolioPilotAddress != "" {
+		_, err := ParsePortfolioPilotAddress(c.PortfolioPilotAddress)
+		if err != nil {
+			return fmt.Errorf("invalid portfolio pilot service "+
+				"URI address: %w", err)
 		}
 	}
 

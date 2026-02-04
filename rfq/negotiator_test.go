@@ -72,6 +72,10 @@ func (s *mockPortfolioPilot) QueryAssetRates(context.Context,
 	}, nil
 }
 
+func (s *mockPortfolioPilot) Close() error {
+	return nil
+}
+
 // assertIncomingSellAcceptTestCase asserts the handling of an incoming sell
 // accept message for a test case.
 func assertIncomingSellAcceptTestCase(

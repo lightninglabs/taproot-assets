@@ -1,0 +1,447 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "portfoliopilotrpc/portfolio_pilot.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "PortfolioPilot"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/taproot-assets/rfq/portfoliopilot/assetrates": {
+      "post": {
+        "summary": "QueryAssetRates returns current asset rate information for a given asset\nand direction. This can be used for rate discovery, outgoing RFQ request\nconstruction, or general pricing information.",
+        "operationId": "PortfolioPilot_QueryAssetRates",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/portfoliopilotrpcQueryAssetRatesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": "QueryAssetRatesRequest specifies the parameters for querying asset rates.",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/portfoliopilotrpcQueryAssetRatesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "PortfolioPilot"
+        ]
+      }
+    },
+    "/v1/taproot-assets/rfq/portfoliopilot/resolve": {
+      "post": {
+        "summary": "ResolveRequest resolves a quote request by returning either an accepted\nasset rate or a rejection reason.",
+        "operationId": "PortfolioPilot_ResolveRequest",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/portfoliopilotrpcResolveRequestResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": "ResolveRequestRequest specifies a quote request to resolve.",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/portfoliopilotrpcResolveRequestRequest"
+            }
+          }
+        ],
+        "tags": [
+          "PortfolioPilot"
+        ]
+      }
+    },
+    "/v1/taproot-assets/rfq/portfoliopilot/verify": {
+      "post": {
+        "summary": "VerifyAcceptQuote verifies that an accepted quote from a peer meets\nacceptable conditions.",
+        "operationId": "PortfolioPilot_VerifyAcceptQuote",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/portfoliopilotrpcVerifyAcceptQuoteResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": "VerifyAcceptQuoteRequest specifies an accepted quote to verify.",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/portfoliopilotrpcVerifyAcceptQuoteRequest"
+            }
+          }
+        ],
+        "tags": [
+          "PortfolioPilot"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "portfoliopilotrpcAcceptedQuote": {
+      "type": "object",
+      "properties": {
+        "peer_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "peer_id is the 33-byte public key of the accepting peer."
+        },
+        "accepted_rate": {
+          "$ref": "#/definitions/portfoliopilotrpcAssetRate",
+          "description": "accepted_rate is the asset rate accepted by the peer."
+        },
+        "buy_request": {
+          "$ref": "#/definitions/portfoliopilotrpcBuyRequest",
+          "description": "buy_request is the original buy request."
+        },
+        "sell_request": {
+          "$ref": "#/definitions/portfoliopilotrpcSellRequest",
+          "description": "sell_request is the original sell request."
+        }
+      },
+      "description": "AcceptedQuote bundles an accepted quote and its original request."
+    },
+    "portfoliopilotrpcAssetRate": {
+      "type": "object",
+      "properties": {
+        "rate": {
+          "$ref": "#/definitions/portfoliopilotrpcFixedPoint",
+          "description": "rate is the asset to BTC conversion rate represented as a fixed-point\nnumber."
+        },
+        "expiry_timestamp": {
+          "type": "string",
+          "format": "uint64",
+          "description": "expiry_timestamp is the Unix timestamp in seconds after which the rate\nis no longer valid."
+        }
+      },
+      "description": "AssetRate represents the exchange rate of an asset to BTC along with an\nexpiry timestamp in seconds."
+    },
+    "portfoliopilotrpcAssetSpecifier": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
+        },
+        "asset_id_str": {
+          "type": "string",
+          "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+        },
+        "group_key_str": {
+          "type": "string",
+          "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
+        }
+      }
+    },
+    "portfoliopilotrpcAssetTransferDirection": {
+      "type": "string",
+      "enum": [
+        "ASSET_TRANSFER_DIRECTION_UNSPECIFIED",
+        "ASSET_TRANSFER_DIRECTION_BUY",
+        "ASSET_TRANSFER_DIRECTION_SELL"
+      ],
+      "default": "ASSET_TRANSFER_DIRECTION_UNSPECIFIED",
+      "description": "AssetTransferDirection represents the direction of an asset transfer from\nour perspective for pricing and rate queries.\n\n - ASSET_TRANSFER_DIRECTION_UNSPECIFIED: ASSET_TRANSFER_DIRECTION_UNSPECIFIED indicates an unspecified direction.\n - ASSET_TRANSFER_DIRECTION_BUY: ASSET_TRANSFER_DIRECTION_BUY indicates we want to buy the asset.\n - ASSET_TRANSFER_DIRECTION_SELL: ASSET_TRANSFER_DIRECTION_SELL indicates we want to sell the asset."
+    },
+    "portfoliopilotrpcBuyRequest": {
+      "type": "object",
+      "properties": {
+        "asset_specifier": {
+          "$ref": "#/definitions/portfoliopilotrpcAssetSpecifier",
+          "description": "asset_specifier is the subject asset."
+        },
+        "asset_max_amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "asset_max_amount is the maximum amount of the asset that the peer must\nbe willing to offer."
+        },
+        "asset_rate_hint": {
+          "$ref": "#/definitions/portfoliopilotrpcAssetRate",
+          "description": "asset_rate_hint is an optional suggested asset rate for the request."
+        },
+        "price_oracle_metadata": {
+          "type": "string",
+          "description": "price_oracle_metadata is optional metadata for pricing decisions."
+        },
+        "peer_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "peer_id is the 33-byte public key of the counterparty peer."
+        }
+      },
+      "description": "BuyRequest represents a request to buy the subject asset."
+    },
+    "portfoliopilotrpcFixedPoint": {
+      "type": "object",
+      "properties": {
+        "coefficient": {
+          "type": "string",
+          "description": "The coefficient is the fractional value scaled-up as an integer. This\ninteger is represented as a string as it may be too large to fit in a\nuint64."
+        },
+        "scale": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The scale is the component that determines how many decimal places\nthe coefficient should be divided by to obtain the fractional value."
+        }
+      },
+      "description": "FixedPoint is a scaled integer representation of a fractional number.\n\nThis type consists of two integer fields: a coefficient and a scale.\nUsing this format enables precise and consistent representation of fractional\nnumbers while avoiding floating-point data types, which are prone to\nprecision errors.\n\nThe relationship between the fractional representation and its fixed-point\nrepresentation is expressed as:\n```\nV = F_c / (10^F_s)\n```\nwhere:\n\n* `V` is the fractional value.\n\n* `F_c` is the coefficient component of the fixed-point representation. It is\n   the scaled-up fractional value represented as an integer.\n\n* `F_s` is the scale component. It is an integer specifying how\n  many decimal places `F_c` should be divided by to obtain the fractional\n  representation."
+    },
+    "portfoliopilotrpcIntent": {
+      "type": "string",
+      "enum": [
+        "INTENT_UNSPECIFIED",
+        "INTENT_PAY_INVOICE_HINT",
+        "INTENT_PAY_INVOICE",
+        "INTENT_PAY_INVOICE_QUALIFY",
+        "INTENT_RECV_PAYMENT_HINT",
+        "INTENT_RECV_PAYMENT",
+        "INTENT_RECV_PAYMENT_QUALIFY"
+      ],
+      "default": "INTENT_UNSPECIFIED",
+      "description": "Intent is an enum informing the portfolio pilot about the intent of the\nprice rate query. This is used to provide context for the asset rates being\nrequested, allowing the pilot to tailor the response based on the specific\nuse case, such as paying an invoice or receiving a payment and the different\nstages involved in those.\n\n - INTENT_UNSPECIFIED: INTENT_UNSPECIFIED is used to indicate that the intent of the price rate\nquery is not specified. This is the fallback default value and should not\nbe used in production code. It is primarily used for backward\ncompatibility with older versions of the protocol that did not include\nintent information.\n - INTENT_PAY_INVOICE_HINT: INTENT_PAY_INVOICE_HINT is used to indicate that the user is requesting\na price rate hint for paying an invoice. This is typically used by the\npayer of an invoice to provide a suggestion of the expected asset rate to\nthe RFQ peer (edge node) that will determine the actual rate for the\npayment.\n - INTENT_PAY_INVOICE: INTENT_PAY_INVOICE is used to indicate that a peer wants to pay an\ninvoice with assets. This is typically used by the edge node that\nfacilitates the swap from assets to BTC for the payer of an invoice. This\nintent is used to provide the actual asset rate for the payment, which\nmay differ from the hint provided by the payer.\n - INTENT_PAY_INVOICE_QUALIFY: INTENT_PAY_INVOICE_QUALIFY is used to indicate that the payer of an\ninvoice has received an asset rate from their RFQ peer (edge node) and is\nqualifying the rate for the payment. This is typically used by the payer\nof an invoice to ensure that the asset rate provided by their peer (edge\nnode) is acceptable before proceeding with the payment.\n - INTENT_RECV_PAYMENT_HINT: INTENT_RECV_PAYMENT_HINT is used to indicate that the user is requesting\na price rate hint for receiving a payment through an invoice. This is\ntypically used by the creator of an invoice to provide a suggestion of\nthe expected asset rate to the RFQ peer (edge node) that will determine\nthe actual rate used for creating an invoice.\n - INTENT_RECV_PAYMENT: INTENT_RECV_PAYMENT is used to indicate that a peer wants to create an\ninvoice to receive a payment with assets. This is typically used by the\nedge node that facilitates the swap from BTC to assets for the receiver\nof a payment. This intent is used to provide the actual asset rate for\nthe invoice creation, which may differ from the hint provided by the\nreceiver.\n - INTENT_RECV_PAYMENT_QUALIFY: INTENT_RECV_PAYMENT_QUALIFY is used to indicate that the creator of an\ninvoice received an asset rate from their RFQ peer (edge node) and is\nqualifying the rate for the creation of the invoice. This is typically\nused by the creator of an invoice to ensure that the asset rate provided\nby their peer (edge node) is acceptable before proceeding with creating\nthe invoice."
+    },
+    "portfoliopilotrpcQueryAssetRatesRequest": {
+      "type": "object",
+      "properties": {
+        "asset_specifier": {
+          "$ref": "#/definitions/portfoliopilotrpcAssetSpecifier",
+          "description": "asset_specifier identifies the subject asset."
+        },
+        "direction": {
+          "$ref": "#/definitions/portfoliopilotrpcAssetTransferDirection",
+          "description": "direction specifies whether we want to buy or sell the asset."
+        },
+        "intent": {
+          "$ref": "#/definitions/portfoliopilotrpcIntent",
+          "description": "intent specifies the purpose of the query."
+        },
+        "asset_amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "asset_amount is an optional constraint on the asset amount. If set to\nzero, it is considered unset."
+        },
+        "payment_amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "payment_amount is an optional constraint on the payment amount in msat.\nIf set to zero, it is considered unset."
+        },
+        "asset_rate_hint": {
+          "$ref": "#/definitions/portfoliopilotrpcAssetRate",
+          "description": "asset_rate_hint is an optional suggested asset rate."
+        },
+        "price_oracle_metadata": {
+          "type": "string",
+          "description": "price_oracle_metadata is optional metadata for pricing decisions."
+        },
+        "peer_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "peer_id is the 33-byte public key of the counterparty peer."
+        },
+        "expiry_timestamp": {
+          "type": "string",
+          "format": "uint64",
+          "description": "expiry_timestamp is an optional expiry Unix timestamp (seconds) for the\nquery context. If set to zero, it is considered unset."
+        }
+      },
+      "description": "QueryAssetRatesRequest specifies the parameters for querying asset rates."
+    },
+    "portfoliopilotrpcQueryAssetRatesResponse": {
+      "type": "object",
+      "properties": {
+        "asset_rate": {
+          "$ref": "#/definitions/portfoliopilotrpcAssetRate",
+          "description": "asset_rate is the asset exchange rate response."
+        }
+      },
+      "description": "QueryAssetRatesResponse is the response to a QueryAssetRates call."
+    },
+    "portfoliopilotrpcQuoteRespStatus": {
+      "type": "string",
+      "enum": [
+        "INVALID_ASSET_RATES",
+        "INVALID_EXPIRY",
+        "PRICE_ORACLE_QUERY_ERR",
+        "PORTFOLIO_PILOT_ERR",
+        "VALID_ACCEPT_QUOTE"
+      ],
+      "default": "INVALID_ASSET_RATES",
+      "description": "QuoteRespStatus is an enum that represents the status of a quote response.\n\n - INVALID_ASSET_RATES: INVALID_ASSET_RATES indicates that at least one asset rate in the\nquote response is invalid.\n - INVALID_EXPIRY: INVALID_EXPIRY indicates that the expiry in the quote response is\ninvalid.\n - PRICE_ORACLE_QUERY_ERR: PRICE_ORACLE_QUERY_ERR indicates that an error occurred when querying the\nprice oracle whilst evaluating the quote response.\n - PORTFOLIO_PILOT_ERR: PORTFOLIO_PILOT_ERR indicates that an unexpected error occurred in the\nportfolio pilot while evaluating the quote response.\n - VALID_ACCEPT_QUOTE: VALID_ACCEPT_QUOTE indicates that the accepted quote passed all\nvalidation checks successfully."
+    },
+    "portfoliopilotrpcRejectCode": {
+      "type": "string",
+      "enum": [
+        "REJECT_CODE_UNSPECIFIED",
+        "REJECT_CODE_PRICE_ORACLE_UNAVAILABLE"
+      ],
+      "default": "REJECT_CODE_UNSPECIFIED",
+      "description": "RejectCode represents the possible error codes that can be returned in a\nResolveRequestResponse reject result.\n\n - REJECT_CODE_UNSPECIFIED: REJECT_CODE_UNSPECIFIED indicates an unspecified error.\n - REJECT_CODE_PRICE_ORACLE_UNAVAILABLE: REJECT_CODE_PRICE_ORACLE_UNAVAILABLE indicates that pricing could not be\nprovided due to an unavailable oracle."
+    },
+    "portfoliopilotrpcRejectErr": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/portfoliopilotrpcRejectCode",
+          "description": "code is the error code."
+        },
+        "message": {
+          "type": "string",
+          "description": "message is a human-readable error message."
+        }
+      },
+      "description": "RejectErr captures a rejection reason for a quote request."
+    },
+    "portfoliopilotrpcResolveRequestRequest": {
+      "type": "object",
+      "properties": {
+        "buy_request": {
+          "$ref": "#/definitions/portfoliopilotrpcBuyRequest",
+          "description": "buy_request is a request to buy the subject asset."
+        },
+        "sell_request": {
+          "$ref": "#/definitions/portfoliopilotrpcSellRequest",
+          "description": "sell_request is a request to sell the subject asset."
+        }
+      },
+      "description": "ResolveRequestRequest specifies a quote request to resolve."
+    },
+    "portfoliopilotrpcResolveRequestResponse": {
+      "type": "object",
+      "properties": {
+        "accept": {
+          "$ref": "#/definitions/portfoliopilotrpcAssetRate",
+          "description": "accept is the accepted asset rate for the request."
+        },
+        "reject": {
+          "$ref": "#/definitions/portfoliopilotrpcRejectErr",
+          "description": "reject is the rejection reason for the request."
+        }
+      },
+      "description": "ResolveRequestResponse is the response to a ResolveRequest call."
+    },
+    "portfoliopilotrpcSellRequest": {
+      "type": "object",
+      "properties": {
+        "asset_specifier": {
+          "$ref": "#/definitions/portfoliopilotrpcAssetSpecifier",
+          "description": "asset_specifier is the subject asset."
+        },
+        "payment_max_amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "payment_max_amount is the maximum msat amount that the peer must agree\nto pay."
+        },
+        "asset_rate_hint": {
+          "$ref": "#/definitions/portfoliopilotrpcAssetRate",
+          "description": "asset_rate_hint is an optional suggested asset rate for the request."
+        },
+        "price_oracle_metadata": {
+          "type": "string",
+          "description": "price_oracle_metadata is optional metadata for pricing decisions."
+        },
+        "peer_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "peer_id is the 33-byte public key of the counterparty peer."
+        }
+      },
+      "description": "SellRequest represents a request to sell the subject asset."
+    },
+    "portfoliopilotrpcVerifyAcceptQuoteRequest": {
+      "type": "object",
+      "properties": {
+        "accept": {
+          "$ref": "#/definitions/portfoliopilotrpcAcceptedQuote",
+          "description": "accept is the accepted quote and request details."
+        }
+      },
+      "description": "VerifyAcceptQuoteRequest specifies an accepted quote to verify."
+    },
+    "portfoliopilotrpcVerifyAcceptQuoteResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/portfoliopilotrpcQuoteRespStatus",
+          "description": "status is the verification result."
+        }
+      },
+      "description": "VerifyAcceptQuoteResponse is the response to a VerifyAcceptQuote call."
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

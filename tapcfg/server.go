@@ -491,6 +491,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	// Determine whether we should use the mock price oracle service or a
 	// real price oracle service.
 	var priceOracle rfq.PriceOracle
+	var portfolioPilot rfq.PortfolioPilot
 
 	rfqCfg := cfg.Experimental.Rfq
 	switch rfqCfg.PriceOracleAddress {
@@ -522,6 +523,22 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
+	// Determine whether we should use an external portfolio pilot.
+	switch rfqCfg.PortfolioPilotAddress {
+	case "":
+		// Leave the portfolio pilot as nil so the internal pilot is
+		// used.
+
+	default:
+		portfolioPilot, err = rfq.NewRpcPortfolioPilot(
+			rfqCfg.PortfolioPilotAddress, false,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create "+
+				"portfolio pilot: %w", err)
+		}
+	}
+
 	// Construct the AuxChannelNegotiator.
 	auxChanNegotiator := tapfeatures.NewAuxChannelNegotiator()
 
@@ -531,6 +548,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		HtlcInterceptor:         lndRouterClient,
 		HtlcSubscriber:          lndRouterClient,
 		PriceOracle:             priceOracle,
+		PortfolioPilot:          portfolioPilot,
 		ChannelLister:           lndServices.Client,
 		GroupLookup:             tapdbAddrBook,
 		AuxChanNegotiator:       auxChanNegotiator,

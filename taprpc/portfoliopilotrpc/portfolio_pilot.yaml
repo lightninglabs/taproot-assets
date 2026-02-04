@@ -1,0 +1,16 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: portfoliopilotrpc.PortfolioPilot.ResolveRequest
+      post: "/v1/taproot-assets/rfq/portfoliopilot/resolve"
+      body: "*"
+
+    - selector: portfoliopilotrpc.PortfolioPilot.VerifyAcceptQuote
+      post: "/v1/taproot-assets/rfq/portfoliopilot/verify"
+      body: "*"
+
+    - selector: portfoliopilotrpc.PortfolioPilot.QueryAssetRates
+      post: "/v1/taproot-assets/rfq/portfoliopilot/assetrates"
+      body: "*"

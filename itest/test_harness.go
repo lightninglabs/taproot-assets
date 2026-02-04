@@ -365,6 +365,10 @@ type tapdHarnessParams struct {
 	// tapd harness is going to use.
 	oracleServerAddress string
 
+	// portfolioPilotAddress defines the portfolio pilot server address
+	// that this tapd harness is going to use.
+	portfolioPilotAddress string
+
 	// sendPriceHint indicates whether the tapd should send price hints from
 	// the local oracle to the counterparty when requesting a quote.
 	sendPriceHint bool
@@ -387,6 +391,20 @@ func WithOracleServer(global, override string) Option {
 
 		case len(global) > 0:
 			th.oracleServerAddress = global
+		}
+	}
+}
+
+// WithPortfolioPilotServer is a functional option that sets the portfolio
+// pilot server address option to the provided string.
+func WithPortfolioPilotServer(global, override string) Option {
+	return func(th *tapdHarnessParams) {
+		switch {
+		case len(override) > 0:
+			th.portfolioPilotAddress = override
+
+		case len(global) > 0:
+			th.portfolioPilotAddress = global
 		}
 	}
 }
@@ -441,6 +459,7 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.sqliteDatabaseFilePath = params.sqliteDatabaseFilePath
 		ho.disableSyncCache = params.disableSyncCache
 		ho.oracleServerAddress = params.oracleServerAddress
+		ho.portfolioPilotAddress = params.portfolioPilotAddress
 		ho.sendPriceHint = params.sendPriceHint
 		ho.sweepOrphanUtxos = params.sweepOrphanUtxos
 	}
