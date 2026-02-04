@@ -72,7 +72,6 @@ func runConfigureTransportCredentialsTest(t *testing.T,
 // defaultTLSConfig is the default TLS config.
 func DefaultTLSConfig() *TLSConfig {
 	return &TLSConfig{
-		Enabled:            true,
 		InsecureSkipVerify: false,
 		TrustSystemRootCAs: true,
 	}
@@ -91,14 +90,13 @@ func TestConfigureTransportCredentials(t *testing.T) {
 			name:           "tls disabled",
 			expectInsecure: true,
 			tlsConfig: &TLSConfig{
-				Enabled: false,
+				Disabled: true,
 			},
 		},
 		{
 			name:           "trust os root CAs",
 			expectInsecure: false,
 			tlsConfig: &TLSConfig{
-				Enabled:            true,
 				InsecureSkipVerify: false,
 				TrustSystemRootCAs: true,
 			},
@@ -107,7 +105,6 @@ func TestConfigureTransportCredentials(t *testing.T) {
 			name:           "no trust os root CAs",
 			expectInsecure: false,
 			tlsConfig: &TLSConfig{
-				Enabled:            true,
 				InsecureSkipVerify: false,
 				TrustSystemRootCAs: false,
 			},
@@ -116,7 +113,6 @@ func TestConfigureTransportCredentials(t *testing.T) {
 			name:           "valid custom certificate",
 			expectInsecure: false,
 			tlsConfig: &TLSConfig{
-				Enabled:            true,
 				InsecureSkipVerify: false,
 				TrustSystemRootCAs: false,
 				CustomCertificates: []byte(validCertificate),
@@ -127,7 +123,6 @@ func TestConfigureTransportCredentials(t *testing.T) {
 			expectInsecure: false,
 			expectError:    true,
 			tlsConfig: &TLSConfig{
-				Enabled:            true,
 				InsecureSkipVerify: false,
 				TrustSystemRootCAs: false,
 				CustomCertificates: []byte(invalidCertificate),
