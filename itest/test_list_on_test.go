@@ -50,6 +50,22 @@ var allTestCases = []*testCase{
 		test: testMintAssetWithDecimalDisplayMetaField,
 	},
 	{
+		name: "backup restore genesis",
+		test: testBackupRestoreGenesis,
+	},
+	{
+		name: "backup idempotent",
+		test: testBackupIdempotent,
+	},
+	{
+		name: "backup size footprint",
+		test: testBackupSizeFootprint,
+	},
+	{
+		name: "backup restore transferred",
+		test: testBackupRestoreTransferred,
+	},
+	{
 		name: "addresses",
 		test: testAddresses,
 	},
