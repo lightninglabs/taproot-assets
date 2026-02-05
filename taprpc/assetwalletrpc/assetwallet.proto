@@ -113,6 +113,22 @@ service AssetWallet {
     */
     rpc DeclareScriptKey (DeclareScriptKeyRequest)
         returns (DeclareScriptKeyResponse);
+
+    /*
+    ExportAssetWalletBackup exports a backup of all active assets in the wallet.
+    The backup includes all data necessary to restore the assets in case of
+    database or system failure.
+    */
+    rpc ExportAssetWalletBackup (ExportAssetWalletBackupRequest)
+        returns (ExportAssetWalletBackupResponse);
+
+    /*
+    ImportAssetsFromBackup imports assets from a backup blob that was previously
+    created using ExportAssetWalletBackup. This can be used to restore assets
+    after database loss or to migrate assets to a new wallet.
+    */
+    rpc ImportAssetsFromBackup (ImportAssetsFromBackupRequest)
+        returns (ImportAssetsFromBackupResponse);
 }
 
 enum CoinSelectType {
@@ -545,4 +561,24 @@ message DeclareScriptKeyResponse {
     // The script key that was declared, including the internal key and the
     // tweaked script key.
     taprpc.ScriptKey script_key = 1;
+}
+
+message ExportAssetWalletBackupRequest {
+}
+
+message ExportAssetWalletBackupResponse {
+    // The binary backup blob containing all data necessary to restore the
+    // wallet's assets.
+    bytes backup = 1;
+}
+
+message ImportAssetsFromBackupRequest {
+    // The binary backup blob that was previously created using
+    // ExportAssetWalletBackup.
+    bytes backup = 1;
+}
+
+message ImportAssetsFromBackupResponse {
+    // The number of assets that were successfully imported.
+    uint32 num_imported = 1;
 }
