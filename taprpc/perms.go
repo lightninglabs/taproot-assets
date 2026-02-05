@@ -159,6 +159,14 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/assetwalletrpc.AssetWallet/ExportAssetWalletBackup": {{
+			Entity: "assets",
+			Action: "read",
+		}},
+		"/assetwalletrpc.AssetWallet/ImportAssetsFromBackup": {{
+			Entity: "assets",
+			Action: "write",
+		}},
 		"/mintrpc.Mint/MintAsset": {{
 			Entity: "mint",
 			Action: "write",

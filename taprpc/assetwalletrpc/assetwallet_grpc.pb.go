@@ -78,6 +78,14 @@ type AssetWalletClient interface {
 	// recognized by the wallet automatically. Declaring a script key will make any
 	// assets sent to the script key be recognized as being local assets.
 	DeclareScriptKey(ctx context.Context, in *DeclareScriptKeyRequest, opts ...grpc.CallOption) (*DeclareScriptKeyResponse, error)
+	// ExportAssetWalletBackup exports a backup of all active assets in the wallet.
+	// The backup includes all data necessary to restore the assets in case of
+	// database or system failure.
+	ExportAssetWalletBackup(ctx context.Context, in *ExportAssetWalletBackupRequest, opts ...grpc.CallOption) (*ExportAssetWalletBackupResponse, error)
+	// ImportAssetsFromBackup imports assets from a backup blob that was previously
+	// created using ExportAssetWalletBackup. This can be used to restore assets
+	// after database loss or to migrate assets to a new wallet.
+	ImportAssetsFromBackup(ctx context.Context, in *ImportAssetsFromBackupRequest, opts ...grpc.CallOption) (*ImportAssetsFromBackupResponse, error)
 }
 
 type assetWalletClient struct {
@@ -205,6 +213,24 @@ func (c *assetWalletClient) DeclareScriptKey(ctx context.Context, in *DeclareScr
 	return out, nil
 }
 
+func (c *assetWalletClient) ExportAssetWalletBackup(ctx context.Context, in *ExportAssetWalletBackupRequest, opts ...grpc.CallOption) (*ExportAssetWalletBackupResponse, error) {
+	out := new(ExportAssetWalletBackupResponse)
+	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/ExportAssetWalletBackup", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *assetWalletClient) ImportAssetsFromBackup(ctx context.Context, in *ImportAssetsFromBackupRequest, opts ...grpc.CallOption) (*ImportAssetsFromBackupResponse, error) {
+	out := new(ImportAssetsFromBackupResponse)
+	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/ImportAssetsFromBackup", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AssetWalletServer is the server API for AssetWallet service.
 // All implementations must embed UnimplementedAssetWalletServer
 // for forward compatibility
@@ -268,6 +294,14 @@ type AssetWalletServer interface {
 	// recognized by the wallet automatically. Declaring a script key will make any
 	// assets sent to the script key be recognized as being local assets.
 	DeclareScriptKey(context.Context, *DeclareScriptKeyRequest) (*DeclareScriptKeyResponse, error)
+	// ExportAssetWalletBackup exports a backup of all active assets in the wallet.
+	// The backup includes all data necessary to restore the assets in case of
+	// database or system failure.
+	ExportAssetWalletBackup(context.Context, *ExportAssetWalletBackupRequest) (*ExportAssetWalletBackupResponse, error)
+	// ImportAssetsFromBackup imports assets from a backup blob that was previously
+	// created using ExportAssetWalletBackup. This can be used to restore assets
+	// after database loss or to migrate assets to a new wallet.
+	ImportAssetsFromBackup(context.Context, *ImportAssetsFromBackupRequest) (*ImportAssetsFromBackupResponse, error)
 	mustEmbedUnimplementedAssetWalletServer()
 }
 
@@ -313,6 +347,12 @@ func (UnimplementedAssetWalletServer) RemoveUTXOLease(context.Context, *RemoveUT
 }
 func (UnimplementedAssetWalletServer) DeclareScriptKey(context.Context, *DeclareScriptKeyRequest) (*DeclareScriptKeyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeclareScriptKey not implemented")
+}
+func (UnimplementedAssetWalletServer) ExportAssetWalletBackup(context.Context, *ExportAssetWalletBackupRequest) (*ExportAssetWalletBackupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExportAssetWalletBackup not implemented")
+}
+func (UnimplementedAssetWalletServer) ImportAssetsFromBackup(context.Context, *ImportAssetsFromBackupRequest) (*ImportAssetsFromBackupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ImportAssetsFromBackup not implemented")
 }
 func (UnimplementedAssetWalletServer) mustEmbedUnimplementedAssetWalletServer() {}
 
@@ -561,6 +601,42 @@ func _AssetWallet_DeclareScriptKey_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AssetWallet_ExportAssetWalletBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExportAssetWalletBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetWalletServer).ExportAssetWalletBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/assetwalletrpc.AssetWallet/ExportAssetWalletBackup",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetWalletServer).ExportAssetWalletBackup(ctx, req.(*ExportAssetWalletBackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AssetWallet_ImportAssetsFromBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImportAssetsFromBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetWalletServer).ImportAssetsFromBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/assetwalletrpc.AssetWallet/ImportAssetsFromBackup",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetWalletServer).ImportAssetsFromBackup(ctx, req.(*ImportAssetsFromBackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AssetWallet_ServiceDesc is the grpc.ServiceDesc for AssetWallet service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -619,6 +695,14 @@ var AssetWallet_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeclareScriptKey",
 			Handler:    _AssetWallet_DeclareScriptKey_Handler,
+		},
+		{
+			MethodName: "ExportAssetWalletBackup",
+			Handler:    _AssetWallet_ExportAssetWalletBackup_Handler,
+		},
+		{
+			MethodName: "ImportAssetsFromBackup",
+			Handler:    _AssetWallet_ImportAssetsFromBackup_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
