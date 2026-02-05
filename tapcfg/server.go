@@ -520,8 +520,15 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				"oracle configuration: %w", err)
 		}
 
+		macaroonOpt, err := getPriceOracleMacaroonOpt(rfqCfg)
+		if err != nil {
+			return nil, fmt.Errorf("unable to load price "+
+				"oracle macaroon: %w", err)
+		}
+
 		priceOracle, err = rfq.NewRpcPriceOracle(
 			rfqCfg.PriceOracleAddress, tlsConfig,
+			macaroonOpt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create price "+
