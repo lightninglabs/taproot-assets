@@ -109,6 +109,14 @@ func (c *CliConfig) Validate() error {
 		}
 	}
 
+	// A macaroon requires transport security. If a macaroon path is set
+	// but TLS is disabled, the gRPC dial will fail. Catch this early with
+	// a clear error.
+	if c.PriceOracleMacaroonPath != "" && c.PriceOracleTLSDisable {
+		return fmt.Errorf("priceoraclemacaroonpath requires " +
+			"price oracle TLS to be enabled")
+	}
+
 	// Ensure that if the portfolio pilot address is set, it is valid.
 	if c.PortfolioPilotAddress != "" {
 		_, err := ParsePortfolioPilotAddress(c.PortfolioPilotAddress)
