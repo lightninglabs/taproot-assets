@@ -362,6 +362,8 @@ type ExperimentalConfig struct {
 func (c *ExperimentalConfig) CleanAndValidate() error {
 	c.Rfq.PriceOracleTLSCertPath = CleanAndExpandPath(
 		c.Rfq.PriceOracleTLSCertPath)
+	c.Rfq.PriceOracleMacaroonPath = CleanAndExpandPath(
+		c.Rfq.PriceOracleMacaroonPath)
 	return c.Rfq.Validate()
 }
 
@@ -1262,6 +1264,26 @@ func getPriceOracleTLSConfig(rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
 	}
 
 	return tlsConfig, nil
+}
+
+// getPriceOracleMacaroonOpt reads the price oracle macaroon file
+// from disk (if configured) and returns it as an optional gRPC dial
+// option.
+func getPriceOracleMacaroonOpt(
+	rfqCfg rfq.CliConfig) (fn.Option[grpc.DialOption], error) {
+
+	if rfqCfg.PriceOracleMacaroonPath == "" {
+		return fn.None[grpc.DialOption](), nil
+	}
+
+	opt, err := rfq.NewMacaroonDialOption(
+		rfqCfg.PriceOracleMacaroonPath,
+	)
+	if err != nil {
+		return fn.None[grpc.DialOption](), err
+	}
+
+	return fn.Some(opt), nil
 }
 
 // fileExists reports whether the named file or directory exists.
