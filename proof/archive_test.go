@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -212,6 +213,56 @@ func TestFileArchiver(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFileArchiverImportVerifiedProofs(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tempDir := t.TempDir()
+
+	fileArchive, err := NewFileArchiver(tempDir)
+	require.NoError(t, err)
+
+	proofHex, err := os.ReadFile(proofFileHexFileName)
+	require.NoError(t, err)
+
+	proofBytes, err := hex.DecodeString(
+		strings.Trim(string(proofHex), "\n"),
+	)
+	require.NoError(t, err)
+
+	proofFile := &File{}
+	require.NoError(t, proofFile.Decode(bytes.NewReader(proofBytes)))
+
+	lastProof, err := proofFile.LastProof()
+	require.NoError(t, err)
+
+	locator := Locator{
+		AssetID:   fn.Ptr(lastProof.Asset.ID()),
+		ScriptKey: *lastProof.Asset.ScriptKey.PubKey,
+		OutPoint:  fn.Ptr(lastProof.OutPoint()),
+	}
+	annotated := &AnnotatedProof{
+		Locator: locator,
+		Blob:    proofBytes,
+	}
+
+	verified, err := VerifyAnnotatedProofs(
+		ctx, MockVerifierCtx, annotated,
+	)
+	require.NoError(t, err)
+
+	err = fileArchive.ImportVerifiedProofs(ctx, false, verified...)
+	require.NoError(t, err)
+
+	storedProof, err := fileArchive.FetchProof(ctx, locator)
+	require.NoError(t, err)
+	require.Equal(t, proofBytes, []byte(storedProof))
+
+	var nilVerified VerifiedAnnotatedProof
+	err = fileArchive.ImportVerifiedProofs(ctx, false, nilVerified)
+	require.Error(t, err)
 }
 
 // TestMigrateOldFileNames tests that we can migrate old file names to the new
