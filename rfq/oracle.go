@@ -199,8 +199,10 @@ type RpcPriceOracle struct {
 }
 
 // NewRpcPriceOracle creates a new RPC price oracle handle given the address
-// of the price oracle RPC server.
-func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig) (*RpcPriceOracle,
+// of the price oracle RPC server. An optional macaroon dial option can be
+// provided for authentication with the oracle server.
+func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig,
+	macaroonOpt fn.Option[grpc.DialOption]) (*RpcPriceOracle,
 	error) {
 
 	addr, err := ParsePriceOracleAddress(addrStr)
@@ -236,6 +238,12 @@ func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig) (*RpcPriceOracle,
 			},
 		),
 	}
+
+	// If a macaroon dial option is provided, append it to the dial
+	// options so that the macaroon is sent with every RPC call.
+	macaroonOpt.WhenSome(func(opt grpc.DialOption) {
+		dialOpts = append(dialOpts, opt)
+	})
 
 	// Formulate the server address dial string.
 	serverAddr := fmt.Sprintf("%s:%s", addr.Hostname(), addr.Port())

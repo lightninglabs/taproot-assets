@@ -33,6 +33,8 @@ type CliConfig struct {
 
 	PriceOracleTLSCertPath string `long:"priceoracletlscertpath" description:"Path to a PEM-encoded x509 certificate to use when constructing a TLS connection with a price oracle."`
 
+	PriceOracleMacaroonPath string `long:"priceoraclemacaroonpath" description:"Path to the macaroon to use when connecting to the price oracle gRPC server."`
+
 	SendPriceHint bool `long:"sendpricehint" description:"Send a price hint from the local price oracle to the RFQ peer when requesting a quote. For privacy reasons, this should only be turned on for self-hosted or trusted price oracles."`
 
 	PriceOracleSendPeerId bool `long:"priceoraclesendpeerid" description:"Send the peer ID (public key of the peer) to the price oracle when requesting a price rate. For privacy reasons, this should only be turned on for self-hosted or trusted price oracles."`
