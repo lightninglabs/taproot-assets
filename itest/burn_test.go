@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 
 	"github.com/btcsuite/btcd/wire"
-	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -123,7 +123,7 @@ func testBurnAssets(t *harnessTest) {
 		},
 		AmountToBurn:     burnAmt,
 		Note:             burnNote,
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
 
@@ -198,7 +198,7 @@ func testBurnAssets(t *harnessTest) {
 			AssetId: simpleCollectibleGen.AssetId,
 		},
 		AmountToBurn:     simpleCollectible.Amount,
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
 
@@ -229,7 +229,7 @@ func testBurnAssets(t *harnessTest) {
 			AssetId: simpleAssetGen.AssetId,
 		},
 		AmountToBurn:     multiBurnAmt,
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
 
@@ -275,7 +275,7 @@ func testBurnAssets(t *harnessTest) {
 			AssetId: simpleGroupGen.AssetId,
 		},
 		AmountToBurn:     burnAmt,
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
 
@@ -338,7 +338,7 @@ func testBurnAssets(t *harnessTest) {
 			AssetId: simpleGroupCollectGen.AssetId,
 		},
 		AmountToBurn:     1,
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
 
@@ -455,7 +455,7 @@ func testBurnGroupedAssets(t *harnessTest) {
 		},
 		AmountToBurn:     burnAmt,
 		Note:             burnNote,
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
 
@@ -536,7 +536,7 @@ func testFullBurnUTXO(t *harnessTest) {
 			AssetId: simpleAssetID[:],
 		},
 		AmountToBurn:     fullBurnAmt,
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
 
@@ -588,7 +588,7 @@ func testFullBurnUTXO(t *harnessTest) {
 			AssetId: collectibleAssetID[:],
 		},
 		AmountToBurn:     fullBurnAmt,
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
 

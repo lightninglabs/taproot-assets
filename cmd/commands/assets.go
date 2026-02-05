@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcd/wire"
-	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -1164,7 +1164,7 @@ func burnAssets(ctx *cli.Context) error {
 			AssetId: assetIDBytes,
 		},
 		AmountToBurn:     burnAmount,
-		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to send assets: %w", err)

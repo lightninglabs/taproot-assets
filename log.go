@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -99,6 +100,9 @@ func SetupLoggers(root *build.SubLoggerManager,
 	// Some of the loggers declared in the main taprootassets package are
 	// also used in sub packages.
 	signal.UseLogger(tapdLog)
+	rpcserver.UseLogger(rpcsLog)
+	rpcserver.UseServerLogger(srvrLog)
+	rpcserver.UseDaemonLogger(tapdLog)
 
 	AddSubLogger(
 		root, tapgarden.Subsystem, interceptor, tapgarden.UseLogger,

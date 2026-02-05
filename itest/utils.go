@@ -16,7 +16,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
-	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -24,6 +23,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/itest/rpcassert"
 	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -1168,7 +1168,7 @@ func ExportProofFileFromUniverse(t *testing.T, src commands.RpcClientsBundle,
 			uniID.GroupKey = loc.GroupKey
 		}
 
-		rpcUniID, err := taprootassets.MarshalUniID(uniID)
+		rpcUniID, err := rpcserver.MarshalUniID(uniID)
 		require.NoError(t, err)
 
 		op := &unirpc.Outpoint{
@@ -1239,7 +1239,7 @@ func InsertProofIntoUniverse(t *testing.T, dst commands.RpcClientsBundle,
 		require.NoError(t, err)
 	}
 
-	rpcUniID, err := taprootassets.MarshalUniID(uniID)
+	rpcUniID, err := rpcserver.MarshalUniID(uniID)
 	require.NoError(t, err)
 
 	importResp, err := dst.InsertProof(ctx, &unirpc.AssetProof{

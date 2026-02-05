@@ -20,8 +20,10 @@ import (
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
+	"github.com/lightninglabs/taproot-assets/tapconfig"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
@@ -62,9 +64,9 @@ type Server struct {
 
 	chainParams *address.ChainParams
 
-	cfg *Config
+	cfg *tapconfig.Config
 
-	*rpcServer
+	rpcServer       *rpcserver.RPCServer
 	mboxServer      *authmailbox.Server
 	macaroonService *lndclient.MacaroonService
 
@@ -75,7 +77,7 @@ type Server struct {
 // NewServer creates a new server.
 func NewServer(chainParams *address.ChainParams) *Server {
 	return &Server{
-		rpcServer:   newRPCServer(),
+		rpcServer:   rpcserver.NewRPCServer(),
 		mboxServer:  authmailbox.NewServer(),
 		chainParams: chainParams,
 		ready:       make(chan bool),
@@ -85,7 +87,7 @@ func NewServer(chainParams *address.ChainParams) *Server {
 
 // UpdateConfig updates the server's configuration. This MUST be called before
 // the server is started.
-func (s *Server) UpdateConfig(cfg *Config) {
+func (s *Server) UpdateConfig(cfg *tapconfig.Config) {
 	s.cfg = cfg
 }
 
@@ -133,10 +135,11 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	// macaroon service.
 	if !s.cfg.RPCConfig.NoMacaroons {
 		var err error
+		//nolint:lll
 		s.macaroonService, err = lndclient.NewMacaroonService(
 			&lndclient.MacaroonServiceConfig{
 				RootKeyStore:     s.cfg.DatabaseConfig.RootKeyStore,
-				MacaroonLocation: tapdMacaroonLocation,
+				MacaroonLocation: tapconfig.TapdMacaroonLocation,
 				MacaroonPath:     s.cfg.MacaroonPath,
 				Checkers: []macaroons.Checker{
 					macaroons.IPLockChecker,
@@ -372,7 +375,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		},
 	)
 	serverOpts = append(serverOpts, rpcServerOpts...)
-	serverOpts = append(serverOpts, ServerMaxMsgReceiveSize)
+	serverOpts = append(serverOpts, rpcserver.ServerMaxMsgReceiveSize)
 
 	// Configure server-side keepalive parameters. These settings allow the
 	// server to actively probe the connection health and ensure connections
@@ -548,7 +551,7 @@ func (s *Server) ValidateMacaroon(ctx context.Context,
 }
 
 // startGrpcListen starts the GRPC server on the passed listeners.
-func startGrpcListen(cfg *Config, grpcServer *grpc.Server,
+func startGrpcListen(cfg *tapconfig.Config, grpcServer *grpc.Server,
 	listeners []*lnd.ListenerWithSignal) error {
 
 	// Use a WaitGroup so we can be sure the instructions on how to input the
@@ -576,7 +579,7 @@ func startGrpcListen(cfg *Config, grpcServer *grpc.Server,
 
 // startRestProxy starts the given REST proxy on the listeners found in the
 // config.
-func startRestProxy(cfg *Config, rpcServer *rpcServer,
+func startRestProxy(cfg *tapconfig.Config, rpcServer *rpcserver.RPCServer,
 	mboxServer *authmailbox.Server) (func(), error) {
 
 	// We use the first RPC listener as the destination for our REST proxy.
@@ -689,7 +692,9 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer,
 			// through the following chain:
 			// req ---> CORS handler --> WS proxy --->
 			//   REST proxy --> gRPC endpoint
-			corsHandler := allowCORS(restHandler, cfg.RestCORS)
+			corsHandler := rpcserver.AllowCORS(
+				restHandler, cfg.RestCORS,
+			)
 
 			wg.Done()
 			err := http.Serve(lis, corsHandler) //nolint:gosec
