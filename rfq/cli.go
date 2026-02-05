@@ -25,6 +25,16 @@ type CliConfig struct {
 	// PortfolioPilotAddress is the portfolio pilot gRPC server address.
 	PortfolioPilotAddress string `long:"portfoliopilotaddress" description:"Portfolio pilot gRPC server address (portfoliopilotrpc://<hostname>:<port>)"`
 
+	PriceOracleTLSDisable bool `long:"priceoracletlsdisable" description:"Disable TLS for price oracle communication."`
+
+	PriceOracleTLSInsecure bool `long:"priceoracletlsinsecure" description:"Disable price oracle certificate verification."`
+
+	PriceOracleTLSNoSystemCAs bool `long:"priceoracletlsnosystemcas" description:"Disable use of the operating system's list of root CA's when verifying price oracle certificates."`
+
+	PriceOracleTLSCertPath string `long:"priceoracletlscertpath" description:"Path to a PEM-encoded x509 certificate to use when constructing a TLS connection with a price oracle."`
+
+	PriceOracleMacaroonPath string `long:"priceoraclemacaroonpath" description:"Path to the macaroon to use when connecting to the price oracle gRPC server."`
+
 	SendPriceHint bool `long:"sendpricehint" description:"Send a price hint from the local price oracle to the RFQ peer when requesting a quote. For privacy reasons, this should only be turned on for self-hosted or trusted price oracles."`
 
 	PriceOracleSendPeerId bool `long:"priceoraclesendpeerid" description:"Send the peer ID (public key of the peer) to the price oracle when requesting a price rate. For privacy reasons, this should only be turned on for self-hosted or trusted price oracles."`
@@ -97,6 +107,14 @@ func (c *CliConfig) Validate() error {
 			return fmt.Errorf("invalid price oracle service URI "+
 				"address: %w", err)
 		}
+	}
+
+	// A macaroon requires transport security. If a macaroon path is set
+	// but TLS is disabled, the gRPC dial will fail. Catch this early with
+	// a clear error.
+	if c.PriceOracleMacaroonPath != "" && c.PriceOracleTLSDisable {
+		return fmt.Errorf("priceoraclemacaroonpath requires " +
+			"price oracle TLS to be enabled")
 	}
 
 	// Ensure that if the portfolio pilot address is set, it is valid.

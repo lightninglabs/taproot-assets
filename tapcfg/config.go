@@ -148,6 +148,24 @@ const (
 	// DefaultPsbtMaxFeeRatio is the default maximum for fees to total
 	// output amount ratio to use when funding PSBTs.
 	DefaultPsbtMaxFeeRatio = lndservices.DefaultPsbtMaxFeeRatio
+
+	// defaultPriceOracleTLSDisable disables TLS for price oracle
+	// communication.
+	defaultPriceOracleTLSDisable = false
+
+	// defaultPriceOracleTLSInsecure is the default value we'll use for
+	// deciding to verify certificates in TLS connections with price
+	// oracles.
+	defaultPriceOracleTLSInsecure = false
+
+	// defaultPriceOracleNoSystemCAs is the default value we'll use
+	// regarding trust of the operating system's root CA list. We'll use
+	// 'false', i.e. we will trust the OS root CA list by default.
+	defaultPriceOracleTLSNoSystemCAs = false
+
+	// defaultPriceOracleTLSCertPath is the default (empty) path to a
+	// certificate to use for securing price oracle communication.
+	defaultPriceOracleTLSCertPath = ""
 )
 
 var (
@@ -339,8 +357,13 @@ type ExperimentalConfig struct {
 	Rfq rfq.CliConfig `group:"rfq" namespace:"rfq"`
 }
 
-// Validate returns an error if the configuration is invalid.
-func (c *ExperimentalConfig) Validate() error {
+// CleanAndValidate performs final processing on the ExperimentalConfig,
+// returning an error if the configuration is invalid.
+func (c *ExperimentalConfig) CleanAndValidate() error {
+	c.Rfq.PriceOracleTLSCertPath = CleanAndExpandPath(
+		c.Rfq.PriceOracleTLSCertPath)
+	c.Rfq.PriceOracleMacaroonPath = CleanAndExpandPath(
+		c.Rfq.PriceOracleMacaroonPath)
 	return c.Rfq.Validate()
 }
 
@@ -508,7 +531,11 @@ func DefaultConfig() Config {
 		},
 		Experimental: &ExperimentalConfig{
 			Rfq: rfq.CliConfig{
-				AcceptPriceDeviationPpm: rfq.DefaultAcceptPriceDeviationPpm,
+				AcceptPriceDeviationPpm:   rfq.DefaultAcceptPriceDeviationPpm,
+				PriceOracleTLSDisable:     defaultPriceOracleTLSDisable,
+				PriceOracleTLSInsecure:    defaultPriceOracleTLSInsecure,
+				PriceOracleTLSNoSystemCAs: defaultPriceOracleTLSNoSystemCAs,
+				PriceOracleTLSCertPath:    defaultPriceOracleTLSCertPath,
 			},
 		},
 	}
@@ -963,8 +990,8 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 		}
 	}
 
-	// Validate the experimental command line config.
-	err = cfg.Experimental.Validate()
+	// Clean and validate the experimental command line config.
+	err = cfg.Experimental.CleanAndValidate()
 	if err != nil {
 		return nil, fmt.Errorf("error in experimental command line "+
 			"config: %w", err)
@@ -1207,6 +1234,56 @@ func getCertificateConfig(cfg *Config, cfgLogger btclog.Logger) (*tls.Config,
 	}
 
 	return tlsCfg, restCreds, nil
+}
+
+// getPriceOracleTLSConfig returns a TLS configuration for a price oracle,
+// given a valid RFQ CLI configuration.
+func getPriceOracleTLSConfig(rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
+	var certBytes []byte
+
+	// Read any specified certificate data.
+	if rfqCfg.PriceOracleTLSCertPath != "" {
+		var err error
+		certBytes, err = os.ReadFile(
+			rfqCfg.PriceOracleTLSCertPath,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read "+
+				"price oracle certificate: %w", err)
+		}
+	}
+
+	// Construct the oracle's TLS configuration.
+	tlsConfig := &rfq.TLSConfig{
+		Disabled:           rfqCfg.PriceOracleTLSDisable,
+		InsecureSkipVerify: rfqCfg.PriceOracleTLSInsecure,
+		// Note the subtle flip on the flag, since the user has
+		// configured whether to *not* trust the system CA's.
+		TrustSystemRootCAs: !rfqCfg.PriceOracleTLSNoSystemCAs,
+		CustomCertificates: certBytes,
+	}
+
+	return tlsConfig, nil
+}
+
+// getPriceOracleMacaroonOpt reads the price oracle macaroon file
+// from disk (if configured) and returns it as an optional gRPC dial
+// option.
+func getPriceOracleMacaroonOpt(
+	rfqCfg rfq.CliConfig) (fn.Option[grpc.DialOption], error) {
+
+	if rfqCfg.PriceOracleMacaroonPath == "" {
+		return fn.None[grpc.DialOption](), nil
+	}
+
+	opt, err := rfq.NewMacaroonDialOption(
+		rfqCfg.PriceOracleMacaroonPath,
+	)
+	if err != nil {
+		return fn.None[grpc.DialOption](), err
+	}
+
+	return fn.Some(opt), nil
 }
 
 // fileExists reports whether the named file or directory exists.

@@ -514,8 +514,21 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		// skip setting suggested prices for outgoing quote requests.
 
 	default:
+		tlsConfig, err := getPriceOracleTLSConfig(rfqCfg)
+		if err != nil {
+			return nil, fmt.Errorf("couldn't construct price "+
+				"oracle configuration: %w", err)
+		}
+
+		macaroonOpt, err := getPriceOracleMacaroonOpt(rfqCfg)
+		if err != nil {
+			return nil, fmt.Errorf("unable to load price "+
+				"oracle macaroon: %w", err)
+		}
+
 		priceOracle, err = rfq.NewRpcPriceOracle(
-			rfqCfg.PriceOracleAddress, false,
+			rfqCfg.PriceOracleAddress, tlsConfig,
+			macaroonOpt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create price "+
