@@ -6858,7 +6858,7 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 
 		leafKey.OutPoint = *outpoint
 
-	case key.GetOutpoint() != nil:
+	case key.GetOp() != nil:
 		op := key.GetOp()
 
 		hash, err := chainhash.NewHashFromStr(op.HashStr)
