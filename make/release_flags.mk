@@ -18,14 +18,19 @@ else
 USER_ARGS = --user $(shell id -u):$(shell id -g)
 endif
 
-DOCKER_RELEASE_HELPER = $(DOCKER) run \
-  --rm \
-  $(USER_ARGS) \
-  -v $(shell pwd):/tmp/build/taproot-assets \
-  -v $(shell bash -c "go env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
-  -v $(shell bash -c "go env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
-  -e SKIP_VERSION_CHECK \
-  taproot-assets-release-helper
+# Cache volume mounts for reproducible builds.
+GOCACHE_VOLUME = -v $(shell bash -c "go env GOCACHE || \
+  (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache
+GOMODCACHE_VOLUME = -v $(shell bash -c "go env GOMODCACHE || \
+  (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache
+
+# Canonical GitHub repository URL.
+REPO_URL = https://github.com/lightninglabs/taproot-assets.git
+
+# Common docker run arguments for release builds.
+DOCKER_RELEASE_ARGS = --rm $(USER_ARGS) \
+  $(GOCACHE_VOLUME) $(GOMODCACHE_VOLUME) \
+  -e SKIP_VERSION_CHECK
 
 BUILD_SYSTEM = darwin-amd64 \
 darwin-arm64 \
