@@ -10,7 +10,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
-	//nolint:lll
 	pilotrpc "github.com/lightninglabs/taproot-assets/taprpc/portfoliopilotrpc"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/grpc"

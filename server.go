@@ -37,6 +37,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	lnwl "github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
+	lnwallettypes "github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/msgmux"
@@ -1213,7 +1214,7 @@ func (s *Server) IsCustomHTLC(htlcRecords lnwire.CustomRecords) bool {
 //
 // NOTE: This method is part of the chancloser.AuxChanCloser interface.
 func (s *Server) AuxCloseOutputs(
-	desc chancloser.AuxCloseDesc) (lfn.Option[chancloser.AuxCloseOutputs],
+	desc lnwallettypes.AuxCloseDesc) (lfn.Option[chancloser.AuxCloseOutputs],
 	error) {
 
 	srvrLog.Tracef("AuxCloseOutputs called, desc=%v",
@@ -1231,7 +1232,7 @@ func (s *Server) AuxCloseOutputs(
 //
 // NOTE: This method is part of the chancloser.AuxChanCloser interface.
 func (s *Server) ShutdownBlob(
-	req chancloser.AuxShutdownReq) (lfn.Option[lnwire.CustomRecords],
+	req lnwallettypes.AuxShutdownReq) (lfn.Option[lnwire.CustomRecords],
 	error) {
 
 	srvrLog.Tracef("ShutdownBlob called, req=%v",
@@ -1249,7 +1250,7 @@ func (s *Server) ShutdownBlob(
 // custodian or porter to finish sending/receiving the proofs.
 //
 // NOTE: This method is part of the chancloser.AuxChanCloser interface.
-func (s *Server) FinalizeClose(desc chancloser.AuxCloseDesc,
+func (s *Server) FinalizeClose(desc lnwallettypes.AuxCloseDesc,
 	closeTx *wire.MsgTx) error {
 
 	srvrLog.Tracef("FinalizeClose called, desc=%v, closeTx=%v",

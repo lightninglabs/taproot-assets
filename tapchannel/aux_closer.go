@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
+	lnwallettypes "github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -227,7 +228,7 @@ func signCommitVirtualPackets(ctx context.Context,
 //
 // NOTE: This method is part of the chancloser.AuxChanCloser interface.
 func (a *AuxChanCloser) AuxCloseOutputs(
-	desc chancloser.AuxCloseDesc) (lfn.Option[chancloser.AuxCloseOutputs],
+	desc lnwallettypes.AuxCloseDesc) (lfn.Option[chancloser.AuxCloseOutputs],
 	error) {
 
 	a.Lock()
@@ -282,7 +283,7 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 	// information (delivery script keys, etc.).
 	var localShutdown, remoteShutdown tapchannelmsg.AuxShutdownMsg
 	err = lfn.MapOptionZ(
-		desc.LocalCloseOutput, func(o chancloser.CloseOutput) error {
+		desc.LocalCloseOutput, func(o lnwallettypes.CloseOutput) error {
 			blob, err := o.ShutdownRecords.Serialize()
 			if err != nil {
 				return err
@@ -295,7 +296,8 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		return none, err
 	}
 	err = lfn.MapOptionZ(
-		desc.RemoteCloseOutput, func(o chancloser.CloseOutput) error {
+		desc.RemoteCloseOutput,
+		func(o lnwallettypes.CloseOutput) error {
 			blob, err := o.ShutdownRecords.Serialize()
 			if err != nil {
 				return err
@@ -352,7 +354,7 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 
 	// Next, we'll create allocations for the (up to) two settled outputs
 	// in the co-op close transaction.
-	desc.LocalCloseOutput.WhenSome(func(o chancloser.CloseOutput) {
+	desc.LocalCloseOutput.WhenSome(func(o lnwallettypes.CloseOutput) {
 		btcAmt := o.Amt
 		if desc.Initiator {
 			btcAmt += desc.CommitFee
@@ -381,7 +383,7 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 			InternalKey:         localShutdown.BtcInternalKey.Val,
 		})
 	})
-	desc.RemoteCloseOutput.WhenSome(func(o chancloser.CloseOutput) {
+	desc.RemoteCloseOutput.WhenSome(func(o lnwallettypes.CloseOutput) {
 		btcAmt := o.Amt
 		if !desc.Initiator {
 			btcAmt += desc.CommitFee
@@ -547,7 +549,7 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 //
 // NOTE: This method is part of the chancloser.AuxChanCloser interface.
 func (a *AuxChanCloser) ShutdownBlob(
-	req chancloser.AuxShutdownReq) (lfn.Option[lnwire.CustomRecords],
+	req lnwallettypes.AuxShutdownReq) (lfn.Option[lnwire.CustomRecords],
 	error) {
 
 	a.Lock()
@@ -694,7 +696,7 @@ func shipChannelTxn(txSender tapfreighter.Porter, chanTx *wire.MsgTx,
 // custodian or porter to finish sending/receiving the proofs.
 //
 // NOTE: This method is part of the chancloser.AuxChanCloser interface.
-func (a *AuxChanCloser) FinalizeClose(desc chancloser.AuxCloseDesc,
+func (a *AuxChanCloser) FinalizeClose(desc lnwallettypes.AuxCloseDesc,
 	closeTx *wire.MsgTx) error {
 
 	a.Lock()
