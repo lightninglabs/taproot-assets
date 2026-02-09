@@ -37,6 +37,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	lnwl "github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
+	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/msgmux"
@@ -1211,9 +1212,9 @@ func (s *Server) IsCustomHTLC(htlcRecords lnwire.CustomRecords) bool {
 // attempt. We'll add some extra outputs to the co-op close transaction, and
 // also give the caller a custom sorting routine.
 //
-// NOTE: This method is part of the chancloser.AuxChanCloser interface.
+// NOTE: This method is part of the types.AuxChanCloser interface.
 func (s *Server) AuxCloseOutputs(
-	desc chancloser.AuxCloseDesc) (lfn.Option[chancloser.AuxCloseOutputs],
+	desc types.AuxCloseDesc) (lfn.Option[chancloser.AuxCloseOutputs],
 	error) {
 
 	srvrLog.Tracef("AuxCloseOutputs called, desc=%v",
@@ -1229,9 +1230,9 @@ func (s *Server) AuxCloseOutputs(
 // ShutdownBlob returns the set of custom records that should be included in
 // the shutdown message.
 //
-// NOTE: This method is part of the chancloser.AuxChanCloser interface.
+// NOTE: This method is part of the types.AuxChanCloser interface.
 func (s *Server) ShutdownBlob(
-	req chancloser.AuxShutdownReq) (lfn.Option[lnwire.CustomRecords],
+	req types.AuxShutdownReq) (lfn.Option[lnwire.CustomRecords],
 	error) {
 
 	srvrLog.Tracef("ShutdownBlob called, req=%v",
@@ -1248,8 +1249,8 @@ func (s *Server) ShutdownBlob(
 // upon. We'll finalize the exclusion proofs, then send things off to the
 // custodian or porter to finish sending/receiving the proofs.
 //
-// NOTE: This method is part of the chancloser.AuxChanCloser interface.
-func (s *Server) FinalizeClose(desc chancloser.AuxCloseDesc,
+// NOTE: This method is part of the types.AuxChanCloser interface.
+func (s *Server) FinalizeClose(desc types.AuxCloseDesc,
 	closeTx *wire.MsgTx) error {
 
 	srvrLog.Tracef("FinalizeClose called, desc=%v, closeTx=%v",

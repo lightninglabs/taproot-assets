@@ -21,7 +21,7 @@ env:
 
   GO_VERSION: '1.25.2'
 
-  LITD_BRANCH: 'master'
+  LITD_BRANCH: 'chore/lnd-latest'
 
   # Number of parallel itest jobs in the matrix and tranches per job.
   # Total tranches = NUM_ITEST_JOBS * ITEST_PARALLELISM.

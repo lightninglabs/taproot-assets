@@ -4,7 +4,7 @@ go 1.24.11
 
 require (
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6
-	github.com/btcsuite/btcd/btcec/v2 v2.3.4
+	github.com/btcsuite/btcd/btcec/v2 v2.3.6
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
@@ -31,7 +31,7 @@ require (
 	github.com/lightninglabs/lndclient v0.20.0-6
 	github.com/lightninglabs/neutrino/cache v1.1.3
 	github.com/lightninglabs/taproot-assets/taprpc v1.0.9
-	github.com/lightningnetwork/lnd v0.20.0-beta.rc4.0.20251127014118-f8b5cb0e8918
+	github.com/lightningnetwork/lnd v0.20.0-beta.rc4.0.20260205225502-14b90a27cfc3
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.9
@@ -133,7 +133,7 @@ require (
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
 	github.com/lightningnetwork/lnd/kvdb v1.4.16 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
-	github.com/lightningnetwork/lnd/sqldb v1.0.11 // indirect
+	github.com/lightningnetwork/lnd/sqldb v1.0.13-0.20260113150738-e26a114cdcf0 // indirect
 	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
