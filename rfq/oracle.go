@@ -2,7 +2,6 @@ package rfq
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"math"
 	"net/url"
@@ -16,8 +15,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -201,59 +198,9 @@ type RpcPriceOracle struct {
 	rawConn *grpc.ClientConn
 }
 
-// clientKeepaliveDialOption configures bidirectional health probing to prevent
-// idle RFQ connections from being silently terminated by network intermediaries
-// (NATs, load balancers) or aggressive server timeouts. Without active
-// keepalive, the first price query after an idle period would fail with
-// "connection reset by peer" and require a retry.
-var clientKeepaliveDialOption = grpc.WithKeepaliveParams(
-	keepalive.ClientParameters{
-		// Ping server after 30 seconds of inactivity.
-		Time: 30 * time.Second,
-
-		// Wait 20 seconds for ping response.
-		Timeout: 20 * time.Second,
-
-		// Permit keepalive pings even when there are no active
-		// streams. This is critical for long-lived connections with
-		// infrequent RFQ requests.
-		PermitWithoutStream: true,
-	},
-)
-
-// serverDialOpts returns the set of server options needed to connect to the
-// price oracle RPC server using a TLS connection.
-func serverDialOpts() ([]grpc.DialOption, error) {
-	var opts []grpc.DialOption
-
-	tlsConfig := tls.Config{InsecureSkipVerify: true}
-	transportCredentials := credentials.NewTLS(&tlsConfig)
-
-	opts = append(opts, grpc.WithTransportCredentials(transportCredentials))
-
-	opts = append(opts, clientKeepaliveDialOption)
-
-	return opts, nil
-}
-
-// insecureServerDialOpts returns the set of server options needed to connect to
-// the price oracle RPC server using a TLS connection.
-func insecureServerDialOpts() ([]grpc.DialOption, error) {
-	var opts []grpc.DialOption
-
-	// Skip TLS certificate verification.
-	opts = append(opts, grpc.WithTransportCredentials(
-		insecure.NewCredentials(),
-	))
-
-	opts = append(opts, clientKeepaliveDialOption)
-
-	return opts, nil
-}
-
 // NewRpcPriceOracle creates a new RPC price oracle handle given the address
 // of the price oracle RPC server.
-func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
+func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig) (*RpcPriceOracle,
 	error) {
 
 	addr, err := ParsePriceOracleAddress(addrStr)
@@ -261,19 +208,33 @@ func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
 		return nil, err
 	}
 
-	// Connect to the RPC server.
-	dialOpts, err := serverDialOpts()
+	// Create transport credentials and dial options from the supplied TLS
+	// config.
+	transportCredentials, err := configureTransportCredentials(tlsConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	// Allow connecting to a non-TLS (h2c, http over cleartext) gRPC server,
-	// should be used for testing only.
-	if dialInsecure {
-		dialOpts, err = insecureServerDialOpts()
-		if err != nil {
-			return nil, err
-		}
+	dialOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(transportCredentials),
+
+		// We require active keepalive to ensure success of price
+		// queries after idle periods.
+		grpc.WithKeepaliveParams(
+			keepalive.ClientParameters{
+				// Ping server after 30 seconds of inactivity.
+				Time: 30 * time.Second,
+
+				// Wait 20 seconds for ping response.
+				Timeout: 20 * time.Second,
+
+				// Permit keepalive pings even when there are
+				// no active streams. This is critical for
+				// long-lived connections with infrequent RFQ
+				// requests.
+				PermitWithoutStream: true,
+			},
+		),
 	}
 
 	// Formulate the server address dial string.

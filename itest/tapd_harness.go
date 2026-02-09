@@ -288,6 +288,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	case len(opts.oracleServerAddress) > 0:
 		tapCfg.Experimental.Rfq.PriceOracleAddress =
 			opts.oracleServerAddress
+		tapCfg.Experimental.Rfq.PriceOracleTLSInsecure = true
 
 	case tapCfg.Experimental.Rfq.PriceOracleAddress == "":
 		tapCfg.Experimental.Rfq.PriceOracleAddress =

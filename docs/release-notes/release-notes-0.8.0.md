@@ -133,6 +133,12 @@
   - Added a limit (`MaxOrphanUTXOs = 20`) to prevent transactions from becoming
     too large when sweeping many orphan UTXOs at once.
 
+- [PR#1775](https://github.com/lightninglabs/taproot-assets/pull/1775):
+  Price oracle connections now verify TLS certificates by
+  default, using the OS root CA list. New config options under
+  `experimental.rfq.priceoracle*` allow disabling TLS, skipping
+  verification, or specifying custom certificates.
+
 ## RPC Updates
 
 - [PR#1766](https://github.com/lightninglabs/taproot-assets/pull/1766):
