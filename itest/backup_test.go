@@ -621,6 +621,38 @@ func testBackupRestoreTransferred(t *harnessTest) {
 	require.NoError(t.t, err)
 	require.Len(t.t, restoredAssets.Assets, len(mintedAssets))
 
+	// Stage 5: Verify that stale backups are detected and skipped.
+	// Alice's backup is from before the Alice→Bob transfer, and
+	// Bob's backup is from before the Bob→Charlie transfer. The
+	// import handler checks on-chain whether each anchor outpoint
+	// has been spent; spent assets are skipped, so the import
+	// succeeds but imports 0 assets.
+	t.Logf("=== Stage 5: Verify stale backup detection ===")
+
+	// Alice's stale backup — all anchor outpoints were spent
+	// when Alice transferred to Bob, so 0 assets are imported.
+	aliceImport, err := restoredTapd.ImportAssetsFromBackup(
+		ctxt, &wrpc.ImportAssetsFromBackupRequest{
+			Backup: aliceBackup.Backup,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, uint32(0), aliceImport.NumImported)
+	t.Logf("Alice stale backup: 0 of %d assets imported "+
+		"(anchor outpoints spent)", len(mintedAssets))
+
+	// Bob's stale backup — all anchor outpoints were spent
+	// when Bob transferred to Charlie, so 0 assets are imported.
+	bobImport, err := restoredTapd.ImportAssetsFromBackup(
+		ctxt, &wrpc.ImportAssetsFromBackupRequest{
+			Backup: bobBackup.Backup,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, uint32(0), bobImport.NumImported)
+	t.Logf("Bob stale backup: 0 of %d assets imported "+
+		"(anchor outpoints spent)", len(mintedAssets))
+
 	// Create a recipient node (Eve) to verify the restored node can
 	// spend.
 	eveLnd := t.lndHarness.NewNodeWithCoins("Eve", nil)

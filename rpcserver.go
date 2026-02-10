@@ -61,6 +61,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -138,6 +139,14 @@ const (
 	// return feedback when importing an address into the wallet. The import
 	// may continue in the background after the timeout expires.
 	addrImportTimeout = 20 * time.Second
+
+	// spendCheckTimeout is how long we wait for spend notifications
+	// when checking whether a backup's anchor outpoints have been
+	// spent. All outpoints are checked concurrently, so this is a
+	// single wait for the entire batch. Historical spends are
+	// reported almost immediately; the timeout only fires for
+	// unspent (valid) outpoints.
+	spendCheckTimeout = 10 * time.Second
 )
 
 type (
@@ -10864,12 +10873,34 @@ func (r *rpcServer) ImportAssetsFromBackup(ctx context.Context,
 	rpcsLog.Infof("Decoded backup version %d with %d assets",
 		walletBackup.Version, len(walletBackup.Assets))
 
+	// Check on-chain whether each asset's anchor outpoint has been
+	// spent. We register spend notifications for all outpoints
+	// concurrently and wait once, so stale assets are detected
+	// without adding per-asset latency.
+	spentOutpoints, err := r.detectSpentOutpoints(
+		ctx, walletBackup.Assets,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check outpoint "+
+			"status: %w", err)
+	}
+
 	var numImported uint32
 
 	for i, assetBackup := range walletBackup.Assets {
 		rpcsLog.Debugf("Processing asset %d: outpoint=%v, amount=%d",
 			i, assetBackup.AnchorOutpoint,
 			assetBackup.Asset.Amount)
+
+		// Skip assets whose anchor outpoint has been spent.
+		if spentOutpoints[i] {
+			assetID := assetBackup.Asset.ID()
+			rpcsLog.Warnf("Skipping asset %d (id=%x): "+
+				"anchor outpoint %v has been spent, "+
+				"backup is stale", i, assetID[:],
+				assetBackup.AnchorOutpoint)
+			continue
+		}
 
 		// Check if asset already exists by trying to fetch its proof.
 		assetID := assetBackup.Asset.ID()
@@ -10994,4 +11025,82 @@ func (r *rpcServer) ImportAssetsFromBackup(ctx context.Context,
 	return &wrpc.ImportAssetsFromBackupResponse{
 		NumImported: numImported,
 	}, nil
+}
+
+// detectSpentOutpoints registers spend notifications for every asset's
+// anchor outpoint concurrently, giving each outpoint its own timeout.
+// Returns a slice indexed by asset position: true = spent.
+func (r *rpcServer) detectSpentOutpoints(ctx context.Context,
+	assets []*backup.AssetBackup) ([]bool, error) {
+
+	spent := make([]bool, len(assets))
+	if len(assets) == 0 {
+		return spent, nil
+	}
+
+	type spendResult struct {
+		index int
+		spent bool
+		err   error
+	}
+
+	results := make(chan spendResult, len(assets))
+
+	// Register spend notifications and spawn a goroutine per
+	// outpoint. Each goroutine gets its own timeout so that even
+	// with thousands of assets, every outpoint has the full
+	// duration for lnd to respond.
+	for i, ab := range assets {
+		spendChan, errChan, err :=
+			r.cfg.Lnd.ChainNotifier.RegisterSpendNtfn(
+				ctx, &ab.AnchorOutpoint,
+				ab.AnchorOutputPkScript,
+				int32(ab.AnchorBlockHeight),
+			)
+		if err != nil {
+			return nil, fmt.Errorf("unable to register "+
+				"spend ntfn for asset %d: %w", i, err)
+		}
+
+		go func(idx int,
+			sc chan *chainntnfs.SpendDetail,
+			ec chan error) {
+
+			assetCtx, cancel := context.WithTimeout(
+				ctx, spendCheckTimeout,
+			)
+			defer cancel()
+
+			select {
+			case <-sc:
+				results <- spendResult{
+					index: idx, spent: true,
+				}
+			case err := <-ec:
+				results <- spendResult{
+					index: idx, err: err,
+				}
+			case <-assetCtx.Done():
+				results <- spendResult{
+					index: idx, spent: false,
+				}
+			}
+		}(i, spendChan, errChan)
+	}
+
+	// Collect exactly len(assets) results. All goroutines run in
+	// parallel, so wall-clock time is ~spendCheckTimeout regardless
+	// of asset count. Spent outpoints resolve almost instantly
+	// (lnd checks the UTXO set synchronously); only unspent ones
+	// wait for the timeout.
+	for range assets {
+		r := <-results
+		if r.err != nil {
+			return nil, fmt.Errorf("spend check error "+
+				"for asset %d: %w", r.index, r.err)
+		}
+		spent[r.index] = r.spent
+	}
+
+	return spent, nil
 }

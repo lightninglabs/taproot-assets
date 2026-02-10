@@ -67,6 +67,10 @@ type AssetBackup struct {
 	// to reconstruct the stripped fields from blockchain data.
 	// Used in v2+ backups alongside StrippedProofFileBlob.
 	RehydrationHintsBlob []byte
+
+	// AnchorOutputPkScript is the pk_script of the anchor output.
+	// Needed for registering spend notifications during import.
+	AnchorOutputPkScript []byte
 }
 
 // ScriptKeyBackup contains the key material needed to restore a script key.
@@ -116,6 +120,15 @@ func createAssetBackup(ctx context.Context,
 		AnchorOutpoint:    chainAsset.AnchorOutpoint,
 		AnchorBlockHeight: chainAsset.AnchorBlockHeight,
 		ProofFileBlob:     proofBlob,
+	}
+
+	// Store the anchor output's pk_script for spend detection on import.
+	if chainAsset.AnchorTx != nil {
+		idx := chainAsset.AnchorOutpoint.Index
+		if int(idx) < len(chainAsset.AnchorTx.TxOut) {
+			backup.AnchorOutputPkScript =
+				chainAsset.AnchorTx.TxOut[idx].PkScript
+		}
 	}
 
 	// Extract script key info if available.

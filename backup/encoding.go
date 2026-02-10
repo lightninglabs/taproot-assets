@@ -64,6 +64,10 @@ const (
 	// blob. Used in v1 backups.
 	AssetBackupProofBlobType tlv.Type = 5
 
+	// AssetBackupAnchorPkScriptType is the TLV type for the anchor
+	// output's pk_script, used for spend detection on import.
+	AssetBackupAnchorPkScriptType tlv.Type = 6
+
 	// AssetBackupStrippedProofBlobType is the TLV type for the stripped
 	// proof file blob (blockchain-derivable fields removed). Used in v2+
 	// backups. Odd type so older decoders can safely skip it.
@@ -232,11 +236,17 @@ func (ab *AssetBackup) Encode(w io.Writer) error {
 			AssetBackupAnchorKeyType, &anchorKeyBytes))
 	}
 
-	// Add proof data. Records must remain in ascending type order:
-	// 5 (full proof), 7 (stripped proof), 9 (hints).
+	// Add proof data and optional pk_script. Records must remain in
+	// ascending type order: 5 (full proof), 6 (pk_script), 7 (stripped
+	// proof), 9 (hints).
 	switch {
 	case len(ab.StrippedProofFileBlob) > 0:
-		// v2: types 7, 9.
+		// v2: types 6, 7, 9.
+		if len(ab.AnchorOutputPkScript) > 0 {
+			records = append(records, tlv.MakePrimitiveRecord(
+				AssetBackupAnchorPkScriptType,
+				&ab.AnchorOutputPkScript))
+		}
 		records = append(records, tlv.MakePrimitiveRecord(
 			AssetBackupStrippedProofBlobType,
 			&ab.StrippedProofFileBlob))
@@ -245,9 +255,20 @@ func (ab *AssetBackup) Encode(w io.Writer) error {
 			&ab.RehydrationHintsBlob))
 
 	case len(ab.ProofFileBlob) > 0:
-		// v1: type 5.
+		// v1: types 5, 6.
 		records = append(records, tlv.MakePrimitiveRecord(
 			AssetBackupProofBlobType, &ab.ProofFileBlob))
+		if len(ab.AnchorOutputPkScript) > 0 {
+			records = append(records, tlv.MakePrimitiveRecord(
+				AssetBackupAnchorPkScriptType,
+				&ab.AnchorOutputPkScript))
+		}
+
+	case len(ab.AnchorOutputPkScript) > 0:
+		// No proof data but pk_script present.
+		records = append(records, tlv.MakePrimitiveRecord(
+			AssetBackupAnchorPkScriptType,
+			&ab.AnchorOutputPkScript))
 	}
 
 	// Write the TLV stream with a length prefix.
@@ -298,6 +319,7 @@ func (ab *AssetBackup) Decode(r io.Reader) error {
 		outpointBytes         []byte
 		scriptKeyBytes        []byte
 		anchorKeyBytes        []byte
+		anchorPkScriptBytes   []byte
 		proofBlobBytes        []byte
 		strippedBlobBytes     []byte
 		rehydrationHintsBytes []byte
@@ -322,6 +344,8 @@ func (ab *AssetBackup) Decode(r io.Reader) error {
 			&anchorKeyBytes),
 		tlv.MakePrimitiveRecord(AssetBackupProofBlobType,
 			&proofBlobBytes),
+		tlv.MakePrimitiveRecord(AssetBackupAnchorPkScriptType,
+			&anchorPkScriptBytes),
 		tlv.MakePrimitiveRecord(
 			AssetBackupStrippedProofBlobType,
 			&strippedBlobBytes),
@@ -387,6 +411,11 @@ func (ab *AssetBackup) Decode(r io.Reader) error {
 			return fmt.Errorf("failed to decode "+
 				"anchor key: %w", err)
 		}
+	}
+
+	// Store the anchor output pk_script.
+	if _, ok := parsedTypes[AssetBackupAnchorPkScriptType]; ok {
+		ab.AnchorOutputPkScript = anchorPkScriptBytes
 	}
 
 	// Store the proof file blob (v1).
