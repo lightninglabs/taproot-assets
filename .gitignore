@@ -21,7 +21,11 @@ cmd/tapd/tapd
 /itest/.backendlogs/*
 /itest/.minerlogs/*
 /itest/tapd-itest
+/itest/tapd-integrated-itest
 /itest/itest.test
+/itest/custom_channels/regtest/
+/itest/custom_channels/*.log
+/itest/custom_channels/*.log.*
 
 /docs/examples/basic-price-oracle/basic-price-oracle
 
