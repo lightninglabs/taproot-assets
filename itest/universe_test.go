@@ -395,7 +395,7 @@ func testUniverseREST(t *harnessTest) {
 	)
 
 	urlPrefix := fmt.Sprintf("https://%s/v1/taproot-assets/universe",
-		t.tapd.clientCfg.RpcConf.RawRESTListeners[0])
+		t.tapd.restListenAddr)
 
 	// First of all, get all roots and make sure our assets are contained
 	// in the returned list.

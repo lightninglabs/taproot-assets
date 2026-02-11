@@ -550,9 +550,6 @@ func (hs *tapdHarness) setCliFlag(flag, value string) {
 
 // setBoolFlag adds or removes a boolean CLI flag. When value is true, the
 // flag is added (--key). When false, it is removed (relying on tapd defaults).
-// NOTE: go-flags does not support --flag=false for boolean options, so there
-// is currently no way to explicitly disable a boolean flag that defaults to
-// true via the CLI. This is a known limitation (see sweep-orphan-utxos).
 func (hs *tapdHarness) setBoolFlag(key string, value bool) {
 	flag := "--" + key
 	if value {

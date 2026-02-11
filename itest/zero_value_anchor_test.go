@@ -19,9 +19,10 @@ import (
 func testZeroValueAnchorSweep(t *harnessTest) {
 	ctxb := context.Background()
 
-	// Restart Alice's node with sweeping enabled.
+	// Restart Alice's node with sweeping enabled (tests disable it by
+	// default).
 	require.NoError(t.t, t.tapd.stop(false))
-	t.tapd.clientCfg.Wallet.DisableSweepOrphanUtxos = false
+	t.tapd.setBoolFlag("wallet.disable-sweep-orphan-utxos", false)
 	require.NoError(t.t, t.tapd.start(false))
 
 	// First, mint some simple asset.
@@ -208,9 +209,6 @@ func testZeroValueAnchorSweep(t *harnessTest) {
 func testZeroValueAnchorAccumulation(t *harnessTest) {
 	ctxb := context.Background()
 
-	// Start Alice's node WITHOUT sweeping enabled.
-	// Note: t.tapd is already started without sweeping by default.
-
 	// Create Bob's node with sweeping enabled for receives.
 	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
 	bobTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
@@ -312,8 +310,8 @@ func testZeroValueAnchorAccumulation(t *harnessTest) {
 	// Now restart Alice's node with sweeping enabled.
 	require.NoError(t.t, t.tapd.stop(false))
 
-	// Enable sweeping in the config.
-	t.tapd.clientCfg.Wallet.DisableSweepOrphanUtxos = false
+	// Enable sweeping.
+	t.tapd.setBoolFlag("wallet.disable-sweep-orphan-utxos", false)
 
 	// Restart with the modified config.
 	require.NoError(t.t, t.tapd.start(false))
