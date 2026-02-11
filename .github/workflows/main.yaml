@@ -355,6 +355,7 @@ jobs:
             itest/itest.test
             itest/btcd-itest
             itest/lnd-itest
+            itest/tapd-itest
             itest/chantools/chantools
 
   # Integration tests on SQLite backend.
@@ -381,7 +382,7 @@ jobs:
 
       - name: Initialize environment
         run: |
-          chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/chantools/chantools
+          chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/tapd-itest itest/chantools/chantools
           mkdir -p ~/.aperture
 
       - name: CPU info
@@ -420,7 +421,7 @@ jobs:
 
       - name: Zip log files on failure
         if: ${{ failure() }}
-        run: 7z a logs-itest-${{ matrix.tranche }}.zip itest/**/*.log
+        run: 7z a logs-itest-${{ matrix.tranche }}.zip itest/regtest/.logs-tranche*/*.log itest/regtest/.logs-tranche*/output.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v4
@@ -476,7 +477,7 @@ jobs:
 
       - name: Initialize environment
         run: |
-          chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/chantools/chantools
+          chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/tapd-itest itest/chantools/chantools
           mkdir -p ~/.aperture
 
       - name: CPU info
@@ -515,7 +516,7 @@ jobs:
 
       - name: Zip log files on failure
         if: ${{ failure() }}
-        run: 7z a logs-itest-postgres-${{ matrix.tranche }}.zip itest/**/*.log
+        run: 7z a logs-itest-postgres-${{ matrix.tranche }}.zip itest/regtest/.logs-tranche*/*.log itest/regtest/.logs-tranche*/output.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v4
