@@ -143,6 +143,9 @@ build-itest:
 
 	@$(call print, "Building itest tapd-integrated.")
 	CGO_ENABLED=0 $(GOBUILD) -mod=mod -tags="$(ITEST_TAGS)" -o itest/tapd-integrated-itest $(DEV_LDFLAGS) $(PKG)/cmd/tapd-integrated
+	
+	@$(call print, "Building itest tapd.")
+	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" -o itest/tapd-itest $(DEV_LDFLAGS) $(PKG)/cmd/tapd
 
 build-itest-binary:
 	@$(call print, "Building itest binary for ${backend} backend.")
@@ -427,6 +430,7 @@ clean:
 	$(RM) itest/btcd-itest
 	$(RM) itest/lnd-itest
 	$(RM) itest/tapd-integrated-itest
+	$(RM) itest/tapd-itest
 	$(RM) tapd-debug
 	$(RM) tapcli-debug
 	$(RM) -r taproot-assets-v*
