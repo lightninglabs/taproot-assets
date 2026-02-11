@@ -11,9 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/go-errors/errors"
-	"github.com/lightninglabs/aperture"
 	"github.com/lightninglabs/lndclient"
-	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
@@ -209,9 +207,6 @@ func (h *harnessTest) setupLogging() {
 	var err error
 	h.interceptor, err = signal.Intercept()
 	require.NoError(h.t, err)
-
-	tap.SetupLoggers(h.logMgr, h.interceptor)
-	aperture.SetupLoggers(h.logMgr, h.interceptor)
 
 	UseLogger(h.logMgr.GenSubLogger(Subsystem, func() {}))
 
