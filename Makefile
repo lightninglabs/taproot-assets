@@ -239,6 +239,11 @@ unit-race-parallel:
 		scripts/unit_race_part.sh $(tranche) $(tranches) \
 		$(UNIT_VERBOSE_FLAG) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
 
+itest-cc: build-itest
+	@$(call print, "Running custom channel integration tests.")
+	date
+	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" $(CC_TEST_FLAGS) -test.timeout=30m -logdir=regtest
+
 itest: build-itest itest-only
 
 itest-trace: build-itest itest-only-trace
