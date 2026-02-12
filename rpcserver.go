@@ -32,6 +32,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/backup"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -60,6 +61,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -137,6 +139,14 @@ const (
 	// return feedback when importing an address into the wallet. The import
 	// may continue in the background after the timeout expires.
 	addrImportTimeout = 20 * time.Second
+
+	// spendCheckTimeout is how long we wait for spend notifications
+	// when checking whether a backup's anchor outpoints have been
+	// spent. All outpoints are checked concurrently, so this is a
+	// single wait for the entire batch. Historical spends are
+	// reported almost immediately; the timeout only fires for
+	// unspent (valid) outpoints.
+	spendCheckTimeout = 10 * time.Second
 )
 
 type (
@@ -10713,4 +10723,384 @@ func (r *rpcServer) ProofVerifierCtx(ctx context.Context) proof.VerifierCtx {
 		ChainLookupGen: r.cfg.ChainBridge,
 		IgnoreChecker:  lfn.Some(ignoreChecker),
 	}
+}
+
+// fetchActiveAssetsForBackup retrieves all active (unspent, confirmed) assets
+// that should be included in a wallet backup. Active assets are those that:
+// - Are not spent (spent=false)
+// - Are not leased to another process
+// - Are confirmed on-chain (block height > 0)
+func (r *rpcServer) fetchActiveAssetsForBackup(
+	ctx context.Context) ([]*asset.ChainAsset, error) {
+
+	// Fetch all unspent, unleased assets.
+	assets, err := r.cfg.AssetStore.FetchAllAssets(
+		ctx,
+		false, // includeSpent: only unspent assets
+		false, // includeLeased: only unleased assets
+		nil,   // no additional filters
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch assets for backup: %w",
+			err)
+	}
+
+	// Filter out unconfirmed assets (those with block height 0).
+	confirmedAssets := make([]*asset.ChainAsset, 0, len(assets))
+	for _, a := range assets {
+		if a.AnchorBlockHeight > 0 {
+			confirmedAssets = append(confirmedAssets, a)
+		}
+	}
+
+	rpcsLog.Infof("Found %d active assets for backup (filtered from %d "+
+		"total unspent)", len(confirmedAssets), len(assets))
+
+	return confirmedAssets, nil
+}
+
+// ExportAssetWalletBackup exports a backup of all active assets in the wallet.
+// The backup includes all data necessary to restore the assets in case of
+// database or system failure.
+func (r *rpcServer) ExportAssetWalletBackup(ctx context.Context,
+	req *wrpc.ExportAssetWalletBackupRequest) (
+	*wrpc.ExportAssetWalletBackupResponse, error) {
+
+	// Fetch all active assets that should be included in the backup.
+	activeAssets, err := r.fetchActiveAssetsForBackup(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch active assets: %w", err)
+	}
+
+	rpcsLog.Infof("Exporting backup for %d active assets",
+		len(activeAssets))
+
+	// Collect the trimmed backup data for each asset. We pass the
+	// TapAddrBook as the key locator lookup to fetch full key derivation
+	// info for anchor internal keys.
+	assetBackups, err := backup.CollectAssetBackups(
+		ctx, activeAssets, r.cfg.ProofArchive, r.cfg.TapAddrBook,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect asset backups: %w",
+			err)
+	}
+
+	rpcsLog.Infof("Collected backup data for %d assets", len(assetBackups))
+
+	// If compact mode is requested, strip blockchain-derivable fields
+	// from each asset's proof file to reduce backup size. The hints
+	// allow reconstructing these fields from the blockchain on import.
+	if req.Compact {
+		for i, ab := range assetBackups {
+			if len(ab.ProofFileBlob) == 0 {
+				continue
+			}
+
+			strippedBlob, hints, err := backup.StripProofFile(
+				ab.ProofFileBlob,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to strip "+
+					"proof for asset %d: %w", i, err)
+			}
+
+			var hintsBuf bytes.Buffer
+			err = backup.EncodeFileHints(&hintsBuf, hints)
+			if err != nil {
+				return nil, fmt.Errorf("failed to encode "+
+					"hints for asset %d: %w",
+					i, err)
+			}
+
+			rpcsLog.Debugf("Asset %d: proof %d -> %d bytes "+
+				"(stripped %d bytes)", i,
+				len(ab.ProofFileBlob),
+				len(strippedBlob),
+				len(ab.ProofFileBlob)-len(strippedBlob))
+
+			ab.StrippedProofFileBlob = strippedBlob
+			ab.RehydrationHintsBlob = hintsBuf.Bytes()
+			ab.ProofFileBlob = nil
+		}
+	}
+
+	// Select the backup version based on whether compact mode was
+	// used.
+	backupVersion := backup.BackupVersionOriginal
+	if req.Compact {
+		backupVersion = backup.BackupVersionStripped
+	}
+
+	// Create the wallet backup structure and encode it.
+	walletBackup := &backup.WalletBackup{
+		Version: backupVersion,
+		Assets:  assetBackups,
+	}
+
+	backupBytes, err := backup.EncodeWalletBackup(walletBackup)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode wallet "+
+			"backup: %w", err)
+	}
+
+	rpcsLog.Infof("Encoded wallet backup: %d bytes", len(backupBytes))
+
+	return &wrpc.ExportAssetWalletBackupResponse{
+		Backup: backupBytes,
+	}, nil
+}
+
+// ImportAssetsFromBackup imports assets from a backup blob that was previously
+// created using ExportAssetWalletBackup.
+func (r *rpcServer) ImportAssetsFromBackup(ctx context.Context,
+	req *wrpc.ImportAssetsFromBackupRequest) (
+	*wrpc.ImportAssetsFromBackupResponse, error) {
+
+	if len(req.Backup) == 0 {
+		return nil, fmt.Errorf("backup data is empty")
+	}
+
+	rpcsLog.Infof("Importing assets from backup (%d bytes)",
+		len(req.Backup))
+
+	// Decode and verify the backup.
+	walletBackup, err := backup.DecodeWalletBackup(req.Backup)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode backup: %w", err)
+	}
+
+	rpcsLog.Infof("Decoded backup version %d with %d assets",
+		walletBackup.Version, len(walletBackup.Assets))
+
+	// Check on-chain whether each asset's anchor outpoint has been
+	// spent. We register spend notifications for all outpoints
+	// concurrently and wait once, so stale assets are detected
+	// without adding per-asset latency.
+	spentOutpoints, err := r.detectSpentOutpoints(
+		ctx, walletBackup.Assets,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check outpoint "+
+			"status: %w", err)
+	}
+
+	var numImported uint32
+
+	for i, assetBackup := range walletBackup.Assets {
+		rpcsLog.Debugf("Processing asset %d: outpoint=%v, amount=%d",
+			i, assetBackup.AnchorOutpoint,
+			assetBackup.Asset.Amount)
+
+		// Skip assets whose anchor outpoint has been spent.
+		if spentOutpoints[i] {
+			assetID := assetBackup.Asset.ID()
+			rpcsLog.Warnf("Skipping asset %d (id=%x): "+
+				"anchor outpoint %v has been spent, "+
+				"backup is stale", i, assetID[:],
+				assetBackup.AnchorOutpoint)
+			continue
+		}
+
+		// Check if asset already exists by trying to fetch its proof.
+		assetID := assetBackup.Asset.ID()
+		locator := proof.Locator{
+			AssetID:   &assetID,
+			ScriptKey: *assetBackup.Asset.ScriptKey.PubKey,
+			OutPoint:  &assetBackup.AnchorOutpoint,
+		}
+
+		_, err := r.cfg.ProofArchive.FetchProof(ctx, locator)
+		if err == nil {
+			rpcsLog.Debugf("Asset %d already exists, skipping", i)
+			continue
+		}
+		if !errors.Is(err, proof.ErrProofNotFound) {
+			return nil, fmt.Errorf("error checking existing "+
+				"asset %d: %w", i, err)
+		}
+
+		// For v2+ backups, rehydrate the stripped proof by fetching
+		// blockchain data. This reconstructs the full proof file.
+		if len(assetBackup.StrippedProofFileBlob) > 0 {
+			hints, err := backup.DecodeFileHints(
+				bytes.NewReader(
+					assetBackup.RehydrationHintsBlob,
+				),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode "+
+					"hints for asset %d: %w", i, err)
+			}
+
+			fullBlob, err := backup.RehydrateProofFile(
+				ctx, assetBackup.StrippedProofFileBlob,
+				hints, r.cfg.ChainBridge,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to rehydrate "+
+					"proof for asset %d: %w", i, err)
+			}
+
+			assetBackup.ProofFileBlob = fullBlob
+		}
+
+		// Verify we have a proof blob.
+		if len(assetBackup.ProofFileBlob) == 0 {
+			return nil, fmt.Errorf("asset %d has no proof blob", i)
+		}
+
+		// Register keys BEFORE importing the proof so that when
+		// ImportProofs stores the asset, it can find the existing key
+		// records with full key locator info. This is essential for the
+		// wallet to be able to sign spends later.
+
+		// Register the anchor internal key so LND can sign for the
+		// anchor output when spending.
+		if assetBackup.AnchorInternalKeyInfo != nil {
+			info := assetBackup.AnchorInternalKeyInfo
+			anchorKey := keychain.KeyDescriptor{
+				PubKey:     info.PubKey,
+				KeyLocator: info.KeyLocator,
+			}
+
+			err = r.cfg.TapAddrBook.InsertInternalKey(
+				ctx, anchorKey,
+			)
+			if err != nil {
+				rpcsLog.Warnf("Failed to insert anchor "+
+					"internal key for asset %d: %v",
+					i, err)
+			}
+		}
+
+		// Register the script key so the wallet can identify the
+		// asset as locally owned and sign virtual transactions.
+		if assetBackup.ScriptKeyInfo != nil {
+			skInfo := assetBackup.ScriptKeyInfo
+			scriptKey := asset.ScriptKey{
+				PubKey: skInfo.PubKey,
+				TweakedScriptKey: &asset.TweakedScriptKey{
+					RawKey: skInfo.RawKey,
+					Tweak:  skInfo.Tweak,
+				},
+			}
+
+			scriptKeyType := asset.ScriptKeyBip86
+			if len(skInfo.Tweak) > 0 {
+				scriptKeyType =
+					asset.ScriptKeyScriptPathExternal
+			}
+
+			err = r.cfg.TapAddrBook.InsertScriptKey(
+				ctx, scriptKey, scriptKeyType,
+			)
+			if err != nil {
+				rpcsLog.Warnf("Failed to insert script key "+
+					"for asset %d: %v", i, err)
+			}
+		}
+
+		// Import the proof blob directly into the archive.
+		// The backup stores the complete original proof file, so we
+		// can import it without any reconstruction.
+		err = r.cfg.ProofArchive.ImportProofs(
+			ctx, r.ProofVerifierCtx(ctx), false,
+			&proof.AnnotatedProof{
+				Locator: locator,
+				Blob:    assetBackup.ProofFileBlob,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to import proof "+
+				"for asset %d: %w", i, err)
+		}
+
+		rpcsLog.Debugf("Successfully imported asset %d", i)
+		numImported++
+	}
+
+	rpcsLog.Infof("Imported %d assets from backup", numImported)
+
+	return &wrpc.ImportAssetsFromBackupResponse{
+		NumImported: numImported,
+	}, nil
+}
+
+// detectSpentOutpoints registers spend notifications for every asset's
+// anchor outpoint concurrently, giving each outpoint its own timeout.
+// Returns a slice indexed by asset position: true = spent.
+func (r *rpcServer) detectSpentOutpoints(ctx context.Context,
+	assets []*backup.AssetBackup) ([]bool, error) {
+
+	spent := make([]bool, len(assets))
+	if len(assets) == 0 {
+		return spent, nil
+	}
+
+	type spendResult struct {
+		index int
+		spent bool
+		err   error
+	}
+
+	results := make(chan spendResult, len(assets))
+
+	// Register spend notifications and spawn a goroutine per
+	// outpoint. Each goroutine gets its own timeout so that even
+	// with thousands of assets, every outpoint has the full
+	// duration for lnd to respond.
+	for i, ab := range assets {
+		spendChan, errChan, err :=
+			r.cfg.Lnd.ChainNotifier.RegisterSpendNtfn(
+				ctx, &ab.AnchorOutpoint,
+				ab.AnchorOutputPkScript,
+				int32(ab.AnchorBlockHeight),
+			)
+		if err != nil {
+			return nil, fmt.Errorf("unable to register "+
+				"spend ntfn for asset %d: %w", i, err)
+		}
+
+		go func(idx int,
+			sc chan *chainntnfs.SpendDetail,
+			ec chan error) {
+
+			assetCtx, cancel := context.WithTimeout(
+				ctx, spendCheckTimeout,
+			)
+			defer cancel()
+
+			select {
+			case <-sc:
+				results <- spendResult{
+					index: idx, spent: true,
+				}
+			case err := <-ec:
+				results <- spendResult{
+					index: idx, err: err,
+				}
+			case <-assetCtx.Done():
+				results <- spendResult{
+					index: idx, spent: false,
+				}
+			}
+		}(i, spendChan, errChan)
+	}
+
+	// Collect exactly len(assets) results. All goroutines run in
+	// parallel, so wall-clock time is ~spendCheckTimeout regardless
+	// of asset count. Spent outpoints resolve almost instantly
+	// (lnd checks the UTXO set synchronously); only unspent ones
+	// wait for the timeout.
+	for range assets {
+		r := <-results
+		if r.err != nil {
+			return nil, fmt.Errorf("spend check error "+
+				"for asset %d: %w", r.index, r.err)
+		}
+		spent[r.index] = r.spent
+	}
+
+	return spent, nil
 }

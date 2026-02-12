@@ -63,7 +63,23 @@
   **Note:** For full functionality, it is highly recommended to start LND with
   the `--store-final-htlc-resolutions` flag enabled, which is disabled by default.
 
+## Functional Enhancements
+
+- [Wallet Backup/Restore](https://github.com/lightninglabs/taproot-assets/pull/1980):
+  Add wallet backup and restore functionality. Assets can be exported as a
+  self-contained binary blob that includes proof files and key derivation info.
+  A compact mode (v2) strips blockchain-derivable fields from proof files,
+  significantly reducing backup size; stripped fields are reconstructed from the
+  blockchain on import. On import, stale assets whose anchor outpoints have
+  already been spent are automatically detected and skipped. See
+  [docs/backup.md](../backup.md) for the full format specification.
+
 ## RPC Additions
+
+- [Wallet Backup RPCs](https://github.com/lightninglabs/taproot-assets/pull/1980):
+  Add `ExportAssetWalletBackup` and `ImportAssetsFromBackup` RPCs to the
+  `assetwalletrpc` service. Export supports a `compact` flag for smaller v2
+  backups. Import returns the count of newly imported assets.
 
 - [PR#1960](https://github.com/lightninglabs/taproot-assets/pull/1960)
   Add `BakeMacaroon` to mint custom macaroons with scoped permissions.
@@ -202,6 +218,12 @@
 
 ## Testing
 
+- [Wallet Backup Integration Tests](https://github.com/lightninglabs/taproot-assets/pull/1980):
+  Add four integration tests for wallet backup: genesis asset backup/restore,
+  idempotent import, compact vs full size comparison, and multi-hop transfer
+  with stale backup detection. Also includes unit tests for TLV encoding
+  roundtrips, checksum verification, and proof strip/rehydrate cycles.
+
 - [PR#1962](https://github.com/lightninglabs/taproot-assets/pull/1962)
   Add an integration test that exercises the PortfolioPilot RPC flow.
 
@@ -222,6 +244,10 @@
 ## Code Health
 
 ## Tooling and Documentation
+
+- [Wallet Backup Format Spec](https://github.com/lightninglabs/taproot-assets/pull/1980):
+  Add `docs/backup.md` documenting the binary backup format, TLV schema,
+  compact strip/rehydrate mechanism, stale detection flow, and RPC interface.
 
 - [PR#1962](https://github.com/lightninglabs/taproot-assets/pull/1962)
   Add a basic PortfolioPilot RPC example under `docs/examples`.
