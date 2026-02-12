@@ -489,6 +489,53 @@ func (s *AuxInvoiceManager) GetBuyQuoteFromRouteHints(invoice *lnrpc.Invoice,
 		specifier.String())
 }
 
+// GetAllBuyQuotesFromRouteHints extracts all buy quotes from the route hints
+// of an invoice that are accepted and have a matching specifier. Returns an
+// error if no matching quotes are found.
+func (s *AuxInvoiceManager) GetAllBuyQuotesFromRouteHints(
+	invoice *lnrpc.Invoice,
+	specifier asset.Specifier) ([]rfqmsg.BuyAccept, error) {
+
+	var result []rfqmsg.BuyAccept
+	seen := make(map[rfqmsg.SerialisedScid]struct{})
+
+	buyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
+	for _, hint := range invoice.RouteHints {
+		for _, h := range hint.HopHints {
+			scid := rfqmsg.SerialisedScid(h.ChanId)
+
+			// Skip if we've already processed this SCID.
+			if _, ok := seen[scid]; ok {
+				continue
+			}
+			seen[scid] = struct{}{}
+
+			buyQuote, ok := buyQuotes[scid]
+			if !ok {
+				continue
+			}
+
+			quoteSpecifier := buyQuote.Request.AssetSpecifier
+			areEqual, err := quoteSpecifier.Equal(&specifier, false)
+			if err != nil {
+				return nil, fmt.Errorf("error comparing "+
+					"specifiers: %w", err)
+			}
+
+			if areEqual {
+				result = append(result, buyQuote)
+			}
+		}
+	}
+
+	if len(result) == 0 {
+		return nil, fmt.Errorf("no buy quotes found for specifier %s",
+			specifier.String())
+	}
+
+	return result, nil
+}
+
 // validateAssetHTLC runs a couple of checks on the provided asset HTLC.
 func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
 	htlc *rfqmsg.Htlc, circuitKey invoices.CircuitKey) error {

@@ -9612,17 +9612,31 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 		})
 	}
 
-	// Sort the ask rate of the quotes in ascending order.
+	// Sort the quotes by their ask rates in ascending order, such that the
+	// most expensive (i.e. minimum) rate is the first element in the
+	// slice.
 	sort.Slice(acquiredQuotes, func(i, j int) bool {
 		return acquiredQuotes[i].rate.Cmp(*acquiredQuotes[j].rate) < 0
 	})
+
+	// Filter quotes to only those that expire after the requested invoice
+	// expiry. This ensures the invoice cannot outlive its backing quotes,
+	// which would cause payments to settle in BTC instead of assets.
+	var validQuotes []quoteWithInfo
+	for _, q := range acquiredQuotes {
+		quoteExpiry := time.Unix(int64(q.quote.Expiry), 0)
+		if !quoteExpiry.Before(expiryTimestamp) {
+			validQuotes = append(validQuotes, q)
+		}
+	}
+	acquiredQuotes = validQuotes
 
 	// If we failed to get any quotes, we need to return an error. If the
 	// user has already defined quotes in the request we don't return an
 	// error.
 	if len(acquiredQuotes) == 0 && !existingQuotes {
-		return nil, fmt.Errorf("could not create any quotes for the " +
-			"invoice")
+		return nil, fmt.Errorf("no quotes with sufficient expiry for "+
+			"the requested invoice expiry of %v", expiryTimestamp)
 	}
 
 	// We need to trim any extra quotes that cannot make it into the bolt11
@@ -9642,16 +9656,71 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 	if !existingQuotes {
 		expensiveQuote = acquiredQuotes[0].quote
 	} else {
+		// For existing route hints, get all matching quotes and filter
+		// to only those that expire after the requested invoice expiry.
 		mgr := r.cfg.AuxInvoiceManager
-		buyQuote, err := mgr.GetBuyQuoteFromRouteHints(
+		allQuotes, err := mgr.GetAllBuyQuotesFromRouteHints(
 			iReq, specifier,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find matching buy "+
-				"quote in accepted quotes: %w", err)
+				"quotes in route hints: %w", err)
 		}
 
-		expensiveQuote = rfq.MarshalAcceptedBuyQuote(*buyQuote)
+		// Filter quotes by expiry and build set of valid SCIDs.
+		var validQuotes []rfqmsg.BuyAccept
+		validScids := make(map[uint64]struct{})
+		for _, q := range allQuotes {
+			if !q.AssetRate.Expiry.Before(expiryTimestamp) {
+				validQuotes = append(validQuotes, q)
+				validScids[uint64(q.ID.Scid())] = struct{}{}
+			}
+		}
+		if len(validQuotes) == 0 {
+			return nil, fmt.Errorf("no quotes in route hints "+
+				"with sufficient expiry for the requested "+
+				"invoice expiry of %v", expiryTimestamp)
+		}
+
+		// Filter route hints to only include valid SCIDs.
+		var filteredHints []*lnrpc.RouteHint
+		for _, hint := range iReq.RouteHints {
+			var filteredHops []*lnrpc.HopHint
+			for _, hop := range hint.HopHints {
+				if _, ok := validScids[hop.ChanId]; ok {
+					filteredHops = append(filteredHops, hop)
+				}
+			}
+			if len(filteredHops) > 0 {
+				filteredHints = append(
+					filteredHints, &lnrpc.RouteHint{
+						HopHints: filteredHops,
+					},
+				)
+			}
+		}
+		if len(filteredHints) == 0 {
+			return nil, fmt.Errorf("no route hints remain after " +
+				"filtering for sufficient quote expiry")
+		}
+		iReq.RouteHints = filteredHints
+
+		// Scan through the valid quotes to find the one with the
+		// most expensive (i.e. minimum) rate.
+		var expensive *rfqmsg.BuyAccept
+		for i := range validQuotes {
+			q := &validQuotes[i]
+			if expensive == nil {
+				expensive = q
+				continue
+			}
+
+			if q.AssetRate.Rate.Cmp(expensive.AssetRate.Rate) < 0 {
+				expensive = q
+			}
+		}
+
+		expensiveQuote = rfq.MarshalAcceptedBuyQuote(*expensive)
 	}
 
 	// Now that we have the accepted quote, we know the amount in (milli)
