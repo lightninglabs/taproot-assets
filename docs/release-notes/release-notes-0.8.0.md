@@ -52,6 +52,10 @@
   addresses a bug in which passive assets would incorrectly be included in
   channel funding proofs.
 
+* [PR#1990](https://github.com/lightninglabs/taproot-assets/pull/1990)
+  prevents buggy results when comparing quotes encoded using different
+  scales.
+
 # New Features
 
 ## Functional Enhancements
