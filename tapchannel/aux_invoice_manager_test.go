@@ -1124,3 +1124,145 @@ func newWireCustomRecords(t *testing.T, amounts []*rfqmsg.AssetBalance,
 
 	return customRecords
 }
+
+// TestGetAllBuyQuotesFromRouteHints tests that GetAllBuyQuotesFromRouteHints
+// returns all matching quotes from route hints, handles SCID deduplication,
+// and returns an error when no quotes match.
+func TestGetAllBuyQuotesFromRouteHints(t *testing.T) {
+	t.Parallel()
+
+	// Create two RFQ IDs with different SCIDs.
+	rfqID1 := dummyRfqID(100)
+	rfqID2 := dummyRfqID(200)
+	scid1 := rfqID1.Scid()
+	scid2 := rfqID2.Scid()
+
+	// Set up expiry times: quote1 expires sooner than quote2.
+	now := time.Now()
+	expiry1 := now.Add(5 * time.Minute)
+	expiry2 := now.Add(10 * time.Minute)
+
+	// Create buy quotes with different expiries.
+	buyQuotes := rfq.BuyAcceptMap{
+		scid1: {
+			Peer:      testNodeID,
+			ID:        rfqID1,
+			AssetRate: rfqmsg.NewAssetRate(testAssetRate, expiry1),
+			Request: rfqmsg.BuyRequest{
+				AssetSpecifier: assetSpecifier,
+			},
+		},
+		scid2: {
+			Peer:      testNodeID,
+			ID:        rfqID2,
+			AssetRate: rfqmsg.NewAssetRate(testAssetRate, expiry2),
+			Request: rfqmsg.BuyRequest{
+				AssetSpecifier: assetSpecifier,
+			},
+		},
+	}
+
+	// Create route hints that reference both quotes.
+	routeHints := []*lnrpc.RouteHint{
+		{
+			HopHints: []*lnrpc.HopHint{
+				{
+					ChanId: uint64(scid1),
+					NodeId: testNodeID.String(),
+				},
+			},
+		},
+		{
+			HopHints: []*lnrpc.HopHint{
+				{
+					ChanId: uint64(scid2),
+					NodeId: testNodeID.String(),
+				},
+			},
+		},
+	}
+
+	invoice := &lnrpc.Invoice{
+		RouteHints: routeHints,
+	}
+
+	mockRfq := &mockRfqManager{
+		peerBuyQuotes: buyQuotes,
+	}
+
+	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{
+		ChainParams: testChainParams,
+		RfqManager:  mockRfq,
+	})
+
+	// Test: GetAllBuyQuotesFromRouteHints returns both quotes.
+	allQuotes, err := manager.GetAllBuyQuotesFromRouteHints(
+		invoice, assetSpecifier,
+	)
+	require.NoError(t, err)
+	require.Len(t, allQuotes, 2, "should return all matching quotes")
+
+	// Test: we can find the minimum expiry among all quotes.
+	var minExpiry time.Time
+	for i, q := range allQuotes {
+		if i == 0 || q.AssetRate.Expiry.Before(minExpiry) {
+			minExpiry = q.AssetRate.Expiry
+		}
+	}
+	require.True(
+		t, minExpiry.Equal(expiry1),
+		"minimum expiry should be the earliest quote expiry",
+	)
+
+	// Test: duplicate SCIDs in route hints don't cause duplicates.
+	routeHintsWithDuplicates := []*lnrpc.RouteHint{
+		{
+			HopHints: []*lnrpc.HopHint{
+				{
+					ChanId: uint64(scid1),
+					NodeId: testNodeID.String(),
+				},
+				{
+					ChanId: uint64(scid1), // Duplicate.
+					NodeId: testNodeID.String(),
+				},
+			},
+		},
+		{
+			HopHints: []*lnrpc.HopHint{
+				{
+					ChanId: uint64(scid1), // Another dup.
+					NodeId: testNodeID.String(),
+				},
+			},
+		},
+	}
+
+	invoiceWithDuplicates := &lnrpc.Invoice{
+		RouteHints: routeHintsWithDuplicates,
+	}
+
+	quotesFromDuplicates, err := manager.GetAllBuyQuotesFromRouteHints(
+		invoiceWithDuplicates, assetSpecifier,
+	)
+	require.NoError(t, err)
+	require.Len(
+		t, quotesFromDuplicates, 1,
+		"duplicate SCIDs should be deduplicated",
+	)
+
+	// Test: error when no matching quotes are found.
+	emptyMockRfq := &mockRfqManager{
+		peerBuyQuotes: rfq.BuyAcceptMap{},
+	}
+	emptyManager := NewAuxInvoiceManager(&InvoiceManagerConfig{
+		ChainParams: testChainParams,
+		RfqManager:  emptyMockRfq,
+	})
+
+	_, err = emptyManager.GetAllBuyQuotesFromRouteHints(
+		invoice, assetSpecifier,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no buy quotes found")
+}

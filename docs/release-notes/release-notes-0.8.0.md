@@ -52,6 +52,15 @@
   addresses a bug in which passive assets would incorrectly be included in
   channel funding proofs.
 
+* [PR#1990](https://github.com/lightninglabs/taproot-assets/pull/1990)
+  prevents buggy results when comparing quotes encoded using different
+  scales.
+
+* [PR#1991](https://github.com/lightninglabs/taproot-assets/pull/1991)
+  fixes an issue in which asset invoices could be settled in sats if
+  their expiration extended beyond beyond that of the accepted edge node
+  quote (or quotes).
+
 # New Features
 
 ## Functional Enhancements
