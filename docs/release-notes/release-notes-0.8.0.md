@@ -139,6 +139,11 @@
   `experimental.rfq.priceoracle*` allow disabling TLS, skipping
   verification, or specifying custom certificates.
 
+- [PR#1978](https://github.com/lightninglabs/taproot-assets/pull/1978)
+  also augments price oracle connections with support for macaroon
+  authentication. A macaroon path can be specified via the
+  `experimental.rfq.priceoraclemacaroonpath` config option.
+
 ## RPC Updates
 
 - [PR#1766](https://github.com/lightninglabs/taproot-assets/pull/1766):
@@ -183,7 +188,7 @@
 ## Breaking Changes
 
 - [PR#1935](https://github.com/lightninglabs/taproot-assets/pull/1935)
-  Renamed the RFQ configuration option `experimental.rfq.skipacceptquotepricecheck` 
+  Renamed the RFQ configuration option `experimental.rfq.skipacceptquotepricecheck`
   to `experimental.rfq.skipquoteacceptverify` for improved clarity.
   Update your configuration files to use the new option name.
 
