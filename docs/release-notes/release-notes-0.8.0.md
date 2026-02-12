@@ -52,6 +52,10 @@
   addresses a bug in which passive assets would incorrectly be included in
   channel funding proofs.
 
+* [PR#1990](https://github.com/lightninglabs/taproot-assets/pull/1990)
+  prevents buggy results when comparing quotes encoded using different
+  scales.
+
 # New Features
 
 ## Functional Enhancements
@@ -183,7 +187,7 @@
 ## Breaking Changes
 
 - [PR#1935](https://github.com/lightninglabs/taproot-assets/pull/1935)
-  Renamed the RFQ configuration option `experimental.rfq.skipacceptquotepricecheck` 
+  Renamed the RFQ configuration option `experimental.rfq.skipacceptquotepricecheck`
   to `experimental.rfq.skipquoteacceptverify` for improved clarity.
   Update your configuration files to use the new option name.
 
