@@ -749,7 +749,7 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 
 	// Expected number of events is one less than the number of tries
 	// because the first attempt does not count as a backoff event.
-	nodeBackoffCfg := t.tapd.clientCfg.HashMailCourier.BackoffCfg
+	nodeBackoffCfg := t.tapd.hashmailBackoffCfg
 	expectedEventCount := nodeBackoffCfg.NumTries - 1
 
 	// Context timeout scales with expected number of events.
@@ -856,7 +856,7 @@ func testReattemptProofTransferOnTapdRestart(t *harnessTest) {
 	// Expected number of events is one less than the number of
 	// tries because the first attempt does not count as a backoff
 	// event.
-	nodeBackoffCfg := sendTapd.clientCfg.UniverseRpcCourier.BackoffCfg
+	nodeBackoffCfg := sendTapd.universeRpcBackoffCfg
 	expectedEventCount := nodeBackoffCfg.NumTries - 1
 
 	// Context timeout scales with expected number of events.
@@ -1016,7 +1016,7 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 	// Expected number of events is one less than the number of
 	// tries because the first attempt does not count as a backoff
 	// event.
-	nodeBackoffCfg := sendTapd.clientCfg.UniverseRpcCourier.BackoffCfg
+	nodeBackoffCfg := sendTapd.universeRpcBackoffCfg
 	expectedEventCount := nodeBackoffCfg.NumTries - 1
 
 	// Context timeout scales with expected number of events.
@@ -2183,7 +2183,7 @@ func testRestoreLndFromSeed(t *harnessTest) {
 		"lnd-seed-restored", lndDefaultArgs, password, mnemonic, "",
 		2500, nil,
 	)
-	require.NoError(t.t, updateConfigWithNode(bob.clientCfg, seedLnd))
+	bob.updateLndNode(seedLnd)
 
 	require.NoError(t.t, bob.start(false))
 

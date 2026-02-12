@@ -22,7 +22,7 @@ func testBakeMacaroonPermissions(t *harnessTest) {
 	t.t.Log("Verifying BakeMacaroon and GetInfo are denied without any " +
 		"macaroon.")
 	noMacConn, err := dialServer(
-		t.tapd.rpcHost(), t.tapd.clientCfg.RpcConf.TLSCertPath, "",
+		t.tapd.rpcHost(), t.tapd.tlsCertPath, "",
 	)
 	require.NoError(t.t, err)
 	defer noMacConn.Close()
@@ -58,7 +58,7 @@ func testBakeMacaroonPermissions(t *harnessTest) {
 
 	t.t.Log("Connecting with the read-only macaroon")
 	conn, err := dialServer(
-		t.tapd.rpcHost(), t.tapd.clientCfg.RpcConf.TLSCertPath, macPath,
+		t.tapd.rpcHost(), t.tapd.tlsCertPath, macPath,
 	)
 	require.NoError(t.t, err)
 	defer conn.Close()
@@ -103,7 +103,7 @@ func testBakeMacaroonPermissions(t *harnessTest) {
 
 	t.t.Log("Connecting with the daemon write macaroon")
 	writeConn, err := dialServer(
-		t.tapd.rpcHost(), t.tapd.clientCfg.RpcConf.TLSCertPath,
+		t.tapd.rpcHost(), t.tapd.tlsCertPath,
 		writeMacPath,
 	)
 	require.NoError(t.t, err)
