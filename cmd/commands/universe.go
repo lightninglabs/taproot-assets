@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/wire"
-	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -145,7 +145,7 @@ func parseProofType(ctx *cli.Context) (*unirpc.ProofType, error) {
 	if err != nil {
 		return nil, err
 	}
-	rpcProofType, err := tap.MarshalUniProofType(proofType)
+	rpcProofType, err := rpcserver.MarshalUniProofType(proofType)
 	if err != nil {
 		return nil, err
 	}

@@ -1,4 +1,4 @@
-package taprootassets
+package rpcserver
 
 import (
 	"bytes"

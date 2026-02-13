@@ -18,7 +18,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
+	"github.com/lightninglabs/taproot-assets/tapconfig"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -249,7 +251,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	// nodes will be accepted, and proofs will be queryable by other tapd
 	// nodes.
 	tapCfg.Universe.PublicAccess = string(
-		tap.UniversePublicAccessStatusReadWrite,
+		tapconfig.UniversePublicAccessStatusReadWrite,
 	)
 
 	// Enable federation syncing of all assets by default.
@@ -606,7 +608,7 @@ func defaultDialOptions(serverCertPath, macaroonPath string) ([]grpc.DialOption,
 			Backoff:           backoff.DefaultConfig,
 			MinConnectTimeout: 10 * time.Second,
 		}),
-		grpc.WithDefaultCallOptions(tap.MaxMsgReceiveSize),
+		grpc.WithDefaultCallOptions(rpcserver.MaxMsgReceiveSize),
 	}
 
 	if serverCertPath != "" {

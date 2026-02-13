@@ -12,11 +12,11 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
-	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -116,7 +116,9 @@ func testUniverseSync(t *harnessTest) {
 		}()
 
 		// Construct universe namespace.
-		proofType, err := tap.UnmarshalUniProofType(newRoot.Id.ProofType)
+		proofType, err := rpcserver.UnmarshalUniProofType(
+			newRoot.Id.ProofType,
+		)
 		require.NoError(t.t, err)
 		uniNamespace := fmt.Sprintf("%s-%s", proofType, uniKey)
 
@@ -636,7 +638,7 @@ func testUniverseFederation(t *harnessTest) {
 	require.NotNil(t.t, groupUniRoots.IssuanceRoot.Id)
 
 	uniIDNoGroupKeyResp := groupUniRoots.IssuanceRoot.Id
-	uniIDResp, err := tap.UnmarshalUniID(uniIDNoGroupKeyResp)
+	uniIDResp, err := rpcserver.UnmarshalUniID(uniIDNoGroupKeyResp)
 	require.NoError(t.t, err)
 	require.NotNil(t.t, uniIDResp.GroupKey)
 
@@ -836,7 +838,7 @@ func testFederationSyncConfig(t *harnessTest) {
 		config := resp.AssetSyncConfigs[i]
 
 		// Unmarshal the universe ID.
-		uniID, err := tap.UnmarshalUniID(config.Id)
+		uniID, err := rpcserver.UnmarshalUniID(config.Id)
 		require.NoError(t.t, err)
 
 		switch uniID.String() {

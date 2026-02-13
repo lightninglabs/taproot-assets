@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -353,7 +354,7 @@ func testMintFundSealAssets(t *harnessTest) {
 		GroupKey:  &collectibleGroupKey,
 		ProofType: universe.ProofTypeIssuance,
 	}
-	rpcCollectibleGroupUniID, err := taprootassets.MarshalUniID(
+	rpcCollectibleGroupUniID, err := rpcserver.MarshalUniID(
 		collectibleGroupUniID,
 	)
 	require.NoError(t.t, err)
