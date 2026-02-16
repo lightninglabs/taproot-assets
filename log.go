@@ -4,6 +4,7 @@ import (
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
+	"github.com/lightninglabs/taproot-assets/backup"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/healthcheck"
 	"github.com/lightninglabs/taproot-assets/lndservices"
@@ -145,6 +146,9 @@ func SetupLoggers(root *build.SubLoggerManager,
 	AddSubLogger(
 		root, healthcheck.Subsystem, interceptor,
 		healthcheck.UseLogger,
+	)
+	AddSubLogger(
+		root, backup.Subsystem, interceptor, backup.UseLogger,
 	)
 }
 
