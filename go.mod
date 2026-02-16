@@ -41,7 +41,6 @@ require (
 	github.com/ory/dockertest/v3 v3.10.0
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/prometheus/client_golang v1.14.0
-	github.com/prometheus/common v0.37.0
 	github.com/stretchr/testify v1.10.0
 	github.com/urfave/cli v1.22.14
 	golang.org/x/crypto v0.45.0
@@ -68,8 +67,6 @@ require (
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/siphash v1.0.1 // indirect
-	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751 // indirect
-	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5 // indirect
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.2 // indirect
@@ -155,6 +152,7 @@ require (
 	github.com/opencontainers/runc v1.2.8 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
+	github.com/prometheus/common v0.37.0 // indirect
 	github.com/prometheus/procfs v0.8.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rogpeppe/fastuuid v1.2.0 // indirect
@@ -199,7 +197,6 @@ require (
 	google.golang.org/genproto v0.0.0-20240213162025-012b6fc9bca9 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240513163218-0867130af1f8 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240513163218-0867130af1f8 // indirect
-	gopkg.in/alecthomas/kingpin.v2 v2.2.6 // indirect
 	gopkg.in/errgo.v1 v1.0.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
