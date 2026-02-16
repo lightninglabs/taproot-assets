@@ -113,6 +113,22 @@ service AssetWallet {
     */
     rpc DeclareScriptKey (DeclareScriptKeyRequest)
         returns (DeclareScriptKeyResponse);
+
+    /*
+    ExportAssetWalletBackup exports a backup of all active assets in the wallet.
+    The backup includes all data necessary to restore the assets in case of
+    database or system failure.
+    */
+    rpc ExportAssetWalletBackup (ExportAssetWalletBackupRequest)
+        returns (ExportAssetWalletBackupResponse);
+
+    /*
+    ImportAssetsFromBackup imports assets from a backup blob that was previously
+    created using ExportAssetWalletBackup. This can be used to restore assets
+    after database loss or to migrate assets to a new wallet.
+    */
+    rpc ImportAssetsFromBackup (ImportAssetsFromBackupRequest)
+        returns (ImportAssetsFromBackupResponse);
 }
 
 enum CoinSelectType {
@@ -545,4 +561,42 @@ message DeclareScriptKeyResponse {
     // The script key that was declared, including the internal key and the
     // tweaked script key.
     taprpc.ScriptKey script_key = 1;
+}
+
+// BackupMode specifies the backup format to use when exporting.
+enum BackupMode {
+    // RAW exports a full backup with complete proof data (v1).
+    RAW = 0;
+
+    // COMPACT strips blockchain-derivable fields from proofs,
+    // reducing size. Stripped fields are reconstructed from the
+    // blockchain on import (v2).
+    COMPACT = 1;
+
+    // OPTIMISTIC stores no proof data. Proofs are fetched from
+    // a universe server on import. Smallest backup but requires
+    // a reachable universe server during restore (v3).
+    OPTIMISTIC = 2;
+}
+
+message ExportAssetWalletBackupRequest {
+    // The backup mode to use for the export.
+    BackupMode mode = 1;
+}
+
+message ExportAssetWalletBackupResponse {
+    // The binary backup blob containing all data necessary to restore the
+    // wallet's assets.
+    bytes backup = 1;
+}
+
+message ImportAssetsFromBackupRequest {
+    // The binary backup blob that was previously created using
+    // ExportAssetWalletBackup.
+    bytes backup = 1;
+}
+
+message ImportAssetsFromBackupResponse {
+    // The number of assets that were successfully imported.
+    uint32 num_imported = 1;
 }
