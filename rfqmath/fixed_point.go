@@ -118,6 +118,27 @@ func (f FixedPoint[T]) Equals(other FixedPoint[T]) bool {
 	return f.Coefficient.Equals(other.Coefficient) && f.Scale == other.Scale
 }
 
+// Cmp compares two FixedPoint values, normalizing scales before comparison.
+// Returns -1 if f < other, 0 if f == other, 1 if f > other.
+func (f FixedPoint[T]) Cmp(other FixedPoint[T]) int {
+	// Determine the larger scale and normalize both values.
+	largerScale := f.Scale
+	if other.Scale > largerScale {
+		largerScale = other.Scale
+	}
+
+	fScaled := f.ScaleTo(largerScale)
+	otherScaled := other.ScaleTo(largerScale)
+
+	if fScaled.Coefficient.Equals(otherScaled.Coefficient) {
+		return 0
+	}
+	if fScaled.Coefficient.Gt(otherScaled.Coefficient) {
+		return 1
+	}
+	return -1
+}
+
 // WithinTolerance returns true if the two FixedPoint values are within the
 // given tolerance, specified in parts per million (PPM).
 //

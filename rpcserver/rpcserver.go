@@ -9612,10 +9612,9 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 		})
 	}
 
-	// Let's sort the ask rate of the quotes in ascending order.
+	// Sort the ask rate of the quotes in ascending order.
 	sort.Slice(acquiredQuotes, func(i, j int) bool {
-		return acquiredQuotes[i].rate.ToUint64() <
-			acquiredQuotes[j].rate.ToUint64()
+		return acquiredQuotes[i].rate.Cmp(*acquiredQuotes[j].rate) < 0
 	})
 
 	// If we failed to get any quotes, we need to return an error. If the
