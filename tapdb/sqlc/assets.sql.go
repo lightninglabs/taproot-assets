@@ -452,6 +452,44 @@ func (q *Queries) ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) 
 	return err
 }
 
+const CountUnconfirmedAssets = `-- name: CountUnconfirmedAssets :one
+SELECT CAST(COUNT(*) AS BIGINT) as count
+FROM assets
+JOIN managed_utxos utxos
+    ON assets.anchor_utxo_id = utxos.utxo_id
+JOIN chain_txns txns
+    ON utxos.txn_id = txns.txn_id
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id
+WHERE COALESCE(txns.block_height, 0) = 0
+AND assets.spent = COALESCE($1, assets.spent)
+AND COALESCE(script_keys.key_type, 0) IN
+    (/*SLICE:script_key_type*/?)
+`
+
+type CountUnconfirmedAssetsParams struct {
+	Spent         sql.NullBool
+	ScriptKeyType []sql.NullInt16
+}
+
+func (q *Queries) CountUnconfirmedAssets(ctx context.Context, arg CountUnconfirmedAssetsParams) (int64, error) {
+	query := CountUnconfirmedAssets
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.Spent)
+	if len(arg.ScriptKeyType) > 0 {
+		for _, v := range arg.ScriptKeyType {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:script_key_type*/?", makeQueryParams(len(queryParams), len(arg.ScriptKeyType)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:script_key_type*/?", "NULL", 1)
+	}
+	row := q.db.QueryRowContext(ctx, query, queryParams...)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const DeleteExpiredUTXOLeases = `-- name: DeleteExpiredUTXOLeases :exec
 UPDATE managed_utxos
 SET lease_owner = NULL, lease_expiry = NULL
@@ -2627,11 +2665,23 @@ WHERE (
     assets.anchor_utxo_id = COALESCE($11, assets.anchor_utxo_id) AND
     assets.genesis_id = COALESCE($12, assets.genesis_id) AND
     assets.script_key_id = COALESCE($13, assets.script_key_id) AND
+    -- Reference pagination parameters BEFORE the SLICE parameter below so that
+    -- sqlc assigns them lower $N numbers. The SLICE runtime expansion shifts
+    -- parameter numbers, and any $N assigned after the SLICE would collide with
+    -- the expanded values. These conditions ensure pagination
+    -- params get stable $N values that are reused in ORDER BY/LIMIT/OFFSET.
+    $14 >= 0 AND
+    $15 >= 0 AND
+    COALESCE($16, 0) >= 0 AND
     -- The script_key_type argument must NEVER be an empty slice, otherwise this
     -- query will return no results.
     COALESCE(script_keys.key_type, 0) IN
       (/*SLICE:script_key_type*/?)
 )
+ORDER BY
+    CASE WHEN COALESCE($16, 0) = 1 THEN assets.asset_id END DESC,
+    assets.asset_id ASC
+LIMIT $14 OFFSET $15
 `
 
 type QueryAssetsParams struct {
@@ -2648,6 +2698,9 @@ type QueryAssetsParams struct {
 	AnchorUtxoID     sql.NullInt64
 	GenesisID        sql.NullInt64
 	ScriptKeyID      sql.NullInt64
+	NumLimit         int32
+	NumOffset        int32
+	SortDirection    interface{}
 	ScriptKeyType    []sql.NullInt16
 }
 
@@ -2714,6 +2767,9 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 	queryParams = append(queryParams, arg.AnchorUtxoID)
 	queryParams = append(queryParams, arg.GenesisID)
 	queryParams = append(queryParams, arg.ScriptKeyID)
+	queryParams = append(queryParams, arg.NumLimit)
+	queryParams = append(queryParams, arg.NumOffset)
+	queryParams = append(queryParams, arg.SortDirection)
 	if len(arg.ScriptKeyType) > 0 {
 		for _, v := range arg.ScriptKeyType {
 			queryParams = append(queryParams, v)

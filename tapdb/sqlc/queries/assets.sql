@@ -519,11 +519,37 @@ WHERE (
     assets.anchor_utxo_id = COALESCE(sqlc.narg('anchor_utxo_id'), assets.anchor_utxo_id) AND
     assets.genesis_id = COALESCE(sqlc.narg('genesis_id'), assets.genesis_id) AND
     assets.script_key_id = COALESCE(sqlc.narg('script_key_id'), assets.script_key_id) AND
+    -- Reference pagination parameters BEFORE the SLICE parameter below so that
+    -- sqlc assigns them lower $N numbers. The SLICE runtime expansion shifts
+    -- parameter numbers, and any $N assigned after the SLICE would collide with
+    -- the expanded values. These conditions ensure pagination
+    -- params get stable $N values that are reused in ORDER BY/LIMIT/OFFSET.
+    @num_limit >= 0 AND
+    @num_offset >= 0 AND
+    COALESCE(sqlc.narg('sort_direction'), 0) >= 0 AND
     -- The script_key_type argument must NEVER be an empty slice, otherwise this
     -- query will return no results.
     COALESCE(script_keys.key_type, 0) IN
       (sqlc.slice('script_key_type')/*SLICE:script_key_type*/)
-);
+)
+ORDER BY
+    CASE WHEN COALESCE(sqlc.narg('sort_direction'), 0) = 1 THEN assets.asset_id END DESC,
+    assets.asset_id ASC
+LIMIT @num_limit OFFSET @num_offset;
+
+-- name: CountUnconfirmedAssets :one
+SELECT CAST(COUNT(*) AS BIGINT) as count
+FROM assets
+JOIN managed_utxos utxos
+    ON assets.anchor_utxo_id = utxos.utxo_id
+JOIN chain_txns txns
+    ON utxos.txn_id = txns.txn_id
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id
+WHERE COALESCE(txns.block_height, 0) = 0
+AND assets.spent = COALESCE(sqlc.narg('spent'), assets.spent)
+AND COALESCE(script_keys.key_type, 0) IN
+    (sqlc.slice('script_key_type')/*SLICE:script_key_type*/);
 
 -- name: AllAssets :many
 SELECT * 
