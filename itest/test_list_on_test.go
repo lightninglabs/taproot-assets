@@ -22,6 +22,10 @@ var allTestCases = []*testCase{
 		test: testMintBatchAndTransfer,
 	},
 	{
+		name: "list assets",
+		test: testListAssets,
+	},
+	{
 		name: "asset balances",
 		test: testAssetBalances,
 	},
