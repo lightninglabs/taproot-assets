@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -542,6 +543,20 @@ func (s *Server) startHealthChecks() error {
 	// If no TLS health check is configured (or attempts is 0), skip.
 	if s.cfg.TLSHealthCheck == nil || s.cfg.TLSHealthCheck.Attempts == 0 {
 		srvrLog.Infof("TLS health check disabled")
+		return nil
+	}
+
+	// Validate that the cert path is set and the file exists before
+	// enabling the check.
+	certPath := s.cfg.TLSHealthCheck.CertPath
+	if certPath == "" {
+		srvrLog.Warnf("TLS health check enabled but cert path is " +
+			"empty, skipping")
+		return nil
+	}
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		srvrLog.Warnf("TLS health check enabled but cert file does "+
+			"not exist at %v, skipping", certPath)
 		return nil
 	}
 
