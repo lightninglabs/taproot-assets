@@ -603,6 +603,10 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/BurntSushi/toml v1.3.2 h1:o7IhLm0Msx3BaB+n3Ag7L8EVlByGnpq14C4YWiu/gL8=
 github.com/BurntSushi/toml v1.3.2/go.mod h1:CxXYINrC8qIiEnFrOxCa7Jy5BFHlXnUU2pbicEuybxQ=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
+github.com/GeorgeTsagk/lnd v0.0.0-20260216125012-1bb47e1ca203 h1:3phgYsGseaHvSknUVQkzVgbpr3vTAUVPxccnK87TkVQ=
+github.com/GeorgeTsagk/lnd v0.0.0-20260216125012-1bb47e1ca203/go.mod h1:ybhzpoSuWJmTENgFS9N8pXnY9VCHwh07Lqygh1Pzjqw=
+github.com/GeorgeTsagk/lnd/sqldb v0.0.0-20260216125012-1bb47e1ca203 h1:mEINJ5xD3NMx4kxYVY0ucxoW61Iadf/vhlXOzfgZ2+c=
+github.com/GeorgeTsagk/lnd/sqldb v0.0.0-20260216125012-1bb47e1ca203/go.mod h1:XaG3d8AR7/e6+HUw5jvNvm+gs6MowB+iE9myFH8Rc14=
 github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c/go.mod h1:X0CRv0ky0k6m906ixxpzmDRLvX58TFUKS2eePweuyxk=
 github.com/Masterminds/semver/v3 v3.1.1/go.mod h1:VPu/7SZ7ePZ3QOrcuXROw5FAcLl4a0cBrbBpGY/8hQs=
 github.com/Masterminds/semver/v3 v3.2.0 h1:3MEsd0SM6jqZojhjLWWeBY+Kcjy9i6MQAeY7YgDP83g=
@@ -1132,8 +1136,6 @@ github.com/lightninglabs/protobuf-go-hex-display v1.34.2-hex-display h1:w7FM5LH9
 github.com/lightninglabs/protobuf-go-hex-display v1.34.2-hex-display/go.mod h1:qYOHts0dSfpeUzUFpOMr/WGzszTmLH+DiWniOlNbLDw=
 github.com/lightningnetwork/lightning-onion v1.2.1-0.20240815225420-8b40adf04ab9 h1:6D3LrdagJweLLdFm1JNodZsBk6iU4TTsBBFLQ4yiXfI=
 github.com/lightningnetwork/lightning-onion v1.2.1-0.20240815225420-8b40adf04ab9/go.mod h1:EDqJ3MuZIbMq0QI1czTIKDJ/GS8S14RXPwapHw8cw6w=
-github.com/lightningnetwork/lnd v0.20.0-beta.rc4.0.20260205225502-14b90a27cfc3 h1:+IEcAFiRmeNc+rwPWM9+Y5z9NUHTJYPnQPL1bX91Lrs=
-github.com/lightningnetwork/lnd v0.20.0-beta.rc4.0.20260205225502-14b90a27cfc3/go.mod h1:964P7ZTy5dOkw+0/f/VZIXCRgChqOp912P8iEzk0JVY=
 github.com/lightningnetwork/lnd/cert v1.2.2 h1:71YK6hogeJtxSxw2teq3eGeuy4rHGKcFf0d0Uy4qBjI=
 github.com/lightningnetwork/lnd/cert v1.2.2/go.mod h1:jQmFn/Ez4zhDgq2hnYSw8r35bqGVxViXhX6Cd7HXM6U=
 github.com/lightningnetwork/lnd/clock v1.1.1 h1:OfR3/zcJd2RhH0RU+zX/77c0ZiOnIMsDIBjgjWdZgA0=
@@ -1146,8 +1148,6 @@ github.com/lightningnetwork/lnd/kvdb v1.4.16 h1:9BZgWdDfjmHRHLS97cz39bVuBAqMc4/p
 github.com/lightningnetwork/lnd/kvdb v1.4.16/go.mod h1:HW+bvwkxNaopkz3oIgBV6NEnV4jCEZCACFUcNg4xSjM=
 github.com/lightningnetwork/lnd/queue v1.1.1 h1:99ovBlpM9B0FRCGYJo6RSFDlt8/vOkQQZznVb18iNMI=
 github.com/lightningnetwork/lnd/queue v1.1.1/go.mod h1:7A6nC1Qrm32FHuhx/mi1cieAiBZo5O6l8IBIoQxvkz4=
-github.com/lightningnetwork/lnd/sqldb v1.0.13-0.20260113150738-e26a114cdcf0 h1:7R7NP7FVzl4XWfBrX4rmxcp/7tRmj/15ZlU5HI//RFU=
-github.com/lightningnetwork/lnd/sqldb v1.0.13-0.20260113150738-e26a114cdcf0/go.mod h1:zfcfU7cx/mLkkuCgwSesndk6A3mAOHtFfb+y3tyme/k=
 github.com/lightningnetwork/lnd/ticker v1.1.1 h1:J/b6N2hibFtC7JLV77ULQp++QLtCwT6ijJlbdiZFbSM=
 github.com/lightningnetwork/lnd/ticker v1.1.1/go.mod h1:waPTRAAcwtu7Ji3+3k+u/xH5GHovTsCoSVpho0KDvdA=
 github.com/lightningnetwork/lnd/tlv v1.3.2 h1:MO4FCk7F4k5xPMqVZF6Nb/kOpxlwPrUQpYjmyKny5s0=
