@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/ticker"
-	"github.com/prometheus/common/log"
 )
 
 var noOpCallback = func() {}
