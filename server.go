@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/healthcheck"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
@@ -70,6 +71,8 @@ type Server struct {
 	rpcServer       *rpcserver.RPCServer
 	mboxServer      *authmailbox.Server
 	macaroonService *lndclient.MacaroonService
+
+	livenessMonitor *healthcheck.Monitor
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -492,6 +495,19 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 			s.cfg.Prometheus.ListenAddr)
 	}
 
+	// Set up and start the health check monitor if configured.
+	if err := s.startHealthChecks(); err != nil {
+		return mkErr("unable to start health checks: %v", err)
+	}
+	defer func() {
+		if s.livenessMonitor != nil {
+			if err := s.livenessMonitor.Stop(); err != nil {
+				srvrLog.Warnf("error stopping liveness "+
+					"monitor: %v", err)
+			}
+		}
+	}()
+
 	srvrLog.Infof("Taproot Asset Daemon fully active!")
 
 	// Wait for shutdown signal from either a graceful server stop or from
@@ -517,6 +533,47 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 
 	case <-s.quit:
 	}
+	return nil
+}
+
+// startHealthChecks sets up and starts the liveness monitor with any
+// configured health checks.
+func (s *Server) startHealthChecks() error {
+	// If no TLS health check is configured (or attempts is 0), skip.
+	if s.cfg.TLSHealthCheck == nil || s.cfg.TLSHealthCheck.Attempts == 0 {
+		srvrLog.Infof("TLS health check disabled")
+		return nil
+	}
+
+	// Create a shutdown function that will request shutdown via the signal
+	// interceptor.
+	shutdown := func(format string, params ...interface{}) {
+		srvrLog.Errorf("Health check failed: "+format, params...)
+		srvrLog.Errorf("Shutting down due to failed health check")
+		s.cfg.SignalInterceptor.RequestShutdown()
+	}
+
+	// Create the health checks.
+	var checks []*healthcheck.Observation
+
+	// Add the TLS health check.
+	tlsCheck := healthcheck.NewTLSCheck(s.cfg.TLSHealthCheck)
+	checks = append(checks, tlsCheck)
+
+	srvrLog.Infof("TLS health check enabled: interval=%v, timeout=%v, "+
+		"attempts=%v", s.cfg.TLSHealthCheck.Interval,
+		s.cfg.TLSHealthCheck.Timeout, s.cfg.TLSHealthCheck.Attempts)
+
+	// Create and start the monitor.
+	s.livenessMonitor = healthcheck.NewMonitor(&healthcheck.Config{
+		Checks:   checks,
+		Shutdown: shutdown,
+	})
+
+	if err := s.livenessMonitor.Start(); err != nil {
+		return fmt.Errorf("unable to start liveness monitor: %w", err)
+	}
+
 	return nil
 }
 
