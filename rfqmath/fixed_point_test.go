@@ -146,6 +146,272 @@ func testEquality[N Int[N]](t *rapid.T) {
 	)
 }
 
+// testCmpReflexive is a property-based test ensuring Cmp(a, a) == 0.
+func testCmpReflexive[N Int[N]](t *rapid.T) {
+	coefficient := rapid.Uint64().Draw(t, "coefficient")
+	scale := uint8(rapid.IntRange(0, 18).Draw(t, "scale"))
+
+	fp1 := FixedPointFromUint64[N](coefficient, scale)
+	fp2 := FixedPointFromUint64[N](coefficient, scale)
+
+	result := fp1.Cmp(fp2)
+	require.Equal(
+		t, 0, result, "Cmp should return 0 for identical values: "+
+			"Cmp(%v, %v) = %d", fp1, fp2, result,
+	)
+}
+
+// testCmpAntisymmetric is a property-based test ensuring
+// Cmp(a, b) == -Cmp(b, a).
+func testCmpAntisymmetric[N Int[N]](t *rapid.T) {
+	coefficient1 := rapid.Uint64().Draw(t, "coefficient1")
+	coefficient2 := rapid.Uint64().Draw(t, "coefficient2")
+	scale1 := uint8(rapid.IntRange(0, 18).Draw(t, "scale1"))
+	scale2 := uint8(rapid.IntRange(0, 18).Draw(t, "scale2"))
+
+	fp1 := FixedPointFromUint64[N](coefficient1, scale1)
+	fp2 := FixedPointFromUint64[N](coefficient2, scale2)
+
+	result1 := fp1.Cmp(fp2)
+	result2 := fp2.Cmp(fp1)
+
+	require.Equal(
+		t, -result1, result2, "Cmp should be antisymmetric: "+
+			"Cmp(%v, %v) = %d, Cmp(%v, %v) = %d",
+		fp1, fp2, result1, fp2, fp1, result2,
+	)
+}
+
+// testCmpTransitive is a property-based test ensuring transitivity:
+// if Cmp(a, b) < 0 and Cmp(b, c) < 0, then Cmp(a, c) < 0.
+func testCmpTransitive[N Int[N]](t *rapid.T) {
+	// Generate three distinct coefficients and sort them.
+	coefficients := []uint64{
+		rapid.Uint64().Draw(t, "coefficient1"),
+		rapid.Uint64().Draw(t, "coefficient2"),
+		rapid.Uint64().Draw(t, "coefficient3"),
+	}
+
+	// Use the same scale for simplicity in this transitivity test.
+	scale := uint8(rapid.IntRange(0, 9).Draw(t, "scale"))
+
+	fp1 := FixedPointFromUint64[N](coefficients[0], scale)
+	fp2 := FixedPointFromUint64[N](coefficients[1], scale)
+	fp3 := FixedPointFromUint64[N](coefficients[2], scale)
+
+	cmp12 := fp1.Cmp(fp2)
+	cmp23 := fp2.Cmp(fp3)
+	cmp13 := fp1.Cmp(fp3)
+
+	// If fp1 < fp2 and fp2 < fp3, then fp1 < fp3.
+	if cmp12 < 0 && cmp23 < 0 {
+		require.True(
+			t, cmp13 < 0, "Cmp should be transitive: "+
+				"Cmp(%v, %v) = %d, Cmp(%v, %v) = %d, "+
+				"but Cmp(%v, %v) = %d",
+			fp1, fp2, cmp12, fp2, fp3, cmp23, fp1, fp3, cmp13,
+		)
+	}
+
+	// If fp1 > fp2 and fp2 > fp3, then fp1 > fp3.
+	if cmp12 > 0 && cmp23 > 0 {
+		require.True(
+			t, cmp13 > 0, "Cmp should be transitive: "+
+				"Cmp(%v, %v) = %d, Cmp(%v, %v) = %d, "+
+				"but Cmp(%v, %v) = %d",
+			fp1, fp2, cmp12, fp2, fp3, cmp23, fp1, fp3, cmp13,
+		)
+	}
+
+	// If fp1 == fp2 and fp2 == fp3, then fp1 == fp3.
+	if cmp12 == 0 && cmp23 == 0 {
+		require.True(
+			t, cmp13 == 0, "Cmp should be transitive: "+
+				"Cmp(%v, %v) = %d, Cmp(%v, %v) = %d, "+
+				"but Cmp(%v, %v) = %d",
+			fp1, fp2, cmp12, fp2, fp3, cmp23, fp1, fp3, cmp13,
+		)
+	}
+}
+
+// testCmpScaleInvariant is a property-based test ensuring that values which
+// are mathematically equal but have different scales compare as equal.
+func testCmpScaleInvariant[N Int[N]](t *rapid.T) {
+	coefficient := rapid.Uint64().Draw(t, "coefficient")
+	scale1 := uint8(rapid.IntRange(0, 9).Draw(t, "scale1"))
+	scale2 := uint8(rapid.IntRange(0, 9).Draw(t, "scale2"))
+
+	// Ensure we scale up, not down, to avoid precision loss from integer
+	// division.
+	if scale2 < scale1 {
+		scale1, scale2 = scale2, scale1
+	}
+
+	// Create a fixed point and derive a second one by scaling it. This
+	// directly tests that ScaleTo preserves the mathematical value and
+	// that Cmp recognizes them as equal.
+	fp1 := FixedPoint[N]{
+		Coefficient: NewInt[N]().FromUint64(coefficient),
+		Scale:       scale1,
+	}
+	fp2 := fp1.ScaleTo(scale2)
+
+	result := fp1.Cmp(fp2)
+
+	require.Equal(
+		t, 0, result, "Cmp should return 0 for equal values at "+
+			"different scales: Cmp(%v, %v) = %d", fp1, fp2, result,
+	)
+}
+
+// testCmpConsistentWithFloat is a property-based test ensuring that Cmp
+// results are consistent with float64 comparison for reasonable values.
+func testCmpConsistentWithFloat(t *rapid.T) {
+	// Use bounded ranges to avoid float64 precision issues.
+	coeffRange := rapid.Int64Range(1, 1_000_000_000)
+
+	coefficient1 := coeffRange.Draw(t, "coefficient1")
+	coefficient2 := coeffRange.Draw(t, "coefficient2")
+	scale1 := rapid.Uint8Range(0, 9).Draw(t, "scale1")
+	scale2 := rapid.Uint8Range(0, 9).Draw(t, "scale2")
+
+	fp1 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient1)),
+		Scale:       scale1,
+	}
+	fp2 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient2)),
+		Scale:       scale2,
+	}
+
+	cmpResult := fp1.Cmp(fp2)
+
+	// Compare using float64.
+	f1 := fp1.ToFloat64()
+	f2 := fp2.ToFloat64()
+
+	var floatCmp int
+	switch {
+	case f1 < f2:
+		floatCmp = -1
+	case f1 > f2:
+		floatCmp = 1
+	default:
+		floatCmp = 0
+	}
+
+	require.Equal(
+		t, floatCmp, cmpResult, "Cmp should be consistent with "+
+			"float comparison: Cmp(%v, %v) = %d, but float "+
+			"comparison of (%f, %f) = %d",
+		fp1, fp2, cmpResult, f1, f2, floatCmp,
+	)
+}
+
+// testCasesCmp is a table-driven test for the Cmp method.
+func testCasesCmp[N Int[N]](t *testing.T) {
+	type testCase struct {
+		name     string
+		fp1      FixedPoint[N]
+		fp2      FixedPoint[N]
+		expected int
+	}
+
+	testCases := []testCase{
+		{
+			name:     "equal values same scale",
+			fp1:      FixedPointFromUint64[N](100, 2),
+			fp2:      FixedPointFromUint64[N](100, 2),
+			expected: 0,
+		},
+		{
+			name:     "equal values different scales",
+			fp1:      FixedPointFromUint64[N](100, 2),
+			fp2:      FixedPointFromUint64[N](100, 4),
+			expected: 0,
+		},
+		{
+			name:     "first less than second same scale",
+			fp1:      FixedPointFromUint64[N](100, 2),
+			fp2:      FixedPointFromUint64[N](200, 2),
+			expected: -1,
+		},
+		{
+			name:     "first greater than second same scale",
+			fp1:      FixedPointFromUint64[N](200, 2),
+			fp2:      FixedPointFromUint64[N](100, 2),
+			expected: 1,
+		},
+		{
+			name:     "first less than second same scales",
+			fp1:      FixedPointFromUint64[N](1, 0),
+			fp2:      FixedPointFromUint64[N](2, 0),
+			expected: -1,
+		},
+		{
+			name:     "first greater than second different scales",
+			fp1:      FixedPointFromUint64[N](2, 0),
+			fp2:      FixedPointFromUint64[N](1, 2),
+			expected: 1,
+		},
+		{
+			name:     "zero values",
+			fp1:      FixedPointFromUint64[N](0, 0),
+			fp2:      FixedPointFromUint64[N](0, 5),
+			expected: 0,
+		},
+		{
+			name:     "zero less than positive",
+			fp1:      FixedPointFromUint64[N](0, 0),
+			fp2:      FixedPointFromUint64[N](1, 0),
+			expected: -1,
+		},
+		{
+			name:     "large scale difference",
+			fp1:      FixedPointFromUint64[N](1, 0),
+			fp2:      FixedPointFromUint64[N](1, 10),
+			expected: 0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.fp1.Cmp(tc.fp2)
+			require.Equal(
+				t, tc.expected, result,
+				"Cmp(%v, %v) = %d, expected %d",
+				tc.fp1, tc.fp2, result, tc.expected,
+			)
+		})
+	}
+}
+
+// testCmp runs all Cmp-related tests.
+func testCmp(t *testing.T) {
+	t.Parallel()
+
+	t.Run("testcases_cmp", testCasesCmp[BigInt])
+
+	t.Run("cmp_reflexive", rapid.MakeCheck(testCmpReflexive[BigInt]))
+
+	t.Run(
+		"cmp_antisymmetric",
+		rapid.MakeCheck(testCmpAntisymmetric[BigInt]),
+	)
+
+	t.Run("cmp_transitive", rapid.MakeCheck(testCmpTransitive[BigInt]))
+
+	t.Run(
+		"cmp_scale_invariant",
+		rapid.MakeCheck(testCmpScaleInvariant[BigInt]),
+	)
+
+	t.Run(
+		"cmp_consistent_with_float",
+		rapid.MakeCheck(testCmpConsistentWithFloat),
+	)
+}
+
 func testFromUint64[N Int[N]](t *rapid.T) {
 	coefficient := rapid.Uint64().Draw(t, "coefficient")
 	scale := uint8(rapid.IntRange(0, 18).Draw(t, "scale"))
@@ -659,6 +925,8 @@ func TestFixedPoint(t *testing.T) {
 	t.Run("division", rapid.MakeCheck(testFixedPointDivision[BigInt]))
 
 	t.Run("equality", rapid.MakeCheck(testEquality[BigInt]))
+
+	t.Run("cmp", testCmp)
 
 	t.Run("from_uint64", rapid.MakeCheck(testFromUint64[BigInt]))
 
