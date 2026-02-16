@@ -32,6 +32,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/backup"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -10693,4 +10694,97 @@ func (r *RPCServer) ProofVerifierCtx(ctx context.Context) proof.VerifierCtx {
 		ChainLookupGen: r.cfg.ChainBridge,
 		IgnoreChecker:  lfn.Some(ignoreChecker),
 	}
+}
+
+// ExportAssetWalletBackup exports a backup of all active assets in the wallet.
+// The backup includes all data necessary to restore the assets in case of
+// database or system failure.
+func (r *rpcServer) ExportAssetWalletBackup(ctx context.Context,
+	req *wrpc.ExportAssetWalletBackupRequest) (
+	*wrpc.ExportAssetWalletBackupResponse, error) {
+
+	// Fetch all unspent, unleased assets.
+	assets, err := r.cfg.AssetStore.FetchAllAssets(
+		ctx, false, false, nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch assets for "+
+			"backup: %w", err)
+	}
+
+	// Filter out unconfirmed assets (those with block height 0).
+	confirmedAssets := make([]*asset.ChainAsset, 0, len(assets))
+	for _, a := range assets {
+		if a.AnchorBlockHeight > 0 {
+			confirmedAssets = append(confirmedAssets, a)
+		}
+	}
+
+	rpcsLog.Infof("Found %d active assets for backup (filtered from "+
+		"%d total unspent)", len(confirmedAssets), len(assets))
+
+	// Map RPC mode to backup mode.
+	var mode backup.ExportMode
+	switch req.Mode {
+	case wrpc.BackupMode_RAW:
+		mode = backup.ExportModeRaw
+	case wrpc.BackupMode_COMPACT:
+		mode = backup.ExportModeCompact
+	case wrpc.BackupMode_OPTIMISTIC:
+		mode = backup.ExportModeOptimistic
+	default:
+		return nil, fmt.Errorf("unknown backup mode: %v",
+			req.Mode)
+	}
+
+	// For optimistic mode, fetch federation URLs.
+	var fedURLs []string
+	if req.Mode == wrpc.BackupMode_OPTIMISTIC {
+		servers, err := r.cfg.FederationDB.UniverseServers(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch "+
+				"federation servers: %w", err)
+		}
+		for _, s := range servers {
+			fedURLs = append(fedURLs, s.HostStr())
+		}
+	}
+
+	// Delegate to the backup package.
+	blob, err := backup.ExportBackup(
+		ctx, mode, confirmedAssets, r.cfg.ProofArchive,
+		r.cfg.TapAddrBook, fedURLs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to export backup: %w", err)
+	}
+
+	return &wrpc.ExportAssetWalletBackupResponse{
+		Backup: blob,
+	}, nil
+}
+
+// ImportAssetsFromBackup imports assets from a backup blob that was previously
+// created using ExportAssetWalletBackup.
+func (r *rpcServer) ImportAssetsFromBackup(ctx context.Context,
+	req *wrpc.ImportAssetsFromBackupRequest) (
+	*wrpc.ImportAssetsFromBackupResponse, error) {
+
+	cfg := &backup.ImportConfig{
+		SpendChecker:  r.cfg.Lnd.ChainNotifier,
+		ChainQuerier:  r.cfg.ChainBridge,
+		ProofArchive:  r.cfg.ProofArchive,
+		KeyRegistrar:  r.cfg.TapAddrBook,
+		ProofVerifier: r.ProofVerifierCtx(ctx),
+	}
+
+	numImported, err := backup.ImportBackup(ctx, req.Backup, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to import backup: %w",
+			err)
+	}
+
+	return &wrpc.ImportAssetsFromBackupResponse{
+		NumImported: numImported,
+	}, nil
 }
