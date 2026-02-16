@@ -52,3 +52,11 @@ http:
     - selector: assetwalletrpc.AssetWallet.DeclareScriptKey
       post: "/v1/taproot-assets/wallet/script-key/declare"
       body: "*"
+
+    - selector: assetwalletrpc.AssetWallet.ExportAssetWalletBackup
+      post: "/v1/taproot-assets/wallet/backup/export"
+      body: "*"
+
+    - selector: assetwalletrpc.AssetWallet.ImportAssetsFromBackup
+      post: "/v1/taproot-assets/wallet/backup/import"
+      body: "*"

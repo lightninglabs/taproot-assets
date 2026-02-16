@@ -16,6 +16,72 @@
     "application/json"
   ],
   "paths": {
+    "/v1/taproot-assets/wallet/backup/export": {
+      "post": {
+        "summary": "ExportAssetWalletBackup exports a backup of all active assets in the wallet.\nThe backup includes all data necessary to restore the assets in case of\ndatabase or system failure.",
+        "operationId": "AssetWallet_ExportAssetWalletBackup",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcExportAssetWalletBackupResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcExportAssetWalletBackupRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
+    "/v1/taproot-assets/wallet/backup/import": {
+      "post": {
+        "summary": "ImportAssetsFromBackup imports assets from a backup blob that was previously\ncreated using ExportAssetWalletBackup. This can be used to restore assets\nafter database loss or to migrate assets to a new wallet.",
+        "operationId": "AssetWallet_ImportAssetsFromBackup",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcImportAssetsFromBackupResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcImportAssetsFromBackupRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
     "/v1/taproot-assets/wallet/internal-key/next": {
       "post": {
         "summary": "NextInternalKey derives the next internal key for the given key family and\nstores it as an internal key in the database to make sure it is identified\nas a local key later on when importing proofs. While an internal key can\nalso be used as the internal key of a script key, it is recommended to use\nthe NextScriptKey RPC instead, to make sure the tweaked Taproot output key\nis also recognized as a local key.",
@@ -460,6 +526,16 @@
         }
       }
     },
+    "assetwalletrpcBackupMode": {
+      "type": "string",
+      "enum": [
+        "RAW",
+        "COMPACT",
+        "OPTIMISTIC"
+      ],
+      "default": "RAW",
+      "description": "BackupMode specifies the backup format to use when exporting.\n\n - RAW: RAW exports a full backup with complete proof data (v1).\n - COMPACT: COMPACT strips blockchain-derivable fields from proofs,\nreducing size. Stripped fields are reconstructed from the\nblockchain on import (v2).\n - OPTIMISTIC: OPTIMISTIC stores no proof data. Proofs are fetched from\na universe server on import. Smallest backup but requires\na reachable universe server during restore (v3)."
+    },
     "assetwalletrpcCoinSelectType": {
       "type": "string",
       "enum": [
@@ -586,6 +662,25 @@
         }
       }
     },
+    "assetwalletrpcExportAssetWalletBackupRequest": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "$ref": "#/definitions/assetwalletrpcBackupMode",
+          "description": "The backup mode to use for the export."
+        }
+      }
+    },
+    "assetwalletrpcExportAssetWalletBackupResponse": {
+      "type": "object",
+      "properties": {
+        "backup": {
+          "type": "string",
+          "format": "byte",
+          "description": "The binary backup blob containing all data necessary to restore the\nwallet's assets."
+        }
+      }
+    },
     "assetwalletrpcFundVirtualPsbtRequest": {
       "type": "object",
       "properties": {
@@ -624,6 +719,26 @@
             "format": "byte"
           },
           "description": "The list of passive virtual transactions that are anchored in the same BTC\nlevel anchor transaction inputs as the funded \"active\" asset above. These\nassets can be ignored when using the AnchorVirtualPsbts RPC, since they are\nretrieved, signed and committed automatically in that method. But the\npassive assets have to be included in the CommitVirtualPsbts RPC which is\nused when custom BTC level anchor transactions are created.\nThe main difference to the \"active\" asset above is that the passive assets\nwill not get their own entry in the transfer table of the database, since\nthey are just carried along and not directly affected by the direct user\naction."
+        }
+      }
+    },
+    "assetwalletrpcImportAssetsFromBackupRequest": {
+      "type": "object",
+      "properties": {
+        "backup": {
+          "type": "string",
+          "format": "byte",
+          "description": "The binary backup blob that was previously created using\nExportAssetWalletBackup."
+        }
+      }
+    },
+    "assetwalletrpcImportAssetsFromBackupResponse": {
+      "type": "object",
+      "properties": {
+        "num_imported": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of assets that were successfully imported."
         }
       }
     },
