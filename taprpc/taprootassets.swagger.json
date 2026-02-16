@@ -337,6 +337,34 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "offset",
+            "description": "The number of assets to skip (for pagination).",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "limit",
+            "description": "The maximum number of assets to return (for pagination). If 0, a\ndefault of 512 is used. The maximum allowed value is 16384.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "direction",
+            "description": "The sort direction of the returned assets, sorted by asset primary key\n(creation order). Defaults to descending.\n\n - SORT_DIRECTION_DESC: Sort results in descending order.\n - SORT_DIRECTION_ASC: Sort results in ascending order.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SORT_DIRECTION_DESC",
+              "SORT_DIRECTION_ASC"
+            ],
+            "default": "SORT_DIRECTION_DESC"
           }
         ],
         "tags": [
