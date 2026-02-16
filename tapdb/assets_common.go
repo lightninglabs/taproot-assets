@@ -272,6 +272,10 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 			AnchorUtxoID: anchorUtxoID,
 			GenesisID:    sqlInt64(genAssetID),
 			ScriptKeyID:  sqlInt64(scriptKeyID),
+			NumLimit:     1,
+			ScriptKeyType: fn.Map(
+				asset.AllScriptKeyTypes, sqlInt16,
+			),
 		})
 		if err != nil {
 			return 0, nil, fmt.Errorf("unable to query assets: %w",
