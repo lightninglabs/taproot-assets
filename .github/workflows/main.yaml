@@ -33,6 +33,12 @@ env:
   NUM_UNIT_RACE_JOBS: 4
   UNIT_RACE_PARALLELISM: 1
 
+  # Number of parallel custom channel itest jobs and tranches per job.
+  # Total tranches = NUM_CC_ITEST_JOBS * CC_ITEST_PARALLELISM.
+  # Increase when more custom channel tests are ported.
+  NUM_CC_ITEST_JOBS: 1
+  CC_ITEST_PARALLELISM: 1
+
 jobs:
   # Validate generated SQL models stay in sync with queries.
   sqlc-check:
@@ -546,6 +552,108 @@ jobs:
           flag-name: 'itest-postgres-${{ matrix.tranche }}'
           format: 'golang'
           parallel: true
+
+  # Build custom channel integration test binaries once, shared by all CC
+  # itest jobs.
+  build-itest-cc:
+    name: build CC itest binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v5
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+
+      - name: Build CC itest binaries
+        run: make build-itest build-itest-cc-binary
+
+      - name: Upload CC itest binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: itest-cc-binaries
+          path: |
+            itest/tapd-integrated-itest
+            itest/btcd-itest
+            itest/custom_channels/itest-cc.test
+
+  # Custom channel integration tests.
+  custom-channels-itest:
+    name: run custom channels itests
+    runs-on: ubuntu-latest
+    needs: build-itest-cc
+    strategy:
+      fail-fast: false
+      matrix:
+        tranche: [0]
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v5
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
+      - name: Download CC itest binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: itest-cc-binaries
+          path: itest
+
+      - name: Initialize environment
+        run: |
+          chmod +x itest/tapd-integrated-itest itest/btcd-itest itest/custom_channels/itest-cc.test
+
+      - name: CPU info
+        run: |
+          echo "nproc (available to process): $(nproc)"
+          echo "nproc --all (online): $(nproc --all)"
+          lscpu || true
+
+      - name: run CC itest
+        run: |
+          PARALLEL=${{ env.CC_ITEST_PARALLELISM }}
+          NUM_JOBS=${{ env.NUM_CC_ITEST_JOBS }}
+          TOTAL_TRANCHES=$((NUM_JOBS * PARALLEL))
+          BASE_TRANCHE=$(( ${{ matrix.tranche }} * PARALLEL ))
+
+          echo "Running $PARALLEL CC tranches in parallel (tranches $BASE_TRANCHE to $((BASE_TRANCHE + PARALLEL - 1)) of $TOTAL_TRANCHES total)"
+
+          # Start all tranches in parallel.
+          pids=()
+          for i in $(seq 0 $((PARALLEL - 1))); do
+            scripts/itest_cc_part.sh $((BASE_TRANCHE + i)) $TOTAL_TRANCHES --verbose &
+            pids+=($!)
+          done
+
+          # Wait for all and track failures.
+          exit_code=0
+          for pid in "${pids[@]}"; do
+            wait $pid || exit_code=1
+          done
+
+          if [ $exit_code -ne 0 ]; then
+            echo "One or more CC tranches failed"
+            exit 1
+          fi
+
+      - name: Zip log files on failure
+        if: ${{ failure() }}
+        run: |
+          7z a logs-cc-itest-${{ matrix.tranche }}.zip \
+            itest/custom_channels/regtest/ || true
+
+      - name: Upload log files on failure
+        uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: logs-cc-itest-${{ matrix.tranche }}
+          path: logs-cc-itest-${{ matrix.tranche }}.zip
+          retention-days: 5
 
   # LiT integration/unit tests with Taproot Assets replacements.
   run-lit:
