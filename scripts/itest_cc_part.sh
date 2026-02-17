@@ -52,7 +52,9 @@ else
 fi
 if [ $exit_code -ne 0 ]; then
     echo "CC tranche $TRANCHE failed with exit code $exit_code"
-    tail -n 100 "$LOG_DIR/output.log"
+    if [ $VERBOSE -eq 0 ]; then
+        tail -n 100 "$LOG_DIR/output.log"
+    fi
     exit 255
 else
     echo "CC tranche $TRANCHE completed successfully"
