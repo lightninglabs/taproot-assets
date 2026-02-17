@@ -167,6 +167,15 @@ const (
 	// defaultPriceOracleTLSCertPath is the default (empty) path to a
 	// certificate to use for securing price oracle communication.
 	defaultPriceOracleTLSCertPath = ""
+
+	// Set defaults for a health check which ensures that the TLS certificate
+	// is not expired. Although this check is off by default (not all setups
+	// require it), we still set the other default values so that the health
+	// check can be easily enabled with sane defaults.
+	defaultTLSInterval = time.Minute
+	defaultTLSTimeout  = time.Second * 5
+	defaultTLSBackoff  = time.Minute
+	defaultTLSAttempts = 0
 )
 
 var (
@@ -417,6 +426,8 @@ type Config struct {
 
 	Experimental *ExperimentalConfig `group:"experimental" namespace:"experimental"`
 
+	HealthChecks *HealthCheckConfig `group:"healthcheck" namespace:"healthcheck"`
+
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
@@ -537,6 +548,14 @@ func DefaultConfig() Config {
 				PriceOracleTLSInsecure:    defaultPriceOracleTLSInsecure,
 				PriceOracleTLSNoSystemCAs: defaultPriceOracleTLSNoSystemCAs,
 				PriceOracleTLSCertPath:    defaultPriceOracleTLSCertPath,
+			},
+		},
+		HealthChecks: &HealthCheckConfig{
+			TLSCheck: &CheckConfig{
+				Interval: defaultTLSInterval,
+				Timeout:  defaultTLSTimeout,
+				Attempts: defaultTLSAttempts,
+				Backoff:  defaultTLSBackoff,
 			},
 		},
 	}
@@ -1014,6 +1033,12 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	case cfg.Wallet.PsbtMaxFeeRatio > 1.00:
 		return nil, fmt.Errorf("psbt-max-fee-ratio must be set in " +
 			"range of 0.00 to 1.00")
+	}
+
+	// Validate the healthcheck config.
+	err = cfg.HealthChecks.Validate()
+	if err != nil {
+		return nil, fmt.Errorf("error in healthcheck config: %w", err)
 	}
 
 	// All good, return the sanitized result.

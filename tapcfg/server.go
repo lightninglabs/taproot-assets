@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
+	"github.com/lightninglabs/taproot-assets/healthcheck"
 	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
@@ -919,6 +920,17 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		LetsEncryptListen:          cfg.RpcConf.LetsEncryptListen,
 		LetsEncryptEmail:           cfg.RpcConf.LetsEncryptEmail,
 		LetsEncryptDomain:          cfg.RpcConf.LetsEncryptDomain,
+	}
+
+	// Set up the TLS health check config if enabled.
+	if cfg.HealthChecks.TLSCheck.Attempts > 0 {
+		serverCfg.TLSHealthCheck = &healthcheck.TLSCheckConfig{
+			CertPath: cfg.RpcConf.TLSCertPath,
+			Interval: cfg.HealthChecks.TLSCheck.Interval,
+			Timeout:  cfg.HealthChecks.TLSCheck.Timeout,
+			Backoff:  cfg.HealthChecks.TLSCheck.Backoff,
+			Attempts: cfg.HealthChecks.TLSCheck.Attempts,
+		}
 	}
 
 	srv := tap.NewServer(&serverCfg.ChainParams)

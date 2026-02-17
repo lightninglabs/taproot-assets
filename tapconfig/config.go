@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
+	"github.com/lightninglabs/taproot-assets/healthcheck"
 	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -280,6 +281,10 @@ type Config struct {
 	// LogMgr is the sublogger manager that is used to create subloggers for
 	// the daemon.
 	LogMgr *build.SubLoggerManager
+
+	// TLSHealthCheck contains the configuration for the TLS certificate
+	// health check. If nil or Attempts is 0, the check is disabled.
+	TLSHealthCheck *healthcheck.TLSCheckConfig
 
 	*RPCConfig
 

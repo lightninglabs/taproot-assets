@@ -56,6 +56,10 @@
   prevents buggy results when comparing quotes encoded using different
   scales.
 
+* [PR#1985](https://github.com/lightninglabs/taproot-assets/pull/1985)
+  adds a basic health check for TLS cert expiry which allows for more effective
+  autonomous renewals.
+
 # New Features
 
 ## Functional Enhancements
