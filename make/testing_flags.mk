@@ -66,6 +66,14 @@ ifneq ($(icase),)
 TEST_FLAGS += -test.run="TestTaprootAssetsDaemon/tranche.*/.*-of-.*/$(icase)"
 endif
 
+# Define the custom channel test.run filter if the cccase argument was
+# provided.
+ifneq ($(cccase),)
+CC_TEST_FLAGS = -test.run="TestCustomChannels/$(cccase)"
+else
+CC_TEST_FLAGS = -test.run=TestCustomChannels
+endif
+
 # Don't delete the data directories of nodes.
 ifneq ($(nodelete),)
 ITEST_FLAGS += -nodelete

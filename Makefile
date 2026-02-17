@@ -141,6 +141,9 @@ build-itest:
 	@$(call print, "Building itest lnd.")
 	CGO_ENABLED=0 $(GOBUILD) -mod=mod -tags="$(ITEST_TAGS)" -o itest/lnd-itest $(DEV_LDFLAGS) $(LND_PKG)/cmd/lnd
 
+	@$(call print, "Building itest tapd-integrated.")
+	CGO_ENABLED=0 $(GOBUILD) -mod=mod -tags="$(ITEST_TAGS)" -o itest/tapd-integrated-itest $(DEV_LDFLAGS) $(PKG)/cmd/tapd-integrated
+
 build-itest-binary:
 	@$(call print, "Building itest binary for ${backend} backend.")
 	CGO_ENABLED=0 $(GOTEST) -v $(ITEST_COVERAGE) ./itest -tags="$(ITEST_TAGS)" -c -o itest/itest.test
@@ -235,6 +238,11 @@ unit-race-parallel:
 	PKG="$(PKG)" DEV_TAGS="$(DEV_TAGS)" \
 		scripts/unit_race_part.sh $(tranche) $(tranches) \
 		$(UNIT_VERBOSE_FLAG) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
+
+itest-cc: build-itest
+	@$(call print, "Running custom channel integration tests.")
+	date
+	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" $(CC_TEST_FLAGS) -test.timeout=30m -logdir=regtest
 
 itest: build-itest itest-only
 
@@ -418,6 +426,7 @@ clean:
 	$(RM) -r itest/chantools
 	$(RM) itest/btcd-itest
 	$(RM) itest/lnd-itest
+	$(RM) itest/tapd-integrated-itest
 	$(RM) tapd-debug
 	$(RM) tapcli-debug
 	$(RM) -r taproot-assets-v*
