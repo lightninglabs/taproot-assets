@@ -239,10 +239,19 @@ unit-race-parallel:
 		scripts/unit_race_part.sh $(tranche) $(tranches) \
 		$(UNIT_VERBOSE_FLAG) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
 
+build-itest-cc-binary:
+	@$(call print, "Building CC itest binary.")
+	CGO_ENABLED=0 $(GOTEST) -v ./itest/custom_channels -tags="$(ITEST_TAGS)" -c -o itest/custom_channels/itest-cc.test
+
 itest-cc: build-itest
 	@$(call print, "Running custom channel integration tests.")
 	date
-	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" $(CC_TEST_FLAGS) -test.timeout=30m -logdir=regtest
+	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" $(CC_TEST_FLAGS) -test.timeout=30m
+
+itest-cc-parallel: build-itest build-itest-cc-binary
+	@$(call print, "Running custom channel integration tests in parallel.")
+	date
+	scripts/itest_cc_parallel.sh $(CC_ITEST_PARALLELISM) $(NUM_CC_ITEST_TRANCHES)
 
 itest: build-itest itest-only
 

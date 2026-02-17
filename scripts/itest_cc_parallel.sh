@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# itest_cc_parallel.sh runs custom channel integration tests in parallel
+# across multiple tranches. Modeled after itest_parallel.sh.
+
+# Get all the variables.
+PROCESSES=$1
+TRANCHES=$2
+
+# Here we also shift 2 times and get the rest of our flags to pass on in $@.
+shift 2
+
+# Create a variable to hold the final exit code.
+exit_code=0
+
+# Run commands in parallel and capture their PIDs.
+pids=()
+for ((i=0; i<PROCESSES; i++)); do
+    scripts/itest_cc_part.sh $i $TRANCHES "$@" &
+    pids+=($!)
+done
+
+# Wait for the processes to finish.
+for pid in "${pids[@]}"; do
+    wait $pid
+
+    # Once finished, grab its exit code.
+    current_exit_code=$?
+
+    # Overwrite the exit code if current itest doesn't return 0.
+    if [ $current_exit_code -ne 0 ]; then
+        # Only write the exit code of the first failing itest.
+        if [ $exit_code -eq 0 ]; then
+            exit_code=$current_exit_code
+        fi
+    fi
+done
+
+# Exit with the exit code of the first failing itest or 0.
+exit $exit_code
