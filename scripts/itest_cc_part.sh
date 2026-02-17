@@ -27,7 +27,7 @@ done
 
 EXEC="$WORKDIR/itest-cc.test"
 ITEST_DIR=$(pwd)/itest
-LOG_DIR="$WORKDIR/regtest/.logs-tranche$TRANCHE"
+LOG_DIR="$WORKDIR/regtest/logs-tranche$TRANCHE"
 mkdir -p "$LOG_DIR"
 
 # The miner package (btctest/rpctest) looks for a 'btcd' binary in PATH.
@@ -37,18 +37,16 @@ if [ -f "$ITEST_DIR/btcd-itest" ] && ! command -v btcd &>/dev/null; then
     export PATH="$ITEST_DIR:$PATH"
 fi
 
-echo "$EXEC" "${TEST_FLAGS[@]}" -test.v -test.run=TestCustomChannels -test.timeout=60m -splittranches="$NUM_TRANCHES" -runtranche="$TRANCHE"
-
 # Exit code 255 causes the parallel jobs to abort, so if one part fails the
 # other is aborted too.
 cd "$WORKDIR" || exit 255
 
 if [ $VERBOSE -eq 1 ]; then
-    $EXEC "${TEST_FLAGS[@]}" -test.v -test.run=TestCustomChannels -test.timeout=60m -splittranches="$NUM_TRANCHES" -runtranche="$TRANCHE" 2>&1 | tee "$LOG_DIR/output.log"
+    $EXEC "${TEST_FLAGS[@]}" -test.v -test.run=TestCustomChannels -test.timeout=60m -logdir="$LOG_DIR" -splittranches="$NUM_TRANCHES" -runtranche="$TRANCHE" 2>&1 | tee "$LOG_DIR/output.log"
     # Capture the exit code of the test run (first command in pipe).
     exit_code=${PIPESTATUS[0]}
 else
-    $EXEC "${TEST_FLAGS[@]}" -test.v -test.run=TestCustomChannels -test.timeout=60m -splittranches="$NUM_TRANCHES" -runtranche="$TRANCHE" > "$LOG_DIR/output.log" 2>&1
+    $EXEC "${TEST_FLAGS[@]}" -test.v -test.run=TestCustomChannels -test.timeout=60m -logdir="$LOG_DIR" -splittranches="$NUM_TRANCHES" -runtranche="$TRANCHE" > "$LOG_DIR/output.log" 2>&1
     # Capture the exit code of the test run.
     exit_code=$?
 fi
