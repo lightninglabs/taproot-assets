@@ -60,6 +60,11 @@
   adds a basic health check for TLS cert expiry which allows for more effective
   autonomous renewals.
 
+* [PR#1991](https://github.com/lightninglabs/taproot-assets/pull/1991)
+  fixes an issue in which asset invoices could be settled in sats if
+  their expiration extended beyond that of the accepted edge node
+  quote (or quotes).
+
 # New Features
 
 ## Functional Enhancements
