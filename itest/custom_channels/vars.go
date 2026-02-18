@@ -5,6 +5,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
 // Variables are prefixed with "cc" (custom channels) to avoid name collisions
@@ -21,7 +22,13 @@ var (
 		Amount:    1_000_000,
 	}
 
-	ccShortTimeout = time.Second * 5
+	ccShortTimeout = time.Second * 10
+
+	// ccTransferTimeout is the timeout used when waiting for an asset
+	// transfer to appear as confirmed. On CI runners with multiple
+	// parallel tranches, tapd block processing can be slow so we use a
+	// generous timeout.
+	ccTransferTimeout = 2 * time.Minute
 )
 
 // lndArgsTemplate contains lnd flags used by all custom channel test nodes.
@@ -39,7 +46,7 @@ var lndArgsTemplate = []string{
 	"--protocol.simple-taproot-overlay-chans",
 	"--protocol.custom-message=17",
 	"--accept-keysend",
-	"--debuglevel=trace,BTCN=info",
+	"--debuglevel=warn",
 	"--height-hint-cache-query-disable",
 }
 
@@ -82,6 +89,18 @@ var tapdArgsTemplateDiffOracle = append(tapdArgsTemplateNoOracle, []string{
 	"--experimental.rfq.acceptpricedeviationppm=50000",
 }...)
 
+// nolint:lll
+var (
+	failureNoBalance        = lnrpc.PaymentFailureReason_FAILURE_REASON_INSUFFICIENT_BALANCE
+	failureNoRoute          = lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE
+	failureIncorrectDetails = lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS
+	failureTimeout          = lnrpc.PaymentFailureReason_FAILURE_REASON_TIMEOUT
+	failureNone             = lnrpc.PaymentFailureReason_FAILURE_REASON_NONE
+)
+
+// burnAddr is a regtest address used to drain wallet funds.
+var burnAddr = "bcrt1qlthqw0zmup27nx35hcy82vkc4qjcxgmkvhnjtc"
+
 const (
 	fundingAmount = 50_000
 	startAmount   = fundingAmount * 2
@@ -93,4 +112,8 @@ const (
 	// DefaultPushSat is the default push amount in satoshis when opening
 	// custom channels.
 	DefaultPushSat int64 = 1062
+
+	// assetBurnConfirmationText is the text that needs to be set on the
+	// RPC to confirm an asset burn.
+	assetBurnConfirmationText = "assets will be destroyed"
 )
