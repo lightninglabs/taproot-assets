@@ -367,3 +367,139 @@ func TestRehydrateMismatchedHints(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "hint count mismatch")
 }
+
+// TestStrippedEncodeRecordsSync verifies that strippedEncodeRecords stays in
+// sync with proof.Proof.EncodeRecords. If a new TLV type is added to the proof
+// encoding, this test will fail, reminding the developer to update
+// strippedEncodeRecords accordingly.
+func TestStrippedEncodeRecordsSync(t *testing.T) {
+	t.Parallel()
+
+	// These are the blockchain-derivable types that strippedEncodeRecords
+	// intentionally omits.
+	strippedTypes := map[uint64]struct{}{
+		4:  {}, // BlockHeader
+		6:  {}, // AnchorTx
+		8:  {}, // TxMerkleProof
+		22: {}, // BlockHeight
+	}
+
+	// Create a proof with ALL optional fields populated so we exercise
+	// every code path in EncodeRecords.
+	genesis := asset.Genesis{
+		FirstPrevOut: wire.OutPoint{
+			Hash:  chainhash.Hash{1, 2, 3},
+			Index: 0,
+		},
+		Tag:         "sync-test",
+		OutputIndex: 0,
+		Type:        asset.Normal,
+	}
+
+	scriptKey := asset.NewScriptKey(test.RandPubKey(t))
+	internalKey := test.RandPubKey(t)
+
+	testAsset := asset.NewAssetNoErr(t, genesis, 1000, 0, 0, scriptKey, nil)
+	tapCommitment, _, err := commitment.Mint(
+		nil, genesis, nil, &commitment.AssetDetails{
+			Type:      asset.Normal,
+			ScriptKey: test.PubToKeyDesc(scriptKey.PubKey),
+			Amount:    fn.Ptr(uint64(1000)),
+		},
+	)
+	require.NoError(t, err)
+
+	_, commitmentProof, err := tapCommitment.Proof(
+		testAsset.TapCommitmentKey(),
+		testAsset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	// Create an alt leaf for the AltLeaves field.
+	altLeaf, err := asset.NewAltLeaf(scriptKey, asset.ScriptV0)
+	require.NoError(t, err)
+
+	// Build a proof with all optional fields populated.
+	p := proof.Proof{
+		Version:     proof.TransitionV0,
+		PrevOut:     genesis.FirstPrevOut,
+		BlockHeader: wire.BlockHeader{Version: 2},
+		BlockHeight: 100,
+		AnchorTx:    wire.MsgTx{Version: 2},
+		TxMerkleProof: proof.TxMerkleProof{
+			Nodes: []chainhash.Hash{{1}},
+			Bits:  []bool{true},
+		},
+		Asset: *testAsset,
+		InclusionProof: proof.TaprootProof{
+			OutputIndex: 0,
+			InternalKey: internalKey,
+			CommitmentProof: &proof.CommitmentProof{
+				Proof: *commitmentProof,
+			},
+		},
+		// Optional fields - populate all of them.
+		ExclusionProofs: []proof.TaprootProof{{
+			OutputIndex: 1,
+			InternalKey: test.RandPubKey(t),
+			TapscriptProof: &proof.TapscriptProof{
+				Bip86: true,
+			},
+		}},
+		SplitRootProof: &proof.TaprootProof{
+			OutputIndex: 0,
+			InternalKey: test.RandPubKey(t),
+			CommitmentProof: &proof.CommitmentProof{
+				Proof: *commitmentProof,
+			},
+		},
+		MetaReveal:       &proof.MetaReveal{Data: []byte("meta")},
+		AdditionalInputs: []proof.File{{}},
+		ChallengeWitness: [][]byte{{1, 2, 3}},
+		GenesisReveal:    &genesis,
+		GroupKeyReveal: asset.NewGroupKeyRevealV0(
+			asset.ToSerialized(test.RandPubKey(t)), nil,
+		),
+		AltLeaves: []asset.AltLeaf[asset.Asset]{altLeaf},
+	}
+
+	// Get types from the full EncodeRecords.
+	fullRecords := p.EncodeRecords()
+	fullTypes := make(map[uint64]struct{})
+	for _, r := range fullRecords {
+		fullTypes[uint64(r.Type())] = struct{}{}
+	}
+
+	// Get types from strippedEncodeRecords.
+	strippedRecords := strippedEncodeRecords(&p)
+	actualStrippedTypes := make(map[uint64]struct{})
+	for _, r := range strippedRecords {
+		actualStrippedTypes[uint64(r.Type())] = struct{}{}
+	}
+
+	// Compute expected stripped types: full types minus blockchain types.
+	expectedStrippedTypes := make(map[uint64]struct{})
+	for typ := range fullTypes {
+		if _, isStripped := strippedTypes[typ]; !isStripped {
+			expectedStrippedTypes[typ] = struct{}{}
+		}
+	}
+
+	// Verify no unexpected types in stripped output.
+	for typ := range actualStrippedTypes {
+		_, expected := expectedStrippedTypes[typ]
+		require.True(t, expected,
+			"strippedEncodeRecords includes unexpected type %d",
+			typ,
+		)
+	}
+
+	// Verify no missing types in stripped output.
+	for typ := range expectedStrippedTypes {
+		_, present := actualStrippedTypes[typ]
+		require.True(t, present,
+			"strippedEncodeRecords missing expected type %d; "+
+				"if this is a new proof TLV type, add it to "+
+				"strippedEncodeRecords in backup/strip.go", typ)
+	}
+}
