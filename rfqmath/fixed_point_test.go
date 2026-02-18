@@ -192,12 +192,14 @@ func testCmpTransitive[N Int[N]](t *rapid.T) {
 		rapid.Uint64().Draw(t, "coefficient3"),
 	}
 
-	// Use the same scale for simplicity in this transitivity test.
-	scale := uint8(rapid.IntRange(0, 9).Draw(t, "scale"))
+	// Use different scales to ensure transitivity holds across scales.
+	scale1 := uint8(rapid.IntRange(0, 9).Draw(t, "scale1"))
+	scale2 := uint8(rapid.IntRange(0, 9).Draw(t, "scale2"))
+	scale3 := uint8(rapid.IntRange(0, 9).Draw(t, "scale3"))
 
-	fp1 := FixedPointFromUint64[N](coefficients[0], scale)
-	fp2 := FixedPointFromUint64[N](coefficients[1], scale)
-	fp3 := FixedPointFromUint64[N](coefficients[2], scale)
+	fp1 := FixedPointFromUint64[N](coefficients[0], scale1)
+	fp2 := FixedPointFromUint64[N](coefficients[1], scale2)
+	fp3 := FixedPointFromUint64[N](coefficients[2], scale3)
 
 	cmp12 := fp1.Cmp(fp2)
 	cmp23 := fp2.Cmp(fp3)
