@@ -55,9 +55,9 @@ var (
 func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	// For this test we'll use an actual oracle RPC server harness.
 	oracleAddr := fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort())
-	oracle := newOracleHarness(oracleAddr)
-	oracle.start(t.t)
-	t.t.Cleanup(oracle.stop)
+	oracle := NewOracleHarness(oracleAddr)
+	oracle.Start(t.t)
+	t.t.Cleanup(oracle.Stop)
 
 	// We need to craft the oracle server URL in the correct format.
 	oracleURL := fmt.Sprintf("rfqrpc://%s", oracleAddr)
@@ -337,9 +337,9 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	// For this test we'll use an actual oracle RPC server harness.
 	oracleAddr := fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort())
-	oracle := newOracleHarness(oracleAddr)
-	oracle.start(t.t)
-	t.t.Cleanup(oracle.stop)
+	oracle := NewOracleHarness(oracleAddr)
+	oracle.Start(t.t)
+	t.t.Cleanup(oracle.Stop)
 
 	// We need to craft the oracle server URL in the correct format.
 	oracleURL := fmt.Sprintf("rfqrpc://%s", oracleAddr)
@@ -613,9 +613,9 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 func testRfqNegotiationGroupKey(t *harnessTest) {
 	// For this test we'll use an actual oracle RPC server harness.
 	oracleAddr := fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort())
-	oracle := newOracleHarness(oracleAddr)
-	oracle.start(t.t)
-	t.t.Cleanup(oracle.stop)
+	oracle := NewOracleHarness(oracleAddr)
+	oracle.Start(t.t)
+	t.t.Cleanup(oracle.Stop)
 
 	// We need to craft the oracle server URL in the correct format.
 	oracleURL := fmt.Sprintf("rfqrpc://%s", oracleAddr)
@@ -641,7 +641,7 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 	askPrice := rfqmath.NewBigIntFixedPoint(99_000_00, 2)
 	bidPrice := rfqmath.NewBigIntFixedPoint(101_000_00, 2)
 
-	oracle.setPrice(specifierGK, bidPrice, askPrice)
+	oracle.SetPrice(specifierGK, bidPrice, askPrice)
 
 	ctx := context.Background()
 
@@ -748,9 +748,9 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 func testRfqPortfolioPilotRpc(t *harnessTest) {
 	// Start a mock price oracle RPC server.
 	oracleAddr := fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort())
-	oracle := newOracleHarness(oracleAddr)
-	oracle.start(t.t)
-	t.t.Cleanup(oracle.stop)
+	oracle := NewOracleHarness(oracleAddr)
+	oracle.Start(t.t)
+	t.t.Cleanup(oracle.Stop)
 
 	// Start a portfolio pilot RPC server.
 	pilotAddr := fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort())
@@ -777,7 +777,7 @@ func testRfqPortfolioPilotRpc(t *harnessTest) {
 	assetSpecifier := asset.NewSpecifierFromId(assetID)
 	askPrice := rfqmath.NewBigIntFixedPoint(99_000_00, 2)
 	bidPrice := rfqmath.NewBigIntFixedPoint(101_000_00, 2)
-	oracle.setPrice(assetSpecifier, bidPrice, askPrice)
+	oracle.SetPrice(assetSpecifier, bidPrice, askPrice)
 
 	ctx := context.Background()
 
