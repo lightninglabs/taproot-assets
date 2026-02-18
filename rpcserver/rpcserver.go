@@ -10699,7 +10699,7 @@ func (r *RPCServer) ProofVerifierCtx(ctx context.Context) proof.VerifierCtx {
 // ExportAssetWalletBackup exports a backup of all active assets in the wallet.
 // The backup includes all data necessary to restore the assets in case of
 // database or system failure.
-func (r *rpcServer) ExportAssetWalletBackup(ctx context.Context,
+func (r *RPCServer) ExportAssetWalletBackup(ctx context.Context,
 	req *wrpc.ExportAssetWalletBackupRequest) (
 	*wrpc.ExportAssetWalletBackupResponse, error) {
 
@@ -10766,7 +10766,7 @@ func (r *rpcServer) ExportAssetWalletBackup(ctx context.Context,
 
 // ImportAssetsFromBackup imports assets from a backup blob that was previously
 // created using ExportAssetWalletBackup.
-func (r *rpcServer) ImportAssetsFromBackup(ctx context.Context,
+func (r *RPCServer) ImportAssetsFromBackup(ctx context.Context,
 	req *wrpc.ImportAssetsFromBackupRequest) (
 	*wrpc.ImportAssetsFromBackupResponse, error) {
 
