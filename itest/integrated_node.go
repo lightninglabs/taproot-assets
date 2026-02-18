@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -78,6 +79,15 @@ type IntegratedNode struct {
 
 	// cmd is the running integrated binary process.
 	cmd *exec.Cmd
+
+	// logFile is the file handle for the per-instance log file. Both
+	// stdout and stderr of the integrated binary are redirected here.
+	logFile *os.File
+
+	// readyFile is the path to a file that the integrated binary
+	// creates once tapd is fully initialized. We wait for this file
+	// before making any tapd RPC calls.
+	readyFile string
 
 	// conn is the gRPC connection to the integrated binary.
 	conn *grpc.ClientConn
@@ -139,6 +149,9 @@ func (n *IntegratedNode) Start() {
 	require.NoError(n.t, os.MkdirAll(lndDir, 0700))
 	require.NoError(n.t, os.MkdirAll(tapdDir, 0700))
 
+	// Set up the ready-file path.
+	n.readyFile = filepath.Join(n.Cfg.BaseDir, ".tapd-ready")
+
 	args := []string{
 		// LND args.
 		fmt.Sprintf("--lnd.lnddir=%s", lndDir),
@@ -151,10 +164,13 @@ func (n *IntegratedNode) Start() {
 		"--lnd.bitcoin.active",
 		"--lnd.bitcoin.regtest",
 		"--lnd.bitcoin.node=btcd",
+		"--lnd.bitcoin.defaultremotedelay=4",
 
 		// Tapd args.
 		fmt.Sprintf("--taproot-assets.tapddir=%s", tapdDir),
 		"--taproot-assets.network=regtest",
+
+		fmt.Sprintf("--ready-file=%s", n.readyFile),
 	}
 
 	// Add chain backend args if provided in extra args, otherwise the
@@ -166,8 +182,13 @@ func (n *IntegratedNode) Start() {
 
 	//nolint:gosec
 	n.cmd = exec.Command(n.Cfg.BinaryPath, args...)
-	n.cmd.Stdout = os.Stdout
-	n.cmd.Stderr = os.Stderr
+
+	// Redirect stdout/stderr to a per-instance log file so that each
+	// node's output is isolated and can be collected by CI on failure.
+	if err := n.addLogFile(); err != nil {
+		n.t.Fatalf("unable to create log file for %s: %v",
+			n.Cfg.Name, err)
+	}
 
 	n.t.Logf("Starting integrated node %s on port %d",
 		n.Cfg.Name, n.Cfg.RPCPort)
@@ -180,11 +201,40 @@ func (n *IntegratedNode) Start() {
 	// Initialize all RPC clients.
 	n.initClients()
 
-	// Fetch the node's identity pubkey.
+	// Fetch the node's identity pubkey and wait for chain sync.
 	n.fetchNodeInfo()
+
+	// Wait for the tapd subsystem to be ready. In the integrated binary,
+	// tapd's RPC server starts after lnd is fully synced, so there's a
+	// window where lnd RPCs work but tapd RPCs return "not yet
+	// initialized". We poll tapd's GetInfo until it succeeds.
+	n.waitForTapd()
 
 	n.t.Logf("Integrated node %s (%s) started successfully",
 		n.Cfg.Name, n.PubKeyStr[:12])
+}
+
+// addLogFile creates a per-instance log file and redirects the process's
+// stdout and stderr to it. The log file is placed in the test log directory
+// (determined by node.GetLogDir()) so CI can collect it on failure.
+func (n *IntegratedNode) addLogFile() error {
+	dir := node.GetLogDir()
+	fileName := filepath.Join(
+		dir, fmt.Sprintf("integrated-%s.log", n.Cfg.Name),
+	)
+
+	logFile, err := os.OpenFile(
+		fileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666,
+	)
+	if err != nil {
+		return err
+	}
+
+	n.cmd.Stdout = logFile
+	n.cmd.Stderr = logFile
+	n.logFile = logFile
+
+	return nil
 }
 
 // Stop sends SIGINT to the integrated binary and waits for it to exit.
@@ -228,6 +278,10 @@ func (n *IntegratedNode) Stop() {
 		n.t.Logf("Node %s did not stop in time, killing",
 			n.Cfg.Name)
 		_ = n.cmd.Process.Kill()
+	}
+
+	if n.logFile != nil {
+		_ = n.logFile.Close()
 	}
 }
 
@@ -300,23 +354,35 @@ func (n *IntegratedNode) P2PAddr() string {
 	return fmt.Sprintf("127.0.0.1:%d", n.Cfg.P2PPort)
 }
 
-// fetchNodeInfo queries lnd's GetInfo to populate the node's identity pubkey.
+// fetchNodeInfo queries lnd's GetInfo to populate the node's identity pubkey
+// and waits until the node reports it is fully synced to the chain. This
+// ensures that when Start() returns, the node is ready to accept operations
+// like ConnectPeer.
 func (n *IntegratedNode) fetchNodeInfo() {
 	n.t.Helper()
 
-	ctx, cancel := context.WithTimeout(
-		context.Background(), 30*time.Second,
-	)
-	defer cancel()
-
 	var info *lnrpc.GetInfoResponse
 	err := wait.NoError(func() error {
+		ctx, cancel := context.WithTimeout(
+			context.Background(), 5*time.Second,
+		)
+		defer cancel()
+
 		var err error
 		info, err = n.LightningClient.GetInfo(
 			ctx, &lnrpc.GetInfoRequest{},
 		)
-		return err
-	}, 30*time.Second)
+		if err != nil {
+			return err
+		}
+
+		if !info.SyncedToChain {
+			return fmt.Errorf("node %s not yet synced to chain",
+				n.Cfg.Name)
+		}
+
+		return nil
+	}, 120*time.Second)
 	require.NoError(n.t, err, "failed to get info for %s", n.Cfg.Name)
 
 	pubKeyBytes, err := hex.DecodeString(info.IdentityPubkey)
@@ -324,6 +390,47 @@ func (n *IntegratedNode) fetchNodeInfo() {
 
 	copy(n.PubKey[:], pubKeyBytes)
 	n.PubKeyStr = info.IdentityPubkey
+}
+
+// waitForTapd waits for the integrated binary to signal that tapd is fully
+// initialized. In the integrated binary, there's a window after lnd becomes
+// ready but before tapd's RPCServer.Start() is called where tapd RPCs would
+// panic (r.cfg is nil). We first wait for the ready-file that the binary
+// creates after StartAsSubserver completes, then verify with a GetInfo call.
+func (n *IntegratedNode) waitForTapd() {
+	n.t.Helper()
+
+	// Wait for the ready-file to appear. This is created by the
+	// integrated binary after tapd's StartAsSubserver() completes
+	// and r.cfg is populated.
+	err := wait.NoError(func() error {
+		_, err := os.Stat(n.readyFile)
+		if err != nil {
+			return fmt.Errorf("ready file not yet created: %w",
+				err)
+		}
+
+		return nil
+	}, 120*time.Second)
+
+	require.NoError(n.t, err, "tapd ready file was not created for %s",
+		n.Cfg.Name)
+
+	// Now that the ready-file exists, verify tapd is actually responding.
+	err = wait.NoError(func() error {
+		ctx, cancel := context.WithTimeout(
+			context.Background(), 5*time.Second,
+		)
+		defer cancel()
+
+		_, err := n.TaprootAssetsClient.GetInfo(
+			ctx, &taprpc.GetInfoRequest{},
+		)
+		return err
+	}, 20*time.Second)
+
+	require.NoError(n.t, err, "tapd did not become ready for %s",
+		n.Cfg.Name)
 }
 
 // WaitForReady polls lnd's GetInfo until it reports the node is fully synced
