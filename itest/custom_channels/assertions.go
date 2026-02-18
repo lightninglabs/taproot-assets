@@ -12,14 +12,12 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightninglabs/taproot-assets/itest"
-	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -267,18 +265,15 @@ func assertSweepExists(t *testing.T, node *itest.IntegratedNode,
 			}
 		}
 
-		return fmt.Errorf("failed to find sweep: %v",
-			ccToProtoJSON(t, pendingSweeps))
+		types := make([]string, len(pendingSweeps.PendingSweeps))
+		for i, s := range pendingSweeps.PendingSweeps {
+			types[i] = s.WitnessType.String()
+		}
+
+		return fmt.Errorf("sweep %v not found, have: %v",
+			witnessType, types)
 	}, wait.DefaultTimeout)
 	require.NoError(t, err)
-}
-
-// ccToProtoJSON marshals a protobuf message to JSON for debugging output.
-func ccToProtoJSON(t *testing.T, resp proto.Message) string {
-	jsonBytes, err := taprpc.ProtoJSONMarshalOpts.Marshal(resp)
-	require.NoError(t, err)
-
-	return string(jsonBytes)
 }
 
 // mineBlocks mines 'num' blocks with a delay between each. numTxs is the

@@ -46,7 +46,7 @@ var lndArgsTemplate = []string{
 	"--protocol.simple-taproot-overlay-chans",
 	"--protocol.custom-message=17",
 	"--accept-keysend",
-	"--debuglevel=warn",
+	"--debuglevel=debug,BTCN=info,NTFN=info,DISC=info",
 	"--height-hint-cache-query-disable",
 }
 
@@ -54,6 +54,7 @@ var lndArgsTemplate = []string{
 // --taproot-assets. prefix is omitted because prefixArgs() adds it
 // automatically when building the integrated binary command line.
 var tapdArgsTemplateNoOracle = []string{
+	"--debuglevel=debug,UNIV=info,PROF=info",
 	"--allow-public-uni-proof-courier",
 	"--universe.public-access=rw",
 	"--universe.sync-all-assets",
