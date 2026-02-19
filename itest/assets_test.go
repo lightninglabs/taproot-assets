@@ -843,3 +843,189 @@ func testAssetBalances(t *harnessTest) {
 		}
 	}
 }
+
+// testListAssets tests the pagination support of the ListAssets RPC.
+func testListAssets(t *harnessTest) {
+	ctx := context.Background()
+
+	// Mint three separate batches with 2 assets each, giving us 6 total
+	// assets to paginate through. Multiple batches ensure the assets have
+	// distinct primary keys in the database.
+	const numBatches = 3
+	const assetsPerBatch = 2
+	const totalAssets = numBatches * assetsPerBatch
+
+	for i := range numBatches {
+		MintAssetsConfirmBatch(
+			t.t, t.lndHarness.Miner().Client, t.tapd,
+			[]*mintrpc.MintAssetRequest{
+				{
+					Asset: &mintrpc.MintAsset{
+						AssetType: taprpc.
+							AssetType_NORMAL,
+						Name: assetName(
+							"pagination",
+							i, 0,
+						),
+						AssetMeta: &taprpc.AssetMeta{
+							Data: []byte("m"),
+						},
+						Amount: 1000,
+					},
+				},
+				{
+					Asset: &mintrpc.MintAsset{
+						AssetType: taprpc.
+							AssetType_COLLECTIBLE,
+						Name: assetName(
+							"pagination",
+							i, 1,
+						),
+						AssetMeta: &taprpc.AssetMeta{
+							Data: []byte("m"),
+						},
+						Amount: 1,
+					},
+				},
+			},
+		)
+	}
+
+	// Verify we have all expected assets with no pagination (backward
+	// compat: limit=0 uses a default).
+	allResp, err := t.tapd.ListAssets(
+		ctx, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, allResp.Assets, totalAssets)
+
+	// Test limit: fetch only the first 3 assets.
+	resp, err := t.tapd.ListAssets(
+		ctx, &taprpc.ListAssetRequest{
+			Limit: 3,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Assets, 3)
+
+	// Test offset + limit: skip the first 2, fetch 3.
+	resp, err = t.tapd.ListAssets(
+		ctx, &taprpc.ListAssetRequest{
+			Offset: 2,
+			Limit:  3,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Assets, 3)
+
+	// Test ascending direction: asset IDs should be in ascending
+	// order of creation.
+	resp, err = t.tapd.ListAssets(
+		ctx, &taprpc.ListAssetRequest{
+			Limit: int32(totalAssets),
+			Direction: taprpc.
+				SortDirection_SORT_DIRECTION_ASC,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Assets, totalAssets)
+
+	ascAssets := resp.Assets
+
+	// Test descending direction.
+	resp, err = t.tapd.ListAssets(
+		ctx, &taprpc.ListAssetRequest{
+			Limit: int32(totalAssets),
+			Direction: taprpc.
+				SortDirection_SORT_DIRECTION_DESC,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Assets, totalAssets)
+
+	// Verify the descending results are the reverse of ascending.
+	for i := range totalAssets {
+		require.Equal(
+			t.t,
+			ascAssets[i].AssetGenesis.AssetId,
+			resp.Assets[totalAssets-1-i].
+				AssetGenesis.AssetId,
+		)
+	}
+
+	// Test offset beyond total: should return empty.
+	resp, err = t.tapd.ListAssets(
+		ctx, &taprpc.ListAssetRequest{
+			Offset: int32(totalAssets + 10),
+			Limit:  10,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Assets, 0)
+
+	// Test pagination through all results in pages of 2.
+	var allPaginated []*taprpc.Asset
+	offset := int32(0)
+	limit := int32(2)
+
+	for {
+		page, err := t.tapd.ListAssets(
+			ctx, &taprpc.ListAssetRequest{
+				Offset: offset,
+				Limit:  limit,
+				Direction: taprpc.
+					SortDirection_SORT_DIRECTION_ASC,
+			},
+		)
+		require.NoError(t.t, err)
+
+		if len(page.Assets) == 0 {
+			break
+		}
+
+		allPaginated = append(
+			allPaginated, page.Assets...,
+		)
+		offset += limit
+	}
+
+	// Should have collected all assets.
+	require.Len(t.t, allPaginated, totalAssets)
+
+	// Verify paginated results match the full ascending result
+	// set.
+	for i, a := range allPaginated {
+		require.Equal(
+			t.t,
+			ascAssets[i].AssetGenesis.AssetId,
+			a.AssetGenesis.AssetId,
+		)
+	}
+
+	// Test negative offset and limit errors.
+	_, err = t.tapd.ListAssets(
+		ctx, &taprpc.ListAssetRequest{
+			Offset: -5,
+		},
+	)
+	require.Error(t.t, err)
+	require.Contains(
+		t.t, err.Error(), "offset must be non-negative",
+	)
+
+	_, err = t.tapd.ListAssets(
+		ctx, &taprpc.ListAssetRequest{
+			Limit: -5,
+		},
+	)
+	require.Error(t.t, err)
+	require.Contains(
+		t.t, err.Error(), "limit must be non-negative",
+	)
+}
+
+// assetName returns a unique asset name for test minting.
+func assetName(prefix string, batch, idx int) string {
+	return prefix + "-" +
+		string(rune('a'+batch)) + string(rune('0'+idx))
+}

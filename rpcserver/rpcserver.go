@@ -1154,6 +1154,18 @@ func (r *RPCServer) ListAssets(ctx context.Context,
 			"and include_leased")
 	}
 
+	// Validate pagination parameters.
+	if req.Offset < 0 {
+		return nil, fmt.Errorf("offset must be non-negative")
+	}
+	if req.Limit < 0 {
+		return nil, fmt.Errorf("limit must be non-negative")
+	}
+	if req.Limit > tapdb.MaxAssetQueryLimit {
+		return nil, fmt.Errorf("limit must be less than %d",
+			tapdb.MaxAssetQueryLimit)
+	}
+
 	constraints := tapfreighter.CommitmentConstraints{
 		MinAmt: req.MinAmount,
 		MaxAmt: req.MaxAmount,
@@ -1171,8 +1183,25 @@ func (r *RPCServer) ListAssets(ctx context.Context,
 		)
 	}
 
+	limit := req.Limit
+	if limit == 0 {
+		limit = tapdb.DefaultAssetQueryLimit
+	}
+
 	filters := &tapdb.AssetQueryFilters{
 		CommitmentConstraints: constraints,
+		Offset:                req.Offset,
+		Limit:                 limit,
+	}
+
+	// Map the sort direction from the RPC enum to the database
+	// layer type.
+	switch req.GetDirection() {
+	case taprpc.SortDirection_SORT_DIRECTION_ASC:
+		filters.SortDirection = fn.Some(tapdb.SortAscending)
+
+	case taprpc.SortDirection_SORT_DIRECTION_DESC:
+		filters.SortDirection = fn.Some(tapdb.SortDescending)
 	}
 
 	if req.ScriptKey != nil {
@@ -1204,44 +1233,29 @@ func (r *RPCServer) ListAssets(ctx context.Context,
 	}
 	filters.ScriptKeyType = scriptKeyType
 
+	// Filter unconfirmed mints at the SQL level: when not including
+	// unconfirmed mints, require a minimum anchor height of 1 so that
+	// assets with block_height=0 are excluded from the query results.
+	if !req.IncludeUnconfirmedMints {
+		filters.MinAnchorHeight = 1
+	}
+
 	rpcAssets, err := r.fetchRpcAssets(
 		ctx, req.WithWitness, req.IncludeSpent || includeSpent,
 		req.IncludeLeased, filters,
 	)
-
 	if err != nil {
 		return nil, err
 	}
 
-	var (
-		filteredAssets   []*taprpc.Asset
-		unconfirmedMints uint64
+	// Count unconfirmed mints via a dedicated query so the count is
+	// accurate regardless of pagination parameters.
+	unconfirmedMints, err := r.cfg.AssetStore.CountUnconfirmedAssets(
+		ctx, req.IncludeSpent || includeSpent, scriptKeyType,
 	)
-
-	// We now count and filter the assets according to the
-	// IncludeUnconfirmedMints flag.
-	//
-	// TODO(guggero): Do this on the SQL level once we add pagination to the
-	// asset list query, as this will no longer work with pagination.
-	for idx := range rpcAssets {
-		switch {
-		// If the asset isn't confirmed yet, we count it but only
-		// include it in the output list if the client requested it.
-		case rpcAssets[idx].ChainAnchor.BlockHeight == 0:
-			unconfirmedMints++
-
-			if req.IncludeUnconfirmedMints {
-				filteredAssets = append(
-					filteredAssets, rpcAssets[idx],
-				)
-			}
-
-		// Don't filter out confirmed assets.
-		default:
-			filteredAssets = append(
-				filteredAssets, rpcAssets[idx],
-			)
-		}
+	if err != nil {
+		return nil, fmt.Errorf("unable to count unconfirmed "+
+			"assets: %w", err)
 	}
 
 	// We will also report the number of unconfirmed transfers. This is
@@ -1254,7 +1268,7 @@ func (r *RPCServer) ListAssets(ctx context.Context,
 	}
 
 	return &taprpc.ListAssetResponse{
-		Assets:               filteredAssets,
+		Assets:               rpcAssets,
 		UnconfirmedTransfers: uint64(len(outboundParcels)),
 		UnconfirmedMints:     unconfirmedMints,
 	}, nil

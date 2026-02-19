@@ -259,6 +259,17 @@ message ListAssetRequest {
     // will automatically be set to true, because assets of that type are always
     // marked as spent.
     ScriptKeyTypeQuery script_key_type = 10;
+
+    // The number of assets to skip (for pagination).
+    int32 offset = 11;
+
+    // The maximum number of assets to return (for pagination). If 0, a
+    // default of 512 is used. The maximum allowed value is 16384.
+    int32 limit = 12;
+
+    // The sort direction of the returned assets, sorted by asset primary key
+    // (creation order). Defaults to descending.
+    SortDirection direction = 13;
 }
 
 message AnchorInfo {

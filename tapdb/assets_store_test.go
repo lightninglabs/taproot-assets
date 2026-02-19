@@ -1031,6 +1031,165 @@ func TestFetchAllAssets(t *testing.T) {
 	}
 }
 
+// TestFetchAllAssetsPagination tests that pagination (offset, limit, sort
+// direction) works correctly when fetching assets.
+func TestFetchAllAssetsPagination(t *testing.T) {
+	t.Parallel()
+
+	const numAssetIDs = 6
+
+	ctx := context.Background()
+	assetGen := newAssetGenerator(t, numAssetIDs, 0)
+
+	// Create 6 simple unspent assets, each on its own anchor point.
+	descs := make([]assetDesc, numAssetIDs)
+	for i := 0; i < numAssetIDs; i++ {
+		descs[i] = assetDesc{
+			assetGen:    assetGen.assetGens[i],
+			anchorPoint: assetGen.anchorPoints[i],
+			amt:         uint64((i + 1) * 10),
+		}
+	}
+
+	_, assetsStore, _ := newAssetStore(t)
+	assetGen.genAssets(t, assetsStore, descs)
+
+	makeFilter := func(opts ...filterOpt) *AssetQueryFilters {
+		var filter AssetQueryFilters
+		for _, opt := range opts {
+			opt(&filter)
+		}
+		return &filter
+	}
+
+	filterLimit := func(l int32) filterOpt {
+		return func(f *AssetQueryFilters) {
+			f.Limit = l
+		}
+	}
+	filterOffset := func(o int32) filterOpt {
+		return func(f *AssetQueryFilters) {
+			f.Offset = o
+		}
+	}
+	filterDirection := func(d SortDirection) filterOpt {
+		return func(f *AssetQueryFilters) {
+			f.SortDirection = fn.Some(d)
+		}
+	}
+
+	// Fetch all assets with a high limit to determine the full set
+	// and the natural ascending order of primary keys.
+	allAssets, err := assetsStore.FetchAllAssets(
+		ctx, false, false, makeFilter(
+			filterLimit(int32(numAssetIDs*2)),
+		),
+	)
+	require.NoError(t, err)
+	require.Len(t, allAssets, numAssetIDs)
+
+	t.Run("limit", func(t *testing.T) {
+		assets, err := assetsStore.FetchAllAssets(
+			ctx, false, false, makeFilter(filterLimit(3)),
+		)
+		require.NoError(t, err)
+		require.Len(t, assets, 3)
+
+		// Should be the first 3 in ascending order.
+		for i := 0; i < 3; i++ {
+			require.Equal(
+				t, allAssets[i].ScriptKey,
+				assets[i].ScriptKey,
+			)
+		}
+	})
+
+	t.Run("offset and limit", func(t *testing.T) {
+		assets, err := assetsStore.FetchAllAssets(
+			ctx, false, false, makeFilter(
+				filterOffset(2), filterLimit(2),
+			),
+		)
+		require.NoError(t, err)
+		require.Len(t, assets, 2)
+
+		// Should match allAssets[2] and allAssets[3].
+		for i := 0; i < 2; i++ {
+			require.Equal(
+				t, allAssets[2+i].ScriptKey,
+				assets[i].ScriptKey,
+			)
+		}
+	})
+
+	t.Run("descending", func(t *testing.T) {
+		assets, err := assetsStore.FetchAllAssets(
+			ctx, false, false, makeFilter(
+				filterLimit(int32(numAssetIDs*2)),
+				filterDirection(SortDescending),
+			),
+		)
+		require.NoError(t, err)
+		require.Len(t, assets, numAssetIDs)
+
+		// Should be the reverse of allAssets.
+		for i := 0; i < numAssetIDs; i++ {
+			require.Equal(
+				t,
+				allAssets[numAssetIDs-1-i].ScriptKey,
+				assets[i].ScriptKey,
+			)
+		}
+	})
+
+	t.Run("paginate all in pages of 2", func(t *testing.T) {
+		var collected []*asset.ChainAsset
+		for offset := int32(0); ; offset += 2 {
+			page, err := assetsStore.FetchAllAssets(
+				ctx, false, false, makeFilter(
+					filterOffset(offset),
+					filterLimit(2),
+				),
+			)
+			require.NoError(t, err)
+
+			collected = append(collected, page...)
+			if len(page) < 2 {
+				break
+			}
+		}
+		require.Len(t, collected, numAssetIDs)
+
+		for i := 0; i < numAssetIDs; i++ {
+			require.Equal(
+				t, allAssets[i].ScriptKey,
+				collected[i].ScriptKey,
+			)
+		}
+	})
+
+	t.Run("offset beyond total", func(t *testing.T) {
+		assets, err := assetsStore.FetchAllAssets(
+			ctx, false, false, makeFilter(
+				filterOffset(100),
+				filterLimit(10),
+			),
+		)
+		require.NoError(t, err)
+		require.Len(t, assets, 0)
+	})
+
+	t.Run("default limit when zero", func(t *testing.T) {
+		// With limit=0 the store defaults to math.MaxInt32,
+		// so all assets should be returned.
+		assets, err := assetsStore.FetchAllAssets(
+			ctx, false, false, makeFilter(),
+		)
+		require.NoError(t, err)
+		require.Len(t, assets, numAssetIDs)
+	})
+}
+
 // TestFetchProof tests that proofs can be fetched for different assets.
 func TestFetchProof(t *testing.T) {
 	t.Parallel()

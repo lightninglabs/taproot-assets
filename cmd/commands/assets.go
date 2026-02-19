@@ -746,6 +746,20 @@ var listAssetsCommand = cli.Command{
 				"key type; cannot be used at the same time " +
 				"as --" + scriptKeyTypeName,
 		},
+		cli.Int64Flag{
+			Name:  limitName,
+			Usage: "the max number of assets returned",
+		},
+		cli.Int64Flag{
+			Name:  offsetName,
+			Usage: "the number of assets to skip",
+		},
+		cli.StringFlag{
+			Name: directionName,
+			Usage: "the sort direction for assets " +
+				"(asc or desc). Defaults to desc.",
+			Value: "desc",
+		},
 	},
 	Action: listAssets,
 }
@@ -762,12 +776,20 @@ func listAssets(ctx *cli.Context) error {
 		return fmt.Errorf("unable to parse script key type: %w", err)
 	}
 
+	direction := taprpc.SortDirection_SORT_DIRECTION_DESC
+	if ctx.String(directionName) == "asc" {
+		direction = taprpc.SortDirection_SORT_DIRECTION_ASC
+	}
+
 	resp, err := client.ListAssets(ctxc, &taprpc.ListAssetRequest{
 		WithWitness:             ctx.Bool(assetShowWitnessName),
 		IncludeSpent:            ctx.Bool(assetShowSpentName),
 		IncludeLeased:           ctx.Bool(assetShowLeasedName),
 		IncludeUnconfirmedMints: ctx.Bool(assetShowUnconfMintsName),
 		ScriptKeyType:           scriptKeyQuery,
+		Limit:                   int32(ctx.Int64(limitName)),
+		Offset:                  int32(ctx.Int64(offsetName)),
+		Direction:               direction,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to list assets: %w", err)

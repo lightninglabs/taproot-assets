@@ -76,6 +76,10 @@ type (
 	// or for things like coin selection.
 	QueryAssetFilters = sqlc.QueryAssetsParams
 
+	// CountUnconfirmedAssetsParams are the query parameters for counting
+	// unconfirmed assets.
+	CountUnconfirmedAssetsParams = sqlc.CountUnconfirmedAssetsParams
+
 	// QueryAssetBalancesByGroupFilters lets us query the asset balances for
 	// asset groups or alternatively for a selected one that matches the
 	// passed filter.
@@ -205,6 +209,11 @@ type ActiveAssetsStore interface {
 	// QueryAssets fetches the set of fully confirmed assets.
 	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset,
 		error)
+
+	// CountUnconfirmedAssets counts the number of unconfirmed assets
+	// (block_height = 0) matching the given filter criteria.
+	CountUnconfirmedAssets(context.Context,
+		CountUnconfirmedAssetsParams) (int64, error)
 
 	// QueryAssetBalancesByAsset queries the balances for assets or
 	// alternatively for a selected one that matches the passed asset ID
@@ -919,6 +928,23 @@ func (a *AssetStore) constraintsToDbFilter(
 		assetFilter.ScriptKeyType = scriptKeyTypesForQuery(
 			false, query.ScriptKeyType,
 		)
+
+		// Map pagination parameters to the SQL query filters.
+		assetFilter.NumOffset = query.Offset
+		assetFilter.NumLimit = query.Limit
+		query.SortDirection.WhenSome(func(dir SortDirection) {
+			assetFilter.SortDirection = sqlInt32(int32(dir))
+		})
+	} else {
+		// Even when query is nil, use all non-channel script key
+		// types.
+		assetFilter.ScriptKeyType = scriptKeyTypesForQuery(
+			false, fn.None[asset.ScriptKeyType](),
+		)
+
+		// Internal callers passing nil query expect all assets, so
+		// use the maximum possible limit.
+		assetFilter.NumLimit = math.MaxInt32
 	}
 
 	return assetFilter, nil
@@ -986,6 +1012,13 @@ func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
 		)
 	}
 
+	// Internal callers that don't set a limit expect all matching
+	// results. Since the SQL query uses LIMIT, we default to the
+	// maximum value here.
+	if assetFilter.NumLimit == 0 {
+		assetFilter.NumLimit = math.MaxInt32
+	}
+
 	// First, we'll fetch all the assets we know of on disk.
 	dbAssets, err := q.QueryAssets(ctx, assetFilter)
 	if err != nil {
@@ -1007,6 +1040,28 @@ func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
 	return dbAssets, assetWitnesses, nil
 }
 
+// SortDirection is an enum used to specify the order of returned assets.
+type SortDirection uint8
+
+const (
+	// SortAscending indicates that the sort should be in ascending order.
+	SortAscending SortDirection = iota
+
+	// SortDescending indicates that the sort should be in descending
+	// order.
+	SortDescending
+)
+
+const (
+	// DefaultAssetQueryLimit is the default number of assets returned
+	// when no limit is provided.
+	DefaultAssetQueryLimit = 512
+
+	// MaxAssetQueryLimit is the maximum number of assets that can be
+	// returned in a single query.
+	MaxAssetQueryLimit = 16384
+)
+
 // AssetQueryFilters is a wrapper struct over the CommitmentConstraints struct
 // which lets us filter the results of the set of assets returned.
 type AssetQueryFilters struct {
@@ -1022,6 +1077,18 @@ type AssetQueryFilters struct {
 	// AnchorPoint allows filtering by the outpoint the asset is anchored
 	// to.
 	AnchorPoint *wire.OutPoint
+
+	// Offset is the number of assets to skip in the query result
+	// (for pagination).
+	Offset int32
+
+	// Limit is the maximum number of assets to return (for pagination).
+	// A value of 0 means no limit (all matching assets are returned).
+	Limit int32
+
+	// SortDirection is the direction to sort the results. If not set,
+	// the results are sorted in ascending order by asset primary key.
+	SortDirection fn.Option[SortDirection]
 }
 
 // QueryBalancesByAsset queries the balances for assets or alternatively
@@ -1262,6 +1329,39 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context, includeSpent,
 	}
 
 	return dbAssetsToChainAssets(dbAssets, assetWitnesses, a.clock)
+}
+
+// CountUnconfirmedAssets counts the number of unconfirmed assets (i.e., assets
+// anchored in transactions with block_height = 0) matching the given filter
+// criteria (spent status, script key type).
+func (a *AssetStore) CountUnconfirmedAssets(ctx context.Context,
+	includeSpent bool,
+	scriptKeyType fn.Option[asset.ScriptKeyType]) (uint64, error) {
+
+	var count int64
+
+	params := CountUnconfirmedAssetsParams{
+		ScriptKeyType: scriptKeyTypesForQuery(
+			false, scriptKeyType,
+		),
+	}
+
+	// By default exclude spent assets from the count.
+	if !includeSpent {
+		params.Spent = sqlBool(false)
+	}
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		var err error
+		count, err = q.CountUnconfirmedAssets(ctx, params)
+		return err
+	})
+	if dbErr != nil {
+		return 0, dbErr
+	}
+
+	return uint64(count), nil
 }
 
 // FetchManagedUTXOs fetches all UTXOs we manage.

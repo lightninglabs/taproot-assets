@@ -180,7 +180,15 @@
   import result (with a timeout) before returning, surfacing mailbox courier
   import failures instead of racing and returning success early.
 
+- [PR#1995](https://github.com/lightninglabs/taproot-assets/pull/1995)
+  Add pagination support (offset, limit, direction) to the `ListAssets` RPC
+  endpoint.
+
 ## tapcli Updates
+
+- [PR#1995](https://github.com/lightninglabs/taproot-assets/pull/1995)
+  Add `--limit`, `--offset`, and `--direction` flags to `tapcli assets list`
+  for pagination support. The direction defaults to descending order.
 
 ## Config Changes
 
