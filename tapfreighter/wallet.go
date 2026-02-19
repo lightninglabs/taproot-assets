@@ -227,9 +227,9 @@ type WalletConfig struct {
 	// ChainParams is the chain params of the chain we operate on.
 	ChainParams *address.ChainParams
 
-	// SweepOrphanUtxos specifies whether orphaned UTXOs should be swept
-	// into send and burn anchor transactions.
-	SweepOrphanUtxos bool
+	// DisableSweepOrphanUtxos specifies whether sweeping of orphaned UTXOs
+	// into send and burn anchor transactions should be disabled.
+	DisableSweepOrphanUtxos bool
 }
 
 // AssetWallet is an implementation of the Wallet interface that can create
@@ -700,7 +700,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		}
 	}()
 
-	if f.cfg.SweepOrphanUtxos {
+	if !f.cfg.DisableSweepOrphanUtxos {
 		zeroValueInputs, err = f.cfg.CoinSelector.SelectOrphanCoins(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to select zero-value "+
@@ -777,7 +777,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		}
 	}()
 
-	if f.cfg.SweepOrphanUtxos {
+	if !f.cfg.DisableSweepOrphanUtxos {
 		zeroValueInputs, err = f.cfg.CoinSelector.SelectOrphanCoins(
 			ctx,
 		)

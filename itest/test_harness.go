@@ -373,8 +373,8 @@ type tapdHarnessParams struct {
 	// the local oracle to the counterparty when requesting a quote.
 	sendPriceHint bool
 
-	// sweepOrphanUtxos indicates whether orphaned UTXOs should be swept
-	// into anchor transactions.
+	// sweepOrphanUtxos indicates whether orphan UTXO sweeping should be
+	// enabled (overriding the test default of disabled).
 	sweepOrphanUtxos bool
 }
 
@@ -419,7 +419,8 @@ func WithSendPriceHint() Option {
 }
 
 // WithSweepOrphanUtxos enables sweeping zero-value anchor UTXOs for
-// the tapd harness created with this option.
+// the tapd harness created with this option. Tests disable sweeping by
+// default; this option re-enables it.
 func WithSweepOrphanUtxos() Option {
 	return func(th *tapdHarnessParams) {
 		th.sweepOrphanUtxos = true
@@ -461,7 +462,7 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.oracleServerAddress = params.oracleServerAddress
 		ho.portfolioPilotAddress = params.portfolioPilotAddress
 		ho.sendPriceHint = params.sendPriceHint
-		ho.sweepOrphanUtxos = params.sweepOrphanUtxos
+		ho.disableSweepOrphanUtxos = !params.sweepOrphanUtxos
 	}
 
 	tapdCfg := tapdConfig{

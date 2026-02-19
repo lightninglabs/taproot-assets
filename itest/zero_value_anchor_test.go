@@ -21,7 +21,7 @@ func testZeroValueAnchorSweep(t *harnessTest) {
 
 	// Restart Alice's node with sweeping enabled.
 	require.NoError(t.t, t.tapd.stop(false))
-	t.tapd.clientCfg.Wallet.SweepOrphanUtxos = true
+	t.tapd.clientCfg.Wallet.DisableSweepOrphanUtxos = false
 	require.NoError(t.t, t.tapd.start(false))
 
 	// First, mint some simple asset.
@@ -313,7 +313,7 @@ func testZeroValueAnchorAccumulation(t *harnessTest) {
 	require.NoError(t.t, t.tapd.stop(false))
 
 	// Enable sweeping in the config.
-	t.tapd.clientCfg.Wallet.SweepOrphanUtxos = true
+	t.tapd.clientCfg.Wallet.DisableSweepOrphanUtxos = false
 
 	// Restart with the modified config.
 	require.NoError(t.t, t.tapd.start(false))

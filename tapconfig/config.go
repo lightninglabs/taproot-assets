@@ -204,9 +204,9 @@ type Config struct {
 
 	ChainPorter tapfreighter.Porter
 
-	// SweepOrphanUtxos toggles sweeping orphaned UTXOs into anchor
-	// transactions for sends and burns.
-	SweepOrphanUtxos bool
+	// DisableSweepOrphanUtxos disables sweeping orphaned UTXOs into
+	// anchor transactions for sends and burns.
+	DisableSweepOrphanUtxos bool
 
 	// FsmDaemonAdapters is a set of adapters that allow a state machine to
 	// interact with external daemons.
