@@ -597,7 +597,7 @@ func deriveRandomKey(t *testing.T, ctxt context.Context,
 	keyRing *lndservices.LndRpcKeyRing) keychain.KeyDescriptor {
 
 	var (
-		randFam = test.RandInt31n(math.MaxInt32)
+		randFam = test.RandInt31n(math.MaxInt8)
 		randInd = test.RandInt31n(255)
 		desc    keychain.KeyDescriptor
 		err     error
@@ -605,7 +605,7 @@ func deriveRandomKey(t *testing.T, ctxt context.Context,
 
 	// Ensure that we use a different key family from tapd.
 	for randFam == asset.TaprootAssetsKeyFamily {
-		randFam = test.RandInt31n(math.MaxInt32)
+		randFam = test.RandInt31n(math.MaxInt8)
 	}
 
 	desc, err = keyRing.DeriveNextKey(

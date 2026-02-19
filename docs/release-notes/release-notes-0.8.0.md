@@ -206,6 +206,12 @@
   default. This automatically sweeps tombstone and burn outputs when executing
   on-chain transactions. Set to `false` to disable.
 
+- A [bug in `btcwallet` and `lnd` was fixed that prevented `tapd` from running
+  properly when connected to an `lnd` node that is running in remote-signing
+  mode](https://github.com/lightninglabs/taproot-assets/pull/1694). A new
+  integration test suite now asserts that `tapd` fully supports remote-signing
+  `lnd` backends.
+
 ## Breaking Changes
 
 - [PR#1935](https://github.com/lightninglabs/taproot-assets/pull/1935)
