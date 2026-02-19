@@ -539,11 +539,8 @@ func AssertAssetProofs(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 		t, tapClient, chainClient, a, exportResp.RawProofFile,
 	)
 
-	assetJSON, err := formatProtoJSON(a)
-	require.NoError(t, err)
-	t.Logf("Got proof file for asset %x that contains %d proof(s), full "+
-		"asset: %s", a.AssetGenesis.AssetId, file.NumProofs(),
-		assetJSON)
+	t.Logf("Got proof file for asset %x that contains %d proof(s)",
+		a.AssetGenesis.AssetId, file.NumProofs())
 
 	require.Equal(
 		t, CommitmentKey(t, a), snapshot.Asset.AssetCommitmentKey(),
@@ -796,9 +793,7 @@ func AssertAddrCreated(t *testing.T, client tapClient,
 	})
 	require.NoError(t, err)
 
-	decodedJSON, err := formatProtoJSON(decoded)
-	require.NoError(t, err)
-	t.Logf("Got address %s decoded as %v", actual.Encoded, decodedJSON)
+	t.Logf("Got address %s decoded successfully", actual.Encoded)
 
 	// Does the decoded address still show everything correctly?
 	AssertAddr(t, expected, decoded)
@@ -904,10 +899,6 @@ func AssertAddrEventCustomTimeout(t *testing.T,
 			return fmt.Errorf("got status %v, wanted %v",
 				resp.Events[0].Status, expectedStatus)
 		}
-
-		eventJSON, err := formatProtoJSON(resp.Events[0])
-		require.NoError(t, err)
-		t.Logf("Got address event %s", eventJSON)
 
 		return nil
 	}, timeout)
@@ -1264,9 +1255,8 @@ func AssertAssetOutboundTransferWithOutputs(t *testing.T,
 		scripts[string(o.ScriptKey)] = struct{}{}
 	}
 
-	sendRespJSON, err := formatProtoJSON(transfer)
-	require.NoError(t, err)
-	t.Logf("Got response from sending assets: %v", sendRespJSON)
+	t.Logf("Got send response with %d outputs",
+		len(transfer.Outputs))
 
 	// Mine a block to force the send event to complete (confirm on-chain).
 	var newBlock *wire.MsgBlock
@@ -1313,16 +1303,6 @@ func AssertAssetOutboundTransferWithOutputs(t *testing.T,
 				return slices.Contains(actualInputAssetIDs, id)
 			})
 	}, defaultTimeout, wait.PollInterval)
-	require.NoError(t, err)
-
-	transferResp, err := sender.ListTransfers(
-		ctxb, &taprpc.ListTransfersRequest{},
-	)
-	require.NoError(t, err)
-
-	transferRespJSON, err := formatProtoJSON(transferResp)
-	require.NoError(t, err)
-	t.Logf("Got response from list transfers: %v", transferRespJSON)
 
 	return newBlock
 }
