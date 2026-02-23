@@ -159,6 +159,13 @@
 
 ## RPC Updates
 
+- [PR#2005](https://github.com/lightninglabs/taproot-assets/pull/2005)
+  Add a `node_id` field to `QueryAssetRatesRequest` containing the local
+  node's 33-byte compressed public key. This allows the price oracle to
+  identify which tapd node is querying rates. The field is populated by
+  default and can be disabled via
+  `experimental.rfq.priceoracledisablenodeid`.
+
 - [PR#1766](https://github.com/lightninglabs/taproot-assets/pull/1766):
   Introduces structured price oracle errors that allow oracles to return
   specific error codes. Also, adds a new error code that oracles can use
