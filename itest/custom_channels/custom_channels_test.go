@@ -66,8 +66,22 @@ func TestCustomChannels(t *testing.T) {
 	net.Miner = m
 	defer net.TearDown()
 
-	// Step 4: Run test cases.
-	for _, tc := range customChannelTestCases {
+	// Step 4: Filter tests by tranche if running in parallel CI mode.
+	tests := customChannelTestCases
+	if *splitTranches > 1 {
+		tests = filterByTranche(
+			tests, *runTranche, *splitTranches,
+		)
+		t.Logf("Running tranche %d of %d (%d tests)",
+			*runTranche, *splitTranches, len(tests))
+	}
+
+	if len(tests) == 0 {
+		t.Skip("no tests in this tranche")
+	}
+
+	// Step 5: Run test cases.
+	for _, tc := range tests {
 		tc := tc
 		success := t.Run(tc.name, func(t1 *testing.T) {
 			ht := &ccHarnessTest{

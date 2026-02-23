@@ -11,6 +11,8 @@ COVER_HTML = go tool cover -html=coverage.txt -o coverage.html
 POSTGRES_START_DELAY = 5
 NUM_ITEST_TRANCHES = 8
 ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
+NUM_CC_ITEST_TRANCHES = 1
+CC_ITEST_PARALLELISM = $(NUM_CC_ITEST_TRANCHES)
 SHUFFLE_SEED = 0
 
 GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
@@ -25,6 +27,12 @@ endif
 ifneq ($(tranches),)
 NUM_ITEST_TRANCHES = $(tranches)
 ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
+endif
+
+# Scale the number of parallel running custom channel itest tranches.
+ifneq ($(cctranches),)
+NUM_CC_ITEST_TRANCHES = $(cctranches)
+CC_ITEST_PARALLELISM = $(NUM_CC_ITEST_TRANCHES)
 endif
 
 # Give the ability to run the same tranche multiple times at the same time.
