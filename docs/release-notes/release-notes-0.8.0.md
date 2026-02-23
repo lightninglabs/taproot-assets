@@ -124,8 +124,8 @@
 - [Garbage collection of orphaned UTXOs](https://github.com/lightninglabs/taproot-assets/pull/1832)
   by sweeping tombstones and burn outputs when executing onchain transactions.
   Garbage collection will be executed on every burn, transfer or call to
-  `AnchorVirtualPsbts`. A new configuration is available to control the sweeping
-  via the flag `wallet.sweep-orphan-utxos`.
+  `AnchorVirtualPsbts`. Sweeping is enabled by default and can be disabled via
+  the flag `wallet.disable-sweep-orphan-utxos`.
 - [PR](https://github.com/lightninglabs/taproot-assets/pull/1899) tapd now
   treats HTLC interceptor setup failures as fatal during RFQ subsystem startup.
   If the RFQ subsystem cannot install its interceptor, tapd shuts down instead
@@ -202,9 +202,9 @@
   human-readable values such as `64MB`.
 
 - [Enable orphan UTXO sweeping by default](https://github.com/lightninglabs/taproot-assets/pull/1905):
-  The `wallet.sweep-orphan-utxos` configuration option is now enabled by
-  default. This automatically sweeps tombstone and burn outputs when executing
-  on-chain transactions. Set to `false` to disable.
+  Orphan UTXO sweeping is now enabled by default. This automatically sweeps
+  tombstone and burn outputs when executing on-chain transactions. Set
+  `wallet.disable-sweep-orphan-utxos` to disable.
 
 ## Breaking Changes
 

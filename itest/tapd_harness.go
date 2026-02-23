@@ -149,15 +149,19 @@ type harnessOpts struct {
 	// not via on-chain spend detection.
 	disableSupplyVerifierChainWatch bool
 
-	// sweepOrphanUtxos indicates whether orphaned anchor UTXOs should be
-	// swept into anchor transactions.
-	sweepOrphanUtxos bool
+	// disableSweepOrphanUtxos indicates whether sweeping of orphaned anchor
+	// UTXOs into anchor transactions should be disabled.
+	disableSweepOrphanUtxos bool
 }
 
 type harnessOption func(*harnessOpts)
 
 func defaultHarnessOpts() *harnessOpts {
-	return &harnessOpts{}
+	return &harnessOpts{
+		// Disable orphan UTXO sweeping in tests by default to avoid
+		// interference with test assertions.
+		disableSweepOrphanUtxos: true,
+	}
 }
 
 // withOracleAddress is a functional option that sets the oracle address option
@@ -271,11 +275,11 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	// nolint: lll
 	tapCfg.Universe.DisableSupplyVerifierChainWatch = opts.disableSupplyVerifierChainWatch
 
-	// Pass through the sweep orphan UTXOs flag. If the option was not set,
-	// this will be false. Note: The production default is true, but we
-	// disable it by default in tests to avoid interference with test
-	// assertions unless explicitly enabled via WithSweepOrphanUtxos().
-	tapCfg.Wallet.SweepOrphanUtxos = opts.sweepOrphanUtxos
+	// Pass through the disable sweep orphan UTXOs flag. In tests, sweeping
+	// is disabled by default (defaultHarnessOpts sets
+	// disableSweepOrphanUtxos=true) to avoid interference with test
+	// assertions. Use WithSweepOrphanUtxos() to re-enable sweeping.
+	tapCfg.Wallet.DisableSweepOrphanUtxos = opts.disableSweepOrphanUtxos
 
 	if tapCfg.Experimental == nil {
 		tapCfg.Experimental = &tapcfg.ExperimentalConfig{}

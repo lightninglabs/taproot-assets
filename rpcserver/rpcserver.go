@@ -2801,7 +2801,7 @@ func (r *RPCServer) AnchorVirtualPsbts(ctx context.Context,
 		zeroValueInputs []*tapfreighter.ZeroValueInput
 		err             error
 	)
-	if r.cfg.SweepOrphanUtxos {
+	if !r.cfg.DisableSweepOrphanUtxos {
 		zeroValueInputs, err = r.cfg.AssetStore.FetchOrphanUTXOs(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch zero-value "+
