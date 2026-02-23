@@ -145,6 +145,7 @@ func runQuerySalePriceTest(t *testing.T, tc *testCaseQuerySalePrice) {
 	client, err := NewRpcPriceOracle(
 		serviceAddr, insecureTLS,
 		fn.None[grpc.DialOption](),
+		fn.None[route.Vertex](),
 	)
 	require.NoError(t, err)
 
@@ -266,6 +267,7 @@ func runQueryPurchasePriceTest(t *testing.T, tc *testCaseQueryPurchasePrice) {
 	client, err := NewRpcPriceOracle(
 		serviceAddr, insecureTLS(),
 		fn.None[grpc.DialOption](),
+		fn.None[route.Vertex](),
 	)
 	require.NoError(t, err)
 

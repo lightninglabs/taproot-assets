@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/healthcheck"
 	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -33,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/clock"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
 )
 
@@ -530,9 +532,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				"oracle macaroon: %w", err)
 		}
 
+		var nodeID fn.Option[route.Vertex]
+		if !rfqCfg.PriceOracleDisableNodeId {
+			nodeID = fn.Some(lndServices.NodePubkey)
+		}
+
 		priceOracle, err = rfq.NewRpcPriceOracle(
 			rfqCfg.PriceOracleAddress, tlsConfig,
-			macaroonOpt,
+			macaroonOpt, nodeID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create price "+
