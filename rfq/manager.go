@@ -834,12 +834,16 @@ func (m *Manager) LookUpScid(scid uint64) (route.Vertex, error) {
 	// 1. Check active in-memory peer buy quotes.
 	quote, ok := m.orderHandler.peerBuyQuotes.Load(serialised)
 	if ok {
+		log.Debugf("LookUpScid(%d): resolved from active map, "+
+			"peer=%x", scid, quote.Peer[:])
 		return quote.Peer, nil
 	}
 
 	// 2. Check the LRU cache.
 	cached, err := m.scidCache.Get(serialised)
 	if err == nil {
+		log.Debugf("LookUpScid(%d): resolved from LRU cache, "+
+			"peer=%x", scid, cached.peer[:])
 		return cached.peer, nil
 	}
 
@@ -849,12 +853,16 @@ func (m *Manager) LookUpScid(scid uint64) (route.Vertex, error) {
 
 	peer, err := m.cfg.PolicyStore.LookUpScid(ctx, scid)
 	if err != nil {
+		log.Debugf("LookUpScid(%d): not found in any tier", scid)
 		return route.Vertex{}, fmt.Errorf("no peer found for RFQ "+
 			"SCID %d: %w", scid, err)
 	}
 
 	// Cache the result for future lookups.
 	_, _ = m.scidCache.Put(serialised, &cachedPeer{peer: peer})
+
+	log.Debugf("LookUpScid(%d): resolved from DB (now cached), "+
+		"peer=%x", scid, peer[:])
 
 	return peer, nil
 }
