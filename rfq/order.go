@@ -1448,9 +1448,8 @@ func (h *OrderHandler) RegisterAssetPurchasePolicy(ctx context.Context,
 
 // restorePersistedPolicies restores persisted policies from the policy store.
 func (h *OrderHandler) restorePersistedPolicies(ctx context.Context) error {
-	buyAccepts, sellAccepts, err := h.cfg.PolicyStore.FetchAcceptedQuotes(
-		ctx,
-	)
+	buyAccepts, sellAccepts, peerBuyAccepts,
+		err := h.cfg.PolicyStore.FetchAcceptedQuotes(ctx)
 	if err != nil {
 		return fmt.Errorf("error fetching persisted policies: %w", err)
 	}
@@ -1473,6 +1472,10 @@ func (h *OrderHandler) restorePersistedPolicies(ctx context.Context) error {
 
 	for _, accept := range sellAccepts {
 		h.localSellQuotes.Store(accept.ShortChannelId(), accept)
+	}
+
+	for _, accept := range peerBuyAccepts {
+		h.peerBuyQuotes.Store(accept.ShortChannelId(), accept)
 	}
 
 	return nil
