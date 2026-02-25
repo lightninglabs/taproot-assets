@@ -350,7 +350,7 @@ func NewMockWalletAnchor() *MockWalletAnchor {
 
 // NewGenesisTx creates a funded genesis PSBT with the given fee rate.
 func NewGenesisTx(t testing.TB, feeRate chainfee.SatPerKWeight) psbt.Packet {
-	txTemplate := wire.NewMsgTx(2)
+	txTemplate := wire.NewMsgTx(3)
 	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
 	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
 	require.NoError(t, err)

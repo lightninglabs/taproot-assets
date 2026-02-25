@@ -47,7 +47,7 @@ func confirmTx(tx *lndclient.Transaction) {
 
 func randWalletTx() *lndclient.Transaction {
 	tx := &lndclient.Transaction{
-		Tx:          wire.NewMsgTx(2),
+		Tx:          wire.NewMsgTx(3),
 		Timestamp:   time.Now(),
 		BlockHeight: rand.Int31n(700_000),
 		BlockHash:   test.RandHash().String(),

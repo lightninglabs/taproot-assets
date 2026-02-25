@@ -163,7 +163,7 @@ func testRoundTripSend(t *harnessTest) {
 	estimatedWeight := estimator.Weight()
 	requiredFee := feeRate.FeeForWeight(estimatedWeight)
 
-	tx := wire.NewMsgTx(2)
+	tx := wire.NewMsgTx(3)
 	tx.TxIn = []*wire.TxIn{{
 		PreviousOutPoint: *outpoint,
 	}}

@@ -375,7 +375,7 @@ func TestImportAssetProof(t *testing.T) {
 	// We now add a second proof for the same script key but a different
 	// outpoint and expect that to be stored and retrieved correctly.
 	oldOutpoint := testProof.AssetSnapshot.OutPoint
-	newChainTx := wire.NewMsgTx(2)
+	newChainTx := wire.NewMsgTx(3)
 	newChainTx.TxIn = []*wire.TxIn{{
 		PreviousOutPoint: test.RandOp(t),
 	}}
@@ -1736,7 +1736,7 @@ func TestAssetExportLog(t *testing.T) {
 	require.Len(t, utxos, 1)
 	require.Equal(t, assetGen.anchorPoints[0], utxos[0].OutPoint)
 
-	newAnchorTx := wire.NewMsgTx(2)
+	newAnchorTx := wire.NewMsgTx(3)
 	newAnchorTx.AddTxIn(&wire.TxIn{})
 	newAnchorTx.TxIn[0].SignatureScript = []byte{}
 	newAnchorTx.AddTxOut(&wire.TxOut{
@@ -2536,7 +2536,7 @@ func TestTransferOutputProofDeliveryStatus(t *testing.T) {
 	// of the first transfer output.
 	//
 	// First, we'll generate a new anchor transaction for use in the parcel.
-	newAnchorTx := wire.NewMsgTx(2)
+	newAnchorTx := wire.NewMsgTx(3)
 	newAnchorTx.AddTxIn(&wire.TxIn{})
 	newAnchorTx.TxIn[0].SignatureScript = []byte{}
 	newAnchorTx.AddTxOut(&wire.TxOut{
@@ -2829,7 +2829,7 @@ func TestQueryAssetBurns(t *testing.T) {
 	// of the first transfer output.
 	//
 	// First, we'll generate a new anchor transaction for use in the parcel.
-	newAnchorTx := wire.NewMsgTx(2)
+	newAnchorTx := wire.NewMsgTx(3)
 	newAnchorTx.AddTxIn(&wire.TxIn{})
 	newAnchorTx.TxIn[0].SignatureScript = []byte{}
 	newAnchorTx.AddTxOut(&wire.TxOut{
@@ -3416,7 +3416,7 @@ func createTestProofWithAnchor(t *testing.T, testAsset *asset.Asset,
 	_, err := rand.Read(blockHash[:])
 	require.NoError(t, err)
 
-	anchorTx := wire.NewMsgTx(2)
+	anchorTx := wire.NewMsgTx(3)
 	anchorTx.AddTxIn(&wire.TxIn{})
 
 	// Add enough outputs to cover the requested index

@@ -48,7 +48,7 @@ type encoderMapping struct {
 // error if the encoding fails.
 func (p *VPacket) EncodeAsPsbt() (*psbt.Packet, error) {
 	unsignedTx := &wire.MsgTx{
-		Version: 2,
+		Version: 3,
 		TxIn:    make([]*wire.TxIn, len(p.Inputs)),
 		TxOut:   make([]*wire.TxOut, len(p.Outputs)),
 	}

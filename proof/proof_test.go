@@ -213,7 +213,7 @@ func TestProofTaprootOutputScript(t *testing.T) {
 
 	// Build a minimal block with a single transaction so RandProof can
 	// anchor the proof.
-	tx := wire.NewMsgTx(2)
+	tx := wire.NewMsgTx(3)
 	tx.AddTxOut(&wire.TxOut{Value: 1})
 	block := wire.MsgBlock{
 		Transactions: []*wire.MsgTx{tx},
