@@ -756,7 +756,7 @@ func (s *Server) Stop() error {
 		return err
 	}
 
-	if err := s.cfg.UniverseFederation.Start(); err != nil {
+	if err := s.cfg.UniverseFederation.Stop(); err != nil {
 		return err
 	}
 
