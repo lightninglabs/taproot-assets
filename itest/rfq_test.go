@@ -54,7 +54,7 @@ var (
 // the tap asset to Carol's node.
 func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	// For this test we'll use an actual oracle RPC server harness.
-	oracleAddr := fmt.Sprintf("localhost:%d", port.NextAvailablePort())
+	oracleAddr := fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort())
 	oracle := newOracleHarness(oracleAddr)
 	oracle.start(t.t)
 	t.t.Cleanup(oracle.stop)
@@ -336,7 +336,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 // sell request.
 func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	// For this test we'll use an actual oracle RPC server harness.
-	oracleAddr := fmt.Sprintf("localhost:%d", port.NextAvailablePort())
+	oracleAddr := fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort())
 	oracle := newOracleHarness(oracleAddr)
 	oracle.start(t.t)
 	t.t.Cleanup(oracle.stop)
@@ -612,7 +612,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 // quotes based on a specifier that only uses a group key.
 func testRfqNegotiationGroupKey(t *harnessTest) {
 	// For this test we'll use an actual oracle RPC server harness.
-	oracleAddr := fmt.Sprintf("localhost:%d", port.NextAvailablePort())
+	oracleAddr := fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort())
 	oracle := newOracleHarness(oracleAddr)
 	oracle.start(t.t)
 	t.t.Cleanup(oracle.stop)
@@ -747,13 +747,13 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 // server.
 func testRfqPortfolioPilotRpc(t *harnessTest) {
 	// Start a mock price oracle RPC server.
-	oracleAddr := fmt.Sprintf("localhost:%d", port.NextAvailablePort())
+	oracleAddr := fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort())
 	oracle := newOracleHarness(oracleAddr)
 	oracle.start(t.t)
 	t.t.Cleanup(oracle.stop)
 
 	// Start a portfolio pilot RPC server.
-	pilotAddr := fmt.Sprintf("localhost:%d", port.NextAvailablePort())
+	pilotAddr := fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort())
 	pilot := newPortfolioPilotHarness(pilotAddr)
 	pilot.start(t.t)
 	t.t.Cleanup(pilot.stop)
