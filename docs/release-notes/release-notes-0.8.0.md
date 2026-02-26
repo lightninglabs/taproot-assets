@@ -65,6 +65,14 @@
   their expiration extended beyond that of the accepted edge node
   quote (or quotes).
 
+* [PR#2009](https://github.com/lightninglabs/taproot-assets/pull/2009)
+  fixes SCID resolution for asset invoices when the peer-accepted buy
+  quote has expired from memory or the node has restarted. Peer-accepted
+  buy quotes are now persisted to the database and resolved via a 3-tier
+  lookup (active map, LRU cache, DB fallback). On startup, persisted
+  quotes are restored into the active map so payment flows survive
+  restarts.
+
 # New Features
 
 ## Functional Enhancements
