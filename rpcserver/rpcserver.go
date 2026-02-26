@@ -9559,9 +9559,13 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 	if expirySeconds == 0 {
 		expirySeconds = int64(rfq.DefaultInvoiceExpiry.Seconds())
 	}
+	// Truncate to second precision since RFQ quote expiry timestamps
+	// are expressed as Unix seconds. Without truncation, the sub-second
+	// component of the invoice expiry would cause valid quotes (whose
+	// expiry lands on the same second) to be rejected.
 	expiryTimestamp := time.Now().Add(
 		time.Duration(expirySeconds) * time.Second,
-	)
+	).Truncate(time.Second)
 
 	var peerID fn.Option[route.Vertex]
 	if r.cfg.PriceOracleSendPeerID {
