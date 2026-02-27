@@ -37,6 +37,12 @@ type IntegratedNetworkHarness struct {
 	// Miner is the btcd miner used for block generation and funding.
 	Miner *miner.HarnessMiner
 
+	// FeeServiceURL is the URL of an external fee estimation service.
+	// When set, --fee.url=<url> is passed to each new node's lnd args so
+	// the sweeper can obtain fee estimates for high conf targets that
+	// btcd's built-in estimator cannot handle in regtest.
+	FeeServiceURL string
+
 	// activeNodes tracks all nodes managed by this harness, keyed by
 	// node name.
 	activeNodes map[string]*IntegratedNode
@@ -71,6 +77,12 @@ func (h *IntegratedNetworkHarness) NewNode(name string,
 	// --btcd.rpchost=...) and merge with caller's extra args.
 	chainArgs := h.chainBackend.GenArgs()
 	lndArgs := append(chainArgs, extraLndArgs...)
+
+	// If a fee service URL is configured, pass it to lnd so the web-based
+	// fee estimator is used instead of btcd's limited built-in one.
+	if h.FeeServiceURL != "" {
+		lndArgs = append(lndArgs, "--fee.url="+h.FeeServiceURL)
+	}
 
 	n := NewIntegratedNode(
 		h.t, name, h.binary, h.netParams, lndArgs, extraTapdArgs,
@@ -141,18 +153,14 @@ func (h *IntegratedNetworkHarness) ConnectNodes(t *testing.T,
 }
 
 // EnsureConnected ensures that nodes a and b are connected, tolerating the
-// "already connected" error if they already have a connection.
+// "already connected" error if they already have a connection and retrying
+// if the server is still starting up.
 func (h *IntegratedNetworkHarness) EnsureConnected(t *testing.T,
 	a, b *IntegratedNode) {
 
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(
-		context.Background(), wait.DefaultTimeout,
-	)
-	defer cancel()
-
-	// Try connecting a -> b, ignoring "already connected".
+	// Try connecting a -> b with retries for transient startup errors.
 	req := &lnrpc.ConnectPeerRequest{
 		Addr: &lnrpc.LightningAddress{
 			Pubkey: b.PubKeyStr,
@@ -160,17 +168,47 @@ func (h *IntegratedNetworkHarness) EnsureConnected(t *testing.T,
 		},
 	}
 
-	_, err := a.ConnectPeer(ctx, req)
-	if err != nil && !strings.Contains(
-		err.Error(), "already connected to peer",
-	) {
+	err := wait.NoError(func() error {
+		ctx, cancel := context.WithTimeout(
+			context.Background(), 5*time.Second,
+		)
+		defer cancel()
 
-		require.NoError(t, err, "unable to connect %s to %s",
-			a.Cfg.Name, b.Cfg.Name)
-	}
+		_, err := a.ConnectPeer(ctx, req)
+		if err == nil {
+			return nil
+		}
+
+		errStr := err.Error()
+
+		// Already connected is fine.
+		if strings.Contains(errStr, "already connected to peer") {
+			return nil
+		}
+
+		// Server still starting up, retry.
+		// nolint:lll
+		if strings.Contains(errStr, "still in the process of starting") ||
+			strings.Contains(errStr, "the RPC server is in the process of starting up") {
+
+			return err
+		}
+
+		// Any other error is unexpected.
+		return fmt.Errorf("unable to connect %s to %s: %w",
+			a.Cfg.Name, b.Cfg.Name, err)
+	}, wait.DefaultTimeout)
+
+	require.NoError(t, err, "unable to connect %s to %s",
+		a.Cfg.Name, b.Cfg.Name)
 
 	// Wait until peers appear in each other's lists.
 	findPeer := func(src, target *IntegratedNode) bool {
+		ctx, cancel := context.WithTimeout(
+			context.Background(), 5*time.Second,
+		)
+		defer cancel()
+
 		resp, err := src.ListPeers(
 			ctx, &lnrpc.ListPeersRequest{},
 		)

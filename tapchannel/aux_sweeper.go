@@ -2572,11 +2572,25 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	log.Infof("Proofs generated for sweep_tx=%v",
 		limitSpewer.Sdump(sweepTx))
 
+	// Add a best-effort height hint for sweep transactions. If the sweep is
+	// mined quickly, this helps the confirmation registration catch up
+	// deterministically when we hand the parcel to the porter.
+	heightHint := fn.None[uint32]()
+	currentHeight, err := a.cfg.ChainBridge.CurrentHeight(
+		context.Background(),
+	)
+	if err != nil {
+		log.Warnf("Unable to fetch current height for sweep tx %v "+
+			"height hint: %v", sweepTx.TxHash(), err)
+	} else {
+		heightHint = fn.Some(currentHeight)
+	}
+
 	// With the output commitments re-created, we have all we need to log
 	// and ship the transaction.
 	return shipChannelTxn(
 		a.cfg.TxSender, sweepTx, outCommitments, allVpkts, int64(fee),
-		fn.None[uint32](),
+		heightHint,
 	)
 }
 
