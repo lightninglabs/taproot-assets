@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
@@ -30,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/clock"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
 )
 
@@ -466,8 +468,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		// skip setting suggested prices for outgoing quote requests.
 
 	default:
+		var nodeID fn.Option[route.Vertex]
+		if !rfqCfg.PriceOracleDisableNodeId {
+			nodeID = fn.Some(lndServices.NodePubkey)
+		}
+
 		priceOracle, err = rfq.NewRpcPriceOracle(
-			rfqCfg.PriceOracleAddress, false,
+			rfqCfg.PriceOracleAddress, false, nodeID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create price "+

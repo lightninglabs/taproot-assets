@@ -192,6 +192,14 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "node_id",
+            "description": "node_id is the 33-byte public key of the local node making the\nrequest to the price oracle. This identifies the tapd node that is\nquerying rates, as opposed to the counterparty_id field which\nidentifies the peer on the other side of the transaction. This field\nis set by default and can be disabled via the\n--experimental.rfq.priceoracledisablenodeid configuration option.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
           }
         ],
         "tags": [
