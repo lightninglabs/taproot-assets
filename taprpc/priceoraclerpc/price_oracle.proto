@@ -224,6 +224,14 @@ message QueryAssetRatesRequest {
     // is available. The maximum length of this field is 32'768 bytes. This
     // field will only be set by tapd v0.7.0 and later.
     string metadata = 9;
+
+    // node_id is the 33-byte public key of the local node making the
+    // request to the price oracle. This identifies the tapd node that is
+    // querying rates, as opposed to the counterparty_id field which
+    // identifies the peer on the other side of the transaction. This field
+    // is set by default and can be disabled via the
+    // --experimental.rfq.priceoracledisablenodeid configuration option.
+    bytes node_id = 10;
 }
 
 // QueryAssetRatesOkResponse is the successful response to a

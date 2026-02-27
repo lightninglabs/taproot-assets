@@ -153,32 +153,37 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	}
 
 	// The first call is expected to be the rate hint call for the local
-	// oracle, using the hint intent.
+	// oracle, using the hint intent. Carol initiates the buy order, so
+	// Carol's pubkey should appear as node_id.
+	carolPubkey := ts.CarolLnd.PubKey[:]
+	bobPubkey := ts.BobLnd.PubKey[:]
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_PURCHASE,
 		buySpecifier, purchaseAssetAmt, btcSpecifier,
 		mock.Anything, mock.Anything,
 		oraclerpc.Intent_INTENT_RECV_PAYMENT_HINT,
-		mock.Anything, "buy-order-1",
+		mock.Anything, "buy-order-1", carolPubkey,
 	).Return(mockResult, nil).Once()
 
 	// Then the counterparty will do a sale call with the intent to receive
-	// a payment.
+	// a payment. Bob handles this, so Bob's pubkey should appear as
+	// node_id.
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_SALE,
 		buySpecifier, purchaseAssetAmt, btcSpecifier,
 		mock.Anything, mock.Anything,
 		oraclerpc.Intent_INTENT_RECV_PAYMENT,
-		mock.Anything, "buy-order-1",
+		mock.Anything, "buy-order-1", bobPubkey,
 	).Return(mockResult, nil).Once()
 
 	// And finally, we'll qualify (validate) the price again on our end.
+	// Carol's pubkey should appear as node_id.
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_PURCHASE,
 		buySpecifier, purchaseAssetAmt, btcSpecifier,
 		mock.Anything, mock.Anything,
 		oraclerpc.Intent_INTENT_RECV_PAYMENT_QUALIFY,
-		mock.Anything, "buy-order-1",
+		mock.Anything, "buy-order-1", carolPubkey,
 	).Return(mockResult, nil).Once()
 
 	// At the end of the test, we also want to make sure each call came in
@@ -437,32 +442,37 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	}
 
 	// The first call is expected to be the rate hint call for the local
-	// oracle, using the hint intent.
+	// oracle, using the hint intent. Alice initiates the sell order, so
+	// Alice's pubkey should appear as node_id.
+	alicePubkey := ts.AliceLnd.PubKey[:]
+	bobPubkey := ts.BobLnd.PubKey[:]
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_SALE,
 		buySpecifier, mock.Anything, btcSpecifier,
 		askAmt, mock.Anything,
 		oraclerpc.Intent_INTENT_PAY_INVOICE_HINT,
-		mock.Anything, "sell-order-1",
+		mock.Anything, "sell-order-1", alicePubkey,
 	).Return(mockResult, nil).Once()
 
-	// Then the counterparty will do a sale call with the intent to receive
-	// a payment.
+	// Then the counterparty will do a purchase call with the intent to pay
+	// an invoice. Bob handles this, so Bob's pubkey should appear as
+	// node_id.
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_PURCHASE,
 		buySpecifier, mock.Anything, btcSpecifier,
 		askAmt, mock.Anything,
 		oraclerpc.Intent_INTENT_PAY_INVOICE,
-		mock.Anything, "sell-order-1",
+		mock.Anything, "sell-order-1", bobPubkey,
 	).Return(mockResult, nil).Once()
 
 	// And finally, we'll qualify (validate) the price again on our end.
+	// Alice's pubkey should appear as node_id.
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_SALE,
 		buySpecifier, mock.Anything, btcSpecifier,
 		askAmt, mock.Anything,
 		oraclerpc.Intent_INTENT_PAY_INVOICE_QUALIFY,
-		mock.Anything, "sell-order-1",
+		mock.Anything, "sell-order-1", alicePubkey,
 	).Return(mockResult, nil).Once()
 
 	// At the end of the test, we also want to make sure each call came in

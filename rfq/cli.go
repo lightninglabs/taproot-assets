@@ -39,6 +39,8 @@ type CliConfig struct {
 
 	PriceOracleSendPeerId bool `long:"priceoraclesendpeerid" description:"Send the peer ID (public key of the peer) to the price oracle when requesting a price rate. For privacy reasons, this should only be turned on for self-hosted or trusted price oracles."`
 
+	PriceOracleDisableNodeId bool `long:"priceoracledisablenodeid" description:"Disable sending the local node's public key to the price oracle when requesting a price rate. By default, the node's identity is sent to allow the oracle to provide more accurate quotes."`
+
 	AcceptPriceDeviationPpm uint64 `long:"acceptpricedeviationppm" description:"The default price deviation in parts per million that is accepted by the RFQ negotiator"`
 
 	SkipQuoteAcceptVerify bool `long:"skipquoteacceptverify" description:"Skip verification of quote accept messages returned by RFQ peer"`

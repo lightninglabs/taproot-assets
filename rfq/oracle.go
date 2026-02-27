@@ -196,14 +196,19 @@ type RpcPriceOracle struct {
 
 	// rawConn is the raw connection to the remote gRPC service.
 	rawConn *grpc.ClientConn
+
+	// nodeID is the optional 33-byte compressed public key of the local
+	// node. When set, it will be included in price oracle requests so the
+	// oracle can identify which node is querying rates.
+	nodeID fn.Option[route.Vertex]
 }
 
 // NewRpcPriceOracle creates a new RPC price oracle handle given the address
 // of the price oracle RPC server. An optional macaroon dial option can be
 // provided for authentication with the oracle server.
 func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig,
-	macaroonOpt fn.Option[grpc.DialOption]) (*RpcPriceOracle,
-	error) {
+	macaroonOpt fn.Option[grpc.DialOption],
+	nodeID fn.Option[route.Vertex]) (*RpcPriceOracle, error) {
 
 	addr, err := ParsePriceOracleAddress(addrStr)
 	if err != nil {
@@ -259,6 +264,7 @@ func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig,
 	return &RpcPriceOracle{
 		client:  client,
 		rawConn: conn,
+		nodeID:  nodeID,
 	}, nil
 }
 
@@ -305,6 +311,11 @@ func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
 		counterpartyBytes = c[:]
 	})
 
+	var nodeIdBytes []byte
+	r.nodeID.WhenSome(func(n route.Vertex) {
+		nodeIdBytes = n[:]
+	})
+
 	req := &oraclerpc.QueryAssetRatesRequest{
 		TransactionType:       oraclerpc.TransactionType_SALE,
 		SubjectAsset:          rpcMarshalAssetSpecifier(assetSpecifier),
@@ -319,6 +330,7 @@ func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
 		Intent:                rpcIntent,
 		CounterpartyId:        counterpartyBytes,
 		Metadata:              metadata,
+		NodeId:                nodeIdBytes,
 	}
 
 	log.Debugf("Querying price oracle for sell price (asset_specifier=%s, "+
@@ -440,6 +452,11 @@ func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context,
 		counterpartyBytes = c[:]
 	})
 
+	var nodeIdBytes []byte
+	r.nodeID.WhenSome(func(n route.Vertex) {
+		nodeIdBytes = n[:]
+	})
+
 	req := &oraclerpc.QueryAssetRatesRequest{
 		TransactionType:       oraclerpc.TransactionType_PURCHASE,
 		SubjectAsset:          rpcMarshalAssetSpecifier(assetSpecifier),
@@ -454,6 +471,7 @@ func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context,
 		Intent:                rpcIntent,
 		CounterpartyId:        counterpartyBytes,
 		Metadata:              metadata,
+		NodeId:                nodeIdBytes,
 	}
 
 	log.Debugf("Querying price oracle for buy price (asset_specifier=%s, "+

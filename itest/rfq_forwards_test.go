@@ -118,12 +118,17 @@ func testForwardingEventHistory(t *harnessTest) {
 		},
 	}
 
+	// Alice initiates the sell order, so Alice's pubkey should appear as
+	// node_id for hint/qualify calls. Bob handles the counterparty call.
+	alicePubkey := ts.AliceLnd.PubKey[:]
+	bobPubkey := ts.BobLnd.PubKey[:]
+
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_SALE,
 		buySpecifier, mock.Anything, btcSpecifier,
 		askAmt, mock.Anything,
 		oraclerpc.Intent_INTENT_PAY_INVOICE_HINT,
-		mock.Anything, "forward-history-test",
+		mock.Anything, "forward-history-test", alicePubkey,
 	).Return(mockResult, nil).Once()
 
 	oracle.On(
@@ -131,7 +136,7 @@ func testForwardingEventHistory(t *harnessTest) {
 		buySpecifier, mock.Anything, btcSpecifier,
 		askAmt, mock.Anything,
 		oraclerpc.Intent_INTENT_PAY_INVOICE,
-		mock.Anything, "forward-history-test",
+		mock.Anything, "forward-history-test", bobPubkey,
 	).Return(mockResult, nil).Once()
 
 	oracle.On(
@@ -139,7 +144,7 @@ func testForwardingEventHistory(t *harnessTest) {
 		buySpecifier, mock.Anything, btcSpecifier,
 		askAmt, mock.Anything,
 		oraclerpc.Intent_INTENT_PAY_INVOICE_QUALIFY,
-		mock.Anything, "forward-history-test",
+		mock.Anything, "forward-history-test", alicePubkey,
 	).Return(mockResult, nil).Once()
 
 	defer oracle.AssertExpectations(t.t)
