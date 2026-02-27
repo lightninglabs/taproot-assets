@@ -77,6 +77,10 @@ type RfqPolicyStore interface {
 	// FetchActiveRfqPolicies retrieves all active RFQ policies from the
 	// database.
 	FetchActiveRfqPolicies(context.Context, int64) ([]sqlc.RfqPolicy, error)
+
+	// FetchPeerAcceptedBuyPeerByScid retrieves the peer associated with
+	// a given SCID from peer-accepted buy quote policies.
+	FetchPeerAcceptedBuyPeerByScid(context.Context, int64) ([]byte, error)
 }
 
 // BatchedRfqPolicyStore supports batched database operations.
@@ -168,15 +172,17 @@ func (s *PersistedPolicyStore) storePolicy(ctx context.Context,
 	})
 }
 
-// FetchAcceptedQuotes retrieves all non-expired policies from the database and
-// returns them as buy and sell accepts.
+// FetchAcceptedQuotes retrieves all non-expired policies from the database.
+// Sale policies are returned as buy accepts, purchase policies as sell accepts,
+// and peer-accepted buy quotes are returned separately.
 func (s *PersistedPolicyStore) FetchAcceptedQuotes(ctx context.Context) (
-	[]rfqmsg.BuyAccept, []rfqmsg.SellAccept, error) {
+	[]rfqmsg.BuyAccept, []rfqmsg.SellAccept, []rfqmsg.BuyAccept, error) {
 
 	readOpts := ReadTxOption()
 	var (
-		buyAccepts  []rfqmsg.BuyAccept
-		sellAccepts []rfqmsg.SellAccept
+		buyAccepts     []rfqmsg.BuyAccept
+		sellAccepts    []rfqmsg.SellAccept
+		peerBuyAccepts []rfqmsg.BuyAccept
 	)
 	now := time.Now().UTC()
 
@@ -206,6 +212,16 @@ func (s *PersistedPolicyStore) FetchAcceptedQuotes(ctx context.Context) (
 				}
 				sellAccepts = append(sellAccepts, accept)
 
+			case rfq.RfqPolicyTypeAssetPeerAcceptedBuy:
+				accept, err := buyAcceptFromStored(policy)
+				if err != nil {
+					return fmt.Errorf("error restoring "+
+						"peer buy quote: %w", err)
+				}
+				peerBuyAccepts = append(
+					peerBuyAccepts, accept,
+				)
+
 			default:
 				// This should never happen by assertion.
 				return fmt.Errorf("unknown policy type: %s",
@@ -216,10 +232,71 @@ func (s *PersistedPolicyStore) FetchAcceptedQuotes(ctx context.Context) (
 		return nil
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	return buyAccepts, sellAccepts, nil
+	return buyAccepts, sellAccepts, peerBuyAccepts, nil
+}
+
+// StorePeerAcceptedBuyQuote persists a peer-accepted buy quote for historical
+// SCID-to-peer lookup.
+func (s *PersistedPolicyStore) StorePeerAcceptedBuyQuote(ctx context.Context,
+	acpt rfqmsg.BuyAccept) error {
+
+	assetID, groupKey := specifierPointers(acpt.Request.AssetSpecifier)
+	rateBytes := coefficientBytes(acpt.AssetRate.Rate)
+	expiry := acpt.AssetRate.Expiry.UTC()
+
+	record := rfqPolicy{
+		PolicyType:          rfq.RfqPolicyTypeAssetPeerAcceptedBuy,
+		Scid:                uint64(acpt.ShortChannelId()),
+		RfqID:               rfqIDArray(acpt.ID),
+		Peer:                serializePeer(acpt.Peer),
+		AssetID:             assetID,
+		AssetGroupKey:       groupKey,
+		RateCoefficient:     rateBytes,
+		RateScale:           acpt.AssetRate.Rate.Scale,
+		ExpiryUnix:          uint64(expiry.Unix()),
+		MaxOutAssetAmt:      fn.Ptr(acpt.Request.AssetMaxAmt),
+		RequestAssetMaxAmt:  fn.Ptr(acpt.Request.AssetMaxAmt),
+		PriceOracleMetadata: acpt.Request.PriceOracleMetadata,
+		RequestVersion:      fn.Ptr(uint32(acpt.Request.Version)),
+		AgreedAt:            acpt.AgreedAt.UTC(),
+	}
+
+	return s.storePolicy(ctx, record)
+}
+
+// LookUpScid looks up the peer associated with the given SCID by querying
+// persisted peer-accepted buy quote policies.
+func (s *PersistedPolicyStore) LookUpScid(ctx context.Context,
+	scid uint64) (route.Vertex, error) {
+
+	var peer route.Vertex
+
+	readOpts := ReadTxOption()
+	err := s.db.ExecTx(ctx, readOpts, func(q RfqPolicyStore) error {
+		peerBytes, err := q.FetchPeerAcceptedBuyPeerByScid(
+			ctx, int64(scid),
+		)
+		if err != nil {
+			return fmt.Errorf("error fetching policy by SCID "+
+				"%d: %w", scid, err)
+		}
+
+		if len(peerBytes) != 33 {
+			return fmt.Errorf("invalid peer bytes length %d "+
+				"for SCID %d", len(peerBytes), scid)
+		}
+
+		copy(peer[:], peerBytes)
+		return nil
+	})
+	if err != nil {
+		return route.Vertex{}, err
+	}
+
+	return peer, nil
 }
 
 // newInsertParams creates the parameters for inserting an RFQ policy into the

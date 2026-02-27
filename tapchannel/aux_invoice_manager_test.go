@@ -129,6 +129,18 @@ func (m *mockRfqManager) AssetMatchesSpecifier(ctx context.Context,
 	return false, nil
 }
 
+// LookUpScid resolves the peer for a given SCID from the mock's in-memory buy
+// quotes.
+func (m *mockRfqManager) LookUpScid(scid uint64) (route.Vertex, error) {
+	buyQuote, ok := m.peerBuyQuotes[rfqmsg.SerialisedScid(scid)]
+	if !ok {
+		return route.Vertex{}, fmt.Errorf("no peer found for RFQ "+
+			"SCID %d", scid)
+	}
+
+	return buyQuote.Peer, nil
+}
+
 // mockHtlcModifier mocks the HtlcModifier interface that is required by the
 // AuxInvoiceManager.
 type mockHtlcModifier struct {
