@@ -1113,6 +1113,45 @@ func TestMultiverseRootSum(t *testing.T) {
 	}
 }
 
+// TestDeleteLastUniverseCleansMultiverseRoot tests that deleting the
+// last universe for a given proof type removes the orphaned
+// multiverse_roots row, avoiding a dangling FK to mssmt_roots.
+func TestDeleteLastUniverseCleansMultiverseRoot(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, db := newTestMultiverse(t)
+
+	// Insert a single issuance leaf.
+	id := randUniverseID(t, false)
+	id.ProofType = universe.ProofTypeIssuance
+
+	assetGen := asset.RandGenesis(t, asset.Normal)
+	leaf := randMintingLeaf(t, assetGen, id.GroupKey)
+	leaf.Amt = 100
+
+	targetKey := randLeafKey(t)
+	_, err := multiverse.UpsertProofLeaf(
+		ctx, id, targetKey, &leaf, nil,
+	)
+	require.NoError(t, err)
+
+	// The multiverse root should exist.
+	multiverseNS, err := namespaceForProof(id.ProofType)
+	require.NoError(t, err)
+
+	_, err = db.FetchMultiverseRoot(ctx, multiverseNS)
+	require.NoError(t, err)
+
+	// Delete the only universe for this proof type.
+	_, err = multiverse.DeleteUniverse(ctx, id)
+	require.NoError(t, err)
+
+	// The multiverse root row should be gone.
+	_, err = db.FetchMultiverseRoot(ctx, multiverseNS)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+}
+
 // TestShouldInsertPreCommit tests the shouldInsertPreCommit function with
 // various combinations of proof types, asset groups, and meta reveals.
 func TestShouldInsertPreCommit(t *testing.T) {

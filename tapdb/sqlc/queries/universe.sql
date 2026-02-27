@@ -499,6 +499,14 @@ RETURNING id;
 DELETE FROM multiverse_leaves
 WHERE leaf_node_namespace = @namespace AND leaf_node_key = @leaf_node_key;
 
+-- name: DeleteMultiverseRoot :exec
+DELETE FROM multiverse_roots
+WHERE namespace_root = @namespace_root
+AND NOT EXISTS (
+    SELECT 1 FROM multiverse_leaves
+    WHERE multiverse_root_id = multiverse_roots.id
+);
+
 -- name: QueryMultiverseLeaves :many
 SELECT r.namespace_root, r.proof_type, l.asset_id, l.group_key, 
        smt_nodes.value AS universe_root_hash, smt_nodes.sum AS universe_root_sum
