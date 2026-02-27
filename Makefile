@@ -189,7 +189,29 @@ docker-release:
 
 	# Run the actual compilation inside the docker image. We pass in all flags
 	# that we might want to overwrite in manual tests.
-	$(DOCKER_RELEASE_HELPER) make release tag="$(tag)" sys="$(sys)" COMMIT="$(COMMIT)"
+	$(DOCKER) run $(DOCKER_RELEASE_ARGS) \
+		-v $(shell pwd):/tmp/build/taproot-assets \
+		taproot-assets-release-helper \
+		make release tag="$(tag)" sys="$(sys)" COMMIT="$(COMMIT)"
+
+# Verify release artifacts produced by docker-release at the specified tag.
+docker-verify:
+	@$(call print, "Building release from fresh clone for verification.")
+	if [ "$(tag)" = "" ]; then echo "Must specify tag=<tag>!"; exit 1; fi
+
+	@TMP=$$(mktemp -d) && \
+	trap "rm -rf $$TMP" EXIT && \
+	git clone --depth 1 --branch "$(tag)" \
+		$(REPO_URL) "$$TMP/taproot-assets" && \
+	$(DOCKER) build -t taproot-assets-release-helper \
+		-f "$$TMP/taproot-assets/make/builder.Dockerfile" \
+		"$$TMP/taproot-assets/make/" && \
+	$(DOCKER) run $(DOCKER_RELEASE_ARGS) \
+		-v "$$TMP/taproot-assets":/tmp/build/taproot-assets \
+		-v "$(shell pwd)":/tmp/build/output \
+		taproot-assets-release-helper \
+		/bin/bash -c 'make release tag="$(tag)" sys="$(sys)" && \
+			cp -r taproot-assets-$(tag) /tmp/build/output/'
 
 docker-tools:
 	@$(call print, "Building tools docker image.")
@@ -460,4 +482,6 @@ clean:
 	rpc-format \
 	rpc-check \
 	vendor \
+	docker-release \
+	docker-verify \
 	clean
