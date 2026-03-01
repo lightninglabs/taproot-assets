@@ -286,6 +286,10 @@ var allTestCases = []*testCase{
 		test: testPsbtTrustlessSwap,
 	},
 	{
+		name: "psbt trustless swap anyone can spend",
+		test: testPsbtTrustlessSwapAnyoneCanSpend,
+	},
+	{
 		name: "psbt external commit",
 		test: testPsbtExternalCommit,
 	},
