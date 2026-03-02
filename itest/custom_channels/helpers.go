@@ -763,24 +763,106 @@ func assertAssetChan(t *testing.T, src, dst *itest.IntegratedNode,
 	require.NoError(t, err)
 }
 
+// channelPointString returns a canonical channel point string in the form
+// "<txid>:<index>".
+func channelPointString(chanPoint *lnrpc.ChannelPoint) (string, error) {
+	txidStr := chanPoint.GetFundingTxidStr()
+	if txidStr == "" {
+		txid, err := chainhash.NewHash(chanPoint.GetFundingTxidBytes())
+		if err != nil {
+			return "", fmt.Errorf(
+				"unable to parse funding txid: %w", err,
+			)
+		}
+
+		txidStr = txid.String()
+	}
+
+	if txidStr == "" {
+		return "", fmt.Errorf("missing funding txid in channel point")
+	}
+
+	return fmt.Sprintf("%v:%d", txidStr, chanPoint.OutputIndex), nil
+}
+
+// assertChannelOutboundPolicyKnown asserts that the channel edge policy for the
+// given node's outbound direction is available in the graph.
+func assertChannelOutboundPolicyKnown(t *testing.T, node *itest.IntegratedNode,
+	chanPoint *lnrpc.ChannelPoint) {
+
+	targetChanPoint, err := channelPointString(chanPoint)
+	require.NoError(t, err)
+
+	err = wait.NoError(func() error {
+		ctxb := context.Background()
+		ctxt, cancel := context.WithTimeout(ctxb, wait.DefaultTimeout)
+		defer cancel()
+
+		graphResp, err := node.DescribeGraph(
+			ctxt, &lnrpc.ChannelGraphRequest{
+				IncludeUnannounced: true,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, edge := range graphResp.Edges {
+			if edge.ChanPoint != targetChanPoint {
+				continue
+			}
+
+			switch {
+			case edge.Node1Pub == node.PubKeyStr:
+				if edge.Node1Policy == nil {
+					return fmt.Errorf("channel %v missing "+
+						"outbound policy for %v",
+						targetChanPoint, node.Cfg.Name)
+				}
+
+				return nil
+
+			case edge.Node2Pub == node.PubKeyStr:
+				if edge.Node2Policy == nil {
+					return fmt.Errorf("channel %v missing "+
+						"outbound policy for %v",
+						targetChanPoint, node.Cfg.Name)
+				}
+
+				return nil
+
+			default:
+				return fmt.Errorf(
+					"channel %v found but node %v "+
+						"not part of edge",
+					targetChanPoint,
+					node.Cfg.Name,
+				)
+			}
+		}
+
+		return fmt.Errorf("channel %v not found", targetChanPoint)
+	}, wait.DefaultTimeout)
+	require.NoError(t, err)
+}
+
 // assertChannelKnown asserts that the given channel point is known in the
 // node's graph.
 func assertChannelKnown(t *testing.T, node *itest.IntegratedNode,
 	chanPoint *lnrpc.ChannelPoint) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, wait.DefaultTimeout)
-	defer cancel()
-
-	txid, err := chainhash.NewHash(chanPoint.GetFundingTxidBytes())
+	targetChanPoint, err := channelPointString(chanPoint)
 	require.NoError(t, err)
-	targetChanPoint := fmt.Sprintf(
-		"%v:%d", txid.String(), chanPoint.OutputIndex,
-	)
 
 	err = wait.NoError(func() error {
+		ctxb := context.Background()
+		ctxt, cancel := context.WithTimeout(ctxb, wait.DefaultTimeout)
+		defer cancel()
+
 		graphResp, err := node.DescribeGraph(
-			ctxt, &lnrpc.ChannelGraphRequest{},
+			ctxt, &lnrpc.ChannelGraphRequest{
+				IncludeUnannounced: true,
+			},
 		)
 		if err != nil {
 			return err

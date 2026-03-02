@@ -109,6 +109,8 @@ func runCustomChannelsHtlcForceClose(ctx context.Context, t *ccHarnessTest,
 	// see the other one in the graph and has all required features.
 	require.NoError(t.t, net.AssertNodeKnown(alice, bob))
 	require.NoError(t.t, net.AssertNodeKnown(bob, alice))
+	assertChannelOutboundPolicyKnown(t.t, alice, aliceChanPoint)
+	assertChannelOutboundPolicyKnown(t.t, bob, aliceChanPoint)
 
 	// First, we'll send over some funds from Alice to Bob, as we want Bob
 	// to be able to extend HTLCs in the other direction.
