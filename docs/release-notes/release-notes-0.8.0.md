@@ -124,6 +124,11 @@
   the last leaf is deleted, the entire universe is automatically cleaned
   up.
 
+- [PR#2014](https://github.com/lightninglabs/taproot-assets/pull/2014)
+  Add `FetchAsset` RPC for fetching assets by asset ID or group key using an
+  `AssetSpecifier`. Supports filters for `include_spent`, `include_leased`,
+  `include_unconfirmed_mints`, `with_witness`, and `script_key_type`.
+
 ## tapcli Additions
 
 - [Wallet Backup CLI](https://github.com/lightninglabs/taproot-assets/pull/1980):
@@ -138,6 +143,10 @@
 - [PR#2023](https://github.com/lightninglabs/taproot-assets/pull/2023)
   Add `tapcli universe delete-leaf` to delete a single leaf from a
   universe by asset ID, outpoint, and script key.
+
+- [PR#2014](https://github.com/lightninglabs/taproot-assets/pull/2014)
+  Add `tapcli assets fetch` command for fetching assets by `--asset_id` or
+  `--group_key`, with optional filter flags.
 
 - [ForwardingHistory RPC](https://github.com/lightninglabs/taproot-assets/pull/1921):
   New RPC endpoint `rfqrpc.ForwardingHistory` allows querying historical
