@@ -21,6 +21,11 @@ type TaprootAssetsClient interface {
 	// tapcli: `assets list`
 	// ListAssets lists the set of assets owned by the target daemon.
 	ListAssets(ctx context.Context, in *ListAssetRequest, opts ...grpc.CallOption) (*ListAssetResponse, error)
+	// tapcli: `assets fetch`
+	// FetchAsset fetches asset(s) by asset ID or group key, with optional
+	// filters. At least one of asset_id or group_key must be set in the
+	// asset_specifier.
+	FetchAsset(ctx context.Context, in *FetchAssetRequest, opts ...grpc.CallOption) (*FetchAssetResponse, error)
 	// tapcli: `assets utxos`
 	// ListUtxos lists the UTXOs managed by the target daemon, and the assets they
 	// hold.
@@ -136,6 +141,15 @@ func NewTaprootAssetsClient(cc grpc.ClientConnInterface) TaprootAssetsClient {
 func (c *taprootAssetsClient) ListAssets(ctx context.Context, in *ListAssetRequest, opts ...grpc.CallOption) (*ListAssetResponse, error) {
 	out := new(ListAssetResponse)
 	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/ListAssets", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taprootAssetsClient) FetchAsset(ctx context.Context, in *FetchAssetRequest, opts ...grpc.CallOption) (*FetchAssetResponse, error) {
+	out := new(FetchAssetResponse)
+	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/FetchAsset", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -402,6 +416,11 @@ type TaprootAssetsServer interface {
 	// tapcli: `assets list`
 	// ListAssets lists the set of assets owned by the target daemon.
 	ListAssets(context.Context, *ListAssetRequest) (*ListAssetResponse, error)
+	// tapcli: `assets fetch`
+	// FetchAsset fetches asset(s) by asset ID or group key, with optional
+	// filters. At least one of asset_id or group_key must be set in the
+	// asset_specifier.
+	FetchAsset(context.Context, *FetchAssetRequest) (*FetchAssetResponse, error)
 	// tapcli: `assets utxos`
 	// ListUtxos lists the UTXOs managed by the target daemon, and the assets they
 	// hold.
@@ -514,6 +533,9 @@ type UnimplementedTaprootAssetsServer struct {
 func (UnimplementedTaprootAssetsServer) ListAssets(context.Context, *ListAssetRequest) (*ListAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAssets not implemented")
 }
+func (UnimplementedTaprootAssetsServer) FetchAsset(context.Context, *FetchAssetRequest) (*FetchAssetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FetchAsset not implemented")
+}
 func (UnimplementedTaprootAssetsServer) ListUtxos(context.Context, *ListUtxosRequest) (*ListUtxosResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListUtxos not implemented")
 }
@@ -610,6 +632,24 @@ func _TaprootAssets_ListAssets_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TaprootAssetsServer).ListAssets(ctx, req.(*ListAssetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TaprootAssets_FetchAsset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FetchAssetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetsServer).FetchAsset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/taprpc.TaprootAssets/FetchAsset",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetsServer).FetchAsset(ctx, req.(*FetchAssetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1044,6 +1084,10 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListAssets",
 			Handler:    _TaprootAssets_ListAssets_Handler,
+		},
+		{
+			MethodName: "FetchAsset",
+			Handler:    _TaprootAssets_FetchAsset_Handler,
 		},
 		{
 			MethodName: "ListUtxos",
