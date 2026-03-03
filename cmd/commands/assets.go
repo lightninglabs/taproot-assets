@@ -87,6 +87,7 @@ var assetsCommands = []cli.Command{
 		Subcommands: []cli.Command{
 			mintAssetCommand,
 			listAssetsCommand,
+			fetchAssetCommand,
 			listUtxosCommand,
 			listGroupsCommand,
 			listAssetBalancesCommand,
@@ -794,6 +795,99 @@ func listAssets(ctx *cli.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("unable to list assets: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var fetchAssetCommand = cli.Command{
+	Name:      "fetch",
+	ShortName: "f",
+	Usage:     "fetch assets by asset ID or group key",
+	Description: "fetch one or more assets matching the given " +
+		"asset ID or group key, with optional filters",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  assetIDName,
+			Usage: "the asset ID to fetch (hex encoded)",
+		},
+		cli.StringFlag{
+			Name: assetGroupKeyName,
+			Usage: "the group key to fetch assets " +
+				"for (hex encoded)",
+		},
+		cli.BoolFlag{
+			Name:  assetShowWitnessName,
+			Usage: "include the asset's witness data",
+		},
+		cli.BoolFlag{
+			Name:  assetShowSpentName,
+			Usage: "include fully spent assets",
+		},
+		cli.BoolFlag{
+			Name:  assetShowLeasedName,
+			Usage: "include leased assets",
+		},
+		cli.BoolFlag{
+			Name: assetShowUnconfMintsName,
+			Usage: "include freshly minted and not yet " +
+				"confirmed assets",
+		},
+		cli.StringFlag{
+			Name: scriptKeyTypeName,
+			Usage: "filter assets by the type of script " +
+				"key they use; possible values are: " +
+				strings.Join(
+					maps.Keys(scriptKeyTypeMap), ", ",
+				),
+			Value: "bip86",
+		},
+		cli.BoolFlag{
+			Name: scriptKeyTypeAll,
+			Usage: "show all assets, regardless of the " +
+				"script key type",
+		},
+	},
+	Action: fetchAsset,
+}
+
+func fetchAsset(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	if !ctx.IsSet(assetIDName) && !ctx.IsSet(assetGroupKeyName) {
+		return cli.ShowSubcommandHelp(ctx)
+	}
+
+	scriptKeyQuery, err := parseScriptKeyType(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to parse script key type: %w",
+			err)
+	}
+
+	specifier := &taprpc.AssetSpecifier{}
+	if ctx.IsSet(assetIDName) {
+		specifier.Id = &taprpc.AssetSpecifier_AssetIdStr{
+			AssetIdStr: ctx.String(assetIDName),
+		}
+	} else if ctx.IsSet(assetGroupKeyName) {
+		specifier.Id = &taprpc.AssetSpecifier_GroupKeyStr{
+			GroupKeyStr: ctx.String(assetGroupKeyName),
+		}
+	}
+
+	resp, err := client.FetchAsset(ctxc, &taprpc.FetchAssetRequest{
+		AssetSpecifier:          specifier,
+		WithWitness:             ctx.Bool(assetShowWitnessName),
+		IncludeSpent:            ctx.Bool(assetShowSpentName),
+		IncludeLeased:           ctx.Bool(assetShowLeasedName),
+		IncludeUnconfirmedMints: ctx.Bool(assetShowUnconfMintsName),
+		ScriptKeyType:           scriptKeyQuery,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to fetch asset: %w", err)
 	}
 
 	printRespJSON(resp)
