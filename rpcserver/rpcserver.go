@@ -1275,6 +1275,69 @@ func (r *RPCServer) ListAssets(ctx context.Context,
 	}, nil
 }
 
+// FetchAsset fetches asset(s) by asset ID or group key, with optional filters.
+func (r *RPCServer) FetchAsset(ctx context.Context,
+	req *taprpc.FetchAssetRequest) (*taprpc.FetchAssetResponse, error) {
+
+	if req.AssetSpecifier == nil {
+		return nil, fmt.Errorf("asset_specifier must be set")
+	}
+
+	// Parse the asset specifier from the request.
+	assetID, groupKey, err := parseAssetSpecifier(
+		req.AssetSpecifier.GetAssetId(),
+		req.AssetSpecifier.GetAssetIdStr(),
+		req.AssetSpecifier.GetGroupKey(),
+		req.AssetSpecifier.GetGroupKeyStr(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing asset specifier: %w",
+			err)
+	}
+
+	// Build the asset specifier from the parsed values.
+	spec, err := asset.NewSpecifier(assetID, groupKey, nil, true)
+	if err != nil {
+		return nil, fmt.Errorf("error creating asset specifier: %w",
+			err)
+	}
+
+	constraints := tapfreighter.CommitmentConstraints{
+		AssetSpecifier: spec,
+	}
+
+	filters := &tapdb.AssetQueryFilters{
+		CommitmentConstraints: constraints,
+	}
+
+	// Parse script key type filter.
+	scriptKeyType, includeSpent, err := rpcutils.ParseScriptKeyTypeQuery(
+		req.ScriptKeyType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse script key type "+
+			"query: %w", err)
+	}
+	filters.ScriptKeyType = scriptKeyType
+
+	// Filter unconfirmed mints at the SQL level.
+	if !req.IncludeUnconfirmedMints {
+		filters.MinAnchorHeight = 1
+	}
+
+	rpcAssets, err := r.fetchRpcAssets(
+		ctx, req.WithWitness, req.IncludeSpent || includeSpent,
+		req.IncludeLeased, filters,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &taprpc.FetchAssetResponse{
+		Assets: rpcAssets,
+	}, nil
+}
+
 func (r *RPCServer) fetchRpcAssets(ctx context.Context, withWitness,
 	includeSpent, includeLeased bool,
 	queryFilters *tapdb.AssetQueryFilters) ([]*taprpc.Asset, error) {
