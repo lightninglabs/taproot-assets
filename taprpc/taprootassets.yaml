@@ -6,6 +6,11 @@ http:
     - selector: taprpc.TaprootAssets.ListAssets
       get: "/v1/taproot-assets/assets"
 
+    - selector: taprpc.TaprootAssets.FetchAsset
+      get: "/v1/taproot-assets/assets/fetch/asset-id/{asset_specifier.asset_id_str}"
+      additional_bindings:
+        - get: "/v1/taproot-assets/assets/fetch/group-key/{asset_specifier.group_key_str}"
+
     - selector: taprpc.TaprootAssets.StopDaemon
       post: "/v1/taproot-assets/stop"
       body: "*"

@@ -1024,6 +1024,99 @@ func testListAssets(t *harnessTest) {
 	)
 }
 
+// testFetchAsset tests the FetchAsset RPC, verifying that assets can be
+// fetched by asset ID or group key with optional filters.
+func testFetchAsset(t *harnessTest) {
+	ctx := context.Background()
+
+	// Mint a batch with a simple asset and a grouped asset.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: taprpc.AssetType_NORMAL,
+					Name:      "fetch-test-simple",
+					AssetMeta: &taprpc.AssetMeta{
+						Data: []byte("m"),
+					},
+					Amount: 1000,
+				},
+			},
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: taprpc.AssetType_NORMAL,
+					Name:      "fetch-test-grouped",
+					AssetMeta: &taprpc.AssetMeta{
+						Data: []byte("m"),
+					},
+					Amount:          2000,
+					NewGroupedAsset: true,
+				},
+			},
+		},
+	)
+
+	simpleAsset := rpcAssets[0]
+	groupedAsset := rpcAssets[1]
+
+	// Test 1: Fetch by asset ID (bytes) for the simple asset.
+	resp, err := t.tapd.FetchAsset(ctx, &taprpc.FetchAssetRequest{
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: simpleAsset.AssetGenesis.AssetId,
+			},
+		},
+	})
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Assets, 1)
+	require.Equal(
+		t.t, simpleAsset.AssetGenesis.AssetId,
+		resp.Assets[0].AssetGenesis.AssetId,
+	)
+
+	// Test 2: Fetch by group key for the grouped asset.
+	resp, err = t.tapd.FetchAsset(ctx, &taprpc.FetchAssetRequest{
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_GroupKey{
+				GroupKey: groupedAsset.AssetGroup.
+					TweakedGroupKey,
+			},
+		},
+		ScriptKeyType: allScriptKeysQuery,
+	})
+	require.NoError(t.t, err)
+	require.GreaterOrEqual(t.t, len(resp.Assets), 1)
+
+	// All returned assets must belong to the same group.
+	for _, a := range resp.Assets {
+		require.NotNil(t.t, a.AssetGroup)
+		require.Equal(
+			t.t,
+			groupedAsset.AssetGroup.TweakedGroupKey,
+			a.AssetGroup.TweakedGroupKey,
+		)
+	}
+
+	// Test 3: No specifier should return an error.
+	_, err = t.tapd.FetchAsset(ctx, &taprpc.FetchAssetRequest{})
+	require.Error(t.t, err)
+	require.Contains(t.t, err.Error(), "asset_specifier must be set")
+
+	// Test 4: Non-existent asset ID returns an empty list.
+	fakeID := make([]byte, 32)
+	resp, err = t.tapd.FetchAsset(ctx, &taprpc.FetchAssetRequest{
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: fakeID,
+			},
+		},
+		ScriptKeyType: allScriptKeysQuery,
+	})
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Assets, 0)
+}
+
 // assetName returns a unique asset name for test minting.
 func assetName(prefix string, batch, idx int) string {
 	return prefix + "-" +

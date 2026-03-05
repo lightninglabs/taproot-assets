@@ -28,6 +28,10 @@ var (
 			Entity: "assets",
 			Action: "read",
 		}},
+		"/taprpc.TaprootAssets/FetchAsset": {{
+			Entity: "assets",
+			Action: "read",
+		}},
 		"/taprpc.TaprootAssets/ListUtxos": {{
 			Entity: "assets",
 			Action: "read",
