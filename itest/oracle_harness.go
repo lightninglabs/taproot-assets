@@ -23,8 +23,8 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-// oracleHarness is a basic integration test RPC price oracle server harness.
-type oracleHarness struct {
+// OracleHarness is a basic integration test RPC price oracle server harness.
+type OracleHarness struct {
 	oraclerpc.UnimplementedPriceOracleServer
 
 	listenAddr string
@@ -53,26 +53,26 @@ type oracleHarness struct {
 	sellPrices map[string]rfqmath.BigIntFixedPoint
 }
 
-// newOracleHarness returns a new oracle harness instance that is set to listen
+// NewOracleHarness returns a new oracle harness instance that is set to listen
 // on the provided address.
-func newOracleHarness(listenAddr string) *oracleHarness {
-	return &oracleHarness{
+func NewOracleHarness(listenAddr string) *OracleHarness {
+	return &OracleHarness{
 		listenAddr: listenAddr,
 		buyPrices:  make(map[string]rfqmath.BigIntFixedPoint),
 		sellPrices: make(map[string]rfqmath.BigIntFixedPoint),
 	}
 }
 
-// setPrice sets the target buy and sell price for the provided specifier.
-func (o *oracleHarness) setPrice(specifier asset.Specifier, buyPrice,
+// SetPrice sets the target buy and sell price for the provided specifier.
+func (o *OracleHarness) SetPrice(specifier asset.Specifier, buyPrice,
 	sellPrice rfqmath.BigIntFixedPoint) {
 
 	o.buyPrices[specifier.String()] = buyPrice
 	o.sellPrices[specifier.String()] = sellPrice
 }
 
-// start runs the oracle harness.
-func (o *oracleHarness) start(t *testing.T) {
+// Start runs the oracle harness.
+func (o *OracleHarness) Start(t *testing.T) {
 	// Start the mock RPC price oracle service.
 	//
 	// Generate self-signed certificate. This allows us to use TLS for the
@@ -105,8 +105,8 @@ func (o *oracleHarness) start(t *testing.T) {
 	}()
 }
 
-// stop terminates the oracle harness.
-func (o *oracleHarness) stop() {
+// Stop terminates the oracle harness.
+func (o *OracleHarness) Stop() {
 	if o.grpcServer != nil {
 		o.grpcServer.Stop()
 	}
@@ -116,7 +116,7 @@ func (o *oracleHarness) stop() {
 }
 
 // getAssetRates returns the asset rates for a given transaction type.
-func (o *oracleHarness) getAssetRates(specifier asset.Specifier,
+func (o *OracleHarness) getAssetRates(specifier asset.Specifier,
 	transactionType oraclerpc.TransactionType) (oraclerpc.AssetRates,
 	error) {
 
@@ -187,7 +187,7 @@ func (o *oracleHarness) getAssetRates(specifier asset.Specifier,
 // - `PaymentAsset` to BTC.
 // - `TransactionType` to PURCHASE.
 // - `AssetRateHint` to the value given in Alice's quote request.
-func (o *oracleHarness) QueryAssetRates(_ context.Context,
+func (o *OracleHarness) QueryAssetRates(_ context.Context,
 	req *oraclerpc.QueryAssetRatesRequest) (
 	*oraclerpc.QueryAssetRatesResponse, error) {
 

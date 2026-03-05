@@ -36,8 +36,8 @@ env:
   # Number of parallel custom channel itest jobs and tranches per job.
   # Total tranches = NUM_CC_ITEST_JOBS * CC_ITEST_PARALLELISM.
   # Increase when more custom channel tests are ported.
-  NUM_CC_ITEST_JOBS: 1
-  CC_ITEST_PARALLELISM: 1
+  NUM_CC_ITEST_JOBS: 4
+  CC_ITEST_PARALLELISM: 4
 
 jobs:
   # Validate generated SQL models stay in sync with queries.
@@ -591,7 +591,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tranche: [0]
+        tranche: [0, 1, 2, 3]
     steps:
       - name: git checkout
         uses: actions/checkout@v5
@@ -646,7 +646,7 @@ jobs:
         if: ${{ failure() }}
         run: |
           7z a logs-cc-itest-${{ matrix.tranche }}.zip \
-            itest/custom_channels/regtest/ || true
+            itest/custom_channels/regtest/logs-tranche*/*.log || true
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v4

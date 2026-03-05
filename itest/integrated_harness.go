@@ -3,6 +3,8 @@ package itest
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +38,16 @@ type IntegratedNetworkHarness struct {
 
 	// Miner is the btcd miner used for block generation and funding.
 	Miner *miner.HarnessMiner
+
+	// FeeServiceURL is the URL of an external fee estimation service.
+	// When set, --fee.url=<url> is passed to each new node's lnd args so
+	// the sweeper can obtain fee estimates for high conf targets that
+	// btcd's built-in estimator cannot handle in regtest.
+	FeeServiceURL string
+
+	// FeeService is the fee service instance, exposed so tests can
+	// dynamically adjust fee rates (e.g., SetMinRelayFeerate).
+	FeeService *lntest.FeeService
 
 	// activeNodes tracks all nodes managed by this harness, keyed by
 	// node name.
@@ -71,6 +83,12 @@ func (h *IntegratedNetworkHarness) NewNode(name string,
 	// --btcd.rpchost=...) and merge with caller's extra args.
 	chainArgs := h.chainBackend.GenArgs()
 	lndArgs := append(chainArgs, extraLndArgs...)
+
+	// If a fee service URL is configured, pass it to lnd so the web-based
+	// fee estimator is used instead of btcd's limited built-in one.
+	if h.FeeServiceURL != "" {
+		lndArgs = append(lndArgs, "--fee.url="+h.FeeServiceURL)
+	}
 
 	n := NewIntegratedNode(
 		h.t, name, h.binary, h.netParams, lndArgs, extraTapdArgs,
@@ -141,18 +159,14 @@ func (h *IntegratedNetworkHarness) ConnectNodes(t *testing.T,
 }
 
 // EnsureConnected ensures that nodes a and b are connected, tolerating the
-// "already connected" error if they already have a connection.
+// "already connected" error if they already have a connection and retrying
+// if the server is still starting up.
 func (h *IntegratedNetworkHarness) EnsureConnected(t *testing.T,
 	a, b *IntegratedNode) {
 
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(
-		context.Background(), wait.DefaultTimeout,
-	)
-	defer cancel()
-
-	// Try connecting a -> b, ignoring "already connected".
+	// Try connecting a -> b with retries for transient startup errors.
 	req := &lnrpc.ConnectPeerRequest{
 		Addr: &lnrpc.LightningAddress{
 			Pubkey: b.PubKeyStr,
@@ -160,17 +174,47 @@ func (h *IntegratedNetworkHarness) EnsureConnected(t *testing.T,
 		},
 	}
 
-	_, err := a.ConnectPeer(ctx, req)
-	if err != nil && !strings.Contains(
-		err.Error(), "already connected to peer",
-	) {
+	err := wait.NoError(func() error {
+		ctx, cancel := context.WithTimeout(
+			context.Background(), 5*time.Second,
+		)
+		defer cancel()
 
-		require.NoError(t, err, "unable to connect %s to %s",
-			a.Cfg.Name, b.Cfg.Name)
-	}
+		_, err := a.ConnectPeer(ctx, req)
+		if err == nil {
+			return nil
+		}
+
+		errStr := err.Error()
+
+		// Already connected is fine.
+		if strings.Contains(errStr, "already connected to peer") {
+			return nil
+		}
+
+		// Server still starting up, retry.
+		// nolint:lll
+		if strings.Contains(errStr, "still in the process of starting") ||
+			strings.Contains(errStr, "the RPC server is in the process of starting up") {
+
+			return err
+		}
+
+		// Any other error is unexpected.
+		return fmt.Errorf("unable to connect %s to %s: %w",
+			a.Cfg.Name, b.Cfg.Name, err)
+	}, wait.DefaultTimeout)
+
+	require.NoError(t, err, "unable to connect %s to %s",
+		a.Cfg.Name, b.Cfg.Name)
 
 	// Wait until peers appear in each other's lists.
 	findPeer := func(src, target *IntegratedNode) bool {
+		ctx, cancel := context.WithTimeout(
+			context.Background(), 5*time.Second,
+		)
+		defer cancel()
+
 		resp, err := src.ListPeers(
 			ctx, &lnrpc.ListPeersRequest{},
 		)
@@ -563,4 +607,112 @@ func (h *IntegratedNetworkHarness) LookUpNodeByPub(
 	}
 
 	return nil, fmt.Errorf("node with pubkey %s not found", pub)
+}
+
+// StopAndBackupDB stops the given node, creates a backup of its lnd data
+// directory, and restarts the node. The backup can be restored later with
+// StopAndRestoreDB to simulate a breach scenario.
+func (h *IntegratedNetworkHarness) StopAndBackupDB(
+	node *IntegratedNode) error {
+
+	node.Stop()
+
+	// Back up the lnd data directory which contains the channel database.
+	lndDir := filepath.Join(node.Cfg.BaseDir, "lnd")
+	tempDir, err := os.MkdirTemp("", "past-state")
+	if err != nil {
+		return fmt.Errorf("unable to create temp db folder: %w", err)
+	}
+
+	if err := copyAll(tempDir, lndDir); err != nil {
+		return fmt.Errorf("unable to copy database files: %w", err)
+	}
+
+	node.backupDir = tempDir
+
+	// Remove the ready file so Start() waits for the new instance.
+	if node.readyFile != "" {
+		_ = os.Remove(node.readyFile)
+	}
+	node.Start()
+
+	return nil
+}
+
+// StopAndRestoreDB stops the given node, restores the lnd data directory
+// from a previous backup (created by StopAndBackupDB), and restarts the
+// node. This puts the node back into a previous channel state, which can
+// be used to simulate a channel breach.
+func (h *IntegratedNetworkHarness) StopAndRestoreDB(
+	node *IntegratedNode) error {
+
+	node.Stop()
+
+	if node.backupDir == "" {
+		return fmt.Errorf("no database backup created")
+	}
+
+	lndDir := filepath.Join(node.Cfg.BaseDir, "lnd")
+	if err := copyAll(lndDir, node.backupDir); err != nil {
+		return fmt.Errorf("unable to restore database files: %w", err)
+	}
+
+	if err := os.RemoveAll(node.backupDir); err != nil {
+		return fmt.Errorf("unable to remove backup dir: %w", err)
+	}
+	node.backupDir = ""
+
+	// Remove the ready file so Start() waits for the new instance.
+	if node.readyFile != "" {
+		_ = os.Remove(node.readyFile)
+	}
+	node.Start()
+
+	return nil
+}
+
+// copyAll recursively copies all files and directories from srcDir to dstDir.
+func copyAll(dstDir, srcDir string) error {
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(srcDir, entry.Name())
+		dstPath := filepath.Join(dstDir, entry.Name())
+
+		info, err := os.Stat(srcPath)
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			err := os.MkdirAll(dstPath, info.Mode())
+			if err != nil {
+				return err
+			}
+
+			err = copyAll(dstPath, srcPath)
+			if err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(dstPath, srcPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// copyFile copies a single file from src to dst.
+func copyFile(dst, src string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(dst, data, 0600)
 }

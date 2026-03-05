@@ -36,6 +36,14 @@ type config struct {
 
 	//nolint:lll
 	TaprootAssets *tapcfg.Config `group:"taproot-assets" namespace:"taproot-assets"`
+
+	// ReadyFile is an optional file path that will be created once both
+	// lnd and tapd are fully initialized and ready to accept RPCs. This
+	// is used by test harnesses to avoid calling tapd RPCs during the
+	// startup window before RPCServer.Start() has been called (which
+	// would cause a nil pointer panic).
+	//nolint:lll
+	ReadyFile string `long:"ready-file" description:"Create this file when fully ready"`
 }
 
 // defaultConfig returns the default combined configuration.
@@ -69,46 +77,6 @@ func (r *integratedRegistrar) RegisterGrpcSubserver(s *grpc.Server) error {
 	r.tapServer.RegisterGrpcService(s)
 
 	return nil
-}
-
-// onDemandListener is a net.Listener that defers the actual network listen
-// until Accept is first called. This allows us to pass a listener to lnd
-// before we know the exact port binding time. Copied from
-// lightning-terminal/config.go.
-type onDemandListener struct {
-	addr    net.Addr
-	lis     net.Listener
-	lisErr  error
-	once    sync.Once
-	closeMu sync.Mutex
-}
-
-func (l *onDemandListener) Accept() (net.Conn, error) {
-	l.once.Do(func() {
-		l.lis, l.lisErr = net.Listen(
-			l.addr.Network(), l.addr.String(),
-		)
-	})
-	if l.lisErr != nil {
-		return nil, l.lisErr
-	}
-
-	return l.lis.Accept()
-}
-
-func (l *onDemandListener) Close() error {
-	l.closeMu.Lock()
-	defer l.closeMu.Unlock()
-
-	if l.lis != nil {
-		return l.lis.Close()
-	}
-
-	return nil
-}
-
-func (l *onDemandListener) Addr() net.Addr {
-	return l.addr
 }
 
 func main() {
@@ -192,18 +160,26 @@ func run() error {
 	}
 	implCfg.AuxComponents = *auxComponents
 
-	// Step 4: Set up listeners. We create an on-demand listener for each
-	// configured RPC address. The first listener's Ready channel is used
-	// to signal that lnd is ready.
+	// Step 4: Set up listeners. We eagerly bind each RPC address so the
+	// port is available immediately. lnd closes the Ready channel before
+	// calling grpcServer.Serve(), so with a deferred (on-demand) listener
+	// there would be a race where lndclient tries to connect before the
+	// port is actually bound.
 	rpcListeners := make(
 		[]*lnd.ListenerWithSignal, 0,
 		len(cfg.Lnd.RPCListeners)+1,
 	)
 	var readyChan chan struct{}
 	for i, addr := range cfg.Lnd.RPCListeners {
+		lis, err := net.Listen(addr.Network(), addr.String())
+		if err != nil {
+			return fmt.Errorf("error listening on %s: %w",
+				addr, err)
+		}
+
 		ready := make(chan struct{})
 		rpcListeners = append(rpcListeners, &lnd.ListenerWithSignal{
-			Listener: &onDemandListener{addr: addr},
+			Listener: lis,
 			Ready:    ready,
 		})
 		if i == 0 {
@@ -301,6 +277,16 @@ func run() error {
 	}
 
 	tapdLog.Infof("Integrated tapd+lnd daemon fully active!")
+
+	// Signal readiness via file if requested. Test harnesses use this
+	// to avoid calling tapd RPCs before RPCServer.Start() is called.
+	if cfg.ReadyFile != "" {
+		if err := os.WriteFile(
+			cfg.ReadyFile, []byte("ready\n"), 0644,
+		); err != nil {
+			return fmt.Errorf("error writing ready file: %w", err)
+		}
+	}
 
 	// Block until shutdown.
 	select {

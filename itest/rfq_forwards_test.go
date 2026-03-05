@@ -34,9 +34,9 @@ import (
 //  7. We test query filters (timestamp, peer, asset_id) and pagination.
 func testForwardingEventHistory(t *harnessTest) {
 	oracleAddr := fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort())
-	oracle := newOracleHarness(oracleAddr)
-	oracle.start(t.t)
-	t.t.Cleanup(oracle.stop)
+	oracle := NewOracleHarness(oracleAddr)
+	oracle.Start(t.t)
+	t.t.Cleanup(oracle.Stop)
 
 	oracleURL := fmt.Sprintf("rfqrpc://%s", oracleAddr)
 	ts := newRfqTestScenario(t, WithRfqOracleServer(oracleURL))
