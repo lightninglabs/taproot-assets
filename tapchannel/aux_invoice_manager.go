@@ -52,6 +52,11 @@ type RfqManager interface {
 	// check if the asset belongs to that group.
 	AssetMatchesSpecifier(ctx context.Context, specifier asset.Specifier,
 		id asset.ID) (bool, error)
+
+	// LookUpScid resolves the peer associated with a given SCID for
+	// peer-accepted buy quotes, checking active quotes, an LRU cache,
+	// and the database.
+	LookUpScid(scid uint64) (route.Vertex, error)
 }
 
 // A compile time assertion to ensure that the rfq.Manager meets the expected
@@ -410,18 +415,10 @@ func (s *AuxInvoiceManager) priceFromQuote(rfqID rfqmsg.ID) (
 }
 
 // RfqPeerFromScid attempts to match the provided scid with a negotiated quote,
-// then it returns the RFQ peer's node id.
+// then it returns the RFQ peer's node id. It delegates to the RFQ manager's
+// LookUpScid which checks active quotes, an LRU cache, and the database.
 func (s *AuxInvoiceManager) RfqPeerFromScid(scid uint64) (route.Vertex, error) {
-	acceptedBuyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
-
-	buyQuote, isBuy := acceptedBuyQuotes[rfqmsg.SerialisedScid(scid)]
-
-	if !isBuy {
-		return route.Vertex{}, fmt.Errorf("no peer found for RFQ "+
-			"SCID %d", scid)
-	}
-
-	return buyQuote.Peer, nil
+	return s.cfg.RfqManager.LookUpScid(scid)
 }
 
 // IsAssetInvoice checks whether the provided invoice is an asset invoice. This

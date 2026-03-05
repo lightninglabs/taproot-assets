@@ -511,7 +511,7 @@ CREATE TABLE forwards (
     -- settled_at is the timestamp when the forward settled.
     settled_at TIMESTAMP,
 
-    -- failed_at is the timestamp when the forward failed. 
+    -- failed_at is the timestamp when the forward failed.
     failed_at TIMESTAMP,
 
     -- rfq_id is the foreign key to the RFQ policy.
@@ -830,10 +830,13 @@ CREATE TABLE proof_types (
 CREATE TABLE rfq_policies (
     id INTEGER PRIMARY KEY,
 
-    -- policy_type denotes the type of the policy (buy or sell).
-    -- It can be either 'RFQ_POLICY_TYPE_SALE' or 'RFQ_POLICY_TYPE_PURCHASE'.
+    -- policy_type denotes the type of the policy.
     policy_type TEXT NOT NULL CHECK (
-        policy_type IN ('RFQ_POLICY_TYPE_SALE', 'RFQ_POLICY_TYPE_PURCHASE')
+        policy_type IN (
+            'RFQ_POLICY_TYPE_SALE',
+            'RFQ_POLICY_TYPE_PURCHASE',
+            'RFQ_POLICY_TYPE_PEER_ACCEPTED_BUY'
+        )
     ),
 
     -- scid is the short channel ID associated with the policy.
@@ -883,6 +886,8 @@ CREATE TABLE rfq_policies (
 );
 
 CREATE UNIQUE INDEX rfq_policies_rfq_id_idx ON rfq_policies (rfq_id);
+
+CREATE INDEX rfq_policies_scid_idx ON rfq_policies (scid);
 
 CREATE TABLE script_keys (
     script_key_id INTEGER PRIMARY KEY,
