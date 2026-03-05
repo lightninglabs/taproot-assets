@@ -124,6 +124,10 @@ type BaseUniverseStore interface {
 	DeleteMultiverseLeaf(ctx context.Context,
 		arg DeleteMultiverseLeaf) error
 
+	// DeleteMultiverseRoot deletes an orphaned multiverse root.
+	DeleteMultiverseRoot(ctx context.Context,
+		namespaceRoot string) error
+
 	// UpsertUniverseSupplyLeaf attempts to upsert a supply leaf into the
 	// supply tree for a given asset.
 	UpsertUniverseSupplyLeaf(ctx context.Context,
@@ -1384,7 +1388,14 @@ func deleteUniverseTree(ctx context.Context,
 		LeafNodeKey: fn.ByteSlice(id.Bytes()),
 	})
 	if err != nil {
-		return fmt.Errorf("unable to delete multiverse leaf: %w", err)
+		return fmt.Errorf("unable to delete multiverse "+
+			"leaf: %w", err)
+	}
+
+	err = db.DeleteMultiverseRoot(ctx, multiverseNS)
+	if err != nil {
+		return fmt.Errorf("unable to delete multiverse "+
+			"root: %w", err)
 	}
 
 	return nil

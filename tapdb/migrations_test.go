@@ -1036,3 +1036,62 @@ func TestDirtySqliteVersion(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "database is in a dirty state")
 }
+
+// TestMigration53 tests that migration 53 adds ON DELETE CASCADE to
+// the federation_proof_sync_log foreign keys referencing
+// universe_leaves and universe_roots.
+func TestMigration53(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a DB at version 52 (pre-CASCADE).
+	db := NewTestDBWithVersion(t, 52)
+
+	// Insert dummy data: a universe root, leaf, server, and two
+	// federation_proof_sync_log rows referencing them.
+	InsertTestdata(
+		t, db.BaseDB,
+		"migrations_test_00053_dummy_data.sql",
+	)
+
+	// Verify the sync log rows exist.
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM federation_proof_sync_log
+	`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+
+	// Pre-migration: deleting the universe leaf should fail due
+	// to the FK constraint from federation_proof_sync_log.
+	_, err = db.ExecContext(ctx, `
+		DELETE FROM universe_leaves WHERE id = 1
+	`)
+	require.Error(t, err, "delete should fail before migration")
+
+	// Apply migration 53.
+	err = db.ExecuteMigrations(TargetLatest)
+	require.NoError(t, err)
+
+	// Post-migration: deleting the universe leaf should CASCADE
+	// and remove the sync log rows.
+	_, err = db.ExecContext(ctx, `
+		DELETE FROM universe_leaves WHERE id = 1
+	`)
+	require.NoError(t, err)
+
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM federation_proof_sync_log
+	`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+
+	// Verify the universe leaf is gone too.
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM universe_leaves
+	`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+}

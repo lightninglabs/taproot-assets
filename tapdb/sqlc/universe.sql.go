@@ -64,6 +64,20 @@ func (q *Queries) DeleteMultiverseLeaf(ctx context.Context, arg DeleteMultiverse
 	return err
 }
 
+const DeleteMultiverseRoot = `-- name: DeleteMultiverseRoot :exec
+DELETE FROM multiverse_roots
+WHERE namespace_root = $1
+AND NOT EXISTS (
+    SELECT 1 FROM multiverse_leaves
+    WHERE multiverse_root_id = multiverse_roots.id
+)
+`
+
+func (q *Queries) DeleteMultiverseRoot(ctx context.Context, namespaceRoot string) error {
+	_, err := q.db.ExecContext(ctx, DeleteMultiverseRoot, namespaceRoot)
+	return err
+}
+
 const DeleteUniverseEvents = `-- name: DeleteUniverseEvents :exec
 WITH root_id AS (
     SELECT id
