@@ -96,6 +96,7 @@ var assetsCommands = []cli.Command{
 			listTransfersCommand,
 			fetchMetaCommand,
 			removeUtxoLeaseCommand,
+			backupCommand,
 		},
 	},
 }
