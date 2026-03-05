@@ -1,6 +1,7 @@
 package taprootassets
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -27,6 +28,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapconfig"
+	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
@@ -982,8 +984,8 @@ func (s *Server) FetchLeavesFromCommit(chanState lnwl.AuxChanState,
 //
 // NOTE: This method is part of the lnwallet.AuxLeafStore interface.
 func (s *Server) FetchLeavesFromRevocation(r *channeldb.RevocationLog,
-	_ lnwl.AuxChanState, _ lnwl.CommitmentKeyRing,
-	_ *wire.MsgTx) lfn.Result[lnwl.CommitDiffAuxResult] {
+	chanState lnwl.AuxChanState, keys lnwl.CommitmentKeyRing,
+	commitTx *wire.MsgTx) lfn.Result[lnwl.CommitDiffAuxResult] {
 
 	srvrLog.Debugf("FetchLeavesFromRevocation called, ourBalance=%v, "+
 		"teirBalance=%v, numHtlcs=%d", r.OurBalance, r.TheirBalance,
@@ -991,17 +993,9 @@ func (s *Server) FetchLeavesFromRevocation(r *channeldb.RevocationLog,
 
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.
-	return tapchannel.FetchLeavesFromRevocation(r)
-}
-
-// HtlcSigHashType returns the sighash type to use for HTLC second-level
-// transactions for the given channel.
-//
-// NOTE: This method is part of the lnwallet.AuxSigner interface.
-func (s *Server) HtlcSigHashType(
-	_ lnwl.HtlcSigHashReq) lfn.Option[txscript.SigHashType] {
-
-	return lfn.None[txscript.SigHashType]()
+	return tapchannel.FetchLeavesFromRevocation(
+		r, chanState, keys, commitTx, s.chainParams,
+	)
 }
 
 // ApplyHtlcView serves as the state transition function for the custom
@@ -1145,6 +1139,74 @@ func (s *Server) VerifySecondLevelSigs(chanState lnwl.AuxChanState,
 	return tapchannel.VerifySecondLevelSigs(
 		s.chainParams, chanState, commitTx, verifyJob,
 	)
+}
+
+// HtlcSigHashType returns the sighash type to use for HTLC second-level
+// transactions for the given channel. The request carries either a ChanID
+// (for live feature-negotiation lookups on new commitments) or a CommitBlob
+// (for existing commitments), or both.
+//
+// When a ChanID is present and the server is configured, the live negotiated
+// features are checked first. The CommitBlob is used as a fallback (or as
+// the sole source when no ChanID is provided).
+//
+// NOTE: This method is part of the lnwallet.AuxSigner interface.
+func (s *Server) HtlcSigHashType(
+	req lnwl.HtlcSigHashReq) lfn.Option[txscript.SigHashType] {
+
+	// If a ChanID was provided and the server is fully configured,
+	// check live feature negotiation state first.
+	if req.ChanID.IsSome() && s != nil && s.cfg != nil &&
+		s.cfg.AuxChanNegotiator != nil {
+
+		chanID := req.ChanID.UnwrapOr(lnwire.ChannelID{})
+
+		features := s.cfg.AuxChanNegotiator.GetChannelFeatures(
+			chanID,
+		)
+
+		hasSigHashDefault := features.HasFeature(
+			tapfeatures.SigHashDefaultHTLCsOptional,
+		)
+
+		srvrLog.Debugf("HtlcSigHashType called for "+
+			"chan_id=%x, "+
+			"sighash_default_htlcs_negotiated=%v",
+			chanID[:], hasSigHashDefault)
+
+		if hasSigHashDefault {
+			return lfn.Some(txscript.SigHashDefault)
+		}
+	}
+
+	// Fall back to the commitment blob cache.
+	return s.htlcSigHashFromBlob(req.CommitBlob)
+}
+
+// htlcSigHashFromBlob decodes the commitment blob and checks the cached
+// SigHashDefault flag. This is used for existing commitments (breach,
+// resolution) where the blob is the source of truth, and as a fallback
+// during startup when the peer hasn't reconnected yet.
+func (s *Server) htlcSigHashFromBlob(
+	commitBlob lfn.Option[tlv.Blob]) lfn.Option[txscript.SigHashType] {
+
+	blob, err := commitBlob.UnwrapOrErr(
+		fmt.Errorf("no commit blob"),
+	)
+	if err == nil {
+		var c cmsg.Commitment
+		if decErr := c.Decode(bytes.NewReader(blob)); decErr == nil {
+			if c.SigHashDefault.Val {
+				srvrLog.Debugf("HtlcSigHashType: using " +
+					"cached SigHashDefault from " +
+					"commit blob")
+
+				return lfn.Some(txscript.SigHashDefault)
+			}
+		}
+	}
+
+	return lfn.None[txscript.SigHashType]()
 }
 
 // DescFromPendingChanID takes a pending channel ID, that may already be
