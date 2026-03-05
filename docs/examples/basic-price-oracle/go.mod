@@ -1,6 +1,6 @@
 module basic-price-oracle
 
-go 1.24.11
+go 1.25.5
 
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
