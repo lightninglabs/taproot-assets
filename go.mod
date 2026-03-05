@@ -31,7 +31,7 @@ require (
 	github.com/lightninglabs/lndclient v0.20.0-6
 	github.com/lightninglabs/neutrino/cache v1.1.3
 	github.com/lightninglabs/taproot-assets/taprpc v1.0.9
-	github.com/lightningnetwork/lnd v0.20.0-beta.rc4.0.20260205225502-14b90a27cfc3
+	github.com/lightningnetwork/lnd v0.20.0-beta.rc4.0.20260305102707-7c38c1ea0572
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.9
@@ -134,7 +134,7 @@ require (
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
 	github.com/lightningnetwork/lnd/kvdb v1.4.16 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
-	github.com/lightningnetwork/lnd/sqldb v1.0.13-0.20260113150738-e26a114cdcf0 // indirect
+	github.com/lightningnetwork/lnd/sqldb v1.0.13-0.20260305102707-7c38c1ea0572 // indirect
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
