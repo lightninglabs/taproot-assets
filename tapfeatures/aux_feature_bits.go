@@ -18,14 +18,29 @@ const (
 	// STXOOptional is a feature bit that declares the STXO proofs as an
 	// optional feature.
 	STXOOptional lnwire.FeatureBit = 3
+
+	// SigHashDefaultHTLCsRequired is a feature bit that declares
+	// SigHashDefault for HTLC second-level transactions as a required
+	// feature. When this feature is negotiated, HTLC second-level
+	// transactions use SigHashDefault instead of
+	// SigHashSingle|AnyOneCanPay, which keeps the transaction
+	// deterministic for asset proof construction.
+	SigHashDefaultHTLCsRequired lnwire.FeatureBit = 4
+
+	// SigHashDefaultHTLCsOptional is a feature bit that declares
+	// SigHashDefault for HTLC second-level transactions as an optional
+	// feature.
+	SigHashDefaultHTLCsOptional lnwire.FeatureBit = 5
 )
 
 // featureNames keeps track of the string description of known features.
 var featureNames = map[lnwire.FeatureBit]string{
-	NoOpHTLCsRequired: "noop-htlcs",
-	NoOpHTLCsOptional: "noop-htlcs",
-	STXORequired:      "stxo-proofs",
-	STXOOptional:      "stxo-proofs",
+	NoOpHTLCsRequired:           "noop-htlcs",
+	NoOpHTLCsOptional:           "noop-htlcs",
+	STXORequired:                "stxo-proofs",
+	STXOOptional:                "stxo-proofs",
+	SigHashDefaultHTLCsRequired: "sighash-default-htlcs",
+	SigHashDefaultHTLCsOptional: "sighash-default-htlcs",
 }
 
 // ourFeatures returns a slice containing all of the locally supported features.
@@ -35,6 +50,7 @@ func ourFeatures() []lnwire.FeatureBit {
 	return []lnwire.FeatureBit{
 		NoOpHTLCsOptional,
 		STXOOptional,
+		SigHashDefaultHTLCsOptional,
 	}
 }
 

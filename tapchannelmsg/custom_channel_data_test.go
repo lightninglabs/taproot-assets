@@ -50,7 +50,7 @@ func TestReadChannelCustomData(t *testing.T) {
 		}, map[input.HtlcIndex][]*AssetOutput{
 			2: {output4},
 		}, lnwallet.CommitAuxLeaves{},
-		false,
+		false, false,
 	)
 
 	fundingBlob := fundingState.Bytes()
@@ -158,19 +158,19 @@ func TestReadBalanceCustomData(t *testing.T) {
 
 	openChannel1 := NewCommitment(
 		[]*AssetOutput{output1}, []*AssetOutput{output2}, nil, nil,
-		lnwallet.CommitAuxLeaves{}, false,
+		lnwallet.CommitAuxLeaves{}, false, false,
 	)
 	openChannel2 := NewCommitment(
 		[]*AssetOutput{output2}, []*AssetOutput{output3}, nil, nil,
-		lnwallet.CommitAuxLeaves{}, false,
+		lnwallet.CommitAuxLeaves{}, false, false,
 	)
 	pendingChannel1 := NewCommitment(
 		[]*AssetOutput{output3}, nil, nil, nil,
-		lnwallet.CommitAuxLeaves{}, false,
+		lnwallet.CommitAuxLeaves{}, false, false,
 	)
 	pendingChannel2 := NewCommitment(
 		nil, []*AssetOutput{output1}, nil, nil,
-		lnwallet.CommitAuxLeaves{}, false,
+		lnwallet.CommitAuxLeaves{}, false, false,
 	)
 
 	var customChannelData bytes.Buffer
