@@ -153,8 +153,10 @@ jobs:
         run: make sample-conf-check
 
   # Smoke test Docker builds for default and dev images.
+  # Skip on PRs — the merge queue still gates landing.
   docker-build-check:
     name: Docker build check
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
