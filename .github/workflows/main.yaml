@@ -348,9 +348,10 @@ jobs:
         uses: ./.github/actions/cleanup-space
 
       - name: Setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v5
+        uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
+          key-prefix: itest
 
       - name: Build itest binaries
         run: make build-itest build-itest-binary build-itest-cc-binary
