@@ -178,8 +178,10 @@ jobs:
           tags: 'dev-taproot-assets'
 
   # Cross-compile release binaries across supported targets.
+  # Skip on PRs — the merge queue still gates landing.
   cross-compile:
     name: cross compilation
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
