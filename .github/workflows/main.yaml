@@ -21,8 +21,6 @@ env:
 
   GO_VERSION: '1.25.5'
 
-  LITD_BRANCH: 'chore/lnd-latest'
-
   # Number of parallel itest jobs in the matrix and tranches per job.
   # Total tranches = NUM_ITEST_JOBS * ITEST_PARALLELISM.
   NUM_ITEST_JOBS: 4
@@ -35,7 +33,7 @@ env:
 
   # Number of parallel custom channel itest jobs and tranches per job.
   # Total tranches = NUM_CC_ITEST_JOBS * CC_ITEST_PARALLELISM.
-  # Increase when more custom channel tests are ported.
+  # Runs ported custom channel tests via tapd-integrated-itest.
   NUM_CC_ITEST_JOBS: 4
   CC_ITEST_PARALLELISM: 4
 
@@ -655,31 +653,6 @@ jobs:
           name: logs-cc-itest-${{ matrix.tranche }}
           path: logs-cc-itest-${{ matrix.tranche }}.zip
           retention-days: 5
-
-  # LiT integration/unit tests with Taproot Assets replacements.
-  run-lit:
-    name: run LiT ${{ matrix.task_name }}
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - task_name: itests (custom_channels)
-            run_cmd: make itest-parallel icase=custom_channels tranches=4
-          - task_name: unit
-            run_cmd: make unit
-
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v4
-
-      - name: Prepare LiT workspace
-        uses: ./.github/actions/lit-setup
-
-      - name: Run LiT ${{ matrix.task_name }}
-        working-directory: ./lightning-terminal
-        run: ${{ matrix.run_cmd }}
 
   # Finalize Coveralls reporting after parallel coverage jobs.
   finish:
