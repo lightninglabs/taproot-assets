@@ -224,8 +224,16 @@ jobs:
         with:
           go-version: '${{ env.GO_VERSION }}'
 
-      - name: run lint
-        run: make lint
+      - name: run golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2
+
+      - name: check Go version in Dockerfiles
+        run: make check-go-version-dockerfile
+
+      - name: check Go version in YAML
+        run: make check-go-version-yaml
 
   # Enforce formatting consistency.
   format-check:
