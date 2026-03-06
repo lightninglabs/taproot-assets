@@ -29,8 +29,26 @@ shift 2
 PKG_PREFIX=${PKG:-github.com/lightninglabs/taproot-assets}
 DEV_TAGS=${DEV_TAGS:-dev monitoring}
 
-mapfile -t all_pkgs < <(go list -tags="${DEV_TAGS}" -deps "${PKG_PREFIX}/..." | \
-  grep -F "${PKG_PREFIX}" | grep -v "/vendor/")
+# Heavy packages listed first so round-robin distributes them
+# across different tranches. Order by descending test duration
+# (measured via unit-cover). Update periodically if the profile
+# shifts.
+HEAVY_PKGS=(
+  "${PKG_PREFIX}/tapdb"
+  "${PKG_PREFIX}/tapgarden"
+  "${PKG_PREFIX}/proof"
+  "${PKG_PREFIX}/tapchannelmsg"
+  "${PKG_PREFIX}/authmailbox"
+  "${PKG_PREFIX}/mssmt"
+  "${PKG_PREFIX}/fn"
+)
+
+mapfile -t remaining < <(go list -tags="${DEV_TAGS}" \
+  -deps "${PKG_PREFIX}/..." | \
+  grep -F "${PKG_PREFIX}" | grep -v "/vendor/" | \
+  grep -vxF "$(printf '%s\n' "${HEAVY_PKGS[@]}")")
+
+all_pkgs=("${HEAVY_PKGS[@]}" "${remaining[@]}")
 
 selected=()
 for i in "${!all_pkgs[@]}"; do
