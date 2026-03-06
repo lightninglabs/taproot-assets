@@ -227,7 +227,7 @@ jobs:
       - name: run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2
+          version: v2.10.1
 
       - name: check Go version in Dockerfiles
         run: make check-go-version-dockerfile
