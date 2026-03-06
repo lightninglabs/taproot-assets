@@ -319,14 +319,17 @@ jobs:
           PARALLEL=${{ env.UNIT_RACE_PARALLELISM }}
           NUM_JOBS=${{ env.NUM_UNIT_RACE_JOBS }}
           TOTAL_TRANCHES=$((NUM_JOBS * PARALLEL))
-          BASE_TRANCHE=$(( ${{ matrix.tranche }} * PARALLEL ))
 
-          echo "Running $PARALLEL tranches in parallel (tranches $BASE_TRANCHE to $((BASE_TRANCHE + PARALLEL - 1)) of $TOTAL_TRANCHES total)"
+          # Interleave tranches so each runner pairs a heavy
+          # tranche with a light one (e.g. runner 0 gets
+          # tranches 0 and 4 instead of 0 and 1).
+          echo "Running $PARALLEL tranches in parallel (total $TOTAL_TRANCHES)"
 
-          # Start all tranches in parallel.
           pids=()
           for i in $(seq 0 $((PARALLEL - 1))); do
-            make unit-race-parallel tranche=$((BASE_TRANCHE + i)) tranches=$TOTAL_TRANCHES &
+            TRANCHE=$(( ${{ matrix.tranche }} + i * NUM_JOBS ))
+            echo "  tranche $TRANCHE"
+            make unit-race-parallel tranche=$TRANCHE tranches=$TOTAL_TRANCHES &
             pids+=($!)
           done
 
