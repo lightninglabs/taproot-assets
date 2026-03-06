@@ -23,7 +23,7 @@ func ensureDirWritable(dir string) error {
 	if err != nil {
 		return fmt.Errorf("not writable (dir=%s): %w", dir, err)
 	}
-	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	defer func() { _ = os.Remove(tmpFile.Name()) }() //nolint:gosec
 
 	if err := tmpFile.Close(); err != nil {
 		return fmt.Errorf("not writable (dir=%s): %w", dir, err)
