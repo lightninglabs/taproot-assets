@@ -29,7 +29,7 @@ env:
   # Number of parallel unit-race jobs in the matrix and tranches per job.
   # Total tranches = NUM_UNIT_RACE_JOBS * UNIT_RACE_PARALLELISM.
   NUM_UNIT_RACE_JOBS: 4
-  UNIT_RACE_PARALLELISM: 2
+  UNIT_RACE_PARALLELISM: 1
 
   # Number of parallel custom channel itest jobs and tranches per job.
   # Total tranches = NUM_CC_ITEST_JOBS * CC_ITEST_PARALLELISM.
