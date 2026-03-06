@@ -61,7 +61,7 @@ var (
 // and a universe server.
 func TestTaprootAssetsDaemon(t *testing.T) {
 	// Get the test cases to be run in this tranche.
-	testCases, trancheIndex, trancheOffset := getTestCaseSplitTranche()
+	testCases, trancheIndex, _ := getTestCaseSplitTranche()
 
 	// Switch to the list of optional test cases with the '-optional' flag.
 	testList := testCases
@@ -93,8 +93,8 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 	t.Logf("Running %v integration tests", len(testList))
 	for idx, testCase := range testList {
 		name := fmt.Sprintf("tranche%02d/%02d-of-%d/%s",
-			trancheIndex, trancheOffset+uint(idx)+1,
-			len(allTestCases), testCase.name)
+			trancheIndex, uint(idx)+1,
+			len(testList), testCase.name)
 
 		success := t.Run(name, func(t1 *testing.T) {
 			// Create a new LND node for use with the universe
@@ -196,33 +196,10 @@ func maybeShuffleTestCases() {
 	})
 }
 
-// createIndices divides the number of test cases into pairs of indices that
-// specify the start and end of a tranche.
-func createIndices(numCases, numTranches uint) [][2]uint {
-	// Calculate base value and remainder.
-	base := numCases / numTranches
-	remainder := numCases % numTranches
-
-	// Generate indices.
-	indices := make([][2]uint, numTranches)
-	start := uint(0)
-
-	for i := uint(0); i < numTranches; i++ {
-		end := start + base
-		if i < remainder {
-			// Add one for the remainder.
-			end++
-		}
-		indices[i] = [2]uint{start, end}
-		start = end
-	}
-
-	return indices
-}
-
-// getTestCaseSplitTranche returns the sub slice of the test cases that should
-// be run as the current split tranche as well as the index and slice offset of
-// the tranche.
+// getTestCaseSplitTranche returns the sub slice of the test cases that
+// should be run as the current split tranche as well as the index of
+// the tranche. Tests are assigned via round-robin so that adjacent
+// (often similarly heavy) test cases land in different tranches.
 func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
 	numTranches := defaultSplitTranches
 	if testCasesSplitTranches != nil {
@@ -233,10 +210,10 @@ func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
 		runTranche = *testCasesRunTranche
 	}
 
-	// There's a special flake-hunt mode where we run the same test multiple
-	// times in parallel. In that case the tranche index is equal to the
-	// thread ID, but we need to actually run all tests for the regex
-	// selection to work.
+	// There's a special flake-hunt mode where we run the same test
+	// multiple times in parallel. In that case the tranche index is
+	// equal to the thread ID, but we need to actually run all tests
+	// for the regex selection to work.
 	threadID := runTranche
 	if numTranches == 1 {
 		runTranche = 0
@@ -245,11 +222,12 @@ func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
 	// Shuffle the test cases if the `shuffleseed` flag is set.
 	maybeShuffleTestCases()
 
-	numCases := uint(len(allTestCases))
-	indices := createIndices(numCases, numTranches)
-	index := indices[runTranche]
-	trancheOffset, trancheEnd := index[0], index[1]
+	var selected []*testCase
+	for i, tc := range allTestCases {
+		if uint(i)%numTranches == runTranche {
+			selected = append(selected, tc)
+		}
+	}
 
-	return allTestCases[trancheOffset:trancheEnd], threadID,
-		trancheOffset
+	return selected, threadID, runTranche
 }
