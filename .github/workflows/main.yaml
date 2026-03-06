@@ -467,8 +467,10 @@ jobs:
           parallel: true
 
   # Integration tests on Postgres backend.
+  # Skip on PRs — the merge queue still gates landing.
   integration-test-postgres:
     name: run itests postgres
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     needs: build-itest
     strategy:
