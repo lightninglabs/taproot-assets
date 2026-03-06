@@ -201,9 +201,6 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v5
 
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
-
       - name: Setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v5
         with:
@@ -379,9 +376,6 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v5
 
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
-
       - name: Download itest binaries
         uses: actions/download-artifact@v4
         with:
@@ -474,9 +468,6 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v5
 
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
-
       - name: Download itest binaries
         uses: actions/download-artifact@v4
         with:
@@ -568,9 +559,6 @@ jobs:
     steps:
       - name: git checkout
         uses: actions/checkout@v5
-
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
 
       - name: Download CC itest binaries
         uses: actions/download-artifact@v4
