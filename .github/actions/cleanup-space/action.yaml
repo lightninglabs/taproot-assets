@@ -37,33 +37,5 @@ runs:
           remove_path "$AGENT_TOOLSDIRECTORY"
         fi
 
-        # Remove docker images to save space.
-        if command -v docker >/dev/null 2>&1; then
-          docker image prune -a -f || true
-        else
-          echo "Docker not available; skipping image prune."
-        fi
-
-        # Remove large apt packages when available.
-        if command -v apt-get >/dev/null 2>&1; then
-          sudo apt-get remove -y \
-            '^aspnetcore-.*' \
-            '^dotnet-.*' \
-            '^llvm-.*' \
-            'php.*' \
-            '^mongodb-.*' \
-            '^mysql-.*' \
-            azure-cli \
-            google-chrome-stable \
-            firefox \
-            powershell \
-            mono-devel \
-            libgl1-mesa-dri 2>/dev/null || true
-          sudo apt-get autoremove -y || true
-          sudo apt-get clean || true
-        else
-          echo "apt-get not available; skipping package removals."
-        fi
-
         echo "Disk space after cleanup:"
         df -h || true
