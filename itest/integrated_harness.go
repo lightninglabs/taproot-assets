@@ -671,6 +671,25 @@ func (h *IntegratedNetworkHarness) StopAndRestoreDB(
 	return nil
 }
 
+// SuspendNode stops the given node without cleaning it up. It returns a
+// closure that can be called to restart the node.
+func (h *IntegratedNetworkHarness) SuspendNode(
+	node *IntegratedNode) (func(), error) {
+
+	node.Stop()
+
+	restart := func() {
+		// Remove the ready file so Start() waits for the new
+		// instance.
+		if node.readyFile != "" {
+			_ = os.Remove(node.readyFile)
+		}
+		node.Start()
+	}
+
+	return restart, nil
+}
+
 // copyAll recursively copies all files and directories from srcDir to dstDir.
 func copyAll(dstDir, srcDir string) error {
 	entries, err := os.ReadDir(srcDir)
