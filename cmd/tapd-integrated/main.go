@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btclog/v2"
 	"github.com/jessevdk/go-flags"
@@ -235,6 +236,7 @@ func run() error {
 		BlockUntilChainSynced: true,
 		BlockUntilUnlocked:    true,
 		CallerCtx:             ctx,
+		RPCTimeout:            2 * time.Minute,
 	}
 	if cfg.Lnd.NoMacaroons {
 		// Use a dummy macaroon that lndclient can deserialize.
