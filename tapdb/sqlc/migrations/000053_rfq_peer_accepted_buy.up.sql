@@ -72,7 +72,20 @@ CREATE TABLE IF NOT EXISTS rfq_policies (
     agreed_at BIGINT NOT NULL
 );
 
-INSERT INTO rfq_policies SELECT * FROM rfq_policies_old;
+INSERT INTO rfq_policies (
+    policy_type, scid, rfq_id, peer, asset_id,
+    asset_group_key, rate_coefficient, rate_scale, expiry,
+    max_out_asset_amt, payment_max_msat,
+    request_asset_max_amt, request_payment_max_msat,
+    price_oracle_metadata, request_version, agreed_at
+)
+SELECT
+    policy_type, scid, rfq_id, peer, asset_id,
+    asset_group_key, rate_coefficient, rate_scale, expiry,
+    max_out_asset_amt, payment_max_msat,
+    request_asset_max_amt, request_payment_max_msat,
+    price_oracle_metadata, request_version, agreed_at
+FROM rfq_policies_old;
 DROP TABLE rfq_policies_old;
 
 CREATE UNIQUE INDEX IF NOT EXISTS rfq_policies_rfq_id_idx ON rfq_policies (rfq_id);
@@ -119,7 +132,16 @@ CREATE TABLE IF NOT EXISTS forwards (
     UNIQUE(chan_id_in, htlc_id)
 );
 
-INSERT INTO forwards SELECT * FROM forwards_backup;
+INSERT INTO forwards (
+    opened_at, settled_at, failed_at, rfq_id,
+    chan_id_in, chan_id_out, htlc_id, asset_amt,
+    amt_in_msat, amt_out_msat
+)
+SELECT
+    opened_at, settled_at, failed_at, rfq_id,
+    chan_id_in, chan_id_out, htlc_id, asset_amt,
+    amt_in_msat, amt_out_msat
+FROM forwards_backup;
 DROP TABLE forwards_backup;
 
 CREATE INDEX IF NOT EXISTS forwards_opened_at_idx ON forwards(opened_at);
