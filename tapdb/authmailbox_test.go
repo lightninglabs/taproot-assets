@@ -196,6 +196,86 @@ func TestListOutpointsAndDelete(t *testing.T) {
 	require.Len(t, outpoints, numMessages-1)
 }
 
+// TestDeleteByMessageID tests deleting messages by ID with receiver
+// verification at the database level.
+func TestDeleteByMessageID(t *testing.T) {
+	t.Parallel()
+
+	receiverA := test.RandPubKey(t)
+	receiverB := test.RandPubKey(t)
+	mailboxStore, _ := newMailboxStore(t)
+	ctx := context.Background()
+
+	// Store a message for receiverA.
+	txProofA := proof.MockTxProof(t)
+	msgA := &authmailbox.Message{
+		ReceiverKey:      *receiverA,
+		EncryptedPayload: []byte("payload-a"),
+		ArrivalTimestamp: time.Now(),
+	}
+	idA, err := mailboxStore.StoreMessage(ctx, *txProofA, msgA)
+	require.NoError(t, err)
+
+	// Store a message for receiverB.
+	txProofB := proof.MockTxProof(t)
+	msgB := &authmailbox.Message{
+		ReceiverKey:      *receiverB,
+		EncryptedPayload: []byte("payload-b"),
+		ArrivalTimestamp: time.Now(),
+	}
+	idB, err := mailboxStore.StoreMessage(ctx, *txProofB, msgB)
+	require.NoError(t, err)
+
+	require.EqualValues(t, 2, mailboxStore.NumMessages(ctx))
+
+	// Try to delete receiverA's message using receiverB's key — should
+	// not delete anything.
+	deleted, err := mailboxStore.DeleteByMessageID(
+		ctx, idA, receiverB.SerializeCompressed(),
+	)
+	require.NoError(t, err)
+	require.False(t, deleted)
+
+	// Message should still exist.
+	_, err = mailboxStore.FetchMessage(ctx, idA)
+	require.NoError(t, err)
+
+	// Delete receiverA's message with the correct key.
+	deleted, err = mailboxStore.DeleteByMessageID(
+		ctx, idA, receiverA.SerializeCompressed(),
+	)
+	require.NoError(t, err)
+	require.True(t, deleted)
+
+	// Message and its outpoint should be gone.
+	_, err = mailboxStore.FetchMessageByOutPoint(
+		ctx, txProofA.ClaimedOutPoint,
+	)
+	require.ErrorIs(t, err, authmailbox.ErrMessageNotFound)
+	require.EqualValues(t, 1, mailboxStore.NumMessages(ctx))
+
+	// ReceiverB's message should still exist.
+	fetchedB, err := mailboxStore.FetchMessage(ctx, idB)
+	require.NoError(t, err)
+	require.Equal(t, receiverB.SerializeCompressed(),
+		fetchedB.ReceiverKey.SerializeCompressed())
+
+	// Deleting a non-existent ID should return false, no error.
+	deleted, err = mailboxStore.DeleteByMessageID(
+		ctx, 99999, receiverA.SerializeCompressed(),
+	)
+	require.NoError(t, err)
+	require.False(t, deleted)
+
+	// Deleting the same ID again (already deleted) should also return
+	// false.
+	deleted, err = mailboxStore.DeleteByMessageID(
+		ctx, idA, receiverA.SerializeCompressed(),
+	)
+	require.NoError(t, err)
+	require.False(t, deleted)
+}
+
 // TestStoreProof tests storing a transaction proof.
 func TestStoreProof(t *testing.T) {
 	t.Parallel()

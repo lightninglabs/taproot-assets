@@ -176,6 +176,47 @@ func (c *Client) SendMessage(ctx context.Context, receiverKey btcec.PublicKey,
 	return resp.MessageId, nil
 }
 
+// RemoveMessages requests the server to delete one or more messages that belong
+// to the given receiver. The receiver key is used to sign the challenge,
+// proving ownership.
+func (c *Client) RemoveMessages(ctx context.Context,
+	receiverKey keychain.KeyDescriptor,
+	messageIDs []uint64) (uint64, error) {
+
+	if c.stopped.Load() {
+		return 0, ErrClientShutdown
+	}
+
+	if len(messageIDs) == 0 {
+		return 0, nil
+	}
+
+	receiverIDBytes := receiverKey.PubKey.SerializeCompressed()
+	challenge := RemoveMessageChallenge(receiverIDBytes, messageIDs)
+
+	sig, err := c.cfg.Signer.SignMessage(
+		ctx, challenge[:], receiverKey.KeyLocator,
+		lndclient.SignSchnorr(nil),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("unable to sign remove challenge: %w",
+			err)
+	}
+
+	resp, err := c.client.RemoveMessage(
+		ctx, &mboxrpc.RemoveMessageRequest{
+			ReceiverId: receiverIDBytes,
+			MessageIds: messageIDs,
+			Signature:  sig,
+		},
+	)
+	if err != nil {
+		return 0, fmt.Errorf("unable to remove messages: %w", err)
+	}
+
+	return resp.NumRemoved, nil
+}
+
 // StartAccountSubscription opens a stream to the server and subscribes to all
 // updates that concern the given account, including all orders that spend from
 // that account. Only a single stream is ever open to the server, so a second

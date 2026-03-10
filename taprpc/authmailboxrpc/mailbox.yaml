@@ -11,5 +11,9 @@ http:
       post: "/v1/taproot-assets/mailbox/receive"
       body: "*"
 
+    - selector: authmailboxrpc.Mailbox.RemoveMessage
+      post: "/v1/taproot-assets/mailbox/remove"
+      body: "*"
+
     - selector: authmailboxrpc.Mailbox.MailboxInfo
       get: "/v1/taproot-assets/mailbox/info"

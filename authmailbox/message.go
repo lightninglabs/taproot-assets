@@ -2,6 +2,8 @@ package authmailbox
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"time"
 
@@ -76,6 +78,23 @@ func (m *Message) Timestamp() time.Time {
 	return m.ArrivalTimestamp
 }
 
+// RemoveMessageChallenge computes the challenge hash for the RemoveMessage
+// RPC: SHA256(receiver_id || big-endian uint64 msg_id_1 || ...).
+func RemoveMessageChallenge(receiverID []byte, messageIDs []uint64) [32]byte {
+	h := sha256.New()
+	_, _ = h.Write(receiverID)
+
+	var buf [8]byte
+	for _, id := range messageIDs {
+		binary.BigEndian.PutUint64(buf[:], id)
+		_, _ = h.Write(buf[:])
+	}
+
+	var result [32]byte
+	copy(result[:], h.Sum(nil))
+	return result
+}
+
 // MessageFilter is used to filter messages based on certain criteria.
 type MessageFilter struct {
 	// ReceiverKey is the message receiver's public key.
@@ -141,4 +160,10 @@ type MsgStore interface {
 	// DeleteByOutpoint deletes the outpoint record and its associated
 	// message (via CASCADE).
 	DeleteByOutpoint(ctx context.Context, op wire.OutPoint) error
+
+	// DeleteByMessageID deletes a message by its ID, but only if it
+	// belongs to the specified receiver. Returns true if a message was
+	// actually deleted.
+	DeleteByMessageID(ctx context.Context, msgID uint64,
+		receiverKey []byte) (bool, error)
 }

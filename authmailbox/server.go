@@ -751,6 +751,78 @@ func (s *Server) RemoveSubscriber(
 	return nil
 }
 
+// RemoveMessage removes one or more messages from the mailbox. The caller must
+// prove ownership of the receiver key by providing a Schnorr signature over the
+// challenge hash SHA256(receiver_id || msg_id_1 || msg_id_2 || ...).
+func (s *Server) RemoveMessage(ctx context.Context,
+	req *mboxrpc.RemoveMessageRequest) (*mboxrpc.RemoveMessageResponse,
+	error) {
+
+	receiverID, err := btcec.ParsePubKey(req.ReceiverId)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing receiver ID: %w", err)
+	}
+
+	ctx = btclog.WithCtx(
+		ctx, btclog.Hex("receiver_id", req.ReceiverId),
+		"server", true,
+	)
+	log.DebugS(ctx, "Received RemoveMessage request",
+		"num_ids", len(req.MessageIds))
+
+	if len(req.MessageIds) == 0 {
+		return &mboxrpc.RemoveMessageResponse{}, nil
+	}
+
+	if len(req.Signature) != schnorr.SignatureSize {
+		return nil, fmt.Errorf("invalid signature length: %d",
+			len(req.Signature))
+	}
+
+	// Verify the Schnorr signature over the challenge hash.
+	var pubKey [33]byte
+	copy(pubKey[:], receiverID.SerializeCompressed())
+
+	challenge := RemoveMessageChallenge(pubKey[:], req.MessageIds)
+	sigValid, err := s.cfg.Signer.VerifyMessage(
+		ctx, challenge[:], req.Signature, pubKey,
+		lndclient.VerifySchnorr(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to verify signature: %w", err)
+	}
+	if !sigValid {
+		return nil, fmt.Errorf("signature not valid for public "+
+			"key %x", pubKey[:])
+	}
+
+	// Delete each message, verifying ownership.
+	receiverKeyBytes := receiverID.SerializeCompressed()
+	var numRemoved uint64
+	for _, msgID := range req.MessageIds {
+		deleted, err := s.cfg.MsgStore.DeleteByMessageID(
+			ctx, msgID, receiverKeyBytes,
+		)
+		if err != nil {
+			log.WarnS(ctx, "Error deleting message", err,
+				"msg_id", msgID)
+			continue
+		}
+
+		if deleted {
+			numRemoved++
+		}
+	}
+
+	log.DebugS(ctx, "RemoveMessage completed",
+		"num_removed", numRemoved,
+		"num_requested", len(req.MessageIds))
+
+	return &mboxrpc.RemoveMessageResponse{
+		NumRemoved: numRemoved,
+	}, nil
+}
+
 // concatAndHash writes two byte slices to a sha256 hash and returns the sum.
 // The result is SHA256(a || b).
 func concatAndHash(a, b []byte) [32]byte {

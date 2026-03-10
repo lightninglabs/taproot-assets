@@ -41,6 +41,7 @@ type Querier interface {
 	DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error
 	DeleteTapscriptTreeNodes(ctx context.Context) error
 	DeleteTapscriptTreeRoot(ctx context.Context, rootHash []byte) error
+	DeleteTxProofByMessageAndReceiver(ctx context.Context, arg DeleteTxProofByMessageAndReceiverParams) (int64, error)
 	DeleteTxProofClaimedOutpoint(ctx context.Context, outpoint []byte) error
 	DeleteUTXOLease(ctx context.Context, outpoint []byte) error
 	DeleteUniverseEvents(ctx context.Context, namespaceRoot string) error

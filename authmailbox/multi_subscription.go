@@ -131,6 +131,24 @@ func (m *MultiSubscription) MessageChan() <-chan *ReceivedMessages {
 	return m.msgQueue.ChanOut()
 }
 
+// RemoveMessages requests the mailbox server at the given URL to delete one or
+// more messages belonging to the given receiver. If no client exists for the
+// given URL, an error is returned.
+func (m *MultiSubscription) RemoveMessages(ctx context.Context,
+	serverURL url.URL, receiverKey keychain.KeyDescriptor,
+	messageIDs []uint64) (uint64, error) {
+
+	m.RLock()
+	client, ok := m.clients[serverURL]
+	m.RUnlock()
+
+	if !ok {
+		return 0, fmt.Errorf("no client for server %s", serverURL.Host)
+	}
+
+	return client.client.RemoveMessages(ctx, receiverKey, messageIDs)
+}
+
 // Stop stops all active subscriptions and mailbox clients. It cancels all
 // active subscription contexts and waits for all clients to stop gracefully.
 func (m *MultiSubscription) Stop() error {
