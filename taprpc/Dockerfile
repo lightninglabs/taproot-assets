@@ -1,4 +1,4 @@
-FROM golang:1.25.2-bookworm
+FROM golang:1.25.5-bookworm
 
 RUN apt-get update && apt-get install -y \
   git \
