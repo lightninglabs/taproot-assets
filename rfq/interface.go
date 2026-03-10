@@ -20,6 +20,11 @@ const (
 
 	// RfqPolicyTypeAssetPurchase identifies an asset purchase policy.
 	RfqPolicyTypeAssetPurchase RfqPolicyType = "RFQ_POLICY_TYPE_PURCHASE"
+
+	// RfqPolicyTypeAssetPeerAcceptedBuy identifies a peer-accepted buy
+	// quote that was persisted for historical SCID lookup.
+	//nolint:lll
+	RfqPolicyTypeAssetPeerAcceptedBuy RfqPolicyType = "RFQ_POLICY_TYPE_PEER_ACCEPTED_BUY"
 )
 
 // String converts the policy type to its string representation.
@@ -35,9 +40,20 @@ type PolicyStore interface {
 	// StorePurchasePolicy stores an asset purchase policy.
 	StorePurchasePolicy(ctx context.Context, accept rfqmsg.SellAccept) error
 
-	// FetchAcceptedQuotes fetches all accepted buy and sell quotes.
+	// FetchAcceptedQuotes fetches all non-expired accepted quotes.
+	// Returns sale policies as buy accepts, purchase policies as sell
+	// accepts, and peer-accepted buy quotes separately.
 	FetchAcceptedQuotes(ctx context.Context) ([]rfqmsg.BuyAccept,
-		[]rfqmsg.SellAccept, error)
+		[]rfqmsg.SellAccept, []rfqmsg.BuyAccept, error)
+
+	// StorePeerAcceptedBuyQuote persists a peer-accepted buy quote for
+	// historical SCID-to-peer lookup.
+	StorePeerAcceptedBuyQuote(ctx context.Context,
+		accept rfqmsg.BuyAccept) error
+
+	// LookUpScid looks up the peer associated with the given SCID from
+	// persisted peer-accepted buy quote policies.
+	LookUpScid(ctx context.Context, scid uint64) (route.Vertex, error)
 }
 
 // ForwardInput contains the data needed to upsert a forward event.

@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -39,6 +40,10 @@ const (
 	// CacheCleanupInterval is the interval at which local runtime caches
 	// are cleaned up.
 	CacheCleanupInterval = 30 * time.Second
+
+	// scidCacheSize is the number of SCID-to-peer mappings kept in the
+	// in-memory LRU cache used by LookUpScid.
+	scidCacheSize = 5120
 )
 
 // ChannelLister is an interface that provides a list of channels that are
@@ -164,6 +169,17 @@ type ManagerCfg struct {
 	ErrChan chan<- error
 }
 
+// cachedPeer is a thin wrapper around route.Vertex that implements the
+// lru.CacheEntry interface for use in the SCID-to-peer LRU cache.
+type cachedPeer struct {
+	peer route.Vertex
+}
+
+// Size returns 1 because we limit the cache by the number of entries.
+func (c *cachedPeer) Size() (uint64, error) {
+	return 1, nil
+}
+
 // Manager is a struct that manages the request for quote (RFQ) system.
 type Manager struct {
 	startOnce sync.Once
@@ -197,6 +213,11 @@ type Manager struct {
 	// events.
 	acceptHtlcEvents chan *AcceptHtlcEvent
 
+	// scidCache is an LRU cache of SCID-to-peer mappings, used by
+	// LookUpScid to avoid repeated DB queries for recently looked-up
+	// SCIDs.
+	scidCache *lru.Cache[rfqmsg.SerialisedScid, *cachedPeer]
+
 	// groupKeyLookupCache is a map that helps us quickly perform an
 	// in-memory look up of the group an asset belongs to. Since this
 	// information is static and generated during minting, it is not
@@ -224,6 +245,10 @@ func NewManager(cfg ManagerCfg) (*Manager, error) {
 		outgoingMessages: make(chan rfqmsg.OutgoingMsg),
 
 		acceptHtlcEvents: make(chan *AcceptHtlcEvent),
+
+		scidCache: lru.NewCache[
+			rfqmsg.SerialisedScid, *cachedPeer,
+		](scidCacheSize),
 
 		subscribers: lnutils.SyncMap[
 			uint64, *fn.EventReceiver[fn.Event]]{},
@@ -436,6 +461,18 @@ func (m *Manager) handleIncomingMessage(ctx context.Context,
 			// lightning node.
 			scid := msg.ShortChannelId()
 			m.orderHandler.peerBuyQuotes.Store(scid, msg)
+
+			// Persist the peer buy quote to DB so that
+			// historical SCID lookups survive quote expiry
+			// and restarts.
+			storeErr := m.cfg.PolicyStore.StorePeerAcceptedBuyQuote(
+				ctx, msg,
+			)
+			if storeErr != nil {
+				log.Errorf("Failed to persist peer buy "+
+					"quote for SCID %d: %v", scid,
+					storeErr)
+			}
 
 			// Since we're going to buy assets from our peer, we
 			// need to make sure we can identify the incoming asset
@@ -778,6 +815,56 @@ func (m *Manager) PeerAcceptedBuyQuotes() BuyAcceptMap {
 	)
 
 	return buyQuotesCopy
+}
+
+// LookUpScid resolves the peer associated with a given SCID for peer-accepted
+// buy quotes (i.e. quotes where our node requested to buy assets and the peer
+// accepted). It checks (in order): the active in-memory peerBuyQuotes map, the
+// LRU cache, and finally the database (filtered to peer-accepted buy policies
+// only). Results from the DB are cached in the LRU for future lookups.
+//
+// This method is safe for concurrent use. Each tier is individually
+// thread-safe, and the composition is correct because SCID-to-peer mappings
+// are immutable once created — a given SCID always resolves to the same peer.
+// Concurrent misses that fall through to the DB will produce identical results,
+// making the subsequent cache Put idempotent.
+func (m *Manager) LookUpScid(scid uint64) (route.Vertex, error) {
+	serialised := rfqmsg.SerialisedScid(scid)
+
+	// 1. Check active in-memory peer buy quotes.
+	quote, ok := m.orderHandler.peerBuyQuotes.Load(serialised)
+	if ok {
+		log.Debugf("LookUpScid(%d): resolved from active map, "+
+			"peer=%x", scid, quote.Peer[:])
+		return quote.Peer, nil
+	}
+
+	// 2. Check the LRU cache.
+	cached, err := m.scidCache.Get(serialised)
+	if err == nil {
+		log.Debugf("LookUpScid(%d): resolved from LRU cache, "+
+			"peer=%x", scid, cached.peer[:])
+		return cached.peer, nil
+	}
+
+	// 3. Fall back to a DB query.
+	ctx, cancel := m.WithCtxQuit()
+	defer cancel()
+
+	peer, err := m.cfg.PolicyStore.LookUpScid(ctx, scid)
+	if err != nil {
+		log.Debugf("LookUpScid(%d): not found in any tier", scid)
+		return route.Vertex{}, fmt.Errorf("no peer found for RFQ "+
+			"SCID %d: %w", scid, err)
+	}
+
+	// Cache the result for future lookups.
+	_, _ = m.scidCache.Put(serialised, &cachedPeer{peer: peer})
+
+	log.Debugf("LookUpScid(%d): resolved from DB (now cached), "+
+		"peer=%x", scid, peer[:])
+
+	return peer, nil
 }
 
 // PeerAcceptedSellQuotes returns sell quotes that were requested by our node

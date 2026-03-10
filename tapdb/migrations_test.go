@@ -929,6 +929,109 @@ func TestMigration51BurnReplay(t *testing.T) {
 	)
 }
 
+// TestMigration53Roundtrip tests that migration 53 (peer-accepted buy) can be
+// applied, reverted, and re-applied without errors. It also verifies that the
+// down migration correctly deletes peer-accepted buy rows while preserving
+// sale and purchase policies.
+func TestMigration53Roundtrip(t *testing.T) {
+	ctx := context.Background()
+
+	// Start at version 52 (just before our migration).
+	db := NewTestDBWithVersion(t, 52)
+
+	// Insert a sale policy at version 52.
+	//nolint:lll
+	_, err := db.ExecContext(ctx, transformByteLiterals(t, db.BaseDB, `
+		INSERT INTO rfq_policies (
+			policy_type, scid, rfq_id, peer, asset_id,
+			rate_coefficient, rate_scale, expiry, agreed_at
+		) VALUES (
+			'RFQ_POLICY_TYPE_SALE', 100,
+			X'0101010101010101010101010101010101010101010101010101010101010101',
+			X'020202020202020202020202020202020202020202020202020202020202020202',
+			X'0303030303030303030303030303030303030303030303030303030303030303',
+			X'01', 0, 9999999999, 1700000000
+		)
+	`))
+	require.NoError(t, err)
+
+	// Migrate UP to version 53.
+	err = db.ExecuteMigrations(
+		TargetVersion(53), WithLatestVersion(53),
+	)
+	require.NoError(t, err)
+
+	//nolint:lll
+	_, err = db.ExecContext(ctx, transformByteLiterals(t, db.BaseDB, `
+		INSERT INTO rfq_policies (
+			policy_type, scid, rfq_id, peer, asset_id,
+			rate_coefficient, rate_scale, expiry, agreed_at
+		) VALUES (
+			'RFQ_POLICY_TYPE_PEER_ACCEPTED_BUY', 200,
+			X'0404040404040404040404040404040404040404040404040404040404040404',
+			X'050505050505050505050505050505050505050505050505050505050505050505',
+			X'0606060606060606060606060606060606060606060606060606060606060606',
+			X'01', 0, 9999999999, 1700000000
+		)
+	`))
+	require.NoError(t, err)
+
+	// Verify both rows exist.
+	var count int
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM rfq_policies
+	`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+
+	// Migrate DOWN to version 52.
+	err = db.ExecuteMigrations(TargetVersion(52))
+	require.NoError(t, err)
+
+	// The peer-accepted buy row should have been deleted by the
+	// down migration. Only the sale row should remain.
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM rfq_policies
+	`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+
+	var policyType string
+	err = db.QueryRowContext(ctx, `
+		SELECT policy_type FROM rfq_policies LIMIT 1
+	`).Scan(&policyType)
+	require.NoError(t, err)
+	require.Equal(t, "RFQ_POLICY_TYPE_SALE", policyType)
+
+	// Migrate UP again to version 53.
+	err = db.ExecuteMigrations(
+		TargetVersion(53), WithLatestVersion(53),
+	)
+	require.NoError(t, err)
+
+	// The sale row should still be intact.
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM rfq_policies
+	`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+
+	//nolint:lll
+	_, err = db.ExecContext(ctx, transformByteLiterals(t, db.BaseDB, `
+		INSERT INTO rfq_policies (
+			policy_type, scid, rfq_id, peer, asset_id,
+			rate_coefficient, rate_scale, expiry, agreed_at
+		) VALUES (
+			'RFQ_POLICY_TYPE_PEER_ACCEPTED_BUY', 300,
+			X'0707070707070707070707070707070707070707070707070707070707070707',
+			X'080808080808080808080808080808080808080808080808080808080808080808',
+			X'0909090909090909090909090909090909090909090909090909090909090909',
+			X'01', 0, 9999999999, 1700000000
+		)
+	`))
+	require.NoError(t, err)
+}
+
 // TestDirtySqliteVersion tests that if a migration fails and leaves an Sqlite
 // database backend in a dirty state, any attempts of re-executing migrations on
 // the db (i.e. restart tapd), will fail with an error indicating that the

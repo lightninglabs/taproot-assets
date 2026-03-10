@@ -95,6 +95,20 @@ func (q *Queries) FetchActiveRfqPolicies(ctx context.Context, minExpiry int64) (
 	return items, nil
 }
 
+const FetchPeerAcceptedBuyPeerByScid = `-- name: FetchPeerAcceptedBuyPeerByScid :one
+SELECT peer FROM rfq_policies
+WHERE scid = $1
+  AND policy_type = 'RFQ_POLICY_TYPE_PEER_ACCEPTED_BUY'
+LIMIT 1
+`
+
+func (q *Queries) FetchPeerAcceptedBuyPeerByScid(ctx context.Context, scid int64) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, FetchPeerAcceptedBuyPeerByScid, scid)
+	var peer []byte
+	err := row.Scan(&peer)
+	return peer, err
+}
+
 const InsertRfqPolicy = `-- name: InsertRfqPolicy :one
 INSERT INTO rfq_policies (
     policy_type, scid, rfq_id, peer, asset_id, asset_group_key,

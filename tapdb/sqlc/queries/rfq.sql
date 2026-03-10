@@ -62,6 +62,12 @@ WHERE f.opened_at >= @opened_after AND f.opened_at <= @opened_before
 ORDER BY f.opened_at DESC
 LIMIT @num_limit OFFSET @num_offset;
 
+-- name: FetchPeerAcceptedBuyPeerByScid :one
+SELECT peer FROM rfq_policies
+WHERE scid = $1
+  AND policy_type = 'RFQ_POLICY_TYPE_PEER_ACCEPTED_BUY'
+LIMIT 1;
+
 -- name: CountForwards :one
 SELECT COUNT(*) as total
 FROM forwards f
