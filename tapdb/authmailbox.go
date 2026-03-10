@@ -88,6 +88,13 @@ type AuthMailboxStore interface {
 	// database. The associated message is removed via ON DELETE CASCADE.
 	DeleteTxProofClaimedOutpoint(ctx context.Context,
 		outpoint []byte) error
+
+	// DeleteAuthMailboxMessageByIDAndReceiver deletes a message with the
+	// given ID, but only if it belongs to the specified receiver. Returns
+	// the number of rows affected.
+	DeleteAuthMailboxMessageByIDAndReceiver(ctx context.Context,
+		arg sqlc.DeleteAuthMailboxMessageByIDAndReceiverParams) (
+		int64, error)
 }
 
 // BatchedMailboxStore is a version of the AuthMailboxStore that's capable of
@@ -426,4 +433,37 @@ func (m MailboxStore) DeleteByOutpoint(ctx context.Context,
 	return m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
 		return q.DeleteTxProofClaimedOutpoint(ctx, serializedOp)
 	})
+}
+
+// DeleteByMessageID deletes a message by its ID, but only if it belongs to the
+// specified receiver. Returns true if a message was actually deleted.
+func (m MailboxStore) DeleteByMessageID(ctx context.Context, msgID uint64,
+	receiverKey []byte) (bool, error) {
+
+	var (
+		txOpt   = WriteTxOption()
+		deleted bool
+	)
+	dbErr := m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
+		rowsAffected, err := q.DeleteAuthMailboxMessageByIDAndReceiver(
+			ctx, sqlc.DeleteAuthMailboxMessageByIDAndReceiverParams{
+				MessageID:   int64(msgID),
+				ReceiverKey: receiverKey,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error deleting message %d: %w",
+				msgID, err)
+		}
+
+		deleted = rowsAffected > 0
+
+		return nil
+	})
+	if dbErr != nil {
+		return false, fmt.Errorf("error deleting message %d: %w",
+			msgID, dbErr)
+	}
+
+	return deleted, nil
 }

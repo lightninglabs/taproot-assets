@@ -37,6 +37,11 @@ type MailboxClient interface {
 	ReceiveMessages(ctx context.Context, opts ...grpc.CallOption) (Mailbox_ReceiveMessagesClient, error)
 	// Returns basic server information.
 	MailboxInfo(ctx context.Context, in *MailboxInfoRequest, opts ...grpc.CallOption) (*MailboxInfoResponse, error)
+	// Removes one or more messages from the mailbox. The caller must prove
+	// ownership of the receiver key by providing a Schnorr signature over
+	// SHA256(receiver_id || big-endian uint64 message_id_1 || ...).
+	// Only messages that belong to the authenticated receiver are deleted.
+	RemoveMessage(ctx context.Context, in *RemoveMessageRequest, opts ...grpc.CallOption) (*RemoveMessageResponse, error)
 }
 
 type mailboxClient struct {
@@ -96,6 +101,15 @@ func (c *mailboxClient) MailboxInfo(ctx context.Context, in *MailboxInfoRequest,
 	return out, nil
 }
 
+func (c *mailboxClient) RemoveMessage(ctx context.Context, in *RemoveMessageRequest, opts ...grpc.CallOption) (*RemoveMessageResponse, error) {
+	out := new(RemoveMessageResponse)
+	err := c.cc.Invoke(ctx, "/authmailboxrpc.Mailbox/RemoveMessage", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MailboxServer is the server API for Mailbox service.
 // All implementations must embed UnimplementedMailboxServer
 // for forward compatibility
@@ -119,6 +133,11 @@ type MailboxServer interface {
 	ReceiveMessages(Mailbox_ReceiveMessagesServer) error
 	// Returns basic server information.
 	MailboxInfo(context.Context, *MailboxInfoRequest) (*MailboxInfoResponse, error)
+	// Removes one or more messages from the mailbox. The caller must prove
+	// ownership of the receiver key by providing a Schnorr signature over
+	// SHA256(receiver_id || big-endian uint64 message_id_1 || ...).
+	// Only messages that belong to the authenticated receiver are deleted.
+	RemoveMessage(context.Context, *RemoveMessageRequest) (*RemoveMessageResponse, error)
 	mustEmbedUnimplementedMailboxServer()
 }
 
@@ -134,6 +153,9 @@ func (UnimplementedMailboxServer) ReceiveMessages(Mailbox_ReceiveMessagesServer)
 }
 func (UnimplementedMailboxServer) MailboxInfo(context.Context, *MailboxInfoRequest) (*MailboxInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MailboxInfo not implemented")
+}
+func (UnimplementedMailboxServer) RemoveMessage(context.Context, *RemoveMessageRequest) (*RemoveMessageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveMessage not implemented")
 }
 func (UnimplementedMailboxServer) mustEmbedUnimplementedMailboxServer() {}
 
@@ -210,6 +232,24 @@ func _Mailbox_MailboxInfo_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Mailbox_RemoveMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveMessageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MailboxServer).RemoveMessage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/authmailboxrpc.Mailbox/RemoveMessage",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MailboxServer).RemoveMessage(ctx, req.(*RemoveMessageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Mailbox_ServiceDesc is the grpc.ServiceDesc for Mailbox service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -224,6 +264,10 @@ var Mailbox_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MailboxInfo",
 			Handler:    _Mailbox_MailboxInfo_Handler,
+		},
+		{
+			MethodName: "RemoveMessage",
+			Handler:    _Mailbox_RemoveMessage_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -22,6 +22,24 @@ func (q *Queries) CountAuthMailboxMessages(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const DeleteAuthMailboxMessageByIDAndReceiver = `-- name: DeleteAuthMailboxMessageByIDAndReceiver :execrows
+DELETE FROM authmailbox_messages
+WHERE id = $1 AND receiver_key = $2
+`
+
+type DeleteAuthMailboxMessageByIDAndReceiverParams struct {
+	MessageID   int64
+	ReceiverKey []byte
+}
+
+func (q *Queries) DeleteAuthMailboxMessageByIDAndReceiver(ctx context.Context, arg DeleteAuthMailboxMessageByIDAndReceiverParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, DeleteAuthMailboxMessageByIDAndReceiver, arg.MessageID, arg.ReceiverKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const DeleteTxProofClaimedOutpoint = `-- name: DeleteTxProofClaimedOutpoint :exec
 DELETE FROM tx_proof_claimed_outpoints
 WHERE outpoint = $1

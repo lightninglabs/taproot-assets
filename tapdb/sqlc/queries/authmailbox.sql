@@ -80,3 +80,7 @@ LIMIT @num_limit OFFSET @num_offset;
 -- name: DeleteTxProofClaimedOutpoint :exec
 DELETE FROM tx_proof_claimed_outpoints
 WHERE outpoint = $1;
+
+-- name: DeleteAuthMailboxMessageByIDAndReceiver :execrows
+DELETE FROM authmailbox_messages
+WHERE id = @message_id AND receiver_key = @receiver_key;

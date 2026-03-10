@@ -30,6 +30,7 @@ type Querier interface {
 	CountUnconfirmedAssets(ctx context.Context, arg CountUnconfirmedAssetsParams) (int64, error)
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
+	DeleteAuthMailboxMessageByIDAndReceiver(ctx context.Context, arg DeleteAuthMailboxMessageByIDAndReceiverParams) (int64, error)
 	DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error
 	DeleteFederationProofSyncLog(ctx context.Context, arg DeleteFederationProofSyncLogParams) error
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
