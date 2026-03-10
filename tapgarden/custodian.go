@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1257,12 +1258,32 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 
 		// Now that we've seen this output confirm on chain, we'll
 		// launch a goroutine to use the ProofCourier to import the
-		// proof into our local DB.
+		// proof into our local DB. Once the proof is imported, we'll
+		// remove the mailbox message from the server.
+		msgID := mboxMsg.MessageId
+		serverURL := tapAddr.ProofCourierAddr
 		c.Goroutine(func() error {
-			return c.receiveProofs(
+			err := c.receiveProofs(
 				tapAddr.Tap, fragment.OutPoint, outputs,
 				fragment.BlockHeight,
 			)
+			if err != nil {
+				return err
+			}
+
+			// Proofs received successfully, remove the mailbox
+			// message from the server. This is best-effort:
+			// the proofs are already imported, so we only
+			// log the error.
+			_, err = c.removeMailboxMessages(
+				serverURL, receiver, []uint64{msgID},
+			)
+			if err != nil {
+				log.Warnf("Error removing mailbox "+
+					"message: %v", err)
+			}
+
+			return nil
 		}, func(err error) {
 			c.publishSubscriberStatusEvent(
 				NewAssetReceiveErrorEvent(
@@ -1285,6 +1306,29 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 	}
 
 	return nil
+}
+
+// removeMailboxMessages attempts to remove the specified messages from the
+// mailbox server.
+func (c *Custodian) removeMailboxMessages(serverURL url.URL,
+	receiver keychain.KeyDescriptor,
+	messageIDs []uint64) (uint64, error) {
+
+	ctx, cancel := c.WithCtxQuit()
+	defer cancel()
+
+	numRemoved, err := c.mboxSubscriptions.RemoveMessages(
+		ctx, serverURL, receiver, messageIDs,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("unable to remove mailbox messages "+
+			"%v from %s: %w", messageIDs, serverURL.Host, err)
+	}
+
+	log.Debugf("Removed %d/%d mailbox messages from %s", numRemoved,
+		len(messageIDs), serverURL.Host)
+
+	return numRemoved, nil
 }
 
 // decryptMailboxMsg decrypts a mailbox message using the receiver's key and
