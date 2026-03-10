@@ -22,6 +22,16 @@ func (q *Queries) CountAuthMailboxMessages(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const DeleteTxProofClaimedOutpoint = `-- name: DeleteTxProofClaimedOutpoint :exec
+DELETE FROM tx_proof_claimed_outpoints
+WHERE outpoint = $1
+`
+
+func (q *Queries) DeleteTxProofClaimedOutpoint(ctx context.Context, outpoint []byte) error {
+	_, err := q.db.ExecContext(ctx, DeleteTxProofClaimedOutpoint, outpoint)
+	return err
+}
+
 const FetchAuthMailboxMessage = `-- name: FetchAuthMailboxMessage :one
 SELECT 
     m.id,
@@ -149,6 +159,53 @@ func (q *Queries) InsertTxProof(ctx context.Context, arg InsertTxProofParams) er
 		arg.MerkleRoot,
 	)
 	return err
+}
+
+const ListClaimedOutpoints = `-- name: ListClaimedOutpoints :many
+SELECT outpoint, internal_key, merkle_root, block_height
+FROM tx_proof_claimed_outpoints
+ORDER BY block_height ASC
+LIMIT $2 OFFSET $1
+`
+
+type ListClaimedOutpointsParams struct {
+	NumOffset int32
+	NumLimit  int32
+}
+
+type ListClaimedOutpointsRow struct {
+	Outpoint    []byte
+	InternalKey []byte
+	MerkleRoot  []byte
+	BlockHeight int32
+}
+
+func (q *Queries) ListClaimedOutpoints(ctx context.Context, arg ListClaimedOutpointsParams) ([]ListClaimedOutpointsRow, error) {
+	rows, err := q.db.QueryContext(ctx, ListClaimedOutpoints, arg.NumOffset, arg.NumLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListClaimedOutpointsRow
+	for rows.Next() {
+		var i ListClaimedOutpointsRow
+		if err := rows.Scan(
+			&i.Outpoint,
+			&i.InternalKey,
+			&i.MerkleRoot,
+			&i.BlockHeight,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const QueryAuthMailboxMessages = `-- name: QueryAuthMailboxMessages :many

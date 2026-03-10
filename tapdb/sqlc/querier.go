@@ -42,6 +42,7 @@ type Querier interface {
 	DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error
 	DeleteTapscriptTreeNodes(ctx context.Context) error
 	DeleteTapscriptTreeRoot(ctx context.Context, rootHash []byte) error
+	DeleteTxProofClaimedOutpoint(ctx context.Context, outpoint []byte) error
 	DeleteUTXOLease(ctx context.Context, outpoint []byte) error
 	DeleteUniverseEvents(ctx context.Context, namespaceRoot string) error
 	DeleteUniverseLeaf(ctx context.Context, arg DeleteUniverseLeafParams) error
@@ -160,6 +161,7 @@ type Querier interface {
 	InsertTxProof(ctx context.Context, arg InsertTxProofParams) error
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
 	LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error
+	ListClaimedOutpoints(ctx context.Context, arg ListClaimedOutpointsParams) ([]ListClaimedOutpointsRow, error)
 	LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error
 	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
 	MarkManagedUTXOAsSwept(ctx context.Context, arg MarkManagedUTXOAsSweptParams) error

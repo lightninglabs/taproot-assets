@@ -15,6 +15,26 @@ const (
 	MsgMaxSize = 65536
 )
 
+// OutpointChecker checks whether a given outpoint has been spent on chain.
+// Returns true if the outpoint has been spent, false if it is still unspent.
+// pkScript is the output's script, heightHint is the block height where the
+// outpoint was confirmed (used to optimize the chain backend lookup).
+type OutpointChecker func(ctx context.Context, op wire.OutPoint,
+	pkScript []byte, heightHint uint32) (bool, error)
+
+// ClaimedOutpoint holds an outpoint and metadata needed for spent checks.
+type ClaimedOutpoint struct {
+	// OutPoint is the claimed outpoint from the transaction proof.
+	OutPoint wire.OutPoint
+
+	// PkScript is the output's pkScript, reconstructed from the internal
+	// key and merkle root stored in the database.
+	PkScript []byte
+
+	// BlockHeight is the block height at which the outpoint was confirmed.
+	BlockHeight uint32
+}
+
 var (
 	// ErrMessageTooLong is returned when a message exceeds the maximum
 	// allowed length.
@@ -112,4 +132,13 @@ type MsgStore interface {
 	// and efficiently (e.g., by caching the result), as it might be queried
 	// often.
 	NumMessages(ctx context.Context) uint64
+
+	// ListOutpoints returns a paginated list of claimed outpoints with
+	// their pkScripts and block heights, for use by the cleanup process.
+	ListOutpoints(ctx context.Context, limit,
+		offset int32) ([]ClaimedOutpoint, error)
+
+	// DeleteByOutpoint deletes the outpoint record and its associated
+	// message (via CASCADE).
+	DeleteByOutpoint(ctx context.Context, op wire.OutPoint) error
 }
