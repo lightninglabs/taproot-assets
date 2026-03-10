@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1257,12 +1258,26 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 
 		// Now that we've seen this output confirm on chain, we'll
 		// launch a goroutine to use the ProofCourier to import the
-		// proof into our local DB.
+		// proof into our local DB. Once the proof is imported, we'll
+		// remove the mailbox message from the server.
+		msgID := mboxMsg.MessageId
+		serverURL := tapAddr.ProofCourierAddr
 		c.Goroutine(func() error {
-			return c.receiveProofs(
+			err := c.receiveProofs(
 				tapAddr.Tap, fragment.OutPoint, outputs,
 				fragment.BlockHeight,
 			)
+			if err != nil {
+				return err
+			}
+
+			// Proofs received successfully, remove the mailbox
+			// message from the server.
+			c.removeMailboxMessages(
+				serverURL, receiver, []uint64{msgID},
+			)
+
+			return nil
 		}, func(err error) {
 			c.publishSubscriberStatusEvent(
 				NewAssetReceiveErrorEvent(
@@ -1285,6 +1300,29 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 	}
 
 	return nil
+}
+
+// removeMailboxMessages attempts to remove the specified messages from the
+// mailbox server. This is best-effort: errors are logged but do not propagate
+// to the caller, since the messages were already successfully processed.
+func (c *Custodian) removeMailboxMessages(serverURL url.URL,
+	receiver keychain.KeyDescriptor, messageIDs []uint64) {
+
+	ctx, cancel := c.WithCtxQuit()
+	defer cancel()
+
+	numRemoved, err := c.mboxSubscriptions.RemoveMessages(
+		ctx, serverURL, receiver, messageIDs,
+	)
+	if err != nil {
+		log.Warnf("Unable to remove mailbox messages %v from %s: %v",
+			messageIDs, serverURL.Host, err)
+
+		return
+	}
+
+	log.Debugf("Removed %d/%d mailbox messages from %s", numRemoved,
+		len(messageIDs), serverURL.Host)
 }
 
 // decryptMailboxMsg decrypts a mailbox message using the receiver's key and
