@@ -135,6 +135,57 @@ func (s *MockMsgStore) NumMessages(context.Context) uint64 {
 	return uint64(len(s.messages))
 }
 
+func (s *MockMsgStore) ListOutpoints(_ context.Context, limit,
+	offset int32) ([]ClaimedOutpoint, error) {
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Collect all outpoints.
+	allOutpoints := make([]wire.OutPoint, 0, len(s.outpointToMessage))
+	for op := range s.outpointToMessage {
+		allOutpoints = append(allOutpoints, op)
+	}
+
+	// Apply offset and limit.
+	start := int(offset)
+	if start >= len(allOutpoints) {
+		return nil, nil
+	}
+
+	end := start + int(limit)
+	if end > len(allOutpoints) {
+		end = len(allOutpoints)
+	}
+
+	result := make([]ClaimedOutpoint, 0, end-start)
+	for _, op := range allOutpoints[start:end] {
+		result = append(result, ClaimedOutpoint{
+			OutPoint: op,
+		})
+	}
+
+	return result, nil
+}
+
+func (s *MockMsgStore) DeleteByOutpoint(_ context.Context,
+	op wire.OutPoint) error {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	msgID, exists := s.outpointToMessage[op]
+	if !exists {
+		return nil
+	}
+
+	delete(s.messages, msgID)
+	delete(s.outpointToMessage, op)
+	delete(s.proofs, op)
+
+	return nil
+}
+
 type MockServer struct {
 	cfg          *ServerConfig
 	clientCfg    *ClientConfig

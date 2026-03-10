@@ -350,6 +350,10 @@ type UniverseConfig struct {
 
 	MboxAuthTimeout time.Duration `long:"mbox-auth-timeout" description:"The timeout for mailbox message retrieval client authentication. Valid time units are {s, m, h}."`
 
+	MboxCleanupInterval time.Duration `long:"mbox-cleanup-interval" description:"How often to check for spent outpoints and delete stale mailbox messages. Set to 0 to disable cleanup. Valid time units are {s, m, h}."`
+
+	MboxCleanupCheckTimeout time.Duration `long:"mbox-cleanup-check-timeout" description:"Per-outpoint timeout when checking if an outpoint has been spent on chain. Valid time units are {s, m, h}."`
+
 	MultiverseCaches *tapdb.MultiverseCacheConfig `group:"multiverse-caches" namespace:"multiverse-caches"`
 
 	SupplyIgnoreCacheSize uint64 `long:"supply-ignore-cache-size" description:"The maximum number of entries in the supply ignore checker's negative lookup LRU cache."`

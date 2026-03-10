@@ -14,6 +14,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -24,6 +25,20 @@ import (
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"golang.org/x/exp/maps"
 	"google.golang.org/grpc"
+)
+
+const (
+	// defaultCleanupInterval is the default interval at which the server
+	// checks for spent outpoints and deletes stale messages.
+	defaultCleanupInterval = 24 * time.Hour
+
+	// defaultCleanupCheckTimeout is the default per-outpoint timeout when
+	// checking if an outpoint has been spent on chain.
+	defaultCleanupCheckTimeout = 30 * time.Second
+
+	// cleanupBatchSize is the number of outpoints to fetch per page
+	// during cleanup.
+	cleanupBatchSize int32 = 1000
 )
 
 // ServerConfig is the configuration struct for the mailbox server. It contains
@@ -48,6 +63,18 @@ type ServerConfig struct {
 	// MsgStore is the message store used to store and retrieve messages
 	// sent to the mailbox server.
 	MsgStore MsgStore
+
+	// OutpointChecker checks whether a given outpoint has been spent on
+	// chain. If nil, no periodic cleanup is performed.
+	OutpointChecker OutpointChecker
+
+	// CleanupInterval is how often the server checks for spent outpoints
+	// and deletes stale messages. Defaults to 24h if zero.
+	CleanupInterval time.Duration
+
+	// CleanupCheckTimeout is the per-outpoint timeout when checking if
+	// an outpoint has been spent. Defaults to 30s if zero.
+	CleanupCheckTimeout time.Duration
 }
 
 // Server is the mailbox server that handles incoming messages from clients and
@@ -103,6 +130,14 @@ func (s *Server) Start(cfg *ServerConfig) error {
 		}
 
 		s.cfg = cfg
+
+		if s.cfg.OutpointChecker != nil {
+			s.WgAdd(1)
+			go func() {
+				defer s.WgDone()
+				s.cleanupLoop()
+			}()
+		}
 	})
 
 	return startErr
@@ -728,4 +763,141 @@ func concatAndHash(a, b []byte) [32]byte {
 	_, _ = h.Write(b)
 	copy(result[:], h.Sum(nil))
 	return result
+}
+
+// spentResult holds the result of a single outpoint spend check.
+type spentResult struct {
+	outpoint wire.OutPoint
+	spent    bool
+	err      error
+}
+
+// cleanupLoop runs periodically and removes outpoints (and their associated
+// messages) that have been spent on chain.
+func (s *Server) cleanupLoop() {
+	interval := cmp.Or(
+		s.cfg.CleanupInterval, defaultCleanupInterval,
+	)
+
+	cleanupTicker := time.NewTicker(interval)
+	defer cleanupTicker.Stop()
+
+	log.Infof("Authmailbox cleanup loop started, interval=%v", interval)
+
+	for {
+		select {
+		case <-cleanupTicker.C:
+			s.cleanupSpentOutpoints()
+
+		case <-s.Done():
+			log.Debugf("Authmailbox cleanup loop stopping")
+			return
+		}
+	}
+}
+
+// cleanupSpentOutpoints iterates through all claimed outpoints, checks each
+// one for on-chain spends concurrently in batches, and deletes spent ones.
+func (s *Server) cleanupSpentOutpoints() {
+	checkTimeout := cmp.Or(
+		s.cfg.CleanupCheckTimeout, defaultCleanupCheckTimeout,
+	)
+
+	var (
+		totalChecked int
+		totalDeleted int
+		offset       int32
+	)
+
+	for {
+		ctx, cancel := context.WithCancel(context.Background())
+		outpoints, err := s.cfg.MsgStore.ListOutpoints(
+			ctx, cleanupBatchSize, offset,
+		)
+		cancel()
+
+		if err != nil {
+			log.Errorf("Error listing outpoints for cleanup: %v",
+				err)
+			return
+		}
+
+		if len(outpoints) == 0 {
+			break
+		}
+
+		// Check all outpoints in this batch concurrently.
+		results := make(chan spentResult, len(outpoints))
+		for _, op := range outpoints {
+			go func() {
+				checkCtx, checkCancel :=
+					context.WithTimeout(
+						context.Background(),
+						checkTimeout,
+					)
+				defer checkCancel()
+
+				spent, checkErr := s.cfg.OutpointChecker(
+					checkCtx, op.OutPoint,
+					op.PkScript, op.BlockHeight,
+				)
+				results <- spentResult{
+					outpoint: op.OutPoint,
+					spent:    spent,
+					err:      checkErr,
+				}
+			}()
+		}
+
+		// Collect results from all concurrent checks.
+		batchDeleted := 0
+		for range outpoints {
+			res := <-results
+			if res.err != nil {
+				log.Warnf("Error checking outpoint %v: %v",
+					res.outpoint, res.err)
+				continue
+			}
+
+			if !res.spent {
+				continue
+			}
+
+			delCtx, delCancel := context.WithTimeout(
+				context.Background(), checkTimeout,
+			)
+			err := s.cfg.MsgStore.DeleteByOutpoint(
+				delCtx, res.outpoint,
+			)
+			delCancel()
+
+			if err != nil {
+				log.Errorf("Error deleting outpoint %v: %v",
+					res.outpoint, err)
+				continue
+			}
+
+			batchDeleted++
+		}
+
+		totalChecked += len(outpoints)
+		totalDeleted += batchDeleted
+
+		// When we delete rows, subsequent pages shift. Only advance
+		// the offset by the number of rows that were NOT deleted, so
+		// we don't skip any.
+		offset += int32(len(outpoints)) - int32(batchDeleted)
+
+		// If we got fewer rows than the batch size, we've reached
+		// the end.
+		if int32(len(outpoints)) < cleanupBatchSize {
+			break
+		}
+	}
+
+	if totalChecked > 0 {
+		log.Infof("Authmailbox cleanup: checked %d outpoints, "+
+			"deleted %d spent messages", totalChecked,
+			totalDeleted)
+	}
 }
