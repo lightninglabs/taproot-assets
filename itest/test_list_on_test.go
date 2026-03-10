@@ -436,6 +436,10 @@ var allTestCases = []*testCase{
 		test: testAuthMailboxCleanup,
 	},
 	{
+		name: "auth mailbox remove message",
+		test: testAuthMailboxRemoveMessage,
+	},
+	{
 		name: "script key type pedersen unique",
 		test: testScriptKeyTypePedersenUnique,
 	},
