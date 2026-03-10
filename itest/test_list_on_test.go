@@ -416,6 +416,10 @@ var allTestCases = []*testCase{
 		test: testAuthMailboxStoreAndFetchMessage,
 	},
 	{
+		name: "auth mailbox cleanup",
+		test: testAuthMailboxCleanup,
+	},
+	{
 		name: "script key type pedersen unique",
 		test: testScriptKeyTypePedersenUnique,
 	},
