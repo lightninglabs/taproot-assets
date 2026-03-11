@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'main'
+      - '[0-9]*'
   pull_request:
     branches:
       - '*'
