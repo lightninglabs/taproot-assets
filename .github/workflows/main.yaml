@@ -270,7 +270,9 @@ jobs:
         include:
           - unit_type: unit-cover
             parallel: 4
-          - unit_type: unit dbbackend=postgres
+          - unit_type: unit dbbackend=postgres pkg=tapdb
+            parallel: 4
+          - unit_type: unit dbbackend=postgres pkg=tapgarden
             parallel: 4
     steps:
       - name: git checkout
