@@ -21,7 +21,7 @@ env:
 
   GO_VERSION: '1.25.2'
 
-  LITD_BRANCH: 'master'
+  LITD_BRANCH: '8b10207b16218a8c0d26316ef0fe161e71fab88f'
 
 jobs:
   # Validate generated SQL models stay in sync with queries.
