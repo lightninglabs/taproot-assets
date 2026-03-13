@@ -43,8 +43,8 @@ type DbHandler struct {
 
 // AddRandomAssetProof generates a random asset and corresponding proof and
 // inserts them into the given test database.
-func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
-	*proof.AnnotatedProof) {
+func (d *DbHandler) AddRandomAssetProof(t *testing.T,
+	opts ...assetGenOpt) (*asset.Asset, *proof.AnnotatedProof) {
 
 	var (
 		ctx = context.Background()
@@ -55,7 +55,7 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 
 	// Next, we'll make a new random asset that also has a few inputs with
 	// dummy witness information.
-	testAsset := randAsset(t)
+	testAsset := randAsset(t, opts...)
 	testAltLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
 
 	assetRoot, err := commitment.NewAssetCommitment(testAsset)
