@@ -34,6 +34,7 @@ type Querier interface {
 	DeleteFederationProofSyncLog(ctx context.Context, arg DeleteFederationProofSyncLogParams) error
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
 	DeleteMultiverseLeaf(ctx context.Context, arg DeleteMultiverseLeafParams) error
+	DeleteMultiverseRoot(ctx context.Context, namespaceRoot string) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	DeleteRoot(ctx context.Context, namespace string) (int64, error)
 	DeleteSupplyCommitTransition(ctx context.Context, transitionID int64) error
