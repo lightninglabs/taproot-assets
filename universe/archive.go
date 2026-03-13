@@ -747,3 +747,16 @@ func (a *Archive) DeleteRoot(ctx context.Context,
 
 	return uniStr, err
 }
+
+// DeleteLeaf deletes a single proof leaf from the universe tree
+// identified by the universe ID and leaf key.
+func (a *Archive) DeleteLeaf(ctx context.Context, id Identifier,
+	key LeafKey) (string, error) {
+
+	log.Infof("Deleting universe leaf: id=%v, outpoint=%v, "+
+		"script_key=%x", id.StringForLog(),
+		key.LeafOutPoint(),
+		key.LeafScriptKey().PubKey.SerializeCompressed())
+
+	return a.cfg.Multiverse.DeleteProofLeaf(ctx, id, key)
+}

@@ -93,6 +93,24 @@ func (q *Queries) DeleteUniverseEvents(ctx context.Context, namespaceRoot string
 	return err
 }
 
+const DeleteUniverseLeaf = `-- name: DeleteUniverseLeaf :exec
+DELETE FROM universe_leaves
+WHERE leaf_node_namespace = $1
+  AND minting_point = $2
+  AND script_key_bytes = $3
+`
+
+type DeleteUniverseLeafParams struct {
+	Namespace      string
+	MintingPoint   []byte
+	ScriptKeyBytes []byte
+}
+
+func (q *Queries) DeleteUniverseLeaf(ctx context.Context, arg DeleteUniverseLeafParams) error {
+	_, err := q.db.ExecContext(ctx, DeleteUniverseLeaf, arg.Namespace, arg.MintingPoint, arg.ScriptKeyBytes)
+	return err
+}
+
 const DeleteUniverseLeaves = `-- name: DeleteUniverseLeaves :exec
 DELETE FROM universe_leaves
 WHERE leaf_node_namespace = $1
