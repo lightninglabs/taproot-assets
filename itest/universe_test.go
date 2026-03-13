@@ -292,6 +292,101 @@ func testUniverseSync(t *harnessTest) {
 	)
 }
 
+// testUniverseDeleteLeaf tests that we can delete a single leaf from
+// a universe via the RPC endpoint and verify it's gone.
+func testUniverseDeleteLeaf(t *harnessTest) {
+	miner := t.lndHarness.Miner().Client
+
+	// Mint assets on the primary node.
+	rpcSimpleAssets := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd, simpleAssets,
+	)
+
+	ctx := context.Background()
+
+	// Create Bob with no default universe sync.
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bob := setupTapdHarness(
+		t.t, t, bobLnd, t.universeServer,
+		func(p *tapdHarnessParams) {
+			p.noDefaultUniverseSync = true
+		},
+	)
+	defer func() {
+		require.NoError(t.t, bob.stop(!*noDelete))
+	}()
+
+	// Sync Bob from the primary node (issuance only).
+	_, err := bob.SyncUniverse(ctx, &unirpc.SyncRequest{
+		UniverseHost: t.tapd.rpcHost(),
+		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
+	})
+	require.NoError(t.t, err)
+
+	// Grab the roots on Bob before deletion.
+	rootsBefore, err := bob.AssetRoots(
+		ctx, &unirpc.AssetRootRequest{},
+	)
+	require.NoError(t.t, err)
+	numRootsBefore := len(rootsBefore.UniverseRoots)
+
+	// Build the universe key for the first simple asset.
+	firstAsset := rpcSimpleAssets[0]
+	firstAssetID := firstAsset.AssetGenesis.AssetId
+	firstScriptKey := hex.EncodeToString(firstAsset.ScriptKey)
+	firstOutpoint, err := wire.NewOutPointFromString(
+		firstAsset.ChainAnchor.AnchorOutpoint,
+	)
+	require.NoError(t.t, err)
+
+	uniKey := &unirpc.UniverseKey{
+		Id: &unirpc.ID{
+			Id: &unirpc.ID_AssetId{
+				AssetId: firstAssetID,
+			},
+			ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
+		},
+		LeafKey: &unirpc.AssetKey{
+			Outpoint: &unirpc.AssetKey_Op{
+				Op: &unirpc.Outpoint{
+					HashStr: firstOutpoint.Hash.String(),
+					Index:   int32(firstOutpoint.Index),
+				},
+			},
+			ScriptKey: &unirpc.AssetKey_ScriptKeyStr{
+				ScriptKeyStr: firstScriptKey,
+			},
+		},
+	}
+
+	// Verify the proof exists on Bob.
+	_, err = bob.QueryProof(ctx, uniKey)
+	require.NoError(t.t, err)
+
+	// Delete the leaf.
+	_, err = bob.DeleteAssetLeaf(
+		ctx, &unirpc.DeleteAssetLeafRequest{
+			Key: uniKey,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// The proof should now be gone.
+	_, err = bob.QueryProof(ctx, uniKey)
+	require.Error(t.t, err)
+
+	// Since this was the only leaf in that universe, the root
+	// should be gone too.
+	rootsAfter, err := bob.AssetRoots(
+		ctx, &unirpc.AssetRootRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(
+		t.t, rootsAfter.UniverseRoots,
+		numRootsBefore-1,
+	)
+}
+
 // testUniverseManualSync tests that we're able to insert proofs manually into
 // a universe instead of using a full sync.
 func testUniverseManualSync(t *harnessTest) {

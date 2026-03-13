@@ -1540,3 +1540,269 @@ func TestUpsertSupplyPreCommit(t *testing.T) {
 		require.Len(t, rows, 1)
 	})
 }
+
+// TestDeleteProofLeaf tests that deleting a single proof leaf works
+// correctly: it removes only the targeted leaf, preserves other leaves,
+// updates the universe/multiverse roots, and auto-cleans the universe
+// when the last leaf is deleted.
+func TestDeleteProofLeaf(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := NewTestDB(t)
+	id := randUniverseID(
+		t, false, withProofType(universe.ProofTypeIssuance),
+	)
+	baseUniverse, _ := newTestUniverseWithDb(db.BaseDB, id)
+	multiverse, _ := newTestMultiverseWithDb(t, db.BaseDB)
+
+	assetGen := asset.RandGenesis(t, asset.Normal)
+
+	// Insert two leaves into the universe.
+	key1 := randLeafKey(t)
+	leaf1 := randMintingLeaf(t, assetGen, id.GroupKey)
+
+	key2 := randLeafKey(t)
+	leaf2 := randMintingLeaf(t, assetGen, id.GroupKey)
+
+	_, err := multiverse.UpsertProofLeaf(ctx, id, key1, &leaf1, nil)
+	require.NoError(t, err)
+	_, err = multiverse.UpsertProofLeaf(ctx, id, key2, &leaf2, nil)
+	require.NoError(t, err)
+
+	// Verify both leaves exist.
+	proofs1, err := baseUniverse.FetchProof(ctx, key1)
+	require.NoError(t, err)
+	require.Len(t, proofs1, 1)
+
+	proofs2, err := baseUniverse.FetchProof(ctx, key2)
+	require.NoError(t, err)
+	require.Len(t, proofs2, 1)
+
+	// Capture the root before deletion.
+	rootBefore, _, err := baseUniverse.RootNode(ctx)
+	require.NoError(t, err)
+
+	// Delete leaf1 via the multiverse store.
+	_, err = multiverse.DeleteProofLeaf(ctx, id, key1)
+	require.NoError(t, err)
+
+	// Leaf1 should be gone.
+	_, err = baseUniverse.FetchProof(ctx, key1)
+	require.ErrorIs(t, err, universe.ErrNoUniverseProofFound)
+
+	// Leaf2 should still exist.
+	proofs2, err = baseUniverse.FetchProof(ctx, key2)
+	require.NoError(t, err)
+	require.Len(t, proofs2, 1)
+
+	// Universe root should have changed.
+	rootAfter, _, err := baseUniverse.RootNode(ctx)
+	require.NoError(t, err)
+	require.False(t, mssmt.IsEqualNode(rootBefore, rootAfter))
+
+	// Multiverse should still list the universe.
+	leaves, err := multiverse.FetchLeaves(
+		ctx, nil, universe.ProofTypeIssuance,
+	)
+	require.NoError(t, err)
+	require.Len(t, leaves, 1)
+	assertIDInList(t, leaves, id)
+
+	// Now delete the last leaf.
+	_, err = multiverse.DeleteProofLeaf(ctx, id, key2)
+	require.NoError(t, err)
+
+	// Universe should be fully cleaned up. RootNode should fail
+	// because the universe root row has been deleted.
+	_, _, err = baseUniverse.RootNode(ctx)
+	require.Error(t, err)
+
+	// Multiverse should no longer list this universe.
+	leaves, err = multiverse.FetchLeaves(
+		ctx, nil, universe.ProofTypeIssuance,
+	)
+	require.NoError(t, err)
+	require.Len(t, leaves, 0)
+
+	// The multiverse root row should also be gone.
+	multiverseNS, err := namespaceForProof(id.ProofType)
+	require.NoError(t, err)
+	_, err = db.FetchMultiverseRoot(ctx, multiverseNS)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+// TestDeleteProofLeafMultiUniverse verifies that deleting the last
+// leaf from one universe does not affect other universes under the
+// same proof type. The multiverse root should persist as long as
+// at least one universe still has leaves.
+func TestDeleteProofLeafMultiUniverse(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := NewTestDB(t)
+	multiverse, _ := newTestMultiverseWithDb(t, db.BaseDB)
+
+	// Create two distinct universes under the same proof type.
+	id1 := randUniverseID(
+		t, false,
+		withProofType(universe.ProofTypeIssuance),
+	)
+	id2 := randUniverseID(
+		t, false,
+		withProofType(universe.ProofTypeIssuance),
+	)
+	baseUni2, _ := newTestUniverseWithDb(db.BaseDB, id2)
+
+	assetGen1 := asset.RandGenesis(t, asset.Normal)
+	assetGen2 := asset.RandGenesis(t, asset.Normal)
+
+	// Insert a leaf into each universe.
+	key1 := randLeafKey(t)
+	leaf1 := randMintingLeaf(t, assetGen1, id1.GroupKey)
+
+	key2 := randLeafKey(t)
+	leaf2 := randMintingLeaf(t, assetGen2, id2.GroupKey)
+
+	_, err := multiverse.UpsertProofLeaf(
+		ctx, id1, key1, &leaf1, nil,
+	)
+	require.NoError(t, err)
+	_, err = multiverse.UpsertProofLeaf(
+		ctx, id2, key2, &leaf2, nil,
+	)
+	require.NoError(t, err)
+
+	// Both universes should appear in the multiverse.
+	leaves, err := multiverse.FetchLeaves(
+		ctx, nil, universe.ProofTypeIssuance,
+	)
+	require.NoError(t, err)
+	require.Len(t, leaves, 2)
+
+	// Delete the only leaf in universe 1 (triggers last-leaf
+	// cleanup).
+	_, err = multiverse.DeleteProofLeaf(ctx, id1, key1)
+	require.NoError(t, err)
+
+	// Universe 2 should be completely unaffected.
+	proofs2, err := baseUni2.FetchProof(ctx, key2)
+	require.NoError(t, err)
+	require.Len(t, proofs2, 1)
+
+	// Multiverse should still list universe 2 only.
+	leaves, err = multiverse.FetchLeaves(
+		ctx, nil, universe.ProofTypeIssuance,
+	)
+	require.NoError(t, err)
+	require.Len(t, leaves, 1)
+	assertIDInList(t, leaves, id2)
+
+	// The multiverse root should still exist.
+	multiverseNS, err := namespaceForProof(
+		universe.ProofTypeIssuance,
+	)
+	require.NoError(t, err)
+	_, err = db.FetchMultiverseRoot(ctx, multiverseNS)
+	require.NoError(t, err)
+}
+
+// TestDeleteProofLeafBothProofTypes verifies that deleting a leaf
+// from both issuance and transfer universes (same asset ID) works
+// independently. This mirrors the RPC behavior when proof type is
+// unspecified: the server calls DeleteLeaf once per proof type.
+func TestDeleteProofLeafBothProofTypes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := NewTestDB(t)
+	multiverse, _ := newTestMultiverseWithDb(t, db.BaseDB)
+
+	// Create two universe IDs with the same asset ID but
+	// different proof types.
+	issuanceID := randUniverseID(
+		t, false,
+		withProofType(universe.ProofTypeIssuance),
+	)
+	transferID := issuanceID
+	transferID.ProofType = universe.ProofTypeTransfer
+
+	baseIssuance, _ := newTestUniverseWithDb(
+		db.BaseDB, issuanceID,
+	)
+	baseTransfer, _ := newTestUniverseWithDb(
+		db.BaseDB, transferID,
+	)
+
+	assetGen := asset.RandGenesis(t, asset.Normal)
+
+	// Insert a leaf into each universe with the same key.
+	key := randLeafKey(t)
+	issuanceLeaf := randMintingLeaf(
+		t, assetGen, issuanceID.GroupKey,
+	)
+	transferLeaf := randMintingLeaf(
+		t, assetGen, transferID.GroupKey,
+	)
+
+	_, err := multiverse.UpsertProofLeaf(
+		ctx, issuanceID, key, &issuanceLeaf, nil,
+	)
+	require.NoError(t, err)
+	_, err = multiverse.UpsertProofLeaf(
+		ctx, transferID, key, &transferLeaf, nil,
+	)
+	require.NoError(t, err)
+
+	// Both leaves should exist.
+	proofs, err := baseIssuance.FetchProof(ctx, key)
+	require.NoError(t, err)
+	require.Len(t, proofs, 1)
+
+	proofs, err = baseTransfer.FetchProof(ctx, key)
+	require.NoError(t, err)
+	require.Len(t, proofs, 1)
+
+	// Delete from issuance universe.
+	_, err = multiverse.DeleteProofLeaf(ctx, issuanceID, key)
+	require.NoError(t, err)
+
+	// Issuance leaf should be gone.
+	_, err = baseIssuance.FetchProof(ctx, key)
+	require.ErrorIs(t, err, universe.ErrNoUniverseProofFound)
+
+	// Transfer leaf should be unaffected.
+	proofs, err = baseTransfer.FetchProof(ctx, key)
+	require.NoError(t, err)
+	require.Len(t, proofs, 1)
+
+	// Delete from transfer universe.
+	_, err = multiverse.DeleteProofLeaf(ctx, transferID, key)
+	require.NoError(t, err)
+
+	// Transfer leaf should now be gone too.
+	_, err = baseTransfer.FetchProof(ctx, key)
+	require.ErrorIs(t, err, universe.ErrNoUniverseProofFound)
+
+	// Both universes should be fully cleaned up (last leaf
+	// triggers cleanup).
+	_, _, err = baseIssuance.RootNode(ctx)
+	require.Error(t, err)
+	_, _, err = baseTransfer.RootNode(ctx)
+	require.Error(t, err)
+
+	// Both multiverse namespaces should be empty.
+	issuanceNS, err := namespaceForProof(
+		universe.ProofTypeIssuance,
+	)
+	require.NoError(t, err)
+	_, err = db.FetchMultiverseRoot(ctx, issuanceNS)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+
+	transferNS, err := namespaceForProof(
+		universe.ProofTypeTransfer,
+	)
+	require.NoError(t, err)
+	_, err = db.FetchMultiverseRoot(ctx, transferNS)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+}
