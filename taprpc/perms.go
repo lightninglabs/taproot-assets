@@ -215,6 +215,10 @@ var (
 			Entity: "universe",
 			Action: "write",
 		}},
+		"/universerpc.Universe/DeleteAssetLeaf": {{
+			Entity: "universe",
+			Action: "write",
+		}},
 		"/universerpc.Universe/AssetLeafKeys": {{
 			Entity: "universe",
 			Action: "read",

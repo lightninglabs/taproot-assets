@@ -6654,6 +6654,52 @@ func (r *RPCServer) DeleteAssetRoot(ctx context.Context,
 	return &unirpc.DeleteRootResponse{}, nil
 }
 
+// DeleteAssetLeaf deletes a single Universe leaf, identified by its
+// universe ID and leaf key (outpoint + script key).
+func (r *RPCServer) DeleteAssetLeaf(ctx context.Context,
+	req *unirpc.DeleteAssetLeafRequest) (
+	*unirpc.DeleteAssetLeafResponse, error) {
+
+	universeID, leafKey, err := unmarshalUniverseKey(req.Key)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Debugf("Deleting asset leaf for %v",
+		universeID.StringForLog())
+
+	// If the universe proof type is unspecified, we'll delete
+	// the leaf from both the issuance and transfer trees.
+	if universeID.ProofType == universe.ProofTypeUnspecified {
+		universeID.ProofType = universe.ProofTypeIssuance
+		_, err = r.cfg.UniverseArchive.DeleteLeaf(
+			ctx, universeID, leafKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		universeID.ProofType = universe.ProofTypeTransfer
+		_, err = r.cfg.UniverseArchive.DeleteLeaf(
+			ctx, universeID, leafKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return &unirpc.DeleteAssetLeafResponse{}, nil
+	}
+
+	_, err = r.cfg.UniverseArchive.DeleteLeaf(
+		ctx, universeID, leafKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &unirpc.DeleteAssetLeafResponse{}, nil
+}
+
 func marshalLeafKey(leafKey universe.LeafKey) *unirpc.AssetKey {
 	return &unirpc.AssetKey{
 		Outpoint: &unirpc.AssetKey_OpStr{
