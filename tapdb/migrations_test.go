@@ -1036,3 +1036,143 @@ func TestDirtySqliteVersion(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "database is in a dirty state")
 }
+
+// TestMigration54 tests that migration 54 adds ON DELETE CASCADE to
+// the federation_proof_sync_log foreign keys referencing
+// universe_leaves and universe_roots.
+func TestMigration54(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a DB at version 53 (pre-CASCADE).
+	db := NewTestDBWithVersion(t, 53)
+
+	// Insert dummy data: a universe root, leaf, server, and two
+	// federation_proof_sync_log rows referencing them.
+	InsertTestdata(
+		t, db.BaseDB,
+		"migrations_test_00054_dummy_data.sql",
+	)
+
+	// Verify the sync log rows exist.
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM federation_proof_sync_log
+	`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+
+	// Pre-migration: deleting the universe leaf should fail due
+	// to the FK constraint from federation_proof_sync_log.
+	_, err = db.ExecContext(ctx, `
+		DELETE FROM universe_leaves WHERE id = 1
+	`)
+	require.Error(t, err, "delete should fail before migration")
+
+	// Apply migration 54.
+	err = db.ExecuteMigrations(TargetLatest)
+	require.NoError(t, err)
+
+	// Verify data survived the table recreation in the
+	// up-migration (CREATE new → copy → DROP old → RENAME).
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM federation_proof_sync_log
+	`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 2, count, "sync log rows must survive "+
+		"up-migration table recreation")
+
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM universe_leaves
+	`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 1, count, "universe leaf must survive "+
+		"up-migration table recreation")
+
+	// Post-migration: deleting the universe leaf should CASCADE
+	// and remove the sync log rows.
+	_, err = db.ExecContext(ctx, `
+		DELETE FROM universe_leaves WHERE id = 1
+	`)
+	require.NoError(t, err)
+
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM federation_proof_sync_log
+	`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+
+	// Verify the universe leaf is gone too.
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM universe_leaves
+	`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+
+	// Re-insert the universe leaf (the CASCADE deleted it along
+	// with the sync log rows, but the parent rows survived).
+	// Use a second test data file to avoid hex-literal
+	// incompatibilities between SQLite and Postgres.
+	InsertTestdata(
+		t, db.BaseDB,
+		"migrations_test_00054_re_insert_leaf.sql",
+	)
+	require.NoError(t, err)
+
+	// Verify that new sync log rows can be inserted without PK
+	// collisions (exercises the Postgres BIGSERIAL sequence).
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO federation_proof_sync_log (
+			status, timestamp, attempt_counter,
+			sync_direction, proof_leaf_id,
+			universe_root_id, servers_id
+		) VALUES (
+			'pending', '2024-02-01', 0,
+			'push', 1, 1, 1
+		)
+	`)
+	require.NoError(t, err)
+}
+
+// TestMigration54Down tests that reverting migration 54 removes
+// the ON DELETE CASCADE constraints: deleting a universe leaf
+// should fail when sync log entries reference it.
+func TestMigration54Down(t *testing.T) {
+	ctx := context.Background()
+
+	// Start at latest (includes migration 54 with CASCADE).
+	db := NewTestDBWithVersion(t, 54)
+
+	// Insert test data.
+	InsertTestdata(
+		t, db.BaseDB,
+		"migrations_test_00054_dummy_data.sql",
+	)
+
+	// Downgrade to version 53 (reverts CASCADE).
+	err := db.ExecuteMigrations(TargetVersion(53))
+	require.NoError(t, err)
+
+	// Verify data survived the table recreation in the
+	// down-migration.
+	var count int
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM federation_proof_sync_log
+	`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 2, count, "sync log rows must survive "+
+		"down-migration table recreation")
+
+	// Without CASCADE, deleting the leaf should fail.
+	_, err = db.ExecContext(ctx, `
+		DELETE FROM universe_leaves WHERE id = 1
+	`)
+	require.Error(t, err,
+		"delete should fail after reverting CASCADE",
+	)
+}

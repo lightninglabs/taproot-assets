@@ -329,6 +329,10 @@ var allTestCases = []*testCase{
 		name: "mint proof repeat fed sync attempt",
 		test: testMintProofRepeatFedSyncAttempt,
 	},
+	{
+		name: "delete universe after fed sync",
+		test: testDeleteUniverseAfterFedSync,
+	},
 
 	// Request for quote (RFQ) tests.
 	{

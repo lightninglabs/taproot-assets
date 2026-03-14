@@ -440,30 +440,29 @@ CREATE TABLE federation_global_sync_config (
     allow_sync_export BOOLEAN NOT NULL
 );
 
-CREATE TABLE federation_proof_sync_log (
+CREATE TABLE "federation_proof_sync_log" (
     id INTEGER PRIMARY KEY,
 
-    -- The status of the proof sync attempt.
-    status TEXT NOT NULL CHECK(status IN ('pending', 'complete')),
+    status TEXT NOT NULL CHECK(
+        status IN ('pending', 'complete')
+    ),
 
-    -- The timestamp of when the log entry for the associated proof was last
-    -- updated.
     timestamp TIMESTAMP NOT NULL,
 
-    -- The number of attempts that have been made to sync the proof.
     attempt_counter BIGINT NOT NULL DEFAULT 0,
 
-    -- The direction of the proof sync attempt.
-    sync_direction TEXT NOT NULL CHECK(sync_direction IN ('push', 'pull')),
+    sync_direction TEXT NOT NULL CHECK(
+        sync_direction IN ('push', 'pull')
+    ),
 
-    -- The ID of the subject proof leaf.
-    proof_leaf_id BIGINT NOT NULL REFERENCES universe_leaves(id),
+    proof_leaf_id BIGINT NOT NULL
+        REFERENCES universe_leaves(id) ON DELETE CASCADE,
 
-    -- The ID of the universe that the proof leaf belongs to.
-    universe_root_id BIGINT NOT NULL REFERENCES universe_roots(id),
+    universe_root_id BIGINT NOT NULL
+        REFERENCES universe_roots(id) ON DELETE CASCADE,
 
-    -- The ID of the server that the proof will be/was synced to.
-    servers_id BIGINT NOT NULL REFERENCES universe_servers(id)
+    servers_id BIGINT NOT NULL
+        REFERENCES universe_servers(id)
 );
 
 CREATE UNIQUE INDEX federation_proof_sync_log_unique_index_proof_leaf_id_servers_id
@@ -501,6 +500,51 @@ CREATE TABLE federation_uni_sync_config (
         (asset_id IS NULL AND group_key IS NOT NULL)
     )
 );
+
+CREATE TABLE forwards (
+    id INTEGER PRIMARY KEY,
+
+    -- opened_at is the timestamp when the forward was initiated.
+    opened_at TIMESTAMP NOT NULL,
+
+    -- settled_at is the timestamp when the forward settled.
+    settled_at TIMESTAMP,
+
+    -- failed_at is the timestamp when the forward failed.
+    failed_at TIMESTAMP,
+
+    -- rfq_id is the foreign key to the RFQ policy.
+    rfq_id BLOB NOT NULL CHECK (length(rfq_id) = 32)
+        REFERENCES rfq_policies(rfq_id),
+
+    -- chan_id_in is the short channel ID of the incoming channel.
+    chan_id_in BIGINT NOT NULL,
+
+    -- chan_id_out is the short channel ID of the outgoing channel.
+    chan_id_out BIGINT NOT NULL,
+
+    -- htlc_id is the HTLC ID on the incoming channel.
+    htlc_id BIGINT NOT NULL,
+
+    -- asset_amt is the asset amount involved in this swap.
+    asset_amt BIGINT NOT NULL,
+
+    -- amt_in_msat is the actual amount received on the incoming channel in
+    -- millisatoshis.
+    amt_in_msat BIGINT NOT NULL,
+
+    -- amt_out_msat is the actual amount sent on the outgoing channel in
+    -- millisatoshis.
+    amt_out_msat BIGINT NOT NULL,
+
+    UNIQUE(chan_id_in, htlc_id)
+);
+
+CREATE INDEX forwards_opened_at_idx ON forwards(opened_at);
+
+CREATE INDEX forwards_rfq_id_idx ON forwards(rfq_id);
+
+CREATE INDEX forwards_settled_at_idx ON forwards(settled_at);
 
 CREATE TABLE genesis_assets (
     gen_asset_id INTEGER PRIMARY KEY,
@@ -785,10 +829,13 @@ CREATE TABLE proof_types (
 CREATE TABLE rfq_policies (
     id INTEGER PRIMARY KEY,
 
-    -- policy_type denotes the type of the policy (buy or sell).
-    -- It can be either 'RFQ_POLICY_TYPE_SALE' or 'RFQ_POLICY_TYPE_PURCHASE'.
+    -- policy_type denotes the type of the policy.
     policy_type TEXT NOT NULL CHECK (
-        policy_type IN ('RFQ_POLICY_TYPE_SALE', 'RFQ_POLICY_TYPE_PURCHASE')
+        policy_type IN (
+            'RFQ_POLICY_TYPE_SALE',
+            'RFQ_POLICY_TYPE_PURCHASE',
+            'RFQ_POLICY_TYPE_PEER_ACCEPTED_BUY'
+        )
     ),
 
     -- scid is the short channel ID associated with the policy.
@@ -838,6 +885,8 @@ CREATE TABLE rfq_policies (
 );
 
 CREATE UNIQUE INDEX rfq_policies_rfq_id_idx ON rfq_policies (rfq_id);
+
+CREATE INDEX rfq_policies_scid_idx ON rfq_policies (scid);
 
 CREATE TABLE script_keys (
     script_key_id INTEGER PRIMARY KEY,

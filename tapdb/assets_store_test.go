@@ -44,6 +44,8 @@ type assetGenOptions struct {
 
 	noGroupKey bool
 
+	genesisAsset bool
+
 	groupKeyPriv *btcec.PrivateKey
 
 	amt uint64
@@ -125,6 +127,13 @@ func withScriptKey(k asset.ScriptKey) assetGenOpt {
 
 func withNoGroupKey() assetGenOpt {
 	return func(opt *assetGenOptions) {
+		opt.noGroupKey = true
+	}
+}
+
+func withGenesisAsset() assetGenOpt {
+	return func(opt *assetGenOptions) {
+		opt.genesisAsset = true
 		opt.noGroupKey = true
 	}
 }
@@ -215,7 +224,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	// For the witnesses, we'll flip a coin: we'll either make a genesis
 	// witness, or a set of actual witnesses.
 	var witnesses []asset.Witness
-	if test.RandInt[int]()%2 == 0 {
+	if opts.genesisAsset || test.RandInt[int]()%2 == 0 {
 		witnesses = append(witnesses, asset.Witness{
 			PrevID:          &asset.PrevID{},
 			TxWitness:       nil,
