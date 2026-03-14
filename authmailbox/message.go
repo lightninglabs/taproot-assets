@@ -2,6 +2,8 @@ package authmailbox
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"time"
 
@@ -14,6 +16,26 @@ const (
 	// MsgMaxSize is the maximum size of a message in bytes.
 	MsgMaxSize = 65536
 )
+
+// OutpointChecker checks whether a given outpoint has been spent on chain.
+// Returns true if the outpoint has been spent, false if it is still unspent.
+// pkScript is the output's script, heightHint is the block height where the
+// outpoint was confirmed (used to optimize the chain backend lookup).
+type OutpointChecker func(ctx context.Context, op wire.OutPoint,
+	pkScript []byte, heightHint uint32) (bool, error)
+
+// ClaimedOutpoint holds an outpoint and metadata needed for spent checks.
+type ClaimedOutpoint struct {
+	// OutPoint is the claimed outpoint from the transaction proof.
+	OutPoint wire.OutPoint
+
+	// PkScript is the output's pkScript, reconstructed from the internal
+	// key and merkle root stored in the database.
+	PkScript []byte
+
+	// BlockHeight is the block height at which the outpoint was confirmed.
+	BlockHeight uint32
+}
 
 var (
 	// ErrMessageTooLong is returned when a message exceeds the maximum
@@ -54,6 +76,23 @@ type Message struct {
 // This is part of the fn.Event interface.
 func (m *Message) Timestamp() time.Time {
 	return m.ArrivalTimestamp
+}
+
+// RemoveMessageChallenge computes the challenge hash for the RemoveMessage
+// RPC: SHA256(receiver_id || big-endian uint64 msg_id_1 || ...).
+func RemoveMessageChallenge(receiverID []byte, messageIDs []uint64) [32]byte {
+	h := sha256.New()
+	_, _ = h.Write(receiverID)
+
+	var buf [8]byte
+	for _, id := range messageIDs {
+		binary.BigEndian.PutUint64(buf[:], id)
+		_, _ = h.Write(buf[:])
+	}
+
+	var result [32]byte
+	copy(result[:], h.Sum(nil))
+	return result
 }
 
 // MessageFilter is used to filter messages based on certain criteria.
@@ -112,4 +151,19 @@ type MsgStore interface {
 	// and efficiently (e.g., by caching the result), as it might be queried
 	// often.
 	NumMessages(ctx context.Context) uint64
+
+	// ListOutpoints returns a paginated list of claimed outpoints with
+	// their pkScripts and block heights, for use by the cleanup process.
+	ListOutpoints(ctx context.Context, limit,
+		offset int32) ([]ClaimedOutpoint, error)
+
+	// DeleteByOutpoint deletes the outpoint record and its associated
+	// message (via CASCADE).
+	DeleteByOutpoint(ctx context.Context, op wire.OutPoint) error
+
+	// DeleteByMessageID deletes a message by its ID, but only if it
+	// belongs to the specified receiver. Returns true if a message was
+	// actually deleted.
+	DeleteByMessageID(ctx context.Context, msgID uint64,
+		receiverKey []byte) (bool, error)
 }

@@ -1,6 +1,7 @@
 package tapdb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -37,6 +39,14 @@ type (
 	// MailboxMessageRow is a row in the auth mailbox messages table
 	// returned by the query.
 	MailboxMessageRow = sqlc.QueryAuthMailboxMessagesRow
+
+	// ListClaimedOutpointsParams is used to query claimed outpoints from
+	// the database with pagination.
+	ListClaimedOutpointsParams = sqlc.ListClaimedOutpointsParams
+
+	// ClaimedOutpointRow is a row returned by the ListClaimedOutpoints
+	// query.
+	ClaimedOutpointRow = sqlc.ListClaimedOutpointsRow
 )
 
 // AuthMailboxStore defines the interface for interacting with the authmailbox
@@ -68,6 +78,23 @@ type AuthMailboxStore interface {
 	// MailboxMessageRow and an error if the query fails.
 	QueryAuthMailboxMessages(ctx context.Context,
 		arg QueryMailboxMessages) ([]MailboxMessageRow, error)
+
+	// ListClaimedOutpoints returns a paginated list of claimed outpoints
+	// from the database.
+	ListClaimedOutpoints(ctx context.Context,
+		arg ListClaimedOutpointsParams) ([]ClaimedOutpointRow, error)
+
+	// DeleteTxProofClaimedOutpoint deletes a claimed outpoint from the
+	// database. The associated message is removed via ON DELETE CASCADE.
+	DeleteTxProofClaimedOutpoint(ctx context.Context,
+		outpoint []byte) error
+
+	// DeleteTxProofByMessageAndReceiver deletes the tx proof (and its
+	// associated message via CASCADE) for a message with the given ID and
+	// receiver key. Returns the number of rows affected.
+	DeleteTxProofByMessageAndReceiver(ctx context.Context,
+		arg sqlc.DeleteTxProofByMessageAndReceiverParams) (int64,
+		error)
 }
 
 // BatchedMailboxStore is a version of the AuthMailboxStore that's capable of
@@ -324,4 +351,119 @@ func (m MailboxStore) NumMessages(ctx context.Context) uint64 {
 	}
 
 	return uint64(count)
+}
+
+// ListOutpoints returns a paginated list of claimed outpoints with their
+// pkScripts and block heights, for use by the cleanup process.
+func (m MailboxStore) ListOutpoints(ctx context.Context, limit,
+	offset int32) ([]authmailbox.ClaimedOutpoint, error) {
+
+	var (
+		txOpt  = ReadTxOption()
+		result []authmailbox.ClaimedOutpoint
+	)
+	dbErr := m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
+		rows, err := q.ListClaimedOutpoints(
+			ctx, ListClaimedOutpointsParams{
+				NumLimit:  limit,
+				NumOffset: offset,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error listing outpoints: %w", err)
+		}
+
+		result = make([]authmailbox.ClaimedOutpoint, 0, len(rows))
+		for _, row := range rows {
+			var op wire.OutPoint
+			err := readOutPoint(
+				bytes.NewReader(row.Outpoint), 0, 0, &op,
+			)
+			if err != nil {
+				return fmt.Errorf("error reading "+
+					"outpoint: %w", err)
+			}
+
+			internalKey, err := btcec.ParsePubKey(
+				row.InternalKey,
+			)
+			if err != nil {
+				return fmt.Errorf("error parsing internal "+
+					"key: %w", err)
+			}
+
+			outputKey := txscript.ComputeTaprootOutputKey(
+				internalKey, row.MerkleRoot,
+			)
+			pkScript, err := txscript.PayToTaprootScript(
+				outputKey,
+			)
+			if err != nil {
+				return fmt.Errorf("error computing "+
+					"pkScript: %w", err)
+			}
+
+			result = append(result, authmailbox.ClaimedOutpoint{
+				OutPoint:    op,
+				PkScript:    pkScript,
+				BlockHeight: uint32(row.BlockHeight),
+			})
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, fmt.Errorf("error listing outpoints: %w", dbErr)
+	}
+
+	return result, nil
+}
+
+// DeleteByOutpoint deletes the outpoint record and its associated message
+// (via CASCADE).
+func (m MailboxStore) DeleteByOutpoint(ctx context.Context,
+	op wire.OutPoint) error {
+
+	serializedOp, err := encodeOutpoint(op)
+	if err != nil {
+		return fmt.Errorf("error encoding outpoint: %w", err)
+	}
+
+	var txOpt = WriteTxOption()
+	return m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
+		return q.DeleteTxProofClaimedOutpoint(ctx, serializedOp)
+	})
+}
+
+// DeleteByMessageID deletes a message by its ID, but only if it belongs to the
+// specified receiver. Returns true if a message was actually deleted.
+func (m MailboxStore) DeleteByMessageID(ctx context.Context, msgID uint64,
+	receiverKey []byte) (bool, error) {
+
+	var (
+		txOpt   = WriteTxOption()
+		deleted bool
+	)
+	dbErr := m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
+		rowsAffected, err := q.DeleteTxProofByMessageAndReceiver(
+			ctx, sqlc.DeleteTxProofByMessageAndReceiverParams{
+				MessageID:   int64(msgID),
+				ReceiverKey: receiverKey,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error deleting message %d: %w",
+				msgID, err)
+		}
+
+		deleted = rowsAffected > 0
+
+		return nil
+	})
+	if dbErr != nil {
+		return false, fmt.Errorf("error deleting message %d: %w",
+			msgID, dbErr)
+	}
+
+	return deleted, nil
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
@@ -467,18 +468,18 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	virtualTxSigner := lndservices.NewLndRpcVirtualTxSigner(lndServices)
 	coinSelect := tapfreighter.NewCoinSelect(assetStore)
 	assetWallet := tapfreighter.NewAssetWallet(&tapfreighter.WalletConfig{
-		CoinSelector:     coinSelect,
-		AssetProofs:      proofArchive,
-		AddrBook:         tapdbAddrBook,
-		KeyRing:          keyRing,
-		Signer:           virtualTxSigner,
-		TxValidator:      &tap.ValidatorV0{},
-		WitnessValidator: &tap.WitnessValidatorV0{},
-		ChainBridge:      chainBridge,
-		GroupVerifier:    groupVerifier,
-		IgnoreChecker:    ignoreCheckerOpt,
-		Wallet:           walletAnchor,
-		ChainParams:      &tapChainParams,
+		CoinSelector:            coinSelect,
+		AssetProofs:             proofArchive,
+		AddrBook:                tapdbAddrBook,
+		KeyRing:                 keyRing,
+		Signer:                  virtualTxSigner,
+		TxValidator:             &tap.ValidatorV0{},
+		WitnessValidator:        &tap.WitnessValidatorV0{},
+		ChainBridge:             chainBridge,
+		GroupVerifier:           groupVerifier,
+		IgnoreChecker:           ignoreCheckerOpt,
+		Wallet:                  walletAnchor,
+		ChainParams:             &tapChainParams,
 		DisableSweepOrphanUtxos: cfg.Wallet.DisableSweepOrphanUtxos,
 	})
 
@@ -857,6 +858,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			HeaderVerifier: headerVerifier,
 			MerkleVerifier: proof.DefaultMerkleVerifier,
 			MsgStore:       authMailboxStore,
+			OutpointChecker: mboxOutpointChecker(
+				lndServices,
+			),
+			CleanupInterval: cfg.Universe.MboxCleanupInterval,
+			CleanupCheckTimeout: cfg.Universe.
+				MboxCleanupCheckTimeout,
 		},
 		DatabaseConfig: &tapconfig.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),
@@ -944,6 +951,37 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	srv.UpdateConfig(serverCfg)
 
 	return srv, nil
+}
+
+// mboxOutpointChecker returns an OutpointChecker that uses lnd's chain
+// notifier to determine whether an outpoint has been spent on chain.
+func mboxOutpointChecker(
+	lndServices *lndclient.LndServices) authmailbox.OutpointChecker {
+
+	return func(ctx context.Context, op wire.OutPoint,
+		pkScript []byte, heightHint uint32) (bool, error) {
+
+		spendChan, errChan, err :=
+			lndServices.ChainNotifier.RegisterSpendNtfn(
+				ctx, &op, pkScript, int32(heightHint),
+			)
+		if err != nil {
+			return false, err
+		}
+
+		// If already spent, the channel fires immediately.
+		// Otherwise, the context timeout will cancel us.
+		select {
+		case _, ok := <-spendChan:
+			return ok, nil
+
+		case err := <-errChan:
+			return false, err
+
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
 }
 
 // ConfigureSubServer updates a Taproot Asset server with the given CLI config.

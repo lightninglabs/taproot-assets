@@ -182,6 +182,9 @@ type harnessOpts struct {
 	// disableSweepOrphanUtxos indicates whether sweeping of orphaned anchor
 	// UTXOs into anchor transactions should be disabled.
 	disableSweepOrphanUtxos bool
+
+	// mboxCleanupInterval if set, configures the mailbox cleanup interval.
+	mboxCleanupInterval *time.Duration
 }
 
 type harnessOption func(*harnessOpts)
@@ -217,6 +220,14 @@ func withPortfolioPilotAddress(addr string) harnessOption {
 func withDisableSupplyVerifierChainWatch() harnessOption {
 	return func(ho *harnessOpts) {
 		ho.disableSupplyVerifierChainWatch = true
+	}
+}
+
+// withMboxCleanupInterval is a functional option that sets the mailbox
+// cleanup interval for the tapd harness.
+func withMboxCleanupInterval(d time.Duration) harnessOption {
+	return func(ho *harnessOpts) {
+		ho.mboxCleanupInterval = &d
 	}
 }
 
@@ -405,6 +416,14 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	// Disable sweep orphan UTXOs.
 	if opts.disableSweepOrphanUtxos {
 		args = append(args, "--wallet.disable-sweep-orphan-utxos")
+	}
+
+	// Mailbox cleanup interval.
+	if opts.mboxCleanupInterval != nil {
+		args = append(args, fmt.Sprintf(
+			"--universe.mbox-cleanup-interval=%s",
+			*opts.mboxCleanupInterval,
+		))
 	}
 
 	// Federation sync ticker interval.
