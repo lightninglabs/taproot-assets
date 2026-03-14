@@ -26,6 +26,10 @@ var allTestCases = []*testCase{
 		test: testListAssets,
 	},
 	{
+		name: "fetch asset",
+		test: testFetchAsset,
+	},
+	{
 		name: "asset balances",
 		test: testAssetBalances,
 	},

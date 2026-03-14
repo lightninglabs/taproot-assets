@@ -12,6 +12,13 @@ service TaprootAssets {
     */
     rpc ListAssets (ListAssetRequest) returns (ListAssetResponse);
 
+    /* tapcli: `assets fetch`
+    FetchAsset fetches asset(s) by asset ID or group key, with optional
+    filters. At least one of asset_id or group_key must be set in the
+    asset_specifier.
+    */
+    rpc FetchAsset (FetchAssetRequest) returns (FetchAssetResponse);
+
     /* tapcli: `assets utxos`
     ListUtxos lists the UTXOs managed by the target daemon, and the assets they
     hold.
@@ -212,6 +219,66 @@ message AssetMeta {
     itself.
     */
     bytes meta_hash = 3;
+}
+
+// AssetSpecifier is a union type for specifying an asset by either its asset ID
+// or group key.
+message AssetSpecifier {
+    oneof id {
+        // The 32-byte asset ID specified as raw bytes (gRPC only).
+        bytes asset_id = 1;
+
+        // The 32-byte asset ID encoded as a hex string (use this for REST).
+        string asset_id_str = 2;
+
+        // The 32-byte asset group key specified as raw bytes (gRPC only).
+        bytes group_key = 3;
+
+        // The 32-byte asset group key encoded as hex string (use this for
+        // REST).
+        string group_key_str = 4;
+    }
+}
+
+message FetchAssetRequest {
+    // The asset specifier (asset ID or group key) identifying the asset(s) to
+    // fetch. At least one of asset_id or group_key must be specified.
+    AssetSpecifier asset_specifier = 1;
+
+    // Whether to include each asset's witness in the response. The witness
+    // either contains the spending signatures or the split commitment witness,
+    // which can both be large and usually aren't very useful on the command
+    // line, so are omitted by default.
+    bool with_witness = 2;
+
+    // Include assets that are marked as spent (which is always true for burn
+    // or tombstone assets).
+    bool include_spent = 3;
+
+    // Include assets that are leased (locked/reserved) by the daemon for a
+    // pending transfer. Leased assets cannot be used by the daemon until the
+    // pending transfer is confirmed or the lease expires.
+    bool include_leased = 4;
+
+    // List assets that aren't confirmed yet. Only freshly minted assets will
+    // show in the asset list with a block height of 0. All other forms of
+    // unconfirmed assets will not appear in the list until the transaction is
+    // confirmed (check either transfers or receives for unconfirmed outbound or
+    // inbound assets).
+    bool include_unconfirmed_mints = 5;
+
+    // The script key type to filter the assets by. If not set, only assets with
+    // a BIP-0086 script key will be returned (which is the equivalent of
+    // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). If the type
+    // is set to SCRIPT_KEY_BURN or SCRIPT_KEY_TOMBSTONE the include_spent flag
+    // will automatically be set to true, because assets of that type are always
+    // marked as spent.
+    ScriptKeyTypeQuery script_key_type = 6;
+}
+
+message FetchAssetResponse {
+    // The list of assets matching the specifier and filters.
+    repeated Asset assets = 1;
 }
 
 message ListAssetRequest {
