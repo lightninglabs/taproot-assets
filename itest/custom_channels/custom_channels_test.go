@@ -107,6 +107,10 @@ var testCases = []*ccTestCase{
 		name: "v1 upgrade",
 		test: testCustomChannelsV1Upgrade,
 	},
+	{
+		name: "forwarding history",
+		test: testCustomChannelsForwardingHistory,
+	},
 }
 
 // TestCustomChannels is the main entry point for running custom channel

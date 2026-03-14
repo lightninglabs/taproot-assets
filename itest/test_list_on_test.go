@@ -372,10 +372,6 @@ var allTestCases = []*testCase{
 		test: testRfqNegotiationGroupKey,
 	},
 	{
-		name: "rfq forwarding history",
-		test: testForwardingEventHistory,
-	},
-	{
 		name: "rfq portfolio pilot rpc",
 		test: testRfqPortfolioPilotRpc,
 	},
