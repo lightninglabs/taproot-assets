@@ -1113,6 +1113,224 @@ func TestMultiverseRootSum(t *testing.T) {
 	}
 }
 
+// TestDeleteLastUniverseCleansMultiverseRoot tests that deleting the
+// last universe for a given proof type removes the orphaned
+// multiverse_roots row, avoiding a dangling FK to mssmt_roots.
+func TestDeleteLastUniverseCleansMultiverseRoot(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, db := newTestMultiverse(t)
+
+	// Insert a single issuance leaf.
+	id := randUniverseID(t, false)
+	id.ProofType = universe.ProofTypeIssuance
+
+	assetGen := asset.RandGenesis(t, asset.Normal)
+	leaf := randMintingLeaf(t, assetGen, id.GroupKey)
+	leaf.Amt = 100
+
+	targetKey := randLeafKey(t)
+	_, err := multiverse.UpsertProofLeaf(
+		ctx, id, targetKey, &leaf, nil,
+	)
+	require.NoError(t, err)
+
+	// The multiverse root should exist.
+	multiverseNS, err := namespaceForProof(id.ProofType)
+	require.NoError(t, err)
+
+	_, err = db.FetchMultiverseRoot(ctx, multiverseNS)
+	require.NoError(t, err)
+
+	// Delete the only universe for this proof type.
+	_, err = multiverse.DeleteUniverse(ctx, id)
+	require.NoError(t, err)
+
+	// The multiverse root row should be gone.
+	_, err = db.FetchMultiverseRoot(ctx, multiverseNS)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+// TestDeleteProofLeafWithSyncLog tests that deleting a universe
+// through the Go code path (MultiverseStore.DeleteUniverse) correctly
+// CASCADE-deletes federation_proof_sync_log entries that reference
+// the universe's leaves. This exercises the actual bug scenario (FK
+// violation on delete when sync log entries exist) through the
+// application layer.
+func TestDeleteProofLeafWithSyncLog(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	db := NewTestDB(t)
+	dbHandle := newDbHandleFromDb(t, db.BaseDB)
+
+	multiverse := dbHandle.MultiverseStore
+	fedStore := dbHandle.UniverseFederationStore
+
+	// Insert a random asset and proof into the DB.
+	testAsset, annotatedProof := dbHandle.AddRandomAssetProof(t)
+
+	// Insert a universe proof leaf for the asset.
+	dbHandle.AddUniProofLeaf(t, testAsset, annotatedProof)
+
+	// Add a federation server (required by sync log entries).
+	servers := dbHandle.AddRandomServerAddrs(t, 1)
+
+	// Reconstruct the universe ID and leaf key used above.
+	uniID := universe.NewUniIDFromAsset(*testAsset)
+	leafKey := universe.BaseLeafKey{
+		OutPoint:  annotatedProof.AssetSnapshot.OutPoint,
+		ScriptKey: &testAsset.ScriptKey,
+	}
+
+	// Create two sync log entries (push + pull) referencing the
+	// universe leaf.
+	_, err := fedStore.UpsertFederationProofSyncLog(
+		ctx, uniID, leafKey, servers[0],
+		universe.SyncDirectionPush,
+		universe.ProofSyncStatusPending, false,
+	)
+	require.NoError(t, err)
+
+	_, err = fedStore.UpsertFederationProofSyncLog(
+		ctx, uniID, leafKey, servers[0],
+		universe.SyncDirectionPull,
+		universe.ProofSyncStatusPending, false,
+	)
+	require.NoError(t, err)
+
+	// Verify 2 sync log entries exist.
+	var count int
+	err = db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM federation_proof_sync_log",
+	).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+
+	// Delete the universe via the Go code path. Before the
+	// CASCADE fix this would fail with an FK violation.
+	_, err = multiverse.DeleteUniverse(ctx, uniID)
+	require.NoError(t, err)
+
+	// Sync log entries should be gone (CASCADE deleted them).
+	err = db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM federation_proof_sync_log",
+	).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+
+	// Universe should be fully cleaned up.
+	rootNodes, err := multiverse.RootNodes(
+		ctx, universe.RootNodesQuery{},
+	)
+	require.NoError(t, err)
+	require.Len(t, rootNodes, 0)
+}
+
+// TestDeleteProofLeafMultiUniverseWithSyncLog tests that deleting
+// one universe with sync log entries does not affect another
+// universe's leaves or sync log entries. This combines the CASCADE
+// test with cross-universe isolation.
+func TestDeleteProofLeafMultiUniverseWithSyncLog(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	db := NewTestDB(t)
+	dbHandle := newDbHandleFromDb(t, db.BaseDB)
+
+	multiverse := dbHandle.MultiverseStore
+	fedStore := dbHandle.UniverseFederationStore
+
+	// Create two independent genesis assets with proofs so
+	// both produce ProofTypeIssuance universe IDs.
+	testAsset1, proof1 := dbHandle.AddRandomAssetProof(
+		t, withGenesisAsset(),
+	)
+	testAsset2, proof2 := dbHandle.AddRandomAssetProof(
+		t, withGenesisAsset(),
+	)
+
+	// Insert universe proof leaves for both.
+	dbHandle.AddUniProofLeaf(t, testAsset1, proof1)
+	dbHandle.AddUniProofLeaf(t, testAsset2, proof2)
+
+	// Add a federation server.
+	servers := dbHandle.AddRandomServerAddrs(t, 1)
+
+	// Reconstruct universe IDs and leaf keys.
+	uniID1 := universe.NewUniIDFromAsset(*testAsset1)
+	leafKey1 := universe.BaseLeafKey{
+		OutPoint:  proof1.AssetSnapshot.OutPoint,
+		ScriptKey: &testAsset1.ScriptKey,
+	}
+
+	uniID2 := universe.NewUniIDFromAsset(*testAsset2)
+
+	// Assert same proof type explicitly so the test fails
+	// loudly if AddRandomAssetProof changes its witness
+	// generation in a way that breaks this assumption.
+	require.Equal(t, uniID1.ProofType, uniID2.ProofType,
+		"both universes must share the same proof type")
+
+	leafKey2 := universe.BaseLeafKey{
+		OutPoint:  proof2.AssetSnapshot.OutPoint,
+		ScriptKey: &testAsset2.ScriptKey,
+	}
+
+	// Create sync log entries for both universes.
+	_, err := fedStore.UpsertFederationProofSyncLog(
+		ctx, uniID1, leafKey1, servers[0],
+		universe.SyncDirectionPush,
+		universe.ProofSyncStatusPending, false,
+	)
+	require.NoError(t, err)
+
+	_, err = fedStore.UpsertFederationProofSyncLog(
+		ctx, uniID2, leafKey2, servers[0],
+		universe.SyncDirectionPush,
+		universe.ProofSyncStatusPending, false,
+	)
+	require.NoError(t, err)
+
+	// Verify 2 sync log entries exist total.
+	var count int
+	err = db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM federation_proof_sync_log",
+	).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+
+	// Delete universe 1 only.
+	_, err = multiverse.DeleteUniverse(ctx, uniID1)
+	require.NoError(t, err)
+
+	// Only universe 2's sync log entry should remain.
+	err = db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM federation_proof_sync_log",
+	).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+
+	// Universe 2's leaf and sync log entry survive.
+	entries, err := fedStore.QueryFederationProofSyncLog(
+		ctx, uniID2, leafKey2,
+		universe.SyncDirectionPush,
+		universe.ProofSyncStatusPending,
+	)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+
+	// Multiverse root persists (universe 2 still exists).
+	rootNodes, err := multiverse.RootNodes(
+		ctx, universe.RootNodesQuery{},
+	)
+	require.NoError(t, err)
+	require.True(t, len(rootNodes) > 0)
+}
+
 // TestShouldInsertPreCommit tests the shouldInsertPreCommit function with
 // various combinations of proof types, asset groups, and meta reveals.
 func TestShouldInsertPreCommit(t *testing.T) {

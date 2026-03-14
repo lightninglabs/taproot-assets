@@ -6,6 +6,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -94,4 +95,74 @@ func testMintProofRepeatFedSyncAttempt(t *harnessTest) {
 
 	t.Logf("Assert that fed peer node has seen the asset minting proofs")
 	AssertUniverseStats(t.t, fedServerNode, 2, 2, 1)
+}
+
+// testDeleteUniverseAfterFedSync tests that DeleteAssetRoot succeeds
+// after federation sync has created proof sync log entries. Pre-CASCADE
+// fix this would fail with an FK violation.
+func testDeleteUniverseAfterFedSync(t *harnessTest) {
+	ctx := context.Background()
+	miner := t.lndHarness.Miner().Client
+
+	// Mint a simple asset on Alice (the main harness node).
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd, simpleAssets[:1],
+	)
+	require.Len(t.t, rpcAssets, 1)
+	assetID := rpcAssets[0].AssetGenesis.AssetId
+
+	// Create Bob without default universe sync.
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bob := setupTapdHarness(
+		t.t, t, bobLnd, t.universeServer,
+		func(p *tapdHarnessParams) {
+			p.noDefaultUniverseSync = true
+		},
+	)
+	defer func() {
+		require.NoError(t.t, bob.stop(!*noDelete))
+	}()
+
+	// Add Alice as Bob's federation server.
+	_, err := bob.AddFederationServer(
+		ctx, &unirpc.AddFederationServerRequest{
+			Servers: []*unirpc.UniverseFederationServer{
+				{
+					Host: t.tapd.rpcHost(),
+				},
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Wait for Bob to sync from Alice. This creates
+	// federation_proof_sync_log entries on Bob.
+	require.Eventually(t.t, func() bool {
+		return AssertUniverseStateEqual(t.t, bob, t.tapd)
+	}, defaultWaitTimeout, wait.PollInterval)
+
+	// Bob should have 1 proof, 1 asset, 0 groups.
+	AssertUniverseStats(t.t, bob, 1, 1, 0)
+
+	// Delete the universe root on Bob. Pre-CASCADE fix, this
+	// would fail with an FK violation from sync log entries.
+	_, err = bob.DeleteAssetRoot(ctx, &unirpc.DeleteRootQuery{
+		Id: &unirpc.ID{
+			Id: &unirpc.ID_AssetId{
+				AssetId: assetID,
+			},
+			ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
+		},
+	})
+	require.NoError(t.t, err)
+
+	// Verify the root is gone.
+	roots, err := bob.AssetRoots(
+		ctx, &unirpc.AssetRootRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, roots.UniverseRoots, 0)
+
+	// Stats should be zeroed out.
+	AssertUniverseStats(t.t, bob, 0, 0, 0)
 }
