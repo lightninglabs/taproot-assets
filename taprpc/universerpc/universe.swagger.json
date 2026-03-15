@@ -371,6 +371,107 @@
         ]
       }
     },
+    "/v1/taproot-assets/universe/leaf": {
+      "delete": {
+        "summary": "tapcli: `universe delete-leaf`\nDeleteAssetLeaf deletes a single Universe leaf, identified by its\nuniverse ID and leaf key (outpoint + script key).",
+        "operationId": "Universe_DeleteAssetLeaf",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcDeleteAssetLeafResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "key.id.asset_id",
+            "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "key.id.asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "key.id.group_key",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "key.id.group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "key.id.proof_type",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "PROOF_TYPE_UNSPECIFIED",
+              "PROOF_TYPE_ISSUANCE",
+              "PROOF_TYPE_TRANSFER"
+            ],
+            "default": "PROOF_TYPE_UNSPECIFIED"
+          },
+          {
+            "name": "key.leaf_key.op_str",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "key.leaf_key.op.hash_str",
+            "description": "The output as a hex encoded (and reversed!) string.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "key.leaf_key.op.index",
+            "description": "The index of the output.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "key.leaf_key.script_key_bytes",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "key.leaf_key.script_key_str",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}": {
       "get": {
         "summary": "tapcli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taproot Asset proof, as\nwell as details for the asset.",
@@ -2536,6 +2637,9 @@
         "FILTER_ASSET_COLLECTIBLE"
       ],
       "default": "FILTER_ASSET_NONE"
+    },
+    "universerpcDeleteAssetLeafResponse": {
+      "type": "object"
     },
     "universerpcDeleteFederationServerResponse": {
       "type": "object"

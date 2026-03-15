@@ -42,6 +42,7 @@ var universeCommands = []cli.Command{
 			multiverseRootCommand,
 			universeRootsCommand,
 			universeDeleteRootCommand,
+			universeDeleteLeafCommand,
 			universeLeavesCommand,
 			universeKeysCommand,
 			universeProofCommand,
@@ -286,6 +287,41 @@ func deleteUniverseRoot(ctx *cli.Context) error {
 	}
 
 	_, err = client.DeleteAssetRoot(ctxc, rootReq)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var universeDeleteLeafCommand = cli.Command{
+	Name:      "delete-leaf",
+	ShortName: "dl",
+	Usage:     "delete a single leaf from a universe",
+	Description: `
+	Delete a single leaf from a universe, identified by the
+	universe ID (asset_id or group_key), outpoint, and script
+	key. If it is the last leaf, the entire universe is removed.
+	`,
+	Flags:  universeProofArgs,
+	Action: deleteUniverseLeaf,
+}
+
+func deleteUniverseLeaf(ctx *cli.Context) error {
+	uKey, err := parseUniverseProofArgs(ctx)
+	if err != nil {
+		return err
+	}
+
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	_, err = client.DeleteAssetLeaf(
+		ctxc, &unirpc.DeleteAssetLeafRequest{
+			Key: uKey,
+		},
+	)
 	if err != nil {
 		return err
 	}

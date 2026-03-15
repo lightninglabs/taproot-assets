@@ -55,6 +55,12 @@ INSERT INTO universe_leaves (
 DELETE FROM universe_leaves
 WHERE leaf_node_namespace = @namespace;
 
+-- name: DeleteUniverseLeaf :exec
+DELETE FROM universe_leaves
+WHERE leaf_node_namespace = @namespace
+  AND minting_point = @minting_point
+  AND script_key_bytes = @script_key_bytes;
+
 -- name: QueryUniverseLeaves :many
 SELECT leaves.script_key_bytes, gen.gen_asset_id, nodes.value AS genesis_proof, 
        nodes.sum AS sum_amt, gen.asset_id
