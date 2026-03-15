@@ -42,6 +42,7 @@ type Querier interface {
 	DeleteTapscriptTreeRoot(ctx context.Context, rootHash []byte) error
 	DeleteUTXOLease(ctx context.Context, outpoint []byte) error
 	DeleteUniverseEvents(ctx context.Context, namespaceRoot string) error
+	DeleteUniverseLeaf(ctx context.Context, arg DeleteUniverseLeafParams) error
 	DeleteUniverseLeaves(ctx context.Context, namespace string) error
 	DeleteUniverseRoot(ctx context.Context, namespaceRoot string) error
 	DeleteUniverseServer(ctx context.Context, arg DeleteUniverseServerParams) error

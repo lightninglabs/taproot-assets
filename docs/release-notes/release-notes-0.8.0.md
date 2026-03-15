@@ -118,6 +118,12 @@
   Add the PortfolioPilot RPC service for RFQ quote resolution, verification,
   and asset rate queries.
 
+- [PR#2023](https://github.com/lightninglabs/taproot-assets/pull/2023)
+  Add `DeleteAssetLeaf` RPC for removing a single leaf from a universe,
+  identified by universe ID and leaf key (outpoint + script key). When
+  the last leaf is deleted, the entire universe is automatically cleaned
+  up.
+
 ## tapcli Additions
 
 - [Wallet Backup CLI](https://github.com/lightninglabs/taproot-assets/pull/1980):
@@ -128,6 +134,10 @@
 
 - [PR#1960](https://github.com/lightninglabs/taproot-assets/pull/1960)
   Add `tapcli bakemacaroon` to bake custom macaroons with offline caveats.
+
+- [PR#2023](https://github.com/lightninglabs/taproot-assets/pull/2023)
+  Add `tapcli universe delete-leaf` to delete a single leaf from a
+  universe by asset ID, outpoint, and script key.
 
 - [ForwardingHistory RPC](https://github.com/lightninglabs/taproot-assets/pull/1921):
   New RPC endpoint `rfqrpc.ForwardingHistory` allows querying historical
@@ -292,6 +302,10 @@
 
 - [forwards table](https://github.com/lightninglabs/taproot-assets/pull/1921):
   New database table `forwards` stores historical forwarding events.
+
+- [PR#2023](https://github.com/lightninglabs/taproot-assets/pull/2023)
+  Add `DeleteUniverseLeaf` SQL query for single-leaf deletion from a
+  universe.
 
 ## Code Health
 

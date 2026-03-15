@@ -997,6 +997,80 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 	return id.String(), dbErr
 }
 
+// DeleteProofLeaf deletes a single proof leaf from the universe tree
+// identified by the universe ID and leaf key. If the deleted leaf was
+// the last one in the universe, the entire universe is cleaned up.
+func (b *MultiverseStore) DeleteProofLeaf(ctx context.Context,
+	id universe.Identifier,
+	key universe.LeafKey) (string, error) {
+
+	var writeTx BaseMultiverseOptions
+
+	dbErr := b.db.ExecTx(
+		ctx, &writeTx, func(tx BaseMultiverseStore) error {
+			namespace := id.String()
+
+			// Delete the leaf from the universe MSSMT and the
+			// universe_leaves table.
+			newRoot, err := universeDeleteProofLeaf(
+				ctx, tx, namespace, key,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to delete "+
+					"proof leaf: %w", err)
+			}
+
+			multiverseNS, err := namespaceForProof(
+				id.ProofType,
+			)
+			if err != nil {
+				return err
+			}
+
+			multiverseTree := mssmt.NewCompactedTree(
+				newTreeStoreWrapperTx(tx, multiverseNS),
+			)
+
+			// If the universe is now empty, do a full cleanup
+			// (same as DeleteUniverse).
+			if newRoot.NodeHash() == mssmt.EmptyTreeRootHash {
+				multiverseLeafKey := id.Bytes()
+				_, err = multiverseTree.Delete(
+					ctx, multiverseLeafKey,
+				)
+				if err != nil {
+					return err
+				}
+
+				return deleteUniverseTree(ctx, tx, id)
+			}
+
+			// Otherwise, update the multiverse entry with the
+			// new universe root.
+			_, _, err = upsertMultiverseLeafEntry(
+				ctx, tx, id, newRoot,
+			)
+			if err != nil {
+				return fmt.Errorf("failed multiverse "+
+					"update: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if dbErr != nil {
+		return "", dbErr
+	}
+
+	// Invalidate caches.
+	b.rootNodeCache.wipeCache()
+	b.proofCache.delProofsForAsset(id)
+	b.leafKeysCache.wipeCache(id.String())
+	b.syncerCache.remove(id.Key())
+
+	return id.String(), nil
+}
+
 // FetchLeaves returns the set of multiverse leaves for the given proof type,
 // asset ID, and group key. If both asset ID and group key is nil, all leaves
 // for the given proof type will be returned.

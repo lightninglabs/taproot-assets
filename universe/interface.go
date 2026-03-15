@@ -440,6 +440,12 @@ type StorageBackend interface {
 	// DeleteUniverse deletes all leaves, and the root, for a given
 	// universe.
 	DeleteUniverse(ctx context.Context) (string, error)
+
+	// DeleteProofLeaf deletes a single proof leaf from the universe
+	// tree identified by the given key. It returns the namespace of
+	// the universe.
+	DeleteProofLeaf(ctx context.Context,
+		key LeafKey) (string, error)
 }
 
 // Root is the ms-smt root for a universe. This root can be used to compare
@@ -511,6 +517,12 @@ type MultiverseArchive interface {
 
 	// DeleteUniverse deletes all leaves, and the root, for given universe.
 	DeleteUniverse(ctx context.Context, id Identifier) (string, error)
+
+	// DeleteProofLeaf deletes a single proof leaf from the universe
+	// tree identified by the universe ID and leaf key. It returns
+	// the namespace of the universe.
+	DeleteProofLeaf(ctx context.Context, id Identifier,
+		key LeafKey) (string, error)
 
 	// UniverseRootNode returns the Universe root node for the given asset
 	// ID.

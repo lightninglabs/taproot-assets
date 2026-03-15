@@ -54,6 +54,10 @@ type (
 	// DeleteMultiverseLeaf is used to delete a multiverse leaf.
 	DeleteMultiverseLeaf = sqlc.DeleteMultiverseLeafParams
 
+	// DeleteUniverseLeafParams is used to delete a single universe
+	// leaf.
+	DeleteUniverseLeafParams = sqlc.DeleteUniverseLeafParams
+
 	// UpsertUniverseSupplyRoot is used to upsert a universe supply root.
 	UpsertUniverseSupplyRoot = sqlc.UpsertUniverseSupplyRootParams
 
@@ -86,6 +90,11 @@ type BaseUniverseStore interface {
 	// DeleteUniverseLeaves is used to delete leaves that reside in a
 	// universe tree.
 	DeleteUniverseLeaves(ctx context.Context, namespace string) error
+
+	// DeleteUniverseLeaf is used to delete a single leaf from a
+	// universe tree.
+	DeleteUniverseLeaf(ctx context.Context,
+		arg DeleteUniverseLeafParams) error
 
 	// DeleteUniverseRoot is used to delete the root of a universe tree.
 	DeleteUniverseRoot(ctx context.Context, namespace string) error
@@ -1330,6 +1339,74 @@ func (b *BaseUniverseTree) FetchLeaves(
 	}
 
 	return leaves, nil
+}
+
+// universeDeleteProofLeaf deletes a single proof leaf from the universe
+// tree. It removes the leaf from the MSSMT and deletes the corresponding
+// universe_leaves row. The new universe root is returned.
+//
+// NOTE: This function accepts a db transaction, as it's used when making
+// broader DB updates.
+func universeDeleteProofLeaf(ctx context.Context,
+	dbTx BaseUniverseStore, namespace string,
+	key universe.LeafKey) (mssmt.Node, error) {
+
+	smtKey := key.UniverseKey()
+
+	universeTree := mssmt.NewCompactedTree(
+		newTreeStoreWrapperTx(dbTx, namespace),
+	)
+
+	// Delete the leaf from the MSSMT by inserting an empty leaf.
+	_, err := universeTree.Delete(ctx, smtKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to delete MSSMT "+
+			"leaf: %w", err)
+	}
+
+	// Delete the corresponding universe_leaves row.
+	mintingPointBytes, err := encodeOutpoint(key.LeafOutPoint())
+	if err != nil {
+		return nil, err
+	}
+
+	scriptKey := key.LeafScriptKey()
+	err = dbTx.DeleteUniverseLeaf(ctx, DeleteUniverseLeafParams{
+		Namespace:      namespace,
+		MintingPoint:   mintingPointBytes,
+		ScriptKeyBytes: schnorr.SerializePubKey(scriptKey.PubKey),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to delete universe "+
+			"leaf row: %w", err)
+	}
+
+	// Return the new root after deletion.
+	newRoot, err := universeTree.Root(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get tree root: %w",
+			err)
+	}
+
+	return newRoot, nil
+}
+
+// DeleteProofLeaf deletes a single proof leaf from the universe tree.
+func (b *BaseUniverseTree) DeleteProofLeaf(ctx context.Context,
+	key universe.LeafKey) (string, error) {
+
+	var writeTx BaseUniverseStoreOptions
+
+	dbErr := b.db.ExecTx(
+		ctx, &writeTx, func(dbTx BaseUniverseStore) error {
+			_, err := universeDeleteProofLeaf(
+				ctx, dbTx, b.id.String(), key,
+			)
+			return err
+		},
+	)
+
+	return b.smtNamespace, dbErr
 }
 
 // deleteUniverses deletes the entire universe for a given namespace.

@@ -290,6 +290,10 @@ var allTestCases = []*testCase{
 		test: testUniverseSync,
 	},
 	{
+		name: "universe delete leaf",
+		test: testUniverseDeleteLeaf,
+	},
+	{
 		name: "universe sync manual insert",
 		test: testUniverseManualSync,
 	},

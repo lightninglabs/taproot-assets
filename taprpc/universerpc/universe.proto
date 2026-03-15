@@ -33,6 +33,13 @@ service Universe {
     */
     rpc DeleteAssetRoot (DeleteRootQuery) returns (DeleteRootResponse);
 
+    /* tapcli: `universe delete-leaf`
+    DeleteAssetLeaf deletes a single Universe leaf, identified by its
+    universe ID and leaf key (outpoint + script key).
+    */
+    rpc DeleteAssetLeaf (DeleteAssetLeafRequest)
+        returns (DeleteAssetLeafResponse);
+
     /* tapcli: `universe keys`
     AssetLeafKeys queries for the set of Universe keys associated with a given
     asset_id or group_key. Each key takes the form: (outpoint, script_key),
@@ -314,6 +321,14 @@ message DeleteRootQuery {
 }
 
 message DeleteRootResponse {
+}
+
+message DeleteAssetLeafRequest {
+    // The universe key identifying the leaf to delete.
+    UniverseKey key = 1;
+}
+
+message DeleteAssetLeafResponse {
 }
 
 message Outpoint {
