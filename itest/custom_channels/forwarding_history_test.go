@@ -149,6 +149,10 @@ func testCustomChannelsForwardingHistory(ctx context.Context,
 	require.GreaterOrEqual(
 		t.t, daveFwd.AssetAmt, uint64(invoiceAssetAmount),
 	)
+	// AmtOutMsat (the real outgoing BTC amount) should be greater than
+	// AmtInMsat (the incoming asset anchor amount of ~354 sats), since
+	// Dave converts from the smaller asset-anchor value to the actual
+	// invoice amount in sats.
 	require.Greater(t.t, daveFwd.AmtOutMsat, daveFwd.AmtInMsat)
 	require.GreaterOrEqual(t.t, daveFwd.SettledAt, daveFwd.OpenedAt)
 	require.Zero(t.t, daveFwd.FailedAt)
