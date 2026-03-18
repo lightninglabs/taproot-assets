@@ -429,7 +429,7 @@ jobs:
 
       - name: Zip log files on failure
         if: ${{ failure() }}
-        run: 7z a logs-itest-${{ matrix.tranche }}.zip itest/regtest/.logs-tranche*/*.log itest/regtest/.logs-tranche*/output.log
+        run: 7z a logs-itest-${{ matrix.tranche }}.zip itest/regtest/logs-tranche*/*.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v7
@@ -521,7 +521,7 @@ jobs:
 
       - name: Zip log files on failure
         if: ${{ failure() }}
-        run: 7z a logs-itest-postgres-${{ matrix.tranche }}.zip itest/regtest/.logs-tranche*/*.log itest/regtest/.logs-tranche*/output.log
+        run: 7z a logs-itest-postgres-${{ matrix.tranche }}.zip itest/regtest/logs-tranche*/*.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v7

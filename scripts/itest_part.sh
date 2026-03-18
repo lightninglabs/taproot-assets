@@ -26,7 +26,7 @@ done
 # that here if necessary.
 EXEC="$WORKDIR"/itest.test
 BTCD_EXEC="$WORKDIR"/btcd-itest
-LOG_DIR="$WORKDIR/regtest/.logs-tranche$TRANCHE"
+LOG_DIR="$WORKDIR/regtest/logs-tranche$TRANCHE"
 export GOCOVERDIR="$WORKDIR/regtest/cover"
 COVERFILE="$GOCOVERDIR/coverage-tranche$TRANCHE.txt"
 mkdir -p "$GOCOVERDIR"
