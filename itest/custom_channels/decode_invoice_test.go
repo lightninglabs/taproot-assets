@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"slices"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/itest"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
@@ -100,6 +101,18 @@ func testCustomChannelsDecodeAssetInvoice(_ context.Context,
 	)
 	btcPrice.Coefficient = btcPrice.Coefficient.Mul(factor)
 	oracle.SetPrice(asset.NewSpecifierFromId(id), btcPrice, btcPrice)
+
+	// Also register the same price under the group key, since
+	// DecodeAssetPayReq will query by group key when called with a group
+	// key specifier.
+	groupKey, err := btcec.ParsePubKey(
+		usdAsset.AssetGroup.TweakedGroupKey,
+	)
+	require.NoError(t.t, err)
+	oracle.SetPrice(
+		asset.NewSpecifierFromGroupKey(*groupKey), btcPrice,
+		btcPrice,
+	)
 
 	// Now we'll make a normal invoice for 1 BTC using Alice.
 	ctx := context.Background()
