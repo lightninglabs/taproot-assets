@@ -10600,9 +10600,15 @@ func (r *RPCServer) DecodeAssetPayReq(ctx context.Context,
 	numMsat := lnwire.NewMSatFromSatoshis(
 		btcutil.Amount(payReqInfo.NumSatoshis),
 	)
-	targetAsset := asset.NewSpecifierOptionalGroupKey(
-		assetGroup.ID(), assetGroup.GroupKey,
-	)
+
+	var targetAsset asset.Specifier
+	if len(payReq.GroupKey) != 0 && assetGroup.GroupKey != nil {
+		targetAsset = asset.NewSpecifierFromGroupKey(
+			assetGroup.GroupKey.GroupPubKey,
+		)
+	} else {
+		targetAsset = asset.NewSpecifierFromId(assetID)
+	}
 	invoiceAmt, err := r.assetInvoiceAmt(
 		ctx, targetAsset, payReq.PriceOracleMetadata, numMsat,
 	)
