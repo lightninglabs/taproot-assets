@@ -215,7 +215,7 @@ func TestCommitment(t *testing.T) {
 			name: "commitment with empty HTLC maps",
 			commitment: NewCommitment(
 				nil, nil, nil, nil, lnwallet.CommitAuxLeaves{},
-				false,
+				false, false,
 			),
 		},
 		{
@@ -229,7 +229,8 @@ func TestCommitment(t *testing.T) {
 					NewAssetOutput(
 						[32]byte{1}, 1000, *randProof,
 					),
-				}, nil, nil, lnwallet.CommitAuxLeaves{}, false,
+				}, nil, nil,
+				lnwallet.CommitAuxLeaves{}, false, false,
 			),
 		},
 		{
@@ -243,7 +244,8 @@ func TestCommitment(t *testing.T) {
 					NewAssetOutput(
 						[32]byte{1}, 1000, *randProof,
 					),
-				}, nil, nil, lnwallet.CommitAuxLeaves{}, true,
+				}, nil, nil,
+				lnwallet.CommitAuxLeaves{}, true, false,
 			),
 		},
 		{
@@ -334,7 +336,7 @@ func TestCommitment(t *testing.T) {
 						},
 					},
 				},
-				false,
+				false, false,
 			),
 		},
 	}

@@ -609,19 +609,33 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		}
 		sendPkg.FinalProofs[outKey] = outputProof
 
-		vCtx := proof.VerifierCtx{
-			HeaderVerifier: headerVerifier,
-			MerkleVerifier: proof.DefaultMerkleVerifier,
-			GroupVerifier:  p.cfg.GroupVerifier,
-			ChainLookupGen: p.cfg.ChainBridge,
-			IgnoreChecker:  p.cfg.IgnoreChecker,
-		}
+		var verifiedOutputProofs []proof.VerifiedAnnotatedProof
+		if sendPkg.SkipProofVerify {
+			// For already-confirmed channel txs with
+			// placeholder witnesses, skip the VM-level
+			// verification and trust the on-chain
+			// confirmation.
+			verifiedOutputProofs =
+				proof.AssumeVerifiedAnnotatedProofs(
+					outputProof,
+				)
+		} else {
+			vCtx := proof.VerifierCtx{
+				HeaderVerifier: headerVerifier,
+				MerkleVerifier: proof.DefaultMerkleVerifier,
+				GroupVerifier:  p.cfg.GroupVerifier,
+				ChainLookupGen: p.cfg.ChainBridge,
+				IgnoreChecker:  p.cfg.IgnoreChecker,
+			}
 
-		verifiedOutputProofs, err := proof.VerifyAnnotatedProofs(
-			ctx, vCtx, outputProof,
-		)
-		if err != nil {
-			return fmt.Errorf("error verifying proof: %w", err)
+			verifiedOutputProofs, err =
+				proof.VerifyAnnotatedProofs(
+					ctx, vCtx, outputProof,
+				)
+			if err != nil {
+				return fmt.Errorf("error verifying "+
+					"proof: %w", err)
+			}
 		}
 
 		// Import proof into proof archive.
