@@ -77,6 +77,10 @@
   fixes an issue that prevented asset roots from being deleted on
   universes with existing federation sync log entries.
 
+* [PR#2035](https://github.com/lightninglabs/taproot-assets/pull/2035)
+  fixes a bug by which which the connection with an authmailbox server
+  could be lost after encountering a non-graceful error.
+
 # New Features
 
 ## Functional Enhancements
