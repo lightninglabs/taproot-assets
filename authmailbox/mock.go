@@ -220,3 +220,24 @@ func (m *MockServer) Stop(t *testing.T) {
 	m.grpcServer.GracefulStop()
 	m.cleanup()
 }
+
+// ForceStop kills the gRPC server without graceful shutdown. No
+// EndOfStream message is sent to clients — they get a transport error
+// instead.
+func (m *MockServer) ForceStop(t *testing.T) {
+	t.Helper()
+
+	t.Logf("Force-stopping server %s", m.ListenAddr)
+
+	// Stop gRPC server forcefully first — kills all transports
+	// immediately. Handlers return with stream errors. No
+	// EndOfStream is sent.
+	m.grpcServer.Stop()
+
+	// Now safe to stop the mailbox server — no handlers are
+	// running.
+	err := m.srv.Stop()
+	require.NoError(t, err)
+
+	m.cleanup()
+}
