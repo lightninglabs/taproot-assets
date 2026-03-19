@@ -343,9 +343,10 @@ func (s *receiveSubscription) readIncomingStream(ctx context.Context) {
 		// re-connect scheduled. On an improper shutdown, we'll get an
 		// error, which usually is "transport is closing".
 		case errors.Is(err, io.EOF) || fn.IsRpcErr(err, io.EOF):
-			select {
-			case s.errChan <- ErrServerShutdown:
-			case <-s.quit:
+			reconnErr := s.HandleServerShutdown(ctx, nil)
+			if reconnErr != nil {
+				log.ErrorS(ctx, "Reconnect after EOF "+
+					"failed", reconnErr)
 			}
 			return
 
@@ -361,12 +362,10 @@ func (s *receiveSubscription) readIncomingStream(ctx context.Context) {
 
 			log.ErrorS(ctx, "Server connection error", err)
 
-			// For any other error type, we'll attempt to trigger
-			// the re-connect logic so we'll always try to connect
-			// to the server in the background.
-			select {
-			case s.errChan <- ErrServerInternal:
-			case <-s.quit:
+			reconnErr := s.HandleServerShutdown(ctx, err)
+			if reconnErr != nil {
+				log.ErrorS(ctx, "Reconnect after error "+
+					"failed", reconnErr)
 			}
 			return
 		}
