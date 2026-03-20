@@ -83,6 +83,40 @@
         ]
       }
     },
+    "/v1/taproot-assets/mailbox/remove": {
+      "post": {
+        "summary": "Removes one or more messages from the mailbox. The caller must prove\nownership of the receiver key by providing a Schnorr signature over\nSHA256(receiver_id || big-endian uint64 message_id_1 || ...).\nOnly messages that belong to the authenticated receiver are deleted.",
+        "operationId": "Mailbox_RemoveMessage",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/authmailboxrpcRemoveMessageResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": "Request message for the RemoveMessage RPC.",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/authmailboxrpcRemoveMessageRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Mailbox"
+        ]
+      }
+    },
     "/v1/taproot-assets/mailbox/send": {
       "post": {
         "summary": "Sends a single message to a receiver's mailbox. Requires a valid, unused\nBitcoin P2TR transaction outpoint as proof of uniqueness, included in a\nblock as proof of work.",
@@ -317,6 +351,41 @@
         }
       },
       "description": "Wrapper message for responses sent FROM the server TO the client\nduring the ReceiveMessages stream."
+    },
+    "authmailboxrpcRemoveMessageRequest": {
+      "type": "object",
+      "properties": {
+        "receiver_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The public key identifier of the receiver whose messages should be\nremoved, encoded as the raw bytes of the compressed public key. This\nis the same key used when subscribing for messages via ReceiveMessages."
+        },
+        "message_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The IDs of the messages to remove. Only messages that belong to the\nspecified receiver will be deleted. IDs that don't exist or belong to\na different receiver are silently skipped."
+        },
+        "signature": {
+          "type": "string",
+          "format": "byte",
+          "description": "A Schnorr signature proving ownership of the receiver key. The\nsignature must be over SHA256(receiver_id || msg_id_1 || msg_id_2 ||\n...) where each message ID is encoded as a big-endian uint64."
+        }
+      },
+      "description": "Request message for the RemoveMessage RPC."
+    },
+    "authmailboxrpcRemoveMessageResponse": {
+      "type": "object",
+      "properties": {
+        "num_removed": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The number of messages that were actually removed."
+        }
+      },
+      "description": "Response message for the RemoveMessage RPC."
     },
     "authmailboxrpcSendMessageRequest": {
       "type": "object",

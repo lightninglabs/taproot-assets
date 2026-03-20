@@ -81,6 +81,13 @@
 
 ## Functional Enhancements
 
+- [Auth Mailbox Cleanup](https://github.com/lightninglabs/taproot-assets/pull/2020):
+  The auth mailbox server now periodically checks claimed outpoints against the
+  chain and deletes messages whose outpoints have been spent. Receivers can also
+  explicitly remove their own messages via the new `RemoveMessage` RPC. The
+  custodian automatically removes mailbox messages after successfully receiving
+  proofs.
+
 - [Forwarding History Tracking](https://github.com/lightninglabs/taproot-assets/pull/1921):
   Routing nodes can now track and query historical asset forwarding events.
   When a node successfully routes an asset payment, the forward event is logged.
@@ -128,6 +135,10 @@
   Add `FetchAsset` RPC for fetching assets by asset ID or group key using an
   `AssetSpecifier`. Supports filters for `include_spent`, `include_leased`,
   `include_unconfirmed_mints`, `with_witness`, and `script_key_type`.
+
+- [PR#2020](https://github.com/lightninglabs/taproot-assets/pull/2020)
+  Add `RemoveMessage` RPC to the auth mailbox service. Receivers can
+  authenticate with a Schnorr signature to delete their own messages by ID.
 
 ## tapcli Additions
 
@@ -270,6 +281,11 @@
   Orphan UTXO sweeping is now enabled by default. This automatically sweeps
   tombstone and burn outputs when executing on-chain transactions. Set
   `wallet.disable-sweep-orphan-utxos` to disable.
+
+- [PR#2020](https://github.com/lightninglabs/taproot-assets/pull/2020)
+  Add `universe.mbox-cleanup-interval` and
+  `universe.mbox-cleanup-check-timeout` to configure periodic cleanup of
+  auth mailbox messages whose claimed outpoints have been spent on chain.
 
 ## Breaking Changes
 
