@@ -1,15 +1,15 @@
 # Release Notes
 
 - [Bug Fixes](#bug-fixes)
+- [New Features](#new-features)
+    - [RPC Additions](#rpc-additions)
+    - [tapcli Additions](#tapcli-additions)
 - [Improvements](#improvements)
     - [RPC Updates](#rpc-updates)
+- [Technical and Architectural Updates](#technical-and-architectural-updates)
+    - [Database](#database)
 
 # Bug Fixes
-
-* [PR#1981](https://github.com/lightninglabs/taproot-assets/pull/1981)
-  fixes a bug where universe leaf keys using the `op` (string-based)
-  outpoint field were silently ignored, allowing unauthenticated
-  callers to delete universe leaves.
 
 * [PR#1990](https://github.com/lightninglabs/taproot-assets/pull/1990)
   prevents buggy results when comparing quotes encoded using different
@@ -24,6 +24,26 @@
   fixes a bug where `UniverseFederation.Start()` was called instead
   of `Stop()` during server shutdown.
 
+* [PR#2010](https://github.com/lightninglabs/taproot-assets/pull/2010)
+  fixes an issue that prevented asset roots from being deleted on
+  universes with existing federation sync log entries.
+
+# New Features
+
+## RPC Additions
+
+- [PR#2023](https://github.com/lightninglabs/taproot-assets/pull/2023)
+  Add `DeleteAssetLeaf` RPC for removing a single leaf from a
+  universe, identified by universe ID and leaf key (outpoint +
+  script key). When the last leaf is deleted, the entire universe
+  is automatically cleaned up.
+
+## tapcli Additions
+
+- [PR#2023](https://github.com/lightninglabs/taproot-assets/pull/2023)
+  Add `tapcli universe delete-leaf` to delete a single leaf from
+  a universe by asset ID, outpoint, and script key.
+
 # Improvements
 
 ## RPC Updates
@@ -34,4 +54,12 @@
   oracle to identify which tapd node is querying rates. The field is
   populated by default and can be disabled via
   `experimental.rfq.priceoracledisablenodeid`.
+
+# Technical and Architectural Updates
+
+## Database
+
+- [PR#2023](https://github.com/lightninglabs/taproot-assets/pull/2023)
+  Add `DeleteUniverseLeaf` SQL query for single-leaf deletion
+  from a universe.
 
