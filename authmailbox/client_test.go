@@ -604,6 +604,52 @@ func TestReceiveBacklog(t *testing.T) {
 	}
 }
 
+// TestReconnectAfterStreamError tests that the client reconnects after
+// a non-graceful server shutdown (transport error, no EndOfStream).
+func TestReconnectAfterStreamError(t *testing.T) {
+	ctx := context.Background()
+	harness := NewMockServer(t)
+	clientCfg := harness.clientCfg
+
+	clientKey, _ := test.RandKeyDesc(t)
+	filter := MessageFilter{}
+	client := newClientHarness(t, clientCfg, clientKey, filter, true)
+	t.Cleanup(func() {
+		client.stop(t)
+	})
+
+	// Send a message and verify it arrives.
+	msg1 := &Message{
+		ID:               1000,
+		ReceiverKey:      *clientKey.PubKey,
+		ArrivalTimestamp: time.Now(),
+	}
+	_, err := harness.mockMsgStore.StoreMessage(ctx, randProof(t), msg1)
+	require.NoError(t, err)
+	harness.srv.publishMessage(msg1)
+	client.readMessages(t, msg1.ID)
+
+	// Force-kill the server — no EndOfStream is sent.
+	harness.ForceStop(t)
+	client.assertDisconnected(t)
+
+	// Restart the server. The client is already retrying in the
+	// background via HandleServerShutdown.
+	harness.Start(t)
+	client.assertConnected(t)
+
+	// Send another message and verify receipt.
+	msg2 := &Message{
+		ID:               1001,
+		ReceiverKey:      *clientKey.PubKey,
+		ArrivalTimestamp: time.Now(),
+	}
+	_, err = harness.mockMsgStore.StoreMessage(ctx, randProof(t), msg2)
+	require.NoError(t, err)
+	harness.srv.publishMessage(msg2)
+	client.readMessages(t, msg2.ID)
+}
+
 func init() {
 	logger := btclog.NewSLogger(btclog.NewDefaultHandler(os.Stdout))
 	UseLogger(logger.SubSystem(Subsystem))
