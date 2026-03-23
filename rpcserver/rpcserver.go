@@ -6782,7 +6782,8 @@ func marshalLeafKey(leafKey universe.LeafKey) *unirpc.AssetKey {
 // Taproot Asset commitment, and script_key is the script_key of the asset
 // within the Taproot Asset commitment for the given asset_id or group_key.
 func (r *RPCServer) AssetLeafKeys(ctx context.Context,
-	req *unirpc.AssetLeafKeysRequest) (*unirpc.AssetLeafKeyResponse, error) {
+	req *unirpc.AssetLeafKeysRequest) (*unirpc.AssetLeafKeyResponse,
+	error) {
 
 	if req == nil {
 		return nil, fmt.Errorf("request must be set")
@@ -7545,7 +7546,9 @@ func (r *RPCServer) marshalUniverseDiff(ctx context.Context,
 	uniDiff []universe.AssetSyncDiff) (*unirpc.SyncResponse, error) {
 
 	resp := &unirpc.SyncResponse{
-		SyncedUniverses: make([]*unirpc.SyncedUniverse, 0, len(uniDiff)),
+		SyncedUniverses: make(
+			[]*unirpc.SyncedUniverse, 0, len(uniDiff),
+		),
 	}
 
 	err := fn.ForEachErr(uniDiff, func(diff universe.AssetSyncDiff) error {
@@ -7842,7 +7845,8 @@ func (r *RPCServer) QueryFederationSyncConfig(ctx context.Context,
 // spending the asset with a valid witness to prove the prover owns the keys
 // that can spend the asset.
 func (r *RPCServer) ProveAssetOwnership(ctx context.Context,
-	req *wrpc.ProveAssetOwnershipRequest) (*wrpc.ProveAssetOwnershipResponse,
+	req *wrpc.ProveAssetOwnershipRequest) (
+	*wrpc.ProveAssetOwnershipResponse,
 	error) {
 
 	if len(req.ScriptKey) == 0 {
@@ -7944,7 +7948,8 @@ func (r *RPCServer) ProveAssetOwnership(ctx context.Context,
 // VerifyAssetOwnership verifies the asset ownership proof embedded in the
 // given transition proof of an asset and returns true if the proof is valid.
 func (r *RPCServer) VerifyAssetOwnership(ctx context.Context,
-	req *wrpc.VerifyAssetOwnershipRequest) (*wrpc.VerifyAssetOwnershipResponse,
+	req *wrpc.VerifyAssetOwnershipRequest) (
+	*wrpc.VerifyAssetOwnershipResponse,
 	error) {
 
 	if len(req.ProofWithWitness) == 0 {
@@ -8075,7 +8080,7 @@ func (r *RPCServer) QueryAssetStats(ctx context.Context,
 				case unirpc.AssetTypeFilter_FILTER_ASSET_NORMAL:
 					return fn.Ptr(asset.Normal)
 
-				case unirpc.AssetTypeFilter_FILTER_ASSET_COLLECTIBLE:
+				case unirpc.AssetTypeFilter_FILTER_ASSET_COLLECTIBLE: //nolint:lll
 					return fn.Ptr(asset.Collectible)
 
 				default:
@@ -8593,7 +8598,8 @@ func unmarshalAssetSellOrder(
 // AddAssetSellOrder upserts a new sell order for the given asset into the RFQ
 // manager. If the order already exists for the given asset, it will be updated.
 func (r *RPCServer) AddAssetSellOrder(ctx context.Context,
-	req *rfqrpc.AddAssetSellOrderRequest) (*rfqrpc.AddAssetSellOrderResponse,
+	req *rfqrpc.AddAssetSellOrderRequest) (
+	*rfqrpc.AddAssetSellOrderResponse,
 	error) {
 
 	if req.TimeoutSeconds == 0 {
@@ -8709,7 +8715,8 @@ func (r *RPCServer) AddAssetSellOrder(ctx context.Context,
 // RFQ manager. If the offer already exists for the given asset, it will be
 // updated.
 func (r *RPCServer) AddAssetSellOffer(_ context.Context,
-	req *rfqrpc.AddAssetSellOfferRequest) (*rfqrpc.AddAssetSellOfferResponse,
+	req *rfqrpc.AddAssetSellOfferRequest) (
+	*rfqrpc.AddAssetSellOfferResponse,
 	error) {
 
 	// Unmarshal the sell offer from the RPC form.
@@ -8823,11 +8830,12 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 			event,
 		)
 
+		sellQuoteEvent := &rfqrpc.PeerAcceptedSellQuoteEvent{
+			Timestamp:             uint64(timestamp),
+			PeerAcceptedSellQuote: rpcAcceptedQuote,
+		}
 		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedSellQuote{
-			PeerAcceptedSellQuote: &rfqrpc.PeerAcceptedSellQuoteEvent{
-				Timestamp:             uint64(timestamp),
-				PeerAcceptedSellQuote: rpcAcceptedQuote,
-			},
+			PeerAcceptedSellQuote: sellQuoteEvent,
 		}
 		return &rfqrpc.RfqEvent{
 			Event: eventRpc,
@@ -10600,9 +10608,15 @@ func (r *RPCServer) DecodeAssetPayReq(ctx context.Context,
 	numMsat := lnwire.NewMSatFromSatoshis(
 		btcutil.Amount(payReqInfo.NumSatoshis),
 	)
-	targetAsset := asset.NewSpecifierOptionalGroupKey(
-		assetGroup.ID(), assetGroup.GroupKey,
-	)
+
+	var targetAsset asset.Specifier
+	if len(payReq.GroupKey) != 0 && assetGroup.GroupKey != nil {
+		targetAsset = asset.NewSpecifierFromGroupKey(
+			assetGroup.GroupKey.GroupPubKey,
+		)
+	} else {
+		targetAsset = asset.NewSpecifierFromId(assetID)
+	}
 	invoiceAmt, err := r.assetInvoiceAmt(
 		ctx, targetAsset, payReq.PriceOracleMetadata, numMsat,
 	)
