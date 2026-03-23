@@ -100,7 +100,7 @@ function check_tag_correct() {
   fi
 
   # If a tag is specified, ensure that that tag is present and checked out.
-  if [[ $tag != $(git describe --tags) ]]; then
+  if [[ $tag != $(git describe --tags --match 'v*') ]]; then
     red "tag $tag not checked out"
     exit 1
   else
