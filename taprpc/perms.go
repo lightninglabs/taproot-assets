@@ -371,6 +371,10 @@ var (
 			Entity: "mailbox",
 			Action: "read",
 		}},
+		"/authmailboxrpc.Mailbox/RemoveMessage": {{
+			Entity: "mailbox",
+			Action: "write",
+		}},
 	}
 )
 
@@ -414,6 +418,7 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 			"/universerpc.Universe/InsertProof",
 			"/universerpc.Universe/InsertSupplyCommit",
 			"/authmailboxrpc.Mailbox/SendMessage",
+			"/authmailboxrpc.Mailbox/RemoveMessage",
 		)
 	}
 
@@ -436,6 +441,7 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 			"/authmailboxrpc.Mailbox/MailboxInfo",
 			"/authmailboxrpc.Mailbox/SendMessage",
 			"/authmailboxrpc.Mailbox/ReceiveMessages",
+			"/authmailboxrpc.Mailbox/RemoveMessage",
 		)
 	}
 

@@ -1,6 +1,7 @@
 package authmailbox
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -133,6 +134,88 @@ func (s *MockMsgStore) NumMessages(context.Context) uint64 {
 	defer s.mu.Unlock()
 
 	return uint64(len(s.messages))
+}
+
+func (s *MockMsgStore) ListOutpoints(_ context.Context, limit,
+	offset int32) ([]ClaimedOutpoint, error) {
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Collect all outpoints.
+	allOutpoints := make([]wire.OutPoint, 0, len(s.outpointToMessage))
+	for op := range s.outpointToMessage {
+		allOutpoints = append(allOutpoints, op)
+	}
+
+	// Apply offset and limit.
+	start := int(offset)
+	if start >= len(allOutpoints) {
+		return nil, nil
+	}
+
+	end := start + int(limit)
+	if end > len(allOutpoints) {
+		end = len(allOutpoints)
+	}
+
+	result := make([]ClaimedOutpoint, 0, end-start)
+	for _, op := range allOutpoints[start:end] {
+		result = append(result, ClaimedOutpoint{
+			OutPoint: op,
+		})
+	}
+
+	return result, nil
+}
+
+func (s *MockMsgStore) DeleteByOutpoint(_ context.Context,
+	op wire.OutPoint) error {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	msgID, exists := s.outpointToMessage[op]
+	if !exists {
+		return nil
+	}
+
+	delete(s.messages, msgID)
+	delete(s.outpointToMessage, op)
+	delete(s.proofs, op)
+
+	return nil
+}
+
+func (s *MockMsgStore) DeleteByMessageID(_ context.Context, msgID uint64,
+	receiverKey []byte) (bool, error) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	msg, exists := s.messages[msgID]
+	if !exists {
+		return false, nil
+	}
+
+	// Verify that the message belongs to the specified receiver.
+	if !bytes.Equal(msg.ReceiverKey.SerializeCompressed(), receiverKey) {
+		return false, nil
+	}
+
+	// Find and remove the corresponding outpoint mapping.
+	for op, id := range s.outpointToMessage {
+		if id == msgID {
+			delete(s.outpointToMessage, op)
+			delete(s.proofs, op)
+
+			break
+		}
+	}
+
+	delete(s.messages, msgID)
+
+	return true, nil
 }
 
 type MockServer struct {

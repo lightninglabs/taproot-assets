@@ -40,6 +40,14 @@ service Mailbox {
     Returns basic server information.
     */
     rpc MailboxInfo (MailboxInfoRequest) returns (MailboxInfoResponse);
+
+    /*
+    Removes one or more messages from the mailbox. The caller must prove
+    ownership of the receiver key by providing a Schnorr signature over
+    SHA256(receiver_id || big-endian uint64 message_id_1 || ...).
+    Only messages that belong to the authenticated receiver are deleted.
+    */
+    rpc RemoveMessage (RemoveMessageRequest) returns (RemoveMessageResponse);
 }
 
 // Represents the Merkle proof hashes needed to link a transaction to the Merkle
@@ -246,4 +254,28 @@ message MailboxInfoResponse {
 
     // The number of messages currently stored on the server.
     uint64 message_count = 2;
+}
+
+// Request message for the RemoveMessage RPC.
+message RemoveMessageRequest {
+    // The public key identifier of the receiver whose messages should be
+    // removed, encoded as the raw bytes of the compressed public key. This
+    // is the same key used when subscribing for messages via ReceiveMessages.
+    bytes receiver_id = 1;
+
+    // The IDs of the messages to remove. Only messages that belong to the
+    // specified receiver will be deleted. IDs that don't exist or belong to
+    // a different receiver are silently skipped.
+    repeated uint64 message_ids = 2;
+
+    // A Schnorr signature proving ownership of the receiver key. The
+    // signature must be over SHA256(receiver_id || msg_id_1 || msg_id_2 ||
+    // ...) where each message ID is encoded as a big-endian uint64.
+    bytes signature = 3;
+}
+
+// Response message for the RemoveMessage RPC.
+message RemoveMessageResponse {
+    // The number of messages that were actually removed.
+    uint64 num_removed = 1;
 }

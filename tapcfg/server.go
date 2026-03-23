@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
@@ -467,18 +468,18 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	virtualTxSigner := lndservices.NewLndRpcVirtualTxSigner(lndServices)
 	coinSelect := tapfreighter.NewCoinSelect(assetStore)
 	assetWallet := tapfreighter.NewAssetWallet(&tapfreighter.WalletConfig{
-		CoinSelector:     coinSelect,
-		AssetProofs:      proofArchive,
-		AddrBook:         tapdbAddrBook,
-		KeyRing:          keyRing,
-		Signer:           virtualTxSigner,
-		TxValidator:      &tap.ValidatorV0{},
-		WitnessValidator: &tap.WitnessValidatorV0{},
-		ChainBridge:      chainBridge,
-		GroupVerifier:    groupVerifier,
-		IgnoreChecker:    ignoreCheckerOpt,
-		Wallet:           walletAnchor,
-		ChainParams:      &tapChainParams,
+		CoinSelector:            coinSelect,
+		AssetProofs:             proofArchive,
+		AddrBook:                tapdbAddrBook,
+		KeyRing:                 keyRing,
+		Signer:                  virtualTxSigner,
+		TxValidator:             &tap.ValidatorV0{},
+		WitnessValidator:        &tap.WitnessValidatorV0{},
+		ChainBridge:             chainBridge,
+		GroupVerifier:           groupVerifier,
+		IgnoreChecker:           ignoreCheckerOpt,
+		Wallet:                  walletAnchor,
+		ChainParams:             &tapChainParams,
 		DisableSweepOrphanUtxos: cfg.Wallet.DisableSweepOrphanUtxos,
 	})
 
@@ -851,13 +852,10 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AuxSweeper:               auxSweeper,
 		LogWriter:                cfg.LogWriter,
 		LogMgr:                   cfg.LogMgr,
-		MboxServerConfig: authmailbox.ServerConfig{
-			AuthTimeout:    cfg.Universe.MboxAuthTimeout,
-			Signer:         lndServices.Signer,
-			HeaderVerifier: headerVerifier,
-			MerkleVerifier: proof.DefaultMerkleVerifier,
-			MsgStore:       authMailboxStore,
-		},
+		MboxServerConfig: mboxServerConfig(
+			cfg, lndServices, headerVerifier,
+			authMailboxStore,
+		),
 		DatabaseConfig: &tapconfig.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),
 			MintingStore: assetMintingStore,
@@ -944,6 +942,63 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	srv.UpdateConfig(serverCfg)
 
 	return srv, nil
+}
+
+// mboxServerConfig constructs the authmailbox.ServerConfig, conditionally
+// enabling the cleanup loop based on the configured interval.
+func mboxServerConfig(cfg *Config, lndServices *lndclient.LndServices,
+	headerVerifier proof.HeaderVerifier,
+	store authmailbox.MsgStore) authmailbox.ServerConfig {
+
+	mboxCfg := authmailbox.ServerConfig{
+		AuthTimeout:    cfg.Universe.MboxAuthTimeout,
+		Signer:         lndServices.Signer,
+		HeaderVerifier: headerVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		MsgStore:       store,
+	}
+
+	// Only enable periodic cleanup if the interval is not explicitly set
+	// to 0. A zero value means the user wants to disable cleanup.
+	if cfg.Universe.MboxCleanupInterval != 0 {
+		mboxCfg.OutpointChecker = mboxOutpointChecker(lndServices)
+		mboxCfg.CleanupInterval = cfg.Universe.MboxCleanupInterval
+		mboxCfg.CleanupCheckTimeout = cfg.Universe.
+			MboxCleanupCheckTimeout
+	}
+
+	return mboxCfg
+}
+
+// mboxOutpointChecker returns an OutpointChecker that uses lnd's chain
+// notifier to determine whether an outpoint has been spent on chain.
+func mboxOutpointChecker(
+	lndServices *lndclient.LndServices) authmailbox.OutpointChecker {
+
+	return func(ctx context.Context, op wire.OutPoint,
+		pkScript []byte, heightHint uint32) (bool, error) {
+
+		spendChan, errChan, err :=
+			lndServices.ChainNotifier.RegisterSpendNtfn(
+				ctx, &op, pkScript, int32(heightHint),
+			)
+		if err != nil {
+			return false, err
+		}
+
+		// If already spent, the channel fires immediately.
+		// Otherwise, the context timeout will cancel us.
+		select {
+		case _, ok := <-spendChan:
+			return ok, nil
+
+		case err := <-errChan:
+			return false, err
+
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
 }
 
 // ConfigureSubServer updates a Taproot Asset server with the given CLI config.

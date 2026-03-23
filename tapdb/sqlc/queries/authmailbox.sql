@@ -70,3 +70,17 @@ WHERE
 -- name: CountAuthMailboxMessages :one
 SELECT COUNT(*) AS count
 FROM authmailbox_messages m;
+
+-- name: ListClaimedOutpoints :many
+SELECT outpoint, internal_key, merkle_root, block_height
+FROM tx_proof_claimed_outpoints
+ORDER BY block_height ASC
+LIMIT @num_limit OFFSET @num_offset;
+
+-- name: DeleteTxProofClaimedOutpoint :exec
+DELETE FROM tx_proof_claimed_outpoints
+WHERE outpoint = $1;
+
+-- name: DeleteAuthMailboxMessageByIDAndReceiver :execrows
+DELETE FROM authmailbox_messages
+WHERE id = @message_id AND receiver_key = @receiver_key;
