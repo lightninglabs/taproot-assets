@@ -12,7 +12,7 @@ MIGRATE_BIN := $(GO_BIN)/migrate
 # VERSION_GO_FILE is the golang file which defines the current project version.
 VERSION_GO_FILE := "version.go"
 
-COMMIT := $(shell git describe --tags --dirty --always)
+COMMIT := $(shell git describe --tags --match 'v*' --dirty --always)
 
 GOBUILD := go build -v
 GOINSTALL := go install -v
