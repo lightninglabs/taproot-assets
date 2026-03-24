@@ -1,5 +1,6 @@
 syntax = "proto3";
 
+import "tapcommon.proto";
 import "taprootassets.proto";
 
 package mintrpc;
@@ -333,6 +334,9 @@ message FundBatchRequest {
         // A TapBranch that represents a Tapscript tree managed externally.
         taprpc.TapBranch branch = 4;
     }
+
+    // The version to use when creating a new mint anchor transaction.
+    taprpc.AnchorTxVersion anchor_tx_version = 5;
 }
 
 message FundBatchResponse {
@@ -390,6 +394,9 @@ message FinalizeBatchRequest {
         // A TapBranch that represents a Tapscript tree managed externally.
         taprpc.TapBranch branch = 4;
     }
+
+    // The version to use when creating a new mint anchor transaction.
+    taprpc.AnchorTxVersion anchor_tx_version = 5;
 }
 
 message FinalizeBatchResponse {

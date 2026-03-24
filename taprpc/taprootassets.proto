@@ -1659,6 +1659,9 @@ message SendAssetRequest {
     // meaning that if addresses_with_amounts is set, then tap_addrs must be
     // empty, and vice versa.
     repeated AddressWithAmount addresses_with_amounts = 5;
+
+    // The version to use when creating a new send anchor transaction.
+    AnchorTxVersion anchor_tx_version = 6;
 }
 
 message AddressWithAmount {
