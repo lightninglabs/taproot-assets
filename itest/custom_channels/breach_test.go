@@ -74,7 +74,7 @@ func testCustomChannelsBreach(ctx context.Context,
 	// Now we'll make an asset for Charlie that we'll use in the test to
 	// open a channel.
 	mintedAssets := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(charlie),
+		t.t, net.Miner, asTapd(charlie),
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: ccItestAsset,
@@ -199,7 +199,7 @@ func testCustomChannelsBreach(ctx context.Context,
 	// We use a generous timeout because Charlie needs to process the
 	// block, detect the breach, and construct the justice transaction.
 	charlieJusticeTxid, err := waitForNTxsInMempool(
-		net.Miner.Client, 1, time.Second*30,
+		net.Miner, 1, time.Second*30,
 	)
 	require.NoError(t.t, err)
 

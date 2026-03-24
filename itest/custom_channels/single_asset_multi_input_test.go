@@ -48,7 +48,7 @@ func testCustomChannelsSingleAssetMultiInput(ctx context.Context,
 
 	// Mint an assets on Charlie and sync Dave to Charlie as the universe.
 	mintedAssets := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(charlie),
+		t.t, net.Miner, asTapd(charlie),
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: ccItestAsset,
@@ -105,7 +105,7 @@ func testCustomChannelsSingleAssetMultiInput(ctx context.Context,
 	)
 	require.NoError(t.t, err)
 	itest.ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, net.Miner.Client, asTapd(charlie), sendResp, assetID,
+		t.t, net.Miner, asTapd(charlie), sendResp, assetID,
 		[]uint64{
 			cents.Amount - 2*halfCentsAmount, halfCentsAmount,
 			halfCentsAmount,

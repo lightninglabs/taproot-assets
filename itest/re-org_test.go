@@ -27,7 +27,7 @@ func testReOrgMint(t *harnessTest) {
 	}
 	lndMiner := t.lndHarness.Miner()
 	mintTXID, batchKey := MintAssetUnconfirmed(
-		t.t, lndMiner.Client, t.tapd, mintRequests,
+		t.t, lndMiner, t.tapd, mintRequests,
 	)
 
 	ctx := context.Background()
@@ -37,7 +37,7 @@ func testReOrgMint(t *harnessTest) {
 	tempMiner := spawnTempMiner(t.t, t, ctx)
 
 	// And now we mine a block to confirm the assets.
-	initialBlock := MineBlocks(t.t, lndMiner.Client, 1, 1)[0]
+	initialBlock := MineBlocks(t.t, lndMiner, 1, 1)[0]
 	initialBlockHash := initialBlock.BlockHash()
 	WaitForBatchState(
 		t.t, ctx, t.tapd, defaultWaitTimeout, batchKey,
@@ -65,8 +65,7 @@ func testReOrgMint(t *harnessTest) {
 
 	// This should have caused a reorg, and Alice should sync to the longer
 	// chain, where the funding transaction is not confirmed.
-	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
-	require.NoError(t.t, err, "unable to get current block height")
+	_, tempMinerHeight := tempMiner.GetBestBlock()
 	t.lndHarness.WaitForNodeBlockHeight(t.tapd.cfg.LndNode, tempMinerHeight)
 
 	// At this point, the asset proofs should be invalid, since the mint TX
@@ -126,7 +125,7 @@ func testReOrgSend(t *harnessTest) {
 	}
 	lndMiner := t.lndHarness.Miner()
 	assetList := MintAssetsConfirmBatch(
-		t.t, lndMiner.Client, t.tapd, mintRequests,
+		t.t, lndMiner, t.tapd, mintRequests,
 	)
 
 	ctx := context.Background()
@@ -157,7 +156,7 @@ func testReOrgSend(t *harnessTest) {
 	AssertAddrCreated(t.t, secondTapd, sendAsset, bobAddr)
 	sendResp, _ := sendAssetsToAddr(t, t.tapd, bobAddr)
 	initialBlock := ConfirmAndAssertOutboundTransfer(
-		t.t, lndMiner.Client, t.tapd, sendResp, sendAssetGen.AssetId,
+		t.t, lndMiner, t.tapd, sendResp, sendAssetGen.AssetId,
 		[]uint64{sendAsset.Amount - sendAmount, sendAmount}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
@@ -176,8 +175,7 @@ func testReOrgSend(t *harnessTest) {
 
 	// This should have caused a reorg, and Alice should sync to the longer
 	// chain, where the funding transaction is not confirmed.
-	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
-	require.NoError(t.t, err, "unable to get current block height")
+	_, tempMinerHeight := tempMiner.GetBestBlock()
 	t.lndHarness.WaitForNodeBlockHeight(t.tapd.cfg.LndNode, tempMinerHeight)
 
 	// At this point, the all asset proofs should be invalid, since the send
@@ -265,7 +263,7 @@ func testReOrgSendV2Address(t *harnessTest) {
 	}
 	lndMiner := t.lndHarness.Miner()
 	assetList := MintAssetsConfirmBatch(
-		t.t, lndMiner.Client, t.tapd, mintRequests,
+		t.t, lndMiner, t.tapd, mintRequests,
 	)
 
 	ctx := context.Background()
@@ -298,7 +296,7 @@ func testReOrgSendV2Address(t *harnessTest) {
 
 	sendResp, _ := sendAssetsToAddr(t, t.tapd, bobAddrV2)
 	initialBlock := ConfirmAndAssertOutboundTransfer(
-		t.t, lndMiner.Client, t.tapd, sendResp, sendAssetGen.AssetId,
+		t.t, lndMiner, t.tapd, sendResp, sendAssetGen.AssetId,
 		[]uint64{sendAsset.Amount - sendAmount, sendAmount}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
@@ -317,8 +315,7 @@ func testReOrgSendV2Address(t *harnessTest) {
 
 	// This should have caused a reorg, and Alice should sync to the longer
 	// chain, where the funding transaction is not confirmed.
-	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
-	require.NoError(t.t, err, "unable to get current block height")
+	_, tempMinerHeight := tempMiner.GetBestBlock()
 	t.lndHarness.WaitForNodeBlockHeight(t.tapd.cfg.LndNode, tempMinerHeight)
 
 	// At this point, the all asset proofs should be invalid, since the send
@@ -417,7 +414,7 @@ func testReOrgMintAndSend(t *harnessTest) {
 		issuableAssets[0], issuableAssets[1],
 	}
 	assetList := MintAssetsConfirmBatch(
-		t.t, lndMiner.Client, t.tapd, mintRequests,
+		t.t, lndMiner, t.tapd, mintRequests,
 	)
 
 	// Now that we have the asset created, we'll make a new node that'll
@@ -441,7 +438,7 @@ func testReOrgMintAndSend(t *harnessTest) {
 	AssertAddrCreated(t.t, secondTapd, sendAsset, bobAddr)
 	sendResp, _ := sendAssetsToAddr(t, t.tapd, bobAddr)
 	initialBlock := ConfirmAndAssertOutboundTransfer(
-		t.t, lndMiner.Client, t.tapd, sendResp, sendAssetGen.AssetId,
+		t.t, lndMiner, t.tapd, sendResp, sendAssetGen.AssetId,
 		[]uint64{sendAsset.Amount - sendAmount, sendAmount}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
@@ -460,8 +457,7 @@ func testReOrgMintAndSend(t *harnessTest) {
 
 	// This should have caused a reorg, and Alice should sync to the longer
 	// chain, where the funding transaction is not confirmed.
-	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
-	require.NoError(t.t, err, "unable to get current block height")
+	_, tempMinerHeight := tempMiner.GetBestBlock()
 	t.lndHarness.WaitForNodeBlockHeight(t.tapd.cfg.LndNode, tempMinerHeight)
 
 	// At this point, the all asset proofs should be invalid, since the send
@@ -528,9 +524,7 @@ func testReOrgMintAndSend(t *harnessTest) {
 func spawnTempMiner(t *testing.T, ht *harnessTest,
 	ctx context.Context) *miner.HarnessMiner {
 
-	tempHarness := miner.NewMiner(ctx, t)
-	tempHarness.Client = ht.lndHarness.Miner().Client
-	return tempHarness.SpawnTempMiner()
+	return ht.lndHarness.Miner().SpawnTempMiner()
 }
 
 // generateReOrg generates a re-org by mining a longer chain with a temporary

@@ -63,7 +63,7 @@ func testCustomChannelsV1Upgrade(ctx context.Context,
 	// Now we'll make an asset for Charlie that we'll use in the test to
 	// open a channel.
 	mintedAssets := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(charlie),
+		t.t, net.Miner, asTapd(charlie),
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: ccItestAsset,
@@ -272,7 +272,7 @@ func testCustomChannelsV1Upgrade(ctx context.Context,
 	// With the breach transaction mined, Dave should now have a
 	// transaction in the mempool sweeping *both* commitment outputs.
 	daveJusticeTxid, err := waitForNTxsInMempool(
-		net.Miner.Client, 1, time.Second*5,
+		net.Miner, 1, time.Second*5,
 	)
 	require.NoError(t.t, err)
 

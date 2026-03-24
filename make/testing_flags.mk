@@ -169,5 +169,7 @@ ifeq ($(backend),)
 backend = btcd
 endif
 
+ITEST_FLAGS += -minerbackend=$(backend)
+
 # Construct the integration test command with the added build flags.
 ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) integration itest $(backend)

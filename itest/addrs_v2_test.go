@@ -22,7 +22,7 @@ func testAddressV2WithSimpleAsset(t *harnessTest) {
 	// for multiple internal asset transfers when only sending one of them
 	// to an external address.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0], simpleAssets[1],
 		},
@@ -71,7 +71,7 @@ func testAddressV2WithSimpleAsset(t *harnessTest) {
 		t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 		// Mine a block to make sure the events are marked as confirmed.
-		MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+		MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 		// Eventually the event should be marked as confirmed.
 		AssertAddrEvent(t.t, secondTapd, addr, 1, statusConfirmed)
@@ -173,7 +173,7 @@ func testAddressV2WithSimpleAsset(t *harnessTest) {
 		AssertAddrEvent(t.t, t.tapd, addr, 1, statusDetected)
 
 		// Mine a block to make sure the events are marked as confirmed.
-		MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+		MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 		// Eventually the event should be marked as confirmed.
 		AssertAddrEvent(t.t, t.tapd, addr, 1, statusConfirmed)
@@ -197,7 +197,7 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 	firstTrancheReq := CopyRequest(issuableAssets[0])
 
 	firstTranche := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{firstTrancheReq},
 	)
 	firstAsset := firstTranche[0]
@@ -212,7 +212,7 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 	secondTrancheReq.Asset.GroupKey = groupKey
 
 	secondTranche := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{secondTrancheReq},
 	)
 	secondAsset := secondTranche[0]
@@ -265,7 +265,7 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 	t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
 
 	AssertAssetOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		sendResp.Transfer, [][]byte{firstAssetID, secondAssetID},
 		[]uint64{firstAsset.Amount, secondAsset.Amount}, 0, 1, 2, true,
 	)
@@ -300,7 +300,7 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 	})
 	require.NoError(t.t, err)
 
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 	AssertAddrEventByStatus(t.t, bobTapd, statusCompleted, 1)
 	AssertBalanceByGroup(
 		t.t, bobTapd, hex.EncodeToString(groupKey), totalAmount,
@@ -340,7 +340,7 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	AssertAssetOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, bobTapd,
+		t.t, t.lndHarness.Miner(), bobTapd,
 		sendResp3.Transfer, [][]byte{firstAssetID, secondAssetID},
 		[]uint64{totalAmount/2 - 50, 50, totalAmount / 2}, 1, 2, 3,
 		true,
@@ -373,7 +373,7 @@ func testAddressV2WithGroupKey(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	AssertAssetOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		sendResp4.Transfer, [][]byte{bobUtxo.AssetGenesis.AssetId},
 		[]uint64{bobUtxo.Amount - 1234, 1234}, 1, 2, 2, true,
 	)
@@ -393,7 +393,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	firstTrancheReq.Asset.Amount = 212e5
 
 	firstTranche := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{firstTrancheReq},
 	)
 	firstAsset := firstTranche[0]
@@ -410,7 +410,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	secondTrancheReq.Asset.Amount = 202e5
 
 	secondTranche := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{secondTrancheReq},
 	)
 	secondAsset := secondTranche[0]
@@ -426,7 +426,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	thirdTrancheReq.Asset.Amount = 182e5
 
 	thirdTranche := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{thirdTrancheReq},
 	)
 	thirdAsset := thirdTranche[0]
@@ -476,7 +476,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	require.NoError(t.t, err)
 	t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
 	AssertAssetOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		sendResp.Transfer, [][]byte{firstAssetID},
 		[]uint64{firstAsset.Amount}, currentTransferIdx,
 		numTransfers, 1, true,
@@ -499,7 +499,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	require.NoError(t.t, err)
 	t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
 	AssertAssetOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		sendResp.Transfer, [][]byte{secondAssetID},
 		[]uint64{secondAsset.Amount}, currentTransferIdx,
 		numTransfers, 1, true,
@@ -522,7 +522,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	require.NoError(t.t, err)
 	t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
 	AssertAssetOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		sendResp.Transfer, [][]byte{thirdAssetID},
 		[]uint64{thirdAsset.Amount}, currentTransferIdx,
 		numTransfers, 1, true,
@@ -557,7 +557,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 
 	t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
 
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 	AssertAddrEventByStatus(t.t, t.tapd, statusCompleted, bobNumTransfers)
 
@@ -577,7 +577,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 		})
 		require.NoError(t.t, err)
 		t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
-		MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+		MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 		AssertAddrEventByStatus(
 			t.t, bobTapd, statusCompleted, numTransfers,
 		)
@@ -598,7 +598,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 		)
 		require.NoError(t.t, err)
 		t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
-		MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+		MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 		AssertAddrEventByStatus(
 			t.t, t.tapd, statusCompleted, bobNumTransfers,
 		)
@@ -627,7 +627,7 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 		require.NoError(t.t, err)
 		t.Logf("Sent asset to group addr: %v", toJSON(t.t, sendResp))
 		AssertAssetOutboundTransferWithOutputs(
-			t.t, t.lndHarness.Miner().Client, t.tapd,
+			t.t, t.lndHarness.Miner(), t.tapd,
 			sendResp.Transfer, [][]byte{assetIDs[idx]},
 			[]uint64{amount}, currentTransferIdx, numTransfers, 1,
 			true,
@@ -647,7 +647,7 @@ func testAddressV2WithGroupKeyRestart(t *harnessTest) {
 	// We start by minting an asset group with a group key. We'll only use
 	// one tranche for this test.
 	firstTranche := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 	firstAsset := firstTranche[0]
@@ -724,7 +724,7 @@ func testAddressV2WithGroupKeyRestart(t *harnessTest) {
 
 	// Mine a block to make sure the events are marked as confirmed.
 	t.Logf("Universe stopped, going to mine a block to confirm the send...")
-	_ = MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	_ = MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 	AssertSendEvents(
 		t.t, nil, sendEvents, tapfreighter.SendStateWaitTxConf,
@@ -799,7 +799,7 @@ func testAddressV2WithGroupKeyRestart(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	AssertAssetOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, bobTapd,
+		t.t, t.lndHarness.Miner(), bobTapd,
 		sendResp2.Transfer, [][]byte{firstAssetID},
 		[]uint64{bobAmount / 2, bobAmount / 2}, 0, 1, 2, true,
 	)
@@ -843,7 +843,7 @@ func testAddressV2ImportFailsWithoutCourier(t *harnessTest) {
 	}()
 
 	assets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, tapd,
+		t.t, t.lndHarness.Miner(), tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	asset := assets[0]

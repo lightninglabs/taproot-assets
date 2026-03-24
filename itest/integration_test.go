@@ -10,6 +10,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	lntestminer "github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/rand"
 )
@@ -54,6 +55,12 @@ var (
 		"runtranche", defaultRunTranche, "run the tranche of the "+
 			"split test cases with the given (0-based) index",
 	)
+
+	// minerBackendFlag selects the lntest miner backend to use. If unset,
+	// lnd's default btcd-backed miner is used.
+	minerBackendFlag = flag.String(
+		"minerbackend", "", "set the lntest miner backend to use",
+	)
 )
 
 // TestTaprootAssetsDaemon performs a series of integration tests amongst a
@@ -80,8 +87,15 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 	// Now we can set up our test harness (LND instance), with the chain
 	// backend we just created.
 	feeService := lntest.NewFeeService(t)
-	lndHarness := lntest.SetupHarness(
-		t, "./lnd-itest", "bbolt", true, feeService,
+	var minerCfg *lntestminer.MinerConfig
+	if minerBackendFlag != nil && *minerBackendFlag != "" {
+		minerCfg = &lntestminer.MinerConfig{
+			Backend: *minerBackendFlag,
+		}
+	}
+
+	lndHarness := lntest.SetupHarnessWithMinerConfig(
+		t, "./lnd-itest", "bbolt", true, feeService, minerCfg,
 	)
 	t.Cleanup(func() {
 		lndHarness.CleanShutDown()

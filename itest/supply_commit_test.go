@@ -100,7 +100,7 @@ func testPreCommitOutput(t *harnessTest) {
 	mintReq := CopyRequest(issuableAssets[0])
 	mintReq.Asset.EnableSupplyCommitments = true
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{mintReq},
 	)
 	require.Len(t.t, rpcAssets, 1, "expected one minted asset")
@@ -132,7 +132,7 @@ func testPreCommitOutput(t *harnessTest) {
 		},
 	}
 	rpcAssets = MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{mintReq},
 	)
 
@@ -178,7 +178,7 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 	mintReq := CopyRequest(issuableAssets[0])
 	mintReq.Asset.EnableSupplyCommitments = true
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{mintReq},
 	)
 	require.Len(t.t, rpcAssets, 1, "expected one minted asset")
@@ -290,7 +290,7 @@ func testSupplyCommitIgnoreAsset(t *harnessTest) {
 	require.NotNil(t.t, respUpdate)
 
 	t.Log("Mining supply commitment tx")
-	minedBlocks := MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	minedBlocks := MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 	t.Log("Fetch updated supply commitment")
 
@@ -765,7 +765,7 @@ func MintAssetWithSupplyCommit(t *harnessTest,
 
 	// Mint the asset.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{mintReq},
 	)
 	require.Len(t.t, rpcAssets, 1, "expected one minted asset")
@@ -814,7 +814,7 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 	// TODO(roasbeef): still rely on the time based ticker here?
 	t.Log("Create first supply commitment tx for asset group")
 	UpdateAndMineSupplyCommit(
-		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		t.t, ctxb, t.tapd, t.lndHarness.Miner(),
 		groupKeyBytes, 1,
 	)
 
@@ -872,7 +872,7 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 
 	t.Log("Updating supply commitment after second mint")
 	UpdateAndMineSupplyCommit(
-		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		t.t, ctxb, t.tapd, t.lndHarness.Miner(),
 		groupKeyBytes, 1,
 	)
 
@@ -915,7 +915,7 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 	// Confirm the burn transaction, asserting that all the expected records
 	// on disk are in place.
 	AssertAssetOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, t.tapd, burnResp.BurnTransfer,
+		t.t, t.lndHarness.Miner(), t.tapd, burnResp.BurnTransfer,
 		[][]byte{rpcFirstAsset.AssetGenesis.AssetId},
 		[]uint64{mintReq.Asset.Amount - burnAmt, burnAmt},
 		0, 1, 2, true,
@@ -931,7 +931,7 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 
 	// Update and mine the supply commitment after burn.
 	finalMinedBlocks := UpdateAndMineSupplyCommit(
-		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		t.t, ctxb, t.tapd, t.lndHarness.Miner(),
 		groupKeyBytes, 1,
 	)
 
@@ -1064,7 +1064,7 @@ func testFetchSupplyLeaves(t *harnessTest) {
 
 	t.Log("Creating first supply commitment transaction")
 	UpdateAndMineSupplyCommit(
-		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		t.t, ctxb, t.tapd, t.lndHarness.Miner(),
 		groupKeyBytes, 1,
 	)
 
@@ -1151,7 +1151,7 @@ func testFetchSupplyLeaves(t *harnessTest) {
 
 	t.Log("Confirming burn transaction")
 	AssertAssetOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, t.tapd, burnResp.BurnTransfer,
+		t.t, t.lndHarness.Miner(), t.tapd, burnResp.BurnTransfer,
 		[][]byte{rpcFirstAsset.AssetGenesis.AssetId},
 		[]uint64{mintReq.Asset.Amount - burnAmt, burnAmt},
 		0, 1, 2, true,
@@ -1159,7 +1159,7 @@ func testFetchSupplyLeaves(t *harnessTest) {
 
 	t.Log("Updating supply commitment after burn")
 	UpdateAndMineSupplyCommit(
-		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		t.t, ctxb, t.tapd, t.lndHarness.Miner(),
 		groupKeyBytes, 1,
 	)
 
@@ -1242,7 +1242,7 @@ func testFetchSupplyLeaves(t *harnessTest) {
 	}
 
 	rpcSecondAsset := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{secondMintReq},
 	)
 	require.Len(t.t, rpcSecondAsset, 1, "expected one minted asset")
@@ -1253,7 +1253,7 @@ func testFetchSupplyLeaves(t *harnessTest) {
 
 	t.Log("Updating supply commitment after second mint")
 	UpdateAndMineSupplyCommit(
-		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		t.t, ctxb, t.tapd, t.lndHarness.Miner(),
 		groupKeyBytes, 1,
 	)
 
@@ -1326,7 +1326,7 @@ func testFetchSupplyLeaves(t *harnessTest) {
 
 	t.Log("Updating supply commitment after ignoring asset outpoint")
 	UpdateAndMineSupplyCommit(
-		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		t.t, ctxb, t.tapd, t.lndHarness.Miner(),
 		groupKeyBytes, 1,
 	)
 
@@ -1560,7 +1560,7 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 	require.NotNil(t.t, groupKeyBytes)
 
 	UpdateAndMineSupplyCommit(
-		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		t.t, ctxb, t.tapd, t.lndHarness.Miner(),
 		groupKeyBytes, 1,
 	)
 
@@ -1653,7 +1653,7 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 
 	t.Log("Updating supply commitment after ignoring asset outpoint")
 	UpdateAndMineSupplyCommit(
-		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		t.t, ctxb, t.tapd, t.lndHarness.Miner(),
 		groupKeyBytes, 1,
 	)
 
@@ -1793,7 +1793,7 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 	t.Log("Updating supply commitment after second mint (creating third " +
 		"supply commitment)")
 	UpdateAndMineSupplyCommit(
-		t.t, ctxb, t.tapd, t.lndHarness.Miner().Client,
+		t.t, ctxb, t.tapd, t.lndHarness.Miner(),
 		groupKeyBytes, 1,
 	)
 

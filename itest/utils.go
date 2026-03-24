@@ -10,9 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
@@ -34,6 +32,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	lntestminer "github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -42,11 +41,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-var (
-	zeroHash          chainhash.Hash
-	regtestMiningAddr = "n1VgRjYDzJT2TV72PnungWgWu18SWorXZS"
-	regtestParams     = &chaincfg.RegressionNetParams
-)
+var zeroHash chainhash.Hash
 
 const (
 	SyncModeIssuance = universerpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY
@@ -190,65 +185,40 @@ func AssertSendEventProofTransferBackoffWaitTypeSend(t *harnessTest,
 // MineBlocks mine 'num' of blocks and check that blocks are present in
 // node blockchain. numTxs should be set to the number of transactions
 // (excluding the coinbase) we expect to be included in the first mined block.
-func MineBlocks(t *testing.T, client *rpcclient.Client,
+func MineBlocks(t *testing.T, miner *lntestminer.HarnessMiner,
 	num uint32, numTxs int) []*wire.MsgBlock {
 
 	// If we expect transactions to be included in the blocks we'll mine,
 	// we wait here until they are seen in the miner's mempool.
-	var txids []*chainhash.Hash
+	var txids []chainhash.Hash
 	var err error
 	if numTxs > 0 {
 		txids, err = WaitForNTxsInMempool(
-			client, numTxs, minerMempoolTimeout,
+			miner, numTxs, minerMempoolTimeout,
 		)
 		if err != nil {
 			t.Fatalf("unable to find txns in mempool: %v", err)
 		}
 	}
 
-	blocks := make([]*wire.MsgBlock, num)
-
-	backend, err := client.BackendVersion()
-	require.NoError(t, err)
-
-	var blockHashes []*chainhash.Hash
-
-	switch backend.(type) {
-	case *rpcclient.BitcoindVersion:
-		addr, err := btcutil.DecodeAddress(
-			regtestMiningAddr, regtestParams,
-		)
-		require.NoError(t, err)
-
-		blockHashes, err = client.GenerateToAddress(
-			int64(num), addr, nil,
-		)
-		require.NoError(t, err)
-
-	case rpcclient.BtcdVersion:
-		blockHashes, err = client.Generate(num)
-		require.NoError(t, err)
-
-	default:
-		require.Fail(t, "unknown chain backend: %v", backend)
-	}
-
-	for i, blockHash := range blockHashes {
-		block, err := client.GetBlock(blockHash)
-		if err != nil {
-			t.Fatalf("unable to get block: %v", err)
-		}
-
-		blocks[i] = block
-	}
+	blocks := miner.MineBlocks(num)
 
 	// Finally, assert that all the transactions were included in the first
 	// block.
 	for _, txid := range txids {
-		AssertTxInBlock(t, blocks[0], txid)
+		AssertTxInBlock(t, blocks[0], &txid)
 	}
 
 	return blocks
+}
+
+// SendOutputs creates and broadcasts a transaction that pays the given outputs
+// using the miner wallet and returns the broadcast transaction ID.
+func SendOutputs(miner *lntestminer.HarnessMiner, outputs []*wire.TxOut,
+	feeRate btcutil.Amount) (*chainhash.Hash, error) {
+
+	tx := miner.CreateTransaction(outputs, feeRate)
+	return miner.SendRawTransaction(tx, true)
 }
 
 type UTXORequest struct {
@@ -389,7 +359,8 @@ func BuildMintingBatch(t *testing.T, tapClient commands.RpcClientsBundle,
 	}
 }
 
-func FinalizeBatchUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
+func FinalizeBatchUnconfirmed(t *testing.T,
+	minerClient *lntestminer.HarnessMiner,
 	tapClient commands.RpcClientsBundle,
 	assetRequests []*mintrpc.MintAssetRequest,
 	opts ...MintOption) (chainhash.Hash, []byte) {
@@ -497,7 +468,7 @@ func FinalizeBatchUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 			metaHash[:],
 			AssetAmountCheck(assetRequest.Asset.Amount),
 			AssetTypeCheck(assetRequest.Asset.AssetType),
-			AssetAnchorCheck(*hashes[0], zeroHash),
+			AssetAnchorCheck(hashes[0], zeroHash),
 			AssetScriptKeyIsLocalCheck(true),
 			AssetVersionCheck(assetRequest.Asset.AssetVersion),
 			AssetScriptKeyCheck(assetRequest.Asset.ScriptKey),
@@ -514,13 +485,13 @@ func FinalizeBatchUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 		)
 	}
 
-	return *hashes[0], batchResp.Batch.BatchKey
+	return hashes[0], batchResp.Batch.BatchKey
 }
 
 // MintAssetUnconfirmed is a helper function that mints a batch of assets and
 // waits until the minting transaction is in the mempool but does not mine a
 // block.
-func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
+func MintAssetUnconfirmed(t *testing.T, minerClient *lntestminer.HarnessMiner,
 	tapClient commands.RpcClientsBundle,
 	assetRequests []*mintrpc.MintAssetRequest,
 	opts ...MintOption) (chainhash.Hash, []byte) {
@@ -535,7 +506,7 @@ func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 
 // MintAssetsConfirmBatch mints all given assets in the same batch, confirms the
 // batch and verifies all asset proofs of the minted assets.
-func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
+func MintAssetsConfirmBatch(t *testing.T, minerClient *lntestminer.HarnessMiner,
 	tapClient commands.RpcClientsBundle,
 	assetRequests []*mintrpc.MintAssetRequest,
 	opts ...MintOption) []*taprpc.Asset {
@@ -575,7 +546,7 @@ func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 	)
 }
 
-func ConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
+func ConfirmBatch(t *testing.T, minerClient *lntestminer.HarnessMiner,
 	tapClient commands.RpcClientsBundle,
 	assetRequests []*mintrpc.MintAssetRequest,
 	sub *EventSubscription[*mintrpc.MintEvent], mintTXID chainhash.Hash,
@@ -877,10 +848,10 @@ func MintAssetExternalSigner(t *harnessTest, tapNode *tapdHarness,
 	}
 
 	batchTXID, batchKey := FinalizeBatchUnconfirmed(
-		t.t, t.lndHarness.Miner().Client, tapNode, assetReqs,
+		t.t, t.lndHarness.Miner(), tapNode, assetReqs,
 	)
 	batchAssets := ConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, tapNode, assetReqs, sub,
+		t.t, t.lndHarness.Miner(), tapNode, assetReqs, sub,
 		batchTXID, batchKey,
 	)
 

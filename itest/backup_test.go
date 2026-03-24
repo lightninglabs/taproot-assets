@@ -38,7 +38,7 @@ func testBackupRestoreGenesis(t *harnessTest) {
 	}
 
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd, backupAssets,
+		t.t, t.lndHarness.Miner(), t.tapd, backupAssets,
 	)
 	require.Len(t.t, rpcAssets, 1)
 
@@ -148,7 +148,7 @@ func testBackupRestoreTransferred(t *harnessTest) {
 			},
 		}}
 		rpcAssets := MintAssetsConfirmBatch(
-			t.t, t.lndHarness.Miner().Client, t.tapd, mintReq,
+			t.t, t.lndHarness.Miner(), t.tapd, mintReq,
 		)
 		require.Len(t.t, rpcAssets, 1)
 		mintedAssets = append(mintedAssets, rpcAssets[0])
@@ -175,7 +175,7 @@ func testBackupRestoreTransferred(t *harnessTest) {
 		AssertAddrCreated(t.t, bobTapd, asset, bobAddr)
 		sendResp, _ := sendAssetsToAddr(t, t.tapd, bobAddr)
 		ConfirmAndAssertOutboundTransfer(
-			t.t, t.lndHarness.Miner().Client, t.tapd,
+			t.t, t.lndHarness.Miner(), t.tapd,
 			sendResp, asset.AssetGenesis.AssetId,
 			[]uint64{0, asset.Amount}, i, i+1,
 		)
@@ -357,7 +357,7 @@ func testBackupRestoreTransferred(t *harnessTest) {
 		AssertAddrCreated(t.t, t.tapd, asset, aliceAddr)
 		sendResp, _ := sendAssetsToAddr(t, eveTapd, aliceAddr)
 		ConfirmAndAssertOutboundTransfer(
-			t.t, t.lndHarness.Miner().Client, eveTapd,
+			t.t, t.lndHarness.Miner(), eveTapd,
 			sendResp, asset.AssetGenesis.AssetId,
 			[]uint64{0, asset.Amount}, i, i+1,
 		)

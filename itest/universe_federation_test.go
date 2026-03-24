@@ -66,7 +66,7 @@ func testMintProofRepeatFedSyncAttempt(t *harnessTest) {
 	// Now that federation peer node is inactive, we'll mint some assets.
 	t.Logf("Minting assets on minting node")
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, mintingNode,
+		t.t, t.lndHarness.Miner(), mintingNode,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0], issuableAssets[0],
 		},
@@ -102,7 +102,7 @@ func testMintProofRepeatFedSyncAttempt(t *harnessTest) {
 // fix this would fail with an FK violation.
 func testDeleteUniverseAfterFedSync(t *harnessTest) {
 	ctx := context.Background()
-	miner := t.lndHarness.Miner().Client
+	miner := t.lndHarness.Miner()
 
 	// Mint a simple asset on Alice (the main harness node).
 	rpcAssets := MintAssetsConfirmBatch(
