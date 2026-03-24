@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )
@@ -115,5 +116,8 @@ func genCert(t *testing.T) *tls.Config {
 	tlsCert, _, err := cert.LoadCertFromBytes(certBytes, keyBytes)
 	require.NoError(t, err)
 
-	return cert.TLSConfFromCert(tlsCert)
+	tlsCfg := cert.TLSConfFromCert(tlsCert)
+	tlsCfg.NextProtos = []string{http2.NextProtoTLS}
+
+	return tlsCfg
 }

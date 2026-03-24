@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/itest/rpcassert"
 	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -19,7 +20,7 @@ import (
 // testBurnAssets tests that we're able to mint assets and then burn assets
 // again.
 func testBurnAssets(t *harnessTest) {
-	minerClient := t.lndHarness.Miner().Client
+	minerClient := t.lndHarness.Miner()
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, minerClient, t.tapd, []*mintrpc.MintAssetRequest{
 			simpleAssets[0], simpleAssets[1], issuableAssets[0],
@@ -139,17 +140,24 @@ func testBurnAssets(t *harnessTest) {
 
 	// We'll now assert that the burned asset has the correct state.
 	burnedAsset := burnResp.BurnProof.Asset
-	allAssets, err := t.tapd.ListAssets(ctx, &taprpc.ListAssetRequest{
-		IncludeSpent:  true,
-		ScriptKeyType: allScriptKeysQuery,
-	})
-	require.NoError(t.t, err)
-	AssertAssetStateByScriptKey(
-		t.t, allAssets.Assets, burnedAsset.ScriptKey,
-		AssetAmountCheck(burnedAsset.Amount),
-		AssetTypeCheck(burnedAsset.AssetGenesis.AssetType),
-		AssetScriptKeyIsLocalCheck(false),
-		AssetScriptKeyIsBurnCheck(true),
+	rpcassert.ListAssetsRPC(
+		t.t, ctx, t.tapd,
+		func(resp *taprpc.ListAssetResponse) error {
+			_, err := assetStateByScriptKey(
+				resp.Assets, burnedAsset.ScriptKey,
+				AssetAmountCheck(burnedAsset.Amount),
+				AssetTypeCheck(
+					burnedAsset.AssetGenesis.AssetType,
+				),
+				AssetScriptKeyIsLocalCheck(false),
+				AssetScriptKeyIsBurnCheck(true),
+			)
+			return err
+		},
+		&taprpc.ListAssetRequest{
+			IncludeSpent:  true,
+			ScriptKeyType: allScriptKeysQuery,
+		},
 	)
 	AssertBalances(
 		t.t, t.tapd, burnAmt, WithNumUtxos(1), WithNumAnchorUtxos(1),
@@ -389,7 +397,7 @@ func testBurnAssets(t *harnessTest) {
 func testBurnGroupedAssets(t *harnessTest) {
 	var (
 		ctx   = context.Background()
-		miner = t.lndHarness.Miner().Client
+		miner = t.lndHarness.Miner()
 
 		firstMintReq = issuableAssets[0]
 		burnNote     = "blazeit"
@@ -472,17 +480,24 @@ func testBurnGroupedAssets(t *harnessTest) {
 
 	// Ensure that the burnt asset has the correct state.
 	burnedAsset := burnResp.BurnProof.Asset
-	allAssets, err := t.tapd.ListAssets(ctx, &taprpc.ListAssetRequest{
-		IncludeSpent:  true,
-		ScriptKeyType: allScriptKeysQuery,
-	})
-	require.NoError(t.t, err)
-	AssertAssetStateByScriptKey(
-		t.t, allAssets.Assets, burnedAsset.ScriptKey,
-		AssetAmountCheck(burnedAsset.Amount),
-		AssetTypeCheck(burnedAsset.AssetGenesis.AssetType),
-		AssetScriptKeyIsLocalCheck(false),
-		AssetScriptKeyIsBurnCheck(true),
+	rpcassert.ListAssetsRPC(
+		t.t, ctx, t.tapd,
+		func(resp *taprpc.ListAssetResponse) error {
+			_, err := assetStateByScriptKey(
+				resp.Assets, burnedAsset.ScriptKey,
+				AssetAmountCheck(burnedAsset.Amount),
+				AssetTypeCheck(
+					burnedAsset.AssetGenesis.AssetType,
+				),
+				AssetScriptKeyIsLocalCheck(false),
+				AssetScriptKeyIsBurnCheck(true),
+			)
+			return err
+		},
+		&taprpc.ListAssetRequest{
+			IncludeSpent:  true,
+			ScriptKeyType: allScriptKeysQuery,
+		},
 	)
 
 	// Our asset balance should have been decreased by the burned amount.
@@ -511,7 +526,7 @@ func testBurnGroupedAssets(t *harnessTest) {
 
 // testFullBurnUTXO tests that we can burn the full amount of an asset UTXO.
 func testFullBurnUTXO(t *harnessTest) {
-	minerClient := t.lndHarness.Miner().Client
+	minerClient := t.lndHarness.Miner()
 	ctx := context.Background()
 
 	// Test 1: Burn the full amount of a simple asset.

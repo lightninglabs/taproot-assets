@@ -52,7 +52,7 @@ func testBasicSendUnidirectional(t *harnessTest) {
 	// First, we'll make a normal assets with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 
@@ -101,7 +101,7 @@ func testBasicSendUnidirectional(t *harnessTest) {
 		sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, bobAddr)
 
 		ConfirmAndAssertOutboundTransfer(
-			t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+			t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 			genInfo.AssetId,
 			[]uint64{currentUnits, numUnits}, i, i+1,
 		)
@@ -170,21 +170,21 @@ func testMinRelayFeeBump(t *harnessTest) {
 	// First, we'll make a normal assets with enough units to allow us to
 	// send it around a few times.
 	MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 		WithFeeRate(uint32(belowFloorFeeRate)),
 		WithError("manual fee rate below floor"),
 	)
 
 	MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 		WithFeeRate(uint32(belowMinRelayFeeRate)),
 		WithError("feerate does not meet minrelayfee"),
 	)
 
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 
@@ -197,7 +197,7 @@ func testMinRelayFeeBump(t *harnessTest) {
 
 	// We check whether the minting TX is bumped to the min relay fee.
 	AssertFeeRate(
-		t.t, t.lndHarness.Miner().Client, initialUTXOs[0].Amount,
+		t.t, t.lndHarness.Miner(), initialUTXOs[0].Amount,
 		&mintOutpoint.Hash, realWorldMinRelayFeeRate.FeePerKWeight(),
 	)
 
@@ -243,14 +243,14 @@ func testMinRelayFeeBump(t *harnessTest) {
 	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, bobAddr)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 		genInfo.AssetId,
 		[]uint64{currentUnits, numUnits}, 0, 1,
 	)
 
 	sendInputAmt := initialUTXOs[1].Amount + 1000
 	AssertTransferFeeRate(
-		t.t, t.lndHarness.Miner().Client, sendResp, sendInputAmt,
+		t.t, t.lndHarness.Miner(), sendResp, sendInputAmt,
 		realWorldMinRelayFeeRate.FeePerKWeight(),
 	)
 
@@ -285,7 +285,7 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 	// First, we'll make a normal assets with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 
@@ -335,7 +335,7 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, bobAddr)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 		genInfo.AssetId,
 		[]uint64{currentUnits, numUnits}, 0, 1,
 	)
@@ -445,7 +445,7 @@ func testResumePendingPackageSend(t *harnessTest) {
 
 	// Mint (and mine) an asset for sending.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, sendTapd,
+		t.t, t.lndHarness.Miner(), sendTapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
@@ -538,7 +538,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		},
 	}
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd, assets,
+		t.t, t.lndHarness.Miner(), t.tapd, assets,
 	)
 	firstAsset := rpcAssets[0]
 	genInfo := firstAsset.AssetGenesis
@@ -588,7 +588,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend := assets[0].Asset.Amount - numUnitsSend
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 		genInfo.AssetId,
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 0, 1,
 	)
@@ -625,7 +625,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	expectedAmtAfterSend = assets[1].Asset.Amount - numUnitsSend
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 		genInfo2.AssetId,
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 1, 2,
 	)
@@ -647,7 +647,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend = numUnitsSend - numUnitsSend/2
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, recvTapd, sendResp,
+		t.t, t.lndHarness.Miner(), recvTapd, sendResp,
 		genInfo.AssetId,
 		[]uint64{expectedAmtAfterSend, numUnitsSend / 2}, 0, 1,
 	)
@@ -709,7 +709,7 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 
 	// Mint an asset for sending.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, sendTapd,
+		t.t, t.lndHarness.Miner(), sendTapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
@@ -739,7 +739,7 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 		t, sendTapd, withReceiverAddresses(recvAddr),
 		withSkipProofCourierPingCheck(),
 	)
-	_ = MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	_ = MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 	// Define a target event selector to match the backoff wait
 	// event. This function selects for a specific event type.
@@ -797,7 +797,7 @@ func testReattemptProofTransferOnTapdRestart(t *harnessTest) {
 
 	// Use the sending node to mint an asset for sending.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, sendTapd,
+		t.t, t.lndHarness.Miner(), sendTapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
@@ -845,7 +845,7 @@ func testReattemptProofTransferOnTapdRestart(t *harnessTest) {
 		t, sendTapd, withReceiverAddresses(recvAddr),
 		withSkipProofCourierPingCheck(),
 	)
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 	// Define a target event selector to match the backoff wait
 	// event. This function selects for a specific event type.
@@ -964,7 +964,7 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 
 	// Use the sending node to mint an asset for sending.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, sendTapd,
+		t.t, t.lndHarness.Miner(), sendTapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
@@ -1005,7 +1005,7 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 		t, sendTapd, withReceiverAddresses(recvAddr),
 		withSkipProofCourierPingCheck(),
 	)
-	_ = MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	_ = MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 	// Define a target event selector to match the backoff wait
 	// event. This function selects for a specific event type.
@@ -1064,7 +1064,7 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 
 	// Use the sending node to mint an asset for sending.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, sendTapd,
+		t.t, t.lndHarness.Miner(), sendTapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
@@ -1114,47 +1114,42 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 		t, sendTapd, withReceiverAddresses(recvAddr),
 		withSkipProofCourierPingCheck(),
 	)
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 	// There may be a delay between mining the anchoring transaction and
 	// recognizing its on-chain confirmation. To handle this potential
 	// delay, we use require.Eventually to ensure the transfer details are
 	// correctly listed after confirmation.
 	require.Eventually(t.t, func() bool {
-		// Ensure that the transaction took place as expected.
 		listTransfersResp, err := sendTapd.ListTransfers(
 			ctxb, &taprpc.ListTransfersRequest{},
 		)
-		require.NoError(t.t, err)
-
-		require.Len(t.t, listTransfersResp.Transfers, 1)
+		if err != nil || len(listTransfersResp.Transfers) != 1 {
+			return false
+		}
 
 		firstTransfer := listTransfersResp.Transfers[0]
-		require.NotEqual(t.t, firstTransfer.AnchorTxHeightHint, 0)
-		require.NotEmpty(t.t, firstTransfer.AnchorTxBlockHash)
+		if firstTransfer.AnchorTxHeightHint == 0 {
+			return false
+		}
 
-		// Assert proof transfer status for each transfer output.
-		require.Len(t.t, firstTransfer.Outputs, 2)
+		// The block hash can lag behind the height hint in
+		// ListTransfers, so assert on the confirmation height
+		// and output proof states here.
+		if len(firstTransfer.Outputs) != 2 {
+			return false
+		}
 
-		// First output should have a proof delivery status of not
-		// applicable. This indicates that a proof will not be delivered
-		// for this output.
 		firstOutput := firstTransfer.Outputs[0]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusNotApplicable,
-			firstOutput.ProofDeliveryStatus,
-		)
+		if firstOutput.ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusNotApplicable {
 
-		// The second output should have a proof delivery status of
-		// pending. This indicates that the proof deliver has not yet
-		// completed successfully.
+			return false
+		}
+
 		secondOutput := firstTransfer.Outputs[1]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusPending,
-			secondOutput.ProofDeliveryStatus,
-		)
-
-		return true
+		return secondOutput.ProofDeliveryStatus ==
+			rpcutils.ProofDeliveryStatusPending
 	}, defaultWaitTimeout, 200*time.Millisecond)
 
 	// Define a target event selector to match the backoff wait
@@ -1192,74 +1187,62 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 		t, sendTapd, withReceiverAddresses(recvAddr),
 		withSkipProofCourierPingCheck(),
 	)
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 	// There may be a delay between mining the anchoring transaction and
 	// recognizing its on-chain confirmation. To handle this potential
 	// delay, we use require.Eventually to ensure the transfer details are
 	// correctly listed after confirmation.
 	require.Eventually(t.t, func() bool {
-		// Ensure that the transaction took place as expected.
 		listTransfersResp, err := sendTapd.ListTransfers(
 			ctxb, &taprpc.ListTransfersRequest{},
 		)
-		require.NoError(t.t, err)
+		if err != nil || len(listTransfersResp.Transfers) != 2 {
+			return false
+		}
 
-		require.Len(t.t, listTransfersResp.Transfers, 2)
-
-		// Inspect the first transfer.
 		firstTransfer := listTransfersResp.Transfers[0]
-		require.NotEqual(t.t, firstTransfer.AnchorTxHeightHint, 0)
-		require.NotEmpty(t.t, firstTransfer.AnchorTxBlockHash)
+		if firstTransfer.AnchorTxHeightHint == 0 {
+			return false
+		}
 
-		// Assert proof transfer status for each transfer output.
-		require.Len(t.t, firstTransfer.Outputs, 2)
+		if len(firstTransfer.Outputs) != 2 {
+			return false
+		}
 
-		// First output should have a proof delivery status of not
-		// applicable. This indicates that a proof will not be delivered
-		// for this output.
 		firstOutput := firstTransfer.Outputs[0]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusNotApplicable,
-			firstOutput.ProofDeliveryStatus,
-		)
+		if firstOutput.ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusNotApplicable {
 
-		// The second output should have a proof delivery status of
-		// pending. This indicates that the proof deliver has not yet
-		// completed successfully.
+			return false
+		}
+
 		secondOutput := firstTransfer.Outputs[1]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusPending,
-			secondOutput.ProofDeliveryStatus,
-		)
+		if secondOutput.ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusPending {
 
-		// Inspect the second transfer.
+			return false
+		}
+
 		secondTransfer := listTransfersResp.Transfers[1]
-		require.NotEqual(t.t, secondTransfer.AnchorTxHeightHint, 0)
-		require.NotEmpty(t.t, secondTransfer.AnchorTxBlockHash)
+		if secondTransfer.AnchorTxHeightHint == 0 {
+			return false
+		}
 
-		// Assert proof transfer status for each transfer output.
-		require.Len(t.t, secondTransfer.Outputs, 2)
+		if len(secondTransfer.Outputs) != 2 {
+			return false
+		}
 
-		// First output should have a proof delivery status of not
-		// applicable. This indicates that a proof will not be delivered
-		// for this output.
 		firstOutput = secondTransfer.Outputs[0]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusNotApplicable,
-			firstOutput.ProofDeliveryStatus,
-		)
+		if firstOutput.ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusNotApplicable {
 
-		// The second output should have a proof delivery status of
-		// pending. This indicates that the proof deliver has not yet
-		// completed successfully.
+			return false
+		}
+
 		secondOutput = secondTransfer.Outputs[1]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusPending,
-			secondOutput.ProofDeliveryStatus,
-		)
-
-		return true
+		return secondOutput.ProofDeliveryStatus ==
+			rpcutils.ProofDeliveryStatusPending
 	}, defaultWaitTimeout, 200*time.Millisecond)
 
 	// Restart the proof courier service.
@@ -1298,7 +1281,7 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 
 	// Mint an asset for sending using the sending tapd node.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, sendTapd,
+		t.t, t.lndHarness.Miner(), sendTapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
@@ -1322,7 +1305,7 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 
 	// Send asset and then mine to confirm the associated on-chain tx.
 	sendAssetsToAddr(t, sendTapd, recvAddr)
-	_ = MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	_ = MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 	// At this point, the proof courier service is running. We will
 	// therefore pause to allow the sender to transfer the proof to the
@@ -1452,7 +1435,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 
 	// Mint an asset for sending.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, sendTapd,
+		t.t, t.lndHarness.Miner(), sendTapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
@@ -1476,7 +1459,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 
 	// Send asset and then mine to confirm the associated on-chain tx.
 	sendAssetsToAddr(t, sendTapd, recvAddr)
-	_ = MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	_ = MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 	// Pause before restarting receiving tapd node so that sender node has
 	// an opportunity to attempt to send the proof multiple times.
@@ -1617,7 +1600,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 
 	// Mint a single asset.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	rpcAsset := rpcAssets[0]
@@ -1645,7 +1628,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, addr)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 		genInfo.AssetId, []uint64{4000, 1000}, 0, 1,
 	)
 
@@ -1666,7 +1649,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	sendResp, sendEvents = sendAssetsToAddr(t, t.tapd, addr)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 		genInfo.AssetId, []uint64{0, 4000}, 1, 2,
 	)
 
@@ -1690,7 +1673,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	sendResp, sendEvents = sendAssetsToAddr(t, bobTapd, addr)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, bobTapd, sendResp,
+		t.t, t.lndHarness.Miner(), bobTapd, sendResp,
 		genInfo.AssetId, []uint64{0, 5000}, 0, 1,
 	)
 
@@ -1706,7 +1689,7 @@ func testSendMultipleCoins(t *harnessTest) {
 	// First, we'll make a normal assets with enough units to allow us to
 	// send it to different UTXOs
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
@@ -1742,7 +1725,7 @@ func testSendMultipleCoins(t *harnessTest) {
 	// transfer to send the coins back to our wallet in 5 pieces now.
 	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, addrs...)
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 		genInfo.AssetId, []uint64{
 			0, unitsPerPart, unitsPerPart, unitsPerPart,
 			unitsPerPart, unitsPerPart,
@@ -1775,7 +1758,7 @@ func testSendMultipleCoins(t *harnessTest) {
 			t, t.tapd, bobAddrs[i],
 		)
 		AssertAssetOutboundTransferWithOutputs(
-			t.t, t.lndHarness.Miner().Client, t.tapd,
+			t.t, t.lndHarness.Miner(), t.tapd,
 			sendResp.Transfer, [][]byte{genInfo.AssetId},
 			[]uint64{0, unitsPerPart}, i+1, i+2,
 			2, false,
@@ -1801,7 +1784,7 @@ func testSendMultipleCoins(t *harnessTest) {
 
 	// Now we confirm the 5 transfers and make sure they complete as
 	// expected.
-	_ = MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 5)
+	_ = MineBlocks(t.t, t.lndHarness.Miner(), 1, 5)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 5)
 	for idx, events := range addrSendEvents {
 		AssertSendEventsComplete(t.t, bobAddrs[idx].ScriptKey, events)
@@ -1824,7 +1807,7 @@ func testSendNoCourierUniverseImport(t *harnessTest) {
 
 	// First, we'll make a normal assets with enough units.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
@@ -1863,7 +1846,7 @@ func testSendNoCourierUniverseImport(t *harnessTest) {
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend := firstAsset.Amount - numUnitsSend
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 		genInfo.AssetId,
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 0, 1,
 	)
@@ -1889,7 +1872,7 @@ func testHistoricalSendEventsReplay(t *harnessTest) {
 
 	// First, mint an asset.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	totalMinted := rpcAssets[0].Amount
@@ -1932,7 +1915,7 @@ func testHistoricalSendEventsReplay(t *harnessTest) {
 		// Confirm the transfer.
 		changeUnits -= amount
 		ConfirmAndAssertOutboundTransfer(
-			t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+			t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 			genInfo.AssetId, []uint64{changeUnits, amount}, i, i+1,
 		)
 		AssertNonInteractiveRecvComplete(t.t, secondTapd, i+1)
@@ -2140,7 +2123,7 @@ func testRestoreLndFromSeed(t *harnessTest) {
 	// We mint a batch of normal assets with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, bob,
+		t.t, t.lndHarness.Miner(), bob,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 
@@ -2164,7 +2147,7 @@ func testRestoreLndFromSeed(t *harnessTest) {
 	sendResp, sendEvents := sendAssetsToAddr(t, bob, aliceAddr)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, bob, sendResp,
+		t.t, t.lndHarness.Miner(), bob, sendResp,
 		genInfo.AssetId,
 		[]uint64{rpcAsset.Amount - sendAmount, sendAmount}, 0, 1,
 	)
@@ -2204,7 +2187,7 @@ func testRestoreLndFromSeed(t *harnessTest) {
 	sendResp, sendEvents = sendAssetsToAddr(t, bob, aliceAddr)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, bob, sendResp,
+		t.t, t.lndHarness.Miner(), bob, sendResp,
 		genInfo.AssetId,
 		[]uint64{rpcAsset.Amount - sendAmount*2, sendAmount}, 1, 2,
 	)

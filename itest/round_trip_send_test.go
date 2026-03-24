@@ -30,7 +30,7 @@ func testRoundTripSend(t *harnessTest) {
 	// First, we'll make a normal assets with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
@@ -74,7 +74,7 @@ func testRoundTripSend(t *harnessTest) {
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 		genInfo.AssetId, []uint64{bobAmt, bobAmt}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
@@ -94,7 +94,7 @@ func testRoundTripSend(t *harnessTest) {
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, secondTapd,
+		t.t, t.lndHarness.Miner(), secondTapd,
 		sendResp, genInfo.AssetId, []uint64{aliceAmt, aliceAmt}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)

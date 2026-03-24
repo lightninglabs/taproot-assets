@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btclog/v2"
@@ -61,6 +62,7 @@ type receiveSubscription struct {
 	serverStream clientStream
 	streamMutex  sync.RWMutex
 	streamCancel func()
+	subscribed   atomic.Bool
 
 	authOkChan chan struct{}
 	msgChan    chan<- *ReceivedMessages
@@ -198,10 +200,7 @@ func (s *receiveSubscription) wait(backoff time.Duration) error {
 // IsSubscribed returns true if at least one account is in an active state and
 // the subscription stream to the server was established successfully.
 func (s *receiveSubscription) IsSubscribed() bool {
-	s.streamMutex.RLock()
-	defer s.streamMutex.RUnlock()
-
-	return s.serverStream != nil
+	return s.subscribed.Load()
 }
 
 // connectServerStream opens the initial connection to the server for the stream
@@ -412,6 +411,8 @@ func (s *receiveSubscription) readIncomingStream(ctx context.Context) {
 		// The server confirms the account subscription. Nothing for us
 		// to do here.
 		case *respTypeAuthSuccess:
+			s.subscribed.Store(true)
+
 			// Inform the subscription about the arrived auth
 			// confirmation.
 			select {
@@ -476,6 +477,7 @@ func (s *receiveSubscription) closeStream(ctx context.Context) error {
 
 	s.streamMutex.Lock()
 	defer s.streamMutex.Unlock()
+	s.subscribed.Store(false)
 
 	if s.streamCancel != nil {
 		s.streamCancel()
