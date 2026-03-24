@@ -221,6 +221,41 @@ func SendOutputs(miner *lntestminer.HarnessMiner, outputs []*wire.TxOut,
 	return miner.SendRawTransaction(tx, true)
 }
 
+// AssertAnchorTxVersion verifies that the given Bitcoin transaction was mined
+// with the expected transaction version.
+func AssertAnchorTxVersion(t *testing.T, miner *lntestminer.HarnessMiner,
+	txHash chainhash.Hash, expectedVersion int32) {
+
+	tx := miner.GetRawTransaction(txHash)
+	require.Equal(t, expectedVersion, tx.MsgTx().Version)
+}
+
+// AssertAssetAnchorTxVersion verifies the on-chain anchor transaction version
+// of the given asset.
+func AssertAssetAnchorTxVersion(t *testing.T,
+	miner *lntestminer.HarnessMiner, rpcAsset *taprpc.Asset,
+	expectedVersion int32) {
+
+	outpoint, err := wire.NewOutPointFromString(
+		rpcAsset.ChainAnchor.AnchorOutpoint,
+	)
+	require.NoError(t, err)
+
+	AssertAnchorTxVersion(t, miner, outpoint.Hash, expectedVersion)
+}
+
+// AssertTransferAnchorTxVersion verifies the on-chain anchor transaction
+// version of the given transfer.
+func AssertTransferAnchorTxVersion(t *testing.T,
+	miner *lntestminer.HarnessMiner, transfer *taprpc.AssetTransfer,
+	expectedVersion int32) {
+
+	txHash, err := chainhash.NewHash(transfer.AnchorTxHash)
+	require.NoError(t, err)
+
+	AssertAnchorTxVersion(t, miner, *txHash, expectedVersion)
+}
+
 type UTXORequest struct {
 	Type   lnrpc.AddressType
 	Amount int64
@@ -293,6 +328,7 @@ type MintOptions struct {
 	mintingTimeout  time.Duration
 	siblingBranch   *mintrpc.FinalizeBatchRequest_Branch
 	siblingFullTree *mintrpc.FinalizeBatchRequest_FullTree
+	anchorTxVersion taprpc.AnchorTxVersion
 	feeRate         uint32
 	errText         string
 }
@@ -324,6 +360,14 @@ func WithSiblingTree(tree mintrpc.FinalizeBatchRequest_FullTree) MintOption {
 func WithFeeRate(feeRate uint32) MintOption {
 	return func(options *MintOptions) {
 		options.feeRate = feeRate
+	}
+}
+
+// WithMintAnchorTxVersion is an option to specify the anchor transaction
+// version for batch finalization.
+func WithMintAnchorTxVersion(version taprpc.AnchorTxVersion) MintOption {
+	return func(options *MintOptions) {
+		options.anchorTxVersion = version
 	}
 }
 
@@ -384,6 +428,11 @@ func FinalizeBatchUnconfirmed(t *testing.T,
 	}
 	if options.feeRate > 0 {
 		finalizeReq.FeeRate = options.feeRate
+	}
+	if options.anchorTxVersion !=
+		taprpc.AnchorTxVersion_ANCHOR_TX_VERSION_UNSPECIFIED {
+
+		finalizeReq.AnchorTxVersion = options.anchorTxVersion
 	}
 
 	// Instruct the daemon to finalize the batch.

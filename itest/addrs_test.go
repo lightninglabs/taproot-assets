@@ -1214,6 +1214,14 @@ func withFeeRate(feeRate uint32) sendOption {
 	}
 }
 
+// withAnchorTxVersion is an option to specify the anchor transaction version
+// for the send.
+func withAnchorTxVersion(version taprpc.AnchorTxVersion) sendOption {
+	return func(options *sendOptions) {
+		options.sendAssetRequest.AnchorTxVersion = version
+	}
+}
+
 // withSendLabel is an option to specify the label for the send.
 func withSendLabel(label string) sendOption {
 	return func(options *sendOptions) {

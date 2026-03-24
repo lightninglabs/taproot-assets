@@ -1,0 +1,34 @@
+name: "Setup bitcoind"
+description: "Install a pinned Bitcoin Core release for integration tests"
+inputs:
+  version:
+    description: "Bitcoin Core version to install"
+    required: false
+    default: "30.2"
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: install bitcoind ${{ inputs.version }}
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        if command -v bitcoind >/dev/null 2>&1; then
+          bitcoind --version
+          exit 0
+        fi
+
+        VERSION="${{ inputs.version }}"
+        ARCHIVE="bitcoin-${VERSION}-x86_64-linux-gnu.tar.gz"
+        URL="https://bitcoincore.org/bin/bitcoin-core-${VERSION}/${ARCHIVE}"
+        WORKDIR="$(mktemp -d)"
+
+        curl --fail --location --retry 5 --output "${WORKDIR}/${ARCHIVE}" "${URL}"
+        tar -C "${WORKDIR}" -xzf "${WORKDIR}/${ARCHIVE}"
+
+        sudo install -m 0755 "${WORKDIR}/bitcoin-${VERSION}/bin/bitcoind" /usr/local/bin/bitcoind
+        sudo install -m 0755 "${WORKDIR}/bitcoin-${VERSION}/bin/bitcoin-cli" /usr/local/bin/bitcoin-cli
+
+        bitcoind --version
