@@ -5,7 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -160,4 +164,43 @@ func TestAcceptMsgDataEncodeDecode(t *testing.T) {
 		// Zero should have been normalised away.
 		require.True(tt, decoded.MaxInAsset.IsNone())
 	})
+}
+
+func TestNewIncomingAcceptFromWireRejectsMismatchedRequestID(t *testing.T) {
+	t.Parallel()
+
+	peer := route.Vertex{0x01}
+	spec := asset.NewSpecifierFromId(asset.ID{0xAA})
+	req1, err := NewBuyRequest(
+		peer, spec, 100, fn.None[uint64](),
+		fn.None[rfqmath.BigIntFixedPoint](),
+		fn.None[AssetRate](), "",
+		fn.None[ExecutionPolicy](),
+	)
+	require.NoError(t, err)
+
+	req2, err := NewBuyRequest(
+		peer, spec, 100, fn.None[uint64](),
+		fn.None[rfqmath.BigIntFixedPoint](),
+		fn.None[AssetRate](), "",
+		fn.None[ExecutionPolicy](),
+	)
+	require.NoError(t, err)
+	require.NotEqual(t, req1.ID, req2.ID)
+
+	accept := NewBuyAcceptFromRequest(
+		*req1, NewAssetRate(rfqmath.NewBigIntFixedPoint(42_000, 0),
+			time.Now().Add(time.Minute)),
+		fn.None[uint64](),
+	)
+	wireMsg, err := accept.ToWire()
+	require.NoError(t, err)
+
+	_, err = NewIncomingAcceptFromWire(
+		wireMsg, func(ID) (OutgoingMsg, bool) {
+			return req2, true
+		},
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match request id")
 }

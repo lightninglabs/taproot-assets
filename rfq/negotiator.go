@@ -227,11 +227,15 @@ func (n *Negotiator) HandleOutgoingBuyOrder(ctx context.Context,
 		return finalise(err)
 	}
 
-	// We calculate a proposed buy rate for our peer's consideration.
-	assetRateHint := n.getAssetRateHint(
-		ctx, &buyOrder, fn.Some(buyOrder.AssetMaxAmt),
-		fn.None[lnwire.MilliSatoshi](),
-	)
+	// We calculate a proposed buy rate for our peer's consideration unless
+	// the caller already provided a hint.
+	assetRateHint := buyOrder.AssetRateHint
+	if assetRateHint.IsNone() {
+		assetRateHint = n.getAssetRateHint(
+			ctx, &buyOrder, fn.Some(buyOrder.AssetMaxAmt),
+			fn.None[lnwire.MilliSatoshi](),
+		)
+	}
 
 	// Construct a new buy request to send to the peer.
 	request, err := rfqmsg.NewBuyRequest(
