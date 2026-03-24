@@ -2768,12 +2768,29 @@ func UpdateAndMineSupplyCommit(t *testing.T, ctx context.Context,
 		GroupKey: groupKeyUpdate,
 	}
 
-	respUpdate, err := tapd.UpdateSupplyCommit(ctx, req)
-	require.NoError(t, err)
-	require.NotNil(t, respUpdate)
+	var txids []chainhash.Hash
+	require.Eventually(t, func() bool {
+		respUpdate, err := tapd.UpdateSupplyCommit(ctx, req)
+		if err != nil || respUpdate == nil {
+			return false
+		}
 
-	// Mine the supply commitment transaction.
-	minedBlocks := MineBlocks(t, miner, 1, expectedTxsInBlock)
+		// Burn events are delivered asynchronously after the
+		// burn transfer confirms, so the first commit tick can
+		// race and become a no-op. Give each tick a moment to
+		// produce the follow-on commitment tx before retrying.
+		// Otherwise we'd enqueue a second tick while the first
+		// commitment is already in flight.
+		txids, err = WaitForNTxsInMempool(
+			miner, expectedTxsInBlock, 2*time.Second,
+		)
+		return err == nil
+	}, defaultWaitTimeout, 2*time.Second)
+
+	minedBlocks := miner.MineBlocks(1)
+	for _, txid := range txids {
+		AssertTxInBlock(t, minedBlocks[0], &txid)
+	}
 	require.Len(t, minedBlocks, 1)
 
 	return minedBlocks

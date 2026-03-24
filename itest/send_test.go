@@ -1121,40 +1121,35 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 	// delay, we use require.Eventually to ensure the transfer details are
 	// correctly listed after confirmation.
 	require.Eventually(t.t, func() bool {
-		// Ensure that the transaction took place as expected.
 		listTransfersResp, err := sendTapd.ListTransfers(
 			ctxb, &taprpc.ListTransfersRequest{},
 		)
-		require.NoError(t.t, err)
-
-		require.Len(t.t, listTransfersResp.Transfers, 1)
+		if err != nil || len(listTransfersResp.Transfers) != 1 {
+			return false
+		}
 
 		firstTransfer := listTransfersResp.Transfers[0]
-		require.NotEqual(t.t, firstTransfer.AnchorTxHeightHint, 0)
-		require.NotEmpty(t.t, firstTransfer.AnchorTxBlockHash)
+		if firstTransfer.AnchorTxHeightHint == 0 {
+			return false
+		}
 
-		// Assert proof transfer status for each transfer output.
-		require.Len(t.t, firstTransfer.Outputs, 2)
+		// The block hash can lag behind the height hint in
+		// ListTransfers, so assert on the confirmation height
+		// and output proof states here.
+		if len(firstTransfer.Outputs) != 2 {
+			return false
+		}
 
-		// First output should have a proof delivery status of not
-		// applicable. This indicates that a proof will not be delivered
-		// for this output.
 		firstOutput := firstTransfer.Outputs[0]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusNotApplicable,
-			firstOutput.ProofDeliveryStatus,
-		)
+		if firstOutput.ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusNotApplicable {
 
-		// The second output should have a proof delivery status of
-		// pending. This indicates that the proof deliver has not yet
-		// completed successfully.
+			return false
+		}
+
 		secondOutput := firstTransfer.Outputs[1]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusPending,
-			secondOutput.ProofDeliveryStatus,
-		)
-
-		return true
+		return secondOutput.ProofDeliveryStatus ==
+			rpcutils.ProofDeliveryStatusPending
 	}, defaultWaitTimeout, 200*time.Millisecond)
 
 	// Define a target event selector to match the backoff wait
@@ -1199,67 +1194,55 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 	// delay, we use require.Eventually to ensure the transfer details are
 	// correctly listed after confirmation.
 	require.Eventually(t.t, func() bool {
-		// Ensure that the transaction took place as expected.
 		listTransfersResp, err := sendTapd.ListTransfers(
 			ctxb, &taprpc.ListTransfersRequest{},
 		)
-		require.NoError(t.t, err)
+		if err != nil || len(listTransfersResp.Transfers) != 2 {
+			return false
+		}
 
-		require.Len(t.t, listTransfersResp.Transfers, 2)
-
-		// Inspect the first transfer.
 		firstTransfer := listTransfersResp.Transfers[0]
-		require.NotEqual(t.t, firstTransfer.AnchorTxHeightHint, 0)
-		require.NotEmpty(t.t, firstTransfer.AnchorTxBlockHash)
+		if firstTransfer.AnchorTxHeightHint == 0 {
+			return false
+		}
 
-		// Assert proof transfer status for each transfer output.
-		require.Len(t.t, firstTransfer.Outputs, 2)
+		if len(firstTransfer.Outputs) != 2 {
+			return false
+		}
 
-		// First output should have a proof delivery status of not
-		// applicable. This indicates that a proof will not be delivered
-		// for this output.
 		firstOutput := firstTransfer.Outputs[0]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusNotApplicable,
-			firstOutput.ProofDeliveryStatus,
-		)
+		if firstOutput.ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusNotApplicable {
 
-		// The second output should have a proof delivery status of
-		// pending. This indicates that the proof deliver has not yet
-		// completed successfully.
+			return false
+		}
+
 		secondOutput := firstTransfer.Outputs[1]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusPending,
-			secondOutput.ProofDeliveryStatus,
-		)
+		if secondOutput.ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusPending {
 
-		// Inspect the second transfer.
+			return false
+		}
+
 		secondTransfer := listTransfersResp.Transfers[1]
-		require.NotEqual(t.t, secondTransfer.AnchorTxHeightHint, 0)
-		require.NotEmpty(t.t, secondTransfer.AnchorTxBlockHash)
+		if secondTransfer.AnchorTxHeightHint == 0 {
+			return false
+		}
 
-		// Assert proof transfer status for each transfer output.
-		require.Len(t.t, secondTransfer.Outputs, 2)
+		if len(secondTransfer.Outputs) != 2 {
+			return false
+		}
 
-		// First output should have a proof delivery status of not
-		// applicable. This indicates that a proof will not be delivered
-		// for this output.
 		firstOutput = secondTransfer.Outputs[0]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusNotApplicable,
-			firstOutput.ProofDeliveryStatus,
-		)
+		if firstOutput.ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusNotApplicable {
 
-		// The second output should have a proof delivery status of
-		// pending. This indicates that the proof deliver has not yet
-		// completed successfully.
+			return false
+		}
+
 		secondOutput = secondTransfer.Outputs[1]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusPending,
-			secondOutput.ProofDeliveryStatus,
-		)
-
-		return true
+		return secondOutput.ProofDeliveryStatus ==
+			rpcutils.ProofDeliveryStatusPending
 	}, defaultWaitTimeout, 200*time.Millisecond)
 
 	// Restart the proof courier service.

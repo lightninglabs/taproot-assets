@@ -721,6 +721,33 @@ func assertPaymentHtlcAssets(t *testing.T, node *itest.IntegratedNode,
 	require.InDelta(t, assetAmount, totalAssetAmount, 1)
 }
 
+// waitForPaymentTerminal waits for the tracked payment to leave the in-flight
+// state after a hodl invoice is canceled or settled.
+func waitForPaymentTerminal(t *testing.T, node *itest.IntegratedNode,
+	payHash []byte) *lnrpc.Payment {
+
+	t.Helper()
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, wait.DefaultTimeout)
+	defer cancel()
+
+	stream, err := node.RouterClient.TrackPaymentV2(
+		ctxt, &routerrpc.TrackPaymentRequest{
+			PaymentHash:       payHash,
+			NoInflightUpdates: true,
+		},
+	)
+	require.NoError(t, err)
+
+	payment, err := stream.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, payment)
+	require.NotEqual(t, lnrpc.Payment_IN_FLIGHT, payment.Status)
+
+	return payment
+}
+
 // assertAssetChan asserts that the channel between src and dst has the expected
 // funding amount and assets.
 func assertAssetChan(t *testing.T, src, dst *itest.IntegratedNode,
