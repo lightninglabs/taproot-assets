@@ -291,7 +291,8 @@ func RandMintingBatch(t testing.TB, opts ...MintBatchOption) *MintingBatch {
 	// Fund genesis packet.
 	ctx := context.Background()
 	fundedPsbt, err := fundGenesisPsbt(
-		ctx, address.TestNet3Tap, batch, walletFundPsbt,
+		ctx, address.TestNet3Tap, batch,
+		tapsend.DefaultAnchorTxVersion, walletFundPsbt,
 	)
 	require.NoError(t, err)
 	batch.GenesisPacket = &fundedPsbt

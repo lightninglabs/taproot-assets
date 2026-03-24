@@ -29,6 +29,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
@@ -643,6 +644,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			SupplySyncer:       &supplySyncer,
 			DaemonAdapters:     lndFsmDaemonAdapters,
 			StateLog:           supplyCommitStore,
+			AnchorTxVersion:    tapsend.DefaultAnchorTxVersion,
 			ChainParams:        *tapChainParams.Params,
 			IgnoreCheckerCache: ignoreChecker,
 		},

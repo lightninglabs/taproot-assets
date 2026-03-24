@@ -38,7 +38,7 @@ type MintSupplyCommitter interface {
 	// machine.
 	SendMintEvent(ctx context.Context, assetSpec asset.Specifier,
 		leafKey universe.UniqueLeafKey, issuanceProof universe.Leaf,
-		mintBlockHeight uint32) error
+		mintBlockHeight uint32, anchorTxVersion int32) error
 }
 
 // GardenKit holds the set of shared fundamental interfaces all sub-systems of
@@ -311,15 +311,17 @@ type UnsealedSeedling struct {
 // FinalizeParams are the options available to change how a batch is finalized,
 // and how the genesis TX is constructed.
 type FinalizeParams struct {
-	FeeRate        fn.Option[chainfee.SatPerKWeight]
-	SiblingTapTree fn.Option[asset.TapscriptTreeNodes]
+	FeeRate         fn.Option[chainfee.SatPerKWeight]
+	SiblingTapTree  fn.Option[asset.TapscriptTreeNodes]
+	AnchorTxVersion int32
 }
 
 // FundParams are the options available to change how a batch is funded, and how
 // the genesis TX is constructed.
 type FundParams struct {
-	FeeRate        fn.Option[chainfee.SatPerKWeight]
-	SiblingTapTree fn.Option[asset.TapscriptTreeNodes]
+	FeeRate         fn.Option[chainfee.SatPerKWeight]
+	SiblingTapTree  fn.Option[asset.TapscriptTreeNodes]
+	AnchorTxVersion int32
 }
 
 // PendingGroupWitness specifies the asset group witness for an asset seedling
@@ -703,13 +705,18 @@ func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
 
 // unfundedAnchorPsbt creates an unfunded PSBT packet for the minting anchor
 // transaction.
-func unfundedAnchorPsbt(preCommitmentTxOut fn.Option[wire.TxOut]) (psbt.Packet,
-	error) {
+func unfundedAnchorPsbt(preCommitmentTxOut fn.Option[wire.TxOut],
+	txVersion int32) (psbt.Packet, error) {
 
 	var zero psbt.Packet
 
+	resolvedTxVersion, err := tapsend.ResolveAnchorTxVersion(txVersion)
+	if err != nil {
+		return zero, err
+	}
+
 	// Construct a template transaction for our minting anchor transaction.
-	txTemplate := wire.NewMsgTx(2)
+	txTemplate := wire.NewMsgTx(resolvedTxVersion)
 
 	// Add one output to anchor all assets which are being minted.
 	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
@@ -1006,7 +1013,7 @@ type WalletFundPsbt = func(ctx context.Context,
 // We need to use a dummy script as we can't know the actual script key since
 // that's dependent on the genesis outpoint.
 func fundGenesisPsbt(ctx context.Context, chainParams address.ChainParams,
-	pendingBatch *MintingBatch,
+	pendingBatch *MintingBatch, txVersion int32,
 	walletFundPsbt WalletFundPsbt) (FundedMintAnchorPsbt, error) {
 
 	var zero FundedMintAnchorPsbt
@@ -1045,7 +1052,7 @@ func fundGenesisPsbt(ctx context.Context, chainParams address.ChainParams,
 
 	// Construct an unfunded anchor PSBT which will eventually become a
 	// funded minting anchor transaction.
-	genesisPkt, err := unfundedAnchorPsbt(preCommitmentTxOut)
+	genesisPkt, err := unfundedAnchorPsbt(preCommitmentTxOut, txVersion)
 	if err != nil {
 		return zero, fmt.Errorf("unable to create anchor template tx: "+
 			"%w", err)
@@ -2199,6 +2206,7 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 		log.Infof("Attempting to fund batch: %x", batchKey)
 		mintAnchorTx, err := fundGenesisPsbt(
 			ctx, c.cfg.ChainParams, c.pendingBatch,
+			params.AnchorTxVersion,
 			walletFundPsbt,
 		)
 		if err != nil {

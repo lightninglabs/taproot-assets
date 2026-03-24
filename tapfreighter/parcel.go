@@ -160,6 +160,10 @@ type AddressParcel struct {
 	// label is an optional user provided transfer label.
 	label string
 
+	// anchorTxVersion is the version to use for a newly created anchor
+	// transaction. If unset, the default version is used.
+	anchorTxVersion int32
+
 	// skipProofCourierPingCheck bool is a flag that indicates whether the
 	// proof courier ping check should be skipped. This is useful for
 	// testing purposes or to force transfer attempts even if the
@@ -173,7 +177,7 @@ var _ Parcel = (*AddressParcel)(nil)
 
 // NewAddressParcel creates a new AddressParcel.
 func NewAddressParcel(feeRate *chainfee.SatPerKWeight, label string,
-	skipProofCourierPingCheck bool,
+	skipProofCourierPingCheck bool, anchorTxVersion int32,
 	destAddrs ...*address.Tap) *AddressParcel {
 
 	return &AddressParcel{
@@ -184,6 +188,7 @@ func NewAddressParcel(feeRate *chainfee.SatPerKWeight, label string,
 		destAddrs:                 destAddrs,
 		transferFeeRate:           feeRate,
 		label:                     label,
+		anchorTxVersion:           anchorTxVersion,
 		skipProofCourierPingCheck: skipProofCourierPingCheck,
 	}
 }
@@ -200,6 +205,7 @@ func (p *AddressParcel) pkg() *sendPackage {
 	return &sendPackage{
 		Parcel:                    p,
 		Label:                     p.label,
+		AnchorTxVersion:           p.anchorTxVersion,
 		SkipProofCourierPingCheck: p.skipProofCourierPingCheck,
 	}
 }
@@ -318,6 +324,10 @@ type PreSignedParcel struct {
 	// note is a string that provides any user defined description for this
 	// transfer.
 	note string
+
+	// anchorTxVersion is the version to use for a newly created anchor
+	// transaction. If unset, the default version is used.
+	anchorTxVersion int32
 }
 
 // A compile-time assertion to ensure PreSignedParcel implements the parcel
@@ -327,7 +337,8 @@ var _ Parcel = (*PreSignedParcel)(nil)
 // NewPreSignedParcel creates a new PreSignedParcel.
 func NewPreSignedParcel(vPackets []*tappsbt.VPacket,
 	inputCommitments tappsbt.InputCommitments,
-	zeroValueInputs []*ZeroValueInput, note string) *PreSignedParcel {
+	zeroValueInputs []*ZeroValueInput, note string,
+	anchorTxVersion int32) *PreSignedParcel {
 
 	return &PreSignedParcel{
 		parcelKit: &parcelKit{
@@ -338,6 +349,7 @@ func NewPreSignedParcel(vPackets []*tappsbt.VPacket,
 		inputCommitments: inputCommitments,
 		zeroValueInputs:  zeroValueInputs,
 		note:             note,
+		anchorTxVersion:  anchorTxVersion,
 	}
 }
 
@@ -355,6 +367,7 @@ func (p *PreSignedParcel) pkg() *sendPackage {
 		InputCommitments: p.inputCommitments,
 		ZeroValueInputs:  p.zeroValueInputs,
 		Note:             p.note,
+		AnchorTxVersion:  p.anchorTxVersion,
 	}
 }
 
@@ -574,6 +587,10 @@ type sendPackage struct {
 
 	// Label is a user provided short label for this transfer.
 	Label string
+
+	// AnchorTxVersion is the version to use for a newly created anchor
+	// transaction. If unset, the default version is used.
+	AnchorTxVersion int32
 
 	// Note is a user provided description for this transfer. This is
 	// currently only used by asset burn transfers.

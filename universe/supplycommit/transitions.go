@@ -448,7 +448,7 @@ func newRootCommitment(ctx context.Context,
 	oldCommitment lfn.Option[RootCommitment],
 	unspentPreCommits []PreCommitment, newSupplyRoot *mssmt.BranchNode,
 	wallet Wallet, keyRing KeyRing, chainParams chaincfg.Params,
-	logger lfn.Option[btclog.Logger],
+	txVersion int32, logger lfn.Option[btclog.Logger],
 ) (*RootCommitment, *psbt.Packet, error) {
 
 	logger.WhenSome(func(l btclog.Logger) {
@@ -456,7 +456,12 @@ func newRootCommitment(ctx context.Context,
 			"pre-commits", len(unspentPreCommits))
 	})
 
-	newCommitTx := wire.NewMsgTx(2)
+	resolvedTxVersion, err := tapsend.ResolveAnchorTxVersion(txVersion)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	newCommitTx := wire.NewMsgTx(resolvedTxVersion)
 
 	// With the set of pre-commits, we'll add them to as inputs into the new
 	// transaction.
@@ -617,6 +622,42 @@ func newRootCommitment(ctx context.Context,
 	return &newSupplyCommit, commitPkt, nil
 }
 
+func supplyUpdateAnchorTxVersion(updates []SupplyUpdateEvent,
+	defaultVersion int32) (int32, error) {
+
+	baselineVersion, err := tapsend.ResolveAnchorTxVersion(defaultVersion)
+	if err != nil {
+		return 0, err
+	}
+	resolvedVersion := baselineVersion
+
+	for _, update := range updates {
+		mintEvent, ok := update.(*NewMintEvent)
+		if !ok || mintEvent.AnchorTxVersion == 0 {
+			continue
+		}
+
+		updateVersion, err := tapsend.ResolveAnchorTxVersion(
+			mintEvent.AnchorTxVersion,
+		)
+		if err != nil {
+			return 0, err
+		}
+
+		if resolvedVersion != baselineVersion &&
+			resolvedVersion != updateVersion {
+
+			return 0, fmt.Errorf(
+				"conflicting anchor tx versions: %d != %d",
+				resolvedVersion, updateVersion)
+		}
+
+		resolvedVersion = updateVersion
+	}
+
+	return resolvedVersion, nil
+}
+
 // fundSupplyCommitTx takes a newly created supply commitment transaction,
 // creates a PSBT, estimates fees, funds the PSBT using the wallet, and locates
 // the index of the supply commitment output within the funded transaction. It
@@ -736,9 +777,16 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 
 		// With all the inputs obtained, we'll create the new supply
 		// commitment.
+		txVersion, err := supplyUpdateAnchorTxVersion(
+			c.SupplyTransition.PendingUpdates, env.AnchorTxVersion,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		newSupplyCommit, commitPkt, err := newRootCommitment(
 			ctx, oldCommitment, preCommits, newSupplyRoot,
-			env.Wallet, env.KeyRing, env.ChainParams,
+			env.Wallet, env.KeyRing, env.ChainParams, txVersion,
 			lfn.Some(prefixedLog),
 		)
 		if err != nil {

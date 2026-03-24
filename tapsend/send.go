@@ -1097,7 +1097,19 @@ func commitPacket(vPkt *tappsbt.VPacket, noSTXOProofs bool,
 }
 
 // CreateAnchorTx creates a template BTC anchor TX with dummy outputs.
-func CreateAnchorTx(vPackets []*tappsbt.VPacket) (*psbt.Packet, error) {
+func CreateAnchorTx(vPackets []*tappsbt.VPacket,
+	opts ...AnchorTxOption) (*psbt.Packet, error) {
+
+	cfg := defaultAnchorTxConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	txVersion, err := ResolveAnchorTxVersion(cfg.TxVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	// We locate the highest anchor output index in all virtual packets to
 	// create a template TX with the correct number of outputs.
 	var maxOutputIndex uint32
@@ -1115,7 +1127,7 @@ func CreateAnchorTx(vPackets []*tappsbt.VPacket) (*psbt.Packet, error) {
 		}
 	}
 
-	txTemplate := wire.NewMsgTx(2)
+	txTemplate := wire.NewMsgTx(txVersion)
 
 	// Zero is a valid anchor output index, so we need to do <= here.
 	for i := uint32(0); i <= maxOutputIndex; i++ {
@@ -1165,15 +1177,15 @@ func CreateAnchorTx(vPackets []*tappsbt.VPacket) (*psbt.Packet, error) {
 // necessary inputs and outputs to anchor the virtual packets, but without any
 // signatures. The main difference to CreateAnchorTx is that this function
 // populates the inputs with the witness UTXO and derivation path information.
-func PrepareAnchoringTemplate(
-	vPackets []*tappsbt.VPacket) (*psbt.Packet, error) {
+func PrepareAnchoringTemplate(vPackets []*tappsbt.VPacket,
+	opts ...AnchorTxOption) (*psbt.Packet, error) {
 
 	err := ValidateVPacketVersions(vPackets)
 	if err != nil {
 		return nil, err
 	}
 
-	btcPacket, err := CreateAnchorTx(vPackets)
+	btcPacket, err := CreateAnchorTx(vPackets, opts...)
 	if err != nil {
 		return nil, err
 	}

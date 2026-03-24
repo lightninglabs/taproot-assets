@@ -89,6 +89,11 @@ type ManagerCfg struct {
 	// IgnoreCheckerCache is used to invalidate the ignore cache when a new
 	// supply commitment is created.
 	IgnoreCheckerCache IgnoreCheckerCache
+
+	// AnchorTxVersion is the default version to use for newly created
+	// supply-commitment transactions when no request-specific version was
+	// propagated into the state machine.
+	AnchorTxVersion int32
 }
 
 // Manager is a manager for multiple supply commitment state
@@ -162,6 +167,7 @@ func (m *Manager) startAssetSM(ctx context.Context,
 		SupplySyncer:       m.cfg.SupplySyncer,
 		StateLog:           m.cfg.StateLog,
 		CommitConfTarget:   DefaultCommitConfTarget,
+		AnchorTxVersion:    m.cfg.AnchorTxVersion,
 		ChainParams:        m.cfg.ChainParams,
 		IgnoreCheckerCache: m.cfg.IgnoreCheckerCache,
 	}
@@ -444,12 +450,13 @@ func (m *Manager) SendEventSync(ctx context.Context, assetSpec asset.Specifier,
 // NOTE: This implements the tapgarden.MintSupplyCommitter interface.
 func (m *Manager) SendMintEvent(ctx context.Context, assetSpec asset.Specifier,
 	leafKey universe.UniqueLeafKey, issuanceProof universe.Leaf,
-	mintBlockHeight uint32) error {
+	mintBlockHeight uint32, anchorTxVersion int32) error {
 
 	mintEvent := &NewMintEvent{
-		LeafKey:       leafKey,
-		IssuanceProof: issuanceProof,
-		MintHeight:    mintBlockHeight,
+		LeafKey:         leafKey,
+		IssuanceProof:   issuanceProof,
+		MintHeight:      mintBlockHeight,
+		AnchorTxVersion: anchorTxVersion,
 	}
 
 	return m.SendEventSync(ctx, assetSpec, mintEvent)

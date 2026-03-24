@@ -2892,7 +2892,8 @@ func (r *RPCServer) AnchorVirtualPsbts(ctx context.Context,
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewPreSignedParcel(
-			vPackets, inputCommitments, zeroValueInputs, "", txVersion,
+			vPackets, inputCommitments, zeroValueInputs, "",
+			txVersion,
 		),
 	)
 	if err != nil {
@@ -3828,7 +3829,8 @@ func (r *RPCServer) SendAsset(ctx context.Context,
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewAddressParcel(
-			feeRate, label, req.SkipProofCourierPingCheck, txVersion,
+			feeRate, label, req.SkipProofCourierPingCheck,
+			txVersion,
 			tapAddrs...,
 		),
 	)

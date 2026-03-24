@@ -176,6 +176,11 @@ type AnchorVTxnsParams struct {
 	// ZeroValueInputs is a list of zero-value UTXOs that should be swept
 	// as additional inputs to the transaction.
 	ZeroValueInputs []*ZeroValueInput
+
+	// AnchorTxVersion is the version to use when creating a new BTC anchor
+	// transaction template. If unset, the default anchor transaction
+	// version is used.
+	AnchorTxVersion int32
 }
 
 // WalletConfig holds the configuration for a new Wallet.
@@ -1220,7 +1225,9 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 	// Construct our template PSBT to commits to the set of dummy locators
 	// we use to make fee estimation work.
-	sendPacket, err := tapsend.CreateAnchorTx(allPackets)
+	sendPacket, err := tapsend.CreateAnchorTx(
+		allPackets, tapsend.WithAnchorTxVersion(params.AnchorTxVersion),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating anchor TX: %w", err)
 	}
