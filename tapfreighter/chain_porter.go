@@ -1415,18 +1415,6 @@ func (p *ChainPorter) prelimCheckAddrParcel(addrParcel AddressParcel) error {
 func (p *ChainPorter) verifyVPacketsPreBroadcast(ctx context.Context,
 	packets []*tappsbt.VPacket) error {
 
-	// Get current block height for timelock validation.
-	blockHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
-	if err != nil {
-		return fmt.Errorf("unable to get current height: %w", err)
-	}
-
-	// Verify asset timelocks are satisfied at current height.
-	err = p.verifyAssetTimelocks(ctx, packets, blockHeight)
-	if err != nil {
-		return err
-	}
-
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 	vCtx := proof.VerifierCtx{
 		HeaderVerifier: headerVerifier,
@@ -2163,6 +2151,34 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		allPackets = append(allPackets, currentPkg.VirtualPackets...)
 		allPackets = append(allPackets, currentPkg.PassiveAssets...)
 
+		// Verify asset timelocks against current block height,
+		// but only for non-pre-anchored parcels. Pre-anchored
+		// parcels (force-close sweeps) have BTC-level nSequence
+		// enforcement; the sweeper handles retry timing and
+		// may attempt slightly before CSV maturity.
+		_, isPreAnchored := currentPkg.Parcel.(*PreAnchoredParcel)
+		if !isPreAnchored {
+			blockHeight, err := p.cfg.ChainBridge.CurrentHeight(
+				ctx,
+			)
+			if err != nil {
+				p.unlockInputs(ctx, &currentPkg)
+
+				return nil, fmt.Errorf("unable to get "+
+					"current height: %w", err)
+			}
+
+			err = p.verifyAssetTimelocks(
+				ctx, allPackets, blockHeight,
+			)
+			if err != nil {
+				p.unlockInputs(ctx, &currentPkg)
+
+				return nil, fmt.Errorf("verifying "+
+					"vPackets: %w", err)
+			}
+		}
+
 		err := p.verifyVPacketsPreBroadcast(ctx, allPackets)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
@@ -2310,17 +2326,24 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		err := p.verifyOutboundTimelocks(
-			ctx, currentPkg.OutboundPkg,
-		)
-		if err != nil {
-			p.unlockInputs(ctx, &currentPkg)
+		// Verify outbound timelocks for non-pre-anchored
+		// parcels only. Pre-anchored parcels (force-close
+		// sweeps) rely on BTC-level nSequence enforcement;
+		// the sweeper handles retry timing.
+		_, isPreAnchored := currentPkg.Parcel.(*PreAnchoredParcel)
+		if !isPreAnchored {
+			err := p.verifyOutboundTimelocks(
+				ctx, currentPkg.OutboundPkg,
+			)
+			if err != nil {
+				p.unlockInputs(ctx, &currentPkg)
 
-			return nil, fmt.Errorf("outbound timelock "+
-				"check: %w", err)
+				return nil, fmt.Errorf("outbound "+
+					"timelock check: %w", err)
+			}
 		}
 
-		err = p.importLocalAddresses(ctx, currentPkg.OutboundPkg)
+		err := p.importLocalAddresses(ctx, currentPkg.OutboundPkg)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
 
