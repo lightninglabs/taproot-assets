@@ -412,11 +412,11 @@ func TestVerifyAssetTimelocks(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:        "no proof with relative locktime fails",
+			name:        "no proof with relative locktime passes",
 			blockHeight: 120,
 			packets: func() []*tappsbt.VPacket {
-				// Relative locks require chainLookup for
-				// TxBlockHeight, so missing proof should fail.
+				// Relative locks use DB/RPC-backed
+				// fallback when no proof is available.
 				a := &asset.Asset{
 					LockTime:         0,
 					RelativeLockTime: 10,
@@ -435,15 +435,14 @@ func TestVerifyAssetTimelocks(t *testing.T) {
 				}}
 			},
 			chainLookup: defaultChainLookup,
-			expectError: true,
-			errContains: "no input proof available",
+			expectError: false,
 		},
 		{
-			name:        "no proof timestamp locktime fails",
+			name:        "no proof timestamp locktime passes",
 			blockHeight: 200,
 			packets: func() []*tappsbt.VPacket {
-				// Timestamp-based locks require chainLookup for
-				// MeanBlockTimestamp, so missing proof fails.
+				// Timestamp-based locks use DB/RPC-backed
+				// fallback when no proof is available.
 				threshold := txscript.LockTimeThreshold
 				timestampLock := threshold + 1000
 				a := &asset.Asset{
@@ -464,8 +463,7 @@ func TestVerifyAssetTimelocks(t *testing.T) {
 				}}
 			},
 			chainLookup: defaultChainLookup,
-			expectError: true,
-			errContains: "no input proof available",
+			expectError: false,
 		},
 	}
 

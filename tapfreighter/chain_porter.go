@@ -1699,6 +1699,11 @@ func (p *ChainPorter) verifyAssetTimelocks(ctx context.Context,
 		}
 	}
 
+	// If no proof was found, fall back to DB/RPC-backed lookups.
+	if chainLookup == nil {
+		chainLookup = p.cfg.ChainBridge.GenFileChainLookup(nil)
+	}
+
 	for pktIdx, vPkt := range packets {
 		for outIdx, vOut := range vPkt.Outputs {
 			if vOut.Asset == nil {
@@ -1708,18 +1713,6 @@ func (p *ChainPorter) verifyAssetTimelocks(ctx context.Context,
 			a := vOut.Asset
 			if a.LockTime == 0 && a.RelativeLockTime == 0 {
 				continue
-			}
-
-			// Check if chainLookup is required but unavailable.
-			// Timestamp-based CLTV (LockTime > threshold) and any
-			// CSV (RelativeLockTime != 0) require chain lookups.
-			needsChainLookup := a.RelativeLockTime != 0 ||
-				a.LockTime > txscript.LockTimeThreshold
-			if needsChainLookup && chainLookup == nil {
-				return fmt.Errorf("cannot verify timelock: "+
-					"no input proof available for chain "+
-					"lookup (vpkt=%d, out=%d)",
-					pktIdx, outIdx)
 			}
 
 			for witIdx := range a.PrevWitnesses {
