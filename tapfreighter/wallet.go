@@ -1228,7 +1228,12 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// TODO(roasbeef): also want to log the total fee to disk for
 	// accounting, etc.
 
-	// First, we'll update the PSBT packets to insert the _real_ outputs we
+	// Add anchor inputs before updating output keys, so that
+	// AssertAnchorTimeLocks (called by UpdateTaprootOutputKeys) can find
+	// the inputs and set their sequence values for relative timelocks.
+	addAnchorPsbtInputs(sendPacket, params.ActivePackets)
+
+	// Now we'll update the PSBT packets to insert the _real_ outputs we
 	// need to commit to the asset transfer.
 	for _, vPkt := range allPackets {
 		err = tapsend.UpdateTaprootOutputKeys(
@@ -1239,11 +1244,6 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 				"output keys: %w", err)
 		}
 	}
-
-	// Now that all the real outputs are in the PSBT, we'll also
-	// add our anchor inputs as well, since the wallet can sign for
-	// it itself.
-	addAnchorPsbtInputs(sendPacket, params.ActivePackets)
 
 	// Add zero-value inputs that should be swept as additional inputs.
 	numZeroValueInputs := len(params.ZeroValueInputs)
