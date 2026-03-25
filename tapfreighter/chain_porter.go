@@ -1658,7 +1658,7 @@ func verifySplitCommitmentWitnesses(vPkt tappsbt.VPacket) error {
 	return nil
 }
 
-// verifyAssetTimelocks ensures all output assets with timelocks can be spent
+// VerifyAssetTimelocks ensures all output assets with timelocks can be spent
 // at the current block height. This prevents broadcasting transactions that
 // would burn assets due to unsatisfied timelocks.
 func (p *ChainPorter) verifyAssetTimelocks(ctx context.Context,
@@ -1725,7 +1725,7 @@ func (p *ChainPorter) verifyAssetTimelocks(ctx context.Context,
 	return nil
 }
 
-// verifyOutboundTimelocks re-checks asset timelocks using the fields
+// VerifyOutboundTimelocks re-checks asset timelocks using the fields
 // available in an OutboundParcel. This is used before broadcast to guard
 // resumed parcels whose timelocks may no longer be satisfied after a
 // reorg.
@@ -1773,7 +1773,7 @@ func (p *ChainPorter) verifyOutboundTimelocks(ctx context.Context,
 	return nil
 }
 
-// verifyAnchorTimeLocks verifies that the BTC anchor transaction has the
+// VerifyAnchorTimeLocks verifies that the BTC anchor transaction has the
 // correct nLockTime and input nSequence values to enforce asset timelocks.
 // This provides re-org safety: even if the transaction is included in an
 // earlier block due to a re-org, the BTC-level constraints ensure the
