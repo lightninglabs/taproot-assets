@@ -1869,6 +1869,59 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 	return []proof.TransitionParams{senderParams, receiverParams}
 }
 
+// TestAssertAnchorTimeLocksAbsOnly verifies that AssertAnchorTimeLocks
+// bumps at least one input sequence below MaxTxInSequenceNum when an
+// absolute locktime is present but no relative locktime adjusts any
+// sequences.
+func TestAssertAnchorTimeLocksAbsOnly(t *testing.T) {
+	t.Parallel()
+
+	maxSeq := wire.MaxTxInSequenceNum
+	op := wire.OutPoint{Hash: chainhash.Hash{1}}
+
+	// Build a PSBT with one input at max sequence.
+	btcPkt, err := psbt.New(
+		[]*wire.OutPoint{&op},
+		[]*wire.TxOut{{Value: 1000, PkScript: []byte{0}}},
+		2, 0, []uint32{maxSeq},
+	)
+	require.NoError(t, err)
+
+	// Asset output with only absolute locktime, no CSV.
+	vPkt := &tappsbt.VPacket{
+		Outputs: []*tappsbt.VOutput{{
+			LockTime:         100,
+			RelativeLockTime: 0,
+			Asset: &asset.Asset{
+				PrevWitnesses: []asset.Witness{{
+					PrevID: &asset.PrevID{
+						OutPoint: wire.OutPoint{
+							Hash: chainhash.Hash{2},
+						},
+					},
+				}},
+			},
+		}},
+	}
+
+	tapsend.AssertAnchorTimeLocks(btcPkt, vPkt)
+
+	// nLockTime must be set.
+	require.Equal(t, uint32(100), btcPkt.UnsignedTx.LockTime)
+
+	// At least one input must have sequence < max so nLockTime
+	// is enforced by consensus.
+	hasEnforcing := false
+	for _, txIn := range btcPkt.UnsignedTx.TxIn {
+		if txIn.Sequence < maxSeq {
+			hasEnforcing = true
+			break
+		}
+	}
+	require.True(t, hasEnforcing,
+		"nLockTime must be enforceable")
+}
+
 // TestProofVerify tests that a split spend can be used to append to a
 // proof file and produce a valid updated proof file.
 func TestProofVerify(t *testing.T) {
