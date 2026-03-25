@@ -469,7 +469,7 @@ func (vm *Engine) validateStateTransition() error {
 			}
 
 			blockHeight := vm.blockHeight.UnwrapOr(bestBlockHeight)
-			err = checkLockTime(
+			err = CheckLockTime(
 				ctxb, vm.newAsset, &witness, blockHeight,
 				vm.chainLookup,
 			)
@@ -538,9 +538,9 @@ func (vm *Engine) Execute() error {
 	return vm.validateStateTransition()
 }
 
-// checkLockTime checks the absolute and relative lock time of the previous
+// CheckLockTime checks the absolute and relative lock time of the previous
 // asset. `blockTimestamp` is ignored for now.
-func checkLockTime(ctx context.Context, newAsset *asset.Asset,
+func CheckLockTime(ctx context.Context, newAsset *asset.Asset,
 	witness *asset.Witness, blockHeight uint32,
 	chainLookup asset.ChainLookup) error {
 
