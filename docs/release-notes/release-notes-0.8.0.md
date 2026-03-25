@@ -215,6 +215,13 @@
   authentication. A macaroon path can be specified via the
   `experimental.rfq.priceoraclemacaroonpath` config option.
 
+- [PR#1965](https://github.com/lightninglabs/taproot-assets/pull/1965)
+  ensures that time-locked asset sends won't be broadcast until
+  they're actually spendable, and the BTC transaction carrying
+  them is forced to honour the same lock conditions. This prevents
+  unintentionally burning assets by sending too early, and also
+  makes the send safe across chain re-orgs.
+
 ## RPC Updates
 
 - [PR#2005](https://github.com/lightninglabs/taproot-assets/pull/2005)
