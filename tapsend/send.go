@@ -1237,20 +1237,24 @@ func AssertAnchorTimeLocks(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket) {
 		// Extract the highest used lock time, as that's per
 		// transaction.
 		if vOut.LockTime > maxLockTime {
-			maxLockTime = vOut.Asset.LockTime
+			maxLockTime = vOut.LockTime
 		}
 
-		// For each input, set the relative lock time as the sequence on
-		// the BTC input.
+		// For each input, set the relative lock time as the sequence
+		// on the BTC input. We take the max across all vPkts that
+		// reference the same outpoint, since passive packets (which
+		// have RelativeLockTime=0) may share the same BTC input as
+		// an active packet with a real CSV requirement.
+		relLock := uint32(vOut.RelativeLockTime)
 		for _, prevWitness := range vOut.Asset.PrevWitnesses {
 			outPoint := prevWitness.PrevID.OutPoint
 
 			for btcInIdx := range btcPkt.UnsignedTx.TxIn {
 				txIn := btcPkt.UnsignedTx.TxIn[btcInIdx]
-				if txIn.PreviousOutPoint == outPoint {
-					txIn.Sequence = uint32(
-						vOut.RelativeLockTime,
-					)
+				if txIn.PreviousOutPoint == outPoint &&
+					relLock > txIn.Sequence {
+
+					txIn.Sequence = relLock
 				}
 			}
 		}
@@ -1261,6 +1265,24 @@ func AssertAnchorTimeLocks(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket) {
 	// function is called for each vPacket individually.
 	if btcPkt.UnsignedTx.LockTime < uint32(maxLockTime) {
 		btcPkt.UnsignedTx.LockTime = uint32(maxLockTime)
+	}
+
+	// For nLockTime to be enforced by consensus, at least one input
+	// must have sequence < MaxTxInSequenceNum. The relative-lock loop
+	// above handles the CSV case, but an absolute-lock-only asset
+	// may leave all inputs at max sequence. Bump one if needed.
+	if maxLockTime > 0 {
+		allMax := true
+		for _, txIn := range btcPkt.UnsignedTx.TxIn {
+			if txIn.Sequence < wire.MaxTxInSequenceNum {
+				allMax = false
+				break
+			}
+		}
+		if allMax && len(btcPkt.UnsignedTx.TxIn) > 0 {
+			btcPkt.UnsignedTx.TxIn[0].Sequence =
+				wire.MaxTxInSequenceNum - 1
+		}
 	}
 }
 
