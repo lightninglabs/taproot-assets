@@ -1869,6 +1869,117 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 	return []proof.TransitionParams{senderParams, receiverParams}
 }
 
+// TestAssertAnchorTimeLocksAbsOnly verifies that AssertAnchorTimeLocks
+// bumps at least one input sequence below MaxTxInSequenceNum when an
+// absolute locktime is present but no relative locktime adjusts any
+// sequences.
+func TestAssertAnchorTimeLocksAbsOnly(t *testing.T) {
+	t.Parallel()
+
+	maxSeq := wire.MaxTxInSequenceNum
+	op := wire.OutPoint{Hash: chainhash.Hash{1}}
+
+	// Build a PSBT with one input at max sequence.
+	btcPkt, err := psbt.New(
+		[]*wire.OutPoint{&op},
+		[]*wire.TxOut{{Value: 1000, PkScript: []byte{0}}},
+		2, 0, []uint32{maxSeq},
+	)
+	require.NoError(t, err)
+
+	// Asset output with only absolute locktime, no CSV.
+	vPkt := &tappsbt.VPacket{
+		Outputs: []*tappsbt.VOutput{{
+			LockTime:         100,
+			RelativeLockTime: 0,
+			Asset: &asset.Asset{
+				PrevWitnesses: []asset.Witness{{
+					PrevID: &asset.PrevID{
+						OutPoint: wire.OutPoint{
+							Hash: chainhash.Hash{2},
+						},
+					},
+				}},
+			},
+		}},
+	}
+
+	tapsend.AssertAnchorTimeLocks(btcPkt, vPkt)
+
+	// nLockTime must be set.
+	require.Equal(t, uint32(100), btcPkt.UnsignedTx.LockTime)
+
+	// At least one input must have sequence < max so nLockTime
+	// is enforced by consensus.
+	hasEnforcing := false
+	for _, txIn := range btcPkt.UnsignedTx.TxIn {
+		if txIn.Sequence < maxSeq {
+			hasEnforcing = true
+			break
+		}
+	}
+	require.True(t, hasEnforcing,
+		"nLockTime must be enforceable")
+}
+
+// TestAssertAnchorTimeLocksPassiveClobber verifies that a passive
+// packet (RelativeLockTime=0) sharing a BTC input with an active
+// packet (RelativeLockTime>0) does not clobber the active sequence.
+func TestAssertAnchorTimeLocksPassiveClobber(t *testing.T) {
+	t.Parallel()
+
+	op := wire.OutPoint{Hash: chainhash.Hash{1}}
+
+	// Build a PSBT with one input at sequence 0, matching what
+	// addAnchorPsbtInputs produces (wire.TxIn zero value).
+	btcPkt, err := psbt.New(
+		[]*wire.OutPoint{&op},
+		[]*wire.TxOut{{Value: 1000, PkScript: []byte{0}}},
+		2, 0, []uint32{0},
+	)
+	require.NoError(t, err)
+
+	// Active packet: CSV=6 on the same outpoint.
+	activePkt := &tappsbt.VPacket{
+		Outputs: []*tappsbt.VOutput{{
+			RelativeLockTime: 6,
+			Asset: &asset.Asset{
+				PrevWitnesses: []asset.Witness{{
+					PrevID: &asset.PrevID{
+						OutPoint: op,
+					},
+				}},
+			},
+		}},
+	}
+	tapsend.AssertAnchorTimeLocks(btcPkt, activePkt)
+	require.Equal(
+		t, uint32(6),
+		btcPkt.UnsignedTx.TxIn[0].Sequence,
+	)
+
+	// Passive packet: CSV=0 on the same outpoint. Must not
+	// overwrite the active sequence.
+	passivePkt := &tappsbt.VPacket{
+		Outputs: []*tappsbt.VOutput{{
+			RelativeLockTime: 0,
+			Asset: &asset.Asset{
+				PrevWitnesses: []asset.Witness{{
+					PrevID: &asset.PrevID{
+						OutPoint: op,
+					},
+				}},
+			},
+		}},
+	}
+	tapsend.AssertAnchorTimeLocks(btcPkt, passivePkt)
+	require.Equal(
+		t, uint32(6),
+		btcPkt.UnsignedTx.TxIn[0].Sequence,
+		"passive packet must not clobber active CSV",
+	)
+}
+
 // TestProofVerify tests that a split spend can be used to append to a
 // proof file and produce a valid updated proof file.
 func TestProofVerify(t *testing.T) {
