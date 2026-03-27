@@ -2550,9 +2550,11 @@ func locateAssetTransfers(t *testing.T, node *itest.IntegratedNode,
 
 		transfer = forceCloseTransfer.Transfers[0]
 
-		if transfer.AnchorTxBlockHash == nil {
-			return fmt.Errorf("missing anchor block hash, " +
-				"transfer not confirmed")
+		// Transfer confirmation metadata is persisted
+		// asynchronously after block inclusion, so wait
+		// until the transfer is marked as confirmed.
+		if transfer.AnchorTxBlockHeight == 0 {
+			return fmt.Errorf("transfer not confirmed")
 		}
 
 		return nil
