@@ -96,6 +96,10 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsOraclePricing,
 	},
 	{
+		name: "invoice quote expiry mismatch",
+		test: testCustomChannelsInvoiceQuoteExpiryMismatch,
+	},
+	{
 		name: "fee",
 		test: testCustomChannelsFee,
 	},

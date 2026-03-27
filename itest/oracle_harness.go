@@ -51,15 +51,28 @@ type OracleHarness struct {
 	// a unique identifier, since it will either contain an asset ID or a
 	// group key.
 	sellPrices map[string]rfqmath.BigIntFixedPoint
+
+	// expiryDelay controls how far in the future returned quote
+	// expiry timestamps are set. Defaults to 5 minutes.
+	expiryDelay time.Duration
 }
 
-// NewOracleHarness returns a new oracle harness instance that is set to listen
-// on the provided address.
+// NewOracleHarness returns a new oracle harness instance that is set to
+// listen on the provided address with a default 5-minute quote expiry.
 func NewOracleHarness(listenAddr string) *OracleHarness {
+	return NewOracleHarnessWithExpiry(listenAddr, 5*time.Minute)
+}
+
+// NewOracleHarnessWithExpiry returns a new oracle harness instance with
+// the given quote expiry delay.
+func NewOracleHarnessWithExpiry(listenAddr string,
+	expiryDelay time.Duration) *OracleHarness {
+
 	return &OracleHarness{
-		listenAddr: listenAddr,
-		buyPrices:  make(map[string]rfqmath.BigIntFixedPoint),
-		sellPrices: make(map[string]rfqmath.BigIntFixedPoint),
+		listenAddr:  listenAddr,
+		buyPrices:   make(map[string]rfqmath.BigIntFixedPoint),
+		sellPrices:  make(map[string]rfqmath.BigIntFixedPoint),
+		expiryDelay: expiryDelay,
 	}
 }
 
@@ -154,7 +167,7 @@ func (o *OracleHarness) getAssetRates(specifier asset.Specifier,
 		return oraclerpc.AssetRates{}, err
 	}
 
-	expiry := time.Now().Add(5 * time.Minute).Unix()
+	expiry := time.Now().Add(o.expiryDelay).Unix()
 	return oraclerpc.AssetRates{
 		SubjectAssetRate: rpcSubjectAssetToBtcRate,
 		PaymentAssetRate: rpcPaymentAssetToBtcRate,
