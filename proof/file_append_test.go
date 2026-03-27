@@ -241,6 +241,109 @@ func TestFileAppendFirstProofUsesZeroPrevHash(t *testing.T) {
 	require.Equal(t, expected, f.proofs[0].hash)
 }
 
+// TestAppendRawProofToBlobMatchesFullRoundTrip verifies that
+// AppendRawProofToBlob produces a blob identical to the full
+// decode→AppendProof→encode round-trip.
+func TestAppendRawProofToBlobMatchesFullRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	const numExisting = 7
+
+	existing, _ := buildProofChain(t, numExisting)
+	blob := encodeFile(t, existing)
+
+	amt := uint64(numExisting + 1)
+	newProof, _ := genRandomGenesisWithProof(
+		t, asset.Normal, &amt, nil, true, nil, nil, nil, nil, asset.V0,
+	)
+	newProofBytes, err := newProof.Bytes()
+	require.NoError(t, err)
+
+	// Streaming path.
+	streamBlob, err := AppendRawProofToBlob(blob, newProofBytes)
+	require.NoError(t, err)
+
+	// Full round-trip path.
+	f := NewEmptyFile(V0)
+	require.NoError(t, f.Decode(bytes.NewReader(blob)))
+	require.NoError(t, f.AppendProofRaw(newProofBytes))
+	fullBlob := encodeFile(t, f)
+
+	require.Equal(t, fullBlob, []byte(streamBlob))
+}
+
+// TestAppendRawProofToBlobCountBoundary verifies that AppendRawProofToBlob
+// correctly handles the varint size boundary at 253 proofs (where the count
+// encoding grows from 1 byte to 3 bytes).
+func TestAppendRawProofToBlobCountBoundary(t *testing.T) {
+	t.Parallel()
+
+	// Build a file with exactly 252 proofs (one below the 1-byte varint
+	// limit of 0xfd=253).
+	const numExisting = 252
+
+	existing, _ := buildProofChain(t, numExisting)
+	blob := encodeFile(t, existing)
+
+	amt := uint64(numExisting + 1)
+	newProof, _ := genRandomGenesisWithProof(
+		t, asset.Normal, &amt, nil, true, nil, nil, nil, nil, asset.V0,
+	)
+	newProofBytes, err := newProof.Bytes()
+	require.NoError(t, err)
+
+	// Streaming append crosses the 1→3 byte varint boundary.
+	streamBlob, err := AppendRawProofToBlob(blob, newProofBytes)
+	require.NoError(t, err)
+
+	// Full round-trip for reference.
+	f := NewEmptyFile(V0)
+	require.NoError(t, f.Decode(bytes.NewReader(blob)))
+	require.NoError(t, f.AppendProofRaw(newProofBytes))
+	fullBlob := encodeFile(t, f)
+
+	require.Equal(t, fullBlob, []byte(streamBlob))
+
+	// Decode the streaming result and verify it has 253 proofs.
+	decoded := NewEmptyFile(V0)
+	require.NoError(t, decoded.Decode(bytes.NewReader(streamBlob)))
+	require.Equal(t, numExisting+1, decoded.NumProofs())
+}
+
+// TestAppendRawProofToBlobWithHintMatchesFullRoundTrip verifies that appending
+// with metadata from LastProofFromBlob yields identical bytes to the full
+// decode→append→encode path.
+func TestAppendRawProofToBlobWithHintMatchesFullRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	const numExisting = 9
+
+	existing, _ := buildProofChain(t, numExisting)
+	blob := encodeFile(t, existing)
+
+	amt := uint64(numExisting + 1)
+	newProof, _ := genRandomGenesisWithProof(
+		t, asset.Normal, &amt, nil, true, nil, nil, nil, nil, asset.V0,
+	)
+	newProofBytes, err := newProof.Bytes()
+	require.NoError(t, err)
+
+	_, _, hint, err := lastProofFromBlobWithHint(blob)
+	require.NoError(t, err)
+
+	streamBlob, err := appendRawProofToBlobWithHint(
+		blob, newProofBytes, hint,
+	)
+	require.NoError(t, err)
+
+	f := NewEmptyFile(V0)
+	require.NoError(t, f.Decode(bytes.NewReader(blob)))
+	require.NoError(t, f.AppendProofRaw(newProofBytes))
+	fullBlob := encodeFile(t, f)
+
+	require.Equal(t, fullBlob, []byte(streamBlob))
+}
+
 // BenchmarkFileAppendProof measures the time and allocations for appending a
 // single proof to files of increasing size. This establishes the baseline for
 // the current O(1)-in-memory append but O(n) encode/decode round-trip that
@@ -343,6 +446,51 @@ func BenchmarkAppendTransitionFullRoundTrip(b *testing.B) {
 
 					var out bytes.Buffer
 					if err := decoded.Encode(&out); err != nil {
+						b.Fatal(err)
+					}
+				}
+			},
+		)
+	}
+}
+
+// BenchmarkStreamingAppend measures the cost of AppendRawProofToBlob, which
+// implements the O(1) streaming append path. Results should be compared
+// against BenchmarkAppendTransitionFullRoundTrip to quantify the improvement.
+func BenchmarkStreamingAppend(b *testing.B) {
+	sizes := []int{10, 100, 1_000, 5_000}
+
+	for _, n := range sizes {
+		n := n
+		b.Run(
+			func() string {
+				if n < 1000 {
+					return "proofs=" + strconv.Itoa(n)
+				}
+				return "proofs=" + strconv.Itoa(n/1000) + "k"
+			}(),
+			func(b *testing.B) {
+				f, _ := buildProofChain(b, n)
+				blob := encodeFile(b, f)
+
+				amt := uint64(n + 1)
+				newProof, _ := genRandomGenesisWithProof(
+					b, asset.Normal, &amt, nil, true, nil,
+					nil, nil, nil, asset.V0,
+				)
+				newProofBytes, err := newProof.Bytes()
+				if err != nil {
+					b.Fatal(err)
+				}
+
+				b.ResetTimer()
+				b.ReportAllocs()
+
+				for i := 0; i < b.N; i++ {
+					_, err := AppendRawProofToBlob(
+						blob, newProofBytes,
+					)
+					if err != nil {
 						b.Fatal(err)
 					}
 				}

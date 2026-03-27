@@ -72,6 +72,15 @@ type hashedProof struct {
 	hash [sha256.Size]byte
 }
 
+// blobAppendHint contains enough metadata to append a raw proof to an encoded
+// proof file blob without re-scanning existing proof entries.
+type blobAppendHint struct {
+	count        uint64
+	countOffset  int64
+	oldCountSize int64
+	lastHash     [sha256.Size]byte
+}
+
 // File represents a proof file comprised of proofs for all of an asset's state
 // transitions back to its genesis state.
 type File struct {
@@ -475,6 +484,291 @@ func hashProof(proofBytes []byte, prevHash [32]byte) [32]byte {
 	_, _ = h.Write(prevHash[:])
 	_, _ = h.Write(proofBytes)
 	return *(*[32]byte)(h.Sum(nil))
+}
+
+// LastProofFromBlob decodes only the last proof entry from an encoded proof
+// file blob without loading all proofs into memory. It returns the decoded
+// last proof and its raw bytes.
+func LastProofFromBlob(blob Blob) (*Proof, []byte, error) {
+	p, rawProof, _, err := lastProofFromBlobWithHint(blob)
+	return p, rawProof, err
+}
+
+// lastProofFromBlobWithHint decodes only the last proof entry from an encoded
+// proof file blob and also returns append metadata derived from the same scan.
+func lastProofFromBlobWithHint(blob Blob) (*Proof, []byte, *blobAppendHint,
+	error) {
+
+	const fixedHeaderSize = PrefixMagicBytesLength + 4
+
+	if len(blob) < fixedHeaderSize {
+		return nil, nil, nil, fmt.Errorf(
+			"blob too short to be a valid proof file",
+		)
+	}
+
+	if !IsProofFile(blob) {
+		return nil, nil, nil, fmt.Errorf("blob is not a valid proof file")
+	}
+
+	r := bytes.NewReader(blob)
+
+	if _, err := r.Seek(fixedHeaderSize, io.SeekStart); err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"seeking past fixed header: %w", err,
+		)
+	}
+
+	var tlvBuf [8]byte
+	count, err := tlv.ReadVarInt(r, &tlvBuf)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("reading proof count: %w", err)
+	}
+
+	if count == 0 {
+		return nil, nil, nil, ErrEmptyProofFile
+	}
+
+	if count > FileMaxNumProofs {
+		return nil, nil, nil, fmt.Errorf("%w: too many proofs in file",
+			ErrProofFileInvalid)
+	}
+
+	// Skip all proof bytes except the last one, while keeping track of the
+	// previous stored hash so we can verify the last proof hash.
+	var (
+		lastProofBytes []byte
+		prevHash       [sha256.Size]byte
+		lastHash       [sha256.Size]byte
+	)
+	for i := uint64(0); i < count; i++ {
+		numProofBytes, err := tlv.ReadVarInt(r, &tlvBuf)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf(
+				"reading proof length (idx=%d): %w", i, err,
+			)
+		}
+
+		if numProofBytes > FileMaxProofSizeBytes {
+			return nil, nil, nil, fmt.Errorf(
+				"%w: proof in file too large",
+				ErrProofFileInvalid,
+			)
+		}
+
+		if i < count-1 {
+			// Skip proof bytes and read the stored chained hash for all
+			// but the last proof.
+			if _, err := r.Seek(
+				int64(numProofBytes), io.SeekCurrent,
+			); err != nil {
+				return nil, nil, nil, fmt.Errorf(
+					"skipping proof bytes (idx=%d): %w", i, err,
+				)
+			}
+
+			if _, err := io.ReadFull(
+				r, prevHash[:],
+			); err != nil {
+				return nil, nil, nil, fmt.Errorf(
+					"reading hash (idx=%d): %w", i, err,
+				)
+			}
+		} else {
+			proofBytes := make([]byte, numProofBytes)
+			if _, err := io.ReadFull(r, proofBytes); err != nil {
+				return nil, nil, nil, fmt.Errorf(
+					"reading proof bytes (idx=%d): %w", i, err,
+				)
+			}
+
+			// For the last proof, read and verify the stored hash.
+			var storedHash [sha256.Size]byte
+			if _, err := io.ReadFull(
+				r, storedHash[:],
+			); err != nil {
+				return nil, nil, nil, fmt.Errorf(
+					"reading last proof hash: %w", err,
+				)
+			}
+			computedHash := hashProof(proofBytes, prevHash)
+			if storedHash != computedHash {
+				return nil, nil, nil, ErrInvalidChecksum
+			}
+
+			lastProofBytes = proofBytes
+			lastHash = storedHash
+		}
+	}
+
+	p := &Proof{}
+	if err := p.Decode(bytes.NewReader(lastProofBytes)); err != nil {
+		return nil, nil, nil, fmt.Errorf("decoding last proof: %w", err)
+	}
+
+	hint := &blobAppendHint{
+		count:        count,
+		countOffset:  fixedHeaderSize,
+		oldCountSize: int64(tlv.VarIntSize(count)),
+		lastHash:     lastHash,
+	}
+
+	return p, lastProofBytes, hint, nil
+}
+
+// blobAppendHintFromBlob scans an encoded proof blob and returns metadata
+// needed for appending a raw proof. For non-empty files this verifies chained
+// hashes while reading.
+func blobAppendHintFromBlob(blob Blob) (*blobAppendHint, error) {
+	const fixedHeaderSize = PrefixMagicBytesLength + 4
+
+	if len(blob) < fixedHeaderSize {
+		return nil, fmt.Errorf("blob too short to be a valid proof file")
+	}
+
+	if !IsProofFile(blob) {
+		return nil, fmt.Errorf("blob is not a valid proof file")
+	}
+
+	r := bytes.NewReader(blob)
+	if _, err := r.Seek(fixedHeaderSize, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("seeking past fixed header: %w", err)
+	}
+
+	var tlvBuf [8]byte
+	count, err := tlv.ReadVarInt(r, &tlvBuf)
+	if err != nil {
+		return nil, fmt.Errorf("reading proof count: %w", err)
+	}
+
+	if count > FileMaxNumProofs {
+		return nil, fmt.Errorf("%w: too many proofs in file",
+			ErrProofFileInvalid)
+	}
+
+	var (
+		prevHash [sha256.Size]byte
+		lastHash [sha256.Size]byte
+	)
+
+	for i := uint64(0); i < count; i++ {
+		numProofBytes, err := tlv.ReadVarInt(r, &tlvBuf)
+		if err != nil {
+			return nil, fmt.Errorf("reading proof length "+
+				"(idx=%d): %w", i, err)
+		}
+
+		if numProofBytes > FileMaxProofSizeBytes {
+			return nil, fmt.Errorf("%w: proof in file too large",
+				ErrProofFileInvalid)
+		}
+
+		proofBytes := make([]byte, numProofBytes)
+		if _, err := io.ReadFull(r, proofBytes); err != nil {
+			return nil, fmt.Errorf("reading proof bytes (idx=%d): %w",
+				i, err)
+		}
+
+		var storedHash [sha256.Size]byte
+		if _, err := io.ReadFull(r, storedHash[:]); err != nil {
+			return nil, fmt.Errorf("reading proof hash "+
+				"(idx=%d): %w", i, err)
+		}
+
+		computedHash := hashProof(proofBytes, prevHash)
+		if storedHash != computedHash {
+			return nil, ErrInvalidChecksum
+		}
+
+		lastHash = storedHash
+		prevHash = storedHash
+	}
+
+	return &blobAppendHint{
+		count:        count,
+		countOffset:  fixedHeaderSize,
+		oldCountSize: int64(tlv.VarIntSize(count)),
+		lastHash:     lastHash,
+	}, nil
+}
+
+// AppendRawProofToBlob appends a pre-encoded proof to an existing encoded
+// proof file blob without decoding the entire file into memory. It operates
+// in O(1) space, and O(N) time in the number of existing proofs, since it
+// must walk all existing entries to find the last hash by:
+//
+//  1. Reading the proof count from the file header.
+//  2. Skipping through all existing proof entries to reach the last hash.
+//  3. Computing the new proof's chained hash using the last hash as prevHash.
+//  4. Appending the new proof entry to the blob.
+//  5. Patching the proof count field in the header in-place.
+//
+// If incrementing the proof count causes the varint encoding to grow (e.g.
+// crossing the 253-proof boundary), the header bytes are shifted accordingly.
+func AppendRawProofToBlob(blob Blob, newProofBytes []byte) (Blob, error) {
+	hint, err := blobAppendHintFromBlob(blob)
+	if err != nil {
+		return nil, err
+	}
+
+	return appendRawProofToBlobWithHint(blob, newProofBytes, hint)
+}
+
+// appendRawProofToBlobWithHint appends a pre-encoded proof to an encoded proof
+// file blob using append metadata gathered from an earlier scan.
+func appendRawProofToBlobWithHint(blob Blob, newProofBytes []byte,
+	hint *blobAppendHint) (Blob, error) {
+
+	if hint == nil {
+		return nil, fmt.Errorf("missing blob append hint")
+	}
+
+	newCount := hint.count + 1
+	if newCount > FileMaxNumProofs {
+		return nil, fmt.Errorf("%w: too many proofs in file",
+			ErrProofFileInvalid)
+	}
+
+	newCountSize := int64(tlv.VarIntSize(newCount))
+	newHash := hashProof(newProofBytes, hint.lastHash)
+
+	// Encode the new proof entry: varint(len) + bytes + hash.
+	var tlvBuf [8]byte
+	var entryBuf bytes.Buffer
+	if err := tlv.WriteVarInt(
+		&entryBuf, uint64(len(newProofBytes)), &tlvBuf,
+	); err != nil {
+		return nil, fmt.Errorf("encoding new proof length: %w", err)
+	}
+	entryBuf.Write(newProofBytes)
+	entryBuf.Write(newHash[:])
+
+	// Build the result blob. If the count varint size is unchanged we can
+	// patch the count field in-place and simply append the new entry.
+	// Otherwise we need to splice in the wider count encoding.
+	result := make(
+		[]byte, int64(len(blob))+newCountSize-hint.oldCountSize,
+		int64(len(blob))+newCountSize-hint.oldCountSize+
+			int64(entryBuf.Len()),
+	)
+	copy(result, blob[:hint.countOffset])
+
+	// Write the updated count at the count offset.
+	var countBuf bytes.Buffer
+	if err := tlv.WriteVarInt(&countBuf, newCount, &tlvBuf); err != nil {
+		return nil, fmt.Errorf("encoding updated proof count: %w", err)
+	}
+	copy(result[hint.countOffset:], countBuf.Bytes())
+
+	// Copy the rest of the original blob (all proof entries) after the
+	// count field.
+	proofDataStart := hint.countOffset + hint.oldCountSize
+	copy(result[hint.countOffset+newCountSize:], blob[proofDataStart:])
+
+	// Append the new proof entry.
+	result = append(result, entryBuf.Bytes()...)
+
+	return result, nil
 }
 
 // AssetSnapshot commits to the result of a valid proof within a proof file.
