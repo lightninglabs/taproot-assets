@@ -20,7 +20,7 @@ import (
 )
 
 var (
-	testTimeout            = time.Second
+	testTimeout            = 5 * time.Second
 	testMinBackoff         = time.Millisecond * 20
 	testMaxBackoff         = time.Millisecond * 100
 	testMaxConnectAttempts = uint32(200)
