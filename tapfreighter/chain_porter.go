@@ -1856,6 +1856,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				ActivePackets:   currentPkg.VirtualPackets,
 				PassivePackets:  currentPkg.PassiveAssets,
 				ZeroValueInputs: currentPkg.ZeroValueInputs,
+				AnchorTxVersion: currentPkg.AnchorTxVersion,
 			},
 		)
 		if err != nil {

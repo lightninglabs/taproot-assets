@@ -106,7 +106,7 @@ func testCustomChannelsLiquidityEdgeCasesCore(ctx context.Context,
 	// Mint an asset on Charlie and sync all nodes to Charlie as the
 	// universe.
 	mintedAssets := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(charlie),
+		t.t, net.Miner, asTapd(charlie),
 		[]*mintrpc.MintAssetRequest{assetReq},
 	)
 	cents := mintedAssets[0]
@@ -636,7 +636,13 @@ func testCustomChannelsLiquidityEdgeCasesCore(ctx context.Context,
 	)
 	require.NoError(t.t, err)
 
-	// Let's assert that Erin cancelled all his HTLCs.
+	// Wait for Charlie's canceled hodl payment to finish unwinding before
+	// sending the follow-up probe payment.
+	waitForPaymentTerminal(t.t, charlie, payHash[:])
+
+	// Let's assert that the canceled HTLCs have cleared from the route.
+	assertNumHtlcs(t.t, charlie, 0)
+	assertNumHtlcs(t.t, dave, 0)
 	assertNumHtlcs(t.t, erin, 0)
 
 	logBalance(t.t, nodes, assetID, "after hodl cancel & 0 present HTLCs")

@@ -274,6 +274,9 @@ message AnchorVirtualPsbtsRequest {
     the BTC level anchor transaction.
     */
     repeated bytes virtual_psbts = 1;
+
+    // The version to use when creating a new BTC anchor transaction.
+    taprpc.AnchorTxVersion anchor_tx_version = 2;
 }
 
 message CommitVirtualPsbtsRequest {

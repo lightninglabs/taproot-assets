@@ -42,3 +42,14 @@ enum SortDirection {
     // Sort results in ascending order.
     SORT_DIRECTION_ASC = 1;
 }
+
+enum AnchorTxVersion {
+    // Use the daemon default anchor transaction version, currently v2.
+    ANCHOR_TX_VERSION_UNSPECIFIED = 0;
+
+    // Create new anchor transactions with version 2.
+    ANCHOR_TX_VERSION_V2 = 1;
+
+    // Create new anchor transactions with version 3 (TRUC).
+    ANCHOR_TX_VERSION_V3 = 2;
+}

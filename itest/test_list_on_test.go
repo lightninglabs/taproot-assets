@@ -22,6 +22,10 @@ var allTestCases = []*testCase{
 		test: testMintBatchAndTransfer,
 	},
 	{
+		name: "anchor tx version v3",
+		test: testAnchorTxVersionV3,
+	},
+	{
 		name: "list assets",
 		test: testListAssets,
 	},

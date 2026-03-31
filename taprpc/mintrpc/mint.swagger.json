@@ -319,6 +319,10 @@
         "branch": {
           "$ref": "#/definitions/taprpcTapBranch",
           "description": "A TapBranch that represents a Tapscript tree managed externally."
+        },
+        "anchor_tx_version": {
+          "$ref": "#/definitions/taprpcAnchorTxVersion",
+          "description": "The version to use when creating a new mint anchor transaction."
         }
       }
     },
@@ -350,6 +354,10 @@
         "branch": {
           "$ref": "#/definitions/taprpcTapBranch",
           "description": "A TapBranch that represents a Tapscript tree managed externally."
+        },
+        "anchor_tx_version": {
+          "$ref": "#/definitions/taprpcAnchorTxVersion",
+          "description": "The version to use when creating a new mint anchor transaction."
         }
       }
     },
@@ -687,6 +695,16 @@
           }
         }
       }
+    },
+    "taprpcAnchorTxVersion": {
+      "type": "string",
+      "enum": [
+        "ANCHOR_TX_VERSION_UNSPECIFIED",
+        "ANCHOR_TX_VERSION_V2",
+        "ANCHOR_TX_VERSION_V3"
+      ],
+      "default": "ANCHOR_TX_VERSION_UNSPECIFIED",
+      "description": " - ANCHOR_TX_VERSION_UNSPECIFIED: Use the daemon default anchor transaction version, currently v2.\n - ANCHOR_TX_VERSION_V2: Create new anchor transactions with version 2.\n - ANCHOR_TX_VERSION_V3: Create new anchor transactions with version 3 (TRUC)."
     },
     "taprpcAssetMeta": {
       "type": "object",

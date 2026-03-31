@@ -931,6 +931,10 @@ type Environment struct {
 	// commitment transaction.
 	CommitConfTarget uint32
 
+	// AnchorTxVersion is the default version to use for newly created
+	// supply-commitment transactions.
+	AnchorTxVersion int32
+
 	// ChainParams is the chain parameters for the chain that we're
 	// operating on.
 	ChainParams chaincfg.Params

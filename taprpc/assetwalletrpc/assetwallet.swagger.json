@@ -523,6 +523,10 @@
             "format": "byte"
           },
           "description": "The list of virtual transactions that should be merged and committed to in\nthe BTC level anchor transaction."
+        },
+        "anchor_tx_version": {
+          "$ref": "#/definitions/taprpcAnchorTxVersion",
+          "description": "The version to use when creating a new BTC anchor transaction."
         }
       }
     },
@@ -1053,6 +1057,16 @@
           "description": "The amount of asset units to send to the address. This is only used for\nre-usable V2 addresses that don't specify an amount in the address itself\nand allow the sender to specify the amount on each send attempt. For V0\nor V1 addresses, this can be left empty (zero) as the amount is taken\nfrom the address itself."
         }
       }
+    },
+    "taprpcAnchorTxVersion": {
+      "type": "string",
+      "enum": [
+        "ANCHOR_TX_VERSION_UNSPECIFIED",
+        "ANCHOR_TX_VERSION_V2",
+        "ANCHOR_TX_VERSION_V3"
+      ],
+      "default": "ANCHOR_TX_VERSION_UNSPECIFIED",
+      "description": " - ANCHOR_TX_VERSION_UNSPECIFIED: Use the daemon default anchor transaction version, currently v2.\n - ANCHOR_TX_VERSION_V2: Create new anchor transactions with version 2.\n - ANCHOR_TX_VERSION_V3: Create new anchor transactions with version 3 (TRUC)."
     },
     "taprpcAssetTransfer": {
       "type": "object",

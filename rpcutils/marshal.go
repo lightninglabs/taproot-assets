@@ -228,6 +228,24 @@ func MarshalAssetVersion(version asset.Version) (taprpc.AssetVersion, error) {
 	}
 }
 
+// UnmarshalAnchorTxVersion parses an anchor transaction version from the RPC
+// variant, applying the default when unspecified.
+func UnmarshalAnchorTxVersion(version taprpc.AnchorTxVersion) (int32, error) {
+	switch version {
+	case taprpc.AnchorTxVersion_ANCHOR_TX_VERSION_UNSPECIFIED:
+		return 2, nil
+
+	case taprpc.AnchorTxVersion_ANCHOR_TX_VERSION_V2:
+		return 2, nil
+
+	case taprpc.AnchorTxVersion_ANCHOR_TX_VERSION_V3:
+		return 3, nil
+
+	default:
+		return 0, fmt.Errorf("unknown anchor tx version: %v", version)
+	}
+}
+
 // MarshalGenesisInfo marshals the native asset genesis into the RPC
 // counterpart.
 func MarshalGenesisInfo(gen *asset.Genesis,

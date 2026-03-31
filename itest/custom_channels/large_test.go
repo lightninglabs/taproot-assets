@@ -81,7 +81,7 @@ func testCustomChannelsLarge(_ context.Context,
 	// Mint an asset on Charlie and sync all nodes to Charlie as the
 	// universe.
 	mintedAssets := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(charlie),
+		t.t, net.Miner, asTapd(charlie),
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: ccItestAsset,

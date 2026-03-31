@@ -80,7 +80,7 @@ func testCustomChannelsGroupTranchesHtlcForceClose(ctx context.Context,
 	// Mint the asset tranches 1 and 2 on Charlie and sync all nodes to
 	// Charlie as the universe.
 	mintedAssetsT1 := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(charlie),
+		t.t, net.Miner, asTapd(charlie),
 		[]*mintrpc.MintAssetRequest{groupAssetReq},
 	)
 	centsT1 := mintedAssetsT1[0]
@@ -95,7 +95,7 @@ func testCustomChannelsGroupTranchesHtlcForceClose(ctx context.Context,
 	groupAssetReq.Asset.Name = "itest-asset-cents-tranche-2"
 
 	mintedAssetsT2 := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(charlie),
+		t.t, net.Miner, asTapd(charlie),
 		[]*mintrpc.MintAssetRequest{groupAssetReq},
 	)
 	centsT2 := mintedAssetsT2[0]

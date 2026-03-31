@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btclog/v2"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -169,6 +170,32 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	t.Cleanup(func() {
 		require.NoError(t, multiSub.Stop())
 	})
+	assertMultiSubConnected := func(targetKeys ...keychain.KeyDescriptor) {
+		t.Helper()
+
+		serverURL := url.URL{Host: clientCfg.ServerAddress}
+		require.Eventually(t, func() bool {
+			multiSub.RLock()
+			defer multiSub.RUnlock()
+
+			client, ok := multiSub.clients[serverURL]
+			if !ok {
+				return false
+			}
+
+			for _, targetKey := range targetKeys {
+				key := asset.ToSerialized(targetKey.PubKey)
+				subscription, ok := client.subscriptions[key]
+				if !ok || !subscription.IsSubscribed() {
+					return false
+				}
+			}
+
+			return true
+		}, testTimeout, testMinBackoff)
+	}
+	assertMultiSubConnected(clientKey1, clientKey2)
+
 	msgChan := multiSub.MessageChan()
 	readMultiSub := func(targetID ...uint64) {
 		t.Helper()
@@ -221,6 +248,7 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	harness.Start(t)
 	client1.assertConnected(t)
 	client2.assertConnected(t)
+	assertMultiSubConnected(clientKey1, clientKey2)
 
 	// Let's send another message to all clients.
 	msg2 := &Message{

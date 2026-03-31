@@ -66,7 +66,7 @@ func runCustomChannelsHtlcForceClose(ctx context.Context, t *ccHarnessTest,
 	// Next, we'll mint an asset for Alice, who will be the node that opens
 	// the channel outbound.
 	mintedAssets := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(alice),
+		t.t, net.Miner, asTapd(alice),
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: ccItestAsset,

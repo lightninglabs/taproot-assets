@@ -3,6 +3,7 @@ package supplycommit
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 
@@ -292,6 +293,10 @@ type NewMintEvent struct {
 	// MintHeight is the height of the block that contains the mint.
 	MintHeight uint32
 
+	// AnchorTxVersion is the version to use for the follow-on
+	// supply-commitment transaction that commits this mint update.
+	AnchorTxVersion int32
+
 	// Done is an optional channel that will receive an error (or nil for
 	// success) when the event has been processed and written to disk.
 	// If nil, the event is processed asynchronously.
@@ -350,9 +355,22 @@ func (n *NewMintEvent) UniverseLeafNode() (*mssmt.LeafNode, error) {
 
 // Encode encodes the mint event into the passed io.Writer.
 func (n *NewMintEvent) Encode(w io.Writer) error {
-	// TODO(roasbeef): TLV here?
-	_, err := w.Write(n.IssuanceProof.RawProof)
-	return err
+	const magic = "nme1"
+
+	if _, err := io.WriteString(w, magic); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, binary.BigEndian,
+		uint32(len(n.IssuanceProof.RawProof))); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(n.IssuanceProof.RawProof); err != nil {
+		return err
+	}
+
+	return binary.Write(w, binary.BigEndian, n.AnchorTxVersion)
 }
 
 // Decode decodes the mint event from the passed io.Reader.
@@ -362,9 +380,28 @@ func (n *NewMintEvent) Decode(r io.Reader) error {
 		return fmt.Errorf("unable to copy: %w", err)
 	}
 
-	n.IssuanceProof = universe.Leaf{
-		RawProof: b.Bytes(),
+	const magic = "nme1"
+
+	rawEvent := b.Bytes()
+	rawProof := rawEvent
+	if len(rawEvent) >= 8 && string(rawEvent[:4]) == magic {
+		proofLen := binary.BigEndian.Uint32(rawEvent[4:8])
+		payloadLen := int(proofLen)
+		if len(rawEvent) < 8+payloadLen+4 {
+			return fmt.Errorf("decode mint event: invalid payload")
+		}
+
+		rawProof = rawEvent[8 : 8+payloadLen]
+		n.AnchorTxVersion = int32(binary.BigEndian.Uint32(
+			rawEvent[8+payloadLen : 8+payloadLen+4],
+		))
 	}
+
+	n.IssuanceProof = universe.Leaf{
+		RawProof: rawProof,
+	}
+
+	b = *bytes.NewBuffer(rawProof)
 
 	var issuanceProof proof.Proof
 	if err := issuanceProof.Decode(&b); err != nil {

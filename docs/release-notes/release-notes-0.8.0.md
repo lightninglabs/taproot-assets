@@ -264,6 +264,11 @@
   Add pagination support (offset, limit, direction) to the `ListAssets` RPC
   endpoint.
 
+- [PR#1857](https://github.com/lightninglabs/taproot-assets/pull/1857)
+  Add RPC support for selecting the version of newly created anchor
+  transactions in minting, send, and virtual-PSBT anchoring flows while
+  keeping v2 as the default.
+
 ## tapcli Updates
 
 - [PR#1995](https://github.com/lightninglabs/taproot-assets/pull/1995)
@@ -307,6 +312,10 @@
 ## BIP/bLIP Spec Updates
 
 ## Testing
+
+- [PR#1857](https://github.com/lightninglabs/taproot-assets/pull/1857)
+  Add a dedicated bitcoind-backed integration lane that verifies explicit
+  v3 anchor transactions end to end.
 
 - [Wallet Backup Integration Tests](https://github.com/lightninglabs/taproot-assets/pull/1980):
   Add two integration tests for wallet backup covering genesis backup/restore,

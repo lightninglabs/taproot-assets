@@ -1387,6 +1387,51 @@ func TestUpdateTaprootOutputKeys(t *testing.T) {
 	}
 }
 
+func TestCreateAnchorTxVersion(t *testing.T) {
+	t.Parallel()
+
+	pkt := &tappsbt.VPacket{
+		Outputs: []*tappsbt.VOutput{{
+			AnchorOutputIndex:       0,
+			AnchorOutputInternalKey: test.RandPubKey(t),
+		}},
+	}
+
+	testCases := []struct {
+		name string
+		opts []tapsend.AnchorTxOption
+		want int32
+	}{
+		{
+			name: "default v2",
+			want: tapsend.DefaultAnchorTxVersion,
+		},
+		{
+			name: "explicit v3",
+			opts: []tapsend.AnchorTxOption{
+				tapsend.WithAnchorTxVersion(
+					tapsend.AnchorTxVersionV3,
+				),
+			},
+			want: tapsend.AnchorTxVersionV3,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			btcPkt, err := tapsend.CreateAnchorTx(
+				[]*tappsbt.VPacket{pkt}, testCase.opts...,
+			)
+			require.NoError(t, err)
+			require.Equal(
+				t, testCase.want, btcPkt.UnsignedTx.Version,
+			)
+		})
+	}
+}
+
 var updateTaprootOutputKeysTestCases = []testCase{{
 	name: "missing change commitment",
 	f: func(t *testing.T) error {

@@ -1709,6 +1709,16 @@
         }
       }
     },
+    "taprpcAnchorTxVersion": {
+      "type": "string",
+      "enum": [
+        "ANCHOR_TX_VERSION_UNSPECIFIED",
+        "ANCHOR_TX_VERSION_V2",
+        "ANCHOR_TX_VERSION_V3"
+      ],
+      "default": "ANCHOR_TX_VERSION_UNSPECIFIED",
+      "description": " - ANCHOR_TX_VERSION_UNSPECIFIED: Use the daemon default anchor transaction version, currently v2.\n - ANCHOR_TX_VERSION_V2: Create new anchor transactions with version 2.\n - ANCHOR_TX_VERSION_V3: Create new anchor transactions with version 3 (TRUC)."
+    },
     "taprpcAsset": {
       "type": "object",
       "properties": {
@@ -2979,6 +2989,10 @@
             "$ref": "#/definitions/taprpcAddressWithAmount"
           },
           "description": "A list of addresses and the amounts of asset units to send to them. This\nmust be used for V2 TAP addresses that don't specify an amount in the\naddress itself and allow the sender to choose the amount to send. The\ntap_addrs and addresses_with_amounts lists are mutually exclusive,\nmeaning that if addresses_with_amounts is set, then tap_addrs must be\nempty, and vice versa."
+        },
+        "anchor_tx_version": {
+          "$ref": "#/definitions/taprpcAnchorTxVersion",
+          "description": "The version to use when creating a new send anchor transaction."
         }
       }
     },

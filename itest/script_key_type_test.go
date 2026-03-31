@@ -20,7 +20,7 @@ func testScriptKeyTypePedersenUnique(t *harnessTest) {
 	ctx := context.Background()
 
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0],
 			// Our "passive" asset.
@@ -102,7 +102,7 @@ func testScriptKeyTypePedersenUnique(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp, activeID[:],
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp, activeID[:],
 		outputAmounts, 0, 1, 3,
 	)
 

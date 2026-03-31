@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	grpcconn "google.golang.org/grpc/connectivity"
@@ -314,6 +315,7 @@ func serverDialOpts() ([]grpc.DialOption, error) {
 
 	// Skip TLS certificate verification.
 	tlsConfig := tls.Config{InsecureSkipVerify: true}
+	tlsConfig.NextProtos = []string{http2.NextProtoTLS}
 	transportCredentials := credentials.NewTLS(&tlsConfig)
 	opts = append(opts, grpc.WithTransportCredentials(transportCredentials))
 

@@ -60,7 +60,7 @@ func testCustomChannelsForceClose(ctx context.Context,
 	// Now we'll make an asset for Charlie that we'll use in the test to
 	// open a channel.
 	mintedAssets := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(charlie),
+		t.t, net.Miner, asTapd(charlie),
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: ccItestAsset,
@@ -227,7 +227,7 @@ func testCustomChannelsForceClose(ctx context.Context,
 
 	// We should also have a new sweep transaction in the mempool.
 	_, err = waitForNTxsInMempool(
-		net.Miner.Client, 1, ccShortTimeout,
+		net.Miner, 1, ccShortTimeout,
 	)
 	require.NoError(t.t, err)
 
@@ -251,7 +251,7 @@ func testCustomChannelsForceClose(ctx context.Context,
 
 	// We expect that Charlie's sweep transaction has been broadcast.
 	charlieSweepTxid, err := waitForNTxsInMempool(
-		net.Miner.Client, 1, ccShortTimeout,
+		net.Miner, 1, ccShortTimeout,
 	)
 	require.NoError(t.t, err)
 
@@ -295,7 +295,7 @@ func testCustomChannelsForceClose(ctx context.Context,
 	})
 	require.NoError(t.t, err)
 	itest.ConfirmAndAssertOutboundTransfer(
-		t.t, net.Miner.Client, asTapd(dave), sendResp, assetID,
+		t.t, net.Miner, asTapd(dave), sendResp, assetID,
 		[]uint64{1, assetSendAmount}, 2, 3,
 	)
 	itest.AssertNonInteractiveRecvComplete(t.t, asTapd(zane), 1)
@@ -322,7 +322,7 @@ func testCustomChannelsForceClose(ctx context.Context,
 	})
 	require.NoError(t.t, err)
 	itest.ConfirmAndAssertOutboundTransfer(
-		t.t, net.Miner.Client, asTapd(charlie), sendResp2, assetID,
+		t.t, net.Miner, asTapd(charlie), sendResp2, assetID,
 		[]uint64{1, assetSendAmount}, 3, 4,
 	)
 	itest.AssertNonInteractiveRecvComplete(t.t, asTapd(zane), 2)

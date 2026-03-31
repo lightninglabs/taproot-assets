@@ -44,10 +44,12 @@ func (m *MockSupplyCommitManager) SendEvent(ctx context.Context,
 // SendMintEvent implements the SupplyCommitManager interface.
 func (m *MockSupplyCommitManager) SendMintEvent(ctx context.Context,
 	assetSpec asset.Specifier, leafKey universe.UniqueLeafKey,
-	issuanceProof universe.Leaf, mintBlockHeight uint32) error {
+	issuanceProof universe.Leaf, mintBlockHeight uint32,
+	anchorTxVersion int32) error {
 
 	args := m.Called(
 		ctx, assetSpec, leafKey, issuanceProof, mintBlockHeight,
+		anchorTxVersion,
 	)
 	return args.Error(0)
 }
@@ -135,7 +137,8 @@ func TestSupplyCommitDelegationKeyFiltering(t *testing.T) {
 						"universe.AssetLeafKey",
 					),
 					mock.AnythingOfType("universe.Leaf"),
-					mock.AnythingOfType("uint32")).
+					mock.AnythingOfType("uint32"),
+					mock.AnythingOfType("int32")).
 					Return(nil).
 					Times(tc.expectedCallCount)
 			}

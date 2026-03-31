@@ -388,6 +388,9 @@ jobs:
           name: itest-binaries
           path: itest
 
+      - name: Setup bitcoind
+        uses: ./.github/actions/setup-bitcoind
+
       - name: Initialize environment
         run: |
           chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/tapd-itest itest/chantools/chantools
@@ -480,6 +483,9 @@ jobs:
           name: itest-binaries
           path: itest
 
+      - name: Setup bitcoind
+        uses: ./.github/actions/setup-bitcoind
+
       - name: Initialize environment
         run: |
           chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/tapd-itest itest/chantools/chantools
@@ -553,6 +559,40 @@ jobs:
           format: 'golang'
           parallel: true
 
+  integration-test-v3:
+    name: run v3 anchor itest
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v5
+
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+          key-prefix: itest-v3
+
+      - name: Setup bitcoind
+        uses: ./.github/actions/setup-bitcoind
+
+      - name: Initialize environment
+        run: mkdir -p ~/.aperture
+
+      - name: run v3 anchor itest
+        run: make itest-v3
+
+      - name: Zip log files on failure
+        if: ${{ failure() }}
+        run: 7z a logs-itest-v3.zip itest/regtest/*.log itest/regtest/logs-tranche*/*.log || true
+
+      - name: Upload log files on failure
+        uses: actions/upload-artifact@v7
+        if: ${{ failure() }}
+        with:
+          name: logs-itest-v3
+          path: logs-itest-v3.zip
+          retention-days: 5
+
   # Custom channel integration tests.
   custom-channels-itest:
     name: run custom channels itests
@@ -571,6 +611,9 @@ jobs:
         with:
           name: itest-binaries
           path: itest
+
+      - name: Setup bitcoind
+        uses: ./.github/actions/setup-bitcoind
 
       - name: Initialize environment
         run: |

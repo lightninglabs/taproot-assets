@@ -280,6 +280,9 @@ itest-cc-parallel: build-itest build-itest-cc-binary clean-cc-itest-logs
 
 itest: build-itest itest-only
 
+itest-v3:
+	$(MAKE) itest backend=bitcoind icase=anchor_tx_version_v3
+
 itest-trace: build-itest itest-only-trace
 
 itest-only: aperture-dir clean-itest-logs

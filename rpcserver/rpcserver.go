@@ -850,9 +850,15 @@ func (r *RPCServer) FundBatch(ctx context.Context,
 		return nil, err
 	}
 
+	txVersion, err := rpcutils.UnmarshalAnchorTxVersion(req.AnchorTxVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	fundBatchResp, err := r.cfg.AssetMinter.FundBatch(tapgarden.FundParams{
-		FeeRate:        feeRateOpt,
-		SiblingTapTree: tapTreeOpt,
+		FeeRate:         feeRateOpt,
+		SiblingTapTree:  tapTreeOpt,
+		AnchorTxVersion: txVersion,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to fund batch: %w", err)
@@ -976,10 +982,16 @@ func (r *RPCServer) FinalizeBatch(ctx context.Context,
 		return nil, err
 	}
 
+	txVersion, err := rpcutils.UnmarshalAnchorTxVersion(req.AnchorTxVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	batch, err := r.cfg.AssetMinter.FinalizeBatch(
 		tapgarden.FinalizeParams{
-			FeeRate:        feeRateOpt,
-			SiblingTapTree: tapTreeOpt,
+			FeeRate:         feeRateOpt,
+			SiblingTapTree:  tapTreeOpt,
+			AnchorTxVersion: txVersion,
 		},
 	)
 	if err != nil {
@@ -2873,9 +2885,15 @@ func (r *RPCServer) AnchorVirtualPsbts(ctx context.Context,
 		}
 	}
 
+	txVersion, err := rpcutils.UnmarshalAnchorTxVersion(req.AnchorTxVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewPreSignedParcel(
 			vPackets, inputCommitments, zeroValueInputs, "",
+			txVersion,
 		),
 	)
 	if err != nil {
@@ -3804,9 +3822,15 @@ func (r *RPCServer) SendAsset(ctx context.Context,
 		label = fmt.Sprintf("rpcsendasset-%s", tapAddrs[0].String())
 	}
 
+	txVersion, err := rpcutils.UnmarshalAnchorTxVersion(req.AnchorTxVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewAddressParcel(
 			feeRate, label, req.SkipProofCourierPingCheck,
+			txVersion,
 			tapAddrs...,
 		),
 	)
@@ -4004,6 +4028,7 @@ func (r *RPCServer) BurnAsset(ctx context.Context,
 		tapfreighter.NewPreSignedParcel(
 			fundResp.VPackets, fundResp.InputCommitments,
 			fundResp.ZeroValueInputs, in.Note,
+			tapsend.DefaultAnchorTxVersion,
 		),
 	)
 	if err != nil {
