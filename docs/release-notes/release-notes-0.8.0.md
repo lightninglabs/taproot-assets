@@ -65,6 +65,10 @@
   their expiration extended beyond that of the accepted edge node
   quote (or quotes).
 
+* [PR#2044](https://github.com/lightninglabs/taproot-assets/pull/2044)
+  fixes a bug in `AssertAnchorTimeLocks` that prevented asset-level
+  timelocks from being enforced at the consensus level.
+
 * [PR#2009](https://github.com/lightninglabs/taproot-assets/pull/2009)
   fixes SCID resolution for asset invoices when the peer-accepted buy
   quote has expired from memory or the node has restarted. Peer-accepted

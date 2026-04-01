@@ -3346,8 +3346,9 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 	require.ErrorContains(t.t, err, "non BIP68 final")
 	t.lndHarness.Miner().AssertNumTxsInMempool(0)
 
-	// After mining a single block, the error should go away.
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 0)
+	// After mining two more blocks (6 total = 4 + 2), the CSV
+	// requirement is satisfied and the error should go away.
+	MineBlocks(t.t, t.lndHarness.Miner().Client, 2, 0)
 
 	// Now we'll attempt to complete the transfer normally, which should
 	// succeed.
