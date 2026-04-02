@@ -3,9 +3,12 @@ package rfq
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -13,12 +16,17 @@ import (
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	tpchmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -93,6 +101,237 @@ func (mockPolicyStore) LookUpScid(_ context.Context,
 	_ uint64) (route.Vertex, error) {
 
 	return route.Vertex{}, fmt.Errorf("not found")
+}
+
+type mockAliasManager struct {
+	addErr   error
+	addCalls int
+}
+
+func (m *mockAliasManager) AddLocalAlias(context.Context, lnwire.ShortChannelID,
+	lnwire.ShortChannelID) error {
+
+	m.addCalls++
+	return m.addErr
+}
+
+func (*mockAliasManager) DeleteLocalAlias(context.Context,
+	lnwire.ShortChannelID, lnwire.ShortChannelID) error {
+
+	return nil
+}
+
+func (*mockAliasManager) FetchBaseAlias(context.Context,
+	lnwire.ShortChannelID) (lnwire.ShortChannelID, error) {
+
+	return lnwire.ShortChannelID{}, nil
+}
+
+type mockChannelLister struct {
+	channels []lndclient.ChannelInfo
+	err      error
+}
+
+func (m *mockChannelLister) ListChannels(context.Context, bool, bool,
+	...lndclient.ListChannelsOption) ([]lndclient.ChannelInfo, error) {
+
+	if m.err != nil {
+		return nil, m.err
+	}
+
+	return m.channels, nil
+}
+
+func testBuyAcceptForAliasRetry(t *testing.T, peer route.Vertex) rfqmsg.BuyAccept {
+	t.Helper()
+
+	rfqID, err := rfqmsg.NewID()
+	require.NoError(t, err)
+
+	rate := rfqmath.BigIntFixedPoint{
+		Coefficient: rfqmath.NewBigInt(big.NewInt(100_000)),
+		Scale:       0,
+	}
+
+	return rfqmsg.BuyAccept{
+		Peer:    peer,
+		Version: rfqmsg.V1,
+		ID:      rfqID,
+		AssetRate: rfqmsg.NewAssetRate(
+			rate, time.Now().Add(5*time.Minute),
+		),
+		Request: rfqmsg.BuyRequest{
+			Peer:                peer,
+			Version:             rfqmsg.V1,
+			ID:                  rfqID,
+			AssetSpecifier:      asset.NewSpecifierFromId(testAssetID1),
+			AssetMaxAmt:         1_000,
+			AssetRateHint:       fn.None[rfqmsg.AssetRate](),
+			PriceOracleMetadata: "meta",
+		},
+		AgreedAt: time.Now().UTC(),
+	}
+}
+
+func testManagerForAliasTests(t *testing.T, aliasErr error) (*Manager,
+	*mockAliasManager, chan rfqmsg.OutgoingMsg, chan error) {
+
+	t.Helper()
+
+	managerErrChan := make(chan error, 1)
+	aliasMgr := &mockAliasManager{addErr: aliasErr}
+
+	channel := createChannelWithCustomData(
+		t, testAssetID1, 10_000, 10_000, proof1, peer1,
+	)
+	channel.ChannelID = 101
+
+	cfg := ManagerCfg{
+		GroupLookup:   &GroupLookupMock{},
+		PolicyStore:   mockPolicyStore{},
+		AliasManager:  aliasMgr,
+		ChannelLister: &mockChannelLister{channels: []lndclient.ChannelInfo{channel}},
+		ErrChan:       managerErrChan,
+	}
+	manager, err := NewManager(cfg)
+	require.NoError(t, err)
+
+	manager.orderHandler = &OrderHandler{}
+
+	outgoing := make(chan rfqmsg.OutgoingMsg, 2)
+	manager.negotiator = &Negotiator{
+		cfg: NegotiatorCfg{
+			OutgoingMessages:      outgoing,
+			SkipQuoteAcceptVerify: true,
+			ErrChan:               make(chan error, 1),
+		},
+		ContextGuard: &fn.ContextGuard{
+			DefaultTimeout: DefaultTimeout,
+			Quit:           make(chan struct{}),
+		},
+	}
+
+	return manager, aliasMgr, outgoing, managerErrChan
+}
+
+func TestIsAliasCollisionErr(t *testing.T) {
+	t.Parallel()
+
+	collisionErr := status.Error(codes.AlreadyExists, "alias already exists")
+	require.True(t, isAliasCollisionErr(collisionErr))
+	require.True(t, isAliasCollisionErr(fmt.Errorf("wrapped: %w", collisionErr)))
+	require.True(t, isAliasCollisionErr(
+		fmt.Errorf("ErrAliasAlreadyExists from lnd"),
+	))
+
+	nonCollisionErr := status.Error(codes.Internal, "backend unavailable")
+	require.False(t, isAliasCollisionErr(nonCollisionErr))
+	require.False(t, isAliasCollisionErr(nil))
+}
+
+func TestAddScidAliasCollisionIsRecoverable(t *testing.T) {
+	t.Parallel()
+
+	manager, _, _, _ := testManagerForAliasTests(
+		t, status.Error(codes.AlreadyExists, "alias already exists"),
+	)
+
+	err := manager.addScidAlias(
+		42, asset.NewSpecifierFromId(testAssetID1), peer1,
+	)
+	require.Error(t, err)
+	require.True(t, isAliasCollisionErr(err))
+
+	var criticalErr *fn.CriticalError
+	require.False(t, errors.As(err, &criticalErr))
+}
+
+func TestAddScidAliasNonCollisionIsCritical(t *testing.T) {
+	t.Parallel()
+
+	manager, _, _, _ := testManagerForAliasTests(
+		t, status.Error(codes.Internal, "db unavailable"),
+	)
+
+	err := manager.addScidAlias(
+		42, asset.NewSpecifierFromId(testAssetID1), peer1,
+	)
+	require.Error(t, err)
+
+	var criticalErr *fn.CriticalError
+	require.True(t, errors.As(err, &criticalErr))
+}
+
+func TestHandleIncomingBuyAcceptAliasCollisionRetries(t *testing.T) {
+	t.Parallel()
+
+	manager, aliasMgr, outgoing, managerErrChan := testManagerForAliasTests(
+		t, status.Error(codes.AlreadyExists, "alias already exists"),
+	)
+	buyAccept := testBuyAcceptForAliasRetry(t, peer1)
+
+	err := manager.handleIncomingMessage(context.Background(), &buyAccept)
+	require.NoError(t, err)
+	require.Equal(t, 1, aliasMgr.addCalls)
+
+	select {
+	case msg := <-outgoing:
+		retryReq, ok := msg.(*rfqmsg.BuyRequest)
+		require.True(t, ok)
+		require.NotEqual(t, buyAccept.ID, retryReq.ID)
+		require.Equal(t, buyAccept.Peer, retryReq.Peer)
+		require.Equal(t, buyAccept.Request.AssetSpecifier,
+			retryReq.AssetSpecifier)
+		require.Equal(t, buyAccept.Request.AssetMaxAmt,
+			retryReq.AssetMaxAmt)
+		require.Equal(t, buyAccept.Request.PriceOracleMetadata,
+			retryReq.PriceOracleMetadata)
+	default:
+		t.Fatal("expected a retried buy request")
+	}
+
+	_, ok := manager.orderHandler.peerBuyQuotes.Load(
+		buyAccept.ShortChannelId(),
+	)
+	require.False(t, ok, "colliding quote should not be retained")
+
+	select {
+	case err := <-managerErrChan:
+		t.Fatalf("unexpected critical manager error: %v", err)
+	default:
+	}
+}
+
+func TestHandleIncomingBuyAcceptNonCollisionAliasErrorCritical(t *testing.T) {
+	t.Parallel()
+
+	manager, aliasMgr, outgoing, managerErrChan := testManagerForAliasTests(
+		t, status.Error(codes.Internal, "db unavailable"),
+	)
+	buyAccept := testBuyAcceptForAliasRetry(t, peer1)
+
+	err := manager.handleIncomingMessage(context.Background(), &buyAccept)
+	require.NoError(t, err)
+	require.Equal(t, 1, aliasMgr.addCalls)
+
+	select {
+	case managerErr := <-managerErrChan:
+		var criticalErr *fn.CriticalError
+		require.True(t, errors.As(managerErr, &criticalErr))
+	default:
+		t.Fatal("expected critical manager error for non-collision failure")
+	}
+
+	select {
+	case <-outgoing:
+		t.Fatal("unexpected retry buy request on non-collision failure")
+	default:
+	}
+
+	_, ok := manager.orderHandler.peerBuyQuotes.Load(
+		buyAccept.ShortChannelId(),
+	)
+	require.False(t, ok, "failed quote should not be retained")
 }
 
 // lookUpPolicyStore is a mock PolicyStore that supports configurable LookUpScid

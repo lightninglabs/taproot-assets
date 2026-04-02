@@ -27,6 +27,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -456,6 +458,40 @@ func (m *Manager) handleIncomingMessage(ctx context.Context,
 				return
 			}
 
+			// Since we're going to buy assets from our peer, we
+			// need to make sure we can identify the incoming asset
+			// payment by the SCID alias through which it comes in
+			// and compare it to the one in the invoice.
+			err := m.addScidAlias(
+				uint64(msg.ShortChannelId()),
+				msg.Request.AssetSpecifier, msg.Peer,
+			)
+			if err != nil {
+				if isAliasCollisionErr(err) {
+					retryErr := m.retryBuyNegotiation(
+						ctx, msg,
+					)
+					if retryErr != nil {
+						m.handleError(
+							fmt.Errorf("error "+
+								"retrying buy "+
+								"negotiation "+
+								"after alias "+
+								"collision: %w",
+								retryErr,
+							),
+						)
+					}
+					return
+				}
+
+				m.handleError(
+					fmt.Errorf("error adding local alias: "+
+						"%w", err),
+				)
+				return
+			}
+
 			// The quote request has been accepted. Store accepted
 			// quote so that it can be used to send a payment by our
 			// lightning node.
@@ -472,22 +508,6 @@ func (m *Manager) handleIncomingMessage(ctx context.Context,
 				log.Errorf("Failed to persist peer buy "+
 					"quote for SCID %d: %v", scid,
 					storeErr)
-			}
-
-			// Since we're going to buy assets from our peer, we
-			// need to make sure we can identify the incoming asset
-			// payment by the SCID alias through which it comes in
-			// and compare it to the one in the invoice.
-			err := m.addScidAlias(
-				uint64(msg.ShortChannelId()),
-				msg.Request.AssetSpecifier, msg.Peer,
-			)
-			if err != nil {
-				m.handleError(
-					fmt.Errorf("error adding local alias: "+
-						"%w", err),
-				)
-				return
 			}
 
 			// Notify subscribers of the incoming peer accepted
@@ -655,6 +675,13 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 		lnwire.NewShortChanIDFromInt(baseSCID),
 	)
 	if err != nil {
+		if isAliasCollisionErr(err) {
+			return fmt.Errorf(
+				"add alias: scid alias already exists: %w",
+				err,
+			)
+		}
+
 		// Not being able to call lnd to add the alias is a critical
 		// error, which warrants shutting down, as something is wrong.
 		return fn.NewCriticalError(
@@ -662,6 +689,48 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 				"lnd alias manager: %w", err),
 		)
 	}
+
+	return nil
+}
+
+// isAliasCollisionErr returns true if the error indicates an alias collision.
+func isAliasCollisionErr(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if status.Code(err) == codes.AlreadyExists {
+		return true
+	}
+
+	lowerErr := strings.ToLower(err.Error())
+	return strings.Contains(lowerErr, "alias already exists") ||
+		strings.Contains(lowerErr, "erraliasalreadyexists")
+}
+
+// retryBuyNegotiation requests a new quote with a fresh RFQ ID while preserving
+// the original order parameters.
+func (m *Manager) retryBuyNegotiation(ctx context.Context,
+	msg rfqmsg.BuyAccept) error {
+
+	order := BuyOrder{
+		AssetSpecifier:      msg.Request.AssetSpecifier,
+		AssetMaxAmt:         msg.Request.AssetMaxAmt,
+		Expiry:              msg.AssetRate.Expiry,
+		Peer:                fn.Some(msg.Peer),
+		PriceOracleMetadata: msg.Request.PriceOracleMetadata,
+	}
+
+	newID, err := m.negotiator.HandleOutgoingBuyOrder(ctx, order)
+	if err != nil {
+		return fmt.Errorf(
+			"unable to retry buy RFQ negotiation: %w", err,
+		)
+	}
+
+	log.Warnf("Retrying buy RFQ negotiation due to SCID alias collision "+
+		"(old_rfq_id=%x, new_rfq_id=%x, peer=%x)", msg.ID[:], newID[:],
+		msg.Peer[:])
 
 	return nil
 }

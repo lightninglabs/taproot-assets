@@ -85,6 +85,10 @@
   fixes a bug by which which the connection with an authmailbox server
   could be lost after encountering a non-graceful error.
 
+* [PR#2040](https://github.com/lightninglabs/taproot-assets/pull/2040)
+  handles SCID alias collisions during incoming buy-accept processing by
+  retrying RFQ negotiation with a fresh RFQ ID instead of failing the flow.
+
 # New Features
 
 ## Functional Enhancements
