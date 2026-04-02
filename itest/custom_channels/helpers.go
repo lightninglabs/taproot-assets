@@ -2390,14 +2390,29 @@ func assertChannelAssetBalanceWithDelta(t *testing.T,
 	local, remote uint64, delta float64) {
 
 	targetChan := fetchChannel(t, node, chanPoint)
-
-	assetBalance, err := parseChannelData(targetChan.CustomChannelData)
+	customData := targetChan.CustomChannelData
+	assetBalance, err := parseChannelData(customData)
 	require.NoError(t, err)
 
 	require.Len(t, assetBalance.FundingAssets, 1)
 
-	require.InDelta(t, local, assetBalance.LocalBalance, delta)
-	require.InDelta(t, remote, assetBalance.RemoteBalance, delta)
+	lastLocal := assetBalance.LocalBalance
+	lastRemote := assetBalance.RemoteBalance
+
+	require.Truef(t, withinDelta(local, lastLocal, delta),
+		"local balance mismatch: expected %d, got %d, delta=%v",
+		local, lastLocal, delta)
+	require.Truef(t, withinDelta(remote, lastRemote, delta),
+		"remote balance mismatch: expected %d, got %d, delta=%v",
+		remote, lastRemote, delta)
+}
+
+func withinDelta(expected, actual uint64, delta float64) bool {
+	if expected > actual {
+		return float64(expected-actual) <= delta
+	}
+
+	return float64(actual-expected) <= delta
 }
 
 // channelAssetBalance returns the local and remote asset balance for a channel.
@@ -3129,7 +3144,7 @@ func assertForceCloseSweeps(ctx context.Context,
 	t.Logf("Confirming initial HTLC timeout txns")
 
 	timeoutSweeps, err := waitForNTxsInMempool(
-		net.Miner.Client, 2, ccShortTimeout,
+		net.Miner.Client, 2, wait.DefaultTimeout,
 	)
 	require.NoError(t.t, err)
 
