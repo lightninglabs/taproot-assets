@@ -77,6 +77,11 @@
   quotes are restored into the active map so payment flows survive
   restarts.
 
+* [PR#2051](https://github.com/lightninglabs/taproot-assets/pull/2051)
+  persists peer-accepted sell quotes to the database on acceptance and
+  restores them into the active cache on startup, ensuring sell-side
+  payment flows survive restarts.
+
 * [PR#2010](https://github.com/lightninglabs/taproot-assets/pull/2010)
   fixes an issue that prevented asset roots from being deleted on
   universes with existing federation sync log entries.
