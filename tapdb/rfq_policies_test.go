@@ -278,7 +278,7 @@ func TestAcceptedMaxAmountRoundTrip(t *testing.T) {
 	err = store.StorePeerAcceptedBuyQuote(ctx, peerBuy)
 	require.NoError(t, err)
 
-	buys, sells, peerBuys, err := store.FetchAcceptedQuotes(ctx)
+	buys, sells, peerBuys, _, err := store.FetchAcceptedQuotes(ctx)
 	require.NoError(t, err)
 
 	require.Len(t, buys, 1)
@@ -305,7 +305,7 @@ func TestAcceptedMaxAmountNilRoundTrip(t *testing.T) {
 	err := store.StoreSalePolicy(ctx, sale)
 	require.NoError(t, err)
 
-	buys, _, _, err := store.FetchAcceptedQuotes(ctx)
+	buys, _, _, _, err := store.FetchAcceptedQuotes(ctx)
 	require.NoError(t, err)
 	require.Len(t, buys, 1)
 	require.True(t, buys[0].AcceptedMaxAmount.IsNone())
@@ -341,7 +341,7 @@ func TestExecutionPolicyRoundTrip(t *testing.T) {
 	err = store.StoreSalePolicy(ctx, saleNone)
 	require.NoError(t, err)
 
-	buys, sells, _, err := store.FetchAcceptedQuotes(ctx)
+	buys, sells, _, _, err := store.FetchAcceptedQuotes(ctx)
 	require.NoError(t, err)
 	require.Len(t, buys, 2)
 	require.Len(t, sells, 1)

@@ -211,17 +211,20 @@ func (s *PersistedPolicyStore) storePolicy(ctx context.Context,
 	})
 }
 
-// FetchAcceptedQuotes retrieves all non-expired policies from the database.
-// Sale policies are returned as buy accepts, purchase policies as sell accepts,
-// and peer-accepted buy quotes are returned separately.
+// FetchAcceptedQuotes retrieves all non-expired policies from the
+// database. Sale policies are returned as buy accepts, purchase
+// policies as sell accepts, and peer-accepted buy/sell quotes are
+// returned separately.
 func (s *PersistedPolicyStore) FetchAcceptedQuotes(ctx context.Context) (
-	[]rfqmsg.BuyAccept, []rfqmsg.SellAccept, []rfqmsg.BuyAccept, error) {
+	[]rfqmsg.BuyAccept, []rfqmsg.SellAccept, []rfqmsg.BuyAccept,
+	[]rfqmsg.SellAccept, error) {
 
 	readOpts := ReadTxOption()
 	var (
-		buyAccepts     []rfqmsg.BuyAccept
-		sellAccepts    []rfqmsg.SellAccept
-		peerBuyAccepts []rfqmsg.BuyAccept
+		buyAccepts      []rfqmsg.BuyAccept
+		sellAccepts     []rfqmsg.SellAccept
+		peerBuyAccepts  []rfqmsg.BuyAccept
+		peerSellAccepts []rfqmsg.SellAccept
 	)
 	now := time.Now().UTC()
 
@@ -261,6 +264,17 @@ func (s *PersistedPolicyStore) FetchAcceptedQuotes(ctx context.Context) (
 					peerBuyAccepts, accept,
 				)
 
+			case rfq.RfqPolicyTypeAssetPeerAcceptedSell:
+				accept, err := sellAcceptFromStored(policy)
+				if err != nil {
+					return fmt.Errorf("error restoring "+
+						"peer sell quote: %w",
+						err)
+				}
+				peerSellAccepts = append(
+					peerSellAccepts, accept,
+				)
+
 			default:
 				// This should never happen by assertion.
 				return fmt.Errorf("unknown policy type: %s",
@@ -271,10 +285,11 @@ func (s *PersistedPolicyStore) FetchAcceptedQuotes(ctx context.Context) (
 		return nil
 	})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	return buyAccepts, sellAccepts, peerBuyAccepts, nil
+	return buyAccepts, sellAccepts, peerBuyAccepts,
+		peerSellAccepts, nil
 }
 
 // StorePeerAcceptedBuyQuote persists a peer-accepted buy quote for historical
@@ -316,6 +331,40 @@ func (s *PersistedPolicyStore) StorePeerAcceptedBuyQuote(ctx context.Context,
 		PriceOracleMetadata: acpt.Request.PriceOracleMetadata,
 		RequestVersion:      fn.Ptr(uint32(acpt.Request.Version)),
 		AgreedAt:            acpt.AgreedAt.UTC(),
+	}
+
+	return s.storePolicy(ctx, record)
+}
+
+// StorePeerAcceptedSellQuote persists a peer-accepted sell quote for
+// restart continuity.
+func (s *PersistedPolicyStore) StorePeerAcceptedSellQuote(
+	ctx context.Context, acpt rfqmsg.SellAccept) error {
+
+	assetID, groupKey := specifierPointers(
+		acpt.Request.AssetSpecifier,
+	)
+	rateBytes := coefficientBytes(acpt.AssetRate.Rate)
+	expiry := acpt.AssetRate.Expiry.UTC()
+	paymentMax := int64(acpt.Request.PaymentMaxAmt)
+
+	record := rfqPolicy{
+		PolicyType:            rfq.RfqPolicyTypeAssetPeerAcceptedSell,
+		Scid:                  uint64(acpt.ShortChannelId()),
+		RfqID:                 rfqIDArray(acpt.ID),
+		Peer:                  serializePeer(acpt.Peer),
+		AssetID:               assetID,
+		AssetGroupKey:         groupKey,
+		RateCoefficient:       rateBytes,
+		RateScale:             acpt.AssetRate.Rate.Scale,
+		ExpiryUnix:            uint64(expiry.Unix()),
+		PaymentMaxMsat:        fn.Ptr(paymentMax),
+		RequestPaymentMaxMsat: fn.Ptr(paymentMax),
+		PriceOracleMetadata:   acpt.Request.PriceOracleMetadata,
+		RequestVersion: fn.Ptr(
+			uint32(acpt.Request.Version),
+		),
+		AgreedAt: acpt.AgreedAt.UTC(),
 	}
 
 	return s.storePolicy(ctx, record)
