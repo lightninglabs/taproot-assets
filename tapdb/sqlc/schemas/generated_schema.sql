@@ -529,22 +529,25 @@ CREATE TABLE forwards (
     -- asset_amt is the asset amount involved in this swap.
     asset_amt BIGINT NOT NULL,
 
-    -- amt_in_msat is the actual amount received on the incoming channel in
-    -- millisatoshis.
+    -- amt_in_msat is the actual amount received on the incoming
+    -- channel in millisatoshis.
     amt_in_msat BIGINT NOT NULL,
 
-    -- amt_out_msat is the actual amount sent on the outgoing channel in
-    -- millisatoshis.
+    -- amt_out_msat is the actual amount sent on the outgoing
+    -- channel in millisatoshis.
     amt_out_msat BIGINT NOT NULL,
 
     UNIQUE(chan_id_in, htlc_id)
 );
 
-CREATE INDEX forwards_opened_at_idx ON forwards(opened_at);
+CREATE INDEX forwards_opened_at_idx
+    ON forwards(opened_at);
 
-CREATE INDEX forwards_rfq_id_idx ON forwards(rfq_id);
+CREATE INDEX forwards_rfq_id_idx
+    ON forwards(rfq_id);
 
-CREATE INDEX forwards_settled_at_idx ON forwards(settled_at);
+CREATE INDEX forwards_settled_at_idx
+    ON forwards(settled_at);
 
 CREATE TABLE genesis_assets (
     gen_asset_id INTEGER PRIMARY KEY,
@@ -834,7 +837,8 @@ CREATE TABLE rfq_policies (
         policy_type IN (
             'RFQ_POLICY_TYPE_SALE',
             'RFQ_POLICY_TYPE_PURCHASE',
-            'RFQ_POLICY_TYPE_PEER_ACCEPTED_BUY'
+            'RFQ_POLICY_TYPE_PEER_ACCEPTED_BUY',
+            'RFQ_POLICY_TYPE_PEER_ACCEPTED_SELL'
         )
     ),
 
@@ -862,19 +866,23 @@ CREATE TABLE rfq_policies (
     -- expiry is the expiration timestamp of the policy.
     expiry BIGINT NOT NULL,
 
-    -- max_out_asset_amt is the maximum asset amount for sale policies.
+    -- max_out_asset_amt is the maximum asset amount for sale
+    -- policies.
     max_out_asset_amt BIGINT,
 
-    -- payment_max_msat is the maximum payment amount for purchase policies.
+    -- payment_max_msat is the maximum payment amount for purchase
+    -- policies.
     payment_max_msat BIGINT,
 
     -- request_asset_max_amt is the requested maximum asset amount.
     request_asset_max_amt BIGINT,
 
-    -- request_payment_max_msat is the requested maximum payment amount.
+    -- request_payment_max_msat is the requested maximum payment
+    -- amount.
     request_payment_max_msat BIGINT,
 
-    -- price_oracle_metadata contains metadata about the price oracle.
+    -- price_oracle_metadata contains metadata about the price
+    -- oracle.
     price_oracle_metadata TEXT,
 
     -- request_version is the version of the RFQ request.
@@ -884,9 +892,11 @@ CREATE TABLE rfq_policies (
     agreed_at BIGINT NOT NULL
 , accepted_max_amount BIGINT, execution_policy INTEGER);
 
-CREATE UNIQUE INDEX rfq_policies_rfq_id_idx ON rfq_policies (rfq_id);
+CREATE UNIQUE INDEX rfq_policies_rfq_id_idx
+    ON rfq_policies (rfq_id);
 
-CREATE INDEX rfq_policies_scid_idx ON rfq_policies (scid);
+CREATE INDEX rfq_policies_scid_idx
+    ON rfq_policies (scid);
 
 CREATE TABLE script_keys (
     script_key_id INTEGER PRIMARY KEY,
