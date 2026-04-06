@@ -78,13 +78,20 @@ func (mockPolicyStore) StorePurchasePolicy(context.Context,
 }
 
 func (mockPolicyStore) FetchAcceptedQuotes(context.Context) (
-	[]rfqmsg.BuyAccept, []rfqmsg.SellAccept, []rfqmsg.BuyAccept, error) {
+	[]rfqmsg.BuyAccept, []rfqmsg.SellAccept, []rfqmsg.BuyAccept,
+	[]rfqmsg.SellAccept, error) {
 
-	return nil, nil, nil, nil
+	return nil, nil, nil, nil, nil
 }
 
 func (mockPolicyStore) StorePeerAcceptedBuyQuote(context.Context,
 	rfqmsg.BuyAccept) error {
+
+	return nil
+}
+
+func (mockPolicyStore) StorePeerAcceptedSellQuote(context.Context,
+	rfqmsg.SellAccept) error {
 
 	return nil
 }
@@ -345,6 +352,12 @@ type failingPolicyStore struct {
 
 func (f *failingPolicyStore) StorePeerAcceptedBuyQuote(context.Context,
 	rfqmsg.BuyAccept) error {
+
+	return fmt.Errorf("simulated DB write failure")
+}
+
+func (f *failingPolicyStore) StorePeerAcceptedSellQuote(context.Context,
+	rfqmsg.SellAccept) error {
 
 	return fmt.Errorf("simulated DB write failure")
 }

@@ -142,7 +142,7 @@ func TestFetchAcceptedQuotesSeparatesPeerAcceptedBuy(t *testing.T) {
 	err = store.StoreSalePolicy(ctx, saleAccept)
 	require.NoError(t, err)
 
-	buyAccepts, sellAccepts, peerBuys, err :=
+	buyAccepts, sellAccepts, peerBuys, peerSells, err :=
 		store.FetchAcceptedQuotes(ctx)
 	require.NoError(t, err)
 
@@ -151,6 +151,7 @@ func TestFetchAcceptedQuotesSeparatesPeerAcceptedBuy(t *testing.T) {
 	require.Len(t, buyAccepts, 1)
 	require.Len(t, sellAccepts, 0)
 	require.Len(t, peerBuys, 1)
+	require.Len(t, peerSells, 0)
 	require.Equal(t, saleAccept.ID, buyAccepts[0].ID)
 	require.Equal(t, accept.ID, peerBuys[0].ID)
 }
@@ -216,11 +217,11 @@ func testSellAccept(t *testing.T) rfqmsg.SellAccept {
 	}
 }
 
-// TestFetchAcceptedQuotesAllThreeTypes verifies that FetchAcceptedQuotes
-// correctly categorises all three policy types: sale policies appear as buy
-// accepts, purchase policies appear as sell accepts, and peer-accepted buy
-// quotes are returned separately.
-func TestFetchAcceptedQuotesAllThreeTypes(t *testing.T) {
+// TestFetchAcceptedQuotesAllFourTypes verifies that FetchAcceptedQuotes
+// correctly categorises all four policy types: sale policies appear as
+// buy accepts, purchase policies appear as sell accepts, and
+// peer-accepted buy/sell quotes are returned separately.
+func TestFetchAcceptedQuotesAllFourTypes(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -239,17 +240,22 @@ func TestFetchAcceptedQuotesAllThreeTypes(t *testing.T) {
 	err = store.StorePeerAcceptedBuyQuote(ctx, peerBuy)
 	require.NoError(t, err)
 
-	buyAccepts, sellAccepts, peerBuys, err :=
+	peerSell := testSellAccept(t)
+	err = store.StorePeerAcceptedSellQuote(ctx, peerSell)
+	require.NoError(t, err)
+
+	buyAccepts, sellAccepts, peerBuys, peerSells, err :=
 		store.FetchAcceptedQuotes(ctx)
 	require.NoError(t, err)
 
-	// Sale → buyAccepts, Purchase → sellAccepts, PeerBuy → peerBuys.
 	require.Len(t, buyAccepts, 1)
 	require.Len(t, sellAccepts, 1)
 	require.Len(t, peerBuys, 1)
+	require.Len(t, peerSells, 1)
 	require.Equal(t, sale.ID, buyAccepts[0].ID)
 	require.Equal(t, purchase.ID, sellAccepts[0].ID)
 	require.Equal(t, peerBuy.ID, peerBuys[0].ID)
+	require.Equal(t, peerSell.ID, peerSells[0].ID)
 }
 
 // TestAcceptedMaxAmountRoundTrip verifies that the AcceptedMaxAmount
@@ -385,4 +391,62 @@ func TestLookUpScidIgnoresSalePolicy(t *testing.T) {
 	_, err = store.LookUpScid(ctx, uint64(accept.ShortChannelId()))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "error fetching policy by SCID")
+}
+
+// TestStorePeerAcceptedSellQuote tests that a peer-accepted sell quote
+// can be persisted and round-tripped through FetchAcceptedQuotes.
+func TestStorePeerAcceptedSellQuote(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newPolicyStore(t)
+
+	accept := testSellAccept(t)
+
+	err := store.StorePeerAcceptedSellQuote(ctx, accept)
+	require.NoError(t, err)
+
+	_, _, _, peerSells, err := store.FetchAcceptedQuotes(ctx)
+	require.NoError(t, err)
+
+	require.Len(t, peerSells, 1)
+	require.Equal(t, accept.ID, peerSells[0].ID)
+	require.Equal(t, accept.Peer, peerSells[0].Peer)
+	require.Equal(
+		t, accept.Request.PaymentMaxAmt,
+		peerSells[0].Request.PaymentMaxAmt,
+	)
+}
+
+// TestFetchAcceptedQuotesSeparatesPeerAcceptedSell verifies that
+// FetchAcceptedQuotes returns peer-accepted sell quotes in the fourth
+// return value, separate from purchase policies.
+func TestFetchAcceptedQuotesSeparatesPeerAcceptedSell(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newPolicyStore(t)
+
+	// Store a peer-accepted sell quote.
+	peerSell := testSellAccept(t)
+	err := store.StorePeerAcceptedSellQuote(ctx, peerSell)
+	require.NoError(t, err)
+
+	// Also store a regular purchase policy.
+	purchase := testSellAccept(t)
+	err = store.StorePurchasePolicy(ctx, purchase)
+	require.NoError(t, err)
+
+	buyAccepts, sellAccepts, peerBuys, peerSells, err :=
+		store.FetchAcceptedQuotes(ctx)
+	require.NoError(t, err)
+
+	// Purchase policy appears in sellAccepts, peer sell quote
+	// appears separately in peerSells.
+	require.Len(t, buyAccepts, 0)
+	require.Len(t, sellAccepts, 1)
+	require.Len(t, peerBuys, 0)
+	require.Len(t, peerSells, 1)
+	require.Equal(t, purchase.ID, sellAccepts[0].ID)
+	require.Equal(t, peerSell.ID, peerSells[0].ID)
 }

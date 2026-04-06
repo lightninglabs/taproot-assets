@@ -529,6 +529,18 @@ func (m *Manager) handleIncomingMessage(ctx context.Context,
 			scid := msg.ShortChannelId()
 			m.orderHandler.peerSellQuotes.Store(scid, msg)
 
+			// Persist the peer sell quote to DB so that
+			// the peerSellQuotes cache survives restarts.
+			pStore := m.cfg.PolicyStore
+			storeErr := pStore.StorePeerAcceptedSellQuote(
+				ctx, msg,
+			)
+			if storeErr != nil {
+				log.Errorf("Failed to persist peer sell "+
+					"quote for SCID %d: %v", scid,
+					storeErr)
+			}
+
 			// Notify subscribers of the incoming peer accepted
 			// asset sell quote.
 			event := NewPeerAcceptedSellQuoteEvent(&msg)
