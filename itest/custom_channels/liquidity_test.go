@@ -687,19 +687,20 @@ func testCustomChannelsLiquidityEdgeCasesCore(ctx context.Context,
 	// We now create an invoice on Fabia and expect Erin's policy to be used
 	// in the invoice.
 	invoiceResp = createAssetInvoice(t.t, erin, fabia, 1_000, assetID)
-	req, err := erin.LightningClient.DecodePayReq(
+
+	decodedReq, err := erin.LightningClient.DecodePayReq(
 		ctx, &lnrpc.PayReqString{
 			PayReq: invoiceResp.PaymentRequest,
 		},
 	)
 	require.NoError(t.t, err)
-
-	require.Len(t.t, req.RouteHints, 1)
-	require.Len(t.t, req.RouteHints[0].HopHints, 1)
-	invoiceHint := req.RouteHints[0].HopHints[0]
+	require.Len(t.t, decodedReq.RouteHints, 1)
+	require.Len(t.t, decodedReq.RouteHints[0].HopHints, 1)
+	invoiceHint := decodedReq.RouteHints[0].HopHints[0]
 	require.Equal(t.t, erin.PubKeyStr, invoiceHint.NodeId)
 	require.EqualValues(t.t, 31337, invoiceHint.FeeBaseMsat)
-	require.EqualValues(t.t, 443322, invoiceHint.FeeProportionalMillionths)
+	require.EqualValues(t.t, 443322,
+		invoiceHint.FeeProportionalMillionths)
 	require.EqualValues(t.t, 25, invoiceHint.CltvExpiryDelta)
 
 	// Now we pay the invoice and expect the same policy with very expensive

@@ -167,4 +167,44 @@ func testCustomChannelsDecodeAssetInvoice(_ context.Context,
 	require.Equal(
 		t.t, decodeResp.DecimalDisplay, decodeResp2.DecimalDisplay,
 	)
+
+	// GenesisInfo must be populated for group key queries. For a
+	// single-tranche group the anchor asset ID equals the leaf ID, so
+	// the full struct must match the asset-ID-based response.
+	require.Equal(t.t, decodeResp.GenesisInfo, decodeResp2.GenesisInfo)
+
+	// Mint a second tranche in the same group and assert decoding by group
+	// key still reports the anchor tranche genesis ID.
+	secondTranche := &mintrpc.MintAsset{
+		AssetType:    taprpc.AssetType_NORMAL,
+		Name:         "USD-second-tranche",
+		AssetMeta:    usdMetaData,
+		Amount:       100_000_000_000,
+		DecimalDisplay: decimalDisplay,
+		GroupedAsset: true,
+		GroupKey:     usdAsset.AssetGroup.TweakedGroupKey,
+	}
+	secondMinted := itest.MintAssetsConfirmBatch(
+		t.t, net.Miner.Client, asTapd(alice),
+		[]*mintrpc.MintAssetRequest{
+			{
+				Asset: secondTranche,
+			},
+		},
+	)
+	require.Len(t.t, secondMinted, 1)
+
+	secondTrancheID := secondMinted[0].AssetGenesis.AssetId
+	require.NotEqual(t.t, usdAsset.AssetGenesis.AssetId, secondTrancheID)
+
+	decodeResp3, err := asTapd(alice).DecodeAssetPayReq(
+		ctx, &tchrpc.AssetPayReq{
+			GroupKey:     usdAsset.AssetGroup.TweakedGroupKey,
+			PayReqString: payReq,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(
+		t.t, usdAsset.AssetGenesis.AssetId, decodeResp3.GenesisInfo.AssetId,
+	)
 }

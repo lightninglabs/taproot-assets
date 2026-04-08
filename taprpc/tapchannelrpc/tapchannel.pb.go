@@ -986,10 +986,8 @@ type AssetPayReqResponse struct {
 	DecimalDisplay *taprpc.DecimalDisplay `protobuf:"bytes,2,opt,name=decimal_display,json=decimalDisplay,proto3" json:"decimal_display,omitempty"`
 	// The group the asset ID belong to, if applicable.
 	AssetGroup *taprpc.AssetGroup `protobuf:"bytes,3,opt,name=asset_group,json=assetGroup,proto3" json:"asset_group,omitempty"`
-	// Genesis information for the asset ID which includes the meta hash, and
-	// asset ID. This is only set if the payment request was decoded with an
-	// asset ID and not with a group key (since a group can contain assets from
-	// different minting events or genesis infos).
+	// Always populated. For group-key queries, the asset_id reflects the
+	// resolved tranche's genesis ID.
 	GenesisInfo *taprpc.GenesisInfo `protobuf:"bytes,4,opt,name=genesis_info,json=genesisInfo,proto3" json:"genesis_info,omitempty"`
 	// The normal decoded payment request.
 	PayReq *lnrpc.PayReq `protobuf:"bytes,5,opt,name=pay_req,json=payReq,proto3" json:"pay_req,omitempty"`

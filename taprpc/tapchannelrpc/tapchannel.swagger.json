@@ -1630,7 +1630,7 @@
         },
         "genesis_info": {
           "$ref": "#/definitions/taprpcGenesisInfo",
-          "description": "Genesis information for the asset ID which includes the meta hash, and\nasset ID. This is only set if the payment request was decoded with an\nasset ID and not with a group key (since a group can contain assets from\ndifferent minting events or genesis infos)."
+          "description": "Always populated. For group-key queries, the asset_id reflects the\nresolved tranche's genesis ID."
         },
         "pay_req": {
           "$ref": "#/definitions/lnrpcPayReq",

@@ -295,10 +295,8 @@ message AssetPayReqResponse {
     // The group the asset ID belong to, if applicable.
     taprpc.AssetGroup asset_group = 3;
 
-    // Genesis information for the asset ID which includes the meta hash, and
-    // asset ID. This is only set if the payment request was decoded with an
-    // asset ID and not with a group key (since a group can contain assets from
-    // different minting events or genesis infos).
+    // Always populated. For group-key queries, the asset_id reflects the
+    // resolved tranche's genesis ID.
     taprpc.GenesisInfo genesis_info = 4;
 
     // The normal decoded payment request.

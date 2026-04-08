@@ -85,6 +85,10 @@
   fixes a bug by which which the connection with an authmailbox server
   could be lost after encountering a non-graceful error.
 
+* [PR#2039](https://github.com/lightninglabs/taproot-assets/pull/2039)
+  fixes `DecodeAssetPayReq` so `GenesisInfo` is populated consistently,
+  including group-key invoice decodes.
+
 # New Features
 
 ## Functional Enhancements
