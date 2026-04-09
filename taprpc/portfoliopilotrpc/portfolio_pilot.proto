@@ -98,6 +98,17 @@ enum Intent {
     INTENT_RECV_PAYMENT_QUALIFY = 6;
 }
 
+// ExecutionPolicy specifies how a quote request should be filled.
+enum ExecutionPolicy {
+    // EXECUTION_POLICY_IOC (Immediate-Or-Cancel) accepts any partial
+    // fill. This is the default policy.
+    EXECUTION_POLICY_IOC = 0;
+
+    // EXECUTION_POLICY_FOK (Fill-Or-Kill) requires the accepted rate
+    // to satisfy the full requested amount.
+    EXECUTION_POLICY_FOK = 1;
+}
+
 // RejectCode represents the possible error codes that can be returned in a
 // ResolveRequestResponse reject result.
 enum RejectCode {
@@ -115,6 +126,10 @@ enum RejectCode {
     // REJECT_CODE_PRICE_BOUND_MISS indicates that the accepted rate
     // violated the requester's rate limit constraint.
     REJECT_CODE_PRICE_BOUND_MISS = 3;
+
+    // REJECT_CODE_FOK_NOT_VIABLE indicates that the FOK execution
+    // policy could not be satisfied at the accepted rate.
+    REJECT_CODE_FOK_NOT_VIABLE = 4;
 }
 
 // QuoteRespStatus is an enum that represents the status of a quote response.
@@ -146,6 +161,10 @@ enum QuoteRespStatus {
     // RATE_BOUND_MISS indicates that the accepted rate violated the
     // requester's rate limit constraint.
     RATE_BOUND_MISS = 6;
+
+    // FOK_NOT_VIABLE indicates that the FOK execution policy could
+    // not be satisfied at the accepted rate.
+    FOK_NOT_VIABLE = 7;
 }
 
 // RejectErr captures a rejection reason for a quote request.
@@ -244,6 +263,9 @@ message BuyRequest {
     // asset_rate_limit is an optional minimum acceptable rate (asset units
     // per BTC).
     FixedPoint asset_rate_limit = 7;
+
+    // execution_policy is the optional execution policy for this request.
+    ExecutionPolicy execution_policy = 8;
 }
 
 // SellRequest represents a request to sell the subject asset.
@@ -271,6 +293,9 @@ message SellRequest {
     // asset_rate_limit is an optional maximum acceptable rate (asset units
     // per BTC).
     FixedPoint asset_rate_limit = 7;
+
+    // execution_policy is the optional execution policy for this request.
+    ExecutionPolicy execution_policy = 8;
 }
 
 // ResolveRequestRequest specifies a quote request to resolve.

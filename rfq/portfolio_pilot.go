@@ -375,6 +375,12 @@ func (p *InternalPortfolioPilot) VerifyAcceptQuote(ctx context.Context,
 		return status, nil
 	}
 
+	// Enforce FOK execution policy if set.
+	status = checkFOK(req, counterRate.Rate)
+	if status != ValidAcceptQuoteRespStatus {
+		return status, nil
+	}
+
 	return ValidAcceptQuoteRespStatus, nil
 }
 
@@ -494,6 +500,56 @@ func checkRateBound(req rfqmsg.Request,
 	return ValidAcceptQuoteRespStatus
 }
 
+// isFOK returns true if the execution policy is Fill-Or-Kill.
+func isFOK(p fn.Option[rfqmsg.ExecutionPolicy]) bool {
+	return fn.MapOptionZ(p, func(ep rfqmsg.ExecutionPolicy) bool {
+		return ep == rfqmsg.ExecutionPolicyFOK
+	})
+}
+
+// checkFOK verifies that the full max amount is transportable at the
+// accepted rate when the execution policy is FOK. For a buy request,
+// the max asset amount must convert to non-zero msat. For a sell
+// request, the max payment amount must convert to non-zero asset units.
+func checkFOK(req rfqmsg.Request,
+	acceptedRate rfqmath.BigIntFixedPoint) QuoteRespStatus {
+
+	switch r := req.(type) {
+	case *rfqmsg.BuyRequest:
+		if !isFOK(r.ExecutionPolicy) {
+			return ValidAcceptQuoteRespStatus
+		}
+
+		units := rfqmath.NewBigIntFixedPoint(
+			r.AssetMaxAmt, 0,
+		)
+		msat := rfqmath.UnitsToMilliSatoshi(
+			units, acceptedRate,
+		)
+		if msat == 0 {
+			return FOKNotViableQuoteRespStatus
+		}
+
+	case *rfqmsg.SellRequest:
+		if !isFOK(r.ExecutionPolicy) {
+			return ValidAcceptQuoteRespStatus
+		}
+
+		units := rfqmath.MilliSatoshiToUnits(
+			r.PaymentMaxAmt, acceptedRate,
+		)
+		zero := rfqmath.NewBigIntFromUint64(0)
+		if units.Coefficient.Equals(zero) {
+			return FOKNotViableQuoteRespStatus
+		}
+
+	default:
+		log.Warnf("checkFOK: unhandled request type %T", req)
+	}
+
+	return ValidAcceptQuoteRespStatus
+}
+
 // checkMinFill verifies that the requester's minimum fill amount is
 // transportable at the accepted rate. For a buy request, the min asset
 // amount must convert to a non-zero msat value. For a sell request,
@@ -506,13 +562,9 @@ func checkMinFill(req rfqmsg.Request,
 		notMet := fn.MapOptionZ(
 			r.AssetMinAmt,
 			func(minAmt uint64) bool {
-				coeff := rfqmath.NewBigIntFromUint64(
-					minAmt,
+				units := rfqmath.NewBigIntFixedPoint(
+					minAmt, 0,
 				)
-				units := rfqmath.FixedPoint[rfqmath.BigInt]{
-					Coefficient: coeff,
-					Scale:       0,
-				}
 				msat := rfqmath.UnitsToMilliSatoshi(
 					units, acceptedRate,
 				)

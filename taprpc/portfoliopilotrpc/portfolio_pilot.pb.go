@@ -178,6 +178,57 @@ func (Intent) EnumDescriptor() ([]byte, []int) {
 	return file_portfoliopilotrpc_portfolio_pilot_proto_rawDescGZIP(), []int{1}
 }
 
+// ExecutionPolicy specifies how a quote request should be filled.
+type ExecutionPolicy int32
+
+const (
+	// EXECUTION_POLICY_IOC (Immediate-Or-Cancel) accepts any partial
+	// fill. This is the default policy.
+	ExecutionPolicy_EXECUTION_POLICY_IOC ExecutionPolicy = 0
+	// EXECUTION_POLICY_FOK (Fill-Or-Kill) requires the accepted rate
+	// to satisfy the full requested amount.
+	ExecutionPolicy_EXECUTION_POLICY_FOK ExecutionPolicy = 1
+)
+
+// Enum value maps for ExecutionPolicy.
+var (
+	ExecutionPolicy_name = map[int32]string{
+		0: "EXECUTION_POLICY_IOC",
+		1: "EXECUTION_POLICY_FOK",
+	}
+	ExecutionPolicy_value = map[string]int32{
+		"EXECUTION_POLICY_IOC": 0,
+		"EXECUTION_POLICY_FOK": 1,
+	}
+)
+
+func (x ExecutionPolicy) Enum() *ExecutionPolicy {
+	p := new(ExecutionPolicy)
+	*p = x
+	return p
+}
+
+func (x ExecutionPolicy) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ExecutionPolicy) Descriptor() protoreflect.EnumDescriptor {
+	return file_portfoliopilotrpc_portfolio_pilot_proto_enumTypes[2].Descriptor()
+}
+
+func (ExecutionPolicy) Type() protoreflect.EnumType {
+	return &file_portfoliopilotrpc_portfolio_pilot_proto_enumTypes[2]
+}
+
+func (x ExecutionPolicy) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ExecutionPolicy.Descriptor instead.
+func (ExecutionPolicy) EnumDescriptor() ([]byte, []int) {
+	return file_portfoliopilotrpc_portfolio_pilot_proto_rawDescGZIP(), []int{2}
+}
+
 // RejectCode represents the possible error codes that can be returned in a
 // ResolveRequestResponse reject result.
 type RejectCode int32
@@ -194,6 +245,9 @@ const (
 	// REJECT_CODE_PRICE_BOUND_MISS indicates that the accepted rate
 	// violated the requester's rate limit constraint.
 	RejectCode_REJECT_CODE_PRICE_BOUND_MISS RejectCode = 3
+	// REJECT_CODE_FOK_NOT_VIABLE indicates that the FOK execution
+	// policy could not be satisfied at the accepted rate.
+	RejectCode_REJECT_CODE_FOK_NOT_VIABLE RejectCode = 4
 )
 
 // Enum value maps for RejectCode.
@@ -203,12 +257,14 @@ var (
 		1: "REJECT_CODE_PRICE_ORACLE_UNAVAILABLE",
 		2: "REJECT_CODE_MIN_FILL_NOT_MET",
 		3: "REJECT_CODE_PRICE_BOUND_MISS",
+		4: "REJECT_CODE_FOK_NOT_VIABLE",
 	}
 	RejectCode_value = map[string]int32{
 		"REJECT_CODE_UNSPECIFIED":              0,
 		"REJECT_CODE_PRICE_ORACLE_UNAVAILABLE": 1,
 		"REJECT_CODE_MIN_FILL_NOT_MET":         2,
 		"REJECT_CODE_PRICE_BOUND_MISS":         3,
+		"REJECT_CODE_FOK_NOT_VIABLE":           4,
 	}
 )
 
@@ -223,11 +279,11 @@ func (x RejectCode) String() string {
 }
 
 func (RejectCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_portfoliopilotrpc_portfolio_pilot_proto_enumTypes[2].Descriptor()
+	return file_portfoliopilotrpc_portfolio_pilot_proto_enumTypes[3].Descriptor()
 }
 
 func (RejectCode) Type() protoreflect.EnumType {
-	return &file_portfoliopilotrpc_portfolio_pilot_proto_enumTypes[2]
+	return &file_portfoliopilotrpc_portfolio_pilot_proto_enumTypes[3]
 }
 
 func (x RejectCode) Number() protoreflect.EnumNumber {
@@ -236,7 +292,7 @@ func (x RejectCode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RejectCode.Descriptor instead.
 func (RejectCode) EnumDescriptor() ([]byte, []int) {
-	return file_portfoliopilotrpc_portfolio_pilot_proto_rawDescGZIP(), []int{2}
+	return file_portfoliopilotrpc_portfolio_pilot_proto_rawDescGZIP(), []int{3}
 }
 
 // QuoteRespStatus is an enum that represents the status of a quote response.
@@ -264,6 +320,9 @@ const (
 	// RATE_BOUND_MISS indicates that the accepted rate violated the
 	// requester's rate limit constraint.
 	QuoteRespStatus_RATE_BOUND_MISS QuoteRespStatus = 6
+	// FOK_NOT_VIABLE indicates that the FOK execution policy could
+	// not be satisfied at the accepted rate.
+	QuoteRespStatus_FOK_NOT_VIABLE QuoteRespStatus = 7
 )
 
 // Enum value maps for QuoteRespStatus.
@@ -276,6 +335,7 @@ var (
 		4: "VALID_ACCEPT_QUOTE",
 		5: "MIN_FILL_NOT_MET",
 		6: "RATE_BOUND_MISS",
+		7: "FOK_NOT_VIABLE",
 	}
 	QuoteRespStatus_value = map[string]int32{
 		"INVALID_ASSET_RATES":    0,
@@ -285,6 +345,7 @@ var (
 		"VALID_ACCEPT_QUOTE":     4,
 		"MIN_FILL_NOT_MET":       5,
 		"RATE_BOUND_MISS":        6,
+		"FOK_NOT_VIABLE":         7,
 	}
 )
 
@@ -299,11 +360,11 @@ func (x QuoteRespStatus) String() string {
 }
 
 func (QuoteRespStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_portfoliopilotrpc_portfolio_pilot_proto_enumTypes[3].Descriptor()
+	return file_portfoliopilotrpc_portfolio_pilot_proto_enumTypes[4].Descriptor()
 }
 
 func (QuoteRespStatus) Type() protoreflect.EnumType {
-	return &file_portfoliopilotrpc_portfolio_pilot_proto_enumTypes[3]
+	return &file_portfoliopilotrpc_portfolio_pilot_proto_enumTypes[4]
 }
 
 func (x QuoteRespStatus) Number() protoreflect.EnumNumber {
@@ -312,7 +373,7 @@ func (x QuoteRespStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use QuoteRespStatus.Descriptor instead.
 func (QuoteRespStatus) EnumDescriptor() ([]byte, []int) {
-	return file_portfoliopilotrpc_portfolio_pilot_proto_rawDescGZIP(), []int{3}
+	return file_portfoliopilotrpc_portfolio_pilot_proto_rawDescGZIP(), []int{4}
 }
 
 // RejectErr captures a rejection reason for a quote request.
@@ -646,8 +707,10 @@ type BuyRequest struct {
 	// asset_rate_limit is an optional minimum acceptable rate (asset units
 	// per BTC).
 	AssetRateLimit *FixedPoint `protobuf:"bytes,7,opt,name=asset_rate_limit,json=assetRateLimit,proto3" json:"asset_rate_limit,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// execution_policy is the optional execution policy for this request.
+	ExecutionPolicy ExecutionPolicy `protobuf:"varint,8,opt,name=execution_policy,json=executionPolicy,proto3,enum=portfoliopilotrpc.ExecutionPolicy" json:"execution_policy,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *BuyRequest) Reset() {
@@ -729,6 +792,13 @@ func (x *BuyRequest) GetAssetRateLimit() *FixedPoint {
 	return nil
 }
 
+func (x *BuyRequest) GetExecutionPolicy() ExecutionPolicy {
+	if x != nil {
+		return x.ExecutionPolicy
+	}
+	return ExecutionPolicy_EXECUTION_POLICY_IOC
+}
+
 // SellRequest represents a request to sell the subject asset.
 type SellRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -749,8 +819,10 @@ type SellRequest struct {
 	// asset_rate_limit is an optional maximum acceptable rate (asset units
 	// per BTC).
 	AssetRateLimit *FixedPoint `protobuf:"bytes,7,opt,name=asset_rate_limit,json=assetRateLimit,proto3" json:"asset_rate_limit,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// execution_policy is the optional execution policy for this request.
+	ExecutionPolicy ExecutionPolicy `protobuf:"varint,8,opt,name=execution_policy,json=executionPolicy,proto3,enum=portfoliopilotrpc.ExecutionPolicy" json:"execution_policy,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *SellRequest) Reset() {
@@ -830,6 +902,13 @@ func (x *SellRequest) GetAssetRateLimit() *FixedPoint {
 		return x.AssetRateLimit
 	}
 	return nil
+}
+
+func (x *SellRequest) GetExecutionPolicy() ExecutionPolicy {
+	if x != nil {
+		return x.ExecutionPolicy
+	}
+	return ExecutionPolicy_EXECUTION_POLICY_IOC
 }
 
 // ResolveRequestRequest specifies a quote request to resolve.
@@ -1385,7 +1464,7 @@ const file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc = "" +
 	"\x05scale\x18\x02 \x01(\rR\x05scale\"i\n" +
 	"\tAssetRate\x121\n" +
 	"\x04rate\x18\x01 \x01(\v2\x1d.portfoliopilotrpc.FixedPointR\x04rate\x12)\n" +
-	"\x10expiry_timestamp\x18\x02 \x01(\x04R\x0fexpiryTimestamp\"\x88\x03\n" +
+	"\x10expiry_timestamp\x18\x02 \x01(\x04R\x0fexpiryTimestamp\"\xd7\x03\n" +
 	"\n" +
 	"BuyRequest\x12J\n" +
 	"\x0fasset_specifier\x18\x01 \x01(\v2!.portfoliopilotrpc.AssetSpecifierR\x0eassetSpecifier\x12(\n" +
@@ -1394,7 +1473,8 @@ const file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc = "" +
 	"\x15price_oracle_metadata\x18\x04 \x01(\tR\x13priceOracleMetadata\x12\x17\n" +
 	"\apeer_id\x18\x05 \x01(\fR\x06peerId\x12(\n" +
 	"\x10asset_min_amount\x18\x06 \x01(\x04R\x0eassetMinAmount\x12G\n" +
-	"\x10asset_rate_limit\x18\a \x01(\v2\x1d.portfoliopilotrpc.FixedPointR\x0eassetRateLimit\"\x91\x03\n" +
+	"\x10asset_rate_limit\x18\a \x01(\v2\x1d.portfoliopilotrpc.FixedPointR\x0eassetRateLimit\x12M\n" +
+	"\x10execution_policy\x18\b \x01(\x0e2\".portfoliopilotrpc.ExecutionPolicyR\x0fexecutionPolicy\"\xe0\x03\n" +
 	"\vSellRequest\x12J\n" +
 	"\x0fasset_specifier\x18\x01 \x01(\v2!.portfoliopilotrpc.AssetSpecifierR\x0eassetSpecifier\x12,\n" +
 	"\x12payment_max_amount\x18\x02 \x01(\x04R\x10paymentMaxAmount\x12D\n" +
@@ -1402,7 +1482,8 @@ const file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc = "" +
 	"\x15price_oracle_metadata\x18\x04 \x01(\tR\x13priceOracleMetadata\x12\x17\n" +
 	"\apeer_id\x18\x05 \x01(\fR\x06peerId\x12,\n" +
 	"\x12payment_min_amount\x18\x06 \x01(\x04R\x10paymentMinAmount\x12G\n" +
-	"\x10asset_rate_limit\x18\a \x01(\v2\x1d.portfoliopilotrpc.FixedPointR\x0eassetRateLimit\"\xa9\x01\n" +
+	"\x10asset_rate_limit\x18\a \x01(\v2\x1d.portfoliopilotrpc.FixedPointR\x0eassetRateLimit\x12M\n" +
+	"\x10execution_policy\x18\b \x01(\x0e2\".portfoliopilotrpc.ExecutionPolicyR\x0fexecutionPolicy\"\xa9\x01\n" +
 	"\x15ResolveRequestRequest\x12@\n" +
 	"\vbuy_request\x18\x01 \x01(\v2\x1d.portfoliopilotrpc.BuyRequestH\x00R\n" +
 	"buyRequest\x12C\n" +
@@ -1447,13 +1528,17 @@ const file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc = "" +
 	"\x1aINTENT_PAY_INVOICE_QUALIFY\x10\x03\x12\x1c\n" +
 	"\x18INTENT_RECV_PAYMENT_HINT\x10\x04\x12\x17\n" +
 	"\x13INTENT_RECV_PAYMENT\x10\x05\x12\x1f\n" +
-	"\x1bINTENT_RECV_PAYMENT_QUALIFY\x10\x06*\x97\x01\n" +
+	"\x1bINTENT_RECV_PAYMENT_QUALIFY\x10\x06*E\n" +
+	"\x0fExecutionPolicy\x12\x18\n" +
+	"\x14EXECUTION_POLICY_IOC\x10\x00\x12\x18\n" +
+	"\x14EXECUTION_POLICY_FOK\x10\x01*\xb7\x01\n" +
 	"\n" +
 	"RejectCode\x12\x1b\n" +
 	"\x17REJECT_CODE_UNSPECIFIED\x10\x00\x12(\n" +
 	"$REJECT_CODE_PRICE_ORACLE_UNAVAILABLE\x10\x01\x12 \n" +
 	"\x1cREJECT_CODE_MIN_FILL_NOT_MET\x10\x02\x12 \n" +
-	"\x1cREJECT_CODE_PRICE_BOUND_MISS\x10\x03*\xb6\x01\n" +
+	"\x1cREJECT_CODE_PRICE_BOUND_MISS\x10\x03\x12\x1e\n" +
+	"\x1aREJECT_CODE_FOK_NOT_VIABLE\x10\x04*\xca\x01\n" +
 	"\x0fQuoteRespStatus\x12\x17\n" +
 	"\x13INVALID_ASSET_RATES\x10\x00\x12\x12\n" +
 	"\x0eINVALID_EXPIRY\x10\x01\x12\x1a\n" +
@@ -1461,7 +1546,8 @@ const file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc = "" +
 	"\x13PORTFOLIO_PILOT_ERR\x10\x03\x12\x16\n" +
 	"\x12VALID_ACCEPT_QUOTE\x10\x04\x12\x14\n" +
 	"\x10MIN_FILL_NOT_MET\x10\x05\x12\x13\n" +
-	"\x0fRATE_BOUND_MISS\x10\x062\xd1\x02\n" +
+	"\x0fRATE_BOUND_MISS\x10\x06\x12\x12\n" +
+	"\x0eFOK_NOT_VIABLE\x10\a2\xd1\x02\n" +
 	"\x0ePortfolioPilot\x12e\n" +
 	"\x0eResolveRequest\x12(.portfoliopilotrpc.ResolveRequestRequest\x1a).portfoliopilotrpc.ResolveRequestResponse\x12n\n" +
 	"\x11VerifyAcceptQuote\x12+.portfoliopilotrpc.VerifyAcceptQuoteRequest\x1a,.portfoliopilotrpc.VerifyAcceptQuoteResponse\x12h\n" +
@@ -1479,61 +1565,64 @@ func file_portfoliopilotrpc_portfolio_pilot_proto_rawDescGZIP() []byte {
 	return file_portfoliopilotrpc_portfolio_pilot_proto_rawDescData
 }
 
-var file_portfoliopilotrpc_portfolio_pilot_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_portfoliopilotrpc_portfolio_pilot_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
 var file_portfoliopilotrpc_portfolio_pilot_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_portfoliopilotrpc_portfolio_pilot_proto_goTypes = []any{
 	(AssetTransferDirection)(0),       // 0: portfoliopilotrpc.AssetTransferDirection
 	(Intent)(0),                       // 1: portfoliopilotrpc.Intent
-	(RejectCode)(0),                   // 2: portfoliopilotrpc.RejectCode
-	(QuoteRespStatus)(0),              // 3: portfoliopilotrpc.QuoteRespStatus
-	(*RejectErr)(nil),                 // 4: portfoliopilotrpc.RejectErr
-	(*AssetSpecifier)(nil),            // 5: portfoliopilotrpc.AssetSpecifier
-	(*FixedPoint)(nil),                // 6: portfoliopilotrpc.FixedPoint
-	(*AssetRate)(nil),                 // 7: portfoliopilotrpc.AssetRate
-	(*BuyRequest)(nil),                // 8: portfoliopilotrpc.BuyRequest
-	(*SellRequest)(nil),               // 9: portfoliopilotrpc.SellRequest
-	(*ResolveRequestRequest)(nil),     // 10: portfoliopilotrpc.ResolveRequestRequest
-	(*ResolveRequestResponse)(nil),    // 11: portfoliopilotrpc.ResolveRequestResponse
-	(*AcceptedQuote)(nil),             // 12: portfoliopilotrpc.AcceptedQuote
-	(*VerifyAcceptQuoteRequest)(nil),  // 13: portfoliopilotrpc.VerifyAcceptQuoteRequest
-	(*VerifyAcceptQuoteResponse)(nil), // 14: portfoliopilotrpc.VerifyAcceptQuoteResponse
-	(*QueryAssetRatesRequest)(nil),    // 15: portfoliopilotrpc.QueryAssetRatesRequest
-	(*QueryAssetRatesResponse)(nil),   // 16: portfoliopilotrpc.QueryAssetRatesResponse
+	(ExecutionPolicy)(0),              // 2: portfoliopilotrpc.ExecutionPolicy
+	(RejectCode)(0),                   // 3: portfoliopilotrpc.RejectCode
+	(QuoteRespStatus)(0),              // 4: portfoliopilotrpc.QuoteRespStatus
+	(*RejectErr)(nil),                 // 5: portfoliopilotrpc.RejectErr
+	(*AssetSpecifier)(nil),            // 6: portfoliopilotrpc.AssetSpecifier
+	(*FixedPoint)(nil),                // 7: portfoliopilotrpc.FixedPoint
+	(*AssetRate)(nil),                 // 8: portfoliopilotrpc.AssetRate
+	(*BuyRequest)(nil),                // 9: portfoliopilotrpc.BuyRequest
+	(*SellRequest)(nil),               // 10: portfoliopilotrpc.SellRequest
+	(*ResolveRequestRequest)(nil),     // 11: portfoliopilotrpc.ResolveRequestRequest
+	(*ResolveRequestResponse)(nil),    // 12: portfoliopilotrpc.ResolveRequestResponse
+	(*AcceptedQuote)(nil),             // 13: portfoliopilotrpc.AcceptedQuote
+	(*VerifyAcceptQuoteRequest)(nil),  // 14: portfoliopilotrpc.VerifyAcceptQuoteRequest
+	(*VerifyAcceptQuoteResponse)(nil), // 15: portfoliopilotrpc.VerifyAcceptQuoteResponse
+	(*QueryAssetRatesRequest)(nil),    // 16: portfoliopilotrpc.QueryAssetRatesRequest
+	(*QueryAssetRatesResponse)(nil),   // 17: portfoliopilotrpc.QueryAssetRatesResponse
 }
 var file_portfoliopilotrpc_portfolio_pilot_proto_depIdxs = []int32{
-	2,  // 0: portfoliopilotrpc.RejectErr.code:type_name -> portfoliopilotrpc.RejectCode
-	6,  // 1: portfoliopilotrpc.AssetRate.rate:type_name -> portfoliopilotrpc.FixedPoint
-	5,  // 2: portfoliopilotrpc.BuyRequest.asset_specifier:type_name -> portfoliopilotrpc.AssetSpecifier
-	7,  // 3: portfoliopilotrpc.BuyRequest.asset_rate_hint:type_name -> portfoliopilotrpc.AssetRate
-	6,  // 4: portfoliopilotrpc.BuyRequest.asset_rate_limit:type_name -> portfoliopilotrpc.FixedPoint
-	5,  // 5: portfoliopilotrpc.SellRequest.asset_specifier:type_name -> portfoliopilotrpc.AssetSpecifier
-	7,  // 6: portfoliopilotrpc.SellRequest.asset_rate_hint:type_name -> portfoliopilotrpc.AssetRate
-	6,  // 7: portfoliopilotrpc.SellRequest.asset_rate_limit:type_name -> portfoliopilotrpc.FixedPoint
-	8,  // 8: portfoliopilotrpc.ResolveRequestRequest.buy_request:type_name -> portfoliopilotrpc.BuyRequest
-	9,  // 9: portfoliopilotrpc.ResolveRequestRequest.sell_request:type_name -> portfoliopilotrpc.SellRequest
-	7,  // 10: portfoliopilotrpc.ResolveRequestResponse.accept:type_name -> portfoliopilotrpc.AssetRate
-	4,  // 11: portfoliopilotrpc.ResolveRequestResponse.reject:type_name -> portfoliopilotrpc.RejectErr
-	7,  // 12: portfoliopilotrpc.AcceptedQuote.accepted_rate:type_name -> portfoliopilotrpc.AssetRate
-	8,  // 13: portfoliopilotrpc.AcceptedQuote.buy_request:type_name -> portfoliopilotrpc.BuyRequest
-	9,  // 14: portfoliopilotrpc.AcceptedQuote.sell_request:type_name -> portfoliopilotrpc.SellRequest
-	12, // 15: portfoliopilotrpc.VerifyAcceptQuoteRequest.accept:type_name -> portfoliopilotrpc.AcceptedQuote
-	3,  // 16: portfoliopilotrpc.VerifyAcceptQuoteResponse.status:type_name -> portfoliopilotrpc.QuoteRespStatus
-	5,  // 17: portfoliopilotrpc.QueryAssetRatesRequest.asset_specifier:type_name -> portfoliopilotrpc.AssetSpecifier
-	0,  // 18: portfoliopilotrpc.QueryAssetRatesRequest.direction:type_name -> portfoliopilotrpc.AssetTransferDirection
-	1,  // 19: portfoliopilotrpc.QueryAssetRatesRequest.intent:type_name -> portfoliopilotrpc.Intent
-	7,  // 20: portfoliopilotrpc.QueryAssetRatesRequest.asset_rate_hint:type_name -> portfoliopilotrpc.AssetRate
-	7,  // 21: portfoliopilotrpc.QueryAssetRatesResponse.asset_rate:type_name -> portfoliopilotrpc.AssetRate
-	10, // 22: portfoliopilotrpc.PortfolioPilot.ResolveRequest:input_type -> portfoliopilotrpc.ResolveRequestRequest
-	13, // 23: portfoliopilotrpc.PortfolioPilot.VerifyAcceptQuote:input_type -> portfoliopilotrpc.VerifyAcceptQuoteRequest
-	15, // 24: portfoliopilotrpc.PortfolioPilot.QueryAssetRates:input_type -> portfoliopilotrpc.QueryAssetRatesRequest
-	11, // 25: portfoliopilotrpc.PortfolioPilot.ResolveRequest:output_type -> portfoliopilotrpc.ResolveRequestResponse
-	14, // 26: portfoliopilotrpc.PortfolioPilot.VerifyAcceptQuote:output_type -> portfoliopilotrpc.VerifyAcceptQuoteResponse
-	16, // 27: portfoliopilotrpc.PortfolioPilot.QueryAssetRates:output_type -> portfoliopilotrpc.QueryAssetRatesResponse
-	25, // [25:28] is the sub-list for method output_type
-	22, // [22:25] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	3,  // 0: portfoliopilotrpc.RejectErr.code:type_name -> portfoliopilotrpc.RejectCode
+	7,  // 1: portfoliopilotrpc.AssetRate.rate:type_name -> portfoliopilotrpc.FixedPoint
+	6,  // 2: portfoliopilotrpc.BuyRequest.asset_specifier:type_name -> portfoliopilotrpc.AssetSpecifier
+	8,  // 3: portfoliopilotrpc.BuyRequest.asset_rate_hint:type_name -> portfoliopilotrpc.AssetRate
+	7,  // 4: portfoliopilotrpc.BuyRequest.asset_rate_limit:type_name -> portfoliopilotrpc.FixedPoint
+	2,  // 5: portfoliopilotrpc.BuyRequest.execution_policy:type_name -> portfoliopilotrpc.ExecutionPolicy
+	6,  // 6: portfoliopilotrpc.SellRequest.asset_specifier:type_name -> portfoliopilotrpc.AssetSpecifier
+	8,  // 7: portfoliopilotrpc.SellRequest.asset_rate_hint:type_name -> portfoliopilotrpc.AssetRate
+	7,  // 8: portfoliopilotrpc.SellRequest.asset_rate_limit:type_name -> portfoliopilotrpc.FixedPoint
+	2,  // 9: portfoliopilotrpc.SellRequest.execution_policy:type_name -> portfoliopilotrpc.ExecutionPolicy
+	9,  // 10: portfoliopilotrpc.ResolveRequestRequest.buy_request:type_name -> portfoliopilotrpc.BuyRequest
+	10, // 11: portfoliopilotrpc.ResolveRequestRequest.sell_request:type_name -> portfoliopilotrpc.SellRequest
+	8,  // 12: portfoliopilotrpc.ResolveRequestResponse.accept:type_name -> portfoliopilotrpc.AssetRate
+	5,  // 13: portfoliopilotrpc.ResolveRequestResponse.reject:type_name -> portfoliopilotrpc.RejectErr
+	8,  // 14: portfoliopilotrpc.AcceptedQuote.accepted_rate:type_name -> portfoliopilotrpc.AssetRate
+	9,  // 15: portfoliopilotrpc.AcceptedQuote.buy_request:type_name -> portfoliopilotrpc.BuyRequest
+	10, // 16: portfoliopilotrpc.AcceptedQuote.sell_request:type_name -> portfoliopilotrpc.SellRequest
+	13, // 17: portfoliopilotrpc.VerifyAcceptQuoteRequest.accept:type_name -> portfoliopilotrpc.AcceptedQuote
+	4,  // 18: portfoliopilotrpc.VerifyAcceptQuoteResponse.status:type_name -> portfoliopilotrpc.QuoteRespStatus
+	6,  // 19: portfoliopilotrpc.QueryAssetRatesRequest.asset_specifier:type_name -> portfoliopilotrpc.AssetSpecifier
+	0,  // 20: portfoliopilotrpc.QueryAssetRatesRequest.direction:type_name -> portfoliopilotrpc.AssetTransferDirection
+	1,  // 21: portfoliopilotrpc.QueryAssetRatesRequest.intent:type_name -> portfoliopilotrpc.Intent
+	8,  // 22: portfoliopilotrpc.QueryAssetRatesRequest.asset_rate_hint:type_name -> portfoliopilotrpc.AssetRate
+	8,  // 23: portfoliopilotrpc.QueryAssetRatesResponse.asset_rate:type_name -> portfoliopilotrpc.AssetRate
+	11, // 24: portfoliopilotrpc.PortfolioPilot.ResolveRequest:input_type -> portfoliopilotrpc.ResolveRequestRequest
+	14, // 25: portfoliopilotrpc.PortfolioPilot.VerifyAcceptQuote:input_type -> portfoliopilotrpc.VerifyAcceptQuoteRequest
+	16, // 26: portfoliopilotrpc.PortfolioPilot.QueryAssetRates:input_type -> portfoliopilotrpc.QueryAssetRatesRequest
+	12, // 27: portfoliopilotrpc.PortfolioPilot.ResolveRequest:output_type -> portfoliopilotrpc.ResolveRequestResponse
+	15, // 28: portfoliopilotrpc.PortfolioPilot.VerifyAcceptQuote:output_type -> portfoliopilotrpc.VerifyAcceptQuoteResponse
+	17, // 29: portfoliopilotrpc.PortfolioPilot.QueryAssetRates:output_type -> portfoliopilotrpc.QueryAssetRatesResponse
+	27, // [27:30] is the sub-list for method output_type
+	24, // [24:27] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_portfoliopilotrpc_portfolio_pilot_proto_init() }
@@ -1564,7 +1653,7 @@ func file_portfoliopilotrpc_portfolio_pilot_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc), len(file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc)),
-			NumEnums:      4,
+			NumEnums:      5,
 			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,

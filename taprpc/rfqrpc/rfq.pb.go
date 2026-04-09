@@ -21,6 +21,57 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// ExecutionPolicy specifies how a quote request should be filled.
+type ExecutionPolicy int32
+
+const (
+	// EXECUTION_POLICY_IOC is Immediate-Or-Cancel: accept any partial
+	// fill at or above the minimum threshold. This is the default.
+	ExecutionPolicy_EXECUTION_POLICY_IOC ExecutionPolicy = 0
+	// EXECUTION_POLICY_FOK is Fill-Or-Kill: the accepted rate must
+	// support the full maximum amount or the quote is rejected.
+	ExecutionPolicy_EXECUTION_POLICY_FOK ExecutionPolicy = 1
+)
+
+// Enum value maps for ExecutionPolicy.
+var (
+	ExecutionPolicy_name = map[int32]string{
+		0: "EXECUTION_POLICY_IOC",
+		1: "EXECUTION_POLICY_FOK",
+	}
+	ExecutionPolicy_value = map[string]int32{
+		"EXECUTION_POLICY_IOC": 0,
+		"EXECUTION_POLICY_FOK": 1,
+	}
+)
+
+func (x ExecutionPolicy) Enum() *ExecutionPolicy {
+	p := new(ExecutionPolicy)
+	*p = x
+	return p
+}
+
+func (x ExecutionPolicy) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ExecutionPolicy) Descriptor() protoreflect.EnumDescriptor {
+	return file_rfqrpc_rfq_proto_enumTypes[0].Descriptor()
+}
+
+func (ExecutionPolicy) Type() protoreflect.EnumType {
+	return &file_rfqrpc_rfq_proto_enumTypes[0]
+}
+
+func (x ExecutionPolicy) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ExecutionPolicy.Descriptor instead.
+func (ExecutionPolicy) EnumDescriptor() ([]byte, []int) {
+	return file_rfqrpc_rfq_proto_rawDescGZIP(), []int{0}
+}
+
 // QuoteRespStatus is an enum that represents the status of a quote response.
 type QuoteRespStatus int32
 
@@ -46,6 +97,9 @@ const (
 	// RATE_BOUND_MISS indicates that the accepted rate violated the
 	// requester's rate limit constraint.
 	QuoteRespStatus_RATE_BOUND_MISS QuoteRespStatus = 6
+	// FOK_NOT_VIABLE indicates that the FOK execution policy could
+	// not be satisfied at the accepted rate.
+	QuoteRespStatus_FOK_NOT_VIABLE QuoteRespStatus = 7
 )
 
 // Enum value maps for QuoteRespStatus.
@@ -58,6 +112,7 @@ var (
 		4: "VALID_ACCEPT_QUOTE",
 		5: "MIN_FILL_NOT_MET",
 		6: "RATE_BOUND_MISS",
+		7: "FOK_NOT_VIABLE",
 	}
 	QuoteRespStatus_value = map[string]int32{
 		"INVALID_ASSET_RATES":    0,
@@ -67,6 +122,7 @@ var (
 		"VALID_ACCEPT_QUOTE":     4,
 		"MIN_FILL_NOT_MET":       5,
 		"RATE_BOUND_MISS":        6,
+		"FOK_NOT_VIABLE":         7,
 	}
 )
 
@@ -81,11 +137,11 @@ func (x QuoteRespStatus) String() string {
 }
 
 func (QuoteRespStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_rfqrpc_rfq_proto_enumTypes[0].Descriptor()
+	return file_rfqrpc_rfq_proto_enumTypes[1].Descriptor()
 }
 
 func (QuoteRespStatus) Type() protoreflect.EnumType {
-	return &file_rfqrpc_rfq_proto_enumTypes[0]
+	return &file_rfqrpc_rfq_proto_enumTypes[1]
 }
 
 func (x QuoteRespStatus) Number() protoreflect.EnumNumber {
@@ -94,7 +150,7 @@ func (x QuoteRespStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use QuoteRespStatus.Descriptor instead.
 func (QuoteRespStatus) EnumDescriptor() ([]byte, []int) {
-	return file_rfqrpc_rfq_proto_rawDescGZIP(), []int{0}
+	return file_rfqrpc_rfq_proto_rawDescGZIP(), []int{1}
 }
 
 // RfqPolicyType indicates the type of policy of an RFQ session.
@@ -130,11 +186,11 @@ func (x RfqPolicyType) String() string {
 }
 
 func (RfqPolicyType) Descriptor() protoreflect.EnumDescriptor {
-	return file_rfqrpc_rfq_proto_enumTypes[1].Descriptor()
+	return file_rfqrpc_rfq_proto_enumTypes[2].Descriptor()
 }
 
 func (RfqPolicyType) Type() protoreflect.EnumType {
-	return &file_rfqrpc_rfq_proto_enumTypes[1]
+	return &file_rfqrpc_rfq_proto_enumTypes[2]
 }
 
 func (x RfqPolicyType) Number() protoreflect.EnumNumber {
@@ -143,7 +199,7 @@ func (x RfqPolicyType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RfqPolicyType.Descriptor instead.
 func (RfqPolicyType) EnumDescriptor() ([]byte, []int) {
-	return file_rfqrpc_rfq_proto_rawDescGZIP(), []int{1}
+	return file_rfqrpc_rfq_proto_rawDescGZIP(), []int{2}
 }
 
 type AssetSpecifier struct {
@@ -380,8 +436,12 @@ type AddAssetBuyOrderRequest struct {
 	// For buy orders this is the minimum acceptable rate (asset units per
 	// BTC). If unset, no rate floor is enforced.
 	AssetRateLimit *FixedPoint `protobuf:"bytes,9,opt,name=asset_rate_limit,json=assetRateLimit,proto3" json:"asset_rate_limit,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The execution policy for this order. IOC (default) accepts any
+	// partial fill >= min threshold. FOK requires the rate to support
+	// the full max amount.
+	ExecutionPolicy ExecutionPolicy `protobuf:"varint,10,opt,name=execution_policy,json=executionPolicy,proto3,enum=rfqrpc.ExecutionPolicy" json:"execution_policy,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AddAssetBuyOrderRequest) Reset() {
@@ -475,6 +535,13 @@ func (x *AddAssetBuyOrderRequest) GetAssetRateLimit() *FixedPoint {
 		return x.AssetRateLimit
 	}
 	return nil
+}
+
+func (x *AddAssetBuyOrderRequest) GetExecutionPolicy() ExecutionPolicy {
+	if x != nil {
+		return x.ExecutionPolicy
+	}
+	return ExecutionPolicy_EXECUTION_POLICY_IOC
 }
 
 type AddAssetBuyOrderResponse struct {
@@ -617,8 +684,12 @@ type AddAssetSellOrderRequest struct {
 	// For sell orders this is the maximum acceptable rate (asset units per
 	// BTC). If unset, no rate ceiling is enforced.
 	AssetRateLimit *FixedPoint `protobuf:"bytes,9,opt,name=asset_rate_limit,json=assetRateLimit,proto3" json:"asset_rate_limit,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The execution policy for this order. IOC (default) accepts any
+	// partial fill >= min threshold. FOK requires the rate to support
+	// the full max amount.
+	ExecutionPolicy ExecutionPolicy `protobuf:"varint,10,opt,name=execution_policy,json=executionPolicy,proto3,enum=rfqrpc.ExecutionPolicy" json:"execution_policy,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AddAssetSellOrderRequest) Reset() {
@@ -712,6 +783,13 @@ func (x *AddAssetSellOrderRequest) GetAssetRateLimit() *FixedPoint {
 		return x.AssetRateLimit
 	}
 	return nil
+}
+
+func (x *AddAssetSellOrderRequest) GetExecutionPolicy() ExecutionPolicy {
+	if x != nil {
+		return x.ExecutionPolicy
+	}
+	return ExecutionPolicy_EXECUTION_POLICY_IOC
 }
 
 type AddAssetSellOrderResponse struct {
@@ -2180,7 +2258,7 @@ const file_rfqrpc_rfq_proto_rawDesc = "" +
 	"\n" +
 	"FixedPoint\x12 \n" +
 	"\vcoefficient\x18\x01 \x01(\tR\vcoefficient\x12\x14\n" +
-	"\x05scale\x18\x02 \x01(\rR\x05scale\"\xb0\x03\n" +
+	"\x05scale\x18\x02 \x01(\rR\x05scale\"\xf4\x03\n" +
 	"\x17AddAssetBuyOrderRequest\x12?\n" +
 	"\x0fasset_specifier\x18\x01 \x01(\v2\x16.rfqrpc.AssetSpecifierR\x0eassetSpecifier\x12\"\n" +
 	"\rasset_max_amt\x18\x02 \x01(\x04R\vassetMaxAmt\x12\x16\n" +
@@ -2191,13 +2269,15 @@ const file_rfqrpc_rfq_proto_rawDesc = "" +
 	"\x18skip_asset_channel_check\x18\x06 \x01(\bR\x15skipAssetChannelCheck\x122\n" +
 	"\x15price_oracle_metadata\x18\a \x01(\tR\x13priceOracleMetadata\x12\"\n" +
 	"\rasset_min_amt\x18\b \x01(\x04R\vassetMinAmt\x12<\n" +
-	"\x10asset_rate_limit\x18\t \x01(\v2\x12.rfqrpc.FixedPointR\x0eassetRateLimit\"\xfa\x01\n" +
+	"\x10asset_rate_limit\x18\t \x01(\v2\x12.rfqrpc.FixedPointR\x0eassetRateLimit\x12B\n" +
+	"\x10execution_policy\x18\n" +
+	" \x01(\x0e2\x17.rfqrpc.ExecutionPolicyR\x0fexecutionPolicy\"\xfa\x01\n" +
 	"\x18AddAssetBuyOrderResponse\x12E\n" +
 	"\x0eaccepted_quote\x18\x01 \x01(\v2\x1c.rfqrpc.PeerAcceptedBuyQuoteH\x00R\racceptedQuote\x12C\n" +
 	"\rinvalid_quote\x18\x02 \x01(\v2\x1c.rfqrpc.InvalidQuoteResponseH\x00R\finvalidQuote\x12F\n" +
 	"\x0erejected_quote\x18\x03 \x01(\v2\x1d.rfqrpc.RejectedQuoteResponseH\x00R\rrejectedQuoteB\n" +
 	"\n" +
-	"\bresponse\"\xb9\x03\n" +
+	"\bresponse\"\xfd\x03\n" +
 	"\x18AddAssetSellOrderRequest\x12?\n" +
 	"\x0fasset_specifier\x18\x01 \x01(\v2\x16.rfqrpc.AssetSpecifierR\x0eassetSpecifier\x12&\n" +
 	"\x0fpayment_max_amt\x18\x02 \x01(\x04R\rpaymentMaxAmt\x12\x16\n" +
@@ -2208,7 +2288,9 @@ const file_rfqrpc_rfq_proto_rawDesc = "" +
 	"\x18skip_asset_channel_check\x18\x06 \x01(\bR\x15skipAssetChannelCheck\x122\n" +
 	"\x15price_oracle_metadata\x18\a \x01(\tR\x13priceOracleMetadata\x12&\n" +
 	"\x0fpayment_min_amt\x18\b \x01(\x04R\rpaymentMinAmt\x12<\n" +
-	"\x10asset_rate_limit\x18\t \x01(\v2\x12.rfqrpc.FixedPointR\x0eassetRateLimit\"\xfc\x01\n" +
+	"\x10asset_rate_limit\x18\t \x01(\v2\x12.rfqrpc.FixedPointR\x0eassetRateLimit\x12B\n" +
+	"\x10execution_policy\x18\n" +
+	" \x01(\x0e2\x17.rfqrpc.ExecutionPolicyR\x0fexecutionPolicy\"\xfc\x01\n" +
 	"\x19AddAssetSellOrderResponse\x12F\n" +
 	"\x0eaccepted_quote\x18\x01 \x01(\v2\x1d.rfqrpc.PeerAcceptedSellQuoteH\x00R\racceptedQuote\x12C\n" +
 	"\rinvalid_quote\x18\x02 \x01(\v2\x1c.rfqrpc.InvalidQuoteResponseH\x00R\finvalidQuote\x12F\n" +
@@ -2311,7 +2393,10 @@ const file_rfqrpc_rfq_proto_rawDesc = "" +
 	"\x04peer\x18\f \x01(\tR\x04peer\x120\n" +
 	"\n" +
 	"asset_spec\x18\r \x01(\v2\x11.rfqrpc.AssetSpecR\tassetSpec\x12&\n" +
-	"\x04rate\x18\x0e \x01(\v2\x12.rfqrpc.FixedPointR\x04rate*\xb6\x01\n" +
+	"\x04rate\x18\x0e \x01(\v2\x12.rfqrpc.FixedPointR\x04rate*E\n" +
+	"\x0fExecutionPolicy\x12\x18\n" +
+	"\x14EXECUTION_POLICY_IOC\x10\x00\x12\x18\n" +
+	"\x14EXECUTION_POLICY_FOK\x10\x01*\xca\x01\n" +
 	"\x0fQuoteRespStatus\x12\x17\n" +
 	"\x13INVALID_ASSET_RATES\x10\x00\x12\x12\n" +
 	"\x0eINVALID_EXPIRY\x10\x01\x12\x1a\n" +
@@ -2319,7 +2404,8 @@ const file_rfqrpc_rfq_proto_rawDesc = "" +
 	"\x13PORTFOLIO_PILOT_ERR\x10\x03\x12\x16\n" +
 	"\x12VALID_ACCEPT_QUOTE\x10\x04\x12\x14\n" +
 	"\x10MIN_FILL_NOT_MET\x10\x05\x12\x13\n" +
-	"\x0fRATE_BOUND_MISS\x10\x06*G\n" +
+	"\x0fRATE_BOUND_MISS\x10\x06\x12\x12\n" +
+	"\x0eFOK_NOT_VIABLE\x10\a*G\n" +
 	"\rRfqPolicyType\x12\x18\n" +
 	"\x14RFQ_POLICY_TYPE_SALE\x10\x00\x12\x1c\n" +
 	"\x18RFQ_POLICY_TYPE_PURCHASE\x10\x012\x82\x05\n" +
@@ -2344,86 +2430,89 @@ func file_rfqrpc_rfq_proto_rawDescGZIP() []byte {
 	return file_rfqrpc_rfq_proto_rawDescData
 }
 
-var file_rfqrpc_rfq_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_rfqrpc_rfq_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_rfqrpc_rfq_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_rfqrpc_rfq_proto_goTypes = []any{
-	(QuoteRespStatus)(0),                    // 0: rfqrpc.QuoteRespStatus
-	(RfqPolicyType)(0),                      // 1: rfqrpc.RfqPolicyType
-	(*AssetSpecifier)(nil),                  // 2: rfqrpc.AssetSpecifier
-	(*FixedPoint)(nil),                      // 3: rfqrpc.FixedPoint
-	(*AddAssetBuyOrderRequest)(nil),         // 4: rfqrpc.AddAssetBuyOrderRequest
-	(*AddAssetBuyOrderResponse)(nil),        // 5: rfqrpc.AddAssetBuyOrderResponse
-	(*AddAssetSellOrderRequest)(nil),        // 6: rfqrpc.AddAssetSellOrderRequest
-	(*AddAssetSellOrderResponse)(nil),       // 7: rfqrpc.AddAssetSellOrderResponse
-	(*AddAssetSellOfferRequest)(nil),        // 8: rfqrpc.AddAssetSellOfferRequest
-	(*AddAssetSellOfferResponse)(nil),       // 9: rfqrpc.AddAssetSellOfferResponse
-	(*AddAssetBuyOfferRequest)(nil),         // 10: rfqrpc.AddAssetBuyOfferRequest
-	(*AddAssetBuyOfferResponse)(nil),        // 11: rfqrpc.AddAssetBuyOfferResponse
-	(*QueryPeerAcceptedQuotesRequest)(nil),  // 12: rfqrpc.QueryPeerAcceptedQuotesRequest
-	(*AssetSpec)(nil),                       // 13: rfqrpc.AssetSpec
-	(*PeerAcceptedBuyQuote)(nil),            // 14: rfqrpc.PeerAcceptedBuyQuote
-	(*PeerAcceptedSellQuote)(nil),           // 15: rfqrpc.PeerAcceptedSellQuote
-	(*InvalidQuoteResponse)(nil),            // 16: rfqrpc.InvalidQuoteResponse
-	(*RejectedQuoteResponse)(nil),           // 17: rfqrpc.RejectedQuoteResponse
-	(*QueryPeerAcceptedQuotesResponse)(nil), // 18: rfqrpc.QueryPeerAcceptedQuotesResponse
-	(*SubscribeRfqEventNtfnsRequest)(nil),   // 19: rfqrpc.SubscribeRfqEventNtfnsRequest
-	(*PeerAcceptedBuyQuoteEvent)(nil),       // 20: rfqrpc.PeerAcceptedBuyQuoteEvent
-	(*PeerAcceptedSellQuoteEvent)(nil),      // 21: rfqrpc.PeerAcceptedSellQuoteEvent
-	(*AcceptHtlcEvent)(nil),                 // 22: rfqrpc.AcceptHtlcEvent
-	(*RfqEvent)(nil),                        // 23: rfqrpc.RfqEvent
-	(*ForwardingHistoryRequest)(nil),        // 24: rfqrpc.ForwardingHistoryRequest
-	(*ForwardingHistoryResponse)(nil),       // 25: rfqrpc.ForwardingHistoryResponse
-	(*ForwardingEvent)(nil),                 // 26: rfqrpc.ForwardingEvent
+	(ExecutionPolicy)(0),                    // 0: rfqrpc.ExecutionPolicy
+	(QuoteRespStatus)(0),                    // 1: rfqrpc.QuoteRespStatus
+	(RfqPolicyType)(0),                      // 2: rfqrpc.RfqPolicyType
+	(*AssetSpecifier)(nil),                  // 3: rfqrpc.AssetSpecifier
+	(*FixedPoint)(nil),                      // 4: rfqrpc.FixedPoint
+	(*AddAssetBuyOrderRequest)(nil),         // 5: rfqrpc.AddAssetBuyOrderRequest
+	(*AddAssetBuyOrderResponse)(nil),        // 6: rfqrpc.AddAssetBuyOrderResponse
+	(*AddAssetSellOrderRequest)(nil),        // 7: rfqrpc.AddAssetSellOrderRequest
+	(*AddAssetSellOrderResponse)(nil),       // 8: rfqrpc.AddAssetSellOrderResponse
+	(*AddAssetSellOfferRequest)(nil),        // 9: rfqrpc.AddAssetSellOfferRequest
+	(*AddAssetSellOfferResponse)(nil),       // 10: rfqrpc.AddAssetSellOfferResponse
+	(*AddAssetBuyOfferRequest)(nil),         // 11: rfqrpc.AddAssetBuyOfferRequest
+	(*AddAssetBuyOfferResponse)(nil),        // 12: rfqrpc.AddAssetBuyOfferResponse
+	(*QueryPeerAcceptedQuotesRequest)(nil),  // 13: rfqrpc.QueryPeerAcceptedQuotesRequest
+	(*AssetSpec)(nil),                       // 14: rfqrpc.AssetSpec
+	(*PeerAcceptedBuyQuote)(nil),            // 15: rfqrpc.PeerAcceptedBuyQuote
+	(*PeerAcceptedSellQuote)(nil),           // 16: rfqrpc.PeerAcceptedSellQuote
+	(*InvalidQuoteResponse)(nil),            // 17: rfqrpc.InvalidQuoteResponse
+	(*RejectedQuoteResponse)(nil),           // 18: rfqrpc.RejectedQuoteResponse
+	(*QueryPeerAcceptedQuotesResponse)(nil), // 19: rfqrpc.QueryPeerAcceptedQuotesResponse
+	(*SubscribeRfqEventNtfnsRequest)(nil),   // 20: rfqrpc.SubscribeRfqEventNtfnsRequest
+	(*PeerAcceptedBuyQuoteEvent)(nil),       // 21: rfqrpc.PeerAcceptedBuyQuoteEvent
+	(*PeerAcceptedSellQuoteEvent)(nil),      // 22: rfqrpc.PeerAcceptedSellQuoteEvent
+	(*AcceptHtlcEvent)(nil),                 // 23: rfqrpc.AcceptHtlcEvent
+	(*RfqEvent)(nil),                        // 24: rfqrpc.RfqEvent
+	(*ForwardingHistoryRequest)(nil),        // 25: rfqrpc.ForwardingHistoryRequest
+	(*ForwardingHistoryResponse)(nil),       // 26: rfqrpc.ForwardingHistoryResponse
+	(*ForwardingEvent)(nil),                 // 27: rfqrpc.ForwardingEvent
 }
 var file_rfqrpc_rfq_proto_depIdxs = []int32{
-	2,  // 0: rfqrpc.AddAssetBuyOrderRequest.asset_specifier:type_name -> rfqrpc.AssetSpecifier
-	3,  // 1: rfqrpc.AddAssetBuyOrderRequest.asset_rate_limit:type_name -> rfqrpc.FixedPoint
-	14, // 2: rfqrpc.AddAssetBuyOrderResponse.accepted_quote:type_name -> rfqrpc.PeerAcceptedBuyQuote
-	16, // 3: rfqrpc.AddAssetBuyOrderResponse.invalid_quote:type_name -> rfqrpc.InvalidQuoteResponse
-	17, // 4: rfqrpc.AddAssetBuyOrderResponse.rejected_quote:type_name -> rfqrpc.RejectedQuoteResponse
-	2,  // 5: rfqrpc.AddAssetSellOrderRequest.asset_specifier:type_name -> rfqrpc.AssetSpecifier
-	3,  // 6: rfqrpc.AddAssetSellOrderRequest.asset_rate_limit:type_name -> rfqrpc.FixedPoint
-	15, // 7: rfqrpc.AddAssetSellOrderResponse.accepted_quote:type_name -> rfqrpc.PeerAcceptedSellQuote
-	16, // 8: rfqrpc.AddAssetSellOrderResponse.invalid_quote:type_name -> rfqrpc.InvalidQuoteResponse
-	17, // 9: rfqrpc.AddAssetSellOrderResponse.rejected_quote:type_name -> rfqrpc.RejectedQuoteResponse
-	2,  // 10: rfqrpc.AddAssetSellOfferRequest.asset_specifier:type_name -> rfqrpc.AssetSpecifier
-	2,  // 11: rfqrpc.AddAssetBuyOfferRequest.asset_specifier:type_name -> rfqrpc.AssetSpecifier
-	3,  // 12: rfqrpc.PeerAcceptedBuyQuote.ask_asset_rate:type_name -> rfqrpc.FixedPoint
-	13, // 13: rfqrpc.PeerAcceptedBuyQuote.asset_spec:type_name -> rfqrpc.AssetSpec
-	3,  // 14: rfqrpc.PeerAcceptedSellQuote.bid_asset_rate:type_name -> rfqrpc.FixedPoint
-	13, // 15: rfqrpc.PeerAcceptedSellQuote.asset_spec:type_name -> rfqrpc.AssetSpec
-	0,  // 16: rfqrpc.InvalidQuoteResponse.status:type_name -> rfqrpc.QuoteRespStatus
-	14, // 17: rfqrpc.QueryPeerAcceptedQuotesResponse.buy_quotes:type_name -> rfqrpc.PeerAcceptedBuyQuote
-	15, // 18: rfqrpc.QueryPeerAcceptedQuotesResponse.sell_quotes:type_name -> rfqrpc.PeerAcceptedSellQuote
-	14, // 19: rfqrpc.PeerAcceptedBuyQuoteEvent.peer_accepted_buy_quote:type_name -> rfqrpc.PeerAcceptedBuyQuote
-	15, // 20: rfqrpc.PeerAcceptedSellQuoteEvent.peer_accepted_sell_quote:type_name -> rfqrpc.PeerAcceptedSellQuote
-	20, // 21: rfqrpc.RfqEvent.peer_accepted_buy_quote:type_name -> rfqrpc.PeerAcceptedBuyQuoteEvent
-	21, // 22: rfqrpc.RfqEvent.peer_accepted_sell_quote:type_name -> rfqrpc.PeerAcceptedSellQuoteEvent
-	22, // 23: rfqrpc.RfqEvent.accept_htlc:type_name -> rfqrpc.AcceptHtlcEvent
-	2,  // 24: rfqrpc.ForwardingHistoryRequest.asset_specifier:type_name -> rfqrpc.AssetSpecifier
-	26, // 25: rfqrpc.ForwardingHistoryResponse.forwards:type_name -> rfqrpc.ForwardingEvent
-	1,  // 26: rfqrpc.ForwardingEvent.policy_type:type_name -> rfqrpc.RfqPolicyType
-	13, // 27: rfqrpc.ForwardingEvent.asset_spec:type_name -> rfqrpc.AssetSpec
-	3,  // 28: rfqrpc.ForwardingEvent.rate:type_name -> rfqrpc.FixedPoint
-	4,  // 29: rfqrpc.Rfq.AddAssetBuyOrder:input_type -> rfqrpc.AddAssetBuyOrderRequest
-	6,  // 30: rfqrpc.Rfq.AddAssetSellOrder:input_type -> rfqrpc.AddAssetSellOrderRequest
-	8,  // 31: rfqrpc.Rfq.AddAssetSellOffer:input_type -> rfqrpc.AddAssetSellOfferRequest
-	10, // 32: rfqrpc.Rfq.AddAssetBuyOffer:input_type -> rfqrpc.AddAssetBuyOfferRequest
-	12, // 33: rfqrpc.Rfq.QueryPeerAcceptedQuotes:input_type -> rfqrpc.QueryPeerAcceptedQuotesRequest
-	19, // 34: rfqrpc.Rfq.SubscribeRfqEventNtfns:input_type -> rfqrpc.SubscribeRfqEventNtfnsRequest
-	24, // 35: rfqrpc.Rfq.ForwardingHistory:input_type -> rfqrpc.ForwardingHistoryRequest
-	5,  // 36: rfqrpc.Rfq.AddAssetBuyOrder:output_type -> rfqrpc.AddAssetBuyOrderResponse
-	7,  // 37: rfqrpc.Rfq.AddAssetSellOrder:output_type -> rfqrpc.AddAssetSellOrderResponse
-	9,  // 38: rfqrpc.Rfq.AddAssetSellOffer:output_type -> rfqrpc.AddAssetSellOfferResponse
-	11, // 39: rfqrpc.Rfq.AddAssetBuyOffer:output_type -> rfqrpc.AddAssetBuyOfferResponse
-	18, // 40: rfqrpc.Rfq.QueryPeerAcceptedQuotes:output_type -> rfqrpc.QueryPeerAcceptedQuotesResponse
-	23, // 41: rfqrpc.Rfq.SubscribeRfqEventNtfns:output_type -> rfqrpc.RfqEvent
-	25, // 42: rfqrpc.Rfq.ForwardingHistory:output_type -> rfqrpc.ForwardingHistoryResponse
-	36, // [36:43] is the sub-list for method output_type
-	29, // [29:36] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	3,  // 0: rfqrpc.AddAssetBuyOrderRequest.asset_specifier:type_name -> rfqrpc.AssetSpecifier
+	4,  // 1: rfqrpc.AddAssetBuyOrderRequest.asset_rate_limit:type_name -> rfqrpc.FixedPoint
+	0,  // 2: rfqrpc.AddAssetBuyOrderRequest.execution_policy:type_name -> rfqrpc.ExecutionPolicy
+	15, // 3: rfqrpc.AddAssetBuyOrderResponse.accepted_quote:type_name -> rfqrpc.PeerAcceptedBuyQuote
+	17, // 4: rfqrpc.AddAssetBuyOrderResponse.invalid_quote:type_name -> rfqrpc.InvalidQuoteResponse
+	18, // 5: rfqrpc.AddAssetBuyOrderResponse.rejected_quote:type_name -> rfqrpc.RejectedQuoteResponse
+	3,  // 6: rfqrpc.AddAssetSellOrderRequest.asset_specifier:type_name -> rfqrpc.AssetSpecifier
+	4,  // 7: rfqrpc.AddAssetSellOrderRequest.asset_rate_limit:type_name -> rfqrpc.FixedPoint
+	0,  // 8: rfqrpc.AddAssetSellOrderRequest.execution_policy:type_name -> rfqrpc.ExecutionPolicy
+	16, // 9: rfqrpc.AddAssetSellOrderResponse.accepted_quote:type_name -> rfqrpc.PeerAcceptedSellQuote
+	17, // 10: rfqrpc.AddAssetSellOrderResponse.invalid_quote:type_name -> rfqrpc.InvalidQuoteResponse
+	18, // 11: rfqrpc.AddAssetSellOrderResponse.rejected_quote:type_name -> rfqrpc.RejectedQuoteResponse
+	3,  // 12: rfqrpc.AddAssetSellOfferRequest.asset_specifier:type_name -> rfqrpc.AssetSpecifier
+	3,  // 13: rfqrpc.AddAssetBuyOfferRequest.asset_specifier:type_name -> rfqrpc.AssetSpecifier
+	4,  // 14: rfqrpc.PeerAcceptedBuyQuote.ask_asset_rate:type_name -> rfqrpc.FixedPoint
+	14, // 15: rfqrpc.PeerAcceptedBuyQuote.asset_spec:type_name -> rfqrpc.AssetSpec
+	4,  // 16: rfqrpc.PeerAcceptedSellQuote.bid_asset_rate:type_name -> rfqrpc.FixedPoint
+	14, // 17: rfqrpc.PeerAcceptedSellQuote.asset_spec:type_name -> rfqrpc.AssetSpec
+	1,  // 18: rfqrpc.InvalidQuoteResponse.status:type_name -> rfqrpc.QuoteRespStatus
+	15, // 19: rfqrpc.QueryPeerAcceptedQuotesResponse.buy_quotes:type_name -> rfqrpc.PeerAcceptedBuyQuote
+	16, // 20: rfqrpc.QueryPeerAcceptedQuotesResponse.sell_quotes:type_name -> rfqrpc.PeerAcceptedSellQuote
+	15, // 21: rfqrpc.PeerAcceptedBuyQuoteEvent.peer_accepted_buy_quote:type_name -> rfqrpc.PeerAcceptedBuyQuote
+	16, // 22: rfqrpc.PeerAcceptedSellQuoteEvent.peer_accepted_sell_quote:type_name -> rfqrpc.PeerAcceptedSellQuote
+	21, // 23: rfqrpc.RfqEvent.peer_accepted_buy_quote:type_name -> rfqrpc.PeerAcceptedBuyQuoteEvent
+	22, // 24: rfqrpc.RfqEvent.peer_accepted_sell_quote:type_name -> rfqrpc.PeerAcceptedSellQuoteEvent
+	23, // 25: rfqrpc.RfqEvent.accept_htlc:type_name -> rfqrpc.AcceptHtlcEvent
+	3,  // 26: rfqrpc.ForwardingHistoryRequest.asset_specifier:type_name -> rfqrpc.AssetSpecifier
+	27, // 27: rfqrpc.ForwardingHistoryResponse.forwards:type_name -> rfqrpc.ForwardingEvent
+	2,  // 28: rfqrpc.ForwardingEvent.policy_type:type_name -> rfqrpc.RfqPolicyType
+	14, // 29: rfqrpc.ForwardingEvent.asset_spec:type_name -> rfqrpc.AssetSpec
+	4,  // 30: rfqrpc.ForwardingEvent.rate:type_name -> rfqrpc.FixedPoint
+	5,  // 31: rfqrpc.Rfq.AddAssetBuyOrder:input_type -> rfqrpc.AddAssetBuyOrderRequest
+	7,  // 32: rfqrpc.Rfq.AddAssetSellOrder:input_type -> rfqrpc.AddAssetSellOrderRequest
+	9,  // 33: rfqrpc.Rfq.AddAssetSellOffer:input_type -> rfqrpc.AddAssetSellOfferRequest
+	11, // 34: rfqrpc.Rfq.AddAssetBuyOffer:input_type -> rfqrpc.AddAssetBuyOfferRequest
+	13, // 35: rfqrpc.Rfq.QueryPeerAcceptedQuotes:input_type -> rfqrpc.QueryPeerAcceptedQuotesRequest
+	20, // 36: rfqrpc.Rfq.SubscribeRfqEventNtfns:input_type -> rfqrpc.SubscribeRfqEventNtfnsRequest
+	25, // 37: rfqrpc.Rfq.ForwardingHistory:input_type -> rfqrpc.ForwardingHistoryRequest
+	6,  // 38: rfqrpc.Rfq.AddAssetBuyOrder:output_type -> rfqrpc.AddAssetBuyOrderResponse
+	8,  // 39: rfqrpc.Rfq.AddAssetSellOrder:output_type -> rfqrpc.AddAssetSellOrderResponse
+	10, // 40: rfqrpc.Rfq.AddAssetSellOffer:output_type -> rfqrpc.AddAssetSellOfferResponse
+	12, // 41: rfqrpc.Rfq.AddAssetBuyOffer:output_type -> rfqrpc.AddAssetBuyOfferResponse
+	19, // 42: rfqrpc.Rfq.QueryPeerAcceptedQuotes:output_type -> rfqrpc.QueryPeerAcceptedQuotesResponse
+	24, // 43: rfqrpc.Rfq.SubscribeRfqEventNtfns:output_type -> rfqrpc.RfqEvent
+	26, // 44: rfqrpc.Rfq.ForwardingHistory:output_type -> rfqrpc.ForwardingHistoryResponse
+	38, // [38:45] is the sub-list for method output_type
+	31, // [31:38] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_rfqrpc_rfq_proto_init() }
@@ -2457,7 +2546,7 @@ func file_rfqrpc_rfq_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_rfqrpc_rfq_proto_rawDesc), len(file_rfqrpc_rfq_proto_rawDesc)),
-			NumEnums:      2,
+			NumEnums:      3,
 			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,

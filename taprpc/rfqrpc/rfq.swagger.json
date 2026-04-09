@@ -593,6 +593,10 @@
         "asset_rate_limit": {
           "$ref": "#/definitions/rfqrpcFixedPoint",
           "description": "An optional rate limit constraint expressed as a fixed-point number.\nFor buy orders this is the minimum acceptable rate (asset units per\nBTC). If unset, no rate floor is enforced."
+        },
+        "execution_policy": {
+          "$ref": "#/definitions/rfqrpcExecutionPolicy",
+          "description": "The execution policy for this order. IOC (default) accepts any\npartial fill \u003e= min threshold. FOK requires the rate to support\nthe full max amount."
         }
       }
     },
@@ -687,6 +691,10 @@
         "asset_rate_limit": {
           "$ref": "#/definitions/rfqrpcFixedPoint",
           "description": "An optional rate limit constraint expressed as a fixed-point number.\nFor sell orders this is the maximum acceptable rate (asset units per\nBTC). If unset, no rate ceiling is enforced."
+        },
+        "execution_policy": {
+          "$ref": "#/definitions/rfqrpcExecutionPolicy",
+          "description": "The execution policy for this order. IOC (default) accepts any\npartial fill \u003e= min threshold. FOK requires the rate to support\nthe full max amount."
         }
       }
     },
@@ -791,6 +799,15 @@
           "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
         }
       }
+    },
+    "rfqrpcExecutionPolicy": {
+      "type": "string",
+      "enum": [
+        "EXECUTION_POLICY_IOC",
+        "EXECUTION_POLICY_FOK"
+      ],
+      "default": "EXECUTION_POLICY_IOC",
+      "description": "ExecutionPolicy specifies how a quote request should be filled.\n\n - EXECUTION_POLICY_IOC: EXECUTION_POLICY_IOC is Immediate-Or-Cancel: accept any partial\nfill at or above the minimum threshold. This is the default.\n - EXECUTION_POLICY_FOK: EXECUTION_POLICY_FOK is Fill-Or-Kill: the accepted rate must\nsupport the full maximum amount or the quote is rejected."
     },
     "rfqrpcFixedPoint": {
       "type": "object",
@@ -1065,10 +1082,11 @@
         "PORTFOLIO_PILOT_ERR",
         "VALID_ACCEPT_QUOTE",
         "MIN_FILL_NOT_MET",
-        "RATE_BOUND_MISS"
+        "RATE_BOUND_MISS",
+        "FOK_NOT_VIABLE"
       ],
       "default": "INVALID_ASSET_RATES",
-      "description": "QuoteRespStatus is an enum that represents the status of a quote response.\n\n - INVALID_ASSET_RATES: INVALID_ASSET_RATES indicates that at least one asset rate in the\nquote response is invalid.\n - INVALID_EXPIRY: INVALID_EXPIRY indicates that the expiry in the quote response is\ninvalid.\n - PRICE_ORACLE_QUERY_ERR: PRICE_ORACLE_QUERY_ERR indicates that an error occurred when querying the\nprice oracle whilst evaluating the quote response.\n - PORTFOLIO_PILOT_ERR: PORTFOLIO_PILOT_ERR indicates that an unexpected error occurred in the\nportfolio pilot while evaluating the quote response.\n - VALID_ACCEPT_QUOTE: VALID_ACCEPT_QUOTE indicates that the accepted quote passed all\nvalidation checks successfully.\n - MIN_FILL_NOT_MET: MIN_FILL_NOT_MET indicates that the minimum fill constraint\nwas not satisfiable at the accepted rate.\n - RATE_BOUND_MISS: RATE_BOUND_MISS indicates that the accepted rate violated the\nrequester's rate limit constraint."
+      "description": "QuoteRespStatus is an enum that represents the status of a quote response.\n\n - INVALID_ASSET_RATES: INVALID_ASSET_RATES indicates that at least one asset rate in the\nquote response is invalid.\n - INVALID_EXPIRY: INVALID_EXPIRY indicates that the expiry in the quote response is\ninvalid.\n - PRICE_ORACLE_QUERY_ERR: PRICE_ORACLE_QUERY_ERR indicates that an error occurred when querying the\nprice oracle whilst evaluating the quote response.\n - PORTFOLIO_PILOT_ERR: PORTFOLIO_PILOT_ERR indicates that an unexpected error occurred in the\nportfolio pilot while evaluating the quote response.\n - VALID_ACCEPT_QUOTE: VALID_ACCEPT_QUOTE indicates that the accepted quote passed all\nvalidation checks successfully.\n - MIN_FILL_NOT_MET: MIN_FILL_NOT_MET indicates that the minimum fill constraint\nwas not satisfiable at the accepted rate.\n - RATE_BOUND_MISS: RATE_BOUND_MISS indicates that the accepted rate violated the\nrequester's rate limit constraint.\n - FOK_NOT_VIABLE: FOK_NOT_VIABLE indicates that the FOK execution policy could\nnot be satisfied at the accepted rate."
     },
     "rfqrpcRejectedQuoteResponse": {
       "type": "object",
