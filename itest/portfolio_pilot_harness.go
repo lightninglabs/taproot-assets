@@ -149,9 +149,19 @@ func (p *portfolioPilotHarness) ResolveRequest(_ context.Context,
 	var hint *pilotrpc.AssetRate
 	switch r := req.GetRequest().(type) {
 	case *pilotrpc.ResolveRequestRequest_BuyRequest:
-		hint = r.BuyRequest.GetAssetRateHint()
+		br := r.BuyRequest
+		hint = br.GetAssetRateHint()
+		log.Infof("ResolveRequest buy: max=%d min=%d "+
+			"rate_limit=%v", br.GetAssetMaxAmount(),
+			br.GetAssetMinAmount(),
+			br.GetAssetRateLimit())
 	case *pilotrpc.ResolveRequestRequest_SellRequest:
-		hint = r.SellRequest.GetAssetRateHint()
+		sr := r.SellRequest
+		hint = sr.GetAssetRateHint()
+		log.Infof("ResolveRequest sell: max=%d min=%d "+
+			"rate_limit=%v", sr.GetPaymentMaxAmount(),
+			sr.GetPaymentMinAmount(),
+			sr.GetAssetRateLimit())
 	default:
 		return nil, fmt.Errorf("unknown request type: %T", r)
 	}

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"net/http"
 	"net/url"
 	"sort"
@@ -8324,7 +8325,35 @@ func parseAssetSpecifier(reqAssetID []byte, reqAssetIDStr string,
 	return assetID, groupKey, nil
 }
 
-// unmarshalAssetBuyOrder unmarshals an asset buy order from the RPC form.
+// unmarshalOptionalFixedPoint converts an optional RPC FixedPoint into
+// an fn.Option[rfqmath.BigIntFixedPoint]. A nil input returns fn.None.
+func unmarshalOptionalFixedPoint(
+	fp *rfqrpc.FixedPoint) (fn.Option[rfqmath.BigIntFixedPoint], error) {
+
+	if fp == nil {
+		return fn.None[rfqmath.BigIntFixedPoint](), nil
+	}
+
+	if fp.Scale > 255 {
+		return fn.None[rfqmath.BigIntFixedPoint](),
+			fmt.Errorf("scale value overflow: %v", fp.Scale)
+	}
+
+	cBigInt := new(big.Int)
+	if _, ok := cBigInt.SetString(fp.Coefficient, 10); !ok {
+		return fn.None[rfqmath.BigIntFixedPoint](),
+			fmt.Errorf("invalid coefficient: %s",
+				fp.Coefficient)
+	}
+
+	result := rfqmath.BigIntFixedPoint{
+		Coefficient: rfqmath.NewBigInt(cBigInt),
+		Scale:       uint8(fp.Scale),
+	}
+
+	return fn.Some(result), nil
+}
+
 func unmarshalAssetBuyOrder(
 	req *rfqrpc.AddAssetBuyOrderRequest) (*rfq.BuyOrder, error) {
 
@@ -8370,9 +8399,26 @@ func unmarshalAssetBuyOrder(
 			len(req.PriceOracleMetadata))
 	}
 
+	// Unmarshal optional min amount.
+	var assetMinAmt fn.Option[uint64]
+	if req.AssetMinAmt > 0 {
+		assetMinAmt = fn.Some(req.AssetMinAmt)
+	}
+
+	// Unmarshal optional rate limit.
+	assetRateLimit, err := unmarshalOptionalFixedPoint(
+		req.AssetRateLimit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling asset rate "+
+			"limit: %w", err)
+	}
+
 	return &rfq.BuyOrder{
 		AssetSpecifier:      assetSpecifier,
 		AssetMaxAmt:         req.AssetMaxAmt,
+		AssetMinAmt:         assetMinAmt,
+		AssetRateLimit:      assetRateLimit,
 		Expiry:              expiry,
 		Peer:                fn.MaybeSome(peer),
 		PriceOracleMetadata: req.PriceOracleMetadata,
@@ -8586,9 +8632,28 @@ func unmarshalAssetSellOrder(
 			len(req.PriceOracleMetadata))
 	}
 
+	// Unmarshal optional min payment amount.
+	var paymentMinAmt fn.Option[lnwire.MilliSatoshi]
+	if req.PaymentMinAmt > 0 {
+		paymentMinAmt = fn.Some(
+			lnwire.MilliSatoshi(req.PaymentMinAmt),
+		)
+	}
+
+	// Unmarshal optional rate limit.
+	assetRateLimit, err := unmarshalOptionalFixedPoint(
+		req.AssetRateLimit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling asset rate "+
+			"limit: %w", err)
+	}
+
 	return &rfq.SellOrder{
 		AssetSpecifier:      assetSpecifier,
 		PaymentMaxAmt:       lnwire.MilliSatoshi(req.PaymentMaxAmt),
+		PaymentMinAmt:       paymentMinAmt,
+		AssetRateLimit:      assetRateLimit,
 		Expiry:              expiry,
 		Peer:                peer,
 		PriceOracleMetadata: req.PriceOracleMetadata,

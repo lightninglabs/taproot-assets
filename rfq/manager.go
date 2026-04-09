@@ -1440,6 +1440,14 @@ const (
 	// ValidAcceptQuoteRespStatus indicates that the accepted quote passed
 	// all validation checks successfully.
 	ValidAcceptQuoteRespStatus QuoteRespStatus = 4
+
+	// MinFillNotMetQuoteRespStatus indicates that the minimum fill
+	// constraint was not satisfiable at the accepted rate.
+	MinFillNotMetQuoteRespStatus QuoteRespStatus = 5
+
+	// RateBoundMissQuoteRespStatus indicates that the accepted rate
+	// violated the requester's rate limit constraint.
+	RateBoundMissQuoteRespStatus QuoteRespStatus = 6
 )
 
 // InvalidQuoteRespEvent is an event that is broadcast when the RFQ manager

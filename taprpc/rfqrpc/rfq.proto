@@ -160,6 +160,16 @@ message AddAssetBuyOrderRequest {
     // This field is optional and can be left empty if no metadata is available.
     // The maximum length of this field is 32'768 bytes.
     string price_oracle_metadata = 7;
+
+    // The optional minimum amount of the asset that the provider must be
+    // willing to offer. If set, must be less than or equal to asset_max_amt.
+    // A value of 0 means unset.
+    uint64 asset_min_amt = 8;
+
+    // An optional rate limit constraint expressed as a fixed-point number.
+    // For buy orders this is the minimum acceptable rate (asset units per
+    // BTC). If unset, no rate floor is enforced.
+    FixedPoint asset_rate_limit = 9;
 }
 
 message AddAssetBuyOrderResponse {
@@ -211,6 +221,16 @@ message AddAssetSellOrderRequest {
     // This field is optional and can be left empty if no metadata is available.
     // The maximum length of this field is 32'768 bytes.
     string price_oracle_metadata = 7;
+
+    // The optional minimum msat amount that the responding peer must agree
+    // to pay. If set, must be less than or equal to payment_max_amt.
+    // A value of 0 means unset (units: millisats).
+    uint64 payment_min_amt = 8;
+
+    // An optional rate limit constraint expressed as a fixed-point number.
+    // For sell orders this is the maximum acceptable rate (asset units per
+    // BTC). If unset, no rate ceiling is enforced.
+    FixedPoint asset_rate_limit = 9;
 }
 
 message AddAssetSellOrderResponse {
@@ -365,6 +385,14 @@ enum QuoteRespStatus {
     // VALID_ACCEPT_QUOTE indicates that the accepted quote passed all
     // validation checks successfully.
     VALID_ACCEPT_QUOTE = 4;
+
+    // MIN_FILL_NOT_MET indicates that the minimum fill constraint
+    // was not satisfiable at the accepted rate.
+    MIN_FILL_NOT_MET = 5;
+
+    // RATE_BOUND_MISS indicates that the accepted rate violated the
+    // requester's rate limit constraint.
+    RATE_BOUND_MISS = 6;
 }
 
 // InvalidQuoteResponse is a message that is returned when a quote response is

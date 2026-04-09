@@ -104,9 +104,19 @@ func (p *RpcPortfolioPilotServer) ResolveRequest(_ context.Context,
 	var hint *portfoliopilotrpc.AssetRate
 	switch r := req.GetRequest().(type) {
 	case *portfoliopilotrpc.ResolveRequestRequest_BuyRequest:
-		hint = r.BuyRequest.GetAssetRateHint()
+		br := r.BuyRequest
+		hint = br.GetAssetRateHint()
+		log.Printf("ResolveRequest buy: max=%d min=%d "+
+			"rate_limit=%v", br.GetAssetMaxAmount(),
+			br.GetAssetMinAmount(),
+			br.GetAssetRateLimit())
 	case *portfoliopilotrpc.ResolveRequestRequest_SellRequest:
-		hint = r.SellRequest.GetAssetRateHint()
+		sr := r.SellRequest
+		hint = sr.GetAssetRateHint()
+		log.Printf("ResolveRequest sell: max=%d min=%d "+
+			"rate_limit=%v", sr.GetPaymentMaxAmount(),
+			sr.GetPaymentMinAmount(),
+			sr.GetAssetRateLimit())
 	default:
 		return nil, fmt.Errorf("unknown request type: %T", r)
 	}

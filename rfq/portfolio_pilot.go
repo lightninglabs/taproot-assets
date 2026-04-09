@@ -363,6 +363,18 @@ func (p *InternalPortfolioPilot) VerifyAcceptQuote(ctx context.Context,
 		return InvalidAssetRatesQuoteRespStatus, nil
 	}
 
+	// Enforce the requester's rate bound constraint if set.
+	status := checkRateBound(req, counterRate.Rate)
+	if status != ValidAcceptQuoteRespStatus {
+		return status, nil
+	}
+
+	// Enforce the requester's min fill constraint if set.
+	status = checkMinFill(req, counterRate.Rate)
+	if status != ValidAcceptQuoteRespStatus {
+		return status, nil
+	}
+
 	return ValidAcceptQuoteRespStatus, nil
 }
 
@@ -442,4 +454,94 @@ func (p *InternalPortfolioPilot) QueryAssetRates(ctx context.Context,
 // pilot is in-memory only, so this is a no-op.
 func (p *InternalPortfolioPilot) Close() error {
 	return nil
+}
+
+// checkRateBound verifies that the accepted rate satisfies the
+// requester's rate limit constraint. For a buy request, the accepted
+// rate must be >= the limit (buyer's floor). For a sell request, the
+// accepted rate must be <= the limit (seller's ceiling).
+func checkRateBound(req rfqmsg.Request,
+	acceptedRate rfqmath.BigIntFixedPoint) QuoteRespStatus {
+
+	switch r := req.(type) {
+	case *rfqmsg.BuyRequest:
+		miss := fn.MapOptionZ(
+			r.AssetRateLimit,
+			func(limit rfqmath.BigIntFixedPoint) bool {
+				return acceptedRate.Cmp(limit) < 0
+			},
+		)
+		if miss {
+			return RateBoundMissQuoteRespStatus
+		}
+
+	case *rfqmsg.SellRequest:
+		miss := fn.MapOptionZ(
+			r.AssetRateLimit,
+			func(limit rfqmath.BigIntFixedPoint) bool {
+				return acceptedRate.Cmp(limit) > 0
+			},
+		)
+		if miss {
+			return RateBoundMissQuoteRespStatus
+		}
+
+	default:
+		log.Warnf("checkRateBound: unhandled request type %T",
+			req)
+	}
+
+	return ValidAcceptQuoteRespStatus
+}
+
+// checkMinFill verifies that the requester's minimum fill amount is
+// transportable at the accepted rate. For a buy request, the min asset
+// amount must convert to a non-zero msat value. For a sell request,
+// the min payment amount must convert to non-zero asset units.
+func checkMinFill(req rfqmsg.Request,
+	acceptedRate rfqmath.BigIntFixedPoint) QuoteRespStatus {
+
+	switch r := req.(type) {
+	case *rfqmsg.BuyRequest:
+		notMet := fn.MapOptionZ(
+			r.AssetMinAmt,
+			func(minAmt uint64) bool {
+				coeff := rfqmath.NewBigIntFromUint64(
+					minAmt,
+				)
+				units := rfqmath.FixedPoint[rfqmath.BigInt]{
+					Coefficient: coeff,
+					Scale:       0,
+				}
+				msat := rfqmath.UnitsToMilliSatoshi(
+					units, acceptedRate,
+				)
+				return msat == 0
+			},
+		)
+		if notMet {
+			return MinFillNotMetQuoteRespStatus
+		}
+
+	case *rfqmsg.SellRequest:
+		notMet := fn.MapOptionZ(
+			r.PaymentMinAmt,
+			func(minAmt lnwire.MilliSatoshi) bool {
+				units := rfqmath.MilliSatoshiToUnits(
+					minAmt, acceptedRate,
+				)
+				zero := rfqmath.NewBigIntFromUint64(0)
+				return units.Coefficient.Equals(zero)
+			},
+		)
+		if notMet {
+			return MinFillNotMetQuoteRespStatus
+		}
+
+	default:
+		log.Warnf("checkMinFill: unhandled request type %T",
+			req)
+	}
+
+	return ValidAcceptQuoteRespStatus
 }
