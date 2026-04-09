@@ -127,6 +127,7 @@ func TestResolveRequest(t *testing.T) {
 			fn.None[uint64](),
 			fn.None[rfqmath.BigIntFixedPoint](),
 			rateHint, "order-metadata",
+			fn.None[rfqmsg.ExecutionPolicy](),
 		)
 		require.NoError(t, err)
 		return req
@@ -146,6 +147,7 @@ func TestResolveRequest(t *testing.T) {
 			fn.None[lnwire.MilliSatoshi](),
 			fn.None[rfqmath.BigIntFixedPoint](),
 			rateHint, "order-metadata",
+			fn.None[rfqmsg.ExecutionPolicy](),
 		)
 		require.NoError(t, err)
 		return req
@@ -555,6 +557,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -585,6 +588,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -612,6 +616,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -644,6 +649,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -672,6 +678,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -699,6 +706,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -729,6 +737,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -760,6 +769,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -788,6 +798,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -816,6 +827,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -853,6 +865,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.Some(limit),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -886,6 +899,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.Some(limit),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -919,6 +933,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.Some(limit),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -953,6 +968,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.Some(limit),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -985,6 +1001,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.Some(limit),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -1023,6 +1040,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -1060,6 +1078,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
 				)
 				require.NoError(t, err)
 
@@ -1077,6 +1096,163 @@ func TestVerifyAcceptQuote(t *testing.T) {
 				)
 			},
 			expectStatus: ValidAcceptQuoteRespStatus,
+			expectErr:    false,
+		},
+
+		// --- FOK enforcement cases ---
+
+		{
+			name: "buy accept: FOK viable",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[uint64](),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.Some(
+						rfqmsg.ExecutionPolicyFOK,
+					),
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQueryBuyPrice(
+					p, &OracleResponse{
+						AssetRate: oracleRateMatch,
+					}, nil,
+				)
+			},
+			expectStatus: ValidAcceptQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "buy accept: FOK not viable",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				// Rate is huge: 1 unit converts
+				// to ~0 msat.
+				hugeRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(
+						1_000_000_000_000, 0,
+					),
+					validExpiryFuture,
+				)
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 1,
+					fn.None[uint64](),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.Some(
+						rfqmsg.ExecutionPolicyFOK,
+					),
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: hugeRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				oracleRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(
+						1_000_000_000_000, 0,
+					),
+					validExpiryFuture,
+				)
+				expectQueryBuyPrice(
+					p, &OracleResponse{
+						AssetRate: oracleRate,
+					}, nil,
+				)
+			},
+			expectStatus: FOKNotViableQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "sell accept: FOK viable",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				// 50B msat at 100 units/BTC =
+				// 5 units (non-zero).
+				sellReq, err := rfqmsg.NewSellRequest(
+					peerID, assetSpec,
+					lnwire.MilliSatoshi(50_000_000_000),
+					fn.None[lnwire.MilliSatoshi](),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.Some(
+						rfqmsg.ExecutionPolicyFOK,
+					),
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.SellAccept{
+					Peer:      peerID,
+					Request:   *sellReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				resp := OracleResponse{
+					AssetRate: oracleRateMatch,
+				}
+				expectQuerySellPrice(p, &resp, nil)
+			},
+			expectStatus: ValidAcceptQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "sell accept: FOK not viable",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				// Low rate (1 unit/BTC): 1 msat
+				// converts to 0 units.
+				lowRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(
+						1, 0,
+					),
+					validExpiryFuture,
+				)
+				sellReq, err := rfqmsg.NewSellRequest(
+					peerID, assetSpec,
+					lnwire.MilliSatoshi(1),
+					fn.None[lnwire.MilliSatoshi](),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.Some(
+						rfqmsg.ExecutionPolicyFOK,
+					),
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.SellAccept{
+					Peer:      peerID,
+					Request:   *sellReq,
+					AssetRate: lowRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				oracleRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(
+						1, 0,
+					),
+					validExpiryFuture,
+				)
+				resp := OracleResponse{
+					AssetRate: oracleRate,
+				}
+				expectQuerySellPrice(p, &resp, nil)
+			},
+			expectStatus: FOKNotViableQuoteRespStatus,
 			expectErr:    false,
 		},
 	}
@@ -1139,6 +1315,7 @@ func TestResolveRequestWithoutPriceOracleRejects(t *testing.T) {
 		fn.None[rfqmath.BigIntFixedPoint](),
 		fn.None[rfqmsg.AssetRate](),
 		"metadata",
+		fn.None[rfqmsg.ExecutionPolicy](),
 	)
 	require.NoError(t, err)
 
@@ -1180,6 +1357,7 @@ func TestVerifyAcceptQuoteWithoutPriceOracle(t *testing.T) {
 		fn.None[rfqmath.BigIntFixedPoint](),
 		fn.None[rfqmsg.AssetRate](),
 		"metadata",
+		fn.None[rfqmsg.ExecutionPolicy](),
 	)
 	require.NoError(t, err)
 
@@ -1403,6 +1581,120 @@ func TestCheckMinFill(t *testing.T) {
 			t.Parallel()
 
 			status := checkMinFill(tc.req, tc.rate)
+			require.Equal(t, tc.expect, status)
+		})
+	}
+}
+
+// TestCheckFOK exercises the checkFOK helper directly.
+func TestCheckFOK(t *testing.T) {
+	t.Parallel()
+
+	spec := asset.NewSpecifierFromId(asset.ID{0x01})
+
+	// Normal rate: 100 units/BTC.
+	normalRate := rfqmath.NewBigIntFixedPoint(100, 0)
+
+	// Huge rate: 1e12 units/BTC. Max of 1 unit converts
+	// to ~0 msat.
+	hugeRate := rfqmath.NewBigIntFixedPoint(
+		1_000_000_000_000, 0,
+	)
+
+	tests := []struct {
+		name   string
+		req    rfqmsg.Request
+		rate   rfqmath.BigIntFixedPoint
+		expect QuoteRespStatus
+	}{
+		{
+			name: "buy: no policy",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+			},
+			rate:   normalRate,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "buy: IOC policy",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				ExecutionPolicy: fn.Some(
+					rfqmsg.ExecutionPolicyIOC,
+				),
+			},
+			rate:   normalRate,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "buy: FOK viable",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				ExecutionPolicy: fn.Some(
+					rfqmsg.ExecutionPolicyFOK,
+				),
+			},
+			rate:   normalRate,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "buy: FOK rounds to zero",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    1,
+				ExecutionPolicy: fn.Some(
+					rfqmsg.ExecutionPolicyFOK,
+				),
+			},
+			rate:   hugeRate,
+			expect: FOKNotViableQuoteRespStatus,
+		},
+		{
+			name: "sell: no policy",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  1000,
+			},
+			rate:   normalRate,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "sell: FOK viable",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt: lnwire.MilliSatoshi(
+					50_000_000_000,
+				),
+				ExecutionPolicy: fn.Some(
+					rfqmsg.ExecutionPolicyFOK,
+				),
+			},
+			rate:   normalRate,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "sell: FOK rounds to zero",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  lnwire.MilliSatoshi(1),
+				ExecutionPolicy: fn.Some(
+					rfqmsg.ExecutionPolicyFOK,
+				),
+			},
+			// 1 unit/BTC: 1 msat = 1e-11 BTC * 1 = 0 units.
+			rate:   rfqmath.NewBigIntFixedPoint(1, 0),
+			expect: FOKNotViableQuoteRespStatus,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			status := checkFOK(tc.req, tc.rate)
 			require.Equal(t, tc.expect, status)
 		})
 	}

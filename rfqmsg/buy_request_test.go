@@ -44,6 +44,7 @@ func TestBuyRequestMinAmtRoundtrip(t *testing.T) {
 		peer, spec, 100, fn.Some[uint64](50),
 		fn.None[rfqmath.BigIntFixedPoint](),
 		fn.None[AssetRate](), "",
+		fn.None[ExecutionPolicy](),
 	)
 	require.NoError(t, err)
 
@@ -68,6 +69,7 @@ func TestBuyRequestRateLimitRoundtrip(t *testing.T) {
 	req, err := NewBuyRequest(
 		peer, spec, 200, fn.None[uint64](),
 		fn.Some(limit), fn.None[AssetRate](), "",
+		fn.None[ExecutionPolicy](),
 	)
 	require.NoError(t, err)
 
@@ -93,6 +95,7 @@ func TestBuyRequestNoOptionalFieldsRoundtrip(t *testing.T) {
 		peer, spec, 300, fn.None[uint64](),
 		fn.None[rfqmath.BigIntFixedPoint](),
 		fn.None[AssetRate](), "",
+		fn.None[ExecutionPolicy](),
 	)
 	require.NoError(t, err)
 
@@ -119,6 +122,7 @@ func TestBuyRequestAllFieldsRoundtrip(t *testing.T) {
 	req, err := NewBuyRequest(
 		peer, spec, 500, fn.Some[uint64](10),
 		fn.Some(limit), fn.Some(rateHint), "metadata",
+		fn.None[ExecutionPolicy](),
 	)
 	require.NoError(t, err)
 
@@ -193,4 +197,71 @@ func TestBuyRequestValidateZeroRateLimit(t *testing.T) {
 	err := req.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "must be positive")
+}
+
+// TestBuyRequestExecutionPolicyRoundtrip verifies that a FOK
+// execution policy survives a wire roundtrip.
+func TestBuyRequestExecutionPolicyRoundtrip(t *testing.T) {
+	t.Parallel()
+
+	peer := route.Vertex{0x05}
+	spec := asset.NewSpecifierFromId(asset.ID{0xEE})
+
+	req, err := NewBuyRequest(
+		peer, spec, 400, fn.None[uint64](),
+		fn.None[rfqmath.BigIntFixedPoint](),
+		fn.None[AssetRate](), "",
+		fn.Some(ExecutionPolicyFOK),
+	)
+	require.NoError(t, err)
+
+	decoded := buyRequestRoundtrip(t, req)
+
+	require.True(t, decoded.ExecutionPolicy.IsSome())
+	decoded.ExecutionPolicy.WhenSome(
+		func(v ExecutionPolicy) {
+			require.Equal(t, ExecutionPolicyFOK, v)
+		},
+	)
+}
+
+// TestBuyRequestNoExecutionPolicyRoundtrip verifies that an absent
+// execution policy stays None after a wire roundtrip.
+func TestBuyRequestNoExecutionPolicyRoundtrip(t *testing.T) {
+	t.Parallel()
+
+	peer := route.Vertex{0x06}
+	spec := asset.NewSpecifierFromId(asset.ID{0xFF})
+
+	req, err := NewBuyRequest(
+		peer, spec, 500, fn.None[uint64](),
+		fn.None[rfqmath.BigIntFixedPoint](),
+		fn.None[AssetRate](), "",
+		fn.None[ExecutionPolicy](),
+	)
+	require.NoError(t, err)
+
+	decoded := buyRequestRoundtrip(t, req)
+
+	require.True(t, decoded.ExecutionPolicy.IsNone())
+}
+
+// TestBuyRequestInvalidExecutionPolicy ensures Validate rejects
+// an unknown execution policy value.
+func TestBuyRequestInvalidExecutionPolicy(t *testing.T) {
+	t.Parallel()
+
+	req := &BuyRequest{
+		Version:         V1,
+		AssetSpecifier:  asset.NewSpecifierFromId(asset.ID{1}),
+		AssetMaxAmt:     100,
+		AssetMinAmt:     fn.None[uint64](),
+		AssetRateLimit:  fn.None[rfqmath.BigIntFixedPoint](),
+		AssetRateHint:   fn.None[AssetRate](),
+		ExecutionPolicy: fn.Some(ExecutionPolicy(2)),
+	}
+
+	err := req.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "execution policy")
 }

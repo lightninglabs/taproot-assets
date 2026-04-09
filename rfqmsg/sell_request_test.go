@@ -46,6 +46,7 @@ func TestSellRequestMinAmtRoundtrip(t *testing.T) {
 		fn.Some(lnwire.MilliSatoshi(1000)),
 		fn.None[rfqmath.BigIntFixedPoint](),
 		fn.None[AssetRate](), "",
+		fn.None[ExecutionPolicy](),
 	)
 	require.NoError(t, err)
 
@@ -55,7 +56,9 @@ func TestSellRequestMinAmtRoundtrip(t *testing.T) {
 	decoded.PaymentMinAmt.WhenSome(func(v lnwire.MilliSatoshi) {
 		require.Equal(t, lnwire.MilliSatoshi(1000), v)
 	})
-	require.Equal(t, lnwire.MilliSatoshi(5000), decoded.PaymentMaxAmt)
+	require.Equal(
+		t, lnwire.MilliSatoshi(5000), decoded.PaymentMaxAmt,
+	)
 }
 
 // TestSellRequestRateLimitRoundtrip verifies that AssetRateLimit
@@ -71,6 +74,7 @@ func TestSellRequestRateLimitRoundtrip(t *testing.T) {
 		peer, spec, lnwire.MilliSatoshi(10000),
 		fn.None[lnwire.MilliSatoshi](),
 		fn.Some(limit), fn.None[AssetRate](), "",
+		fn.None[ExecutionPolicy](),
 	)
 	require.NoError(t, err)
 
@@ -97,6 +101,7 @@ func TestSellRequestNoOptionalFieldsRoundtrip(t *testing.T) {
 		fn.None[lnwire.MilliSatoshi](),
 		fn.None[rfqmath.BigIntFixedPoint](),
 		fn.None[AssetRate](), "",
+		fn.None[ExecutionPolicy](),
 	)
 	require.NoError(t, err)
 
@@ -126,6 +131,7 @@ func TestSellRequestAllFieldsRoundtrip(t *testing.T) {
 		peer, spec, lnwire.MilliSatoshi(9000),
 		fn.Some(lnwire.MilliSatoshi(2000)),
 		fn.Some(limit), fn.Some(rateHint), "sell-meta",
+		fn.None[ExecutionPolicy](),
 	)
 	require.NoError(t, err)
 
@@ -204,4 +210,75 @@ func TestSellRequestValidateZeroRateLimit(t *testing.T) {
 	err := req.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "must be positive")
+}
+
+// TestSellRequestExecutionPolicyRoundtrip verifies that a FOK
+// execution policy survives a wire roundtrip.
+func TestSellRequestExecutionPolicyRoundtrip(t *testing.T) {
+	t.Parallel()
+
+	peer := route.Vertex{0x05}
+	spec := asset.NewSpecifierFromId(asset.ID{0xEE})
+
+	req, err := NewSellRequest(
+		peer, spec, lnwire.MilliSatoshi(7000),
+		fn.None[lnwire.MilliSatoshi](),
+		fn.None[rfqmath.BigIntFixedPoint](),
+		fn.None[AssetRate](), "",
+		fn.Some(ExecutionPolicyFOK),
+	)
+	require.NoError(t, err)
+
+	decoded := sellRequestRoundtrip(t, req)
+
+	require.True(t, decoded.ExecutionPolicy.IsSome())
+	decoded.ExecutionPolicy.WhenSome(
+		func(v ExecutionPolicy) {
+			require.Equal(t, ExecutionPolicyFOK, v)
+		},
+	)
+}
+
+// TestSellRequestNoExecutionPolicyRoundtrip verifies that an
+// absent execution policy stays None after a wire roundtrip.
+func TestSellRequestNoExecutionPolicyRoundtrip(t *testing.T) {
+	t.Parallel()
+
+	peer := route.Vertex{0x06}
+	spec := asset.NewSpecifierFromId(asset.ID{0xFF})
+
+	req, err := NewSellRequest(
+		peer, spec, lnwire.MilliSatoshi(8000),
+		fn.None[lnwire.MilliSatoshi](),
+		fn.None[rfqmath.BigIntFixedPoint](),
+		fn.None[AssetRate](), "",
+		fn.None[ExecutionPolicy](),
+	)
+	require.NoError(t, err)
+
+	decoded := sellRequestRoundtrip(t, req)
+
+	require.True(t, decoded.ExecutionPolicy.IsNone())
+}
+
+// TestSellRequestInvalidExecutionPolicy ensures Validate rejects
+// an unknown execution policy value.
+func TestSellRequestInvalidExecutionPolicy(t *testing.T) {
+	t.Parallel()
+
+	req := &SellRequest{
+		Version:        V1,
+		AssetSpecifier: asset.NewSpecifierFromId(asset.ID{1}),
+		PaymentMaxAmt:  lnwire.MilliSatoshi(1000),
+		PaymentMinAmt:  fn.None[lnwire.MilliSatoshi](),
+		AssetRateLimit: fn.None[rfqmath.BigIntFixedPoint](),
+		AssetRateHint:  fn.None[AssetRate](),
+		ExecutionPolicy: fn.Some(
+			ExecutionPolicy(2),
+		),
+	}
+
+	err := req.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "execution policy")
 }
