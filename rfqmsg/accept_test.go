@@ -21,6 +21,7 @@ type acceptEncodeDecodeTC struct {
 	sig          [64]byte
 	inAssetRate  TlvFixedPoint
 	outAssetRate TlvFixedPoint
+	maxInAsset   acceptMaxInAsset
 }
 
 // MsgData generates a acceptWireMsgData instance from the test case.
@@ -39,6 +40,7 @@ func (tc acceptEncodeDecodeTC) MsgData() acceptWireMsgData {
 		Sig:          sig,
 		InAssetRate:  inAssetRate,
 		OutAssetRate: outAssetRate,
+		MaxInAsset:   tc.maxInAsset,
 	}
 }
 
@@ -83,6 +85,29 @@ func TestAcceptMsgDataEncodeDecode(t *testing.T) {
 			inAssetRate:  inAssetRate,
 			outAssetRate: outAssetRate,
 		},
+		{
+			testName:     "with max in-asset fill",
+			version:      V1,
+			id:           id,
+			expiry:       expiry,
+			sig:          randSig,
+			inAssetRate:  inAssetRate,
+			outAssetRate: outAssetRate,
+			maxInAsset: tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType11](
+					uint64(500),
+				),
+			),
+		},
+		{
+			testName:     "no max in-asset fill",
+			version:      V1,
+			id:           id,
+			expiry:       expiry,
+			sig:          randSig,
+			inAssetRate:  inAssetRate,
+			outAssetRate: outAssetRate,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -105,4 +130,34 @@ func TestAcceptMsgDataEncodeDecode(t *testing.T) {
 			require.Equal(tt, msgData, decodedMsgData)
 		})
 	}
+
+	// Verify that a zero fill value on the wire is normalised to
+	// None during decode.
+	t.Run("zero max in-asset normalised to None", func(tt *testing.T) {
+		zeroFill := acceptEncodeDecodeTC{
+			testName:     "zero fill",
+			version:      V1,
+			id:           id,
+			expiry:       expiry,
+			sig:          randSig,
+			inAssetRate:  inAssetRate,
+			outAssetRate: outAssetRate,
+			maxInAsset: tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType11](
+					uint64(0),
+				),
+			),
+		}
+		msgData := zeroFill.MsgData()
+
+		msgDataBytes, err := msgData.Bytes()
+		require.NoError(tt, err)
+
+		var decoded acceptWireMsgData
+		err = decoded.Decode(bytes.NewReader(msgDataBytes))
+		require.NoError(tt, err)
+
+		// Zero should have been normalised away.
+		require.True(tt, decoded.MaxInAsset.IsNone())
+	})
 }

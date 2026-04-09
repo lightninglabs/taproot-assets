@@ -6,7 +6,17 @@ import (
 	"io"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
+)
+
+type (
+	// acceptMaxInAsset is a type alias for a record that represents
+	// an optional maximum in-asset amount (fill quantity) in the
+	// accept message.
+	acceptMaxInAsset = tlv.OptionalRecordT[
+		tlv.TlvType11, uint64,
+	]
 )
 
 const (
@@ -36,6 +46,10 @@ type acceptWireMsgData struct {
 
 	// OutAssetRate is the out-asset to BTC rate.
 	OutAssetRate tlv.RecordT[tlv.TlvType10, TlvFixedPoint]
+
+	// MaxInAsset is an optional maximum in-asset amount (fill
+	// quantity) that the responder is willing to accept.
+	MaxInAsset acceptMaxInAsset
 }
 
 // newAcceptWireMsgDataFromBuy creates a new acceptWireMsgData from a buy
@@ -60,6 +74,14 @@ func newAcceptWireMsgDataFromBuy(q BuyAccept) (acceptWireMsgData, error) {
 		NewTlvFixedPointFromBigInt(MilliSatPerBtc),
 	)
 
+	// Set optional max in-asset fill quantity.
+	var maxInAsset acceptMaxInAsset
+	q.AcceptedMaxAmount.WhenSome(func(amt uint64) {
+		maxInAsset = tlv.SomeRecordT[tlv.TlvType11](
+			tlv.NewPrimitiveRecord[tlv.TlvType11](amt),
+		)
+	})
+
 	// Encode message data component as TLV bytes.
 	return acceptWireMsgData{
 		Version:      version,
@@ -68,6 +90,7 @@ func newAcceptWireMsgDataFromBuy(q BuyAccept) (acceptWireMsgData, error) {
 		Sig:          sig,
 		InAssetRate:  inAssetRate,
 		OutAssetRate: outAssetRate,
+		MaxInAsset:   maxInAsset,
 	}, nil
 }
 
@@ -93,6 +116,14 @@ func newAcceptWireMsgDataFromSell(q SellAccept) (acceptWireMsgData, error) {
 	rate := NewTlvFixedPointFromBigInt(q.AssetRate.Rate)
 	outAssetRate := tlv.NewRecordT[tlv.TlvType10](rate)
 
+	// Set optional max in-asset fill quantity.
+	var maxInAsset acceptMaxInAsset
+	q.AcceptedMaxAmount.WhenSome(func(amt uint64) {
+		maxInAsset = tlv.SomeRecordT[tlv.TlvType11](
+			tlv.NewPrimitiveRecord[tlv.TlvType11](amt),
+		)
+	})
+
 	// Encode message data component as TLV bytes.
 	return acceptWireMsgData{
 		Version:      version,
@@ -101,6 +132,7 @@ func newAcceptWireMsgDataFromSell(q SellAccept) (acceptWireMsgData, error) {
 		Sig:          sig,
 		InAssetRate:  inAssetRate,
 		OutAssetRate: outAssetRate,
+		MaxInAsset:   maxInAsset,
 	}, nil
 }
 
@@ -137,6 +169,12 @@ func (m *acceptWireMsgData) Encode(w io.Writer) error {
 		m.OutAssetRate.Record(),
 	}
 
+	m.MaxInAsset.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType11, uint64]) {
+			records = append(records, r.Record())
+		},
+	)
+
 	tlv.SortRecords(records)
 
 	// Create the tlv stream.
@@ -150,6 +188,8 @@ func (m *acceptWireMsgData) Encode(w io.Writer) error {
 
 // Decode deserializes the acceptWireMsgData from the given io.Reader.
 func (m *acceptWireMsgData) Decode(r io.Reader) error {
+	maxInAsset := m.MaxInAsset.Zero()
+
 	// Create a tlv stream with all the fields.
 	tlvStream, err := tlv.NewStream(
 		m.Version.Record(),
@@ -158,15 +198,25 @@ func (m *acceptWireMsgData) Decode(r io.Reader) error {
 		m.Sig.Record(),
 		m.InAssetRate.Record(),
 		m.OutAssetRate.Record(),
+		maxInAsset.Record(),
 	)
 	if err != nil {
 		return err
 	}
 
 	// Decode the reader's contents into the tlv stream.
-	_, err = tlvStream.DecodeWithParsedTypes(r)
+	tlvMap, err := tlvStream.DecodeWithParsedTypes(r)
 	if err != nil {
 		return err
+	}
+
+	if _, ok := tlvMap[maxInAsset.TlvType()]; ok {
+		// Normalize 0 to None: a zero fill is semantically
+		// "unset" (full request max) and must not cap the
+		// policy at zero.
+		if maxInAsset.Val > 0 {
+			m.MaxInAsset = tlv.SomeRecordT(maxInAsset)
+		}
 	}
 
 	return nil
@@ -251,6 +301,10 @@ type Accept interface {
 	// message responds to.
 	OriginalRequest() Request
 
+	// AcceptedFillAmount returns the optional negotiated fill
+	// quantity. When None the full request max is implied.
+	AcceptedFillAmount() fn.Option[uint64]
+
 	// acceptMarker is an unexported marker method that ensures only rfqmsg
 	// package types may satisfy this interface.
 	acceptMarker()
@@ -258,14 +312,18 @@ type Accept interface {
 
 // NewQuoteAcceptFromRequest creates a new instance of a quote accept message
 // given a quote request message.
-func NewQuoteAcceptFromRequest(request Request, assetRate AssetRate) (Accept,
-	error) {
+func NewQuoteAcceptFromRequest(request Request, assetRate AssetRate,
+	fillAmount fn.Option[uint64]) (Accept, error) {
 
 	switch req := request.(type) {
 	case *BuyRequest:
-		return NewBuyAcceptFromRequest(*req, assetRate), nil
+		return NewBuyAcceptFromRequest(
+			*req, assetRate, fillAmount,
+		), nil
 	case *SellRequest:
-		return NewSellAcceptFromRequest(*req, assetRate), nil
+		return NewSellAcceptFromRequest(
+			*req, assetRate, fillAmount,
+		), nil
 	default:
 		return nil, fmt.Errorf("unknown request type: %T", request)
 	}

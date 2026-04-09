@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -89,6 +90,41 @@ const (
 	// to support the full max amount or the quote is rejected.
 	ExecutionPolicyFOK ExecutionPolicy = 1
 )
+
+// validateRateLimit checks that an optional rate limit has a strictly
+// positive coefficient. Shared by BuyRequest and SellRequest.
+func validateRateLimit(
+	limit fn.Option[rfqmath.BigIntFixedPoint]) error {
+
+	return fn.MapOptionZ(
+		limit,
+		func(fp rfqmath.BigIntFixedPoint) error {
+			zero := rfqmath.NewBigIntFromUint64(0)
+			if !fp.Coefficient.Gt(zero) {
+				return fmt.Errorf("asset rate limit " +
+					"coefficient must be positive")
+			}
+			return nil
+		},
+	)
+}
+
+// validateExecutionPolicy checks that an optional execution policy
+// is a known value. Shared by BuyRequest and SellRequest.
+func validateExecutionPolicy(
+	p fn.Option[ExecutionPolicy]) error {
+
+	return fn.MapOptionZ(
+		p,
+		func(ep ExecutionPolicy) error {
+			if ep > ExecutionPolicyFOK {
+				return fmt.Errorf("invalid execution "+
+					"policy: %d", ep)
+			}
+			return nil
+		},
+	)
+}
 
 // requestWireMsgData is a struct that represents the message data field for
 // a quote request wire message.
@@ -701,10 +737,38 @@ func NewIncomingRequestFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 	}
 }
 
+// RequestConstraints is a normalised view of the limit-order
+// constraint fields that BuyRequest and SellRequest share. It lets
+// validation and enforcement code operate generically without
+// type-switching on the concrete request type.
+type RequestConstraints struct {
+	// MaxAmount is the maximum amount for the quote (asset units
+	// for buy, msat for sell).
+	MaxAmount uint64
+
+	// MinAmount is an optional minimum amount for the quote.
+	MinAmount fn.Option[uint64]
+
+	// RateLimit is an optional rate bound constraint.
+	RateLimit fn.Option[rfqmath.BigIntFixedPoint]
+
+	// RateBoundCmp defines how the accepted rate is compared to
+	// the limit. A buy request uses -1 (floor: accepted >= limit),
+	// a sell request uses +1 (ceiling: accepted <= limit).
+	RateBoundCmp int
+
+	// ExecutionPolicy is the optional execution policy.
+	ExecutionPolicy fn.Option[ExecutionPolicy]
+}
+
 // Request represents an RFQ quote request.
 type Request interface {
 	IncomingMsg
 	OutgoingMsg
+
+	// Constraints returns a normalised view of the limit-order
+	// constraint fields for this request.
+	Constraints() RequestConstraints
 
 	// requestMarker is an unexported marker method that ensures only rfqmsg
 	// package types may satisfy this interface.

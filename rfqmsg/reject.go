@@ -100,9 +100,6 @@ const (
 
 	// FOKNotViableRejectCode indicates that the FOK execution
 	// policy could not be satisfied at the accepted rate.
-	//
-	// NOTE: Currently unused. Reserved for workstream D where the
-	// responder may reject via wire Reject message.
 	FOKNotViableRejectCode RejectCode = 4
 )
 
@@ -137,9 +134,6 @@ var (
 
 	// ErrFOKNotViable is the error for when the FOK execution
 	// policy cannot be satisfied at the accepted rate.
-	//
-	// NOTE: Currently unused. Reserved for workstream D where the
-	// responder may reject via wire Reject message.
 	ErrFOKNotViable = RejectErr{
 		Code: FOKNotViableRejectCode,
 		Msg:  "FOK not viable at accepted rate",
