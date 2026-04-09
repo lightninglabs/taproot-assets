@@ -398,6 +398,7 @@ type RfqPolicy struct {
 	PriceOracleMetadata   sql.NullString
 	RequestVersion        sql.NullInt32
 	AgreedAt              int64
+	AcceptedMaxAmount     sql.NullInt64
 }
 
 type ScriptKey struct {

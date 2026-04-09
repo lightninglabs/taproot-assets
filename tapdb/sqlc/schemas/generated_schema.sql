@@ -882,7 +882,7 @@ CREATE TABLE rfq_policies (
 
     -- agreed_at is the timestamp when the policy was agreed upon.
     agreed_at BIGINT NOT NULL
-);
+, accepted_max_amount BIGINT);
 
 CREATE UNIQUE INDEX rfq_policies_rfq_id_idx ON rfq_policies (rfq_id);
 
