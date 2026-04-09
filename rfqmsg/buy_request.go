@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -54,6 +55,16 @@ type BuyRequest struct {
 	// peer must agree to divest.
 	AssetMaxAmt uint64
 
+	// AssetMinAmt is an optional minimum asset amount for the quote.
+	// When set, the responding peer must be willing to divest at
+	// least this many units.
+	AssetMinAmt fn.Option[uint64]
+
+	// AssetRateLimit is an optional minimum acceptable rate (asset
+	// units per BTC). The buyer sets a floor: "I won't accept fewer
+	// than X units per BTC."
+	AssetRateLimit fn.Option[rfqmath.BigIntFixedPoint]
+
 	// AssetRateHint represents a proposed conversion rate between the
 	// subject asset and BTC. This rate is an initial suggestion intended to
 	// initiate the RFQ negotiation process and may differ from the final
@@ -71,7 +82,9 @@ type BuyRequest struct {
 
 // NewBuyRequest creates a new asset buy quote request.
 func NewBuyRequest(peer route.Vertex, assetSpecifier asset.Specifier,
-	assetMaxAmt uint64, assetRateHint fn.Option[AssetRate],
+	assetMaxAmt uint64, assetMinAmt fn.Option[uint64],
+	assetRateLimit fn.Option[rfqmath.BigIntFixedPoint],
+	assetRateHint fn.Option[AssetRate],
 	oracleMetadata string) (*BuyRequest, error) {
 
 	id, err := NewID()
@@ -86,15 +99,24 @@ func NewBuyRequest(peer route.Vertex, assetSpecifier asset.Specifier,
 			"length of %d bytes", MaxOracleMetadataLength)
 	}
 
-	return &BuyRequest{
+	req := &BuyRequest{
 		Peer:                peer,
 		Version:             latestBuyRequestVersion,
 		ID:                  id,
 		AssetSpecifier:      assetSpecifier,
 		AssetMaxAmt:         assetMaxAmt,
+		AssetMinAmt:         assetMinAmt,
+		AssetRateLimit:      assetRateLimit,
 		AssetRateHint:       assetRateHint,
 		PriceOracleMetadata: oracleMetadata,
-	}, nil
+	}
+
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("unable to validate buy "+
+			"request: %w", err)
+	}
+
+	return req, nil
 }
 
 // NewBuyRequestFromWire instantiates a new instance from a wire message.
@@ -153,12 +175,31 @@ func NewBuyRequestFromWire(wireMsg WireMessage,
 		},
 	)
 
+	// Extract optional min asset amount.
+	var assetMinAmt fn.Option[uint64]
+	msgData.MinInAsset.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType23, uint64]) {
+			assetMinAmt = fn.Some(r.Val)
+		},
+	)
+
+	// Extract optional rate limit.
+	var assetRateLimit fn.Option[rfqmath.BigIntFixedPoint]
+	msgData.AssetRateLimit.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType29, TlvFixedPoint]) {
+			fp := r.Val.IntoBigIntFixedPoint()
+			assetRateLimit = fn.Some(fp)
+		},
+	)
+
 	req := BuyRequest{
 		Peer:           wireMsg.Peer,
 		Version:        msgData.Version.Val,
 		ID:             msgData.ID.Val,
 		AssetSpecifier: assetSpecifier,
 		AssetMaxAmt:    msgData.MaxInAsset.Val,
+		AssetMinAmt:    assetMinAmt,
+		AssetRateLimit: assetRateLimit,
 		AssetRateHint:  assetRateHint,
 	}
 
@@ -193,6 +234,34 @@ func (q *BuyRequest) Validate() error {
 	if len(q.PriceOracleMetadata) > MaxOracleMetadataLength {
 		return fmt.Errorf("price oracle metadata exceeds maximum "+
 			"length of %d bytes", MaxOracleMetadataLength)
+	}
+
+	// Ensure min <= max when min is set.
+	err = fn.MapOptionZ(q.AssetMinAmt, func(minAmt uint64) error {
+		if minAmt > q.AssetMaxAmt {
+			return fmt.Errorf("asset min amount (%d) exceeds "+
+				"max amount (%d)", minAmt, q.AssetMaxAmt)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Ensure rate limit is strictly positive when set.
+	err = fn.MapOptionZ(
+		q.AssetRateLimit,
+		func(limit rfqmath.BigIntFixedPoint) error {
+			zero := rfqmath.NewBigIntFromUint64(0)
+			if !limit.Coefficient.Gt(zero) {
+				return fmt.Errorf("asset rate limit " +
+					"coefficient must be positive")
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		return err
 	}
 
 	// Ensure that the suggested asset rate has not expired.
@@ -261,10 +330,22 @@ func (q *BuyRequest) String() string {
 		},
 	)
 
+	minAmtStr := fn.MapOptionZ(q.AssetMinAmt, func(v uint64) string {
+		return fmt.Sprintf(", min_asset_amount=%d", v)
+	})
+
+	rateLimitStr := fn.MapOptionZ(
+		q.AssetRateLimit,
+		func(v rfqmath.BigIntFixedPoint) string {
+			return fmt.Sprintf(", asset_rate_limit=%s",
+				v.String())
+		},
+	)
+
 	return fmt.Sprintf("BuyRequest(peer=%x, id=%x, asset=%s, "+
-		"max_asset_amount=%d, asset_rate_hint=%s)",
+		"max_asset_amount=%d%s%s, asset_rate_hint=%s)",
 		q.Peer[:], q.ID[:], q.AssetSpecifier.String(), q.AssetMaxAmt,
-		assetRateHintStr)
+		minAmtStr, rateLimitStr, assetRateHintStr)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

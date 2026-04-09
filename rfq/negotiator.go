@@ -236,6 +236,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(ctx context.Context,
 	// Construct a new buy request to send to the peer.
 	request, err := rfqmsg.NewBuyRequest(
 		peer, buyOrder.AssetSpecifier, buyOrder.AssetMaxAmt,
+		buyOrder.AssetMinAmt, buyOrder.AssetRateLimit,
 		assetRateHint, buyOrder.PriceOracleMetadata,
 	)
 	if err != nil {
@@ -391,8 +392,9 @@ func (n *Negotiator) HandleOutgoingSellOrder(ctx context.Context,
 	)
 
 	request, err := rfqmsg.NewSellRequest(
-		peer, order.AssetSpecifier, order.PaymentMaxAmt, assetRateHint,
-		order.PriceOracleMetadata,
+		peer, order.AssetSpecifier, order.PaymentMaxAmt,
+		order.PaymentMinAmt, order.AssetRateLimit,
+		assetRateHint, order.PriceOracleMetadata,
 	)
 
 	if err != nil {

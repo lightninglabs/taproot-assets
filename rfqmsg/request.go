@@ -8,7 +8,9 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -59,6 +61,13 @@ type (
 	// the optional metadata that can be included in a quote request to
 	// provide additional context to the price oracle.
 	requestOracleMetadata = tlv.OptionalRecordT[tlv.TlvType27, []byte]
+
+	// requestAssetRateLimit is a type alias for a record that
+	// represents an optional rate limit constraint on the quote
+	// request.
+	requestAssetRateLimit = tlv.OptionalRecordT[
+		tlv.TlvType29, TlvFixedPoint,
+	]
 )
 
 // requestWireMsgData is a struct that represents the message data field for
@@ -138,6 +147,11 @@ type requestWireMsgData struct {
 	// price oracle can use to give out a more accurate (or discount) asset
 	// rate. The maximum length of this field is 32'768 bytes.
 	PriceOracleMetadata requestOracleMetadata
+
+	// AssetRateLimit is an optional rate limit constraint. For buy
+	// requests this is the minimum acceptable rate; for sell requests
+	// this is the maximum acceptable rate.
+	AssetRateLimit requestAssetRateLimit
 }
 
 // newRequestWireMsgDataFromBuy creates a new requestWireMsgData from a buy
@@ -201,6 +215,23 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 		)
 	}
 
+	// Set optional min asset amount.
+	var minInAsset tlv.OptionalRecordT[tlv.TlvType23, uint64]
+	q.AssetMinAmt.WhenSome(func(minAmt uint64) {
+		minInAsset = tlv.SomeRecordT[tlv.TlvType23](
+			tlv.NewPrimitiveRecord[tlv.TlvType23](minAmt),
+		)
+	})
+
+	// Set optional rate limit.
+	var assetRateLimit requestAssetRateLimit
+	q.AssetRateLimit.WhenSome(func(limit rfqmath.BigIntFixedPoint) {
+		wireRate := NewTlvFixedPointFromBigInt(limit)
+		assetRateLimit = tlv.SomeRecordT[tlv.TlvType29](
+			tlv.NewRecordT[tlv.TlvType29](wireRate),
+		)
+	})
+
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
 		Version:             version,
@@ -213,6 +244,8 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 		OutAssetGroupKey:    outAssetGroupKey,
 		MaxInAsset:          maxInAsset,
 		InAssetRateHint:     inAssetRateHint,
+		MinInAsset:          minInAsset,
+		AssetRateLimit:      assetRateLimit,
 		PriceOracleMetadata: oracleMetadata,
 	}, nil
 }
@@ -281,6 +314,25 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 		)
 	}
 
+	// Set optional min payment amount.
+	var minOutAsset tlv.OptionalRecordT[tlv.TlvType25, uint64]
+	q.PaymentMinAmt.WhenSome(func(minAmt lnwire.MilliSatoshi) {
+		minOutAsset = tlv.SomeRecordT[tlv.TlvType25](
+			tlv.NewPrimitiveRecord[tlv.TlvType25](
+				uint64(minAmt),
+			),
+		)
+	})
+
+	// Set optional rate limit.
+	var assetRateLimit requestAssetRateLimit
+	q.AssetRateLimit.WhenSome(func(limit rfqmath.BigIntFixedPoint) {
+		wireRate := NewTlvFixedPointFromBigInt(limit)
+		assetRateLimit = tlv.SomeRecordT[tlv.TlvType29](
+			tlv.NewRecordT[tlv.TlvType29](wireRate),
+		)
+	})
+
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
 		Version:             version,
@@ -292,6 +344,8 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 		OutAssetGroupKey:    outAssetGroupKey,
 		MaxInAsset:          maxInAsset,
 		OutAssetRateHint:    outAssetRateHint,
+		MinOutAsset:         minOutAsset,
+		AssetRateLimit:      assetRateLimit,
 		PriceOracleMetadata: oracleMetadata,
 	}, nil
 }
@@ -431,6 +485,11 @@ func (m *requestWireMsgData) Encode(w io.Writer) error {
 			records = append(records, r.Record())
 		},
 	)
+	m.AssetRateLimit.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType29, TlvFixedPoint]) {
+			records = append(records, r.Record())
+		},
+	)
 
 	tlv.SortRecords(records)
 
@@ -459,6 +518,7 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 	minOutAsset := m.MinOutAsset.Zero()
 
 	oracleMetadata := m.PriceOracleMetadata.Zero()
+	assetRateLimit := m.AssetRateLimit.Zero()
 
 	// Create a tlv stream with all the fields.
 	tlvStream, err := tlv.NewStream(
@@ -482,6 +542,7 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 		minOutAsset.Record(),
 
 		oracleMetadata.Record(),
+		assetRateLimit.Record(),
 	)
 	if err != nil {
 		return err
@@ -523,6 +584,9 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 	}
 	if _, ok := tlvMap[oracleMetadata.TlvType()]; ok {
 		m.PriceOracleMetadata = tlv.SomeRecordT(oracleMetadata)
+	}
+	if _, ok := tlvMap[assetRateLimit.TlvType()]; ok {
+		m.AssetRateLimit = tlv.SomeRecordT(assetRateLimit)
 	}
 
 	return nil
