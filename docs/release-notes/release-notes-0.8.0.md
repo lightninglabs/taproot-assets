@@ -103,6 +103,14 @@
   **Note:** For full functionality, it is highly recommended to start LND with
   the `--store-final-htlc-resolutions` flag enabled, which is disabled by default.
 
+- [Limit-Order Constraints](https://github.com/lightninglabs/taproot-assets/pull/2048):
+  RFQ buy and sell orders can now carry explicit limit-price bounds
+  (`asset_rate_limit`) and minimum fill sizes (`asset_min_amt` /
+  `payment_min_amt`). Quotes that violate these constraints are rejected
+  with machine-readable reasons (`RATE_BOUND_MISS`, `MIN_FILL_NOT_MET`).
+  New fields are optional and backward-compatible; constraint validation
+  only activates when they are present.
+
 ## Functional Enhancements
 
 - [Wallet Backup/Restore](https://github.com/lightninglabs/taproot-assets/pull/1980):
@@ -147,6 +155,13 @@
 - [PR#2020](https://github.com/lightninglabs/taproot-assets/pull/2020)
   Add `RemoveMessage` RPC to the auth mailbox service. Receivers can
   authenticate with a Schnorr signature to delete their own messages by ID.
+
+- [PR#2048](https://github.com/lightninglabs/taproot-assets/pull/2048):
+  Add `asset_rate_limit` to `AddAssetBuyOrder` and `AddAssetSellOrder`
+  requests. Add `asset_min_amt` to buy orders and `payment_min_amt`
+  to sell orders. Add `asset_rate_limit` and min fill fields to
+  `PortfolioPilot.ResolveRequest` for constraint forwarding. Add
+  `RATE_BOUND_MISS` and `MIN_FILL_NOT_MET` to `QuoteRespStatus`.
 
 ## tapcli Additions
 
@@ -330,6 +345,10 @@
 - [Forwarding History Integration Test](https://github.com/lightninglabs/taproot-assets/pull/1921):
   New integration test `testForwardingEventHistory` verifies that forwarding events are
   properly logged when routing asset payments.
+
+- [PR#2048](https://github.com/lightninglabs/taproot-assets/pull/2048):
+  Add unit, property-based, and integration tests for limit-order
+  constraint fields.
 
 ## Database
 
