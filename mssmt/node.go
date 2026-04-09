@@ -136,6 +136,9 @@ type CompactedLeafNode struct {
 	// compactedNodeHash holds the topmost (omitted) node's node hash in the
 	// subtree.
 	compactedNodeHash NodeHash
+
+	// Height is the level at which this compacted leaf was created.
+	Height int
 }
 
 // NewCompactedLeafNode creates a new compacted leaf at the passed height with
@@ -159,6 +162,7 @@ func NewCompactedLeafNode(height int, key *[32]byte,
 		compactedNodeHash: nodeHash,
 	}
 
+	node.Height = height
 	return node
 }
 
