@@ -427,4 +427,7 @@
 - [PR#1962](https://github.com/lightninglabs/taproot-assets/pull/1962)
   Add a basic PortfolioPilot RPC example under `docs/examples`.
 
-# Contributors (Alphabetical Order)
+- [PR#2056](https://github.com/lightninglabs/taproot-assets/pull/2056)
+  expands the example portfolio pilot with constraint enforcement,
+  configurable fill caps, and live CoinGecko pricing.
+
