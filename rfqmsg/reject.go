@@ -101,6 +101,10 @@ const (
 	// FOKNotViableRejectCode indicates that the FOK execution
 	// policy could not be satisfied at the accepted rate.
 	FOKNotViableRejectCode RejectCode = 4
+
+	// FillExceedsMaxRejectCode indicates that the negotiated
+	// fill amount exceeds the requester's maximum.
+	FillExceedsMaxRejectCode RejectCode = 5
 )
 
 var (
@@ -137,6 +141,13 @@ var (
 	ErrFOKNotViable = RejectErr{
 		Code: FOKNotViableRejectCode,
 		Msg:  "FOK not viable at accepted rate",
+	}
+
+	// ErrFillExceedsMax is the error for when the negotiated
+	// fill amount exceeds the requester's maximum.
+	ErrFillExceedsMax = RejectErr{
+		Code: FillExceedsMaxRejectCode,
+		Msg:  "fill exceeds max amount",
 	}
 )
 

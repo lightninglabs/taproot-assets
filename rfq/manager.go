@@ -1452,6 +1452,10 @@ const (
 	// FOKNotViableQuoteRespStatus indicates that the FOK execution
 	// policy could not be satisfied at the accepted rate.
 	FOKNotViableQuoteRespStatus QuoteRespStatus = 7
+
+	// FillExceedsMaxQuoteRespStatus indicates that the negotiated
+	// fill amount exceeds the requester's maximum.
+	FillExceedsMaxQuoteRespStatus QuoteRespStatus = 8
 )
 
 // InvalidQuoteRespEvent is an event that is broadcast when the RFQ manager

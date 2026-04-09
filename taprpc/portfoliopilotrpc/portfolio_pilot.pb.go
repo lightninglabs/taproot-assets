@@ -248,6 +248,9 @@ const (
 	// REJECT_CODE_FOK_NOT_VIABLE indicates that the FOK execution
 	// policy could not be satisfied at the accepted rate.
 	RejectCode_REJECT_CODE_FOK_NOT_VIABLE RejectCode = 4
+	// REJECT_CODE_FILL_EXCEEDS_MAX indicates that the negotiated
+	// fill amount exceeds the requester's maximum.
+	RejectCode_REJECT_CODE_FILL_EXCEEDS_MAX RejectCode = 5
 )
 
 // Enum value maps for RejectCode.
@@ -258,6 +261,7 @@ var (
 		2: "REJECT_CODE_MIN_FILL_NOT_MET",
 		3: "REJECT_CODE_PRICE_BOUND_MISS",
 		4: "REJECT_CODE_FOK_NOT_VIABLE",
+		5: "REJECT_CODE_FILL_EXCEEDS_MAX",
 	}
 	RejectCode_value = map[string]int32{
 		"REJECT_CODE_UNSPECIFIED":              0,
@@ -265,6 +269,7 @@ var (
 		"REJECT_CODE_MIN_FILL_NOT_MET":         2,
 		"REJECT_CODE_PRICE_BOUND_MISS":         3,
 		"REJECT_CODE_FOK_NOT_VIABLE":           4,
+		"REJECT_CODE_FILL_EXCEEDS_MAX":         5,
 	}
 )
 
@@ -323,6 +328,9 @@ const (
 	// FOK_NOT_VIABLE indicates that the FOK execution policy could
 	// not be satisfied at the accepted rate.
 	QuoteRespStatus_FOK_NOT_VIABLE QuoteRespStatus = 7
+	// FILL_EXCEEDS_MAX indicates that the negotiated fill amount
+	// exceeds the requester's maximum.
+	QuoteRespStatus_FILL_EXCEEDS_MAX QuoteRespStatus = 8
 )
 
 // Enum value maps for QuoteRespStatus.
@@ -336,6 +344,7 @@ var (
 		5: "MIN_FILL_NOT_MET",
 		6: "RATE_BOUND_MISS",
 		7: "FOK_NOT_VIABLE",
+		8: "FILL_EXCEEDS_MAX",
 	}
 	QuoteRespStatus_value = map[string]int32{
 		"INVALID_ASSET_RATES":    0,
@@ -346,6 +355,7 @@ var (
 		"MIN_FILL_NOT_MET":       5,
 		"RATE_BOUND_MISS":        6,
 		"FOK_NOT_VIABLE":         7,
+		"FILL_EXCEEDS_MAX":       8,
 	}
 )
 
@@ -1003,9 +1013,15 @@ type ResolveRequestResponse struct {
 	//
 	//	*ResolveRequestResponse_Accept
 	//	*ResolveRequestResponse_Reject
-	Result        isResolveRequestResponse_Result `protobuf_oneof:"result"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Result isResolveRequestResponse_Result `protobuf_oneof:"result"`
+	// accepted_max_amount is an optional fill quantity that caps the
+	// amount the responder is willing to accept. Only meaningful when
+	// accept is set; 0 means no fill cap (full request max). The unit
+	// depends on the request type: asset units for a buy request, msat
+	// for a sell request.
+	AcceptedMaxAmount uint64 `protobuf:"varint,3,opt,name=accepted_max_amount,json=acceptedMaxAmount,proto3" json:"accepted_max_amount,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ResolveRequestResponse) Reset() {
@@ -1063,6 +1079,13 @@ func (x *ResolveRequestResponse) GetReject() *RejectErr {
 	return nil
 }
 
+func (x *ResolveRequestResponse) GetAcceptedMaxAmount() uint64 {
+	if x != nil {
+		return x.AcceptedMaxAmount
+	}
+	return 0
+}
+
 type isResolveRequestResponse_Result interface {
 	isResolveRequestResponse_Result()
 }
@@ -1092,9 +1115,14 @@ type AcceptedQuote struct {
 	//
 	//	*AcceptedQuote_BuyRequest
 	//	*AcceptedQuote_SellRequest
-	Request       isAcceptedQuote_Request `protobuf_oneof:"request"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Request isAcceptedQuote_Request `protobuf_oneof:"request"`
+	// accepted_max_amount is the optional negotiated fill quantity.
+	// 0 means no fill cap (full request max). The unit depends on
+	// the request type: asset units for a buy request, msat for a
+	// sell request.
+	AcceptedMaxAmount uint64 `protobuf:"varint,5,opt,name=accepted_max_amount,json=acceptedMaxAmount,proto3" json:"accepted_max_amount,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *AcceptedQuote) Reset() {
@@ -1164,6 +1192,13 @@ func (x *AcceptedQuote) GetSellRequest() *SellRequest {
 		}
 	}
 	return nil
+}
+
+func (x *AcceptedQuote) GetAcceptedMaxAmount() uint64 {
+	if x != nil {
+		return x.AcceptedMaxAmount
+	}
+	return 0
 }
 
 type isAcceptedQuote_Request interface {
@@ -1488,17 +1523,19 @@ const file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc = "" +
 	"\vbuy_request\x18\x01 \x01(\v2\x1d.portfoliopilotrpc.BuyRequestH\x00R\n" +
 	"buyRequest\x12C\n" +
 	"\fsell_request\x18\x02 \x01(\v2\x1e.portfoliopilotrpc.SellRequestH\x00R\vsellRequestB\t\n" +
-	"\arequest\"\x92\x01\n" +
+	"\arequest\"\xc2\x01\n" +
 	"\x16ResolveRequestResponse\x126\n" +
 	"\x06accept\x18\x01 \x01(\v2\x1c.portfoliopilotrpc.AssetRateH\x00R\x06accept\x126\n" +
-	"\x06reject\x18\x02 \x01(\v2\x1c.portfoliopilotrpc.RejectErrH\x00R\x06rejectB\b\n" +
-	"\x06result\"\xfd\x01\n" +
+	"\x06reject\x18\x02 \x01(\v2\x1c.portfoliopilotrpc.RejectErrH\x00R\x06reject\x12.\n" +
+	"\x13accepted_max_amount\x18\x03 \x01(\x04R\x11acceptedMaxAmountB\b\n" +
+	"\x06result\"\xad\x02\n" +
 	"\rAcceptedQuote\x12\x17\n" +
 	"\apeer_id\x18\x01 \x01(\fR\x06peerId\x12A\n" +
 	"\raccepted_rate\x18\x02 \x01(\v2\x1c.portfoliopilotrpc.AssetRateR\facceptedRate\x12@\n" +
 	"\vbuy_request\x18\x03 \x01(\v2\x1d.portfoliopilotrpc.BuyRequestH\x00R\n" +
 	"buyRequest\x12C\n" +
-	"\fsell_request\x18\x04 \x01(\v2\x1e.portfoliopilotrpc.SellRequestH\x00R\vsellRequestB\t\n" +
+	"\fsell_request\x18\x04 \x01(\v2\x1e.portfoliopilotrpc.SellRequestH\x00R\vsellRequest\x12.\n" +
+	"\x13accepted_max_amount\x18\x05 \x01(\x04R\x11acceptedMaxAmountB\t\n" +
 	"\arequest\"T\n" +
 	"\x18VerifyAcceptQuoteRequest\x128\n" +
 	"\x06accept\x18\x01 \x01(\v2 .portfoliopilotrpc.AcceptedQuoteR\x06accept\"W\n" +
@@ -1531,14 +1568,15 @@ const file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc = "" +
 	"\x1bINTENT_RECV_PAYMENT_QUALIFY\x10\x06*E\n" +
 	"\x0fExecutionPolicy\x12\x18\n" +
 	"\x14EXECUTION_POLICY_IOC\x10\x00\x12\x18\n" +
-	"\x14EXECUTION_POLICY_FOK\x10\x01*\xb7\x01\n" +
+	"\x14EXECUTION_POLICY_FOK\x10\x01*\xd9\x01\n" +
 	"\n" +
 	"RejectCode\x12\x1b\n" +
 	"\x17REJECT_CODE_UNSPECIFIED\x10\x00\x12(\n" +
 	"$REJECT_CODE_PRICE_ORACLE_UNAVAILABLE\x10\x01\x12 \n" +
 	"\x1cREJECT_CODE_MIN_FILL_NOT_MET\x10\x02\x12 \n" +
 	"\x1cREJECT_CODE_PRICE_BOUND_MISS\x10\x03\x12\x1e\n" +
-	"\x1aREJECT_CODE_FOK_NOT_VIABLE\x10\x04*\xca\x01\n" +
+	"\x1aREJECT_CODE_FOK_NOT_VIABLE\x10\x04\x12 \n" +
+	"\x1cREJECT_CODE_FILL_EXCEEDS_MAX\x10\x05*\xe0\x01\n" +
 	"\x0fQuoteRespStatus\x12\x17\n" +
 	"\x13INVALID_ASSET_RATES\x10\x00\x12\x12\n" +
 	"\x0eINVALID_EXPIRY\x10\x01\x12\x1a\n" +
@@ -1547,7 +1585,8 @@ const file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc = "" +
 	"\x12VALID_ACCEPT_QUOTE\x10\x04\x12\x14\n" +
 	"\x10MIN_FILL_NOT_MET\x10\x05\x12\x13\n" +
 	"\x0fRATE_BOUND_MISS\x10\x06\x12\x12\n" +
-	"\x0eFOK_NOT_VIABLE\x10\a2\xd1\x02\n" +
+	"\x0eFOK_NOT_VIABLE\x10\a\x12\x14\n" +
+	"\x10FILL_EXCEEDS_MAX\x10\b2\xd1\x02\n" +
 	"\x0ePortfolioPilot\x12e\n" +
 	"\x0eResolveRequest\x12(.portfoliopilotrpc.ResolveRequestRequest\x1a).portfoliopilotrpc.ResolveRequestResponse\x12n\n" +
 	"\x11VerifyAcceptQuote\x12+.portfoliopilotrpc.VerifyAcceptQuoteRequest\x1a,.portfoliopilotrpc.VerifyAcceptQuoteResponse\x12h\n" +

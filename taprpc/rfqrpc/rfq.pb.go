@@ -1199,9 +1199,13 @@ type PeerAcceptedBuyQuote struct {
 	// more accurate (or discount) asset rate.
 	PriceOracleMetadata string `protobuf:"bytes,8,opt,name=price_oracle_metadata,json=priceOracleMetadata,proto3" json:"price_oracle_metadata,omitempty"`
 	// The subject asset specifier.
-	AssetSpec     *AssetSpec `protobuf:"bytes,9,opt,name=asset_spec,json=assetSpec,proto3" json:"asset_spec,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	AssetSpec *AssetSpec `protobuf:"bytes,9,opt,name=asset_spec,json=assetSpec,proto3" json:"asset_spec,omitempty"`
+	// accepted_max_amount is an optional negotiated fill quantity. When
+	// non-zero the responder accepted up to this many asset units instead
+	// of the full request max.
+	AcceptedMaxAmount uint64 `protobuf:"varint,10,opt,name=accepted_max_amount,json=acceptedMaxAmount,proto3" json:"accepted_max_amount,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *PeerAcceptedBuyQuote) Reset() {
@@ -1297,6 +1301,13 @@ func (x *PeerAcceptedBuyQuote) GetAssetSpec() *AssetSpec {
 	return nil
 }
 
+func (x *PeerAcceptedBuyQuote) GetAcceptedMaxAmount() uint64 {
+	if x != nil {
+		return x.AcceptedMaxAmount
+	}
+	return 0
+}
+
 type PeerAcceptedSellQuote struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Quote counterparty peer.
@@ -1326,9 +1337,13 @@ type PeerAcceptedSellQuote struct {
 	// more accurate (or discount) asset rate.
 	PriceOracleMetadata string `protobuf:"bytes,8,opt,name=price_oracle_metadata,json=priceOracleMetadata,proto3" json:"price_oracle_metadata,omitempty"`
 	// The subject asset specifier.
-	AssetSpec     *AssetSpec `protobuf:"bytes,9,opt,name=asset_spec,json=assetSpec,proto3" json:"asset_spec,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	AssetSpec *AssetSpec `protobuf:"bytes,9,opt,name=asset_spec,json=assetSpec,proto3" json:"asset_spec,omitempty"`
+	// accepted_max_amount is an optional negotiated fill quantity. When
+	// non-zero the responder accepted up to this many msat instead of the
+	// full request max.
+	AcceptedMaxAmount uint64 `protobuf:"varint,10,opt,name=accepted_max_amount,json=acceptedMaxAmount,proto3" json:"accepted_max_amount,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *PeerAcceptedSellQuote) Reset() {
@@ -1422,6 +1437,13 @@ func (x *PeerAcceptedSellQuote) GetAssetSpec() *AssetSpec {
 		return x.AssetSpec
 	}
 	return nil
+}
+
+func (x *PeerAcceptedSellQuote) GetAcceptedMaxAmount() uint64 {
+	if x != nil {
+		return x.AcceptedMaxAmount
+	}
+	return 0
 }
 
 // InvalidQuoteResponse is a message that is returned when a quote response is
@@ -2308,7 +2330,7 @@ const file_rfqrpc_rfq_proto_rawDesc = "" +
 	"\x1eQueryPeerAcceptedQuotesRequest\"?\n" +
 	"\tAssetSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\fR\x02id\x12\"\n" +
-	"\rgroup_pub_key\x18\x02 \x01(\fR\vgroupPubKey\"\xe8\x02\n" +
+	"\rgroup_pub_key\x18\x02 \x01(\fR\vgroupPubKey\"\x98\x03\n" +
 	"\x14PeerAcceptedBuyQuote\x12\x12\n" +
 	"\x04peer\x18\x01 \x01(\tR\x04peer\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\fR\x02id\x12\x12\n" +
@@ -2319,7 +2341,9 @@ const file_rfqrpc_rfq_proto_rawDesc = "" +
 	"\x17min_transportable_units\x18\a \x01(\x04R\x15minTransportableUnits\x122\n" +
 	"\x15price_oracle_metadata\x18\b \x01(\tR\x13priceOracleMetadata\x120\n" +
 	"\n" +
-	"asset_spec\x18\t \x01(\v2\x11.rfqrpc.AssetSpecR\tassetSpec\"\xe0\x02\n" +
+	"asset_spec\x18\t \x01(\v2\x11.rfqrpc.AssetSpecR\tassetSpec\x12.\n" +
+	"\x13accepted_max_amount\x18\n" +
+	" \x01(\x04R\x11acceptedMaxAmount\"\x90\x03\n" +
 	"\x15PeerAcceptedSellQuote\x12\x12\n" +
 	"\x04peer\x18\x01 \x01(\tR\x04peer\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\fR\x02id\x12\x12\n" +
@@ -2330,7 +2354,9 @@ const file_rfqrpc_rfq_proto_rawDesc = "" +
 	"\x16min_transportable_msat\x18\a \x01(\x04R\x14minTransportableMsat\x122\n" +
 	"\x15price_oracle_metadata\x18\b \x01(\tR\x13priceOracleMetadata\x120\n" +
 	"\n" +
-	"asset_spec\x18\t \x01(\v2\x11.rfqrpc.AssetSpecR\tassetSpec\"k\n" +
+	"asset_spec\x18\t \x01(\v2\x11.rfqrpc.AssetSpecR\tassetSpec\x12.\n" +
+	"\x13accepted_max_amount\x18\n" +
+	" \x01(\x04R\x11acceptedMaxAmount\"k\n" +
 	"\x14InvalidQuoteResponse\x12/\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x17.rfqrpc.QuoteRespStatusR\x06status\x12\x12\n" +
 	"\x04peer\x18\x02 \x01(\tR\x04peer\x12\x0e\n" +
