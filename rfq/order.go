@@ -191,6 +191,10 @@ type AssetSalePolicy struct {
 	// peer is the peer pub key of the peer we established this policy with.
 	peer route.Vertex
 
+	// ExecutionPolicy is the execution policy from the original
+	// request (annotation only; not enforced at the HTLC level).
+	ExecutionPolicy fn.Option[rfqmsg.ExecutionPolicy]
+
 	// expiry is the policy's expiry unix timestamp after which the policy
 	// is no longer valid.
 	expiry uint64
@@ -212,6 +216,7 @@ func NewAssetSalePolicy(quote rfqmsg.BuyAccept, noop bool,
 		NoOpHTLCs:              noop,
 		auxChanNegotiator:      chanNegotiator,
 		peer:                   quote.Peer,
+		ExecutionPolicy:        quote.Request.ExecutionPolicy,
 	}
 }
 
@@ -426,6 +431,10 @@ type AssetPurchasePolicy struct {
 	// that they carry.
 	htlcToAmt map[models.CircuitKey]lnwire.MilliSatoshi
 
+	// ExecutionPolicy is the execution policy from the original
+	// request (annotation only; not enforced at the HTLC level).
+	ExecutionPolicy fn.Option[rfqmsg.ExecutionPolicy]
+
 	// expiry is the policy's expiry unix timestamp in seconds after which
 	// the policy is no longer valid.
 	expiry uint64
@@ -443,6 +452,7 @@ func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
 		PaymentMaxAmt:   quote.Request.PaymentMaxAmt,
 		expiry:          uint64(quote.AssetRate.Expiry.Unix()),
 		htlcToAmt:       htlcToAmtMap,
+		ExecutionPolicy: quote.Request.ExecutionPolicy,
 	}
 }
 
@@ -1740,6 +1750,10 @@ type BuyOrder struct {
 	// units per BTC) for the order.
 	AssetRateLimit fn.Option[rfqmath.BigIntFixedPoint]
 
+	// ExecutionPolicy is an optional execution policy (IOC or
+	// FOK) for the order.
+	ExecutionPolicy fn.Option[rfqmsg.ExecutionPolicy]
+
 	// Expiry is the time at which the order expires.
 	Expiry time.Time
 
@@ -1813,6 +1827,10 @@ type SellOrder struct {
 	// AssetRateLimit is an optional maximum acceptable rate (asset
 	// units per BTC) for the order.
 	AssetRateLimit fn.Option[rfqmath.BigIntFixedPoint]
+
+	// ExecutionPolicy is an optional execution policy (IOC or
+	// FOK) for the order.
+	ExecutionPolicy fn.Option[rfqmsg.ExecutionPolicy]
 
 	// Expiry is the time at which the order expires.
 	Expiry time.Time

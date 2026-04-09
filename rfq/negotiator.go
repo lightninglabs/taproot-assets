@@ -238,6 +238,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(ctx context.Context,
 		peer, buyOrder.AssetSpecifier, buyOrder.AssetMaxAmt,
 		buyOrder.AssetMinAmt, buyOrder.AssetRateLimit,
 		assetRateHint, buyOrder.PriceOracleMetadata,
+		buyOrder.ExecutionPolicy,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create buy request "+
@@ -395,6 +396,7 @@ func (n *Negotiator) HandleOutgoingSellOrder(ctx context.Context,
 		peer, order.AssetSpecifier, order.PaymentMaxAmt,
 		order.PaymentMinAmt, order.AssetRateLimit,
 		assetRateHint, order.PriceOracleMetadata,
+		order.ExecutionPolicy,
 	)
 
 	if err != nil {
