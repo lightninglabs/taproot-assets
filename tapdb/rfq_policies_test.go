@@ -252,6 +252,65 @@ func TestFetchAcceptedQuotesAllThreeTypes(t *testing.T) {
 	require.Equal(t, peerBuy.ID, peerBuys[0].ID)
 }
 
+// TestAcceptedMaxAmountRoundTrip verifies that the AcceptedMaxAmount
+// field survives a store-then-fetch cycle for all three policy types.
+func TestAcceptedMaxAmountRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newPolicyStore(t)
+
+	// Sale policy with a fill cap.
+	sale := testBuyAccept(t)
+	sale.AcceptedMaxAmount = fn.Some[uint64](500_000)
+	err := store.StoreSalePolicy(ctx, sale)
+	require.NoError(t, err)
+
+	// Purchase policy with a fill cap.
+	purchase := testSellAccept(t)
+	purchase.AcceptedMaxAmount = fn.Some[uint64](250_000)
+	err = store.StorePurchasePolicy(ctx, purchase)
+	require.NoError(t, err)
+
+	// Peer-accepted buy quote with a fill cap.
+	peerBuy := testBuyAccept(t)
+	peerBuy.AcceptedMaxAmount = fn.Some[uint64](750_000)
+	err = store.StorePeerAcceptedBuyQuote(ctx, peerBuy)
+	require.NoError(t, err)
+
+	buys, sells, peerBuys, err := store.FetchAcceptedQuotes(ctx)
+	require.NoError(t, err)
+
+	require.Len(t, buys, 1)
+	require.Len(t, sells, 1)
+	require.Len(t, peerBuys, 1)
+
+	require.Equal(t, fn.Some[uint64](500_000),
+		buys[0].AcceptedMaxAmount)
+	require.Equal(t, fn.Some[uint64](250_000),
+		sells[0].AcceptedMaxAmount)
+	require.Equal(t, fn.Some[uint64](750_000),
+		peerBuys[0].AcceptedMaxAmount)
+}
+
+// TestAcceptedMaxAmountNilRoundTrip verifies that a policy stored
+// without AcceptedMaxAmount restores with None.
+func TestAcceptedMaxAmountNilRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newPolicyStore(t)
+
+	sale := testBuyAccept(t)
+	err := store.StoreSalePolicy(ctx, sale)
+	require.NoError(t, err)
+
+	buys, _, _, err := store.FetchAcceptedQuotes(ctx)
+	require.NoError(t, err)
+	require.Len(t, buys, 1)
+	require.True(t, buys[0].AcceptedMaxAmount.IsNone())
+}
+
 // TestLookUpScidIgnoresSalePolicy verifies that a sale policy stored in the
 // database is not returned by LookUpScid, which is scoped to peer-accepted
 // buy quotes only.

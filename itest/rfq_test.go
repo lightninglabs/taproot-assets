@@ -842,6 +842,221 @@ func testRfqPortfolioPilotRpc(t *harnessTest) {
 		return resolveCalls > 0 && verifyCalls > 0 &&
 			queryCalls > 0
 	}, rfqTimeout, 50*time.Millisecond)
+
+	err = carolEventNtfns.CloseSend()
+	require.NoError(t.t, err)
+
+	// -----------------------------------------------------------------
+	// Sub-test: Buy order with fill cap.
+	//
+	// Set pilot fill amount to 3. Submit a buy order with
+	// AssetMaxAmt = 6. The accepted quote should report
+	// AcceptedMaxAmount = 3.
+	// -----------------------------------------------------------------
+	t.Log("Sub-test: buy order with fill cap")
+
+	pilot.SetFillAmount(3)
+
+	carolEvents2, err := ts.CarolTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	buyReq2 := &rfqrpc.AddAssetBuyOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		AssetMaxAmt: 6,
+		Expiry:      buyOrderExpiry,
+		PeerPubKey:  ts.BobLnd.PubKey[:],
+		TimeoutSeconds: uint32(
+			rfqTimeout.Seconds(),
+		),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.CarolTapd.AddAssetBuyOrder(ctx, buyReq2)
+	require.NoError(t.t, err, "buy order with fill cap")
+
+	var buyCapQuoteID []byte
+	BeforeTimeout(t.t, func() {
+		event, err := carolEvents2.Recv()
+		require.NoError(t.t, err)
+
+		e, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
+		require.True(t.t, ok, "unexpected event: %v", event)
+
+		buyCapQuoteID = e.PeerAcceptedBuyQuote.
+			PeerAcceptedBuyQuote.Id
+	}, rfqTimeout)
+
+	acceptedQuotes, err := ts.CarolTapd.QueryPeerAcceptedQuotes(
+		ctx, &rfqrpc.QueryPeerAcceptedQuotesRequest{},
+	)
+	require.NoError(t.t, err)
+
+	var matchedBuy *rfqrpc.PeerAcceptedBuyQuote
+	for _, q := range acceptedQuotes.BuyQuotes {
+		if bytes.Equal(q.Id, buyCapQuoteID) {
+			matchedBuy = q
+			break
+		}
+	}
+	require.NotNil(t.t, matchedBuy, "quote not found by ID")
+	require.Equal(
+		t.t, uint64(3), matchedBuy.AcceptedMaxAmount,
+		"expected fill cap of 3",
+	)
+
+	err = carolEvents2.CloseSend()
+	require.NoError(t.t, err)
+
+	// -----------------------------------------------------------------
+	// Sub-test: Buy order without fill cap.
+	//
+	// Set pilot fill amount to 0 (no cap). The accepted quote
+	// should report AcceptedMaxAmount = 0.
+	// -----------------------------------------------------------------
+	t.Log("Sub-test: buy order without fill cap")
+
+	pilot.SetFillAmount(0)
+
+	carolEvents3, err := ts.CarolTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	buyReq3 := &rfqrpc.AddAssetBuyOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		AssetMaxAmt: 6,
+		Expiry:      buyOrderExpiry,
+		PeerPubKey:  ts.BobLnd.PubKey[:],
+		TimeoutSeconds: uint32(
+			rfqTimeout.Seconds(),
+		),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.CarolTapd.AddAssetBuyOrder(ctx, buyReq3)
+	require.NoError(t.t, err, "buy order without fill cap")
+
+	var buyNoCapQuoteID []byte
+	BeforeTimeout(t.t, func() {
+		event, err := carolEvents3.Recv()
+		require.NoError(t.t, err)
+
+		e, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
+		require.True(t.t, ok, "unexpected event: %v", event)
+
+		buyNoCapQuoteID = e.PeerAcceptedBuyQuote.
+			PeerAcceptedBuyQuote.Id
+	}, rfqTimeout)
+
+	acceptedQuotes, err = ts.CarolTapd.QueryPeerAcceptedQuotes(
+		ctx, &rfqrpc.QueryPeerAcceptedQuotesRequest{},
+	)
+	require.NoError(t.t, err)
+
+	var matchedBuyNoCap *rfqrpc.PeerAcceptedBuyQuote
+	for _, q := range acceptedQuotes.BuyQuotes {
+		if bytes.Equal(q.Id, buyNoCapQuoteID) {
+			matchedBuyNoCap = q
+			break
+		}
+	}
+	require.NotNil(t.t, matchedBuyNoCap, "quote not found by ID")
+	require.Equal(
+		t.t, uint64(0), matchedBuyNoCap.AcceptedMaxAmount,
+		"expected no fill cap",
+	)
+
+	err = carolEvents3.CloseSend()
+	require.NoError(t.t, err)
+
+	// -----------------------------------------------------------------
+	// Sub-test: Sell order with fill cap.
+	//
+	// Register a buy offer on Bob so Alice can sell. Set pilot
+	// fill amount to 20000. Submit a sell order from Alice and
+	// verify AcceptedMaxAmount = 20000.
+	// -----------------------------------------------------------------
+	t.Log("Sub-test: sell order with fill cap")
+
+	_, err = ts.BobTapd.AddAssetBuyOffer(
+		ctx, &rfqrpc.AddAssetBuyOfferRequest{
+			AssetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetId{
+					AssetId: mintedAssetId,
+				},
+			},
+			MaxUnits: 1000,
+		},
+	)
+	require.NoError(t.t, err)
+
+	pilot.SetFillAmount(20000)
+
+	aliceEvents, err := ts.AliceTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	sellOrderExpiry := uint64(
+		time.Now().Add(24 * time.Hour).Unix(),
+	)
+	sellReq := &rfqrpc.AddAssetSellOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		PaymentMaxAmt: 42000,
+		Expiry:        sellOrderExpiry,
+		PeerPubKey:    ts.BobLnd.PubKey[:],
+		TimeoutSeconds: uint32(
+			rfqTimeout.Seconds(),
+		),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReq)
+	require.NoError(t.t, err, "sell order with fill cap")
+
+	var sellCapQuoteID []byte
+	BeforeTimeout(t.t, func() {
+		event, err := aliceEvents.Recv()
+		require.NoError(t.t, err)
+
+		e, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedSellQuote)
+		require.True(t.t, ok, "unexpected event: %v", event)
+
+		sellCapQuoteID = e.PeerAcceptedSellQuote.
+			PeerAcceptedSellQuote.Id
+	}, rfqTimeout)
+
+	acceptedQuotes, err = ts.AliceTapd.QueryPeerAcceptedQuotes(
+		ctx, &rfqrpc.QueryPeerAcceptedQuotesRequest{},
+	)
+	require.NoError(t.t, err)
+
+	var matchedSell *rfqrpc.PeerAcceptedSellQuote
+	for _, q := range acceptedQuotes.SellQuotes {
+		if bytes.Equal(q.Id, sellCapQuoteID) {
+			matchedSell = q
+			break
+		}
+	}
+	require.NotNil(t.t, matchedSell, "quote not found by ID")
+	require.Equal(
+		t.t, uint64(20000), matchedSell.AcceptedMaxAmount,
+		"expected fill cap of 20000",
+	)
+
+	err = aliceEvents.CloseSend()
+	require.NoError(t.t, err)
 }
 
 // testRfqLimitConstraints tests that RFQ negotiation correctly enforces
@@ -986,6 +1201,8 @@ func testRfqLimitConstraints(t *harnessTest) {
 	//
 	// Oracle rate = 1000. Alice sets rate limit = 2000 (ceiling
 	// for sell). Since 1000 <= 2000, the constraint passes.
+	// Payment amounts must be large enough to convert to non-zero
+	// asset units at this rate (1 unit = 10^8 msat).
 	// -----------------------------------------------------------------
 	t.Log("Sub-test 3: sell with satisfied constraints")
 
@@ -1000,7 +1217,8 @@ func testRfqLimitConstraints(t *harnessTest) {
 				AssetId: mintedAssetId,
 			},
 		},
-		PaymentMaxAmt: 42000,
+		PaymentMaxAmt: 200_000_000,
+		PaymentMinAmt: 100_000_000,
 		AssetRateLimit: &rfqrpc.FixedPoint{
 			Coefficient: "2000000",
 			Scale:       3,
@@ -1039,7 +1257,7 @@ func testRfqLimitConstraints(t *harnessTest) {
 				AssetId: mintedAssetId,
 			},
 		},
-		PaymentMaxAmt: 42000,
+		PaymentMaxAmt: 200_000_000,
 		AssetRateLimit: &rfqrpc.FixedPoint{
 			Coefficient: "500000",
 			Scale:       3,
@@ -1082,6 +1300,242 @@ func testRfqLimitConstraints(t *harnessTest) {
 		t.t, err, "exceeds max amount",
 		"expected immediate min > max rejection",
 	)
+
+	// -----------------------------------------------------------------
+	// Sub-test 6: Buy FOK — rate supports full amount.
+	//
+	// Oracle rate = 1000. Carol sets FOK on a max of 6 units.
+	// At 1000 units/BTC, 6 units = 6e-3 BTC = 6M msat, which
+	// is non-zero. FOK is satisfied.
+	// -----------------------------------------------------------------
+	t.Log("Sub-test 6: buy FOK accepted")
+
+	carolEvents2, err := ts.CarolTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	buyReqFOK := &rfqrpc.AddAssetBuyOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		AssetMaxAmt:           6,
+		ExecutionPolicy:       rfqrpc.ExecutionPolicy_EXECUTION_POLICY_FOK, //nolint:lll
+		Expiry:                expiry,
+		PeerPubKey:            ts.BobLnd.PubKey[:],
+		TimeoutSeconds:        uint32(rfqTimeout.Seconds()),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.CarolTapd.AddAssetBuyOrder(ctx, buyReqFOK)
+	require.NoError(t.t, err, "buy FOK with viable rate")
+
+	BeforeTimeout(t.t, func() {
+		event, err := carolEvents2.Recv()
+		require.NoError(t.t, err)
+
+		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
+		require.True(t.t, ok, "expected PeerAcceptedBuyQuote, "+
+			"got: %v", event)
+	}, rfqTimeout)
+
+	err = carolEvents2.CloseSend()
+	require.NoError(t.t, err)
+
+	// -----------------------------------------------------------------
+	// Sub-test 7: Sell FOK — rate supports full amount.
+	//
+	// Oracle rate = 1000. Alice sets FOK on a max of 200M msat.
+	// At 1000 units/BTC, 200M msat = 2 units, which is non-zero.
+	// FOK is satisfied.
+	// -----------------------------------------------------------------
+	t.Log("Sub-test 7: sell FOK accepted")
+
+	aliceEvents2, err := ts.AliceTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	sellReqFOK := &rfqrpc.AddAssetSellOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		PaymentMaxAmt:         200_000_000,
+		ExecutionPolicy:       rfqrpc.ExecutionPolicy_EXECUTION_POLICY_FOK, //nolint:lll
+		Expiry:                expiry,
+		PeerPubKey:            ts.BobLnd.PubKey[:],
+		TimeoutSeconds:        uint32(rfqTimeout.Seconds()),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReqFOK)
+	require.NoError(t.t, err, "sell FOK with viable rate")
+
+	BeforeTimeout(t.t, func() {
+		event, err := aliceEvents2.Recv()
+		require.NoError(t.t, err)
+
+		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedSellQuote)
+		require.True(t.t, ok, "expected PeerAcceptedSellQuote, "+
+			"got: %v", event)
+	}, rfqTimeout)
+
+	err = aliceEvents2.CloseSend()
+	require.NoError(t.t, err)
+
+	// -----------------------------------------------------------------
+	// Sub-test 8: Buy FOK — rate cannot support full amount.
+	//
+	// Set oracle to a very high rate (1e12 units/BTC), then FOK
+	// with max = 1 unit. 1 unit at 1e12 rate = ~0 msat. FOK
+	// fails.
+	// -----------------------------------------------------------------
+	t.Log("Sub-test 8: buy FOK rejected")
+
+	hugeRate := rfqmath.NewBigIntFixedPoint(
+		1_000_000_000_000, 0,
+	)
+	oracle.SetPrice(specifier, hugeRate, hugeRate)
+
+	buyReqFOKFail := &rfqrpc.AddAssetBuyOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		AssetMaxAmt:           1,
+		ExecutionPolicy:       rfqrpc.ExecutionPolicy_EXECUTION_POLICY_FOK, //nolint:lll
+		Expiry:                expiry,
+		PeerPubKey:            ts.BobLnd.PubKey[:],
+		TimeoutSeconds:        uint32(rfqTimeout.Seconds()),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.CarolTapd.AddAssetBuyOrder(ctx, buyReqFOKFail)
+	require.ErrorContains(
+		t.t, err, "rejected quote",
+		"expected FOK rejection for buy order",
+	)
+
+	// -----------------------------------------------------------------
+	// Sub-test 9: IOC (default) — same extreme rate, no rejection.
+	//
+	// Same huge rate but without FOK. IOC doesn't enforce the
+	// full-amount conversion, so the quote is accepted.
+	// -----------------------------------------------------------------
+	t.Log("Sub-test 9: IOC default accepted with extreme rate")
+
+	carolEvents3, err := ts.CarolTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	buyReqIOC := &rfqrpc.AddAssetBuyOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		AssetMaxAmt:           1,
+		Expiry:                expiry,
+		PeerPubKey:            ts.BobLnd.PubKey[:],
+		TimeoutSeconds:        uint32(rfqTimeout.Seconds()),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.CarolTapd.AddAssetBuyOrder(ctx, buyReqIOC)
+	require.NoError(t.t, err, "IOC should not reject")
+
+	BeforeTimeout(t.t, func() {
+		event, err := carolEvents3.Recv()
+		require.NoError(t.t, err)
+
+		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
+		require.True(t.t, ok, "expected PeerAcceptedBuyQuote, "+
+			"got: %v", event)
+	}, rfqTimeout)
+
+	err = carolEvents3.CloseSend()
+	require.NoError(t.t, err)
+
+	// -----------------------------------------------------------------
+	// Sub-test 10: Sell FOK — rate cannot support full amount.
+	//
+	// Set oracle to a tiny rate (1 unit/BTC). With
+	// PaymentMaxAmt = 1 msat, MilliSatoshiToUnits(1, 1) ≈ 0
+	// asset units — FOK viability check fails.
+	//
+	// Note: the hugeRate from sub-test 8 does NOT work here
+	// because sell-side converts msat→units (not units→msat),
+	// and 1 msat * 1e12 ≈ 10 units (non-zero).
+	// -----------------------------------------------------------------
+	t.Log("Sub-test 10: sell FOK rejected")
+
+	tinyRate := rfqmath.NewBigIntFixedPoint(1, 0)
+	oracle.SetPrice(specifier, tinyRate, tinyRate)
+
+	sellReqFOKFail := &rfqrpc.AddAssetSellOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		PaymentMaxAmt:   1,
+		ExecutionPolicy: rfqrpc.ExecutionPolicy_EXECUTION_POLICY_FOK,
+		Expiry:          expiry,
+		PeerPubKey:      ts.BobLnd.PubKey[:],
+		TimeoutSeconds: uint32(
+			rfqTimeout.Seconds(),
+		),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReqFOKFail)
+	require.ErrorContains(
+		t.t, err, "rejected quote",
+		"expected FOK rejection for sell order",
+	)
+
+	// -----------------------------------------------------------------
+	// Sub-test 11: Sell IOC — same tiny rate, no rejection.
+	//
+	// Same tinyRate but without FOK (default IOC). IOC doesn't
+	// enforce full-amount conversion, so the quote is accepted.
+	// -----------------------------------------------------------------
+	t.Log("Sub-test 11: sell IOC accepted with tiny rate")
+
+	aliceEvents3, err := ts.AliceTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	sellReqIOC := &rfqrpc.AddAssetSellOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		PaymentMaxAmt: 1,
+		Expiry:        expiry,
+		PeerPubKey:    ts.BobLnd.PubKey[:],
+		TimeoutSeconds: uint32(
+			rfqTimeout.Seconds(),
+		),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReqIOC)
+	require.NoError(t.t, err, "sell IOC should not reject")
+
+	BeforeTimeout(t.t, func() {
+		event, err := aliceEvents3.Recv()
+		require.NoError(t.t, err)
+
+		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedSellQuote)
+		require.True(t.t, ok, "expected PeerAcceptedSellQuote, "+
+			"got: %v", event)
+	}, rfqTimeout)
+
+	err = aliceEvents3.CloseSend()
+	require.NoError(t.t, err)
 }
 
 // rfqTestScenario is a struct which holds test scenario helper infra.

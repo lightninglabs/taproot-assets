@@ -54,6 +54,10 @@ type portfolioPilotHarness struct {
 
 	// verifyStatus is the quote verification status returned by the server.
 	verifyStatus pilotrpc.QuoteRespStatus
+
+	// fillAmount is the optional fill cap returned in
+	// ResolveRequestResponse. 0 means no cap.
+	fillAmount uint64
 }
 
 // newPortfolioPilotHarness returns a new portfolio pilot harness instance that
@@ -116,6 +120,15 @@ func (p *portfolioPilotHarness) callCounts() (resolve, verify, query int) {
 	return p.resolveCalls, p.verifyCalls, p.queryCalls
 }
 
+// SetFillAmount sets the fill cap returned in ResolveRequest
+// responses. 0 means no cap.
+func (p *portfolioPilotHarness) SetFillAmount(amt uint64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.fillAmount = amt
+}
+
 // defaultAssetRate returns a default asset rate in RPC form.
 func (p *portfolioPilotHarness) defaultAssetRate() (*pilotrpc.AssetRate,
 	error) {
@@ -140,6 +153,7 @@ func (p *portfolioPilotHarness) ResolveRequest(_ context.Context,
 	p.mu.Lock()
 	p.resolveCalls++
 	p.lastResolve = req
+	fa := p.fillAmount
 	p.mu.Unlock()
 
 	if req == nil {
@@ -182,6 +196,7 @@ func (p *portfolioPilotHarness) ResolveRequest(_ context.Context,
 		Result: &pilotrpc.ResolveRequestResponse_Accept{
 			Accept: hint,
 		},
+		AcceptedMaxAmount: fa,
 	}, nil
 }
 
