@@ -34,6 +34,8 @@ type testCaseEncodeDecode struct {
 	minInAsset  *uint64
 	minOutAsset *uint64
 
+	assetRateLimit *uint64
+
 	oracleMetadata string
 }
 
@@ -109,6 +111,16 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 		)
 	}
 
+	var assetRateLimit requestAssetRateLimit
+	if tc.assetRateLimit != nil {
+		rate := NewTlvFixedPointFromUint64(
+			*tc.assetRateLimit, 3,
+		)
+		assetRateLimit = tlv.SomeRecordT[tlv.TlvType29](
+			tlv.NewRecordT[tlv.TlvType29](rate),
+		)
+	}
+
 	var oracleMetadata requestOracleMetadata
 	if tc.oracleMetadata != "" {
 		oracleMetadata = tlv.SomeRecordT[tlv.TlvType27](
@@ -131,6 +143,7 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 		OutAssetRateHint:    outAssetRateHint,
 		MinInAsset:          minInAsset,
 		MinOutAsset:         minOutAsset,
+		AssetRateLimit:      assetRateLimit,
 		PriceOracleMetadata: oracleMetadata,
 	}
 }
@@ -162,6 +175,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 
 	minInAsset := uint64(1)
 	minOutAsset := uint64(10)
+	assetRateLimit := uint64(50000)
 
 	testCases := []testCaseEncodeDecode{
 		{
@@ -180,6 +194,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			outAssetRateHint: &outAssetRateHint,
 			minInAsset:       &minInAsset,
 			minOutAsset:      &minOutAsset,
+			assetRateLimit:   &assetRateLimit,
 			oracleMetadata:   "this could be a JSON string",
 		},
 		{
