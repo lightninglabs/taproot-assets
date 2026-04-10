@@ -572,11 +572,12 @@ func (t *mintingTestHarness) finalizeBatchAssertFrozen(
 	)
 	require.NoError(t, err)
 
-	// We only want to know if a new batch gets to the frozen state. So the
-	// list of existing batches should only contain the already frozen.
+	// We only want to know if a new batch gets to a frozen-or-later
+	// state. Record all existing batches in those states so the poll
+	// loop can distinguish them from newly frozen batches.
 	var existingFrozenBatches []*tapgarden.MintingBatch
 	fn.ForEach(existingBatches, func(batch *tapgarden.VerboseBatch) {
-		if batch.State() == tapgarden.BatchStateFrozen {
+		if batchFrozenStates.Contains(batch.State()) {
 			existingFrozenBatches = append(
 				existingFrozenBatches, batch.ToMintingBatch(),
 			)
@@ -623,6 +624,8 @@ func (t *mintingTestHarness) assertNewBatchFrozen(
 
 	var newBatches []*tapgarden.MintingBatch
 	err := wait.NoError(func() error {
+		newBatches = nil
+
 		currentBatches, err := t.store.FetchAllBatches(
 			context.Background(),
 		)
@@ -640,7 +643,12 @@ func (t *mintingTestHarness) assertNewBatchFrozen(
 					newBatches = append(newBatches, batch)
 				}
 			}
-			return nil
+
+			if len(newBatches) > 0 {
+				return nil
+			}
+
+			return fmt.Errorf("new batch not yet frozen")
 		}
 
 		return fmt.Errorf("no new batches created")
