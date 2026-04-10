@@ -189,6 +189,18 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		}
 	}
 
+	// Start diagnostics mode first so startup errors are surfaced before
+	// sub-systems begin their work.
+	if s.cfg.DiagnosticsService != nil {
+		if err := s.cfg.DiagnosticsService.Start(); err != nil {
+			return fmt.Errorf("unable to start diagnostics "+
+				"service: %w", err)
+		}
+
+		shutdownFuncs["diagnosticsService"] =
+			s.cfg.DiagnosticsService.Stop
+	}
+
 	// First, we'll start the main batched asset minter.
 	if err := s.cfg.AssetMinter.Start(); err != nil {
 		return fmt.Errorf("unable to start asset minter: %w", err)
@@ -878,6 +890,12 @@ func (s *Server) Stop() error {
 	}
 	if err := s.cfg.AuxSweeper.Stop(); err != nil {
 		return err
+	}
+
+	if s.cfg.DiagnosticsService != nil {
+		if err := s.cfg.DiagnosticsService.Stop(); err != nil {
+			return err
+		}
 	}
 
 	if s.macaroonService != nil {

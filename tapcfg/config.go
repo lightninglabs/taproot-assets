@@ -398,6 +398,7 @@ type Config struct {
 
 	DataDir        string `long:"datadir" description:"The directory to store tapd's data within"`
 	LogDir         string `long:"logdir" description:"Directory to log output."`
+	DiagnosticsDir string `long:"diagnostics-dir" description:"The root directory for tapd diagnostics artifacts. Diagnostics mode is disabled unless this is set."`
 	MaxLogFiles    int    `long:"maxlogfiles" hidden:"true" description:"DEPRECATED! Use logging.file.max-files instead. Maximum logfiles to keep (0 for no rotation)"`
 	MaxLogFileSize int    `long:"maxlogfilesize" hidden:"true" description:"DEPRECATED! Use logging.file.max-file-size instead. Maximum logfile size in MB"`
 
@@ -784,6 +785,7 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	cfg.RpcConf.TLSCertPath = CleanAndExpandPath(cfg.RpcConf.TLSCertPath)
 	cfg.RpcConf.TLSKeyPath = CleanAndExpandPath(cfg.RpcConf.TLSKeyPath)
 	cfg.LogDir = CleanAndExpandPath(cfg.LogDir)
+	cfg.DiagnosticsDir = CleanAndExpandPath(cfg.DiagnosticsDir)
 	cfg.RpcConf.MacaroonPath = CleanAndExpandPath(cfg.RpcConf.MacaroonPath)
 
 	if cfg.HashMailCourier != nil {
@@ -929,6 +931,9 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 		filepath.Dir(cfg.RpcConf.TLSCertPath),
 		filepath.Dir(cfg.RpcConf.TLSKeyPath),
 		filepath.Dir(cfg.RpcConf.MacaroonPath),
+	}
+	if cfg.DiagnosticsDir != "" {
+		dirs = append(dirs, cfg.DiagnosticsDir)
 	}
 	for _, dir := range dirs {
 		if err := makeDirectory(dir); err != nil {

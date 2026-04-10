@@ -1,6 +1,7 @@
 package tapfreighter
 
 import (
+	"errors"
 	"math/rand"
 	"os"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/diagnostics"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/stretchr/testify/require"
 )
@@ -107,4 +109,62 @@ func TestVerifySplitCommitmentWitnesses(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestBuildPreBroadcastProofFailureReport(t *testing.T) {
+	t.Parallel()
+
+	inputProofs := []diagnostics.ArtifactFile{
+		{
+			FileName: "input-proof-0.bin",
+			Data:     []byte{1, 2, 3},
+		},
+	}
+
+	report := buildPreBroadcastProofFailureReport(
+		errors.New("boom"), 4, 7, []byte{9, 9}, inputProofs,
+	)
+
+	require.Equal(
+		t, diagnostics.StageProofVerificationPreBroadcast,
+		report.Stage,
+	)
+	require.Equal(t, "boom", report.Error)
+	require.NotNil(t, report.VPacketIndex)
+	require.Equal(t, 4, *report.VPacketIndex)
+	require.NotNil(t, report.VPacketOutputIndex)
+	require.Equal(t, 7, *report.VPacketOutputIndex)
+	require.Len(t, report.OutputProofs, 1)
+	require.Equal(t, "output-proof.bin", report.OutputProofs[0].FileName)
+	require.Equal(t, []byte{9, 9}, report.OutputProofs[0].Data)
+	require.Len(t, report.InputProofs, 1)
+}
+
+func TestBuildPostBroadcastProofFailureReport(t *testing.T) {
+	t.Parallel()
+
+	inputProofs := []diagnostics.ArtifactFile{
+		{
+			FileName: "input-proof-0.bin",
+			Data:     []byte{1, 2, 3},
+		},
+	}
+
+	report := buildPostBroadcastProofFailureReport(
+		errors.New("verify failed"), "abcd", 2, []byte{7, 8},
+		inputProofs,
+	)
+
+	require.Equal(
+		t, diagnostics.StageProofVerificationPostBroadcast,
+		report.Stage,
+	)
+	require.Equal(t, "verify failed", report.Error)
+	require.Equal(t, "abcd", report.AnchorTxID)
+	require.NotNil(t, report.TransferOutputIndex)
+	require.Equal(t, 2, *report.TransferOutputIndex)
+	require.Len(t, report.OutputProofs, 1)
+	require.Equal(t, "output-proof-2.bin", report.OutputProofs[0].FileName)
+	require.Equal(t, []byte{7, 8}, report.OutputProofs[0].Data)
+	require.Len(t, report.InputProofs, 1)
 }
