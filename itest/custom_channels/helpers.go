@@ -3365,8 +3365,10 @@ func createTestAssetNetworkGroupKey(ctx context.Context, t *ccHarnessTest,
 	burnAmount1 := mintedAssets[0].Amount - charlieFundingAmount/2 -
 		erinFundingAmount/2 - 1
 	_, err := asTapd(charlie).BurnAsset(ctx, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: assetID1,
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: assetID1,
+			},
 		},
 		AmountToBurn:     burnAmount1,
 		ConfirmationText: assetBurnConfirmationText,
@@ -3378,8 +3380,10 @@ func createTestAssetNetworkGroupKey(ctx context.Context, t *ccHarnessTest,
 	burnAmount2 := mintedAssets[1].Amount - charlieFundingAmount/2 -
 		erinFundingAmount/2 - 1
 	_, err = asTapd(charlie).BurnAsset(ctx, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: assetID2,
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: assetID2,
+			},
 		},
 		AmountToBurn:     burnAmount2,
 		ConfirmationText: assetBurnConfirmationText,
