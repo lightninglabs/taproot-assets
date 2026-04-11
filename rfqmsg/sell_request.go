@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -52,6 +53,16 @@ type SellRequest struct {
 	// must agree to pay.
 	PaymentMaxAmt lnwire.MilliSatoshi
 
+	// PaymentMinAmt is an optional minimum msat amount for the quote.
+	// When set, the responding peer must agree to pay at least this
+	// much.
+	PaymentMinAmt fn.Option[lnwire.MilliSatoshi]
+
+	// AssetRateLimit is an optional maximum acceptable rate (asset
+	// units per BTC). The seller sets a ceiling: "I won't give more
+	// than X units per BTC."
+	AssetRateLimit fn.Option[rfqmath.BigIntFixedPoint]
+
 	// AssetRateHint represents a proposed conversion rate between the
 	// subject asset and BTC. This rate is an initial suggestion intended to
 	// initiate the RFQ negotiation process and may differ from the final
@@ -69,7 +80,10 @@ type SellRequest struct {
 
 // NewSellRequest creates a new asset sell quote request.
 func NewSellRequest(peer route.Vertex, assetSpecifier asset.Specifier,
-	paymentMaxAmt lnwire.MilliSatoshi, assetRateHint fn.Option[AssetRate],
+	paymentMaxAmt lnwire.MilliSatoshi,
+	paymentMinAmt fn.Option[lnwire.MilliSatoshi],
+	assetRateLimit fn.Option[rfqmath.BigIntFixedPoint],
+	assetRateHint fn.Option[AssetRate],
 	oracleMetadata string) (*SellRequest, error) {
 
 	id, err := NewID()
@@ -83,15 +97,24 @@ func NewSellRequest(peer route.Vertex, assetSpecifier asset.Specifier,
 			"length of %d bytes", MaxOracleMetadataLength)
 	}
 
-	return &SellRequest{
+	req := &SellRequest{
 		Peer:                peer,
 		Version:             latestSellRequestVersion,
 		ID:                  id,
 		AssetSpecifier:      assetSpecifier,
 		PaymentMaxAmt:       paymentMaxAmt,
+		PaymentMinAmt:       paymentMinAmt,
+		AssetRateLimit:      assetRateLimit,
 		AssetRateHint:       assetRateHint,
 		PriceOracleMetadata: oracleMetadata,
-	}, nil
+	}
+
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("unable to validate sell "+
+			"request: %w", err)
+	}
+
+	return req, nil
 }
 
 // NewSellRequestFromWire instantiates a new instance from a wire message.
@@ -129,10 +152,10 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 	}
 
 	// Sanity check that at least one of the inbound asset ID or
-	// group key is set. At least one must be set in a buy request.
+	// group key is set. At least one must be set in a sell request.
 	if assetID == nil && assetGroupKey == nil {
 		return nil, fmt.Errorf("inbound asset ID and group " +
-			"key cannot both be unset for incoming buy " +
+			"key cannot both be unset for incoming sell " +
 			"request")
 	}
 
@@ -147,6 +170,25 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 		},
 	)
 
+	// Extract optional min payment amount.
+	var paymentMinAmt fn.Option[lnwire.MilliSatoshi]
+	msgData.MinOutAsset.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType25, uint64]) {
+			paymentMinAmt = fn.Some(
+				lnwire.MilliSatoshi(r.Val),
+			)
+		},
+	)
+
+	// Extract optional rate limit.
+	var assetRateLimit fn.Option[rfqmath.BigIntFixedPoint]
+	msgData.AssetRateLimit.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType29, TlvFixedPoint]) {
+			fp := r.Val.IntoBigIntFixedPoint()
+			assetRateLimit = fn.Some(fp)
+		},
+	)
+
 	req := SellRequest{
 		Peer:           wireMsg.Peer,
 		Version:        msgData.Version.Val,
@@ -155,7 +197,9 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 		PaymentMaxAmt: lnwire.MilliSatoshi(
 			msgData.MaxInAsset.Val,
 		),
-		AssetRateHint: assetRateHint,
+		PaymentMinAmt:  paymentMinAmt,
+		AssetRateLimit: assetRateLimit,
+		AssetRateHint:  assetRateHint,
 	}
 
 	msgData.PriceOracleMetadata.ValOpt().WhenSome(func(metaBytes []byte) {
@@ -189,6 +233,38 @@ func (q *SellRequest) Validate() error {
 	if len(q.PriceOracleMetadata) > MaxOracleMetadataLength {
 		return fmt.Errorf("price oracle metadata exceeds maximum "+
 			"length of %d bytes", MaxOracleMetadataLength)
+	}
+
+	// Ensure min <= max when min is set.
+	err = fn.MapOptionZ(
+		q.PaymentMinAmt,
+		func(minAmt lnwire.MilliSatoshi) error {
+			if minAmt > q.PaymentMaxAmt {
+				return fmt.Errorf("payment min amount "+
+					"(%d) exceeds max amount (%d)",
+					minAmt, q.PaymentMaxAmt)
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	// Ensure rate limit is strictly positive when set.
+	err = fn.MapOptionZ(
+		q.AssetRateLimit,
+		func(limit rfqmath.BigIntFixedPoint) error {
+			zero := rfqmath.NewBigIntFromUint64(0)
+			if !limit.Coefficient.Gt(zero) {
+				return fmt.Errorf("asset rate limit " +
+					"coefficient must be positive")
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -246,10 +322,25 @@ func (q *SellRequest) String() string {
 		},
 	)
 
+	minAmtStr := fn.MapOptionZ(
+		q.PaymentMinAmt,
+		func(v lnwire.MilliSatoshi) string {
+			return fmt.Sprintf(", payment_min_amt=%d", v)
+		},
+	)
+
+	rateLimitStr := fn.MapOptionZ(
+		q.AssetRateLimit,
+		func(v rfqmath.BigIntFixedPoint) string {
+			return fmt.Sprintf(", asset_rate_limit=%s",
+				v.String())
+		},
+	)
+
 	return fmt.Sprintf("SellRequest(peer=%x, id=%x, asset=%s, "+
-		"payment_max_amt=%d, asset_rate_hint=%s)",
+		"payment_max_amt=%d%s%s, asset_rate_hint=%s)",
 		q.Peer[:], q.ID[:], q.AssetSpecifier.String(), q.PaymentMaxAmt,
-		assetRateHintStr)
+		minAmtStr, rateLimitStr, assetRateHintStr)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

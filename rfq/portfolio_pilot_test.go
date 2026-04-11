@@ -124,6 +124,8 @@ func TestResolveRequest(t *testing.T) {
 		req, err := rfqmsg.NewBuyRequest(
 			route.Vertex{0x01, 0x02, 0x03},
 			asset.NewSpecifierFromId(asset.ID{assetID}), 100,
+			fn.None[uint64](),
+			fn.None[rfqmath.BigIntFixedPoint](),
 			rateHint, "order-metadata",
 		)
 		require.NoError(t, err)
@@ -140,7 +142,10 @@ func TestResolveRequest(t *testing.T) {
 		req, err := rfqmsg.NewSellRequest(
 			route.Vertex{0x0A, 0x0B, 0x0C},
 			asset.NewSpecifierFromId(asset.ID{assetID}),
-			paymentMax, rateHint, "order-metadata",
+			paymentMax,
+			fn.None[lnwire.MilliSatoshi](),
+			fn.None[rfqmath.BigIntFixedPoint](),
+			rateHint, "order-metadata",
 		)
 		require.NoError(t, err)
 		return req
@@ -546,6 +551,8 @@ func TestVerifyAcceptQuote(t *testing.T) {
 			makeAccept: func(t *testing.T) rfqmsg.Accept {
 				buyReq, err := rfqmsg.NewBuyRequest(
 					peerID, assetSpec, 100,
+					fn.None[uint64](),
+					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 				)
@@ -574,6 +581,8 @@ func TestVerifyAcceptQuote(t *testing.T) {
 			makeAccept: func(t *testing.T) rfqmsg.Accept {
 				buyReq, err := rfqmsg.NewBuyRequest(
 					peerID, assetSpec, 100,
+					fn.None[uint64](),
+					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 				)
@@ -599,6 +608,8 @@ func TestVerifyAcceptQuote(t *testing.T) {
 			makeAccept: func(t *testing.T) rfqmsg.Accept {
 				buyReq, err := rfqmsg.NewBuyRequest(
 					peerID, assetSpec, 100,
+					fn.None[uint64](),
+					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 				)
@@ -629,6 +640,8 @@ func TestVerifyAcceptQuote(t *testing.T) {
 			makeAccept: func(t *testing.T) rfqmsg.Accept {
 				buyReq, err := rfqmsg.NewBuyRequest(
 					peerID, assetSpec, 100,
+					fn.None[uint64](),
+					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 				)
@@ -655,6 +668,8 @@ func TestVerifyAcceptQuote(t *testing.T) {
 			makeAccept: func(t *testing.T) rfqmsg.Accept {
 				buyReq, err := rfqmsg.NewBuyRequest(
 					peerID, assetSpec, 100,
+					fn.None[uint64](),
+					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 				)
@@ -680,6 +695,8 @@ func TestVerifyAcceptQuote(t *testing.T) {
 			makeAccept: func(t *testing.T) rfqmsg.Accept {
 				buyReq, err := rfqmsg.NewBuyRequest(
 					peerID, assetSpec, 100,
+					fn.None[uint64](),
+					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 				)
@@ -708,6 +725,8 @@ func TestVerifyAcceptQuote(t *testing.T) {
 				sellReq, err := rfqmsg.NewSellRequest(
 					peerID, assetSpec,
 					lnwire.MilliSatoshi(1000),
+					fn.None[lnwire.MilliSatoshi](),
+					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 				)
@@ -737,6 +756,8 @@ func TestVerifyAcceptQuote(t *testing.T) {
 				sellReq, err := rfqmsg.NewSellRequest(
 					peerID, assetSpec,
 					lnwire.MilliSatoshi(1000),
+					fn.None[lnwire.MilliSatoshi](),
+					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 				)
@@ -763,6 +784,8 @@ func TestVerifyAcceptQuote(t *testing.T) {
 				sellReq, err := rfqmsg.NewSellRequest(
 					peerID, assetSpec,
 					lnwire.MilliSatoshi(1000),
+					fn.None[lnwire.MilliSatoshi](),
+					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 				)
@@ -789,6 +812,8 @@ func TestVerifyAcceptQuote(t *testing.T) {
 				sellReq, err := rfqmsg.NewSellRequest(
 					peerID, assetSpec,
 					lnwire.MilliSatoshi(1000),
+					fn.None[lnwire.MilliSatoshi](),
+					fn.None[rfqmath.BigIntFixedPoint](),
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 				)
@@ -809,6 +834,249 @@ func TestVerifyAcceptQuote(t *testing.T) {
 			// Price outside tolerance is an expected validation
 			// failure (no Go error).
 			expectStatus: InvalidAssetRatesQuoteRespStatus,
+			expectErr:    false,
+		},
+
+		// --- Rate bound enforcement cases ---
+
+		{
+			name: "buy accept: rate below limit",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				// Buyer sets floor at 150 units/BTC,
+				// but peer offers only 100.
+				limit := rfqmath.NewBigIntFixedPoint(
+					150, 0,
+				)
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[uint64](),
+					fn.Some(limit),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQueryBuyPrice(
+					p, &OracleResponse{
+						AssetRate: oracleRateMatch,
+					}, nil,
+				)
+			},
+			expectStatus: RateBoundMissQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "buy accept: rate at limit",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				// Buyer floor exactly equals accepted
+				// rate.
+				limit := rfqmath.NewBigIntFixedPoint(
+					100, 0,
+				)
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[uint64](),
+					fn.Some(limit),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQueryBuyPrice(
+					p, &OracleResponse{
+						AssetRate: oracleRateMatch,
+					}, nil,
+				)
+			},
+			expectStatus: ValidAcceptQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "buy accept: rate above limit",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				// Buyer floor is 50, accepted rate is
+				// 100 — should pass.
+				limit := rfqmath.NewBigIntFixedPoint(
+					50, 0,
+				)
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[uint64](),
+					fn.Some(limit),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQueryBuyPrice(
+					p, &OracleResponse{
+						AssetRate: oracleRateMatch,
+					}, nil,
+				)
+			},
+			expectStatus: ValidAcceptQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "sell accept: rate above limit",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				// Seller ceiling is 50, but accepted
+				// rate is 100 — should fail.
+				limit := rfqmath.NewBigIntFixedPoint(
+					50, 0,
+				)
+				sellReq, err := rfqmsg.NewSellRequest(
+					peerID, assetSpec,
+					lnwire.MilliSatoshi(1000),
+					fn.None[lnwire.MilliSatoshi](),
+					fn.Some(limit),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.SellAccept{
+					Peer:      peerID,
+					Request:   *sellReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				resp := OracleResponse{
+					AssetRate: oracleRateMatch,
+				}
+				expectQuerySellPrice(p, &resp, nil)
+			},
+			expectStatus: RateBoundMissQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "sell accept: rate at limit",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				// Seller ceiling equals accepted rate.
+				limit := rfqmath.NewBigIntFixedPoint(
+					100, 0,
+				)
+				sellReq, err := rfqmsg.NewSellRequest(
+					peerID, assetSpec,
+					lnwire.MilliSatoshi(1000),
+					fn.None[lnwire.MilliSatoshi](),
+					fn.Some(limit),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.SellAccept{
+					Peer:      peerID,
+					Request:   *sellReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				resp := OracleResponse{
+					AssetRate: oracleRateMatch,
+				}
+				expectQuerySellPrice(p, &resp, nil)
+			},
+			expectStatus: ValidAcceptQuoteRespStatus,
+			expectErr:    false,
+		},
+
+		// --- Min fill enforcement cases ---
+
+		{
+			name: "buy accept: min fill zero msat",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				// Rate is very high (1e12 units/BTC),
+				// so 1 unit converts to ~0 msat.
+				hugeRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(
+						1_000_000_000_000, 0,
+					),
+					validExpiryFuture,
+				)
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.Some[uint64](1),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: hugeRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				oracleRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(
+						1_000_000_000_000, 0,
+					),
+					validExpiryFuture,
+				)
+				expectQueryBuyPrice(
+					p, &OracleResponse{
+						AssetRate: oracleRate,
+					}, nil,
+				)
+			},
+			expectStatus: MinFillNotMetQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "buy accept: min fill transportable",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				// Rate of 100 units/BTC, min of 50
+				// units = 0.5 BTC = 500M msat. Easily
+				// transportable.
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.Some[uint64](50),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:      peerID,
+					Request:   *buyReq,
+					AssetRate: peerRate,
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQueryBuyPrice(
+					p, &OracleResponse{
+						AssetRate: oracleRateMatch,
+					}, nil,
+				)
+			},
+			expectStatus: ValidAcceptQuoteRespStatus,
 			expectErr:    false,
 		},
 	}
@@ -867,6 +1135,8 @@ func TestResolveRequestWithoutPriceOracleRejects(t *testing.T) {
 
 	req, err := rfqmsg.NewBuyRequest(
 		peerID, assetSpec, 100,
+		fn.None[uint64](),
+		fn.None[rfqmath.BigIntFixedPoint](),
 		fn.None[rfqmsg.AssetRate](),
 		"metadata",
 	)
@@ -906,6 +1176,8 @@ func TestVerifyAcceptQuoteWithoutPriceOracle(t *testing.T) {
 
 	buyReq, err := rfqmsg.NewBuyRequest(
 		peerID, assetSpec, 100,
+		fn.None[uint64](),
+		fn.None[rfqmath.BigIntFixedPoint](),
 		fn.None[rfqmsg.AssetRate](),
 		"metadata",
 	)
@@ -931,4 +1203,207 @@ func TestVerifyAcceptQuoteWithoutPriceOracle(t *testing.T) {
 	status, err := pilot.VerifyAcceptQuote(context.Background(), accept)
 	require.NoError(t, err)
 	require.Equal(t, PriceOracleQueryErrQuoteRespStatus, status)
+}
+
+// TestCheckRateBound exercises the checkRateBound helper directly.
+func TestCheckRateBound(t *testing.T) {
+	t.Parallel()
+
+	spec := asset.NewSpecifierFromId(asset.ID{0x01})
+	rate100 := rfqmath.NewBigIntFixedPoint(100, 0)
+	rate50 := rfqmath.NewBigIntFixedPoint(50, 0)
+	rate150 := rfqmath.NewBigIntFixedPoint(150, 0)
+	noLimit := fn.None[rfqmath.BigIntFixedPoint]()
+
+	tests := []struct {
+		name   string
+		req    rfqmsg.Request
+		rate   rfqmath.BigIntFixedPoint
+		expect QuoteRespStatus
+	}{
+		{
+			name: "buy: no limit set",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				AssetRateLimit: noLimit,
+			},
+			rate:   rate100,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "buy: rate above limit",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				AssetRateLimit: fn.Some(rate50),
+			},
+			rate:   rate100,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "buy: rate at limit",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				AssetRateLimit: fn.Some(rate100),
+			},
+			rate:   rate100,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "buy: rate below limit",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				AssetRateLimit: fn.Some(rate150),
+			},
+			rate:   rate100,
+			expect: RateBoundMissQuoteRespStatus,
+		},
+		{
+			name: "sell: no limit set",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  1000,
+				AssetRateLimit: noLimit,
+			},
+			rate:   rate100,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "sell: rate below limit",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  1000,
+				AssetRateLimit: fn.Some(rate150),
+			},
+			rate:   rate100,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "sell: rate at limit",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  1000,
+				AssetRateLimit: fn.Some(rate100),
+			},
+			rate:   rate100,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "sell: rate above limit",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  1000,
+				AssetRateLimit: fn.Some(rate50),
+			},
+			rate:   rate100,
+			expect: RateBoundMissQuoteRespStatus,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			status := checkRateBound(tc.req, tc.rate)
+			require.Equal(t, tc.expect, status)
+		})
+	}
+}
+
+// TestCheckMinFill exercises the checkMinFill helper directly.
+func TestCheckMinFill(t *testing.T) {
+	t.Parallel()
+
+	spec := asset.NewSpecifierFromId(asset.ID{0x01})
+
+	// A rate of 100 units/BTC. 50 units = 0.5 BTC =
+	// 50_000_000_000 msat (easily non-zero).
+	normalRate := rfqmath.NewBigIntFixedPoint(100, 0)
+
+	// A huge rate: 1e12 units/BTC. 1 unit = 1e-12 BTC =
+	// 0.1 msat, rounds to 0.
+	hugeRate := rfqmath.NewBigIntFixedPoint(
+		1_000_000_000_000, 0,
+	)
+
+	tests := []struct {
+		name   string
+		req    rfqmsg.Request
+		rate   rfqmath.BigIntFixedPoint
+		expect QuoteRespStatus
+	}{
+		{
+			name: "buy: no min set",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				AssetMinAmt:    fn.None[uint64](),
+			},
+			rate:   normalRate,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "buy: min fill transportable",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				AssetMinAmt:    fn.Some[uint64](50),
+			},
+			rate:   normalRate,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "buy: min fill rounds to zero",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				AssetMinAmt:    fn.Some[uint64](1),
+			},
+			rate:   hugeRate,
+			expect: MinFillNotMetQuoteRespStatus,
+		},
+		{
+			name: "sell: no min set",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  1000,
+				PaymentMinAmt:  fn.None[lnwire.MilliSatoshi](),
+			},
+			rate:   normalRate,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "sell: min fill transportable",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt: lnwire.MilliSatoshi(
+					50_000_000_000,
+				),
+				PaymentMinAmt: fn.Some(
+					lnwire.MilliSatoshi(
+						10_000_000_000,
+					),
+				),
+			},
+			rate:   normalRate,
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		// NOTE: A sell min fill that rounds to zero units is
+		// very hard to trigger with the default arithmetic
+		// scale (11), since MilliSatoshiToUnits preserves
+		// enough precision for any non-zero msat. The
+		// check acts as a safety net for degenerate inputs.
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			status := checkMinFill(tc.req, tc.rate)
+			require.Equal(t, tc.expect, status)
+		})
+	}
 }

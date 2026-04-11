@@ -1733,6 +1733,13 @@ type BuyOrder struct {
 	// be willing to offer.
 	AssetMaxAmt uint64
 
+	// AssetMinAmt is an optional minimum asset amount for the order.
+	AssetMinAmt fn.Option[uint64]
+
+	// AssetRateLimit is an optional minimum acceptable rate (asset
+	// units per BTC) for the order.
+	AssetRateLimit fn.Option[rfqmath.BigIntFixedPoint]
+
 	// Expiry is the time at which the order expires.
 	Expiry time.Time
 
@@ -1799,6 +1806,13 @@ type SellOrder struct {
 	// PaymentMaxAmt is the maximum msat amount that the responding peer
 	// must agree to pay.
 	PaymentMaxAmt lnwire.MilliSatoshi
+
+	// PaymentMinAmt is an optional minimum msat amount for the order.
+	PaymentMinAmt fn.Option[lnwire.MilliSatoshi]
+
+	// AssetRateLimit is an optional maximum acceptable rate (asset
+	// units per BTC) for the order.
+	AssetRateLimit fn.Option[rfqmath.BigIntFixedPoint]
 
 	// Expiry is the time at which the order expires.
 	Expiry time.Time

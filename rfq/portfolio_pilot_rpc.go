@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	pilotrpc "github.com/lightninglabs/taproot-assets/taprpc/portfoliopilotrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -441,14 +443,25 @@ func rpcMarshalBuyRequest(
 		return nil, fmt.Errorf("marshal rate hint: %w", err)
 	}
 
+	var rpcRateLimit *pilotrpc.FixedPoint
+	req.AssetRateLimit.WhenSome(
+		func(fp rfqmath.BigIntFixedPoint) {
+			rpcRateLimit = rpcutils.MarshalPortfolioFixedPoint(fp)
+		},
+	)
+
 	peer := req.MsgPeer()
-	rpcSpecifier := rpcMarshalPortfolioAssetSpecifier(req.AssetSpecifier)
+	rpcSpecifier := rpcMarshalPortfolioAssetSpecifier(
+		req.AssetSpecifier,
+	)
 	return &pilotrpc.BuyRequest{
 		AssetSpecifier:      rpcSpecifier,
 		AssetMaxAmount:      req.AssetMaxAmt,
 		AssetRateHint:       rpcRateHint,
 		PriceOracleMetadata: req.PriceOracleMetadata,
 		PeerId:              peer[:],
+		AssetMinAmount:      req.AssetMinAmt.UnwrapOr(0),
+		AssetRateLimit:      rpcRateLimit,
 	}, nil
 }
 
@@ -475,14 +488,32 @@ func rpcMarshalSellRequest(
 		return nil, fmt.Errorf("marshal rate hint: %w", err)
 	}
 
+	var rpcRateLimit *pilotrpc.FixedPoint
+	req.AssetRateLimit.WhenSome(
+		func(fp rfqmath.BigIntFixedPoint) {
+			rpcRateLimit = rpcutils.MarshalPortfolioFixedPoint(fp)
+		},
+	)
+
+	var paymentMinAmt uint64
+	req.PaymentMinAmt.WhenSome(
+		func(v lnwire.MilliSatoshi) {
+			paymentMinAmt = uint64(v)
+		},
+	)
+
 	peer := req.MsgPeer()
-	rpcSpecifier := rpcMarshalPortfolioAssetSpecifier(req.AssetSpecifier)
+	rpcSpecifier := rpcMarshalPortfolioAssetSpecifier(
+		req.AssetSpecifier,
+	)
 	return &pilotrpc.SellRequest{
 		AssetSpecifier:      rpcSpecifier,
 		PaymentMaxAmount:    uint64(req.PaymentMaxAmt),
 		AssetRateHint:       rpcRateHint,
 		PriceOracleMetadata: req.PriceOracleMetadata,
 		PeerId:              peer[:],
+		PaymentMinAmount:    paymentMinAmt,
+		AssetRateLimit:      rpcRateLimit,
 	}, nil
 }
 
@@ -573,6 +604,10 @@ func rpcUnmarshalQuoteRespStatus(
 		return PortfolioPilotErrQuoteRespStatus, nil
 	case pilotrpc.QuoteRespStatus_VALID_ACCEPT_QUOTE:
 		return ValidAcceptQuoteRespStatus, nil
+	case pilotrpc.QuoteRespStatus_MIN_FILL_NOT_MET:
+		return MinFillNotMetQuoteRespStatus, nil
+	case pilotrpc.QuoteRespStatus_RATE_BOUND_MISS:
+		return RateBoundMissQuoteRespStatus, nil
 	default:
 		return 0, fmt.Errorf("unknown quote response status: %v",
 			status)
@@ -588,6 +623,10 @@ func rpcUnmarshalRejectCode(
 		return rfqmsg.PriceOracleUnspecifiedRejectCode
 	case pilotrpc.RejectCode_REJECT_CODE_PRICE_ORACLE_UNAVAILABLE:
 		return rfqmsg.PriceOracleUnavailableRejectCode
+	case pilotrpc.RejectCode_REJECT_CODE_MIN_FILL_NOT_MET:
+		return rfqmsg.MinFillNotMetRejectCode
+	case pilotrpc.RejectCode_REJECT_CODE_PRICE_BOUND_MISS:
+		return rfqmsg.PriceBoundMissRejectCode
 	default:
 		return rfqmsg.PriceOracleUnspecifiedRejectCode
 	}

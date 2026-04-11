@@ -89,6 +89,14 @@ const (
 	// PriceOracleUnavailableRejectCode indicates that a request-for-quote
 	// was rejected as a price oracle was unavailable.
 	PriceOracleUnavailableRejectCode RejectCode = 1
+
+	// MinFillNotMetRejectCode indicates that the minimum fill
+	// constraint was not satisfiable at the accepted rate.
+	MinFillNotMetRejectCode RejectCode = 2
+
+	// PriceBoundMissRejectCode indicates that the accepted rate
+	// violated the requester's rate limit constraint.
+	PriceBoundMissRejectCode RejectCode = 3
 )
 
 var (
@@ -104,6 +112,20 @@ var (
 	ErrPriceOracleUnavailable = RejectErr{
 		Code: PriceOracleUnavailableRejectCode,
 		Msg:  "price oracle unavailable",
+	}
+
+	// ErrMinFillNotMet is the error for when the minimum fill
+	// constraint cannot be met at the accepted rate.
+	ErrMinFillNotMet = RejectErr{
+		Code: MinFillNotMetRejectCode,
+		Msg:  "minimum fill not met",
+	}
+
+	// ErrPriceBoundMiss is the error for when the accepted rate
+	// violates the requester's rate limit constraint.
+	ErrPriceBoundMiss = RejectErr{
+		Code: PriceBoundMissRejectCode,
+		Msg:  "rate limit constraint violated",
 	}
 )
 

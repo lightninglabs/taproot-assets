@@ -100,6 +100,10 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsInvoiceQuoteExpiryMismatch,
 	},
 	{
+		name: "limit constraints",
+		test: testCustomChannelsLimitConstraints,
+	},
+	{
 		name: "fee",
 		test: testCustomChannelsFee,
 	},

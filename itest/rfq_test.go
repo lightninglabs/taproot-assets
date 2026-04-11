@@ -844,6 +844,246 @@ func testRfqPortfolioPilotRpc(t *harnessTest) {
 	}, rfqTimeout, 50*time.Millisecond)
 }
 
+// testRfqLimitConstraints tests that RFQ negotiation correctly enforces
+// limit-order constraints (asset_rate_limit, asset_min_amt,
+// payment_min_amt) at the RPC layer. It uses the oracle harness with
+// SetPrice for deterministic rates and the standard 3-node topology.
+func testRfqLimitConstraints(t *harnessTest) {
+	// Start a mock price oracle RPC server.
+	oracleAddr := fmt.Sprintf("127.0.0.1:%d", port.NextAvailablePort())
+	oracle := NewOracleHarness(oracleAddr)
+	oracle.Start(t.t)
+	t.t.Cleanup(oracle.Stop)
+
+	oracleURL := fmt.Sprintf("rfqrpc://%s", oracleAddr)
+
+	// Initialize the standard 3-node test scenario.
+	ts := newRfqTestScenario(t, WithRfqOracleServer(oracleURL))
+
+	// Mint an asset with Bob's tapd node.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, ts.BobTapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+	)
+	mintedAssetId := rpcAssets[0].AssetGenesis.AssetId
+
+	var assetID asset.ID
+	copy(assetID[:], mintedAssetId)
+	specifier := asset.NewSpecifierFromId(assetID)
+
+	// Set oracle rate to 1000 asset units per BTC (coeff=1000000,
+	// scale=3). Use same price for both bid and ask (no spread).
+	oracleRate := rfqmath.NewBigIntFixedPoint(1000_000, 3)
+	oracle.SetPrice(specifier, oracleRate, oracleRate)
+
+	ctx := context.Background()
+
+	// Bob registers a sell offer so Carol can buy.
+	_, err := ts.BobTapd.AddAssetSellOffer(
+		ctx, &rfqrpc.AddAssetSellOfferRequest{
+			AssetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetId{
+					AssetId: mintedAssetId,
+				},
+			},
+			MaxUnits: 1000,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Bob also registers a buy offer so Alice can sell.
+	_, err = ts.BobTapd.AddAssetBuyOffer(
+		ctx, &rfqrpc.AddAssetBuyOfferRequest{
+			AssetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetId{
+					AssetId: mintedAssetId,
+				},
+			},
+			MaxUnits: 1000,
+		},
+	)
+	require.NoError(t.t, err)
+
+	expiry := uint64(time.Now().Add(24 * time.Hour).Unix())
+
+	// -----------------------------------------------------------------
+	// Sub-test 1: Buy with satisfied rate limit.
+	//
+	// Oracle rate = 1000. Carol sets rate limit = 500 (floor for
+	// buy). Since 1000 >= 500, the constraint passes.
+	// -----------------------------------------------------------------
+	t.Log("Sub-test 1: buy with satisfied rate limit")
+
+	carolEvents, err := ts.CarolTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	buyReq := &rfqrpc.AddAssetBuyOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		AssetMaxAmt: 6,
+		AssetMinAmt: 1,
+		AssetRateLimit: &rfqrpc.FixedPoint{
+			Coefficient: "500000",
+			Scale:       3,
+		},
+		Expiry:                expiry,
+		PeerPubKey:            ts.BobLnd.PubKey[:],
+		TimeoutSeconds:        uint32(rfqTimeout.Seconds()),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.CarolTapd.AddAssetBuyOrder(ctx, buyReq)
+	require.NoError(t.t, err, "buy with satisfied rate limit")
+
+	BeforeTimeout(t.t, func() {
+		event, err := carolEvents.Recv()
+		require.NoError(t.t, err)
+
+		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
+		require.True(t.t, ok, "expected PeerAcceptedBuyQuote, "+
+			"got: %v", event)
+	}, rfqTimeout)
+
+	err = carolEvents.CloseSend()
+	require.NoError(t.t, err)
+
+	// -----------------------------------------------------------------
+	// Sub-test 2: Buy with violated rate limit.
+	//
+	// Oracle rate = 1000. Carol sets rate limit = 2000 (floor for
+	// buy). Since 1000 < 2000, the rate bound check fails.
+	// -----------------------------------------------------------------
+	t.Log("Sub-test 2: buy with violated rate limit")
+
+	buyReq2 := &rfqrpc.AddAssetBuyOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		AssetMaxAmt: 6,
+		AssetRateLimit: &rfqrpc.FixedPoint{
+			Coefficient: "2000000",
+			Scale:       3,
+		},
+		Expiry:                expiry,
+		PeerPubKey:            ts.BobLnd.PubKey[:],
+		TimeoutSeconds:        uint32(rfqTimeout.Seconds()),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.CarolTapd.AddAssetBuyOrder(ctx, buyReq2)
+	require.ErrorContains(
+		t.t, err, "rejected quote",
+		"expected rate bound rejection for buy order",
+	)
+
+	// -----------------------------------------------------------------
+	// Sub-test 3: Sell with satisfied constraints.
+	//
+	// Oracle rate = 1000. Alice sets rate limit = 2000 (ceiling
+	// for sell). Since 1000 <= 2000, the constraint passes.
+	// -----------------------------------------------------------------
+	t.Log("Sub-test 3: sell with satisfied constraints")
+
+	aliceEvents, err := ts.AliceTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	sellReq := &rfqrpc.AddAssetSellOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		PaymentMaxAmt: 42000,
+		AssetRateLimit: &rfqrpc.FixedPoint{
+			Coefficient: "2000000",
+			Scale:       3,
+		},
+		Expiry:                expiry,
+		PeerPubKey:            ts.BobLnd.PubKey[:],
+		TimeoutSeconds:        uint32(rfqTimeout.Seconds()),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReq)
+	require.NoError(t.t, err, "sell with satisfied constraints")
+
+	BeforeTimeout(t.t, func() {
+		event, err := aliceEvents.Recv()
+		require.NoError(t.t, err)
+
+		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedSellQuote)
+		require.True(t.t, ok, "expected PeerAcceptedSellQuote, "+
+			"got: %v", event)
+	}, rfqTimeout)
+
+	err = aliceEvents.CloseSend()
+	require.NoError(t.t, err)
+
+	// -----------------------------------------------------------------
+	// Sub-test 4: Sell with violated rate limit.
+	//
+	// Oracle rate = 1000. Alice sets rate limit = 500 (ceiling for
+	// sell). Since 1000 > 500, the rate bound check fails.
+	// -----------------------------------------------------------------
+	t.Log("Sub-test 4: sell with violated rate limit")
+
+	sellReq2 := &rfqrpc.AddAssetSellOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		PaymentMaxAmt: 42000,
+		AssetRateLimit: &rfqrpc.FixedPoint{
+			Coefficient: "500000",
+			Scale:       3,
+		},
+		Expiry:                expiry,
+		PeerPubKey:            ts.BobLnd.PubKey[:],
+		TimeoutSeconds:        uint32(rfqTimeout.Seconds()),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReq2)
+	require.ErrorContains(
+		t.t, err, "rejected quote",
+		"expected rate bound rejection for sell order",
+	)
+
+	// -----------------------------------------------------------------
+	// Sub-test 5: Client validation — min > max rejected locally.
+	//
+	// Carol sends a buy order with asset_min_amt = 10 and
+	// asset_max_amt = 5. The Validate() check in NewBuyRequest
+	// catches this before any wire negotiation.
+	// -----------------------------------------------------------------
+	t.Log("Sub-test 5: client validation min > max")
+
+	buyReq3 := &rfqrpc.AddAssetBuyOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
+			},
+		},
+		AssetMaxAmt:           5,
+		AssetMinAmt:           10,
+		Expiry:                expiry,
+		PeerPubKey:            ts.BobLnd.PubKey[:],
+		TimeoutSeconds:        uint32(rfqTimeout.Seconds()),
+		SkipAssetChannelCheck: true,
+	}
+	_, err = ts.CarolTapd.AddAssetBuyOrder(ctx, buyReq3)
+	require.ErrorContains(
+		t.t, err, "exceeds max amount",
+		"expected immediate min > max rejection",
+	)
+}
+
 // rfqTestScenario is a struct which holds test scenario helper infra.
 type rfqTestScenario struct {
 	testHarness *harnessTest

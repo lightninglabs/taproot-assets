@@ -384,6 +384,10 @@ var allTestCases = []*testCase{
 		test: testRfqPortfolioPilotRpc,
 	},
 	{
+		name: "rfq limit constraints",
+		test: testRfqLimitConstraints,
+	},
+	{
 		name: "multi signature on all levels",
 		test: testMultiSignature,
 	},

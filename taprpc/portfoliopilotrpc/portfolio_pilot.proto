@@ -107,6 +107,14 @@ enum RejectCode {
     // REJECT_CODE_PRICE_ORACLE_UNAVAILABLE indicates that pricing could not be
     // provided due to an unavailable oracle.
     REJECT_CODE_PRICE_ORACLE_UNAVAILABLE = 1;
+
+    // REJECT_CODE_MIN_FILL_NOT_MET indicates that the minimum fill
+    // constraint was not satisfiable at the accepted rate.
+    REJECT_CODE_MIN_FILL_NOT_MET = 2;
+
+    // REJECT_CODE_PRICE_BOUND_MISS indicates that the accepted rate
+    // violated the requester's rate limit constraint.
+    REJECT_CODE_PRICE_BOUND_MISS = 3;
 }
 
 // QuoteRespStatus is an enum that represents the status of a quote response.
@@ -130,6 +138,14 @@ enum QuoteRespStatus {
     // VALID_ACCEPT_QUOTE indicates that the accepted quote passed all
     // validation checks successfully.
     VALID_ACCEPT_QUOTE = 4;
+
+    // MIN_FILL_NOT_MET indicates that the minimum fill constraint was
+    // not satisfiable at the accepted rate.
+    MIN_FILL_NOT_MET = 5;
+
+    // RATE_BOUND_MISS indicates that the accepted rate violated the
+    // requester's rate limit constraint.
+    RATE_BOUND_MISS = 6;
 }
 
 // RejectErr captures a rejection reason for a quote request.
@@ -220,6 +236,14 @@ message BuyRequest {
 
     // peer_id is the 33-byte public key of the counterparty peer.
     bytes peer_id = 5;
+
+    // asset_min_amount is an optional minimum asset amount. A value of 0
+    // means unset.
+    uint64 asset_min_amount = 6;
+
+    // asset_rate_limit is an optional minimum acceptable rate (asset units
+    // per BTC).
+    FixedPoint asset_rate_limit = 7;
 }
 
 // SellRequest represents a request to sell the subject asset.
@@ -239,6 +263,14 @@ message SellRequest {
 
     // peer_id is the 33-byte public key of the counterparty peer.
     bytes peer_id = 5;
+
+    // payment_min_amount is an optional minimum msat amount. A value of 0
+    // means unset.
+    uint64 payment_min_amount = 6;
+
+    // asset_rate_limit is an optional maximum acceptable rate (asset units
+    // per BTC).
+    FixedPoint asset_rate_limit = 7;
 }
 
 // ResolveRequestRequest specifies a quote request to resolve.
