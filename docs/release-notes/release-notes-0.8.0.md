@@ -115,6 +115,13 @@
   New fields are optional and backward-compatible; constraint validation
   only activates when they are present.
 
+- [Burn Assets by Group Key](https://github.com/lightninglabs/taproot-assets/pull/2062):
+  Assets can now be burned by specifying a group key instead of a specific
+  asset ID. When burning by group key, the daemon automatically selects
+  and burns units across all issuances in the group, producing multiple
+  burn outputs if needed. The `tapcli assets burn` command now accepts a
+  `--group_key` flag.
+
 ## Functional Enhancements
 
 - [Wallet Backup/Restore](https://github.com/lightninglabs/taproot-assets/pull/1980):
@@ -320,6 +327,13 @@
   Renamed the RFQ configuration option `experimental.rfq.skipacceptquotepricecheck`
   to `experimental.rfq.skipquoteacceptverify` for improved clarity.
   Update your configuration files to use the new option name.
+
+- [PR#2062](https://github.com/lightninglabs/taproot-assets/pull/2062)
+  `BurnAssetRequest` now uses an `AssetSpecifier` field to identify the
+  asset to burn, supporting both asset ID and group key. The old `oneof
+  asset` fields (`asset_id`, `asset_id_str`) are deprecated.
+  `BurnAssetResponse` adds a repeated `burn_proofs` field; the singular
+  `burn_proof` field is deprecated.
 
 ## Performance Improvements
 
