@@ -321,6 +321,13 @@
   to `experimental.rfq.skipquoteacceptverify` for improved clarity.
   Update your configuration files to use the new option name.
 
+- [PR#2054](https://github.com/lightninglabs/taproot-assets/pull/2054)
+  ([#1661](https://github.com/lightninglabs/taproot-assets/issues/1661))
+  Adds `sat_per_vbyte` as the new optional manual fee field on
+  `SendAssetRequest` and deprecates the legacy `fee_rate` field. For backward
+  compatibility, `sat_per_vbyte` is preferred when set; otherwise `fee_rate` is
+  still accepted with sat/kw semantics during the transition period.
+
 ## Performance Improvements
 
 ## Deprecations
