@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -27,7 +27,7 @@ import (
 func testCollectibleSend(t *harnessTest) {
 	// First, we'll make a collectible with emission enabled.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			issuableAssets[1],
 			// Our "passive" asset.
@@ -85,7 +85,7 @@ func testCollectibleSend(t *harnessTest) {
 				t, t.tapd, receiverAddr,
 			)
 			ConfirmAndAssertOutboundTransfer(
-				t.t, t.lndHarness.Miner().Client, t.tapd,
+				t.t, t.lndHarness.Miner(), t.tapd,
 				sendResp, genInfo.AssetId,
 				[]uint64{0, fullAmount}, senderTransferIdx,
 				senderTransferIdx+1,
@@ -114,7 +114,7 @@ func testCollectibleSend(t *harnessTest) {
 				t, secondTapd, receiverAddr,
 			)
 			ConfirmAndAssertOutboundTransfer(
-				t.t, t.lndHarness.Miner().Client, secondTapd,
+				t.t, t.lndHarness.Miner(), secondTapd,
 				sendResp, genInfo.AssetId,
 				[]uint64{0, fullAmount}, receiverTransferIdx,
 				receiverTransferIdx+1,
@@ -195,7 +195,7 @@ func testCollectibleSend(t *harnessTest) {
 	AssertAddrCreated(t.t, secondTapd, rpcAssets[1], bobAddr)
 	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, bobAddr)
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 		passiveGen.AssetId, []uint64{0, rpcAssets[1].Amount}, 2, 3,
 	)
 
@@ -268,7 +268,7 @@ func testCollectibleGroupSend(t *harnessTest) {
 		batchSize)
 
 	mintBatch := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd, batchReqs,
+		t.t, t.lndHarness.Miner(), t.tapd, batchReqs,
 		WithMintingTimeout(minterTimeout),
 	)
 
@@ -374,7 +374,7 @@ func testCollectibleGroupSend(t *harnessTest) {
 
 		sendAssets(
 			t.t, ctxb, numAssets, sendType, send, receive,
-			t.lndHarness.Miner().Client,
+			t.lndHarness.Miner(),
 		)
 
 		t.Logf("Finished %d of %d send operations", i, numSends)
@@ -385,7 +385,7 @@ func testCollectibleGroupSend(t *harnessTest) {
 // node to the other node.
 func sendAssets(t *testing.T, ctx context.Context, numAssets uint64,
 	assetType taprpc.AssetType, send, receive *tapdHarness,
-	bitcoinClient *rpcclient.Client) {
+	bitcoinClient *miner.HarnessMiner) {
 
 	// Query the asset we'll be sending, so we can assert some things about
 	// it later.

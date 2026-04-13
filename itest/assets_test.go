@@ -98,10 +98,10 @@ func testMintAssets(t *harnessTest) {
 	ctx := context.Background()
 
 	rpcSimpleAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd, simpleAssets,
+		t.t, t.lndHarness.Miner(), t.tapd, simpleAssets,
 	)
 	rpcIssuableAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd, issuableAssets,
+		t.t, t.lndHarness.Miner(), t.tapd, issuableAssets,
 	)
 
 	// Now that all our assets have been issued, we'll use the balance
@@ -194,14 +194,14 @@ func testMintBatchResume(t *harnessTest) {
 	require.NoError(t.t, t.tapd.start(false))
 
 	hashes, err := WaitForNTxsInMempool(
-		t.lndHarness.Miner().Client, 1, defaultWaitTimeout,
+		t.lndHarness.Miner(), 1, defaultWaitTimeout,
 	)
 	require.NoError(t.t, err)
 
 	mintTXID := *hashes[0]
 
 	// Mine a block to confirm the assets.
-	block := MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)[0]
+	block := MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)[0]
 	blockHash := block.BlockHash()
 	WaitForBatchState(
 		t.t, ctx, t.tapd, defaultWaitTimeout, batchKey,
@@ -302,7 +302,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 		},
 	}
 	rpcSimpleAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{&assetMint},
 	)
 
@@ -413,7 +413,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	// Minting the asset with the name collision should work, even though
 	// it is also part of a cancelled batch.
 	rpcCollideAsset := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{&assetCollide},
 	)
 
@@ -449,11 +449,11 @@ func testMintAssetsWithTapscriptSibling(t *harnessTest) {
 	}
 
 	rpcSimpleAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd, simpleAssets,
+		t.t, t.lndHarness.Miner(), t.tapd, simpleAssets,
 		WithSiblingBranch(siblingReq),
 	)
 	rpcIssuableAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd, issuableAssets,
+		t.t, t.lndHarness.Miner(), t.tapd, issuableAssets,
 	)
 	AssertMintedAssetBalances(
 		t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets, false,
@@ -554,7 +554,7 @@ func testMintAssetsWithTapscriptSibling(t *harnessTest) {
 func testMintBatchAndTransfer(t *harnessTest) {
 	ctx := context.Background()
 	rpcSimpleAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd, simpleAssets,
+		t.t, t.lndHarness.Miner(), t.tapd, simpleAssets,
 	)
 
 	// List the batch right after minting.
@@ -594,7 +594,7 @@ func testMintBatchAndTransfer(t *harnessTest) {
 	AssertAddrEvent(t.t, secondTapd, addr, 1, statusDetected)
 
 	// Mine a block to make sure the events are marked as confirmed.
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 	// Eventually the event should be marked as confirmed.
 	AssertAddrEvent(t.t, secondTapd, addr, 1, statusConfirmed)
@@ -654,7 +654,7 @@ func testAssetBalances(t *harnessTest) {
 
 	// Mint assets for testing.
 	rpcSimpleAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd, simpleAssets,
+		t.t, t.lndHarness.Miner(), t.tapd, simpleAssets,
 	)
 	targetAsset := rpcSimpleAssets[0]
 
@@ -857,7 +857,7 @@ func testListAssets(t *harnessTest) {
 
 	for i := range numBatches {
 		MintAssetsConfirmBatch(
-			t.t, t.lndHarness.Miner().Client, t.tapd,
+			t.t, t.lndHarness.Miner(), t.tapd,
 			[]*mintrpc.MintAssetRequest{
 				{
 					Asset: &mintrpc.MintAsset{
@@ -1031,7 +1031,7 @@ func testFetchAsset(t *harnessTest) {
 
 	// Mint a batch with a simple asset and a grouped asset.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: &mintrpc.MintAsset{

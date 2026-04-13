@@ -89,7 +89,7 @@ func testCustomChannelsInvoiceQuoteExpiryMismatch(
 
 	// Mint an asset on Charlie and sync universes.
 	mintedAssets := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(charlie),
+		t.t, net.Miner, asTapd(charlie),
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: ccItestAsset,

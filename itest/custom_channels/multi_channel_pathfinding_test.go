@@ -57,7 +57,7 @@ func testCustomChannelsMultiChannelPathfinding(ctx context.Context,
 	// Next, we'll mint an asset for Alice, who will be the node that opens
 	// the channel outbound.
 	mintedAssets1 := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(alice),
+		t.t, net.Miner, asTapd(alice),
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: ccItestAsset,
@@ -69,7 +69,7 @@ func testCustomChannelsMultiChannelPathfinding(ctx context.Context,
 
 	// We'll mint a second asset, representing british pences.
 	mintedAssets2 := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(alice),
+		t.t, net.Miner, asTapd(alice),
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: &mintrpc.MintAsset{

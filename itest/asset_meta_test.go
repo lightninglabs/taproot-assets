@@ -151,7 +151,7 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	firstAssetReq := &mintrpc.MintAssetRequest{Asset: firstAsset}
 
 	rpcSimpleAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{firstAssetReq},
 	)
 	require.Len(t.t, rpcSimpleAssets, 1)
@@ -211,7 +211,7 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	// same decimal display as the group anchor.
 	secondAssetReq.Asset.AssetMeta.Data = []byte(`{"foo": "bar"}`)
 	secondAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{secondAssetReq},
 	)
 	require.Len(t.t, secondAssets, 1)
@@ -258,7 +258,7 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	}
 	thirdAssetReq := &mintrpc.MintAssetRequest{Asset: thirdAsset}
 	thirdAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{thirdAssetReq},
 	)
 

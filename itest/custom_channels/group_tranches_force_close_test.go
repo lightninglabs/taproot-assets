@@ -79,7 +79,7 @@ func testCustomChannelsGroupTranchesForceClose(ctx context.Context,
 	// Mint the asset tranches 1 and 2 on Charlie and sync all nodes to
 	// Charlie as the universe.
 	mintedAssetsT1 := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(charlie),
+		t.t, net.Miner, asTapd(charlie),
 		[]*mintrpc.MintAssetRequest{groupAssetReq},
 	)
 	centsT1 := mintedAssetsT1[0]
@@ -94,7 +94,7 @@ func testCustomChannelsGroupTranchesForceClose(ctx context.Context,
 	groupAssetReq.Asset.Name = "itest-asset-cents-tranche-2"
 
 	mintedAssetsT2 := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(charlie),
+		t.t, net.Miner, asTapd(charlie),
 		[]*mintrpc.MintAssetRequest{groupAssetReq},
 	)
 	centsT2 := mintedAssetsT2[0]
@@ -241,7 +241,7 @@ func testCustomChannelsGroupTranchesForceClose(ctx context.Context,
 
 	// We should also have a new sweep transaction in the mempool.
 	fabiaSweepTxid, err := waitForNTxsInMempool(
-		net.Miner.Client, 1, ccShortTimeout,
+		net.Miner, 1, ccShortTimeout,
 	)
 	require.NoError(t.t, err)
 
@@ -261,7 +261,7 @@ func testCustomChannelsGroupTranchesForceClose(ctx context.Context,
 
 	// We expect that Erin's sweep transaction has been broadcast.
 	_, err = waitForNTxsInMempool(
-		net.Miner.Client, 1, ccShortTimeout,
+		net.Miner, 1, ccShortTimeout,
 	)
 	require.NoError(t.t, err)
 

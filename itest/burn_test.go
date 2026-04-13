@@ -19,7 +19,7 @@ import (
 // testBurnAssets tests that we're able to mint assets and then burn assets
 // again.
 func testBurnAssets(t *harnessTest) {
-	minerClient := t.lndHarness.Miner().Client
+	minerClient := t.lndHarness.Miner()
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, minerClient, t.tapd, []*mintrpc.MintAssetRequest{
 			simpleAssets[0], simpleAssets[1], issuableAssets[0],
@@ -372,7 +372,7 @@ func testBurnAssets(t *harnessTest) {
 func testBurnGroupedAssets(t *harnessTest) {
 	var (
 		ctx   = context.Background()
-		miner = t.lndHarness.Miner().Client
+		miner = t.lndHarness.Miner()
 
 		firstMintReq = issuableAssets[0]
 		burnNote     = "blazeit"
@@ -531,7 +531,7 @@ func testBurnGroupedAssets(t *harnessTest) {
 
 // testFullBurnUTXO tests that we can burn the full amount of an asset UTXO.
 func testFullBurnUTXO(t *harnessTest) {
-	minerClient := t.lndHarness.Miner().Client
+	minerClient := t.lndHarness.Miner()
 	ctx := context.Background()
 
 	// Test 1: Burn the full amount of a simple asset.

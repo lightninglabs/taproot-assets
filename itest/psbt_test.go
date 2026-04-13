@@ -47,7 +47,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	// First, we'll make a normal asset with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
@@ -143,7 +143,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, bob, sendResp,
+		t.t, t.lndHarness.Miner(), bob, sendResp,
 		genInfo.AssetId, []uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
 
@@ -171,7 +171,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	// First, we'll make a normal asset with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 
@@ -272,7 +272,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, bob, sendResp,
+		t.t, t.lndHarness.Miner(), bob, sendResp,
 		genInfo.AssetId, []uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
 
@@ -302,7 +302,7 @@ func testPsbtNormalInteractiveFullValueSend(t *harnessTest) {
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0],
 			// Our "passive" asset.
@@ -345,7 +345,7 @@ func testPsbtMarkerV0MixedVersions(t *harnessTest) {
 	// going to send back and forth. We're also minting a passive asset that
 	// should remain where it is.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0],
 			// Our "passive" asset.
@@ -387,14 +387,14 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 
 	// First, we'll mint two assets.
 	firstRpcAsset := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0],
 		},
 	)
 
 	secondRpcAsset := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[1],
 		},
@@ -542,7 +542,7 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, sender, send1Resp,
+		t.t, t.lndHarness.Miner(), sender, send1Resp,
 		firstAsset.AssetGenesis.AssetId,
 		[]uint64{firstAssetSplitAmt, firstAssetSplitAmt},
 		0, 1, 2,
@@ -556,7 +556,7 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, sender, send2Resp,
+		t.t, t.lndHarness.Miner(), sender, send2Resp,
 		secondAsset.AssetGenesis.AssetId, []uint64{secondAsset.Amount},
 		1, 2, 1,
 	)
@@ -591,7 +591,7 @@ func testPsbtGroupedInteractiveFullValueSend(t *harnessTest) {
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			issuableAssets[0],
 			// Our "passive" asset.
@@ -715,7 +715,7 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 		numOutputs := 1
 		amounts := []uint64{fullAmt}
 		ConfirmAndAssertOutboundTransferWithOutputs(
-			t.t, t.lndHarness.Miner().Client, sender,
+			t.t, t.lndHarness.Miner(), sender,
 			sendResp, genInfo.AssetId, amounts, i/2, (i/2)+1,
 			numOutputs,
 		)
@@ -855,7 +855,7 @@ func testPsbtNormalInteractiveSplitSend(t *harnessTest) {
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0],
 			// Our "passive" asset.
@@ -899,7 +899,7 @@ func testPsbtGroupedInteractiveSplitSend(t *harnessTest) {
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			issuableAssets[0],
 			// Our "passive" asset.
@@ -1013,7 +1013,7 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 
 		numOutputs := 2
 		ConfirmAndAssertOutboundTransferWithOutputs(
-			t.t, t.lndHarness.Miner().Client, sender,
+			t.t, t.lndHarness.Miner(), sender,
 			sendResp, genInfo.AssetId,
 			[]uint64{changeAmt, sendAmt}, i/2, (i/2)+1,
 			numOutputs,
@@ -1082,7 +1082,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units. We're also
 	// minting a passive asset that should remain where it is.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			issuableAssets[0],
 			// Our "passive" asset.
@@ -1264,7 +1264,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 		partialAmt, partialAmt, partialAmt * 2,
 	}
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, sender, publishResp,
+		t.t, t.lndHarness.Miner(), sender, publishResp,
 		genInfo.AssetId, expectedAmounts, 0, 1, len(expectedAmounts),
 	)
 
@@ -1303,7 +1303,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units that we are
 	// going to send backand forth.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
@@ -1367,7 +1367,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, alice, sendResp,
+		t.t, t.lndHarness.Miner(), alice, sendResp,
 		genInfo.AssetId, []uint64{changeAmt, sendAmt}, 0, 1, 2,
 	)
 
@@ -1416,7 +1416,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0],
 			// Our "passive" asset.
@@ -1536,7 +1536,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	// are 4 BTC anchor outputs but 5 asset transfer outputs.
 	numOutputs := 5
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, sender, sendResp,
+		t.t, t.lndHarness.Miner(), sender, sendResp,
 		genInfo.AssetId, outputAmounts, 0, 1, numOutputs,
 	)
 
@@ -1608,7 +1608,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 
 	// Mint a single asset.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, primaryTapd,
+		t.t, t.lndHarness.Miner(), primaryTapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	rpcAsset := rpcAssets[0]
@@ -1646,7 +1646,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	sendResp, sendEvents := sendAssetsToAddr(t, primaryTapd, addr)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, primaryTapd, sendResp,
+		t.t, t.lndHarness.Miner(), primaryTapd, sendResp,
 		genInfo.AssetId, []uint64{changeAmt, sendAmt}, 0, 1,
 	)
 
@@ -1674,7 +1674,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	sendResp, sendEvents = sendAssetsToAddr(t, primaryTapd, addr)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, primaryTapd, sendResp,
+		t.t, t.lndHarness.Miner(), primaryTapd, sendResp,
 		genInfo.AssetId, []uint64{changeAmt, sendAmt}, 1, 2,
 	)
 
@@ -1701,7 +1701,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	sendResp, sendEvents = sendAssetsToAddr(t, primaryTapd, addr)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, primaryTapd, sendResp,
+		t.t, t.lndHarness.Miner(), primaryTapd, sendResp,
 		genInfo.AssetId, []uint64{changeAmt, sendAmt}, 2, 3,
 	)
 
@@ -1787,7 +1787,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 		numOutputs         = 2
 	)
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, secondaryTapd,
+		t.t, t.lndHarness.Miner(), secondaryTapd,
 		sendResp, genInfo.AssetId,
 		[]uint64{changeAmt, sendAmt}, currentTransferIdx, numTransfers,
 		numOutputs,
@@ -1863,7 +1863,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	numTransfers = 2
 	numOutputs = 1
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, secondaryTapd, sendResp,
+		t.t, t.lndHarness.Miner(), secondaryTapd, sendResp,
 		genInfo.AssetId, []uint64{sendAmt}, currentTransferIdx,
 		numTransfers, numOutputs,
 	)
@@ -1909,7 +1909,7 @@ func testPsbtSighashNone(t *harnessTest) {
 	// First, we'll make a normal asset with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 
@@ -2043,7 +2043,7 @@ func testPsbtSighashNone(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, bob, sendResp,
+		t.t, t.lndHarness.Miner(), bob, sendResp,
 		genInfo.AssetId,
 		[]uint64{(4*numUnits)/5 - 1, (numUnits / 5) + 1}, 0, 1,
 	)
@@ -2077,7 +2077,7 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 	// First, we'll make a normal asset with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 
@@ -2223,7 +2223,7 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 func testPsbtTrustlessSwap(t *harnessTest) {
 	// First, we'll make a normal asset.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 
@@ -2535,7 +2535,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	t.Logf("Logged transaction: %v", toJSON(t.t, logResp))
 
 	// Mine a block to confirm the transfer.
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 	// We also need to push the proof for this transfer to the universe
 	// server.
@@ -2585,7 +2585,7 @@ func testPsbtSTXOExclusionProofs(t *harnessTest) {
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0],
 			// Our "passive" asset.
@@ -2653,7 +2653,7 @@ func testPsbtSTXOExclusionProofs(t *harnessTest) {
 	numOutputs := 2
 	changeAmt := mintedAsset.Amount - sendAmt
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, alice, sendResp,
+		t.t, t.lndHarness.Miner(), alice, sendResp,
 		genInfo.AssetId, []uint64{changeAmt, sendAmt}, 0, 1, numOutputs,
 	)
 
@@ -2755,7 +2755,7 @@ func testPsbtExternalCommit(t *harnessTest) {
 	// minted on the default tapd instance that is always created in the
 	// integration test (connected to lnd "Alice").
 	assets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			issuableAssets[0],
 			// Our "passive" asset.
@@ -2938,7 +2938,7 @@ func testPsbtExternalCommit(t *harnessTest) {
 		targetAsset.Amount - assetsToSend, assetsToSend,
 	}
 	AssertAssetOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, aliceTapd,
+		t.t, t.lndHarness.Miner(), aliceTapd,
 		sendResp.Transfer, [][]byte{targetAssetGenesis.AssetId},
 		expectedAmounts, 0, 1, len(expectedAmounts), false,
 	)
@@ -2972,7 +2972,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 	// going to send. We're also minting a passive asset that should remain
 	// where it is.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0],
 			// Our "passive" asset.
@@ -3071,7 +3071,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 		numOutputs         = len(amounts)
 	)
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, alice,
+		t.t, t.lndHarness.Miner(), alice,
 		sendResp, genInfo.AssetId, amounts, currentTransferIdx,
 		numTransfers, numOutputs,
 	)
@@ -3088,7 +3088,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 
 	// We mine just 4 blocks, two short of being enough for the relative
 	// time lock.
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 4, 0)
+	MineBlocks(t.t, t.lndHarness.Miner(), 4, 0)
 
 	// Now if we spend Bob's asset, we should see a lock time in the anchor
 	// transaction. For that, we need to derive two keys for Alice, one for
@@ -3134,7 +3134,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 	t.lndHarness.Miner().AssertNumTxsInMempool(0)
 
 	// After mining a single block, the error should go away.
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 0)
+	MineBlocks(t.t, t.lndHarness.Miner(), 1, 0)
 
 	// Now we'll attempt to complete the transfer normally, which should
 	// succeed.
@@ -3148,7 +3148,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, bob,
+		t.t, t.lndHarness.Miner(), bob,
 		sendRespSpend, genInfo.AssetId, amounts, currentTransferIdx,
 		numTransfers, numOutputs,
 	)
@@ -3186,7 +3186,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 	// going to send. We're also minting a passive asset that should remain
 	// where it is.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0],
 			// Our "passive" asset.
@@ -3284,7 +3284,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 		numOutputs         = len(amounts)
 	)
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, alice,
+		t.t, t.lndHarness.Miner(), alice,
 		sendResp, genInfo.AssetId, amounts, currentTransferIdx,
 		numTransfers, numOutputs,
 	)
@@ -3301,7 +3301,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 
 	// We mine just 4 blocks, two short of being enough for the relative
 	// time lock.
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 4, 0)
+	MineBlocks(t.t, t.lndHarness.Miner(), 4, 0)
 
 	// Now if we spend Bob's asset, we should see a lock time in the anchor
 	// transaction. For that, we need to derive two keys for Alice, one for
@@ -3348,7 +3348,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 
 	// After mining two more blocks (6 total = 4 + 2), the CSV
 	// requirement is satisfied and the error should go away.
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 2, 0)
+	MineBlocks(t.t, t.lndHarness.Miner(), 2, 0)
 
 	// Now we'll attempt to complete the transfer normally, which should
 	// succeed.
@@ -3362,7 +3362,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, bob,
+		t.t, t.lndHarness.Miner(), bob,
 		sendRespSpend, genInfo.AssetId, amounts, currentTransferIdx,
 		numTransfers, numOutputs,
 	)
@@ -3401,7 +3401,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 	// going to send. We're also minting a passive asset that should remain
 	// where it is.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0],
 			// Our "passive" asset.
@@ -3499,7 +3499,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 		numOutputs         = len(amounts)
 	)
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, alice,
+		t.t, t.lndHarness.Miner(), alice,
 		sendResp, genInfo.AssetId, amounts, currentTransferIdx,
 		numTransfers, numOutputs,
 	)
@@ -3516,7 +3516,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 
 	// We mine just 4 blocks, two short of being enough for the relative
 	// time lock.
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 4, 0)
+	MineBlocks(t.t, t.lndHarness.Miner(), 4, 0)
 
 	// Now if we spend Bob's asset, we should see a lock time in the anchor
 	// transaction. For that, we need to derive two keys for Alice, one for
@@ -3602,7 +3602,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 
 	PublishAndLogTransfer(t.t, bob, btcPacket, vPackets, nil, commitResp)
 
-	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+	MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
 
 	AssertSendEvents(
 		t.t, aliceScriptKeyBytes, sendEvents,
@@ -3676,7 +3676,7 @@ func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
 
 	changeUnits := mintedAsset.Amount - numUnits
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, alice, sendResp,
+		t.t, t.lndHarness.Miner(), alice, sendResp,
 		genInfo.AssetId, []uint64{changeUnits, numUnits}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, bob, 1)
@@ -3709,7 +3709,7 @@ func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
 	AssertAddrCreated(t.t, bob, mintedAsset, bobAddr)
 	sendResp, sendEvents := sendAssetsToAddr(t, alice, bobAddr)
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, alice, sendResp,
+		t.t, t.lndHarness.Miner(), alice, sendResp,
 		genInfo.AssetId, []uint64{change, numUnits}, outTransferIdx,
 		numOutTransfers,
 	)
