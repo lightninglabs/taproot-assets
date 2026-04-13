@@ -133,8 +133,10 @@ func testZeroValueAnchorSweep(t *harnessTest) {
 	// Full burn the asset to create a zero-value burn UTXO
 	// and sweep the second tombstone.
 	burnResp, err := t.tapd.BurnAsset(ctxb, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: genInfo3.AssetId,
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: genInfo3.AssetId,
+			},
 		},
 		AmountToBurn:     assetAmount,
 		ConfirmationText: rpcserver.AssetBurnConfirmationText,
@@ -255,8 +257,10 @@ func testZeroValueAnchorAccumulation(t *harnessTest) {
 
 	// Full burn the asset to create a zero-value burn UTXO.
 	burnResp, err := t.tapd.BurnAsset(ctxb, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: genInfo2.AssetId,
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: genInfo2.AssetId,
+			},
 		},
 		AmountToBurn:     assetAmount,
 		ConfirmationText: rpcserver.AssetBurnConfirmationText,

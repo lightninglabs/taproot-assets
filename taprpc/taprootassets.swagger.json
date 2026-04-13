@@ -2097,11 +2097,11 @@
         "asset_id": {
           "type": "string",
           "format": "byte",
-          "description": "The asset ID of the asset to burn units of."
+          "description": "Deprecated, the asset ID of the asset to burn units of.\nUse asset_specifier instead."
         },
         "asset_id_str": {
           "type": "string",
-          "description": "The hex encoded asset ID of the asset to burn units of."
+          "description": "Deprecated, the hex encoded asset ID of the asset to burn units of.\nUse asset_specifier instead."
         },
         "amount_to_burn": {
           "type": "string",
@@ -2115,6 +2115,10 @@
         "note": {
           "type": "string",
           "description": "A note that may contain user defined metadata related to this burn."
+        },
+        "asset_specifier": {
+          "$ref": "#/definitions/taprpcAssetSpecifier",
+          "description": "The asset specifier identifying which asset to burn. Supports both\nasset ID and group key. This field supersedes the deprecated\nasset_id/asset_id_str fields above."
         }
       }
     },
@@ -2127,7 +2131,15 @@
         },
         "burn_proof": {
           "$ref": "#/definitions/taprpcDecodedProof",
-          "description": "The burn transition proof for the asset burn output."
+          "description": "Deprecated: Use burn_proofs instead."
+        },
+        "burn_proofs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/taprpcDecodedProof"
+          },
+          "description": "The burn transition proofs for the asset burn outputs. May contain\nmore than one entry when burning by group key across multiple\nissuances."
         }
       }
     },

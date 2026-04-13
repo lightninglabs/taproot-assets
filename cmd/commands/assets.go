@@ -1209,6 +1209,10 @@ var burnAssetsCommand = cli.Command{
 			Name:  assetIDName,
 			Usage: "the asset ID to burn units from",
 		},
+		cli.StringFlag{
+			Name:  assetGroupKeyName,
+			Usage: "the group key to burn units from",
+		},
 		cli.Uint64Flag{
 			Name:  assetAmountName,
 			Usage: "the amount of units to burn/destroy",
@@ -1229,9 +1233,30 @@ func burnAssets(ctx *cli.Context) error {
 	}
 
 	assetIDHex := ctx.String(assetIDName)
-	assetIDBytes, err := hex.DecodeString(assetIDHex)
-	if err != nil {
-		return fmt.Errorf("invalid asset ID")
+	groupKeyHex := ctx.String(assetGroupKeyName)
+
+	// At least one of asset ID or group key must be provided.
+	if assetIDHex == "" && groupKeyHex == "" {
+		return fmt.Errorf("either asset_id or group_key must " +
+			"be specified")
+	}
+
+	var assetIDBytes, groupKeyBytes []byte
+
+	if assetIDHex != "" {
+		var err error
+		assetIDBytes, err = hex.DecodeString(assetIDHex)
+		if err != nil {
+			return fmt.Errorf("invalid asset ID: %w", err)
+		}
+	}
+
+	if groupKeyHex != "" {
+		var err error
+		groupKeyBytes, err = hex.DecodeString(groupKeyHex)
+		if err != nil {
+			return fmt.Errorf("invalid group key: %w", err)
+		}
 	}
 
 	burnAmount := ctx.Uint64(assetAmountName)
@@ -1244,51 +1269,131 @@ func burnAssets(ctx *cli.Context) error {
 	defer cleanUp()
 
 	if !ctx.Bool(burnOverrideConfirmationName) {
-		balance, err := client.ListBalances(
-			ctxc, &taprpc.ListBalancesRequest{
-				GroupBy: &taprpc.ListBalancesRequest_AssetId{
-					AssetId: true,
+		var currBalance uint64
+
+		// When both asset ID and group key are provided,
+		// prioritize asset ID for balance checking since
+		// it's more specific.
+		switch {
+		case len(assetIDBytes) > 0:
+			balance, err := client.ListBalances(
+				ctxc, &taprpc.ListBalancesRequest{
+					GroupBy: &taprpc.ListBalancesRequest_AssetId{ //nolint:lll
+						AssetId: true,
+					},
+					AssetFilter: assetIDBytes,
 				},
-				AssetFilter: assetIDBytes,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("unable to list current asset "+
-				"balances: %w", err)
+			)
+			if err != nil {
+				return fmt.Errorf("unable to list current "+
+					"asset balances: %w", err)
+			}
+
+			idHex := hex.EncodeToString(assetIDBytes)
+			assetBalance, ok := balance.AssetBalances[idHex]
+			if !ok {
+				return fmt.Errorf("couldn't fetch balance "+
+					"for asset ID %x", assetIDBytes)
+			}
+
+			currBalance = assetBalance.Balance
+
+		case len(groupKeyBytes) > 0:
+			balance, err := client.ListBalances(
+				ctxc, &taprpc.ListBalancesRequest{
+					GroupBy: &taprpc.ListBalancesRequest_GroupKey{ //nolint:lll
+						GroupKey: true,
+					},
+					GroupKeyFilter: groupKeyBytes,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to list current "+
+					"asset balances: %w", err)
+			}
+
+			gkHex := hex.EncodeToString(groupKeyBytes)
+			groupBalance, ok := balance.AssetGroupBalances[gkHex]
+			if !ok {
+				return fmt.Errorf("couldn't fetch balance "+
+					"for group key %x",
+					groupKeyBytes)
+			}
+
+			currBalance = groupBalance.Balance
 		}
 
-		assetBalance, ok := balance.AssetBalances[assetIDHex]
-		if !ok {
-			return fmt.Errorf("couldn't fetch balance for asset %x",
-				assetIDBytes)
+		var specStr string
+		switch {
+		case len(assetIDBytes) > 0:
+			specStr = fmt.Sprintf("asset_id=%x", assetIDBytes)
+		case len(groupKeyBytes) > 0:
+			specStr = fmt.Sprintf("group_key=%x", groupKeyBytes)
 		}
-
 		msg := fmt.Sprintf("Please confirm destructive action.\n"+
-			"Asset ID: %x\nCurrent available balance: %d\n"+
+			"%s\nCurrent available balance: %d\n"+
 			"Amount to burn: %d\n Are you sure you want to "+
-			"irreversibly burn (destroy, remove from circulation) "+
-			"the specified amount of assets?\nPlease answer 'yes' "+
-			"or 'no' and press enter: ", assetIDBytes,
-			assetBalance.Balance, burnAmount)
+			"irreversibly burn (destroy, remove from "+
+			"circulation) the specified amount of assets?\n"+
+			"Please answer 'yes' or 'no' and press enter: ",
+			specStr, currBalance, burnAmount,
+		)
 
 		if !promptForConfirmation(msg) {
 			return nil
 		}
 	}
 
+	specifier, err := buildBurnAssetSpecifier(assetIDBytes, groupKeyBytes)
+	if err != nil {
+		return err
+	}
+
 	resp, err := client.BurnAsset(ctxc, &taprpc.BurnAssetRequest{
-		Asset: &taprpc.BurnAssetRequest_AssetId{
-			AssetId: assetIDBytes,
-		},
+		AssetSpecifier:   specifier,
 		AmountToBurn:     burnAmount,
 		ConfirmationText: rpcserver.AssetBurnConfirmationText,
 	})
 	if err != nil {
-		return fmt.Errorf("unable to send assets: %w", err)
+		return fmt.Errorf("unable to burn assets: %w", err)
 	}
 
 	printRespJSON(resp)
 	return nil
+}
+
+// buildBurnAssetSpecifier returns the appropriate AssetSpecifier for the burn
+// request based on which bytes are provided. Exactly one of asset ID or group
+// key must be set.
+func buildBurnAssetSpecifier(assetIDBytes,
+	groupKeyBytes []byte) (*taprpc.AssetSpecifier, error) {
+
+	haveAssetID := len(assetIDBytes) > 0
+	haveGroupKey := len(groupKeyBytes) > 0
+
+	switch {
+	case haveAssetID && haveGroupKey:
+		return nil, fmt.Errorf("specify either --asset_id or " +
+			"--group_key, not both")
+
+	case haveAssetID:
+		return &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: assetIDBytes,
+			},
+		}, nil
+
+	case haveGroupKey:
+		return &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_GroupKey{
+				GroupKey: groupKeyBytes,
+			},
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("either --asset_id or " +
+			"--group_key must be specified")
+	}
 }
 
 var listBurnsCommand = cli.Command{
