@@ -1207,10 +1207,10 @@ func withSkipProofCourierPingCheck() sendOption {
 	}
 }
 
-// withFeeRate is an option to specify the fee rate for the send.
-func withFeeRate(feeRate uint32) sendOption {
+// withSatPerVByte is an option to specify the fee rate for the send.
+func withSatPerVByte(satPerVByte uint64) sendOption {
 	return func(options *sendOptions) {
-		options.sendAssetRequest.FeeRate = feeRate
+		options.sendAssetRequest.SatPerVbyte = satPerVByte
 	}
 }
 

@@ -168,8 +168,8 @@ func testFeeEstimation(t *harnessTest) {
 	// fee rate fails the sanity check against the fee estimator's fee floor
 	// of 253 sat/kw, or 1.012 sat/vB.
 	_, err = t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
-		TapAddrs: []string{addr3.Encoded},
-		FeeRate:  uint32(chainfee.FeePerKwFloor) - 1,
+		TapAddrs:    []string{addr3.Encoded},
+		SatPerVbyte: 1,
 	})
 	require.ErrorContains(t.t, err, "manual fee rate below floor")
 
