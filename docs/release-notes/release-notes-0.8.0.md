@@ -403,6 +403,13 @@
   `BurnAssetResponse` adds a repeated `burn_proofs` field; the singular
   `burn_proof` field is deprecated.
 
+- [PR#2054](https://github.com/lightninglabs/taproot-assets/pull/2054)
+  ([#1661](https://github.com/lightninglabs/taproot-assets/issues/1661))
+  Replaces the `fee_rate` send option with `sat_per_vbyte` in tapcli and adds
+  `sat_per_vbyte` to `SendAssetRequest`. The legacy `fee_rate` RPC field is
+  now deprecated and remains accepted as a sat/kw fallback when
+  `sat_per_vbyte` is not set.
+
 ## Performance Improvements
 
 * [PR#2104](https://github.com/lightninglabs/taproot-assets/pull/2104)
