@@ -3793,8 +3793,14 @@ func (r *RPCServer) SendAsset(ctx context.Context,
 		return nil, fmt.Errorf("error parsing addresses: %w", err)
 	}
 
+	manualFeeRate := chainfee.SatPerKWeight(req.FeeRate)
+	if req.SatPerVbyte != 0 {
+		manualFeeRate = chainfee.SatPerVByte(
+			req.SatPerVbyte,
+		).FeePerKWeight()
+	}
 	feeRate, err := checkFeeRateSanity(
-		ctx, chainfee.SatPerKWeight(req.FeeRate), r.cfg.Lnd.WalletKit,
+		ctx, manualFeeRate, r.cfg.Lnd.WalletKit,
 	)
 	if err != nil {
 		return nil, err
