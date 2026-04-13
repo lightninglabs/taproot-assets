@@ -2962,7 +2962,7 @@
         "fee_rate": {
           "type": "integer",
           "format": "int64",
-          "description": "The optional fee rate to use for the minting transaction, in sat/kw."
+          "description": "Deprecated: Use sat_per_vbyte instead.\nThe optional fee rate to use for the anchor transaction, in sat/kw."
         },
         "label": {
           "type": "string",
@@ -2979,6 +2979,11 @@
             "$ref": "#/definitions/taprpcAddressWithAmount"
           },
           "description": "A list of addresses and the amounts of asset units to send to them. This\nmust be used for V2 TAP addresses that don't specify an amount in the\naddress itself and allow the sender to choose the amount to send. The\ntap_addrs and addresses_with_amounts lists are mutually exclusive,\nmeaning that if addresses_with_amounts is set, then tap_addrs must be\nempty, and vice versa."
+        },
+        "sat_per_vbyte": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The optional fee rate to use for the anchor transaction, in sat/vB."
         }
       }
     },

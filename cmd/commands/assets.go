@@ -301,6 +301,19 @@ func parseFeeRate(ctx *cli.Context) (uint32, error) {
 	return uint32(0), nil
 }
 
+func parseSatPerVByte(ctx *cli.Context) (uint32, error) {
+	if !ctx.IsSet(feeRateName) {
+		return 0, nil
+	}
+
+	satPerVByte := ctx.Uint64(feeRateName)
+	if satPerVByte > math.MaxUint32 {
+		return 0, fmt.Errorf("fee rate exceeds 2^32")
+	}
+
+	return uint32(satPerVByte), nil
+}
+
 func mintAsset(ctx *cli.Context) error {
 	switch {
 	case ctx.String(assetTagName) == "":
@@ -1106,7 +1119,7 @@ func sendAssets(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	feeRate, err := parseFeeRate(ctx)
+	satPerVByte, err := parseSatPerVByte(ctx)
 	if err != nil {
 		return err
 	}
@@ -1177,7 +1190,7 @@ func sendAssets(ctx *cli.Context) error {
 	}
 
 	resp, err := client.SendAsset(ctxc, &taprpc.SendAssetRequest{
-		FeeRate: feeRate,
+		SatPerVbyte: uint64(satPerVByte),
 		SkipProofCourierPingCheck: ctx.Bool(
 			skipProofCourierPingCheckName,
 		),
