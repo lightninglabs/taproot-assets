@@ -846,6 +846,80 @@ func assertChannelOutboundPolicyKnown(t *testing.T, node *itest.IntegratedNode,
 	require.NoError(t, err)
 }
 
+// assertChannelOutboundPolicy waits until the channel edge policy in the given
+// node's outbound direction is available and matches the expected values.
+func assertChannelOutboundPolicy(t *testing.T, node *itest.IntegratedNode,
+	chanPoint *lnrpc.ChannelPoint, baseFeeMsat, feeRatePpm,
+	timeLockDelta uint32) {
+
+	targetChanPoint, err := channelPointString(chanPoint)
+	require.NoError(t, err)
+
+	err = wait.NoError(func() error {
+		ctxb := context.Background()
+		ctxt, cancel := context.WithTimeout(ctxb, wait.DefaultTimeout)
+		defer cancel()
+
+		graphResp, err := node.DescribeGraph(
+			ctxt, &lnrpc.ChannelGraphRequest{
+				IncludeUnannounced: true,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, edge := range graphResp.Edges {
+			if edge.ChanPoint != targetChanPoint {
+				continue
+			}
+
+			var policy *lnrpc.RoutingPolicy
+			switch {
+			case edge.Node1Pub == node.PubKeyStr:
+				policy = edge.Node1Policy
+
+			case edge.Node2Pub == node.PubKeyStr:
+				policy = edge.Node2Policy
+
+			default:
+				return fmt.Errorf(
+					"channel %v found but node %v not part of edge",
+					targetChanPoint, node.Cfg.Name,
+				)
+			}
+
+			if policy == nil {
+				return fmt.Errorf("channel %v missing outbound "+
+					"policy for %v", targetChanPoint, node.Cfg.Name)
+			}
+
+			if policy.FeeBaseMsat != int64(baseFeeMsat) {
+				return fmt.Errorf("unexpected fee_base_msat for "+
+					"%v: got=%d want=%d", node.Cfg.Name,
+					policy.FeeBaseMsat, baseFeeMsat)
+			}
+
+			if policy.FeeRateMilliMsat != int64(feeRatePpm) {
+				return fmt.Errorf("unexpected fee_rate_ppm for "+
+					"%v: got=%d want=%d", node.Cfg.Name,
+					policy.FeeRateMilliMsat, feeRatePpm)
+			}
+
+			if policy.TimeLockDelta != uint32(timeLockDelta) {
+				return fmt.Errorf("unexpected timelock_delta for "+
+					"%v: got=%d want=%d", node.Cfg.Name,
+					policy.TimeLockDelta, timeLockDelta)
+			}
+
+			return nil
+		}
+
+		return fmt.Errorf("channel %v not found", targetChanPoint)
+	}, wait.DefaultTimeout)
+	require.NoError(t, err)
+}
+
 // assertChannelKnown asserts that the given channel point is known in the
 // node's graph.
 func assertChannelKnown(t *testing.T, node *itest.IntegratedNode,

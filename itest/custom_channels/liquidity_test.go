@@ -670,6 +670,7 @@ func testCustomChannelsLiquidityEdgeCasesCore(ctx context.Context,
 	)
 	require.NoError(t.t, err)
 	require.Empty(t.t, resp.FailedUpdates)
+	assertChannelOutboundPolicy(t.t, erin, chanPointEF, 31337, 443322, 25)
 
 	resp, err = fabia.LightningClient.UpdateChannelPolicy(
 		ctx, &lnrpc.PolicyUpdateRequest{
@@ -683,6 +684,7 @@ func testCustomChannelsLiquidityEdgeCasesCore(ctx context.Context,
 	)
 	require.NoError(t.t, err)
 	require.Empty(t.t, resp.FailedUpdates)
+	assertChannelOutboundPolicy(t.t, fabia, chanPointEF, 42069, 223344, 24)
 
 	// We now create an invoice on Fabia and expect Erin's policy to be used
 	// in the invoice.
