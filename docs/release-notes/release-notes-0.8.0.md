@@ -321,6 +321,13 @@
   to `experimental.rfq.skipquoteacceptverify` for improved clarity.
   Update your configuration files to use the new option name.
 
+- [PR#2054](https://github.com/lightninglabs/taproot-assets/pull/2054)
+  ([#1661](https://github.com/lightninglabs/taproot-assets/issues/1661))
+  Replaces the `fee_rate` send option with `sat_per_vbyte` in tapcli and adds
+  `sat_per_vbyte` to `SendAssetRequest`. The legacy `fee_rate` RPC field is
+  now deprecated and remains accepted as a sat/kw fallback when
+  `sat_per_vbyte` is not set.
+
 ## Performance Improvements
 
 ## Deprecations
