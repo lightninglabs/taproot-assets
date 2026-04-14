@@ -311,6 +311,64 @@ func TestAcceptedMaxAmountNilRoundTrip(t *testing.T) {
 	require.True(t, buys[0].AcceptedMaxAmount.IsNone())
 }
 
+// TestExecutionPolicyRoundTrip verifies that the ExecutionPolicy
+// field survives a store-then-fetch cycle for sale and purchase
+// policies.
+func TestExecutionPolicyRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newPolicyStore(t)
+
+	// Sale policy with FOK execution policy.
+	sale := testBuyAccept(t)
+	sale.Request.ExecutionPolicy = fn.Some(
+		rfqmsg.ExecutionPolicyFOK,
+	)
+	err := store.StoreSalePolicy(ctx, sale)
+	require.NoError(t, err)
+
+	// Purchase policy with IOC execution policy.
+	purchase := testSellAccept(t)
+	purchase.Request.ExecutionPolicy = fn.Some(
+		rfqmsg.ExecutionPolicyIOC,
+	)
+	err = store.StorePurchasePolicy(ctx, purchase)
+	require.NoError(t, err)
+
+	// Sale policy without execution policy.
+	saleNone := testBuyAccept(t)
+	err = store.StoreSalePolicy(ctx, saleNone)
+	require.NoError(t, err)
+
+	buys, sells, _, err := store.FetchAcceptedQuotes(ctx)
+	require.NoError(t, err)
+	require.Len(t, buys, 2)
+	require.Len(t, sells, 1)
+
+	// Find the sale with FOK and verify.
+	for _, b := range buys {
+		if b.ID == sale.ID {
+			require.Equal(t,
+				fn.Some(rfqmsg.ExecutionPolicyFOK),
+				b.Request.ExecutionPolicy,
+			)
+		}
+		if b.ID == saleNone.ID {
+			require.True(
+				t,
+				b.Request.ExecutionPolicy.IsNone(),
+			)
+		}
+	}
+
+	// Verify purchase policy round-tripped IOC.
+	require.Equal(t,
+		fn.Some(rfqmsg.ExecutionPolicyIOC),
+		sells[0].Request.ExecutionPolicy,
+	)
+}
+
 // TestLookUpScidIgnoresSalePolicy verifies that a sale policy stored in the
 // database is not returned by LookUpScid, which is scoped to peer-accepted
 // buy quotes only.

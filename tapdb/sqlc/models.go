@@ -399,6 +399,7 @@ type RfqPolicy struct {
 	RequestVersion        sql.NullInt32
 	AgreedAt              int64
 	AcceptedMaxAmount     sql.NullInt64
+	ExecutionPolicy       sql.NullInt32
 }
 
 type ScriptKey struct {
