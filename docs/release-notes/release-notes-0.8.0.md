@@ -345,6 +345,11 @@
 
 ## Testing
 
+- [PR#2057](https://github.com/lightninglabs/taproot-assets/pull/2057)
+  Integration test harness teardown now performs a full top-level harness stop
+  at suite end, so btcd/lnd/tapd itest processes are cleaned up automatically
+  rather than being left running after test completion.
+
 - [Wallet Backup Integration Tests](https://github.com/lightninglabs/taproot-assets/pull/1980):
   Add two integration tests for wallet backup covering genesis backup/restore,
   idempotent import, all three backup modes with size comparison, post-restore
