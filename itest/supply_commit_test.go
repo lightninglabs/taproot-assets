@@ -1161,6 +1161,12 @@ func testFetchSupplyLeaves(t *harnessTest) {
 		0, 1, 2, true,
 	)
 
+	// Wait for the burn to be fully confirmed and the asset record to
+	// appear before updating the supply commitment. The burn supply
+	// commit events are sent during LogAnchorTxConfirm which runs
+	// asynchronously after the chain porter processes the confirmation.
+	AssertNumBurns(t.t, t.tapd, 1, nil)
+
 	t.Log("Updating supply commitment after burn")
 	UpdateAndMineSupplyCommit(
 		t.t, ctxb, t.tapd, t.lndHarness.Miner(),

@@ -1120,39 +1120,53 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 	// recognizing its on-chain confirmation. To handle this potential
 	// delay, we use require.Eventually to ensure the transfer details are
 	// correctly listed after confirmation.
+	// We poll until the transfer is confirmed on-chain and the anchor
+	// tx block hash is populated. The block hash is set by
+	// LogAnchorTxConfirm which runs asynchronously after the chain
+	// porter processes the block confirmation.
 	require.Eventually(t.t, func() bool {
-		// Ensure that the transaction took place as expected.
 		listTransfersResp, err := sendTapd.ListTransfers(
 			ctxb, &taprpc.ListTransfersRequest{},
 		)
-		require.NoError(t.t, err)
+		if err != nil {
+			return false
+		}
 
-		require.Len(t.t, listTransfersResp.Transfers, 1)
+		if len(listTransfersResp.Transfers) != 1 {
+			return false
+		}
 
 		firstTransfer := listTransfersResp.Transfers[0]
-		require.NotEqual(t.t, firstTransfer.AnchorTxHeightHint, 0)
-		require.NotEmpty(t.t, firstTransfer.AnchorTxBlockHash)
 
-		// Assert proof transfer status for each transfer output.
-		require.Len(t.t, firstTransfer.Outputs, 2)
+		// Wait for the anchor tx block hash to be populated,
+		// which indicates LogAnchorTxConfirm has completed.
+		if firstTransfer.AnchorTxBlockHash == nil {
+			return false
+		}
 
-		// First output should have a proof delivery status of not
-		// applicable. This indicates that a proof will not be delivered
-		// for this output.
+		if firstTransfer.AnchorTxHeightHint == 0 {
+			return false
+		}
+
+		if len(firstTransfer.Outputs) != 2 {
+			return false
+		}
+
+		// First output: proof delivery not applicable.
 		firstOutput := firstTransfer.Outputs[0]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusNotApplicable,
-			firstOutput.ProofDeliveryStatus,
-		)
+		if firstOutput.ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusNotApplicable {
 
-		// The second output should have a proof delivery status of
-		// pending. This indicates that the proof deliver has not yet
-		// completed successfully.
+			return false
+		}
+
+		// Second output: proof delivery pending (courier is down).
 		secondOutput := firstTransfer.Outputs[1]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusPending,
-			secondOutput.ProofDeliveryStatus,
-		)
+		if secondOutput.ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusPending {
+
+			return false
+		}
 
 		return true
 	}, defaultWaitTimeout, 200*time.Millisecond)
@@ -1196,68 +1210,55 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 
 	// There may be a delay between mining the anchoring transaction and
 	// recognizing its on-chain confirmation. To handle this potential
-	// delay, we use require.Eventually to ensure the transfer details are
-	// correctly listed after confirmation.
+	// delay, we poll until both transfers are confirmed and their block
+	// hashes populated (set by LogAnchorTxConfirm).
 	require.Eventually(t.t, func() bool {
-		// Ensure that the transaction took place as expected.
 		listTransfersResp, err := sendTapd.ListTransfers(
 			ctxb, &taprpc.ListTransfersRequest{},
 		)
-		require.NoError(t.t, err)
+		if err != nil || len(listTransfersResp.Transfers) != 2 {
+			return false
+		}
 
-		require.Len(t.t, listTransfersResp.Transfers, 2)
-
-		// Inspect the first transfer.
 		firstTransfer := listTransfersResp.Transfers[0]
-		require.NotEqual(t.t, firstTransfer.AnchorTxHeightHint, 0)
-		require.NotEmpty(t.t, firstTransfer.AnchorTxBlockHash)
+		if firstTransfer.AnchorTxBlockHash == nil ||
+			firstTransfer.AnchorTxHeightHint == 0 ||
+			len(firstTransfer.Outputs) != 2 {
 
-		// Assert proof transfer status for each transfer output.
-		require.Len(t.t, firstTransfer.Outputs, 2)
+			return false
+		}
 
-		// First output should have a proof delivery status of not
-		// applicable. This indicates that a proof will not be delivered
-		// for this output.
-		firstOutput := firstTransfer.Outputs[0]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusNotApplicable,
-			firstOutput.ProofDeliveryStatus,
-		)
+		// First transfer output checks.
+		if firstTransfer.Outputs[0].ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusNotApplicable {
 
-		// The second output should have a proof delivery status of
-		// pending. This indicates that the proof deliver has not yet
-		// completed successfully.
-		secondOutput := firstTransfer.Outputs[1]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusPending,
-			secondOutput.ProofDeliveryStatus,
-		)
+			return false
+		}
+		if firstTransfer.Outputs[1].ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusPending {
 
-		// Inspect the second transfer.
+			return false
+		}
+
 		secondTransfer := listTransfersResp.Transfers[1]
-		require.NotEqual(t.t, secondTransfer.AnchorTxHeightHint, 0)
-		require.NotEmpty(t.t, secondTransfer.AnchorTxBlockHash)
+		if secondTransfer.AnchorTxBlockHash == nil ||
+			secondTransfer.AnchorTxHeightHint == 0 ||
+			len(secondTransfer.Outputs) != 2 {
 
-		// Assert proof transfer status for each transfer output.
-		require.Len(t.t, secondTransfer.Outputs, 2)
+			return false
+		}
 
-		// First output should have a proof delivery status of not
-		// applicable. This indicates that a proof will not be delivered
-		// for this output.
-		firstOutput = secondTransfer.Outputs[0]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusNotApplicable,
-			firstOutput.ProofDeliveryStatus,
-		)
+		// Second transfer output checks.
+		if secondTransfer.Outputs[0].ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusNotApplicable {
 
-		// The second output should have a proof delivery status of
-		// pending. This indicates that the proof deliver has not yet
-		// completed successfully.
-		secondOutput = secondTransfer.Outputs[1]
-		require.Equal(
-			t.t, rpcutils.ProofDeliveryStatusPending,
-			secondOutput.ProofDeliveryStatus,
-		)
+			return false
+		}
+		if secondTransfer.Outputs[1].ProofDeliveryStatus !=
+			rpcutils.ProofDeliveryStatusPending {
+
+			return false
+		}
 
 		return true
 	}, defaultWaitTimeout, 200*time.Millisecond)

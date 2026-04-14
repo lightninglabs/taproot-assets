@@ -150,8 +150,8 @@ func TestCustomChannels(t *testing.T) {
 
 	// Step 1: Create and start a btcd miner.
 	m := miner.NewMiner(ctx, t)
-	require.NoError(t, m.SetUp(true, 50))
-	require.NoError(t, m.Client.NotifyNewTransactions(false))
+	require.NoError(t, m.Start(true, 50))
+	require.NoError(t, m.NotifyNewTransactions(false))
 	t.Cleanup(func() { m.Stop() })
 
 	// Generate enough blocks so we're past the coinbase maturity window.
