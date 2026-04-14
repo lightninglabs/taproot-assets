@@ -2748,6 +2748,18 @@ func assertNumHtlcs(t *testing.T, node *itest.IntegratedNode,
 	require.NoError(t, err)
 }
 
+// assertNumHtlcsAll asserts that each node has exactly the expected number of
+// pending HTLCs across all channels.
+func assertNumHtlcsAll(t *testing.T, expected int,
+	nodes ...*itest.IntegratedNode) {
+
+	t.Helper()
+
+	for _, node := range nodes {
+		assertNumHtlcs(t, node, expected)
+	}
+}
+
 // assertHTLCNotActive asserts the node doesn't have an active pending HTLC
 // with the given payment hash.
 func assertHTLCNotActive(t *testing.T, hn *itest.IntegratedNode,

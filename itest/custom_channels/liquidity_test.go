@@ -636,8 +636,10 @@ func testCustomChannelsLiquidityEdgeCasesCore(ctx context.Context,
 	)
 	require.NoError(t.t, err)
 
-	// Let's assert that Erin cancelled all his HTLCs.
-	assertNumHtlcs(t.t, erin, 0)
+	// Wait for the full route to quiesce before attempting the next
+	// payment. Erin can drain first while Charlie and Dave are still
+	// processing the cancellation backwards.
+	assertNumHtlcsAll(t.t, 0, charlie, dave, erin, fabia)
 
 	logBalance(t.t, nodes, assetID, "after hodl cancel & 0 present HTLCs")
 
