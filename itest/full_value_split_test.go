@@ -15,7 +15,7 @@ func testFullValueSend(t *harnessTest) {
 	// First, we'll make a normal assets with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0], issuableAssets[0],
 		},
@@ -101,7 +101,7 @@ func runFullValueSendTests(t *harnessTest, alice, bob *tapdHarness,
 				t, alice, receiverAddr,
 			)
 			ConfirmAndAssertOutboundTransfer(
-				t.t, t.lndHarness.Miner().Client, alice,
+				t.t, t.lndHarness.Miner(), alice,
 				sendResp, genInfo.AssetId,
 				[]uint64{0, fullAmount}, senderTransferIdx,
 				senderTransferIdx+1,
@@ -128,7 +128,7 @@ func runFullValueSendTests(t *harnessTest, alice, bob *tapdHarness,
 				t, bob, receiverAddr,
 			)
 			ConfirmAndAssertOutboundTransfer(
-				t.t, t.lndHarness.Miner().Client, bob, sendResp,
+				t.t, t.lndHarness.Miner(), bob, sendResp,
 				genInfo.AssetId, []uint64{0, fullAmount},
 				receiverTransferIdx, receiverTransferIdx+1,
 			)

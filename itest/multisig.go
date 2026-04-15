@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -31,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
@@ -60,7 +60,7 @@ var (
 // group key level.
 func MultiSigTest(t *testing.T, ctx context.Context, aliceTapd,
 	bobTapd commands.RpcClientsBundle, universeHostPort string,
-	bitcoinClient *rpcclient.Client, aliceLnd, bobLnd *rpc.HarnessRPC,
+	bitcoinClient *miner.HarnessMiner, aliceLnd, bobLnd *rpc.HarnessRPC,
 	params *chaincfg.Params, testTimeout time.Duration) {
 
 	// We mint some grouped assets to use in the test. These assets are

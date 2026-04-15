@@ -103,7 +103,7 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 
 	// Mint on Charlie.
 	mintedAssets := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(charlie),
+		t.t, net.Miner, asTapd(charlie),
 		[]*mintrpc.MintAssetRequest{
 			{Asset: tcAsset},
 		},
@@ -153,7 +153,7 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 	)
 	require.NoError(t.t, err)
 	itest.ConfirmAndAssertOutboundTransfer(
-		t.t, net.Miner.Client, asTapd(charlie), sendResp,
+		t.t, net.Miner, asTapd(charlie), sendResp,
 		assetID,
 		[]uint64{usdAsset.Amount - sendAmount, sendAmount},
 		0, 1,

@@ -31,7 +31,7 @@ func testAuthMailboxRemoveMessage(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
-	txHash, err := t.lndHarness.Miner().SendOutputs([]*wire.TxOut{
+	txHash := t.lndHarness.Miner().SendOutputsWithoutChange([]*wire.TxOut{
 		{
 			Value:    100_000,
 			PkScript: pkScript,
@@ -41,7 +41,6 @@ func testAuthMailboxRemoveMessage(t *harnessTest) {
 			PkScript: pkScript,
 		},
 	}, 10)
-	require.NoError(t.t, err)
 
 	blockHash := t.lndHarness.Miner().GenerateBlocks(1)[0]
 	_, blockHeight := t.lndHarness.Miner().GetBestBlock()

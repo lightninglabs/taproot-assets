@@ -274,13 +274,10 @@ func (h *IntegratedNetworkHarness) SendCoins(t *testing.T,
 		PkScript: addrScript,
 		Value:    int64(amt),
 	}
-	_, err = h.Miner.SendOutputs([]*wire.TxOut{output}, 7500)
-	require.NoErrorf(t, err, "unable to send coins to %s",
-		target.Cfg.Name)
+	_ = h.Miner.SendOutputsWithoutChange([]*wire.TxOut{output}, 7500)
 
 	// Mine 6 blocks for confirmation.
-	_, err = h.Miner.Client.Generate(6)
-	require.NoError(t, err, "unable to generate blocks")
+	h.Miner.GenerateBlocks(6)
 
 	// Wait for confirmed balance to reflect the deposit.
 	expectedBalance := btcutil.Amount(

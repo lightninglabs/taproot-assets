@@ -115,5 +115,11 @@ func genCert(t *testing.T) *tls.Config {
 	tlsCert, _, err := cert.LoadCertFromBytes(certBytes, keyBytes)
 	require.NoError(t, err)
 
-	return cert.TLSConfFromCert(tlsCert)
+	tlsConf := cert.TLSConfFromCert(tlsCert)
+
+	// grpc-go v1.67+ enforces ALPN during TLS handshakes, so the
+	// server must advertise "h2".
+	tlsConf.NextProtos = []string{"h2"}
+
+	return tlsConf
 }

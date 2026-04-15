@@ -75,7 +75,7 @@ func testCustomChannelsDecodeAssetInvoice(_ context.Context,
 
 	// Mint an asset on Alice and sync universes.
 	mintedAssets := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(alice),
+		t.t, net.Miner, asTapd(alice),
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: tcAsset,
@@ -185,7 +185,7 @@ func testCustomChannelsDecodeAssetInvoice(_ context.Context,
 		GroupKey:     usdAsset.AssetGroup.TweakedGroupKey,
 	}
 	secondMinted := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(alice),
+		t.t, net.Miner, asTapd(alice),
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: secondTranche,

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"time"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -19,7 +20,7 @@ import (
 // testBurnAssets tests that we're able to mint assets and then burn assets
 // again.
 func testBurnAssets(t *harnessTest) {
-	minerClient := t.lndHarness.Miner().Client
+	minerClient := t.lndHarness.Miner()
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, minerClient, t.tapd, []*mintrpc.MintAssetRequest{
 			simpleAssets[0], simpleAssets[1], issuableAssets[0],
@@ -136,12 +137,34 @@ func testBurnAssets(t *harnessTest) {
 	)
 
 	// We'll now assert that the burned asset has the correct state.
+	// We use a retry loop here because the asset record in the DB is
+	// created during anchor TX confirmation (LogAnchorTxConfirm), which
+	// may not have completed by the time the transfer is visible in
+	// ListTransfers.
 	burnedAsset := burnResp.BurnProofs[0].Asset
-	allAssets, err := t.tapd.ListAssets(ctx, &taprpc.ListAssetRequest{
-		IncludeSpent:  true,
-		ScriptKeyType: allScriptKeysQuery,
-	})
-	require.NoError(t.t, err)
+	var allAssets *taprpc.ListAssetResponse
+	require.Eventually(t.t, func() bool {
+		allAssets, err = t.tapd.ListAssets(
+			ctx, &taprpc.ListAssetRequest{
+				IncludeSpent:  true,
+				ScriptKeyType: allScriptKeysQuery,
+			},
+		)
+		if err != nil {
+			return false
+		}
+
+		for _, rpcAsset := range allAssets.Assets {
+			if bytes.Equal(
+				rpcAsset.ScriptKey, burnedAsset.ScriptKey,
+			) {
+
+				return true
+			}
+		}
+
+		return false
+	}, defaultWaitTimeout, time.Second)
 	AssertAssetStateByScriptKey(
 		t.t, allAssets.Assets, burnedAsset.ScriptKey,
 		AssetAmountCheck(burnedAsset.Amount),
@@ -372,7 +395,7 @@ func testBurnAssets(t *harnessTest) {
 func testBurnGroupedAssets(t *harnessTest) {
 	var (
 		ctx   = context.Background()
-		miner = t.lndHarness.Miner().Client
+		miner = t.lndHarness.Miner()
 
 		firstMintReq = issuableAssets[0]
 		burnNote     = "blazeit"
@@ -455,13 +478,33 @@ func testBurnGroupedAssets(t *harnessTest) {
 		true,
 	)
 
-	// Ensure that the burnt asset has the correct state.
+	// Ensure that the burnt asset has the correct state. We use a retry
+	// loop because the asset record is created during anchor TX
+	// confirmation, which may not have completed yet.
 	burnedAsset := burnResp.BurnProofs[0].Asset
-	allAssets, err := t.tapd.ListAssets(ctx, &taprpc.ListAssetRequest{
-		IncludeSpent:  true,
-		ScriptKeyType: allScriptKeysQuery,
-	})
-	require.NoError(t.t, err)
+	var allAssets *taprpc.ListAssetResponse
+	require.Eventually(t.t, func() bool {
+		allAssets, err = t.tapd.ListAssets(
+			ctx, &taprpc.ListAssetRequest{
+				IncludeSpent:  true,
+				ScriptKeyType: allScriptKeysQuery,
+			},
+		)
+		if err != nil {
+			return false
+		}
+
+		for _, rpcAsset := range allAssets.Assets {
+			if bytes.Equal(
+				rpcAsset.ScriptKey, burnedAsset.ScriptKey,
+			) {
+
+				return true
+			}
+		}
+
+		return false
+	}, defaultWaitTimeout, time.Second)
 	AssertAssetStateByScriptKey(
 		t.t, allAssets.Assets, burnedAsset.ScriptKey,
 		AssetAmountCheck(burnedAsset.Amount),
@@ -531,7 +574,7 @@ func testBurnGroupedAssets(t *harnessTest) {
 
 // testFullBurnUTXO tests that we can burn the full amount of an asset UTXO.
 func testFullBurnUTXO(t *harnessTest) {
-	minerClient := t.lndHarness.Miner().Client
+	minerClient := t.lndHarness.Miner()
 	ctx := context.Background()
 
 	// Test 1: Burn the full amount of a simple asset.

@@ -66,7 +66,7 @@ func testCustomChannelsPassiveAssets(ctx context.Context,
 		GroupAnchor: "asset-a-for-channel",
 	}
 	mintedAssets := itest.MintAssetsConfirmBatch(
-		t.t, net.Miner.Client, asTapd(charlie),
+		t.t, net.Miner, asTapd(charlie),
 		[]*mintrpc.MintAssetRequest{
 			{Asset: assetA},
 			{Asset: assetB},

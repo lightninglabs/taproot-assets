@@ -31,7 +31,7 @@ import (
 // testUniverseSync tests that we're able to properly sync the universe state
 // between two nodes.
 func testUniverseSync(t *harnessTest) {
-	miner := t.lndHarness.Miner().Client
+	miner := t.lndHarness.Miner()
 	// First, we'll create out usual set of simple and also issuable
 	// assets.
 	rpcSimpleAssets := MintAssetsConfirmBatch(
@@ -295,7 +295,7 @@ func testUniverseSync(t *harnessTest) {
 // testUniverseDeleteLeaf tests that we can delete a single leaf from
 // a universe via the RPC endpoint and verify it's gone.
 func testUniverseDeleteLeaf(t *harnessTest) {
-	miner := t.lndHarness.Miner().Client
+	miner := t.lndHarness.Miner()
 
 	// Mint assets on the primary node.
 	rpcSimpleAssets := MintAssetsConfirmBatch(
@@ -390,7 +390,7 @@ func testUniverseDeleteLeaf(t *harnessTest) {
 // testUniverseManualSync tests that we're able to insert proofs manually into
 // a universe instead of using a full sync.
 func testUniverseManualSync(t *harnessTest) {
-	miner := t.lndHarness.Miner().Client
+	miner := t.lndHarness.Miner()
 
 	// First, we'll create out usual set of issuable assets.
 	rpcIssuableAssets := MintAssetsConfirmBatch(
@@ -480,7 +480,7 @@ func unmarshalMerkleSumNode(root *unirpc.MerkleSumNode) mssmt.Node {
 // testUniverseREST tests that we're able to properly query the universe state
 // via the REST interface.
 func testUniverseREST(t *harnessTest) {
-	miner := t.lndHarness.Miner().Client
+	miner := t.lndHarness.Miner()
 	// Mint a few assets that we then want to inspect in the universe.
 	rpcSimpleAssets := MintAssetsConfirmBatch(
 		t.t, miner, t.tapd, simpleAssets,
@@ -605,7 +605,7 @@ func testUniverseFederation(t *harnessTest) {
 
 	ctx := context.Background()
 
-	miner := t.lndHarness.Miner().Client
+	miner := t.lndHarness.Miner()
 
 	// Now that Bob is active, we'll make a set of assets with the main node.
 	firstAsset := MintAssetsConfirmBatch(t.t, miner, t.tapd, simpleAssets[:1])

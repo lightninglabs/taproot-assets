@@ -51,13 +51,12 @@ func testAuthMailboxCleanup(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// Fund the P2TR output from the miner.
-	txHash, err := t.lndHarness.Miner().SendOutputs([]*wire.TxOut{
+	txHash := t.lndHarness.Miner().SendOutputsWithoutChange([]*wire.TxOut{
 		{
 			Value:    100_000,
 			PkScript: pkScript,
 		},
 	}, 10)
-	require.NoError(t.t, err)
 
 	blockHash := t.lndHarness.Miner().GenerateBlocks(1)[0]
 	_, blockHeight := t.lndHarness.Miner().GetBestBlock()
@@ -171,7 +170,7 @@ func testAuthMailboxCleanup(t *harnessTest) {
 
 	spendTx.TxIn[0].Witness = wire.TxWitness{sig}
 
-	_, err = t.lndHarness.Miner().Client.SendRawTransaction(
+	_, err = t.lndHarness.Miner().SendRawTransaction(
 		spendTx, true,
 	)
 	require.NoError(t.t, err)

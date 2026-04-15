@@ -27,7 +27,7 @@ func testZeroValueAnchorSweep(t *harnessTest) {
 
 	// First, mint some simple asset.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	genInfo := rpcAssets[0].AssetGenesis
@@ -51,7 +51,7 @@ func testZeroValueAnchorSweep(t *harnessTest) {
 	sendResp, _ := sendAssetsToAddr(t, t.tapd, bobAddr)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 		genInfo.AssetId,
 		[]uint64{0, assetAmount}, 0, 1,
 	)
@@ -65,7 +65,7 @@ func testZeroValueAnchorSweep(t *harnessTest) {
 
 	// Test 1: Send transaction sweeps tombstones.
 	rpcAssets2 := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	genInfo2 := rpcAssets2[0].AssetGenesis
@@ -97,7 +97,7 @@ func testZeroValueAnchorSweep(t *harnessTest) {
 	require.GreaterOrEqual(t.t, len(anchorTx.TxIn), 2)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp2,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp2,
 		genInfo2.AssetId,
 		[]uint64{0, assetAmount}, 1, 2,
 	)
@@ -125,7 +125,7 @@ func testZeroValueAnchorSweep(t *harnessTest) {
 
 	// Test 2: Burning transaction sweeps tombstones.
 	rpcAssets3 := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	genInfo3 := rpcAssets3[0].AssetGenesis
@@ -144,7 +144,7 @@ func testZeroValueAnchorSweep(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	AssertAssetOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, t.tapd, burnResp.BurnTransfer,
+		t.t, t.lndHarness.Miner(), t.tapd, burnResp.BurnTransfer,
 		[][]byte{genInfo3.AssetId},
 		[]uint64{assetAmount}, 2, 3, 1, true,
 	)
@@ -174,7 +174,7 @@ func testZeroValueAnchorSweep(t *harnessTest) {
 
 	// Test 3: Send transactions sweeps zero-value burns.
 	rpcAssets4 := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	genInfo4 := rpcAssets4[0].AssetGenesis
@@ -192,7 +192,7 @@ func testZeroValueAnchorSweep(t *harnessTest) {
 	sendResp3, _ := sendAssetsToAddr(t, t.tapd, bobAddr3)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp3,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp3,
 		genInfo4.AssetId,
 		[]uint64{partialAmount, partialAmount}, 3, 4,
 	)
@@ -220,7 +220,7 @@ func testZeroValueAnchorAccumulation(t *harnessTest) {
 
 	// First, mint some assets to create zero-value UTXOs with.
 	rpcAssets1 := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	genInfo1 := rpcAssets1[0].AssetGenesis
@@ -236,7 +236,7 @@ func testZeroValueAnchorAccumulation(t *harnessTest) {
 
 	sendResp1, _ := sendAssetsToAddr(t, t.tapd, bobAddr1)
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp1,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp1,
 		genInfo1.AssetId,
 		[]uint64{0, assetAmount}, 0, 1,
 	)
@@ -250,7 +250,7 @@ func testZeroValueAnchorAccumulation(t *harnessTest) {
 
 	// Test 2: Create a burn UTXO by burning another asset fully.
 	rpcAssets2 := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	genInfo2 := rpcAssets2[0].AssetGenesis
@@ -268,7 +268,7 @@ func testZeroValueAnchorAccumulation(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	AssertAssetOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner().Client, t.tapd, burnResp.BurnTransfer,
+		t.t, t.lndHarness.Miner(), t.tapd, burnResp.BurnTransfer,
 		[][]byte{genInfo2.AssetId},
 		[]uint64{assetAmount}, 1, 2, 1, true,
 	)
@@ -286,7 +286,7 @@ func testZeroValueAnchorAccumulation(t *harnessTest) {
 
 	// Test 3: Create another tombstone with a different asset.
 	rpcAssets3 := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	genInfo3 := rpcAssets3[0].AssetGenesis
@@ -300,7 +300,7 @@ func testZeroValueAnchorAccumulation(t *harnessTest) {
 
 	sendResp2, _ := sendAssetsToAddr(t, t.tapd, bobAddr2)
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp2,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp2,
 		genInfo3.AssetId, []uint64{0, assetAmount}, 2, 3,
 	)
 	AssertNonInteractiveRecvComplete(t.t, bobTapd, 2)
@@ -364,7 +364,7 @@ func testZeroValueAnchorAccumulation(t *harnessTest) {
 	// Test 4: Mint and send a new asset. This should sweep all accumulated
 	// zero-value UTXOs (2 tombstones + 1 burn).
 	rpcAssets4 := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd,
+		t.t, t.lndHarness.Miner(), t.tapd,
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	genInfo4 := rpcAssets4[0].AssetGenesis
@@ -385,7 +385,7 @@ func testZeroValueAnchorAccumulation(t *harnessTest) {
 	// The expected number of inputs is:
 	// 1 (new asset) + 3 (swept zero-value).
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp3,
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp3,
 		genInfo4.AssetId,
 		[]uint64{partialAmount, partialAmount}, 3, 4,
 	)
