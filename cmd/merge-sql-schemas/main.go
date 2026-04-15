@@ -9,31 +9,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	_ "modernc.org/sqlite" // Register the pure-Go SQLite driver.
 )
-
-// sqliteReplacements maps Postgres-specific SQL fragments to
-// SQLite-compatible no-ops. This mirrors sqliteSchemaReplacements
-// in tapdb/sqlite.go.
-var sqliteReplacements = map[string]string{
-	"SELECT setval(pg_get_serial_sequence(" +
-		"'universe_leaves', 'id'), COALESCE((" +
-		"SELECT MAX(id) FROM universe_leaves" +
-		"), 1), (SELECT COUNT(*) FROM " +
-		"universe_leaves) > 0);": "SELECT 1;",
-	"SELECT setval(pg_get_serial_sequence(" +
-		"'supply_commit_states', 'id'), " +
-		"COALESCE((SELECT MAX(id) FROM " +
-		"supply_commit_states), 1), (SELECT " +
-		"COUNT(*) FROM supply_commit_states" +
-		") > 0);": "SELECT 1;",
-	"SELECT setval(pg_get_serial_sequence(" +
-		"'supply_commit_update_types', 'id'), " +
-		"COALESCE((SELECT MAX(id) FROM " +
-		"supply_commit_update_types), 1), " +
-		"(SELECT COUNT(*) FROM " +
-		"supply_commit_update_types) > 0);": "SELECT 1;",
-}
 
 func main() {
 	// Open an in-memory SQLite database.
@@ -66,7 +44,7 @@ func main() {
 			log.Fatalf("failed to read file %s: %v", fname, err)
 		}
 		content := string(data)
-		for from, to := range sqliteReplacements {
+		for from, to := range sqlc.SQLiteSchemaReplacements {
 			content = strings.ReplaceAll(content, from, to)
 		}
 		_, err = db.Exec(content)

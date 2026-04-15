@@ -38,28 +38,10 @@ const (
 )
 
 var (
-	// sqliteSchemaReplacements is a map of schema strings that need
-	// to be replaced for sqlite. Migration 55 uses Postgres-only
-	// setval() calls that must be replaced with no-ops on SQLite.
-	sqliteSchemaReplacements = map[string]string{
-		"SELECT setval(pg_get_serial_sequence(" +
-			"'universe_leaves', 'id'), COALESCE((" +
-			"SELECT MAX(id) FROM universe_leaves" +
-			"), 1), (SELECT COUNT(*) FROM " +
-			"universe_leaves) > 0);": "SELECT 1;",
-		"SELECT setval(pg_get_serial_sequence(" +
-			"'supply_commit_states', 'id'), " +
-			"COALESCE((SELECT MAX(id) FROM " +
-			"supply_commit_states), 1), (SELECT " +
-			"COUNT(*) FROM supply_commit_states" +
-			") > 0);": "SELECT 1;",
-		"SELECT setval(pg_get_serial_sequence(" +
-			"'supply_commit_update_types', 'id'), " +
-			"COALESCE((SELECT MAX(id) FROM " +
-			"supply_commit_update_types), 1), " +
-			"(SELECT COUNT(*) FROM " +
-			"supply_commit_update_types) > 0);": "SELECT 1;",
-	}
+	// sqliteSchemaReplacements maps Postgres-specific SQL
+	// fragments to SQLite-compatible no-ops. The canonical map
+	// lives in tapdb/sqlc/replacements.go.
+	sqliteSchemaReplacements = sqlc.SQLiteSchemaReplacements
 )
 
 // SqliteConfig holds all the config arguments needed to interact with our
