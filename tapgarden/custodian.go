@@ -741,11 +741,22 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			if event.ConfirmationHeight == 0 &&
 				walletTx.Confirmations > 0 {
 
+				// Save these before GetOrCreateEvent, which may
+				// return nil on error.
+				tapAddr := event.Addr.Tap
+				prevStatus := event.Status
+
 				xfer, err := address.NewTransferFromWalletTx(
 					event.Addr, walletTx, uint32(idx),
 					sendOutputs,
 				)
 				if err != nil {
+					errEvent := NewAssetReceiveErrorEvent(
+						err, *tapAddr, op,
+						0, prevStatus,
+					)
+					c.publishSubscriberStatusEvent(errEvent)
+
 					return fmt.Errorf("error creating "+
 						"event source: %w", err)
 				}
@@ -758,6 +769,12 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				)
 				cancel()
 				if err != nil {
+					errEvent := NewAssetReceiveErrorEvent(
+						err, *tapAddr, op,
+						0, prevStatus,
+					)
+					c.publishSubscriberStatusEvent(errEvent)
+
 					return fmt.Errorf("error updating "+
 						"event: %w", err)
 				}
@@ -778,7 +795,7 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				)
 				c.Goroutine(func() error {
 					return c.receiveProofs(
-						event.Addr.Tap, op,
+						tapAddr, op,
 						event.Outputs,
 						event.ConfirmationHeight,
 					)
@@ -787,8 +804,8 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 						//nolint:lll
 						NewAssetReceiveErrorEvent(
 							err,
-							*event.Addr.Tap,
-							event.Outpoint,
+							*tapAddr,
+							op,
 							event.ConfirmationHeight,
 							event.Status,
 						),
@@ -1184,6 +1201,12 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				output.DerivationMethod,
 			)
 			if err != nil {
+				errEvent := NewAssetReceiveErrorEvent(
+					err, *tapAddr.Tap, op, 0,
+					address.StatusTransactionDetected,
+				)
+				c.publishSubscriberStatusEvent(errEvent)
+
 				return fmt.Errorf("unable to derive script "+
 					"key for asset: %w", err)
 			}
@@ -1192,6 +1215,12 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				ctx, scriptKey, scriptKey.Type,
 			)
 			if err != nil {
+				errEvent := NewAssetReceiveErrorEvent(
+					err, *tapAddr.Tap, op, 0,
+					address.StatusTransactionDetected,
+				)
+				c.publishSubscriberStatusEvent(errEvent)
+
 				return fmt.Errorf("unable to insert script "+
 					"key into address book: %w", err)
 			}
@@ -1226,6 +1255,13 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 			ctx, fragment.BlockHeader.BlockHash(),
 		)
 		if err != nil {
+			c.publishSubscriberStatusEvent(
+				NewAssetReceiveErrorEvent(
+					err, *tapAddr.Tap, op,
+					0, address.StatusTransactionDetected,
+				),
+			)
+
 			return fmt.Errorf("unable to fetch block %s: %w",
 				fragment.BlockHeader.BlockHash(), err)
 		}
@@ -1234,6 +1270,13 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 			tapAddr, block, fragment, outputs,
 		)
 		if err != nil {
+			c.publishSubscriberStatusEvent(
+				NewAssetReceiveErrorEvent(
+					err, *tapAddr.Tap, op,
+					0, address.StatusTransactionDetected,
+				),
+			)
+
 			return fmt.Errorf("error creating event source from "+
 				"fragment: %w", err)
 		}
@@ -1247,6 +1290,13 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 		)
 		cancel()
 		if err != nil {
+			c.publishSubscriberStatusEvent(
+				NewAssetReceiveErrorEvent(
+					err, *tapAddr.Tap, op,
+					0, address.StatusTransactionDetected,
+				),
+			)
+
 			return fmt.Errorf("error creating event: %w", err)
 		}
 
@@ -1485,6 +1535,8 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 		log.Debugf("Received single proof, inspecting if matches event")
 		lastProof, err = p.AsSingleProof()
 		if err != nil {
+			// No error event published here since we haven't
+			// matched this proof to any address event yet.
 			return fmt.Errorf("error decoding proof: %w", err)
 		}
 
@@ -1493,12 +1545,14 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 		// because we receive all transfer proofs inserted into the
 		// local universe here. So they could just be from a proof sync
 		// run and not actually be for an address we are interested in.
-		haveMatchingEvents := fn.AnyMapItem(
-			c.events, func(e *address.Event) bool {
-				return EventMatchesProof(e, lastProof)
-			},
+		// We capture the matching event so we can use it in error
+		// paths to publish error events to subscribers.
+		matchingEvent, ok := c.events[lastProof.OutPoint()]
+		addrMatches := ok && AddrMatchesAsset(
+			matchingEvent.Addr,
+			&lastProof.Asset,
 		)
-		if !haveMatchingEvents {
+		if !addrMatches {
 			log.Debugf("Proof doesn't match any events, skipping.")
 			return nil
 		}
@@ -1518,6 +1572,15 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 		log.Debugf("Received single proof, fetching full file")
 		proofBlob, err = c.cfg.ProofNotifier.FetchProof(ctxt, loc)
 		if err != nil {
+			c.publishSubscriberStatusEvent(
+				NewAssetReceiveErrorEvent(
+					err, *matchingEvent.Addr.Tap,
+					matchingEvent.Outpoint,
+					matchingEvent.ConfirmationHeight,
+					matchingEvent.Status,
+				),
+			)
+
 			return fmt.Errorf("error fetching full proof file for "+
 				"event: %w", err)
 		}
@@ -1532,6 +1595,15 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 			Blob:    proofBlob,
 		})
 		if err != nil {
+			c.publishSubscriberStatusEvent(
+				NewAssetReceiveErrorEvent(
+					err, *matchingEvent.Addr.Tap,
+					matchingEvent.Outpoint,
+					matchingEvent.ConfirmationHeight,
+					matchingEvent.Status,
+				),
+			)
+
 			return fmt.Errorf("error asserting proof in local "+
 				"archive: %w", err)
 		}
