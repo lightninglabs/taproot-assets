@@ -335,6 +335,14 @@
   `universe.mbox-cleanup-check-timeout` to configure periodic cleanup of
   auth mailbox messages whose claimed outpoints have been spent on chain.
 
+- [PR#2060](https://github.com/lightninglabs/taproot-assets/pull/2060)
+  Add `diagnostics-dir` to enable diagnostics mode. When set, tapd creates
+  a per-run diagnostics directory and stores proof-validation failure
+  artifacts (including generated output proofs, related input proofs, and
+  metadata) for transfer troubleshooting. Failure metadata is captured as an
+  immutable snapshot, and pre-broadcast reports include collected input-proof
+  artifacts for consistent diagnostics.
+
 ## Breaking Changes
 
 - [PR#1935](https://github.com/lightninglabs/taproot-assets/pull/1935)
