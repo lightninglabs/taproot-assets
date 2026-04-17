@@ -515,8 +515,8 @@ func (v *Verifier) verifyIssuanceLeaf(ctx context.Context,
 	proofAssetID := issuanceProof.Asset.Genesis.ID()
 
 	if leafKeyAssetID != proofAssetID {
-		return fmt.Errorf("issance leaf key asset id does not match " +
-			"issance proof asset id")
+		return fmt.Errorf("issuance leaf key asset id does not match " +
+			"issuance proof asset id")
 	}
 
 	// Verify that the proof asset group is the expected asset group.
