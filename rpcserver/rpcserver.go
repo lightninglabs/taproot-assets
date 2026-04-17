@@ -8425,6 +8425,26 @@ func unmarshalOptionalFixedPoint(
 	return fn.Some(result), nil
 }
 
+// unmarshalExecutionPolicy converts the RPC execution policy enum to
+// the internal optional type. IOC (0/default) maps to fn.None. FOK
+// maps to fn.Some(ExecutionPolicyFOK). Unknown values are rejected.
+func unmarshalExecutionPolicy(
+	p rfqrpc.ExecutionPolicy,
+) (fn.Option[rfqmsg.ExecutionPolicy], error) {
+
+	switch p {
+	case rfqrpc.ExecutionPolicy_EXECUTION_POLICY_IOC:
+		return fn.None[rfqmsg.ExecutionPolicy](), nil
+
+	case rfqrpc.ExecutionPolicy_EXECUTION_POLICY_FOK:
+		return fn.Some(rfqmsg.ExecutionPolicyFOK), nil
+
+	default:
+		return fn.None[rfqmsg.ExecutionPolicy](),
+			fmt.Errorf("unknown execution policy: %v", p)
+	}
+}
+
 func unmarshalAssetBuyOrder(
 	req *rfqrpc.AddAssetBuyOrderRequest) (*rfq.BuyOrder, error) {
 
@@ -8485,11 +8505,20 @@ func unmarshalAssetBuyOrder(
 			"limit: %w", err)
 	}
 
+	// Unmarshal optional execution policy.
+	execPolicy, err := unmarshalExecutionPolicy(
+		req.ExecutionPolicy,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &rfq.BuyOrder{
 		AssetSpecifier:      assetSpecifier,
 		AssetMaxAmt:         req.AssetMaxAmt,
 		AssetMinAmt:         assetMinAmt,
 		AssetRateLimit:      assetRateLimit,
+		ExecutionPolicy:     execPolicy,
 		Expiry:              expiry,
 		Peer:                fn.MaybeSome(peer),
 		PriceOracleMetadata: req.PriceOracleMetadata,
@@ -8720,11 +8749,20 @@ func unmarshalAssetSellOrder(
 			"limit: %w", err)
 	}
 
+	// Unmarshal optional execution policy.
+	execPolicy, err := unmarshalExecutionPolicy(
+		req.ExecutionPolicy,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &rfq.SellOrder{
 		AssetSpecifier:      assetSpecifier,
 		PaymentMaxAmt:       lnwire.MilliSatoshi(req.PaymentMaxAmt),
 		PaymentMinAmt:       paymentMinAmt,
 		AssetRateLimit:      assetRateLimit,
+		ExecutionPolicy:     execPolicy,
 		Expiry:              expiry,
 		Peer:                peer,
 		PriceOracleMetadata: req.PriceOracleMetadata,

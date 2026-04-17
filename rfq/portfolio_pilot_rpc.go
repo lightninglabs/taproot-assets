@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
@@ -462,6 +463,9 @@ func rpcMarshalBuyRequest(
 		PeerId:              peer[:],
 		AssetMinAmount:      req.AssetMinAmt.UnwrapOr(0),
 		AssetRateLimit:      rpcRateLimit,
+		ExecutionPolicy: marshalExecutionPolicy(
+			req.ExecutionPolicy,
+		),
 	}, nil
 }
 
@@ -514,7 +518,34 @@ func rpcMarshalSellRequest(
 		PeerId:              peer[:],
 		PaymentMinAmount:    paymentMinAmt,
 		AssetRateLimit:      rpcRateLimit,
+		ExecutionPolicy: marshalExecutionPolicy(
+			req.ExecutionPolicy,
+		),
 	}, nil
+}
+
+// marshalExecutionPolicy converts an optional execution policy to its
+// RPC enum value.
+func marshalExecutionPolicy(
+	ep fn.Option[rfqmsg.ExecutionPolicy]) pilotrpc.ExecutionPolicy {
+
+	const (
+		ioc = pilotrpc.ExecutionPolicy_EXECUTION_POLICY_IOC
+		fok = pilotrpc.ExecutionPolicy_EXECUTION_POLICY_FOK
+	)
+
+	return fn.MapOptionZ(
+		ep,
+		func(p rfqmsg.ExecutionPolicy) pilotrpc.ExecutionPolicy {
+			switch p {
+			case rfqmsg.ExecutionPolicyFOK:
+				return fok
+
+			default:
+				return ioc
+			}
+		},
+	)
 }
 
 // rpcMarshalPortfolioAssetSpecifier converts a specifier to its RPC form.
@@ -608,6 +639,8 @@ func rpcUnmarshalQuoteRespStatus(
 		return MinFillNotMetQuoteRespStatus, nil
 	case pilotrpc.QuoteRespStatus_RATE_BOUND_MISS:
 		return RateBoundMissQuoteRespStatus, nil
+	case pilotrpc.QuoteRespStatus_FOK_NOT_VIABLE:
+		return FOKNotViableQuoteRespStatus, nil
 	default:
 		return 0, fmt.Errorf("unknown quote response status: %v",
 			status)
@@ -627,6 +660,8 @@ func rpcUnmarshalRejectCode(
 		return rfqmsg.MinFillNotMetRejectCode
 	case pilotrpc.RejectCode_REJECT_CODE_PRICE_BOUND_MISS:
 		return rfqmsg.PriceBoundMissRejectCode
+	case pilotrpc.RejectCode_REJECT_CODE_FOK_NOT_VIABLE:
+		return rfqmsg.FOKNotViableRejectCode
 	default:
 		return rfqmsg.PriceOracleUnspecifiedRejectCode
 	}

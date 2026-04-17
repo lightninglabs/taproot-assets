@@ -224,9 +224,22 @@
         "asset_rate_limit": {
           "$ref": "#/definitions/portfoliopilotrpcFixedPoint",
           "description": "asset_rate_limit is an optional minimum acceptable rate (asset units\nper BTC)."
+        },
+        "execution_policy": {
+          "$ref": "#/definitions/portfoliopilotrpcExecutionPolicy",
+          "description": "execution_policy is the optional execution policy for this request."
         }
       },
       "description": "BuyRequest represents a request to buy the subject asset."
+    },
+    "portfoliopilotrpcExecutionPolicy": {
+      "type": "string",
+      "enum": [
+        "EXECUTION_POLICY_IOC",
+        "EXECUTION_POLICY_FOK"
+      ],
+      "default": "EXECUTION_POLICY_IOC",
+      "description": "ExecutionPolicy specifies how a quote request should be filled.\n\n - EXECUTION_POLICY_IOC: EXECUTION_POLICY_IOC (Immediate-Or-Cancel) accepts any partial\nfill. This is the default policy.\n - EXECUTION_POLICY_FOK: EXECUTION_POLICY_FOK (Fill-Or-Kill) requires the accepted rate\nto satisfy the full requested amount."
     },
     "portfoliopilotrpcFixedPoint": {
       "type": "object",
@@ -322,10 +335,11 @@
         "PORTFOLIO_PILOT_ERR",
         "VALID_ACCEPT_QUOTE",
         "MIN_FILL_NOT_MET",
-        "RATE_BOUND_MISS"
+        "RATE_BOUND_MISS",
+        "FOK_NOT_VIABLE"
       ],
       "default": "INVALID_ASSET_RATES",
-      "description": "QuoteRespStatus is an enum that represents the status of a quote response.\n\n - INVALID_ASSET_RATES: INVALID_ASSET_RATES indicates that at least one asset rate in the\nquote response is invalid.\n - INVALID_EXPIRY: INVALID_EXPIRY indicates that the expiry in the quote response is\ninvalid.\n - PRICE_ORACLE_QUERY_ERR: PRICE_ORACLE_QUERY_ERR indicates that an error occurred when querying the\nprice oracle whilst evaluating the quote response.\n - PORTFOLIO_PILOT_ERR: PORTFOLIO_PILOT_ERR indicates that an unexpected error occurred in the\nportfolio pilot while evaluating the quote response.\n - VALID_ACCEPT_QUOTE: VALID_ACCEPT_QUOTE indicates that the accepted quote passed all\nvalidation checks successfully.\n - MIN_FILL_NOT_MET: MIN_FILL_NOT_MET indicates that the minimum fill constraint was\nnot satisfiable at the accepted rate.\n - RATE_BOUND_MISS: RATE_BOUND_MISS indicates that the accepted rate violated the\nrequester's rate limit constraint."
+      "description": "QuoteRespStatus is an enum that represents the status of a quote response.\n\n - INVALID_ASSET_RATES: INVALID_ASSET_RATES indicates that at least one asset rate in the\nquote response is invalid.\n - INVALID_EXPIRY: INVALID_EXPIRY indicates that the expiry in the quote response is\ninvalid.\n - PRICE_ORACLE_QUERY_ERR: PRICE_ORACLE_QUERY_ERR indicates that an error occurred when querying the\nprice oracle whilst evaluating the quote response.\n - PORTFOLIO_PILOT_ERR: PORTFOLIO_PILOT_ERR indicates that an unexpected error occurred in the\nportfolio pilot while evaluating the quote response.\n - VALID_ACCEPT_QUOTE: VALID_ACCEPT_QUOTE indicates that the accepted quote passed all\nvalidation checks successfully.\n - MIN_FILL_NOT_MET: MIN_FILL_NOT_MET indicates that the minimum fill constraint was\nnot satisfiable at the accepted rate.\n - RATE_BOUND_MISS: RATE_BOUND_MISS indicates that the accepted rate violated the\nrequester's rate limit constraint.\n - FOK_NOT_VIABLE: FOK_NOT_VIABLE indicates that the FOK execution policy could\nnot be satisfied at the accepted rate."
     },
     "portfoliopilotrpcRejectCode": {
       "type": "string",
@@ -333,10 +347,11 @@
         "REJECT_CODE_UNSPECIFIED",
         "REJECT_CODE_PRICE_ORACLE_UNAVAILABLE",
         "REJECT_CODE_MIN_FILL_NOT_MET",
-        "REJECT_CODE_PRICE_BOUND_MISS"
+        "REJECT_CODE_PRICE_BOUND_MISS",
+        "REJECT_CODE_FOK_NOT_VIABLE"
       ],
       "default": "REJECT_CODE_UNSPECIFIED",
-      "description": "RejectCode represents the possible error codes that can be returned in a\nResolveRequestResponse reject result.\n\n - REJECT_CODE_UNSPECIFIED: REJECT_CODE_UNSPECIFIED indicates an unspecified error.\n - REJECT_CODE_PRICE_ORACLE_UNAVAILABLE: REJECT_CODE_PRICE_ORACLE_UNAVAILABLE indicates that pricing could not be\nprovided due to an unavailable oracle.\n - REJECT_CODE_MIN_FILL_NOT_MET: REJECT_CODE_MIN_FILL_NOT_MET indicates that the minimum fill\nconstraint was not satisfiable at the accepted rate.\n - REJECT_CODE_PRICE_BOUND_MISS: REJECT_CODE_PRICE_BOUND_MISS indicates that the accepted rate\nviolated the requester's rate limit constraint."
+      "description": "RejectCode represents the possible error codes that can be returned in a\nResolveRequestResponse reject result.\n\n - REJECT_CODE_UNSPECIFIED: REJECT_CODE_UNSPECIFIED indicates an unspecified error.\n - REJECT_CODE_PRICE_ORACLE_UNAVAILABLE: REJECT_CODE_PRICE_ORACLE_UNAVAILABLE indicates that pricing could not be\nprovided due to an unavailable oracle.\n - REJECT_CODE_MIN_FILL_NOT_MET: REJECT_CODE_MIN_FILL_NOT_MET indicates that the minimum fill\nconstraint was not satisfiable at the accepted rate.\n - REJECT_CODE_PRICE_BOUND_MISS: REJECT_CODE_PRICE_BOUND_MISS indicates that the accepted rate\nviolated the requester's rate limit constraint.\n - REJECT_CODE_FOK_NOT_VIABLE: REJECT_CODE_FOK_NOT_VIABLE indicates that the FOK execution\npolicy could not be satisfied at the accepted rate."
     },
     "portfoliopilotrpcRejectErr": {
       "type": "object",
@@ -413,6 +428,10 @@
         "asset_rate_limit": {
           "$ref": "#/definitions/portfoliopilotrpcFixedPoint",
           "description": "asset_rate_limit is an optional maximum acceptable rate (asset units\nper BTC)."
+        },
+        "execution_policy": {
+          "$ref": "#/definitions/portfoliopilotrpcExecutionPolicy",
+          "description": "execution_policy is the optional execution policy for this request."
         }
       },
       "description": "SellRequest represents a request to sell the subject asset."

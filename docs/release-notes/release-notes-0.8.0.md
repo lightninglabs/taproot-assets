@@ -122,6 +122,14 @@
   burn outputs if needed. The `tapcli assets burn` command now accepts a
   `--group_key` flag.
 
+- [Execution Policy](https://github.com/lightninglabs/taproot-assets/pull/2049):
+  RFQ buy and sell orders can now specify an execution policy: IOC
+  (Immediate-Or-Cancel, the default) allows partial fills above the
+  minimum, while FOK (Fill-Or-Kill) requires the full requested amount
+  or rejects the quote. FOK viability is checked in `VerifyAcceptQuote`
+  with a new `FOK_NOT_VIABLE` reject code. New fields are optional and
+  backward-compatible.
+
 ## Functional Enhancements
 
 - [Wallet Backup/Restore](https://github.com/lightninglabs/taproot-assets/pull/1980):
@@ -173,6 +181,12 @@
   to sell orders. Add `asset_rate_limit` and min fill fields to
   `PortfolioPilot.ResolveRequest` for constraint forwarding. Add
   `RATE_BOUND_MISS` and `MIN_FILL_NOT_MET` to `QuoteRespStatus`.
+
+- [PR#2049](https://github.com/lightninglabs/taproot-assets/pull/2049):
+  Add `execution_policy` enum (`EXECUTION_POLICY_IOC`,
+  `EXECUTION_POLICY_FOK`) to `AddAssetBuyOrder` and `AddAssetSellOrder`
+  requests, and to `PortfolioPilot.ResolveRequest` for constraint
+  forwarding. Add `FOK_NOT_VIABLE` to `QuoteRespStatus`.
 
 ## tapcli Additions
 
@@ -372,6 +386,9 @@
 - [PR#2048](https://github.com/lightninglabs/taproot-assets/pull/2048):
   Add unit, property-based, and integration tests for limit-order
   constraint fields.
+
+- [PR#2049](https://github.com/lightninglabs/taproot-assets/pull/2049):
+  Add unit, property-based, and integration tests for execution policy.
 
 ## Database
 

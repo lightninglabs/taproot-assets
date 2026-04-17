@@ -65,6 +65,11 @@ type BuyRequest struct {
 	// than X units per BTC."
 	AssetRateLimit fn.Option[rfqmath.BigIntFixedPoint]
 
+	// ExecutionPolicy is an optional execution policy for the
+	// quote request. IOC (default) accepts partial fills; FOK
+	// requires the full max amount to be viable.
+	ExecutionPolicy fn.Option[ExecutionPolicy]
+
 	// AssetRateHint represents a proposed conversion rate between the
 	// subject asset and BTC. This rate is an initial suggestion intended to
 	// initiate the RFQ negotiation process and may differ from the final
@@ -85,7 +90,8 @@ func NewBuyRequest(peer route.Vertex, assetSpecifier asset.Specifier,
 	assetMaxAmt uint64, assetMinAmt fn.Option[uint64],
 	assetRateLimit fn.Option[rfqmath.BigIntFixedPoint],
 	assetRateHint fn.Option[AssetRate],
-	oracleMetadata string) (*BuyRequest, error) {
+	oracleMetadata string,
+	execPolicy fn.Option[ExecutionPolicy]) (*BuyRequest, error) {
 
 	id, err := NewID()
 	if err != nil {
@@ -107,6 +113,7 @@ func NewBuyRequest(peer route.Vertex, assetSpecifier asset.Specifier,
 		AssetMaxAmt:         assetMaxAmt,
 		AssetMinAmt:         assetMinAmt,
 		AssetRateLimit:      assetRateLimit,
+		ExecutionPolicy:     execPolicy,
 		AssetRateHint:       assetRateHint,
 		PriceOracleMetadata: oracleMetadata,
 	}
@@ -179,7 +186,9 @@ func NewBuyRequestFromWire(wireMsg WireMessage,
 	var assetMinAmt fn.Option[uint64]
 	msgData.MinInAsset.WhenSome(
 		func(r tlv.RecordT[tlv.TlvType23, uint64]) {
-			assetMinAmt = fn.Some(r.Val)
+			if r.Val > 0 {
+				assetMinAmt = fn.Some(r.Val)
+			}
 		},
 	)
 
@@ -192,15 +201,24 @@ func NewBuyRequestFromWire(wireMsg WireMessage,
 		},
 	)
 
+	// Extract optional execution policy.
+	var execPolicy fn.Option[ExecutionPolicy]
+	msgData.ExecutionPolicy.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType31, uint8]) {
+			execPolicy = fn.Some(ExecutionPolicy(r.Val))
+		},
+	)
+
 	req := BuyRequest{
-		Peer:           wireMsg.Peer,
-		Version:        msgData.Version.Val,
-		ID:             msgData.ID.Val,
-		AssetSpecifier: assetSpecifier,
-		AssetMaxAmt:    msgData.MaxInAsset.Val,
-		AssetMinAmt:    assetMinAmt,
-		AssetRateLimit: assetRateLimit,
-		AssetRateHint:  assetRateHint,
+		Peer:            wireMsg.Peer,
+		Version:         msgData.Version.Val,
+		ID:              msgData.ID.Val,
+		AssetSpecifier:  assetSpecifier,
+		AssetMaxAmt:     msgData.MaxInAsset.Val,
+		AssetMinAmt:     assetMinAmt,
+		AssetRateLimit:  assetRateLimit,
+		ExecutionPolicy: execPolicy,
+		AssetRateHint:   assetRateHint,
 	}
 
 	msgData.PriceOracleMetadata.ValOpt().WhenSome(func(metaBytes []byte) {
@@ -256,6 +274,21 @@ func (q *BuyRequest) Validate() error {
 			if !limit.Coefficient.Gt(zero) {
 				return fmt.Errorf("asset rate limit " +
 					"coefficient must be positive")
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	// Ensure execution policy is valid when set.
+	err = fn.MapOptionZ(
+		q.ExecutionPolicy,
+		func(p ExecutionPolicy) error {
+			if p > ExecutionPolicyFOK {
+				return fmt.Errorf("invalid execution "+
+					"policy: %d", p)
 			}
 			return nil
 		},
@@ -342,10 +375,17 @@ func (q *BuyRequest) String() string {
 		},
 	)
 
+	execPolicyStr := fn.MapOptionZ(
+		q.ExecutionPolicy,
+		func(p ExecutionPolicy) string {
+			return fmt.Sprintf(", exec_policy=%d", p)
+		},
+	)
+
 	return fmt.Sprintf("BuyRequest(peer=%x, id=%x, asset=%s, "+
-		"max_asset_amount=%d%s%s, asset_rate_hint=%s)",
+		"max_asset_amount=%d%s%s%s, asset_rate_hint=%s)",
 		q.Peer[:], q.ID[:], q.AssetSpecifier.String(), q.AssetMaxAmt,
-		minAmtStr, rateLimitStr, assetRateHintStr)
+		minAmtStr, rateLimitStr, execPolicyStr, assetRateHintStr)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

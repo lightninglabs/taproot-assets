@@ -68,6 +68,26 @@ type (
 	requestAssetRateLimit = tlv.OptionalRecordT[
 		tlv.TlvType29, TlvFixedPoint,
 	]
+
+	// requestExecutionPolicy is a type alias for a record that
+	// represents an optional execution policy on the quote
+	// request.
+	requestExecutionPolicy = tlv.OptionalRecordT[
+		tlv.TlvType31, uint8,
+	]
+)
+
+// ExecutionPolicy specifies how a quote request should be filled.
+type ExecutionPolicy uint8
+
+const (
+	// ExecutionPolicyIOC (Immediate-Or-Cancel) accepts any partial
+	// fill >= the min threshold. This is the default behaviour.
+	ExecutionPolicyIOC ExecutionPolicy = 0
+
+	// ExecutionPolicyFOK (Fill-Or-Kill) requires the accepted rate
+	// to support the full max amount or the quote is rejected.
+	ExecutionPolicyFOK ExecutionPolicy = 1
 )
 
 // requestWireMsgData is a struct that represents the message data field for
@@ -152,6 +172,10 @@ type requestWireMsgData struct {
 	// requests this is the minimum acceptable rate; for sell requests
 	// this is the maximum acceptable rate.
 	AssetRateLimit requestAssetRateLimit
+
+	// ExecutionPolicy is an optional execution policy for the
+	// quote request (IOC or FOK).
+	ExecutionPolicy requestExecutionPolicy
 }
 
 // newRequestWireMsgDataFromBuy creates a new requestWireMsgData from a buy
@@ -232,6 +256,16 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 		)
 	})
 
+	// Set optional execution policy.
+	var execPolicy requestExecutionPolicy
+	q.ExecutionPolicy.WhenSome(func(p ExecutionPolicy) {
+		execPolicy = tlv.SomeRecordT[tlv.TlvType31](
+			tlv.NewPrimitiveRecord[tlv.TlvType31](
+				uint8(p),
+			),
+		)
+	})
+
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
 		Version:             version,
@@ -246,6 +280,7 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 		InAssetRateHint:     inAssetRateHint,
 		MinInAsset:          minInAsset,
 		AssetRateLimit:      assetRateLimit,
+		ExecutionPolicy:     execPolicy,
 		PriceOracleMetadata: oracleMetadata,
 	}, nil
 }
@@ -333,6 +368,16 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 		)
 	})
 
+	// Set optional execution policy.
+	var execPolicy requestExecutionPolicy
+	q.ExecutionPolicy.WhenSome(func(p ExecutionPolicy) {
+		execPolicy = tlv.SomeRecordT[tlv.TlvType31](
+			tlv.NewPrimitiveRecord[tlv.TlvType31](
+				uint8(p),
+			),
+		)
+	})
+
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
 		Version:             version,
@@ -346,6 +391,7 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 		OutAssetRateHint:    outAssetRateHint,
 		MinOutAsset:         minOutAsset,
 		AssetRateLimit:      assetRateLimit,
+		ExecutionPolicy:     execPolicy,
 		PriceOracleMetadata: oracleMetadata,
 	}, nil
 }
@@ -490,6 +536,11 @@ func (m *requestWireMsgData) Encode(w io.Writer) error {
 			records = append(records, r.Record())
 		},
 	)
+	m.ExecutionPolicy.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType31, uint8]) {
+			records = append(records, r.Record())
+		},
+	)
 
 	tlv.SortRecords(records)
 
@@ -519,6 +570,7 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 
 	oracleMetadata := m.PriceOracleMetadata.Zero()
 	assetRateLimit := m.AssetRateLimit.Zero()
+	executionPolicy := m.ExecutionPolicy.Zero()
 
 	// Create a tlv stream with all the fields.
 	tlvStream, err := tlv.NewStream(
@@ -543,6 +595,7 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 
 		oracleMetadata.Record(),
 		assetRateLimit.Record(),
+		executionPolicy.Record(),
 	)
 	if err != nil {
 		return err
@@ -587,6 +640,9 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 	}
 	if _, ok := tlvMap[assetRateLimit.TlvType()]; ok {
 		m.AssetRateLimit = tlv.SomeRecordT(assetRateLimit)
+	}
+	if _, ok := tlvMap[executionPolicy.TlvType()]; ok {
+		m.ExecutionPolicy = tlv.SomeRecordT(executionPolicy)
 	}
 
 	return nil

@@ -1448,6 +1448,10 @@ const (
 	// RateBoundMissQuoteRespStatus indicates that the accepted rate
 	// violated the requester's rate limit constraint.
 	RateBoundMissQuoteRespStatus QuoteRespStatus = 6
+
+	// FOKNotViableQuoteRespStatus indicates that the FOK execution
+	// policy could not be satisfied at the accepted rate.
+	FOKNotViableQuoteRespStatus QuoteRespStatus = 7
 )
 
 // InvalidQuoteRespEvent is an event that is broadcast when the RFQ manager

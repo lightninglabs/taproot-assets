@@ -127,6 +127,17 @@ message FixedPoint {
     uint32 scale = 2;
 }
 
+// ExecutionPolicy specifies how a quote request should be filled.
+enum ExecutionPolicy {
+    // EXECUTION_POLICY_IOC is Immediate-Or-Cancel: accept any partial
+    // fill at or above the minimum threshold. This is the default.
+    EXECUTION_POLICY_IOC = 0;
+
+    // EXECUTION_POLICY_FOK is Fill-Or-Kill: the accepted rate must
+    // support the full maximum amount or the quote is rejected.
+    EXECUTION_POLICY_FOK = 1;
+}
+
 message AddAssetBuyOrderRequest {
     // asset_specifier is the subject asset.
     AssetSpecifier asset_specifier = 1;
@@ -170,6 +181,11 @@ message AddAssetBuyOrderRequest {
     // For buy orders this is the minimum acceptable rate (asset units per
     // BTC). If unset, no rate floor is enforced.
     FixedPoint asset_rate_limit = 9;
+
+    // The execution policy for this order. IOC (default) accepts any
+    // partial fill >= min threshold. FOK requires the rate to support
+    // the full max amount.
+    ExecutionPolicy execution_policy = 10;
 }
 
 message AddAssetBuyOrderResponse {
@@ -231,6 +247,11 @@ message AddAssetSellOrderRequest {
     // For sell orders this is the maximum acceptable rate (asset units per
     // BTC). If unset, no rate ceiling is enforced.
     FixedPoint asset_rate_limit = 9;
+
+    // The execution policy for this order. IOC (default) accepts any
+    // partial fill >= min threshold. FOK requires the rate to support
+    // the full max amount.
+    ExecutionPolicy execution_policy = 10;
 }
 
 message AddAssetSellOrderResponse {
@@ -393,6 +414,10 @@ enum QuoteRespStatus {
     // RATE_BOUND_MISS indicates that the accepted rate violated the
     // requester's rate limit constraint.
     RATE_BOUND_MISS = 6;
+
+    // FOK_NOT_VIABLE indicates that the FOK execution policy could
+    // not be satisfied at the accepted rate.
+    FOK_NOT_VIABLE = 7;
 }
 
 // InvalidQuoteResponse is a message that is returned when a quote response is

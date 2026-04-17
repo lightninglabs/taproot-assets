@@ -246,6 +246,60 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 	logBalance(t.t, nodes, assetID, "after payment")
 	t.Logf("Payment completed: %d asset units sent", numUnits)
 
+	// -----------------------------------------------------------------
+	// Negotiate a sell order from Charlie with FOK policy.
+	// Rate limit ceiling is generous and the payment max is
+	// large enough that FOK conversion yields non-zero units.
+	// -----------------------------------------------------------------
+	t.Logf("Negotiating sell order with FOK policy...")
+
+	sellRespFOK, err := asTapd(charlie).RfqClient.AddAssetSellOrder(
+		ctxb, &rfqrpc.AddAssetSellOrderRequest{
+			AssetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetId{
+					AssetId: assetID,
+				},
+			},
+			PaymentMaxAmt: 180_000_000,
+			AssetRateLimit: &rfqrpc.FixedPoint{
+				Coefficient: "100000000000000",
+				Scale:       2,
+			},
+			ExecutionPolicy: rfqrpc.ExecutionPolicy_EXECUTION_POLICY_FOK,
+			Expiry:          uint64(inOneHour.Unix()),
+			PeerPubKey:      dave.PubKey[:],
+			TimeoutSeconds:  10,
+		},
+	)
+	require.NoError(t.t, err, "sell order with FOK policy")
+
+	acceptedFOK := sellRespFOK.GetAcceptedQuote()
+	require.NotNil(
+		t.t, acceptedFOK, "expected accepted FOK sell quote",
+	)
+	t.Logf("FOK sell quote accepted: scid=%d", acceptedFOK.Scid)
+
+	// Pay using the FOK quote with a regular BTC invoice.
+	invoiceRespFOK, err := erin.LightningClient.AddInvoice(
+		ctxb, &lnrpc.Invoice{
+			ValueMsat: invoiceMsat,
+		},
+	)
+	require.NoError(t.t, err)
+
+	var quoteIDFOK rfqmsg.ID
+	copy(quoteIDFOK[:], acceptedFOK.Id)
+
+	numUnitsFOK, _ := payInvoiceWithAssets(
+		t.t, charlie, dave,
+		invoiceRespFOK.PaymentRequest,
+		assetID, withRFQ(quoteIDFOK),
+	)
+	require.Greater(t.t, numUnitsFOK, uint64(0))
+
+	logBalance(t.t, nodes, assetID, "after FOK payment")
+	t.Logf("FOK payment completed: %d units sent", numUnitsFOK)
+
 	// Close channels.
 	closeAssetChannelAndAssert(
 		t, net, charlie, dave, chanPointCD,

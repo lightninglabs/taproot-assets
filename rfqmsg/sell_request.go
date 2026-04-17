@@ -63,6 +63,11 @@ type SellRequest struct {
 	// than X units per BTC."
 	AssetRateLimit fn.Option[rfqmath.BigIntFixedPoint]
 
+	// ExecutionPolicy is an optional execution policy for the
+	// quote request. IOC (default) accepts partial fills; FOK
+	// requires the full max amount to be viable.
+	ExecutionPolicy fn.Option[ExecutionPolicy]
+
 	// AssetRateHint represents a proposed conversion rate between the
 	// subject asset and BTC. This rate is an initial suggestion intended to
 	// initiate the RFQ negotiation process and may differ from the final
@@ -84,7 +89,8 @@ func NewSellRequest(peer route.Vertex, assetSpecifier asset.Specifier,
 	paymentMinAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateLimit fn.Option[rfqmath.BigIntFixedPoint],
 	assetRateHint fn.Option[AssetRate],
-	oracleMetadata string) (*SellRequest, error) {
+	oracleMetadata string,
+	execPolicy fn.Option[ExecutionPolicy]) (*SellRequest, error) {
 
 	id, err := NewID()
 	if err != nil {
@@ -105,6 +111,7 @@ func NewSellRequest(peer route.Vertex, assetSpecifier asset.Specifier,
 		PaymentMaxAmt:       paymentMaxAmt,
 		PaymentMinAmt:       paymentMinAmt,
 		AssetRateLimit:      assetRateLimit,
+		ExecutionPolicy:     execPolicy,
 		AssetRateHint:       assetRateHint,
 		PriceOracleMetadata: oracleMetadata,
 	}
@@ -174,9 +181,11 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 	var paymentMinAmt fn.Option[lnwire.MilliSatoshi]
 	msgData.MinOutAsset.WhenSome(
 		func(r tlv.RecordT[tlv.TlvType25, uint64]) {
-			paymentMinAmt = fn.Some(
-				lnwire.MilliSatoshi(r.Val),
-			)
+			if r.Val > 0 {
+				paymentMinAmt = fn.Some(
+					lnwire.MilliSatoshi(r.Val),
+				)
+			}
 		},
 	)
 
@@ -189,6 +198,14 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 		},
 	)
 
+	// Extract optional execution policy.
+	var execPolicy fn.Option[ExecutionPolicy]
+	msgData.ExecutionPolicy.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType31, uint8]) {
+			execPolicy = fn.Some(ExecutionPolicy(r.Val))
+		},
+	)
+
 	req := SellRequest{
 		Peer:           wireMsg.Peer,
 		Version:        msgData.Version.Val,
@@ -197,9 +214,10 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 		PaymentMaxAmt: lnwire.MilliSatoshi(
 			msgData.MaxInAsset.Val,
 		),
-		PaymentMinAmt:  paymentMinAmt,
-		AssetRateLimit: assetRateLimit,
-		AssetRateHint:  assetRateHint,
+		PaymentMinAmt:   paymentMinAmt,
+		AssetRateLimit:  assetRateLimit,
+		ExecutionPolicy: execPolicy,
+		AssetRateHint:   assetRateHint,
 	}
 
 	msgData.PriceOracleMetadata.ValOpt().WhenSome(func(metaBytes []byte) {
@@ -243,6 +261,21 @@ func (q *SellRequest) Validate() error {
 				return fmt.Errorf("payment min amount "+
 					"(%d) exceeds max amount (%d)",
 					minAmt, q.PaymentMaxAmt)
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	// Ensure execution policy is valid when set.
+	err = fn.MapOptionZ(
+		q.ExecutionPolicy,
+		func(p ExecutionPolicy) error {
+			if p > ExecutionPolicyFOK {
+				return fmt.Errorf("invalid execution "+
+					"policy: %d", p)
 			}
 			return nil
 		},
@@ -337,10 +370,17 @@ func (q *SellRequest) String() string {
 		},
 	)
 
+	execPolicyStr := fn.MapOptionZ(
+		q.ExecutionPolicy,
+		func(p ExecutionPolicy) string {
+			return fmt.Sprintf(", exec_policy=%d", p)
+		},
+	)
+
 	return fmt.Sprintf("SellRequest(peer=%x, id=%x, asset=%s, "+
-		"payment_max_amt=%d%s%s, asset_rate_hint=%s)",
+		"payment_max_amt=%d%s%s%s, asset_rate_hint=%s)",
 		q.Peer[:], q.ID[:], q.AssetSpecifier.String(), q.PaymentMaxAmt,
-		minAmtStr, rateLimitStr, assetRateHintStr)
+		minAmtStr, rateLimitStr, execPolicyStr, assetRateHintStr)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

@@ -21,7 +21,9 @@ import (
 func optionalUint64Gen(bound uint64) *rapid.Generator[fn.Option[uint64]] {
 	return rapid.Custom(func(t *rapid.T) fn.Option[uint64] {
 		if rapid.Bool().Draw(t, "present") {
-			v := rapid.Uint64Range(0, bound).Draw(
+			// Start from 1: zero is treated as unset
+			// on the wire.
+			v := rapid.Uint64Range(1, bound).Draw(
 				t, "value",
 			)
 			return fn.Some(v)
@@ -38,7 +40,9 @@ func optionalMsatGen(
 	return rapid.Custom(
 		func(t *rapid.T) fn.Option[lnwire.MilliSatoshi] {
 			if rapid.Bool().Draw(t, "present") {
-				v := rapid.Uint64Range(0, bound).Draw(
+				// Start from 1: zero is treated as
+				// unset on the wire.
+				v := rapid.Uint64Range(1, bound).Draw(
 					t, "value",
 				)
 				return fn.Some(
@@ -126,9 +130,11 @@ func TestBuyRequestWireRoundtripProperty(t *testing.T) {
 			t, "rateLimit",
 		)
 
+		noPolicy := fn.None[ExecutionPolicy]()
 		req, err := NewBuyRequest(
 			peer, spec, maxAmt, minAmt,
-			rateLimit, fn.None[AssetRate](), "",
+			rateLimit, fn.None[AssetRate](),
+			"", noPolicy,
 		)
 		require.NoError(t, err)
 
@@ -179,10 +185,12 @@ func TestSellRequestWireRoundtripProperty(t *testing.T) {
 			t, "rateLimit",
 		)
 
+		noPolicy := fn.None[ExecutionPolicy]()
 		req, err := NewSellRequest(
 			peer, spec,
 			lnwire.MilliSatoshi(maxAmt), minAmt,
-			rateLimit, fn.None[AssetRate](), "",
+			rateLimit, fn.None[AssetRate](),
+			"", noPolicy,
 		)
 		require.NoError(t, err)
 
@@ -420,11 +428,13 @@ func TestRateBoundEnforcementProperty(t *testing.T) {
 				Draw(t, "maxAmt")
 			limit := fixedPointGen().Draw(t, "limit")
 
+			noExec := fn.None[ExecutionPolicy]()
 			req, err := NewBuyRequest(
 				peer, spec, maxAmt,
 				fn.None[uint64](),
 				fn.Some(limit),
-				fn.None[AssetRate](), "",
+				fn.None[AssetRate](),
+				"", noExec,
 			)
 			require.NoError(t, err)
 
@@ -473,12 +483,14 @@ func TestRateBoundEnforcementProperty(t *testing.T) {
 			).Draw(t, "maxAmt")
 			limit := fixedPointGen().Draw(t, "limit")
 
+			noExec := fn.None[ExecutionPolicy]()
 			req, err := NewSellRequest(
 				peer, spec,
 				lnwire.MilliSatoshi(maxAmt),
 				fn.None[lnwire.MilliSatoshi](),
 				fn.Some(limit),
-				fn.None[AssetRate](), "",
+				fn.None[AssetRate](),
+				"", noExec,
 			)
 			require.NoError(t, err)
 
@@ -544,9 +556,10 @@ func TestBuyRequestRoundtripWithHintProperty(t *testing.T) {
 		fp := fixedPointGen().Draw(t, "hintRate")
 		hint := fn.Some(NewAssetRate(fp, expiry))
 
+		noPolicy := fn.None[ExecutionPolicy]()
 		req, err := NewBuyRequest(
 			peer, spec, maxAmt, minAmt,
-			rateLimit, hint, "",
+			rateLimit, hint, "", noPolicy,
 		)
 		require.NoError(t, err)
 
