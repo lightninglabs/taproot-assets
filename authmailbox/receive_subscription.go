@@ -58,9 +58,10 @@ type receiveSubscription struct {
 
 	client mboxrpc.MailboxClient
 
-	serverStream clientStream
-	streamMutex  sync.RWMutex
-	streamCancel func()
+	serverStream  clientStream
+	streamMutex   sync.RWMutex
+	streamCancel  func()
+	authenticated bool
 
 	authOkChan chan struct{}
 	msgChan    chan<- *ReceivedMessages
@@ -154,6 +155,10 @@ func (s *receiveSubscription) connectAndAuthenticate(ctx context.Context,
 	case <-s.authOkChan:
 		log.DebugS(ctx, "Received auth success, subscription is active")
 
+		s.streamMutex.Lock()
+		s.authenticated = true
+		s.streamMutex.Unlock()
+
 	case err := <-s.errChan:
 		return fmt.Errorf("error during authentication, before "+
 			"sending subscribe: %v", err)
@@ -195,13 +200,13 @@ func (s *receiveSubscription) wait(backoff time.Duration) error {
 	}
 }
 
-// IsSubscribed returns true if at least one account is in an active state and
-// the subscription stream to the server was established successfully.
+// IsSubscribed returns true if the stream to the server is open and the
+// 3-way authentication handshake has completed successfully.
 func (s *receiveSubscription) IsSubscribed() bool {
 	s.streamMutex.RLock()
 	defer s.streamMutex.RUnlock()
 
-	return s.serverStream != nil
+	return s.serverStream != nil && s.authenticated
 }
 
 // connectServerStream opens the initial connection to the server for the stream
@@ -489,6 +494,7 @@ func (s *receiveSubscription) closeStream(ctx context.Context) error {
 	log.DebugS(ctx, "Closing server stream")
 	err := s.serverStream.CloseSend()
 	s.serverStream = nil
+	s.authenticated = false
 
 	return err
 }
