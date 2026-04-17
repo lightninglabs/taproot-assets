@@ -546,6 +546,9 @@ func (c *Custodian) mainEventLoop() error {
 
 		// If we didn't find a proof, we'll launch a goroutine to use
 		// the ProofCourier to import the proof into our local DB.
+		//
+		// Note that the confirmation event was already published
+		// synchronously by checkProofAvailable above.
 		c.Goroutine(func() error {
 			return c.receiveProofs(
 				event.Addr.Tap, event.Outpoint, event.Outputs,
@@ -765,6 +768,14 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				// chain, we'll launch a goroutine to use the
 				// ProofCourier to import the proof into our
 				// local DB.
+				confirmed := address.StatusTransactionConfirmed
+				c.publishSubscriberStatusEvent(
+					NewAssetReceiveEvent(
+						*event.Addr.Tap, op,
+						event.ConfirmationHeight,
+						confirmed,
+					),
+				)
 				c.Goroutine(func() error {
 					return c.receiveProofs(
 						event.Addr.Tap, op,
@@ -844,12 +855,6 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 // the outputs and call receiveProof for each one.
 func (c *Custodian) receiveProofs(addr *address.Tap, op wire.OutPoint,
 	outputs map[asset.ID]address.AssetOutput, confHeight uint32) error {
-
-	// We only want to send out the "transaction confirmed" event once, even
-	// if there are multiple outputs for the same address and outpoint.
-	c.publishSubscriberStatusEvent(NewAssetReceiveEvent(
-		*addr, op, confHeight, address.StatusTransactionConfirmed,
-	))
 
 	for assetID, output := range outputs {
 		err := c.receiveProof(addr, op, assetID, output.ScriptKey)
@@ -1262,6 +1267,11 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 		// remove the mailbox message from the server.
 		msgID := mboxMsg.MessageId
 		serverURL := tapAddr.ProofCourierAddr
+		c.publishSubscriberStatusEvent(NewAssetReceiveEvent(
+			*tapAddr.Tap, fragment.OutPoint,
+			fragment.BlockHeight,
+			address.StatusTransactionConfirmed,
+		))
 		c.Goroutine(func() error {
 			err := c.receiveProofs(
 				tapAddr.Tap, fragment.OutPoint, outputs,
