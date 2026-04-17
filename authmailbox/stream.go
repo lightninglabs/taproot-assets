@@ -35,9 +35,9 @@ type mailboxStream struct {
 	// authNonce is a nonce used during the authentication process.
 	authNonce [32]byte
 
-	// authSuccessChan is a channel that is closed when the client has
-	// successfully authenticated. This is used to signal to the caller
-	// that they can start sending messages to the client.
+	// authSuccessChan is signaled (once) when the client has
+	// successfully authenticated. Buffered (size 1) so the
+	// send does not block if handleStream has already exited.
 	authSuccessChan chan struct{}
 
 	// msgReceiver is the channel through which messages are sent to the
@@ -76,7 +76,7 @@ func newMailboxStream(id uint64,
 
 	stream := &mailboxStream{
 		streamID:        id,
-		authSuccessChan: make(chan struct{}),
+		authSuccessChan: make(chan struct{}, 1),
 		msgReceiver: fn.NewEventReceiver[[]*Message](
 			fn.DefaultQueueSize,
 		),

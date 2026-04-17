@@ -430,7 +430,8 @@ func (s *Server) handleStream(ctx context.Context,
 			stream.RLock()
 			err := s.RegisterSubscriber(
 				stream.msgReceiver,
-				stream.filter.DeliverExisting(), stream.filter,
+				stream.filter.DeliverExisting(),
+				stream.filter,
 			)
 			stream.RUnlock()
 			if err != nil {
@@ -439,6 +440,20 @@ func (s *Server) handleStream(ctx context.Context,
 			}
 
 			log.TraceS(ctx, "Client registered as subscriber")
+
+			// Inform the client that auth is complete.
+			// This is sent after RegisterSubscriber so
+			// that the subscriber is in the map before
+			// the client can observe IsSubscribed()=true.
+			err = grpcStream.Send(&toClientMsg{
+				ResponseType: &respTypeAuthSuccess{
+					AuthSuccess: true,
+				},
+			})
+			if err != nil {
+				return fmt.Errorf("unable to send "+
+					"auth success: %w", err)
+			}
 
 		// A new message was received by the server that needs to be
 		// forwarded to the client.
@@ -665,18 +680,8 @@ func handleAuthMessage(ctx context.Context, signer lndclient.SignerClient,
 				"key %x", pubKey[:])
 		}
 
-		// We inform the client that we received their signature and
-		// that we are now authenticated.
-		err = grpcStream.Send(&toClientMsg{
-			ResponseType: &respTypeAuthSuccess{
-				AuthSuccess: true,
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("unable to send success: %w", err)
-		}
-
-		// The client is now successfully authenticated.
+		// Signal handleStream to complete registration
+		// and send AuthSuccess to the client.
 		stream.authSuccessChan <- struct{}{}
 
 	default:
