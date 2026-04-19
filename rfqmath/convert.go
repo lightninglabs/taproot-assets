@@ -11,9 +11,13 @@ import (
 
 var (
 	// DefaultOnChainHtlcSat is the default amount that we consider as the
-	// smallest HTLC amount that can be sent on-chain. This needs to be
-	// greater than the dust limit for an HTLC.
-	DefaultOnChainHtlcSat = lnwallet.DustLimitForSize(
+	// smallest HTLC amount that can be sent on-chain. We use 6x the dust
+	// limit to provide enough headroom for the baked-in second-level HTLC
+	// transaction fees under SigHashDefault (where the sweeper cannot add
+	// wallet inputs) and to comfortably clear the mempool minimum relay
+	// fee even when nodes compute fee rate using raw serialized size
+	// rather than virtual size.
+	DefaultOnChainHtlcSat = 6 * lnwallet.DustLimitForSize(
 		input.UnknownWitnessSize,
 	)
 

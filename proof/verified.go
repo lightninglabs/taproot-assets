@@ -40,6 +40,20 @@ func (v verifiedAnnotatedProof) AnnotatedProof() *AnnotatedProof {
 // verified prevents external packages from implementing VerifiedAnnotatedProof.
 func (v verifiedAnnotatedProof) verified() {}
 
+// AssumeVerifiedAnnotatedProofs wraps the given proofs as verified without
+// running the proof verifier. This is used when importing already-confirmed
+// channel transactions whose asset-level witnesses are placeholders (e.g.
+// second-level HTLC transactions). The BTC-level on-chain confirmation serves
+// as proof of validity, making VM-level witness verification unnecessary.
+//
+// NOTE: This should only be used for channel-related proof imports where the
+// transaction is already confirmed on-chain.
+func AssumeVerifiedAnnotatedProofs(
+	proofs ...*AnnotatedProof) []VerifiedAnnotatedProof {
+
+	return fn.Map(proofs, newVerifiedAnnotatedProof)
+}
+
 // VerifyAnnotatedProofs verifies and enriches the given proofs with a default
 // verifier and returns the verified wrappers.
 func VerifyAnnotatedProofs(ctx context.Context, vCtx VerifierCtx,
