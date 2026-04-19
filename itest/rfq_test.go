@@ -739,7 +739,6 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	// Close event notification streams.
 	require.NoError(t.t, aliceEventNtfns.CloseSend())
 	require.NoError(t.t, bobEventNtfns.CloseSend())
-
 }
 
 // testRfqNegotiationGroupKey checks that two nodes can negotiate and register

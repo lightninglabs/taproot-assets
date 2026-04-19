@@ -136,6 +136,10 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsBreach,
 	},
 	{
+		name: "breach second level success",
+		test: testCustomChannelsBreachSecondLevelSuccess,
+	},
+	{
 		name: "v1 upgrade",
 		test: testCustomChannelsV1Upgrade,
 	},
