@@ -226,7 +226,7 @@ func testCustomChannelsForceClose(ctx context.Context,
 	t.Logf("Universe proofs located!")
 
 	// We should also have a new sweep transaction in the mempool.
-	_, err = waitForNTxsInMempool(
+	_, err = waitForAtLeastNTxsInMempool(
 		net.Miner, 1, ccShortTimeout,
 	)
 	require.NoError(t.t, err)
@@ -250,7 +250,7 @@ func testCustomChannelsForceClose(ctx context.Context,
 	mineBlocks(t, net, 4, 0)
 
 	// We expect that Charlie's sweep transaction has been broadcast.
-	charlieSweepTxid, err := waitForNTxsInMempool(
+	charlieSweepTxid, err := waitForAtLeastNTxsInMempool(
 		net.Miner, 1, ccShortTimeout,
 	)
 	require.NoError(t.t, err)
