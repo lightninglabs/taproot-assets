@@ -457,13 +457,49 @@ type Commitment struct {
 	// STXO is a flag indicating whether this commitment supports stxo
 	// proofs.
 	STXO tlv.RecordT[tlv.TlvType5, bool]
+
+	// SigHashDefault is a flag indicating whether HTLC second-level
+	// transactions for this commitment use SigHashDefault. This is cached
+	// from the negotiated feature bits so that it is available after
+	// restart without requiring the peer to be online.
+	SigHashDefault tlv.RecordT[tlv.TlvType6, bool]
+}
+
+// SigHashType indicates the sighash mode used for HTLC second-level
+// transactions in a commitment.
+type SigHashType uint8
+
+const (
+	// SigHashAll indicates standard SigHashAll signing, where the
+	// sweeper can add wallet inputs to bump fees.
+	SigHashAll SigHashType = iota
+
+	// SigHashDefault indicates SigHashDefault signing with baked-in
+	// fees, used for taproot asset channels.
+	SigHashDefault
+)
+
+// IsSigHashDefault returns true if this is SigHashDefault mode.
+func (s SigHashType) IsSigHashDefault() bool {
+	return s == SigHashDefault
+}
+
+// SigHashTypeFromBool converts a boolean sigHashDefault flag to a
+// SigHashType value.
+func SigHashTypeFromBool(sigHashDefault bool) SigHashType {
+	if sigHashDefault {
+		return SigHashDefault
+	}
+
+	return SigHashAll
 }
 
 // NewCommitment creates a new Commitment record with the given local and remote
 // assets, and incoming and outgoing HTLCs.
 func NewCommitment(localAssets, remoteAssets []*AssetOutput, outgoingHtlcs,
 	incomingHtlcs map[input.HtlcIndex][]*AssetOutput,
-	auxLeaves lnwallet.CommitAuxLeaves, stxo bool) *Commitment {
+	auxLeaves lnwallet.CommitAuxLeaves, stxo bool,
+	sigHashType SigHashType) *Commitment {
 
 	return &Commitment{
 		LocalAssets: tlv.NewRecordT[tlv.TlvType0](
@@ -490,6 +526,9 @@ func NewCommitment(localAssets, remoteAssets []*AssetOutput, outgoingHtlcs,
 			),
 		),
 		STXO: tlv.NewPrimitiveRecord[tlv.TlvType5](stxo),
+		SigHashDefault: tlv.NewPrimitiveRecord[tlv.TlvType6](
+			sigHashType.IsSigHashDefault(),
+		),
 	}
 }
 
@@ -502,6 +541,7 @@ func (c *Commitment) records() []tlv.Record {
 		c.IncomingHtlcAssets.Record(),
 		c.AuxLeaves.Record(),
 		c.STXO.Record(),
+		c.SigHashDefault.Record(),
 	}
 }
 

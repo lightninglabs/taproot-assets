@@ -30,6 +30,19 @@ const (
 	// that the initial commitment of an asset channel is derived from the
 	// negotiated local and remote channel configs.
 	NegotiatedChanCfgOptional lnwire.FeatureBit = 5
+
+	// DeterministicHTLCsRequired is a feature bit that enables
+	// deterministic second-level HTLC transactions as a required
+	// feature. When negotiated, second-level HTLC transactions use
+	// SigHashDefault (making them fully deterministic), and the
+	// revoking party includes dual-path AuxSigs in RevokeAndAck
+	// so the honest party can reconstruct valid proofs for breach
+	// recovery.
+	DeterministicHTLCsRequired lnwire.FeatureBit = 6
+
+	// DeterministicHTLCsOptional is the optional variant of the
+	// deterministic HTLCs feature bit.
+	DeterministicHTLCsOptional lnwire.FeatureBit = 7
 )
 
 // featureNames keeps track of the string description of known features.
@@ -41,6 +54,9 @@ var featureNames = map[lnwire.FeatureBit]string{
 
 	NegotiatedChanCfgRequired: "negotiated-chan-cfg",
 	NegotiatedChanCfgOptional: "negotiated-chan-cfg",
+
+	DeterministicHTLCsRequired: "deterministic-htlcs",
+	DeterministicHTLCsOptional: "deterministic-htlcs",
 }
 
 // ourFeatures returns a slice containing all of the locally supported features.
@@ -51,6 +67,7 @@ func ourFeatures() []lnwire.FeatureBit {
 		NoOpHTLCsOptional,
 		STXOOptional,
 		NegotiatedChanCfgOptional,
+		DeterministicHTLCsOptional,
 	}
 }
 

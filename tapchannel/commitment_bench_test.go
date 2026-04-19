@@ -26,7 +26,7 @@ func BenchmarkCommitmentBlob(b *testing.B) {
 	}
 	com := cmsg.NewCommitment(
 		[]*cmsg.AssetOutput{newOutput()}, nil, outgoing, nil,
-		lnwallet.CommitAuxLeaves{}, false,
+		lnwallet.CommitAuxLeaves{}, false, cmsg.SigHashAll,
 	)
 
 	b.ReportAllocs()
