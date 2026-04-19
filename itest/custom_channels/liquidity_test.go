@@ -337,7 +337,7 @@ func testCustomChannelsLiquidityEdgeCasesCore(ctx context.Context,
 	// Edge case: Now Charlie creates a tiny asset invoice to be paid for by
 	// Yara with satoshi. This is a multi-hop payment going over 2 asset
 	// channels, where the total asset value is less than the default anchor
-	// amount of 354 sats.
+	// amount of 2124 sats (6x dust limit).
 	createAssetInvoice(
 		t.t, dave, charlie, 1, assetID, withInvoiceErrSubStr(
 			"no quotes with sufficient expiry",

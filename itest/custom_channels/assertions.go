@@ -358,6 +358,43 @@ func waitForNTxsInMempool(m *miner.HarnessMiner, n int,
 	}
 }
 
+// waitForNonEmptyMempool polls until the mempool is non-empty, then returns a
+// snapshot of its current contents. This is useful when a test action may
+// publish a variable number of related transactions and the exact set can keep
+// changing due to replacement.
+func waitForNonEmptyMempool(m *miner.HarnessMiner,
+	timeout time.Duration) ([]*chainhash.Hash, error) {
+
+	breakTimeout := time.After(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	var mempool []chainhash.Hash
+
+	for {
+		select {
+		case <-breakTimeout:
+			return nil, fmt.Errorf("mempool stayed empty, "+
+				"last snapshot had %v txs: %v",
+				len(mempool), mempool)
+
+		case <-ticker.C:
+			mempool = m.GetRawMempool()
+
+			if len(mempool) == 0 {
+				continue
+			}
+
+			result := make([]*chainhash.Hash, len(mempool))
+			for i := range mempool {
+				result[i] = &mempool[i]
+			}
+
+			return result, nil
+		}
+	}
+}
+
 // assertTxInBlock asserts that a transaction with the given hash is included
 // in the block.
 func assertTxInBlock(t *ccHarnessTest, block *wire.MsgBlock,

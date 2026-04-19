@@ -140,7 +140,7 @@ func testCustomChannelsV1Upgrade(ctx context.Context,
 		sendAssetKeySendPayment(
 			t.t, charlie, dave, 50, assetID, fn.None[int64](),
 		)
-		sendKeySendPayment(t.t, charlie, dave, 1_000)
+		sendKeySendPayment(t.t, charlie, dave, 10_000)
 	}
 
 	logBalance(t.t, nodes, assetID, "before upgrade")

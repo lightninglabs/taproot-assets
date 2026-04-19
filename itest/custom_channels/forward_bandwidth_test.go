@@ -215,7 +215,7 @@ func testCustomChannelsForwardBandwidth(ctx context.Context,
 
 	// Let's make sure we can still use the channel between Erin and Fabia
 	// by doing a satoshi keysend payment.
-	sendKeySendPayment(t.t, erin, fabia, 2000)
+	sendKeySendPayment(t.t, erin, fabia, 10_000)
 	logBalance(t.t, nodes, assetID, "after BTC only keysend")
 
 	// Finally, we close the channel between Erin and Fabia to make sure

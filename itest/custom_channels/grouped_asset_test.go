@@ -169,7 +169,7 @@ func testCustomChannelsGroupedAsset(_ context.Context,
 
 	// We should also be able to do a non-asset (BTC only) keysend
 	// payment.
-	sendKeySendPayment(t.t, charlie, dave, 2000)
+	sendKeySendPayment(t.t, charlie, dave, 10_000)
 	logBalance(t.t, nodes, assetID, "after BTC only keysend")
 
 	// ------------
@@ -333,7 +333,7 @@ func testCustomChannelsGroupedAsset(_ context.Context,
 	closeAssetChannelAndAssert(
 		t, net, dave, yara, chanPointDY, [][]byte{assetID},
 		groupID, charlie,
-		assertDefaultCoOpCloseBalance(false, true),
+		assertDefaultCoOpCloseBalance(true, true),
 	)
 
 	t.Logf("Closing Erin -> Fabia channel")
