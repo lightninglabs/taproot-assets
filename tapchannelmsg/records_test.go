@@ -245,7 +245,7 @@ func TestCommitment(t *testing.T) {
 						[32]byte{1}, 1000, *randProof,
 					),
 				}, nil, nil,
-				lnwallet.CommitAuxLeaves{}, true, false,
+				lnwallet.CommitAuxLeaves{}, true, SigHashAll,
 			),
 		},
 		{
