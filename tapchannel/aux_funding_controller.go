@@ -591,7 +591,7 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 	// needs the sum of the remote+local assets, so we'll populate that.
 	fakePrevState := cmsg.NewCommitment(
 		localAssets, remoteAssets, nil, nil, lnwallet.CommitAuxLeaves{},
-		stxo,
+		stxo, cmsg.SigHashAll,
 	)
 
 	// Just like above, we don't have a real HTLC view here, so we'll pass
