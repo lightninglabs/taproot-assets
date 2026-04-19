@@ -1349,7 +1349,7 @@ func ToCommitment(allocations []*tapsend.Allocation,
 
 	return cmsg.NewCommitment(
 		localAssets, remoteAssets, outgoingHtlcs, incomingHtlcs,
-		auxLeaves, stxoFeatures.STXO, stxoFeatures.Spender,
+		auxLeaves, stxoFeatures.STXO, stxoFeatures.Spender, cmsg.SigHashAll,
 	), nil
 }
 
