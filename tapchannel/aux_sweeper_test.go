@@ -1120,6 +1120,7 @@ func TestRegisterAndBroadcastSweepLayout(t *testing.T) {
 
 	err = sweeper.registerAndBroadcastSweep(
 		req, sweepTx, 1_000, outpointToTxIndex,
+		sweep.AuxNotifyOpts{},
 	)
 	require.NoError(t, err)
 
