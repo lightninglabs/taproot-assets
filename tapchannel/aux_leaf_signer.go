@@ -447,11 +447,11 @@ func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
 
 	var leafToSign txscript.TapLeaf
 
-	// Detect breach scenario by checking if both SingleTweak and
-	// DoubleTweak are present. In breach scenarios (HTLC revocations), both
-	// tweaks are needed: DoubleTweak for the revocation key and SingleTweak
-	// for the HTLC index. In normal force close scenarios, only one tweak
-	// is present at a time.
+	// Detect breach scenario: both tweaks present means revocation
+	// (DoubleTweak) + HTLC index (SingleTweak). In normal force
+	// close, only one tweak is set. See also aux_sweeper.go which
+	// uses len(ctrlBlock)==0 for the same detection when the
+	// control block is available.
 	isBreach := len(signDesc.SingleTweak) > 0 &&
 		signDesc.DoubleTweak != nil
 
