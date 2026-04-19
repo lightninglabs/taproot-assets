@@ -432,6 +432,8 @@ type pendingAssetFunding struct {
 
 	stxo bool
 
+	sigHashDefault bool
+
 	amt uint64
 
 	pushAmt btcutil.Amount
@@ -556,7 +558,7 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 	lndOpenChan lnwallet.AuxChanState, assetOpenChan *cmsg.OpenChannel,
 	keyRing lntypes.Dual[lnwallet.CommitmentKeyRing],
 	whoseCommit lntypes.ChannelParty,
-	stxo bool) ([]byte, lnwallet.CommitAuxLeaves,
+	stxo, sigHashDefault bool) ([]byte, lnwallet.CommitAuxLeaves,
 	error) {
 
 	chanAssets := assetOpenChan.FundedAssets.Val.Outputs
@@ -604,7 +606,7 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 		fakePrevState, lndOpenChan, assetOpenChan, whoseCommit,
 		localSatBalance, remoteSatBalance, fakeView,
 		pendingFunding.chainParams, keyRing.GetForParty(whoseCommit),
-		stxo,
+		stxo, sigHashDefault,
 	)
 	if err != nil {
 		return nil, lnwallet.CommitAuxLeaves{}, err
@@ -647,14 +649,14 @@ func (p *pendingAssetFunding) toAuxFundingDesc(req *bindFundingReq,
 	// This will be the information for the very first state (state 0).
 	localCommitBlob, localAuxLeaves, err := newCommitBlobAndLeaves(
 		p, req.openChan, openChanDesc, req.keyRing, lntypes.Local,
-		p.stxo,
+		p.stxo, p.sigHashDefault,
 	)
 	if err != nil {
 		return nil, err
 	}
 	remoteCommitBlob, remoteAuxLeaves, err := newCommitBlobAndLeaves(
 		p, req.openChan, openChanDesc, req.keyRing, lntypes.Remote,
-		p.stxo,
+		p.stxo, p.sigHashDefault,
 	)
 	if err != nil {
 		return nil, err
@@ -1806,6 +1808,9 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	supportSTXO := features.HasFeature(tapfeatures.STXOOptional)
 
 	fundingState.stxo = supportSTXO
+	fundingState.sigHashDefault = features.HasFeature(
+		tapfeatures.DeterministicHTLCsOptional,
+	)
 
 	// Now that we know the final funding asset root along with the splits,
 	// we can derive the tapscript root that'll be used alongside the
