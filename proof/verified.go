@@ -46,10 +46,16 @@ func (v verifiedAnnotatedProof) verified() {}
 // second-level HTLC transactions). The BTC-level on-chain confirmation serves
 // as proof of validity, making VM-level witness verification unnecessary.
 //
-// NOTE: This should only be used for channel-related proof imports where the
-// transaction is already confirmed on-chain.
-func AssumeVerifiedAnnotatedProofs(
+// The confirmHeight parameter is the block height at which the transaction
+// was confirmed, serving as attestation that the caller has verified on-chain
+// confirmation. A height of 0 will cause a panic to prevent misuse.
+func AssumeVerifiedAnnotatedProofs(confirmHeight uint32,
 	proofs ...*AnnotatedProof) []VerifiedAnnotatedProof {
+
+	if confirmHeight == 0 {
+		panic("AssumeVerifiedAnnotatedProofs requires a " +
+			"non-zero confirmation height")
+	}
 
 	return fn.Map(proofs, newVerifiedAnnotatedProof)
 }

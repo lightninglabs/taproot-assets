@@ -26,6 +26,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -357,10 +358,11 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 		// single asset from our commitment output.
 		vIn := vPacket.Inputs[0]
 
-		// Check if this is a breach scenario (HTLC revocation).
-		// Breach scenarios have no control block (keyspend),
-		// while normal force close sweeps use scriptspend
-		// (control block present).
+		// Detect breach scenario: no control block means keyspend
+		// (revocation). Normal force close uses scriptspend
+		// (control block present). See also aux_leaf_signer.go
+		// which uses DoubleTweak+SingleTweak for the same
+		// detection when the control block isn't available.
 		isBreach := len(ctrlBlock) == 0
 
 		var (
@@ -410,8 +412,18 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 			tapLeafOpt = lfn.Some(leafToSign)
 		}
 
-		log.Tracef("signing vPacket for input=%v",
-			limitSpewer.Sdump(vIn.PrevID))
+		log.Tracef("signing vPacket[%d]: isBreach=%v, "+
+			"signMethod=%v, signingKey=%x, "+
+			"inputScriptKey=%x, tapTweak=%x, "+
+			"singleTweak=%x, doubleTweak=%v",
+			vPktIndex, isBreach,
+			signMethod,
+			signingKey.SerializeCompressed(),
+			vIn.Asset().ScriptKey.PubKey.
+				SerializeCompressed(),
+			tapTweak,
+			signDesc.SingleTweak,
+			signDesc.DoubleTweak != nil)
 
 		// With everything set, we can now sign the new leaf we'll
 		// sweep into.
@@ -1088,6 +1100,41 @@ func localHtlcSuccessSweepDesc(req lnwallet.ResolutionReq,
 	})
 }
 
+// findHTLCOutput locates the HTLC output in a multi-output second-level
+// transaction by matching the P2TR pkScript derived from the asset's script
+// key. Falls back to the smallest-value output if no script match is found.
+func findHTLCOutput(tx *wire.MsgTx, outAsset *asset.Asset) uint32 {
+	// Try to match by the expected taproot pkScript.
+	expectedKey := outAsset.ScriptKey.PubKey
+	if expectedKey != nil {
+		expectedScript, err := input.PayToTaprootScript(
+			expectedKey,
+		)
+		if err == nil {
+			for idx, txOut := range tx.TxOut {
+				if bytes.Equal(
+					txOut.PkScript, expectedScript,
+				) {
+
+					return uint32(idx)
+				}
+			}
+		}
+	}
+
+	// Fallback: pick the smallest-value output.
+	minIdx := uint32(0)
+	minVal := int64(math.MaxInt64)
+	for idx, txOut := range tx.TxOut {
+		if txOut.Value < minVal {
+			minVal = txOut.Value
+			minIdx = uint32(idx)
+		}
+	}
+
+	return minIdx
+}
+
 // tweakHtlcScriptTree applies the HTLC index tweak to the script tree's
 // internal key, returning a new HtlcScriptTree with the tweaked keys but
 // the original leaves and tapscript structure preserved.
@@ -1105,7 +1152,6 @@ func tweakHtlcScriptTree(tree *input.HtlcScriptTree,
 		},
 		SuccessTapLeaf: tree.SuccessTapLeaf,
 		TimeoutTapLeaf: tree.TimeoutTapLeaf,
-		AuxLeaf:        tree.AuxLeaf,
 	}
 }
 
@@ -1204,8 +1250,7 @@ func htlcAcceptedRevokeSweepDesc(originalKeyRing *lnwallet.CommitmentKeyRing,
 // matches how the HTLC was created during commitment generation.
 func htlcSecondLevelRevokeSweepDesc(
 	originalKeyRing *lnwallet.CommitmentKeyRing, csvDelay uint32,
-	index input.HtlcIndex,
-	auxLeaf input.AuxTapLeaf) lfn.Result[tapscriptSweepDescs] {
+	index input.HtlcIndex) lfn.Result[tapscriptSweepDescs] {
 
 	type returnType = tapscriptSweepDescs
 
@@ -1218,7 +1263,6 @@ func htlcSecondLevelRevokeSweepDesc(
 	// WITHOUT the aux leaf (createSecondLevelHtlcAllocations passes
 	// None). The aux leaf only affects the BTC-level on-chain output,
 	// not the asset-level script key derivation.
-	_ = auxLeaf // Used at BTC level, not needed for asset signing.
 	secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 		originalKeyRing.RevocationKey, originalKeyRing.ToLocalKey,
 		csvDelay, lfn.None[txscript.TapLeaf](),
@@ -1972,6 +2016,135 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	)
 }
 
+// importSecondLevelHtlcTx imports the second-level HTLC transition
+// proof into the archive. The second-level tx has placeholder witnesses
+// (not valid for VM verification), so we ship with proof verification
+// skipped. The on-chain confirmation serves as proof of validity.
+func (a *AuxSweeper) importSecondLevelHtlcTx(
+	req lnwallet.ResolutionReq,
+	secondLevelPkts []*tappsbt.VPacket,
+	secondLevelAllocs []*tapsend.Allocation,
+	commitState *cmsg.Commitment) error {
+
+	secondLevelTx := req.SecondLevelTx
+	if secondLevelTx == nil {
+		return fmt.Errorf("no second-level tx provided")
+	}
+
+	ctx := context.Background()
+	secondLevelTxHash := secondLevelTx.TxHash()
+
+	// Check if already imported.
+	existingParcels, err := a.cfg.TxSender.QueryParcels(
+		ctx, fn.Some(secondLevelTxHash), false,
+	)
+	if err != nil {
+		return fmt.Errorf("querying second-level parcels: %w", err)
+	}
+	if len(existingParcels) > 0 {
+		log.Infof("Second-level tx %v already imported",
+			secondLevelTxHash)
+		return nil
+	}
+
+	log.Infof("Importing second-level HTLC tx %v (height=%d)",
+		secondLevelTxHash, req.SecondLevelTxBlockHeight)
+
+	supportSTXO := commitState.STXO.Val
+
+	// Prepare output assets.
+	for _, vPkt := range secondLevelPkts {
+		if err := tapsend.PrepareOutputAssets(
+			ctx, vPkt,
+		); err != nil {
+			return fmt.Errorf("unable to prepare output "+
+				"assets: %w", err)
+		}
+
+		// Set a minimal witness. The tx is confirmed, so the
+		// witness just needs to be non-empty.
+		for _, vOut := range vPkt.Outputs {
+			if vOut.Asset == nil {
+				continue
+			}
+
+			err := vOut.Asset.UpdateTxWitness(
+				0, wire.TxWitness{{0x01}},
+			)
+			if err != nil {
+				return fmt.Errorf("updating witness: %w",
+					err)
+			}
+		}
+	}
+
+	var (
+		opts      []tapsend.OutputCommitmentOption
+		proofOpts []proof.GenOption
+	)
+	if !supportSTXO {
+		opts = append(opts, tapsend.WithNoSTXOProofs())
+		proofOpts = append(proofOpts, proof.WithNoSTXOProofs())
+	}
+
+	outCommitments, err := tapsend.CreateOutputCommitments(
+		secondLevelPkts, opts...,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to create output "+
+			"commitments: %w", err)
+	}
+
+	err = tapsend.AssignOutputCommitments(
+		secondLevelAllocs, outCommitments,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to assign output "+
+			"commitments: %w", err)
+	}
+
+	// Create proof suffixes. With SIGHASH_DEFAULT, the second-level
+	// tx is deterministic (1 output), so our allocations cover all
+	// outputs and exclusion proofs can be properly created.
+	exclusionCreator := tapsend.NonAssetExclusionProofs(
+		secondLevelAllocs,
+	)
+	for idx := range secondLevelPkts {
+		vPkt := secondLevelPkts[idx]
+		for outIdx := range vPkt.Outputs {
+			proofSuffix, err := tapsend.CreateProofSuffixCustom(
+				secondLevelTx, vPkt, outCommitments,
+				outIdx, secondLevelPkts,
+				exclusionCreator, proofOpts...,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to create proof "+
+					"suffix for output %d: %w",
+					outIdx, err)
+			}
+
+			vPkt.Outputs[outIdx].ProofSuffix = proofSuffix
+		}
+	}
+
+	// Ship the second-level tx. It's already confirmed.
+	heightHint := fn.None[uint32]()
+	if req.SecondLevelTxBlockHeight > 0 {
+		heightHint = fn.Some(req.SecondLevelTxBlockHeight)
+	}
+
+	// Skip proof verification for the second-level import. The
+	// asset-level witnesses are placeholders because we don't possess
+	// the HTLC script keys needed for a valid asset witness. The
+	// BTC-level transaction is already confirmed on-chain, which
+	// serves as proof of validity.
+	return shipChannelTxn(
+		a.cfg.TxSender, secondLevelTx, outCommitments,
+		secondLevelPkts, 0, heightHint, true,
+		tapfreighter.WithSkipProofVerify(),
+	)
+}
+
 // errNoPayHash is an error returned when no payment hash is provided.
 var errNoPayHash = fmt.Errorf("no payment hash provided")
 
@@ -2010,6 +2183,15 @@ func (a *AuxSweeper) resolveContract(
 	if err != nil {
 		return lfn.Err[returnType](err)
 	}
+
+	// Extract the HTLC ID from the request. HTLC resolution types
+	// require a valid ID; commit output types don't use it. We
+	// unwrap here and check the error in cases that need it,
+	// rather than silently using a bogus index with
+	// FilterByHtlcIndex.
+	htlcID, htlcIDErr := req.HtlcID.UnwrapOrErr(
+		fmt.Errorf("no HTLC ID in resolution request"),
+	)
 
 	var (
 		sweepDesc        lfn.Result[tapscriptSweepDescs]
@@ -2062,7 +2244,9 @@ func (a *AuxSweeper) resolveContract(
 		// assets for the remote party, which are actually the HTLCs we
 		// sent outgoing. We only care about this particular HTLC, so
 		// we'll filter out the rest.
-		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
+		if htlcIDErr != nil {
+			return lfn.Err[returnType](htlcIDErr)
+		}
 		htlcOutputs := commitState.OutgoingHtlcAssets.Val
 		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
 
@@ -2084,7 +2268,9 @@ func (a *AuxSweeper) resolveContract(
 		// In this case, it's an outgoing HTLC from the PoV of the
 		// remote party, which is incoming for us. We'll only sweep this
 		// HTLC, so we'll filter out the rest.
-		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
+		if htlcIDErr != nil {
+			return lfn.Err[returnType](htlcIDErr)
+		}
 		htlcOutputs := commitState.IncomingHtlcAssets.Val
 		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
 
@@ -2106,7 +2292,9 @@ func (a *AuxSweeper) resolveContract(
 	case input.TaprootHtlcLocalOfferedTimeout:
 		// Like the other HTLC cases, there's only a single output we
 		// care about here.
-		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
+		if htlcIDErr != nil {
+			return lfn.Err[returnType](htlcIDErr)
+		}
 		htlcOutputs := commitState.OutgoingHtlcAssets.Val
 		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
 
@@ -2121,7 +2309,9 @@ func (a *AuxSweeper) resolveContract(
 	// needed to sweep both this output, as well as the second level
 	// output it creates.
 	case input.TaprootHtlcAcceptedLocalSuccess:
-		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
+		if htlcIDErr != nil {
+			return lfn.Err[returnType](htlcIDErr)
+		}
 		htlcOutputs := commitState.IncomingHtlcAssets.Val
 		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
 
@@ -2139,7 +2329,9 @@ func (a *AuxSweeper) resolveContract(
 		// their PoV it's outgoing and stored in their
 		// OutgoingHtlcAssets. We sweep it using the revocation
 		// key since they broadcast a revoked state.
-		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
+		if htlcIDErr != nil {
+			return lfn.Err[returnType](htlcIDErr)
+		}
 		htlcOutputs := commitState.OutgoingHtlcAssets.Val
 		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
 
@@ -2163,7 +2355,9 @@ func (a *AuxSweeper) resolveContract(
 		// their PoV it's incoming and stored in their
 		// IncomingHtlcAssets. We sweep it using the revocation key
 		// since they broadcast a revoked state.
-		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
+		if htlcIDErr != nil {
+			return lfn.Err[returnType](htlcIDErr)
+		}
 		htlcOutputs := commitState.IncomingHtlcAssets.Val
 		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
 
@@ -2183,11 +2377,18 @@ func (a *AuxSweeper) resolveContract(
 		// For second-level HTLCs, we need to determine if this was
 		// originally an offered or accepted HTLC to know which asset
 		// outputs to filter.
-		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
+		if htlcIDErr != nil {
+			return lfn.Err[returnType](htlcIDErr)
+		}
 
 		// Try outgoing first (offered HTLCs).
 		htlcOutputs := commitState.OutgoingHtlcAssets.Val
 		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
+
+		// Determine CLTV timeout: incoming HTLCs on the remote
+		// party's commitment need a timeout for the second-level
+		// transaction.
+		var cltvTimeout fn.Option[uint32]
 
 		// If not found in outgoing, try incoming (accepted HTLCs).
 		if len(assetOutputs) == 0 {
@@ -2196,12 +2397,185 @@ func (a *AuxSweeper) resolveContract(
 
 			htlcOutputs = commitState.IncomingHtlcAssets.Val
 			assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
+
+			// Incoming HTLCs on the remote commitment need a
+			// CLTV timeout for the second-level tx.
+			req.CltvDelay.WhenSome(func(v uint32) {
+				cltvTimeout = fn.Some(v)
+			})
+		}
+
+		// Save the commitment-level asset outputs before they're
+		// replaced, as we need them for importing the second-level
+		// tx (which takes commitment-level inputs).
+		commitAssetOutputs := assetOutputs
+
+		// Construct a minimal AuxChanState for the second-level
+		// packet creation.
+		auxChanState := lnwallet.AuxChanState{
+			ChanType:    req.ChanType,
+			IsInitiator: req.Initiator,
+			LocalChanCfg: channeldb.ChannelConfig{
+				CommitmentParams: channeldb.CommitmentParams{
+					CsvDelay: uint16(req.CsvDelay),
+				},
+			},
+		}
+
+		// Create the second-level virtual packets. This gives us
+		// both the aux leaf (for the sweep descriptor) AND the
+		// output assets with the correct second-level script keys.
+		secondLevelPkts, secondLevelAllocs, err :=
+			CreateSecondLevelHtlcPackets(
+				auxChanState, req.CommitTx, req.HtlcAmt,
+				*req.KeyRing, &a.cfg.ChainParams,
+				assetOutputs, cltvTimeout, htlcID,
+			)
+		if err != nil {
+			return lfn.Errf[returnType]("unable to create "+
+				"second-level packets: %w", err)
+		}
+
+		// Compute the aux leaf from the allocations (same as
+		// CreateSecondLevelHtlcTx does).
+		var opts []tapsend.OutputCommitmentOption
+		if !commitState.STXO.Val {
+			opts = append(
+				opts, tapsend.WithNoSTXOProofs(),
+			)
+		}
+		outCommitments, err := tapsend.CreateOutputCommitments(
+			secondLevelPkts, opts...,
+		)
+		if err != nil {
+			return lfn.Errf[returnType]("unable to create "+
+				"output commitments: %w", err)
+		}
+		err = tapsend.AssignOutputCommitments(
+			secondLevelAllocs, outCommitments,
+		)
+		if err != nil {
+			return lfn.Errf[returnType]("unable to assign "+
+				"output commitments: %w", err)
+		}
+		// Before importing, re-anchor the commitment-level asset
+		// outputs to the real commitment tx. They currently
+		// reference the fake pre-signing tx.
+		//
+		// NOTE: We log and continue on error rather than failing
+		// the entire sweep. The BTC-level justice tx must still
+		// proceed to recover funds. A failure here means the
+		// asset proof chain will be incomplete, but this can be
+		// repaired later by re-importing the proof.
+		ctxImport := context.Background()
+		if err := reanchorAssetOutputs(
+			ctxImport, a.cfg.ChainBridge, *req.CommitTx,
+			req.CommitTxBlockHeight, commitAssetOutputs,
+		); err != nil {
+			log.Errorf("Unable to re-anchor commit asset "+
+				"outputs for second-level import: %v", err)
+		}
+
+		// Import the second-level tx into the proof archive. This
+		// creates the commitment → second-level proof transition
+		// so the sweep can build a valid proof chain.
+		//
+		// NOTE: Like reanchorAssetOutputs above, we log and
+		// continue on error to avoid blocking the BTC-level
+		// justice sweep. The proof chain gap can be repaired
+		// after the fact.
+		if req.SecondLevelTx != nil {
+			importErr := a.importSecondLevelHtlcTx(
+				req, secondLevelPkts,
+				secondLevelAllocs, commitState,
+			)
+			if importErr != nil {
+				log.Errorf("Unable to import "+
+					"second-level HTLC "+
+					"tx: %v", importErr)
+			}
+		}
+
+		// Replace the commitment-level asset outputs with the
+		// second-level outputs from the vPackets. The second-level
+		// outputs have the correct script keys for the second-level
+		// taproot tree, which is what the revocation sweep needs to
+		// sign against.
+		//
+		// We also update the proof's PrevOut to reference the
+		// second-level tx's output, so the sweep proof's
+		// TxSpendsPrevOut check passes.
+		var secondLevelAssetOutputs []*cmsg.AssetOutput
+		for i, vPkt := range secondLevelPkts {
+			if len(vPkt.Outputs) == 0 || i >= len(assetOutputs) {
+				continue
+			}
+
+			outAsset := vPkt.Outputs[0].Asset
+
+			// Create a proof using the commitment-level proof
+			// as base, updated with the second-level asset.
+			secondLevelProof := assetOutputs[i].Proof.Val
+			secondLevelProof.Asset = *outAsset
+
+			// Update the proof's outpoint to reference the
+			// second-level tx output.
+			if req.SecondLevelTx != nil {
+				stx := req.SecondLevelTx
+				stxHash := stx.TxHash()
+
+				// For SigHashDefault, the second-level
+				// tx is deterministic (1 input, 1
+				// output), so we use index 0. For
+				// legacy (SigHashSingle|AnyoneCanPay),
+				// the sweeper may attach wallet inputs
+				// and a change output; we find the HTLC
+				// output by matching the expected
+				// taproot pkScript from the sweep
+				// descriptor.
+				htlcOutIdx := uint32(0)
+				if len(stx.TxOut) > 1 {
+					htlcOutIdx = findHTLCOutput(
+						stx, outAsset,
+					)
+				}
+
+				secondLevelProof.PrevOut = wire.OutPoint{
+					Hash:  stxHash,
+					Index: htlcOutIdx,
+				}
+			}
+
+			secondLevelAssetOutputs = append(
+				secondLevelAssetOutputs,
+				cmsg.NewAssetOutput(
+					assetOutputs[i].AssetID.Val,
+					assetOutputs[i].Amount.Val,
+					secondLevelProof,
+				),
+			)
+		}
+
+		if len(secondLevelAssetOutputs) > 0 {
+			assetOutputs = secondLevelAssetOutputs
+		}
+
+		log.Infof("Second-level revoke: htlcID=%d, "+
+			"numAssetOutputs=%d, csvDelay=%d",
+			htlcID, len(assetOutputs), req.CsvDelay)
+
+		for i, ao := range assetOutputs {
+			log.Infof("  assetOutput[%d]: scriptKey=%x, "+
+				"amount=%d",
+				i,
+				ao.Proof.Val.Asset.ScriptKey.PubKey.
+					SerializeCompressed(),
+				ao.Amount.Val)
 		}
 
 		// Create sweep descriptor for revoked second-level HTLC.
 		sweepDesc = htlcSecondLevelRevokeSweepDesc(
 			req.KeyRing, req.CsvDelay, htlcID,
-			lfn.None[txscript.TapLeaf](),
 		)
 
 	default:
@@ -2256,12 +2630,21 @@ func (a *AuxSweeper) resolveContract(
 	// The input proofs above were made originally using the fake commit tx
 	// as an anchor. We now know the real commit tx, so we'll bind each
 	// proof to the actual commitment output that carries the asset.
-	if err := reanchorAssetOutputs(
-		ctx, a.cfg.ChainBridge, commitTx, req.CommitTxBlockHeight,
-		assetOutputs,
-	); err != nil {
-		return lfn.Errf[returnType]("unable to re-anchor asset "+
-			"outputs: %w", err)
+	// For second-level revocations, the asset outputs have been replaced
+	// with second-level outputs. We re-anchor them to the second-level tx
+	// instead of the commitment tx.
+	isSecondLevelRevoke := req.Type == input.TaprootHtlcSecondLevelRevoke
+	if !isSecondLevelRevoke {
+		// For second-level revocations, the proof's PrevOut is set
+		// directly in the asset output creation above. For all other
+		// types, re-anchor to the commitment tx.
+		if err := reanchorAssetOutputs(
+			ctx, a.cfg.ChainBridge, commitTx,
+			req.CommitTxBlockHeight, assetOutputs,
+		); err != nil {
+			return lfn.Errf[returnType]("unable to re-anchor "+
+				"asset outputs: %w", err)
+		}
 	}
 
 	log.Infof("Sweeping %v asset outputs (second_level=%v): %v",
@@ -2704,6 +3087,22 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	// TODO(roasbeef): need to handle replacement -- will porter just
 	// upsert in place?
 
+	// Check if this sweep was already registered (e.g. after a
+	// restart). The porter's InsertAssetTransfer is a plain INSERT,
+	// so duplicate calls would create duplicate transfer rows.
+	sweepTxHash := sweepTx.TxHash()
+	existingParcels, err := a.cfg.TxSender.QueryParcels(
+		context.Background(), fn.Some(sweepTxHash), false,
+	)
+	if err != nil {
+		return fmt.Errorf("querying sweep parcels: %w", err)
+	}
+	if len(existingParcels) > 0 {
+		log.Infof("Sweep tx %v already registered, skipping",
+			sweepTxHash)
+		return nil
+	}
+
 	log.Infof("Register broadcast of sweep_tx=%v",
 		limitSpewer.Sdump(sweepTx))
 
@@ -2759,6 +3158,35 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	)
 	if err != nil {
 		return err
+	}
+
+	// For first level outputs, ensure PrevID.OutPoint matches the actual
+	// BTC input outpoint. This is critical for second-level revoke inputs
+	// where the vPacket's PrevID.OutPoint still references the commitment
+	// HTLC output, but the justice tx actually spends the second-level tx
+	// output. Without this update, the Porter cannot find the input proof.
+	for _, sweepSet := range vPkts.firstLevel {
+		actualOutpoint := sweepSet.btcInput.OutPoint()
+		for _, vPkt := range sweepSet.vPkts {
+			for _, vIn := range vPkt.Inputs {
+				if vIn.PrevID.OutPoint != actualOutpoint {
+					log.Infof("Updating firstLevel "+
+						"PrevID.OutPoint from %v "+
+						"to %v",
+						vIn.PrevID.OutPoint,
+						actualOutpoint)
+
+					vIn.PrevID.OutPoint = actualOutpoint
+				}
+			}
+
+			for _, vOut := range vPkt.Outputs {
+				prevWit := &vOut.Asset.PrevWitnesses[0]
+				if prevWit.PrevID.OutPoint != actualOutpoint {
+					prevWit.PrevID.OutPoint = actualOutpoint
+				}
+			}
+		}
 	}
 
 	// For any second level outputs we're sweeping, we'll need to sign for
@@ -2898,9 +3326,22 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	// The skipBroadcast flag is set by the caller (LND) based on whether
 	// the transaction is already confirmed on-chain (e.g. breach sweeps,
 	// force close commitments) or needs to be broadcast (normal sweeps).
+	//
+	// When the transaction is already confirmed (skipBroadcast=true), we
+	// also skip asset proof verification because the input proofs may
+	// contain placeholder witnesses (e.g. second-level HTLC outputs) that
+	// cannot pass VM-level validation. The on-chain confirmation serves
+	// as proof of validity.
+	var parcelOpts []tapfreighter.PreAnchoredParcelOpt
+	if skipBroadcast {
+		parcelOpts = append(
+			parcelOpts, tapfreighter.WithSkipProofVerify(),
+		)
+	}
+
 	return shipChannelTxn(
 		a.cfg.TxSender, sweepTx, outCommitments, allVpkts, int64(fee),
-		heightHint, skipBroadcast,
+		heightHint, skipBroadcast, parcelOpts...,
 	)
 }
 

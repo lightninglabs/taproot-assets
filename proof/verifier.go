@@ -90,9 +90,6 @@ type verifyOptions struct {
 	// final proof in a file.
 	skipTimeLockValidationForFinalProof bool
 
-	// skipExclusionProofVerification skips exclusion proof checks for
-	// all proofs in a file. Used for breach scenario imports.
-	skipExclusionProofVerification bool
 }
 
 // defaultVerifyOptions returns a default set of proof verification options.
@@ -914,23 +911,6 @@ func WithSkipTimeLockValidation() ProofVerificationOption {
 	}
 }
 
-// WithSkipExclusionProofVerification skips exclusion proof verification.
-// This is used for importing confirmed second-level HTLC transactions in
-// breach scenarios where exclusion proofs for counterparty wallet outputs
-// cannot be constructed.
-func WithSkipExclusionProofVerification() ProofVerificationOption {
-	return func(p *proofVerificationParams) {
-		p.SkipExclusionProofVerification = true
-	}
-}
-
-// WithSkipExclusionProofs is a file-level verify option that skips exclusion
-// proof verification for all proofs in the file.
-func WithSkipExclusionProofs() VerifyOption {
-	return func(o *verifyOptions) {
-		o.skipExclusionProofVerification = true
-	}
-}
 
 // Verify verifies the proof by ensuring that:
 //
@@ -1290,14 +1270,6 @@ func (f *File) Verify(ctx context.Context,
 					proofOpts, WithSkipTimeLockValidation(),
 				)
 			}
-		}
-
-		// Apply exclusion proof skip to all proofs if requested.
-		if verifyOpts.skipExclusionProofVerification {
-			proofOpts = append(
-				proofOpts,
-				WithSkipExclusionProofVerification(),
-			)
 		}
 
 		result, err := decodedProof.Verify(
