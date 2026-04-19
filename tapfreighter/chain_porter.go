@@ -711,6 +711,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 			// confirmation.
 			verifiedOutputProofs =
 				proof.AssumeVerifiedAnnotatedProofs(
+					confEvent.BlockHeight,
 					outputProof,
 				)
 		} else {
