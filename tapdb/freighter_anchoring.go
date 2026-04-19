@@ -69,6 +69,24 @@ func (a *AssetStore) applyPendingParcel(ctx context.Context,
 		return fmt.Errorf("unable to insert new chain tx: %w", err)
 	}
 
+	// Breach recovery can re-deliver a NotifyBroadcast for the same
+	// pre-anchored sweep/import tx. Treat the transfer shell as
+	// idempotent by anchor txid so we don't strand duplicate pending
+	// rows for the same on-chain spend.
+	existingTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
+		AnchorTxHash: newAnchorTXID[:],
+	})
+	if err != nil {
+		return fmt.Errorf("unable to query existing asset "+
+			"transfers: %w", err)
+	}
+	if len(existingTransfers) > 0 {
+		log.Warnf("Skipping duplicate pending parcel for "+
+			"anchor_txid=%v", newAnchorTXID)
+
+		return nil
+	}
+
 	// The transfer itself is just a shell which the inputs and
 	// outputs will reference. We'll insert this next, so we can use
 	// its ID.

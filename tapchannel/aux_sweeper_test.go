@@ -1247,7 +1247,6 @@ func TestRevocationSweepDescSignVerify(t *testing.T) {
 			getSweepDescs: func() lfn.Result[tapscriptSweepDescs] {
 				return htlcSecondLevelRevokeSweepDesc(
 					keyRing, csvDelay, htlcIndex,
-					lfn.None[txscript.TapLeaf](),
 				)
 			},
 		},
