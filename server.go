@@ -1475,15 +1475,17 @@ func (s *Server) NotifyBroadcast(req *sweep.BumpRequest,
 	outpointToTxIndex map[wire.OutPoint]int,
 	opts sweep.AuxNotifyOpts) error {
 
-	srvrLog.Infof("NotifyBroadcast called, skip_broadcast=%v, tx=%v, "+
-		"fee=%v", opts.SkipBroadcast, tx.TxHash(), fee)
+	srvrLog.Infof("NotifyBroadcast called, skip_broadcast=%v, "+
+		"skip_proof_verify=%v, tx=%v, fee=%v",
+		opts.SkipBroadcast, opts.SkipProofVerify,
+		tx.TxHash(), fee)
 
 	if err := s.waitForReady(); err != nil {
 		return err
 	}
 
 	return s.cfg.AuxSweeper.NotifyBroadcast(
-		req, tx, fee, outpointToTxIndex, opts.SkipBroadcast,
+		req, tx, fee, outpointToTxIndex, opts,
 	)
 }
 
