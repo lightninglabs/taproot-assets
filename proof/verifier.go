@@ -89,7 +89,6 @@ type verifyOptions struct {
 	// skipTimeLockValidationForFinalProof skips locktime checks for the
 	// final proof in a file.
 	skipTimeLockValidationForFinalProof bool
-
 }
 
 // defaultVerifyOptions returns a default set of proof verification options.
@@ -911,7 +910,6 @@ func WithSkipTimeLockValidation() ProofVerificationOption {
 	}
 }
 
-
 // Verify verifies the proof by ensuring that:
 //
 //  0. A proof has a valid version.
@@ -1038,8 +1036,11 @@ func (p *Proof) VerifyProofIntegrity(ctx context.Context, vCtx VerifierCtx,
 	// 1. A transaction that spends the previous asset output has a valid
 	// merkle proof within a block in the chain.
 	if !TxSpendsPrevOut(&p.AnchorTx, &p.PrevOut) {
-		return nil, fmt.Errorf("%w: doesn't spend prev output",
-			commitment.ErrInvalidTaprootProof)
+		return nil, fmt.Errorf("%w: doesn't spend prev output "+
+			"(anchor_txid=%v, prev_out=%v, num_inputs=%d)",
+			commitment.ErrInvalidTaprootProof,
+			p.AnchorTx.TxHash(), p.PrevOut,
+			len(p.AnchorTx.TxIn))
 	}
 
 	if !verificationParams.SkipChainVerification {

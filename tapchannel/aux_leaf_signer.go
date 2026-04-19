@@ -24,7 +24,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/vm"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -235,8 +234,12 @@ func VerifySecondLevelSigs(chainParams *address.ChainParams,
 			verifyJobs[idx].BaseAuxJob,
 		)
 		if err != nil {
-			return fmt.Errorf("error verifying second level sig: "+
-				"%w", err)
+			return fmt.Errorf("error verifying second "+
+				"level sig (idx=%d htlcIdx=%d "+
+				"incoming=%v whoseCommit=%v): %w",
+				idx, verifyJob.HTLC.HtlcIndex,
+				verifyJob.Incoming,
+				verifyJob.WhoseCommit, err)
 		}
 	}
 
@@ -302,7 +305,12 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState lnwallet.AuxChanState,
 			htlcs       = com.OutgoingHtlcAssets.Val.HtlcOutputs
 			htlcOutputs []*cmsg.AssetOutput
 		)
-		if sigJob.Incoming {
+		// Use IncomingHTLCLookup (not Incoming) to find the
+		// asset outputs. Incoming controls the script variant,
+		// while IncomingHTLCLookup controls which HTLC asset
+		// list to search. These differ for revocation self-
+		// signing where the Incoming flag is flipped.
+		if sigJob.IncomingHTLCLookup {
 			htlcs = com.IncomingHtlcAssets.Val.HtlcOutputs
 		}
 		for outIndex := range htlcs {
@@ -328,6 +336,9 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState lnwallet.AuxChanState,
 				return
 			}
 		}
+
+		// NOTE: The blob's stored script keys are already correct
+		// for the commitment being revoked. No override needed.
 
 		resp, err := s.generateHtlcSignature(
 			chanState, commitTx, htlcOutputs, sigJob.SignDesc,
@@ -361,11 +372,14 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 	keyRing lnwallet.CommitmentKeyRing, sigs []*cmsg.AssetSig,
 	htlcOutputs []*cmsg.AssetOutput, baseJob lnwallet.BaseAuxJob) error {
 
-	// If we're validating a signature for an outgoing HTLC, then it's an
-	// outgoing HTLC for the remote party, so we'll need to sign it with the
-	// proper lock time.
+	// Determine the timeout. If explicit timeout is set (revocation
+	// verification), use it. Otherwise derive from Incoming.
 	var htlcTimeout fn.Option[uint32]
-	if !baseJob.Incoming {
+	if v, err := baseJob.HtlcTimeout.UnwrapOrErr(
+		fmt.Errorf("no timeout"),
+	); err == nil {
+		htlcTimeout = fn.Some(v)
+	} else if !baseJob.Incoming {
 		htlcTimeout = fn.Some(baseJob.HTLC.Timeout)
 	}
 
@@ -402,9 +416,10 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 			return err
 		}
 
-		// We are always verifying the signature of the remote party,
-		// which are for our commitment transaction.
-		const whoseCommit = lntypes.Local
+		// Use the WhoseCommit field from the job. For the normal
+		// CommitSig verification flow this is Local (verifying
+		// remote's sigs on our commitment).
+		whoseCommit := baseJob.WhoseCommit
 
 		htlcScript, err := lnwallet.GenTaprootHtlcScript(
 			baseJob.Incoming, whoseCommit, baseJob.HTLC.Timeout,
@@ -416,8 +431,10 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 				"verify second level: %w", err)
 		}
 
+		wsToSign := htlcScript.WitnessScriptToSign()
+
 		leafToVerify := txscript.TapLeaf{
-			Script:      htlcScript.WitnessScriptToSign(),
+			Script:      wsToSign,
 			LeafVersion: txscript.BaseLeafVersion,
 		}
 		validator := &schnorrSigValidator{
@@ -555,11 +572,15 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 	signDesc input.SignDescriptor,
 	baseJob lnwallet.BaseAuxJob) (lnwallet.AuxSigJobResp, error) {
 
-	// If we're generating a signature for an incoming HTLC, then it's an
-	// outgoing HTLC for the remote party, so we'll need to sign it with the
-	// proper lock time.
+	// Determine the timeout for the second-level tx. If an explicit
+	// timeout is set on the job (revocation signing), use it
+	// directly. Otherwise derive from Incoming (normal CommitSig).
 	var htlcTimeout fn.Option[uint32]
-	if baseJob.Incoming {
+	if v, err := baseJob.HtlcTimeout.UnwrapOrErr(
+		fmt.Errorf("no timeout"),
+	); err == nil {
+		htlcTimeout = fn.Some(v)
+	} else if baseJob.Incoming {
 		htlcTimeout = fn.Some(baseJob.HTLC.Timeout)
 	}
 
@@ -572,9 +593,10 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 			"second level packets: %w", err)
 	}
 
-	// We are always signing the commitment transaction of the remote party,
-	// which is why we set whoseCommit to remote.
-	const whoseCommit = lntypes.Remote
+	// Use the WhoseCommit field from the job to determine which
+	// party's commitment we're signing. For the normal CommitSig
+	// flow this is Remote; for revocation self-signing this is Local.
+	whoseCommit := baseJob.WhoseCommit
 
 	htlcScript, err := lnwallet.GenTaprootHtlcScript(
 		baseJob.Incoming, whoseCommit, baseJob.HTLC.Timeout,
@@ -587,6 +609,12 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 	}
 
 	tapscriptRoot := htlcScript.TapscriptRoot
+
+	// Note: signDesc.WitnessScript comes from the SignJob (BTC-level).
+	// For normal CommitSig, it matches htlcScript.WitnessScriptToSign().
+	// For revocation self-signing, it may differ (Local vs Remote
+	// perspective). The signDesc's leaf is what the signer actually
+	// signs over.
 
 	var sigs []*cmsg.AssetSig
 	for _, vPacket := range vPackets {
