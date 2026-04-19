@@ -92,6 +92,7 @@ func TestCommitmentSTXOFeatures(t *testing.T) {
 		commitment := cmsg.NewCommitment(
 			nil, nil, nil, nil, lnwallet.CommitAuxLeaves{},
 			stxoFeatures.STXO, stxoFeatures.Spender,
+			cmsg.SigHashAll,
 		)
 		require.Equal(
 			t, stxoFeatures, CommitmentSTXOFeatures(commitment),
@@ -106,6 +107,7 @@ func TestCommitmentSTXOFeatures(t *testing.T) {
 	// carries no alt leaves at all.
 	commitment := cmsg.NewCommitment(
 		nil, nil, nil, nil, lnwallet.CommitAuxLeaves{}, false, true,
+		cmsg.SigHashAll,
 	)
 	require.Equal(t, STXOFeatures{}, CommitmentSTXOFeatures(commitment))
 
@@ -113,6 +115,7 @@ func TestCommitmentSTXOFeatures(t *testing.T) {
 	// STXO flag alone.
 	legacy := cmsg.NewCommitment(
 		nil, nil, nil, nil, lnwallet.CommitAuxLeaves{}, true, true,
+		cmsg.SigHashAll,
 	)
 	var encoded bytes.Buffer
 	require.NoError(t, legacy.Encode(&encoded))

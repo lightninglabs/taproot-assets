@@ -475,7 +475,7 @@ func htlcVerifyJob(t *testing.T, numSigs int) (*wire.MsgTx,
 
 	com := cmsg.NewCommitment(
 		nil, nil, outgoingHtlcs, nil, lnwallet.CommitAuxLeaves{}, false,
-		false,
+		false, cmsg.SigHashAll,
 	)
 
 	sigs := make([]*cmsg.AssetSig, numSigs)
