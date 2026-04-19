@@ -819,7 +819,9 @@ func (p *ChainPorter) importConfirmedProofFiles(ctx context.Context,
 	// confirmation is the proof of validity, so we only enrich them.
 	var verified []proof.VerifiedAnnotatedProof
 	if pkg.SkipProofVerify {
-		verified = proof.AssumeVerifiedAnnotatedProofs(proofs...)
+		verified = proof.AssumeVerifiedAnnotatedProofs(
+			witness.W.Height(), proofs...,
+		)
 	} else {
 		headerVerifier := tapnode.GenHeaderVerifier(
 			ctx, p.cfg.ChainBridge,

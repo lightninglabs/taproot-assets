@@ -69,6 +69,24 @@ func (a *AssetStore) applyPendingParcel(ctx context.Context,
 		return fmt.Errorf("unable to insert new chain tx: %w", err)
 	}
 
+	// Breach recovery can re-deliver a NotifyBroadcast for the same
+	// pre-anchored sweep/import tx. Treat the transfer shell as
+	// idempotent by anchor txid so we don't strand duplicate pending
+	// rows for the same on-chain spend.
+	existingTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
+		AnchorTxHash: newAnchorTXID[:],
+	})
+	if err != nil {
+		return fmt.Errorf("unable to query existing asset "+
+			"transfers: %w", err)
+	}
+	if len(existingTransfers) > 0 {
+		log.Warnf("Skipping duplicate pending parcel for "+
+			"anchor_txid=%v", newAnchorTXID)
+
+		return nil
+	}
+
 	// The transfer itself is just a shell which the inputs and
 	// outputs will reference. We'll insert this next, so we can use
 	// its ID.
@@ -210,11 +228,52 @@ func (a *AssetStore) applyAnchorTxConfirm(ctx context.Context,
 				AnchorPoint: inputs[idx].AnchorPoint,
 			},
 		)
-		if err != nil {
+		if err == nil {
+			continue
+		}
+
+		if !errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("unable to set asset "+
 				"spent: %w, script_key=%x", err,
 				inputs[idx].ScriptKey)
 		}
+
+		// Some breach-recovery flows can learn about a confirmed
+		// successor spend even if the predecessor output never
+		// materialized in the assets table. In that case we still
+		// need a template asset row to create the successor asset
+		// and keep the porter moving instead of leaving the transfer
+		// in a permanent pending state even though the BTC spend
+		// confirmed.
+		now := sqlTime(a.clock.Now().UTC())
+		templateAssets, queryErr := q.QueryAssets(
+			ctx, QueryAssetFilters{
+				AssetIDFilter: inputs[idx].AssetID,
+				Now:           now,
+				NumLimit:      1,
+				ScriptKeyType: scriptKeyTypesForQuery(
+					false,
+					fn.None[asset.ScriptKeyType](),
+				),
+			},
+		)
+		if queryErr != nil {
+			return nil, fmt.Errorf("unable to find template "+
+				"asset: %w", queryErr)
+		}
+		if len(templateAssets) == 0 {
+			return nil, fmt.Errorf("unable to find template "+
+				"asset for missing spent input, "+
+				"script_key=%x, asset_id=%x, "+
+				"anchor_point=%x", inputs[idx].ScriptKey,
+				inputs[idx].AssetID, inputs[idx].AnchorPoint)
+		}
+
+		copyTemplateIDs[assetID] = templateAssets[0].AssetPrimaryKey
+		log.Warnf("Missing asset row for confirmed transfer input, "+
+			"continuing with fallback template: asset_id=%x, "+
+			"anchor_point=%x", inputs[idx].AssetID,
+			inputs[idx].AnchorPoint)
 	}
 
 	// Any other unconfirmed transfer that claims one of the inputs
