@@ -1257,8 +1257,10 @@ func sendAssetKeySendPayment(t *testing.T, src, dst *itest.IntegratedNode,
 	customRecords[record.KeySendType] = preimage[:]
 
 	sendReq := &routerrpc.SendPaymentRequest{
-		Dest:              dst.PubKey[:],
-		Amt:               btcAmt.UnwrapOr(500),
+		Dest: dst.PubKey[:],
+		Amt: btcAmt.UnwrapOr(
+			int64(rfqmath.DefaultOnChainHtlcSat),
+		),
 		DestCustomRecords: customRecords,
 		PaymentHash:       hash[:],
 		TimeoutSeconds:    int32(PaymentTimeout.Seconds()),
