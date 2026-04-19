@@ -448,7 +448,7 @@ func createChannelWithCustomData(t *testing.T, id asset.ID, localBalance,
 				),
 			},
 			nil, nil, lnwallet.CommitAuxLeaves{},
-			false,
+			false, tpchmsg.SigHashAll,
 		),
 		OpenChan: *tpchmsg.NewOpenChannel(
 			[]*tpchmsg.AssetOutput{
