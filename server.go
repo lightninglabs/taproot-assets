@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
@@ -980,8 +981,9 @@ func (s *Server) FetchLeavesFromCommit(chanState lnwl.AuxChanState,
 // from a channel revocation that stores balance + blob information.
 //
 // NOTE: This method is part of the lnwallet.AuxLeafStore interface.
-func (s *Server) FetchLeavesFromRevocation(
-	r *channeldb.RevocationLog) lfn.Result[lnwl.CommitDiffAuxResult] {
+func (s *Server) FetchLeavesFromRevocation(r *channeldb.RevocationLog,
+	_ lnwl.AuxChanState, _ lnwl.CommitmentKeyRing,
+	_ *wire.MsgTx) lfn.Result[lnwl.CommitDiffAuxResult] {
 
 	srvrLog.Debugf("FetchLeavesFromRevocation called, ourBalance=%v, "+
 		"teirBalance=%v, numHtlcs=%d", r.OurBalance, r.TheirBalance,
@@ -990,6 +992,16 @@ func (s *Server) FetchLeavesFromRevocation(
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.
 	return tapchannel.FetchLeavesFromRevocation(r)
+}
+
+// HtlcSigHashType returns the sighash type to use for HTLC second-level
+// transactions for the given channel.
+//
+// NOTE: This method is part of the lnwallet.AuxSigner interface.
+func (s *Server) HtlcSigHashType(
+	_ lnwl.HtlcSigHashReq) lfn.Option[txscript.SigHashType] {
+
+	return lfn.None[txscript.SigHashType]()
 }
 
 // ApplyHtlcView serves as the state transition function for the custom
@@ -1392,7 +1404,8 @@ func (s *Server) ExtraBudgetForInputs(
 // NOTE: This method is part of the sweep.AuxSweeper interface.
 func (s *Server) NotifyBroadcast(req *sweep.BumpRequest,
 	tx *wire.MsgTx, fee btcutil.Amount,
-	outpointToTxIndex map[wire.OutPoint]int) error {
+	outpointToTxIndex map[wire.OutPoint]int,
+	opts sweep.AuxNotifyOpts) error {
 
 	srvrLog.Tracef("NotifyBroadcast called, req=%v, tx=%v, fee=%v, "+
 		"out_index=%v", lnutils.SpewLogClosure(req),

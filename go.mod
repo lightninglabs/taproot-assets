@@ -223,6 +223,28 @@ replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
 // Needed for healthcheck import.
 replace github.com/prometheus/common => github.com/prometheus/common v0.26.0
 
+replace github.com/lightningnetwork/lnd => github.com/GeorgeTsagk/lnd v0.0.0-20260419131130-6e0eaee3f057
+
+replace github.com/lightningnetwork/lnd/sqldb => github.com/GeorgeTsagk/lnd/sqldb v0.0.0-20260419131130-6e0eaee3f057
+
+replace github.com/lightningnetwork/lnd/tlv => github.com/GeorgeTsagk/lnd/tlv v0.0.0-20260419131130-6e0eaee3f057
+
+replace github.com/lightningnetwork/lnd/fn/v2 => github.com/GeorgeTsagk/lnd/fn/v2 v2.0.0-20260419131130-6e0eaee3f057
+
+replace github.com/lightningnetwork/lnd/cert => github.com/GeorgeTsagk/lnd/cert v0.0.0-20260419131130-6e0eaee3f057
+
+replace github.com/lightningnetwork/lnd/clock => github.com/GeorgeTsagk/lnd/clock v0.0.0-20260419131130-6e0eaee3f057
+
+replace github.com/lightningnetwork/lnd/healthcheck => github.com/GeorgeTsagk/lnd/healthcheck v0.0.0-20260419131130-6e0eaee3f057
+
+replace github.com/lightningnetwork/lnd/kvdb => github.com/GeorgeTsagk/lnd/kvdb v0.0.0-20260419131130-6e0eaee3f057
+
+replace github.com/lightningnetwork/lnd/queue => github.com/GeorgeTsagk/lnd/queue v0.0.0-20260419131130-6e0eaee3f057
+
+replace github.com/lightningnetwork/lnd/tor => github.com/GeorgeTsagk/lnd/tor v0.0.0-20260419131130-6e0eaee3f057
+
+replace github.com/lightningnetwork/lnd/actor => github.com/GeorgeTsagk/lnd/actor v0.0.0-20260419131130-6e0eaee3f057
+
 // Needed because lnd master requires a btcwallet version with neutrino
 // v0.16.2 context.Context support, but this pseudo-version is treated as a
 // pre-release by Go modules and would be overridden by the tagged v0.16.17
