@@ -1315,7 +1315,7 @@ func (a *AuxChanCloser) SupportsRbfClose(chanID lnwire.ChannelID,
 func shipChannelTxn(txSender tapfreighter.Porter, chanTx *wire.MsgTx,
 	outputCommitments tappsbt.OutputCommitments,
 	vPkts []*tappsbt.VPacket, closeFee int64,
-	anchorTxHeightHint fn.Option[uint32]) error {
+	anchorTxHeightHint fn.Option[uint32], skipBroadcast bool) error {
 
 	chanTxPsbt, err := tapsend.PrepareAnchoringTemplate(vPkts)
 	if err != nil {
