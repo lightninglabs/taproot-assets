@@ -812,17 +812,32 @@ func (p *ChainPorter) importConfirmedProofFiles(ctx context.Context,
 	// from state this daemon itself verified and stored), and
 	// enriches the proofs with the locator metadata the archive
 	// import requires.
-	headerVerifier := tapnode.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
-	vCtx := proof.VerifierCtx{
-		HeaderVerifier: headerVerifier,
-		MerkleVerifier: proof.DefaultMerkleVerifier,
-		GroupVerifier:  p.cfg.GroupVerifier,
-		ChainLookupGen: p.cfg.ChainBridge,
-		IgnoreChecker:  p.cfg.IgnoreChecker,
-	}
-	verified, err := proof.VerifyAnnotatedProofs(ctx, vCtx, proofs...)
-	if err != nil {
-		return fmt.Errorf("unable to verify rebuilt proofs: %w", err)
+	//
+	// Already-confirmed channel transactions imported with placeholder
+	// asset witnesses (see PreAnchoredParcel's WithSkipProofVerify) can
+	// not pass the VM-level witness check; for those the on-chain
+	// confirmation is the proof of validity, so we only enrich them.
+	var verified []proof.VerifiedAnnotatedProof
+	if pkg.SkipProofVerify {
+		verified = proof.AssumeVerifiedAnnotatedProofs(proofs...)
+	} else {
+		headerVerifier := tapnode.GenHeaderVerifier(
+			ctx, p.cfg.ChainBridge,
+		)
+		vCtx := proof.VerifierCtx{
+			HeaderVerifier: headerVerifier,
+			MerkleVerifier: proof.DefaultMerkleVerifier,
+			GroupVerifier:  p.cfg.GroupVerifier,
+			ChainLookupGen: p.cfg.ChainBridge,
+			IgnoreChecker:  p.cfg.IgnoreChecker,
+		}
+		verified, err = proof.VerifyAnnotatedProofs(
+			ctx, vCtx, proofs...,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to verify rebuilt "+
+				"proofs: %w", err)
+		}
 	}
 
 	// A re-import after a restart (or a re-organized confirmation)

@@ -793,7 +793,8 @@ func (a *AuxChanCloser) ShutdownBlob(
 func shipChannelTxn(txSender tapfreighter.Porter, chanTx *wire.MsgTx,
 	outputCommitments tappsbt.OutputCommitments,
 	vPkts []*tappsbt.VPacket, closeFee int64,
-	anchorTxHeightHint fn.Option[uint32], skipBroadcast bool) error {
+	anchorTxHeightHint fn.Option[uint32], skipBroadcast bool,
+	parcelOpts ...tapfreighter.PreAnchoredParcelOpt) error {
 
 	chanTxPsbt, err := tapsend.PrepareAnchoringTemplate(vPkts)
 	if err != nil {
@@ -832,7 +833,7 @@ func shipChannelTxn(txSender tapfreighter.Porter, chanTx *wire.MsgTx,
 	// would fail the porter's broadcast and strand the transfer.
 	preSignedParcel := tapfreighter.NewPreAnchoredParcel(
 		vPkts, nil, closeAnchor, true, parcelLabel,
-		anchorTxHeightHint,
+		anchorTxHeightHint, parcelOpts...,
 	)
 	_, err = txSender.RequestShipment(preSignedParcel)
 	if err != nil {

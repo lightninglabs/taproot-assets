@@ -429,7 +429,8 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 	for _, entry := range nonAssetView.OurUpdates {
 		if !lnwallet.HtlcIsDust(
 			chanType, false, whoseCommit, feePerKw,
-			entry.Amount.ToSatoshis(), dustLimit, false,
+			entry.Amount.ToSatoshis(), dustLimit,
+			true,
 		) {
 
 			numHTLCs++
@@ -438,7 +439,8 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 	for _, entry := range nonAssetView.TheirUpdates {
 		if !lnwallet.HtlcIsDust(
 			chanType, true, whoseCommit, feePerKw,
-			entry.Amount.ToSatoshis(), dustLimit, false,
+			entry.Amount.ToSatoshis(), dustLimit,
+			true,
 		) {
 
 			numHTLCs++
@@ -450,7 +452,8 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 	for _, entry := range assetView.OurUpdates {
 		isDust := lnwallet.HtlcIsDust(
 			chanType, false, whoseCommit, feePerKw,
-			entry.Amount.ToSatoshis(), dustLimit, false,
+			entry.Amount.ToSatoshis(), dustLimit,
+			true,
 		)
 		if rfqmsg.Sum(entry.AssetBalances) > 0 && isDust {
 			return false, false, fmt.Errorf("outgoing HTLC asset "+
@@ -465,7 +468,8 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 	for _, entry := range assetView.TheirUpdates {
 		isDust := lnwallet.HtlcIsDust(
 			chanType, true, whoseCommit, feePerKw,
-			entry.Amount.ToSatoshis(), dustLimit, false,
+			entry.Amount.ToSatoshis(), dustLimit,
+			true,
 		)
 		if rfqmsg.Sum(entry.AssetBalances) > 0 && isDust {
 			return false, false, fmt.Errorf("incoming HTLC asset "+
@@ -517,8 +521,9 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	whoseCommit lntypes.ChannelParty, ourBalance,
 	theirBalance lnwire.MilliSatoshi, originalView lnwallet.AuxHtlcView,
 	chainParams *address.ChainParams,
-	keys lnwallet.CommitmentKeyRing, stxo bool) ([]*tapsend.Allocation,
-	*cmsg.Commitment, error) {
+	keys lnwallet.CommitmentKeyRing, stxo,
+	sigHashDefault bool) ([]*tapsend.Allocation, *cmsg.Commitment,
+	error) {
 
 	log.Tracef("Generating allocations, whoseCommit=%v, ourBalance=%d, "+
 		"theirBalance=%d", whoseCommit, ourBalance, theirBalance)
@@ -671,7 +676,9 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	// Next, we can convert the allocations to auxiliary leaves and from
 	// those construct our Commitment struct that will in the end also hold
 	// our proof suffixes.
-	newCommitment, err := ToCommitment(allocations, vPackets, stxo)
+	newCommitment, err := ToCommitment(
+		allocations, vPackets, stxo, sigHashDefault,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to convert to commitment: "+
 			"%w", err)
@@ -805,7 +812,7 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 		isDust := lnwallet.HtlcIsDust(
 			chanState.ChanType, isIncoming, whoseCommit,
 			filteredView.FeePerKw, htlc.Amount.ToSatoshis(),
-			dustLimit, false,
+			dustLimit, true,
 		)
 		if isDust {
 			// We need to error out, as a dust HTLC carrying assets
@@ -902,7 +909,7 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 		isDust := lnwallet.HtlcIsDust(
 			chanState.ChanType, isIncoming, whoseCommit,
 			filteredView.FeePerKw, htlc.Amount.ToSatoshis(),
-			dustLimit, false,
+			dustLimit, true,
 		)
 		if isDust {
 			return nil
@@ -1175,7 +1182,8 @@ func LeavesFromTapscriptScriptTree(
 
 // ToCommitment converts the allocations to a Commitment struct.
 func ToCommitment(allocations []*tapsend.Allocation,
-	vPackets []*tappsbt.VPacket, stxo bool) (*cmsg.Commitment, error) {
+	vPackets []*tappsbt.VPacket, stxo,
+	sigHashDefault bool) (*cmsg.Commitment, error) {
 
 	var (
 		localAssets   []*cmsg.AssetOutput
@@ -1298,7 +1306,7 @@ func ToCommitment(allocations []*tapsend.Allocation,
 
 	return cmsg.NewCommitment(
 		localAssets, remoteAssets, outgoingHtlcs, incomingHtlcs,
-		auxLeaves, stxo, cmsg.SigHashAll,
+		auxLeaves, stxo, cmsg.SigHashTypeFromBool(sigHashDefault),
 	), nil
 }
 
