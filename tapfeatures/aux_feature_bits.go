@@ -18,14 +18,29 @@ const (
 	// STXOOptional is a feature bit that declares the STXO proofs as an
 	// optional feature.
 	STXOOptional lnwire.FeatureBit = 3
+
+	// DeterministicHTLCsRequired is a feature bit that enables
+	// deterministic second-level HTLC transactions as a required
+	// feature. When negotiated, second-level HTLC transactions use
+	// SigHashDefault (making them fully deterministic), and the
+	// revoking party includes dual-path AuxSigs in RevokeAndAck
+	// so the honest party can reconstruct valid proofs for breach
+	// recovery.
+	DeterministicHTLCsRequired lnwire.FeatureBit = 4
+
+	// DeterministicHTLCsOptional is the optional variant of the
+	// deterministic HTLCs feature bit.
+	DeterministicHTLCsOptional lnwire.FeatureBit = 5
 )
 
 // featureNames keeps track of the string description of known features.
 var featureNames = map[lnwire.FeatureBit]string{
-	NoOpHTLCsRequired: "noop-htlcs",
-	NoOpHTLCsOptional: "noop-htlcs",
-	STXORequired:      "stxo-proofs",
-	STXOOptional:      "stxo-proofs",
+	NoOpHTLCsRequired:          "noop-htlcs",
+	NoOpHTLCsOptional:          "noop-htlcs",
+	STXORequired:               "stxo-proofs",
+	STXOOptional:               "stxo-proofs",
+	DeterministicHTLCsRequired: "deterministic-htlcs",
+	DeterministicHTLCsOptional: "deterministic-htlcs",
 }
 
 // ourFeatures returns a slice containing all of the locally supported features.
@@ -35,6 +50,7 @@ func ourFeatures() []lnwire.FeatureBit {
 	return []lnwire.FeatureBit{
 		NoOpHTLCsOptional,
 		STXOOptional,
+		DeterministicHTLCsOptional,
 	}
 }
 
