@@ -1,6 +1,6 @@
 module github.com/lightninglabs/taproot-assets
 
-go 1.26.0
+go 1.26.8
 
 require (
 	github.com/btcsuite/btcd v0.26.0
@@ -15,9 +15,9 @@ require (
 	github.com/btcsuite/btcd/wire/v2 v2.0.0
 	github.com/btcsuite/btclog v1.0.0
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
-	github.com/btcsuite/btcwallet v0.18.0
+	github.com/btcsuite/btcwallet v0.18.1-0.20260903142755-a960541f35ed
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.3.0
-	github.com/btcsuite/btcwallet/wtxmgr v1.6.0
+	github.com/btcsuite/btcwallet/wtxmgr v1.6.1-0.20260903142755-a960541f35ed
 	github.com/caddyserver/certmagic v0.17.2
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
@@ -190,7 +190,7 @@ require (
 	go.etcd.io/etcd/server/v3 v3.5.12 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0 // indirect
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0 // indirect
 	go.opentelemetry.io/otel v1.45.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.45.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.45.0 // indirect
@@ -233,3 +233,25 @@ replace github.com/prometheus/common => github.com/prometheus/common v0.66.1
 
 // Note this is a temporary replace and will be removed when taprpc is tagged.
 replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
+
+replace github.com/lightningnetwork/lnd => github.com/GeorgeTsagk/lnd v0.0.0-20261006111549-2069f100d888
+
+replace github.com/lightningnetwork/lnd/sqldb => github.com/GeorgeTsagk/lnd/sqldb v0.0.0-20261006111549-2069f100d888
+
+replace github.com/lightningnetwork/lnd/tlv => github.com/GeorgeTsagk/lnd/tlv v0.0.0-20261006111549-2069f100d888
+
+replace github.com/lightningnetwork/lnd/cert => github.com/GeorgeTsagk/lnd/cert v0.0.0-20261006111549-2069f100d888
+
+replace github.com/lightningnetwork/lnd/clock => github.com/GeorgeTsagk/lnd/clock v0.0.0-20261006111549-2069f100d888
+
+replace github.com/lightningnetwork/lnd/healthcheck => github.com/GeorgeTsagk/lnd/healthcheck v0.0.0-20261006111549-2069f100d888
+
+replace github.com/lightningnetwork/lnd/kvdb => github.com/GeorgeTsagk/lnd/kvdb v0.0.0-20261006111549-2069f100d888
+
+replace github.com/lightningnetwork/lnd/queue => github.com/GeorgeTsagk/lnd/queue v0.0.0-20261006111549-2069f100d888
+
+replace github.com/lightningnetwork/lnd/tor => github.com/GeorgeTsagk/lnd/tor v0.0.0-20261006111549-2069f100d888
+
+replace github.com/lightningnetwork/lnd/actor => github.com/GeorgeTsagk/lnd/actor v0.0.0-20261006111549-2069f100d888
+
+replace github.com/lightningnetwork/lnd/fn/v2 => github.com/GeorgeTsagk/lnd/fn/v2 v2.0.0-20261006111549-2069f100d888

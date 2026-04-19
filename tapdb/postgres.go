@@ -80,7 +80,7 @@ type PostgresStore struct {
 func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	log.Infof("Using SQL database '%s'", cfg.DSN(true))
 
-	rawDb, err := sql.Open("pgx", cfg.DSN(false))
+	rawDb, err := sql.Open("pgx/v5", cfg.DSN(false))
 	if err != nil {
 		return nil, MapSQLError(err)
 	}
