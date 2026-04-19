@@ -2710,6 +2710,26 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 				"tx: %w", err)
 		}
 
+		existingTransfers, err := q.QueryAssetTransfers(
+			ctx, TransferQuery{
+				AnchorTxHash: newAnchorTXID[:],
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to query existing asset "+
+				"transfers: %w", err)
+		}
+		if len(existingTransfers) > 0 {
+			// Breach recovery can re-deliver a NotifyBroadcast
+			// for the same pre-anchored sweep/import tx. Treat
+			// the transfer shell as idempotent by anchor txid so
+			// we don't strand duplicate pending rows for the
+			// same on-chain spend.
+			log.Warnf("Skipping duplicate pending parcel for "+
+				"anchor_txid=%v", newAnchorTXID)
+			return nil
+		}
+
 		// The transfer itself is just a shell which the inputs and
 		// outputs will reference. We'll insert this next, so we can
 		// use its ID.
@@ -3410,7 +3430,11 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 					AnchorPoint: inputs[idx].AnchorPoint,
 				},
 			)
-			if err != nil {
+			if err == nil {
+				continue
+			}
+
+			if !errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("unable to set asset spent: "+
 					"%w, script_key=%v, asset_id=%v, "+
 					"anchor_point=%v", err,
@@ -3418,6 +3442,47 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 					spew.Sdump(inputs[idx].AssetID),
 					spew.Sdump(inputs[idx].AnchorPoint))
 			}
+
+			// Some breach-recovery flows can learn about a
+			// confirmed successor spend even if the predecessor
+			// output never materialized in the assets table. In
+			// that case we still need a template asset row to
+			// create the successor asset and keep the porter
+			// moving instead of leaving the transfer in a
+			// permanent pending state even though the BTC spend
+			// confirmed.
+			now := sqlTime(a.clock.Now().UTC())
+			templateAssets, queryErr := q.QueryAssets(
+				ctx, QueryAssetFilters{
+					AssetIDFilter: inputs[idx].AssetID,
+					Now:           now,
+					NumLimit:      1,
+					ScriptKeyType: scriptKeyTypesForQuery(
+						false,
+						fn.None[asset.ScriptKeyType](),
+					),
+				},
+			)
+			if queryErr != nil {
+				return fmt.Errorf("unable to find template "+
+					"asset: %w", queryErr)
+			}
+			if len(templateAssets) == 0 {
+				return fmt.Errorf("unable to find template "+
+					"asset for missing spent input, "+
+					"script_key=%v, asset_id=%v, "+
+					"anchor_point=%v",
+					spew.Sdump(inputs[idx].ScriptKey),
+					spew.Sdump(inputs[idx].AssetID),
+					spew.Sdump(inputs[idx].AnchorPoint))
+			}
+
+			copyTemplateIDs[assetID] =
+				templateAssets[0].AssetPrimaryKey
+			log.Warnf("Missing asset row for confirmed transfer "+
+				"input, continuing with fallback template: "+
+				"asset_id=%x, anchor_point=%x",
+				inputs[idx].AssetID, inputs[idx].AnchorPoint)
 		}
 
 		// Now is the time to fetch our outputs and create new assets
