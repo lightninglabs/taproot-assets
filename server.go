@@ -1573,7 +1573,7 @@ func (s *Server) NotifyBroadcast(req *sweep.BumpRequest,
 	}
 
 	return s.cfg.AuxSweeper.NotifyBroadcast(
-		req, tx, fee, outpointToTxIndex, opts.SkipBroadcast,
+		req, tx, fee, outpointToTxIndex, opts,
 	)
 }
 
