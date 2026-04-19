@@ -95,10 +95,6 @@ type verifyOptions struct {
 	// file. This is used when verifying proofs without access to the
 	// chain backend (e.g. during backup pre-verification).
 	skipTimeLockValidation bool
-
-	// skipExclusionProofVerification skips exclusion proof checks for
-	// all proofs in a file. Used for breach scenario imports.
-	skipExclusionProofVerification bool
 }
 
 // defaultVerifyOptions returns a default set of proof verification options.
@@ -957,13 +953,6 @@ type proofVerificationParams struct {
 	// SkipTimeLockValidation skips locktime checks during proof
 	// verification.
 	SkipTimeLockValidation bool
-
-	// SkipExclusionProofVerification skips exclusion proof checks during
-	// proof verification. This is used when importing confirmed
-	// second-level HTLC transactions in breach scenarios where we
-	// cannot construct exclusion proofs for the counterparty's wallet
-	// outputs (we don't know their internal keys).
-	SkipExclusionProofVerification bool
 }
 
 // WithChallengeBytes is a ProofVerificationOption that defines some challenge
@@ -990,23 +979,6 @@ func WithSkipTimeLockValidation() ProofVerificationOption {
 	}
 }
 
-// WithSkipExclusionProofVerification skips exclusion proof verification.
-// This is used for importing confirmed second-level HTLC transactions in
-// breach scenarios where exclusion proofs for counterparty wallet outputs
-// cannot be constructed.
-func WithSkipExclusionProofVerification() ProofVerificationOption {
-	return func(p *proofVerificationParams) {
-		p.SkipExclusionProofVerification = true
-	}
-}
-
-// WithSkipExclusionProofs is a file-level verify option that skips exclusion
-// proof verification for all proofs in the file.
-func WithSkipExclusionProofs() VerifyOption {
-	return func(o *verifyOptions) {
-		o.skipExclusionProofVerification = true
-	}
-}
 
 // Verify verifies the proof by ensuring that:
 //
@@ -1181,27 +1153,23 @@ func (p *Proof) VerifyProofIntegrity(ctx context.Context, vCtx VerifierCtx,
 	}
 
 	// 4. A set of valid exclusion proofs for the resulting asset are
-	// included. For breach scenarios (second-level HTLC imports),
-	// exclusion proofs may be unavailable for counterparty outputs.
-	if !verificationParams.SkipExclusionProofVerification {
-		exclusionCommitVersion, err := p.verifyExclusionProofs()
-		if err != nil {
-			return nil, fmt.Errorf("invalid exclusion "+
-				"proof: %w", err)
-		}
+	// included.
+	exclusionCommitVersion, err := p.verifyExclusionProofs()
+	if err != nil {
+		return nil, fmt.Errorf("invalid exclusion proof: %w", err)
+	}
 
-		if exclusionCommitVersion != nil {
-			if !commitment.IsSimilarTapCommitmentVersion(
-				&tapCommitment.Version,
-				exclusionCommitVersion,
-			) {
+	if exclusionCommitVersion != nil {
+		if !commitment.IsSimilarTapCommitmentVersion(
+			&tapCommitment.Version,
+			exclusionCommitVersion,
+		) {
 
-				return nil, fmt.Errorf("mixed commitment "+
-					"versions, inclusion %d, "+
-					"exclusion %d",
-					tapCommitment.Version,
-					*exclusionCommitVersion)
-			}
+			return nil, fmt.Errorf("mixed commitment "+
+				"versions, inclusion %d, "+
+				"exclusion %d",
+				tapCommitment.Version,
+				*exclusionCommitVersion)
 		}
 	}
 
@@ -1507,14 +1475,6 @@ func (f *File) Verify(ctx context.Context,
 					proofOpts, WithSkipTimeLockValidation(),
 				)
 			}
-		}
-
-		// Apply exclusion proof skip to all proofs if requested.
-		if verifyOpts.skipExclusionProofVerification {
-			proofOpts = append(
-				proofOpts,
-				WithSkipExclusionProofVerification(),
-			)
 		}
 
 		result, err := decodedProof.Verify(
