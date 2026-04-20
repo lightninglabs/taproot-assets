@@ -184,6 +184,15 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 		},
 	}
 
+	// Wait for all nodes to see each other in the graph,
+	// ensuring the full route Charlie→Dave→Erin is available
+	// before we attempt any payments.
+	require.NoError(t.t, net.AssertNodeKnown(charlie, dave))
+	require.NoError(t.t, net.AssertNodeKnown(dave, charlie))
+	require.NoError(t.t, net.AssertNodeKnown(charlie, erin))
+	require.NoError(t.t, net.AssertNodeKnown(dave, erin))
+	require.NoError(t.t, net.AssertNodeKnown(erin, dave))
+
 	logBalance(t.t, nodes, assetID, "after channel open")
 
 	// -----------------------------------------------------------------
