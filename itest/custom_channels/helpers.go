@@ -2775,6 +2775,57 @@ func assertNumHtlcsAll(t *testing.T, expected int,
 	}
 }
 
+// assertChannelPolicyUpdate polls GetChanInfo on the given node until
+// the specified peer's policy reflects the expected base fee. This is
+// needed because UpdateChannelPolicy returns before the gossip message
+// has propagated to peers.
+func assertChannelPolicyUpdate(t *testing.T, node *itest.IntegratedNode,
+	chanID uint64, peerPubKey string, expectedBaseFeeMsat int64) {
+
+	t.Helper()
+
+	ctxb := context.Background()
+
+	err := wait.NoError(func() error {
+		ctxt, cancel := context.WithTimeout(ctxb, 5*time.Second)
+		defer cancel()
+
+		edge, err := node.LightningClient.GetChanInfo(
+			ctxt, &lnrpc.ChanInfoRequest{
+				ChanId: chanID,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		// Find the policy set by the peer.
+		var policy *lnrpc.RoutingPolicy
+		switch {
+		case edge.Node1Pub == peerPubKey:
+			policy = edge.Node1Policy
+		case edge.Node2Pub == peerPubKey:
+			policy = edge.Node2Policy
+		default:
+			return fmt.Errorf("peer %s not found in "+
+				"channel edge", peerPubKey)
+		}
+
+		if policy == nil {
+			return fmt.Errorf("policy not yet available")
+		}
+
+		if policy.FeeBaseMsat != expectedBaseFeeMsat {
+			return fmt.Errorf("expected base fee %d, "+
+				"got %d", expectedBaseFeeMsat,
+				policy.FeeBaseMsat)
+		}
+
+		return nil
+	}, wait.DefaultTimeout)
+	require.NoError(t, err)
+}
+
 // waitForAssetChannelHtlcSettlement polls until IncomingHtlcBalance
 // and OutgoingHtlcBalance are both zero on the given channel,
 // meaning all HTLCs have been fully committed.
