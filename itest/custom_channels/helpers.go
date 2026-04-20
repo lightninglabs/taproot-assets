@@ -2775,6 +2775,40 @@ func assertNumHtlcsAll(t *testing.T, expected int,
 	}
 }
 
+// waitForAssetChannelHtlcSettlement polls until IncomingHtlcBalance
+// and OutgoingHtlcBalance are both zero on the given channel,
+// meaning all HTLCs have been fully committed.
+func waitForAssetChannelHtlcSettlement(t *testing.T,
+	node *itest.IntegratedNode,
+	chanPoint *lnrpc.ChannelPoint) {
+
+	t.Helper()
+
+	err := wait.NoError(func() error {
+		ch := fetchChannel(t, node, chanPoint)
+		assetBalance, err := parseChannelData(
+			ch.CustomChannelData,
+		)
+		if err != nil {
+			return err
+		}
+
+		if assetBalance.IncomingHtlcBalance > 0 {
+			return fmt.Errorf("incoming HTLC balance "+
+				"not yet settled: %d",
+				assetBalance.IncomingHtlcBalance)
+		}
+		if assetBalance.OutgoingHtlcBalance > 0 {
+			return fmt.Errorf("outgoing HTLC balance "+
+				"not yet settled: %d",
+				assetBalance.OutgoingHtlcBalance)
+		}
+
+		return nil
+	}, wait.DefaultTimeout)
+	require.NoError(t, err)
+}
+
 // assertHTLCNotActive asserts the node doesn't have an active pending HTLC
 // with the given payment hash.
 func assertHTLCNotActive(t *testing.T, hn *itest.IntegratedNode,

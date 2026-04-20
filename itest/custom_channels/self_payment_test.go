@@ -170,6 +170,12 @@ func testCustomChannelsSelfPayment(_ context.Context,
 			"after paying invoice "+strconv.Itoa(i),
 		)
 
+		// Wait for the asset channel commitment to settle
+		// all HTLCs before checking balances.
+		waitForAssetChannelHtlcSettlement(
+			t.t, alice, assetChanPoint,
+		)
+
 		// The accumulated delta from the rounding of multiple sends.
 		// We basically allow the balance to be off by one unit for
 		// each payment.
@@ -239,6 +245,12 @@ func testCustomChannelsSelfPayment(_ context.Context,
 		logBalance(
 			t.t, nodes, assetID,
 			"after paying sat invoice "+strconv.Itoa(i),
+		)
+
+		// Wait for the asset channel commitment to settle
+		// all HTLCs before checking balances.
+		waitForAssetChannelHtlcSettlement(
+			t.t, alice, assetChanPoint,
 		)
 
 		// The accumulated delta from the rounding of multiple sends.
