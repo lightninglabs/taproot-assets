@@ -76,6 +76,15 @@ func openChannelAndAssert(t *ccHarnessTest, net *itest.IntegratedNetworkHarness,
 
 	t.t.Helper()
 
+	// Pin the commitment type to anchors when the caller hasn't chosen
+	// one. lnd's implicit negotiation prefers taproot-final, which is
+	// rejected for public channels; the "normal sats" channels opened by
+	// this helper are public (they carry gossip), so default to an
+	// explicit non-taproot type.
+	if p.CommitmentType == lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE {
+		p.CommitmentType = lnrpc.CommitmentType_ANCHORS
+	}
+
 	chanOpenUpdate := openChannelStream(t, net, alice, bob, p)
 
 	// Mine 6 blocks, then wait for the channel open notification. We mine
