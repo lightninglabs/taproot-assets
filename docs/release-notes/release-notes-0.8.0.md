@@ -351,6 +351,11 @@
 
 ## Performance Improvements
 
+- [PR#2045](https://github.com/lightninglabs/taproot-assets/pull/2045)
+  Added a raw proof append path that appends pre-encoded proofs directly to an
+  encoded proof file blob in space, plus benchmark coverage for append
+  performance.
+
 ## Deprecations
 
 # Technical and Architectural Updates
