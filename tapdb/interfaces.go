@@ -246,20 +246,17 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 		time.Sleep(retryDelay)
 	}
 
-	for i := 0; i < t.opts.numRetries; i++ {
-		// Create the db transaction.
-		tx, err := t.BatchedQuerier.BeginTx(ctx, txOptions)
-		if err != nil {
-			dbErr := MapSQLError(err)
+	attempt := func() (done bool, err error) {
+		tx, beginErr := t.BatchedQuerier.BeginTx(ctx, txOptions)
+		if beginErr != nil {
+			dbErr := MapSQLError(beginErr)
 			if IsSerializationOrDeadlockError(dbErr) {
 				// Nothing to roll back here, since we didn't
 				// even get a transaction yet.
-				lastErr = dbErr
-				waitBeforeRetry(i, dbErr)
-				continue
+				return false, dbErr
 			}
 
-			return dbErr
+			return true, dbErr
 		}
 
 		// Rollback is safe to call even if the tx is already closed,
@@ -268,38 +265,36 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 			_ = tx.Rollback()
 		}()
 
-		if err := txBody(t.createQuery(tx)); err != nil {
-			dbErr := MapSQLError(err)
+		if bodyErr := txBody(t.createQuery(tx)); bodyErr != nil {
+			dbErr := MapSQLError(bodyErr)
 			if IsSerializationOrDeadlockError(dbErr) {
-				// Roll back the transaction, then pop back up
-				// to try once again.
-				_ = tx.Rollback()
-
-				lastErr = dbErr
-				waitBeforeRetry(i, dbErr)
-				continue
+				return false, dbErr
 			}
 
-			return dbErr
+			return true, dbErr
 		}
 
 		// Commit transaction.
-		if err = tx.Commit(); err != nil {
-			dbErr := MapSQLError(err)
+		if commitErr := tx.Commit(); commitErr != nil {
+			dbErr := MapSQLError(commitErr)
 			if IsSerializationOrDeadlockError(dbErr) {
-				// Roll back the transaction, then pop back up
-				// to try once again.
-				_ = tx.Rollback()
-
-				lastErr = dbErr
-				waitBeforeRetry(i, dbErr)
-				continue
+				return false, dbErr
 			}
 
-			return dbErr
+			return true, dbErr
 		}
 
-		return nil
+		return true, nil
+	}
+
+	for i := 0; i < t.opts.numRetries; i++ {
+		done, err := attempt()
+		if done {
+			return err
+		}
+
+		lastErr = err
+		waitBeforeRetry(i, err)
 	}
 
 	// If we get to this point, then we weren't able to successfully commit
