@@ -889,7 +889,7 @@
         "pub_key": {
           "type": "string",
           "format": "byte",
-          "description": "The full Taproot output key the asset is locked to. This is either a BIP-86\nkey if the tap_tweak below is empty, or a key with the tap tweak applied to\nit."
+          "description": "The full Taproot output key the asset is locked to, as a\n32-byte x-only (Schnorr) public key. This is either a\nBIP-86 key if the tap_tweak below is empty, or a key with\nthe tap tweak applied to it."
         },
         "key_desc": {
           "$ref": "#/definitions/taprpcKeyDescriptor",

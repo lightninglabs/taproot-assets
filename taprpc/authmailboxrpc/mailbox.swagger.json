@@ -452,7 +452,7 @@
         "txid": {
           "type": "string",
           "format": "byte",
-          "description": "Raw bytes representing the transaction id."
+          "description": "Raw bytes representing the transaction id. Must be in\ninternal byte order (little-endian), i.e. reversed\ncompared to the human-readable (RPC/block explorer)\nhex encoding."
         },
         "output_index": {
           "type": "integer",

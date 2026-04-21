@@ -4457,9 +4457,10 @@ func (*ScriptKeyTypeQuery_AllTypes) isScriptKeyTypeQuery_Type() {}
 
 type ScriptKey struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The full Taproot output key the asset is locked to. This is either a BIP-86
-	// key if the tap_tweak below is empty, or a key with the tap tweak applied to
-	// it.
+	// The full Taproot output key the asset is locked to, as a
+	// 32-byte x-only (Schnorr) public key. This is either a
+	// BIP-86 key if the tap_tweak below is empty, or a key with
+	// the tap tweak applied to it.
 	PubKey []byte `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
 	// The key descriptor describing the internal key of the above Taproot key.
 	KeyDesc *KeyDescriptor `protobuf:"bytes,2,opt,name=key_desc,json=keyDesc,proto3" json:"key_desc,omitempty"`
@@ -6765,7 +6766,10 @@ type ReceiveEvent struct {
 	Timestamp int64 `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	// The address that received the asset.
 	Address *Addr `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
-	// The outpoint of the transaction that was used to receive the asset.
+	// The outpoint of the transaction that was used to receive
+	// the asset. To resolve the received amount, use
+	// ListAssets with the anchor_outpoint filter set to this
+	// outpoint.
 	Outpoint string `protobuf:"bytes,3,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
 	// The status of the event. If error below is set, then the status is the
 	// state that lead to the error during its execution.

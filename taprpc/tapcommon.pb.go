@@ -72,7 +72,10 @@ func (SortDirection) EnumDescriptor() ([]byte, []int) {
 // Represents a Bitcoin transaction outpoint.
 type OutPoint struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Raw bytes representing the transaction id.
+	// Raw bytes representing the transaction id. Must be in
+	// internal byte order (little-endian), i.e. reversed
+	// compared to the human-readable (RPC/block explorer)
+	// hex encoding.
 	Txid []byte `protobuf:"bytes,1,opt,name=txid,proto3" json:"txid,omitempty"`
 	// The index of the output on the transaction.
 	OutputIndex   uint32 `protobuf:"varint,2,opt,name=output_index,json=outputIndex,proto3" json:"output_index,omitempty"`

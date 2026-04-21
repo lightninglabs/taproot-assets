@@ -7,7 +7,10 @@ option go_package = "github.com/lightninglabs/taproot-assets/taprpc";
 // Represents a Bitcoin transaction outpoint.
 message OutPoint {
     /*
-    Raw bytes representing the transaction id.
+    Raw bytes representing the transaction id. Must be in
+    internal byte order (little-endian), i.e. reversed
+    compared to the human-readable (RPC/block explorer)
+    hex encoding.
     */
     bytes txid = 1;
 
