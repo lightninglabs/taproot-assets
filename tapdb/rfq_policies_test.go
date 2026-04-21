@@ -450,3 +450,27 @@ func TestFetchAcceptedQuotesSeparatesPeerAcceptedSell(t *testing.T) {
 	require.Equal(t, purchase.ID, sellAccepts[0].ID)
 	require.Equal(t, peerSell.ID, peerSells[0].ID)
 }
+
+// TestUpsertPolicyIdempotent verifies that storing the same quote
+// twice (identical rfq_id) does not error and does not create a
+// duplicate row.
+func TestUpsertPolicyIdempotent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newPolicyStore(t)
+
+	accept := testBuyAccept(t)
+
+	err := store.StorePeerAcceptedBuyQuote(ctx, accept)
+	require.NoError(t, err)
+
+	// Second store with the same rfq_id must not error.
+	err = store.StorePeerAcceptedBuyQuote(ctx, accept)
+	require.NoError(t, err)
+
+	// Only one row should exist.
+	_, _, peerBuys, _, err := store.FetchAcceptedQuotes(ctx)
+	require.NoError(t, err)
+	require.Len(t, peerBuys, 1)
+}

@@ -391,8 +391,8 @@ func TestLookUpScidPersistenceFailure(t *testing.T) {
 
 	manager.orderHandler = &OrderHandler{}
 
-	// Simulate the active map having been populated (which happens
-	// regardless of DB write success in the real code path).
+	// Directly populate the active map to verify that LookUpScid
+	// resolves entries from the in-memory tier independently.
 	scid := rfqmsg.SerialisedScid(42)
 	manager.orderHandler.peerBuyQuotes.Store(scid, rfqmsg.BuyAccept{
 		Peer: peer1,
