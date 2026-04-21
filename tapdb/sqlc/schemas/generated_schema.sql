@@ -889,8 +889,14 @@ CREATE TABLE rfq_policies (
     request_version INTEGER,
 
     -- agreed_at is the timestamp when the policy was agreed upon.
-    agreed_at BIGINT NOT NULL
-, accepted_max_amount BIGINT, execution_policy INTEGER);
+    agreed_at BIGINT NOT NULL,
+
+    -- accepted_max_amount is the maximum amount accepted.
+    accepted_max_amount BIGINT,
+
+    -- execution_policy is the execution policy type.
+    execution_policy INTEGER
+);
 
 CREATE UNIQUE INDEX rfq_policies_rfq_id_idx
     ON rfq_policies (rfq_id);

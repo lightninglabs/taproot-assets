@@ -79,9 +79,11 @@ type rfqPolicy struct {
 
 // RfqPolicyStore is the database interface for RFQ policies.
 type RfqPolicyStore interface {
-	// InsertRfqPolicy inserts a new RFQ policy into the database.
-	InsertRfqPolicy(context.Context,
-		sqlc.InsertRfqPolicyParams) (int64, error)
+	// UpsertRfqPolicy inserts a new RFQ policy into the database,
+	// or does nothing if a policy with the same rfq_id already
+	// exists.
+	UpsertRfqPolicy(context.Context,
+		sqlc.UpsertRfqPolicyParams) error
 
 	// FetchActiveRfqPolicies retrieves all active RFQ policies from the
 	// database.
@@ -202,9 +204,10 @@ func (s *PersistedPolicyStore) storePolicy(ctx context.Context,
 
 	writeOpts := WriteTxOption()
 	return s.db.ExecTx(ctx, writeOpts, func(q RfqPolicyStore) error {
-		_, err := q.InsertRfqPolicy(ctx, newInsertParams(policy))
+		err := q.UpsertRfqPolicy(ctx, newUpsertParams(policy))
 		if err != nil {
-			return fmt.Errorf("error inserting RFQ policy: %w", err)
+			return fmt.Errorf("error upserting RFQ "+
+				"policy: %w", err)
 		}
 
 		return nil
@@ -402,10 +405,10 @@ func (s *PersistedPolicyStore) LookUpScid(ctx context.Context,
 	return peer, nil
 }
 
-// newInsertParams creates the parameters for inserting an RFQ policy into the
-// database.
-func newInsertParams(policy rfqPolicy) sqlc.InsertRfqPolicyParams {
-	params := sqlc.InsertRfqPolicyParams{
+// newUpsertParams creates the parameters for upserting an RFQ policy
+// into the database.
+func newUpsertParams(policy rfqPolicy) sqlc.UpsertRfqPolicyParams {
+	params := sqlc.UpsertRfqPolicyParams{
 		PolicyType:      policy.PolicyType.String(),
 		Scid:            int64(policy.Scid),
 		RfqID:           policy.RfqID[:],

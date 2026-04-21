@@ -72,7 +72,7 @@ func insertTestPolicy(t *testing.T, ctx context.Context, db sqlc.Querier,
 	// Create a simple rate coefficient (just bytes for testing).
 	rateCoeffBytes := []byte{0x01, 0x23, 0x45}
 
-	_, err := db.InsertRfqPolicy(ctx, sqlc.InsertRfqPolicyParams{
+	err := db.UpsertRfqPolicy(ctx, sqlc.UpsertRfqPolicyParams{
 		PolicyType:      string(policyType),
 		Scid:            12345,
 		RfqID:           rfqID[:],

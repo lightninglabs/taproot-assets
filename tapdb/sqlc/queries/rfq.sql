@@ -1,4 +1,4 @@
--- name: InsertRfqPolicy :one
+-- name: UpsertRfqPolicy :exec
 INSERT INTO rfq_policies (
     policy_type, scid, rfq_id, peer, asset_id, asset_group_key,
     rate_coefficient, rate_scale, expiry, max_out_asset_amt,
@@ -11,7 +11,7 @@ VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9,
     $10, $11, $12, $13, $14, $15, $16, $17, $18
 )
-RETURNING id;
+ON CONFLICT(rfq_id) DO NOTHING;
 
 -- name: FetchActiveRfqPolicies :many
 SELECT
