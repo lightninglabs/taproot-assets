@@ -3,6 +3,7 @@ package tapdb
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"math"
 	prand "math/rand"
 	"time"
@@ -232,12 +233,13 @@ func NewTransactionExecutor[Querier any](db BatchedQuerier,
 func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 	txOptions TxOptions, txBody func(Q) error) error {
 
-	waitBeforeRetry := func(attemptNumber int) {
+	var lastErr error
+	waitBeforeRetry := func(attemptNumber int, retryErr error) {
 		retryDelay := t.opts.randRetryDelay(attemptNumber)
 
-		log.Tracef("Retrying transaction due to tx serialization or "+
-			"deadlock error, attempt_number=%v, delay=%v",
-			attemptNumber, retryDelay)
+		log.Warnf("Retrying transaction due to tx serialization or "+
+			"deadlock error, attempt_number=%v, delay=%v, "+
+			"err=%v", attemptNumber, retryDelay, retryErr)
 
 		// Before we try again, we'll wait with a random backoff based
 		// on the retry delay.
@@ -252,7 +254,8 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 			if IsSerializationOrDeadlockError(dbErr) {
 				// Nothing to roll back here, since we didn't
 				// even get a transaction yet.
-				waitBeforeRetry(i)
+				lastErr = dbErr
+				waitBeforeRetry(i, dbErr)
 				continue
 			}
 
@@ -272,7 +275,8 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 				// to try once again.
 				_ = tx.Rollback()
 
-				waitBeforeRetry(i)
+				lastErr = dbErr
+				waitBeforeRetry(i, dbErr)
 				continue
 			}
 
@@ -287,7 +291,8 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 				// to try once again.
 				_ = tx.Rollback()
 
-				waitBeforeRetry(i)
+				lastErr = dbErr
+				waitBeforeRetry(i, dbErr)
 				continue
 			}
 
@@ -299,7 +304,14 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 
 	// If we get to this point, then we weren't able to successfully commit
 	// a tx given the max number of retries.
-	return ErrRetriesExceeded
+	log.Errorf("Transaction retries exceeded (num_retries=%v), last "+
+		"error: %v", t.opts.numRetries, lastErr)
+
+	if lastErr == nil {
+		return ErrRetriesExceeded
+	}
+
+	return fmt.Errorf("%w: %w", ErrRetriesExceeded, lastErr)
 }
 
 // Backend returns the type of the database backend used.
