@@ -877,6 +877,13 @@ type proofVerificationParams struct {
 	// SkipTimeLockValidation skips locktime checks during proof
 	// verification.
 	SkipTimeLockValidation bool
+
+	// SkipExclusionProofVerification skips exclusion proof checks during
+	// proof verification. This is used when importing confirmed
+	// second-level HTLC transactions in breach scenarios where we
+	// cannot construct exclusion proofs for the counterparty's wallet
+	// outputs (we don't know their internal keys).
+	SkipExclusionProofVerification bool
 }
 
 // WithChallengeBytes is a ProofVerificationOption that defines some challenge
@@ -1029,8 +1036,11 @@ func (p *Proof) VerifyProofIntegrity(ctx context.Context, vCtx VerifierCtx,
 	// 1. A transaction that spends the previous asset output has a valid
 	// merkle proof within a block in the chain.
 	if !TxSpendsPrevOut(&p.AnchorTx, &p.PrevOut) {
-		return nil, fmt.Errorf("%w: doesn't spend prev output",
-			commitment.ErrInvalidTaprootProof)
+		return nil, fmt.Errorf("%w: doesn't spend prev output "+
+			"(anchor_txid=%v, prev_out=%v, num_inputs=%d)",
+			commitment.ErrInvalidTaprootProof,
+			p.AnchorTx.TxHash(), p.PrevOut,
+			len(p.AnchorTx.TxIn))
 	}
 
 	if !verificationParams.SkipChainVerification {
@@ -1056,15 +1066,46 @@ func (p *Proof) VerifyProofIntegrity(ctx context.Context, vCtx VerifierCtx,
 	// TODO(jhb): check for genesis asset and populate asset fields before
 	// further verification
 
-	// The VerifyProofs method will verify the following steps:
 	// 2. A valid inclusion proof for the resulting asset is included.
-	// 3. A valid inclusion proof for the split root, if the resulting asset
-	//    is a split asset.
-	// 4. A set of valid exclusion proofs for the resulting asset are
-	//    included.
-	tapCommitment, err := p.VerifyProofs()
+	tapCommitment, err := p.verifyInclusionProof()
 	if err != nil {
-		return nil, fmt.Errorf("error verifying proofs: %w", err)
+		return nil, fmt.Errorf("invalid inclusion proof: %w", err)
+	}
+
+	// 3. A valid inclusion proof for the split root, if the resulting
+	// asset is a split asset.
+	if p.Asset.HasSplitCommitmentWitness() {
+		if p.SplitRootProof == nil {
+			return nil, ErrMissingSplitRootProof
+		}
+		if err := p.verifySplitRootProof(); err != nil {
+			return nil, err
+		}
+	}
+
+	// 4. A set of valid exclusion proofs for the resulting asset are
+	// included. For breach scenarios (second-level HTLC imports),
+	// exclusion proofs may be unavailable for counterparty outputs.
+	if !verificationParams.SkipExclusionProofVerification {
+		exclusionCommitVersion, err := p.verifyExclusionProofs()
+		if err != nil {
+			return nil, fmt.Errorf("invalid exclusion "+
+				"proof: %w", err)
+		}
+
+		if exclusionCommitVersion != nil {
+			if !commitment.IsSimilarTapCommitmentVersion(
+				&tapCommitment.Version,
+				exclusionCommitVersion,
+			) {
+
+				return nil, fmt.Errorf("mixed commitment "+
+					"versions, inclusion %d, "+
+					"exclusion %d",
+					tapCommitment.Version,
+					*exclusionCommitVersion)
+			}
+		}
 	}
 
 	// 5. If this is a genesis asset, start by verifying the

@@ -214,6 +214,7 @@ type invoiceConfig struct {
 	groupKey   []byte
 	msats      lnwire.MilliSatoshi
 	routeHints []*lnrpc.RouteHint
+	expiry     int64
 }
 
 func defaultInvoiceConfig() *invoiceConfig {
@@ -227,6 +228,12 @@ type invoiceOpt func(*invoiceConfig)
 func withInvoiceErrSubStr(errSubStr string) invoiceOpt {
 	return func(c *invoiceConfig) {
 		c.errSubStr = errSubStr
+	}
+}
+
+func withInvoiceExpiry(seconds int64) invoiceOpt {
+	return func(c *invoiceConfig) {
+		c.expiry = seconds
 	}
 }
 
@@ -1257,8 +1264,10 @@ func sendAssetKeySendPayment(t *testing.T, src, dst *itest.IntegratedNode,
 	customRecords[record.KeySendType] = preimage[:]
 
 	sendReq := &routerrpc.SendPaymentRequest{
-		Dest:              dst.PubKey[:],
-		Amt:               btcAmt.UnwrapOr(500),
+		Dest: dst.PubKey[:],
+		Amt: btcAmt.UnwrapOr(
+			int64(rfqmath.DefaultOnChainHtlcSat),
+		),
 		DestCustomRecords: customRecords,
 		PaymentHash:       hash[:],
 		TimeoutSeconds:    int32(PaymentTimeout.Seconds()),
@@ -2294,6 +2303,9 @@ func createAssetHodlInvoice(t *testing.T, dstRfqPeer,
 	defer cancel()
 
 	timeoutSeconds := int64(rfq.DefaultInvoiceExpiry.Seconds())
+	if cfg.expiry > 0 {
+		timeoutSeconds = cfg.expiry
+	}
 
 	var rfqPeer []byte
 	if dstRfqPeer != nil {

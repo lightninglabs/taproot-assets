@@ -112,7 +112,7 @@ const (
 
 	// DefaultPushSat is the default push amount in satoshis when opening
 	// custom channels.
-	DefaultPushSat int64 = 1062
+	DefaultPushSat int64 = 6372
 
 	// assetBurnConfirmationText is the text that needs to be set on the
 	// RPC to confirm an asset burn.
