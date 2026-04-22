@@ -3,6 +3,7 @@ package tapdb
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"math"
 	prand "math/rand"
 	"time"
@@ -232,31 +233,30 @@ func NewTransactionExecutor[Querier any](db BatchedQuerier,
 func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 	txOptions TxOptions, txBody func(Q) error) error {
 
-	waitBeforeRetry := func(attemptNumber int) {
+	var lastErr error
+	waitBeforeRetry := func(attemptNumber int, retryErr error) {
 		retryDelay := t.opts.randRetryDelay(attemptNumber)
 
-		log.Tracef("Retrying transaction due to tx serialization or "+
-			"deadlock error, attempt_number=%v, delay=%v",
-			attemptNumber, retryDelay)
+		log.Warnf("Retrying transaction due to tx serialization or "+
+			"deadlock error, attempt_number=%v, delay=%v, "+
+			"err=%v", attemptNumber, retryDelay, retryErr)
 
 		// Before we try again, we'll wait with a random backoff based
 		// on the retry delay.
 		time.Sleep(retryDelay)
 	}
 
-	for i := 0; i < t.opts.numRetries; i++ {
-		// Create the db transaction.
-		tx, err := t.BatchedQuerier.BeginTx(ctx, txOptions)
-		if err != nil {
-			dbErr := MapSQLError(err)
+	attempt := func() (done bool, err error) {
+		tx, beginErr := t.BatchedQuerier.BeginTx(ctx, txOptions)
+		if beginErr != nil {
+			dbErr := MapSQLError(beginErr)
 			if IsSerializationOrDeadlockError(dbErr) {
 				// Nothing to roll back here, since we didn't
 				// even get a transaction yet.
-				waitBeforeRetry(i)
-				continue
+				return false, dbErr
 			}
 
-			return dbErr
+			return true, dbErr
 		}
 
 		// Rollback is safe to call even if the tx is already closed,
@@ -265,41 +265,48 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 			_ = tx.Rollback()
 		}()
 
-		if err := txBody(t.createQuery(tx)); err != nil {
-			dbErr := MapSQLError(err)
+		if bodyErr := txBody(t.createQuery(tx)); bodyErr != nil {
+			dbErr := MapSQLError(bodyErr)
 			if IsSerializationOrDeadlockError(dbErr) {
-				// Roll back the transaction, then pop back up
-				// to try once again.
-				_ = tx.Rollback()
-
-				waitBeforeRetry(i)
-				continue
+				return false, dbErr
 			}
 
-			return dbErr
+			return true, dbErr
 		}
 
 		// Commit transaction.
-		if err = tx.Commit(); err != nil {
-			dbErr := MapSQLError(err)
+		if commitErr := tx.Commit(); commitErr != nil {
+			dbErr := MapSQLError(commitErr)
 			if IsSerializationOrDeadlockError(dbErr) {
-				// Roll back the transaction, then pop back up
-				// to try once again.
-				_ = tx.Rollback()
-
-				waitBeforeRetry(i)
-				continue
+				return false, dbErr
 			}
 
-			return dbErr
+			return true, dbErr
 		}
 
-		return nil
+		return true, nil
+	}
+
+	for i := 0; i < t.opts.numRetries; i++ {
+		done, err := attempt()
+		if done {
+			return err
+		}
+
+		lastErr = err
+		waitBeforeRetry(i, err)
 	}
 
 	// If we get to this point, then we weren't able to successfully commit
 	// a tx given the max number of retries.
-	return ErrRetriesExceeded
+	log.Errorf("Transaction retries exceeded (num_retries=%v), last "+
+		"error: %v", t.opts.numRetries, lastErr)
+
+	if lastErr == nil {
+		return ErrRetriesExceeded
+	}
+
+	return fmt.Errorf("%w: %w", ErrRetriesExceeded, lastErr)
 }
 
 // Backend returns the type of the database backend used.
