@@ -243,7 +243,7 @@
           },
           {
             "name": "script_key.pub_key",
-            "description": "The full Taproot output key the asset is locked to. This is either a BIP-86\nkey if the tap_tweak below is empty, or a key with the tap tweak applied to\nit.",
+            "description": "The full Taproot output key the asset is locked to, as a\n32-byte x-only (Schnorr) public key. This is either a\nBIP-86 key if the tap_tweak below is empty, or a key with\nthe tap tweak applied to it.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -300,7 +300,7 @@
           },
           {
             "name": "anchor_outpoint.txid",
-            "description": "Raw bytes representing the transaction id.",
+            "description": "Raw bytes representing the transaction id. Must be in\ninternal byte order (little-endian), i.e. reversed\ncompared to the human-readable (RPC/block explorer)\nhex encoding.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -2735,7 +2735,7 @@
         "txid": {
           "type": "string",
           "format": "byte",
-          "description": "Raw bytes representing the transaction id."
+          "description": "Raw bytes representing the transaction id. Must be in\ninternal byte order (little-endian), i.e. reversed\ncompared to the human-readable (RPC/block explorer)\nhex encoding."
         },
         "output_index": {
           "type": "integer",
@@ -2861,7 +2861,7 @@
         },
         "outpoint": {
           "type": "string",
-          "description": "The outpoint of the transaction that was used to receive the asset."
+          "description": "The outpoint of the transaction that was used to receive\nthe asset. To resolve the received amount, use\nListAssets with the anchor_outpoint filter set to this\noutpoint."
         },
         "status": {
           "$ref": "#/definitions/taprpcAddrEventStatus",
@@ -2917,7 +2917,7 @@
         "pub_key": {
           "type": "string",
           "format": "byte",
-          "description": "The full Taproot output key the asset is locked to. This is either a BIP-86\nkey if the tap_tweak below is empty, or a key with the tap tweak applied to\nit."
+          "description": "The full Taproot output key the asset is locked to, as a\n32-byte x-only (Schnorr) public key. This is either a\nBIP-86 key if the tap_tweak below is empty, or a key with\nthe tap tweak applied to it."
         },
         "key_desc": {
           "$ref": "#/definitions/taprpcKeyDescriptor",

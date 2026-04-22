@@ -1345,9 +1345,10 @@ message ScriptKeyTypeQuery {
 
 message ScriptKey {
     /*
-    The full Taproot output key the asset is locked to. This is either a BIP-86
-    key if the tap_tweak below is empty, or a key with the tap tweak applied to
-    it.
+    The full Taproot output key the asset is locked to, as a
+    32-byte x-only (Schnorr) public key. This is either a
+    BIP-86 key if the tap_tweak below is empty, or a key with
+    the tap tweak applied to it.
     */
     bytes pub_key = 1;
 
@@ -1882,7 +1883,10 @@ message ReceiveEvent {
     // The address that received the asset.
     taprpc.Addr address = 2;
 
-    // The outpoint of the transaction that was used to receive the asset.
+    // The outpoint of the transaction that was used to receive
+    // the asset. To resolve the received amount, use
+    // ListAssets with the anchor_outpoint filter set to this
+    // outpoint.
     string outpoint = 3;
 
     // The status of the event. If error below is set, then the status is the
