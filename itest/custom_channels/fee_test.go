@@ -6,7 +6,9 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"testing"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/itest"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -182,9 +184,25 @@ func testCustomChannelsCoopCloseFeeBaseline(ctx context.Context,
 			FundingTxidStr: assetFundResp.Txid,
 		},
 	}
+
+	feeBaselineCoOpCloseBalanceCheck := func(t *testing.T, _, _ *itest.IntegratedNode,
+		closeTx *wire.MsgTx, closeUpdate *lnrpc.ChannelCloseUpdate,
+		_ [][]byte, _ []byte, _ *itest.IntegratedNode) {
+
+		require.NotNil(t, closeUpdate.LocalCloseOutput)
+		require.Len(t, closeUpdate.AdditionalOutputs, 1)
+
+		localAuxOut := closeUpdate.AdditionalOutputs[0]
+		require.True(t, localAuxOut.IsLocal)
+
+		auxTxOut, _ := findTxOut(t, closeTx, localAuxOut.PkScript)
+		require.LessOrEqual(t, auxTxOut.Value, int64(1000))
+
+		_, _ = findTxOut(t, closeTx, closeUpdate.LocalCloseOutput.PkScript)
+	}
+
 	closeAssetChannelWithFeeAndAssert(
 		t, net, charlie, dave, chanPoint, closeFeeRateSatPerVbyte,
-		[][]byte{assetID}, nil, charlie,
-		assertDefaultCoOpCloseBalance(false, false),
+		[][]byte{assetID}, nil, charlie, feeBaselineCoOpCloseBalanceCheck,
 	)
 }
