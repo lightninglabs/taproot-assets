@@ -31,6 +31,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -2575,6 +2576,505 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	require.Equal(t.t, bobAssets.Assets[0].Amount, numUnits)
 
 	require.Equal(t.t, bobScriptKeyBytes, bobAssets.Assets[0].ScriptKey)
+}
+
+// testPsbtTrustlessSwapAnyoneCanSpend tests an enhanced trustless swap that
+// uses an anyone-can-spend (OP_TRUE) script key for the swapped assets. Unlike
+// the basic trustless swap which requires "whole coin" transfers, this approach
+// allows the swap creator to retain asset change while still enabling a
+// non-interactive swap.
+//
+// Flow:
+//  1. Alice creates vPSBT with two outputs:
+//     - Output 0: Alice's change (her script key, TypeSplitRoot)
+//     - Output 1: Swap amount (OP_TRUE script key, TypeSimple)
+//  2. Alice signs with SIGHASH_NONE on asset level (commits to input only)
+//  3. Alice creates BTC PSBT with SIGHASH_SINGLE|ANYONECANPAY
+//  4. Bob provides his anchor internal key for output 1 and adds BTC input
+//  5. Transaction is finalized and broadcast
+func testPsbtTrustlessSwapAnyoneCanSpend(t *harnessTest) {
+	ctxb := context.Background()
+
+	// STEP 1: Mint asset.
+	t.Logf("STEP 1: Minting asset")
+
+	const totalUnits = 1000
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{{
+			Asset: &mintrpc.MintAsset{
+				AssetType: taprpc.AssetType_NORMAL,
+				Name:      "swap-test-asset",
+				AssetMeta: &taprpc.AssetMeta{
+					Data: []byte("trustless swap test"),
+				},
+				Amount:          totalUnits,
+				NewGroupedAsset: true,
+			},
+		}},
+	)
+
+	mintedAsset := rpcAssets[0]
+	genInfo := mintedAsset.AssetGenesis
+
+	var (
+		alice       = t.tapd
+		swapUnits   = uint64(600) // Amount Bob will receive
+		changeUnits = uint64(400) // Amount Alice keeps as change
+		chainParams = &address.RegressionNetTap
+		assetID     asset.ID
+	)
+	copy(assetID[:], genInfo.AssetId)
+
+	// STEP 2: Create OP_TRUE script key.
+	t.Logf("STEP 2: Creating OP_TRUE script key")
+
+	// Use the existing channel funding script tree which creates an OP_TRUE
+	// tapscript with a NUMS internal key.
+	fundingScriptTree := tapscript.NewChannelFundingScriptTree()
+	opTrueScriptKey := asset.NewScriptKey(fundingScriptTree.TaprootKey)
+
+	// STEP 3: Alice derives keys.
+	t.Logf("STEP 3: Alice deriving keys")
+
+	aliceChangeScriptKey, aliceChangeAnchorKey := DeriveKeys(t.t, alice)
+
+	// Also need a dummy anchor key for swap output (Bob replaces later).
+	_, aliceDummyAnchorKey := DeriveKeys(t.t, alice)
+
+	// STEP 4: Create vPSBT with change and swap outputs.
+	t.Logf("STEP 4: Creating vPSBT")
+
+	// We create the packet with both outputs specified upfront:
+	// - Change output at anchor index 0 (same index as Alice's BTC input,
+	//   so SIGHASH_SINGLE will commit to it)
+	// - Swap output at anchor index 1
+	//
+	// This ensures Alice's BTC payment and her asset change are in the
+	// same BTC output, providing protection via SIGHASH_SINGLE.
+	vPkt := tappsbt.ForInteractiveSend(
+		assetID, swapUnits, opTrueScriptKey, 0, 0, 1,
+		aliceDummyAnchorKey, asset.V0, chainParams,
+	)
+
+	// Add the change output at anchor index 0. We set it as TypeSplitRoot
+	// so the funding process recognizes it as the change output.
+	// The amount will be filled in by the funding process.
+	changeVOut := &tappsbt.VOutput{
+		Type:              tappsbt.TypeSplitRoot,
+		Interactive:       true,
+		AnchorOutputIndex: 0,
+		ScriptKey:         aliceChangeScriptKey,
+		AssetVersion:      asset.V0,
+	}
+	changeVOut.SetAnchorInternalKey(
+		aliceChangeAnchorKey, chainParams.HDCoinType,
+	)
+	vPkt.Outputs = append(vPkt.Outputs, changeVOut)
+
+	// STEP 5: Fund vPSBT.
+	t.Logf("STEP 5: Funding vPSBT")
+
+	fundResp := fundPacket(t, alice, vPkt)
+
+	vPkt, err := tappsbt.Decode(fundResp.FundedPsbt)
+	require.NoError(t.t, err)
+
+	// Funded packet: 1 input, 2 outputs (swap + change).
+	require.Len(t.t, vPkt.Inputs, 1)
+	require.Len(t.t, vPkt.Outputs, 2)
+
+	// Identify change (TypeSplitRoot) and swap outputs.
+	var changeOutputIdx, swapOutputIdx int
+	for i, out := range vPkt.Outputs {
+		if out.Type == tappsbt.TypeSplitRoot {
+			changeOutputIdx = i
+			require.Equal(t.t, uint32(0), out.AnchorOutputIndex,
+				"change must be at anchor index 0")
+		} else {
+			swapOutputIdx = i
+			require.Equal(t.t, uint32(1), out.AnchorOutputIndex,
+				"swap must be at anchor index 1")
+		}
+	}
+
+	// STEP 6: Set sighash and prepare outputs.
+	t.Logf("STEP 6: Setting SIGHASH_NONE")
+
+	// SIGHASH_NONE: Alice doesn't commit to outputs (allows Bob to modify
+	// anchor keys). Split commitment protects via output indices.
+	vPkt.Inputs[0].SighashType = txscript.SigHashNone
+
+	require.NoError(t.t, tapsend.PrepareOutputAssets(ctxb, vPkt))
+
+	// Verify split structure.
+	require.NotNil(
+		t.t, vPkt.Outputs[changeOutputIdx].Asset.SplitCommitmentRoot,
+	)
+	require.Len(
+		t.t, vPkt.Outputs[swapOutputIdx].Asset.PrevWitnesses, 1,
+	)
+
+	tempAsset := vPkt.Outputs[swapOutputIdx].Asset
+	require.NotNil(t.t, tempAsset.PrevWitnesses[0].SplitCommitment)
+
+	// STEP 7: Alice signs vPSBT.
+	t.Logf("STEP 7: Alice signing vPSBT")
+
+	fundedPsbtBytes, err := tappsbt.Encode(vPkt)
+	require.NoError(t.t, err)
+
+	signedResp, err := alice.SignVirtualPsbt(
+		ctxb, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: fundedPsbtBytes,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Contains(t.t, signedResp.SignedInputs, uint32(0))
+
+	vPkt, err = tappsbt.Decode(signedResp.SignedPsbt)
+	require.NoError(t.t, err)
+
+	// STEP 8: Create BTC PSBT.
+	t.Logf("STEP 8: Creating BTC PSBT")
+
+	btcPacket, err := tapsend.PrepareAnchoringTemplate([]*tappsbt.VPacket{
+		vPkt,
+	})
+	require.NoError(t.t, err)
+
+	// 1 input (Alice's anchor), 2 outputs (change@0, swap@1).
+	require.Len(t.t, btcPacket.Inputs, 1)
+	require.Equal(t.t, 2, len(btcPacket.Outputs))
+
+	// STEP 9: Set Alice's BTC payment terms.
+	t.Logf("STEP 9: Setting BTC payment")
+
+	// Alice's payment: output 0 (same anchor as asset change).
+	const swapPrice = int64(69420)
+	btcPacket.UnsignedTx.TxOut[0].Value = swapPrice
+
+	// STEP 10: Commit vPSBT to BTC PSBT.
+	t.Logf("STEP 10: Committing vPSBT")
+
+	btcPacketBytes, err := fn.Serialize(btcPacket)
+	require.NoError(t.t, err)
+
+	resp, err := alice.CommitVirtualPsbts(
+		ctxb, &wrpc.CommitVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signedResp.SignedPsbt},
+			AnchorPsbt:   btcPacketBytes,
+			AnchorChangeOutput: &wrpc.CommitVirtualPsbtsRequest_Add{
+				Add: true,
+			},
+			Fees: &wrpc.CommitVirtualPsbtsRequest_TargetConf{
+				TargetConf: 12,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	btcPacket, err = psbt.NewFromRawBytes(
+		bytes.NewReader(resp.AnchorPsbt), false,
+	)
+	require.NoError(t.t, err)
+
+	// STEP 11: Set BTC sighash flags.
+	t.Logf("STEP 11: Setting BTC sighash")
+
+	// SIGHASH_SINGLE|ANYONECANPAY: commits to output 0, allows Bob to add
+	// inputs.
+	btcPacket.Inputs[0].SighashType = txscript.SigHashSingle |
+		txscript.SigHashAnyOneCanPay
+
+	// Strip extra funding inputs (Bob provides his own).
+	if len(btcPacket.Inputs) > 1 {
+		btcPacket.Inputs = btcPacket.Inputs[:1]
+		btcPacket.UnsignedTx.TxIn = btcPacket.UnsignedTx.TxIn[:1]
+	}
+
+	// Trim extra BTC change outputs (keep only change@0 + swap@1).
+	if len(btcPacket.Outputs) > 2 {
+		btcPacket.Outputs = btcPacket.Outputs[:2]
+		btcPacket.UnsignedTx.TxOut = btcPacket.UnsignedTx.TxOut[:2]
+	}
+
+	// STEP 12: Alice signs BTC PSBT.
+	t.Logf("STEP 12: Alice signing BTC PSBT")
+
+	btcPacketBytes, err = fn.Serialize(btcPacket)
+	require.NoError(t.t, err)
+
+	signPsbtResp := alice.cfg.LndNode.RPC.SignPsbt(
+		&walletrpc.SignPsbtRequest{
+			FundedPsbt: btcPacketBytes,
+		},
+	)
+
+	require.Len(t.t, signPsbtResp.SignedInputs, 1)
+	require.Equal(t.t, uint32(0), signPsbtResp.SignedInputs[0])
+
+	btcPacket, err = psbt.NewFromRawBytes(
+		bytes.NewReader(signPsbtResp.SignedPsbt), false,
+	)
+	require.NoError(t.t, err)
+
+	t.Logf("Alice's offer ready")
+
+	// STEP 13: Create Bob.
+	t.Logf("STEP 13: Setting up Bob")
+
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bob := setupTapdHarness(t.t, t, lndBob, t.universeServer)
+	defer func() {
+		require.NoError(t.t, bob.stop(!*noDelete))
+	}()
+
+	// STEP 14: Bob receives Alice's offer.
+	t.Logf("STEP 14: Bob receiving offer")
+
+	signedVpsbtBytes, err := tappsbt.Encode(vPkt)
+	require.NoError(t.t, err)
+
+	bobVPsbt, err := tappsbt.Decode(signedVpsbtBytes)
+	require.NoError(t.t, err)
+
+	// STEP 15: Bob derives anchor key.
+	t.Logf("STEP 15: Bob deriving anchor key")
+
+	_, bobAnchorInternalKey := DeriveKeys(t.t, bob)
+
+	// Find swap output (OP_TRUE script key).
+	opTrueKeyBytes := opTrueScriptKey.PubKey.SerializeCompressed()
+	var bobSwapVOutIdx int = -1
+	for i, out := range bobVPsbt.Outputs {
+		if bytes.Equal(
+			out.ScriptKey.PubKey.SerializeCompressed(),
+			opTrueKeyBytes,
+		) {
+			bobSwapVOutIdx = i
+			break
+		}
+	}
+	require.NotEqual(t.t, -1, bobSwapVOutIdx, "couldn't find swap output")
+
+	// Update swap output with Bob's anchor key (script key stays OP_TRUE).
+	bobVOut := bobVPsbt.Outputs[bobSwapVOutIdx]
+	bobVOut.AnchorOutputBip32Derivation = nil
+	bobVOut.AnchorOutputTaprootBip32Derivation = nil
+	bobVOut.SetAnchorInternalKey(
+		bobAnchorInternalKey, harnessNetParams.HDCoinType,
+	)
+
+	// Set proof delivery address.
+	deliveryAddrStr := fmt.Sprintf(
+		"%s://%s", proof.UniverseRpcCourierType,
+		t.universeServer.ListenAddr,
+	)
+	deliveryAddr, err := url.Parse(deliveryAddrStr)
+	require.NoError(t.t, err)
+	bobVPsbt.Outputs[bobSwapVOutIdx].ProofDeliveryAddress = deliveryAddr
+
+	// Update corresponding BTC output.
+	swapBtcOutputIdx := int(bobVOut.AnchorOutputIndex)
+
+	btcPacket.Outputs[swapBtcOutputIdx].TaprootInternalKey =
+		schnorr.SerializePubKey(bobAnchorInternalKey.PubKey)
+	btcPacket.Outputs[swapBtcOutputIdx].Bip32Derivation =
+		bobVOut.AnchorOutputBip32Derivation
+	btcPacket.Outputs[swapBtcOutputIdx].TaprootBip32Derivation =
+		bobVOut.AnchorOutputTaprootBip32Derivation
+
+	// STEP 16: Bob re-prepares outputs.
+	t.Logf("STEP 16: Re-preparing outputs")
+
+	// Re-prepare outputs to regenerate asset structures with Bob's anchor.
+	// Backup and restore Alice's witnesses since they remain valid.
+	var changeVOutIdx, swapVOutIdx int = -1, -1
+	for i, out := range bobVPsbt.Outputs {
+		if out.Asset != nil && out.Asset.SplitCommitmentRoot != nil {
+			changeVOutIdx = i
+		} else if out.Asset != nil &&
+			len(out.Asset.PrevWitnesses) > 0 &&
+			out.Asset.PrevWitnesses[0].SplitCommitment != nil {
+
+			swapVOutIdx = i
+		}
+	}
+
+	// Backup witnesses.
+	var changeWitnessBackup []asset.Witness
+	if changeVOutIdx >= 0 && bobVPsbt.Outputs[changeVOutIdx].Asset != nil {
+		changeWitnessBackup =
+			bobVPsbt.Outputs[changeVOutIdx].Asset.PrevWitnesses
+	}
+	var swapSplitCommitmentBackup *asset.SplitCommitment
+	if swapVOutIdx >= 0 && bobVPsbt.Outputs[swapVOutIdx].Asset != nil &&
+		len(bobVPsbt.Outputs[swapVOutIdx].Asset.PrevWitnesses) > 0 {
+
+		output := bobVPsbt.Outputs[swapVOutIdx]
+		swapSplitCommitmentBackup =
+			output.Asset.PrevWitnesses[0].SplitCommitment
+	}
+
+	err = tapsend.PrepareOutputAssets(ctxb, bobVPsbt)
+	require.NoError(t.t, err)
+
+	// Restore witnesses.
+	if changeVOutIdx >= 0 && changeWitnessBackup != nil {
+		bobVPsbt.Outputs[changeVOutIdx].Asset.PrevWitnesses =
+			changeWitnessBackup
+	}
+	if swapVOutIdx >= 0 && swapSplitCommitmentBackup != nil &&
+		len(bobVPsbt.Outputs[swapVOutIdx].Asset.PrevWitnesses) > 0 {
+
+		output := bobVPsbt.Outputs[swapVOutIdx]
+		output.Asset.PrevWitnesses[0].SplitCommitment =
+			swapSplitCommitmentBackup
+	}
+
+	// STEP 17: Bob commits and funds.
+	t.Logf("STEP 17: Bob committing and funding")
+
+	bobVPsbtBytes, err := tappsbt.Encode(bobVPsbt)
+	require.NoError(t.t, err)
+
+	btcPacketBytes, err = fn.Serialize(btcPacket)
+	require.NoError(t.t, err)
+
+	// This will add Bob's BTC input to pay Alice.
+	resp, err = bob.CommitVirtualPsbts(
+		ctxb, &wrpc.CommitVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{bobVPsbtBytes},
+			AnchorPsbt:   btcPacketBytes,
+			AnchorChangeOutput: &wrpc.CommitVirtualPsbtsRequest_Add{
+				Add: true,
+			},
+			Fees: &wrpc.CommitVirtualPsbtsRequest_TargetConf{
+				TargetConf: 12,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	bobVPsbt, err = tappsbt.Decode(resp.VirtualPsbts[0])
+	require.NoError(t.t, err)
+
+	// STEP 18: Bob signs BTC input.
+	t.Logf("STEP 18: Bob signing BTC")
+
+	signResp := lndBob.RPC.SignPsbt(&walletrpc.SignPsbtRequest{
+		FundedPsbt: resp.AnchorPsbt,
+	})
+	require.NoError(t.t, err)
+
+	finalPsbt, err := psbt.NewFromRawBytes(
+		bytes.NewReader(signResp.SignedPsbt), false,
+	)
+	require.NoError(t.t, err)
+
+	require.GreaterOrEqual(t.t, len(finalPsbt.Inputs), 2,
+		"Bob should have added his BTC input")
+	require.GreaterOrEqual(t.t, len(signResp.SignedInputs), 1)
+	require.NoError(t.t, finalPsbt.SanityCheck())
+
+	// STEP 19: Finalize and publish.
+	t.Logf("STEP 19: Publishing swap")
+
+	signedPkt := finalizePacket(t.t, lndBob, finalPsbt)
+	require.True(t.t, signedPkt.IsComplete())
+
+	finalPsbtBytes, err := fn.Serialize(signedPkt)
+	require.NoError(t.t, err)
+
+	bobVPsbtBytes, err = tappsbt.Encode(bobVPsbt)
+	require.NoError(t.t, err)
+
+	// Alice publishes (she has the input proof).
+	publishResp, err := alice.PublishAndLogTransfer(
+		ctxb, &wrpc.PublishAndLogRequest{
+			AnchorPsbt:        finalPsbtBytes,
+			VirtualPsbts:      [][]byte{bobVPsbtBytes},
+			ChangeOutputIndex: -1,
+		},
+	)
+	require.NoError(t.t, err)
+	t.Logf("Published: %s", publishResp.Transfer.AnchorTxHash)
+
+	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
+
+	// STEP 20: Verify swap.
+	t.Logf("STEP 20: Verifying swap")
+
+	// Check Alice's change.
+	AssertBalanceByID(t.t, alice, genInfo.AssetId, changeUnits)
+
+	// Bob imports the swap output. First declare the OP_TRUE script key
+	// with its full structure (internal key + tweak + type).
+	opTrueFullScriptKey := asset.ScriptKey{
+		PubKey: opTrueScriptKey.PubKey,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: keychain.KeyDescriptor{
+				PubKey: fundingScriptTree.InternalKey,
+			},
+			Tweak: fundingScriptTree.TapscriptRoot,
+			Type:  asset.ScriptKeyScriptPathChannel,
+		},
+	}
+
+	_, err = bob.DeclareScriptKey(ctxb, &wrpc.DeclareScriptKeyRequest{
+		ScriptKey: rpcutils.MarshalScriptKey(opTrueFullScriptKey),
+	})
+	require.NoError(t.t, err)
+
+	// Push the proof from universe server to Bob.
+	transferTXID := signedPkt.UnsignedTx.TxHash()
+	swapOutputIndex := uint32(1)
+	swapOutpoint := fmt.Sprintf(
+		"%s:%d", transferTXID.String(), swapOutputIndex,
+	)
+
+	transferProofUniRPC(
+		t, t.universeServer.service, bob, opTrueKeyBytes, genInfo,
+		mintedAsset.AssetGroup, swapOutpoint,
+	)
+
+	// Now register the transfer.
+	_, err = bob.RegisterTransfer(
+		ctxb, &taprpc.RegisterTransferRequest{
+			AssetId:   assetID[:],
+			GroupKey:  mintedAsset.AssetGroup.TweakedGroupKey,
+			ScriptKey: opTrueKeyBytes,
+			Outpoint: &taprpc.OutPoint{
+				Txid:        transferTXID[:],
+				OutputIndex: swapOutputIndex,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Verify Bob can see the swap assets. Use ListAssets with all_types
+	// since RegisterTransfer doesn't add to balances the same way.
+	bobAssets, err := bob.ListAssets(ctxb, &taprpc.ListAssetRequest{
+		ScriptKeyType: &taprpc.ScriptKeyTypeQuery{
+			Type: &taprpc.ScriptKeyTypeQuery_AllTypes{
+				AllTypes: true,
+			},
+		},
+	})
+	require.NoError(t.t, err)
+
+	var bobTotal uint64
+	for _, a := range bobAssets.Assets {
+		if bytes.Equal(a.AssetGenesis.AssetId, genInfo.AssetId) {
+			bobTotal += a.Amount
+		}
+	}
+	require.Equal(t.t, swapUnits, bobTotal,
+		"Bob should have %d units (swap)", swapUnits)
+
+	t.Logf("SWAP COMPLETE: Alice=%d units + %d sats, Bob=%d units",
+		changeUnits, swapPrice, swapUnits)
 }
 
 // testPsbtSTXOExclusionProofs tests that we can properly send normal assets
