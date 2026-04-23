@@ -110,7 +110,7 @@ INSERT INTO universe_servers(
     server_host, last_sync_time
 ) VALUES (
     @server_host, @last_sync_time
-);
+) ON CONFLICT (server_host) DO NOTHING;
 
 -- name: DeleteUniverseServer :exec
 DELETE FROM universe_servers
