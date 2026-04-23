@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	_ "modernc.org/sqlite" // Register the pure-Go SQLite driver.
 )
 
@@ -41,7 +43,11 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to read file %s: %v", fname, err)
 		}
-		_, err = db.Exec(string(data))
+		content := string(data)
+		for from, to := range sqlc.SQLiteSchemaReplacements {
+			content = strings.ReplaceAll(content, from, to)
+		}
+		_, err = db.Exec(content)
 		if err != nil {
 			log.Fatalf("error executing migration %s: %v", fname,
 				err)

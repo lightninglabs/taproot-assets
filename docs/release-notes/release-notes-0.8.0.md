@@ -89,6 +89,11 @@
   fixes `DecodeAssetPayReq` so `GenesisInfo` is populated consistently,
   including group-key invoice decodes.
 
+* [PR#2047](https://github.com/lightninglabs/taproot-assets/pull/2047)
+  fixes a bug that affected legacy Postgres-backed universe servers that
+  were upgraded to v0.6.0, by which universe leaf inserts could result in
+  duplicate-key errors.
+
 # New Features
 
 ## Functional Enhancements
