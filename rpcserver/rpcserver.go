@@ -8587,6 +8587,7 @@ func (r *RPCServer) AddAssetBuyOrder(ctx context.Context,
 	type (
 		targetEventType = *rfq.PeerAcceptedBuyQuoteEvent
 		rejectEventType = *rfq.InvalidQuoteRespEvent
+		peerRejectType  = *rfq.IncomingRejectQuoteEvent
 	)
 
 	for {
@@ -8599,6 +8600,16 @@ func (r *RPCServer) AddAssetBuyOrder(ctx context.Context,
 						"rejected quote %v",
 						peer.String(),
 						e.QuoteResponse.String())
+				}
+
+			case peerRejectType:
+				if e.MsgID() == id {
+					return nil, fmt.Errorf(
+						"peer %s rejected "+
+							"quote %v",
+						peer.String(),
+						e.String(),
+					)
 				}
 
 			case targetEventType:
@@ -8833,6 +8844,7 @@ func (r *RPCServer) AddAssetSellOrder(ctx context.Context,
 	type (
 		targetEventType = *rfq.PeerAcceptedSellQuoteEvent
 		rejectEventType = *rfq.InvalidQuoteRespEvent
+		peerRejectType  = *rfq.IncomingRejectQuoteEvent
 	)
 
 	for {
@@ -8845,6 +8857,16 @@ func (r *RPCServer) AddAssetSellOrder(ctx context.Context,
 						"rejected quote %v",
 						peer.String(),
 						e.QuoteResponse.String())
+				}
+
+			case peerRejectType:
+				if e.MsgID() == id {
+					return nil, fmt.Errorf(
+						"peer %s rejected "+
+							"quote %v",
+						peer.String(),
+						e.String(),
+					)
 				}
 
 			case targetEventType:

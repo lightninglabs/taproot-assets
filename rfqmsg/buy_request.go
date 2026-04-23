@@ -267,33 +267,14 @@ func (q *BuyRequest) Validate() error {
 	}
 
 	// Ensure rate limit is strictly positive when set.
-	err = fn.MapOptionZ(
-		q.AssetRateLimit,
-		func(limit rfqmath.BigIntFixedPoint) error {
-			zero := rfqmath.NewBigIntFromUint64(0)
-			if !limit.Coefficient.Gt(zero) {
-				return fmt.Errorf("asset rate limit " +
-					"coefficient must be positive")
-			}
-			return nil
-		},
-	)
-	if err != nil {
+	if err := validateRateLimit(q.AssetRateLimit); err != nil {
 		return err
 	}
 
 	// Ensure execution policy is valid when set.
-	err = fn.MapOptionZ(
+	if err := validateExecutionPolicy(
 		q.ExecutionPolicy,
-		func(p ExecutionPolicy) error {
-			if p > ExecutionPolicyFOK {
-				return fmt.Errorf("invalid execution "+
-					"policy: %d", p)
-			}
-			return nil
-		},
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
@@ -346,6 +327,18 @@ func (q *BuyRequest) MsgPeer() route.Vertex {
 // MsgID returns the quote request session ID.
 func (q *BuyRequest) MsgID() ID {
 	return q.ID
+}
+
+// Constraints returns the normalised limit-order constraints for
+// this buy request.
+func (q *BuyRequest) Constraints() RequestConstraints {
+	return RequestConstraints{
+		MaxAmount:       q.AssetMaxAmt,
+		MinAmount:       q.AssetMinAmt,
+		RateLimit:       q.AssetRateLimit,
+		RateBoundCmp:    -1,
+		ExecutionPolicy: q.ExecutionPolicy,
+	}
 }
 
 // requestMarker makes BuyRequest satisfy the Request interface while keeping

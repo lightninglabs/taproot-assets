@@ -185,6 +185,10 @@ func TestResolveRequest(t *testing.T) {
 		// error.
 		expectErr string
 
+		// expectReject, if true, means we expect a reject response
+		// (not an error, but a valid reject).
+		expectReject bool
+
 		// assertFn performs per-case assertions.
 		assertFn func(
 			t *testing.T, resp ResolveResp, req rfqmsg.Request,
@@ -457,6 +461,320 @@ func TestResolveRequest(t *testing.T) {
 				)
 			},
 		},
+
+		// --- Responder-side constraint enforcement ---
+
+		{
+			name:         "buy: rate bound reject",
+			expectReject: true,
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				// Rate limit of 200 means the
+				// oracle's 125 is below bound.
+				req, err := rfqmsg.NewBuyRequest(
+					route.Vertex{0x01, 0x02, 0x03},
+					asset.NewSpecifierFromId(
+						asset.ID{0xA0},
+					),
+					100,
+					fn.None[uint64](),
+					fn.Some(
+						rfqmath.NewBigIntFixedPoint(
+							200, 0,
+						),
+					),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
+				)
+				require.NoError(t, err)
+				return req
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				expectQuerySellPrice(
+					o, &OracleResponse{
+						AssetRate: expectedBuyRate,
+					}, nil,
+				)
+			},
+			assertFn: func(
+				t *testing.T, resp ResolveResp,
+				_ rfqmsg.Request,
+				_ *MockPriceOracle,
+			) {
+
+				require.True(t, resp.IsReject())
+				resp.WhenReject(
+					func(e rfqmsg.RejectErr) {
+						require.Equal(
+							t,
+							rfqmsg.PriceBoundMissRejectCode, //nolint:lll
+							e.Code,
+						)
+					},
+				)
+			},
+		},
+		{
+			name:         "buy: min fill reject",
+			expectReject: true,
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				// Huge rate: 1 unit → ~0 msat,
+				// so min of 1 is untransportable.
+				req, err := rfqmsg.NewBuyRequest(
+					route.Vertex{0x01, 0x02, 0x03},
+					asset.NewSpecifierFromId(
+						asset.ID{0xA1},
+					),
+					1,
+					fn.Some[uint64](1),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
+				)
+				require.NoError(t, err)
+				return req
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				hugeRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(
+						1_000_000_000_000, 0,
+					),
+					buyResponseExpiry,
+				)
+				expectQuerySellPrice(
+					o, &OracleResponse{
+						AssetRate: hugeRate,
+					}, nil,
+				)
+			},
+			assertFn: func(
+				t *testing.T, resp ResolveResp,
+				_ rfqmsg.Request,
+				_ *MockPriceOracle,
+			) {
+
+				require.True(t, resp.IsReject())
+				resp.WhenReject(
+					func(e rfqmsg.RejectErr) {
+						require.Equal(
+							t,
+							rfqmsg.MinFillNotMetRejectCode, //nolint:lll
+							e.Code,
+						)
+					},
+				)
+			},
+		},
+		{
+			name:         "buy: FOK reject",
+			expectReject: true,
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				// Huge rate: 1 unit → ~0 msat.
+				req, err := rfqmsg.NewBuyRequest(
+					route.Vertex{0x01, 0x02, 0x03},
+					asset.NewSpecifierFromId(
+						asset.ID{0xA2},
+					),
+					1,
+					fn.None[uint64](),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.Some(
+						rfqmsg.ExecutionPolicyFOK,
+					),
+				)
+				require.NoError(t, err)
+				return req
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				hugeRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(
+						1_000_000_000_000, 0,
+					),
+					buyResponseExpiry,
+				)
+				expectQuerySellPrice(
+					o, &OracleResponse{
+						AssetRate: hugeRate,
+					}, nil,
+				)
+			},
+			assertFn: func(
+				t *testing.T, resp ResolveResp,
+				_ rfqmsg.Request,
+				_ *MockPriceOracle,
+			) {
+
+				require.True(t, resp.IsReject())
+				resp.WhenReject(
+					func(e rfqmsg.RejectErr) {
+						require.Equal(
+							t,
+							rfqmsg.FOKNotViableRejectCode, //nolint:lll
+							e.Code,
+						)
+					},
+				)
+			},
+		},
+		{
+			name:         "sell: rate bound reject",
+			expectReject: true,
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				// Rate limit of 50: oracle's 200 is
+				// above the sell upper bound.
+				req, err := rfqmsg.NewSellRequest(
+					route.Vertex{0x0A, 0x0B, 0x0C},
+					asset.NewSpecifierFromId(
+						asset.ID{0xB0},
+					),
+					lnwire.MilliSatoshi(10000),
+					fn.None[lnwire.MilliSatoshi](),
+					fn.Some(
+						rfqmath.NewBigIntFixedPoint(
+							50, 0,
+						),
+					),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
+				)
+				require.NoError(t, err)
+				return req
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				expectQueryBuyPrice(
+					o, &OracleResponse{
+						AssetRate: expectedSellRate,
+					}, nil,
+				)
+			},
+			assertFn: func(
+				t *testing.T, resp ResolveResp,
+				_ rfqmsg.Request,
+				_ *MockPriceOracle,
+			) {
+
+				require.True(t, resp.IsReject())
+				resp.WhenReject(
+					func(e rfqmsg.RejectErr) {
+						require.Equal(
+							t,
+							rfqmsg.PriceBoundMissRejectCode, //nolint:lll
+							e.Code,
+						)
+					},
+				)
+			},
+		},
+		{
+			name:         "sell: min fill reject",
+			expectReject: true,
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				// Low rate (1 unit/BTC): 1 msat
+				// converts to 0 units.
+				req, err := rfqmsg.NewSellRequest(
+					route.Vertex{0x0A, 0x0B, 0x0C},
+					asset.NewSpecifierFromId(
+						asset.ID{0xB1},
+					),
+					lnwire.MilliSatoshi(1),
+					fn.Some(lnwire.MilliSatoshi(1)),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
+				)
+				require.NoError(t, err)
+				return req
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				lowRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(
+						1, 0,
+					),
+					sellResponseExpiry,
+				)
+				expectQueryBuyPrice(
+					o, &OracleResponse{
+						AssetRate: lowRate,
+					}, nil,
+				)
+			},
+			assertFn: func(
+				t *testing.T, resp ResolveResp,
+				_ rfqmsg.Request,
+				_ *MockPriceOracle,
+			) {
+
+				require.True(t, resp.IsReject())
+				resp.WhenReject(
+					func(e rfqmsg.RejectErr) {
+						require.Equal(
+							t,
+							rfqmsg.MinFillNotMetRejectCode, //nolint:lll
+							e.Code,
+						)
+					},
+				)
+			},
+		},
+		{
+			name:         "sell: FOK reject",
+			expectReject: true,
+			makeReq: func(t *testing.T) rfqmsg.Request {
+				// Low rate (1 unit/BTC): 1 msat
+				// converts to 0 units.
+				req, err := rfqmsg.NewSellRequest(
+					route.Vertex{0x0A, 0x0B, 0x0C},
+					asset.NewSpecifierFromId(
+						asset.ID{0xB2},
+					),
+					lnwire.MilliSatoshi(1),
+					fn.None[lnwire.MilliSatoshi](),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.Some(
+						rfqmsg.ExecutionPolicyFOK,
+					),
+				)
+				require.NoError(t, err)
+				return req
+			},
+			setupOracle: func(o *MockPriceOracle) {
+				lowRate := rfqmsg.NewAssetRate(
+					rfqmath.NewBigIntFixedPoint(
+						1, 0,
+					),
+					sellResponseExpiry,
+				)
+				expectQueryBuyPrice(
+					o, &OracleResponse{
+						AssetRate: lowRate,
+					}, nil,
+				)
+			},
+			assertFn: func(
+				t *testing.T, resp ResolveResp,
+				_ rfqmsg.Request,
+				_ *MockPriceOracle,
+			) {
+
+				require.True(t, resp.IsReject())
+				resp.WhenReject(
+					func(e rfqmsg.RejectErr) {
+						require.Equal(
+							t,
+							rfqmsg.FOKNotViableRejectCode, //nolint:lll
+							e.Code,
+						)
+					},
+				)
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -483,6 +801,11 @@ func TestResolveRequest(t *testing.T) {
 				require.ErrorContains(t, err, tc.expectErr)
 				require.False(t, resp.IsAccept())
 				require.False(t, resp.IsReject())
+
+			case tc.expectReject:
+				require.NoError(t, err)
+				require.True(t, resp.IsReject())
+				require.False(t, resp.IsAccept())
 
 			default:
 				require.NoError(t, err)
@@ -1255,6 +1578,257 @@ func TestVerifyAcceptQuote(t *testing.T) {
 			expectStatus: FOKNotViableQuoteRespStatus,
 			expectErr:    false,
 		},
+
+		// --- Fill constraint cases ---
+
+		{
+			name: "buy accept: fill < min fill",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.Some[uint64](50),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:              peerID,
+					Request:           *buyReq,
+					AssetRate:         peerRate,
+					AcceptedMaxAmount: fn.Some[uint64](30),
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQueryBuyPrice(
+					p, &OracleResponse{
+						AssetRate: oracleRateMatch,
+					}, nil,
+				)
+			},
+			expectStatus: MinFillNotMetQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "buy accept: FOK fill < max",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[uint64](),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.Some(
+						rfqmsg.ExecutionPolicyFOK,
+					),
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:              peerID,
+					Request:           *buyReq,
+					AssetRate:         peerRate,
+					AcceptedMaxAmount: fn.Some[uint64](80),
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQueryBuyPrice(
+					p, &OracleResponse{
+						AssetRate: oracleRateMatch,
+					}, nil,
+				)
+			},
+			expectStatus: FOKNotViableQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "buy accept: IOC partial fill accepted",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[uint64](),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.Some(
+						rfqmsg.ExecutionPolicyIOC,
+					),
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:              peerID,
+					Request:           *buyReq,
+					AssetRate:         peerRate,
+					AcceptedMaxAmount: fn.Some[uint64](60),
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQueryBuyPrice(
+					p, &OracleResponse{
+						AssetRate: oracleRateMatch,
+					}, nil,
+				)
+			},
+			expectStatus: ValidAcceptQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "sell accept: fill < min fill",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				sellReq, err := rfqmsg.NewSellRequest(
+					peerID, assetSpec,
+					lnwire.MilliSatoshi(1000),
+					fn.Some(
+						lnwire.MilliSatoshi(500),
+					),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.SellAccept{
+					Peer:              peerID,
+					Request:           *sellReq,
+					AssetRate:         peerRate,
+					AcceptedMaxAmount: fn.Some[uint64](300),
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				resp := OracleResponse{
+					AssetRate: oracleRateMatch,
+				}
+				expectQuerySellPrice(p, &resp, nil)
+			},
+			expectStatus: MinFillNotMetQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "sell accept: FOK fill < max",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				sellReq, err := rfqmsg.NewSellRequest(
+					peerID, assetSpec,
+					lnwire.MilliSatoshi(1000),
+					fn.None[lnwire.MilliSatoshi](),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.Some(
+						rfqmsg.ExecutionPolicyFOK,
+					),
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.SellAccept{
+					Peer:              peerID,
+					Request:           *sellReq,
+					AssetRate:         peerRate,
+					AcceptedMaxAmount: fn.Some[uint64](800),
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				resp := OracleResponse{
+					AssetRate: oracleRateMatch,
+				}
+				expectQuerySellPrice(p, &resp, nil)
+			},
+			expectStatus: FOKNotViableQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "buy accept: fill > max",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.None[uint64](),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:              peerID,
+					Request:           *buyReq,
+					AssetRate:         peerRate,
+					AcceptedMaxAmount: fn.Some[uint64](150),
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQueryBuyPrice(
+					p, &OracleResponse{
+						AssetRate: oracleRateMatch,
+					}, nil,
+				)
+			},
+			expectStatus: FillExceedsMaxQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "sell accept: fill > max",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				sellReq, err := rfqmsg.NewSellRequest(
+					peerID, assetSpec,
+					lnwire.MilliSatoshi(1000),
+					fn.None[lnwire.MilliSatoshi](),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.SellAccept{
+					Peer:              peerID,
+					Request:           *sellReq,
+					AssetRate:         peerRate,
+					AcceptedMaxAmount: fn.Some[uint64](1500), //nolint:lll
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				resp := OracleResponse{
+					AssetRate: oracleRateMatch,
+				}
+				expectQuerySellPrice(p, &resp, nil)
+			},
+			expectStatus: FillExceedsMaxQuoteRespStatus,
+			expectErr:    false,
+		},
+		{
+			name: "buy accept: fill >= min (passes)",
+			makeAccept: func(t *testing.T) rfqmsg.Accept {
+				buyReq, err := rfqmsg.NewBuyRequest(
+					peerID, assetSpec, 100,
+					fn.Some[uint64](50),
+					fn.None[rfqmath.BigIntFixedPoint](),
+					fn.None[rfqmsg.AssetRate](),
+					"metadata",
+					fn.None[rfqmsg.ExecutionPolicy](),
+				)
+				require.NoError(t, err)
+
+				return &rfqmsg.BuyAccept{
+					Peer:              peerID,
+					Request:           *buyReq,
+					AssetRate:         peerRate,
+					AcceptedMaxAmount: fn.Some[uint64](60),
+				}
+			},
+			setupOracle: func(p *MockPriceOracle) {
+				expectQueryBuyPrice(
+					p, &OracleResponse{
+						AssetRate: oracleRateMatch,
+					}, nil,
+				)
+			},
+			expectStatus: ValidAcceptQuoteRespStatus,
+			expectErr:    false,
+		},
 	}
 
 	for _, tc := range tests {
@@ -1695,6 +2269,189 @@ func TestCheckFOK(t *testing.T) {
 			t.Parallel()
 
 			status := checkFOK(tc.req, tc.rate)
+			require.Equal(t, tc.expect, status)
+		})
+	}
+}
+
+// TestCheckFillConstraints exercises the checkFillConstraints helper
+// directly.
+func TestCheckFillConstraints(t *testing.T) {
+	t.Parallel()
+
+	spec := asset.NewSpecifierFromId(asset.ID{0x01})
+
+	tests := []struct {
+		name   string
+		req    rfqmsg.Request
+		fill   fn.Option[uint64]
+		expect QuoteRespStatus
+	}{
+		{
+			name: "buy: no fill",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				AssetMinAmt:    fn.Some[uint64](50),
+			},
+			fill:   fn.None[uint64](),
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "buy: fill >= min",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				AssetMinAmt:    fn.Some[uint64](50),
+			},
+			fill:   fn.Some[uint64](60),
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "buy: fill < min",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				AssetMinAmt:    fn.Some[uint64](50),
+			},
+			fill:   fn.Some[uint64](30),
+			expect: MinFillNotMetQuoteRespStatus,
+		},
+		{
+			name: "buy: FOK fill == max",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				ExecutionPolicy: fn.Some(
+					rfqmsg.ExecutionPolicyFOK,
+				),
+			},
+			fill:   fn.Some[uint64](100),
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "buy: FOK fill < max",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				ExecutionPolicy: fn.Some(
+					rfqmsg.ExecutionPolicyFOK,
+				),
+			},
+			fill:   fn.Some[uint64](80),
+			expect: FOKNotViableQuoteRespStatus,
+		},
+		{
+			name: "sell: no fill",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  1000,
+				PaymentMinAmt: fn.Some(
+					lnwire.MilliSatoshi(500),
+				),
+			},
+			fill:   fn.None[uint64](),
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "sell: fill >= min",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  1000,
+				PaymentMinAmt: fn.Some(
+					lnwire.MilliSatoshi(500),
+				),
+			},
+			fill:   fn.Some[uint64](600),
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "sell: fill < min",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  1000,
+				PaymentMinAmt: fn.Some(
+					lnwire.MilliSatoshi(500),
+				),
+			},
+			fill:   fn.Some[uint64](300),
+			expect: MinFillNotMetQuoteRespStatus,
+		},
+		{
+			name: "sell: FOK fill == max",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  1000,
+				ExecutionPolicy: fn.Some(
+					rfqmsg.ExecutionPolicyFOK,
+				),
+			},
+			fill:   fn.Some[uint64](1000),
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "sell: FOK fill < max",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  1000,
+				ExecutionPolicy: fn.Some(
+					rfqmsg.ExecutionPolicyFOK,
+				),
+			},
+			fill:   fn.Some[uint64](800),
+			expect: FOKNotViableQuoteRespStatus,
+		},
+		{
+			name: "buy: fill > max",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+			},
+			fill:   fn.Some[uint64](150),
+			expect: FillExceedsMaxQuoteRespStatus,
+		},
+		{
+			name: "sell: fill > max",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  1000,
+			},
+			fill:   fn.Some[uint64](1500),
+			expect: FillExceedsMaxQuoteRespStatus,
+		},
+		{
+			name: "buy: IOC fill < max (partial fill ok)",
+			req: &rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+				AssetMaxAmt:    100,
+				ExecutionPolicy: fn.Some(
+					rfqmsg.ExecutionPolicyIOC,
+				),
+			},
+			fill:   fn.Some[uint64](60),
+			expect: ValidAcceptQuoteRespStatus,
+		},
+		{
+			name: "sell: IOC fill < max (partial fill ok)",
+			req: &rfqmsg.SellRequest{
+				AssetSpecifier: spec,
+				PaymentMaxAmt:  1000,
+				ExecutionPolicy: fn.Some(
+					rfqmsg.ExecutionPolicyIOC,
+				),
+			},
+			fill:   fn.Some[uint64](600),
+			expect: ValidAcceptQuoteRespStatus,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			status := checkFillConstraints(
+				tc.req, tc.fill,
+			)
 			require.Equal(t, tc.expect, status)
 		})
 	}

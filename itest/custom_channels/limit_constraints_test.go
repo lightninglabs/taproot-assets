@@ -309,6 +309,62 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 	logBalance(t.t, nodes, assetID, "after FOK payment")
 	t.Logf("FOK payment completed: %d units sent", numUnitsFOK)
 
+	// -----------------------------------------------------------------
+	// Negotiate a sell order with explicit IOC policy.
+	// This mirrors the implicit-IOC block above but sets the
+	// execution policy explicitly to prove the RPC surface
+	// accepts and correctly handles the value end-to-end.
+	// -----------------------------------------------------------------
+	t.Logf("Negotiating sell order with explicit IOC policy...")
+
+	sellRespIOC, err := asTapd(charlie).RfqClient.AddAssetSellOrder(
+		ctxb, &rfqrpc.AddAssetSellOrderRequest{
+			AssetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetId{
+					AssetId: assetID,
+				},
+			},
+			PaymentMaxAmt: 180_000_000,
+			PaymentMinAmt: 1000,
+			AssetRateLimit: &rfqrpc.FixedPoint{
+				Coefficient: "100000000000000",
+				Scale:       2,
+			},
+			ExecutionPolicy: rfqrpc.ExecutionPolicy_EXECUTION_POLICY_IOC,
+			Expiry:          uint64(inOneHour.Unix()),
+			PeerPubKey:      dave.PubKey[:],
+			TimeoutSeconds:  10,
+		},
+	)
+	require.NoError(t.t, err, "sell order with explicit IOC")
+
+	acceptedIOC := sellRespIOC.GetAcceptedQuote()
+	require.NotNil(
+		t.t, acceptedIOC,
+		"expected accepted IOC sell quote",
+	)
+	t.Logf("IOC sell quote accepted: scid=%d", acceptedIOC.Scid)
+
+	// Pay using the IOC quote with a regular BTC invoice.
+	invoiceRespIOC, err := erin.LightningClient.AddInvoice(
+		ctxb, &lnrpc.Invoice{
+			ValueMsat: invoiceMsat,
+		},
+	)
+	require.NoError(t.t, err)
+
+	var quoteIDIOC rfqmsg.ID
+	copy(quoteIDIOC[:], acceptedIOC.Id)
+
+	numUnitsIOC, _ := payInvoiceWithAssets(
+		t.t, charlie, dave, invoiceRespIOC.PaymentRequest,
+		assetID, withRFQ(quoteIDIOC),
+	)
+	require.Greater(t.t, numUnitsIOC, uint64(0))
+
+	logBalance(t.t, nodes, assetID, "after explicit IOC payment")
+	t.Logf("IOC payment completed: %d units sent", numUnitsIOC)
+
 	// Close channels.
 	closeAssetChannelAndAssert(
 		t, net, charlie, dave, chanPointCD,

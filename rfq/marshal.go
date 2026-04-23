@@ -49,6 +49,7 @@ func MarshalAcceptedSellQuote(
 		AssetAmount:          numAssetUnits.ScaleTo(0).ToUint64(),
 		MinTransportableMsat: uint64(minTransportableMSat),
 		PriceOracleMetadata:  accept.Request.PriceOracleMetadata,
+		AcceptedMaxAmount:    accept.AcceptedMaxAmount.UnwrapOr(0),
 	}
 
 	// Populate asset ID and/or group key based on the asset specifier.
@@ -96,6 +97,7 @@ func MarshalAcceptedBuyQuote(q rfqmsg.BuyAccept) *rfqrpc.PeerAcceptedBuyQuote {
 		Expiry:                uint64(q.AssetRate.Expiry.Unix()),
 		MinTransportableUnits: minTransportableUnits,
 		PriceOracleMetadata:   q.Request.PriceOracleMetadata,
+		AcceptedMaxAmount:     q.AcceptedMaxAmount.UnwrapOr(0),
 	}
 
 	// Populate asset ID and/or group key based on the asset specifier.

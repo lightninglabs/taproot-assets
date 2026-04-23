@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -32,6 +34,11 @@ type BuyAccept struct {
 	// AssetRate is the accepted asset to BTC rate.
 	AssetRate AssetRate
 
+	// AcceptedMaxAmount is an optional fill quantity that caps the
+	// amount the responder is willing to accept. When None the full
+	// request max is implied.
+	AcceptedMaxAmount fn.Option[uint64]
+
 	// sig is a signature over the serialized contents of the message.
 	sig [64]byte
 
@@ -46,15 +53,17 @@ type BuyAccept struct {
 // AgreedAt value (e.g., when reconstructing from storage), they should
 // manually construct the BuyAccept.
 func NewBuyAcceptFromRequest(request BuyRequest,
-	assetRate AssetRate) *BuyAccept {
+	assetRate AssetRate,
+	fillAmount fn.Option[uint64]) *BuyAccept {
 
 	return &BuyAccept{
-		Peer:      request.Peer,
-		Request:   request,
-		Version:   latestBuyAcceptVersion,
-		ID:        request.ID,
-		AssetRate: assetRate,
-		AgreedAt:  time.Now().UTC(),
+		Peer:              request.Peer,
+		Request:           request,
+		Version:           latestBuyAcceptVersion,
+		ID:                request.ID,
+		AssetRate:         assetRate,
+		AcceptedMaxAmount: fillAmount,
+		AgreedAt:          time.Now().UTC(),
 	}
 }
 
@@ -75,14 +84,23 @@ func newBuyAcceptFromWireMsg(wireMsg WireMessage,
 	// Convert the unix timestamp in seconds to a time.Time.
 	expiry := time.Unix(int64(msgData.Expiry.Val), 0).UTC()
 
+	// Extract the optional fill quantity.
+	var acceptedMax fn.Option[uint64]
+	msgData.MaxInAsset.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType11, uint64]) {
+			acceptedMax = fn.Some(r.Val)
+		},
+	)
+
 	return &BuyAccept{
-		Peer:      wireMsg.Peer,
-		Request:   request,
-		Version:   msgData.Version.Val,
-		ID:        msgData.ID.Val,
-		AssetRate: NewAssetRate(assetRate, expiry),
-		sig:       msgData.Sig.Val,
-		AgreedAt:  time.Now().UTC(),
+		Peer:              wireMsg.Peer,
+		Request:           request,
+		Version:           msgData.Version.Val,
+		ID:                msgData.ID.Val,
+		AssetRate:         NewAssetRate(assetRate, expiry),
+		AcceptedMaxAmount: acceptedMax,
+		sig:               msgData.Sig.Val,
+		AgreedAt:          time.Now().UTC(),
 	}, nil
 }
 
@@ -142,14 +160,28 @@ func (q *BuyAccept) OriginalRequest() Request {
 	return &q.Request
 }
 
+// AcceptedFillAmount returns the optional negotiated fill quantity.
+func (q *BuyAccept) AcceptedFillAmount() fn.Option[uint64] {
+	return q.AcceptedMaxAmount
+}
+
 // acceptMarker makes BuyAccept satisfy the Accept interface while keeping
 // implementations local to this package.
 func (q *BuyAccept) acceptMarker() {}
 
 // String returns a human-readable string representation of the message.
 func (q *BuyAccept) String() string {
-	return fmt.Sprintf("BuyAccept(peer=%x, id=%x, asset_rate=%s, scid=%d)",
-		q.Peer[:], q.ID[:], q.AssetRate.String(), q.ShortChannelId())
+	fillStr := ""
+	q.AcceptedMaxAmount.WhenSome(func(amt uint64) {
+		fillStr = fmt.Sprintf(", fill=%d", amt)
+	})
+
+	return fmt.Sprintf(
+		"BuyAccept(peer=%x, id=%x, asset_rate=%s, "+
+			"scid=%d%s)",
+		q.Peer[:], q.ID[:], q.AssetRate.String(),
+		q.ShortChannelId(), fillStr,
+	)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

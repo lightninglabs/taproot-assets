@@ -314,9 +314,10 @@ func (n *Negotiator) HandleIncomingQuoteRequest(ctx context.Context,
 		}
 
 		var acceptErr error
+		fillAmount := resp.FillAmount()
 		resp.WhenAccept(func(assetRate rfqmsg.AssetRate) {
 			msg, err := rfqmsg.NewQuoteAcceptFromRequest(
-				request, assetRate,
+				request, assetRate, fillAmount,
 			)
 			if err != nil {
 				acceptErr = fmt.Errorf("create quote accept "+

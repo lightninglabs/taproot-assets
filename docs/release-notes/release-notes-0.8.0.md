@@ -130,6 +130,12 @@
   with a new `FOK_NOT_VIABLE` reject code. New fields are optional and
   backward-compatible.
 
+- [Fill Quantity Negotiation](https://github.com/lightninglabs/taproot-assets/pull/2050):
+  RFQ accept messages now carry an optional fill quantity, allowing
+  the responder to signal the maximum amount it is willing to fill.
+  The negotiated fill caps HTLC policies so forwarding never exceeds
+  the agreed amount.
+
 ## Functional Enhancements
 
 - [Wallet Backup/Restore](https://github.com/lightninglabs/taproot-assets/pull/1980):
@@ -187,6 +193,13 @@
   `EXECUTION_POLICY_FOK`) to `AddAssetBuyOrder` and `AddAssetSellOrder`
   requests, and to `PortfolioPilot.ResolveRequest` for constraint
   forwarding. Add `FOK_NOT_VIABLE` to `QuoteRespStatus`.
+
+- [PR#2050](https://github.com/lightninglabs/taproot-assets/pull/2050):
+  Add `max_in_asset` to `PeerAcceptedBuyQuote` and
+  `PeerAcceptedSellQuote` in both the RFQ and PortfolioPilot
+  services, exposing the negotiated fill quantity to RPC clients.
+  Add `fill_amount` to `PortfolioPilot.ResolveResponse` for
+  responder-side fill signalling.
 
 ## tapcli Additions
 
@@ -398,6 +411,10 @@
 - [PR#2023](https://github.com/lightninglabs/taproot-assets/pull/2023)
   Add `DeleteUniverseLeaf` SQL query for single-leaf deletion from a
   universe.
+
+- [PR#2050](https://github.com/lightninglabs/taproot-assets/pull/2050)
+  Add `accepted_max_amount` column to the `rfq_policies` table to
+  persist the negotiated fill quantity alongside HTLC policies.
 
 ## Code Health
 

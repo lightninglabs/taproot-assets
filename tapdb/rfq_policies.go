@@ -64,6 +64,15 @@ type rfqPolicy struct {
 	// RequestVersion is the version of the RFQ request.
 	RequestVersion *uint32
 
+	// AcceptedMaxAmount is the optional fill cap from the accept
+	// message. For sales it is asset units; for purchases it is
+	// msat. NULL means the full request max applies.
+	AcceptedMaxAmount *uint64
+
+	// ExecutionPolicy is the optional execution policy from
+	// the original request (IOC or FOK).
+	ExecutionPolicy *uint8
+
 	// AgreedAt is the timestamp when the policy was agreed upon.
 	AgreedAt time.Time
 }
@@ -109,6 +118,19 @@ func (s *PersistedPolicyStore) StoreSalePolicy(ctx context.Context,
 	rateBytes := coefficientBytes(acpt.AssetRate.Rate)
 	expiry := acpt.AssetRate.Expiry.UTC()
 
+	var acceptedMax *uint64
+	acpt.AcceptedMaxAmount.WhenSome(func(v uint64) {
+		acceptedMax = fn.Ptr(v)
+	})
+
+	var execPolicy *uint8
+	acpt.Request.ExecutionPolicy.WhenSome(
+		func(ep rfqmsg.ExecutionPolicy) {
+			v := uint8(ep)
+			execPolicy = &v
+		},
+	)
+
 	record := rfqPolicy{
 		PolicyType:          rfq.RfqPolicyTypeAssetSale,
 		Scid:                uint64(acpt.ShortChannelId()),
@@ -121,6 +143,8 @@ func (s *PersistedPolicyStore) StoreSalePolicy(ctx context.Context,
 		ExpiryUnix:          uint64(expiry.Unix()),
 		MaxOutAssetAmt:      fn.Ptr(acpt.Request.AssetMaxAmt),
 		RequestAssetMaxAmt:  fn.Ptr(acpt.Request.AssetMaxAmt),
+		AcceptedMaxAmount:   acceptedMax,
+		ExecutionPolicy:     execPolicy,
 		PriceOracleMetadata: acpt.Request.PriceOracleMetadata,
 		RequestVersion:      fn.Ptr(uint32(acpt.Request.Version)),
 		AgreedAt:            acpt.AgreedAt.UTC(),
@@ -138,6 +162,19 @@ func (s *PersistedPolicyStore) StorePurchasePolicy(ctx context.Context,
 	expiry := acpt.AssetRate.Expiry.UTC()
 	paymentMax := int64(acpt.Request.PaymentMaxAmt)
 
+	var acceptedMax *uint64
+	acpt.AcceptedMaxAmount.WhenSome(func(v uint64) {
+		acceptedMax = fn.Ptr(v)
+	})
+
+	var execPolicy *uint8
+	acpt.Request.ExecutionPolicy.WhenSome(
+		func(ep rfqmsg.ExecutionPolicy) {
+			v := uint8(ep)
+			execPolicy = &v
+		},
+	)
+
 	record := rfqPolicy{
 		PolicyType:            rfq.RfqPolicyTypeAssetPurchase,
 		Scid:                  uint64(acpt.ShortChannelId()),
@@ -150,6 +187,8 @@ func (s *PersistedPolicyStore) StorePurchasePolicy(ctx context.Context,
 		ExpiryUnix:            uint64(expiry.Unix()),
 		PaymentMaxMsat:        fn.Ptr(paymentMax),
 		RequestPaymentMaxMsat: fn.Ptr(paymentMax),
+		AcceptedMaxAmount:     acceptedMax,
+		ExecutionPolicy:       execPolicy,
 		PriceOracleMetadata:   acpt.Request.PriceOracleMetadata,
 		RequestVersion:        fn.Ptr(uint32(acpt.Request.Version)),
 		AgreedAt:              acpt.AgreedAt.UTC(),
@@ -247,6 +286,19 @@ func (s *PersistedPolicyStore) StorePeerAcceptedBuyQuote(ctx context.Context,
 	rateBytes := coefficientBytes(acpt.AssetRate.Rate)
 	expiry := acpt.AssetRate.Expiry.UTC()
 
+	var acceptedMax *uint64
+	acpt.AcceptedMaxAmount.WhenSome(func(v uint64) {
+		acceptedMax = fn.Ptr(v)
+	})
+
+	var execPolicy *uint8
+	acpt.Request.ExecutionPolicy.WhenSome(
+		func(ep rfqmsg.ExecutionPolicy) {
+			v := uint8(ep)
+			execPolicy = &v
+		},
+	)
+
 	record := rfqPolicy{
 		PolicyType:          rfq.RfqPolicyTypeAssetPeerAcceptedBuy,
 		Scid:                uint64(acpt.ShortChannelId()),
@@ -259,6 +311,8 @@ func (s *PersistedPolicyStore) StorePeerAcceptedBuyQuote(ctx context.Context,
 		ExpiryUnix:          uint64(expiry.Unix()),
 		MaxOutAssetAmt:      fn.Ptr(acpt.Request.AssetMaxAmt),
 		RequestAssetMaxAmt:  fn.Ptr(acpt.Request.AssetMaxAmt),
+		AcceptedMaxAmount:   acceptedMax,
+		ExecutionPolicy:     execPolicy,
 		PriceOracleMetadata: acpt.Request.PriceOracleMetadata,
 		RequestVersion:      fn.Ptr(uint32(acpt.Request.Version)),
 		AgreedAt:            acpt.AgreedAt.UTC(),
@@ -347,6 +401,8 @@ func newInsertParams(policy rfqPolicy) sqlc.InsertRfqPolicyParams {
 
 	params.PriceOracleMetadata = sqlStr(policy.PriceOracleMetadata)
 	params.RequestVersion = sqlPtrInt32(policy.RequestVersion)
+	params.AcceptedMaxAmount = sqlPtrInt64(policy.AcceptedMaxAmount)
+	params.ExecutionPolicy = sqlPtrInt32(policy.ExecutionPolicy)
 
 	return params
 }
@@ -399,6 +455,12 @@ func policyFromRow(row sqlc.RfqPolicy) rfqPolicy {
 	)
 	policy.RequestPaymentMaxMsat = extractSqlInt64Ptr[int64](
 		row.RequestPaymentMaxMsat,
+	)
+	policy.AcceptedMaxAmount = extractSqlInt64Ptr[uint64](
+		row.AcceptedMaxAmount,
+	)
+	policy.ExecutionPolicy = extractSqlInt32Ptr[uint8](
+		row.ExecutionPolicy,
 	)
 
 	return policy
@@ -472,6 +534,13 @@ func buyAcceptFromStored(row rfqPolicy) (rfqmsg.BuyAccept, error) {
 
 	expiry := time.Unix(int64(row.ExpiryUnix), 0).UTC()
 
+	var execPolicy fn.Option[rfqmsg.ExecutionPolicy]
+	if row.ExecutionPolicy != nil {
+		execPolicy = fn.Some(
+			rfqmsg.ExecutionPolicy(*row.ExecutionPolicy),
+		)
+	}
+
 	request := rfqmsg.BuyRequest{
 		Peer:                vertex,
 		Version:             version,
@@ -480,15 +549,22 @@ func buyAcceptFromStored(row rfqPolicy) (rfqmsg.BuyAccept, error) {
 		AssetMaxAmt:         *assetMax,
 		AssetRateHint:       fn.None[rfqmsg.AssetRate](),
 		PriceOracleMetadata: row.PriceOracleMetadata,
+		ExecutionPolicy:     execPolicy,
+	}
+
+	var fillOpt fn.Option[uint64]
+	if row.AcceptedMaxAmount != nil {
+		fillOpt = fn.Some(*row.AcceptedMaxAmount)
 	}
 
 	return rfqmsg.BuyAccept{
-		Peer:      vertex,
-		Request:   request,
-		Version:   rfqmsg.V1,
-		ID:        id,
-		AssetRate: rfqmsg.NewAssetRate(rate, expiry),
-		AgreedAt:  row.AgreedAt,
+		Peer:              vertex,
+		Request:           request,
+		Version:           rfqmsg.V1,
+		ID:                id,
+		AssetRate:         rfqmsg.NewAssetRate(rate, expiry),
+		AcceptedMaxAmount: fillOpt,
+		AgreedAt:          row.AgreedAt,
 	}, nil
 }
 
@@ -516,6 +592,13 @@ func sellAcceptFromStored(row rfqPolicy) (rfqmsg.SellAccept, error) {
 
 	expiry := time.Unix(int64(row.ExpiryUnix), 0).UTC()
 
+	var execPolicy fn.Option[rfqmsg.ExecutionPolicy]
+	if row.ExecutionPolicy != nil {
+		execPolicy = fn.Some(
+			rfqmsg.ExecutionPolicy(*row.ExecutionPolicy),
+		)
+	}
+
 	request := rfqmsg.SellRequest{
 		Peer:                vertex,
 		Version:             version,
@@ -524,15 +607,22 @@ func sellAcceptFromStored(row rfqPolicy) (rfqmsg.SellAccept, error) {
 		PaymentMaxAmt:       lnwire.MilliSatoshi(*paymentPtr),
 		AssetRateHint:       fn.None[rfqmsg.AssetRate](),
 		PriceOracleMetadata: row.PriceOracleMetadata,
+		ExecutionPolicy:     execPolicy,
+	}
+
+	var fillOpt fn.Option[uint64]
+	if row.AcceptedMaxAmount != nil {
+		fillOpt = fn.Some(*row.AcceptedMaxAmount)
 	}
 
 	return rfqmsg.SellAccept{
-		Peer:      vertex,
-		Request:   request,
-		Version:   rfqmsg.V1,
-		ID:        id,
-		AssetRate: rfqmsg.NewAssetRate(rate, expiry),
-		AgreedAt:  row.AgreedAt,
+		Peer:              vertex,
+		Request:           request,
+		Version:           rfqmsg.V1,
+		ID:                id,
+		AssetRate:         rfqmsg.NewAssetRate(rate, expiry),
+		AcceptedMaxAmount: fillOpt,
+		AgreedAt:          row.AgreedAt,
 	}, nil
 }
 

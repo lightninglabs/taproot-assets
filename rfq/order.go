@@ -206,10 +206,17 @@ func NewAssetSalePolicy(quote rfqmsg.BuyAccept, noop bool,
 
 	htlcToAmtMap := make(map[models.CircuitKey]lnwire.MilliSatoshi)
 
+	maxAmt := quote.Request.AssetMaxAmt
+	quote.AcceptedMaxAmount.WhenSome(func(fill uint64) {
+		if fill < maxAmt {
+			maxAmt = fill
+		}
+	})
+
 	return &AssetSalePolicy{
 		AssetSpecifier:         quote.Request.AssetSpecifier,
 		AcceptedQuoteId:        quote.ID,
-		MaxOutboundAssetAmount: quote.Request.AssetMaxAmt,
+		MaxOutboundAssetAmount: maxAmt,
 		AskAssetRate:           quote.AssetRate.Rate,
 		expiry:                 uint64(quote.AssetRate.Expiry.Unix()),
 		htlcToAmt:              htlcToAmtMap,
@@ -444,12 +451,20 @@ type AssetPurchasePolicy struct {
 func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
 	htlcToAmtMap := make(map[models.CircuitKey]lnwire.MilliSatoshi)
 
+	payMax := quote.Request.PaymentMaxAmt
+	quote.AcceptedMaxAmount.WhenSome(func(fill uint64) {
+		fillMsat := lnwire.MilliSatoshi(fill)
+		if fillMsat < payMax {
+			payMax = fillMsat
+		}
+	})
+
 	return &AssetPurchasePolicy{
 		scid:            quote.ShortChannelId(),
 		AssetSpecifier:  quote.Request.AssetSpecifier,
 		AcceptedQuoteId: quote.ID,
 		BidAssetRate:    quote.AssetRate.Rate,
-		PaymentMaxAmt:   quote.Request.PaymentMaxAmt,
+		PaymentMaxAmt:   payMax,
 		expiry:          uint64(quote.AssetRate.Expiry.Unix()),
 		htlcToAmt:       htlcToAmtMap,
 		ExecutionPolicy: quote.Request.ExecutionPolicy,

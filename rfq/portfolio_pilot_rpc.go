@@ -165,7 +165,12 @@ func (r *RpcPortfolioPilot) ResolveRequest(ctx context.Context,
 				err)
 		}
 
-		return NewAcceptResolveResp(*assetRate), nil
+		fillAmount := fn.None[uint64]()
+		if resp.AcceptedMaxAmount > 0 {
+			fillAmount = fn.Some(resp.AcceptedMaxAmount)
+		}
+
+		return NewAcceptResolveResp(*assetRate, fillAmount), nil
 
 	case *pilotrpc.ResolveRequestResponse_Reject:
 		if result.Reject == nil {
@@ -314,9 +319,10 @@ func rpcMarshalVerifyAcceptQuoteRequest(
 		}
 		return &pilotrpc.VerifyAcceptQuoteRequest{
 			Accept: &pilotrpc.AcceptedQuote{
-				PeerId:       peer[:],
-				AcceptedRate: rpcAcceptedRate,
-				Request:      requestWrapper,
+				PeerId:            peer[:],
+				AcceptedRate:      rpcAcceptedRate,
+				Request:           requestWrapper,
+				AcceptedMaxAmount: msg.AcceptedMaxAmount.UnwrapOr(0), //nolint:lll
 			},
 		}, nil
 
@@ -339,9 +345,10 @@ func rpcMarshalVerifyAcceptQuoteRequest(
 		}
 		return &pilotrpc.VerifyAcceptQuoteRequest{
 			Accept: &pilotrpc.AcceptedQuote{
-				PeerId:       peer[:],
-				AcceptedRate: rpcAcceptedRate,
-				Request:      requestWrapper,
+				PeerId:            peer[:],
+				AcceptedRate:      rpcAcceptedRate,
+				Request:           requestWrapper,
+				AcceptedMaxAmount: msg.AcceptedMaxAmount.UnwrapOr(0), //nolint:lll
 			},
 		}, nil
 
@@ -641,6 +648,8 @@ func rpcUnmarshalQuoteRespStatus(
 		return RateBoundMissQuoteRespStatus, nil
 	case pilotrpc.QuoteRespStatus_FOK_NOT_VIABLE:
 		return FOKNotViableQuoteRespStatus, nil
+	case pilotrpc.QuoteRespStatus_FILL_EXCEEDS_MAX:
+		return FillExceedsMaxQuoteRespStatus, nil
 	default:
 		return 0, fmt.Errorf("unknown quote response status: %v",
 			status)
@@ -662,6 +671,8 @@ func rpcUnmarshalRejectCode(
 		return rfqmsg.PriceBoundMissRejectCode
 	case pilotrpc.RejectCode_REJECT_CODE_FOK_NOT_VIABLE:
 		return rfqmsg.FOKNotViableRejectCode
+	case pilotrpc.RejectCode_REJECT_CODE_FILL_EXCEEDS_MAX:
+		return rfqmsg.FillExceedsMaxRejectCode
 	default:
 		return rfqmsg.PriceOracleUnspecifiedRejectCode
 	}

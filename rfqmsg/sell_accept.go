@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -32,6 +34,11 @@ type SellAccept struct {
 	// AssetRate is the accepted asset to BTC rate.
 	AssetRate AssetRate
 
+	// AcceptedMaxAmount is an optional fill quantity that caps the
+	// amount the responder is willing to accept. When None the full
+	// request max is implied.
+	AcceptedMaxAmount fn.Option[uint64]
+
 	// sig is a signature over the serialized contents of the message.
 	sig [64]byte
 
@@ -44,17 +51,19 @@ type SellAccept struct {
 // message given an asset sell quote request message. Note that this function
 // sets the AgreedAt timestamp to the current time. If callers need to preserve
 // an existing AgreedAt value (e.g., when reconstructing from storage),
-// they should manually construct the BuyAccept.
+// they should manually construct the SellAccept.
 func NewSellAcceptFromRequest(request SellRequest,
-	assetRate AssetRate) *SellAccept {
+	assetRate AssetRate,
+	fillAmount fn.Option[uint64]) *SellAccept {
 
 	return &SellAccept{
-		Peer:      request.Peer,
-		Request:   request,
-		Version:   latestSellAcceptVersion,
-		ID:        request.ID,
-		AssetRate: assetRate,
-		AgreedAt:  time.Now().UTC(),
+		Peer:              request.Peer,
+		Request:           request,
+		Version:           latestSellAcceptVersion,
+		ID:                request.ID,
+		AssetRate:         assetRate,
+		AcceptedMaxAmount: fillAmount,
+		AgreedAt:          time.Now().UTC(),
 	}
 }
 
@@ -77,16 +86,25 @@ func newSellAcceptFromWireMsg(wireMsg WireMessage,
 	// Convert the unix timestamp in seconds to a time.Time.
 	expiry := time.Unix(int64(msgData.Expiry.Val), 0).UTC()
 
+	// Extract the optional fill quantity.
+	var acceptedMax fn.Option[uint64]
+	msgData.MaxInAsset.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType11, uint64]) {
+			acceptedMax = fn.Some(r.Val)
+		},
+	)
+
 	// Note that the `Request` field is populated later in the RFQ stream
 	// service.
 	return &SellAccept{
-		Peer:      wireMsg.Peer,
-		Request:   request,
-		Version:   msgData.Version.Val,
-		ID:        msgData.ID.Val,
-		AssetRate: NewAssetRate(assetRate, expiry),
-		sig:       msgData.Sig.Val,
-		AgreedAt:  time.Now().UTC(),
+		Peer:              wireMsg.Peer,
+		Request:           request,
+		Version:           msgData.Version.Val,
+		ID:                msgData.ID.Val,
+		AssetRate:         NewAssetRate(assetRate, expiry),
+		AcceptedMaxAmount: acceptedMax,
+		sig:               msgData.Sig.Val,
+		AgreedAt:          time.Now().UTC(),
 	}, nil
 }
 
@@ -147,15 +165,28 @@ func (q *SellAccept) OriginalRequest() Request {
 	return &q.Request
 }
 
+// AcceptedFillAmount returns the optional negotiated fill quantity.
+func (q *SellAccept) AcceptedFillAmount() fn.Option[uint64] {
+	return q.AcceptedMaxAmount
+}
+
 // acceptMarker makes SellAccept satisfy the Accept interface while keeping
 // implementations local to this package.
 func (q *SellAccept) acceptMarker() {}
 
 // String returns a human-readable string representation of the message.
 func (q *SellAccept) String() string {
-	return fmt.Sprintf("SellAccept(peer=%x, id=%x, asset_rate=%s, "+
-		"scid=%d)", q.Peer[:], q.ID[:], q.AssetRate.String(),
-		q.ShortChannelId())
+	fillStr := ""
+	q.AcceptedMaxAmount.WhenSome(func(amt uint64) {
+		fillStr = fmt.Sprintf(", fill=%d", amt)
+	})
+
+	return fmt.Sprintf(
+		"SellAccept(peer=%x, id=%x, asset_rate=%s, "+
+			"scid=%d%s)",
+		q.Peer[:], q.ID[:], q.AssetRate.String(),
+		q.ShortChannelId(), fillStr,
+	)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

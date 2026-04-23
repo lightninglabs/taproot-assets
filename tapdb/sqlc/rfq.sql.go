@@ -47,9 +47,11 @@ func (q *Queries) CountForwards(ctx context.Context, arg CountForwardsParams) (i
 const FetchActiveRfqPolicies = `-- name: FetchActiveRfqPolicies :many
 SELECT
     id, policy_type, scid, rfq_id, peer, asset_id, asset_group_key,
-    rate_coefficient, rate_scale, expiry, max_out_asset_amt, payment_max_msat,
-    request_asset_max_amt, request_payment_max_msat, price_oracle_metadata,
-    request_version, agreed_at
+    rate_coefficient, rate_scale, expiry, max_out_asset_amt,
+    payment_max_msat, request_asset_max_amt,
+    request_payment_max_msat, price_oracle_metadata,
+    request_version, agreed_at, accepted_max_amount,
+    execution_policy
 FROM rfq_policies
 WHERE expiry >= $1
 `
@@ -81,6 +83,8 @@ func (q *Queries) FetchActiveRfqPolicies(ctx context.Context, minExpiry int64) (
 			&i.PriceOracleMetadata,
 			&i.RequestVersion,
 			&i.AgreedAt,
+			&i.AcceptedMaxAmount,
+			&i.ExecutionPolicy,
 		); err != nil {
 			return nil, err
 		}
@@ -112,13 +116,15 @@ func (q *Queries) FetchPeerAcceptedBuyPeerByScid(ctx context.Context, scid int64
 const InsertRfqPolicy = `-- name: InsertRfqPolicy :one
 INSERT INTO rfq_policies (
     policy_type, scid, rfq_id, peer, asset_id, asset_group_key,
-    rate_coefficient, rate_scale, expiry, max_out_asset_amt, payment_max_msat,
-    request_asset_max_amt, request_payment_max_msat, price_oracle_metadata,
-    request_version, agreed_at
+    rate_coefficient, rate_scale, expiry, max_out_asset_amt,
+    payment_max_msat, request_asset_max_amt,
+    request_payment_max_msat, price_oracle_metadata,
+    request_version, agreed_at, accepted_max_amount,
+    execution_policy
 )
 VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9,
-    $10, $11, $12, $13, $14, $15, $16
+    $10, $11, $12, $13, $14, $15, $16, $17, $18
 )
 RETURNING id
 `
@@ -140,6 +146,8 @@ type InsertRfqPolicyParams struct {
 	PriceOracleMetadata   sql.NullString
 	RequestVersion        sql.NullInt32
 	AgreedAt              int64
+	AcceptedMaxAmount     sql.NullInt64
+	ExecutionPolicy       sql.NullInt32
 }
 
 func (q *Queries) InsertRfqPolicy(ctx context.Context, arg InsertRfqPolicyParams) (int64, error) {
@@ -160,6 +168,8 @@ func (q *Queries) InsertRfqPolicy(ctx context.Context, arg InsertRfqPolicyParams
 		arg.PriceOracleMetadata,
 		arg.RequestVersion,
 		arg.AgreedAt,
+		arg.AcceptedMaxAmount,
+		arg.ExecutionPolicy,
 	)
 	var id int64
 	err := row.Scan(&id)

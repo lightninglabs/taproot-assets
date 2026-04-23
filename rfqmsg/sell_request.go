@@ -270,33 +270,14 @@ func (q *SellRequest) Validate() error {
 	}
 
 	// Ensure execution policy is valid when set.
-	err = fn.MapOptionZ(
+	if err := validateExecutionPolicy(
 		q.ExecutionPolicy,
-		func(p ExecutionPolicy) error {
-			if p > ExecutionPolicyFOK {
-				return fmt.Errorf("invalid execution "+
-					"policy: %d", p)
-			}
-			return nil
-		},
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
 	// Ensure rate limit is strictly positive when set.
-	err = fn.MapOptionZ(
-		q.AssetRateLimit,
-		func(limit rfqmath.BigIntFixedPoint) error {
-			zero := rfqmath.NewBigIntFromUint64(0)
-			if !limit.Coefficient.Gt(zero) {
-				return fmt.Errorf("asset rate limit " +
-					"coefficient must be positive")
-			}
-			return nil
-		},
-	)
-	if err != nil {
+	if err := validateRateLimit(q.AssetRateLimit); err != nil {
 		return err
 	}
 
@@ -338,6 +319,22 @@ func (q *SellRequest) MsgPeer() route.Vertex {
 // MsgID returns the quote request session ID.
 func (q *SellRequest) MsgID() ID {
 	return q.ID
+}
+
+// Constraints returns the normalised limit-order constraints for
+// this sell request.
+func (q *SellRequest) Constraints() RequestConstraints {
+	return RequestConstraints{
+		MaxAmount: uint64(q.PaymentMaxAmt),
+		MinAmount: fn.MapOption(
+			func(v lnwire.MilliSatoshi) uint64 {
+				return uint64(v)
+			},
+		)(q.PaymentMinAmt),
+		RateLimit:       q.AssetRateLimit,
+		RateBoundCmp:    1,
+		ExecutionPolicy: q.ExecutionPolicy,
+	}
 }
 
 // requestMarker makes SellRequest satisfy the Request interface while keeping

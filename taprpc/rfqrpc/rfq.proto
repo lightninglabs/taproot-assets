@@ -344,6 +344,11 @@ message PeerAcceptedBuyQuote {
 
     // The subject asset specifier.
     AssetSpec asset_spec = 9;
+
+    // accepted_max_amount is an optional negotiated fill quantity. When
+    // non-zero the responder accepted up to this many asset units instead
+    // of the full request max.
+    uint64 accepted_max_amount = 10;
 }
 
 message PeerAcceptedSellQuote {
@@ -383,6 +388,11 @@ message PeerAcceptedSellQuote {
 
     // The subject asset specifier.
     AssetSpec asset_spec = 9;
+
+    // accepted_max_amount is an optional negotiated fill quantity. When
+    // non-zero the responder accepted up to this many msat instead of the
+    // full request max.
+    uint64 accepted_max_amount = 10;
 }
 
 // QuoteRespStatus is an enum that represents the status of a quote response.

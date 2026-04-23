@@ -130,6 +130,10 @@ enum RejectCode {
     // REJECT_CODE_FOK_NOT_VIABLE indicates that the FOK execution
     // policy could not be satisfied at the accepted rate.
     REJECT_CODE_FOK_NOT_VIABLE = 4;
+
+    // REJECT_CODE_FILL_EXCEEDS_MAX indicates that the negotiated
+    // fill amount exceeds the requester's maximum.
+    REJECT_CODE_FILL_EXCEEDS_MAX = 5;
 }
 
 // QuoteRespStatus is an enum that represents the status of a quote response.
@@ -165,6 +169,10 @@ enum QuoteRespStatus {
     // FOK_NOT_VIABLE indicates that the FOK execution policy could
     // not be satisfied at the accepted rate.
     FOK_NOT_VIABLE = 7;
+
+    // FILL_EXCEEDS_MAX indicates that the negotiated fill amount
+    // exceeds the requester's maximum.
+    FILL_EXCEEDS_MAX = 8;
 }
 
 // RejectErr captures a rejection reason for a quote request.
@@ -318,6 +326,13 @@ message ResolveRequestResponse {
         // reject is the rejection reason for the request.
         RejectErr reject = 2;
     }
+
+    // accepted_max_amount is an optional fill quantity that caps the
+    // amount the responder is willing to accept. Only meaningful when
+    // accept is set; 0 means no fill cap (full request max). The unit
+    // depends on the request type: asset units for a buy request, msat
+    // for a sell request.
+    uint64 accepted_max_amount = 3;
 }
 
 // AcceptedQuote bundles an accepted quote and its original request.
@@ -335,6 +350,12 @@ message AcceptedQuote {
         // sell_request is the original sell request.
         SellRequest sell_request = 4;
     }
+
+    // accepted_max_amount is the optional negotiated fill quantity.
+    // 0 means no fill cap (full request max). The unit depends on
+    // the request type: asset units for a buy request, msat for a
+    // sell request.
+    uint64 accepted_max_amount = 5;
 }
 
 // VerifyAcceptQuoteRequest specifies an accepted quote to verify.

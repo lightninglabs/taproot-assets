@@ -1319,6 +1319,11 @@
         "asset_spec": {
           "$ref": "#/definitions/rfqrpcAssetSpec",
           "description": "The subject asset specifier."
+        },
+        "accepted_max_amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "accepted_max_amount is an optional negotiated fill quantity. When\nnon-zero the responder accepted up to this many asset units instead\nof the full request max."
         }
       }
     },
@@ -1365,6 +1370,11 @@
         "asset_spec": {
           "$ref": "#/definitions/rfqrpcAssetSpec",
           "description": "The subject asset specifier."
+        },
+        "accepted_max_amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "accepted_max_amount is an optional negotiated fill quantity. When\nnon-zero the responder accepted up to this many msat instead of the\nfull request max."
         }
       }
     },
