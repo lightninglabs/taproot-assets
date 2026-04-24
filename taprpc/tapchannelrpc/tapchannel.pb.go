@@ -730,8 +730,10 @@ type AddInvoiceRequest struct {
 	// The maximum length of this field is 32'768 bytes.
 	PriceOracleMetadata string `protobuf:"bytes,7,opt,name=price_oracle_metadata,json=priceOracleMetadata,proto3" json:"price_oracle_metadata,omitempty"`
 	// Optional minimum asset amount the peer must accept.
-	// Forwarded to AddAssetBuyOrder. 0 means unset.
-	AssetMinAmt uint64 `protobuf:"varint,9,opt,name=asset_min_amt,json=assetMinAmt,proto3" json:"asset_min_amt,omitempty"`
+	// Forwarded to AddAssetBuyOrder. When omitted, defaults
+	// to the full asset amount (full-fill expected). Set
+	// explicitly to 0 to accept any partial fill.
+	AssetMinAmt *uint64 `protobuf:"varint,9,opt,name=asset_min_amt,json=assetMinAmt,proto3,oneof" json:"asset_min_amt,omitempty"`
 	// Optional rate floor (asset units per BTC) as a
 	// fixed-point number. Forwarded to AddAssetBuyOrder.
 	AssetRateLimit *rfqrpc.FixedPoint `protobuf:"bytes,10,opt,name=asset_rate_limit,json=assetRateLimit,proto3" json:"asset_rate_limit,omitempty"`
@@ -822,8 +824,8 @@ func (x *AddInvoiceRequest) GetPriceOracleMetadata() string {
 }
 
 func (x *AddInvoiceRequest) GetAssetMinAmt() uint64 {
-	if x != nil {
-		return x.AssetMinAmt
+	if x != nil && x.AssetMinAmt != nil {
+		return *x.AssetMinAmt
 	}
 	return 0
 }
@@ -1108,7 +1110,7 @@ const file_tapchannelrpc_tapchannel_proto_rawDesc = "" +
 	"\x0epayment_result\x18\x02 \x01(\v2\x0e.lnrpc.PaymentH\x00R\rpaymentResultB\b\n" +
 	"\x06result\"0\n" +
 	"\vHodlInvoice\x12!\n" +
-	"\fpayment_hash\x18\x01 \x01(\fR\vpaymentHash\"\xe7\x03\n" +
+	"\fpayment_hash\x18\x01 \x01(\fR\vpaymentHash\"\xfe\x03\n" +
 	"\x11AddInvoiceRequest\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\fR\aassetId\x12!\n" +
 	"\fasset_amount\x18\x02 \x01(\x04R\vassetAmount\x12\x1f\n" +
@@ -1117,11 +1119,12 @@ const file_tapchannelrpc_tapchannel_proto_rawDesc = "" +
 	"\x0finvoice_request\x18\x04 \x01(\v2\x0e.lnrpc.InvoiceR\x0einvoiceRequest\x12=\n" +
 	"\fhodl_invoice\x18\x05 \x01(\v2\x1a.tapchannelrpc.HodlInvoiceR\vhodlInvoice\x12\x1b\n" +
 	"\tgroup_key\x18\x06 \x01(\fR\bgroupKey\x122\n" +
-	"\x15price_oracle_metadata\x18\a \x01(\tR\x13priceOracleMetadata\x12\"\n" +
-	"\rasset_min_amt\x18\t \x01(\x04R\vassetMinAmt\x12<\n" +
+	"\x15price_oracle_metadata\x18\a \x01(\tR\x13priceOracleMetadata\x12'\n" +
+	"\rasset_min_amt\x18\t \x01(\x04H\x00R\vassetMinAmt\x88\x01\x01\x12<\n" +
 	"\x10asset_rate_limit\x18\n" +
 	" \x01(\v2\x12.rfqrpc.FixedPointR\x0eassetRateLimit\x12B\n" +
-	"\x10execution_policy\x18\v \x01(\x0e2\x17.rfqrpc.ExecutionPolicyR\x0fexecutionPolicyJ\x04\b\b\x10\t\"\xa2\x01\n" +
+	"\x10execution_policy\x18\v \x01(\x0e2\x17.rfqrpc.ExecutionPolicyR\x0fexecutionPolicyB\x10\n" +
+	"\x0e_asset_min_amtJ\x04\b\b\x10\t\"\xa2\x01\n" +
 	"\x12AddInvoiceResponse\x12J\n" +
 	"\x12accepted_buy_quote\x18\x01 \x01(\v2\x1c.rfqrpc.PeerAcceptedBuyQuoteR\x10acceptedBuyQuote\x12@\n" +
 	"\x0einvoice_result\x18\x02 \x01(\v2\x19.lnrpc.AddInvoiceResponseR\rinvoiceResult\"\x9f\x01\n" +
@@ -1236,6 +1239,7 @@ func file_tapchannelrpc_tapchannel_proto_init() {
 		(*SendPaymentResponse_AcceptedSellOrders)(nil),
 		(*SendPaymentResponse_PaymentResult)(nil),
 	}
+	file_tapchannelrpc_tapchannel_proto_msgTypes[9].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

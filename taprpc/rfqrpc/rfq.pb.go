@@ -428,10 +428,12 @@ type AddAssetBuyOrderRequest struct {
 	// This field is optional and can be left empty if no metadata is available.
 	// The maximum length of this field is 32'768 bytes.
 	PriceOracleMetadata string `protobuf:"bytes,7,opt,name=price_oracle_metadata,json=priceOracleMetadata,proto3" json:"price_oracle_metadata,omitempty"`
-	// The optional minimum amount of the asset that the provider must be
-	// willing to offer. If set, must be less than or equal to asset_max_amt.
-	// A value of 0 means unset.
-	AssetMinAmt uint64 `protobuf:"varint,8,opt,name=asset_min_amt,json=assetMinAmt,proto3" json:"asset_min_amt,omitempty"`
+	// The optional minimum amount of the asset that the provider
+	// must be willing to offer. If set, must be less than or equal
+	// to asset_max_amt. When omitted, defaults to asset_max_amt
+	// (full-fill expected). Set explicitly to 0 to accept any
+	// partial fill.
+	AssetMinAmt *uint64 `protobuf:"varint,8,opt,name=asset_min_amt,json=assetMinAmt,proto3,oneof" json:"asset_min_amt,omitempty"`
 	// An optional rate limit constraint expressed as a fixed-point number.
 	// For buy orders this is the minimum acceptable rate (asset units per
 	// BTC). If unset, no rate floor is enforced.
@@ -524,8 +526,8 @@ func (x *AddAssetBuyOrderRequest) GetPriceOracleMetadata() string {
 }
 
 func (x *AddAssetBuyOrderRequest) GetAssetMinAmt() uint64 {
-	if x != nil {
-		return x.AssetMinAmt
+	if x != nil && x.AssetMinAmt != nil {
+		return *x.AssetMinAmt
 	}
 	return 0
 }
@@ -676,10 +678,12 @@ type AddAssetSellOrderRequest struct {
 	// This field is optional and can be left empty if no metadata is available.
 	// The maximum length of this field is 32'768 bytes.
 	PriceOracleMetadata string `protobuf:"bytes,7,opt,name=price_oracle_metadata,json=priceOracleMetadata,proto3" json:"price_oracle_metadata,omitempty"`
-	// The optional minimum msat amount that the responding peer must agree
-	// to pay. If set, must be less than or equal to payment_max_amt.
-	// A value of 0 means unset (units: millisats).
-	PaymentMinAmt uint64 `protobuf:"varint,8,opt,name=payment_min_amt,json=paymentMinAmt,proto3" json:"payment_min_amt,omitempty"`
+	// The optional minimum msat amount that the responding peer
+	// must agree to pay. If set, must be less than or equal to
+	// payment_max_amt. When omitted, defaults to payment_max_amt
+	// (full-fill expected). Set explicitly to 0 to accept any
+	// partial fill (units: millisats).
+	PaymentMinAmt *uint64 `protobuf:"varint,8,opt,name=payment_min_amt,json=paymentMinAmt,proto3,oneof" json:"payment_min_amt,omitempty"`
 	// An optional rate limit constraint expressed as a fixed-point number.
 	// For sell orders this is the maximum acceptable rate (asset units per
 	// BTC). If unset, no rate ceiling is enforced.
@@ -772,8 +776,8 @@ func (x *AddAssetSellOrderRequest) GetPriceOracleMetadata() string {
 }
 
 func (x *AddAssetSellOrderRequest) GetPaymentMinAmt() uint64 {
-	if x != nil {
-		return x.PaymentMinAmt
+	if x != nil && x.PaymentMinAmt != nil {
+		return *x.PaymentMinAmt
 	}
 	return 0
 }
@@ -2280,7 +2284,7 @@ const file_rfqrpc_rfq_proto_rawDesc = "" +
 	"\n" +
 	"FixedPoint\x12 \n" +
 	"\vcoefficient\x18\x01 \x01(\tR\vcoefficient\x12\x14\n" +
-	"\x05scale\x18\x02 \x01(\rR\x05scale\"\xf4\x03\n" +
+	"\x05scale\x18\x02 \x01(\rR\x05scale\"\x8b\x04\n" +
 	"\x17AddAssetBuyOrderRequest\x12?\n" +
 	"\x0fasset_specifier\x18\x01 \x01(\v2\x16.rfqrpc.AssetSpecifierR\x0eassetSpecifier\x12\"\n" +
 	"\rasset_max_amt\x18\x02 \x01(\x04R\vassetMaxAmt\x12\x16\n" +
@@ -2289,17 +2293,18 @@ const file_rfqrpc_rfq_proto_rawDesc = "" +
 	"peerPubKey\x12'\n" +
 	"\x0ftimeout_seconds\x18\x05 \x01(\rR\x0etimeoutSeconds\x127\n" +
 	"\x18skip_asset_channel_check\x18\x06 \x01(\bR\x15skipAssetChannelCheck\x122\n" +
-	"\x15price_oracle_metadata\x18\a \x01(\tR\x13priceOracleMetadata\x12\"\n" +
-	"\rasset_min_amt\x18\b \x01(\x04R\vassetMinAmt\x12<\n" +
+	"\x15price_oracle_metadata\x18\a \x01(\tR\x13priceOracleMetadata\x12'\n" +
+	"\rasset_min_amt\x18\b \x01(\x04H\x00R\vassetMinAmt\x88\x01\x01\x12<\n" +
 	"\x10asset_rate_limit\x18\t \x01(\v2\x12.rfqrpc.FixedPointR\x0eassetRateLimit\x12B\n" +
 	"\x10execution_policy\x18\n" +
-	" \x01(\x0e2\x17.rfqrpc.ExecutionPolicyR\x0fexecutionPolicy\"\xfa\x01\n" +
+	" \x01(\x0e2\x17.rfqrpc.ExecutionPolicyR\x0fexecutionPolicyB\x10\n" +
+	"\x0e_asset_min_amt\"\xfa\x01\n" +
 	"\x18AddAssetBuyOrderResponse\x12E\n" +
 	"\x0eaccepted_quote\x18\x01 \x01(\v2\x1c.rfqrpc.PeerAcceptedBuyQuoteH\x00R\racceptedQuote\x12C\n" +
 	"\rinvalid_quote\x18\x02 \x01(\v2\x1c.rfqrpc.InvalidQuoteResponseH\x00R\finvalidQuote\x12F\n" +
 	"\x0erejected_quote\x18\x03 \x01(\v2\x1d.rfqrpc.RejectedQuoteResponseH\x00R\rrejectedQuoteB\n" +
 	"\n" +
-	"\bresponse\"\xfd\x03\n" +
+	"\bresponse\"\x96\x04\n" +
 	"\x18AddAssetSellOrderRequest\x12?\n" +
 	"\x0fasset_specifier\x18\x01 \x01(\v2\x16.rfqrpc.AssetSpecifierR\x0eassetSpecifier\x12&\n" +
 	"\x0fpayment_max_amt\x18\x02 \x01(\x04R\rpaymentMaxAmt\x12\x16\n" +
@@ -2308,11 +2313,12 @@ const file_rfqrpc_rfq_proto_rawDesc = "" +
 	"peerPubKey\x12'\n" +
 	"\x0ftimeout_seconds\x18\x05 \x01(\rR\x0etimeoutSeconds\x127\n" +
 	"\x18skip_asset_channel_check\x18\x06 \x01(\bR\x15skipAssetChannelCheck\x122\n" +
-	"\x15price_oracle_metadata\x18\a \x01(\tR\x13priceOracleMetadata\x12&\n" +
-	"\x0fpayment_min_amt\x18\b \x01(\x04R\rpaymentMinAmt\x12<\n" +
+	"\x15price_oracle_metadata\x18\a \x01(\tR\x13priceOracleMetadata\x12+\n" +
+	"\x0fpayment_min_amt\x18\b \x01(\x04H\x00R\rpaymentMinAmt\x88\x01\x01\x12<\n" +
 	"\x10asset_rate_limit\x18\t \x01(\v2\x12.rfqrpc.FixedPointR\x0eassetRateLimit\x12B\n" +
 	"\x10execution_policy\x18\n" +
-	" \x01(\x0e2\x17.rfqrpc.ExecutionPolicyR\x0fexecutionPolicy\"\xfc\x01\n" +
+	" \x01(\x0e2\x17.rfqrpc.ExecutionPolicyR\x0fexecutionPolicyB\x12\n" +
+	"\x10_payment_min_amt\"\xfc\x01\n" +
 	"\x19AddAssetSellOrderResponse\x12F\n" +
 	"\x0eaccepted_quote\x18\x01 \x01(\v2\x1d.rfqrpc.PeerAcceptedSellQuoteH\x00R\racceptedQuote\x12C\n" +
 	"\rinvalid_quote\x18\x02 \x01(\v2\x1c.rfqrpc.InvalidQuoteResponseH\x00R\finvalidQuote\x12F\n" +
@@ -2552,11 +2558,13 @@ func file_rfqrpc_rfq_proto_init() {
 		(*AssetSpecifier_GroupKey)(nil),
 		(*AssetSpecifier_GroupKeyStr)(nil),
 	}
+	file_rfqrpc_rfq_proto_msgTypes[2].OneofWrappers = []any{}
 	file_rfqrpc_rfq_proto_msgTypes[3].OneofWrappers = []any{
 		(*AddAssetBuyOrderResponse_AcceptedQuote)(nil),
 		(*AddAssetBuyOrderResponse_InvalidQuote)(nil),
 		(*AddAssetBuyOrderResponse_RejectedQuote)(nil),
 	}
+	file_rfqrpc_rfq_proto_msgTypes[4].OneofWrappers = []any{}
 	file_rfqrpc_rfq_proto_msgTypes[5].OneofWrappers = []any{
 		(*AddAssetSellOrderResponse_AcceptedQuote)(nil),
 		(*AddAssetSellOrderResponse_InvalidQuote)(nil),

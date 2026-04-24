@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/itest"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
@@ -325,7 +326,7 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 				},
 			},
 			PaymentMaxAmt: 180_000_000,
-			PaymentMinAmt: 1000,
+			PaymentMinAmt: fn.Ptr[uint64](1000),
 			AssetRateLimit: &rfqrpc.FixedPoint{
 				Coefficient: "100000000000000",
 				Scale:       2,
@@ -398,7 +399,7 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 				InvoiceRequest: &lnrpc.Invoice{
 					Expiry: 60,
 				},
-				AssetMinAmt: 1,
+				AssetMinAmt: fn.Ptr[uint64](1),
 				AssetRateLimit: &rfqrpc.FixedPoint{
 					// Floor well below oracle
 					// rate — constraint satisfied.
@@ -446,7 +447,7 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 				InvoiceRequest: &lnrpc.Invoice{
 					Expiry: 60,
 				},
-				AssetMinAmt: 2_000_000,
+				AssetMinAmt: fn.Ptr[uint64](2_000_000),
 			},
 		)
 	require.ErrorContains(t.t, err, "exceeds max amount")

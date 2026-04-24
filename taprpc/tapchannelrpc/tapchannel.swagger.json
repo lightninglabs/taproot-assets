@@ -1596,7 +1596,7 @@
         "asset_min_amt": {
           "type": "string",
           "format": "uint64",
-          "description": "Optional minimum asset amount the peer must accept.\nForwarded to AddAssetBuyOrder. 0 means unset."
+          "description": "Optional minimum asset amount the peer must accept.\nForwarded to AddAssetBuyOrder. When omitted, defaults\nto the full asset amount (full-fill expected). Set\nexplicitly to 0 to accept any partial fill."
         },
         "asset_rate_limit": {
           "$ref": "#/definitions/rfqrpcFixedPoint",

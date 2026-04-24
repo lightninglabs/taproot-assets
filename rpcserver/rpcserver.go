@@ -8490,10 +8490,18 @@ func unmarshalAssetBuyOrder(
 			len(req.PriceOracleMetadata))
 	}
 
-	// Unmarshal optional min amount.
+	// Unmarshal optional min amount. When the caller omits the
+	// field we default to the full max amount so that a naive
+	// request gets full-fill semantics. An explicit zero means
+	// "accept any partial fill".
 	var assetMinAmt fn.Option[uint64]
-	if req.AssetMinAmt > 0 {
-		assetMinAmt = fn.Some(req.AssetMinAmt)
+	switch {
+	case req.AssetMinAmt == nil:
+		assetMinAmt = fn.Some(req.AssetMaxAmt)
+	case *req.AssetMinAmt == 0:
+		// Explicit zero means "accept any partial fill".
+	default:
+		assetMinAmt = fn.Some(*req.AssetMinAmt)
 	}
 
 	// Unmarshal optional rate limit.
@@ -8743,11 +8751,21 @@ func unmarshalAssetSellOrder(
 			len(req.PriceOracleMetadata))
 	}
 
-	// Unmarshal optional min payment amount.
+	// Unmarshal optional min payment amount. When the caller
+	// omits the field we default to the full max amount so that
+	// a naive request gets full-fill semantics. An explicit zero
+	// means "accept any partial fill".
 	var paymentMinAmt fn.Option[lnwire.MilliSatoshi]
-	if req.PaymentMinAmt > 0 {
+	switch {
+	case req.PaymentMinAmt == nil:
 		paymentMinAmt = fn.Some(
-			lnwire.MilliSatoshi(req.PaymentMinAmt),
+			lnwire.MilliSatoshi(req.PaymentMaxAmt),
+		)
+	case *req.PaymentMinAmt == 0:
+		// Explicit zero means "accept any partial fill".
+	default:
+		paymentMinAmt = fn.Some(
+			lnwire.MilliSatoshi(*req.PaymentMinAmt),
 		)
 	}
 
@@ -9842,7 +9860,7 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 	// would be silently ignored.
 	nonDefaultPolicy := req.ExecutionPolicy !=
 		rfqrpc.ExecutionPolicy_EXECUTION_POLICY_IOC
-	hasConstraints := req.AssetMinAmt > 0 ||
+	hasConstraints := req.AssetMinAmt != nil ||
 		req.AssetRateLimit != nil || nonDefaultPolicy
 	if existingQuotes && hasConstraints {
 		return nil, fmt.Errorf("constraint fields " +
@@ -10436,7 +10454,7 @@ func validateInvoiceAmount(acceptedQuote *rfqrpc.PeerAcceptedBuyQuote,
 func (r *RPCServer) acquireBuyOrder(ctx context.Context,
 	rpcSpecifier *rfqrpc.AssetSpecifier, assetMaxAmt uint64,
 	expiryTimestamp time.Time, peerPubKey *route.Vertex,
-	metadata string, assetMinAmt uint64,
+	metadata string, assetMinAmt *uint64,
 	assetRateLimit *rfqrpc.FixedPoint,
 	executionPolicy rfqrpc.ExecutionPolicy,
 ) (*rfqrpc.PeerAcceptedBuyQuote, error) {

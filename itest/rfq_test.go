@@ -400,6 +400,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 			},
 		},
 		PaymentMaxAmt: askAmt,
+		PaymentMinAmt: fn.Ptr[uint64](0),
 		Expiry:        sellOrderExpiry,
 
 		// Here we explicitly specify Bob as the destination
@@ -676,6 +677,7 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 			},
 		},
 		PaymentMaxAmt: askAmt,
+		PaymentMinAmt: fn.Ptr[uint64](0),
 		Expiry:        sellOrderExpiry,
 
 		// Here we explicitly specify Bob as the destination
@@ -1015,6 +1017,7 @@ func testRfqPortfolioPilotRpc(t *harnessTest) {
 			},
 		},
 		PaymentMaxAmt: 42000,
+		PaymentMinAmt: fn.Ptr[uint64](0),
 		Expiry:        sellOrderExpiry,
 		PeerPubKey:    ts.BobLnd.PubKey[:],
 		TimeoutSeconds: uint32(
@@ -1141,7 +1144,7 @@ func testRfqLimitConstraints(t *harnessTest) {
 			},
 		},
 		AssetMaxAmt: 6,
-		AssetMinAmt: 1,
+		AssetMinAmt: fn.Ptr[uint64](1),
 		AssetRateLimit: &rfqrpc.FixedPoint{
 			Coefficient: "500000",
 			Scale:       3,
@@ -1218,7 +1221,7 @@ func testRfqLimitConstraints(t *harnessTest) {
 			},
 		},
 		PaymentMaxAmt: 200_000_000,
-		PaymentMinAmt: 100_000_000,
+		PaymentMinAmt: fn.Ptr[uint64](100_000_000),
 		AssetRateLimit: &rfqrpc.FixedPoint{
 			Coefficient: "2000000",
 			Scale:       3,
@@ -1289,7 +1292,7 @@ func testRfqLimitConstraints(t *harnessTest) {
 			},
 		},
 		AssetMaxAmt:           5,
-		AssetMinAmt:           10,
+		AssetMinAmt:           fn.Ptr[uint64](10),
 		Expiry:                expiry,
 		PeerPubKey:            ts.BobLnd.PubKey[:],
 		TimeoutSeconds:        uint32(rfqTimeout.Seconds()),
@@ -1438,6 +1441,7 @@ func testRfqLimitConstraints(t *harnessTest) {
 			},
 		},
 		AssetMaxAmt:           1,
+		AssetMinAmt:           fn.Ptr[uint64](0),
 		Expiry:                expiry,
 		PeerPubKey:            ts.BobLnd.PubKey[:],
 		TimeoutSeconds:        uint32(rfqTimeout.Seconds()),
@@ -1515,6 +1519,7 @@ func testRfqLimitConstraints(t *harnessTest) {
 			},
 		},
 		PaymentMaxAmt: 1,
+		PaymentMinAmt: fn.Ptr[uint64](0),
 		Expiry:        expiry,
 		PeerPubKey:    ts.BobLnd.PubKey[:],
 		TimeoutSeconds: uint32(

@@ -256,8 +256,10 @@ message AddInvoiceRequest {
     reserved 8;
 
     // Optional minimum asset amount the peer must accept.
-    // Forwarded to AddAssetBuyOrder. 0 means unset.
-    uint64 asset_min_amt = 9;
+    // Forwarded to AddAssetBuyOrder. When omitted, defaults
+    // to the full asset amount (full-fill expected). Set
+    // explicitly to 0 to accept any partial fill.
+    optional uint64 asset_min_amt = 9;
 
     // Optional rate floor (asset units per BTC) as a
     // fixed-point number. Forwarded to AddAssetBuyOrder.
