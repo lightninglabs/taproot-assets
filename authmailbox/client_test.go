@@ -221,6 +221,9 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	harness.Start(t)
 	client1.assertConnected(t)
 	client2.assertConnected(t)
+	require.Eventually(
+		t, allSubscribed(multiSub), testTimeout, testMinBackoff,
+	)
 
 	// Let's send another message to all clients.
 	msg2 := &Message{
@@ -648,6 +651,26 @@ func TestReconnectAfterStreamError(t *testing.T) {
 	require.NoError(t, err)
 	harness.srv.publishMessage(msg2)
 	client.readMessages(t, msg2.ID)
+}
+
+// allSubscribed returns a function that checks whether every subscription
+// across all clients in the given MultiSubscription is connected and
+// authenticated.
+func allSubscribed(m *MultiSubscription) func() bool {
+	return func() bool {
+		m.RLock()
+		defer m.RUnlock()
+
+		for _, client := range m.clients {
+			for _, sub := range client.subscriptions {
+				if !sub.IsSubscribed() {
+					return false
+				}
+			}
+		}
+
+		return true
+	}
 }
 
 func init() {
