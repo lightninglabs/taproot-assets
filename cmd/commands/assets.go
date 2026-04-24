@@ -131,6 +131,8 @@ const (
 	burnOverrideConfirmationName  = "override_confirmation_destroy_assets"
 	scriptKeyTypeName             = "script_key_type"
 	scriptKeyTypeAll              = "all_script_key_types"
+	includeChannelName            = "include_channel"
+	includePendingName            = "include_pending"
 )
 
 var mintAssetCommand = cli.Command{
@@ -715,8 +717,8 @@ func listBatches(ctx *cli.Context) error {
 var listAssetsCommand = cli.Command{
 	Name:        "list",
 	ShortName:   "l",
-	Usage:       "list all assets",
-	Description: "list all pending and mined assets",
+	Usage:       "list on-chain assets",
+	Description: "list pending and mined on-chain assets",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  assetShowWitnessName,
@@ -762,6 +764,16 @@ var listAssetsCommand = cli.Command{
 				"(asc or desc). Defaults to desc.",
 			Value: "desc",
 		},
+		cli.BoolFlag{
+			Name: includeChannelName,
+			Usage: "include assets used for funding " +
+				"custom channels in the list",
+		},
+		cli.BoolFlag{
+			Name: includePendingName,
+			Usage: "include local outputs from " +
+				"unconfirmed outbound transfers",
+		},
 	},
 	Action: listAssets,
 }
@@ -792,6 +804,8 @@ func listAssets(ctx *cli.Context) error {
 		Limit:                   int32(ctx.Int64(limitName)),
 		Offset:                  int32(ctx.Int64(offsetName)),
 		Direction:               direction,
+		IncludeChannel:          ctx.Bool(includeChannelName),
+		IncludePendingTransfers: ctx.Bool(includePendingName),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to list assets: %w", err)
@@ -897,8 +911,8 @@ func fetchAsset(ctx *cli.Context) error {
 var listUtxosCommand = cli.Command{
 	Name:        "utxos",
 	ShortName:   "u",
-	Usage:       "list all utxos",
-	Description: "list all utxos managing assets",
+	Usage:       "list on-chain utxos",
+	Description: "list utxos managing on-chain assets",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  assetShowLeasedName,
@@ -917,6 +931,11 @@ var listUtxosCommand = cli.Command{
 				"key type; cannot be used at the same time " +
 				"as --" + scriptKeyTypeName,
 		},
+		cli.BoolFlag{
+			Name: includeChannelName,
+			Usage: "include UTXOs that contain assets " +
+				"used for funding custom channels",
+		},
 	},
 	Action: listUtxos,
 }
@@ -932,8 +951,9 @@ func listUtxos(ctx *cli.Context) error {
 	}
 
 	resp, err := client.ListUtxos(ctxc, &taprpc.ListUtxosRequest{
-		IncludeLeased: ctx.Bool(assetShowLeasedName),
-		ScriptKeyType: scriptKeyQuery,
+		IncludeLeased:  ctx.Bool(assetShowLeasedName),
+		ScriptKeyType:  scriptKeyQuery,
+		IncludeChannel: ctx.Bool(includeChannelName),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to list utxos: %w", err)
@@ -946,8 +966,8 @@ func listUtxos(ctx *cli.Context) error {
 var listGroupsCommand = cli.Command{
 	Name:        "groups",
 	ShortName:   "g",
-	Usage:       "list all asset groups",
-	Description: "list all asset groups known to the daemon",
+	Usage:       "list asset groups",
+	Description: "list asset groups known to the daemon",
 	Action:      listGroups,
 }
 
@@ -1003,6 +1023,16 @@ var listAssetBalancesCommand = cli.Command{
 				"key type; cannot be used at the same time " +
 				"as --" + scriptKeyTypeName,
 		},
+		cli.BoolFlag{
+			Name: includeChannelName,
+			Usage: "include assets used for funding " +
+				"custom channels in the balances",
+		},
+		cli.BoolFlag{
+			Name: includePendingName,
+			Usage: "include pending (unconfirmed) " +
+				"balances from outbound transfers",
+		},
 	},
 }
 
@@ -1017,8 +1047,10 @@ func listAssetBalances(ctx *cli.Context) error {
 	}
 
 	req := &taprpc.ListBalancesRequest{
-		IncludeLeased: ctx.Bool(assetIncludeLeasedName),
-		ScriptKeyType: scriptKeyQuery,
+		IncludeLeased:  ctx.Bool(assetIncludeLeasedName),
+		ScriptKeyType:  scriptKeyQuery,
+		IncludeChannel: ctx.Bool(includeChannelName),
+		IncludePending: ctx.Bool(includePendingName),
 	}
 
 	if !ctx.Bool(groupByGroupName) {
