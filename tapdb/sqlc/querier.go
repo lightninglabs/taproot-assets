@@ -150,7 +150,6 @@ type Querier interface {
 	InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error
 	InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error
 	InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error
-	InsertRfqPolicy(ctx context.Context, arg InsertRfqPolicyParams) (int64, error)
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	InsertSupplyCommitTransition(ctx context.Context, arg InsertSupplyCommitTransitionParams) (int64, error)
 	InsertSupplyCommitment(ctx context.Context, arg InsertSupplyCommitmentParams) (int64, error)
@@ -270,6 +269,7 @@ type Querier interface {
 	UpsertMintSupplyPreCommit(ctx context.Context, arg UpsertMintSupplyPreCommitParams) (int64, error)
 	UpsertMultiverseLeaf(ctx context.Context, arg UpsertMultiverseLeafParams) (int64, error)
 	UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error)
+	UpsertRfqPolicy(ctx context.Context, arg UpsertRfqPolicyParams) error
 	UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error
 	UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int64, error)
 	// Return the ID of the state that was actually set (either inserted or updated),

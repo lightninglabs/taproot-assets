@@ -78,13 +78,20 @@ func (mockPolicyStore) StorePurchasePolicy(context.Context,
 }
 
 func (mockPolicyStore) FetchAcceptedQuotes(context.Context) (
-	[]rfqmsg.BuyAccept, []rfqmsg.SellAccept, []rfqmsg.BuyAccept, error) {
+	[]rfqmsg.BuyAccept, []rfqmsg.SellAccept, []rfqmsg.BuyAccept,
+	[]rfqmsg.SellAccept, error) {
 
-	return nil, nil, nil, nil
+	return nil, nil, nil, nil, nil
 }
 
 func (mockPolicyStore) StorePeerAcceptedBuyQuote(context.Context,
 	rfqmsg.BuyAccept) error {
+
+	return nil
+}
+
+func (mockPolicyStore) StorePeerAcceptedSellQuote(context.Context,
+	rfqmsg.SellAccept) error {
 
 	return nil
 }
@@ -349,6 +356,12 @@ func (f *failingPolicyStore) StorePeerAcceptedBuyQuote(context.Context,
 	return fmt.Errorf("simulated DB write failure")
 }
 
+func (f *failingPolicyStore) StorePeerAcceptedSellQuote(context.Context,
+	rfqmsg.SellAccept) error {
+
+	return fmt.Errorf("simulated DB write failure")
+}
+
 func (f *failingPolicyStore) LookUpScid(_ context.Context,
 	scid uint64) (route.Vertex, error) {
 
@@ -378,8 +391,8 @@ func TestLookUpScidPersistenceFailure(t *testing.T) {
 
 	manager.orderHandler = &OrderHandler{}
 
-	// Simulate the active map having been populated (which happens
-	// regardless of DB write success in the real code path).
+	// Directly populate the active map to verify that LookUpScid
+	// resolves entries from the in-memory tier independently.
 	scid := rfqmsg.SerialisedScid(42)
 	manager.orderHandler.peerBuyQuotes.Store(scid, rfqmsg.BuyAccept{
 		Peer: peer1,

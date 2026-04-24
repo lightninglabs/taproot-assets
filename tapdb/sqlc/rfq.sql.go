@@ -113,69 +113,6 @@ func (q *Queries) FetchPeerAcceptedBuyPeerByScid(ctx context.Context, scid int64
 	return peer, err
 }
 
-const InsertRfqPolicy = `-- name: InsertRfqPolicy :one
-INSERT INTO rfq_policies (
-    policy_type, scid, rfq_id, peer, asset_id, asset_group_key,
-    rate_coefficient, rate_scale, expiry, max_out_asset_amt,
-    payment_max_msat, request_asset_max_amt,
-    request_payment_max_msat, price_oracle_metadata,
-    request_version, agreed_at, accepted_max_amount,
-    execution_policy
-)
-VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9,
-    $10, $11, $12, $13, $14, $15, $16, $17, $18
-)
-RETURNING id
-`
-
-type InsertRfqPolicyParams struct {
-	PolicyType            string
-	Scid                  int64
-	RfqID                 []byte
-	Peer                  []byte
-	AssetID               []byte
-	AssetGroupKey         []byte
-	RateCoefficient       []byte
-	RateScale             int32
-	Expiry                int64
-	MaxOutAssetAmt        sql.NullInt64
-	PaymentMaxMsat        sql.NullInt64
-	RequestAssetMaxAmt    sql.NullInt64
-	RequestPaymentMaxMsat sql.NullInt64
-	PriceOracleMetadata   sql.NullString
-	RequestVersion        sql.NullInt32
-	AgreedAt              int64
-	AcceptedMaxAmount     sql.NullInt64
-	ExecutionPolicy       sql.NullInt32
-}
-
-func (q *Queries) InsertRfqPolicy(ctx context.Context, arg InsertRfqPolicyParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, InsertRfqPolicy,
-		arg.PolicyType,
-		arg.Scid,
-		arg.RfqID,
-		arg.Peer,
-		arg.AssetID,
-		arg.AssetGroupKey,
-		arg.RateCoefficient,
-		arg.RateScale,
-		arg.Expiry,
-		arg.MaxOutAssetAmt,
-		arg.PaymentMaxMsat,
-		arg.RequestAssetMaxAmt,
-		arg.RequestPaymentMaxMsat,
-		arg.PriceOracleMetadata,
-		arg.RequestVersion,
-		arg.AgreedAt,
-		arg.AcceptedMaxAmount,
-		arg.ExecutionPolicy,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
 const QueryForwards = `-- name: QueryForwards :many
 SELECT
     f.id, f.opened_at, f.settled_at, f.failed_at, f.rfq_id,
@@ -372,4 +309,65 @@ func (q *Queries) UpsertForward(ctx context.Context, arg UpsertForwardParams) (i
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const UpsertRfqPolicy = `-- name: UpsertRfqPolicy :exec
+INSERT INTO rfq_policies (
+    policy_type, scid, rfq_id, peer, asset_id, asset_group_key,
+    rate_coefficient, rate_scale, expiry, max_out_asset_amt,
+    payment_max_msat, request_asset_max_amt,
+    request_payment_max_msat, price_oracle_metadata,
+    request_version, agreed_at, accepted_max_amount,
+    execution_policy
+)
+VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9,
+    $10, $11, $12, $13, $14, $15, $16, $17, $18
+)
+ON CONFLICT(rfq_id) DO NOTHING
+`
+
+type UpsertRfqPolicyParams struct {
+	PolicyType            string
+	Scid                  int64
+	RfqID                 []byte
+	Peer                  []byte
+	AssetID               []byte
+	AssetGroupKey         []byte
+	RateCoefficient       []byte
+	RateScale             int32
+	Expiry                int64
+	MaxOutAssetAmt        sql.NullInt64
+	PaymentMaxMsat        sql.NullInt64
+	RequestAssetMaxAmt    sql.NullInt64
+	RequestPaymentMaxMsat sql.NullInt64
+	PriceOracleMetadata   sql.NullString
+	RequestVersion        sql.NullInt32
+	AgreedAt              int64
+	AcceptedMaxAmount     sql.NullInt64
+	ExecutionPolicy       sql.NullInt32
+}
+
+func (q *Queries) UpsertRfqPolicy(ctx context.Context, arg UpsertRfqPolicyParams) error {
+	_, err := q.db.ExecContext(ctx, UpsertRfqPolicy,
+		arg.PolicyType,
+		arg.Scid,
+		arg.RfqID,
+		arg.Peer,
+		arg.AssetID,
+		arg.AssetGroupKey,
+		arg.RateCoefficient,
+		arg.RateScale,
+		arg.Expiry,
+		arg.MaxOutAssetAmt,
+		arg.PaymentMaxMsat,
+		arg.RequestAssetMaxAmt,
+		arg.RequestPaymentMaxMsat,
+		arg.PriceOracleMetadata,
+		arg.RequestVersion,
+		arg.AgreedAt,
+		arg.AcceptedMaxAmount,
+		arg.ExecutionPolicy,
+	)
+	return err
 }

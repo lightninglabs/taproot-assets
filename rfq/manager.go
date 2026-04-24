@@ -456,23 +456,25 @@ func (m *Manager) handleIncomingMessage(ctx context.Context,
 				return
 			}
 
-			// The quote request has been accepted. Store accepted
-			// quote so that it can be used to send a payment by our
-			// lightning node.
+			// The quote request has been accepted. Persist to
+			// DB first so that on restart the quote is not
+			// silently lost.
 			scid := msg.ShortChannelId()
-			m.orderHandler.peerBuyQuotes.Store(scid, msg)
-
-			// Persist the peer buy quote to DB so that
-			// historical SCID lookups survive quote expiry
-			// and restarts.
-			storeErr := m.cfg.PolicyStore.StorePeerAcceptedBuyQuote(
+			pStore := m.cfg.PolicyStore
+			storeErr := pStore.StorePeerAcceptedBuyQuote(
 				ctx, msg,
 			)
 			if storeErr != nil {
-				log.Errorf("Failed to persist peer buy "+
-					"quote for SCID %d: %v", scid,
-					storeErr)
+				m.handleError(fmt.Errorf("failed to "+
+					"persist peer buy quote for "+
+					"SCID %d: %w", scid, storeErr))
+
+				return
 			}
+
+			// DB write succeeded; populate the in-memory
+			// cache.
+			m.orderHandler.peerBuyQuotes.Store(scid, msg)
 
 			// Since we're going to buy assets from our peer, we
 			// need to make sure we can identify the incoming asset
@@ -523,10 +525,25 @@ func (m *Manager) handleIncomingMessage(ctx context.Context,
 				return
 			}
 
-			// The quote request has been accepted. Store accepted
-			// quote so that it can be used to send a payment by our
-			// lightning node.
+			// The quote request has been accepted. Persist to
+			// DB first so that on restart the quote is not
+			// silently lost.
 			scid := msg.ShortChannelId()
+			pStore := m.cfg.PolicyStore
+			storeErr := pStore.StorePeerAcceptedSellQuote(
+				ctx, msg,
+			)
+			if storeErr != nil {
+				m.handleError(fmt.Errorf("failed to "+
+					"persist peer sell quote "+
+					"for SCID %d: %w", scid,
+					storeErr))
+
+				return
+			}
+
+			// DB write succeeded; populate the in-memory
+			// cache.
 			m.orderHandler.peerSellQuotes.Store(scid, msg)
 
 			// Notify subscribers of the incoming peer accepted

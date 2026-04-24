@@ -25,6 +25,11 @@ const (
 	// quote that was persisted for historical SCID lookup.
 	//nolint:lll
 	RfqPolicyTypeAssetPeerAcceptedBuy RfqPolicyType = "RFQ_POLICY_TYPE_PEER_ACCEPTED_BUY"
+
+	// RfqPolicyTypeAssetPeerAcceptedSell identifies a peer-accepted
+	// sell quote that was persisted for restart continuity.
+	//nolint:lll
+	RfqPolicyTypeAssetPeerAcceptedSell RfqPolicyType = "RFQ_POLICY_TYPE_PEER_ACCEPTED_SELL"
 )
 
 // String converts the policy type to its string representation.
@@ -41,15 +46,22 @@ type PolicyStore interface {
 	StorePurchasePolicy(ctx context.Context, accept rfqmsg.SellAccept) error
 
 	// FetchAcceptedQuotes fetches all non-expired accepted quotes.
-	// Returns sale policies as buy accepts, purchase policies as sell
-	// accepts, and peer-accepted buy quotes separately.
+	// Returns sale policies as buy accepts, purchase policies as
+	// sell accepts, peer-accepted buy quotes, and peer-accepted
+	// sell quotes separately.
 	FetchAcceptedQuotes(ctx context.Context) ([]rfqmsg.BuyAccept,
-		[]rfqmsg.SellAccept, []rfqmsg.BuyAccept, error)
+		[]rfqmsg.SellAccept, []rfqmsg.BuyAccept,
+		[]rfqmsg.SellAccept, error)
 
-	// StorePeerAcceptedBuyQuote persists a peer-accepted buy quote for
-	// historical SCID-to-peer lookup.
+	// StorePeerAcceptedBuyQuote persists a peer-accepted buy quote
+	// for historical SCID-to-peer lookup.
 	StorePeerAcceptedBuyQuote(ctx context.Context,
 		accept rfqmsg.BuyAccept) error
+
+	// StorePeerAcceptedSellQuote persists a peer-accepted sell
+	// quote for restart continuity.
+	StorePeerAcceptedSellQuote(ctx context.Context,
+		accept rfqmsg.SellAccept) error
 
 	// LookUpScid looks up the peer associated with the given SCID from
 	// persisted peer-accepted buy quote policies.
