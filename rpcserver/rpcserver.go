@@ -9825,6 +9825,7 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 		return nil, fmt.Errorf("invoice request must be specified")
 	}
 	iReq := req.InvoiceRequest
+
 	existingQuotes := iReq.RouteHints != nil
 
 	if existingQuotes && !tapchannel.IsAssetInvoice(
@@ -9833,6 +9834,21 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 
 		return nil, fmt.Errorf("existing route hints should only " +
 			"contain valid accepted quotes")
+	}
+
+	// Constraint fields only apply during buy-order negotiation.
+	// Reject the request if the caller provides both pre-existing
+	// route hints and constraint fields, since the constraints
+	// would be silently ignored.
+	nonDefaultPolicy := req.ExecutionPolicy !=
+		rfqrpc.ExecutionPolicy_EXECUTION_POLICY_IOC
+	hasConstraints := req.AssetMinAmt > 0 ||
+		req.AssetRateLimit != nil || nonDefaultPolicy
+	if existingQuotes && hasConstraints {
+		return nil, fmt.Errorf("constraint fields " +
+			"(asset_min_amt, asset_rate_limit, " +
+			"execution_policy) cannot be used with " +
+			"pre-existing route hints")
 	}
 
 	assetID, groupKey, err := parseAssetSpecifier(
@@ -9860,13 +9876,16 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 		peerPubKey = &parsedKey
 	}
 
-	// We can now query the asset channels we have.
-	chanMap, err := r.cfg.RfqManager.FetchChannel(
-		ctx, specifier, peerPubKey, rfq.ReceiveIntention,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error finding asset channel to use: %w",
-			err)
+	var chanMap rfq.PeerChanMap
+	if !existingQuotes {
+		chanMap, err = r.cfg.RfqManager.FetchChannel(
+			ctx, specifier, peerPubKey,
+			rfq.ReceiveIntention,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error finding asset "+
+				"channel to use: %w", err)
+		}
 	}
 
 	expirySeconds := iReq.Expiry
@@ -9909,6 +9928,7 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 	}
 
 	var acquiredQuotes []quoteWithInfo
+	var lastBuyOrderErr error
 
 	for peer, channels := range chanMap {
 		if existingQuotes {
@@ -9918,10 +9938,13 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 		quote, err := r.acquireBuyOrder(
 			ctx, &rpcSpecifier, maxUnits, expiryTimestamp,
 			&peer, req.PriceOracleMetadata,
+			req.AssetMinAmt, req.AssetRateLimit,
+			req.ExecutionPolicy,
 		)
 		if err != nil {
 			rpcsLog.Errorf("error while trying to acquire a buy "+
 				"order for invoice: %v", err)
+			lastBuyOrderErr = err
 			continue
 		}
 
@@ -9954,6 +9977,8 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 	// Filter quotes to only those that expire after the requested invoice
 	// expiry. This ensures the invoice cannot outlive its backing quotes,
 	// which would cause payments to settle in BTC instead of assets.
+	preFilterCount := len(acquiredQuotes)
+
 	var validQuotes []quoteWithInfo
 	for _, q := range acquiredQuotes {
 		quoteExpiry := time.Unix(int64(q.quote.Expiry), 0)
@@ -9967,8 +9992,24 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 	// user has already defined quotes in the request we don't return an
 	// error.
 	if len(acquiredQuotes) == 0 && !existingQuotes {
-		return nil, fmt.Errorf("no quotes with sufficient expiry for "+
-			"the requested invoice expiry of %v", expiryTimestamp)
+		// If quotes were acquired but all removed by the
+		// expiry filter, report the expiry mismatch.
+		if preFilterCount > 0 {
+			return nil, fmt.Errorf("no quotes with "+
+				"sufficient expiry for the requested "+
+				"invoice expiry of %v",
+				expiryTimestamp)
+		}
+
+		// No quotes acquired at all — surface the reason.
+		if lastBuyOrderErr != nil {
+			return nil, fmt.Errorf("error acquiring buy "+
+				"order for invoice: %w",
+				lastBuyOrderErr)
+		}
+
+		return nil, fmt.Errorf("no asset channels " +
+			"available for quote negotiation")
 	}
 
 	// We need to trim any extra quotes that cannot make it into the bolt11
@@ -10058,8 +10099,18 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 	// Now that we have the accepted quote, we know the amount in (milli)
 	// Satoshi that we need to pay. We can now update the invoice with this
 	// amount.
+	//
+	// Cap asset amount to negotiated fill quantity so partial fills don't
+	// produce an invoice that exceeds the policy cap.
+	effectiveAssetAmt := req.AssetAmount
+	if expensiveQuote.AcceptedMaxAmount > 0 &&
+		expensiveQuote.AcceptedMaxAmount < effectiveAssetAmt {
+
+		effectiveAssetAmt = expensiveQuote.AcceptedMaxAmount
+	}
+
 	invoiceAmtMsat, err := validateInvoiceAmount(
-		expensiveQuote, req.AssetAmount, iReq,
+		expensiveQuote, effectiveAssetAmt, iReq,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error validating invoice amount: %w",
@@ -10333,10 +10384,18 @@ func validateInvoiceAmount(acceptedQuote *rfqrpc.PeerAcceptedBuyQuote,
 			invoiceAmtMsat, *askAssetRate,
 		).ScaleTo(0).ToUint64()
 
-		// Now let's see if the negotiated quote can actually route the
-		// amount we need in msat.
+		// Now let's see if the negotiated quote can actually
+		// route the amount we need in msat. Use the
+		// negotiated fill quantity when available so that
+		// partial fills are correctly bounded.
+		maxAmt := acceptedQuote.AssetMaxAmount
+		if acceptedQuote.AcceptedMaxAmount > 0 &&
+			acceptedQuote.AcceptedMaxAmount < maxAmt {
+
+			maxAmt = acceptedQuote.AcceptedMaxAmount
+		}
 		maxFixedUnits := rfqmath.NewBigIntFixedPoint(
-			acceptedQuote.AssetMaxAmount, 0,
+			maxAmt, 0,
 		)
 		maxRoutableMsat := rfqmath.UnitsToMilliSatoshi(
 			maxFixedUnits, *askAssetRate,
@@ -10377,7 +10436,10 @@ func validateInvoiceAmount(acceptedQuote *rfqrpc.PeerAcceptedBuyQuote,
 func (r *RPCServer) acquireBuyOrder(ctx context.Context,
 	rpcSpecifier *rfqrpc.AssetSpecifier, assetMaxAmt uint64,
 	expiryTimestamp time.Time, peerPubKey *route.Vertex,
-	metadata string) (*rfqrpc.PeerAcceptedBuyQuote, error) {
+	metadata string, assetMinAmt uint64,
+	assetRateLimit *rfqrpc.FixedPoint,
+	executionPolicy rfqrpc.ExecutionPolicy,
+) (*rfqrpc.PeerAcceptedBuyQuote, error) {
 
 	var quote *rfqrpc.PeerAcceptedBuyQuote
 
@@ -10390,6 +10452,9 @@ func (r *RPCServer) acquireBuyOrder(ctx context.Context,
 			rfq.DefaultTimeout.Seconds(),
 		),
 		PriceOracleMetadata: metadata,
+		AssetMinAmt:         assetMinAmt,
+		AssetRateLimit:      assetRateLimit,
+		ExecutionPolicy:     executionPolicy,
 	})
 	if err != nil {
 		return quote, fmt.Errorf("error adding buy order: %w", err)

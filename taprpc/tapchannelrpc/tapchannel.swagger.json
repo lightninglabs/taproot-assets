@@ -1261,6 +1261,15 @@
         }
       }
     },
+    "rfqrpcExecutionPolicy": {
+      "type": "string",
+      "enum": [
+        "EXECUTION_POLICY_IOC",
+        "EXECUTION_POLICY_FOK"
+      ],
+      "default": "EXECUTION_POLICY_IOC",
+      "description": "ExecutionPolicy specifies how a quote request should be filled.\n\n - EXECUTION_POLICY_IOC: EXECUTION_POLICY_IOC is Immediate-Or-Cancel: accept any partial\nfill at or above the minimum threshold. This is the default.\n - EXECUTION_POLICY_FOK: EXECUTION_POLICY_FOK is Fill-Or-Kill: the accepted rate must\nsupport the full maximum amount or the quote is rejected."
+    },
     "rfqrpcFixedPoint": {
       "type": "object",
       "properties": {
@@ -1583,6 +1592,19 @@
         "price_oracle_metadata": {
           "type": "string",
           "description": "An optional text field that can be used to provide additional metadata\nabout the invoice to the price oracle. This can include information\nabout the wallet end user that initiated the transaction, or any\nauthentication information that the price oracle can use to give out a\nmore accurate (or discount) asset rate. Though not verified or enforced\nby tapd, the suggested format for this field is a JSON string.\nThis field is optional and can be left empty if no metadata is available.\nThe maximum length of this field is 32'768 bytes."
+        },
+        "asset_min_amt": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Optional minimum asset amount the peer must accept.\nForwarded to AddAssetBuyOrder. 0 means unset."
+        },
+        "asset_rate_limit": {
+          "$ref": "#/definitions/rfqrpcFixedPoint",
+          "description": "Optional rate floor (asset units per BTC) as a\nfixed-point number. Forwarded to AddAssetBuyOrder."
+        },
+        "execution_policy": {
+          "$ref": "#/definitions/rfqrpcExecutionPolicy",
+          "description": "Execution policy (IOC default, FOK). Forwarded to\nAddAssetBuyOrder."
         }
       }
     },
