@@ -361,7 +361,7 @@ INSERT INTO universe_servers(
     server_host, last_sync_time
 ) VALUES (
     $1, $2
-)
+) ON CONFLICT (server_host) DO NOTHING
 `
 
 type InsertUniverseServerParams struct {

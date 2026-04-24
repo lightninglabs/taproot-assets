@@ -29,10 +29,6 @@ var (
 	// found in the DB.
 	ErrNoUniverseServers = fmt.Errorf("no active federation servers")
 
-	// ErrDuplicateUniverse is returned when the Universe server being added
-	// to the DB already exists.
-	ErrDuplicateUniverse = fmt.Errorf("universe server already added")
-
 	// ErrNoUniverseProofFound is returned when a user attempts to look up
 	// a key in the universe that actually points to the empty leaf.
 	ErrNoUniverseProofFound = fmt.Errorf("no universe proof found")

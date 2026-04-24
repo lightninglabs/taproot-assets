@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"sort"
 	"sync/atomic"
@@ -245,26 +244,21 @@ func (u *UniverseFederationDB) AddServers(ctx context.Context,
 	addrs ...universe.ServerAddr) error {
 
 	var writeTx UniverseFederationOptions
-	err := u.db.ExecTx(ctx, &writeTx, func(db UniverseServerStore) error {
-		return fn.ForEachErr(addrs, func(a universe.ServerAddr) error {
-			addr := NewUniverseServer{
-				ServerHost:   a.HostStr(),
-				LastSyncTime: time.Now(),
-			}
-			return db.InsertUniverseServer(ctx, addr)
-		})
-	})
-	if err != nil {
-		// Add context to unique constraint errors.
-		var uniqueConstraintErr *ErrSqlUniqueConstraintViolation
-		if errors.As(err, &uniqueConstraintErr) {
-			return universe.ErrDuplicateUniverse
-		}
-
-		return err
-	}
-
-	return nil
+	return u.db.ExecTx(
+		ctx, &writeTx, func(db UniverseServerStore) error {
+			return fn.ForEachErr(
+				addrs, func(a universe.ServerAddr) error {
+					addr := NewUniverseServer{
+						ServerHost:   a.HostStr(),
+						LastSyncTime: time.Now(),
+					}
+					return db.InsertUniverseServer(
+						ctx, addr,
+					)
+				},
+			)
+		},
+	)
 }
 
 // RemoveServers removes a set of servers from the federation.

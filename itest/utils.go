@@ -908,23 +908,7 @@ func SyncUniverses(ctx context.Context, t *testing.T, clientTapd,
 			},
 		},
 	)
-	if err != nil {
-		// Only fail the test for other errors than duplicate universe
-		// errors, as we might have already added the server in a
-		// previous run.
-		require.ErrorContains(
-			t, err, universe.ErrDuplicateUniverse.Error(),
-		)
-
-		// If we've already added the server in a previous run, we'll
-		// just need to kick off a sync (as that would otherwise be done
-		// by adding the server request already).
-		_, err := clientTapd.SyncUniverse(ctxt, &universerpc.SyncRequest{
-			UniverseHost: universeHost,
-			SyncMode:     options.syncMode,
-		})
-		require.NoError(t, err)
-	}
+	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
 		return AssertUniverseStateEqual(t, universeTapd, clientTapd)
