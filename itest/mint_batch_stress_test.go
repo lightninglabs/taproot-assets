@@ -195,11 +195,9 @@ func mintBatchStressTest(
 		},
 		ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
 	}
-	uniLeaves, err := alice.AssetLeaves(
-		ctx, &unirpc.AssetLeavesRequest{Id: &collectUniID},
-	)
+	allLeaves, err := fetchAllLeaves(alice, &collectUniID)
 	require.NoError(t, err)
-	require.Len(t, uniLeaves.Leaves, batchSize)
+	require.Len(t, allLeaves, batchSize)
 
 	// The universe tree should also have a key for each asset, with all
 	// outpoints matching the chain anchor of the group anchor.

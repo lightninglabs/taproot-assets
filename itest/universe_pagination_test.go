@@ -221,6 +221,35 @@ func mintBatchAssetsTest(
 }
 
 // fetchAllLeafKeys fetches all leaf keys for a given universe ID.
+func fetchAllLeaves(client commands.RpcClientsBundle,
+	id *unirpc.ID) ([]*unirpc.AssetLeaf, error) {
+
+	leaves := make([]*unirpc.AssetLeaf, 0)
+	offset := int32(0)
+
+	for {
+		resp, err := client.AssetLeaves(
+			context.Background(), &unirpc.AssetLeavesRequest{
+				Id:     id,
+				Offset: offset,
+				Limit:  testPageSize,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(resp.Leaves) == 0 {
+			break
+		}
+
+		leaves = append(leaves, resp.Leaves...)
+		offset += testPageSize
+	}
+
+	return leaves, nil
+}
+
 func fetchAllLeafKeys(alice commands.RpcClientsBundle,
 	id *unirpc.ID) ([]*unirpc.AssetKey, error) {
 
