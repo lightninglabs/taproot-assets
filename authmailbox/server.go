@@ -47,6 +47,14 @@ const (
 	// maxRemoveMessageIDs is the maximum number of message IDs that can
 	// be removed in a single RemoveMessage RPC call.
 	maxRemoveMessageIDs = 1000
+
+	// maxSubscriberOverflow is the maximum number of items
+	// allowed to accumulate in a subscriber's overflow queue
+	// before the subscriber is evicted. This is a memory-
+	// safety bound, not a delivery guarantee: messages are
+	// persisted in MsgStore before being published, so an
+	// evicted subscriber recovers via replay on reconnect.
+	maxSubscriberOverflow = 64
 )
 
 // ServerConfig is the configuration struct for the mailbox server. It contains
@@ -726,21 +734,41 @@ func (s *Server) RegisterSubscriber(receiver *fn.EventReceiver[[]*Message],
 	return nil
 }
 
-// publishMessage publishes an event to all status event subscribers (which in
-// this case are all subscribed clients).
+// publishMessage publishes an event to all status event
+// subscribers (which in this case are all subscribed clients).
+// After publishing, any subscriber whose overflow queue is at
+// capacity is evicted to prevent unbounded memory growth.
 func (s *Server) publishMessage(msg *Message) {
-	// Lock the subscriber mutex to ensure that we don't modify the
-	// subscriber map while we're iterating over it.
 	s.msgEventsSubsMtx.Lock()
 	defer s.msgEventsSubsMtx.Unlock()
 
-	for _, sub := range s.msgEventsSubs {
+	var slowSubs []uint64
+	for id, sub := range s.msgEventsSubs {
 		select {
 		case sub.NewItemCreated.ChanIn() <- []*Message{msg}:
 		case <-s.Done():
-			log.Errorf("Unable publish status event, server " +
-				"shutting down")
+			log.Errorf("Unable publish status event, " +
+				"server shutting down")
+			return
 		}
+
+		if sub.NewItemCreated.OverflowLen() >=
+			maxSubscriberOverflow {
+
+			log.Warnf("Evicting slow subscriber %d: "+
+				"overflow queue at capacity", id)
+			slowSubs = append(slowSubs, id)
+		}
+	}
+
+	for _, id := range slowSubs {
+		sub, ok := s.msgEventsSubs[id]
+		if !ok {
+			continue
+		}
+
+		sub.Stop()
+		delete(s.msgEventsSubs, id)
 	}
 }
 
