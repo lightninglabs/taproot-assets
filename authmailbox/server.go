@@ -740,13 +740,13 @@ func (s *Server) RegisterSubscriber(receiver *fn.EventReceiver[[]*Message],
 // capacity is evicted to prevent unbounded memory growth.
 func (s *Server) publishMessage(msg *Message) {
 	s.msgEventsSubsMtx.Lock()
-	defer s.msgEventsSubsMtx.Unlock()
 
 	var slowSubs []uint64
 	for id, sub := range s.msgEventsSubs {
 		select {
 		case sub.NewItemCreated.ChanIn() <- []*Message{msg}:
 		case <-s.Done():
+			s.msgEventsSubsMtx.Unlock()
 			log.Errorf("Unable publish status event, " +
 				"server shutting down")
 			return
@@ -769,6 +769,34 @@ func (s *Server) publishMessage(msg *Message) {
 
 		sub.Stop()
 		delete(s.msgEventsSubs, id)
+	}
+
+	s.msgEventsSubsMtx.Unlock()
+
+	// Abort the owning streams outside the subscriber lock
+	// so that the handleStream defer (which calls
+	// disconnectClient → RemoveSubscriber) can acquire
+	// msgEventsSubsMtx without deadlocking.
+	if len(slowSubs) > 0 {
+		s.abortSlowStreams(slowSubs)
+	}
+}
+
+// abortSlowStreams finds and disconnects any connected streams
+// whose subscriber ID matches one of the evicted IDs. This
+// closes quitConn, which unblocks the handleStream select and
+// tears down the gRPC stream and its read goroutine.
+func (s *Server) abortSlowStreams(subIDs []uint64) {
+	s.connectedStreamsMtx.Lock()
+	defer s.connectedStreamsMtx.Unlock()
+
+	idSet := fn.NewSet(subIDs...)
+
+	for streamID, stream := range s.connectedStreams {
+		if idSet.Contains(stream.msgReceiver.ID()) {
+			stream.abort()
+			delete(s.connectedStreams, streamID)
+		}
 	}
 }
 
