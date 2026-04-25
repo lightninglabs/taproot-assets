@@ -5,11 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -58,6 +58,24 @@ type ArchiveConfig struct {
 	// TODO(roasbeef): load all at once, or lazy load dynamic?
 }
 
+const (
+	// defaultMaxCachedUniverses is the maximum number of base
+	// universe backends cached simultaneously. This bounds memory
+	// usage against requests for arbitrary asset IDs.
+	defaultMaxCachedUniverses = 10_000
+)
+
+// cachedUniBackend wraps a StorageBackend so it can be stored in an
+// LRU cache that requires the cache.Value interface.
+type cachedUniBackend struct {
+	StorageBackend
+}
+
+// Size returns 1 so the LRU cache counts entries rather than bytes.
+func (c *cachedUniBackend) Size() (uint64, error) {
+	return 1, nil
+}
+
 // Archive is a persistence implementation of the universe interface. This is
 // used by minting sub-systems to upsert new universe issuance proofs each time
 // an asset is created. It can also be used to synchronize state amongst
@@ -68,21 +86,19 @@ type ArchiveConfig struct {
 type Archive struct {
 	cfg ArchiveConfig
 
-	// baseUniverses is a map of all the current known base universe
-	// instances for the archive.
-	baseUniverses map[Identifier]StorageBackend
-
-	sync.RWMutex
+	// baseUniverses is a bounded LRU cache of base universe
+	// backend instances, keyed by identifier.
+	baseUniverses *lru.Cache[IdentifierKey, *cachedUniBackend]
 }
 
 // NewArchive creates a new universe archive based on the passed config.
 func NewArchive(cfg ArchiveConfig) *Archive {
-	a := &Archive{
-		cfg:           cfg,
-		baseUniverses: make(map[Identifier]StorageBackend),
+	return &Archive{
+		cfg: cfg,
+		baseUniverses: lru.NewCache[
+			IdentifierKey, *cachedUniBackend,
+		](defaultMaxCachedUniverses),
 	}
-
-	return a
 }
 
 // Close closes the archive, stopping all goroutines and freeing all resources.
@@ -90,17 +106,21 @@ func (a *Archive) Close() error {
 	return nil
 }
 
-// fetchUniverse returns the base universe instance for the passed identifier.
-// The universe will be loaded in on demand if it has not been seen before.
+// fetchUniverse returns the base universe instance for the passed
+// identifier. The universe will be loaded on demand if it has not
+// been seen before. The LRU cache bounds the number of cached
+// backends.
 func (a *Archive) fetchUniverse(id Identifier) StorageBackend {
-	a.Lock()
-	defer a.Unlock()
+	idKey := id.Key()
 
-	baseUni, ok := a.baseUniverses[id]
-	if !ok {
-		baseUni = a.cfg.NewBaseTree(id)
-		a.baseUniverses[id] = baseUni
+	cached, err := a.baseUniverses.Get(idKey)
+	if err == nil {
+		return cached.StorageBackend
 	}
+
+	baseUni := a.cfg.NewBaseTree(id)
+	wrapped := &cachedUniBackend{StorageBackend: baseUni}
+	_, _ = a.baseUniverses.Put(idKey, wrapped)
 
 	return baseUni
 }
@@ -725,6 +745,17 @@ func (a *Archive) FetchLeaves(ctx context.Context,
 
 	log.Debugf("Retrieving all leaves for universe (id=%v)",
 		id.StringForLog())
+
+	// Verify the universe exists before allocating a cached
+	// backend for it. This prevents unbounded cache growth from
+	// requests with random asset IDs.
+	_, err := a.cfg.Multiverse.UniverseRootNode(ctx, id)
+	if errors.Is(err, ErrNoUniverseRoot) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 
 	return withUni(
 		a, id, func(uni StorageBackend) ([]Leaf, error) {
