@@ -3319,6 +3319,66 @@ func TestQueryAssetBalancesCustomChannelFunding(t *testing.T) {
 		balanceByGroupSum += balance.Balance
 	}
 	require.Equal(t, assetDesc[0].amt, balanceByGroupSum)
+
+	// With includeChannel=true, we should get both assets back.
+	balances, err = assetsStore.QueryBalancesByAsset(
+		ctx, nil, includeLeased, true,
+		fn.None[asset.ScriptKeyType](),
+	)
+	require.NoError(t, err)
+	balancesByGroup, err = assetsStore.QueryAssetBalancesByGroup(
+		ctx, nil, includeLeased, true,
+		fn.None[asset.ScriptKeyType](),
+	)
+	require.NoError(t, err)
+
+	require.Len(t, balances, numAssets)
+	require.Len(t, balancesByGroup, numAssets)
+
+	balanceSum = uint64(0)
+	for _, balance := range balances {
+		balanceSum += balance.Balance
+	}
+	require.Equal(t, assetDesc[0].amt+assetDesc[1].amt, balanceSum)
+
+	balanceByGroupSum = uint64(0)
+	for _, balance := range balancesByGroup {
+		balanceByGroupSum += balance.Balance
+	}
+	require.Equal(
+		t, assetDesc[0].amt+assetDesc[1].amt, balanceByGroupSum,
+	)
+}
+
+func TestFetchGenesisByAssetID(t *testing.T) {
+	t.Parallel()
+
+	_, assetsStore, _ := newAssetStore(t)
+	ctx := context.Background()
+
+	const numAssets = 1
+	const numGroups = 1
+	assetGen := newAssetGenerator(t, numAssets, numGroups)
+
+	descs := []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		keyGroup:    assetGen.groupKeys[0],
+		amt:         42,
+	}}
+	assets, _ := assetGen.genAssets(t, assetsStore, descs)
+	assetID := assets[0].ID()
+
+	genInfo, err := assetsStore.FetchGenesisByAssetID(ctx, assetID)
+	require.NoError(t, err)
+
+	require.Equal(t, assetGen.assetGens[0].Tag, genInfo.AssetTag)
+	require.Equal(
+		t, int16(assetGen.assetGens[0].Type), genInfo.AssetType,
+	)
+	require.NotEmpty(t, genInfo.PrevOut)
+	require.NotEmpty(t, genInfo.MetaHash)
+	require.Equal(t, assetID[:], genInfo.AssetID)
 }
 
 // TestShouldSkipAssetCreation tests the behavior of the shouldSkipAssetCreation
