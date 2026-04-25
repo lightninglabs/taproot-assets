@@ -6438,8 +6438,13 @@ func (r *RPCServer) MultiverseRoot(ctx context.Context,
 func (r *RPCServer) AssetRoots(ctx context.Context,
 	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
 
-	// Check the rate limiter to see if we need to wait at all. If not then
-	// this'll be a noop.
+	if req.Limit > universe.MaxPageSize || req.Limit < 0 {
+		return nil, fmt.Errorf("invalid request limit: %d",
+			req.Limit)
+	}
+
+	// Check the rate limiter to see if we need to wait at all. If not
+	// then this'll be a noop.
 	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
@@ -6947,20 +6952,33 @@ func (r *RPCServer) marshalAssetLeaf(ctx context.Context,
 // took place on chain. The leaves contain a normal Taproot asset proof, as well
 // as details for the asset.
 func (r *RPCServer) AssetLeaves(ctx context.Context,
-	req *unirpc.ID) (*unirpc.AssetLeafResponse, error) {
+	req *unirpc.AssetLeavesRequest) (*unirpc.AssetLeafResponse, error) {
 
-	universeID, err := UnmarshalUniID(req)
+	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check the rate limiter to see if we need to wait at all. If not then
-	// this'll be a noop.
+	if req.Limit > universe.MaxPageSize || req.Limit < 0 {
+		return nil, fmt.Errorf("invalid request limit: %d",
+			req.Limit)
+	}
+
+	// Check the rate limiter to see if we need to wait at all. If not
+	// then this'll be a noop.
 	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 
-	assetLeaves, err := r.cfg.UniverseArchive.FetchLeaves(ctx, universeID)
+	assetLeaves, err := r.cfg.UniverseArchive.FetchLeaves(
+		ctx, universeID, universe.FetchLeavesQuery{
+			SortDirection: universe.SortDirection(
+				req.Direction,
+			),
+			Offset: req.Offset,
+			Limit:  req.Limit,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
