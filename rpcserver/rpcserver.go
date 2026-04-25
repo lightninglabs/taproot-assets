@@ -6954,6 +6954,10 @@ func (r *RPCServer) marshalAssetLeaf(ctx context.Context,
 func (r *RPCServer) AssetLeaves(ctx context.Context,
 	req *unirpc.AssetLeavesRequest) (*unirpc.AssetLeafResponse, error) {
 
+	if req == nil {
+		return nil, fmt.Errorf("request must be set")
+	}
+
 	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
 		return nil, err
@@ -6964,19 +6968,33 @@ func (r *RPCServer) AssetLeaves(ctx context.Context,
 			req.Limit)
 	}
 
+	if req.Offset < 0 {
+		return nil, fmt.Errorf("invalid request offset: %d",
+			req.Offset)
+	}
+
 	// Check the rate limiter to see if we need to wait at all. If not
 	// then this'll be a noop.
 	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 
+	// Map the sort direction from the RPC enum to the internal
+	// type. The RPC enum uses DESC=0, ASC=1, while the internal
+	// type uses ASC=0, DESC=1.
+	sortDirection := universe.SortAscending
+	switch req.Direction {
+	case taprpc.SortDirection_SORT_DIRECTION_ASC:
+		sortDirection = universe.SortAscending
+	case taprpc.SortDirection_SORT_DIRECTION_DESC:
+		sortDirection = universe.SortDescending
+	}
+
 	assetLeaves, err := r.cfg.UniverseArchive.FetchLeaves(
 		ctx, universeID, universe.FetchLeavesQuery{
-			SortDirection: universe.SortDirection(
-				req.Direction,
-			),
-			Offset: req.Offset,
-			Limit:  req.Limit,
+			SortDirection: sortDirection,
+			Offset:        req.Offset,
+			Limit:         req.Limit,
 		},
 	)
 	if err != nil {
