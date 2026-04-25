@@ -7,12 +7,18 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -776,4 +782,480 @@ func TestFetchDelegationKey(t *testing.T) {
 			mockAssetLookup.AssertExpectations(t)
 		})
 	}
+}
+
+// randProofWithGroupKey constructs a minimal proof that passes
+// proof.Verify with real verifiers. It differs from proof.RandProof
+// in two ways: the group private key is caller-supplied so
+// MockGroupFetcher can be wired after construction, and GroupKey.RawKey
+// is not cleared so IsGroupAnchor can re-derive the group pub key.
+//
+// The anchor tx output is derived from the tap commitment and internal
+// key using the same derivation chain that verifyTaprootProof uses,
+// so ExtractTaprootKey returns the same key that DeriveByAssetInclusion
+// produces.
+func randProofWithGroupKey(t *testing.T,
+	groupPrivKey *btcec.PrivateKey,
+	delegationKey *btcec.PublicKey) (proof.Proof, *btcec.PrivateKey) {
+
+	t.Helper()
+
+	scriptPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	scriptKey := scriptPrivKey.PubKey()
+
+	assetGenesis := asset.Genesis{
+		FirstPrevOut: wire.OutPoint{},
+		Tag:          "test-asset",
+		OutputIndex:  1,
+		Type:         asset.Normal,
+	}
+
+	amount := uint64(1000)
+	scriptKeyDesc := test.PubToKeyDesc(scriptKey)
+	bip86ScriptKey := asset.NewScriptKeyBip86(scriptKeyDesc)
+	protoAsset := asset.NewAssetNoErr(
+		t, assetGenesis, amount, 0, 0, bip86ScriptKey, nil,
+	)
+
+	groupKey, _ := asset.RandGroupKeyWithSigner(
+		t, groupPrivKey, assetGenesis, protoAsset,
+	)
+
+	groupReveal := asset.NewGroupKeyRevealV0(
+		asset.ToSerialized(groupPrivKey.PubKey()),
+		groupKey.TapscriptRoot,
+	)
+
+	mintCommitment, assets, err := commitment.Mint(
+		nil, assetGenesis, groupKey, &commitment.AssetDetails{
+			Type:      assetGenesis.Type,
+			ScriptKey: test.PubToKeyDesc(scriptKey),
+			Amount:    &amount,
+		},
+	)
+	require.NoError(t, err)
+
+	proofAsset := assets[0]
+
+	_, commitmentProof, err := mintCommitment.Proof(
+		proofAsset.TapCommitmentKey(),
+		proofAsset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	siblingLeaf := txscript.NewBaseTapLeaf([]byte{1})
+	siblingPreimage, err := commitment.NewPreimageFromLeaf(siblingLeaf)
+	require.NoError(t, err)
+
+	// Compute sibling hash using same path as
+	// deriveTaprootKeysFromTapCommitment takes
+	// when TapSiblingPreimage is set.
+	siblingHash, err := siblingPreimage.TapHash()
+	require.NoError(t, err)
+
+	// internalKey must be the same in both the inclusion proof and
+	// the taproot output derivation, so ExtractTaprootKey and
+	// DeriveByAssetInclusion produce the same key.
+	internalKey := test.RandPubKey(t)
+
+	// Derive the taproot output key the same way verifyTaprootProof
+	// does via deriveTaprootKeyFromTapCommitment.
+	tapscriptRoot := mintCommitment.TapscriptRoot(siblingHash)
+	taprootOutputKey := txscript.ComputeTaprootOutputKey(
+		internalKey, tapscriptRoot[:],
+	)
+	pkScript, err := txscript.PayToTaprootScript(taprootOutputKey)
+	require.NoError(t, err)
+
+	preCommitTxOut, err := tapgarden.PreCommitTxOut(*delegationKey)
+	require.NoError(t, err)
+
+	// Anchor tx: pre-commit output at index 0,
+	// asset-bearing P2TR at index 1.
+	anchorTx := &wire.MsgTx{
+		Version: 2,
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: wire.OutPoint{},
+		}},
+		TxOut: []*wire.TxOut{
+			&preCommitTxOut,
+			{
+				Value:    1000,
+				PkScript: pkScript,
+			},
+		},
+	}
+
+	txHash := anchorTx.TxHash()
+	merkleProof, err := proof.NewTxMerkleProof(
+		[]*wire.MsgTx{anchorTx}, 0,
+	)
+	require.NoError(t, err)
+
+	blockHeader := wire.BlockHeader{
+		Version:    1,
+		MerkleRoot: txHash,
+		Bits:       0x207fffff,
+	}
+
+	return proof.Proof{
+		PrevOut:       assetGenesis.FirstPrevOut,
+		BlockHeader:   blockHeader,
+		BlockHeight:   42,
+		AnchorTx:      *anchorTx,
+		TxMerkleProof: *merkleProof,
+		Asset:         *proofAsset,
+		InclusionProof: proof.TaprootProof{
+			OutputIndex: 1,
+			InternalKey: internalKey,
+			CommitmentProof: &proof.CommitmentProof{
+				Proof:              *commitmentProof,
+				TapSiblingPreimage: siblingPreimage,
+			},
+		},
+		ExclusionProofs: []proof.TaprootProof{
+			{
+				OutputIndex:     0,
+				InternalKey:     delegationKey,
+				CommitmentProof: nil,
+				TapscriptProof: &proof.TapscriptProof{
+					Bip86: true,
+				},
+			},
+		},
+		MetaReveal:     nil,
+		GenesisReveal:  &assetGenesis,
+		GroupKeyReveal: groupReveal,
+	}, scriptPrivKey
+}
+
+// taprootKeySpendWitness signs a virtual transaction input with a key spend
+// and returns the witness. Replicates the logic from proof.genTaprootKeySpend
+// which is unexported and lives in proof/append_test.go.
+func taprootKeySpendWitness(t *testing.T, privKey btcec.PrivateKey,
+	virtualTx *wire.MsgTx, input, newAsset *asset.Asset,
+	idx uint32) wire.TxWitness {
+
+	t.Helper()
+
+	virtualTxCopy := asset.VirtualTxWithInput(
+		virtualTx, newAsset.LockTime, newAsset.RelativeLockTime,
+		idx, nil,
+	)
+	sigHash, err := tapscript.InputKeySpendSigHash(
+		virtualTxCopy, input, newAsset, idx, txscript.SigHashDefault,
+	)
+	require.NoError(t, err)
+
+	taprootPrivKey := txscript.TweakTaprootPrivKey(privKey, nil)
+	sig, err := schnorr.Sign(taprootPrivKey, sigHash)
+	require.NoError(t, err)
+
+	return wire.TxWitness{sig.Serialize()}
+}
+
+// randBurnProofWithGroupKey constructs a valid burn proof that passes
+// burnProof.Verify with real verifiers. It builds on randProofWithGroupKey
+// for the genesis proof, then constructs a transfer to a burn key with a
+// valid Schnorr witness. The genesis proof is embedded as AdditionalInputs
+// so proof.Verify can resolve the previous asset state.
+func randBurnProofWithGroupKey(t *testing.T,
+	groupPrivKey *btcec.PrivateKey,
+	delegationKey *btcec.PublicKey) proof.Proof {
+
+	t.Helper()
+
+	// Build a valid genesis proof. The script key private key
+	// is needed to sign the transfer witness.
+	genesisProof, scriptPrivKey := randProofWithGroupKey(
+		t, groupPrivKey, delegationKey,
+	)
+
+	prevOutpoint := wire.OutPoint{
+		Hash:  genesisProof.AnchorTx.TxHash(),
+		Index: genesisProof.InclusionProof.OutputIndex,
+	}
+	prevID := asset.PrevID{
+		OutPoint: prevOutpoint,
+		ID:       genesisProof.Asset.Genesis.ID(),
+		ScriptKey: asset.ToSerialized(
+			genesisProof.Asset.ScriptKey.PubKey,
+		),
+	}
+
+	// Construct the burn asset. Script key is the burn key
+	// derived from the prevID so IsBurn() returns true.
+	burnScriptKey := asset.NewScriptKey(asset.DeriveBurnKey(prevID))
+	burnGenesis := genesisProof.Asset.Genesis
+	burnAmount := genesisProof.Asset.Amount
+
+	burnAsset, err := asset.New(
+		burnGenesis, burnAmount, 0, 0,
+		burnScriptKey,
+		genesisProof.Asset.GroupKey,
+	)
+	require.NoError(t, err)
+
+	burnAsset.PrevWitnesses = []asset.Witness{{
+		PrevID: &prevID,
+	}}
+	inputs := commitment.InputSet{
+		prevID: &genesisProof.Asset,
+	}
+	virtualTx, _, err := tapscript.VirtualTx(burnAsset, inputs)
+	require.NoError(t, err)
+
+	witness := taprootKeySpendWitness(
+		t, *scriptPrivKey, virtualTx,
+		&genesisProof.Asset, burnAsset, 0,
+	)
+	burnAsset.PrevWitnesses[0].TxWitness = witness
+
+	burnAssetCommitment, err := commitment.NewAssetCommitment(burnAsset)
+	require.NoError(t, err)
+
+	burnCommitment, err := commitment.NewTapCommitment(
+		nil, burnAssetCommitment,
+	)
+	require.NoError(t, err)
+
+	internalKey := test.RandPubKey(t)
+	siblingLeaf := txscript.NewBaseTapLeaf([]byte{1})
+	siblingPreimage, err := commitment.NewPreimageFromLeaf(siblingLeaf)
+	require.NoError(t, err)
+
+	siblingHash, err := siblingPreimage.TapHash()
+	require.NoError(t, err)
+
+	tapscriptRoot := burnCommitment.TapscriptRoot(siblingHash)
+	taprootOutputKey := txscript.ComputeTaprootOutputKey(
+		internalKey, tapscriptRoot[:],
+	)
+	pkScript, err := txscript.PayToTaprootScript(taprootOutputKey)
+	require.NoError(t, err)
+
+	burnAnchorTx := &wire.MsgTx{
+		Version: 2,
+		// No witness: proof.Verify only checks taproot derivation
+		// and asset state transition.
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: prevOutpoint,
+		}},
+		TxOut: []*wire.TxOut{{
+			Value:    1000,
+			PkScript: pkScript,
+		}},
+	}
+
+	burnTxHash := burnAnchorTx.TxHash()
+	burnMerkleProof, err := proof.NewTxMerkleProof(
+		[]*wire.MsgTx{burnAnchorTx}, 0,
+	)
+	require.NoError(t, err)
+
+	burnBlockHeader := wire.BlockHeader{
+		Version:    1,
+		MerkleRoot: burnTxHash,
+		Bits:       0x207fffff,
+	}
+
+	_, burnCommitmentProof, err := burnCommitment.Proof(
+		burnAsset.TapCommitmentKey(),
+		burnAsset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	genesisFile, err := proof.NewFile(proof.V0, genesisProof)
+	require.NoError(t, err)
+
+	return proof.Proof{
+		PrevOut:       prevOutpoint,
+		BlockHeader:   burnBlockHeader,
+		BlockHeight:   genesisProof.BlockHeight + 1,
+		AnchorTx:      *burnAnchorTx,
+		TxMerkleProof: *burnMerkleProof,
+		Asset:         *burnAsset,
+		InclusionProof: proof.TaprootProof{
+			OutputIndex: 0,
+			InternalKey: internalKey,
+			CommitmentProof: &proof.CommitmentProof{
+				Proof:              *burnCommitmentProof,
+				TapSiblingPreimage: siblingPreimage,
+			},
+		},
+		AdditionalInputs: []proof.File{*genesisFile},
+	}
+}
+
+// createVerifiableCommitment builds a RootCommitment whose chain anchor
+// passes VerifyChainAnchor without a live chain. It uses a single-tx block
+// so the merkle proof is empty (merkle root == tx hash), and MockChainBridge
+// returns nil from VerifyBlock unconditionally. The TxOut is derived from
+// RootCommitTxOut using an empty supply tree root, so the output script
+// check passes. If txIns is nil, a single default input with a zero outpoint
+// is used.
+func createVerifiableCommitment(t *testing.T, blockHeight uint32,
+	spentCommitment fn.Option[wire.OutPoint],
+	txIns []*wire.TxIn) supplycommit.RootCommitment {
+
+	t.Helper()
+
+	if txIns == nil {
+		txIns = []*wire.TxIn{{
+			PreviousOutPoint: wire.OutPoint{
+				Hash:  chainhash.Hash{},
+				Index: 0,
+			},
+		}}
+	}
+
+	emptyTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+	supplyRoot, err := emptyTree.Root(context.Background())
+	require.NoError(t, err)
+
+	base := createTestRootCommitment(t, blockHeight)
+	txOut, outputKey, err := supplycommit.RootCommitTxOut(
+		base.InternalKey.PubKey, nil, supplyRoot.NodeHash(),
+	)
+	require.NoError(t, err)
+
+	tx := &wire.MsgTx{
+		Version: 2,
+		TxIn:    txIns,
+		TxOut:   []*wire.TxOut{txOut},
+	}
+	txHash := tx.TxHash()
+
+	merkleProof, err := proof.NewTxMerkleProof(
+		[]*wire.MsgTx{tx}, 0,
+	)
+	require.NoError(t, err)
+
+	blockHeader := &wire.BlockHeader{
+		Version:    1,
+		MerkleRoot: txHash,
+		Bits:       0x207fffff,
+	}
+	commitBlock := supplycommit.CommitmentBlock{
+		Height:      blockHeight,
+		Hash:        blockHeader.BlockHash(),
+		TxIndex:     0,
+		BlockHeader: blockHeader,
+		MerkleProof: merkleProof,
+	}
+
+	base.Txn = tx
+	base.TxOutIdx = 0
+	base.OutputKey = outputKey
+	base.SupplyRoot = supplyRoot
+	base.CommitmentBlock = fn.Some(commitBlock)
+	base.SpentCommitment = spentCommitment
+
+	return base
+}
+
+// setupDelegationKeyMocks wires MockAssetLookup to return the given
+// delegation key via the group-key path that FetchLatestAssetMetadata
+// takes when the asset specifier carries a group key.
+func setupDelegationKeyMocks(t *testing.T,
+	mockLookup *supplycommit.MockAssetLookup,
+	groupPubKey *btcec.PublicKey,
+	delegKey *btcec.PublicKey) {
+
+	t.Helper()
+
+	metaReveal := createTestMetaRevealWithKey(t, delegKey)
+	assetGenesis := asset.Genesis{
+		Tag:  "test",
+		Type: asset.Normal,
+	}
+
+	mockLookup.On(
+		"QueryAssetGroupByGroupKey",
+		mock.Anything,
+		mock.Anything,
+	).Return(&asset.AssetGroup{
+		Genesis: &assetGenesis,
+		GroupKey: &asset.GroupKey{
+			GroupPubKey: *groupPubKey,
+		},
+	}, nil).Once()
+
+	mockLookup.On(
+		"FetchAssetMetaForAsset",
+		mock.Anything,
+		mock.Anything,
+	).Return(metaReveal, nil).Once()
+}
+
+// buildValidIssuanceEntry constructs a NewMintEvent and decoded proof
+// that pass verifyIssuanceLeaf when used with the returned assetSpec
+// and delegationKey.
+func buildValidIssuanceEntry(t *testing.T) (
+	supplycommit.NewMintEvent,
+	asset.Specifier,
+	btcec.PublicKey,
+) {
+
+	t.Helper()
+
+	groupPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	delegPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	delegationKey := delegPrivKey.PubKey()
+
+	validProof, _ := randProofWithGroupKey(
+		t, groupPrivKey, delegationKey,
+	)
+
+	var proofBuf bytes.Buffer
+	err = validProof.Encode(&proofBuf)
+	require.NoError(t, err)
+
+	var decodedProof proof.Proof
+	err = decodedProof.Decode(bytes.NewReader(proofBuf.Bytes()))
+	require.NoError(t, err)
+
+	extractedGenesis := decodedProof.Asset.Genesis
+	extractedGroupKey := decodedProof.Asset.GroupKey
+
+	assetSpec := asset.NewSpecifierFromGroupKey(
+		extractedGroupKey.GroupPubKey,
+	)
+
+	decodedAsset := decodedProof.Asset
+	outpoint := wire.OutPoint{
+		Hash:  chainhash.Hash{1, 2, 3},
+		Index: 0,
+	}
+	leafKey := universe.AssetLeafKey{
+		BaseLeafKey: universe.BaseLeafKey{
+			OutPoint: outpoint,
+			ScriptKey: &asset.ScriptKey{
+				PubKey: decodedProof.Asset.ScriptKey.PubKey,
+			},
+		},
+		AssetID: extractedGenesis.ID(),
+	}
+
+	issuanceLeaf := universe.Leaf{
+		GenesisWithGroup: universe.GenesisWithGroup{
+			Genesis:  extractedGenesis,
+			GroupKey: extractedGroupKey,
+		},
+		Asset:    &decodedAsset,
+		Amt:      decodedProof.Asset.Amount,
+		RawProof: proofBuf.Bytes(),
+	}
+
+	entry := supplycommit.NewMintEvent{
+		LeafKey:       leafKey,
+		IssuanceProof: issuanceLeaf,
+		MintHeight:    decodedProof.BlockHeight,
+	}
+
+	return entry, assetSpec, *delegationKey
 }

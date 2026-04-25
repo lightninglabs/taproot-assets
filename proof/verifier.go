@@ -603,17 +603,15 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	}
 
 	// Gather the set of asset inputs leading to the state transition.
-	var prevAssets commitment.InputSet
+	prevAssets := make(commitment.InputSet)
 	if prev != nil {
-		prevAssets = commitment.InputSet{
-			asset.PrevID{
-				OutPoint: p.PrevOut,
-				ID:       prev.Asset.Genesis.ID(),
-				ScriptKey: asset.ToSerialized(
-					prev.Asset.ScriptKey.PubKey,
-				),
-			}: prev.Asset,
-		}
+		prevAssets[asset.PrevID{
+			OutPoint: p.PrevOut,
+			ID:       prev.Asset.Genesis.ID(),
+			ScriptKey: asset.ToSerialized(
+				prev.Asset.ScriptKey.PubKey,
+			),
+		}] = prev.Asset
 	}
 
 	// We'll use an err group to be able to validate all the inputs in
