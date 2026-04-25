@@ -856,12 +856,20 @@ func AltLeavesDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	}
 
 	if typ, ok := val.(*[]AltLeaf[Asset]); ok {
-		// Each alt leaf is at least 42 bytes, which limits the total
-		// number of aux leaves. So we don't need to enforce a strict
-		// limit here.
 		numItems, err := tlv.ReadVarInt(r, buf)
 		if err != nil {
 			return err
+		}
+
+		// A minimal alt leaf is 39 bytes of inner TLV
+		// (ScriptVersion + ScriptKey) plus a 1-byte varint
+		// length prefix, so 40 bytes per item. Bound the
+		// allocation by what the record can actually contain.
+		const minAltLeafSize = 40
+		if numItems > l/minAltLeafSize {
+			return fmt.Errorf("%w: num items %d exceeds"+
+				" capacity for record length %d",
+				ErrTooManyInputs, numItems, l)
 		}
 
 		leaves := make([]AltLeaf[Asset], numItems)
