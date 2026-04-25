@@ -6433,6 +6433,22 @@ func (r *RPCServer) MultiverseRoot(ctx context.Context,
 	return &resp, nil
 }
 
+// unmarshalUniSortDirection maps the RPC SortDirection enum to the
+// internal universe type. The RPC enum uses DESC=0, ASC=1, while
+// the internal type uses ASC=0, DESC=1.
+func unmarshalUniSortDirection(
+	d taprpc.SortDirection) universe.SortDirection {
+
+	switch d {
+	case taprpc.SortDirection_SORT_DIRECTION_ASC:
+		return universe.SortAscending
+	case taprpc.SortDirection_SORT_DIRECTION_DESC:
+		return universe.SortDescending
+	default:
+		return universe.SortAscending
+	}
+}
+
 // AssetRoots queries for the known Universe roots associated with each known
 // asset. These roots represent the supply/audit state for each known asset.
 func (r *RPCServer) AssetRoots(ctx context.Context,
@@ -6453,7 +6469,7 @@ func (r *RPCServer) AssetRoots(ctx context.Context,
 	assetRoots, err := r.cfg.UniverseArchive.RootNodes(
 		ctx, universe.RootNodesQuery{
 			WithAmountsById: req.WithAmountsById,
-			SortDirection:   universe.SortDirection(req.Direction),
+			SortDirection:   unmarshalUniSortDirection(req.Direction),
 			Offset:          req.Offset,
 			Limit:           req.Limit,
 		},
@@ -6890,7 +6906,7 @@ func (r *RPCServer) AssetLeafKeys(ctx context.Context,
 	leafKeys, err := r.cfg.UniverseArchive.UniverseLeafKeys(
 		ctx, universe.UniverseLeafKeysQuery{
 			Id:            universeID,
-			SortDirection: universe.SortDirection(req.Direction),
+			SortDirection: unmarshalUniSortDirection(req.Direction),
 			Offset:        req.Offset,
 			Limit:         req.Limit,
 		},
@@ -6979,20 +6995,11 @@ func (r *RPCServer) AssetLeaves(ctx context.Context,
 		return nil, err
 	}
 
-	// Map the sort direction from the RPC enum to the internal
-	// type. The RPC enum uses DESC=0, ASC=1, while the internal
-	// type uses ASC=0, DESC=1.
-	sortDirection := universe.SortAscending
-	switch req.Direction {
-	case taprpc.SortDirection_SORT_DIRECTION_ASC:
-		sortDirection = universe.SortAscending
-	case taprpc.SortDirection_SORT_DIRECTION_DESC:
-		sortDirection = universe.SortDescending
-	}
-
 	assetLeaves, err := r.cfg.UniverseArchive.FetchLeaves(
 		ctx, universeID, universe.FetchLeavesQuery{
-			SortDirection: sortDirection,
+			SortDirection: unmarshalUniSortDirection(
+				req.Direction,
+			),
 			Offset:        req.Offset,
 			Limit:         req.Limit,
 		},
@@ -8199,7 +8206,7 @@ func (r *RPCServer) QueryAssetStats(ctx context.Context,
 				req.AssetIdFilter,
 			),
 			SortBy:        universe.SyncStatsSort(req.SortBy),
-			SortDirection: universe.SortDirection(req.Direction),
+			SortDirection: unmarshalUniSortDirection(req.Direction),
 			Offset:        int(req.Offset),
 			Limit:         int(req.Limit),
 		},
