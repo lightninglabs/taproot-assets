@@ -42,12 +42,14 @@ func (e *EventReceiver[T]) Stop() {
 	e.ItemRemoved.Stop()
 }
 
-// NewEventReceiver creates a new event receiver with concurrent queues of the
-// given size.
-func NewEventReceiver[T any](queueSize int) *EventReceiver[T] {
-	created := NewConcurrentQueue[T](queueSize)
+// NewEventReceiver creates a new event receiver with concurrent
+// queues of the given size.
+func NewEventReceiver[T any](queueSize int,
+	opts ...QueueOption) *EventReceiver[T] {
+
+	created := NewConcurrentQueue[T](queueSize, opts...)
 	created.Start()
-	removed := NewConcurrentQueue[T](queueSize)
+	removed := NewConcurrentQueue[T](queueSize, opts...)
 	removed.Start()
 
 	id := atomic.AddUint64(&nextID, 1)
