@@ -1216,3 +1216,149 @@ func TestAddrMatchesAsset(t *testing.T) {
 		})
 	}
 }
+
+// TestCustodianEventSubscriber tests that subscribers receive events when
+// assets are received. This validates the publishSubscriberStatusEvent
+// mechanism used by both success and error events.
+func TestCustodianEventSubscriber(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t, nil)
+
+	// Create an address and insert it.
+	ctx := context.Background()
+	addr, genesis := randAddrV1(h)
+	err := h.tapdbBook.InsertAddrs(ctx, *addr)
+	require.NoError(t, err)
+
+	require.NoError(t, h.c.Start())
+	t.Cleanup(func() {
+		require.NoError(t, h.c.Stop())
+	})
+	h.assertStartup()
+
+	// Register a subscriber to receive events.
+	subscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
+	err = h.c.RegisterSubscriber(subscriber, false, time.Time{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		err := h.c.RemoveSubscriber(subscriber)
+		require.NoError(t, err)
+	})
+
+	// Wait for the address to be registered.
+	h.assertAddrsRegistered(addr)
+
+	// Create a wallet transaction for the address.
+	outputIdx, tx := randWalletTx(addr)
+	tx.Confirmations = 1
+
+	// Prepare a proof for the courier to deliver.
+	mockProof := randProof(t, outputIdx, tx.Tx, genesis, addr)
+	recipient := proof.Recipient{}
+	err = h.courier.DeliverProof(
+		context.Background(), recipient, mockProof, nil,
+	)
+	require.NoError(t, err)
+
+	// Send the transaction through the wallet anchor to trigger processing.
+	h.walletAnchor.SubscribeTx <- *tx
+
+	// We should receive events on the subscriber channel. The flow is:
+	// StatusTransactionConfirmed -> StatusProofReceived -> StatusCompleted.
+	// We verify we receive at least one AssetReceiveEvent.
+	var receivedEvents []*tapgarden.AssetReceiveEvent
+	require.Eventually(t, func() bool {
+		select {
+		case event := <-subscriber.NewItemCreated.ChanOut():
+			receiveEvent, ok :=
+				event.(*tapgarden.AssetReceiveEvent)
+			if ok {
+				receivedEvents = append(
+					receivedEvents, receiveEvent,
+				)
+				// Keep collecting until we get
+				// StatusCompleted.
+				completed := address.StatusCompleted
+				if receiveEvent.Status == completed {
+					return true
+				}
+			}
+		default:
+		}
+		return false
+	}, testTimeout, testPollInterval)
+
+	// Verify we received events and the final one has the correct address.
+	require.NotEmpty(t, receivedEvents)
+	lastEvent := receivedEvents[len(receivedEvents)-1]
+	require.Equal(t, addr.AssetID, lastEvent.Address.AssetID)
+	require.Equal(t, address.StatusCompleted, lastEvent.Status)
+	require.Nil(t, lastEvent.Error)
+}
+
+// TestAssetReceiveErrorEvent tests that AssetReceiveErrorEvent correctly
+// captures error information and can be distinguished from success events.
+// This validates the error event structure used by error paths in
+// inspectWalletTx, mapProofToEvent, and handleMailboxMessages.
+func TestAssetReceiveErrorEvent(t *testing.T) {
+	t.Parallel()
+
+	// Create a random address for the event.
+	proofCourierAddr := address.RandProofCourierAddrForVersion(
+		t, address.V1,
+	)
+	addr, _, _ := address.RandAddrWithVersion(
+		t, chainParams, proofCourierAddr, address.V1,
+	)
+
+	outpoint := wire.OutPoint{
+		Hash:  test.RandHash(),
+		Index: 0,
+	}
+	confHeight := uint32(100)
+	status := address.StatusTransactionConfirmed
+	testErr := fmt.Errorf("test error: proof fetch failed")
+
+	// Create a success event.
+	successEvent := tapgarden.NewAssetReceiveEvent(
+		*addr.Tap, outpoint, confHeight, status,
+	)
+
+	// Create an error event with the same parameters plus an error.
+	errorEvent := tapgarden.NewAssetReceiveErrorEvent(
+		testErr, *addr.Tap, outpoint, confHeight, status,
+	)
+
+	// Verify success event has no error.
+	require.Nil(t, successEvent.Error)
+	require.Equal(t, addr.Tap.AssetID, successEvent.Address.AssetID)
+	require.Equal(t, outpoint, successEvent.OutPoint)
+	require.Equal(t, confHeight, successEvent.ConfirmationHeight)
+	require.Equal(t, status, successEvent.Status)
+
+	// Verify error event captures the error and all other fields.
+	require.NotNil(t, errorEvent.Error)
+	require.Equal(t, testErr, errorEvent.Error)
+	require.Equal(t, addr.Tap.AssetID, errorEvent.Address.AssetID)
+	require.Equal(t, outpoint, errorEvent.OutPoint)
+	require.Equal(t, confHeight, errorEvent.ConfirmationHeight)
+	require.Equal(t, status, errorEvent.Status)
+
+	// Verify both events have valid timestamps.
+	require.False(t, successEvent.Timestamp().IsZero())
+	require.False(t, errorEvent.Timestamp().IsZero())
+
+	// Test error event with zero/default values (as used in early error
+	// paths where full context isn't available).
+	earlyErrorEvent := tapgarden.NewAssetReceiveErrorEvent(
+		testErr, *addr.Tap, wire.OutPoint{},
+		0, address.StatusTransactionDetected,
+	)
+	require.NotNil(t, earlyErrorEvent.Error)
+	require.Equal(t, wire.OutPoint{}, earlyErrorEvent.OutPoint)
+	require.Equal(t, uint32(0), earlyErrorEvent.ConfirmationHeight)
+	require.Equal(
+		t, address.StatusTransactionDetected, earlyErrorEvent.Status,
+	)
+}

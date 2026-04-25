@@ -281,6 +281,13 @@
   - Added a limit (`MaxOrphanUTXOs = 20`) to prevent transactions from becoming
     too large when sweeping many orphan UTXOs at once.
 
+- [PR#2070](https://github.com/lightninglabs/taproot-assets/pull/2070)
+  Non-critical custodian errors are now surfaced to RPC clients subscribed via
+  `SubscribeReceiveEvents`. Errors during proof availability checks, proof
+  retrieval, wallet transaction inspection, and mailbox message handling now
+  publish `AssetReceiveErrorEvent` notifications, allowing clients to monitor
+  and react to failures without requiring log parsing.
+
 - [PR#1775](https://github.com/lightninglabs/taproot-assets/pull/1775):
   Price oracle connections now verify TLS certificates by
   default, using the OS root CA list. New config options under
