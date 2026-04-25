@@ -313,7 +313,9 @@ func testCollectibleGroupSend(t *harnessTest) {
 		},
 		ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
 	}
-	uniLeaves, err := t.tapd.AssetLeaves(ctxb, &collectUniID)
+	uniLeaves, err := t.tapd.AssetLeaves(
+		ctxb, &unirpc.AssetLeavesRequest{Id: &collectUniID},
+	)
 	require.NoError(t.t, err)
 	require.Len(t.t, uniLeaves.Leaves, batchSize)
 

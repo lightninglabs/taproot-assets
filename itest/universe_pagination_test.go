@@ -173,7 +173,11 @@ func mintBatchAssetsTest(
 		)
 
 		ctx := context.Background()
-		uniLeaves, err := alice.AssetLeaves(ctx, &collectUniID)
+		uniLeaves, err := alice.AssetLeaves(
+			ctx, &unirpc.AssetLeavesRequest{
+				Id: &collectUniID,
+			},
+		)
 		require.NoError(t, err)
 		require.Len(t, uniLeaves.Leaves, len(mintBatch))
 

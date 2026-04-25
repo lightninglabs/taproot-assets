@@ -436,7 +436,11 @@ func universeLeaves(ctx *cli.Context) error {
 		return err
 	}
 
-	assetLeaves, err := client.AssetLeaves(ctxc, universeID)
+	assetLeaves, err := client.AssetLeaves(
+		ctxc, &unirpc.AssetLeavesRequest{
+			Id: universeID,
+		},
+	)
 	if err != nil {
 		return err
 	}

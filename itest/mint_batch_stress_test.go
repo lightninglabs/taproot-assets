@@ -195,7 +195,9 @@ func mintBatchStressTest(
 		},
 		ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
 	}
-	uniLeaves, err := alice.AssetLeaves(ctx, &collectUniID)
+	uniLeaves, err := alice.AssetLeaves(
+		ctx, &unirpc.AssetLeavesRequest{Id: &collectUniID},
+	)
 	require.NoError(t, err)
 	require.Len(t, uniLeaves.Leaves, batchSize)
 
