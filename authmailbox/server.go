@@ -536,7 +536,8 @@ func (s *Server) disconnectClient(stream *mailboxStream) error {
 
 	_, ok := s.connectedStreams[stream.streamID]
 	if !ok {
-		return fmt.Errorf("stream %d not found", stream.streamID)
+		// Already removed (e.g. by slow-subscriber eviction).
+		return nil
 	}
 
 	delete(s.connectedStreams, stream.streamID)
