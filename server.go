@@ -705,6 +705,11 @@ func startRestProxy(cfg *tapconfig.Config, rpcServer *rpcserver.RPCServer,
 		// reason for not specifying the correct method in the first
 		// place.
 		proxy.WithDisablePathLengthFallback(),
+
+		// Propagate the original client IP to gRPC metadata
+		// so the per-IP rate limiter can distinguish REST
+		// clients (which otherwise all appear as localhost).
+		proxy.WithMetadata(rpcserver.AnnotateClientIP),
 	)
 
 	// Register our services with the REST proxy.

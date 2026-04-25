@@ -349,9 +349,9 @@ type UniverseConfig struct {
 
 	StatsCacheDuration time.Duration `long:"stats-cache-duration" description:"The amount of time to cache stats for before refreshing them. Valid time units are {s, m, h}."`
 
-	UniverseQueriesPerSecond rate.Limit `long:"max-qps" description:"The maximum number of queries per second across the set of active universe queries that is permitted. Anything above this starts to get rate limited."`
+	UniverseQueriesPerSecond rate.Limit `long:"max-qps" description:"The maximum number of universe queries per second permitted per client IP. Anything above this starts to get rate limited."`
 
-	UniverseQueriesBurst int `long:"req-burst-budget" description:"The burst budget for the universe query rate limiting."`
+	UniverseQueriesBurst int `long:"req-burst-budget" description:"The per-client burst budget for universe query rate limiting."`
 
 	MboxAuthTimeout time.Duration `long:"mbox-auth-timeout" description:"The timeout for mailbox message retrieval client authentication. Valid time units are {s, m, h}."`
 
