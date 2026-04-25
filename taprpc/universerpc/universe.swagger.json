@@ -472,7 +472,7 @@
         ]
       }
     },
-    "/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}": {
+    "/v1/taproot-assets/universe/leaves/asset-id/{id.asset_id_str}": {
       "get": {
         "summary": "tapcli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taproot Asset proof, as\nwell as details for the asset.",
         "operationId": "Universe_AssetLeaves",
@@ -492,14 +492,14 @@
         },
         "parameters": [
           {
-            "name": "asset_id_str",
+            "name": "id.asset_id_str",
             "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
-            "name": "asset_id",
+            "name": "id.asset_id",
             "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
@@ -507,7 +507,7 @@
             "format": "byte"
           },
           {
-            "name": "group_key",
+            "name": "id.group_key",
             "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
@@ -515,14 +515,14 @@
             "format": "byte"
           },
           {
-            "name": "group_key_str",
+            "name": "id.group_key_str",
             "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
-            "name": "proof_type",
+            "name": "id.proof_type",
             "in": "query",
             "required": false,
             "type": "string",
@@ -532,6 +532,34 @@
               "PROOF_TYPE_TRANSFER"
             ],
             "default": "PROOF_TYPE_UNSPECIFIED"
+          },
+          {
+            "name": "offset",
+            "description": "The offset for the page.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "limit",
+            "description": "The length limit for the page.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "direction",
+            "description": "The direction of the page.\n\n - SORT_DIRECTION_DESC: Sort results in descending order.\n - SORT_DIRECTION_ASC: Sort results in ascending order.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SORT_DIRECTION_DESC",
+              "SORT_DIRECTION_ASC"
+            ],
+            "default": "SORT_DIRECTION_DESC"
           }
         ],
         "tags": [
@@ -539,7 +567,7 @@
         ]
       }
     },
-    "/v1/taproot-assets/universe/leaves/group-key/{group_key_str}": {
+    "/v1/taproot-assets/universe/leaves/group-key/{id.group_key_str}": {
       "get": {
         "summary": "tapcli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taproot Asset proof, as\nwell as details for the asset.",
         "operationId": "Universe_AssetLeaves2",
@@ -559,14 +587,14 @@
         },
         "parameters": [
           {
-            "name": "group_key_str",
+            "name": "id.group_key_str",
             "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
-            "name": "asset_id",
+            "name": "id.asset_id",
             "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
@@ -574,14 +602,14 @@
             "format": "byte"
           },
           {
-            "name": "asset_id_str",
+            "name": "id.asset_id_str",
             "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
-            "name": "group_key",
+            "name": "id.group_key",
             "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
@@ -589,7 +617,7 @@
             "format": "byte"
           },
           {
-            "name": "proof_type",
+            "name": "id.proof_type",
             "in": "query",
             "required": false,
             "type": "string",
@@ -599,6 +627,34 @@
               "PROOF_TYPE_TRANSFER"
             ],
             "default": "PROOF_TYPE_UNSPECIFIED"
+          },
+          {
+            "name": "offset",
+            "description": "The offset for the page.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "limit",
+            "description": "The length limit for the page.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "direction",
+            "description": "The direction of the page.\n\n - SORT_DIRECTION_DESC: Sort results in descending order.\n - SORT_DIRECTION_ASC: Sort results in ascending order.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SORT_DIRECTION_DESC",
+              "SORT_DIRECTION_ASC"
+            ],
+            "default": "SORT_DIRECTION_DESC"
           }
         ],
         "tags": [

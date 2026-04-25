@@ -21,9 +21,9 @@ http:
         - get: "/v1/taproot-assets/universe/keys/group-key/{id.group_key_str}"
 
     - selector: universerpc.Universe.AssetLeaves
-      get: "/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}"
+      get: "/v1/taproot-assets/universe/leaves/asset-id/{id.asset_id_str}"
       additional_bindings:
-        - get: "/v1/taproot-assets/universe/leaves/group-key/{group_key_str}"
+        - get: "/v1/taproot-assets/universe/leaves/group-key/{id.group_key_str}"
 
     - selector: universerpc.Universe.QueryProof
       get: "/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"
