@@ -904,10 +904,7 @@ WHERE leaves.leaf_node_namespace = $1
 ORDER BY
     CASE WHEN $4 = 0 THEN leaves.id END ASC,
     CASE WHEN $4 = 1 THEN leaves.id END DESC
-LIMIT CASE WHEN $6 IS NOT NULL
-    THEN $6 ELSE 2147483647 END
-OFFSET CASE WHEN $5 IS NOT NULL
-    THEN $5 ELSE 0 END
+LIMIT $6 OFFSET $5
 `
 
 type QueryUniverseLeavesParams struct {
@@ -915,8 +912,8 @@ type QueryUniverseLeavesParams struct {
 	MintingPointBytes []byte
 	ScriptKeyBytes    []byte
 	SortDirection     interface{}
-	NumOffset         interface{}
-	NumLimit          interface{}
+	NumOffset         int32
+	NumLimit          int32
 }
 
 type QueryUniverseLeavesRow struct {

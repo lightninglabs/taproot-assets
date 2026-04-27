@@ -78,10 +78,7 @@ WHERE leaves.leaf_node_namespace = @namespace
 ORDER BY
     CASE WHEN sqlc.narg('sort_direction') = 0 THEN leaves.id END ASC,
     CASE WHEN sqlc.narg('sort_direction') = 1 THEN leaves.id END DESC
-LIMIT CASE WHEN sqlc.narg('num_limit') IS NOT NULL
-    THEN sqlc.narg('num_limit') ELSE 2147483647 END
-OFFSET CASE WHEN sqlc.narg('num_offset') IS NOT NULL
-    THEN sqlc.narg('num_offset') ELSE 0 END;
+LIMIT @num_limit OFFSET @num_offset;
 
 -- name: FetchUniverseKeys :many
 SELECT leaves.minting_point, leaves.script_key_bytes

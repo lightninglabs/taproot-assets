@@ -69,6 +69,12 @@ type (
 	QuerySupplyLeavesByHeightParams = sqlc.QuerySupplyLeavesByHeightParams
 )
 
+const (
+	// noLeavesLimit is a sentinel limit value used when a caller
+	// wants all universe leaves without pagination.
+	noLeavesLimit = int32(2147483647)
+)
+
 // BaseUniverseStore is the main interface for the Taproot Asset universe store.
 // This is a composite of the capabilities to insert new asset genesis, update
 // the SMT tree, and finally fetch a genesis. We then combine that with Universe
@@ -340,6 +346,7 @@ func listUniverseLeaves[T any](ctx context.Context, db BatchedUniverseTree,
 		universeLeaves, err := dbtx.QueryUniverseLeaves(
 			ctx, UniverseLeafQuery{
 				Namespace: namespace,
+				NumLimit:  noLeavesLimit,
 			},
 		)
 
@@ -1108,6 +1115,7 @@ func universeFetchProofLeaf(ctx context.Context,
 		MintingPointBytes: mintingPointBytes,
 		ScriptKeyBytes:    targetScriptKey,
 		Namespace:         namespace,
+		NumLimit:          noLeavesLimit,
 	})
 	if err != nil {
 		return nil, err
@@ -1291,8 +1299,8 @@ func (b *BaseUniverseTree) FetchLeaves(ctx context.Context,
 			ctx, UniverseLeafQuery{
 				Namespace:     b.smtNamespace,
 				SortDirection: sqlInt16(q.SortDirection),
-				NumOffset:     sqlInt32(q.Offset),
-				NumLimit:      sqlInt32(limit),
+				NumOffset:     q.Offset,
+				NumLimit:      limit,
 			},
 		)
 		if err != nil {
