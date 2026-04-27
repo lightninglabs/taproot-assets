@@ -251,6 +251,23 @@ message AddInvoiceRequest {
     // This field is optional and can be left empty if no metadata is available.
     // The maximum length of this field is 32'768 bytes.
     string price_oracle_metadata = 7;
+
+    // Reserved: was rfq_id.
+    reserved 8;
+
+    // Optional minimum asset amount the peer must accept.
+    // Forwarded to AddAssetBuyOrder. When omitted, defaults
+    // to the full asset amount (full-fill expected). Set
+    // explicitly to 0 to accept any partial fill.
+    optional uint64 asset_min_amt = 9;
+
+    // Optional rate floor (asset units per BTC) as a
+    // fixed-point number. Forwarded to AddAssetBuyOrder.
+    rfqrpc.FixedPoint asset_rate_limit = 10;
+
+    // Execution policy (IOC default, FOK). Forwarded to
+    // AddAssetBuyOrder.
+    rfqrpc.ExecutionPolicy execution_policy = 11;
 }
 
 message AddInvoiceResponse {

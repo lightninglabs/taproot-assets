@@ -729,8 +729,19 @@ type AddInvoiceRequest struct {
 	// This field is optional and can be left empty if no metadata is available.
 	// The maximum length of this field is 32'768 bytes.
 	PriceOracleMetadata string `protobuf:"bytes,7,opt,name=price_oracle_metadata,json=priceOracleMetadata,proto3" json:"price_oracle_metadata,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Optional minimum asset amount the peer must accept.
+	// Forwarded to AddAssetBuyOrder. When omitted, defaults
+	// to the full asset amount (full-fill expected). Set
+	// explicitly to 0 to accept any partial fill.
+	AssetMinAmt *uint64 `protobuf:"varint,9,opt,name=asset_min_amt,json=assetMinAmt,proto3,oneof" json:"asset_min_amt,omitempty"`
+	// Optional rate floor (asset units per BTC) as a
+	// fixed-point number. Forwarded to AddAssetBuyOrder.
+	AssetRateLimit *rfqrpc.FixedPoint `protobuf:"bytes,10,opt,name=asset_rate_limit,json=assetRateLimit,proto3" json:"asset_rate_limit,omitempty"`
+	// Execution policy (IOC default, FOK). Forwarded to
+	// AddAssetBuyOrder.
+	ExecutionPolicy rfqrpc.ExecutionPolicy `protobuf:"varint,11,opt,name=execution_policy,json=executionPolicy,proto3,enum=rfqrpc.ExecutionPolicy" json:"execution_policy,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AddInvoiceRequest) Reset() {
@@ -810,6 +821,27 @@ func (x *AddInvoiceRequest) GetPriceOracleMetadata() string {
 		return x.PriceOracleMetadata
 	}
 	return ""
+}
+
+func (x *AddInvoiceRequest) GetAssetMinAmt() uint64 {
+	if x != nil && x.AssetMinAmt != nil {
+		return *x.AssetMinAmt
+	}
+	return 0
+}
+
+func (x *AddInvoiceRequest) GetAssetRateLimit() *rfqrpc.FixedPoint {
+	if x != nil {
+		return x.AssetRateLimit
+	}
+	return nil
+}
+
+func (x *AddInvoiceRequest) GetExecutionPolicy() rfqrpc.ExecutionPolicy {
+	if x != nil {
+		return x.ExecutionPolicy
+	}
+	return rfqrpc.ExecutionPolicy(0)
 }
 
 type AddInvoiceResponse struct {
@@ -1078,7 +1110,7 @@ const file_tapchannelrpc_tapchannel_proto_rawDesc = "" +
 	"\x0epayment_result\x18\x02 \x01(\v2\x0e.lnrpc.PaymentH\x00R\rpaymentResultB\b\n" +
 	"\x06result\"0\n" +
 	"\vHodlInvoice\x12!\n" +
-	"\fpayment_hash\x18\x01 \x01(\fR\vpaymentHash\"\xbb\x02\n" +
+	"\fpayment_hash\x18\x01 \x01(\fR\vpaymentHash\"\xfe\x03\n" +
 	"\x11AddInvoiceRequest\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\fR\aassetId\x12!\n" +
 	"\fasset_amount\x18\x02 \x01(\x04R\vassetAmount\x12\x1f\n" +
@@ -1087,7 +1119,12 @@ const file_tapchannelrpc_tapchannel_proto_rawDesc = "" +
 	"\x0finvoice_request\x18\x04 \x01(\v2\x0e.lnrpc.InvoiceR\x0einvoiceRequest\x12=\n" +
 	"\fhodl_invoice\x18\x05 \x01(\v2\x1a.tapchannelrpc.HodlInvoiceR\vhodlInvoice\x12\x1b\n" +
 	"\tgroup_key\x18\x06 \x01(\fR\bgroupKey\x122\n" +
-	"\x15price_oracle_metadata\x18\a \x01(\tR\x13priceOracleMetadata\"\xa2\x01\n" +
+	"\x15price_oracle_metadata\x18\a \x01(\tR\x13priceOracleMetadata\x12'\n" +
+	"\rasset_min_amt\x18\t \x01(\x04H\x00R\vassetMinAmt\x88\x01\x01\x12<\n" +
+	"\x10asset_rate_limit\x18\n" +
+	" \x01(\v2\x12.rfqrpc.FixedPointR\x0eassetRateLimit\x12B\n" +
+	"\x10execution_policy\x18\v \x01(\x0e2\x17.rfqrpc.ExecutionPolicyR\x0fexecutionPolicyB\x10\n" +
+	"\x0e_asset_min_amtJ\x04\b\b\x10\t\"\xa2\x01\n" +
 	"\x12AddInvoiceResponse\x12J\n" +
 	"\x12accepted_buy_quote\x18\x01 \x01(\v2\x1c.rfqrpc.PeerAcceptedBuyQuoteR\x10acceptedBuyQuote\x12@\n" +
 	"\x0einvoice_result\x18\x02 \x01(\v2\x19.lnrpc.AddInvoiceResponseR\rinvoiceResult\"\x9f\x01\n" +
@@ -1144,12 +1181,14 @@ var file_tapchannelrpc_tapchannel_proto_goTypes = []any{
 	(*rfqrpc.PeerAcceptedSellQuote)(nil), // 16: rfqrpc.PeerAcceptedSellQuote
 	(*lnrpc.Payment)(nil),                // 17: lnrpc.Payment
 	(*lnrpc.Invoice)(nil),                // 18: lnrpc.Invoice
-	(*rfqrpc.PeerAcceptedBuyQuote)(nil),  // 19: rfqrpc.PeerAcceptedBuyQuote
-	(*lnrpc.AddInvoiceResponse)(nil),     // 20: lnrpc.AddInvoiceResponse
-	(*taprpc.DecimalDisplay)(nil),        // 21: taprpc.DecimalDisplay
-	(*taprpc.AssetGroup)(nil),            // 22: taprpc.AssetGroup
-	(*taprpc.GenesisInfo)(nil),           // 23: taprpc.GenesisInfo
-	(*lnrpc.PayReq)(nil),                 // 24: lnrpc.PayReq
+	(*rfqrpc.FixedPoint)(nil),            // 19: rfqrpc.FixedPoint
+	(rfqrpc.ExecutionPolicy)(0),          // 20: rfqrpc.ExecutionPolicy
+	(*rfqrpc.PeerAcceptedBuyQuote)(nil),  // 21: rfqrpc.PeerAcceptedBuyQuote
+	(*lnrpc.AddInvoiceResponse)(nil),     // 22: lnrpc.AddInvoiceResponse
+	(*taprpc.DecimalDisplay)(nil),        // 23: taprpc.DecimalDisplay
+	(*taprpc.AssetGroup)(nil),            // 24: taprpc.AssetGroup
+	(*taprpc.GenesisInfo)(nil),           // 25: taprpc.GenesisInfo
+	(*lnrpc.PayReq)(nil),                 // 26: lnrpc.PayReq
 }
 var file_tapchannelrpc_tapchannel_proto_depIdxs = []int32{
 	13, // 0: tapchannelrpc.RouterSendPaymentData.asset_amounts:type_name -> tapchannelrpc.RouterSendPaymentData.AssetAmountsEntry
@@ -1162,27 +1201,29 @@ var file_tapchannelrpc_tapchannel_proto_depIdxs = []int32{
 	17, // 7: tapchannelrpc.SendPaymentResponse.payment_result:type_name -> lnrpc.Payment
 	18, // 8: tapchannelrpc.AddInvoiceRequest.invoice_request:type_name -> lnrpc.Invoice
 	8,  // 9: tapchannelrpc.AddInvoiceRequest.hodl_invoice:type_name -> tapchannelrpc.HodlInvoice
-	19, // 10: tapchannelrpc.AddInvoiceResponse.accepted_buy_quote:type_name -> rfqrpc.PeerAcceptedBuyQuote
-	20, // 11: tapchannelrpc.AddInvoiceResponse.invoice_result:type_name -> lnrpc.AddInvoiceResponse
-	21, // 12: tapchannelrpc.AssetPayReqResponse.decimal_display:type_name -> taprpc.DecimalDisplay
-	22, // 13: tapchannelrpc.AssetPayReqResponse.asset_group:type_name -> taprpc.AssetGroup
-	23, // 14: tapchannelrpc.AssetPayReqResponse.genesis_info:type_name -> taprpc.GenesisInfo
-	24, // 15: tapchannelrpc.AssetPayReqResponse.pay_req:type_name -> lnrpc.PayReq
-	0,  // 16: tapchannelrpc.TaprootAssetChannels.FundChannel:input_type -> tapchannelrpc.FundChannelRequest
-	3,  // 17: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords:input_type -> tapchannelrpc.EncodeCustomRecordsRequest
-	5,  // 18: tapchannelrpc.TaprootAssetChannels.SendPayment:input_type -> tapchannelrpc.SendPaymentRequest
-	9,  // 19: tapchannelrpc.TaprootAssetChannels.AddInvoice:input_type -> tapchannelrpc.AddInvoiceRequest
-	11, // 20: tapchannelrpc.TaprootAssetChannels.DecodeAssetPayReq:input_type -> tapchannelrpc.AssetPayReq
-	1,  // 21: tapchannelrpc.TaprootAssetChannels.FundChannel:output_type -> tapchannelrpc.FundChannelResponse
-	4,  // 22: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords:output_type -> tapchannelrpc.EncodeCustomRecordsResponse
-	7,  // 23: tapchannelrpc.TaprootAssetChannels.SendPayment:output_type -> tapchannelrpc.SendPaymentResponse
-	10, // 24: tapchannelrpc.TaprootAssetChannels.AddInvoice:output_type -> tapchannelrpc.AddInvoiceResponse
-	12, // 25: tapchannelrpc.TaprootAssetChannels.DecodeAssetPayReq:output_type -> tapchannelrpc.AssetPayReqResponse
-	21, // [21:26] is the sub-list for method output_type
-	16, // [16:21] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	19, // 10: tapchannelrpc.AddInvoiceRequest.asset_rate_limit:type_name -> rfqrpc.FixedPoint
+	20, // 11: tapchannelrpc.AddInvoiceRequest.execution_policy:type_name -> rfqrpc.ExecutionPolicy
+	21, // 12: tapchannelrpc.AddInvoiceResponse.accepted_buy_quote:type_name -> rfqrpc.PeerAcceptedBuyQuote
+	22, // 13: tapchannelrpc.AddInvoiceResponse.invoice_result:type_name -> lnrpc.AddInvoiceResponse
+	23, // 14: tapchannelrpc.AssetPayReqResponse.decimal_display:type_name -> taprpc.DecimalDisplay
+	24, // 15: tapchannelrpc.AssetPayReqResponse.asset_group:type_name -> taprpc.AssetGroup
+	25, // 16: tapchannelrpc.AssetPayReqResponse.genesis_info:type_name -> taprpc.GenesisInfo
+	26, // 17: tapchannelrpc.AssetPayReqResponse.pay_req:type_name -> lnrpc.PayReq
+	0,  // 18: tapchannelrpc.TaprootAssetChannels.FundChannel:input_type -> tapchannelrpc.FundChannelRequest
+	3,  // 19: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords:input_type -> tapchannelrpc.EncodeCustomRecordsRequest
+	5,  // 20: tapchannelrpc.TaprootAssetChannels.SendPayment:input_type -> tapchannelrpc.SendPaymentRequest
+	9,  // 21: tapchannelrpc.TaprootAssetChannels.AddInvoice:input_type -> tapchannelrpc.AddInvoiceRequest
+	11, // 22: tapchannelrpc.TaprootAssetChannels.DecodeAssetPayReq:input_type -> tapchannelrpc.AssetPayReq
+	1,  // 23: tapchannelrpc.TaprootAssetChannels.FundChannel:output_type -> tapchannelrpc.FundChannelResponse
+	4,  // 24: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords:output_type -> tapchannelrpc.EncodeCustomRecordsResponse
+	7,  // 25: tapchannelrpc.TaprootAssetChannels.SendPayment:output_type -> tapchannelrpc.SendPaymentResponse
+	10, // 26: tapchannelrpc.TaprootAssetChannels.AddInvoice:output_type -> tapchannelrpc.AddInvoiceResponse
+	12, // 27: tapchannelrpc.TaprootAssetChannels.DecodeAssetPayReq:output_type -> tapchannelrpc.AssetPayReqResponse
+	23, // [23:28] is the sub-list for method output_type
+	18, // [18:23] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_tapchannelrpc_tapchannel_proto_init() }
@@ -1198,6 +1239,7 @@ func file_tapchannelrpc_tapchannel_proto_init() {
 		(*SendPaymentResponse_AcceptedSellOrders)(nil),
 		(*SendPaymentResponse_PaymentResult)(nil),
 	}
+	file_tapchannelrpc_tapchannel_proto_msgTypes[9].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

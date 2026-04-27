@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/itest"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
@@ -325,7 +326,7 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 				},
 			},
 			PaymentMaxAmt: 180_000_000,
-			PaymentMinAmt: 1000,
+			PaymentMinAmt: fn.Ptr[uint64](1000),
 			AssetRateLimit: &rfqrpc.FixedPoint{
 				Coefficient: "100000000000000",
 				Scale:       2,
@@ -364,6 +365,92 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 
 	logBalance(t.t, nodes, assetID, "after explicit IOC payment")
 	t.Logf("IOC payment completed: %d units sent", numUnitsIOC)
+
+	// -----------------------------------------------------------------
+	// AddInvoice with inline constraints.
+	//
+	// Dave calls AddInvoice with asset_rate_limit and
+	// asset_min_amt. The internal buy order is sent to Charlie,
+	// who needs a sell offer to accept it.
+	// -----------------------------------------------------------------
+	t.Logf("Registering sell offer on Charlie...")
+	_, err = asTapd(charlie).RfqClient.AddAssetSellOffer(
+		ctxb, &rfqrpc.AddAssetSellOfferRequest{
+			AssetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetId{
+					AssetId: assetID,
+				},
+			},
+			MaxUnits: 1_000_000_000,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Positive: satisfied constraints. Use an amount above
+	// the minimum transportable threshold (~230k units at
+	// the test's exchange rate).
+	t.Logf("AddInvoice with satisfied constraints...")
+	invoiceConstraints, err := asTapd(dave).
+		TaprootAssetChannelsClient.AddInvoice(
+			ctxb, &tchrpc.AddInvoiceRequest{
+				AssetId:     assetID,
+				AssetAmount: 1_000_000,
+				PeerPubkey:  charlie.PubKey[:],
+				InvoiceRequest: &lnrpc.Invoice{
+					Expiry: 60,
+				},
+				AssetMinAmt: fn.Ptr[uint64](1),
+				AssetRateLimit: &rfqrpc.FixedPoint{
+					// Floor well below oracle
+					// rate — constraint satisfied.
+					Coefficient: "1000000",
+					Scale:       2,
+				},
+			},
+		)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, invoiceConstraints.AcceptedBuyQuote)
+	require.NotEmpty(
+		t.t,
+		invoiceConstraints.InvoiceResult.PaymentRequest,
+	)
+	t.Logf("AddInvoice with constraints succeeded")
+
+	// Negative: rate limit above oracle rate.
+	t.Logf("AddInvoice with violated rate limit...")
+	_, err = asTapd(dave).
+		TaprootAssetChannelsClient.AddInvoice(
+			ctxb, &tchrpc.AddInvoiceRequest{
+				AssetId:     assetID,
+				AssetAmount: 1_000_000,
+				PeerPubkey:  charlie.PubKey[:],
+				InvoiceRequest: &lnrpc.Invoice{
+					Expiry: 60,
+				},
+				AssetRateLimit: &rfqrpc.FixedPoint{
+					// Floor above oracle rate.
+					Coefficient: "9999999999999999",
+					Scale:       2,
+				},
+			},
+		)
+	require.ErrorContains(t.t, err, "rejected quote")
+
+	// Negative: min_amt exceeds max_amt.
+	t.Logf("AddInvoice with min > max...")
+	_, err = asTapd(dave).
+		TaprootAssetChannelsClient.AddInvoice(
+			ctxb, &tchrpc.AddInvoiceRequest{
+				AssetId:     assetID,
+				AssetAmount: 1_000_000,
+				PeerPubkey:  charlie.PubKey[:],
+				InvoiceRequest: &lnrpc.Invoice{
+					Expiry: 60,
+				},
+				AssetMinAmt: fn.Ptr[uint64](2_000_000),
+			},
+		)
+	require.ErrorContains(t.t, err, "exceeds max amount")
 
 	// Close channels.
 	closeAssetChannelAndAssert(

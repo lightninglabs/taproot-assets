@@ -588,7 +588,7 @@
         "asset_min_amt": {
           "type": "string",
           "format": "uint64",
-          "description": "The optional minimum amount of the asset that the provider must be\nwilling to offer. If set, must be less than or equal to asset_max_amt.\nA value of 0 means unset."
+          "description": "The optional minimum amount of the asset that the provider\nmust be willing to offer. If set, must be less than or equal\nto asset_max_amt. When omitted, defaults to asset_max_amt\n(full-fill expected). Set explicitly to 0 to accept any\npartial fill."
         },
         "asset_rate_limit": {
           "$ref": "#/definitions/rfqrpcFixedPoint",
@@ -686,7 +686,7 @@
         "payment_min_amt": {
           "type": "string",
           "format": "uint64",
-          "description": "The optional minimum msat amount that the responding peer must agree\nto pay. If set, must be less than or equal to payment_max_amt.\nA value of 0 means unset (units: millisats)."
+          "description": "The optional minimum msat amount that the responding peer\nmust agree to pay. If set, must be less than or equal to\npayment_max_amt. When omitted, defaults to payment_max_amt\n(full-fill expected). Set explicitly to 0 to accept any\npartial fill (units: millisats)."
         },
         "asset_rate_limit": {
           "$ref": "#/definitions/rfqrpcFixedPoint",

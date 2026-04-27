@@ -199,13 +199,6 @@
   requests, and to `PortfolioPilot.ResolveRequest` for constraint
   forwarding. Add `FOK_NOT_VIABLE` to `QuoteRespStatus`.
 
-- [PR#2050](https://github.com/lightninglabs/taproot-assets/pull/2050):
-  Add `max_in_asset` to `PeerAcceptedBuyQuote` and
-  `PeerAcceptedSellQuote` in both the RFQ and PortfolioPilot
-  services, exposing the negotiated fill quantity to RPC clients.
-  Add `fill_amount` to `PortfolioPilot.ResolveResponse` for
-  responder-side fill signalling.
-
 ## tapcli Additions
 
 - [Wallet Backup CLI](https://github.com/lightninglabs/taproot-assets/pull/1980):
@@ -414,6 +407,19 @@
 
 - [PR#2049](https://github.com/lightninglabs/taproot-assets/pull/2049):
   Add unit, property-based, and integration tests for execution policy.
+
+- [PR#2050](https://github.com/lightninglabs/taproot-assets/pull/2050):
+  Add unit and integration tests for fill quantity negotiation,
+  including wire roundtrip, zero-normalisation, fill-vs-constraint
+  validation, sell-side FOK/IOC with fill caps, and responder
+  constraint rejection.
+
+- [PR#2053](https://github.com/lightninglabs/taproot-assets/pull/2053):
+  Add integration test for inline AddInvoice constraint fields
+  and for responder-side constraint validation (rate bound,
+  min fill, FOK/IOC acceptance and rejection across sub-tests).
+  Add sell-side constraint rejection unit tests for
+  TestResolveRequest.
 
 ## Database
 
