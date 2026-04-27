@@ -201,6 +201,14 @@ func testCustomChannelsOraclePricing(_ context.Context,
 	numUnits, rate := payInvoiceWithAssets(
 		t.t, charlie, dave, invoiceResp.PaymentRequest, assetID,
 	)
+
+	// Wait for the HTLC to fully settle on both asset channels
+	// in the multi-hop path before asserting balances. Without
+	// this, the commitment round-trip may not have completed on
+	// all nodes yet.
+	waitForAssetChannelHtlcSettlement(t.t, charlie, chanPointCD)
+	waitForAssetChannelHtlcSettlement(t.t, fabia, chanPointEF)
+
 	logBalance(t.t, nodes, assetID, "after invoice")
 
 	// The calculated amount Charlie has to pay should come out as
