@@ -743,12 +743,13 @@ func (s *Server) publishMessage(msg *Message) {
 	s.msgEventsSubsMtx.Lock()
 
 	var slowSubs []uint64
+	msgSlice := []*Message{msg}
 	for id, sub := range s.msgEventsSubs {
 		select {
-		case sub.NewItemCreated.ChanIn() <- []*Message{msg}:
+		case sub.NewItemCreated.ChanIn() <- msgSlice:
 		case <-s.Done():
 			s.msgEventsSubsMtx.Unlock()
-			log.Errorf("Unable publish status event, " +
+			log.Errorf("Unable to publish status event, " +
 				"server shutting down")
 			return
 		}
