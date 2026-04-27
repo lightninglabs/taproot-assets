@@ -94,6 +94,10 @@
   fixes `DecodeAssetPayReq` so `GenesisInfo` is populated consistently,
   including group-key invoice decodes.
 
+* [PR#2100](https://github.com/lightninglabs/taproot-assets/pull/2100)
+  fixes inverted sort direction in `AssetRoots`, `AssetLeafKeys`, and
+  `QueryEvents` universe RPCs.
+
 # New Features
 
 ## Functional Enhancements
@@ -333,11 +337,19 @@
   Add pagination support (offset, limit, direction) to the `ListAssets` RPC
   endpoint.
 
+- [PR#2100](https://github.com/lightninglabs/taproot-assets/pull/2100)
+  Add pagination support (offset, limit, direction) to the `AssetLeaves`
+  RPC endpoint, and add `MaxPageSize` validation to `AssetRoots`.
+
 ## tapcli Updates
 
 - [PR#1995](https://github.com/lightninglabs/taproot-assets/pull/1995)
   Add `--limit`, `--offset`, and `--direction` flags to `tapcli assets list`
   for pagination support. The direction defaults to descending order.
+
+- [PR#2100](https://github.com/lightninglabs/taproot-assets/pull/2100)
+  `tapcli universe leaves` now paginates automatically, fetching all
+  pages instead of silently truncating at 512 results.
 
 ## Config Changes
 
