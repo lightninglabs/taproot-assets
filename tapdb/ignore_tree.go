@@ -265,6 +265,7 @@ func queryIgnoreLeaves(ctx context.Context, dbtx BaseUniverseStore,
 		leafQuery := UniverseLeafQuery{
 			ScriptKeyBytes: scriptKey.SchnorrSerialized(),
 			Namespace:      namespace,
+			NumLimit:       noLeavesLimit,
 		}
 
 		leaves, err := dbtx.QueryUniverseLeaves(ctx, leafQuery)

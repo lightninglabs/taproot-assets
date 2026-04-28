@@ -27,6 +27,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/input"
@@ -359,7 +360,9 @@ func testMintFundSealAssets(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 	collectibleGroupLeaves, err := bobTapd.AssetLeaves(
-		ctx, rpcCollectibleGroupUniID,
+		ctx, &unirpc.AssetLeavesRequest{
+			Id: rpcCollectibleGroupUniID,
+		},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, collectibleGroupLeaves.Leaves, 2)

@@ -1885,10 +1885,16 @@ func AssertUniverseLeavesEqual(t *testing.T, uniIDs []*unirpc.ID,
 	a, b unirpc.UniverseClient) {
 
 	for _, uniID := range uniIDs {
-		aLeaves, err := a.AssetLeaves(context.Background(), uniID)
+		aLeaves, err := a.AssetLeaves(
+			context.Background(),
+			&unirpc.AssetLeavesRequest{Id: uniID},
+		)
 		require.NoError(t, err)
 
-		bLeaves, err := b.AssetLeaves(context.Background(), uniID)
+		bLeaves, err := b.AssetLeaves(
+			context.Background(),
+			&unirpc.AssetLeavesRequest{Id: uniID},
+		)
 		require.NoError(t, err)
 
 		require.Equal(t, len(aLeaves.Leaves), len(bLeaves.Leaves))

@@ -6433,22 +6433,44 @@ func (r *RPCServer) MultiverseRoot(ctx context.Context,
 	return &resp, nil
 }
 
+// unmarshalUniSortDirection maps the RPC SortDirection enum to the
+// internal universe type. The RPC enum uses DESC=0, ASC=1, while
+// the internal type uses ASC=0, DESC=1.
+func unmarshalUniSortDirection(
+	d taprpc.SortDirection) universe.SortDirection {
+
+	switch d {
+	case taprpc.SortDirection_SORT_DIRECTION_ASC:
+		return universe.SortAscending
+	case taprpc.SortDirection_SORT_DIRECTION_DESC:
+		return universe.SortDescending
+	default:
+		return universe.SortAscending
+	}
+}
+
 // AssetRoots queries for the known Universe roots associated with each known
 // asset. These roots represent the supply/audit state for each known asset.
 func (r *RPCServer) AssetRoots(ctx context.Context,
 	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
 
-	// Check the rate limiter to see if we need to wait at all. If not then
-	// this'll be a noop.
+	if req.Limit > universe.MaxPageSize || req.Limit < 0 {
+		return nil, fmt.Errorf("invalid request limit: %d",
+			req.Limit)
+	}
+
+	// Check the rate limiter to see if we need to wait at all. If not
+	// then this'll be a noop.
 	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 
 	// First, we'll retrieve the full set of known asset Universe roots.
+	sortDir := unmarshalUniSortDirection(req.Direction)
 	assetRoots, err := r.cfg.UniverseArchive.RootNodes(
 		ctx, universe.RootNodesQuery{
 			WithAmountsById: req.WithAmountsById,
-			SortDirection:   universe.SortDirection(req.Direction),
+			SortDirection:   sortDir,
 			Offset:          req.Offset,
 			Limit:           req.Limit,
 		},
@@ -6885,7 +6907,7 @@ func (r *RPCServer) AssetLeafKeys(ctx context.Context,
 	leafKeys, err := r.cfg.UniverseArchive.UniverseLeafKeys(
 		ctx, universe.UniverseLeafKeysQuery{
 			Id:            universeID,
-			SortDirection: universe.SortDirection(req.Direction),
+			SortDirection: unmarshalUniSortDirection(req.Direction),
 			Offset:        req.Offset,
 			Limit:         req.Limit,
 		},
@@ -6947,20 +6969,41 @@ func (r *RPCServer) marshalAssetLeaf(ctx context.Context,
 // took place on chain. The leaves contain a normal Taproot asset proof, as well
 // as details for the asset.
 func (r *RPCServer) AssetLeaves(ctx context.Context,
-	req *unirpc.ID) (*unirpc.AssetLeafResponse, error) {
+	req *unirpc.AssetLeavesRequest) (*unirpc.AssetLeafResponse, error) {
 
-	universeID, err := UnmarshalUniID(req)
+	if req == nil {
+		return nil, fmt.Errorf("request must be set")
+	}
+
+	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check the rate limiter to see if we need to wait at all. If not then
-	// this'll be a noop.
+	if req.Limit > universe.MaxPageSize || req.Limit < 0 {
+		return nil, fmt.Errorf("invalid request limit: %d",
+			req.Limit)
+	}
+
+	if req.Offset < 0 {
+		return nil, fmt.Errorf("invalid request offset: %d",
+			req.Offset)
+	}
+
+	// Check the rate limiter to see if we need to wait at all. If not
+	// then this'll be a noop.
 	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 
-	assetLeaves, err := r.cfg.UniverseArchive.FetchLeaves(ctx, universeID)
+	sortDir := unmarshalUniSortDirection(req.Direction)
+	assetLeaves, err := r.cfg.UniverseArchive.FetchLeaves(
+		ctx, universeID, universe.FetchLeavesQuery{
+			SortDirection: sortDir,
+			Offset:        req.Offset,
+			Limit:         req.Limit,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -8163,7 +8206,7 @@ func (r *RPCServer) QueryAssetStats(ctx context.Context,
 				req.AssetIdFilter,
 			),
 			SortBy:        universe.SyncStatsSort(req.SortBy),
-			SortDirection: universe.SortDirection(req.Direction),
+			SortDirection: unmarshalUniSortDirection(req.Direction),
 			Offset:        int(req.Offset),
 			Limit:         int(req.Limit),
 		},

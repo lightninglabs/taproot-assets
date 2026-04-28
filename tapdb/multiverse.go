@@ -539,6 +539,7 @@ func (b *MultiverseStore) queryRootNodes(ctx context.Context,
 				groupLeaves, err := db.QueryUniverseLeaves(
 					ctx, UniverseLeafQuery{
 						Namespace: id.String(),
+						NumLimit:  noLeavesLimit,
 					},
 				)
 				if err != nil {

@@ -62,19 +62,23 @@ WHERE leaf_node_namespace = @namespace
   AND script_key_bytes = @script_key_bytes;
 
 -- name: QueryUniverseLeaves :many
-SELECT leaves.script_key_bytes, gen.gen_asset_id, nodes.value AS genesis_proof, 
+SELECT leaves.script_key_bytes, gen.gen_asset_id, nodes.value AS genesis_proof,
        nodes.sum AS sum_amt, gen.asset_id
 FROM universe_leaves AS leaves
 JOIN mssmt_nodes AS nodes
-    ON leaves.leaf_node_key = nodes.key 
+    ON leaves.leaf_node_key = nodes.key
        AND leaves.leaf_node_namespace = nodes.namespace
 JOIN genesis_info_view AS gen
     ON leaves.asset_genesis_id = gen.gen_asset_id
-WHERE leaves.leaf_node_namespace = @namespace 
-      AND (leaves.minting_point = sqlc.narg('minting_point_bytes') OR 
-           sqlc.narg('minting_point_bytes') IS NULL) 
-      AND (leaves.script_key_bytes = sqlc.narg('script_key_bytes') OR 
-           sqlc.narg('script_key_bytes') IS NULL);
+WHERE leaves.leaf_node_namespace = @namespace
+      AND (leaves.minting_point = sqlc.narg('minting_point_bytes') OR
+           sqlc.narg('minting_point_bytes') IS NULL)
+      AND (leaves.script_key_bytes = sqlc.narg('script_key_bytes') OR
+           sqlc.narg('script_key_bytes') IS NULL)
+ORDER BY
+    CASE WHEN sqlc.narg('sort_direction') = 0 THEN leaves.id END ASC,
+    CASE WHEN sqlc.narg('sort_direction') = 1 THEN leaves.id END DESC
+LIMIT @num_limit OFFSET @num_offset;
 
 -- name: FetchUniverseKeys :many
 SELECT leaves.minting_point, leaves.script_key_bytes
