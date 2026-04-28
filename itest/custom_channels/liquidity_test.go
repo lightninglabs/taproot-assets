@@ -686,6 +686,14 @@ func testCustomChannelsLiquidityEdgeCasesCore(ctx context.Context,
 	require.NoError(t.t, err)
 	require.Empty(t.t, resp.FailedUpdates)
 
+	// Wait for Erin's policy update to propagate to Fabia's graph
+	// before creating the invoice. Without this, Fabia may still see
+	// the old default policy (BaseFeeMsat=1000).
+	erinFabiaChanID := fetchChannel(t.t, fabia, chanPointEF).ChanId
+	assertChannelPolicyUpdate(
+		t.t, fabia, erinFabiaChanID, erin.PubKeyStr, 31337,
+	)
+
 	// We now create an invoice on Fabia and expect Erin's policy to be used
 	// in the invoice.
 	invoiceResp = createAssetInvoice(t.t, erin, fabia, 1_000, assetID)
