@@ -369,6 +369,13 @@
 
 ## Performance Improvements
 
+* [PR#2104](https://github.com/lightninglabs/taproot-assets/pull/2104)
+  Dramatically improves block header verification performance during
+  proof receipt. Header verification RPCs are now deduplicated
+  and executed in parallel, replacing the previous sequential per-proof
+  approach. Benchmarks show a ~15x speedup for files with many unique
+  headers.
+
 ## Deprecations
 
 # Technical and Architectural Updates
