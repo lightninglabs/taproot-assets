@@ -3189,14 +3189,46 @@ func assertForceCloseSweeps(ctx context.Context,
 
 	t.Logf("Confirming initial HTLC timeout txns")
 
-	timeoutSweeps, err := waitForNTxsInMempool(
-		net.Miner, 2, wait.DefaultTimeout,
+	// Mine the HTLC timeout sweeps sequentially. A wallet UTXO
+	// selection bug in the sweeper can cause competing InputSets
+	// to pick the same fee-paying UTXO, so both sweeps may not
+	// coexist in the mempool simultaneously. We mine what's
+	// available and let the sweeper retry on the next tick.
+	_, err = waitForAtLeastNTxsInMempool(
+		net.Miner, 1, wait.DefaultTimeout,
 	)
 	require.NoError(t.t, err)
 
-	t.Logf("Asserting balance on sweeps: %v", timeoutSweeps)
+	// Mine a block containing whatever timeout sweeps are
+	// currently in the mempool.
+	sweepBlocks = mineBlocks(t, net, 1, 0)
+	numMined := len(sweepBlocks[0].Transactions) - 1
 
-	mineBlocks(t, net, 1, 2)
+	// Collect txids from the mined block for Bob's sweep
+	// identification below.
+	var timeoutSweeps []*chainhash.Hash
+	for i := range sweepBlocks[0].Transactions[1:] {
+		hash := sweepBlocks[0].Transactions[i+1].TxHash()
+		timeoutSweeps = append(timeoutSweeps, &hash)
+	}
+
+	// If only one sweep was mined (the other was RBF'd out due to
+	// a UTXO collision), wait for the sweeper to retry and mine
+	// the second sweep.
+	if numMined < 2 {
+		_, err = waitForAtLeastNTxsInMempool(
+			net.Miner, 1, wait.DefaultTimeout,
+		)
+		require.NoError(t.t, err)
+
+		sweepBlocks2 := mineBlocks(t, net, 1, 0)
+		for i := range sweepBlocks2[0].Transactions[1:] {
+			hash := sweepBlocks2[0].Transactions[i+1].TxHash()
+			timeoutSweeps = append(timeoutSweeps, &hash)
+		}
+	}
+
+	t.Logf("Asserting balance on sweeps: %v", timeoutSweeps)
 
 	bobSweeps, err := bob.WalletKitClient.ListSweeps(
 		ctx, &walletrpc.ListSweepsRequest{
@@ -3241,16 +3273,13 @@ func assertForceCloseSweeps(ctx context.Context,
 
 		t.Logf("Confirming additional HTLC timeout sweep txns")
 
-		additionalTimeoutSweeps, err := waitForNTxsInMempool(
+		_, err := waitForAtLeastNTxsInMempool(
 			net.Miner, 1, ccShortTimeout,
 		)
 		require.NoError(t.t, err)
 
-		t.Logf("Asserting balance on additional timeout sweeps: %v",
-			additionalTimeoutSweeps)
-
-		// Finally, we'll mine a single block to confirm them.
-		mineBlocks(t, net, 1, 1)
+		// Mine a block to confirm the additional sweeps.
+		mineBlocks(t, net, 1, 0)
 	}
 
 	// At this point, Bob's balance should be incremented by an additional

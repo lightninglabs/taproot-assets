@@ -367,6 +367,38 @@ func waitForNTxsInMempool(m *miner.HarnessMiner, n int,
 	}
 }
 
+// waitForAtLeastNTxsInMempool polls until finding at least n transactions
+// in the miner's mempool, returning all txids present.
+func waitForAtLeastNTxsInMempool(m *miner.HarnessMiner, n int,
+	timeout time.Duration) ([]*chainhash.Hash, error) {
+
+	breakTimeout := time.After(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	var mempool []chainhash.Hash
+	for {
+		select {
+		case <-breakTimeout:
+			return nil, fmt.Errorf("wanted at least %v, "+
+				"found %v txs in mempool: %v",
+				n, len(mempool), mempool)
+		case <-ticker.C:
+			mempool = m.GetRawMempool()
+
+			if len(mempool) >= n {
+				result := make(
+					[]*chainhash.Hash, len(mempool),
+				)
+				for i := range mempool {
+					result[i] = &mempool[i]
+				}
+				return result, nil
+			}
+		}
+	}
+}
+
 // assertTxInBlock asserts that a transaction with the given hash is included
 // in the block.
 func assertTxInBlock(t *ccHarnessTest, block *wire.MsgBlock,
