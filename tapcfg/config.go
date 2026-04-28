@@ -151,6 +151,10 @@ const (
 	// messages.
 	defaultMboxCleanupInterval = 24 * time.Hour
 
+	// defaultMaxMboxStreamsPerPeer is the default maximum number
+	// of concurrent ReceiveMessages streams from a single peer.
+	defaultMaxMboxStreamsPerPeer = 10
+
 	// DefaultPsbtMaxFeeRatio is the default maximum for fees to total
 	// output amount ratio to use when funding PSBTs.
 	DefaultPsbtMaxFeeRatio = lndservices.DefaultPsbtMaxFeeRatio
@@ -359,6 +363,8 @@ type UniverseConfig struct {
 
 	MboxCleanupCheckTimeout time.Duration `long:"mbox-cleanup-check-timeout" description:"Per-outpoint timeout when checking if an outpoint has been spent on chain. Valid time units are {s, m, h}."`
 
+	MboxMaxStreamsPerPeer int `long:"mbox-max-streams-per-peer" description:"Maximum concurrent mailbox streams from a single peer IP. 0 means unlimited."`
+
 	MultiverseCaches *tapdb.MultiverseCacheConfig `group:"multiverse-caches" namespace:"multiverse-caches"`
 
 	SupplyIgnoreCacheSize uint64 `long:"supply-ignore-cache-size" description:"The maximum number of entries in the supply ignore checker's negative lookup LRU cache."`
@@ -539,6 +545,7 @@ func DefaultConfig() Config {
 			),
 			MboxAuthTimeout:                 defaultMailboxAuthTimeout,
 			MboxCleanupInterval:             defaultMboxCleanupInterval,
+			MboxMaxStreamsPerPeer:           defaultMaxMboxStreamsPerPeer,
 			SupplyIgnoreCacheSize:           tapdb.DefaultNegativeLookupCacheSize,
 			DisableSupplyVerifierChainWatch: false,
 		},
@@ -934,6 +941,11 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 		if err := makeDirectory(dir); err != nil {
 			return nil, err
 		}
+	}
+
+	// Reject negative mailbox stream limit.
+	if cfg.Universe.MboxMaxStreamsPerPeer < 0 {
+		return nil, mkErr("mbox-max-streams-per-peer must be >= 0")
 	}
 
 	// Append the network type to the log directory so it is "namespaced"

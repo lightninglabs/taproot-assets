@@ -244,11 +244,12 @@ func NewMockServerWithSigner(t *testing.T,
 	listenAddr := fmt.Sprintf(test.ListenAddrTemplate, nextPort)
 
 	serverCfg := &ServerConfig{
-		AuthTimeout:    testTimeout,
-		Signer:         signer,
-		HeaderVerifier: proof.MockHeaderVerifier,
-		MerkleVerifier: proof.DefaultMerkleVerifier,
-		MsgStore:       inMemMsgStore,
+		AuthTimeout:       testTimeout,
+		Signer:            signer,
+		HeaderVerifier:    proof.MockHeaderVerifier,
+		MerkleVerifier:    proof.DefaultMerkleVerifier,
+		MsgStore:          inMemMsgStore,
+		MaxStreamsPerPeer: 10,
 	}
 	h := &MockServer{
 		ListenAddr: listenAddr,
