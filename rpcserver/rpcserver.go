@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -1107,7 +1109,8 @@ func (r *RPCServer) checkBalanceOverflow(ctx context.Context,
 	case assetID != nil:
 		// Retrieve the current asset balance.
 		balances, err := r.cfg.AssetStore.QueryBalancesByAsset(
-			ctx, assetID, true, fn.None[asset.ScriptKeyType](),
+			ctx, assetID, true, false,
+			fn.None[asset.ScriptKeyType](),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to query asset balance: %w",
@@ -1123,7 +1126,8 @@ func (r *RPCServer) checkBalanceOverflow(ctx context.Context,
 	case groupPubKey != nil:
 		// Retrieve the current balance of the group.
 		balances, err := r.cfg.AssetStore.QueryAssetBalancesByGroup(
-			ctx, groupPubKey, true, fn.None[asset.ScriptKeyType](),
+			ctx, groupPubKey, true, false,
+			fn.None[asset.ScriptKeyType](),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to query group balance: %w",
@@ -1194,6 +1198,7 @@ func (r *RPCServer) ListAssets(ctx context.Context,
 		CommitmentConstraints: constraints,
 		Offset:                req.Offset,
 		Limit:                 limit,
+		IncludeChannel:        req.IncludeChannel,
 	}
 
 	// Map the sort direction from the RPC enum to the database
@@ -1269,11 +1274,37 @@ func (r *RPCServer) ListAssets(ctx context.Context,
 			"outgoing parcels: %w", err)
 	}
 
-	return &taprpc.ListAssetResponse{
+	resp := &taprpc.ListAssetResponse{
 		Assets:               rpcAssets,
 		UnconfirmedTransfers: uint64(len(outboundParcels)),
 		UnconfirmedMints:     unconfirmedMints,
-	}, nil
+	}
+
+	// If the caller wants pending transfer outputs, construct Asset
+	// proto objects from unconfirmed parcel outputs and return them
+	// in a separate field so they don't inflate or distort the
+	// paginated confirmed results.
+	if req.IncludePendingTransfers {
+		allowedTypes := asset.ScriptKeyTypeForDatabaseQuery(
+			!req.IncludeChannel, scriptKeyType,
+		)
+		if req.IncludeChannel {
+			allowedTypes = appendChannelScriptKeyType(
+				allowedTypes,
+			)
+		}
+
+		pendingAssets, err := r.pendingTransferAssets(
+			ctx, outboundParcels, req, allowedTypes,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		resp.PendingAssets = pendingAssets
+	}
+
+	return resp, nil
 }
 
 // FetchAsset fetches asset(s) by asset ID or group key, with optional filters.
@@ -1411,12 +1442,13 @@ func (r *RPCServer) MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 }
 
 func (r *RPCServer) listBalancesByAsset(ctx context.Context,
-	assetID *asset.ID, includeLeased bool,
+	assetID *asset.ID,
+	includeLeased, includeChannel, includePending bool,
 	skt fn.Option[asset.ScriptKeyType]) (*taprpc.ListBalancesResponse,
 	error) {
 
 	balances, err := r.cfg.AssetStore.QueryBalancesByAsset(
-		ctx, assetID, includeLeased, skt,
+		ctx, assetID, includeLeased, includeChannel, skt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list balances: %w", err)
@@ -1447,23 +1479,77 @@ func (r *RPCServer) listBalancesByAsset(ctx context.Context,
 	// We will also report the number of unconfirmed transfers. This is
 	// useful for clients as unconfirmed asset coins are not included in the
 	// balance list.
-	outboundParcels, err := r.cfg.AssetStore.QueryParcels(ctx, nil, true)
+	outboundParcels, err := r.cfg.AssetStore.QueryParcels(
+		ctx, nil, true,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to query for unconfirmed "+
 			"outgoing parcels: %w", err)
 	}
 	resp.UnconfirmedTransfers = uint64(len(outboundParcels))
 
+	// If the caller wants pending balances, aggregate the local
+	// outputs from unconfirmed outbound transfers by asset ID.
+	if includePending {
+		// Compute the set of allowed script key types so that
+		// pending outputs are filtered consistently with the
+		// confirmed balance query.
+		allowedTypes := asset.ScriptKeyTypeForDatabaseQuery(
+			!includeChannel, skt,
+		)
+		if includeChannel {
+			allowedTypes = appendChannelScriptKeyType(
+				allowedTypes,
+			)
+		}
+
+		pending, err := r.pendingBalancesByAsset(
+			ctx, outboundParcels, balances, assetID,
+			allowedTypes,
+		)
+		if err != nil {
+			return nil, err
+		}
+		resp.PendingAssetBalances = pending
+	}
+
+	// If the caller wants channel balances, fetch them from lnd
+	// and include the in-channel (off-chain) asset balances.
+	if includeChannel {
+		chanBals, err := r.fetchChannelAssetBalances(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		if chanBals != nil {
+			var filterKey string
+			if assetID != nil {
+				filterKey = hex.EncodeToString(
+					assetID[:],
+				)
+			}
+			resp.ChannelAssetBalances = jsonToChannelBalances(
+				chanBals.OpenChannels, filterKey,
+			)
+
+			//nolint:lll
+			resp.PendingChannelAssetBalances = jsonToChannelBalances(
+				chanBals.PendingChannels, filterKey,
+			)
+		}
+	}
+
 	return resp, nil
 }
 
 func (r *RPCServer) listBalancesByGroupKey(ctx context.Context,
-	groupKey *btcec.PublicKey, includeLeased bool,
+	groupKey *btcec.PublicKey,
+	includeLeased, includeChannel, includePending bool,
 	skt fn.Option[asset.ScriptKeyType]) (*taprpc.ListBalancesResponse,
 	error) {
 
 	balances, err := r.cfg.AssetStore.QueryAssetBalancesByGroup(
-		ctx, groupKey, includeLeased, skt,
+		ctx, groupKey, includeLeased, includeChannel, skt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list balances: %w", err)
@@ -1493,14 +1579,481 @@ func (r *RPCServer) listBalancesByGroupKey(ctx context.Context,
 	// We will also report the number of unconfirmed transfers. This is
 	// useful for clients as unconfirmed asset coins are not included in the
 	// balance list.
-	outboundParcels, err := r.cfg.AssetStore.QueryParcels(ctx, nil, true)
+	outboundParcels, err := r.cfg.AssetStore.QueryParcels(
+		ctx, nil, true,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to query for unconfirmed "+
 			"outgoing parcels: %w", err)
 	}
 	resp.UnconfirmedTransfers = uint64(len(outboundParcels))
 
+	// If the caller wants pending balances, aggregate the local
+	// outputs from unconfirmed outbound transfers by group key.
+	if includePending {
+		allowedTypes := asset.ScriptKeyTypeForDatabaseQuery(
+			!includeChannel, skt,
+		)
+		if includeChannel {
+			allowedTypes = appendChannelScriptKeyType(
+				allowedTypes,
+			)
+		}
+
+		pending, err := pendingBalancesByGroup(
+			outboundParcels, groupKey, allowedTypes,
+		)
+		if err != nil {
+			return nil, err
+		}
+		resp.PendingAssetGroupBalances = pending
+	}
+
+	// If the caller wants channel balances, fetch them from lnd
+	// and include the in-channel (off-chain) asset balances
+	// grouped by group key.
+	if includeChannel {
+		chanBals, err := r.fetchChannelAssetBalances(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		if chanBals != nil {
+			var filterKey string
+			if groupKey != nil {
+				filterKey = hex.EncodeToString(
+					groupKey.SerializeCompressed(),
+				)
+			}
+			resp.ChannelGroupBalances = jsonToChannelBalances(
+				chanBals.OpenChannelsByGroup,
+				filterKey,
+			)
+
+			//nolint:lll
+			resp.PendingChannelGroupBalances = jsonToChannelBalances(
+				chanBals.PendingChannelsByGroup,
+				filterKey,
+			)
+		}
+	}
+
 	return resp, nil
+}
+
+// pendingBalancesByAsset aggregates the local outputs from unconfirmed
+// outbound transfers by asset ID. Genesis info is looked up from the
+// confirmed balances map first, falling back to the database. If
+// filterID is non-nil, only outputs matching that asset ID are
+// included. Only outputs whose script key type is in allowedTypes are
+// included, ensuring consistency with the confirmed balance filters.
+func (r *RPCServer) pendingBalancesByAsset(ctx context.Context,
+	parcels []*tapfreighter.OutboundParcel,
+	confirmed map[asset.ID]tapdb.AssetBalance,
+	filterID *asset.ID,
+	allowedTypes []asset.ScriptKeyType) (
+	map[string]*taprpc.AssetBalance, error) {
+
+	pending := make(map[string]*taprpc.AssetBalance)
+
+	for _, parcel := range parcels {
+		for idx := range parcel.Outputs {
+			out := &parcel.Outputs[idx]
+			if !out.ScriptKeyLocal {
+				continue
+			}
+
+			// Filter by script key type to match the
+			// confirmed balance query.
+			if out.ScriptKey.TweakedScriptKey != nil &&
+				!scriptKeyTypeAllowed(
+					out.ScriptKey.Type,
+					allowedTypes,
+				) {
+
+				continue
+			}
+
+			outAssetID, err := out.AssetID()
+			if err != nil {
+				continue
+			}
+
+			// Skip assets that don't match the filter.
+			if filterID != nil && *filterID != outAssetID {
+				continue
+			}
+
+			idStr := hex.EncodeToString(outAssetID[:])
+
+			if existing, ok := pending[idStr]; ok {
+				existing.Balance += out.Amount
+				continue
+			}
+
+			genesis, err := r.genesisForAsset(
+				ctx, outAssetID, confirmed,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			pending[idStr] = &taprpc.AssetBalance{
+				AssetGenesis: genesis,
+				Balance:      out.Amount,
+			}
+		}
+	}
+
+	return pending, nil
+}
+
+// pendingTransferAssets constructs taprpc.Asset proto objects from
+// local outputs of unconfirmed outbound transfers. Each output is
+// sparse-decoded from its proof suffix and wrapped in a ChainAsset
+// with AnchorBlockHeight=0 to signal pending status. The same
+// content filters as the confirmed asset query are applied (amount
+// range, group key, script key, anchor outpoint) but not pagination.
+// The output's ScriptKey metadata is preserved (not the sparse-
+// decoded one) so wallet-specific fields like script_key_is_local
+// and script_key_type are accurate.
+func (r *RPCServer) pendingTransferAssets(ctx context.Context,
+	parcels []*tapfreighter.OutboundParcel,
+	req *taprpc.ListAssetRequest,
+	allowedTypes []asset.ScriptKeyType) ([]*taprpc.Asset, error) {
+
+	var result []*taprpc.Asset
+
+	for _, parcel := range parcels {
+		for idx := range parcel.Outputs {
+			out := &parcel.Outputs[idx]
+			if !out.ScriptKeyLocal {
+				continue
+			}
+
+			// Filter by script key type.
+			if out.ScriptKey.TweakedScriptKey != nil &&
+				!scriptKeyTypeAllowed(
+					out.ScriptKey.Type,
+					allowedTypes,
+				) {
+
+				continue
+			}
+
+			// Apply amount range filters.
+			if req.MinAmount > 0 &&
+				out.Amount < req.MinAmount {
+
+				continue
+			}
+			if req.MaxAmount > 0 &&
+				out.Amount > req.MaxAmount {
+
+				continue
+			}
+
+			if len(out.ProofSuffix) == 0 {
+				continue
+			}
+
+			var outAsset asset.Asset
+			err := proof.SparseDecode(
+				bytes.NewReader(out.ProofSuffix),
+				proof.AssetLeafRecord(&outAsset),
+			)
+			if err != nil {
+				continue
+			}
+
+			// Apply group key filter.
+			if len(req.GroupKey) > 0 {
+				if outAsset.GroupKey == nil {
+					continue
+				}
+
+				gk := outAsset.GroupKey.GroupPubKey
+				reqGK, err := btcec.ParsePubKey(
+					req.GroupKey,
+				)
+				if err != nil {
+					continue
+				}
+				if !gk.IsEqual(reqGK) {
+					continue
+				}
+			}
+
+			// Apply script key filter.
+			if req.ScriptKey != nil {
+				reqSK, err := rpcutils.UnmarshalScriptKey(
+					req.ScriptKey,
+				)
+				if err == nil && !outAsset.ScriptKey.
+					PubKey.IsEqual(reqSK.PubKey) {
+
+					continue
+				}
+			}
+
+			// Apply anchor outpoint filter.
+			if req.AnchorOutpoint != nil {
+				reqOP, err := rpcutils.UnmarshalOutPoint(
+					req.AnchorOutpoint,
+				)
+				if err == nil &&
+					out.Anchor.OutPoint != reqOP {
+
+					continue
+				}
+			}
+
+			// Preserve the wallet-aware script key from
+			// the transfer output, since the sparse-
+			// decoded asset only carries the pubkey without
+			// type or local-key metadata.
+			outAsset.ScriptKey = out.ScriptKey
+
+			anchorKey := out.Anchor.InternalKey.PubKey
+			sibling := out.Anchor.TapscriptSibling
+			chainAsset := asset.ChainAsset{
+				Asset:                  &outAsset,
+				AnchorTx:               parcel.AnchorTx,
+				AnchorOutpoint:         out.Anchor.OutPoint,
+				AnchorInternalKey:      anchorKey,
+				AnchorMerkleRoot:       out.Anchor.MerkleRoot,
+				AnchorTapscriptSibling: sibling,
+			}
+
+			rpcAsset, err := r.MarshalChainAsset(
+				ctx, chainAsset, nil, req.WithWitness,
+				r.cfg.AddrBook,
+			)
+			if err != nil {
+				continue
+			}
+
+			result = append(result, rpcAsset)
+		}
+	}
+
+	return result, nil
+}
+
+// pendingBalancesByGroup aggregates the local outputs from unconfirmed
+// outbound transfers by group key. The group key is extracted directly
+// from each output's proof suffix, avoiding DB lookups that would fail
+// when the confirmed balance is zero. If filterGroupKey is non-nil,
+// only outputs belonging to that group are included. Assets without a
+// group key are skipped to match the confirmed group-balance query
+// which only returns grouped assets. Only outputs whose script key
+// type is in allowedTypes are included.
+func pendingBalancesByGroup(
+	parcels []*tapfreighter.OutboundParcel,
+	filterGroupKey *btcec.PublicKey,
+	allowedTypes []asset.ScriptKeyType) (
+	map[string]*taprpc.AssetGroupBalance, error) {
+
+	pending := make(map[string]*taprpc.AssetGroupBalance)
+
+	for _, parcel := range parcels {
+		for idx := range parcel.Outputs {
+			out := &parcel.Outputs[idx]
+			if !out.ScriptKeyLocal {
+				continue
+			}
+
+			// Filter by script key type to match the
+			// confirmed balance query.
+			if out.ScriptKey.TweakedScriptKey != nil &&
+				!scriptKeyTypeAllowed(
+					out.ScriptKey.Type,
+					allowedTypes,
+				) {
+
+				continue
+			}
+
+			if len(out.ProofSuffix) == 0 {
+				continue
+			}
+
+			// Sparse-decode the proof to get the asset,
+			// which carries the group key.
+			var outAsset asset.Asset
+			err := proof.SparseDecode(
+				bytes.NewReader(out.ProofSuffix),
+				proof.AssetLeafRecord(&outAsset),
+			)
+			if err != nil {
+				continue
+			}
+
+			// Skip ungrouped assets. The confirmed
+			// group-balance query only returns grouped
+			// assets, so we do the same here.
+			if outAsset.GroupKey == nil {
+				continue
+			}
+
+			gk := outAsset.GroupKey.GroupPubKey
+			groupKey := gk.SerializeCompressed()
+
+			// Apply the group key filter if one was
+			// provided.
+			if filterGroupKey != nil {
+				filterBytes := filterGroupKey.
+					SerializeCompressed()
+				if !bytes.Equal(groupKey, filterBytes) {
+					continue
+				}
+			}
+
+			gkStr := hex.EncodeToString(groupKey)
+			if existing, ok := pending[gkStr]; ok {
+				existing.Balance += out.Amount
+			} else {
+				pending[gkStr] = &taprpc.AssetGroupBalance{
+					GroupKey: groupKey,
+					Balance:  out.Amount,
+				}
+			}
+		}
+	}
+
+	return pending, nil
+}
+
+// appendChannelScriptKeyType appends the channel script key type to
+// the given set if not already present.
+func appendChannelScriptKeyType(
+	types []asset.ScriptKeyType) []asset.ScriptKeyType {
+
+	for _, t := range types {
+		if t == asset.ScriptKeyScriptPathChannel {
+			return types
+		}
+	}
+
+	return append(types, asset.ScriptKeyScriptPathChannel)
+}
+
+// scriptKeyTypeAllowed returns true if the given script key type is
+// in the allowed set.
+func scriptKeyTypeAllowed(skt asset.ScriptKeyType,
+	allowed []asset.ScriptKeyType) bool {
+
+	for _, t := range allowed {
+		if t == skt {
+			return true
+		}
+	}
+
+	return false
+}
+
+// genesisForAsset returns the GenesisInfo for the given asset ID,
+// checking the confirmed balance map first and falling back to a
+// database lookup.
+func (r *RPCServer) genesisForAsset(ctx context.Context,
+	id asset.ID,
+	confirmed map[asset.ID]tapdb.AssetBalance) (
+	*taprpc.GenesisInfo, error) {
+
+	if b, ok := confirmed[id]; ok {
+		return &taprpc.GenesisInfo{
+			GenesisPoint: b.GenesisPoint.String(),
+			AssetType:    taprpc.AssetType(b.Type),
+			Name:         b.Tag,
+			MetaHash:     b.MetaHash[:],
+			AssetId:      b.ID[:],
+		}, nil
+	}
+
+	genInfo, err := r.cfg.AssetStore.FetchGenesisByAssetID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch genesis for "+
+			"asset %x: %w", id[:], err)
+	}
+
+	var genesisPoint wire.OutPoint
+	r2 := bytes.NewReader(genInfo.PrevOut)
+	if _, err := io.ReadFull(r2, genesisPoint.Hash[:]); err != nil {
+		return nil, fmt.Errorf("unable to decode genesis "+
+			"point hash: %w", err)
+	}
+	if err := binary.Read(
+		r2, binary.LittleEndian, &genesisPoint.Index,
+	); err != nil {
+		return nil, fmt.Errorf("unable to decode genesis "+
+			"point index: %w", err)
+	}
+
+	return &taprpc.GenesisInfo{
+		GenesisPoint: genesisPoint.String(),
+		AssetType:    taprpc.AssetType(genInfo.AssetType),
+		Name:         genInfo.AssetTag,
+		MetaHash:     genInfo.MetaHash,
+		AssetId:      genInfo.AssetID,
+	}, nil
+}
+
+// fetchChannelAssetBalances queries lnd for the current channel
+// balance and decodes the custom channel data into asset balances.
+// Returns nil when channel features are not enabled.
+func (r *RPCServer) fetchChannelAssetBalances(
+	ctx context.Context) (
+	*rfqmsg.JsonAssetChannelBalances, error) {
+
+	if !r.cfg.EnableChannelFeatures {
+		return nil, nil
+	}
+
+	chanBal, err := r.cfg.Lnd.Client.ChannelBalance(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch channel "+
+			"balance: %w", err)
+	}
+
+	if len(chanBal.CustomChannelData) == 0 {
+		return nil, nil
+	}
+
+	var balances rfqmsg.JsonAssetChannelBalances
+	err = json.Unmarshal(
+		chanBal.CustomChannelData, &balances,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to unmarshal "+
+			"channel balance data: %w", err)
+	}
+
+	return &balances, nil
+}
+
+// jsonToChannelBalances converts a map of rfqmsg.JsonAssetBalance
+// entries to the corresponding proto map, optionally filtering by a
+// single key.
+func jsonToChannelBalances(
+	src map[string]*rfqmsg.JsonAssetBalance,
+	filterKey string) map[string]*taprpc.AssetChannelBalance {
+
+	out := make(map[string]*taprpc.AssetChannelBalance, len(src))
+	for k, v := range src {
+		if filterKey != "" && k != filterKey {
+			continue
+		}
+
+		assetID, _ := hex.DecodeString(v.AssetID)
+		out[k] = &taprpc.AssetChannelBalance{
+			AssetId:       assetID,
+			Name:          v.Name,
+			LocalBalance:  v.LocalBalance,
+			RemoteBalance: v.RemoteBalance,
+		}
+	}
+
+	return out
 }
 
 // ListUtxos lists the UTXOs managed by the target daemon, and the assets they
@@ -1520,6 +2073,7 @@ func (r *RPCServer) ListUtxos(ctx context.Context,
 		CommitmentConstraints: tapfreighter.CommitmentConstraints{
 			ScriptKeyType: scriptKeyType,
 		},
+		IncludeChannel: req.IncludeChannel,
 	}
 
 	rpcAssets, err := r.fetchRpcAssets(
@@ -1536,10 +2090,11 @@ func (r *RPCServer) ListUtxos(ctx context.Context,
 
 	utxos := make(map[string]*taprpc.ManagedUtxo)
 	for _, u := range managedUtxos {
+		internalKey := u.InternalKey.PubKey.SerializeCompressed()
 		utxos[u.OutPoint.String()] = &taprpc.ManagedUtxo{
 			OutPoint:         u.OutPoint.String(),
 			AmtSat:           int64(u.OutputValue),
-			InternalKey:      u.InternalKey.PubKey.SerializeCompressed(),
+			InternalKey:      internalKey,
 			TaprootAssetRoot: u.TaprootAssetRoot,
 			MerkleRoot:       u.MerkleRoot,
 			LeaseOwner:       u.LeaseOwner[:],
@@ -1650,7 +2205,9 @@ func (r *RPCServer) ListBalances(ctx context.Context,
 		}
 
 		return r.listBalancesByAsset(
-			ctx, assetID, req.IncludeLeased, scriptKeyType,
+			ctx, assetID, req.IncludeLeased,
+			req.IncludeChannel, req.IncludePending,
+			scriptKeyType,
 		)
 
 	case *taprpc.ListBalancesRequest_GroupKey:
@@ -1669,7 +2226,9 @@ func (r *RPCServer) ListBalances(ctx context.Context,
 		}
 
 		return r.listBalancesByGroupKey(
-			ctx, groupKey, req.IncludeLeased, scriptKeyType,
+			ctx, groupKey, req.IncludeLeased,
+			req.IncludeChannel, req.IncludePending,
+			scriptKeyType,
 		)
 
 	default:

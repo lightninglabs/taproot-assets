@@ -100,6 +100,22 @@ func testBasicSendUnidirectional(t *harnessTest) {
 
 		sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, bobAddr)
 
+		// Between broadcast and confirmation the sender should
+		// have a pending balance for the change output.
+		balResp, err := t.tapd.ListBalances(
+			ctxb, &taprpc.ListBalancesRequest{
+				GroupBy:        groupBalancesByAssetID,
+				IncludePending: true,
+			},
+		)
+		require.NoError(t.t, err)
+		require.NotEmpty(t.t, balResp.PendingAssetBalances)
+
+		assetIDHex := hex.EncodeToString(genInfo.AssetId)
+		pendingBal, ok := balResp.PendingAssetBalances[assetIDHex]
+		require.True(t.t, ok)
+		require.Equal(t.t, currentUnits, pendingBal.Balance)
+
 		ConfirmAndAssertOutboundTransfer(
 			t.t, t.lndHarness.Miner(), t.tapd, sendResp,
 			genInfo.AssetId,

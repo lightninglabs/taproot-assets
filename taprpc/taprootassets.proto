@@ -337,6 +337,18 @@ message ListAssetRequest {
     // The sort direction of the returned assets, sorted by asset primary key
     // (creation order). Defaults to descending.
     SortDirection direction = 13;
+
+    // If true, include assets that are used for funding custom channels.
+    // These assets are normally excluded from the list because their balance
+    // is reported through lnd's channel balance. Setting this flag will
+    // include them alongside regular on-chain assets.
+    bool include_channel = 14;
+
+    // If true, include local outputs from unconfirmed outbound transfers as
+    // assets with block_height=0. These are pending change or self-send
+    // outputs that will appear in the confirmed asset list once the anchor
+    // transaction confirms.
+    bool include_pending_transfers = 15;
 }
 
 message AnchorInfo {
@@ -679,18 +691,27 @@ message SplitCommitment {
 }
 
 message ListAssetResponse {
-    // The list of assets found in the database matching the request query
-    // parameters.
+    // The list of confirmed assets matching the request query parameters,
+    // subject to pagination (offset/limit).
     repeated Asset assets = 1;
 
     // This is a count of unconfirmed outgoing transfers. Unconfirmed transfers
-    // do not appear as assets in this endpoint response.
+    // do not appear in the assets field.
     uint64 unconfirmed_transfers = 2;
 
     // This is a count of freshly minted assets that haven't been confirmed on
     // chain yet. These assets will appear in the asset list with a block height
     // of 0 if include_unconfirmed_mints is set to true in the request.
     uint64 unconfirmed_mints = 3;
+
+    // Local outputs from unconfirmed outbound transfers, returned as Asset
+    // objects with block_height=0. Only populated when
+    // include_pending_transfers is true. These are filtered by the same
+    // content constraints (min_amount, max_amount, group_key, script_key,
+    // anchor_outpoint) as the confirmed assets field, but are not subject
+    // to pagination (offset/limit). Returned separately so they do not
+    // inflate or distort paginated confirmed results.
+    repeated Asset pending_assets = 4;
 }
 
 message ListUtxosRequest {
@@ -703,6 +724,12 @@ message ListUtxosRequest {
     // a BIP-0086 script key will be returned (which is the equivalent of
     // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86).
     ScriptKeyTypeQuery script_key_type = 2;
+
+    // If true, include UTXOs that contain assets used for funding custom
+    // channels. These UTXOs are normally excluded because the default script
+    // key type filter only returns BIP-86 keys. Setting this flag will also
+    // show UTXOs anchoring channel-related assets.
+    bool include_channel = 3;
 }
 
 message ManagedUtxo {
@@ -808,6 +835,18 @@ message ListBalancesRequest {
     // will automatically be set to true, because assets of that type are always
     // marked as spent.
     ScriptKeyTypeQuery script_key_type = 6;
+
+    // If true, include assets that are used for funding custom channels.
+    // These assets are normally excluded from the balance because their
+    // balance is reported through lnd's channel balance. Setting this flag
+    // will include them in the returned balances.
+    bool include_channel = 7;
+
+    // If true, include pending (unconfirmed) balances in the response.
+    // Pending balances represent the local outputs of unconfirmed outbound
+    // transfers that will be added to the confirmed balance once the
+    // transactions confirm.
+    bool include_pending = 8;
 }
 
 message AssetBalance {
@@ -844,6 +883,57 @@ message ListBalancesResponse {
     // (and the change resulting from them) do not appear in the balance. The
     // balance only represents confirmed assets that are owned by the daemon.
     uint64 unconfirmed_transfers = 3;
+
+    // The pending (unconfirmed) balances grouped by asset ID. These are the
+    // local output amounts from unconfirmed outbound transfers. Only set
+    // when include_pending is true in the request and group_by is asset_id.
+    map<string, AssetBalance> pending_asset_balances = 4;
+
+    // The pending (unconfirmed) balances grouped by group key. These are the
+    // local output amounts from unconfirmed outbound transfers. Only set
+    // when include_pending is true in the request and group_by is group_key.
+    map<string, AssetGroupBalance> pending_asset_group_balances = 5;
+
+    // In-channel (off-chain) asset balances grouped by asset ID. Only
+    // populated when include_channel is true in the request and the
+    // daemon is running with channel features enabled (litd integrated
+    // mode). Keyed by hex-encoded asset ID.
+    map<string, AssetChannelBalance> channel_asset_balances = 6;
+
+    // In-channel (off-chain) asset balances grouped by group key. Only
+    // populated when include_channel is true in the request and the
+    // daemon is running with channel features enabled (litd integrated
+    // mode). Keyed by hex-encoded group key.
+    map<string, AssetChannelBalance> channel_group_balances = 7;
+
+    // Pending-channel (force-close, waiting-close) asset balances
+    // grouped by asset ID. Only populated when include_channel is true
+    // and channel features are enabled. Keyed by hex-encoded asset ID.
+    map<string, AssetChannelBalance> pending_channel_asset_balances = 8;
+
+    // Pending-channel (force-close, waiting-close) asset balances
+    // grouped by group key. Only populated when include_channel is
+    // true and channel features are enabled. Keyed by hex-encoded
+    // group key.
+    map<string, AssetChannelBalance> pending_channel_group_balances = 9;
+}
+
+// AssetChannelBalance represents the local and remote balance of an
+// asset within Lightning channels.
+message AssetChannelBalance {
+    // The asset ID (hex encoded).
+    bytes asset_id = 1;
+
+    // The human-readable name of the asset.
+    string name = 2;
+
+    // The total local balance (owned by this node) across all open
+    // channels for this asset.
+    uint64 local_balance = 3;
+
+    // The total remote balance (owned by counterparty) across all open
+    // channels for this asset.
+    uint64 remote_balance = 4;
 }
 
 message ListTransfersRequest {
