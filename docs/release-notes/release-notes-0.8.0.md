@@ -353,6 +353,10 @@
   `universe.mbox-cleanup-check-timeout` to configure periodic cleanup of
   auth mailbox messages whose claimed outpoints have been spent on chain.
 
+- [PR#2096](https://github.com/lightninglabs/taproot-assets/pull/2096)
+  Add `universe.mbox-max-streams-per-peer` to cap concurrent auth
+  mailbox `ReceiveMessages` streams per peer IP.
+
 ## Breaking Changes
 
 - [PR#1935](https://github.com/lightninglabs/taproot-assets/pull/1935)
