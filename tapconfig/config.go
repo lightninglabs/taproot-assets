@@ -263,13 +263,13 @@ type Config struct {
 	// behaviour.
 	UniversePublicAccess UniversePublicAccessStatus
 
-	// UniverseQueriesPerSecond is the maximum number of queries per
-	// second across the set of active universe queries that is permitted.
-	// Anything above this starts to get rate limited.
+	// UniverseQueriesPerSecond is the maximum number of universe
+	// queries per second permitted per client IP. Anything above
+	// this starts to get rate limited.
 	UniverseQueriesPerSecond rate.Limit
 
-	// UniverseQueriesBurst is the burst budget for the universe query rate
-	// limiting.
+	// UniverseQueriesBurst is the per-client burst budget for
+	// universe query rate limiting.
 	UniverseQueriesBurst int
 
 	Prometheus monitoring.PrometheusConfig

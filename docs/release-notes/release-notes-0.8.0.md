@@ -281,6 +281,10 @@
   publish `AssetReceiveErrorEvent` notifications, allowing clients to monitor
   and react to failures without requiring log parsing.
 
+- [PR#2099](https://github.com/lightninglabs/taproot-assets/pull/2099)
+  Universe RPC rate limiting is now applied per client IP instead
+  of globally, preventing a single client from starving others.
+
 - [PR#1775](https://github.com/lightninglabs/taproot-assets/pull/1775):
   Price oracle connections now verify TLS certificates by
   default, using the OS root CA list. New config options under

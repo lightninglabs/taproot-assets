@@ -78,7 +78,6 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"golang.org/x/exp/maps"
-	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 )
 
@@ -205,7 +204,7 @@ type RPCServer struct {
 
 	cfg *tapconfig.Config
 
-	proofQueryRateLimiter *rate.Limiter
+	proofQueryRateLimiter *PeerRateLimiter
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -232,8 +231,9 @@ func (r *RPCServer) Start(cfg *tapconfig.Config) error {
 
 	r.interceptor = cfg.SignalInterceptor
 	r.cfg = cfg
-	r.proofQueryRateLimiter = rate.NewLimiter(
-		r.cfg.UniverseQueriesPerSecond, r.cfg.UniverseQueriesBurst,
+	r.proofQueryRateLimiter = NewPeerRateLimiter(
+		r.cfg.UniverseQueriesPerSecond,
+		r.cfg.UniverseQueriesBurst,
 	)
 
 	rpcsLog.Infof("Starting Taproot Assets RPC Server")
@@ -249,6 +249,10 @@ func (r *RPCServer) Stop() error {
 	}
 
 	rpcsLog.Infof("Stopping Taproot Assets RPC Server")
+
+	if r.proofQueryRateLimiter != nil {
+		r.proofQueryRateLimiter.Stop()
+	}
 
 	close(r.quit)
 
