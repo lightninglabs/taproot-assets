@@ -247,6 +247,10 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	if err := s.cfg.AuxInvoiceManager.Start(); err != nil {
 		return fmt.Errorf("unable to start aux invoice mgr: %w", err)
 	}
+	if err := s.cfg.AuxChanCloser.Start(); err != nil {
+		return fmt.Errorf("unable to start aux chan closer: %w",
+			err)
+	}
 	if err := s.cfg.AuxSweeper.Start(); err != nil {
 		return fmt.Errorf("unable to start aux sweeper mgr: %w", err)
 	}
@@ -862,6 +866,10 @@ func (s *Server) Stop() error {
 			err)
 	}
 
+	if err := s.cfg.AuxChanCloser.Stop(); err != nil {
+		return fmt.Errorf("unable to stop aux chan closer: %w",
+			err)
+	}
 	if err := s.cfg.AuxLeafSigner.Stop(); err != nil {
 		return err
 	}
