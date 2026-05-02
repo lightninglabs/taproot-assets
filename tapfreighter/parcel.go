@@ -589,6 +589,20 @@ type sendPackage struct {
 	// broadcast should be skipped. Useful when an external system handles
 	// broadcasting, such as in custom transaction packaging workflows.
 	SkipAnchorTxBroadcast bool
+
+	// confEvent is a pre-registered confirmation notification,
+	// established in StorePreBroadcast to avoid a race between
+	// broadcast and confirmation arrival. Not persisted to disk;
+	// must be re-registered on resume.
+	confEvent *chainntnfs.ConfirmationEvent
+
+	// confErrChan is the error channel from the pre-registered
+	// confirmation notification.
+	confErrChan chan error
+
+	// confCancel cancels the context for the pre-registered
+	// confirmation notification.
+	confCancel func()
 }
 
 // ConvertToTransfer prepares the finished send data for storing to the database

@@ -417,42 +417,69 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 	outboundPkg := pkg.OutboundPkg
 
 	txHash := outboundPkg.AnchorTx.TxHash()
-	log.Infof("Waiting for confirmation of transfer_txid=%v", txHash)
+	log.Infof("Waiting for confirmation of transfer_txid=%v",
+		txHash)
 
-	confCtx, confCancel := p.WithCtxQuitNoTimeout()
-	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
-		confCtx, &txHash, outboundPkg.AnchorTx.TxOut[0].PkScript, 1,
-		outboundPkg.AnchorTxHeightHint, true, nil,
+	// Use the pre-registered confirmation notification if
+	// available (set in StorePreBroadcast). For resumed
+	// parcels or if the pre-registration is absent, register
+	// fresh.
+	var (
+		confNtfn   *chainntnfs.ConfirmationEvent
+		confErrCh  chan error
+		confCancel func()
 	)
-	if err != nil {
-		return fmt.Errorf("unable to register for package tx conf: %w",
-			err)
-	}
+	if pkg.confEvent != nil {
+		confNtfn = pkg.confEvent
+		confErrCh = pkg.confErrChan
+		confCancel = pkg.confCancel
+	} else {
+		var confCtx context.Context
+		confCtx, confCancel = p.WithCtxQuitNoTimeout()
 
-	// Launch a goroutine that'll notify us when the transaction confirms.
+		var regErr error
+		confNtfn, confErrCh, regErr =
+			p.cfg.ChainBridge.RegisterConfirmationsNtfn(
+				confCtx, &txHash,
+				outboundPkg.AnchorTx.TxOut[0].PkScript,
+				1, outboundPkg.AnchorTxHeightHint,
+				true, nil,
+			)
+		if regErr != nil {
+			confCancel()
+
+			return fmt.Errorf("unable to register for "+
+				"package tx conf: %w", regErr)
+		}
+	}
 	defer confCancel()
+
+	// Clear the pre-registered fields so that a retry (after a
+	// post-delivery error) does not reuse a stale subscription.
+	pkg.confEvent = nil
+	pkg.confErrChan = nil
+	pkg.confCancel = nil
 
 	var confEvent *chainntnfs.TxConfirmation
 	select {
 	case confEvent = <-confNtfn.Confirmed:
-		log.Debugf("Got chain confirmation: %v", confEvent.Tx.TxHash())
+		log.Debugf("Got chain confirmation: %v",
+			confEvent.Tx.TxHash())
 		pkg.TransferTxConfEvent = confEvent
 
-		// If the anchoring tx block hash is given, we'll also store it
-		// in the outbound package.
+		// If the anchoring tx block hash is given, we'll
+		// also store it in the outbound package.
 		pkg.OutboundPkg.AnchorTxBlockHash = fn.MaybeSome(
 			confEvent.BlockHash,
 		)
-		pkg.OutboundPkg.AnchorTxBlockHeight = confEvent.BlockHeight
+		pkg.OutboundPkg.AnchorTxBlockHeight =
+			confEvent.BlockHeight
 
 		pkg.SendState = SendStateStorePostAnchorTxConf
 
-	case err := <-errChan:
-		return fmt.Errorf("error whilst waiting for package tx "+
-			"confirmation: %w", err)
-
-	case <-confCtx.Done():
-		log.Debugf("Skipping TX confirmation, context done")
+	case err := <-confErrCh:
+		return fmt.Errorf("error whilst waiting for "+
+			"package tx confirmation: %w", err)
 
 	case <-p.Quit:
 		log.Debugf("Skipping TX confirmation, exiting")
@@ -460,8 +487,8 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 	}
 
 	if confEvent == nil {
-		return fmt.Errorf("got empty package tx confirmation event " +
-			"in batch")
+		return fmt.Errorf("got empty package tx " +
+			"confirmation event in batch")
 	}
 
 	return nil
@@ -2020,6 +2047,37 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, fmt.Errorf("unable to write send pkg to "+
 				"disk: %w", err)
 		}
+
+		// Register for confirmation early, before broadcast,
+		// to avoid a race between the confirming block being
+		// processed by the chain notifier and the porter
+		// registering its watch.
+		confCtx, confCancel := p.WithCtxQuitNoTimeout()
+		txHash := currentPkg.OutboundPkg.AnchorTx.TxHash()
+		confNtfn, confErrChan, err :=
+			p.cfg.ChainBridge.RegisterConfirmationsNtfn(
+				confCtx, &txHash,
+				currentPkg.OutboundPkg.AnchorTx.
+					TxOut[0].PkScript,
+				1,
+				currentPkg.OutboundPkg.AnchorTxHeightHint,
+				true, nil,
+			)
+		if err != nil {
+			confCancel()
+
+			return nil, fmt.Errorf("unable to register "+
+				"for early conf ntfn: %w", err)
+		}
+
+		// Store the notification on the package so
+		// waitForTransferTxConf can use it. Do not defer
+		// confCancel here; the context must outlive this
+		// stateStep call. It is deferred in
+		// waitForTransferTxConf instead.
+		currentPkg.confEvent = confNtfn
+		currentPkg.confErrChan = confErrChan
+		currentPkg.confCancel = confCancel
 
 		// If skip flag is set—bypass anchor broadcast and advance to
 		// the confirmation wait state.
