@@ -379,6 +379,15 @@ func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 		stateToExecute := pkg.SendState
 		updatedPkg, err := p.stateStep(*pkg)
 		if err != nil {
+			// Cancel any pre-registered confirmation
+			// subscription that was not consumed by
+			// waitForTransferTxConf.
+			if updatedPkg != nil &&
+				updatedPkg.confCancel != nil {
+
+				updatedPkg.confCancel()
+			}
+
 			kit.errChan <- err
 			log.Errorf("Error evaluating state (%v): %v",
 				pkg.SendState, err)
