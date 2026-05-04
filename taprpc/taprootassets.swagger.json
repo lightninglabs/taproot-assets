@@ -365,6 +365,20 @@
               "SORT_DIRECTION_ASC"
             ],
             "default": "SORT_DIRECTION_DESC"
+          },
+          {
+            "name": "include_channel",
+            "description": "If true, include assets that are used for funding custom channels.\nThese assets are normally excluded from the list because their balance\nis reported through lnd's channel balance. Setting this flag will\ninclude them alongside regular on-chain assets.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "include_pending_transfers",
+            "description": "If true, include local outputs from unconfirmed outbound transfers as\nassets with block_height=0. These are pending change or self-send\noutputs that will appear in the confirmed asset list once the anchor\ntransaction confirms.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -448,6 +462,20 @@
           {
             "name": "script_key_type.all_types",
             "description": "Query for assets with all script key types.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "include_channel",
+            "description": "If true, include assets that are used for funding custom channels.\nThese assets are normally excluded from the balance because their\nbalance is reported through lnd's channel balance. Setting this flag\nwill include them in the returned balances.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "include_pending",
+            "description": "If true, include pending (unconfirmed) balances in the response.\nPending balances represent the local outputs of unconfirmed outbound\ntransfers that will be added to the confirmed balance once the\ntransactions confirm.",
             "in": "query",
             "required": false,
             "type": "boolean"
@@ -948,6 +976,13 @@
           {
             "name": "script_key_type.all_types",
             "description": "Query for assets with all script key types.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "include_channel",
+            "description": "If true, include UTXOs that contain assets used for funding custom\nchannels. These UTXOs are normally excluded because the default script\nkey type filter only returns BIP-86 keys. Setting this flag will also\nshow UTXOs anchoring channel-related assets.",
             "in": "query",
             "required": false,
             "type": "boolean"
@@ -1849,6 +1884,31 @@
         }
       }
     },
+    "taprpcAssetChannelBalance": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID (hex encoded)."
+        },
+        "name": {
+          "type": "string",
+          "description": "The human-readable name of the asset."
+        },
+        "local_balance": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total local balance (owned by this node) across all open\nchannels for this asset."
+        },
+        "remote_balance": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total remote balance (owned by counterparty) across all open\nchannels for this asset."
+        }
+      },
+      "description": "AssetChannelBalance represents the local and remote balance of an\nasset within Lightning channels."
+    },
     "taprpcAssetGroup": {
       "type": "object",
       "properties": {
@@ -2532,17 +2592,25 @@
             "type": "object",
             "$ref": "#/definitions/taprpcAsset"
           },
-          "description": "The list of assets found in the database matching the request query\nparameters."
+          "description": "The list of confirmed assets matching the request query parameters,\nsubject to pagination (offset/limit)."
         },
         "unconfirmed_transfers": {
           "type": "string",
           "format": "uint64",
-          "description": "This is a count of unconfirmed outgoing transfers. Unconfirmed transfers\ndo not appear as assets in this endpoint response."
+          "description": "This is a count of unconfirmed outgoing transfers. Unconfirmed transfers\ndo not appear in the assets field."
         },
         "unconfirmed_mints": {
           "type": "string",
           "format": "uint64",
           "description": "This is a count of freshly minted assets that haven't been confirmed on\nchain yet. These assets will appear in the asset list with a block height\nof 0 if include_unconfirmed_mints is set to true in the request."
+        },
+        "pending_assets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/taprpcAsset"
+          },
+          "description": "Local outputs from unconfirmed outbound transfers, returned as Asset\nobjects with block_height=0. Only populated when\ninclude_pending_transfers is true. These are filtered by the same\ncontent constraints (min_amount, max_amount, group_key, script_key,\nanchor_outpoint) as the confirmed assets field, but are not subject\nto pagination (offset/limit). Returned separately so they do not\ninflate or distort paginated confirmed results."
         }
       }
     },
@@ -2567,6 +2635,48 @@
           "type": "string",
           "format": "uint64",
           "description": "This is a count of unconfirmed outgoing transfers. Unconfirmed transfers\n(and the change resulting from them) do not appear in the balance. The\nbalance only represents confirmed assets that are owned by the daemon."
+        },
+        "pending_asset_balances": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/taprpcAssetBalance"
+          },
+          "description": "The pending (unconfirmed) balances grouped by asset ID. These are the\nlocal output amounts from unconfirmed outbound transfers. Only set\nwhen include_pending is true in the request and group_by is asset_id."
+        },
+        "pending_asset_group_balances": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/taprpcAssetGroupBalance"
+          },
+          "description": "The pending (unconfirmed) balances grouped by group key. These are the\nlocal output amounts from unconfirmed outbound transfers. Only set\nwhen include_pending is true in the request and group_by is group_key."
+        },
+        "channel_asset_balances": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/taprpcAssetChannelBalance"
+          },
+          "description": "In-channel (off-chain) asset balances grouped by asset ID. Only\npopulated when include_channel is true in the request and the\ndaemon is running with channel features enabled (litd integrated\nmode). Keyed by hex-encoded asset ID."
+        },
+        "channel_group_balances": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/taprpcAssetChannelBalance"
+          },
+          "description": "In-channel (off-chain) asset balances grouped by group key. Only\npopulated when include_channel is true in the request and the\ndaemon is running with channel features enabled (litd integrated\nmode). Keyed by hex-encoded group key."
+        },
+        "pending_channel_asset_balances": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/taprpcAssetChannelBalance"
+          },
+          "description": "Pending-channel (force-close, waiting-close) asset balances\ngrouped by asset ID. Only populated when include_channel is true\nand channel features are enabled. Keyed by hex-encoded asset ID."
+        },
+        "pending_channel_group_balances": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/taprpcAssetChannelBalance"
+          },
+          "description": "Pending-channel (force-close, waiting-close) asset balances\ngrouped by group key. Only populated when include_channel is\ntrue and channel features are enabled. Keyed by hex-encoded\ngroup key."
         }
       }
     },

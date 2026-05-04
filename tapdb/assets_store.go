@@ -90,6 +90,9 @@ type (
 	// filter.
 	QueryAssetBalancesByAssetFilters = sqlc.QueryAssetBalancesByAssetParams
 
+	// GenesisInfoRow holds the genesis information for an asset.
+	GenesisInfoRow = sqlc.GenesisInfoView
+
 	// UtxoQuery lets us query a managed UTXO by either the transaction it
 	// references, or the outpoint.
 	UtxoQuery = sqlc.FetchManagedUTXOParams
@@ -220,6 +223,11 @@ type ActiveAssetsStore interface {
 	// filter.
 	QueryAssetBalancesByAsset(context.Context,
 		QueryAssetBalancesByAssetFilters) ([]RawAssetBalance, error)
+
+	// FetchGenesisByAssetID attempts to fetch asset genesis information
+	// for a given asset ID.
+	FetchGenesisByAssetID(ctx context.Context,
+		assetID []byte) (GenesisInfoRow, error)
 
 	// QueryAssetBalancesByGroup queries the asset balances for asset
 	// groups or alternatively for a selected one that matches the passed
@@ -929,6 +937,14 @@ func (a *AssetStore) constraintsToDbFilter(
 			false, query.ScriptKeyType,
 		)
 
+		// If the caller wants to include channel assets, append
+		// the channel script key type if it's not already present.
+		if query.IncludeChannel {
+			assetFilter.ScriptKeyType = appendChannelKeyType(
+				assetFilter.ScriptKeyType,
+			)
+		}
+
 		// Map pagination parameters to the SQL query filters.
 		assetFilter.NumOffset = query.Offset
 		assetFilter.NumLimit = query.Limit
@@ -962,6 +978,19 @@ func scriptKeyTypesForQuery(filterChannelRelated bool,
 	return fn.Map(asset.ScriptKeyTypeForDatabaseQuery(
 		filterChannelRelated, userSpecified,
 	), sqlInt16)
+}
+
+// appendChannelKeyType appends the channel script key type to the given
+// set of script key types if it is not already present.
+func appendChannelKeyType(types []sql.NullInt16) []sql.NullInt16 {
+	channelType := sqlInt16(asset.ScriptKeyScriptPathChannel)
+	for _, t := range types {
+		if t == channelType {
+			return types
+		}
+	}
+
+	return append(types, channelType)
 }
 
 // specificAssetFilter maps the given asset parameters to the set of filters
@@ -1089,12 +1118,17 @@ type AssetQueryFilters struct {
 	// SortDirection is the direction to sort the results. If not set,
 	// the results are sorted in ascending order by asset primary key.
 	SortDirection fn.Option[SortDirection]
+
+	// IncludeChannel indicates that assets used for funding custom
+	// channels should be included in the results. When true, the
+	// channel script key type is appended to the filter set.
+	IncludeChannel bool
 }
 
 // QueryBalancesByAsset queries the balances for assets or alternatively
 // for a selected one that matches the passed asset ID filter.
 func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
-	assetID *asset.ID, includeLeased bool,
+	assetID *asset.ID, includeLeased, includeChannel bool,
 	skt fn.Option[asset.ScriptKeyType]) (map[asset.ID]AssetBalance, error) {
 
 	// We'll now map the application level filtering to the type of
@@ -1106,8 +1140,22 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 	// We exclude the assets that are specifically used for funding custom
 	// channels. The balance of those assets is reported through lnd channel
 	// balance. Those assets are identified by the specific script key type
-	// for channel keys. We exclude them unless explicitly queried for.
-	assetBalancesFilter.ScriptKeyType = scriptKeyTypesForQuery(true, skt)
+	// for channel keys. We exclude them unless explicitly queried for or
+	// unless include_channel is set.
+	assetBalancesFilter.ScriptKeyType = scriptKeyTypesForQuery(
+		!includeChannel, skt,
+	)
+
+	// When the caller sets include_channel, we append the channel
+	// script key type unconditionally. This is needed because the
+	// default script key type (BIP-86) causes
+	// ScriptKeyTypeForDatabaseQuery to return early with only
+	// [BIP86, Pedersen], ignoring the excludeChannelRelated flag.
+	if includeChannel {
+		assetBalancesFilter.ScriptKeyType = appendChannelKeyType(
+			assetBalancesFilter.ScriptKeyType,
+		)
+	}
 
 	// By default, we only show assets that are not leased.
 	if !includeLeased {
@@ -1169,7 +1217,7 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 // QueryAssetBalancesByGroup queries the asset balances for asset groups or
 // alternatively for a selected one that matches the passed filter.
 func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
-	groupKey *btcec.PublicKey, includeLeased bool,
+	groupKey *btcec.PublicKey, includeLeased, includeChannel bool,
 	skt fn.Option[asset.ScriptKeyType]) (
 	map[asset.SerializedKey]AssetGroupBalance, error) {
 
@@ -1182,8 +1230,22 @@ func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
 	// We exclude the assets that are specifically used for funding custom
 	// channels. The balance of those assets is reported through lnd channel
 	// balance. Those assets are identified by the specific script key type
-	// for channel keys. We exclude them unless explicitly queried for.
-	assetBalancesFilter.ScriptKeyType = scriptKeyTypesForQuery(true, skt)
+	// for channel keys. We exclude them unless explicitly queried for or
+	// unless include_channel is set.
+	assetBalancesFilter.ScriptKeyType = scriptKeyTypesForQuery(
+		!includeChannel, skt,
+	)
+
+	// When the caller sets include_channel, we append the channel
+	// script key type unconditionally. This is needed because the
+	// default script key type (BIP-86) causes
+	// ScriptKeyTypeForDatabaseQuery to return early with only
+	// [BIP86, Pedersen], ignoring the excludeChannelRelated flag.
+	if includeChannel {
+		assetBalancesFilter.ScriptKeyType = appendChannelKeyType(
+			assetBalancesFilter.ScriptKeyType,
+		)
+	}
 
 	// By default, we only show assets that are not leased.
 	if !includeLeased {
@@ -1233,6 +1295,32 @@ func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
 	}
 
 	return balances, nil
+}
+
+// FetchGenesisByAssetID fetches genesis info for a given asset ID. This
+// is useful when constructing pending balance responses where the genesis
+// info is needed but the asset may not appear in the confirmed balance
+// query (e.g. when the entire balance was sent).
+func (a *AssetStore) FetchGenesisByAssetID(ctx context.Context,
+	id asset.ID) (GenesisInfoRow, error) {
+
+	var genInfo GenesisInfoRow
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(
+		ctx, &readOpts, func(q ActiveAssetsStore) error {
+			var err error
+			genInfo, err = q.FetchGenesisByAssetID(
+				ctx, id[:],
+			)
+			return err
+		},
+	)
+	if dbErr != nil {
+		return genInfo, dbErr
+	}
+
+	return genInfo, nil
 }
 
 // FetchGroupedAssets fetches the set of assets with non-nil group keys.

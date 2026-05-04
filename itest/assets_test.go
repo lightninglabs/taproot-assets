@@ -663,6 +663,20 @@ func testAssetBalances(t *harnessTest) {
 	// them all.
 	AssertMintedAssetBalances(t.t, t.tapd, rpcSimpleAssets, nil, false)
 
+	// Verify that the include_pending and include_channel flags work
+	// correctly when there are no pending transfers or channels.
+	balResp, err := t.tapd.ListBalances(
+		ctx, &taprpc.ListBalancesRequest{
+			GroupBy:        groupBalancesByAssetID,
+			IncludePending: true,
+			IncludeChannel: true,
+		},
+	)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, balResp)
+	require.Empty(t.t, balResp.PendingAssetBalances)
+	require.Empty(t.t, balResp.ChannelAssetBalances)
+
 	// Check chain anchor for the target asset.
 	out, err := wire.NewOutPointFromString(
 		targetAsset.ChainAnchor.AnchorOutpoint,
