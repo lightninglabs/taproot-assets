@@ -351,8 +351,7 @@ func (s *Server) SendMessage(ctx context.Context,
 //  5. Server -> Client: ReceiveMessagesResponse(eos = EndOfStream{}) or
 //     ReceiveMessagesResponse(error = ReceiveError{...})
 func (s *Server) ReceiveMessages(grpcStream serverStream) error {
-	id := s.nextStreamID.Load()
-	_ = s.nextStreamID.Add(1)
+	id := s.nextStreamID.Add(1) - 1
 
 	ctxl := btclog.WithCtx(grpcStream.Context(), "sid", id, "server", true)
 
