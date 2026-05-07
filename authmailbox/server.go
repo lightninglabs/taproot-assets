@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/netip"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -25,6 +27,7 @@ import (
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"golang.org/x/exp/maps"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/peer"
 )
 
 const (
@@ -91,6 +94,11 @@ type ServerConfig struct {
 	// CleanupCheckTimeout is the per-outpoint timeout when checking if
 	// an outpoint has been spent. Defaults to 30s if zero.
 	CleanupCheckTimeout time.Duration
+
+	// MaxStreamsPerPeer is the maximum number of concurrent
+	// ReceiveMessages streams from a single peer (by IP). A
+	// zero value means no limit.
+	MaxStreamsPerPeer uint
 }
 
 // Server is the mailbox server that handles incoming messages from clients and
@@ -119,6 +127,13 @@ type Server struct {
 	// msgEventsSubsMtx guards the general message events subscribers map.
 	msgEventsSubsMtx sync.Mutex
 
+	// peerStreamCount tracks the number of active streams per
+	// peer IP address.
+	peerStreamCount map[netip.Addr]uint
+
+	// peerStreamCountMtx guards peerStreamCount.
+	peerStreamCountMtx sync.Mutex
+
 	*lfn.ContextGuard
 }
 
@@ -129,6 +144,7 @@ func NewServer() *Server {
 			map[uint64]*fn.EventReceiver[[]*Message],
 		),
 		connectedStreams: make(map[uint64]*mailboxStream),
+		peerStreamCount:  make(map[netip.Addr]uint),
 		ContextGuard:     lfn.NewContextGuard(),
 	}
 }
@@ -338,6 +354,45 @@ func (s *Server) SendMessage(ctx context.Context,
 	}, nil
 }
 
+// peerAddr extracts the IP address (without port) from a gRPC
+// stream context. IPv4-mapped IPv6 addresses are collapsed via
+// Unmap so dual-stack clients share a single bucket. IPv6
+// addresses are truncated to a /64 prefix, since the lower 64
+// bits are host-controlled and trivially rotated. Returns the
+// zero Addr if the peer address is unavailable or not TCP.
+func peerAddr(ctx context.Context) netip.Addr {
+	p, ok := peer.FromContext(ctx)
+	if !ok || p.Addr == nil {
+		return netip.Addr{}
+	}
+
+	tcpAddr, ok := p.Addr.(*net.TCPAddr)
+	if !ok {
+		return netip.Addr{}
+	}
+
+	a, ok := netip.AddrFromSlice(tcpAddr.IP)
+	if !ok {
+		return netip.Addr{}
+	}
+
+	// Collapse IPv4-mapped IPv6 (::ffff:1.2.3.4 -> 1.2.3.4)
+	// so a dual-stack client doesn't get two budgets.
+	a = a.Unmap()
+
+	// The lower 64 bits of an IPv6 address are
+	// host-controlled and trivially rotated by an attacker
+	// with a routed /64. Bucket per /64.
+	if a.Is6() {
+		pfx, err := a.Prefix(64)
+		if err == nil {
+			return pfx.Addr()
+		}
+	}
+
+	return a
+}
+
 // ReceiveMessages initiates a bidirectional stream to receive messages for a
 // specific receiver. This stream implements the challenge-response handshake
 // required for receiver authentication before messages are delivered.
@@ -351,13 +406,40 @@ func (s *Server) SendMessage(ctx context.Context,
 //  5. Server -> Client: ReceiveMessagesResponse(eos = EndOfStream{}) or
 //     ReceiveMessagesResponse(error = ReceiveError{...})
 func (s *Server) ReceiveMessages(grpcStream serverStream) error {
+	ctx := grpcStream.Context()
+	peerIP := peerAddr(ctx)
+
+	if !peerIP.IsValid() {
+		log.DebugS(ctx, "Could not extract peer IP, "+
+			"skipping per-peer stream limit")
+	}
+
+	// Enforce per-peer stream limit.
+	if peerIP.IsValid() && s.cfg.MaxStreamsPerPeer > 0 {
+		s.peerStreamCountMtx.Lock()
+		if s.peerStreamCount[peerIP] >= s.cfg.MaxStreamsPerPeer {
+			s.peerStreamCountMtx.Unlock()
+
+			log.WarnS(ctx, "Max streams reached "+
+				"for peer", nil, "peer", peerIP)
+
+			return fmt.Errorf("max streams for peer %s "+
+				"reached", peerIP)
+		}
+		s.peerStreamCount[peerIP]++
+		s.peerStreamCountMtx.Unlock()
+
+		defer s.decrementPeerCount(peerIP)
+	}
+
 	id := s.nextStreamID.Add(1) - 1
 
-	ctxl := btclog.WithCtx(grpcStream.Context(), "sid", id, "server", true)
+	ctxl := btclog.WithCtx(ctx, "sid", id, "server", true)
 
 	stream, err := newMailboxStream(id, s.Done())
 	if err != nil {
-		return fmt.Errorf("error creating mailbox stream: %w", err)
+		return fmt.Errorf("error creating mailbox stream: %w",
+			err)
 	}
 
 	s.connectedStreamsMtx.Lock()
@@ -367,6 +449,23 @@ func (s *Server) ReceiveMessages(grpcStream serverStream) error {
 	log.DebugS(ctxl, "New ReceiveMessages stream created")
 
 	return s.handleStream(ctxl, grpcStream, stream)
+}
+
+// decrementPeerCount decreases the stream count for the given
+// peer IP. If the count reaches zero, the entry is removed.
+func (s *Server) decrementPeerCount(peerIP netip.Addr) {
+	if !peerIP.IsValid() {
+		return
+	}
+
+	s.peerStreamCountMtx.Lock()
+	defer s.peerStreamCountMtx.Unlock()
+
+	if s.peerStreamCount[peerIP] <= 1 {
+		delete(s.peerStreamCount, peerIP)
+	} else {
+		s.peerStreamCount[peerIP]--
+	}
 }
 
 // MailboxInfo returns basic server information.

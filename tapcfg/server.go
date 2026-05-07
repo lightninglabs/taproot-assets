@@ -951,11 +951,12 @@ func mboxServerConfig(cfg *Config, lndServices *lndclient.LndServices,
 	store authmailbox.MsgStore) authmailbox.ServerConfig {
 
 	mboxCfg := authmailbox.ServerConfig{
-		AuthTimeout:    cfg.Universe.MboxAuthTimeout,
-		Signer:         lndServices.Signer,
-		HeaderVerifier: headerVerifier,
-		MerkleVerifier: proof.DefaultMerkleVerifier,
-		MsgStore:       store,
+		AuthTimeout:       cfg.Universe.MboxAuthTimeout,
+		Signer:            lndServices.Signer,
+		HeaderVerifier:    headerVerifier,
+		MerkleVerifier:    proof.DefaultMerkleVerifier,
+		MsgStore:          store,
+		MaxStreamsPerPeer: cfg.Universe.MboxMaxStreamsPerPeer,
 	}
 
 	// Only enable periodic cleanup if the interval is not explicitly set

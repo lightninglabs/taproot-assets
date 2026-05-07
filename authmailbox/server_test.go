@@ -2,6 +2,9 @@ package authmailbox
 
 import (
 	"context"
+	"fmt"
+	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,7 +17,11 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/peer"
 )
 
 // TestCleanupSpentOutpoints verifies that cleanupSpentOutpoints deletes
@@ -542,4 +549,177 @@ func TestSlowSubscriberEviction(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond,
 		"healthy subscriber received %d / %d messages",
 		healthyReceived.Load(), totalPublishes)
+}
+
+// TestPeerAddr verifies that peerAddr correctly extracts and
+// normalises IP addresses from gRPC peer context.
+func TestPeerAddr(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		addr net.Addr
+		want netip.Addr
+	}{
+		{
+			name: "IPv4 TCP",
+			addr: &net.TCPAddr{
+				IP:   net.ParseIP("192.168.1.1"),
+				Port: 1234,
+			},
+			want: netip.MustParseAddr("192.168.1.1"),
+		},
+		{
+			name: "IPv4-mapped IPv6 collapsed",
+			addr: &net.TCPAddr{
+				IP:   net.ParseIP("::ffff:10.0.0.1"),
+				Port: 1234,
+			},
+			want: netip.MustParseAddr("10.0.0.1"),
+		},
+		{
+			name: "IPv6 truncated to /64",
+			addr: &net.TCPAddr{
+				IP: net.ParseIP(
+					"2001:db8:abcd:0012:1:2:3:4",
+				),
+				Port: 1234,
+			},
+			want: netip.MustParseAddr("2001:db8:abcd:12::"),
+		},
+		{
+			name: "two IPv6 in same /64 share bucket",
+			addr: &net.TCPAddr{
+				IP: net.ParseIP(
+					"2001:db8:abcd:0012:ffff::1",
+				),
+				Port: 5678,
+			},
+			want: netip.MustParseAddr("2001:db8:abcd:12::"),
+		},
+		{
+			name: "nil addr returns zero",
+			addr: nil,
+			want: netip.Addr{},
+		},
+		{
+			name: "non-TCP addr returns zero",
+			addr: &net.UnixAddr{
+				Name: "/tmp/test.sock",
+				Net:  "unix",
+			},
+			want: netip.Addr{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			if tc.addr != nil {
+				ctx = peer.NewContext(ctx, &peer.Peer{
+					Addr: tc.addr,
+				})
+			}
+
+			got := peerAddr(ctx)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// rawMboxClient creates a raw gRPC ReceiveMessages bidi stream
+// to the given server address. The caller controls what (if
+// anything) is sent on the stream.
+func rawMboxClient(t *testing.T,
+	addr string) mboxrpc.Mailbox_ReceiveMessagesClient {
+
+	t.Helper()
+
+	conn, err := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(
+			insecure.NewCredentials(),
+		),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+
+	client := mboxrpc.NewMailboxClient(conn)
+	stream, err := client.ReceiveMessages(
+		context.Background(),
+	)
+	require.NoError(t, err)
+
+	return stream
+}
+
+// newTestServer spins up a gRPC server with the given per-peer
+// stream cap. Returns the listen address and a cleanup function.
+func newTestServer(t *testing.T,
+	maxPerPeer uint) string {
+
+	t.Helper()
+
+	signer := test.NewMockSigner()
+	signer.Signature = test.RandBytes(64)
+	store := NewMockStore()
+
+	serverCfg := &ServerConfig{
+		AuthTimeout:       testTimeout,
+		Signer:            signer,
+		HeaderVerifier:    proof.MockHeaderVerifier,
+		MerkleVerifier:    proof.DefaultMerkleVerifier,
+		MsgStore:          store,
+		MaxStreamsPerPeer: maxPerPeer,
+	}
+
+	listenAddr := fmt.Sprintf(
+		test.ListenAddrTemplate,
+		port.NextAvailablePort(),
+	)
+
+	grpcServer := grpc.NewServer(
+		grpc.Creds(insecure.NewCredentials()),
+	)
+	srv := NewServer()
+	require.NoError(t, srv.Start(serverCfg))
+	mboxrpc.RegisterMailboxServer(grpcServer, srv)
+
+	cleanup, err := test.StartMockGRPCServerWithAddr(
+		t, grpcServer, false, listenAddr,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, srv.Stop())
+		grpcServer.GracefulStop()
+		cleanup()
+	})
+
+	return listenAddr
+}
+
+// TestPerPeerStreamCapReject verifies that a peer at the cap is
+// rejected on the next stream attempt.
+func TestPerPeerStreamCapReject(t *testing.T) {
+	t.Parallel()
+
+	const cap = 2
+
+	addr := newTestServer(t, cap)
+
+	// Open 'cap' streams — all should succeed.
+	streams := make(
+		[]mboxrpc.Mailbox_ReceiveMessagesClient, cap,
+	)
+	for i := range streams {
+		streams[i] = rawMboxClient(t, addr)
+	}
+
+	// The next stream should be rejected.
+	rejected := rawMboxClient(t, addr)
+	_, err := rejected.Recv()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "max streams")
 }
