@@ -457,6 +457,289 @@ func assertAssetsMatch(t *harnessTest, expected []*taprpc.Asset,
 	}
 }
 
+// testBackupRestoreGrouped tests that backups containing grouped
+// assets can be imported on a node that has never seen the group
+// key (no federation server, no prior universe sync).
+//
+// This exercises the fix for #2111: the import pre-extracts group
+// keys from GroupKeyReveal in genesis proofs so the GroupVerifier
+// accepts them during proof chain verification.
+//
+// Flow:
+//  1. Alice mints a grouped asset (group anchor) and an
+//     ungrouped asset in one batch
+//  2. Alice exports RAW and COMPACT backups
+//  3. Bob (fresh LND, no federation) imports RAW — both assets
+//     imported, NumSkipped=0
+//  4. Charlie (fresh LND, no federation) imports COMPACT — same
+//  5. Verify asset counts and group key presence on both nodes
+func testBackupRestoreGrouped(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Mint a grouped asset and an ungrouped asset together.
+	mintReqs := []*mintrpc.MintAssetRequest{
+		{
+			Asset: &mintrpc.MintAsset{
+				AssetType: taprpc.AssetType_NORMAL,
+				Name:      "grouped-backup-anchor",
+				AssetMeta: &taprpc.AssetMeta{
+					Data: []byte("group anchor"),
+				},
+				Amount:          5000,
+				NewGroupedAsset: true,
+			},
+		},
+		{
+			Asset: &mintrpc.MintAsset{
+				AssetType: taprpc.AssetType_NORMAL,
+				Name:      "ungrouped-backup-asset",
+				AssetMeta: &taprpc.AssetMeta{
+					Data: []byte("no group"),
+				},
+				Amount: 1000,
+			},
+		},
+	}
+
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner(), t.tapd, mintReqs,
+	)
+	require.Len(t.t, rpcAssets, 2)
+
+	// Verify Alice has the group.
+	AssertNumGroups(t.t, t.tapd, 1)
+
+	// Export RAW and COMPACT backups.
+	rawBackup, err := t.tapd.ExportAssetWalletBackup(
+		ctxt, &wrpc.ExportAssetWalletBackupRequest{
+			Mode: wrpc.BackupMode_RAW,
+		},
+	)
+	require.NoError(t.t, err)
+
+	compactBackup, err := t.tapd.ExportAssetWalletBackup(
+		ctxt, &wrpc.ExportAssetWalletBackupRequest{
+			Mode: wrpc.BackupMode_COMPACT,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// === Import RAW on Bob (no federation) ===
+	t.Logf("=== Import RAW on Bob (no federation) ===")
+
+	bobLnd := t.lndHarness.NewNode("Bob", lndDefaultArgs)
+	bobTapd := setupTapdHarness(
+		t.t, t, bobLnd, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.noDefaultUniverseSync = true
+		},
+	)
+	defer func() {
+		require.NoError(t.t, bobTapd.stop(!*noDelete))
+	}()
+
+	bobImport, err := bobTapd.ImportAssetsFromBackup(
+		ctxt, &wrpc.ImportAssetsFromBackupRequest{
+			Backup: rawBackup.Backup,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, uint32(2), bobImport.NumImported,
+		"both assets should import (grouped + ungrouped)")
+	require.Equal(t.t, uint32(0), bobImport.NumSkipped,
+		"no assets should be skipped")
+
+	bobAssets, err := bobTapd.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+	assertAssetsMatch(t, rpcAssets, bobAssets.Assets)
+
+	t.Logf("Bob (RAW, no federation): imported %d, "+
+		"skipped %d", bobImport.NumImported,
+		bobImport.NumSkipped)
+
+	// === Import COMPACT on Charlie (no federation) ===
+	t.Logf("=== Import COMPACT on Charlie (no federation) ===")
+
+	charlieLnd := t.lndHarness.NewNode("Charlie", lndDefaultArgs)
+	charlieTapd := setupTapdHarness(
+		t.t, t, charlieLnd, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.noDefaultUniverseSync = true
+		},
+	)
+	defer func() {
+		require.NoError(t.t, charlieTapd.stop(!*noDelete))
+	}()
+
+	charlieImport, err := charlieTapd.ImportAssetsFromBackup(
+		ctxt, &wrpc.ImportAssetsFromBackupRequest{
+			Backup: compactBackup.Backup,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, uint32(2), charlieImport.NumImported,
+		"both assets should import (grouped + ungrouped)")
+	require.Equal(t.t, uint32(0), charlieImport.NumSkipped,
+		"no assets should be skipped")
+
+	charlieAssets, err := charlieTapd.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+	assertAssetsMatch(t, rpcAssets, charlieAssets.Assets)
+
+	t.Logf("Charlie (COMPACT, no federation): imported %d, "+
+		"skipped %d", charlieImport.NumImported,
+		charlieImport.NumSkipped)
+}
+
+// testBackupRestoreOptimistic tests that OPTIMISTIC (v3) backups
+// with grouped assets — including reissuances — can be imported on
+// a node with no federation sync. The proofs are fetched from the
+// universe server via the federation URLs embedded in the backup.
+//
+// The test decodes the backup and swaps the asset order so the
+// reissuance is iterated before the group anchor. This forces
+// the retry pass: the reissuance fails pre-verify with
+// ErrGroupKeyUnknown, then the anchor is processed (populating
+// the group key), and the retry pass resolves the reissuance.
+//
+// Flow:
+//  1. Alice mints a group anchor (batch 1)
+//  2. Alice mints a reissuance into the same group (batch 2)
+//  3. Alice exports an OPTIMISTIC backup
+//  4. Decode, swap asset order, re-encode
+//  5. Bob (fresh LND, no federation sync) imports the reordered
+//     backup
+//  6. Verify all assets imported, none skipped, group key present
+func testBackupRestoreOptimistic(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*2)
+	defer cancel()
+
+	miner := t.lndHarness.Miner()
+
+	// Mint a group anchor.
+	anchorAssets := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: taprpc.AssetType_NORMAL,
+					Name:      "optimistic-anchor",
+					AssetMeta: &taprpc.AssetMeta{
+						Data: []byte("anchor"),
+					},
+					Amount:          5000,
+					NewGroupedAsset: true,
+				},
+			},
+		},
+	)
+	require.Len(t.t, anchorAssets, 1)
+
+	groupKey := anchorAssets[0].AssetGroup.TweakedGroupKey
+	AssertNumGroups(t.t, t.tapd, 1)
+
+	// Mint a reissuance into the same group.
+	reissueAssets := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: taprpc.AssetType_NORMAL,
+					Name:      "optimistic-reissue",
+					AssetMeta: &taprpc.AssetMeta{
+						Data: []byte("reissue"),
+					},
+					Amount:       2000,
+					GroupKey:     groupKey,
+					GroupedAsset: true,
+				},
+			},
+		},
+	)
+	require.Len(t.t, reissueAssets, 1)
+
+	// Still one group, now with two assets.
+	AssertNumGroups(t.t, t.tapd, 1)
+
+	// Export OPTIMISTIC backup.
+	optimisticBackup, err := t.tapd.ExportAssetWalletBackup(
+		ctxt, &wrpc.ExportAssetWalletBackupRequest{
+			Mode: wrpc.BackupMode_OPTIMISTIC,
+		},
+	)
+	require.NoError(t.t, err)
+
+	decoded, err := backup.DecodeWalletBackup(
+		optimisticBackup.Backup,
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, backup.BackupVersionOptimistic,
+		decoded.Version)
+	require.NotEmpty(t.t, decoded.FederationURLs)
+
+	// The export orders assets by ascending asset_id, so the
+	// anchor (minted first) is Assets[0] and the reissuance
+	// is Assets[1]. In that order, the main loop processes
+	// the anchor first and the retry pass is never needed.
+	//
+	// To exercise the retry pass, swap the asset order so the
+	// reissuance is processed first. It will fail pre-verify
+	// with ErrGroupKeyUnknown (no prior group key knowledge),
+	// then the anchor is processed (populating the group key),
+	// and finally the retry pass resolves the reissuance.
+	require.Len(t.t, decoded.Assets, 2)
+	decoded.Assets[0], decoded.Assets[1] =
+		decoded.Assets[1], decoded.Assets[0]
+
+	swappedBlob, err := backup.EncodeWalletBackup(decoded)
+	require.NoError(t.t, err)
+
+	// Import the reordered backup on Bob.
+	bobLnd := t.lndHarness.NewNode("Bob", lndDefaultArgs)
+	bobTapd := setupTapdHarness(
+		t.t, t, bobLnd, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.noDefaultUniverseSync = true
+		},
+	)
+	defer func() {
+		require.NoError(t.t, bobTapd.stop(!*noDelete))
+	}()
+
+	bobImport, err := bobTapd.ImportAssetsFromBackup(
+		ctxt, &wrpc.ImportAssetsFromBackupRequest{
+			Backup: swappedBlob,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, uint32(2), bobImport.NumImported,
+		"both anchor and reissuance should import")
+	require.Equal(t.t, uint32(0), bobImport.NumSkipped,
+		"no assets should be skipped")
+
+	bobAssets, err := bobTapd.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+
+	allMinted := append(anchorAssets, reissueAssets...)
+	assertAssetsMatch(t, allMinted, bobAssets.Assets)
+
+	// Verify the group key is present on Bob.
+	AssertNumGroups(t.t, bobTapd, 1)
+
+	t.Logf("Bob (OPTIMISTIC, swapped order): imported %d, "+
+		"skipped %d", bobImport.NumImported,
+		bobImport.NumSkipped)
+}
+
 // formatBytes formats a byte count as a human-readable string.
 func formatBytes(bytes int) string {
 	if bytes < 1024 {

@@ -601,4 +601,10 @@ message ImportAssetsFromBackupRequest {
 message ImportAssetsFromBackupResponse {
     // The number of assets that were successfully imported.
     uint32 num_imported = 1;
+
+    // The number of assets that were skipped due to errors
+    // during import. Details are logged server-side. Skipped
+    // assets may include those with verification failures,
+    // missing proofs, or other per-asset data issues.
+    uint32 num_skipped = 2;
 }

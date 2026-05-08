@@ -242,9 +242,19 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 				"%w", err)
 		}
 
-		// This asset has as key group, so we'll insert it into the
-		// database. If it doesn't exist, the UPSERT query will still
-		// return the group_id we'll need.
+		// When an asset is deserialized from a proof,
+		// GroupKey.Witness is empty because the wire format
+		// stores the group witness in PrevWitnesses, not in
+		// the GroupKey TLV. Reconstruct it here so
+		// upsertGroupKey can insert the asset_group_witnesses
+		// row that ListGroups depends on.
+		if a.HasGenesisWitnessForGroup() {
+			a.GroupKey.Witness = a.PrevWitnesses[0].TxWitness
+		}
+
+		// This asset has a key group, so we'll insert it
+		// into the database. If it doesn't exist, the UPSERT
+		// query will still return the group_id we'll need.
 		groupWitnessID, err := upsertGroupKey(
 			ctx, a.GroupKey, q, genesisPointID, genAssetID,
 		)

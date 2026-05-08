@@ -3050,6 +3050,7 @@ func TestQueryAssetBurns(t *testing.T) {
 	// We should have one burn.
 	require.NoError(t, err)
 	require.Len(t, burns, 1)
+	require.Equal(t, inputAsset.Type, burns[0].AssetType)
 
 	_, err = assetsStore.db.InsertBurn(ctx, sqlc.InsertBurnParams{
 		TransferID: assetTransfers[0].ID,

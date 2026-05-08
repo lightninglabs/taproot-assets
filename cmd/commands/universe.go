@@ -436,9 +436,30 @@ func universeLeaves(ctx *cli.Context) error {
 		return err
 	}
 
-	assetLeaves, err := client.AssetLeaves(ctxc, universeID)
-	if err != nil {
-		return err
+	assetLeaves := &unirpc.AssetLeafResponse{}
+	offset := 0
+
+	for {
+		page, err := client.AssetLeaves(
+			ctxc, &unirpc.AssetLeavesRequest{
+				Id:     universeID,
+				Offset: int32(offset),
+				Limit:  universe.RequestPageSize,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		assetLeaves.Leaves = append(
+			assetLeaves.Leaves, page.Leaves...,
+		)
+
+		if !page.HasMore {
+			break
+		}
+
+		offset += len(page.Leaves)
 	}
 
 	printRespJSON(assetLeaves)

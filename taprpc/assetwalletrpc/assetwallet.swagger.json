@@ -739,6 +739,11 @@
           "type": "integer",
           "format": "int64",
           "description": "The number of assets that were successfully imported."
+        },
+        "num_skipped": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of assets that were skipped due to errors\nduring import. Details are logged server-side. Skipped\nassets may include those with verification failures,\nmissing proofs, or other per-asset data issues."
         }
       }
     },
@@ -1113,6 +1118,15 @@
         }
       }
     },
+    "taprpcAssetType": {
+      "type": "string",
+      "enum": [
+        "NORMAL",
+        "COLLECTIBLE"
+      ],
+      "default": "NORMAL",
+      "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey group is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key group are not fully fungible with each other.\nCollectibles also cannot be split or merged."
+    },
     "taprpcAssetVersion": {
       "type": "string",
       "enum": [
@@ -1268,6 +1282,15 @@
           "type": "string",
           "format": "uint64",
           "description": "The amount of the asset that was spent."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The group key of the asset that was spent, if the asset belongs to a\ngroup. Empty for assets that are not part of a group."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The type of the asset that was spent."
         }
       }
     },
@@ -1336,6 +1359,15 @@
         "tap_addr": {
           "type": "string",
           "description": "The Taproot Asset address that was used to create the output. This is\nonly set for new outputs for tapd versions that support the address V2\nformat. For older versions, this field will be empty."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The group key of the asset that was created in this output, if the\nasset belongs to a group. Empty for assets that are not part of a\ngroup."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The type of the asset that was created in this output."
         }
       }
     },

@@ -47,6 +47,14 @@ const (
 	// maxRemoveMessageIDs is the maximum number of message IDs that can
 	// be removed in a single RemoveMessage RPC call.
 	maxRemoveMessageIDs = 1000
+
+	// maxSubscriberOverflow is the maximum number of items
+	// allowed to accumulate in a subscriber's overflow queue
+	// before the subscriber is evicted. This is a memory-
+	// safety bound, not a delivery guarantee: messages are
+	// persisted in MsgStore before being published, so an
+	// evicted subscriber recovers via replay on reconnect.
+	maxSubscriberOverflow = 64
 )
 
 // ServerConfig is the configuration struct for the mailbox server. It contains
@@ -528,7 +536,8 @@ func (s *Server) disconnectClient(stream *mailboxStream) error {
 
 	_, ok := s.connectedStreams[stream.streamID]
 	if !ok {
-		return fmt.Errorf("stream %d not found", stream.streamID)
+		// Already removed (e.g. by slow-subscriber eviction).
+		return nil
 	}
 
 	delete(s.connectedStreams, stream.streamID)
@@ -726,20 +735,69 @@ func (s *Server) RegisterSubscriber(receiver *fn.EventReceiver[[]*Message],
 	return nil
 }
 
-// publishMessage publishes an event to all status event subscribers (which in
-// this case are all subscribed clients).
+// publishMessage publishes an event to all status event
+// subscribers (which in this case are all subscribed clients).
+// After publishing, any subscriber whose overflow queue is at
+// capacity is evicted to prevent unbounded memory growth.
 func (s *Server) publishMessage(msg *Message) {
-	// Lock the subscriber mutex to ensure that we don't modify the
-	// subscriber map while we're iterating over it.
 	s.msgEventsSubsMtx.Lock()
-	defer s.msgEventsSubsMtx.Unlock()
 
-	for _, sub := range s.msgEventsSubs {
+	var slowSubs []uint64
+	msgSlice := []*Message{msg}
+	for id, sub := range s.msgEventsSubs {
 		select {
-		case sub.NewItemCreated.ChanIn() <- []*Message{msg}:
+		case sub.NewItemCreated.ChanIn() <- msgSlice:
 		case <-s.Done():
-			log.Errorf("Unable publish status event, server " +
-				"shutting down")
+			s.msgEventsSubsMtx.Unlock()
+			log.Errorf("Unable to publish status event, " +
+				"server shutting down")
+			return
+		}
+
+		if sub.NewItemCreated.OverflowLen() >=
+			maxSubscriberOverflow {
+
+			log.Warnf("Evicting slow subscriber %d: "+
+				"overflow queue at capacity", id)
+			slowSubs = append(slowSubs, id)
+		}
+	}
+
+	for _, id := range slowSubs {
+		sub, ok := s.msgEventsSubs[id]
+		if !ok {
+			continue
+		}
+
+		sub.Stop()
+		delete(s.msgEventsSubs, id)
+	}
+
+	s.msgEventsSubsMtx.Unlock()
+
+	// Abort the owning streams outside the subscriber lock
+	// so that the handleStream defer (which calls
+	// disconnectClient → RemoveSubscriber) can acquire
+	// msgEventsSubsMtx without deadlocking.
+	if len(slowSubs) > 0 {
+		s.abortSlowStreams(slowSubs)
+	}
+}
+
+// abortSlowStreams finds and disconnects any connected streams
+// whose subscriber ID matches one of the evicted IDs. This
+// closes quitConn, which unblocks the handleStream select and
+// tears down the gRPC stream and its read goroutine.
+func (s *Server) abortSlowStreams(subIDs []uint64) {
+	s.connectedStreamsMtx.Lock()
+	defer s.connectedStreamsMtx.Unlock()
+
+	idSet := fn.NewSet(subIDs...)
+
+	for streamID, stream := range s.connectedStreams {
+		if idSet.Contains(stream.msgReceiver.ID()) {
+			stream.abort()
+			delete(s.connectedStreams, streamID)
 		}
 	}
 }

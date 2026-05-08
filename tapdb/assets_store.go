@@ -4123,6 +4123,7 @@ func marshalAssetBurnTransfer(row sqlc.QueryBurnsRow) *tapfreighter.AssetBurn {
 		Note:       row.Note.String,
 		AssetID:    row.AssetID,
 		GroupKey:   row.GroupKey,
+		AssetType:  asset.Type(row.AssetType),
 		Amount:     uint64(row.Amount),
 		AnchorTxid: chainhash.Hash(row.AnchorTxid),
 	}

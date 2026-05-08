@@ -57,7 +57,7 @@ service Universe {
     took place on chain. The leaves contain a normal Taproot Asset proof, as
     well as details for the asset.
     */
-    rpc AssetLeaves (ID) returns (AssetLeafResponse);
+    rpc AssetLeaves (AssetLeavesRequest) returns (AssetLeafResponse);
 
     /* tapcli: `universe proofs query`
     QueryProof attempts to query for an issuance or transfer proof for a given
@@ -300,6 +300,9 @@ message AssetRootResponse {
     // A map of the set of known universe roots for each asset. The key in the
     // map is the 32-byte asset_id or group key hash.
     map<string, UniverseRoot> universe_roots = 1;
+
+    // Indicates whether there are more results beyond the current page.
+    bool has_more = 2;
 }
 
 message AssetRootQuery {
@@ -370,9 +373,27 @@ message AssetLeafKeysRequest {
     taprpc.SortDirection direction = 4;
 }
 
+message AssetLeavesRequest {
+    // The ID of the asset to query for.
+    ID id = 1;
+
+    // The offset for the page.
+    int32 offset = 2;
+
+    // The length limit for the page.
+    int32 limit = 3;
+
+    // The direction of the page.
+    taprpc.SortDirection direction = 4;
+}
+
 message AssetLeafKeyResponse {
     // The set of asset leaf keys for the given asset ID or group key.
     repeated AssetKey asset_keys = 1;
+
+    // Indicates whether there are more results beyond the current
+    // page.
+    bool has_more = 2;
 }
 
 message AssetLeaf {
@@ -390,6 +411,10 @@ message AssetLeaf {
 message AssetLeafResponse {
     // The set of asset leaves for the given asset ID or group key.
     repeated AssetLeaf leaves = 1;
+
+    // Indicates whether there are more results beyond the current
+    // page.
+    bool has_more = 2;
 }
 
 message UniverseKey {
@@ -682,6 +707,10 @@ message AssetStatsAsset {
 message UniverseAssetStats {
     // The asset statistics snapshot for the queried assets.
     repeated AssetStatsSnapshot asset_stats = 1;
+
+    // Indicates whether there are more results beyond the current
+    // page.
+    bool has_more = 2;
 }
 
 message QueryEventsRequest {

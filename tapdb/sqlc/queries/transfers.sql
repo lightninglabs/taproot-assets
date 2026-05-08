@@ -232,9 +232,11 @@ SELECT
     abt.note,
     abt.asset_id,
     abt.group_key,
+    ga.asset_type,
     abt.amount,
     ct.txid AS anchor_txid -- Retrieving the txid from chain_txns.
 FROM asset_burn_transfers abt
+JOIN genesis_assets ga ON abt.asset_id = ga.asset_id
 JOIN asset_transfers at ON abt.transfer_id = at.id
 JOIN chain_txns ct ON at.anchor_txn_id = ct.txn_id
 WHERE

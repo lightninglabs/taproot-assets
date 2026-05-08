@@ -850,6 +850,7 @@ func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
 			}
 			b := &AssetBurn{
 				AssetID:    assetID[:],
+				AssetType:  o.Asset.Type,
 				Amount:     o.Amount,
 				AnchorTxid: pkg.OutboundPkg.AnchorTx.TxHash(),
 				Note:       pkg.Note,

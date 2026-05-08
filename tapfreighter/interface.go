@@ -73,6 +73,9 @@ type AssetBurn struct {
 	// GroupKey is the group key of the group the burnt asset belongs to.
 	GroupKey []byte
 
+	// AssetType is the type of the burnt asset.
+	AssetType asset.Type
+
 	// Amount is the amount of the asset that got burnt.
 	Amount uint64
 

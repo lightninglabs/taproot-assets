@@ -610,6 +610,18 @@ func (c *ChainPlanter) Start() error {
 				// can now be set as frozen. We are already not
 				// able to add new seedlings to the batch.
 				batch.UpdateState(BatchStateFrozen)
+
+				err := c.cfg.Log.UpdateBatchState(
+					ctx, batch.BatchKey.PubKey,
+					BatchStateFrozen,
+				)
+				if err != nil {
+					log.Warnf("Failed to update batch "+
+						"state to frozen (%x): %s",
+						batchKey, err.Error())
+					cancelBatch()
+					continue
+				}
 			}
 
 			log.Infof("Launching ChainCaretaker(%x)", batchKey)

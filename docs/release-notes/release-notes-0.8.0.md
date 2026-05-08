@@ -94,6 +94,14 @@
   fixes `DecodeAssetPayReq` so `GenesisInfo` is populated consistently,
   including group-key invoice decodes.
 
+* [PR#2115](https://github.com/lightninglabs/taproot-assets/pull/2115)
+  fixes a bug by which grouped assets could remain invisible to
+  ListGroups after import, remaining visible only in ListAssets.
+
+* [PR#2100](https://github.com/lightninglabs/taproot-assets/pull/2100)
+  fixes inverted sort direction in `AssetRoots`, `AssetLeafKeys`, and
+  `QueryEvents` universe RPCs.
+
 # New Features
 
 ## Functional Enhancements
@@ -326,11 +334,39 @@
   Add pagination support (offset, limit, direction) to the `ListAssets` RPC
   endpoint.
 
+- [PR#2122](https://github.com/lightninglabs/taproot-assets/pull/2122)
+  Add a `group_key` field to `TransferInput` and `TransferOutput`. Affects `ListTransfers` and the `transfer` field embedded in `SendEvent`.
+
+- [PR#2125](https://github.com/lightninglabs/taproot-assets/pull/2125)
+  Add an `asset_type` field to `TransferInput` and `TransferOutput`.
+  Affects `ListTransfers` and the `transfer` field embedded in
+  `SendEvent`, allowing clients to distinguish grouped fungible assets from
+  grouped collectible assets.
+
+- [PR#2126](https://github.com/lightninglabs/taproot-assets/pull/2126)
+  Add an `asset_type` field to `AssetBurn`. Affects `ListBurns`, allowing
+  clients to distinguish grouped fungible burns from grouped collectible
+  burns.
+
+- [PR#2100](https://github.com/lightninglabs/taproot-assets/pull/2100)
+  Add pagination support (offset, limit, direction) to the `AssetLeaves`
+  RPC endpoint, and add `MaxPageSize` validation to `AssetRoots`.
+  Standardize pagination validation across `AssetRoots`,
+  `AssetLeafKeys`, `AssetLeaves`, and `QueryAssetStats` via a shared
+  `validatePage` helper, and add a `has_more` field to all four
+  response types. Default `limit=0` to `MaxPageSize` instead of
+  `RequestPageSize`.
+
+
 ## tapcli Updates
 
 - [PR#1995](https://github.com/lightninglabs/taproot-assets/pull/1995)
   Add `--limit`, `--offset`, and `--direction` flags to `tapcli assets list`
   for pagination support. The direction defaults to descending order.
+
+- [PR#2100](https://github.com/lightninglabs/taproot-assets/pull/2100)
+  `tapcli universe leaves` now paginates automatically, fetching all
+  pages instead of silently truncating at 512 results.
 
 ## Config Changes
 
@@ -368,6 +404,13 @@
   `burn_proof` field is deprecated.
 
 ## Performance Improvements
+
+* [PR#2104](https://github.com/lightninglabs/taproot-assets/pull/2104)
+  Dramatically improves block header verification performance during
+  proof receipt. Header verification RPCs are now deduplicated
+  and executed in parallel, replacing the previous sequential per-proof
+  approach. Benchmarks show a ~7x speedup for files with many unique
+  headers.
 
 ## Deprecations
 
@@ -448,4 +491,3 @@
 - [PR#2056](https://github.com/lightninglabs/taproot-assets/pull/2056)
   expands the example portfolio pilot with constraint enforcement,
   configurable fill caps, and live CoinGecko pricing.
-

@@ -1952,7 +1952,12 @@ func (x *ImportAssetsFromBackupRequest) GetBackup() []byte {
 type ImportAssetsFromBackupResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The number of assets that were successfully imported.
-	NumImported   uint32 `protobuf:"varint,1,opt,name=num_imported,json=numImported,proto3" json:"num_imported,omitempty"`
+	NumImported uint32 `protobuf:"varint,1,opt,name=num_imported,json=numImported,proto3" json:"num_imported,omitempty"`
+	// The number of assets that were skipped due to errors
+	// during import. Details are logged server-side. Skipped
+	// assets may include those with verification failures,
+	// missing proofs, or other per-asset data issues.
+	NumSkipped    uint32 `protobuf:"varint,2,opt,name=num_skipped,json=numSkipped,proto3" json:"num_skipped,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1990,6 +1995,13 @@ func (*ImportAssetsFromBackupResponse) Descriptor() ([]byte, []int) {
 func (x *ImportAssetsFromBackupResponse) GetNumImported() uint32 {
 	if x != nil {
 		return x.NumImported
+	}
+	return 0
+}
+
+func (x *ImportAssetsFromBackupResponse) GetNumSkipped() uint32 {
+	if x != nil {
+		return x.NumSkipped
 	}
 	return 0
 }
@@ -2120,9 +2132,11 @@ const file_assetwalletrpc_assetwallet_proto_rawDesc = "" +
 	"\x1fExportAssetWalletBackupResponse\x12\x16\n" +
 	"\x06backup\x18\x01 \x01(\fR\x06backup\"7\n" +
 	"\x1dImportAssetsFromBackupRequest\x12\x16\n" +
-	"\x06backup\x18\x01 \x01(\fR\x06backup\"C\n" +
+	"\x06backup\x18\x01 \x01(\fR\x06backup\"d\n" +
 	"\x1eImportAssetsFromBackupResponse\x12!\n" +
-	"\fnum_imported\x18\x01 \x01(\rR\vnumImported*k\n" +
+	"\fnum_imported\x18\x01 \x01(\rR\vnumImported\x12\x1f\n" +
+	"\vnum_skipped\x18\x02 \x01(\rR\n" +
+	"numSkipped*k\n" +
 	"\x0eCoinSelectType\x12\x17\n" +
 	"\x13COIN_SELECT_DEFAULT\x10\x00\x12\x1a\n" +
 	"\x16COIN_SELECT_BIP86_ONLY\x10\x01\x12$\n" +

@@ -5,7 +5,7 @@ LND_PKG := github.com/lightningnetwork/lnd
 GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
 TOOLS_DIR := tools
 
-GO_BIN := ${GOPATH}/bin
+GO_BIN := $(shell go env GOPATH)/bin
 GOIMPORTS_BIN := $(GO_BIN)/gosimports
 MIGRATE_BIN := $(GO_BIN)/migrate
 
@@ -224,13 +224,13 @@ scratch: build
 # ===================
 
 migrate-up: $(MIGRATE_BIN)
-	migrate -path tapdb/sqlc/migrations -database $(TAP_DB_CONNECTIONSTRING) -verbose up
+	$(MIGRATE_BIN) -path tapdb/sqlc/migrations -database $(TAP_DB_CONNECTIONSTRING) -verbose up
 
 migrate-down: $(MIGRATE_BIN)
-	migrate -path tapdb/sqlc/migrations -database $(TAP_DB_CONNECTIONSTRING) -verbose down 1
+	$(MIGRATE_BIN) -path tapdb/sqlc/migrations -database $(TAP_DB_CONNECTIONSTRING) -verbose down 1
 
 migrate-create: $(MIGRATE_BIN)
-	migrate create -dir tapdb/sqlc/migrations -seq -ext sql $(patchname)
+	$(MIGRATE_BIN) create -dir tapdb/sqlc/migrations -seq -ext sql $(patchname)
 
 # =======
 # TESTING
@@ -387,7 +387,7 @@ vendor:
 
 fmt: $(GOIMPORTS_BIN)
 	@$(call print, "Fixing imports.")
-	gosimports -w $(GOFILES_NOVENDOR)
+	$(GOIMPORTS_BIN) -w $(GOFILES_NOVENDOR)
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s $(GOFILES_NOVENDOR)
 

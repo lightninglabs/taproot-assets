@@ -332,8 +332,36 @@ message ImportAssetsFromBackupRequest {
 
 message ImportAssetsFromBackupResponse {
     uint32 num_imported = 1;  // Number of newly imported assets
+    uint32 num_skipped = 2;   // Number skipped due to errors
 }
 ```
+
+#### Group key handling
+
+Assets with group keys require the importing node to know the
+group key. For backups that include the group anchor asset (the
+asset that created the group), the import process automatically
+extracts the group key from the genesis proof's `GroupKeyReveal`
+before verification. This means:
+
+- **Group anchor present in backup:** import succeeds without
+  prior group key knowledge, for all backup modes (raw, compact,
+  optimistic).
+
+- **Reissuance-only backups:** if the group anchor is no longer
+  active (e.g. it was transferred) and the backup contains only
+  reissued or transferred group-member assets, the importing node
+  must have prior group key knowledge — typically from universe
+  federation sync or a previous import that included the anchor.
+  Without it, these assets are skipped during import.
+
+#### Error handling
+
+Per-asset verification and data-preparation errors are
+non-fatal: the failing asset is skipped (with a server-side
+log warning) and import continues with the remaining assets.
+DB and infrastructure errors remain fatal and abort the import
+immediately.
 
 ### Export flow
 
@@ -361,7 +389,8 @@ flowchart TD
 flowchart TD
     A[ImportAssetsFromBackup] --> B[Decode + verify checksum]
     B --> C[detectSpentOutpoints — concurrent spend check]
-    C --> D[For each asset]
+    C --> X[Pre-extract group keys from proof blobs]
+    X --> D[For each asset]
     D --> E{Outpoint spent?}
     E -->|yes| F[Skip — log warning]
     E -->|no| G{Already exists?}
@@ -375,9 +404,15 @@ flowchart TD
     J2 --> L
     K --> L
     L --> M[Register script key]
-    M --> N[Import proof into archive]
-    N --> O[Increment count]
+    M --> PV{Pre-verify proof}
+    PV -->|fail: group key unknown| RQ[Queue for retry]
+    PV -->|fail: other| S[Skip — log warning]
+    PV -->|pass| N[Import proof into archive]
+    RQ --> D
+    S --> D
+    N --> O[Increment imported]
     O --> D
-    D -->|done| P[Return num_imported]
+    D -->|done| R[Retry group-key-unknown failures]
+    R --> P[Return num_imported + num_skipped]
 ```
 

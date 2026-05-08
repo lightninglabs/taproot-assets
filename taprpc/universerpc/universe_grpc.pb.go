@@ -53,7 +53,7 @@ type UniverseClient interface {
 	// asset issuance events (they have a genesis witness) or asset transfers that
 	// took place on chain. The leaves contain a normal Taproot Asset proof, as
 	// well as details for the asset.
-	AssetLeaves(ctx context.Context, in *ID, opts ...grpc.CallOption) (*AssetLeafResponse, error)
+	AssetLeaves(ctx context.Context, in *AssetLeavesRequest, opts ...grpc.CallOption) (*AssetLeafResponse, error)
 	// tapcli: `universe proofs query`
 	// QueryProof attempts to query for an issuance or transfer proof for a given
 	// asset based on its UniverseKey. A UniverseKey is composed of the Universe
@@ -208,7 +208,7 @@ func (c *universeClient) AssetLeafKeys(ctx context.Context, in *AssetLeafKeysReq
 	return out, nil
 }
 
-func (c *universeClient) AssetLeaves(ctx context.Context, in *ID, opts ...grpc.CallOption) (*AssetLeafResponse, error) {
+func (c *universeClient) AssetLeaves(ctx context.Context, in *AssetLeavesRequest, opts ...grpc.CallOption) (*AssetLeafResponse, error) {
 	out := new(AssetLeafResponse)
 	err := c.cc.Invoke(ctx, "/universerpc.Universe/AssetLeaves", in, out, opts...)
 	if err != nil {
@@ -418,7 +418,7 @@ type UniverseServer interface {
 	// asset issuance events (they have a genesis witness) or asset transfers that
 	// took place on chain. The leaves contain a normal Taproot Asset proof, as
 	// well as details for the asset.
-	AssetLeaves(context.Context, *ID) (*AssetLeafResponse, error)
+	AssetLeaves(context.Context, *AssetLeavesRequest) (*AssetLeafResponse, error)
 	// tapcli: `universe proofs query`
 	// QueryProof attempts to query for an issuance or transfer proof for a given
 	// asset based on its UniverseKey. A UniverseKey is composed of the Universe
@@ -534,7 +534,7 @@ func (UnimplementedUniverseServer) DeleteAssetLeaf(context.Context, *DeleteAsset
 func (UnimplementedUniverseServer) AssetLeafKeys(context.Context, *AssetLeafKeysRequest) (*AssetLeafKeyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AssetLeafKeys not implemented")
 }
-func (UnimplementedUniverseServer) AssetLeaves(context.Context, *ID) (*AssetLeafResponse, error) {
+func (UnimplementedUniverseServer) AssetLeaves(context.Context, *AssetLeavesRequest) (*AssetLeafResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AssetLeaves not implemented")
 }
 func (UnimplementedUniverseServer) QueryProof(context.Context, *UniverseKey) (*AssetProofResponse, error) {
@@ -713,7 +713,7 @@ func _Universe_AssetLeafKeys_Handler(srv interface{}, ctx context.Context, dec f
 }
 
 func _Universe_AssetLeaves_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ID)
+	in := new(AssetLeavesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -725,7 +725,7 @@ func _Universe_AssetLeaves_Handler(srv interface{}, ctx context.Context, dec fun
 		FullMethod: "/universerpc.Universe/AssetLeaves",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(UniverseServer).AssetLeaves(ctx, req.(*ID))
+		return srv.(UniverseServer).AssetLeaves(ctx, req.(*AssetLeavesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

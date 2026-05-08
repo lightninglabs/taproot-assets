@@ -938,6 +938,13 @@ message TransferInput {
 
     // The amount of the asset that was spent.
     uint64 amount = 4;
+
+    // The group key of the asset that was spent, if the asset belongs to a
+    // group. Empty for assets that are not part of a group.
+    bytes group_key = 5;
+
+    // The type of the asset that was spent.
+    AssetType asset_type = 6;
 }
 
 message TransferOutputAnchor {
@@ -1072,6 +1079,14 @@ message TransferOutput {
     // only set for new outputs for tapd versions that support the address V2
     // format. For older versions, this field will be empty.
     string tap_addr = 14;
+
+    // The group key of the asset that was created in this output, if the
+    // asset belongs to a group. Empty for assets that are not part of a
+    // group.
+    bytes group_key = 15;
+
+    // The type of the asset that was created in this output.
+    AssetType asset_type = 16;
 }
 
 message StopRequest {
@@ -1859,6 +1874,9 @@ message AssetBurn {
 
     // The txid of the transaction that the burn was anchored to.
     bytes anchor_txid = 5;
+
+    // The type of the burnt asset.
+    AssetType asset_type = 6;
 }
 
 message ListBurnsResponse {

@@ -739,12 +739,12 @@ func (a *Archive) UniverseLeafKeys(ctx context.Context,
 }
 
 // FetchLeaves returns the set of leaves which correspond to the given universe
-// identifier.
+// identifier, paginated according to the given query.
 func (a *Archive) FetchLeaves(ctx context.Context,
-	id Identifier) ([]Leaf, error) {
+	id Identifier, q FetchLeavesQuery) ([]Leaf, error) {
 
-	log.Debugf("Retrieving all leaves for universe (id=%v)",
-		id.StringForLog())
+	log.Debugf("Retrieving leaves for universe (id=%v, offset=%v, "+
+		"limit=%v)", id.StringForLog(), q.Offset, q.Limit)
 
 	// Verify the universe exists before allocating a cached
 	// backend for it. This prevents unbounded cache growth from
@@ -759,7 +759,7 @@ func (a *Archive) FetchLeaves(ctx context.Context,
 
 	return withUni(
 		a, id, func(uni StorageBackend) ([]Leaf, error) {
-			return uni.FetchLeaves(ctx)
+			return uni.FetchLeaves(ctx, q)
 		},
 	)
 }

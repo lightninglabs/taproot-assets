@@ -188,6 +188,7 @@ func testBurnAssets(t *harnessTest) {
 	require.Equal(t.t, uint64(burnAmt), burn.Amount)
 	require.Equal(t.t, burnResp.BurnTransfer.AnchorTxHash, burn.AnchorTxid)
 	require.Equal(t.t, burn.AssetId, simpleAssetID[:])
+	require.Equal(t.t, taprpc.AssetType_NORMAL, burn.AssetType)
 	require.Equal(t.t, burn.Note, burnNote)
 
 	// The burned asset should be pruned from the tree when we next spend
@@ -331,6 +332,7 @@ func testBurnAssets(t *harnessTest) {
 	)
 
 	require.Equal(t.t, groupBurn.AssetId, simpleGroupGen.AssetId[:])
+	require.Equal(t.t, taprpc.AssetType_NORMAL, groupBurn.AssetType)
 	require.Equal(
 		t.t, groupBurn.TweakedGroupKey,
 		simpleGroup.AssetGroup.TweakedGroupKey,
@@ -366,6 +368,20 @@ func testBurnAssets(t *harnessTest) {
 		t.t, t.tapd,
 		burnAmt+multiBurnAmt+burnAmt+1,
 		WithScriptKeyType(asset.ScriptKeyBurn),
+	)
+
+	collectibleBurns := AssertNumBurns(
+		t.t, t.tapd, 1, &taprpc.ListBurnsRequest{
+			AssetId: simpleGroupCollectGen.AssetId,
+		},
+	)
+	collectibleBurn := collectibleBurns[0]
+	require.Equal(
+		t.t, taprpc.AssetType_COLLECTIBLE, collectibleBurn.AssetType,
+	)
+	require.Equal(
+		t.t, simpleGroupCollect.AssetGroup.TweakedGroupKey,
+		collectibleBurn.TweakedGroupKey,
 	)
 
 	// We now perform some queries to test the filters of the ListBurns
@@ -535,6 +551,7 @@ func testBurnGroupedAssets(t *harnessTest) {
 	require.Equal(t.t, burnAmt, burn.Amount)
 	require.Equal(t.t, burnNote, burn.Note)
 	require.Equal(t.t, assetGroupKey, burn.TweakedGroupKey)
+	require.Equal(t.t, taprpc.AssetType_NORMAL, burn.AssetType)
 
 	// Test case 2: Burn by group key so we select multiple inputs.
 	// We burn the full remaining amount.
@@ -688,5 +705,7 @@ func testFullBurnUTXO(t *harnessTest) {
 	// Verify that we have 2 burns.
 	burns := AssertNumBurns(t.t, t.tapd, 2, nil)
 	require.Equal(t.t, simpleAssetGen.AssetId, burns[0].AssetId)
+	require.Equal(t.t, taprpc.AssetType_NORMAL, burns[0].AssetType)
 	require.Equal(t.t, collectibleAssetGen.AssetId, burns[1].AssetId)
+	require.Equal(t.t, taprpc.AssetType_COLLECTIBLE, burns[1].AssetType)
 }

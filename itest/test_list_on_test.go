@@ -66,6 +66,14 @@ var allTestCases = []*testCase{
 		test: testBackupRestoreTransferred,
 	},
 	{
+		name: "backup restore grouped",
+		test: testBackupRestoreGrouped,
+	},
+	{
+		name: "backup restore optimistic",
+		test: testBackupRestoreOptimistic,
+	},
+	{
 		name: "addresses",
 		test: testAddresses,
 	},
@@ -466,6 +474,10 @@ var allTestCases = []*testCase{
 	{
 		name: "address v2 import fails without courier",
 		test: testAddressV2ImportFailsWithoutCourier,
+	},
+	{
+		name: "transfer group key",
+		test: testTransferGroupKey,
 	},
 }
 
