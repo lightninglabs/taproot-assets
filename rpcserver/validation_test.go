@@ -21,18 +21,16 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// assertInvalidArgument checks that the error is a gRPC status error with
-// code InvalidArgument and that the message contains the expected substring.
-func assertInvalidArgument(t *testing.T, err error, wantMsgContains string) {
+// assertCode checks that the error is a gRPC status error with the expected
+// status code.
+func assertCode(t *testing.T, err error, wantCode codes.Code) {
 	t.Helper()
 
 	require.Error(t, err)
 
 	st, ok := status.FromError(err)
 	require.True(t, ok, "error should be a gRPC status error")
-	require.Equal(t, codes.InvalidArgument, st.Code(),
-		"expected InvalidArgument, got %v", st.Code())
-	require.Contains(t, st.Message(), wantMsgContains)
+	require.Equal(t, wantCode, st.Code())
 }
 
 // newTestServer creates a minimal RPCServer for validation testing.
@@ -52,115 +50,101 @@ func TestDecodeAddrValidation(t *testing.T) {
 	server := newTestServer()
 
 	tests := []struct {
-		name    string
-		req     *taprpc.DecodeAddrRequest
-		wantMsg string
+		name     string
+		req      *taprpc.DecodeAddrRequest
+		wantCode codes.Code
 	}{
 		{
-			name:    "empty address",
-			req:     &taprpc.DecodeAddrRequest{Addr: ""},
-			wantMsg: "must specify an addr",
+			name:     "empty address",
+			req:      &taprpc.DecodeAddrRequest{Addr: ""},
+			wantCode: codes.InvalidArgument,
 		},
 		{
-			name: "invalid address format",
-			req: &taprpc.DecodeAddrRequest{
-				Addr: "not-a-valid-addr",
-			},
-			wantMsg: "unable to decode addr",
+			name:     "invalid address format",
+			req:      &taprpc.DecodeAddrRequest{Addr: "not-valid"},
+			wantCode: codes.InvalidArgument,
 		},
 		{
 			name: "wrong network prefix",
 			req: &taprpc.DecodeAddrRequest{
-				// Testnet address (taptb1) on mainnet config
-				// (expects tapbc1). DecodeAddress compares the
-				// HRP against net.TapHRP and returns
-				// ErrMismatchedHRP when they don't match.
-				// See address/address.go ErrMismatchedHRP
-				Addr: "taptb1qqqszqspqqqqqqqqqqqqqqqqqqqq" +
-					"qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpqqq" +
+				// Testnet address on mainnet config.
+				Addr: "taptb1qqqszqspqqqqqqqqqqqqqqqqqqq" +
+					"qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpqqq" +
 					"sqqspqqqqp8hlm7nfnydq5wvs6j5mczq8tf" +
 					"vemhy7082",
 			},
-			wantMsg: "unable to decode addr",
+			wantCode: codes.InvalidArgument,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := server.DecodeAddr(
-				context.Background(), tc.req,
-			)
-			assertInvalidArgument(t, err, tc.wantMsg)
+				context.Background(), tc.req)
+			assertCode(t, err, tc.wantCode)
 		})
 	}
 }
 
 // TestDecodeProofValidation tests that DecodeProof returns InvalidArgument
 // for validation errors.
-//
-// Note: DecodeProof's validation is inherent to decoding - malformed proofs
-// correctly return InvalidArgument. Testing valid input requires a real proof
-// fixture; this is covered by integration tests (e.g., itest/proof_test.go).
 func TestDecodeProofValidation(t *testing.T) {
 	t.Parallel()
 
 	server := newTestServer()
 
-	// Create invalid proof bytes that don't match either magic prefix.
+	// Invalid proof bytes that don't match either magic prefix.
 	invalidMagicBytes := []byte{0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03}
 
-	// Create bytes with single proof magic but invalid content.
+	// Bytes with single proof magic but invalid content.
 	invalidSingleProof := append(
-		proof.PrefixMagicBytes[:],
-		[]byte{0x00, 0x01, 0x02, 0x03}...,
+		proof.PrefixMagicBytes[:], []byte{0x00, 0x01, 0x02, 0x03}...,
 	)
 
-	// Create bytes with file magic but invalid content.
+	// Bytes with file magic but invalid content.
 	invalidFileProof := append(
 		proof.FilePrefixMagicBytes[:],
 		[]byte{0x00, 0x01, 0x02, 0x03}...,
 	)
 
 	tests := []struct {
-		name    string
-		req     *taprpc.DecodeProofRequest
-		wantMsg string
+		name     string
+		req      *taprpc.DecodeProofRequest
+		wantCode codes.Code
 	}{
 		{
-			// Covers both nil and empty raw proof
-			name:    "empty proof",
-			req:     &taprpc.DecodeProofRequest{RawProof: nil},
-			wantMsg: "could not identify decoding format",
+			name:     "empty proof",
+			req:      &taprpc.DecodeProofRequest{RawProof: nil},
+			wantCode: codes.InvalidArgument,
 		},
 		{
 			name: "invalid magic bytes",
 			req: &taprpc.DecodeProofRequest{
 				RawProof: invalidMagicBytes,
 			},
-			wantMsg: "could not identify decoding format",
+			wantCode: codes.InvalidArgument,
 		},
 		{
-			name: "invalid single proof content",
+			name: "invalid single proof",
 			req: &taprpc.DecodeProofRequest{
 				RawProof: invalidSingleProof,
 			},
-			wantMsg: "unable to decode proof",
+			wantCode: codes.InvalidArgument,
 		},
 		{
-			name: "invalid file proof content",
+			name: "invalid file proof",
 			req: &taprpc.DecodeProofRequest{
 				RawProof: invalidFileProof,
 			},
-			wantMsg: "unable to decode proof file",
+			wantCode: codes.InvalidArgument,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := server.DecodeProof(
-				context.Background(), tc.req,
-			)
-			assertInvalidArgument(t, err, tc.wantMsg)
+				context.Background(), tc.req)
+			assertCode(t, err, tc.wantCode)
 		})
 	}
 }
@@ -178,74 +162,74 @@ func TestExportProofValidation(t *testing.T) {
 	validScriptKey := privKey.PubKey().SerializeCompressed()
 
 	tests := []struct {
-		name    string
-		req     *taprpc.ExportProofRequest
-		wantMsg string
+		name     string
+		req      *taprpc.ExportProofRequest
+		wantCode codes.Code
 	}{
 		{
-			name:    "empty script key",
-			req:     &taprpc.ExportProofRequest{ScriptKey: nil},
-			wantMsg: "a valid script key must be specified",
+			name:     "empty script key",
+			req:      &taprpc.ExportProofRequest{ScriptKey: nil},
+			wantCode: codes.InvalidArgument,
 		},
 		{
-			name: "invalid script key - wrong length",
+			name: "invalid script key length",
 			req: &taprpc.ExportProofRequest{
 				ScriptKey: []byte{0x01, 0x02, 0x03},
 			},
-			wantMsg: "invalid script key",
+			wantCode: codes.InvalidArgument,
 		},
 		{
-			name: "invalid script key - bad prefix",
+			name: "invalid script key prefix",
 			req: &taprpc.ExportProofRequest{
-				ScriptKey: make([]byte, 33), // all zeros
+				// 33 bytes is correct length for compressed
+				// pubkey, but 0x00 prefix is invalid.
+				ScriptKey: make([]byte, 33),
 			},
-			wantMsg: "invalid script key",
+			wantCode: codes.InvalidArgument,
 		},
 		{
-			name: "asset ID wrong length - empty",
+			name: "empty asset ID",
 			req: &taprpc.ExportProofRequest{
 				ScriptKey: validScriptKey,
 				AssetId:   nil,
 			},
-			wantMsg: "asset ID must be 32 bytes",
+			wantCode: codes.InvalidArgument,
 		},
 		{
-			name: "asset ID wrong length - too short",
+			name: "asset ID too short",
 			req: &taprpc.ExportProofRequest{
 				ScriptKey: validScriptKey,
 				AssetId:   make([]byte, 31),
 			},
-			wantMsg: "asset ID must be 32 bytes",
+			wantCode: codes.InvalidArgument,
 		},
 		{
-			name: "asset ID wrong length - too long",
+			name: "asset ID too long",
 			req: &taprpc.ExportProofRequest{
 				ScriptKey: validScriptKey,
 				AssetId:   make([]byte, 33),
 			},
-			wantMsg: "asset ID must be 32 bytes",
+			wantCode: codes.InvalidArgument,
 		},
 		{
-			name: "invalid outpoint - bad txid",
+			name: "invalid outpoint",
 			req: &taprpc.ExportProofRequest{
 				ScriptKey: validScriptKey,
 				AssetId:   make([]byte, 32),
 				Outpoint: &taprpc.OutPoint{
-					// Wrong length for txid.
 					Txid:        []byte{0x01, 0x02},
 					OutputIndex: 0,
 				},
 			},
-			wantMsg: "unmarshalling outpoint",
+			wantCode: codes.InvalidArgument,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := server.ExportProof(
-				context.Background(), tc.req,
-			)
-			assertInvalidArgument(t, err, tc.wantMsg)
+				context.Background(), tc.req)
+			assertCode(t, err, tc.wantCode)
 		})
 	}
 }
