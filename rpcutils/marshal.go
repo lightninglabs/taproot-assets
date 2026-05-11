@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -18,7 +20,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lntest"
 )
 
 // Shorthand for the asset transfer output proof delivery status enum.
@@ -475,9 +476,13 @@ func UnmarshalExternalKey(rpcKey *taprpc.ExternalKey) (asset.ExternalKey,
 	}
 
 	// Parse derivation path.
-	path, err := lntest.ParseDerivationPath(rpcKey.DerivationPath)
+	path, err := parseDerivationPath(rpcKey.DerivationPath)
 	if err != nil {
 		return asset.ExternalKey{}, err
+	}
+	if len(path) != 5 {
+		return asset.ExternalKey{}, fmt.Errorf("expected derivation "+
+			"path with 5 components, got %d", len(path))
 	}
 
 	// We assume the first three elements of the derivation path are
@@ -504,6 +509,42 @@ func UnmarshalExternalKey(rpcKey *taprpc.ExternalKey) (asset.ExternalKey,
 		MasterFingerprint: masterFingerprint,
 		DerivationPath:    path,
 	}, nil
+}
+
+// parseDerivationPath parses a path in the form of m/x'/y'/z'/a/b into a slice
+// of [x, y, z, a, b]. The apostrophe is ignored and 2^31 is not added to the
+// parsed numbers.
+func parseDerivationPath(path string) ([]uint32, error) {
+	path = strings.TrimSpace(path)
+	if len(path) == 0 {
+		return nil, fmt.Errorf("path cannot be empty")
+	}
+	if !strings.HasPrefix(path, "m/") {
+		return nil, fmt.Errorf("path must start with m/")
+	}
+
+	rest := strings.ReplaceAll(path, "m/", "")
+	if rest == "" {
+		return []uint32{}, nil
+	}
+
+	parts := strings.Split(rest, "/")
+	indices := make([]uint32, len(parts))
+	for i := 0; i < len(parts); i++ {
+		part := parts[i]
+		if strings.Contains(part, "'") {
+			part = strings.TrimRight(part, "'")
+		}
+
+		parsed, err := strconv.ParseInt(part, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse part %q: %v",
+				part, err)
+		}
+		indices[i] = uint32(parsed)
+	}
+
+	return indices, nil
 }
 
 // MarshalGroupVirtualTx marshals the native asset group virtual transaction

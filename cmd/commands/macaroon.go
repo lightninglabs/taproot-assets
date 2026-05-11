@@ -9,8 +9,8 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/lightninglabs/taproot-assets/internal/lncfg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
-	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/urfave/cli"
 	"google.golang.org/protobuf/proto"

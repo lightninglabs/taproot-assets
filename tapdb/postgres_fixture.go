@@ -1,3 +1,5 @@
+//go:build test_db_postgres || itest
+
 package tapdb
 
 import (
@@ -20,6 +22,15 @@ const (
 	testPgPass   = "test"
 	testPgDBName = "test"
 	PostgresTag  = "15"
+)
+
+var (
+	// DefaultPostgresFixtureLifetime is the default maximum time a Postgres
+	// test fixture is being kept alive. After that time the docker
+	// container will be terminated forcefully, even if the tests aren't
+	// fully executed yet. So this time needs to be chosen correctly to be
+	// longer than the longest expected individual test run time.
+	DefaultPostgresFixtureLifetime = 60 * time.Minute
 )
 
 // TestPgFixture is a test fixture that starts a Postgres 11 instance in a
@@ -138,4 +149,46 @@ func (f *TestPgFixture) ClearDB(t testing.TB) {
 		 CREATE SCHEMA public;`,
 	)
 	require.NoError(t, err)
+}
+
+// NewTestPostgresDB is a helper function that creates a Postgres database for
+// testing.
+func NewTestPostgresDB(t testing.TB) *PostgresStore {
+	t.Helper()
+
+	t.Logf("Creating new Postgres DB for testing")
+
+	sqlFixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime, true)
+	store, err := NewPostgresStore(sqlFixture.GetConfig())
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		sqlFixture.TearDown(t)
+	})
+
+	return store
+}
+
+// NewTestPostgresDBWithVersion is a helper function that creates a Postgres
+// database for testing and migrates it to the given version.
+func NewTestPostgresDBWithVersion(t testing.TB, version uint) *PostgresStore {
+	t.Helper()
+
+	t.Logf("Creating new Postgres DB for testing, migrating to version %d",
+		version)
+
+	sqlFixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime, true)
+	storeCfg := sqlFixture.GetConfig()
+	storeCfg.SkipMigrations = true
+	store, err := NewPostgresStore(storeCfg)
+	require.NoError(t, err)
+
+	err = store.ExecuteMigrations(TargetVersion(version))
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		sqlFixture.TearDown(t)
+	})
+
+	return store
 }

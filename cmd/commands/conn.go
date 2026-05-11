@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightninglabs/taproot-assets/internal/lncfg"
 	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -26,7 +27,6 @@ import (
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
-	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/urfave/cli"

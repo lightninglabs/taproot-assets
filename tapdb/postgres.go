@@ -3,13 +3,11 @@ package tapdb
 import (
 	"database/sql"
 	"fmt"
-	"testing"
 	"time"
 
 	postgres_migrate "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
-	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -24,13 +22,6 @@ const (
 )
 
 var (
-	// DefaultPostgresFixtureLifetime is the default maximum time a Postgres
-	// test fixture is being kept alive. After that time the docker
-	// container will be terminated forcefully, even if the tests aren't
-	// fully executed yet. So this time needs to be chosen correctly to be
-	// longer than the longest expected individual test run time.
-	DefaultPostgresFixtureLifetime = 60 * time.Minute
-
 	// postgresSchemaReplacements is a map of schema strings that need to be
 	// replaced for postgres. This is needed because we write the schemas
 	// to work with sqlite primarily, and postgres has some differences.
@@ -169,46 +160,4 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget,
 		postgresFS, driver, "sqlc/migrations", s.cfg.DBName, target,
 		opts,
 	)
-}
-
-// NewTestPostgresDB is a helper function that creates a Postgres database for
-// testing.
-func NewTestPostgresDB(t testing.TB) *PostgresStore {
-	t.Helper()
-
-	t.Logf("Creating new Postgres DB for testing")
-
-	sqlFixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime, true)
-	store, err := NewPostgresStore(sqlFixture.GetConfig())
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		sqlFixture.TearDown(t)
-	})
-
-	return store
-}
-
-// NewTestPostgresDBWithVersion is a helper function that creates a Postgres
-// database for testing and migrates it to the given version.
-func NewTestPostgresDBWithVersion(t testing.TB, version uint) *PostgresStore {
-	t.Helper()
-
-	t.Logf("Creating new Postgres DB for testing, migrating to version %d",
-		version)
-
-	sqlFixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime, true)
-	storeCfg := sqlFixture.GetConfig()
-	storeCfg.SkipMigrations = true
-	store, err := NewPostgresStore(storeCfg)
-	require.NoError(t, err)
-
-	err = store.ExecuteMigrations(TargetVersion(version))
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		sqlFixture.TearDown(t)
-	})
-
-	return store
 }
