@@ -488,6 +488,11 @@ func UnmarshalExternalKey(rpcKey *taprpc.ExternalKey) (asset.ExternalKey,
 	// We assume the first three elements of the derivation path are
 	// hardened, so we need to add the hardened key offset.
 	for i := 0; i < 3; i++ {
+		if path[i] >= hdkeychain.HardenedKeyStart {
+			return asset.ExternalKey{}, fmt.Errorf("derivation "+
+				"path component %d is already hardened", i)
+		}
+
 		path[i] += hdkeychain.HardenedKeyStart
 	}
 
@@ -511,9 +516,9 @@ func UnmarshalExternalKey(rpcKey *taprpc.ExternalKey) (asset.ExternalKey,
 	}, nil
 }
 
-// parseDerivationPath parses a path in the form of m/x'/y'/z'/a/b into a slice
-// of [x, y, z, a, b]. The apostrophe is ignored and 2^31 is not added to the
-// parsed numbers.
+// parseDerivationPath parses a path in the form of m/x'/y'/z'/a/b into a
+// slice of [x, y, z, a, b]. Hardening suffixes are ignored and 2^31 is not
+// added to the parsed numbers.
 func parseDerivationPath(path string) ([]uint32, error) {
 	path = strings.TrimSpace(path)
 	if len(path) == 0 {
@@ -523,7 +528,7 @@ func parseDerivationPath(path string) ([]uint32, error) {
 		return nil, fmt.Errorf("path must start with m/")
 	}
 
-	rest := strings.ReplaceAll(path, "m/", "")
+	rest := strings.TrimPrefix(path, "m/")
 	if rest == "" {
 		return []uint32{}, nil
 	}
@@ -532,13 +537,21 @@ func parseDerivationPath(path string) ([]uint32, error) {
 	indices := make([]uint32, len(parts))
 	for i := 0; i < len(parts); i++ {
 		part := parts[i]
-		if strings.Contains(part, "'") {
-			part = strings.TrimRight(part, "'")
+		originalPart := part
+		hasHardenedSuffix := strings.HasSuffix(part, "'") ||
+			strings.HasSuffix(part, "h") ||
+			strings.HasSuffix(part, "H")
+		if hasHardenedSuffix {
+			part = part[:len(part)-1]
+		}
+		if strings.ContainsAny(part, "'hH") {
+			return nil, fmt.Errorf("invalid derivation path "+
+				"part %q", originalPart)
 		}
 
-		parsed, err := strconv.ParseInt(part, 10, 32)
+		parsed, err := strconv.ParseUint(part, 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf("could not parse part %q: %v",
+			return nil, fmt.Errorf("could not parse part %q: %w",
 				part, err)
 		}
 		indices[i] = uint32(parsed)

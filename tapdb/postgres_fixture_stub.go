@@ -3,7 +3,7 @@
 package tapdb
 
 import (
-	"fmt"
+	"errors"
 	"testing"
 	"time"
 )
@@ -22,8 +22,10 @@ var (
 type TestPgFixture struct{}
 
 func errPostgresFixtureUnavailable() error {
-	return fmt.Errorf("postgres test fixture requires the test_db_postgres " +
-		"or itest build tag")
+	msg := "postgres test fixture requires the " +
+		"test_db_postgres or itest build tag"
+
+	return errors.New(msg)
 }
 
 // NewTestPgFixture constructs a new Postgres test fixture.

@@ -15,6 +15,9 @@ const (
 	// harness nodes.
 	defaultNodePort = 10000
 
+	// maxNodePort is the highest port we'll try to allocate.
+	maxNodePort = 65535
+
 	// uniquePortFile is the name of the file that is used to store the last
 	// port that was used by a node.
 	uniquePortFile = "rpctest-port"
@@ -64,45 +67,52 @@ func NextAvailablePort() int {
 	}()
 
 	portFile := filepath.Join(os.TempDir(), uniquePortFile)
-	port, err := os.ReadFile(portFile)
+	portBytes, err := os.ReadFile(portFile)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			panic(fmt.Errorf("error reading port file: %w", err))
 		}
 
-		port = []byte(strconv.Itoa(defaultNodePort))
+		portBytes = []byte(strconv.Itoa(defaultNodePort))
 	}
 
-	lastPort, err := strconv.Atoi(string(port))
+	lastPort, err := strconv.Atoi(string(portBytes))
 	if err != nil {
 		panic(fmt.Errorf("error parsing port: %w", err))
 	}
 
-	lastPort++
-	for lastPort < 65535 {
-		addr := fmt.Sprintf(ListenAddrTemplate, lastPort)
+	portRange := maxNodePort - defaultNodePort + 1
+	for attempt := 1; attempt <= portRange; attempt++ {
+		nextPort := nextPortCandidate(lastPort, attempt)
+		addr := fmt.Sprintf(ListenAddrTemplate, nextPort)
 		l, err := net.Listen("tcp4", addr)
 		if err == nil {
 			err := l.Close()
 			if err == nil {
 				err := os.WriteFile(
 					portFile,
-					[]byte(strconv.Itoa(lastPort)), 0600,
+					[]byte(strconv.Itoa(nextPort)), 0600,
 				)
 				if err != nil {
 					panic(fmt.Errorf("error updating "+
 						"port file: %w", err))
 				}
 
-				return lastPort
+				return nextPort
 			}
-		}
-		lastPort++
-
-		if lastPort == 65535 {
-			lastPort = defaultNodePort
 		}
 	}
 
 	panic("no ports available for listening")
+}
+
+func nextPortCandidate(lastPort, attempt int) int {
+	if lastPort < defaultNodePort || lastPort > maxNodePort {
+		lastPort = defaultNodePort
+	}
+
+	portRange := maxNodePort - defaultNodePort + 1
+	offset := lastPort - defaultNodePort + attempt
+
+	return defaultNodePort + offset%portRange
 }

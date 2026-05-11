@@ -48,7 +48,9 @@ func EnforceSafeAuthentication(addrs []net.Addr, macaroonsActive,
 	tlsActive bool) error {
 
 	for _, addr := range addrs {
-		if IsLoopback(addr.String()) || IsUnix(addr) || IsPrivate(addr) {
+		if IsLoopback(addr.String()) || IsUnix(addr) ||
+			IsPrivate(addr) {
+
 			continue
 		}
 
