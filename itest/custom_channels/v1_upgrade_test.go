@@ -100,7 +100,7 @@ func testCustomChannelsV1Upgrade(ctx context.Context,
 	// Charlie's DB.
 	fundingTxid, err := chainhash.NewHashFromStr(assetFundResp.Txid)
 	require.NoError(t.t, err)
-	locateAssetTransfers(t.t, charlie, *fundingTxid)
+	locateAssetTransfers(t.t, net, charlie, *fundingTxid)
 
 	// Charlie's balance should reflect that the funding asset is now
 	// excluded from balance reporting by tapd.
@@ -230,9 +230,9 @@ func testCustomChannelsV1Upgrade(ctx context.Context,
 	// We should be able to find the transfer of the breach for both
 	// parties.
 	charlieBreachTransfer := locateAssetTransfers(
-		t.t, charlie, *breachTxid,
+		t.t, net, charlie, *breachTxid,
 	)
-	locateAssetTransfers(t.t, dave, *breachTxid)
+	locateAssetTransfers(t.t, net, dave, *breachTxid)
 
 	require.Len(t.t, charlieBreachTransfer.Outputs, 2)
 	assetOutput := charlieBreachTransfer.Outputs[0]
@@ -283,7 +283,7 @@ func testCustomChannelsV1Upgrade(ctx context.Context,
 
 	// Dave should now have a transfer for his justice transaction.
 	daveJusticeTransfer := locateAssetTransfers(
-		t.t, dave, *daveJusticeTxid[0],
+		t.t, net, dave, *daveJusticeTxid[0],
 	)
 
 	// Dave should claim all of the asset balance that was put into the

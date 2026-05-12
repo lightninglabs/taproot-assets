@@ -273,7 +273,7 @@ func testCustomChannelsGroupTranchesForceClose(ctx context.Context,
 	t.Logf("Erin sweep txid: %v", erinSweepTxHash)
 
 	// Erin should now have an asset transfer for her sweep transaction.
-	locateAssetTransfers(t.t, erin, erinSweepTxHash)
+	locateAssetTransfers(t.t, net, erin, erinSweepTxHash)
 
 	assertSpendableBalance(
 		t.t, erin, nil, groupKey, fundingAmount-totalFirstSend,

@@ -125,7 +125,7 @@ func testCustomChannelsForceClose(ctx context.Context,
 	// DB.
 	fundingTxid, err := chainhash.NewHashFromStr(assetFundResp.Txid)
 	require.NoError(t.t, err)
-	locateAssetTransfers(t.t, charlie, *fundingTxid)
+	locateAssetTransfers(t.t, net, charlie, *fundingTxid)
 
 	// Charlie's balance should reflect that the funding asset is now
 	// excluded from balance reporting by tapd.
@@ -241,7 +241,7 @@ func testCustomChannelsForceClose(ctx context.Context,
 
 	// At this point, a transfer should have been created for Dave's sweep
 	// transaction.
-	locateAssetTransfers(t.t, dave, daveSweepTxHash)
+	locateAssetTransfers(t.t, net, dave, daveSweepTxHash)
 
 	time.Sleep(time.Second * 1)
 

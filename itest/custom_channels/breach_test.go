@@ -109,7 +109,7 @@ func testCustomChannelsBreach(ctx context.Context,
 	// Charlie's DB.
 	fundingTxid, err := chainhash.NewHashFromStr(assetFundResp.Txid)
 	require.NoError(t.t, err)
-	locateAssetTransfers(t.t, charlie, *fundingTxid)
+	locateAssetTransfers(t.t, net, charlie, *fundingTxid)
 
 	// Charlie's balance should reflect that the funding asset is now
 	// excluded from balance reporting by tapd.
@@ -191,8 +191,8 @@ func testCustomChannelsBreach(ctx context.Context,
 
 	// We should be able to find the transfer of the breach for both
 	// parties.
-	locateAssetTransfers(t.t, charlie, *breachTxid)
-	locateAssetTransfers(t.t, dave, *breachTxid)
+	locateAssetTransfers(t.t, net, charlie, *breachTxid)
+	locateAssetTransfers(t.t, net, dave, *breachTxid)
 
 	// With the breach transaction mined, Charlie should now have a
 	// transaction in the mempool sweeping *both* commitment outputs.
@@ -209,7 +209,7 @@ func testCustomChannelsBreach(ctx context.Context,
 	mineBlocks(t, net, 1, 1)
 
 	// Charlie should now have a transfer for his justice transaction.
-	locateAssetTransfers(t.t, charlie, *charlieJusticeTxid[0])
+	locateAssetTransfers(t.t, net, charlie, *charlieJusticeTxid[0])
 
 	// Charlie's balance should now be the same as before the breach
 	// attempt: the amount he minted at the very start.

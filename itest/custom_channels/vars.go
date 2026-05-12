@@ -29,6 +29,11 @@ var (
 	// parallel tranches, tapd block processing can be slow so we use a
 	// generous timeout.
 	ccTransferTimeout = 2 * time.Minute
+
+	// ccTransferConfirmTimeout is the timeout used when polling for
+	// transfer confirmation metadata after a sweep tx is mined. On busy
+	// CI runners, this metadata can lag behind block inclusion.
+	ccTransferConfirmTimeout = 5 * time.Minute
 )
 
 // lndArgsTemplate contains lnd flags used by all custom channel test nodes.
