@@ -1890,6 +1890,14 @@
           "type": "string",
           "format": "uint64",
           "description": "The total balance of the assets in the group."
+        },
+        "asset_genesis": {
+          "$ref": "#/definitions/taprpcGenesisInfo",
+          "description": "The genesis info of a representative issuance in the group. For fungible\nassets, all tranches share the same name and type, so this provides the\ncanonical metadata for the group."
+        },
+        "decimal_display": {
+          "$ref": "#/definitions/taprpcDecimalDisplay",
+          "description": "The decimal display value for the asset group, extracted from the\nrepresentative issuance's metadata."
         }
       }
     },

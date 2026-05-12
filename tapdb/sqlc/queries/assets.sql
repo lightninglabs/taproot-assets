@@ -362,20 +362,43 @@ GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          genesis_info_view.prev_out, key_group_info_view.tweaked_group_key;
 
 -- name: QueryAssetBalancesByGroup :many
+WITH group_anchor AS (
+    -- Select a representative genesis for each group. We use MIN(gen_asset_id)
+    -- as a deterministic way to pick one genesis per group. For fungible assets
+    -- (the primary use case), all tranches in a group share the same name and
+    -- type, so any genesis provides correct metadata. This is a heuristic that
+    -- works for locally-minted assets where the anchor is inserted first.
+    SELECT
+        tweaked_group_key,
+        MIN(gen_asset_id) as anchor_gen_id
+    FROM key_group_info_view
+    GROUP BY tweaked_group_key
+)
 SELECT
-    key_group_info_view.tweaked_group_key, SUM(amount) balance
+    key_group_info_view.tweaked_group_key,
+    SUM(amount) balance,
+    genesis_info_view.asset_id,
+    genesis_info_view.asset_tag,
+    genesis_info_view.meta_hash,
+    genesis_info_view.asset_type,
+    genesis_info_view.output_index,
+    genesis_info_view.prev_out
 FROM assets
 JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id AND
       (key_group_info_view.tweaked_group_key = sqlc.narg('key_group_filter') OR
         sqlc.narg('key_group_filter') IS NULL)
+JOIN group_anchor
+    ON key_group_info_view.tweaked_group_key = group_anchor.tweaked_group_key
+JOIN genesis_info_view
+    ON group_anchor.anchor_gen_id = genesis_info_view.gen_asset_id
 JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
        CASE
            WHEN sqlc.narg('leased') = true THEN
                (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > @now)
            WHEN sqlc.narg('leased') = false THEN
-               (utxos.lease_owner IS NULL OR 
+               (utxos.lease_owner IS NULL OR
                 utxos.lease_expiry IS NULL OR
                 utxos.lease_expiry <= @now)
            ELSE TRUE
@@ -387,7 +410,10 @@ WHERE spent = FALSE AND
   -- query will return no results.
     COALESCE(script_keys.key_type, 0) IN
       (sqlc.slice('script_key_type')/*SLICE:script_key_type*/)
-GROUP BY key_group_info_view.tweaked_group_key;
+GROUP BY key_group_info_view.tweaked_group_key,
+         genesis_info_view.asset_id, genesis_info_view.asset_tag,
+         genesis_info_view.meta_hash, genesis_info_view.asset_type,
+         genesis_info_view.output_index, genesis_info_view.prev_out;
 
 -- name: FetchGroupedAssets :many
 SELECT
