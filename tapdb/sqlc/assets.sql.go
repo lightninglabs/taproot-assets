@@ -2692,20 +2692,48 @@ func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, arg QueryAssetB
 }
 
 const QueryAssetBalancesByGroup = `-- name: QueryAssetBalancesByGroup :many
+WITH group_anchor AS (
+    -- Select the representative genesis for each group using MIN(witness_id)
+    -- for deterministic ordering (matches FetchGroupByGroupKey pattern).
+    -- This ensures we always pick the same genesis even when multiple
+    -- tranches share a genesis point.
+    SELECT
+        kgiv.tweaked_group_key,
+        kgiv.gen_asset_id as anchor_gen_id
+    FROM key_group_info_view kgiv
+    WHERE kgiv.witness_id = (
+        SELECT MIN(kgiv2.witness_id)
+        FROM key_group_info_view kgiv2
+        WHERE kgiv2.tweaked_group_key = kgiv.tweaked_group_key
+    )
+)
 SELECT
-    key_group_info_view.tweaked_group_key, SUM(amount) balance
+    groups.tweaked_group_key,
+    SUM(amount) balance,
+    genesis_info_view.asset_id,
+    genesis_info_view.asset_tag,
+    genesis_info_view.meta_hash,
+    genesis_info_view.asset_type,
+    genesis_info_view.output_index,
+    genesis_info_view.prev_out
 FROM assets
-JOIN key_group_info_view
-    ON assets.genesis_id = key_group_info_view.gen_asset_id AND
-      (key_group_info_view.tweaked_group_key = $1 OR
+JOIN asset_group_witnesses wit
+    ON assets.genesis_id = wit.gen_asset_id
+JOIN asset_groups groups
+    ON wit.group_key_id = groups.group_id AND
+      (groups.tweaked_group_key = $1 OR
         $1 IS NULL)
+LEFT JOIN group_anchor
+    ON groups.tweaked_group_key = group_anchor.tweaked_group_key
+LEFT JOIN genesis_info_view
+    ON group_anchor.anchor_gen_id = genesis_info_view.gen_asset_id
 JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
        CASE
            WHEN $2 = true THEN
                (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > $3)
            WHEN $2 = false THEN
-               (utxos.lease_owner IS NULL OR 
+               (utxos.lease_owner IS NULL OR
                 utxos.lease_expiry IS NULL OR
                 utxos.lease_expiry <= $3)
            ELSE TRUE
@@ -2717,7 +2745,10 @@ WHERE spent = FALSE AND
   -- query will return no results.
     COALESCE(script_keys.key_type, 0) IN
       (/*SLICE:script_key_type*/?)
-GROUP BY key_group_info_view.tweaked_group_key
+GROUP BY groups.tweaked_group_key,
+         genesis_info_view.asset_id, genesis_info_view.asset_tag,
+         genesis_info_view.meta_hash, genesis_info_view.asset_type,
+         genesis_info_view.output_index, genesis_info_view.prev_out
 `
 
 type QueryAssetBalancesByGroupParams struct {
@@ -2730,8 +2761,16 @@ type QueryAssetBalancesByGroupParams struct {
 type QueryAssetBalancesByGroupRow struct {
 	TweakedGroupKey []byte
 	Balance         int64
+	AssetID         []byte
+	AssetTag        sql.NullString
+	MetaHash        []byte
+	AssetType       sql.NullInt16
+	OutputIndex     sql.NullInt32
+	PrevOut         []byte
 }
 
+// LEFT JOIN so groups without a representative genesis (no witness yet)
+// still return a balance row with NULL genesis fields.
 func (q *Queries) QueryAssetBalancesByGroup(ctx context.Context, arg QueryAssetBalancesByGroupParams) ([]QueryAssetBalancesByGroupRow, error) {
 	query := QueryAssetBalancesByGroup
 	var queryParams []interface{}
@@ -2754,7 +2793,16 @@ func (q *Queries) QueryAssetBalancesByGroup(ctx context.Context, arg QueryAssetB
 	var items []QueryAssetBalancesByGroupRow
 	for rows.Next() {
 		var i QueryAssetBalancesByGroupRow
-		if err := rows.Scan(&i.TweakedGroupKey, &i.Balance); err != nil {
+		if err := rows.Scan(
+			&i.TweakedGroupKey,
+			&i.Balance,
+			&i.AssetID,
+			&i.AssetTag,
+			&i.MetaHash,
+			&i.AssetType,
+			&i.OutputIndex,
+			&i.PrevOut,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
