@@ -1483,11 +1483,48 @@ func (r *RPCServer) listBalancesByGroupKey(ctx context.Context,
 			groupKey = balance.GroupKey.SerializeCompressed()
 		}
 
-		groupKeyString := hex.EncodeToString(groupKey)
-		resp.AssetGroupBalances[groupKeyString] = &taprpc.AssetGroupBalance{
-			GroupKey: groupKey,
-			Balance:  balance.Balance,
+		// Create the genesis info for the representative issuance.
+		genesisInfo := &taprpc.GenesisInfo{
+			GenesisPoint: balance.GenesisPoint.String(),
+			AssetType:    taprpc.AssetType(balance.Type),
+			Name:         balance.Tag,
+			MetaHash:     balance.MetaHash[:],
+			AssetId:      balance.ID[:],
+			OutputIndex:  balance.OutputIndex,
 		}
+
+		groupKeyString := hex.EncodeToString(groupKey)
+		groupBalance := &taprpc.AssetGroupBalance{
+			GroupKey:     groupKey,
+			Balance:      balance.Balance,
+			AssetGenesis: genesisInfo,
+		}
+
+		// Fetch the decimal display for this asset ID.
+		decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(
+			ctx, balance.ID,
+		)
+		switch {
+		case errors.Is(err, address.ErrAssetMetaNotFound):
+			// Asset legitimately has no meta — leave DecimalDisplay
+			// unset.
+
+		case err != nil:
+			return nil, fmt.Errorf("unable to fetch decimal "+
+				"display for asset %x: %w", balance.ID[:], err)
+
+		default:
+			groupBalance.DecimalDisplay = fn.MapOptionZ(
+				decDisplay,
+				func(d uint32) *taprpc.DecimalDisplay {
+					return &taprpc.DecimalDisplay{
+						DecimalDisplay: d,
+					}
+				},
+			)
+		}
+
+		resp.AssetGroupBalances[groupKeyString] = groupBalance
 	}
 
 	// We will also report the number of unconfirmed transfers. This is

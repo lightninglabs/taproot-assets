@@ -186,9 +186,10 @@ INSERT INTO asset_groups (
 ) VALUES (
     $1, $2, $3, $4, $5, $6
 ) ON CONFLICT (tweaked_group_key)
-    -- This is not a NOP, update the genesis point ID in case it wasn't set
-    -- before.
-    DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
+    -- Preserve the original genesis_point_id (the anchor's genesis point).
+    -- We update version to ensure RETURNING works, but genesis_point_id
+    -- must remain unchanged as it identifies the canonical group anchor.
+    DO UPDATE SET version = EXCLUDED.version
 RETURNING group_id;
 
 -- name: UpsertAssetGroupWitness :one
@@ -362,20 +363,45 @@ GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          genesis_info_view.prev_out, key_group_info_view.tweaked_group_key;
 
 -- name: QueryAssetBalancesByGroup :many
+WITH group_anchor AS (
+    -- Select the canonical anchor genesis for each group by joining through
+    -- asset_groups.genesis_point_id. This is the genesis that was used to
+    -- create the group, providing the authoritative metadata.
+    SELECT
+        groups.tweaked_group_key,
+        genesis_assets.gen_asset_id as anchor_gen_id
+    FROM asset_groups groups
+    JOIN genesis_assets
+        ON genesis_assets.genesis_point_id = groups.genesis_point_id
+    JOIN asset_group_witnesses wit
+        ON wit.gen_asset_id = genesis_assets.gen_asset_id
+           AND wit.group_key_id = groups.group_id
+)
 SELECT
-    key_group_info_view.tweaked_group_key, SUM(amount) balance
+    key_group_info_view.tweaked_group_key,
+    SUM(amount) balance,
+    genesis_info_view.asset_id,
+    genesis_info_view.asset_tag,
+    genesis_info_view.meta_hash,
+    genesis_info_view.asset_type,
+    genesis_info_view.output_index,
+    genesis_info_view.prev_out
 FROM assets
 JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id AND
       (key_group_info_view.tweaked_group_key = sqlc.narg('key_group_filter') OR
         sqlc.narg('key_group_filter') IS NULL)
+JOIN group_anchor
+    ON key_group_info_view.tweaked_group_key = group_anchor.tweaked_group_key
+JOIN genesis_info_view
+    ON group_anchor.anchor_gen_id = genesis_info_view.gen_asset_id
 JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
        CASE
            WHEN sqlc.narg('leased') = true THEN
                (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > @now)
            WHEN sqlc.narg('leased') = false THEN
-               (utxos.lease_owner IS NULL OR 
+               (utxos.lease_owner IS NULL OR
                 utxos.lease_expiry IS NULL OR
                 utxos.lease_expiry <= @now)
            ELSE TRUE
@@ -387,7 +413,10 @@ WHERE spent = FALSE AND
   -- query will return no results.
     COALESCE(script_keys.key_type, 0) IN
       (sqlc.slice('script_key_type')/*SLICE:script_key_type*/)
-GROUP BY key_group_info_view.tweaked_group_key;
+GROUP BY key_group_info_view.tweaked_group_key,
+         genesis_info_view.asset_id, genesis_info_view.asset_tag,
+         genesis_info_view.meta_hash, genesis_info_view.asset_type,
+         genesis_info_view.output_index, genesis_info_view.prev_out;
 
 -- name: FetchGroupedAssets :many
 SELECT

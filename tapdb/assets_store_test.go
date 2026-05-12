@@ -3111,7 +3111,7 @@ func TestQueryAssetBalances(t *testing.T) {
 			amt:         4,
 		},
 	}
-	assetGen.genAssets(t, assetsStore, assetDesc)
+	genAssets, _ := assetGen.genAssets(t, assetsStore, assetDesc)
 
 	// Loop through assetDesc and sum the amt values
 	totalBalances := uint64(0)
@@ -3144,6 +3144,51 @@ func TestQueryAssetBalances(t *testing.T) {
 		balanceByGroupSum += balance.Balance
 	}
 	require.Equal(t, totalGroupedBalances, balanceByGroupSum)
+
+	// Verify that the new genesis info fields are populated correctly for
+	// each group balance. The genesis info should match the group anchor
+	// genesis (the first asset minted in each group).
+	//
+	// Build expected maps using the actual tweaked group keys from the
+	// generated assets (not the raw internal keys from assetGen.groupKeys).
+	// Assets 0 and 1 are the anchors for groups 0 and 1 respectively.
+	group0Key := asset.ToSerialized(&genAssets[0].GroupKey.GroupPubKey)
+	group1Key := asset.ToSerialized(&genAssets[1].GroupKey.GroupPubKey)
+
+	expectedAnchorGenesis := map[asset.SerializedKey]asset.Genesis{
+		group0Key: genAssets[0].Genesis,
+		group1Key: genAssets[1].Genesis,
+	}
+	expectedAnchorPoints := map[asset.SerializedKey]wire.OutPoint{
+		group0Key: assetGen.anchorPoints[0],
+		group1Key: assetGen.anchorPoints[0],
+	}
+
+	for groupKey, balance := range balancesByGroup {
+		// Verify genesis info fields are populated.
+		require.NotEqual(t, asset.ID{}, balance.ID,
+			"group %x missing asset ID", groupKey)
+		require.NotEmpty(t, balance.Tag,
+			"group %x missing asset tag", groupKey)
+		require.NotEqual(t, wire.OutPoint{}, balance.GenesisPoint,
+			"group %x missing genesis point", groupKey)
+
+		// Verify the genesis info matches the expected anchor genesis.
+		expectedGen := expectedAnchorGenesis[groupKey]
+		require.Equal(t, expectedGen.ID(), balance.ID,
+			"group %x has wrong asset ID", groupKey)
+		require.Equal(t, expectedGen.Tag, balance.Tag,
+			"group %x has wrong asset tag", groupKey)
+		require.Equal(t, expectedGen.Type, balance.Type,
+			"group %x has wrong asset type", groupKey)
+		require.Equal(t, expectedGen.OutputIndex, balance.OutputIndex,
+			"group %x has wrong output index", groupKey)
+
+		// Verify the genesis point matches the expected anchor point.
+		expectedPoint := expectedAnchorPoints[groupKey]
+		require.Equal(t, expectedPoint, balance.GenesisPoint,
+			"group %x has wrong genesis point", groupKey)
+	}
 
 	// Now we lease the first asset for 1 hour. This will cause the second
 	// one also to be leased, since it's on the same anchor transaction. The
