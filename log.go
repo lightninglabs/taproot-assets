@@ -6,6 +6,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/backup"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/diagnostics"
 	"github.com/lightninglabs/taproot-assets/healthcheck"
 	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/monitoring"
@@ -149,6 +150,9 @@ func SetupLoggers(root *build.SubLoggerManager,
 	)
 	AddSubLogger(
 		root, backup.Subsystem, interceptor, backup.UseLogger,
+	)
+	AddSubLogger(
+		root, diagnostics.Subsystem, interceptor, diagnostics.UseLogger,
 	)
 }
 

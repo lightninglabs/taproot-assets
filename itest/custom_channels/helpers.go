@@ -2550,13 +2550,19 @@ func locateAssetTransfers(t *testing.T, node *itest.IntegratedNode,
 
 		transfer = forceCloseTransfer.Transfers[0]
 
-		if transfer.AnchorTxBlockHash == nil {
-			return fmt.Errorf("missing anchor block hash, " +
-				"transfer not confirmed")
+		blockHashSet := transfer.AnchorTxBlockHash != nil
+		confirmed := transfer.AnchorTxBlockHeight > 0 || blockHashSet
+		if !confirmed {
+			return fmt.Errorf("transfer %v not confirmed yet "+
+				"(block_height=%d, block_hash_set=%t)",
+				txid,
+				transfer.AnchorTxBlockHeight,
+				blockHashSet,
+			)
 		}
 
 		return nil
-	}, ccTransferTimeout)
+	}, ccTransferConfirmTimeout)
 	require.NoError(t, err)
 
 	return transfer
