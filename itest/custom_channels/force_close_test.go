@@ -235,7 +235,9 @@ func testCustomChannelsForceClose(ctx context.Context,
 	// This'll sweep his non-delay commitment output. We use the txid from
 	// the mined block (not the mempool) to avoid RBF mismatches.
 	daveSweepBlocks := mineBlocks(t, net, 1, 1)
-	daveSweepTxHash := daveSweepBlocks[0].Transactions[1].TxHash()
+	daveSweepTxHash := resolveMinedTransferTxid(
+		t.t, dave, daveSweepBlocks[0],
+	)
 
 	t.Logf("Dave sweep txid: %v", daveSweepTxHash)
 

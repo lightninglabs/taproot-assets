@@ -1731,7 +1731,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 
 	return shipChannelTxn(
 		a.cfg.TxSender, req.CommitTx, outCommitments, vPackets,
-		int64(req.CommitFee), heightHint,
+		int64(req.CommitFee), heightHint, true,
 	)
 }
 
@@ -2590,7 +2590,7 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	// and ship the transaction.
 	return shipChannelTxn(
 		a.cfg.TxSender, sweepTx, outCommitments, allVpkts, int64(fee),
-		heightHint,
+		heightHint, true,
 	)
 }
 
