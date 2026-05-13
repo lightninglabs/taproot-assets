@@ -73,6 +73,13 @@ type AuxChanCloserCfg struct {
 	// that is encapsulated in the init and reestablish peer messages. This
 	// helps us communicate custom feature bits with our peer.
 	AuxChanNegotiator *tapfeatures.AuxChannelNegotiator
+
+	// CloseStore persists per-channel close info across restarts. Without
+	// it, a tapd restart between AuxCloseOutputs and FinalizeClose loses
+	// the in-memory closeInfo and leaves the close stuck pending on the
+	// lnd side. When nil, persistence is disabled (e.g., in tests that
+	// don't exercise the restart path).
+	CloseStore AuxCloseStore
 }
 
 // assetCloseInfo houses the information we need to finalize the close of an
@@ -110,6 +117,13 @@ func NewAuxChanCloser(cfg AuxChanCloserCfg) *AuxChanCloser {
 		cfg:       cfg,
 		closeInfo: make(map[wire.OutPoint]*assetCloseInfo),
 	}
+}
+
+// auxOpCtx returns a context bounded by the default aux-hook timeout. Used
+// for short-lived I/O (close-info DB calls, recovery pipeline) where the
+// LND-side AuxChanCloser interface doesn't pass a context through.
+func auxOpCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), DefaultTimeout)
 }
 
 // createCloseAlloc is a helper function that creates an allocation for an asset
@@ -463,6 +477,17 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		return none, fmt.Errorf("unable to create vPackets: %w", err)
 	}
 
+	// Snapshot a pristine deep copy of the vPackets before any of the
+	// downstream mutations (signCommitVirtualPackets,
+	// CreateOutputCommitments) so we can persist them for restart-time
+	// recovery. The persisted copies are the inputs we'll feed back
+	// through the same pipeline at FinalizeClose time to reproduce the
+	// post-mutation vPackets + outputCommitments deterministically.
+	pristineVPackets := make([]*tappsbt.VPacket, len(vPackets))
+	for i, p := range vPackets {
+		pristineVPackets[i] = p.Copy()
+	}
+
 	// We can now add the witness for the OP_TRUE spend of the commitment
 	// output to the vPackets.
 	if err := signCommitVirtualPackets(ctxb, vPackets); err != nil {
@@ -503,6 +528,29 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		vPackets:          vPackets,
 		outputCommitments: outCommitments,
 		closeFee:          int64(desc.CloseFee),
+	}
+
+	// Mirror the in-memory entry to disk so a tapd restart between now
+	// and the on-chain close confirmation (which is when FinalizeClose
+	// will run via the chain watcher) doesn't strand the channel in a
+	// pending state. If the store isn't configured we simply skip — the
+	// only consequence is that we lose the restart-recovery property.
+	if a.cfg.CloseStore != nil {
+		noAssets := extractNoAssetAllocs(closeAllocs)
+		putCtx, cancel := auxOpCtx()
+		err = a.cfg.CloseStore.Put(
+			putCtx, desc.ChanPoint, &persistedCloseInfo{
+				vPackets:         vPackets,
+				pristineVPackets: pristineVPackets,
+				noAssetAllocs:    noAssets,
+				closeFee:         int64(desc.CloseFee),
+			},
+		)
+		cancel()
+		if err != nil {
+			return none, fmt.Errorf("persist aux close info: %w",
+				err)
+		}
 	}
 
 	// With the taproot keys updated, we know the pkScripts needed, so
@@ -690,6 +738,62 @@ func shipChannelTxn(txSender tapfreighter.Porter, chanTx *wire.MsgTx,
 	return nil
 }
 
+// recoverCloseInfo reconstructs an assetCloseInfo from the persisted
+// snapshot written by AuxCloseOutputs. The post-mutation vPackets are used
+// directly; the pristine vPackets are fed through the same pipeline
+// (signCommitVirtualPackets + CreateOutputCommitments) to rebuild the
+// output commitments map without disturbing the post-mutation state.
+func (a *AuxChanCloser) recoverCloseInfo(
+	chanPoint wire.OutPoint) (*assetCloseInfo, error) {
+
+	if a.cfg.CloseStore == nil {
+		return nil, fmt.Errorf("no aux close store configured")
+	}
+
+	ctx, cancel := auxOpCtx()
+	defer cancel()
+
+	saved, err := a.cfg.CloseStore.Get(ctx, chanPoint)
+	if err != nil {
+		return nil, fmt.Errorf("load persisted close info: %w", err)
+	}
+
+	// Replay the pristine vPackets through the same pipeline that
+	// originally produced the output commitments. We work on the
+	// pristine copies — never on saved.vPackets — because the latter
+	// are already in the post-mutation state and another pass through
+	// CreateOutputCommitments would double-append STXO leaves.
+	if err := signCommitVirtualPackets(
+		ctx, saved.pristineVPackets,
+	); err != nil {
+		return nil, fmt.Errorf("sign commit virtual packets: %w", err)
+	}
+
+	features := a.cfg.AuxChanNegotiator.GetChannelFeatures(
+		lnwire.NewChanIDFromOutPoint(chanPoint),
+	)
+	supportSTXO := features.HasFeature(tapfeatures.STXOOptional)
+
+	var opts []tapsend.OutputCommitmentOption
+	if !supportSTXO {
+		opts = append(opts, tapsend.WithNoSTXOProofs())
+	}
+
+	outCommitments, err := tapsend.CreateOutputCommitments(
+		saved.pristineVPackets, opts...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create output commitments: %w", err)
+	}
+
+	return &assetCloseInfo{
+		allocations:       allocsFromNoAssetAllocs(saved.noAssetAllocs),
+		vPackets:          saved.vPackets,
+		outputCommitments: outCommitments,
+		closeFee:          saved.closeFee,
+	}, nil
+}
+
 // FinalizeClose is called once the co-op close transaction has been agreed
 // upon. We'll finalize the exclusion proofs, then send things off to the
 // custodian or porter to finish sending/receiving the proofs.
@@ -708,8 +812,19 @@ func (a *AuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
 
 	closeInfo, ok := a.closeInfo[desc.ChanPoint]
 	if !ok {
-		return fmt.Errorf("no vPackets found for ChannelPoint(%v)",
-			desc.ChanPoint)
+		// In-memory state is gone — most likely because tapd was
+		// restarted between AuxCloseOutputs and the on-chain close
+		// confirmation. Fall back to the persisted snapshot, replay
+		// the deterministic pipeline steps that mutate vPackets and
+		// build the output commitments, and proceed as if the state
+		// had never been lost.
+		recovered, err := a.recoverCloseInfo(desc.ChanPoint)
+		if err != nil {
+			return fmt.Errorf("no vPackets found for "+
+				"ChannelPoint(%v): %w", desc.ChanPoint, err)
+		}
+		closeInfo = recovered
+		a.closeInfo[desc.ChanPoint] = recovered
 	}
 
 	// Before we finalize the close process, we'll make sure to also import
@@ -792,8 +907,28 @@ func (a *AuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
 	// to the porter so it can insert a record on disk, and deliver the
 	// relevant set of proofs. For co-op close, no height hint is needed
 	// as the transaction is being broadcast now.
-	return shipChannelTxn(
+	err := shipChannelTxn(
 		a.cfg.TxSender, closeTx, closeInfo.outputCommitments,
 		closeInfo.vPackets, closeInfo.closeFee, fn.None[uint32](),
 	)
+	if err != nil {
+		return err
+	}
+
+	// Only drop the persisted snapshot once the close has actually been
+	// finalized. A transient failure above must leave the row in place so
+	// that a retry (possibly after a restart) can still recover.
+	if a.cfg.CloseStore != nil {
+		delCtx, cancel := auxOpCtx()
+		defer cancel()
+		if err := a.cfg.CloseStore.Delete(
+			delCtx, desc.ChanPoint,
+		); err != nil {
+			log.Warnf("unable to delete persisted aux close "+
+				"info for ChannelPoint(%v): %v",
+				desc.ChanPoint, err)
+		}
+	}
+
+	return nil
 }

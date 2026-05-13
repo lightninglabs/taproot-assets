@@ -200,6 +200,11 @@ type AuthmailboxMessage struct {
 	ArrivalTimestamp int64
 }
 
+type AuxChannelCloseInfo struct {
+	ChanPoint []byte
+	InfoBlob  []byte
+}
+
 type ChainTxn struct {
 	TxnID       int64
 	Txid        []byte

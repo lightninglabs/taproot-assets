@@ -31,6 +31,7 @@ type Querier interface {
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
 	DeleteAuthMailboxMessageByIDAndReceiver(ctx context.Context, arg DeleteAuthMailboxMessageByIDAndReceiverParams) (int64, error)
+	DeleteAuxCloseInfo(ctx context.Context, chanPoint []byte) error
 	DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error
 	DeleteFederationProofSyncLog(ctx context.Context, arg DeleteFederationProofSyncLogParams) error
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
@@ -79,6 +80,7 @@ type Querier interface {
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]FetchAssetsForBatchRow, error)
 	FetchAuthMailboxMessage(ctx context.Context, id int64) (FetchAuthMailboxMessageRow, error)
 	FetchAuthMailboxMessageByOutpoint(ctx context.Context, claimedOutpoint []byte) (FetchAuthMailboxMessageByOutpointRow, error)
+	FetchAuxCloseInfo(ctx context.Context, chanPoint []byte) ([]byte, error)
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error)
 	FetchChainTxByID(ctx context.Context, txnID int64) (FetchChainTxByIDRow, error)
 	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error)
@@ -250,6 +252,7 @@ type Querier interface {
 	UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error)
 	UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error
 	UpsertAssetWitness(ctx context.Context, arg UpsertAssetWitnessParams) error
+	UpsertAuxCloseInfo(ctx context.Context, arg UpsertAuxCloseInfoParams) error
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error)
 	UpsertFederationGlobalSyncConfig(ctx context.Context, arg UpsertFederationGlobalSyncConfigParams) error
 	UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFederationProofSyncLogParams) (int64, error)
