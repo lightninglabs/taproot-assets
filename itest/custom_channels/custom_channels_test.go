@@ -123,6 +123,10 @@ var testCases = []*ccTestCase{
 		name: "passive assets",
 		test: testCustomChannelsPassiveAssets,
 	},
+	{
+		name: "restart coop close",
+		test: testCustomChannelsRestartCoopClose,
+	},
 }
 
 // TestCustomChannels is the main entry point for running custom channel

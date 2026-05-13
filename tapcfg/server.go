@@ -739,6 +739,16 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			LightningClient:     lndServices.Client,
 		},
 	)
+	auxCloseDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.AuxCloseInfoStore {
+			return db.WithTx(tx)
+		},
+	)
+	auxCloseBlobs := tapdb.NewPersistedAuxCloseStore(auxCloseDB)
+	auxCloseStore := tapchannel.NewSQLAuxCloseStore(
+		auxCloseBlobs, tapdb.ErrNoAuxCloseInfo,
+	)
+
 	auxChanCloser := tapchannel.NewAuxChanCloser(
 		tapchannel.AuxChanCloserCfg{
 			ChainParams:        &tapChainParams,
@@ -752,6 +762,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ChainBridge:        chainBridge,
 			IgnoreChecker:      ignoreCheckerOpt,
 			AuxChanNegotiator:  auxChanNegotiator,
+			CloseStore:         auxCloseStore,
 		},
 	)
 	auxSweeper := tapchannel.NewAuxSweeper(
