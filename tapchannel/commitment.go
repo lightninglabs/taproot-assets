@@ -29,8 +29,33 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 	"golang.org/x/exp/maps"
 )
+
+const (
+	commitSweepWitnessScriptType tlv.Type = 31337
+	commitSweepControlBlockType  tlv.Type = 31339
+)
+
+func setCommitSweepMetadata(a *tapsend.Allocation, p *proof.Proof) {
+	if len(a.CommitmentWitnessScript) == 0 ||
+		len(a.CommitmentControlBlock) == 0 || p == nil {
+
+		return
+	}
+
+	if p.UnknownOddTypes == nil {
+		p.UnknownOddTypes = make(tlv.TypeMap)
+	}
+
+	p.UnknownOddTypes[commitSweepWitnessScriptType] = bytes.Clone(
+		a.CommitmentWitnessScript,
+	)
+	p.UnknownOddTypes[commitSweepControlBlockType] = bytes.Clone(
+		a.CommitmentControlBlock,
+	)
+}
 
 // DecodedDescriptor is a wrapper around a PaymentDescriptor that also includes
 // the decoded asset balances of the HTLC to avoid multiple decoding round
@@ -589,6 +614,11 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 			"packets: %w", err)
 	}
 
+	allocationsByOutput := make(map[uint32]*tapsend.Allocation)
+	for _, allocation := range allocations {
+		allocationsByOutput[allocation.OutputIndex] = allocation
+	}
+
 	var (
 		opts      []tapsend.OutputCommitmentOption
 		proofOpts []proof.GenOption
@@ -644,6 +674,9 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 					outIdx, err)
 			}
 
+			allocation := allocationsByOutput[vPkt.Outputs[outIdx].
+				AnchorOutputIndex]
+			setCommitSweepMetadata(allocation, proofSuffix)
 			vPkt.Outputs[outIdx].ProofSuffix = proofSuffix
 		}
 	}
@@ -1014,6 +1047,33 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			return fmt.Errorf("error creating to local script "+
 				"sibling: %w", err)
 		}
+		toLocalTapscript, ok := toLocalScript.(input.
+			TapscriptDescriptor)
+		if !ok {
+			return fmt.Errorf(
+				"expected tapscript descriptor, got %T",
+				toLocalScript,
+			)
+		}
+		localWitnessScript, err := toLocalScript.WitnessScriptForPath(
+			input.ScriptPathSuccess,
+		)
+		if err != nil {
+			return fmt.Errorf("error creating to local witness "+
+				"script: %w", err)
+		}
+		localCtrlBlock, err := toLocalTapscript.CtrlBlockForPath(
+			input.ScriptPathSuccess,
+		)
+		if err != nil {
+			return fmt.Errorf("error creating to local control "+
+				"block: %w", err)
+		}
+		localCtrlBlockBytes, err := localCtrlBlock.ToBytes()
+		if err != nil {
+			return fmt.Errorf("error encoding to local control "+
+				"block: %w", err)
+		}
 
 		scriptKey := asset.ScriptKey{
 			PubKey: asset.NewScriptKey(
@@ -1034,7 +1094,15 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			BtcAmount:      ourBalance,
 			InternalKey:    toLocalTree.InternalKey,
 			NonAssetLeaves: sibling,
-			GenScriptKey:   tapsend.StaticScriptKeyGen(scriptKey),
+			GenScriptKey: tapsend.StaticScriptKeyGen(
+				scriptKey,
+			),
+			CommitmentWitnessScript: bytes.Clone(
+				localWitnessScript,
+			),
+			CommitmentControlBlock: bytes.Clone(
+				localCtrlBlockBytes,
+			),
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				toLocalTree.TaprootKey,
 			),
@@ -1080,6 +1148,33 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			return fmt.Errorf("error creating to remote script "+
 				"sibling: %w", err)
 		}
+		toRemoteTapscript, ok := toRemoteScript.(input.
+			TapscriptDescriptor)
+		if !ok {
+			return fmt.Errorf(
+				"expected tapscript descriptor, got %T",
+				toRemoteScript,
+			)
+		}
+		remoteWitnessScript, err := toRemoteScript.WitnessScriptForPath(
+			input.ScriptPathSuccess,
+		)
+		if err != nil {
+			return fmt.Errorf("error creating to remote witness "+
+				"script: %w", err)
+		}
+		remoteCtrlBlock, err := toRemoteTapscript.CtrlBlockForPath(
+			input.ScriptPathSuccess,
+		)
+		if err != nil {
+			return fmt.Errorf("error creating to remote control "+
+				"block: %w", err)
+		}
+		remoteCtrlBlockBytes, err := remoteCtrlBlock.ToBytes()
+		if err != nil {
+			return fmt.Errorf("error encoding to remote control "+
+				"block: %w", err)
+		}
 
 		scriptKey := asset.ScriptKey{
 			PubKey: asset.NewScriptKey(
@@ -1100,7 +1195,15 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			BtcAmount:      theirBalance,
 			InternalKey:    toRemoteTree.InternalKey,
 			NonAssetLeaves: sibling,
-			GenScriptKey:   tapsend.StaticScriptKeyGen(scriptKey),
+			GenScriptKey: tapsend.StaticScriptKeyGen(
+				scriptKey,
+			),
+			CommitmentWitnessScript: bytes.Clone(
+				remoteWitnessScript,
+			),
+			CommitmentControlBlock: bytes.Clone(
+				remoteCtrlBlockBytes,
+			),
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				toRemoteTree.TaprootKey,
 			),

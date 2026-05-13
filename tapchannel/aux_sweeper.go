@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapchannelmsg"
@@ -336,7 +337,8 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 	signDesc input.SignDescriptor, tapTweak, ctrlBlock []byte,
 	auxSigDesc lfn.Option[lnwallet.AuxSigDesc],
-	secondLevelSigIndex lfn.Option[uint32]) error {
+	secondLevelSigIndex lfn.Option[uint32],
+	witnessScript []byte) error {
 
 	// Before we sign below, we also need to generate the tapscript With
 	// the vPackets prepared, we can now sign the output asset we'll create
@@ -355,8 +357,12 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 		// specific fields. Along the way, we'll apply any relevant
 		// tweaks to generate the key we'll use to verify the
 		// signature.
+		virtualSignDesc := signDesc
+		virtualSignDesc.WitnessScript = witnessScript
+		virtualSignDesc.ControlBlock = ctrlBlock
+
 		signingKey, leafToSign := applySignDescToVIn(
-			signDesc, vIn, &a.cfg.ChainParams, tapTweak,
+			virtualSignDesc, vIn, &a.cfg.ChainParams, tapTweak,
 		)
 
 		// In this case, the witness isn't special, so we'll set the
@@ -550,11 +556,42 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 				return aux.SignDetails.SignDesc
 			},
 		)(desc.auxSigInfo).UnwrapOr(resReq.SignDesc)
+		var err error
 
-		err := a.signSweepVpackets(
-			vPkts, signDesc, desc.scriptTree.TapTweak(),
-			desc.ctrlBlockBytes, desc.auxSigInfo,
-			desc.secondLevelSigIndex,
+		witnessScript := desc.witnessScript
+		if len(witnessScript) == 0 {
+			witnessScript, err =
+				desc.scriptTree.WitnessScriptForPath(
+					desc.scriptPath,
+				)
+			if err != nil {
+				return lfn.Errf[returnType](
+					"unable to derive witness script: %w",
+					err,
+				)
+			}
+		}
+
+		ctrlBlockBytes := desc.ctrlBlockBytes
+		tapTweak := desc.scriptTree.TapTweak()
+		if len(ctrlBlockBytes) != 0 && len(desc.witnessScript) != 0 {
+			ctrlBlock, err := txscript.ParseControlBlock(
+				ctrlBlockBytes,
+			)
+			if err != nil {
+				return lfn.Errf[returnType](
+					"unable to parse control block: %w",
+					err,
+				)
+			}
+
+			tapTweak = ctrlBlock.RootHash(witnessScript)
+		}
+
+		err = a.signSweepVpackets(
+			vPkts, signDesc, tapTweak, ctrlBlockBytes,
+			desc.auxSigInfo,
+			desc.secondLevelSigIndex, witnessScript,
 		)
 		if err != nil {
 			return lfn.Err[returnType](err)
@@ -583,7 +620,11 @@ type tapscriptSweepDesc struct {
 
 	scriptTree input.TapscriptDescriptor
 
+	scriptPath input.ScriptPath
+
 	ctrlBlockBytes []byte
+
+	witnessScript []byte
 
 	relativeDelay lfn.Option[uint64]
 
@@ -638,6 +679,7 @@ func commitNoDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 	return lfn.Ok(tapscriptSweepDescs{
 		firstLevel: tapscriptSweepDesc{
 			scriptTree:     toRemoteScriptTree,
+			scriptPath:     input.ScriptPathSuccess,
 			relativeDelay:  lfn.Some(uint64(csvDelay)),
 			ctrlBlockBytes: ctrlBlockBytes,
 		},
@@ -679,6 +721,7 @@ func commitDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 	return lfn.Ok(tapscriptSweepDescs{
 		firstLevel: tapscriptSweepDesc{
 			scriptTree:     toLocalScriptTree,
+			scriptPath:     input.ScriptPathSuccess,
 			relativeDelay:  lfn.Some(uint64(csvDelay)),
 			ctrlBlockBytes: ctrlBlockBytes,
 		},
@@ -720,6 +763,7 @@ func commitRevokeSweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 	return lfn.Ok(tapscriptSweepDescs{
 		firstLevel: tapscriptSweepDesc{
 			scriptTree:     toLocalScriptTree,
+			scriptPath:     input.ScriptPathRevocation,
 			ctrlBlockBytes: ctrlBlockBytes,
 		},
 	})
@@ -765,6 +809,7 @@ func remoteHtlcTimeoutSweepDesc(originalKeyRing *lnwallet.CommitmentKeyRing,
 			relativeDelay:  lfn.Some(uint64(csvDelay)),
 			absoluteDelay:  lfn.Some(uint64(htlcExpiry)),
 			scriptTree:     htlcScriptTree,
+			scriptPath:     input.ScriptPathTimeout,
 			ctrlBlockBytes: ctrlBlockBytes,
 		},
 	})
@@ -812,6 +857,7 @@ func remoteHtlcSuccessSweepDesc(originalKeyRing *lnwallet.CommitmentKeyRing,
 			relativeDelay:  lfn.Some(uint64(csvDelay)),
 			ctrlBlockBytes: ctrlBlockBytes,
 			scriptTree:     htlcScriptTree,
+			scriptPath:     input.ScriptPathSuccess,
 		},
 	})
 }
@@ -820,6 +866,7 @@ func remoteHtlcSuccessSweepDesc(originalKeyRing *lnwallet.CommitmentKeyRing,
 // present on our local commitment transaction. These are second level HTLCs, so
 // we'll need to perform two stages of sweeps.
 func localHtlcTimeoutSweepDesc(req lnwallet.ResolutionReq,
+	keyRing *lnwallet.CommitmentKeyRing,
 	index input.HtlcIndex) lfn.Result[tapscriptSweepDescs] {
 
 	const isIncoming = false
@@ -840,7 +887,7 @@ func localHtlcTimeoutSweepDesc(req lnwallet.ResolutionReq,
 	// We're sweeping an HTLC output, which has a tweaked script key. To be
 	// able to create the correct control block, we need to tweak the key
 	// ring with the index of the HTLC.
-	tweakedKeyRing := TweakedRevocationKeyRing(req.KeyRing, index)
+	tweakedKeyRing := TweakedRevocationKeyRing(keyRing, index)
 
 	// We'll need to complete the control block to spend the second-level
 	// HTLC, so first we'll make the script tree for the HTLC.
@@ -877,7 +924,7 @@ func localHtlcTimeoutSweepDesc(req lnwallet.ResolutionReq,
 	// As this is an HTLC on our local commitment transaction, we'll also
 	// need to generate a sweep desc for second level HTLC.
 	secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
-		tweakedKeyRing.RevocationKey, req.KeyRing.ToLocalKey,
+		tweakedKeyRing.RevocationKey, keyRing.ToLocalKey,
 		req.CommitCsvDelay, lfn.None[txscript.TapLeaf](),
 	)
 	if err != nil {
@@ -897,6 +944,7 @@ func localHtlcTimeoutSweepDesc(req lnwallet.ResolutionReq,
 
 	secondLevelDesc := tapscriptSweepDesc{
 		scriptTree:     secondLevelScriptTree,
+		scriptPath:     input.ScriptPathSuccess,
 		relativeDelay:  lfn.Some(uint64(req.CommitCsvDelay)),
 		ctrlBlockBytes: secondLevelCtrlBlockBytes,
 	}
@@ -904,6 +952,7 @@ func localHtlcTimeoutSweepDesc(req lnwallet.ResolutionReq,
 	return lfn.Ok(tapscriptSweepDescs{
 		firstLevel: tapscriptSweepDesc{
 			scriptTree:          htlcScriptTree,
+			scriptPath:          input.ScriptPathTimeout,
 			ctrlBlockBytes:      ctrlBlockBytes,
 			relativeDelay:       lfn.Some(uint64(req.CsvDelay)),
 			absoluteDelay:       lfn.Some(uint64(htlcExpiry)),
@@ -918,6 +967,7 @@ func localHtlcTimeoutSweepDesc(req lnwallet.ResolutionReq,
 // present on our local commitment transaction that we can sweep with a
 // preimage. These sweeps take two stages, so we'll add that extra information.
 func localHtlcSuccessSweepDesc(req lnwallet.ResolutionReq,
+	keyRing *lnwallet.CommitmentKeyRing,
 	index input.HtlcIndex) lfn.Result[tapscriptSweepDescs] {
 
 	const isIncoming = true
@@ -938,7 +988,7 @@ func localHtlcSuccessSweepDesc(req lnwallet.ResolutionReq,
 	// We're sweeping an HTLC output, which has a tweaked script key. To be
 	// able to create the correct control block, we need to tweak the key
 	// ring with the index of the HTLC.
-	tweakedKeyRing := TweakedRevocationKeyRing(req.KeyRing, index)
+	tweakedKeyRing := TweakedRevocationKeyRing(keyRing, index)
 
 	// We'll need to complete the control block to spend the second-level
 	// HTLC, so first we'll make the script tree for the HTLC.
@@ -979,7 +1029,7 @@ func localHtlcSuccessSweepDesc(req lnwallet.ResolutionReq,
 	// As this is an HTLC on our local commitment transaction, we'll also
 	// need to generate a sweep desc for second level HTLC.
 	secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
-		tweakedKeyRing.RevocationKey, req.KeyRing.ToLocalKey,
+		tweakedKeyRing.RevocationKey, keyRing.ToLocalKey,
 		req.CommitCsvDelay, lfn.None[txscript.TapLeaf](),
 	)
 	if err != nil {
@@ -999,6 +1049,7 @@ func localHtlcSuccessSweepDesc(req lnwallet.ResolutionReq,
 
 	secondLevelDesc := tapscriptSweepDesc{
 		scriptTree:     secondLevelScriptTree,
+		scriptPath:     input.ScriptPathSuccess,
 		relativeDelay:  lfn.Some(uint64(req.CommitCsvDelay)),
 		ctrlBlockBytes: secondLevelCtrlBlockBytes,
 	}
@@ -1006,6 +1057,7 @@ func localHtlcSuccessSweepDesc(req lnwallet.ResolutionReq,
 	return lfn.Ok(tapscriptSweepDescs{
 		firstLevel: tapscriptSweepDesc{
 			scriptTree:          htlcScriptTree,
+			scriptPath:          input.ScriptPathSuccess,
 			ctrlBlockBytes:      ctrlBlockBytes,
 			relativeDelay:       lfn.Some(uint64(req.CsvDelay)),
 			auxSigInfo:          req.AuxSigDesc,
@@ -1168,71 +1220,435 @@ func reanchorAssetOutputs(ctx context.Context,
 	return nil
 }
 
-// anchorOutputAllocations is a helper function that creates a set of
-// allocations for the anchor outputs. We'll use this later to create the proper
-// exclusion proofs.
-func anchorOutputAllocations(
-	keyRing *lnwallet.CommitmentKeyRing) lfn.Result[[]*tapsend.Allocation] {
+// syncCommitOutputProofs updates the stored commitment-state proofs for a set
+// of local/remote commitment outputs to use the actual tapscript tree that
+// backs that output on the commitment transaction.
+func syncCommitOutputProofs(outputs []*cmsg.AssetOutput,
+	scriptDesc input.ScriptDescriptor) error {
 
-	anchorAlloc := func(
-		k *btcec.PublicKey) lfn.Result[*tapsend.Allocation] {
+	if len(outputs) == 0 {
+		return nil
+	}
 
-		anchorTree, err := input.NewAnchorScriptTree(k)
+	leaves, tree, err := LeavesFromTapscriptScriptTree(scriptDesc)
+	if err != nil {
+		return err
+	}
+
+	var siblingPreimage *commitment.TapscriptPreimage
+	switch len(leaves) {
+	case 0:
+		// No sibling tapscript tree.
+
+	case 1:
+		siblingPreimage, err = commitment.NewPreimageFromLeaf(leaves[0])
 		if err != nil {
-			return lfn.Err[*tapsend.Allocation](err)
+			return err
 		}
 
-		sibling, scriptTree, err := LeavesFromTapscriptScriptTree(
-			anchorTree,
+	default:
+		rootNode := txscript.AssembleTaprootScriptTree(
+			leaves...,
+		).RootNode
+		branch, ok := rootNode.(txscript.TapBranch)
+		if !ok {
+			return fmt.Errorf(
+				"expected tapscript root branch, got %T",
+				rootNode,
+			)
+		}
+
+		preimage := commitment.NewPreimageFromBranch(branch)
+		siblingPreimage = &preimage
+	}
+
+	for _, output := range outputs {
+		p := &output.Proof.Val
+		p.InclusionProof.InternalKey = tree.InternalKey
+		if p.InclusionProof.CommitmentProof != nil {
+			p.InclusionProof.CommitmentProof.TapSiblingPreimage =
+				siblingPreimage
+		}
+	}
+
+	return nil
+}
+
+// commitOutputAllocations creates exclusion-proof allocations for the actual
+// pure-BTC outputs of the commitment transaction. This must reflect the real
+// commitment tx outputs instead of assuming only anchor outputs exist.
+func commitOutputAllocations(req lnwallet.ResolutionReq,
+	keyRing *lnwallet.CommitmentKeyRing,
+	vPackets []*tappsbt.VPacket) lfn.Result[[]*tapsend.Allocation] {
+
+	if req.CommitTx == nil {
+		return lfn.Err[[]*tapsend.Allocation](
+			fmt.Errorf("commit tx not set"),
+		)
+	}
+
+	assetOutputs := make(map[uint32]struct{})
+	for _, vPkt := range vPackets {
+		for _, output := range vPkt.Outputs {
+			assetOutputs[output.AnchorOutputIndex] = struct{}{}
+		}
+	}
+
+	findOutputIndex := func(pkScript []byte) (uint32, bool) {
+		for idx, txOut := range req.CommitTx.TxOut {
+			if bytes.Equal(txOut.PkScript, pkScript) {
+				return uint32(idx), true
+			}
+		}
+
+		return 0, false
+	}
+
+	newNoAssetAlloc := func(desc input.ScriptDescriptor) (
+		[]*tapsend.Allocation, error,
+	) {
+
+		sibling, scriptTree, err := LeavesFromTapscriptScriptTree(desc)
+		if err != nil {
+			return nil, err
+		}
+
+		pkScript, err := txscript.PayToTaprootScript(
+			scriptTree.TaprootKey,
 		)
 		if err != nil {
-			return lfn.Err[*tapsend.Allocation](err)
+			return nil, err
 		}
 
-		return lfn.Ok(&tapsend.Allocation{
-			Type:           tapsend.AllocationTypeNoAssets,
-			Amount:         0,
-			BtcAmount:      lnwallet.AnchorSize,
+		outputIndex, ok := findOutputIndex(pkScript)
+		if !ok {
+			return nil, nil
+		}
+
+		if _, hasAssets := assetOutputs[outputIndex]; hasAssets {
+			return nil, nil
+		}
+
+		return []*tapsend.Allocation{{
+			Type:        tapsend.AllocationTypeNoAssets,
+			OutputIndex: outputIndex,
+			BtcAmount: btcutil.Amount(
+				req.CommitTx.TxOut[outputIndex].Value,
+			),
 			InternalKey:    scriptTree.InternalKey,
 			NonAssetLeaves: sibling,
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				scriptTree.TaprootKey,
 			),
-		})
+		}}, nil
 	}
 
-	localAnchor := anchorAlloc(keyRing.ToLocalKey)
-	remoteAnchor := anchorAlloc(keyRing.ToRemoteKey)
+	toLocalTree, err := input.NewLocalCommitScriptTree(
+		req.CsvDelay, keyRing.ToLocalKey, keyRing.RevocationKey,
+		input.NoneTapLeaf(),
+	)
+	if err != nil {
+		return lfn.Err[[]*tapsend.Allocation](err)
+	}
 
-	type resultType = lfn.Result[[]*tapsend.Allocation]
-	sortAnchor := func(a1, a2 *tapsend.Allocation) resultType {
-		// Before we return the anchors, we'll make sure that
-		// they end up in the right sort order.
-		scriptCompare := bytes.Compare(
-			a1.SortTaprootKeyBytes, a2.SortTaprootKeyBytes,
-		)
+	toRemoteTree, err := input.NewRemoteCommitScriptTree(
+		keyRing.ToRemoteKey, input.NoneTapLeaf(),
+	)
+	if err != nil {
+		return lfn.Err[[]*tapsend.Allocation](err)
+	}
 
-		if scriptCompare < 0 {
-			a1.OutputIndex = 0
-			a2.OutputIndex = 1
-		} else {
-			a2.OutputIndex = 0
-			a1.OutputIndex = 1
+	localAnchorTree, err := input.NewAnchorScriptTree(keyRing.ToLocalKey)
+	if err != nil {
+		return lfn.Err[[]*tapsend.Allocation](err)
+	}
+
+	remoteAnchorTree, err := input.NewAnchorScriptTree(keyRing.ToRemoteKey)
+	if err != nil {
+		return lfn.Err[[]*tapsend.Allocation](err)
+	}
+
+	allocations := make([]*tapsend.Allocation, 0, 4)
+	for _, desc := range []input.ScriptDescriptor{
+		toLocalTree, toRemoteTree, localAnchorTree, remoteAnchorTree,
+	} {
+		allocs, err := newNoAssetAlloc(desc)
+		if err != nil {
+			return lfn.Err[[]*tapsend.Allocation](err)
 		}
 
-		return lfn.Ok([]*tapsend.Allocation{a1, a2})
+		allocations = append(allocations, allocs...)
 	}
 
-	return lfn.FlatMapResult(
-		localAnchor, func(a1 *tapsend.Allocation) resultType {
-			return lfn.FlatMapResult(
-				remoteAnchor,
-				func(a2 *tapsend.Allocation) resultType {
-					return sortAnchor(a1, a2)
-				},
+	return lfn.Ok(allocations)
+}
+
+func commitScriptKeyForRing(req lnwallet.ResolutionReq,
+	keyRing *lnwallet.CommitmentKeyRing) lfn.Result[asset.ScriptKey] {
+
+	switch req.Type {
+	case input.TaprootLocalCommitSpend:
+		return localCommitScriptKey(
+			keyRing.ToLocalKey, keyRing.RevocationKey, req.CsvDelay,
+		)
+
+	case input.TaprootRemoteCommitSpend:
+		return remoteCommitScriptKey(keyRing.ToRemoteKey)
+
+	case input.TaprootCommitmentRevoke:
+		csvDelay := req.BreachCsvDelay.UnwrapOr(req.CsvDelay)
+		return localCommitScriptKey(
+			keyRing.ToLocalKey, keyRing.RevocationKey, csvDelay,
+		)
+
+	default:
+		return lfn.Errf[asset.ScriptKey]("unsupported commit witness "+
+			"type: %v", req.Type)
+	}
+}
+
+func selectCommitmentKeyRing(req lnwallet.ResolutionReq,
+	outputs []*cmsg.AssetOutput) *lnwallet.CommitmentKeyRing {
+
+	if req.InitialKeyRing == nil || len(outputs) == 0 {
+		return req.KeyRing
+	}
+
+	currentKey, err := commitScriptKeyForRing(req, req.KeyRing).Unpack()
+	if err != nil {
+		return req.KeyRing
+	}
+
+	initialKey, err := commitScriptKeyForRing(
+		req, req.InitialKeyRing,
+	).Unpack()
+	if err != nil {
+		return req.KeyRing
+	}
+
+	targetKey := outputs[0].Proof.Val.Asset.ScriptKey.PubKey
+	switch {
+	case targetKey.IsEqual(initialKey.PubKey):
+		return req.InitialKeyRing
+
+	case targetKey.IsEqual(currentKey.PubKey):
+		return req.KeyRing
+
+	default:
+		return req.KeyRing
+	}
+}
+
+func fetchStoredCommitSweepMetadata(outputs []*cmsg.AssetOutput) ([]byte,
+	[]byte, bool) {
+
+	for _, output := range outputs {
+		unknownOddTypes := output.Proof.Val.UnknownOddTypes
+		if len(unknownOddTypes) == 0 {
+			continue
+		}
+
+		witnessScriptType := commitSweepWitnessScriptType
+		witnessScript, ok := unknownOddTypes[witnessScriptType]
+		if !ok {
+			continue
+		}
+
+		controlBlock, ok := unknownOddTypes[commitSweepControlBlockType]
+		if !ok {
+			continue
+		}
+
+		return bytes.Clone(witnessScript),
+			bytes.Clone(controlBlock), true
+	}
+
+	return nil, nil, false
+}
+
+func activeOutputsNeedReanchor(activeOutputs []*cmsg.AssetOutput,
+	commitTx *wire.MsgTx) bool {
+
+	if commitTx == nil {
+		return false
+	}
+
+	for _, activeOutput := range activeOutputs {
+		if activeOutput.Proof.Val.InclusionProof.OutputIndex >=
+			uint32(len(commitTx.TxOut)) {
+
+			return true
+		}
+	}
+
+	return false
+}
+
+func selectResolveCommitmentKeyRing(req lnwallet.ResolutionReq,
+	outputs []*cmsg.AssetOutput) *lnwallet.CommitmentKeyRing {
+
+	if req.InitialKeyRing != nil &&
+		activeOutputsNeedReanchor(outputs, req.CommitTx) {
+
+		return req.InitialKeyRing
+	}
+
+	return selectCommitmentKeyRing(req, outputs)
+}
+
+func isCommitmentOutputResolution(witnessType input.WitnessType) bool {
+	switch witnessType {
+	case input.TaprootLocalCommitSpend,
+		input.TaprootRemoteCommitSpend,
+		input.TaprootCommitmentRevoke:
+		return true
+
+	default:
+		return false
+	}
+}
+
+func syncActiveVPacketProofsFromOutputs(
+	vPktsByAssetID map[asset.ID]*tappsbt.VPacket,
+	activeOutputs []*cmsg.AssetOutput) {
+
+	for _, activeOutput := range activeOutputs {
+		vPkt := vPktsByAssetID[activeOutput.AssetID.Val]
+		if vPkt == nil {
+			continue
+		}
+
+		// Prefer an exact match on amount+anchor index. In immediate
+		// force-close flows, the vPacket can still carry a stale anchor
+		// index before we sync from re-anchored active outputs, so we
+		// also allow a fallback to a unique amount-only match.
+		strictIdx := -1
+		fallbackIdx := -1
+		fallbackCount := 0
+
+		for outIdx := range vPkt.Outputs {
+			vOut := vPkt.Outputs[outIdx]
+			if vOut.Amount != activeOutput.Amount.Val {
+				continue
+			}
+
+			fallbackIdx = outIdx
+			fallbackCount++
+
+			targetIndex := activeOutput.Proof.Val.InclusionProof.
+				OutputIndex
+			if vOut.AnchorOutputIndex != targetIndex {
+				continue
+			}
+
+			strictIdx = outIdx
+			break
+		}
+
+		matchIdx := strictIdx
+		if matchIdx == -1 && fallbackCount == 1 {
+			matchIdx = fallbackIdx
+		}
+		if matchIdx == -1 {
+			continue
+		}
+
+		vOut := vPkt.Outputs[matchIdx]
+		updatedProof := activeOutput.Proof.Val
+		vOut.ProofSuffix = &updatedProof
+		if vOut.Asset != nil {
+			vOut.Asset = updatedProof.Asset.Copy()
+		}
+
+		inclusionProof := updatedProof.InclusionProof
+		vOut.AnchorOutputIndex = inclusionProof.OutputIndex
+		vOut.AnchorOutputInternalKey = inclusionProof.InternalKey
+		vOut.AnchorOutputTapscriptSibling = inclusionProof.
+			CommitmentProof.TapSiblingPreimage
+		vOut.ScriptKey = updatedProof.Asset.ScriptKey
+	}
+}
+
+func syncActiveOutputProofsFromVPackets(
+	vPktsByAssetID map[asset.ID]*tappsbt.VPacket,
+	activeOutputs []*cmsg.AssetOutput) {
+
+	for _, activeOutput := range activeOutputs {
+		vPkt := vPktsByAssetID[activeOutput.AssetID.Val]
+		if vPkt == nil {
+			continue
+		}
+
+		for outIdx := range vPkt.Outputs {
+			vOut := vPkt.Outputs[outIdx]
+			if vOut.ProofSuffix == nil {
+				continue
+			}
+			if vOut.Amount != activeOutput.Amount.Val {
+				continue
+			}
+			targetIndex := activeOutput.Proof.Val.InclusionProof.
+				OutputIndex
+			if vOut.AnchorOutputIndex != targetIndex {
+				continue
+			}
+
+			updatedProof := activeOutput.Proof.Val
+			updatedProof.Asset = *vOut.ProofSuffix.Asset.Copy()
+			updatedProof.InclusionProof =
+				vOut.ProofSuffix.InclusionProof
+			updatedProof.ExclusionProofs = fn.CopySlice(
+				vOut.ProofSuffix.ExclusionProofs,
 			)
-		},
-	)
+			updatedProof.SplitRootProof =
+				vOut.ProofSuffix.SplitRootProof
+			updatedProof.AdditionalInputs = fn.CopySlice(
+				vOut.ProofSuffix.AdditionalInputs,
+			)
+			updatedProof.ChallengeWitness = slices.Clone(
+				vOut.ProofSuffix.ChallengeWitness,
+			)
+			updatedProof.AltLeaves = asset.CopyAltLeaves(
+				vOut.ProofSuffix.AltLeaves,
+			)
+			updatedProof.UnknownOddTypes =
+				vOut.ProofSuffix.UnknownOddTypes
+			activeOutput.Proof.Val = updatedProof
+			break
+		}
+	}
+}
+
+func (a *AuxSweeper) importActiveProofScriptKeys(
+	activeOutputs []*cmsg.AssetOutput) error {
+
+	ctxb := context.Background()
+
+	for _, activeOutput := range activeOutputs {
+		scriptKey := activeOutput.Proof.Val.Asset.ScriptKey
+		if scriptKey.TweakedScriptKey == nil {
+			scriptKey.TweakedScriptKey = &asset.TweakedScriptKey{
+				RawKey: keychain.KeyDescriptor{
+					PubKey: scriptKey.PubKey,
+				},
+			}
+		}
+		if scriptKey.RawKey.PubKey == nil {
+			scriptKey.RawKey = keychain.KeyDescriptor{
+				PubKey: scriptKey.PubKey,
+			}
+		}
+
+		err := a.cfg.AddrBook.InsertScriptKey(
+			ctxb, scriptKey, asset.ScriptKeyScriptPathChannel,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to import active proof "+
+				"script key: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // remoteCommitScriptKey creates the script key for the remote commitment
@@ -1285,7 +1701,8 @@ func localCommitScriptKey(localKey, revokeKey *btcec.PublicKey,
 }
 
 // deriveCommitKeys derives the script keys for the local and remote party.
-func deriveCommitKeys(req lnwallet.ResolutionReq) (*asset.ScriptKey,
+func deriveCommitKeys(req lnwallet.ResolutionReq,
+	keyRing *lnwallet.CommitmentKeyRing) (*asset.ScriptKey,
 	*asset.ScriptKey, error) {
 
 	// This might be a breach case we need to handle. In this case, our
@@ -1294,7 +1711,7 @@ func deriveCommitKeys(req lnwallet.ResolutionReq) (*asset.ScriptKey,
 	// otherwise, we'll stick with the main one specified.
 	toLocalCsvDelay := req.BreachCsvDelay.UnwrapOr(req.CsvDelay)
 	localScriptTree, err := localCommitScriptKey(
-		req.KeyRing.ToLocalKey, req.KeyRing.RevocationKey,
+		keyRing.ToLocalKey, keyRing.RevocationKey,
 		toLocalCsvDelay,
 	).Unpack()
 	if err != nil {
@@ -1303,7 +1720,7 @@ func deriveCommitKeys(req lnwallet.ResolutionReq) (*asset.ScriptKey,
 	}
 
 	remoteScriptTree, err := remoteCommitScriptKey(
-		req.KeyRing.ToRemoteKey,
+		keyRing.ToRemoteKey,
 	).Unpack()
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create remote "+
@@ -1315,11 +1732,12 @@ func deriveCommitKeys(req lnwallet.ResolutionReq) (*asset.ScriptKey,
 
 // importCommitScriptKeys imports the script keys for the commitment outputs
 // into the local addr book.
-func (a *AuxSweeper) importCommitScriptKeys(req lnwallet.ResolutionReq) error {
+func (a *AuxSweeper) importCommitScriptKeys(req lnwallet.ResolutionReq,
+	keyRing *lnwallet.CommitmentKeyRing) error {
 	// Generate the local and remote script key, so we can properly import
 	// into the addr book, like we did above.
 	localCommitScriptKey, remoteCommitScriptKey, err := deriveCommitKeys(
-		req,
+		req, keyRing,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to derive script keys: %w", err)
@@ -1541,7 +1959,9 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 // called after a force close to ensure that we can properly spend outputs
 // created by the commitment transaction at a later step.
 func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
-	commitState *cmsg.Commitment, fundingInfo *cmsg.OpenChannel) error {
+	commitState *cmsg.Commitment, fundingInfo *cmsg.OpenChannel,
+	activeOutputs []*cmsg.AssetOutput,
+	activeScriptTree input.ScriptDescriptor) error {
 
 	// Just in case we don't know about it already, we'll import the
 	// funding script key.
@@ -1572,9 +1992,9 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 
 	// Depending on the close type, we'll import one or both of the script
 	// keys generated above.
-	if err := a.importCommitScriptKeys(req); err != nil {
-		return fmt.Errorf("unable to import script keys: %w", err)
-	}
+	commitKeyRing := selectCommitmentKeyRing(req, activeOutputs)
+	useInitialCommitState := req.InitialKeyRing != nil &&
+		commitKeyRing == req.InitialKeyRing
 
 	// To start, we'll re-create vPackets for all of the outputs of the
 	// commitment transaction.
@@ -1664,6 +2084,121 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 		}
 	}
 
+	if req.CommitTx == nil {
+		return fmt.Errorf("no commitment transaction found for "+
+			"chan_point=%v", req.ChanPoint)
+	}
+	if req.InitialKeyRing != nil &&
+		activeOutputsNeedReanchor(activeOutputs, req.CommitTx) {
+
+		useInitialCommitState = true
+		commitKeyRing = req.InitialKeyRing
+	}
+	if err := a.importCommitScriptKeys(req, commitKeyRing); err != nil {
+		return fmt.Errorf("unable to import script keys: %w", err)
+	}
+
+	if useInitialCommitState {
+		toLocalScriptTree, err := input.NewLocalCommitScriptTree(
+			req.CsvDelay, commitKeyRing.ToLocalKey,
+			commitKeyRing.RevocationKey, input.NoneTapLeaf(),
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"unable to derive to-local script tree: %w",
+				err,
+			)
+		}
+		err = syncCommitOutputProofs(
+			commitState.LocalAssets.Val.Outputs, toLocalScriptTree,
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"unable to sync local commit proofs: %w",
+				err,
+			)
+		}
+
+		toRemoteScriptTree, err := input.NewRemoteCommitScriptTree(
+			commitKeyRing.ToRemoteKey, input.NoneTapLeaf(),
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"unable to derive to-remote script tree: %w",
+				err,
+			)
+		}
+		err = syncCommitOutputProofs(
+			commitState.RemoteAssets.Val.Outputs,
+			toRemoteScriptTree,
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"unable to sync remote commit proofs: %w",
+				err,
+			)
+		}
+		if len(activeOutputs) > 0 {
+			err = syncCommitOutputProofs(
+				activeOutputs, activeScriptTree,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to sync active "+
+					"commit proofs: %w", err)
+			}
+		}
+
+		// Only the first live post-funding commitment state needs this
+		// proof refresh before re-anchoring to the unilateral-close tx.
+		for _, outputs := range [][]*cmsg.AssetOutput{
+			commitState.LocalAssets.Val.Outputs,
+			commitState.RemoteAssets.Val.Outputs,
+		} {
+			err = reanchorAssetOutputs(
+				ctxb, a.cfg.ChainBridge, *req.CommitTx,
+				req.CommitTxBlockHeight, outputs,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to re-anchor "+
+					"commit outputs: %w", err)
+			}
+		}
+		if len(activeOutputs) > 0 {
+			err = reanchorAssetOutputs(
+				ctxb, a.cfg.ChainBridge, *req.CommitTx,
+				req.CommitTxBlockHeight, activeOutputs,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to re-anchor active "+
+					"commit outputs: %w", err)
+			}
+		}
+
+		if _, err := commitScriptKeyForRing(
+			req, commitKeyRing,
+		).Unpack(); err == nil && len(activeOutputs) > 0 {
+			syncActiveVPacketProofsFromOutputs(
+				vPktsByAssetID, activeOutputs,
+			)
+		}
+	}
+
+	for _, vPkt := range vPktsByAssetID {
+		for _, vOut := range vPkt.Outputs {
+			if vOut.ProofSuffix == nil {
+				continue
+			}
+
+			inclusionProof := vOut.ProofSuffix.InclusionProof
+			vOut.AnchorOutputIndex = inclusionProof.OutputIndex
+			vOut.AnchorOutputInternalKey =
+				inclusionProof.InternalKey
+			vOut.AnchorOutputTapscriptSibling = inclusionProof.
+				CommitmentProof.TapSiblingPreimage
+			vOut.ScriptKey = vOut.ProofSuffix.Asset.ScriptKey
+		}
+	}
+
 	supportSTXO := commitState.STXO.Val
 
 	// We can now add the witness for the OP_TRUE spend of the commitment
@@ -1692,9 +2227,9 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 			"commitments: %w", err)
 	}
 
-	// With the output commitments known, we can regenerate the proof suffix
-	// for each vPkt.
-	anchorAllocations, err := anchorOutputAllocations(req.KeyRing).Unpack()
+	anchorAllocations, err := commitOutputAllocations(
+		req, commitKeyRing, vPackets,
+	).Unpack()
 	if err != nil {
 		return fmt.Errorf("unable to create anchor "+
 			"allocations: %w", err)
@@ -1713,7 +2248,27 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 					"%d: %w", outIdx, err)
 			}
 
-			vPkt.Outputs[outIdx].ProofSuffix = proofSuffix
+			if vPkt.Outputs[outIdx].ProofSuffix != nil {
+				*vPkt.Outputs[outIdx].ProofSuffix = *proofSuffix
+			} else {
+				vPkt.Outputs[outIdx].ProofSuffix = proofSuffix
+			}
+		}
+	}
+
+	// For the first live post-funding commitment state, the active output
+	// will later be swept directly from the imported commitment proof. Make
+	// sure we keep the final proof suffix, including the regenerated
+	// exclusion proofs, in sync with the active output we hand back to the
+	// resolver and archive as ours.
+	if useInitialCommitState && len(activeOutputs) > 0 {
+		syncActiveOutputProofsFromVPackets(
+			vPktsByAssetID, activeOutputs,
+		)
+
+		err = a.importActiveProofScriptKeys(activeOutputs)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -1731,7 +2286,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 
 	return shipChannelTxn(
 		a.cfg.TxSender, req.CommitTx, outCommitments, vPackets,
-		int64(req.CommitFee), heightHint,
+		int64(req.CommitFee), heightHint, true,
 	)
 }
 
@@ -1788,7 +2343,10 @@ func (a *AuxSweeper) resolveContract(
 		// First, we'll make a sweep desc for the commitment txn. This
 		// contains the tapscript tree, and also the control block
 		// needed for a valid spend.
-		sweepDesc = commitNoDelaySweepDesc(req.KeyRing, req.CsvDelay)
+		commitKeyRing := selectResolveCommitmentKeyRing(
+			req, assetOutputs,
+		)
+		sweepDesc = commitNoDelaySweepDesc(commitKeyRing, req.CsvDelay)
 
 	// A normal delay output. This means we force closed, so we'll need to
 	// mind the CSV when we sweep the output.
@@ -1800,7 +2358,10 @@ func (a *AuxSweeper) resolveContract(
 		// Next, we'll make a sweep desc for this output. It's
 		// dependent on the CSV delay we have in this channel, so we'll
 		// pass that in as well.
-		sweepDesc = commitDelaySweepDesc(req.KeyRing, req.CsvDelay)
+		commitKeyRing := selectResolveCommitmentKeyRing(
+			req, assetOutputs,
+		)
+		sweepDesc = commitDelaySweepDesc(commitKeyRing, req.CsvDelay)
 
 	// The remote party has breached the channel. We'll sweep the revoked
 	// key that we learned in the past.
@@ -1812,7 +2373,10 @@ func (a *AuxSweeper) resolveContract(
 
 		// Next, we'll make a sweep desk capable of sweeping the remote
 		// party's local output.
-		sweepDesc = commitRevokeSweepDesc(req.KeyRing, req.CsvDelay)
+		commitKeyRing := selectResolveCommitmentKeyRing(
+			req, assetOutputs,
+		)
+		sweepDesc = commitRevokeSweepDesc(commitKeyRing, req.CsvDelay)
 
 	// The remote party broadcasted a commitment transaction which held an
 	// HTLC that we can timeout eventually.
@@ -1824,6 +2388,8 @@ func (a *AuxSweeper) resolveContract(
 		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
 		htlcOutputs := commitState.OutgoingHtlcAssets.Val
 		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
+		resolveKeyRing := selectResolveCommitmentKeyRing
+		commitKeyRing := resolveKeyRing(req, assetOutputs)
 
 		payHash, err := req.PayHash.UnwrapOrErr(errNoPayHash)
 		if err != nil {
@@ -1833,7 +2399,7 @@ func (a *AuxSweeper) resolveContract(
 		// Now that we know which output we'll be sweeping, we'll make a
 		// sweep desc for the timeout txn.
 		sweepDesc = remoteHtlcTimeoutSweepDesc(
-			req.KeyRing, payHash[:], req.CsvDelay,
+			commitKeyRing, payHash[:], req.CsvDelay,
 			req.CltvDelay.UnwrapOr(0), htlcID,
 		)
 
@@ -1846,6 +2412,8 @@ func (a *AuxSweeper) resolveContract(
 		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
 		htlcOutputs := commitState.IncomingHtlcAssets.Val
 		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
+		resolveKeyRing := selectResolveCommitmentKeyRing
+		commitKeyRing := resolveKeyRing(req, assetOutputs)
 
 		payHash, err := req.PayHash.UnwrapOrErr(errNoPayHash)
 		if err != nil {
@@ -1855,7 +2423,7 @@ func (a *AuxSweeper) resolveContract(
 		// Now that we know which output we'll be sweeping, we'll make a
 		// sweep desc for the timeout txn.
 		sweepDesc = remoteHtlcSuccessSweepDesc(
-			req.KeyRing, payHash[:], req.CsvDelay, htlcID,
+			commitKeyRing, payHash[:], req.CsvDelay, htlcID,
 		)
 
 	// In this case, we broadcast a commitment transaction which held an
@@ -1868,10 +2436,14 @@ func (a *AuxSweeper) resolveContract(
 		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
 		htlcOutputs := commitState.OutgoingHtlcAssets.Val
 		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
+		resolveKeyRing := selectResolveCommitmentKeyRing
+		commitKeyRing := resolveKeyRing(req, assetOutputs)
 
 		// With the output and pay desc located, we'll now create the
 		// sweep desc.
-		sweepDesc = localHtlcTimeoutSweepDesc(req, htlcID)
+		sweepDesc = localHtlcTimeoutSweepDesc(
+			req, commitKeyRing, htlcID,
+		)
 
 		needsSecondLevel = true
 
@@ -1883,10 +2455,14 @@ func (a *AuxSweeper) resolveContract(
 		htlcID := req.HtlcID.UnwrapOr(math.MaxUint64)
 		htlcOutputs := commitState.IncomingHtlcAssets.Val
 		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
+		resolveKeyRing := selectResolveCommitmentKeyRing
+		commitKeyRing := resolveKeyRing(req, assetOutputs)
 
 		// With the output and pay desc located, we'll now create the
 		// sweep desc.
-		sweepDesc = localHtlcSuccessSweepDesc(req, htlcID)
+		sweepDesc = localHtlcSuccessSweepDesc(
+			req, commitKeyRing, htlcID,
+		)
 
 		needsSecondLevel = true
 
@@ -1905,6 +2481,20 @@ func (a *AuxSweeper) resolveContract(
 	tapSweepDesc, err := sweepDesc.Unpack()
 	if err != nil {
 		return lfn.Err[tlv.Blob](err)
+	}
+	// Only reuse stored commit-sweep metadata for the first post-funding
+	// commitment path where outputs still need re-anchoring to the real
+	// unilateral close transaction. For later commitment states we derive
+	// fresh sweep descriptors from the resolver context.
+	if activeOutputsNeedReanchor(assetOutputs, req.CommitTx) {
+		fetchSweepMetadata := fetchStoredCommitSweepMetadata
+		witnessScript, controlBlock, ok := fetchSweepMetadata(
+			assetOutputs,
+		)
+		if ok {
+			tapSweepDesc.firstLevel.witnessScript = witnessScript
+			tapSweepDesc.firstLevel.ctrlBlockBytes = controlBlock
+		}
 	}
 
 	// Now that we know what output we're sweeping, before we proceed, we'll
@@ -1930,7 +2520,10 @@ func (a *AuxSweeper) resolveContract(
 		log.Infof("First time seeing commit_txid=%v, importing",
 			req.CommitTx.TxHash())
 
-		err := a.importCommitTx(req, commitState, fundingInfo)
+		err := a.importCommitTx(
+			req, commitState, fundingInfo, assetOutputs,
+			tapSweepDesc.firstLevel.scriptTree,
+		)
 		if err != nil {
 			return lfn.Errf[returnType]("unable to import "+
 				"commitment txn: %w", err)
@@ -1939,19 +2532,24 @@ func (a *AuxSweeper) resolveContract(
 		log.Infof("Commitment commit_txid=%v already imported, "+
 			"skipping", req.CommitTx.TxHash())
 	}
-
 	if req.CommitTx == nil {
 		return lfn.Errf[returnType]("no commitment transaction "+
 			"found for chan_point=%v", req.ChanPoint)
 	}
 	commitTx := *req.CommitTx
 
-	// The input proofs above were made originally using the fake commit tx
-	// as an anchor. We now know the real commit tx, so we'll bind each
-	// proof to the actual commitment output that carries the asset.
+	if isCommitmentOutputResolution(req.Type) {
+		if err := syncCommitOutputProofs(
+			assetOutputs, tapSweepDesc.firstLevel.scriptTree,
+		); err != nil {
+			return lfn.Errf[returnType](
+				"unable to sync asset output proofs: %w", err,
+			)
+		}
+	}
 	if err := reanchorAssetOutputs(
-		ctx, a.cfg.ChainBridge, commitTx, req.CommitTxBlockHeight,
-		assetOutputs,
+		ctx, a.cfg.ChainBridge, commitTx,
+		req.CommitTxBlockHeight, assetOutputs,
 	); err != nil {
 		return lfn.Errf[returnType]("unable to re-anchor asset "+
 			"outputs: %w", err)
@@ -1969,7 +2567,6 @@ func (a *AuxSweeper) resolveContract(
 	if err != nil {
 		return lfn.Err[tlv.Blob](err)
 	}
-
 	type packetList = []*tappsbt.VPacket
 	var (
 		secondLevelPkts    packetList
@@ -2506,6 +3103,7 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 			tapSigDesc.TapTweak.Val, tapSigDesc.CtrlBlock.Val,
 			lfn.None[lnwallet.AuxSigDesc](),
 			lfn.None[uint32](),
+			sweepSet.btcInput.SignDesc().WitnessScript,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to sign second level "+
@@ -2572,25 +3170,23 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	log.Infof("Proofs generated for sweep_tx=%v",
 		limitSpewer.Sdump(sweepTx))
 
-	// Add a best-effort height hint for sweep transactions. If the sweep is
-	// mined quickly, this helps the confirmation registration catch up
-	// deterministically when we hand the parcel to the porter.
-	heightHint := fn.None[uint32]()
-	currentHeight, err := a.cfg.ChainBridge.CurrentHeight(
-		context.Background(),
-	)
-	if err != nil {
-		log.Warnf("Unable to fetch current height for sweep tx %v "+
-			"height hint: %v", sweepTx.TxHash(), err)
-	} else {
-		heightHint = fn.Some(currentHeight)
-	}
+	// Sweep transactions are externally broadcast by lnd first, then
+	// handed to the porter for proof archival. Use a historical hint so
+	// the porter can still detect a confirmation if the sweep makes it on
+	// chain before the porter registers its notifier. lnd requires the hint
+	// to be strictly greater than zero.
+	heightHint := fn.Some[uint32](1)
 
 	// With the output commitments re-created, we have all we need to log
 	// and ship the transaction.
+	//
+	// Sweep transactions are assembled by lnd before they reach this path.
+	// We still run the porter's proof checks here so malformed proofs fail
+	// loudly and deterministically.
+	skipOutputProofVerify := false
 	return shipChannelTxn(
 		a.cfg.TxSender, sweepTx, outCommitments, allVpkts, int64(fee),
-		heightHint,
+		heightHint, skipOutputProofVerify,
 	)
 }
 

@@ -36,6 +36,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/vm"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/funding"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -585,7 +586,39 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 		localAssets = chanAssets
 	}
 
+	commitWeight := input.CommitWeight
+	if lndOpenChan.ChanType.IsTaproot() {
+		commitWeight = input.TaprootCommitWeight
+	} else if lndOpenChan.ChanType.HasAnchors() {
+		commitWeight = input.AnchorCommitWeight
+	}
+
+	commitFee := pendingFunding.feeRate.FeeForWeight(
+		lntypes.WeightUnit(commitWeight),
+	)
+	totalFee := commitFee
+	if lndOpenChan.ChanType.HasAnchors() {
+		totalFee += 2 * lnwallet.AnchorSize
+	}
+
+	capacityMSat := lnwire.NewMSatFromSatoshis(lndOpenChan.Capacity)
+	pushMSat := lnwire.NewMSatFromSatoshis(pendingFunding.pushAmt)
+	feeMSat := lnwire.NewMSatFromSatoshis(totalFee)
+
 	var localSatBalance, remoteSatBalance lnwire.MilliSatoshi
+	if pendingFunding.initiator {
+		localSatBalance = capacityMSat - feeMSat - pushMSat
+		remoteSatBalance = pushMSat
+	} else {
+		localSatBalance = pushMSat
+		remoteSatBalance = capacityMSat - feeMSat - pushMSat
+	}
+
+	if localSatBalance < 0 || remoteSatBalance < 0 {
+		return nil, lnwallet.CommitAuxLeaves{}, fmt.Errorf("invalid "+
+			"initial balances: capacity=%v push=%v fee=%v",
+			lndOpenChan.Capacity, pendingFunding.pushAmt, totalFee)
+	}
 
 	// We don't have a real prev state at this point, the leaf creator only
 	// needs the sum of the remote+local assets, so we'll populate that.
@@ -596,7 +629,9 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 
 	// Just like above, we don't have a real HTLC view here, so we'll pass
 	// in a blank view.
-	var fakeView lnwallet.AuxHtlcView
+	fakeView := lnwallet.AuxHtlcView{
+		FeePerKw: pendingFunding.feeRate,
+	}
 
 	// With all the above, we'll generate the first commitment that'll be
 	// stored
@@ -1468,7 +1503,7 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	)
 	preSignedParcel := tapfreighter.NewPreAnchoredParcel(
 		activePkts, passivePkts, anchorTx, false, parcelLabel,
-		fn.None[uint32](),
+		fn.None[uint32](), false,
 	)
 	_, err = f.cfg.TxSender.RequestShipment(preSignedParcel)
 	if err != nil {

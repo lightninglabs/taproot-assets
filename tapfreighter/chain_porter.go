@@ -419,9 +419,22 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 	txHash := outboundPkg.AnchorTx.TxHash()
 	log.Infof("Waiting for confirmation of transfer_txid=%v", txHash)
 
+	confPkScript := outboundPkg.AnchorTx.TxOut[0].PkScript
+	switch {
+	case len(outboundPkg.Outputs) > 0 &&
+		len(outboundPkg.Outputs[0].Anchor.PkScript) != 0:
+
+		confPkScript = outboundPkg.Outputs[0].Anchor.PkScript
+
+	case outboundPkg.PassiveAssetsAnchor != nil &&
+		len(outboundPkg.PassiveAssetsAnchor.PkScript) != 0:
+
+		confPkScript = outboundPkg.PassiveAssetsAnchor.PkScript
+	}
+
 	confCtx, confCancel := p.WithCtxQuitNoTimeout()
 	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
-		confCtx, &txHash, outboundPkg.AnchorTx.TxOut[0].PkScript, 1,
+		confCtx, &txHash, confPkScript, 1,
 		outboundPkg.AnchorTxHeightHint, true, nil,
 	)
 	if err != nil {
@@ -432,37 +445,95 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 	// Launch a goroutine that'll notify us when the transaction confirms.
 	defer confCancel()
 
+	scanHeight := outboundPkg.AnchorTxHeightHint
+	findChainConf := func() (*chainntnfs.TxConfirmation, error) {
+		scanCtx, cancel := context.WithTimeout(confCtx, time.Second)
+		defer cancel()
+
+		currentHeight, err := p.cfg.ChainBridge.CurrentHeight(scanCtx)
+		if err != nil {
+			return nil, err
+		}
+
+		startHeight := scanHeight
+		if startHeight == 0 || startHeight > currentHeight {
+			startHeight = currentHeight
+		}
+		for height := startHeight; height <= currentHeight; height++ {
+			block, err := p.cfg.ChainBridge.GetBlockByHeight(
+				scanCtx, int64(height),
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			for idx, blockTx := range block.Transactions {
+				if blockTx.TxHash() != txHash {
+					continue
+				}
+
+				blockHash := block.BlockHash()
+				scanHeight = height + 1
+
+				return &chainntnfs.TxConfirmation{
+					BlockHash:   &blockHash,
+					BlockHeight: height,
+					TxIndex:     uint32(idx),
+					Tx:          blockTx,
+					Block:       block,
+				}, nil
+			}
+		}
+
+		scanHeight = currentHeight + 1
+		return nil, nil
+	}
+
 	var confEvent *chainntnfs.TxConfirmation
-	select {
-	case confEvent = <-confNtfn.Confirmed:
-		log.Debugf("Got chain confirmation: %v", confEvent.Tx.TxHash())
-		pkg.TransferTxConfEvent = confEvent
+	walletConfTicker := time.NewTicker(200 * time.Millisecond)
+	defer walletConfTicker.Stop()
 
-		// If the anchoring tx block hash is given, we'll also store it
-		// in the outbound package.
-		pkg.OutboundPkg.AnchorTxBlockHash = fn.MaybeSome(
-			confEvent.BlockHash,
-		)
-		pkg.OutboundPkg.AnchorTxBlockHeight = confEvent.BlockHeight
+	for confEvent == nil {
+		select {
+		case confEvent = <-confNtfn.Confirmed:
+			log.Debugf("Got chain confirmation: %v",
+				confEvent.Tx.TxHash())
 
-		pkg.SendState = SendStateStorePostAnchorTxConf
+		case err := <-errChan:
+			return fmt.Errorf(
+				"error whilst waiting for package tx "+
+					"confirmation: %w", err,
+			)
 
-	case err := <-errChan:
-		return fmt.Errorf("error whilst waiting for package tx "+
-			"confirmation: %w", err)
+		case <-walletConfTicker.C:
+			confEvent, err = findChainConf()
+			if err != nil {
+				return fmt.Errorf(
+					"chain confirmation fallback "+
+						"failed: %w", err,
+				)
+			}
 
-	case <-confCtx.Done():
-		log.Debugf("Skipping TX confirmation, context done")
+		case <-confCtx.Done():
+			log.Debugf("Skipping TX confirmation, context done")
 
-	case <-p.Quit:
-		log.Debugf("Skipping TX confirmation, exiting")
-		return nil
+		case <-p.Quit:
+			log.Debugf("Skipping TX confirmation, exiting")
+			return nil
+		}
 	}
 
 	if confEvent == nil {
 		return fmt.Errorf("got empty package tx confirmation event " +
 			"in batch")
 	}
+
+	pkg.TransferTxConfEvent = confEvent
+	pkg.OutboundPkg.AnchorTxBlockHash = fn.MaybeSome(
+		confEvent.BlockHash,
+	)
+	pkg.OutboundPkg.AnchorTxBlockHeight = confEvent.BlockHeight
+	pkg.SendState = SendStateStorePostAnchorTxConf
 
 	return nil
 }
@@ -621,7 +692,13 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 			ctx, vCtx, outputProof,
 		)
 		if err != nil {
-			return fmt.Errorf("error verifying proof: %w", err)
+			assetID := parsedSuffix.Asset.ID()
+			return fmt.Errorf("error verifying proof "+
+				"(output_idx=%d, amount=%d, asset_id=%x, "+
+				"anchor_outpoint=%v): %w", idx,
+				parsedSuffix.Asset.Amount,
+				assetID[:],
+				parsedSuffix.OutPoint(), err)
 		}
 
 		// Import proof into proof archive.
@@ -1413,7 +1490,7 @@ func (p *ChainPorter) prelimCheckAddrParcel(addrParcel AddressParcel) error {
 // verifyVPacketsPreBroadcast performs verification checks on the given virtual
 // packets before the anchor transaction is broadcast.
 func (p *ChainPorter) verifyVPacketsPreBroadcast(ctx context.Context,
-	packets []*tappsbt.VPacket) error {
+	packets []*tappsbt.VPacket, skipOutputProofVerify bool) error {
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 	vCtx := proof.VerifierCtx{
@@ -1441,14 +1518,21 @@ func (p *ChainPorter) verifyVPacketsPreBroadcast(ctx context.Context,
 				"witnesses (vpkt_idx=%d): %w", pktIdx, err)
 		}
 
-		// Partially verify the packet's output proofs.
-		for outIdx := range vPkt.Outputs {
-			err := p.verifyOutputProofPreBroadcast(
-				ctx, vCtx, verifier, vPkt, pktIdx, outIdx,
-			)
-			if err != nil {
-				return fmt.Errorf("verify output proofs "+
-					"(vpkt_idx=%d): %w", pktIdx, err)
+		if !skipOutputProofVerify {
+			// Partially verify the packet's output proofs.
+			for outIdx := range vPkt.Outputs {
+				err := p.verifyOutputProofPreBroadcast(
+					ctx, vCtx, verifier, vPkt, pktIdx,
+					outIdx,
+				)
+				if err != nil {
+					return fmt.Errorf(
+						"verify output proofs "+
+							"(vpkt_idx=%d): %w",
+						pktIdx,
+						err,
+					)
+				}
 			}
 		}
 	}
@@ -1908,7 +1992,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		allPackets = append(allPackets, currentPkg.VirtualPackets...)
 		allPackets = append(allPackets, currentPkg.PassiveAssets...)
 
-		err := p.verifyVPacketsPreBroadcast(ctx, allPackets)
+		err := p.verifyVPacketsPreBroadcast(
+			ctx, allPackets, currentPkg.SkipOutputProofVerify,
+		)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
 
