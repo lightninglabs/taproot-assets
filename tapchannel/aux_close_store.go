@@ -47,6 +47,14 @@ type persistedCloseInfo struct {
 
 	// closeFee is the BTC fee paid for the cooperative close transaction.
 	closeFee int64
+
+	// supportSTXO records whether STXO proofs were enabled for the
+	// channel at AuxCloseOutputs time. The negotiator's feature map is
+	// in-memory only and would default to "no STXO" after a restart,
+	// causing the recovery path to compute different commitments and
+	// proofs. We persist this explicitly so the post-restart pipeline
+	// replay matches the original run.
+	supportSTXO bool
 }
 
 // noAssetAlloc is the minimal serializable subset of tapsend.Allocation we
@@ -164,8 +172,9 @@ const (
 
 // File format (all integers big-endian):
 //
-//	uint8   format version (currently 1)
+//	uint8   format version (currently 2)
 //	int64   closeFee
+//	uint8   supportSTXO (0 or 1)
 //	uint32  numVPackets         (post-mutation)
 //	  per vPacket:
 //	    uint32 length
@@ -176,7 +185,7 @@ const (
 //	  per noAssetAlloc:
 //	    uint32 outputIndex
 //	    [33]byte compressed internalKey
-const closeInfoFormatVersion uint8 = 1
+const closeInfoFormatVersion uint8 = 2
 
 func writeVPacketList(w io.Writer, pkts []*tappsbt.VPacket) error {
 	if err := binary.Write(
@@ -243,6 +252,13 @@ func encodeCloseInfo(w io.Writer, info *persistedCloseInfo) error {
 	if err := binary.Write(w, binary.BigEndian, info.closeFee); err != nil {
 		return err
 	}
+	var stxoByte uint8
+	if info.supportSTXO {
+		stxoByte = 1
+	}
+	if err := binary.Write(w, binary.BigEndian, stxoByte); err != nil {
+		return err
+	}
 	if err := writeVPacketList(w, info.vPackets); err != nil {
 		return err
 	}
@@ -291,6 +307,12 @@ func decodeCloseInfo(r io.Reader) (*persistedCloseInfo, error) {
 	); err != nil {
 		return nil, err
 	}
+
+	var stxoByte uint8
+	if err := binary.Read(r, binary.BigEndian, &stxoByte); err != nil {
+		return nil, err
+	}
+	info.supportSTXO = stxoByte != 0
 
 	pkts, err := readVPacketList(r)
 	if err != nil {

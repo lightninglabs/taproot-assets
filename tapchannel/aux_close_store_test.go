@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -55,12 +56,23 @@ func (m *memBlobStore) DeleteAuxCloseBlob(_ context.Context,
 }
 
 // TestSQLAuxCloseStoreRoundTrip verifies that a persistedCloseInfo survives
-// a Put/Get round-trip through SQLAuxCloseStore byte-for-byte. This rules
-// out the encode/decode and storage adapter as a source of the recovery-time
-// divergence we see in the restart_coop_close itest.
+// a Put/Get round-trip through SQLAuxCloseStore byte-for-byte. The
+// supportSTXO flag is exercised in both states to catch an "always write
+// the same byte" regression in the encoder.
 func TestSQLAuxCloseStoreRoundTrip(t *testing.T) {
 	t.Parallel()
 
+	for _, supportSTXO := range []bool{true, false} {
+		supportSTXO := supportSTXO
+		name := fmt.Sprintf("supportSTXO=%v", supportSTXO)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			testSQLAuxCloseStoreRoundTrip(t, supportSTXO)
+		})
+	}
+}
+
+func testSQLAuxCloseStoreRoundTrip(t *testing.T, supportSTXO bool) {
 	store := NewSQLAuxCloseStore(newMemBlobStore(), errBlobMissing)
 	ctx := context.Background()
 
@@ -82,7 +94,8 @@ func TestSQLAuxCloseStoreRoundTrip(t *testing.T) {
 				internalKey: test.RandPubKey(t),
 			},
 		},
-		closeFee: 12345,
+		closeFee:    12345,
+		supportSTXO: supportSTXO,
 	}
 
 	chanPoint := wire.OutPoint{
@@ -115,6 +128,7 @@ func requirePersistedCloseInfoEqual(t *testing.T,
 	t.Helper()
 
 	require.Equal(t, want.closeFee, got.closeFee)
+	require.Equal(t, want.supportSTXO, got.supportSTXO)
 	require.Len(t, got.vPackets, len(want.vPackets))
 	require.Len(t, got.pristineVPackets, len(want.pristineVPackets))
 	require.Len(t, got.noAssetAllocs, len(want.noAssetAllocs))

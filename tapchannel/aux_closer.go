@@ -100,6 +100,12 @@ type assetCloseInfo struct {
 
 	// closeFee is the fee that was paid to close the channel.
 	closeFee int64
+
+	// supportSTXO is the channel's STXO feature flag at AuxCloseOutputs
+	// time. We pin it here so that FinalizeClose can take the same
+	// branch even after a restart wipes the in-memory feature map on
+	// AuxChannelNegotiator.
+	supportSTXO bool
 }
 
 // AuxChanCloser is used to implement asset-aware co-op close for channels.
@@ -528,6 +534,7 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		vPackets:          vPackets,
 		outputCommitments: outCommitments,
 		closeFee:          int64(desc.CloseFee),
+		supportSTXO:       supportSTXO,
 	}
 
 	// Mirror the in-memory entry to disk so a tapd restart between now
@@ -544,6 +551,7 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 				pristineVPackets: pristineVPackets,
 				noAssetAllocs:    noAssets,
 				closeFee:         int64(desc.CloseFee),
+				supportSTXO:      supportSTXO,
 			},
 		)
 		cancel()
@@ -769,13 +777,10 @@ func (a *AuxChanCloser) recoverCloseInfo(
 		return nil, fmt.Errorf("sign commit virtual packets: %w", err)
 	}
 
-	features := a.cfg.AuxChanNegotiator.GetChannelFeatures(
-		lnwire.NewChanIDFromOutPoint(chanPoint),
-	)
-	supportSTXO := features.HasFeature(tapfeatures.STXOOptional)
-
+	// Use the STXO flag captured at AuxCloseOutputs time, not whatever
+	// the (in-memory, post-restart-empty) negotiator currently reports.
 	var opts []tapsend.OutputCommitmentOption
-	if !supportSTXO {
+	if !saved.supportSTXO {
 		opts = append(opts, tapsend.WithNoSTXOProofs())
 	}
 
@@ -791,6 +796,7 @@ func (a *AuxChanCloser) recoverCloseInfo(
 		vPackets:          saved.vPackets,
 		outputCommitments: outCommitments,
 		closeFee:          saved.closeFee,
+		supportSTXO:       saved.supportSTXO,
 	}, nil
 }
 
@@ -877,15 +883,12 @@ func (a *AuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
 				closeInfo.allocations,
 			)
 
-			features := a.cfg.AuxChanNegotiator.GetChannelFeatures(
-				lnwire.NewChanIDFromOutPoint(desc.ChanPoint),
-			)
-			supportSTXO := features.HasFeature(
-				tapfeatures.STXOOptional,
-			)
-
+			// Prefer the STXO flag pinned on closeInfo at
+			// AuxCloseOutputs time over a fresh negotiator
+			// query: after a restart the in-memory feature map
+			// is empty and would silently flip the proof shape.
 			var opts []proof.GenOption
-			if !supportSTXO {
+			if !closeInfo.supportSTXO {
 				opts = append(opts, proof.WithNoSTXOProofs())
 			}
 
