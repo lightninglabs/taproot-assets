@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/cert"
-	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -30,7 +29,7 @@ var (
 func StartMockGRPCServer(t *testing.T, grpcServer *grpc.Server,
 	withTLS bool) (string, func(), error) {
 
-	nextPort := port.NextAvailablePort()
+	nextPort := NextAvailablePort()
 	listenAddr := fmt.Sprintf(ListenAddrTemplate, nextPort)
 
 	cleanup, err := StartMockGRPCServerWithAddr(

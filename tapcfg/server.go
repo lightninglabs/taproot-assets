@@ -32,7 +32,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
-	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/clock"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -908,7 +907,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	serverCfg.SignalInterceptor = shutdownInterceptor
 
 	serverCfg.RPCConfig = &tapconfig.RPCConfig{
-		LisCfg:                     &lnd.ListenerCfg{},
+		LisCfg:                     &tapconfig.ListenerCfg{},
 		RPCListeners:               cfg.rpcListeners,
 		RESTListeners:              cfg.restListeners,
 		GrpcServerOpts:             serverOpts,

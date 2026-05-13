@@ -5,8 +5,8 @@ package commands
 import (
 	"fmt"
 
+	"github.com/lightninglabs/taproot-assets/internal/lncfg"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
-	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/urfave/cli"
 )
 
