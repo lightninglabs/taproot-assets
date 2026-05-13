@@ -102,6 +102,14 @@
   fixes inverted sort direction in `AssetRoots`, `AssetLeafKeys`, and
   `QueryEvents` universe RPCs.
 
+* [PR#2132](https://github.com/lightninglabs/taproot-assets/pull/2132)
+  fixes a chain porter failure mode where sweep parcels could become
+  stranded after `SendStateWaitTxConf` responded to the caller but a
+  later state failed. Recoverable post-delivery failures now requeue
+  pending parcels with backoff in-process, and sweeper-originated
+  channel transactions skip redundant porter broadcasts while still
+  importing local addresses.
+
 # New Features
 
 ## Functional Enhancements
