@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
 	prand "math/rand"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -480,6 +485,7 @@ func unmarshalMerkleSumNode(root *unirpc.MerkleSumNode) mssmt.Node {
 // testUniverseREST tests that we're able to properly query the universe state
 // via the REST interface.
 func testUniverseREST(t *harnessTest) {
+	ctx := context.Background()
 	miner := t.lndHarness.Miner()
 	// Mint a few assets that we then want to inspect in the universe.
 	rpcSimpleAssets := MintAssetsConfirmBatch(
@@ -525,6 +531,23 @@ func testUniverseREST(t *harnessTest) {
 		require.True(t.t, AssertUniverseRootEqual(
 			roots.UniverseRoots[uniIDStr], assetRoots.IssuanceRoot,
 		))
+
+		for variantName, encodedAssetID := range base64Variants(
+			simpleAsset.AssetGenesis.AssetId,
+		) {
+			queryURI := fmt.Sprintf(
+				"%s/roots/asset-id/%s", urlPrefix,
+				url.PathEscape(encodedAssetID),
+			)
+			assetRoots, err := getJSON[*unirpc.QueryRootResponse](
+				queryURI,
+			)
+			require.NoErrorf(t.t, err, "variant=%s", variantName)
+			expectedRoot := roots.UniverseRoots[uniIDStr]
+			require.True(t.t, AssertUniverseRootEqual(
+				expectedRoot, assetRoots.IssuanceRoot,
+			))
+		}
 	}
 
 	// Re-issuable assets are keyed by their group keys.
@@ -558,7 +581,126 @@ func testUniverseREST(t *harnessTest) {
 		require.True(t.t, AssertUniverseRootEqual(
 			uniRoot, assetRoot.IssuanceRoot,
 		))
+
+		for variantName, encodedGroupKey := range base64Variants(
+			groupKey[1:],
+		) {
+			queryURI := fmt.Sprintf(
+				"%s/roots/group-key/%s", urlPrefix,
+				url.PathEscape(encodedGroupKey),
+			)
+			assetRoot, err := getJSON[*unirpc.QueryRootResponse](
+				queryURI,
+			)
+			require.NoErrorf(t.t, err, "variant=%s", variantName)
+			require.True(t.t, AssertUniverseRootEqual(
+				uniRoot, assetRoot.IssuanceRoot,
+			))
+		}
 	}
+
+	// Verify mint batch key in the path accepts multiple base64 variants.
+	allBatches, err := t.tapd.ListBatches(ctx, &mintrpc.ListBatchRequest{})
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, allBatches.Batches)
+
+	batchKey := allBatches.Batches[0].Batch.BatchKey
+	batchKeyVariants := base64Variants(batchKey)
+	macPath := t.tapd.macPath
+	mintURLPrefix := fmt.Sprintf(
+		"https://%s/v1/taproot-assets/assets/mint/batches",
+		t.tapd.restListenAddr,
+	)
+	for variantName, encodedKey := range batchKeyVariants {
+		// Standard base64 may contain "/" which cannot be represented
+		// as a single path segment by all HTTP stacks.
+		if strings.Contains(encodedKey, "/") {
+			continue
+		}
+
+		listResp, err := getJSONWithMac[*mintrpc.ListBatchResponse](
+			fmt.Sprintf("%s/%s", mintURLPrefix,
+				url.PathEscape(encodedKey)),
+			macPath,
+		)
+		require.NoErrorf(t.t, err, "variant=%s", variantName)
+		require.Len(t.t, listResp.Batches, 1)
+		require.Equal(
+			t.t, batchKey, listResp.Batches[0].Batch.BatchKey,
+		)
+	}
+
+	// Verify query bytes fields accept all base64 variants as well.
+	assetID := rpcSimpleAssets[0].AssetGenesis.AssetId
+	groupKey := rpcIssuableAssets[0].AssetGroup.TweakedGroupKey
+
+	balancesURLPrefix := fmt.Sprintf(
+		"https://%s/v1/taproot-assets/assets/balance",
+		t.tapd.restListenAddr,
+	)
+	getBalances := func(queryURL string) (*taprpc.ListBalancesResponse,
+		error) {
+
+		return getJSONWithMac[*taprpc.ListBalancesResponse](
+			queryURL, macPath,
+		)
+	}
+
+	for variantName, encodedAssetID := range base64Variants(assetID) {
+		queryURL := fmt.Sprintf(
+			"%s?asset_id=true&asset_filter=%s",
+			balancesURLPrefix, url.QueryEscape(encodedAssetID),
+		)
+		balanceResp, err := getBalances(queryURL)
+		require.NoErrorf(t.t, err, "variant=%s", variantName)
+		require.Len(t.t, balanceResp.AssetBalances, 1)
+	}
+
+	for variantName, encodedGroupKey := range base64Variants(groupKey) {
+		queryURL := fmt.Sprintf(
+			"%s?group_key=true&group_key_filter=%s",
+			balancesURLPrefix, url.QueryEscape(encodedGroupKey),
+		)
+		balanceResp, err := getBalances(queryURL)
+		require.NoErrorf(t.t, err, "variant=%s", variantName)
+		require.Len(t.t, balanceResp.AssetGroupBalances, 1)
+	}
+
+	assetsURLPrefix := fmt.Sprintf(
+		"https://%s/v1/taproot-assets/assets", t.tapd.restListenAddr,
+	)
+	for variantName, encodedGroupKey := range base64Variants(groupKey) {
+		queryURL := fmt.Sprintf(
+			"%s?group_key=%s",
+			assetsURLPrefix, url.QueryEscape(encodedGroupKey),
+		)
+		assetsResp, err := getJSONWithMac[*taprpc.ListAssetResponse](
+			queryURL, macPath,
+		)
+		require.NoErrorf(t.t, err, "variant=%s", variantName)
+		require.NotEmpty(t.t, assetsResp.Assets)
+	}
+
+	// Invalid bytes must fail clearly instead of returning an empty set.
+	statusCode, err := getHTTPStatusWithMac(
+		fmt.Sprintf("%s/%s", mintURLPrefix, "***"), macPath,
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, http.StatusBadRequest, statusCode)
+
+	statusCode, err = getHTTPStatusWithMac(
+		fmt.Sprintf("%s?group_key=true&group_key_filter=%s",
+			balancesURLPrefix, url.QueryEscape("***")),
+		macPath,
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, http.StatusBadRequest, statusCode)
+
+	statusCode, err = getHTTPStatusWithMac(
+		fmt.Sprintf("%s/roots/asset-id/%s", urlPrefix, "***"), macPath,
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, http.StatusBadRequest, statusCode)
 }
 
 // getJSON retrieves the body of a given URL, ignoring any TLS certificate the
@@ -588,6 +730,87 @@ func getJSON[T proto.Message](url string) (T, error) {
 	}
 
 	return jsonResp.(T), nil
+}
+
+// getJSONWithMac retrieves JSON from a URL using macaroon auth.
+func getJSONWithMac[T proto.Message](url, macPath string) (T, error) {
+	var jsonType T
+	jsonResp := jsonType.ProtoReflect().New().Interface()
+
+	macaroonHex, err := readMacaroonHex(macPath)
+	if err != nil {
+		return jsonType, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return jsonType, err
+	}
+	req.Header.Set("Grpc-Metadata-Macaroon", macaroonHex)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return jsonType, err
+	}
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return jsonType, err
+	}
+
+	err = taprpc.RESTJsonUnmarshalOpts.Unmarshal(body, jsonResp)
+	if err != nil {
+		return jsonType, fmt.Errorf("failed to unmarshal %s: %w", body,
+			err)
+	}
+
+	return jsonResp.(T), nil
+}
+
+func getHTTPStatusWithMac(url, macPath string) (int, error) {
+	macaroonHex, err := readMacaroonHex(macPath)
+	if err != nil {
+		return 0, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Grpc-Metadata-Macaroon", macaroonHex)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	return resp.StatusCode, nil
+}
+
+func readMacaroonHex(macPath string) (string, error) {
+	macBytes, err := os.ReadFile(macPath)
+	if err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(macBytes), nil
+}
+
+func base64Variants(value []byte) map[string]string {
+	return map[string]string{
+		"std":     base64.StdEncoding.EncodeToString(value),
+		"url":     base64.URLEncoding.EncodeToString(value),
+		"raw_std": base64.RawStdEncoding.EncodeToString(value),
+		"raw_url": base64.RawURLEncoding.EncodeToString(value),
+	}
 }
 
 func testUniverseFederation(t *harnessTest) {

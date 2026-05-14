@@ -698,6 +698,9 @@ func startRestProxy(cfg *tapconfig.Config, rpcServer *rpcserver.RPCServer,
 	)
 	mux := proxy.NewServeMux(
 		customMarshalerOption,
+		proxy.SetQueryParameterParser(
+			rpcserver.NewRESTBytesQueryParser(),
+		),
 
 		// Don't allow falling back to other HTTP methods, we want exact
 		// matches only. The actual method to be used can be overwritten
@@ -730,8 +733,10 @@ func startRestProxy(cfg *tapconfig.Config, rpcServer *rpcserver.RPCServer,
 	}
 
 	// Wrap the default grpc-gateway handler with the WebSocket handler.
+	restGatewayHandler := rpcserver.NewRESTBytesNormalizer(mux)
 	restHandler := lnrpc.NewWebSocketProxy(
-		mux, rpcsLog, cfg.WSPingInterval, cfg.WSPongWait,
+		restGatewayHandler, rpcsLog, cfg.WSPingInterval,
+		cfg.WSPongWait,
 		nil,
 	)
 
