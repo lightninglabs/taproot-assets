@@ -1323,8 +1323,15 @@ func AssertNonInteractiveRecvComplete(t *testing.T,
 		resp, err := receiver.AddrReceives(
 			ctxt, &taprpc.AddrReceivesRequest{},
 		)
-		require.NoError(t, err)
-		require.Len(t, resp.Events, totalInboundTransfers)
+		if err != nil {
+			return fmt.Errorf(
+				"unable to query receive events: %w", err,
+			)
+		}
+		if len(resp.Events) != totalInboundTransfers {
+			return fmt.Errorf("got %d receive events, wanted %d",
+				len(resp.Events), totalInboundTransfers)
+		}
 
 		for _, event := range resp.Events {
 			if event.Status != statusCompleted {
@@ -1749,6 +1756,15 @@ func AssertUniverseRootEquality(t *testing.T,
 // by two daemons are either equal eventually.
 func AssertUniverseRootEqualityEventually(t *testing.T,
 	clientA, clientB unirpc.UniverseClient) {
+	AssertUniverseRootEqualityEventuallyWithTimeout(
+		t, clientA, clientB, defaultWaitTimeout,
+	)
+}
+
+// AssertUniverseRootEqualityEventuallyWithTimeout checks that universe roots
+// returned by two daemons are eventually equal within the given timeout.
+func AssertUniverseRootEqualityEventuallyWithTimeout(t *testing.T,
+	clientA, clientB unirpc.UniverseClient, timeout time.Duration) {
 
 	ctx := context.Background()
 
@@ -1767,7 +1783,7 @@ func AssertUniverseRootEqualityEventually(t *testing.T,
 		}
 
 		return nil
-	}, defaultWaitTimeout)
+	}, timeout)
 	require.NoError(t, err)
 }
 

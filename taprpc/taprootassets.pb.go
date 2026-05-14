@@ -842,10 +842,11 @@ type FetchAssetRequest struct {
 	IncludeUnconfirmedMints bool `protobuf:"varint,5,opt,name=include_unconfirmed_mints,json=includeUnconfirmedMints,proto3" json:"include_unconfirmed_mints,omitempty"`
 	// The script key type to filter the assets by. If not set, only assets with
 	// a BIP-0086 script key will be returned (which is the equivalent of
-	// setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). If the type
-	// is set to SCRIPT_KEY_BURN or SCRIPT_KEY_TOMBSTONE the include_spent flag
-	// will automatically be set to true, because assets of that type are always
-	// marked as spent.
+	// setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). The exception
+	// is when the query is by group key: then all script key types are
+	// considered by default. If the type is set to SCRIPT_KEY_BURN or
+	// SCRIPT_KEY_TOMBSTONE the include_spent flag will automatically be set to
+	// true, because assets of that type are always marked as spent.
 	ScriptKeyType *ScriptKeyTypeQuery `protobuf:"bytes,6,opt,name=script_key_type,json=scriptKeyType,proto3" json:"script_key_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1000,10 +1001,11 @@ type ListAssetRequest struct {
 	AnchorOutpoint *OutPoint `protobuf:"bytes,9,opt,name=anchor_outpoint,json=anchorOutpoint,proto3" json:"anchor_outpoint,omitempty"`
 	// The script key type to filter the assets by. If not set, only assets with
 	// a BIP-0086 script key will be returned (which is the equivalent of
-	// setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). If the type
-	// is set to SCRIPT_KEY_BURN or SCRIPT_KEY_TOMBSTONE the include_spent flag
-	// will automatically be set to true, because assets of that type are always
-	// marked as spent.
+	// setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). The exception
+	// is when group_key is set: then all script key types are considered by
+	// default. If the type is set to SCRIPT_KEY_BURN or
+	// SCRIPT_KEY_TOMBSTONE the include_spent flag will automatically be set to
+	// true, because assets of that type are always marked as spent.
 	ScriptKeyType *ScriptKeyTypeQuery `protobuf:"bytes,10,opt,name=script_key_type,json=scriptKeyType,proto3" json:"script_key_type,omitempty"`
 	// The number of assets to skip (for pagination).
 	Offset int32 `protobuf:"varint,11,opt,name=offset,proto3" json:"offset,omitempty"`
@@ -2801,10 +2803,11 @@ type ListBalancesRequest struct {
 	IncludeLeased bool `protobuf:"varint,5,opt,name=include_leased,json=includeLeased,proto3" json:"include_leased,omitempty"`
 	// The script key type to filter the assets by. If not set, only assets with
 	// a BIP-0086 script key will be returned (which is the equivalent of
-	// setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). If the type
-	// is set to SCRIPT_KEY_BURN or SCRIPT_KEY_TOMBSTONE the include_spent flag
-	// will automatically be set to true, because assets of that type are always
-	// marked as spent.
+	// setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). The exception
+	// is when grouping by group_key: then all script key types are considered
+	// by default. If the type is set to SCRIPT_KEY_BURN or SCRIPT_KEY_TOMBSTONE
+	// the include_spent flag will automatically be set to true, because assets
+	// of that type are always marked as spent.
 	ScriptKeyType *ScriptKeyTypeQuery `protobuf:"bytes,6,opt,name=script_key_type,json=scriptKeyType,proto3" json:"script_key_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

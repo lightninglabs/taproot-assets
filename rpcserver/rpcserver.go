@@ -1233,6 +1233,15 @@ func (r *RPCServer) ListAssets(ctx context.Context,
 		return nil, fmt.Errorf("unable to parse script key type "+
 			"query: %w", err)
 	}
+
+	// If a group key is set and no explicit script key type query is
+	// present, include all script key types. This keeps group-key list
+	// semantics aligned with group balances.
+	if len(req.GroupKey) > 0 &&
+		(req.ScriptKeyType == nil || req.ScriptKeyType.Type == nil) {
+
+		scriptKeyType = fn.None[asset.ScriptKeyType]()
+	}
 	filters.ScriptKeyType = scriptKeyType
 
 	// Filter unconfirmed mints at the SQL level: when not including
@@ -1318,6 +1327,15 @@ func (r *RPCServer) FetchAsset(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse script key type "+
 			"query: %w", err)
+	}
+
+	// If a group key is set and no explicit script key type query is
+	// present, include all script key types. This keeps group-key fetch
+	// semantics aligned with group balances.
+	if groupKey != nil &&
+		(req.ScriptKeyType == nil || req.ScriptKeyType.Type == nil) {
+
+		scriptKeyType = fn.None[asset.ScriptKeyType]()
 	}
 	filters.ScriptKeyType = scriptKeyType
 
@@ -1656,6 +1674,15 @@ func (r *RPCServer) ListBalances(ctx context.Context,
 	case *taprpc.ListBalancesRequest_GroupKey:
 		if !groupBy.GroupKey {
 			return nil, fmt.Errorf("invalid group_by")
+		}
+
+		// If the balance query is grouped by group key and no
+		// explicit script key type query is present, include all
+		// script key types.
+		// This keeps group-key balance semantics aligned with grouped
+		// asset listing/fetching.
+		if req.ScriptKeyType == nil || req.ScriptKeyType.Type == nil {
+			scriptKeyType = fn.None[asset.ScriptKeyType]()
 		}
 
 		var groupKey *btcec.PublicKey

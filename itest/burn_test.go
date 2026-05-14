@@ -532,6 +532,60 @@ func testBurnGroupedAssets(t *harnessTest) {
 	// Our asset balance should have been decreased by the burned amount.
 	AssertBalanceByID(t.t, t.tapd, burnAssetID2, postBurnAmt)
 
+	// Assert that querying assets by group key without specifying
+	// script_key_type returns all remaining group tranches.
+	groupBalances, err := t.tapd.ListBalances(
+		ctx, &taprpc.ListBalancesRequest{
+			GroupBy: &taprpc.ListBalancesRequest_GroupKey{
+				GroupKey: true,
+			},
+			GroupKeyFilter: assetGroupKey,
+		},
+	)
+	require.NoError(t.t, err)
+
+	groupBalance, ok := groupBalances.AssetGroupBalances[encodedGroupKey]
+	require.True(t.t, ok)
+
+	groupAssetsDefault, err := t.tapd.ListAssets(
+		ctx, &taprpc.ListAssetRequest{
+			GroupKey: assetGroupKey,
+		},
+	)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, groupAssetsDefault.Assets)
+
+	sumAssets := func(assets []*taprpc.Asset) uint64 {
+		var amountSum uint64
+		for _, rpcAsset := range assets {
+			amountSum += rpcAsset.Amount
+		}
+
+		return amountSum
+	}
+	require.Equal(
+		t.t, groupBalance.Balance,
+		sumAssets(groupAssetsDefault.Assets),
+	)
+
+	// Explicit script key filtering should continue to work unchanged.
+	groupAssetsBip86, err := t.tapd.ListAssets(
+		ctx, &taprpc.ListAssetRequest{
+			GroupKey: assetGroupKey,
+			ScriptKeyType: &taprpc.ScriptKeyTypeQuery{
+				Type: &taprpc.ScriptKeyTypeQuery_ExplicitType{
+					ExplicitType: taprpc.
+						ScriptKeyType_SCRIPT_KEY_BIP86,
+				},
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.LessOrEqual(
+		t.t, len(groupAssetsBip86.Assets),
+		len(groupAssetsDefault.Assets),
+	)
+
 	// Confirm that the minted asset group still contains two assets.
 	assetGroups, err = t.tapd.ListGroups(ctx, &taprpc.ListGroupsRequest{})
 	require.NoError(t.t, err)
