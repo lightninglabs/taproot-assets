@@ -268,7 +268,9 @@ func testCustomChannelsGroupTranchesForceClose(ctx context.Context,
 	// Now we'll mine a block to confirm Erin's sweep transaction. We use
 	// the txid from the mined block to avoid RBF mismatches.
 	erinSweepBlocks := mineBlocks(t, net, 1, 1)
-	erinSweepTxHash := erinSweepBlocks[0].Transactions[1].TxHash()
+	erinSweepTxHash := resolveMinedTransferTxid(
+		t.t, erin, erinSweepBlocks[0],
+	)
 
 	t.Logf("Erin sweep txid: %v", erinSweepTxHash)
 

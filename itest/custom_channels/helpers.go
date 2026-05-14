@@ -1384,7 +1384,11 @@ func waitForSendEvent(t *testing.T,
 
 	for {
 		sendEvent, err := sendEvents.Recv()
-		require.NoError(t, err)
+		if err != nil {
+			t.Logf("send event stream ended before state %v: %v",
+				expectedState, err)
+			return
+		}
 
 		if sendEvent.SendState == expectedState.String() {
 			return
@@ -1422,12 +1426,12 @@ func closeAssetChannelAndAssert(t *ccHarnessTest,
 	ctxt, cancel := context.WithTimeout(ctxb, wait.DefaultTimeout)
 	defer cancel()
 
-	closeStream, _, err := net.CloseChannel(local, chanPoint, false)
-	require.NoError(t.t, err)
-
 	sendEvents, err := local.SubscribeSendEvents(
 		ctxt, &taprpc.SubscribeSendEventsRequest{},
 	)
+	require.NoError(t.t, err)
+
+	closeStream, _, err := net.CloseChannel(local, chanPoint, false)
 	require.NoError(t.t, err)
 
 	assertWaitingCloseChannelAssetData(t.t, local, chanPoint)
@@ -2530,8 +2534,17 @@ func assertSpendableBalance(t *testing.T, client *itest.IntegratedNode,
 func locateAssetTransfers(t *testing.T, node *itest.IntegratedNode,
 	txid chainhash.Hash) *taprpc.AssetTransfer {
 
-	var transfer *taprpc.AssetTransfer
-	err := wait.NoError(func() error {
+	var (
+		transfer        *taprpc.AssetTransfer
+		lastErr         error
+		transferCount   int
+		blockHashSet    bool
+		blockHeight     uint32
+		blockHeightHint uint32
+		pollInterval    = 200 * time.Millisecond
+	)
+
+	require.Eventually(t, func() bool {
 		ctxb := context.Background()
 		forceCloseTransfer, err := node.ListTransfers(
 			ctxb, &taprpc.ListTransfersRequest{
@@ -2539,27 +2552,110 @@ func locateAssetTransfers(t *testing.T, node *itest.IntegratedNode,
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("unable to list %v transfers: %w",
+			lastErr = fmt.Errorf("unable to list %v transfers: %w",
 				node.Cfg.Name, err)
+			return false
 		}
-		if len(forceCloseTransfer.Transfers) != 1 {
-			return fmt.Errorf("%v is expecting %d transfers, "+
-				"has %d", node.Cfg.Name, 1,
-				len(forceCloseTransfer.Transfers))
+
+		transferCount = len(forceCloseTransfer.Transfers)
+		if transferCount != 1 {
+			lastErr = fmt.Errorf("%v expected %d transfers, got %d",
+				node.Cfg.Name, 1, transferCount)
+			return false
 		}
 
 		transfer = forceCloseTransfer.Transfers[0]
+		blockHashSet = transfer.AnchorTxBlockHash != nil
+		blockHeight = transfer.AnchorTxBlockHeight
+		blockHeightHint = transfer.AnchorTxHeightHint
 
-		if transfer.AnchorTxBlockHash == nil {
-			return fmt.Errorf("missing anchor block hash, " +
-				"transfer not confirmed")
+		// Anchor tx confirmation metadata is populated asynchronously.
+		if !blockHashSet || blockHeight == 0 || blockHeightHint == 0 {
+			lastErr = fmt.Errorf("transfer not confirmed yet")
+			return false
 		}
 
-		return nil
-	}, ccTransferTimeout)
-	require.NoError(t, err)
+		lastErr = nil
+		return true
+	}, ccTransferConfirmTimeout, pollInterval,
+		"failed to locate confirmed transfer for %v (node=%v): "+
+			"transfers=%d block_hash_set=%v block_height=%d "+
+			"height_hint=%d last_err=%v",
+		txid, node.Cfg.Name, transferCount, blockHashSet, blockHeight,
+		blockHeightHint, lastErr,
+	)
 
 	return transfer
+}
+
+// resolveMinedTransferTxid returns the transaction ID from a mined block that
+// is associated with an asset transfer for the given node.
+func resolveMinedTransferTxid(t *testing.T, node *itest.IntegratedNode,
+	block *wire.MsgBlock) chainhash.Hash {
+
+	t.Helper()
+
+	require.Greater(
+		t, len(block.Transactions), 1,
+		"expected at least one non-coinbase transaction in block",
+	)
+
+	candidateTxids := make([]chainhash.Hash, 0, len(block.Transactions)-1)
+	for i := 1; i < len(block.Transactions); i++ {
+		candidateTxids = append(
+			candidateTxids, block.Transactions[i].TxHash(),
+		)
+	}
+
+	var (
+		matchedTxid chainhash.Hash
+		matchCount  int
+		lastErr     error
+	)
+
+	require.Eventually(t, func() bool {
+		matchCount = 0
+		lastErr = nil
+
+		ctxb := context.Background()
+		for _, txid := range candidateTxids {
+			transfers, err := node.ListTransfers(
+				ctxb, &taprpc.ListTransfersRequest{
+					AnchorTxid: txid.String(),
+				},
+			)
+			if err != nil {
+				lastErr = fmt.Errorf(
+					"unable to list %v transfers: %w",
+					node.Cfg.Name, err,
+				)
+				return false
+			}
+
+			if len(transfers.Transfers) == 0 {
+				continue
+			}
+
+			matchedTxid = txid
+			matchCount++
+		}
+
+		if matchCount != 1 {
+			lastErr = fmt.Errorf(
+				"expected 1 matching transfer tx, got %d",
+				matchCount,
+			)
+			return false
+		}
+
+		return true
+	}, ccTransferConfirmTimeout, 200*time.Millisecond,
+		"failed to resolve transfer tx in mined block for %v: "+
+			"candidates=%v matches=%d last_err=%v",
+		node.Cfg.Name, candidateTxids, matchCount, lastErr,
+	)
+
+	return matchedTxid
 }
 
 // ---------------------------------------------------------------------------
@@ -3087,8 +3183,12 @@ func assertForceCloseSweeps(ctx context.Context,
 	// Wait for tapd to process the confirmed sweep transactions before
 	// checking balances. We extract the txid from the mined blocks rather
 	// than from the earlier mempool checks to avoid RBF mismatches.
-	bobSweepTxHash1 := bobSweepBlocks1[0].Transactions[1].TxHash()
-	bobSweepTxHash2 := bobSweepBlocks2[0].Transactions[1].TxHash()
+	bobSweepTxHash1 := resolveMinedTransferTxid(
+		t.t, bob, bobSweepBlocks1[0],
+	)
+	bobSweepTxHash2 := resolveMinedTransferTxid(
+		t.t, bob, bobSweepBlocks2[0],
+	)
 	locateAssetTransfers(t.t, bob, bobSweepTxHash1)
 	locateAssetTransfers(t.t, bob, bobSweepTxHash2)
 
@@ -3120,7 +3220,9 @@ func assertForceCloseSweeps(ctx context.Context,
 
 	// Wait for tapd to register the to-local sweep transfer. We use the
 	// txid from the mined block to avoid RBF mismatches.
-	aliceToLocalHash := aliceToLocalBlocks[0].Transactions[1].TxHash()
+	aliceToLocalHash := resolveMinedTransferTxid(
+		t.t, alice, aliceToLocalBlocks[0],
+	)
 	locateAssetTransfers(t.t, alice, aliceToLocalHash)
 
 	t.Logf("Confirming Alice's to-local sweep")
@@ -3169,7 +3271,7 @@ func assertForceCloseSweeps(ctx context.Context,
 	}
 
 	// Use the txid from the mined block to avoid RBF mismatches.
-	sweepTxHash := sweepBlocks[0].Transactions[1].TxHash()
+	sweepTxHash := resolveMinedTransferTxid(t.t, alice, sweepBlocks[0])
 	locateAssetTransfers(t.t, alice, sweepTxHash)
 
 	t.Logf("Confirming Alice's second level remote HTLC success sweep")
@@ -3203,7 +3305,7 @@ func assertForceCloseSweeps(ctx context.Context,
 		sweepBlocks = mineBlocks(t, net, 1, 1)
 	}
 
-	sweepTxHash = sweepBlocks[0].Transactions[1].TxHash()
+	sweepTxHash = resolveMinedTransferTxid(t.t, alice, sweepBlocks[0])
 	locateAssetTransfers(t.t, alice, sweepTxHash)
 
 	// With the sweep transaction confirmed, Alice's balance should have
@@ -3372,7 +3474,7 @@ func assertForceCloseSweeps(ctx context.Context,
 		sweepBlocks = mineBlocks(t, net, 1, 1)
 	}
 
-	sweepTxHash = sweepBlocks[0].Transactions[1].TxHash()
+	sweepTxHash = resolveMinedTransferTxid(t.t, alice, sweepBlocks[0])
 	locateAssetTransfers(t.t, alice, sweepTxHash)
 
 	return aliceExpectedBalance, bobExpectedBalance

@@ -24,11 +24,14 @@ var (
 
 	ccShortTimeout = time.Second * 10
 
-	// ccTransferTimeout is the timeout used when waiting for an asset
-	// transfer to appear as confirmed. On CI runners with multiple
+	// ccTransferTimeout is the timeout for transfer-related payment RPCs.
+	ccTransferTimeout = 2 * time.Minute
+
+	// ccTransferConfirmTimeout is the timeout used when waiting for an
+	// asset transfer to appear as confirmed. On CI runners with multiple
 	// parallel tranches, tapd block processing can be slow so we use a
 	// generous timeout.
-	ccTransferTimeout = 2 * time.Minute
+	ccTransferConfirmTimeout = 5 * time.Minute
 )
 
 // lndArgsTemplate contains lnd flags used by all custom channel test nodes.

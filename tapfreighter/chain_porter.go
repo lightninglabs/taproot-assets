@@ -36,6 +36,19 @@ const (
 	// we expect a send fragment to be valid for after its claimed outpoint
 	// has been spent. This is roughly equivalent to 90 days.
 	DefaultSendFragmentExpiryDelta = 12_960
+
+	// postDeliveryRetryBaseDelay is the initial backoff delay used when a
+	// parcel fails after we already returned the response to the caller.
+	postDeliveryRetryBaseDelay = time.Second
+
+	// postDeliveryRetryMaxDelay is the maximum retry delay used for
+	// recoverable post-delivery failures.
+	postDeliveryRetryMaxDelay = 30 * time.Second
+
+	// postDeliveryRetryMaxAttempts is the maximum number of retry
+	// attempts for recoverable post-delivery failures before the parcel is
+	// treated as permanently failed.
+	postDeliveryRetryMaxAttempts uint8 = 100
 )
 
 // VerifiedProofImporter is used to import verified proofs into the local proof
@@ -145,6 +158,13 @@ type ChainPorter struct {
 	// subscriberMtx guards the subscribers map.
 	subscriberMtx sync.Mutex
 
+	// postDeliveryRetryMtx guards postDeliveryRetryAttempts.
+	postDeliveryRetryMtx sync.Mutex
+
+	// postDeliveryRetryAttempts tracks retry attempts for recoverable
+	// post-delivery errors by anchor txid.
+	postDeliveryRetryAttempts map[chainhash.Hash]uint8
+
 	*fn.ContextGuard
 }
 
@@ -155,9 +175,10 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 		map[uint64]*fn.EventReceiver[fn.Event],
 	)
 	return &ChainPorter{
-		cfg:             cfg,
-		outboundParcels: make(chan Parcel),
-		subscribers:     subscribers,
+		cfg:                       cfg,
+		outboundParcels:           make(chan Parcel),
+		subscribers:               subscribers,
+		postDeliveryRetryAttempts: make(map[chainhash.Hash]uint8),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: tapgarden.DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -379,12 +400,28 @@ func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 		stateToExecute := pkg.SendState
 		updatedPkg, err := p.stateStep(*pkg)
 		if err != nil {
-			kit.errChan <- err
+			failedPkg := pkg
+			if updatedPkg != nil {
+				failedPkg = updatedPkg
+			}
+
+			isRecoverable := p.schedulePostDeliveryRetry(
+				failedPkg, stateToExecute, err,
+			)
+			if !isRecoverable {
+				p.clearPostDeliveryRetry(failedPkg)
+				p.reportParcelError(failedPkg, kit, err)
+			}
+
 			log.Errorf("Error evaluating state (%v): %v",
 				pkg.SendState, err)
 
+			sendEventPkg := *pkg
+			if failedPkg != nil {
+				sendEventPkg = *failedPkg
+			}
 			p.publishSubscriberEvent(newAssetSendErrorEvent(
-				err, stateToExecute, *pkg,
+				err, stateToExecute, sendEventPkg,
 			))
 
 			return
@@ -396,18 +433,166 @@ func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 			stateToExecute, *updatedPkg,
 		))
 
+		pkg = updatedPkg
+
 		// Exit the loop once the state machine has executed its final
 		// state.
-		if pkg.SendState == SendStateComplete {
+		if stateToExecute == SendStateComplete {
+			p.clearPostDeliveryRetry(pkg)
+
 			log.Infof("ChainPorter completed state machine for "+
 				"parcel (anchor_txid=%v)",
-				updatedPkg.OutboundPkg.AnchorTx.TxHash())
+				pkg.OutboundPkg.AnchorTx.TxHash())
 
 			return
 		}
-
-		pkg = updatedPkg
 	}
+}
+
+// reportParcelError attempts to report an error for a failed parcel.
+//
+// For caller-initiated parcels, this blocks to preserve the existing
+// synchronous error delivery behavior of RequestShipment. For background
+// parcels (such as resumed parcels), the send is non-blocking to prevent
+// goroutine stalls when there is no active listener.
+func (p *ChainPorter) reportParcelError(pkg *sendPackage, kit *parcelKit,
+	err error) {
+
+	if kit == nil || kit.errChan == nil {
+		return
+	}
+
+	if pkg != nil && pkg.Parcel != nil {
+		select {
+		case kit.errChan <- err:
+		case <-p.Quit:
+		}
+
+		return
+	}
+
+	select {
+	case kit.errChan <- err:
+	default:
+	}
+}
+
+// isRecoverablePostDeliveryState returns true if a state can be retried after
+// the caller has already received a response.
+func isRecoverablePostDeliveryState(state SendState) bool {
+	switch state {
+	case SendStateWaitTxConf:
+		fallthrough
+	case SendStateStorePostAnchorTxConf:
+		fallthrough
+	case SendStateTransferProofs:
+		return true
+
+	default:
+		return false
+	}
+}
+
+// nextPostDeliveryRetryDelay returns the next capped exponential backoff delay
+// for a post-delivery parcel retry.
+func nextPostDeliveryRetryDelay(attempt uint8) time.Duration {
+	delay := postDeliveryRetryBaseDelay
+
+	for i := uint8(0); i < attempt; i++ {
+		delay *= 2
+		if delay >= postDeliveryRetryMaxDelay {
+			return postDeliveryRetryMaxDelay
+		}
+	}
+
+	return delay
+}
+
+// schedulePostDeliveryRetry schedules a pending parcel retry when a recoverable
+// post-delivery state fails.
+func (p *ChainPorter) schedulePostDeliveryRetry(pkg *sendPackage,
+	failedState SendState, stateErr error) bool {
+
+	switch {
+	case !isRecoverablePostDeliveryState(failedState):
+		return false
+
+	case pkg == nil || pkg.OutboundPkg == nil:
+		return false
+
+	case pkg.OutboundPkg.AnchorTx == nil:
+		return false
+	}
+
+	anchorTxID := pkg.OutboundPkg.AnchorTx.TxHash()
+
+	p.postDeliveryRetryMtx.Lock()
+	attempt := p.postDeliveryRetryAttempts[anchorTxID]
+	if attempt >= postDeliveryRetryMaxAttempts {
+		delete(p.postDeliveryRetryAttempts, anchorTxID)
+		p.postDeliveryRetryMtx.Unlock()
+
+		log.Errorf("Recoverable send state failure exceeded retry "+
+			"limit, marking parcel as permanently failed "+
+			"(anchor_txid=%v, state=%v, max_retry_attempts=%d): %v",
+			anchorTxID, failedState, postDeliveryRetryMaxAttempts,
+			stateErr)
+
+		return false
+	}
+
+	nextAttempt := attempt + 1
+	p.postDeliveryRetryAttempts[anchorTxID] = nextAttempt
+	p.postDeliveryRetryMtx.Unlock()
+
+	delay := nextPostDeliveryRetryDelay(attempt)
+	log.Warnf(
+		"Recoverable send state failure, retrying pending parcel "+
+			"(anchor_txid=%v, state=%v, retry_attempt=%d, "+
+			"retry_delay=%v): %v",
+		anchorTxID, failedState, nextAttempt, delay, stateErr)
+
+	pendingParcel := NewPendingParcel(pkg.OutboundPkg)
+
+	go func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+			pendingRetry := Parcel(pendingParcel)
+			if !fn.SendOrQuit(
+				p.outboundParcels, pendingRetry, p.Quit,
+			) {
+
+				return
+			}
+
+			log.Warnf("Re-queued pending parcel after recoverable "+
+				"failure (anchor_txid=%v, retry_attempt=%d)",
+				anchorTxID, nextAttempt)
+
+		case <-p.Quit:
+			return
+		}
+	}()
+
+	return true
+}
+
+// clearPostDeliveryRetry removes any retry bookkeeping for a parcel.
+func (p *ChainPorter) clearPostDeliveryRetry(pkg *sendPackage) {
+	if pkg == nil || pkg.OutboundPkg == nil ||
+		pkg.OutboundPkg.AnchorTx == nil {
+
+		return
+	}
+
+	anchorTxID := pkg.OutboundPkg.AnchorTx.TxHash()
+
+	p.postDeliveryRetryMtx.Lock()
+	delete(p.postDeliveryRetryAttempts, anchorTxID)
+	p.postDeliveryRetryMtx.Unlock()
 }
 
 // waitForTransferTxConf waits for the confirmation of the final transaction
@@ -2022,6 +2207,17 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"disk: %w", err)
 		}
 
+		ctx, cancel = p.WithCtxQuitNoTimeout()
+		defer cancel()
+
+		err = p.importLocalAddresses(ctx, currentPkg.OutboundPkg)
+		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
+			return nil, fmt.Errorf("unable to import local "+
+				"addresses: %w", err)
+		}
+
 		// If skip flag is set—bypass anchor broadcast and advance to
 		// the confirmation wait state.
 		if currentPkg.OutboundPkg.SkipAnchorTxBroadcast {
@@ -2044,20 +2240,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		err := p.importLocalAddresses(ctx, currentPkg.OutboundPkg)
-		if err != nil {
-			p.unlockInputs(ctx, &currentPkg)
-
-			return nil, fmt.Errorf("unable to import local "+
-				"addresses: %w", err)
-		}
-
 		txHash := currentPkg.OutboundPkg.AnchorTx.TxHash()
 		log.Infof("Broadcasting new transfer tx, txid=%v", txHash)
 
 		// With the public key imported, we can now broadcast to the
 		// network.
-		err = p.cfg.ChainBridge.PublishTransaction(
+		err := p.cfg.ChainBridge.PublishTransaction(
 			ctx, currentPkg.OutboundPkg.AnchorTx, TransferTxLabel,
 		)
 		switch {
