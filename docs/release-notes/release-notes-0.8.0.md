@@ -102,6 +102,12 @@
   fixes inverted sort direction in `AssetRoots`, `AssetLeafKeys`, and
   `QueryEvents` universe RPCs.
 
+- [PR#2134](https://github.com/lightninglabs/taproot-assets/pull/2134)
+  Normalizes REST bytes fields across both path and query parsing so
+  `batch_key`, `asset_filter`, `group_key_filter`, and `group_key` now
+  accept standard/URL-safe base64 with or without padding. Invalid bytes
+  now return `400 Bad Request` instead of silently producing empty results.
+
 # New Features
 
 ## Functional Enhancements
