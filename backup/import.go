@@ -15,6 +15,8 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -633,6 +635,26 @@ func detectSpentOutpoints(ctx context.Context,
 					index: idx, spent: true,
 				}
 			case err := <-ec:
+				// Under load, the notifier can return
+				// deadline/cancel errors for unspent outpoints.
+				// Treat that as unspent unless our parent
+				// context is already canceled.
+				if isDeadlineOrCanceledErr(err) {
+					if detectCtx.Err() != nil {
+						results <- spendResult{
+							index: idx,
+							err:   detectCtx.Err(),
+						}
+					} else {
+						results <- spendResult{
+							index: idx,
+							spent: false,
+						}
+					}
+
+					return
+				}
+
 				results <- spendResult{
 					index: idx, err: err,
 				}
@@ -671,4 +693,17 @@ func detectSpentOutpoints(ctx context.Context,
 	}
 
 	return spent, nil
+}
+
+// isDeadlineOrCanceledErr returns true when an error indicates a timeout
+// or cancellation, including gRPC status errors.
+func isDeadlineOrCanceledErr(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, context.Canceled) {
+
+		return true
+	}
+
+	code := status.Code(err)
+	return code == codes.DeadlineExceeded || code == codes.Canceled
 }

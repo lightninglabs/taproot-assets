@@ -269,10 +269,11 @@ message FetchAssetRequest {
 
     // The script key type to filter the assets by. If not set, only assets with
     // a BIP-0086 script key will be returned (which is the equivalent of
-    // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). If the type
-    // is set to SCRIPT_KEY_BURN or SCRIPT_KEY_TOMBSTONE the include_spent flag
-    // will automatically be set to true, because assets of that type are always
-    // marked as spent.
+    // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). The exception
+    // is when the query is by group key: then all script key types are
+    // considered by default. If the type is set to SCRIPT_KEY_BURN or
+    // SCRIPT_KEY_TOMBSTONE the include_spent flag will automatically be set to
+    // true, because assets of that type are always marked as spent.
     ScriptKeyTypeQuery script_key_type = 6;
 }
 
@@ -321,10 +322,11 @@ message ListAssetRequest {
 
     // The script key type to filter the assets by. If not set, only assets with
     // a BIP-0086 script key will be returned (which is the equivalent of
-    // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). If the type
-    // is set to SCRIPT_KEY_BURN or SCRIPT_KEY_TOMBSTONE the include_spent flag
-    // will automatically be set to true, because assets of that type are always
-    // marked as spent.
+    // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). The exception
+    // is when group_key is set: then all script key types are considered by
+    // default. If the type is set to SCRIPT_KEY_BURN or
+    // SCRIPT_KEY_TOMBSTONE the include_spent flag will automatically be set to
+    // true, because assets of that type are always marked as spent.
     ScriptKeyTypeQuery script_key_type = 10;
 
     // The number of assets to skip (for pagination).
@@ -803,10 +805,11 @@ message ListBalancesRequest {
 
     // The script key type to filter the assets by. If not set, only assets with
     // a BIP-0086 script key will be returned (which is the equivalent of
-    // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). If the type
-    // is set to SCRIPT_KEY_BURN or SCRIPT_KEY_TOMBSTONE the include_spent flag
-    // will automatically be set to true, because assets of that type are always
-    // marked as spent.
+    // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). The exception
+    // is when grouping by group_key: then all script key types are considered
+    // by default. If the type is set to SCRIPT_KEY_BURN or SCRIPT_KEY_TOMBSTONE
+    // the include_spent flag will automatically be set to true, because assets
+    // of that type are always marked as spent.
     ScriptKeyTypeQuery script_key_type = 6;
 }
 

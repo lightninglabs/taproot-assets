@@ -102,6 +102,11 @@
   fixes inverted sort direction in `AssetRoots`, `AssetLeafKeys`, and
   `QueryEvents` universe RPCs.
 
+* [PR#2135](https://github.com/lightninglabs/taproot-assets/pull/2135)
+  aligns `ListAssets` and `FetchAsset` group-key filtering with
+  `ListBalances` when `script_key_type` is omitted, so grouped balances
+  and grouped asset listings no longer disagree by default.
+
 # New Features
 
 ## Functional Enhancements
