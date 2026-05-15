@@ -273,6 +273,15 @@ itest-cc: build-itest clean-cc-itest-logs
 	date
 	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" $(CC_TEST_FLAGS) -test.timeout=30m -logdir=regtest/.logs
 
+itest-cc-compat: build-itest clean-cc-itest-logs
+	@$(call print, "Running backward compatibility integration tests.")
+	date
+	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" -test.run=TestCustomChannelsCompat -test.timeout=60m -logdir=regtest/.logs
+
+build-compat-binary:
+	@$(call print, "Building compat binary for $(version).")
+	@scripts/build-compat-binary.sh $(version)
+
 itest-cc-parallel: build-itest build-itest-cc-binary clean-cc-itest-logs
 	@$(call print, "Running custom channel integration tests in parallel.")
 	date
@@ -444,6 +453,11 @@ gen-itest-test-vectors:
 	mv itest/testdata/*proof*.hex proof/testdata/
 
 gen-test-vectors: gen-deterministic-test-vectors gen-itest-test-vectors
+
+gen-compat-fixtures:
+	@$(call print, "Generating backward compatibility fixtures.")
+	make unit gen-test-vectors=true pkg=tapchannelmsg case=^TestGenerateCompatFixtures$
+	make unit gen-test-vectors=true pkg=rfqmsg case=^TestGenerateCompatFixtures$
 
 test-vector-check: gen-deterministic-test-vectors
 	@$(call print, "Checking deterministic test vectors.")

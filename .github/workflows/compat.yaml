@@ -1,0 +1,51 @@
+name: Backward Compatibility Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Historical version to test against (e.g. v0.8.0). Leave empty to test all configured versions.'
+        required: false
+        type: string
+  push:
+    branches:
+      - 'release/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GOPATH: /home/runner/go
+
+jobs:
+  compat-tests:
+    name: Compat Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed for git worktree builds.
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Cache compat binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.tapd-compat-bins
+          key: compat-bins-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build current integrated binary
+        run: make build-itest
+
+      - name: Run backward compatibility tests
+        run: make itest-cc-compat
