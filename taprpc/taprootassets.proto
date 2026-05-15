@@ -827,6 +827,15 @@ message AssetGroupBalance {
 
     // The total balance of the assets in the group.
     uint64 balance = 2;
+
+    // The genesis info of a representative issuance in the group. For fungible
+    // assets, all tranches share the same name and type, so this provides the
+    // canonical metadata for the group.
+    GenesisInfo asset_genesis = 3;
+
+    // The decimal display value for the asset group, extracted from the
+    // representative issuance's metadata.
+    DecimalDisplay decimal_display = 4;
 }
 
 message ListBalancesResponse {

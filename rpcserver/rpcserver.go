@@ -27,6 +27,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -1483,11 +1484,45 @@ func (r *RPCServer) listBalancesByGroupKey(ctx context.Context,
 			groupKey = balance.GroupKey.SerializeCompressed()
 		}
 
-		groupKeyString := hex.EncodeToString(groupKey)
-		resp.AssetGroupBalances[groupKeyString] = &taprpc.AssetGroupBalance{
-			GroupKey: groupKey,
-			Balance:  balance.Balance,
+		// Create the genesis info for the representative issuance.
+		genesisInfo := &taprpc.GenesisInfo{
+			GenesisPoint: balance.GenesisPoint.String(),
+			AssetType:    taprpc.AssetType(balance.Type),
+			Name:         balance.Tag,
+			MetaHash:     balance.MetaHash[:],
+			AssetId:      balance.ID[:],
+			OutputIndex:  balance.OutputIndex,
 		}
+
+		groupKeyString := hex.EncodeToString(groupKey)
+		groupBalance := &taprpc.AssetGroupBalance{
+			GroupKey:     groupKey,
+			Balance:      balance.Balance,
+			AssetGenesis: genesisInfo,
+		}
+
+		// Fetch the decimal display for this asset ID. We don't fail
+		// the request if this lookup fails since decimal display is
+		// optional metadata.
+		decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(
+			ctx, balance.ID,
+		)
+		if err == nil {
+			groupBalance.DecimalDisplay = fn.MapOptionZ(
+				decDisplay,
+				func(d uint32) *taprpc.DecimalDisplay {
+					return &taprpc.DecimalDisplay{
+						DecimalDisplay: d,
+					}
+				},
+			)
+		} else {
+			rpcsLog.DebugS(ctx, "Failed to fetch decimal display",
+				btclog.Fmt("asset_id", "%x", balance.ID[:]),
+				"error", err)
+		}
+
+		resp.AssetGroupBalances[groupKeyString] = groupBalance
 	}
 
 	// We will also report the number of unconfirmed transfers. This is
