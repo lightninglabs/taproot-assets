@@ -491,3 +491,8 @@
 - [PR#2056](https://github.com/lightninglabs/taproot-assets/pull/2056)
   expands the example portfolio pilot with constraint enforcement,
   configurable fill caps, and live CoinGecko pricing.
+
+- [PR#2138](https://github.com/lightninglabs/taproot-assets/pull/2138)
+  Fix `tapcli:` annotations on `QueryAssetStats` and `QueryEvents` so generated
+  OpenAPI summaries match other RPCs and the public API docs list the correct
+  `tapcli universe stats assets` and `tapcli universe stats events` commands.
