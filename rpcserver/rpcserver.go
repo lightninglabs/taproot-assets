@@ -1032,27 +1032,37 @@ func (r *RPCServer) ListBatches(_ context.Context,
 		err      error
 	)
 
-	switch {
-	case len(req.GetBatchKey()) > 0 && len(req.GetBatchKeyStr()) > 0:
-		return nil, fmt.Errorf("cannot specify both batch_key and " +
-			"batch_key_string")
+	switch filter := req.GetFilter().(type) {
+	// No filter specified.
+	case nil:
 
-	case len(req.GetBatchKey()) > 0:
-		batchKey, err = btcec.ParsePubKey(req.GetBatchKey())
-		if err != nil {
-			return nil, fmt.Errorf("invalid batch key: %w", err)
+	case *mintrpc.ListBatchRequest_BatchKey:
+		// Legacy clients (e.g. tapcli) set this oneof with nil or empty
+		// bytes to mean "list all"; treat that like an unset filter.
+		if len(filter.BatchKey) == 0 {
+			break
 		}
 
-	case len(req.GetBatchKeyStr()) > 0:
-		batchKeyBytes, err := hex.DecodeString(req.GetBatchKeyStr())
+		batchKey, err = btcec.ParsePubKey(filter.BatchKey)
 		if err != nil {
-			return nil, fmt.Errorf("invalid batch key string: %w",
-				err)
+			return nil, fmt.Errorf("invalid batch_key: %w", err)
+		}
+
+	case *mintrpc.ListBatchRequest_BatchKeyStr:
+		// Same as BatchKey: empty means list all for backward
+		// compatibility with callers that always set the oneof arm.
+		if filter.BatchKeyStr == "" {
+			break
+		}
+
+		batchKeyBytes, err := hex.DecodeString(filter.BatchKeyStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid batch_key: %w", err)
 		}
 
 		batchKey, err = btcec.ParsePubKey(batchKeyBytes)
 		if err != nil {
-			return nil, fmt.Errorf("invalid batch key: %w", err)
+			return nil, fmt.Errorf("invalid batch_key: %w", err)
 		}
 	}
 
