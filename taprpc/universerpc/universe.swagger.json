@@ -1360,7 +1360,7 @@
     },
     "/v1/taproot-assets/universe/stats/assets": {
       "get": {
-        "summary": "tapcli `universe stats assets`\nQueryAssetStats returns a set of statistics for a given set of assets.\nStats can be queried for all assets, or based on the: asset ID, name, or\nasset type. Pagination is supported via the offset and limit params.\nResults can also be sorted based on any of the main query params.",
+        "summary": "tapcli: `universe stats assets`\nQueryAssetStats returns a set of statistics for a given set of assets.\nStats can be queried for all assets, or based on the: asset ID, name, or\nasset type. Pagination is supported via the offset and limit params.\nResults can also be sorted based on any of the main query params.",
         "operationId": "Universe_QueryAssetStats",
         "responses": {
           "200": {
@@ -1459,7 +1459,7 @@
     },
     "/v1/taproot-assets/universe/stats/events": {
       "get": {
-        "summary": "tapcli `universe stats events`\nQueryEvents returns the number of sync and proof events for a given time\nperiod, grouped by day.",
+        "summary": "tapcli: `universe stats events`\nQueryEvents returns the number of sync and proof events for a given time\nperiod, grouped by day.",
         "operationId": "Universe_QueryEvents",
         "responses": {
           "200": {
