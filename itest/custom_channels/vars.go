@@ -28,7 +28,7 @@ var (
 	// transfer to appear as confirmed. On CI runners with multiple
 	// parallel tranches, tapd block processing can be slow so we use a
 	// generous timeout.
-	ccTransferTimeout = 2 * time.Minute
+	ccTransferTimeout = 3 * time.Minute
 )
 
 // lndArgsTemplate contains lnd flags used by all custom channel test nodes.

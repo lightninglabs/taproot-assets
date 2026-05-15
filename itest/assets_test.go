@@ -4,9 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
+	"encoding/hex"
+	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"slices"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -224,6 +230,103 @@ func testMintBatchResume(t *harnessTest) {
 	AssertAssetsMinted(
 		t.t, t.tapd, simpleAssets, mintTXID, blockHash,
 	)
+}
+
+// testMintListBatchesRESTBatchKeyEncoding tests that the mint batches REST
+// endpoint rejects malformed path batch keys with a client error.
+func testMintListBatchesRESTBatchKeyEncoding(t *harnessTest) {
+	ctx := context.Background()
+
+	BuildMintingBatch(t.t, t.tapd, simpleAssets)
+
+	batchResp, err := t.tapd.ListBatches(ctx, &mintrpc.ListBatchRequest{})
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, batchResp.Batches)
+
+	batchKey := batchResp.Batches[0].Batch.BatchKey
+	require.NotEmpty(t.t, batchKey)
+	macaroonBytes, err := os.ReadFile(t.tapd.macPath)
+	require.NoError(t.t, err)
+
+	macaroonHex := hex.EncodeToString(macaroonBytes)
+
+	urlPrefix := "https://" + t.tapd.restListenAddr +
+		"/v1/taproot-assets/assets/mint/batches"
+
+	testCases := []struct {
+		name       string
+		batchKey   string
+		statusCode []int
+	}{
+		{
+			name:       "valid_hex",
+			batchKey:   hex.EncodeToString(batchKey),
+			statusCode: []int{http.StatusOK},
+		},
+		{
+			name: "invalid_std_base64_padded",
+			batchKey: base64.StdEncoding.EncodeToString(
+				batchKey,
+			),
+			statusCode: []int{
+				http.StatusBadRequest, http.StatusNotFound,
+			},
+		},
+		{
+			name: "invalid_url_base64_padded",
+			batchKey: base64.URLEncoding.EncodeToString(
+				batchKey,
+			),
+			statusCode: []int{http.StatusBadRequest},
+		},
+		{
+			name: "invalid_url_base64_raw",
+			batchKey: base64.RawURLEncoding.EncodeToString(
+				batchKey,
+			),
+			statusCode: []int{http.StatusBadRequest},
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.t.Run(testCase.name, func(tt *testing.T) {
+			escapedBatchKey := url.PathEscape(testCase.batchKey)
+			reqURL := urlPrefix + "/" + escapedBatchKey
+			req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+			require.NoError(tt, err)
+
+			req.Header.Set("Grpc-Metadata-macaroon", macaroonHex)
+
+			resp, err := client.Do(req)
+			require.NoError(tt, err)
+			tt.Cleanup(func() {
+				_ = resp.Body.Close()
+			})
+
+			require.Contains(
+				tt, testCase.statusCode, resp.StatusCode,
+			)
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(tt, err)
+
+			if resp.StatusCode == http.StatusOK {
+				require.Contains(
+					tt, string(body), "\"batches\"",
+				)
+				return
+			}
+
+			if resp.StatusCode == http.StatusNotFound {
+				require.Contains(tt, string(body), "Not Found")
+				return
+			}
+
+			require.Contains(tt, string(body), "invalid batch_key")
+		})
+	}
 }
 
 // transferAssetProofs locates and exports the proof files for all given assets

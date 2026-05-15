@@ -102,6 +102,12 @@
   fixes inverted sort direction in `AssetRoots`, `AssetLeafKeys`, and
   `QueryEvents` universe RPCs.
 
+* [PR#2137](https://github.com/lightninglabs/taproot-assets/pull/2137)
+  fixes `ListBatches` REST `batch_key` handling so malformed path values
+  no longer silently return empty results. The endpoint now uses
+  `batch_key_str` in the REST path and returns `InvalidArgument` for
+  malformed or empty batch keys.
+
 # New Features
 
 ## Functional Enhancements
