@@ -3,6 +3,7 @@ package rfq
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -689,6 +690,146 @@ func TestComputeChannelAssetBlanace(t *testing.T) {
 			break
 		}
 	}
+}
+
+// fetchChannelListStub implements ChannelLister for FetchChannel tests. It
+// returns activeReply when activeOnly is true and allReply otherwise.
+type fetchChannelListStub struct {
+	activeReply []lndclient.ChannelInfo
+	allReply    []lndclient.ChannelInfo
+}
+
+// ListChannels returns preset channel slices based on activeOnly.
+func (f *fetchChannelListStub) ListChannels(_ context.Context,
+	activeOnly, _ bool, _ ...lndclient.ListChannelsOption) (
+	[]lndclient.ChannelInfo, error) {
+
+	if activeOnly {
+		return f.activeReply, nil
+	}
+
+	return f.allReply, nil
+}
+
+// TestFetchChannelPeerOfflineError checks FetchChannel peer filtering errors:
+// inactive matching channels get an explicit message; otherwise the legacy
+// text is kept.
+func TestFetchChannelPeerOfflineError(t *testing.T) {
+	t.Parallel()
+
+	peer2Active := createChannelWithCustomData(
+		t, testAssetID1, 10_000, 15_000, proof1, peer2,
+	)
+	peer2Active.Active = true
+
+	peer1InactiveMatch := createChannelWithCustomData(
+		t, testAssetID1, 10_000, 15_000, proof1, peer1,
+	)
+
+	peer1InactiveOtherAsset := createChannelWithCustomData(
+		t, testAssetID2, 10_000, 15_000, proof2, peer1,
+	)
+
+	specifier := asset.NewSpecifierFromId(testAssetID1)
+
+	testCases := []struct {
+		name        string
+		activeReply []lndclient.ChannelInfo
+		allReply    []lndclient.ChannelInfo
+		peer        route.Vertex
+		wantContain string
+		wantIsFB    bool
+	}{
+		{
+			name:        "inactive matching peer",
+			activeReply: []lndclient.ChannelInfo{peer2Active},
+			allReply: []lndclient.ChannelInfo{
+				peer2Active, peer1InactiveMatch,
+			},
+			peer:        peer1,
+			wantContain: "not usable for RFQ",
+			wantIsFB:    true,
+		},
+		{
+			name:        "inactive peer wrong asset",
+			activeReply: []lndclient.ChannelInfo{peer2Active},
+			allReply: []lndclient.ChannelInfo{
+				peer2Active, peer1InactiveOtherAsset,
+			},
+			peer:        peer1,
+			wantContain: "no asset channels found for",
+			wantIsFB:    false,
+		},
+		{
+			name:        "no inactive channel for peer",
+			activeReply: []lndclient.ChannelInfo{peer2Active},
+			allReply:    []lndclient.ChannelInfo{peer2Active},
+			peer:        peer1,
+			wantContain: "no asset channels found for",
+			wantIsFB:    false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := ManagerCfg{
+				GroupLookup: &GroupLookupMock{},
+				PolicyStore: mockPolicyStore{},
+				ChannelLister: &fetchChannelListStub{
+					activeReply: tc.activeReply,
+					allReply:    tc.allReply,
+				},
+			}
+			manager, err := NewManager(cfg)
+			require.NoError(t, err)
+
+			ctx, cancel := context.WithTimeout(
+				context.Background(), DefaultTimeout,
+			)
+			defer cancel()
+
+			peer := tc.peer
+			_, err = manager.FetchChannel(
+				ctx, specifier, &peer, SendIntention,
+			)
+			require.Error(t, err)
+			require.ErrorContains(t, err, tc.wantContain)
+			gotFB := errors.Is(
+				err, errFetchChannelFallbackSpecifier,
+			)
+			require.Equal(t, tc.wantIsFB, gotFB)
+		})
+	}
+}
+
+// TestFetchChannelNoActiveBalanceIsFallbackSpecifier asserts empty active
+// balance errors wrap errFetchChannelFallbackSpecifier for addScidAlias.
+func TestFetchChannelNoActiveBalanceIsFallbackSpecifier(t *testing.T) {
+	t.Parallel()
+
+	cfg := ManagerCfg{
+		GroupLookup: &GroupLookupMock{},
+		PolicyStore: mockPolicyStore{},
+		ChannelLister: &fetchChannelListStub{
+			activeReply: nil,
+			allReply:    nil,
+		},
+	}
+	manager, err := NewManager(cfg)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(), DefaultTimeout,
+	)
+	defer cancel()
+
+	specifier := asset.NewSpecifierFromId(testAssetID1)
+	_, err = manager.FetchChannel(ctx, specifier, nil, NoIntention)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "no asset channel balance found")
+	require.True(t, errors.Is(err, errFetchChannelFallbackSpecifier))
 }
 
 // pubKeyFromUint64 is a helper function that generates a public key from a
