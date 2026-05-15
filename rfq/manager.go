@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +44,11 @@ const (
 	// in-memory LRU cache used by LookUpScid.
 	scidCacheSize = 5120
 )
+
+// errFetchChannelFallbackSpecifier marks FetchChannel failures where the
+// caller requested an asset match on active channels but none qualify.
+// Callers such as addScidAlias may retry with an empty asset specifier.
+var errFetchChannelFallbackSpecifier = errors.New("no active match")
 
 // ChannelLister is an interface that provides a list of channels that are
 // available for routing.
@@ -630,10 +634,7 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 	peerChans, err := m.FetchChannel(
 		ctxb, assetSpecifier, &peer, NoIntention,
 	)
-	if err != nil && !strings.Contains(
-		err.Error(), "no asset channel balance found for",
-	) {
-
+	if err != nil && !errors.Is(err, errFetchChannelFallbackSpecifier) {
 		return err
 	}
 
@@ -1229,8 +1230,8 @@ func (m *Manager) FetchChannel(ctx context.Context, specifier asset.Specifier,
 	}
 
 	if len(balancesMap) == 0 {
-		return nil, fmt.Errorf("no asset channel balance found for %s",
-			&specifier)
+		return nil, fmt.Errorf("no asset channel balance found for "+
+			"%s: %w", &specifier, errFetchChannelFallbackSpecifier)
 	}
 
 	switch intention {
@@ -1266,6 +1267,43 @@ func (m *Manager) FetchChannel(ctx context.Context, specifier asset.Specifier,
 	if peerPubKey != nil {
 		_, ok := balancesMap[*peerPubKey]
 		if !ok {
+			// If we couldn't find an active channel for the peer,
+			// we'll check if there are any inactive channels that
+			// match the asset specifier. This allows us to provide
+			// a more descriptive error message to the user.
+			allChannels, err := m.cfg.ChannelLister.ListChannels(
+				ctx, false, false,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			var peerChannels []lndclient.ChannelInfo
+			for _, channel := range allChannels {
+				if channel.PubKeyBytes == *peerPubKey {
+					peerChannels = append(
+						peerChannels, channel,
+					)
+				}
+			}
+
+			peerAllMap, _, err := m.ComputeChannelAssetBalance(
+				ctx, peerChannels, specifier,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error computing "+
+					"peer channel balances: %w", err)
+			}
+
+			if len(peerAllMap[*peerPubKey]) > 0 {
+				return nil, fmt.Errorf("no active asset "+
+					"channel for %s and peer=%s: "+
+					"matching channel(s) are inactive "+
+					"(peer offline or not usable for "+
+					"RFQ): %w", &specifier, peerPubKey,
+					errFetchChannelFallbackSpecifier)
+			}
+
 			return nil, fmt.Errorf("no asset channels found for "+
 				"%s and peer=%s", &specifier, peerPubKey)
 		}
