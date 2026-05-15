@@ -116,6 +116,10 @@ const (
 	// encoded as hop hints in a bolt11 invoice.
 	maxRfqHopHints = 20
 
+	// maxSendSatPerVByte is the highest sat/vB value that can be converted
+	// to sat/kw without overflowing the internal signed fee representation.
+	maxSendSatPerVByte = uint64(math.MaxInt64 / 1000)
+
 	// multiRfqNegotiationTimeout is the timeout within which we expect our
 	// peer and our node to reach an agreement over a quote. This timeout
 	// is a bit shorter in the context of multi-RFQ in order to not block
@@ -830,6 +834,24 @@ func checkFeeRateSanity(ctx context.Context, rpcFeeRate chainfee.SatPerKWeight,
 	default:
 		return fn.Ptr(chainfee.SatPerKWeight(rpcFeeRate)), nil
 	}
+}
+
+// parseSendFeeRate parses the legacy sat/kw fee field or the preferred
+// sat_per_vbyte field from a SendAssetRequest.
+func parseSendFeeRate(req *taprpc.SendAssetRequest) (chainfee.SatPerKWeight,
+	error) {
+
+	if req.SatPerVbyte == 0 {
+		return chainfee.SatPerKWeight(req.FeeRate), nil
+	}
+
+	if req.SatPerVbyte > maxSendSatPerVByte {
+		return 0, fmt.Errorf("manual fee rate exceeds maximum: "+
+			"(sat_per_vbyte=%d, max=%d)", req.SatPerVbyte,
+			maxSendSatPerVByte)
+	}
+
+	return chainfee.SatPerVByte(req.SatPerVbyte).FeePerKWeight(), nil
 }
 
 // FundBatch attempts to fund the current pending batch.
@@ -3798,8 +3820,12 @@ func (r *RPCServer) SendAsset(ctx context.Context,
 		return nil, fmt.Errorf("error parsing addresses: %w", err)
 	}
 
+	manualFeeRate, err := parseSendFeeRate(req)
+	if err != nil {
+		return nil, err
+	}
 	feeRate, err := checkFeeRateSanity(
-		ctx, chainfee.SatPerKWeight(req.FeeRate), r.cfg.Lnd.WalletKit,
+		ctx, manualFeeRate, r.cfg.Lnd.WalletKit,
 	)
 	if err != nil {
 		return nil, err

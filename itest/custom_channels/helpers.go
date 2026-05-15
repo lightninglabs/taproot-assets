@@ -920,7 +920,8 @@ func assertPendingChannelAssetData(t *testing.T, node *itest.IntegratedNode,
 		)
 		if err != nil {
 			return fmt.Errorf("error unmarshalling custom channel "+
-				"data: %v", err)
+				"data: %v", err,
+			)
 		}
 
 		if len(closeData.FundingAssets) == 0 {

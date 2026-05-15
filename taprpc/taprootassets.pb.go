@@ -5708,7 +5708,10 @@ type SendAssetRequest struct {
 	// exclusive, meaning that if addresses_with_amounts is set, then tap_addrs
 	// must be empty, and vice versa.
 	TapAddrs []string `protobuf:"bytes,1,rep,name=tap_addrs,json=tapAddrs,proto3" json:"tap_addrs,omitempty"`
-	// The optional fee rate to use for the minting transaction, in sat/kw.
+	// Deprecated: Use sat_per_vbyte instead.
+	// The optional fee rate to use for the anchor transaction, in sat/kw.
+	//
+	// Deprecated: Marked as deprecated in taprootassets.proto.
 	FeeRate uint32 `protobuf:"varint,2,opt,name=fee_rate,json=feeRate,proto3" json:"fee_rate,omitempty"`
 	// An optional short label for the send transfer. This label can be used to
 	// track the progress of the transfer via the logs or an event subscription.
@@ -5725,8 +5728,10 @@ type SendAssetRequest struct {
 	// meaning that if addresses_with_amounts is set, then tap_addrs must be
 	// empty, and vice versa.
 	AddressesWithAmounts []*AddressWithAmount `protobuf:"bytes,5,rep,name=addresses_with_amounts,json=addressesWithAmounts,proto3" json:"addresses_with_amounts,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// The optional fee rate to use for the anchor transaction, in sat/vB.
+	SatPerVbyte   uint64 `protobuf:"varint,8,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SendAssetRequest) Reset() {
@@ -5766,6 +5771,7 @@ func (x *SendAssetRequest) GetTapAddrs() []string {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in taprootassets.proto.
 func (x *SendAssetRequest) GetFeeRate() uint32 {
 	if x != nil {
 		return x.FeeRate
@@ -5792,6 +5798,13 @@ func (x *SendAssetRequest) GetAddressesWithAmounts() []*AddressWithAmount {
 		return x.AddressesWithAmounts
 	}
 	return nil
+}
+
+func (x *SendAssetRequest) GetSatPerVbyte() uint64 {
+	if x != nil {
+		return x.SatPerVbyte
+	}
+	return 0
 }
 
 type AddressWithAmount struct {
@@ -7877,13 +7890,14 @@ const file_taprootassets_proto_rawDesc = "" +
 	"\x05limit\x18\x06 \x01(\x05R\x05limit\x123\n" +
 	"\tdirection\x18\a \x01(\x0e2\x15.taprpc.SortDirectionR\tdirection\"A\n" +
 	"\x14AddrReceivesResponse\x12)\n" +
-	"\x06events\x18\x01 \x03(\v2\x11.taprpc.AddrEventR\x06events\"\xf3\x01\n" +
+	"\x06events\x18\x01 \x03(\v2\x11.taprpc.AddrEventR\x06events\"\x9b\x02\n" +
 	"\x10SendAssetRequest\x12\x1b\n" +
-	"\ttap_addrs\x18\x01 \x03(\tR\btapAddrs\x12\x19\n" +
-	"\bfee_rate\x18\x02 \x01(\rR\afeeRate\x12\x14\n" +
+	"\ttap_addrs\x18\x01 \x03(\tR\btapAddrs\x12\x1d\n" +
+	"\bfee_rate\x18\x02 \x01(\rB\x02\x18\x01R\afeeRate\x12\x14\n" +
 	"\x05label\x18\x03 \x01(\tR\x05label\x12@\n" +
 	"\x1dskip_proof_courier_ping_check\x18\x04 \x01(\bR\x19skipProofCourierPingCheck\x12O\n" +
-	"\x16addresses_with_amounts\x18\x05 \x03(\v2\x19.taprpc.AddressWithAmountR\x14addressesWithAmounts\"F\n" +
+	"\x16addresses_with_amounts\x18\x05 \x03(\v2\x19.taprpc.AddressWithAmountR\x14addressesWithAmounts\x12\"\n" +
+	"\rsat_per_vbyte\x18\b \x01(\x04R\vsatPerVbyte\"F\n" +
 	"\x11AddressWithAmount\x12\x19\n" +
 	"\btap_addr\x18\x01 \x01(\tR\atapAddr\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\x04R\x06amount\"\x85\x01\n" +
