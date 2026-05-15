@@ -1456,6 +1456,120 @@ func closeAssetChannelAndAssert(t *ccHarnessTest,
 	assertClosedChannelAssetData(t.t, remote, chanPoint)
 }
 
+// closeAssetChannelWithFeeAndAssert closes an asset channel at the given fee
+// rate and asserts the final balances.
+func closeAssetChannelWithFeeAndAssert(t *ccHarnessTest,
+	net *itest.IntegratedNetworkHarness,
+	local, remote *itest.IntegratedNode,
+	chanPoint *lnrpc.ChannelPoint, feeRateSatPerVbyte uint64,
+	assetIDs [][]byte, groupKey []byte,
+	universeTap *itest.IntegratedNode,
+	balanceCheck coOpCloseBalanceCheck) {
+
+	t.t.Helper()
+
+	// Ensure the two parties are connected before attempting the close.
+	// Channel closes after other close operations can sometimes race with
+	// peer disconnection, causing "peer is offline" errors.
+	net.EnsureConnected(t.t, local, remote)
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, wait.DefaultTimeout)
+	defer cancel()
+
+	closeReq := &lnrpc.CloseChannelRequest{
+		ChannelPoint: chanPoint,
+		SatPerVbyte:  feeRateSatPerVbyte,
+	}
+	closeStream, err := local.CloseChannel(ctxb, closeReq)
+	require.NoError(t.t, err)
+
+	err = waitForClosePendingUpdate(t, net, closeStream)
+	require.NoError(t.t, err)
+
+	sendEvents, err := local.SubscribeSendEvents(
+		ctxt, &taprpc.SubscribeSendEventsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	assertWaitingCloseChannelAssetData(t.t, local, chanPoint)
+	assertWaitingCloseChannelAssetData(t.t, remote, chanPoint)
+
+	mineBlocks(t, net, 1, 1)
+
+	closeUpdate, err := net.WaitForChannelClose(closeStream)
+	require.NoError(t.t, err)
+
+	closeTxid, err := chainhash.NewHash(closeUpdate.ClosingTxid)
+	require.NoError(t.t, err)
+
+	closeTransaction := net.Miner.GetRawTransaction(*closeTxid)
+	closeTx := closeTransaction.MsgTx()
+	t.Logf("Channel closed with txid: %v", closeTxid)
+
+	waitForSendEvent(t.t, sendEvents, tapfreighter.SendStateComplete)
+
+	balanceCheck(
+		t.t, local, remote, closeTx, closeUpdate, assetIDs, groupKey,
+		universeTap,
+	)
+
+	assertClosedChannelAssetData(t.t, local, chanPoint)
+	assertClosedChannelAssetData(t.t, remote, chanPoint)
+}
+
+// waitForClosePendingUpdate waits for the first close pending update on the
+// close stream and ensures that the close transaction reaches the mempool.
+func waitForClosePendingUpdate(t *ccHarnessTest,
+	net *itest.IntegratedNetworkHarness,
+	closeStream lnrpc.Lightning_CloseChannelClient) error {
+
+	t.t.Helper()
+
+	errChan := make(chan error, 1)
+	txidChan := make(chan *chainhash.Hash, 1)
+
+	go func() {
+		closeResp, err := closeStream.Recv()
+		if err != nil {
+			errChan <- fmt.Errorf("unable to recv from close stream: %w",
+				err)
+			return
+		}
+
+		pendingClose, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
+		if !ok {
+			errChan <- fmt.Errorf("expected close pending update, "+
+				"instead got %v", closeResp)
+			return
+		}
+
+		closeTxid, err := chainhash.NewHash(
+			pendingClose.ClosePending.Txid,
+		)
+		if err != nil {
+			errChan <- fmt.Errorf("unable to decode closeTxid: %w",
+				err)
+			return
+		}
+
+		txidChan <- closeTxid
+	}()
+
+	select {
+	case err := <-errChan:
+		return err
+
+	case closeTxid := <-txidChan:
+		net.Miner.AssertTxInMempool(*closeTxid)
+		return nil
+
+	case <-time.After(wait.ChannelCloseTimeout):
+		return fmt.Errorf("timeout reached while waiting for close " +
+			"pending update")
+	}
+}
+
 // assertDefaultCoOpCloseBalance returns a default co-op close balance check
 // function.
 //
