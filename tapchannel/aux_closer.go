@@ -110,11 +110,18 @@ type assetCloseInfo struct {
 
 // AuxChanCloser is used to implement asset-aware co-op close for channels.
 type AuxChanCloser struct {
+	startOnce sync.Once
+	stopOnce  sync.Once
+
 	cfg AuxChanCloserCfg
 
 	sync.RWMutex
 
 	closeInfo map[wire.OutPoint]*assetCloseInfo
+
+	// ContextGuard provides a wait group and main quit channel that can
+	// be used to create guarded contexts.
+	*fn.ContextGuard
 }
 
 // NewAuxChanCloser creates a new instance of the auxiliary channel closer.
@@ -122,6 +129,10 @@ func NewAuxChanCloser(cfg AuxChanCloserCfg) *AuxChanCloser {
 	return &AuxChanCloser{
 		cfg:       cfg,
 		closeInfo: make(map[wire.OutPoint]*assetCloseInfo),
+		ContextGuard: &fn.ContextGuard{
+			DefaultTimeout: DefaultTimeout,
+			Quit:           make(chan struct{}),
+		},
 	}
 }
 
@@ -130,6 +141,28 @@ func NewAuxChanCloser(cfg AuxChanCloserCfg) *AuxChanCloser {
 // LND-side AuxChanCloser interface doesn't pass a context through.
 func auxOpCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), DefaultTimeout)
+}
+
+// Start attempts to start the auxiliary channel closer.
+func (a *AuxChanCloser) Start() error {
+	var startErr error
+	a.startOnce.Do(func() {
+		log.Info("Starting aux chan closer")
+	})
+	return startErr
+}
+
+// Stop signals for the auxiliary channel closer to gracefully exit.
+func (a *AuxChanCloser) Stop() error {
+	var stopErr error
+	a.stopOnce.Do(func() {
+		log.Info("Stopping aux chan closer")
+
+		close(a.Quit)
+		a.Wg.Wait()
+	})
+
+	return stopErr
 }
 
 // createCloseAlloc is a helper function that creates an allocation for an asset
@@ -859,8 +892,14 @@ func (a *AuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
 			ChainLookupGen: a.cfg.ChainBridge,
 			IgnoreChecker:  a.cfg.IgnoreChecker,
 		}
+		ctx, cancel := a.WithCtxQuitNoTimeout()
+		defer cancel()
+
+		a.Wg.Add(1)
+		defer a.Wg.Done()
+
 		err = importOutputProofs(
-			desc.ShortChanID, fundingInputProofs,
+			ctx, desc.ShortChanID, fundingInputProofs,
 			a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
 			a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
 		)
