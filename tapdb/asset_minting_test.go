@@ -2132,6 +2132,58 @@ func TestUpdateBatchStateMemoryCoherence(t *testing.T) {
 	)
 }
 
+// TestSingletonPreBroadcastBatchConstraint exercises the partial
+// unique index added in migration 000061. At most one
+// asset_minting_batches row may be in BatchStatePending or
+// BatchStateFrozen at any time; the second insert into that set
+// must fail with a constraint error, and a row in
+// BatchStateCommitted (or later) must not count against the
+// constraint.
+func TestSingletonPreBroadcastBatchConstraint(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	assetStore, _, _ := newAssetStore(t)
+
+	// A first Pending batch is fine.
+	first := tapgarden.RandMintingBatch(t)
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, first))
+
+	// A second Pending batch must be rejected: two rows in
+	// BatchStatePending violate the partial unique index.
+	secondPending := tapgarden.RandMintingBatch(t)
+	err := assetStore.CommitMintingBatch(ctx, secondPending)
+	require.Error(t, err)
+
+	// Move the first batch to Frozen; it is still in the
+	// pre-broadcast set, so a new Pending batch must still be
+	// rejected (Pending ∪ Frozen, not just Pending).
+	require.NoError(t, assetStore.UpdateBatchState(
+		ctx, first, tapgarden.BatchStateFrozen,
+	))
+
+	pendingWhileFrozen := tapgarden.RandMintingBatch(t)
+	err = assetStore.CommitMintingBatch(ctx, pendingWhileFrozen)
+	require.Error(t, err)
+
+	// Move the first batch out of the pre-broadcast set into
+	// Committed; the constraint no longer applies to it. A new
+	// Pending batch must now succeed.
+	require.NoError(t, assetStore.UpdateBatchState(
+		ctx, first, tapgarden.BatchStateCommitted,
+	))
+
+	third := tapgarden.RandMintingBatch(t)
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, third))
+
+	// And finally: two batches both in Committed must be
+	// permitted -- the constraint targets only the pre-broadcast
+	// set.
+	require.NoError(t, assetStore.UpdateBatchState(
+		ctx, third, tapgarden.BatchStateCommitted,
+	))
+}
+
 func init() {
 	rand.Seed(time.Now().Unix())
 

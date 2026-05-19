@@ -1,6 +1,7 @@
 package tapgarden
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"github.com/btcsuite/btcd/txscript/v2"
@@ -280,6 +281,93 @@ func TestMintingBatchCopy(t *testing.T) {
 		batch.Seedlings["new"] = &Seedling{AssetName: "new"}
 		require.Empty(t, emptyCopy.Seedlings)
 	})
+}
+
+// TestCheckSingletonInvariant pins the contract of
+// checkSingletonInvariant: it returns nil for any slice of batches
+// containing at most one batch in {Pending, Frozen}, and returns a
+// descriptive error otherwise. Counts both states together
+// (Pending ∪ Frozen), not separately, and ignores batches in any
+// other state.
+func TestCheckSingletonInvariant(t *testing.T) {
+	t.Parallel()
+
+	mkBatch := func(state BatchState) *MintingBatch {
+		batchKey, _ := test.RandKeyDesc(t)
+		b := &MintingBatch{BatchKey: batchKey}
+		b.setState(state)
+		return b
+	}
+
+	t.Run("empty slice is ok", func(t *testing.T) {
+		require.NoError(t, checkSingletonInvariant(nil))
+	})
+
+	t.Run("single Pending is ok", func(t *testing.T) {
+		err := checkSingletonInvariant([]*MintingBatch{
+			mkBatch(BatchStatePending),
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("single Frozen is ok", func(t *testing.T) {
+		err := checkSingletonInvariant([]*MintingBatch{
+			mkBatch(BatchStateFrozen),
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("Pending plus Committed is ok", func(t *testing.T) {
+		err := checkSingletonInvariant([]*MintingBatch{
+			mkBatch(BatchStatePending),
+			mkBatch(BatchStateCommitted),
+			mkBatch(BatchStateBroadcast),
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("two Pending errors", func(t *testing.T) {
+		err := checkSingletonInvariant([]*MintingBatch{
+			mkBatch(BatchStatePending),
+			mkBatch(BatchStatePending),
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "singleton")
+		require.Contains(t, err.Error(), "found 2 batches")
+	})
+
+	t.Run("Pending plus Frozen errors", func(t *testing.T) {
+		err := checkSingletonInvariant([]*MintingBatch{
+			mkBatch(BatchStatePending),
+			mkBatch(BatchStateFrozen),
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "singleton")
+	})
+
+	t.Run("error names offending keys and repair tool",
+		func(t *testing.T) {
+			a := mkBatch(BatchStatePending)
+			b := mkBatch(BatchStateFrozen)
+
+			err := checkSingletonInvariant(
+				[]*MintingBatch{a, b},
+			)
+			require.Error(t, err)
+			require.Contains(t, err.Error(),
+				"--repair.cancel-duplicate-batches")
+			// Both batch keys should appear in the error.
+			require.Contains(t, err.Error(),
+				hex.EncodeToString(
+					a.BatchKey.PubKey.
+						SerializeCompressed(),
+				))
+			require.Contains(t, err.Error(),
+				hex.EncodeToString(
+					b.BatchKey.PubKey.
+						SerializeCompressed(),
+				))
+		})
 }
 
 // TestMintingOutputKeyPureInSibling pins the contract that

@@ -368,6 +368,15 @@ type ExperimentalConfig struct {
 	Rfq rfq.CliConfig `group:"rfq" namespace:"rfq"`
 }
 
+// RepairConfig houses one-shot recovery flags that, when set, cause
+// tapd to perform a targeted repair action against the database and
+// exit before constructing the full server. These flags are intended
+// for operator use after a constraint or invariant failure has
+// prevented normal startup.
+type RepairConfig struct {
+	CancelDuplicateBatches bool `long:"cancel-duplicate-batches" description:"If set, tapd cancels all but the most recent minting batch in BatchStatePending or BatchStateFrozen and then exits. Used to recover from a database that violates the singleton pre-broadcast batch invariant added in migration 000061 (e.g. a legacy DB with duplicate pending batches that blocks the migration)."`
+}
+
 // CleanAndValidate performs final processing on the ExperimentalConfig,
 // returning an error if the configuration is invalid.
 func (c *ExperimentalConfig) CleanAndValidate() error {
@@ -427,6 +436,8 @@ type Config struct {
 	Prometheus monitoring.PrometheusConfig `group:"prometheus" namespace:"prometheus"`
 
 	Experimental *ExperimentalConfig `group:"experimental" namespace:"experimental"`
+
+	Repair *RepairConfig `group:"repair" namespace:"repair"`
 
 	HealthChecks *HealthCheckConfig `group:"healthcheck" namespace:"healthcheck"`
 
@@ -548,6 +559,7 @@ func DefaultConfig() Config {
 				AcceptPriceDeviationPpm: rfq.DefaultAcceptPriceDeviationPpm,
 			},
 		},
+		Repair: &RepairConfig{},
 		HealthChecks: &HealthCheckConfig{
 			TLSCheck: &CheckConfig{
 				Interval: defaultTLSInterval,
