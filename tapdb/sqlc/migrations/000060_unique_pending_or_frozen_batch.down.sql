@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS asset_minting_batches_unique_pending_or_frozen;
