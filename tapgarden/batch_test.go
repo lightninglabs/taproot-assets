@@ -280,6 +280,102 @@ func TestMintingBatchCopy(t *testing.T) {
 	})
 }
 
+// TestUniqueAnchorSeedling pins the contract of
+// MintingBatch.uniqueAnchorSeedling: it deterministically returns
+// the batch's single group anchor seedling (the one with GroupAnchor
+// == nil) and errors loudly when that invariant doesn't hold. The
+// callers (fetchDelegationKey, fetchPreCommitGroupKey) used to scan
+// non-deterministically and pick whichever seedling Go's map
+// iteration handed them first; this test exists to keep them from
+// regressing back to that pattern.
+func TestUniqueAnchorSeedling(t *testing.T) {
+	t.Parallel()
+
+	mkAnchor := func(name string) *Seedling {
+		return &Seedling{
+			AssetName:      name,
+			AssetType:      asset.Normal,
+			Amount:         1,
+			EnableEmission: true,
+		}
+	}
+
+	mkChild := func(name, anchorName string) *Seedling {
+		s := &Seedling{
+			AssetName: name,
+			AssetType: asset.Normal,
+			Amount:    1,
+		}
+		s.GroupAnchor = &anchorName
+		return s
+	}
+
+	t.Run("anchor only", func(t *testing.T) {
+		batch := &MintingBatch{
+			Seedlings: map[string]*Seedling{
+				"a": mkAnchor("a"),
+			},
+		}
+
+		got, err := batch.uniqueAnchorSeedling()
+		require.NoError(t, err)
+		require.Equal(t, "a", got.AssetName)
+	})
+
+	t.Run("anchor plus children", func(t *testing.T) {
+		batch := &MintingBatch{
+			Seedlings: map[string]*Seedling{
+				"a":     mkAnchor("a"),
+				"child": mkChild("child", "a"),
+				"other": mkChild("other", "a"),
+			},
+		}
+
+		// Run many times to defeat any incidental ordering: the
+		// returned anchor must be "a" regardless of how Go
+		// iterates the map.
+		for i := 0; i < 32; i++ {
+			got, err := batch.uniqueAnchorSeedling()
+			require.NoError(t, err)
+			require.Equal(t, "a", got.AssetName)
+		}
+	})
+
+	t.Run("multiple anchors errors", func(t *testing.T) {
+		batch := &MintingBatch{
+			Seedlings: map[string]*Seedling{
+				"a": mkAnchor("a"),
+				"b": mkAnchor("b"),
+			},
+		}
+
+		_, err := batch.uniqueAnchorSeedling()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "expected exactly 1")
+	})
+
+	t.Run("no anchor errors", func(t *testing.T) {
+		batch := &MintingBatch{
+			Seedlings: map[string]*Seedling{
+				"child1": mkChild("child1", "missing"),
+				"child2": mkChild("child2", "missing"),
+			},
+		}
+
+		_, err := batch.uniqueAnchorSeedling()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no group anchor")
+	})
+
+	t.Run("empty batch errors", func(t *testing.T) {
+		batch := &MintingBatch{}
+
+		_, err := batch.uniqueAnchorSeedling()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no group anchor")
+	})
+}
+
 // TestSeedlingValidateCommitSplit pins the invariant that
 // validateSeedling never mutates the batch -- it is the read-only
 // half of AddSeedling, used by callers that need to persist a
