@@ -297,6 +297,18 @@ type MintingStore interface {
 	CommitBatchTx(ctx context.Context, batchKey *btcec.PublicKey,
 		genesisTx FundedMintAnchorPsbt) error
 
+	// CommitBatchFunding atomically persists the funded genesis
+	// transaction and the optional tapscript sibling root hash for a
+	// batch in a single transaction. Either both writes succeed or
+	// neither persists, so a partial-failure cannot leave the batch
+	// in an inconsistent on-disk state.
+	//
+	// NOTE: The tapscript tree referenced by rootHash (if non-nil)
+	// must already be committed to disk.
+	CommitBatchFunding(ctx context.Context, batchKey *btcec.PublicKey,
+		rootHash *chainhash.Hash,
+		genesisTx FundedMintAnchorPsbt) error
+
 	// FetchDelegationKey fetches the delegation key for the given asset
 	// group public key.
 	FetchDelegationKey(ctx context.Context,
