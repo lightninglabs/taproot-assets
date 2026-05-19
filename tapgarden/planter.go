@@ -2675,46 +2675,43 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 		return nil, fmt.Errorf("unable to store tapscript tree for "+
 			"minting batch: %w", err)
 	}
-	// At this point, we have a non-empty batch, so we'll first finalize it
-	// on disk. This means no further seedlings can be added to this batch.
-	err = freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
-	if err != nil {
-		return nil, err
-	}
-
-	// If the batch already has a funded TX, we can skip funding the batch.
+	// Fund the batch if it hasn't been funded yet. If funding
+	// fails, the batch stays pending so the user can retry.
 	if !c.pendingBatch.IsFunded() {
-		// Fund the batch before starting the caretaker. If funding
-		// fails, we can't start a caretaker for the batch, so we'll
-		// clear the pending batch. The batch will exist on disk for
-		// the user to recreate it if necessary.
-		// TODO(jhb): Don't clear pending batch here
-		err = c.fundBatch(ctx, FundParams(params), c.pendingBatch)
+		err = c.fundBatch(
+			ctx, FundParams(params), c.pendingBatch,
+		)
 		if err != nil {
-			c.pendingBatch = nil
 			return nil, err
 		}
 	}
 
-	// If the batch needs to be sealed, we'll use the default behavior for
-	// generating asset group witnesses. Any custom behavior requires
-	// calling SealBatch() explicitly, before batch finalization.
-	sealedBatch, err := c.sealBatch(ctx, SealParams{}, c.pendingBatch)
+	// If the batch needs to be sealed, we'll use the default
+	// behavior for generating asset group witnesses. Any custom
+	// behavior requires calling SealBatch() explicitly, before
+	// batch finalization.
+	sealedBatch, err := c.sealBatch(
+		ctx, SealParams{}, c.pendingBatch,
+	)
 	if err != nil {
 		if !errors.Is(err, ErrBatchAlreadySealed) {
 			return nil, err
 		}
 	}
 
-	// If seal batch executed successfully, and returned a sealed batch,
-	// then we can update the pending batch.
+	// If seal batch executed successfully, and returned a
+	// sealed batch, then we can update the pending batch.
 	if err == nil && sealedBatch != nil {
 		c.pendingBatch = sealedBatch
 	}
 
-	// Now that the batch has been frozen on disk, we can update the batch
-	// state to frozen before launching a new caretaker state machine for
-	// the batch that'll drive all the seedlings do adulthood.
+	// Now that funding and sealing have succeeded, freeze the
+	// batch on disk and in memory. This means no further
+	// seedlings can be added to this batch.
+	err = freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
+	if err != nil {
+		return nil, err
+	}
 	c.pendingBatch.UpdateState(BatchStateFrozen)
 	caretaker := c.newCaretakerForBatch(c.pendingBatch, feeRate)
 	if err := caretaker.Start(); err != nil {
