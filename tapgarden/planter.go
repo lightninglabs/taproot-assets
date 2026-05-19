@@ -568,7 +568,7 @@ func (c *ChainPlanter) Start() error {
 				if !batch.IsFunded() {
 					log.Infof("Funding non-finalized "+
 						"batch from DB (%x)", batchKey)
-					fundErr = c.fundBatch(
+					fundErr = c.applyFundingToBatch(
 						ctx, FundParams{}, batch,
 					)
 				}
@@ -2005,8 +2005,8 @@ func (c *ChainPlanter) gardener() {
 				}
 
 				ctx, cancel := c.WithCtxQuit()
-				err = c.fundBatch(
-					ctx, *fundReqParams, c.pendingBatch,
+				err = c.fundPendingBatch(
+					ctx, *fundReqParams,
 				)
 				cancel()
 				if err != nil {
@@ -2155,36 +2155,47 @@ func (c *ChainPlanter) gardener() {
 	}
 }
 
-// fundBatch attempts to fund a minting batch and create a funded genesis PSBT.
-// This PSBT is a template that the caretaker will modify when finalizing the
-// batch. If a feerate or tapscript sibling are provided, those will be used
-// when funding the batch. If no pending batch exists, a batch will be created
-// with the funded genesis PSBT. After funding, the pending batch will be
-// saved to disk and updated in memory.
-func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
-	workingBatch *MintingBatch) error {
+// fundingPrep stores a tapscript-sibling root hash (already persisted
+// to the tree store) and a closure that computes a funded mint anchor
+// PSBT for a given batch without mutating it. Both fields are
+// populated by prepareFunding and consumed by createFundedBatch /
+// applyFundingToBatch.
+type fundingPrep struct {
+	// rootHash is the persisted root hash of the optional tapscript
+	// sibling supplied via FundParams. nil if no sibling was given.
+	rootHash *chainhash.Hash
+
+	// computeFunding builds the funded genesis PSBT for a batch
+	// without mutating it. Callers must apply the result only after
+	// all persistence has succeeded, so a failure leaves the batch
+	// unchanged.
+	computeFunding func(batch *MintingBatch) (*FundedMintAnchorPsbt,
+		error)
+}
+
+// prepareFunding stores the optional tapscript sibling and constructs
+// the funding-computation closure shared by createFundedBatch and
+// applyFundingToBatch.
+func (c *ChainPlanter) prepareFunding(ctx context.Context,
+	params FundParams) (fundingPrep, error) {
 
 	var (
+		zero     fundingPrep
 		rootHash *chainhash.Hash
 		err      error
 	)
 
-	// If a tapscript tree was specified for this batch, we'll store it on
-	// disk. The caretaker we start for this batch will use it when deriving
-	// the final Taproot output key.
+	// If a tapscript tree was specified for this batch, we'll store
+	// it on disk. The caretaker we start for this batch will use it
+	// when deriving the final Taproot output key.
 	params.SiblingTapTree.WhenSome(func(tn asset.TapscriptTreeNodes) {
 		rootHash, err = c.cfg.TreeStore.StoreTapscriptTree(ctx, tn)
 	})
-
 	if err != nil {
-		return fmt.Errorf("unable to store tapscript tree for minting "+
-			"batch: %w", err)
+		return zero, fmt.Errorf("unable to store tapscript tree "+
+			"for minting batch: %w", err)
 	}
 
-	// computeFunding builds the funded genesis PSBT for a batch
-	// without mutating it. The caller is responsible for applying
-	// the result to the batch only after all persistence has
-	// succeeded, so a failure leaves the batch unchanged.
 	computeFunding := func(batch *MintingBatch) (
 		*FundedMintAnchorPsbt, error) {
 
@@ -2196,8 +2207,8 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 
 		batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
 
-		// walletFundPsbt is a closure that will be used to fund the
-		// batch with the specified fee rate.
+		// walletFundPsbt is a closure that will be used to fund
+		// the batch with the specified fee rate.
 		walletFundPsbt := func(ctx context.Context,
 			anchorPkt psbt.Packet) (tapsend.FundedPsbt, error) {
 
@@ -2226,39 +2237,78 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 		return &mintAnchorTx, nil
 	}
 
-	// If we don't have a batch, we'll create an empty batch before funding
-	// and writing to disk.
-	if workingBatch == nil {
-		newBatch, err := c.newBatch()
-		if err != nil {
-			return fmt.Errorf("unable to create new batch: %w", err)
-		}
+	return fundingPrep{
+		rootHash:       rootHash,
+		computeFunding: computeFunding,
+	}, nil
+}
 
-		mintAnchorTx, err := computeFunding(newBatch)
-		if err != nil {
-			return err
-		}
+// createFundedBatch derives a fresh minting batch, computes its
+// funding, and persists the funded batch to disk as a single new row.
+// On any failure no new batch is committed and no in-memory state is
+// touched; the caller may try again. The returned batch is ready to
+// be installed as c.pendingBatch by the caller.
+//
+// NOTE: This is the create half of what used to be a single fundBatch
+// function with two purposes. The split exists so that "create a new
+// funded batch" cannot be silently dispatched into "update an
+// existing batch's funding" (or vice-versa) by callers passing a
+// stale or wrong reference -- the bug shape behind #2136.
+func (c *ChainPlanter) createFundedBatch(ctx context.Context,
+	params FundParams) (*MintingBatch, error) {
 
-		// Apply the funding to the local batch and commit. If the
-		// commit fails, newBatch is discarded and the planter's
-		// pendingBatch is never assigned.
-		newBatch.GenesisPacket = mintAnchorTx
-		if rootHash != nil {
-			newBatch.tapSibling = rootHash
-		}
-
-		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
-		if err != nil {
-			return err
-		}
-
-		c.pendingBatch = newBatch
-		return nil
+	prep, err := c.prepareFunding(ctx, params)
+	if err != nil {
+		return nil, err
 	}
 
-	// Compute the funded genesis packet for the existing batch
-	// without mutating it yet.
-	mintAnchorTx, err := computeFunding(workingBatch)
+	newBatch, err := c.newBatch()
+	if err != nil {
+		return nil, fmt.Errorf("unable to create new batch: %w", err)
+	}
+
+	mintAnchorTx, err := prep.computeFunding(newBatch)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply the funding to the local batch and commit. If the
+	// commit fails, newBatch is discarded and the caller's planter
+	// state is never assigned.
+	newBatch.GenesisPacket = mintAnchorTx
+	if prep.rootHash != nil {
+		newBatch.tapSibling = prep.rootHash
+	}
+
+	if err := c.cfg.Log.CommitMintingBatch(ctx, newBatch); err != nil {
+		return nil, err
+	}
+
+	return newBatch, nil
+}
+
+// applyFundingToBatch computes funding for an existing on-disk batch,
+// persists the funding atomically (sibling + genesis TX in one DB
+// transaction), and only then mirrors the funding into the in-memory
+// batch. On any failure neither disk nor memory is mutated.
+//
+// NOTE: This is the update half of the former fundBatch. It must
+// never be called with a batch that has not yet been written to disk
+// -- use createFundedBatch for that case.
+func (c *ChainPlanter) applyFundingToBatch(ctx context.Context,
+	params FundParams, batch *MintingBatch) error {
+
+	if batch == nil {
+		return fmt.Errorf("applyFundingToBatch requires non-nil " +
+			"batch; use createFundedBatch to create a new one")
+	}
+
+	prep, err := c.prepareFunding(ctx, params)
+	if err != nil {
+		return err
+	}
+
+	mintAnchorTx, err := prep.computeFunding(batch)
 	if err != nil {
 		return err
 	}
@@ -2268,19 +2318,42 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 	// failure cannot leave the batch with one persisted and the
 	// other absent.
 	err = c.cfg.Log.CommitBatchFunding(
-		ctx, workingBatch.BatchKey.PubKey, rootHash, *mintAnchorTx,
+		ctx, batch.BatchKey.PubKey, prep.rootHash, *mintAnchorTx,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to commit batch funding: %w", err)
 	}
 
-	// All persistence succeeded; commit the funding to memory.
-	workingBatch.GenesisPacket = mintAnchorTx
-	if rootHash != nil {
-		workingBatch.tapSibling = rootHash
+	// All persistence succeeded; mirror the funding into memory.
+	batch.GenesisPacket = mintAnchorTx
+	if prep.rootHash != nil {
+		batch.tapSibling = prep.rootHash
 	}
 
 	return nil
+}
+
+// fundPendingBatch funds c.pendingBatch, creating it first if it does
+// not yet exist. This is the convenience wrapper used by the
+// gardener's fund-batch request handler and by finalizeBatch; both
+// have the same "I want the pending batch funded, regardless of
+// whether it exists yet" semantics. c.pendingBatch is updated only on
+// success of the create path; the update path mutates the existing
+// batch in place via applyFundingToBatch.
+func (c *ChainPlanter) fundPendingBatch(ctx context.Context,
+	params FundParams) error {
+
+	if c.pendingBatch == nil {
+		newBatch, err := c.createFundedBatch(ctx, params)
+		if err != nil {
+			return err
+		}
+
+		c.pendingBatch = newBatch
+		return nil
+	}
+
+	return c.applyFundingToBatch(ctx, params, c.pendingBatch)
 }
 
 // matchPsbtToGroupReq attempts to match a signed group virtual PSBT to a
@@ -2684,10 +2757,15 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	}
 	// Fund the batch if it hasn't been funded yet. If funding
 	// fails, the batch stays pending so the user can retry.
+	//
+	// finalizeBatch is only reached when c.pendingBatch is
+	// non-nil (the gardener short-circuits with an error
+	// otherwise), so the "create" path of fundPendingBatch is
+	// not exercised here; calling fundPendingBatch keeps the
+	// dispatch in one place rather than re-checking pending-ness
+	// here.
 	if !c.pendingBatch.IsFunded() {
-		err = c.fundBatch(
-			ctx, FundParams(params), c.pendingBatch,
-		)
+		err = c.fundPendingBatch(ctx, FundParams(params))
 		if err != nil {
 			return nil, err
 		}
