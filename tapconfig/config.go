@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
+	"github.com/lightninglabs/taproot-assets/diagnostics"
 	"github.com/lightninglabs/taproot-assets/healthcheck"
 	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/monitoring"
@@ -222,6 +223,10 @@ type Config struct {
 	AssetWallet tapfreighter.Wallet
 
 	CoinSelect *tapfreighter.CoinSelect
+
+	DiagnosticsService *diagnostics.Service
+
+	DiagnosticsRecorder diagnostics.Recorder
 
 	ChainPorter tapfreighter.Porter
 
