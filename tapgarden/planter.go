@@ -850,6 +850,9 @@ func anchorTxOutputIndexes(fundedPsbt tapsend.FundedPsbt,
 type DelegationKey = keychain.KeyDescriptor
 
 // fetchDelegationKey retrieves the delegation key from the given batch.
+// The key is read from the batch's unique group anchor seedling; an
+// error is returned if the anchor cannot be identified
+// deterministically.
 func fetchDelegationKey(pendingBatch *MintingBatch) (fn.Option[DelegationKey],
 	error) {
 
@@ -867,26 +870,13 @@ func fetchDelegationKey(pendingBatch *MintingBatch) (fn.Option[DelegationKey],
 			"delegation key: no seedlings in batch")
 	}
 
-	// Retrieve batch anchor seedling.
-	var groupAnchorSeedling fn.Option[Seedling]
-	for _, seedling := range pendingBatch.Seedlings {
-		if seedling.GroupAnchor == nil {
-			groupAnchorSeedling = fn.Some(*seedling)
-			break
-		}
-
-		groupAnchorSeedling =
-			fn.Some(*pendingBatch.Seedlings[*seedling.GroupAnchor])
-		break
+	anchor, err := pendingBatch.uniqueAnchorSeedling()
+	if err != nil {
+		return zero, fmt.Errorf("unable to identify group anchor "+
+			"seedling: %w", err)
 	}
 
-	delegationKeyDesc := fn.MapOptionZ(groupAnchorSeedling,
-		func(s Seedling) fn.Option[keychain.KeyDescriptor] {
-			return s.DelegationKey
-		},
-	)
-
-	return delegationKeyDesc, nil
+	return anchor.DelegationKey, nil
 }
 
 // fetchPreCommitGroupKey retrieves the group key associated with the
@@ -914,28 +904,19 @@ func fetchPreCommitGroupKey(
 		return zero, nil
 	}
 
-	// Retrieve batch anchor seedling.
-	var groupAnchorSeedling Seedling
-	for _, seedling := range pendingBatch.Seedlings {
-		// If the seedling has no group anchor, we can use it as the
-		// group anchor seedling.
-		if seedling.GroupAnchor == nil {
-			groupAnchorSeedling = *seedling
-			break
-		}
-
-		groupAnchorSeedling =
-			*pendingBatch.Seedlings[*seedling.GroupAnchor]
-		break
+	anchor, err := pendingBatch.uniqueAnchorSeedling()
+	if err != nil {
+		return zero, fmt.Errorf("unable to identify group anchor "+
+			"seedling: %w", err)
 	}
 
 	// If the group info is unset, then there is no pre-commitment group pub
 	// key defined in the batch.
-	if groupAnchorSeedling.GroupInfo == nil {
+	if anchor.GroupInfo == nil {
 		return zero, nil
 	}
 
-	return fn.Some(groupAnchorSeedling.GroupInfo.GroupPubKey), nil
+	return fn.Some(anchor.GroupInfo.GroupPubKey), nil
 }
 
 // anchorTxFeeRate computes the fee rate for the anchor transaction. If a fee

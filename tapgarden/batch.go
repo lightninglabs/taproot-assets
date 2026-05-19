@@ -516,6 +516,43 @@ func (m *MintingBatch) validateUniCommitment(newSeedling Seedling) error {
 	return nil
 }
 
+// uniqueAnchorSeedling returns the single group anchor seedling in
+// the batch -- the seedling whose GroupAnchor is nil and that other
+// seedlings may reference by name. If the batch contains zero or
+// more than one such seedling, an error is returned.
+//
+// This invariant ("exactly one anchor per batch") is required by
+// callers that derive batch-wide properties (the delegation key,
+// the pre-commitment group key) from the anchor seedling: with no
+// anchor there is no answer, and with multiple anchors the answer
+// is ambiguous. The function computes the answer deterministically
+// rather than relying on non-deterministic map iteration to land
+// on the unique anchor by luck.
+func (m *MintingBatch) uniqueAnchorSeedling() (*Seedling, error) {
+	var (
+		anchor *Seedling
+		count  int
+	)
+	for _, seedling := range m.Seedlings {
+		if seedling.GroupAnchor != nil {
+			continue
+		}
+
+		anchor = seedling
+		count++
+	}
+
+	switch count {
+	case 0:
+		return nil, fmt.Errorf("no group anchor seedling in batch")
+	case 1:
+		return anchor, nil
+	default:
+		return nil, fmt.Errorf("batch has %d group anchor "+
+			"seedlings, expected exactly 1", count)
+	}
+}
+
 // validateSeedling checks that a candidate seedling is admissible into
 // the batch given the batch's current state. It does not mutate the
 // batch; this is the read-only half of AddSeedling.
