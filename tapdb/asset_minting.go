@@ -1534,6 +1534,44 @@ func (a *AssetMintingStore) CommitBatchTx(ctx context.Context,
 	})
 }
 
+// CommitBatchFunding atomically persists the funded genesis transaction
+// and the optional tapscript sibling for a batch in a single database
+// transaction.
+func (a *AssetMintingStore) CommitBatchFunding(ctx context.Context,
+	batchKey *btcec.PublicKey, batchSibling *chainhash.Hash,
+	genesisPacket tapgarden.FundedMintAnchorPsbt) error {
+
+	genesisOutpoint := genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+		if batchSibling != nil {
+			rawKey := batchKey.SerializeCompressed()
+			siblingUpdate := BatchTapSiblingUpdate{
+				RawKey:           rawKey,
+				TapscriptSibling: batchSibling[:],
+			}
+			err := q.BindMintingBatchWithTapSibling(
+				ctx, siblingUpdate,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to bind tap "+
+					"sibling: %w", err)
+			}
+		}
+
+		err := insertMintAnchorTx(
+			ctx, q, genesisPacket, *batchKey, genesisOutpoint,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert mint anchor "+
+				"tx: %w", err)
+		}
+
+		return nil
+	})
+}
+
 // FetchDelegationKey fetches the delegation key for the given asset group
 // public key.
 func (a *AssetMintingStore) FetchDelegationKey(ctx context.Context,
