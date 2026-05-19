@@ -210,7 +210,12 @@ type MintingStore interface {
 	// AddSeedlingsToBatch adds a new seedling to an existing batch. Once
 	// added this batch should remain in the BatchStatePending state.
 	//
-	// TODO(roasbeef): assumption that only one pending batch at a time?
+	// The "exactly one batch in BatchStatePending or BatchStateFrozen
+	// at a time" invariant the planter relies on is enforced at the
+	// DB layer by migration 000060 (a partial unique index on
+	// asset_minting_batches). Callers may assume that any successful
+	// CommitMintingBatch left the singleton slot occupied by exactly
+	// the batch they just committed.
 	AddSeedlingsToBatch(ctx context.Context, batchKey *btcec.PublicKey,
 		seedlings ...*Seedling) error
 

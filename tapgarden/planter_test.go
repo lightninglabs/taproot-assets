@@ -219,53 +219,6 @@ func (t *mintingTestHarness) assertBatchResumedBackground(wg *sync.WaitGroup,
 	}()
 }
 
-// createExternalBatch creates a new pending batch outside the planter, which
-// can then be stored on disk.
-func (t *mintingTestHarness) createExternalBatch(
-	numSeedlings int) *tapgarden.MintingBatch {
-
-	t.Helper()
-
-	seedlings := t.newRandSeedlings(numSeedlings)
-	seedlingsWithKeys := make(map[string]*tapgarden.Seedling)
-	for _, seedling := range seedlings {
-		scriptKeyInternalDesc, _ := test.RandKeyDesc(t)
-		scriptKey := asset.NewScriptKeyBip86(scriptKeyInternalDesc)
-		seedling.ScriptKey = scriptKey
-
-		// The group internal key should be from the key ring since we
-		// expect the caretaker to sign with it later.
-		if seedling.EnableEmission {
-			groupKey, err := t.keyRing.DeriveNextKey(
-				context.Background(),
-				asset.TaprootAssetsKeyFamily,
-			)
-			require.NoError(t, err)
-
-			seedling.GroupInternalKey = &groupKey
-		}
-
-		seedlingsWithKeys[seedling.AssetName] = seedling
-	}
-
-	batchInternalKey, err := t.keyRing.DeriveNextKey(
-		context.Background(), asset.TaprootAssetsKeyFamily,
-	)
-	require.NoError(t, err)
-
-	newBatch := &tapgarden.MintingBatch{
-		CreationTime: time.Now(),
-		HeightHint:   0,
-		BatchKey:     batchInternalKey,
-		Seedlings:    seedlingsWithKeys,
-		AssetMetas:   make(tapgarden.AssetMetas),
-	}
-
-	// The zero value of MintingBatch.batchState is BatchStatePending,
-	// so no explicit state setter is needed here.
-
-	return newBatch
-}
 
 // queueSeedlingsInBatch adds the series of seedlings to the batch, an error is
 // raised if any of the seedlings aren't accepted.
@@ -1676,9 +1629,14 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	batchCount++
 
 	// The caretaker should fail when computing the Taproot output key.
+	// The gardener cancels the failed batch on disk so it does not
+	// block subsequent pending batches via the singleton invariant
+	// added in migration 000060.
 	_ = t.assertGenesisTxFunded(nil)
 	t.assertFinalizeBatch(&wg, respChan, "failed to load tapscript tree")
-	t.assertLastBatchState(batchCount, tapgarden.BatchStateFrozen)
+	t.assertLastBatchState(
+		batchCount, tapgarden.BatchStateSeedlingCancelled,
+	)
 	t.assertNoPendingBatch()
 
 	// Reset the tapscript tree store to not force load or store failures.
@@ -2207,46 +2165,14 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 	t.assertNumCaretakersActive(0)
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
 
-	// Submit another batch, which we'll leave as pending.
-	secondSeedlings := t.newRandSeedlings(numSeedlings)
-	t.queueSeedlingsInBatch(false, secondSeedlings...)
-	batchCount++
-
-	t.assertLastBatchState(batchCount, tapgarden.BatchStatePending)
-	require.NoError(t, t.planter.Stop())
-	t.planter = nil
-
-	// We should also be able to resume one batch even when resuming another
-	// batch fails. Since we can only queue one batch at a time, we'll
-	// insert another pending batch on disk while the planter is shut down.
-	dbBatch := t.createExternalBatch(numSeedlings)
-	batchCount++
-	err := t.store.CommitMintingBatch(context.Background(), dbBatch)
-	require.NoError(t, err)
-
-	// With two pending batches on disk, we want resume for the first batch
-	// to fail. Resume for the second batch should succeed.
-	t.chain.FailFeeEstimatesOnce()
-	failedBatchCount++
-
-	t.assertBatchResumedBackground(&wg, true, false)
-	t.assertBatchResumedBackground(&wg, true, true)
-	t.refreshChainPlanter()
-	wg.Wait()
-
-	t.assertNumCaretakersActive(1)
-	t.assertNoPendingBatch()
-
-	sendConfNtfn = t.progressCaretaker(true, nil, nil)
-	t.assertLastBatchState(batchCount, tapgarden.BatchStateBroadcast)
-
-	sendConfNtfn()
-	t.assertNoError()
-	t.assertNumCaretakersActive(0)
-	t.assertNumBatchesWithState(
-		failedBatchCount, tapgarden.BatchStateSeedlingCancelled,
-	)
-	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
+	// The original test continued by inserting a second Pending
+	// batch directly on disk to exercise recovery when multiple
+	// pending batches were present. That scenario is now forbidden
+	// by the singleton invariant added in migration 000060, so the
+	// section has been removed. The single-pending-batch recovery
+	// paths exercised above are the surviving useful coverage; the
+	// "multiple pre-broadcast batches" case is covered by
+	// TestSingletonPreBroadcastBatchConstraint in tapdb.
 }
 
 // mintingStoreTestCase is used to programmatically run a series of test cases

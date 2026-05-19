@@ -3,6 +3,7 @@ package tapgarden
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -508,6 +509,19 @@ func (c *ChainPlanter) Start() error {
 
 		log.Infof("Retrieved %v non-finalized batches from DB",
 			len(nonFinalBatches))
+
+		// Enforce the singleton invariant: at most one batch may
+		// be in BatchStatePending or BatchStateFrozen at a time.
+		// The DB constraint added in migration 000060 should
+		// already make this impossible, but a legacy DB that was
+		// migrated post-population, or a manually-modified row,
+		// could still violate it. Surfacing the error here gives
+		// the operator a human-readable diagnostic instead of an
+		// opaque SQL one later.
+		if err := checkSingletonInvariant(nonFinalBatches); err != nil {
+			startErr = err
+			return
+		}
 
 		// Now for each of these non-final batches, we'll make a new
 		// caretaker which'll handle progressing each batch to
@@ -1418,6 +1432,45 @@ func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
 	)
 }
 
+// checkSingletonInvariant verifies that at most one batch in the
+// supplied slice is in a pre-broadcast state (BatchStatePending or
+// BatchStateFrozen). The invariant is enforced at the DB layer by
+// the partial unique index added in migration 000060; this Go-level
+// check exists as defense in depth and to produce a human-readable
+// diagnostic naming the offending batch keys, since a raw SQL
+// constraint error from a downstream insert is harder to act on.
+//
+// The check is called from ChainPlanter.Start() after
+// FetchNonFinalBatches. If it fails, startup is aborted so the
+// operator can investigate rather than letting the daemon run with
+// ambiguous "which batch is current?" semantics.
+func checkSingletonInvariant(batches []*MintingBatch) error {
+	var preBroadcastKeys []string
+	for _, batch := range batches {
+		switch batch.State() {
+		case BatchStatePending, BatchStateFrozen:
+			preBroadcastKeys = append(
+				preBroadcastKeys,
+				hex.EncodeToString(
+					batch.BatchKey.PubKey.
+						SerializeCompressed(),
+				),
+			)
+		}
+	}
+
+	if len(preBroadcastKeys) <= 1 {
+		return nil
+	}
+
+	return fmt.Errorf("singleton pre-broadcast batch invariant "+
+		"violated: found %d batches in BatchStatePending or "+
+		"BatchStateFrozen (keys: %v); at most one is permitted. "+
+		"Resolve by running `tapd --repair.cancel-duplicate-batches` "+
+		"to cancel all but the most recent, then restart",
+		len(preBroadcastKeys), preBroadcastKeys)
+}
+
 // filterFinalizedBatches separates a set of batches into two sets based on
 // their batch state.
 func filterFinalizedBatches(batches []*MintingBatch) ([]*MintingBatch,
@@ -1777,11 +1830,20 @@ func (c *ChainPlanter) canCancelBatch() (*btcec.PublicKey, error) {
 
 		return c.pendingBatch.BatchKey.PubKey, nil
 	case 1:
-		// TODO(jhb): Update once we support multiple batches.
-		// If there is exactly one caretaker, our pending batch should
-		// be empty. Otherwise, the batch to cancel is ambiguous.
+		// If there is exactly one caretaker, our pending batch
+		// must be empty for the cancel target to be
+		// unambiguous. Both can coexist legitimately: the
+		// caretaker may be handling a post-broadcast batch
+		// (Committed/Broadcast/Confirmed) while a fresh
+		// Pending/Frozen batch has begun in c.pendingBatch. The
+		// singleton constraint added in migration 000060 only
+		// applies to {Pending, Frozen}, so this case is real,
+		// not unreachable.
 		if c.pendingBatch != nil {
-			return nil, fmt.Errorf("multiple batches not supported")
+			return nil, fmt.Errorf("cancellation ambiguous: " +
+				"pending batch and an active caretaker " +
+				"coexist; cancel-by-batch-key not " +
+				"implemented")
 		}
 
 		batchKeys := maps.Keys(c.caretakers)
@@ -1794,8 +1856,13 @@ func (c *ChainPlanter) canCancelBatch() (*btcec.PublicKey, error) {
 	default:
 	}
 
-	// TODO(jhb): Update once we support multiple batches.
-	return nil, fmt.Errorf("multiple caretakers not supported")
+	// Multiple caretakers can coexist when several post-broadcast
+	// batches are awaiting confirmation in parallel. The singleton
+	// constraint added in migration 000060 does not forbid this; it
+	// only constrains {Pending, Frozen}.
+	return nil, fmt.Errorf("cancellation ambiguous: %d active "+
+		"caretakers; cancel-by-batch-key not implemented",
+		caretakerCount)
 }
 
 // cancelMintingBatch attempts to cancel a target minting batch. This can fail
@@ -2101,6 +2168,38 @@ func (c *ChainPlanter) gardener() {
 					}
 
 					delete(c.caretakers, batchKeySerial)
+
+					// Cancel the failed batch on disk so it
+					// does not stay wedged in a pre-broadcast
+					// state, where the singleton invariant
+					// added in migration 000060 would block
+					// any subsequent batch from being
+					// created. We use the same cancel-state
+					// rule as caretaker.Cancel(): Pending or
+					// Frozen → SeedlingCancelled (no sprouts
+					// yet); Committed → SproutCancelled
+					// (sprouts already on disk).
+					cancelState := BatchStateSeedlingCancelled
+					if c.pendingBatch.State() ==
+						BatchStateCommitted {
+
+						cancelState =
+							BatchStateSproutCancelled
+					}
+
+					cancelCtx, cancelCtxCancel :=
+						c.WithCtxQuit()
+					cancelErr := c.cfg.Log.UpdateBatchState(
+						cancelCtx, c.pendingBatch,
+						cancelState,
+					)
+					cancelCtxCancel()
+					if cancelErr != nil {
+						log.Warnf("Unable to cancel "+
+							"failed batch (%x): %v",
+							batchKeySerial[:],
+							cancelErr)
+					}
 
 				case <-c.Quit:
 					return
