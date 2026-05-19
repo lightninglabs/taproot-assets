@@ -2177,11 +2177,6 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 
 	// Update the batch by adding the sibling root hash and genesis TX.
 	updateBatch := func(batch *MintingBatch) error {
-		// Add the batch sibling root hash if present.
-		if rootHash != nil {
-			batch.tapSibling = rootHash
-		}
-
 		// Fund the batch with the specified fee rate.
 		feeRate, err := c.anchorTxFeeRate(ctx, params.FeeRate)
 		if err != nil {
@@ -2220,6 +2215,13 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 
 		log.Infof("Funded GenesisPacket for batch: %x", batchKey)
 		batch.GenesisPacket = &mintAnchorTx
+
+		// Now that funding has succeeded, stamp the sibling root
+		// hash onto the batch. Deferring this until after funding
+		// ensures a failed attempt leaves the batch unchanged.
+		if rootHash != nil {
+			batch.tapSibling = rootHash
+		}
 
 		return nil
 	}

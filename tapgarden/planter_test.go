@@ -1734,6 +1734,83 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	t.assertMintOutputKey(batchWithSibling, siblingHash)
 }
 
+// testFundFailSiblingNotLeaked verifies that when a finalize attempt
+// supplies a tapscript sibling and funding fails, the sibling is not
+// left on the in-memory batch. A subsequent retry that omits the
+// sibling should produce a batch with no sibling.
+func testFundFailSiblingNotLeaked(t *mintingTestHarness) {
+	t.refreshChainPlanter()
+
+	const numSeedlings = 5
+	_ = t.queueInitialBatch(numSeedlings)
+
+	// Build a valid tapscript sibling preimage.
+	sigLockKey := test.RandPubKey(t)
+	hashLockWitness := []byte("foobar")
+	hashLockLeaf := test.ScriptHashLock(t.T, hashLockWitness)
+	sigLeaf := test.ScriptSchnorrSig(t.T, sigLockKey)
+	tapTreePreimage, err := asset.TapTreeNodesFromLeaves(
+		[]txscript.TapLeaf{hashLockLeaf, sigLeaf},
+	)
+	require.NoError(t, err)
+
+	var (
+		wg          sync.WaitGroup
+		respChan    = make(chan *FinalizeBatchResp, 1)
+		finalizeReq = tapgarden.FinalizeParams{
+			SiblingTapTree: fn.Some(*tapTreePreimage),
+		}
+		batchCount = 0
+	)
+
+	// Force fee estimation to fail so that funding fails inside
+	// fundBatch.
+	t.chain.FailFeeEstimatesOnce()
+
+	t.finalizeBatch(&wg, respChan, &finalizeReq)
+	batchCount++
+
+	_, err = fn.RecvOrTimeout(
+		t.chain.FeeEstimateSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+
+	// The batch should remain pending.
+	t.assertLastBatchState(batchCount, tapgarden.BatchStatePending)
+	t.assertFinalizeBatch(
+		&wg, respChan, "failed to estimate fee",
+	)
+
+	// The pending batch's sibling must not carry over from the
+	// failed attempt.
+	pending, err := t.planter.PendingBatch()
+	require.NoError(t, err)
+	require.NotNil(t, pending)
+	require.Nil(
+		t, pending.TapSibling(),
+		"fundBatch leaked sibling on failed attempt",
+	)
+
+	// Retry without a sibling. The attempt should succeed.
+	t.finalizeBatch(&wg, respChan, nil)
+
+	sendConfNtfn := t.progressCaretaker(false, nil, nil)
+	sendConfNtfn()
+
+	finalBatch := t.assertFinalizeBatch(&wg, respChan, "")
+	require.NotNil(t, finalBatch)
+	require.Nil(
+		t, finalBatch.TapSibling(),
+		"final batch has unexpected sibling",
+	)
+	t.assertNoError()
+	t.assertNoPendingBatch()
+	t.assertNumCaretakersActive(0)
+	t.assertLastBatchState(
+		batchCount, tapgarden.BatchStateFinalized,
+	)
+}
+
 func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	// First, create a new chain planter instance using the supplied test
 	// harness.
@@ -2124,6 +2201,10 @@ var testCases = []mintingStoreTestCase{
 	{
 		name:     "finalize_with_tapscript_tree",
 		testFunc: testFinalizeWithTapscriptTree,
+	},
+	{
+		name:     "fund_fail_sibling_not_leaked",
+		testFunc: testFundFailSiblingNotLeaked,
 	},
 	{
 		name:     "fund_seal_before_finalize",
