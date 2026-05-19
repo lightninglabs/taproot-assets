@@ -2175,13 +2175,17 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 			"batch: %w", err)
 	}
 
-	// Update the batch by adding the sibling root hash and genesis TX.
-	updateBatch := func(batch *MintingBatch) error {
-		// Fund the batch with the specified fee rate.
+	// computeFunding builds the funded genesis PSBT for a batch
+	// without mutating it. The caller is responsible for applying
+	// the result to the batch only after all persistence has
+	// succeeded, so a failure leaves the batch unchanged.
+	computeFunding := func(batch *MintingBatch) (
+		*FundedMintAnchorPsbt, error) {
+
 		feeRate, err := c.anchorTxFeeRate(ctx, params.FeeRate)
 		if err != nil {
-			return fmt.Errorf("unable to determine anchor TX "+
-				"fee rate: %w", err)
+			return nil, fmt.Errorf("unable to determine anchor "+
+				"TX fee rate: %w", err)
 		}
 
 		batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
@@ -2205,25 +2209,15 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 
 		log.Infof("Attempting to fund batch: %x", batchKey)
 		mintAnchorTx, err := fundGenesisPsbt(
-			ctx, c.cfg.ChainParams, c.pendingBatch,
-			walletFundPsbt,
+			ctx, c.cfg.ChainParams, batch, walletFundPsbt,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to fund minting PSBT for "+
-				"batch: %x %w", batchKey[:], err)
+			return nil, fmt.Errorf("unable to fund minting PSBT "+
+				"for batch: %x %w", batchKey[:], err)
 		}
 
 		log.Infof("Funded GenesisPacket for batch: %x", batchKey)
-		batch.GenesisPacket = &mintAnchorTx
-
-		// Now that funding has succeeded, stamp the sibling root
-		// hash onto the batch. Deferring this until after funding
-		// ensures a failed attempt leaves the batch unchanged.
-		if rootHash != nil {
-			batch.tapSibling = rootHash
-		}
-
-		return nil
+		return &mintAnchorTx, nil
 	}
 
 	// If we don't have a batch, we'll create an empty batch before funding
@@ -2234,13 +2228,19 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 			return fmt.Errorf("unable to create new batch: %w", err)
 		}
 
-		err = updateBatch(newBatch)
+		mintAnchorTx, err := computeFunding(newBatch)
 		if err != nil {
 			return err
 		}
 
-		// Now that we're done populating parts of the batch, write it
-		// to disk.
+		// Apply the funding to the local batch and commit. If the
+		// commit fails, newBatch is discarded and the planter's
+		// pendingBatch is never assigned.
+		newBatch.GenesisPacket = mintAnchorTx
+		if rootHash != nil {
+			newBatch.tapSibling = rootHash
+		}
+
 		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
 		if err != nil {
 			return err
@@ -2250,15 +2250,17 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 		return nil
 	}
 
-	// If we already have a batch, we need to attach the optional sibling
-	// root hash and fund the batch.
-	err = updateBatch(workingBatch)
+	// Compute the funded genesis packet for the existing batch
+	// without mutating it yet.
+	mintAnchorTx, err := computeFunding(workingBatch)
 	if err != nil {
 		return err
 	}
 
-	// Write the associated sibling root hash and TX to disk.
-	if workingBatch.tapSibling != nil {
+	// Persist the sibling and genesis TX first. We only mutate
+	// workingBatch after all persistence has succeeded, so a DB
+	// commit failure leaves the live in-memory batch unchanged.
+	if rootHash != nil {
 		err = c.cfg.Log.CommitBatchTapSibling(
 			ctx, workingBatch.BatchKey.PubKey, rootHash,
 		)
@@ -2269,10 +2271,16 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 	}
 
 	err = c.cfg.Log.CommitBatchTx(
-		ctx, workingBatch.BatchKey.PubKey, *workingBatch.GenesisPacket,
+		ctx, workingBatch.BatchKey.PubKey, *mintAnchorTx,
 	)
 	if err != nil {
 		return err
+	}
+
+	// All persistence succeeded; commit the funding to memory.
+	workingBatch.GenesisPacket = mintAnchorTx
+	if rootHash != nil {
+		workingBatch.tapSibling = rootHash
 	}
 
 	return nil
