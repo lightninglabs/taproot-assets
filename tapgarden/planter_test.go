@@ -601,9 +601,12 @@ func (t *mintingTestHarness) finalizeBatchAssertFrozen(
 		return nil
 	}
 
-	// Check that the batch was frozen and then funded.
-	newBatch := t.assertNewBatchFrozen(existingFrozenBatches)
+	// Funding now happens before freeze, so we must consume the
+	// fund signal first to unblock the finalize goroutine.
 	_ = t.assertGenesisTxFunded(nil)
+
+	// Now check that the batch reached a frozen-or-later state.
+	newBatch := t.assertNewBatchFrozen(existingFrozenBatches)
 
 	// Fetch the batch again after funding.
 	return t.fetchSingleBatch(newBatch.BatchKey.PubKey)
@@ -1479,19 +1482,20 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	t.assertNumCaretakersActive(0)
 }
 
-// testFinalizeBatch tests that the planter can recover from caretaker errors
-// successfully when finalizing a batch, and that the planter state is properly
-// reset after successful batch finalization.
+// testFinalizeBatch tests that the planter can recover from funding
+// errors and caretaker errors successfully when finalizing a batch,
+// and that the planter state is properly reset after successful batch
+// finalization.
 func testFinalizeBatch(t *mintingTestHarness) {
-	// First, create a new chain planter instance using the supplied test
-	// harness.
+	// First, create a new chain planter instance using the supplied
+	// test harness.
 	t.refreshChainPlanter()
 
 	// Create an initial batch of 5 seedlings.
 	const numSeedlings = 5
 	_ = t.queueInitialBatch(numSeedlings)
 
-	// Force fee estimation to fail so we crash the caretaker before the
+	// Force fee estimation to fail so funding fails before the
 	// batch can be frozen.
 	t.chain.FailFeeEstimatesOnce()
 
@@ -1502,7 +1506,8 @@ func testFinalizeBatch(t *mintingTestHarness) {
 		batchCount     = 0
 	)
 
-	// Finalize the pending batch to start a caretaker.
+	// Finalize the pending batch. Funding will fail because fee
+	// estimation was set to fail.
 	t.finalizeBatch(&wg, respChan, nil)
 	batchCount++
 
@@ -1511,41 +1516,43 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	)
 	require.NoError(t, err)
 
-	// The planter should fail to finalize the batch, so there should be no
-	// active caretakers nor pending batch.
-	t.assertNoPendingBatch()
+	// The batch should stay pending so the user can retry. No
+	// caretakers should have been started.
 	t.assertNumCaretakersActive(caretakerCount)
-	t.assertLastBatchState(batchCount, tapgarden.BatchStateFrozen)
-	t.assertFinalizeBatch(&wg, respChan, "failed to estimate fee")
+	t.assertLastBatchState(
+		batchCount, tapgarden.BatchStatePending,
+	)
+	t.assertFinalizeBatch(
+		&wg, respChan, "failed to estimate fee",
+	)
 
-	// Queue another batch, reset fee estimation behavior, and set TX
-	// confirmation registration to fail.
-	t.queueInitialBatch(numSeedlings)
+	// Retry finalize on the same batch, but set TX confirmation
+	// registration to fail.
 	t.chain.FailConfOnce()
 
-	// Finalize the pending batch to start a caretaker, and progress the
-	// caretaker to TX confirmation. The finalize call should report no
-	// error, but the caretaker should propagate the confirmation error to
-	// the shared error channel.
+	// The retry should succeed at funding and freezing, but the
+	// caretaker should propagate the confirmation error.
 	t.finalizeBatch(&wg, respChan, nil)
-	batchCount++
 
 	_ = t.progressCaretaker(false, nil, nil)
 	caretakerCount++
 
 	t.assertFinalizeBatch(&wg, respChan, "")
 	caretakerErr := <-t.errChan
-	require.ErrorContains(t, caretakerErr, "error getting confirmation")
+	require.ErrorContains(
+		t, caretakerErr, "error getting confirmation",
+	)
 
-	// The stopped caretaker will still exist but there should be no pending
-	// batch. We will have two batches on disk, including the broadcasted
-	// batch.
+	// The stopped caretaker will still exist but there should
+	// be no pending batch.
 	t.assertNoPendingBatch()
 	t.assertNumCaretakersActive(caretakerCount)
-	t.assertLastBatchState(batchCount, tapgarden.BatchStateBroadcast)
+	t.assertLastBatchState(
+		batchCount, tapgarden.BatchStateBroadcast,
+	)
 
-	// Queue another batch, set TX confirmation to succeed, and set the
-	// confirmation event to be empty.
+	// Queue another batch, set TX confirmation to succeed, and
+	// set the confirmation event to be empty.
 	t.queueInitialBatch(numSeedlings)
 	t.chain.EmptyConfOnce()
 
@@ -1556,30 +1563,38 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	sendConfNtfn := t.progressCaretaker(false, nil, nil)
 	caretakerCount++
 
-	// Trigger the confirmation event, which should cause the caretaker to
-	// fail.
+	// Trigger the confirmation event, which should cause the
+	// caretaker to fail.
 	sendConfNtfn()
 
 	t.assertFinalizeBatch(&wg, respChan, "")
 	caretakerErr = <-t.errChan
-	require.ErrorContains(t, caretakerErr, "got empty confirmation")
+	require.ErrorContains(
+		t, caretakerErr, "got empty confirmation",
+	)
 
-	// The stopped caretaker will still exist but there should be no pending
-	// batch. We will now have three batches on disk.
+	// The stopped caretaker will still exist but there should
+	// be no pending batch.
 	t.assertNoPendingBatch()
 	t.assertNumCaretakersActive(caretakerCount)
-	t.assertLastBatchState(batchCount, tapgarden.BatchStateBroadcast)
+	t.assertLastBatchState(
+		batchCount, tapgarden.BatchStateBroadcast,
+	)
 
-	// If we try to finalize without a pending batch, the finalize call
-	// should return an error.
+	// If we try to finalize without a pending batch, the
+	// finalize call should return an error.
 	t.finalizeBatch(&wg, respChan, nil)
-	t.assertFinalizeBatch(&wg, respChan, "no pending batch")
+	t.assertFinalizeBatch(
+		&wg, respChan, "no pending batch",
+	)
 	t.assertNumCaretakersActive(caretakerCount)
 
-	// Queue another batch and drive the caretaker to a successful minting.
+	// Queue another batch and drive the caretaker to a
+	// successful minting.
 	t.queueInitialBatch(numSeedlings)
 
-	// Use a custom feerate and verify that the TX uses that feerate.
+	// Use a custom feerate and verify that the TX uses that
+	// feerate.
 	manualFeeRate := chainfee.FeePerKwFloor * 2
 	finalizeReq := tapgarden.FinalizeParams{
 		FeeRate: fn.Some(manualFeeRate),
@@ -1587,14 +1602,18 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.finalizeBatch(&wg, respChan, &finalizeReq)
 	batchCount++
 
-	sendConfNtfn = t.progressCaretaker(false, nil, &manualFeeRate)
+	sendConfNtfn = t.progressCaretaker(
+		false, nil, &manualFeeRate,
+	)
 	sendConfNtfn()
 
 	t.assertFinalizeBatch(&wg, respChan, "")
 	t.assertNoError()
 	t.assertNoPendingBatch()
 	t.assertNumCaretakersActive(caretakerCount)
-	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
+	t.assertLastBatchState(
+		batchCount, tapgarden.BatchStateFinalized,
+	)
 }
 
 func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
