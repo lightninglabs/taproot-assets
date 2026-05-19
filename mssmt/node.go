@@ -275,10 +275,22 @@ func (n *BranchNode) Copy() Node {
 		*sumCopy = *n.sum
 	}
 
+	var leftCopy, rightCopy Node
+	if n.Left != nil {
+		leftCopy = NewComputedNode(
+			n.Left.NodeHash(), n.Left.NodeSum(),
+		)
+	}
+	if n.Right != nil {
+		rightCopy = NewComputedNode(
+			n.Right.NodeHash(), n.Right.NodeSum(),
+		)
+	}
+
 	return &BranchNode{
 		nodeHash: nodeHashCopy,
-		Left:     NewComputedNode(n.Left.NodeHash(), n.Left.NodeSum()),
-		Right:    NewComputedNode(n.Right.NodeHash(), n.Right.NodeSum()),
+		Left:     leftCopy,
+		Right:    rightCopy,
 		sum:      sumCopy,
 	}
 }
