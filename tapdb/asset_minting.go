@@ -1319,7 +1319,7 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		return nil, err
 	}
 
-	batch.UpdateState(batchState)
+	batch.SetStateOnDBSuccess(batchState)
 
 	if len(dbBatch.TapscriptSibling) != 0 {
 		batchSibling, err := chainhash.NewHash(dbBatch.TapscriptSibling)
@@ -1472,15 +1472,22 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 
 // UpdateBatchState updates the state of a batch based on the batch key.
 func (a *AssetMintingStore) UpdateBatchState(ctx context.Context,
-	batchKey *btcec.PublicKey, newState tapgarden.BatchState) error {
+	batch *tapgarden.MintingBatch, newState tapgarden.BatchState) error {
 
+	batchKey := batch.BatchKey.PubKey
 	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+	err := a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		return q.UpdateMintingBatchState(ctx, BatchStateUpdate{
 			RawKey:     batchKey.SerializeCompressed(),
 			BatchState: int16(newState),
 		})
 	})
+	if err != nil {
+		return err
+	}
+
+	batch.SetStateOnDBSuccess(newState)
+	return nil
 }
 
 // encodeOutpoint encodes the outpoint point in Bitcoin wire format, returning
@@ -1793,7 +1800,7 @@ func fetchSeedlingGroups(ctx context.Context, q PendingAssetStore,
 // binds the genesis transaction (which will create the set of assets in the
 // batch) to the batch itself.
 func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
-	batchKey *btcec.PublicKey,
+	batch *tapgarden.MintingBatch,
 	genesisPacket *tapgarden.FundedMintAnchorPsbt,
 	assetRoot *commitment.TapCommitment) error {
 
@@ -1824,10 +1831,11 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 		return err
 	}
 
+	batchKey := batch.BatchKey.PubKey
 	rawBatchKey := batchKey.SerializeCompressed()
 
 	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+	err = a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		// Upsert the assets with genesis.
 		_, _, err := upsertAssetsWithGenesis(
 			ctx, q, genesisOutpoint, sortedAssets, nil,
@@ -1852,6 +1860,12 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 			BatchState: int16(tapgarden.BatchStateCommitted),
 		})
 	})
+	if err != nil {
+		return err
+	}
+
+	batch.SetStateOnDBSuccess(tapgarden.BatchStateCommitted)
+	return nil
 }
 
 // CommitSignedGenesisTx binds a fully signed genesis transaction to a pending
@@ -1863,9 +1877,11 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 // TODO(roasbeef): or could just re-read assets from disk and set the script
 // root manually?
 func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
-	batchKey *btcec.PublicKey, genesisPkt *tapsend.FundedPsbt,
+	batch *tapgarden.MintingBatch, genesisPkt *tapsend.FundedPsbt,
 	anchorOutputIndex uint32, merkleRoot, tapTreeRoot []byte,
 	tapSibling []byte) error {
+
+	batchKey := batch.BatchKey.PubKey
 
 	// The managed UTXO we'll insert only contains the raw tx of the
 	// genesis packet, so we'll extract that now.
@@ -1902,7 +1918,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 	}
 
 	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+	err = a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		// First, we'll update the genesis packet stored as part of the
 		// batch, as this packet is now fully signed.
 		pktBytes, err := fn.Serialize(genesisPkt.Pkt)
@@ -1977,19 +1993,26 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 			BatchState: int16(tapgarden.BatchStateBroadcast),
 		})
 	})
+	if err != nil {
+		return err
+	}
+
+	batch.SetStateOnDBSuccess(tapgarden.BatchStateBroadcast)
+	return nil
 }
 
 // MarkBatchConfirmed stores final confirmation information for a batch on
 // disk.
 func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
-	batchKey *btcec.PublicKey, blockHash *chainhash.Hash,
+	batch *tapgarden.MintingBatch, blockHash *chainhash.Hash,
 	blockHeight uint32, txIndex uint32,
 	mintingProofs proof.AssetBlobs) error {
 
+	batchKey := batch.BatchKey.PubKey
 	rawBatchKey := batchKey.SerializeCompressed()
 
 	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+	err := a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		// First, we'll update the state of the target batch to reflect
 		// that the batch is fully finalized.
 		err := q.UpdateMintingBatchState(ctx, BatchStateUpdate{
@@ -2044,6 +2067,12 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	batch.SetStateOnDBSuccess(tapgarden.BatchStateConfirmed)
+	return nil
 }
 
 // FetchGroupByGenesis fetches the asset group created by the genesis referenced
