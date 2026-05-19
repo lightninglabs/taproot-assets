@@ -1811,6 +1811,72 @@ func testFundFailSiblingNotLeaked(t *mintingTestHarness) {
 	)
 }
 
+// testFundBatchFailRetry verifies that when the FundBatch RPC fails
+// partway through (e.g. fee estimation), the batch remains in a
+// retryable state: the pending batch survives, no tapscript sibling
+// from the failed attempt is leaked, and a subsequent FundBatch
+// succeeds.
+func testFundBatchFailRetry(t *mintingTestHarness) {
+	t.refreshChainPlanter()
+
+	const numSeedlings = 5
+	_ = t.queueInitialBatch(numSeedlings)
+
+	// Build a valid tapscript sibling preimage.
+	sigLockKey := test.RandPubKey(t)
+	hashLockWitness := []byte("foobar")
+	hashLockLeaf := test.ScriptHashLock(t.T, hashLockWitness)
+	sigLeaf := test.ScriptSchnorrSig(t.T, sigLockKey)
+	tapTreePreimage, err := asset.TapTreeNodesFromLeaves(
+		[]txscript.TapLeaf{hashLockLeaf, sigLeaf},
+	)
+	require.NoError(t, err)
+
+	var (
+		wg       sync.WaitGroup
+		respChan = make(chan *FundBatchResp, 1)
+		fundReq  = tapgarden.FundParams{
+			SiblingTapTree: fn.Some(*tapTreePreimage),
+		}
+	)
+
+	// Force fee estimation to fail so that FundBatch fails inside
+	// fundBatch.
+	t.chain.FailFeeEstimatesOnce()
+
+	t.fundBatch(&wg, respChan, &fundReq)
+
+	_, err = fn.RecvOrTimeout(
+		t.chain.FeeEstimateSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+
+	t.assertFundBatch(&wg, respChan, "failed to estimate fee")
+
+	// The pending batch should still exist, unfunded, and with no
+	// leaked sibling from the failed attempt.
+	pending, err := t.planter.PendingBatch()
+	require.NoError(t, err)
+	require.NotNil(t, pending)
+	require.False(t, pending.IsFunded())
+	require.Nil(
+		t, pending.TapSibling(),
+		"fundBatch leaked sibling on failed attempt",
+	)
+
+	// Retry FundBatch without a sibling. The attempt should succeed.
+	retryReq := tapgarden.FundParams{}
+	t.fundBatch(&wg, respChan, &retryReq)
+	t.assertGenesisTxFunded(nil)
+	funded := t.assertFundBatch(&wg, respChan, "")
+	require.NotNil(t, funded)
+	require.True(t, funded.IsFunded())
+	require.Nil(
+		t, funded.TapSibling(),
+		"funded batch has unexpected sibling",
+	)
+}
+
 func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	// First, create a new chain planter instance using the supplied test
 	// harness.
@@ -2205,6 +2271,10 @@ var testCases = []mintingStoreTestCase{
 	{
 		name:     "fund_fail_sibling_not_leaked",
 		testFunc: testFundFailSiblingNotLeaked,
+	},
+	{
+		name:     "fund_batch_fail_retry",
+		testFunc: testFundBatchFailRetry,
 	},
 	{
 		name:     "fund_seal_before_finalize",
