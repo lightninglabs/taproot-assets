@@ -3,7 +3,9 @@ package tapgarden
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -278,6 +280,85 @@ func TestMintingBatchCopy(t *testing.T) {
 		batch.Seedlings["new"] = &Seedling{AssetName: "new"}
 		require.Empty(t, emptyCopy.Seedlings)
 	})
+}
+
+// TestMintingOutputKeyPureInSibling pins the contract that
+// MintingOutputKey is a function of (batch, sibling): two calls
+// with different siblings must produce different output keys, two
+// calls with the same sibling must produce the same key. A
+// regression that re-introduced the memoizing cache would silently
+// return the first call's value on every subsequent call regardless
+// of the sibling argument.
+func TestMintingOutputKeyPureInSibling(t *testing.T) {
+	t.Parallel()
+
+	// Construct a batch with a real RootAssetCommitment so
+	// MintingOutputKey can compute the tapscript root.
+	batchKey, _ := test.RandKeyDesc(t)
+	randAsset := asset.RandAsset(t, asset.Normal)
+	tapCommitment, err := commitment.FromAssets(
+		fn.Ptr(commitment.TapCommitmentV2), randAsset,
+	)
+	require.NoError(t, err)
+
+	batch := &MintingBatch{
+		BatchKey:            batchKey,
+		RootAssetCommitment: tapCommitment,
+	}
+
+	// Build two distinct sibling preimages. We use two single-leaf
+	// trees with different scripts; their TapHashes will differ,
+	// so a sibling-sensitive MintingOutputKey must return distinct
+	// output keys.
+	mkSibling := func(scriptByte byte) *commitment.TapscriptPreimage {
+		leaf := txscript.NewBaseTapLeaf([]byte{scriptByte})
+		nodes, err := asset.TapTreeNodesFromLeaves(
+			[]txscript.TapLeaf{leaf},
+		)
+		require.NoError(t, err)
+
+		preimage, err := commitment.
+			NewPreimageFromTapscriptTreeNodes(*nodes)
+		require.NoError(t, err)
+		return preimage
+	}
+
+	siblingA := mkSibling(0x01)
+	siblingB := mkSibling(0x02)
+
+	keyA, rootA, err := batch.MintingOutputKey(siblingA)
+	require.NoError(t, err)
+	keyB, rootB, err := batch.MintingOutputKey(siblingB)
+	require.NoError(t, err)
+
+	// Different siblings must yield different output keys and
+	// different tapscript roots. If the cache regressed, keyB
+	// would equal keyA.
+	require.False(
+		t, keyA.IsEqual(keyB),
+		"MintingOutputKey must depend on its sibling argument",
+	)
+	require.NotEqual(t, rootA, rootB)
+
+	// Same sibling must yield the same key both times: the
+	// function is deterministic, not stateful.
+	keyAgain, rootAgain, err := batch.MintingOutputKey(siblingA)
+	require.NoError(t, err)
+	require.True(t, keyA.IsEqual(keyAgain))
+	require.Equal(t, rootA, rootAgain)
+
+	// Calling with nil sibling produces yet another distinct key
+	// (it commits to no sibling, equivalent to "the empty tree
+	// branch"). Important to assert because the caretaker's
+	// BatchStateCommitted branch used to pass nil and rely on the
+	// cache for the actual sibling-bearing value.
+	keyNil, _, err := batch.MintingOutputKey(nil)
+	require.NoError(t, err)
+	require.False(
+		t, keyNil.IsEqual(keyA),
+		"MintingOutputKey(nil) must not return the same value "+
+			"as MintingOutputKey(siblingA)",
+	)
 }
 
 // TestUniqueAnchorSeedling pins the contract of

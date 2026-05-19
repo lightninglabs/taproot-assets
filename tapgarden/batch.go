@@ -72,17 +72,10 @@ type MintingBatch struct {
 	// ignored, burnt, etc).
 	SupplyCommitments bool
 
-	// mintingPubKey is the top-level Taproot output key that will be used
-	// to commit to the Taproot Asset commitment above.
-	mintingPubKey *btcec.PublicKey
-
-	// tapSibling is an optional root hash of a tapscript tree that will be
-	// used with the taprootAssetScriptRoot to construct the mintingPubKey.
+	// tapSibling is an optional root hash of a tapscript tree that is
+	// combined with the Taproot Asset commitment to derive the
+	// MintingOutputKey.
 	tapSibling *chainhash.Hash
-
-	// taprootAssetScriptRoot is the root hash of the Taproot Asset
-	// commitment. If this is nil, then the mintingPubKey will be as well.
-	taprootAssetScriptRoot []byte
 }
 
 // VerboseBatch is a MintingBatch that includes seedlings with their pending
@@ -112,7 +105,6 @@ func (m *MintingBatch) Copy() *MintingBatch {
 		BatchKey:            m.BatchKey,
 		RootAssetCommitment: m.RootAssetCommitment,
 		SupplyCommitments:   m.SupplyCommitments,
-		mintingPubKey:       m.mintingPubKey,
 		tapSibling:          m.tapSibling,
 	}
 	batchCopy.setState(m.State())
@@ -136,12 +128,6 @@ func (m *MintingBatch) Copy() *MintingBatch {
 		for k, v := range m.AssetMetas {
 			batchCopy.AssetMetas[k] = v
 		}
-	}
-
-	if m.taprootAssetScriptRoot != nil {
-		batchCopy.taprootAssetScriptRoot = fn.CopySlice(
-			m.taprootAssetScriptRoot,
-		)
 	}
 
 	return batchCopy
@@ -168,14 +154,21 @@ func (m *MintingBatch) validateGroupAnchor(s *Seedling) error {
 	return validateAnchorMeta(s.Meta, anchor.Meta)
 }
 
-// MintingOutputKey derives the output key that once mined, will commit to the
-// Taproot asset root, thereby creating the set of included assets.
+// MintingOutputKey derives the output key that once mined, will commit
+// to the Taproot asset root, thereby creating the set of included
+// assets. The returned byte slice is the tapscript root that was
+// committed to (the Taproot Asset commitment combined with the
+// optional sibling).
+//
+// This function is pure in (m.BatchKey, m.RootAssetCommitment,
+// sibling): every call with the same arguments returns the same
+// result, and every call with a different sibling returns a
+// different result. There is no memoization; the on-curve work is
+// trivial and a cache would re-introduce the §IV bug shape where
+// the function silently ignored its sibling argument after the
+// first call.
 func (m *MintingBatch) MintingOutputKey(sibling *commitment.TapscriptPreimage) (
 	*btcec.PublicKey, []byte, error) {
-
-	if m.mintingPubKey != nil {
-		return m.mintingPubKey, m.taprootAssetScriptRoot, nil
-	}
 
 	if m.RootAssetCommitment == nil {
 		return nil, nil, fmt.Errorf("no asset commitment present")
@@ -197,12 +190,11 @@ func (m *MintingBatch) MintingOutputKey(sibling *commitment.TapscriptPreimage) (
 		siblingHash,
 	)
 
-	m.taprootAssetScriptRoot = taprootAssetScriptRoot[:]
-	m.mintingPubKey = txscript.ComputeTaprootOutputKey(
+	mintingPubKey := txscript.ComputeTaprootOutputKey(
 		m.BatchKey.PubKey, taprootAssetScriptRoot[:],
 	)
 
-	return m.mintingPubKey, m.taprootAssetScriptRoot, nil
+	return mintingPubKey, taprootAssetScriptRoot[:], nil
 }
 
 // VerifyOutputScript recomputes a batch genesis output script from a batch key,

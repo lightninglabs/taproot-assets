@@ -755,26 +755,20 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		// At this point we have a fully signed PSBT packet which'll
 		// create our set of assets once mined. We'll write this to
-		// disk, then import the public key into the wallet. The sibling
-		// here can always be nil as we'll fetch the output key computed
-		// previously in BatchStateFrozen.
+		// disk, then import the public key into the wallet. To do so
+		// we need the minting output key, which is derived from the
+		// batch key, the asset commitment root, and the optional
+		// tapscript sibling -- so we load the sibling preimage first
+		// and pass it explicitly. MintingOutputKey is now pure in
+		// its arguments, so we cannot rely on a value cached during
+		// BatchStateFrozen.
 		//
 		// TODO(roasbeef): re-run during the broadcast phase to ensure
 		// it's fully imported?
-		mintingOutputKey, merkleRoot, err := b.cfg.Batch.
-			MintingOutputKey(nil)
-		if err != nil {
-			return 0, err
-		}
-
-		// To spend this output in the future, we must also commit the
-		// Taproot Asset commitment root and batch tapscript sibling.
-		tapCommitmentRoot := b.cfg.Batch.RootAssetCommitment.
-			TapscriptRoot(nil)
-
-		// Fetch the optional Tapscript sibling for this batch, and
-		// encode it to bytes.
-		var siblingBytes []byte
+		var (
+			batchSibling *commitment.TapscriptPreimage
+			siblingBytes []byte
+		)
 		if b.cfg.Batch.tapSibling != nil {
 			tapSibling, err := b.cfg.TreeStore.LoadTapscriptTree(
 				ctx, *b.cfg.Batch.tapSibling,
@@ -783,7 +777,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				return 0, err
 			}
 
-			batchSibling, err := commitment.
+			batchSibling, err = commitment.
 				NewPreimageFromTapscriptTreeNodes(*tapSibling)
 			if err != nil {
 				return 0, err
@@ -795,6 +789,17 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				return 0, err
 			}
 		}
+
+		mintingOutputKey, merkleRoot, err := b.cfg.Batch.
+			MintingOutputKey(batchSibling)
+		if err != nil {
+			return 0, err
+		}
+
+		// To spend this output in the future, we must also commit the
+		// Taproot Asset commitment root and batch tapscript sibling.
+		tapCommitmentRoot := b.cfg.Batch.RootAssetCommitment.
+			TapscriptRoot(nil)
 
 		err = b.cfg.Log.CommitSignedGenesisTx(
 			ctx, b.cfg.Batch,

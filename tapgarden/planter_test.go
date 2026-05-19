@@ -970,19 +970,29 @@ func (t *mintingTestHarness) assertBatchGenesisTx(
 }
 
 // assertMintOutputKey asserts that the genesis output key for the batch was
-// computed correctly during minting and includes a tapscript sibling.
+// computed correctly during minting and includes a tapscript sibling. The
+// sibling preimage is passed through to MintingOutputKey explicitly --
+// the helper must not rely on any previously cached value, since
+// MintingOutputKey is pure in its sibling argument.
 func (t *mintingTestHarness) assertMintOutputKey(batch *tapgarden.MintingBatch,
-	siblingHash *chainhash.Hash) {
+	siblingPreimage *commitment.TapscriptPreimage) {
 
 	rootCommitment := batch.RootAssetCommitment
 	require.NotNil(t, rootCommitment)
+
+	var siblingHash *chainhash.Hash
+	if siblingPreimage != nil {
+		h, err := siblingPreimage.TapHash()
+		require.NoError(t, err)
+		siblingHash = h
+	}
 
 	scriptRoot := rootCommitment.TapscriptRoot(siblingHash)
 	expectedOutputKey := txscript.ComputeTaprootOutputKey(
 		batch.BatchKey.PubKey, scriptRoot[:],
 	)
 
-	outputKey, _, err := batch.MintingOutputKey(nil)
+	outputKey, _, err := batch.MintingOutputKey(siblingPreimage)
 	require.NoError(t, err)
 	require.True(t, expectedOutputKey.IsEqual(outputKey))
 }
@@ -1731,9 +1741,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 
 	// Verify that the final minting output key matches what we would derive
 	// manually.
-	siblingHash, err := siblingPreimage.TapHash()
-	require.NoError(t, err)
-	t.assertMintOutputKey(batchWithSibling, siblingHash)
+	t.assertMintOutputKey(batchWithSibling, &siblingPreimage)
 }
 
 // testFundFailSiblingNotLeaked verifies that when a finalize attempt
@@ -2112,7 +2120,7 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 
 	t.assertNumCaretakersActive(0)
 	t.assertLastBatchState(1, tapgarden.BatchStateFinalized)
-	t.assertMintOutputKey(mintedBatch, &defaultTapHash)
+	t.assertMintOutputKey(mintedBatch, &defaultPreimage)
 }
 
 func testFundSealOnRestart(t *mintingTestHarness) {
