@@ -1517,7 +1517,12 @@ func (a *AssetMintingStore) CommitBatchTx(ctx context.Context,
 	batchKey *btcec.PublicKey,
 	genesisPacket tapgarden.FundedMintAnchorPsbt) error {
 
-	genesisOutpoint := genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	genesisOutpoint, err := genesisPacket.GenesisOutpoint().UnwrapOrErr(
+		tapgarden.ErrFundedAnchorPsbtMissingOutpoint,
+	)
+	if err != nil {
+		return err
+	}
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
@@ -1541,7 +1546,12 @@ func (a *AssetMintingStore) CommitBatchFunding(ctx context.Context,
 	batchKey *btcec.PublicKey, batchSibling *chainhash.Hash,
 	genesisPacket tapgarden.FundedMintAnchorPsbt) error {
 
-	genesisOutpoint := genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	genesisOutpoint, err := genesisPacket.GenesisOutpoint().UnwrapOrErr(
+		tapgarden.ErrFundedAnchorPsbtMissingOutpoint,
+	)
+	if err != nil {
+		return err
+	}
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
@@ -1851,7 +1861,12 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 
 	sortedAssets := append(anchorAssets, nonAnchorAssets...)
 
-	genesisOutpoint := genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	genesisOutpoint, err := genesisPacket.GenesisOutpoint().UnwrapOrErr(
+		tapgarden.ErrFundedAnchorPsbtMissingOutpoint,
+	)
+	if err != nil {
+		return err
+	}
 
 	rawBatchKey := batchKey.SerializeCompressed()
 
