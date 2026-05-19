@@ -102,6 +102,10 @@
   fixes inverted sort direction in `AssetRoots`, `AssetLeafKeys`, and
   `QueryEvents` universe RPCs.
 
+* [PR#2141](https://github.com/lightninglabs/taproot-assets/pull/2141)
+  fixes several bugs that could leave minting batches in an inconsistent
+  state in the case of a funding, database write, or restart error.
+
 # New Features
 
 ## Functional Enhancements
