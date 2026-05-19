@@ -2257,24 +2257,15 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 		return err
 	}
 
-	// Persist the sibling and genesis TX first. We only mutate
-	// workingBatch after all persistence has succeeded, so a DB
-	// commit failure leaves the live in-memory batch unchanged.
-	if rootHash != nil {
-		err = c.cfg.Log.CommitBatchTapSibling(
-			ctx, workingBatch.BatchKey.PubKey, rootHash,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to commit tapscript "+
-				"sibling for minting batch %w", err)
-		}
-	}
-
-	err = c.cfg.Log.CommitBatchTx(
-		ctx, workingBatch.BatchKey.PubKey, *mintAnchorTx,
+	// Persist the sibling and genesis TX atomically. Combining
+	// both writes in a single transaction ensures a partial
+	// failure cannot leave the batch with one persisted and the
+	// other absent.
+	err = c.cfg.Log.CommitBatchFunding(
+		ctx, workingBatch.BatchKey.PubKey, rootHash, *mintAnchorTx,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to commit batch funding: %w", err)
 	}
 
 	// All persistence succeeded; commit the funding to memory.
