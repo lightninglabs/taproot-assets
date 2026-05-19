@@ -107,7 +107,7 @@ func (m *MintingBatch) Copy() *MintingBatch {
 		SupplyCommitments:   m.SupplyCommitments,
 		tapSibling:          m.tapSibling,
 	}
-	batchCopy.UpdateState(m.State())
+	batchCopy.setState(m.State())
 
 	if m.Seedlings != nil {
 		batchCopy.Seedlings = make(
@@ -280,10 +280,27 @@ func (m *MintingBatch) State() BatchState {
 	return batchStateCopy
 }
 
-// UpdateState updates the state of a batch to a value that has been verified to
-// be a valid batch state.
-func (m *MintingBatch) UpdateState(state BatchState) {
+// setState updates the in-memory batch state. This is unexported because
+// every authoritative state mutation must flow through a MintingStore call
+// that writes to disk first and only then mutates memory. Use this only for
+// package-internal cases that are not the result of a DB transition
+// (currently: initial Pending state during batch construction and copying
+// a batch via Copy()).
+func (m *MintingBatch) setState(state BatchState) {
 	m.batchState.Store(uint32(state))
+}
+
+// SetStateOnDBSuccess mutates the in-memory batch state. It is intended to
+// be called exclusively by MintingStore implementations after a successful
+// DB write has committed the same state to disk; this is what guarantees
+// that the in-memory mirror cannot get ahead of the on-disk truth.
+//
+// NOTE: Ordinary callers (planter, caretaker, RPC layer, tests) must never
+// invoke this method directly. Use the MintingStore interface, whose
+// state-mutating methods take *MintingBatch and update memory only on DB
+// success.
+func (m *MintingBatch) SetStateOnDBSuccess(state BatchState) {
+	m.setState(state)
 }
 
 // TapSibling returns the optional tapscript sibling for the batch, which is a
@@ -499,38 +516,70 @@ func (m *MintingBatch) validateUniCommitment(newSeedling Seedling) error {
 	return nil
 }
 
-// AddSeedling adds a new seedling to the batch.
-func (m *MintingBatch) AddSeedling(newSeedling Seedling) error {
-	// Ensure that the seedling adheres to the universe commitment feature
-	// restrictions in relation to the current batch state.
-	err := m.validateUniCommitment(newSeedling)
-	if err != nil {
+// validateSeedling checks that a candidate seedling is admissible into
+// the batch given the batch's current state. It does not mutate the
+// batch; this is the read-only half of AddSeedling.
+//
+// Callers that need a persistence boundary between validation and
+// mutation (e.g. "validate, write to disk, then update in memory")
+// should pair this with commitSeedling so an in-memory mutation
+// cannot precede the persistence that justifies it.
+func (m *MintingBatch) validateSeedling(newSeedling Seedling) error {
+	// Ensure that the seedling adheres to the universe commitment
+	// feature restrictions in relation to the current batch state.
+	if err := m.validateUniCommitment(newSeedling); err != nil {
 		return fmt.Errorf("seedling does not comply with universe "+
 			"commitment feature: %w", err)
 	}
 
-	// At this stage, the seedling has been confirmed to comply with the
-	// universe commitment feature restrictions. If this is the first
-	// seedling being added to the batch, the batch universe commitment flag
-	// can be set to match the seedling's flag state.
+	// Ensure that the delegation key is valid for the seedling being
+	// considered for inclusion in the batch. validateDelegationKey
+	// reads newSeedling.SupplyCommitments (not m.SupplyCommitments),
+	// so it is order-independent with respect to the
+	// SupplyCommitments mutation that commitSeedling performs.
+	if err := m.validateDelegationKey(newSeedling); err != nil {
+		return fmt.Errorf("delegation key validation failed: %w", err)
+	}
+
+	return nil
+}
+
+// commitSeedling applies the in-memory mutation that adds newSeedling
+// to the batch. It assumes the seedling has already been validated by
+// validateSeedling; calling it on an invalid seedling is a
+// programming error.
+//
+// The SupplyCommitments mutation must happen before the seedling is
+// inserted into the map, because the gate is m.HasSeedlings() which
+// flips once the insertion has happened.
+func (m *MintingBatch) commitSeedling(newSeedling Seedling) {
 	if !m.HasSeedlings() {
 		m.SupplyCommitments = newSeedling.SupplyCommitments
 	}
 
-	// Ensure that the delegation key is valid for the seedling being
-	// considered for inclusion in the batch.
-	err = m.validateDelegationKey(newSeedling)
-	if err != nil {
-		return fmt.Errorf("delegation key validation failed: %w", err)
-	}
-
-	// Add the seedling to the batch.
 	if m.Seedlings == nil {
 		m.Seedlings = make(map[string]*Seedling)
 	}
 
 	m.Seedlings[newSeedling.AssetName] = &newSeedling
+}
 
+// AddSeedling validates the seedling against the batch and, if valid,
+// adds it. This is the convenience wrapper for callers that do not
+// need a persistence boundary between validation and the in-memory
+// mutation (e.g. constructing a fresh batch in memory that will be
+// persisted whole, or test helpers building random batches).
+//
+// Callers that *do* need a persistence boundary -- e.g. adding a
+// seedling to an existing on-disk batch where the in-memory mirror
+// must not advance unless the DB write succeeds -- should use
+// validateSeedling and commitSeedling explicitly around the
+// persistence call.
+func (m *MintingBatch) AddSeedling(newSeedling Seedling) error {
+	if err := m.validateSeedling(newSeedling); err != nil {
+		return err
+	}
+	m.commitSeedling(newSeedling)
 	return nil
 }
 
