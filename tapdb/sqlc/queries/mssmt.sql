@@ -1,17 +1,20 @@
 -- name: InsertBranch :exec
 INSERT INTO mssmt_nodes (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
-) VALUES ($1, $2, $3, NULL, NULL, $4, $5);
+) VALUES ($1, $2, $3, NULL, NULL, $4, $5)
+ON CONFLICT (hash_key, namespace) DO NOTHING;
 
 -- name: InsertLeaf :exec
 INSERT INTO mssmt_nodes (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
-) VALUES ($1, NULL, NULL, NULL, $2, $3, $4);
+) VALUES ($1, NULL, NULL, NULL, $2, $3, $4)
+ON CONFLICT (hash_key, namespace) DO NOTHING;
 
 -- name: InsertCompactedLeaf :exec
 INSERT INTO mssmt_nodes (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
-) VALUES ($1, NULL, NULL, $2, $3, $4, $5);
+) VALUES ($1, NULL, NULL, $2, $3, $4, $5)
+ON CONFLICT (hash_key, namespace) DO NOTHING;
 
 -- name: FetchChildren :many
 WITH RECURSIVE mssmt_branches_cte (
