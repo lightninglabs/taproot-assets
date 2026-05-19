@@ -615,10 +615,18 @@ func testBatchDeletion(t *testing.T, leaves []treeLeaf, tree mssmt.Tree) {
 	err = tree.DeleteAllNodes(ctx)
 	require.NoError(t, err)
 
+	// Backends differ on the post-DeleteAllNodes stale state: some
+	// error with "node not found"; others walk through the empty
+	// tree and return an empty leaf. Either result confirms the
+	// inserted leaves are no longer retrievable.
 	for _, item := range leaves {
 		emptyLeaf, err := tree.Get(ctx, item.key)
-		require.Nil(t, emptyLeaf)
-		require.ErrorContains(t, err, "node not found")
+		if err != nil {
+			require.ErrorContains(t, err, "node not found")
+			require.Nil(t, emptyLeaf)
+			continue
+		}
+		require.True(t, emptyLeaf.IsEmpty())
 	}
 
 	err = tree.DeleteRoot(ctx)
