@@ -197,7 +197,7 @@ func (b *BatchCaretaker) Cancel() error {
 	// In the pending state, the batch seedlings have not sprouted yet.
 	case BatchStatePending, BatchStateFrozen:
 		err := b.cfg.Log.UpdateBatchState(
-			ctx, b.cfg.Batch.BatchKey.PubKey,
+			ctx, b.cfg.Batch,
 			BatchStateSeedlingCancelled,
 		)
 		if err != nil {
@@ -218,7 +218,7 @@ func (b *BatchCaretaker) Cancel() error {
 
 	case BatchStateCommitted:
 		err := b.cfg.Log.UpdateBatchState(
-			ctx, b.cfg.Batch.BatchKey.PubKey,
+			ctx, b.cfg.Batch,
 			BatchStateSproutCancelled,
 		)
 		if err != nil {
@@ -319,7 +319,12 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 
 		currentState = nextState
 
-		b.cfg.Batch.UpdateState(currentState)
+		// We do not mirror currentState into the in-memory batch
+		// here. Each branch of stateStep that transitions state does
+		// so via a MintingStore call, which advances the in-memory
+		// mirror only after the DB write succeeds. Writing the local
+		// currentState here would re-introduce the two-truth split
+		// that the store calls exist to prevent.
 	}
 
 	return currentState, nil
@@ -386,12 +391,17 @@ func (b *BatchCaretaker) assetCultivator() {
 				confInfo.BlockHash, confInfo.BlockHeight)
 
 			b.confInfo = confInfo
-			b.cfg.Batch.UpdateState(BatchStateConfirmed)
-			currentBatchState = b.cfg.Batch.State()
 
+			// Hand BatchStateConfirmed to advanceStateUntil
+			// directly rather than mutating the in-memory state
+			// here: the Confirmed branch of stateStep calls
+			// MarkBatchConfirmed, which advances both the on-disk
+			// row and the in-memory mirror as one step. Setting
+			// memory here would re-create the two-truth window.
+			//
 			// TODO(roasbeef): use a "trigger" here instead?
 			_, err = b.advanceStateUntil(
-				currentBatchState, BatchStateFinalized,
+				BatchStateConfirmed, BatchStateFinalized,
 			)
 			if err != nil {
 				log.Error(err)
@@ -666,7 +676,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// replacing the existing seedlings we had created for each of
 		// these assets.
 		err = b.cfg.Log.AddSproutsToBatch(
-			ctx, b.cfg.Batch.BatchKey.PubKey,
+			ctx, b.cfg.Batch,
 			&fundedGenesisPsbt, b.cfg.Batch.RootAssetCommitment,
 		)
 		if err != nil {
@@ -787,7 +797,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		err = b.cfg.Log.CommitSignedGenesisTx(
-			ctx, b.cfg.Batch.BatchKey.PubKey,
+			ctx, b.cfg.Batch,
 			&b.cfg.Batch.GenesisPacket.FundedPsbt,
 			b.anchorOutputIndex, merkleRoot, tapCommitmentRoot[:],
 			siblingBytes,
@@ -1153,7 +1163,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		err = b.cfg.Log.MarkBatchConfirmed(
-			ctx, b.cfg.Batch.BatchKey.PubKey, confInfo.BlockHash,
+			ctx, b.cfg.Batch, confInfo.BlockHash,
 			confInfo.BlockHeight, confInfo.TxIndex,
 			mintingProofBlobs,
 		)
@@ -1184,7 +1194,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		ctx, cancel := b.WithCtxQuit()
 		defer cancel()
 		err := b.cfg.Log.UpdateBatchState(
-			ctx, b.cfg.Batch.BatchKey.PubKey, BatchStateFinalized,
+			ctx, b.cfg.Batch, BatchStateFinalized,
 		)
 		return BatchStateFinalized, err
 

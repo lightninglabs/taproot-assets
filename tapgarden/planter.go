@@ -537,7 +537,7 @@ func (c *ChainPlanter) Start() error {
 				log.Warnf("Marking batch as cancelled (%x)",
 					batchKey)
 				err := c.cfg.Log.UpdateBatchState(
-					ctx, batch.BatchKey.PubKey,
+					ctx, batch,
 					BatchStateSeedlingCancelled,
 				)
 
@@ -608,12 +608,12 @@ func (c *ChainPlanter) Start() error {
 
 				// Any pending batch that was funded and sealed
 				// can now be set as frozen. We are already not
-				// able to add new seedlings to the batch.
-				batch.UpdateState(BatchStateFrozen)
-
+				// able to add new seedlings to the batch. The
+				// store call below moves both the on-disk row
+				// and the in-memory mirror atomically; if it
+				// fails, neither has moved.
 				err := c.cfg.Log.UpdateBatchState(
-					ctx, batch.BatchKey.PubKey,
-					BatchStateFrozen,
+					ctx, batch, BatchStateFrozen,
 				)
 				if err != nil {
 					log.Warnf("Failed to update batch "+
@@ -709,7 +709,11 @@ func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
 		Seedlings:    make(map[string]*Seedling),
 		AssetMetas:   make(AssetMetas),
 	}
-	newBatch.UpdateState(BatchStatePending)
+	// The batch is private to this caller until CommitMintingBatch
+	// succeeds, so setting the in-memory state directly here does not
+	// open a two-truth window: the next DB call is the first to publish
+	// the row, with state=Pending.
+	newBatch.setState(BatchStatePending)
 	return newBatch, nil
 }
 
@@ -1429,7 +1433,7 @@ func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
 	//
 	// TODO(roasbeef): assert not in some other state first?
 	return batchStore.UpdateBatchState(
-		ctx, batchKey, BatchStateFrozen,
+		ctx, batch, BatchStateFrozen,
 	)
 }
 
@@ -1851,10 +1855,12 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 	log.Infof("Cancelling MintingBatch(key=%x, num_assets=%v)",
 		batchKeySerialized, len(c.pendingBatch.Seedlings))
 
-	// If the target batch was not assigned a caretaker, we only need to
-	// update the batch state on disk to cancel it.
+	// If the target batch was not assigned a caretaker, the only
+	// non-cancelled batch in play is c.pendingBatch (canCancelBatch
+	// guarantees this). Update the batch state on disk and in memory in
+	// a single atomic call.
 	err := c.cfg.Log.UpdateBatchState(
-		ctx, batchKey, BatchStateSeedlingCancelled,
+		ctx, c.pendingBatch, BatchStateSeedlingCancelled,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to cancel minting batch: %w", err)
@@ -2708,12 +2714,13 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 
 	// Now that funding and sealing have succeeded, freeze the
 	// batch on disk and in memory. This means no further
-	// seedlings can be added to this batch.
+	// seedlings can be added to this batch. freezeMintingBatch
+	// updates both the on-disk row and the in-memory state in a
+	// single atomic step via the MintingStore.
 	err = freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
 	if err != nil {
 		return nil, err
 	}
-	c.pendingBatch.UpdateState(BatchStateFrozen)
 	caretaker := c.newCaretakerForBatch(c.pendingBatch, feeRate)
 	if err := caretaker.Start(); err != nil {
 		return nil, fmt.Errorf("unable to start new caretaker: %w", err)

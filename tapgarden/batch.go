@@ -115,7 +115,7 @@ func (m *MintingBatch) Copy() *MintingBatch {
 		mintingPubKey:       m.mintingPubKey,
 		tapSibling:          m.tapSibling,
 	}
-	batchCopy.UpdateState(m.State())
+	batchCopy.setState(m.State())
 
 	if m.Seedlings != nil {
 		batchCopy.Seedlings = make(
@@ -288,10 +288,27 @@ func (m *MintingBatch) State() BatchState {
 	return batchStateCopy
 }
 
-// UpdateState updates the state of a batch to a value that has been verified to
-// be a valid batch state.
-func (m *MintingBatch) UpdateState(state BatchState) {
+// setState updates the in-memory batch state. This is unexported because
+// every authoritative state mutation must flow through a MintingStore call
+// that writes to disk first and only then mutates memory. Use this only for
+// package-internal cases that are not the result of a DB transition
+// (currently: initial Pending state during batch construction and copying
+// a batch via Copy()).
+func (m *MintingBatch) setState(state BatchState) {
 	m.batchState.Store(uint32(state))
+}
+
+// SetStateOnDBSuccess mutates the in-memory batch state. It is intended to
+// be called exclusively by MintingStore implementations after a successful
+// DB write has committed the same state to disk; this is what guarantees
+// that the in-memory mirror cannot get ahead of the on-disk truth.
+//
+// NOTE: Ordinary callers (planter, caretaker, RPC layer, tests) must never
+// invoke this method directly. Use the MintingStore interface, whose
+// state-mutating methods take *MintingBatch and update memory only on DB
+// success.
+func (m *MintingBatch) SetStateOnDBSuccess(state BatchState) {
+	m.setState(state)
 }
 
 // TapSibling returns the optional tapscript sibling for the batch, which is a

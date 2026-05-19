@@ -260,7 +260,9 @@ func (t *mintingTestHarness) createExternalBatch(
 		Seedlings:    seedlingsWithKeys,
 		AssetMetas:   make(tapgarden.AssetMetas),
 	}
-	newBatch.UpdateState(tapgarden.BatchStatePending)
+
+	// The zero value of MintingBatch.batchState is BatchStatePending,
+	// so no explicit state setter is needed here.
 
 	return newBatch
 }

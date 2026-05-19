@@ -199,9 +199,12 @@ type MintingStore interface {
 	// by its batch key.
 	CommitMintingBatch(ctx context.Context, newBatch *MintingBatch) error
 
-	// UpdateBatchState updates the batch state on disk identified by the
-	// batch key.
-	UpdateBatchState(ctx context.Context, batchKey *btcec.PublicKey,
+	// UpdateBatchState writes the new batch state to disk and, on
+	// success, mirrors it into the in-memory batch. Either both writes
+	// succeed and the in-memory state advances, or both stay at the
+	// prior value. Callers must never mutate batch state by any other
+	// route.
+	UpdateBatchState(ctx context.Context, batch *MintingBatch,
 		newState BatchState) error
 
 	// AddSeedlingsToBatch adds a new seedling to an existing batch. Once
@@ -238,9 +241,10 @@ type MintingStore interface {
 	// a GenesisPacket, that once signed and broadcast with create the
 	// set of assets on chain.
 	//
-	// NOTE: The BatchState should transition to BatchStateCommitted upon a
-	// successful call.
-	AddSproutsToBatch(ctx context.Context, batchKey *btcec.PublicKey,
+	// NOTE: On success the batch transitions to BatchStateCommitted on
+	// disk and the in-memory state of the supplied batch is advanced to
+	// match. On failure neither moves.
+	AddSproutsToBatch(ctx context.Context, batch *MintingBatch,
 		genesisPacket *FundedMintAnchorPsbt,
 		assets *commitment.TapCommitment) error
 
@@ -249,9 +253,10 @@ type MintingStore interface {
 	// left/right sibling for the Taproot Asset tapscript commitment in the
 	// transaction.
 	//
-	// NOTE: The BatchState should transition to the BatchStateBroadcast
-	// state upon a successful call.
-	CommitSignedGenesisTx(ctx context.Context, batchKey *btcec.PublicKey,
+	// NOTE: On success the batch transitions to BatchStateBroadcast on
+	// disk and the in-memory state of the supplied batch is advanced to
+	// match. On failure neither moves.
+	CommitSignedGenesisTx(ctx context.Context, batch *MintingBatch,
 		genesisTx *tapsend.FundedPsbt, anchorOutputIndex uint32,
 		merkleRoot, tapTreeRoot, tapSibling []byte) error
 
@@ -259,9 +264,10 @@ type MintingStore interface {
 	// block location information determines where exactly in the chain the
 	// batch was confirmed.
 	//
-	// NOTE: The BatchState should transition to the BatchStateConfirmed
-	// state upon a successful call.
-	MarkBatchConfirmed(ctx context.Context, batchKey *btcec.PublicKey,
+	// NOTE: On success the batch transitions to BatchStateConfirmed on
+	// disk and the in-memory state of the supplied batch is advanced to
+	// match. On failure neither moves.
+	MarkBatchConfirmed(ctx context.Context, batch *MintingBatch,
 		blockHash *chainhash.Hash, blockHeight uint32,
 		txIndex uint32, mintingProofs proof.AssetBlobs) error
 
