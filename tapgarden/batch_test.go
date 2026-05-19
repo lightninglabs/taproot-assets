@@ -279,3 +279,105 @@ func TestMintingBatchCopy(t *testing.T) {
 		require.Empty(t, emptyCopy.Seedlings)
 	})
 }
+
+// TestSeedlingValidateCommitSplit pins the invariant that
+// validateSeedling never mutates the batch -- it is the read-only
+// half of AddSeedling, used by callers that need to persist a
+// seedling before mirroring it into the in-memory batch. A regression
+// here would silently revive the §X bug shape in prepAssetSeedling:
+// an in-memory mutation that precedes the DB write that justifies it.
+func TestSeedlingValidateCommitSplit(t *testing.T) {
+	t.Parallel()
+
+	mkCandidate := func(name string, supplyCommitments bool) Seedling {
+		return Seedling{
+			AssetName:         name,
+			AssetType:         asset.Normal,
+			Amount:            1,
+			SupplyCommitments: supplyCommitments,
+			DelegationKey: fn.None[
+				keychain.KeyDescriptor,
+			](),
+		}
+	}
+
+	t.Run("validate on populated batch leaves it unchanged",
+		func(t *testing.T) {
+
+			batch := RandMintingBatch(
+				t, WithTotalSeedlings(3),
+			)
+			seedlingsBefore := len(batch.Seedlings)
+			supplyBefore := batch.SupplyCommitments
+
+			candidate := mkCandidate(
+				"validate-only-candidate", supplyBefore,
+			)
+
+			err := batch.validateSeedling(candidate)
+			require.NoError(t, err)
+
+			require.Equal(t, seedlingsBefore, len(batch.Seedlings))
+			require.Equal(
+				t, supplyBefore, batch.SupplyCommitments,
+			)
+			require.NotContains(
+				t, batch.Seedlings, candidate.AssetName,
+			)
+		})
+
+	t.Run("validate failure also leaves batch unchanged",
+		func(t *testing.T) {
+
+			batch := RandMintingBatch(
+				t, WithTotalSeedlings(3),
+			)
+			seedlingsBefore := len(batch.Seedlings)
+			supplyBefore := batch.SupplyCommitments
+
+			// Force a SupplyCommitments mismatch so
+			// validateUniCommitment rejects the seedling.
+			candidate := mkCandidate(
+				"validate-fail-candidate", !supplyBefore,
+			)
+
+			err := batch.validateSeedling(candidate)
+			require.Error(t, err)
+
+			require.Equal(t, seedlingsBefore, len(batch.Seedlings))
+			require.Equal(
+				t, supplyBefore, batch.SupplyCommitments,
+			)
+			require.NotContains(
+				t, batch.Seedlings, candidate.AssetName,
+			)
+		})
+
+	t.Run("commit on empty batch adopts SupplyCommitments",
+		func(t *testing.T) {
+
+			batch := &MintingBatch{}
+
+			candidate := mkCandidate("first-seedling", false)
+
+			require.NoError(t, batch.validateSeedling(candidate))
+
+			// validateSeedling must not have set
+			// SupplyCommitments even though this would be
+			// "the first seedling" -- only commitSeedling may
+			// do that.
+			require.False(t, batch.SupplyCommitments)
+			require.Empty(t, batch.Seedlings)
+
+			batch.commitSeedling(candidate)
+
+			require.Equal(t, 1, len(batch.Seedlings))
+			require.Contains(
+				t, batch.Seedlings, candidate.AssetName,
+			)
+			require.Equal(
+				t, candidate.SupplyCommitments,
+				batch.SupplyCommitments,
+			)
+		})
+}
