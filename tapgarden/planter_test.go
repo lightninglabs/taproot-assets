@@ -109,14 +109,18 @@ type mintingTestHarness struct {
 
 	proofWatcher *tapgarden.MockProofWatcher
 
-	*testing.T
+	// TB is the test context every harness assertion reports against.
+	// It is an interface rather than a concrete *testing.T so a rapid
+	// property can substitute an adapter that fails only the current
+	// iteration (letting rapid shrink) instead of the whole test.
+	testing.TB
 
 	errChan chan error
 }
 
 // newMintingTestHarness creates a new test harness from an active minting
 // store and an existing testing context.
-func newMintingTestHarness(t *testing.T,
+func newMintingTestHarness(t testing.TB,
 	store tapgarden.MintingStore) *mintingTestHarness {
 
 	keyRing := tapnodemock.NewKeyRing()
@@ -125,7 +129,7 @@ func newMintingTestHarness(t *testing.T,
 	archiver := proof.NewMockProofArchive()
 
 	return &mintingTestHarness{
-		T:            t,
+		TB:           t,
 		store:        store,
 		treeStore:    &treeMgr,
 		wallet:       tapnodemock.NewWalletAnchor(),
@@ -1600,8 +1604,8 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	// created by other test helpers.
 	sigLockKey := test.RandPubKey(t)
 	hashLockWitness := []byte("foobar")
-	hashLockLeaf := test.ScriptHashLock(t.T, hashLockWitness)
-	sigLeaf := test.ScriptSchnorrSig(t.T, sigLockKey)
+	hashLockLeaf := test.ScriptHashLock(t, hashLockWitness)
+	sigLeaf := test.ScriptSchnorrSig(t, sigLockKey)
 	tapTreePreimage, err := asset.TapTreeNodesFromLeaves(
 		[]txscript.TapLeaf{hashLockLeaf, sigLeaf},
 	)
@@ -1682,7 +1686,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	batchCount++
 
 	// Verify that the final genesis TX uses the correct Taproot output key.
-	treeRootChildren := test.BuildTapscriptTreeNoReveal(t.T, sigLockKey)
+	treeRootChildren := test.BuildTapscriptTreeNoReveal(t, sigLockKey)
 	siblingPreimage := commitment.NewPreimageFromBranch(treeRootChildren)
 	sendConfNtfn := t.progressCaretaker(false, &siblingPreimage, nil)
 	sendConfNtfn()
@@ -1714,8 +1718,8 @@ func testFundFailSiblingNotLeaked(t *mintingTestHarness) {
 	// Build a valid tapscript sibling preimage.
 	sigLockKey := test.RandPubKey(t)
 	hashLockWitness := []byte("foobar")
-	hashLockLeaf := test.ScriptHashLock(t.T, hashLockWitness)
-	sigLeaf := test.ScriptSchnorrSig(t.T, sigLockKey)
+	hashLockLeaf := test.ScriptHashLock(t, hashLockWitness)
+	sigLeaf := test.ScriptSchnorrSig(t, sigLockKey)
 	tapTreePreimage, err := asset.TapTreeNodesFromLeaves(
 		[]txscript.TapLeaf{hashLockLeaf, sigLeaf},
 	)
@@ -1792,8 +1796,8 @@ func testFundBatchFailRetry(t *mintingTestHarness) {
 	// Build a valid tapscript sibling preimage.
 	sigLockKey := test.RandPubKey(t)
 	hashLockWitness := []byte("foobar")
-	hashLockLeaf := test.ScriptHashLock(t.T, hashLockWitness)
-	sigLeaf := test.ScriptSchnorrSig(t.T, sigLockKey)
+	hashLockLeaf := test.ScriptHashLock(t, hashLockWitness)
+	sigLeaf := test.ScriptSchnorrSig(t, sigLockKey)
 	tapTreePreimage, err := asset.TapTreeNodesFromLeaves(
 		[]txscript.TapLeaf{hashLockLeaf, sigLeaf},
 	)
@@ -1888,9 +1892,9 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	// We'll use the default test tapscript tree for both the batch
 	// tapscript sibling and a tapscript root for one asset group.
 	hashLockLeaf := test.ScriptHashLock(
-		t.T, bytes.Clone(test.DefaultHashLockWitness),
+		t, bytes.Clone(test.DefaultHashLockWitness),
 	)
-	sigLeaf := test.ScriptSchnorrSig(t.T, groupInternalKeyDesc.PubKey)
+	sigLeaf := test.ScriptSchnorrSig(t, groupInternalKeyDesc.PubKey)
 	tapTree := txscript.AssembleTaprootScriptTree(hashLockLeaf, sigLeaf)
 	defaultTapBranch := txscript.NewTapBranch(
 		tapTree.RootNode.Left(), tapTree.RootNode.Right(),
@@ -2191,8 +2195,8 @@ func testCaretakerResumeFailure(t *mintingTestHarness) {
 
 	sigLockKey := test.RandPubKey(t)
 	hashLockWitness := []byte("foobar")
-	hashLockLeaf := test.ScriptHashLock(t.T, hashLockWitness)
-	sigLeaf := test.ScriptSchnorrSig(t.T, sigLockKey)
+	hashLockLeaf := test.ScriptHashLock(t, hashLockWitness)
+	sigLeaf := test.ScriptSchnorrSig(t, sigLockKey)
 	tapTreePreimage, err := asset.TapTreeNodesFromLeaves(
 		[]txscript.TapLeaf{hashLockLeaf, sigLeaf},
 	)
