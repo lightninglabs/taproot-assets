@@ -14,7 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -167,7 +167,7 @@ func (m *mockKeyRing) DeriveNextTaprootAssetKey(
 	return args.Get(0).(keychain.KeyDescriptor), args.Error(1)
 }
 
-// mockChainBridge is a mock implementation of the tapgarden.ChainBridge
+// mockChainBridge is a mock implementation of the tapnode.ChainBridge
 // interface.
 type mockChainBridge struct {
 	mock.Mock
@@ -301,8 +301,8 @@ func (m *mockChainBridge) GenProofChainLookup(
 	return args.Get(0).(asset.ChainLookup), args.Error(1)
 }
 
-// Ensure mockChainBridge implements the tapgarden.ChainBridge interface.
-var _ tapgarden.ChainBridge = (*mockChainBridge)(nil)
+// Ensure mockChainBridge implements the tapnode.ChainBridge interface.
+var _ tapnode.ChainBridge = (*mockChainBridge)(nil)
 
 // mockStateMachineStore is a mock implementation of the StateMachineStore
 // interface.

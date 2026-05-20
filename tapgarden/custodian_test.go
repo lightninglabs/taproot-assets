@@ -27,6 +27,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -44,7 +45,7 @@ var (
 )
 
 // newAddrBook creates a new instance of the TapAddressBook book.
-func newAddrBookForDB(db *tapdb.BaseDB, keyRing *tapgarden.MockKeyRing,
+func newAddrBookForDB(db *tapdb.BaseDB, keyRing *tapnodemock.KeyRing,
 	syncer *tapgarden.MockAssetSyncer) (*address.Book,
 	*tapdb.TapAddressBook) {
 
@@ -147,7 +148,7 @@ func newProofArchiveForDB(t *testing.T, db *tapdb.BaseDB) (*proof.MultiArchiver,
 
 type mockSigner struct {
 	lndclient.SignerClient
-	keyRing *tapgarden.MockKeyRing
+	keyRing *tapnodemock.KeyRing
 }
 
 func (m *mockSigner) DeriveSharedKey(ctx context.Context,
@@ -206,9 +207,9 @@ type custodianHarness struct {
 	c            *tapgarden.Custodian
 	cfg          *tapgarden.CustodianConfig
 	errChan      chan error
-	chainBridge  *tapgarden.MockChainBridge
-	walletAnchor *tapgarden.MockWalletAnchor
-	keyRing      *tapgarden.MockKeyRing
+	chainBridge  *tapnodemock.ChainBridge
+	walletAnchor *tapnodemock.WalletAnchor
+	keyRing      *tapnodemock.KeyRing
 	signer       *mockSigner
 	tapdbBook    *tapdb.TapAddressBook
 	addrBook     *address.Book
@@ -359,9 +360,9 @@ func (h *custodianHarness) addProofFileToMultiverse(p *proof.AnnotatedProof) {
 func newHarness(t *testing.T,
 	initialAddrs []*address.AddrWithKeyInfo) *custodianHarness {
 
-	chainBridge := tapgarden.NewMockChainBridge()
-	walletAnchor := tapgarden.NewMockWalletAnchor()
-	keyRing := tapgarden.NewMockKeyRing()
+	chainBridge := tapnodemock.NewChainBridge()
+	walletAnchor := tapnodemock.NewWalletAnchor()
+	keyRing := tapnodemock.NewKeyRing()
 	signer := &mockSigner{
 		keyRing: keyRing,
 	}

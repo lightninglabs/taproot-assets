@@ -12,7 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightningnetwork/lnd/msgmux"
@@ -61,7 +61,7 @@ type IssuanceSubscriptions interface {
 // manage multiple supply verifier state machines, one for each asset group.
 type ManagerCfg struct {
 	// Chain is our access to the current main chain.
-	Chain tapgarden.ChainBridge
+	Chain tapnode.ChainBridge
 
 	// AssetLookup is used to look up asset information such as asset groups
 	// and asset metadata.
@@ -82,7 +82,7 @@ type ManagerCfg struct {
 	SupplySyncer SupplySyncer
 
 	// GroupFetcher is used to fetch asset group information.
-	GroupFetcher tapgarden.GroupFetcher
+	GroupFetcher tapnode.GroupFetcher
 
 	// IssuanceSubscriptions registers verifier state machines to receive
 	// new asset group issuance event notifications.

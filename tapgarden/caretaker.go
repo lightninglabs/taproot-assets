@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -1437,7 +1438,7 @@ func SortAssets(fullAssets []*asset.Asset,
 // GenHeaderVerifier generates a block header on-chain verification callback
 // function given a chain bridge.
 func GenHeaderVerifier(ctx context.Context,
-	chainBridge ChainBridge) func(wire.BlockHeader, uint32) error {
+	chainBridge tapnode.ChainBridge) func(wire.BlockHeader, uint32) error {
 
 	return func(header wire.BlockHeader, height uint32) error {
 		err := chainBridge.VerifyBlock(ctx, header, height)
@@ -1597,7 +1598,7 @@ type emptyCacheVal = singleCacheValue[emptyVal]
 // GenGroupVerifier generates a group key verification callback function given a
 // DB handle.
 func GenGroupVerifier(ctx context.Context,
-	mintingStore GroupFetcher) func(*btcec.PublicKey) error {
+	mintingStore tapnode.GroupFetcher) func(*btcec.PublicKey) error {
 
 	// Cache known group keys that were previously fetched.
 	assetGroups := lru.NewCache[asset.SerializedKey, emptyCacheVal](
@@ -1633,7 +1634,8 @@ func GenGroupVerifier(ctx context.Context,
 // GenGroupAnchorVerifier generates a caching group anchor verification
 // callback function given a DB handle.
 func GenGroupAnchorVerifier(ctx context.Context,
-	mintingStore GroupFetcher) func(*asset.Genesis, *asset.GroupKey) error {
+	mintingStore tapnode.GroupFetcher) func(*asset.Genesis,
+	*asset.GroupKey) error {
 
 	// Cache anchors for groups that were previously fetched.
 	groupAnchors := lru.NewCache[

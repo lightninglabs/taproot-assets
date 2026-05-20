@@ -14,7 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -31,7 +31,7 @@ var (
 	errTxNotFound = fmt.Errorf("transaction not found in proof file")
 )
 
-// LndRpcChainBridge is an implementation of the tapgarden.ChainBridge
+// LndRpcChainBridge is an implementation of the tapnode.ChainBridge
 // interface backed by an active remote lnd node.
 type LndRpcChainBridge struct {
 	// lnd is the active lnd services client.
@@ -371,14 +371,14 @@ func (l *LndRpcChainBridge) GenProofChainLookup(
 }
 
 // A compile time assertion to ensure LndRpcChainBridge meets the
-// tapgarden.ChainBridge interface.
-var _ tapgarden.ChainBridge = (*LndRpcChainBridge)(nil)
+// tapnode.ChainBridge interface.
+var _ tapnode.ChainBridge = (*LndRpcChainBridge)(nil)
 
 // ProofChainLookup is an implementation of the asset.ChainLookup interface
 // that uses a proof file to look up block height information of previous inputs
 // while validating proofs.
 type ProofChainLookup struct {
-	chainBridge tapgarden.ChainBridge
+	chainBridge tapnode.ChainBridge
 
 	assetStore *tapdb.AssetStore
 
@@ -386,7 +386,7 @@ type ProofChainLookup struct {
 }
 
 // NewProofChainLookup creates a new ProofChainLookup instance.
-func NewProofChainLookup(chainBridge tapgarden.ChainBridge,
+func NewProofChainLookup(chainBridge tapnode.ChainBridge,
 	assetStore *tapdb.AssetStore, proofFile *proof.File) *ProofChainLookup {
 
 	return &ProofChainLookup{

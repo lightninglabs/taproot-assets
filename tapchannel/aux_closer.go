@@ -17,7 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -63,7 +63,7 @@ type AuxChanCloserCfg struct {
 	GroupVerifier proof.GroupVerifier
 
 	// ChainBridge is used to fetch blocks from the main chain.
-	ChainBridge tapgarden.ChainBridge
+	ChainBridge tapnode.ChainBridge
 
 	// IgnoreChecker is an optional function that can be used to check if
 	// a proof should be ignored.

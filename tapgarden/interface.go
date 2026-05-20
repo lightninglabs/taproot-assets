@@ -2,25 +2,17 @@ package tapgarden
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 
-	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
-	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapsend"
-	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 const (
@@ -300,142 +292,6 @@ type MintingStore interface {
 	// group public key.
 	FetchDelegationKey(ctx context.Context,
 		groupKey btcec.PublicKey) (fn.Option[DelegationKey], error)
-}
-
-// GroupFetcher is an interface that allows fetching of asset groups.
-type GroupFetcher interface {
-	// FetchGroupByGroupKey fetches the asset group with a matching tweaked
-	// key, including the genesis information used to create the group.
-	FetchGroupByGroupKey(ctx context.Context,
-		groupKey *btcec.PublicKey) (*asset.AssetGroup, error)
-}
-
-// ChainBridge is our bridge to the target chain. It's used to get confirmation
-// notifications, the current height, publish transactions, and also estimate
-// fees.
-type ChainBridge interface {
-	proof.ChainLookupGenerator
-
-	// RegisterConfirmationsNtfn registers an intent to be notified once
-	// txid reaches numConfs confirmations.
-	RegisterConfirmationsNtfn(ctx context.Context, txid *chainhash.Hash,
-		pkScript []byte, numConfs, heightHint uint32,
-		includeBlock bool,
-		reOrgChan chan struct{}) (*chainntnfs.ConfirmationEvent,
-		chan error, error)
-
-	// RegisterBlockEpochNtfn registers an intent to be notified of each
-	// new block connected to the main chain.
-	RegisterBlockEpochNtfn(ctx context.Context) (chan int32, chan error,
-		error)
-
-	// GetBlock returns a chain block given its hash.
-	GetBlock(context.Context, chainhash.Hash) (*wire.MsgBlock, error)
-
-	// GetBlockByHeight returns a chain block given its height.
-	GetBlockByHeight(ctx context.Context,
-		blockHeight int64) (*wire.MsgBlock, error)
-
-	// GetBlockHash returns the hash of the block in the best blockchain at
-	// the given height.
-	GetBlockHash(context.Context, int64) (chainhash.Hash, error)
-
-	// VerifyBlock returns an error if a block (with given header and
-	// height) is not present on-chain. It also checks to ensure that block
-	// height corresponds to the given block header.
-	VerifyBlock(ctx context.Context, header wire.BlockHeader,
-		height uint32) error
-
-	// CurrentHeight return the current height of the main chain.
-	CurrentHeight(context.Context) (uint32, error)
-
-	// GetBlockTimestamp returns the timestamp of the block at the given
-	// height.
-	GetBlockTimestamp(context.Context, uint32) (int64, error)
-
-	// GetBlockHeaderByHeight returns a block header given the block height.
-	GetBlockHeaderByHeight(ctx context.Context,
-		blockHeight int64) (*wire.BlockHeader, error)
-
-	// PublishTransaction attempts to publish a new transaction to the
-	// network.
-	PublishTransaction(context.Context, *wire.MsgTx, string) error
-
-	// EstimateFee returns a fee estimate for the confirmation target.
-	EstimateFee(ctx context.Context,
-		confTarget uint32) (chainfee.SatPerKWeight, error)
-}
-
-// WalletAnchor is the main wallet interface used to managed PSBT packets, and
-// import public keys into the wallet.
-type WalletAnchor interface {
-	// FundPsbt attaches enough inputs to the target PSBT packet for it to
-	// be valid.
-	FundPsbt(ctx context.Context, packet *psbt.Packet, minConfs uint32,
-		feeRate chainfee.SatPerKWeight,
-		changeIdx int32) (*tapsend.FundedPsbt, error)
-
-	// SignAndFinalizePsbt fully signs and finalizes the target PSBT
-	// packet.
-	SignAndFinalizePsbt(context.Context, *psbt.Packet) (*psbt.Packet, error)
-
-	// ImportTaprootOutput imports a new public key into the wallet, as a
-	// P2TR output.
-	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcaddr.Address,
-		error)
-
-	// UnlockInput unlocks the set of target inputs after a batch or send
-	// transaction is abandoned.
-	UnlockInput(context.Context, wire.OutPoint) error
-
-	// ListUnspentImportScripts lists all UTXOs of the imported Taproot
-	// scripts.
-	ListUnspentImportScripts(ctx context.Context) ([]*lnwallet.Utxo, error)
-
-	// ListTransactions returns all known transactions of the backing lnd
-	// node. It takes a start and end block height which can be used to
-	// limit the block range that we query over. These values can be left
-	// as zero to include all blocks. To include unconfirmed transactions
-	// in the query, endHeight must be set to -1.
-	ListTransactions(ctx context.Context, startHeight, endHeight int32,
-		account string) ([]lndclient.Transaction, error)
-
-	// SubscribeTransactions creates a uni-directional stream from the
-	// server to the client in which any newly discovered transactions
-	// relevant to the wallet are sent over.
-	SubscribeTransactions(context.Context) (<-chan lndclient.Transaction,
-		<-chan error, error)
-
-	// MinRelayFee returns the current minimum relay fee based on
-	// our chain backend in sat/kw.
-	MinRelayFee(ctx context.Context) (chainfee.SatPerKWeight, error)
-}
-
-// KeyRing is a mirror of the keychain.KeyRing interface, with the addition of
-// a passed context which allows for cancellation of requests.
-type KeyRing interface {
-	// DeriveNextKey attempts to derive the *next* key within the key
-	// family (account in BIP-0043) specified. This method should return the
-	// next external child within this branch.
-	DeriveNextKey(context.Context,
-		keychain.KeyFamily) (keychain.KeyDescriptor, error)
-
-	// IsLocalKey returns true if the key is under the control of the wallet
-	// and can be derived by it.
-	IsLocalKey(context.Context, keychain.KeyDescriptor) bool
-
-	// DeriveSharedKey returns a shared secret key by performing
-	// Diffie-Hellman key derivation between the ephemeral public key and
-	// the key specified by the key locator (or the node's identity private
-	// key if no key locator is specified):
-	//
-	//	P_shared = privKeyNode * ephemeralPubkey
-	//
-	// The resulting shared public key is serialized in the compressed
-	// format and hashed with SHA256, resulting in a final key length of 256
-	// bits.
-	DeriveSharedKey(context.Context, *btcec.PublicKey,
-		*keychain.KeyLocator) ([sha256.Size]byte, error)
 }
 
 var (

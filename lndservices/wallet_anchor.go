@@ -14,7 +14,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -28,7 +28,7 @@ import (
 // useful in high fee environments where we'd otherwise fail to fund the psbt.
 const DefaultPsbtMaxFeeRatio = 0.75
 
-// LndRpcWalletAnchor is an implementation of the tapgarden.WalletAnchor
+// LndRpcWalletAnchor is an implementation of the tapnode.WalletAnchor
 // interfaced backed by an active remote lnd node.
 type LndRpcWalletAnchor struct {
 	lnd *lndclient.LndServices
@@ -275,7 +275,7 @@ func (l *LndRpcWalletAnchor) MinRelayFee(
 }
 
 // A compile time assertion to ensure LndRpcWalletAnchor meets the
-// tapgarden.WalletAnchor interface.
-var _ tapgarden.WalletAnchor = (*LndRpcWalletAnchor)(nil)
+// tapnode.WalletAnchor interface.
+var _ tapnode.WalletAnchor = (*LndRpcWalletAnchor)(nil)
 
 var _ tapfreighter.WalletAnchor = (*LndRpcWalletAnchor)(nil)

@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
@@ -220,7 +221,7 @@ type Config struct {
 
 	AssetCustodian *tapgarden.Custodian
 
-	ChainBridge tapgarden.ChainBridge
+	ChainBridge tapnode.ChainBridge
 
 	AddrBook *address.Book
 

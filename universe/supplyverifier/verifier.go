@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 )
 
@@ -24,7 +25,7 @@ type VerifierCfg struct {
 	AssetSpec asset.Specifier
 
 	// Chain is our access to the chain.
-	ChainBridge tapgarden.ChainBridge
+	ChainBridge tapnode.ChainBridge
 
 	// AssetLookup is used to look up asset information such as asset groups
 	// and asset metadata.
@@ -34,7 +35,7 @@ type VerifierCfg struct {
 	Lnd *lndclient.LndServices
 
 	// GroupFetcher is used to fetch asset groups.
-	GroupFetcher tapgarden.GroupFetcher
+	GroupFetcher tapnode.GroupFetcher
 
 	// SupplyCommitView allows us to look up supply commitments and
 	// pre-commitments.

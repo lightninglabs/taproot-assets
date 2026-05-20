@@ -14,7 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/protofsm"
@@ -67,7 +67,7 @@ type ManagerCfg struct {
 	// Chain is our access to the current main chain.
 	//
 	// TODO(roasbeef): can make a slimmer version of
-	Chain tapgarden.ChainBridge
+	Chain tapnode.ChainBridge
 
 	// SupplySyncer is used to insert supply commitments into the remote
 	// universe server.
