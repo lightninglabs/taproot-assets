@@ -754,17 +754,13 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		log.Tracef("GenesisPacket: %v", spew.Sdump(signedPkt))
 
 		// At this point we have a fully signed PSBT packet which'll
-		// create our set of assets once mined. We'll write this to
-		// disk, then import the public key into the wallet. To do so
-		// we need the minting output key, which is derived from the
-		// batch key, the asset commitment root, and the optional
-		// tapscript sibling -- so we load the sibling preimage first
-		// and pass it explicitly. MintingOutputKey is now pure in
-		// its arguments, so we cannot rely on a value cached during
-		// BatchStateFrozen.
-		//
-		// TODO(roasbeef): re-run during the broadcast phase to ensure
-		// it's fully imported?
+		// create our set of assets once mined. We import the public
+		// key into the wallet and then write the genesis tx to disk.
+		// The minting output key is derived from the batch key, the
+		// asset commitment root, and the optional tapscript sibling --
+		// so we load the sibling preimage first and pass it
+		// explicitly. MintingOutputKey is pure in its arguments, so we
+		// cannot rely on a value cached during BatchStateFrozen.
 		var (
 			batchSibling *commitment.TapscriptPreimage
 			siblingBytes []byte
@@ -801,23 +797,14 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		tapCommitmentRoot := b.cfg.Batch.RootAssetCommitment.
 			TapscriptRoot(nil)
 
-		err = b.cfg.Log.CommitSignedGenesisTx(
-			ctx, b.cfg.Batch,
-			&b.cfg.Batch.GenesisPacket.FundedPsbt,
-			b.anchorOutputIndex, merkleRoot, tapCommitmentRoot[:],
-			siblingBytes,
-		)
-		if err != nil {
-			return 0, fmt.Errorf("unable to commit genesis "+
-				"tx: %w", err)
-		}
-
-		// With the genesis transaction committed to disk, we'll also
-		// import this public key into the backing wallet, so it
-		// recognizes the de minimis amt sats under out control.
-		//
-		// TODO(roasbeef): should be idempotent along w/ all other
-		// operations above
+		// Import the minting output key into the backing wallet so it
+		// recognizes the de minimis amt of sats under our control.
+		// This MUST happen before the state-transition write below: a
+		// crash between writing Broadcast and importing the key would
+		// leave lnd unaware of the output forever, since the Broadcast
+		// branch on restart never re-runs this step. With the import
+		// first, a crash anywhere in this branch resumes from Committed
+		// and the (idempotent) import retries cleanly.
 		ctx, cancel = b.WithCtxQuit()
 		defer cancel()
 		_, err = b.cfg.Wallet.ImportTaprootOutput(ctx, mintingOutputKey)
@@ -833,6 +820,17 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		default:
 			return 0, fmt.Errorf("unable to import key: %w", err)
+		}
+
+		err = b.cfg.Log.CommitSignedGenesisTx(
+			ctx, b.cfg.Batch,
+			&b.cfg.Batch.GenesisPacket.FundedPsbt,
+			b.anchorOutputIndex, merkleRoot, tapCommitmentRoot[:],
+			siblingBytes,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to commit genesis "+
+				"tx: %w", err)
 		}
 
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
