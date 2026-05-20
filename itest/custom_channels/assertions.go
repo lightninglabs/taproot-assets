@@ -305,7 +305,7 @@ func mineBlocksSlow(t *ccHarnessTest, net *itest.IntegratedNetworkHarness,
 	var txids []*chainhash.Hash
 	var err error
 	if numTxs > 0 {
-		txids, err = waitForNTxsInMempool(
+		txids, err = waitForAtLeastNTxsInMempool(
 			net.Miner, numTxs,
 			wait.MinerMempoolTimeout,
 		)
@@ -367,8 +367,8 @@ func waitForNTxsInMempool(m *miner.HarnessMiner, n int,
 	}
 }
 
-// waitForAtLeastNTxsInMempool polls until finding at least n transactions
-// in the miner's mempool, returning all txids present.
+// waitForAtLeastNTxsInMempool polls until finding at least n
+// transactions in the miner's mempool, returning all txids present.
 func waitForAtLeastNTxsInMempool(m *miner.HarnessMiner, n int,
 	timeout time.Duration) ([]*chainhash.Hash, error) {
 
@@ -388,7 +388,8 @@ func waitForAtLeastNTxsInMempool(m *miner.HarnessMiner, n int,
 
 			if len(mempool) >= n {
 				result := make(
-					[]*chainhash.Hash, len(mempool),
+					[]*chainhash.Hash,
+					len(mempool),
 				)
 				for i := range mempool {
 					result[i] = &mempool[i]
@@ -397,6 +398,14 @@ func waitForAtLeastNTxsInMempool(m *miner.HarnessMiner, n int,
 			}
 		}
 	}
+}
+
+// waitForNonEmptyMempool polls until the mempool is non-empty, then
+// returns a snapshot of its current contents.
+func waitForNonEmptyMempool(m *miner.HarnessMiner,
+	timeout time.Duration) ([]*chainhash.Hash, error) {
+
+	return waitForAtLeastNTxsInMempool(m, 1, timeout)
 }
 
 // assertTxInBlock asserts that a transaction with the given hash is included
