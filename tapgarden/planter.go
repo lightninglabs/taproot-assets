@@ -480,8 +480,21 @@ func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch,
 		GardenKit:             c.cfg.GardenKit,
 		BroadcastCompleteChan: make(chan struct{}, 1),
 		BroadcastErrChan:      make(chan error, 1),
+		// SignalCompletion is invoked from the caretaker goroutine
+		// just before it returns. The gardener reads
+		// c.completionSignals from its main select; if Stop has
+		// already closed c.Quit, the gardener is no longer in that
+		// select and the unbuffered send would block forever,
+		// hanging caretaker.Stop's Wg.Wait inside stopCaretakers.
+		// Selecting on c.Quit makes the send abandonable, which is
+		// safe: on shutdown the planter does not need the
+		// completion notification (it is stopping the caretaker
+		// anyway).
 		SignalCompletion: func() {
-			c.completionSignals <- batchKey
+			select {
+			case c.completionSignals <- batchKey:
+			case <-c.Quit:
+			}
 		},
 		CancelReqChan:       make(chan cancelReq, 1),
 		UpdateMintingProofs: c.updateMintingProofs,
