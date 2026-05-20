@@ -1,6 +1,7 @@
 package tapgarden
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 
@@ -137,6 +138,70 @@ type Seedling struct {
 	// key enables signing operations to be performed externally, outside
 	// the daemon.
 	ExternalKey fn.Option[asset.ExternalKey]
+}
+
+// Copy returns a deep copy of the seedling. Every pointer and slice field
+// is duplicated so the caller can mutate the result without affecting the
+// source. The updates channel is shared by design: it is the per-seedling
+// completion bus, and a snapshot consumer that watched a private copy
+// would never observe completion.
+//
+// See TestMintingBatchCopyIsDeep for the invariant pinned by tests.
+func (s *Seedling) Copy() *Seedling {
+	if s == nil {
+		return nil
+	}
+	out := &Seedling{
+		AssetVersion:      s.AssetVersion,
+		AssetType:         s.AssetType,
+		AssetName:         s.AssetName,
+		Meta:              copyMetaReveal(s.Meta),
+		Amount:            s.Amount,
+		GroupInfo:         copyAssetGroup(s.GroupInfo),
+		EnableEmission:    s.EnableEmission,
+		SupplyCommitments: s.SupplyCommitments,
+		updates:           s.updates,
+		ScriptKey:         copyScriptKey(s.ScriptKey),
+		GroupTapscriptRoot: bytes.Clone(
+			s.GroupTapscriptRoot,
+		),
+	}
+
+	s.DelegationKey.WhenSome(func(kd keychain.KeyDescriptor) {
+		out.DelegationKey = fn.Some(copyKeyDescriptor(kd))
+	})
+
+	if s.GroupAnchor != nil {
+		ga := *s.GroupAnchor
+		out.GroupAnchor = &ga
+	}
+
+	if s.GroupInternalKey != nil {
+		gik := copyKeyDescriptor(*s.GroupInternalKey)
+		out.GroupInternalKey = &gik
+	}
+
+	s.ExternalKey.WhenSome(func(ek asset.ExternalKey) {
+		out.ExternalKey = fn.Some(copyExternalKey(ek))
+	})
+
+	return out
+}
+
+// copyExternalKey returns a copy of asset.ExternalKey. The DerivationPath
+// slice is duplicated; the embedded hdkeychain.ExtendedKey is value-copied
+// (its internal byte slices are private and never mutated externally, so
+// shared references are safe in practice).
+func copyExternalKey(e asset.ExternalKey) asset.ExternalKey {
+	out := asset.ExternalKey{
+		XPub:              e.XPub,
+		MasterFingerprint: e.MasterFingerprint,
+	}
+	if e.DerivationPath != nil {
+		out.DerivationPath = make([]uint32, len(e.DerivationPath))
+		copy(out.DerivationPath, e.DerivationPath)
+	}
+	return out
 }
 
 // validateFields attempts to validate the set of input fields for the passed

@@ -2,6 +2,7 @@ package tapgarden_test
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"testing"
 
@@ -15,6 +16,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
+
+// defaultRapidChecks is the number of iterations TestCaretakerRestart
+// RecoveryRapid samples by default. The subset space being explored is
+// small (4 cases: each restart point on/off), so 30 iterations already
+// hits every case multiple times. Operators wanting deeper exploration
+// can override via `-rapid.checks=N`.
+const defaultRapidChecks = 30
 
 // restartPoint enumerates the deterministically-observable disk states
 // at which we can simulate a daemon restart in the rapid harness. Each
@@ -149,6 +157,18 @@ func drainErrors(t *mintingTestHarness) {
 // case explicitly.
 func TestCaretakerRestartRecoveryRapid(t *testing.T) {
 	t.Parallel()
+
+	// Bound iterations to the package default unless the caller
+	// explicitly passed -rapid.checks. rapid's built-in default is
+	// 100, which is gratuitous for a 4-element subset space and
+	// dominates the package's test runtime once batch.Copy() does
+	// real work (§III). We only override when the flag carries its
+	// untouched default value.
+	if cf := flag.Lookup("rapid.checks"); cf != nil {
+		if cf.Value.String() == cf.DefValue {
+			_ = cf.Value.Set(fmt.Sprintf("%d", defaultRapidChecks))
+		}
+	}
 
 	rapid.Check(t, func(rt *rapid.T) {
 		// Fresh DB and fresh mock-wallet/chain stack per iteration

@@ -3582,7 +3582,15 @@ func (f *FundedMintAnchorPsbt) GenesisOutpoint() fn.Option[wire.OutPoint] {
 	return fn.Some(f.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint)
 }
 
-// Copy creates a deep copy of FundedMintAnchorPsbt.
+// Copy returns a deep copy of FundedMintAnchorPsbt. The contained
+// psbt.Packet is cloned via a serialize/parse round-trip so every nested
+// PInput/POutput/Unknown -- each of which carries its own slice and map
+// substructure -- is duplicated. LockedUTXOs holds wire.OutPoint values
+// (no pointer reachability) so fn.CopySlice is a true deep copy there.
+//
+// If the round-trip fails (the underlying packet is malformed) we panic,
+// since tapgarden only ever holds packets it constructed itself via the
+// wallet's funding flow.
 func (f *FundedMintAnchorPsbt) Copy() *FundedMintAnchorPsbt {
 	newMintAnchorPsbt := &FundedMintAnchorPsbt{
 		FundedPsbt: tapsend.FundedPsbt{
@@ -3590,23 +3598,52 @@ func (f *FundedMintAnchorPsbt) Copy() *FundedMintAnchorPsbt {
 			ChainFees:         f.ChainFees,
 			LockedUTXOs:       fn.CopySlice(f.LockedUTXOs),
 		},
-		AssetAnchorOutIdx:   f.AssetAnchorOutIdx,
-		PreCommitmentOutput: f.PreCommitmentOutput,
+		AssetAnchorOutIdx: f.AssetAnchorOutIdx,
 	}
 
+	f.PreCommitmentOutput.WhenSome(func(p PreCommitmentOutput) {
+		newMintAnchorPsbt.PreCommitmentOutput = fn.Some(
+			copyPreCommitmentOutput(p),
+		)
+	})
+
 	if f.Pkt != nil {
-		var unsignedTx *wire.MsgTx
-		if f.Pkt.UnsignedTx != nil {
-			unsignedTx = f.Pkt.UnsignedTx.Copy()
+		// Real-world packets always carry an UnsignedTx (the psbt
+		// package's Serialize requires it). Surface the impossible
+		// case explicitly rather than letting Serialize panic with
+		// a less-actionable nil-pointer dereference.
+		if f.Pkt.UnsignedTx == nil {
+			panic("FundedMintAnchorPsbt.Copy: Pkt has nil " +
+				"UnsignedTx; not a valid psbt")
 		}
 
-		newMintAnchorPsbt.Pkt = &psbt.Packet{
-			UnsignedTx: unsignedTx,
-			Inputs:     fn.CopySlice(f.Pkt.Inputs),
-			Outputs:    fn.CopySlice(f.Pkt.Outputs),
-			Unknowns:   fn.CopySlice(f.Pkt.Unknowns),
+		var buf bytes.Buffer
+		if err := f.Pkt.Serialize(&buf); err != nil {
+			panic(fmt.Errorf("FundedMintAnchorPsbt.Copy: "+
+				"serializing packet failed: %w", err))
 		}
+
+		pktCopy, err := psbt.NewFromRawBytes(
+			bytes.NewReader(buf.Bytes()), false,
+		)
+		if err != nil {
+			panic(fmt.Errorf("FundedMintAnchorPsbt.Copy: parsing "+
+				"round-tripped packet failed: %w", err))
+		}
+		newMintAnchorPsbt.Pkt = pktCopy
 	}
 
 	return newMintAnchorPsbt
+}
+
+// copyPreCommitmentOutput returns a deep copy of PreCommitmentOutput.
+// InternalKey (a keychain.KeyDescriptor alias) is rebuilt with a fresh
+// PubKey pointer; GroupPubKey is a value-typed PublicKey wrapped in an
+// Option, so an assignment copies it whole.
+func copyPreCommitmentOutput(p PreCommitmentOutput) PreCommitmentOutput {
+	return PreCommitmentOutput{
+		OutIdx:      p.OutIdx,
+		InternalKey: copyKeyDescriptor(p.InternalKey),
+		GroupPubKey: p.GroupPubKey,
+	}
 }

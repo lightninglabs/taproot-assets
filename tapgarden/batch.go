@@ -3,18 +3,21 @@ package tapgarden
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // AssetMetas maps the serialized script key of an asset to the meta reveal for
@@ -95,39 +98,201 @@ func (m *MintingBatch) BatchKeyBytes() []byte {
 	return m.BatchKey.PubKey.SerializeCompressed()
 }
 
-// Copy creates a deep copy of the batch.
+// copyPubKey clones a btcec.PublicKey by value-copying its underlying
+// secp256k1 struct (two FieldVal coordinates -- entirely value-typed).
+func copyPubKey(pk *btcec.PublicKey) *btcec.PublicKey {
+	if pk == nil {
+		return nil
+	}
+	cpy := *pk
+	return &cpy
+}
+
+// copyKeyDescriptor returns a KeyDescriptor whose PubKey points to a fresh
+// PublicKey value. KeyLocator is two uint32 fields and copied trivially.
+func copyKeyDescriptor(kd keychain.KeyDescriptor) keychain.KeyDescriptor {
+	return keychain.KeyDescriptor{
+		KeyLocator: kd.KeyLocator,
+		PubKey:     copyPubKey(kd.PubKey),
+	}
+}
+
+// copyTweakedScriptKey returns a deep copy of *asset.TweakedScriptKey: the
+// raw key descriptor is cloned and the tweak bytes are duplicated.
+func copyTweakedScriptKey(
+	t *asset.TweakedScriptKey) *asset.TweakedScriptKey {
+
+	if t == nil {
+		return nil
+	}
+	return &asset.TweakedScriptKey{
+		RawKey: copyKeyDescriptor(t.RawKey),
+		Tweak:  bytes.Clone(t.Tweak),
+		Type:   t.Type,
+	}
+}
+
+// copyScriptKey returns a deep copy of asset.ScriptKey: the tweaked sub-key
+// is cloned and the pubkey is value-copied.
+func copyScriptKey(s asset.ScriptKey) asset.ScriptKey {
+	return asset.ScriptKey{
+		PubKey:           copyPubKey(s.PubKey),
+		TweakedScriptKey: copyTweakedScriptKey(s.TweakedScriptKey),
+	}
+}
+
+// copyGenesis returns a deep copy of asset.Genesis. Every field is value-
+// typed (OutPoint, string, fixed-size array, scalars), so a struct value
+// copy is itself a deep copy.
+func copyGenesis(g *asset.Genesis) *asset.Genesis {
+	if g == nil {
+		return nil
+	}
+	cpy := *g
+	return &cpy
+}
+
+// copyGroupKey returns a deep copy of *asset.GroupKey: all slice/witness
+// substructure is cloned and the embedded key descriptor is rebuilt.
+func copyGroupKey(g *asset.GroupKey) *asset.GroupKey {
+	if g == nil {
+		return nil
+	}
+	out := &asset.GroupKey{
+		Version:             g.Version,
+		RawKey:              copyKeyDescriptor(g.RawKey),
+		GroupPubKey:         g.GroupPubKey,
+		TapscriptRoot:       bytes.Clone(g.TapscriptRoot),
+		CustomTapscriptRoot: g.CustomTapscriptRoot,
+	}
+	if g.Witness != nil {
+		out.Witness = make(wire.TxWitness, len(g.Witness))
+		for i, w := range g.Witness {
+			out.Witness[i] = bytes.Clone(w)
+		}
+	}
+	return out
+}
+
+// copyAssetGroup returns a deep copy of *asset.AssetGroup. AssetGroup
+// embeds *Genesis and *GroupKey; both are cloned independently.
+func copyAssetGroup(g *asset.AssetGroup) *asset.AssetGroup {
+	if g == nil {
+		return nil
+	}
+	return &asset.AssetGroup{
+		Genesis:  copyGenesis(g.Genesis),
+		GroupKey: copyGroupKey(g.GroupKey),
+	}
+}
+
+// copyMetaReveal returns a deep copy of *proof.MetaReveal: data slice, the
+// optional canonical-universes slice, and the unknown-types byte map are
+// all duplicated. The Option-wrapped DelegationKey contains a value-typed
+// PublicKey copied trivially when the Option is assigned.
+func copyMetaReveal(m *proof.MetaReveal) *proof.MetaReveal {
+	if m == nil {
+		return nil
+	}
+	out := &proof.MetaReveal{
+		Type:                m.Type,
+		Data:                bytes.Clone(m.Data),
+		DecimalDisplay:      m.DecimalDisplay,
+		UniverseCommitments: m.UniverseCommitments,
+		DelegationKey:       m.DelegationKey,
+	}
+	m.CanonicalUniverses.WhenSome(func(urls []url.URL) {
+		cloned := make([]url.URL, len(urls))
+		copy(cloned, urls)
+		out.CanonicalUniverses = fn.Some(cloned)
+	})
+	if len(m.UnknownOddTypes) > 0 {
+		out.UnknownOddTypes = make(tlv.TypeMap, len(m.UnknownOddTypes))
+		for k, v := range m.UnknownOddTypes {
+			out.UnknownOddTypes[k] = bytes.Clone(v)
+		}
+	}
+	return out
+}
+
+// copyAssetMetas returns a deep copy of an AssetMetas map. Both the map
+// and each *MetaReveal value are duplicated.
+func copyAssetMetas(am AssetMetas) AssetMetas {
+	if am == nil {
+		return nil
+	}
+	out := make(AssetMetas, len(am))
+	for k, v := range am {
+		out[k] = copyMetaReveal(v)
+	}
+	return out
+}
+
+// copySeedlings returns a deep copy of a name->seedling map. Each Seedling
+// is cloned via Seedling.Copy(); the map itself is freshly allocated.
+func copySeedlings(in map[string]*Seedling) map[string]*Seedling {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]*Seedling, len(in))
+	for k, v := range in {
+		out[k] = v.Copy()
+	}
+	return out
+}
+
+// Copy returns a deep copy of the batch. Every nested pointer, slice, and
+// map is duplicated so that mutating the returned batch (or any of its
+// substructure) cannot be observed through the source, and vice-versa.
+//
+// The only intentional sharing is for fields the codebase treats as
+// immutable after construction:
+//   - BatchKey: keychain.KeyDescriptor is rebuilt with a fresh PubKey
+//     pointer, but its KeyLocator (two uint32 fields) is trivially
+//     value-copied.
+//   - tapSibling: a *chainhash.Hash; the underlying 32-byte array is
+//     value-copied via *m.tapSibling, yielding an independent hash.
+//   - RootAssetCommitment: cloned via TapCommitment.Copy(), which is
+//     deep (see commitment.TestTapCommitmentDeepCopy).
+//
+// The deep-copy contract is exercised by TestMintingBatchCopyIsDeep.
 func (m *MintingBatch) Copy() *MintingBatch {
+	if m == nil {
+		return nil
+	}
+
 	batchCopy := &MintingBatch{
-		CreationTime: m.CreationTime,
-		HeightHint:   m.HeightHint,
-		// The following values are expected to not change once they are
-		// set, so a shallow copy is sufficient.
-		BatchKey:            m.BatchKey,
-		RootAssetCommitment: m.RootAssetCommitment,
-		SupplyCommitments:   m.SupplyCommitments,
-		tapSibling:          m.tapSibling,
+		CreationTime:      m.CreationTime,
+		HeightHint:        m.HeightHint,
+		BatchKey:          copyKeyDescriptor(m.BatchKey),
+		SupplyCommitments: m.SupplyCommitments,
+		Seedlings:         copySeedlings(m.Seedlings),
+		AssetMetas:        copyAssetMetas(m.AssetMetas),
 	}
 	batchCopy.setState(m.State())
 
-	if m.Seedlings != nil {
-		batchCopy.Seedlings = make(
-			map[string]*Seedling, len(m.Seedlings),
-		)
-		for k, v := range m.Seedlings {
-			seedlingCopy := *v
-			batchCopy.Seedlings[k] = &seedlingCopy
+	if m.tapSibling != nil {
+		siblingCopy := *m.tapSibling
+		batchCopy.tapSibling = &siblingCopy
+	}
+
+	if m.RootAssetCommitment != nil {
+		commitCopy, err := m.RootAssetCommitment.Copy()
+		if err != nil {
+			// TapCommitment.Copy only errors on malformed
+			// internal state; tapgarden builds commitments
+			// itself via seedlingsToAssetSprouts so this is not
+			// reachable in practice. If we ever hit it, panic so
+			// the corruption surfaces immediately rather than
+			// silently degrading the snapshot contract.
+			panic(fmt.Errorf("MintingBatch.Copy: deep-copying "+
+				"root asset commitment failed: %w", err))
 		}
+		batchCopy.RootAssetCommitment = commitCopy
 	}
 
 	if m.GenesisPacket != nil {
 		batchCopy.GenesisPacket = m.GenesisPacket.Copy()
-	}
-
-	if m.AssetMetas != nil {
-		batchCopy.AssetMetas = make(AssetMetas, len(m.AssetMetas))
-		for k, v := range m.AssetMetas {
-			batchCopy.AssetMetas[k] = v
-		}
 	}
 
 	return batchCopy

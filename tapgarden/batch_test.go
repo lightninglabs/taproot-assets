@@ -1,14 +1,17 @@
 package tapgarden
 
 import (
+	"bytes"
 	"encoding/hex"
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -230,6 +233,15 @@ func TestMintingBatchCopy(t *testing.T) {
 		p := &MintingBatch{}
 		test.FillFakeData(t, debug, maxDepth, p)
 
+		// FillFakeData populates GenesisPacket and RootAssetCommitment
+		// with reflection-random nonsense that doesn't survive the
+		// genuine deep-copy paths (psbt serialize/parse, MSSMT clone).
+		// Clear them so this subtest stays focused on the map-shape
+		// invariants it was always meant to assert; the realistic-
+		// fixture coverage lives in TestMintingBatchCopyIsDeep below.
+		p.GenesisPacket = nil
+		p.RootAssetCommitment = nil
+
 		// Ensure we have deterministic seedlings to probe for aliasing.
 		p.Seedlings = map[string]*Seedling{
 			"seed-a": {
@@ -242,8 +254,8 @@ func TestMintingBatchCopy(t *testing.T) {
 			},
 		}
 
-		// We allow aliasing here deep down (for now).
-		strict := false
+		// Copy is now fully deep: assert no aliasing anywhere.
+		strict := true
 		test.AssertCopyEqual(t, debug, strict, p)
 
 		copyBatch := p.Copy()
@@ -281,6 +293,150 @@ func TestMintingBatchCopy(t *testing.T) {
 		batch.Seedlings["new"] = &Seedling{AssetName: "new"}
 		require.Empty(t, emptyCopy.Seedlings)
 	})
+}
+
+// TestMintingBatchCopyIsDeep is the §III deep-copy invariant test. It
+// builds a fully-populated batch -- realistic Seedlings (with Meta,
+// GroupInfo, ScriptKey, GroupTapscriptRoot), a funded GenesisPacket,
+// AssetMetas, a RootAssetCommitment, and a tapSibling -- then mutates
+// every reachable substructure on the source and asserts the copy is
+// unaffected.
+//
+// The previous Copy() shared substructure all over the place; under
+// the gardener-serialization discipline this happened to be safe but
+// the name was a lie. Fixing it eliminates a class of "subscriber
+// snapshot mutates underneath them" hazards that would have been
+// vanishingly hard to track down if they ever manifested.
+func TestMintingBatchCopyIsDeep(t *testing.T) {
+	t.Parallel()
+
+	src := RandMintingBatch(
+		t, WithTotalGroups([]int{3}), WithUniverseCommitments(true),
+	)
+
+	// Add fields RandMintingBatch doesn't populate: AssetMetas,
+	// RootAssetCommitment, tapSibling.
+	src.AssetMetas = AssetMetas{
+		asset.SerializedKey{0x01}: {
+			Type: proof.MetaJson,
+			Data: []byte(`{"a":1}`),
+		},
+		asset.SerializedKey{0x02}: {
+			Type: proof.MetaOpaque,
+			Data: []byte("opaque-bytes"),
+		},
+	}
+
+	randAsset := asset.RandAsset(t, asset.Normal)
+	tapCommitment, err := commitment.FromAssets(
+		fn.Ptr(commitment.TapCommitmentV2), randAsset,
+	)
+	require.NoError(t, err)
+	src.RootAssetCommitment = tapCommitment
+
+	siblingHash := chainhash.Hash{0xDE, 0xAD, 0xBE, 0xEF}
+	src.tapSibling = &siblingHash
+
+	// Take the snapshot.
+	dst := src.Copy()
+
+	// The existing TestMintingBatchCopy uses test.AssertCopyEqual on
+	// a simpler batch (no GenesisPacket, no RootAssetCommitment) to
+	// catch generic aliasing via reflection. That walker doesn't
+	// terminate cleanly on the psbt.Packet substructure (spew dumps
+	// recurse very deep on PSBT), so this test focuses on the
+	// substantive contract: every reachable mutation in the source
+	// must NOT propagate into the copy.
+
+	// Pick the group-anchor seedling to probe -- it's the only one
+	// in the batch with GroupInfo populated (non-anchor seedlings
+	// only get their GroupInfo filled in during seal, which we
+	// don't run here). Anchor = the seedling whose GroupAnchor
+	// field is nil.
+	var srcKey string
+	for k, s := range src.Seedlings {
+		if s.GroupAnchor == nil {
+			srcKey = k
+			break
+		}
+	}
+	require.NotEmpty(t, srcKey, "no anchor seedling in batch")
+	require.Contains(t, dst.Seedlings, srcKey)
+
+	srcSeed := src.Seedlings[srcKey]
+	dstSeed := dst.Seedlings[srcKey]
+	require.NotNil(t, srcSeed.GroupInfo)
+	require.NotNil(t, srcSeed.GroupInfo.GroupKey)
+
+	// Snapshot the bytes we're about to mutate so we can verify the
+	// copy still holds the original values.
+	origMetaData := bytes.Clone(srcSeed.Meta.Data)
+	origGroupTapscriptRoot := bytes.Clone(srcSeed.GroupInfo.GroupKey.
+		TapscriptRoot)
+	origAssetMetaData := bytes.Clone(
+		src.AssetMetas[asset.SerializedKey{0x01}].Data,
+	)
+
+	// Mutate the source seedling's Meta.Data.
+	if len(srcSeed.Meta.Data) > 0 {
+		srcSeed.Meta.Data[0] ^= 0xFF
+	}
+
+	// Mutate the source's group key tapscript root.
+	if len(srcSeed.GroupInfo.GroupKey.TapscriptRoot) > 0 {
+		srcSeed.GroupInfo.GroupKey.TapscriptRoot[0] ^= 0xFF
+	}
+
+	// Add a witness element to the source's group key.
+	srcSeed.GroupInfo.GroupKey.Witness = append(
+		srcSeed.GroupInfo.GroupKey.Witness,
+		[]byte("injected"),
+	)
+
+	// Mutate the source's AssetMetas entry.
+	src.AssetMetas[asset.SerializedKey{0x01}].Data[0] ^= 0xFF
+
+	// Add a new entry to the source's AssetMetas map.
+	src.AssetMetas[asset.SerializedKey{0xFF}] = &proof.MetaReveal{
+		Data: []byte("new-after-copy"),
+	}
+
+	// Mutate the source's tap sibling (chainhash.Hash is an array,
+	// but we hold its address; tweaking via the pointer mutates the
+	// underlying value).
+	src.tapSibling[0] ^= 0xFF
+
+	// Mutate a byte in the source's funded GenesisPacket's first
+	// PSBT input, if there is one.
+	require.NotNil(t, src.GenesisPacket)
+	require.NotNil(t, src.GenesisPacket.Pkt)
+	require.NotNil(t, src.GenesisPacket.Pkt.UnsignedTx)
+	src.GenesisPacket.Pkt.UnsignedTx.LockTime = 999_999
+
+	// Now assert: the copy is unmoved by every mutation above.
+	require.Equal(t, origMetaData, dstSeed.Meta.Data,
+		"Seedling.Meta.Data leaked into copy")
+	require.Equal(t, origGroupTapscriptRoot,
+		dstSeed.GroupInfo.GroupKey.TapscriptRoot,
+		"GroupKey.TapscriptRoot leaked into copy")
+	require.Equal(t, origAssetMetaData,
+		dst.AssetMetas[asset.SerializedKey{0x01}].Data,
+		"AssetMetas[k].Data leaked into copy")
+	require.NotContains(t, dst.AssetMetas,
+		asset.SerializedKey{0xFF},
+		"new AssetMetas key leaked into copy")
+	require.NotEqual(t, src.tapSibling[0], dst.tapSibling[0],
+		"tapSibling array leaked into copy")
+	require.NotEqual(t, uint32(999_999),
+		dst.GenesisPacket.Pkt.UnsignedTx.LockTime,
+		"GenesisPacket.Pkt.UnsignedTx leaked into copy")
+
+	// The witness append on src should not be visible in dst's
+	// witness length.
+	require.NotEqual(t,
+		len(srcSeed.GroupInfo.GroupKey.Witness),
+		len(dstSeed.GroupInfo.GroupKey.Witness),
+		"GroupKey.Witness append leaked into copy")
 }
 
 // TestCheckSingletonInvariant pins the contract of
