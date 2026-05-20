@@ -1,6 +1,7 @@
 package tapgarden
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 
@@ -110,6 +111,54 @@ type Seedling struct {
 	// key enables signing operations to be performed externally, outside
 	// the daemon.
 	ExternalKey fn.Option[asset.ExternalKey]
+}
+
+// Copy returns a deep copy of the seedling. Every pointer and slice field
+// is duplicated so the caller can mutate the result without affecting the
+// source. The updates channel is shared by design: it is the per-seedling
+// completion bus, and a snapshot consumer that watched a private copy
+// would never observe completion.
+//
+// See TestMintingBatchCopyIsDeep for the invariant pinned by tests.
+func (s *Seedling) Copy() *Seedling {
+	if s == nil {
+		return nil
+	}
+	out := &Seedling{
+		AssetVersion:      s.AssetVersion,
+		AssetType:         s.AssetType,
+		AssetName:         s.AssetName,
+		Meta:              s.Meta.Copy(),
+		Amount:            s.Amount,
+		GroupInfo:         s.GroupInfo.Copy(),
+		EnableEmission:    s.EnableEmission,
+		SupplyCommitments: s.SupplyCommitments,
+		updates:           s.updates,
+		ScriptKey:         s.ScriptKey.Copy(),
+		GroupTapscriptRoot: bytes.Clone(
+			s.GroupTapscriptRoot,
+		),
+	}
+
+	s.DelegationKey.WhenSome(func(kd keychain.KeyDescriptor) {
+		out.DelegationKey = fn.Some(asset.CopyKeyDescriptor(kd))
+	})
+
+	if s.GroupAnchor != nil {
+		ga := *s.GroupAnchor
+		out.GroupAnchor = &ga
+	}
+
+	if s.GroupInternalKey != nil {
+		gik := asset.CopyKeyDescriptor(*s.GroupInternalKey)
+		out.GroupInternalKey = &gik
+	}
+
+	s.ExternalKey.WhenSome(func(ek asset.ExternalKey) {
+		out.ExternalKey = fn.Some(ek.Copy())
+	})
+
+	return out
 }
 
 // validateFields attempts to validate the set of input fields for the passed

@@ -95,42 +95,95 @@ func (m *MintingBatch) BatchKeyBytes() []byte {
 	return m.BatchKey.PubKey.SerializeCompressed()
 }
 
-// Copy creates a deep copy of the batch.
-func (m *MintingBatch) Copy() *MintingBatch {
+// copyAssetMetas returns a deep copy of an AssetMetas map. Both the map
+// and each *MetaReveal value are duplicated.
+func copyAssetMetas(am AssetMetas) AssetMetas {
+	if am == nil {
+		return nil
+	}
+	out := make(AssetMetas, len(am))
+	for k, v := range am {
+		out[k] = v.Copy()
+	}
+	return out
+}
+
+// copySeedlings returns a deep copy of a name->seedling map. Each Seedling
+// is cloned via Seedling.Copy(); the map itself is freshly allocated.
+func copySeedlings(in map[string]*Seedling) map[string]*Seedling {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]*Seedling, len(in))
+	for k, v := range in {
+		out[k] = v.Copy()
+	}
+	return out
+}
+
+// Copy returns a deep copy of the batch. Every nested pointer, slice, and
+// map is duplicated so that mutating the returned batch (or any of its
+// substructure) cannot be observed through the source, and vice-versa.
+//
+// The only intentional sharing is for fields the codebase treats as
+// immutable after construction:
+//   - BatchKey: keychain.KeyDescriptor is rebuilt with a fresh PubKey
+//     pointer, but its KeyLocator (two uint32 fields) is trivially
+//     value-copied.
+//   - tapSibling: a *chainhash.Hash; the underlying 32-byte array is
+//     value-copied via *m.tapSibling, yielding an independent hash.
+//   - RootAssetCommitment: cloned via TapCommitment.Copy(), which is
+//     deep (see commitment.TestTapCommitmentDeepCopy).
+//
+// Copy fails only when a nested clone does (a malformed root asset
+// commitment or genesis packet); since it runs on read paths, that is
+// reported as an error rather than a panic.
+//
+// The deep-copy contract is exercised by TestMintingBatchCopyIsDeep.
+func (m *MintingBatch) Copy() (*MintingBatch, error) {
+	if m == nil {
+		return nil, nil
+	}
+
 	batchCopy := &MintingBatch{
-		CreationTime: m.CreationTime,
-		HeightHint:   m.HeightHint,
-		// The following values are expected to not change once they are
-		// set, so a shallow copy is sufficient.
-		BatchKey:            m.BatchKey,
-		RootAssetCommitment: m.RootAssetCommitment,
-		SupplyCommitments:   m.SupplyCommitments,
-		tapSibling:          m.tapSibling,
+		CreationTime:      m.CreationTime,
+		HeightHint:        m.HeightHint,
+		BatchKey:          asset.CopyKeyDescriptor(m.BatchKey),
+		SupplyCommitments: m.SupplyCommitments,
+		Seedlings:         copySeedlings(m.Seedlings),
+		AssetMetas:        copyAssetMetas(m.AssetMetas),
 	}
 	batchCopy.setState(m.State())
 
-	if m.Seedlings != nil {
-		batchCopy.Seedlings = make(
-			map[string]*Seedling, len(m.Seedlings),
-		)
-		for k, v := range m.Seedlings {
-			seedlingCopy := *v
-			batchCopy.Seedlings[k] = &seedlingCopy
+	if m.tapSibling != nil {
+		siblingCopy := *m.tapSibling
+		batchCopy.tapSibling = &siblingCopy
+	}
+
+	if m.RootAssetCommitment != nil {
+		// TapCommitment.Copy only errors on malformed internal
+		// state; tapgarden builds commitments itself via
+		// seedlingsToAssetSprouts so this is not reachable in
+		// practice.
+		commitCopy, err := m.RootAssetCommitment.Copy()
+		if err != nil {
+			return nil, fmt.Errorf("MintingBatch.Copy: "+
+				"deep-copying root asset commitment "+
+				"failed: %w", err)
 		}
+		batchCopy.RootAssetCommitment = commitCopy
 	}
 
 	if m.GenesisPacket != nil {
-		batchCopy.GenesisPacket = m.GenesisPacket.Copy()
-	}
-
-	if m.AssetMetas != nil {
-		batchCopy.AssetMetas = make(AssetMetas, len(m.AssetMetas))
-		for k, v := range m.AssetMetas {
-			batchCopy.AssetMetas[k] = v
+		packetCopy, err := m.GenesisPacket.Copy()
+		if err != nil {
+			return nil, fmt.Errorf("MintingBatch.Copy: "+
+				"deep-copying genesis packet failed: %w", err)
 		}
+		batchCopy.GenesisPacket = packetCopy
 	}
 
-	return batchCopy
+	return batchCopy, nil
 }
 
 // validateGroupAnchor checks if the group anchor for a seedling is valid.
@@ -629,8 +682,12 @@ func (m *MintingBatch) AddSeedling(newSeedling Seedling) error {
 }
 
 // ToMintingBatch creates a new MintingBatch from a VerboseBatch.
-func (v *VerboseBatch) ToMintingBatch() *MintingBatch {
-	newBatch := v.MintingBatch.Copy()
+func (v *VerboseBatch) ToMintingBatch() (*MintingBatch, error) {
+	newBatch, err := v.MintingBatch.Copy()
+	if err != nil {
+		return nil, err
+	}
+
 	if v.UnsealedSeedlings != nil {
 		newBatch.Seedlings = make(
 			map[string]*Seedling, len(v.UnsealedSeedlings),
@@ -640,5 +697,5 @@ func (v *VerboseBatch) ToMintingBatch() *MintingBatch {
 		}
 	}
 
-	return newBatch
+	return newBatch, nil
 }

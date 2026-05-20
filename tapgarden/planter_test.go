@@ -536,8 +536,11 @@ func (t *mintingTestHarness) finalizeBatchAssertFrozen(
 	var existingFrozenBatches []*tapgarden.MintingBatch
 	fn.ForEach(existingBatches, func(batch *tapgarden.VerboseBatch) {
 		if batchFrozenStates.Contains(batch.State()) {
+			mintingBatch, err := batch.ToMintingBatch()
+			require.NoError(t, err)
+
 			existingFrozenBatches = append(
-				existingFrozenBatches, batch.ToMintingBatch(),
+				existingFrozenBatches, mintingBatch,
 			)
 		}
 	})
@@ -1141,8 +1144,11 @@ func (t *mintingTestHarness) queueInitialBatch(
 	var pendingBatches []*tapgarden.MintingBatch
 	fn.ForEach(existingBatches, func(batch *tapgarden.VerboseBatch) {
 		if batch.State() == tapgarden.BatchStatePending {
+			mintingBatch, err := batch.ToMintingBatch()
+			require.NoError(t, err)
+
 			pendingBatches = append(
-				pendingBatches, batch.ToMintingBatch(),
+				pendingBatches, mintingBatch,
 			)
 		}
 	})

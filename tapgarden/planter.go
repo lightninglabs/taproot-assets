@@ -136,6 +136,22 @@ type CancelResp struct {
 	err             error
 }
 
+// cancelReq is a cancellation request sent from the planter to a
+// caretaker. Each request carries its own response channel, so the
+// caretaker's reply is causally bound to this specific call and cannot
+// be confused with the reply to any other in-flight or future
+// cancellation. The previous protocol used two shared channels per
+// caretaker (CancelReqChan + CancelRespChan), which was only correct
+// because the gardener serialized all cancel calls -- a discipline,
+// not a property the protocol itself guaranteed.
+type cancelReq struct {
+	// resp is the unique reply channel for this request. The
+	// caretaker writes the result here exactly once. Buffer size 1
+	// so the caretaker never blocks if the planter has already
+	// given up (e.g. on c.Quit).
+	resp chan<- CancelResp
+}
+
 type stateRequest interface {
 	Resolve(any)
 	Error(error)
@@ -468,8 +484,7 @@ func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch,
 		SignalCompletion: func() {
 			c.completionSignals <- batchKey
 		},
-		CancelReqChan:       make(chan struct{}, 1),
-		CancelRespChan:      make(chan CancelResp, 1),
+		CancelReqChan:       make(chan cancelReq, 1),
 		UpdateMintingProofs: c.updateMintingProofs,
 		PublishMintEvent:    c.publishSubscriberEvent,
 		ErrChan:             c.cfg.ErrChan,
@@ -1648,7 +1663,11 @@ func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
 	// With the batch assets validated, construct the populated finalized
 	// batch.
 	batch.Seedlings = nil
-	finalizedBatch := batch.Copy()
+	finalizedBatch, err := batch.Copy()
+	if err != nil {
+		return nil, err
+	}
+
 	finalizedBatch.RootAssetCommitment = tapCommitment
 	finalizedBatch.AssetMetas = assetMetas
 
@@ -1766,8 +1785,13 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 func newVerboseBatch(currentBatch *MintingBatch,
 	genBuilder asset.GenesisTxBuilder) (*VerboseBatch, error) {
 
+	batchCopy, err := currentBatch.Copy()
+	if err != nil {
+		return nil, err
+	}
+
 	verboseBatch := &VerboseBatch{
-		MintingBatch: currentBatch.Copy(),
+		MintingBatch: batchCopy,
 	}
 
 	// Filter the batch seedlings to only consider those that will become
@@ -1909,13 +1933,17 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 		log.Infof("Cancelling MintingBatch(key=%x, num_assets=%v)",
 			batchKeySerialized, len(caretaker.cfg.Batch.Seedlings))
 
-		caretaker.cfg.CancelReqChan <- struct{}{}
+		// Per-call reply channel: the caretaker writes the result
+		// of this specific request here. Buffer size 1 so the
+		// caretaker never blocks if we abandon the wait via c.Quit.
+		respCh := make(chan CancelResp, 1)
+		caretaker.cfg.CancelReqChan <- cancelReq{resp: respCh}
 
 		// Wait for the caretaker to reply to the cancellation request.
 		// If the request succeeded, the caretaker will update the
 		// batch state on disk.
 		select {
-		case cancelResp := <-caretaker.cfg.CancelRespChan:
+		case cancelResp := <-respCh:
 			// If the caretaker returned a batch state, then batch
 			// cancellation was possible and attempted. This means
 			// that the caretaker is shut down and the planter
@@ -2079,12 +2107,21 @@ func (c *ChainPlanter) gardener() {
 
 			// Copy the pending batch to prevent potential
 			// concurrent read/write issues.
-			var batchCopy *MintingBatch
+			var (
+				batchCopy *MintingBatch
+				copyErr   error
+			)
 			if c.pendingBatch != nil {
-				batchCopy = c.pendingBatch.Copy()
+				batchCopy, copyErr = c.pendingBatch.Copy()
+				if copyErr != nil {
+					copyErr = fmt.Errorf("unable to "+
+						"snapshot pending batch: %w",
+						copyErr)
+				}
 			}
 			req.updates <- SeedlingUpdate{
 				PendingBatch: batchCopy,
+				Error:        copyErr,
 			}
 
 		// A caretaker has finished processing their batch to full
@@ -2118,9 +2155,15 @@ func (c *ChainPlanter) gardener() {
 				// potential concurrent read/write issues.
 				if c.pendingBatch == nil {
 					req.Resolve((*MintingBatch)(nil))
-				} else {
-					req.Resolve(c.pendingBatch.Copy())
+					break
 				}
+
+				batchCopy, err := c.pendingBatch.Copy()
+				if err != nil {
+					req.Error(err)
+					break
+				}
+				req.Resolve(batchCopy)
 
 			case reqTypeNumActiveBatches:
 				req.Resolve(len(c.caretakers))
@@ -2226,9 +2269,15 @@ func (c *ChainPlanter) gardener() {
 				// potential concurrent read/write issues.
 				if c.pendingBatch == nil {
 					req.Resolve((*MintingBatch)(nil))
-				} else {
-					req.Resolve(c.pendingBatch.Copy())
+					break
 				}
+
+				batchCopy, err := c.pendingBatch.Copy()
+				if err != nil {
+					req.Error(err)
+					break
+				}
+				req.Resolve(batchCopy)
 
 			case reqTypeFinalizeBatch:
 				if c.pendingBatch == nil {
@@ -2265,11 +2314,28 @@ func (c *ChainPlanter) gardener() {
 				// broadcast the batch or fail to do so.
 				select {
 				case <-caretaker.cfg.BroadcastCompleteChan:
-					req.Resolve(caretaker.cfg.Batch)
+					// Snapshot the caretaker's live batch
+					// before handing it to the caller, so
+					// no read the caller does can race
+					// the caretaker goroutine that shares
+					// the underlying batch. Every other
+					// state-request handler in this
+					// select takes the same snapshot for
+					// the same reason.
+					batchCopy, err :=
+						caretaker.cfg.Batch.Copy()
 
 					// The batch has been broadcast, so we
-					// can remove the pending batch.
+					// can remove the pending batch
+					// regardless of whether the snapshot
+					// above succeeded.
 					c.pendingBatch = nil
+
+					if err != nil {
+						req.Error(err)
+						break
+					}
+					req.Resolve(batchCopy)
 
 				case err := <-caretaker.cfg.BroadcastErrChan:
 					req.Error(err)
@@ -2887,7 +2953,11 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 	}
 
 	// Assign each newly created asset group to its corresponding seedling.
-	batchWithGroupInfo := workingBatch.Copy()
+	batchWithGroupInfo, err := workingBatch.Copy()
+	if err != nil {
+		return nil, err
+	}
+
 	for _, group := range newAssetGroups {
 		assetName := group.Genesis.Tag
 		batchWithGroupInfo.Seedlings[assetName].GroupInfo = group
@@ -3693,31 +3763,67 @@ func (f *FundedMintAnchorPsbt) GenesisOutpoint() fn.Option[wire.OutPoint] {
 	return fn.Some(f.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint)
 }
 
-// Copy creates a deep copy of FundedMintAnchorPsbt.
-func (f *FundedMintAnchorPsbt) Copy() *FundedMintAnchorPsbt {
+// Copy returns a deep copy of FundedMintAnchorPsbt. The contained
+// psbt.Packet is cloned via a serialize/parse round-trip so every nested
+// PInput/POutput/Unknown -- each of which carries its own slice and map
+// substructure -- is duplicated. LockedUTXOs holds wire.OutPoint values
+// (no pointer reachability) so fn.CopySlice is a true deep copy there.
+//
+// The round-trip only fails on a malformed packet, which tapgarden --
+// holding only packets it constructed itself via the wallet's funding
+// flow -- should never see; still, Copy runs on read paths, so the
+// failure is reported as an error rather than a panic.
+func (f *FundedMintAnchorPsbt) Copy() (*FundedMintAnchorPsbt, error) {
 	newMintAnchorPsbt := &FundedMintAnchorPsbt{
 		FundedPsbt: tapsend.FundedPsbt{
 			ChangeOutputIndex: f.ChangeOutputIndex,
 			ChainFees:         f.ChainFees,
 			LockedUTXOs:       fn.CopySlice(f.LockedUTXOs),
 		},
-		AssetAnchorOutIdx:   f.AssetAnchorOutIdx,
-		PreCommitmentOutput: f.PreCommitmentOutput,
+		AssetAnchorOutIdx: f.AssetAnchorOutIdx,
 	}
+
+	f.PreCommitmentOutput.WhenSome(func(p PreCommitmentOutput) {
+		newMintAnchorPsbt.PreCommitmentOutput = fn.Some(p.Copy())
+	})
 
 	if f.Pkt != nil {
-		var unsignedTx *wire.MsgTx
-		if f.Pkt.UnsignedTx != nil {
-			unsignedTx = f.Pkt.UnsignedTx.Copy()
+		// Real-world packets always carry an UnsignedTx (the psbt
+		// package's Serialize requires it). Surface the impossible
+		// case explicitly rather than letting Serialize panic with
+		// a less-actionable nil-pointer dereference.
+		if f.Pkt.UnsignedTx == nil {
+			return nil, fmt.Errorf("FundedMintAnchorPsbt.Copy: " +
+				"Pkt has nil UnsignedTx; not a valid psbt")
 		}
 
-		newMintAnchorPsbt.Pkt = &psbt.Packet{
-			UnsignedTx: unsignedTx,
-			Inputs:     fn.CopySlice(f.Pkt.Inputs),
-			Outputs:    fn.CopySlice(f.Pkt.Outputs),
-			Unknowns:   fn.CopySlice(f.Pkt.Unknowns),
+		var buf bytes.Buffer
+		if err := f.Pkt.Serialize(&buf); err != nil {
+			return nil, fmt.Errorf("FundedMintAnchorPsbt.Copy: "+
+				"serializing packet failed: %w", err)
 		}
+
+		pktCopy, err := psbt.NewFromRawBytes(
+			bytes.NewReader(buf.Bytes()), false,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("FundedMintAnchorPsbt.Copy: "+
+				"parsing round-tripped packet failed: %w", err)
+		}
+		newMintAnchorPsbt.Pkt = pktCopy
 	}
 
-	return newMintAnchorPsbt
+	return newMintAnchorPsbt, nil
+}
+
+// Copy returns a deep copy of PreCommitmentOutput. InternalKey (a
+// keychain.KeyDescriptor alias) is rebuilt with a fresh PubKey
+// pointer; GroupPubKey is a value-typed PublicKey wrapped in an
+// Option, so an assignment copies it whole.
+func (p PreCommitmentOutput) Copy() PreCommitmentOutput {
+	return PreCommitmentOutput{
+		OutIdx:      p.OutIdx,
+		InternalKey: asset.CopyKeyDescriptor(p.InternalKey),
+		GroupPubKey: p.GroupPubKey,
+	}
 }
