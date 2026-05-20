@@ -369,7 +369,7 @@ func (q *Queries) InsertSupplyCommitment(ctx context.Context, arg InsertSupplyCo
 	return commit_id, err
 }
 
-const InsertSupplyUpdateEvent = `-- name: InsertSupplyUpdateEvent :exec
+const InsertSupplyUpdateEvent = `-- name: InsertSupplyUpdateEvent :execrows
 INSERT INTO supply_update_events (
     group_key, transition_id, update_type_id, event_data, event_key
 ) VALUES (
@@ -392,15 +392,25 @@ type InsertSupplyUpdateEventParams struct {
 // machine) hits the unique index on event_key and is silently
 // dropped, leaving the existing row -- and any transition_id it
 // already carries -- untouched.
-func (q *Queries) InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error {
-	_, err := q.db.ExecContext(ctx, InsertSupplyUpdateEvent,
+//
+// Returning rows-affected (1 on insert, 0 on conflict) lets the
+// caller distinguish "new event recorded" from "dedup absorbed an
+// old one" -- the latter is the signal InsertPendingUpdate needs
+// to avoid creating an empty pending transition when a re-fired
+// event matches a row already attached to a prior (finalized)
+// transition.
+func (q *Queries) InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, InsertSupplyUpdateEvent,
 		arg.GroupKey,
 		arg.TransitionID,
 		arg.UpdateTypeID,
 		arg.EventData,
 		arg.EventKey,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const LinkDanglingSupplyUpdateEvents = `-- name: LinkDanglingSupplyUpdateEvents :exec

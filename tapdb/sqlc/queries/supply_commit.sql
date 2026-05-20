@@ -65,13 +65,20 @@ UPDATE supply_commit_transitions
 SET finalized = TRUE
 WHERE transition_id = @transition_id;
 
--- name: InsertSupplyUpdateEvent :exec
+-- name: InsertSupplyUpdateEvent :execrows
 -- The event_key column is a deterministic content hash that
 -- identifies a logical update event. A duplicate insert (e.g. on
 -- restart re-run of the Confirmed branch in the minting state
 -- machine) hits the unique index on event_key and is silently
 -- dropped, leaving the existing row -- and any transition_id it
 -- already carries -- untouched.
+--
+-- Returning rows-affected (1 on insert, 0 on conflict) lets the
+-- caller distinguish "new event recorded" from "dedup absorbed an
+-- old one" -- the latter is the signal InsertPendingUpdate needs
+-- to avoid creating an empty pending transition when a re-fired
+-- event matches a row already attached to a prior (finalized)
+-- transition.
 INSERT INTO supply_update_events (
     group_key, transition_id, update_type_id, event_data, event_key
 ) VALUES (

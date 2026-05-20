@@ -169,7 +169,14 @@ type Querier interface {
 	// machine) hits the unique index on event_key and is silently
 	// dropped, leaving the existing row -- and any transition_id it
 	// already carries -- untouched.
-	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error
+	//
+	// Returning rows-affected (1 on insert, 0 on conflict) lets the
+	// caller distinguish "new event recorded" from "dedup absorbed an
+	// old one" -- the latter is the signal InsertPendingUpdate needs
+	// to avoid creating an empty pending transition when a re-fired
+	// event matches a row already attached to a prior (finalized)
+	// transition.
+	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) (int64, error)
 	InsertTxProof(ctx context.Context, arg InsertTxProofParams) error
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
 	LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error
