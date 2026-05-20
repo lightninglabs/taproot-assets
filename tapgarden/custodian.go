@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -170,11 +171,11 @@ type CustodianConfig struct {
 
 	// WalletAnchor is the main interface for interacting with the on-chain
 	// wallet.
-	WalletAnchor WalletAnchor
+	WalletAnchor tapnode.WalletAnchor
 
 	// ChainBridge is the main interface for interacting with the chain
 	// backend.
-	ChainBridge ChainBridge
+	ChainBridge tapnode.ChainBridge
 
 	// GroupVerifier is used to verify the validity of the group key for an
 	// asset.

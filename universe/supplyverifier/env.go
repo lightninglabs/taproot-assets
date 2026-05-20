@@ -11,7 +11,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
@@ -102,7 +102,7 @@ type Environment struct {
 	AssetLog btclog.Logger
 
 	// Chain is our access to the current main chain.
-	Chain tapgarden.ChainBridge
+	Chain tapnode.ChainBridge
 
 	// SupplyCommitView allows us to look up supply commitments and
 	// pre-commitments.
@@ -119,7 +119,7 @@ type Environment struct {
 	Lnd *lndclient.LndServices
 
 	// GroupFetcher is used to fetch asset groups.
-	GroupFetcher tapgarden.GroupFetcher
+	GroupFetcher tapnode.GroupFetcher
 
 	// SupplySyncer is used to retrieve supply commitments from a universe
 	// server.

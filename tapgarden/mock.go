@@ -27,6 +27,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -827,7 +828,7 @@ func (m *MockChainBridge) GenProofChainLookup(*proof.Proof) (asset.ChainLookup,
 }
 
 var _ asset.ChainLookup = (*MockChainBridge)(nil)
-var _ ChainBridge = (*MockChainBridge)(nil)
+var _ tapnode.ChainBridge = (*MockChainBridge)(nil)
 
 func GenMockGroupVerifier() func(*btcec.PublicKey) error {
 	return func(groupKey *btcec.PublicKey) error {
@@ -920,7 +921,7 @@ type MockKeyRing struct {
 	deriveNextKeyCallCount atomic.Uint64
 }
 
-var _ KeyRing = (*MockKeyRing)(nil)
+var _ tapnode.KeyRing = (*MockKeyRing)(nil)
 
 func NewMockKeyRing() *MockKeyRing {
 	keyRing := &MockKeyRing{

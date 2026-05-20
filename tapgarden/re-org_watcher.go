@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
@@ -61,7 +62,7 @@ func (a *anchorTxNotification) firstRegistration() *proofRegistration {
 type ReOrgWatcherConfig struct {
 	// ChainBridge is the main interface for interacting with the chain
 	// backend.
-	ChainBridge ChainBridge
+	ChainBridge tapnode.ChainBridge
 
 	// GroupVerifier is used to verify the validity of the group key for an
 	// asset.

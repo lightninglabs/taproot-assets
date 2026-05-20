@@ -111,7 +111,7 @@ func (m *MockSupplyTreeView) FetchSupplyLeavesByHeight(ctx context.Context,
 	return args.Get(0).(lfn.Result[supplycommit.SupplyLeaves])
 }
 
-// MockGroupFetcher is a mock implementation of tapgarden.GroupFetcher.
+// MockGroupFetcher is a mock implementation of tapnode.GroupFetcher.
 type MockGroupFetcher struct {
 	mock.Mock
 }

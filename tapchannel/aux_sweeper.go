@@ -22,7 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -128,7 +128,7 @@ type AuxSweeperCfg struct {
 	GroupVerifier proof.GroupVerifier
 
 	// ChainBridge is used to fetch blocks from the main chain.
-	ChainBridge tapgarden.ChainBridge
+	ChainBridge tapnode.ChainBridge
 
 	// IgnoreChecker is an optional function that can be used to check if
 	// a proof should be ignored.
@@ -1100,7 +1100,7 @@ func assetOutputToVPacket(fundingInputProofs map[asset.ID]*proof.Proof,
 // a synthetic commitment template. Once the real commitment transaction is
 // known, we rewrite the proof's anchor transaction and output indexes.
 func reanchorAssetOutputs(ctx context.Context,
-	chainBridge tapgarden.ChainBridge, commitTx wire.MsgTx,
+	chainBridge tapnode.ChainBridge, commitTx wire.MsgTx,
 	commitTxBlockHeight uint32, outputs []*cmsg.AssetOutput) error {
 
 	if len(outputs) == 0 {
@@ -1452,7 +1452,7 @@ func (a *AuxSweeper) importOutputScriptKeys(desc tapscriptSweepDescs) error {
 // into our local database. This preps us to be able to detect force closes.
 func importOutputProofs(ctx context.Context, scid lnwire.ShortChannelID,
 	outputProofs []*proof.Proof, courierAddr *url.URL,
-	proofDispatch proof.CourierDispatch, chainBridge tapgarden.ChainBridge,
+	proofDispatch proof.CourierDispatch, chainBridge tapnode.ChainBridge,
 	vCtx proof.VerifierCtx, proofArchive proof.Archiver) error {
 
 	// TODO(roasbeef): should be part of post confirmation funding validate

@@ -10,7 +10,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightningnetwork/lnd/fn/v2"
 )
 
@@ -171,7 +171,7 @@ func IsSupplySupported(ctx context.Context, assetLookup AssetLookup,
 // ExtractSupplyLeavesBlockHeaders is a helper method which extracts the block
 // headers from the supply leaves. The returned map is keyed by block height.
 func ExtractSupplyLeavesBlockHeaders(ctx context.Context,
-	chain tapgarden.ChainBridge,
+	chain tapnode.ChainBridge,
 	supplyLeaves SupplyLeaves) (map[uint32]wire.BlockHeader, error) {
 
 	blockHeaders := make(map[uint32]wire.BlockHeader)

@@ -6,14 +6,14 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // proofParamsForShortChanID creates proof params using the block referenced by
 // the given short channel ID.
 func proofParamsForShortChanID(ctx context.Context,
-	chainBridge tapgarden.ChainBridge,
+	chainBridge tapnode.ChainBridge,
 	scid lnwire.ShortChannelID) (proof.BaseProofParams, error) {
 
 	var zero proof.BaseProofParams
@@ -40,7 +40,7 @@ func proofParamsForShortChanID(ctx context.Context,
 // updateProofsFromShortChanID fills the block-related fields on the provided
 // proofs using the funding transaction identified by the short channel ID.
 func updateProofsFromShortChanID(ctx context.Context,
-	chainBridge tapgarden.ChainBridge, scid lnwire.ShortChannelID,
+	chainBridge tapnode.ChainBridge, scid lnwire.ShortChannelID,
 	proofs []*proof.Proof) error {
 
 	if len(proofs) == 0 {
@@ -71,7 +71,7 @@ func updateProofsFromShortChanID(ctx context.Context,
 // commitment transaction. The transaction must be included in the block at that
 // height.
 func proofParamsForCommitTx(ctx context.Context,
-	chainBridge tapgarden.ChainBridge, blockHeight uint32,
+	chainBridge tapnode.ChainBridge, blockHeight uint32,
 	commitTx wire.MsgTx) (proof.BaseProofParams, error) {
 
 	var zero proof.BaseProofParams
