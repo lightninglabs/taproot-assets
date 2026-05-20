@@ -436,6 +436,11 @@ type PreAnchoredParcel struct {
 	// anchorTxHeightHint is an optional height hint for the anchor
 	// transaction.
 	anchorTxHeightHint fn.Option[uint32]
+
+	// skipOutputProofVerify skips pre-broadcast output proof verification.
+	// This is intended for workflows that import already-confirmed anchor
+	// transactions and rewrite their output proofs before archival.
+	skipOutputProofVerify bool
 }
 
 // A compile-time assertion to ensure PreAnchoredParcel implements the Parcel
@@ -446,7 +451,8 @@ var _ Parcel = (*PreAnchoredParcel)(nil)
 func NewPreAnchoredParcel(vPackets []*tappsbt.VPacket,
 	passiveAssets []*tappsbt.VPacket, anchorTx *tapsend.AnchorTransaction,
 	skipAnchorTxBroadcast bool, label string,
-	anchorTxHeightHint fn.Option[uint32]) *PreAnchoredParcel {
+	anchorTxHeightHint fn.Option[uint32],
+	skipOutputProofVerify bool) *PreAnchoredParcel {
 
 	return &PreAnchoredParcel{
 		parcelKit: &parcelKit{
@@ -459,6 +465,7 @@ func NewPreAnchoredParcel(vPackets []*tappsbt.VPacket,
 		skipAnchorTxBroadcast: skipAnchorTxBroadcast,
 		label:                 label,
 		anchorTxHeightHint:    anchorTxHeightHint,
+		skipOutputProofVerify: skipOutputProofVerify,
 	}
 }
 
@@ -477,6 +484,7 @@ func (p *PreAnchoredParcel) pkg() *sendPackage {
 		AnchorTx:              p.anchorTx,
 		Label:                 p.label,
 		SkipAnchorTxBroadcast: p.skipAnchorTxBroadcast,
+		SkipOutputProofVerify: p.skipOutputProofVerify,
 	}
 }
 
@@ -589,6 +597,9 @@ type sendPackage struct {
 	// broadcast should be skipped. Useful when an external system handles
 	// broadcasting, such as in custom transaction packaging workflows.
 	SkipAnchorTxBroadcast bool
+
+	// SkipOutputProofVerify skips pre-broadcast output proof verification.
+	SkipOutputProofVerify bool
 }
 
 // ConvertToTransfer prepares the finished send data for storing to the database
@@ -829,6 +840,14 @@ func outputAnchor(anchorTx *tapsend.AnchorTransaction, vOut *tappsbt.VOutput,
 			"preimage: %w", err)
 	}
 
+	outputCount := uint32(len(anchorTx.FundedPsbt.Pkt.Outputs))
+	if vOut.AnchorOutputIndex >= outputCount {
+		return nil, fmt.Errorf(
+			"anchor output index %d out of range for "+
+				"funded psbt outputs (len=%d)",
+			vOut.AnchorOutputIndex, outputCount,
+		)
+	}
 	anchorOut := &anchorTx.FundedPsbt.Pkt.Outputs[vOut.AnchorOutputIndex]
 	merkleRoot := tappsbt.ExtractCustomField(
 		anchorOut.Unknowns, tappsbt.PsbtKeyTypeOutputTaprootMerkleRoot,
@@ -857,6 +876,14 @@ func outputAnchor(anchorTx *tapsend.AnchorTransaction, vOut *tappsbt.VOutput,
 		}
 	}
 
+	finalOutputCount := uint32(len(anchorTx.FinalTx.TxOut))
+	if vOut.AnchorOutputIndex >= finalOutputCount {
+		return nil, fmt.Errorf(
+			"anchor output index %d out of range for "+
+				"final tx outputs (len=%d)",
+			vOut.AnchorOutputIndex, finalOutputCount,
+		)
+	}
 	txOut := anchorTx.FinalTx.TxOut[vOut.AnchorOutputIndex]
 	return &Anchor{
 		OutPoint: wire.OutPoint{

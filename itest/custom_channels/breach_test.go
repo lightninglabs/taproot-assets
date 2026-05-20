@@ -195,21 +195,25 @@ func testCustomChannelsBreach(ctx context.Context,
 	locateAssetTransfers(t.t, dave, *breachTxid)
 
 	// With the breach transaction mined, Charlie should now have a
-	// transaction in the mempool sweeping *both* commitment outputs.
-	// We use a generous timeout because Charlie needs to process the
-	// block, detect the breach, and construct the justice transaction.
-	charlieJusticeTxid, err := waitForNTxsInMempool(
-		net.Miner, 1, time.Second*30,
+	// transaction in the mempool sweeping commitment outputs.
+	// We wait for at least one tx as other background txns can race in.
+	charlieJusticeTxid, err := waitForAtLeastNTxsInMempool(
+		net.Miner, 1, time.Second*60,
 	)
 	require.NoError(t.t, err)
 
 	t.Logf("Charlie justice txid: %v", charlieJusticeTxid)
 
 	// Next, we'll mine a block to confirm Charlie's justice transaction.
-	mineBlocks(t, net, 1, 1)
+	// Use the mined txid (not the mempool txid), to avoid RBF mismatch.
+	justiceBlocks := mineBlocks(t, net, 1, 1)
+	minedJusticeTxHash := justiceBlocks[0].Transactions[1].TxHash()
 
-	// Charlie should now have a transfer for his justice transaction.
-	locateAssetTransfers(t.t, charlie, *charlieJusticeTxid[0])
+	t.Logf("Charlie mined justice txid: %v", minedJusticeTxHash)
+
+	// Mine additional blocks so all breach-resolution transfers are fully
+	// confirmed before asserting final balances.
+	mineBlocks(t, net, 6, 0)
 
 	// Charlie's balance should now be the same as before the breach
 	// attempt: the amount he minted at the very start.

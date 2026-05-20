@@ -230,6 +230,16 @@ type Allocation struct {
 	// data-carrying leaves are used for a purpose distinct from
 	// representing individual Taproot Assets.
 	AltLeaves []asset.AltLeaf[asset.Asset]
+
+	// CommitmentWitnessScript is the exact tapscript leaf used to spend a
+	// commitment output that carries assets. This is persisted into the
+	// asset proof metadata so later sweeps can reuse the original state's
+	// witness path.
+	CommitmentWitnessScript []byte
+
+	// CommitmentControlBlock is the exact control block corresponding to
+	// CommitmentWitnessScript.
+	CommitmentControlBlock []byte
 }
 
 // Validate checks that the allocation is correctly set up and that the fields

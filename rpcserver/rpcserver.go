@@ -3378,7 +3378,7 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 		tapfreighter.NewPreAnchoredParcel(
 			activePackets, passivePackets, anchorTx,
 			req.SkipAnchorTxBroadcast, parcelLabel,
-			fn.None[uint32](),
+			fn.None[uint32](), false,
 		),
 	)
 	if err != nil {
