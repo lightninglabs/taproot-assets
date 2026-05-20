@@ -88,13 +88,14 @@ type BatchCaretakerConfig struct {
 	// their batch has been finalized.
 	SignalCompletion func()
 
-	// CancelChan is used by the BatchPlanter to signal that the caretaker
-	// should stop advancing the batch.
-	CancelReqChan chan struct{}
-
-	// CancelRespChan is used by the BatchCaretaker to report the result of
-	// attempted batch cancellation to the planter.
-	CancelRespChan chan CancelResp
+	// CancelReqChan delivers cancellation requests from the
+	// BatchPlanter. Each cancelReq carries its own reply channel, so
+	// the caretaker's response is causally bound to the specific
+	// request that produced it. The buffer size is 1 because the
+	// gardener serializes cancel calls today; the per-call binding
+	// is what makes the protocol correct regardless of that
+	// discipline.
+	CancelReqChan chan cancelReq
 
 	// UpdateMintingProofs is used to update the minting proofs in the
 	// database in case of a re-org. This cannot be done by the caretaker
@@ -179,8 +180,9 @@ func (b *BatchCaretaker) Stop() error {
 // only be cancelled if it has not reached BatchStateBroadcast yet. If
 // cancellation succeeds, we forward the batch state after cancellation. If the
 // batch could not be cancelled, the planter will handle caretaker shutdown and
-// batch state.
-func (b *BatchCaretaker) Cancel() error {
+// batch state. The response is written to respCh, which must be the per-call
+// reply channel carried by the originating cancelReq.
+func (b *BatchCaretaker) Cancel(respCh chan<- CancelResp) error {
 	ctx, cancel := b.WithCtxQuit()
 	defer cancel()
 
@@ -243,7 +245,7 @@ func (b *BatchCaretaker) Cancel() error {
 		cancelResp = CancelResp{false, err}
 	}
 
-	b.cfg.CancelRespChan <- cancelResp
+	respCh <- cancelResp
 
 	// If the batch was cancellable, the final write of the cancelled batch
 	// may still have failed. That error will be handled by the planter. At
@@ -283,8 +285,8 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 		// response will be non-nil. If the cancellation failed, that
 		// error will be handled by the planter. At this point, the
 		// caretaker should always shut down gracefully.
-		case <-b.cfg.CancelReqChan:
-			cancelErr := b.Cancel()
+		case req := <-b.cfg.CancelReqChan:
+			cancelErr := b.Cancel(req.resp)
 			if cancelErr == nil {
 				return 0, fmt.Errorf("BatchCaretaker(%x), "+
 					"attempted batch cancellation, "+
@@ -415,8 +417,8 @@ func (b *BatchCaretaker) assetCultivator() {
 			b.cfg.SignalCompletion()
 			return
 
-		case <-b.cfg.CancelReqChan:
-			cancelErr := b.Cancel()
+		case req := <-b.cfg.CancelReqChan:
+			cancelErr := b.Cancel(req.resp)
 			if cancelErr == nil {
 				return
 			}
@@ -918,8 +920,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 						"context done")
 					confRecv = true
 
-				case <-b.cfg.CancelReqChan:
-					cancelErr := b.Cancel()
+				case req := <-b.cfg.CancelReqChan:
+					cancelErr := b.Cancel(req.resp)
 					if cancelErr == nil {
 						return
 					}
@@ -959,8 +961,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 						"context done")
 					return
 
-				case <-b.cfg.CancelReqChan:
-					cancelErr := b.Cancel()
+				case req := <-b.cfg.CancelReqChan:
+					cancelErr := b.Cancel(req.resp)
 					if cancelErr == nil {
 						return
 					}

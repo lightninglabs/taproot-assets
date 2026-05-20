@@ -135,6 +135,22 @@ type CancelResp struct {
 	err             error
 }
 
+// cancelReq is a cancellation request sent from the planter to a
+// caretaker. Each request carries its own response channel, so the
+// caretaker's reply is causally bound to this specific call and cannot
+// be confused with the reply to any other in-flight or future
+// cancellation. The previous protocol used two shared channels per
+// caretaker (CancelReqChan + CancelRespChan), which was only correct
+// because the gardener serialized all cancel calls -- a discipline,
+// not a property the protocol itself guaranteed.
+type cancelReq struct {
+	// resp is the unique reply channel for this request. The
+	// caretaker writes the result here exactly once. Buffer size 1
+	// so the caretaker never blocks if the planter has already
+	// given up (e.g. on c.Quit).
+	resp chan<- CancelResp
+}
+
 type stateRequest interface {
 	Resolve(any)
 	Error(error)
@@ -467,8 +483,7 @@ func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch,
 		SignalCompletion: func() {
 			c.completionSignals <- batchKey
 		},
-		CancelReqChan:       make(chan struct{}, 1),
-		CancelRespChan:      make(chan CancelResp, 1),
+		CancelReqChan:       make(chan cancelReq, 1),
 		UpdateMintingProofs: c.updateMintingProofs,
 		PublishMintEvent:    c.publishSubscriberEvent,
 		ErrChan:             c.cfg.ErrChan,
@@ -1878,13 +1893,17 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 		log.Infof("Cancelling MintingBatch(key=%x, num_assets=%v)",
 			batchKeySerialized, len(caretaker.cfg.Batch.Seedlings))
 
-		caretaker.cfg.CancelReqChan <- struct{}{}
+		// Per-call reply channel: the caretaker writes the result
+		// of this specific request here. Buffer size 1 so the
+		// caretaker never blocks if we abandon the wait via c.Quit.
+		respCh := make(chan CancelResp, 1)
+		caretaker.cfg.CancelReqChan <- cancelReq{resp: respCh}
 
 		// Wait for the caretaker to reply to the cancellation request.
 		// If the request succeeded, the caretaker will update the
 		// batch state on disk.
 		select {
-		case cancelResp := <-caretaker.cfg.CancelRespChan:
+		case cancelResp := <-respCh:
 			// If the caretaker returned a batch state, then batch
 			// cancellation was possible and attempted. This means
 			// that the caretaker is shut down and the planter
