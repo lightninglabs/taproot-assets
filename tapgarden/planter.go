@@ -2172,7 +2172,19 @@ func (c *ChainPlanter) gardener() {
 				// broadcast the batch or fail to do so.
 				select {
 				case <-caretaker.cfg.BroadcastCompleteChan:
-					req.Resolve(caretaker.cfg.Batch)
+					// Snapshot the caretaker's live batch
+					// before handing it to the caller. The
+					// caretaker goroutine continues to
+					// mutate Batch.GenesisPacket and
+					// Batch.RootAssetCommitment after this
+					// point (Broadcast -> Confirmed ->
+					// Finalized); returning the live
+					// pointer would race those writes
+					// against any read the caller does.
+					// Every other state-request handler in
+					// this select already takes the same
+					// snapshot for the same reason.
+					req.Resolve(caretaker.cfg.Batch.Copy())
 
 				case err := <-caretaker.cfg.BroadcastErrChan:
 					req.Error(err)

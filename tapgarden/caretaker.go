@@ -64,7 +64,15 @@ const (
 // BatchCaretakerConfig houses all the items that the BatchCaretaker needs to
 // carry out its duties.
 type BatchCaretakerConfig struct {
-	// Batch is the minting batch that this caretaker is responsible for.
+	// Batch is the minting batch that this caretaker is responsible
+	// for. Ownership invariant: once a caretaker is started, this
+	// pointer is owned exclusively by the caretaker goroutine. The
+	// caretaker reads and writes the non-state fields
+	// (GenesisPacket, RootAssetCommitment, Seedlings, AssetMetas)
+	// without locking, and any other goroutine that needs to observe
+	// the batch MUST call Batch.Copy() first to take a deep
+	// snapshot. State() may be read concurrently because it is
+	// backed by an atomic.
 	Batch *MintingBatch
 
 	// BatchFeeRate is an optional manually-set fee rate specified when
