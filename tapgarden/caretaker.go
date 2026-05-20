@@ -103,6 +103,11 @@ type BatchCaretakerConfig struct {
 	// gardener serializes cancel calls today; the per-call binding
 	// is what makes the protocol correct regardless of that
 	// discipline.
+	//
+	// At any given moment exactly one caretaker goroutine reads this
+	// channel: either advanceStateUntil (pre-broadcast) or
+	// assetCultivator's post-broadcast loop. Those two never run
+	// concurrently, so a single cancelReq has a single receiver.
 	CancelReqChan chan cancelReq
 
 	// UpdateMintingProofs is used to update the minting proofs in the
@@ -135,10 +140,6 @@ type BatchCaretaker struct {
 
 	// confInfo is used to store a delivered confirmation event.
 	confInfo *chainntnfs.TxConfirmation
-
-	// anchorOutputIndex is the index in the anchor output that commits to
-	// the Taproot Asset commitment.
-	anchorOutputIndex uint32
 
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
@@ -620,7 +621,6 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		genesisPkt := b.cfg.Batch.GenesisPacket
 
 		changeOutputIndex := genesisPkt.ChangeOutputIndex
-		b.anchorOutputIndex = genesisPkt.AssetAnchorOutIdx
 
 		genesisPoint, err := genesisPkt.GenesisOutpoint().UnwrapOrErr(
 			ErrFundedAnchorPsbtMissingOutpoint,
@@ -631,7 +631,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		// First, we'll turn all the seedlings into actual taproot assets.
 		tapCommitment, err := b.seedlingsToAssetSprouts(
-			ctx, genesisPoint, b.anchorOutputIndex,
+			ctx, genesisPoint, genesisPkt.AssetAnchorOutIdx,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to map seedlings to "+
@@ -668,7 +668,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		genesisTxPkt.UnsignedTx.
-			TxOut[b.anchorOutputIndex].PkScript = genesisScript
+			TxOut[genesisPkt.AssetAnchorOutIdx].PkScript = genesisScript
 
 		log.Infof("BatchCaretaker(%x): committing sprouts to disk",
 			b.batchKey[:])
@@ -678,7 +678,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				Pkt:               genesisTxPkt,
 				ChangeOutputIndex: changeOutputIndex,
 			},
-			AssetAnchorOutIdx:   b.anchorOutputIndex,
+			AssetAnchorOutIdx:   genesisPkt.AssetAnchorOutIdx,
 			PreCommitmentOutput: genesisPkt.PreCommitmentOutput,
 		}
 
@@ -835,8 +835,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		err = b.cfg.Log.CommitSignedGenesisTx(
 			ctx, b.cfg.Batch,
 			&b.cfg.Batch.GenesisPacket.FundedPsbt,
-			b.anchorOutputIndex, merkleRoot, tapCommitmentRoot[:],
-			siblingBytes,
+			b.cfg.Batch.GenesisPacket.AssetAnchorOutIdx,
+			merkleRoot, tapCommitmentRoot[:], siblingBytes,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to commit genesis "+
@@ -897,7 +897,12 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		// Launch a goroutine that'll notify us when the transaction
-		// confirms.
+		// confirms. The outer assetCultivator post-broadcast loop is
+		// the sole reader of b.cfg.CancelReqChan once we get here: a
+		// cancel request post-broadcast is rejected by Cancel()
+		// regardless, so adding a second reader inside this goroutine
+		// would only create a race for which goroutine binds itself
+		// to that specific request's per-call reply channel.
 		//
 		// TODO(roasbeef): make blocking here?
 		b.Wg.Add(1)
@@ -927,16 +932,6 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 					log.Debugf("Skipping TX confirmation, " +
 						"context done")
 					confRecv = true
-
-				case req := <-b.cfg.CancelReqChan:
-					cancelErr := b.Cancel(req.resp)
-					if cancelErr == nil {
-						return
-					}
-
-					// Cancellation failed, continue to wait
-					// for transaction confirmation.
-					log.Info(cancelErr)
 
 				case <-b.Quit:
 					log.Debugf("Skipping TX confirmation, " +
@@ -968,16 +963,6 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 					log.Debugf("Skipping TX confirmation, " +
 						"context done")
 					return
-
-				case req := <-b.cfg.CancelReqChan:
-					cancelErr := b.Cancel(req.resp)
-					if cancelErr == nil {
-						return
-					}
-
-					// Cancellation failed, continue to try
-					// and send the confirmation event.
-					log.Info(cancelErr)
 
 				case <-b.Quit:
 					log.Debugf("Skipping TX confirmation, " +
@@ -1039,7 +1024,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				BlockHeight:      confInfo.BlockHeight,
 				Tx:               confInfo.Tx,
 				TxIndex:          int(confInfo.TxIndex),
-				OutputIndex:      int(b.anchorOutputIndex),
+				OutputIndex:      int(pkt.AssetAnchorOutIdx),
 				InternalKey:      b.cfg.Batch.BatchKey.PubKey,
 				TapscriptSibling: batchSibling,
 				TaprootAssetRoot: batchCommitment,
@@ -1050,7 +1035,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			&baseProof.BaseProofParams, confInfo.Tx,
 			b.cfg.Batch.GenesisPacket.Pkt.Outputs,
 			func(idx uint32) bool {
-				return idx == b.anchorOutputIndex
+				return idx == pkt.AssetAnchorOutIdx
 			},
 		)
 		if err != nil {
@@ -1271,7 +1256,7 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	leafKey := universe.BaseLeafKey{
 		OutPoint: wire.OutPoint{
 			Hash:  mintTxHash,
-			Index: b.anchorOutputIndex,
+			Index: b.cfg.Batch.GenesisPacket.AssetAnchorOutIdx,
 		},
 		ScriptKey: &a.ScriptKey,
 	}
