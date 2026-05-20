@@ -66,11 +66,34 @@ SET finalized = TRUE
 WHERE transition_id = @transition_id;
 
 -- name: InsertSupplyUpdateEvent :exec
+-- The event_key column is a deterministic content hash that
+-- identifies a logical update event. A duplicate insert (e.g. on
+-- restart re-run of the Confirmed branch in the minting state
+-- machine) hits the unique index on event_key and is silently
+-- dropped, leaving the existing row -- and any transition_id it
+-- already carries -- untouched.
 INSERT INTO supply_update_events (
-    group_key, transition_id, update_type_id, event_data
+    group_key, transition_id, update_type_id, event_data, event_key
 ) VALUES (
-    $1, $2, $3, $4
-);
+    $1, $2, $3, $4, $5
+)
+ON CONFLICT (event_key) DO NOTHING;
+
+-- name: FetchSupplyUpdateEventsForBackfill :many
+-- Returns rows that pre-date the event_key column and still need
+-- a hash computed. Used by the programmatic migration that runs
+-- at schema version 61.
+SELECT event_id, group_key, update_type_id, event_data
+FROM supply_update_events
+WHERE event_key IS NULL;
+
+-- name: SetSupplyUpdateEventKey :exec
+-- Sets the content-hash key for a single supply update event row.
+-- Used by the programmatic migration that backfills pre-existing
+-- rows after column 000061 is added.
+UPDATE supply_update_events
+SET event_key = @event_key
+WHERE event_id = @event_id;
 
 -- name: QuerySupplyCommitStateMachine :one
 SELECT

@@ -1399,3 +1399,95 @@ func TestSequenceConsistency(t *testing.T) {
 		)
 	}
 }
+
+// TestMigration62BackfillSupplyUpdateEventKeys verifies that the
+// programmatic migration at version 62 fills the event_key column for
+// every supply_update_events row created before the column existed.
+// Migration 61 added the column nullable; rows inserted at version 61
+// (or earlier) have event_key=NULL, and the dedup invariant only kicks
+// in once the backfill has run.
+func TestMigration62BackfillSupplyUpdateEventKeys(t *testing.T) {
+	ctx := context.Background()
+
+	// Start at version 61: the event_key column exists, the unique
+	// index exists (and tolerates multiple NULLs), but no rows have
+	// been hashed yet.
+	db := NewTestDBWithVersion(t, 61)
+
+	// Insert three rows with NULL event_key. update_type_id values
+	// match the rows seeded by migration 40 (0=mint, 1=burn,
+	// 2=ignore). Distinct event_data so the backfilled hashes do
+	// not collide.
+	groupKey := make([]byte, 32)
+	for i := range groupKey {
+		groupKey[i] = byte(i + 1)
+	}
+
+	type seed struct {
+		typeID int32
+		data   []byte
+	}
+	seeds := []seed{
+		{typeID: 0, data: []byte("event-payload-mint")},
+		{typeID: 1, data: []byte("event-payload-burn")},
+		{typeID: 2, data: []byte("event-payload-ignore")},
+	}
+
+	for _, s := range seeds {
+		_, err := db.ExecContext(ctx, `
+			INSERT INTO supply_update_events (
+				group_key, transition_id,
+				update_type_id, event_data
+			) VALUES (?, NULL, ?, ?)
+		`, groupKey, s.typeID, s.data)
+		require.NoError(t, err)
+	}
+
+	// Verify event_key is NULL before the backfill.
+	preRows, err := db.QueryContext(ctx, `
+		SELECT update_type_id, event_data, event_key
+		FROM supply_update_events
+		ORDER BY update_type_id
+	`)
+	require.NoError(t, err)
+	defer preRows.Close()
+	for preRows.Next() {
+		var typeID int32
+		var data, key []byte
+		require.NoError(t, preRows.Scan(&typeID, &data, &key))
+		require.Nil(t, key, "event_key must be NULL pre-backfill")
+	}
+	require.NoError(t, preRows.Close())
+
+	// Advance to latest -- the programmatic migration at 62 runs the
+	// backfill.
+	err = db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	// After the backfill, each row's event_key must equal the
+	// expected SHA-256 over (group_key || update_type_id || data).
+	postRows, err := db.QueryContext(ctx, `
+		SELECT update_type_id, event_data, event_key
+		FROM supply_update_events
+		ORDER BY update_type_id
+	`)
+	require.NoError(t, err)
+	defer postRows.Close()
+
+	seen := 0
+	for postRows.Next() {
+		var typeID int32
+		var data, key []byte
+		require.NoError(t, postRows.Scan(&typeID, &data, &key))
+
+		expected := supplyUpdateEventKey(groupKey, typeID, data)
+		require.Equal(t, expected, key,
+			"event_key mismatch for type %d", typeID)
+		require.Len(t, key, 32)
+		seen++
+	}
+	require.NoError(t, postRows.Close())
+	require.Equal(t, len(seeds), seen)
+}

@@ -1384,6 +1384,49 @@ func TestSupplyCommitInsertPendingUpdate(t *testing.T) {
 	assertEqualEvents(t, event3, deserializedDangling)
 }
 
+// TestSupplyCommitInsertPendingUpdateIsIdempotent verifies that inserting
+// the same logical supply update event twice produces only a single row.
+// This is the dedup invariant relied on by the minting caretaker's
+// Confirmed branch: a crash between SendMintEvent and the batch state
+// transition causes a restarted caretaker to re-fire the same event, and
+// we need the schema -- not the caller -- to be the source of truth for
+// "this event has already been recorded."
+func TestSupplyCommitInsertPendingUpdateIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	h := newSupplyCommitTestHarness(t)
+
+	// Insert a mint event for the first time.
+	event := h.randMintEvent()
+	err := h.commitMachine.InsertPendingUpdate(h.ctx, h.assetSpec, event)
+	require.NoError(t, err)
+
+	transition := h.assertPendingTransitionExists()
+	h.assertPendingUpdates([]supplycommit.SupplyUpdateEvent{event})
+
+	// Re-inserting the same event must be a no-op: same transition, same
+	// single row in the events log.
+	err = h.commitMachine.InsertPendingUpdate(h.ctx, h.assetSpec, event)
+	require.NoError(t, err)
+
+	transitionAgain := h.assertPendingTransitionExists()
+	require.Equal(
+		t, transition.TransitionID, transitionAgain.TransitionID,
+	)
+	h.assertPendingUpdates([]supplycommit.SupplyUpdateEvent{event})
+
+	// A separate event with the same group key must still be accepted --
+	// the dedup key is per-event content, not per-group.
+	otherEvent := h.randMintEvent()
+	err = h.commitMachine.InsertPendingUpdate(
+		h.ctx, h.assetSpec, otherEvent,
+	)
+	require.NoError(t, err)
+	h.assertPendingUpdates([]supplycommit.SupplyUpdateEvent{
+		event, otherEvent,
+	})
+}
+
 // TestBindDanglingUpdatesToTransition tests the logic for binding dangling
 // updates to a new transition.
 func TestBindDanglingUpdatesToTransition(t *testing.T) {
@@ -1431,12 +1474,18 @@ func TestBindDanglingUpdatesToTransition(t *testing.T) {
 				)
 				require.NoError(t, err)
 
+				eventData := b.Bytes()
+				eventKey := supplyUpdateEventKey(
+					h.groupKeyBytes, updateTypeID, eventData,
+				)
+
 				err = db.InsertSupplyUpdateEvent(
 					h.ctx, InsertSupplyUpdateEvent{
 						GroupKey:     h.groupKeyBytes,
 						TransitionID: sql.NullInt64{},
 						UpdateTypeID: updateTypeID,
-						EventData:    b.Bytes(),
+						EventData:    eventData,
+						EventKey:     eventKey,
 					},
 				)
 				require.NoError(t, err)

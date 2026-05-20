@@ -108,6 +108,50 @@ func (q *Queries) FetchSupplyCommit(ctx context.Context, groupKey []byte) (Fetch
 	return i, err
 }
 
+const FetchSupplyUpdateEventsForBackfill = `-- name: FetchSupplyUpdateEventsForBackfill :many
+SELECT event_id, group_key, update_type_id, event_data
+FROM supply_update_events
+WHERE event_key IS NULL
+`
+
+type FetchSupplyUpdateEventsForBackfillRow struct {
+	EventID      int64
+	GroupKey     []byte
+	UpdateTypeID int32
+	EventData    []byte
+}
+
+// Returns rows that pre-date the event_key column and still need
+// a hash computed. Used by the programmatic migration that runs
+// at schema version 61.
+func (q *Queries) FetchSupplyUpdateEventsForBackfill(ctx context.Context) ([]FetchSupplyUpdateEventsForBackfillRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchSupplyUpdateEventsForBackfill)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchSupplyUpdateEventsForBackfillRow
+	for rows.Next() {
+		var i FetchSupplyUpdateEventsForBackfillRow
+		if err := rows.Scan(
+			&i.EventID,
+			&i.GroupKey,
+			&i.UpdateTypeID,
+			&i.EventData,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FetchUnspentMintSupplyPreCommits = `-- name: FetchUnspentMintSupplyPreCommits :many
 SELECT
     mac.tx_output_index,
@@ -327,10 +371,11 @@ func (q *Queries) InsertSupplyCommitment(ctx context.Context, arg InsertSupplyCo
 
 const InsertSupplyUpdateEvent = `-- name: InsertSupplyUpdateEvent :exec
 INSERT INTO supply_update_events (
-    group_key, transition_id, update_type_id, event_data
+    group_key, transition_id, update_type_id, event_data, event_key
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3, $4, $5
 )
+ON CONFLICT (event_key) DO NOTHING
 `
 
 type InsertSupplyUpdateEventParams struct {
@@ -338,14 +383,22 @@ type InsertSupplyUpdateEventParams struct {
 	TransitionID sql.NullInt64
 	UpdateTypeID int32
 	EventData    []byte
+	EventKey     []byte
 }
 
+// The event_key column is a deterministic content hash that
+// identifies a logical update event. A duplicate insert (e.g. on
+// restart re-run of the Confirmed branch in the minting state
+// machine) hits the unique index on event_key and is silently
+// dropped, leaving the existing row -- and any transition_id it
+// already carries -- untouched.
 func (q *Queries) InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error {
 	_, err := q.db.ExecContext(ctx, InsertSupplyUpdateEvent,
 		arg.GroupKey,
 		arg.TransitionID,
 		arg.UpdateTypeID,
 		arg.EventData,
+		arg.EventKey,
 	)
 	return err
 }
@@ -803,6 +856,25 @@ func (q *Queries) QuerySupplyUpdateEvents(ctx context.Context, transitionID sql.
 		return nil, err
 	}
 	return items, nil
+}
+
+const SetSupplyUpdateEventKey = `-- name: SetSupplyUpdateEventKey :exec
+UPDATE supply_update_events
+SET event_key = $1
+WHERE event_id = $2
+`
+
+type SetSupplyUpdateEventKeyParams struct {
+	EventKey []byte
+	EventID  int64
+}
+
+// Sets the content-hash key for a single supply update event row.
+// Used by the programmatic migration that backfills pre-existing
+// rows after column 000060 is added.
+func (q *Queries) SetSupplyUpdateEventKey(ctx context.Context, arg SetSupplyUpdateEventKeyParams) error {
+	_, err := q.db.ExecContext(ctx, SetSupplyUpdateEventKey, arg.EventKey, arg.EventID)
+	return err
 }
 
 const UpdateSupplyCommitTransitionCommitment = `-- name: UpdateSupplyCommitTransitionCommitment :exec

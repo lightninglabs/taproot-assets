@@ -3,7 +3,9 @@ package tapdb
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -561,6 +563,24 @@ func updateTypeToInt(treeType supplycommit.SupplySubTree) (int32, error) {
 	}
 }
 
+// supplyUpdateEventKey returns the 32-byte content hash used as the
+// dedup key for a supply update event row. The same logical event --
+// same group, same type, same payload bytes -- always hashes to the
+// same value, which is what lets the unique index on event_key
+// silently absorb re-inserts after a caretaker restart.
+func supplyUpdateEventKey(groupKey []byte, updateTypeID int32,
+	eventData []byte) []byte {
+
+	var typeBuf [4]byte
+	binary.BigEndian.PutUint32(typeBuf[:], uint32(updateTypeID))
+
+	h := sha256.New()
+	h.Write(groupKey)
+	h.Write(typeBuf[:])
+	h.Write(eventData)
+	return h.Sum(nil)
+}
+
 // serializeSupplyUpdateEvent encodes a SupplyUpdateEvent into bytes.
 func serializeSupplyUpdateEvent(w io.Writer,
 	event supplycommit.SupplyUpdateEvent) error {
@@ -646,12 +666,18 @@ func (s *SupplyCommitMachine) InsertPendingUpdate(ctx context.Context,
 					"type: %w", err)
 			}
 
+			eventData := b.Bytes()
+			eventKey := supplyUpdateEventKey(
+				groupKeyBytes, updateTypeID, eventData,
+			)
+
 			return db.InsertSupplyUpdateEvent(
 				ctx, InsertSupplyUpdateEvent{
 					GroupKey:     groupKeyBytes,
 					TransitionID: transitionID,
 					UpdateTypeID: updateTypeID,
-					EventData:    b.Bytes(),
+					EventData:    eventData,
+					EventKey:     eventKey,
 				},
 			)
 		}

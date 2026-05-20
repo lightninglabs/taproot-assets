@@ -484,6 +484,7 @@ type SupplyUpdateEvent struct {
 	TransitionID sql.NullInt64
 	UpdateTypeID int32
 	EventData    []byte
+	EventKey     []byte
 }
 
 type TapscriptEdge struct {

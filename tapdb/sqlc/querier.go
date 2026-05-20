@@ -116,6 +116,10 @@ type Querier interface {
 	// Fetches all push log entries for a given asset group, ordered by
 	// creation time with the most recent entries first.
 	FetchSupplySyncerPushLogs(ctx context.Context, groupKey []byte) ([]SupplySyncerPushLog, error)
+	// Returns rows that pre-date the event_key column and still need
+	// a hash computed. Used by the programmatic migration that runs
+	// at schema version 61.
+	FetchSupplyUpdateEventsForBackfill(ctx context.Context) ([]FetchSupplyUpdateEventsForBackfillRow, error)
 	// Sort the nodes by node_index here instead of returning the indices.
 	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)
 	FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error)
@@ -159,6 +163,12 @@ type Querier interface {
 	// push to a remote universe server. The commit_txid and output_index are
 	// taken directly from the RootCommitment outpoint.
 	InsertSupplySyncerPushLog(ctx context.Context, arg InsertSupplySyncerPushLogParams) error
+	// The event_key column is a deterministic content hash that
+	// identifies a logical update event. A duplicate insert (e.g. on
+	// restart re-run of the Confirmed branch in the minting state
+	// machine) hits the unique index on event_key and is silently
+	// dropped, leaving the existing row -- and any transition_id it
+	// already carries -- untouched.
 	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error
 	InsertTxProof(ctx context.Context, arg InsertTxProofParams) error
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
@@ -234,6 +244,10 @@ type Querier interface {
 	ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
+	// Sets the content-hash key for a single supply update event row.
+	// Used by the programmatic migration that backfills pre-existing
+	// rows after column 000060 is added.
+	SetSupplyUpdateEventKey(ctx context.Context, arg SetSupplyUpdateEventKeyParams) error
 	SetTransferOutputProofDeliveryStatus(ctx context.Context, arg SetTransferOutputProofDeliveryStatusParams) error
 	// Mark all unconfirmed transfers that spend the given anchor point as
 	// superseded, except for the given (just confirmed) transfer. Once a

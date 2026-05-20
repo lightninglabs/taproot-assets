@@ -27,6 +27,13 @@ const (
 	// table by querying all assets and detecting burns from their
 	// witnesses.
 	Migration51InsertAssetBurns = 51
+
+	// Migration62BackfillSupplyUpdateEventKeys is the version of the
+	// programmatic migration that computes the dedup content-hash for
+	// every supply_update_events row that pre-dates the event_key
+	// column. SQLite has no native SHA-256, so the work cannot be
+	// expressed as portable SQL.
+	Migration62BackfillSupplyUpdateEventKeys = 62
 )
 
 // programmaticMigration is a function type for a function that performs a
@@ -39,8 +46,9 @@ var (
 	// These functions are used to perform additional checks on the
 	// database state that are not fully expressible in SQL.
 	programmaticMigrations = map[uint]programmaticMigration{
-		Migration50ScriptKeyType:    determineAndAssignScriptKeyType,
-		Migration51InsertAssetBurns: insertAssetBurns,
+		Migration50ScriptKeyType:                 determineAndAssignScriptKeyType,
+		Migration51InsertAssetBurns:              insertAssetBurns,
+		Migration62BackfillSupplyUpdateEventKeys: backfillSupplyUpdateEventKeys,
 	}
 )
 
@@ -323,6 +331,43 @@ func insertAssetBurns(ctx context.Context, q sqlc.Querier) error {
 		})
 		if err != nil {
 			return fmt.Errorf("error inserting burn: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// backfillSupplyUpdateEventKeys computes a content-hash for every
+// supply_update_events row that pre-dates the event_key column (added
+// in migration 000061) and stores it in the new column. After this
+// migration runs every row holds a hash, and the unique index on
+// event_key enforces the no-duplicates invariant for new inserts.
+func backfillSupplyUpdateEventKeys(ctx context.Context,
+	q sqlc.Querier) error {
+
+	rows, err := q.FetchSupplyUpdateEventsForBackfill(ctx)
+	if err != nil {
+		return fmt.Errorf("error fetching supply update events for "+
+			"backfill: %w", err)
+	}
+
+	log.Debugf("Backfilling event_key for %d supply update events",
+		len(rows))
+
+	for _, row := range rows {
+		key := supplyUpdateEventKey(
+			row.GroupKey, row.UpdateTypeID, row.EventData,
+		)
+
+		err := q.SetSupplyUpdateEventKey(
+			ctx, sqlc.SetSupplyUpdateEventKeyParams{
+				EventKey: key,
+				EventID:  row.EventID,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error setting event_key for event "+
+				"%d: %w", row.EventID, err)
 		}
 	}
 
