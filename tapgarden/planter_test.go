@@ -466,7 +466,7 @@ func (t *mintingTestHarness) fundBatch(wg *sync.WaitGroup,
 			fundParams = *params
 		}
 
-		fundBatchResp, fundErr := t.planter.FundBatch(fundParams)
+		verboseBatch, fundErr := t.planter.FundBatch(fundParams)
 		if fundErr != nil {
 			respChan <- &FundBatchResp{
 				Err: fundErr,
@@ -476,7 +476,7 @@ func (t *mintingTestHarness) fundBatch(wg *sync.WaitGroup,
 		}
 
 		respChan <- &FundBatchResp{
-			Batch: fundBatchResp.Batch.MintingBatch,
+			Batch: verboseBatch.MintingBatch,
 		}
 	}()
 }
@@ -1091,7 +1091,10 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized(
 	isNotCancelledBatch := func(batch *tapgarden.MintingBatch) bool {
 		return !isCancelledBatch(batch)
 	}
-	pendingBatch, err := fn.Last(pendingBatches, isNotCancelledBatch)
+	// FetchNonFinalBatches returns rows in newest-first order
+	// (creation_time_unix DESC, batch_id DESC), so First is what
+	// picks the most recent non-cancelled batch here.
+	pendingBatch, err := fn.First(pendingBatches, isNotCancelledBatch)
 	require.NoError(t, err)
 
 	// The minting key of the batch should match the public key
@@ -2105,7 +2108,8 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	// seedling. First we need the seedling asset ID and group internal key.
 	seedlingWithGroupTapscriptRoot := fundedBatch.
 		UnsealedSeedlings[secondSeedling]
-	seedlingAssetID := seedlingWithGroupTapscriptRoot.NewAsset.ID()
+	seedlingAssetID :=
+		seedlingWithGroupTapscriptRoot.KeyRequest.NewAsset.ID()
 	derivedInternalKey := seedlingWithGroupTapscriptRoot.GroupInternalKey
 
 	// Now we can build the control block for using the hash lock script.

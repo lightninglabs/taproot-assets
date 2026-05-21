@@ -41,7 +41,7 @@ type PrometheusConfig struct {
 
 	// AssetMinter is used to collect any stats that are relevant to the
 	// asset minter.
-	AssetMinter tapgarden.Planter
+	AssetMinter *tapgarden.ChainPlanter
 
 	// CacheStats is a function that can be used to collect cache stats
 	// from the daemon. This is used to export cache hits and misses for

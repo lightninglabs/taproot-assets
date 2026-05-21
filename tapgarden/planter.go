@@ -180,10 +180,14 @@ type ListBatchesParams struct {
 }
 
 // PendingAssetGroup is the group key request and virtual TX necessary to
-// produce an asset group witness for a seedling.
+// produce an asset group witness for a seedling. The joining principle is
+// "a request together with the virtual tx that fulfils it."
 type PendingAssetGroup struct {
-	asset.GroupKeyRequest
-	asset.GroupVirtualTx
+	// KeyRequest is the request to create the asset group.
+	KeyRequest asset.GroupKeyRequest
+
+	// VirtualTx is the virtual tx that fulfils the KeyRequest.
+	VirtualTx asset.GroupVirtualTx
 }
 
 // PSBT returns a PSBT packet that can be used to create a group witness for the
@@ -192,22 +196,22 @@ func (p *PendingAssetGroup) PSBT(
 	params chaincfg.Params) (*psbt.Packet, error) {
 
 	// Generate PSBT equivalent of the group virtual tx.
-	packet, err := psbt.NewFromUnsignedTx(&p.GroupVirtualTx.Tx)
+	packet, err := psbt.NewFromUnsignedTx(&p.VirtualTx.Tx)
 	if err != nil {
 		return nil, fmt.Errorf("error producing group virtual PSBT "+
 			"from tx: %w", err)
 	}
 
 	vIn := &packet.Inputs[0]
-	vIn.WitnessUtxo = &p.GroupVirtualTx.PrevOut
-	vIn.TaprootMerkleRoot = p.GroupKeyRequest.TapscriptRoot
+	vIn.WitnessUtxo = &p.VirtualTx.PrevOut
+	vIn.TaprootMerkleRoot = p.KeyRequest.TapscriptRoot
 	vIn.TaprootInternalKey = schnorr.SerializePubKey(
-		p.GroupKeyRequest.RawKey.PubKey,
+		p.KeyRequest.RawKey.PubKey,
 	)
 
 	switch {
-	case p.GroupKeyRequest.ExternalKey.IsSome():
-		externalKey := p.GroupKeyRequest.ExternalKey.UnwrapToPtr()
+	case p.KeyRequest.ExternalKey.IsSome():
+		externalKey := p.KeyRequest.ExternalKey.UnwrapToPtr()
 		pubKey, err := externalKey.PubKey()
 		if err != nil {
 			return nil, fmt.Errorf("error deriving public key "+
@@ -244,7 +248,7 @@ func (p *PendingAssetGroup) PSBT(
 		// TODO(guggero): Make this switch dependent on the non-spend
 		// leaf version, once we allow the user to configure that.
 		if true {
-			assetID := p.AnchorGen.ID()
+			assetID := p.KeyRequest.AnchorGen.ID()
 			numsXPub, numsKey, err := asset.TweakedNumsKey(assetID)
 			if err != nil {
 				return nil, fmt.Errorf("error deriving nums "+
@@ -300,7 +304,7 @@ func (p *PendingAssetGroup) PSBT(
 
 	default:
 		bip32, trBip32 := tappsbt.Bip32DerivationFromKeyDesc(
-			p.GroupKeyRequest.RawKey, params.HDCoinType,
+			p.KeyRequest.RawKey, params.HDCoinType,
 		)
 		vIn.Bip32Derivation = []*psbt.Bip32Derivation{bip32}
 		vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
@@ -1701,8 +1705,8 @@ func newVerboseBatch(currentBatch *MintingBatch,
 		}
 
 		seedling.PendingAssetGroup = &PendingAssetGroup{
-			GroupKeyRequest: groupReqs[i],
-			GroupVirtualTx:  genTXs[i],
+			KeyRequest: groupReqs[i],
+			VirtualTx:  genTXs[i],
 		}
 	}
 
@@ -2259,14 +2263,18 @@ func (c *ChainPlanter) applyFundingToBatch(ctx context.Context,
 
 	// The augmenter is consulted for the persistence payload --
 	// it scans the freshly-funded PSBT for its own output and
-	// returns the typed row. Currently
-	// applyFundingToBatch is called before the batch's
-	// GenesisPacket has been mirrored back into the in-memory
-	// batch, so we attach mintAnchorTx temporarily so the
-	// augmenter can read the funded PSBT off it.
-	stagingBatch := *batch
+	// returns the typed row. Currently applyFundingToBatch is
+	// called before the batch's GenesisPacket has been mirrored
+	// back into the in-memory batch, so we attach mintAnchorTx
+	// to a copy so the augmenter can read it without us mutating
+	// the live batch.
+	stagingBatch, err := batch.Copy()
+	if err != nil {
+		copyErr := fmt.Errorf("unable to copy batch: %w", err)
+		return c.fundingError(&mintAnchorTx.FundedPsbt, copyErr)
+	}
 	stagingBatch.GenesisPacket = mintAnchorTx
-	preCommit, err := c.augmenter().BindData(ctx, &stagingBatch)
+	preCommit, err := c.augmenter().BindData(ctx, stagingBatch)
 	if err != nil {
 		bindErr := fmt.Errorf("augmenter BindData: %w", err)
 		return c.fundingError(&mintAnchorTx.FundedPsbt, bindErr)
@@ -2795,13 +2803,13 @@ func (c *ChainPlanter) ListBatches(params ListBatchesParams) ([]*VerboseBatch,
 
 // FundBatch sends a signal to the planter to fund the current batch, or create
 // a funded batch.
-func (c *ChainPlanter) FundBatch(params FundParams) (*FundBatchResp, error) {
+func (c *ChainPlanter) FundBatch(params FundParams) (*VerboseBatch, error) {
 	return dispatchStateReq(
-		c, func(out chan<- stateResult[*FundBatchResp]) {
+		c, func(out chan<- stateResult[*VerboseBatch]) {
 			if c.pendingBatch != nil &&
 				c.pendingBatch.IsFunded() {
 
-				out <- stateErr[*FundBatchResp](fmt.Errorf(
+				out <- stateErr[*VerboseBatch](fmt.Errorf(
 					"batch already funded",
 				))
 				return
@@ -2811,7 +2819,7 @@ func (c *ChainPlanter) FundBatch(params FundParams) (*FundBatchResp, error) {
 			err := c.fundPendingBatch(ctx, params)
 			cancel()
 			if err != nil {
-				out <- stateErr[*FundBatchResp](fmt.Errorf(
+				out <- stateErr[*VerboseBatch](fmt.Errorf(
 					"unable to fund minting batch: %w",
 					err,
 				))
@@ -2822,11 +2830,11 @@ func (c *ChainPlanter) FundBatch(params FundParams) (*FundBatchResp, error) {
 				c.pendingBatch, c.cfg.GenTxBuilder,
 			)
 			if err != nil {
-				out <- stateErr[*FundBatchResp](err)
+				out <- stateErr[*VerboseBatch](err)
 				return
 			}
 
-			out <- stateOk(&FundBatchResp{Batch: verboseBatch})
+			out <- stateOk(verboseBatch)
 		},
 	)
 }
@@ -3312,8 +3320,6 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 // New asset creation or ongoing issuance) to the ChainPlanter. A channel is
 // returned where future updates will be sent over. If an error is returned no
 // issuance operation was possible.
-//
-// NOTE: This is part of the Planter interface.
 func (c *ChainPlanter) QueueNewSeedling(req *Seedling) (SeedlingUpdates, error) {
 	req.updates = make(SeedlingUpdates, 1)
 
@@ -3329,8 +3335,6 @@ func (c *ChainPlanter) QueueNewSeedling(req *Seedling) (SeedlingUpdates, error) 
 // CancelSeedling attempts to cancel the creation of a new asset identified by
 // its name. If the seedling has already progressed to a point where the
 // genesis PSBT has been broadcasted, an error is returned.
-//
-// NOTE: This is part of the Planter interface.
 func (c *ChainPlanter) CancelSeedling() error {
 	// TODO(roasbeef): actually needed?
 	return nil
@@ -3396,11 +3400,7 @@ func (c *ChainPlanter) verifierCtx(ctx context.Context) proof.VerifierCtx {
 	}
 }
 
-// A compile-time assertion to make sure that ChainPlanter implements the
-// tapgarden.Planter interface.
-var _ Planter = (*ChainPlanter)(nil)
-
-// A compile-time assertion to make sure Cultivator satisfies the
+// A compile-time assertion to make sure ChainPlanter satisfies the
 // fn.EventPublisher interface.
 var _ fn.EventPublisher[fn.Event, bool] = (*ChainPlanter)(nil)
 

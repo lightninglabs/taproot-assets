@@ -288,7 +288,7 @@ func (b *Cultivator) Cancel(respCh chan<- CancelResp) error {
 
 	default:
 		err := fmt.Errorf("Cultivator(%x), batch not cancellable",
-			b.cfg.Batch.BatchKey.PubKey.SerializeCompressed())
+			batchKey)
 		cancelResp = CancelResp{false, err}
 	}
 
@@ -982,9 +982,10 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 			return 0, fmt.Errorf("unable to import key: %w", err)
 		}
 
+		changeIdx := b.cfg.Batch.GenesisPacket.ChangeOutputIndex
 		signedFundedPsbt := tapsend.FundedPsbt{
 			Pkt:               signedPkt,
-			ChangeOutputIndex: b.cfg.Batch.GenesisPacket.ChangeOutputIndex,
+			ChangeOutputIndex: changeIdx,
 			ChainFees:         int64(chainFees),
 		}
 		err = b.cfg.BatchStore.CommitSignedGenesisTx(
@@ -1288,12 +1289,13 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 				publishAssets, nonAnchorAssets...,
 			)
 
+			anchorIdx := b.cfg.Batch.GenesisPacket.AssetAnchorOutIdx
 			err = b.cfg.MintProofPublisher.PublishMintBatch(
 				ctx, MintBatchPublishParams{
 					Assets:       publishAssets,
 					Proofs:       mintingProofs,
 					MintTxHash:   mintTxHash,
-					AnchorOutIdx: b.cfg.Batch.GenesisPacket.AssetAnchorOutIdx,
+					AnchorOutIdx: anchorIdx,
 				},
 			)
 			if err != nil {

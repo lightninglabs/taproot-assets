@@ -66,7 +66,7 @@ func (p *Publisher) PublishMintBatch(ctx context.Context,
 	}
 
 	numTotal := uint(len(items))
-	var sent int
+	var sent uint
 	for start := uint(0); start < numTotal; start += p.batchSize {
 		end := start + p.batchSize
 		if end > numTotal {
@@ -74,7 +74,7 @@ func (p *Publisher) PublishMintBatch(ctx context.Context,
 		}
 
 		chunk := items[start:end]
-		sent += len(chunk)
+		sent += uint(len(chunk))
 
 		log.Infof("Inserting %d new leaves (%d of %d) into local "+
 			"universe", len(chunk), sent, numTotal)
