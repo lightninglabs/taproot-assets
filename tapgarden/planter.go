@@ -2724,13 +2724,13 @@ func (c *ChainPlanter) ListBatches(params ListBatchesParams) ([]*VerboseBatch,
 
 // FundBatch sends a signal to the planter to fund the current batch, or create
 // a funded batch.
-func (c *ChainPlanter) FundBatch(params FundParams) (*FundBatchResp, error) {
+func (c *ChainPlanter) FundBatch(params FundParams) (*VerboseBatch, error) {
 	return dispatchStateReq(
-		c, func(out chan<- stateResult[*FundBatchResp]) {
+		c, func(out chan<- stateResult[*VerboseBatch]) {
 			if c.pendingBatch != nil &&
 				c.pendingBatch.IsFunded() {
 
-				out <- stateErr[*FundBatchResp](fmt.Errorf(
+				out <- stateErr[*VerboseBatch](fmt.Errorf(
 					"batch already funded",
 				))
 				return
@@ -2740,7 +2740,7 @@ func (c *ChainPlanter) FundBatch(params FundParams) (*FundBatchResp, error) {
 			err := c.fundPendingBatch(ctx, params)
 			cancel()
 			if err != nil {
-				out <- stateErr[*FundBatchResp](fmt.Errorf(
+				out <- stateErr[*VerboseBatch](fmt.Errorf(
 					"unable to fund minting batch: %w",
 					err,
 				))
@@ -2751,11 +2751,11 @@ func (c *ChainPlanter) FundBatch(params FundParams) (*FundBatchResp, error) {
 				c.pendingBatch, c.cfg.GenTxBuilder,
 			)
 			if err != nil {
-				out <- stateErr[*FundBatchResp](err)
+				out <- stateErr[*VerboseBatch](err)
 				return
 			}
 
-			out <- stateOk(&FundBatchResp{Batch: verboseBatch})
+			out <- stateOk(verboseBatch)
 		},
 	)
 }

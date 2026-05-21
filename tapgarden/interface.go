@@ -21,12 +21,6 @@ const (
 	IssuanceTxLabel = "tapd-asset-issuance"
 )
 
-// FundBatchResp is the response returned from the FundBatch method.
-type FundBatchResp struct {
-	// Batch is the batch that was funded.
-	Batch *VerboseBatch
-}
-
 // Planter is responsible for batching a set of seedlings into a minting batch
 // that will eventually be confirmed on chain.
 type Planter interface {
@@ -48,7 +42,7 @@ type Planter interface {
 
 	// FundBatch attempts to provide a genesis point for the current batch,
 	// or create a new funded batch.
-	FundBatch(params FundParams) (*FundBatchResp, error)
+	FundBatch(params FundParams) (*VerboseBatch, error)
 
 	// SealBatch attempts to seal the current batch, by providing or
 	// deriving all witnesses necessary to create the final genesis TX.

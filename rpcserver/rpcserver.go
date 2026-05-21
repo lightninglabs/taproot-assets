@@ -960,7 +960,7 @@ func (r *RPCServer) FundBatch(ctx context.Context,
 		return nil, err
 	}
 
-	fundBatchResp, err := r.cfg.AssetMinter.FundBatch(tapgarden.FundParams{
+	verboseBatch, err := r.cfg.AssetMinter.FundBatch(tapgarden.FundParams{
 		FeeRate:        feeRateOpt,
 		SiblingTapTree: tapTreeOpt,
 	})
@@ -969,12 +969,12 @@ func (r *RPCServer) FundBatch(ctx context.Context,
 	}
 
 	// If there was no batch to fund, return an empty response.
-	if fundBatchResp.Batch == nil {
+	if verboseBatch == nil {
 		return &mintrpc.FundBatchResponse{}, nil
 	}
 
 	rpcBatch, err := marshalVerboseBatch(
-		*r.cfg.ChainParams.Params, fundBatchResp.Batch,
+		*r.cfg.ChainParams.Params, verboseBatch,
 		!req.ShortResponse, req.ShortResponse,
 	)
 	if err != nil {
