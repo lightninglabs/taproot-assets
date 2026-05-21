@@ -1569,56 +1569,14 @@ func (a *AssetMintingStore) CommitBatchFunding(ctx context.Context,
 	})
 }
 
-// FetchDelegationKey fetches the delegation key for the given asset group
-// public key.
+// FetchDelegationKey fetches the delegation key for the given asset
+// group public key. Implements MintingRefReader.FetchDelegationKey;
+// delegates to SupplyPreCommitStore since the underlying lookup
+// belongs to the supply-pre-commit substance, not to minting.
 func (a *AssetMintingStore) FetchDelegationKey(ctx context.Context,
 	groupKey btcec.PublicKey) (fn.Option[tapgarden.DelegationKey], error) {
 
-	var zero fn.Option[tapgarden.DelegationKey]
-	groupKeyBytes := schnorr.SerializePubKey(&groupKey)
-
-	var delegationKey fn.Option[tapgarden.DelegationKey]
-
-	readOpts := NewAssetStoreReadTx()
-	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
-		fetchRow, err := q.FetchMintSupplyPreCommits(
-			ctx, FetchMintPreCommitsParams{
-				GroupKey: groupKeyBytes,
-			},
-		)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil
-			}
-			return fmt.Errorf("unable to fetch mint anchor "+
-				"uni commitment by group key: %w", err)
-		}
-
-		// If we didn't find any pre-commitment outputs, then
-		// we can return early.
-		if len(fetchRow) == 0 {
-			return nil
-		}
-
-		// Select the first pre-commitment entry. We assume that all
-		// outputs in the group share the same delegation key.
-		row := fetchRow[0]
-
-		internalKey, err := parseInternalKey(row.InternalKey)
-		if err != nil {
-			return fmt.Errorf("error parsing pre-commitment "+
-				"internal key: %w", err)
-		}
-
-		delegationKey = fn.Some(internalKey)
-
-		return nil
-	})
-	if dbErr != nil {
-		return zero, dbErr
-	}
-
-	return delegationKey, nil
+	return NewSupplyPreCommitStore(a.db).FetchDelegationKey(ctx, groupKey)
 }
 
 // SealBatch seals a batch by assigning and persisting asset groups
