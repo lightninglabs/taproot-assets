@@ -114,6 +114,14 @@ type GardenKit struct {
 	// key for a given asset, which is required for creating supply
 	// commitments.
 	DelegationKeyChecker address.DelegationKeyChecker
+
+	// GenesisTxAugmenter is an optional hook that lets an external
+	// substance (e.g. supply commitment) participate in batch
+	// minting without tapgarden having to know what that
+	// substance is doing. When unset, all augmenter call sites
+	// degrade to NoOpAugmenter and minting proceeds without any
+	// extra outputs, validation, or post-confirmation events.
+	GenesisTxAugmenter GenesisTxAugmenter
 }
 
 // PlanterConfig is the main config for the ChainPlanter.
@@ -427,6 +435,16 @@ func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 			Quit:           make(chan struct{}),
 		},
 	}
+}
+
+// augmenter returns the GenesisTxAugmenter configured on the
+// planter's GardenKit, or a no-op augmenter when none was wired.
+// Call sites can invoke augmenter methods without nil-checking.
+func (c *ChainPlanter) augmenter() GenesisTxAugmenter {
+	if c.cfg.GenesisTxAugmenter == nil {
+		return NoOpAugmenter{}
+	}
+	return c.cfg.GenesisTxAugmenter
 }
 
 // newCultivatorForBatch creates a new Cultivator for a given batch and
@@ -1004,42 +1022,41 @@ type WalletFundPsbt = func(ctx context.Context,
 // (all outputs need to hold some BTC to not be dust), and with a dummy script.
 // We need to use a dummy script as we can't know the actual script key since
 // that's dependent on the genesis outpoint.
-func fundGenesisPsbt(ctx context.Context, chainParams address.ChainParams,
-	pendingBatch *MintingBatch,
-	walletFundPsbt WalletFundPsbt) (FundedMintAnchorPsbt, error) {
+func fundGenesisPsbt(ctx context.Context, _ address.ChainParams,
+	pendingBatch *MintingBatch, walletFundPsbt WalletFundPsbt,
+	augmenter GenesisTxAugmenter) (FundedMintAnchorPsbt, error) {
 
 	var zero FundedMintAnchorPsbt
 
-	// If universe commitments are enabled, we formulate a pre-commitment
-	// output. This output is spent by the universe commitment transaction.
-	var delegationKey fn.Option[DelegationKey]
-	if pendingBatch != nil && pendingBatch.SupplyCommitments {
-		delegationK, err := fetchDelegationKey(pendingBatch)
-		if err != nil {
-			return zero, fmt.Errorf("unable to create "+
-				"pre-commitment output: %w", err)
-		}
-
-		delegationKey = delegationK
+	if augmenter == nil {
+		augmenter = NoOpAugmenter{}
 	}
 
-	// Derive wire.TxOut from the pre-commitment delegation key, if
-	// available. The delegation key is used as the output internal key.
-	var preCommitmentTxOut fn.Option[wire.TxOut]
-	if delegationKey.IsSome() {
-		txOut, err := fn.MapOptionZ(
-			delegationKey,
-			func(key DelegationKey) lfn.Result[wire.TxOut] {
-				return lfn.NewResult(
-					PreCommitTxOut(*key.PubKey),
-				)
-			},
-		).Unpack()
-		if err != nil {
-			return zero, err
-		}
+	// Ask the augmenter for any extra outputs to splice into
+	// the unfunded anchor PSBT (e.g. the pre-commitment output
+	// for the supply-commit substance). The augmenter returns
+	// nil/empty when it has nothing to contribute, in which
+	// case the genesis tx carries only the asset anchor output
+	// (plus a wallet-managed change output).
+	extraOuts, err := augmenter.ExtraOutputs(ctx, pendingBatch)
+	if err != nil {
+		return zero, fmt.Errorf("augmenter ExtraOutputs: %w", err)
+	}
 
-		preCommitmentTxOut = fn.Some(txOut)
+	// The legacy funding helper accepted a single fn.Option for
+	// the pre-commitment output. The augmenter generalizes that
+	// to a list, but in practice only zero or one extra output
+	// is contributed today; route accordingly.
+	var preCommitmentTxOut fn.Option[wire.TxOut]
+	switch len(extraOuts) {
+	case 0:
+		// no-op
+	case 1:
+		preCommitmentTxOut = fn.Some(extraOuts[0])
+	default:
+		return zero, fmt.Errorf("augmenter returned %d extra "+
+			"outputs; only zero or one is supported",
+			len(extraOuts))
 	}
 
 	// Construct an unfunded anchor PSBT which will eventually become a
@@ -1064,90 +1081,33 @@ func fundGenesisPsbt(ctx context.Context, chainParams address.ChainParams,
 
 	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
 
-	// Classify anchor transaction output indexes.
+	// Classify anchor transaction output indexes. Tapgarden only
+	// tracks the asset anchor and change output indexes; the
+	// augmenter (if any) tracks its own outputs internally.
 	anchorOutIndexes, err := anchorTxOutputIndexes(
-		fundedGenesisPkt, preCommitmentTxOut,
+		fundedGenesisPkt, fn.None[wire.TxOut](),
 	)
 	if err != nil {
 		return zero, fmt.Errorf("unable to determine output indexes: "+
 			"%w", err)
 	}
 
-	// The presence of a delegation key indicates that a pre-commitment
-	// output should exist. Therefore, the index of that output is expected
-	// to be defined at this point.
-	if delegationKey.IsSome() &&
-		anchorOutIndexes.PreCommitOutIdx.IsNone() {
-
-		return zero, fmt.Errorf("pre-commitment output index not found")
+	// Let the augmenter locate its own outputs in the funded
+	// PSBT and stamp any required metadata (BIP32 derivation
+	// for the pre-commitment output).
+	if err := augmenter.PostFund(
+		ctx, pendingBatch, &fundedGenesisPkt,
+	); err != nil {
+		return zero, fmt.Errorf("augmenter PostFund: %w", err)
 	}
 
-	// If pre-commitment output is some, assign the output index to the
-	// pre-commitment output.
-	var preCommitOutIdx fn.Option[uint32]
-	if delegationKey.IsSome() {
-		// Ensure that a pre-commitment output index is found.
-		outIdx, err := anchorOutIndexes.PreCommitOutIdx.UnwrapOrErr(
-			fmt.Errorf("pre-commitment output index not found"),
-		)
-		if err != nil {
-			return zero, err
-		}
-
-		preCommitOutIdx = fn.Some(outIdx)
-	}
-
-	// If there is a group pub key to associate with the pre-commitment
-	// output, fetch it now.
-	preCommitGroupPubKey, err := fetchPreCommitGroupKey(pendingBatch)
-	if err != nil {
-		return zero, fmt.Errorf("unable to fetch pre-commitment "+
-			"group key: %w", err)
-	}
-
-	// Formulate the pre-commitment output descriptor and finalize
-	// pre-commitment output in fundedGenesisPkt.
-	var preCommitOut fn.Option[PreCommitmentOutput]
-	if delegationKey.IsSome() {
-		dKey, err := delegationKey.UnwrapOrErr(
-			fmt.Errorf("code error: expected delegation key"),
-		)
-		if err != nil {
-			return zero, err
-		}
-
-		outIdx, err := preCommitOutIdx.UnwrapOrErr(
-			fmt.Errorf("code error: expected pre-commitment " +
-				"output index"),
-		)
-		if err != nil {
-			return zero, err
-		}
-
-		preCommitOut = fn.Some(NewPreCommitmentOutput(
-			outIdx, dKey, preCommitGroupPubKey,
-		))
-
-		// Finalize the pre-commitment output in the fundedGenesisPkt.
-		// An output is already present in the unsigned transaction, so
-		// we just need to set the corresponding fields in the PSBT.
-		bip32Derivation, trBip32Derivation :=
-			tappsbt.Bip32DerivationFromKeyDesc(
-				dKey, chainParams.HDCoinType,
-			)
-
-		pOut := &fundedGenesisPkt.Pkt.Outputs[outIdx]
-
-		pOut.Bip32Derivation = []*psbt.Bip32Derivation{bip32Derivation}
-		pOut.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
-			trBip32Derivation,
-		}
-		pOut.TaprootInternalKey = trBip32Derivation.XOnlyPubKey
-	}
-
-	// Formulate a funded minting anchor PSBT from the funded PSBT.
+	// Build the FundedMintAnchorPsbt. The PreCommitmentOutput
+	// field is left unset here -- the augmenter is the new
+	// source of truth via BindData. The field is retained on
+	// the struct only until commit 5 deletes it.
 	fundedMintAnchorPsbt, err := NewFundedMintAnchorPsbt(
-		fundedGenesisPkt, anchorOutIndexes, preCommitOut,
+		fundedGenesisPkt, anchorOutIndexes,
+		fn.None[PreCommitmentOutput](),
 	)
 	if err != nil {
 		return zero, fmt.Errorf("unable to create funded minting "+
@@ -2075,6 +2035,7 @@ func (c *ChainPlanter) prepareFunding(ctx context.Context,
 		log.Infof("Attempting to fund batch: %x", batchKey)
 		mintAnchorTx, err := fundGenesisPsbt(
 			ctx, c.cfg.ChainParams, batch, walletFundPsbt,
+			c.augmenter(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fund minting PSBT "+
@@ -2128,7 +2089,14 @@ func (c *ChainPlanter) createFundedBatch(ctx context.Context,
 		newBatch.tapSibling = prep.rootHash
 	}
 
-	preCommit := newBatch.GenesisPacket.PreCommitBindData()
+	// The augmenter is the source of truth for the persistence
+	// payload (formerly read off
+	// newBatch.GenesisPacket.PreCommitmentOutput); it derives
+	// the row from the batch's current state.
+	preCommit, err := c.augmenter().BindData(ctx, newBatch)
+	if err != nil {
+		return nil, fmt.Errorf("augmenter BindData: %w", err)
+	}
 	err = c.cfg.BatchStore.CommitMintingBatch(ctx, newBatch, preCommit)
 	if err != nil {
 		return nil, err
@@ -2163,13 +2131,27 @@ func (c *ChainPlanter) applyFundingToBatch(ctx context.Context,
 		return err
 	}
 
+	// The augmenter is consulted for the persistence payload --
+	// it scans the freshly-funded PSBT for its own output and
+	// returns the typed row. Currently
+	// applyFundingToBatch is called before the batch's
+	// GenesisPacket has been mirrored back into the in-memory
+	// batch, so we attach mintAnchorTx temporarily so the
+	// augmenter can read the funded PSBT off it.
+	stagingBatch := *batch
+	stagingBatch.GenesisPacket = mintAnchorTx
+	preCommit, err := c.augmenter().BindData(ctx, &stagingBatch)
+	if err != nil {
+		return fmt.Errorf("augmenter BindData: %w", err)
+	}
+
 	// Persist the sibling, genesis TX, and (when present) the
 	// supply-pre-commit row atomically. Combining the writes in a
 	// single transaction ensures a partial failure cannot leave
 	// the batch with one persisted and the others absent.
 	err = c.cfg.BatchStore.CommitBatchFunding(
 		ctx, batch.BatchKey.PubKey, prep.rootHash, *mintAnchorTx,
-		mintAnchorTx.PreCommitBindData(),
+		preCommit,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to commit batch funding: %w", err)
@@ -2553,25 +2535,21 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 		batchWithGroupInfo.Seedlings[assetName].GroupInfo = group
 	}
 
-	// Persist the newly generated group-key metadata in the batch’s
-	// pre-commitment output—needed only when Universe Commitments are on—
-	// before passing the batch to the minting store.
-	if batchWithGroupInfo.SupplyCommitments {
-		err := sealBatchPreCommit(batchWithGroupInfo)
-		if err != nil {
-			return nil, err
-		}
-	}
+	// The supply-commit augmenter rediscovers the group-key
+	// metadata directly from the (now group-keyed) seedlings
+	// when it constructs the persistence payload below; no
+	// separate "stamp the group key onto PreCommitmentOutput"
+	// step is needed.
 
 	// With all the asset group witnesses validated, we can now
-	// save them to disk effectively sealing the batch. If the
-	// batch carries a pre-commitment output, the re-upsert payload
-	// is derived from the (now group-keyed) genesis packet so that
-	// SealBatch can persist it atomically with the group writes.
-	var sealPreCommit fn.Option[PreCommitBindData]
-	if batchWithGroupInfo.GenesisPacket != nil {
-		sealPreCommit = batchWithGroupInfo.GenesisPacket.
-			PreCommitBindData()
+	// save them to disk effectively sealing the batch. The
+	// augmenter recomputes its persistence payload off the
+	// batch's current state -- by seal time the group key has
+	// typically been derived, so the row will be refreshed
+	// with it.
+	sealPreCommit, err := c.augmenter().BindData(ctx, batchWithGroupInfo)
+	if err != nil {
+		return nil, fmt.Errorf("augmenter BindData: %w", err)
 	}
 	err = c.cfg.BatchStore.SealBatch(
 		ctx, batchWithGroupInfo, newAssetGroups, sealPreCommit,
@@ -3025,13 +3003,14 @@ func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
 
-	// If the seedling has the universe/supply commitment feature enabled,
-	// finalize the delegation key.
-	if req.SupplyCommitments {
-		err := c.prepSeedlingDelegationKey(ctx, req)
-		if err != nil {
-			return err
-		}
+	// Let the configured augmenter populate any augmenter-managed
+	// fields on the seedling (e.g. a delegation key for
+	// supply-commit-flagged seedlings). When no augmenter is
+	// active the call is a no-op.
+	if err := c.augmenter().PrepareSeedling(
+		ctx, c.pendingBatch, req,
+	); err != nil {
+		return err
 	}
 
 	// Set seedling asset metadata fields.
@@ -3106,7 +3085,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 				"invalid", *req.GroupAnchor)
 		}
 
-		err := c.pendingBatch.validateGroupAnchor(req)
+		err := c.pendingBatch.ValidateGroupAnchor(req)
 		if err != nil {
 			return err
 		}
@@ -3175,6 +3154,17 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		log.Infof("Attempting to add a seedling to a new batch "+
 			"(seedling=%v)", req)
 
+		// Let the augmenter run its intake gate against the
+		// fresh (empty) batch. It enforces invariants like
+		// "first seedling sets the SupplyCommitments flag" and
+		// "delegation key must be set if SupplyCommitments
+		// is on."
+		err = c.augmenter().ValidateSeedling(newBatch, *req)
+		if err != nil {
+			return fmt.Errorf("failed to add seedling to batch: %w",
+				err)
+		}
+
 		// Stage the seedling on the local newBatch and persist
 		// the whole batch atomically via CommitMintingBatch. The
 		// planter's pendingBatch is assigned only after the DB
@@ -3203,13 +3193,23 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		log.Infof("Attempting to add a seedling to batch (seedling=%v)",
 			req)
 
+		// Let the augmenter run its intake gate before the
+		// batch's own validation. Splitting validation in two
+		// keeps augmenter-owned invariants in the augmenter and
+		// batch-owned invariants on MintingBatch.
+		err := c.augmenter().ValidateSeedling(c.pendingBatch, *req)
+		if err != nil {
+			return fmt.Errorf("failed to add seedling to batch: %w",
+				err)
+		}
+
 		// Validate first without mutating the in-memory batch,
 		// then persist, then mirror the seedling into memory.
 		// This ordering ensures the in-memory batch never
 		// advances unless the DB write succeeded: a failed
 		// AddSeedlingsToBatch leaves both disk and memory at
 		// their prior state.
-		err := c.pendingBatch.validateSeedling(*req)
+		err = c.pendingBatch.validateSeedling(*req)
 		if err != nil {
 			return fmt.Errorf("failed to add seedling to batch: %w",
 				err)

@@ -748,33 +748,6 @@ func TestSeedlingValidateCommitSplit(t *testing.T) {
 			)
 		})
 
-	t.Run("validate failure also leaves batch unchanged",
-		func(t *testing.T) {
-
-			batch := RandMintingBatch(
-				t, WithTotalSeedlings(3),
-			)
-			seedlingsBefore := len(batch.Seedlings)
-			supplyBefore := batch.SupplyCommitments
-
-			// Force a SupplyCommitments mismatch so
-			// validateUniCommitment rejects the seedling.
-			candidate := mkCandidate(
-				"validate-fail-candidate", !supplyBefore,
-			)
-
-			err := batch.validateSeedling(candidate)
-			require.Error(t, err)
-
-			require.Equal(t, seedlingsBefore, len(batch.Seedlings))
-			require.Equal(
-				t, supplyBefore, batch.SupplyCommitments,
-			)
-			require.NotContains(
-				t, batch.Seedlings, candidate.AssetName,
-			)
-		})
-
 	t.Run("commit on empty batch adopts SupplyCommitments",
 		func(t *testing.T) {
 

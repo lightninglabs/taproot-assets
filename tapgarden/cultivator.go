@@ -152,6 +152,16 @@ type Cultivator struct {
 	*fn.ContextGuard
 }
 
+// augmenter returns the GenesisTxAugmenter from the embedded
+// GardenKit, or a NoOpAugmenter when none was wired. Call sites
+// can invoke augmenter methods without nil-checking.
+func (b *Cultivator) augmenter() GenesisTxAugmenter {
+	if b.cfg.GenesisTxAugmenter == nil {
+		return NoOpAugmenter{}
+	}
+	return b.cfg.GenesisTxAugmenter
+}
+
 // NewCultivator creates a new Taproot Asset cultivator based on the passed
 // config.
 func NewCultivator(cfg *CultivatorConfig) *Cultivator {
@@ -682,8 +692,18 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 				Pkt:               genesisTxPkt,
 				ChangeOutputIndex: changeOutputIndex,
 			},
-			AssetAnchorOutIdx:   genesisPkt.AssetAnchorOutIdx,
-			PreCommitmentOutput: genesisPkt.PreCommitmentOutput,
+			AssetAnchorOutIdx: genesisPkt.AssetAnchorOutIdx,
+		}
+
+		// The augmenter is the source of truth for the
+		// persistence payload that pairs with the binding tx.
+		// Stage the freshly-rebuilt genesis packet on the batch
+		// so the augmenter can read the script-stamped tx.
+		stagingBatch := *b.cfg.Batch
+		stagingBatch.GenesisPacket = &fundedGenesisPsbt
+		preCommit, err := b.augmenter().BindData(ctx, &stagingBatch)
+		if err != nil {
+			return 0, fmt.Errorf("augmenter BindData: %w", err)
 		}
 
 		// With all our commitments created, we'll commit them
@@ -692,7 +712,7 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		err = b.cfg.BatchStore.AddSproutsToBatch(
 			ctx, b.cfg.Batch,
 			&fundedGenesisPsbt, b.cfg.Batch.RootAssetCommitment,
-			fundedGenesisPsbt.PreCommitBindData(),
+			preCommit,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to commit batch: %w", err)
@@ -1154,15 +1174,18 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 			}
 		}
 
-		// Send supply commitment events for all minted assets before
-		// finalizing the batch. This ensures that supply commitments
-		// are tracked before the batch is considered complete.
-		err = b.sendSupplyCommitEvents(
-			ctx, anchorAssets, nonAnchorAssets, mintingProofs,
+		// Let the augmenter emit any downstream events that
+		// pair with batch confirmation (e.g. supply-commit
+		// notifications). Errors are reported but do not roll
+		// back the confirmation; the augmenter substance is
+		// expected to be re-runnable.
+		err = b.augmenter().OnBatchConfirmed(
+			ctx, b.cfg.Batch, anchorAssets, nonAnchorAssets,
+			mintingProofs,
 		)
 		if err != nil {
-			return 0, fmt.Errorf("unable to send supply commit "+
-				"events: %w", err)
+			return 0, fmt.Errorf("augmenter OnBatchConfirmed: %w",
+				err)
 		}
 
 		err = b.cfg.BatchStore.MarkBatchConfirmed(

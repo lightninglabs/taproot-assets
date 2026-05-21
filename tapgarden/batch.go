@@ -180,7 +180,7 @@ func (m *MintingBatch) Copy() *MintingBatch {
 
 // validateGroupAnchor checks if the group anchor for a seedling is valid.
 // A valid anchor must already be part of the batch and have emission enabled.
-func (m *MintingBatch) validateGroupAnchor(s *Seedling) error {
+func (m *MintingBatch) ValidateGroupAnchor(s *Seedling) error {
 	if s.GroupAnchor == nil {
 		return fmt.Errorf("group anchor unspecified")
 	}
@@ -562,7 +562,7 @@ func (m *MintingBatch) validateUniCommitment(newSeedling Seedling) error {
 
 	// Ensure that the group anchor for the candidate seedling is already
 	// present in the batch.
-	err := m.validateGroupAnchor(&newSeedling)
+	err := m.ValidateGroupAnchor(&newSeedling)
 	if err != nil {
 		return fmt.Errorf("group anchor validation failed: %w", err)
 	}
@@ -611,27 +611,16 @@ func (m *MintingBatch) uniqueAnchorSeedling() (*Seedling, error) {
 // the batch given the batch's current state. It does not mutate the
 // batch; this is the read-only half of AddSeedling.
 //
+// Augmenter-owned invariants (universe commitments, delegation
+// keys) are checked separately by the planter via
+// GenesisTxAugmenter.ValidateSeedling before this method is
+// reached. This method covers only the batch's own invariants.
+//
 // Callers that need a persistence boundary between validation and
 // mutation (e.g. "validate, write to disk, then update in memory")
 // should pair this with commitSeedling so an in-memory mutation
 // cannot precede the persistence that justifies it.
-func (m *MintingBatch) validateSeedling(newSeedling Seedling) error {
-	// Ensure that the seedling adheres to the universe commitment
-	// feature restrictions in relation to the current batch state.
-	if err := m.validateUniCommitment(newSeedling); err != nil {
-		return fmt.Errorf("seedling does not comply with universe "+
-			"commitment feature: %w", err)
-	}
-
-	// Ensure that the delegation key is valid for the seedling being
-	// considered for inclusion in the batch. validateDelegationKey
-	// reads newSeedling.SupplyCommitments (not m.SupplyCommitments),
-	// so it is order-independent with respect to the
-	// SupplyCommitments mutation that commitSeedling performs.
-	if err := m.validateDelegationKey(newSeedling); err != nil {
-		return fmt.Errorf("delegation key validation failed: %w", err)
-	}
-
+func (m *MintingBatch) validateSeedling(_ Seedling) error {
 	return nil
 }
 

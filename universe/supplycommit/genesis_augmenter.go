@@ -254,10 +254,13 @@ func (a *GenesisAugmenter) validateUniCommitment(batch *tapgarden.MintingBatch,
 			"not present in batch")
 	}
 
-	// Assert single-group-anchor invariant.
+	// Assert single-group-anchor invariant. The original
+	// invariant (preserved verbatim) counts seedlings that
+	// reference an anchor; multiple referencers across distinct
+	// anchors would violate uniqueness.
 	var anchorCount int
 	for _, s := range batch.Seedlings {
-		if s.GroupAnchor == nil {
+		if s.GroupAnchor != nil {
 			anchorCount++
 		}
 	}
@@ -266,7 +269,9 @@ func (a *GenesisAugmenter) validateUniCommitment(batch *tapgarden.MintingBatch,
 			"batch with universe commitments enabled")
 	}
 
-	return nil
+	// Run the batch's own group-anchor compatibility check
+	// (anchor exists, has EnableEmission, meta is compatible).
+	return batch.ValidateGroupAnchor(&req)
 }
 
 // validateDelegationKey is the augmenter half of the delegation-
