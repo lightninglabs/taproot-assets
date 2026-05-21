@@ -3119,7 +3119,7 @@ func (c *ChainPlanter) publishSubscriberEvent(event fn.Event) {
 func (c *ChainPlanter) verifierCtx(ctx context.Context) proof.VerifierCtx {
 	headerVerifier := tapnode.GenHeaderVerifier(ctx, c.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
-	groupVerifier := GenGroupVerifier(ctx, c.cfg.MintingRefs)
+	groupVerifier := tapnode.GenGroupVerifier(ctx, c.cfg.MintingRefs)
 
 	return proof.VerifierCtx{
 		HeaderVerifier: headerVerifier,

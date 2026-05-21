@@ -14,7 +14,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 )
@@ -406,8 +405,8 @@ func (v *Verifier) verifyIncrementalCommit(ctx context.Context,
 func (v *Verifier) proofVerifierCtx(ctx context.Context) proof.VerifierCtx {
 	headerVerifier := tapnode.GenHeaderVerifier(ctx, v.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
-	groupVerifier := tapgarden.GenGroupVerifier(ctx, v.cfg.GroupFetcher)
-	groupAnchorVerifier := tapgarden.GenGroupAnchorVerifier(
+	groupVerifier := tapnode.GenGroupVerifier(ctx, v.cfg.GroupFetcher)
+	groupAnchorVerifier := tapnode.GenGroupAnchorVerifier(
 		ctx, v.cfg.GroupFetcher,
 	)
 

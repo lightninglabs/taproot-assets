@@ -10,13 +10,11 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -31,15 +29,6 @@ import (
 )
 
 var (
-	// ErrGroupKeyUnknown is an error returned if an asset has a group key
-	// attached that has not been previously verified.
-	ErrGroupKeyUnknown = errors.New("group key not known")
-
-	// ErrGenesisNotGroupAnchor is an error returned if an asset has a group
-	// key attached, and the asset is not the anchor asset for the group.
-	// This is true for any asset created via reissuance.
-	ErrGenesisNotGroupAnchor = errors.New("genesis not group anchor")
-
 	// ErrFundedAnchorPsbtMissingOutpoint is an error returned if
 	// the genesis outpoint is missing from a funded anchor PSBT.
 	ErrFundedAnchorPsbtMissingOutpoint = errors.New("genesis outpoint " +
@@ -1452,8 +1441,8 @@ func SortAssets(fullAssets []*asset.Asset,
 			case err == nil:
 				anchorAssets = append(anchorAssets, fullAsset)
 
-			case errors.Is(err, ErrGenesisNotGroupAnchor) ||
-				errors.Is(err, ErrGroupKeyUnknown):
+			case errors.Is(err, tapnode.ErrGenesisNotGroupAnchor) ||
+				errors.Is(err, tapnode.ErrGroupKeyUnknown):
 
 				nonAnchorAssets = append(
 					nonAnchorAssets, fullAsset,
@@ -1470,176 +1459,14 @@ func SortAssets(fullAssets []*asset.Asset,
 	return anchorAssets, nonAnchorAssets, nil
 }
 
-// assetGroupCacheSize is the size of the cache for group keys.
-const assetGroupCacheSize = 10000
-
-// emptyVal is a simple type def around struct{} to use as a dummy value in in
-// the cache.
-type emptyVal struct{}
-
-// singleCacheValue is a dummy value that can be used to add an element to the
-// cache. This should be used when the cache just needs to worry aobut the
-// total number of elements, and not also the size (in bytes) of the elements.
-type singleCacheValue[T any] struct {
-	val T
-}
-
-// Size determines how big this entry would be in the cache.
-func (s singleCacheValue[T]) Size() (uint64, error) {
-	return 1, nil
-}
-
-// newSingleValue creates a new single cache value.
-func newSingleValue[T any](v T) singleCacheValue[T] {
-	return singleCacheValue[T]{
-		val: v,
-	}
-}
-
-// emptyCacheVal is a type def for an empty cache value. In this case the cache
-// is used more as a set.
-type emptyCacheVal = singleCacheValue[emptyVal]
-
-// GenGroupVerifier generates a group key verification callback function given a
-// DB handle.
-func GenGroupVerifier(ctx context.Context,
-	mintingStore tapnode.GroupFetcher) func(*btcec.PublicKey) error {
-
-	// Cache known group keys that were previously fetched.
-	assetGroups := lru.NewCache[asset.SerializedKey, emptyCacheVal](
-		assetGroupCacheSize,
-	)
-
-	return func(groupKey *btcec.PublicKey) error {
-		if groupKey == nil {
-			return fmt.Errorf("cannot verify empty group key")
-		}
-
-		assetGroupKey := asset.ToSerialized(groupKey)
-		_, err := assetGroups.Get(assetGroupKey)
-		if err == nil {
-			return nil
-		}
-
-		// This query will err if no stored group has a matching
-		// tweaked group key.
-		_, err = mintingStore.FetchGroupByGroupKey(ctx, groupKey)
-		if err != nil {
-			return fmt.Errorf("%x: group verifier: %s: %w",
-				assetGroupKey[:], err.Error(),
-				ErrGroupKeyUnknown)
-		}
-
-		_, _ = assetGroups.Put(assetGroupKey, emptyCacheVal{})
-
-		return nil
-	}
-}
-
-// GenGroupAnchorVerifier generates a caching group anchor verification
-// callback function given a DB handle.
-func GenGroupAnchorVerifier(ctx context.Context,
-	mintingStore tapnode.GroupFetcher) func(*asset.Genesis, *asset.GroupKey) error {
-
-	// Cache anchors for groups that were previously fetched.
-	groupAnchors := lru.NewCache[
-		asset.SerializedKey, singleCacheValue[*asset.Genesis],
-	](
-		assetGroupCacheSize,
-	)
-
-	return func(gen *asset.Genesis, groupKey *asset.GroupKey) error {
-		assetGroupKey := asset.ToSerialized(&groupKey.GroupPubKey)
-		groupAnchor, err := groupAnchors.Get(assetGroupKey)
-		if err != nil {
-			storedGroup, err := mintingStore.FetchGroupByGroupKey(
-				ctx, &groupKey.GroupPubKey,
-			)
-			if err != nil {
-				return fmt.Errorf("%x: group anchor verifier: "+
-					"%w", assetGroupKey[:],
-					ErrGroupKeyUnknown)
-			}
-
-			isGroupAnchor, err := storedGroup.IsGroupAnchor()
-			if err != nil {
-				return fmt.Errorf("%x: group anchor verifier: "+
-					"unable to check if genesis is "+
-					"group anchor: %w", assetGroupKey[:],
-					err)
-			}
-
-			if !isGroupAnchor {
-				return fmt.Errorf("%x: group anchor verifier: "+
-					"genesis is not a group anchor: %w",
-					assetGroupKey[:], err)
-			}
-
-			groupAnchor = newSingleValue(storedGroup.Genesis)
-
-			_, _ = groupAnchors.Put(assetGroupKey, groupAnchor)
-		}
-
-		if gen.ID() != groupAnchor.val.ID() {
-			return ErrGenesisNotGroupAnchor
-		}
-
-		return nil
-	}
-}
-
-// GenRawGroupAnchorVerifier generates a group anchor verification callback
-// function. This anchor verifier recomputes the tweaked group key with the
-// passed genesis and compares that key to the given group key. This verifier
-// is only used in the cultivator, before any asset groups are stored in the DB.
-func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
-	*asset.GroupKey) error {
-
-	// Cache group anchors we already verified.
-	groupAnchors := lru.NewCache[
-		asset.SerializedKey, singleCacheValue[*asset.Genesis]](
-		assetGroupCacheSize,
-	)
-
-	return func(gen *asset.Genesis, groupKey *asset.GroupKey) error {
-		assetGroupKey := asset.ToSerialized(&groupKey.GroupPubKey)
-		groupAnchor, err := groupAnchors.Get(assetGroupKey)
-		if err != nil {
-			singleTweak := gen.ID()
-			tweakedGroupKey, err := asset.GroupPubKeyV0(
-				groupKey.RawKey.PubKey, singleTweak[:],
-				groupKey.TapscriptRoot,
-			)
-			if err != nil {
-				return err
-			}
-
-			computedGroupKey := asset.ToSerialized(tweakedGroupKey)
-			if computedGroupKey != assetGroupKey {
-				return ErrGenesisNotGroupAnchor
-			}
-
-			groupAnchor = newSingleValue(gen)
-
-			_, _ = groupAnchors.Put(assetGroupKey, groupAnchor)
-
-			return nil
-		}
-
-		if gen.ID() != groupAnchor.val.ID() {
-			return ErrGenesisNotGroupAnchor
-		}
-
-		return nil
-	}
-}
-
 // verifierCtx returns a verifier context that can be used to verify proofs.
 func (b *Cultivator) verifierCtx(ctx context.Context) proof.VerifierCtx {
 	headerVerifier := tapnode.GenHeaderVerifier(ctx, b.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
-	groupVerifier := GenGroupVerifier(ctx, b.cfg.MintingRefs)
-	groupAnchorVerifier := GenGroupAnchorVerifier(ctx, b.cfg.MintingRefs)
+	groupVerifier := tapnode.GenGroupVerifier(ctx, b.cfg.MintingRefs)
+	groupAnchorVerifier := tapnode.GenGroupAnchorVerifier(
+		ctx, b.cfg.MintingRefs,
+	)
 
 	return proof.VerifierCtx{
 		HeaderVerifier:      headerVerifier,

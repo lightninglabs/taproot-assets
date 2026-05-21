@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 	"golang.org/x/exp/maps"
@@ -1681,7 +1682,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 	// anchor verification depends on inserting group anchors before
 	// reissuances here. We use the raw group anchor verifier since there
 	// is not yet any stored asset group to reference in the verifier.
-	anchorVerifier := tapgarden.GenRawGroupAnchorVerifier(ctx)
+	anchorVerifier := tapnode.GenRawGroupAnchorVerifier(ctx)
 	anchorAssets, nonAnchorAssets, err := tapgarden.SortAssets(
 		assets, anchorVerifier,
 	)

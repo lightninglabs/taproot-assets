@@ -12025,7 +12025,7 @@ func (r *RPCServer) RegisterTransfer(ctx context.Context,
 // proofs in the RPC server.
 func (r *RPCServer) ProofVerifierCtx(ctx context.Context) proof.VerifierCtx {
 	headerVerifier := tapnode.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
+	groupVerifier := tapnode.GenGroupVerifier(ctx, r.cfg.MintingStore)
 
 	var ignoreChecker proof.IgnoreChecker = r.cfg.IgnoreChecker
 	return proof.VerifierCtx{

@@ -26,6 +26,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/clock"
@@ -1480,9 +1481,9 @@ func TestGroupAnchors(t *testing.T) {
 	ctx := context.Background()
 	const numSeedlings = 10
 	assetStore, _, _ := newAssetStore(t)
-	groupVerifier := tapgarden.GenGroupVerifier(ctx, assetStore)
-	groupAnchorVerifier := tapgarden.GenGroupAnchorVerifier(ctx, assetStore)
-	rawGroupAnchorVerifier := tapgarden.GenRawGroupAnchorVerifier(ctx)
+	groupVerifier := tapnode.GenGroupVerifier(ctx, assetStore)
+	groupAnchorVerifier := tapnode.GenGroupAnchorVerifier(ctx, assetStore)
+	rawGroupAnchorVerifier := tapnode.GenRawGroupAnchorVerifier(ctx)
 
 	// First, we'll write a new minting batch to disk, including an
 	// internal key and a set of seedlings. One random seedling will

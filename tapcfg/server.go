@@ -223,7 +223,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	headerVerifier := tapnode.GenHeaderVerifier(
 		context.Background(), chainBridge,
 	)
-	groupVerifier := tapgarden.GenGroupVerifier(
+	groupVerifier := tapnode.GenGroupVerifier(
 		context.Background(), assetMintingStore,
 	)
 
