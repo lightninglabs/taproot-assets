@@ -1,4 +1,4 @@
-package tapgarden_test
+package tapcustody_test
 
 import (
 	"bytes"
@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapcustody"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
@@ -39,6 +40,7 @@ import (
 var (
 	testPollInterval = 20 * time.Millisecond
 	testTimeout      = 1 * time.Second
+	defaultTimeout   = time.Second * 30
 	chainParams      = &address.RegressionNetTap
 
 	txTypeTaproot = lnrpc.OutputScriptType_SCRIPT_TYPE_WITNESS_V1_TAPROOT
@@ -46,7 +48,7 @@ var (
 
 // newAddrBook creates a new instance of the TapAddressBook book.
 func newAddrBookForDB(db *tapdb.BaseDB, keyRing *tapnodemock.KeyRing,
-	syncer *tapgarden.MockAssetSyncer) (*address.Book,
+	syncer *tapcustody.MockAssetSyncer) (*address.Book,
 	*tapdb.TapAddressBook) {
 
 	txCreator := func(tx *sql.Tx) tapdb.AddrBook {
@@ -204,8 +206,8 @@ func (m *mockSigner) VerifyMessage(_ context.Context, msg, sig []byte,
 
 type custodianHarness struct {
 	t            *testing.T
-	c            *tapgarden.Custodian
-	cfg          *tapgarden.CustodianConfig
+	c            *tapcustody.Custodian
+	cfg          *tapcustody.Config
 	errChan      chan error
 	chainBridge  *tapnodemock.ChainBridge
 	walletAnchor *tapnodemock.WalletAnchor
@@ -213,7 +215,7 @@ type custodianHarness struct {
 	signer       *mockSigner
 	tapdbBook    *tapdb.TapAddressBook
 	addrBook     *address.Book
-	syncer       *tapgarden.MockAssetSyncer
+	syncer       *tapcustody.MockAssetSyncer
 	assetDB      *tapdb.AssetStore
 	multiverse   *tapdb.MultiverseStore
 	courier      *proof.MockProofCourier
@@ -366,7 +368,7 @@ func newHarness(t *testing.T,
 	signer := &mockSigner{
 		keyRing: keyRing,
 	}
-	syncer := tapgarden.NewMockAssetSyncer()
+	syncer := tapcustody.NewMockAssetSyncer()
 	db := tapdb.NewTestDB(t)
 	addrBook, tapdbBook := newAddrBookForDB(db.BaseDB, keyRing, syncer)
 
@@ -390,7 +392,7 @@ func newHarness(t *testing.T,
 	)
 
 	errChan := make(chan error, 1)
-	cfg := &tapgarden.CustodianConfig{
+	cfg := &tapcustody.Config{
 		ChainParams:            chainParams,
 		ChainBridge:            chainBridge,
 		WalletAnchor:           walletAnchor,
@@ -405,7 +407,7 @@ func newHarness(t *testing.T,
 	}
 	return &custodianHarness{
 		t:            t,
-		c:            tapgarden.NewCustodian(cfg),
+		c:            tapcustody.NewCustodian(cfg),
 		cfg:          cfg,
 		errChan:      errChan,
 		chainBridge:  chainBridge,
@@ -585,7 +587,7 @@ func randProofWithScriptKey(t *testing.T, outputIndex int, tx *wire.MsgTx,
 // was fetched from the asset syncer, and stores it in the address book. This
 // simulates asset bootstrapping that would occur during universe sync.
 func insertAssetInfo(t *testing.T, ctx context.Context, quit <-chan struct{},
-	book *tapdb.TapAddressBook, syncer *tapgarden.MockAssetSyncer) {
+	book *tapdb.TapAddressBook, syncer *tapcustody.MockAssetSyncer) {
 
 	go func() {
 		for {
@@ -994,7 +996,7 @@ func runTransactionConfirmedOnlyTest(t *testing.T, withRestart bool) {
 	if withRestart {
 		require.NoError(t, h.c.Stop())
 
-		h.c = tapgarden.NewCustodian(h.cfg)
+		h.c = tapcustody.NewCustodian(h.cfg)
 		require.NoError(t, h.c.Start())
 		h.assertStartup()
 	}
@@ -1067,7 +1069,7 @@ func TestProofInMultiverseOnly(t *testing.T) {
 	h.addProofFileToMultiverse(mockProof)
 
 	// And a new start should import the proof into the local archive.
-	h.c = tapgarden.NewCustodian(h.cfg)
+	h.c = tapcustody.NewCustodian(h.cfg)
 	require.NoError(t, h.c.Start())
 	t.Cleanup(func() {
 		require.NoError(t, h.c.Stop())
@@ -1210,7 +1212,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 			tt.Parallel()
 
 			require.Equal(
-				tt, tc.result, tapgarden.AddrMatchesAsset(
+				tt, tc.result, tapcustody.AddrMatchesAsset(
 					tc.addr, tc.a,
 				),
 			)
@@ -1268,12 +1270,12 @@ func TestCustodianEventSubscriber(t *testing.T) {
 	// We should receive events on the subscriber channel. The flow is:
 	// StatusTransactionConfirmed -> StatusProofReceived -> StatusCompleted.
 	// We verify we receive at least one AssetReceiveEvent.
-	var receivedEvents []*tapgarden.AssetReceiveEvent
+	var receivedEvents []*tapcustody.AssetReceiveEvent
 	require.Eventually(t, func() bool {
 		select {
 		case event := <-subscriber.NewItemCreated.ChanOut():
 			receiveEvent, ok :=
-				event.(*tapgarden.AssetReceiveEvent)
+				event.(*tapcustody.AssetReceiveEvent)
 			if ok {
 				receivedEvents = append(
 					receivedEvents, receiveEvent,
@@ -1322,12 +1324,12 @@ func TestAssetReceiveErrorEvent(t *testing.T) {
 	testErr := fmt.Errorf("test error: proof fetch failed")
 
 	// Create a success event.
-	successEvent := tapgarden.NewAssetReceiveEvent(
+	successEvent := tapcustody.NewAssetReceiveEvent(
 		*addr.Tap, outpoint, confHeight, status,
 	)
 
 	// Create an error event with the same parameters plus an error.
-	errorEvent := tapgarden.NewAssetReceiveErrorEvent(
+	errorEvent := tapcustody.NewAssetReceiveErrorEvent(
 		testErr, *addr.Tap, outpoint, confHeight, status,
 	)
 
@@ -1352,7 +1354,7 @@ func TestAssetReceiveErrorEvent(t *testing.T) {
 
 	// Test error event with zero/default values (as used in early error
 	// paths where full context isn't available).
-	earlyErrorEvent := tapgarden.NewAssetReceiveErrorEvent(
+	earlyErrorEvent := tapcustody.NewAssetReceiveErrorEvent(
 		testErr, *addr.Tap, wire.OutPoint{},
 		0, address.StatusTransactionDetected,
 	)

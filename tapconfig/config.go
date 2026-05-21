@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
+	"github.com/lightninglabs/taproot-assets/tapcustody"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -220,7 +221,7 @@ type Config struct {
 
 	AssetMinter tapgarden.Planter
 
-	AssetCustodian *tapgarden.Custodian
+	AssetCustodian *tapcustody.Custodian
 
 	ChainBridge tapnode.ChainBridge
 
