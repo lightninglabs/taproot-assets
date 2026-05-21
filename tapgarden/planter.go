@@ -196,10 +196,14 @@ type ListBatchesParams struct {
 }
 
 // PendingAssetGroup is the group key request and virtual TX necessary to
-// produce an asset group witness for a seedling.
+// produce an asset group witness for a seedling. The joining principle is
+// "a request together with the virtual tx that fulfils it."
 type PendingAssetGroup struct {
-	asset.GroupKeyRequest
-	asset.GroupVirtualTx
+	// KeyRequest is the request to create the asset group.
+	KeyRequest asset.GroupKeyRequest
+
+	// VirtualTx is the virtual tx that fulfils the KeyRequest.
+	VirtualTx asset.GroupVirtualTx
 }
 
 // PSBT returns a PSBT packet that can be used to create a group witness for the
@@ -208,22 +212,22 @@ func (p *PendingAssetGroup) PSBT(
 	params chaincfg.Params) (*psbt.Packet, error) {
 
 	// Generate PSBT equivalent of the group virtual tx.
-	packet, err := psbt.NewFromUnsignedTx(&p.GroupVirtualTx.Tx)
+	packet, err := psbt.NewFromUnsignedTx(&p.VirtualTx.Tx)
 	if err != nil {
 		return nil, fmt.Errorf("error producing group virtual PSBT "+
 			"from tx: %w", err)
 	}
 
 	vIn := &packet.Inputs[0]
-	vIn.WitnessUtxo = &p.GroupVirtualTx.PrevOut
-	vIn.TaprootMerkleRoot = p.GroupKeyRequest.TapscriptRoot
+	vIn.WitnessUtxo = &p.VirtualTx.PrevOut
+	vIn.TaprootMerkleRoot = p.KeyRequest.TapscriptRoot
 	vIn.TaprootInternalKey = schnorr.SerializePubKey(
-		p.GroupKeyRequest.RawKey.PubKey,
+		p.KeyRequest.RawKey.PubKey,
 	)
 
 	switch {
-	case p.GroupKeyRequest.ExternalKey.IsSome():
-		externalKey := p.GroupKeyRequest.ExternalKey.UnwrapToPtr()
+	case p.KeyRequest.ExternalKey.IsSome():
+		externalKey := p.KeyRequest.ExternalKey.UnwrapToPtr()
 		pubKey, err := externalKey.PubKey()
 		if err != nil {
 			return nil, fmt.Errorf("error deriving public key "+
@@ -260,7 +264,7 @@ func (p *PendingAssetGroup) PSBT(
 		// TODO(guggero): Make this switch dependent on the non-spend
 		// leaf version, once we allow the user to configure that.
 		if true {
-			assetID := p.AnchorGen.ID()
+			assetID := p.KeyRequest.AnchorGen.ID()
 			numsXPub, numsKey, err := asset.TweakedNumsKey(assetID)
 			if err != nil {
 				return nil, fmt.Errorf("error deriving nums "+
@@ -316,7 +320,7 @@ func (p *PendingAssetGroup) PSBT(
 
 	default:
 		bip32, trBip32 := tappsbt.Bip32DerivationFromKeyDesc(
-			p.GroupKeyRequest.RawKey, params.HDCoinType,
+			p.KeyRequest.RawKey, params.HDCoinType,
 		)
 		vIn.Bip32Derivation = []*psbt.Bip32Derivation{bip32}
 		vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
@@ -1787,8 +1791,8 @@ func newVerboseBatch(currentBatch *MintingBatch,
 		}
 
 		seedling.PendingAssetGroup = &PendingAssetGroup{
-			GroupKeyRequest: groupReqs[i],
-			GroupVirtualTx:  genTXs[i],
+			KeyRequest: groupReqs[i],
+			VirtualTx:  genTXs[i],
 		}
 	}
 

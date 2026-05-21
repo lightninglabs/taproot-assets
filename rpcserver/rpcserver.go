@@ -6286,14 +6286,14 @@ func marshalUnsealedSeedling(params chaincfg.Params, verbose bool,
 
 	if verbose && seedling.PendingAssetGroup != nil {
 		groupVirtualTx, err = rpcutils.MarshalGroupVirtualTx(
-			&seedling.PendingAssetGroup.GroupVirtualTx,
+			&seedling.PendingAssetGroup.VirtualTx,
 		)
 		if err != nil {
 			return nil, err
 		}
 
 		groupReq, err = rpcutils.MarshalGroupKeyRequest(
-			&seedling.PendingAssetGroup.GroupKeyRequest,
+			&seedling.PendingAssetGroup.KeyRequest,
 		)
 		if err != nil {
 			return nil, err
