@@ -433,7 +433,7 @@ func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch,
 	batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
 	batchConfig := &BatchCaretakerConfig{
 		Batch:                 batch,
-		GardenKit:             c.cfg.GardenKit,
+		GardenKit:             &c.cfg.GardenKit,
 		BroadcastCompleteChan: make(chan struct{}, 1),
 		BroadcastErrChan:      make(chan error, 1),
 		// SignalCompletion is invoked from the caretaker goroutine

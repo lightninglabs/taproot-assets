@@ -80,7 +80,12 @@ type BatchCaretakerConfig struct {
 	// finalizing a batch.
 	BatchFeeRate *chainfee.SatPerKWeight
 
-	GardenKit
+	// GardenKit is the planter's shared kit. It is embedded as a
+	// pointer so the caretaker reads the same kit the planter holds,
+	// rather than carrying its own copy. The kit is populated once
+	// when the planter is constructed and is not mutated thereafter,
+	// so sharing it by reference is safe.
+	*GardenKit
 
 	// BroadcastCompleteChan is used to signal back to the caller that the
 	// batch has been broadcast and is now waiting for confirmation. Either

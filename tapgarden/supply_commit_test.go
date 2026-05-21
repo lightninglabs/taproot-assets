@@ -145,7 +145,7 @@ func TestSupplyCommitDelegationKeyFiltering(t *testing.T) {
 			//nolint:lll
 			caretaker := &BatchCaretaker{
 				cfg: &BatchCaretakerConfig{
-					GardenKit: GardenKit{
+					GardenKit: &GardenKit{
 						MintSupplyCommitter:  mockCommitter,
 						DelegationKeyChecker: mockDelegationChecker,
 					},
