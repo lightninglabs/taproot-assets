@@ -206,7 +206,10 @@ func copyMetaReveal(m *proof.MetaReveal) *proof.MetaReveal {
 		copy(cloned, urls)
 		out.CanonicalUniverses = fn.Some(cloned)
 	})
-	if len(m.UnknownOddTypes) > 0 {
+	// Preserve the empty-vs-nil distinction: an explicitly-empty
+	// TypeMap is observably different from a nil one under
+	// reflect.DeepEqual, and AssertCopyEqual catches the collapse.
+	if m.UnknownOddTypes != nil {
 		out.UnknownOddTypes = make(tlv.TypeMap, len(m.UnknownOddTypes))
 		for k, v := range m.UnknownOddTypes {
 			out.UnknownOddTypes[k] = bytes.Clone(v)
