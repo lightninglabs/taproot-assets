@@ -1341,23 +1341,19 @@ func (b *Cultivator) batchStreamUniverseItems(ctx context.Context,
 }
 
 // AssetMintEvent is an event which is sent to the Cultivator's event
-// subscribers after a state was executed successfully.
+// subscribers after a state was executed successfully. The just-executed
+// state is read from Batch.State(); the event's constructors mirror the
+// state into the copied batch so it cannot lag the executed step.
 type AssetMintEvent struct {
 	// timestamp is the time the event was created.
 	timestamp time.Time
 
-	// BatchState is the last state that was executed before the event is
-	// received. This field takes precedence over Batch.State() as that
-	// might not always be updated when the event is created. In case Error
-	// below is set, the BatchState is the state that was executed that lead
-	// to the error.
-	BatchState BatchState
-
 	// Error is an optional error, indicating that something went wrong
-	// during the execution of the BatchState above.
+	// during the execution of Batch.State().
 	Error error
 
-	// Batch is the batch that is being minted.
+	// Batch is the batch that is being minted. Batch.State() reports the
+	// last state that was executed before the event was emitted.
 	Batch *MintingBatch
 }
 
@@ -1366,12 +1362,15 @@ func (e *AssetMintEvent) Timestamp() time.Time {
 	return e.timestamp
 }
 
-// newAssetMintEvent creates a new AssetMintEvent from the given batch.
+// newAssetMintEvent creates a new AssetMintEvent from the given batch. The
+// copied batch's state is set to the just-executed state so consumers can
+// trust Batch.State() to reflect the step that produced the event.
 func newAssetMintEvent(state BatchState, b *MintingBatch) *AssetMintEvent {
+	batchCopy := b.Copy()
+	batchCopy.setState(state)
 	return &AssetMintEvent{
-		timestamp:  time.Now().UTC(),
-		BatchState: state,
-		Batch:      b.Copy(),
+		timestamp: time.Now().UTC(),
+		Batch:     batchCopy,
 	}
 }
 
@@ -1380,11 +1379,12 @@ func newAssetMintEvent(state BatchState, b *MintingBatch) *AssetMintEvent {
 func newAssetMintErrorEvent(err error, state BatchState,
 	b *MintingBatch) *AssetMintEvent {
 
+	batchCopy := b.Copy()
+	batchCopy.setState(state)
 	return &AssetMintEvent{
-		timestamp:  time.Now().UTC(),
-		BatchState: state,
-		Error:      err,
-		Batch:      b.Copy(),
+		timestamp: time.Now().UTC(),
+		Error:     err,
+		Batch:     batchCopy,
 	}
 }
 

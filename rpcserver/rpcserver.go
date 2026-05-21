@@ -5744,7 +5744,7 @@ func (r *RPCServer) SubscribeMintEvents(req *mintrpc.SubscribeMintEventsRequest,
 			return nil, fmt.Errorf("invalid event type: %T", event)
 		}
 
-		rpcState, err := marshalBatchState(e.BatchState)
+		rpcState, err := marshalBatchState(e.Batch.State())
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling batch state: "+
 				"%w", err)
