@@ -24,36 +24,9 @@ var (
 	ErrInvalidAssetAmt = fmt.Errorf("asset amt cannot be zero")
 )
 
-// MintingState is an enum that tracks an asset through the various minting
-// stages.
-type MintingState uint8
-
-const (
-	// MintingStateNone is the default state, no actions have been taken.
-	MintingStateNone MintingState = iota
-
-	// MintingStateSeed denotes the seedling as been added to a batch.
-	MintingStateSeed
-
-	// MintingStateSeedling denotes that a seedling has been finalized in a
-	// batch and now has a corresponding asset associated with it.
-	MintingStateSeedling
-
-	// MintingStateSprout denotes that a seedling has been paired with a
-	// genesis transaction and broadcast for confirmation.
-	MintingStateSprout
-
-	// MintingStateAdult denotes that a seedling has been confirmed on
-	// chain and reached full adulthood.
-	MintingStateAdult
-)
-
 // SeedlingUpdate is a struct used to send notifications w.r.t the state of a
 // seedling back to the caller.
 type SeedlingUpdate struct {
-	// NewState is the new state a seedling has transitioned to.
-	NewState MintingState
-
 	// PendingBatch is the current pending batch that the seedling has been
 	// added to.
 	PendingBatch *MintingBatch

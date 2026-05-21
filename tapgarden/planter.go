@@ -1961,7 +1961,6 @@ func (c *ChainPlanter) gardener() {
 			}
 			req.updates <- SeedlingUpdate{
 				PendingBatch: batchCopy,
-				NewState:     MintingStateSeed,
 			}
 
 		// A caretaker has finished processing their batch to full

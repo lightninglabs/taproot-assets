@@ -270,9 +270,6 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(isFunded bool,
 		// Make sure the seedling was planted without error.
 		require.NoError(t, update.Error)
 
-		// The received update should be a state of MintingStateSeed.
-		require.Equal(t, tapgarden.MintingStateSeed, update.NewState)
-
 		err = wait.NoError(func() error {
 			// Assert that the key ring method DeriveNextKey was
 			// called the expected number of times.
