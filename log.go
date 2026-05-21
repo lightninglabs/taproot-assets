@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
@@ -108,6 +109,9 @@ func SetupLoggers(root *build.SubLoggerManager,
 
 	AddSubLogger(
 		root, tapgarden.Subsystem, interceptor, tapgarden.UseLogger,
+	)
+	AddSubLogger(
+		root, tapreorg.Subsystem, interceptor, tapreorg.UseLogger,
 	)
 	AddSubLogger(
 		root, tapfreighter.Subsystem, interceptor,

@@ -1,4 +1,4 @@
-package tapgarden
+package tapreorg
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -16,6 +17,10 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
+
+// DefaultTimeout is the default timeout used for RPC and database
+// operations issued by the watcher.
+const DefaultTimeout = 30 * time.Second
 
 // proofRegistration is a struct that holds all proofs that need to be watched
 // for re-orgs and a callback that will be called if a re-org happened.
@@ -57,9 +62,9 @@ func (a *anchorTxNotification) firstRegistration() *proofRegistration {
 	return a.proofsRegistrations[0]
 }
 
-// ReOrgWatcherConfig houses all the items that the re-org watcher needs to
-// carry out its duties.
-type ReOrgWatcherConfig struct {
+// Config houses all the items that the watcher needs to carry out its
+// duties.
+type Config struct {
 	// ChainBridge is the main interface for interacting with the chain
 	// backend.
 	ChainBridge tapnode.ChainBridge
@@ -90,14 +95,14 @@ type ReOrgWatcherConfig struct {
 	ErrChan chan<- error
 }
 
-// ReOrgWatcher is responsible for watching initially confirmed transactions
+// Watcher is responsible for watching initially confirmed transactions
 // until they reach a safe confirmation depth. If a re-org happens, it will
 // update the proof and store it in the proof archive.
-type ReOrgWatcher struct {
+type Watcher struct {
 	startOnce sync.Once
 	stopOnce  sync.Once
 
-	cfg *ReOrgWatcherConfig
+	cfg *Config
 
 	bestHeight atomic.Int32
 
@@ -113,9 +118,9 @@ type ReOrgWatcher struct {
 	*fn.ContextGuard
 }
 
-// NewReOrgWatcher creates a new re-org watcher based on the passed config.
-func NewReOrgWatcher(cfg *ReOrgWatcherConfig) *ReOrgWatcher {
-	return &ReOrgWatcher{
+// NewWatcher creates a new re-org watcher based on the passed config.
+func NewWatcher(cfg *Config) *Watcher {
+	return &Watcher{
 		cfg:            cfg,
 		incomingProofs: make(chan *proofRegistration),
 		incomingConfs:  make(chan *chainntnfs.TxConfirmation),
@@ -128,7 +133,7 @@ func NewReOrgWatcher(cfg *ReOrgWatcherConfig) *ReOrgWatcher {
 }
 
 // Start attempts to start a new re-org watcher.
-func (w *ReOrgWatcher) Start() error {
+func (w *Watcher) Start() error {
 	var startErr error
 	w.startOnce.Do(func() {
 		log.Info("Starting re-org watcher")
@@ -198,7 +203,7 @@ func (w *ReOrgWatcher) Start() error {
 }
 
 // Stop signals for a re-org watcher to gracefully exit.
-func (w *ReOrgWatcher) Stop() error {
+func (w *Watcher) Stop() error {
 	var stopErr error
 	w.stopOnce.Do(func() {
 		log.Info("Stopping re-org watcher")
@@ -212,7 +217,7 @@ func (w *ReOrgWatcher) Stop() error {
 
 // waitForConf waits for the anchor transaction of the given proofs to reach a
 // safe confirmation depth.
-func (w *ReOrgWatcher) waitForConf(ctx context.Context, txHash chainhash.Hash,
+func (w *Watcher) waitForConf(ctx context.Context, txHash chainhash.Hash,
 	newProofs *proofRegistration) error {
 
 	// Do we already have a confirmation watcher for this transaction? Then
@@ -317,7 +322,7 @@ func (w *ReOrgWatcher) waitForConf(ctx context.Context, txHash chainhash.Hash,
 
 // updateProofs updates the given proofs with the new block and merkle proof and
 // then informs the caller about the update.
-func (w *ReOrgWatcher) updateProofs(proofNtfn *anchorTxNotification,
+func (w *Watcher) updateProofs(proofNtfn *anchorTxNotification,
 	conf *chainntnfs.TxConfirmation) error {
 
 	// All proofs in the registration should have the same anchor tx, so we
@@ -353,7 +358,7 @@ func (w *ReOrgWatcher) updateProofs(proofNtfn *anchorTxNotification,
 
 // watchTransactions processes new proofs given to the watcher and watches their
 // anchor transactions until they reach a safe confirmation depth.
-func (w *ReOrgWatcher) watchTransactions() {
+func (w *Watcher) watchTransactions() {
 	defer w.Wg.Done()
 
 	runCtx, cancel := w.WithCtxQuitNoTimeout()
@@ -493,7 +498,7 @@ func (w *ReOrgWatcher) watchTransactions() {
 
 // WatchProofs adds new proofs to the re-org watcher for their anchor
 // transaction to be watched until it reaches a safe confirmation depth.
-func (w *ReOrgWatcher) WatchProofs(newProofs []*proof.Proof,
+func (w *Watcher) WatchProofs(newProofs []*proof.Proof,
 	onProofUpdate proof.UpdateCallback) error {
 
 	if len(newProofs) == 0 {
@@ -537,7 +542,7 @@ func (w *ReOrgWatcher) WatchProofs(newProofs []*proof.Proof,
 
 // MaybeWatch inspects the given proof file for any proofs that are not
 // yet buried sufficiently deep and adds them to the re-org watcher.
-func (w *ReOrgWatcher) MaybeWatch(file *proof.File,
+func (w *Watcher) MaybeWatch(file *proof.File,
 	onProofUpdate proof.UpdateCallback) error {
 
 	// We walk backward through the file and start watching all proofs that
@@ -573,39 +578,35 @@ func (w *ReOrgWatcher) MaybeWatch(file *proof.File,
 
 // ShouldWatch returns true if the proof is for a block that is not yet
 // sufficiently deep to be considered safe.
-func (w *ReOrgWatcher) ShouldWatch(p *proof.Proof) bool {
+func (w *Watcher) ShouldWatch(p *proof.Proof) bool {
 	return (w.bestHeight.Load() - int32(p.BlockHeight)) < w.cfg.SafeDepth
 }
 
 // DefaultUpdateCallback is the default implementation for the update callback
 // that is called when a proof is updated. This implementation will replace the
 // old proof in the proof archiver (multi-archive) with the new one.
-func (w *ReOrgWatcher) DefaultUpdateCallback() proof.UpdateCallback {
+func (w *Watcher) DefaultUpdateCallback() proof.UpdateCallback {
 	return func(proofs []*proof.Proof) error {
 		// Let's not be interrupted by a shutdown.
 		ctxt, cancel := w.CtxBlocking()
 		defer cancel()
 
+		// We deliberately use a no-op header verifier here: if we
+		// have a chain of transactions that were re-organized, we
+		// can't verify the whole chain until all of the transactions
+		// were confirmed and all proofs were updated with the new
+		// blocks and merkle roots. So we skip verification since we
+		// don't know whether the whole chain has been updated yet
+		// (the confirmations might come in out of order).
+		// TODO(guggero): Find a better way to do this.
 		vCtx := proof.VerifierCtx{
-			HeaderVerifier: GenHeaderVerifier(
-				ctxt, w.cfg.ChainBridge,
-			),
+			HeaderVerifier: func(wire.BlockHeader, uint32) error {
+				return nil
+			},
 			MerkleVerifier: proof.DefaultMerkleVerifier,
 			GroupVerifier:  w.cfg.GroupVerifier,
 			ChainLookupGen: w.cfg.ChainBridge,
 			IgnoreChecker:  w.cfg.IgnoreChecker,
-		}
-
-		// This is a bit of a hacky part. If we have a chain of
-		// transactions that were re-organized, we can't verify the
-		// whole chain until all of the transactions were confirmed and
-		// all proofs were updated with the new blocks and merkle roots.
-		// So we'll skip the verification here since we don't know if
-		// the whole chain has been updated yet (the confirmations might
-		// come in out of order).
-		// TODO(guggero): Find a better way to do this.
-		vCtx.HeaderVerifier = func(wire.BlockHeader, uint32) error {
-			return nil
 		}
 
 		for idx := range proofs {
@@ -645,7 +646,7 @@ func (w *ReOrgWatcher) DefaultUpdateCallback() proof.UpdateCallback {
 }
 
 // reportErr reports an error to the main server.
-func (w *ReOrgWatcher) reportErr(err error) {
+func (w *Watcher) reportErr(err error) {
 	select {
 	case w.cfg.ErrChan <- err:
 	case <-w.Quit:
