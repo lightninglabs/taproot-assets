@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -279,10 +281,10 @@ func RandMintingBatch(t testing.TB, opts ...MintBatchOption) *MintingBatch {
 	}
 
 	// Fund genesis packet. Tests that exercise the supply-commit
-	// path want a fully-formed batch with the pre-commitment
-	// output and bind data already populated on the funded
-	// PSBT; the mock augmenter below mirrors what the real
-	// supplycommit augmenter would do.
+	// path want a fully-formed batch with pre-commit data
+	// available; the mock augmenter below mirrors what the real
+	// universe/supplycommit augmenter would do, just locally so
+	// tapgarden can use it without re-importing supplycommit.
 	ctx := context.Background()
 	mockAug := mockSupplyCommitAugmenter{
 		chainParams: address.TestNet3Tap,
@@ -293,32 +295,15 @@ func RandMintingBatch(t testing.TB, opts ...MintBatchOption) *MintingBatch {
 	require.NoError(t, err)
 	batch.GenesisPacket = &fundedPsbt
 
-	// Mirror the augmenter's BindData into the funded PSBT's
-	// PreCommitmentOutput field so test assertions that read
-	// the field directly continue to work until commit 5
-	// removes the field.
-	if options.universeCommitments {
-		bind, bErr := mockAug.BindData(ctx, batch)
-		require.NoError(t, bErr)
-		bind.WhenSome(func(b PreCommitBindData) {
-			batch.GenesisPacket.PreCommitmentOutput = fn.Some(
-				PreCommitmentOutput{
-					OutIdx:      b.OutputIndex,
-					InternalKey: b.InternalKey,
-					GroupPubKey: b.GroupKey,
-				},
-			)
-		})
-	}
-
 	return batch
 }
 
-// mockSupplyCommitAugmenter is the supply-commit augmenter used
-// by RandMintingBatch. It mirrors the behavior of the real
-// universe/supplycommit.GenesisAugmenter without depending on
-// supplycommit (which imports tapgarden and so cannot be
-// imported back here).
+// mockSupplyCommitAugmenter is the augmenter that RandMintingBatch
+// installs on its synthetic batches. It mirrors the behaviour of
+// universe/supplycommit.GenesisAugmenter for the few fields the
+// tests actually inspect, without taking on the full
+// supplycommit dependency (supplycommit imports tapgarden, so we
+// cannot import it back here).
 type mockSupplyCommitAugmenter struct {
 	chainParams address.ChainParams
 }
@@ -335,22 +320,69 @@ func (mockSupplyCommitAugmenter) ValidateSeedling(_ *MintingBatch,
 	return nil
 }
 
+// mockDelegationKey reads the delegation key off the batch's
+// unique anchor seedling. This is the inlined equivalent of the
+// supplycommit augmenter's helper of the same name.
+func mockDelegationKey(batch *MintingBatch) fn.Option[keychain.KeyDescriptor] {
+	var zero fn.Option[keychain.KeyDescriptor]
+	if batch == nil || !batch.SupplyCommitments {
+		return zero
+	}
+	if len(batch.Seedlings) == 0 {
+		return zero
+	}
+	anchor, err := batch.uniqueAnchorSeedling()
+	if err != nil {
+		return zero
+	}
+	return anchor.DelegationKey
+}
+
+// mockGroupKey reads the group pub key off the batch's anchor
+// seedling, when known.
+func mockGroupKey(batch *MintingBatch) fn.Option[btcec.PublicKey] {
+	var zero fn.Option[btcec.PublicKey]
+	if batch == nil || !batch.SupplyCommitments {
+		return zero
+	}
+	if len(batch.Seedlings) == 0 {
+		return zero
+	}
+	anchor, err := batch.uniqueAnchorSeedling()
+	if err != nil || anchor.GroupInfo == nil {
+		return zero
+	}
+	return fn.Some(anchor.GroupInfo.GroupPubKey)
+}
+
+// mockPreCommitTxOut builds the deterministic pay-to-taproot
+// output for the given key (the same script the real augmenter
+// emits).
+func mockPreCommitTxOut(internalKey btcec.PublicKey) (wire.TxOut, error) {
+	var zero wire.TxOut
+	taprootOutputKey := txscript.ComputeTaprootKeyNoScript(&internalKey)
+	pkScript, err := txscript.PayToTaprootScript(taprootOutputKey)
+	if err != nil {
+		return zero, fmt.Errorf("unable to create pre-commitment "+
+			"output pk script: %w", err)
+	}
+	return wire.TxOut{
+		Value:    int64(tapsend.DummyAmtSats),
+		PkScript: pkScript,
+	}, nil
+}
+
 func (m mockSupplyCommitAugmenter) ExtraOutputs(_ context.Context,
 	batch *MintingBatch) ([]wire.TxOut, error) {
 
-	if batch == nil || !batch.SupplyCommitments {
+	dKey := mockDelegationKey(batch)
+	if dKey.IsNone() {
 		return nil, nil
 	}
-
-	dKey, err := fetchDelegationKey(batch)
-	if err != nil || dKey.IsNone() {
-		return nil, err
-	}
-
 	internalKey, _ := dKey.UnwrapOrErr(
 		fmt.Errorf("delegation key unexpectedly absent"),
 	)
-	out, err := PreCommitTxOut(*internalKey.PubKey)
+	out, err := mockPreCommitTxOut(*internalKey.PubKey)
 	if err != nil {
 		return nil, err
 	}
@@ -360,20 +392,14 @@ func (m mockSupplyCommitAugmenter) ExtraOutputs(_ context.Context,
 func (m mockSupplyCommitAugmenter) PostFund(_ context.Context,
 	batch *MintingBatch, funded *tapsend.FundedPsbt) error {
 
-	if batch == nil || !batch.SupplyCommitments {
+	dKey := mockDelegationKey(batch)
+	if dKey.IsNone() {
 		return nil
 	}
-
-	dKey, err := fetchDelegationKey(batch)
-	if err != nil || dKey.IsNone() {
-		return err
-	}
-
 	internalKey, _ := dKey.UnwrapOrErr(
 		fmt.Errorf("delegation key unexpectedly absent"),
 	)
-
-	expected, err := PreCommitTxOut(*internalKey.PubKey)
+	expected, err := mockPreCommitTxOut(*internalKey.PubKey)
 	if err != nil {
 		return err
 	}
@@ -385,7 +411,6 @@ func (m mockSupplyCommitAugmenter) PostFund(_ context.Context,
 		if !bytes.Equal(txOut.PkScript, expected.PkScript) {
 			continue
 		}
-
 		bip32, trBip32 := tappsbt.Bip32DerivationFromKeyDesc(
 			internalKey, m.chainParams.HDCoinType,
 		)
@@ -403,23 +428,17 @@ func (m mockSupplyCommitAugmenter) BindData(_ context.Context,
 	batch *MintingBatch) (fn.Option[PreCommitBindData], error) {
 
 	var zero fn.Option[PreCommitBindData]
-	if batch == nil || !batch.SupplyCommitments {
+	if batch == nil || batch.GenesisPacket == nil {
 		return zero, nil
 	}
-	if batch.GenesisPacket == nil {
+	dKey := mockDelegationKey(batch)
+	if dKey.IsNone() {
 		return zero, nil
 	}
-
-	dKey, err := fetchDelegationKey(batch)
-	if err != nil || dKey.IsNone() {
-		return zero, err
-	}
-
 	internalKey, _ := dKey.UnwrapOrErr(
 		fmt.Errorf("delegation key unexpectedly absent"),
 	)
-
-	expected, err := PreCommitTxOut(*internalKey.PubKey)
+	expected, err := mockPreCommitTxOut(*internalKey.PubKey)
 	if err != nil {
 		return zero, err
 	}
@@ -432,15 +451,10 @@ func (m mockSupplyCommitAugmenter) BindData(_ context.Context,
 		if !bytes.Equal(txOut.PkScript, expected.PkScript) {
 			continue
 		}
-
-		gKey, err := fetchPreCommitGroupKey(batch)
-		if err != nil {
-			return zero, err
-		}
 		return fn.Some(PreCommitBindData{
 			OutputIndex: uint32(i),
 			InternalKey: internalKey,
-			GroupKey:    gKey,
+			GroupKey:    mockGroupKey(batch),
 		}), nil
 	}
 	return zero, nil
@@ -453,6 +467,20 @@ func (mockSupplyCommitAugmenter) OnBatchConfirmed(_ context.Context,
 }
 
 var _ GenesisTxAugmenter = mockSupplyCommitAugmenter{}
+
+// MockBindDataForBatch is a test helper that returns the
+// PreCommitBindData payload the mock supply-commit augmenter
+// would produce for the given batch, or fn.None if there is no
+// supply-commit pre-commitment to persist. tapdb tests use it
+// when they need to plumb a pre-commit payload through the
+// BatchStore binding API.
+func MockBindDataForBatch(
+	batch *MintingBatch) fn.Option[PreCommitBindData] {
+
+	aug := mockSupplyCommitAugmenter{chainParams: address.TestNet3Tap}
+	bind, _ := aug.BindData(context.Background(), batch)
+	return bind
+}
 
 // RandSeedlings creates a new set of random seedlings for testing.
 func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {

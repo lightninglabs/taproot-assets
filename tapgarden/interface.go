@@ -281,11 +281,6 @@ type MintingRefReader interface {
 	// FetchAssetMeta fetches the meta reveal for an asset genesis.
 	FetchAssetMeta(ctx context.Context, ID asset.ID) (*proof.MetaReveal,
 		error)
-
-	// FetchDelegationKey fetches the delegation key for the given asset
-	// group public key.
-	FetchDelegationKey(ctx context.Context,
-		groupKey btcec.PublicKey) (fn.Option[DelegationKey], error)
 }
 
 var (

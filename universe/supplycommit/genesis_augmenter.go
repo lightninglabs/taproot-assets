@@ -350,7 +350,7 @@ func (a *GenesisAugmenter) ExtraOutputs(_ context.Context,
 		return nil, err
 	}
 
-	out, err := preCommitTxOut(*internalKey.PubKey)
+	out, err := PreCommitTxOut(*internalKey.PubKey)
 	if err != nil {
 		return nil, err
 	}
@@ -560,12 +560,17 @@ func (a *GenesisAugmenter) OnBatchConfirmed(ctx context.Context,
 	return nil
 }
 
-// preCommitTxOut returns the wire.TxOut for the pre-commitment
+// PreCommitTxOut returns the wire.TxOut for the pre-commitment
 // output corresponding to the given internal key. The output's
 // PkScript is the BIP-341 key-only P2TR script, so it is
 // deterministic from the key and can be matched against funded
 // PSBT outputs.
-func preCommitTxOut(internalKey btcec.PublicKey) (wire.TxOut, error) {
+//
+// This is exported because the supply-commit verifier (env.go)
+// uses the same script construction to identify pre-commitment
+// outputs in mint anchor transactions, independently of the
+// minting flow.
+func PreCommitTxOut(internalKey btcec.PublicKey) (wire.TxOut, error) {
 	var zero wire.TxOut
 	taprootOutputKey := txscript.ComputeTaprootKeyNoScript(&internalKey)
 	pkScript, err := txscript.PayToTaprootScript(taprootOutputKey)
@@ -674,7 +679,7 @@ func findPreCommitOutputIdx(funded *tapsend.FundedPsbt,
 		return zero, nil
 	}
 
-	expectedOut, err := preCommitTxOut(internalKey)
+	expectedOut, err := PreCommitTxOut(internalKey)
 	if err != nil {
 		return zero, err
 	}

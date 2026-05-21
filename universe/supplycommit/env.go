@@ -19,7 +19,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -377,7 +376,7 @@ func NewPreCommitFromProof(issuanceProof proof.Proof,
 	// supply pre-commitment output.
 	//
 	// Construct the expected pre-commit tx out.
-	expectedTxOut, err := tapgarden.PreCommitTxOut(delegationKey)
+	expectedTxOut, err := PreCommitTxOut(delegationKey)
 	if err != nil {
 		return zero, fmt.Errorf("unable to derive expected pre-commit "+
 			"txout: %w", err)

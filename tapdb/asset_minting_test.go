@@ -511,7 +511,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
 	_, randSiblingHash := addRandSiblingToBatch(t, mintingBatch)
-	err := assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData())
+	err := assetStore.CommitMintingBatch(ctx, mintingBatch, tapgarden.MockBindDataForBatch(mintingBatch))
 	require.NoError(t, err)
 
 	batchKey := mintingBatch.BatchKey.PubKey
@@ -586,7 +586,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	// back to finalized.
 	require.NoError(t, assetStore.AddSproutsToBatch(
 		ctx, mintingBatch, genesisPacket, assetRoot,
-		genesisPacket.PreCommitBindData(),
+		tapgarden.MockBindDataForBatch(mintingBatch),
 	))
 	require.Equal(
 		t, tapgarden.BatchStateCommitted, mintingBatch.State(),
@@ -615,7 +615,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	mintingBatch = tapgarden.RandMintingBatch(
 		t, tapgarden.WithTotalSeedlings(numSeedlings),
 	)
-	err = assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData())
+	err = assetStore.CommitMintingBatch(ctx, mintingBatch, tapgarden.MockBindDataForBatch(mintingBatch))
 	require.NoError(t, err)
 	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertSeedlingBatchLen(t, mintingBatches, 1, numSeedlings)
@@ -656,7 +656,7 @@ func TestInsertFetchUniCommitBatch(t *testing.T) {
 	require.True(t, seedling.DelegationKey.IsSome())
 
 	// Commit the minting batch to the database.
-	err := assetStore.CommitMintingBatch(ctx, batch, batch.GenesisPacket.PreCommitBindData())
+	err := assetStore.CommitMintingBatch(ctx, batch, tapgarden.MockBindDataForBatch(batch))
 	require.NoError(t, err)
 
 	// Fetch the same batch from the database.
@@ -877,7 +877,7 @@ func TestAddSproutsToBatch(t *testing.T) {
 	}
 
 	// First, we'll create a new batch, then add some sample seedlings.
-	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData()))
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch, tapgarden.MockBindDataForBatch(mintingBatch)))
 
 	// Now that the batch is on disk, we'll map those seedlings to an
 	// actual asset commitment, then insert them into the DB as sprouts.
@@ -903,7 +903,7 @@ func TestAddSproutsToBatch(t *testing.T) {
 
 	require.NoError(t, assetStore.AddSproutsToBatch(
 		ctx, mintingBatch, genesisPacket, assetRoot,
-		genesisPacket.PreCommitBindData(),
+		tapgarden.MockBindDataForBatch(mintingBatch),
 	))
 	require.Equal(
 		t, tapgarden.BatchStateCommitted, mintingBatch.State(),
@@ -969,7 +969,7 @@ func addRandAssets(t *testing.T, ctx context.Context,
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
 	randSibling, randSiblingHash := addRandSiblingToBatch(t, mintingBatch)
-	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData()))
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch, tapgarden.MockBindDataForBatch(mintingBatch)))
 
 	genesisPacket := mintingBatch.GenesisPacket
 	assetRoot := seedlingsToAssetRoot(
@@ -996,7 +996,7 @@ func addRandAssets(t *testing.T, ctx context.Context,
 
 	require.NoError(t, assetStore.AddSproutsToBatch(
 		ctx, mintingBatch, genesisPacket, assetRoot,
-		genesisPacket.PreCommitBindData(),
+		tapgarden.MockBindDataForBatch(mintingBatch),
 	))
 	require.Equal(
 		t, tapgarden.BatchStateCommitted, mintingBatch.State(),
@@ -1495,7 +1495,7 @@ func TestGroupAnchors(t *testing.T) {
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
 	addMultiAssetGroupToBatch(mintingBatch.Seedlings)
-	err := assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData())
+	err := assetStore.CommitMintingBatch(ctx, mintingBatch, tapgarden.MockBindDataForBatch(mintingBatch))
 	require.NoError(t, err)
 
 	batchKey := mintingBatch.BatchKey.PubKey
@@ -1574,7 +1574,7 @@ func TestGroupAnchors(t *testing.T) {
 
 	require.NoError(t, assetStore.AddSproutsToBatch(
 		ctx, mintingBatch, genesisPacket, assetRoot,
-		genesisPacket.PreCommitBindData(),
+		tapgarden.MockBindDataForBatch(mintingBatch),
 	))
 	require.Equal(
 		t, tapgarden.BatchStateCommitted, mintingBatch.State(),
@@ -2017,7 +2017,7 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	storeSeedlingGroupGenesis(t, ctx, assetStore, seedling)
 
 	// Commit batch.
-	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData()))
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch, tapgarden.MockBindDataForBatch(mintingBatch)))
 
 	// Retrieve the batch key of the batch we just inserted.
 	var batchKey []byte
@@ -2034,12 +2034,15 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	)
 
 	// Define pre-commit outpoint for the batch mint anchor tx.
+	// The funded PSBT no longer carries a PreCommitmentOutput
+	// field; the test mock augmenter knows how to derive the
+	// same persistence payload from the batch's seedlings and
+	// the funded PSBT.
 	genesisPkt := mintingBatch.GenesisPacket
 	require.NotNil(t, genesisPkt)
 
-	preCommitOut, err := genesisPkt.PreCommitmentOutput.UnwrapOrErr(
-		fmt.Errorf("no pre-commitment output"),
-	)
+	preCommitBind, err := tapgarden.MockBindDataForBatch(mintingBatch).
+		UnwrapOrErr(fmt.Errorf("no pre-commitment output"))
 	require.NoError(t, err)
 
 	txidStr := genesisPkt.FundedPsbt.Pkt.UnsignedTx.TxID()
@@ -2048,11 +2051,11 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 
 	preCommitOutpoint := wire.OutPoint{
 		Hash:  *txid,
-		Index: preCommitOut.OutIdx,
+		Index: preCommitBind.OutputIndex,
 	}
 
 	// Serialize keys into bytes for easier handling.
-	preCommitGroupKey, err := preCommitOut.GroupPubKey.UnwrapOrErr(
+	preCommitGroupKey, err := preCommitBind.GroupKey.UnwrapOrErr(
 		fmt.Errorf("no group key"),
 	)
 	require.NoError(t, err)
@@ -2060,8 +2063,8 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 
 	// Retrieve and inspect the mint anchor commitment we just inserted.
 	assertMintSupplyPreCommit(
-		t, *assetStore, batchKey, preCommitOut.OutIdx,
-		preCommitOut.InternalKey, groupPubKeyBytes, preCommitOutpoint,
+		t, *assetStore, batchKey, preCommitBind.OutputIndex,
+		preCommitBind.InternalKey, groupPubKeyBytes, preCommitOutpoint,
 	)
 
 	// Upsert-ing a new taproot internal key for the same pre-commit
@@ -2069,12 +2072,12 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	internalKey2, _ := test.RandKeyDesc(t)
 
 	storeMintSupplyPreCommit(
-		t, *assetStore, batchKey, preCommitOut.OutIdx, internalKey2,
+		t, *assetStore, batchKey, preCommitBind.OutputIndex, internalKey2,
 		groupPubKeyBytes, preCommitOutpoint,
 	)
 
 	assertMintSupplyPreCommit(
-		t, *assetStore, batchKey, preCommitOut.OutIdx, internalKey2,
+		t, *assetStore, batchKey, preCommitBind.OutputIndex, internalKey2,
 		groupPubKeyBytes, preCommitOutpoint,
 	)
 
@@ -2084,12 +2087,12 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	groupPubKey2Bytes := schnorr.SerializePubKey(groupPubKey2)
 
 	storeMintSupplyPreCommit(
-		t, *assetStore, batchKey, preCommitOut.OutIdx, internalKey2,
+		t, *assetStore, batchKey, preCommitBind.OutputIndex, internalKey2,
 		groupPubKey2Bytes, preCommitOutpoint,
 	)
 
 	assertMintSupplyPreCommit(
-		t, *assetStore, batchKey, preCommitOut.OutIdx, internalKey2,
+		t, *assetStore, batchKey, preCommitBind.OutputIndex, internalKey2,
 		groupPubKey2Bytes, preCommitOutpoint,
 	)
 }
@@ -2106,7 +2109,7 @@ func TestUpdateBatchStateMemoryCoherence(t *testing.T) {
 	ctx := context.Background()
 
 	mintingBatch := tapgarden.RandMintingBatch(t)
-	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData()))
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch, tapgarden.MockBindDataForBatch(mintingBatch)))
 	require.Equal(
 		t, tapgarden.BatchStatePending, mintingBatch.State(),
 	)
@@ -2151,12 +2154,12 @@ func TestSingletonPreBroadcastBatchConstraint(t *testing.T) {
 
 	// A first Pending batch is fine.
 	first := tapgarden.RandMintingBatch(t)
-	require.NoError(t, assetStore.CommitMintingBatch(ctx, first, first.GenesisPacket.PreCommitBindData()))
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, first, tapgarden.MockBindDataForBatch(first)))
 
 	// A second Pending batch must be rejected: two rows in
 	// BatchStatePending violate the partial unique index.
 	secondPending := tapgarden.RandMintingBatch(t)
-	err := assetStore.CommitMintingBatch(ctx, secondPending, secondPending.GenesisPacket.PreCommitBindData())
+	err := assetStore.CommitMintingBatch(ctx, secondPending, tapgarden.MockBindDataForBatch(secondPending))
 	require.Error(t, err)
 
 	// Move the first batch to Frozen; it is still in the
@@ -2167,7 +2170,7 @@ func TestSingletonPreBroadcastBatchConstraint(t *testing.T) {
 	))
 
 	pendingWhileFrozen := tapgarden.RandMintingBatch(t)
-	err = assetStore.CommitMintingBatch(ctx, pendingWhileFrozen, pendingWhileFrozen.GenesisPacket.PreCommitBindData())
+	err = assetStore.CommitMintingBatch(ctx, pendingWhileFrozen, tapgarden.MockBindDataForBatch(pendingWhileFrozen))
 	require.Error(t, err)
 
 	// Move the first batch out of the pre-broadcast set into
@@ -2178,7 +2181,7 @@ func TestSingletonPreBroadcastBatchConstraint(t *testing.T) {
 	))
 
 	third := tapgarden.RandMintingBatch(t)
-	require.NoError(t, assetStore.CommitMintingBatch(ctx, third, third.GenesisPacket.PreCommitBindData()))
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, third, tapgarden.MockBindDataForBatch(third)))
 
 	// And finally: two batches both in Committed must be
 	// permitted -- the constraint targets only the pre-broadcast

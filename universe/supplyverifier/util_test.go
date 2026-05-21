@@ -17,7 +17,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
@@ -264,8 +263,8 @@ func createTestValidMintEvent(t *testing.T, blockHeight uint32,
 	}
 
 	// Create the pre-commitment output that matches what
-	// tapgarden.PreCommitTxOut would create.
-	preCommitTxOut, err := tapgarden.PreCommitTxOut(*delegationKey)
+	// supplycommit.PreCommitTxOut would create.
+	preCommitTxOut, err := supplycommit.PreCommitTxOut(*delegationKey)
 	if err != nil {
 		t.Fatalf("failed to create pre-commit tx out: %v", err)
 	}
@@ -868,7 +867,7 @@ func randProofWithGroupKey(t *testing.T,
 	pkScript, err := txscript.PayToTaprootScript(taprootOutputKey)
 	require.NoError(t, err)
 
-	preCommitTxOut, err := tapgarden.PreCommitTxOut(*delegationKey)
+	preCommitTxOut, err := supplycommit.PreCommitTxOut(*delegationKey)
 	require.NoError(t, err)
 
 	// Anchor tx: pre-commit output at index 0,

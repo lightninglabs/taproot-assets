@@ -441,7 +441,8 @@ func (m *Manager) SendEventSync(ctx context.Context, assetSpec asset.Specifier,
 
 // SendMintEvent sends a mint event to the supply commitment state machine.
 //
-// NOTE: This implements the tapgarden.MintSupplyCommitter interface.
+// NOTE: This is consumed by the GenesisAugmenter at batch confirmation
+// time via the MintEventEmitter interface.
 func (m *Manager) SendMintEvent(ctx context.Context, assetSpec asset.Specifier,
 	leafKey universe.UniqueLeafKey, issuanceProof universe.Leaf,
 	mintBlockHeight uint32) error {

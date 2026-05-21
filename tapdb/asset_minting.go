@@ -1365,56 +1365,11 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		}
 		assetAnchorOutIdx := dbBatch.AssetsOutputIndex.Int32
 
-		// If the batch has universe commitments, we will retrieve
-		// the pre-commitment output index from the database.
-		var preCommitOut fn.Option[tapgarden.PreCommitmentOutput]
-		if dbBatch.UniverseCommitments {
-			fetchRes, err := q.FetchMintSupplyPreCommits(
-				ctx, FetchMintPreCommitsParams{
-					BatchKey: dbBatch.RawKey,
-				},
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to fetch mint "+
-					"anchor uni commitment: %w", err)
-			}
-
-			// Expect one pre-commitment output for a given batch.
-			if len(fetchRes) != 1 {
-				return nil, fmt.Errorf("expected one "+
-					"pre-commitment output, got %d",
-					len(fetchRes))
-			}
-
-			res := fetchRes[0]
-
-			internalKey, err := parseInternalKey(res.InternalKey)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing "+
-					"pre-commitment internal key: %w", err)
-			}
-
-			// Parse the group public key from the database.
-			var groupPubKey fn.Option[btcec.PublicKey]
-			if res.GroupKey != nil {
-				gk, err := schnorr.ParsePubKey(res.GroupKey)
-				if err != nil {
-					return nil, fmt.Errorf("error parsing "+
-						"group public key: %w", err)
-				}
-
-				groupPubKey = fn.Some(*gk)
-			}
-
-			preCommitOut = fn.Some(
-				tapgarden.PreCommitmentOutput{
-					OutIdx:      uint32(res.TxOutputIndex),
-					InternalKey: internalKey,
-					GroupPubKey: groupPubKey,
-				},
-			)
-		}
-
+		// The pre-commitment substance is owned by the
+		// supply-commit augmenter, which reads
+		// mint_supply_pre_commits directly when it needs the
+		// data. tapdb no longer attaches a copy of the row to
+		// the funded PSBT on readback.
 		batch.GenesisPacket = &tapgarden.FundedMintAnchorPsbt{
 			FundedPsbt: tapsend.FundedPsbt{
 				Pkt: genesisPkt,
@@ -1422,8 +1377,7 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 					dbBatch.ChangeOutputIndex,
 				),
 			},
-			AssetAnchorOutIdx:   uint32(assetAnchorOutIdx),
-			PreCommitmentOutput: preCommitOut,
+			AssetAnchorOutIdx: uint32(assetAnchorOutIdx),
 		}
 	}
 
@@ -1567,16 +1521,6 @@ func (a *AssetMintingStore) CommitBatchFunding(ctx context.Context,
 
 		return nil
 	})
-}
-
-// FetchDelegationKey fetches the delegation key for the given asset
-// group public key. Implements MintingRefReader.FetchDelegationKey;
-// delegates to SupplyPreCommitStore since the underlying lookup
-// belongs to the supply-pre-commit substance, not to minting.
-func (a *AssetMintingStore) FetchDelegationKey(ctx context.Context,
-	groupKey btcec.PublicKey) (fn.Option[tapgarden.DelegationKey], error) {
-
-	return NewSupplyPreCommitStore(a.db).FetchDelegationKey(ctx, groupKey)
 }
 
 // SealBatch seals a batch by assigning and persisting asset groups
