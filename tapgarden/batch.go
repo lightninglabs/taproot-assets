@@ -358,7 +358,16 @@ func (m *MintingBatch) TapSibling() []byte {
 	return m.tapSibling.CloneBytes()
 }
 
-// UpdateTapSibling updates the optional tapscript sibling for the batch.
+// UpdateTapSibling mutates the in-memory tapscript sibling for the batch.
+// It is intended to be called exclusively by BatchStore implementations
+// after a successful DB write has committed the same sibling to disk;
+// this is what guarantees that the in-memory mirror cannot get ahead of
+// the on-disk truth.
+//
+// NOTE: Ordinary callers (planter, cultivator, RPC layer, tests) must
+// never invoke this method directly. Use the BatchStore interface, whose
+// sibling-mutating methods take *MintingBatch and update memory only on
+// DB success.
 func (m *MintingBatch) UpdateTapSibling(sibling *chainhash.Hash) {
 	m.tapSibling = sibling
 }
