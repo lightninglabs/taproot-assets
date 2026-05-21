@@ -21,53 +21,6 @@ const (
 	IssuanceTxLabel = "tapd-asset-issuance"
 )
 
-// Planter is responsible for batching a set of seedlings into a minting batch
-// that will eventually be confirmed on chain.
-type Planter interface {
-	// QueueNewSeedling attempts to queue a new seedling request (the
-	// intent for New asset creation or ongoing issuance) to the Planter.
-	// A channel is returned where future updates will be sent over. If an
-	// error is returned no issuance operation was possible.
-	QueueNewSeedling(req *Seedling) (SeedlingUpdates, error)
-
-	// ListBatches lists the set of batches submitted for minting, or the
-	// details of a specific batch.
-	ListBatches(params ListBatchesParams) ([]*VerboseBatch, error)
-
-	// CancelSeedling attempts to cancel the creation of a new asset
-	// identified by its name. If the seedling has already progressed to a
-	// point where the genesis PSBT has been broadcasted, an error is
-	// returned.
-	CancelSeedling() error
-
-	// FundBatch attempts to provide a genesis point for the current batch,
-	// or create a new funded batch.
-	FundBatch(params FundParams) (*VerboseBatch, error)
-
-	// SealBatch attempts to seal the current batch, by providing or
-	// deriving all witnesses necessary to create the final genesis TX.
-	SealBatch(params SealParams) (*MintingBatch, error)
-
-	// FinalizeBatch signals that the asset minter should finalize
-	// the current batch, if one exists.
-	FinalizeBatch(params FinalizeParams) (*MintingBatch, error)
-
-	// CancelBatch signals that the asset minter should cancel the
-	// current batch, if one exists.
-	CancelBatch() (*btcec.PublicKey, error)
-
-	// Start signals that the asset minter should being operations.
-	Start() error
-
-	// Stop signals that the asset minter should attempt a graceful
-	// shutdown.
-	Stop() error
-
-	// EventPublisher is a subscription interface that allows callers to
-	// subscribe to events that are relevant to the Planter.
-	fn.EventPublisher[fn.Event, bool]
-}
-
 // BatchState an enum that represents the various stages of a minting batch.
 type BatchState uint8
 

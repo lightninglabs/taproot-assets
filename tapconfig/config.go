@@ -205,7 +205,7 @@ type Config struct {
 
 	ReOrgWatcher *tapreorg.Watcher
 
-	AssetMinter tapgarden.Planter
+	AssetMinter *tapgarden.ChainPlanter
 
 	AssetCustodian *tapcustody.Custodian
 

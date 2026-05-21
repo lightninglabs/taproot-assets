@@ -3326,8 +3326,6 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 // New asset creation or ongoing issuance) to the ChainPlanter. A channel is
 // returned where future updates will be sent over. If an error is returned no
 // issuance operation was possible.
-//
-// NOTE: This is part of the Planter interface.
 func (c *ChainPlanter) QueueNewSeedling(req *Seedling) (SeedlingUpdates, error) {
 	req.updates = make(SeedlingUpdates, 1)
 
@@ -3343,8 +3341,6 @@ func (c *ChainPlanter) QueueNewSeedling(req *Seedling) (SeedlingUpdates, error) 
 // CancelSeedling attempts to cancel the creation of a new asset identified by
 // its name. If the seedling has already progressed to a point where the
 // genesis PSBT has been broadcasted, an error is returned.
-//
-// NOTE: This is part of the Planter interface.
 func (c *ChainPlanter) CancelSeedling() error {
 	// TODO(roasbeef): actually needed?
 	return nil
@@ -3410,11 +3406,7 @@ func (c *ChainPlanter) verifierCtx(ctx context.Context) proof.VerifierCtx {
 	}
 }
 
-// A compile-time assertion to make sure that ChainPlanter implements the
-// tapgarden.Planter interface.
-var _ Planter = (*ChainPlanter)(nil)
-
-// A compile-time assertion to make sure Cultivator satisfies the
+// A compile-time assertion to make sure ChainPlanter satisfies the
 // fn.EventPublisher interface.
 var _ fn.EventPublisher[fn.Event, bool] = (*ChainPlanter)(nil)
 
