@@ -46,9 +46,11 @@ import (
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapconfig"
+	"github.com/lightninglabs/taproot-assets/tapcustody"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -2099,22 +2101,22 @@ func (r *RPCServer) NewAddr(ctx context.Context,
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, addrImportTimeout)
 	defer waitCancel()
-	status, err := tapgarden.WaitForAddrImport(waitCtx, importSub, addrStr)
+	status, err := tapcustody.WaitForAddrImport(waitCtx, importSub, addrStr)
 	if err != nil {
 		return nil, fmt.Errorf("waiting for addr import: %w", err)
 	}
 
 	switch status {
 	// The custodian imported the address successfully; continue.
-	case tapgarden.AddrImportStatusSuccess:
+	case tapcustody.AddrImportStatusSuccess:
 
 	// We timed out or were canceled; the import outcome is unknown.
-	case tapgarden.AddrImportStatusUndefined:
+	case tapcustody.AddrImportStatusUndefined:
 		return nil, fmt.Errorf("address import status unknown, " +
 			"check logs")
 
 	// An error event was seen; it is already wrapped above.
-	case tapgarden.AddrImportStatusError:
+	case tapcustody.AddrImportStatusError:
 		return nil, fmt.Errorf("address import failed")
 	}
 
@@ -5448,7 +5450,7 @@ func (r *RPCServer) SubscribeReceiveAssetEventNtfns(
 		case *proof.BackoffWaitEvent:
 			return true, nil
 
-		case *tapgarden.AssetReceiveEvent:
+		case *tapcustody.AssetReceiveEvent:
 			return e.Status == address.StatusCompleted, nil
 
 		default:
@@ -5496,7 +5498,7 @@ func (r *RPCServer) SubscribeReceiveEvents(
 	}
 
 	marshaler := func(event fn.Event) (*taprpc.ReceiveEvent, error) {
-		e, ok := event.(*tapgarden.AssetReceiveEvent)
+		e, ok := event.(*tapcustody.AssetReceiveEvent)
 		if !ok {
 			return nil, fmt.Errorf("invalid event type: %T", event)
 		}
@@ -5534,7 +5536,7 @@ func (r *RPCServer) SubscribeReceiveEvents(
 		)
 
 		switch e := event.(type) {
-		case *tapgarden.AssetReceiveEvent:
+		case *tapcustody.AssetReceiveEvent:
 			eventAddrString, err = e.Address.EncodeAddress()
 			if err != nil {
 				return false, fmt.Errorf("error encoding "+
@@ -5897,7 +5899,7 @@ func marshallReceiveAssetEvent(event fn.Event,
 			},
 		}, nil
 
-	case *tapgarden.AssetReceiveEvent:
+	case *tapcustody.AssetReceiveEvent:
 		rpcAddr, err := marshalAddr(&e.Address, db)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling addr: %w", err)
@@ -12022,7 +12024,7 @@ func (r *RPCServer) RegisterTransfer(ctx context.Context,
 // ProofVerifierCtx returns a proof.VerifierCtx that can be used to verify
 // proofs in the RPC server.
 func (r *RPCServer) ProofVerifierCtx(ctx context.Context) proof.VerifierCtx {
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
 
 	var ignoreChecker proof.IgnoreChecker = r.cfg.IgnoreChecker

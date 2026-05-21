@@ -1443,17 +1443,6 @@ func SortAssets(fullAssets []*asset.Asset,
 	return anchorAssets, nonAnchorAssets, nil
 }
 
-// GenHeaderVerifier generates a block header on-chain verification callback
-// function given a chain bridge.
-func GenHeaderVerifier(ctx context.Context,
-	chainBridge tapnode.ChainBridge) func(wire.BlockHeader, uint32) error {
-
-	return func(header wire.BlockHeader, height uint32) error {
-		err := chainBridge.VerifyBlock(ctx, header, height)
-		return err
-	}
-}
-
 // sendSupplyCommitEvents sends supply commitment events for all minted assets
 // in the batch to track them in the supply commitment state machine.
 func (b *BatchCaretaker) sendSupplyCommitEvents(ctx context.Context,
@@ -1739,7 +1728,7 @@ func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
 
 // verifierCtx returns a verifier context that can be used to verify proofs.
 func (b *BatchCaretaker) verifierCtx(ctx context.Context) proof.VerifierCtx {
-	headerVerifier := GenHeaderVerifier(ctx, b.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, b.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
 	groupVerifier := GenGroupVerifier(ctx, b.cfg.Log)
 	groupAnchorVerifier := GenGroupAnchorVerifier(ctx, b.cfg.Log)

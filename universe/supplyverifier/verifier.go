@@ -404,7 +404,7 @@ func (v *Verifier) verifyIncrementalCommit(ctx context.Context,
 // proofVerifierCtx returns a verifier context that can be used to verify
 // proofs.
 func (v *Verifier) proofVerifierCtx(ctx context.Context) proof.VerifierCtx {
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, v.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, v.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, v.cfg.GroupFetcher)
 	groupAnchorVerifier := tapgarden.GenGroupAnchorVerifier(
@@ -749,7 +749,7 @@ func (v *Verifier) VerifyCommit(ctx context.Context,
 	// anchoring block header. This provides a basic proof-of-work guarantee
 	// that gates further verification steps.
 	v.assetLog.Debugf("Verifying chain anchor for commitment")
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, v.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, v.cfg.ChainBridge)
 	err := commitment.VerifyChainAnchor(
 		proof.DefaultMerkleVerifier, headerVerifier,
 	)

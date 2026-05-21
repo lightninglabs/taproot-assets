@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
+	"github.com/lightninglabs/taproot-assets/tapcustody"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -109,6 +110,9 @@ func SetupLoggers(root *build.SubLoggerManager,
 
 	AddSubLogger(
 		root, tapgarden.Subsystem, interceptor, tapgarden.UseLogger,
+	)
+	AddSubLogger(
+		root, tapcustody.Subsystem, interceptor, tapcustody.UseLogger,
 	)
 	AddSubLogger(
 		root, tapreorg.Subsystem, interceptor, tapreorg.UseLogger,

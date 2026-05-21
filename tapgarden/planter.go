@@ -3490,7 +3490,7 @@ func (c *ChainPlanter) publishSubscriberEvent(event fn.Event) {
 
 // verifierCtx returns a verifier context that can be used to verify proofs.
 func (c *ChainPlanter) verifierCtx(ctx context.Context) proof.VerifierCtx {
-	headerVerifier := GenHeaderVerifier(ctx, c.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, c.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
 	groupVerifier := GenGroupVerifier(ctx, c.cfg.Log)
 

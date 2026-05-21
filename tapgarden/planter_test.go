@@ -26,6 +26,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -48,6 +49,7 @@ import (
 // Default to a large interval so the planter never actually ticks and only
 // rely on our manual ticks.
 var (
+	chainParams       = &address.RegressionNetTap
 	defaultTimeout    = time.Second * 30
 	noCaretakerStates = fn.NewSet(
 		tapgarden.BatchStatePending,

@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -574,7 +575,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	confEvent := sendPkg.TransferTxConfEvent
 
 	// Use callback to verify that block header exists on chain.
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 
 	// Generate updated passive asset proof files.
 	passiveAssetProofFiles := make(
@@ -1508,7 +1509,7 @@ func (p *ChainPorter) prelimCheckAddrParcel(addrParcel AddressParcel) error {
 func (p *ChainPorter) verifyVPacketsPreBroadcast(ctx context.Context,
 	packets []*tappsbt.VPacket) error {
 
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 	vCtx := proof.VerifierCtx{
 		HeaderVerifier: headerVerifier,
 		MerkleVerifier: proof.DefaultMerkleVerifier,
@@ -1685,7 +1686,7 @@ func (p *ChainPorter) verifyOutputProofPreBroadcast(ctx context.Context,
 func (p *ChainPorter) verifyPacketInputProofs(ctx context.Context,
 	vPkt tappsbt.VPacket) error {
 
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 	vCtx := proof.VerifierCtx{
 		HeaderVerifier: headerVerifier,
 		MerkleVerifier: proof.DefaultMerkleVerifier,

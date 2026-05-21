@@ -67,3 +67,13 @@ type ChainBridge interface {
 	EstimateFee(ctx context.Context,
 		confTarget uint32) (chainfee.SatPerKWeight, error)
 }
+
+// GenHeaderVerifier returns a proof header verifier backed by the
+// given chain bridge.
+func GenHeaderVerifier(ctx context.Context,
+	chainBridge ChainBridge) func(wire.BlockHeader, uint32) error {
+
+	return func(header wire.BlockHeader, height uint32) error {
+		return chainBridge.VerifyBlock(ctx, header, height)
+	}
+}
