@@ -62,13 +62,13 @@ const (
 	DefaultTimeout = 30 * time.Second
 )
 
-// BatchCaretakerConfig houses all the items that the BatchCaretaker needs to
+// CultivatorConfig houses all the items that the Cultivator needs to
 // carry out its duties.
-type BatchCaretakerConfig struct {
-	// Batch is the minting batch that this caretaker is responsible
-	// for. Ownership invariant: once a caretaker is started, this
-	// pointer is owned exclusively by the caretaker goroutine. The
-	// caretaker reads and writes the non-state fields
+type CultivatorConfig struct {
+	// Batch is the minting batch that this cultivator is responsible
+	// for. Ownership invariant: once a cultivator is started, this
+	// pointer is owned exclusively by the cultivator goroutine. The
+	// cultivator reads and writes the non-state fields
 	// (GenesisPacket, RootAssetCommitment, Seedlings, AssetMetas)
 	// without locking, and any other goroutine that needs to observe
 	// the batch MUST call Batch.Copy() first to take a deep
@@ -81,7 +81,7 @@ type BatchCaretakerConfig struct {
 	BatchFeeRate *chainfee.SatPerKWeight
 
 	// GardenKit is the planter's shared kit. It is embedded as a
-	// pointer so the caretaker reads the same kit the planter holds,
+	// pointer so the cultivator reads the same kit the planter holds,
 	// rather than carrying its own copy. The kit is populated once
 	// when the planter is constructed and is not mutated thereafter,
 	// so sharing it by reference is safe.
@@ -104,20 +104,20 @@ type BatchCaretakerConfig struct {
 
 	// CancelReqChan delivers cancellation requests from the
 	// BatchPlanter. Each cancelReq carries its own reply channel, so
-	// the caretaker's response is causally bound to the specific
+	// the cultivator's response is causally bound to the specific
 	// request that produced it. The buffer size is 1 because the
 	// gardener serializes cancel calls today; the per-call binding
 	// is what makes the protocol correct regardless of that
 	// discipline.
 	//
-	// At any given moment exactly one caretaker goroutine reads this
+	// At any given moment exactly one cultivator goroutine reads this
 	// channel: either advanceStateUntil (pre-broadcast) or
 	// assetCultivator's post-broadcast loop. Those two never run
 	// concurrently, so a single cancelReq has a single receiver.
 	CancelReqChan chan cancelReq
 
 	// UpdateMintingProofs is used to update the minting proofs in the
-	// database in case of a re-org. This cannot be done by the caretaker
+	// database in case of a re-org. This cannot be done by the cultivator
 	// itself, because its job is already done at the point that a re-org
 	// can happen (the batch is finalized after a single confirmation).
 	UpdateMintingProofs func([]*proof.Proof) error
@@ -125,23 +125,23 @@ type BatchCaretakerConfig struct {
 	// PublishMintEvent is used to publish a mint event to all subscribers.
 	PublishMintEvent func(event fn.Event)
 
-	// ErrChan is the main error channel the caretaker will report back
+	// ErrChan is the main error channel the cultivator will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
 }
 
-// BatchCaretaker is the caretaker for a MintingBatch. It'll handle validating
+// Cultivator is the cultivator for a MintingBatch. It'll handle validating
 // the batch, creating a transaction that mints all items in the batch, and
 // waiting for enough confirmations for the batch to be considered finalized.
-type BatchCaretaker struct {
+type Cultivator struct {
 	startOnce sync.Once
 	stopOnce  sync.Once
 
 	batchKey BatchKey
 
-	cfg *BatchCaretakerConfig
+	cfg *CultivatorConfig
 
-	// confEvent is used to deliver a confirmation event to the caretaker.
+	// confEvent is used to deliver a confirmation event to the cultivator.
 	confEvent chan *chainntnfs.TxConfirmation
 
 	// confInfo is used to store a delivered confirmation event.
@@ -152,12 +152,10 @@ type BatchCaretaker struct {
 	*fn.ContextGuard
 }
 
-// NewBatchCaretaker creates a new Taproot Asset caretaker based on the passed
+// NewCultivator creates a new Taproot Asset cultivator based on the passed
 // config.
-//
-// TODO(roasbeef): rename to Cultivator?
-func NewBatchCaretaker(cfg *BatchCaretakerConfig) *BatchCaretaker {
-	return &BatchCaretaker{
+func NewCultivator(cfg *CultivatorConfig) *Cultivator {
+	return &Cultivator{
 		batchKey:  asset.ToSerialized(cfg.Batch.BatchKey.PubKey),
 		cfg:       cfg,
 		confEvent: make(chan *chainntnfs.TxConfirmation, 1),
@@ -168,8 +166,8 @@ func NewBatchCaretaker(cfg *BatchCaretakerConfig) *BatchCaretaker {
 	}
 }
 
-// Start attempts to start a new batch caretaker.
-func (b *BatchCaretaker) Start() error {
+// Start attempts to start a new batch cultivator.
+func (b *Cultivator) Start() error {
 	var startErr error
 	b.startOnce.Do(func() {
 		b.Wg.Add(1)
@@ -178,11 +176,11 @@ func (b *BatchCaretaker) Start() error {
 	return startErr
 }
 
-// Stop signals for a batch caretaker to gracefully exit.
-func (b *BatchCaretaker) Stop() error {
+// Stop signals for a batch cultivator to gracefully exit.
+func (b *Cultivator) Stop() error {
 	var stopErr error
 	b.stopOnce.Do(func() {
-		log.Infof("BatchCaretaker(%x): Stopping", b.batchKey[:])
+		log.Infof("Cultivator(%x): Stopping", b.batchKey[:])
 
 		close(b.Quit)
 		b.Wg.Wait()
@@ -191,13 +189,13 @@ func (b *BatchCaretaker) Stop() error {
 	return stopErr
 }
 
-// Cancel signals for a batch caretaker to stop advancing a batch. A batch can
+// Cancel signals for a batch cultivator to stop advancing a batch. A batch can
 // only be cancelled if it has not reached BatchStateBroadcast yet. If
 // cancellation succeeds, we forward the batch state after cancellation. If the
-// batch could not be cancelled, the planter will handle caretaker shutdown and
+// batch could not be cancelled, the planter will handle cultivator shutdown and
 // batch state. The response is written to respCh, which must be the per-call
 // reply channel carried by the originating cancelReq.
-func (b *BatchCaretaker) Cancel(respCh chan<- CancelResp) error {
+func (b *Cultivator) Cancel(respCh chan<- CancelResp) error {
 	ctx, cancel := b.WithCtxQuit()
 	defer cancel()
 
@@ -205,11 +203,11 @@ func (b *BatchCaretaker) Cancel(respCh chan<- CancelResp) error {
 	batchState := b.cfg.Batch.State()
 	var cancelResp CancelResp
 
-	// This function can only be called before the caretaker state stepping
+	// This function can only be called before the cultivator state stepping
 	// function, so the batch state read is the next state that has not yet
 	// been executed. Seedlings are converted to asset sprouts in the Frozen
 	// state, and broadcast in the Broadast state.
-	log.Debugf("BatchCaretaker(%x): Trying to cancel", batchKey[:])
+	log.Debugf("Cultivator(%x): Trying to cancel", batchKey[:])
 	switch batchState {
 	// In the pending state, the batch seedlings have not sprouted yet.
 	case BatchStatePending, BatchStateFrozen:
@@ -218,7 +216,7 @@ func (b *BatchCaretaker) Cancel(respCh chan<- CancelResp) error {
 			BatchStateSeedlingCancelled,
 		)
 		if err != nil {
-			err = fmt.Errorf("BatchCaretaker(%x), batch "+
+			err = fmt.Errorf("Cultivator(%x), batch "+
 				"state(%v), "+"cancel failed: %w", batchKey[:],
 				batchState, err)
 
@@ -239,7 +237,7 @@ func (b *BatchCaretaker) Cancel(respCh chan<- CancelResp) error {
 			BatchStateSproutCancelled,
 		)
 		if err != nil {
-			err = fmt.Errorf("BatchCaretaker(%x), batch "+
+			err = fmt.Errorf("Cultivator(%x), batch "+
 				"state(%v), cancel failed: %w", batchKey[:],
 				batchState, err)
 
@@ -255,7 +253,7 @@ func (b *BatchCaretaker) Cancel(respCh chan<- CancelResp) error {
 		cancelResp = CancelResp{true, err}
 
 	default:
-		err := fmt.Errorf("BatchCaretaker(%x), batch not cancellable",
+		err := fmt.Errorf("Cultivator(%x), batch not cancellable",
 			b.cfg.Batch.BatchKey.PubKey.SerializeCompressed())
 		cancelResp = CancelResp{false, err}
 	}
@@ -264,10 +262,10 @@ func (b *BatchCaretaker) Cancel(respCh chan<- CancelResp) error {
 
 	// If the batch was cancellable, the final write of the cancelled batch
 	// may still have failed. That error will be handled by the planter. At
-	// this point, the caretaker should shut down gracefully if cancellation
+	// this point, the cultivator should shut down gracefully if cancellation
 	// was attempted.
 	if cancelResp.cancelAttempted {
-		log.Infof("BatchCaretaker(%x), attempted batch cancellation, "+
+		log.Infof("Cultivator(%x), attempted batch cancellation, "+
 			"shutting down", b.batchKey[:])
 
 		return nil
@@ -275,16 +273,16 @@ func (b *BatchCaretaker) Cancel(respCh chan<- CancelResp) error {
 
 	// If the cancellation failed, that error will be handled by the
 	// planter.
-	return fmt.Errorf("BatchCaretaker(%x) cancellation failed",
+	return fmt.Errorf("Cultivator(%x) cancellation failed",
 		b.batchKey[:])
 }
 
 // advanceStateUntil attempts to advance the internal state machine until the
 // target state has been reached.
-func (b *BatchCaretaker) advanceStateUntil(currentState,
+func (b *Cultivator) advanceStateUntil(currentState,
 	targetState BatchState) (BatchState, error) {
 
-	log.Infof("BatchCaretaker(%x), advancing from state=%v to state=%v",
+	log.Infof("Cultivator(%x), advancing from state=%v to state=%v",
 		b.batchKey[:], currentState, targetState)
 
 	var terminalState bool
@@ -293,17 +291,17 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 		// aren't trying to shut down or cancel the batch.
 		select {
 		case <-b.Quit:
-			return 0, fmt.Errorf("BatchCaretaker(%x), shutting "+
+			return 0, fmt.Errorf("Cultivator(%x), shutting "+
 				"down", b.batchKey[:])
 
 		// If the batch was cancellable, the finalState of the cancel
 		// response will be non-nil. If the cancellation failed, that
 		// error will be handled by the planter. At this point, the
-		// caretaker should always shut down gracefully.
+		// cultivator should always shut down gracefully.
 		case req := <-b.cfg.CancelReqChan:
 			cancelErr := b.Cancel(req.resp)
 			if cancelErr == nil {
-				return 0, fmt.Errorf("BatchCaretaker(%x), "+
+				return 0, fmt.Errorf("Cultivator(%x), "+
 					"attempted batch cancellation, "+
 					"shutting down", b.batchKey[:])
 			}
@@ -347,11 +345,11 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 	return currentState, nil
 }
 
-// assetCultivator is the main goroutine for the BatchCaretaker struct. This
+// assetCultivator is the main goroutine for the Cultivator struct. This
 // goroutines handles progressing a batch all the way up to the point of
 // broadcast. Once the batch has been broadcast, we'll register for a
 // confirmation to progress the batch to the final terminal state.
-func (b *BatchCaretaker) assetCultivator() {
+func (b *Cultivator) assetCultivator() {
 	defer b.Wg.Done()
 
 	currentBatchState := b.cfg.Batch.State()
@@ -449,11 +447,11 @@ func (b *BatchCaretaker) assetCultivator() {
 // seedlingsToAssetSprouts maps a set of seedlings in the internal batch into a
 // set of sprouts: Assets that aren't yet fully linked to broadcast genesis
 // transaction.
-func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
+func (b *Cultivator) seedlingsToAssetSprouts(ctx context.Context,
 	genesisPoint wire.OutPoint,
 	assetOutputIndex uint32) (*commitment.TapCommitment, error) {
 
-	log.Infof("BatchCaretaker(%x): mapping %v seedlings to asset sprouts, "+
+	log.Infof("Cultivator(%x): mapping %v seedlings to asset sprouts, "+
 		"with genesis_point=%v", b.batchKey[:],
 		len(b.cfg.Batch.Seedlings), genesisPoint)
 
@@ -565,7 +563,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 // stateStep attempts to transition the state machine from one state to
 // another. Two states are terminal: the broadcast state, and the finalized
 // state.
-func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) {
+func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 	// TODO(roasbeef): will also handle finalizing a batch if incomplete
 	// and go done w/ it?
 	switch currentState {
@@ -580,7 +578,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			return 0, err
 		}
 
-		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
+		log.Infof("Cultivator(%x): transition states: %v -> %v",
 			b.batchKey[:], BatchStatePending, BatchStateFrozen)
 
 		return BatchStateFrozen, nil
@@ -594,7 +592,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		ctx, cancel := b.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		// For the caretaker to manage a frozen batch, it must have some
+		// For the cultivator to manage a frozen batch, it must have some
 		// seedlings and a genesis packet. Check these preconditions
 		// before modifying the batch.
 		if len(b.cfg.Batch.Seedlings) == 0 {
@@ -676,7 +674,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		genesisTxPkt.UnsignedTx.
 			TxOut[genesisPkt.AssetAnchorOutIdx].PkScript = genesisScript
 
-		log.Infof("BatchCaretaker(%x): committing sprouts to disk",
+		log.Infof("Cultivator(%x): committing sprouts to disk",
 			b.batchKey[:])
 
 		fundedGenesisPsbt := FundedMintAnchorPsbt{
@@ -717,7 +715,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			b.cfg.Batch.AssetMetas[scriptKey] = seedling.Meta
 		}
 
-		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
+		log.Infof("Cultivator(%x): transition states: %v -> %v",
 			b.batchKey[:], BatchStateFrozen, BatchStateCommitted)
 
 		return BatchStateCommitted, nil
@@ -727,7 +725,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 	// We'll have the backing wallet sign the transaction, then import the
 	// resulting key into the wallet so it tracks the balance.
 	case BatchStateCommitted:
-		log.Infof("BatchCaretaker(%x): finalizing GenesisPacket",
+		log.Infof("Cultivator(%x): finalizing GenesisPacket",
 			b.batchKey[:])
 
 		// First, we'll have the wallet sign the PSBT is created, which
@@ -765,7 +763,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 		b.cfg.Batch.GenesisPacket.ChainFees = int64(chainFees)
 
-		log.Infof("BatchCaretaker(%x): GenesisPacket finalized "+
+		log.Infof("Cultivator(%x): GenesisPacket finalized "+
 			"(absolute_fee_sats: %d)", b.batchKey[:], chainFees)
 		log.Tracef("GenesisPacket: %v", spew.Sdump(signedPkt))
 
@@ -849,7 +847,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				"tx: %w", err)
 		}
 
-		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
+		log.Infof("Cultivator(%x): transition states: %v -> %v",
 			b.batchKey[:], BatchStateCommitted, BatchStateBroadcast)
 
 		return BatchStateBroadcast, nil
@@ -867,7 +865,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				"signed tx: %w", err)
 		}
 
-		log.Infof("BatchCaretaker(%x): extracted finalized GenesisTx",
+		log.Infof("Cultivator(%x): extracted finalized GenesisTx",
 			b.batchKey[:])
 		log.Tracef("GenesisTx: %v", spew.Sdump(signedTx))
 
@@ -978,7 +976,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			}
 		}()
 
-		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
+		log.Infof("Cultivator(%x): transition states: %v -> %v",
 			b.batchKey[:], BatchStateBroadcast, BatchStateBroadcast)
 
 		return BatchStateBroadcast, nil
@@ -1183,7 +1181,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			return 0, fmt.Errorf("error watching proof: %w", err)
 		}
 
-		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
+		log.Infof("Cultivator(%x): transition states: %v -> %v",
 			b.batchKey[:], BatchStateConfirmed, BatchStateFinalized)
 
 		return BatchStateFinalized, nil
@@ -1191,7 +1189,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 	// This is a terminal state, in this state we have nothing left to do,
 	// so we just go back to batch finalized.
 	case BatchStateFinalized:
-		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
+		log.Infof("Cultivator(%x): transition states: %v -> %v",
 			b.batchKey[:], BatchStateFinalized, BatchStateFinalized)
 
 		// TODO(roasbeef): confirmed should just be the final state?
@@ -1210,7 +1208,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 // storeMintingProof stores the minting proof for a new asset in the proof
 // store. If a universe is configured, it also returns the issuance item that
 // can be used to register the asset with the universe.
-func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
+func (b *Cultivator) storeMintingProof(ctx context.Context,
 	a *asset.Asset, mintingProof *proof.Proof, mintTxHash chainhash.Hash,
 	vCtx proof.VerifierCtx) (proof.Blob, *universe.Item, error) {
 
@@ -1305,7 +1303,7 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 
 // batchStreamUniverseItems streams the issuance items for a batch to the
 // universe.
-func (b *BatchCaretaker) batchStreamUniverseItems(ctx context.Context,
+func (b *Cultivator) batchStreamUniverseItems(ctx context.Context,
 	universeItems chan *universe.Item, numTotal int) error {
 
 	var (
@@ -1342,7 +1340,7 @@ func (b *BatchCaretaker) batchStreamUniverseItems(ctx context.Context,
 	return nil
 }
 
-// AssetMintEvent is an event which is sent to the BatchCaretaker's event
+// AssetMintEvent is an event which is sent to the Cultivator's event
 // subscribers after a state was executed successfully.
 type AssetMintEvent struct {
 	// timestamp is the time the event was created.
@@ -1450,7 +1448,7 @@ func SortAssets(fullAssets []*asset.Asset,
 
 // sendSupplyCommitEvents sends supply commitment events for all minted assets
 // in the batch to track them in the supply commitment state machine.
-func (b *BatchCaretaker) sendSupplyCommitEvents(ctx context.Context,
+func (b *Cultivator) sendSupplyCommitEvents(ctx context.Context,
 	anchorAssets, nonAnchorAssets []*asset.Asset,
 	mintingProofs proof.AssetProofs) error {
 
@@ -1688,7 +1686,7 @@ func GenGroupAnchorVerifier(ctx context.Context,
 // GenRawGroupAnchorVerifier generates a group anchor verification callback
 // function. This anchor verifier recomputes the tweaked group key with the
 // passed genesis and compares that key to the given group key. This verifier
-// is only used in the caretaker, before any asset groups are stored in the DB.
+// is only used in the cultivator, before any asset groups are stored in the DB.
 func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
 	*asset.GroupKey) error {
 
@@ -1732,7 +1730,7 @@ func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
 }
 
 // verifierCtx returns a verifier context that can be used to verify proofs.
-func (b *BatchCaretaker) verifierCtx(ctx context.Context) proof.VerifierCtx {
+func (b *Cultivator) verifierCtx(ctx context.Context) proof.VerifierCtx {
 	headerVerifier := tapnode.GenHeaderVerifier(ctx, b.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
 	groupVerifier := GenGroupVerifier(ctx, b.cfg.MintingRefs)

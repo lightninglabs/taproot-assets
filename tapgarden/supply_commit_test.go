@@ -143,8 +143,8 @@ func TestSupplyCommitDelegationKeyFiltering(t *testing.T) {
 			// With the mocks registered above, we'll create a new
 			// care taker instance that uses them.
 			//nolint:lll
-			caretaker := &BatchCaretaker{
-				cfg: &BatchCaretakerConfig{
+			cultivator := &Cultivator{
+				cfg: &CultivatorConfig{
 					GardenKit: &GardenKit{
 						MintSupplyCommitter:  mockCommitter,
 						DelegationKeyChecker: mockDelegationChecker,
@@ -184,7 +184,7 @@ func TestSupplyCommitDelegationKeyFiltering(t *testing.T) {
 
 			// Call the internal method, then verify the expected
 			// calls were made.
-			err := caretaker.sendSupplyCommitEvents(
+			err := cultivator.sendSupplyCommitEvents(
 				ctx, tc.assets, nil, proofs,
 			)
 			require.NoError(t, err)
