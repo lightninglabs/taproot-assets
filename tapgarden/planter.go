@@ -25,7 +25,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
-	"github.com/lightninglabs/taproot-assets/universe"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
@@ -78,17 +77,15 @@ type GardenKit struct {
 	// ProofFiles stores the set of flat proof files.
 	ProofFiles proof.Archiver
 
-	// Universe is used to register new asset issuance with a local/remote
-	// base universe instance.
-	Universe universe.BatchRegistrar
+	// MintProofPublisher ships freshly-minted (or re-organized) proofs
+	// to a downstream distributor (e.g. a local/remote universe). If
+	// nil, no proofs are published; the cultivator's local archival
+	// path is unaffected.
+	MintProofPublisher MintProofPublisher
 
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.
 	ProofWatcher proof.Watcher
-
-	// UniversePushBatchSize is the number of minted items to push to the
-	// local universe in a single batch.
-	UniversePushBatchSize int
 
 	// IgnoreChecker is an optional function that can be used to check if
 	// a proof should be ignored.
@@ -2989,58 +2986,17 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 					"minted proofs: %w", err)
 			}
 		}
+	}
 
-		// The universe ID serves to identify the universe root we want
-		// to update this asset in. This is either the assetID or the
-		// group key.
-		uniID := universe.Identifier{
-			AssetID: p.Asset.ID(),
-		}
-		if p.Asset.GroupKey != nil {
-			uniID.GroupKey = &p.Asset.GroupKey.GroupPubKey
-		}
+	if c.cfg.MintProofPublisher == nil {
+		return nil
+	}
 
-		log.Debugf("Updating issuance proof for asset with universe, "+
-			"key=%v", spew.Sdump(uniID))
-
-		// The base key is the set of bytes that keys into the universe,
-		// this'll be the outpoint where it was created at and the
-		// script key for that asset.
-		leafKey := universe.BaseLeafKey{
-			OutPoint: wire.OutPoint{
-				Hash:  p.AnchorTx.TxHash(),
-				Index: p.InclusionProof.OutputIndex,
-			},
-			ScriptKey: &p.Asset.ScriptKey,
-		}
-
-		// The universe leaf stores the raw proof, so we'll encode it
-		// here now.
-		proofBytes, err := p.Bytes()
-		if err != nil {
-			return fmt.Errorf("unable to encode proof: %w", err)
-		}
-
-		// With both of those assembled, we can now update issuance
-		// which takes the amount and proof of the minting event.
-		uniGen := universe.GenesisWithGroup{
-			Genesis: p.Asset.Genesis,
-		}
-		if p.Asset.GroupKey != nil {
-			uniGen.GroupKey = p.Asset.GroupKey
-		}
-		mintingLeaf := &universe.Leaf{
-			GenesisWithGroup: uniGen,
-			RawProof:         proofBytes,
-			Amt:              p.Asset.Amount,
-			Asset:            &p.Asset,
-		}
-		_, err = c.cfg.Universe.UpsertProofLeaf(
-			ctx, uniID, leafKey, mintingLeaf,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to update issuance: %w", err)
-		}
+	if err := c.cfg.MintProofPublisher.PublishMintProofUpdates(
+		ctx, proofs,
+	); err != nil {
+		return fmt.Errorf("unable to publish minting proof "+
+			"updates: %w", err)
 	}
 
 	return nil

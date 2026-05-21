@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -21,11 +20,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapsend"
-	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
-	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -1072,34 +1069,15 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 			committedAssets   = batchCommitment.CommittedAssets()
 			numAssets         = len(committedAssets)
 			mintingProofBlobs = make(proof.AssetBlobs, numAssets)
-			universeItems     chan *universe.Item
 			mintTxHash        = confInfo.Tx.TxHash()
 			proofMutex        sync.Mutex
-			batchSyncEG       errgroup.Group
 		)
-
-		// If we have a universe configured, we'll batch stream the
-		// issuance items to it. We start this as a goroutine/err group
-		// now, so we can already start streaming while the proofs are
-		// still being stored to the local proof store.
-		if b.cfg.Universe != nil {
-			universeItems = make(
-				chan *universe.Item, numAssets,
-			)
-
-			// We use an error group to simply the error handling of
-			// a goroutine.
-			batchSyncEG.Go(func() error {
-				return b.batchStreamUniverseItems(
-					ctx, universeItems, numAssets,
-				)
-			})
-		}
 
 		// Before we write any assets from the batch, we need to sort
 		// the assets so that we insert group anchors before
-		// reissunces. This is required for any possible reissuances
-		// to be verified correctly when updating our local Universe.
+		// reissuances. This is required for any possible reissuances
+		// to be verified correctly when later updating any local
+		// universe.
 		anchorAssets, nonAnchorAssets, err := SortAssets(
 			committedAssets, vCtx.GroupAnchorVerifier,
 		)
@@ -1119,8 +1097,8 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 
 			mintingProof := mintingProofs[scriptKey]
 
-			proofBlob, uniProof, err := b.storeMintingProof(
-				ctx, newAsset, mintingProof, mintTxHash, vCtx,
+			proofBlob, err := b.storeMintingProof(
+				ctx, newAsset, mintingProof, vCtx,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to store "+
@@ -1130,10 +1108,6 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 			proofMutex.Lock()
 			mintingProofBlobs[scriptKey] = proofBlob
 			proofMutex.Unlock()
-
-			if uniProof != nil {
-				universeItems <- uniProof
-			}
 
 			return nil
 		}
@@ -1150,16 +1124,33 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 				"%w", err)
 		}
 
-		// The local proof store inserts are now completed, but we also
-		// need to wait for the batch sync to complete before we can
-		// confirm the batch.
-		if b.cfg.Universe != nil {
-			close(universeItems)
+		// Proof archival is done. If a downstream publisher is
+		// configured, ship the batch out now. Publishing is extrinsic
+		// to tapgarden's end (a verifiable asset in the local store);
+		// the publisher owns retry and batching semantics.
+		if b.cfg.MintProofPublisher != nil {
+			publishAssets := make(
+				[]*asset.Asset, 0,
+				len(anchorAssets)+len(nonAnchorAssets),
+			)
+			publishAssets = append(
+				publishAssets, anchorAssets...,
+			)
+			publishAssets = append(
+				publishAssets, nonAnchorAssets...,
+			)
 
-			err = batchSyncEG.Wait()
+			err = b.cfg.MintProofPublisher.PublishMintBatch(
+				ctx, MintBatchPublishParams{
+					Assets:       publishAssets,
+					Proofs:       mintingProofs,
+					MintTxHash:   mintTxHash,
+					AnchorOutIdx: b.cfg.Batch.GenesisPacket.AssetAnchorOutIdx,
+				},
+			)
 			if err != nil {
-				return 0, fmt.Errorf("unable to batch sync "+
-					"universe: %w", err)
+				return 0, fmt.Errorf("unable to publish "+
+					"minted batch: %w", err)
 			}
 		}
 
@@ -1219,17 +1210,15 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 }
 
 // storeMintingProof stores the minting proof for a new asset in the proof
-// store. If a universe is configured, it also returns the issuance item that
-// can be used to register the asset with the universe.
+// store and returns the encoded proof blob.
 func (b *Cultivator) storeMintingProof(ctx context.Context,
-	a *asset.Asset, mintingProof *proof.Proof, mintTxHash chainhash.Hash,
-	vCtx proof.VerifierCtx) (proof.Blob, *universe.Item, error) {
+	a *asset.Asset, mintingProof *proof.Proof,
+	vCtx proof.VerifierCtx) (proof.Blob, error) {
 
 	assetID := a.ID()
 	blob, err := proof.EncodeAsProofFile(mintingProof)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to encode proof file: %w",
-			err)
+		return nil, fmt.Errorf("unable to encode proof file: %w", err)
 	}
 
 	fullProof := &proof.AnnotatedProof{
@@ -1243,114 +1232,10 @@ func (b *Cultivator) storeMintingProof(ctx context.Context,
 
 	err = b.cfg.ProofFiles.ImportProofs(ctx, vCtx, false, fullProof)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to insert proofs: %w", err)
+		return nil, fmt.Errorf("unable to insert proofs: %w", err)
 	}
 
-	// Before we continue with the next item, we'll also register the
-	// issuance of the new asset with our local base universe. We skip this
-	// step if there is no universe configured.
-	if b.cfg.Universe == nil {
-		return blob, nil, nil
-	}
-
-	// The universe ID serves to identifier the universe root we want to add
-	// this asset to. This is either the assetID or the group key.
-	uniID := universe.Identifier{
-		AssetID: assetID,
-	}
-
-	groupKey := a.GroupKey
-	if groupKey != nil {
-		uniID.GroupKey = &groupKey.GroupPubKey
-	}
-
-	log.Debugf("Preparing asset for registration with universe, key=%v",
-		spew.Sdump(uniID))
-
-	// The base key is the set of bytes that keys into the universe, this'll
-	// be the outpoint where it was created at and the script key for that
-	// asset.
-	leafKey := universe.BaseLeafKey{
-		OutPoint: wire.OutPoint{
-			Hash:  mintTxHash,
-			Index: b.cfg.Batch.GenesisPacket.AssetAnchorOutIdx,
-		},
-		ScriptKey: &a.ScriptKey,
-	}
-
-	mintingProofBytes, err := mintingProof.Bytes()
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to encode proof: %w", err)
-	}
-
-	// With both of those assembled, we can now register issuance which
-	// takes the amount and proof of the minting event.
-	uniGen := universe.GenesisWithGroup{
-		Genesis: a.Genesis,
-	}
-	if groupKey != nil {
-		uniGen.GroupKey = groupKey
-	}
-	mintingLeaf := &universe.Leaf{
-		GenesisWithGroup: uniGen,
-
-		// The universe tree store only the asset state transition and
-		// not also the proof file checksum (as the root is effectively
-		// a checksum), so we'll use just the state transition.
-		RawProof: mintingProofBytes,
-		Amt:      a.Amount,
-		Asset:    a,
-	}
-
-	return blob, &universe.Item{
-		ID:   uniID,
-		Key:  leafKey,
-		Leaf: mintingLeaf,
-
-		// We set this to true to indicate that we would like the syncer
-		// to log and reattempt (in the event of a failure) to push sync
-		// this proof leaf.
-		LogProofSync: true,
-	}, nil
-}
-
-// batchStreamUniverseItems streams the issuance items for a batch to the
-// universe.
-func (b *Cultivator) batchStreamUniverseItems(ctx context.Context,
-	universeItems chan *universe.Item, numTotal int) error {
-
-	var (
-		numItems int
-		uni      = b.cfg.Universe
-	)
-	err := fn.CollectBatch(
-		ctx, universeItems, b.cfg.UniversePushBatchSize,
-		func(ctx context.Context,
-			batch []*universe.Item) error {
-
-			numItems += len(batch)
-			log.Infof("Inserting %d new leaves (%d of %d) into "+
-				"local universe", len(batch), numItems,
-				numTotal)
-
-			err := uni.UpsertProofLeafBatch(ctx, batch)
-			if err != nil {
-				return fmt.Errorf("unable to register "+
-					"proof leaf batch: %w", err)
-			}
-
-			log.Infof("Inserted %d new leaves (%d of %d) into "+
-				"local universe", len(batch), numItems,
-				numTotal)
-
-			return nil
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("unable to register issuance proofs: %w", err)
-	}
-
-	return nil
+	return blob, nil
 }
 
 // AssetMintEvent is an event which is sent to the Cultivator's event

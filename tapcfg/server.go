@@ -33,6 +33,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightninglabs/taproot-assets/universe/mintpublish"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	"github.com/lightningnetwork/lnd/clock"
@@ -816,11 +817,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				GenSigner:             virtualTxSigner,
 				GenTxBuilder:          &tapscript.GroupTxBuilder{},
 				TxValidator:           &tap.ValidatorV0{},
-				ProofFiles:            proofFileStore,
-				Universe:              universeFederation,
-				ProofWatcher:          reOrgWatcher,
-				UniversePushBatchSize: defaultUniverseSyncBatchSize,
-				IgnoreChecker:         ignoreCheckerOpt,
+				ProofFiles: proofFileStore,
+				MintProofPublisher: mintpublish.NewPublisher(
+					universeFederation,
+					defaultUniverseSyncBatchSize,
+				),
+				ProofWatcher:  reOrgWatcher,
+				IgnoreChecker: ignoreCheckerOpt,
 				GenesisTxAugmenter: supplycommit.NewGenesisAugmenter(
 					supplycommit.GenesisAugmenterCfg{
 						PreCommitStore:       tapdb.NewSupplyPreCommitStore(mintingStore),
