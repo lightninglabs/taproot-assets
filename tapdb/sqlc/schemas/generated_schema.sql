@@ -718,6 +718,9 @@ CREATE TABLE mint_supply_pre_commits (
     outpoint BLOB
 );
 
+CREATE UNIQUE INDEX mint_supply_pre_commits_unique_batch
+    ON mint_supply_pre_commits (batch_id);
+
 CREATE TABLE mssmt_nodes (
     -- hash_key is the hash key by which we reference all nodes.
     hash_key BLOB NOT NULL,

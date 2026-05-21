@@ -1171,7 +1171,12 @@ VALUES (
 ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
     -- The following fields are updated if a conflict occurs.
     taproot_internal_key_id = EXCLUDED.taproot_internal_key_id,
-    group_key = EXCLUDED.group_key,
+    -- The group key is first known at seal time. A batch restored from disk
+    -- can no longer derive that key from its seedling row, so a later
+    -- idempotent write with NULL must not erase the value sealed earlier.
+    group_key = COALESCE(
+        EXCLUDED.group_key, mint_supply_pre_commits.group_key
+    ),
     outpoint = EXCLUDED.outpoint
 RETURNING id;
 
