@@ -180,13 +180,12 @@ func NewBatchState(state uint8) (BatchState, error) {
 	}
 }
 
-// MintingStore is a log that stores information related to the set of pending
-// minting batches. The ChainPlanter and ChainCaretaker use this log to record
-// the process of seeding, planting, and finally maturing taproot assets that are
-// a part of the batch.
-type MintingStore interface {
-	asset.TapscriptTreeManager
-
+// BatchStore persists the lifecycle of a minting batch: creation,
+// state transitions, and the writes that accompany each transition
+// (sprouts, signed genesis tx, confirmation). Both the planter and
+// the caretaker use it; the substance stored is exactly "minting
+// batches and their state."
+type BatchStore interface {
 	// CommitMintingBatch commits a new minting batch to disk, identified
 	// by its batch key.
 	CommitMintingBatch(ctx context.Context, newBatch *MintingBatch) error
@@ -268,11 +267,24 @@ type MintingStore interface {
 		blockHash *chainhash.Hash, blockHeight uint32,
 		txIndex uint32, mintingProofs proof.AssetBlobs) error
 
-	// FetchGroupByGenesis fetches the asset group created by the genesis
-	// referenced by the given ID.
-	FetchGroupByGenesis(ctx context.Context,
-		genesisID int64) (*asset.AssetGroup, error)
+	// CommitBatchFunding atomically persists the funded genesis
+	// transaction and the optional tapscript sibling root hash for a
+	// batch in a single transaction. Either both writes succeed or
+	// neither persists, so a partial-failure cannot leave the batch
+	// in an inconsistent on-disk state.
+	//
+	// NOTE: The tapscript tree referenced by rootHash (if non-nil)
+	// must already be committed to disk.
+	CommitBatchFunding(ctx context.Context, batchKey *btcec.PublicKey,
+		rootHash *chainhash.Hash,
+		genesisTx FundedMintAnchorPsbt) error
+}
 
+// MintingRefReader exposes the read-only lookups the planter performs
+// to validate seedlings before they enter a batch and to populate
+// listings. These are not batch state; they are pre-existing reference
+// data the planter consults but does not own.
+type MintingRefReader interface {
 	// FetchGroupByGroupKey fetches the asset group with a matching tweaked
 	// key, including the genesis information used to create the group.
 	FetchGroupByGroupKey(ctx context.Context,
@@ -286,18 +298,6 @@ type MintingStore interface {
 	// FetchAssetMeta fetches the meta reveal for an asset genesis.
 	FetchAssetMeta(ctx context.Context, ID asset.ID) (*proof.MetaReveal,
 		error)
-
-	// CommitBatchFunding atomically persists the funded genesis
-	// transaction and the optional tapscript sibling root hash for a
-	// batch in a single transaction. Either both writes succeed or
-	// neither persists, so a partial-failure cannot leave the batch
-	// in an inconsistent on-disk state.
-	//
-	// NOTE: The tapscript tree referenced by rootHash (if non-nil)
-	// must already be committed to disk.
-	CommitBatchFunding(ctx context.Context, batchKey *btcec.PublicKey,
-		rootHash *chainhash.Hash,
-		genesisTx FundedMintAnchorPsbt) error
 
 	// FetchDelegationKey fetches the delegation key for the given asset
 	// group public key.

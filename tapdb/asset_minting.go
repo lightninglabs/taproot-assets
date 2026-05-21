@@ -2263,7 +2263,13 @@ func (a *AssetMintingStore) DeleteTapscriptTree(ctx context.Context,
 	})
 }
 
-// A compile-time assertion to ensure that AssetMintingStore meets the
-// tapgarden.MintingStore interface.
-var _ tapgarden.MintingStore = (*AssetMintingStore)(nil)
-var _ asset.TapscriptTreeManager = (*AssetMintingStore)(nil)
+// Compile-time assertions: AssetMintingStore is the single concrete
+// store that satisfies both the BatchStore (batch lifecycle) and the
+// MintingRefReader (reference lookups) views the planter and
+// caretaker consume separately, as well as the TapscriptTreeManager
+// used for batch tap siblings.
+var (
+	_ tapgarden.BatchStore       = (*AssetMintingStore)(nil)
+	_ tapgarden.MintingRefReader = (*AssetMintingStore)(nil)
+	_ asset.TapscriptTreeManager = (*AssetMintingStore)(nil)
+)

@@ -208,7 +208,7 @@ func (b *BatchCaretaker) Cancel(respCh chan<- CancelResp) error {
 	switch batchState {
 	// In the pending state, the batch seedlings have not sprouted yet.
 	case BatchStatePending, BatchStateFrozen:
-		err := b.cfg.Log.UpdateBatchState(
+		err := b.cfg.BatchStore.UpdateBatchState(
 			ctx, b.cfg.Batch,
 			BatchStateSeedlingCancelled,
 		)
@@ -229,7 +229,7 @@ func (b *BatchCaretaker) Cancel(respCh chan<- CancelResp) error {
 		cancelResp = CancelResp{true, err}
 
 	case BatchStateCommitted:
-		err := b.cfg.Log.UpdateBatchState(
+		err := b.cfg.BatchStore.UpdateBatchState(
 			ctx, b.cfg.Batch,
 			BatchStateSproutCancelled,
 		)
@@ -333,7 +333,7 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 
 		// We do not mirror currentState into the in-memory batch
 		// here. Each branch of stateStep that transitions state does
-		// so via a MintingStore call, which advances the in-memory
+		// so via a BatchStore call, which advances the in-memory
 		// mirror only after the DB write succeeds. Writing the local
 		// currentState here would re-introduce the two-truth split
 		// that the store calls exist to prevent.
@@ -460,7 +460,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 	)
 	groupedSeedlingCount := len(groupedSeedlings)
 	// load seedling asset groups and check for correct group count
-	seedlingGroups, err := b.cfg.Log.FetchSeedlingGroups(
+	seedlingGroups, err := b.cfg.BatchStore.FetchSeedlingGroups(
 		ctx, genesisPoint, assetOutputIndex,
 		maps.Values(groupedSeedlings),
 	)
@@ -570,7 +570,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// Finalize the batch, then move the batch state to frozen.
 		ctx, cancel := b.WithCtxQuit()
 		defer cancel()
-		err := freezeMintingBatch(ctx, b.cfg.Log, b.cfg.Batch)
+		err := freezeMintingBatch(ctx, b.cfg.BatchStore, b.cfg.Batch)
 		if err != nil {
 			return 0, err
 		}
@@ -686,7 +686,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// With all our commitments created, we'll commit them to disk,
 		// replacing the existing seedlings we had created for each of
 		// these assets.
-		err = b.cfg.Log.AddSproutsToBatch(
+		err = b.cfg.BatchStore.AddSproutsToBatch(
 			ctx, b.cfg.Batch,
 			&fundedGenesisPsbt, b.cfg.Batch.RootAssetCommitment,
 		)
@@ -833,7 +833,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			return 0, fmt.Errorf("unable to import key: %w", err)
 		}
 
-		err = b.cfg.Log.CommitSignedGenesisTx(
+		err = b.cfg.BatchStore.CommitSignedGenesisTx(
 			ctx, b.cfg.Batch,
 			&b.cfg.Batch.GenesisPacket.FundedPsbt,
 			b.cfg.Batch.GenesisPacket.AssetAnchorOutIdx,
@@ -1161,7 +1161,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				"events: %w", err)
 		}
 
-		err = b.cfg.Log.MarkBatchConfirmed(
+		err = b.cfg.BatchStore.MarkBatchConfirmed(
 			ctx, b.cfg.Batch, confInfo.BlockHash,
 			confInfo.BlockHeight, confInfo.TxIndex,
 			mintingProofBlobs,
@@ -1192,7 +1192,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// TODO(roasbeef): confirmed should just be the final state?
 		ctx, cancel := b.WithCtxQuit()
 		defer cancel()
-		err := b.cfg.Log.UpdateBatchState(
+		err := b.cfg.BatchStore.UpdateBatchState(
 			ctx, b.cfg.Batch, BatchStateFinalized,
 		)
 		return BatchStateFinalized, err
@@ -1730,8 +1730,8 @@ func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
 func (b *BatchCaretaker) verifierCtx(ctx context.Context) proof.VerifierCtx {
 	headerVerifier := tapnode.GenHeaderVerifier(ctx, b.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
-	groupVerifier := GenGroupVerifier(ctx, b.cfg.Log)
-	groupAnchorVerifier := GenGroupAnchorVerifier(ctx, b.cfg.Log)
+	groupVerifier := GenGroupVerifier(ctx, b.cfg.MintingRefs)
+	groupAnchorVerifier := GenGroupAnchorVerifier(ctx, b.cfg.MintingRefs)
 
 	return proof.VerifierCtx{
 		HeaderVerifier:      headerVerifier,

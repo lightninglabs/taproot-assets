@@ -397,7 +397,7 @@ func (m *MockProofWatcher) DefaultUpdateCallback() proof.UpdateCallback {
 }
 
 type FallibleTapscriptTreeMgr struct {
-	store               MintingStore
+	store               asset.TapscriptTreeManager
 	FailLoad, FailStore bool
 }
 
@@ -427,7 +427,9 @@ func (mgr FallibleTapscriptTreeMgr) StoreTapscriptTree(ctx context.Context,
 	return mgr.store.StoreTapscriptTree(ctx, treeNodes)
 }
 
-func NewFallibleTapscriptTreeMgr(store MintingStore) FallibleTapscriptTreeMgr {
+func NewFallibleTapscriptTreeMgr(
+	store asset.TapscriptTreeManager) FallibleTapscriptTreeMgr {
+
 	return FallibleTapscriptTreeMgr{
 		store: store,
 	}

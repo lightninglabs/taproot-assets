@@ -326,7 +326,7 @@ func (m *MintingBatch) State() BatchState {
 }
 
 // setState updates the in-memory batch state. This is unexported because
-// every authoritative state mutation must flow through a MintingStore call
+// every authoritative state mutation must flow through a BatchStore call
 // that writes to disk first and only then mutates memory. Use this only for
 // package-internal cases that are not the result of a DB transition
 // (currently: initial Pending state during batch construction and copying
@@ -336,12 +336,12 @@ func (m *MintingBatch) setState(state BatchState) {
 }
 
 // SetStateOnDBSuccess mutates the in-memory batch state. It is intended to
-// be called exclusively by MintingStore implementations after a successful
+// be called exclusively by BatchStore implementations after a successful
 // DB write has committed the same state to disk; this is what guarantees
 // that the in-memory mirror cannot get ahead of the on-disk truth.
 //
 // NOTE: Ordinary callers (planter, caretaker, RPC layer, tests) must never
-// invoke this method directly. Use the MintingStore interface, whose
+// invoke this method directly. Use the BatchStore interface, whose
 // state-mutating methods take *MintingBatch and update memory only on DB
 // success.
 func (m *MintingBatch) SetStateOnDBSuccess(state BatchState) {

@@ -53,7 +53,8 @@ func NewMint(tb testing.TB) *Mint {
 		GardenKit: tapgarden.GardenKit{
 			Wallet:       wallet,
 			ChainBridge:  chainBridge,
-			Log:          mintingStore,
+			BatchStore:   mintingStore,
+			MintingRefs:  mintingStore,
 			TreeStore:    &treeMgr,
 			KeyRing:      st.KeyRing,
 			GenSigner:    genSigner,

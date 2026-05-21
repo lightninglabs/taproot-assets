@@ -71,8 +71,11 @@ var (
 	)
 )
 
-// newMintingStore creates a new instance of the TapAddressBook book.
-func newMintingStore(t *testing.T) tapgarden.MintingStore {
+// newMintingStore creates a new in-memory asset minting store backed
+// by tapdb. The concrete type is returned because the harness needs
+// both BatchStore and MintingRefReader views of the same underlying
+// store as well as TapscriptTreeManager for the fallible tree mock.
+func newMintingStore(t *testing.T) *tapdb.AssetMintingStore {
 	db := tapdb.NewTestDB(t)
 
 	txCreator := func(tx *sql.Tx) tapdb.PendingAssetStore {
@@ -91,7 +94,7 @@ type mintingTestHarness struct {
 
 	chain *tapnodemock.ChainBridge
 
-	store tapgarden.MintingStore
+	store *tapdb.AssetMintingStore
 
 	treeStore *tapgarden.FallibleTapscriptTreeMgr
 
@@ -117,7 +120,7 @@ type mintingTestHarness struct {
 // newMintingTestHarness creates a new test harness from an active minting
 // store and an existing testing context.
 func newMintingTestHarness(t *testing.T,
-	store tapgarden.MintingStore) *mintingTestHarness {
+	store *tapdb.AssetMintingStore) *mintingTestHarness {
 
 	keyRing := tapnodemock.NewKeyRing()
 	genSigner := tapgarden.NewMockGenSigner(keyRing)
@@ -152,7 +155,8 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 		GardenKit: tapgarden.GardenKit{
 			Wallet:       t.wallet,
 			ChainBridge:  t.chain,
-			Log:          t.store,
+			BatchStore:   t.store,
+			MintingRefs:  t.store,
 			TreeStore:    t.treeStore,
 			KeyRing:      t.keyRing,
 			GenSigner:    t.genSigner,

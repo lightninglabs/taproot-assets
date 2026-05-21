@@ -53,9 +53,17 @@ type GardenKit struct {
 	// notification, and other block related actions.
 	ChainBridge tapnode.ChainBridge
 
-	// Log stores the current state of any active batch, throughout the
-	// various states the planter will progress it through.
-	Log MintingStore
+	// BatchStore persists the lifecycle of minting batches. Both the
+	// planter and the caretakers it spawns drive batches through their
+	// states by writing to this store.
+	BatchStore BatchStore
+
+	// MintingRefs exposes read-only lookups for the reference data
+	// (script keys, asset metas, group keys, delegation keys) that
+	// the planter consults when validating seedlings and that the
+	// caretaker consults when verifying proofs via GenGroupVerifier
+	// and GenGroupAnchorVerifier.
+	MintingRefs MintingRefReader
 
 	// TreeStore provides access to optional tapscript trees used with
 	// script keys, minting output keys, and group keys.
@@ -477,7 +485,7 @@ func (c *ChainPlanter) Start() error {
 		// pending batch at a time? but would end up changing assetIDs.
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		nonFinalBatches, err := c.cfg.Log.FetchNonFinalBatches(ctx)
+		nonFinalBatches, err := c.cfg.BatchStore.FetchNonFinalBatches(ctx)
 		if err != nil {
 			startErr = err
 			return
@@ -526,7 +534,7 @@ func (c *ChainPlanter) Start() error {
 			cancelBatch := func() {
 				log.Warnf("Marking batch as cancelled (%x)",
 					batchKey)
-				err := c.cfg.Log.UpdateBatchState(
+				err := c.cfg.BatchStore.UpdateBatchState(
 					ctx, batch,
 					BatchStateSeedlingCancelled,
 				)
@@ -602,7 +610,7 @@ func (c *ChainPlanter) Start() error {
 				// store call below moves both the on-disk row
 				// and the in-memory mirror atomically; if it
 				// fails, neither has moved.
-				err := c.cfg.Log.UpdateBatchState(
+				err := c.cfg.BatchStore.UpdateBatchState(
 					ctx, batch, BatchStateFrozen,
 				)
 				if err != nil {
@@ -1391,7 +1399,7 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 
 // freezeMintingBatch freezes a target minting batch which means that no new
 // assets can be added to the batch.
-func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
+func freezeMintingBatch(ctx context.Context, batchStore BatchStore,
 	batch *MintingBatch) error {
 
 	batchKey := batch.BatchKey.PubKey
@@ -1469,7 +1477,7 @@ func filterFinalizedBatches(batches []*MintingBatch) ([]*MintingBatch,
 
 // fetchFinalizedBatch fetches the assets of a batch in their genesis state,
 // given a batch populated with seedlings.
-func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
+func fetchFinalizedBatch(ctx context.Context, refs MintingRefReader,
 	archiver proof.Archiver, batch *MintingBatch) (*MintingBatch, error) {
 
 	genesisPkt := batch.GenesisPacket
@@ -1546,7 +1554,7 @@ func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
 				"script key")
 		}
 
-		tweakedScriptKey, err := batchStore.FetchScriptKeyByTweakedKey(
+		tweakedScriptKey, err := refs.FetchScriptKeyByTweakedKey(
 			ctx, sproutedAsset.ScriptKey.PubKey,
 		)
 		if err != nil {
@@ -1555,7 +1563,7 @@ func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
 
 		sproutedAsset.ScriptKey.TweakedScriptKey = tweakedScriptKey
 		if sproutedAsset.GroupKey != nil {
-			assetGroup, err := batchStore.FetchGroupByGroupKey(
+			assetGroup, err := refs.FetchGroupByGroupKey(
 				ctx, &sproutedAsset.GroupKey.GroupPubKey,
 			)
 			if err != nil {
@@ -1602,8 +1610,9 @@ func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
 
 // ListBatches returns the single batch specified by the batch key, or the set
 // of batches not yet finalized on disk.
-func listBatches(ctx context.Context, batchStore MintingStore,
-	archiver proof.Archiver, genBuilder asset.GenesisTxBuilder,
+func listBatches(ctx context.Context, batchStore BatchStore,
+	refs MintingRefReader, archiver proof.Archiver,
+	genBuilder asset.GenesisTxBuilder,
 	params ListBatchesParams) ([]*VerboseBatch, error) {
 
 	var (
@@ -1638,7 +1647,7 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 		finalizedBatches := make([]*MintingBatch, 0, len(finalBatches))
 		for _, batch := range finalBatches {
 			finalizedBatch, err := fetchFinalizedBatch(
-				ctx, batchStore, archiver, batch,
+				ctx, refs, archiver, batch,
 			)
 			if err != nil {
 				return nil, err
@@ -1887,7 +1896,7 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 	// non-cancelled batch in play is c.pendingBatch (canCancelBatch
 	// guarantees this). Update the batch state on disk and in memory in
 	// a single atomic call.
-	err := c.cfg.Log.UpdateBatchState(
+	err := c.cfg.BatchStore.UpdateBatchState(
 		ctx, c.pendingBatch, BatchStateSeedlingCancelled,
 	)
 	if err != nil {
@@ -2116,7 +2125,7 @@ func (c *ChainPlanter) createFundedBatch(ctx context.Context,
 		newBatch.tapSibling = prep.rootHash
 	}
 
-	if err := c.cfg.Log.CommitMintingBatch(ctx, newBatch); err != nil {
+	if err := c.cfg.BatchStore.CommitMintingBatch(ctx, newBatch); err != nil {
 		return nil, err
 	}
 
@@ -2153,7 +2162,7 @@ func (c *ChainPlanter) applyFundingToBatch(ctx context.Context,
 	// both writes in a single transaction ensures a partial
 	// failure cannot leave the batch with one persisted and the
 	// other absent.
-	err = c.cfg.Log.CommitBatchFunding(
+	err = c.cfg.BatchStore.CommitBatchFunding(
 		ctx, batch.BatchKey.PubKey, prep.rootHash, *mintAnchorTx,
 	)
 	if err != nil {
@@ -2347,7 +2356,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 
 	// If the batch was previously sealed, each grouped seedling will have
 	// its asset genesis already stored on disk.
-	existingGroups, err := c.cfg.Log.FetchSeedlingGroups(
+	existingGroups, err := c.cfg.BatchStore.FetchSeedlingGroups(
 		ctx, genesisPoint, anchorOutputIndex, singleSeedling,
 	)
 
@@ -2550,7 +2559,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 
 	// With all the asset group witnesses validated, we can now save them
 	// to disk effectively sealing the batch.
-	err = c.cfg.Log.SealBatch(ctx, batchWithGroupInfo, newAssetGroups)
+	err = c.cfg.BatchStore.SealBatch(ctx, batchWithGroupInfo, newAssetGroups)
 	if err != nil {
 		return nil, fmt.Errorf("unable to write seedling groups: "+
 			"%w", err)
@@ -2630,8 +2639,8 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	// batch on disk and in memory. This means no further
 	// seedlings can be added to this batch. freezeMintingBatch
 	// updates both the on-disk row and the in-memory state in a
-	// single atomic step via the MintingStore.
-	err = freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
+	// single atomic step via the BatchStore.
+	err = freezeMintingBatch(ctx, c.cfg.BatchStore, c.pendingBatch)
 	if err != nil {
 		return nil, err
 	}
@@ -2700,8 +2709,8 @@ func (c *ChainPlanter) ListBatches(params ListBatchesParams) ([]*VerboseBatch,
 		c, func(out chan<- stateResult[[]*VerboseBatch]) {
 			ctx, cancel := c.WithCtxQuit()
 			batches, err := listBatches(
-				ctx, c.cfg.Log, c.cfg.ProofFiles,
-				c.cfg.GenTxBuilder, params,
+				ctx, c.cfg.BatchStore, c.cfg.MintingRefs,
+				c.cfg.ProofFiles, c.cfg.GenTxBuilder, params,
 			)
 			cancel()
 			if err != nil {
@@ -2864,7 +2873,7 @@ func (c *ChainPlanter) FinalizeBatch(params FinalizeParams) (*MintingBatch,
 				}
 
 				cancelCtx, cancelCtxCancel := c.WithCtxQuit()
-				cancelErr := c.cfg.Log.UpdateBatchState(
+				cancelErr := c.cfg.BatchStore.UpdateBatchState(
 					cancelCtx, c.pendingBatch, cancelState,
 				)
 				cancelCtxCancel()
@@ -2961,7 +2970,7 @@ func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
 	// If an existing group key is set, we can use that to look up the
 	// delegation key.
 	if req.GroupInfo != nil && req.GroupInfo.GroupKey != nil {
-		dKeyOpt, err := c.cfg.Log.FetchDelegationKey(
+		dKeyOpt, err := c.cfg.MintingRefs.FetchDelegationKey(
 			ctx, req.GroupInfo.GroupKey.GroupPubKey,
 		)
 		if err != nil {
@@ -3047,7 +3056,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	if req.HasGroupKey() {
 		groupKeyBytes := req.GroupInfo.GroupPubKey.
 			SerializeCompressed()
-		groupInfo, err := c.cfg.Log.FetchGroupByGroupKey(
+		groupInfo, err := c.cfg.MintingRefs.FetchGroupByGroupKey(
 			ctx, &req.GroupInfo.GroupPubKey,
 		)
 		if err != nil {
@@ -3056,7 +3065,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 			)
 		}
 
-		anchorMeta, err := c.cfg.Log.FetchAssetMeta(
+		anchorMeta, err := c.cfg.MintingRefs.FetchAssetMeta(
 			ctx, groupInfo.Genesis.ID(),
 		)
 		if err != nil {
@@ -3163,7 +3172,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
+		err = c.cfg.BatchStore.CommitMintingBatch(ctx, newBatch)
 		if err != nil {
 			return err
 		}
@@ -3190,7 +3199,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err = c.cfg.Log.AddSeedlingsToBatch(
+		err = c.cfg.BatchStore.AddSeedlingsToBatch(
 			ctx, c.pendingBatch.BatchKey.PubKey, req,
 		)
 		if err != nil {
@@ -3387,7 +3396,7 @@ func (c *ChainPlanter) publishSubscriberEvent(event fn.Event) {
 func (c *ChainPlanter) verifierCtx(ctx context.Context) proof.VerifierCtx {
 	headerVerifier := tapnode.GenHeaderVerifier(ctx, c.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
-	groupVerifier := GenGroupVerifier(ctx, c.cfg.Log)
+	groupVerifier := GenGroupVerifier(ctx, c.cfg.MintingRefs)
 
 	return proof.VerifierCtx{
 		HeaderVerifier: headerVerifier,
