@@ -34,6 +34,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	_ "github.com/lightninglabs/taproot-assets/tapdb" // Register relevant drivers.
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
@@ -84,15 +85,15 @@ func newMintingStore(t *testing.T) tapgarden.MintingStore {
 // create succinct and fully featured unit/systems tests for the batched asset
 // minting process.
 type mintingTestHarness struct {
-	wallet *tapgarden.MockWalletAnchor
+	wallet *tapnodemock.WalletAnchor
 
-	chain *tapgarden.MockChainBridge
+	chain *tapnodemock.ChainBridge
 
 	store tapgarden.MintingStore
 
 	treeStore *tapgarden.FallibleTapscriptTreeMgr
 
-	keyRing *tapgarden.MockKeyRing
+	keyRing *tapnodemock.KeyRing
 
 	genSigner *tapgarden.MockGenSigner
 
@@ -116,7 +117,7 @@ type mintingTestHarness struct {
 func newMintingTestHarness(t *testing.T,
 	store tapgarden.MintingStore) *mintingTestHarness {
 
-	keyRing := tapgarden.NewMockKeyRing()
+	keyRing := tapnodemock.NewKeyRing()
 	genSigner := tapgarden.NewMockGenSigner(keyRing)
 	treeMgr := tapgarden.NewFallibleTapscriptTreeMgr(store)
 	archiver := proof.NewMockProofArchive()
@@ -125,8 +126,8 @@ func newMintingTestHarness(t *testing.T,
 		T:            t,
 		store:        store,
 		treeStore:    &treeMgr,
-		wallet:       tapgarden.NewMockWalletAnchor(),
-		chain:        tapgarden.NewMockChainBridge(),
+		wallet:       tapnodemock.NewWalletAnchor(),
+		chain:        tapnodemock.NewChainBridge(),
 		proofFiles:   archiver,
 		proofWatcher: &tapgarden.MockProofWatcher{},
 		keyRing:      keyRing,
@@ -2244,7 +2245,7 @@ func TestBatchedAssetIssuance(t *testing.T) {
 func TestGroupKeyRevealV1WitnessWithCustomRoot(t *testing.T) {
 	var (
 		ctx              = context.Background()
-		mockKeyRing      = tapgarden.NewMockKeyRing()
+		mockKeyRing      = tapnodemock.NewKeyRing()
 		mockSigner       = tapgarden.NewMockGenSigner(mockKeyRing)
 		txBuilder        = &tapscript.GroupTxBuilder{}
 		txValidator      = &tap.ValidatorV0{}
@@ -2407,7 +2408,7 @@ func TestGroupKeyRevealV1WitnessWithCustomRoot(t *testing.T) {
 func TestGroupKeyRevealV1WitnessNoScripts(t *testing.T) {
 	var (
 		ctx         = context.Background()
-		mockKeyRing = tapgarden.NewMockKeyRing()
+		mockKeyRing = tapnodemock.NewKeyRing()
 		mockSigner  = tapgarden.NewMockGenSigner(mockKeyRing)
 		txBuilder   = &tapscript.GroupTxBuilder{}
 		txValidator = &tap.ValidatorV0{}

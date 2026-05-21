@@ -1090,7 +1090,7 @@ func randBurnProofWithGroupKey(t *testing.T,
 
 // createVerifiableCommitment builds a RootCommitment whose chain anchor
 // passes VerifyChainAnchor without a live chain. It uses a single-tx block
-// so the merkle proof is empty (merkle root == tx hash), and MockChainBridge
+// so the merkle proof is empty (merkle root == tx hash), and tapnodemock
 // returns nil from VerifyBlock unconditionally. The TxOut is derived from
 // RootCommitTxOut using an empty supply tree root, so the output script
 // check passes. If txIns is nil, a single default input with a zero outpoint

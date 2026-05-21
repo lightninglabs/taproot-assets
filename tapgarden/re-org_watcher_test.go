@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +30,7 @@ type reOrgWatcherHarness struct {
 	t           *testing.T
 	w           *ReOrgWatcher
 	cfg         *ReOrgWatcherConfig
-	chainBridge *MockChainBridge
+	chainBridge *tapnodemock.ChainBridge
 }
 
 // assertStartup makes sure the custodian was started correctly.
@@ -48,10 +49,10 @@ func (h *reOrgWatcherHarness) eventually(fn func() bool) {
 }
 
 func newReOrgWatcherHarness(t *testing.T) *reOrgWatcherHarness {
-	chainBridge := NewMockChainBridge()
+	chainBridge := tapnodemock.NewChainBridge()
 	cfg := &ReOrgWatcherConfig{
 		ChainBridge:   chainBridge,
-		GroupVerifier: GenMockGroupVerifier(),
+		GroupVerifier: tapnodemock.GenGroupVerifier(),
 		NonBuriedAssetFetcher: func(ctx context.Context,
 			minHeight int32) ([]*asset.ChainAsset, error) {
 
