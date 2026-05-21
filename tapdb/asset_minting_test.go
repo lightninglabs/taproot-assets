@@ -511,7 +511,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
 	_, randSiblingHash := addRandSiblingToBatch(t, mintingBatch)
-	err := assetStore.CommitMintingBatch(ctx, mintingBatch)
+	err := assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData())
 	require.NoError(t, err)
 
 	batchKey := mintingBatch.BatchKey.PubKey
@@ -586,6 +586,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	// back to finalized.
 	require.NoError(t, assetStore.AddSproutsToBatch(
 		ctx, mintingBatch, genesisPacket, assetRoot,
+		genesisPacket.PreCommitBindData(),
 	))
 	require.Equal(
 		t, tapgarden.BatchStateCommitted, mintingBatch.State(),
@@ -614,7 +615,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	mintingBatch = tapgarden.RandMintingBatch(
 		t, tapgarden.WithTotalSeedlings(numSeedlings),
 	)
-	err = assetStore.CommitMintingBatch(ctx, mintingBatch)
+	err = assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData())
 	require.NoError(t, err)
 	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertSeedlingBatchLen(t, mintingBatches, 1, numSeedlings)
@@ -655,7 +656,7 @@ func TestInsertFetchUniCommitBatch(t *testing.T) {
 	require.True(t, seedling.DelegationKey.IsSome())
 
 	// Commit the minting batch to the database.
-	err := assetStore.CommitMintingBatch(ctx, batch)
+	err := assetStore.CommitMintingBatch(ctx, batch, batch.GenesisPacket.PreCommitBindData())
 	require.NoError(t, err)
 
 	// Fetch the same batch from the database.
@@ -876,7 +877,7 @@ func TestAddSproutsToBatch(t *testing.T) {
 	}
 
 	// First, we'll create a new batch, then add some sample seedlings.
-	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData()))
 
 	// Now that the batch is on disk, we'll map those seedlings to an
 	// actual asset commitment, then insert them into the DB as sprouts.
@@ -902,6 +903,7 @@ func TestAddSproutsToBatch(t *testing.T) {
 
 	require.NoError(t, assetStore.AddSproutsToBatch(
 		ctx, mintingBatch, genesisPacket, assetRoot,
+		genesisPacket.PreCommitBindData(),
 	))
 	require.Equal(
 		t, tapgarden.BatchStateCommitted, mintingBatch.State(),
@@ -967,7 +969,7 @@ func addRandAssets(t *testing.T, ctx context.Context,
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
 	randSibling, randSiblingHash := addRandSiblingToBatch(t, mintingBatch)
-	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData()))
 
 	genesisPacket := mintingBatch.GenesisPacket
 	assetRoot := seedlingsToAssetRoot(
@@ -994,6 +996,7 @@ func addRandAssets(t *testing.T, ctx context.Context,
 
 	require.NoError(t, assetStore.AddSproutsToBatch(
 		ctx, mintingBatch, genesisPacket, assetRoot,
+		genesisPacket.PreCommitBindData(),
 	))
 	require.Equal(
 		t, tapgarden.BatchStateCommitted, mintingBatch.State(),
@@ -1492,7 +1495,7 @@ func TestGroupAnchors(t *testing.T) {
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
 	addMultiAssetGroupToBatch(mintingBatch.Seedlings)
-	err := assetStore.CommitMintingBatch(ctx, mintingBatch)
+	err := assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData())
 	require.NoError(t, err)
 
 	batchKey := mintingBatch.BatchKey.PubKey
@@ -1571,6 +1574,7 @@ func TestGroupAnchors(t *testing.T) {
 
 	require.NoError(t, assetStore.AddSproutsToBatch(
 		ctx, mintingBatch, genesisPacket, assetRoot,
+		genesisPacket.PreCommitBindData(),
 	))
 	require.Equal(
 		t, tapgarden.BatchStateCommitted, mintingBatch.State(),
@@ -2013,7 +2017,7 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	storeSeedlingGroupGenesis(t, ctx, assetStore, seedling)
 
 	// Commit batch.
-	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData()))
 
 	// Retrieve the batch key of the batch we just inserted.
 	var batchKey []byte
@@ -2102,7 +2106,7 @@ func TestUpdateBatchStateMemoryCoherence(t *testing.T) {
 	ctx := context.Background()
 
 	mintingBatch := tapgarden.RandMintingBatch(t)
-	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch, mintingBatch.GenesisPacket.PreCommitBindData()))
 	require.Equal(
 		t, tapgarden.BatchStatePending, mintingBatch.State(),
 	)
@@ -2147,12 +2151,12 @@ func TestSingletonPreBroadcastBatchConstraint(t *testing.T) {
 
 	// A first Pending batch is fine.
 	first := tapgarden.RandMintingBatch(t)
-	require.NoError(t, assetStore.CommitMintingBatch(ctx, first))
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, first, first.GenesisPacket.PreCommitBindData()))
 
 	// A second Pending batch must be rejected: two rows in
 	// BatchStatePending violate the partial unique index.
 	secondPending := tapgarden.RandMintingBatch(t)
-	err := assetStore.CommitMintingBatch(ctx, secondPending)
+	err := assetStore.CommitMintingBatch(ctx, secondPending, secondPending.GenesisPacket.PreCommitBindData())
 	require.Error(t, err)
 
 	// Move the first batch to Frozen; it is still in the
@@ -2163,7 +2167,7 @@ func TestSingletonPreBroadcastBatchConstraint(t *testing.T) {
 	))
 
 	pendingWhileFrozen := tapgarden.RandMintingBatch(t)
-	err = assetStore.CommitMintingBatch(ctx, pendingWhileFrozen)
+	err = assetStore.CommitMintingBatch(ctx, pendingWhileFrozen, pendingWhileFrozen.GenesisPacket.PreCommitBindData())
 	require.Error(t, err)
 
 	// Move the first batch out of the pre-broadcast set into
@@ -2174,7 +2178,7 @@ func TestSingletonPreBroadcastBatchConstraint(t *testing.T) {
 	))
 
 	third := tapgarden.RandMintingBatch(t)
-	require.NoError(t, assetStore.CommitMintingBatch(ctx, third))
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, third, third.GenesisPacket.PreCommitBindData()))
 
 	// And finally: two batches both in Committed must be
 	// permitted -- the constraint targets only the pre-broadcast

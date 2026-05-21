@@ -370,10 +370,16 @@ func upsertDelegationKey(ctx context.Context, q PendingAssetStore,
 	return sqlInt64(keyID), nil
 }
 
-// insertMintAnchorTx inserts a mint anchor transaction into the database.
+// insertMintAnchorTx inserts a mint anchor transaction into the
+// database, optionally also persisting the supply-pre-commit row
+// supplied by the caller. The pre-commit payload is a typed
+// parameter (rather than read off the funded PSBT) so the genesis
+// transaction can be persisted without tapdb needing to know what
+// substance the extra anchor outputs serve.
 func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 	anchorPackage tapgarden.FundedMintAnchorPsbt,
-	batchKey btcec.PublicKey, genesisOutpoint wire.OutPoint) error {
+	batchKey btcec.PublicKey, genesisOutpoint wire.OutPoint,
+	preCommit fn.Option[tapgarden.PreCommitBindData]) error {
 
 	// Ensure that the genesis point is in the database.
 	genesisPointDbID, err := upsertGenesisPoint(
@@ -389,7 +395,7 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 	}
 
 	rawBatchKey := batchKey.SerializeCompressed()
-	enableUniverseCommitments := anchorPackage.PreCommitmentOutput.IsSome()
+	enableUniverseCommitments := preCommit.IsSome()
 
 	_, err = q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
 		RawKey:              rawBatchKey,
@@ -403,46 +409,57 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 		return fmt.Errorf("%w: %w", ErrBindBatchTx, err)
 	}
 
-	// If universe commitments are not enabled for this batch, we can
-	// return early.
-	if !enableUniverseCommitments {
+	// If no supply-pre-commit payload was supplied, there is no
+	// supply-pre-commit row to write.
+	if preCommit.IsNone() {
 		return nil
 	}
 
-	// At this point, universe commitments are enabled for this batch, so
-	// we'll insert the mint anchor uni commitment record.
-	preCommitOut, err := anchorPackage.PreCommitmentOutput.UnwrapOrErr(
-		fmt.Errorf("pre-commitment outpoint bundle not set"),
+	bind, err := preCommit.UnwrapOrErr(
+		fmt.Errorf("pre-commitment bind data not set"),
 	)
 	if err != nil {
 		return err
 	}
 
-	// Serialize internal key.
-	rawInternalKey := preCommitOut.InternalKey.PubKey.SerializeCompressed()
+	return upsertPreCommitRow(
+		ctx, q, rawBatchKey, anchorPackage.Pkt.UnsignedTx.TxHash(),
+		bind,
+	)
+}
+
+// upsertPreCommitRow writes a single supply-pre-commit row using the
+// typed bind payload. The genesis-tx hash is supplied separately
+// because the (tx-hash, output-index) pair forms the outpoint
+// column; the bind payload itself carries only the output index.
+func upsertPreCommitRow(ctx context.Context, q PendingAssetStore,
+	rawBatchKey []byte, genesisTxHash chainhash.Hash,
+	bind tapgarden.PreCommitBindData) error {
+
+	rawInternalKey := bind.InternalKey.PubKey.SerializeCompressed()
 
 	internalKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    rawInternalKey,
-		KeyFamily: int32(preCommitOut.InternalKey.Family),
-		KeyIndex:  int32(preCommitOut.InternalKey.Index),
+		KeyFamily: int32(bind.InternalKey.Family),
+		KeyIndex:  int32(bind.InternalKey.Index),
 	})
 	if err != nil {
 		return fmt.Errorf("faild to upsert delegation key into "+
 			"internal key table: %w: %w", ErrUpsertInternalKey, err)
 	}
 
-	// Serialize the group key if it is defined. The key may be unset when
-	// there is no existing group and the minting batch is funded but not
-	// yet sealed.
+	// Serialize the group key if it is defined. The key may be unset
+	// when there is no existing group and the minting batch is funded
+	// but not yet sealed.
 	groupPubKeyBytes := fn.MapOptionZ(
-		preCommitOut.GroupPubKey, func(pubKey btcec.PublicKey) []byte {
+		bind.GroupKey, func(pubKey btcec.PublicKey) []byte {
 			return schnorr.SerializePubKey(&pubKey)
 		},
 	)
 
 	outPoint := wire.OutPoint{
-		Hash:  anchorPackage.Pkt.UnsignedTx.TxHash(),
-		Index: preCommitOut.OutIdx,
+		Hash:  genesisTxHash,
+		Index: bind.OutputIndex,
 	}
 	outPointBytes, err := encodeOutpoint(outPoint)
 	if err != nil {
@@ -452,27 +469,30 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 	_, err = q.UpsertMintSupplyPreCommit(
 		ctx, UpsertBatchPreCommitParams{
 			BatchKey:             rawBatchKey,
-			TxOutputIndex:        int32(preCommitOut.OutIdx),
+			TxOutputIndex:        int32(bind.OutputIndex),
 			TaprootInternalKeyID: internalKeyID,
 			GroupKey:             groupPubKeyBytes,
 			Outpoint:             outPointBytes,
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("unable to insert mint anchor uni "+
-			"commitment: %w", err)
+		return fmt.Errorf("unable to upsert pre-commit output: %w",
+			err)
 	}
 
 	return nil
 }
 
-// CommitMintingBatch commits a new minting batch to disk along with any
-// seedlings specified as part of the batch. A new internal key is also
-// created, with the batch referencing that internal key. This internal key
-// will be used as the internal key which will mint all the assets in the
-// batch.
+// CommitMintingBatch commits a new minting batch to disk along with
+// any seedlings specified as part of the batch. A new internal key
+// is also created, with the batch referencing that internal key.
+// This internal key will be used as the internal key which will mint
+// all the assets in the batch. If preCommit is set (the batch was
+// created already-funded with a pre-commitment output), the
+// supply-pre-commit row is persisted in the same transaction.
 func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
-	newBatch *tapgarden.MintingBatch) error {
+	newBatch *tapgarden.MintingBatch,
+	preCommit fn.Option[tapgarden.PreCommitBindData]) error {
 
 	rawBatchKey := newBatch.BatchKey.PubKey.SerializeCompressed()
 
@@ -527,6 +547,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 			err = insertMintAnchorTx(
 				ctx, q, *genesisPacket,
 				*newBatch.BatchKey.PubKey, genesisOutpoint,
+				preCommit,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to insert mint "+
@@ -1502,12 +1523,14 @@ func encodeOutpoint(outPoint wire.OutPoint) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// CommitBatchFunding atomically persists the funded genesis transaction
-// and the optional tapscript sibling for a batch in a single database
+// CommitBatchFunding atomically persists the funded genesis
+// transaction, the optional tapscript sibling, and (when set) the
+// supply-pre-commit row for a batch in a single database
 // transaction.
 func (a *AssetMintingStore) CommitBatchFunding(ctx context.Context,
 	batchKey *btcec.PublicKey, batchSibling *chainhash.Hash,
-	genesisPacket tapgarden.FundedMintAnchorPsbt) error {
+	genesisPacket tapgarden.FundedMintAnchorPsbt,
+	preCommit fn.Option[tapgarden.PreCommitBindData]) error {
 
 	genesisOutpoint, err := genesisPacket.GenesisOutpoint().UnwrapOrErr(
 		tapgarden.ErrFundedAnchorPsbtMissingOutpoint,
@@ -1535,6 +1558,7 @@ func (a *AssetMintingStore) CommitBatchFunding(ctx context.Context,
 
 		err := insertMintAnchorTx(
 			ctx, q, genesisPacket, *batchKey, genesisOutpoint,
+			preCommit,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to insert mint anchor "+
@@ -1597,86 +1621,14 @@ func (a *AssetMintingStore) FetchDelegationKey(ctx context.Context,
 	return delegationKey, nil
 }
 
-// upsertPreCommit upserts the pre-commitment output for a batch into the
-// database. If the pre-commitment output is unset on the batch, then
-// this function is a no-op.
-func upsertPreCommit(ctx context.Context, q PendingAssetStore,
-	batch *tapgarden.MintingBatch) error {
-
-	// Sanity check arguments and unpack target fields.
-	if batch == nil {
-		return nil
-	}
-
-	genesisPkt := batch.GenesisPacket
-	if genesisPkt == nil {
-		return nil
-	}
-
-	if genesisPkt.PreCommitmentOutput.IsNone() {
-		return nil
-	}
-
-	preCommit, err := genesisPkt.PreCommitmentOutput.UnwrapOrErr(
-		fmt.Errorf("pre-commitment output is none"),
-	)
-	if err != nil {
-		return err
-	}
-
-	batchKey := batch.BatchKeyBytes()
-	if len(batchKey) == 0 {
-		return fmt.Errorf("batch key is empty")
-	}
-
-	rawInternalKey := preCommit.InternalKey.PubKey.SerializeCompressed()
-
-	internalKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
-		RawKey:    rawInternalKey,
-		KeyFamily: int32(preCommit.InternalKey.Family),
-		KeyIndex:  int32(preCommit.InternalKey.Index),
-	})
-	if err != nil {
-		return fmt.Errorf("unable to upsert pre-commitment "+
-			"internal key: %w", err)
-	}
-
-	groupPubKeyBytes := fn.MapOptionZ(
-		preCommit.GroupPubKey, func(groupKey btcec.PublicKey) []byte {
-			return schnorr.SerializePubKey(&groupKey)
-		},
-	)
-
-	outPoint := wire.OutPoint{
-		Hash:  genesisPkt.Pkt.UnsignedTx.TxHash(),
-		Index: preCommit.OutIdx,
-	}
-	outPointBytes, err := encodeOutpoint(outPoint)
-	if err != nil {
-		return fmt.Errorf("unable to encode outpoint: %w", err)
-	}
-
-	_, err = q.UpsertMintSupplyPreCommit(
-		ctx, UpsertBatchPreCommitParams{
-			BatchKey:             batchKey,
-			TxOutputIndex:        int32(preCommit.OutIdx),
-			TaprootInternalKeyID: internalKeyID,
-			GroupKey:             groupPubKeyBytes,
-			Outpoint:             outPointBytes,
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("unable to upsert pre-commit output: %w", err)
-	}
-
-	return nil
-}
-
-// SealBatch seals a batch by assigning and persisting asset groups for
-// the seedlings it contains.
+// SealBatch seals a batch by assigning and persisting asset groups
+// for the seedlings it contains. If preCommit is set, the
+// supply-pre-commit row is re-upserted in the same transaction (the
+// group-key column typically only becomes known at seal time).
 func (a *AssetMintingStore) SealBatch(ctx context.Context,
 	batch *tapgarden.MintingBatch,
-	newAssetGroups []*asset.AssetGroup) error {
+	newAssetGroups []*asset.AssetGroup,
+	preCommit fn.Option[tapgarden.PreCommitBindData]) error {
 
 	// Retrieve genesis outpoint from the batch genesis packet.
 	genesisPkt := batch.GenesisPacket
@@ -1722,11 +1674,21 @@ func (a *AssetMintingStore) SealBatch(ctx context.Context,
 			}
 		}
 
-		// If the batch has a pre-commitment output, attempt to upsert
-		// it into the database in case it is stale and needs to be
-		// updated with a new asset group key.
-		if genesisPkt.PreCommitmentOutput.IsSome() {
-			err := upsertPreCommit(ctx, q, batch)
+		// If a supply-pre-commit payload was supplied, re-upsert
+		// the row in case the group-key column needs to be filled
+		// in (typically only known by seal time).
+		if preCommit.IsSome() {
+			bind, err := preCommit.UnwrapOrErr(
+				fmt.Errorf("pre-commit payload is none"),
+			)
+			if err != nil {
+				return err
+			}
+
+			err = upsertPreCommitRow(
+				ctx, q, batch.BatchKeyBytes(),
+				genesisPkt.Pkt.UnsignedTx.TxHash(), bind,
+			)
 			if err != nil {
 				return fmt.Errorf("unable to upsert "+
 					"pre-commit output: %w", err)
@@ -1796,13 +1758,16 @@ func fetchSeedlingGroups(ctx context.Context, q PendingAssetStore,
 	return seedlingGroups, nil
 }
 
-// AddSproutsToBatch updates a batch with the passed batch transaction and also
-// binds the genesis transaction (which will create the set of assets in the
-// batch) to the batch itself.
+// AddSproutsToBatch updates a batch with the passed batch
+// transaction and also binds the genesis transaction (which will
+// create the set of assets in the batch) to the batch itself. If
+// preCommit is set, the supply-pre-commit row is persisted (or
+// refreshed) in the same transaction.
 func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 	batch *tapgarden.MintingBatch,
 	genesisPacket *tapgarden.FundedMintAnchorPsbt,
-	assetRoot *commitment.TapCommitment) error {
+	assetRoot *commitment.TapCommitment,
+	preCommit fn.Option[tapgarden.PreCommitBindData]) error {
 
 	// Before we open the DB transaction below, we'll fetch the set of
 	// assets committed to within the root commitment specified.
@@ -1848,6 +1813,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 		// Insert the batch transaction.
 		err = insertMintAnchorTx(
 			ctx, q, *genesisPacket, *batchKey, genesisOutpoint,
+			preCommit,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to insert mint anchor "+

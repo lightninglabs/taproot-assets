@@ -686,12 +686,13 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 			PreCommitmentOutput: genesisPkt.PreCommitmentOutput,
 		}
 
-		// With all our commitments created, we'll commit them to disk,
-		// replacing the existing seedlings we had created for each of
-		// these assets.
+		// With all our commitments created, we'll commit them
+		// to disk, replacing the existing seedlings we had
+		// created for each of these assets.
 		err = b.cfg.BatchStore.AddSproutsToBatch(
 			ctx, b.cfg.Batch,
 			&fundedGenesisPsbt, b.cfg.Batch.RootAssetCommitment,
+			fundedGenesisPsbt.PreCommitBindData(),
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to commit batch: %w", err)

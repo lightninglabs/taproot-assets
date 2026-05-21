@@ -2128,7 +2128,9 @@ func (c *ChainPlanter) createFundedBatch(ctx context.Context,
 		newBatch.tapSibling = prep.rootHash
 	}
 
-	if err := c.cfg.BatchStore.CommitMintingBatch(ctx, newBatch); err != nil {
+	preCommit := newBatch.GenesisPacket.PreCommitBindData()
+	err = c.cfg.BatchStore.CommitMintingBatch(ctx, newBatch, preCommit)
+	if err != nil {
 		return nil, err
 	}
 
@@ -2161,12 +2163,13 @@ func (c *ChainPlanter) applyFundingToBatch(ctx context.Context,
 		return err
 	}
 
-	// Persist the sibling and genesis TX atomically. Combining
-	// both writes in a single transaction ensures a partial
-	// failure cannot leave the batch with one persisted and the
-	// other absent.
+	// Persist the sibling, genesis TX, and (when present) the
+	// supply-pre-commit row atomically. Combining the writes in a
+	// single transaction ensures a partial failure cannot leave
+	// the batch with one persisted and the others absent.
 	err = c.cfg.BatchStore.CommitBatchFunding(
 		ctx, batch.BatchKey.PubKey, prep.rootHash, *mintAnchorTx,
+		mintAnchorTx.PreCommitBindData(),
 	)
 	if err != nil {
 		return fmt.Errorf("unable to commit batch funding: %w", err)
@@ -2560,9 +2563,19 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 		}
 	}
 
-	// With all the asset group witnesses validated, we can now save them
-	// to disk effectively sealing the batch.
-	err = c.cfg.BatchStore.SealBatch(ctx, batchWithGroupInfo, newAssetGroups)
+	// With all the asset group witnesses validated, we can now
+	// save them to disk effectively sealing the batch. If the
+	// batch carries a pre-commitment output, the re-upsert payload
+	// is derived from the (now group-keyed) genesis packet so that
+	// SealBatch can persist it atomically with the group writes.
+	var sealPreCommit fn.Option[PreCommitBindData]
+	if batchWithGroupInfo.GenesisPacket != nil {
+		sealPreCommit = batchWithGroupInfo.GenesisPacket.
+			PreCommitBindData()
+	}
+	err = c.cfg.BatchStore.SealBatch(
+		ctx, batchWithGroupInfo, newAssetGroups, sealPreCommit,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to write seedling groups: "+
 			"%w", err)
@@ -3175,7 +3188,9 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err = c.cfg.BatchStore.CommitMintingBatch(ctx, newBatch)
+		err = c.cfg.BatchStore.CommitMintingBatch(
+			ctx, newBatch, fn.None[PreCommitBindData](),
+		)
 		if err != nil {
 			return err
 		}
@@ -3504,6 +3519,26 @@ func NewFundedMintAnchorPsbt(
 		AssetAnchorOutIdx:   anchorOutIndexes.AssetAnchorOutIdx,
 		PreCommitmentOutput: preCommitOut,
 	}, nil
+}
+
+// PreCommitBindData derives the typed BatchStore persistence payload
+// from the funded anchor PSBT's pre-commitment output (if any). It
+// exists so callers can plumb the payload through tapdb's binding
+// API without unwrapping PreCommitmentOutput themselves; the result
+// is None when the batch has no pre-commitment output or when the
+// receiver is nil (the latter so callers may chain through an
+// optional GenesisPacket without an extra nil check).
+func (f *FundedMintAnchorPsbt) PreCommitBindData() fn.Option[PreCommitBindData] {
+	if f == nil {
+		return fn.None[PreCommitBindData]()
+	}
+	return fn.MapOption(func(p PreCommitmentOutput) PreCommitBindData {
+		return PreCommitBindData{
+			OutputIndex: p.OutIdx,
+			InternalKey: p.InternalKey,
+			GroupKey:    p.GroupPubKey,
+		}
+	})(f.PreCommitmentOutput)
 }
 
 // GenesisOutpoint returns the genesis outpoint of the mint anchor PSBT, which
