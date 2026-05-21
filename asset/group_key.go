@@ -124,6 +124,29 @@ func (g *GroupKey) IsGroupAnchor(assetID ID) (bool, error) {
 	return expectedGroupPubKey.IsEqual(derivedGroupPubKey), nil
 }
 
+// Copy returns a deep copy of *GroupKey: all slice/witness
+// substructure is cloned and the embedded key descriptor is rebuilt.
+// Returns nil if g is nil.
+func (g *GroupKey) Copy() *GroupKey {
+	if g == nil {
+		return nil
+	}
+	out := &GroupKey{
+		Version:             g.Version,
+		RawKey:              CopyKeyDescriptor(g.RawKey),
+		GroupPubKey:         g.GroupPubKey,
+		TapscriptRoot:       bytes.Clone(g.TapscriptRoot),
+		CustomTapscriptRoot: g.CustomTapscriptRoot,
+	}
+	if g.Witness != nil {
+		out.Witness = make(wire.TxWitness, len(g.Witness))
+		for i, w := range g.Witness {
+			out.Witness[i] = bytes.Clone(w)
+		}
+	}
+	return out
+}
+
 // GroupKeyRequest contains the essential fields used to derive a group key.
 type GroupKeyRequest struct {
 	// Version is the version of the group key construction.

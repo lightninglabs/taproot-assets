@@ -155,20 +155,20 @@ func (s *Seedling) Copy() *Seedling {
 		AssetVersion:      s.AssetVersion,
 		AssetType:         s.AssetType,
 		AssetName:         s.AssetName,
-		Meta:              copyMetaReveal(s.Meta),
+		Meta:              s.Meta.Copy(),
 		Amount:            s.Amount,
-		GroupInfo:         copyAssetGroup(s.GroupInfo),
+		GroupInfo:         s.GroupInfo.Copy(),
 		EnableEmission:    s.EnableEmission,
 		SupplyCommitments: s.SupplyCommitments,
 		updates:           s.updates,
-		ScriptKey:         copyScriptKey(s.ScriptKey),
+		ScriptKey:         s.ScriptKey.Copy(),
 		GroupTapscriptRoot: bytes.Clone(
 			s.GroupTapscriptRoot,
 		),
 	}
 
 	s.DelegationKey.WhenSome(func(kd keychain.KeyDescriptor) {
-		out.DelegationKey = fn.Some(copyKeyDescriptor(kd))
+		out.DelegationKey = fn.Some(asset.CopyKeyDescriptor(kd))
 	})
 
 	if s.GroupAnchor != nil {
@@ -177,30 +177,14 @@ func (s *Seedling) Copy() *Seedling {
 	}
 
 	if s.GroupInternalKey != nil {
-		gik := copyKeyDescriptor(*s.GroupInternalKey)
+		gik := asset.CopyKeyDescriptor(*s.GroupInternalKey)
 		out.GroupInternalKey = &gik
 	}
 
 	s.ExternalKey.WhenSome(func(ek asset.ExternalKey) {
-		out.ExternalKey = fn.Some(copyExternalKey(ek))
+		out.ExternalKey = fn.Some(ek.Copy())
 	})
 
-	return out
-}
-
-// copyExternalKey returns a copy of asset.ExternalKey. The DerivationPath
-// slice is duplicated; the embedded hdkeychain.ExtendedKey is value-copied
-// (its internal byte slices are private and never mutated externally, so
-// shared references are safe in practice).
-func copyExternalKey(e asset.ExternalKey) asset.ExternalKey {
-	out := asset.ExternalKey{
-		XPub:              e.XPub,
-		MasterFingerprint: e.MasterFingerprint,
-	}
-	if e.DerivationPath != nil {
-		out.DerivationPath = make([]uint32, len(e.DerivationPath))
-		copy(out.DerivationPath, e.DerivationPath)
-	}
 	return out
 }
 

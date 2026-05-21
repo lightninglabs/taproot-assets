@@ -3542,9 +3542,7 @@ func (f *FundedMintAnchorPsbt) Copy() *FundedMintAnchorPsbt {
 	}
 
 	f.PreCommitmentOutput.WhenSome(func(p PreCommitmentOutput) {
-		newMintAnchorPsbt.PreCommitmentOutput = fn.Some(
-			copyPreCommitmentOutput(p),
-		)
+		newMintAnchorPsbt.PreCommitmentOutput = fn.Some(p.Copy())
 	})
 
 	if f.Pkt != nil {
@@ -3576,14 +3574,14 @@ func (f *FundedMintAnchorPsbt) Copy() *FundedMintAnchorPsbt {
 	return newMintAnchorPsbt
 }
 
-// copyPreCommitmentOutput returns a deep copy of PreCommitmentOutput.
-// InternalKey (a keychain.KeyDescriptor alias) is rebuilt with a fresh
-// PubKey pointer; GroupPubKey is a value-typed PublicKey wrapped in an
+// Copy returns a deep copy of PreCommitmentOutput. InternalKey (a
+// keychain.KeyDescriptor alias) is rebuilt with a fresh PubKey
+// pointer; GroupPubKey is a value-typed PublicKey wrapped in an
 // Option, so an assignment copies it whole.
-func copyPreCommitmentOutput(p PreCommitmentOutput) PreCommitmentOutput {
+func (p PreCommitmentOutput) Copy() PreCommitmentOutput {
 	return PreCommitmentOutput{
 		OutIdx:      p.OutIdx,
-		InternalKey: copyKeyDescriptor(p.InternalKey),
+		InternalKey: asset.CopyKeyDescriptor(p.InternalKey),
 		GroupPubKey: p.GroupPubKey,
 	}
 }
