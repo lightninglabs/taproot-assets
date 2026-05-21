@@ -235,7 +235,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 	headerVerifier := tapnode.GenHeaderVerifier(
 		context.Background(), chainBridge,
 	)
-	groupVerifier := tapgarden.GenGroupVerifier(
+	groupVerifier := tapnode.GenGroupVerifier(
 		context.Background(), assetMintingStore,
 	)
 
