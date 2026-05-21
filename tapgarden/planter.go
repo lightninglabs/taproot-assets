@@ -152,32 +152,32 @@ type cancelReq struct {
 	resp chan<- CancelResp
 }
 
-type stateRequest interface {
-	Resolve(any)
-	Error(error)
-	Return(any, error)
-	Type() reqType
-	Param() any
+// stateReq is a request executed inside the gardener loop. The
+// closure captures its own response channel and any parameters; the
+// loop simply invokes it. This replaces the prior stateRequest
+// interface + stateReq[T] / stateParamReq[T,S] generics + reqType
+// enum + dispatch switch. Closures preserve the per-call binding
+// between request and response without any runtime type assertions.
+type stateReq func()
+
+// stateResult is what a stateReq closure writes back to its caller.
+// One buffered channel of stateResult[T] per call replaces the prior
+// (resp, err) channel pair.
+type stateResult[T any] struct {
+	val T
+	err error
 }
 
-type stateReq[T any] struct {
-	resp    chan T
-	err     chan error
-	reqType reqType
+// stateOk constructs a successful stateResult[T] with the given
+// value.
+func stateOk[T any](v T) stateResult[T] {
+	return stateResult[T]{val: v}
 }
 
-func newStateReq[T any](req reqType) *stateReq[T] {
-	return &stateReq[T]{
-		resp:    make(chan T, 1),
-		err:     make(chan error, 1),
-		reqType: req,
-	}
-}
-
-type stateParamReq[T, S any] struct {
-	stateReq[T]
-
-	param S
+// stateErr constructs a failing stateResult[T] with the given
+// error.
+func stateErr[T any](err error) stateResult[T] {
+	return stateResult[T]{err: err}
 }
 
 // ListBatchesParams are the options available to specify which minting batches
@@ -356,60 +356,6 @@ type SealParams struct {
 	SignedGroupVirtualPsbts []psbt.Packet
 }
 
-func newStateParamReq[T, S any](req reqType, param S) *stateParamReq[T, S] {
-	return &stateParamReq[T, S]{
-		stateReq: *newStateReq[T](req),
-		param:    param,
-	}
-}
-
-func (s *stateReq[T]) Resolve(resp any) {
-	s.resp <- resp.(T)
-	close(s.err)
-}
-
-func (s *stateReq[T]) Error(err error) {
-	s.err <- err
-	close(s.resp)
-}
-
-func (s *stateReq[T]) Return(resp any, err error) {
-	s.resp <- resp.(T)
-	s.err <- err
-}
-
-func (s *stateReq[T]) Type() reqType {
-	return s.reqType
-}
-
-func (s *stateReq[T]) Param() any {
-	return nil
-}
-
-func (s *stateParamReq[T, S]) Param() any {
-	return s.param
-}
-
-func typedParam[T any](req stateRequest) (*T, error) {
-	if param, ok := req.Param().(T); ok {
-		return &param, nil
-	}
-
-	return nil, fmt.Errorf("invalid type")
-}
-
-type reqType uint8
-
-const (
-	reqTypePendingBatch = iota
-	reqTypeNumActiveBatches
-	reqTypeListBatches
-	reqTypeFinalizeBatch
-	reqTypeCancelBatch
-	reqTypeFundBatch
-	reqTypeSealBatch
-)
-
 // ChainPlanter is responsible for accepting new incoming requests to create
 // taproot assets. The planter will periodically batch those requests into a new
 // minting batch, which is handed off to a caretaker. While batches are
@@ -439,8 +385,9 @@ type ChainPlanter struct {
 	completionSignals chan BatchKey
 
 	// stateReqs is the channel that any outside requests for the state of
-	// the planter will come across.
-	stateReqs chan stateRequest
+	// the planter will come across. Each request is a closure that runs
+	// inside the gardener loop with full access to ChainPlanter state.
+	stateReqs chan stateReq
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
@@ -461,7 +408,7 @@ func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 		caretakers:        make(map[BatchKey]*BatchCaretaker),
 		completionSignals: make(chan BatchKey),
 		seedlingReqs:      make(chan *Seedling),
-		stateReqs:         make(chan stateRequest),
+		stateReqs:         make(chan stateReq),
 		subscribers:       make(map[uint64]*fn.EventReceiver[fn.Event]),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
@@ -2031,248 +1978,12 @@ func (c *ChainPlanter) gardener() {
 
 			// TODO(roasbeef): send completion signal?
 
-		// A new request just came along to query our internal state.
+		// A new request just came along to query or mutate our
+		// internal state. Each request is a closure that already
+		// carries its own response channel and parameters; we
+		// simply invoke it in this goroutine.
 		case req := <-c.stateReqs:
-			switch req.Type() {
-			case reqTypePendingBatch:
-				// Resolve a copy of the state to prevent
-				// potential concurrent read/write issues.
-				if c.pendingBatch == nil {
-					req.Resolve((*MintingBatch)(nil))
-				} else {
-					req.Resolve(c.pendingBatch.Copy())
-				}
-
-			case reqTypeNumActiveBatches:
-				req.Resolve(len(c.caretakers))
-
-			case reqTypeListBatches:
-				listBatchesParams, err :=
-					typedParam[ListBatchesParams](req)
-				if err != nil {
-					req.Error(fmt.Errorf("bad list batch "+
-						"params: %w", err))
-					break
-				}
-
-				ctx, cancel := c.WithCtxQuit()
-				batches, err := listBatches(
-					ctx, c.cfg.Log, c.cfg.ProofFiles,
-					c.cfg.GenTxBuilder, *listBatchesParams,
-				)
-				cancel()
-				if err != nil {
-					req.Error(err)
-					break
-				}
-
-				req.Resolve(batches)
-
-			case reqTypeFundBatch:
-				if c.pendingBatch != nil &&
-					c.pendingBatch.IsFunded() {
-
-					req.Error(fmt.Errorf("batch already " +
-						"funded"))
-					break
-				}
-
-				fundReqParams, err :=
-					typedParam[FundParams](req)
-				if err != nil {
-					req.Error(fmt.Errorf("bad fund "+
-						"params: %w", err))
-					break
-				}
-
-				ctx, cancel := c.WithCtxQuit()
-				err = c.fundPendingBatch(
-					ctx, *fundReqParams,
-				)
-				cancel()
-				if err != nil {
-					req.Error(fmt.Errorf("unable to fund "+
-						"minting batch: %w", err))
-					break
-				}
-
-				// Formulate a verbose batch to return to the
-				// caller.
-				verboseBatch, err := newVerboseBatch(
-					c.pendingBatch, c.cfg.GenTxBuilder,
-				)
-				if err != nil {
-					req.Error(err)
-					break
-				}
-
-				req.Resolve(&FundBatchResp{
-					Batch: verboseBatch,
-				})
-
-			case reqTypeSealBatch:
-				if c.pendingBatch == nil {
-					req.Error(fmt.Errorf("no pending " +
-						"batch"))
-					break
-				}
-
-				sealReqParams, err :=
-					typedParam[SealParams](req)
-				if err != nil {
-					req.Error(fmt.Errorf("bad seal "+
-						"params: %w", err))
-					break
-				}
-
-				ctx, cancel := c.WithCtxQuit()
-				sealedBatch, err := c.sealBatch(
-					ctx, *sealReqParams, c.pendingBatch,
-				)
-				cancel()
-				if err != nil {
-					req.Error(fmt.Errorf("unable to seal "+
-						"minting batch: %w", err))
-					break
-				}
-
-				// If seal batch executed successfully, and
-				// returned a sealed batch, then we can update
-				// the pending batch.
-				if err == nil && sealedBatch != nil {
-					c.pendingBatch = sealedBatch
-				}
-
-				// Resolve a copy of the state to prevent
-				// potential concurrent read/write issues.
-				if c.pendingBatch == nil {
-					req.Resolve((*MintingBatch)(nil))
-				} else {
-					req.Resolve(c.pendingBatch.Copy())
-				}
-
-			case reqTypeFinalizeBatch:
-				if c.pendingBatch == nil {
-					req.Error(fmt.Errorf("no pending " +
-						"batch"))
-					break
-				}
-
-				batchKey := c.pendingBatch.BatchKey.PubKey
-				batchKeySerial := asset.ToSerialized(batchKey)
-				log.Infof("Finalizing batch %x", batchKeySerial)
-
-				finalizeReqParams, err :=
-					typedParam[FinalizeParams](req)
-				if err != nil {
-					req.Error(fmt.Errorf("bad finalize "+
-						"params: %w", err))
-					break
-				}
-
-				caretaker, err := c.finalizeBatch(
-					*finalizeReqParams,
-				)
-				if err != nil {
-					freezeErr := fmt.Errorf("unable to "+
-						"finalize minting batch: %w",
-						err)
-					log.Warnf(freezeErr.Error())
-					req.Error(freezeErr)
-					break
-				}
-
-				// We now wait for the caretaker to either
-				// broadcast the batch or fail to do so.
-				select {
-				case <-caretaker.cfg.BroadcastCompleteChan:
-					// Snapshot the caretaker's live batch
-					// before handing it to the caller. The
-					// caretaker goroutine continues to
-					// mutate Batch.GenesisPacket and
-					// Batch.RootAssetCommitment after this
-					// point (Broadcast -> Confirmed ->
-					// Finalized); returning the live
-					// pointer would race those writes
-					// against any read the caller does.
-					// Every other state-request handler in
-					// this select already takes the same
-					// snapshot for the same reason.
-					req.Resolve(caretaker.cfg.Batch.Copy())
-
-				case err := <-caretaker.cfg.BroadcastErrChan:
-					req.Error(err)
-					// Unrecoverable error, stop caretaker
-					// directly. The pending batch will not
-					// be saved.
-					stopErr := caretaker.Stop()
-					if stopErr != nil {
-						log.Warnf("Unable to stop "+
-							"caretaker "+
-							"gracefully: %v", err)
-					}
-
-					delete(c.caretakers, batchKeySerial)
-
-					// Cancel the failed batch on disk so it
-					// does not stay wedged in a pre-broadcast
-					// state, where the singleton invariant
-					// added in migration 000060 would block
-					// any subsequent batch from being
-					// created. We use the same cancel-state
-					// rule as caretaker.Cancel(): Pending or
-					// Frozen → SeedlingCancelled (no sprouts
-					// yet); Committed → SproutCancelled
-					// (sprouts already on disk).
-					cancelState := BatchStateSeedlingCancelled
-					if c.pendingBatch.State() ==
-						BatchStateCommitted {
-
-						cancelState =
-							BatchStateSproutCancelled
-					}
-
-					cancelCtx, cancelCtxCancel :=
-						c.WithCtxQuit()
-					cancelErr := c.cfg.Log.UpdateBatchState(
-						cancelCtx, c.pendingBatch,
-						cancelState,
-					)
-					cancelCtxCancel()
-					if cancelErr != nil {
-						log.Warnf("Unable to cancel "+
-							"failed batch (%x): %v",
-							batchKeySerial[:],
-							cancelErr)
-					}
-
-				case <-c.Quit:
-					return
-				}
-
-				// Now that we have a caretaker launched for
-				// this batch and broadcast its minting
-				// transaction, we can remove the pending batch.
-				c.pendingBatch = nil
-
-			case reqTypeCancelBatch:
-				batchKey, err := c.canCancelBatch()
-				if err != nil {
-					req.Error(err)
-					break
-				}
-
-				// Attempt to cancel the current batch, and then
-				// clear the pending batch in the planter.
-				ctx, cancel := c.WithCtxQuit()
-				err = c.cancelMintingBatch(ctx, batchKey)
-				cancel()
-				c.pendingBatch = nil
-
-				// Always return the key of the batch we tried
-				// to cancel.
-				req.Return(batchKey, err)
-			}
+			req()
 
 		case <-c.Quit:
 			return
@@ -2932,28 +2643,52 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	return caretaker, nil
 }
 
+// dispatchStateReq sends a closure to the gardener loop and waits
+// for its typed result. The closure runs inside the loop's
+// goroutine with full access to ChainPlanter state. Returns a
+// shutdown error if the planter quits before the request can be
+// sent or its response received.
+func dispatchStateReq[T any](c *ChainPlanter,
+	handler func(out chan<- stateResult[T])) (T, error) {
+
+	var zero T
+	out := make(chan stateResult[T], 1)
+	req := stateReq(func() { handler(out) })
+
+	if !fn.SendOrQuit(c.stateReqs, req, c.Quit) {
+		return zero, fmt.Errorf("chain planter shutting down")
+	}
+
+	select {
+	case r := <-out:
+		return r.val, r.err
+	case <-c.Quit:
+		return zero, fmt.Errorf("chain planter shutting down")
+	}
+}
+
 // PendingBatch returns the current pending batch, or nil if no batch is
 // pending.
 func (c *ChainPlanter) PendingBatch() (*MintingBatch, error) {
-	req := newStateReq[*MintingBatch](reqTypePendingBatch)
-
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return nil, fmt.Errorf("chain planter shutting down")
-	}
-
-	return <-req.resp, nil
+	return dispatchStateReq(
+		c, func(out chan<- stateResult[*MintingBatch]) {
+			// Resolve a copy of the state to prevent potential
+			// concurrent read/write issues.
+			if c.pendingBatch == nil {
+				out <- stateOk[*MintingBatch](nil)
+				return
+			}
+			out <- stateOk(c.pendingBatch.Copy())
+		},
+	)
 }
 
 // NumActiveBatches returns the total number of active batches that have an
 // outstanding caretaker assigned.
 func (c *ChainPlanter) NumActiveBatches() (int, error) {
-	req := newStateReq[int](reqTypeNumActiveBatches)
-
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return 0, fmt.Errorf("chain planter shutting down")
-	}
-
-	return <-req.resp, nil
+	return dispatchStateReq(c, func(out chan<- stateResult[int]) {
+		out <- stateOk(len(c.caretakers))
+	})
 }
 
 // ListBatches returns the single batch specified by the batch key, or the set
@@ -2961,61 +2696,221 @@ func (c *ChainPlanter) NumActiveBatches() (int, error) {
 func (c *ChainPlanter) ListBatches(params ListBatchesParams) ([]*VerboseBatch,
 	error) {
 
-	req := newStateParamReq[[]*VerboseBatch](reqTypeListBatches, params)
-
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return nil, fmt.Errorf("chain planter shutting down")
-	}
-
-	return <-req.resp, <-req.err
+	return dispatchStateReq(
+		c, func(out chan<- stateResult[[]*VerboseBatch]) {
+			ctx, cancel := c.WithCtxQuit()
+			batches, err := listBatches(
+				ctx, c.cfg.Log, c.cfg.ProofFiles,
+				c.cfg.GenTxBuilder, params,
+			)
+			cancel()
+			if err != nil {
+				out <- stateErr[[]*VerboseBatch](err)
+				return
+			}
+			out <- stateOk(batches)
+		},
+	)
 }
 
 // FundBatch sends a signal to the planter to fund the current batch, or create
 // a funded batch.
 func (c *ChainPlanter) FundBatch(params FundParams) (*FundBatchResp, error) {
-	req := newStateParamReq[*FundBatchResp](reqTypeFundBatch, params)
+	return dispatchStateReq(
+		c, func(out chan<- stateResult[*FundBatchResp]) {
+			if c.pendingBatch != nil &&
+				c.pendingBatch.IsFunded() {
 
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return nil, fmt.Errorf("chain planter shutting down")
-	}
+				out <- stateErr[*FundBatchResp](fmt.Errorf(
+					"batch already funded",
+				))
+				return
+			}
 
-	return <-req.resp, <-req.err
+			ctx, cancel := c.WithCtxQuit()
+			err := c.fundPendingBatch(ctx, params)
+			cancel()
+			if err != nil {
+				out <- stateErr[*FundBatchResp](fmt.Errorf(
+					"unable to fund minting batch: %w",
+					err,
+				))
+				return
+			}
+
+			verboseBatch, err := newVerboseBatch(
+				c.pendingBatch, c.cfg.GenTxBuilder,
+			)
+			if err != nil {
+				out <- stateErr[*FundBatchResp](err)
+				return
+			}
+
+			out <- stateOk(&FundBatchResp{Batch: verboseBatch})
+		},
+	)
 }
 
 // SealBatch attempts to seal the current batch, by providing or deriving all
 // witnesses necessary to create the final genesis TX.
 func (c *ChainPlanter) SealBatch(params SealParams) (*MintingBatch, error) {
-	req := newStateParamReq[*MintingBatch](reqTypeSealBatch, params)
+	return dispatchStateReq(
+		c, func(out chan<- stateResult[*MintingBatch]) {
+			if c.pendingBatch == nil {
+				out <- stateErr[*MintingBatch](fmt.Errorf(
+					"no pending batch",
+				))
+				return
+			}
 
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return nil, fmt.Errorf("chain planter shutting down")
-	}
+			ctx, cancel := c.WithCtxQuit()
+			sealedBatch, err := c.sealBatch(
+				ctx, params, c.pendingBatch,
+			)
+			cancel()
+			if err != nil {
+				out <- stateErr[*MintingBatch](fmt.Errorf(
+					"unable to seal minting batch: %w",
+					err,
+				))
+				return
+			}
 
-	return <-req.resp, <-req.err
+			if sealedBatch != nil {
+				c.pendingBatch = sealedBatch
+			}
+
+			// Resolve a copy of the state to prevent potential
+			// concurrent read/write issues.
+			if c.pendingBatch == nil {
+				out <- stateOk[*MintingBatch](nil)
+				return
+			}
+			out <- stateOk(c.pendingBatch.Copy())
+		},
+	)
 }
 
 // FinalizeBatch sends a signal to the planter to finalize the current batch.
 func (c *ChainPlanter) FinalizeBatch(params FinalizeParams) (*MintingBatch,
 	error) {
 
-	req := newStateParamReq[*MintingBatch](reqTypeFinalizeBatch, params)
+	return dispatchStateReq(
+		c, func(out chan<- stateResult[*MintingBatch]) {
+			if c.pendingBatch == nil {
+				out <- stateErr[*MintingBatch](fmt.Errorf(
+					"no pending batch",
+				))
+				return
+			}
 
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return nil, fmt.Errorf("chain planter shutting down")
-	}
+			batchKey := c.pendingBatch.BatchKey.PubKey
+			batchKeySerial := asset.ToSerialized(batchKey)
+			log.Infof("Finalizing batch %x", batchKeySerial)
 
-	return <-req.resp, <-req.err
+			caretaker, err := c.finalizeBatch(params)
+			if err != nil {
+				freezeErr := fmt.Errorf("unable to finalize "+
+					"minting batch: %w", err)
+				log.Warnf(freezeErr.Error())
+				out <- stateErr[*MintingBatch](freezeErr)
+				return
+			}
+
+			// Wait for the caretaker to either broadcast the
+			// batch or fail to do so.
+			select {
+			case <-caretaker.cfg.BroadcastCompleteChan:
+				// Snapshot the caretaker's live batch before
+				// handing it to the caller. The caretaker
+				// goroutine continues to mutate
+				// Batch.GenesisPacket and
+				// Batch.RootAssetCommitment after this point
+				// (Broadcast -> Confirmed -> Finalized);
+				// returning the live pointer would race
+				// those writes against any read the caller
+				// does.
+				out <- stateOk(caretaker.cfg.Batch.Copy())
+
+			case err := <-caretaker.cfg.BroadcastErrChan:
+				out <- stateErr[*MintingBatch](err)
+
+				// Unrecoverable error, stop caretaker
+				// directly. The pending batch will not be
+				// saved.
+				stopErr := caretaker.Stop()
+				if stopErr != nil {
+					log.Warnf("Unable to stop caretaker "+
+						"gracefully: %v", err)
+				}
+
+				delete(c.caretakers, batchKeySerial)
+
+				// Cancel the failed batch on disk so it does
+				// not stay wedged in a pre-broadcast state,
+				// where the singleton invariant added in
+				// migration 000060 would block any
+				// subsequent batch from being created. We
+				// use the same cancel-state rule as
+				// caretaker.Cancel(): Pending or Frozen →
+				// SeedlingCancelled (no sprouts yet);
+				// Committed → SproutCancelled (sprouts
+				// already on disk).
+				cancelState := BatchStateSeedlingCancelled
+				if c.pendingBatch.State() ==
+					BatchStateCommitted {
+
+					cancelState = BatchStateSproutCancelled
+				}
+
+				cancelCtx, cancelCtxCancel := c.WithCtxQuit()
+				cancelErr := c.cfg.Log.UpdateBatchState(
+					cancelCtx, c.pendingBatch, cancelState,
+				)
+				cancelCtxCancel()
+				if cancelErr != nil {
+					log.Warnf("Unable to cancel failed "+
+						"batch (%x): %v",
+						batchKeySerial[:], cancelErr)
+				}
+
+			case <-c.Quit:
+				return
+			}
+
+			// Now that we have a caretaker launched for this
+			// batch and broadcast its minting transaction, we
+			// can remove the pending batch.
+			c.pendingBatch = nil
+		},
+	)
 }
 
 // CancelBatch sends a signal to the planter to cancel the current batch.
 func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
-	req := newStateReq[*btcec.PublicKey](reqTypeCancelBatch)
+	return dispatchStateReq(
+		c, func(out chan<- stateResult[*btcec.PublicKey]) {
+			batchKey, err := c.canCancelBatch()
+			if err != nil {
+				out <- stateErr[*btcec.PublicKey](err)
+				return
+			}
 
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return nil, fmt.Errorf("chain planter shutting down")
-	}
+			// Attempt to cancel the current batch, and then
+			// clear the pending batch in the planter.
+			ctx, cancel := c.WithCtxQuit()
+			err = c.cancelMintingBatch(ctx, batchKey)
+			cancel()
+			c.pendingBatch = nil
 
-	return <-req.resp, <-req.err
+			// Always return the key of the batch we tried to
+			// cancel.
+			out <- stateResult[*btcec.PublicKey]{
+				val: batchKey,
+				err: err,
+			}
+		},
+	)
 }
 
 // prepSeedlingDelegationKey finalizes the seedling delegation key.
