@@ -698,9 +698,9 @@ func (t *mintingTestHarness) assertBatchCommitted(
 	return committedBatch
 }
 
-// assertNumCaretakersActive asserts that the specified number of caretakers
+// assertNumCultivatorsActive asserts that the specified number of cultivators
 // are active.
-func (t *mintingTestHarness) assertNumCaretakersActive(n int) {
+func (t *mintingTestHarness) assertNumCultivatorsActive(n int) {
 	t.Helper()
 
 	err := wait.Predicate(func() bool {
@@ -1193,7 +1193,7 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	// launched as well. The batch should already be funded.
 	batch := t.fetchSingleBatch(nil)
 	t.assertBatchGenesisTx(&batch.GenesisPacket.FundedPsbt)
-	t.assertNumCaretakersActive(1)
+	t.assertNumCultivatorsActive(1)
 
 	// We'll now force yet another restart to ensure correctness of the
 	// state machine. We expect the PSBT packet to still be funded.
@@ -1262,7 +1262,7 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	t.assertNoError()
 
 	// At this point there should be no active caretakers.
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 }
 
 // testMintingTicker tests that we can start batch finalization with the planter
@@ -1339,7 +1339,7 @@ func testMintingTicker(t *mintingTestHarness) {
 	t.assertNoError()
 
 	// At this point there should be no active caretakers.
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 }
 
 // testBatchCancelFinalize tests that batches can be cancelled and finalized,
@@ -1457,7 +1457,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	t.assertNoError()
 
 	// At this point there should be no active caretakers.
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 }
 
 // testFinalizeBatch tests that the planter can recover from funding
@@ -1496,7 +1496,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 
 	// The batch should stay pending so the user can retry. No
 	// caretakers should have been started.
-	t.assertNumCaretakersActive(caretakerCount)
+	t.assertNumCultivatorsActive(caretakerCount)
 	t.assertLastBatchState(
 		batchCount, tapgarden.BatchStatePending,
 	)
@@ -1524,7 +1524,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	// The stopped caretaker will still exist but there should
 	// be no pending batch.
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(caretakerCount)
+	t.assertNumCultivatorsActive(caretakerCount)
 	t.assertLastBatchState(
 		batchCount, tapgarden.BatchStateBroadcast,
 	)
@@ -1554,7 +1554,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	// The stopped caretaker will still exist but there should
 	// be no pending batch.
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(caretakerCount)
+	t.assertNumCultivatorsActive(caretakerCount)
 	t.assertLastBatchState(
 		batchCount, tapgarden.BatchStateBroadcast,
 	)
@@ -1565,7 +1565,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.assertFinalizeBatch(
 		&wg, respChan, "no pending batch",
 	)
-	t.assertNumCaretakersActive(caretakerCount)
+	t.assertNumCultivatorsActive(caretakerCount)
 
 	// Queue another batch and drive the caretaker to a
 	// successful minting.
@@ -1588,7 +1588,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.assertFinalizeBatch(&wg, respChan, "")
 	t.assertNoError()
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(caretakerCount)
+	t.assertNumCultivatorsActive(caretakerCount)
 	t.assertLastBatchState(
 		batchCount, tapgarden.BatchStateFinalized,
 	)
@@ -1707,7 +1707,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	require.NotNil(t, batchWithSibling)
 	t.assertNoError()
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
 
 	// Verify that the final minting output key matches what we would derive
@@ -1786,7 +1786,7 @@ func testFundFailSiblingNotLeaked(t *mintingTestHarness) {
 	)
 	t.assertNoError()
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertLastBatchState(
 		batchCount, tapgarden.BatchStateFinalized,
 	)
@@ -2089,7 +2089,7 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 
 	sendConfNtfn()
 
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertLastBatchState(1, tapgarden.BatchStateFinalized)
 	t.assertMintOutputKey(mintedBatch, &defaultPreimage)
 }
@@ -2124,7 +2124,7 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 	wg.Wait()
 
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertNumBatchesWithState(
 		failedBatchCount, tapgarden.BatchStateSeedlingCancelled,
 	)
@@ -2151,7 +2151,7 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 	wg.Wait()
 
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertNumBatchesWithState(
 		failedBatchCount, tapgarden.BatchStateSeedlingCancelled,
 	)
@@ -2167,7 +2167,7 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 
 	// With a caretaker started, the caretaker should broadcast the batch
 	// as normal.
-	t.assertNumCaretakersActive(1)
+	t.assertNumCultivatorsActive(1)
 	t.assertNoPendingBatch()
 
 	sendConfNtfn := t.progressCaretaker(true, nil, nil)
@@ -2175,7 +2175,7 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 
 	sendConfNtfn()
 	t.assertNoError()
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
 
 	// The original test continued by inserting a second Pending
@@ -2256,7 +2256,7 @@ func testCaretakerResumeFailure(t *mintingTestHarness) {
 	}, defaultTimeout)
 	require.NoError(t, err)
 
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertNoPendingBatch()
 
 	// With the slot free, a new batch can be created without
@@ -2296,7 +2296,7 @@ func testFinalizeSignFailure(t *mintingTestHarness) {
 
 	// The batch must stay committed rather than being cancelled,
 	// with no caretaker and no pending batch.
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertNoPendingBatch()
 	t.assertLastBatchState(1, tapgarden.BatchStateCommitted)
 
@@ -2309,7 +2309,7 @@ func testFinalizeSignFailure(t *mintingTestHarness) {
 
 	sendConfNtfn()
 	t.assertNoError()
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertLastBatchState(1, tapgarden.BatchStateFinalized)
 }
 

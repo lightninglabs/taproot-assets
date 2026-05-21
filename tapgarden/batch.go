@@ -348,7 +348,7 @@ func (m *MintingBatch) setState(state BatchState) {
 // DB write has committed the same state to disk; this is what guarantees
 // that the in-memory mirror cannot get ahead of the on-disk truth.
 //
-// NOTE: Ordinary callers (planter, caretaker, RPC layer, tests) must never
+// NOTE: Ordinary callers (planter, cultivator, RPC layer, tests) must never
 // invoke this method directly. Use the BatchStore interface, whose
 // state-mutating methods take *MintingBatch and update memory only on DB
 // success.

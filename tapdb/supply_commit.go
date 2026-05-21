@@ -569,7 +569,7 @@ func updateTypeToInt(treeType supplycommit.SupplySubTree) (int32, error) {
 // dedup key for a supply update event row. The same logical event --
 // same group, same type, same payload bytes -- always hashes to the
 // same value, which is what lets the unique index on event_key
-// silently absorb re-inserts after a caretaker restart.
+// silently absorb re-inserts after a cultivator restart.
 func supplyUpdateEventKey(groupKey []byte, updateTypeID int32,
 	eventData []byte) []byte {
 

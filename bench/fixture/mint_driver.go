@@ -20,7 +20,7 @@ import (
 )
 
 // MintDriver wraps a Mint fixture with a background pump that drains every
-// signal channel the planter's caretaker emits during a mint flow and feeds
+// signal channel the planter's cultivator emits during a mint flow and feeds
 // back synthetic chain confirmations. The driver lets benchmarks call Mint(n)
 // repeatedly without re-implementing the chain/wallet mock choreography.
 //
@@ -57,7 +57,7 @@ func NewMintDriver(tb testing.TB) *MintDriver {
 	return d
 }
 
-// pump drains every signal the planter caretaker is known to emit and
+// pump drains every signal the planter cultivator is known to emit and
 // synthesises the chain side of the conversation: confirmations are
 // fabricated, blocks are stored, and signal acks are sent in the
 // background so SendConfNtfn never blocks the pump.
@@ -65,7 +65,7 @@ func (d *MintDriver) pump(ctx context.Context) {
 	defer close(d.pumpDone)
 
 	// lastTx carries the broadcast transaction between the publish step
-	// and the conf-registration step. The caretaker publishes before it
+	// and the conf-registration step. The cultivator publishes before it
 	// registers, so by the time we see ConfReqSignal the broadcast has
 	// already happened. The select cases below execute serially in this
 	// one goroutine, so no synchronisation on lastTx is needed; the
@@ -96,15 +96,15 @@ func (d *MintDriver) pump(ctx context.Context) {
 			}
 
 			// Build a one-tx block and register it under its hash
-			// so the caretaker's later GetBlock call finds it.
+			// so the cultivator's later GetBlock call finds it.
 			// SetBlock serialises this write against any
-			// concurrent caretaker reads.
+			// concurrent cultivator reads.
 			block := buildBlockForTx(tx)
 			blockHash := block.BlockHash()
 			d.ChainBridge.SetBlock(blockHash, block)
 
 			// SendConfNtfn writes to req.Confirmed, which blocks
-			// until the caretaker reads it. Run it in its own
+			// until the cultivator reads it. Run it in its own
 			// goroutine so the pump stays responsive.
 			go d.ChainBridge.SendConfNtfn(
 				reqNo, &blockHash, 1, 0, block, tx,
@@ -144,7 +144,7 @@ func (d *MintDriver) EnqueueSeedlings(tb testing.TB, n int) {
 }
 
 // FinalizeBatch fires FinalizeBatch and blocks until the pump has driven
-// the caretaker through funding, publishing, and confirmation. The
+// the cultivator through funding, publishing, and confirmation. The
 // planter's FinalizeBatch returns on broadcast (BroadcastCompleteChan),
 // not on confirmation; we then wait on the batch state to reach
 // Confirmed so the caller has the full async confirmation/finalization

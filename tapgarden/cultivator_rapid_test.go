@@ -18,7 +18,7 @@ import (
 	"pgregory.net/rapid"
 )
 
-// defaultRapidChecks is the number of iterations TestCaretakerRestart
+// defaultRapidChecks is the number of iterations TestCultivatorRestart
 // RecoveryRapid samples by default. The subset space being explored is
 // small (4 cases: each restart point on/off), so 30 iterations already
 // hits every case multiple times. Operators wanting deeper exploration
@@ -79,7 +79,7 @@ type restartPoint int
 
 const (
 	// rpAfterCommitted: disk state has reached BatchStateCommitted.
-	// At that instant the running caretaker is parked at the head of
+	// At that instant the running cultivator is parked at the head of
 	// the Committed branch (blocked on the mock wallet's sign signal,
 	// no branch work done yet), so this point verifies that a batch
 	// recovered at Committed is picked up again and driven through
@@ -138,13 +138,13 @@ func runMintWithRestarts(t *mintingTestHarness, numSeedlings int,
 	}
 
 	// Stage 2: Committed -> Broadcast (sign + import + commit_signed_tx).
-	// The signals are consumed from whichever caretaker is currently
+	// The signals are consumed from whichever cultivator is currently
 	// running (post-restart if rpAfterCommitted fired).
 	t.assertGenesisPsbtFinalized(nil)
 
 	// Stage 3: Broadcast publishes the tx. assertTxPublished is the
 	// natural sync point for "publish has happened" -- the mock only
-	// receives once the caretaker has called PublishTransaction.
+	// receives once the cultivator has called PublishTransaction.
 	tx := t.assertTxPublished()
 
 	if restartAt[rpAfterPublish] {
@@ -172,20 +172,20 @@ func runMintWithRestarts(t *mintingTestHarness, numSeedlings int,
 	sendConfNtfn := t.assertConfReqSent(tx, block)
 	sendConfNtfn()
 
-	// Wait for the caretaker goroutine to drive the batch all the way
+	// Wait for the cultivator goroutine to drive the batch all the way
 	// through Confirmed -> Finalized and shut itself down.
 	awaitBatchState(t, frozenBatch.BatchKey.PubKey,
 		tapgarden.BatchStateFinalized)
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertNoError()
 	t.assertLastBatchState(1, tapgarden.BatchStateFinalized)
 }
 
 // drainRestartErrors empties the harness error channel after a
 // restart, asserting that everything drained is a by-product of the
-// caretaker unwinding during planter.Stop() and not a genuine
+// cultivator unwinding during planter.Stop() and not a genuine
 // failure that happened to be queued at that moment. Two shapes are
-// benign: "shutting down" (from the caretaker itself or the mock
+// benign: "shutting down" (from the cultivator itself or the mock
 // call it was parked on), and the empty confirmation event the conf
 // watcher reports when its context dies mid-wait.
 func drainRestartErrors(t *mintingTestHarness) {
@@ -207,7 +207,7 @@ func drainRestartErrors(t *mintingTestHarness) {
 	}
 }
 
-// TestCaretakerRestartRecoveryRapid is a property-test capstone for the
+// TestCultivatorRestartRecoveryRapid is a property-test capstone for the
 // §V idempotence audit. It samples every subset of the two
 // well-synchronized restart points and asserts that the mint flow
 // still ends with exactly one Finalized batch, regardless of when the
@@ -222,7 +222,7 @@ func drainRestartErrors(t *mintingTestHarness) {
 // on the Nth attempt -- is the natural follow-up that would let this
 // same property cover the §V "idempotent re-run of partial branch"
 // case explicitly.
-func TestCaretakerRestartRecoveryRapid(t *testing.T) {
+func TestCultivatorRestartRecoveryRapid(t *testing.T) {
 	t.Parallel()
 
 	rapid.Check(t, func(rt *rapid.T) {

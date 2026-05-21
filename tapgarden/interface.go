@@ -106,11 +106,11 @@ const (
 	BatchStateFinalized BatchState = 5
 
 	// BatchStateSeedlingCancelled denotes that a batch has been cancelled,
-	// and will not be passed to a caretaker.
+	// and will not be passed to a cultivator.
 	BatchStateSeedlingCancelled BatchState = 6
 
 	// BatchStateSproutCancelled denotes that a batch has been cancelled
-	// after being passed to a caretaker and sprouting.
+	// after being passed to a cultivator and sprouting.
 	BatchStateSproutCancelled BatchState = 7
 )
 
@@ -183,7 +183,7 @@ func NewBatchState(state uint8) (BatchState, error) {
 // BatchStore persists the lifecycle of a minting batch: creation,
 // state transitions, and the writes that accompany each transition
 // (sprouts, signed genesis tx, confirmation). Both the planter and
-// the caretaker use it; the substance stored is exactly "minting
+// the cultivator use it; the substance stored is exactly "minting
 // batches and their state."
 type BatchStore interface {
 	// CommitMintingBatch commits a new minting batch to disk, identified

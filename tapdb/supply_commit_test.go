@@ -1388,9 +1388,9 @@ func TestSupplyCommitInsertPendingUpdate(t *testing.T) {
 
 // TestSupplyCommitInsertPendingUpdateIsIdempotent verifies that inserting
 // the same logical supply update event twice produces only a single row.
-// This is the dedup invariant relied on by the minting caretaker's
+// This is the dedup invariant relied on by the minting cultivator's
 // Confirmed branch: a crash between SendMintEvent and the batch state
-// transition causes a restarted caretaker to re-fire the same event, and
+// transition causes a restarted cultivator to re-fire the same event, and
 // we need the schema -- not the caller -- to be the source of truth for
 // "this event has already been recorded."
 func TestSupplyCommitInsertPendingUpdateIsIdempotent(t *testing.T) {
@@ -1444,7 +1444,7 @@ func TestSupplyCommitInsertPendingUpdateIsIdempotent(t *testing.T) {
 // == 0, rolls the whole tx back, and returns ErrDuplicateUpdate so the
 // caller knows the event was already recorded and no new row landed.
 //
-// This is the exact scenario the minting caretaker exhibits on restart
+// This is the exact scenario the minting cultivator exhibits on restart
 // after the Confirmed branch has already finalized its supply commit:
 // SendMintEvent fires again, and the state machine treats the sentinel
 // as a no-op self-transition rather than advancing on a phantom event.

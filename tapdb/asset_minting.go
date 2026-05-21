@@ -2290,7 +2290,7 @@ func (a *AssetMintingStore) DeleteTapscriptTree(ctx context.Context,
 // Compile-time assertions: AssetMintingStore is the single concrete
 // store that satisfies both the BatchStore (batch lifecycle) and the
 // MintingRefReader (reference lookups) views the planter and
-// caretaker consume separately, as well as the TapscriptTreeManager
+// cultivator consume separately, as well as the TapscriptTreeManager
 // used for batch tap siblings.
 var (
 	_ tapgarden.BatchStore       = (*AssetMintingStore)(nil)
