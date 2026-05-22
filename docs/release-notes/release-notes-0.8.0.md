@@ -107,6 +107,10 @@
   were upgraded to v0.6.0, by which universe leaf inserts could result in
   duplicate-key errors.
 
+* [PR#2141](https://github.com/lightninglabs/taproot-assets/pull/2141)
+  fixes several bugs that could leave minting batches in an inconsistent
+  state in the case of a funding, database write, or restart error.
+
 # New Features
 
 ## Functional Enhancements

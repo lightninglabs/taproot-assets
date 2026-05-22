@@ -284,17 +284,16 @@ type MintingStore interface {
 	FetchAssetMeta(ctx context.Context, ID asset.ID) (*proof.MetaReveal,
 		error)
 
-	// CommitBatchTapSibling adds a tapscript sibling to the batch,
-	// specified by the sibling root hash.
+	// CommitBatchFunding atomically persists the funded genesis
+	// transaction and the optional tapscript sibling root hash for a
+	// batch in a single transaction. Either both writes succeed or
+	// neither persists, so a partial-failure cannot leave the batch
+	// in an inconsistent on-disk state.
 	//
-	// NOTE: The tapscript tree that defines the batch sibling must already
-	// be committed to disk.
-	CommitBatchTapSibling(ctx context.Context, batchKey *btcec.PublicKey,
-		rootHash *chainhash.Hash) error
-
-	// CommitBatchTx adds a funded transaction to the batch, which also sets
-	// the genesis point for the batch.
-	CommitBatchTx(ctx context.Context, batchKey *btcec.PublicKey,
+	// NOTE: The tapscript tree referenced by rootHash (if non-nil)
+	// must already be committed to disk.
+	CommitBatchFunding(ctx context.Context, batchKey *btcec.PublicKey,
+		rootHash *chainhash.Hash,
 		genesisTx FundedMintAnchorPsbt) error
 
 	// FetchDelegationKey fetches the delegation key for the given asset
