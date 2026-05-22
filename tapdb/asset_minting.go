@@ -1483,22 +1483,6 @@ func (a *AssetMintingStore) UpdateBatchState(ctx context.Context,
 	})
 }
 
-// CommitBatchTapSibling updates the tapscript sibling of a batch based on the
-// batch key.
-func (a *AssetMintingStore) CommitBatchTapSibling(ctx context.Context,
-	batchKey *btcec.PublicKey, batchSibling *chainhash.Hash) error {
-
-	siblingUpdate := BatchTapSiblingUpdate{
-		RawKey:           batchKey.SerializeCompressed(),
-		TapscriptSibling: batchSibling[:],
-	}
-
-	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
-		return q.BindMintingBatchWithTapSibling(ctx, siblingUpdate)
-	})
-}
-
 // encodeOutpoint encodes the outpoint point in Bitcoin wire format, returning
 // the final result.
 func encodeOutpoint(outPoint wire.OutPoint) ([]byte, error) {
@@ -1509,34 +1493,6 @@ func encodeOutpoint(outPoint wire.OutPoint) ([]byte, error) {
 	}
 
 	return b.Bytes(), nil
-}
-
-// CommitBatchTx updates the genesis transaction of a batch based on the batch
-// key.
-func (a *AssetMintingStore) CommitBatchTx(ctx context.Context,
-	batchKey *btcec.PublicKey,
-	genesisPacket tapgarden.FundedMintAnchorPsbt) error {
-
-	genesisOutpoint, err := genesisPacket.GenesisOutpoint().UnwrapOrErr(
-		tapgarden.ErrFundedAnchorPsbtMissingOutpoint,
-	)
-	if err != nil {
-		return err
-	}
-
-	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
-		// Insert the batch transaction.
-		err := insertMintAnchorTx(
-			ctx, q, genesisPacket, *batchKey, genesisOutpoint,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to insert mint anchor "+
-				"tx: %w", err)
-		}
-
-		return nil
-	})
 }
 
 // CommitBatchFunding atomically persists the funded genesis transaction
