@@ -839,7 +839,7 @@ func runPsbtInteractiveMarkerV0MixedVersions(ctxt context.Context,
 	require.NoError(t.t, err)
 
 	btcPkt = signPacket(t.t, sender.cfg.LndNode, btcPkt)
-	btcPkt = FinalizePacket(t.t, sender.cfg.LndNode.RPC, btcPkt)
+	btcPkt = FinalizeFullySigned(t.t, btcPkt)
 	PublishAndLogTransfer(
 		t.t, sender, btcPkt, activePkt, passivePkt, commitResp,
 		withExpectedErr("error validating input assets: mixed virtual "+
@@ -2526,7 +2526,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	require.Equal(t.t, bobInputIdx, signResp.SignedInputs[0])
 	require.NoError(t.t, finalPsbt.SanityCheck())
 
-	signedPkt := finalizePacket(t.t, lndBob, finalPsbt)
+	signedPkt := FinalizeFullySigned(t.t, finalPsbt)
 	require.True(t.t, signedPkt.IsComplete())
 
 	logResp := PublishAndLogTransfer(
@@ -3120,7 +3120,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 		t.t, bob, btcPacket, vPackets, nil, -1,
 	)
 	btcPacket = signPacket(t.t, bobLnd, btcPacket)
-	btcPacket = FinalizePacket(t.t, bobLnd.RPC, btcPacket)
+	btcPacket = FinalizeFullySigned(t.t, btcPacket)
 	spendTx, err := psbt.Extract(btcPacket)
 	require.NoError(t.t, err)
 
@@ -3333,7 +3333,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 		t.t, bob, btcPacket, vPackets, nil, -1,
 	)
 	btcPacket = signPacket(t.t, lndBob, btcPacket)
-	btcPacket = FinalizePacket(t.t, lndBob.RPC, btcPacket)
+	btcPacket = FinalizeFullySigned(t.t, btcPacket)
 	spendTx, err := psbt.Extract(btcPacket)
 	require.NoError(t.t, err)
 
@@ -3548,9 +3548,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 		t.t, bob, btcPacket, vPackets, nil, -1,
 	)
 	btcPacketTimeLocked := signPacket(t.t, lndBob, btcPacket)
-	btcPacketTimeLocked = FinalizePacket(
-		t.t, lndBob.RPC, btcPacketTimeLocked,
-	)
+	btcPacketTimeLocked = FinalizeFullySigned(t.t, btcPacketTimeLocked)
 	spendTxTimeLocked, err := psbt.Extract(btcPacketTimeLocked)
 	require.NoError(t.t, err)
 
@@ -3574,7 +3572,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 	}
 
 	btcPacket = signPacket(t.t, lndBob, btcPacket)
-	btcPacket = FinalizePacket(t.t, lndBob.RPC, btcPacket)
+	btcPacket = FinalizeFullySigned(t.t, btcPacket)
 	spendTxTimeLocked, err = psbt.Extract(btcPacket)
 	require.NoError(t.t, err)
 
@@ -3737,24 +3735,6 @@ func signPacket(t *testing.T, lnd *node.HarnessNode,
 
 	signedPacket, err := psbt.NewFromRawBytes(
 		bytes.NewReader(signResp.SignedPsbt), false,
-	)
-	require.NoError(t, err)
-
-	return signedPacket
-}
-
-func finalizePacket(t *testing.T, lnd *node.HarnessNode,
-	pkt *psbt.Packet) *psbt.Packet {
-
-	pktBytes, err := fn.Serialize(pkt)
-	require.NoError(t, err)
-
-	finalizeResp := lnd.RPC.FinalizePsbt(&walletrpc.FinalizePsbtRequest{
-		FundedPsbt: pktBytes,
-	})
-
-	signedPacket, err := psbt.NewFromRawBytes(
-		bytes.NewReader(finalizeResp.SignedPsbt), false,
 	)
 	require.NoError(t, err)
 

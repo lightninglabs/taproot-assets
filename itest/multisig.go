@@ -466,17 +466,25 @@ func CommitVirtualPsbts(t *testing.T, funder commands.RpcClientsBundle,
 func FinalizePacket(t *testing.T, lnd *rpc.HarnessRPC,
 	pkt *psbt.Packet) *psbt.Packet {
 
+	// We sign and locally finalize instead of calling lnd's FinalizePsbt
+	// RPC because the latter is broken for p2tr inputs when lnd runs in
+	// watch-only / remote-signing mode (it fails with "is not a p2wkh or
+	// np2wkh address" while trying to compute the input script). SignPsbt
+	// + local MaybeFinalizeAll is equivalent and works in both modes.
 	var buf bytes.Buffer
 	err := pkt.Serialize(&buf)
 	require.NoError(t, err)
 
-	finalizeResp := lnd.FinalizePsbt(&walletrpc.FinalizePsbtRequest{
+	signResp := lnd.SignPsbt(&walletrpc.SignPsbtRequest{
 		FundedPsbt: buf.Bytes(),
 	})
 
 	signedPacket, err := psbt.NewFromRawBytes(
-		bytes.NewReader(finalizeResp.SignedPsbt), false,
+		bytes.NewReader(signResp.SignedPsbt), false,
 	)
+	require.NoError(t, err)
+
+	err = psbt.MaybeFinalizeAll(signedPacket)
 	require.NoError(t, err)
 
 	return signedPacket
