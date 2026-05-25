@@ -309,6 +309,13 @@
   authentication. A macaroon path can be specified via the
   `experimental.rfq.priceoraclemacaroonpath` config option.
 
+- [PR#2139](https://github.com/lightninglabs/taproot-assets/pull/2139)
+  When an RFQ flow targets a specific peer (for example asset invoices
+  with `rfq_peer_pubkey`) but only inactive matching asset channels exist
+  (such as when the peer is offline), tapd now returns an error that
+  states there is no active channel and that matching channels are
+  inactive, instead of reporting that no asset channels were found.
+
 ## RPC Updates
 
 - [PR#2005](https://github.com/lightninglabs/taproot-assets/pull/2005)
