@@ -309,6 +309,13 @@
   authentication. A macaroon path can be specified via the
   `experimental.rfq.priceoraclemacaroonpath` config option.
 
+- [PR#2147](https://github.com/lightninglabs/taproot-assets/pull/2147)
+  extends TLS and macaroon auth to the external portfolio pilot
+  client, and unifies the TLS configuration across both RFQ gRPC
+  clients (price oracle, portfolio pilot) under a single shared
+  `experimental.rfq.tls.*` namespace. The portfolio pilot macaroon
+  path is configured via `experimental.rfq.portfoliopilotmacaroonpath`.
+
 ## RPC Updates
 
 - [PR#2005](https://github.com/lightninglabs/taproot-assets/pull/2005)
