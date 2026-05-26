@@ -61,7 +61,7 @@ func testCustomChannelsOraclePricing(_ context.Context,
 		oracleAddr,
 	))
 	tapdArgs = append(
-		tapdArgs, "--experimental.rfq.priceoracletlsinsecure",
+		tapdArgs, "--experimental.rfq.tls.insecure",
 	)
 
 	// We use Charlie as the proof courier. But in order for Charlie to also
