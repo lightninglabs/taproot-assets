@@ -554,8 +554,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		// used.
 
 	default:
+		tlsConfig, err := getPortfolioPilotTLSConfig(rfqCfg)
+		if err != nil {
+			return nil, fmt.Errorf("couldn't construct "+
+				"portfolio pilot configuration: %w", err)
+		}
+
 		portfolioPilot, err = rfq.NewRpcPortfolioPilot(
-			rfqCfg.PortfolioPilotAddress, false,
+			rfqCfg.PortfolioPilotAddress, tlsConfig,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create "+

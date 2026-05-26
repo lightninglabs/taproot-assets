@@ -1302,6 +1302,38 @@ func getPriceOracleTLSConfig(rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
 	return tlsConfig, nil
 }
 
+// getPortfolioPilotTLSConfig returns a TLS configuration for a portfolio
+// pilot, given a valid RFQ CLI configuration.
+func getPortfolioPilotTLSConfig(
+	rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
+
+	var certBytes []byte
+
+	// Read any specified certificate data.
+	if rfqCfg.PortfolioPilotTLSCertPath != "" {
+		var err error
+		certBytes, err = os.ReadFile(
+			rfqCfg.PortfolioPilotTLSCertPath,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read "+
+				"portfolio pilot certificate: %w", err)
+		}
+	}
+
+	// Construct the pilot's TLS configuration.
+	tlsConfig := &rfq.TLSConfig{
+		Disabled:           rfqCfg.PortfolioPilotTLSDisable,
+		InsecureSkipVerify: rfqCfg.PortfolioPilotTLSInsecure,
+		// Note the subtle flip on the flag, since the user has
+		// configured whether to *not* trust the system CA's.
+		TrustSystemRootCAs: !rfqCfg.PortfolioPilotTLSNoSystemCAs,
+		CustomCertificates: certBytes,
+	}
+
+	return tlsConfig, nil
+}
+
 // getPriceOracleMacaroonOpt reads the price oracle macaroon file
 // from disk (if configured) and returns it as an optional gRPC dial
 // option.

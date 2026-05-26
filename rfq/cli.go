@@ -22,9 +22,6 @@ const (
 type CliConfig struct {
 	PriceOracleAddress string `long:"priceoracleaddress" description:"Price oracle gRPC server address (rfqrpc://<hostname>:<port>). To use the integrated mock, use the following value: use_mock_price_oracle_service_promise_to_not_use_on_mainnet"`
 
-	// PortfolioPilotAddress is the portfolio pilot gRPC server address.
-	PortfolioPilotAddress string `long:"portfoliopilotaddress" description:"Portfolio pilot gRPC server address (portfoliopilotrpc://<hostname>:<port>)"`
-
 	PriceOracleTLSDisable bool `long:"priceoracletlsdisable" description:"Disable TLS for price oracle communication."`
 
 	PriceOracleTLSInsecure bool `long:"priceoracletlsinsecure" description:"Disable price oracle certificate verification."`
@@ -34,6 +31,17 @@ type CliConfig struct {
 	PriceOracleTLSCertPath string `long:"priceoracletlscertpath" description:"Path to a PEM-encoded x509 certificate to use when constructing a TLS connection with a price oracle."`
 
 	PriceOracleMacaroonPath string `long:"priceoraclemacaroonpath" description:"Path to the macaroon to use when connecting to the price oracle gRPC server."`
+
+	// PortfolioPilotAddress is the portfolio pilot gRPC server address.
+	PortfolioPilotAddress string `long:"portfoliopilotaddress" description:"Portfolio pilot gRPC server address (portfoliopilotrpc://<hostname>:<port>)"`
+
+	PortfolioPilotTLSDisable bool `long:"portfoliopilottlsdisable" description:"Disable TLS for portfolio pilot communication."`
+
+	PortfolioPilotTLSInsecure bool `long:"portfoliopilottlsinsecure" description:"Disable portfolio pilot certificate verification."`
+
+	PortfolioPilotTLSNoSystemCAs bool `long:"portfoliopilottlsnosystemcas" description:"Disable use of the operating system's list of root CA's when verifying portfolio pilot certificates."`
+
+	PortfolioPilotTLSCertPath string `long:"portfoliopilottlscertpath" description:"Path to a PEM-encoded x509 certificate to use when constructing a TLS connection with a portfolio pilot."`
 
 	SendPriceHint bool `long:"sendpricehint" description:"Send a price hint from the local price oracle to the RFQ peer when requesting a quote. For privacy reasons, this should only be turned on for self-hosted or trusted price oracles."`
 

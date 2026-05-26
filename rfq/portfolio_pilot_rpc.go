@@ -2,7 +2,6 @@ package rfq
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net/url"
 	"time"
@@ -16,8 +15,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -67,30 +64,9 @@ type RpcPortfolioPilot struct {
 	rawConn *grpc.ClientConn
 }
 
-// portfolioPilotDialOpts returns gRPC dial options for the portfolio pilot.
-func portfolioPilotDialOpts(insecureDial bool) []grpc.DialOption {
-	var creds credentials.TransportCredentials
-	if insecureDial {
-		creds = insecure.NewCredentials()
-	} else {
-		creds = credentials.NewTLS(&tls.Config{
-			InsecureSkipVerify: true,
-		})
-	}
-
-	return []grpc.DialOption{
-		grpc.WithTransportCredentials(creds),
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                30 * time.Second,
-			Timeout:             20 * time.Second,
-			PermitWithoutStream: true,
-		}),
-	}
-}
-
 // NewRpcPortfolioPilot creates a new RPC portfolio pilot handle given the
 // address of the portfolio pilot RPC server.
-func NewRpcPortfolioPilot(addrStr string, dialInsecure bool) (
+func NewRpcPortfolioPilot(addrStr string, tlsConfig *TLSConfig) (
 	*RpcPortfolioPilot, error) {
 
 	addr, err := ParsePortfolioPilotAddress(addrStr)
@@ -99,7 +75,21 @@ func NewRpcPortfolioPilot(addrStr string, dialInsecure bool) (
 			err)
 	}
 
-	dialOpts := portfolioPilotDialOpts(dialInsecure)
+	// Create transport credentials and dial options from the supplied TLS
+	// config.
+	transportCredentials, err := configureTransportCredentials(tlsConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	dialOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(transportCredentials),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                30 * time.Second,
+			Timeout:             20 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	}
 
 	// Formulate the server address dial string.
 	serverAddr := fmt.Sprintf("%s:%s", addr.Hostname(), addr.Port())
