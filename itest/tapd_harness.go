@@ -449,7 +449,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 			opts.oracleServerAddress,
 		))
 		args = append(args,
-			"--experimental.rfq.priceoracletlsinsecure",
+			"--experimental.rfq.tls.insecure",
 		)
 	default:
 		args = append(args, fmt.Sprintf(

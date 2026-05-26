@@ -22,18 +22,16 @@ const (
 type CliConfig struct {
 	PriceOracleAddress string `long:"priceoracleaddress" description:"Price oracle gRPC server address (rfqrpc://<hostname>:<port>). To use the integrated mock, use the following value: use_mock_price_oracle_service_promise_to_not_use_on_mainnet"`
 
+	PriceOracleMacaroonPath string `long:"priceoraclemacaroonpath" description:"Path to the macaroon to use when connecting to the price oracle gRPC server."`
+
 	// PortfolioPilotAddress is the portfolio pilot gRPC server address.
 	PortfolioPilotAddress string `long:"portfoliopilotaddress" description:"Portfolio pilot gRPC server address (portfoliopilotrpc://<hostname>:<port>)"`
 
-	PriceOracleTLSDisable bool `long:"priceoracletlsdisable" description:"Disable TLS for price oracle communication."`
+	PortfolioPilotMacaroonPath string `long:"portfoliopilotmacaroonpath" description:"Path to the macaroon to use when connecting to the portfolio pilot gRPC server."`
 
-	PriceOracleTLSInsecure bool `long:"priceoracletlsinsecure" description:"Disable price oracle certificate verification."`
-
-	PriceOracleTLSNoSystemCAs bool `long:"priceoracletlsnosystemcas" description:"Disable use of the operating system's list of root CA's when verifying price oracle certificates."`
-
-	PriceOracleTLSCertPath string `long:"priceoracletlscertpath" description:"Path to a PEM-encoded x509 certificate to use when constructing a TLS connection with a price oracle."`
-
-	PriceOracleMacaroonPath string `long:"priceoraclemacaroonpath" description:"Path to the macaroon to use when connecting to the price oracle gRPC server."`
+	// TLS holds TLS-related options shared by all RFQ gRPC client
+	// connections.
+	TLS TLSCliConfig `group:"tls" namespace:"tls"`
 
 	SendPriceHint bool `long:"sendpricehint" description:"Send a price hint from the local price oracle to the RFQ peer when requesting a quote. For privacy reasons, this should only be turned on for self-hosted or trusted price oracles."`
 
@@ -111,14 +109,6 @@ func (c *CliConfig) Validate() error {
 		}
 	}
 
-	// A macaroon requires transport security. If a macaroon path is set
-	// but TLS is disabled, the gRPC dial will fail. Catch this early with
-	// a clear error.
-	if c.PriceOracleMacaroonPath != "" && c.PriceOracleTLSDisable {
-		return fmt.Errorf("priceoraclemacaroonpath requires " +
-			"price oracle TLS to be enabled")
-	}
-
 	// Ensure that if the portfolio pilot address is set, it is valid.
 	if c.PortfolioPilotAddress != "" {
 		_, err := ParsePortfolioPilotAddress(c.PortfolioPilotAddress)
@@ -126,6 +116,37 @@ func (c *CliConfig) Validate() error {
 			return fmt.Errorf("invalid portfolio pilot service "+
 				"URI address: %w", err)
 		}
+	}
+
+	// A macaroon path is only meaningful if the corresponding service is
+	// actually configured. The mock price oracle doesn't accept macaroons
+	// either, so treat that the same as no address.
+	if c.PriceOracleMacaroonPath != "" &&
+		(c.PriceOracleAddress == "" ||
+			c.PriceOracleAddress == MockPriceOracleServiceAddress) {
+
+		return fmt.Errorf("priceoraclemacaroonpath requires a real " +
+			"price oracle address")
+	}
+
+	if c.PortfolioPilotMacaroonPath != "" &&
+		c.PortfolioPilotAddress == "" {
+
+		return fmt.Errorf("portfoliopilotmacaroonpath requires a " +
+			"portfolio pilot address")
+	}
+
+	// A macaroon is a bearer token, so it requires full transport
+	// security: TLS must be enabled and the server certificate must be
+	// verified. Otherwise the macaroon can be intercepted by an attacker
+	// who MITMs the connection (with TLS disabled) or who presents any
+	// cert (with verification disabled).
+	macaroonSet := c.PriceOracleMacaroonPath != "" ||
+		c.PortfolioPilotMacaroonPath != ""
+	if macaroonSet && (c.TLS.Disable || c.TLS.Insecure) {
+		return fmt.Errorf("macaroon paths require RFQ TLS to be " +
+			"enabled and the server certificate to be verified " +
+			"(tls.disable=false, tls.insecure=false)")
 	}
 
 	return nil

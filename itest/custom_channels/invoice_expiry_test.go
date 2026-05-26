@@ -50,7 +50,7 @@ func testCustomChannelsInvoiceQuoteExpiryMismatch(
 	))
 	tapdArgs = append(
 		tapdArgs,
-		"--experimental.rfq.priceoracletlsinsecure",
+		"--experimental.rfq.tls.insecure",
 	)
 
 	// We use Charlie as the proof courier.

@@ -500,6 +500,15 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	var portfolioPilot rfq.PortfolioPilot
 
 	rfqCfg := cfg.Experimental.Rfq
+
+	// Build the TLS configuration shared by all RFQ gRPC client
+	// connections (price oracle, portfolio pilot).
+	rfqTLSConfig, err := getRfqTLSConfig(rfqCfg)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't construct RFQ TLS "+
+			"configuration: %w", err)
+	}
+
 	switch rfqCfg.PriceOracleAddress {
 	case rfq.MockPriceOracleServiceAddress:
 		switch {
@@ -520,12 +529,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		// skip setting suggested prices for outgoing quote requests.
 
 	default:
-		tlsConfig, err := getPriceOracleTLSConfig(rfqCfg)
-		if err != nil {
-			return nil, fmt.Errorf("couldn't construct price "+
-				"oracle configuration: %w", err)
-		}
-
 		macaroonOpt, err := getPriceOracleMacaroonOpt(rfqCfg)
 		if err != nil {
 			return nil, fmt.Errorf("unable to load price "+
@@ -538,7 +541,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 
 		priceOracle, err = rfq.NewRpcPriceOracle(
-			rfqCfg.PriceOracleAddress, tlsConfig,
+			rfqCfg.PriceOracleAddress, rfqTLSConfig,
 			macaroonOpt, nodeID,
 		)
 		if err != nil {
@@ -554,8 +557,15 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		// used.
 
 	default:
+		macaroonOpt, err := getPortfolioPilotMacaroonOpt(rfqCfg)
+		if err != nil {
+			return nil, fmt.Errorf("unable to load portfolio "+
+				"pilot macaroon: %w", err)
+		}
+
 		portfolioPilot, err = rfq.NewRpcPortfolioPilot(
-			rfqCfg.PortfolioPilotAddress, false,
+			rfqCfg.PortfolioPilotAddress, rfqTLSConfig,
+			macaroonOpt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create "+
