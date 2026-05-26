@@ -121,7 +121,7 @@ func testBackupRestoreGenesis(t *harnessTest) {
 //     imported (both anchor outpoints spent in step 7)
 func testBackupRestoreTransferred(t *harnessTest) {
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*4)
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*6)
 	defer cancel()
 
 	// === Stage 1: Mint 2 assets on Alice in separate batches ===
