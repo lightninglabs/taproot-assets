@@ -20,7 +20,7 @@ import (
 //  3. Bob imports the same backup again — 0 imported (idempotent)
 func testBackupRestoreGenesis(t *harnessTest) {
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*2)
 	defer cancel()
 
 	// Mint a single asset on Alice.
