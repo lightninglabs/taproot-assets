@@ -118,6 +118,24 @@ func (c *CliConfig) Validate() error {
 		}
 	}
 
+	// A macaroon path is only meaningful if the corresponding service is
+	// actually configured. The mock price oracle doesn't accept macaroons
+	// either, so treat that the same as no address.
+	if c.PriceOracleMacaroonPath != "" &&
+		(c.PriceOracleAddress == "" ||
+			c.PriceOracleAddress == MockPriceOracleServiceAddress) {
+
+		return fmt.Errorf("priceoraclemacaroonpath requires a real " +
+			"price oracle address")
+	}
+
+	if c.PortfolioPilotMacaroonPath != "" &&
+		c.PortfolioPilotAddress == "" {
+
+		return fmt.Errorf("portfoliopilotmacaroonpath requires a " +
+			"portfolio pilot address")
+	}
+
 	// A macaroon requires transport security. If any macaroon path is set
 	// but RFQ TLS is disabled, the gRPC dial will fail. Catch this early
 	// with a clear error.
