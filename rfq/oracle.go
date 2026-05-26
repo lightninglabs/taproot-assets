@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net"
 	"net/url"
 	"time"
 
@@ -251,7 +252,7 @@ func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig,
 	})
 
 	// Formulate the server address dial string.
-	serverAddr := fmt.Sprintf("%s:%s", addr.Hostname(), addr.Port())
+	serverAddr := net.JoinHostPort(addr.Hostname(), addr.Port())
 
 	conn, err := grpc.NewClient(serverAddr, dialOpts...)
 	if err != nil {
