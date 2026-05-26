@@ -136,14 +136,17 @@ func (c *CliConfig) Validate() error {
 			"portfolio pilot address")
 	}
 
-	// A macaroon requires transport security. If any macaroon path is set
-	// but RFQ TLS is disabled, the gRPC dial will fail. Catch this early
-	// with a clear error.
+	// A macaroon is a bearer token, so it requires full transport
+	// security: TLS must be enabled and the server certificate must be
+	// verified. Otherwise the macaroon can be intercepted by an attacker
+	// who MITMs the connection (with TLS disabled) or who presents any
+	// cert (with verification disabled).
 	macaroonSet := c.PriceOracleMacaroonPath != "" ||
 		c.PortfolioPilotMacaroonPath != ""
-	if macaroonSet && c.TLS.Disable {
+	if macaroonSet && (c.TLS.Disable || c.TLS.Insecure) {
 		return fmt.Errorf("macaroon paths require RFQ TLS to be " +
-			"enabled")
+			"enabled and the server certificate to be verified " +
+			"(tls.disable=false, tls.insecure=false)")
 	}
 
 	return nil
