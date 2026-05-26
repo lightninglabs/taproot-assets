@@ -65,9 +65,10 @@ type RpcPortfolioPilot struct {
 }
 
 // NewRpcPortfolioPilot creates a new RPC portfolio pilot handle given the
-// address of the portfolio pilot RPC server.
-func NewRpcPortfolioPilot(addrStr string, tlsConfig *TLSConfig) (
-	*RpcPortfolioPilot, error) {
+// address of the portfolio pilot RPC server. An optional macaroon dial option
+// can be provided for authentication with the pilot server.
+func NewRpcPortfolioPilot(addrStr string, tlsConfig *TLSConfig,
+	macaroonOpt fn.Option[grpc.DialOption]) (*RpcPortfolioPilot, error) {
 
 	addr, err := ParsePortfolioPilotAddress(addrStr)
 	if err != nil {
@@ -90,6 +91,12 @@ func NewRpcPortfolioPilot(addrStr string, tlsConfig *TLSConfig) (
 			PermitWithoutStream: true,
 		}),
 	}
+
+	// If a macaroon dial option is provided, append it to the dial
+	// options so that the macaroon is sent with every RPC call.
+	macaroonOpt.WhenSome(func(opt grpc.DialOption) {
+		dialOpts = append(dialOpts, opt)
+	})
 
 	// Formulate the server address dial string.
 	serverAddr := fmt.Sprintf("%s:%s", addr.Hostname(), addr.Port())

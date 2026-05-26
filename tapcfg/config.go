@@ -1354,6 +1354,26 @@ func getPriceOracleMacaroonOpt(
 	return fn.Some(opt), nil
 }
 
+// getPortfolioPilotMacaroonOpt reads the portfolio pilot macaroon file
+// from disk (if configured) and returns it as an optional gRPC dial
+// option.
+func getPortfolioPilotMacaroonOpt(
+	rfqCfg rfq.CliConfig) (fn.Option[grpc.DialOption], error) {
+
+	if rfqCfg.PortfolioPilotMacaroonPath == "" {
+		return fn.None[grpc.DialOption](), nil
+	}
+
+	opt, err := rfq.NewMacaroonDialOption(
+		rfqCfg.PortfolioPilotMacaroonPath,
+	)
+	if err != nil {
+		return fn.None[grpc.DialOption](), err
+	}
+
+	return fn.Some(opt), nil
+}
+
 // fileExists reports whether the named file or directory exists.
 // This function is taken from https://github.com/btcsuite/btcd
 func fileExists(name string) bool {

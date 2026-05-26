@@ -43,6 +43,8 @@ type CliConfig struct {
 
 	PortfolioPilotTLSCertPath string `long:"portfoliopilottlscertpath" description:"Path to a PEM-encoded x509 certificate to use when constructing a TLS connection with a portfolio pilot."`
 
+	PortfolioPilotMacaroonPath string `long:"portfoliopilotmacaroonpath" description:"Path to the macaroon to use when connecting to the portfolio pilot gRPC server."`
+
 	SendPriceHint bool `long:"sendpricehint" description:"Send a price hint from the local price oracle to the RFQ peer when requesting a quote. For privacy reasons, this should only be turned on for self-hosted or trusted price oracles."`
 
 	PriceOracleSendPeerId bool `long:"priceoraclesendpeerid" description:"Send the peer ID (public key of the peer) to the price oracle when requesting a price rate. For privacy reasons, this should only be turned on for self-hosted or trusted price oracles."`
@@ -134,6 +136,14 @@ func (c *CliConfig) Validate() error {
 			return fmt.Errorf("invalid portfolio pilot service "+
 				"URI address: %w", err)
 		}
+	}
+
+	// A macaroon requires transport security. If a macaroon path is set
+	// but TLS is disabled, the gRPC dial will fail. Catch this early with
+	// a clear error.
+	if c.PortfolioPilotMacaroonPath != "" && c.PortfolioPilotTLSDisable {
+		return fmt.Errorf("portfoliopilotmacaroonpath requires " +
+			"portfolio pilot TLS to be enabled")
 	}
 
 	return nil

@@ -560,8 +560,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				"portfolio pilot configuration: %w", err)
 		}
 
+		macaroonOpt, err := getPortfolioPilotMacaroonOpt(rfqCfg)
+		if err != nil {
+			return nil, fmt.Errorf("unable to load portfolio "+
+				"pilot macaroon: %w", err)
+		}
+
 		portfolioPilot, err = rfq.NewRpcPortfolioPilot(
-			rfqCfg.PortfolioPilotAddress, tlsConfig,
+			rfqCfg.PortfolioPilotAddress, tlsConfig, macaroonOpt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create "+
