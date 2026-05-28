@@ -225,3 +225,6 @@ replace github.com/golang-migrate/migrate/v4 => github.com/lightninglabs/migrate
 
 // Needed for healthcheck import.
 replace github.com/prometheus/common => github.com/prometheus/common v0.26.0
+
+// Note this is a temporary replace and will be removed when taprpc is tagged.
+replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc

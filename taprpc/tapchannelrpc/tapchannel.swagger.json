@@ -148,6 +148,72 @@
         ]
       }
     },
+    "/v1/taproot-assets/channels/invoices": {
+      "post": {
+        "summary": "litcli: `ln listinvoices`\nListInvoices is a wrapper around lnd's lnrpc.ListInvoices method that only\nreturns invoices that involve at least one Taproot Asset. The full lnd\ninvoice is returned along with the decoded asset amounts that the invoice's\nHTLCs carry, so that callers don't need to parse the custom channel data\nthemselves. All request fields behave the same way as they do for lnd's\nlnrpc.ListInvoices RPC method.",
+        "operationId": "TaprootAssetChannels_ListInvoices",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcListInvoicesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcListInvoicesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssetChannels"
+        ]
+      }
+    },
+    "/v1/taproot-assets/channels/payments": {
+      "post": {
+        "summary": "litcli: `ln listpayments`\nListPayments is a wrapper around lnd's lnrpc.ListPayments method that only\nreturns payments that involve at least one Taproot Asset. The full lnd\npayment is returned along with the decoded asset amounts that the payment's\nHTLCs carry, so that callers don't need to parse the custom channel data\nthemselves. All request fields behave the same way as they do for lnd's\nlnrpc.ListPayments RPC method.",
+        "operationId": "TaprootAssetChannels_ListPayments",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcListPaymentsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcListPaymentsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssetChannels"
+        ]
+      }
+    },
     "/v1/taproot-assets/channels/send-payment": {
       "post": {
         "summary": "litcli: `ln sendpayment`\nSendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method\nwith asset specific parameters. It allows RPC users to send asset keysend\npayments (direct payments) or payments to an invoice with a specified asset\namount.",
@@ -997,6 +1063,80 @@
       ],
       "default": "ACCEPTED"
     },
+    "lnrpcListInvoiceRequest": {
+      "type": "object",
+      "properties": {
+        "pending_only": {
+          "type": "boolean",
+          "description": "If set, only invoices that are not settled and not canceled will be returned\nin the response."
+        },
+        "index_offset": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The index of an invoice that will be used as either the start or end of a\nquery to determine which invoices should be returned in the response."
+        },
+        "num_max_invoices": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The max number of invoices to return in the response to this query."
+        },
+        "reversed": {
+          "type": "boolean",
+          "description": "If set, the invoices returned will result from seeking backwards from the\nspecified index offset. This can be used to paginate backwards."
+        },
+        "creation_date_start": {
+          "type": "string",
+          "format": "uint64",
+          "description": "If set, returns all invoices with a creation date greater than or equal\nto it. Measured in seconds since the unix epoch."
+        },
+        "creation_date_end": {
+          "type": "string",
+          "format": "uint64",
+          "description": "If set, returns all invoices with a creation date less than or equal to\nit. Measured in seconds since the unix epoch."
+        }
+      }
+    },
+    "lnrpcListPaymentsRequest": {
+      "type": "object",
+      "properties": {
+        "include_incomplete": {
+          "type": "boolean",
+          "description": "If true, then return payments that have not yet fully completed. This means\nthat pending payments, as well as failed payments will show up if this\nfield is set to true. This flag doesn't change the meaning of the indices,\nwhich are tied to individual payments."
+        },
+        "index_offset": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The index of a payment that will be used as either the start or end of a\nquery to determine which payments should be returned in the response. The\nindex_offset is exclusive. In the case of a zero index_offset, the query\nwill start with the oldest payment when paginating forwards, or will end\nwith the most recent payment when paginating backwards."
+        },
+        "max_payments": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The maximal number of payments returned in the response to this query."
+        },
+        "reversed": {
+          "type": "boolean",
+          "description": "If set, the payments returned will result from seeking backwards from the\nspecified index offset. This can be used to paginate backwards. The order\nof the returned payments is always oldest first (ascending index order)."
+        },
+        "count_total_payments": {
+          "type": "boolean",
+          "description": "If set, all payments (complete and incomplete, independent of the\nmax_payments parameter) will be counted. Note that setting this to true will\nincrease the run time of the call significantly on systems that have a lot\nof payments, as all of them have to be iterated through to be counted."
+        },
+        "creation_date_start": {
+          "type": "string",
+          "format": "uint64",
+          "description": "If set, returns all payments with a creation date greater than or equal\nto it. Measured in seconds since the unix epoch."
+        },
+        "creation_date_end": {
+          "type": "string",
+          "format": "uint64",
+          "description": "If set, returns all payments with a creation date less than or equal to\nit. Measured in seconds since the unix epoch."
+        },
+        "omit_hops": {
+          "type": "boolean",
+          "description": "If set, omit hop-level route data for HTLC attempts to reduce query\ncost and response size."
+        }
+      }
+    },
     "lnrpcMPPRecord": {
       "type": "object",
       "properties": {
@@ -1616,6 +1756,43 @@
         }
       }
     },
+    "tapchannelrpcAssetAmount": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID (genesis ID of the tranche) the amount refers to."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount, expressed in units of the asset identified by asset_id."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The tweaked group key the asset belongs to, in compressed form. Empty\nfor assets that aren't part of a group, or whose group is unknown to\nthis tapd instance. Populated so callers that work in terms of group\nkeys (e.g. wallets backing a fungible group of tranches) don't need a\nseparate lookup per result."
+        }
+      }
+    },
+    "tapchannelrpcAssetInvoice": {
+      "type": "object",
+      "properties": {
+        "invoice": {
+          "$ref": "#/definitions/lnrpcInvoice",
+          "description": "The full lnd invoice, including any custom channel data on its HTLCs."
+        },
+        "asset_amounts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/tapchannelrpcAssetAmount"
+          },
+          "description": "The asset amounts carried by the invoice's HTLCs, aggregated per asset\nID across all of the invoice's HTLCs. Empty for invoices that have not\nbeen (partially) settled with assets yet."
+        }
+      }
+    },
     "tapchannelrpcAssetPayReq": {
       "type": "object",
       "properties": {
@@ -1662,6 +1839,23 @@
         "pay_req": {
           "$ref": "#/definitions/lnrpcPayReq",
           "description": "The normal decoded payment request."
+        }
+      }
+    },
+    "tapchannelrpcAssetPayment": {
+      "type": "object",
+      "properties": {
+        "payment": {
+          "$ref": "#/definitions/lnrpcPayment",
+          "description": "The full lnd payment, including any custom channel data on its HTLCs."
+        },
+        "asset_amounts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/tapchannelrpcAssetAmount"
+          },
+          "description": "The asset amounts carried by the payment, aggregated per asset ID across\nall non-failed HTLC attempts. Empty for payments that did not (yet) move\nany assets."
         }
       }
     },
@@ -1743,6 +1937,70 @@
           "type": "string",
           "format": "byte",
           "description": "The payment hash of the HODL invoice to be created."
+        }
+      }
+    },
+    "tapchannelrpcListInvoicesRequest": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/lnrpcListInvoiceRequest",
+          "description": "The standard lnd invoice listing request. All fields behave the same way\nas they do for lnd's lnrpc.ListInvoices RPC method (see the API docs at\nhttps://lightning.engineering/api-docs/api/lnd/lightning/list-invoices\nfor more details). Pagination is performed by lnd over all invoices; the\nreturned set is then filtered down to only those that involve assets, so\na page may contain fewer asset invoices than the requested maximum."
+        }
+      }
+    },
+    "tapchannelrpcListInvoicesResponse": {
+      "type": "object",
+      "properties": {
+        "invoices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/tapchannelrpcAssetInvoice"
+          },
+          "description": "The list of asset invoices that matched the request."
+        },
+        "last_index_offset": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The index of the last item in the set of returned invoices. This can be\nused to seek further, pagination style. Mirrors the value returned by\nlnd's lnrpc.ListInvoices."
+        },
+        "first_index_offset": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The index of the first item in the set of returned invoices. This can be\nused to seek backwards, pagination style. Mirrors the value returned by\nlnd's lnrpc.ListInvoices."
+        }
+      }
+    },
+    "tapchannelrpcListPaymentsRequest": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/lnrpcListPaymentsRequest",
+          "description": "The standard lnd payment listing request. All fields behave the same way\nas they do for lnd's lnrpc.ListPayments RPC method (see the API docs at\nhttps://lightning.engineering/api-docs/api/lnd/lightning/list-payments\nfor more details). Pagination is performed by lnd over all payments; the\nreturned set is then filtered down to only those that involve assets, so\na page may contain fewer asset payments than the requested maximum."
+        }
+      }
+    },
+    "tapchannelrpcListPaymentsResponse": {
+      "type": "object",
+      "properties": {
+        "payments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/tapchannelrpcAssetPayment"
+          },
+          "description": "The list of asset payments that matched the request."
+        },
+        "first_index_offset": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The index of the first item in the set of returned payments. This can be\nused to seek backwards, pagination style. Mirrors the value returned by\nlnd's lnrpc.ListPayments."
+        },
+        "last_index_offset": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The index of the last item in the set of returned payments. This can be\nused to seek further, pagination style. Mirrors the value returned by\nlnd's lnrpc.ListPayments."
         }
       }
     },
