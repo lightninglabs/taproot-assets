@@ -127,6 +127,10 @@ var testCases = []*ccTestCase{
 		name: "restart coop close",
 		test: testCustomChannelsRestartCoopClose,
 	},
+	{
+		name: "list invoices and payments",
+		test: testCustomChannelsListInvoicesAndPayments,
+	},
 }
 
 // TestCustomChannels is the main entry point for running custom channel
