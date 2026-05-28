@@ -111,6 +111,10 @@
   fixes several bugs that could leave minting batches in an inconsistent
   state in the case of a funding, database write, or restart error.
 
+* [PR#2149](https://github.com/lightninglabs/taproot-assets/pull/2149)
+  fixes a bug that caused tapd not to detect subsequent self-sends to
+  V2 addresses.
+
 # New Features
 
 ## Functional Enhancements

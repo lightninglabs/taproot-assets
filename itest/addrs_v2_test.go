@@ -639,6 +639,64 @@ func testAddressV2WithGroupKeyMultipleRoundTrips(t *harnessTest) {
 	}
 }
 
+// testAddressV2SelfSend exercises repeated self-sends to a single reusable
+// V2 group address on the same node, asserting that each send produces a
+// distinct AddrEvent. Regression coverage for issue #2148, where the
+// second self-send was silently dropped because the per-send unique script
+// key became locally known after the first receive.
+func testAddressV2SelfSend(t *harnessTest) {
+	// Mint a single grouped asset on the only node (t.tapd). The bug
+	// requires the same asset ID across both sends so that
+	// DeriveUniqueScriptKey yields the same derived key each time.
+	mintReq := CopyRequest(issuableAssets[0])
+	mintReq.Asset.Amount = 1000
+
+	tranche := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner(), t.tapd,
+		[]*mintrpc.MintAssetRequest{mintReq},
+	)
+	mintedAsset := tranche[0]
+	groupKey := mintedAsset.AssetGroup.TweakedGroupKey
+
+	// Create a reusable amountless V2 group address on the same node;
+	// this is the self-send case.
+	ctx := context.Background()
+	selfAddr, err := t.tapd.NewAddr(ctx, &taprpc.NewAddrRequest{
+		AddressVersion: addrV2,
+		GroupKey:       groupKey,
+	})
+	require.NoError(t.t, err)
+	t.Logf("Got self group addr: %v", toJSON(t.t, selfAddr))
+
+	// First self-send.
+	_, err = t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
+		AddressesWithAmounts: []*taprpc.AddressWithAmount{
+			{
+				TapAddr: selfAddr.Encoded,
+				Amount:  1,
+			},
+		},
+	})
+	require.NoError(t.t, err)
+	MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
+	AssertAddrEventByStatus(t.t, t.tapd, statusCompleted, 1)
+
+	// Second self-send to the same reusable V2 address. Without the
+	// fix in #2148 this would silently produce no new AddrEvent and
+	// the assertion below would fail.
+	_, err = t.tapd.SendAsset(ctx, &taprpc.SendAssetRequest{
+		AddressesWithAmounts: []*taprpc.AddressWithAmount{
+			{
+				TapAddr: selfAddr.Encoded,
+				Amount:  1,
+			},
+		},
+	})
+	require.NoError(t.t, err)
+	MineBlocks(t.t, t.lndHarness.Miner(), 1, 1)
+	AssertAddrEventByStatus(t.t, t.tapd, statusCompleted, 2)
+}
+
 // testAddressV2WithGroupKeyRestart tests that we can re-try and properly
 // continue the address v2 send process in various scenarios.
 func testAddressV2WithGroupKeyRestart(t *harnessTest) {
