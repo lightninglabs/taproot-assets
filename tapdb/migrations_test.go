@@ -1279,3 +1279,123 @@ func TestMigration54Down(t *testing.T) {
 		"delete should fail after reverting CASCADE",
 	)
 }
+
+// TestSequenceConsistency is a Postgres-only test that verifies every
+// auto-increment sequence is consistent with its table's max ID after
+// all migrations have run. This catches migrations that copy rows with
+// explicit IDs (e.g. INSERT INTO new_t (id, ...) SELECT id, ... FROM
+// old_t) without advancing the sequence.
+func TestSequenceConsistency(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 30)
+
+	if db.Backend() != sqlc.BackendTypePostgres {
+		t.Skip("sequence consistency only applies to Postgres")
+	}
+
+	// Seed a universe_leaves row with an explicit id = 100.
+	// Migration 31 will copy this row (with its explicit ID)
+	// into a recreated table, which won't advance the sequence.
+	InsertTestdata(
+		t, db.BaseDB,
+		"migrations_test_00031_dummy_data.sql",
+	)
+
+	// Reset every sequence to match its table's current max so
+	// that only desyncs introduced by migrations are detected.
+	_, err := db.ExecContext(ctx, `
+		DO $$
+		DECLARE
+			r RECORD;
+		BEGIN
+			FOR r IN
+				SELECT
+					seq.relname  AS seq_name,
+					tbl.relname  AS tbl_name,
+					a.attname    AS col_name
+				FROM pg_class seq
+				JOIN pg_depend d
+					ON d.objid = seq.oid
+				JOIN pg_class tbl
+					ON d.refobjid = tbl.oid
+				JOIN pg_attribute a
+					ON a.attrelid = tbl.oid
+					AND a.attnum = d.refobjsubid
+				WHERE seq.relkind = 'S'
+				  AND d.deptype  = 'a'
+			LOOP
+				EXECUTE format(
+					'SELECT setval(%L, COALESCE('
+					  || '(SELECT MAX(%I) FROM %I),'
+					  || ' 1))',
+					r.seq_name, r.col_name,
+					r.tbl_name
+				);
+			END LOOP;
+		END
+		$$;
+	`)
+	require.NoError(t, err)
+
+	// Run all remaining migrations.
+	err = db.ExecuteMigrations(TargetLatest)
+	require.NoError(t, err)
+
+	// Find all sequences owned by table columns.
+	rows, err := db.QueryContext(ctx, `
+		SELECT
+			seq.relname  AS sequence_name,
+			tbl.relname  AS table_name,
+			a.attname    AS column_name
+		FROM pg_class seq
+		JOIN pg_depend d    ON d.objid = seq.oid
+		JOIN pg_class tbl   ON d.refobjid = tbl.oid
+		JOIN pg_attribute a ON a.attrelid = tbl.oid
+		                   AND a.attnum = d.refobjsubid
+		WHERE seq.relkind = 'S'
+		  AND d.deptype = 'a'
+	`)
+	require.NoError(t, err)
+
+	defer rows.Close()
+
+	type seqInfo struct {
+		seqName string
+		table   string
+		column  string
+	}
+
+	var sequences []seqInfo
+	for rows.Next() {
+		var s seqInfo
+		err := rows.Scan(&s.seqName, &s.table, &s.column)
+		require.NoError(t, err)
+		sequences = append(sequences, s)
+	}
+	require.NoError(t, rows.Err())
+	require.NotEmpty(t, sequences, "expected at least one sequence")
+
+	for _, s := range sequences {
+		var lastValue int64
+		err := db.QueryRowContext(ctx, fmt.Sprintf(
+			"SELECT last_value FROM %s", s.seqName,
+		)).Scan(&lastValue)
+		require.NoError(t, err)
+
+		var maxID int64
+		err = db.QueryRowContext(ctx, fmt.Sprintf(
+			"SELECT COALESCE(MAX(%s), 0) FROM %s",
+			s.column, s.table,
+		)).Scan(&maxID)
+		require.NoError(t, err)
+
+		require.GreaterOrEqual(
+			t, lastValue, maxID,
+			"sequence %s on %s.%s is behind: "+
+				"last_value=%d, max(%s)=%d",
+			s.seqName, s.table, s.column,
+			lastValue, s.column, maxID,
+		)
+	}
+}

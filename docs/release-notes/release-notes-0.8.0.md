@@ -189,6 +189,10 @@
   fixes a bug that prevented asset-level timelocks from being enforced
   at the consensus level.
 
+* [PR#2047](https://github.com/lightninglabs/taproot-assets/pull/2047)
+  fixes a bug that caused duplicate key errors on legacy Postgres-backed
+  universe servers that existed prior to tapd v0.6.0.
+
 * [PR#2051](https://github.com/lightninglabs/taproot-assets/pull/2051)
   ensures that sell-side payment flows survive restarts.
 
@@ -196,20 +200,47 @@
   fixes inverted sort direction in `AssetRoots`, `AssetLeafKeys`, and
   `QueryEvents` universe RPCs.
 
+* [PR#2110](https://github.com/lightninglabs/taproot-assets/pull/2110)
+  fixes a corner case in which tapd could hang on shutdown while
+  importing output proofs during a coop close.
+
 * [PR#2115](https://github.com/lightninglabs/taproot-assets/pull/2115)
   fixes a bug by which grouped assets could remain invisible to
   ListGroups after import, remaining visible only in ListAssets.
 
+* [PR#2118](https://github.com/lightninglabs/taproot-assets/pull/2118)
+  fixes a bug that made MSSMT node inserts fail to be idempotent under
+  database backends.
+
+* [PR#2119](https://github.com/lightninglabs/taproot-assets/pull/2119)
+  eliminates a panic that could occur when MSSMT branch nodes were copied
+  under database backends.
+
+* [PR#2131](https://github.com/lightninglabs/taproot-assets/pull/2131)
+  fixes a bug that could prevent co-op closes from finalizing if
+  tapd were to restart after close negotiation, but before on-chain
+  confirmation.
+
+* [PR#2141](https://github.com/lightninglabs/taproot-assets/pull/2141)
+  fixes several bugs that could leave minting batches in an
+  inconsistent state in the case of a funding, database write, or
+  restart error.
+
+* [PR#2149](https://github.com/lightninglabs/taproot-assets/pull/2149)
+  fixes a bug that caused tapd not to detect subsequent self-sends
+  to V2 addresses.
+
 ## Functional Updates
 
-- [PR#1775](https://github.com/lightninglabs/taproot-assets/pull/1775):
-  ensures that price oracle connections now verify TLS certificates
-  by default, using the OS root CA list. New config options under
-  `experimental.rfq.priceoracle*` allow disabling TLS, skipping
-  verification, or specifying custom certificates.
+- [PR#1775](https://github.com/lightninglabs/taproot-assets/pull/1775)
+  and [PR#2147](https://github.com/lightninglabs/taproot-assets/pull/2147):
+  ensure that RFQ gRPC clients (price oracle, portfolio pilot) now verify TLS
+  certificates by default using the OS root CA list. They share a
+  single `experimental.rfq.tls.*` config namespace for disabling TLS,
+  skipping verification, or specifying custom certificates.
 
 - [PR#1863](https://github.com/lightninglabs/taproot-assets/pull/1863)
-  ensures taht RFQ buy/sell accepts are now written to the database
+  ensures that RFQ buy/sell accepts are now written to the database
   `rfq_policies` table whenever a policy is agreed, giving us an audit
   trail and keeping quotes alive across restarts.
 
@@ -255,6 +286,10 @@
   and executed in parallel, replacing the previous sequential per-proof
   approach. Benchmarks show a ~7x speedup for files with many unique
   headers.
+
+* [PR#2147](https://github.com/lightninglabs/taproot-assets/pull/2147)
+  extends macaroon auth to the portfolio pilot client, configurable via
+  `experimental.rfq.portfoliopilotmacaroonpath`.
 
 ## RPC Updates
 
@@ -346,3 +381,4 @@
 - [PR#2056](https://github.com/lightninglabs/taproot-assets/pull/2056)
   expands the example portfolio pilot with constraint enforcement,
   configurable fill caps, and live CoinGecko pricing.
+

@@ -1400,7 +1400,7 @@ func (a *AuxSweeper) importOutputScriptKeys(desc tapscriptSweepDescs) error {
 
 // importOutputProofs imports the output proofs into the pending asset funding
 // into our local database. This preps us to be able to detect force closes.
-func importOutputProofs(scid lnwire.ShortChannelID,
+func importOutputProofs(ctx context.Context, scid lnwire.ShortChannelID,
 	outputProofs []*proof.Proof, courierAddr *url.URL,
 	proofDispatch proof.CourierDispatch, chainBridge tapgarden.ChainBridge,
 	vCtx proof.VerifierCtx, proofArchive proof.Archiver) error {
@@ -1415,7 +1415,6 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 	// the funding outputs we need.
 	//
 	// TODO(roasbeef): assume single asset for now, also additional inputs
-	ctxb := context.Background()
 	for _, proofToImport := range outputProofs {
 		// Check if the proof is already imported to avoid redundant
 		// work.
@@ -1424,7 +1423,7 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 			ScriptKey: *proofToImport.Asset.ScriptKey.PubKey,
 			OutPoint:  fn.Ptr(proofToImport.OutPoint()),
 		}
-		proofExists, err := proofArchive.HasProof(ctxb, fundingLocator)
+		proofExists, err := proofArchive.HasProof(ctx, fundingLocator)
 		if err != nil {
 			return fmt.Errorf("unable to check if proof "+
 				"exists: %w", err)
@@ -1463,7 +1462,7 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 		// First, we'll make a courier to use in fetching the proofs we
 		// need.
 		proofFetcher, err := proofDispatch.NewCourier(
-			ctxb, courierAddr, true,
+			ctx, courierAddr, true,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to create proof courier: %w",
@@ -1476,7 +1475,7 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 			Amount:    proofToImport.Asset.Amount,
 		}
 		prefixProof, err := proofFetcher.ReceiveProof(
-			ctxb, recipient, inputProofLocator,
+			ctx, recipient, inputProofLocator,
 		)
 
 		// Always attempt to close the courier, even if we encounter an
@@ -1496,7 +1495,7 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 		// the transition proof to include the proper block+merkle proof
 		// information.
 		err = updateProofsFromShortChanID(
-			ctxb, chainBridge, scid, []*proof.Proof{proofToImport},
+			ctx, chainBridge, scid, []*proof.Proof{proofToImport},
 		)
 		if err != nil {
 			return fmt.Errorf("error updating transition "+
@@ -1524,7 +1523,7 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 		}
 
 		err = proofArchive.ImportProofs(
-			ctxb, vCtx, false, &proof.AnnotatedProof{
+			ctx, vCtx, false, &proof.AnnotatedProof{
 				Locator: fundingLocator,
 				Blob:    finalProofBuf.Bytes(),
 			},
@@ -1597,7 +1596,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 		IgnoreChecker:  a.cfg.IgnoreChecker,
 	}
 	err = importOutputProofs(
-		req.ShortChanID, maps.Values(fundingInputProofs),
+		ctxb, req.ShortChanID, maps.Values(fundingInputProofs),
 		a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
 		a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
 	)

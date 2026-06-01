@@ -104,13 +104,13 @@ type UniverseClient interface {
 	// of the Universe. Stats returned include: total number of syncs, total
 	// number of proofs, and total number of known assets.
 	UniverseStats(ctx context.Context, in *StatsRequest, opts ...grpc.CallOption) (*StatsResponse, error)
-	// tapcli `universe stats assets`
+	// tapcli: `universe stats assets`
 	// QueryAssetStats returns a set of statistics for a given set of assets.
 	// Stats can be queried for all assets, or based on the: asset ID, name, or
 	// asset type. Pagination is supported via the offset and limit params.
 	// Results can also be sorted based on any of the main query params.
 	QueryAssetStats(ctx context.Context, in *AssetStatsQuery, opts ...grpc.CallOption) (*UniverseAssetStats, error)
-	// tapcli `universe stats events`
+	// tapcli: `universe stats events`
 	// QueryEvents returns the number of sync and proof events for a given time
 	// period, grouped by day.
 	QueryEvents(ctx context.Context, in *QueryEventsRequest, opts ...grpc.CallOption) (*QueryEventsResponse, error)
@@ -469,13 +469,13 @@ type UniverseServer interface {
 	// of the Universe. Stats returned include: total number of syncs, total
 	// number of proofs, and total number of known assets.
 	UniverseStats(context.Context, *StatsRequest) (*StatsResponse, error)
-	// tapcli `universe stats assets`
+	// tapcli: `universe stats assets`
 	// QueryAssetStats returns a set of statistics for a given set of assets.
 	// Stats can be queried for all assets, or based on the: asset ID, name, or
 	// asset type. Pagination is supported via the offset and limit params.
 	// Results can also be sorted based on any of the main query params.
 	QueryAssetStats(context.Context, *AssetStatsQuery) (*UniverseAssetStats, error)
-	// tapcli `universe stats events`
+	// tapcli: `universe stats events`
 	// QueryEvents returns the number of sync and proof events for a given time
 	// period, grouped by day.
 	QueryEvents(context.Context, *QueryEventsRequest) (*QueryEventsResponse, error)

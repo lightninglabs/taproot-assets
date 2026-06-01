@@ -468,6 +468,10 @@ var allTestCases = []*testCase{
 		test: testAddressV2WithGroupKeyMultipleRoundTrips,
 	},
 	{
+		name: "address v2 self send",
+		test: testAddressV2SelfSend,
+	},
+	{
 		name: "address v2 with group key restart",
 		test: testAddressV2WithGroupKeyRestart,
 	},

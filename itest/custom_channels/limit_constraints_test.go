@@ -67,7 +67,7 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 	))
 	tapdArgs = append(
 		tapdArgs,
-		"--experimental.rfq.priceoracletlsinsecure",
+		"--experimental.rfq.tls.insecure",
 	)
 
 	charliePort := port.NextAvailablePort()

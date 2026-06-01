@@ -32,7 +32,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
-	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/clock"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -501,6 +500,15 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	var portfolioPilot rfq.PortfolioPilot
 
 	rfqCfg := cfg.Experimental.Rfq
+
+	// Build the TLS configuration shared by all RFQ gRPC client
+	// connections (price oracle, portfolio pilot).
+	rfqTLSConfig, err := getRfqTLSConfig(rfqCfg)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't construct RFQ TLS "+
+			"configuration: %w", err)
+	}
+
 	switch rfqCfg.PriceOracleAddress {
 	case rfq.MockPriceOracleServiceAddress:
 		switch {
@@ -521,12 +529,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		// skip setting suggested prices for outgoing quote requests.
 
 	default:
-		tlsConfig, err := getPriceOracleTLSConfig(rfqCfg)
-		if err != nil {
-			return nil, fmt.Errorf("couldn't construct price "+
-				"oracle configuration: %w", err)
-		}
-
 		macaroonOpt, err := getPriceOracleMacaroonOpt(rfqCfg)
 		if err != nil {
 			return nil, fmt.Errorf("unable to load price "+
@@ -539,7 +541,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 
 		priceOracle, err = rfq.NewRpcPriceOracle(
-			rfqCfg.PriceOracleAddress, tlsConfig,
+			rfqCfg.PriceOracleAddress, rfqTLSConfig,
 			macaroonOpt, nodeID,
 		)
 		if err != nil {
@@ -555,8 +557,15 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		// used.
 
 	default:
+		macaroonOpt, err := getPortfolioPilotMacaroonOpt(rfqCfg)
+		if err != nil {
+			return nil, fmt.Errorf("unable to load portfolio "+
+				"pilot macaroon: %w", err)
+		}
+
 		portfolioPilot, err = rfq.NewRpcPortfolioPilot(
-			rfqCfg.PortfolioPilotAddress, false,
+			rfqCfg.PortfolioPilotAddress, rfqTLSConfig,
+			macaroonOpt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create "+
@@ -740,6 +749,16 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			LightningClient:     lndServices.Client,
 		},
 	)
+	auxCloseDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.AuxCloseInfoStore {
+			return db.WithTx(tx)
+		},
+	)
+	auxCloseBlobs := tapdb.NewPersistedAuxCloseStore(auxCloseDB)
+	auxCloseStore := tapchannel.NewSQLAuxCloseStore(
+		auxCloseBlobs, tapdb.ErrNoAuxCloseInfo,
+	)
+
 	auxChanCloser := tapchannel.NewAuxChanCloser(
 		tapchannel.AuxChanCloserCfg{
 			ChainParams:        &tapChainParams,
@@ -753,6 +772,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ChainBridge:        chainBridge,
 			IgnoreChecker:      ignoreCheckerOpt,
 			AuxChanNegotiator:  auxChanNegotiator,
+			CloseStore:         auxCloseStore,
 		},
 	)
 	auxSweeper := tapchannel.NewAuxSweeper(
@@ -908,7 +928,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	serverCfg.SignalInterceptor = shutdownInterceptor
 
 	serverCfg.RPCConfig = &tapconfig.RPCConfig{
-		LisCfg:                     &lnd.ListenerCfg{},
+		LisCfg:                     &tapconfig.ListenerCfg{},
 		RPCListeners:               cfg.rpcListeners,
 		RESTListeners:              cfg.restListeners,
 		GrpcServerOpts:             serverOpts,

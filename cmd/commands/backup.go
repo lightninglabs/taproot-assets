@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/lightninglabs/taproot-assets/internal/lncfg"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
-	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/urfave/cli"
 	"golang.org/x/exp/maps"
 )

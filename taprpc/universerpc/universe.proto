@@ -137,7 +137,7 @@ service Universe {
     */
     rpc UniverseStats (StatsRequest) returns (StatsResponse);
 
-    /* tapcli `universe stats assets`
+    /* tapcli: `universe stats assets`
     QueryAssetStats returns a set of statistics for a given set of assets.
     Stats can be queried for all assets, or based on the: asset ID, name, or
     asset type. Pagination is supported via the offset and limit params.
@@ -145,7 +145,7 @@ service Universe {
     */
     rpc QueryAssetStats (AssetStatsQuery) returns (UniverseAssetStats);
 
-    /* tapcli `universe stats events`
+    /* tapcli: `universe stats events`
     QueryEvents returns the number of sync and proof events for a given time
     period, grouped by day.
     */
