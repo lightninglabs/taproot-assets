@@ -20,7 +20,7 @@ env:
   # Go needs absolute directories; using the $HOME variable doesn't work here.
   GOPATH: /home/runner/work/go
 
-  GO_VERSION: '1.25.5'
+  GO_VERSION: '1.26.3'
 
   # Number of parallel itest jobs in the matrix and tranches per job.
   # Total tranches = NUM_ITEST_JOBS * ITEST_PARALLELISM.
