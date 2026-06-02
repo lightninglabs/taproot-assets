@@ -10,7 +10,7 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v1.0.0
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
-	github.com/btcsuite/btcwallet v0.16.17
+	github.com/btcsuite/btcwallet v0.16.18
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.5
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.6
 	github.com/caddyserver/certmagic v0.17.2
@@ -28,10 +28,10 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/lightninglabs/aperture v0.4.0
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.4-0.20250610182311-2f1d46ef18b7
-	github.com/lightninglabs/lndclient v0.20.0-6
+	github.com/lightninglabs/lndclient v0.21.0-rc3
 	github.com/lightninglabs/neutrino/cache v1.1.3
 	github.com/lightninglabs/taproot-assets/taprpc v1.0.9
-	github.com/lightningnetwork/lnd v0.20.0-beta.rc4.0.20260421084739-a8a3e13120eb
+	github.com/lightningnetwork/lnd v0.21.0-beta.rc3
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.9
@@ -133,13 +133,13 @@ require (
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
 	github.com/lightninglabs/lightning-node-connect/gbn v1.0.2-0.20250610182311-2f1d46ef18b7 // indirect
 	github.com/lightninglabs/lightning-node-connect/mailbox v1.0.2-0.20250610182311-2f1d46ef18b7 // indirect
-	github.com/lightninglabs/neutrino v0.16.2 // indirect
+	github.com/lightninglabs/neutrino v0.17.1 // indirect
 	github.com/lightningnetwork/lightning-onion v1.3.0 // indirect
 	github.com/lightningnetwork/lnd/actor v0.0.6 // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
 	github.com/lightningnetwork/lnd/kvdb v1.4.16 // indirect
-	github.com/lightningnetwork/lnd/queue v1.1.2-0.20260328114253-ea8a6657729e // indirect
-	github.com/lightningnetwork/lnd/sqldb v1.0.13-0.20260410061304-0b82a89fdae1 // indirect
+	github.com/lightningnetwork/lnd/queue v1.2.0 // indirect
+	github.com/lightningnetwork/lnd/sqldb v1.0.13 // indirect
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
@@ -228,9 +228,3 @@ replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
 
 // Needed for healthcheck import.
 replace github.com/prometheus/common => github.com/prometheus/common v0.26.0
-
-// Needed because lnd master requires a btcwallet version with neutrino
-// v0.16.2 context.Context support, but this pseudo-version is treated as a
-// pre-release by Go modules and would be overridden by the tagged v0.16.17
-// required by aperture and lndclient.
-replace github.com/btcsuite/btcwallet => github.com/btcsuite/btcwallet v0.16.17-0.20260213031108-70a94ea39e9c
