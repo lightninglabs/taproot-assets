@@ -394,7 +394,7 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 		TaprootAssetChannelsClient.AddInvoice(
 			ctxb, &tchrpc.AddInvoiceRequest{
 				AssetId:     assetID,
-				AssetAmount: 1_000_000,
+				AssetAmount: 2_000_000,
 				PeerPubkey:  charlie.PubKey[:],
 				InvoiceRequest: &lnrpc.Invoice{
 					Expiry: 60,
@@ -422,7 +422,7 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 		TaprootAssetChannelsClient.AddInvoice(
 			ctxb, &tchrpc.AddInvoiceRequest{
 				AssetId:     assetID,
-				AssetAmount: 1_000_000,
+				AssetAmount: 2_000_000,
 				PeerPubkey:  charlie.PubKey[:],
 				InvoiceRequest: &lnrpc.Invoice{
 					Expiry: 60,
@@ -442,12 +442,12 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 		TaprootAssetChannelsClient.AddInvoice(
 			ctxb, &tchrpc.AddInvoiceRequest{
 				AssetId:     assetID,
-				AssetAmount: 1_000_000,
+				AssetAmount: 2_000_000,
 				PeerPubkey:  charlie.PubKey[:],
 				InvoiceRequest: &lnrpc.Invoice{
 					Expiry: 60,
 				},
-				AssetMinAmt: fn.Ptr[uint64](2_000_000),
+				AssetMinAmt: fn.Ptr[uint64](3_000_000),
 			},
 		)
 	require.ErrorContains(t.t, err, "exceeds max amount")

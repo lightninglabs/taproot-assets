@@ -193,7 +193,7 @@ func testCustomChannels(ctx context.Context,
 	// Dave, making it possible to send another asset HTLC below, sending
 	// all assets back to Charlie (so we have enough balance for further
 	// tests).
-	sendKeySendPayment(t.t, charlie, dave, 2000)
+	sendKeySendPayment(t.t, charlie, dave, 10_000)
 	logBalance(t.t, nodes, assetID, "after BTC only keysend")
 
 	// Let's keysend the rest of the balance back to Charlie.
@@ -365,7 +365,7 @@ func testCustomChannels(ctx context.Context,
 	t.Logf("Closing Dave -> Yara channel")
 	closeAssetChannelAndAssert(
 		t, net, dave, yara, chanPointDY, [][]byte{assetID}, nil,
-		charlie, assertDefaultCoOpCloseBalance(false, true),
+		charlie, assertDefaultCoOpCloseBalance(true, true),
 	)
 
 	t.Logf("Closing Erin -> Fabia channel")

@@ -40,6 +40,26 @@ func (v verifiedAnnotatedProof) AnnotatedProof() *AnnotatedProof {
 // verified prevents external packages from implementing VerifiedAnnotatedProof.
 func (v verifiedAnnotatedProof) verified() {}
 
+// AssumeVerifiedAnnotatedProofs wraps the given proofs as verified without
+// running the proof verifier. This is used when importing already-confirmed
+// channel transactions whose asset-level witnesses are placeholders (e.g.
+// second-level HTLC transactions). The BTC-level on-chain confirmation serves
+// as proof of validity, making VM-level witness verification unnecessary.
+//
+// The confirmHeight parameter is the block height at which the transaction
+// was confirmed, serving as attestation that the caller has verified on-chain
+// confirmation. A height of 0 will cause a panic to prevent misuse.
+func AssumeVerifiedAnnotatedProofs(confirmHeight uint32,
+	proofs ...*AnnotatedProof) []VerifiedAnnotatedProof {
+
+	if confirmHeight == 0 {
+		panic("AssumeVerifiedAnnotatedProofs requires a " +
+			"non-zero confirmation height")
+	}
+
+	return fn.Map(proofs, newVerifiedAnnotatedProof)
+}
+
 // VerifyAnnotatedProofs verifies and enriches the given proofs with a default
 // verifier and returns the verified wrappers.
 func VerifyAnnotatedProofs(ctx context.Context, vCtx VerifierCtx,
