@@ -28,6 +28,13 @@
   `BurnAssetResponse` adds a repeated `burn_proofs` field; the singular
   `burn_proof` field is deprecated.
 
+- **(Proof cache configuration)**:
+  [PR#1870](https://github.com/lightninglabs/taproot-assets/pull/1870)
+  removes the `universe.multiverse-caches.proofs-per-universe` config
+  option in favour of `universe.multiverse-caches.max-proof-cache-size`,
+  which bounds the proof cache by total memory size rather than proof
+  count. Accepts human-readable values such as `64MB`.
+
 # New Features
 
 ## Functional Enhancements
