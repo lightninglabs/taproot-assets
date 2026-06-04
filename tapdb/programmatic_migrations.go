@@ -342,6 +342,13 @@ func insertAssetBurns(ctx context.Context, q sqlc.Querier) error {
 // in migration 000061) and stores it in the new column. After this
 // migration runs every row holds a hash, and the unique index on
 // event_key enforces the no-duplicates invariant for new inserts.
+//
+// Legacy databases may already contain duplicate rows (the bug this
+// PR fixes -- restart re-fires of the same logical event). Two rows
+// with identical content hash to the same key, so the second
+// SetSupplyUpdateEventKey would violate the unique index added in
+// migration 000061. We dedupe in-memory by tracking the hashes we've
+// already assigned and dropping any row whose hash we've seen.
 func backfillSupplyUpdateEventKeys(ctx context.Context,
 	q sqlc.Querier) error {
 
@@ -354,10 +361,31 @@ func backfillSupplyUpdateEventKeys(ctx context.Context,
 	log.Debugf("Backfilling event_key for %d supply update events",
 		len(rows))
 
+	seen := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
 		key := supplyUpdateEventKey(
 			row.GroupKey, row.UpdateTypeID, row.EventData,
 		)
+
+		if _, dup := seen[string(key)]; dup {
+			// A prior row in this loop already claimed this
+			// hash, so the current row is a duplicate of an
+			// earlier logical event. Drop it; the unique
+			// index in migration 000061 would otherwise
+			// reject the UPDATE below.
+			log.Debugf("Dropping duplicate supply update "+
+				"event %d during backfill", row.EventID)
+
+			err := q.DeleteSupplyUpdateEvent(ctx, row.EventID)
+			if err != nil {
+				return fmt.Errorf("error deleting "+
+					"duplicate event %d: %w",
+					row.EventID, err)
+			}
+
+			continue
+		}
+		seen[string(key)] = struct{}{}
 
 		err := q.SetSupplyUpdateEventKey(
 			ctx, sqlc.SetSupplyUpdateEventKeyParams{

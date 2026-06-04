@@ -20,6 +20,19 @@ func (q *Queries) DeleteSupplyCommitTransition(ctx context.Context, transitionID
 	return err
 }
 
+const DeleteSupplyUpdateEvent = `-- name: DeleteSupplyUpdateEvent :exec
+DELETE FROM supply_update_events
+WHERE event_id = $1
+`
+
+// Deletes a single supply update event row identified by its
+// event_id. Used by the migration 62 backfill to drop duplicate
+// rows that hash to the same event_key as an earlier row.
+func (q *Queries) DeleteSupplyUpdateEvent(ctx context.Context, eventID int64) error {
+	_, err := q.db.ExecContext(ctx, DeleteSupplyUpdateEvent, eventID)
+	return err
+}
+
 const DeleteSupplyUpdateEvents = `-- name: DeleteSupplyUpdateEvents :exec
 DELETE FROM supply_update_events
 WHERE transition_id = $1

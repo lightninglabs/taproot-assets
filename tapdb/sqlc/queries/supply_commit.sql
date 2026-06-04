@@ -233,6 +233,13 @@ WHERE transition_id = @transition_id;
 DELETE FROM supply_update_events
 WHERE transition_id = @transition_id;
 
+-- name: DeleteSupplyUpdateEvent :exec
+-- Deletes a single supply update event row identified by its
+-- event_id. Used by the migration 62 backfill to drop duplicate
+-- rows that hash to the same event_key as an earlier row.
+DELETE FROM supply_update_events
+WHERE event_id = @event_id;
+
 -- name: FetchUnspentSupplyPreCommits :many
 -- Fetch unspent supply pre-commitment outputs. Each pre-commitment output
 -- comes from a mint anchor transaction and relates to an asset issuance

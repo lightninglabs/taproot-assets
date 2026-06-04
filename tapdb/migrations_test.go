@@ -1,6 +1,7 @@
 package tapdb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
@@ -1490,4 +1491,61 @@ func TestMigration62BackfillSupplyUpdateEventKeys(t *testing.T) {
 	}
 	require.NoError(t, postRows.Close())
 	require.Equal(t, len(seeds), seen)
+}
+
+// TestMigration62BackfillDedupesLegacyDuplicates simulates the legacy
+// failure mode this PR closes: pre-migration databases could contain
+// multiple supply_update_events rows with identical content. The
+// migration 62 backfill must drop the duplicates rather than fail on
+// the unique index added in migration 61.
+func TestMigration62BackfillDedupesLegacyDuplicates(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 61)
+
+	groupKey := bytes.Repeat([]byte{0x42}, 32)
+	payload := []byte("event-payload-duplicate")
+
+	// Insert the same logical event three times. NULL event_key is
+	// distinct from NULL under both backends, so all three rows
+	// land without tripping the unique index.
+	for i := 0; i < 3; i++ {
+		_, err := db.InsertSupplyUpdateEvent(
+			ctx, sqlc.InsertSupplyUpdateEventParams{
+				GroupKey:     groupKey,
+				TransitionID: sql.NullInt64{},
+				UpdateTypeID: 0,
+				EventData:    payload,
+				EventKey:     nil,
+			},
+		)
+		require.NoError(t, err)
+	}
+
+	var preCount int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM supply_update_events
+	`).Scan(&preCount))
+	require.Equal(t, 3, preCount)
+
+	// Run the backfill. The unique index added in migration 61
+	// would reject the naive UPDATE for the second and third
+	// rows; the backfill must dedupe before writing.
+	err := db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	// Exactly one row should survive, and its event_key should
+	// match the hash of the duplicated content.
+	var postCount int
+	var survivingKey []byte
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*), MAX(event_key) FROM supply_update_events
+	`).Scan(&postCount, &survivingKey))
+	require.Equal(t, 1, postCount)
+	require.Equal(t,
+		supplyUpdateEventKey(groupKey, 0, payload),
+		survivingKey,
+	)
 }
