@@ -28,12 +28,12 @@ const (
 	// witnesses.
 	Migration51InsertAssetBurns = 51
 
-	// Migration62BackfillSupplyUpdateEventKeys is the version of the
+	// Migration62BackfillEventKeys is the version of the
 	// programmatic migration that computes the dedup content-hash for
 	// every supply_update_events row that pre-dates the event_key
 	// column. SQLite has no native SHA-256, so the work cannot be
 	// expressed as portable SQL.
-	Migration62BackfillSupplyUpdateEventKeys = 62
+	Migration62BackfillEventKeys = 62
 )
 
 // programmaticMigration is a function type for a function that performs a
@@ -46,9 +46,9 @@ var (
 	// These functions are used to perform additional checks on the
 	// database state that are not fully expressible in SQL.
 	programmaticMigrations = map[uint]programmaticMigration{
-		Migration50ScriptKeyType:                 determineAndAssignScriptKeyType,
-		Migration51InsertAssetBurns:              insertAssetBurns,
-		Migration62BackfillSupplyUpdateEventKeys: backfillSupplyUpdateEventKeys,
+		Migration50ScriptKeyType:     determineAndAssignScriptKeyType,
+		Migration51InsertAssetBurns:  insertAssetBurns,
+		Migration62BackfillEventKeys: backfillSupplyUpdateEventKeys,
 	}
 )
 

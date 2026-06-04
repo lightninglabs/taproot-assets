@@ -1435,12 +1435,17 @@ func TestMigration62BackfillSupplyUpdateEventKeys(t *testing.T) {
 	}
 
 	for _, s := range seeds {
-		_, err := db.ExecContext(ctx, `
-			INSERT INTO supply_update_events (
-				group_key, transition_id,
-				update_type_id, event_data
-			) VALUES (?, NULL, ?, ?)
-		`, groupKey, s.typeID, s.data)
+		// EventKey is intentionally nil so the row mimics what a
+		// legacy database holds before migration 62's backfill.
+		_, err := db.InsertSupplyUpdateEvent(
+			ctx, sqlc.InsertSupplyUpdateEventParams{
+				GroupKey:     groupKey,
+				TransitionID: sql.NullInt64{},
+				UpdateTypeID: s.typeID,
+				EventData:    s.data,
+				EventKey:     nil,
+			},
+		)
 		require.NoError(t, err)
 	}
 
@@ -1537,13 +1542,18 @@ func TestMigration62BackfillDedupesLegacyDuplicates(t *testing.T) {
 	require.NoError(t, err)
 
 	// Exactly one row should survive, and its event_key should
-	// match the hash of the duplicated content.
+	// match the hash of the duplicated content. MAX(bytea) is not
+	// defined in Postgres, so fetch count and key separately.
 	var postCount int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM supply_update_events
+	`).Scan(&postCount))
+	require.Equal(t, 1, postCount)
+
 	var survivingKey []byte
 	require.NoError(t, db.QueryRowContext(ctx, `
-		SELECT COUNT(*), MAX(event_key) FROM supply_update_events
-	`).Scan(&postCount, &survivingKey))
-	require.Equal(t, 1, postCount)
+		SELECT event_key FROM supply_update_events LIMIT 1
+	`).Scan(&survivingKey))
 	require.Equal(t,
 		supplyUpdateEventKey(groupKey, 0, payload),
 		survivingKey,

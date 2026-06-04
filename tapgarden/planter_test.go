@@ -2005,7 +2005,8 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	// seedling. First we need the seedling asset ID and group internal key.
 	seedlingWithGroupTapscriptRoot := fundedBatch.
 		UnsealedSeedlings[secondSeedling]
-	seedlingAssetID := seedlingWithGroupTapscriptRoot.KeyRequest.NewAsset.ID()
+	seedlingAssetID :=
+		seedlingWithGroupTapscriptRoot.KeyRequest.NewAsset.ID()
 	derivedInternalKey := seedlingWithGroupTapscriptRoot.GroupInternalKey
 
 	// Now we can build the control block for using the hash lock script.

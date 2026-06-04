@@ -894,7 +894,7 @@ type SetSupplyUpdateEventKeyParams struct {
 
 // Sets the content-hash key for a single supply update event row.
 // Used by the programmatic migration that backfills pre-existing
-// rows after column 000060 is added.
+// rows after column 000061 is added.
 func (q *Queries) SetSupplyUpdateEventKey(ctx context.Context, arg SetSupplyUpdateEventKeyParams) error {
 	_, err := q.db.ExecContext(ctx, SetSupplyUpdateEventKey, arg.EventKey, arg.EventID)
 	return err

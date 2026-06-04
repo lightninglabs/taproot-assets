@@ -44,7 +44,7 @@ func RunRepairTool(cfg *Config, cfgLogger btclog.Logger) error {
 	case DatabaseBackendPostgres:
 		pgCfg := *cfg.Postgres
 		pgCfg.SkipMigrations = true
-		cfgLogger.Infof("repair: opening postgres database "+
+		cfgLogger.Infof("repair: opening postgres database " +
 			"(migrations skipped)")
 		db, err = tapdb.NewPostgresStore(&pgCfg)
 
@@ -77,6 +77,10 @@ func RunRepairTool(cfg *Config, cfgLogger btclog.Logger) error {
 			tapgarden.BatchStateFrozen:
 
 			preBroadcast = append(preBroadcast, batch)
+
+		default:
+			// Post-broadcast or terminal states are outside the
+			// singleton constraint and have nothing to repair.
 		}
 	}
 

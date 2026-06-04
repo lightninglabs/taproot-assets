@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -106,6 +106,8 @@ func (m *WalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 	_ uint32, _ chainfee.SatPerKWeight,
 	changeIdx int32) (*tapsend.FundedPsbt, error) {
 
+	// Mock outpoint index; not security-sensitive.
+	// nolint:gosec
 	packet.UnsignedTx.AddTxIn(&wire.TxIn{
 		PreviousOutPoint: wire.OutPoint{
 			Index: rand.Uint32(),
@@ -221,8 +223,8 @@ func (m *WalletAnchor) ImportTapscript(_ context.Context,
 // SubscribeTransactions creates a uni-directional stream from the server to the
 // client in which any newly discovered transactions relevant to the wallet are
 // sent over.
-func (m *WalletAnchor) SubscribeTransactions(
-	ctx context.Context) (<-chan lndclient.Transaction, <-chan error, error) {
+func (m *WalletAnchor) SubscribeTransactions(ctx context.Context) (
+	<-chan lndclient.Transaction, <-chan error, error) {
 
 	select {
 	case m.SubscribeTxSignal <- struct{}{}:

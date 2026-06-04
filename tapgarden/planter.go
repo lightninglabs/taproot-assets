@@ -401,7 +401,7 @@ type ChainPlanter struct {
 func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 	return &ChainPlanter{
 		cfg:               cfg,
-		cultivators:        make(map[BatchKey]*Cultivator),
+		cultivators:       make(map[BatchKey]*Cultivator),
 		completionSignals: make(chan BatchKey),
 		seedlingReqs:      make(chan *Seedling),
 		stateReqs:         make(chan stateReq),
@@ -483,7 +483,8 @@ func (c *ChainPlanter) Start() error {
 		// pending batch at a time? but would end up changing assetIDs.
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		nonFinalBatches, err := c.cfg.BatchStore.FetchNonFinalBatches(ctx)
+		nonFinalBatches, err :=
+			c.cfg.BatchStore.FetchNonFinalBatches(ctx)
 		if err != nil {
 			startErr = err
 			return
@@ -1255,6 +1256,10 @@ func checkSingletonInvariant(batches []*MintingBatch) error {
 						SerializeCompressed(),
 				),
 			)
+
+		default:
+			// Post-broadcast or terminal states are outside the
+			// singleton invariant; they're not counted.
 		}
 	}
 
@@ -1984,14 +1989,14 @@ func (c *ChainPlanter) applyFundingToBatch(ctx context.Context,
 
 	// The augmenter is consulted for the persistence payload --
 	// it scans the freshly-funded PSBT for its own output and
-	// returns the typed row. Currently
-	// applyFundingToBatch is called before the batch's
-	// GenesisPacket has been mirrored back into the in-memory
-	// batch, so we attach mintAnchorTx temporarily so the
-	// augmenter can read the funded PSBT off it.
-	stagingBatch := *batch
+	// returns the typed row. Currently applyFundingToBatch is
+	// called before the batch's GenesisPacket has been mirrored
+	// back into the in-memory batch, so we attach mintAnchorTx
+	// to a copy so the augmenter can read it without us mutating
+	// the live batch.
+	stagingBatch := batch.Copy()
 	stagingBatch.GenesisPacket = mintAnchorTx
-	preCommit, err := c.augmenter().BindData(ctx, &stagingBatch)
+	preCommit, err := c.augmenter().BindData(ctx, stagingBatch)
 	if err != nil {
 		return fmt.Errorf("augmenter BindData: %w", err)
 	}
@@ -2428,7 +2433,8 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*Cultivator,
 	}
 	cultivator := c.newCultivatorForBatch(c.pendingBatch, feeRate)
 	if err := cultivator.Start(); err != nil {
-		return nil, fmt.Errorf("unable to start new cultivator: %w", err)
+		return nil, fmt.Errorf("unable to start new "+
+			"cultivator: %w", err)
 	}
 
 	return cultivator, nil
@@ -3179,4 +3185,3 @@ func (f *FundedMintAnchorPsbt) Copy() *FundedMintAnchorPsbt {
 
 	return newMintAnchorPsbt
 }
-

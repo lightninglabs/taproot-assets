@@ -257,7 +257,7 @@ type Querier interface {
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
 	// Sets the content-hash key for a single supply update event row.
 	// Used by the programmatic migration that backfills pre-existing
-	// rows after column 000060 is added.
+	// rows after column 000061 is added.
 	SetSupplyUpdateEventKey(ctx context.Context, arg SetSupplyUpdateEventKeyParams) error
 	SetTransferOutputProofDeliveryStatus(ctx context.Context, arg SetTransferOutputProofDeliveryStatusParams) error
 	// Mark all unconfirmed transfers that spend the given anchor point as

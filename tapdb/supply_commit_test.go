@@ -157,10 +157,12 @@ func (h *supplyCommitTestHarness) addTestMintingBatch() ([]byte, int64,
 	// planter state machine, only the supply-commit logic, so the
 	// specific state does not matter as long as it is not
 	// Pending or Frozen.
-	err = db.UpdateMintingBatchState(ctx, sqlc.UpdateMintingBatchStateParams{
-		RawKey:     batchKeyBytes,
-		BatchState: int16(tapgarden.BatchStateFinalized),
-	})
+	err = db.UpdateMintingBatchState(
+		ctx, sqlc.UpdateMintingBatchStateParams{
+			RawKey:     batchKeyBytes,
+			BatchState: int16(tapgarden.BatchStateFinalized),
+		},
+	)
 	require.NoError(h.t, err)
 
 	_, err = db.BindMintingBatchWithTx(
@@ -1537,7 +1539,8 @@ func TestBindDanglingUpdatesToTransition(t *testing.T) {
 
 				eventData := b.Bytes()
 				eventKey := supplyUpdateEventKey(
-					h.groupKeyBytes, updateTypeID, eventData,
+					h.groupKeyBytes, updateTypeID,
+					eventData,
 				)
 
 				rows, err := db.InsertSupplyUpdateEvent(

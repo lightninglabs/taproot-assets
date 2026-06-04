@@ -250,16 +250,16 @@ func (b *Cultivator) Cancel(respCh chan<- CancelResp) error {
 
 	default:
 		err := fmt.Errorf("Cultivator(%x), batch not cancellable",
-			b.cfg.Batch.BatchKey.PubKey.SerializeCompressed())
+			batchKey)
 		cancelResp = CancelResp{false, err}
 	}
 
 	respCh <- cancelResp
 
-	// If the batch was cancellable, the final write of the cancelled batch
-	// may still have failed. That error will be handled by the planter. At
-	// this point, the cultivator should shut down gracefully if cancellation
-	// was attempted.
+	// If the batch was cancellable, the final write of the cancelled
+	// batch may still have failed. That error will be handled by the
+	// planter. At this point, the cultivator should shut down gracefully
+	// if cancellation was attempted.
 	if cancelResp.cancelAttempted {
 		log.Infof("Cultivator(%x), attempted batch cancellation, "+
 			"shutting down", b.batchKey[:])
@@ -588,9 +588,9 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		ctx, cancel := b.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		// For the cultivator to manage a frozen batch, it must have some
-		// seedlings and a genesis packet. Check these preconditions
-		// before modifying the batch.
+		// For the cultivator to manage a frozen batch, it must
+		// have some seedlings and a genesis packet. Check these
+		// preconditions before modifying the batch.
 		if len(b.cfg.Batch.Seedlings) == 0 {
 			return 0, fmt.Errorf("frozen batch has no seedlings")
 		}
@@ -667,8 +667,9 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 				"script: %w", err)
 		}
 
-		genesisTxPkt.UnsignedTx.
-			TxOut[genesisPkt.AssetAnchorOutIdx].PkScript = genesisScript
+		anchorIdx := genesisPkt.AssetAnchorOutIdx
+		txOut := genesisTxPkt.UnsignedTx.TxOut[anchorIdx]
+		txOut.PkScript = genesisScript
 
 		log.Infof("Cultivator(%x): committing sprouts to disk",
 			b.batchKey[:])
@@ -683,11 +684,12 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 
 		// The augmenter is the source of truth for the
 		// persistence payload that pairs with the binding tx.
-		// Stage the freshly-rebuilt genesis packet on the batch
-		// so the augmenter can read the script-stamped tx.
-		stagingBatch := *b.cfg.Batch
+		// Stage the freshly-rebuilt genesis packet on a copy
+		// so the augmenter can read the script-stamped tx
+		// without us mutating the live batch.
+		stagingBatch := b.cfg.Batch.Copy()
 		stagingBatch.GenesisPacket = &fundedGenesisPsbt
-		preCommit, err := b.augmenter().BindData(ctx, &stagingBatch)
+		preCommit, err := b.augmenter().BindData(ctx, stagingBatch)
 		if err != nil {
 			return 0, fmt.Errorf("augmenter BindData: %w", err)
 		}
@@ -1140,12 +1142,13 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 				publishAssets, nonAnchorAssets...,
 			)
 
+			anchorIdx := b.cfg.Batch.GenesisPacket.AssetAnchorOutIdx
 			err = b.cfg.MintProofPublisher.PublishMintBatch(
 				ctx, MintBatchPublishParams{
 					Assets:       publishAssets,
 					Proofs:       mintingProofs,
 					MintTxHash:   mintTxHash,
-					AnchorOutIdx: b.cfg.Batch.GenesisPacket.AssetAnchorOutIdx,
+					AnchorOutIdx: anchorIdx,
 				},
 			)
 			if err != nil {

@@ -300,7 +300,6 @@ func TestCheckSingletonInvariant(t *testing.T) {
 
 	t.Run("error names offending keys and repair tool",
 		func(t *testing.T) {
-
 			a := mkBatch(BatchStatePending)
 			b := mkBatch(BatchStateFrozen)
 
@@ -514,15 +513,12 @@ func TestSeedlingValidateCommitSplit(t *testing.T) {
 			AssetType:         asset.Normal,
 			Amount:            1,
 			SupplyCommitments: supplyCommitments,
-			DelegationKey: fn.None[
-				keychain.KeyDescriptor,
-			](),
+			DelegationKey:     fn.None[keychain.KeyDescriptor](),
 		}
 	}
 
 	t.Run("validate on populated batch leaves it unchanged",
 		func(t *testing.T) {
-
 			batch := RandMintingBatch(
 				t, WithTotalSeedlings(3),
 			)
@@ -547,7 +543,6 @@ func TestSeedlingValidateCommitSplit(t *testing.T) {
 
 	t.Run("commit on empty batch adopts SupplyCommitments",
 		func(t *testing.T) {
-
 			batch := &MintingBatch{}
 
 			candidate := mkCandidate("first-seedling", false)
