@@ -115,6 +115,11 @@
   fixes a bug that caused tapd not to detect subsequent self-sends to
   V2 addresses.
 
+* [PR#2157](https://github.com/lightninglabs/taproot-assets/pull/2157)
+  fixes a bug that could cause tapd to miss incoming V2-address
+  transfers until restart in the event of a silently-dropped TCP
+  connection.
+
 # New Features
 
 ## Functional Enhancements

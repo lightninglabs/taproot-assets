@@ -23,8 +23,21 @@ import (
 	"google.golang.org/grpc/codes"
 	grpcconn "google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 )
+
+// courierKeepalive configures HTTP/2 PING-based liveness on the
+// universe RPC courier connection. Per-call timeouts already bound
+// individual requests, but keepalive lets the underlying ClientConn
+// transition out of READY when the path silently dies, so
+// ensureConnect redials promptly rather than letting the next call
+// wait out its ServiceRequestTimeout. Mirrors authmailbox's
+// clientKeepalive.
+var courierKeepalive = keepalive.ClientParameters{
+	Time:    30 * time.Second,
+	Timeout: 20 * time.Second,
+}
 
 // CourierType is an enum that represents the different proof courier services
 // protocols that are supported.
@@ -316,6 +329,8 @@ func serverDialOpts() ([]grpc.DialOption, error) {
 	tlsConfig := tls.Config{InsecureSkipVerify: true}
 	transportCredentials := credentials.NewTLS(&tlsConfig)
 	opts = append(opts, grpc.WithTransportCredentials(transportCredentials))
+
+	opts = append(opts, grpc.WithKeepaliveParams(courierKeepalive))
 
 	return opts, nil
 }
