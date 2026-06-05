@@ -1,10 +1,10 @@
 module github.com/lightninglabs/taproot-assets/taprpc
 
-go 1.26.3
+go 1.25.10
 
 require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.20.0
-	github.com/lightningnetwork/lnd v0.21.0-beta.rc3
+	github.com/lightningnetwork/lnd v0.21.0-beta
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.10
 	gopkg.in/macaroon-bakery.v2 v2.1.0

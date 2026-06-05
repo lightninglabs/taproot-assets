@@ -35,6 +35,11 @@
   which bounds the proof cache by total memory size rather than proof
   count. Accepts human-readable values such as `64MB`.
 
+* [PR#2157](https://github.com/lightninglabs/taproot-assets/pull/2157)
+  fixes a bug that could cause tapd to miss incoming V2-address
+  transfers until restart in the event of a silently-dropped TCP
+  connection.
+
 # New Features
 
 ## Functional Enhancements
