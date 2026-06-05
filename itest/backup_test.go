@@ -20,8 +20,6 @@ import (
 //  3. Bob imports the same backup again — 0 imported (idempotent)
 func testBackupRestoreGenesis(t *harnessTest) {
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
 
 	// Mint a single asset on Alice.
 	backupAssets := []*mintrpc.MintAssetRequest{
@@ -43,11 +41,13 @@ func testBackupRestoreGenesis(t *harnessTest) {
 	require.Len(t.t, rpcAssets, 1)
 
 	// Export a compact backup from Alice.
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	exportResp, err := t.tapd.ExportAssetWalletBackup(
 		ctxt, &wrpc.ExportAssetWalletBackupRequest{
 			Mode: wrpc.BackupMode_COMPACT,
 		},
 	)
+	cancel()
 	require.NoError(t.t, err)
 	require.NotEmpty(t.t, exportResp.Backup)
 
@@ -61,18 +61,22 @@ func testBackupRestoreGenesis(t *harnessTest) {
 	}()
 
 	// First import: 1 asset imported.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
 	importResp, err := bobTapd.ImportAssetsFromBackup(
 		ctxt, &wrpc.ImportAssetsFromBackupRequest{
 			Backup: exportResp.Backup,
 		},
 	)
+	cancel()
 	require.NoError(t.t, err)
 	require.Equal(t.t, uint32(1), importResp.NumImported)
 
 	// Verify the asset matches.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
 	bobAssets, err := bobTapd.ListAssets(
 		ctxt, &taprpc.ListAssetRequest{},
 	)
+	cancel()
 	require.NoError(t.t, err)
 	require.Len(t.t, bobAssets.Assets, 1)
 
@@ -85,18 +89,22 @@ func testBackupRestoreGenesis(t *harnessTest) {
 		imported.AssetGenesis.Name)
 
 	// Second import: 0 imported (idempotent).
+	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
 	importResp2, err := bobTapd.ImportAssetsFromBackup(
 		ctxt, &wrpc.ImportAssetsFromBackupRequest{
 			Backup: exportResp.Backup,
 		},
 	)
+	cancel()
 	require.NoError(t.t, err)
 	require.Equal(t.t, uint32(0), importResp2.NumImported)
 
 	// Still exactly 1 asset.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
 	bobAssetsFinal, err := bobTapd.ListAssets(
 		ctxt, &taprpc.ListAssetRequest{},
 	)
+	cancel()
 	require.NoError(t.t, err)
 	require.Len(t.t, bobAssetsFinal.Assets, 1)
 
@@ -236,18 +244,24 @@ func testBackupRestoreTransferred(t *harnessTest) {
 		require.NoError(t.t, charlieTapd.stop(!*noDelete))
 	}()
 
+	importCtx, importCancel := context.WithTimeout(
+		ctxb, defaultWaitTimeout*2,
+	)
 	charlieImport, err := charlieTapd.ImportAssetsFromBackup(
-		ctxt, &wrpc.ImportAssetsFromBackupRequest{
+		importCtx, &wrpc.ImportAssetsFromBackupRequest{
 			Backup: rawBackup.Backup,
 		},
 	)
+	importCancel()
 	require.NoError(t.t, err)
 	require.Equal(t.t, uint32(len(mintedAssets)),
 		charlieImport.NumImported)
 
+	listCtx, listCancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	charlieAssets, err := charlieTapd.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		listCtx, &taprpc.ListAssetRequest{},
 	)
+	listCancel()
 	require.NoError(t.t, err)
 	assertAssetsMatch(t, mintedAssets, charlieAssets.Assets)
 	t.Logf("Charlie (RAW): %d assets imported",
@@ -264,18 +278,24 @@ func testBackupRestoreTransferred(t *harnessTest) {
 		require.NoError(t.t, daveTapd.stop(!*noDelete))
 	}()
 
+	importCtx, importCancel = context.WithTimeout(
+		ctxb, defaultWaitTimeout*2,
+	)
 	daveImport, err := daveTapd.ImportAssetsFromBackup(
-		ctxt, &wrpc.ImportAssetsFromBackupRequest{
+		importCtx, &wrpc.ImportAssetsFromBackupRequest{
 			Backup: compactBackup.Backup,
 		},
 	)
+	importCancel()
 	require.NoError(t.t, err)
 	require.Equal(t.t, uint32(len(mintedAssets)),
 		daveImport.NumImported)
 
+	listCtx, listCancel = context.WithTimeout(ctxb, defaultWaitTimeout)
 	daveAssets, err := daveTapd.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		listCtx, &taprpc.ListAssetRequest{},
 	)
+	listCancel()
 	require.NoError(t.t, err)
 	assertAssetsMatch(t, mintedAssets, daveAssets.Assets)
 	t.Logf("Dave (COMPACT): %d assets imported",
@@ -316,18 +336,24 @@ func testBackupRestoreTransferred(t *harnessTest) {
 	)
 	// We explicitly stop Eve later for the stale check.
 
+	importCtx, importCancel = context.WithTimeout(
+		ctxb, defaultWaitTimeout*2,
+	)
 	eveImport, err := eveTapd.ImportAssetsFromBackup(
-		ctxt, &wrpc.ImportAssetsFromBackupRequest{
+		importCtx, &wrpc.ImportAssetsFromBackupRequest{
 			Backup: optimisticBackup.Backup,
 		},
 	)
+	importCancel()
 	require.NoError(t.t, err)
 	require.Equal(t.t, uint32(len(mintedAssets)),
 		eveImport.NumImported)
 
+	listCtx, listCancel = context.WithTimeout(ctxb, defaultWaitTimeout)
 	eveAssets, err := eveTapd.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		listCtx, &taprpc.ListAssetRequest{},
 	)
+	listCancel()
 	require.NoError(t.t, err)
 	assertAssetsMatch(t, mintedAssets, eveAssets.Assets)
 	t.Logf("Eve (OPTIMISTIC): %d assets imported",
@@ -372,9 +398,11 @@ func testBackupRestoreTransferred(t *harnessTest) {
 		t.t, t.tapd, aliceRecvBase+len(mintedAssets),
 	)
 
+	listCtx, listCancel = context.WithTimeout(ctxb, defaultWaitTimeout)
 	aliceAssets, err := t.tapd.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		listCtx, &taprpc.ListAssetRequest{},
 	)
+	listCancel()
 	require.NoError(t.t, err)
 
 	for _, exp := range mintedAssets {
@@ -411,11 +439,15 @@ func testBackupRestoreTransferred(t *harnessTest) {
 	// Re-import Bob's RAW backup. Both assets had their anchor
 	// outpoints spent on-chain when Eve sent them to Alice, so
 	// both should be detected as stale and skipped.
+	staleCtx, staleCancel := context.WithTimeout(
+		ctxb, defaultWaitTimeout*2,
+	)
 	staleImport, err := restoredTapd.ImportAssetsFromBackup(
-		ctxt, &wrpc.ImportAssetsFromBackupRequest{
+		staleCtx, &wrpc.ImportAssetsFromBackupRequest{
 			Backup: rawBackup.Backup,
 		},
 	)
+	staleCancel()
 	require.NoError(t.t, err)
 	require.Equal(t.t, uint32(0), staleImport.NumImported,
 		"expected 0 imported (both outpoints are spent)")
@@ -475,8 +507,6 @@ func assertAssetsMatch(t *harnessTest, expected []*taprpc.Asset,
 //  5. Verify asset counts and group key presence on both nodes
 func testBackupRestoreGrouped(t *harnessTest) {
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*4)
-	defer cancel()
 
 	// Mint a grouped asset and an ungrouped asset together.
 	mintReqs := []*mintrpc.MintAssetRequest{
@@ -512,18 +542,22 @@ func testBackupRestoreGrouped(t *harnessTest) {
 	AssertNumGroups(t.t, t.tapd, 1)
 
 	// Export RAW and COMPACT backups.
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	rawBackup, err := t.tapd.ExportAssetWalletBackup(
 		ctxt, &wrpc.ExportAssetWalletBackupRequest{
 			Mode: wrpc.BackupMode_RAW,
 		},
 	)
+	cancel()
 	require.NoError(t.t, err)
 
+	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
 	compactBackup, err := t.tapd.ExportAssetWalletBackup(
 		ctxt, &wrpc.ExportAssetWalletBackupRequest{
 			Mode: wrpc.BackupMode_COMPACT,
 		},
 	)
+	cancel()
 	require.NoError(t.t, err)
 
 	// === Import RAW on Bob (no federation) ===
@@ -540,20 +574,24 @@ func testBackupRestoreGrouped(t *harnessTest) {
 		require.NoError(t.t, bobTapd.stop(!*noDelete))
 	}()
 
+	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout*2)
 	bobImport, err := bobTapd.ImportAssetsFromBackup(
 		ctxt, &wrpc.ImportAssetsFromBackupRequest{
 			Backup: rawBackup.Backup,
 		},
 	)
+	cancel()
 	require.NoError(t.t, err)
 	require.Equal(t.t, uint32(2), bobImport.NumImported,
 		"both assets should import (grouped + ungrouped)")
 	require.Equal(t.t, uint32(0), bobImport.NumSkipped,
 		"no assets should be skipped")
 
+	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
 	bobAssets, err := bobTapd.ListAssets(
 		ctxt, &taprpc.ListAssetRequest{},
 	)
+	cancel()
 	require.NoError(t.t, err)
 	assertAssetsMatch(t, rpcAssets, bobAssets.Assets)
 
@@ -575,20 +613,24 @@ func testBackupRestoreGrouped(t *harnessTest) {
 		require.NoError(t.t, charlieTapd.stop(!*noDelete))
 	}()
 
+	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout*2)
 	charlieImport, err := charlieTapd.ImportAssetsFromBackup(
 		ctxt, &wrpc.ImportAssetsFromBackupRequest{
 			Backup: compactBackup.Backup,
 		},
 	)
+	cancel()
 	require.NoError(t.t, err)
 	require.Equal(t.t, uint32(2), charlieImport.NumImported,
 		"both assets should import (grouped + ungrouped)")
 	require.Equal(t.t, uint32(0), charlieImport.NumSkipped,
 		"no assets should be skipped")
 
+	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
 	charlieAssets, err := charlieTapd.ListAssets(
 		ctxt, &taprpc.ListAssetRequest{},
 	)
+	cancel()
 	require.NoError(t.t, err)
 	assertAssetsMatch(t, rpcAssets, charlieAssets.Assets)
 

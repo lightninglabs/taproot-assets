@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
+	"github.com/lightninglabs/taproot-assets/diagnostics"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/healthcheck"
 	"github.com/lightninglabs/taproot-assets/lndservices"
@@ -268,6 +269,17 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		&proof.BaseVerifier{}, tapdb.DefaultStoreTimeout,
 		assetStore, proofFileStore,
 	)
+
+	var diagnosticsService *diagnostics.Service
+	if cfg.DiagnosticsDir != "" {
+		diagnosticsService, err = diagnostics.NewService(
+			cfg.DiagnosticsDir, tap.Version(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create diagnostics "+
+				"service: %w", err)
+		}
+	}
 
 	federationMembers := cfg.Universe.FederationServers
 	switch cfg.ChainConf.Network {
@@ -705,6 +717,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ErrChan:                mainErrChan,
 			BurnCommitter:          supplyCommitManager,
 			DelegationKeyChecker:   addrBook,
+			DiagnosticsRecorder:    diagnosticsService,
 		},
 	)
 
@@ -846,6 +859,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		ProofArchive:             proofArchive,
 		AssetWallet:              assetWallet,
 		CoinSelect:               coinSelect,
+		DiagnosticsService:       diagnosticsService,
 		ChainPorter:              chainPorter,
 		DisableSweepOrphanUtxos:  cfg.Wallet.DisableSweepOrphanUtxos,
 		FsmDaemonAdapters:        lndFsmDaemonAdapters,

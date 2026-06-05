@@ -18,6 +18,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/diagnostics"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -121,6 +122,10 @@ type ChainPorterConfig struct {
 	// key for a given asset, which is required for creating supply
 	// commitments.
 	DelegationKeyChecker address.DelegationKeyChecker
+
+	// DiagnosticsRecorder is an optional diagnostics sink for proof
+	// validation failures.
+	DiagnosticsRecorder diagnostics.Recorder
 }
 
 // ChainPorter is the main sub-system of the tapfreighter package. The porter
@@ -621,6 +626,35 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 			ctx, vCtx, outputProof,
 		)
 		if err != nil {
+			if p.cfg.DiagnosticsRecorder != nil {
+				inputProofArtifacts, inputArtifactsErr :=
+					p.collectInputProofArtifacts(
+						ctx,
+						inputsForAsset,
+					)
+				if inputArtifactsErr != nil {
+					// Diagnostics capture is best-effort
+					// and must not hide the underlying
+					// proof verification failure.
+					log.Warnf("Unable to collect input "+
+						"proof artifacts for "+
+						"diagnostics "+
+						"(output_idx=%d): %v", idx,
+						inputArtifactsErr)
+				}
+
+				hash := parcel.AnchorTx.TxHash().String()
+				p.reportProofValidationFailure(
+					buildPostBroadcastProofFailureReport(
+						err,
+						hash,
+						idx,
+						outputProof.Blob,
+						inputProofArtifacts,
+					),
+				)
+			}
+
 			return fmt.Errorf("error verifying proof: %w", err)
 		}
 
@@ -1578,6 +1612,29 @@ func (p *ChainPorter) verifyOutputProofPreBroadcast(ctx context.Context,
 		proof.WithSkipTimeLockValidationForFinalProof(),
 	)
 	if err != nil {
+		if p.cfg.DiagnosticsRecorder != nil {
+			inputProofArtifacts, inputArtifactsErr :=
+				p.collectInputProofArtifacts(
+					ctx, inputsForAsset,
+				)
+			if inputArtifactsErr != nil {
+				log.Warnf("Unable to collect input proof "+
+					"artifacts for diagnostics "+
+					"(vpkt_idx=%d, "+
+					"output_idx=%d): "+
+					"%v", pktIdx, outIdx,
+					inputArtifactsErr)
+			}
+
+			p.reportProofValidationFailure(
+				buildPreBroadcastProofFailureReport(
+					err, pktIdx, outIdx,
+					proofFileBuf.Bytes(),
+					inputProofArtifacts,
+				),
+			)
+		}
+
 		return fmt.Errorf("output proof verification "+
 			"failed (vpkt_idx=%d, "+
 			"output_idx=%d): %w", pktIdx,
@@ -1585,6 +1642,125 @@ func (p *ChainPorter) verifyOutputProofPreBroadcast(ctx context.Context,
 	}
 
 	return nil
+}
+
+// reportProofValidationFailure forwards a constructed failure snapshot to
+// the optional diagnostics recorder. Non-blocking behavior lives in
+// diagnostics.Service.CaptureProofValidationFailure; this method is a
+// no-op when no recorder is configured.
+func (p *ChainPorter) reportProofValidationFailure(
+	failure diagnostics.ProofValidationFailure,
+) {
+
+	if p.cfg.DiagnosticsRecorder == nil {
+		return
+	}
+
+	p.cfg.DiagnosticsRecorder.CaptureProofValidationFailure(failure)
+}
+
+// buildPreBroadcastProofFailureReport builds a
+// diagnostics.ProofValidationFailure for the pre_broadcast stage: error
+// text, virtual packet indices, the output proof blob, and any input
+// proof artifacts gathered for the support bundle.
+func buildPreBroadcastProofFailureReport(err error, pktIdx, outIdx int,
+	outputProofBlob []byte,
+	inputProofs []diagnostics.ArtifactFile,
+) diagnostics.ProofValidationFailure {
+
+	pktIdxCopy := pktIdx
+	outIdxCopy := outIdx
+	preBroadcastStage := diagnostics.StageProofVerificationPreBroadcast
+	outputProofCopy := append([]byte(nil), outputProofBlob...)
+
+	return diagnostics.ProofValidationFailure{
+		Stage:              preBroadcastStage,
+		Error:              err.Error(),
+		VPacketIndex:       &pktIdxCopy,
+		VPacketOutputIndex: &outIdxCopy,
+		OutputProofs: []diagnostics.ArtifactFile{
+			{
+				FileName: "output-proof.bin",
+				Data:     outputProofCopy,
+			},
+		},
+		InputProofs: inputProofs,
+	}
+}
+
+// buildPostBroadcastProofFailureReport builds a
+// diagnostics.ProofValidationFailure for the post_broadcast stage after
+// the anchor transaction is known, including txid, transfer output
+// index, and proof blobs for support.
+func buildPostBroadcastProofFailureReport(err error, anchorTxID string,
+	transferOutputIdx int, outputProofBlob []byte,
+	inputProofs []diagnostics.ArtifactFile,
+) diagnostics.ProofValidationFailure {
+
+	transferOutputIdxCopy := transferOutputIdx
+	postBroadcastStage := diagnostics.StageProofVerificationPostBroadcast
+	outputFileName := fmt.Sprintf("output-proof-%d.bin", transferOutputIdx)
+	outputProofCopy := append([]byte(nil), outputProofBlob...)
+
+	return diagnostics.ProofValidationFailure{
+		Stage:               postBroadcastStage,
+		Error:               err.Error(),
+		AnchorTxID:          anchorTxID,
+		TransferOutputIndex: &transferOutputIdxCopy,
+		OutputProofs: []diagnostics.ArtifactFile{
+			{
+				FileName: outputFileName,
+				Data:     outputProofCopy,
+			},
+		},
+		InputProofs: inputProofs,
+	}
+}
+
+// encodeProofFile serializes a proof file into bytes for diagnostics
+// attachment.
+func encodeProofFile(inputProofFile *proof.File) ([]byte, error) {
+	var proofFileBuf bytes.Buffer
+	err := inputProofFile.Encode(&proofFileBuf)
+	if err != nil {
+		return nil, err
+	}
+
+	return proofFileBuf.Bytes(), nil
+}
+
+// collectInputProofArtifacts fetches and encodes each input proof for
+// diagnostics. It fails fast on the first fetch or encode error because
+// this runs only after proof verification already failed; returning a
+// partial artifact set could mislead support, so callers get nothing
+// unless the full set is collected.
+func (p *ChainPorter) collectInputProofArtifacts(ctx context.Context,
+	inputs []asset.PrevID) ([]diagnostics.ArtifactFile, error) {
+
+	artifacts := make([]diagnostics.ArtifactFile, 0, len(inputs))
+
+	// Fail immediately on any input proof error so we never persist a
+	// partial set that could be mistaken for a complete bundle.
+	for idx := range inputs {
+		inputProofFile, err := p.fetchInputProof(ctx, inputs[idx])
+		if err != nil {
+			return nil, fmt.Errorf("fetch input proof %d: %w",
+				idx, err)
+		}
+
+		blob, err := encodeProofFile(inputProofFile)
+		if err != nil {
+			return nil, fmt.Errorf("encode input proof %d: %w",
+				idx, err)
+		}
+
+		artifacts = append(artifacts, diagnostics.ArtifactFile{
+			FileName: fmt.Sprintf("input-proof-%d.bin", idx),
+			Data:     blob,
+		})
+	}
+
+	return artifacts, nil
 }
 
 // verifyPacketInputProofs ensures that each virtual packet's inputs reference

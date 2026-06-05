@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -123,6 +124,12 @@ type tapdHarness struct {
 	// coordinate between the background wait goroutine in start() and
 	// the stop() method.
 	processDone chan struct{}
+
+	// processErr stores an unexpected process exit error captured by the
+	// background wait goroutine. It is reported in stop(), where using
+	// testing logs is safe.
+	processErr   error
+	processErrMu sync.Mutex
 
 	// logFile is the log file for this tapd instance's output.
 	logFile *os.File
@@ -630,14 +637,19 @@ func (hs *tapdHarness) start(expectErrExit bool) error {
 		hs.cmd.Process.Pid)
 
 	// Wait for the process to exit in the background. If it exits
-	// unexpectedly, log the error. Signal processDone when complete
-	// so stop() can wait for the process to fully exit.
+	// unexpectedly, capture the error and report it in stop(). Signal
+	// processDone when complete so stop() can wait for the process to
+	// fully exit.
 	hs.processDone = make(chan struct{})
+	hs.processErrMu.Lock()
+	hs.processErr = nil
+	hs.processErrMu.Unlock()
 	go func() {
 		err := hs.cmd.Wait()
 		if err != nil && !expectErrExit {
-			hs.ht.t.Logf("tapd process (name=%v) exited with "+
-				"error: %v", hs.cfg.LndNode.Cfg.Name, err)
+			hs.processErrMu.Lock()
+			hs.processErr = err
+			hs.processErrMu.Unlock()
 		}
 		close(hs.processDone)
 	}()
@@ -758,6 +770,15 @@ func (hs *tapdHarness) stop(deleteData bool) error {
 				<-hs.processDone
 			}
 		}
+	}
+
+	hs.processErrMu.Lock()
+	processErr := hs.processErr
+	hs.processErr = nil
+	hs.processErrMu.Unlock()
+	if processErr != nil {
+		hs.ht.t.Logf("tapd process (name=%v) exited with error: %v",
+			hs.cfg.LndNode.Cfg.Name, processErr)
 	}
 
 	// Close the log file.
