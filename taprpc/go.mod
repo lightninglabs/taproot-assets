@@ -4,7 +4,7 @@ go 1.25.10
 
 require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.20.0
-	github.com/lightningnetwork/lnd v0.20.0-beta.rc4.0.20260411022412-6b53079bdd31
+	github.com/lightningnetwork/lnd v0.21.0-beta
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.10
 	gopkg.in/macaroon-bakery.v2 v2.1.0
@@ -27,7 +27,7 @@ require (
 	github.com/btcsuite/btcd/v2transport v1.0.1 // indirect
 	github.com/btcsuite/btclog v1.0.0 // indirect
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b // indirect
-	github.com/btcsuite/btcwallet v0.16.17 // indirect
+	github.com/btcsuite/btcwallet v0.16.18 // indirect
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5 // indirect
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.2 // indirect
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.5 // indirect
@@ -97,15 +97,15 @@ require (
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
-	github.com/lightninglabs/neutrino v0.16.2 // indirect
+	github.com/lightninglabs/neutrino v0.17.1 // indirect
 	github.com/lightninglabs/neutrino/cache v1.1.3 // indirect
 	github.com/lightningnetwork/lightning-onion v1.3.0 // indirect
 	github.com/lightningnetwork/lnd/clock v1.1.1 // indirect
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.9 // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
 	github.com/lightningnetwork/lnd/kvdb v1.4.16 // indirect
-	github.com/lightningnetwork/lnd/queue v1.1.2-0.20260328114253-ea8a6657729e // indirect
-	github.com/lightningnetwork/lnd/sqldb v1.0.13-0.20260410061304-0b82a89fdae1 // indirect
+	github.com/lightningnetwork/lnd/queue v1.2.0 // indirect
+	github.com/lightningnetwork/lnd/sqldb v1.0.13 // indirect
 	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
 	github.com/lightningnetwork/lnd/tlv v1.3.2 // indirect
 	github.com/lightningnetwork/lnd/tor v1.1.6 // indirect
