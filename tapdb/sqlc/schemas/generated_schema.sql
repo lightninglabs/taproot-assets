@@ -304,7 +304,7 @@ CREATE TABLE asset_transfers (
     anchor_txn_id BIGINT NOT NULL REFERENCES chain_txns(txn_id),
 
     transfer_time_unix TIMESTAMP NOT NULL
-, label VARCHAR DEFAULT NULL, skip_anchor_tx_broadcast BOOLEAN NOT NULL DEFAULT FALSE);
+, label VARCHAR DEFAULT NULL, skip_anchor_tx_broadcast BOOLEAN NOT NULL DEFAULT FALSE, superseded BOOLEAN NOT NULL DEFAULT FALSE);
 
 CREATE TABLE asset_witnesses (
     witness_id INTEGER PRIMARY KEY,
@@ -1154,6 +1154,9 @@ CREATE TABLE tapscript_roots (
         -- a set of tapLeafs.
         branch_only BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+CREATE INDEX transfer_inputs_anchor_point_idx
+    ON asset_transfer_inputs (anchor_point);
 
 CREATE INDEX transfer_inputs_idx
     ON asset_transfer_inputs (transfer_id);

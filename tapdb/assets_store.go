@@ -319,6 +319,16 @@ type ActiveAssetsStore interface {
 	// previously unconfirmed as confirmed.
 	ConfirmChainAnchorTx(ctx context.Context, arg AnchorTxConf) error
 
+	// SupersedeConflictingTransfers marks all unconfirmed transfers that
+	// spend the given anchor point as superseded, except for the given
+	// (just confirmed) transfer.
+	SupersedeConflictingTransfers(ctx context.Context,
+		arg sqlc.SupersedeConflictingTransfersParams) (int64, error)
+
+	// QuerySupersededTransferIDs returns the IDs of all transfers that
+	// have been marked as superseded.
+	QuerySupersededTransferIDs(ctx context.Context) ([]int64, error)
+
 	// InsertAssetTransfer inserts a new asset transfer into the DB.
 	InsertAssetTransfer(ctx context.Context,
 		arg NewAssetTransfer) (int64, error)
@@ -3420,6 +3430,33 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 			}
 		}
 
+		// Any other unconfirmed transfer that claims one of the inputs
+		// just spent can never confirm now: its anchor transaction
+		// conflicts with the one that confirmed (e.g. a fee-bumped
+		// replacement of a sweep transaction). Mark such transfers as
+		// superseded so they're no longer treated as pending and
+		// aren't resumed at startup.
+		for idx := range inputs {
+			anchorPoint := inputs[idx].AnchorPoint
+			numMarked, err := q.SupersedeConflictingTransfers(
+				ctx, sqlc.SupersedeConflictingTransfersParams{
+					ConfirmedTransferID: assetTransfer.ID,
+					AnchorPoint:         anchorPoint,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to mark conflicting "+
+					"transfers as superseded: %w", err)
+			}
+
+			if numMarked > 0 {
+				log.Infof("Marked %d conflicting transfer(s) "+
+					"as superseded by transfer_id=%d "+
+					"(anchor_txid=%v)", numMarked,
+					assetTransfer.ID, conf.AnchorTXID)
+			}
+		}
+
 		// Now is the time to fetch our outputs and create new assets
 		// for them.
 		outputs, err := q.FetchTransferOutputs(ctx, assetTransfer.ID)
@@ -3856,6 +3893,28 @@ func (a *AssetStore) queryParcelsWithFilters(ctx context.Context,
 		dbTransfers, err := q.QueryAssetTransfers(ctx, transferQuery)
 		if err != nil {
 			return err
+		}
+
+		// When querying for pending transfers, we exclude superseded
+		// ones: another confirmed transfer spent (some of) their
+		// inputs, so their anchor transaction can never confirm. We
+		// filter here rather than in QueryAssetTransfers, as that
+		// query is also executed by programmatic migrations against
+		// historical schema versions that don't have the superseded
+		// column yet.
+		if pendingOnly {
+			supersededIDs, err := q.QuerySupersededTransferIDs(ctx)
+			if err != nil {
+				return fmt.Errorf("unable to query "+
+					"superseded transfers: %w", err)
+			}
+
+			superseded := fn.NewSet(supersededIDs...)
+			dbTransfers = fn.Filter(
+				dbTransfers, func(t AssetTransferRow) bool {
+					return !superseded.Contains(t.ID)
+				},
+			)
 		}
 
 		for idx := range dbTransfers {
