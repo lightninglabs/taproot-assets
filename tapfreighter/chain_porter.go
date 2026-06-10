@@ -2115,16 +2115,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"disk: %w", err)
 		}
 
-		// If skip flag is set—bypass anchor broadcast and advance to
-		// the confirmation wait state.
-		if currentPkg.OutboundPkg.SkipAnchorTxBroadcast {
-			log.Info("Skip anchor broadcast flag set; " +
-				"transitioning to WaitTxConf state")
-			currentPkg.SendState = SendStateWaitTxConf
-
-			return &currentPkg, nil
-		}
-
 		// We've logged the state transition to disk, so now we can
 		// move onto the broadcast phase.
 		currentPkg.SendState = SendStateBroadcast
@@ -2143,6 +2133,21 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 			return nil, fmt.Errorf("unable to import local "+
 				"addresses: %w", err)
+		}
+
+		// If the skip flag is set, another system (the lnd sweeper
+		// for force-close sweeps, the channel arbitrator or peer flow
+		// for commitment and cooperative close transactions, or an
+		// external packager) owns broadcast and rebroadcast of this
+		// transaction. We only record and watch it.
+		if currentPkg.OutboundPkg.SkipAnchorTxBroadcast {
+			log.Infof("Skip anchor broadcast flag set; not "+
+				"publishing txid=%v, transitioning to "+
+				"WaitTxConf state",
+				currentPkg.OutboundPkg.AnchorTx.TxHash())
+			currentPkg.SendState = SendStateWaitTxConf
+
+			return &currentPkg, nil
 		}
 
 		txHash := currentPkg.OutboundPkg.AnchorTx.TxHash()
