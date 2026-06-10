@@ -36,6 +36,16 @@ const (
 	// we expect a send fragment to be valid for after its claimed outpoint
 	// has been spent. This is roughly equivalent to 90 days.
 	DefaultSendFragmentExpiryDelta = 12_960
+
+	// confRetryDelay is the initial delay before we re-register the
+	// transfer confirmation notification after a failure of the
+	// notification stream. The delay doubles on each successive failure,
+	// up to confRetryDelayMax.
+	confRetryDelay = time.Second
+
+	// confRetryDelayMax is the maximum delay between attempts to
+	// re-register the transfer confirmation notification.
+	confRetryDelayMax = time.Second * 30
 )
 
 // VerifiedProofImporter is used to import verified proofs into the local proof
@@ -413,6 +423,13 @@ func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 // waitForTransferTxConf waits for the confirmation of the final transaction
 // within the delta. Once confirmed, the parcel will be marked as delivered on
 // chain, with the goroutine cleaning up its state.
+//
+// The confirmation of the anchor transaction is a fact about the chain that
+// can be re-queried at any time, so a failure of the notification stream
+// doesn't mean the transfer failed, only that we lost our view of the chain
+// for a moment. We therefore re-register the notification on stream errors
+// instead of aborting the parcel, which would otherwise leave the transfer
+// pending forever.
 func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 	outboundPkg := pkg.OutboundPkg
 
@@ -420,51 +437,127 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 	log.Infof("Waiting for confirmation of transfer_txid=%v", txHash)
 
 	confCtx, confCancel := p.WithCtxQuitNoTimeout()
+	defer confCancel()
+
+	retryDelay := confRetryDelay
+	for attempt := 1; ; attempt++ {
+		confEvent, terminal, err := p.waitForConfEventOnce(
+			confCtx, outboundPkg,
+		)
+		switch {
+		// We received the confirmation event, so we can proceed to
+		// the next state.
+		case confEvent != nil:
+			log.Debugf("Got chain confirmation: %v",
+				confEvent.Tx.TxHash())
+			pkg.TransferTxConfEvent = confEvent
+
+			// If the anchoring tx block hash is given, we'll also
+			// store it in the outbound package.
+			pkg.OutboundPkg.AnchorTxBlockHash = fn.MaybeSome(
+				confEvent.BlockHash,
+			)
+			pkg.OutboundPkg.AnchorTxBlockHeight =
+				confEvent.BlockHeight
+
+			pkg.SendState = SendStateStorePostAnchorTxConf
+
+			return nil
+
+		// We're shutting down, or the context was cancelled; there's
+		// no point in retrying.
+		case terminal:
+			return err
+		}
+
+		// The notification stream failed before delivering a
+		// confirmation event. Wait, then re-register.
+		log.Warnf("Transfer confirmation watcher for txid=%v failed "+
+			"(attempt %d), re-registering in %v: %v", txHash,
+			attempt, retryDelay, err)
+
+		select {
+		case <-time.After(retryDelay):
+		case <-confCtx.Done():
+			// The context is also cancelled on shutdown, in which
+			// case both this and the quit case below are ready at
+			// the same time. Prefer the graceful exit.
+			select {
+			case <-p.Quit:
+				log.Debugf("Skipping TX confirmation, exiting")
+				return nil
+			default:
+			}
+
+			return fmt.Errorf("context done whilst waiting for "+
+				"package tx confirmation of %v", txHash)
+		case <-p.Quit:
+			log.Debugf("Skipping TX confirmation, exiting")
+			return nil
+		}
+
+		retryDelay *= 2
+		if retryDelay > confRetryDelayMax {
+			retryDelay = confRetryDelayMax
+		}
+	}
+}
+
+// waitForConfEventOnce registers a confirmation notification for the parcel's
+// anchor transaction and waits for a single outcome. It returns the
+// confirmation event on success. If the notification stream fails in a way
+// that can be remedied by re-registering, a nil event and terminal=false are
+// returned. Shutdown and context cancellation are terminal.
+func (p *ChainPorter) waitForConfEventOnce(ctx context.Context,
+	outboundPkg *OutboundParcel) (*chainntnfs.TxConfirmation, bool, error) {
+
+	txHash := outboundPkg.AnchorTx.TxHash()
 	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
-		confCtx, &txHash, outboundPkg.AnchorTx.TxOut[0].PkScript, 1,
+		ctx, &txHash, outboundPkg.AnchorTx.TxOut[0].PkScript, 1,
 		outboundPkg.AnchorTxHeightHint, true, nil,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to register for package tx conf: %w",
-			err)
+		// Registration itself failed, which is generally a transient
+		// RPC issue, so we'll have the caller retry.
+		return nil, false, fmt.Errorf("unable to register for package "+
+			"tx conf: %w", err)
 	}
 
-	// Launch a goroutine that'll notify us when the transaction confirms.
-	defer confCancel()
+	// Make sure the registration (and its notification stream) is torn
+	// down once we leave this attempt, whatever the outcome.
+	defer confNtfn.Cancel()
 
-	var confEvent *chainntnfs.TxConfirmation
 	select {
-	case confEvent = <-confNtfn.Confirmed:
-		log.Debugf("Got chain confirmation: %v", confEvent.Tx.TxHash())
-		pkg.TransferTxConfEvent = confEvent
+	case confEvent, ok := <-confNtfn.Confirmed:
+		if !ok || confEvent == nil {
+			return nil, false, fmt.Errorf("confirmation event "+
+				"channel closed for txid=%v", txHash)
+		}
 
-		// If the anchoring tx block hash is given, we'll also store it
-		// in the outbound package.
-		pkg.OutboundPkg.AnchorTxBlockHash = fn.MaybeSome(
-			confEvent.BlockHash,
-		)
-		pkg.OutboundPkg.AnchorTxBlockHeight = confEvent.BlockHeight
-
-		pkg.SendState = SendStateStorePostAnchorTxConf
+		return confEvent, false, nil
 
 	case err := <-errChan:
-		return fmt.Errorf("error whilst waiting for package tx "+
-			"confirmation: %w", err)
+		return nil, false, fmt.Errorf("error whilst waiting for "+
+			"package tx confirmation: %w", err)
 
-	case <-confCtx.Done():
-		log.Debugf("Skipping TX confirmation, context done")
+	case <-ctx.Done():
+		// The context is also cancelled on shutdown, in which case
+		// both this and the quit case below are ready at the same
+		// time. Prefer the graceful exit.
+		select {
+		case <-p.Quit:
+			log.Debugf("Skipping TX confirmation, exiting")
+			return nil, true, nil
+		default:
+		}
+
+		return nil, true, fmt.Errorf("context done whilst waiting "+
+			"for package tx confirmation of %v", txHash)
 
 	case <-p.Quit:
 		log.Debugf("Skipping TX confirmation, exiting")
-		return nil
+		return nil, true, nil
 	}
-
-	if confEvent == nil {
-		return fmt.Errorf("got empty package tx confirmation event " +
-			"in batch")
-	}
-
-	return nil
 }
 
 // storeProofs writes the updated sender and receiver proof files to the proof
