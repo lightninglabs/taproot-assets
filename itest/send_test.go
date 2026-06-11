@@ -156,9 +156,11 @@ func testMinRelayFeeBump(t *harnessTest) {
 	// Set the variables for the fee rates we'll use in this test.
 	belowFloorFeeRate := chainfee.SatPerVByte(1).FeePerKWeight()
 	belowMinRelayFeeRate := chainfee.SatPerKVByte(1500).FeePerKWeight()
-	realWorldMinRelayFeeRate := chainfee.SatPerKVByte(1952)
+	realWorldMinRelayFeeRate := chainfee.SatPerKVByte(3000)
 	harnessMinRelayFeeRate := chainfee.SatPerKVByte(1000)
 	defaultFeeRate := chainfee.SatPerKWeight(3125)
+	sendBelowFloorFeeRate := uint32(1)
+	sendBelowMinRelayFeeRate := uint32(2)
 
 	t.lndHarness.SetFeeEstimateWithConf(belowFloorFeeRate, 6)
 	t.lndHarness.SetMinRelayFeerate(realWorldMinRelayFeeRate)
@@ -230,13 +232,13 @@ func testMinRelayFeeBump(t *harnessTest) {
 
 	sendAsset(
 		t, t.tapd, withReceiverAddresses(bobAddr),
-		withFeeRate(uint32(belowFloorFeeRate)),
+		withSatPerVByte(uint64(sendBelowFloorFeeRate)),
 		withError("manual fee rate below floor"),
 	)
 
 	sendAsset(
 		t, t.tapd, withReceiverAddresses(bobAddr),
-		withFeeRate(uint32(belowMinRelayFeeRate)),
+		withSatPerVByte(uint64(sendBelowMinRelayFeeRate)),
 		withError("feerate does not meet minrelayfee"),
 	)
 
