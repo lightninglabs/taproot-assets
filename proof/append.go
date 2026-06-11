@@ -84,22 +84,13 @@ type TransitionParams struct {
 func AppendTransition(blob Blob, params *TransitionParams, vCtx VerifierCtx,
 	opts ...GenOption) (Blob, *Proof, error) {
 
-	// Decode the proof blob into a proper file structure first.
-	f := NewEmptyFile(V0)
-	if err := f.Decode(bytes.NewReader(blob)); err != nil {
-		return nil, nil, fmt.Errorf("error decoding proof file: %w",
-			err)
-	}
-
-	// Cannot add a transition to an empty proof file.
-	if f.IsEmpty() {
-		return nil, nil, fmt.Errorf("invalid empty proof file")
-	}
-
-	lastProof, err := f.LastProof()
+	// Read only the last proof from the blob to obtain the previous
+	// outpoint and append metadata, while avoiding allocation of the full
+	// proof chain.
+	lastProof, _, appendHint, err := lastProofFromBlobWithHint(blob)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error fetching last proof: %w",
-			err)
+		return nil, nil, fmt.Errorf("error reading last proof from "+
+			"blob: %w", err)
 	}
 
 	lastPrevOut := wire.OutPoint{
@@ -114,9 +105,20 @@ func AppendTransition(blob Blob, params *TransitionParams, vCtx VerifierCtx,
 			"proof: %w", err)
 	}
 
-	// Before we encode and return the proof, we want to validate it. For
-	// that we need to start at the beginning.
+	// Before we return the proof we want to validate the full chain. For
+	// that we still need to decode the entire file into memory.
 	ctx := context.Background()
+
+	f := NewEmptyFile(V0)
+	if err := f.Decode(bytes.NewReader(blob)); err != nil {
+		return nil, nil, fmt.Errorf("error decoding proof file: %w",
+			err)
+	}
+
+	if f.IsEmpty() {
+		return nil, nil, fmt.Errorf("invalid empty proof file")
+	}
+
 	if err := f.AppendProof(*newProof); err != nil {
 		return nil, nil, fmt.Errorf("error appending proof: %w", err)
 	}
@@ -126,14 +128,23 @@ func AppendTransition(blob Blob, params *TransitionParams, vCtx VerifierCtx,
 		return nil, nil, fmt.Errorf("error verifying proof: %w", err)
 	}
 
-	// Encode the full file again, with the new proof appended.
-	var buf bytes.Buffer
-	if err := f.Encode(&buf); err != nil {
-		return nil, nil, fmt.Errorf("error encoding proof file: %w",
+	// Encode the new proof bytes so we can use the streaming append to
+	// avoid re-encoding the entire file.
+	newProofBytes, err := newProof.Bytes()
+	if err != nil {
+		return nil, nil, fmt.Errorf("error encoding new proof: %w",
 			err)
 	}
 
-	return buf.Bytes(), newProof, nil
+	result, err := appendRawProofToBlobWithHint(
+		blob, newProofBytes, appendHint,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error appending proof to blob: %w",
+			err)
+	}
+
+	return result, newProof, nil
 }
 
 // UpdateTransitionProof computes a new transaction merkle proof from the given
