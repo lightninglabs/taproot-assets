@@ -373,6 +373,12 @@
   clients to distinguish grouped fungible burns from grouped collectible
   burns.
 
+- [PR#2130](https://github.com/lightninglabs/taproot-assets/pull/2130)
+  Add `asset_genesis` and `decimal_display` fields to `AssetGroupBalance`
+  in `ListBalances`. When using `group_by=group_key` mode, clients now
+  receive asset metadata (name, type, decimal display) alongside grouped
+  balances without requiring additional RPC calls.
+
 - [PR#2100](https://github.com/lightninglabs/taproot-assets/pull/2100)
   Add pagination support (offset, limit, direction) to the `AssetLeaves`
   RPC endpoint, and add `MaxPageSize` validation to `AssetRoots`.

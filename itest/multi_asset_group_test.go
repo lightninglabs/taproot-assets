@@ -58,16 +58,40 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// For each group minted, we check that the total balance for each
-	// group matches our minting requests.
+	// group matches our minting requests, and that genesis info is
+	// populated correctly.
 	var singleAssetGroupKey, normalGroupKey, collectGroupKey string
 	for groupKey, groupBalance := range balancesResp.AssetGroupBalances {
+		// Verify genesis info is populated for all group balances.
+		require.NotNil(t.t, groupBalance.AssetGenesis,
+			"group %s missing genesis info", groupKey)
+		require.NotEmpty(t.t, groupBalance.AssetGenesis.Name,
+			"group %s missing asset name", groupKey)
+		require.NotEmpty(t.t, groupBalance.AssetGenesis.AssetId,
+			"group %s missing asset ID", groupKey)
+		require.NotEmpty(t.t, groupBalance.AssetGenesis.GenesisPoint,
+			"group %s missing genesis point", groupKey)
+
 		switch groupBalance.Balance {
 		case issuableAsset.Asset.Amount:
 			singleAssetGroupKey = groupKey
+
 		case normalGroupSum:
 			normalGroupKey = groupKey
+
+			// Verify the normal group has NORMAL asset type.
+			require.Equal(t.t, taprpc.AssetType_NORMAL,
+				groupBalance.AssetGenesis.AssetType,
+				"normal group has wrong asset type")
+
 		case collectGroupSum:
 			collectGroupKey = groupKey
+
+			// Verify the collectible group has COLLECTIBLE type.
+			require.Equal(t.t, taprpc.AssetType_COLLECTIBLE,
+				groupBalance.AssetGenesis.AssetType,
+				"collectible group has wrong asset type")
+
 		default:
 			t.t.Fatalf("minted group %v has unexpected balance %v",
 				groupKey, groupBalance.Balance)
