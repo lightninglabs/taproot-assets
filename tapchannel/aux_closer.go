@@ -767,8 +767,17 @@ func shipChannelTxn(txSender tapfreighter.Porter, chanTx *wire.MsgTx,
 		FinalTx:   chanTx,
 	}
 	parcelLabel := fmt.Sprintf("channel-tx-%s", chanTx.TxHash().String())
+
+	// Broadcast (and rebroadcast) of channel transactions is always owned
+	// by lnd: the channel peer flow for cooperative closes, the channel
+	// arbitrator for commitment transactions (which are only ever shipped
+	// here after they confirmed), and the sweeper for force-close sweeps.
+	// The porter therefore only records the transfer and watches for its
+	// confirmation. Publishing here as well would race lnd's own
+	// bookkeeping and, worse, a replaced or conflicted sweep version
+	// would fail the porter's broadcast and strand the transfer.
 	preSignedParcel := tapfreighter.NewPreAnchoredParcel(
-		vPkts, nil, closeAnchor, false, parcelLabel,
+		vPkts, nil, closeAnchor, true, parcelLabel,
 		anchorTxHeightHint,
 	)
 	_, err = txSender.RequestShipment(preSignedParcel)

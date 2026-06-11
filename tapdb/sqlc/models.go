@@ -137,6 +137,7 @@ type AssetTransfer struct {
 	TransferTimeUnix      time.Time
 	Label                 sql.NullString
 	SkipAnchorTxBroadcast bool
+	Superseded            bool
 }
 
 type AssetTransferInput struct {
