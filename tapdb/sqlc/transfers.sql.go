@@ -475,6 +475,11 @@ WHERE
         OR $1 IS NULL)
 
     -- Filter for pending transfers only if requested.
+    --
+    -- NOTE: This query is also executed by programmatic migrations against
+    -- historical schema versions, so it MUST NOT reference columns added
+    -- in later migrations (such as transfers.superseded). Superseded
+    -- transfers are filtered out in Go instead.
     AND (
         $2 = true AND
         (
@@ -729,6 +734,35 @@ func (q *Queries) QueryProofTransferAttempts(ctx context.Context, arg QueryProof
 	return items, nil
 }
 
+const QuerySupersededTransferIDs = `-- name: QuerySupersededTransferIDs :many
+SELECT id
+FROM asset_transfers
+WHERE superseded = true
+`
+
+func (q *Queries) QuerySupersededTransferIDs(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, QuerySupersededTransferIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const ReAnchorPassiveAssets = `-- name: ReAnchorPassiveAssets :exec
 UPDATE assets
 SET anchor_utxo_id = $1,
@@ -774,4 +808,38 @@ type SetTransferOutputProofDeliveryStatusParams struct {
 func (q *Queries) SetTransferOutputProofDeliveryStatus(ctx context.Context, arg SetTransferOutputProofDeliveryStatusParams) error {
 	_, err := q.db.ExecContext(ctx, SetTransferOutputProofDeliveryStatus, arg.DeliveryComplete, arg.SerializedAnchorOutpoint, arg.Position)
 	return err
+}
+
+const SupersedeConflictingTransfers = `-- name: SupersedeConflictingTransfers :execrows
+UPDATE asset_transfers
+SET superseded = true
+WHERE id != $1
+  AND superseded = false
+  AND id IN (
+      SELECT inputs.transfer_id
+      FROM asset_transfer_inputs inputs
+      WHERE inputs.anchor_point = $2
+  )
+  AND anchor_txn_id IN (
+      SELECT txns.txn_id
+      FROM chain_txns txns
+      WHERE txns.block_hash IS NULL
+  )
+`
+
+type SupersedeConflictingTransfersParams struct {
+	ConfirmedTransferID int64
+	AnchorPoint         []byte
+}
+
+// Mark all unconfirmed transfers that spend the given anchor point as
+// superseded, except for the given (just confirmed) transfer. Once a
+// conflicting transfer has confirmed on-chain, these transfers' anchor
+// transactions can never confirm.
+func (q *Queries) SupersedeConflictingTransfers(ctx context.Context, arg SupersedeConflictingTransfersParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, SupersedeConflictingTransfers, arg.ConfirmedTransferID, arg.AnchorPoint)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

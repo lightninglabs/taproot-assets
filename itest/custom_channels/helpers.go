@@ -3281,33 +3281,55 @@ func assertForceCloseSweeps(ctx context.Context,
 
 	t.Logf("Asserting balance on sweeps: %v", timeoutSweeps)
 
-	bobSweeps, err := bob.WalletKitClient.ListSweeps(
-		ctx, &walletrpc.ListSweepsRequest{
-			Verbose: true,
-		},
-	)
-	require.NoError(t.t, err)
-
+	// The sweeper records a sweep in its store only after its own
+	// publish path has completed, which can lag the transaction's
+	// appearance in the mempool (and its confirmation, since we mine
+	// aggressively). So we poll ListSweeps instead of asserting on a
+	// single snapshot.
 	var bobSweepTx *wire.MsgTx
-	for _, sweep := range bobSweeps.GetTransactionDetails().Transactions {
-		for _, tx := range timeoutSweeps {
-			if sweep.TxHash == tx.String() {
+	err = wait.NoError(func() error {
+		bobSweeps, err := bob.WalletKitClient.ListSweeps(
+			ctx, &walletrpc.ListSweepsRequest{
+				Verbose: true,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		txns := bobSweeps.GetTransactionDetails().Transactions
+		for _, sweep := range txns {
+			for _, tx := range timeoutSweeps {
+				if sweep.TxHash != tx.String() {
+					continue
+				}
+
 				txBytes, err := hex.DecodeString(
 					sweep.RawTxHex,
 				)
-				require.NoError(t.t, err)
+				if err != nil {
+					return err
+				}
 
 				bobSweepTx = &wire.MsgTx{}
 				err = bobSweepTx.Deserialize(
 					bytes.NewReader(txBytes),
 				)
-				require.NoError(t.t, err)
+				if err != nil {
+					return err
+				}
+
+				return nil
 			}
 		}
-	}
-	require.NotNil(
-		t.t, bobSweepTx, "Bob's sweep transaction not found",
-	)
+
+		if bobSweepTx == nil {
+			return fmt.Errorf("Bob's sweep transaction not found")
+		}
+
+		return nil
+	}, ccShortTimeout)
+	require.NoError(t.t, err)
 
 	// There's always an extra input that pays for the fees. So we can only
 	// count the remainder as HTLC inputs.
