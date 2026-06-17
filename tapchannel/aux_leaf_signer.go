@@ -649,6 +649,10 @@ func (v *schnorrSigValidator) ValidateWitnesses(newAsset *asset.Asset,
 
 	for idx := range newAsset.PrevWitnesses {
 		witness := newAsset.PrevWitnesses[idx]
+		if witness.PrevID == nil {
+			return fmt.Errorf("%w: nil prev_id at "+
+				"witness_idx=%d", vm.ErrNoInputs, idx)
+		}
 		prevAsset, ok := prevAssets[*witness.PrevID]
 		if !ok {
 			return fmt.Errorf("%w: no prev asset for "+
