@@ -358,6 +358,12 @@ func UnmarshalTxProof(
 			"missing")
 	}
 
+	if len(mp.SiblingHashes) > MerkleProofMaxNodes {
+		return nil, fmt.Errorf("merkle proof has too many nodes: "+
+			"%d > %d", len(mp.SiblingHashes),
+			MerkleProofMaxNodes)
+	}
+
 	if len(mp.SiblingHashes) != len(mp.Bits) {
 		return nil, fmt.Errorf("merkle proof sibling hashes and " +
 			"bits length mismatch")
