@@ -261,6 +261,9 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 	// prevID of zero, as the inherit the prev ID from the root asset.
 	//
 	// TODO(roasbeef): revisit post multi input
+	if len(vm.newAsset.PrevWitnesses) == 0 {
+		return fmt.Errorf("%w: prev witness zero", ErrNoInputs)
+	}
 	rootWitness := vm.newAsset.PrevWitnesses[0]
 	splitWitness := splitAsset.PrevWitnesses[0]
 
