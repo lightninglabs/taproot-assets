@@ -70,7 +70,8 @@ a working pilot so you can grow your own from there.
 
 For the RFQ protocol that sits underneath, see
 [rfq_architecture.md](rfq_architecture.md). For a runnable RPC pilot
-implementation, see [examples/basic-portfolio-pilot/main.go](examples/basic-portfolio-pilot/main.go).
+implementation, see
+[docs/examples/basic-portfolio-pilot/main.go](examples/basic-portfolio-pilot/main.go).
 
 ## Where the Pilot Sits
 
@@ -371,9 +372,10 @@ or buggy counterparty from getting away with a rate that violates a limit
 the protocol promised to enforce.
 
 The check helpers are currently unexported in the `rfq` package; an
-external pilot has to reproduce them (the example in
-[examples/basic-portfolio-pilot/main.go](examples/basic-portfolio-pilot/main.go)
-does exactly that). The logic is small and the test coverage at
+external pilot has to re-implement the equivalent logic. The example in
+[docs/examples/basic-portfolio-pilot/main.go](examples/basic-portfolio-pilot/main.go)
+inlines its own copy of these checks rather than chaining helpers. The
+logic is small and the test coverage at
 [rfq/portfolio_pilot_test.go](../rfq/portfolio_pilot_test.go) doubles as a
 specification. Aligning a custom pilot's behavior with these tests is the
 safest way to keep its reject codes consistent with what the rest of the
@@ -386,7 +388,9 @@ pilot RPC for accept verification) and `RejectCode` (used in the wire-level
 `Reject` message that goes to the peer). They overlap but are not the same
 set.
 
-A quick lookup table:
+A quick lookup table. The proto enum prefixes (`REJECT_CODE_` on the
+wire-reject side) are elided for readability; the actual proto values
+are `REJECT_CODE_PRICE_BOUND_MISS` and so on.
 
 | Failure                       | QuoteRespStatus              | Wire RejectCode                  |
 |------------------------------|------------------------------|----------------------------------|
@@ -621,26 +625,25 @@ func (p *OrderBookPilot) ResolveRequest(_ context.Context,
 
     var zero rfq.ResolveResp
 
-    // The book key is the asset ID. Group-keyed requests would need a
-    // second index; omitted for brevity.
-    spec := request.(interface {
-        GetAssetSpecifier() asset.Specifier
-    }).GetAssetSpecifier()
+    // A peer's BuyRequest is a sell opportunity for us, so we match
+    // against our Bid side. A SellRequest matches our Ask side. The
+    // book key is the asset ID; group-keyed requests would need a
+    // second index, omitted for brevity.
+    var (
+        spec asset.Specifier
+        side bookSide
+    )
+    switch r := request.(type) {
+    case *rfqmsg.BuyRequest:
+        spec, side = r.AssetSpecifier, bookBid
+    case *rfqmsg.SellRequest:
+        spec, side = r.AssetSpecifier, bookAsk
+    default:
+        return zero, fmt.Errorf("unknown request type %T", request)
+    }
     assetID, err := spec.UnwrapIdOrErr()
     if err != nil {
         return zero, fmt.Errorf("group-key requests not supported: %w", err)
-    }
-
-    // A peer's BuyRequest is a sell opportunity for us, so we match
-    // against our Bid side. A SellRequest matches our Ask side.
-    var side bookSide
-    switch request.(type) {
-    case *rfqmsg.BuyRequest:
-        side = bookBid
-    case *rfqmsg.SellRequest:
-        side = bookAsk
-    default:
-        return zero, fmt.Errorf("unknown request type %T", request)
     }
 
     cons := request.Constraints()
@@ -1106,7 +1109,7 @@ that brings up a tapd with an external RPC pilot and exercises the full
 RFQ flow. The harness is the template to follow when integration-testing
 a custom pilot.
 
-The `examples/basic-portfolio-pilot` directory contains a runnable
+The `docs/examples/basic-portfolio-pilot` directory contains a runnable
 external pilot. Build it, point a tapd at it with
 `--experimental.rfq.portfoliopilotaddress=portfoliopilotrpc://localhost:8096`,
 and use the harness to drive traffic. The example is not production code,
