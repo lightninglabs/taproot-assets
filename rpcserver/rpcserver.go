@@ -80,6 +80,8 @@ import (
 	"golang.org/x/exp/maps"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -207,6 +209,13 @@ type RPCServer struct {
 
 	proofQueryRateLimiter *rate.Limiter
 
+	// ready is an atomic flag that is set to 1 once Start has finished
+	// wiring up the server's dependencies (config, rate limiter, etc.). It
+	// gates the Universe RPC surface so that calls arriving before the
+	// server is fully initialized are rejected cleanly instead of panicking
+	// on a half-built server. See checkReady and readyGatedRegistrar.
+	ready int32
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -236,6 +245,12 @@ func (r *RPCServer) Start(cfg *tapconfig.Config) error {
 		r.cfg.UniverseQueriesPerSecond, r.cfg.UniverseQueriesBurst,
 	)
 
+	// All of our dependencies are now wired up, so we can flip the ready
+	// flag. This must happen last: the atomic store also acts as the
+	// release barrier that publishes the writes above (config, rate
+	// limiter) to any handler goroutine that observes ready via checkReady.
+	atomic.StoreInt32(&r.ready, 1)
+
 	rpcsLog.Infof("Starting Taproot Assets RPC Server")
 
 	return nil
@@ -249,6 +264,12 @@ func (r *RPCServer) Stop() error {
 	}
 
 	rpcsLog.Infof("Stopping Taproot Assets RPC Server")
+
+	// Flip the ready flag back off so that any call arriving after Stop is
+	// rejected with Unavailable rather than reaching a tearing-down server.
+	// In-flight calls that already passed the gate are not affected and
+	// finish against the tearing-down state on their own.
+	atomic.StoreInt32(&r.ready, 0)
 
 	close(r.quit)
 
@@ -268,10 +289,95 @@ func (r *RPCServer) RegisterWithGrpcServer(
 	mintrpc.RegisterMintServer(registrar, r)
 	rfqrpc.RegisterRfqServer(registrar, r)
 	tchrpc.RegisterTaprootAssetChannelsServer(registrar, r)
-	unirpc.RegisterUniverseServer(registrar, r)
+
+	// The Universe service is reachable without a macaroon when public
+	// access is enabled, and in litd's integrated mode it is registered
+	// directly onto lnd's gRPC server. That means a Universe call can land
+	// on a handler before Start has wired up the server's dependencies,
+	// dereferencing a nil config or rate limiter and panicking the whole
+	// process. We register it through a gate that rejects calls with
+	// Unavailable until the server is ready, rather than gating each
+	// handler individually.
+	unirpc.RegisterUniverseServer(newReadyGatedRegistrar(registrar, r), r)
+
 	tapdevrpc.RegisterGrpcServer(registrar, r)
 
 	return nil
+}
+
+// checkReady returns a gRPC Unavailable error if the RPC server has not yet
+// finished starting up. Once Start has completed wiring up the server's
+// dependencies, this is a noop. It is the per-call equivalent of the rpcState
+// interceptor used in standalone mode, but works in litd's integrated mode
+// too, where tapd's handlers run under lnd's interceptor chain and so never see
+// tapd's own state interceptor.
+func (r *RPCServer) checkReady() error {
+	if atomic.LoadInt32(&r.ready) == 1 {
+		return nil
+	}
+
+	return status.Error(
+		codes.Unavailable,
+		"the RPC server is not ready to accept requests",
+	)
+}
+
+// readyGatedRegistrar wraps a grpc.ServiceRegistrar so that every unary method
+// of a registered service is guarded by a readiness check. Calls that arrive
+// before the gate opens are rejected with the gate's error instead of reaching
+// a half-initialized handler.
+type readyGatedRegistrar struct {
+	grpc.ServiceRegistrar
+
+	gate func() error
+}
+
+// newReadyGatedRegistrar wraps the passed registrar so that all services
+// registered through it have their unary handlers gated on the RPC server's
+// readiness.
+func newReadyGatedRegistrar(registrar grpc.ServiceRegistrar,
+	r *RPCServer) *readyGatedRegistrar {
+
+	return &readyGatedRegistrar{
+		ServiceRegistrar: registrar,
+		gate:             r.checkReady,
+	}
+}
+
+// RegisterService wraps each of the service's unary method handlers with the
+// readiness gate before delegating to the underlying registrar.
+//
+// NOTE: This is part of the grpc.ServiceRegistrar interface.
+func (g *readyGatedRegistrar) RegisterService(desc *grpc.ServiceDesc,
+	impl interface{}) {
+
+	// Copy the descriptor so we don't mutate the package-level ServiceDesc
+	// shared by every server in the process.
+	gated := *desc
+	gated.Methods = make([]grpc.MethodDesc, len(desc.Methods))
+
+	for i, method := range desc.Methods {
+		// Capture the original handler for this method so the closure
+		// below dispatches to the right one.
+		handler := method.Handler
+
+		gated.Methods[i] = grpc.MethodDesc{
+			MethodName: method.MethodName,
+			Handler: func(srv interface{}, ctx context.Context,
+				dec func(interface{}) error,
+				interceptor grpc.UnaryServerInterceptor) (
+				interface{}, error) {
+
+				if err := g.gate(); err != nil {
+					return nil, err
+				}
+
+				return handler(srv, ctx, dec, interceptor)
+			},
+		}
+	}
+
+	g.ServiceRegistrar.RegisterService(&gated, impl)
 }
 
 // RegisterWithRestProxy registers the RPC server with the given rest proxy.
