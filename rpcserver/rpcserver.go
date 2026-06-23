@@ -265,8 +265,10 @@ func (r *RPCServer) Stop() error {
 
 	rpcsLog.Infof("Stopping Taproot Assets RPC Server")
 
-	// Flip the ready flag back off so that any call racing with shutdown is
+	// Flip the ready flag back off so that any call arriving after Stop is
 	// rejected with Unavailable rather than reaching a tearing-down server.
+	// In-flight calls that already passed the gate are not affected and
+	// finish against the tearing-down state on their own.
 	atomic.StoreInt32(&r.ready, 0)
 
 	close(r.quit)
@@ -315,8 +317,8 @@ func (r *RPCServer) checkReady() error {
 	}
 
 	return status.Error(
-		codes.Unavailable, "tapd is starting up, the RPC server is "+
-			"not yet ready to accept requests",
+		codes.Unavailable,
+		"the RPC server is not ready to accept requests",
 	)
 }
 
