@@ -21,7 +21,25 @@ if [ $# -lt 1 ]; then
 fi
 
 VERSION_TAG="$1"
+
+# Resolve the cache dir to an absolute path up front: the build below runs from
+# a temporary worktree, so a relative path would resolve against the wrong
+# directory (and write the binary somewhere that gets cleaned up).
 CACHE_DIR="${2:-${HOME}/.tapd-compat-bins}"
+mkdir -p "${CACHE_DIR}"
+CACHE_DIR="$(cd "${CACHE_DIR}" && pwd)"
+
+# Build tags must match the itest harness (see ITEST_TAGS in
+# make/testing_flags.mk) so the historical integrated binary exposes the same
+# lnd RPC subservers the harness drives (routerrpc, walletrpc, signrpc,
+# invoicesrpc, ...). tapd itself requires these lnd subservers to function, so
+# a binary built without them would not even start. Build tags do not affect
+# the wire protocol, which is what backward compatibility testing validates.
+# Override with TAPD_COMPAT_TAGS if a historical version needs a different set.
+BUILD_TAGS="${TAPD_COMPAT_TAGS:-dev monitoring integration itest \
+autopilotrpc chainrpc invoicesrpc peersrpc routerrpc signrpc verrpc \
+walletrpc watchtowerrpc wtclientrpc btcd}"
+
 BINARY_NAME="tapd-integrated-${VERSION_TAG}"
 BINARY_PATH="${CACHE_DIR}/${BINARY_NAME}"
 
@@ -31,8 +49,6 @@ if [ -x "${BINARY_PATH}" ]; then
     exit 0
 fi
 
-mkdir -p "${CACHE_DIR}"
-
 # We need the repo root to create a temporary worktree.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 WORK_DIR="$(mktemp -d)"
@@ -40,7 +56,7 @@ WORK_DIR="$(mktemp -d)"
 cleanup() {
     # Remove the worktree and temp directory.
     git -C "${REPO_ROOT}" worktree remove --force "${WORK_DIR}" \
-        2>/dev/null || true
+        >/dev/null 2>&1 || true
     rm -rf "${WORK_DIR}" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -48,14 +64,16 @@ trap cleanup EXIT
 echo "Building tapd-integrated at ${VERSION_TAG}..." >&2
 
 # Create a detached worktree at the requested tag. This avoids touching
-# the developer's working copy.
-git -C "${REPO_ROOT}" worktree add --detach "${WORK_DIR}" "${VERSION_TAG}"
+# the developer's working copy. Redirect stdout to stderr: 'git worktree add'
+# prints a "HEAD is now at ..." line to stdout, and stdout is reserved for the
+# final binary path that the caller captures.
+git -C "${REPO_ROOT}" worktree add --detach "${WORK_DIR}" "${VERSION_TAG}" 1>&2
 
 # Build the integrated binary inside the worktree. CGO is disabled for
 # portability, matching the itest build.
 (
     cd "${WORK_DIR}"
-    CGO_ENABLED=0 go build -tags="dev monitoring" \
+    CGO_ENABLED=0 go build -tags="${BUILD_TAGS}" \
         -o "${BINARY_PATH}" \
         ./cmd/tapd-integrated
 )
