@@ -461,6 +461,46 @@ func (q *Queries) LogProofTransferAttempt(ctx context.Context, arg LogProofTrans
 	return err
 }
 
+const MarkTransferSuperseded = `-- name: MarkTransferSuperseded :many
+UPDATE asset_transfers
+SET superseded = true
+WHERE anchor_txn_id IN (
+      SELECT txn_id
+      FROM chain_txns
+      WHERE txid = $1
+        AND block_hash IS NULL
+  )
+RETURNING id
+`
+
+// Mark the unconfirmed transfer anchored by the given transaction as
+// superseded, returning the IDs of any rows the update touched. A transfer
+// whose anchor transaction has already confirmed on-chain is never eligible:
+// confirmation is final. Marking an already superseded transfer again is a
+// no-op (the row still matches), so the operation is idempotent.
+func (q *Queries) MarkTransferSuperseded(ctx context.Context, anchorTxid []byte) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, MarkTransferSuperseded, anchorTxid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const QueryAssetTransfers = `-- name: QueryAssetTransfers :many
 SELECT
     id, height_hint, txns.txid, txns.block_hash AS anchor_tx_block_hash,

@@ -325,6 +325,12 @@ type ActiveAssetsStore interface {
 	SupersedeConflictingTransfers(ctx context.Context,
 		arg sqlc.SupersedeConflictingTransfersParams) (int64, error)
 
+	// MarkTransferSuperseded marks the unconfirmed transfer anchored by
+	// the given transaction as superseded, returning the IDs of the
+	// transfers it touched.
+	MarkTransferSuperseded(ctx context.Context, anchorTxid []byte) ([]int64,
+		error)
+
 	// QuerySupersededTransferIDs returns the IDs of all transfers that
 	// have been marked as superseded.
 	QuerySupersededTransferIDs(ctx context.Context) ([]int64, error)
@@ -3844,6 +3850,180 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 	return a.queryParcelsWithFilters(
 		ctx, anchorTxHash, pendingOnly, time.Time{}, "", nil,
 	)
+}
+
+// MarkTransferSuperseded marks the unconfirmed transfer anchored by the given
+// transaction as superseded: a conflicting transaction has confirmed spending
+// (some of) its inputs, so its anchor transaction can never confirm. The
+// transfer is then no longer treated as pending and isn't resumed at startup.
+//
+// Only inputs whose anchor_point appears in spentOutpoints are marked spent:
+// these are the outpoints the conflicting transaction actually consumed
+// on-chain. A multi-input transfer whose conflict only consumed one input
+// leaves the others available, rather than over-aggressively removing them
+// from coin selection. Without this bookkeeping the consumed inputs would
+// surface as available again when their leases expired, leading to ghost
+// balances and a self-reinforcing broadcast-rejection-and-supersede loop on
+// every retry.
+//
+// An error is returned if no unconfirmed transfer with the given anchor
+// transaction exists; marking an already superseded transfer again succeeds.
+func (a *AssetStore) MarkTransferSuperseded(ctx context.Context,
+	anchorTxHash chainhash.Hash,
+	spentOutpoints []wire.OutPoint) error {
+
+	// Build the set of serialized outpoint bytes the caller declared
+	// spent on-chain. Inputs whose anchor_point falls outside this set
+	// are left alone — they may still be unspent and usable.
+	spentSet := make(map[string]struct{}, len(spentOutpoints))
+	for _, op := range spentOutpoints {
+		opBytes, err := encodeOutpoint(op)
+		if err != nil {
+			return fmt.Errorf("unable to encode spent outpoint "+
+				"%v: %w", op, err)
+		}
+		spentSet[string(opBytes)] = struct{}{}
+	}
+
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+		transferIDs, err := q.MarkTransferSuperseded(
+			ctx, anchorTxHash[:],
+		)
+		if err != nil {
+			return fmt.Errorf("unable to mark transfer as "+
+				"superseded: %w", err)
+		}
+
+		if len(transferIDs) == 0 {
+			return fmt.Errorf("no unconfirmed transfer found "+
+				"with anchor txid %v", anchorTxHash)
+		}
+
+		// Mark just the inputs the conflicting tx actually consumed
+		// on-chain. SetAssetSpent is idempotent, so re-marking on a
+		// repeat call is safe.
+		for _, transferID := range transferIDs {
+			inputs, err := q.FetchTransferInputs(ctx, transferID)
+			if err != nil {
+				return fmt.Errorf("unable to fetch transfer "+
+					"inputs (transfer_id=%d): %w",
+					transferID, err)
+			}
+
+			for idx := range inputs {
+				input := inputs[idx]
+				anchorPoint := string(input.AnchorPoint)
+
+				if _, ok := spentSet[anchorPoint]; !ok {
+					continue
+				}
+
+				_, err := q.SetAssetSpent(
+					ctx, SetAssetSpentParams{
+						ScriptKey:   input.ScriptKey,
+						GenAssetID:  input.AssetID,
+						AnchorPoint: input.AnchorPoint,
+					},
+				)
+				switch {
+				// asset_transfer_inputs only holds rows for
+				// real asset inputs (sweep / zero-value
+				// inputs are tracked separately), so an
+				// ErrNoRows here is a data anomaly — a
+				// script-key mismatch or a stale record —
+				// not a benign "untracked input" case. Log
+				// loudly so the operator sees the
+				// inconsistency, but don't block the
+				// supersession: the on-chain reality is
+				// that this input is gone.
+				case errors.Is(err, sql.ErrNoRows):
+					log.Errorf("MarkTransferSuperseded: "+
+						"no asset row matches input "+
+						"(transfer_id=%d, "+
+						"anchor_point=%v); "+
+						"continuing, but the asset "+
+						"record may be out of sync",
+						transferID,
+						spew.Sdump(input.AnchorPoint))
+					continue
+
+				case err != nil:
+					return fmt.Errorf("unable to set "+
+						"asset spent (transfer_id="+
+						"%d, anchor_point=%v): %w",
+						transferID,
+						spew.Sdump(input.AnchorPoint),
+						err)
+				}
+			}
+		}
+
+		return nil
+	})
+}
+
+// FetchAnchorOutputPkScripts returns the pkScripts of the given anchor
+// outpoints, indexed by outpoint. Source transactions are fetched and
+// deserialized at most once per unique txid, so a transfer whose inputs all
+// spend from the same prior tx incurs one chain_txn fetch + deserialization
+// rather than one per input.
+func (a *AssetStore) FetchAnchorOutputPkScripts(ctx context.Context,
+	anchorPoints []wire.OutPoint) (map[wire.OutPoint][]byte, error) {
+
+	result := make(map[wire.OutPoint][]byte, len(anchorPoints))
+	if len(anchorPoints) == 0 {
+		return result, nil
+	}
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		txCache := make(map[chainhash.Hash]*wire.MsgTx)
+
+		for _, op := range anchorPoints {
+			if _, ok := result[op]; ok {
+				continue
+			}
+
+			tx, cached := txCache[op.Hash]
+			if !cached {
+				chainTx, err := q.FetchChainTx(
+					ctx, op.Hash[:],
+				)
+				if err != nil {
+					return fmt.Errorf("unable to fetch "+
+						"chain tx for outpoint %v: %w",
+						op, err)
+				}
+
+				tx = &wire.MsgTx{}
+				err = tx.Deserialize(
+					bytes.NewReader(chainTx.RawTx),
+				)
+				if err != nil {
+					return fmt.Errorf("unable to "+
+						"deserialize chain tx for "+
+						"outpoint %v: %w", op, err)
+				}
+				txCache[op.Hash] = tx
+			}
+
+			if op.Index >= uint32(len(tx.TxOut)) {
+				return fmt.Errorf("output index %d out of "+
+					"range for chain tx %v", op.Index,
+					op.Hash)
+			}
+
+			result[op] = tx.TxOut[op.Index].PkScript
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return result, nil
 }
 
 // queryParcelsWithFilters returns the set of confirmed or unconfirmed parcels

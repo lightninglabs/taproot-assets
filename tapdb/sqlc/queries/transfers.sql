@@ -109,6 +109,22 @@ SELECT id
 FROM asset_transfers
 WHERE superseded = true;
 
+-- name: MarkTransferSuperseded :many
+-- Mark the unconfirmed transfer anchored by the given transaction as
+-- superseded, returning the IDs of any rows the update touched. A transfer
+-- whose anchor transaction has already confirmed on-chain is never eligible:
+-- confirmation is final. Marking an already superseded transfer again is a
+-- no-op (the row still matches), so the operation is idempotent.
+UPDATE asset_transfers
+SET superseded = true
+WHERE anchor_txn_id IN (
+      SELECT txn_id
+      FROM chain_txns
+      WHERE txid = @anchor_txid
+        AND block_hash IS NULL
+  )
+RETURNING id;
+
 -- name: SupersedeConflictingTransfers :execrows
 -- Mark all unconfirmed transfers that spend the given anchor point as
 -- superseded, except for the given (just confirmed) transfer. Once a
