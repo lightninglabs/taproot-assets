@@ -1383,7 +1383,7 @@ func EstimateAssetUnits(ctx context.Context, oracle PriceOracle,
 	// used as a divisor in downstream conversion arithmetic and
 	// must be non-zero.
 	rate := oracleRes.AssetRate.Rate
-	if rate.Coefficient.ToUint64() == 0 {
+	if rate.Coefficient.IsZero() {
 		return 0, fmt.Errorf("oracle returned empty asset rate")
 	}
 

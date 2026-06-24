@@ -153,13 +153,13 @@ func (m *acceptWireMsgData) Validate() error {
 	// between asset units and milli-satoshis, so they must be
 	// non-zero.
 	inRate := m.InAssetRate.Val.IntoBigIntFixedPoint()
-	if inRate.Coefficient.ToUint64() == 0 {
+	if inRate.Coefficient.IsZero() {
 		return fmt.Errorf("in-asset rate coefficient must be " +
 			"non-zero")
 	}
 
 	outRate := m.OutAssetRate.Val.IntoBigIntFixedPoint()
-	if outRate.Coefficient.ToUint64() == 0 {
+	if outRate.Coefficient.IsZero() {
 		return fmt.Errorf("out-asset rate coefficient must be " +
 			"non-zero")
 	}
