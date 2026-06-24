@@ -129,7 +129,10 @@ func TestConvertFindDecimalDisplayBoundaries(t *testing.T) {
 				Scale:       0,
 			}.ScaleTo(uint8(decDisp))
 
-			mSatPerUsd := UnitsToMilliSatoshi(oneUsd, priceScaled)
+			mSatPerUsd, err := UnitsToMilliSatoshi(
+				oneUsd, priceScaled,
+			)
+			require.NoError(t, err)
 			unitsPerSat := MilliSatoshiToUnits(1000, priceScaled)
 
 			fmt.Printf("decimalDisplay: %d\t\t\t%v units = 1 USD, "+
@@ -466,7 +469,8 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			units := MilliSatoshiToUnits(tc.invoiceAmount, tc.price)
 			require.Equal(t, tc.expectedUnits, units.ToUint64())
 
-			mSat := UnitsToMilliSatoshi(units, tc.price)
+			mSat, err := UnitsToMilliSatoshi(units, tc.price)
+			require.NoError(t, err)
 
 			diff := tc.invoiceAmount - mSat
 			require.LessOrEqual(t, diff, uint64(2), "mSAT diff")
@@ -477,9 +481,10 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			minUnits := minUnitsFP.ScaleTo(0).ToUint64()
 			require.Equal(t, tc.expectedMinTransportUnits, minUnits)
 
-			minMSat := MinTransportableMSat(
+			minMSat, err := MinTransportableMSat(
 				DefaultOnChainHtlcMSat, tc.price,
 			)
+			require.NoError(t, err)
 			require.Equal(t, tc.expectedMinTransportMSat, minMSat)
 		})
 	}
@@ -549,14 +554,16 @@ func TestPriceOracleRateExample(t *testing.T) {
 	// equal to 1 dollar. Note that previously we said that
 	// 67,918.90 USD/BTC is equivalent to 1472 satoshi per USD.
 	assetAmount := NewBigIntFixedPoint(10_000, 0)
-	mSat := UnitsToMilliSatoshi(assetAmount, assetUnitsPerBtc)
+	mSat, err := UnitsToMilliSatoshi(assetAmount, assetUnitsPerBtc)
+	require.NoError(t, err)
 	require.EqualValues(t, 1472, mSat.ToSatoshis())
 
 	// The asset amount fixed point can have any scale and does not need to
 	// match the asset's decimal display. This is because the price oracle
 	// returns an asset units per BTC rate and not a dollar per BTC rate.
 	assetAmount = NewBigIntFixedPoint(10_000_000, 3)
-	mSat = UnitsToMilliSatoshi(assetAmount, assetUnitsPerBtc)
+	mSat, err = UnitsToMilliSatoshi(assetAmount, assetUnitsPerBtc)
+	require.NoError(t, err)
 	require.EqualValues(t, 1472, mSat.ToSatoshis())
 }
 
@@ -630,8 +637,14 @@ func TestAssetAmtScaleRedundant(t *testing.T) {
 
 		// Call UnitsToMilliSatoshi with both asset amount fixed-point
 		// numbers.
-		mSat1 := UnitsToMilliSatoshi(assetAmtZeroScale, assetRateFp)
-		mSat2 := UnitsToMilliSatoshi(assetAmtNonZeroScale, assetRateFp)
+		mSat1, err := UnitsToMilliSatoshi(
+			assetAmtZeroScale, assetRateFp,
+		)
+		require.NoError(t, err)
+		mSat2, err := UnitsToMilliSatoshi(
+			assetAmtNonZeroScale, assetRateFp,
+		)
+		require.NoError(t, err)
 
 		require.Equal(t, mSat1, mSat2)
 		require.Greater(t, uint64(mSat1), uint64(0))
@@ -699,9 +712,10 @@ func TestConvertUsdToJpy(t *testing.T) {
 		}.ScaleTo(6)
 
 		// Convert the USD to mSAT.
-		hundredUsdAsMilliSatoshi := UnitsToMilliSatoshi(
+		hundredUsdAsMilliSatoshi, err := UnitsToMilliSatoshi(
 			dollarUnits, tc.usdPrice,
 		)
+		require.NoError(t, err)
 
 		// Convert the mSAT to JPY.
 		usdAmountAsJpy := MilliSatoshiToUnits(
@@ -725,13 +739,15 @@ func TestConvertUsdToJpy(t *testing.T) {
 		_, _, mSatPerUsdUnit := calcLimits[BigInt](
 			tc.usdPrice.ScaleTo(2).ToUint64(), 6,
 		)
-		mSatPerUsd := UnitsToMilliSatoshi(oneUsd, tc.usdPrice)
+		mSatPerUsd, err := UnitsToMilliSatoshi(oneUsd, tc.usdPrice)
+		require.NoError(t, err)
 		usdUnitsPerSat := MilliSatoshiToUnits(1000, tc.usdPrice)
 
 		_, _, mSatPerJpyUnit := calcLimits[BigInt](
 			tc.jpyPrice.ScaleTo(0).ToUint64(), 4,
 		)
-		mSatPerJpy := UnitsToMilliSatoshi(oneJpy, tc.jpyPrice)
+		mSatPerJpy, err := UnitsToMilliSatoshi(oneJpy, tc.jpyPrice)
+		require.NoError(t, err)
 		jpyUnitsPerSat := MilliSatoshiToUnits(1000, tc.jpyPrice)
 
 		fmt.Printf("Satoshi per USD:\t\t\t\t%d\n"+
@@ -783,7 +799,8 @@ func testUnitsToMilliSatoshi[N Int[N]](t *rapid.T) {
 	unitsFP := FixedPointFromUint64[N](units, scale)
 	unitsPerBtcFP := FixedPointFromUint64[N](unitsPerBtc, scale)
 
-	result := UnitsToMilliSatoshi(unitsFP, unitsPerBtcFP)
+	result, err := UnitsToMilliSatoshi(unitsFP, unitsPerBtcFP)
+	require.NoError(t, err)
 
 	// If we recompute the value using pure floats, then we should be
 	// within a margin of error related to the scale: X = (U / Y) * M.
@@ -806,7 +823,8 @@ func testRoundTripConversion[N Int[N]](t *rapid.T) {
 	unitsPerBtcFP := FixedPointFromUint64[N](unitsPerBtc, scale)
 
 	units := MilliSatoshiToUnits(msat, unitsPerBtcFP)
-	msatResult := UnitsToMilliSatoshi(units, unitsPerBtcFP)
+	msatResult, err := UnitsToMilliSatoshi(units, unitsPerBtcFP)
+	require.NoError(t, err)
 
 	// TODO(roasbeef): should it also round up to the nearest sat on the
 	// other end?
@@ -814,6 +832,33 @@ func testRoundTripConversion[N Int[N]](t *rapid.T) {
 
 	// The round trip conversion should preserve the value.
 	require.InDelta(t, uint64(msat), uint64(msatResult), 1)
+}
+
+// TestUnitsToMilliSatoshiOverflow ensures that a rate/units pair whose
+// mSat result exceeds uint64 returns ErrMsatOverflow rather than the low
+// 64 bits.
+func TestUnitsToMilliSatoshiOverflow(t *testing.T) {
+	t.Parallel()
+
+	// A rate of 1 unit/BTC means each asset unit is worth 1e11 mSat.
+	// 1e8 units therefore yields 1e19 mSat, just under 2^64, but past
+	// ~1.8e8 the result overflows.
+	rate := NewBigIntFixedPoint(1, 0)
+
+	// Just below the overflow boundary: 2^64 / 1e11 ≈ 1.844e8 units.
+	safeUnits := NewBigIntFixedPoint(100_000_000, 0)
+	_, err := UnitsToMilliSatoshi(safeUnits, rate)
+	require.NoError(t, err)
+
+	// Comfortably above the overflow boundary.
+	overflowUnits := NewBigIntFixedPoint(1_000_000_000, 0)
+	_, err = UnitsToMilliSatoshi(overflowUnits, rate)
+	require.ErrorIs(t, err, ErrMsatOverflow)
+
+	// Massive units (uint64 max) at the same rate must also be caught.
+	maxUnits := NewBigIntFixedPoint(math.MaxUint64, 0)
+	_, err = UnitsToMilliSatoshi(maxUnits, rate)
+	require.ErrorIs(t, err, ErrMsatOverflow)
 }
 
 // TestConversionMsat tests key invariant properties of the conversion
