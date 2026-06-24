@@ -94,6 +94,42 @@ func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	}, errChan, nil
 }
 
+// RegisterSpendNtfn registers an intent to be notified once the target
+// outpoint is spent by a confirmed transaction. If the outpoint was already
+// spent by a confirmed transaction, the notification is dispatched
+// immediately. The returned SpendEvent's Reorg channel fires when a
+// previously-reported confirmed spend is reorged out; the Spend channel
+// re-fires if and when the input is spent again on the dominant chain.
+func (l *LndRpcChainBridge) RegisterSpendNtfn(ctx context.Context,
+	outpoint *wire.OutPoint, pkScript []byte,
+	heightHint uint32) (*chainntnfs.SpendEvent, chan error, error) {
+
+	// Set up the reorg channel before issuing the registration so it can
+	// be threaded into lndclient. We expose it through the returned
+	// SpendEvent rather than as a caller-supplied parameter (mirroring
+	// chainntnfs.SpendEvent's own shape); the buffer of one matches what
+	// lndclient writes into it on each reorg.
+	reorgChan := make(chan struct{}, 1)
+
+	ctx, cancel := context.WithCancel(ctx) // nolint:govet
+	spendChan, errChan, err := l.lnd.ChainNotifier.RegisterSpendNtfn(
+		ctx, outpoint, pkScript, int32(heightHint),
+		lndclient.WithReOrgChan(reorgChan),
+	)
+	if err != nil {
+		cancel()
+
+		return nil, nil, fmt.Errorf("unable to register for spend: %w",
+			err)
+	}
+
+	return &chainntnfs.SpendEvent{
+		Spend:  spendChan,
+		Reorg:  reorgChan,
+		Cancel: cancel,
+	}, errChan, nil
+}
+
 // RegisterBlockEpochNtfn registers an intent to be notified of each new block
 // connected to the main chain.
 func (l *LndRpcChainBridge) RegisterBlockEpochNtfn(

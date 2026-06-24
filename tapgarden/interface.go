@@ -324,6 +324,14 @@ type ChainBridge interface {
 		reOrgChan chan struct{}) (*chainntnfs.ConfirmationEvent,
 		chan error, error)
 
+	// RegisterSpendNtfn registers an intent to be notified once the
+	// target outpoint is spent by a confirmed transaction. If the
+	// outpoint was already spent by a confirmed transaction, the
+	// notification is dispatched immediately.
+	RegisterSpendNtfn(ctx context.Context, outpoint *wire.OutPoint,
+		pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent,
+		chan error, error)
+
 	// RegisterBlockEpochNtfn registers an intent to be notified of each
 	// new block connected to the main chain.
 	RegisterBlockEpochNtfn(ctx context.Context) (chan int32, chan error,

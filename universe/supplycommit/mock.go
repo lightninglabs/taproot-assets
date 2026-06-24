@@ -192,13 +192,21 @@ func (m *mockChainBridge) RegisterConfirmationsNtfn(
 
 func (m *mockChainBridge) RegisterSpendNtfn(ctx context.Context,
 	outpoint *wire.OutPoint, pkScript []byte,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	heightHint uint32) (*chainntnfs.SpendEvent, chan error, error) {
 
 	args := m.Called(ctx, outpoint, pkScript, heightHint)
 	if args.Get(0) == nil {
-		return nil, args.Error(1)
+		return nil, nil, args.Error(2)
 	}
-	return args.Get(0).(*chainntnfs.SpendEvent), args.Error(1)
+
+	// args.Get(1) may legitimately be a nil error channel in tests
+	// that only exercise the spend path; guard the type assertion so
+	// a comma-ok form keeps the mock from panicking on that case.
+	var errChan chan error
+	if got := args.Get(1); got != nil {
+		errChan = got.(chan error)
+	}
+	return args.Get(0).(*chainntnfs.SpendEvent), errChan, args.Error(2)
 }
 
 func (m *mockChainBridge) PublishTransaction(ctx context.Context,
