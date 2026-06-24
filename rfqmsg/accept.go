@@ -149,6 +149,21 @@ func (m *acceptWireMsgData) Validate() error {
 		return fmt.Errorf("expiry must be set to a future time")
 	}
 
+	// Both rate coefficients are used as divisors during conversion
+	// between asset units and milli-satoshis, so they must be
+	// non-zero.
+	inRate := m.InAssetRate.Val.IntoBigIntFixedPoint()
+	if inRate.Coefficient.ToUint64() == 0 {
+		return fmt.Errorf("in-asset rate coefficient must be " +
+			"non-zero")
+	}
+
+	outRate := m.OutAssetRate.Val.IntoBigIntFixedPoint()
+	if outRate.Coefficient.ToUint64() == 0 {
+		return fmt.Errorf("out-asset rate coefficient must be " +
+			"non-zero")
+	}
+
 	return nil
 }
 
