@@ -46,6 +46,13 @@ const (
 	// confRetryDelayMax is the maximum delay between attempts to
 	// re-register the transfer confirmation notification.
 	confRetryDelayMax = time.Second * 30
+
+	// spendQueryTimeout is the maximum time we wait for the chain
+	// notifier to report a confirmed spend of a transfer input.
+	// Historical spends are dispatched almost immediately after
+	// registration; the timeout only fires when the inputs are unspent
+	// or their spend hasn't confirmed yet.
+	spendQueryTimeout = time.Second * 10
 )
 
 // VerifiedProofImporter is used to import verified proofs into the local proof
@@ -557,6 +564,249 @@ func (p *ChainPorter) waitForConfEventOnce(ctx context.Context,
 	case <-p.Quit:
 		log.Debugf("Skipping TX confirmation, exiting")
 		return nil, true, nil
+	}
+}
+
+// inputSpendErr carries a per-input spend notification stream failure
+// alongside the outpoint it pertains to, so the caller can target recovery
+// to just that input rather than tearing down the entire watch.
+type inputSpendErr struct {
+	op  wire.OutPoint
+	err error
+}
+
+// spendFanin holds the shared channels every per-input spend watcher fans
+// its events into.
+type spendFanin struct {
+	spends    chan *chainntnfs.SpendDetail
+	reorgs    chan wire.OutPoint
+	spendErrs chan inputSpendErr
+}
+
+// registerInputSpendNtfns registers a spend notification for each of the
+// given parcel's inputs (the asset inputs, as well as any swept zero-value
+// UTXOs) and fans the resulting events, reorg signals, and stream errors
+// into three shared channels. Registration is all-or-nothing: if any input
+// cannot be watched, an error is returned with no registrations remaining
+// active. Silently dropping coverage for any input would let a foreign
+// confirmed spend of that input go unnoticed, recreating the very stranding
+// this machinery exists to prevent. All registrations and forwarding
+// goroutines are torn down when the passed context is cancelled.
+//
+// The per-input goroutines loop so that a reorg of a previously-reported
+// spend, followed by re-confirmation in a different block (possibly with a
+// different spender) is delivered to the caller as a new spend event after
+// a reorg signal.
+func (p *ChainPorter) registerInputSpendNtfns(ctx context.Context,
+	parcel *OutboundParcel,
+	pkScripts map[wire.OutPoint][]byte) (*spendFanin, error) {
+
+	// Gather the outpoints the anchor transaction spends on behalf of
+	// the transfer. The caller is responsible for having sourced
+	// pkScripts already (see pkScriptsForInputs).
+	numInputs := len(parcel.Inputs) + len(parcel.ZeroValueInputs)
+	ops := make([]wire.OutPoint, 0, numInputs)
+	for idx := range parcel.Inputs {
+		ops = append(ops, parcel.Inputs[idx].OutPoint)
+	}
+	for idx := range parcel.ZeroValueInputs {
+		ops = append(ops, parcel.ZeroValueInputs[idx].OutPoint)
+	}
+
+	// Buffer each channel to the worst-case "one in-flight per input"
+	// depth. The main loop drains as it iterates, so a per-input goroutine
+	// never blocks on a healthy main loop. The factor of 2 absorbs the
+	// natural spend → reorg → spend cadence without coupling the two
+	// channels. The reorg channel carries the input's outpoint so the
+	// caller can target the right pending finality watch.
+	fanin := &spendFanin{
+		spends:    make(chan *chainntnfs.SpendDetail, len(ops)*2),
+		reorgs:    make(chan wire.OutPoint, len(ops)*2),
+		spendErrs: make(chan inputSpendErr, len(ops)),
+	}
+
+	// The caller (waitForConfEventOnce, locateConfirmedInputSpend) always
+	// cancels its ctx before returning, which tears down any goroutines
+	// spawned below — including those already in flight when a later
+	// input's registration fails and we return early.
+	for _, op := range ops {
+		pkScript, ok := pkScripts[op]
+		if !ok {
+			return nil, fmt.Errorf("missing pkScript for input "+
+				"%v", op)
+		}
+
+		err := p.watchInputSpend(
+			ctx, op, pkScript, parcel.AnchorTxHeightHint, fanin,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return fanin, nil
+}
+
+// pkScriptsForInputs returns a map keyed by outpoint of the pkScript of
+// each of the parcel's inputs, suitable for passing to
+// registerInputSpendNtfns / watchInputSpend.
+//
+// Asset inputs are batch-fetched from the DB so inputs sharing an anchor
+// incur a single chain_txn fetch + deserialization. Zero-value (orphan-UTXO)
+// sweep inputs already carry their pkScript in memory and may not even have
+// their creating tx tracked in our local chain_txns (the canonical case is
+// a sweep input from an external transaction), so they're sourced
+// in-memory: this both avoids an unnecessary DB hit and prevents a hard
+// registration failure on foreign sweep inputs.
+func (p *ChainPorter) pkScriptsForInputs(ctx context.Context,
+	parcel *OutboundParcel) (map[wire.OutPoint][]byte, error) {
+
+	assetOps := make([]wire.OutPoint, 0, len(parcel.Inputs))
+	for idx := range parcel.Inputs {
+		assetOps = append(assetOps, parcel.Inputs[idx].OutPoint)
+	}
+
+	pkScripts, err := p.cfg.ExportLog.FetchAnchorOutputPkScripts(
+		ctx, assetOps,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch pkScripts for "+
+			"transfer inputs: %w", err)
+	}
+
+	for idx := range parcel.ZeroValueInputs {
+		zvi := parcel.ZeroValueInputs[idx]
+		pkScripts[zvi.OutPoint] = zvi.PkScript
+	}
+
+	return pkScripts, nil
+}
+
+// watchInputSpend registers a single input's spend notification and spawns
+// the per-input fan-in goroutine. Used both for initial registration (from
+// registerInputSpendNtfns) and for in-flight recovery when the spend stream
+// for one input flaps but the rest of the watch is healthy. The caller is
+// responsible for sourcing pkScript appropriately (from the DB for asset
+// inputs, from memory for zero-value sweep inputs).
+func (p *ChainPorter) watchInputSpend(ctx context.Context,
+	op wire.OutPoint, pkScript []byte, heightHint uint32,
+	fanin *spendFanin) error {
+
+	spendNtfn, errChan, err := p.cfg.ChainBridge.RegisterSpendNtfn(
+		ctx, &op, pkScript, heightHint,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to register for spend of anchor "+
+			"outpoint %v: %w", op, err)
+	}
+
+	go func() {
+		defer spendNtfn.Cancel()
+
+		for {
+			select {
+			case spend, ok := <-spendNtfn.Spend:
+				if !ok || spend == nil {
+					return
+				}
+
+				select {
+				case fanin.spends <- spend:
+				case <-ctx.Done():
+					return
+				}
+
+			case _, ok := <-spendNtfn.Reorg:
+				if !ok {
+					return
+				}
+
+				select {
+				case fanin.reorgs <- op:
+				case <-ctx.Done():
+					return
+				}
+
+			case err := <-errChan:
+				sse := inputSpendErr{
+					op: op,
+					err: fmt.Errorf("error whilst "+
+						"waiting for spend of "+
+						"anchor outpoint %v: %w",
+						op, err),
+				}
+
+				select {
+				case fanin.spendErrs <- sse:
+				case <-ctx.Done():
+				}
+
+				return
+
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return nil
+}
+
+// locateConfirmedInputSpend queries the chain for a confirmed transaction
+// spending any of the given parcel's inputs. It returns the txid of the
+// confirmed spender, which may be the parcel's own anchor transaction. A nil
+// return means no confirmed spend could be located before the query timed
+// out: the inputs are either unspent, or their spend hasn't confirmed yet.
+func (p *ChainPorter) locateConfirmedInputSpend(ctx context.Context,
+	parcel *OutboundParcel) *chainhash.Hash {
+
+	ctx, cancel := context.WithTimeout(ctx, spendQueryTimeout)
+	defer cancel()
+
+	// Spends that have already confirmed are dispatched (almost)
+	// immediately after registration; the first one we see decides the
+	// fate of the transfer. Reorg signals are ignored here — this is a
+	// short-lived historical lookup, and any finality concerns are
+	// handled downstream by the confirmation-waiting state.
+	pkScripts, err := p.pkScriptsForInputs(ctx, parcel)
+	if err != nil {
+		log.Warnf("Unable to source pkScripts for input spend "+
+			"watch, the spend lookup is inconclusive: %v", err)
+
+		return nil
+	}
+	fanin, err := p.registerInputSpendNtfns(ctx, parcel, pkScripts)
+	if err != nil {
+		// If we can't watch every input, we can't decide the
+		// transfer's fate. The caller treats a nil return as
+		// inconclusive and falls back to its retry-on-next-startup
+		// path, which is the safe outcome here too.
+		log.Warnf("Unable to register input spend notifications, "+
+			"the spend lookup is inconclusive: %v", err)
+
+		return nil
+	}
+
+	for {
+		select {
+		case spend := <-fanin.spends:
+			log.Debugf("Anchor outpoint %v spent by confirmed "+
+				"tx %v", spend.SpentOutPoint,
+				spend.SpenderTxHash)
+
+			return spend.SpenderTxHash
+
+		case sse := <-fanin.spendErrs:
+			// A spend stream failed; we can no longer claim
+			// complete coverage, so the lookup is inconclusive.
+			log.Warnf("Spend stream error for %v, the spend "+
+				"lookup is inconclusive: %v", sse.op, sse.err)
+
+			return nil
+
+		case <-ctx.Done():
+			return nil
+		}
 	}
 }
 
@@ -2160,14 +2410,37 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		)
 		switch {
 		case errors.Is(err, lnwallet.ErrDoubleSpend):
-			// A double spend error means the transaction will never
-			// make it into the mempool or chain, so we'll never be
-			// able to confirm it. At this point we should probably
-			// put the transfer in a failed state and not re-try on
-			// next startup... But since we don't have that state
-			// yet, we just return an error here. But what we can do
-			// is release any fee sponsoring inputs we selected from
-			// lnd's wallet to avoid locking up balance.
+			// The transaction was rejected because an input was
+			// already spent, or because the transaction itself
+			// was already mined. The transfer's fate is a fact
+			// about the chain we can interrogate directly: if a
+			// confirmed spender (our own anchor or a conflicting
+			// transaction) is reported for one of our inputs, we
+			// transition to WaitTxConf and let the
+			// confirmation-waiting state finalise the outcome —
+			// in particular, gating supersession on the
+			// conflicting spender reaching SafeDepth rather than
+			// acting on a single confirmation here, which would
+			// be irreversible on a routine reorg.
+			spender := p.locateConfirmedInputSpend(
+				ctx, currentPkg.OutboundPkg,
+			)
+
+			if spender != nil {
+				log.Infof("Anchor tx %v: confirmed spender "+
+					"of input is %v, transitioning to "+
+					"WaitTxConf", txHash, spender)
+
+				currentPkg.SendState = SendStateWaitTxConf
+
+				return &currentPkg, nil
+			}
+
+			// No confirmed spender located within the query
+			// window — the conflict may still be unconfirmed, so
+			// we don't know the transfer's fate yet. Release any
+			// fee inputs we locked, and retry the broadcast on
+			// next startup.
 			//
 			// TODO(guggero): Put this transfer into a failed state
 			// and don't retry on next startup.
