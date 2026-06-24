@@ -55,6 +55,18 @@ const (
 	spendQueryTimeout = time.Second * 10
 )
 
+// ErrTransferSuperseded is returned by the chain porter when a transfer's
+// anchor transaction can never confirm because a conflicting transaction
+// has reached SafeDepth confirmations spending one of the transfer's
+// inputs. This is a deliberate terminal outcome — the transfer is marked
+// superseded in the asset store, its consumed inputs are marked spent, and
+// the parcel goroutine exits — not a bug. Callers receiving the error from
+// the porter (state-machine error channels, event subscribers) can identify
+// it via errors.Is and treat it as a benign terminal state rather than a
+// failure.
+var ErrTransferSuperseded = errors.New("transfer superseded by " +
+	"conflicting confirmed spend")
+
 // VerifiedProofImporter is used to import verified proofs into the local proof
 // archive after we complete a transfer.
 type VerifiedProofImporter interface {
@@ -138,6 +150,13 @@ type ChainPorterConfig struct {
 	// key for a given asset, which is required for creating supply
 	// commitments.
 	DelegationKeyChecker address.DelegationKeyChecker
+
+	// SafeDepth is the number of confirmations a conflicting spender of a
+	// transfer input must reach before the porter treats the transfer as
+	// irreversibly superseded. Acting at a single confirmation would risk
+	// permanent loss of the transfer's inputs on a routine 1-block reorg.
+	// A zero value is clamped to 1 at construction time.
+	SafeDepth int32
 }
 
 // ChainPorter is the main sub-system of the tapfreighter package. The porter
@@ -171,6 +190,15 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 	subscribers := make(
 		map[uint64]*fn.EventReceiver[fn.Event],
 	)
+
+	// Clamp the supersession finality depth to at least one confirmation.
+	// Zero would let RegisterConfirmationsNtfn fire on a 0-conf observation
+	// and reintroduce exactly the irreversibility the gate exists to
+	// prevent.
+	if cfg.SafeDepth < 1 {
+		cfg.SafeDepth = 1
+	}
+
 	return &ChainPorter{
 		cfg:             cfg,
 		outboundParcels: make(chan Parcel),
@@ -397,8 +425,19 @@ func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 		updatedPkg, err := p.stateStep(*pkg)
 		if err != nil {
 			kit.errChan <- err
-			log.Errorf("Error evaluating state (%v): %v",
-				pkg.SendState, err)
+
+			// A supersede is a deliberate terminal outcome, not a
+			// bug — log at Info, not Error. The event still
+			// carries the wrapped sentinel so subscribers can
+			// branch via errors.Is(ErrTransferSuperseded) if they
+			// want to distinguish it from a real failure.
+			if errors.Is(err, ErrTransferSuperseded) {
+				log.Infof("Transfer terminally superseded "+
+					"(state=%v): %v", pkg.SendState, err)
+			} else {
+				log.Errorf("Error evaluating state (%v): %v",
+					pkg.SendState, err)
+			}
 
 			p.publishSubscriberEvent(newAssetSendErrorEvent(
 				err, stateToExecute, *pkg,
@@ -448,7 +487,7 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 
 	retryDelay := confRetryDelay
 	for attempt := 1; ; attempt++ {
-		confEvent, terminal, err := p.waitForConfEventOnce(
+		confEvent, sf, terminal, err := p.waitForConfEventOnce(
 			confCtx, outboundPkg,
 		)
 		switch {
@@ -470,6 +509,14 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 			pkg.SendState = SendStateStorePostAnchorTxConf
 
 			return nil
+
+		// A conflicting transaction confirmed spending one of the
+		// parcel's inputs, so the anchor transaction can never
+		// confirm: the transfer is permanently superseded.
+		case sf != nil:
+			return p.supersedeTransfer(
+				confCtx, pkg, sf.spender, sf.consumed,
+			)
 
 		// We're shutting down, or the context was cancelled; there's
 		// no point in retrying.
@@ -511,12 +558,24 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 }
 
 // waitForConfEventOnce registers a confirmation notification for the parcel's
-// anchor transaction and waits for a single outcome. It returns the
-// confirmation event on success. If the notification stream fails in a way
-// that can be remedied by re-registering, a nil event and terminal=false are
-// returned. Shutdown and context cancellation are terminal.
+// anchor transaction, as well as spend notifications for the parcel's inputs,
+// and waits for a single outcome. It returns the confirmation event on
+// success. If a conflicting transaction is reported as the confirmed spender
+// of any input and reaches SafeDepth confirmations, the spender's txid is
+// returned: the anchor transaction can never confirm. A 1-conf foreign spend
+// alone is insufficient — supersession is irreversible in the DB, so we wait
+// until the conflicting spender is reorg-safe (see SafeDepth) before
+// surfacing it. If a notification stream fails in a way that can be remedied
+// by re-registering, all-nil and terminal=false are returned. Shutdown and
+// context cancellation are terminal.
 func (p *ChainPorter) waitForConfEventOnce(ctx context.Context,
-	outboundPkg *OutboundParcel) (*chainntnfs.TxConfirmation, bool, error) {
+	outboundPkg *OutboundParcel) (*chainntnfs.TxConfirmation,
+	*spenderFinality, bool, error) {
+
+	// Make sure all registrations (and their notification streams) are
+	// torn down once we leave this attempt, whatever the outcome.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	txHash := outboundPkg.AnchorTx.TxHash()
 	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
@@ -526,45 +585,344 @@ func (p *ChainPorter) waitForConfEventOnce(ctx context.Context,
 	if err != nil {
 		// Registration itself failed, which is generally a transient
 		// RPC issue, so we'll have the caller retry.
-		return nil, false, fmt.Errorf("unable to register for package "+
-			"tx conf: %w", err)
+		return nil, nil, false, fmt.Errorf("unable to register for "+
+			"package tx conf: %w", err)
 	}
-
-	// Make sure the registration (and its notification stream) is torn
-	// down once we leave this attempt, whatever the outcome.
 	defer confNtfn.Cancel()
 
-	select {
-	case confEvent, ok := <-confNtfn.Confirmed:
-		if !ok || confEvent == nil {
-			return nil, false, fmt.Errorf("confirmation event "+
-				"channel closed for txid=%v", txHash)
+	// We also watch the parcel's inputs: a confirmed spend by a
+	// conflicting transaction decides the fate of the transfer just as
+	// well as a confirmation does. This is the only exit besides
+	// confirmation for parcels whose anchor transaction is broadcast by
+	// an external system (such as the lnd sweeper), where a competing
+	// transaction version or a third party (such as a remote channel
+	// party claiming an HTLC output) may win the race for the inputs
+	// without the porter ever attempting a broadcast itself.
+	//
+	// Registration is all-or-nothing: if any input cannot be watched,
+	// the caller has to re-attempt the whole set, since a partial watch
+	// could miss a foreign confirmation on the unwatched input and
+	// strand the parcel exactly as before this fix.
+	pkScripts, err := p.pkScriptsForInputs(ctx, outboundPkg)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	fanin, err := p.registerInputSpendNtfns(ctx, outboundPkg, pkScripts)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("unable to register for "+
+			"package input spends: %w", err)
+	}
+
+	// pending tracks the SafeDepth conf watch for each input outpoint
+	// whose latest reported spend is by a foreign (non-own) spender.
+	// Keying by outpoint is essential: a single shared pending slot
+	// would let a later conflicting spender on input B cancel an
+	// earlier in-flight finality watch on input A, and a subsequent
+	// reorg of B would then clear all state — losing supersession on
+	// A even though A's spender is still confirmed.
+	pending := make(map[wire.OutPoint]*pendingSpenderState)
+	defer func() {
+		for _, st := range pending {
+			st.cancel()
 		}
+	}()
 
-		return confEvent, false, nil
+	// finality fans the result of every per-input SafeDepth conf watch
+	// into a single channel keyed by (outpoint, spender). The main loop
+	// drops stale results: a cancel + replace beats the goroutine to the
+	// send, so a result whose (op, spender) no longer matches the
+	// pending entry is ignored.
+	finality := make(chan finalityResult, len(outboundPkg.Inputs)+
+		len(outboundPkg.ZeroValueInputs))
 
-	case err := <-errChan:
-		return nil, false, fmt.Errorf("error whilst waiting for "+
-			"package tx confirmation: %w", err)
-
-	case <-ctx.Done():
-		// The context is also cancelled on shutdown, in which case
-		// both this and the quit case below are ready at the same
-		// time. Prefer the graceful exit.
+	for {
 		select {
+		case confEvent, ok := <-confNtfn.Confirmed:
+			if !ok || confEvent == nil {
+				return nil, nil, false, fmt.Errorf(
+					"confirmation event channel closed "+
+						"for txid=%v", txHash)
+			}
+
+			return confEvent, nil, false, nil
+
+		case err := <-errChan:
+			return nil, nil, false, fmt.Errorf("error whilst "+
+				"waiting for package tx confirmation: %w", err)
+
+		case spend := <-fanin.spends:
+			spender := spend.SpenderTxHash
+
+			// Our own anchor transaction being the confirmed
+			// spender means the confirmation event is imminent,
+			// so we keep waiting for it.
+			if spender == nil || *spender == txHash {
+				continue
+			}
+
+			if spend.SpentOutPoint == nil {
+				continue
+			}
+			op := *spend.SpentOutPoint
+
+			// Already tracking this spender for this input —
+			// nothing to do.
+			if st, ok := pending[op]; ok &&
+				st.spender == *spender {
+
+				continue
+			}
+
+			// A different spender on this input (e.g. a
+			// post-reorg replacement) supersedes any prior
+			// pending watch on the same input. Distinct spenders
+			// on distinct inputs keep their own watches.
+			if st, ok := pending[op]; ok {
+				st.cancel()
+				delete(pending, op)
+			}
+
+			next, err := p.watchSpenderFinality(
+				ctx, spend, finality,
+			)
+			if err != nil {
+				// The spend was already consumed from the
+				// stream, so it won't re-fire absent another
+				// reorg. Surface a retryable error so the
+				// caller re-registers the whole watch set;
+				// re-registration will redeliver the
+				// historical spend and reattempt the finality
+				// watch. Silently logging here would strand
+				// the transfer indefinitely — exactly the
+				// failure mode this machinery exists to
+				// prevent.
+				return nil, nil, false, fmt.Errorf("unable "+
+					"to watch finality of conflicting "+
+					"spender %v of anchor input %v: %w",
+					spender, op, err)
+			}
+
+			pending[op] = next
+
+		case fr := <-finality:
+			// A finality watch reported in. Drop stale results
+			// (the entry may have been cancelled + replaced).
+			st, ok := pending[fr.op]
+			if !ok || st.spender != fr.spender {
+				continue
+			}
+
+			if fr.err != nil {
+				// The spender-finality conf watch failed.
+				// Drop the pending entry and have the caller
+				// re-attempt the whole watch.
+				st.cancel()
+				delete(pending, fr.op)
+
+				return nil, nil, false, fmt.Errorf(
+					"spender finality watch failed: %w",
+					fr.err)
+			}
+
+			// SafeDepth reached: it is now safe to treat the
+			// transfer as superseded. Hand back the spender along
+			// with its full input list so MarkTransferSuperseded
+			// targets only the inputs actually consumed on-chain.
+			return nil, &spenderFinality{
+				spender:  fr.spender,
+				consumed: st.consumed,
+			}, false, nil
+
+		case op := <-fanin.reorgs:
+			// The previously-reported confirmed spend of this
+			// input has been reorged out. Abandon any in-flight
+			// finality watch on this specific input; other
+			// inputs' watches are unaffected. lndclient will
+			// re-fire on the input's Spend channel if and when
+			// it is spent again on the dominant chain.
+			if st, ok := pending[op]; ok {
+				st.cancel()
+				delete(pending, op)
+			}
+
+		case sse := <-fanin.spendErrs:
+			// A single per-input spend stream failed. Recover by
+			// re-registering only that input's spend ntfn rather
+			// than tearing down the entire watch — the confNtfn
+			// and the other inputs are still healthy, and ripping
+			// them down on every flap would let a chronic
+			// per-input error indefinitely delay an imminent
+			// confirmation. A pending finality watch on this
+			// input is also cancelled: the stream error means we
+			// no longer trust our coverage of further reorg
+			// events on it, so the safe move is to start fresh.
+			log.Warnf("Per-input spend ntfn stream for %v "+
+				"failed: %v; re-registering just this input",
+				sse.op, sse.err)
+
+			if st, ok := pending[sse.op]; ok {
+				st.cancel()
+				delete(pending, sse.op)
+			}
+
+			pkScript, ok := pkScripts[sse.op]
+			if !ok {
+				return nil, nil, false, fmt.Errorf("no "+
+					"pkScript for failed input %v",
+					sse.op)
+			}
+			err := p.watchInputSpend(
+				ctx, sse.op, pkScript,
+				outboundPkg.AnchorTxHeightHint, fanin,
+			)
+			if err != nil {
+				// Re-registration failed — surface a
+				// retryable error so the outer backoff loop
+				// re-attempts the whole watch.
+				return nil, nil, false, fmt.Errorf("unable "+
+					"to re-register spend ntfn for "+
+					"%v: %w", sse.op, err)
+			}
+
+		case <-ctx.Done():
+			// The context is also cancelled on shutdown, in which
+			// case both this and the quit case below are ready at
+			// the same time. Prefer the graceful exit.
+			select {
+			case <-p.Quit:
+				log.Debugf("Skipping TX confirmation, exiting")
+				return nil, nil, true, nil
+			default:
+			}
+
+			return nil, nil, true, fmt.Errorf("context done "+
+				"whilst waiting for package tx confirmation "+
+				"of %v", txHash)
+
 		case <-p.Quit:
 			log.Debugf("Skipping TX confirmation, exiting")
-			return nil, true, nil
-		default:
+			return nil, nil, true, nil
+		}
+	}
+}
+
+// pendingSpenderState holds the per-input resources for a SafeDepth-conf
+// watch on a conflicting spender of one of the parcel's inputs. consumed
+// records every outpoint the spender consumed on-chain so we can target
+// asset-spent marking to only those inputs rather than the whole transfer.
+type pendingSpenderState struct {
+	spender  chainhash.Hash
+	consumed []wire.OutPoint
+	cancel   func()
+}
+
+// spenderFinality is the verdict returned by waitForConfEventOnce when a
+// conflicting spender reaches SafeDepth: the spender's txid plus the
+// outpoints the spender consumed on-chain. The latter is propagated through
+// to MarkTransferSuperseded so only inputs the conflict actually took are
+// marked spent, leaving any other inputs of a multi-input transfer
+// available.
+type spenderFinality struct {
+	spender  chainhash.Hash
+	consumed []wire.OutPoint
+}
+
+// finalityResult is the outcome of a SafeDepth-conf watch on a conflicting
+// spender, keyed by the input outpoint and spender txid so the main loop
+// can correlate it against pending state and drop stale results.
+type finalityResult struct {
+	op      wire.OutPoint
+	spender chainhash.Hash
+	err     error
+}
+
+// watchSpenderFinality registers a SafeDepth-conf notification on the spender
+// of the given confirmed input spend and spawns a fan-in goroutine that
+// forwards the result to the shared finality channel. The spender's own
+// SpendingTx pkScript and SpendingHeight are used as the lookup hint so the
+// backend can target its rescan tightly. If the SpendDetail lacks a usable
+// SpendingTx, registration is skipped and an error is returned: rather than
+// supersede on weak evidence, the caller surfaces it as retryable so the
+// whole watch set is re-registered (and the historical spend redelivered).
+//
+// Note that the same spender can spend multiple of our inputs; this
+// machinery installs an independent finality watch per (op, spender), which
+// duplicates work in that case but stays correct under independent reorgs
+// of the individual input spends.
+func (p *ChainPorter) watchSpenderFinality(ctx context.Context,
+	spend *chainntnfs.SpendDetail,
+	finality chan<- finalityResult) (*pendingSpenderState, error) {
+
+	if spend.SpendingTx == nil || len(spend.SpendingTx.TxOut) == 0 {
+		return nil, fmt.Errorf("spend detail for spender %v lacks a "+
+			"usable spending tx", spend.SpenderTxHash)
+	}
+	if spend.SpentOutPoint == nil || spend.SpenderTxHash == nil {
+		return nil, fmt.Errorf("spend detail is missing outpoint or " +
+			"spender hash")
+	}
+
+	op := *spend.SpentOutPoint
+	spender := *spend.SpenderTxHash
+	heightHint := uint32(spend.SpendingHeight)
+	pkScript := spend.SpendingTx.TxOut[0].PkScript
+
+	// Snapshot the spender's inputs. This is the authoritative list of
+	// outpoints the conflicting transaction consumed; the caller will
+	// use it to mark only those of our transfer's inputs as spent (not
+	// the rest, which may still be unspent on-chain).
+	consumed := make([]wire.OutPoint, len(spend.SpendingTx.TxIn))
+	for i, in := range spend.SpendingTx.TxIn {
+		consumed[i] = in.PreviousOutPoint
+	}
+
+	subCtx, cancel := context.WithCancel(ctx)
+	confEvent, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
+		subCtx, spend.SpenderTxHash, pkScript,
+		uint32(p.cfg.SafeDepth), heightHint, false, nil,
+	)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("unable to register finality conf "+
+			"ntfn on spender %v: %w", spend.SpenderTxHash, err)
+	}
+
+	go func() {
+		defer confEvent.Cancel()
+
+		send := func(res finalityResult) {
+			select {
+			case finality <- res:
+			case <-subCtx.Done():
+			}
 		}
 
-		return nil, true, fmt.Errorf("context done whilst waiting "+
-			"for package tx confirmation of %v", txHash)
+		select {
+		case ev, ok := <-confEvent.Confirmed:
+			res := finalityResult{op: op, spender: spender}
+			if !ok || ev == nil {
+				res.err = fmt.Errorf("spender finality conf "+
+					"channel closed for spender=%v",
+					spender)
+			}
+			send(res)
 
-	case <-p.Quit:
-		log.Debugf("Skipping TX confirmation, exiting")
-		return nil, true, nil
-	}
+		case err := <-errChan:
+			send(finalityResult{
+				op:      op,
+				spender: spender,
+				err:     err,
+			})
+
+		case <-subCtx.Done():
+		}
+	}()
+
+	return &pendingSpenderState{
+		spender:  spender,
+		consumed: consumed,
+		cancel:   cancel,
+	}, nil
 }
 
 // inputSpendErr carries a per-input spend notification stream failure
@@ -808,6 +1166,48 @@ func (p *ChainPorter) locateConfirmedInputSpend(ctx context.Context,
 			return nil
 		}
 	}
+}
+
+// supersedeTransfer finalizes the fate of a transfer whose anchor
+// transaction can never confirm because a conflicting transaction confirmed
+// spending (some of) its inputs: the transfer is marked superseded so it is
+// no longer treated as pending or resumed at startup, and any locked inputs
+// are released. spentOutpoints lists the outpoints the conflicting
+// transaction actually consumed on-chain; only those of the transfer's
+// inputs are marked spent in the asset store.
+//
+// On success the returned error wraps ErrTransferSuperseded — terminal for
+// the parcel's state machine, but a deliberate outcome rather than a bug.
+// Callers can branch via errors.Is to distinguish it from a transient DB
+// failure (which returns a different, sentinel-free error).
+func (p *ChainPorter) supersedeTransfer(ctx context.Context,
+	pkg *sendPackage, spender chainhash.Hash,
+	spentOutpoints []wire.OutPoint) error {
+
+	txHash := pkg.OutboundPkg.AnchorTx.TxHash()
+
+	log.Infof("Anchor tx %v superseded by confirmed tx %v spending its "+
+		"inputs", txHash, spender)
+
+	// Mark the transfer superseded (and the consumed inputs spent) in
+	// the asset store first. The DB write is the durable state change;
+	// unlocking inputs is transient and lnd's wallet will re-derive
+	// availability from the chain on its own. If we crash between the
+	// two steps, mark-then-unlock guarantees we never leak transient
+	// state with the durable change still missing.
+	err := p.cfg.ExportLog.MarkTransferSuperseded(
+		ctx, txHash, spentOutpoints,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to mark transfer as superseded: %w",
+			err)
+	}
+
+	p.unlockInputs(ctx, pkg)
+
+	return fmt.Errorf("anchor tx %v superseded by confirmed tx %v "+
+		"spending its inputs: %w", txHash, spender,
+		ErrTransferSuperseded)
 }
 
 // storeProofs writes the updated sender and receiver proof files to the proof
@@ -2413,22 +2813,22 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			// The transaction was rejected because an input was
 			// already spent, or because the transaction itself
 			// was already mined. The transfer's fate is a fact
-			// about the chain we can interrogate directly: if a
-			// confirmed spender (our own anchor or a conflicting
-			// transaction) is reported for one of our inputs, we
-			// transition to WaitTxConf and let the
-			// confirmation-waiting state finalise the outcome —
-			// in particular, gating supersession on the
-			// conflicting spender reaching SafeDepth rather than
-			// acting on a single confirmation here, which would
-			// be irreversible on a routine reorg.
+			// about the chain that we can interrogate directly:
+			// if our own anchor transaction is the confirmed
+			// spender of the inputs, all that's left is to
+			// process its confirmation. If a different confirmed
+			// spender is found, we transition to WaitTxConf
+			// regardless and let the confirmation-waiting state
+			// gate supersession on the conflicting spender
+			// reaching SafeDepth — acting on a 1-conf foreign
+			// spend would be irreversible on a routine reorg.
 			spender := p.locateConfirmedInputSpend(
 				ctx, currentPkg.OutboundPkg,
 			)
 
 			if spender != nil {
-				log.Infof("Anchor tx %v: confirmed spender "+
-					"of input is %v, transitioning to "+
+				log.Infof("Anchor tx %v: confirmed spender of "+
+					"input is %v, transitioning to "+
 					"WaitTxConf", txHash, spender)
 
 				currentPkg.SendState = SendStateWaitTxConf
@@ -2436,11 +2836,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				return &currentPkg, nil
 			}
 
-			// No confirmed spender located within the query
-			// window — the conflict may still be unconfirmed, so
-			// we don't know the transfer's fate yet. Release any
-			// fee inputs we locked, and retry the broadcast on
-			// next startup.
+			// We couldn't locate a confirmed spend of our inputs,
+			// so we can't determine the fate of the transfer yet
+			// (the conflicting transaction may still be
+			// unconfirmed). We release any fee sponsoring inputs
+			// we selected from lnd's wallet to avoid locking up
+			// balance, and will try again on next startup.
 			//
 			// TODO(guggero): Put this transfer into a failed state
 			// and don't retry on next startup.
