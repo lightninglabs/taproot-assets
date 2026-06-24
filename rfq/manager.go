@@ -1379,11 +1379,11 @@ func EstimateAssetUnits(ctx context.Context, oracle PriceOracle,
 			oracleRes.Err.Error())
 	}
 
-	// Ensure the oracle returned a usable rate. A zero-valued
-	// BigIntFixedPoint has a nil coefficient, which would panic
-	// in downstream arithmetic.
+	// Ensure the oracle returned a usable rate. The coefficient is
+	// used as a divisor in downstream conversion arithmetic and
+	// must be non-zero.
 	rate := oracleRes.AssetRate.Rate
-	if rate.Coefficient == (rfqmath.BigInt{}) {
+	if rate.Coefficient.ToUint64() == 0 {
 		return 0, fmt.Errorf("oracle returned empty asset rate")
 	}
 
