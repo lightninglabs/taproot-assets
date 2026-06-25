@@ -7749,6 +7749,10 @@ func unmarshalCommitLocator(outpoint, spentOutpoint *taprpc.OutPoint,
 
 // unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.
 func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
+	if leaf == nil {
+		return nil, fmt.Errorf("asset leaf cannot be nil")
+	}
+
 	// We'll just pull the asset details from the serialized issuance proof
 	// itself.
 	var proofAsset asset.Asset
