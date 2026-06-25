@@ -35,6 +35,15 @@
 
 ## RPC Additions
 
+- [PR#2150](https://github.com/lightninglabs/taproot-assets/pull/2150)
+  Add `ListInvoices` and `ListPayments` RPCs to the `TaprootAssetChannels`
+  service. Each request embeds the corresponding `lnrpc` list request so
+  callers pass the same arguments they would pass to lnd. Responses embed
+  the full `lnrpc.Invoice` / `lnrpc.Payment` alongside an `AssetAmount`
+  summary (`asset_id`, `amount`, and tweaked `group_key`) decoded from
+  the HTLCs' custom records. Results are filtered to records that involve
+  a Taproot Asset; lnd's pagination offsets are passed through unchanged.
+
 ## tapcli Additions
 
 # Improvements
