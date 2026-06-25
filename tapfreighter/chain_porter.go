@@ -47,12 +47,14 @@ const (
 	// re-register the transfer confirmation notification.
 	confRetryDelayMax = time.Second * 30
 
-	// spendQueryTimeout is the maximum time we wait for the chain
-	// notifier to report a confirmed spend of a transfer input.
-	// Historical spends are dispatched almost immediately after
-	// registration; the timeout only fires when the inputs are unspent
-	// or their spend hasn't confirmed yet.
-	spendQueryTimeout = time.Second * 10
+	// defaultSpendQueryTimeout is the value used for
+	// ChainPorterConfig.SpendQueryTimeout if the caller leaves it at
+	// zero. Historical confirmed spends are dispatched almost
+	// immediately after registration; the timeout only fires when the
+	// inputs are unspent or their spend hasn't confirmed yet. 10s suits
+	// a healthy bitcoind or btcd backend; operators with slow or
+	// rescanning backends can raise it via config.
+	defaultSpendQueryTimeout = time.Second * 10
 )
 
 // ErrTransferSuperseded is returned by the chain porter when a transfer's
@@ -157,6 +159,18 @@ type ChainPorterConfig struct {
 	// permanent loss of the transfer's inputs on a routine 1-block reorg.
 	// A zero value is clamped to 1 at construction time.
 	SafeDepth int32
+
+	// SpendQueryTimeout caps how long locateConfirmedInputSpend waits
+	// for the chain notifier to report a confirmed spend of any of a
+	// transfer's inputs when the porter is resolving a rejected
+	// broadcast. Historical confirmed spends usually dispatch
+	// sub-second; the timeout matters when the inputs are unspent or
+	// their spend hasn't yet confirmed (the lookup returns inconclusive
+	// and the porter retries on next startup), or when the chain
+	// backend is slow (a too-tight timeout can cause spurious
+	// inconclusives and re-broadcast cycles). A zero value uses the
+	// defaultSpendQueryTimeout.
+	SpendQueryTimeout time.Duration
 }
 
 // ChainPorter is the main sub-system of the tapfreighter package. The porter
@@ -197,6 +211,13 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 	// prevent.
 	if cfg.SafeDepth < 1 {
 		cfg.SafeDepth = 1
+	}
+
+	// Default the chain-query timeout if the caller left it at zero;
+	// otherwise an unconfigured field would degenerate into an instant
+	// "inconclusive" return on every double-spend resolution.
+	if cfg.SpendQueryTimeout <= 0 {
+		cfg.SpendQueryTimeout = defaultSpendQueryTimeout
 	}
 
 	return &ChainPorter{
@@ -1118,7 +1139,7 @@ func (p *ChainPorter) watchInputSpend(ctx context.Context,
 func (p *ChainPorter) locateConfirmedInputSpend(ctx context.Context,
 	parcel *OutboundParcel) *chainhash.Hash {
 
-	ctx, cancel := context.WithTimeout(ctx, spendQueryTimeout)
+	ctx, cancel := context.WithTimeout(ctx, p.cfg.SpendQueryTimeout)
 	defer cancel()
 
 	// Spends that have already confirmed are dispatched (almost)
@@ -1163,6 +1184,21 @@ func (p *ChainPorter) locateConfirmedInputSpend(ctx context.Context,
 			return nil
 
 		case <-ctx.Done():
+			// The timeout fired before any of the transfer's
+			// inputs reported a confirmed spend. The conflict may
+			// still be unconfirmed (or our backend may be slow to
+			// rescan); either way, the broadcast-state caller
+			// falls back to unlock-and-retry-on-next-startup.
+			// Log loudly so the operator can correlate repeated
+			// inconclusive cycles with the SpendQueryTimeout
+			// setting.
+			log.Warnf("Spend lookup timed out after %v with no "+
+				"confirmed spend observed for any of the "+
+				"transfer's inputs; treating as inconclusive "+
+				"(the transfer will be retried on next "+
+				"startup). If this recurs, consider raising "+
+				"--spendquerytimeout.", p.cfg.SpendQueryTimeout)
+
 			return nil
 		}
 	}

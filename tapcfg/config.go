@@ -123,6 +123,16 @@ const (
 	// testnet chain.
 	testnetDefaultReOrgSafeDepth = 120
 
+	// defaultSpendQueryTimeout is the default maximum time the chain
+	// porter waits for the chain notifier to report a confirmed spend of
+	// a transfer input when resolving a rejected broadcast. Historical
+	// confirmed spends are dispatched almost immediately after
+	// registration; the timeout only fires when the inputs are unspent
+	// or their spend hasn't confirmed yet. 10s suits a healthy bitcoind
+	// or btcd backend; operators with slow or rescanning backends should
+	// raise it.
+	defaultSpendQueryTimeout = 10 * time.Second
+
 	// defaultUniverseMaxQps is the default maximum number of queries per
 	// second for the universe server. This permis 100 queries per second
 	// by default.
@@ -391,6 +401,8 @@ type Config struct {
 
 	ReOrgSafeDepth int32 `long:"reorgsafedepth" description:"The number of confirmations we'll wait for before considering a transaction safely buried in the chain."`
 
+	SpendQueryTimeout time.Duration `long:"spendquerytimeout" description:"The maximum time the chain porter waits for the chain notifier to report a confirmed spend of a transfer input when resolving a rejected broadcast. Operators with slow or rescanning chain backends may want to raise this. Valid time units are {s, m, h}."`
+
 	// The following options are used to configure the proof courier.
 	DefaultProofCourierAddr string                       `long:"proofcourieraddr" description:"Default proof courier service address."`
 	HashMailCourier         *proof.HashMailCourierCfg    `group:"hashmailcourier" namespace:"hashmailcourier"`
@@ -490,6 +502,7 @@ func DefaultConfig() Config {
 		)...),
 		Prometheus:              monitoring.DefaultPrometheusConfig(),
 		ReOrgSafeDepth:          defaultReOrgSafeDepth,
+		SpendQueryTimeout:       defaultSpendQueryTimeout,
 		DefaultProofCourierAddr: defaultProofCourierAddr,
 		HashMailCourier: &proof.HashMailCourierCfg{
 			ReceiverAckTimeout: defaultProofTransferReceiverAckTimeout,

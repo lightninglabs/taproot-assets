@@ -706,6 +706,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			BurnCommitter:          supplyCommitManager,
 			DelegationKeyChecker:   addrBook,
 			SafeDepth:              cfg.ReOrgSafeDepth,
+			SpendQueryTimeout:      cfg.SpendQueryTimeout,
 		},
 	)
 
