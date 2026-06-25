@@ -232,6 +232,11 @@
 
 ## Testing
 
+* [PR#2177](https://github.com/lightninglabs/taproot-assets/pull/2177)
+  adds an integration test that force closes an asset channel right after
+  the funding transaction confirms, before any commitment update, and
+  asserts the swept assets remain spendable.
+
 ## Database
 
 ## Code Health
