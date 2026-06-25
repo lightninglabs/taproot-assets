@@ -58,12 +58,17 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 	// Mint a grouped asset on Alice (we use a group so we can verify that
 	// the response surfaces the tweaked group key alongside the tranche
 	// asset_id) and open an asset channel from Alice to Bob.
-	groupedAsset := *ccItestAsset
-	groupedAsset.NewGroupedAsset = true
+	groupedAsset := &mintrpc.MintAsset{
+		AssetType:       ccItestAsset.AssetType,
+		Name:            ccItestAsset.Name,
+		AssetMeta:       ccItestAsset.AssetMeta,
+		Amount:          ccItestAsset.Amount,
+		NewGroupedAsset: true,
+	}
 	mintedAssets := itest.MintAssetsConfirmBatch(
 		t.t, net.Miner, asTapd(alice),
 		[]*mintrpc.MintAssetRequest{
-			{Asset: &groupedAsset},
+			{Asset: groupedAsset},
 		},
 	)
 	cents := mintedAssets[0]
