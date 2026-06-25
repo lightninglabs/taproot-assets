@@ -846,6 +846,71 @@ func assertChannelOutboundPolicyKnown(t *testing.T, node *itest.IntegratedNode,
 	require.NoError(t, err)
 }
 
+// assertPeerPolicyKnown asserts that the peer's channel edge policy for the
+// given channel is visible in the viewer's graph. This is the condition that
+// AddInvoice's RFQ hop-hint construction (which runs on the invoice creator
+// and reads the inbound peer's policy) depends on.
+func assertPeerPolicyKnown(t *testing.T, viewer,
+	peer *itest.IntegratedNode, chanPoint *lnrpc.ChannelPoint) {
+
+	targetChanPoint, err := channelPointString(chanPoint)
+	require.NoError(t, err)
+
+	err = wait.NoError(func() error {
+		ctxb := context.Background()
+		ctxt, cancel := context.WithTimeout(ctxb, wait.DefaultTimeout)
+		defer cancel()
+
+		graphResp, err := viewer.DescribeGraph(
+			ctxt, &lnrpc.ChannelGraphRequest{
+				IncludeUnannounced: true,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, edge := range graphResp.Edges {
+			if edge.ChanPoint != targetChanPoint {
+				continue
+			}
+
+			switch peer.PubKeyStr {
+			case edge.Node1Pub:
+				if edge.Node1Policy == nil {
+					return fmt.Errorf("channel %v missing "+
+						"policy for %v in %v's graph",
+						targetChanPoint, peer.Cfg.Name,
+						viewer.Cfg.Name)
+				}
+
+				return nil
+
+			case edge.Node2Pub:
+				if edge.Node2Policy == nil {
+					return fmt.Errorf("channel %v missing "+
+						"policy for %v in %v's graph",
+						targetChanPoint, peer.Cfg.Name,
+						viewer.Cfg.Name)
+				}
+
+				return nil
+
+			default:
+				return fmt.Errorf(
+					"channel %v found but peer %v "+
+						"not part of edge",
+					targetChanPoint, peer.Cfg.Name,
+				)
+			}
+		}
+
+		return fmt.Errorf("channel %v not found in %v's graph",
+			targetChanPoint, viewer.Cfg.Name)
+	}, wait.DefaultTimeout)
+	require.NoError(t, err)
+}
+
 // assertChannelKnown asserts that the given channel point is known in the
 // node's graph.
 func assertChannelKnown(t *testing.T, node *itest.IntegratedNode,
