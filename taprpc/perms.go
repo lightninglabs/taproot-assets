@@ -343,6 +343,14 @@ var (
 			Entity: "channels",
 			Action: "read",
 		}},
+		"/tapchannelrpc.TaprootAssetChannels/ListInvoices": {{
+			Entity: "channels",
+			Action: "read",
+		}},
+		"/tapchannelrpc.TaprootAssetChannels/ListPayments": {{
+			Entity: "channels",
+			Action: "read",
+		}},
 		"/tapchannelrpc.TaprootAssetChannels/EncodeCustomRecords": {
 			// This RPC is completely stateless and doesn't require
 			// any permissions to use.

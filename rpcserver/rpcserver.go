@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10596,6 +10597,402 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 		AcceptedBuyQuote: expensiveQuote,
 		InvoiceResult:    invoiceResp,
 	}, nil
+}
+
+// ListInvoices is a wrapper around lnd's lnrpc.ListInvoices method that only
+// returns invoices that involve at least one Taproot Asset. The full lnd
+// invoice is returned along with the decoded asset amounts that the invoice's
+// HTLCs carry.
+func (r *RPCServer) ListInvoices(ctx context.Context,
+	req *tchrpc.ListInvoicesRequest) (*tchrpc.ListInvoicesResponse, error) {
+
+	lndReq := req.GetRequest()
+	if lndReq == nil {
+		lndReq = &lnrpc.ListInvoiceRequest{}
+	}
+
+	rpcCtx, _, rawClient := r.cfg.Lnd.Client.RawClientWithMacAuth(ctx)
+	resp, err := rawClient.ListInvoices(rpcCtx, lndReq)
+	if err != nil {
+		return nil, fmt.Errorf("error listing invoices: %w", err)
+	}
+
+	lookup := newAssetGroupLookup(ctx, r.cfg.AddrBook)
+
+	assetInvoices := make([]*tchrpc.AssetInvoice, 0, len(resp.Invoices))
+	for _, invoice := range resp.Invoices {
+		amounts, isAsset, err := assetAmountsFromInvoice(invoice)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding asset "+
+				"amounts from invoice %x: %w",
+				invoice.GetRHash(), err)
+		}
+
+		// Asset-only: skip invoices that don't carry any asset HTLCs.
+		if !isAsset {
+			continue
+		}
+
+		assetInvoices = append(assetInvoices, &tchrpc.AssetInvoice{
+			Invoice:      invoice,
+			AssetAmounts: marshalAssetAmounts(amounts, lookup),
+		})
+	}
+
+	return &tchrpc.ListInvoicesResponse{
+		Invoices:         assetInvoices,
+		FirstIndexOffset: resp.FirstIndexOffset,
+		LastIndexOffset:  resp.LastIndexOffset,
+	}, nil
+}
+
+// ListPayments is a wrapper around lnd's lnrpc.ListPayments method that only
+// returns payments that involve at least one Taproot Asset. The full lnd
+// payment is returned along with the decoded asset amounts that the payment's
+// HTLCs carry.
+func (r *RPCServer) ListPayments(ctx context.Context,
+	req *tchrpc.ListPaymentsRequest) (*tchrpc.ListPaymentsResponse, error) {
+
+	lndReq := req.GetRequest()
+	if lndReq == nil {
+		lndReq = &lnrpc.ListPaymentsRequest{}
+	}
+
+	rpcCtx, _, rawClient := r.cfg.Lnd.Client.RawClientWithMacAuth(ctx)
+	resp, err := rawClient.ListPayments(rpcCtx, lndReq)
+	if err != nil {
+		return nil, fmt.Errorf("error listing payments: %w", err)
+	}
+
+	lookup := newAssetGroupLookup(ctx, r.cfg.AddrBook)
+
+	assetPayments := make([]*tchrpc.AssetPayment, 0, len(resp.Payments))
+	for _, payment := range resp.Payments {
+		amounts, isAsset, err := assetAmountsFromPayment(payment)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding asset "+
+				"amounts from payment %s: %w",
+				payment.GetPaymentHash(), err)
+		}
+
+		// Asset-only: skip payments that don't carry any asset HTLCs.
+		if !isAsset {
+			continue
+		}
+
+		assetPayments = append(assetPayments, &tchrpc.AssetPayment{
+			Payment:      payment,
+			AssetAmounts: marshalAssetAmounts(amounts, lookup),
+		})
+	}
+
+	return &tchrpc.ListPaymentsResponse{
+		Payments:         assetPayments,
+		FirstIndexOffset: resp.FirstIndexOffset,
+		LastIndexOffset:  resp.LastIndexOffset,
+	}, nil
+}
+
+// assetAmountsFromInvoice extracts the per-asset amounts carried by an
+// invoice's settled HTLCs, aggregated across all settled HTLCs. The second
+// return value tells whether the invoice involves any asset at all (i.e. has at
+// least one HTLC carrying asset custom records).
+func assetAmountsFromInvoice(invoice *lnrpc.Invoice) (map[asset.ID]uint64, bool,
+	error) {
+
+	if invoice == nil {
+		return nil, false, fmt.Errorf("nil invoice in lnd response")
+	}
+
+	amounts := make(map[asset.ID]uint64)
+	isAsset := false
+
+	for idx, htlc := range invoice.Htlcs {
+		if htlc == nil {
+			return nil, false, fmt.Errorf("nil HTLC at index "+
+				"%d in invoice %x", idx, invoice.RHash)
+		}
+
+		// We read the raw wire custom records of the HTLC (unlike
+		// the custom_channel_data field, these are never rewritten
+		// into JSON by lnd's aux data parser).
+		balances, err := assetBalancesFromCustomRecords(
+			htlc.CustomRecords,
+		)
+		if err != nil {
+			return nil, false, err
+		}
+
+		if balances == nil {
+			continue
+		}
+
+		isAsset = true
+
+		// Only settled HTLCs delivered assets to the invoice.
+		// Accepted HTLCs are still pending, and canceled HTLCs moved
+		// nothing.
+		if htlc.State == lnrpc.InvoiceHTLCState_SETTLED {
+			mergeAssetBalances(amounts, balances)
+		}
+	}
+
+	return amounts, isAsset, nil
+}
+
+// assetAmountsFromPayment extracts the per-asset amounts carried by a payment,
+// aggregated across all non-failed HTLC attempts. The second return value
+// indicates whether the payment involves any asset at all.
+func assetAmountsFromPayment(payment *lnrpc.Payment) (map[asset.ID]uint64, bool,
+	error) {
+
+	if payment == nil {
+		return nil, false, fmt.Errorf("nil payment in lnd response")
+	}
+
+	amounts := make(map[asset.ID]uint64)
+	isAsset := false
+
+	// The payment-level first hop custom records mark a payment as an asset
+	// payment even when no HTLC succeeded (e.g. fully failed payments), or
+	// for invoice payments where the per-shard amount is only available on
+	// the individual route.
+	firstHop := lnwire.CustomRecords(payment.FirstHopCustomRecords)
+	if rfqmsg.HasAssetHTLCCustomRecords(firstHop) {
+		isAsset = true
+	}
+
+	for idx, htlc := range payment.Htlcs {
+		if htlc == nil {
+			return nil, false, fmt.Errorf("nil HTLC attempt at "+
+				"index %d in payment %s", idx,
+				payment.PaymentHash)
+		}
+
+		if htlc.Route == nil {
+			continue
+		}
+
+		balances, err := assetBalancesFromRouteData(
+			htlc.Route.CustomChannelData,
+		)
+		if err != nil {
+			return nil, false, err
+		}
+
+		if balances == nil {
+			continue
+		}
+
+		isAsset = true
+
+		// Only attempts that are in-flight or have succeeded (still)
+		// carry assets; failed attempts moved nothing.
+		if htlc.Status != lnrpc.HTLCAttempt_FAILED {
+			mergeAssetBalances(amounts, balances)
+		}
+	}
+
+	return amounts, isAsset, nil
+}
+
+// assetBalancesFromCustomRecords extracts the asset balances carried in the
+// given wire custom records. It returns nil (without error) if the records
+// don't carry asset HTLC data.
+func assetBalancesFromCustomRecords(records map[uint64][]byte) (
+	map[asset.ID]uint64, error) {
+
+	customRecords := lnwire.CustomRecords(records)
+	if !rfqmsg.HasAssetHTLCCustomRecords(customRecords) {
+		return nil, nil
+	}
+
+	htlc, err := rfqmsg.HtlcFromCustomRecords(customRecords)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode asset HTLC from "+
+			"custom records: %w", err)
+	}
+
+	return balancesToMap(htlc.Balances()), nil
+}
+
+// assetBalancesFromRouteData extracts asset balances from the custom channel
+// data of a payment route. Depending on whether lnd had an aux data parser
+// configured when marshalling the payment, this blob is either the raw TLV
+// encoding of the HTLC's custom records or its JSON representation. Both forms
+// are handled here. It returns nil (without error) if the blob is empty.
+func assetBalancesFromRouteData(customChannelData []byte) (map[asset.ID]uint64,
+	error) {
+
+	if len(customChannelData) == 0 {
+		return nil, nil
+	}
+
+	// If lnd's aux data parser already converted the blob to JSON, it
+	// starts with a '{'. Otherwise we expect the raw TLV encoding, whose
+	// first byte is a BigSize-encoded record type well above the JSON brace
+	// byte value.
+	trimmed := bytes.TrimSpace(customChannelData)
+	if len(trimmed) > 0 && trimmed[0] == '{' {
+		var jsonHtlc rfqmsg.JsonHtlc
+		if err := json.Unmarshal(trimmed, &jsonHtlc); err != nil {
+			return nil, fmt.Errorf("unable to decode asset HTLC "+
+				"JSON: %w", err)
+		}
+
+		return balancesFromJSON(jsonHtlc)
+	}
+
+	htlc, err := rfqmsg.DecodeHtlc(customChannelData)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode asset HTLC from "+
+			"route data: %w", err)
+	}
+
+	return balancesToMap(htlc.Balances()), nil
+}
+
+// balancesToMap aggregates a list of asset balances into a map keyed by asset
+// ID, summing the amounts of duplicate asset IDs.
+func balancesToMap(balances []*rfqmsg.AssetBalance) map[asset.ID]uint64 {
+	out := make(map[asset.ID]uint64, len(balances))
+	for _, balance := range balances {
+		out[balance.AssetID.Val] += balance.Amount.Val
+	}
+
+	return out
+}
+
+// balancesFromJSON aggregates the balances of a JSON-encoded HTLC into a map
+// keyed by asset ID.
+func balancesFromJSON(jsonHtlc rfqmsg.JsonHtlc) (map[asset.ID]uint64, error) {
+	out := make(map[asset.ID]uint64, len(jsonHtlc.Balances))
+	for _, tranche := range jsonHtlc.Balances {
+		if tranche == nil {
+			return nil, fmt.Errorf("nil balance tranche in HTLC " +
+				"JSON")
+		}
+
+		idBytes, err := hex.DecodeString(tranche.AssetID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid asset ID in HTLC "+
+				"JSON: %w", err)
+		}
+
+		// Reject anything that isn't a full asset ID so a short or
+		// truncated hex string can't collide with a real ID after
+		// zero-padding through copy().
+		if len(idBytes) != sha256.Size {
+			return nil, fmt.Errorf("asset ID in HTLC JSON has "+
+				"wrong length: expected %d bytes, got %d",
+				sha256.Size, len(idBytes))
+		}
+
+		var id asset.ID
+		copy(id[:], idBytes)
+		out[id] += tranche.Amount
+	}
+
+	return out, nil
+}
+
+// mergeAssetBalances adds the amounts of src into dst, keyed by asset ID.
+func mergeAssetBalances(dst, src map[asset.ID]uint64) {
+	for id, amount := range src {
+		dst[id] += amount
+	}
+}
+
+// marshalAssetAmounts converts a map of aggregated asset amounts into the RPC
+// representation, ordered deterministically by asset ID. The group key for
+// each tranche is filled in opportunistically via the lookup; assets unknown
+// to this tapd are still returned, just without a group key. Returns nil for
+// an empty map.
+func marshalAssetAmounts(amounts map[asset.ID]uint64,
+	lookup *assetGroupLookup) []*tchrpc.AssetAmount {
+
+	if len(amounts) == 0 {
+		return nil
+	}
+
+	ids := make([]asset.ID, 0, len(amounts))
+	for id := range amounts {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		return bytes.Compare(ids[i][:], ids[j][:]) < 0
+	})
+
+	out := make([]*tchrpc.AssetAmount, len(ids))
+	for idx := range ids {
+		id := ids[idx]
+		out[idx] = &tchrpc.AssetAmount{
+			AssetId:  id[:],
+			Amount:   amounts[id],
+			GroupKey: lookup.groupKey(id),
+		}
+	}
+
+	return out
+}
+
+// assetGroupLookup resolves tranche asset IDs to the tweaked group key of the
+// group they belong to. It caches results per call so an MPP payment with N
+// HTLCs over the same asset only triggers a single DB round trip. A nil
+// AddrBook is tolerated (group key always resolves to nil) so the helper can
+// be exercised in unit tests without a wired-up server.
+type assetGroupLookup struct {
+	ctx      context.Context
+	addrBook *address.Book
+	cache    map[asset.ID][]byte
+}
+
+// newAssetGroupLookup constructs an empty assetGroupLookup bound to the given
+// context and address book. A nil address book is tolerated; in that mode
+// every group key resolves to nil (useful for unit tests that don't wire up
+// a real server).
+func newAssetGroupLookup(ctx context.Context,
+	addrBook *address.Book) *assetGroupLookup {
+
+	return &assetGroupLookup{
+		ctx:      ctx,
+		addrBook: addrBook,
+		cache:    make(map[asset.ID][]byte),
+	}
+}
+
+// groupKey returns the compressed tweaked group key that the given asset
+// tranche belongs to, or nil if the tranche has no group, the asset isn't
+// known to this tapd, or no address book is configured. Errors are logged
+// and swallowed: a list RPC should never fail because of opportunistic
+// metadata enrichment.
+func (l *assetGroupLookup) groupKey(id asset.ID) []byte {
+	if gk, ok := l.cache[id]; ok {
+		return gk
+	}
+
+	if l.addrBook == nil {
+		l.cache[id] = nil
+		return nil
+	}
+
+	info, err := l.addrBook.QueryAssetInfo(
+		l.ctx, asset.NewSpecifierFromId(id),
+	)
+	if err != nil {
+		rpcsLog.Debugf("list rpc: unable to query asset info for "+
+			"asset_id %x: %v", id[:], err)
+		l.cache[id] = nil
+		return nil
+	}
+
+	var gk []byte
+	if info.GroupKey != nil {
+		gk = info.GroupKey.GroupPubKey.SerializeCompressed()
+	}
+	l.cache[id] = gk
+
+	return gk
 }
 
 // calculateAssetMaxAmount calculates the max units to be placed in the invoice

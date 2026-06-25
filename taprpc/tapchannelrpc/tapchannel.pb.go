@@ -1062,6 +1062,419 @@ func (x *AssetPayReqResponse) GetPayReq() *lnrpc.PayReq {
 	return nil
 }
 
+type AssetAmount struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The asset ID (genesis ID of the tranche) the amount refers to.
+	AssetId []byte `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	// The amount, expressed in units of the asset identified by asset_id.
+	Amount uint64 `protobuf:"varint,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	// The tweaked group key the asset belongs to, in compressed form. Empty
+	// for assets that aren't part of a group, or whose group is unknown to
+	// this tapd instance. Populated so callers that work in terms of group
+	// keys (e.g. wallets backing a fungible group of tranches) don't need a
+	// separate lookup per result.
+	GroupKey      []byte `protobuf:"bytes,3,opt,name=group_key,json=groupKey,proto3" json:"group_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AssetAmount) Reset() {
+	*x = AssetAmount{}
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AssetAmount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssetAmount) ProtoMessage() {}
+
+func (x *AssetAmount) ProtoReflect() protoreflect.Message {
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssetAmount.ProtoReflect.Descriptor instead.
+func (*AssetAmount) Descriptor() ([]byte, []int) {
+	return file_tapchannelrpc_tapchannel_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *AssetAmount) GetAssetId() []byte {
+	if x != nil {
+		return x.AssetId
+	}
+	return nil
+}
+
+func (x *AssetAmount) GetAmount() uint64 {
+	if x != nil {
+		return x.Amount
+	}
+	return 0
+}
+
+func (x *AssetAmount) GetGroupKey() []byte {
+	if x != nil {
+		return x.GroupKey
+	}
+	return nil
+}
+
+type ListInvoicesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The standard lnd invoice listing request. All fields behave the same way
+	// as they do for lnd's lnrpc.ListInvoices RPC method (see the API docs at
+	// https://lightning.engineering/api-docs/api/lnd/lightning/list-invoices
+	// for more details). Pagination is performed by lnd over all invoices; the
+	// returned set is then filtered down to only those that involve assets, so
+	// a page may contain fewer asset invoices than the requested maximum.
+	Request       *lnrpc.ListInvoiceRequest `protobuf:"bytes,1,opt,name=request,proto3" json:"request,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListInvoicesRequest) Reset() {
+	*x = ListInvoicesRequest{}
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListInvoicesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListInvoicesRequest) ProtoMessage() {}
+
+func (x *ListInvoicesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListInvoicesRequest.ProtoReflect.Descriptor instead.
+func (*ListInvoicesRequest) Descriptor() ([]byte, []int) {
+	return file_tapchannelrpc_tapchannel_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ListInvoicesRequest) GetRequest() *lnrpc.ListInvoiceRequest {
+	if x != nil {
+		return x.Request
+	}
+	return nil
+}
+
+type AssetInvoice struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The full lnd invoice, including any custom channel data on its HTLCs.
+	Invoice *lnrpc.Invoice `protobuf:"bytes,1,opt,name=invoice,proto3" json:"invoice,omitempty"`
+	// The asset amounts carried by the invoice's HTLCs, aggregated per asset
+	// ID across all of the invoice's HTLCs. Empty for invoices that have not
+	// been (partially) settled with assets yet.
+	AssetAmounts  []*AssetAmount `protobuf:"bytes,2,rep,name=asset_amounts,json=assetAmounts,proto3" json:"asset_amounts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AssetInvoice) Reset() {
+	*x = AssetInvoice{}
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AssetInvoice) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssetInvoice) ProtoMessage() {}
+
+func (x *AssetInvoice) ProtoReflect() protoreflect.Message {
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssetInvoice.ProtoReflect.Descriptor instead.
+func (*AssetInvoice) Descriptor() ([]byte, []int) {
+	return file_tapchannelrpc_tapchannel_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *AssetInvoice) GetInvoice() *lnrpc.Invoice {
+	if x != nil {
+		return x.Invoice
+	}
+	return nil
+}
+
+func (x *AssetInvoice) GetAssetAmounts() []*AssetAmount {
+	if x != nil {
+		return x.AssetAmounts
+	}
+	return nil
+}
+
+type ListInvoicesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The list of asset invoices that matched the request.
+	Invoices []*AssetInvoice `protobuf:"bytes,1,rep,name=invoices,proto3" json:"invoices,omitempty"`
+	// The index of the last item in the set of returned invoices. This can be
+	// used to seek further, pagination style. Mirrors the value returned by
+	// lnd's lnrpc.ListInvoices.
+	LastIndexOffset uint64 `protobuf:"varint,2,opt,name=last_index_offset,json=lastIndexOffset,proto3" json:"last_index_offset,omitempty"`
+	// The index of the first item in the set of returned invoices. This can be
+	// used to seek backwards, pagination style. Mirrors the value returned by
+	// lnd's lnrpc.ListInvoices.
+	FirstIndexOffset uint64 `protobuf:"varint,3,opt,name=first_index_offset,json=firstIndexOffset,proto3" json:"first_index_offset,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ListInvoicesResponse) Reset() {
+	*x = ListInvoicesResponse{}
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListInvoicesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListInvoicesResponse) ProtoMessage() {}
+
+func (x *ListInvoicesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListInvoicesResponse.ProtoReflect.Descriptor instead.
+func (*ListInvoicesResponse) Descriptor() ([]byte, []int) {
+	return file_tapchannelrpc_tapchannel_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ListInvoicesResponse) GetInvoices() []*AssetInvoice {
+	if x != nil {
+		return x.Invoices
+	}
+	return nil
+}
+
+func (x *ListInvoicesResponse) GetLastIndexOffset() uint64 {
+	if x != nil {
+		return x.LastIndexOffset
+	}
+	return 0
+}
+
+func (x *ListInvoicesResponse) GetFirstIndexOffset() uint64 {
+	if x != nil {
+		return x.FirstIndexOffset
+	}
+	return 0
+}
+
+type ListPaymentsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The standard lnd payment listing request. All fields behave the same way
+	// as they do for lnd's lnrpc.ListPayments RPC method (see the API docs at
+	// https://lightning.engineering/api-docs/api/lnd/lightning/list-payments
+	// for more details). Pagination is performed by lnd over all payments; the
+	// returned set is then filtered down to only those that involve assets, so
+	// a page may contain fewer asset payments than the requested maximum.
+	Request       *lnrpc.ListPaymentsRequest `protobuf:"bytes,1,opt,name=request,proto3" json:"request,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListPaymentsRequest) Reset() {
+	*x = ListPaymentsRequest{}
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListPaymentsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListPaymentsRequest) ProtoMessage() {}
+
+func (x *ListPaymentsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListPaymentsRequest.ProtoReflect.Descriptor instead.
+func (*ListPaymentsRequest) Descriptor() ([]byte, []int) {
+	return file_tapchannelrpc_tapchannel_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ListPaymentsRequest) GetRequest() *lnrpc.ListPaymentsRequest {
+	if x != nil {
+		return x.Request
+	}
+	return nil
+}
+
+type AssetPayment struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The full lnd payment, including any custom channel data on its HTLCs.
+	Payment *lnrpc.Payment `protobuf:"bytes,1,opt,name=payment,proto3" json:"payment,omitempty"`
+	// The asset amounts carried by the payment, aggregated per asset ID across
+	// all non-failed HTLC attempts. Empty for payments that did not (yet) move
+	// any assets.
+	AssetAmounts  []*AssetAmount `protobuf:"bytes,2,rep,name=asset_amounts,json=assetAmounts,proto3" json:"asset_amounts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AssetPayment) Reset() {
+	*x = AssetPayment{}
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AssetPayment) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssetPayment) ProtoMessage() {}
+
+func (x *AssetPayment) ProtoReflect() protoreflect.Message {
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssetPayment.ProtoReflect.Descriptor instead.
+func (*AssetPayment) Descriptor() ([]byte, []int) {
+	return file_tapchannelrpc_tapchannel_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *AssetPayment) GetPayment() *lnrpc.Payment {
+	if x != nil {
+		return x.Payment
+	}
+	return nil
+}
+
+func (x *AssetPayment) GetAssetAmounts() []*AssetAmount {
+	if x != nil {
+		return x.AssetAmounts
+	}
+	return nil
+}
+
+type ListPaymentsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The list of asset payments that matched the request.
+	Payments []*AssetPayment `protobuf:"bytes,1,rep,name=payments,proto3" json:"payments,omitempty"`
+	// The index of the first item in the set of returned payments. This can be
+	// used to seek backwards, pagination style. Mirrors the value returned by
+	// lnd's lnrpc.ListPayments.
+	FirstIndexOffset uint64 `protobuf:"varint,2,opt,name=first_index_offset,json=firstIndexOffset,proto3" json:"first_index_offset,omitempty"`
+	// The index of the last item in the set of returned payments. This can be
+	// used to seek further, pagination style. Mirrors the value returned by
+	// lnd's lnrpc.ListPayments.
+	LastIndexOffset uint64 `protobuf:"varint,3,opt,name=last_index_offset,json=lastIndexOffset,proto3" json:"last_index_offset,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ListPaymentsResponse) Reset() {
+	*x = ListPaymentsResponse{}
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListPaymentsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListPaymentsResponse) ProtoMessage() {}
+
+func (x *ListPaymentsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tapchannelrpc_tapchannel_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListPaymentsResponse.ProtoReflect.Descriptor instead.
+func (*ListPaymentsResponse) Descriptor() ([]byte, []int) {
+	return file_tapchannelrpc_tapchannel_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ListPaymentsResponse) GetPayments() []*AssetPayment {
+	if x != nil {
+		return x.Payments
+	}
+	return nil
+}
+
+func (x *ListPaymentsResponse) GetFirstIndexOffset() uint64 {
+	if x != nil {
+		return x.FirstIndexOffset
+	}
+	return 0
+}
+
+func (x *ListPaymentsResponse) GetLastIndexOffset() uint64 {
+	if x != nil {
+		return x.LastIndexOffset
+	}
+	return 0
+}
+
 var File_tapchannelrpc_tapchannel_proto protoreflect.FileDescriptor
 
 const file_tapchannelrpc_tapchannel_proto_rawDesc = "" +
@@ -1139,14 +1552,38 @@ const file_tapchannelrpc_tapchannel_proto_rawDesc = "" +
 	"\vasset_group\x18\x03 \x01(\v2\x12.taprpc.AssetGroupR\n" +
 	"assetGroup\x126\n" +
 	"\fgenesis_info\x18\x04 \x01(\v2\x13.taprpc.GenesisInfoR\vgenesisInfo\x12&\n" +
-	"\apay_req\x18\x05 \x01(\v2\r.lnrpc.PayReqR\x06payReq2\xdf\x03\n" +
+	"\apay_req\x18\x05 \x01(\v2\r.lnrpc.PayReqR\x06payReq\"]\n" +
+	"\vAssetAmount\x12\x19\n" +
+	"\basset_id\x18\x01 \x01(\fR\aassetId\x12\x16\n" +
+	"\x06amount\x18\x02 \x01(\x04R\x06amount\x12\x1b\n" +
+	"\tgroup_key\x18\x03 \x01(\fR\bgroupKey\"J\n" +
+	"\x13ListInvoicesRequest\x123\n" +
+	"\arequest\x18\x01 \x01(\v2\x19.lnrpc.ListInvoiceRequestR\arequest\"y\n" +
+	"\fAssetInvoice\x12(\n" +
+	"\ainvoice\x18\x01 \x01(\v2\x0e.lnrpc.InvoiceR\ainvoice\x12?\n" +
+	"\rasset_amounts\x18\x02 \x03(\v2\x1a.tapchannelrpc.AssetAmountR\fassetAmounts\"\xa9\x01\n" +
+	"\x14ListInvoicesResponse\x127\n" +
+	"\binvoices\x18\x01 \x03(\v2\x1b.tapchannelrpc.AssetInvoiceR\binvoices\x12*\n" +
+	"\x11last_index_offset\x18\x02 \x01(\x04R\x0flastIndexOffset\x12,\n" +
+	"\x12first_index_offset\x18\x03 \x01(\x04R\x10firstIndexOffset\"K\n" +
+	"\x13ListPaymentsRequest\x124\n" +
+	"\arequest\x18\x01 \x01(\v2\x1a.lnrpc.ListPaymentsRequestR\arequest\"y\n" +
+	"\fAssetPayment\x12(\n" +
+	"\apayment\x18\x01 \x01(\v2\x0e.lnrpc.PaymentR\apayment\x12?\n" +
+	"\rasset_amounts\x18\x02 \x03(\v2\x1a.tapchannelrpc.AssetAmountR\fassetAmounts\"\xa9\x01\n" +
+	"\x14ListPaymentsResponse\x127\n" +
+	"\bpayments\x18\x01 \x03(\v2\x1b.tapchannelrpc.AssetPaymentR\bpayments\x12,\n" +
+	"\x12first_index_offset\x18\x02 \x01(\x04R\x10firstIndexOffset\x12*\n" +
+	"\x11last_index_offset\x18\x03 \x01(\x04R\x0flastIndexOffset2\x91\x05\n" +
 	"\x14TaprootAssetChannels\x12T\n" +
 	"\vFundChannel\x12!.tapchannelrpc.FundChannelRequest\x1a\".tapchannelrpc.FundChannelResponse\x12q\n" +
 	"\x13EncodeCustomRecords\x12).tapchannelrpc.EncodeCustomRecordsRequest\x1a*.tapchannelrpc.EncodeCustomRecordsResponse\"\x03\x88\x02\x01\x12V\n" +
 	"\vSendPayment\x12!.tapchannelrpc.SendPaymentRequest\x1a\".tapchannelrpc.SendPaymentResponse0\x01\x12Q\n" +
 	"\n" +
 	"AddInvoice\x12 .tapchannelrpc.AddInvoiceRequest\x1a!.tapchannelrpc.AddInvoiceResponse\x12S\n" +
-	"\x11DecodeAssetPayReq\x12\x1a.tapchannelrpc.AssetPayReq\x1a\".tapchannelrpc.AssetPayReqResponseB>Z<github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpcb\x06proto3"
+	"\x11DecodeAssetPayReq\x12\x1a.tapchannelrpc.AssetPayReq\x1a\".tapchannelrpc.AssetPayReqResponse\x12W\n" +
+	"\fListInvoices\x12\".tapchannelrpc.ListInvoicesRequest\x1a#.tapchannelrpc.ListInvoicesResponse\x12W\n" +
+	"\fListPayments\x12\".tapchannelrpc.ListPaymentsRequest\x1a#.tapchannelrpc.ListPaymentsResponseB>Z<github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpcb\x06proto3"
 
 var (
 	file_tapchannelrpc_tapchannel_proto_rawDescOnce sync.Once
@@ -1160,7 +1597,7 @@ func file_tapchannelrpc_tapchannel_proto_rawDescGZIP() []byte {
 	return file_tapchannelrpc_tapchannel_proto_rawDescData
 }
 
-var file_tapchannelrpc_tapchannel_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_tapchannelrpc_tapchannel_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_tapchannelrpc_tapchannel_proto_goTypes = []any{
 	(*FundChannelRequest)(nil),           // 0: tapchannelrpc.FundChannelRequest
 	(*FundChannelResponse)(nil),          // 1: tapchannelrpc.FundChannelResponse
@@ -1175,55 +1612,76 @@ var file_tapchannelrpc_tapchannel_proto_goTypes = []any{
 	(*AddInvoiceResponse)(nil),           // 10: tapchannelrpc.AddInvoiceResponse
 	(*AssetPayReq)(nil),                  // 11: tapchannelrpc.AssetPayReq
 	(*AssetPayReqResponse)(nil),          // 12: tapchannelrpc.AssetPayReqResponse
-	nil,                                  // 13: tapchannelrpc.RouterSendPaymentData.AssetAmountsEntry
-	nil,                                  // 14: tapchannelrpc.EncodeCustomRecordsResponse.CustomRecordsEntry
-	(*routerrpc.SendPaymentRequest)(nil), // 15: routerrpc.SendPaymentRequest
-	(*rfqrpc.PeerAcceptedSellQuote)(nil), // 16: rfqrpc.PeerAcceptedSellQuote
-	(*lnrpc.Payment)(nil),                // 17: lnrpc.Payment
-	(*lnrpc.Invoice)(nil),                // 18: lnrpc.Invoice
-	(*rfqrpc.FixedPoint)(nil),            // 19: rfqrpc.FixedPoint
-	(rfqrpc.ExecutionPolicy)(0),          // 20: rfqrpc.ExecutionPolicy
-	(*rfqrpc.PeerAcceptedBuyQuote)(nil),  // 21: rfqrpc.PeerAcceptedBuyQuote
-	(*lnrpc.AddInvoiceResponse)(nil),     // 22: lnrpc.AddInvoiceResponse
-	(*taprpc.DecimalDisplay)(nil),        // 23: taprpc.DecimalDisplay
-	(*taprpc.AssetGroup)(nil),            // 24: taprpc.AssetGroup
-	(*taprpc.GenesisInfo)(nil),           // 25: taprpc.GenesisInfo
-	(*lnrpc.PayReq)(nil),                 // 26: lnrpc.PayReq
+	(*AssetAmount)(nil),                  // 13: tapchannelrpc.AssetAmount
+	(*ListInvoicesRequest)(nil),          // 14: tapchannelrpc.ListInvoicesRequest
+	(*AssetInvoice)(nil),                 // 15: tapchannelrpc.AssetInvoice
+	(*ListInvoicesResponse)(nil),         // 16: tapchannelrpc.ListInvoicesResponse
+	(*ListPaymentsRequest)(nil),          // 17: tapchannelrpc.ListPaymentsRequest
+	(*AssetPayment)(nil),                 // 18: tapchannelrpc.AssetPayment
+	(*ListPaymentsResponse)(nil),         // 19: tapchannelrpc.ListPaymentsResponse
+	nil,                                  // 20: tapchannelrpc.RouterSendPaymentData.AssetAmountsEntry
+	nil,                                  // 21: tapchannelrpc.EncodeCustomRecordsResponse.CustomRecordsEntry
+	(*routerrpc.SendPaymentRequest)(nil), // 22: routerrpc.SendPaymentRequest
+	(*rfqrpc.PeerAcceptedSellQuote)(nil), // 23: rfqrpc.PeerAcceptedSellQuote
+	(*lnrpc.Payment)(nil),                // 24: lnrpc.Payment
+	(*lnrpc.Invoice)(nil),                // 25: lnrpc.Invoice
+	(*rfqrpc.FixedPoint)(nil),            // 26: rfqrpc.FixedPoint
+	(rfqrpc.ExecutionPolicy)(0),          // 27: rfqrpc.ExecutionPolicy
+	(*rfqrpc.PeerAcceptedBuyQuote)(nil),  // 28: rfqrpc.PeerAcceptedBuyQuote
+	(*lnrpc.AddInvoiceResponse)(nil),     // 29: lnrpc.AddInvoiceResponse
+	(*taprpc.DecimalDisplay)(nil),        // 30: taprpc.DecimalDisplay
+	(*taprpc.AssetGroup)(nil),            // 31: taprpc.AssetGroup
+	(*taprpc.GenesisInfo)(nil),           // 32: taprpc.GenesisInfo
+	(*lnrpc.PayReq)(nil),                 // 33: lnrpc.PayReq
+	(*lnrpc.ListInvoiceRequest)(nil),     // 34: lnrpc.ListInvoiceRequest
+	(*lnrpc.ListPaymentsRequest)(nil),    // 35: lnrpc.ListPaymentsRequest
 }
 var file_tapchannelrpc_tapchannel_proto_depIdxs = []int32{
-	13, // 0: tapchannelrpc.RouterSendPaymentData.asset_amounts:type_name -> tapchannelrpc.RouterSendPaymentData.AssetAmountsEntry
+	20, // 0: tapchannelrpc.RouterSendPaymentData.asset_amounts:type_name -> tapchannelrpc.RouterSendPaymentData.AssetAmountsEntry
 	2,  // 1: tapchannelrpc.EncodeCustomRecordsRequest.router_send_payment:type_name -> tapchannelrpc.RouterSendPaymentData
-	14, // 2: tapchannelrpc.EncodeCustomRecordsResponse.custom_records:type_name -> tapchannelrpc.EncodeCustomRecordsResponse.CustomRecordsEntry
-	15, // 3: tapchannelrpc.SendPaymentRequest.payment_request:type_name -> routerrpc.SendPaymentRequest
-	16, // 4: tapchannelrpc.AcceptedSellQuotes.accepted_sell_orders:type_name -> rfqrpc.PeerAcceptedSellQuote
-	16, // 5: tapchannelrpc.SendPaymentResponse.accepted_sell_order:type_name -> rfqrpc.PeerAcceptedSellQuote
+	21, // 2: tapchannelrpc.EncodeCustomRecordsResponse.custom_records:type_name -> tapchannelrpc.EncodeCustomRecordsResponse.CustomRecordsEntry
+	22, // 3: tapchannelrpc.SendPaymentRequest.payment_request:type_name -> routerrpc.SendPaymentRequest
+	23, // 4: tapchannelrpc.AcceptedSellQuotes.accepted_sell_orders:type_name -> rfqrpc.PeerAcceptedSellQuote
+	23, // 5: tapchannelrpc.SendPaymentResponse.accepted_sell_order:type_name -> rfqrpc.PeerAcceptedSellQuote
 	6,  // 6: tapchannelrpc.SendPaymentResponse.accepted_sell_orders:type_name -> tapchannelrpc.AcceptedSellQuotes
-	17, // 7: tapchannelrpc.SendPaymentResponse.payment_result:type_name -> lnrpc.Payment
-	18, // 8: tapchannelrpc.AddInvoiceRequest.invoice_request:type_name -> lnrpc.Invoice
+	24, // 7: tapchannelrpc.SendPaymentResponse.payment_result:type_name -> lnrpc.Payment
+	25, // 8: tapchannelrpc.AddInvoiceRequest.invoice_request:type_name -> lnrpc.Invoice
 	8,  // 9: tapchannelrpc.AddInvoiceRequest.hodl_invoice:type_name -> tapchannelrpc.HodlInvoice
-	19, // 10: tapchannelrpc.AddInvoiceRequest.asset_rate_limit:type_name -> rfqrpc.FixedPoint
-	20, // 11: tapchannelrpc.AddInvoiceRequest.execution_policy:type_name -> rfqrpc.ExecutionPolicy
-	21, // 12: tapchannelrpc.AddInvoiceResponse.accepted_buy_quote:type_name -> rfqrpc.PeerAcceptedBuyQuote
-	22, // 13: tapchannelrpc.AddInvoiceResponse.invoice_result:type_name -> lnrpc.AddInvoiceResponse
-	23, // 14: tapchannelrpc.AssetPayReqResponse.decimal_display:type_name -> taprpc.DecimalDisplay
-	24, // 15: tapchannelrpc.AssetPayReqResponse.asset_group:type_name -> taprpc.AssetGroup
-	25, // 16: tapchannelrpc.AssetPayReqResponse.genesis_info:type_name -> taprpc.GenesisInfo
-	26, // 17: tapchannelrpc.AssetPayReqResponse.pay_req:type_name -> lnrpc.PayReq
-	0,  // 18: tapchannelrpc.TaprootAssetChannels.FundChannel:input_type -> tapchannelrpc.FundChannelRequest
-	3,  // 19: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords:input_type -> tapchannelrpc.EncodeCustomRecordsRequest
-	5,  // 20: tapchannelrpc.TaprootAssetChannels.SendPayment:input_type -> tapchannelrpc.SendPaymentRequest
-	9,  // 21: tapchannelrpc.TaprootAssetChannels.AddInvoice:input_type -> tapchannelrpc.AddInvoiceRequest
-	11, // 22: tapchannelrpc.TaprootAssetChannels.DecodeAssetPayReq:input_type -> tapchannelrpc.AssetPayReq
-	1,  // 23: tapchannelrpc.TaprootAssetChannels.FundChannel:output_type -> tapchannelrpc.FundChannelResponse
-	4,  // 24: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords:output_type -> tapchannelrpc.EncodeCustomRecordsResponse
-	7,  // 25: tapchannelrpc.TaprootAssetChannels.SendPayment:output_type -> tapchannelrpc.SendPaymentResponse
-	10, // 26: tapchannelrpc.TaprootAssetChannels.AddInvoice:output_type -> tapchannelrpc.AddInvoiceResponse
-	12, // 27: tapchannelrpc.TaprootAssetChannels.DecodeAssetPayReq:output_type -> tapchannelrpc.AssetPayReqResponse
-	23, // [23:28] is the sub-list for method output_type
-	18, // [18:23] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	26, // 10: tapchannelrpc.AddInvoiceRequest.asset_rate_limit:type_name -> rfqrpc.FixedPoint
+	27, // 11: tapchannelrpc.AddInvoiceRequest.execution_policy:type_name -> rfqrpc.ExecutionPolicy
+	28, // 12: tapchannelrpc.AddInvoiceResponse.accepted_buy_quote:type_name -> rfqrpc.PeerAcceptedBuyQuote
+	29, // 13: tapchannelrpc.AddInvoiceResponse.invoice_result:type_name -> lnrpc.AddInvoiceResponse
+	30, // 14: tapchannelrpc.AssetPayReqResponse.decimal_display:type_name -> taprpc.DecimalDisplay
+	31, // 15: tapchannelrpc.AssetPayReqResponse.asset_group:type_name -> taprpc.AssetGroup
+	32, // 16: tapchannelrpc.AssetPayReqResponse.genesis_info:type_name -> taprpc.GenesisInfo
+	33, // 17: tapchannelrpc.AssetPayReqResponse.pay_req:type_name -> lnrpc.PayReq
+	34, // 18: tapchannelrpc.ListInvoicesRequest.request:type_name -> lnrpc.ListInvoiceRequest
+	25, // 19: tapchannelrpc.AssetInvoice.invoice:type_name -> lnrpc.Invoice
+	13, // 20: tapchannelrpc.AssetInvoice.asset_amounts:type_name -> tapchannelrpc.AssetAmount
+	15, // 21: tapchannelrpc.ListInvoicesResponse.invoices:type_name -> tapchannelrpc.AssetInvoice
+	35, // 22: tapchannelrpc.ListPaymentsRequest.request:type_name -> lnrpc.ListPaymentsRequest
+	24, // 23: tapchannelrpc.AssetPayment.payment:type_name -> lnrpc.Payment
+	13, // 24: tapchannelrpc.AssetPayment.asset_amounts:type_name -> tapchannelrpc.AssetAmount
+	18, // 25: tapchannelrpc.ListPaymentsResponse.payments:type_name -> tapchannelrpc.AssetPayment
+	0,  // 26: tapchannelrpc.TaprootAssetChannels.FundChannel:input_type -> tapchannelrpc.FundChannelRequest
+	3,  // 27: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords:input_type -> tapchannelrpc.EncodeCustomRecordsRequest
+	5,  // 28: tapchannelrpc.TaprootAssetChannels.SendPayment:input_type -> tapchannelrpc.SendPaymentRequest
+	9,  // 29: tapchannelrpc.TaprootAssetChannels.AddInvoice:input_type -> tapchannelrpc.AddInvoiceRequest
+	11, // 30: tapchannelrpc.TaprootAssetChannels.DecodeAssetPayReq:input_type -> tapchannelrpc.AssetPayReq
+	14, // 31: tapchannelrpc.TaprootAssetChannels.ListInvoices:input_type -> tapchannelrpc.ListInvoicesRequest
+	17, // 32: tapchannelrpc.TaprootAssetChannels.ListPayments:input_type -> tapchannelrpc.ListPaymentsRequest
+	1,  // 33: tapchannelrpc.TaprootAssetChannels.FundChannel:output_type -> tapchannelrpc.FundChannelResponse
+	4,  // 34: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords:output_type -> tapchannelrpc.EncodeCustomRecordsResponse
+	7,  // 35: tapchannelrpc.TaprootAssetChannels.SendPayment:output_type -> tapchannelrpc.SendPaymentResponse
+	10, // 36: tapchannelrpc.TaprootAssetChannels.AddInvoice:output_type -> tapchannelrpc.AddInvoiceResponse
+	12, // 37: tapchannelrpc.TaprootAssetChannels.DecodeAssetPayReq:output_type -> tapchannelrpc.AssetPayReqResponse
+	16, // 38: tapchannelrpc.TaprootAssetChannels.ListInvoices:output_type -> tapchannelrpc.ListInvoicesResponse
+	19, // 39: tapchannelrpc.TaprootAssetChannels.ListPayments:output_type -> tapchannelrpc.ListPaymentsResponse
+	33, // [33:40] is the sub-list for method output_type
+	26, // [26:33] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_tapchannelrpc_tapchannel_proto_init() }
@@ -1246,7 +1704,7 @@ func file_tapchannelrpc_tapchannel_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tapchannelrpc_tapchannel_proto_rawDesc), len(file_tapchannelrpc_tapchannel_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
