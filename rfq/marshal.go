@@ -15,7 +15,8 @@ import (
 // MarshalAcceptedSellQuoteEvent marshals a peer accepted sell quote event to
 // its RPC representation.
 func MarshalAcceptedSellQuoteEvent(
-	event *PeerAcceptedSellQuoteEvent) *rfqrpc.PeerAcceptedSellQuote {
+	event *PeerAcceptedSellQuoteEvent) (*rfqrpc.PeerAcceptedSellQuote,
+	error) {
 
 	return MarshalAcceptedSellQuote(event.SellAccept)
 }
@@ -23,7 +24,7 @@ func MarshalAcceptedSellQuoteEvent(
 // MarshalAcceptedSellQuote marshals a peer accepted sell quote to its RPC
 // representation.
 func MarshalAcceptedSellQuote(
-	accept rfqmsg.SellAccept) *rfqrpc.PeerAcceptedSellQuote {
+	accept rfqmsg.SellAccept) (*rfqrpc.PeerAcceptedSellQuote, error) {
 
 	rpcAssetRate := &rfqrpc.FixedPoint{
 		Coefficient: accept.AssetRate.Rate.Coefficient.String(),
@@ -36,9 +37,13 @@ func MarshalAcceptedSellQuote(
 		accept.Request.PaymentMaxAmt, accept.AssetRate.Rate,
 	)
 
-	minTransportableMSat := rfqmath.MinTransportableMSat(
+	minTransportableMSat, err := rfqmath.MinTransportableMSat(
 		rfqmath.DefaultOnChainHtlcMSat, accept.AssetRate.Rate,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to compute minimum "+
+			"transportable mSat: %w", err)
+	}
 
 	quote := &rfqrpc.PeerAcceptedSellQuote{
 		Peer:                 accept.Peer.String(),
@@ -72,7 +77,7 @@ func MarshalAcceptedSellQuote(
 		},
 	)
 
-	return quote
+	return quote, nil
 }
 
 // MarshalAcceptedBuyQuote marshals a peer accepted buy quote to its RPC
@@ -192,8 +197,13 @@ func NewAddAssetSellOrderResponse(
 
 	switch e := event.(type) {
 	case *PeerAcceptedSellQuoteEvent:
+		acceptedQuote, err := MarshalAcceptedSellQuoteEvent(e)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal accepted "+
+				"sell quote: %w", err)
+		}
 		resp.Response = &rfqrpc.AddAssetSellOrderResponse_AcceptedQuote{
-			AcceptedQuote: MarshalAcceptedSellQuoteEvent(e),
+			AcceptedQuote: acceptedQuote,
 		}
 		return resp, nil
 
