@@ -605,6 +605,8 @@ github.com/BurntSushi/toml v1.4.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/GeorgeTsagk/aperture v0.0.0-20260701122034-d55b9ff78331 h1:d8bV/lF1NGvVHi3cyDN9aI5XYhGKsu3nbXNHCME3LzU=
 github.com/GeorgeTsagk/aperture v0.0.0-20260701122034-d55b9ff78331/go.mod h1:gD6rxObWdKcEUyjAnDOxvvQ3xtBz8BgeWlbc3aDfk4M=
+github.com/GeorgeTsagk/lnd v0.0.0-20260701112802-e1127b6a710a h1:JO3AQ/G7EO1yDlPQT2i/x2JIfAxfT0Hq99h0aTsDEDE=
+github.com/GeorgeTsagk/lnd v0.0.0-20260701112802-e1127b6a710a/go.mod h1:LWfQaNNXlZghUJqIIh+JsgfxiVtC+ecZkrIe5bm9o4U=
 github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c/go.mod h1:X0CRv0ky0k6m906ixxpzmDRLvX58TFUKS2eePweuyxk=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
@@ -1082,8 +1084,6 @@ github.com/lightninglabs/protobuf-go-hex-display v1.34.2-hex-display h1:w7FM5LH9
 github.com/lightninglabs/protobuf-go-hex-display v1.34.2-hex-display/go.mod h1:qYOHts0dSfpeUzUFpOMr/WGzszTmLH+DiWniOlNbLDw=
 github.com/lightningnetwork/lightning-onion v1.4.0 h1:qWE1icOH4AKXRcq1KCzt6P/TesqptgBTP++V7wowTc0=
 github.com/lightningnetwork/lightning-onion v1.4.0/go.mod h1:YDPkvVTVQ6FBBE6Yj93tDd7zA3iTSrryi9xq46i7bKE=
-github.com/lightningnetwork/lnd v0.21.0-beta.rc2.0.20260630214209-40c64f9db30d h1:mDcB9mwuwJXRbDmxps6mBgGs318Iz5ZbOrt0ieEx0os=
-github.com/lightningnetwork/lnd v0.21.0-beta.rc2.0.20260630214209-40c64f9db30d/go.mod h1:LWfQaNNXlZghUJqIIh+JsgfxiVtC+ecZkrIe5bm9o4U=
 github.com/lightningnetwork/lnd/actor v0.0.6 h1:Ge8N2wivARG+27qJBwTlB0vwsypStZYZy8vk4Zl38sU=
 github.com/lightningnetwork/lnd/actor v0.0.6/go.mod h1:YAsoniSbY/cAM9HTVNfZLvt7RI6swDxy6wzPspTcMZg=
 github.com/lightningnetwork/lnd/cert v1.2.2 h1:71YK6hogeJtxSxw2teq3eGeuy4rHGKcFf0d0Uy4qBjI=

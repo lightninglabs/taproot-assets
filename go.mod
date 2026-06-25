@@ -236,3 +236,5 @@ replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
 replace github.com/lightninglabs/lndclient => github.com/ellemouton/lndclient v0.0.0-20260701153813-ee76ab9ecc2c
 
 replace github.com/lightninglabs/aperture => github.com/GeorgeTsagk/aperture v0.0.0-20260701122034-d55b9ff78331
+
+replace github.com/lightningnetwork/lnd => github.com/GeorgeTsagk/lnd v0.0.0-20260701112802-e1127b6a710a
