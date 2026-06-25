@@ -36,6 +36,10 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsForceClose,
 	},
 	{
+		name: "immediate close",
+		test: testCustomChannelsImmediateClose,
+	},
+	{
 		name: "group tranches force close",
 		test: testCustomChannelsGroupTranchesForceClose,
 	},
