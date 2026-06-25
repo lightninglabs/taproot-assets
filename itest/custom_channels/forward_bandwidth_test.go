@@ -181,7 +181,8 @@ func testCustomChannelsForwardBandwidth(ctx context.Context,
 
 	oneUnit := uint64(1)
 	oneUnitFP := rfqmath.NewBigIntFixedPoint(oneUnit, 0)
-	oneUnitMilliSat := rfqmath.UnitsToMilliSatoshi(oneUnitFP, *rate)
+	oneUnitMilliSat, err := rfqmath.UnitsToMilliSatoshi(oneUnitFP, *rate)
+	require.NoError(t.t, err)
 
 	t.Logf("Got quote for %v asset units per BTC", rate)
 	msatPerUnit := float64(oneUnitMilliSat) / float64(oneUnit)
