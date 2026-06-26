@@ -2124,6 +2124,218 @@ func TestAssetExportLog(t *testing.T) {
 	require.Len(t, parcels, 0)
 }
 
+// TestMarkTransferSuperseded tests that an unconfirmed transfer can be marked
+// as superseded by referencing its anchor transaction, after which it is no
+// longer reported as pending and its input assets are marked as spent so they
+// don't surface as ghost balances, and that a confirmed transfer is never
+// eligible. It also tests fetching the pkScript of a transfer input anchor
+// outpoint from the stored chain transaction that created it.
+func TestMarkTransferSuperseded(t *testing.T) {
+	t.Parallel()
+
+	_, assetsStore, db := newAssetStore(t)
+	ctx := context.Background()
+
+	// Generate a single asset, then formulate a pending transfer that
+	// spends it.
+	const numAssets = 1
+	assetGen := newAssetGenerator(t, numAssets, 1)
+	assetGen.genAssets(t, assetsStore, []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         16,
+	}})
+
+	newAnchorTx := wire.NewMsgTx(2)
+	newAnchorTx.AddTxIn(&wire.TxIn{})
+	newAnchorTx.TxIn[0].SignatureScript = []byte{}
+	newAnchorTx.AddTxOut(&wire.TxOut{
+		PkScript: bytes.Repeat([]byte{0x01}, 34),
+		Value:    1000,
+	})
+	anchorTxHash := newAnchorTx.TxHash()
+
+	newScriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		PubKey: test.RandPubKey(t),
+		KeyLocator: keychain.KeyLocator{
+			Index:  uint32(rand.Int31()),
+			Family: keychain.KeyFamily(rand.Int31()),
+		},
+	})
+
+	allAssets, err := assetsStore.FetchAllAssets(ctx, true, false, nil)
+	require.NoError(t, err)
+	require.Len(t, allAssets, numAssets)
+
+	inputAsset := allAssets[0]
+	inputAnchorPoint := wire.OutPoint{
+		Hash:  assetGen.anchorTxs[0].TxHash(),
+		Index: 0,
+	}
+
+	newWitness := asset.Witness{
+		PrevID:    &asset.PrevID{},
+		TxWitness: [][]byte{{0x01}, {0x02}},
+	}
+
+	spendDelta := &tapfreighter.OutboundParcel{
+		AnchorTx:           newAnchorTx,
+		AnchorTxHeightHint: 1450,
+		ChainFees:          int64(100),
+		Inputs: []tapfreighter.TransferInput{{
+			PrevID: asset.PrevID{
+				OutPoint: inputAnchorPoint,
+				ID:       inputAsset.ID(),
+				ScriptKey: asset.ToSerialized(
+					inputAsset.ScriptKey.PubKey,
+				),
+			},
+			Amount: inputAsset.Amount,
+		}},
+		Outputs: []tapfreighter.TransferOutput{{
+			Anchor: tapfreighter.Anchor{
+				Value: 1000,
+				OutPoint: wire.OutPoint{
+					Hash:  anchorTxHash,
+					Index: 0,
+				},
+				InternalKey: keychain.KeyDescriptor{
+					PubKey: test.RandPubKey(t),
+					KeyLocator: keychain.KeyLocator{
+						Family: keychain.KeyFamily(
+							rand.Int31(),
+						),
+						Index: uint32(
+							test.RandInt[int32](),
+						),
+					},
+				},
+				TaprootAssetRoot: bytes.Repeat([]byte{0x1}, 32),
+				MerkleRoot:       bytes.Repeat([]byte{0x1}, 32),
+			},
+			ScriptKey:      newScriptKey,
+			ScriptKeyLocal: true,
+			Amount:         inputAsset.Amount,
+			WitnessData:    []asset.Witness{newWitness},
+			AssetVersion:   asset.V0,
+			ProofSuffix:    bytes.Repeat([]byte{0x02}, 100),
+			Position:       0,
+		}},
+	}
+
+	leaseOwner := fn.ToArray[[32]byte](test.RandBytes(32))
+	leaseExpiry := time.Now().Add(time.Hour)
+	require.NoError(t, assetsStore.LogPendingParcel(
+		ctx, spendDelta, leaseOwner, leaseExpiry,
+	))
+
+	parcels, err := assetsStore.PendingParcels(ctx)
+	require.NoError(t, err)
+	require.Len(t, parcels, 1)
+
+	// The pkScript of the transfer input's anchor outpoint can be
+	// extracted from the stored chain transaction that created it.
+	// Asking for the same source tx twice in one call exercises the
+	// per-call dedupe (the chain_txn is fetched and deserialized once).
+	pkScripts, err := assetsStore.FetchAnchorOutputPkScripts(
+		ctx, []wire.OutPoint{inputAnchorPoint, inputAnchorPoint},
+	)
+	require.NoError(t, err)
+	require.Len(t, pkScripts, 1)
+	require.Equal(
+		t, assetGen.anchorTxs[0].TxOut[0].PkScript,
+		pkScripts[inputAnchorPoint],
+	)
+
+	// An out-of-range output index in any of the requested outpoints
+	// is rejected.
+	_, err = assetsStore.FetchAnchorOutputPkScripts(
+		ctx, []wire.OutPoint{{
+			Hash: inputAnchorPoint.Hash, Index: 10,
+		}},
+	)
+	require.ErrorContains(t, err, "out of range")
+
+	// An outpoint of an unknown transaction cannot provide a pkScript.
+	_, err = assetsStore.FetchAnchorOutputPkScripts(
+		ctx, []wire.OutPoint{{Hash: test.RandHash()}},
+	)
+	require.ErrorContains(t, err, "unable to fetch chain tx")
+
+	// An empty input list returns an empty map.
+	emptyResult, err := assetsStore.FetchAnchorOutputPkScripts(
+		ctx, nil,
+	)
+	require.NoError(t, err)
+	require.Empty(t, emptyResult)
+
+	// Marking a transfer with an unknown anchor transaction fails.
+	err = assetsStore.MarkTransferSuperseded(
+		ctx, test.RandHash(), []wire.OutPoint{inputAnchorPoint},
+	)
+	require.ErrorContains(t, err, "no unconfirmed transfer")
+
+	// Before the supersession, the input asset is unspent: an
+	// exclude-spent fetch (with leased assets included, since
+	// LogPendingParcel above leased it) still reports it.
+	unspent, err := assetsStore.FetchAllAssets(ctx, false, true, nil)
+	require.NoError(t, err)
+	require.Len(t, unspent, numAssets)
+
+	// Supersede the transfer but pass an outpoint the spender did NOT
+	// consume. The transfer is still flagged superseded, but no input
+	// asset is marked spent — only conflicting-spent inputs are.
+	otherOp := wire.OutPoint{Hash: test.RandHash(), Index: 7}
+	require.NoError(t, assetsStore.MarkTransferSuperseded(
+		ctx, anchorTxHash, []wire.OutPoint{otherOp},
+	))
+
+	parcels, err = assetsStore.PendingParcels(ctx)
+	require.NoError(t, err)
+	require.Len(t, parcels, 0)
+
+	stillUnspent, err := assetsStore.FetchAllAssets(ctx, false, true, nil)
+	require.NoError(t, err)
+	require.Len(t, stillUnspent, numAssets,
+		"input not in spentOutpoints must NOT be marked spent")
+
+	// Now mark superseded again, this time with the actual input
+	// outpoint. The asset becomes spent.
+	require.NoError(t, assetsStore.MarkTransferSuperseded(
+		ctx, anchorTxHash, []wire.OutPoint{inputAnchorPoint},
+	))
+
+	unspent, err = assetsStore.FetchAllAssets(ctx, false, true, nil)
+	require.NoError(t, err)
+	require.Empty(t, unspent,
+		"input listed in spentOutpoints must be marked spent")
+
+	allAssets, err = assetsStore.FetchAllAssets(ctx, true, true, nil)
+	require.NoError(t, err)
+	require.Len(t, allAssets, numAssets)
+
+	// Marking it again succeeds: the operation is idempotent.
+	require.NoError(t, assetsStore.MarkTransferSuperseded(
+		ctx, anchorTxHash, []wire.OutPoint{inputAnchorPoint},
+	))
+
+	// Once the anchor transaction confirms, the transfer can no longer be
+	// marked as superseded: confirmation is final.
+	randBlockHash := test.RandHash()
+	err = db.ConfirmChainAnchorTx(ctx, AnchorTxConf{
+		Txid:        anchorTxHash[:],
+		BlockHash:   randBlockHash[:],
+		BlockHeight: sqlInt32(441),
+		TxIndex:     sqlInt32(1),
+	})
+	require.NoError(t, err)
+
+	err = assetsStore.MarkTransferSuperseded(
+		ctx, anchorTxHash, []wire.OutPoint{inputAnchorPoint},
+	)
+	require.ErrorContains(t, err, "no unconfirmed transfer")
+}
+
 // TestAssetGroupWitnessUpsert tests that if you try to insert another asset
 // group witness with the same asset_gen_id, then only one is actually created.
 func TestAssetGroupWitnessUpsert(t *testing.T) {

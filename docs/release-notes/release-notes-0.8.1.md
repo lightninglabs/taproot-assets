@@ -25,6 +25,10 @@
   fixes several failure modes in the handling of force-close sweep
   transactions that could leave transfers stuck in a pending state.
 
+- [PR#2163](https://github.com/lightninglabs/taproot-assets/pull/2163)
+  resolves stranded transfers against the chain instead of leaving them
+  pending forever when their anchor transaction can no longer confirm.
+
 # New Features
 
 ## Functional Enhancements

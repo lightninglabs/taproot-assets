@@ -585,6 +585,16 @@ type MockChainBridge struct {
 	errConf          atomic.Int32
 	emptyConf        atomic.Int32
 	confErr          chan error
+
+	spendDetailsMtx sync.Mutex
+	spendDetails    map[wire.OutPoint]*chainntnfs.SpendDetail
+	spendReorgs     map[wire.OutPoint][]chan struct{}
+	spendChans      map[wire.OutPoint][]chan *chainntnfs.SpendDetail
+	spendErrChans   map[wire.OutPoint][]chan error
+
+	confTxidMtx sync.Mutex
+	confReqByTx map[chainhash.Hash]int
+	confFailTx  map[chainhash.Hash]bool
 }
 
 func NewMockChainBridge() *MockChainBridge {
@@ -596,6 +606,103 @@ func NewMockChainBridge() *MockChainBridge {
 		BlockEpochSignal:  make(chan struct{}, 1),
 		NewBlocks:         make(chan int32),
 		Blocks:            make(map[chainhash.Hash]*wire.MsgBlock),
+		spendDetails: make(
+			map[wire.OutPoint]*chainntnfs.SpendDetail,
+		),
+		spendReorgs: make(map[wire.OutPoint][]chan struct{}),
+		spendChans: make(
+			map[wire.OutPoint][]chan *chainntnfs.SpendDetail,
+		),
+		spendErrChans: make(map[wire.OutPoint][]chan error),
+		confReqByTx:   make(map[chainhash.Hash]int),
+		confFailTx:    make(map[chainhash.Hash]bool),
+	}
+}
+
+// FailConfFor arms the bridge so that the next call to
+// RegisterConfirmationsNtfn for the given txid fails by returning a
+// non-nil error directly from the call. Unlike FailConfOnce (which
+// fires on the registration's error channel after the call returns
+// successfully), this exercises the registration-failed path and is
+// keyed by txid so tests can target a specific registration
+// independent of the order in which the porter happens to issue them.
+func (m *MockChainBridge) FailConfFor(txid chainhash.Hash) {
+	m.confTxidMtx.Lock()
+	defer m.confTxidMtx.Unlock()
+
+	m.confFailTx[txid] = true
+}
+
+// ConfReqForTxid returns the reqNo most recently used to register a
+// confirmation notification for the given txid, and whether any
+// registration has been seen for it.
+func (m *MockChainBridge) ConfReqForTxid(txid chainhash.Hash) (int, bool) {
+	m.confTxidMtx.Lock()
+	defer m.confTxidMtx.Unlock()
+
+	reqNo, ok := m.confReqByTx[txid]
+	return reqNo, ok
+}
+
+// SetSpend registers a spend detail to be dispatched immediately whenever a
+// spend notification is requested for the given outpoint.
+func (m *MockChainBridge) SetSpend(op wire.OutPoint,
+	detail *chainntnfs.SpendDetail) {
+
+	m.spendDetailsMtx.Lock()
+	defer m.spendDetailsMtx.Unlock()
+
+	m.spendDetails[op] = detail
+}
+
+// SendSpendReorg fans a reorg signal to every spend ntfn currently registered
+// for the given outpoint, mirroring lndclient's behaviour when a
+// previously-reported confirmed spend is reorged out.
+func (m *MockChainBridge) SendSpendReorg(op wire.OutPoint) {
+	m.spendDetailsMtx.Lock()
+	reorgs := m.spendReorgs[op]
+	m.spendDetailsMtx.Unlock()
+
+	for _, ch := range reorgs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// SendSpendNtfn dispatches a spend detail to every spend ntfn currently
+// registered for the given outpoint. Useful for delivering a replacement
+// spender after a reorg.
+func (m *MockChainBridge) SendSpendNtfn(op wire.OutPoint,
+	detail *chainntnfs.SpendDetail) {
+
+	m.spendDetailsMtx.Lock()
+	chans := m.spendChans[op]
+	m.spendDetailsMtx.Unlock()
+
+	for _, ch := range chans {
+		select {
+		case ch <- detail:
+		default:
+		}
+	}
+}
+
+// SendSpendErr fans an error to every spend ntfn currently registered for
+// the given outpoint, simulating a per-input stream failure. Tests use this
+// to exercise the porter's per-input recovery path without affecting other
+// inputs' watches.
+func (m *MockChainBridge) SendSpendErr(op wire.OutPoint, err error) {
+	m.spendDetailsMtx.Lock()
+	errChans := m.spendErrChans[op]
+	m.spendDetailsMtx.Unlock()
+
+	for _, ch := range errChans {
+		select {
+		case ch <- err:
+		default:
+		}
 	}
 }
 
@@ -641,7 +748,7 @@ func (m *MockChainBridge) SendConfNtfn(reqNo int, blockHash *chainhash.Hash,
 }
 
 func (m *MockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
-	_ *chainhash.Hash, _ []byte, _, _ uint32, _ bool,
+	txid *chainhash.Hash, _ []byte, _, _ uint32, _ bool,
 	_ chan struct{}) (*chainntnfs.ConfirmationEvent, chan error, error) {
 
 	select {
@@ -663,6 +770,21 @@ func (m *MockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	currentReqCount := m.ReqCount.Load()
 	m.ConfReqs[int(currentReqCount)] = req
 
+	if txid != nil {
+		m.confTxidMtx.Lock()
+		m.confReqByTx[*txid] = int(currentReqCount)
+		failByTxid := m.confFailTx[*txid]
+		if failByTxid {
+			delete(m.confFailTx, *txid)
+		}
+		m.confTxidMtx.Unlock()
+
+		if failByTxid {
+			return nil, nil, fmt.Errorf("confirmation "+
+				"registration error for txid=%v", txid)
+		}
+	}
+
 	select {
 	case m.ConfReqSignal <- int(currentReqCount):
 	case <-ctx.Done():
@@ -675,6 +797,43 @@ func (m *MockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	}
 
 	return req, m.confErr, nil
+}
+
+// RegisterSpendNtfn registers an intent to be notified once the target
+// outpoint is spent. If a spend detail was set for the outpoint via SetSpend,
+// it is dispatched immediately. Further events for the same outpoint can be
+// delivered via SendSpendNtfn (replacement spender after a reorg) or
+// SendSpendReorg (reorg of the previously reported spender).
+func (m *MockChainBridge) RegisterSpendNtfn(ctx context.Context,
+	outpoint *wire.OutPoint, _ []byte,
+	_ uint32) (*chainntnfs.SpendEvent, chan error, error) {
+
+	select {
+	case <-ctx.Done():
+		return nil, nil, fmt.Errorf("shutting down")
+	default:
+	}
+
+	spendChan := make(chan *chainntnfs.SpendDetail, 1)
+	reorgChan := make(chan struct{}, 1)
+	errChan := make(chan error, 1)
+
+	m.spendDetailsMtx.Lock()
+	if detail, ok := m.spendDetails[*outpoint]; ok {
+		spendChan <- detail
+	}
+	m.spendChans[*outpoint] = append(m.spendChans[*outpoint], spendChan)
+	m.spendReorgs[*outpoint] = append(m.spendReorgs[*outpoint], reorgChan)
+	m.spendErrChans[*outpoint] = append(
+		m.spendErrChans[*outpoint], errChan,
+	)
+	m.spendDetailsMtx.Unlock()
+
+	return &chainntnfs.SpendEvent{
+		Spend:  spendChan,
+		Reorg:  reorgChan,
+		Cancel: func() {},
+	}, errChan, nil
 }
 
 func (m *MockChainBridge) RegisterBlockEpochNtfn(

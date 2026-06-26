@@ -148,6 +148,10 @@ var allTestCases = []*testCase{
 		proofCourierType: proof.HashmailCourierType,
 	},
 	{
+		name: "stranded transfer recovers on restart",
+		test: testStrandedTransferRecoversOnRestart,
+	},
+	{
 		name:             "reattempt failed send hashmail courier",
 		test:             testReattemptFailedSendHashmailCourier,
 		proofCourierType: proof.HashmailCourierType,

@@ -693,6 +693,29 @@ type ExportLog interface {
 	QueryCompletedParcels(ctx context.Context, startTime time.Time,
 		filterLabel string, filterScriptKey *btcec.PublicKey) (
 		[]*OutboundParcel, error)
+
+	// MarkTransferSuperseded marks the unconfirmed transfer anchored by
+	// the given transaction as superseded: a conflicting transaction has
+	// confirmed spending (some of) its inputs, so its anchor transaction
+	// can never confirm. The transfer is then no longer treated as
+	// pending and isn't resumed at startup.
+	//
+	// spentOutpoints lists the outpoints actually consumed on-chain by
+	// the confirming conflicting transaction; only inputs whose
+	// anchor_point appears in this list are marked spent. A multi-input
+	// transfer whose conflict only consumed one input leaves the others
+	// available for legitimate use.
+	MarkTransferSuperseded(ctx context.Context,
+		anchorTxHash chainhash.Hash,
+		spentOutpoints []wire.OutPoint) error
+
+	// FetchAnchorOutputPkScripts returns the pkScripts of the given
+	// anchor outpoints, indexed by outpoint. Source transactions are
+	// fetched at most once per unique txid, so a transfer whose inputs
+	// all spend from the same prior tx incurs one chain_txn fetch
+	// rather than one per input.
+	FetchAnchorOutputPkScripts(ctx context.Context,
+		anchorPoints []wire.OutPoint) (map[wire.OutPoint][]byte, error)
 }
 
 // ChainBridge aliases into the ChainBridge of the tapgarden package.

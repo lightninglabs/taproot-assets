@@ -509,6 +509,112 @@ func testResumePendingPackageSend(t *harnessTest) {
 	}
 }
 
+// testStrandedTransferRecoversOnRestart exercises the broadcast-state
+// recovery the chain porter takes after a transfer's anchor transaction
+// confirmed on-chain but the porter died before observing the
+// confirmation. On the next startup the parcel is resumed at
+// SendStateBroadcast; the rebroadcast attempt either silently succeeds (if
+// the chain backend ignores re-publishing an already-confirmed tx) or
+// returns ErrDoubleSpend, in which case locateConfirmedInputSpend
+// identifies the parcel's own anchor as the confirmed spender and
+// transitions to SendStateWaitTxConf. Either way the historical
+// confirmation event drives the transfer to completion.
+//
+// Before the stranded-transfer recovery work, the ErrDoubleSpend branch
+// aborted the parcel and re-tried the same broadcast on every startup
+// (issue #1888). This test asserts the operational outcome — that the
+// receiver eventually sees the asset and the sender's transfer is
+// reported as complete — rather than asserting on the specific code path
+// the porter takes through the new logic, since that path varies with
+// the chain backend's handling of an already-mined tx.
+//
+// Not covered here (intentionally; left as a harness-work follow-up):
+//
+//   - The conflicting-spender resolution: where a foreign transaction
+//     reaches SafeDepth confirmations and marks the transfer superseded.
+//     Constructing a key-path P2TR spend of an asset's anchor UTXO from
+//     outside tapd requires harness tooling that doesn't exist today.
+//
+//   - The reorg-rescue path: where a 1-conf foreign spend is reorged out
+//     before reaching SafeDepth. Covered by unit tests at the
+//     waitForConfEventOnce level (see
+//     TestWaitForTransferTxConfReorgRescue in
+//     tapfreighter/chain_porter_test.go) but not end-to-end here.
+func testStrandedTransferRecoversOnRestart(t *harnessTest) {
+	ctxb := context.Background()
+
+	sendTapd := t.tapd
+
+	// Set up a receiver node.
+	recvLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	recvTapd := setupTapdHarness(
+		t.t, t, recvLnd, t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, recvTapd.stop(!*noDelete))
+	}()
+
+	// Mint an asset on the sender and sync the universe state so the
+	// receiver can recognise the asset.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner(), sendTapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+	genInfo := rpcAssets[0].AssetGenesis
+	t.syncUniverseState(sendTapd, recvTapd, len(rpcAssets))
+
+	// The receiver issues an address for the incoming transfer.
+	recvAddr, err := recvTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     10,
+	})
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
+
+	// Send the asset. The send is asynchronous; the porter broadcasts
+	// the anchor tx and then waits for confirmation.
+	label := fmt.Sprintf(
+		"stranded-recovery-%d", time.Now().UnixNano(),
+	)
+	_, _ = sendAssetsToAddrWithLabel(t, sendTapd, label, recvAddr)
+
+	// Wait for the anchor tx to land in the mempool — that confirms
+	// the porter has successfully broadcast and is now in WaitTxConf.
+	t.lndHarness.Miner().AssertNumTxsInMempool(1)
+
+	// Stop the sender. The DB persists the pending transfer; the porter
+	// goroutine that's waiting for the confirmation event is torn down.
+	t.t.Logf("Stopping sender to simulate a crash mid-transfer")
+	require.NoError(t.t, sendTapd.stop(false))
+
+	// Mine the anchor tx into a block while the sender is down. The
+	// confirmation event fires only inside lnd; the sender's porter is
+	// not running to observe it.
+	t.lndHarness.MineBlocksAndAssertNumTxes(6, 1)
+
+	// Restart the sender. resumePendingParcels enqueues the unconfirmed
+	// transfer; the parcel goroutine resumes at SendStateBroadcast and
+	// must recover from the on-chain reality (the tx already confirmed)
+	// rather than aborting.
+	t.t.Logf("Restarting sender to drive the recovery path")
+	require.NoError(t.t, sendTapd.start(false))
+
+	// The operational outcome that matters: the asset eventually
+	// reaches the receiver, and the sender's transfer is reported as
+	// complete — not stuck pending.
+	AssertNonInteractiveRecvComplete(t.t, recvTapd, 1)
+
+	transfers, err := sendTapd.ListTransfers(
+		ctxb, &taprpc.ListTransfersRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, transfers.Transfers, 1)
+	require.NotZero(
+		t.t, transfers.Transfers[0].AnchorTxHeightHint,
+		"transfer must report a confirmed height after recovery",
+	)
+}
+
 // testBasicSendPassiveAsset tests that we can properly send assets which were
 // passive assets during a previous send.
 func testBasicSendPassiveAsset(t *harnessTest) {

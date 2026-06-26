@@ -175,6 +175,12 @@ type Querier interface {
 	// pre-commitment corresponds to an asset issuance where a remote node acted as
 	// the issuer.
 	MarkPreCommitSpentByOutpoint(ctx context.Context, arg MarkPreCommitSpentByOutpointParams) error
+	// Mark the unconfirmed transfer anchored by the given transaction as
+	// superseded, returning the IDs of any rows the update touched. A transfer
+	// whose anchor transaction has already confirmed on-chain is never eligible:
+	// confirmation is final. Marking an already superseded transfer again is a
+	// no-op (the row still matches), so the operation is idempotent.
+	MarkTransferSuperseded(ctx context.Context, anchorTxid []byte) ([]int64, error)
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	QueryAddr(ctx context.Context, arg QueryAddrParams) (QueryAddrRow, error)
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
