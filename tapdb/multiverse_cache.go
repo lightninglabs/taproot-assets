@@ -136,9 +136,13 @@ func (c *cachedProofs) Size() (uint64, error) {
 // newProofCache creates a new leaf proof cache.
 //
 // nolint: lll
-func newProofCache(totalCacheBytesSize uint64) *lru.Cache[UniverseProofKey, *cachedProofs] {
+func newProofCache(totalCacheBytesSize uint64,
+	onDelete lru.OnDeleteCallback[UniverseProofKey, *cachedProofs],
+) *lru.Cache[UniverseProofKey, *cachedProofs] {
+
 	return lru.NewCache[UniverseProofKey, *cachedProofs](
 		totalCacheBytesSize,
+		lru.WithDeleteCallback(onDelete),
 	)
 }
 
@@ -171,6 +175,22 @@ type universeProofCache struct {
 	// maxCacheByteSize is the maximum size of the cache in bytes.
 	maxCacheByteSize uint64
 
+	// writeMu serializes all write paths (insertProofs,
+	// RemoveLeafKeyProofs, RemoveUniverseProofs) so that the LRU and
+	// the byID secondary index stay coherent. The LRU's delete
+	// callback runs synchronously during the cache op that triggered
+	// it, on the same goroutine, so the callback inherits this lock
+	// and can mutate byID without taking it itself. Read paths
+	// (fetchProof) do not take writeMu.
+	writeMu sync.Mutex
+
+	// byID maps a universe id key to the set of leaf-key suffixes
+	// that are currently cached under that id. It is the secondary
+	// index that makes RemoveUniverseProofs O(k) in the number of
+	// cached leaves for the affected universe rather than O(N) in
+	// the total cache size.
+	byID map[universe.IdentifierKey]map[[32]byte]struct{}
+
 	// cache is the LRU cache for the proofs themselves.
 	cache *lru.Cache[UniverseProofKey, *cachedProofs]
 
@@ -179,23 +199,44 @@ type universeProofCache struct {
 
 // newUniverseProofCache creates a new proof cache.
 func newUniverseProofCache(maxCacheByteSize uint64) *universeProofCache {
-	cache := newProofCache(maxCacheByteSize)
+	p := &universeProofCache{
+		maxCacheByteSize: maxCacheByteSize,
+		byID: make(
+			map[universe.IdentifierKey]map[[32]byte]struct{},
+		),
+	}
+
+	// onDelete keeps the byID secondary index in sync with the LRU.
+	// It is invoked by the LRU for both explicit deletes and
+	// capacity evictions, synchronously on the caller's goroutine.
+	// Every write path holds writeMu before calling cache.Put or
+	// cache.Delete, so this callback never needs to lock byID
+	// itself.
+	onDelete := func(key UniverseProofKey, _ *cachedProofs) {
+		set, ok := p.byID[key.uniIDKey]
+		if !ok {
+			return
+		}
+
+		delete(set, key.leafKeyBytes)
+		if len(set) == 0 {
+			delete(p.byID, key.uniIDKey)
+		}
+	}
+
+	p.cache = newProofCache(maxCacheByteSize, onDelete)
 
 	// Formulate a callback function that returns the cache size in a
 	// human-readable format. This will be called by the cache logger to get
 	// the current cache size.
 	cacheSizeLogStr := func() string {
-		return humanize.Bytes(cache.Size())
+		return humanize.Bytes(p.cache.Size())
 	}
-	cacheLogger := newCacheLogger(
+	p.cacheLogger = newCacheLogger(
 		"universe_proofs", withCacheSizeFunc(cacheSizeLogStr),
 	)
 
-	return &universeProofCache{
-		maxCacheByteSize: maxCacheByteSize,
-		cache:            cache,
-		cacheLogger:      cacheLogger,
-	}
+	return p
 }
 
 // fetchProof reads the cached proof for the given ID and leaf key.
@@ -223,11 +264,27 @@ func (p *universeProofCache) insertProofs(id universe.Identifier,
 	log.Debugf("Storing proof(s) in cache (universe_id=%v, leaf_key=%v, "+
 		"count=%d)", id.StringForLog(), leafKey, len(proofs))
 
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+
 	proofVal := newCachedProofs(proofs)
 	if _, err := p.cache.Put(uniProofKey, &proofVal); err != nil {
 		log.Errorf("Unable to insert proof into universe proof "+
 			"cache: %v", err)
+		return
 	}
+
+	// Record the new entry in the secondary index. cache.Put above
+	// may have evicted older entries to make room; their onDelete
+	// callbacks ran synchronously under writeMu and already pruned
+	// byID, so the only mutation we need to make here is for the
+	// key we just inserted.
+	set, ok := p.byID[uniProofKey.uniIDKey]
+	if !ok {
+		set = make(map[[32]byte]struct{})
+		p.byID[uniProofKey.uniIDKey] = set
+	}
+	set[uniProofKey.leafKeyBytes] = struct{}{}
 }
 
 // RemoveUniverseProofs deletes all the proofs for the given universe ID.
@@ -235,15 +292,30 @@ func (p *universeProofCache) RemoveUniverseProofs(id universe.Identifier) {
 	log.Debugf("Removing universe proofs (universe_id=%s)",
 		id.StringForLog())
 
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+
 	targetIDKey := id.Key()
-	p.cache.Range(
-		func(key UniverseProofKey, proofs *cachedProofs) bool {
-			if key.uniIDKey == targetIDKey {
-				p.cache.Delete(key)
-			}
-			return true
-		},
-	)
+	set, ok := p.byID[targetIDKey]
+	if !ok {
+		return
+	}
+
+	// Snapshot the leaf keys before deleting, since each cache.Delete
+	// fires the onDelete callback which mutates byID[targetIDKey];
+	// iterating the map directly while it's being modified would be
+	// unsafe.
+	leafKeys := make([][32]byte, 0, len(set))
+	for lk := range set {
+		leafKeys = append(leafKeys, lk)
+	}
+
+	for _, lk := range leafKeys {
+		p.cache.Delete(UniverseProofKey{
+			uniIDKey:     targetIDKey,
+			leafKeyBytes: lk,
+		})
+	}
 }
 
 // RemoveLeafKeyProofs deletes all the proofs for the given universe ID and leaf
@@ -253,6 +325,9 @@ func (p *universeProofCache) RemoveLeafKeyProofs(id universe.Identifier,
 
 	log.Debugf("Removing leaf key proofs (universe_id=%s, leaf_key=%v)",
 		id.StringForLog(), leafKey)
+
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
 
 	targetCacheKey := NewUniverseProofKey(id, leafKey)
 	p.cache.Delete(targetCacheKey)

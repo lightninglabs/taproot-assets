@@ -334,6 +334,97 @@ func TestUniverseProofCache(t *testing.T) {
 			t, humanize.Bytes(0), cache.cacheLogger.cacheSize(),
 		)
 	})
+
+	t.Run("secondary index stays in sync", func(t *testing.T) {
+		// Validate the byID secondary index against the LRU's
+		// own contents across the operations that mutate it:
+		// explicit removes (leaf and universe), capacity-driven
+		// evictions, and replace-in-place. The index is what
+		// makes RemoveUniverseProofs O(k) instead of O(N), so a
+		// drift between it and the LRU would silently regress
+		// to phantom entries or to leaves that escape eviction.
+		baseProofs := newTestUniverseProofs(t, 1)
+		proofSize := proofCacheEntrySize(t, baseProofs)
+		cache := newUniverseProofCache(proofSize * 2)
+
+		id1 := randUniverseID(t, false)
+		id2 := randUniverseID(t, false)
+		key1 := randLeafKey(t)
+		key2 := randLeafKey(t)
+		key3 := randLeafKey(t)
+
+		assertIndexMatchesCache := func() {
+			t.Helper()
+			cached := make(
+				map[UniverseProofKey]struct{},
+				cache.cache.Len(),
+			)
+			cache.cache.Range(
+				func(k UniverseProofKey,
+					_ *cachedProofs) bool {
+
+					cached[k] = struct{}{}
+					return true
+				},
+			)
+
+			var indexed int
+			for idKey, set := range cache.byID {
+				require.NotEmpty(
+					t, set, "empty per-id set "+
+						"should have been pruned",
+				)
+				for lk := range set {
+					indexed++
+					key := UniverseProofKey{
+						uniIDKey:     idKey,
+						leafKeyBytes: lk,
+					}
+					_, ok := cached[key]
+					require.True(t, ok,
+						"index has phantom "+
+							"entry for %v", key)
+				}
+			}
+			require.Equal(
+				t, len(cached), indexed,
+				"index missing entries present in LRU",
+			)
+		}
+
+		// Two inserts under id1 fill the cache to capacity.
+		cache.insertProofs(id1, key1, cloneProofSlice(baseProofs))
+		cache.insertProofs(id1, key2, cloneProofSlice(baseProofs))
+		assertIndexMatchesCache()
+
+		// A third insert under id2 evicts key1 (LRU tail). The
+		// onDelete callback must prune key1 from byID[id1].
+		cache.insertProofs(id2, key3, cloneProofSlice(baseProofs))
+		require.Nil(t, cache.fetchProof(id1, key1))
+		assertIndexMatchesCache()
+
+		// Replacing an existing key in place does not fire
+		// onDelete; the index should remain identical.
+		cache.insertProofs(id2, key3, cloneProofSlice(baseProofs))
+		assertIndexMatchesCache()
+
+		// RemoveUniverseProofs(id1) drops the remaining id1
+		// entry and its id-level set; id2 stays untouched.
+		cache.RemoveUniverseProofs(id1)
+		require.Nil(t, cache.fetchProof(id1, key2))
+		require.NotNil(t, cache.fetchProof(id2, key3))
+		_, present := cache.byID[id1.Key()]
+		require.False(
+			t, present, "byID set for id1 must be pruned "+
+				"after RemoveUniverseProofs",
+		)
+		assertIndexMatchesCache()
+
+		// Final RemoveLeafKeyProofs empties the cache.
+		cache.RemoveLeafKeyProofs(id2, key3)
+		require.Equal(t, 0, cache.cache.Len())
+		require.Empty(t, cache.byID)
+	})
 }
 
 func queryRoots(t *testing.T, multiverse *MultiverseStore,
