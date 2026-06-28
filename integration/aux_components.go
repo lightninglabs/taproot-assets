@@ -16,6 +16,9 @@ import (
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
+var _ lnd.AuxDataParser = (*taprootassets.Server)(nil)
+var _ htlcswitch.AuxTrafficShaper = (*taprootassets.Server)(nil)
+
 // BuildAuxComponents creates the lnd.AuxComponents struct from a running tapd
 // Server. This enables lnd to handle custom Taproot Asset channels by
 // delegating aux operations to tapd's implementations.

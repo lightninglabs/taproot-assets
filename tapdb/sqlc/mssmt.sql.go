@@ -244,6 +244,7 @@ const InsertBranch = `-- name: InsertBranch :exec
 INSERT INTO mssmt_nodes (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
 ) VALUES ($1, $2, $3, NULL, NULL, $4, $5)
+ON CONFLICT (hash_key, namespace) DO NOTHING
 `
 
 type InsertBranchParams struct {
@@ -269,6 +270,7 @@ const InsertCompactedLeaf = `-- name: InsertCompactedLeaf :exec
 INSERT INTO mssmt_nodes (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
 ) VALUES ($1, NULL, NULL, $2, $3, $4, $5)
+ON CONFLICT (hash_key, namespace) DO NOTHING
 `
 
 type InsertCompactedLeafParams struct {
@@ -294,6 +296,7 @@ const InsertLeaf = `-- name: InsertLeaf :exec
 INSERT INTO mssmt_nodes (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
 ) VALUES ($1, NULL, NULL, NULL, $2, $3, $4)
+ON CONFLICT (hash_key, namespace) DO NOTHING
 `
 
 type InsertLeafParams struct {

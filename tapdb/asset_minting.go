@@ -1483,22 +1483,6 @@ func (a *AssetMintingStore) UpdateBatchState(ctx context.Context,
 	})
 }
 
-// CommitBatchTapSibling updates the tapscript sibling of a batch based on the
-// batch key.
-func (a *AssetMintingStore) CommitBatchTapSibling(ctx context.Context,
-	batchKey *btcec.PublicKey, batchSibling *chainhash.Hash) error {
-
-	siblingUpdate := BatchTapSiblingUpdate{
-		RawKey:           batchKey.SerializeCompressed(),
-		TapscriptSibling: batchSibling[:],
-	}
-
-	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
-		return q.BindMintingBatchWithTapSibling(ctx, siblingUpdate)
-	})
-}
-
 // encodeOutpoint encodes the outpoint point in Bitcoin wire format, returning
 // the final result.
 func encodeOutpoint(outPoint wire.OutPoint) ([]byte, error) {
@@ -1511,17 +1495,37 @@ func encodeOutpoint(outPoint wire.OutPoint) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// CommitBatchTx updates the genesis transaction of a batch based on the batch
-// key.
-func (a *AssetMintingStore) CommitBatchTx(ctx context.Context,
-	batchKey *btcec.PublicKey,
+// CommitBatchFunding atomically persists the funded genesis transaction
+// and the optional tapscript sibling for a batch in a single database
+// transaction.
+func (a *AssetMintingStore) CommitBatchFunding(ctx context.Context,
+	batchKey *btcec.PublicKey, batchSibling *chainhash.Hash,
 	genesisPacket tapgarden.FundedMintAnchorPsbt) error {
 
-	genesisOutpoint := genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	genesisOutpoint, err := genesisPacket.GenesisOutpoint().UnwrapOrErr(
+		tapgarden.ErrFundedAnchorPsbtMissingOutpoint,
+	)
+	if err != nil {
+		return err
+	}
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
-		// Insert the batch transaction.
+		if batchSibling != nil {
+			rawKey := batchKey.SerializeCompressed()
+			siblingUpdate := BatchTapSiblingUpdate{
+				RawKey:           rawKey,
+				TapscriptSibling: batchSibling[:],
+			}
+			err := q.BindMintingBatchWithTapSibling(
+				ctx, siblingUpdate,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to bind tap "+
+					"sibling: %w", err)
+			}
+		}
+
 		err := insertMintAnchorTx(
 			ctx, q, genesisPacket, *batchKey, genesisOutpoint,
 		)
@@ -1813,7 +1817,12 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 
 	sortedAssets := append(anchorAssets, nonAnchorAssets...)
 
-	genesisOutpoint := genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	genesisOutpoint, err := genesisPacket.GenesisOutpoint().UnwrapOrErr(
+		tapgarden.ErrFundedAnchorPsbtMissingOutpoint,
+	)
+	if err != nil {
+		return err
+	}
 
 	rawBatchKey := batchKey.SerializeCompressed()
 

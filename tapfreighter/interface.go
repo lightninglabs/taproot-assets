@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -72,6 +73,9 @@ type AssetBurn struct {
 
 	// GroupKey is the group key of the group the burnt asset belongs to.
 	GroupKey []byte
+
+	// AssetType is the type of the burnt asset.
+	AssetType asset.Type
 
 	// Amount is the amount of the asset that got burnt.
 	Amount uint64
@@ -391,8 +395,15 @@ func (out *TransferOutput) ShouldDeliverProof() (bool, error) {
 	}
 
 	// If this is an output that is going to our own node/wallet, we don't
-	// need to deliver a proof.
-	if out.ScriptKey.TweakedScriptKey != nil && out.ScriptKeyLocal {
+	// need to deliver a proof — the wallet-tx watcher will create the
+	// AddrEvent locally. The exception is V2 (auth-mailbox) sends, where
+	// the SendFragment upload is the only path that produces a
+	// receiver-side AddrEvent, so we must still deliver even when the
+	// recipient script key is local (e.g. a self-send to a reusable V2
+	// address; see issue #2148).
+	localScriptKey := out.ScriptKey.TweakedScriptKey != nil &&
+		out.ScriptKeyLocal
+	if localScriptKey && !out.UsesAuthMailboxCourier() {
 		return false, nil
 	}
 
@@ -406,6 +417,22 @@ func (out *TransferOutput) ShouldDeliverProof() (bool, error) {
 
 	// At this point, we should deliver a proof.
 	return true, nil
+}
+
+// UsesAuthMailboxCourier reports whether the output's proof courier
+// address points at an auth-mailbox server, which is the courier scheme
+// used by V2 (reusable) Taproot Asset addresses.
+func (out *TransferOutput) UsesAuthMailboxCourier() bool {
+	if len(out.ProofCourierAddr) == 0 {
+		return false
+	}
+
+	u, err := url.Parse(string(out.ProofCourierAddr))
+	if err != nil {
+		return false
+	}
+
+	return u.Scheme == proof.AuthMailboxUniRpcCourierType
 }
 
 // AssetID returns the asset ID of the transfer output. This requires the

@@ -610,6 +610,18 @@ func (c *ChainPlanter) Start() error {
 				// can now be set as frozen. We are already not
 				// able to add new seedlings to the batch.
 				batch.UpdateState(BatchStateFrozen)
+
+				err := c.cfg.Log.UpdateBatchState(
+					ctx, batch.BatchKey.PubKey,
+					BatchStateFrozen,
+				)
+				if err != nil {
+					log.Warnf("Failed to update batch "+
+						"state to frozen (%x): %s",
+						batchKey, err.Error())
+					cancelBatch()
+					continue
+				}
 			}
 
 			log.Infof("Launching ChainCaretaker(%x)", batchKey)
@@ -2163,18 +2175,17 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 			"batch: %w", err)
 	}
 
-	// Update the batch by adding the sibling root hash and genesis TX.
-	updateBatch := func(batch *MintingBatch) error {
-		// Add the batch sibling root hash if present.
-		if rootHash != nil {
-			batch.tapSibling = rootHash
-		}
+	// computeFunding builds the funded genesis PSBT for a batch
+	// without mutating it. The caller is responsible for applying
+	// the result to the batch only after all persistence has
+	// succeeded, so a failure leaves the batch unchanged.
+	computeFunding := func(batch *MintingBatch) (
+		*FundedMintAnchorPsbt, error) {
 
-		// Fund the batch with the specified fee rate.
 		feeRate, err := c.anchorTxFeeRate(ctx, params.FeeRate)
 		if err != nil {
-			return fmt.Errorf("unable to determine anchor TX "+
-				"fee rate: %w", err)
+			return nil, fmt.Errorf("unable to determine anchor "+
+				"TX fee rate: %w", err)
 		}
 
 		batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
@@ -2198,18 +2209,15 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 
 		log.Infof("Attempting to fund batch: %x", batchKey)
 		mintAnchorTx, err := fundGenesisPsbt(
-			ctx, c.cfg.ChainParams, c.pendingBatch,
-			walletFundPsbt,
+			ctx, c.cfg.ChainParams, batch, walletFundPsbt,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to fund minting PSBT for "+
-				"batch: %x %w", batchKey[:], err)
+			return nil, fmt.Errorf("unable to fund minting PSBT "+
+				"for batch: %x %w", batchKey[:], err)
 		}
 
 		log.Infof("Funded GenesisPacket for batch: %x", batchKey)
-		batch.GenesisPacket = &mintAnchorTx
-
-		return nil
+		return &mintAnchorTx, nil
 	}
 
 	// If we don't have a batch, we'll create an empty batch before funding
@@ -2220,13 +2228,19 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 			return fmt.Errorf("unable to create new batch: %w", err)
 		}
 
-		err = updateBatch(newBatch)
+		mintAnchorTx, err := computeFunding(newBatch)
 		if err != nil {
 			return err
 		}
 
-		// Now that we're done populating parts of the batch, write it
-		// to disk.
+		// Apply the funding to the local batch and commit. If the
+		// commit fails, newBatch is discarded and the planter's
+		// pendingBatch is never assigned.
+		newBatch.GenesisPacket = mintAnchorTx
+		if rootHash != nil {
+			newBatch.tapSibling = rootHash
+		}
+
 		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
 		if err != nil {
 			return err
@@ -2236,29 +2250,28 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 		return nil
 	}
 
-	// If we already have a batch, we need to attach the optional sibling
-	// root hash and fund the batch.
-	err = updateBatch(workingBatch)
+	// Compute the funded genesis packet for the existing batch
+	// without mutating it yet.
+	mintAnchorTx, err := computeFunding(workingBatch)
 	if err != nil {
 		return err
 	}
 
-	// Write the associated sibling root hash and TX to disk.
-	if workingBatch.tapSibling != nil {
-		err = c.cfg.Log.CommitBatchTapSibling(
-			ctx, workingBatch.BatchKey.PubKey, rootHash,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to commit tapscript "+
-				"sibling for minting batch %w", err)
-		}
-	}
-
-	err = c.cfg.Log.CommitBatchTx(
-		ctx, workingBatch.BatchKey.PubKey, *workingBatch.GenesisPacket,
+	// Persist the sibling and genesis TX atomically. Combining
+	// both writes in a single transaction ensures a partial
+	// failure cannot leave the batch with one persisted and the
+	// other absent.
+	err = c.cfg.Log.CommitBatchFunding(
+		ctx, workingBatch.BatchKey.PubKey, rootHash, *mintAnchorTx,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to commit batch funding: %w", err)
+	}
+
+	// All persistence succeeded; commit the funding to memory.
+	workingBatch.GenesisPacket = mintAnchorTx
+	if rootHash != nil {
+		workingBatch.tapSibling = rootHash
 	}
 
 	return nil
@@ -2663,46 +2676,43 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 		return nil, fmt.Errorf("unable to store tapscript tree for "+
 			"minting batch: %w", err)
 	}
-	// At this point, we have a non-empty batch, so we'll first finalize it
-	// on disk. This means no further seedlings can be added to this batch.
-	err = freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
-	if err != nil {
-		return nil, err
-	}
-
-	// If the batch already has a funded TX, we can skip funding the batch.
+	// Fund the batch if it hasn't been funded yet. If funding
+	// fails, the batch stays pending so the user can retry.
 	if !c.pendingBatch.IsFunded() {
-		// Fund the batch before starting the caretaker. If funding
-		// fails, we can't start a caretaker for the batch, so we'll
-		// clear the pending batch. The batch will exist on disk for
-		// the user to recreate it if necessary.
-		// TODO(jhb): Don't clear pending batch here
-		err = c.fundBatch(ctx, FundParams(params), c.pendingBatch)
+		err = c.fundBatch(
+			ctx, FundParams(params), c.pendingBatch,
+		)
 		if err != nil {
-			c.pendingBatch = nil
 			return nil, err
 		}
 	}
 
-	// If the batch needs to be sealed, we'll use the default behavior for
-	// generating asset group witnesses. Any custom behavior requires
-	// calling SealBatch() explicitly, before batch finalization.
-	sealedBatch, err := c.sealBatch(ctx, SealParams{}, c.pendingBatch)
+	// If the batch needs to be sealed, we'll use the default
+	// behavior for generating asset group witnesses. Any custom
+	// behavior requires calling SealBatch() explicitly, before
+	// batch finalization.
+	sealedBatch, err := c.sealBatch(
+		ctx, SealParams{}, c.pendingBatch,
+	)
 	if err != nil {
 		if !errors.Is(err, ErrBatchAlreadySealed) {
 			return nil, err
 		}
 	}
 
-	// If seal batch executed successfully, and returned a sealed batch,
-	// then we can update the pending batch.
+	// If seal batch executed successfully, and returned a
+	// sealed batch, then we can update the pending batch.
 	if err == nil && sealedBatch != nil {
 		c.pendingBatch = sealedBatch
 	}
 
-	// Now that the batch has been frozen on disk, we can update the batch
-	// state to frozen before launching a new caretaker state machine for
-	// the batch that'll drive all the seedlings do adulthood.
+	// Now that funding and sealing have succeeded, freeze the
+	// batch on disk and in memory. This means no further
+	// seedlings can be added to this batch.
+	err = freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
+	if err != nil {
+		return nil, err
+	}
 	c.pendingBatch.UpdateState(BatchStateFrozen)
 	caretaker := c.newCaretakerForBatch(c.pendingBatch, feeRate)
 	if err := caretaker.Start(); err != nil {

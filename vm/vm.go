@@ -210,6 +210,10 @@ func ValidateWitnesses(newAsset *asset.Asset,
 
 	for i, witness := range vm.newAsset.PrevWitnesses {
 		witness := witness
+		if witness.PrevID == nil {
+			return fmt.Errorf("%w: nil prev_id at "+
+				"witness_idx=%d", ErrNoInputs, i)
+		}
 		prevAsset, ok := vm.prevAssets[*witness.PrevID]
 		if !ok {
 			return fmt.Errorf("%w: no prev asset for "+
@@ -257,8 +261,16 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 	// prevID of zero, as the inherit the prev ID from the root asset.
 	//
 	// TODO(roasbeef): revisit post multi input
+	if len(vm.newAsset.PrevWitnesses) == 0 {
+		return fmt.Errorf("%w: prev witness zero", ErrNoInputs)
+	}
 	rootWitness := vm.newAsset.PrevWitnesses[0]
 	splitWitness := splitAsset.PrevWitnesses[0]
+
+	if rootWitness.PrevID == nil {
+		return fmt.Errorf("%w: nil prev_id on root witness",
+			ErrNoInputs)
+	}
 
 	// The prevID of the split commitment should be the ID of the asset
 	// generating the split in the transaction.
@@ -446,6 +458,11 @@ func (vm *Engine) validateStateTransition() error {
 
 	for idx := range vm.newAsset.PrevWitnesses {
 		witness := vm.newAsset.PrevWitnesses[idx]
+
+		if witness.PrevID == nil {
+			return fmt.Errorf("%w: nil prev_id at "+
+				"witness_idx=%d", ErrNoInputs, idx)
+		}
 
 		prevAsset, ok := vm.prevAssets[*witness.PrevID]
 		if !ok {

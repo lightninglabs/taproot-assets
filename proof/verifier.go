@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -89,6 +90,11 @@ type verifyOptions struct {
 	// skipTimeLockValidationForFinalProof skips locktime checks for the
 	// final proof in a file.
 	skipTimeLockValidationForFinalProof bool
+
+	// skipTimeLockValidation skips locktime checks for all proofs in a
+	// file. This is used when verifying proofs without access to the
+	// chain backend (e.g. during backup pre-verification).
+	skipTimeLockValidation bool
 }
 
 // defaultVerifyOptions returns a default set of proof verification options.
@@ -109,6 +115,15 @@ func WithSkipChainVerificationForFinalProof() VerifyOption {
 func WithSkipTimeLockValidationForFinalProof() VerifyOption {
 	return func(o *verifyOptions) {
 		o.skipTimeLockValidationForFinalProof = true
+	}
+}
+
+// WithSkipTimeLockValidationForAllProofs skips locktime checks for
+// every proof in the file. Use this when verifying proofs without
+// access to the chain backend.
+func WithSkipTimeLockValidationForAllProofs() VerifyOption {
+	return func(o *verifyOptions) {
+		o.skipTimeLockValidation = true
 	}
 }
 
@@ -827,6 +842,69 @@ func (p *Proof) verifyGroupKeyReveal() error {
 // block header is invalid (usually: not present on chain).
 type HeaderVerifier func(blockHeader wire.BlockHeader, blockHeight uint32) error
 
+// headerPrefetchWorkers is the maximum number of concurrent goroutines
+// used to pre-fetch block headers during proof file verification. This
+// is a backend-capacity knob (RPC concurrency), not a CPU knob.
+const headerPrefetchWorkers = 8
+
+// headerCacheKey uniquely identifies a block for header verification
+// caching purposes.
+type headerCacheKey struct {
+	height uint32
+	hash   chainhash.Hash
+}
+
+// cachingHeaderVerifier wraps a HeaderVerifier with a concurrency-safe
+// cache keyed on (height, blockHash). The first call for each unique
+// key delegates to the inner verifier; subsequent calls return the
+// cached result. This deduplicates RPC calls when multiple proofs
+// reference the same block.
+type cachingHeaderVerifier struct {
+	inner HeaderVerifier
+	mu    sync.Mutex
+	cache map[headerCacheKey]error
+}
+
+// newCachingHeaderVerifier returns a cachingHeaderVerifier that wraps
+// the given HeaderVerifier.
+func newCachingHeaderVerifier(
+	inner HeaderVerifier) *cachingHeaderVerifier {
+
+	return &cachingHeaderVerifier{
+		inner: inner,
+		cache: make(map[headerCacheKey]error),
+	}
+}
+
+// verify checks the cache for a previous result and, on miss,
+// delegates to the inner verifier and caches the outcome.
+func (c *cachingHeaderVerifier) verify(header wire.BlockHeader,
+	height uint32) error {
+
+	key := headerCacheKey{
+		height: height,
+		hash:   header.BlockHash(),
+	}
+
+	c.mu.Lock()
+	if err, ok := c.cache[key]; ok {
+		c.mu.Unlock()
+		return err
+	}
+	c.mu.Unlock()
+
+	err := c.inner(header, height)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	c.cache[key] = nil
+	c.mu.Unlock()
+
+	return nil
+}
+
 // MerkleVerifier is a callback function which returns an error if the given
 // merkle proof is invalid.
 type MerkleVerifier func(tx *wire.MsgTx, proof *TxMerkleProof,
@@ -1007,9 +1085,11 @@ func (p *Proof) VerifyProofIntegrity(ctx context.Context, vCtx VerifierCtx,
 		ScriptKey: asset.ToSerialized(p.Asset.ScriptKey.PubKey),
 	}
 
-	// Before we do any other validation, we'll check to see if we can halt
-	// validation here, as the proof is already known to be invalid. This
-	// can be used as a rejection caching mechanism.
+	// Before we do any other per-proof validation, check if this
+	// proof is already known to be invalid. This is a rejection
+	// caching mechanism. Note: when called from File.Verify, block
+	// headers may have already been prefetched in parallel before
+	// this point.
 	fail, err := lfn.MapOptionZ(
 		vCtx.IgnoreChecker, func(c IgnoreChecker) lfn.Result[bool] {
 			return c.IsIgnored(ctx, assetPoint)
@@ -1171,6 +1251,97 @@ func (p *Proof) VerifyProofs() (*commitment.TapCommitment, error) {
 	return tapCommitment, nil
 }
 
+// filterIgnored removes proofs that the IgnoreChecker identifies as
+// already known-invalid, so they don't incur unnecessary header RPCs
+// during prefetch.
+func filterIgnored(ctx context.Context,
+	checker lfn.Option[IgnoreChecker],
+	proofs []*Proof) ([]*Proof, error) {
+
+	if checker.IsNone() {
+		return proofs, nil
+	}
+
+	result := make([]*Proof, 0, len(proofs))
+	for _, p := range proofs {
+		assetPoint := AssetPoint{
+			OutPoint: p.OutPoint(),
+			ID:       p.Asset.ID(),
+			ScriptKey: asset.ToSerialized(
+				p.Asset.ScriptKey.PubKey,
+			),
+		}
+
+		ignored, err := lfn.MapOptionZ(
+			checker,
+			func(c IgnoreChecker) lfn.Result[bool] {
+				return c.IsIgnored(ctx, assetPoint)
+			},
+		).Unpack()
+		if err != nil {
+			return nil, fmt.Errorf("failed to check "+
+				"if proof is ignored: %w", err)
+		}
+
+		if !ignored {
+			result = append(result, p)
+		}
+	}
+
+	return result, nil
+}
+
+// prefetchHeaders deduplicates block headers from the given proofs
+// and verifies each unique header in parallel using the given caching
+// verifier. This turns O(n) sequential RPC round-trips into bounded
+// parallel batches.
+func prefetchHeaders(ctx context.Context,
+	proofs []*Proof, hv *cachingHeaderVerifier) error {
+
+	type headerInfo struct {
+		header wire.BlockHeader
+		height uint32
+	}
+
+	seen := make(map[headerCacheKey]struct{})
+	var unique []headerInfo
+
+	for _, p := range proofs {
+		key := headerCacheKey{
+			height: p.BlockHeight,
+			hash:   p.BlockHeader.BlockHash(),
+		}
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
+			unique = append(unique, headerInfo{
+				header: p.BlockHeader,
+				height: p.BlockHeight,
+			})
+		}
+	}
+
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(headerPrefetchWorkers)
+
+	for _, h := range unique {
+		if err := gCtx.Err(); err != nil {
+			break
+		}
+
+		g.Go(func() error {
+			select {
+			case <-gCtx.Done():
+				return gCtx.Err()
+			default:
+			}
+
+			return hv.verify(h.header, h.height)
+		})
+	}
+
+	return g.Wait()
+}
+
 // Verify attempts to verify a full proof file starting from the asset's
 // genesis.
 //
@@ -1200,20 +1371,68 @@ func (f *File) Verify(ctx context.Context,
 
 	chainLookup := vCtx.ChainLookupGen.GenFileChainLookup(f)
 
-	var prev *AssetSnapshot
+	// Decode all proofs upfront so we can batch-verify block
+	// headers in parallel before the sequential verification
+	// pass.
+	decoded := make([]*Proof, len(f.proofs))
 	for idx := range f.proofs {
+		p, err := f.ProofAt(uint32(idx))
+		if err != nil {
+			return nil, err
+		}
+		decoded[idx] = p
+	}
+
+	// Wrap the header verifier with a cache and pre-fetch all
+	// unique block headers in parallel. Nested File.Verify calls
+	// (AdditionalInputs) inherit the cached verify function via
+	// vCtx, so cross-file cache hits occur transitively.
+	//
+	// When skipChainForFinalProof is set, exclude the last proof
+	// from the prefetch — its block may not yet be on chain.
+	//
+	// Filter out proofs that are already known to be invalid via
+	// the IgnoreChecker rejection cache, so that ignored proofs
+	// don't incur unnecessary header RPCs.
+	prefetchSet := decoded
+	if verifyOpts.skipChainForFinalProof && len(decoded) > 0 {
+		prefetchSet = prefetchSet[:len(prefetchSet)-1]
+	}
+
+	prefetchSet, err := filterIgnored(
+		ctx, vCtx.IgnoreChecker, prefetchSet,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	cached := newCachingHeaderVerifier(vCtx.HeaderVerifier)
+	if err := prefetchHeaders(
+		ctx, prefetchSet, cached,
+	); err != nil {
+		return nil, err
+	}
+	vCtx.HeaderVerifier = cached.verify
+
+	var prev *AssetSnapshot
+	for idx, decodedProof := range decoded {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
 		}
 
-		decodedProof, err := f.ProofAt(uint32(idx))
-		if err != nil {
-			return nil, err
+		var proofOpts []ProofVerificationOption
+
+		// Skip timelocks for all proofs if requested.
+		if verifyOpts.skipTimeLockValidation &&
+			assetUsesTimeLock(&decodedProof.Asset) {
+
+			proofOpts = append(
+				proofOpts, WithSkipTimeLockValidation(),
+			)
 		}
 
-		var proofOpts []ProofVerificationOption
 		if idx == len(f.proofs)-1 {
 			if verifyOpts.skipChainForFinalProof {
 				proofOpts = append(
@@ -1237,9 +1456,10 @@ func (f *File) Verify(ctx context.Context,
 			return nil, err
 		}
 
-		// At this point, we'll check to see if we can halt validation
-		// here, as the proof is already known to be invalid. This can
-		// be used as a rejection caching mechanism.
+		// At this point, we'll check to see if we can halt
+		// validation here, as the proof is already known to be
+		// invalid. This can be used as a rejection caching
+		// mechanism.
 		fail, err := lfn.MapOptionZ(
 			vCtx.IgnoreChecker,
 			func(checker IgnoreChecker) lfn.Result[bool] {

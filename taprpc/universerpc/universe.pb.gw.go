@@ -446,11 +446,11 @@ func local_request_Universe_AssetLeafKeys_1(ctx context.Context, marshaler runti
 }
 
 var (
-	filter_Universe_AssetLeaves_0 = &utilities.DoubleArray{Encoding: map[string]int{"asset_id_str": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
+	filter_Universe_AssetLeaves_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
 )
 
 func request_Universe_AssetLeaves_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ID
+	var protoReq AssetLeavesRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -460,19 +460,14 @@ func request_Universe_AssetLeaves_0(ctx context.Context, marshaler runtime.Marsh
 		_   = err
 	)
 
-	val, ok = pathParams["asset_id_str"]
+	val, ok = pathParams["id.asset_id_str"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "asset_id_str")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.asset_id_str")
 	}
 
-	if protoReq.Id == nil {
-		protoReq.Id = &ID_AssetIdStr{}
-	} else if _, ok := protoReq.Id.(*ID_AssetIdStr); !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "expect type: *ID_AssetIdStr, but: %t\n", protoReq.Id)
-	}
-	protoReq.Id.(*ID_AssetIdStr).AssetIdStr, err = runtime.String(val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "id.asset_id_str", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "asset_id_str", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.asset_id_str", err)
 	}
 
 	if err := req.ParseForm(); err != nil {
@@ -488,7 +483,7 @@ func request_Universe_AssetLeaves_0(ctx context.Context, marshaler runtime.Marsh
 }
 
 func local_request_Universe_AssetLeaves_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ID
+	var protoReq AssetLeavesRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -498,19 +493,14 @@ func local_request_Universe_AssetLeaves_0(ctx context.Context, marshaler runtime
 		_   = err
 	)
 
-	val, ok = pathParams["asset_id_str"]
+	val, ok = pathParams["id.asset_id_str"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "asset_id_str")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.asset_id_str")
 	}
 
-	if protoReq.Id == nil {
-		protoReq.Id = &ID_AssetIdStr{}
-	} else if _, ok := protoReq.Id.(*ID_AssetIdStr); !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "expect type: *ID_AssetIdStr, but: %t\n", protoReq.Id)
-	}
-	protoReq.Id.(*ID_AssetIdStr).AssetIdStr, err = runtime.String(val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "id.asset_id_str", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "asset_id_str", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.asset_id_str", err)
 	}
 
 	if err := req.ParseForm(); err != nil {
@@ -526,11 +516,11 @@ func local_request_Universe_AssetLeaves_0(ctx context.Context, marshaler runtime
 }
 
 var (
-	filter_Universe_AssetLeaves_1 = &utilities.DoubleArray{Encoding: map[string]int{"group_key_str": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
+	filter_Universe_AssetLeaves_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
 )
 
 func request_Universe_AssetLeaves_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ID
+	var protoReq AssetLeavesRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -540,19 +530,14 @@ func request_Universe_AssetLeaves_1(ctx context.Context, marshaler runtime.Marsh
 		_   = err
 	)
 
-	val, ok = pathParams["group_key_str"]
+	val, ok = pathParams["id.group_key_str"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "group_key_str")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.group_key_str")
 	}
 
-	if protoReq.Id == nil {
-		protoReq.Id = &ID_GroupKeyStr{}
-	} else if _, ok := protoReq.Id.(*ID_GroupKeyStr); !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "expect type: *ID_GroupKeyStr, but: %t\n", protoReq.Id)
-	}
-	protoReq.Id.(*ID_GroupKeyStr).GroupKeyStr, err = runtime.String(val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "id.group_key_str", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "group_key_str", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.group_key_str", err)
 	}
 
 	if err := req.ParseForm(); err != nil {
@@ -568,7 +553,7 @@ func request_Universe_AssetLeaves_1(ctx context.Context, marshaler runtime.Marsh
 }
 
 func local_request_Universe_AssetLeaves_1(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ID
+	var protoReq AssetLeavesRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -578,19 +563,14 @@ func local_request_Universe_AssetLeaves_1(ctx context.Context, marshaler runtime
 		_   = err
 	)
 
-	val, ok = pathParams["group_key_str"]
+	val, ok = pathParams["id.group_key_str"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "group_key_str")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "id.group_key_str")
 	}
 
-	if protoReq.Id == nil {
-		protoReq.Id = &ID_GroupKeyStr{}
-	} else if _, ok := protoReq.Id.(*ID_GroupKeyStr); !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "expect type: *ID_GroupKeyStr, but: %t\n", protoReq.Id)
-	}
-	protoReq.Id.(*ID_GroupKeyStr).GroupKeyStr, err = runtime.String(val)
+	err = runtime.PopulateFieldFromPath(&protoReq, "id.group_key_str", val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "group_key_str", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "id.group_key_str", err)
 	}
 
 	if err := req.ParseForm(); err != nil {
@@ -2161,7 +2141,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/asset-id/{id.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2186,7 +2166,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/group-key/{group_key_str}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/group-key/{id.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2951,7 +2931,7 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/asset-id/{id.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -2973,7 +2953,7 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/group-key/{group_key_str}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/leaves/group-key/{id.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -3471,9 +3451,9 @@ var (
 
 	pattern_Universe_AssetLeafKeys_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "keys", "group-key", "id.group_key_str"}, ""))
 
-	pattern_Universe_AssetLeaves_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "leaves", "asset-id", "asset_id_str"}, ""))
+	pattern_Universe_AssetLeaves_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "leaves", "asset-id", "id.asset_id_str"}, ""))
 
-	pattern_Universe_AssetLeaves_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "leaves", "group-key", "group_key_str"}, ""))
+	pattern_Universe_AssetLeaves_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "leaves", "group-key", "id.group_key_str"}, ""))
 
 	pattern_Universe_QueryProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "asset-id", "id.asset_id_str", "leaf_key.op.hash_str", "leaf_key.op.index", "leaf_key.script_key_str"}, ""))
 

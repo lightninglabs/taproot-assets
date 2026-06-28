@@ -304,7 +304,7 @@ CREATE TABLE asset_transfers (
     anchor_txn_id BIGINT NOT NULL REFERENCES chain_txns(txn_id),
 
     transfer_time_unix TIMESTAMP NOT NULL
-, label VARCHAR DEFAULT NULL, skip_anchor_tx_broadcast BOOLEAN NOT NULL DEFAULT FALSE);
+, label VARCHAR DEFAULT NULL, skip_anchor_tx_broadcast BOOLEAN NOT NULL DEFAULT FALSE, superseded BOOLEAN NOT NULL DEFAULT FALSE);
 
 CREATE TABLE asset_witnesses (
     witness_id INTEGER PRIMARY KEY,
@@ -413,6 +413,18 @@ CREATE TABLE authmailbox_messages (
 
 CREATE UNIQUE INDEX authmailbox_messages_claimed_outpoint_idx
 ON authmailbox_messages (claimed_outpoint);
+
+CREATE TABLE aux_channel_close_info (
+    -- chan_point is the funding outpoint of the channel, serialized as
+    -- 32 bytes of txid followed by 4 bytes of big-endian output index.
+    chan_point BLOB PRIMARY KEY CHECK (length(chan_point) = 36),
+
+    -- info_blob is an opaque encoding of the persistedCloseInfo struct
+    -- defined in the tapchannel package. The encoding/decoding lives
+    -- with the consumer so that internal field changes don't require a
+    -- new migration here.
+    info_blob BLOB NOT NULL
+);
 
 CREATE INDEX batch_state_lookup on asset_minting_batches (batch_state);
 
@@ -1142,6 +1154,9 @@ CREATE TABLE tapscript_roots (
         -- a set of tapLeafs.
         branch_only BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+CREATE INDEX transfer_inputs_anchor_point_idx
+    ON asset_transfer_inputs (anchor_point);
 
 CREATE INDEX transfer_inputs_idx
     ON asset_transfer_inputs (transfer_id);

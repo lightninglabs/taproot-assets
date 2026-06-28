@@ -38,10 +38,10 @@ const (
 )
 
 var (
-	// sqliteSchemaReplacements is a map of schema strings that need to be
-	// replaced for sqlite. There currently aren't any replacements, because
-	// the SQL files are written with SQLite compatibility in mind.
-	sqliteSchemaReplacements = map[string]string{}
+	// sqliteSchemaReplacements maps Postgres-specific SQL
+	// fragments to SQLite-compatible no-ops. The canonical map
+	// lives in tapdb/sqlc/replacements.go.
+	sqliteSchemaReplacements = sqlc.SQLiteSchemaReplacements
 )
 
 // SqliteConfig holds all the config arguments needed to interact with our

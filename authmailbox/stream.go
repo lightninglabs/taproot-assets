@@ -79,6 +79,7 @@ func newMailboxStream(id uint64,
 		authSuccessChan: make(chan struct{}, 1),
 		msgReceiver: fn.NewEventReceiver[[]*Message](
 			fn.DefaultQueueSize,
+			fn.WithMaxOverflow(maxSubscriberOverflow),
 		),
 		callerQuit: callerQuit,
 		quitConn:   make(chan struct{}),

@@ -2,8 +2,8 @@ package rfq
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
+	"net"
 	"net/url"
 	"time"
 
@@ -16,8 +16,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -67,31 +65,11 @@ type RpcPortfolioPilot struct {
 	rawConn *grpc.ClientConn
 }
 
-// portfolioPilotDialOpts returns gRPC dial options for the portfolio pilot.
-func portfolioPilotDialOpts(insecureDial bool) []grpc.DialOption {
-	var creds credentials.TransportCredentials
-	if insecureDial {
-		creds = insecure.NewCredentials()
-	} else {
-		creds = credentials.NewTLS(&tls.Config{
-			InsecureSkipVerify: true,
-		})
-	}
-
-	return []grpc.DialOption{
-		grpc.WithTransportCredentials(creds),
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                30 * time.Second,
-			Timeout:             20 * time.Second,
-			PermitWithoutStream: true,
-		}),
-	}
-}
-
 // NewRpcPortfolioPilot creates a new RPC portfolio pilot handle given the
-// address of the portfolio pilot RPC server.
-func NewRpcPortfolioPilot(addrStr string, dialInsecure bool) (
-	*RpcPortfolioPilot, error) {
+// address of the portfolio pilot RPC server. An optional macaroon dial option
+// can be provided for authentication with the pilot server.
+func NewRpcPortfolioPilot(addrStr string, tlsConfig *TLSConfig,
+	macaroonOpt fn.Option[grpc.DialOption]) (*RpcPortfolioPilot, error) {
 
 	addr, err := ParsePortfolioPilotAddress(addrStr)
 	if err != nil {
@@ -99,10 +77,30 @@ func NewRpcPortfolioPilot(addrStr string, dialInsecure bool) (
 			err)
 	}
 
-	dialOpts := portfolioPilotDialOpts(dialInsecure)
+	// Create transport credentials and dial options from the supplied TLS
+	// config.
+	transportCredentials, err := configureTransportCredentials(tlsConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	dialOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(transportCredentials),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                30 * time.Second,
+			Timeout:             20 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	}
+
+	// If a macaroon dial option is provided, append it to the dial
+	// options so that the macaroon is sent with every RPC call.
+	macaroonOpt.WhenSome(func(opt grpc.DialOption) {
+		dialOpts = append(dialOpts, opt)
+	})
 
 	// Formulate the server address dial string.
-	serverAddr := fmt.Sprintf("%s:%s", addr.Hostname(), addr.Port())
+	serverAddr := net.JoinHostPort(addr.Hostname(), addr.Port())
 
 	conn, err := grpc.NewClient(serverAddr, dialOpts...)
 	if err != nil {

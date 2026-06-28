@@ -42,7 +42,7 @@ func testCustomChannelsDecodeAssetInvoice(_ context.Context,
 			"rfqrpc://%s", oracleAddr,
 	))
 	tapdArgs = append(
-		tapdArgs, "--experimental.rfq.priceoracletlsinsecure",
+		tapdArgs, "--experimental.rfq.tls.insecure",
 	)
 
 	// We'll just make a single node here, as this doesn't actually rely on

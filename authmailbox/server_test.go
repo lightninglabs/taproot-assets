@@ -3,11 +3,13 @@ package authmailbox
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
@@ -398,4 +400,146 @@ func TestRemoveMessageChallengeConsistency(t *testing.T) {
 	h6 := RemoveMessageChallenge(receiverID, nil)
 	require.NotEqual(t, h1, h6)
 	require.NotEqual(t, h6, [32]byte{})
+}
+
+// registerTestStream constructs a mailboxStream wired the same
+// way as the live ReceiveMessages path: registered both as a
+// connected stream and as a message subscriber, with the
+// maxSubscriberOverflow cap applied.
+func registerTestStream(t *testing.T, srv *Server,
+	streamID uint64) *mailboxStream {
+
+	t.Helper()
+
+	stream, err := newMailboxStream(streamID, srv.Done())
+	require.NoError(t, err)
+
+	srv.connectedStreamsMtx.Lock()
+	srv.connectedStreams[streamID] = stream
+	srv.connectedStreamsMtx.Unlock()
+
+	err = srv.RegisterSubscriber(
+		stream.msgReceiver, false, MessageFilter{},
+	)
+	require.NoError(t, err)
+
+	return stream
+}
+
+// TestSlowSubscriberEviction verifies that publishMessage does
+// not stall when one subscriber fails to drain its queue. After
+// enough publishes to fill the stalled subscriber's overflow
+// cap, it must be evicted, its owning stream torn down, and a
+// healthy subscriber must continue receiving every message.
+func TestSlowSubscriberEviction(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{
+		msgEventsSubs: make(
+			map[uint64]*fn.EventReceiver[[]*Message],
+		),
+		connectedStreams: make(map[uint64]*mailboxStream),
+		cfg: &ServerConfig{
+			MsgStore: NewMockStore(),
+		},
+		ContextGuard: lfn.NewContextGuard(),
+	}
+	t.Cleanup(func() { _ = srv.Stop() })
+
+	healthy := registerTestStream(t, srv, 1)
+	stalled := registerTestStream(t, srv, 2)
+
+	// Drain the healthy subscriber as fast as the queue
+	// produces.
+	var healthyReceived atomic.Int64
+	drainerStarted := make(chan struct{})
+	drainerDone := make(chan struct{})
+	go func() {
+		close(drainerStarted)
+		for {
+			select {
+			case msgs := <-healthy.msgReceiver.
+				NewItemCreated.ChanOut():
+
+				healthyReceived.Add(
+					int64(len(msgs)),
+				)
+
+			case <-drainerDone:
+				return
+			}
+		}
+	}()
+	t.Cleanup(func() { close(drainerDone) })
+	<-drainerStarted
+
+	// Publish enough messages to overflow the stalled
+	// subscriber: chanOut buffer + cap + slack so we
+	// comfortably trip the >= maxSubscriberOverflow
+	// threshold.
+	totalPublishes := fn.DefaultQueueSize +
+		maxSubscriberOverflow + 5
+	receiverKey := test.RandPubKey(t)
+
+	publishDone := make(chan struct{})
+	go func() {
+		defer close(publishDone)
+		for i := 0; i < totalPublishes; i++ {
+			srv.publishMessage(&Message{
+				ReceiverKey:      *receiverKey,
+				EncryptedPayload: []byte("payload"),
+				ArrivalTimestamp: time.Now(),
+			})
+		}
+	}()
+
+	// The publish loop must complete promptly. If a slow
+	// subscriber could stall publishMessage, this is where
+	// the test would hang.
+	select {
+	case <-publishDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("publishMessage stalled on slow subscriber")
+	}
+
+	// The stalled subscriber must be evicted from the
+	// subscriber map.
+	require.Eventually(t, func() bool {
+		srv.msgEventsSubsMtx.Lock()
+		_, present := srv.msgEventsSubs[stalled.
+			msgReceiver.ID()]
+		srv.msgEventsSubsMtx.Unlock()
+		return !present
+	}, 2*time.Second, 10*time.Millisecond,
+		"stalled subscriber was not evicted")
+
+	// abortSlowStreams must remove the stalled stream from
+	// connectedStreams and close its quitConn.
+	srv.connectedStreamsMtx.Lock()
+	_, stillConnected := srv.connectedStreams[stalled.streamID]
+	srv.connectedStreamsMtx.Unlock()
+	require.False(t, stillConnected,
+		"stalled stream still in connectedStreams")
+
+	select {
+	case <-stalled.quitConn:
+	default:
+		t.Fatal("stalled stream quitConn was not closed")
+	}
+
+	// The healthy subscriber must still be registered and
+	// must have received every published message.
+	srv.msgEventsSubsMtx.Lock()
+	_, healthyPresent := srv.msgEventsSubs[healthy.
+		msgReceiver.ID()]
+	srv.msgEventsSubsMtx.Unlock()
+	require.True(t, healthyPresent,
+		"healthy subscriber was incorrectly evicted")
+
+	require.Eventually(t, func() bool {
+		return healthyReceived.Load() ==
+			int64(totalPublishes)
+	}, 2*time.Second, 10*time.Millisecond,
+		"healthy subscriber received %d / %d messages",
+		healthyReceived.Load(), totalPublishes)
 }

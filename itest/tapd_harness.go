@@ -449,7 +449,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 			opts.oracleServerAddress,
 		))
 		args = append(args,
-			"--experimental.rfq.priceoracletlsinsecure",
+			"--experimental.rfq.tls.insecure",
 		)
 	default:
 		args = append(args, fmt.Sprintf(
@@ -880,6 +880,14 @@ func defaultDialOptions(serverCertPath, macaroonPath string) ([]grpc.DialOption,
 	}
 
 	if macaroonPath != "" {
+		err := wait.Predicate(func() bool {
+			return lnrpc.FileExists(macaroonPath)
+		}, defaultTimeout)
+		if err != nil {
+			return nil, fmt.Errorf("macaroon file not found: %w",
+				err)
+		}
+
 		macaroonOptions, err := readMacaroon(macaroonPath)
 		if err != nil {
 			return nil, fmt.Errorf("unable to load macaroon %s: %w",

@@ -392,7 +392,9 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 	// We should be able to query for the complete set of leaves,
 	// which matches what we inserted above.
-	dbLeaves, err := baseUniverse.FetchLeaves(ctx)
+	dbLeaves, err := baseUniverse.FetchLeaves(
+		ctx, universe.FetchLeavesQuery{},
+	)
 	require.NoError(t, err)
 	require.Equal(t, numLeaves, len(dbLeaves))
 	require.True(t, fn.All(dbLeaves, func(leaf universe.Leaf) bool {
@@ -455,7 +457,9 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, mintingKeys, 0)
 
-	dbLeaves, err = baseUniverse.FetchLeaves(ctx)
+	dbLeaves, err = baseUniverse.FetchLeaves(
+		ctx, universe.FetchLeavesQuery{},
+	)
 	require.NoError(t, err)
 	require.Len(t, dbLeaves, 0)
 
@@ -1805,4 +1809,87 @@ func TestDeleteProofLeafBothProofTypes(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.FetchMultiverseRoot(ctx, transferNS)
 	require.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+// TestProofCacheInvalidatesOnSiblingInsert verifies that inserting a
+// new leaf into a universe invalidates the cached UniverseRoot of any
+// previously cached sibling leaves under the same universe id. The
+// proof cache stores each leaf alongside the UniverseRoot snapshot it
+// was fetched at; if sibling inserts only evict their own cache entry,
+// callers reading a previously cached leaf get a stale UniverseRoot
+// that no longer matches the current tree. That stale root causes the
+// universe syncer's VerifyRoot check to fail, silently dropping the
+// leaf and surfacing as group-key-unknown errors downstream.
+func TestProofCacheInvalidatesOnSiblingInsert(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := NewTestDB(t)
+	id := randUniverseID(
+		t, true, withProofType(universe.ProofTypeIssuance),
+	)
+	baseUniverse, _ := newTestUniverseWithDb(db.BaseDB, id)
+	multiverse, _ := newTestMultiverseWithDb(t, db.BaseDB)
+
+	assetGen := asset.RandGenesis(t, asset.Normal)
+
+	// Insert the first leaf and prime the proof cache by reading it
+	// back through the multiverse store.
+	keyA := randLeafKey(t)
+	leafA := randMintingLeaf(t, assetGen, id.GroupKey)
+	_, err := multiverse.UpsertProofLeaf(ctx, id, keyA, &leafA, nil)
+	require.NoError(t, err)
+
+	primed, err := multiverse.FetchProofLeaf(ctx, id, keyA)
+	require.NoError(t, err)
+	require.Len(t, primed, 1)
+
+	// Snapshot the tree root after the first insert so we can verify
+	// the cached root really did capture this state.
+	rootAfterA, _, err := baseUniverse.RootNode(ctx)
+	require.NoError(t, err)
+	require.True(
+		t, mssmt.IsEqualNode(rootAfterA, primed[0].UniverseRoot),
+		"primed proof should embed the post-insert root",
+	)
+
+	// Insert a second leaf into the same universe. The tree's root
+	// must change, since every leaf contributes its sum to the root.
+	keyB := randLeafKey(t)
+	leafB := randMintingLeaf(t, assetGen, id.GroupKey)
+	_, err = multiverse.UpsertProofLeaf(ctx, id, keyB, &leafB, nil)
+	require.NoError(t, err)
+
+	rootAfterB, _, err := baseUniverse.RootNode(ctx)
+	require.NoError(t, err)
+	require.False(
+		t, mssmt.IsEqualNode(rootAfterA, rootAfterB),
+		"sanity: inserting leafB must change the tree root",
+	)
+
+	// Now re-fetch leafA through the multiverse store. With a correct
+	// cache invariant, the returned UniverseRoot must match the
+	// CURRENT tree root (rootAfterB), not the stale snapshot taken
+	// when leafA was first cached.
+	refetched, err := multiverse.FetchProofLeaf(ctx, id, keyA)
+	require.NoError(t, err)
+	require.Len(t, refetched, 1)
+
+	require.True(
+		t, mssmt.IsEqualNode(rootAfterB, refetched[0].UniverseRoot),
+		"refetched proof for leafA must embed the current "+
+			"universe root, not the snapshot from before "+
+			"leafB was inserted",
+	)
+
+	// The inclusion proof inside the refetched leaf must also
+	// reconstruct to the current root. This is the exact check the
+	// universe syncer's VerifyRoot performs against the root it
+	// fetched at the start of the sync; a stale UniverseRoot fails
+	// this and the leaf is silently dropped.
+	require.True(
+		t, refetched[0].VerifyRoot(rootAfterB),
+		"refetched proof for leafA must verify against the "+
+			"current universe root",
+	)
 }

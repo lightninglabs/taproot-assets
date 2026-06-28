@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/lightninglabs/taproot-assets/internal/lncfg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
-	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/urfave/cli"
 )
 

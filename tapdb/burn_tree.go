@@ -216,6 +216,7 @@ func queryBurnLeaves(ctx context.Context, dbtx BaseUniverseStore,
 		dbLeaves, err := dbtx.QueryUniverseLeaves(
 			ctx, UniverseLeafQuery{
 				Namespace: namespace,
+				NumLimit:  noLeavesLimit,
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -246,6 +247,7 @@ func queryBurnLeaves(ctx context.Context, dbtx BaseUniverseStore,
 			ctx, UniverseLeafQuery{
 				MintingPointBytes: burnPointBytes,
 				Namespace:         namespace,
+				NumLimit:          noLeavesLimit,
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {

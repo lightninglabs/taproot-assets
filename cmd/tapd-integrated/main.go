@@ -24,6 +24,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/integration"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
 )
@@ -127,6 +128,27 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("error validating tapd config: %w", err)
 	}
+
+	// Initialize tapd's subsystem loggers. ValidateConfig
+	// (unlike LoadConfig) does not call SetupLoggers, so
+	// without this, all tapd subsystem loggers remain
+	// disabled and we lose observability into the porter,
+	// proof system, etc.
+	tapdLogMgr := build.NewSubLoggerManager(
+		build.NewDefaultLogHandlers(
+			cfg.TaprootAssets.Logging,
+			cfg.TaprootAssets.LogWriter,
+		)...,
+	)
+	taprootassets.SetupLoggers(tapdLogMgr, interceptor)
+	err = build.ParseAndSetDebugLevels(
+		cfg.TaprootAssets.DebugLevel, tapdLogMgr,
+	)
+	if err != nil {
+		return fmt.Errorf("error setting tapd log "+
+			"levels: %w", err)
+	}
+	cfg.TaprootAssets.LogMgr = tapdLogMgr
 
 	// Determine chain parameters from lnd's active net.
 	chainParams := address.ParamsForChain(

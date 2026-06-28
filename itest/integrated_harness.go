@@ -100,6 +100,32 @@ func (h *IntegratedNetworkHarness) NewNode(name string,
 	return n
 }
 
+// NewNodeWithBinary creates, starts, and returns a new IntegratedNode that
+// runs the specified binary instead of the harness's default binary. This is
+// used for backward compatibility testing where some nodes run an older
+// release while others run the current build.
+func (h *IntegratedNetworkHarness) NewNodeWithBinary(name, binaryPath string,
+	extraLndArgs, extraTapdArgs []string) *IntegratedNode {
+
+	h.t.Helper()
+
+	chainArgs := h.chainBackend.GenArgs()
+	lndArgs := append(chainArgs, extraLndArgs...)
+
+	if h.FeeServiceURL != "" {
+		lndArgs = append(lndArgs, "--fee.url="+h.FeeServiceURL)
+	}
+
+	n := NewIntegratedNode(
+		h.t, name, binaryPath, h.netParams, lndArgs, extraTapdArgs,
+	)
+	n.Start()
+
+	h.activeNodes[name] = n
+
+	return n
+}
+
 // TearDown stops all active nodes managed by this harness.
 func (h *IntegratedNetworkHarness) TearDown() {
 	h.t.Helper()

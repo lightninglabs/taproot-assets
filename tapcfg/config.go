@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/lncfg"
 	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -30,7 +31,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
-	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/signal"
@@ -154,24 +154,6 @@ const (
 	// DefaultPsbtMaxFeeRatio is the default maximum for fees to total
 	// output amount ratio to use when funding PSBTs.
 	DefaultPsbtMaxFeeRatio = lndservices.DefaultPsbtMaxFeeRatio
-
-	// defaultPriceOracleTLSDisable disables TLS for price oracle
-	// communication.
-	defaultPriceOracleTLSDisable = false
-
-	// defaultPriceOracleTLSInsecure is the default value we'll use for
-	// deciding to verify certificates in TLS connections with price
-	// oracles.
-	defaultPriceOracleTLSInsecure = false
-
-	// defaultPriceOracleNoSystemCAs is the default value we'll use
-	// regarding trust of the operating system's root CA list. We'll use
-	// 'false', i.e. we will trust the OS root CA list by default.
-	defaultPriceOracleTLSNoSystemCAs = false
-
-	// defaultPriceOracleTLSCertPath is the default (empty) path to a
-	// certificate to use for securing price oracle communication.
-	defaultPriceOracleTLSCertPath = ""
 
 	// Set defaults for a health check which ensures that the TLS certificate
 	// is not expired. Although this check is off by default (not all setups
@@ -380,10 +362,11 @@ type ExperimentalConfig struct {
 // CleanAndValidate performs final processing on the ExperimentalConfig,
 // returning an error if the configuration is invalid.
 func (c *ExperimentalConfig) CleanAndValidate() error {
-	c.Rfq.PriceOracleTLSCertPath = CleanAndExpandPath(
-		c.Rfq.PriceOracleTLSCertPath)
+	c.Rfq.TLS.CertPath = CleanAndExpandPath(c.Rfq.TLS.CertPath)
 	c.Rfq.PriceOracleMacaroonPath = CleanAndExpandPath(
 		c.Rfq.PriceOracleMacaroonPath)
+	c.Rfq.PortfolioPilotMacaroonPath = CleanAndExpandPath(
+		c.Rfq.PortfolioPilotMacaroonPath)
 	return c.Rfq.Validate()
 }
 
@@ -553,11 +536,7 @@ func DefaultConfig() Config {
 		},
 		Experimental: &ExperimentalConfig{
 			Rfq: rfq.CliConfig{
-				AcceptPriceDeviationPpm:   rfq.DefaultAcceptPriceDeviationPpm,
-				PriceOracleTLSDisable:     defaultPriceOracleTLSDisable,
-				PriceOracleTLSInsecure:    defaultPriceOracleTLSInsecure,
-				PriceOracleTLSNoSystemCAs: defaultPriceOracleTLSNoSystemCAs,
-				PriceOracleTLSCertPath:    defaultPriceOracleTLSCertPath,
+				AcceptPriceDeviationPpm: rfq.DefaultAcceptPriceDeviationPpm,
 			},
 		},
 		HealthChecks: &HealthCheckConfig{
@@ -1272,34 +1251,30 @@ func getCertificateConfig(cfg *Config, cfgLogger btclog.Logger) (*tls.Config,
 	return tlsCfg, restCreds, nil
 }
 
-// getPriceOracleTLSConfig returns a TLS configuration for a price oracle,
-// given a valid RFQ CLI configuration.
-func getPriceOracleTLSConfig(rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
+// getRfqTLSConfig returns a TLS configuration shared by all RFQ gRPC client
+// connections (price oracle, portfolio pilot), given a valid RFQ CLI
+// configuration.
+func getRfqTLSConfig(rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
 	var certBytes []byte
 
 	// Read any specified certificate data.
-	if rfqCfg.PriceOracleTLSCertPath != "" {
+	if rfqCfg.TLS.CertPath != "" {
 		var err error
-		certBytes, err = os.ReadFile(
-			rfqCfg.PriceOracleTLSCertPath,
-		)
+		certBytes, err = os.ReadFile(rfqCfg.TLS.CertPath)
 		if err != nil {
-			return nil, fmt.Errorf("unable to read "+
-				"price oracle certificate: %w", err)
+			return nil, fmt.Errorf("unable to read RFQ TLS "+
+				"certificate: %w", err)
 		}
 	}
 
-	// Construct the oracle's TLS configuration.
-	tlsConfig := &rfq.TLSConfig{
-		Disabled:           rfqCfg.PriceOracleTLSDisable,
-		InsecureSkipVerify: rfqCfg.PriceOracleTLSInsecure,
+	return &rfq.TLSConfig{
+		Disabled:           rfqCfg.TLS.Disable,
+		InsecureSkipVerify: rfqCfg.TLS.Insecure,
 		// Note the subtle flip on the flag, since the user has
 		// configured whether to *not* trust the system CA's.
-		TrustSystemRootCAs: !rfqCfg.PriceOracleTLSNoSystemCAs,
+		TrustSystemRootCAs: !rfqCfg.TLS.NoSystemCAs,
 		CustomCertificates: certBytes,
-	}
-
-	return tlsConfig, nil
+	}, nil
 }
 
 // getPriceOracleMacaroonOpt reads the price oracle macaroon file
@@ -1314,6 +1289,26 @@ func getPriceOracleMacaroonOpt(
 
 	opt, err := rfq.NewMacaroonDialOption(
 		rfqCfg.PriceOracleMacaroonPath,
+	)
+	if err != nil {
+		return fn.None[grpc.DialOption](), err
+	}
+
+	return fn.Some(opt), nil
+}
+
+// getPortfolioPilotMacaroonOpt reads the portfolio pilot macaroon file
+// from disk (if configured) and returns it as an optional gRPC dial
+// option.
+func getPortfolioPilotMacaroonOpt(
+	rfqCfg rfq.CliConfig) (fn.Option[grpc.DialOption], error) {
+
+	if rfqCfg.PortfolioPilotMacaroonPath == "" {
+		return fn.None[grpc.DialOption](), nil
+	}
+
+	opt, err := rfq.NewMacaroonDialOption(
+		rfqCfg.PortfolioPilotMacaroonPath,
 	)
 	if err != nil {
 		return fn.None[grpc.DialOption](), err

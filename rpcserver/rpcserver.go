@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -209,6 +210,13 @@ type RPCServer struct {
 
 	proofQueryRateLimiter *rate.Limiter
 
+	// ready is an atomic flag that is set to 1 once Start has finished
+	// wiring up the server's dependencies (config, rate limiter, etc.). It
+	// gates the Universe RPC surface so that calls arriving before the
+	// server is fully initialized are rejected cleanly instead of panicking
+	// on a half-built server. See checkReady and readyGatedRegistrar.
+	ready int32
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -238,6 +246,12 @@ func (r *RPCServer) Start(cfg *tapconfig.Config) error {
 		r.cfg.UniverseQueriesPerSecond, r.cfg.UniverseQueriesBurst,
 	)
 
+	// All of our dependencies are now wired up, so we can flip the ready
+	// flag. This must happen last: the atomic store also acts as the
+	// release barrier that publishes the writes above (config, rate
+	// limiter) to any handler goroutine that observes ready via checkReady.
+	atomic.StoreInt32(&r.ready, 1)
+
 	rpcsLog.Infof("Starting Taproot Assets RPC Server")
 
 	return nil
@@ -251,6 +265,12 @@ func (r *RPCServer) Stop() error {
 	}
 
 	rpcsLog.Infof("Stopping Taproot Assets RPC Server")
+
+	// Flip the ready flag back off so that any call arriving after Stop is
+	// rejected with Unavailable rather than reaching a tearing-down server.
+	// In-flight calls that already passed the gate are not affected and
+	// finish against the tearing-down state on their own.
+	atomic.StoreInt32(&r.ready, 0)
 
 	close(r.quit)
 
@@ -270,10 +290,95 @@ func (r *RPCServer) RegisterWithGrpcServer(
 	mintrpc.RegisterMintServer(registrar, r)
 	rfqrpc.RegisterRfqServer(registrar, r)
 	tchrpc.RegisterTaprootAssetChannelsServer(registrar, r)
-	unirpc.RegisterUniverseServer(registrar, r)
+
+	// The Universe service is reachable without a macaroon when public
+	// access is enabled, and in litd's integrated mode it is registered
+	// directly onto lnd's gRPC server. That means a Universe call can land
+	// on a handler before Start has wired up the server's dependencies,
+	// dereferencing a nil config or rate limiter and panicking the whole
+	// process. We register it through a gate that rejects calls with
+	// Unavailable until the server is ready, rather than gating each
+	// handler individually.
+	unirpc.RegisterUniverseServer(newReadyGatedRegistrar(registrar, r), r)
+
 	tapdevrpc.RegisterGrpcServer(registrar, r)
 
 	return nil
+}
+
+// checkReady returns a gRPC Unavailable error if the RPC server has not yet
+// finished starting up. Once Start has completed wiring up the server's
+// dependencies, this is a noop. It is the per-call equivalent of the rpcState
+// interceptor used in standalone mode, but works in litd's integrated mode
+// too, where tapd's handlers run under lnd's interceptor chain and so never see
+// tapd's own state interceptor.
+func (r *RPCServer) checkReady() error {
+	if atomic.LoadInt32(&r.ready) == 1 {
+		return nil
+	}
+
+	return status.Error(
+		codes.Unavailable,
+		"the RPC server is not ready to accept requests",
+	)
+}
+
+// readyGatedRegistrar wraps a grpc.ServiceRegistrar so that every unary method
+// of a registered service is guarded by a readiness check. Calls that arrive
+// before the gate opens are rejected with the gate's error instead of reaching
+// a half-initialized handler.
+type readyGatedRegistrar struct {
+	grpc.ServiceRegistrar
+
+	gate func() error
+}
+
+// newReadyGatedRegistrar wraps the passed registrar so that all services
+// registered through it have their unary handlers gated on the RPC server's
+// readiness.
+func newReadyGatedRegistrar(registrar grpc.ServiceRegistrar,
+	r *RPCServer) *readyGatedRegistrar {
+
+	return &readyGatedRegistrar{
+		ServiceRegistrar: registrar,
+		gate:             r.checkReady,
+	}
+}
+
+// RegisterService wraps each of the service's unary method handlers with the
+// readiness gate before delegating to the underlying registrar.
+//
+// NOTE: This is part of the grpc.ServiceRegistrar interface.
+func (g *readyGatedRegistrar) RegisterService(desc *grpc.ServiceDesc,
+	impl interface{}) {
+
+	// Copy the descriptor so we don't mutate the package-level ServiceDesc
+	// shared by every server in the process.
+	gated := *desc
+	gated.Methods = make([]grpc.MethodDesc, len(desc.Methods))
+
+	for i, method := range desc.Methods {
+		// Capture the original handler for this method so the closure
+		// below dispatches to the right one.
+		handler := method.Handler
+
+		gated.Methods[i] = grpc.MethodDesc{
+			MethodName: method.MethodName,
+			Handler: func(srv interface{}, ctx context.Context,
+				dec func(interface{}) error,
+				interceptor grpc.UnaryServerInterceptor) (
+				interface{}, error) {
+
+				if err := g.gate(); err != nil {
+					return nil, err
+				}
+
+				return handler(srv, ctx, dec, interceptor)
+			},
+		}
+	}
+
+	g.ServiceRegistrar.RegisterService(&gated, impl)
 }
 
 // RegisterWithRestProxy registers the RPC server with the given rest proxy.
@@ -1708,8 +1813,11 @@ func (r *RPCServer) ListTransfers(ctx context.Context,
 		Transfers: make([]*taprpc.AssetTransfer, len(parcels)),
 	}
 
+	resolver := newTransferAssetInfoResolver(ctx, r.cfg.TapAddrBook)
 	for idx := range parcels {
-		resp.Transfers[idx], err = marshalOutboundParcel(parcels[idx])
+		resp.Transfers[idx], err = marshalOutboundParcel(
+			parcels[idx], resolver,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal parcel: %w",
 				err)
@@ -2892,7 +3000,8 @@ func (r *RPCServer) AnchorVirtualPsbts(ctx context.Context,
 		return nil, fmt.Errorf("error requesting delivery: %w", err)
 	}
 
-	parcel, err := marshalOutboundParcel(resp)
+	resolver := newTransferAssetInfoResolver(ctx, r.cfg.TapAddrBook)
+	parcel, err := marshalOutboundParcel(resp, resolver)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling outbound parcel: %w",
 			err)
@@ -3390,7 +3499,8 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 		return nil, fmt.Errorf("error requesting delivery: %w", err)
 	}
 
-	parcel, err := marshalOutboundParcel(resp)
+	resolver := newTransferAssetInfoResolver(ctx, r.cfg.TapAddrBook)
+	parcel, err := marshalOutboundParcel(resp, resolver)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling outbound parcel: %w",
 			err)
@@ -3824,7 +3934,8 @@ func (r *RPCServer) SendAsset(ctx context.Context,
 		return nil, err
 	}
 
-	parcel, err := marshalOutboundParcel(resp)
+	resolver := newTransferAssetInfoResolver(ctx, r.cfg.TapAddrBook)
+	parcel, err := marshalOutboundParcel(resp, resolver)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling outbound parcel: %w",
 			err)
@@ -4082,7 +4193,8 @@ func (r *RPCServer) BurnAsset(ctx context.Context,
 		return nil, err
 	}
 
-	parcel, err := marshalOutboundParcel(resp)
+	resolver := newTransferAssetInfoResolver(ctx, r.cfg.TapAddrBook)
+	parcel, err := marshalOutboundParcel(resp, resolver)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling outbound parcel: %w",
 			err)
@@ -4151,24 +4263,137 @@ func marshalRpcBurn(b *tapfreighter.AssetBurn) *taprpc.AssetBurn {
 		Note:            b.Note,
 		AssetId:         b.AssetID,
 		TweakedGroupKey: b.GroupKey,
+		AssetType:       taprpc.AssetType(b.AssetType),
 		Amount:          b.Amount,
 		AnchorTxid:      b.AnchorTxid[:],
 	}
 }
 
+type transferAssetInfo struct {
+	groupKey  []byte
+	assetType asset.Type
+}
+
+// transferAssetInfoResolver caches asset_id -> transfer asset metadata lookups
+// so a transfer with N inputs/outputs sharing one asset collapses to one DB
+// query. A nil groupKey means "asset has no group". The resolver distinguishes
+// a genuine cache miss from a cached ungrouped asset via map presence. The
+// resolver is safe for concurrent use, so it can also be captured by a
+// SubscribeSendEvents marshaler closure that processes events on the porter's
+// goroutine.
+type transferAssetInfoResolver struct {
+	ctx   context.Context
+	addrs *tapdb.TapAddressBook
+
+	mu    sync.RWMutex
+	cache map[asset.ID]transferAssetInfo
+}
+
+// newTransferAssetInfoResolver builds a resolver bound to ctx and the daemon's
+// address book. Pass a request-scoped ctx for unary RPCs and a
+// stream-scoped ctx for subscription marshalers.
+func newTransferAssetInfoResolver(ctx context.Context,
+	addrs *tapdb.TapAddressBook) *transferAssetInfoResolver {
+
+	return &transferAssetInfoResolver{
+		ctx:   ctx,
+		addrs: addrs,
+		cache: make(map[asset.ID]transferAssetInfo),
+	}
+}
+
+func defaultTransferAssetInfo() transferAssetInfo {
+	return transferAssetInfo{
+		assetType: asset.Normal,
+	}
+}
+
+// infoFor returns the transfer asset metadata for assetID. The result is
+// cached for the lifetime of the resolver.
+//
+// A daemon that does not know the asset's genesis
+// (address.ErrAssetGroupUnknown) is treated as an ungrouped normal asset rather
+// than a hard error so that ListTransfers stays resilient against gaps in older
+// rows.
+func (r *transferAssetInfoResolver) infoFor(id asset.ID) (
+	transferAssetInfo, error) {
+
+	r.mu.RLock()
+	cached, ok := r.cache[id]
+	r.mu.RUnlock()
+	if ok {
+		return cached, nil
+	}
+
+	defaultInfo := defaultTransferAssetInfo()
+	if r.addrs == nil {
+		r.store(id, defaultInfo)
+		return defaultInfo, nil
+	}
+
+	group, err := r.addrs.QueryAssetGroupByID(r.ctx, id)
+	switch {
+	case errors.Is(err, address.ErrAssetGroupUnknown):
+		r.store(id, defaultInfo)
+		return defaultInfo, nil
+
+	case err != nil:
+		return transferAssetInfo{}, fmt.Errorf("unable to look up "+
+			"asset information for asset "+
+			"%x: %w", id[:], err)
+	}
+
+	info := defaultInfo
+	if group != nil && group.Genesis != nil {
+		info.assetType = group.Genesis.Type
+	}
+
+	if group != nil && group.GroupKey != nil {
+		info.groupKey = group.GroupKey.GroupPubKey.SerializeCompressed()
+	}
+
+	r.store(id, info)
+	return info, nil
+}
+
+func (r *transferAssetInfoResolver) store(id asset.ID,
+	info transferAssetInfo) {
+
+	r.mu.Lock()
+	r.cache[id] = info
+	r.mu.Unlock()
+}
+
 // marshalOutboundParcel turns a pending parcel into its RPC counterpart.
-func marshalOutboundParcel(
-	parcel *tapfreighter.OutboundParcel) (*taprpc.AssetTransfer,
-	error) {
+//
+// resolver may be nil; callers that pass nil get a transfer without group_key
+// populated on inputs/outputs and with asset_type defaulting to NORMAL.
+func marshalOutboundParcel(parcel *tapfreighter.OutboundParcel,
+	resolver *transferAssetInfoResolver) (*taprpc.AssetTransfer, error) {
+
+	resolveAssetInfo := func(id asset.ID) (transferAssetInfo, error) {
+		if resolver == nil {
+			return defaultTransferAssetInfo(), nil
+		}
+		return resolver.infoFor(id)
+	}
 
 	rpcInputs := make([]*taprpc.TransferInput, len(parcel.Inputs))
 	for idx := range parcel.Inputs {
 		in := parcel.Inputs[idx]
+
+		assetInfo, err := resolveAssetInfo(in.ID)
+		if err != nil {
+			return nil, err
+		}
+
 		rpcInputs[idx] = &taprpc.TransferInput{
 			AnchorPoint: in.OutPoint.String(),
 			AssetId:     in.ID[:],
 			ScriptKey:   in.ScriptKey[:],
 			Amount:      in.Amount,
+			GroupKey:    assetInfo.groupKey,
+			AssetType:   taprpc.AssetType(assetInfo.assetType),
 		}
 	}
 
@@ -4218,6 +4443,11 @@ func marshalOutboundParcel(
 				"proof: %w", err)
 		}
 
+		assetInfo, err := resolveAssetInfo(proofAssetID)
+		if err != nil {
+			return nil, err
+		}
+
 		// Marshall the proof delivery status.
 		proofDeliveryStatus := marshalOutputProofDeliveryStatus(out)
 
@@ -4236,6 +4466,10 @@ func marshalOutboundParcel(
 			AssetId:             proofAssetID[:],
 			ProofCourierAddr:    string(out.ProofCourierAddr),
 			TapAddr:             out.TapAddress,
+			GroupKey:            assetInfo.groupKey,
+			AssetType: taprpc.AssetType(
+				assetInfo.assetType,
+			),
 		}
 	}
 
@@ -5400,6 +5634,17 @@ func (r *RPCServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
 		targetScriptKey = fn.MaybeSome(scriptKey)
 	}
 
+	// One resolver instance covers both historical replay and live event
+	// processing for this subscription. Transfer asset information is
+	// stable for any given asset_id, so the cache stays correct for the
+	// lifetime of the stream.
+	resolver := newTransferAssetInfoResolver(
+		ntfnStream.Context(), r.cfg.TapAddrBook,
+	)
+	marshalEvent := func(event fn.Event) (*taprpc.SendEvent, error) {
+		return marshalSendEvent(event, resolver)
+	}
+
 	// If a start timestamp is provided, first send historical events.
 	if req.StartTimestamp > 0 {
 		// Convert microseconds to time.Time
@@ -5450,7 +5695,7 @@ func (r *RPCServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
 			// Since we already filtered at the database level, we
 			// can directly send all events. Marshal and send the
 			// event.
-			rpcEvent, err := marshalSendEvent(event)
+			rpcEvent, err := marshalEvent(event)
 			if err != nil {
 				rpcsLog.Errorf("Failed to marshal historical "+
 					"send event: %v", err)
@@ -5488,7 +5733,7 @@ func (r *RPCServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
 	}
 
 	return handleEvents[bool, *taprpc.SendEvent](
-		r.cfg.ChainPorter, ntfnStream, marshalSendEvent, shouldNotify,
+		r.cfg.ChainPorter, ntfnStream, marshalEvent, shouldNotify,
 		r.quit, false,
 	)
 }
@@ -5725,7 +5970,13 @@ func marshallSendAssetEvent(event fn.Event) (*tapdevrpc.SendAssetEvent, error) {
 }
 
 // marshalSendEvent marshals an asset send event into the RPC counterpart.
-func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
+//
+// resolver populates the group_key and asset_type fields on any embedded
+// transfer's inputs and outputs. It may be nil for callers that do not need
+// enriched transfer metadata.
+func marshalSendEvent(event fn.Event,
+	resolver *transferAssetInfoResolver) (*taprpc.SendEvent, error) {
+
 	e, ok := event.(*tapfreighter.AssetSendEvent)
 	if !ok {
 		return nil, fmt.Errorf("invalid event type: %T", event)
@@ -5840,7 +6091,9 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 	}
 
 	if e.Transfer != nil {
-		result.Transfer, err = marshalOutboundParcel(e.Transfer)
+		result.Transfer, err = marshalOutboundParcel(
+			e.Transfer, resolver,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling transfer: %w",
 				err)
@@ -6442,34 +6695,81 @@ func (r *RPCServer) MultiverseRoot(ctx context.Context,
 	return &resp, nil
 }
 
+// unmarshalUniSortDirection maps the RPC SortDirection enum to the
+// internal universe type. The RPC enum uses DESC=0, ASC=1, while
+// the internal type uses ASC=0, DESC=1.
+func unmarshalUniSortDirection(
+	d taprpc.SortDirection) universe.SortDirection {
+
+	switch d {
+	case taprpc.SortDirection_SORT_DIRECTION_ASC:
+		return universe.SortAscending
+	case taprpc.SortDirection_SORT_DIRECTION_DESC:
+		return universe.SortDescending
+	default:
+		return universe.SortAscending
+	}
+}
+
+// validatePage validates the pagination parameters for universe
+// queries.
+func validatePage(offset, limit int32) error {
+	if offset < 0 {
+		return fmt.Errorf("invalid request offset: %d", offset)
+	}
+	if limit < 0 || limit > universe.MaxPageSize {
+		return fmt.Errorf("invalid request limit: %d", limit)
+	}
+
+	return nil
+}
+
 // AssetRoots queries for the known Universe roots associated with each known
 // asset. These roots represent the supply/audit state for each known asset.
 func (r *RPCServer) AssetRoots(ctx context.Context,
 	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
 
-	// Check the rate limiter to see if we need to wait at all. If not then
-	// this'll be a noop.
+	if err := validatePage(req.Offset, req.Limit); err != nil {
+		return nil, err
+	}
+
+	// Check the rate limiter to see if we need to wait at all. If not
+	// then this'll be a noop.
 	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 
+	// Default to RequestPageSize if no limit is set, and query one
+	// extra row to determine if there are more results.
+	limit := req.Limit
+	if limit == 0 {
+		limit = universe.RequestPageSize
+	}
+
 	// First, we'll retrieve the full set of known asset Universe roots.
+	sortDir := unmarshalUniSortDirection(req.Direction)
 	assetRoots, err := r.cfg.UniverseArchive.RootNodes(
 		ctx, universe.RootNodesQuery{
 			WithAmountsById: req.WithAmountsById,
-			SortDirection:   universe.SortDirection(req.Direction),
+			SortDirection:   sortDir,
 			Offset:          req.Offset,
-			Limit:           req.Limit,
+			Limit:           limit + 1,
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	hasMore := int32(len(assetRoots)) > limit
+	if hasMore {
+		assetRoots = assetRoots[:limit]
+	}
+
 	resp := &unirpc.AssetRootResponse{
 		UniverseRoots: make(
 			map[string]*unirpc.UniverseRoot, len(assetRoots),
 		),
+		HasMore: hasMore,
 	}
 
 	// Retrieve config for use in filtering asset roots based on sync export
@@ -6881,8 +7181,8 @@ func (r *RPCServer) AssetLeafKeys(ctx context.Context,
 		return nil, fmt.Errorf("proof type must be specified")
 	}
 
-	if req.Limit > universe.MaxPageSize || req.Limit < 0 {
-		return nil, fmt.Errorf("invalid request limit: %d", req.Limit)
+	if err = validatePage(req.Offset, req.Limit); err != nil {
+		return nil, err
 	}
 
 	// Check the rate limiter to see if we need to wait at all. If not then
@@ -6891,20 +7191,33 @@ func (r *RPCServer) AssetLeafKeys(ctx context.Context,
 		return nil, err
 	}
 
+	// Default to RequestPageSize if no limit is set, and query one
+	// extra row to determine if there are more results.
+	limit := req.Limit
+	if limit == 0 {
+		limit = universe.RequestPageSize
+	}
+
 	leafKeys, err := r.cfg.UniverseArchive.UniverseLeafKeys(
 		ctx, universe.UniverseLeafKeysQuery{
 			Id:            universeID,
-			SortDirection: universe.SortDirection(req.Direction),
+			SortDirection: unmarshalUniSortDirection(req.Direction),
 			Offset:        req.Offset,
-			Limit:         req.Limit,
+			Limit:         limit + 1,
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	hasMore := int32(len(leafKeys)) > limit
+	if hasMore {
+		leafKeys = leafKeys[:limit]
+	}
+
 	resp := &unirpc.AssetLeafKeyResponse{
 		AssetKeys: make([]*unirpc.AssetKey, len(leafKeys)),
+		HasMore:   hasMore,
 	}
 
 	for i, leafKey := range leafKeys {
@@ -6956,26 +7269,54 @@ func (r *RPCServer) marshalAssetLeaf(ctx context.Context,
 // took place on chain. The leaves contain a normal Taproot asset proof, as well
 // as details for the asset.
 func (r *RPCServer) AssetLeaves(ctx context.Context,
-	req *unirpc.ID) (*unirpc.AssetLeafResponse, error) {
+	req *unirpc.AssetLeavesRequest) (*unirpc.AssetLeafResponse, error) {
 
-	universeID, err := UnmarshalUniID(req)
+	if req == nil {
+		return nil, fmt.Errorf("request must be set")
+	}
+
+	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check the rate limiter to see if we need to wait at all. If not then
-	// this'll be a noop.
+	if err = validatePage(req.Offset, req.Limit); err != nil {
+		return nil, err
+	}
+
+	// Check the rate limiter to see if we need to wait at all. If not
+	// then this'll be a noop.
 	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 
-	assetLeaves, err := r.cfg.UniverseArchive.FetchLeaves(ctx, universeID)
+	// Default to RequestPageSize if no limit is set, and query one
+	// extra row to determine if there are more results.
+	limit := req.Limit
+	if limit == 0 {
+		limit = universe.RequestPageSize
+	}
+
+	sortDir := unmarshalUniSortDirection(req.Direction)
+	assetLeaves, err := r.cfg.UniverseArchive.FetchLeaves(
+		ctx, universeID, universe.FetchLeavesQuery{
+			SortDirection: sortDir,
+			Offset:        req.Offset,
+			Limit:         limit + 1,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
 
+	hasMore := int32(len(assetLeaves)) > limit
+	if hasMore {
+		assetLeaves = assetLeaves[:limit]
+	}
+
 	resp := &unirpc.AssetLeafResponse{
-		Leaves: make([]*unirpc.AssetLeaf, len(assetLeaves)),
+		Leaves:  make([]*unirpc.AssetLeaf, len(assetLeaves)),
+		HasMore: hasMore,
 	}
 	for i, assetLeaf := range assetLeaves {
 		assetLeaf := assetLeaf
@@ -7415,6 +7756,10 @@ func unmarshalCommitLocator(outpoint, spentOutpoint *taprpc.OutPoint,
 
 // unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.
 func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
+	if leaf == nil {
+		return nil, fmt.Errorf("asset leaf cannot be nil")
+	}
+
 	// We'll just pull the asset details from the serialized issuance proof
 	// itself.
 	var proofAsset asset.Asset
@@ -8153,6 +8498,17 @@ func (r *RPCServer) marshalAssetSyncSnapshot(ctx context.Context,
 func (r *RPCServer) QueryAssetStats(ctx context.Context,
 	req *unirpc.AssetStatsQuery) (*unirpc.UniverseAssetStats, error) {
 
+	if err := validatePage(req.Offset, req.Limit); err != nil {
+		return nil, err
+	}
+
+	// Default to RequestPageSize if no limit is set, and query one
+	// extra row to determine if there are more results.
+	limit := req.Limit
+	if limit == 0 {
+		limit = universe.RequestPageSize
+	}
+
 	assetStats, err := r.cfg.UniverseStats.QuerySyncStats(
 		ctx, universe.SyncStatsQuery{
 			AssetNameFilter: req.AssetNameFilter,
@@ -8172,19 +8528,27 @@ func (r *RPCServer) QueryAssetStats(ctx context.Context,
 				req.AssetIdFilter,
 			),
 			SortBy:        universe.SyncStatsSort(req.SortBy),
-			SortDirection: universe.SortDirection(req.Direction),
+			SortDirection: unmarshalUniSortDirection(req.Direction),
 			Offset:        int(req.Offset),
-			Limit:         int(req.Limit),
+			Limit:         int(limit + 1),
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	hasMore := int32(len(assetStats.SyncStats)) > limit
+	if hasMore {
+		assetStats.SyncStats =
+			assetStats.SyncStats[:limit]
+	}
+
 	resp := &unirpc.UniverseAssetStats{
 		AssetStats: make(
-			[]*unirpc.AssetStatsSnapshot, len(assetStats.SyncStats),
+			[]*unirpc.AssetStatsSnapshot,
+			len(assetStats.SyncStats),
 		),
+		HasMore: hasMore,
 	}
 	for idx, snapshot := range assetStats.SyncStats {
 		rpcSnapshot, err := r.marshalAssetSyncSnapshot(ctx, snapshot)
@@ -10246,6 +10610,402 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 	}, nil
 }
 
+// ListInvoices is a wrapper around lnd's lnrpc.ListInvoices method that only
+// returns invoices that involve at least one Taproot Asset. The full lnd
+// invoice is returned along with the decoded asset amounts that the invoice's
+// HTLCs carry.
+func (r *RPCServer) ListInvoices(ctx context.Context,
+	req *tchrpc.ListInvoicesRequest) (*tchrpc.ListInvoicesResponse, error) {
+
+	lndReq := req.GetRequest()
+	if lndReq == nil {
+		lndReq = &lnrpc.ListInvoiceRequest{}
+	}
+
+	rpcCtx, _, rawClient := r.cfg.Lnd.Client.RawClientWithMacAuth(ctx)
+	resp, err := rawClient.ListInvoices(rpcCtx, lndReq)
+	if err != nil {
+		return nil, fmt.Errorf("error listing invoices: %w", err)
+	}
+
+	lookup := newAssetGroupLookup(ctx, r.cfg.AddrBook)
+
+	assetInvoices := make([]*tchrpc.AssetInvoice, 0, len(resp.Invoices))
+	for _, invoice := range resp.Invoices {
+		amounts, isAsset, err := assetAmountsFromInvoice(invoice)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding asset "+
+				"amounts from invoice %x: %w",
+				invoice.GetRHash(), err)
+		}
+
+		// Asset-only: skip invoices that don't carry any asset HTLCs.
+		if !isAsset {
+			continue
+		}
+
+		assetInvoices = append(assetInvoices, &tchrpc.AssetInvoice{
+			Invoice:      invoice,
+			AssetAmounts: marshalAssetAmounts(amounts, lookup),
+		})
+	}
+
+	return &tchrpc.ListInvoicesResponse{
+		Invoices:         assetInvoices,
+		FirstIndexOffset: resp.FirstIndexOffset,
+		LastIndexOffset:  resp.LastIndexOffset,
+	}, nil
+}
+
+// ListPayments is a wrapper around lnd's lnrpc.ListPayments method that only
+// returns payments that involve at least one Taproot Asset. The full lnd
+// payment is returned along with the decoded asset amounts that the payment's
+// HTLCs carry.
+func (r *RPCServer) ListPayments(ctx context.Context,
+	req *tchrpc.ListPaymentsRequest) (*tchrpc.ListPaymentsResponse, error) {
+
+	lndReq := req.GetRequest()
+	if lndReq == nil {
+		lndReq = &lnrpc.ListPaymentsRequest{}
+	}
+
+	rpcCtx, _, rawClient := r.cfg.Lnd.Client.RawClientWithMacAuth(ctx)
+	resp, err := rawClient.ListPayments(rpcCtx, lndReq)
+	if err != nil {
+		return nil, fmt.Errorf("error listing payments: %w", err)
+	}
+
+	lookup := newAssetGroupLookup(ctx, r.cfg.AddrBook)
+
+	assetPayments := make([]*tchrpc.AssetPayment, 0, len(resp.Payments))
+	for _, payment := range resp.Payments {
+		amounts, isAsset, err := assetAmountsFromPayment(payment)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding asset "+
+				"amounts from payment %s: %w",
+				payment.GetPaymentHash(), err)
+		}
+
+		// Asset-only: skip payments that don't carry any asset HTLCs.
+		if !isAsset {
+			continue
+		}
+
+		assetPayments = append(assetPayments, &tchrpc.AssetPayment{
+			Payment:      payment,
+			AssetAmounts: marshalAssetAmounts(amounts, lookup),
+		})
+	}
+
+	return &tchrpc.ListPaymentsResponse{
+		Payments:         assetPayments,
+		FirstIndexOffset: resp.FirstIndexOffset,
+		LastIndexOffset:  resp.LastIndexOffset,
+	}, nil
+}
+
+// assetAmountsFromInvoice extracts the per-asset amounts carried by an
+// invoice's settled HTLCs, aggregated across all settled HTLCs. The second
+// return value tells whether the invoice involves any asset at all (i.e. has at
+// least one HTLC carrying asset custom records).
+func assetAmountsFromInvoice(invoice *lnrpc.Invoice) (map[asset.ID]uint64, bool,
+	error) {
+
+	if invoice == nil {
+		return nil, false, fmt.Errorf("nil invoice in lnd response")
+	}
+
+	amounts := make(map[asset.ID]uint64)
+	isAsset := false
+
+	for idx, htlc := range invoice.Htlcs {
+		if htlc == nil {
+			return nil, false, fmt.Errorf("nil HTLC at index "+
+				"%d in invoice %x", idx, invoice.RHash)
+		}
+
+		// We read the raw wire custom records of the HTLC (unlike
+		// the custom_channel_data field, these are never rewritten
+		// into JSON by lnd's aux data parser).
+		balances, err := assetBalancesFromCustomRecords(
+			htlc.CustomRecords,
+		)
+		if err != nil {
+			return nil, false, err
+		}
+
+		if balances == nil {
+			continue
+		}
+
+		isAsset = true
+
+		// Only settled HTLCs delivered assets to the invoice.
+		// Accepted HTLCs are still pending, and canceled HTLCs moved
+		// nothing.
+		if htlc.State == lnrpc.InvoiceHTLCState_SETTLED {
+			mergeAssetBalances(amounts, balances)
+		}
+	}
+
+	return amounts, isAsset, nil
+}
+
+// assetAmountsFromPayment extracts the per-asset amounts carried by a payment,
+// aggregated across all non-failed HTLC attempts. The second return value
+// indicates whether the payment involves any asset at all.
+func assetAmountsFromPayment(payment *lnrpc.Payment) (map[asset.ID]uint64, bool,
+	error) {
+
+	if payment == nil {
+		return nil, false, fmt.Errorf("nil payment in lnd response")
+	}
+
+	amounts := make(map[asset.ID]uint64)
+	isAsset := false
+
+	// The payment-level first hop custom records mark a payment as an asset
+	// payment even when no HTLC succeeded (e.g. fully failed payments), or
+	// for invoice payments where the per-shard amount is only available on
+	// the individual route.
+	firstHop := lnwire.CustomRecords(payment.FirstHopCustomRecords)
+	if rfqmsg.HasAssetHTLCCustomRecords(firstHop) {
+		isAsset = true
+	}
+
+	for idx, htlc := range payment.Htlcs {
+		if htlc == nil {
+			return nil, false, fmt.Errorf("nil HTLC attempt at "+
+				"index %d in payment %s", idx,
+				payment.PaymentHash)
+		}
+
+		if htlc.Route == nil {
+			continue
+		}
+
+		balances, err := assetBalancesFromRouteData(
+			htlc.Route.CustomChannelData,
+		)
+		if err != nil {
+			return nil, false, err
+		}
+
+		if balances == nil {
+			continue
+		}
+
+		isAsset = true
+
+		// Only attempts that are in-flight or have succeeded (still)
+		// carry assets; failed attempts moved nothing.
+		if htlc.Status != lnrpc.HTLCAttempt_FAILED {
+			mergeAssetBalances(amounts, balances)
+		}
+	}
+
+	return amounts, isAsset, nil
+}
+
+// assetBalancesFromCustomRecords extracts the asset balances carried in the
+// given wire custom records. It returns nil (without error) if the records
+// don't carry asset HTLC data.
+func assetBalancesFromCustomRecords(records map[uint64][]byte) (
+	map[asset.ID]uint64, error) {
+
+	customRecords := lnwire.CustomRecords(records)
+	if !rfqmsg.HasAssetHTLCCustomRecords(customRecords) {
+		return nil, nil
+	}
+
+	htlc, err := rfqmsg.HtlcFromCustomRecords(customRecords)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode asset HTLC from "+
+			"custom records: %w", err)
+	}
+
+	return balancesToMap(htlc.Balances()), nil
+}
+
+// assetBalancesFromRouteData extracts asset balances from the custom channel
+// data of a payment route. Depending on whether lnd had an aux data parser
+// configured when marshalling the payment, this blob is either the raw TLV
+// encoding of the HTLC's custom records or its JSON representation. Both forms
+// are handled here. It returns nil (without error) if the blob is empty.
+func assetBalancesFromRouteData(customChannelData []byte) (map[asset.ID]uint64,
+	error) {
+
+	if len(customChannelData) == 0 {
+		return nil, nil
+	}
+
+	// If lnd's aux data parser already converted the blob to JSON, it
+	// starts with a '{'. Otherwise we expect the raw TLV encoding, whose
+	// first byte is a BigSize-encoded record type well above the JSON brace
+	// byte value.
+	trimmed := bytes.TrimSpace(customChannelData)
+	if len(trimmed) > 0 && trimmed[0] == '{' {
+		var jsonHtlc rfqmsg.JsonHtlc
+		if err := json.Unmarshal(trimmed, &jsonHtlc); err != nil {
+			return nil, fmt.Errorf("unable to decode asset HTLC "+
+				"JSON: %w", err)
+		}
+
+		return balancesFromJSON(jsonHtlc)
+	}
+
+	htlc, err := rfqmsg.DecodeHtlc(customChannelData)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode asset HTLC from "+
+			"route data: %w", err)
+	}
+
+	return balancesToMap(htlc.Balances()), nil
+}
+
+// balancesToMap aggregates a list of asset balances into a map keyed by asset
+// ID, summing the amounts of duplicate asset IDs.
+func balancesToMap(balances []*rfqmsg.AssetBalance) map[asset.ID]uint64 {
+	out := make(map[asset.ID]uint64, len(balances))
+	for _, balance := range balances {
+		out[balance.AssetID.Val] += balance.Amount.Val
+	}
+
+	return out
+}
+
+// balancesFromJSON aggregates the balances of a JSON-encoded HTLC into a map
+// keyed by asset ID.
+func balancesFromJSON(jsonHtlc rfqmsg.JsonHtlc) (map[asset.ID]uint64, error) {
+	out := make(map[asset.ID]uint64, len(jsonHtlc.Balances))
+	for _, tranche := range jsonHtlc.Balances {
+		if tranche == nil {
+			return nil, fmt.Errorf("nil balance tranche in HTLC " +
+				"JSON")
+		}
+
+		idBytes, err := hex.DecodeString(tranche.AssetID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid asset ID in HTLC "+
+				"JSON: %w", err)
+		}
+
+		// Reject anything that isn't a full asset ID so a short or
+		// truncated hex string can't collide with a real ID after
+		// zero-padding through copy().
+		if len(idBytes) != sha256.Size {
+			return nil, fmt.Errorf("asset ID in HTLC JSON has "+
+				"wrong length: expected %d bytes, got %d",
+				sha256.Size, len(idBytes))
+		}
+
+		var id asset.ID
+		copy(id[:], idBytes)
+		out[id] += tranche.Amount
+	}
+
+	return out, nil
+}
+
+// mergeAssetBalances adds the amounts of src into dst, keyed by asset ID.
+func mergeAssetBalances(dst, src map[asset.ID]uint64) {
+	for id, amount := range src {
+		dst[id] += amount
+	}
+}
+
+// marshalAssetAmounts converts a map of aggregated asset amounts into the RPC
+// representation, ordered deterministically by asset ID. The group key for
+// each tranche is filled in opportunistically via the lookup; assets unknown
+// to this tapd are still returned, just without a group key. Returns nil for
+// an empty map.
+func marshalAssetAmounts(amounts map[asset.ID]uint64,
+	lookup *assetGroupLookup) []*tchrpc.AssetAmount {
+
+	if len(amounts) == 0 {
+		return nil
+	}
+
+	ids := make([]asset.ID, 0, len(amounts))
+	for id := range amounts {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		return bytes.Compare(ids[i][:], ids[j][:]) < 0
+	})
+
+	out := make([]*tchrpc.AssetAmount, len(ids))
+	for idx := range ids {
+		id := ids[idx]
+		out[idx] = &tchrpc.AssetAmount{
+			AssetId:  id[:],
+			Amount:   amounts[id],
+			GroupKey: lookup.groupKey(id),
+		}
+	}
+
+	return out
+}
+
+// assetGroupLookup resolves tranche asset IDs to the tweaked group key of the
+// group they belong to. It caches results per call so an MPP payment with N
+// HTLCs over the same asset only triggers a single DB round trip. A nil
+// AddrBook is tolerated (group key always resolves to nil) so the helper can
+// be exercised in unit tests without a wired-up server.
+type assetGroupLookup struct {
+	ctx      context.Context
+	addrBook *address.Book
+	cache    map[asset.ID][]byte
+}
+
+// newAssetGroupLookup constructs an empty assetGroupLookup bound to the given
+// context and address book. A nil address book is tolerated; in that mode
+// every group key resolves to nil (useful for unit tests that don't wire up
+// a real server).
+func newAssetGroupLookup(ctx context.Context,
+	addrBook *address.Book) *assetGroupLookup {
+
+	return &assetGroupLookup{
+		ctx:      ctx,
+		addrBook: addrBook,
+		cache:    make(map[asset.ID][]byte),
+	}
+}
+
+// groupKey returns the compressed tweaked group key that the given asset
+// tranche belongs to, or nil if the tranche has no group, the asset isn't
+// known to this tapd, or no address book is configured. Errors are logged
+// and swallowed: a list RPC should never fail because of opportunistic
+// metadata enrichment.
+func (l *assetGroupLookup) groupKey(id asset.ID) []byte {
+	if gk, ok := l.cache[id]; ok {
+		return gk
+	}
+
+	if l.addrBook == nil {
+		l.cache[id] = nil
+		return nil
+	}
+
+	info, err := l.addrBook.QueryAssetInfo(
+		l.ctx, asset.NewSpecifierFromId(id),
+	)
+	if err != nil {
+		rpcsLog.Debugf("list rpc: unable to query asset info for "+
+			"asset_id %x: %v", id[:], err)
+		l.cache[id] = nil
+		return nil
+	}
+
+	var gk []byte
+	if info.GroupKey != nil {
+		gk = info.GroupKey.GroupPubKey.SerializeCompressed()
+	}
+	l.cache[id] = gk
+
+	return gk
+}
+
 // calculateAssetMaxAmount calculates the max units to be placed in the invoice
 // RFQ quote order. When adding invoices based on asset units, that value is
 // directly returned. If using the value/value_msat fields of the invoice then
@@ -11198,7 +11958,9 @@ func (r *RPCServer) ImportAssetsFromBackup(ctx context.Context,
 		ProofVerifier: r.ProofVerifierCtx(ctx),
 	}
 
-	numImported, err := backup.ImportBackup(ctx, req.Backup, cfg)
+	numImported, numSkipped, err := backup.ImportBackup(
+		ctx, req.Backup, cfg,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to import backup: %w",
 			err)
@@ -11206,5 +11968,6 @@ func (r *RPCServer) ImportAssetsFromBackup(ctx context.Context,
 
 	return &wrpc.ImportAssetsFromBackupResponse{
 		NumImported: numImported,
+		NumSkipped:  numSkipped,
 	}, nil
 }

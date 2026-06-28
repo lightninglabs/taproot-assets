@@ -408,6 +408,20 @@ func (p *Proof) VerifyRoot(expectedRoot mssmt.Node) bool {
 		mssmt.IsEqualNode(reconstructedRoot, expectedRoot)
 }
 
+// FetchLeavesQuery is a query struct used to paginate fetching leaves from
+// a universe tree.
+type FetchLeavesQuery struct {
+	// SortDirection is the sorting direction of the leaves.
+	SortDirection SortDirection
+
+	// Offset is the zero-based index of the first item to return.
+	Offset int32
+
+	// Limit is the maximum number of leaves to return. If zero, the
+	// default page size is used.
+	Limit int32
+}
+
 // StorageBackend defines the storage interface for a universe. It supports
 // storing and retrieving proofs, as well as fetching the set of keys and leaves
 // contained in the universe.
@@ -435,8 +449,9 @@ type StorageBackend interface {
 	FetchKeys(ctx context.Context,
 		q UniverseLeafKeysQuery) ([]LeafKey, error)
 
-	// FetchLeaves retrieves all leaves from the universe tree.
-	FetchLeaves(ctx context.Context) ([]Leaf, error)
+	// FetchLeaves retrieves leaves from the universe tree,
+	// paginated according to the given query.
+	FetchLeaves(ctx context.Context, q FetchLeavesQuery) ([]Leaf, error)
 
 	// DeleteUniverse deletes all leaves, and the root, for a given
 	// universe.

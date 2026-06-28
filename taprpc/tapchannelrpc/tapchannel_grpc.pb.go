@@ -49,6 +49,22 @@ type TaprootAssetChannelsClient interface {
 	// asset ID or group key and returns the invoice amount expressed in asset
 	// units along side the normal information.
 	DecodeAssetPayReq(ctx context.Context, in *AssetPayReq, opts ...grpc.CallOption) (*AssetPayReqResponse, error)
+	// litcli: `ln listinvoices`
+	// ListInvoices is a wrapper around lnd's lnrpc.ListInvoices method that only
+	// returns invoices that involve at least one Taproot Asset. The full lnd
+	// invoice is returned along with the decoded asset amounts that the invoice's
+	// HTLCs carry, so that callers don't need to parse the custom channel data
+	// themselves. All request fields behave the same way as they do for lnd's
+	// lnrpc.ListInvoices RPC method.
+	ListInvoices(ctx context.Context, in *ListInvoicesRequest, opts ...grpc.CallOption) (*ListInvoicesResponse, error)
+	// litcli: `ln listpayments`
+	// ListPayments is a wrapper around lnd's lnrpc.ListPayments method that only
+	// returns payments that involve at least one Taproot Asset. The full lnd
+	// payment is returned along with the decoded asset amounts that the payment's
+	// HTLCs carry, so that callers don't need to parse the custom channel data
+	// themselves. All request fields behave the same way as they do for lnd's
+	// lnrpc.ListPayments RPC method.
+	ListPayments(ctx context.Context, in *ListPaymentsRequest, opts ...grpc.CallOption) (*ListPaymentsResponse, error)
 }
 
 type taprootAssetChannelsClient struct {
@@ -128,6 +144,24 @@ func (c *taprootAssetChannelsClient) DecodeAssetPayReq(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *taprootAssetChannelsClient) ListInvoices(ctx context.Context, in *ListInvoicesRequest, opts ...grpc.CallOption) (*ListInvoicesResponse, error) {
+	out := new(ListInvoicesResponse)
+	err := c.cc.Invoke(ctx, "/tapchannelrpc.TaprootAssetChannels/ListInvoices", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taprootAssetChannelsClient) ListPayments(ctx context.Context, in *ListPaymentsRequest, opts ...grpc.CallOption) (*ListPaymentsResponse, error) {
+	out := new(ListPaymentsResponse)
+	err := c.cc.Invoke(ctx, "/tapchannelrpc.TaprootAssetChannels/ListPayments", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TaprootAssetChannelsServer is the server API for TaprootAssetChannels service.
 // All implementations must embed UnimplementedTaprootAssetChannelsServer
 // for forward compatibility
@@ -163,6 +197,22 @@ type TaprootAssetChannelsServer interface {
 	// asset ID or group key and returns the invoice amount expressed in asset
 	// units along side the normal information.
 	DecodeAssetPayReq(context.Context, *AssetPayReq) (*AssetPayReqResponse, error)
+	// litcli: `ln listinvoices`
+	// ListInvoices is a wrapper around lnd's lnrpc.ListInvoices method that only
+	// returns invoices that involve at least one Taproot Asset. The full lnd
+	// invoice is returned along with the decoded asset amounts that the invoice's
+	// HTLCs carry, so that callers don't need to parse the custom channel data
+	// themselves. All request fields behave the same way as they do for lnd's
+	// lnrpc.ListInvoices RPC method.
+	ListInvoices(context.Context, *ListInvoicesRequest) (*ListInvoicesResponse, error)
+	// litcli: `ln listpayments`
+	// ListPayments is a wrapper around lnd's lnrpc.ListPayments method that only
+	// returns payments that involve at least one Taproot Asset. The full lnd
+	// payment is returned along with the decoded asset amounts that the payment's
+	// HTLCs carry, so that callers don't need to parse the custom channel data
+	// themselves. All request fields behave the same way as they do for lnd's
+	// lnrpc.ListPayments RPC method.
+	ListPayments(context.Context, *ListPaymentsRequest) (*ListPaymentsResponse, error)
 	mustEmbedUnimplementedTaprootAssetChannelsServer()
 }
 
@@ -184,6 +234,12 @@ func (UnimplementedTaprootAssetChannelsServer) AddInvoice(context.Context, *AddI
 }
 func (UnimplementedTaprootAssetChannelsServer) DecodeAssetPayReq(context.Context, *AssetPayReq) (*AssetPayReqResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DecodeAssetPayReq not implemented")
+}
+func (UnimplementedTaprootAssetChannelsServer) ListInvoices(context.Context, *ListInvoicesRequest) (*ListInvoicesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListInvoices not implemented")
+}
+func (UnimplementedTaprootAssetChannelsServer) ListPayments(context.Context, *ListPaymentsRequest) (*ListPaymentsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListPayments not implemented")
 }
 func (UnimplementedTaprootAssetChannelsServer) mustEmbedUnimplementedTaprootAssetChannelsServer() {}
 
@@ -291,6 +347,42 @@ func _TaprootAssetChannels_DecodeAssetPayReq_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaprootAssetChannels_ListInvoices_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListInvoicesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetChannelsServer).ListInvoices(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tapchannelrpc.TaprootAssetChannels/ListInvoices",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetChannelsServer).ListInvoices(ctx, req.(*ListInvoicesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TaprootAssetChannels_ListPayments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPaymentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetChannelsServer).ListPayments(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tapchannelrpc.TaprootAssetChannels/ListPayments",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetChannelsServer).ListPayments(ctx, req.(*ListPaymentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TaprootAssetChannels_ServiceDesc is the grpc.ServiceDesc for TaprootAssetChannels service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -313,6 +405,14 @@ var TaprootAssetChannels_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DecodeAssetPayReq",
 			Handler:    _TaprootAssetChannels_DecodeAssetPayReq_Handler,
+		},
+		{
+			MethodName: "ListInvoices",
+			Handler:    _TaprootAssetChannels_ListInvoices_Handler,
+		},
+		{
+			MethodName: "ListPayments",
+			Handler:    _TaprootAssetChannels_ListPayments_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

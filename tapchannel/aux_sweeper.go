@@ -133,6 +133,11 @@ type AuxSweeperCfg struct {
 	// IgnoreChecker is an optional function that can be used to check if
 	// a proof should be ignored.
 	IgnoreChecker lfn.Option[proof.IgnoreChecker]
+
+	// ProofWatcher is used to watch proofs we import for their anchor
+	// transaction being re-organized out of the chain, so their block
+	// info can be patched once it re-confirms.
+	ProofWatcher proof.Watcher
 }
 
 // AuxSweeper is used to sweep funds from a commitment transaction that has
@@ -1400,7 +1405,7 @@ func (a *AuxSweeper) importOutputScriptKeys(desc tapscriptSweepDescs) error {
 
 // importOutputProofs imports the output proofs into the pending asset funding
 // into our local database. This preps us to be able to detect force closes.
-func importOutputProofs(scid lnwire.ShortChannelID,
+func importOutputProofs(ctx context.Context, scid lnwire.ShortChannelID,
 	outputProofs []*proof.Proof, courierAddr *url.URL,
 	proofDispatch proof.CourierDispatch, chainBridge tapgarden.ChainBridge,
 	vCtx proof.VerifierCtx, proofArchive proof.Archiver) error {
@@ -1415,7 +1420,6 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 	// the funding outputs we need.
 	//
 	// TODO(roasbeef): assume single asset for now, also additional inputs
-	ctxb := context.Background()
 	for _, proofToImport := range outputProofs {
 		// Check if the proof is already imported to avoid redundant
 		// work.
@@ -1424,7 +1428,7 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 			ScriptKey: *proofToImport.Asset.ScriptKey.PubKey,
 			OutPoint:  fn.Ptr(proofToImport.OutPoint()),
 		}
-		proofExists, err := proofArchive.HasProof(ctxb, fundingLocator)
+		proofExists, err := proofArchive.HasProof(ctx, fundingLocator)
 		if err != nil {
 			return fmt.Errorf("unable to check if proof "+
 				"exists: %w", err)
@@ -1463,7 +1467,7 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 		// First, we'll make a courier to use in fetching the proofs we
 		// need.
 		proofFetcher, err := proofDispatch.NewCourier(
-			ctxb, courierAddr, true,
+			ctx, courierAddr, true,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to create proof courier: %w",
@@ -1476,7 +1480,7 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 			Amount:    proofToImport.Asset.Amount,
 		}
 		prefixProof, err := proofFetcher.ReceiveProof(
-			ctxb, recipient, inputProofLocator,
+			ctx, recipient, inputProofLocator,
 		)
 
 		// Always attempt to close the courier, even if we encounter an
@@ -1496,7 +1500,7 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 		// the transition proof to include the proper block+merkle proof
 		// information.
 		err = updateProofsFromShortChanID(
-			ctxb, chainBridge, scid, []*proof.Proof{proofToImport},
+			ctx, chainBridge, scid, []*proof.Proof{proofToImport},
 		)
 		if err != nil {
 			return fmt.Errorf("error updating transition "+
@@ -1524,13 +1528,116 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 		}
 
 		err = proofArchive.ImportProofs(
-			ctxb, vCtx, false, &proof.AnnotatedProof{
+			ctx, vCtx, false, &proof.AnnotatedProof{
 				Locator: fundingLocator,
 				Blob:    finalProofBuf.Bytes(),
 			},
 		)
 		if err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+// materializeAssetOutputs ensures that each of the given commitment outputs
+// exists as an asset in the local database. The (re-anchored) transition
+// proof of each output is appended to its input proof file, which is already
+// present in the local archive, and the result is imported through the multi
+// archiver, which creates the asset row as a side effect. The import is
+// idempotent, so it is safe to call this for outputs that have already been
+// materialized through another path.
+func (a *AuxSweeper) materializeAssetOutputs(ctx context.Context,
+	outputs []*cmsg.AssetOutput) error {
+
+	vCtx := proof.VerifierCtx{
+		HeaderVerifier: a.cfg.HeaderVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		GroupVerifier:  a.cfg.GroupVerifier,
+		ChainLookupGen: a.cfg.ChainBridge,
+		IgnoreChecker:  a.cfg.IgnoreChecker,
+	}
+
+	for _, out := range outputs {
+		outProof := &out.Proof.Val
+
+		locator := proof.Locator{
+			AssetID:   fn.Ptr(outProof.Asset.ID()),
+			ScriptKey: *outProof.Asset.ScriptKey.PubKey,
+			OutPoint:  fn.Ptr(outProof.OutPoint()),
+		}
+
+		// The input proof file (typically that of the funding output)
+		// was imported by importCommitTx, so we can fetch it from the
+		// local archive.
+		proofPrevID, err := outProof.Asset.PrimaryPrevID()
+		if err != nil {
+			return fmt.Errorf("unable to get primary prev ID: %w",
+				err)
+		}
+		prevScriptKey, err := proofPrevID.ScriptKey.ToPubKey()
+		if err != nil {
+			return fmt.Errorf("unable to convert script key to "+
+				"pubkey: %w", err)
+		}
+		prevLocator := proof.Locator{
+			AssetID:   &proofPrevID.ID,
+			ScriptKey: *prevScriptKey,
+			OutPoint:  &proofPrevID.OutPoint,
+		}
+		if outProof.Asset.GroupKey != nil {
+			groupKey := outProof.Asset.GroupKey.GroupPubKey
+			prevLocator.GroupKey = &groupKey
+		}
+
+		prefixProof, err := a.cfg.ProofArchive.FetchProof(
+			ctx, prevLocator,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch input proof file: "+
+				"%w", err)
+		}
+
+		var proofFile proof.File
+		err = proofFile.Decode(bytes.NewReader(prefixProof))
+		if err != nil {
+			return fmt.Errorf("unable to decode input proof "+
+				"file: %w", err)
+		}
+		if err := proofFile.AppendProof(*outProof); err != nil {
+			return fmt.Errorf("unable to append proof: %w", err)
+		}
+
+		var finalProofBuf bytes.Buffer
+		if err := proofFile.Encode(&finalProofBuf); err != nil {
+			return fmt.Errorf("unable to encode proof file: %w",
+				err)
+		}
+
+		log.Infof("Materializing commitment output asset, "+
+			"outpoint=%v, script_key=%x", outProof.OutPoint(),
+			outProof.Asset.ScriptKey.PubKey.SerializeCompressed())
+
+		err = a.cfg.ProofArchive.ImportProofs(
+			ctx, vCtx, false, &proof.AnnotatedProof{
+				Locator: locator,
+				Blob:    finalProofBuf.Bytes(),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to import proof: %w", err)
+		}
+
+		// Hand the transition proof to the re-org watcher, so its
+		// block info is patched in the archive if the commitment
+		// transaction is re-organized into a different block.
+		err = a.cfg.ProofWatcher.WatchProofs(
+			[]*proof.Proof{outProof},
+			a.cfg.ProofWatcher.DefaultUpdateCallback(),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to watch proof: %w", err)
 		}
 	}
 
@@ -1597,7 +1704,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 		IgnoreChecker:  a.cfg.IgnoreChecker,
 	}
 	err = importOutputProofs(
-		req.ShortChanID, maps.Values(fundingInputProofs),
+		ctxb, req.ShortChanID, maps.Values(fundingInputProofs),
 		a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
 		a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
 	)
@@ -1954,6 +2061,20 @@ func (a *AuxSweeper) resolveContract(
 		assetOutputs,
 	); err != nil {
 		return lfn.Errf[returnType]("unable to re-anchor asset "+
+			"outputs: %w", err)
+	}
+
+	// With the proofs bound to the confirmed commitment transaction, we
+	// can materialize the outputs we're sweeping as assets in our local
+	// database. We can't rely on the commitment transaction's own transfer
+	// to create these asset rows: its output locality snapshot is taken
+	// when the transfer is stored, which races the per-contract script key
+	// imports above, so outputs whose resolution arrives late would never
+	// be materialized. The porter marks the swept asset as spent when the
+	// sweep transaction confirms and fails the transfer permanently if the
+	// asset row is missing at that point.
+	if err := a.materializeAssetOutputs(ctx, assetOutputs); err != nil {
+		return lfn.Errf[returnType]("unable to materialize asset "+
 			"outputs: %w", err)
 	}
 

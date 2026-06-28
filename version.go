@@ -42,7 +42,7 @@ const (
 	AppMajor uint = 0
 
 	// AppMinor defines the minor version of this binary.
-	AppMinor uint = 7
+	AppMinor uint = 8
 
 	// AppPatch defines the application patch for this binary.
 	AppPatch uint = 99

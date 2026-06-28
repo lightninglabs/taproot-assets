@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightninglabs/taproot-assets/internal/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"

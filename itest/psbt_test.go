@@ -2893,11 +2893,12 @@ func testPsbtExternalCommit(t *harnessTest) {
 		withLabel(transferLabel),
 	)
 
-	// Assert that the state machine transitions directly to waiting for
-	// tx confirmation, skipping the broadcast state.
+	// Assert that the state machine passes through the broadcast state
+	// without publishing the transaction (broadcast is handled
+	// externally) and moves on to waiting for tx confirmation.
 	require.Eventually(t.t, func() bool {
 		isMatchingState := func(msg *taprpc.SendEvent) bool {
-			lastState := tapfreighter.SendStateStorePreBroadcast
+			lastState := tapfreighter.SendStateBroadcast
 			nextState := tapfreighter.SendStateWaitTxConf
 
 			return msg.SendState == lastState.String() &&

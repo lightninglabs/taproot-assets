@@ -20,7 +20,21 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 )
+
+// clientKeepalive configures HTTP/2 PING-based liveness on the
+// long-lived authmailbox subscription stream. Without it, a TCP path
+// that silently dies (NAT timeout, stateful firewall idle drop)
+// leaves Recv blocked indefinitely while the server has already torn
+// the subscriber down, and incoming messages are lost until the
+// receiver is restarted. Time/Timeout are chosen to fail fast enough
+// to recover within a minute while staying well above the 5s minimum
+// the server's enforcement policy expects.
+var clientKeepalive = keepalive.ClientParameters{
+	Time:    30 * time.Second,
+	Timeout: 20 * time.Second,
+}
 
 var (
 	// ErrServerShutdown is the error returned if the mailbox server signals
@@ -271,6 +285,8 @@ func getServerDialOpts(insecure, skipTlsVerify bool, proxyAddress,
 
 	// Create a copy of the dial options array.
 	opts := dialOpts
+
+	opts = append(opts, grpc.WithKeepaliveParams(clientKeepalive))
 
 	// There are four options to connect to a mailbox server, either
 	// completely skipping TLS verification, using an insecure (h2c)

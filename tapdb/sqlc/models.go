@@ -137,6 +137,7 @@ type AssetTransfer struct {
 	TransferTimeUnix      time.Time
 	Label                 sql.NullString
 	SkipAnchorTxBroadcast bool
+	Superseded            bool
 }
 
 type AssetTransferInput struct {
@@ -198,6 +199,11 @@ type AuthmailboxMessage struct {
 	ReceiverKey      []byte
 	EncryptedPayload []byte
 	ArrivalTimestamp int64
+}
+
+type AuxChannelCloseInfo struct {
+	ChanPoint []byte
+	InfoBlob  []byte
 }
 
 type ChainTxn struct {

@@ -58,6 +58,11 @@ WHERE
         OR sqlc.narg('anchor_tx_hash') IS NULL)
 
     -- Filter for pending transfers only if requested.
+    --
+    -- NOTE: This query is also executed by programmatic migrations against
+    -- historical schema versions, so it MUST NOT reference columns added
+    -- in later migrations (such as transfers.superseded). Superseded
+    -- transfers are filtered out in Go instead.
     AND (
         @pending_transfers_only = true AND
         (
@@ -98,6 +103,31 @@ SELECT input_id, anchor_point, asset_id, script_key, amount
 FROM asset_transfer_inputs inputs
 WHERE transfer_id = $1
 ORDER BY input_id;
+
+-- name: QuerySupersededTransferIDs :many
+SELECT id
+FROM asset_transfers
+WHERE superseded = true;
+
+-- name: SupersedeConflictingTransfers :execrows
+-- Mark all unconfirmed transfers that spend the given anchor point as
+-- superseded, except for the given (just confirmed) transfer. Once a
+-- conflicting transfer has confirmed on-chain, these transfers' anchor
+-- transactions can never confirm.
+UPDATE asset_transfers
+SET superseded = true
+WHERE id != @confirmed_transfer_id
+  AND superseded = false
+  AND id IN (
+      SELECT inputs.transfer_id
+      FROM asset_transfer_inputs inputs
+      WHERE inputs.anchor_point = @anchor_point
+  )
+  AND anchor_txn_id IN (
+      SELECT txns.txn_id
+      FROM chain_txns txns
+      WHERE txns.block_hash IS NULL
+  );
 
 -- name: FetchTransferOutputs :many
 SELECT
@@ -232,9 +262,11 @@ SELECT
     abt.note,
     abt.asset_id,
     abt.group_key,
+    ga.asset_type,
     abt.amount,
     ct.txid AS anchor_txid -- Retrieving the txid from chain_txns.
 FROM asset_burn_transfers abt
+JOIN genesis_assets ga ON abt.asset_id = ga.asset_id
 JOIN asset_transfers at ON abt.transfer_id = at.id
 JOIN chain_txns ct ON at.anchor_txn_id = ct.txn_id
 WHERE

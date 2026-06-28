@@ -7,12 +7,12 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/lncfg"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
-	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/urfave/cli"
 )
 
@@ -436,9 +436,30 @@ func universeLeaves(ctx *cli.Context) error {
 		return err
 	}
 
-	assetLeaves, err := client.AssetLeaves(ctxc, universeID)
-	if err != nil {
-		return err
+	assetLeaves := &unirpc.AssetLeafResponse{}
+	offset := 0
+
+	for {
+		page, err := client.AssetLeaves(
+			ctxc, &unirpc.AssetLeavesRequest{
+				Id:     universeID,
+				Offset: int32(offset),
+				Limit:  universe.RequestPageSize,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		assetLeaves.Leaves = append(
+			assetLeaves.Leaves, page.Leaves...,
+		)
+
+		if !page.HasMore {
+			break
+		}
+
+		offset += len(page.Leaves)
 	}
 
 	printRespJSON(assetLeaves)

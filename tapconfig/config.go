@@ -23,7 +23,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
-	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
 	"golang.org/x/time/rate"
@@ -36,10 +35,32 @@ const (
 	TapdMacaroonLocation = "tapd"
 )
 
+// ListenerWithSignal is a net.Listener that has an additional Ready channel
+// that will be closed when a server starts listening.
+type ListenerWithSignal struct {
+	net.Listener
+
+	// Ready will be closed by the server listening on Listener.
+	Ready chan struct{}
+
+	// MacChan is an optional way to pass the admin macaroon to the program
+	// that started the daemon. The channel should be buffered to avoid the
+	// daemon being blocked on sending to the channel.
+	MacChan chan []byte
+}
+
+// ListenerCfg is a wrapper around custom listeners that can be passed to tapd
+// when starting its RPC server.
+type ListenerCfg struct {
+	// RPCListeners can be set to the listeners to use for the RPC server.
+	// If empty a regular network listener will be created.
+	RPCListeners []*ListenerWithSignal
+}
+
 // RPCConfig is a sub-config of the main server that packages up everything
 // needed to start the RPC server.
 type RPCConfig struct {
-	LisCfg *lnd.ListenerCfg
+	LisCfg *ListenerCfg
 
 	RPCListeners []net.Addr
 

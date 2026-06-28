@@ -174,7 +174,7 @@ func RegisterUniverseJSONCallbacks(registry map[string]func(ctx context.Context,
 	registry["universerpc.Universe.AssetLeaves"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 
-		req := &ID{}
+		req := &AssetLeavesRequest{}
 		err := marshaler.Unmarshal([]byte(reqJSON), req)
 		if err != nil {
 			callback("", err)

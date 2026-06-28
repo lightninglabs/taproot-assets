@@ -112,7 +112,7 @@ func (m *mockStorageBackend) FetchKeys(context.Context,
 }
 
 func (m *mockStorageBackend) FetchLeaves(
-	context.Context) ([]Leaf, error) {
+	context.Context, FetchLeavesQuery) ([]Leaf, error) {
 
 	return nil, nil
 }
@@ -171,7 +171,9 @@ func TestFetchLeavesNonExistentUniverse(t *testing.T) {
 
 	// Request leaves for many random (nonexistent) universes.
 	for i := 0; i < 100; i++ {
-		leaves, err := archive.FetchLeaves(ctx, randIdentifier())
+		leaves, err := archive.FetchLeaves(
+			ctx, randIdentifier(), FetchLeavesQuery{},
+		)
 		require.NoError(t, err)
 		require.Nil(t, leaves)
 	}
@@ -195,14 +197,16 @@ func TestFetchLeavesExistingUniverse(t *testing.T) {
 
 	ctx := context.Background()
 
-	leaves, err := archive.FetchLeaves(ctx, id)
+	leaves, err := archive.FetchLeaves(
+		ctx, id, FetchLeavesQuery{},
+	)
 	require.NoError(t, err)
 	require.Nil(t, leaves) // mock returns nil
 
 	require.Equal(t, 1, *newTreeCalls)
 
 	// Second call should hit the cache, not allocate again.
-	_, err = archive.FetchLeaves(ctx, id)
+	_, err = archive.FetchLeaves(ctx, id, FetchLeavesQuery{})
 	require.NoError(t, err)
 	require.Equal(t, 1, *newTreeCalls)
 }

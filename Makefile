@@ -5,7 +5,7 @@ LND_PKG := github.com/lightningnetwork/lnd
 GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
 TOOLS_DIR := tools
 
-GO_BIN := ${GOPATH}/bin
+GO_BIN := $(shell go env GOPATH)/bin
 GOIMPORTS_BIN := $(GO_BIN)/gosimports
 MIGRATE_BIN := $(GO_BIN)/migrate
 
@@ -96,7 +96,7 @@ DOCKER_TOOLS = $(DOCKER) run \
   -v $$(pwd):/build taproot-assets-tools
 endif
 
-GO_VERSION = 1.25.5
+GO_VERSION = 1.26.3
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -224,13 +224,13 @@ scratch: build
 # ===================
 
 migrate-up: $(MIGRATE_BIN)
-	migrate -path tapdb/sqlc/migrations -database $(TAP_DB_CONNECTIONSTRING) -verbose up
+	$(MIGRATE_BIN) -path tapdb/sqlc/migrations -database $(TAP_DB_CONNECTIONSTRING) -verbose up
 
 migrate-down: $(MIGRATE_BIN)
-	migrate -path tapdb/sqlc/migrations -database $(TAP_DB_CONNECTIONSTRING) -verbose down 1
+	$(MIGRATE_BIN) -path tapdb/sqlc/migrations -database $(TAP_DB_CONNECTIONSTRING) -verbose down 1
 
 migrate-create: $(MIGRATE_BIN)
-	migrate create -dir tapdb/sqlc/migrations -seq -ext sql $(patchname)
+	$(MIGRATE_BIN) create -dir tapdb/sqlc/migrations -seq -ext sql $(patchname)
 
 # =======
 # TESTING
@@ -272,6 +272,15 @@ itest-cc: build-itest clean-cc-itest-logs
 	@$(call print, "Running custom channel integration tests.")
 	date
 	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" $(CC_TEST_FLAGS) -test.timeout=30m -logdir=regtest/.logs
+
+itest-cc-compat: build-itest clean-cc-itest-logs
+	@$(call print, "Running backward compatibility integration tests.")
+	date
+	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" -test.run=TestBackwardsCompatChannels -test.timeout=60m -logdir=regtest/.logs
+
+build-compat-binary:
+	@$(call print, "Building compat binary for $(version).")
+	@scripts/build-compat-binary.sh $(version)
 
 itest-cc-parallel: build-itest build-itest-cc-binary clean-cc-itest-logs
 	@$(call print, "Running custom channel integration tests in parallel.")
@@ -387,7 +396,7 @@ vendor:
 
 fmt: $(GOIMPORTS_BIN)
 	@$(call print, "Fixing imports.")
-	gosimports -w $(GOFILES_NOVENDOR)
+	$(GOIMPORTS_BIN) -w $(GOFILES_NOVENDOR)
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s $(GOFILES_NOVENDOR)
 
@@ -444,6 +453,10 @@ gen-itest-test-vectors:
 	mv itest/testdata/*proof*.hex proof/testdata/
 
 gen-test-vectors: gen-deterministic-test-vectors gen-itest-test-vectors
+
+gen-compat-fixtures:
+	@$(call print, "Generating backward compatibility fixtures.")
+	make unit gen-test-vectors=true pkg=rfqmsg case=^TestGenerateCompatFixtures$
 
 test-vector-check: gen-deterministic-test-vectors
 	@$(call print, "Checking deterministic test vectors.")

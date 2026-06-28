@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/healthcheck"
+	"github.com/lightninglabs/taproot-assets/internal/lncfg"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
@@ -27,14 +28,11 @@ import (
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapconfig"
 	"github.com/lightninglabs/taproot-assets/taprpc"
-	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/funding"
-	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -249,6 +247,10 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	if err := s.cfg.AuxInvoiceManager.Start(); err != nil {
 		return fmt.Errorf("unable to start aux invoice mgr: %w", err)
 	}
+	if err := s.cfg.AuxChanCloser.Start(); err != nil {
+		return fmt.Errorf("unable to start aux chan closer: %w",
+			err)
+	}
 	if err := s.cfg.AuxSweeper.Start(); err != nil {
 		return fmt.Errorf("unable to start aux sweeper mgr: %w", err)
 	}
@@ -317,7 +319,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	// If we have chosen to start with a dedicated listener for the rpc
 	// server, we set it directly.
 	grpcListeners := append(
-		[]*lnd.ListenerWithSignal{}, s.cfg.LisCfg.RPCListeners...,
+		[]*tapconfig.ListenerWithSignal{}, s.cfg.LisCfg.RPCListeners...,
 	)
 	if len(grpcListeners) == 0 {
 		// Otherwise we create listeners from the RPCListeners defined
@@ -335,7 +337,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 			}()
 
 			grpcListeners = append(
-				grpcListeners, &lnd.ListenerWithSignal{
+				grpcListeners, &tapconfig.ListenerWithSignal{
 					Listener: lis,
 					Ready:    make(chan struct{}),
 				},
@@ -625,7 +627,7 @@ func (s *Server) ValidateMacaroon(ctx context.Context,
 
 // startGrpcListen starts the GRPC server on the passed listeners.
 func startGrpcListen(cfg *tapconfig.Config, grpcServer *grpc.Server,
-	listeners []*lnd.ListenerWithSignal) error {
+	listeners []*tapconfig.ListenerWithSignal) error {
 
 	// Use a WaitGroup so we can be sure the instructions on how to input the
 	// password is the last thing to be printed to the console.
@@ -633,7 +635,7 @@ func startGrpcListen(cfg *tapconfig.Config, grpcServer *grpc.Server,
 
 	for _, lis := range listeners {
 		wg.Add(1)
-		go func(lis *lnd.ListenerWithSignal) {
+		go func(lis *tapconfig.ListenerWithSignal) {
 			rpcsLog.Infof("RPC server listening on %s", lis.Addr())
 
 			// Close the ready chan to indicate we are listening.
@@ -864,6 +866,10 @@ func (s *Server) Stop() error {
 			err)
 	}
 
+	if err := s.cfg.AuxChanCloser.Stop(); err != nil {
+		return fmt.Errorf("unable to stop aux chan closer: %w",
+			err)
+	}
 	if err := s.cfg.AuxLeafSigner.Stop(); err != nil {
 		return err
 	}
@@ -895,15 +901,13 @@ func (s *Server) Stop() error {
 }
 
 // A compile-time check to ensure that Server fully implements the
-// lnwallet.AuxLeafStore, lnd.AuxDataParser, lnwallet.AuxSigner,
-// msgmux.Endpoint, funding.AuxFundingController, htlcswitch.AuxTrafficShaper
-// and chancloser.AuxChanCloser interfaces.
+// lnwallet.AuxLeafStore, lnwallet.AuxSigner,
+// msgmux.Endpoint, funding.AuxFundingController and chancloser.AuxChanCloser
+// interfaces.
 var _ lnwl.AuxLeafStore = (*Server)(nil)
-var _ lnd.AuxDataParser = (*Server)(nil)
 var _ lnwl.AuxSigner = (*Server)(nil)
 var _ msgmux.Endpoint = (*Server)(nil)
 var _ funding.AuxFundingController = (*Server)(nil)
-var _ htlcswitch.AuxTrafficShaper = (*Server)(nil)
 var _ chancloser.AuxChanCloser = (*Server)(nil)
 var _ lnwl.AuxContractResolver = (*Server)(nil)
 var _ sweep.AuxSweeper = (*Server)(nil)

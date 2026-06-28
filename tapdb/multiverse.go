@@ -539,6 +539,7 @@ func (b *MultiverseStore) queryRootNodes(ctx context.Context,
 				groupLeaves, err := db.QueryUniverseLeaves(
 					ctx, UniverseLeafQuery{
 						Namespace: id.String(),
+						NumLimit:  noLeavesLimit,
 					},
 				)
 				if err != nil {
@@ -835,9 +836,13 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	uniProof.MultiverseRoot = multiverseRoot
 	uniProof.MultiverseInclusionProof = multiverseProof
 
-	// Invalidate the cache since we just updated the root.
+	// Invalidate the cache since we just updated the root. Every
+	// previously cached proof under this universe embeds the
+	// UniverseRoot at the time it was fetched; inserting a new leaf
+	// changes the root, so all sibling entries are now stale and
+	// must be evicted, not just the one we wrote.
 	b.rootNodeCache.wipeCache()
-	b.proofCache.RemoveLeafKeyProofs(id, key)
+	b.proofCache.RemoveUniverseProofs(id)
 	b.leafKeysCache.wipeCache(id.String())
 	b.syncerCache.addOrReplace(universe.Root{
 		ID:        id,
@@ -947,20 +952,21 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 		})
 	}
 
-	// Invalidate the root node cache for all the assets we just inserted.
-	idsToDelete := fn.NewSet(
-		fn.Map(items, func(item *universe.Item) universeIDKey {
-			return item.ID.String()
-		})...,
-	)
-
-	for id := range idsToDelete {
-		b.leafKeysCache.wipeCache(id)
-	}
-
+	// Invalidate the root node cache for all the assets we just
+	// inserted. Each insert changes the root of its universe tree,
+	// which invalidates the UniverseRoot snapshot embedded in every
+	// previously cached proof under that universe, so we evict by
+	// universe id rather than per leaf key.
+	seenIDs := make(map[universeIDKey]struct{}, len(items))
 	for idx := range items {
-		item := items[idx]
-		b.proofCache.RemoveLeafKeyProofs(item.ID, item.Key)
+		idStr := items[idx].ID.String()
+		if _, ok := seenIDs[idStr]; ok {
+			continue
+		}
+		seenIDs[idStr] = struct{}{}
+
+		b.leafKeysCache.wipeCache(idStr)
+		b.proofCache.RemoveUniverseProofs(items[idx].ID)
 	}
 
 	return nil
@@ -1069,9 +1075,12 @@ func (b *MultiverseStore) DeleteProofLeaf(ctx context.Context,
 		return "", dbErr
 	}
 
-	// Invalidate caches.
+	// Invalidate caches. Deleting any leaf changes the root of the
+	// universe tree, so every previously cached proof under this id
+	// now embeds a stale UniverseRoot and must be evicted, not just
+	// the entry for the leaf we deleted.
 	b.rootNodeCache.wipeCache()
-	b.proofCache.RemoveLeafKeyProofs(id, key)
+	b.proofCache.RemoveUniverseProofs(id)
 	b.leafKeysCache.wipeCache(id.String())
 	b.syncerCache.remove(id.Key())
 

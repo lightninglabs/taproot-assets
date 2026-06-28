@@ -3,13 +3,36 @@ package fn
 import (
 	"container/list"
 	"sync"
+	"sync/atomic"
 )
 
-// ConcurrentQueue is a typed concurrent-safe FIFO queue with unbounded
-// capacity. Clients interact with the queue by pushing items into the in
-// channel and popping items from the out channel. There is a goroutine that
-// manages moving items from the in channel to the out channel in the correct
-// order that must be started by calling Start().
+// QueueOption is a functional option for ConcurrentQueue.
+type QueueOption func(*queueConfig)
+
+type queueConfig struct {
+	maxOverflow int
+}
+
+// WithMaxOverflow sets the maximum number of items that can
+// accumulate in the overflow list. When the limit is reached,
+// the oldest item is dropped. A value of 0 (the default) means
+// no limit.
+func WithMaxOverflow(n int) QueueOption {
+	return func(c *queueConfig) {
+		c.maxOverflow = n
+	}
+}
+
+// ConcurrentQueue is a typed concurrent-safe FIFO queue with
+// unbounded capacity. Clients interact with the queue by pushing
+// items into the in channel and popping items from the out
+// channel. There is a goroutine that manages moving items from
+// the in channel to the out channel in the correct order that
+// must be started by calling Start().
+//
+// An optional overflow cap may be set via WithMaxOverflow. When
+// set, the overflow list will drop the oldest item once the cap
+// is reached.
 type ConcurrentQueue[T any] struct {
 	started sync.Once
 	stopped sync.Once
@@ -18,21 +41,39 @@ type ConcurrentQueue[T any] struct {
 	chanOut  chan T
 	overflow *list.List
 
+	maxOverflow int
+	overflowLen atomic.Int64
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
 
-// NewConcurrentQueue constructs a ConcurrentQueue. The bufferSize parameter is
-// the capacity of the output channel. When the size of the queue is below this
-// threshold, pushes do not incur the overhead of the less efficient overflow
+// NewConcurrentQueue constructs a ConcurrentQueue. The
+// bufferSize parameter is the capacity of the output channel.
+// When the size of the queue is below this threshold, pushes do
+// not incur the overhead of the less efficient overflow
 // structure.
-func NewConcurrentQueue[T any](bufferSize int) *ConcurrentQueue[T] {
-	return &ConcurrentQueue[T]{
-		chanIn:   make(chan T),
-		chanOut:  make(chan T, bufferSize),
-		overflow: list.New(),
-		quit:     make(chan struct{}),
+func NewConcurrentQueue[T any](bufferSize int,
+	opts ...QueueOption) *ConcurrentQueue[T] {
+
+	var cfg queueConfig
+	for _, o := range opts {
+		o(&cfg)
 	}
+
+	return &ConcurrentQueue[T]{
+		chanIn:      make(chan T),
+		chanOut:     make(chan T, bufferSize),
+		overflow:    list.New(),
+		maxOverflow: cfg.maxOverflow,
+		quit:        make(chan struct{}),
+	}
+}
+
+// OverflowLen returns the current number of items in the
+// overflow list.
+func (cq *ConcurrentQueue[T]) OverflowLen() int64 {
+	return cq.overflowLen.Load()
 }
 
 // ChanIn returns a channel that can be used to push new items into the queue.
@@ -62,10 +103,10 @@ func (cq *ConcurrentQueue[T]) start() {
 		for {
 			nextElement := cq.overflow.Front()
 			if nextElement == nil {
-				// Overflow queue is empty so incoming items can
-				// be pushed directly to the output channel. If
-				// output channel is full though, push to
-				// overflow.
+				// Overflow queue is empty so incoming
+				// items can be pushed directly to the
+				// output channel. If output channel is
+				// full though, push to overflow.
 				select {
 				case item, ok := <-cq.chanIn:
 					if !ok {
@@ -73,38 +114,43 @@ func (cq *ConcurrentQueue[T]) start() {
 					}
 					select {
 					case cq.chanOut <- item:
-						// Optimistically push directly
-						// to chanOut.
 					default:
 						cq.overflow.PushBack(item)
+						cq.overflowLen.Add(1)
+						cq.trimOverflow()
 					}
 				case <-cq.quit:
 					return
 				}
 			} else {
-				// Overflow queue is not empty, so any new items
-				// get pushed to the back to preserve order.
+				// Overflow queue is not empty, so any
+				// new items get pushed to the back to
+				// preserve order.
 				select {
 				case item, ok := <-cq.chanIn:
 					if !ok {
 						break readLoop
 					}
 					cq.overflow.PushBack(item)
+					cq.overflowLen.Add(1)
+					cq.trimOverflow()
 				case cq.chanOut <- nextElement.Value.(T):
 					cq.overflow.Remove(nextElement)
+					cq.overflowLen.Add(-1)
 				case <-cq.quit:
 					return
 				}
 			}
 		}
 
-		// Incoming channel has been closed. Empty overflow queue into
-		// the outgoing channel.
+		// Incoming channel has been closed. Empty overflow
+		// queue into the outgoing channel.
 		nextElement := cq.overflow.Front()
 		for nextElement != nil {
 			select {
 			case cq.chanOut <- nextElement.Value.(T):
 				cq.overflow.Remove(nextElement)
+				cq.overflowLen.Add(-1)
 			case <-cq.quit:
 				return
 			}
@@ -114,6 +160,17 @@ func (cq *ConcurrentQueue[T]) start() {
 		// Close outgoing channel.
 		close(cq.chanOut)
 	}()
+}
+
+// trimOverflow drops the oldest element from the overflow list
+// if maxOverflow is set and the list exceeds the cap.
+func (cq *ConcurrentQueue[T]) trimOverflow() {
+	if cq.maxOverflow > 0 &&
+		cq.overflow.Len() > cq.maxOverflow {
+
+		cq.overflow.Remove(cq.overflow.Front())
+		cq.overflowLen.Add(-1)
+	}
 }
 
 // Stop ends the goroutine that moves items from the in channel to the out

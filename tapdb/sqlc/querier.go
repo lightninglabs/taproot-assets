@@ -31,6 +31,7 @@ type Querier interface {
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
 	DeleteAuthMailboxMessageByIDAndReceiver(ctx context.Context, arg DeleteAuthMailboxMessageByIDAndReceiverParams) (int64, error)
+	DeleteAuxCloseInfo(ctx context.Context, chanPoint []byte) error
 	DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error
 	DeleteFederationProofSyncLog(ctx context.Context, arg DeleteFederationProofSyncLogParams) error
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
@@ -79,6 +80,7 @@ type Querier interface {
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]FetchAssetsForBatchRow, error)
 	FetchAuthMailboxMessage(ctx context.Context, id int64) (FetchAuthMailboxMessageRow, error)
 	FetchAuthMailboxMessageByOutpoint(ctx context.Context, claimedOutpoint []byte) (FetchAuthMailboxMessageByOutpointRow, error)
+	FetchAuxCloseInfo(ctx context.Context, chanPoint []byte) ([]byte, error)
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error)
 	FetchChainTxByID(ctx context.Context, txnID int64) (FetchChainTxByIDRow, error)
 	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error)
@@ -214,6 +216,7 @@ type Querier interface {
 	QueryPendingSupplyCommitTransition(ctx context.Context, groupKey []byte) (QueryPendingSupplyCommitTransitionRow, error)
 	QueryProofTransferAttempts(ctx context.Context, arg QueryProofTransferAttemptsParams) ([]time.Time, error)
 	QueryStartingSupplyCommitment(ctx context.Context, groupKey []byte) (QueryStartingSupplyCommitmentRow, error)
+	QuerySupersededTransferIDs(ctx context.Context) ([]int64, error)
 	QuerySupplyCommitStateMachine(ctx context.Context, groupKey []byte) (QuerySupplyCommitStateMachineRow, error)
 	QuerySupplyCommitment(ctx context.Context, commitID int64) (QuerySupplyCommitmentRow, error)
 	QuerySupplyCommitmentByOutpoint(ctx context.Context, arg QuerySupplyCommitmentByOutpointParams) (QuerySupplyCommitmentByOutpointRow, error)
@@ -232,6 +235,11 @@ type Querier interface {
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
 	SetTransferOutputProofDeliveryStatus(ctx context.Context, arg SetTransferOutputProofDeliveryStatusParams) error
+	// Mark all unconfirmed transfers that spend the given anchor point as
+	// superseded, except for the given (just confirmed) transfer. Once a
+	// conflicting transfer has confirmed on-chain, these transfers' anchor
+	// transactions can never confirm.
+	SupersedeConflictingTransfers(ctx context.Context, arg SupersedeConflictingTransfersParams) (int64, error)
 	UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error)
 	UniverseRoots(ctx context.Context, arg UniverseRootsParams) ([]UniverseRootsRow, error)
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
@@ -250,6 +258,7 @@ type Querier interface {
 	UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error)
 	UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error
 	UpsertAssetWitness(ctx context.Context, arg UpsertAssetWitnessParams) error
+	UpsertAuxCloseInfo(ctx context.Context, arg UpsertAuxCloseInfoParams) error
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error)
 	UpsertFederationGlobalSyncConfig(ctx context.Context, arg UpsertFederationGlobalSyncConfigParams) error
 	UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFederationProofSyncLogParams) (int64, error)

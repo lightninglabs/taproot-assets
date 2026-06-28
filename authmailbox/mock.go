@@ -14,7 +14,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
-	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -240,7 +239,7 @@ func NewMockServerWithSigner(t *testing.T,
 
 	inMemMsgStore := NewMockStore()
 
-	nextPort := port.NextAvailablePort()
+	nextPort := test.NextAvailablePort()
 	listenAddr := fmt.Sprintf(test.ListenAddrTemplate, nextPort)
 
 	serverCfg := &ServerConfig{

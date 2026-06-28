@@ -69,6 +69,12 @@ type (
 	QuerySupplyLeavesByHeightParams = sqlc.QuerySupplyLeavesByHeightParams
 )
 
+const (
+	// noLeavesLimit is a sentinel limit value used when a caller
+	// wants all universe leaves without pagination.
+	noLeavesLimit = int32(2147483647)
+)
+
 // BaseUniverseStore is the main interface for the Taproot Asset universe store.
 // This is a composite of the capabilities to insert new asset genesis, update
 // the SMT tree, and finally fetch a genesis. We then combine that with Universe
@@ -340,6 +346,7 @@ func listUniverseLeaves[T any](ctx context.Context, db BatchedUniverseTree,
 		universeLeaves, err := dbtx.QueryUniverseLeaves(
 			ctx, UniverseLeafQuery{
 				Namespace: namespace,
+				NumLimit:  noLeavesLimit,
 			},
 		)
 
@@ -1108,6 +1115,7 @@ func universeFetchProofLeaf(ctx context.Context,
 		MintingPointBytes: mintingPointBytes,
 		ScriptKeyBytes:    targetScriptKey,
 		Namespace:         namespace,
+		NumLimit:          noLeavesLimit,
 	})
 	if err != nil {
 		return nil, err
@@ -1273,21 +1281,26 @@ func (b *BaseUniverseTree) FetchKeys(ctx context.Context,
 	return leafKeys, nil
 }
 
-// FetchLeaves retrieves all leaves from the universe tree.
-func (b *BaseUniverseTree) FetchLeaves(
-	ctx context.Context) ([]universe.Leaf, error) {
+// FetchLeaves retrieves leaves from the universe tree, paginated
+// according to the given query.
+func (b *BaseUniverseTree) FetchLeaves(ctx context.Context,
+	q universe.FetchLeavesQuery) ([]universe.Leaf, error) {
 
 	var leaves []universe.Leaf
 
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
-		// First, we'll query the set of Universe leaves we have
-		// directly to determine which ones we care about. We only
-		// filter on the namespace here, as we want all the leaves for
-		// this tree.
+		limit := q.Limit
+		if limit == 0 {
+			limit = universe.RequestPageSize
+		}
+
 		universeLeaves, err := db.QueryUniverseLeaves(
 			ctx, UniverseLeafQuery{
-				Namespace: b.smtNamespace,
+				Namespace:     b.smtNamespace,
+				SortDirection: sqlInt16(q.SortDirection),
+				NumOffset:     q.Offset,
+				NumLimit:      limit,
 			},
 		)
 		if err != nil {

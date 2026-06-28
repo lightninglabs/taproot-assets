@@ -833,7 +833,7 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 		NumOffset:     int32(q.Offset),
 		NumLimit: func() int32 {
 			if q.Limit == 0 {
-				return int32(math.MaxInt32)
+				return universe.RequestPageSize
 			}
 
 			return int32(q.Limit)

@@ -144,6 +144,9 @@ var testQueries = []queryTest{
 				h.assetUniverses[0].id.String(),
 				nil,
 				nil,
+				nil,
+				int32(0),
+				noLeavesLimit,
 			}
 		},
 		dbTypes: []sqlc.BackendType{
