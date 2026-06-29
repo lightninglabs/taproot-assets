@@ -1105,7 +1105,8 @@ func createAssetInvoice(t *testing.T, dstRfqPeer, dst *itest.IntegratedNode,
 		mSatPerUnit = float64(cfg.msats) / float64(units.ToUint64())
 	} else {
 		assetUnits := rfqmath.NewBigIntFixedPoint(assetAmount, 0)
-		numMSats := rfqmath.UnitsToMilliSatoshi(assetUnits, *rate)
+		numMSats, err := rfqmath.UnitsToMilliSatoshi(assetUnits, *rate)
+		require.NoError(t, err)
 		mSatPerUnit = float64(decodedInvoice.NumMsat) /
 			float64(assetAmount)
 
@@ -2343,7 +2344,8 @@ func createAssetHodlInvoice(t *testing.T, dstRfqPeer,
 	require.NoError(t, err)
 
 	assetUnits := rfqmath.NewBigIntFixedPoint(assetAmount, 0)
-	numMSats := rfqmath.UnitsToMilliSatoshi(assetUnits, *rate)
+	numMSats, err := rfqmath.UnitsToMilliSatoshi(assetUnits, *rate)
+	require.NoError(t, err)
 	mSatPerUnit := float64(decodedInvoice.NumMsat) / float64(assetAmount)
 
 	require.EqualValues(

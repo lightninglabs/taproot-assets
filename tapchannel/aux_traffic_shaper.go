@@ -402,9 +402,13 @@ func (s *AuxTrafficShaper) paymentBandwidthRFQ(rfqID rfqmsg.ID,
 	// Calculate the local available balance in the local asset unit,
 	// expressed in milli-satoshis.
 	localBalanceFp := rfqmath.NewBigIntFixedPoint(localBalance, 0)
-	availableBalanceMsat := rfqmath.UnitsToMilliSatoshi(
+	availableBalanceMsat, err := rfqmath.UnitsToMilliSatoshi(
 		localBalanceFp, rate.Rate,
 	)
+	if err != nil {
+		return 0, fmt.Errorf("unable to convert local balance to "+
+			"mSat: %w", err)
+	}
 
 	// At this point we have acquired what we need to express the asset
 	// bandwidth expressed in satoshis. Before we return the result, we need

@@ -340,7 +340,11 @@ func amountIsTransportable(amt uint64,
 			),
 			Scale: 0,
 		}
-		return rfqmath.UnitsToMilliSatoshi(units, rate) != 0
+		mSat, err := rfqmath.UnitsToMilliSatoshi(units, rate)
+		if err != nil {
+			return false
+		}
+		return mSat != 0
 	}
 
 	// Sell: msat → asset units.

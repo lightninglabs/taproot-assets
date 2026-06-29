@@ -513,14 +513,19 @@ func checkAllConstraints(req rfqmsg.Request,
 // a non-zero result at the given rate. For buy requests (RateBoundCmp
 // == -1), the amount is in asset units and converts to msat. For sell
 // requests (RateBoundCmp == +1), the amount is in msat and converts
-// to asset units.
+// to asset units. An mSat overflow on the buy side is treated as
+// non-transportable.
 func amountIsTransportable(amt uint64,
 	rate rfqmath.BigIntFixedPoint, rateBoundCmp int) bool {
 
 	if rateBoundCmp < 0 {
 		// Buy: asset units → msat.
 		units := rfqmath.NewBigIntFixedPoint(amt, 0)
-		return rfqmath.UnitsToMilliSatoshi(units, rate) != 0
+		mSat, err := rfqmath.UnitsToMilliSatoshi(units, rate)
+		if err != nil {
+			return false
+		}
+		return mSat != 0
 	}
 
 	// Sell: msat → asset units.

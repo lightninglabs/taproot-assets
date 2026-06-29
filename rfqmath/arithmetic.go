@@ -49,6 +49,10 @@ type Int[N any] interface {
 	// ToUint64 converts the integer to a uint64.
 	ToUint64() uint64
 
+	// ToUint64Checked converts the integer to a uint64, returning false
+	// when the value does not fit in a uint64.
+	ToUint64Checked() (uint64, bool)
+
 	// FromUint64 converts a uint64 to the integer type.
 	FromUint64(uint64) N
 }
@@ -115,6 +119,13 @@ func (b GoInt[T]) FromFloat(f float64) GoInt[T] {
 // ToUint64 converts the integer to a uint64.
 func (b GoInt[T]) ToUint64() uint64 {
 	return uint64(b.value)
+}
+
+// ToUint64Checked converts the integer to a uint64. The bool is always true
+// because GoInt's underlying type is an unsigned integer whose width is at
+// most that of uint64.
+func (b GoInt[T]) ToUint64Checked() (uint64, bool) {
+	return uint64(b.value), true
 }
 
 // FromUint64 converts a uint64 to the integer type.
@@ -226,6 +237,16 @@ func (b BigInt) FromUint64(u uint64) BigInt {
 // ToUint64 converts the integer to a uint64.
 func (b BigInt) ToUint64() uint64 {
 	return b.value.Uint64()
+}
+
+// ToUint64Checked converts the integer to a uint64, returning false when the
+// value does not fit in a uint64. ToUint64 returns the low 64 bits on
+// overflow; this variant reports the truncation instead.
+func (b BigInt) ToUint64Checked() (uint64, bool) {
+	if !b.value.IsUint64() {
+		return 0, false
+	}
+	return b.value.Uint64(), true
 }
 
 // Bytes returns the absolute value of b as a big-endian byte slice.

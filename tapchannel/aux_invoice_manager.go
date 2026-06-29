@@ -277,7 +277,13 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 
 	htlcAssetAmount := htlc.Amounts.Val.Sum()
 	totalAssetAmt := rfqmath.NewBigIntFixedPoint(htlcAssetAmount, 0)
-	resp.AmtPaid = rfqmath.UnitsToMilliSatoshi(totalAssetAmt, *assetRate)
+	resp.AmtPaid, err = rfqmath.UnitsToMilliSatoshi(
+		totalAssetAmt, *assetRate,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to convert HTLC asset "+
+			"amount to mSat: %w", err)
+	}
 
 	// If all previously accepted HTLC amounts plus the intercepted HTLC
 	// amount together add up to just about the asset invoice amount, then
@@ -299,9 +305,13 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 	marginAssetUnits := rfqmath.NewBigIntFixedPoint(
 		allowedMarginAssetUnits, 0,
 	)
-	allowedMarginMSat := rfqmath.UnitsToMilliSatoshi(
+	allowedMarginMSat, err := rfqmath.UnitsToMilliSatoshi(
 		marginAssetUnits, *assetRate,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to convert margin asset "+
+			"units to mSat: %w", err)
+	}
 
 	// Every HTLC makes a roundtrip from msats to units and then back to
 	// msats right here. Above we account for the asset units that may have

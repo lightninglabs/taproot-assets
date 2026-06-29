@@ -288,9 +288,10 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 		htlcAssets := htlc.Amounts.Val.Sum()
 		totalAssetAmount := rfqmath.NewBigIntFixedPoint(htlcAssets, 0)
 
-		amtPaid := rfqmath.UnitsToMilliSatoshi(
+		amtPaid, err := rfqmath.UnitsToMilliSatoshi(
 			totalAssetAmount, assetRate,
 		)
+		require.NoError(m.t, err)
 
 		acceptedMsat := lnwire.MilliSatoshi(0)
 		for _, htlc := range r.Invoice.Htlcs {
@@ -302,9 +303,10 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 
 		marginAssetUnits := rfqmath.NewBigIntFixedPoint(marginHtlcs, 0)
 
-		marginMsat := rfqmath.UnitsToMilliSatoshi(
+		marginMsat, err := rfqmath.UnitsToMilliSatoshi(
 			marginAssetUnits, assetRate,
 		)
+		require.NoError(m.t, err)
 
 		totalMsatIn := marginMsat + amtPaid + acceptedMsat + 1
 
