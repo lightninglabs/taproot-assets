@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -292,16 +293,39 @@ func NewIncomingAcceptFromWire(wireMsg WireMessage,
 	}
 
 	// Use the corresponding request to determine the type of accept
-	// message.
+	// message. The wire-level sender must match the peer the original
+	// Request was sent to, so that an Accept is only ever associated
+	// with the session it belongs to.
 	switch typedRequest := request.(type) {
 	case *BuyRequest:
+		if typedRequest.MsgPeer() != wireMsg.Peer {
+			return nil, peerMismatchErr(
+				wireMsg.Peer, typedRequest.MsgPeer(),
+				msgData.ID.Val,
+			)
+		}
 		return newBuyAcceptFromWireMsg(wireMsg, msgData, *typedRequest)
 	case *SellRequest:
+		if typedRequest.MsgPeer() != wireMsg.Peer {
+			return nil, peerMismatchErr(
+				wireMsg.Peer, typedRequest.MsgPeer(),
+				msgData.ID.Val,
+			)
+		}
 		return newSellAcceptFromWireMsg(wireMsg, msgData, *typedRequest)
 	default:
 		return nil, fmt.Errorf("unknown request type for incoming "+
 			"accept message: %T", request)
 	}
+}
+
+// peerMismatchErr returns an error indicating that the wire-level
+// sender of an incoming response does not match the peer the original
+// Request was sent to.
+func peerMismatchErr(wirePeer, reqPeer route.Vertex, id ID) error {
+	return fmt.Errorf("incoming response peer %x does not match "+
+		"original request peer %x for ID %s",
+		wirePeer[:], reqPeer[:], id.String())
 }
 
 // Accept represents an RFQ quote accept message.
