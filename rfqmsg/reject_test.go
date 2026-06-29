@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 )
@@ -76,4 +79,73 @@ func TestRejectEncodeDecode(t *testing.T) {
 			)
 		})
 	}
+}
+
+// buildRejectWire constructs a wire-encoded Reject message originating
+// from sender, in response to a request with the given ID.
+func buildRejectWire(t *testing.T, sender route.Vertex, id ID) WireMessage {
+	t.Helper()
+
+	reject := NewReject(sender, id, ErrPriceOracleUnavailable)
+
+	data, err := reject.rejectWireMsgData.Bytes()
+	require.NoError(t, err)
+
+	return WireMessage{
+		Peer:    sender,
+		MsgType: MsgTypeReject,
+		Data:    data,
+	}
+}
+
+// TestIncomingRejectPeerBinding verifies that NewQuoteRejectFromWireMsg
+// only accepts a Reject whose wire-level sender matches the peer the
+// original Request was sent to.
+func TestIncomingRejectPeerBinding(t *testing.T) {
+	t.Parallel()
+
+	requestPeer := route.Vertex{0x01}
+	otherPeer := route.Vertex{0x02}
+	spec := asset.NewSpecifierFromId(asset.ID{0xAA})
+
+	request, err := NewBuyRequest(
+		requestPeer, spec, 100, fn.None[uint64](),
+		fn.None[rfqmath.BigIntFixedPoint](),
+		fn.None[AssetRate](), "",
+		fn.None[ExecutionPolicy](),
+	)
+	require.NoError(t, err)
+
+	lookup := func(id ID) (OutgoingMsg, bool) {
+		if id != request.ID {
+			return nil, false
+		}
+		return request, true
+	}
+
+	t.Run("matching peer accepted", func(tt *testing.T) {
+		wire := buildRejectWire(tt, requestPeer, request.ID)
+
+		reject, err := NewQuoteRejectFromWireMsg(wire, lookup)
+		require.NoError(tt, err)
+		require.Equal(tt, requestPeer, reject.Peer)
+	})
+
+	t.Run("mismatched peer rejected", func(tt *testing.T) {
+		wire := buildRejectWire(tt, otherPeer, request.ID)
+
+		_, err := NewQuoteRejectFromWireMsg(wire, lookup)
+		require.ErrorContains(tt, err, "does not match original "+
+			"request peer")
+	})
+
+	t.Run("missing session rejected", func(tt *testing.T) {
+		var unknownID ID
+		copy(unknownID[:], []byte{0xFF})
+
+		wire := buildRejectWire(tt, requestPeer, unknownID)
+
+		_, err := NewQuoteRejectFromWireMsg(wire, lookup)
+		require.ErrorContains(tt, err, "no outgoing request found")
+	})
 }

@@ -246,7 +246,12 @@ func NewReject(peer route.Vertex, requestId ID,
 }
 
 // NewQuoteRejectFromWireMsg instantiates a new instance from a wire message.
-func NewQuoteRejectFromWireMsg(wireMsg WireMessage) (*Reject, error) {
+// The session lookup is used to bind the incoming Reject to the peer the
+// original Request was sent to, so that an unsolicited or spoofed Reject
+// cannot terminate a session that belongs to a different counterparty.
+func NewQuoteRejectFromWireMsg(wireMsg WireMessage,
+	sessionLookup SessionLookup) (*Reject, error) {
+
 	// Ensure that the message type is a reject message.
 	if wireMsg.MsgType != MsgTypeReject {
 		return nil, fmt.Errorf("unable to create a reject message "+
@@ -265,6 +270,39 @@ func NewQuoteRejectFromWireMsg(wireMsg WireMessage) (*Reject, error) {
 	if msgData.Version.Val != latestRejectVersion {
 		return nil, fmt.Errorf("unsupported reject message version: %d",
 			msgData.Version.Val)
+	}
+
+	if sessionLookup == nil {
+		return nil, fmt.Errorf("RFQ session lookup function is " +
+			"required")
+	}
+
+	request, found := sessionLookup(msgData.ID.Val)
+	if !found {
+		return nil, fmt.Errorf("no outgoing request found for "+
+			"incoming reject message: %s", msgData.ID.Val.String())
+	}
+
+	// The wire-level sender must match the peer the original Request
+	// was sent to.
+	switch typedRequest := request.(type) {
+	case *BuyRequest:
+		if typedRequest.MsgPeer() != wireMsg.Peer {
+			return nil, peerMismatchErr(
+				wireMsg.Peer, typedRequest.MsgPeer(),
+				msgData.ID.Val,
+			)
+		}
+	case *SellRequest:
+		if typedRequest.MsgPeer() != wireMsg.Peer {
+			return nil, peerMismatchErr(
+				wireMsg.Peer, typedRequest.MsgPeer(),
+				msgData.ID.Val,
+			)
+		}
+	default:
+		return nil, fmt.Errorf("unknown request type for incoming "+
+			"reject message: %T", request)
 	}
 
 	return &Reject{
