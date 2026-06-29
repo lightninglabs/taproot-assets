@@ -2,6 +2,8 @@ package mssmt
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 
@@ -80,6 +82,43 @@ func (p Proof) Root(key [32]byte, leaf Node) *BranchNode {
 	// where the error could come from is the passed iterator which is nil.
 	node, _ := walkUp(&key, leaf, p.Nodes, nil)
 	return node
+}
+
+// rootSum walks up from the given leaf to the root and returns the
+// (hash, sum) pair of the resulting root branch, computed directly from
+// sibling hashes and sums without materialising any BranchNode. Used by
+// verification paths that only need to compare the final hash against an
+// expected root.
+//
+// The hot loop is allocation-free: the per-level branch encoding is laid
+// out in a single stack-resident 72-byte buffer, and sha256.Sum256
+// returns the digest by value.
+func (p *Proof) rootSum(key *[hashSize]byte, leaf Node) (NodeHash, uint64) {
+	h, s := leaf.NodeHash(), leaf.NodeSum()
+	var buf [hashSize*2 + 8]byte
+	for i := lastBitIndex; i >= 0; i-- {
+		sibling := p.Nodes[lastBitIndex-i]
+		sh, ss := sibling.NodeHash(), sibling.NodeSum()
+
+		var lh, rh NodeHash
+		var ls, rs uint64
+		if bitIndex(uint8(i), key) == 0 {
+			lh, ls, rh, rs = h, s, sh, ss
+		} else {
+			lh, ls, rh, rs = sh, ss, h, s
+		}
+
+		// The sum is the order-independent component; addition wraps
+		// on overflow, mirroring the existing BranchNode path which
+		// also does not check overflow on verify.
+		s = ls + rs
+
+		copy(buf[:hashSize], lh[:])
+		copy(buf[hashSize:hashSize*2], rh[:])
+		binary.BigEndian.PutUint64(buf[hashSize*2:], s)
+		h = sha256.Sum256(buf[:])
+	}
+	return h, s
 }
 
 // Copy returns a deep copy of the proof.
