@@ -345,6 +345,64 @@ flake-unit-race-trace:
 	@$(call print, "Flake hunting races in unit tests.")
 	while [ $$? -eq 0 ]; do make unit-race log='stdout trace' nocache=1; done
 
+# ============
+# BENCHMARKS
+# ============
+
+# bench runs Go benchmarks for a single package (pkg defaults to bench/rpc,
+# the per-RPC suite). Use `make bench pkg=mssmt` to scope to one package.
+# BENCH_TIME controls -benchtime; BENCH_RUN controls the -bench regex.
+pkg ?= bench/rpc
+BENCH_TIME ?= 1x
+BENCH_RUN ?= .
+
+BENCH_RESULTS_DIR := bench/results
+BENCH_RESULTS_FILE := $(BENCH_RESULTS_DIR)/$(shell git rev-parse --short HEAD)-$(shell date +%s).txt
+
+bench-dir:
+	@mkdir -p $(BENCH_RESULTS_DIR)
+
+bench: bench-dir
+	@$(call print, "Running benchmarks for $(pkg).")
+	$(GOTEST) -run='^$$' -bench=$(BENCH_RUN) -benchmem \
+		-benchtime=$(BENCH_TIME) ./$(pkg)/... | \
+		tee $(BENCH_RESULTS_FILE)
+
+# bench-all runs every package containing a Benchmark* function. Heavy —
+# meant for baseline capture and offline analysis, not the inner loop.
+bench-all: bench-dir
+	@$(call print, "Running all benchmarks (may take a while).")
+	$(GOTEST) -run='^$$' -bench=. -benchmem \
+		-benchtime=$(BENCH_TIME) \
+		./address/... ./asset/... ./bench/fixture/... \
+		./bench/rpc/... ./bench/scenario/... ./bench/wire/... \
+		./commitment/... ./mssmt/... ./proof/... ./vm/... | \
+		tee $(BENCH_RESULTS_FILE)
+
+# benchstat compares the most recent results file (excluding any
+# file whose basename begins with "baseline") against a named
+# baseline. The "latest" file is resolved at run time, not at
+# Makefile-parse time, so it sees results dropped by prior
+# `make bench` / `make bench-all` invocations.
+#
+# Use `make benchstat base=bench/results/baseline.txt`.
+benchstat:
+	@command -v benchstat >/dev/null 2>&1 || \
+		go install golang.org/x/perf/cmd/benchstat@latest
+	@latest=$$(ls -t $(BENCH_RESULTS_DIR)/*.txt 2>/dev/null | \
+		grep -v '/baseline' | head -1); \
+	if [ -z "$$latest" ]; then \
+		echo "no recent results in $(BENCH_RESULTS_DIR); run 'make bench' first"; \
+		exit 1; \
+	fi; \
+	echo "Comparing $$latest against $(base)."; \
+	benchstat $(base) $$latest
+
+# bench-closure-check audits the proto surface against bench/rpc/.
+bench-closure-check:
+	@$(call print, "Auditing per-RPC bench coverage.")
+	go run ./bench/check
+
 # =============
 # FUZZING
 # =============
