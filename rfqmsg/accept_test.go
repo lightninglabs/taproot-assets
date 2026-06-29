@@ -5,7 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -227,5 +231,74 @@ func TestAcceptMsgDataEncodeDecode(t *testing.T) {
 
 		// Zero should have been normalised away.
 		require.True(tt, decoded.MaxInAsset.IsNone())
+	})
+}
+
+// buildBuyAcceptWire constructs a wire-encoded buy Accept message
+// originating from sender, in response to request.
+func buildBuyAcceptWire(t *testing.T, sender route.Vertex,
+	request BuyRequest) WireMessage {
+
+	t.Helper()
+
+	rate := rfqmath.NewBigIntFixedPoint(42_000, 0)
+	assetRate := NewAssetRate(rate, time.Now().Add(time.Hour))
+	accept := NewBuyAcceptFromRequest(request, assetRate, fn.None[uint64]())
+
+	msgData, err := newAcceptWireMsgDataFromBuy(*accept)
+	require.NoError(t, err)
+
+	data, err := msgData.Bytes()
+	require.NoError(t, err)
+
+	return WireMessage{
+		Peer:    sender,
+		MsgType: MsgTypeAccept,
+		Data:    data,
+	}
+}
+
+// TestIncomingAcceptPeerBinding verifies that
+// NewIncomingAcceptFromWire only accepts an Accept whose wire-level
+// sender matches the peer the original Request was sent to.
+func TestIncomingAcceptPeerBinding(t *testing.T) {
+	t.Parallel()
+
+	requestPeer := route.Vertex{0x01}
+	otherPeer := route.Vertex{0x02}
+	spec := asset.NewSpecifierFromId(asset.ID{0xAA})
+
+	request, err := NewBuyRequest(
+		requestPeer, spec, 100, fn.None[uint64](),
+		fn.None[rfqmath.BigIntFixedPoint](),
+		fn.None[AssetRate](), "",
+		fn.None[ExecutionPolicy](),
+	)
+	require.NoError(t, err)
+
+	lookup := func(id ID) (OutgoingMsg, bool) {
+		if id != request.ID {
+			return nil, false
+		}
+		return request, true
+	}
+
+	t.Run("matching peer accepted", func(tt *testing.T) {
+		wire := buildBuyAcceptWire(tt, requestPeer, *request)
+
+		msg, err := NewIncomingAcceptFromWire(wire, lookup)
+		require.NoError(tt, err)
+
+		ba, ok := msg.(*BuyAccept)
+		require.True(tt, ok)
+		require.Equal(tt, requestPeer, ba.Peer)
+	})
+
+	t.Run("mismatched peer rejected", func(tt *testing.T) {
+		wire := buildBuyAcceptWire(tt, otherPeer, *request)
+
+		_, err := NewIncomingAcceptFromWire(wire, lookup)
+		require.ErrorContains(tt, err, "does not match original "+
+			"request peer")
 	})
 }

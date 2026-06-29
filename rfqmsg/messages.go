@@ -248,7 +248,7 @@ func NewIncomingMsgFromWire(wireMsg WireMessage,
 	case MsgTypeAccept:
 		return NewIncomingAcceptFromWire(wireMsg, sessionLookup)
 	case MsgTypeReject:
-		return NewQuoteRejectFromWireMsg(wireMsg)
+		return NewQuoteRejectFromWireMsg(wireMsg, sessionLookup)
 	default:
 		return nil, ErrUnknownMessageType
 	}
