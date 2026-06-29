@@ -579,7 +579,11 @@ type MockChainBridge struct {
 	ReqCount atomic.Int32
 	ConfReqs map[int]*chainntnfs.ConfirmationEvent
 
-	Blocks map[chainhash.Hash]*wire.MsgBlock
+	// BlocksMu protects concurrent access to Blocks. Writers (test
+	// fixtures populating blocks on demand) and readers (GetBlock,
+	// called from caretaker goroutines) must hold it.
+	BlocksMu sync.RWMutex
+	Blocks   map[chainhash.Hash]*wire.MsgBlock
 
 	failFeeEstimates atomic.Bool
 	errConf          atomic.Int32
@@ -698,7 +702,9 @@ func (m *MockChainBridge) RegisterBlockEpochNtfn(
 func (m *MockChainBridge) GetBlock(ctx context.Context,
 	hash chainhash.Hash) (*wire.MsgBlock, error) {
 
+	m.BlocksMu.RLock()
 	block, ok := m.Blocks[hash]
+	m.BlocksMu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("block %s not found", hash.String())
 	}
