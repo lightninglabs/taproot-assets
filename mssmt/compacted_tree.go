@@ -3,6 +3,7 @@ package mssmt
 import (
 	"context"
 	"fmt"
+	"math/bits"
 )
 
 // CompactedTree represents a compacted Merkle-Sum Sparse Merkle Tree (MS-SMT).
@@ -584,12 +585,26 @@ func (t *CompactedTree) CopyFilter(ctx context.Context, targetTree Tree,
 }
 
 // InsertMany inserts multiple leaf nodes provided in the leaves map within a
-// single database transaction.
+// single database transaction. Internal nodes shared by multiple inserted
+// leaves are computed once per batch, not once per leaf, so the per-call
+// cost approaches O(N log N + N) rather than O(N * MaxTreeLevels).
 func (t *CompactedTree) InsertMany(ctx context.Context,
 	leaves map[[hashSize]byte]*LeafNode) (Tree, error) {
 
 	if len(leaves) == 0 {
 		return t, nil
+	}
+
+	items := make([]batchItem, 0, len(leaves))
+	var batchSum uint64
+	for key, leaf := range leaves {
+		items = append(items, batchItem{key: key, leaf: leaf})
+		nextSum, carry := bits.Add64(batchSum, leaf.NodeSum(), 0)
+		if carry != 0 {
+			return nil, fmt.Errorf("compact tree batch insert "+
+				"sum overflow: %w", ErrIntegerOverflow)
+		}
+		batchSum = nextSum
 	}
 
 	dbErr := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
@@ -599,46 +614,218 @@ func (t *CompactedTree) InsertMany(ctx context.Context,
 		}
 		rootBranch := currentRoot.(*BranchNode)
 
-		for key, leaf := range leaves {
-			// Check for potential sum overflow before each
-			// insertion.
-			sumRoot := rootBranch.NodeSum()
-			sumLeaf := leaf.NodeSum()
-			err = CheckSumOverflowUint64(sumRoot, sumLeaf)
-			if err != nil {
-				return fmt.Errorf("compact tree leaf insert "+
-					"sum overflow, root: %d, leaf: %d; %w",
-					sumRoot, sumLeaf, err)
+		// Account for existing leaves at batch keys when checking
+		// overflow — see sumExistingLeavesFull for rationale. Fresh
+		// trees skip the per-key walk since no leaves can be replaced.
+		var existingBatchSum uint64
+		if rootBranch.NodeHash() != EmptyTreeRootHash {
+			for key := range leaves {
+				k := key
+				existing, err := t.walkDown(tx, &k, nil)
+				if err != nil {
+					return err
+				}
+				if existing == nil || existing.IsEmpty() {
+					continue
+				}
+				next, carry := bits.Add64(
+					existingBatchSum,
+					existing.NodeSum(), 0,
+				)
+				if carry != 0 {
+					return ErrIntegerOverflow
+				}
+				existingBatchSum = next
 			}
-
-			// Insert the leaf using the internal helper.
-			newRoot, err := t.insert(
-				tx, &key, 0, rootBranch, leaf,
+		}
+		if batchSum > existingBatchSum {
+			delta := batchSum - existingBatchSum
+			err := CheckSumOverflowUint64(
+				rootBranch.NodeSum(), delta,
 			)
 			if err != nil {
-				return fmt.Errorf("error inserting leaf "+
-					"with key %x: %w", key, err)
-			}
-			rootBranch = newRoot
-
-			// Update the root within the transaction for
-			// consistency, even though the insert logic passes the
-			// root explicitly.
-			err = tx.UpdateRoot(rootBranch)
-			if err != nil {
-				return fmt.Errorf("error updating root "+
-					"during InsertMany: %w", err)
+				return fmt.Errorf("compact tree batch "+
+					"insert sum overflow, root: %d, "+
+					"effective delta: %d; %w",
+					rootBranch.NodeSum(), delta, err)
 			}
 		}
 
-		// The root is already updated by the last iteration of the
-		// loop. No final update needed here, but returning nil error
-		// signals success.
-		return nil
+		newRoot, err := t.batchInsert(tx, items, currentRoot, 0)
+		if err != nil {
+			return fmt.Errorf("batch insert: %w", err)
+		}
+
+		newRootBranch, ok := newRoot.(*BranchNode)
+		if !ok {
+			return fmt.Errorf("batch insert: unexpected root "+
+				"node type %T", newRoot)
+		}
+
+		return tx.UpdateRoot(newRootBranch)
 	})
 	if dbErr != nil {
 		return nil, dbErr
 	}
 
 	return t, nil
+}
+
+// batchInsert applies a set of items to the subtree rooted at node,
+// located at depth. It mirrors the dispatch in CompactedTree.insert
+// (empty branch / non-empty branch / compacted leaf) but processes the
+// whole batch in one descent, materialising each touched internal node
+// exactly once.
+func (t *CompactedTree) batchInsert(tx TreeStoreUpdateTx,
+	items []batchItem, node Node, depth int) (Node, error) {
+
+	if len(items) == 0 {
+		return node, nil
+	}
+
+	// A compacted leaf at this depth represents a single existing leaf
+	// somewhere in this subtree. Absorb its (key, leaf) into the batch
+	// — unless one of our items already overwrites the same key —
+	// then rebuild the subtree from scratch at this depth.
+	if cl, ok := node.(*CompactedLeafNode); ok {
+		if err := tx.DeleteCompactedLeaf(cl.NodeHash()); err != nil {
+			return nil, err
+		}
+
+		overwritten := false
+		for _, item := range items {
+			if item.key == cl.key {
+				overwritten = true
+				break
+			}
+		}
+		if !overwritten {
+			items = append(items, batchItem{
+				key: cl.key, leaf: cl.LeafNode,
+			})
+		}
+		return t.buildSubtree(tx, items, depth)
+	}
+
+	branch := node.(*BranchNode)
+
+	// An empty subtree at this depth: build from scratch. buildSubtree
+	// will compact down to a single CompactedLeafNode when the batch
+	// reduces to one non-empty leaf in this subtree. We gate this on
+	// depth > 0 because the root node must remain a *BranchNode.
+	if depth > 0 && branch.NodeHash() == EmptyTree[depth].NodeHash() {
+		return t.buildSubtree(tx, items, depth)
+	}
+
+	// Non-empty branch: fetch children once, partition items by the
+	// next bit, recurse into each non-empty side.
+	left, right, err := tx.GetChildren(depth, branch.NodeHash())
+	if err != nil {
+		return nil, err
+	}
+
+	leftItems, rightItems := partitionByBit(items, depth)
+
+	newLeft, newRight := left, right
+	if len(leftItems) > 0 {
+		newLeft, err = t.batchInsert(tx, leftItems, left, depth+1)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(rightItems) > 0 {
+		newRight, err = t.batchInsert(tx, rightItems, right, depth+1)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	newParent := NewBranch(newLeft, newRight)
+
+	if branch.NodeHash() != EmptyTree[depth].NodeHash() {
+		if err := tx.DeleteBranch(branch.NodeHash()); err != nil {
+			return nil, err
+		}
+	}
+	if newParent.NodeHash() != EmptyTree[depth].NodeHash() {
+		if err := tx.InsertBranch(newParent); err != nil {
+			return nil, err
+		}
+	}
+
+	return newParent, nil
+}
+
+// buildSubtree constructs a subtree at depth from a fresh item set,
+// applying compaction at the natural boundary: zero non-empty items →
+// empty subtree; exactly one non-empty item → CompactedLeafNode at
+// this depth; two or more → partition and recurse, writing one branch
+// per touched level.
+func (t *CompactedTree) buildSubtree(tx TreeStoreUpdateTx,
+	items []batchItem, depth int) (Node, error) {
+
+	// Filter deletions of absent keys: an empty leaf into an empty
+	// subtree is a no-op.
+	nonEmpty := items[:0]
+	for _, item := range items {
+		if !item.leaf.IsEmpty() {
+			nonEmpty = append(nonEmpty, item)
+		}
+	}
+	items = nonEmpty
+
+	if len(items) == 0 {
+		return EmptyTree[depth], nil
+	}
+
+	if len(items) == 1 {
+		item := items[0]
+		clNode := NewCompactedLeafNode(depth, &item.key, item.leaf)
+		if err := tx.InsertCompactedLeaf(clNode); err != nil {
+			return nil, err
+		}
+		return clNode, nil
+	}
+
+	leftItems, rightItems := partitionByBit(items, depth)
+
+	newLeft, err := t.buildSubtree(tx, leftItems, depth+1)
+	if err != nil {
+		return nil, err
+	}
+	newRight, err := t.buildSubtree(tx, rightItems, depth+1)
+	if err != nil {
+		return nil, err
+	}
+
+	newParent := NewBranch(newLeft, newRight)
+	if newParent.NodeHash() != EmptyTree[depth].NodeHash() {
+		if err := tx.InsertBranch(newParent); err != nil {
+			return nil, err
+		}
+	}
+	return newParent, nil
+}
+
+// partitionByBit splits items into (left, right) by the value of the
+// bit at depth in each item's key. The partition is done in place with
+// a two-pointer swap — items is reordered but no fresh slice is
+// allocated. The returned sub-slices use 3-index slicing so a
+// subsequent append on either side cannot clobber the sibling side.
+// Callers must own items (see buildSubtree's caller-owns invariant);
+// the descent is order-independent so the reorder is invisible to the
+// resulting tree.
+func partitionByBit(items []batchItem, depth int) (left, right []batchItem) {
+	i, j := 0, len(items)-1
+	for i <= j {
+		k := items[i].key
+		if bitIndex(uint8(depth), &k) == 0 {
+			i++
+		} else {
+			items[i], items[j] = items[j], items[i]
+			j--
+		}
+	}
+	n := len(items)
+	return items[:i:i], items[i:n:n]
 }

@@ -501,13 +501,74 @@ func (t *FullTree) CopyFilter(ctx context.Context, targetTree Tree,
 	return nil
 }
 
+// batchItem pairs an (immutable) key with its leaf for the batched
+// insert recursion.
+type batchItem struct {
+	key  [hashSize]byte
+	leaf *LeafNode
+}
+
+// sumExistingLeavesFull walks the FullTree to find the sum of any
+// existing leaves at the keys in the batch. It is used to compute the
+// effective sum delta of a batched insert so overflow checks match
+// sequential Insert semantics under replacements and deletions.
+//
+// Fresh (empty) trees skip the per-key walk: by definition no leaves
+// exist, so the sum is zero and the conservative check on rootSum +
+// batchSum is exact.
+func sumExistingLeavesFull(t *FullTree, tx TreeStoreUpdateTx,
+	root *BranchNode, leaves map[[hashSize]byte]*LeafNode) (
+	uint64, error) {
+
+	if root.NodeHash() == EmptyTreeRootHash {
+		return 0, nil
+	}
+
+	var existingSum uint64
+	for key := range leaves {
+		k := key
+		existing, err := t.walkDown(tx, &k, nil)
+		if err != nil {
+			return 0, err
+		}
+		if existing == nil || existing.IsEmpty() {
+			continue
+		}
+		nextSum, carry := bits.Add64(
+			existingSum, existing.NodeSum(), 0,
+		)
+		if carry != 0 {
+			return 0, ErrIntegerOverflow
+		}
+		existingSum = nextSum
+	}
+	return existingSum, nil
+}
+
 // InsertMany inserts multiple leaf nodes provided in the leaves map within a
-// single database transaction.
+// single database transaction. Internal nodes shared by multiple inserted
+// leaves are computed once per batch, not once per leaf, so the per-call
+// cost approaches O(N log N + N) rather than O(N * MaxTreeLevels).
 func (t *FullTree) InsertMany(ctx context.Context,
 	leaves map[[hashSize]byte]*LeafNode) (Tree, error) {
 
 	if len(leaves) == 0 {
 		return t, nil
+	}
+
+	// Materialise items in a slice the recursion can partition. The map
+	// iteration order is unstable but the resulting tree is order-
+	// independent, so any iteration order is fine.
+	items := make([]batchItem, 0, len(leaves))
+	var batchSum uint64
+	for key, leaf := range leaves {
+		items = append(items, batchItem{key: key, leaf: leaf})
+		nextSum, carry := bits.Add64(batchSum, leaf.NodeSum(), 0)
+		if carry != 0 {
+			return nil, fmt.Errorf("full tree batch insert sum "+
+				"overflow: %w", ErrIntegerOverflow)
+		}
+		batchSum = nextSum
 	}
 
 	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
@@ -517,45 +578,116 @@ func (t *FullTree) InsertMany(ctx context.Context,
 		}
 		rootBranch := currentRoot.(*BranchNode)
 
-		for key, leaf := range leaves {
-			// Check for potential sum overflow before each
-			// insertion.
-			sumRoot := rootBranch.NodeSum()
-			sumLeaf := leaf.NodeSum()
-			err = CheckSumOverflowUint64(sumRoot, sumLeaf)
+		// The effective sum delta of the batch accounts for any
+		// existing leaves at batch keys that will be overwritten or
+		// deleted. Without this, a batch that replaces a large
+		// existing leaf with a small one would be wrongly rejected
+		// as overflow — diverging from sequential Insert semantics.
+		existingBatchSum, err := sumExistingLeavesFull(
+			t, tx, rootBranch, leaves,
+		)
+		if err != nil {
+			return err
+		}
+		if batchSum > existingBatchSum {
+			delta := batchSum - existingBatchSum
+			err := CheckSumOverflowUint64(
+				rootBranch.NodeSum(), delta,
+			)
 			if err != nil {
-				return fmt.Errorf("full tree leaf insert sum "+
-					"overflow, root: %d, leaf: %d; %w",
-					sumRoot, sumLeaf, err)
-			}
-
-			// Insert the leaf using the internal helper.
-			newRoot, err := t.insert(tx, &key, leaf)
-			if err != nil {
-				return fmt.Errorf("error inserting leaf "+
-					"with key %x: %w", key, err)
-			}
-			rootBranch = newRoot
-
-			// Update the root within the transaction so subsequent
-			// inserts in this batch read the correct state.
-			err = tx.UpdateRoot(rootBranch)
-			if err != nil {
-				return fmt.Errorf("error updating root "+
-					"during InsertMany: %w", err)
+				return fmt.Errorf("full tree batch insert "+
+					"sum overflow, root: %d, effective "+
+					"delta: %d; %w",
+					rootBranch.NodeSum(), delta, err)
 			}
 		}
 
-		// The root is already updated by the last iteration of the
-		// loop. No final update needed here, but returning nil error
-		// signals success.
-		return nil
+		newRoot, err := t.batchInsert(tx, items, currentRoot, 0)
+		if err != nil {
+			return fmt.Errorf("batch insert: %w", err)
+		}
+
+		newRootBranch, ok := newRoot.(*BranchNode)
+		if !ok {
+			return fmt.Errorf("batch insert: unexpected root "+
+				"node type %T", newRoot)
+		}
+
+		return tx.UpdateRoot(newRootBranch)
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return t, nil
+}
+
+// batchInsert recursively descends into the subtree rooted at node,
+// partitioning items by the bit at depth, computing each new internal
+// node exactly once and emitting one delete/insert pair per touched
+// node. At the leaf level it emits the per-leaf storage I/O.
+func (t *FullTree) batchInsert(tx TreeStoreUpdateTx, items []batchItem,
+	node Node, depth int) (Node, error) {
+
+	if len(items) == 0 {
+		return node, nil
+	}
+
+	// At leaf depth, exactly one item lives here. Empty leaves are
+	// deletions; non-empty leaves are inserts/replacements.
+	if depth == MaxTreeLevels {
+		item := items[0]
+		if item.leaf.IsEmpty() {
+			if err := tx.DeleteLeaf(item.key); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := tx.InsertLeaf(item.leaf); err != nil {
+				return nil, err
+			}
+		}
+		return item.leaf, nil
+	}
+
+	// Fetch the current children once for this whole subtree's update.
+	left, right, err := tx.GetChildren(depth, node.NodeHash())
+	if err != nil {
+		return nil, err
+	}
+
+	// Partition items by the next bit. Items whose bit is 0 go left.
+	leftItems, rightItems := partitionByBit(items, depth)
+
+	newLeft, newRight := left, right
+	if len(leftItems) > 0 {
+		newLeft, err = t.batchInsert(tx, leftItems, left, depth+1)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(rightItems) > 0 {
+		newRight, err = t.batchInsert(tx, rightItems, right, depth+1)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	newParent := NewBranch(newLeft, newRight)
+
+	// Mutate storage: drop the old parent (unless empty) and write the
+	// new one (unless empty). Mirrors the single-insert walkUp emitter.
+	if node.NodeHash() != EmptyTree[depth].NodeHash() {
+		if err := tx.DeleteBranch(node.NodeHash()); err != nil {
+			return nil, err
+		}
+	}
+	if newParent.NodeHash() != EmptyTree[depth].NodeHash() {
+		if err := tx.InsertBranch(newParent); err != nil {
+			return nil, err
+		}
+	}
+
+	return newParent, nil
 }
 
 // VerifyMerkleProof determines whether a merkle proof for the leaf found at the
