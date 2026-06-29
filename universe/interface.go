@@ -400,12 +400,11 @@ func (p *Proof) LowerBoundByteSize() uint64 {
 func (p *Proof) VerifyRoot(expectedRoot mssmt.Node) bool {
 	leafNode := p.Leaf.SmtLeafNode()
 
-	reconstructedRoot := p.UniverseInclusionProof.Root(
-		p.LeafKey.UniverseKey(), leafNode,
-	)
-
 	return mssmt.IsEqualNode(p.UniverseRoot, expectedRoot) &&
-		mssmt.IsEqualNode(reconstructedRoot, expectedRoot)
+		mssmt.VerifyMerkleProof(
+			p.LeafKey.UniverseKey(), leafNode,
+			p.UniverseInclusionProof, expectedRoot,
+		)
 }
 
 // FetchLeavesQuery is a query struct used to paginate fetching leaves from
