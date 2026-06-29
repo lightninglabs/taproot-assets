@@ -35,6 +35,10 @@
   which bounds the proof cache by total memory size rather than proof
   count. Accepts human-readable values such as `64MB`.
 
+* [PR#2040](https://github.com/lightninglabs/taproot-assets/pull/2040)
+  handles SCID alias collisions during incoming buy-accept processing by
+  retrying RFQ negotiation with a fresh RFQ ID instead of failing the flow.
+
 # New Features
 
 ## Functional Enhancements

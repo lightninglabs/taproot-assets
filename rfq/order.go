@@ -1773,6 +1773,10 @@ type BuyOrder struct {
 	// FOK) for the order.
 	ExecutionPolicy fn.Option[rfqmsg.ExecutionPolicy]
 
+	// AssetRateHint is an optional suggested conversion rate to include in
+	// outgoing buy requests.
+	AssetRateHint fn.Option[rfqmsg.AssetRate]
+
 	// Expiry is the time at which the order expires.
 	Expiry time.Time
 

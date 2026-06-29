@@ -1145,7 +1145,7 @@ func reportProofTransfers(notDeliveringOutputs []TransferOutput,
 // transferReceiverProof retrieves the sender and receiver proofs from the
 // archive and then transfers the receiver's proof to the receiver. Upon
 // successful transfer, the asset parcel delivery is marked as complete.
-func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
+func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) (bool, error) {
 	ctx, cancel := p.WithCtxQuitNoTimeout()
 	defer cancel()
 
@@ -1161,8 +1161,8 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		// We'll first check to see if the proof should be delivered.
 		shouldDeliverProof, err := out.ShouldDeliverProof()
 		if err != nil {
-			return fmt.Errorf("error determining if proof should "+
-				"be delivered: %w", err)
+			return false, fmt.Errorf("error determining if proof "+
+				"should be delivered: %w", err)
 		}
 
 		if !shouldDeliverProof {
@@ -1186,8 +1186,8 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		scriptKeyBytes := scriptKey.SerializeCompressed()
 		outKey, err := out.UniqueKey()
 		if err != nil {
-			return fmt.Errorf("error generating unique key for "+
-				"output: %w", err)
+			return fmt.Errorf("error generating unique key "+
+				"for output: %w", err)
 		}
 
 		receiverProof, ok := pkg.FinalProofs[outKey]
@@ -1223,7 +1223,8 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			ctx, proofCourierAddr, true,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to initiate proof courier "+
+			return fmt.Errorf("unable to initiate proof "+
+				"courier "+
 				"service handle: %w", err)
 		}
 
@@ -1288,7 +1289,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		ctx, pendingDeliveryOutputs, deliver,
 	)
 	if err != nil {
-		return fmt.Errorf("error delivering proof(s): %w", err)
+		return false, fmt.Errorf("error delivering proof(s): %w", err)
 	}
 
 	// If there were any errors during the proof delivery process, we'll
@@ -1318,7 +1319,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	})
 
 	if firstErr != nil {
-		return firstErr
+		return false, firstErr
 	}
 
 	// If the delivery is incomplete, we'll return early so that we can
@@ -1329,10 +1330,10 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			pkg.OutboundPkg.AnchorTx.TxHash())
 
 		// Return here before setting the transfer to complete.
-		return nil
+		return false, nil
 	}
 
-	return nil
+	return true, nil
 }
 
 // importLocalAddresses imports the addresses for outputs that go to ourselves,
@@ -2235,10 +2236,14 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// we've stored the sender and receiver proofs in the proof archive.
 	// We'll now attempt to transfer one or more proofs to the receiver(s).
 	case SendStateTransferProofs:
-		err := p.transferReceiverProof(&currentPkg)
+		deliveryComplete, err := p.transferReceiverProof(&currentPkg)
 		if err != nil {
 			return nil, fmt.Errorf("unable to transfer receiver "+
 				"proof: %w", err)
+		}
+
+		if !deliveryComplete {
+			return &currentPkg, nil
 		}
 
 		currentPkg.SendState = SendStateComplete

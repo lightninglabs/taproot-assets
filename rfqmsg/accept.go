@@ -280,8 +280,22 @@ func NewIncomingAcceptFromWire(wireMsg WireMessage,
 	// message.
 	switch typedRequest := request.(type) {
 	case *BuyRequest:
+		if typedRequest.ID != msgData.ID.Val {
+			return nil, fmt.Errorf("incoming accept id %s does "+
+				"not match request id %s",
+				msgData.ID.Val.String(),
+				typedRequest.ID.String())
+		}
+
 		return newBuyAcceptFromWireMsg(wireMsg, msgData, *typedRequest)
 	case *SellRequest:
+		if typedRequest.ID != msgData.ID.Val {
+			return nil, fmt.Errorf("incoming accept id %s does "+
+				"not match request id %s",
+				msgData.ID.Val.String(),
+				typedRequest.ID.String())
+		}
+
 		return newSellAcceptFromWireMsg(wireMsg, msgData, *typedRequest)
 	default:
 		return nil, fmt.Errorf("unknown request type for incoming "+
