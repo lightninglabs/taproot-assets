@@ -131,6 +131,74 @@ func TestAcceptMsgDataEncodeDecode(t *testing.T) {
 		})
 	}
 
+	// Verify that Validate rejects a zero-coefficient asset rate.
+	t.Run("zero in-asset rate rejected", func(tt *testing.T) {
+		zeroRate := NewTlvFixedPointFromUint64(0, 0)
+		bad := acceptEncodeDecodeTC{
+			version:      V1,
+			id:           id,
+			expiry:       expiry,
+			sig:          randSig,
+			inAssetRate:  zeroRate,
+			outAssetRate: outAssetRate,
+		}
+		msgData := bad.MsgData()
+		err := msgData.Validate()
+		require.ErrorContains(tt, err, "in-asset rate")
+	})
+
+	t.Run("zero out-asset rate rejected", func(tt *testing.T) {
+		zeroRate := NewTlvFixedPointFromUint64(0, 0)
+		bad := acceptEncodeDecodeTC{
+			version:      V1,
+			id:           id,
+			expiry:       expiry,
+			sig:          randSig,
+			inAssetRate:  inAssetRate,
+			outAssetRate: zeroRate,
+		}
+		msgData := bad.MsgData()
+		err := msgData.Validate()
+		require.ErrorContains(tt, err, "out-asset rate")
+	})
+
+	// Validate after a wire round-trip must still reject a zero
+	// rate. Empty coefficient bytes decode to an allocated BigInt
+	// of value zero, so the rejection cannot rely on struct
+	// equality with a zero-value BigInt.
+	t.Run("decoded zero in-asset rate rejected", func(tt *testing.T) {
+		zeroRate := NewTlvFixedPointFromUint64(0, 0)
+		bad := acceptEncodeDecodeTC{
+			version:      V1,
+			id:           id,
+			expiry:       expiry,
+			sig:          randSig,
+			inAssetRate:  zeroRate,
+			outAssetRate: outAssetRate,
+		}
+		msgData := bad.MsgData()
+
+		// Bypass Encode (which itself calls Validate) by
+		// serialising the records directly.
+		var buf bytes.Buffer
+		records := []tlv.Record{
+			msgData.Version.Record(),
+			msgData.ID.Record(),
+			msgData.Expiry.Record(),
+			msgData.Sig.Record(),
+			msgData.InAssetRate.Record(),
+			msgData.OutAssetRate.Record(),
+		}
+		tlv.SortRecords(records)
+		stream, err := tlv.NewStream(records...)
+		require.NoError(tt, err)
+		require.NoError(tt, stream.Encode(&buf))
+
+		var decoded acceptWireMsgData
+		require.NoError(tt, decoded.Decode(&buf))
+		require.ErrorContains(tt, decoded.Validate(), "in-asset rate")
+	})
+
 	// Verify that a zero fill value on the wire is normalised to
 	// None during decode.
 	t.Run("zero max in-asset normalised to None", func(tt *testing.T) {

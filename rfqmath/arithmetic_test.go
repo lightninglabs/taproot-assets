@@ -2,6 +2,7 @@ package rfqmath
 
 import (
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -275,6 +276,26 @@ func TestArithmeticGoIntConstructor(t *testing.T) {
 	val := uint64(123)
 	a := NewGoInt[uint64](val)
 	require.Equal(t, val, a.value)
+}
+
+// TestBigIntIsZero tests that IsZero correctly identifies numerically
+// zero BigInts, including the zero-value struct and large coefficients
+// whose low 64 bits truncate to zero.
+func TestBigIntIsZero(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, BigInt{}.IsZero(),
+		"zero-value BigInt should be zero")
+	require.True(t, NewBigIntFromUint64(0).IsZero(),
+		"BigInt constructed from 0 should be zero")
+	require.False(t, NewBigIntFromUint64(1).IsZero(),
+		"BigInt of 1 should not be zero")
+
+	// 2^64 has zero low 64 bits but is numerically non-zero; the
+	// ToUint64-based check would incorrectly flag this as zero.
+	twoPow64 := NewBigInt(new(big.Int).Lsh(big.NewInt(1), 64))
+	require.False(t, twoPow64.IsZero(),
+		"2^64 should not be flagged as zero")
 }
 
 // TestArithmeticIntConstructor tests the NewInt constructor for the BigInt.

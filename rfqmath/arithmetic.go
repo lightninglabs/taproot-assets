@@ -256,6 +256,16 @@ func (b BigInt) Equals(other BigInt) bool {
 	return b.value.Cmp(other.value) == 0
 }
 
+// IsZero returns true if the integer is numerically zero. An
+// uninitialised BigInt (nil internal value) is treated as zero,
+// matching the zero-value semantics of the struct.
+func (b BigInt) IsZero() bool {
+	if b.value == nil {
+		return true
+	}
+	return b.value.Sign() == 0
+}
+
 // Gt returns true if the integer is greater than the other integer.
 func (b BigInt) Gt(other BigInt) bool {
 	return b.value.Cmp(other.value) == 1

@@ -360,7 +360,7 @@ func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
 			return nil, err
 		}
 
-		if rate.Coefficient.ToUint64() == 0 {
+		if rate.Coefficient.IsZero() {
 			return nil, fmt.Errorf("asset rate unspecified")
 		}
 
@@ -501,7 +501,7 @@ func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context,
 			return nil, err
 		}
 
-		if rate.Coefficient.ToUint64() == 0 {
+		if rate.Coefficient.IsZero() {
 			return nil, fmt.Errorf("asset rate unspecified")
 		}
 
