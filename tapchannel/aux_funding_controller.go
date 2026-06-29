@@ -585,7 +585,36 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 		localAssets = chanAssets
 	}
 
+	// Compute the initial BTC balances so the funding-time allocations
+	// sort into the same output order as the real commitment transaction
+	// produced at force-close. If these are left at zero, the asset proofs
+	// can anchor at the wrong index and fail re-anchor at force close.
+	commitFee := pendingFunding.feeRate.FeeForWeight(
+		lnwallet.CommitWeight(lndOpenChan.ChanType),
+	)
+	commitReserve := commitFee
+	if lndOpenChan.ChanType.HasAnchors() {
+		commitReserve += 2 * lnwallet.AnchorSize
+	}
+
+	capacityMSat := lnwire.NewMSatFromSatoshis(lndOpenChan.Capacity)
+	pushMSat := lnwire.NewMSatFromSatoshis(pendingFunding.pushAmt)
+	reserveMSat := lnwire.NewMSatFromSatoshis(commitReserve)
+	if capacityMSat < reserveMSat+pushMSat {
+		return nil, lnwallet.CommitAuxLeaves{}, fmt.Errorf("invalid "+
+			"initial balances: capacity=%v push=%v reserve=%v",
+			lndOpenChan.Capacity, pendingFunding.pushAmt,
+			commitReserve)
+	}
+
 	var localSatBalance, remoteSatBalance lnwire.MilliSatoshi
+	if pendingFunding.initiator {
+		localSatBalance = capacityMSat - reserveMSat - pushMSat
+		remoteSatBalance = pushMSat
+	} else {
+		localSatBalance = pushMSat
+		remoteSatBalance = capacityMSat - reserveMSat - pushMSat
+	}
 
 	// We don't have a real prev state at this point, the leaf creator only
 	// needs the sum of the remote+local assets, so we'll populate that.
