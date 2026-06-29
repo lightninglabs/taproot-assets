@@ -178,7 +178,7 @@ type BatchStore interface {
 	//
 	// The "exactly one batch in BatchStatePending or BatchStateFrozen
 	// at a time" invariant the planter relies on is enforced at the
-	// DB layer by migration 000060 (a partial unique index on
+	// DB layer by migration 000061 (a partial unique index on
 	// asset_minting_batches). Callers may assume that any successful
 	// CommitMintingBatch left the singleton slot occupied by exactly
 	// the batch they just committed.

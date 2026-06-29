@@ -41,7 +41,7 @@ type Querier interface {
 	DeleteRoot(ctx context.Context, namespace string) (int64, error)
 	DeleteSupplyCommitTransition(ctx context.Context, transitionID int64) error
 	// Deletes a single supply update event row identified by its
-	// event_id. Used by the migration 62 backfill to drop duplicate
+	// event_id. Used by the migration 63 backfill to drop duplicate
 	// rows that hash to the same event_key as an earlier row.
 	DeleteSupplyUpdateEvent(ctx context.Context, eventID int64) error
 	DeleteSupplyUpdateEvents(ctx context.Context, transitionID sql.NullInt64) error
@@ -122,7 +122,7 @@ type Querier interface {
 	FetchSupplySyncerPushLogs(ctx context.Context, groupKey []byte) ([]SupplySyncerPushLog, error)
 	// Returns rows that pre-date the event_key column and still need
 	// a hash computed. Used by the programmatic migration that runs
-	// at schema version 61.
+	// at schema version 62.
 	FetchSupplyUpdateEventsForBackfill(ctx context.Context) ([]FetchSupplyUpdateEventsForBackfillRow, error)
 	// Sort the nodes by node_index here instead of returning the indices.
 	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)
@@ -257,7 +257,7 @@ type Querier interface {
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
 	// Sets the content-hash key for a single supply update event row.
 	// Used by the programmatic migration that backfills pre-existing
-	// rows after column 000061 is added.
+	// rows after column 000062 is added.
 	SetSupplyUpdateEventKey(ctx context.Context, arg SetSupplyUpdateEventKeyParams) error
 	SetTransferOutputProofDeliveryStatus(ctx context.Context, arg SetTransferOutputProofDeliveryStatusParams) error
 	// Mark all unconfirmed transfers that spend the given anchor point as

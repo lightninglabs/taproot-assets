@@ -89,7 +89,7 @@ ON CONFLICT (event_key) DO NOTHING;
 -- name: FetchSupplyUpdateEventsForBackfill :many
 -- Returns rows that pre-date the event_key column and still need
 -- a hash computed. Used by the programmatic migration that runs
--- at schema version 61.
+-- at schema version 62.
 SELECT event_id, group_key, update_type_id, event_data
 FROM supply_update_events
 WHERE event_key IS NULL;
@@ -97,7 +97,7 @@ WHERE event_key IS NULL;
 -- name: SetSupplyUpdateEventKey :exec
 -- Sets the content-hash key for a single supply update event row.
 -- Used by the programmatic migration that backfills pre-existing
--- rows after column 000061 is added.
+-- rows after column 000062 is added.
 UPDATE supply_update_events
 SET event_key = @event_key
 WHERE event_id = @event_id;
@@ -235,7 +235,7 @@ WHERE transition_id = @transition_id;
 
 -- name: DeleteSupplyUpdateEvent :exec
 -- Deletes a single supply update event row identified by its
--- event_id. Used by the migration 62 backfill to drop duplicate
+-- event_id. Used by the migration 63 backfill to drop duplicate
 -- rows that hash to the same event_key as an earlier row.
 DELETE FROM supply_update_events
 WHERE event_id = @event_id;

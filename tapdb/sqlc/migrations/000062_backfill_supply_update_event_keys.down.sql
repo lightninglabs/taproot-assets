@@ -1,3 +1,0 @@
--- The backfill cannot be cleanly undone in isolation -- the column
--- itself is dropped by the 000061 down-migration. This file exists
--- only so the migration runner can step back through version 61.

@@ -1635,7 +1635,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	// The caretaker should fail when computing the Taproot output key.
 	// The gardener cancels the failed batch on disk so it does not
 	// block subsequent pending batches via the singleton invariant
-	// added in migration 000060.
+	// added in migration 000061.
 	_ = t.assertGenesisTxFunded(nil)
 	t.assertFinalizeBatch(&wg, respChan, "failed to load tapscript tree")
 	t.assertLastBatchState(
@@ -2173,7 +2173,7 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 	// The original test continued by inserting a second Pending
 	// batch directly on disk to exercise recovery when multiple
 	// pending batches were present. That scenario is now forbidden
-	// by the singleton invariant added in migration 000060, so the
+	// by the singleton invariant added in migration 000061, so the
 	// section has been removed. The single-pending-batch recovery
 	// paths exercised above are the surviving useful coverage; the
 	// "multiple pre-broadcast batches" case is covered by

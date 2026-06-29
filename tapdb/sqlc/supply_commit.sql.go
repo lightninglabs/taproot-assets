@@ -26,7 +26,7 @@ WHERE event_id = $1
 `
 
 // Deletes a single supply update event row identified by its
-// event_id. Used by the migration 62 backfill to drop duplicate
+// event_id. Used by the migration 63 backfill to drop duplicate
 // rows that hash to the same event_key as an earlier row.
 func (q *Queries) DeleteSupplyUpdateEvent(ctx context.Context, eventID int64) error {
 	_, err := q.db.ExecContext(ctx, DeleteSupplyUpdateEvent, eventID)
@@ -136,7 +136,7 @@ type FetchSupplyUpdateEventsForBackfillRow struct {
 
 // Returns rows that pre-date the event_key column and still need
 // a hash computed. Used by the programmatic migration that runs
-// at schema version 61.
+// at schema version 62.
 func (q *Queries) FetchSupplyUpdateEventsForBackfill(ctx context.Context) ([]FetchSupplyUpdateEventsForBackfillRow, error) {
 	rows, err := q.db.QueryContext(ctx, FetchSupplyUpdateEventsForBackfill)
 	if err != nil {
@@ -894,7 +894,7 @@ type SetSupplyUpdateEventKeyParams struct {
 
 // Sets the content-hash key for a single supply update event row.
 // Used by the programmatic migration that backfills pre-existing
-// rows after column 000061 is added.
+// rows after column 000062 is added.
 func (q *Queries) SetSupplyUpdateEventKey(ctx context.Context, arg SetSupplyUpdateEventKeyParams) error {
 	_, err := q.db.ExecContext(ctx, SetSupplyUpdateEventKey, arg.EventKey, arg.EventID)
 	return err

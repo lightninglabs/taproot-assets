@@ -2157,7 +2157,7 @@ func TestUpdateBatchStateMemoryCoherence(t *testing.T) {
 }
 
 // TestSingletonPreBroadcastBatchConstraint exercises the partial
-// unique index added in migration 000060. At most one
+// unique index added in migration 000061. At most one
 // asset_minting_batches row may be in BatchStatePending or
 // BatchStateFrozen at any time; the second insert into that set
 // must fail with a constraint error, and a row in

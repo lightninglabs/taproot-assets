@@ -151,7 +151,7 @@ func (h *supplyCommitTestHarness) addTestMintingBatch() ([]byte, int64,
 	// NewMintingBatch hardcodes state=BatchStatePending. These
 	// supply-commit tests need to create multiple batches as
 	// fixtures, which would violate the singleton invariant added
-	// in migration 000060 (≤ 1 batch in {Pending, Frozen}).
+	// in migration 000061 (≤ 1 batch in {Pending, Frozen}).
 	// Immediately advance to a terminal state so each fixture is
 	// outside the constrained set; the tests do not exercise the
 	// planter state machine, only the supply-commit logic, so the

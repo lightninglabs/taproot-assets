@@ -28,12 +28,12 @@ const (
 	// witnesses.
 	Migration51InsertAssetBurns = 51
 
-	// Migration62BackfillEventKeys is the version of the
+	// Migration63BackfillEventKeys is the version of the
 	// programmatic migration that computes the dedup content-hash for
 	// every supply_update_events row that pre-dates the event_key
 	// column. SQLite has no native SHA-256, so the work cannot be
 	// expressed as portable SQL.
-	Migration62BackfillEventKeys = 62
+	Migration63BackfillEventKeys = 63
 )
 
 // programmaticMigration is a function type for a function that performs a
@@ -48,7 +48,7 @@ var (
 	programmaticMigrations = map[uint]programmaticMigration{
 		Migration50ScriptKeyType:     determineAndAssignScriptKeyType,
 		Migration51InsertAssetBurns:  insertAssetBurns,
-		Migration62BackfillEventKeys: backfillSupplyUpdateEventKeys,
+		Migration63BackfillEventKeys: backfillSupplyUpdateEventKeys,
 	}
 )
 
@@ -339,7 +339,7 @@ func insertAssetBurns(ctx context.Context, q sqlc.Querier) error {
 
 // backfillSupplyUpdateEventKeys computes a content-hash for every
 // supply_update_events row that pre-dates the event_key column (added
-// in migration 000061) and stores it in the new column. After this
+// in migration 000062) and stores it in the new column. After this
 // migration runs every row holds a hash, and the unique index on
 // event_key enforces the no-duplicates invariant for new inserts.
 //
@@ -347,7 +347,7 @@ func insertAssetBurns(ctx context.Context, q sqlc.Querier) error {
 // PR fixes -- restart re-fires of the same logical event). Two rows
 // with identical content hash to the same key, so the second
 // SetSupplyUpdateEventKey would violate the unique index added in
-// migration 000061. We dedupe in-memory by tracking the hashes we've
+// migration 000062. We dedupe in-memory by tracking the hashes we've
 // already assigned and dropping any row whose hash we've seen.
 func backfillSupplyUpdateEventKeys(ctx context.Context,
 	q sqlc.Querier) error {
@@ -371,7 +371,7 @@ func backfillSupplyUpdateEventKeys(ctx context.Context,
 			// A prior row in this loop already claimed this
 			// hash, so the current row is a duplicate of an
 			// earlier logical event. Drop it; the unique
-			// index in migration 000061 would otherwise
+			// index in migration 000062 would otherwise
 			// reject the UPDATE below.
 			log.Debugf("Dropping duplicate supply update "+
 				"event %d during backfill", row.EventID)

@@ -14,7 +14,7 @@ import (
 
 // RunRepairTool inspects the configured database for batches that
 // violate the singleton "≤ 1 in {Pending, Frozen}" invariant added
-// in migration 000060, and cancels all but the most recent. The
+// in migration 000061, and cancels all but the most recent. The
 // preserved batch is the one with the latest CreationTime; cancelled
 // batches transition to BatchStateSeedlingCancelled, leaving their
 // row and seedlings on disk for later inspection.
@@ -22,11 +22,11 @@ import (
 // The function opens the database with migrations skipped, so it can
 // run against a legacy database whose state would otherwise fail the
 // migration. After this tool exits cleanly, restarting tapd normally
-// will let migration 000060 succeed.
+// will let migration 000061 succeed.
 func RunRepairTool(cfg *Config, cfgLogger btclog.Logger) error {
 	// Open the database with migrations skipped. We want to inspect
 	// and repair a database whose state would otherwise prevent
-	// migration 000060 from applying; running migrations as part of
+	// migration 000061 from applying; running migrations as part of
 	// opening the DB would defeat the purpose.
 	var (
 		db  tapdb.DatabaseBackend
@@ -127,6 +127,6 @@ func RunRepairTool(cfg *Config, cfgLogger btclog.Logger) error {
 
 	cfgLogger.Infof("repair: complete; cancelled %d duplicate "+
 		"batches, preserved 1. Restart tapd normally to let "+
-		"migration 000060 apply.", len(preBroadcast)-1)
+		"migration 000061 apply.", len(preBroadcast)-1)
 	return nil
 }

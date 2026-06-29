@@ -495,7 +495,7 @@ func (c *ChainPlanter) Start() error {
 
 		// Enforce the singleton invariant: at most one batch may
 		// be in BatchStatePending or BatchStateFrozen at a time.
-		// The DB constraint added in migration 000060 should
+		// The DB constraint added in migration 000061 should
 		// already make this impossible, but a legacy DB that was
 		// migrated post-population, or a manually-modified row,
 		// could still violate it. Surfacing the error here gives
@@ -1235,7 +1235,7 @@ func freezeMintingBatch(ctx context.Context, batchStore BatchStore,
 // checkSingletonInvariant verifies that at most one batch in the
 // supplied slice is in a pre-broadcast state (BatchStatePending or
 // BatchStateFrozen). The invariant is enforced at the DB layer by
-// the partial unique index added in migration 000060; this Go-level
+// the partial unique index added in migration 000061; this Go-level
 // check exists as defense in depth and to produce a human-readable
 // diagnostic naming the offending batch keys, since a raw SQL
 // constraint error from a downstream insert is harder to act on.
@@ -1641,7 +1641,7 @@ func (c *ChainPlanter) canCancelBatch() (*btcec.PublicKey, error) {
 		// cultivator may be handling a post-broadcast batch
 		// (Committed/Broadcast/Confirmed) while a fresh
 		// Pending/Frozen batch has begun in c.pendingBatch. The
-		// singleton constraint added in migration 000060 only
+		// singleton constraint added in migration 000061 only
 		// applies to {Pending, Frozen}, so this case is real,
 		// not unreachable.
 		if c.pendingBatch != nil {
@@ -1663,7 +1663,7 @@ func (c *ChainPlanter) canCancelBatch() (*btcec.PublicKey, error) {
 
 	// Multiple cultivators can coexist when several post-broadcast
 	// batches are awaiting confirmation in parallel. The singleton
-	// constraint added in migration 000060 does not forbid this; it
+	// constraint added in migration 000061 does not forbid this; it
 	// only constrains {Pending, Frozen}.
 	return nil, fmt.Errorf("cancellation ambiguous: %d active "+
 		"cultivators; cancel-by-batch-key not implemented",
@@ -2646,7 +2646,7 @@ func (c *ChainPlanter) FinalizeBatch(params FinalizeParams) (*MintingBatch,
 				// Cancel the failed batch on disk so it does
 				// not stay wedged in a pre-broadcast state,
 				// where the singleton invariant added in
-				// migration 000060 would block any
+				// migration 000061 would block any
 				// subsequent batch from being created. We
 				// use the same cancel-state rule as
 				// cultivator.Cancel(): Pending or Frozen →

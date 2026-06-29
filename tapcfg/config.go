@@ -365,7 +365,7 @@ type ExperimentalConfig struct {
 // for operator use after a constraint or invariant failure has
 // prevented normal startup.
 type RepairConfig struct {
-	CancelDuplicateBatches bool `long:"cancel-duplicate-batches" description:"If set, tapd cancels all but the most recent minting batch in BatchStatePending or BatchStateFrozen and then exits. Used to recover from a database that violates the singleton pre-broadcast batch invariant added in migration 000060 (e.g. a legacy DB with duplicate pending batches that blocks the migration)."`
+	CancelDuplicateBatches bool `long:"cancel-duplicate-batches" description:"If set, tapd cancels all but the most recent minting batch in BatchStatePending or BatchStateFrozen and then exits. Used to recover from a database that violates the singleton pre-broadcast batch invariant added in migration 000061 (e.g. a legacy DB with duplicate pending batches that blocks the migration)."`
 }
 
 // CleanAndValidate performs final processing on the ExperimentalConfig,

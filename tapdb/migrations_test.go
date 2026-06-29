@@ -1401,19 +1401,19 @@ func TestSequenceConsistency(t *testing.T) {
 	}
 }
 
-// TestMigration62BackfillSupplyUpdateEventKeys verifies that the
-// programmatic migration at version 62 fills the event_key column for
+// TestMigration63BackfillSupplyUpdateEventKeys verifies that the
+// programmatic migration at version 63 fills the event_key column for
 // every supply_update_events row created before the column existed.
-// Migration 61 added the column nullable; rows inserted at version 61
+// Migration 62 added the column nullable; rows inserted at version 62
 // (or earlier) have event_key=NULL, and the dedup invariant only kicks
 // in once the backfill has run.
-func TestMigration62BackfillSupplyUpdateEventKeys(t *testing.T) {
+func TestMigration63BackfillSupplyUpdateEventKeys(t *testing.T) {
 	ctx := context.Background()
 
-	// Start at version 61: the event_key column exists, the unique
+	// Start at version 62: the event_key column exists, the unique
 	// index exists (and tolerates multiple NULLs), but no rows have
 	// been hashed yet.
-	db := NewTestDBWithVersion(t, 61)
+	db := NewTestDBWithVersion(t, 62)
 
 	// Insert three rows with NULL event_key. update_type_id values
 	// match the rows seeded by migration 40 (0=mint, 1=burn,
@@ -1436,7 +1436,7 @@ func TestMigration62BackfillSupplyUpdateEventKeys(t *testing.T) {
 
 	for _, s := range seeds {
 		// EventKey is intentionally nil so the row mimics what a
-		// legacy database holds before migration 62's backfill.
+		// legacy database holds before migration 63's backfill.
 		_, err := db.InsertSupplyUpdateEvent(
 			ctx, sqlc.InsertSupplyUpdateEventParams{
 				GroupKey:     groupKey,
@@ -1465,7 +1465,7 @@ func TestMigration62BackfillSupplyUpdateEventKeys(t *testing.T) {
 	}
 	require.NoError(t, preRows.Close())
 
-	// Advance to latest -- the programmatic migration at 62 runs the
+	// Advance to latest -- the programmatic migration at 63 runs the
 	// backfill.
 	err = db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
 		makeProgrammaticMigrations(db, programmaticMigrations, true),
@@ -1498,15 +1498,15 @@ func TestMigration62BackfillSupplyUpdateEventKeys(t *testing.T) {
 	require.Equal(t, len(seeds), seen)
 }
 
-// TestMigration62BackfillDedupesLegacyDuplicates simulates the legacy
+// TestMigration63BackfillDedupesLegacyDuplicates simulates the legacy
 // failure mode this PR closes: pre-migration databases could contain
 // multiple supply_update_events rows with identical content. The
-// migration 62 backfill must drop the duplicates rather than fail on
-// the unique index added in migration 61.
-func TestMigration62BackfillDedupesLegacyDuplicates(t *testing.T) {
+// migration 63 backfill must drop the duplicates rather than fail on
+// the unique index added in migration 62.
+func TestMigration63BackfillDedupesLegacyDuplicates(t *testing.T) {
 	ctx := context.Background()
 
-	db := NewTestDBWithVersion(t, 61)
+	db := NewTestDBWithVersion(t, 62)
 
 	groupKey := bytes.Repeat([]byte{0x42}, 32)
 	payload := []byte("event-payload-duplicate")
@@ -1533,7 +1533,7 @@ func TestMigration62BackfillDedupesLegacyDuplicates(t *testing.T) {
 	`).Scan(&preCount))
 	require.Equal(t, 3, preCount)
 
-	// Run the backfill. The unique index added in migration 61
+	// Run the backfill. The unique index added in migration 62
 	// would reject the naive UPDATE for the second and third
 	// rows; the backfill must dedupe before writing.
 	err := db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(

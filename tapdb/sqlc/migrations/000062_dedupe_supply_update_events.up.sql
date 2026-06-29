@@ -6,7 +6,7 @@
 -- BTREE indexed-tuple size limit.
 --
 -- The column is nullable in this migration so it applies cleanly to
--- existing DBs. Migration 000062 backfills the rows that pre-date
+-- existing DBs. Migration 000063 backfills the rows that pre-date
 -- this column (SQLite has no native SHA-256 so the backfill is a
 -- programmatic step). New inserts must always provide a value.
 ALTER TABLE supply_update_events
@@ -16,7 +16,7 @@ ALTER TABLE supply_update_events
 -- The unique index covers all rows, but SQLite and Postgres both
 -- treat NULL as distinct from every other NULL in a UNIQUE index,
 -- so pre-backfill rows do not collide with one another. After
--- migration 000062 every row holds a hash and the index enforces
+-- migration 000063 every row holds a hash and the index enforces
 -- dedup across the whole table.
 CREATE UNIQUE INDEX IF NOT EXISTS supply_update_events_event_key_idx
     ON supply_update_events(event_key);
