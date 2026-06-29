@@ -266,9 +266,13 @@ func (c *AssetSalePolicy) CheckHtlcCompliance(_ context.Context,
 	maxAssetAmount := rfqmath.NewBigIntFixedPoint(
 		c.MaxOutboundAssetAmount, 0,
 	)
-	policyMaxOutMsat := rfqmath.UnitsToMilliSatoshi(
+	policyMaxOutMsat, err := rfqmath.UnitsToMilliSatoshi(
 		maxAssetAmount, c.AskAssetRate,
 	)
+	if err != nil {
+		return fmt.Errorf("unable to convert max asset amount to "+
+			"mSat: %w", err)
+	}
 
 	if (c.CurrentAmountMsat + htlc.AmountOutMsat) > policyMaxOutMsat {
 		return fmt.Errorf("HTLC out amount is greater than the policy "+
@@ -518,9 +522,13 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(ctx context.Context,
 	// Convert the inbound asset amount to millisatoshis and ensure that the
 	// outgoing HTLC amount is not more than the inbound asset amount.
 	assetAmtFp := new(rfqmath.BigIntFixedPoint).SetIntValue(assetAmt)
-	inboundAmountMSat := rfqmath.UnitsToMilliSatoshi(
+	inboundAmountMSat, err := rfqmath.UnitsToMilliSatoshi(
 		assetAmtFp, c.BidAssetRate,
 	)
+	if err != nil {
+		return fmt.Errorf("unable to convert inbound asset amount to "+
+			"mSat: %w", err)
+	}
 
 	if inboundAmountMSat < htlc.AmountOutMsat {
 		return fmt.Errorf("HTLC out amount is more than inbound "+
@@ -619,9 +627,13 @@ func (c *AssetPurchasePolicy) GenerateInterceptorResponse(
 	htlcAssetAmount := htlcRecord.Amounts.Val.Sum() + roundingCorrection
 
 	assetAmt := rfqmath.NewBigIntFixedPoint(htlcAssetAmount, 0)
-	incomingHtlcMsats := rfqmath.UnitsToMilliSatoshi(
+	incomingHtlcMsats, err := rfqmath.UnitsToMilliSatoshi(
 		assetAmt, c.BidAssetRate,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to convert incoming HTLC "+
+			"asset amount to mSat: %w", err)
+	}
 
 	return &lndclient.InterceptedHtlcResponse{
 		Action:         lndclient.InterceptorActionResumeModified,

@@ -74,6 +74,12 @@ func (f FixedPoint[T]) ToUint64() uint64 {
 	return f.Coefficient.ToUint64()
 }
 
+// ToUint64Checked is the overflow-checked variant of ToUint64. The bool is
+// false when the coefficient does not fit in a uint64.
+func (f FixedPoint[T]) ToUint64Checked() (uint64, bool) {
+	return f.Coefficient.ToUint64Checked()
+}
+
 // ToFloat64 returns a float64 representation of the FixedPoint value.
 func (f FixedPoint[T]) ToFloat64() float64 {
 	floatStr := f.String()

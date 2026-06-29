@@ -9376,10 +9376,19 @@ func (r *RPCServer) QueryPeerAcceptedQuotes(_ context.Context,
 	rpcBuyQuotes := fn.Map(
 		maps.Values(peerAcceptedBuyQuotes), rfq.MarshalAcceptedBuyQuote,
 	)
-	rpcSellQuotes := fn.Map(
-		maps.Values(peerAcceptedSellQuotes),
-		rfq.MarshalAcceptedSellQuote,
+
+	sellQuotes := maps.Values(peerAcceptedSellQuotes)
+	rpcSellQuotes := make(
+		[]*rfqrpc.PeerAcceptedSellQuote, 0, len(sellQuotes),
 	)
+	for _, q := range sellQuotes {
+		rpcQuote, err := rfq.MarshalAcceptedSellQuote(q)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal accepted "+
+				"sell quote: %w", err)
+		}
+		rpcSellQuotes = append(rpcSellQuotes, rpcQuote)
+	}
 
 	return &rfqrpc.QueryPeerAcceptedQuotesResponse{
 		BuyQuotes:  rpcBuyQuotes,
@@ -9406,9 +9415,13 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 		}, nil
 
 	case *rfq.PeerAcceptedSellQuoteEvent:
-		rpcAcceptedQuote := rfq.MarshalAcceptedSellQuoteEvent(
+		rpcAcceptedQuote, err := rfq.MarshalAcceptedSellQuoteEvent(
 			event,
 		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal accepted "+
+				"sell quote event: %w", err)
+		}
 
 		sellQuoteEvent := &rfqrpc.PeerAcceptedSellQuoteEvent{
 			Timestamp:             uint64(timestamp),
@@ -9836,7 +9849,11 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 
 		// Calculate the equivalent asset units for the given invoice
 		// amount based on the asset-to-BTC conversion rate.
-		sellOrder := rfq.MarshalAcceptedSellQuote(*quote)
+		sellOrder, err := rfq.MarshalAcceptedSellQuote(*quote)
+		if err != nil {
+			return fmt.Errorf("unable to marshal accepted sell "+
+				"quote: %w", err)
+		}
 
 		// paymentMaxAmt is the maximum amount that the counterparty is
 		// expected to pay. This is the amount that the invoice is
@@ -10162,7 +10179,13 @@ func checkOverpayment(quote *rfqrpc.PeerAcceptedSellQuote,
 	// the override flag.
 	if quote.AssetAmount == 0 {
 		oneUnit := rfqmath.NewBigIntFixedPoint(1, 0)
-		oneUnitAsMSat := rfqmath.UnitsToMilliSatoshi(oneUnit, *rateFP)
+		oneUnitAsMSat, err := rfqmath.UnitsToMilliSatoshi(
+			oneUnit, *rateFP,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to convert one asset unit "+
+				"to mSat: %w", err)
+		}
 		return fmt.Errorf("rejecting payment of %v (invoice amount + "+
 			"user-defined routing fee limit), smallest payable "+
 			"amount with assets is equivalent to %v",
@@ -11177,9 +11200,13 @@ func validateInvoiceAmount(acceptedQuote *rfqrpc.PeerAcceptedBuyQuote,
 		maxFixedUnits := rfqmath.NewBigIntFixedPoint(
 			maxAmt, 0,
 		)
-		maxRoutableMsat := rfqmath.UnitsToMilliSatoshi(
+		maxRoutableMsat, err := rfqmath.UnitsToMilliSatoshi(
 			maxFixedUnits, *askAssetRate,
 		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to convert max routable "+
+				"asset amount to mSat: %w", err)
+		}
 
 		if maxRoutableMsat <= invoiceAmtMsat {
 			return 0, fmt.Errorf("cannot create invoice for %v "+
@@ -11192,9 +11219,13 @@ func validateInvoiceAmount(acceptedQuote *rfqrpc.PeerAcceptedBuyQuote,
 		assetAmount := rfqmath.NewBigIntFixedPoint(invoiceUnits, 0)
 
 		// Calculate the invoice amount in msat.
-		newInvoiceAmtMsat = rfqmath.UnitsToMilliSatoshi(
+		newInvoiceAmtMsat, err = rfqmath.UnitsToMilliSatoshi(
 			assetAmount, *askAssetRate,
 		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to convert invoice "+
+				"asset amount to mSat: %w", err)
+		}
 	}
 
 	// If the invoice is for an asset unit amount smaller than the minimal

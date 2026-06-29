@@ -1,6 +1,7 @@
 package rfqmath
 
 import (
+	"errors"
 	"math"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -8,6 +9,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
+
+// ErrMsatOverflow is returned when a computed milli-satoshi amount does not
+// fit in a uint64. Without this signal, lnwire.MilliSatoshi(BigInt.ToUint64())
+// would return the low 64 bits.
+var ErrMsatOverflow = errors.New("rfqmath: mSat amount exceeds uint64")
 
 var (
 	// DefaultOnChainHtlcSat is the default amount that we consider as the
@@ -84,7 +90,7 @@ func MilliSatoshiToUnits[N Int[N]](milliSat lnwire.MilliSatoshi,
 // integer type. For built-in integer types, oneBtcInMilliSat overflows.
 // We should remove the type generic or reformulate.
 func UnitsToMilliSatoshi[N Int[N]](assetUnits,
-	unitsPerBtc FixedPoint[N]) lnwire.MilliSatoshi {
+	unitsPerBtc FixedPoint[N]) (lnwire.MilliSatoshi, error) {
 
 	// We take the max of the target arithmetic scale and the given unit's
 	// scale, which is expected to be the asset's decimal display value.
@@ -109,10 +115,15 @@ func UnitsToMilliSatoshi[N Int[N]](assetUnits,
 
 	amtMsat := amtBTC.Mul(oneBtcInMilliSat)
 
-	// We did the computation in terms of the scaled integers, so no we'll
+	// We did the computation in terms of the scaled integers, so now we'll
 	// go back to a normal mSAT value scaling down to zero (no decimals)
-	// along the way.
-	return lnwire.MilliSatoshi(amtMsat.ScaleTo(0).ToUint64())
+	// along the way. Use the checked conversion so an amtMsat that does
+	// not fit in a uint64 returns an error rather than the low 64 bits.
+	v, ok := amtMsat.ScaleTo(0).ToUint64Checked()
+	if !ok {
+		return 0, ErrMsatOverflow
+	}
+	return lnwire.MilliSatoshi(v), nil
 }
 
 // MinTransportableUnits computes the minimum number of transportable units
@@ -163,14 +174,18 @@ func MinTransportableUnits(dustLimit lnwire.MilliSatoshi,
 // below this value would be uneconomical as the total amount sent would exceed
 // the total invoice amount.
 func MinTransportableMSat(dustLimit lnwire.MilliSatoshi,
-	rate BigIntFixedPoint) lnwire.MilliSatoshi {
+	rate BigIntFixedPoint) (lnwire.MilliSatoshi, error) {
 
 	// We can only transport at least one asset unit in an HTLC. And we
 	// always have to send out an HTLC with a BTC amount of 354 satoshi. So
 	// the minimum amount of milli-satoshi we can transport is 354,000 plus
 	// the milli-satoshi equivalent of a single asset unit.
 	oneAssetUnit := NewBigIntFixedPoint(1, 0)
-	return dustLimit + UnitsToMilliSatoshi(oneAssetUnit, rate)
+	oneUnitMSat, err := UnitsToMilliSatoshi(oneAssetUnit, rate)
+	if err != nil {
+		return 0, err
+	}
+	return dustLimit + oneUnitMSat, nil
 }
 
 // SatsPerAssetToAssetRate converts a satoshis per asset rate to an asset to
