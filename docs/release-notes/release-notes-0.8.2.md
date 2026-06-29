@@ -48,6 +48,9 @@
 - [PR#2184](https://github.com/lightninglabs/taproot-assets/pull/2184)
   dramatically improves the performance of universe federation proof push.
 
+- [PR#2183](https://github.com/lightninglabs/taproot-assets/pull/2183)
+  dramatically improves the performance of MS-SMT proof verification.
+
 ## Deprecations
 
 # Technical and Architectural Updates
