@@ -97,13 +97,11 @@ func (d *MintDriver) pump(ctx context.Context) {
 
 			// Build a one-tx block and register it under its hash
 			// so the caretaker's later GetBlock call finds it.
-			// The mock's BlocksMu serialises this write against
-			// any concurrent caretaker reads.
+			// SetBlock serialises this write against any
+			// concurrent caretaker reads.
 			block := buildBlockForTx(tx)
 			blockHash := block.BlockHash()
-			d.ChainBridge.BlocksMu.Lock()
-			d.ChainBridge.Blocks[blockHash] = block
-			d.ChainBridge.BlocksMu.Unlock()
+			d.ChainBridge.SetBlock(blockHash, block)
 
 			// SendConfNtfn writes to req.Confirmed, which blocks
 			// until the caretaker reads it. Run it in its own
@@ -121,6 +119,7 @@ func (d *MintDriver) EnqueueSeedlings(tb testing.TB, n int) {
 	tb.Helper()
 	for i := 0; i < n; i++ {
 		var nameBytes [16]byte
+		// #nosec G404 -- bench fixture, throwaway seedling name.
 		if _, err := rand.Read(nameBytes[:]); err != nil {
 			tb.Fatalf("rand seedling name: %v", err)
 		}
@@ -128,7 +127,8 @@ func (d *MintDriver) EnqueueSeedlings(tb testing.TB, n int) {
 			AssetVersion: asset.V0,
 			AssetType:    asset.Normal,
 			AssetName:    hex.EncodeToString(nameBytes[:]),
-			Amount:       uint64(rand.Int31() + 1),
+			// #nosec G404 -- bench fixture, throwaway amount.
+			Amount: uint64(rand.Int31() + 1),
 			Meta: &proof.MetaReveal{
 				Data: nameBytes[:],
 			},
@@ -215,7 +215,3 @@ func buildBlockForTx(tx *wire.MsgTx) *wire.MsgBlock {
 		Transactions: []*wire.MsgTx{tx},
 	}
 }
-
-// ensure we use fmt to silence "imported and not used" should the file
-// shrink later.
-var _ = fmt.Sprint

@@ -349,12 +349,15 @@ flake-unit-race-trace:
 # BENCHMARKS
 # ============
 
-# bench runs Go benchmarks for a single package (pkg defaults to bench/rpc,
-# the per-RPC suite). Use `make bench pkg=mssmt` to scope to one package.
-# BENCH_TIME controls -benchtime; BENCH_RUN controls the -bench regex.
-pkg ?= bench/rpc
+# bench runs Go benchmarks for a single package (BENCH_PKG defaults to
+# bench/rpc, the per-RPC suite). Use `make bench BENCH_PKG=mssmt` to scope
+# to one package. BENCH_TIME controls -benchtime; BENCH_RUN controls the
+# -bench regex; BENCH_COUNT controls -count (raise it for benchstat A/B
+# comparisons — `1x`/`-count=1` gives benchstat no statistical basis).
+BENCH_PKG ?= bench/rpc
 BENCH_TIME ?= 1x
 BENCH_RUN ?= .
+BENCH_COUNT ?= 1
 
 BENCH_RESULTS_DIR := bench/results
 BENCH_RESULTS_FILE := $(BENCH_RESULTS_DIR)/$(shell git rev-parse --short HEAD)-$(shell date +%s).txt
@@ -363,9 +366,10 @@ bench-dir:
 	@mkdir -p $(BENCH_RESULTS_DIR)
 
 bench: bench-dir
-	@$(call print, "Running benchmarks for $(pkg).")
+	@$(call print, "Running benchmarks for $(BENCH_PKG).")
 	$(GOTEST) -run='^$$' -bench=$(BENCH_RUN) -benchmem \
-		-benchtime=$(BENCH_TIME) ./$(pkg)/... | \
+		-benchtime=$(BENCH_TIME) -count=$(BENCH_COUNT) \
+		./$(BENCH_PKG)/... | \
 		tee $(BENCH_RESULTS_FILE)
 
 # bench-all runs every package containing a Benchmark* function. Heavy —
@@ -373,7 +377,7 @@ bench: bench-dir
 bench-all: bench-dir
 	@$(call print, "Running all benchmarks (may take a while).")
 	$(GOTEST) -run='^$$' -bench=. -benchmem \
-		-benchtime=$(BENCH_TIME) \
+		-benchtime=$(BENCH_TIME) -count=$(BENCH_COUNT) \
 		./address/... ./asset/... ./bench/fixture/... \
 		./bench/rpc/... ./bench/scenario/... ./bench/wire/... \
 		./commitment/... ./mssmt/... ./proof/... ./vm/... | \

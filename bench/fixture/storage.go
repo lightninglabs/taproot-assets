@@ -110,10 +110,14 @@ func NewStorage(tb testing.TB) *Storage {
 			return db.WithTx(tx)
 		},
 	)
+	newBaseTree := func(
+		id universe.Identifier,
+	) universe.StorageBackend {
+
+		return tapdb.NewBaseUniverseTree(uniDB, id)
+	}
 	uniArchive := universe.NewArchive(universe.ArchiveConfig{
-		NewBaseTree: func(id universe.Identifier) universe.StorageBackend {
-			return tapdb.NewBaseUniverseTree(uniDB, id)
-		},
+		NewBaseTree:          newBaseTree,
 		HeaderVerifier:       proof.MockHeaderVerifier,
 		MerkleVerifier:       proof.DefaultMerkleVerifier,
 		GroupVerifier:        proof.MockGroupVerifier,
@@ -148,13 +152,13 @@ func NewStorage(tb testing.TB) *Storage {
 	envoyErrChan := make(chan error, 1)
 	uniFederation := universe.NewFederationEnvoy(
 		universe.FederationConfig{
-			FederationDB:        federationDB,
-			UniverseSyncer:      uniSyncer,
-			LocalRegistrar:      uniArchive,
-			NewRemoteRegistrar:  noRemoteRegistrar,
-			SyncInterval:        24 * time.Hour,
-			ErrChan:             envoyErrChan,
-			ServerChecker:       noopServerChecker,
+			FederationDB:       federationDB,
+			UniverseSyncer:     uniSyncer,
+			LocalRegistrar:     uniArchive,
+			NewRemoteRegistrar: noRemoteRegistrar,
+			SyncInterval:       24 * time.Hour,
+			ErrChan:            envoyErrChan,
+			ServerChecker:      noopServerChecker,
 		},
 	)
 	require.NoError(tb, uniFederation.Start())

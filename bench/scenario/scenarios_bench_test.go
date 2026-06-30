@@ -133,22 +133,22 @@ func buildAssets(b *testing.B, n int) []*asset.Asset {
 	return assets
 }
 
-// buildGenesisProof returns a representative genesis proof using the
-// public proof.RandProof helper.
+// buildGenesisProof returns a representative genesis proof decoded
+// from the proof package's testdata fixture.
 func buildGenesisProof(b *testing.B) proof.Proof {
 	b.Helper()
-	// proof.RandProof has nontrivial setup overhead — we build it once
-	// per sub-benchmark via the Helper indirection so b.ResetTimer in
-	// the caller drops it from the timing window.
+	// File I/O + decoding has nontrivial setup overhead — we build it
+	// once per sub-benchmark via the Helper indirection so b.ResetTimer
+	// in the caller drops it from the timing window.
 	return mintRandomProof(b)
 }
 
-// mintRandomProof builds one valid Proof via the proof package's public
-// helpers, paired with a minimally-constructed block transaction.
+// mintRandomProof returns one valid Proof by decoding the first entry
+// out of the proof package's testdata proof-file.
 func mintRandomProof(b *testing.B) proof.Proof {
 	b.Helper()
-	// Reuse the testdata proof-file by decoding the first proof out of
-	// it; this avoids re-implementing the proof construction inline.
+	// Decoding a testdata proof-file avoids re-implementing proof
+	// construction inline.
 	const path = "../../proof/testdata/proof-file.hex"
 	rawHex, err := readHexFile(path)
 	require.NoError(b, err)

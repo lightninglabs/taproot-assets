@@ -97,4 +97,3 @@ func BenchmarkSetFederationSyncConfig(b *testing.B) {
 	fixture.CommandBench(b, f.Server.SetFederationSyncConfig,
 		&unirpc.SetFederationSyncConfigRequest{})
 }
-

@@ -84,4 +84,3 @@ func NewMinimal(tb testing.TB) *Minimal {
 		Server: srv,
 	}
 }
-

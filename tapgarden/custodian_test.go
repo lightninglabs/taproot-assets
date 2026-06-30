@@ -739,7 +739,7 @@ func TestV2AddressHandling(t *testing.T) {
 		BlockHeight: 123,
 		BlockHeader: blockHeader,
 	}
-	h.chainBridge.Blocks[block.BlockHash()] = block
+	h.chainBridge.SetBlock(block.BlockHash(), block)
 
 	// Now we encode and encrypt the fragment.
 	fragmentBytes, err := fn.Encode(fragment)

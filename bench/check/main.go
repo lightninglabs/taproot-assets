@@ -70,9 +70,9 @@ func parseProtoFile(path string) ([]rpcMethod, error) {
 	}
 
 	var (
-		methods    []rpcMethod
-		pkg        string
-		service    string
+		methods     []rpcMethod
+		pkg         string
+		service     string
 		pendingSkip string
 	)
 
@@ -146,7 +146,9 @@ func benchCoverage(dir string) (map[string]string, error) {
 			return nil
 		}
 
-		f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		f, err := parser.ParseFile(
+			fset, path, nil, parser.ParseComments,
+		)
 		if err != nil {
 			return err
 		}
@@ -162,7 +164,10 @@ func benchCoverage(dir string) (map[string]string, error) {
 				continue
 			}
 			for _, c := range fn.Doc.List {
-				for _, m := range benchRpcRE.FindAllStringSubmatch(c.Text, -1) {
+				matches := benchRpcRE.FindAllStringSubmatch(
+					c.Text, -1,
+				)
+				for _, m := range matches {
 					covered[m[1]] = fn.Name.Name
 				}
 			}
@@ -179,6 +184,8 @@ func main() {
 		"path to the bench/rpc directory containing per-RPC benches")
 	verbose := flag.Bool("v", false,
 		"list every method's status, not just gaps")
+	strict := flag.Bool("strict", false,
+		"exit non-zero when any non-skipped RPC has no benchmark")
 	flag.Parse()
 
 	var allMethods []rpcMethod
@@ -257,7 +264,10 @@ func main() {
 	if len(skipped) > 0 && *verbose {
 		fmt.Println("\nSkipped:")
 		for _, m := range skipped {
-			fmt.Printf("  %s.%s (%s)\n", m.service, m.method, m.skip)
+			fmt.Printf(
+				"  %s.%s (%s)\n",
+				m.service, m.method, m.skip,
+			)
 		}
 	}
 
@@ -268,7 +278,10 @@ func main() {
 		}
 	}
 
-	// Exit non-zero only if --strict is on. Until coverage approaches 100%
-	// the missing list is expected; treating it as a hard failure would
-	// gate every commit on full coverage. The audit is informational.
+	// Until coverage approaches 100% the missing list is expected, so the
+	// audit is informational by default; -strict turns it into a hard
+	// failure for callers that want to gate on full coverage.
+	if *strict && len(missing) > 0 {
+		os.Exit(1)
+	}
 }
