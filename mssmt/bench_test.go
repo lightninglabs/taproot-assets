@@ -78,6 +78,36 @@ func benchmarkMerkleProofCompress(b *testing.B, _ mssmt.Tree, _ []treeLeaf,
 	}
 }
 
+// benchmarkCompress isolates the compression half of the round-trip — the
+// half paid by the sender of a proof.
+func benchmarkCompress(b *testing.B, _ mssmt.Tree, _ []treeLeaf,
+	proofs map[[32]byte]*mssmt.Proof) {
+
+	for i := 0; i < b.N; i++ {
+		_, proof := randMapElem(proofs)
+		_ = proof.Compress()
+	}
+}
+
+// benchmarkDecompress isolates the decompression half — paid by every
+// receiver who verifies a proof off the wire.
+func benchmarkDecompress(b *testing.B, _ mssmt.Tree, _ []treeLeaf,
+	proofs map[[32]byte]*mssmt.Proof) {
+
+	// Precompute the compressed proofs so the decompression cost is what
+	// we actually measure.
+	compressed := make([]*mssmt.CompressedProof, 0, len(proofs))
+	for _, p := range proofs {
+		compressed = append(compressed, p.Compress())
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		cp := compressed[i%len(compressed)]
+		_, _ = cp.Decompress()
+	}
+}
+
 type benchmarkFunc = func(*testing.B, mssmt.Tree, []treeLeaf,
 	map[[32]byte]*mssmt.Proof)
 
@@ -96,6 +126,8 @@ var benchmarks = []benchmark{
 	newBenchmark("MerkleProof", benchmarkMerkleProof),
 	newBenchmark("VerifyMerkleProof", benchmarkVerifyMerkleProof),
 	newBenchmark("MerkleProofCompress", benchmarkMerkleProofCompress),
+	newBenchmark("Compress", benchmarkCompress),
+	newBenchmark("Decompress", benchmarkDecompress),
 }
 
 func benchmarkTree(b *testing.B, makeTree func() mssmt.Tree) {

@@ -1,0 +1,251 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/lightninglabs/taproot-assets/address
+cpu: Apple M4
+BenchmarkTapEncode-10        	       3	      1722 ns/op	    1325 B/op	      18 allocs/op
+BenchmarkTapDecode-10        	       3	     24028 ns/op	    1893 B/op	      22 allocs/op
+BenchmarkEncodeAddress-10    	       3	      9805 ns/op	    2680 B/op	      31 allocs/op
+BenchmarkDecodeAddress-10    	       3	     40472 ns/op	    3965 B/op	      35 allocs/op
+PASS
+ok  	github.com/lightninglabs/taproot-assets/address	0.382s
+goos: darwin
+goarch: arm64
+pkg: github.com/lightninglabs/taproot-assets/asset
+cpu: Apple M4
+BenchmarkAssetCopy/normal-fresh-10         	       3	      6292 ns/op	     648 B/op	       6 allocs/op
+BenchmarkAssetCopy/collectible-fresh-10    	       3	      1722 ns/op	     648 B/op	       6 allocs/op
+BenchmarkAssetEncode/normal-10             	       3	      4833 ns/op	    4344 B/op	      60 allocs/op
+BenchmarkAssetEncode/collectible-10        	       3	      4167 ns/op	    4344 B/op	      60 allocs/op
+BenchmarkAssetDecode/normal-10             	       3	     21250 ns/op	    2957 B/op	      49 allocs/op
+BenchmarkAssetDecode/collectible-10        	       3	     21458 ns/op	    2957 B/op	      49 allocs/op
+BenchmarkWitnessEncode-10                  	       3	       805.3 ns/op	     533 B/op	      10 allocs/op
+BenchmarkWitnessDecode-10                  	       3	       791.7 ns/op	     701 B/op	      15 allocs/op
+PASS
+ok  	github.com/lightninglabs/taproot-assets/asset	0.344s
+PASS
+ok  	github.com/lightninglabs/taproot-assets/bench/fixture	0.383s
+goos: darwin
+goarch: arm64
+pkg: github.com/lightninglabs/taproot-assets/bench/rpc
+cpu: Apple M4
+BenchmarkNextInternalKey-10              	       3	   3740903 ns/op	    6592 B/op	      95 allocs/op
+--- BENCH: BenchmarkNextInternalKey-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkNextInternalKey1411318249/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkNextInternalKey772423348/003/tmp.db
+BenchmarkNextScriptKey-10                	       3	   3766472 ns/op	    7477 B/op	     130 allocs/op
+--- BENCH: BenchmarkNextScriptKey-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkNextScriptKey343623387/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkNextScriptKey2994267300/003/tmp.db
+BenchmarkRemoveUTXOLease-10              	       3	     25083 ns/op	    1338 B/op	      26 allocs/op
+--- BENCH: BenchmarkRemoveUTXOLease-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkRemoveUTXOLease3944476808/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkRemoveUTXOLease1551785225/003/tmp.db
+BenchmarkListBatches-10                  	       3	     53472 ns/op	    3365 B/op	      65 allocs/op
+--- BENCH: BenchmarkListBatches-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListBatches235513642/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListBatches3993092804/003/tmp.db
+BenchmarkMintAsset-10                    	       3	   5056028 ns/op	   33757 B/op	     366 allocs/op
+--- BENCH: BenchmarkMintAsset-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkMintAsset709334409/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkMintAsset2105900645/003/tmp.db
+BenchmarkSealBatch-10                    	       3	     30556 ns/op	    5176 B/op	      62 allocs/op
+--- BENCH: BenchmarkSealBatch-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkSealBatch3063156442/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkSealBatch2256526723/003/tmp.db
+BenchmarkCancelBatch-10                  	       3	      6111 ns/op	     389 B/op	       9 allocs/op
+--- BENCH: BenchmarkCancelBatch-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkCancelBatch485797927/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkCancelBatch2289415638/003/tmp.db
+BenchmarkDebugLevel-10                   	       3	       361.0 ns/op	      64 B/op	       1 allocs/op
+BenchmarkUnpackProofFile-10              	       3	      6556 ns/op	   11080 B/op	      21 allocs/op
+BenchmarkListAssets-10                   	       3	    478639 ns/op	   13845 B/op	     225 allocs/op
+--- BENCH: BenchmarkListAssets-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListAssets3831906629/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListAssets1631949173/003/tmp.db
+BenchmarkListUtxos-10                    	       3	    356153 ns/op	   11568 B/op	     165 allocs/op
+--- BENCH: BenchmarkListUtxos-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListUtxos2585028977/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListUtxos2677964862/003/tmp.db
+BenchmarkListGroups-10                   	       3	    174694 ns/op	    1597 B/op	      39 allocs/op
+--- BENCH: BenchmarkListGroups-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListGroups1152455337/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListGroups974438834/003/tmp.db
+BenchmarkListBalances-10                 	       3	    349222 ns/op	    5936 B/op	     117 allocs/op
+--- BENCH: BenchmarkListBalances-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListBalances2358266714/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListBalances1311222771/003/tmp.db
+BenchmarkListTransfers-10                	       3	     66430 ns/op	    2778 B/op	      47 allocs/op
+--- BENCH: BenchmarkListTransfers-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListTransfers1682987898/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListTransfers1697357861/003/tmp.db
+BenchmarkListBurns-10                    	       3	     48389 ns/op	    1541 B/op	      37 allocs/op
+--- BENCH: BenchmarkListBurns-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListBurns2601668786/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListBurns499750300/003/tmp.db
+BenchmarkQueryAddrs-10                   	       3	     92347 ns/op	    3896 B/op	      97 allocs/op
+--- BENCH: BenchmarkQueryAddrs-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkQueryAddrs1443183429/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkQueryAddrs535354568/003/tmp.db
+BenchmarkDecodeAddr-10                   	       3	    130597 ns/op	    9160 B/op	     129 allocs/op
+--- BENCH: BenchmarkDecodeAddr-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkDecodeAddr1319444793/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkDecodeAddr3602659009/003/tmp.db
+BenchmarkAddrReceives-10                 	       3	     64361 ns/op	    1874 B/op	      47 allocs/op
+--- BENCH: BenchmarkAddrReceives-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkAddrReceives2262114381/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkAddrReceives1387900522/003/tmp.db
+BenchmarkUniverseInfo-10                 	       3	       486.3 ns/op	      48 B/op	       1 allocs/op
+--- BENCH: BenchmarkUniverseInfo-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkUniverseInfo1970808530/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkUniverseInfo2753147407/003/tmp.db
+BenchmarkUniverseStats-10                	       3	    137972 ns/op	     693 B/op	      15 allocs/op
+--- BENCH: BenchmarkUniverseStats-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkUniverseStats2159287808/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkUniverseStats3659655559/003/tmp.db
+BenchmarkQueryAssetStats-10              	       3	    235292 ns/op	    1840 B/op	      36 allocs/op
+--- BENCH: BenchmarkQueryAssetStats-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkQueryAssetStats602639876/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkQueryAssetStats822200090/003/tmp.db
+BenchmarkQueryEvents-10                  	       3	     43528 ns/op	     592 B/op	      14 allocs/op
+--- BENCH: BenchmarkQueryEvents-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkQueryEvents3434272521/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkQueryEvents2870961261/003/tmp.db
+BenchmarkListFederationServers-10        	       3	     26945 ns/op	    1309 B/op	      35 allocs/op
+--- BENCH: BenchmarkListFederationServers-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListFederationServers238129126/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkListFederationServers1490877230/003/tmp.db
+BenchmarkQueryFederationSyncConfig-10    	       3	      1833 ns/op	     333 B/op	      10 allocs/op
+--- BENCH: BenchmarkQueryFederationSyncConfig-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkQueryFederationSyncConfig1765589160/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkQueryFederationSyncConfig188396863/003/tmp.db
+BenchmarkAssetRoots-10                   	       3	     86611 ns/op	    2050 B/op	      54 allocs/op
+--- BENCH: BenchmarkAssetRoots-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkAssetRoots3403988641/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkAssetRoots3518557302/003/tmp.db
+BenchmarkDeleteFederationServer-10       	       3	     21556 ns/op	     933 B/op	      21 allocs/op
+--- BENCH: BenchmarkDeleteFederationServer-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkDeleteFederationServer3344133070/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkDeleteFederationServer2543745244/003/tmp.db
+BenchmarkSetFederationSyncConfig-10      	       3	     12542 ns/op	     621 B/op	      13 allocs/op
+--- BENCH: BenchmarkSetFederationSyncConfig-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkSetFederationSyncConfig813591651/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkSetFederationSyncConfig2248381923/003/tmp.db
+PASS
+ok  	github.com/lightninglabs/taproot-assets/bench/rpc	41.668s
+goos: darwin
+goarch: arm64
+pkg: github.com/lightninglabs/taproot-assets/bench/scenario
+cpu: Apple M4
+BenchmarkMintBatch/size=1-10        	       3	 225052306 ns/op	  768453 B/op	   14655 allocs/op
+--- BENCH: BenchmarkMintBatch/size=1-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkMintBatchsize=1465438493/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkMintBatchsize=1993262114/003/tmp.db
+BenchmarkMintBatch/size=10-10       	       3	 274945792 ns/op	 7828352 B/op	  160615 allocs/op
+--- BENCH: BenchmarkMintBatch/size=10-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkMintBatchsize=102016840854/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkMintBatchsize=101487499716/003/tmp.db
+BenchmarkMintBatch/size=100-10      	       3	 720699861 ns/op	82392434 B/op	 1657420 allocs/op
+--- BENCH: BenchmarkMintBatch/size=100-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkMintBatchsize=1004162836447/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkMintBatchsize=1003871529886/003/tmp.db
+BenchmarkAssetCommitmentScale/assets=1-10         	       3	    142264 ns/op	  235346 B/op	    4852 allocs/op
+BenchmarkAssetCommitmentScale/assets=10-10        	       3	   1386653 ns/op	 2476578 B/op	   51625 allocs/op
+BenchmarkAssetCommitmentScale/assets=100-10       	       3	  12521389 ns/op	25183677 B/op	  525539 allocs/op
+BenchmarkProofFileRoundTrip/proofs=1-10           	       3	      2000 ns/op	    2616 B/op	      14 allocs/op
+BenchmarkProofFileRoundTrip/proofs=10-10          	       3	      9930 ns/op	   51296 B/op	      45 allocs/op
+BenchmarkProofFileRoundTrip/proofs=100-10         	       3	     68820 ns/op	  451152 B/op	     318 allocs/op
+BenchmarkMssmtBulkInsert/leaves=100-10            	       3	   5118000 ns/op	 9598733 B/op	  213336 allocs/op
+BenchmarkMssmtBulkInsert/leaves=1000-10           	       3	  53680458 ns/op	97271634 B/op	 2161608 allocs/op
+BenchmarkMssmtBulkInsert/leaves=10000-10          	       3	 576787222 ns/op	970507368 B/op	21547754 allocs/op
+PASS
+ok  	github.com/lightninglabs/taproot-assets/bench/scenario	12.816s
+goos: darwin
+goarch: arm64
+pkg: github.com/lightninglabs/taproot-assets/bench/wire
+cpu: Apple M4
+BenchmarkWireDebugLevel-10    	       3	     65694 ns/op	    8776 B/op	     149 allocs/op
+--- BENCH: BenchmarkWireDebugLevel-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkWireDebugLevel3237944798/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkWireDebugLevel2591269187/003/tmp.db
+BenchmarkWireListAssets-10    	       3	    642917 ns/op	   35861 B/op	     398 allocs/op
+--- BENCH: BenchmarkWireListAssets-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkWireListAssets1120306926/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkWireListAssets3127054539/003/tmp.db
+BenchmarkWireQueryAddrs-10    	       3	    181167 ns/op	   24088 B/op	     251 allocs/op
+--- BENCH: BenchmarkWireQueryAddrs-10
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkWireQueryAddrs1715593101/001/tmp.db
+    test_sqlite.go:11: Creating new SQLite DB handle for testing: /var/folders/58/td55086x717cpp9_d0gz8tkh0000gn/T/BenchmarkWireQueryAddrs397456045/003/tmp.db
+PASS
+ok  	github.com/lightninglabs/taproot-assets/bench/wire	5.300s
+goos: darwin
+goarch: arm64
+pkg: github.com/lightninglabs/taproot-assets/commitment
+cpu: Apple M4
+BenchmarkNewAssetCommitment/assets=1-10    	       3	     68805 ns/op	   65322 B/op	    1391 allocs/op
+BenchmarkNewAssetCommitment/assets=16-10   	       3	   1145097 ns/op	 1637576 B/op	   35709 allocs/op
+BenchmarkNewAssetCommitment/assets=256-10  	       3	  14667194 ns/op	26791437 B/op	  584240 allocs/op
+BenchmarkNewTapCommitment/commits=1-10     	       3	     31014 ns/op	   59402 B/op	    1305 allocs/op
+BenchmarkNewTapCommitment/commits=16-10    	       3	    879847 ns/op	 1498013 B/op	   33277 allocs/op
+BenchmarkNewTapCommitment/commits=256-10   	       3	  14070361 ns/op	24784221 B/op	  550311 allocs/op
+BenchmarkTapCommitmentUpsert/existing=16-10         	       3	     70166 ns/op	  114405 B/op	    2550 allocs/op
+BenchmarkTapCommitmentUpsert/existing=256-10        	       3	     69889 ns/op	  115882 B/op	    2529 allocs/op
+BenchmarkTapCommitmentUpsert/existing=4096-10       	       3	     97805 ns/op	  121877 B/op	    1699 allocs/op
+BenchmarkTapCommitmentDelete/existing=16-10         	       3	      3972 ns/op	    2840 B/op	      44 allocs/op
+BenchmarkTapCommitmentDelete/existing=256-10        	       3	      8083 ns/op	    4440 B/op	      46 allocs/op
+BenchmarkTapCommitmentDelete/existing=4096-10       	       3	     58013 ns/op	   40088 B/op	      76 allocs/op
+BenchmarkProofDeriveByAssetInclusion/assets=1-10    	       3	     39681 ns/op	   75378 B/op	    1623 allocs/op
+BenchmarkProofDeriveByAssetInclusion/assets=16-10   	       3	     38042 ns/op	   75378 B/op	    1623 allocs/op
+BenchmarkProofDeriveByAssetInclusion/assets=256-10  	       3	     40389 ns/op	   75378 B/op	    1623 allocs/op
+PASS
+ok  	github.com/lightninglabs/taproot-assets/commitment	10.544s
+goos: darwin
+goarch: arm64
+pkg: github.com/lightninglabs/taproot-assets/mssmt
+cpu: Apple M4
+BenchmarkTree/Insert-10-10         	       3	     65236 ns/op	   57488 B/op	    1283 allocs/op
+BenchmarkTree/Get-10-10            	       3	     16028 ns/op	   24328 B/op	     508 allocs/op
+BenchmarkTree/MerkleProof-10-10    	       3	     58056 ns/op	   73512 B/op	    1516 allocs/op
+BenchmarkTree/VerifyMerkleProof-10-10         	       3	     50611 ns/op	   57354 B/op	    1280 allocs/op
+BenchmarkTree/MerkleProofCompress-10-10       	       3	      5000 ns/op	    5304 B/op	       7 allocs/op
+BenchmarkTree/Compress-10-10                  	       3	      3917 ns/op	     416 B/op	       5 allocs/op
+BenchmarkTree/Decompress-10-10                	       3	       930.3 ns/op	    4888 B/op	       2 allocs/op
+BenchmarkTree/Insert-1000-10                  	       3	     55361 ns/op	   57488 B/op	    1283 allocs/op
+BenchmarkTree/Get-1000-10                     	       3	     12361 ns/op	   19768 B/op	     413 allocs/op
+BenchmarkTree/MerkleProof-1000-10             	       3	     49806 ns/op	   71608 B/op	    1474 allocs/op
+BenchmarkTree/VerifyMerkleProof-1000-10       	       3	     42250 ns/op	   57354 B/op	    1280 allocs/op
+BenchmarkTree/MerkleProofCompress-1000-10     	       3	      4611 ns/op	    5688 B/op	       9 allocs/op
+BenchmarkTree/Compress-1000-10                	       3	      3278 ns/op	     800 B/op	       7 allocs/op
+BenchmarkTree/Decompress-1000-10              	       3	       805.3 ns/op	    4888 B/op	       2 allocs/op
+BenchmarkTree/Insert-100000-10                	       3	    149000 ns/op	   57488 B/op	    1283 allocs/op
+BenchmarkTree/Get-100000-10                   	       3	     22431 ns/op	   19032 B/op	     398 allocs/op
+BenchmarkTree/MerkleProof-100000-10           	       3	    104236 ns/op	   69885 B/op	    1436 allocs/op
+BenchmarkTree/VerifyMerkleProof-100000-10     	       3	     95250 ns/op	   57354 B/op	    1280 allocs/op
+BenchmarkTree/MerkleProofCompress-100000-10   	       3	     10181 ns/op	    5858 B/op	       9 allocs/op
+BenchmarkTree/Compress-100000-10              	       3	      9278 ns/op	     970 B/op	       7 allocs/op
+BenchmarkTree/Decompress-100000-10            	       3	      1583 ns/op	    4888 B/op	       2 allocs/op
+PASS
+ok  	github.com/lightninglabs/taproot-assets/mssmt	13.251s
+goos: darwin
+goarch: arm64
+pkg: github.com/lightninglabs/taproot-assets/proof
+cpu: Apple M4
+BenchmarkHeaderPrefetch/sequential-10         	       3	1123127014 ns/op	      32 B/op	       0 allocs/op
+BenchmarkHeaderPrefetch/cached_parallel-10    	       3	 141281847 ns/op	  253394 B/op	    1259 allocs/op
+BenchmarkHeaderPrefetch/cached_parallel_dedup-10         	       3	  17074208 ns/op	   51421 B/op	     327 allocs/op
+BenchmarkPrefetchWorkerCount/workers_4-10                	       3	 281947847 ns/op	  246642 B/op	    1242 allocs/op
+BenchmarkPrefetchWorkerCount/workers_8-10                	       3	 140751083 ns/op	  248456 B/op	    1247 allocs/op
+BenchmarkPrefetchWorkerCount/workers_16-10               	       3	  73512403 ns/op	  249880 B/op	    1255 allocs/op
+BenchmarkProofEncoding-10                                	       3	   8319292 ns/op	54502792 B/op	   30026 allocs/op
+BenchmarkProofVerify-10                                  	       3	    374722 ns/op	  263808 B/op	    5605 allocs/op
+BenchmarkFileVerify-10                                   	       3	    455320 ns/op	  288472 B/op	    5813 allocs/op
+PASS
+ok  	github.com/lightninglabs/taproot-assets/proof	9.090s
+goos: darwin
+goarch: arm64
+pkg: github.com/lightninglabs/taproot-assets/vm
+cpu: Apple M4
+BenchmarkExecuteCollectible-10    	       3	    219694 ns/op	  133178 B/op	    2806 allocs/op
+BenchmarkExecuteNormal-10         	       3	    460972 ns/op	  261256 B/op	    5569 allocs/op
+BenchmarkExecuteSplit-10          	       3	    335250 ns/op	  417885 B/op	    9379 allocs/op
+PASS
+ok  	github.com/lightninglabs/taproot-assets/vm	0.444s
