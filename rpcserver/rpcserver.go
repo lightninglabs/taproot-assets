@@ -6644,19 +6644,20 @@ func (r *RPCServer) MultiverseRoot(ctx context.Context,
 
 	proofType, err := UnmarshalUniProofType(req.ProofType)
 	if err != nil {
-		return nil, fmt.Errorf("invalid proof type: %w", err)
+		return nil, fmt.Errorf("invalid req."+
+			"proof_type (%v): %w", req.ProofType, err)
 	}
 
 	if proofType == universe.ProofTypeUnspecified {
-		return nil, fmt.Errorf("proof type must be specified")
+		return nil, fmt.Errorf("req.proof_type must be specified")
 	}
 
 	filterByIDs := make([]universe.Identifier, len(req.SpecificIds))
 	for idx, rpcID := range req.SpecificIds {
 		filterByIDs[idx], err = UnmarshalUniID(rpcID)
 		if err != nil {
-			return nil, fmt.Errorf("unable to parse universe id: "+
-				"%w", err)
+			return nil, fmt.Errorf("parse req."+
+				"specific_ids[%d]: %w", idx, err)
 		}
 
 		// Allow the RPC user to not specify the proof type for each ID
@@ -6666,9 +6667,10 @@ func (r *RPCServer) MultiverseRoot(ctx context.Context,
 		}
 
 		if filterByIDs[idx].ProofType != proofType {
-			return nil, fmt.Errorf("proof type mismatch in ID "+
-				"%d: %v != %v", idx, filterByIDs[idx].ProofType,
-				proofType)
+			return nil, fmt.Errorf("req."+
+				"specific_ids[%d].proof_type=%v conflicts "+
+				"with req.proof_type=%v", idx,
+				filterByIDs[idx].ProofType, proofType)
 		}
 	}
 
@@ -6676,8 +6678,9 @@ func (r *RPCServer) MultiverseRoot(ctx context.Context,
 		ctx, proofType, filterByIDs,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch multiverse root: %w",
-			err)
+		return nil, fmt.Errorf("fetch root "+
+			"(proof_type=%v, filter_count=%d): %w", proofType,
+			len(filterByIDs), err)
 	}
 
 	var resp unirpc.MultiverseRootResponse
@@ -6723,13 +6726,16 @@ func (r *RPCServer) AssetRoots(ctx context.Context,
 	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
 
 	if err := validatePage(req.Offset, req.Limit); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid page "+
+			"(offset=%d, limit=%d): %w", req.Offset, req.Limit,
+			err)
 	}
 
 	// Check the rate limiter to see if we need to wait at all. If not
 	// then this'll be a noop.
 	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("rate limiter: %w",
+			err)
 	}
 
 	// Default to RequestPageSize if no limit is set, and query one
@@ -6750,7 +6756,8 @@ func (r *RPCServer) AssetRoots(ctx context.Context,
 		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch root nodes "+
+			"(offset=%d, limit=%d): %w", req.Offset, limit, err)
 	}
 
 	hasMore := int32(len(assetRoots)) > limit
@@ -6769,7 +6776,8 @@ func (r *RPCServer) AssetRoots(ctx context.Context,
 	// settings.
 	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query sync "+
+			"configs: %w", err)
 	}
 
 	// For each universe root, marshal it into the RPC form, taking care to
@@ -6784,7 +6792,8 @@ func (r *RPCServer) AssetRoots(ctx context.Context,
 
 		resp.UniverseRoots[idStr], err = marshalUniverseRoot(assetRoot)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("marshal root "+
+				"%v: %w", assetRoot.ID.StringForLog(), err)
 		}
 	}
 
@@ -6836,16 +6845,20 @@ func unmarshalAssetSyncConfig(
 }
 
 // UnmarshalUniID parses the RPC universe ID into the native counterpart.
+// Callers are responsible for wrapping returned errors with the specific
+// request field name they unmarshalled, since this helper has multiple
+// call sites (req.id, req.specific_ids[i], universe_key.id, ...).
 func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 	if rpcID == nil {
-		return universe.Identifier{}, fmt.Errorf("missing universe id")
+		return universe.Identifier{}, fmt.Errorf("id must be set")
 	}
 
 	// Unmarshal the proof type.
 	proofType, err := UnmarshalUniProofType(rpcID.ProofType)
 	if err != nil {
-		return universe.Identifier{}, fmt.Errorf("unable to unmarshal "+
-			"proof type: %w", err)
+		return universe.Identifier{}, fmt.Errorf("unable to "+
+			"unmarshal id.proof_type (%v): %w", rpcID.ProofType,
+			err)
 	}
 	switch {
 	case rpcID.GetAssetId() != nil:
@@ -6860,7 +6873,9 @@ func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 	case rpcID.GetAssetIdStr() != "":
 		assetIDBytes, err := hex.DecodeString(rpcID.GetAssetIdStr())
 		if err != nil {
-			return universe.Identifier{}, err
+			return universe.Identifier{}, fmt.Errorf("hex-"+
+				"decode id.asset_id_str (%q): %w",
+				rpcID.GetAssetIdStr(), err)
 		}
 
 		// TODO(roasbeef): reuse with above
@@ -6876,7 +6891,9 @@ func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 	case rpcID.GetGroupKey() != nil:
 		groupKey, err := rpcutils.ParseUserKey(rpcID.GetGroupKey())
 		if err != nil {
-			return universe.Identifier{}, err
+			return universe.Identifier{}, fmt.Errorf("parse "+
+				"id.group_key (%x): %w", rpcID.GetGroupKey(),
+				err)
 		}
 
 		return universe.Identifier{
@@ -6887,14 +6904,18 @@ func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 	case rpcID.GetGroupKeyStr() != "":
 		groupKeyBytes, err := hex.DecodeString(rpcID.GetGroupKeyStr())
 		if err != nil {
-			return universe.Identifier{}, err
+			return universe.Identifier{}, fmt.Errorf("hex-"+
+				"decode id.group_key_str (%q): %w",
+				rpcID.GetGroupKeyStr(), err)
 		}
 
 		// TODO(roasbeef): reuse with above
 
 		groupKey, err := rpcutils.ParseUserKey(groupKeyBytes)
 		if err != nil {
-			return universe.Identifier{}, err
+			return universe.Identifier{}, fmt.Errorf("parse "+
+				"id.group_key_str (%q): %w",
+				rpcID.GetGroupKeyStr(), err)
 		}
 
 		return universe.Identifier{
@@ -6903,7 +6924,9 @@ func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 		}, nil
 
 	default:
-		return universe.Identifier{}, fmt.Errorf("no id set")
+		return universe.Identifier{}, fmt.Errorf("id must set one " +
+			"of {asset_id, asset_id_str, group_key, " +
+			"group_key_str}")
 	}
 }
 
@@ -6914,7 +6937,8 @@ func (r *RPCServer) QueryAssetRoots(ctx context.Context,
 
 	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal "+
+			"universe id: %w", err)
 	}
 
 	// Attempt to retrieve the issuance universe root.
@@ -6926,24 +6950,28 @@ func (r *RPCServer) QueryAssetRoots(ctx context.Context,
 	// Ensure proof export is enabled for the given universe.
 	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query sync "+
+			"configs: %w", err)
 	}
 
 	if !syncConfigs.IsSyncExportEnabled(universeID) {
-		return nil, fmt.Errorf("proof export is disabled for the " +
-			"given universe")
+		return nil, fmt.Errorf("proof export "+
+			"disabled for universe %v",
+			universeID.StringForLog())
 	}
 
 	// Check the rate limiter to see if we need to wait at all. If not then
 	// this'll be a noop.
 	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("rate "+
+			"limiter: %w", err)
 	}
 
 	// Query for both an issuance and transfer universe root.
 	assetRoots, err := r.queryAssetProofRoots(ctx, universeID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query roots "+
+			"for %v: %w", universeID.StringForLog(), err)
 	}
 
 	// If no roots were found and the universe ID had no group key, the
@@ -6990,7 +7018,9 @@ func (r *RPCServer) QueryAssetRoots(ctx context.Context,
 
 		assetRoots, err = r.queryAssetProofRoots(ctx, groupUniID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("query "+
+				"group roots for %v: %w",
+				groupUniID.StringForLog(), err)
 		}
 
 		return assetRoots, nil
@@ -7058,7 +7088,8 @@ func (r *RPCServer) DeleteAssetRoot(ctx context.Context,
 
 	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal "+
+			"universe id: %w", err)
 	}
 
 	rpcsLog.Debugf("Deleting asset root for %v", spew.Sdump(universeID))
@@ -7069,13 +7100,17 @@ func (r *RPCServer) DeleteAssetRoot(ctx context.Context,
 		universeID.ProofType = universe.ProofTypeIssuance
 		_, err = r.cfg.UniverseArchive.DeleteRoot(ctx, universeID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("delete "+
+				"issuance root for %v: %w",
+				universeID.StringForLog(), err)
 		}
 
 		universeID.ProofType = universe.ProofTypeTransfer
 		_, err = r.cfg.UniverseArchive.DeleteRoot(ctx, universeID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("delete "+
+				"transfer root for %v: %w",
+				universeID.StringForLog(), err)
 		}
 
 		return &unirpc.DeleteRootResponse{}, nil
@@ -7085,7 +7120,8 @@ func (r *RPCServer) DeleteAssetRoot(ctx context.Context,
 	// delete the root for that proof type.
 	_, err = r.cfg.UniverseArchive.DeleteRoot(ctx, universeID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("delete root "+
+			"for %v: %w", universeID.StringForLog(), err)
 	}
 
 	return &unirpc.DeleteRootResponse{}, nil
@@ -7099,7 +7135,8 @@ func (r *RPCServer) DeleteAssetLeaf(ctx context.Context,
 
 	universeID, leafKey, err := unmarshalUniverseKey(req.Key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal "+
+			"universe key: %w", err)
 	}
 
 	rpcsLog.Debugf("Deleting asset leaf for %v",
@@ -7113,7 +7150,10 @@ func (r *RPCServer) DeleteAssetLeaf(ctx context.Context,
 			ctx, universeID, leafKey,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("delete "+
+				"issuance leaf (uni=%v, leaf_key=%x): %w",
+				universeID.StringForLog(),
+				leafKey.UniverseKey(), err)
 		}
 
 		universeID.ProofType = universe.ProofTypeTransfer
@@ -7121,7 +7161,10 @@ func (r *RPCServer) DeleteAssetLeaf(ctx context.Context,
 			ctx, universeID, leafKey,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("delete "+
+				"transfer leaf (uni=%v, leaf_key=%x): %w",
+				universeID.StringForLog(),
+				leafKey.UniverseKey(), err)
 		}
 
 		return &unirpc.DeleteAssetLeafResponse{}, nil
@@ -7131,7 +7174,10 @@ func (r *RPCServer) DeleteAssetLeaf(ctx context.Context,
 		ctx, universeID, leafKey,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("delete leaf "+
+			"(uni=%v, leaf_key=%x): %w",
+			universeID.StringForLog(), leafKey.UniverseKey(),
+			err)
 	}
 
 	return &unirpc.DeleteAssetLeafResponse{}, nil
@@ -7165,23 +7211,28 @@ func (r *RPCServer) AssetLeafKeys(ctx context.Context,
 
 	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal "+
+			"universe id: %w", err)
 	}
 
 	// If the proof type wasn't specified, then we'll return an error as we
 	// don't know which keys to actually fetch.
 	if universeID.ProofType == universe.ProofTypeUnspecified {
-		return nil, fmt.Errorf("proof type must be specified")
+		return nil, fmt.Errorf("proof type " +
+			"(req.id.proof_type) must be specified")
 	}
 
 	if err = validatePage(req.Offset, req.Limit); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid page "+
+			"(offset=%d, limit=%d): %w", req.Offset, req.Limit,
+			err)
 	}
 
 	// Check the rate limiter to see if we need to wait at all. If not then
 	// this'll be a noop.
 	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("rate "+
+			"limiter: %w", err)
 	}
 
 	// Default to RequestPageSize if no limit is set, and query one
@@ -7200,7 +7251,9 @@ func (r *RPCServer) AssetLeafKeys(ctx context.Context,
 		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch leaf keys "+
+			"(uni=%v, offset=%d, limit=%d): %w",
+			universeID.StringForLog(), req.Offset, limit, err)
 	}
 
 	hasMore := int32(len(leafKeys)) > limit
@@ -7270,17 +7323,21 @@ func (r *RPCServer) AssetLeaves(ctx context.Context,
 
 	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal "+
+			"universe id: %w", err)
 	}
 
 	if err = validatePage(req.Offset, req.Limit); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid page "+
+			"(offset=%d, limit=%d): %w", req.Offset, req.Limit,
+			err)
 	}
 
 	// Check the rate limiter to see if we need to wait at all. If not
 	// then this'll be a noop.
 	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("rate limiter: %w",
+			err)
 	}
 
 	// Default to RequestPageSize if no limit is set, and query one
@@ -7299,7 +7356,9 @@ func (r *RPCServer) AssetLeaves(ctx context.Context,
 		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch leaves "+
+			"(uni=%v, offset=%d, limit=%d): %w",
+			universeID.StringForLog(), req.Offset, limit, err)
 	}
 
 	hasMore := int32(len(assetLeaves)) > limit
@@ -7318,14 +7377,17 @@ func (r *RPCServer) AssetLeaves(ctx context.Context,
 			ctx, assetLeaf.ID(),
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("decimal "+
+				"display for asset %x: %w",
+				fn.ByteSlice(assetLeaf.ID()), err)
 		}
 
 		resp.Leaves[i], err = r.marshalAssetLeaf(
 			ctx, &assetLeaf, decDisplay,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("marshal leaf "+
+				"%x: %w", fn.ByteSlice(assetLeaf.ID()), err)
 		}
 	}
 
@@ -7340,7 +7402,9 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 	case key.GetScriptKeyBytes() != nil:
 		scriptKey, err := rpcutils.ParseUserKey(key.GetScriptKeyBytes())
 		if err != nil {
-			return leafKey, err
+			return leafKey, fmt.Errorf("parse leaf_key."+
+				"script_key_bytes (%x): %w",
+				key.GetScriptKeyBytes(), err)
 		}
 
 		leafKey.ScriptKey = &asset.ScriptKey{
@@ -7350,12 +7414,16 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 	case key.GetScriptKeyStr() != "":
 		scriptKeyBytes, err := hex.DecodeString(key.GetScriptKeyStr())
 		if err != nil {
-			return leafKey, err
+			return leafKey, fmt.Errorf("hex-decode leaf_key."+
+				"script_key_str (%q): %w",
+				key.GetScriptKeyStr(), err)
 		}
 
 		scriptKey, err := rpcutils.ParseUserKey(scriptKeyBytes)
 		if err != nil {
-			return leafKey, err
+			return leafKey, fmt.Errorf("parse leaf_key."+
+				"script_key_str (%q): %w",
+				key.GetScriptKeyStr(), err)
 		}
 
 		leafKey.ScriptKey = &asset.ScriptKey{
@@ -7364,7 +7432,8 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 	default:
 		// TODO(roasbeef): can actually allow not to be, then would
 		// fetch all for the given outpoint
-		return leafKey, fmt.Errorf("script key must be set")
+		return leafKey, fmt.Errorf("leaf_key.script_key (one of " +
+			"script_key_bytes, script_key_str) must be set")
 	}
 
 	switch {
@@ -7373,7 +7442,8 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 		// wire.OutPoint struct.
 		outpoint, err := wire.NewOutPointFromString(key.GetOpStr())
 		if err != nil {
-			return leafKey, err
+			return leafKey, fmt.Errorf("parse leaf_key.op_str "+
+				"(%q): %w", key.GetOpStr(), err)
 		}
 
 		leafKey.OutPoint = *outpoint
@@ -7383,7 +7453,8 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 
 		hash, err := chainhash.NewHashFromStr(op.HashStr)
 		if err != nil {
-			return leafKey, err
+			return leafKey, fmt.Errorf("parse leaf_key.op."+
+				"hash_str (%q): %w", op.HashStr, err)
 		}
 
 		leafKey.OutPoint = wire.OutPoint{
@@ -7392,7 +7463,8 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 		}
 
 	default:
-		return leafKey, fmt.Errorf("outpoint not set")
+		return leafKey, fmt.Errorf("leaf_key.outpoint (one of " +
+			"op_str, op) must be set")
 	}
 
 	return leafKey, nil
@@ -7528,12 +7600,16 @@ func (r *RPCServer) QueryProof(ctx context.Context,
 
 	universeID, leafKey, err := unmarshalUniverseKey(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal universe "+
+			"key: %w", err)
 	}
 
 	firstProof, err := r.queryProof(ctx, universeID, leafKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query proof "+
+			"(uni=%v, leaf_key=%x): %w",
+			universeID.StringForLog(),
+			leafKey.UniverseKey(), err)
 	}
 
 	return r.marshalUniverseProofLeaf(ctx, req, firstProof)
@@ -7551,7 +7627,8 @@ func (r *RPCServer) queryProof(ctx context.Context, uniID universe.Identifier,
 	// Retrieve proof export config for the given universe.
 	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query sync "+
+			"configs: %w", err)
 	}
 
 	var candidateIDs []universe.Identifier
@@ -7574,8 +7651,9 @@ func (r *RPCServer) queryProof(ctx context.Context, uniID universe.Identifier,
 		// specified proof type. But first we'll check that proof export
 		// is enabled for the given universe.
 		if !syncConfigs.IsSyncExportEnabled(uniID) {
-			return nil, fmt.Errorf("proof export is disabled for " +
-				"the given universe")
+			return nil, fmt.Errorf("proof export "+
+				"disabled for universe %v",
+				uniID.StringForLog())
 		}
 
 		candidateIDs = append(candidateIDs, uniID)
@@ -7584,14 +7662,15 @@ func (r *RPCServer) queryProof(ctx context.Context, uniID universe.Identifier,
 	// If no candidate IDs were applicable then our config must have
 	// disabled proof export for the given universe.
 	if len(candidateIDs) == 0 {
-		return nil, fmt.Errorf("proof export is disabled for the " +
-			"given universe")
+		return nil, fmt.Errorf("proof export "+
+			"disabled for universe %v", uniID.StringForLog())
 	}
 
 	// Check the rate limiter to see if we need to wait at all. If not then
 	// this'll be a noop.
 	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("rate limiter: %w",
+			err)
 	}
 
 	// Attempt to retrieve the proof given the candidate set of universe
@@ -7608,10 +7687,10 @@ func (r *RPCServer) queryProof(ctx context.Context, uniID universe.Identifier,
 				continue
 			}
 
-			rpcsLog.Debugf("[QueryProof]: error querying for "+
-				"proof at (uniID=%v, leafKey=%x)",
-				uniID.StringForLog(), leafKey.UniverseKey())
-			return nil, err
+			return nil, fmt.Errorf("fetch leaf "+
+				"(uni=%v, leaf_key=%x): %w",
+				candidateID.StringForLog(),
+				leafKey.UniverseKey(), err)
 		}
 
 		// At this point we've found a proof, so we'll break out of the
@@ -7621,7 +7700,9 @@ func (r *RPCServer) queryProof(ctx context.Context, uniID universe.Identifier,
 	}
 
 	if len(proofs) == 0 {
-		return nil, universe.ErrNoUniverseProofFound
+		return nil, fmt.Errorf("%w (uni=%v, leaf_key=%x)",
+			universe.ErrNoUniverseProofFound,
+			uniID.StringForLog(), leafKey.UniverseKey())
 	}
 
 	// TODO(roasbeef): query may return multiple proofs, if allow key to
@@ -7645,17 +7726,19 @@ func unmarshalUniverseKey(key *unirpc.UniverseKey) (universe.Identifier,
 	)
 
 	if key == nil {
-		return uniID, uniKey, fmt.Errorf("universe key cannot be nil")
+		return uniID, uniKey, fmt.Errorf("universe_key must be set")
 	}
 
 	uniID, err = UnmarshalUniID(key.Id)
 	if err != nil {
-		return uniID, uniKey, err
+		return uniID, uniKey, fmt.Errorf("universe_key.id: %w",
+			err)
 	}
 
 	leafKey, err := unmarshalLeafKey(key.LeafKey)
 	if err != nil {
-		return uniID, uniKey, err
+		return uniID, uniKey, fmt.Errorf("universe_key."+
+			"leaf_key: %w", err)
 	}
 
 	return uniID, leafKey, nil
@@ -7694,7 +7777,8 @@ func unmarshalGroupKey(groupKeyBytes []byte,
 		return gk, nil
 
 	default:
-		return nil, fmt.Errorf("group key unspecified")
+		return nil, fmt.Errorf("group_key must be set (one of " +
+			"group_key bytes or group_key_str hex)")
 	}
 }
 
@@ -7750,7 +7834,7 @@ func unmarshalCommitLocator(outpoint, spentOutpoint *taprpc.OutPoint,
 // unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.
 func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 	if leaf == nil {
-		return nil, fmt.Errorf("asset leaf cannot be nil")
+		return nil, fmt.Errorf("asset_leaf must be set")
 	}
 
 	// We'll just pull the asset details from the serialized issuance proof
@@ -7759,7 +7843,8 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 	assetRecord := proof.AssetLeafRecord(&proofAsset)
 	err := proof.SparseDecode(bytes.NewReader(leaf.Proof), assetRecord)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sparse-decode asset_leaf.proof "+
+			"(%d bytes): %w", len(leaf.Proof), err)
 	}
 
 	// TODO(roasbeef): double check posted file format everywhere
@@ -7785,12 +7870,16 @@ func (r *RPCServer) InsertProof(ctx context.Context,
 
 	universeID, leafKey, err := unmarshalUniverseKey(req.Key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal universe "+
+			"key: %w", err)
 	}
 
 	assetLeaf, err := unmarshalAssetLeaf(req.AssetLeaf)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal asset "+
+			"leaf (uni=%v, leaf_key=%x): %w",
+			universeID.StringForLog(), leafKey.UniverseKey(),
+			err)
 	}
 
 	// If universe proof type unspecified, set based on the provided asset
@@ -7800,7 +7889,10 @@ func (r *RPCServer) InsertProof(ctx context.Context,
 			assetLeaf.Asset,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("derive proof "+
+				"type from asset (uni=%v, leaf_key=%x): %w",
+				universeID.StringForLog(),
+				leafKey.UniverseKey(), err)
 		}
 	}
 
@@ -7808,24 +7900,30 @@ func (r *RPCServer) InsertProof(ctx context.Context,
 	// universe.
 	err = universe.ValidateProofUniverseType(assetLeaf.Asset, universeID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate proof "+
+			"type (uni=%v, leaf_key=%x): %w",
+			universeID.StringForLog(), leafKey.UniverseKey(),
+			err)
 	}
 
 	// Ensure proof insert is enabled for the given universe.
 	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query sync "+
+			"configs: %w", err)
 	}
 
 	if !syncConfigs.IsSyncInsertEnabled(universeID) {
-		return nil, fmt.Errorf("proof insert is disabled for the " +
-			"given universe")
+		return nil, fmt.Errorf("proof insert "+
+			"disabled for universe %v",
+			universeID.StringForLog())
 	}
 
 	// Check the rate limiter to see if we need to wait at all. If not then
 	// this'll be a noop.
 	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("rate limiter: %w",
+			err)
 	}
 
 	rpcsLog.Debugf("[InsertProof]: inserting proof at "+
@@ -7836,7 +7934,10 @@ func (r *RPCServer) InsertProof(ctx context.Context,
 		ctx, universeID, leafKey, assetLeaf,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("upsert leaf "+
+			"(uni=%v, leaf_key=%x): %w",
+			universeID.StringForLog(), leafKey.UniverseKey(),
+			err)
 	}
 
 	universeRootHash := newUniverseState.UniverseRoot.NodeHash()
@@ -7854,32 +7955,40 @@ func (r *RPCServer) PushProof(ctx context.Context,
 
 	switch {
 	case req.Server == nil:
-		return nil, fmt.Errorf("remote Universe must be specified")
+		return nil, fmt.Errorf("req.server must be set")
 
 	case req.Key == nil:
-		return nil, fmt.Errorf("universe key must be specified")
+		return nil, fmt.Errorf("req.key must be set")
 
 	case req.Server.Host == "" && req.Server.Id == 0:
-		return nil, fmt.Errorf("remote Universe must be specified")
+		return nil, fmt.Errorf("req.server.host or " +
+			"req.server.id must be set")
 
 	case req.Server.Host != "" && req.Server.Id != 0:
-		return nil, fmt.Errorf("cannot specify both universe host " +
-			"and id")
+		return nil, fmt.Errorf("only one of " +
+			"req.server.host and req.server.id may be set")
 	}
 
 	remoteUniAddr := unmarshalUniverseServer(req.Server)
 	universeID, leafKey, err := unmarshalUniverseKey(req.Key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal universe "+
+			"key: %w", err)
 	}
 
 	// Try to fetch the requested proof from the local universe.
 	localProof, err := r.queryProof(ctx, universeID, leafKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch local proof "+
+			"(uni=%v, leaf_key=%x): %w",
+			universeID.StringForLog(), leafKey.UniverseKey(),
+			err)
 	}
 	if localProof.Leaf == nil {
-		return nil, fmt.Errorf("proof not found in local universe")
+		return nil, fmt.Errorf("proof not found in "+
+			"local universe (uni=%v, leaf_key=%x)",
+			universeID.StringForLog(),
+			leafKey.UniverseKey())
 	}
 
 	// Make sure that we aren't trying to push the proof to ourself, and
@@ -7888,12 +7997,14 @@ func (r *RPCServer) PushProof(ctx context.Context,
 		r.cfg.RuntimeID, universe.DefaultTimeout, remoteUniAddr,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("check federation "+
+			"server %v: %w", remoteUniAddr.HostStr(), err)
 	}
 
 	remoteUni, err := NewRpcUniverseRegistrar(remoteUniAddr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dial remote "+
+			"universe %v: %w", remoteUniAddr.HostStr(), err)
 	}
 
 	rpcsLog.Debugf("[PushProof]: pushing proof to universe "+
@@ -7904,7 +8015,11 @@ func (r *RPCServer) PushProof(ctx context.Context,
 		ctx, universeID, leafKey, localProof.Leaf,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("push to %v "+
+			"(uni=%v, leaf_key=%x): %w",
+			remoteUniAddr.HostStr(),
+			universeID.StringForLog(),
+			leafKey.UniverseKey(), err)
 	}
 
 	rpcsLog.Debugf("[PushProof]: proof pushed to universe "+
@@ -8028,11 +8143,14 @@ func (r *RPCServer) SyncUniverse(ctx context.Context,
 
 	syncMode, err := unmarshalUniverseSyncType(req.SyncMode)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse sync type: %w", err)
+		return nil, fmt.Errorf("parse sync type "+
+			"(req.sync_mode=%v): %w", req.SyncMode, err)
 	}
 	syncTargets, err := unmarshalSyncTargets(req.SyncTargets)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse sync targets: %w", err)
+		return nil, fmt.Errorf("parse sync "+
+			"targets (req.sync_targets=%d entries): %w",
+			len(req.SyncTargets), err)
 	}
 
 	uniAddr := universe.NewServerAddrFromStr(req.UniverseHost)
@@ -8041,8 +8159,8 @@ func (r *RPCServer) SyncUniverse(ctx context.Context,
 	queryFedSyncConfigs := r.cfg.FederationDB.QueryFederationSyncConfigs
 	globalConfigs, uniSyncConfigs, err := queryFedSyncConfigs(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("unable to query federation sync "+
-			"config(s): %w", err)
+		return nil, fmt.Errorf("query federation "+
+			"sync configs: %w", err)
 	}
 
 	syncConfigs := universe.SyncConfigs{
@@ -8057,7 +8175,9 @@ func (r *RPCServer) SyncUniverse(ctx context.Context,
 		ctx, uniAddr, syncMode, syncConfigs, syncTargets...,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to sync universe: %w", err)
+		return nil, fmt.Errorf("sync from %v "+
+			"(mode=%v, targets=%d): %w", uniAddr.HostStr(),
+			syncMode, len(syncTargets), err)
 	}
 
 	return r.marshalUniverseDiff(ctx, universeDiff)
@@ -8081,7 +8201,8 @@ func (r *RPCServer) ListFederationServers(ctx context.Context,
 
 	uniServers, err := r.cfg.FederationDB.UniverseServers(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch "+
+			"servers: %w", err)
 	}
 
 	return &unirpc.ListFederationServersResponse{
@@ -8114,13 +8235,15 @@ func (r *RPCServer) AddFederationServer(ctx context.Context,
 			r.cfg.RuntimeID, universe.DefaultTimeout, server,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf(""+
+				"check server %v: %w", server.HostStr(), err)
 		}
 	}
 
 	err := r.cfg.UniverseFederation.AddServer(serversToAdd...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("add %d "+
+			"server(s): %w", len(serversToAdd), err)
 	}
 
 	return &unirpc.AddFederationServerResponse{}, nil
@@ -8141,12 +8264,15 @@ func (r *RPCServer) DeleteFederationServer(ctx context.Context,
 		ctx, serversToDel...,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("delete "+
+			"proof sync log entries (%d server(s)): %w",
+			len(serversToDel), err)
 	}
 
 	err = r.cfg.FederationDB.RemoveServers(ctx, serversToDel...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(""+
+			"remove %d server(s): %w", len(serversToDel), err)
 	}
 
 	return &unirpc.DeleteFederationServerResponse{}, nil
@@ -8426,7 +8552,8 @@ func (r *RPCServer) UniverseStats(ctx context.Context,
 
 	universeStats, err := r.cfg.UniverseStats.AggregateSyncStats(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("aggregate sync "+
+			"stats: %w", err)
 	}
 
 	return &unirpc.StatsResponse{
@@ -8492,7 +8619,9 @@ func (r *RPCServer) QueryAssetStats(ctx context.Context,
 	req *unirpc.AssetStatsQuery) (*unirpc.UniverseAssetStats, error) {
 
 	if err := validatePage(req.Offset, req.Limit); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid page "+
+			"(offset=%d, limit=%d): %w", req.Offset, req.Limit,
+			err)
 	}
 
 	// Default to RequestPageSize if no limit is set, and query one
@@ -8527,7 +8656,9 @@ func (r *RPCServer) QueryAssetStats(ctx context.Context,
 		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query sync "+
+			"stats (offset=%d, limit=%d): %w", req.Offset, limit,
+			err)
 	}
 
 	hasMore := int32(len(assetStats.SyncStats)) > limit
@@ -8546,8 +8677,8 @@ func (r *RPCServer) QueryAssetStats(ctx context.Context,
 	for idx, snapshot := range assetStats.SyncStats {
 		rpcSnapshot, err := r.marshalAssetSyncSnapshot(ctx, snapshot)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal asset "+
-				"snapshot: %w", err)
+			return nil, fmt.Errorf("marshal "+
+				"snapshot (idx=%d): %w", idx, err)
 		}
 
 		resp.AssetStats[idx] = rpcSnapshot
@@ -8574,7 +8705,9 @@ func (r *RPCServer) QueryEvents(ctx context.Context,
 	}
 
 	if endTime.Before(startTime) {
-		return nil, fmt.Errorf("end time cannot be before start time")
+		return nil, fmt.Errorf("req.end_timestamp "+
+			"(%v) must not be before req.start_timestamp (%v)",
+			endTime, startTime)
 	}
 
 	stats, err := r.cfg.UniverseStats.QueryAssetStatsPerDay(
@@ -8584,7 +8717,9 @@ func (r *RPCServer) QueryEvents(ctx context.Context,
 		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error querying stats: %w", err)
+		return nil, fmt.Errorf("query asset stats "+
+			"per day (start=%v, end=%v): %w", startTime,
+			endTime, err)
 	}
 
 	rpcStats := &unirpc.QueryEventsResponse{
