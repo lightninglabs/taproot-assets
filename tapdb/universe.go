@@ -1122,7 +1122,10 @@ func universeFetchProofLeaf(ctx context.Context,
 	}
 
 	if len(universeLeaves) == 0 {
-		return nil, universe.ErrNoUniverseProofFound
+		return nil, fmt.Errorf("%w (uni=%v, outpoint=%v, "+
+			"script_key=%x)", universe.ErrNoUniverseProofFound,
+			id.StringForLog(), universeKey.LeafOutPoint().String(),
+			targetScriptKey)
 	}
 
 	// Now that we have all the leaves we need to query, we'll look each up
