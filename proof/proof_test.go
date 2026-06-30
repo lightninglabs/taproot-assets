@@ -1257,6 +1257,55 @@ func BenchmarkProofEncoding(b *testing.B) {
 	}
 }
 
+// BenchmarkProofVerify measures the cost of verifying a single genesis proof
+// via Proof.Verify. This is the dominant per-proof cost during universe
+// queries and receive-side validation.
+func BenchmarkProofVerify(b *testing.B) {
+	amt := uint64(5000)
+	genesisProof, _ := genRandomGenesisWithProof(
+		b, asset.Normal, &amt, nil, true, nil, nil, nil, nil,
+		asset.V0,
+	)
+
+	ctx := context.Background()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, err := genesisProof.Verify(
+			ctx, nil, MockChainLookup, MockVerifierCtx,
+		)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkFileVerify measures the cost of verifying a single-proof File via
+// File.Verify. Combined with BenchmarkProofVerify it isolates the
+// per-file overhead from the per-proof verification cost.
+func BenchmarkFileVerify(b *testing.B) {
+	amt := uint64(5000)
+	genesisProof, _ := genRandomGenesisWithProof(
+		b, asset.Normal, &amt, nil, true, nil, nil, nil, nil,
+		asset.V0,
+	)
+
+	f, err := NewFile(V0, genesisProof)
+	require.NoError(b, err)
+
+	ctx := context.Background()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, err := f.Verify(ctx, MockVerifierCtx)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // TestBIPTestVectors tests that the BIP test vectors are passing.
 func TestBIPTestVectors(t *testing.T) {
 	t.Parallel()

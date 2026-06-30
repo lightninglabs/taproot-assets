@@ -59,7 +59,7 @@ var (
 	mockChainLookupMeanTime int64 = 1_717_955_203
 )
 
-func randAsset(t *testing.T, assetType asset.Type,
+func randAsset(t testing.TB, assetType asset.Type,
 	scriptKeyPub *btcec.PublicKey) *asset.Asset {
 
 	t.Helper()
@@ -76,7 +76,7 @@ func randAsset(t *testing.T, assetType asset.Type,
 	)
 }
 
-func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
+func genTaprootKeySpend(t testing.TB, privKey btcec.PrivateKey,
 	virtualTx *wire.MsgTx, input, newAsset *asset.Asset,
 	idx uint32) wire.TxWitness {
 
@@ -98,7 +98,7 @@ func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
 	return wire.TxWitness{sig.Serialize()}
 }
 
-func genTaprootScriptSpend(t *testing.T, privKey btcec.PrivateKey,
+func genTaprootScriptSpend(t testing.TB, privKey btcec.PrivateKey,
 	virtualTx *wire.MsgTx, input, newAsset *asset.Asset, idx uint32,
 	sigHashType txscript.SigHashType, controlBlock *txscript.ControlBlock,
 	tapLeaf *txscript.TapLeaf, scriptWitness []byte) wire.TxWitness {
@@ -133,13 +133,13 @@ func genTaprootScriptSpend(t *testing.T, privKey btcec.PrivateKey,
 	}
 }
 
-type stateTransitionFunc = func(t *testing.T) (*asset.Asset,
+type stateTransitionFunc = func(t testing.TB) (*asset.Asset,
 	commitment.SplitSet, commitment.InputSet, uint32)
 
 func genesisStateTransition(assetType asset.Type,
 	valid, grouped bool) stateTransitionFunc {
 
-	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+	return func(t testing.TB) (*asset.Asset, commitment.SplitSet,
 		commitment.InputSet, uint32) {
 
 		var (
@@ -175,7 +175,7 @@ func genesisStateTransition(assetType asset.Type,
 func invalidGenesisStateTransitionWitness(assetType asset.Type,
 	grouped bool) stateTransitionFunc {
 
-	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+	return func(t testing.TB) (*asset.Asset, commitment.SplitSet,
 		commitment.InputSet, uint32) {
 
 		a := asset.RandAsset(t, assetType)
@@ -191,7 +191,7 @@ func invalidGenesisStateTransitionWitness(assetType asset.Type,
 	}
 }
 
-func collectibleStateTransition(t *testing.T) (*asset.Asset,
+func collectibleStateTransition(t testing.TB) (*asset.Asset,
 	commitment.SplitSet, commitment.InputSet, uint32) {
 
 	privKey := test.RandPrivKey()
@@ -231,7 +231,7 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 func genNormalStateTransition(currentHeight uint32, sequence,
 	lockTime uint64, addCsvScript, addCltvScript bool) stateTransitionFunc {
 
-	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+	return func(t testing.TB) (*asset.Asset, commitment.SplitSet,
 		commitment.InputSet, uint32) {
 
 		return normalStateTransition(
@@ -241,7 +241,7 @@ func genNormalStateTransition(currentHeight uint32, sequence,
 	}
 }
 
-func normalStateTransition(t *testing.T, currentHeight uint32, sequence,
+func normalStateTransition(t testing.TB, currentHeight uint32, sequence,
 	lockTime uint64, addCsvScript, addCltvScript bool) (*asset.Asset,
 	commitment.SplitSet, commitment.InputSet, uint32) {
 
@@ -344,7 +344,7 @@ func normalStateTransition(t *testing.T, currentHeight uint32, sequence,
 func genCustomScriptStateTransition(currentHeight uint32, sequence,
 	lockTime uint64, tapLeaf txscript.TapLeaf) stateTransitionFunc {
 
-	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+	return func(t testing.TB) (*asset.Asset, commitment.SplitSet,
 		commitment.InputSet, uint32) {
 
 		return customScriptStateTransition(
@@ -353,7 +353,7 @@ func genCustomScriptStateTransition(currentHeight uint32, sequence,
 	}
 }
 
-func customScriptStateTransition(t *testing.T, currentHeight uint32, sequence,
+func customScriptStateTransition(t testing.TB, currentHeight uint32, sequence,
 	lockTime uint64, tapLeaf txscript.TapLeaf) (*asset.Asset,
 	commitment.SplitSet, commitment.InputSet, uint32) {
 
@@ -411,7 +411,7 @@ func customScriptStateTransition(t *testing.T, currentHeight uint32, sequence,
 	return newAsset, nil, inputs, currentHeight
 }
 
-func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
+func splitStateTransition(t testing.TB) (*asset.Asset, commitment.SplitSet,
 	commitment.InputSet, uint32) {
 
 	privKey := test.RandPrivKey()
@@ -467,7 +467,7 @@ func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 func splitFullValueStateTransition(validRootLocator,
 	validRoot bool) stateTransitionFunc {
 
-	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+	return func(t testing.TB) (*asset.Asset, commitment.SplitSet,
 		commitment.InputSet, uint32) {
 
 		privKey := test.RandPrivKey()
@@ -527,7 +527,7 @@ func splitFullValueStateTransition(validRootLocator,
 }
 
 func splitCollectibleStateTransition(validRoot bool) stateTransitionFunc {
-	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+	return func(t testing.TB) (*asset.Asset, commitment.SplitSet,
 		commitment.InputSet, uint32) {
 
 		privKey := test.RandPrivKey()
@@ -582,22 +582,38 @@ func splitCollectibleStateTransition(validRoot bool) stateTransitionFunc {
 func groupAnchorStateTransition(useHashLock, BIP86, keySpend, valid bool,
 	assetType asset.Type) stateTransitionFunc {
 
-	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+	return func(t testing.TB) (*asset.Asset, commitment.SplitSet,
 		commitment.InputSet, uint32) {
 
 		gen := asset.RandGenesis(t, assetType)
+		// AssetCustomGroupKey only consumes *testing.T-specific
+		// behaviour; the assertion is safe because this transition
+		// builder is only ever invoked from tests, not from
+		// benchmarks.
+		tt, ok := t.(*testing.T)
+		if !ok {
+			t.Fatalf("groupAnchorStateTransition requires " +
+				"*testing.T")
+		}
 		return asset.AssetCustomGroupKey(
-			t, useHashLock, BIP86, keySpend, valid, gen,
+			tt, useHashLock, BIP86, keySpend, valid, gen,
 		), nil, nil, 0
 	}
 }
 
-func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
+func scriptTreeSpendStateTransition(t testing.TB, useHashLock,
 	valid bool, sigHashType txscript.SigHashType) stateTransitionFunc {
 
+	// test.BuildTapscriptTree only consumes *testing.T-specific behaviour;
+	// the assertion is safe because this builder is only ever invoked from
+	// tests, not from benchmarks.
+	tt, ok := t.(*testing.T)
+	if !ok {
+		t.Fatalf("scriptTreeSpendStateTransition requires *testing.T")
+	}
 	scriptPrivKey := test.RandPrivKey()
 	usedLeaf, testTapScript, _, _, scriptWitness := test.BuildTapscriptTree(
-		t, useHashLock, valid, scriptPrivKey.PubKey(),
+		tt, useHashLock, valid, scriptPrivKey.PubKey(),
 	)
 	scriptKey, err := testTapScript.TaprootKey()
 	require.NoError(t, err)
@@ -625,7 +641,7 @@ func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 		Amount:      1,
 	}}
 
-	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+	return func(t testing.TB) (*asset.Asset, commitment.SplitSet,
 		commitment.InputSet, uint32) {
 
 		inputs := []commitment.SplitCommitmentInput{{

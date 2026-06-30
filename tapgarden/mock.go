@@ -577,9 +577,21 @@ type MockChainBridge struct {
 	NewBlocks chan int32
 
 	ReqCount atomic.Int32
+
+	// ConfReqs and confErr are not guarded by a mutex. Readers must
+	// synchronise with the writer via the ConfReqSignal channel: the
+	// writer (RegisterConfirmationsNtfn) populates ConfReqs and
+	// reassigns confErr before sending the request number on
+	// ConfReqSignal, so any receive from that channel happens-after
+	// the corresponding store and a read of ConfReqs[reqNo] is safe.
 	ConfReqs map[int]*chainntnfs.ConfirmationEvent
 
-	Blocks map[chainhash.Hash]*wire.MsgBlock
+	// BlocksMu protects concurrent access to Blocks. Readers (GetBlock,
+	// called from caretaker goroutines) hold it for read; all writers
+	// must go through SetBlock so the invariant cannot be violated
+	// piecemeal.
+	BlocksMu sync.RWMutex
+	Blocks   map[chainhash.Hash]*wire.MsgBlock
 
 	failFeeEstimates atomic.Bool
 	errConf          atomic.Int32
@@ -698,12 +710,23 @@ func (m *MockChainBridge) RegisterBlockEpochNtfn(
 func (m *MockChainBridge) GetBlock(ctx context.Context,
 	hash chainhash.Hash) (*wire.MsgBlock, error) {
 
+	m.BlocksMu.RLock()
 	block, ok := m.Blocks[hash]
+	m.BlocksMu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("block %s not found", hash.String())
 	}
 
 	return block, nil
+}
+
+// SetBlock records a block under its hash so a later GetBlock can return
+// it. All writers to Blocks must go through this helper so the BlocksMu
+// invariant cannot be violated piecemeal.
+func (m *MockChainBridge) SetBlock(hash chainhash.Hash, block *wire.MsgBlock) {
+	m.BlocksMu.Lock()
+	m.Blocks[hash] = block
+	m.BlocksMu.Unlock()
 }
 
 // GetBlockByHeight returns a block given the block height.
