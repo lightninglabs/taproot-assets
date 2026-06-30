@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/btcutil/txsort"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2/txsort"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -417,7 +417,7 @@ func (h *supplyCommitTestHarness) expectKeyDerivationAndImport() {
 
 	pubKeyBytes := dummyKeyDesc.PubKey.SerializeCompressed()[1:]
 
-	dummyTaprootAddr, err := btcutil.NewAddressTaproot(
+	dummyTaprootAddr, err := btcaddr.NewAddressTaproot(
 		pubKeyBytes, &chaincfg.MainNetParams,
 	)
 	require.NoError(h.t, err)

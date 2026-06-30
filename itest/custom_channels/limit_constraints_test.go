@@ -392,22 +392,22 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 	t.Logf("AddInvoice with satisfied constraints...")
 	invoiceConstraints, err := asTapd(dave).
 		TaprootAssetChannelsClient.AddInvoice(
-			ctxb, &tchrpc.AddInvoiceRequest{
-				AssetId:     assetID,
-				AssetAmount: 1_000_000,
-				PeerPubkey:  charlie.PubKey[:],
-				InvoiceRequest: &lnrpc.Invoice{
-					Expiry: 60,
-				},
-				AssetMinAmt: fn.Ptr[uint64](1),
-				AssetRateLimit: &rfqrpc.FixedPoint{
-					// Floor well below oracle
-					// rate — constraint satisfied.
-					Coefficient: "1000000",
-					Scale:       2,
-				},
+		ctxb, &tchrpc.AddInvoiceRequest{
+			AssetId:     assetID,
+			AssetAmount: 1_000_000,
+			PeerPubkey:  charlie.PubKey[:],
+			InvoiceRequest: &lnrpc.Invoice{
+				Expiry: 60,
 			},
-		)
+			AssetMinAmt: fn.Ptr[uint64](1),
+			AssetRateLimit: &rfqrpc.FixedPoint{
+				// Floor well below oracle
+				// rate — constraint satisfied.
+				Coefficient: "1000000",
+				Scale:       2,
+			},
+		},
+	)
 	require.NoError(t.t, err)
 	require.NotNil(t.t, invoiceConstraints.AcceptedBuyQuote)
 	require.NotEmpty(
@@ -420,36 +420,36 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 	t.Logf("AddInvoice with violated rate limit...")
 	_, err = asTapd(dave).
 		TaprootAssetChannelsClient.AddInvoice(
-			ctxb, &tchrpc.AddInvoiceRequest{
-				AssetId:     assetID,
-				AssetAmount: 1_000_000,
-				PeerPubkey:  charlie.PubKey[:],
-				InvoiceRequest: &lnrpc.Invoice{
-					Expiry: 60,
-				},
-				AssetRateLimit: &rfqrpc.FixedPoint{
-					// Floor above oracle rate.
-					Coefficient: "9999999999999999",
-					Scale:       2,
-				},
+		ctxb, &tchrpc.AddInvoiceRequest{
+			AssetId:     assetID,
+			AssetAmount: 1_000_000,
+			PeerPubkey:  charlie.PubKey[:],
+			InvoiceRequest: &lnrpc.Invoice{
+				Expiry: 60,
 			},
-		)
+			AssetRateLimit: &rfqrpc.FixedPoint{
+				// Floor above oracle rate.
+				Coefficient: "9999999999999999",
+				Scale:       2,
+			},
+		},
+	)
 	require.ErrorContains(t.t, err, "rejected quote")
 
 	// Negative: min_amt exceeds max_amt.
 	t.Logf("AddInvoice with min > max...")
 	_, err = asTapd(dave).
 		TaprootAssetChannelsClient.AddInvoice(
-			ctxb, &tchrpc.AddInvoiceRequest{
-				AssetId:     assetID,
-				AssetAmount: 1_000_000,
-				PeerPubkey:  charlie.PubKey[:],
-				InvoiceRequest: &lnrpc.Invoice{
-					Expiry: 60,
-				},
-				AssetMinAmt: fn.Ptr[uint64](2_000_000),
+		ctxb, &tchrpc.AddInvoiceRequest{
+			AssetId:     assetID,
+			AssetAmount: 1_000_000,
+			PeerPubkey:  charlie.PubKey[:],
+			InvoiceRequest: &lnrpc.Invoice{
+				Expiry: 60,
 			},
-		)
+			AssetMinAmt: fn.Ptr[uint64](2_000_000),
+		},
+	)
 	require.ErrorContains(t.t, err, "exceeds max amount")
 
 	// Close channels.

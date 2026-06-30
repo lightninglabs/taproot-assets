@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/stretchr/testify/require"
 )

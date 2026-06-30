@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -381,7 +381,7 @@ type WalletAnchor interface {
 
 	// ImportTaprootOutput imports a new public key into the wallet, as a
 	// P2TR output.
-	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcutil.Address,
+	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcaddr.Address,
 		error)
 
 	// UnlockInput unlocks the set of target inputs after a batch or send
