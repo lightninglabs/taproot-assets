@@ -844,6 +844,13 @@ func (s *Server) Stop() error {
 		return err
 	}
 
+	// Close pooled outbound universe connections only after the
+	// federation envoy (and the syncer it owns) have stopped issuing
+	// RPCs.
+	if s.cfg.UniverseConnPool != nil {
+		s.cfg.UniverseConnPool.Close()
+	}
+
 	if err := s.cfg.RfqManager.Stop(); err != nil {
 		return err
 	}
