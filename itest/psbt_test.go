@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -2308,7 +2308,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
 	})
 
-	aliceP2TR, err := btcutil.DecodeAddress(
+	aliceP2TR, err := btcaddr.DecodeAddress(
 		addrResp.Address, harnessNetParams,
 	)
 	require.NoError(t.t, err)

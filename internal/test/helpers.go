@@ -10,13 +10,13 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/input"
@@ -423,7 +423,7 @@ func ScriptHashLock(t *testing.T, preimage []byte) txscript.TapLeaf {
 	builder := txscript.NewScriptBuilder()
 	builder.AddOp(txscript.OP_DUP)
 	builder.AddOp(txscript.OP_HASH160)
-	builder.AddData(btcutil.Hash160(preimage))
+	builder.AddData(address.Hash160(preimage))
 	builder.AddOp(txscript.OP_EQUALVERIFY)
 	script, err := builder.Script()
 	require.NoError(t, err)

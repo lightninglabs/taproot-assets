@@ -74,5 +74,7 @@
 
 ## Code Health
 
-## Tooling and Documentation
+- [PR#2186](https://github.com/lightninglabs/taproot-assets/pull/2186)
+  updates the project dependencies for btcd v2 compatibility.
 
+## Tooling and Documentation
