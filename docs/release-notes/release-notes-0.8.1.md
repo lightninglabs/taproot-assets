@@ -50,6 +50,10 @@
 
 ## Functional Updates
 
+- [PR#2187](https://github.com/lightninglabs/taproot-assets/pull/2187)
+  substantially improves the reliability and performance of universe
+  sync.
+
 ## RPC Updates
 
 ## tapcli Updates
