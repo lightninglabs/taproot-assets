@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightningnetwork/lnd/signal"
 )
 
 // RunRepairTool inspects the configured database for batches that
@@ -21,9 +22,29 @@ import (
 //
 // The function opens the database with migrations skipped, so it can
 // run against a legacy database whose state would otherwise fail the
-// migration. After this tool exits cleanly, restarting tapd normally
-// will let migration 000061 succeed.
-func RunRepairTool(cfg *Config, cfgLogger btclog.Logger) error {
+// migration.
+//
+// NOTE: With migration 000061's self-heal in place, restarting tapd
+// normally will cancel the duplicates as part of applying the
+// migration. This tool is retained as a diagnostic that surfaces the
+// same repair outside the migration stream (e.g. after operator
+// intervention that re-introduces duplicates).
+func RunRepairTool(cfg *Config, cfgLogger btclog.Logger,
+	shutdownInterceptor signal.Interceptor) error {
+
+	// Derive a cancellable context that trips on shutdown. Without
+	// this, a Ctrl+C mid-repair would leave partial state behind
+	// (some batches cancelled, others not).
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-shutdownInterceptor.ShutdownChannel():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
 	// Open the database with migrations skipped. We want to inspect
 	// and repair a database whose state would otherwise prevent
 	// migration 000061 from applying; running migrations as part of
@@ -63,7 +84,6 @@ func RunRepairTool(cfg *Config, cfgLogger btclog.Logger) error {
 	)
 	store := tapdb.NewAssetMintingStore(mintingExec)
 
-	ctx := context.Background()
 	nonFinal, err := store.FetchNonFinalBatches(ctx)
 	if err != nil {
 		return fmt.Errorf("repair: unable to fetch non-final "+
@@ -91,10 +111,10 @@ func RunRepairTool(cfg *Config, cfgLogger btclog.Logger) error {
 	}
 
 	// Sort newest-first by CreationTime; preserve [0], cancel the
-	// rest. Picking the most recent matches the user's most recent
-	// intent, which is most likely to be the one they want to
-	// continue working with.
-	sort.Slice(preBroadcast, func(i, j int) bool {
+	// rest. SliceStable gives a deterministic winner when two
+	// batches share a timestamp -- the input order (from
+	// FetchNonFinalBatches) then acts as the tiebreak.
+	sort.SliceStable(preBroadcast, func(i, j int) bool {
 		return preBroadcast[i].CreationTime.After(
 			preBroadcast[j].CreationTime,
 		)
@@ -126,7 +146,6 @@ func RunRepairTool(cfg *Config, cfgLogger btclog.Logger) error {
 	}
 
 	cfgLogger.Infof("repair: complete; cancelled %d duplicate "+
-		"batches, preserved 1. Restart tapd normally to let "+
-		"migration 000061 apply.", len(preBroadcast)-1)
+		"batches, preserved 1.", len(preBroadcast)-1)
 	return nil
 }

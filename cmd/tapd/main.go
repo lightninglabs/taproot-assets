@@ -41,7 +41,8 @@ func main() {
 	// with migrations skipped, so it can recover a legacy DB whose
 	// state would otherwise block a migration from applying.
 	if cfg.Repair != nil && cfg.Repair.CancelDuplicateBatches {
-		if err := tapcfg.RunRepairTool(cfg, cfgLogger); err != nil {
+		err := tapcfg.RunRepairTool(cfg, cfgLogger, shutdownInterceptor)
+		if err != nil {
 			_, _ = fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
