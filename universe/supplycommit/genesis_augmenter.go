@@ -461,11 +461,13 @@ func (a *GenesisAugmenter) BindData(_ context.Context,
 		return zero, err
 	}
 
-	return fn.Some(tapgarden.PreCommitBindData{
-		OutputIndex: idx,
-		InternalKey: internalKey,
-		GroupKey:    groupKey,
-	}), nil
+	bind, err := tapgarden.NewPreCommitBindData(
+		idx, internalKey, groupKey,
+	)
+	if err != nil {
+		return zero, err
+	}
+	return fn.Some(bind), nil
 }
 
 // OnBatchConfirmed emits a mint event for each newly-confirmed
@@ -492,6 +494,8 @@ func (a *GenesisAugmenter) OnBatchConfirmed(ctx context.Context,
 			ctx, m.ID(),
 		)
 		if err != nil {
+			log.Warnf("HasDelegationKey(%v): %v; dropping "+
+				"asset from mint-event emission", m.ID(), err)
 			return false
 		}
 		return has

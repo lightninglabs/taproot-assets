@@ -2,6 +2,7 @@ package tapgarden
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -92,8 +93,18 @@ func (NoOpAugmenter) PrepareSeedling(_ context.Context,
 	return nil
 }
 
-// ValidateSeedling is a no-op.
-func (NoOpAugmenter) ValidateSeedling(_ *MintingBatch, _ Seedling) error {
+// ValidateSeedling rejects any seedling that requests supply
+// commitments. Under NoOpAugmenter no augmenter substance is
+// available to emit the pre-commit anchor output or the
+// post-confirmation mint event, so silently accepting the seedling
+// would leave the caller believing supply commitments were on
+// while the batch proceeds without them. Non-supply-commit
+// seedlings pass through unchanged.
+func (NoOpAugmenter) ValidateSeedling(_ *MintingBatch, req Seedling) error {
+	if req.SupplyCommitments {
+		return fmt.Errorf("supply commitments requested but no " +
+			"GenesisTxAugmenter is configured")
+	}
 	return nil
 }
 

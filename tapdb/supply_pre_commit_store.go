@@ -42,9 +42,10 @@ func NewSupplyPreCommitStore(
 // group.
 //
 // NOTE: When multiple pre-commitment outputs share the same group
-// key, the first one is selected. The invariant that all outputs
-// in a group share the same delegation key is enforced upstream
-// during minting.
+// key, the row with the lowest precommits.id is selected. The
+// invariant that all outputs in a group share the same delegation
+// key is enforced upstream during minting; the ordering guarantees
+// a deterministic fallback if a legacy DB somehow violated it.
 func (s *SupplyPreCommitStore) FetchDelegationKey(ctx context.Context,
 	groupKey btcec.PublicKey) (fn.Option[keychain.KeyDescriptor], error) {
 

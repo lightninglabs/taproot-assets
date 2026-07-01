@@ -25,8 +25,13 @@ type Publisher struct {
 
 // NewPublisher constructs a Publisher that ships items to reg. batchSize
 // controls the number of items per UpsertProofLeafBatch call and must be
-// non-zero; the type rules out negative values at the boundary.
+// non-zero; the type rules out negative values at the boundary. A zero
+// batchSize would make PublishMintBatch's outer loop advance by zero
+// and spin forever, so we refuse to construct such a Publisher.
 func NewPublisher(reg universe.BatchRegistrar, batchSize uint) *Publisher {
+	if batchSize == 0 {
+		panic("mintpublish: batchSize must be non-zero")
+	}
 	return &Publisher{
 		reg:       reg,
 		batchSize: batchSize,
