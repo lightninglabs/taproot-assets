@@ -884,9 +884,10 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 			return 0, fmt.Errorf("unable to import key: %w", err)
 		}
 
+		changeIdx := b.cfg.Batch.GenesisPacket.ChangeOutputIndex
 		signedFundedPsbt := tapsend.FundedPsbt{
 			Pkt:               signedPkt,
-			ChangeOutputIndex: b.cfg.Batch.GenesisPacket.ChangeOutputIndex,
+			ChangeOutputIndex: changeIdx,
 			ChainFees:         int64(chainFees),
 		}
 		err = b.cfg.BatchStore.CommitSignedGenesisTx(

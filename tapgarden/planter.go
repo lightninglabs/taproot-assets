@@ -2917,6 +2917,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 					"flight in a pre-broadcast state; " +
 					"wait for it to broadcast before " +
 					"starting a new one")
+			default:
 			}
 		}
 
