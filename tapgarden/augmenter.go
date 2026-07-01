@@ -2,6 +2,7 @@ package tapgarden
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -73,8 +74,12 @@ type GenesisTxAugmenter interface {
 	// OnBatchConfirmed runs once the batch has confirmed on
 	// chain and the cultivator has archived its proofs locally.
 	// The hook may emit downstream events (e.g. supply-commit
-	// notifications). An error is logged but does not unwind
-	// the confirmation.
+	// notifications). For supply-commit-enabled batches this
+	// write participates in the mint's essential completion:
+	// an error aborts confirmation, the batch stays in
+	// BatchStateBroadcast, and the cultivator retries on
+	// restart. Implementations must make retries idempotent
+	// (e.g. via content-hash dedup on any durable writes).
 	OnBatchConfirmed(ctx context.Context, batch *MintingBatch,
 		anchorAssets, nonAnchorAssets []*asset.Asset,
 		mintingProofs proof.AssetProofs) error
@@ -92,8 +97,18 @@ func (NoOpAugmenter) PrepareSeedling(_ context.Context,
 	return nil
 }
 
-// ValidateSeedling is a no-op.
-func (NoOpAugmenter) ValidateSeedling(_ *MintingBatch, _ Seedling) error {
+// ValidateSeedling rejects any seedling that requests supply
+// commitments. Under NoOpAugmenter no augmenter substance is
+// available to emit the pre-commit anchor output or the
+// post-confirmation mint event, so silently accepting the seedling
+// would leave the caller believing supply commitments were on
+// while the batch proceeds without them. Non-supply-commit
+// seedlings pass through unchanged.
+func (NoOpAugmenter) ValidateSeedling(_ *MintingBatch, req Seedling) error {
+	if req.SupplyCommitments {
+		return fmt.Errorf("supply commitments requested but no " +
+			"GenesisTxAugmenter is configured")
+	}
 	return nil
 }
 

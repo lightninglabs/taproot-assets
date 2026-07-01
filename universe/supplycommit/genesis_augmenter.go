@@ -84,10 +84,27 @@ type GenesisAugmenter struct {
 	cfg GenesisAugmenterCfg
 }
 
-// NewGenesisAugmenter returns a new augmenter wired with the
-// supplied dependencies.
-func NewGenesisAugmenter(cfg GenesisAugmenterCfg) *GenesisAugmenter {
-	return &GenesisAugmenter{cfg: cfg}
+// NewGenesisAugmenter returns a new augmenter wired with the supplied
+// dependencies.
+func NewGenesisAugmenter(cfg GenesisAugmenterCfg) (*GenesisAugmenter, error) {
+	switch {
+	case cfg.PreCommitStore == nil:
+		return nil, fmt.Errorf("pre-commit store is required")
+
+	case cfg.KeyRing == nil:
+		return nil, fmt.Errorf("key ring is required")
+
+	case cfg.DelegationKeyChecker == nil:
+		return nil, fmt.Errorf("delegation key checker is required")
+
+	case cfg.MintEvents == nil:
+		return nil, fmt.Errorf("mint event emitter is required")
+
+	case cfg.ChainParams.Params == nil:
+		return nil, fmt.Errorf("chain parameters are required")
+	}
+
+	return &GenesisAugmenter{cfg: cfg}, nil
 }
 
 // PrepareSeedling finalizes the seedling's delegation key. If the
@@ -464,11 +481,13 @@ func (a *GenesisAugmenter) BindData(_ context.Context,
 		return zero, err
 	}
 
-	return fn.Some(tapgarden.PreCommitBindData{
-		OutputIndex: idx,
-		InternalKey: internalKey,
-		GroupKey:    groupKey,
-	}), nil
+	bind, err := tapgarden.NewPreCommitBindData(
+		idx, internalKey, groupKey,
+	)
+	if err != nil {
+		return zero, err
+	}
+	return fn.Some(bind), nil
 }
 
 // OnBatchConfirmed emits a mint event for each newly-confirmed
@@ -476,11 +495,17 @@ func (a *GenesisAugmenter) BindData(_ context.Context,
 //
 // NOTE: This implements tapgarden.GenesisTxAugmenter.OnBatchConfirmed.
 func (a *GenesisAugmenter) OnBatchConfirmed(ctx context.Context,
-	_ *tapgarden.MintingBatch, anchorAssets,
+	batch *tapgarden.MintingBatch, anchorAssets,
 	nonAnchorAssets []*asset.Asset,
 	mintingProofs proof.AssetProofs) error {
 
-	if a.cfg.MintEvents == nil {
+	// Only supply-commit batches carry delegation keys and owe mint
+	// events. Returning early for ordinary batches keeps their
+	// confirmation independent of the delegation-key store: a lookup
+	// failure below aborts (and retries) the confirmation branch,
+	// which is only justified when the batch actually participates
+	// in supply commitments.
+	if batch == nil || !batch.SupplyCommitments {
 		return nil
 	}
 
@@ -490,15 +515,19 @@ func (a *GenesisAugmenter) OnBatchConfirmed(ctx context.Context,
 	)
 	allAssets = append(allAssets, nonAnchorAssets...)
 
-	withDelegation := fn.Filter(allAssets, func(m *asset.Asset) bool {
+	withDelegation := make([]*asset.Asset, 0, len(allAssets))
+	for _, m := range allAssets {
 		has, err := a.cfg.DelegationKeyChecker.HasDelegationKey(
 			ctx, m.ID(),
 		)
 		if err != nil {
-			return false
+			return fmt.Errorf("unable to check delegation key for "+
+				"asset %v: %w", m.ID(), err)
 		}
-		return has
-	})
+		if has {
+			withDelegation = append(withDelegation, m)
+		}
+	}
 
 	for _, m := range withDelegation {
 		scriptKey := asset.ToSerialized(m.ScriptKey.PubKey)

@@ -833,6 +833,21 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			ProofWatcher:       reOrgWatcher,
 		},
 	)
+	genesisAugmenter, err := supplycommit.NewGenesisAugmenter(
+		supplycommit.GenesisAugmenterCfg{
+			PreCommitStore: tapdb.NewSupplyPreCommitStore(
+				mintingStore,
+			),
+			KeyRing:              keyRing,
+			DelegationKeyChecker: addrBook,
+			MintEvents:           supplyCommitManager,
+			ChainParams:          tapChainParams,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create genesis augmenter: %w",
+			err)
+	}
 
 	// nolint: lll
 	return &tapconfig.Config{
@@ -860,17 +875,9 @@ func genServerConfig(ctx context.Context, cfg *Config,
 					universeFederation,
 					defaultUniverseSyncBatchSize,
 				),
-				ProofWatcher:  reOrgWatcher,
-				IgnoreChecker: ignoreCheckerOpt,
-				GenesisTxAugmenter: supplycommit.NewGenesisAugmenter(
-					supplycommit.GenesisAugmenterCfg{
-						PreCommitStore:       tapdb.NewSupplyPreCommitStore(mintingStore),
-						KeyRing:              keyRing,
-						DelegationKeyChecker: addrBook,
-						MintEvents:           supplyCommitManager,
-						ChainParams:          tapChainParams,
-					},
-				),
+				ProofWatcher:       reOrgWatcher,
+				IgnoreChecker:      ignoreCheckerOpt,
+				GenesisTxAugmenter: genesisAugmenter,
 			},
 			ChainParams:  tapChainParams,
 			ProofUpdates: proofArchive,

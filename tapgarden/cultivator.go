@@ -1159,11 +1159,18 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 			}
 		}
 
-		// Let the augmenter emit any downstream events that
-		// pair with batch confirmation (e.g. supply-commit
-		// notifications). Errors are reported but do not roll
-		// back the confirmation; the augmenter substance is
-		// expected to be re-runnable.
+		// Let the augmenter emit its confirmation-side
+		// obligations (e.g. supply-commit mint events). For a
+		// supply-commit-enabled batch this write participates
+		// in the mint's essential completion, so an error must
+		// abort confirmation rather than be swallowed. The
+		// batch stays in BatchStateBroadcast, and the
+		// confirmation branch re-runs on restart: universe
+		// publish above is idempotent, the event_key dedup
+		// index (migration 64, backfilled by 65) makes the
+		// augmenter side idempotent, and MarkBatchConfirmed
+		// below is what advances state on disk -- so retry is
+		// safe.
 		err = b.augmenter().OnBatchConfirmed(
 			ctx, b.cfg.Batch, anchorAssets, nonAnchorAssets,
 			mintingProofs,

@@ -21,12 +21,18 @@ import (
 // BatchRegistrar.
 type Publisher struct {
 	reg       universe.BatchRegistrar
-	batchSize int
+	batchSize uint
 }
 
 // NewPublisher constructs a Publisher that ships items to reg. batchSize
-// controls the number of items per UpsertProofLeafBatch call.
-func NewPublisher(reg universe.BatchRegistrar, batchSize int) *Publisher {
+// controls the number of items per UpsertProofLeafBatch call and must be
+// non-zero; the type rules out negative values at the boundary. A zero
+// batchSize would make PublishMintBatch's outer loop advance by zero
+// and spin forever, so we refuse to construct such a Publisher.
+func NewPublisher(reg universe.BatchRegistrar, batchSize uint) *Publisher {
+	if batchSize == 0 {
+		panic("mintpublish: batchSize must be non-zero")
+	}
 	return &Publisher{
 		reg:       reg,
 		batchSize: batchSize,
@@ -59,9 +65,9 @@ func (p *Publisher) PublishMintBatch(ctx context.Context,
 		items = append(items, item)
 	}
 
-	numTotal := len(items)
+	numTotal := uint(len(items))
 	var sent int
-	for start := 0; start < numTotal; start += p.batchSize {
+	for start := uint(0); start < numTotal; start += p.batchSize {
 		end := start + p.batchSize
 		if end > numTotal {
 			end = numTotal

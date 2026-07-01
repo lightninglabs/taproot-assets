@@ -67,6 +67,11 @@
   state. The next supply update for the affected asset group simply
   starts a fresh commitment cycle.
 
+* Supply-commit mint event emission is now atomic with mint
+  confirmation: a failed augmenter call aborts confirmation, keeping
+  the batch in Broadcast so the retry re-fires on restart. The
+  `event_key` dedup index (migration 64) keeps retries idempotent.
+
 # New Features
 
 ## Functional Enhancements
@@ -168,6 +173,11 @@
 
 * [PR#2247](https://github.com/lightninglabs/taproot-assets/pull/2247)
   simplifies the internals of the minting state machine.
+
+* Supply-commit participation and universe publication are routed
+  through new `GenesisTxAugmenter` and `MintProofPublisher`
+  interfaces so the two concerns evolve independently of the minting
+  state machine.
 
 ## Tooling and Documentation
 

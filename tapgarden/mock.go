@@ -451,11 +451,13 @@ func (m mockSupplyCommitAugmenter) BindData(_ context.Context,
 		if !bytes.Equal(txOut.PkScript, expected.PkScript) {
 			continue
 		}
-		return fn.Some(PreCommitBindData{
-			OutputIndex: uint32(i),
-			InternalKey: internalKey,
-			GroupKey:    mockGroupKey(batch),
-		}), nil
+		bind, err := NewPreCommitBindData(
+			uint32(i), internalKey, mockGroupKey(batch),
+		)
+		if err != nil {
+			return zero, err
+		}
+		return fn.Some(bind), nil
 	}
 	return zero, nil
 }

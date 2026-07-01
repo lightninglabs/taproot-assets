@@ -577,6 +577,13 @@ JOIN internal_keys keys
 WHERE keys.raw_key = $1;
 
 -- name: BindMintingBatchWithTx :one
+-- universe_commitments is intentionally not in the SET clause: the
+-- flag is set once at batch creation (NewMintingBatch) from the
+-- seedling's SupplyCommitments intent and must not change at
+-- funding time. Overwriting it here from a caller-derived value
+-- would silently disable supply commitments if no augmenter bind
+-- payload was produced for a batch that legitimately requested
+-- them.
 WITH target_batch AS (
     SELECT batch_id
     FROM asset_minting_batches batches
@@ -586,7 +593,7 @@ WITH target_batch AS (
 )
 UPDATE asset_minting_batches
 SET minting_tx_psbt = $2, change_output_index = $3, assets_output_index = $4,
-    genesis_id = $5, universe_commitments = $6
+    genesis_id = $5
 WHERE batch_id IN (SELECT batch_id FROM target_batch)
 RETURNING batch_id;
 
@@ -1204,4 +1211,5 @@ WHERE (
     (batch_internal_keys.raw_key = sqlc.narg('batch_key') OR sqlc.narg('batch_key') IS NULL) AND
     (precommits.group_key = sqlc.narg('group_key') OR sqlc.narg('group_key') IS NULL) AND
     (taproot_internal_keys.raw_key = sqlc.narg('taproot_internal_key_raw') OR sqlc.narg('taproot_internal_key_raw') IS NULL)
-);
+)
+ORDER BY precommits.id ASC;
