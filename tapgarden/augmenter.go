@@ -74,8 +74,12 @@ type GenesisTxAugmenter interface {
 	// OnBatchConfirmed runs once the batch has confirmed on
 	// chain and the cultivator has archived its proofs locally.
 	// The hook may emit downstream events (e.g. supply-commit
-	// notifications). An error is logged but does not unwind
-	// the confirmation.
+	// notifications). For supply-commit-enabled batches this
+	// write participates in the mint's essential completion:
+	// an error aborts confirmation, the batch stays in
+	// BatchStateBroadcast, and the cultivator retries on
+	// restart. Implementations must make retries idempotent
+	// (e.g. via content-hash dedup on any durable writes).
 	OnBatchConfirmed(ctx context.Context, batch *MintingBatch,
 		anchorAssets, nonAnchorAssets []*asset.Asset,
 		mintingProofs proof.AssetProofs) error

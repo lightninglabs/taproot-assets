@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -112,6 +113,13 @@ type mintingTestHarness struct {
 
 	proofWatcher *tapgarden.MockProofWatcher
 
+	// augmenter is wired into GardenKit.GenesisTxAugmenter when
+	// non-nil, otherwise the planter falls back to NoOpAugmenter.
+	// Tests that need to observe augmenter behavior (e.g.
+	// confirmation-side failure) set this before calling
+	// refreshChainPlanter.
+	augmenter tapgarden.GenesisTxAugmenter
+
 	*testing.T
 
 	errChan chan error
@@ -153,17 +161,18 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 
 	t.planter = tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
 		GardenKit: tapgarden.GardenKit{
-			Wallet:       t.wallet,
-			ChainBridge:  t.chain,
-			BatchStore:   t.store,
-			MintingRefs:  t.store,
-			TreeStore:    t.treeStore,
-			KeyRing:      t.keyRing,
-			GenSigner:    t.genSigner,
-			GenTxBuilder: t.genTxBuilder,
-			TxValidator:  t.txValidator,
-			ProofFiles:   t.proofFiles,
-			ProofWatcher: t.proofWatcher,
+			Wallet:             t.wallet,
+			ChainBridge:        t.chain,
+			BatchStore:         t.store,
+			MintingRefs:        t.store,
+			TreeStore:          t.treeStore,
+			KeyRing:            t.keyRing,
+			GenSigner:          t.genSigner,
+			GenTxBuilder:       t.genTxBuilder,
+			TxValidator:        t.txValidator,
+			ProofFiles:         t.proofFiles,
+			ProofWatcher:       t.proofWatcher,
+			GenesisTxAugmenter: t.augmenter,
 		},
 		ChainParams:  *chainParams,
 		ProofUpdates: t.proofFiles,
@@ -2183,6 +2192,116 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 	// TestSingletonPreBroadcastBatchConstraint in tapdb.
 }
 
+// failingConfirmAugmenter is a GenesisTxAugmenter that forwards every
+// method to NoOpAugmenter except OnBatchConfirmed, which returns an
+// error while shouldFail is set. The test uses this to force the
+// confirmation-abort path and verify the batch does not advance.
+type failingConfirmAugmenter struct {
+	tapgarden.NoOpAugmenter
+	shouldFail atomic.Bool
+}
+
+func (f *failingConfirmAugmenter) OnBatchConfirmed(_ context.Context,
+	_ *tapgarden.MintingBatch, _, _ []*asset.Asset,
+	_ proof.AssetProofs) error {
+
+	if f.shouldFail.Load() {
+		return fmt.Errorf("simulated augmenter failure")
+	}
+
+	return nil
+}
+
+var _ tapgarden.GenesisTxAugmenter = (*failingConfirmAugmenter)(nil)
+
+// testOnBatchConfirmedFailureAbortsConfirmation asserts that a failure
+// returned from GenesisTxAugmenter.OnBatchConfirmed aborts the mint
+// confirmation: the batch stays in BatchStateBroadcast on disk so the
+// confirmation branch re-runs on restart. This pins the essential
+// completion contract of the hook -- suppressing its error would let
+// the mint advance while still owing the supply-commit event.
+func testOnBatchConfirmedFailureAbortsConfirmation(t *mintingTestHarness) {
+	// Wire the harness with a failing augmenter. The first pass fails
+	// at OnBatchConfirmed; after the restart the augmenter is flipped
+	// to succeed so the retry can complete cleanly.
+	aug := &failingConfirmAugmenter{}
+	aug.shouldFail.Store(true)
+	t.augmenter = aug
+	t.refreshChainPlanter()
+
+	// Drive Pending -> Frozen -> Committed -> Broadcast.
+	const numSeedlings = 3
+	_ = t.queueInitialBatch(numSeedlings)
+	frozenBatch := t.finalizeBatchAssertFrozen(false)
+	t.assertBatchCommitted(frozenBatch.BatchKey.PubKey)
+	t.assertGenesisPsbtFinalized(nil)
+	tx := t.assertTxPublished()
+
+	// Assemble the block that will accompany the confirmation.
+	merkleTree := blockchain.BuildMerkleTreeStore(
+		[]*btcutil.Tx{btcutil.NewTx(tx)}, false,
+	)
+	merkleRoot := merkleTree[len(merkleTree)-1]
+	blockHeader := wire.NewBlockHeader(
+		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
+	)
+	block := &wire.MsgBlock{
+		Header:       *blockHeader,
+		Transactions: []*wire.MsgTx{tx},
+	}
+
+	// Deliver the confirmation. The augmenter's OnBatchConfirmed will
+	// return an error, so the Confirmed branch aborts before
+	// MarkBatchConfirmed and the caretaker goroutine exits.
+	sendConfNtfn := t.assertConfReqSent(tx, block)
+	sendConfNtfn()
+
+	// Give the caretaker time to process the confirmation and unwind
+	// the Confirmed branch. The batch on disk must remain at
+	// BatchStateBroadcast -- MarkBatchConfirmed was not called.
+	require.Never(t, func() bool {
+		batches, err := t.store.FetchAllBatches(context.Background())
+		require.NoError(t, err)
+		if len(batches) != 1 {
+			return false
+		}
+		return batches[0].State() != tapgarden.BatchStateBroadcast
+	}, 500*time.Millisecond, 50*time.Millisecond,
+		"batch advanced past Broadcast despite augmenter failure")
+
+	// Simulate a restart with a now-succeeding augmenter. The fresh
+	// caretaker resumes the Broadcast batch, re-publishes the tx, and
+	// re-registers for a confirmation.
+	aug.shouldFail.Store(false)
+	t.refreshChainPlanter()
+	select {
+	case <-t.errChan:
+	default:
+	}
+
+	_ = t.assertTxPublished()
+	sendConfNtfn = t.assertConfReqSent(tx, block)
+	sendConfNtfn()
+
+	// With OnBatchConfirmed now returning nil, MarkBatchConfirmed
+	// runs and the batch advances all the way to Finalized.
+	err := wait.Predicate(func() bool {
+		batches, err := t.store.FetchAllBatches(
+			context.Background(),
+		)
+		require.NoError(t, err)
+		if len(batches) != 1 {
+			return false
+		}
+		return batches[0].State() == tapgarden.BatchStateFinalized
+	}, defaultTimeout)
+	require.NoError(
+		t, err, "batch never advanced to Finalized on retry",
+	)
+
+	t.assertNumCaretakersActive(0)
+}
+
 // mintingStoreTestCase is used to programmatically run a series of test cases
 // that are parametrized based on a fresh minting store.
 type mintingStoreTestCase struct {
@@ -2227,6 +2346,10 @@ var testCases = []mintingStoreTestCase{
 	{
 		name:     "fund_seal_on_restart",
 		testFunc: testFundSealOnRestart,
+	},
+	{
+		name:     "on_batch_confirmed_failure_aborts_confirmation",
+		testFunc: testOnBatchConfirmedFailureAbortsConfirmation,
 	},
 }
 

@@ -26,6 +26,11 @@
   minting flow around persistence atomicity, restart idempotence, and
   the pre-broadcast batch singleton.
 
+* Supply-commit mint event emission is now atomic with mint
+  confirmation: a failed augmenter call aborts confirmation, keeping
+  the batch in Broadcast so the retry re-fires on restart. The
+  `event_key` dedup index (migration 62) keeps retries idempotent.
+
 # New Features
 
 ## Functional Enhancements
