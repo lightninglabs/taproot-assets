@@ -738,8 +738,9 @@ func (r *rootNodeCache) wipeCache() {
 	r.rootIndex.wipe()
 }
 
-// cachedLeafKeys is used to cache the set of leaf keys for a given universe.
-type cachedLeafKeys []universe.LeafKey
+// cachedLeafKeys is used to cache the set of leaf entries for a
+// given universe.
+type cachedLeafKeys []universe.LeafEntry
 
 // Size just returns 1, as we cache based on the total number of assets, but
 // not the sum of their leaves.
@@ -800,9 +801,9 @@ func newUniverseLeafPageCache(numCachedUniverses,
 	}
 }
 
-// fetchLeafKeys reads the cached leaf keys for the given ID.
+// fetchLeafKeys reads the cached leaf entries for the given ID.
 func (u *universeLeafPageCache) fetchLeafKeys(
-	q universe.UniverseLeafKeysQuery) []universe.LeafKey {
+	q universe.UniverseLeafKeysQuery) []universe.LeafEntry {
 
 	leafPageCache, err := u.leafCache.Get(q.Id.String())
 	if err == nil {
@@ -820,9 +821,9 @@ func (u *universeLeafPageCache) fetchLeafKeys(
 	return nil
 }
 
-// cacheLeafKeys stores the given leaf keys in the cache.
+// cacheLeafKeys stores the given leaf entries in the cache.
 func (u *universeLeafPageCache) cacheLeafKeys(q universe.UniverseLeafKeysQuery,
-	keys []universe.LeafKey) {
+	keys []universe.LeafEntry) {
 
 	cachedKeys := cachedLeafKeys(keys)
 

@@ -136,16 +136,19 @@ func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 	return unmarshalUniverseRoot(universeRoot.TransferRoot)
 }
 
-// UniverseLeafKeys returns all the keys inserted in the universe.
+// UniverseLeafKeys returns all the leaf entries in the universe.
+// The RPC schema exposes only universe keys, so NodeHash is left
+// unset on every returned entry — callers must fall back to a
+// key-only diff for RPC-sourced entries.
 func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
-	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
+	q universe.UniverseLeafKeysQuery) ([]universe.LeafEntry, error) {
 
 	uniID, err := MarshalUniID(q.Id)
 	if err != nil {
 		return nil, err
 	}
 
-	assetKeys, err := r.conn.AssetLeafKeys(
+	resp, err := r.conn.AssetLeafKeys(
 		ctx, &unirpc.AssetLeafKeysRequest{
 			Id:        uniID,
 			Direction: taprpc.SortDirection(q.SortDirection),
@@ -157,17 +160,20 @@ func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
 		return nil, err
 	}
 
-	keys := make([]universe.LeafKey, len(assetKeys.AssetKeys))
-	for i, key := range assetKeys.AssetKeys {
+	entries := make([]universe.LeafEntry, len(resp.AssetKeys))
+	for i, key := range resp.AssetKeys {
 		leafKey, err := unmarshalLeafKey(key)
 		if err != nil {
 			return nil, err
 		}
 
-		keys[i] = leafKey
+		entries[i] = universe.LeafEntry{
+			Key:      leafKey,
+			NodeHash: fn.None[mssmt.NodeHash](),
+		}
 	}
 
-	return keys, nil
+	return entries, nil
 }
 
 // FetchProofLeaf attempts to fetch a proof leaf for the target leaf key

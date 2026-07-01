@@ -400,32 +400,52 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	log.Infof("UniverseRoot(%v) diverges, performing leaf diff...",
 		uniID.String())
 
-	// Otherwise, we'll need to perform a diff operation to find the set of
-	// keys we need to fetch. We'll start by fetching the set of keys from
-	// both the local and remote Universe.
+	// Fetch the leaf entries from both sides. Each entry pairs a
+	// universe key with the leaf's MS-SMT node hash, so a
+	// disagreement at either component surfaces in the diff.
 	var (
-		remoteUniKeys []LeafKey
-		localUniKeys  []LeafKey
+		remoteEntries []LeafEntry
+		localEntries  []LeafEntry
 	)
 
-	remoteUniKeys, err = s.fetchAllLeafKeys(ctx, diffEngine, uniID)
+	remoteEntries, err = s.fetchAllLeafEntries(ctx, diffEngine, uniID)
 	if err != nil {
 		return err
 	}
 
-	localUniKeys, err = s.fetchAllLeafKeys(ctx, s.cfg.LocalDiffEngine, uniID)
+	localEntries, err = s.fetchAllLeafEntries(
+		ctx, s.cfg.LocalDiffEngine, uniID,
+	)
 	if err != nil {
 		return err
 	}
 
-	// With the set of keys fetched, we can now find the set of keys that
-	// need to be synced.
-	keysToFetch := fn.SetDiff(remoteUniKeys, localUniKeys)
+	// The diff yields exactly the set of remote keys we must
+	// fetch to converge: new keys, plus shared keys whose leaf
+	// node hash disagrees with what we hold. Every other class of
+	// divergence (peer strictly behind us, or divergence localized
+	// to leaves the peer no longer advertises) is a no-op by
+	// construction.
+	keysToFetch := diffLeafEntries(remoteEntries, localEntries)
 
 	log.Infof("UniverseRoot(%v): diff_size=%v", uniID.String(),
 		len(keysToFetch))
 	log.Tracef("UniverseRoot(%v): diff_size=%v, diff=%v", uniID.String(),
 		len(keysToFetch), spew.Sdump(keysToFetch))
+
+	// Roots diverge but the LeafEntry diff is empty: every remote
+	// leaf is content-identical to what we already hold, so the
+	// divergence lives in local-only entries and sync has no work
+	// to do. Skip the fetch/batch scaffolding entirely to avoid the
+	// no-op registrar call that CollectBatch would issue on the
+	// closed empty channel.
+	if len(keysToFetch) == 0 {
+		result <- AssetSyncDiff{
+			OldUniverseRoot: localRoot,
+			NewUniverseRoot: remoteRoot,
+		}
+		return nil
+	}
 
 	// Before we start fetching leaves, we already start our batch stream
 	// for the new leaves. This allows us to stream the new leaves to the
@@ -763,19 +783,20 @@ func (s *SimpleSyncer) fetchAllRoots(ctx context.Context,
 	return roots, nil
 }
 
-// fetchAllLeafKeys fetches all the leaf keys from the remote Universe. This
-// function is used in order to isolate any logic related to the specifics of
-// how we fetch the data from the universe server.
-func (s *SimpleSyncer) fetchAllLeafKeys(ctx context.Context,
-	diffEngine DiffEngine, uniID Identifier) ([]LeafKey, error) {
+// fetchAllLeafEntries fetches every leaf entry the diff engine
+// exposes for the given universe, paginating until a page comes back
+// empty. Each entry pairs the leaf's universe key with the MS-SMT
+// node hash committing to its content (unpopulated for entries
+// sourced from a peer whose wire schema predates the field).
+func (s *SimpleSyncer) fetchAllLeafEntries(ctx context.Context,
+	diffEngine DiffEngine, uniID Identifier) ([]LeafEntry, error) {
 
-	// Initialize the offset to be used for the pages.
 	offset := int32(0)
 	pageSize := defaultPageSize
-	leafKeys := make([]LeafKey, 0)
+	entries := make([]LeafEntry, 0)
 
 	for {
-		tempRemoteKeys, err := diffEngine.UniverseLeafKeys(
+		page, err := diffEngine.UniverseLeafKeys(
 			ctx, UniverseLeafKeysQuery{
 				Id:            uniID,
 				Offset:        offset,
@@ -787,15 +808,74 @@ func (s *SimpleSyncer) fetchAllLeafKeys(ctx context.Context,
 			return nil, err
 		}
 
-		if len(tempRemoteKeys) == 0 {
+		if len(page) == 0 {
 			break
 		}
 
-		leafKeys = append(leafKeys, tempRemoteKeys...)
+		entries = append(entries, page...)
 		offset += pageSize
 	}
 
-	return leafKeys, nil
+	return entries, nil
+}
+
+// diffLeafEntries returns the leaf keys in remote whose content
+// differs from local's, exhaustively over the three shapes of
+// disagreement an MS-SMT can expose:
+//
+//   - universe key present remotely, absent locally → fetch (new
+//     leaf).
+//   - universe key present on both sides, node hashes disagree →
+//     fetch (shared-key content divergence, e.g. a re-org rewriting
+//     the leaf's proof).
+//   - universe key absent remotely, present locally → no-op by
+//     construction (sync pulls; it does not shrink).
+//
+// The result is a subsequence of remote in its original order, so
+// error attribution in the parallel fetch loop lines up index-for-
+// index. NodeHash comparison uses fn.Option semantics: when either
+// side's hash is None (a legacy peer that predates the wire field),
+// we fall back to key-only inclusion — the leaf is fetched only if
+// the universe key is missing locally. That reduces to the pre-hash
+// diff behavior and is strictly conservative: the mixed-cause case
+// (behind AND re-org rewrite) can go undetected under a legacy peer,
+// but that failure mode already existed and is bounded to peers
+// running the older schema.
+func diffLeafEntries(remote, local []LeafEntry) []LeafKey {
+	type localEntry struct {
+		hash fn.Option[mssmt.NodeHash]
+	}
+
+	localSet := make(map[[32]byte]localEntry, len(local))
+	for _, e := range local {
+		localSet[e.Key.UniverseKey()] = localEntry{hash: e.NodeHash}
+	}
+
+	diff := make([]LeafKey, 0, len(remote))
+	for _, e := range remote {
+		match, ok := localSet[e.Key.UniverseKey()]
+		if !ok {
+			// Remote-only key: fetch.
+			diff = append(diff, e.Key)
+			continue
+		}
+
+		// Shared key. If both sides carry a hash, compare on
+		// content; a mismatch is a shared-key divergence and
+		// must be refetched. When either hash is missing, the
+		// key-only view says "already have it" and we skip.
+		if !e.NodeHash.IsSome() || !match.hash.IsSome() {
+			continue
+		}
+		var zero mssmt.NodeHash
+		remoteHash := e.NodeHash.UnwrapOr(zero)
+		localHash := match.hash.UnwrapOr(zero)
+		if remoteHash != localHash {
+			diff = append(diff, e.Key)
+		}
+	}
+
+	return diff
 }
 
 // IsEmptyRoot return true if the given root does not have any values set.

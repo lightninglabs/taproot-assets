@@ -67,7 +67,7 @@ func (m *mockMultiverse) DeleteProofLeaf(context.Context,
 }
 
 func (m *mockMultiverse) UniverseLeafKeys(context.Context,
-	UniverseLeafKeysQuery) ([]LeafKey, error) {
+	UniverseLeafKeysQuery) ([]LeafEntry, error) {
 
 	return nil, nil
 }
@@ -106,7 +106,7 @@ func (m *mockStorageBackend) FetchProof(context.Context,
 }
 
 func (m *mockStorageBackend) FetchKeys(context.Context,
-	UniverseLeafKeysQuery) ([]LeafKey, error) {
+	UniverseLeafKeysQuery) ([]LeafEntry, error) {
 
 	return nil, nil
 }

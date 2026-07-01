@@ -48,7 +48,7 @@ func (p *concurrencyProbe) RootNodes(_ context.Context,
 }
 
 func (p *concurrencyProbe) UniverseLeafKeys(_ context.Context,
-	_ UniverseLeafKeysQuery) ([]LeafKey, error) {
+	_ UniverseLeafKeysQuery) ([]LeafEntry, error) {
 
 	return nil, nil
 }

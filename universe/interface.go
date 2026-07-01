@@ -279,6 +279,25 @@ type LeafKey interface {
 	LeafOutPoint() wire.OutPoint
 }
 
+// LeafEntry pairs a leaf's key with the MS-SMT node hash the tree
+// commits it to. The universe key names the leaf; the node hash
+// witnesses its content. A diff over LeafEntry values catches shared-
+// key content divergence (re-org rewrites) directly, without an
+// extra fetch and re-verify pass.
+//
+// NodeHash is optional to accommodate legacy peers whose leaf-key
+// listing predates this field on the wire: when None, the reader
+// must fall back to key-only diff behavior for that pair. Locally-
+// sourced entries (from the multiverse store) always populate it.
+type LeafEntry struct {
+	// Key identifies the leaf within the universe.
+	Key LeafKey
+
+	// NodeHash is the MS-SMT leaf node hash committing to the
+	// leaf's content, when the source populates it.
+	NodeHash fn.Option[mssmt.NodeHash]
+}
+
 // UniqueLeafKey is an interface that allows us to obtain the universe key for a
 // leaf within a universe. This is used to uniquely identify a leaf within a
 // universe. Compared to LeafKey, it includes the asset ID of a leaf within the
@@ -444,9 +463,11 @@ type StorageBackend interface {
 	// TODO(roasbeef): can eventually do multi-proofs for the SMT
 	FetchProof(ctx context.Context, key LeafKey) ([]*Proof, error)
 
-	// FetchKeys retrieves all keys from the universe tree.
+	// FetchKeys retrieves all leaf entries from the universe tree.
+	// Each entry pairs the leaf's universe key with the MS-SMT
+	// node hash committing to its content.
 	FetchKeys(ctx context.Context,
-		q UniverseLeafKeysQuery) ([]LeafKey, error)
+		q UniverseLeafKeysQuery) ([]LeafEntry, error)
 
 	// FetchLeaves retrieves leaves from the universe tree,
 	// paginated according to the given query.
@@ -543,10 +564,12 @@ type MultiverseArchive interface {
 	// ID.
 	UniverseRootNode(ctx context.Context, id Identifier) (Root, error)
 
-	// UniverseLeafKeys returns the set of leaf keys for the given
-	// universe.
+	// UniverseLeafKeys returns the set of leaf entries for the given
+	// universe. Each entry pairs the leaf's universe key with the
+	// MS-SMT node hash committing to its content, so a diff can
+	// detect shared-key content divergence directly.
 	UniverseLeafKeys(ctx context.Context,
-		q UniverseLeafKeysQuery) ([]LeafKey, error)
+		q UniverseLeafKeysQuery) ([]LeafEntry, error)
 
 	// FetchLeaves returns the set of multiverse leaves that satisfy the set
 	// of universe targets. If the set of targets is empty, all leaves for
@@ -782,9 +805,13 @@ type DiffEngine interface {
 	// RootNodes returns the set of root nodes for all known universes.
 	RootNodes(ctx context.Context, q RootNodesQuery) ([]Root, error)
 
-	// UniverseLeafKeys returns all the keys inserted in the universe.
+	// UniverseLeafKeys returns all the leaf entries in the universe.
+	// Each entry pairs a leaf's universe key with the MS-SMT node
+	// hash committing to its content; a remote diff engine may
+	// leave NodeHash unpopulated on entries sourced from a peer
+	// whose wire schema predates the field.
 	UniverseLeafKeys(ctx context.Context,
-		q UniverseLeafKeysQuery) ([]LeafKey, error)
+		q UniverseLeafKeysQuery) ([]LeafEntry, error)
 
 	// FetchProofLeaf attempts to fetch a proof leaf for the target leaf key
 	// and given a universe identifier (assetID/groupKey).

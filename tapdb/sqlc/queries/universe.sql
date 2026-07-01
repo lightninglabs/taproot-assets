@@ -81,10 +81,21 @@ ORDER BY
 LIMIT @num_limit OFFSET @num_offset;
 
 -- name: FetchUniverseKeys :many
-SELECT leaves.minting_point, leaves.script_key_bytes
+-- Note on hash construction: mssmt_nodes.hash_key on a compacted leaf
+-- commits to the subtree root at that leaf's tree height, which
+-- varies with the tree's shape and is therefore NOT canonical across
+-- universes with the same leaves. What we want for a cross-universe
+-- diff is the leaf's own canonical content hash H(value || sum),
+-- computed from mssmt_nodes.value (the leaf's RawProof bytes) and
+-- mssmt_nodes.sum. Callers compute the hash from these two columns.
+SELECT leaves.minting_point, leaves.script_key_bytes,
+       nodes.value AS leaf_value, nodes.sum AS leaf_sum
 FROM universe_leaves AS leaves
+JOIN mssmt_nodes AS nodes
+    ON leaves.leaf_node_key = nodes.key
+       AND leaves.leaf_node_namespace = nodes.namespace
 WHERE leaves.leaf_node_namespace = @namespace
-ORDER BY 
+ORDER BY
     CASE WHEN sqlc.narg('sort_direction') = 0 THEN leaves.id END ASC,
     CASE WHEN sqlc.narg('sort_direction') = 1 THEN leaves.id END DESC
 LIMIT @num_limit OFFSET @num_offset;

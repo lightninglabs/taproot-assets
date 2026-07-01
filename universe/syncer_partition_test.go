@@ -68,7 +68,7 @@ func (r *syncOrderRecorder) RootNodes(_ context.Context,
 }
 
 func (r *syncOrderRecorder) UniverseLeafKeys(_ context.Context,
-	_ UniverseLeafKeysQuery) ([]LeafKey, error) {
+	_ UniverseLeafKeysQuery) ([]LeafEntry, error) {
 
 	return nil, nil
 }

@@ -728,10 +728,11 @@ type UniverseLeafKeysQuery struct {
 	Limit int32
 }
 
-// UniverseLeafKeys returns the set of leaf keys known for the specified
-// universe identifier.
+// UniverseLeafKeys returns the set of leaf entries known for the
+// specified universe identifier. Each entry pairs a leaf's universe
+// key with the MS-SMT node hash committing to its content.
 func (a *Archive) UniverseLeafKeys(ctx context.Context,
-	q UniverseLeafKeysQuery) ([]LeafKey, error) {
+	q UniverseLeafKeysQuery) ([]LeafEntry, error) {
 
 	log.Debugf("Retrieving all keys for Universe: id=%v", q.Id.StringForLog())
 

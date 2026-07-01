@@ -384,9 +384,9 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	require.Equal(t, numLeaves, len(mintingKeys))
 
 	// The set of leaves we created above should match what was returned.
-	require.True(t, fn.All(mintingKeys, func(key universe.LeafKey) bool {
+	require.True(t, fn.All(mintingKeys, func(e universe.LeafEntry) bool {
 		return fn.Any(testLeaves, func(testLeaf leafWithKey) bool {
-			return reflect.DeepEqual(key, testLeaf.LeafKey)
+			return reflect.DeepEqual(e.Key, testLeaf.LeafKey)
 		})
 	}))
 
