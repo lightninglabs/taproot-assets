@@ -1704,6 +1704,14 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 		// completion), no one will drain the request. Selecting on
 		// cultivator.Done() lets us surface an actionable error
 		// instead of deadlocking until Quit.
+		//
+		// The cancel-success and Done() cases are both ready when a
+		// cancel succeeds: Cancel() writes to the buffered respCh
+		// and then the goroutine returns, closing done. Go's select
+		// picks randomly among ready cases, so we must not treat
+		// Done() as a bare error signal -- check respCh
+		// non-blockingly first and prefer that outcome when
+		// present.
 		select {
 		case cancelResp := <-respCh:
 			// If the cultivator returned a batch state, then batch
@@ -1717,10 +1725,25 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 			return cancelResp.err
 
 		case <-cultivator.Done():
-			// The cultivator finished before we could deliver the
-			// request. Drop it from the map so a future retry does
-			// not race against a stale entry and return a clear
-			// error to the caller.
+			// Prefer a cancel outcome that raced with the
+			// goroutine exit: Cancel() writes to respCh before
+			// SignalCompletion / defer close(b.done), so the
+			// buffer may already hold the reply.
+			select {
+			case cancelResp := <-respCh:
+				if cancelResp.cancelAttempted {
+					delete(c.cultivators,
+						batchKeySerialized)
+				}
+				return cancelResp.err
+			default:
+			}
+
+			// No cancel reply queued: the cultivator finished on
+			// its own before we could deliver the request. Drop
+			// it from the map so a future retry does not race
+			// against a stale entry and return a clear error to
+			// the caller.
 			delete(c.cultivators, batchKeySerialized)
 			return fmt.Errorf("batch %x already completed, cannot "+
 				"cancel", batchKeySerialized[:])
