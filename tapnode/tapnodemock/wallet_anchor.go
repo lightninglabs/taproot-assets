@@ -29,6 +29,7 @@ import (
 // WalletAnchor is an in-memory mock implementation of tapnode.WalletAnchor.
 type WalletAnchor struct {
 	FundPsbtSignal     chan *tapsend.FundedPsbt
+	UnlockInputSignal  chan wire.OutPoint
 	SignPsbtSignal     chan struct{}
 	ImportPubKeySignal chan *btcec.PublicKey
 	ListUnspentSignal  chan struct{}
@@ -52,6 +53,7 @@ func (m *WalletAnchor) FailSignPsbtOnce() {
 func NewWalletAnchor() *WalletAnchor {
 	return &WalletAnchor{
 		FundPsbtSignal:     make(chan *tapsend.FundedPsbt),
+		UnlockInputSignal:  make(chan wire.OutPoint, 10),
 		SignPsbtSignal:     make(chan struct{}),
 		ImportPubKeySignal: make(chan *btcec.PublicKey),
 		ListUnspentSignal:  make(chan struct{}),
@@ -115,10 +117,13 @@ func (m *WalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 	_ uint32, _ chainfee.SatPerKWeight,
 	changeIdx int32) (*tapsend.FundedPsbt, error) {
 
+	// Mock outpoint index; not security-sensitive.
+	// nolint:gosec
+	lockedOutpoint := wire.OutPoint{
+		Index: rand.Uint32(), //nolint:gosec // test mock
+	}
 	packet.UnsignedTx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{
-			Index: rand.Uint32(), //nolint:gosec // test mock
-		},
+		PreviousOutPoint: lockedOutpoint,
 	})
 
 	anchorInput := psbt.PInput{
@@ -143,6 +148,7 @@ func (m *WalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 	pkt := &tapsend.FundedPsbt{
 		Pkt:               packet,
 		ChangeOutputIndex: changeIdx,
+		LockedUTXOs:       []wire.OutPoint{lockedOutpoint},
 	}
 
 	m.FundPsbtSignal <- pkt
@@ -196,7 +202,10 @@ func (m *WalletAnchor) ImportTaprootOutput(ctx context.Context,
 
 // UnlockInput unlocks the set of target inputs after a batch or send
 // transaction is abandoned.
-func (m *WalletAnchor) UnlockInput(context.Context, wire.OutPoint) error {
+func (m *WalletAnchor) UnlockInput(_ context.Context,
+	outpoint wire.OutPoint) error {
+
+	m.UnlockInputSignal <- outpoint
 	return nil
 }
 

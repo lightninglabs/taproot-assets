@@ -57,6 +57,19 @@ const (
 	// DefaultTimeout is the default timeout we use for RPC and database
 	// operations.
 	DefaultTimeout = 30 * time.Second
+
+	// confirmationRetryInterval is the initial delay between attempts to
+	// finish a confirmed batch after a transient confirmation-side
+	// failure. The delay doubles on every failed attempt, up to
+	// confirmationRetryMaxInterval.
+	confirmationRetryInterval = time.Second
+
+	// confirmationRetryMaxInterval caps the exponential backoff between
+	// confirmation retry attempts. Each attempt replays the full
+	// confirmation branch (proof construction, verification, import and
+	// universe publication), so a persistent failure must not replay it
+	// every second indefinitely.
+	confirmationRetryMaxInterval = time.Minute
 )
 
 // CultivatorConfig houses all the items that the Cultivator needs to
@@ -144,6 +157,25 @@ type Cultivator struct {
 	// confInfo is used to store a delivered confirmation event.
 	confInfo *chainntnfs.TxConfirmation
 
+	// done is closed once the assetCultivator goroutine has exited.
+	// The planter selects on this in cancelMintingBatch so a cancel
+	// request that arrives after the cultivator has already finished
+	// (or has stopped reading CancelReqChan) returns an actionable
+	// "already completed" error instead of deadlocking on the reply
+	// channel.
+	done chan struct{}
+
+	// proofsWatched records that this cultivator has registered its
+	// batch's proofs with the re-org watcher. The watcher appends a
+	// registration per WatchProofs call, so the confirmation retry
+	// loop must not repeat a registration that already succeeded:
+	// each duplicate would fire the update callback again on a
+	// re-org, and a persistent post-watch failure would grow the
+	// registration list on every retry. The flag is process-local
+	// on purpose: a restart creates both a fresh cultivator and a
+	// fresh watcher, so re-registering is then required.
+	proofsWatched bool
+
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
 	*fn.ContextGuard
@@ -166,11 +198,21 @@ func NewCultivator(cfg *CultivatorConfig) *Cultivator {
 		batchKey:  asset.ToSerialized(cfg.Batch.BatchKey.PubKey),
 		cfg:       cfg,
 		confEvent: make(chan *chainntnfs.TxConfirmation, 1),
+		done:      make(chan struct{}),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
 		},
 	}
+}
+
+// Done returns a channel that is closed once the cultivator's main
+// goroutine has exited. Callers waiting on a per-request reply channel
+// from the cultivator should also select on Done to avoid deadlocking
+// when the cultivator has already finished and cannot service the
+// request.
+func (b *Cultivator) Done() <-chan struct{} {
+	return b.done
 }
 
 // Start attempts to start a new batch cultivator.
@@ -280,8 +322,13 @@ func (b *Cultivator) Cancel(respCh chan<- CancelResp) error {
 		b.batchKey[:])
 }
 
-// advanceStateUntil attempts to advance the internal state machine until the
-// target state has been reached.
+// advanceStateUntil advances the internal state machine from
+// currentState until it reaches a fixpoint (a state whose stateStep
+// returns itself, e.g. the Broadcast wait or the Finalized terminal).
+// targetState is the caller's declaration of which fixpoint they
+// expect to reach; if the loop terminates at a different fixpoint the
+// function returns an error, which catches caller/state-machine
+// mismatches instead of silently succeeding.
 func (b *Cultivator) advanceStateUntil(currentState,
 	targetState BatchState) (BatchState, error) {
 
@@ -326,9 +373,9 @@ func (b *Cultivator) advanceStateUntil(currentState,
 		// successfully.
 		b.publishMintEvent(currentState)
 
-		// We've reached a terminal state once the next state is our
-		// current state (state machine loops back to the current
-		// state).
+		// We've reached a terminal state once the state machine
+		// loops back to the current state (a self-transitioning
+		// fixpoint).
 		terminalState = nextState == currentState
 
 		currentState = nextState
@@ -341,7 +388,82 @@ func (b *Cultivator) advanceStateUntil(currentState,
 		// that the store calls exist to prevent.
 	}
 
+	// The loop terminated at a fixpoint. Assert that it matches the
+	// target the caller declared; a mismatch means either the caller
+	// passed the wrong target or the state machine's geometry has
+	// changed under us, both of which are bugs worth surfacing rather
+	// than silently succeeding.
+	if currentState != targetState {
+		return 0, fmt.Errorf("Cultivator(%x): advanceStateUntil "+
+			"reached fixpoint at %v but caller expected %v",
+			b.batchKey[:], currentState, targetState)
+	}
+
 	return currentState, nil
+}
+
+// advanceConfirmationUntilFinalized retries confirmation-side failures until
+// the batch reaches its terminal state or the cultivator shuts down. Once
+// MarkBatchConfirmed succeeds, retries begin at the Finalized state so the
+// confirmation hooks are not repeated merely because the final state write
+// failed.
+func (b *Cultivator) advanceConfirmationUntilFinalized(
+	currentState BatchState) bool {
+
+	retryDelay := confirmationRetryInterval
+
+retryLoop:
+	for {
+		_, err := b.advanceStateUntil(
+			currentState, BatchStateFinalized,
+		)
+		if err == nil {
+			return true
+		}
+
+		log.Errorf("Cultivator(%x): unable to finalize confirmed "+
+			"batch: %v; retrying in %v", b.batchKey[:], err,
+			retryDelay)
+
+		// A successful MarkBatchConfirmed leaves only the terminal
+		// state write to retry. Otherwise, replay the whole
+		// confirmation branch with the retained confirmation event.
+		if b.cfg.Batch.State() == BatchStateConfirmed {
+			currentState = BatchStateFinalized
+		} else {
+			currentState = BatchStateConfirmed
+		}
+
+		timer := time.NewTimer(retryDelay)
+
+		// Back off exponentially: each attempt replays the
+		// confirmation branch's remaining work, which is too
+		// expensive to repeat every second against a persistent
+		// failure.
+		retryDelay *= 2
+		if retryDelay > confirmationRetryMaxInterval {
+			retryDelay = confirmationRetryMaxInterval
+		}
+		for {
+			select {
+			case <-timer.C:
+				continue retryLoop
+
+			case req := <-b.cfg.CancelReqChan:
+				cancelErr := b.Cancel(req.resp)
+				if cancelErr == nil {
+					timer.Stop()
+					return false
+				}
+
+				log.Error(cancelErr)
+
+			case <-b.Quit:
+				timer.Stop()
+				return false
+			}
+		}
+	}
 }
 
 // assetCultivator is the main goroutine for the Cultivator struct. This
@@ -349,19 +471,24 @@ func (b *Cultivator) advanceStateUntil(currentState,
 // broadcast. Once the batch has been broadcast, we'll register for a
 // confirmation to progress the batch to the final terminal state.
 func (b *Cultivator) assetCultivator() {
+	// LIFO defer ordering: close(b.done) registered first runs
+	// last, so Done() only fires after Wg.Done() has released.
+	// Anyone waiting on Done() therefore observes the goroutine as
+	// finished only after all other deferred cleanup has run.
+	defer close(b.done)
 	defer b.Wg.Done()
 
 	currentBatchState := b.cfg.Batch.State()
-	// If the batch is already marked as confirmed, then we just need to
-	// advance it one more level to be finalized.
+	// If the batch is already marked as confirmed, then we just
+	// need to advance it one more level to be finalized. Under the
+	// current Confirmed-branch ordering, MarkBatchConfirmed is the
+	// last persistence write, so disk-Confirmed means the full
+	// Confirmed branch (including the re-org watcher registration)
+	// already ran to completion; the skip is semantically justified.
 	if currentBatchState == BatchStateConfirmed {
 		log.Infof("MintingBatch(%x): already confirmed!", b.batchKey[:])
 
-		_, err := b.advanceStateUntil(
-			BatchStateFinalized, BatchStateFinalized,
-		)
-		if err != nil {
-			log.Error(err)
+		if !b.advanceConfirmationUntilFinalized(BatchStateFinalized) {
 			return
 		}
 
@@ -414,11 +541,10 @@ func (b *Cultivator) assetCultivator() {
 			// memory here would re-create the two-truth window.
 			//
 			// TODO(roasbeef): use a "trigger" here instead?
-			_, err = b.advanceStateUntil(
-				BatchStateConfirmed, BatchStateFinalized,
+			ok := b.advanceConfirmationUntilFinalized(
+				BatchStateConfirmed,
 			)
-			if err != nil {
-				log.Error(err)
+			if !ok {
 				return
 			}
 
@@ -641,7 +767,10 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 				"sprouts: %w", err)
 		}
 
-		b.cfg.Batch.RootAssetCommitment = tapCommitment
+		// tapCommitment is kept in a local until the DB write below
+		// succeeds. Mutating b.cfg.Batch.RootAssetCommitment here
+		// would give any concurrent Copy() reader a view where the
+		// in-memory batch has advanced past what is on disk.
 
 		// Fetch the optional Tapscript sibling for this batch, and
 		// convert it to a TapscriptPreimage.
@@ -661,10 +790,23 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 			}
 		}
 
+		// Stage the freshly-computed commitment on a copy so
+		// derivations that need it (genesisScript, augmenter
+		// BindData) can read it without us mutating the live
+		// batch. Live-batch mutation is deferred until the
+		// AddSproutsToBatch DB write succeeds, so a concurrent
+		// Copy() from the planter never sees an in-memory batch
+		// that has advanced past what is on disk.
+		stagingBatch, err := b.cfg.Batch.Copy()
+		if err != nil {
+			return 0, fmt.Errorf("unable to copy batch: %w", err)
+		}
+		stagingBatch.RootAssetCommitment = tapCommitment
+
 		// With the commitment Taproot Asset root SMT constructed, we'll
 		// map that into the tapscript root we'll insert into the
 		// genesis transaction.
-		genesisScript, err := b.cfg.Batch.genesisScript(batchSibling)
+		genesisScript, err := stagingBatch.genesisScript(batchSibling)
 		if err != nil {
 			return 0, fmt.Errorf("unable to create genesis "+
 				"script: %w", err)
@@ -687,11 +829,10 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 
 		// The augmenter is the source of truth for the
 		// persistence payload that pairs with the binding tx.
-		// Stage the freshly-rebuilt genesis packet on the batch
-		// so the augmenter can read the script-stamped tx.
-		stagingBatch := *b.cfg.Batch
+		// Give it the same staging batch so it observes the
+		// script-stamped tx and the fresh commitment.
 		stagingBatch.GenesisPacket = &fundedGenesisPsbt
-		preCommit, err := b.augmenter().BindData(ctx, &stagingBatch)
+		preCommit, err := b.augmenter().BindData(ctx, stagingBatch)
 		if err != nil {
 			return 0, fmt.Errorf("augmenter BindData: %w", err)
 		}
@@ -701,13 +842,16 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		// created for each of these assets.
 		err = b.cfg.BatchStore.AddSproutsToBatch(
 			ctx, b.cfg.Batch,
-			&fundedGenesisPsbt, b.cfg.Batch.RootAssetCommitment,
+			&fundedGenesisPsbt, tapCommitment,
 			preCommit,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to commit batch: %w", err)
 		}
 
+		// The DB write succeeded; sync in-memory batch with the
+		// state now on disk.
+		b.cfg.Batch.RootAssetCommitment = tapCommitment
 		b.cfg.Batch.GenesisPacket.Pkt = genesisTxPkt
 
 		// Now that we know the script key for all the assets, we'll
@@ -764,15 +908,17 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 				"%w", err)
 		}
 
-		b.cfg.Batch.GenesisPacket.Pkt = signedPkt
-
 		// Populate how much this tx paid in on-chain fees.
 		chainFees, err := signedPkt.GetTxFee()
 		if err != nil {
 			return 0, fmt.Errorf("unable to get on-chain fees "+
 				"for psbt: %w", err)
 		}
-		b.cfg.Batch.GenesisPacket.ChainFees = int64(chainFees)
+
+		// signedPkt/chainFees are held in locals until the DB
+		// write below succeeds. The live batch is not mutated
+		// yet, so a concurrent Copy() (e.g. via FinalizeBatch)
+		// still sees the pre-signing state that matches on-disk.
 
 		log.Infof("Cultivator(%x): GenesisPacket finalized "+
 			"(absolute_fee_sats: %d)", b.batchKey[:], chainFees)
@@ -847,17 +993,25 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 			return 0, fmt.Errorf("unable to import key: %w", err)
 		}
 
+		signedFundedPsbt := tapsend.FundedPsbt{
+			Pkt:               signedPkt,
+			ChangeOutputIndex: b.cfg.Batch.GenesisPacket.ChangeOutputIndex,
+			ChainFees:         int64(chainFees),
+		}
 		err = b.cfg.BatchStore.CommitSignedGenesisTx(
 			ctx, b.cfg.Batch,
-			&b.cfg.Batch.GenesisPacket.FundedPsbt,
-			b.cfg.Batch.GenesisPacket.AssetAnchorOutIdx, merkleRoot,
-			tapCommitmentRoot[:],
-			siblingBytes,
+			&signedFundedPsbt,
+			b.cfg.Batch.GenesisPacket.AssetAnchorOutIdx,
+			merkleRoot, tapCommitmentRoot[:], siblingBytes,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to commit genesis "+
 				"tx: %w", err)
 		}
+
+		// DB write succeeded; sync in-memory batch with disk.
+		b.cfg.Batch.GenesisPacket.Pkt = signedPkt
+		b.cfg.Batch.GenesisPacket.ChainFees = int64(chainFees)
 
 		log.Infof("Cultivator(%x): transition states: %v -> %v",
 			b.batchKey[:], BatchStateCommitted, BatchStateBroadcast)
@@ -1163,14 +1317,13 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		// obligations (e.g. supply-commit mint events). For a
 		// supply-commit-enabled batch this write participates
 		// in the mint's essential completion, so an error must
-		// abort confirmation rather than be swallowed. The
-		// batch stays in BatchStateBroadcast, and the
-		// confirmation branch re-runs on restart: universe
+		// abort this attempt rather than be swallowed. The
+		// batch stays in BatchStateBroadcast and the branch is
+		// retried, in place and across restarts: universe
 		// publish above is idempotent, the event_key dedup
 		// index (migration 64, backfilled by 65) makes the
-		// augmenter side idempotent, and MarkBatchConfirmed
-		// below is what advances state on disk -- so retry is
-		// safe.
+		// augmenter side idempotent, and MarkBatchConfirmed is
+		// the last write below -- so retry is safe.
 		err = b.augmenter().OnBatchConfirmed(
 			ctx, b.cfg.Batch, anchorAssets, nonAnchorAssets,
 			mintingProofs,
@@ -1180,6 +1333,49 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 				err)
 		}
 
+		// Register the batch's proofs with the re-org watcher
+		// before advancing state on disk. If this fails, the
+		// batch stays in BatchStateBroadcast and the whole
+		// confirmation branch re-runs on restart, ensuring the
+		// correct updateMintingProofs callback is the one bound
+		// to the anchor tx. If we instead registered after
+		// MarkBatchConfirmed, a crash between the two would
+		// leave disk at Confirmed with no callback registered by
+		// us; the re-org watcher's Start-time recovery would
+		// re-register with its DefaultUpdateCallback, silently
+		// dropping the universe re-publish on any subsequent
+		// re-org.
+		//
+		// Register at most once per cultivator: the retry loop
+		// replays this branch, and the watcher treats every
+		// WatchProofs call as a distinct registration (see
+		// proofsWatched). The proofs are deterministic given the
+		// same batch and confirmation, so the registration that
+		// already succeeded covers every retry.
+		if !b.proofsWatched {
+			err := b.cfg.ProofWatcher.WatchProofs(
+				maps.Values(mintingProofs),
+				b.cfg.UpdateMintingProofs,
+			)
+			if err != nil {
+				return 0, fmt.Errorf("error watching proof: "+
+					"%w", err)
+			}
+
+			b.proofsWatched = true
+		}
+
+		// MarkBatchConfirmed is the last persistence write in
+		// this branch. Under this ordering, disk-Confirmed
+		// genuinely means "every step this branch owes is done."
+		// A crash before this call keeps the batch at
+		// BatchStateBroadcast and the branch re-runs on restart;
+		// a crash after has nothing left to do beyond the
+		// terminal Finalized state advance. The essence-splitting
+		// that produced the older reorg-callback gap (disk-
+		// Confirmed as both an input state and a mid-branch
+		// checkpoint) is dissolved by making the on-disk name
+		// mean what it says.
 		err = b.cfg.BatchStore.MarkBatchConfirmed(
 			ctx, b.cfg.Batch, confInfo.BlockHash,
 			confInfo.BlockHeight, confInfo.TxIndex,
@@ -1187,14 +1383,6 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to confirm batch: %w", err)
-		}
-
-		// Now that we've confirmed the batch, we'll hand over the
-		// proofs to the re-org watcher.
-		if err := b.cfg.ProofWatcher.WatchProofs(
-			maps.Values(mintingProofs), b.cfg.UpdateMintingProofs,
-		); err != nil {
-			return 0, fmt.Errorf("error watching proof: %w", err)
 		}
 
 		log.Infof("Cultivator(%x): transition states: %v -> %v",
@@ -1208,7 +1396,6 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		log.Infof("Cultivator(%x): transition states: %v -> %v",
 			b.batchKey[:], BatchStateFinalized, BatchStateFinalized)
 
-		// TODO(roasbeef): confirmed should just be the final state?
 		ctx, cancel := b.WithCtxQuit()
 		defer cancel()
 		err := b.cfg.BatchStore.UpdateBatchState(

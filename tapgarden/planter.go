@@ -396,9 +396,15 @@ type ChainPlanter struct {
 // NewChainPlanter creates a new ChainPlanter instance given the passed config.
 func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 	return &ChainPlanter{
-		cfg:               cfg,
-		cultivators:       make(map[BatchKey]*Cultivator),
-		completionSignals: make(chan BatchKey),
+		cfg:         cfg,
+		cultivators: make(map[BatchKey]*Cultivator),
+		// Buffer size 1 is a fast path only: it lets a single
+		// cultivator that finishes while the gardener is inside a
+		// stateReq closure hand off its signal inline. Exit never
+		// depends on buffer space; a full buffer diverts the send
+		// to a goroutine (see SignalCompletion in
+		// newCultivatorForBatch).
+		completionSignals: make(chan BatchKey, 1),
 		seedlingReqs:      make(chan *Seedling),
 		stateReqs:         make(chan stateReq),
 		subscribers:       make(map[uint64]*fn.EventReceiver[fn.Event]),
@@ -434,17 +440,43 @@ func (c *ChainPlanter) newCultivatorForBatch(batch *MintingBatch,
 		// just before it returns. The gardener reads
 		// c.completionSignals from its main select; if Stop has
 		// already closed c.Quit, the gardener is no longer in that
-		// select and the unbuffered send would block forever,
-		// hanging cultivator.Stop's Wg.Wait inside stopCultivators.
+		// select and a bare send would block forever, hanging
+		// cultivator.Stop's Wg.Wait inside stopCultivators.
 		// Selecting on c.Quit makes the send abandonable, which is
 		// safe: on shutdown the planter does not need the
 		// completion notification (it is stopping the cultivator
 		// anyway).
+		//
+		// The send must never delay the cultivator's exit: Done()
+		// only closes once this returns, and cancelMintingBatch
+		// waits on Done() from inside a stateReq closure, during
+		// which the gardener cannot drain completionSignals. If a
+		// blocked send held the cultivator here while another
+		// signal already filled the buffer, cancellation would
+		// deadlock until shutdown. A full buffer therefore hands
+		// the signal to a goroutine instead of blocking. Wg.Add is
+		// safe here: the calling cultivator goroutine is joined by
+		// stopCultivators, which the gardener runs before releasing
+		// its own Wg slot, so the planter's counter cannot reach
+		// zero concurrently.
 		SignalCompletion: func() {
 			select {
 			case c.completionSignals <- batchKey:
+				return
 			case <-c.Quit:
+				return
+			default:
 			}
+
+			c.Wg.Add(1)
+			go func() {
+				defer c.Wg.Done()
+
+				select {
+				case c.completionSignals <- batchKey:
+				case <-c.Quit:
+				}
+			}()
 		},
 		CancelReqChan:       make(chan cancelReq, 1),
 		UpdateMintingProofs: c.updateMintingProofs,
@@ -1298,6 +1330,36 @@ func checkSingletonInvariant(batches []*MintingBatch) error {
 		len(preBroadcastKeys), preBroadcastKeys)
 }
 
+// ensureBatchCreationAllowed checks both the planter's live cultivators and
+// the durable store before any operation that can create a new batch. The
+// durable check covers a failed resumed cultivator whose cancellation did not
+// clear the singleton slot on disk.
+func (c *ChainPlanter) ensureBatchCreationAllowed(ctx context.Context) error {
+	for _, cultivator := range c.cultivators {
+		switch cultivator.cfg.Batch.State() {
+		case BatchStatePending, BatchStateFrozen:
+			return ErrDuplicatePreBroadcastBatch
+		default:
+		}
+	}
+
+	batches, err := c.cfg.BatchStore.FetchNonFinalBatches(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to check for an existing minting "+
+			"batch: %w", err)
+	}
+
+	for _, batch := range batches {
+		switch batch.State() {
+		case BatchStatePending, BatchStateFrozen:
+			return ErrDuplicatePreBroadcastBatch
+		default:
+		}
+	}
+
+	return nil
+}
+
 // filterFinalizedBatches separates a set of batches into two sets based on
 // their batch state.
 func filterFinalizedBatches(batches []*MintingBatch) ([]*MintingBatch,
@@ -1724,6 +1786,21 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 		// Wait for the cultivator to reply to the cancellation request.
 		// If the request succeeded, the cultivator will update the
 		// batch state on disk.
+		//
+		// A third case is required: if the cultivator's goroutine
+		// has already exited (or is past the point of reading
+		// CancelReqChan, e.g. blocked in the post-broadcast wait for
+		// completion), no one will drain the request. Selecting on
+		// cultivator.Done() lets us surface an actionable error
+		// instead of deadlocking until Quit.
+		//
+		// The cancel-success and Done() cases are both ready when a
+		// cancel succeeds: Cancel() writes to the buffered respCh
+		// and then the goroutine returns, closing done. Go's select
+		// picks randomly among ready cases, so we must not treat
+		// Done() as a bare error signal -- check respCh
+		// non-blockingly first and prefer that outcome when
+		// present.
 		select {
 		case cancelResp := <-respCh:
 			// If the cultivator returned a batch state, then batch
@@ -1735,6 +1812,30 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 			}
 
 			return cancelResp.err
+
+		case <-cultivator.Done():
+			// Prefer a cancel outcome that raced with the
+			// goroutine exit: Cancel() writes to respCh before
+			// SignalCompletion / defer close(b.done), so the
+			// buffer may already hold the reply.
+			select {
+			case cancelResp := <-respCh:
+				if cancelResp.cancelAttempted {
+					delete(c.cultivators,
+						batchKeySerialized)
+				}
+				return cancelResp.err
+			default:
+			}
+
+			// No cancel reply queued: the cultivator finished on
+			// its own before we could deliver the request. Drop
+			// it from the map so a future retry does not race
+			// against a stale entry and return a clear error to
+			// the caller.
+			delete(c.cultivators, batchKeySerialized)
+			return fmt.Errorf("batch %x already completed, cannot "+
+				"cancel", batchKeySerialized[:])
 
 		case <-c.Quit:
 			return nil
@@ -1960,6 +2061,44 @@ type fundingPrep struct {
 		error)
 }
 
+// releaseFundingInputs releases every wallet input leased while funding a
+// PSBT. A fresh planter-scoped context is used so a cancelled request context
+// does not prevent cleanup.
+func (c *ChainPlanter) releaseFundingInputs(
+	funded *tapsend.FundedPsbt) error {
+
+	if funded == nil || len(funded.LockedUTXOs) == 0 {
+		return nil
+	}
+
+	ctx, cancel := c.WithCtxQuit()
+	defer cancel()
+
+	var unlockErrs []error
+	for _, outpoint := range funded.LockedUTXOs {
+		if err := c.cfg.Wallet.UnlockInput(ctx, outpoint); err != nil {
+			unlockErrs = append(unlockErrs, fmt.Errorf(
+				"unable to unlock input %v: %w", outpoint, err,
+			))
+		}
+	}
+
+	return errors.Join(unlockErrs...)
+}
+
+// fundingError releases a funded PSBT's wallet leases and preserves both the
+// original failure and any cleanup failure for the caller.
+func (c *ChainPlanter) fundingError(funded *tapsend.FundedPsbt,
+	cause error) error {
+
+	unlockErr := c.releaseFundingInputs(funded)
+	if unlockErr == nil {
+		return cause
+	}
+
+	return errors.Join(cause, unlockErr)
+}
+
 // prepareFunding stores the optional tapscript sibling and constructs
 // the funding-computation closure shared by createFundedBatch and
 // applyFundingToBatch.
@@ -1993,6 +2132,7 @@ func (c *ChainPlanter) prepareFunding(ctx context.Context,
 		}
 
 		batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
+		var funded *tapsend.FundedPsbt
 
 		// walletFundPsbt is a closure that will be used to fund
 		// the batch with the specified fee rate.
@@ -2007,6 +2147,7 @@ func (c *ChainPlanter) prepareFunding(ctx context.Context,
 			if err != nil {
 				return zero, err
 			}
+			funded = fundedPkt
 
 			return *fundedPkt, nil
 		}
@@ -2017,8 +2158,9 @@ func (c *ChainPlanter) prepareFunding(ctx context.Context,
 			c.augmenter(),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to fund minting PSBT "+
+			fundErr := fmt.Errorf("unable to fund minting PSBT "+
 				"for batch: %x %w", batchKey[:], err)
+			return nil, c.fundingError(funded, fundErr)
 		}
 
 		log.Infof("Funded GenesisPacket for batch: %x", batchKey)
@@ -2044,6 +2186,10 @@ func (c *ChainPlanter) prepareFunding(ctx context.Context,
 // stale or wrong reference -- the bug shape behind #2136.
 func (c *ChainPlanter) createFundedBatch(ctx context.Context,
 	params FundParams) (*MintingBatch, error) {
+
+	if err := c.ensureBatchCreationAllowed(ctx); err != nil {
+		return nil, err
+	}
 
 	prep, err := c.prepareFunding(ctx, params)
 	if err != nil {
@@ -2074,11 +2220,12 @@ func (c *ChainPlanter) createFundedBatch(ctx context.Context,
 	// the row from the batch's current state.
 	preCommit, err := c.augmenter().BindData(ctx, newBatch)
 	if err != nil {
-		return nil, fmt.Errorf("augmenter BindData: %w", err)
+		bindErr := fmt.Errorf("augmenter BindData: %w", err)
+		return nil, c.fundingError(&mintAnchorTx.FundedPsbt, bindErr)
 	}
 	err = c.cfg.BatchStore.CommitMintingBatch(ctx, newBatch, preCommit)
 	if err != nil {
-		return nil, err
+		return nil, c.fundingError(&mintAnchorTx.FundedPsbt, err)
 	}
 
 	return newBatch, nil
@@ -2121,7 +2268,8 @@ func (c *ChainPlanter) applyFundingToBatch(ctx context.Context,
 	stagingBatch.GenesisPacket = mintAnchorTx
 	preCommit, err := c.augmenter().BindData(ctx, &stagingBatch)
 	if err != nil {
-		return fmt.Errorf("augmenter BindData: %w", err)
+		bindErr := fmt.Errorf("augmenter BindData: %w", err)
+		return c.fundingError(&mintAnchorTx.FundedPsbt, bindErr)
 	}
 
 	// Persist the sibling, genesis TX, and (when present) the
@@ -2133,7 +2281,9 @@ func (c *ChainPlanter) applyFundingToBatch(ctx context.Context,
 		preCommit,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to commit batch funding: %w", err)
+		commitErr := fmt.Errorf("unable to commit batch "+
+			"funding: %w", err)
+		return c.fundingError(&mintAnchorTx.FundedPsbt, commitErr)
 	}
 
 	// All persistence succeeded; mirror the funding into memory.
@@ -2855,6 +3005,15 @@ func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 // either adds it to an existing pending batch or creates a new batch for it.
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
+
+	// Refuse a new batch before the augmenter or planter derives any keys.
+	// This avoids burning key indices when a resumed or orphaned
+	// pre-broadcast batch still owns the singleton slot.
+	if c.pendingBatch == nil {
+		if err := c.ensureBatchCreationAllowed(ctx); err != nil {
+			return err
+		}
+	}
 
 	// Let the configured augmenter populate any augmenter-managed
 	// fields on the seedling (e.g. a delegation key for
