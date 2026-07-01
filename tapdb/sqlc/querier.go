@@ -22,6 +22,13 @@ type Querier interface {
 	AssetsDBSizeSqlite(ctx context.Context) (int32, error)
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
 	BindMintingBatchWithTapSibling(ctx context.Context, arg BindMintingBatchWithTapSiblingParams) error
+	// universe_commitments is intentionally not in the SET clause: the
+	// flag is set once at batch creation (NewMintingBatch) from the
+	// seedling's SupplyCommitments intent and must not change at
+	// funding time. Overwriting it here from a caller-derived value
+	// would silently disable supply commitments if no augmenter bind
+	// payload was produced for a batch that legitimately requested
+	// them.
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) (int64, error)
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
@@ -123,6 +130,11 @@ type Querier interface {
 	// Returns rows that pre-date the event_key column and still need
 	// a hash computed. Used by the programmatic migration that runs
 	// at schema version 62.
+	//
+	// Rows attached to a transition come first so the backfill's
+	// "keep the first duplicate" dedup logic can never drop the row
+	// a finalized transition depends on. Within either partition,
+	// event_id ASC is the deterministic tie-break.
 	FetchSupplyUpdateEventsForBackfill(ctx context.Context) ([]FetchSupplyUpdateEventsForBackfillRow, error)
 	// Sort the nodes by node_index here instead of returning the indices.
 	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)

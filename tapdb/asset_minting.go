@@ -396,15 +396,17 @@ func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
 	}
 
 	rawBatchKey := batchKey.SerializeCompressed()
-	enableUniverseCommitments := preCommit.IsSome()
 
+	// The universe_commitments column is intentionally not part of
+	// BatchChainUpdate. That flag is set once at NewMintingBatch time
+	// from the seedling's SupplyCommitments intent and must not
+	// change at funding; see the query comment on BindMintingBatchWithTx.
 	_, err = q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
-		RawKey:              rawBatchKey,
-		MintingTxPsbt:       anchorPktBytes,
-		ChangeOutputIndex:   sqlInt32(anchorPackage.ChangeOutputIndex),
-		AssetsOutputIndex:   sqlInt32(anchorPackage.AssetAnchorOutIdx),
-		GenesisID:           sqlInt64(genesisPointDbID),
-		UniverseCommitments: enableUniverseCommitments,
+		RawKey:            rawBatchKey,
+		MintingTxPsbt:     anchorPktBytes,
+		ChangeOutputIndex: sqlInt32(anchorPackage.ChangeOutputIndex),
+		AssetsOutputIndex: sqlInt32(anchorPackage.AssetAnchorOutIdx),
+		GenesisID:         sqlInt64(genesisPointDbID),
 	})
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrBindBatchTx, err)
