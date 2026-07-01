@@ -58,12 +58,12 @@ func testCustomChannelsPassiveAssets(ctx context.Context,
 		NewGroupedAsset: true,
 	}
 	assetB := &mintrpc.MintAsset{
-		AssetType:   taprpc.AssetType_NORMAL,
-		Name:        "asset-b-passive",
-		AssetMeta:   ccDummyMetaData,
-		Amount:      50_000,
+		AssetType:    taprpc.AssetType_NORMAL,
+		Name:         "asset-b-passive",
+		AssetMeta:    ccDummyMetaData,
+		Amount:       50_000,
 		GroupedAsset: true,
-		GroupAnchor: "asset-a-for-channel",
+		GroupAnchor:  "asset-a-for-channel",
 	}
 	mintedAssets := itest.MintAssetsConfirmBatch(
 		t.t, net.Miner, asTapd(charlie),
@@ -105,7 +105,7 @@ func testCustomChannelsPassiveAssets(ctx context.Context,
 	fundResp, err := asTapd(charlie).FundChannel(
 		ctx, &tchrpc.FundChannelRequest{
 			AssetAmount:        fundingAmount,
-			GroupKey:            groupKey,
+			GroupKey:           groupKey,
 			PeerPubkey:         dave.PubKey[:],
 			FeeRateSatPerVbyte: 5,
 			PushSat:            DefaultPushSat,

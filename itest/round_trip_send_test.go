@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/hex"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -213,12 +213,12 @@ func testRoundTripSend(t *harnessTest) {
 
 // newAddrWithScript returns a new bitcoin address and its pkScript.
 func newAddrWithScript(ht *lntest.HarnessTest, node *node.HarnessNode,
-	addrType lnrpc.AddressType) (btcutil.Address, []byte) {
+	addrType lnrpc.AddressType) (btcaddr.Address, []byte) {
 
 	p2wkhResp := node.RPC.NewAddress(&lnrpc.NewAddressRequest{
 		Type: addrType,
 	})
-	p2wkhAddr, err := btcutil.DecodeAddress(
+	p2wkhAddr, err := btcaddr.DecodeAddress(
 		p2wkhResp.Address, harnessNetParams,
 	)
 	require.NoError(ht, err)

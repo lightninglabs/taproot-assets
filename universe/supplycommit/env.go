@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"net/url"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -774,7 +774,7 @@ type Wallet interface {
 	SignPsbt(context.Context, *psbt.Packet) (*psbt.Packet, error)
 
 	// ImportTaprootOutput imports a new taproot output key into the wallet.
-	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcutil.Address,
+	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcaddr.Address,
 		error)
 
 	// UnlockInput unlocks the set of target inputs after a batch or send
