@@ -172,6 +172,20 @@ func ParseUniversePublicAccessStatus(
 	}
 }
 
+// UniverseConnPool is the lifecycle interface for a shared pool of
+// outbound gRPC connections to remote universe servers. Defined here
+// to avoid an import cycle: rpcserver imports tapconfig, so the pool's
+// concrete type cannot be referenced from this package directly.
+type UniverseConnPool interface {
+	// Evict closes and drops the pooled connection for the given
+	// server address, if any. Called when a server leaves the
+	// federation so its connection does not linger until shutdown.
+	Evict(addr universe.ServerAddr)
+
+	// Close drains the pool. Called once during server shutdown.
+	Close()
+}
+
 // Config is the main config of the Taproot Assets server.
 type Config struct {
 	DebugLevel string
@@ -250,6 +264,12 @@ type Config struct {
 	UniverseSyncer universe.Syncer
 
 	UniverseFederation *universe.FederationEnvoy
+
+	// UniverseConnPool holds a pool of gRPC connections to remote
+	// universe servers, shared by the federation envoy's pushers and
+	// the universe syncer. It is closed during shutdown after the
+	// federation envoy has stopped issuing outbound RPCs.
+	UniverseConnPool UniverseConnPool
 
 	// UniFedSyncAllAssets is a flag that indicates whether the
 	// universe federation syncer should default to syncing all assets.

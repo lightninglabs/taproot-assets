@@ -419,6 +419,30 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	uniArchive := universe.NewArchive(uniArchiveCfg)
 
+	// Pool of outbound gRPC connections used by the federation push
+	// path. The previous per-call dial pattern in
+	// FederationEnvoy.pushProofToServer paid a TLS handshake for every
+	// leaf push; the pool reuses one ClientConn per server and lets
+	// HTTP/2 multiplex calls onto it.
+	//
+	// We deliberately do NOT route the syncer's NewRemoteDiffEngine
+	// through this pool. SyncUniverse is reachable from the public
+	// RPC with a client-supplied host, so pooling those connections
+	// would let a caller grow the pool's host map without bound. The
+	// syncer's existing per-call dial-and-close is fine — it already
+	// reuses one conn for the full sync round against a given host.
+	uniConnPool := rpcserver.NewUniverseConnPool()
+
+	pooledRegistrar := func(
+		addr universe.ServerAddr) (universe.Registrar, error) {
+
+		conn, err := uniConnPool.Get(addr)
+		if err != nil {
+			return nil, err
+		}
+		return rpcserver.NewPooledRpcUniverseRegistrar(conn), nil
+	}
+
 	universeSyncer := universe.NewSimpleSyncer(universe.SimpleSyncCfg{
 		LocalDiffEngine:     uniArchive,
 		NewRemoteDiffEngine: rpcserver.NewRpcUniverseDiff,
@@ -440,7 +464,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			UniverseSyncer:          universeSyncer,
 			LocalRegistrar:          uniArchive,
 			SyncInterval:            cfg.Universe.SyncInterval,
-			NewRemoteRegistrar:      rpcserver.NewRpcUniverseRegistrar,
+			NewRemoteRegistrar:      pooledRegistrar,
 			StaticFederationMembers: federationMembers,
 			ServerChecker: func(addr universe.ServerAddr) error {
 				return rpcserver.CheckFederationServer(
@@ -856,6 +880,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseArchive:          uniArchive,
 		UniverseSyncer:           universeSyncer,
 		UniverseFederation:       universeFederation,
+		UniverseConnPool:         uniConnPool,
 		UniFedSyncAllAssets:      cfg.Universe.SyncAllAssets,
 		UniverseStats:            universeStats,
 		UniversePublicAccess:     universePublicAccess,

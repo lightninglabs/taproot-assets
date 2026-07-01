@@ -244,6 +244,11 @@ func (f *FederationEnvoy) pushProofToServer(ctx context.Context,
 			"to remote server(%v): %w", addr.HostStr(), err)
 	}
 
+	// In the default wiring NewRemoteRegistrar hands back a wrapper
+	// over a pool-owned *grpc.ClientConn, so this Close is a no-op
+	// and the conn outlives the call. The defer still belongs here
+	// for any alternative wiring (tests, CLI) that hands back a
+	// non-pooled, single-use registrar.
 	defer remoteUniverseServer.Close()
 
 	_, err = remoteUniverseServer.UpsertProofLeaf(

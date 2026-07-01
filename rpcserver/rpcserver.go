@@ -8275,6 +8275,14 @@ func (r *RPCServer) DeleteFederationServer(ctx context.Context,
 			"remove %d server(s): %w", len(serversToDel), err)
 	}
 
+	// Evict any pooled outbound connections to the removed servers
+	// so they don't linger until shutdown.
+	if r.cfg.UniverseConnPool != nil {
+		for _, addr := range serversToDel {
+			r.cfg.UniverseConnPool.Evict(addr)
+		}
+	}
+
 	return &unirpc.DeleteFederationServerResponse{}, nil
 }
 
