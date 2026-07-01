@@ -2297,7 +2297,7 @@ func matchPsbtToGroupReq(psbt psbt.Packet,
 
 		// Formulate the group virtual TX for the group key request so
 		// we can extract the previous output.
-		tx, err := groupReqs[0].BuildGroupVirtualTx(
+		tx, err := req.BuildGroupVirtualTx(
 			&tapscript.GroupTxBuilder{},
 		)
 		if err != nil {
