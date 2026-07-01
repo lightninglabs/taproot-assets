@@ -15,6 +15,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/node"
@@ -38,13 +40,24 @@ var (
 
 	// noDelete is a command line flag for disabling deleting the tapd
 	// data directories.
-	noDelete = flag.Bool("nodelete", false, "Set to true to keep all "+
-		"tapd data directories after completing the tests")
+	noDelete = flag.Bool(
+		"nodelete", false, "Set to true to keep all tapd data "+
+			"directories after completing the tests",
+	)
 
 	// logLevel is a command line flag for setting the log level of the
 	// integration test output.
-	logLevel = flag.String("loglevel", "info", "Set the log level of the "+
-		"integration test output")
+	logLevel = flag.String(
+		"loglevel", "info", "Set the log level of the integration "+
+			"test output",
+	)
+
+	// lndRemoteSigner is a command line flag that indicates whether the
+	// lnd instances should be set up to use a remote signer.
+	lndRemoteSigner = flag.Bool(
+		"lndremotesigner", false, "if true, the lnd instances will "+
+			"be set up to use a remote signer",
+	)
 )
 
 const (
@@ -294,7 +307,54 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 		proofCourier = universeServer
 	}
 
-	alice := lndHarness.NewNodeWithCoins("Alice", nil)
+	var alice *node.HarnessNode
+	if *lndRemoteSigner {
+		signer := lndHarness.NewNode("Signer", nil)
+
+		// AccountsToWatchOnly only exports accounts that already exist
+		// on the signer. Tapd's own key family
+		// (asset.TaprootAssetsKeyFamily) is not pre-created on a fresh
+		// lnd node and is therefore not in this snapshot. Itests work
+		// today because lnd's watch-only path tolerates derivations in
+		// families that weren't in the snapshot for this scope; if
+		// that ever changes, the signer node would need an explicit
+		// DeriveNextKey call for that family before this snapshot is
+		// taken.
+		rpcAccts := signer.RPC.ListAccounts(
+			&walletrpc.ListAccountsRequest{},
+		)
+
+		watchOnlyAccounts, err := walletrpc.AccountsToWatchOnly(
+			rpcAccts.Accounts,
+		)
+		require.NoError(t, err)
+		alice = lndHarness.NewNodeRemoteSigner(
+			"WatchOnly", []string{
+				"--remotesigner.enable",
+				fmt.Sprintf(
+					"--remotesigner.rpchost=localhost:%d",
+					signer.Cfg.RPCPort,
+				),
+				fmt.Sprintf(
+					"--remotesigner.tlscertpath=%s",
+					signer.Cfg.TLSCertPath,
+				),
+				fmt.Sprintf(
+					"--remotesigner.macaroonpath=%s",
+					signer.Cfg.AdminMacPath,
+				),
+			},
+			[]byte("itestpassword"), &lnrpc.WatchOnly{
+				MasterKeyBirthdayTimestamp: 0,
+				MasterKeyFingerprint:       nil,
+				Accounts:                   watchOnlyAccounts,
+			},
+		)
+
+		lndHarness.FundNumCoins(alice, 5)
+	} else {
+		alice = lndHarness.NewNodeWithCoins("Alice", nil)
+	}
 
 	// Create a tapd that uses Alice and connect it to the universe server.
 	tapdHarness := setupTapdHarness(

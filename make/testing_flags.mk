@@ -87,6 +87,11 @@ ifneq ($(nodelete),)
 ITEST_FLAGS += -nodelete
 endif
 
+# Run the lnd node in remote signing mode.
+ifneq ($(remotesigning),)
+ITEST_FLAGS += -lndremotesigner
+endif
+
 # Run the optional tests.
 ifneq ($(optional),)
 ITEST_FLAGS += -optional -postgrestimeout=240m

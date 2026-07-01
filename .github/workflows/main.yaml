@@ -461,7 +461,62 @@ jobs:
           format: 'golang'
           parallel: true
 
-  # Integration tests on Postgres backend.
+  ########################
+  # run integration tests with lnd remote-signer
+  ########################
+  integration-test-lnd-remote-signer:
+    name: run itests with lnd remote-signer
+    runs-on: ubuntu-latest
+    needs: build-itest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v5
+
+      - name: Download itest binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: itest-binaries
+          path: itest
+
+      - name: Initialize environment
+        run: |
+          chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/tapd-itest itest/chantools/chantools
+          mkdir -p ~/.aperture
+
+      - name: CPU info
+        run: |
+          echo "nproc (available to process): $(nproc)"
+          echo "nproc --all (online): $(nproc --all)"
+          lscpu || true
+
+      - name: run itest
+        run: scripts/itest_part.sh 0 1 0 --verbose -lndremotesigner -test.run='TestTaprootAssetsDaemon/tranche.*/.*-of-.*/^(mint_assets|basic_send_unidirectional)$'
+
+      - name: Zip log files on failure
+        if: ${{ failure() }}
+        run: 7z a logs-itest-lnd-remotesigner.zip itest/regtest/logs-tranche*/*.log
+
+      - name: Upload log files on failure
+        uses: actions/upload-artifact@v7
+        if: ${{ failure() }}
+        with:
+          name: logs-itest-lnd-remotesigner
+          path: logs-itest-lnd-remotesigner.zip
+          retention-days: 5
+
+      - name: Send coverage
+        uses: coverallsapp/github-action@v2
+        if: ${{ success() }}
+        continue-on-error: true
+        with:
+          files: itest/regtest/cover/coverage-tranche0.txt
+          flag-name: 'itest-remotesigner'
+          format: 'golang'
+          parallel: true
+
+  ########################
+  # run integration tests with Postgres backend
+  ########################
   integration-test-postgres:
     name: run itests postgres
     runs-on: ubuntu-latest
