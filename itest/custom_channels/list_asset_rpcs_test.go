@@ -15,7 +15,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
-	fn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
@@ -59,12 +58,17 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 	// Mint a grouped asset on Alice (we use a group so we can verify that
 	// the response surfaces the tweaked group key alongside the tranche
 	// asset_id) and open an asset channel from Alice to Bob.
-	groupedAsset := *ccItestAsset
-	groupedAsset.NewGroupedAsset = true
+	groupedAsset := &mintrpc.MintAsset{
+		AssetType:       ccItestAsset.AssetType,
+		Name:            ccItestAsset.Name,
+		AssetMeta:       ccItestAsset.AssetMeta,
+		Amount:          ccItestAsset.Amount,
+		NewGroupedAsset: true,
+	}
 	mintedAssets := itest.MintAssetsConfirmBatch(
 		t.t, net.Miner, asTapd(alice),
 		[]*mintrpc.MintAssetRequest{
-			{Asset: &groupedAsset},
+			{Asset: groupedAsset},
 		},
 	)
 	cents := mintedAssets[0]
@@ -100,14 +104,11 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 	require.NoError(t.t, net.AssertNodeKnown(alice, bob))
 	require.NoError(t.t, net.AssertNodeKnown(bob, alice))
 
-	// Push a small keysend through the channel before Bob creates his
-	// invoice. AddInvoice's RFQ hop-hint construction needs the inbound
-	// channel policy from Alice's side; on a freshly-opened channel that
-	// edge update may not have been gossiped yet, and the keysend forces
-	// both sides to exchange policies.
-	sendAssetKeySendPayment(
-		t.t, alice, bob, 100, assetID, fn.None[int64](),
-	)
+	// AddInvoice runs on Bob and reads Alice's (inbound) policy via
+	// getInboundPolicy when constructing RFQ hop hints. On a freshly-opened
+	// channel that edge update may not have propagated to Bob's graph yet,
+	// so wait for it before proceeding.
+	assertPeerPolicyKnown(t.t, bob, alice, assetChanPoint)
 
 	// Create a plain BTC invoice on Alice. We never settle it, but we use
 	// it later to verify that tapd's ListInvoices filters out invoices
@@ -173,11 +174,10 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 	waitForAssetChannelHtlcSettlement(t.t, alice, assetChanPoint)
 
 	// -----------------------------------------------------------------
-	// ListInvoices on Bob: Bob has four asset invoices: the warm-up
-	// keysend (auto-generated), the asset invoice we explicitly paid, the
-	// canceled hodl invoice, and the settled hodl invoice above. We locate
-	// the settled invoices by payment hash and verify their decoded asset
-	// metadata.
+	// ListInvoices on Bob: Bob has three asset invoices: the asset
+	// invoice we explicitly paid, the canceled hodl invoice, and the
+	// settled hodl invoice above. We locate the settled invoices by
+	// payment hash and verify their decoded asset metadata.
 	// -----------------------------------------------------------------
 	var bobInvoices *tchrpc.ListInvoicesResponse
 	err = wait.NoError(func() error {
@@ -228,7 +228,7 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 	}, wait.DefaultTimeout)
 	require.NoError(t.t, err)
 
-	require.Len(t.t, bobInvoices.Invoices, 4)
+	require.Len(t.t, bobInvoices.Invoices, 3)
 	canceledInv := findAssetInvoice(t.t, bobInvoices, canceledHash[:])
 	require.Equal(t.t, lnrpc.Invoice_CANCELED, canceledInv.Invoice.State)
 	require.Empty(t.t, canceledInv.AssetAmounts)
@@ -289,10 +289,10 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 	require.NotZero(t.t, aliceInvoices.LastIndexOffset)
 
 	// -----------------------------------------------------------------
-	// ListPayments on Alice: Alice has four asset payments, the warm-up
-	// keysend, the settled invoice payment, the canceled hodl payment, and
-	// the settled hodl payment. Include incomplete payments so the failed
-	// canceled hodl payment is returned.
+	// ListPayments on Alice: Alice has three asset payments, the settled
+	// invoice payment, the canceled hodl payment, and the settled hodl
+	// payment. Include incomplete payments so the failed canceled hodl
+	// payment is returned.
 	// -----------------------------------------------------------------
 	var alicePayments *tchrpc.ListPaymentsResponse
 	err = wait.NoError(func() error {
@@ -346,7 +346,7 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 	}, wait.DefaultTimeout)
 	require.NoError(t.t, err)
 
-	require.Len(t.t, alicePayments.Payments, 4)
+	require.Len(t.t, alicePayments.Payments, 3)
 	canceledPayment := findAssetPayment(
 		t.t, alicePayments, hex.EncodeToString(canceledHash[:]),
 	)
