@@ -2,8 +2,10 @@ package fixture
 
 import (
 	"context"
+	"math/rand"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/stretchr/testify/require"
 )
@@ -34,11 +36,9 @@ func TestSyncFixture_EndToEnd(t *testing.T) {
 	// One batch call per root (5 roots, all diverge).
 	require.EqualValues(t, 5, f.Metrics.UpsertBatches.Load())
 
-	// The syncer over-fetches under the pointer-identity SetDiff bug
-	// this PR is fixing (issue #2026): 5 leaves per root fetched even
-	// though local already had 2 per root, so 25 leaves cross the
-	// wire instead of the correct 15. Phase 1 tightens this to 15.
-	require.EqualValues(t, 25, f.Metrics.LeavesInserted.Load())
+	// With the content-based diff in place, only the new leaves cross
+	// over: 5 roots x (5 remote - 2 local overlap) = 15.
+	require.EqualValues(t, 15, f.Metrics.LeavesInserted.Load())
 
 	// No DB retries or dep-missing errors should surface at this scale.
 	require.Zero(t, f.Metrics.DBRetryErrors.Load())
@@ -69,6 +69,84 @@ func TestSyncFixture_FullOverlap(t *testing.T) {
 	// exit at syncer.go:302 fires per root — no writes should occur.
 	require.Zero(t, f.Metrics.UpsertBatches.Load())
 	require.Zero(t, f.Metrics.LeavesInserted.Load())
+}
+
+// TestSyncFixture_StaleContentAtSharedKeys covers the re-org shape:
+// remote and local hold leaves at the same (outpoint, script_key) but
+// with different content, so a purely content-based leaf-key diff
+// finds nothing to fetch. The syncer's empty-diff fallback must
+// notice the root divergence and refetch every remote key so the
+// archive picks up the updated leaf. Regression for the
+// TestTaprootAssetsDaemon/tranche07/re-org_mint itest.
+func TestSyncFixture_StaleContentAtSharedKeys(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	f := NewSyncFixture(t, SyncFixtureOpts{})
+
+	// Both sides share a single universe with two shared leaf keys but
+	// distinct leaf contents. randMintingLeafFor allocates a fresh
+	// proof each time, so remote.Amt and local.Amt differ with
+	// overwhelming probability — sufficient to force different SMT
+	// leaf hashes at the same key.
+	assetGen := asset.RandGenesis(t, asset.Normal)
+	id := universe.Identifier{
+		AssetID:   assetGen.ID(),
+		ProofType: universe.ProofTypeIssuance,
+	}
+
+	const numLeaves = 2
+	keys := make([]universe.LeafKey, numLeaves)
+	remoteItems := make([]*universe.Item, numLeaves)
+	localItems := make([]*universe.Item, numLeaves)
+	for i := 0; i < numLeaves; i++ {
+		keys[i] = randLeafKey(t)
+		remoteItems[i] = &universe.Item{
+			ID:   id,
+			Key:  keys[i],
+			Leaf: randMintingLeafFor(t, assetGen),
+		}
+
+		// Local leaf shares the key but carries a different Amt (and
+		// therefore a different SMT leaf hash) than the remote leaf.
+		staleLeaf := randMintingLeafFor(t, assetGen)
+		for staleLeaf.Amt == remoteItems[i].Leaf.Amt {
+			staleLeaf.Amt = uint64(rand.Int31()) //nolint:gosec
+		}
+		localItems[i] = &universe.Item{
+			ID:   id,
+			Key:  keys[i],
+			Leaf: staleLeaf,
+		}
+	}
+
+	require.NoError(t, f.Remote.Multiverse.UpsertProofLeafBatch(
+		ctx, remoteItems,
+	))
+	require.NoError(t, f.Local.Multiverse.UpsertProofLeafBatch(
+		ctx, localItems,
+	))
+
+	_, err := f.Syncer.SyncUniverse(
+		ctx, universe.ServerAddr{}, universe.SyncFull,
+		GlobalSyncConfig(),
+	)
+	require.NoError(t, err)
+
+	// The empty-diff fallback must have fired: local ended up with
+	// every remote key refetched.
+	require.EqualValues(t, numLeaves, f.Metrics.LeavesInserted.Load())
+
+	// And the underlying content actually got overwritten — post-sync,
+	// local's leaf Amt values match remote's.
+	for i, key := range keys {
+		proofs, err := f.Local.Multiverse.FetchProofLeaf(
+			ctx, id, key,
+		)
+		require.NoError(t, err)
+		require.Len(t, proofs, 1)
+		require.Equal(t, remoteItems[i].Leaf.Amt, proofs[0].Leaf.Amt)
+	}
 }
 
 // TestNewFraction_PanicOutOfRange guards the Fraction invariant.

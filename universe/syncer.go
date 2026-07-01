@@ -333,7 +333,23 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 
 	// With the set of keys fetched, we can now find the set of keys that
 	// need to be synced.
-	keysToFetch := fn.SetDiff(remoteUniKeys, localUniKeys)
+	keysToFetch := diffLeafKeys(remoteUniKeys, localUniKeys)
+
+	// We only reach this point when the roots diverged (the equal-root
+	// case exited above). If the content-based diff nonetheless comes
+	// up empty, the divergence must live in the leaf contents at
+	// shared keys — the canonical trigger is a re-org update on the
+	// remote side rewriting a leaf's proof at an unchanged (outpoint,
+	// script_key). Refetch every remote key so the archive picks up
+	// the fresh content; the multiverse upsert is idempotent for
+	// content-identical leaves, so the extra work is bounded to
+	// actually-stale entries.
+	if len(keysToFetch) == 0 {
+		log.Infof("UniverseRoot(%v) diverges with empty leaf-key "+
+			"diff; refetching all remote leaves to pick up "+
+			"content updates", uniID.String())
+		keysToFetch = remoteUniKeys
+	}
 
 	log.Infof("UniverseRoot(%v): diff_size=%v", uniID.String(),
 		len(keysToFetch))
@@ -709,6 +725,39 @@ func (s *SimpleSyncer) fetchAllLeafKeys(ctx context.Context,
 	}
 
 	return leafKeys, nil
+}
+
+// diffLeafKeys returns the leaf keys that appear in remote but not in
+// local, compared by content (via UniverseKey) rather than by the
+// interface identity fn.SetDiff would use. Concretely, LeafKey is an
+// interface whose common concrete implementation (BaseLeafKey) embeds
+// a *asset.ScriptKey; interface equality would compare that pointer
+// by address, so two BaseLeafKeys with identical outpoint and script
+// pubkey but freshly-allocated ScriptKey pointers — which is exactly
+// what mintingKeys returns per-call — would be treated as distinct.
+// Keying by UniverseKey() sidesteps that entirely because it is the
+// same 32-byte content hash the multiverse itself uses.
+//
+// Two invariants the result satisfies:
+//
+//   - it is a subset of remote by content, and
+//   - it preserves remote's relative order (a subsequence).
+//
+// The second matters because callers index into the returned slice
+// alongside a parallel fetch loop for error attribution.
+func diffLeafKeys(remote, local []LeafKey) []LeafKey {
+	localSet := make(map[[32]byte]struct{}, len(local))
+	for _, k := range local {
+		localSet[k.UniverseKey()] = struct{}{}
+	}
+
+	diff := make([]LeafKey, 0, len(remote))
+	for _, k := range remote {
+		if _, ok := localSet[k.UniverseKey()]; !ok {
+			diff = append(diff, k)
+		}
+	}
+	return diff
 }
 
 // IsEmptyRoot return true if the given root does not have any values set.
