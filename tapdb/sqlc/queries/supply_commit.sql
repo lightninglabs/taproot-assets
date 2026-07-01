@@ -90,9 +90,17 @@ ON CONFLICT (event_key) DO NOTHING;
 -- Returns rows that pre-date the event_key column and still need
 -- a hash computed. Used by the programmatic migration that runs
 -- at schema version 62.
-SELECT event_id, group_key, update_type_id, event_data
+--
+-- Rows attached to a transition come first so the backfill's
+-- "keep the first duplicate" dedup logic can never drop the row
+-- a finalized transition depends on. Within either partition,
+-- event_id ASC is the deterministic tie-break.
+SELECT event_id, transition_id, group_key, update_type_id, event_data
 FROM supply_update_events
-WHERE event_key IS NULL;
+WHERE event_key IS NULL
+ORDER BY
+    CASE WHEN transition_id IS NULL THEN 1 ELSE 0 END,
+    event_id ASC;
 
 -- name: SetSupplyUpdateEventKey :exec
 -- Sets the content-hash key for a single supply update event row.

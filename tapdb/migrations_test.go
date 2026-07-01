@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -1558,4 +1559,226 @@ func TestMigration63BackfillDedupesLegacyDuplicates(t *testing.T) {
 		supplyUpdateEventKey(groupKey, 0, payload),
 		survivingKey,
 	)
+}
+
+// TestMigration63BackfillPrefersAttachedDuplicate verifies that when
+// legacy duplicates split between a row attached to a finalized
+// transition and a dangling row, the backfill preserves the attached
+// row. Otherwise a finalized transition could be left without the
+// events it depends on.
+func TestMigration63BackfillPrefersAttachedDuplicate(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 62)
+
+	groupKey := bytes.Repeat([]byte{0x24}, 32)
+	payload := []byte("event-payload-attached-vs-dangling")
+
+	// Seed the state machine and a finalized transition so an
+	// event row can carry a non-null transition_id.
+	_, err := db.ExecContext(ctx, transformByteLiterals(
+		t, db.BaseDB, fmt.Sprintf(`
+		INSERT INTO supply_commit_state_machines (
+			group_key, current_state_id
+		) VALUES (X'%x', 1)
+		`, groupKey),
+	))
+	require.NoError(t, err)
+
+	var transitionID int64
+	if db.Backend() == sqlc.BackendTypeSqlite {
+		res, err := db.ExecContext(ctx, transformByteLiterals(
+			t, db.BaseDB, fmt.Sprintf(`
+			INSERT INTO supply_commit_transitions (
+				state_machine_group_key, finalized, frozen,
+				creation_time
+			) VALUES (X'%x', 1, 0, 0)
+			`, groupKey),
+		))
+		require.NoError(t, err)
+		transitionID, err = res.LastInsertId()
+		require.NoError(t, err)
+	} else {
+		err := db.QueryRowContext(ctx, fmt.Sprintf(`
+			INSERT INTO supply_commit_transitions (
+				state_machine_group_key, finalized, frozen,
+				creation_time
+			) VALUES (decode('%x', 'hex'), TRUE, FALSE, 0)
+			RETURNING transition_id
+			`, groupKey),
+		).Scan(&transitionID)
+		require.NoError(t, err)
+	}
+
+	// Insert the dangling row FIRST (lower event_id). Under the
+	// naive ORDER BY event_id ASC the dangling row would win and
+	// the attached row would be deleted. The migration's ORDER BY
+	// puts attached rows first regardless of event_id, so the
+	// attached row survives.
+	_, err = db.InsertSupplyUpdateEvent(
+		ctx, sqlc.InsertSupplyUpdateEventParams{
+			GroupKey:     groupKey,
+			TransitionID: sql.NullInt64{},
+			UpdateTypeID: 0,
+			EventData:    payload,
+			EventKey:     nil,
+		},
+	)
+	require.NoError(t, err)
+
+	_, err = db.InsertSupplyUpdateEvent(
+		ctx, sqlc.InsertSupplyUpdateEventParams{
+			GroupKey: groupKey,
+			TransitionID: sql.NullInt64{
+				Int64: transitionID,
+				Valid: true,
+			},
+			UpdateTypeID: 0,
+			EventData:    payload,
+			EventKey:     nil,
+		},
+	)
+	require.NoError(t, err)
+
+	err = db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	// The row still in the table must be the attached one.
+	var (
+		postCount         int
+		survivingAttached sql.NullInt64
+	)
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM supply_update_events
+	`).Scan(&postCount))
+	require.Equal(t, 1, postCount)
+
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT transition_id FROM supply_update_events LIMIT 1
+	`).Scan(&survivingAttached))
+	require.True(t, survivingAttached.Valid,
+		"backfill kept dangling row instead of attached row")
+	require.Equal(t, transitionID, survivingAttached.Int64)
+}
+
+// TestMigration61CancelsDuplicatePreBroadcastBatches verifies that the
+// legacy-DB self-heal step in migration 61 preserves the most recent
+// pre-broadcast batch and cancels the rest before the partial unique
+// index is applied. Without the self-heal, a database that already
+// held duplicate rows in {Pending, Frozen} would fail the migration
+// with a raw unique-index error and force a manual repair step.
+func TestMigration61CancelsDuplicatePreBroadcastBatches(t *testing.T) {
+	ctx := context.Background()
+
+	// Start at version 60: the singleton index does not yet exist,
+	// so we can seed the DB with several pre-broadcast rows to
+	// simulate the legacy failure mode.
+	db := NewTestDBWithVersion(t, 60)
+
+	// Seed three internal_keys and three asset_minting_batches
+	// rows: two Pending (state=0) with distinct creation times and
+	// one Frozen (state=1) with a creation time between them. The
+	// Frozen row has the most recent timestamp so it must be the
+	// preserved row after migration 61 runs.
+	type seed struct {
+		batchID     int
+		keyBytes    string
+		state       int
+		createdUnix int64
+	}
+	seeds := []seed{
+		{
+			batchID:  1,
+			keyBytes: "02" + strings.Repeat("01", 32),
+			state:    0, // BatchStatePending
+			// oldest
+			createdUnix: 1_000_000_000,
+		},
+		{
+			batchID:  2,
+			keyBytes: "02" + strings.Repeat("02", 32),
+			state:    0, // BatchStatePending
+			// middle
+			createdUnix: 1_000_000_050,
+		},
+		{
+			batchID:  3,
+			keyBytes: "02" + strings.Repeat("03", 32),
+			state:    1, // BatchStateFrozen
+			// most recent -- must be preserved
+			createdUnix: 1_000_000_100,
+		},
+	}
+
+	insertBatch := `
+		INSERT INTO asset_minting_batches (
+			batch_id, batch_state, height_hint,
+			creation_time_unix
+		) VALUES ($1, $2, 0, $3)
+	`
+	if db.Backend() == sqlc.BackendTypeSqlite {
+		insertBatch = `
+		INSERT INTO asset_minting_batches (
+			batch_id, batch_state, height_hint,
+			creation_time_unix
+		) VALUES (?, ?, 0, ?)
+		`
+	}
+
+	for _, s := range seeds {
+		_, err := db.ExecContext(ctx, transformByteLiterals(
+			t, db.BaseDB, fmt.Sprintf(`
+			INSERT INTO internal_keys (
+				key_id, raw_key, key_family, key_index
+			) VALUES (%d, X'%s', 0, %d)
+			`, s.batchID, s.keyBytes, s.batchID),
+		))
+		require.NoError(t, err)
+
+		_, err = db.ExecContext(
+			ctx, insertBatch, s.batchID, s.state,
+			time.Unix(s.createdUnix, 0).UTC(),
+		)
+		require.NoError(t, err)
+	}
+
+	// Migrate to latest -- the self-heal in 61 runs before the
+	// index creation, so the migration must succeed.
+	err := db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	// The single remaining pre-broadcast row must be batch_id=3
+	// (Frozen, most recent), and it must retain its original
+	// batch_state so the cultivator can resume it.
+	var (
+		preCount    int
+		survivingID int
+		survivingSt int
+	)
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM asset_minting_batches
+		WHERE batch_state IN (0, 1)
+	`).Scan(&preCount))
+	require.Equal(t, 1, preCount)
+
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT batch_id, batch_state
+		FROM asset_minting_batches
+		WHERE batch_state IN (0, 1)
+	`).Scan(&survivingID, &survivingSt))
+	require.Equal(t, 3, survivingID)
+	require.Equal(t, 1, survivingSt)
+
+	// The two older rows must have moved to
+	// BatchStateSeedlingCancelled = 6.
+	var cancelledCount int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM asset_minting_batches
+		WHERE batch_state = 6
+	`).Scan(&cancelledCount))
+	require.Equal(t, 2, cancelledCount)
 }

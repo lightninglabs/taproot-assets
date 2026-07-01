@@ -349,6 +349,12 @@ func insertAssetBurns(ctx context.Context, q sqlc.Querier) error {
 // SetSupplyUpdateEventKey would violate the unique index added in
 // migration 000062. We dedupe in-memory by tracking the hashes we've
 // already assigned and dropping any row whose hash we've seen.
+//
+// FetchSupplyUpdateEventsForBackfill returns rows attached to a
+// transition before dangling rows, so among any set of duplicates
+// the first-seen row is guaranteed to be an attached one (if any
+// exists). This ensures the dedup never drops a row that a
+// finalized transition depends on.
 func backfillSupplyUpdateEventKeys(ctx context.Context,
 	q sqlc.Querier) error {
 

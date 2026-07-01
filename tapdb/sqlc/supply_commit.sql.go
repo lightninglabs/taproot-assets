@@ -122,13 +122,17 @@ func (q *Queries) FetchSupplyCommit(ctx context.Context, groupKey []byte) (Fetch
 }
 
 const FetchSupplyUpdateEventsForBackfill = `-- name: FetchSupplyUpdateEventsForBackfill :many
-SELECT event_id, group_key, update_type_id, event_data
+SELECT event_id, transition_id, group_key, update_type_id, event_data
 FROM supply_update_events
 WHERE event_key IS NULL
+ORDER BY
+    CASE WHEN transition_id IS NULL THEN 1 ELSE 0 END,
+    event_id ASC
 `
 
 type FetchSupplyUpdateEventsForBackfillRow struct {
 	EventID      int64
+	TransitionID sql.NullInt64
 	GroupKey     []byte
 	UpdateTypeID int32
 	EventData    []byte
@@ -137,6 +141,11 @@ type FetchSupplyUpdateEventsForBackfillRow struct {
 // Returns rows that pre-date the event_key column and still need
 // a hash computed. Used by the programmatic migration that runs
 // at schema version 62.
+//
+// Rows attached to a transition come first so the backfill's
+// "keep the first duplicate" dedup logic can never drop the row
+// a finalized transition depends on. Within either partition,
+// event_id ASC is the deterministic tie-break.
 func (q *Queries) FetchSupplyUpdateEventsForBackfill(ctx context.Context) ([]FetchSupplyUpdateEventsForBackfillRow, error) {
 	rows, err := q.db.QueryContext(ctx, FetchSupplyUpdateEventsForBackfill)
 	if err != nil {
@@ -148,6 +157,7 @@ func (q *Queries) FetchSupplyUpdateEventsForBackfill(ctx context.Context) ([]Fet
 		var i FetchSupplyUpdateEventsForBackfillRow
 		if err := rows.Scan(
 			&i.EventID,
+			&i.TransitionID,
 			&i.GroupKey,
 			&i.UpdateTypeID,
 			&i.EventData,
