@@ -18,7 +18,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rpcserver"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
@@ -65,7 +64,7 @@ func assertAnchorTxPreCommitOut(
 	)
 	require.NoError(t.t, err)
 
-	expectedTxOut, err := tapgarden.PreCommitTxOut(*delegationKey)
+	expectedTxOut, err := supplycommit.PreCommitTxOut(*delegationKey)
 	require.NoError(t.t, err)
 
 	// The pre-commitment output should be present in the anchor tx exactly

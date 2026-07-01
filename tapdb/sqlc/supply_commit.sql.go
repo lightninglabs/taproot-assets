@@ -20,6 +20,19 @@ func (q *Queries) DeleteSupplyCommitTransition(ctx context.Context, transitionID
 	return err
 }
 
+const DeleteSupplyUpdateEvent = `-- name: DeleteSupplyUpdateEvent :exec
+DELETE FROM supply_update_events
+WHERE event_id = $1
+`
+
+// Deletes a single supply update event row identified by its
+// event_id. Used by the migration 63 backfill to drop duplicate
+// rows that hash to the same event_key as an earlier row.
+func (q *Queries) DeleteSupplyUpdateEvent(ctx context.Context, eventID int64) error {
+	_, err := q.db.ExecContext(ctx, DeleteSupplyUpdateEvent, eventID)
+	return err
+}
+
 const DeleteSupplyUpdateEvents = `-- name: DeleteSupplyUpdateEvents :exec
 DELETE FROM supply_update_events
 WHERE transition_id = $1
@@ -106,6 +119,60 @@ func (q *Queries) FetchSupplyCommit(ctx context.Context, groupKey []byte) (Fetch
 		&i.TxIndex,
 	)
 	return i, err
+}
+
+const FetchSupplyUpdateEventsForBackfill = `-- name: FetchSupplyUpdateEventsForBackfill :many
+SELECT event_id, transition_id, group_key, update_type_id, event_data
+FROM supply_update_events
+WHERE event_key IS NULL
+ORDER BY
+    CASE WHEN transition_id IS NULL THEN 1 ELSE 0 END,
+    event_id ASC
+`
+
+type FetchSupplyUpdateEventsForBackfillRow struct {
+	EventID      int64
+	TransitionID sql.NullInt64
+	GroupKey     []byte
+	UpdateTypeID int32
+	EventData    []byte
+}
+
+// Returns rows that pre-date the event_key column and still need
+// a hash computed. Used by the programmatic migration that runs
+// at schema version 62.
+//
+// Rows attached to a transition come first so the backfill's
+// "keep the first duplicate" dedup logic can never drop the row
+// a finalized transition depends on. Within either partition,
+// event_id ASC is the deterministic tie-break.
+func (q *Queries) FetchSupplyUpdateEventsForBackfill(ctx context.Context) ([]FetchSupplyUpdateEventsForBackfillRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchSupplyUpdateEventsForBackfill)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchSupplyUpdateEventsForBackfillRow
+	for rows.Next() {
+		var i FetchSupplyUpdateEventsForBackfillRow
+		if err := rows.Scan(
+			&i.EventID,
+			&i.TransitionID,
+			&i.GroupKey,
+			&i.UpdateTypeID,
+			&i.EventData,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const FetchUnspentMintSupplyPreCommits = `-- name: FetchUnspentMintSupplyPreCommits :many
@@ -325,12 +392,13 @@ func (q *Queries) InsertSupplyCommitment(ctx context.Context, arg InsertSupplyCo
 	return commit_id, err
 }
 
-const InsertSupplyUpdateEvent = `-- name: InsertSupplyUpdateEvent :exec
+const InsertSupplyUpdateEvent = `-- name: InsertSupplyUpdateEvent :execrows
 INSERT INTO supply_update_events (
-    group_key, transition_id, update_type_id, event_data
+    group_key, transition_id, update_type_id, event_data, event_key
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3, $4, $5
 )
+ON CONFLICT (event_key) DO NOTHING
 `
 
 type InsertSupplyUpdateEventParams struct {
@@ -338,16 +406,34 @@ type InsertSupplyUpdateEventParams struct {
 	TransitionID sql.NullInt64
 	UpdateTypeID int32
 	EventData    []byte
+	EventKey     []byte
 }
 
-func (q *Queries) InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error {
-	_, err := q.db.ExecContext(ctx, InsertSupplyUpdateEvent,
+// The event_key column is a deterministic content hash that
+// identifies a logical update event. A duplicate insert (e.g. on
+// restart re-run of the Confirmed branch in the minting state
+// machine) hits the unique index on event_key and is silently
+// dropped, leaving the existing row -- and any transition_id it
+// already carries -- untouched.
+//
+// Returning rows-affected (1 on insert, 0 on conflict) lets the
+// caller distinguish "new event recorded" from "dedup absorbed an
+// old one" -- the latter is the signal InsertPendingUpdate needs
+// to avoid creating an empty pending transition when a re-fired
+// event matches a row already attached to a prior (finalized)
+// transition.
+func (q *Queries) InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, InsertSupplyUpdateEvent,
 		arg.GroupKey,
 		arg.TransitionID,
 		arg.UpdateTypeID,
 		arg.EventData,
+		arg.EventKey,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const LinkDanglingSupplyUpdateEvents = `-- name: LinkDanglingSupplyUpdateEvents :exec
@@ -803,6 +889,25 @@ func (q *Queries) QuerySupplyUpdateEvents(ctx context.Context, transitionID sql.
 		return nil, err
 	}
 	return items, nil
+}
+
+const SetSupplyUpdateEventKey = `-- name: SetSupplyUpdateEventKey :exec
+UPDATE supply_update_events
+SET event_key = $1
+WHERE event_id = $2
+`
+
+type SetSupplyUpdateEventKeyParams struct {
+	EventKey []byte
+	EventID  int64
+}
+
+// Sets the content-hash key for a single supply update event row.
+// Used by the programmatic migration that backfills pre-existing
+// rows after column 000062 is added.
+func (q *Queries) SetSupplyUpdateEventKey(ctx context.Context, arg SetSupplyUpdateEventKeyParams) error {
+	_, err := q.db.ExecContext(ctx, SetSupplyUpdateEventKey, arg.EventKey, arg.EventID)
+	return err
 }
 
 const UpdateSupplyCommitTransitionCommitment = `-- name: UpdateSupplyCommitTransitionCommitment :exec

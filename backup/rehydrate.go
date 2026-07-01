@@ -10,7 +10,7 @@ import (
 )
 
 // ChainQuerier is the interface needed to fetch blockchain data during proof
-// rehydration. The tapgarden.ChainBridge interface satisfies this.
+// rehydration. The tapnode.ChainBridge interface satisfies this.
 type ChainQuerier interface {
 	// GetBlockByHeight returns a full block given its height.
 	GetBlockByHeight(ctx context.Context,

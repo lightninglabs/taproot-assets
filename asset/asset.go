@@ -348,6 +348,17 @@ func (g Genesis) TagHash() [sha256.Size]byte {
 	return sha256.Sum256([]byte(g.Tag))
 }
 
+// Copy returns a deep copy of *Genesis. Every field is value-typed
+// (OutPoint, string, fixed-size array, scalars), so a struct value
+// copy is itself a deep copy. Returns nil if g is nil.
+func (g *Genesis) Copy() *Genesis {
+	if g == nil {
+		return nil
+	}
+	cpy := *g
+	return &cpy
+}
+
 // ID serves as a unique identifier of an asset, resulting from:
 //
 //	sha256(genesisOutPoint || sha256(tag) || sha256(metadata) ||
@@ -1165,6 +1176,18 @@ func (a *AssetGroup) IsGroupAnchor() (bool, error) {
 	return a.GroupKey.IsGroupAnchor(a.Genesis.ID())
 }
 
+// Copy returns a deep copy of *AssetGroup. The embedded *Genesis and
+// *GroupKey are both cloned independently. Returns nil if a is nil.
+func (a *AssetGroup) Copy() *AssetGroup {
+	if a == nil {
+		return nil
+	}
+	return &AssetGroup{
+		Genesis:  a.Genesis.Copy(),
+		GroupKey: a.GroupKey.Copy(),
+	}
+}
+
 // ExternalKey represents an external key used for deriving and managing
 // hierarchical deterministic (HD) wallet addresses according to BIP-86.
 type ExternalKey struct {
@@ -1246,6 +1269,22 @@ func (e *ExternalKey) PubKey() (btcec.PublicKey, error) {
 	return *pubKey, nil
 }
 
+// Copy returns a deep copy of an ExternalKey. The DerivationPath
+// slice is duplicated; the embedded hdkeychain.ExtendedKey is value-
+// copied (its internal byte slices are private and never mutated
+// externally, so shared references are safe in practice).
+func (e ExternalKey) Copy() ExternalKey {
+	out := ExternalKey{
+		XPub:              e.XPub,
+		MasterFingerprint: e.MasterFingerprint,
+	}
+	if e.DerivationPath != nil {
+		out.DerivationPath = make([]uint32, len(e.DerivationPath))
+		copy(out.DerivationPath, e.DerivationPath)
+	}
+	return out
+}
+
 // EqualKeyDescriptors returns true if the two key descriptors are equal.
 func EqualKeyDescriptors(a, o keychain.KeyDescriptor) bool {
 	if a.KeyLocator != o.KeyLocator {
@@ -1257,6 +1296,29 @@ func EqualKeyDescriptors(a, o keychain.KeyDescriptor) bool {
 	}
 
 	return a.PubKey.IsEqual(o.PubKey)
+}
+
+// CopyPubKey clones a btcec.PublicKey by value-copying its underlying
+// secp256k1 struct (two FieldVal coordinates -- entirely value-typed).
+// Returns nil if pk is nil. Free function since btcec.PublicKey is a
+// foreign type we cannot add methods to.
+func CopyPubKey(pk *btcec.PublicKey) *btcec.PublicKey {
+	if pk == nil {
+		return nil
+	}
+	cpy := *pk
+	return &cpy
+}
+
+// CopyKeyDescriptor returns a KeyDescriptor whose PubKey points to a
+// fresh PublicKey value. KeyLocator is two uint32 fields and copied
+// trivially. Free function since keychain.KeyDescriptor is a foreign
+// type we cannot add methods to.
+func CopyKeyDescriptor(kd keychain.KeyDescriptor) keychain.KeyDescriptor {
+	return keychain.KeyDescriptor{
+		KeyLocator: kd.KeyLocator,
+		PubKey:     CopyPubKey(kd.PubKey),
+	}
 }
 
 // ScriptKeyDerivationMethod is the method used to derive the script key of an
@@ -1354,6 +1416,20 @@ func (ts *TweakedScriptKey) IsEqual(other *TweakedScriptKey) bool {
 	return EqualKeyDescriptors(ts.RawKey, other.RawKey)
 }
 
+// Copy returns a deep copy of *TweakedScriptKey: the raw key
+// descriptor is cloned and the tweak bytes are duplicated. Returns
+// nil if ts is nil.
+func (ts *TweakedScriptKey) Copy() *TweakedScriptKey {
+	if ts == nil {
+		return nil
+	}
+	return &TweakedScriptKey{
+		RawKey: CopyKeyDescriptor(ts.RawKey),
+		Tweak:  bytes.Clone(ts.Tweak),
+		Type:   ts.Type,
+	}
+}
+
 // ScriptKey represents a tweaked Taproot output key encumbering the different
 // ways an asset can be spent.
 type ScriptKey struct {
@@ -1398,6 +1474,15 @@ func (s *ScriptKey) IsEqual(otherScriptKey *ScriptKey) bool {
 	}
 
 	return s.PubKey.IsEqual(otherScriptKey.PubKey)
+}
+
+// Copy returns a deep copy of ScriptKey: the tweaked sub-key is
+// cloned and the pubkey is value-copied.
+func (s ScriptKey) Copy() ScriptKey {
+	return ScriptKey{
+		PubKey:           CopyPubKey(s.PubKey),
+		TweakedScriptKey: s.TweakedScriptKey.Copy(),
+	}
 }
 
 // DeclaredAsKnown returns true if this script key has either been derived by

@@ -1,4 +1,4 @@
-package tapgarden
+package tapcustody
 
 import (
 	"context"
@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -37,6 +38,10 @@ const (
 	// txResubscriptionDelay is the delay we wait before attempting to
 	// resubscribe to the transaction stream after it has ended.
 	txResubscriptionDelay = 10 * time.Second
+
+	// DefaultTimeout is the default timeout we use for RPC and database
+	// operations.
+	DefaultTimeout = 30 * time.Second
 )
 
 // AssetReceiveEvent is an event that is sent to a subscriber once the
@@ -162,19 +167,19 @@ func (e *AddrImportCompleteEvent) Timestamp() time.Time {
 // Ensure that AddrImportCompleteEvent implements the Event interface.
 var _ fn.Event = (*AddrImportCompleteEvent)(nil)
 
-// CustodianConfig houses all the items that the Custodian needs to carry out
-// its duties.
-type CustodianConfig struct {
+// Config houses all the items that the Custodian needs to carry out its
+// duties.
+type Config struct {
 	// ChainParams are the Taproot Asset specific chain parameters.
 	ChainParams *address.ChainParams
 
 	// WalletAnchor is the main interface for interacting with the on-chain
 	// wallet.
-	WalletAnchor WalletAnchor
+	WalletAnchor tapnode.WalletAnchor
 
 	// ChainBridge is the main interface for interacting with the chain
 	// backend.
-	ChainBridge ChainBridge
+	ChainBridge tapnode.ChainBridge
 
 	// GroupVerifier is used to verify the validity of the group key for an
 	// asset.
@@ -238,7 +243,7 @@ type Custodian struct {
 	startOnce sync.Once
 	stopOnce  sync.Once
 
-	cfg *CustodianConfig
+	cfg *Config
 
 	// addrSubscription is the subscription queue through which we receive
 	// events about new addresses being created (and we also receive all
@@ -277,7 +282,7 @@ type Custodian struct {
 
 // NewCustodian creates a new Taproot Asset custodian based on the passed
 // config.
-func NewCustodian(cfg *CustodianConfig) *Custodian {
+func NewCustodian(cfg *Config) *Custodian {
 	addrSub := fn.NewEventReceiver[*address.AddrWithKeyInfo](
 		fn.DefaultQueueSize,
 	)
@@ -1918,7 +1923,7 @@ func EventMatchesProof(event *address.Event, p *proof.Proof) bool {
 
 // verifierCtx returns a verifier context that can be used to verify proofs.
 func (c *Custodian) verifierCtx(ctx context.Context) proof.VerifierCtx {
-	headerVerifier := GenHeaderVerifier(ctx, c.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, c.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
 
 	return proof.VerifierCtx{

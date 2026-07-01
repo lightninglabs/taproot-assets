@@ -14,7 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	internaltest "github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/stretchr/testify/mock"
@@ -350,7 +350,7 @@ func TestVerifyIssuanceLeaf(t *testing.T) {
 			}
 
 			cfg := VerifierCfg{
-				ChainBridge:  tapgarden.NewMockChainBridge(),
+				ChainBridge:  tapnodemock.NewChainBridge(),
 				GroupFetcher: &MockGroupFetcher{},
 			}
 			v := Verifier{assetLog: log, cfg: cfg}
@@ -756,7 +756,7 @@ func TestVerifyCommit(t *testing.T) {
 		commitment := createTestRootCommitment(t, 200)
 
 		cfg := VerifierCfg{
-			ChainBridge:      tapgarden.NewMockChainBridge(),
+			ChainBridge:      tapnodemock.NewChainBridge(),
 			SupplyCommitView: &MockSupplyCommitView{},
 		}
 		v := Verifier{assetLog: log, cfg: cfg}
@@ -789,7 +789,7 @@ func TestVerifyCommit(t *testing.T) {
 		).Return(&commitment, nil).Once()
 
 		cfg := VerifierCfg{
-			ChainBridge:      tapgarden.NewMockChainBridge(),
+			ChainBridge:      tapnodemock.NewChainBridge(),
 			SupplyCommitView: mockView,
 		}
 		v := Verifier{assetLog: log, cfg: cfg}
@@ -833,7 +833,7 @@ func TestVerifyCommit(t *testing.T) {
 			t, mockLookup, groupPrivKey.PubKey(), &delegKey,
 		)
 		cfg := VerifierCfg{
-			ChainBridge:      tapgarden.NewMockChainBridge(),
+			ChainBridge:      tapnodemock.NewChainBridge(),
 			SupplyCommitView: mockView,
 			AssetLookup:      mockLookup,
 		}
@@ -902,7 +902,7 @@ func TestVerifyCommit(t *testing.T) {
 		).Return(nil, ErrCommitmentNotFound).Once()
 
 		cfg := VerifierCfg{
-			ChainBridge:      tapgarden.NewMockChainBridge(),
+			ChainBridge:      tapnodemock.NewChainBridge(),
 			SupplyCommitView: mockView,
 			AssetLookup:      mockLookup,
 			GroupFetcher:     &MockGroupFetcher{},
@@ -976,7 +976,7 @@ func TestVerifyCommit(t *testing.T) {
 		).Return(emptyTree, emptySupplyTrees, nil).Once()
 
 		cfg := VerifierCfg{
-			ChainBridge:      tapgarden.NewMockChainBridge(),
+			ChainBridge:      tapnodemock.NewChainBridge(),
 			SupplyCommitView: mockView,
 			AssetLookup:      mockLookup,
 			GroupFetcher:     &MockGroupFetcher{},
@@ -1067,7 +1067,7 @@ func TestVerifyBurnLeaf(t *testing.T) {
 		v := Verifier{
 			assetLog: log,
 			cfg: VerifierCfg{
-				ChainBridge:  tapgarden.NewMockChainBridge(),
+				ChainBridge:  tapnodemock.NewChainBridge(),
 				GroupFetcher: mockGroupFetcher,
 			},
 		}

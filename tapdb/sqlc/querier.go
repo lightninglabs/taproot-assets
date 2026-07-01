@@ -22,6 +22,13 @@ type Querier interface {
 	AssetsDBSizeSqlite(ctx context.Context) (int32, error)
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
 	BindMintingBatchWithTapSibling(ctx context.Context, arg BindMintingBatchWithTapSiblingParams) error
+	// universe_commitments is intentionally not in the SET clause: the
+	// flag is set once at batch creation (NewMintingBatch) from the
+	// seedling's SupplyCommitments intent and must not change at
+	// funding time. Overwriting it here from a caller-derived value
+	// would silently disable supply commitments if no augmenter bind
+	// payload was produced for a batch that legitimately requested
+	// them.
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) (int64, error)
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
@@ -40,6 +47,10 @@ type Querier interface {
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	DeleteRoot(ctx context.Context, namespace string) (int64, error)
 	DeleteSupplyCommitTransition(ctx context.Context, transitionID int64) error
+	// Deletes a single supply update event row identified by its
+	// event_id. Used by the migration 63 backfill to drop duplicate
+	// rows that hash to the same event_key as an earlier row.
+	DeleteSupplyUpdateEvent(ctx context.Context, eventID int64) error
 	DeleteSupplyUpdateEvents(ctx context.Context, transitionID sql.NullInt64) error
 	DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error
 	DeleteTapscriptTreeNodes(ctx context.Context) error
@@ -103,6 +114,10 @@ type Querier interface {
 	// filtering.
 	FetchMintSupplyPreCommits(ctx context.Context, arg FetchMintSupplyPreCommitsParams) ([]FetchMintSupplyPreCommitsRow, error)
 	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)
+	// ORDER BY matches the tie-break used by migration 61's self-heal
+	// (creation_time_unix DESC, batch_id DESC), so any code that has to
+	// pick "the most recent" pre-broadcast batch when several share a
+	// timestamp reaches the same row as the migration.
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchMultiverseRoot(ctx context.Context, namespaceRoot string) (FetchMultiverseRootRow, error)
 	FetchPeerAcceptedBuyPeerByScid(ctx context.Context, scid int64) ([]byte, error)
@@ -116,6 +131,15 @@ type Querier interface {
 	// Fetches all push log entries for a given asset group, ordered by
 	// creation time with the most recent entries first.
 	FetchSupplySyncerPushLogs(ctx context.Context, groupKey []byte) ([]SupplySyncerPushLog, error)
+	// Returns rows that pre-date the event_key column and still need
+	// a hash computed. Used by the programmatic migration that runs
+	// at schema version 62.
+	//
+	// Rows attached to a transition come first so the backfill's
+	// "keep the first duplicate" dedup logic can never drop the row
+	// a finalized transition depends on. Within either partition,
+	// event_id ASC is the deterministic tie-break.
+	FetchSupplyUpdateEventsForBackfill(ctx context.Context) ([]FetchSupplyUpdateEventsForBackfillRow, error)
 	// Sort the nodes by node_index here instead of returning the indices.
 	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)
 	FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error)
@@ -159,7 +183,20 @@ type Querier interface {
 	// push to a remote universe server. The commit_txid and output_index are
 	// taken directly from the RootCommitment outpoint.
 	InsertSupplySyncerPushLog(ctx context.Context, arg InsertSupplySyncerPushLogParams) error
-	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error
+	// The event_key column is a deterministic content hash that
+	// identifies a logical update event. A duplicate insert (e.g. on
+	// restart re-run of the Confirmed branch in the minting state
+	// machine) hits the unique index on event_key and is silently
+	// dropped, leaving the existing row -- and any transition_id it
+	// already carries -- untouched.
+	//
+	// Returning rows-affected (1 on insert, 0 on conflict) lets the
+	// caller distinguish "new event recorded" from "dedup absorbed an
+	// old one" -- the latter is the signal InsertPendingUpdate needs
+	// to avoid creating an empty pending transition when a re-fired
+	// event matches a row already attached to a prior (finalized)
+	// transition.
+	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) (int64, error)
 	InsertTxProof(ctx context.Context, arg InsertTxProofParams) error
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
 	LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error
@@ -234,6 +271,10 @@ type Querier interface {
 	ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
+	// Sets the content-hash key for a single supply update event row.
+	// Used by the programmatic migration that backfills pre-existing
+	// rows after column 000062 is added.
+	SetSupplyUpdateEventKey(ctx context.Context, arg SetSupplyUpdateEventKeyParams) error
 	SetTransferOutputProofDeliveryStatus(ctx context.Context, arg SetTransferOutputProofDeliveryStatusParams) error
 	// Mark all unconfirmed transfers that spend the given anchor point as
 	// superseded, except for the given (just confirmed) transfer. Once a

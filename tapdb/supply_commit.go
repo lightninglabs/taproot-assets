@@ -3,7 +3,9 @@ package tapdb
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -148,9 +150,11 @@ type SupplyCommitStore interface {
 		arg InsertSupplyCommitTransition) (int64, error)
 
 	// InsertSupplyUpdateEvent inserts a new supply update event associated
-	// with a transition.
+	// with a transition. Returns the number of rows affected: 1 on a
+	// genuine insert and 0 when the row was deduped by the
+	// event_key UNIQUE index (ON CONFLICT DO NOTHING).
 	InsertSupplyUpdateEvent(ctx context.Context,
-		arg InsertSupplyUpdateEvent) error
+		arg InsertSupplyUpdateEvent) (int64, error)
 
 	// UpsertChainTx upserts a chain transaction.
 	UpsertChainTx(ctx context.Context,
@@ -561,6 +565,24 @@ func updateTypeToInt(treeType supplycommit.SupplySubTree) (int32, error) {
 	}
 }
 
+// supplyUpdateEventKey returns the 32-byte content hash used as the
+// dedup key for a supply update event row. The same logical event --
+// same group, same type, same payload bytes -- always hashes to the
+// same value, which is what lets the unique index on event_key
+// silently absorb re-inserts after a caretaker restart.
+func supplyUpdateEventKey(groupKey []byte, updateTypeID int32,
+	eventData []byte) []byte {
+
+	var typeBuf [4]byte
+	binary.BigEndian.PutUint32(typeBuf[:], uint32(updateTypeID))
+
+	h := sha256.New()
+	h.Write(groupKey)
+	h.Write(typeBuf[:])
+	h.Write(eventData)
+	return h.Sum(nil)
+}
+
 // serializeSupplyUpdateEvent encodes a SupplyUpdateEvent into bytes.
 func serializeSupplyUpdateEvent(w io.Writer,
 	event supplycommit.SupplyUpdateEvent) error {
@@ -615,6 +637,18 @@ func deserializeSupplyUpdateEvent(typeName string,
 	}
 }
 
+// errInsertPendingUpdateDeduped is an internal sentinel used to roll
+// back the enclosing transaction when a re-fired event was deduped
+// against a row that already belongs to a prior (now-finalized)
+// transition. Returning an error from the ExecTx closure is the only
+// way to discard the freshly-created supply_commit_transitions row;
+// the outer InsertPendingUpdate wrapper translates this sentinel back
+// to a nil error for the caller, since "the event is already in the
+// log" is a successful no-op from their perspective.
+var errInsertPendingUpdateDeduped = errors.New(
+	"supply update event was deduped; rolling back empty transition",
+)
+
 // InsertPendingUpdate attempts to insert a new pending update into the
 // update log of the target supply commit state machine.
 func (s *SupplyCommitMachine) InsertPendingUpdate(ctx context.Context,
@@ -627,31 +661,41 @@ func (s *SupplyCommitMachine) InsertPendingUpdate(ctx context.Context,
 	groupKeyBytes := schnorr.SerializePubKey(groupKey)
 
 	writeTx := WriteTxOption()
-	return s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
+	err := s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
 		// We'll use this helper function to serialize, then insert a
-		// new supply update event into the database.
-		insertUpdate := func(transitionID sql.NullInt64) error {
+		// new supply update event into the database. It returns the
+		// number of rows affected (1 on insert, 0 on dedup) so the
+		// caller can decide whether further work is justified.
+		insertUpdate := func(
+			transitionID sql.NullInt64) (int64, error) {
+
 			var b bytes.Buffer
 			err := serializeSupplyUpdateEvent(&b, event)
 			if err != nil {
-				return fmt.Errorf("failed to serialize event "+
-					"data: %w", err)
+				return 0, fmt.Errorf("failed to serialize "+
+					"event data: %w", err)
 			}
 
 			updateTypeID, err := updateTypeToInt(
 				event.SupplySubTreeType(),
 			)
 			if err != nil {
-				return fmt.Errorf("failed to map update "+
+				return 0, fmt.Errorf("failed to map update "+
 					"type: %w", err)
 			}
+
+			eventData := b.Bytes()
+			eventKey := supplyUpdateEventKey(
+				groupKeyBytes, updateTypeID, eventData,
+			)
 
 			return db.InsertSupplyUpdateEvent(
 				ctx, InsertSupplyUpdateEvent{
 					GroupKey:     groupKeyBytes,
 					TransitionID: transitionID,
 					UpdateTypeID: updateTypeID,
-					EventData:    b.Bytes(),
+					EventData:    eventData,
+					EventKey:     eventKey,
 				},
 			)
 		}
@@ -663,7 +707,9 @@ func (s *SupplyCommitMachine) InsertPendingUpdate(ctx context.Context,
 		)
 
 		// If a pending transition exists, insert the update with the
-		// appropriate transition ID.
+		// appropriate transition ID. Dedup (rows == 0) is fine here:
+		// the existing pending transition is untouched and the prior
+		// row already carries whatever transition link it should.
 		if err == nil {
 			//nolint:lll
 			transition := pendingTransitionRow.SupplyCommitTransition
@@ -675,7 +721,8 @@ func (s *SupplyCommitMachine) InsertPendingUpdate(ctx context.Context,
 				transitionID = sqlInt64(transition.TransitionID)
 			}
 
-			return insertUpdate(transitionID)
+			_, err := insertUpdate(transitionID)
+			return err
 		}
 
 		// If the error is anything other than "no rows", it's a real
@@ -736,10 +783,20 @@ func (s *SupplyCommitMachine) InsertPendingUpdate(ctx context.Context,
 		}
 
 		// With the transition created, we can now insert the update
-		// event, linking it to the new transition.
-		err = insertUpdate(sqlInt64(transitionID))
+		// event, linking it to the new transition. If the insert is
+		// absorbed by the dedup index (rows == 0), the event was
+		// already recorded against a prior, now-finalized transition;
+		// committing the freshly-created transition would leave an
+		// empty pending transition behind and move the state machine
+		// to UpdatesPendingState with nothing to commit. Return the
+		// sentinel error to roll the whole tx back -- the outer
+		// wrapper turns this into a successful no-op for the caller.
+		rowsAffected, err := insertUpdate(sqlInt64(transitionID))
 		if err != nil {
 			return err
+		}
+		if rowsAffected == 0 {
+			return errInsertPendingUpdateDeduped
 		}
 
 		// Finally, we'll explicitly set the state machine to the
@@ -766,6 +823,15 @@ func (s *SupplyCommitMachine) InsertPendingUpdate(ctx context.Context,
 
 		return nil
 	})
+
+	// A dedup against an existing event is a successful no-op from
+	// the caller's perspective. The tx was rolled back inside ExecTx,
+	// so no new transition was committed.
+	if errors.Is(err, errInsertPendingUpdateDeduped) {
+		return nil
+	}
+
+	return err
 }
 
 // FreezePendingTransition marks the current pending transition for a group key

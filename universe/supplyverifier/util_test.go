@@ -17,7 +17,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
@@ -264,8 +263,8 @@ func createTestValidMintEvent(t *testing.T, blockHeight uint32,
 	}
 
 	// Create the pre-commitment output that matches what
-	// tapgarden.PreCommitTxOut would create.
-	preCommitTxOut, err := tapgarden.PreCommitTxOut(*delegationKey)
+	// supplycommit.PreCommitTxOut would create.
+	preCommitTxOut, err := supplycommit.PreCommitTxOut(*delegationKey)
 	if err != nil {
 		t.Fatalf("failed to create pre-commit tx out: %v", err)
 	}
@@ -868,7 +867,7 @@ func randProofWithGroupKey(t *testing.T,
 	pkScript, err := txscript.PayToTaprootScript(taprootOutputKey)
 	require.NoError(t, err)
 
-	preCommitTxOut, err := tapgarden.PreCommitTxOut(*delegationKey)
+	preCommitTxOut, err := supplycommit.PreCommitTxOut(*delegationKey)
 	require.NoError(t, err)
 
 	// Anchor tx: pre-commit output at index 0,
@@ -1090,7 +1089,7 @@ func randBurnProofWithGroupKey(t *testing.T,
 
 // createVerifiableCommitment builds a RootCommitment whose chain anchor
 // passes VerifyChainAnchor without a live chain. It uses a single-tx block
-// so the merkle proof is empty (merkle root == tx hash), and MockChainBridge
+// so the merkle proof is empty (merkle root == tx hash), and tapnodemock
 // returns nil from VerifyBlock unconditionally. The TxOut is derived from
 // RootCommitTxOut using an empty supply tree root, so the output script
 // check passes. If txIns is nil, a single default input with a zero outpoint

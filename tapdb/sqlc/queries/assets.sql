@@ -14,11 +14,16 @@ INSERT INTO asset_minting_batches (
 ) VALUES (0, $1, $2, $3, $4);
 
 -- name: FetchMintingBatchesByInverseState :many
+-- ORDER BY matches the tie-break used by migration 61's self-heal
+-- (creation_time_unix DESC, batch_id DESC), so any code that has to
+-- pick "the most recent" pre-broadcast batch when several share a
+-- timestamp reaches the same row as the migration.
 SELECT *
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
-WHERE batches.batch_state != $1;
+WHERE batches.batch_state != $1
+ORDER BY batches.creation_time_unix DESC, batches.batch_id DESC;
 
 -- name: FetchMintingBatch :one
 WITH target_batch AS (
@@ -571,6 +576,13 @@ JOIN internal_keys keys
 WHERE keys.raw_key = $1;
 
 -- name: BindMintingBatchWithTx :one
+-- universe_commitments is intentionally not in the SET clause: the
+-- flag is set once at batch creation (NewMintingBatch) from the
+-- seedling's SupplyCommitments intent and must not change at
+-- funding time. Overwriting it here from a caller-derived value
+-- would silently disable supply commitments if no augmenter bind
+-- payload was produced for a batch that legitimately requested
+-- them.
 WITH target_batch AS (
     SELECT batch_id
     FROM asset_minting_batches batches
@@ -580,7 +592,7 @@ WITH target_batch AS (
 )
 UPDATE asset_minting_batches
 SET minting_tx_psbt = $2, change_output_index = $3, assets_output_index = $4,
-    genesis_id = $5, universe_commitments = $6
+    genesis_id = $5
 WHERE batch_id IN (SELECT batch_id FROM target_batch)
 RETURNING batch_id;
 
@@ -1180,4 +1192,5 @@ WHERE (
     (batch_internal_keys.raw_key = sqlc.narg('batch_key') OR sqlc.narg('batch_key') IS NULL) AND
     (precommits.group_key = sqlc.narg('group_key') OR sqlc.narg('group_key') IS NULL) AND
     (taproot_internal_keys.raw_key = sqlc.narg('taproot_internal_key_raw') OR sqlc.narg('taproot_internal_key_raw') IS NULL)
-);
+)
+ORDER BY precommits.id ASC;

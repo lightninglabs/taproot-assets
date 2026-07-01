@@ -1,0 +1,4 @@
+-- The actual backfill runs in Go (see programmatic_migrations.go).
+-- This marker file exists so the migration stream picks up the
+-- version; SQLite has no native SHA-256, so the work cannot be
+-- expressed as portable SQL.

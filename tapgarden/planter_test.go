@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -34,6 +36,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	_ "github.com/lightninglabs/taproot-assets/tapdb" // Register relevant drivers.
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
@@ -47,6 +50,7 @@ import (
 // Default to a large interval so the planter never actually ticks and only
 // rely on our manual ticks.
 var (
+	chainParams       = &address.RegressionNetTap
 	defaultTimeout    = time.Second * 30
 	noCaretakerStates = fn.NewSet(
 		tapgarden.BatchStatePending,
@@ -68,8 +72,11 @@ var (
 	)
 )
 
-// newMintingStore creates a new instance of the TapAddressBook book.
-func newMintingStore(t *testing.T) tapgarden.MintingStore {
+// newMintingStore creates a new in-memory asset minting store backed
+// by tapdb. The concrete type is returned because the harness needs
+// both BatchStore and MintingRefReader views of the same underlying
+// store as well as TapscriptTreeManager for the fallible tree mock.
+func newMintingStore(t *testing.T) *tapdb.AssetMintingStore {
 	db := tapdb.NewTestDB(t)
 
 	txCreator := func(tx *sql.Tx) tapdb.PendingAssetStore {
@@ -84,15 +91,15 @@ func newMintingStore(t *testing.T) tapgarden.MintingStore {
 // create succinct and fully featured unit/systems tests for the batched asset
 // minting process.
 type mintingTestHarness struct {
-	wallet *tapgarden.MockWalletAnchor
+	wallet *tapnodemock.WalletAnchor
 
-	chain *tapgarden.MockChainBridge
+	chain *tapnodemock.ChainBridge
 
-	store tapgarden.MintingStore
+	store *tapdb.AssetMintingStore
 
 	treeStore *tapgarden.FallibleTapscriptTreeMgr
 
-	keyRing *tapgarden.MockKeyRing
+	keyRing *tapnodemock.KeyRing
 
 	genSigner *tapgarden.MockGenSigner
 
@@ -106,6 +113,13 @@ type mintingTestHarness struct {
 
 	proofWatcher *tapgarden.MockProofWatcher
 
+	// augmenter is wired into GardenKit.GenesisTxAugmenter when
+	// non-nil, otherwise the planter falls back to NoOpAugmenter.
+	// Tests that need to observe augmenter behavior (e.g.
+	// confirmation-side failure) set this before calling
+	// refreshChainPlanter.
+	augmenter tapgarden.GenesisTxAugmenter
+
 	*testing.T
 
 	errChan chan error
@@ -114,9 +128,9 @@ type mintingTestHarness struct {
 // newMintingTestHarness creates a new test harness from an active minting
 // store and an existing testing context.
 func newMintingTestHarness(t *testing.T,
-	store tapgarden.MintingStore) *mintingTestHarness {
+	store *tapdb.AssetMintingStore) *mintingTestHarness {
 
-	keyRing := tapgarden.NewMockKeyRing()
+	keyRing := tapnodemock.NewKeyRing()
 	genSigner := tapgarden.NewMockGenSigner(keyRing)
 	treeMgr := tapgarden.NewFallibleTapscriptTreeMgr(store)
 	archiver := proof.NewMockProofArchive()
@@ -125,8 +139,8 @@ func newMintingTestHarness(t *testing.T,
 		T:            t,
 		store:        store,
 		treeStore:    &treeMgr,
-		wallet:       tapgarden.NewMockWalletAnchor(),
-		chain:        tapgarden.NewMockChainBridge(),
+		wallet:       tapnodemock.NewWalletAnchor(),
+		chain:        tapnodemock.NewChainBridge(),
 		proofFiles:   archiver,
 		proofWatcher: &tapgarden.MockProofWatcher{},
 		keyRing:      keyRing,
@@ -147,16 +161,18 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 
 	t.planter = tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
 		GardenKit: tapgarden.GardenKit{
-			Wallet:       t.wallet,
-			ChainBridge:  t.chain,
-			Log:          t.store,
-			TreeStore:    t.treeStore,
-			KeyRing:      t.keyRing,
-			GenSigner:    t.genSigner,
-			GenTxBuilder: t.genTxBuilder,
-			TxValidator:  t.txValidator,
-			ProofFiles:   t.proofFiles,
-			ProofWatcher: t.proofWatcher,
+			Wallet:             t.wallet,
+			ChainBridge:        t.chain,
+			BatchStore:         t.store,
+			MintingRefs:        t.store,
+			TreeStore:          t.treeStore,
+			KeyRing:            t.keyRing,
+			GenSigner:          t.genSigner,
+			GenTxBuilder:       t.genTxBuilder,
+			TxValidator:        t.txValidator,
+			ProofFiles:         t.proofFiles,
+			ProofWatcher:       t.proofWatcher,
+			GenesisTxAugmenter: t.augmenter,
 		},
 		ChainParams:  *chainParams,
 		ProofUpdates: t.proofFiles,
@@ -219,51 +235,6 @@ func (t *mintingTestHarness) assertBatchResumedBackground(wg *sync.WaitGroup,
 	}()
 }
 
-// createExternalBatch creates a new pending batch outside the planter, which
-// can then be stored on disk.
-func (t *mintingTestHarness) createExternalBatch(
-	numSeedlings int) *tapgarden.MintingBatch {
-
-	t.Helper()
-
-	seedlings := t.newRandSeedlings(numSeedlings)
-	seedlingsWithKeys := make(map[string]*tapgarden.Seedling)
-	for _, seedling := range seedlings {
-		scriptKeyInternalDesc, _ := test.RandKeyDesc(t)
-		scriptKey := asset.NewScriptKeyBip86(scriptKeyInternalDesc)
-		seedling.ScriptKey = scriptKey
-
-		// The group internal key should be from the key ring since we
-		// expect the caretaker to sign with it later.
-		if seedling.EnableEmission {
-			groupKey, err := t.keyRing.DeriveNextKey(
-				context.Background(),
-				asset.TaprootAssetsKeyFamily,
-			)
-			require.NoError(t, err)
-
-			seedling.GroupInternalKey = &groupKey
-		}
-
-		seedlingsWithKeys[seedling.AssetName] = seedling
-	}
-
-	batchInternalKey, err := t.keyRing.DeriveNextKey(
-		context.Background(), asset.TaprootAssetsKeyFamily,
-	)
-	require.NoError(t, err)
-
-	newBatch := &tapgarden.MintingBatch{
-		CreationTime: time.Now(),
-		HeightHint:   0,
-		BatchKey:     batchInternalKey,
-		Seedlings:    seedlingsWithKeys,
-		AssetMetas:   make(tapgarden.AssetMetas),
-	}
-	newBatch.UpdateState(tapgarden.BatchStatePending)
-
-	return newBatch
-}
 
 // queueSeedlingsInBatch adds the series of seedlings to the batch, an error is
 // raised if any of the seedlings aren't accepted.
@@ -307,9 +278,6 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(isFunded bool,
 
 		// Make sure the seedling was planted without error.
 		require.NoError(t, update.Error)
-
-		// The received update should be a state of MintingStateSeed.
-		require.Equal(t, tapgarden.MintingStateSeed, update.NewState)
 
 		err = wait.NoError(func() error {
 			// Assert that the key ring method DeriveNextKey was
@@ -485,7 +453,7 @@ func (t *mintingTestHarness) fundBatch(wg *sync.WaitGroup,
 			fundParams = *params
 		}
 
-		fundBatchResp, fundErr := t.planter.FundBatch(fundParams)
+		verboseBatch, fundErr := t.planter.FundBatch(fundParams)
 		if fundErr != nil {
 			respChan <- &FundBatchResp{
 				Err: fundErr,
@@ -495,7 +463,7 @@ func (t *mintingTestHarness) fundBatch(wg *sync.WaitGroup,
 		}
 
 		respChan <- &FundBatchResp{
-			Batch: fundBatchResp.Batch.MintingBatch,
+			Batch: verboseBatch.MintingBatch,
 		}
 	}()
 }
@@ -968,19 +936,29 @@ func (t *mintingTestHarness) assertBatchGenesisTx(
 }
 
 // assertMintOutputKey asserts that the genesis output key for the batch was
-// computed correctly during minting and includes a tapscript sibling.
+// computed correctly during minting and includes a tapscript sibling. The
+// sibling preimage is passed through to MintingOutputKey explicitly --
+// the helper must not rely on any previously cached value, since
+// MintingOutputKey is pure in its sibling argument.
 func (t *mintingTestHarness) assertMintOutputKey(batch *tapgarden.MintingBatch,
-	siblingHash *chainhash.Hash) {
+	siblingPreimage *commitment.TapscriptPreimage) {
 
 	rootCommitment := batch.RootAssetCommitment
 	require.NotNil(t, rootCommitment)
+
+	var siblingHash *chainhash.Hash
+	if siblingPreimage != nil {
+		h, err := siblingPreimage.TapHash()
+		require.NoError(t, err)
+		siblingHash = h
+	}
 
 	scriptRoot := rootCommitment.TapscriptRoot(siblingHash)
 	expectedOutputKey := txscript.ComputeTaprootOutputKey(
 		batch.BatchKey.PubKey, scriptRoot[:],
 	)
 
-	outputKey, _, err := batch.MintingOutputKey(nil)
+	outputKey, _, err := batch.MintingOutputKey(siblingPreimage)
 	require.NoError(t, err)
 	require.True(t, expectedOutputKey.IsEqual(outputKey))
 }
@@ -1097,7 +1075,10 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized(
 	isNotCancelledBatch := func(batch *tapgarden.MintingBatch) bool {
 		return !isCancelledBatch(batch)
 	}
-	pendingBatch, err := fn.Last(pendingBatches, isNotCancelledBatch)
+	// FetchNonFinalBatches returns rows in newest-first order
+	// (creation_time_unix DESC, batch_id DESC), so First is what
+	// picks the most recent non-cancelled batch here.
+	pendingBatch, err := fn.First(pendingBatches, isNotCancelledBatch)
 	require.NoError(t, err)
 
 	// The minting key of the batch should match the public key
@@ -1664,9 +1645,14 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	batchCount++
 
 	// The caretaker should fail when computing the Taproot output key.
+	// The gardener cancels the failed batch on disk so it does not
+	// block subsequent pending batches via the singleton invariant
+	// added in migration 000061.
 	_ = t.assertGenesisTxFunded(nil)
 	t.assertFinalizeBatch(&wg, respChan, "failed to load tapscript tree")
-	t.assertLastBatchState(batchCount, tapgarden.BatchStateFrozen)
+	t.assertLastBatchState(
+		batchCount, tapgarden.BatchStateSeedlingCancelled,
+	)
 	t.assertNoPendingBatch()
 
 	// Reset the tapscript tree store to not force load or store failures.
@@ -1729,9 +1715,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 
 	// Verify that the final minting output key matches what we would derive
 	// manually.
-	siblingHash, err := siblingPreimage.TapHash()
-	require.NoError(t, err)
-	t.assertMintOutputKey(batchWithSibling, siblingHash)
+	t.assertMintOutputKey(batchWithSibling, &siblingPreimage)
 }
 
 // testFundFailSiblingNotLeaked verifies that when a finalize attempt
@@ -2033,7 +2017,8 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	// seedling. First we need the seedling asset ID and group internal key.
 	seedlingWithGroupTapscriptRoot := fundedBatch.
 		UnsealedSeedlings[secondSeedling]
-	seedlingAssetID := seedlingWithGroupTapscriptRoot.NewAsset.ID()
+	seedlingAssetID :=
+		seedlingWithGroupTapscriptRoot.KeyRequest.NewAsset.ID()
 	derivedInternalKey := seedlingWithGroupTapscriptRoot.GroupInternalKey
 
 	// Now we can build the control block for using the hash lock script.
@@ -2110,7 +2095,7 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 
 	t.assertNumCaretakersActive(0)
 	t.assertLastBatchState(1, tapgarden.BatchStateFinalized)
-	t.assertMintOutputKey(mintedBatch, &defaultTapHash)
+	t.assertMintOutputKey(mintedBatch, &defaultPreimage)
 }
 
 func testFundSealOnRestart(t *mintingTestHarness) {
@@ -2197,46 +2182,216 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 	t.assertNumCaretakersActive(0)
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
 
-	// Submit another batch, which we'll leave as pending.
-	secondSeedlings := t.newRandSeedlings(numSeedlings)
-	t.queueSeedlingsInBatch(false, secondSeedlings...)
-	batchCount++
+	// The original test continued by inserting a second Pending
+	// batch directly on disk to exercise recovery when multiple
+	// pending batches were present. That scenario is now forbidden
+	// by the singleton invariant added in migration 000061, so the
+	// section has been removed. The single-pending-batch recovery
+	// paths exercised above are the surviving useful coverage; the
+	// "multiple pre-broadcast batches" case is covered by
+	// TestSingletonPreBroadcastBatchConstraint in tapdb.
+}
 
-	t.assertLastBatchState(batchCount, tapgarden.BatchStatePending)
-	require.NoError(t, t.planter.Stop())
-	t.planter = nil
+// failingConfirmAugmenter is a GenesisTxAugmenter that forwards every
+// method to NoOpAugmenter except OnBatchConfirmed, which returns an
+// error while shouldFail is set. The test uses this to force the
+// confirmation-abort path and verify the batch does not advance.
+type failingConfirmAugmenter struct {
+	tapgarden.NoOpAugmenter
+	shouldFail atomic.Bool
+}
 
-	// We should also be able to resume one batch even when resuming another
-	// batch fails. Since we can only queue one batch at a time, we'll
-	// insert another pending batch on disk while the planter is shut down.
-	dbBatch := t.createExternalBatch(numSeedlings)
-	batchCount++
-	err := t.store.CommitMintingBatch(context.Background(), dbBatch)
-	require.NoError(t, err)
+func (f *failingConfirmAugmenter) OnBatchConfirmed(_ context.Context,
+	_ *tapgarden.MintingBatch, _, _ []*asset.Asset,
+	_ proof.AssetProofs) error {
 
-	// With two pending batches on disk, we want resume for the first batch
-	// to fail. Resume for the second batch should succeed.
-	t.chain.FailFeeEstimatesOnce()
-	failedBatchCount++
+	if f.shouldFail.Load() {
+		return fmt.Errorf("simulated augmenter failure")
+	}
 
-	t.assertBatchResumedBackground(&wg, true, false)
-	t.assertBatchResumedBackground(&wg, true, true)
+	return nil
+}
+
+var _ tapgarden.GenesisTxAugmenter = (*failingConfirmAugmenter)(nil)
+
+// testOnBatchConfirmedFailureAbortsConfirmation asserts that a failure
+// returned from GenesisTxAugmenter.OnBatchConfirmed aborts the mint
+// confirmation: the batch stays in BatchStateBroadcast on disk so the
+// confirmation branch re-runs on restart. This pins the essential
+// completion contract of the hook -- suppressing its error would let
+// the mint advance while still owing the supply-commit event.
+func testOnBatchConfirmedFailureAbortsConfirmation(t *mintingTestHarness) {
+	// Wire the harness with a failing augmenter. The first pass fails
+	// at OnBatchConfirmed; after the restart the augmenter is flipped
+	// to succeed so the retry can complete cleanly.
+	aug := &failingConfirmAugmenter{}
+	aug.shouldFail.Store(true)
+	t.augmenter = aug
 	t.refreshChainPlanter()
-	wg.Wait()
 
-	t.assertNumCaretakersActive(1)
-	t.assertNoPendingBatch()
+	// Drive Pending -> Frozen -> Committed -> Broadcast.
+	const numSeedlings = 3
+	_ = t.queueInitialBatch(numSeedlings)
+	frozenBatch := t.finalizeBatchAssertFrozen(false)
+	t.assertBatchCommitted(frozenBatch.BatchKey.PubKey)
+	t.assertGenesisPsbtFinalized(nil)
+	tx := t.assertTxPublished()
 
-	sendConfNtfn = t.progressCaretaker(true, nil, nil)
-	t.assertLastBatchState(batchCount, tapgarden.BatchStateBroadcast)
-
-	sendConfNtfn()
-	t.assertNoError()
-	t.assertNumCaretakersActive(0)
-	t.assertNumBatchesWithState(
-		failedBatchCount, tapgarden.BatchStateSeedlingCancelled,
+	// Assemble the block that will accompany the confirmation.
+	merkleTree := blockchain.BuildMerkleTreeStore(
+		[]*btcutil.Tx{btcutil.NewTx(tx)}, false,
 	)
-	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
+	merkleRoot := merkleTree[len(merkleTree)-1]
+	blockHeader := wire.NewBlockHeader(
+		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
+	)
+	block := &wire.MsgBlock{
+		Header:       *blockHeader,
+		Transactions: []*wire.MsgTx{tx},
+	}
+
+	// Deliver the confirmation. The augmenter's OnBatchConfirmed will
+	// return an error, so the Confirmed branch aborts before
+	// MarkBatchConfirmed and the caretaker goroutine exits.
+	sendConfNtfn := t.assertConfReqSent(tx, block)
+	sendConfNtfn()
+
+	// Give the caretaker time to process the confirmation and unwind
+	// the Confirmed branch. The batch on disk must remain at
+	// BatchStateBroadcast -- MarkBatchConfirmed was not called.
+	require.Never(t, func() bool {
+		batches, err := t.store.FetchAllBatches(context.Background())
+		require.NoError(t, err)
+		if len(batches) != 1 {
+			return false
+		}
+		return batches[0].State() != tapgarden.BatchStateBroadcast
+	}, 500*time.Millisecond, 50*time.Millisecond,
+		"batch advanced past Broadcast despite augmenter failure")
+
+	// Simulate a restart with a now-succeeding augmenter. The fresh
+	// caretaker resumes the Broadcast batch, re-publishes the tx, and
+	// re-registers for a confirmation.
+	aug.shouldFail.Store(false)
+	t.refreshChainPlanter()
+	select {
+	case <-t.errChan:
+	default:
+	}
+
+	_ = t.assertTxPublished()
+	sendConfNtfn = t.assertConfReqSent(tx, block)
+	sendConfNtfn()
+
+	// With OnBatchConfirmed now returning nil, MarkBatchConfirmed
+	// runs and the batch advances all the way to Finalized.
+	err := wait.Predicate(func() bool {
+		batches, err := t.store.FetchAllBatches(
+			context.Background(),
+		)
+		require.NoError(t, err)
+		if len(batches) != 1 {
+			return false
+		}
+		return batches[0].State() == tapgarden.BatchStateFinalized
+	}, defaultTimeout)
+	require.NoError(
+		t, err, "batch never advanced to Finalized on retry",
+	)
+
+	t.assertNumCaretakersActive(0)
+}
+
+// testWatchProofsFailureAbortsConfirmation asserts that a failure
+// returned from ProofWatcher.WatchProofs aborts mint confirmation:
+// the batch stays in BatchStateBroadcast on disk so the whole
+// confirmation branch re-runs on restart. This pins the ordering
+// invariant that MarkBatchConfirmed is the LAST persistence write
+// in the Confirmed branch -- under the pre-A2 ordering
+// (MarkBatchConfirmed before WatchProofs), a WatchProofs failure
+// would leave the batch at BatchStateConfirmed and this assertion
+// would fail. The invariant matters because a batch at disk-
+// Confirmed with no registered re-org callback silently drops
+// universe re-publish on subsequent re-orgs.
+func testWatchProofsFailureAbortsConfirmation(t *mintingTestHarness) {
+	// Wire the harness so the mock re-org watcher rejects the
+	// registration on the first pass; the retry after restart
+	// receives a fresh MockProofWatcher (zero ShouldFail) and
+	// succeeds.
+	t.proofWatcher.ShouldFail.Store(true)
+	t.refreshChainPlanter()
+
+	// Drive Pending -> Frozen -> Committed -> Broadcast.
+	const numSeedlings = 3
+	_ = t.queueInitialBatch(numSeedlings)
+	frozenBatch := t.finalizeBatchAssertFrozen(false)
+	t.assertBatchCommitted(frozenBatch.BatchKey.PubKey)
+	t.assertGenesisPsbtFinalized(nil)
+	tx := t.assertTxPublished()
+
+	// Assemble the confirmation block.
+	merkleTree := blockchain.BuildMerkleTreeStore(
+		[]*btcutil.Tx{btcutil.NewTx(tx)}, false,
+	)
+	merkleRoot := merkleTree[len(merkleTree)-1]
+	blockHeader := wire.NewBlockHeader(
+		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
+	)
+	block := &wire.MsgBlock{
+		Header:       *blockHeader,
+		Transactions: []*wire.MsgTx{tx},
+	}
+
+	// Deliver the confirmation. WatchProofs will fail and the
+	// Confirmed branch must abort before MarkBatchConfirmed.
+	sendConfNtfn := t.assertConfReqSent(tx, block)
+	sendConfNtfn()
+
+	// The batch on disk must remain at BatchStateBroadcast. If A2's
+	// ordering regressed and MarkBatchConfirmed ran before the
+	// WatchProofs failure, we'd see BatchStateConfirmed here
+	// instead.
+	require.Never(t, func() bool {
+		batches, err := t.store.FetchAllBatches(context.Background())
+		require.NoError(t, err)
+		if len(batches) != 1 {
+			return false
+		}
+		return batches[0].State() != tapgarden.BatchStateBroadcast
+	}, 500*time.Millisecond, 50*time.Millisecond,
+		"batch advanced past Broadcast despite WatchProofs failure")
+
+	// Simulate a restart with a now-succeeding re-org watcher. The
+	// fresh caretaker resumes the Broadcast batch, re-publishes the
+	// tx, and re-registers for a confirmation.
+	t.proofWatcher.ShouldFail.Store(false)
+	t.refreshChainPlanter()
+	select {
+	case <-t.errChan:
+	default:
+	}
+
+	_ = t.assertTxPublished()
+	sendConfNtfn = t.assertConfReqSent(tx, block)
+	sendConfNtfn()
+
+	// With WatchProofs now returning nil, the Confirmed branch
+	// completes and the batch advances to Finalized.
+	err := wait.Predicate(func() bool {
+		batches, err := t.store.FetchAllBatches(
+			context.Background(),
+		)
+		require.NoError(t, err)
+		if len(batches) != 1 {
+			return false
+		}
+		return batches[0].State() == tapgarden.BatchStateFinalized
+	}, defaultTimeout)
+	require.NoError(
+		t, err, "batch never advanced to Finalized on retry",
+	)
+
+	t.assertNumCaretakersActive(0)
 }
 
 // mintingStoreTestCase is used to programmatically run a series of test cases
@@ -2284,6 +2439,14 @@ var testCases = []mintingStoreTestCase{
 		name:     "fund_seal_on_restart",
 		testFunc: testFundSealOnRestart,
 	},
+	{
+		name:     "on_batch_confirmed_failure_aborts_confirmation",
+		testFunc: testOnBatchConfirmedFailureAbortsConfirmation,
+	},
+	{
+		name:     "watch_proofs_failure_aborts_confirmation",
+		testFunc: testWatchProofsFailureAbortsConfirmation,
+	},
 }
 
 // TestBatchedAssetIssuance runs a test of tests to ensure that the set of
@@ -2308,7 +2471,7 @@ func TestBatchedAssetIssuance(t *testing.T) {
 func TestGroupKeyRevealV1WitnessWithCustomRoot(t *testing.T) {
 	var (
 		ctx              = context.Background()
-		mockKeyRing      = tapgarden.NewMockKeyRing()
+		mockKeyRing      = tapnodemock.NewKeyRing()
 		mockSigner       = tapgarden.NewMockGenSigner(mockKeyRing)
 		txBuilder        = &tapscript.GroupTxBuilder{}
 		txValidator      = &tap.ValidatorV0{}
@@ -2471,7 +2634,7 @@ func TestGroupKeyRevealV1WitnessWithCustomRoot(t *testing.T) {
 func TestGroupKeyRevealV1WitnessNoScripts(t *testing.T) {
 	var (
 		ctx         = context.Background()
-		mockKeyRing = tapgarden.NewMockKeyRing()
+		mockKeyRing = tapnodemock.NewKeyRing()
 		mockSigner  = tapgarden.NewMockGenSigner(mockKeyRing)
 		txBuilder   = &tapscript.GroupTxBuilder{}
 		txValidator = &tap.ValidatorV0{}

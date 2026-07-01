@@ -23,13 +23,17 @@ import (
 	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapconfig"
+	"github.com/lightninglabs/taproot-assets/tapcustody"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightninglabs/taproot-assets/universe/mintpublish"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	"github.com/lightningnetwork/lnd/clock"
@@ -217,10 +221,10 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		uniStatsDB, defaultClock, statsOpts...,
 	)
 
-	headerVerifier := tapgarden.GenHeaderVerifier(
+	headerVerifier := tapnode.GenHeaderVerifier(
 		context.Background(), chainBridge,
 	)
-	groupVerifier := tapgarden.GenGroupVerifier(
+	groupVerifier := tapnode.GenGroupVerifier(
 		context.Background(), assetMintingStore,
 	)
 
@@ -399,7 +403,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
-	reOrgWatcher := tapgarden.NewReOrgWatcher(&tapgarden.ReOrgWatcherConfig{
+	reOrgWatcher := tapreorg.NewWatcher(&tapreorg.Config{
 		ChainBridge:   chainBridge,
 		GroupVerifier: groupVerifier,
 		ProofArchive:  proofArchive,
@@ -806,25 +810,35 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			GardenKit: tapgarden.GardenKit{
 				Wallet:                walletAnchor,
 				ChainBridge:           chainBridge,
-				Log:                   assetMintingStore,
+				BatchStore:            assetMintingStore,
+				MintingRefs:           assetMintingStore,
 				TreeStore:             assetMintingStore,
 				KeyRing:               keyRing,
 				GenSigner:             virtualTxSigner,
 				GenTxBuilder:          &tapscript.GroupTxBuilder{},
 				TxValidator:           &tap.ValidatorV0{},
-				ProofFiles:            proofFileStore,
-				Universe:              universeFederation,
-				ProofWatcher:          reOrgWatcher,
-				UniversePushBatchSize: defaultUniverseSyncBatchSize,
-				IgnoreChecker:         ignoreCheckerOpt,
-				MintSupplyCommitter:   supplyCommitManager,
-				DelegationKeyChecker:  addrBook,
+				ProofFiles: proofFileStore,
+				MintProofPublisher: mintpublish.NewPublisher(
+					universeFederation,
+					defaultUniverseSyncBatchSize,
+				),
+				ProofWatcher:  reOrgWatcher,
+				IgnoreChecker: ignoreCheckerOpt,
+				GenesisTxAugmenter: supplycommit.NewGenesisAugmenter(
+					supplycommit.GenesisAugmenterCfg{
+						PreCommitStore:       tapdb.NewSupplyPreCommitStore(mintingStore),
+						KeyRing:              keyRing,
+						DelegationKeyChecker: addrBook,
+						MintEvents:           supplyCommitManager,
+						ChainParams:          tapChainParams,
+					},
+				),
 			},
 			ChainParams:  tapChainParams,
 			ProofUpdates: proofArchive,
 			ErrChan:      mainErrChan,
 		}),
-		AssetCustodian: tapgarden.NewCustodian(&tapgarden.CustodianConfig{
+		AssetCustodian: tapcustody.NewCustodian(&tapcustody.Config{
 			ChainParams:            &tapChainParams,
 			WalletAnchor:           walletAnchor,
 			ChainBridge:            chainBridge,

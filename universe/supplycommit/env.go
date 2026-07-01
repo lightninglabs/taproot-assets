@@ -19,7 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -376,7 +376,7 @@ func NewPreCommitFromProof(issuanceProof proof.Proof,
 	// supply pre-commitment output.
 	//
 	// Construct the expected pre-commit tx out.
-	expectedTxOut, err := tapgarden.PreCommitTxOut(delegationKey)
+	expectedTxOut, err := PreCommitTxOut(delegationKey)
 	if err != nil {
 		return zero, fmt.Errorf("unable to derive expected pre-commit "+
 			"txout: %w", err)
@@ -916,7 +916,7 @@ type Environment struct {
 	// Chain is our access to the current main chain.
 	//
 	// TODO(roasbeef): can make a slimmer version of
-	Chain tapgarden.ChainBridge
+	Chain tapnode.ChainBridge
 
 	// SupplySyncer is used to insert supply commitments into the remote
 	// universe server.

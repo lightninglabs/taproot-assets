@@ -369,20 +369,26 @@ WITH target_batch AS (
 )
 UPDATE asset_minting_batches
 SET minting_tx_psbt = $2, change_output_index = $3, assets_output_index = $4,
-    genesis_id = $5, universe_commitments = $6
+    genesis_id = $5
 WHERE batch_id IN (SELECT batch_id FROM target_batch)
 RETURNING batch_id
 `
 
 type BindMintingBatchWithTxParams struct {
-	RawKey              []byte
-	MintingTxPsbt       []byte
-	ChangeOutputIndex   sql.NullInt32
-	AssetsOutputIndex   sql.NullInt32
-	GenesisID           sql.NullInt64
-	UniverseCommitments bool
+	RawKey            []byte
+	MintingTxPsbt     []byte
+	ChangeOutputIndex sql.NullInt32
+	AssetsOutputIndex sql.NullInt32
+	GenesisID         sql.NullInt64
 }
 
+// universe_commitments is intentionally not in the SET clause: the
+// flag is set once at batch creation (NewMintingBatch) from the
+// seedling's SupplyCommitments intent and must not change at
+// funding time. Overwriting it here from a caller-derived value
+// would silently disable supply commitments if no augmenter bind
+// payload was produced for a batch that legitimately requested
+// them.
 func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, BindMintingBatchWithTx,
 		arg.RawKey,
@@ -390,7 +396,6 @@ func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBat
 		arg.ChangeOutputIndex,
 		arg.AssetsOutputIndex,
 		arg.GenesisID,
-		arg.UniverseCommitments,
 	)
 	var batch_id int64
 	err := row.Scan(&batch_id)
@@ -1666,6 +1671,7 @@ WHERE (
     (precommits.group_key = $2 OR $2 IS NULL) AND
     (taproot_internal_keys.raw_key = $3 OR $3 IS NULL)
 )
+ORDER BY precommits.id ASC
 `
 
 type FetchMintSupplyPreCommitsParams struct {
@@ -1788,6 +1794,7 @@ FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
 WHERE batches.batch_state != $1
+ORDER BY batches.creation_time_unix DESC, batches.batch_id DESC
 `
 
 type FetchMintingBatchesByInverseStateRow struct {
@@ -1807,6 +1814,10 @@ type FetchMintingBatchesByInverseStateRow struct {
 	KeyIndex            int32
 }
 
+// ORDER BY matches the tie-break used by migration 61's self-heal
+// (creation_time_unix DESC, batch_id DESC), so any code that has to
+// pick "the most recent" pre-broadcast batch when several share a
+// timestamp reaches the same row as the migration.
 func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error) {
 	rows, err := q.db.QueryContext(ctx, FetchMintingBatchesByInverseState, batchState)
 	if err != nil {

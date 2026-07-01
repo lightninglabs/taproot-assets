@@ -3,6 +3,7 @@ package tapgarden
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -14,46 +15,42 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
-	"github.com/lightninglabs/taproot-assets/universe"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
 )
-
-// MintSupplyCommitter is used during minting to update the on-chain supply
-// commitment of a new minted asset.
-type MintSupplyCommitter interface {
-	// SendMintEvent sends a mint event to the supply commitment state
-	// machine.
-	SendMintEvent(ctx context.Context, assetSpec asset.Specifier,
-		leafKey universe.UniqueLeafKey, issuanceProof universe.Leaf,
-		mintBlockHeight uint32) error
-}
 
 // GardenKit holds the set of shared fundamental interfaces all sub-systems of
 // the tapgarden need to function.
 type GardenKit struct {
 	// Wallet is an active on chain wallet for the target chain.
-	Wallet WalletAnchor
+	Wallet tapnode.WalletAnchor
 
 	// ChainBridge provides access to the chain for confirmation
 	// notification, and other block related actions.
-	ChainBridge ChainBridge
+	ChainBridge tapnode.ChainBridge
 
-	// Log stores the current state of any active batch, throughout the
-	// various states the planter will progress it through.
-	Log MintingStore
+	// BatchStore persists the lifecycle of minting batches. Both the
+	// planter and the cultivators it spawns drive batches through their
+	// states by writing to this store.
+	BatchStore BatchStore
+
+	// MintingRefs exposes read-only lookups for the reference data
+	// (script keys, asset metas, group keys, delegation keys) that
+	// the planter consults when validating seedlings and that the
+	// cultivator consults when verifying proofs via GenGroupVerifier
+	// and GenGroupAnchorVerifier.
+	MintingRefs MintingRefReader
 
 	// TreeStore provides access to optional tapscript trees used with
 	// script keys, minting output keys, and group keys.
@@ -62,7 +59,7 @@ type GardenKit struct {
 	// KeyRing is used for obtaining internal keys for the anchor
 	// transaction, as well as script keys for each asset and group keys
 	// for assets created that permit ongoing emission.
-	KeyRing KeyRing
+	KeyRing tapnode.KeyRing
 
 	// GenSigner is used to generate signatures for the key group tweaked
 	// by the genesis point when creating assets that permit on going
@@ -80,30 +77,27 @@ type GardenKit struct {
 	// ProofFiles stores the set of flat proof files.
 	ProofFiles proof.Archiver
 
-	// Universe is used to register new asset issuance with a local/remote
-	// base universe instance.
-	Universe universe.BatchRegistrar
+	// MintProofPublisher ships freshly-minted (or re-organized) proofs
+	// to a downstream distributor (e.g. a local/remote universe). If
+	// nil, no proofs are published; the cultivator's local archival
+	// path is unaffected.
+	MintProofPublisher MintProofPublisher
 
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.
 	ProofWatcher proof.Watcher
 
-	// UniversePushBatchSize is the number of minted items to push to the
-	// local universe in a single batch.
-	UniversePushBatchSize int
-
 	// IgnoreChecker is an optional function that can be used to check if
 	// a proof should be ignored.
 	IgnoreChecker lfn.Option[proof.IgnoreChecker]
 
-	// MintSupplyCommitter is used to commit the minting of new assets to
-	// the supply commitment state machine.
-	MintSupplyCommitter MintSupplyCommitter
-
-	// DelegationKeyChecker is used to verify that we control the delegation
-	// key for a given asset, which is required for creating supply
-	// commitments.
-	DelegationKeyChecker address.DelegationKeyChecker
+	// GenesisTxAugmenter is an optional hook that lets an external
+	// substance (e.g. supply commitment) participate in batch
+	// minting without tapgarden having to know what that
+	// substance is doing. When unset, all augmenter call sites
+	// degrade to NoOpAugmenter and minting proceeds without any
+	// extra outputs, validation, or post-confirmation events.
+	GenesisTxAugmenter GenesisTxAugmenter
 }
 
 // PlanterConfig is the main config for the ChainPlanter.
@@ -128,38 +122,54 @@ type PlanterConfig struct {
 // BatchKey is a type alias for a serialized public key.
 type BatchKey = asset.SerializedKey
 
-// CancelResp is the response from a caretaker attempting to cancel a batch.
+// CancelResp is the response from a cultivator attempting to cancel a batch.
 type CancelResp struct {
 	cancelAttempted bool
 	err             error
 }
 
-type stateRequest interface {
-	Resolve(any)
-	Error(error)
-	Return(any, error)
-	Type() reqType
-	Param() any
+// cancelReq is a cancellation request sent from the planter to a
+// cultivator. Each request carries its own response channel, so the
+// cultivator's reply is causally bound to this specific call and cannot
+// be confused with the reply to any other in-flight or future
+// cancellation. The previous protocol used two shared channels per
+// cultivator (CancelReqChan + CancelRespChan), which was only correct
+// because the gardener serialized all cancel calls -- a discipline,
+// not a property the protocol itself guaranteed.
+type cancelReq struct {
+	// resp is the unique reply channel for this request. The
+	// cultivator writes the result here exactly once. Buffer size 1
+	// so the cultivator never blocks if the planter has already
+	// given up (e.g. on c.Quit).
+	resp chan<- CancelResp
 }
 
-type stateReq[T any] struct {
-	resp    chan T
-	err     chan error
-	reqType reqType
+// stateReq is a request executed inside the gardener loop. The
+// closure captures its own response channel and any parameters; the
+// loop simply invokes it. This replaces the prior stateRequest
+// interface + stateReq[T] / stateParamReq[T,S] generics + reqType
+// enum + dispatch switch. Closures preserve the per-call binding
+// between request and response without any runtime type assertions.
+type stateReq func()
+
+// stateResult is what a stateReq closure writes back to its caller.
+// One buffered channel of stateResult[T] per call replaces the prior
+// (resp, err) channel pair.
+type stateResult[T any] struct {
+	val T
+	err error
 }
 
-func newStateReq[T any](req reqType) *stateReq[T] {
-	return &stateReq[T]{
-		resp:    make(chan T, 1),
-		err:     make(chan error, 1),
-		reqType: req,
-	}
+// stateOk constructs a successful stateResult[T] with the given
+// value.
+func stateOk[T any](v T) stateResult[T] {
+	return stateResult[T]{val: v}
 }
 
-type stateParamReq[T, S any] struct {
-	stateReq[T]
-
-	param S
+// stateErr constructs a failing stateResult[T] with the given
+// error.
+func stateErr[T any](err error) stateResult[T] {
+	return stateResult[T]{err: err}
 }
 
 // ListBatchesParams are the options available to specify which minting batches
@@ -170,10 +180,14 @@ type ListBatchesParams struct {
 }
 
 // PendingAssetGroup is the group key request and virtual TX necessary to
-// produce an asset group witness for a seedling.
+// produce an asset group witness for a seedling. The joining principle is
+// "a request together with the virtual tx that fulfils it."
 type PendingAssetGroup struct {
-	asset.GroupKeyRequest
-	asset.GroupVirtualTx
+	// KeyRequest is the request to create the asset group.
+	KeyRequest asset.GroupKeyRequest
+
+	// VirtualTx is the virtual tx that fulfils the KeyRequest.
+	VirtualTx asset.GroupVirtualTx
 }
 
 // PSBT returns a PSBT packet that can be used to create a group witness for the
@@ -182,22 +196,22 @@ func (p *PendingAssetGroup) PSBT(
 	params chaincfg.Params) (*psbt.Packet, error) {
 
 	// Generate PSBT equivalent of the group virtual tx.
-	packet, err := psbt.NewFromUnsignedTx(&p.GroupVirtualTx.Tx)
+	packet, err := psbt.NewFromUnsignedTx(&p.VirtualTx.Tx)
 	if err != nil {
 		return nil, fmt.Errorf("error producing group virtual PSBT "+
 			"from tx: %w", err)
 	}
 
 	vIn := &packet.Inputs[0]
-	vIn.WitnessUtxo = &p.GroupVirtualTx.PrevOut
-	vIn.TaprootMerkleRoot = p.GroupKeyRequest.TapscriptRoot
+	vIn.WitnessUtxo = &p.VirtualTx.PrevOut
+	vIn.TaprootMerkleRoot = p.KeyRequest.TapscriptRoot
 	vIn.TaprootInternalKey = schnorr.SerializePubKey(
-		p.GroupKeyRequest.RawKey.PubKey,
+		p.KeyRequest.RawKey.PubKey,
 	)
 
 	switch {
-	case p.GroupKeyRequest.ExternalKey.IsSome():
-		externalKey := p.GroupKeyRequest.ExternalKey.UnwrapToPtr()
+	case p.KeyRequest.ExternalKey.IsSome():
+		externalKey := p.KeyRequest.ExternalKey.UnwrapToPtr()
 		pubKey, err := externalKey.PubKey()
 		if err != nil {
 			return nil, fmt.Errorf("error deriving public key "+
@@ -234,7 +248,7 @@ func (p *PendingAssetGroup) PSBT(
 		// TODO(guggero): Make this switch dependent on the non-spend
 		// leaf version, once we allow the user to configure that.
 		if true {
-			assetID := p.AnchorGen.ID()
+			assetID := p.KeyRequest.AnchorGen.ID()
 			numsXPub, numsKey, err := asset.TweakedNumsKey(assetID)
 			if err != nil {
 				return nil, fmt.Errorf("error deriving nums "+
@@ -290,7 +304,7 @@ func (p *PendingAssetGroup) PSBT(
 
 	default:
 		bip32, trBip32 := tappsbt.Bip32DerivationFromKeyDesc(
-			p.GroupKeyRequest.RawKey, params.HDCoinType,
+			p.KeyRequest.RawKey, params.HDCoinType,
 		)
 		vIn.Bip32Derivation = []*psbt.Bip32Derivation{bip32}
 		vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
@@ -338,63 +352,9 @@ type SealParams struct {
 	SignedGroupVirtualPsbts []psbt.Packet
 }
 
-func newStateParamReq[T, S any](req reqType, param S) *stateParamReq[T, S] {
-	return &stateParamReq[T, S]{
-		stateReq: *newStateReq[T](req),
-		param:    param,
-	}
-}
-
-func (s *stateReq[T]) Resolve(resp any) {
-	s.resp <- resp.(T)
-	close(s.err)
-}
-
-func (s *stateReq[T]) Error(err error) {
-	s.err <- err
-	close(s.resp)
-}
-
-func (s *stateReq[T]) Return(resp any, err error) {
-	s.resp <- resp.(T)
-	s.err <- err
-}
-
-func (s *stateReq[T]) Type() reqType {
-	return s.reqType
-}
-
-func (s *stateReq[T]) Param() any {
-	return nil
-}
-
-func (s *stateParamReq[T, S]) Param() any {
-	return s.param
-}
-
-func typedParam[T any](req stateRequest) (*T, error) {
-	if param, ok := req.Param().(T); ok {
-		return &param, nil
-	}
-
-	return nil, fmt.Errorf("invalid type")
-}
-
-type reqType uint8
-
-const (
-	reqTypePendingBatch = iota
-	reqTypeNumActiveBatches
-	reqTypeListBatches
-	reqTypeFinalizeBatch
-	reqTypeCancelBatch
-	reqTypeFundBatch
-	reqTypeSealBatch
-)
-
 // ChainPlanter is responsible for accepting new incoming requests to create
 // taproot assets. The planter will periodically batch those requests into a new
-// minting batch, which is handed off to a caretaker. While batches are
+// minting batch, which is handed off to a cultivator. While batches are
 // progressing through maturity the planter will be responsible for sending
 // notifications back to the relevant caller.
 type ChainPlanter struct {
@@ -410,19 +370,20 @@ type ChainPlanter struct {
 	// these will exist at any given time.
 	pendingBatch *MintingBatch
 
-	// caretakers maps a batch key (which is used as the internal key for
-	// the transaction that mints the assets) to the caretaker that will
+	// cultivators maps a batch key (which is used as the internal key for
+	// the transaction that mints the assets) to the cultivator that will
 	// progress the batch through the final phases.
-	caretakers map[BatchKey]*BatchCaretaker
+	cultivators map[BatchKey]*Cultivator
 
-	// completionSignals is a channel used to allow the caretakers to
+	// completionSignals is a channel used to allow the cultivators to
 	// signal that the batch is fully final, allowing garbage collection of
 	// any relevant resources.
 	completionSignals chan BatchKey
 
 	// stateReqs is the channel that any outside requests for the state of
-	// the planter will come across.
-	stateReqs chan stateRequest
+	// the planter will come across. Each request is a closure that runs
+	// inside the gardener loop with full access to ChainPlanter state.
+	stateReqs chan stateReq
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
@@ -439,11 +400,16 @@ type ChainPlanter struct {
 // NewChainPlanter creates a new ChainPlanter instance given the passed config.
 func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 	return &ChainPlanter{
-		cfg:               cfg,
-		caretakers:        make(map[BatchKey]*BatchCaretaker),
-		completionSignals: make(chan BatchKey),
+		cfg:         cfg,
+		cultivators: make(map[BatchKey]*Cultivator),
+		// Buffer size 1 so a cultivator that finishes while the
+		// gardener is inside a stateReq closure (e.g. servicing a
+		// cancel request) can hand off its completion signal and
+		// exit without blocking. The gardener drains it on the
+		// next select loop iteration.
+		completionSignals: make(chan BatchKey, 1),
 		seedlingReqs:      make(chan *Seedling),
-		stateReqs:         make(chan stateRequest),
+		stateReqs:         make(chan stateReq),
 		subscribers:       make(map[uint64]*fn.EventReceiver[fn.Event]),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
@@ -452,22 +418,44 @@ func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 	}
 }
 
-// newCaretakerForBatch creates a new BatchCaretaker for a given batch and
-// inserts it into the caretaker map.
-func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch,
-	feeRate *chainfee.SatPerKWeight) *BatchCaretaker {
+// augmenter returns the GenesisTxAugmenter configured on the
+// planter's GardenKit, or a no-op augmenter when none was wired.
+// Call sites can invoke augmenter methods without nil-checking.
+func (c *ChainPlanter) augmenter() GenesisTxAugmenter {
+	if c.cfg.GenesisTxAugmenter == nil {
+		return NoOpAugmenter{}
+	}
+	return c.cfg.GenesisTxAugmenter
+}
+
+// newCultivatorForBatch creates a new Cultivator for a given batch and
+// inserts it into the cultivator map.
+func (c *ChainPlanter) newCultivatorForBatch(batch *MintingBatch,
+	feeRate *chainfee.SatPerKWeight) *Cultivator {
 
 	batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
-	batchConfig := &BatchCaretakerConfig{
+	batchConfig := &CultivatorConfig{
 		Batch:                 batch,
-		GardenKit:             c.cfg.GardenKit,
+		GardenKit:             &c.cfg.GardenKit,
 		BroadcastCompleteChan: make(chan struct{}, 1),
 		BroadcastErrChan:      make(chan error, 1),
+		// SignalCompletion is invoked from the cultivator goroutine
+		// just before it returns. The gardener reads
+		// c.completionSignals from its main select; if Stop has
+		// already closed c.Quit, the gardener is no longer in that
+		// select and the unbuffered send would block forever,
+		// hanging cultivator.Stop's Wg.Wait inside stopCultivators.
+		// Selecting on c.Quit makes the send abandonable, which is
+		// safe: on shutdown the planter does not need the
+		// completion notification (it is stopping the cultivator
+		// anyway).
 		SignalCompletion: func() {
-			c.completionSignals <- batchKey
+			select {
+			case c.completionSignals <- batchKey:
+			case <-c.Quit:
+			}
 		},
-		CancelReqChan:       make(chan struct{}, 1),
-		CancelRespChan:      make(chan CancelResp, 1),
+		CancelReqChan:       make(chan cancelReq, 1),
 		UpdateMintingProofs: c.updateMintingProofs,
 		PublishMintEvent:    c.publishSubscriberEvent,
 		ErrChan:             c.cfg.ErrChan,
@@ -476,10 +464,10 @@ func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch,
 		batchConfig.BatchFeeRate = feeRate
 	}
 
-	caretaker := NewBatchCaretaker(batchConfig)
-	c.caretakers[batchKey] = caretaker
+	cultivator := NewCultivator(batchConfig)
+	c.cultivators[batchKey] = cultivator
 
-	return caretaker
+	return cultivator
 }
 
 // Start starts the ChainPlanter and any goroutines it needs to carry out its
@@ -493,14 +481,15 @@ func (c *ChainPlanter) Start() error {
 		// fully finalized (minting transaction well confirmed on
 		// chain). This includes batches that were still pending before
 		// our last restart, so were never frozen in the first place.
-		// The caretaker will handle progressing the batch to the
+		// The cultivator will handle progressing the batch to the
 		// frozen state, and beyond.
 		//
 		// TODO(roasbeef): instead do RBF here? so only a single
 		// pending batch at a time? but would end up changing assetIDs.
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		nonFinalBatches, err := c.cfg.Log.FetchNonFinalBatches(ctx)
+		nonFinalBatches, err :=
+			c.cfg.BatchStore.FetchNonFinalBatches(ctx)
 		if err != nil {
 			startErr = err
 			return
@@ -509,8 +498,21 @@ func (c *ChainPlanter) Start() error {
 		log.Infof("Retrieved %v non-finalized batches from DB",
 			len(nonFinalBatches))
 
+		// Enforce the singleton invariant: at most one batch may
+		// be in BatchStatePending or BatchStateFrozen at a time.
+		// The DB constraint added in migration 000061 should
+		// already make this impossible, but a legacy DB that was
+		// migrated post-population, or a manually-modified row,
+		// could still violate it. Surfacing the error here gives
+		// the operator a human-readable diagnostic instead of an
+		// opaque SQL one later.
+		if err := checkSingletonInvariant(nonFinalBatches); err != nil {
+			startErr = err
+			return
+		}
+
 		// Now for each of these non-final batches, we'll make a new
-		// caretaker which'll handle progressing each batch to
+		// cultivator which'll handle progressing each batch to
 		// completion. We'll skip batches that were cancelled.
 		for _, batch := range nonFinalBatches {
 			batchState := batch.State()
@@ -536,8 +538,8 @@ func (c *ChainPlanter) Start() error {
 			cancelBatch := func() {
 				log.Warnf("Marking batch as cancelled (%x)",
 					batchKey)
-				err := c.cfg.Log.UpdateBatchState(
-					ctx, batch.BatchKey.PubKey,
+				err := c.cfg.BatchStore.UpdateBatchState(
+					ctx, batch,
 					BatchStateSeedlingCancelled,
 				)
 
@@ -553,10 +555,10 @@ func (c *ChainPlanter) Start() error {
 			// TODO(jhb): Log manual fee rates?
 			// If the batch was still pending, or if batch
 			// finalization was interrupted, it may need to be
-			// funded or sealed before being assigned a caretaker.
+			// funded or sealed before being assigned a cultivator.
 			// A batch that was already properly frozen at this
 			// point should not be modified before being assigned a
-			// caretaker.
+			// cultivator.
 			if batchState == BatchStatePending ||
 				batchState == BatchStateFrozen {
 
@@ -568,7 +570,7 @@ func (c *ChainPlanter) Start() error {
 				if !batch.IsFunded() {
 					log.Infof("Funding non-finalized "+
 						"batch from DB (%x)", batchKey)
-					fundErr = c.fundBatch(
+					fundErr = c.applyFundingToBatch(
 						ctx, FundParams{}, batch,
 					)
 				}
@@ -608,12 +610,12 @@ func (c *ChainPlanter) Start() error {
 
 				// Any pending batch that was funded and sealed
 				// can now be set as frozen. We are already not
-				// able to add new seedlings to the batch.
-				batch.UpdateState(BatchStateFrozen)
-
-				err := c.cfg.Log.UpdateBatchState(
-					ctx, batch.BatchKey.PubKey,
-					BatchStateFrozen,
+				// able to add new seedlings to the batch. The
+				// store call below moves both the on-disk row
+				// and the in-memory mirror atomically; if it
+				// fails, neither has moved.
+				err := c.cfg.BatchStore.UpdateBatchState(
+					ctx, batch, BatchStateFrozen,
 				)
 				if err != nil {
 					log.Warnf("Failed to update batch "+
@@ -624,15 +626,15 @@ func (c *ChainPlanter) Start() error {
 				}
 			}
 
-			log.Infof("Launching ChainCaretaker(%x)", batchKey)
-			caretaker := c.newCaretakerForBatch(batch, nil)
-			if err := caretaker.Start(); err != nil {
+			log.Infof("Launching Cultivator(%x)", batchKey)
+			cultivator := c.newCultivatorForBatch(batch, nil)
+			if err := cultivator.Start(); err != nil {
 				startErr = err
 				return
 			}
 		}
 
-		// With all the caretakers for each minting batch launched,
+		// With all the cultivators for each minting batch launched,
 		// we'll start up the main gardener goroutine so we can accept
 		// new minting requests.
 		c.Wg.Add(1)
@@ -664,15 +666,15 @@ func (c *ChainPlanter) Stop() error {
 	return stopErr
 }
 
-// stopCaretakers attempts to gracefully stop all the active caretakers.
-func (c *ChainPlanter) stopCaretakers() {
-	for batchKey, caretaker := range c.caretakers {
-		log.Debugf("Stopping ChainCaretaker(%x)", batchKey[:])
+// stopCultivators attempts to gracefully stop all the active cultivators.
+func (c *ChainPlanter) stopCultivators() {
+	for batchKey, cultivator := range c.cultivators {
+		log.Debugf("Stopping Cultivator(%x)", batchKey[:])
 
-		if err := caretaker.Stop(); err != nil {
+		if err := cultivator.Stop(); err != nil {
 			// TODO(roasbeef): continue and stop the rest
 			// of them?
-			log.Warnf("Unable to stop ChainCaretaker(%x)",
+			log.Warnf("Unable to stop Cultivator(%x)",
 				batchKey[:])
 			return
 		}
@@ -709,7 +711,11 @@ func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
 		Seedlings:    make(map[string]*Seedling),
 		AssetMetas:   make(AssetMetas),
 	}
-	newBatch.UpdateState(BatchStatePending)
+	// The batch is private to this caller until CommitMintingBatch
+	// succeeds, so setting the in-memory state directly here does not
+	// open a two-truth window: the next DB call is the first to publish
+	// the row, with state=Pending.
+	newBatch.setState(BatchStatePending)
 	return newBatch, nil
 }
 
@@ -751,75 +757,35 @@ type AnchorTxOutputIndexes struct {
 
 	// ChangeOutIdx is the index of the change output in the transaction.
 	ChangeOutIdx uint32
-
-	// PreCommitOutIdx is the index of the pre-commitment output in the
-	// transaction. This field is only set if universe commitments are
-	// enabled for the batch.
-	PreCommitOutIdx fn.Option[uint32]
 }
 
-// anchorTxOutputIndexes specifies the output indexes of the anchor transaction.
-func anchorTxOutputIndexes(fundedPsbt tapsend.FundedPsbt,
-	preCommitmentTxOut fn.Option[wire.TxOut]) (AnchorTxOutputIndexes,
-	error) {
+// anchorTxOutputIndexes scans the funded anchor PSBT for the asset
+// anchor output and the wallet-provided change output. Any
+// additional outputs (e.g. those contributed by the
+// GenesisTxAugmenter) are located by the augmenter itself.
+func anchorTxOutputIndexes(
+	fundedPsbt tapsend.FundedPsbt) (AnchorTxOutputIndexes, error) {
 
 	var (
 		zero AnchorTxOutputIndexes
 
-		// assetAnchorOutIdxOpt will contain the index of the asset
-		// anchor output in the transaction.
 		assetAnchorOutIdxOpt fn.Option[uint32]
-
-		// preCommitOutIdx will contain the index of the pre-commitment
-		// output in the transaction. This field is only
-		// set if universe commitments are enabled for the batch.
-		preCommitOutIdx fn.Option[uint32]
 	)
 
-	// Formulate the expected asset anchor output that we will use to
-	// identify the asset anchor output in the transaction.
 	expectedAssetAnchorOutput := tapsend.CreateDummyOutput()
 	expectedAssetAnchorPkScript := expectedAssetAnchorOutput.PkScript
 
-	// Inspect each output in the transaction to determine the output
-	// indexes.
 	for idx := range fundedPsbt.Pkt.UnsignedTx.TxOut {
-		// Skip the change output based on its index.
 		if int32(idx) == fundedPsbt.ChangeOutputIndex {
 			continue
 		}
-
-		// We will inspect the output script pubkey to determine whether
-		// it is the asset anchor output or the pre-commitment output.
 		txOut := fundedPsbt.Pkt.UnsignedTx.TxOut[idx]
-
-		// If the output script pubkey matches the expected asset anchor
-		// output script pubkey, we have found the asset anchor output.
 		if bytes.Equal(txOut.PkScript, expectedAssetAnchorPkScript) {
 			assetAnchorOutIdxOpt = fn.Some(uint32(idx))
-			continue
+			break
 		}
-
-		// If universe commitments are enabled, we will inspect the
-		// output script pubkey to determine whether it is the
-		// pre-commitment output.
-		preCommitmentTxOut.WhenSome(
-			func(preCommitTxOut wire.TxOut) {
-				// If the output script pubkey matches the
-				// pre-commitment output script pubkey, we have
-				// found the pre-commitment output.
-				outputMatch := bytes.Equal(
-					txOut.PkScript, preCommitTxOut.PkScript,
-				)
-				if outputMatch {
-					preCommitOutIdx = fn.Some(uint32(idx))
-				}
-			},
-		)
 	}
 
-	// Unpack the asset anchor output index. Return an error if the output
-	// index is not found.
 	assetAnchorOutIdx, err := assetAnchorOutIdxOpt.UnwrapOrErr(
 		fmt.Errorf("asset anchor output index not found"),
 	)
@@ -827,110 +793,10 @@ func anchorTxOutputIndexes(fundedPsbt tapsend.FundedPsbt,
 		return zero, err
 	}
 
-	// If the pre-commitment output is expected, but not found, we return an
-	// error.
-	if preCommitmentTxOut.IsSome() && !preCommitOutIdx.IsSome() {
-		return zero, fmt.Errorf("pre-commitment output index not found")
-	}
-
 	return AnchorTxOutputIndexes{
 		AssetAnchorOutIdx: assetAnchorOutIdx,
 		ChangeOutIdx:      uint32(fundedPsbt.ChangeOutputIndex),
-		PreCommitOutIdx:   preCommitOutIdx,
 	}, nil
-}
-
-// DelegationKey is a type alias for a key descriptor used as a supply
-// commitment delegation key.
-type DelegationKey = keychain.KeyDescriptor
-
-// fetchDelegationKey retrieves the delegation key from the given batch.
-func fetchDelegationKey(pendingBatch *MintingBatch) (fn.Option[DelegationKey],
-	error) {
-
-	var zero fn.Option[DelegationKey]
-
-	// Ensure that a pending batch is provided.
-	if pendingBatch == nil {
-		return zero, fmt.Errorf("no pending batch provided when " +
-			"creating pre-commitment output")
-	}
-
-	// Ensure that the batch has at least one seedling.
-	if len(pendingBatch.Seedlings) == 0 {
-		return zero, fmt.Errorf("failed to derive pre-commitment " +
-			"delegation key: no seedlings in batch")
-	}
-
-	// Retrieve batch anchor seedling.
-	var groupAnchorSeedling fn.Option[Seedling]
-	for _, seedling := range pendingBatch.Seedlings {
-		if seedling.GroupAnchor == nil {
-			groupAnchorSeedling = fn.Some(*seedling)
-			break
-		}
-
-		groupAnchorSeedling =
-			fn.Some(*pendingBatch.Seedlings[*seedling.GroupAnchor])
-		break
-	}
-
-	delegationKeyDesc := fn.MapOptionZ(groupAnchorSeedling,
-		func(s Seedling) fn.Option[keychain.KeyDescriptor] {
-			return s.DelegationKey
-		},
-	)
-
-	return delegationKeyDesc, nil
-}
-
-// fetchPreCommitGroupKey retrieves the group key associated with the
-// pre-commitment output from the batch, if the pre-commitment feature is
-// enabled and a group key is available.
-func fetchPreCommitGroupKey(
-	pendingBatch *MintingBatch) (fn.Option[btcec.PublicKey], error) {
-
-	var zero fn.Option[btcec.PublicKey]
-
-	// Return None if no pending batch is provided.
-	if pendingBatch == nil {
-		return zero, nil
-	}
-
-	// If universe commitments are disabled, there is no group key available
-	// from the batch to associate with the pre-commitment. Therefore, we
-	// return None.
-	if !pendingBatch.SupplyCommitments {
-		return zero, nil
-	}
-
-	// If the batch has no seedlings, we can't derive a group key.
-	if len(pendingBatch.Seedlings) == 0 {
-		return zero, nil
-	}
-
-	// Retrieve batch anchor seedling.
-	var groupAnchorSeedling Seedling
-	for _, seedling := range pendingBatch.Seedlings {
-		// If the seedling has no group anchor, we can use it as the
-		// group anchor seedling.
-		if seedling.GroupAnchor == nil {
-			groupAnchorSeedling = *seedling
-			break
-		}
-
-		groupAnchorSeedling =
-			*pendingBatch.Seedlings[*seedling.GroupAnchor]
-		break
-	}
-
-	// If the group info is unset, then there is no pre-commitment group pub
-	// key defined in the batch.
-	if groupAnchorSeedling.GroupInfo == nil {
-		return zero, nil
-	}
-
-	return fn.Some(groupAnchorSeedling.GroupInfo.GroupPubKey), nil
 }
 
 // anchorTxFeeRate computes the fee rate for the anchor transaction. If a fee
@@ -1017,42 +883,41 @@ type WalletFundPsbt = func(ctx context.Context,
 // (all outputs need to hold some BTC to not be dust), and with a dummy script.
 // We need to use a dummy script as we can't know the actual script key since
 // that's dependent on the genesis outpoint.
-func fundGenesisPsbt(ctx context.Context, chainParams address.ChainParams,
-	pendingBatch *MintingBatch,
-	walletFundPsbt WalletFundPsbt) (FundedMintAnchorPsbt, error) {
+func fundGenesisPsbt(ctx context.Context, _ address.ChainParams,
+	pendingBatch *MintingBatch, walletFundPsbt WalletFundPsbt,
+	augmenter GenesisTxAugmenter) (FundedMintAnchorPsbt, error) {
 
 	var zero FundedMintAnchorPsbt
 
-	// If universe commitments are enabled, we formulate a pre-commitment
-	// output. This output is spent by the universe commitment transaction.
-	var delegationKey fn.Option[DelegationKey]
-	if pendingBatch != nil && pendingBatch.SupplyCommitments {
-		delegationK, err := fetchDelegationKey(pendingBatch)
-		if err != nil {
-			return zero, fmt.Errorf("unable to create "+
-				"pre-commitment output: %w", err)
-		}
-
-		delegationKey = delegationK
+	if augmenter == nil {
+		augmenter = NoOpAugmenter{}
 	}
 
-	// Derive wire.TxOut from the pre-commitment delegation key, if
-	// available. The delegation key is used as the output internal key.
-	var preCommitmentTxOut fn.Option[wire.TxOut]
-	if delegationKey.IsSome() {
-		txOut, err := fn.MapOptionZ(
-			delegationKey,
-			func(key DelegationKey) lfn.Result[wire.TxOut] {
-				return lfn.NewResult(
-					PreCommitTxOut(*key.PubKey),
-				)
-			},
-		).Unpack()
-		if err != nil {
-			return zero, err
-		}
+	// Ask the augmenter for any extra outputs to splice into
+	// the unfunded anchor PSBT (e.g. the pre-commitment output
+	// for the supply-commit substance). The augmenter returns
+	// nil/empty when it has nothing to contribute, in which
+	// case the genesis tx carries only the asset anchor output
+	// (plus a wallet-managed change output).
+	extraOuts, err := augmenter.ExtraOutputs(ctx, pendingBatch)
+	if err != nil {
+		return zero, fmt.Errorf("augmenter ExtraOutputs: %w", err)
+	}
 
-		preCommitmentTxOut = fn.Some(txOut)
+	// The legacy funding helper accepted a single fn.Option for
+	// the pre-commitment output. The augmenter generalizes that
+	// to a list, but in practice only zero or one extra output
+	// is contributed today; route accordingly.
+	var preCommitmentTxOut fn.Option[wire.TxOut]
+	switch len(extraOuts) {
+	case 0:
+		// no-op
+	case 1:
+		preCommitmentTxOut = fn.Some(extraOuts[0])
+	default:
+		return zero, fmt.Errorf("augmenter returned %d extra "+
+			"outputs; only zero or one is supported",
+			len(extraOuts))
 	}
 
 	// Construct an unfunded anchor PSBT which will eventually become a
@@ -1077,90 +942,29 @@ func fundGenesisPsbt(ctx context.Context, chainParams address.ChainParams,
 
 	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
 
-	// Classify anchor transaction output indexes.
-	anchorOutIndexes, err := anchorTxOutputIndexes(
-		fundedGenesisPkt, preCommitmentTxOut,
-	)
+	// Classify anchor transaction output indexes. Tapgarden only
+	// tracks the asset anchor and change output indexes; the
+	// augmenter (if any) tracks its own outputs internally.
+	anchorOutIndexes, err := anchorTxOutputIndexes(fundedGenesisPkt)
 	if err != nil {
 		return zero, fmt.Errorf("unable to determine output indexes: "+
 			"%w", err)
 	}
 
-	// The presence of a delegation key indicates that a pre-commitment
-	// output should exist. Therefore, the index of that output is expected
-	// to be defined at this point.
-	if delegationKey.IsSome() &&
-		anchorOutIndexes.PreCommitOutIdx.IsNone() {
-
-		return zero, fmt.Errorf("pre-commitment output index not found")
+	// Let the augmenter locate its own outputs in the funded
+	// PSBT and stamp any required metadata (BIP32 derivation
+	// for the pre-commitment output).
+	if err := augmenter.PostFund(
+		ctx, pendingBatch, &fundedGenesisPkt,
+	); err != nil {
+		return zero, fmt.Errorf("augmenter PostFund: %w", err)
 	}
 
-	// If pre-commitment output is some, assign the output index to the
-	// pre-commitment output.
-	var preCommitOutIdx fn.Option[uint32]
-	if delegationKey.IsSome() {
-		// Ensure that a pre-commitment output index is found.
-		outIdx, err := anchorOutIndexes.PreCommitOutIdx.UnwrapOrErr(
-			fmt.Errorf("pre-commitment output index not found"),
-		)
-		if err != nil {
-			return zero, err
-		}
-
-		preCommitOutIdx = fn.Some(outIdx)
-	}
-
-	// If there is a group pub key to associate with the pre-commitment
-	// output, fetch it now.
-	preCommitGroupPubKey, err := fetchPreCommitGroupKey(pendingBatch)
-	if err != nil {
-		return zero, fmt.Errorf("unable to fetch pre-commitment "+
-			"group key: %w", err)
-	}
-
-	// Formulate the pre-commitment output descriptor and finalize
-	// pre-commitment output in fundedGenesisPkt.
-	var preCommitOut fn.Option[PreCommitmentOutput]
-	if delegationKey.IsSome() {
-		dKey, err := delegationKey.UnwrapOrErr(
-			fmt.Errorf("code error: expected delegation key"),
-		)
-		if err != nil {
-			return zero, err
-		}
-
-		outIdx, err := preCommitOutIdx.UnwrapOrErr(
-			fmt.Errorf("code error: expected pre-commitment " +
-				"output index"),
-		)
-		if err != nil {
-			return zero, err
-		}
-
-		preCommitOut = fn.Some(NewPreCommitmentOutput(
-			outIdx, dKey, preCommitGroupPubKey,
-		))
-
-		// Finalize the pre-commitment output in the fundedGenesisPkt.
-		// An output is already present in the unsigned transaction, so
-		// we just need to set the corresponding fields in the PSBT.
-		bip32Derivation, trBip32Derivation :=
-			tappsbt.Bip32DerivationFromKeyDesc(
-				dKey, chainParams.HDCoinType,
-			)
-
-		pOut := &fundedGenesisPkt.Pkt.Outputs[outIdx]
-
-		pOut.Bip32Derivation = []*psbt.Bip32Derivation{bip32Derivation}
-		pOut.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
-			trBip32Derivation,
-		}
-		pOut.TaprootInternalKey = trBip32Derivation.XOnlyPubKey
-	}
-
-	// Formulate a funded minting anchor PSBT from the funded PSBT.
+	// Build the FundedMintAnchorPsbt. The augmenter is the
+	// source of truth for any extra outputs and their
+	// persistence payloads via BindData.
 	fundedMintAnchorPsbt, err := NewFundedMintAnchorPsbt(
-		fundedGenesisPkt, anchorOutIndexes, preCommitOut,
+		fundedGenesisPkt, anchorOutIndexes,
 	)
 	if err != nil {
 		return zero, fmt.Errorf("unable to create funded minting "+
@@ -1416,7 +1220,7 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 
 // freezeMintingBatch freezes a target minting batch which means that no new
 // assets can be added to the batch.
-func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
+func freezeMintingBatch(ctx context.Context, batchStore BatchStore,
 	batch *MintingBatch) error {
 
 	batchKey := batch.BatchKey.PubKey
@@ -1429,8 +1233,51 @@ func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
 	//
 	// TODO(roasbeef): assert not in some other state first?
 	return batchStore.UpdateBatchState(
-		ctx, batchKey, BatchStateFrozen,
+		ctx, batch, BatchStateFrozen,
 	)
+}
+
+// checkSingletonInvariant verifies that at most one batch in the
+// supplied slice is in a pre-broadcast state (BatchStatePending or
+// BatchStateFrozen). The invariant is enforced at the DB layer by
+// the partial unique index added in migration 000061; this Go-level
+// check exists as defense in depth and to produce a human-readable
+// diagnostic naming the offending batch keys, since a raw SQL
+// constraint error from a downstream insert is harder to act on.
+//
+// The check is called from ChainPlanter.Start() after
+// FetchNonFinalBatches. If it fails, startup is aborted so the
+// operator can investigate rather than letting the daemon run with
+// ambiguous "which batch is current?" semantics.
+func checkSingletonInvariant(batches []*MintingBatch) error {
+	var preBroadcastKeys []string
+	for _, batch := range batches {
+		switch batch.State() {
+		case BatchStatePending, BatchStateFrozen:
+			preBroadcastKeys = append(
+				preBroadcastKeys,
+				hex.EncodeToString(
+					batch.BatchKey.PubKey.
+						SerializeCompressed(),
+				),
+			)
+
+		default:
+			// Post-broadcast or terminal states are outside the
+			// singleton invariant; they're not counted.
+		}
+	}
+
+	if len(preBroadcastKeys) <= 1 {
+		return nil
+	}
+
+	return fmt.Errorf("singleton pre-broadcast batch invariant "+
+		"violated: found %d batches in BatchStatePending or "+
+		"BatchStateFrozen (keys: %v); at most one is permitted. "+
+		"Resolve by running `tapd --repair.cancel-duplicate-batches` "+
+		"to cancel all but the most recent, then restart",
+		len(preBroadcastKeys), preBroadcastKeys)
 }
 
 // filterFinalizedBatches separates a set of batches into two sets based on
@@ -1455,7 +1302,7 @@ func filterFinalizedBatches(batches []*MintingBatch) ([]*MintingBatch,
 
 // fetchFinalizedBatch fetches the assets of a batch in their genesis state,
 // given a batch populated with seedlings.
-func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
+func fetchFinalizedBatch(ctx context.Context, refs MintingRefReader,
 	archiver proof.Archiver, batch *MintingBatch) (*MintingBatch, error) {
 
 	genesisPkt := batch.GenesisPacket
@@ -1532,7 +1379,7 @@ func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
 				"script key")
 		}
 
-		tweakedScriptKey, err := batchStore.FetchScriptKeyByTweakedKey(
+		tweakedScriptKey, err := refs.FetchScriptKeyByTweakedKey(
 			ctx, sproutedAsset.ScriptKey.PubKey,
 		)
 		if err != nil {
@@ -1541,7 +1388,7 @@ func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
 
 		sproutedAsset.ScriptKey.TweakedScriptKey = tweakedScriptKey
 		if sproutedAsset.GroupKey != nil {
-			assetGroup, err := batchStore.FetchGroupByGroupKey(
+			assetGroup, err := refs.FetchGroupByGroupKey(
 				ctx, &sproutedAsset.GroupKey.GroupPubKey,
 			)
 			if err != nil {
@@ -1588,8 +1435,9 @@ func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
 
 // ListBatches returns the single batch specified by the batch key, or the set
 // of batches not yet finalized on disk.
-func listBatches(ctx context.Context, batchStore MintingStore,
-	archiver proof.Archiver, genBuilder asset.GenesisTxBuilder,
+func listBatches(ctx context.Context, batchStore BatchStore,
+	refs MintingRefReader, archiver proof.Archiver,
+	genBuilder asset.GenesisTxBuilder,
 	params ListBatchesParams) ([]*VerboseBatch, error) {
 
 	var (
@@ -1624,7 +1472,7 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 		finalizedBatches := make([]*MintingBatch, 0, len(finalBatches))
 		for _, batch := range finalBatches {
 			finalizedBatch, err := fetchFinalizedBatch(
-				ctx, batchStore, archiver, batch,
+				ctx, refs, archiver, batch,
 			)
 			if err != nil {
 				return nil, err
@@ -1764,8 +1612,8 @@ func newVerboseBatch(currentBatch *MintingBatch,
 		}
 
 		seedling.PendingAssetGroup = &PendingAssetGroup{
-			GroupKeyRequest: groupReqs[i],
-			GroupVirtualTx:  genTXs[i],
+			KeyRequest: groupReqs[i],
+			VirtualTx:  genTXs[i],
 		}
 	}
 
@@ -1777,14 +1625,14 @@ func newVerboseBatch(currentBatch *MintingBatch,
 }
 
 // canCancelBatch returns a batch key if the planter is in a state where a batch
-// can be cancelled. This does not account for the state of a caretaker that
+// can be cancelled. This does not account for the state of a cultivator that
 // may be managing a batch.
 func (c *ChainPlanter) canCancelBatch() (*btcec.PublicKey, error) {
-	caretakerCount := len(c.caretakers)
+	cultivatorCount := len(c.cultivators)
 
-	switch caretakerCount {
+	switch cultivatorCount {
 	case 0:
-		// If there are no caretakers, the only batch we could cancel
+		// If there are no cultivators, the only batch we could cancel
 		// would be the current pending batch.
 		if c.pendingBatch == nil {
 			return nil, fmt.Errorf("no pending batch")
@@ -1792,56 +1640,113 @@ func (c *ChainPlanter) canCancelBatch() (*btcec.PublicKey, error) {
 
 		return c.pendingBatch.BatchKey.PubKey, nil
 	case 1:
-		// TODO(jhb): Update once we support multiple batches.
-		// If there is exactly one caretaker, our pending batch should
-		// be empty. Otherwise, the batch to cancel is ambiguous.
+		// If there is exactly one cultivator, our pending batch
+		// must be empty for the cancel target to be
+		// unambiguous. Both can coexist legitimately: the
+		// cultivator may be handling a post-broadcast batch
+		// (Committed/Broadcast/Confirmed) while a fresh
+		// Pending/Frozen batch has begun in c.pendingBatch. The
+		// singleton constraint added in migration 000061 only
+		// applies to {Pending, Frozen}, so this case is real,
+		// not unreachable.
 		if c.pendingBatch != nil {
-			return nil, fmt.Errorf("multiple batches not supported")
+			return nil, fmt.Errorf("cancellation ambiguous: " +
+				"pending batch and an active cultivator " +
+				"coexist; cancel-by-batch-key not " +
+				"implemented")
 		}
 
-		batchKeys := maps.Keys(c.caretakers)
+		batchKeys := maps.Keys(c.cultivators)
 		batchKey, err := btcec.ParsePubKey(batchKeys[0][:])
 		if err != nil {
-			return nil, fmt.Errorf("bad caretaker key: %w", err)
+			return nil, fmt.Errorf("bad cultivator key: %w", err)
 		}
 
 		return batchKey, nil
 	default:
 	}
 
-	// TODO(jhb): Update once we support multiple batches.
-	return nil, fmt.Errorf("multiple caretakers not supported")
+	// Multiple cultivators can coexist when several post-broadcast
+	// batches are awaiting confirmation in parallel. The singleton
+	// constraint added in migration 000061 does not forbid this; it
+	// only constrains {Pending, Frozen}.
+	return nil, fmt.Errorf("cancellation ambiguous: %d active "+
+		"cultivators; cancel-by-batch-key not implemented",
+		cultivatorCount)
 }
 
 // cancelMintingBatch attempts to cancel a target minting batch. This can fail
-// if the batch is managed by a caretaker and has already been broadcast.
+// if the batch is managed by a cultivator and has already been broadcast.
 func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 	batchKey *btcec.PublicKey) error {
 
-	// The target batch may have already been assigned a caretaker. If so,
-	// we need to signal to the caretaker to cancel the batch.
+	// The target batch may have already been assigned a cultivator. If so,
+	// we need to signal to the cultivator to cancel the batch.
 	batchKeySerialized := asset.ToSerialized(batchKey)
-	caretaker, ok := c.caretakers[batchKeySerialized]
+	cultivator, ok := c.cultivators[batchKeySerialized]
 	if ok {
 		log.Infof("Cancelling MintingBatch(key=%x, num_assets=%v)",
-			batchKeySerialized, len(caretaker.cfg.Batch.Seedlings))
+			batchKeySerialized, len(cultivator.cfg.Batch.Seedlings))
 
-		caretaker.cfg.CancelReqChan <- struct{}{}
+		// Per-call reply channel: the cultivator writes the result
+		// of this specific request here. Buffer size 1 so the
+		// cultivator never blocks if we abandon the wait via c.Quit.
+		respCh := make(chan CancelResp, 1)
+		cultivator.cfg.CancelReqChan <- cancelReq{resp: respCh}
 
-		// Wait for the caretaker to reply to the cancellation request.
-		// If the request succeeded, the caretaker will update the
+		// Wait for the cultivator to reply to the cancellation request.
+		// If the request succeeded, the cultivator will update the
 		// batch state on disk.
+		//
+		// A third case is required: if the cultivator's goroutine
+		// has already exited (or is past the point of reading
+		// CancelReqChan, e.g. blocked in the post-broadcast wait for
+		// completion), no one will drain the request. Selecting on
+		// cultivator.Done() lets us surface an actionable error
+		// instead of deadlocking until Quit.
+		//
+		// The cancel-success and Done() cases are both ready when a
+		// cancel succeeds: Cancel() writes to the buffered respCh
+		// and then the goroutine returns, closing done. Go's select
+		// picks randomly among ready cases, so we must not treat
+		// Done() as a bare error signal -- check respCh
+		// non-blockingly first and prefer that outcome when
+		// present.
 		select {
-		case cancelResp := <-caretaker.cfg.CancelRespChan:
-			// If the caretaker returned a batch state, then batch
+		case cancelResp := <-respCh:
+			// If the cultivator returned a batch state, then batch
 			// cancellation was possible and attempted. This means
-			// that the caretaker is shut down and the planter
+			// that the cultivator is shut down and the planter
 			// must delete it.
 			if cancelResp.cancelAttempted {
-				delete(c.caretakers, batchKeySerialized)
+				delete(c.cultivators, batchKeySerialized)
 			}
 
 			return cancelResp.err
+
+		case <-cultivator.Done():
+			// Prefer a cancel outcome that raced with the
+			// goroutine exit: Cancel() writes to respCh before
+			// SignalCompletion / defer close(b.done), so the
+			// buffer may already hold the reply.
+			select {
+			case cancelResp := <-respCh:
+				if cancelResp.cancelAttempted {
+					delete(c.cultivators,
+						batchKeySerialized)
+				}
+				return cancelResp.err
+			default:
+			}
+
+			// No cancel reply queued: the cultivator finished on
+			// its own before we could deliver the request. Drop
+			// it from the map so a future retry does not race
+			// against a stale entry and return a clear error to
+			// the caller.
+			delete(c.cultivators, batchKeySerialized)
+			return fmt.Errorf("batch %x already completed, cannot "+
+				"cancel", batchKeySerialized[:])
 
 		case <-c.Quit:
 			return nil
@@ -1851,10 +1756,12 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 	log.Infof("Cancelling MintingBatch(key=%x, num_assets=%v)",
 		batchKeySerialized, len(c.pendingBatch.Seedlings))
 
-	// If the target batch was not assigned a caretaker, we only need to
-	// update the batch state on disk to cancel it.
-	err := c.cfg.Log.UpdateBatchState(
-		ctx, batchKey, BatchStateSeedlingCancelled,
+	// If the target batch was not assigned a cultivator, the only
+	// non-cancelled batch in play is c.pendingBatch (canCancelBatch
+	// guarantees this). Update the batch state on disk and in memory in
+	// a single atomic call.
+	err := c.cfg.BatchStore.UpdateBatchState(
+		ctx, c.pendingBatch, BatchStateSeedlingCancelled,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to cancel minting batch: %w", err)
@@ -1871,8 +1778,8 @@ func (c *ChainPlanter) gardener() {
 	defer c.Wg.Done()
 
 	// When this exits due to the quit signal, we also want to stop all the
-	// active caretakers as well.
-	defer c.stopCaretakers()
+	// active cultivators as well.
+	defer c.stopCultivators()
 
 	log.Infof("Gardener for ChainPlanter now active!")
 
@@ -1918,230 +1825,37 @@ func (c *ChainPlanter) gardener() {
 			}
 			req.updates <- SeedlingUpdate{
 				PendingBatch: batchCopy,
-				NewState:     MintingStateSeed,
 			}
 
-		// A caretaker has finished processing their batch to full
+		// A cultivator has finished processing their batch to full
 		// Taproot Asset maturity. We'll clean up our local state, and
 		// signal that it can exit.
 		//
 		// TODO(roasbeef): also need a channel to send out additional
 		// notifications?
 		case batchKey := <-c.completionSignals:
-			caretaker, ok := c.caretakers[batchKey]
+			cultivator, ok := c.cultivators[batchKey]
 			if !ok {
-				log.Warnf("Unknown caretaker: %x", batchKey[:])
+				log.Warnf("Unknown cultivator: %x", batchKey[:])
 				continue
 			}
 
-			log.Infof("ChainCaretaker(%x) has finished", batchKey[:])
+			log.Infof("Cultivator(%x) has finished", batchKey[:])
 
-			if err := caretaker.Stop(); err != nil {
-				log.Warnf("Unable to stop caretaker: %v", err)
+			if err := cultivator.Stop(); err != nil {
+				log.Warnf("Unable to stop cultivator: %v", err)
 			}
 
-			delete(c.caretakers, batchKey)
+			delete(c.cultivators, batchKey)
 
 			// TODO(roasbeef): send completion signal?
 
-		// A new request just came along to query our internal state.
+		// A new request just came along to query or mutate our
+		// internal state. Each request is a closure that already
+		// carries its own response channel and parameters; we
+		// simply invoke it in this goroutine.
 		case req := <-c.stateReqs:
-			switch req.Type() {
-			case reqTypePendingBatch:
-				// Resolve a copy of the state to prevent
-				// potential concurrent read/write issues.
-				if c.pendingBatch == nil {
-					req.Resolve((*MintingBatch)(nil))
-				} else {
-					req.Resolve(c.pendingBatch.Copy())
-				}
-
-			case reqTypeNumActiveBatches:
-				req.Resolve(len(c.caretakers))
-
-			case reqTypeListBatches:
-				listBatchesParams, err :=
-					typedParam[ListBatchesParams](req)
-				if err != nil {
-					req.Error(fmt.Errorf("bad list batch "+
-						"params: %w", err))
-					break
-				}
-
-				ctx, cancel := c.WithCtxQuit()
-				batches, err := listBatches(
-					ctx, c.cfg.Log, c.cfg.ProofFiles,
-					c.cfg.GenTxBuilder, *listBatchesParams,
-				)
-				cancel()
-				if err != nil {
-					req.Error(err)
-					break
-				}
-
-				req.Resolve(batches)
-
-			case reqTypeFundBatch:
-				if c.pendingBatch != nil &&
-					c.pendingBatch.IsFunded() {
-
-					req.Error(fmt.Errorf("batch already " +
-						"funded"))
-					break
-				}
-
-				fundReqParams, err :=
-					typedParam[FundParams](req)
-				if err != nil {
-					req.Error(fmt.Errorf("bad fund "+
-						"params: %w", err))
-					break
-				}
-
-				ctx, cancel := c.WithCtxQuit()
-				err = c.fundBatch(
-					ctx, *fundReqParams, c.pendingBatch,
-				)
-				cancel()
-				if err != nil {
-					req.Error(fmt.Errorf("unable to fund "+
-						"minting batch: %w", err))
-					break
-				}
-
-				// Formulate a verbose batch to return to the
-				// caller.
-				verboseBatch, err := newVerboseBatch(
-					c.pendingBatch, c.cfg.GenTxBuilder,
-				)
-				if err != nil {
-					req.Error(err)
-					break
-				}
-
-				req.Resolve(&FundBatchResp{
-					Batch: verboseBatch,
-				})
-
-			case reqTypeSealBatch:
-				if c.pendingBatch == nil {
-					req.Error(fmt.Errorf("no pending " +
-						"batch"))
-					break
-				}
-
-				sealReqParams, err :=
-					typedParam[SealParams](req)
-				if err != nil {
-					req.Error(fmt.Errorf("bad seal "+
-						"params: %w", err))
-					break
-				}
-
-				ctx, cancel := c.WithCtxQuit()
-				sealedBatch, err := c.sealBatch(
-					ctx, *sealReqParams, c.pendingBatch,
-				)
-				cancel()
-				if err != nil {
-					req.Error(fmt.Errorf("unable to seal "+
-						"minting batch: %w", err))
-					break
-				}
-
-				// If seal batch executed successfully, and
-				// returned a sealed batch, then we can update
-				// the pending batch.
-				if err == nil && sealedBatch != nil {
-					c.pendingBatch = sealedBatch
-				}
-
-				// Resolve a copy of the state to prevent
-				// potential concurrent read/write issues.
-				if c.pendingBatch == nil {
-					req.Resolve((*MintingBatch)(nil))
-				} else {
-					req.Resolve(c.pendingBatch.Copy())
-				}
-
-			case reqTypeFinalizeBatch:
-				if c.pendingBatch == nil {
-					req.Error(fmt.Errorf("no pending " +
-						"batch"))
-					break
-				}
-
-				batchKey := c.pendingBatch.BatchKey.PubKey
-				batchKeySerial := asset.ToSerialized(batchKey)
-				log.Infof("Finalizing batch %x", batchKeySerial)
-
-				finalizeReqParams, err :=
-					typedParam[FinalizeParams](req)
-				if err != nil {
-					req.Error(fmt.Errorf("bad finalize "+
-						"params: %w", err))
-					break
-				}
-
-				caretaker, err := c.finalizeBatch(
-					*finalizeReqParams,
-				)
-				if err != nil {
-					freezeErr := fmt.Errorf("unable to "+
-						"finalize minting batch: %w",
-						err)
-					log.Warnf(freezeErr.Error())
-					req.Error(freezeErr)
-					break
-				}
-
-				// We now wait for the caretaker to either
-				// broadcast the batch or fail to do so.
-				select {
-				case <-caretaker.cfg.BroadcastCompleteChan:
-					req.Resolve(caretaker.cfg.Batch)
-
-				case err := <-caretaker.cfg.BroadcastErrChan:
-					req.Error(err)
-					// Unrecoverable error, stop caretaker
-					// directly. The pending batch will not
-					// be saved.
-					stopErr := caretaker.Stop()
-					if stopErr != nil {
-						log.Warnf("Unable to stop "+
-							"caretaker "+
-							"gracefully: %v", err)
-					}
-
-					delete(c.caretakers, batchKeySerial)
-
-				case <-c.Quit:
-					return
-				}
-
-				// Now that we have a caretaker launched for
-				// this batch and broadcast its minting
-				// transaction, we can remove the pending batch.
-				c.pendingBatch = nil
-
-			case reqTypeCancelBatch:
-				batchKey, err := c.canCancelBatch()
-				if err != nil {
-					req.Error(err)
-					break
-				}
-
-				// Attempt to cancel the current batch, and then
-				// clear the pending batch in the planter.
-				ctx, cancel := c.WithCtxQuit()
-				err = c.cancelMintingBatch(ctx, batchKey)
-				cancel()
-				c.pendingBatch = nil
-
-				// Always return the key of the batch we tried
-				// to cancel.
-				req.Return(batchKey, err)
-			}
+			req()
 
 		case <-c.Quit:
 			return
@@ -2149,36 +1863,47 @@ func (c *ChainPlanter) gardener() {
 	}
 }
 
-// fundBatch attempts to fund a minting batch and create a funded genesis PSBT.
-// This PSBT is a template that the caretaker will modify when finalizing the
-// batch. If a feerate or tapscript sibling are provided, those will be used
-// when funding the batch. If no pending batch exists, a batch will be created
-// with the funded genesis PSBT. After funding, the pending batch will be
-// saved to disk and updated in memory.
-func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
-	workingBatch *MintingBatch) error {
+// fundingPrep stores a tapscript-sibling root hash (already persisted
+// to the tree store) and a closure that computes a funded mint anchor
+// PSBT for a given batch without mutating it. Both fields are
+// populated by prepareFunding and consumed by createFundedBatch /
+// applyFundingToBatch.
+type fundingPrep struct {
+	// rootHash is the persisted root hash of the optional tapscript
+	// sibling supplied via FundParams. nil if no sibling was given.
+	rootHash *chainhash.Hash
+
+	// computeFunding builds the funded genesis PSBT for a batch
+	// without mutating it. Callers must apply the result only after
+	// all persistence has succeeded, so a failure leaves the batch
+	// unchanged.
+	computeFunding func(batch *MintingBatch) (*FundedMintAnchorPsbt,
+		error)
+}
+
+// prepareFunding stores the optional tapscript sibling and constructs
+// the funding-computation closure shared by createFundedBatch and
+// applyFundingToBatch.
+func (c *ChainPlanter) prepareFunding(ctx context.Context,
+	params FundParams) (fundingPrep, error) {
 
 	var (
+		zero     fundingPrep
 		rootHash *chainhash.Hash
 		err      error
 	)
 
-	// If a tapscript tree was specified for this batch, we'll store it on
-	// disk. The caretaker we start for this batch will use it when deriving
-	// the final Taproot output key.
+	// If a tapscript tree was specified for this batch, we'll store
+	// it on disk. The cultivator we start for this batch will use it
+	// when deriving the final Taproot output key.
 	params.SiblingTapTree.WhenSome(func(tn asset.TapscriptTreeNodes) {
 		rootHash, err = c.cfg.TreeStore.StoreTapscriptTree(ctx, tn)
 	})
-
 	if err != nil {
-		return fmt.Errorf("unable to store tapscript tree for minting "+
-			"batch: %w", err)
+		return zero, fmt.Errorf("unable to store tapscript tree "+
+			"for minting batch: %w", err)
 	}
 
-	// computeFunding builds the funded genesis PSBT for a batch
-	// without mutating it. The caller is responsible for applying
-	// the result to the batch only after all persistence has
-	// succeeded, so a failure leaves the batch unchanged.
 	computeFunding := func(batch *MintingBatch) (
 		*FundedMintAnchorPsbt, error) {
 
@@ -2190,8 +1915,8 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 
 		batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
 
-		// walletFundPsbt is a closure that will be used to fund the
-		// batch with the specified fee rate.
+		// walletFundPsbt is a closure that will be used to fund
+		// the batch with the specified fee rate.
 		walletFundPsbt := func(ctx context.Context,
 			anchorPkt psbt.Packet) (tapsend.FundedPsbt, error) {
 
@@ -2210,6 +1935,7 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 		log.Infof("Attempting to fund batch: %x", batchKey)
 		mintAnchorTx, err := fundGenesisPsbt(
 			ctx, c.cfg.ChainParams, batch, walletFundPsbt,
+			c.augmenter(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fund minting PSBT "+
@@ -2220,28 +1946,138 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 		return &mintAnchorTx, nil
 	}
 
-	// If we don't have a batch, we'll create an empty batch before funding
-	// and writing to disk.
-	if workingBatch == nil {
-		newBatch, err := c.newBatch()
-		if err != nil {
-			return fmt.Errorf("unable to create new batch: %w", err)
-		}
+	return fundingPrep{
+		rootHash:       rootHash,
+		computeFunding: computeFunding,
+	}, nil
+}
 
-		mintAnchorTx, err := computeFunding(newBatch)
-		if err != nil {
-			return err
-		}
+// createFundedBatch derives a fresh minting batch, computes its
+// funding, and persists the funded batch to disk as a single new row.
+// On any failure no new batch is committed and no in-memory state is
+// touched; the caller may try again. The returned batch is ready to
+// be installed as c.pendingBatch by the caller.
+//
+// NOTE: This is the create half of what used to be a single fundBatch
+// function with two purposes. The split exists so that "create a new
+// funded batch" cannot be silently dispatched into "update an
+// existing batch's funding" (or vice-versa) by callers passing a
+// stale or wrong reference -- the bug shape behind #2136.
+func (c *ChainPlanter) createFundedBatch(ctx context.Context,
+	params FundParams) (*MintingBatch, error) {
 
-		// Apply the funding to the local batch and commit. If the
-		// commit fails, newBatch is discarded and the planter's
-		// pendingBatch is never assigned.
-		newBatch.GenesisPacket = mintAnchorTx
-		if rootHash != nil {
-			newBatch.tapSibling = rootHash
-		}
+	prep, err := c.prepareFunding(ctx, params)
+	if err != nil {
+		return nil, err
+	}
 
-		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
+	newBatch, err := c.newBatch()
+	if err != nil {
+		return nil, fmt.Errorf("unable to create new batch: %w", err)
+	}
+
+	mintAnchorTx, err := prep.computeFunding(newBatch)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply the funding to the local batch and commit. If the
+	// commit fails, newBatch is discarded and the caller's planter
+	// state is never assigned.
+	newBatch.GenesisPacket = mintAnchorTx
+	if prep.rootHash != nil {
+		newBatch.tapSibling = prep.rootHash
+	}
+
+	// The augmenter is the source of truth for the persistence
+	// payload (formerly read off
+	// newBatch.GenesisPacket.PreCommitmentOutput); it derives
+	// the row from the batch's current state.
+	preCommit, err := c.augmenter().BindData(ctx, newBatch)
+	if err != nil {
+		return nil, fmt.Errorf("augmenter BindData: %w", err)
+	}
+	err = c.cfg.BatchStore.CommitMintingBatch(ctx, newBatch, preCommit)
+	if err != nil {
+		return nil, err
+	}
+
+	return newBatch, nil
+}
+
+// applyFundingToBatch computes funding for an existing on-disk batch,
+// persists the funding atomically (sibling + genesis TX in one DB
+// transaction), and only then mirrors the funding into the in-memory
+// batch. On any failure neither disk nor memory is mutated.
+//
+// NOTE: This is the update half of the former fundBatch. It must
+// never be called with a batch that has not yet been written to disk
+// -- use createFundedBatch for that case.
+func (c *ChainPlanter) applyFundingToBatch(ctx context.Context,
+	params FundParams, batch *MintingBatch) error {
+
+	if batch == nil {
+		return fmt.Errorf("applyFundingToBatch requires non-nil " +
+			"batch; use createFundedBatch to create a new one")
+	}
+
+	prep, err := c.prepareFunding(ctx, params)
+	if err != nil {
+		return err
+	}
+
+	mintAnchorTx, err := prep.computeFunding(batch)
+	if err != nil {
+		return err
+	}
+
+	// The augmenter is consulted for the persistence payload --
+	// it scans the freshly-funded PSBT for its own output and
+	// returns the typed row. Currently applyFundingToBatch is
+	// called before the batch's GenesisPacket has been mirrored
+	// back into the in-memory batch, so we attach mintAnchorTx
+	// to a copy so the augmenter can read it without us mutating
+	// the live batch.
+	stagingBatch := batch.Copy()
+	stagingBatch.GenesisPacket = mintAnchorTx
+	preCommit, err := c.augmenter().BindData(ctx, stagingBatch)
+	if err != nil {
+		return fmt.Errorf("augmenter BindData: %w", err)
+	}
+
+	// Persist the sibling, genesis TX, and (when present) the
+	// supply-pre-commit row atomically. Combining the writes in a
+	// single transaction ensures a partial failure cannot leave
+	// the batch with one persisted and the others absent.
+	err = c.cfg.BatchStore.CommitBatchFunding(
+		ctx, batch.BatchKey.PubKey, prep.rootHash, *mintAnchorTx,
+		preCommit,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to commit batch funding: %w", err)
+	}
+
+	// All persistence succeeded; mirror the funding into memory.
+	batch.GenesisPacket = mintAnchorTx
+	if prep.rootHash != nil {
+		batch.tapSibling = prep.rootHash
+	}
+
+	return nil
+}
+
+// fundPendingBatch funds c.pendingBatch, creating it first if it does
+// not yet exist. This is the convenience wrapper used by the
+// gardener's fund-batch request handler and by finalizeBatch; both
+// have the same "I want the pending batch funded, regardless of
+// whether it exists yet" semantics. c.pendingBatch is updated only on
+// success of the create path; the update path mutates the existing
+// batch in place via applyFundingToBatch.
+func (c *ChainPlanter) fundPendingBatch(ctx context.Context,
+	params FundParams) error {
+
+	if c.pendingBatch == nil {
+		newBatch, err := c.createFundedBatch(ctx, params)
 		if err != nil {
 			return err
 		}
@@ -2250,31 +2086,7 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 		return nil
 	}
 
-	// Compute the funded genesis packet for the existing batch
-	// without mutating it yet.
-	mintAnchorTx, err := computeFunding(workingBatch)
-	if err != nil {
-		return err
-	}
-
-	// Persist the sibling and genesis TX atomically. Combining
-	// both writes in a single transaction ensures a partial
-	// failure cannot leave the batch with one persisted and the
-	// other absent.
-	err = c.cfg.Log.CommitBatchFunding(
-		ctx, workingBatch.BatchKey.PubKey, rootHash, *mintAnchorTx,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to commit batch funding: %w", err)
-	}
-
-	// All persistence succeeded; commit the funding to memory.
-	workingBatch.GenesisPacket = mintAnchorTx
-	if rootHash != nil {
-		workingBatch.tapSibling = rootHash
-	}
-
-	return nil
+	return c.applyFundingToBatch(ctx, params, c.pendingBatch)
 }
 
 // matchPsbtToGroupReq attempts to match a signed group virtual PSBT to a
@@ -2321,73 +2133,10 @@ func matchPsbtToGroupReq(psbt psbt.Packet,
 	return fn.None[asset.GroupKeyRequest](), nil
 }
 
-// sealBatchPreCommit injects the group public key obtained during the sealing
-// phase into the pre‑commitment output descriptor of the batch's genesis
-// packet.
-//
-// Preconditions:
-//   - batch.SupplyCommitments must be true – otherwise the function is a NOP.
-//   - batch.GenesisPacket must not be nil.
-//
-// Post‑conditions:
-//   - batch.GenesisPacket.PreCommitmentOutput is populated with the group key.
-//
-// NOTE: The function mutates the supplied *MintingBatch in place.
-func sealBatchPreCommit(batch *MintingBatch) error {
-	// Fast‑exit if Universe Commitments are disabled – nothing to update.
-	if !batch.SupplyCommitments {
-		return nil
-	}
-
-	// A valid genesis packet is mandatory once Universe Commitments are on.
-	if batch.GenesisPacket == nil {
-		return fmt.Errorf("batch genesis packet is unexpectedly " +
-			"nil, cannot update mint anchor pre-commitment output")
-	}
-
-	// Retrieve the group public key recorded during sealing.
-	groupKeyOpt, err := fetchPreCommitGroupKey(batch)
-	if err != nil {
-		return fmt.Errorf("unable to fetch pre-commit group key: %w",
-			err)
-	}
-
-	groupKey, err := groupKeyOpt.UnwrapOrErr(
-		fmt.Errorf("pre-commitment output group key is unexpectedly " +
-			"absent"),
-	)
-	if err != nil {
-		return err
-	}
-
-	// Ensure that the group key is set in the genesis packet
-	// pre-commitment output descriptor.
-	fundedAnchor := batch.GenesisPacket
-	if fundedAnchor == nil {
-		return fmt.Errorf("funded anchor is unexpectedly nil, " +
-			"cannot update mint anchor pre-commitment output " +
-			"descriptor")
-	}
-
-	// Formulate the pre-commitment output descriptor with the group key.
-	preCommitDesc := fn.MapOptionZ(
-		fundedAnchor.PreCommitmentOutput,
-		// nolint: lll
-		func(preCommit PreCommitmentOutput) fn.Option[PreCommitmentOutput] {
-			preCommit.GroupPubKey = fn.Some(groupKey)
-			return fn.Some(preCommit)
-		},
-	)
-
-	batch.GenesisPacket.PreCommitmentOutput = preCommitDesc
-
-	return nil
-}
-
 // sealBatch will verify that each grouped asset in the pending batch has an
 // asset group witness, and will attempt to create asset group witnesses when
 // possible if they are not provided. After all asset group witnesses have been
-// validated, they are saved to disk to be used by the caretaker during batch
+// validated, they are saved to disk to be used by the cultivator during batch
 // finalization.
 func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 	workingBatch *MintingBatch) (*MintingBatch, error) {
@@ -2432,7 +2181,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 
 	// If the batch was previously sealed, each grouped seedling will have
 	// its asset genesis already stored on disk.
-	existingGroups, err := c.cfg.Log.FetchSeedlingGroups(
+	existingGroups, err := c.cfg.BatchStore.FetchSeedlingGroups(
 		ctx, genesisPoint, anchorOutputIndex, singleSeedling,
 	)
 
@@ -2623,19 +2372,25 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 		batchWithGroupInfo.Seedlings[assetName].GroupInfo = group
 	}
 
-	// Persist the newly generated group-key metadata in the batch’s
-	// pre-commitment output—needed only when Universe Commitments are on—
-	// before passing the batch to the minting store.
-	if batchWithGroupInfo.SupplyCommitments {
-		err := sealBatchPreCommit(batchWithGroupInfo)
-		if err != nil {
-			return nil, err
-		}
-	}
+	// The supply-commit augmenter rediscovers the group-key
+	// metadata directly from the (now group-keyed) seedlings
+	// when it constructs the persistence payload below; no
+	// separate "stamp the group key onto PreCommitmentOutput"
+	// step is needed.
 
-	// With all the asset group witnesses validated, we can now save them
-	// to disk effectively sealing the batch.
-	err = c.cfg.Log.SealBatch(ctx, batchWithGroupInfo, newAssetGroups)
+	// With all the asset group witnesses validated, we can now
+	// save them to disk effectively sealing the batch. The
+	// augmenter recomputes its persistence payload off the
+	// batch's current state -- by seal time the group key has
+	// typically been derived, so the row will be refreshed
+	// with it.
+	sealPreCommit, err := c.augmenter().BindData(ctx, batchWithGroupInfo)
+	if err != nil {
+		return nil, fmt.Errorf("augmenter BindData: %w", err)
+	}
+	err = c.cfg.BatchStore.SealBatch(
+		ctx, batchWithGroupInfo, newAssetGroups, sealPreCommit,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to write seedling groups: "+
 			"%w", err)
@@ -2644,8 +2399,8 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 	return batchWithGroupInfo, nil
 }
 
-// finalizeBatch creates a new caretaker for the batch and starts it.
-func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
+// finalizeBatch creates a new cultivator for the batch and starts it.
+func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*Cultivator,
 	error) {
 
 	var (
@@ -2678,10 +2433,15 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	}
 	// Fund the batch if it hasn't been funded yet. If funding
 	// fails, the batch stays pending so the user can retry.
+	//
+	// finalizeBatch is only reached when c.pendingBatch is
+	// non-nil (the gardener short-circuits with an error
+	// otherwise), so the "create" path of fundPendingBatch is
+	// not exercised here; calling fundPendingBatch keeps the
+	// dispatch in one place rather than re-checking pending-ness
+	// here.
 	if !c.pendingBatch.IsFunded() {
-		err = c.fundBatch(
-			ctx, FundParams(params), c.pendingBatch,
-		)
+		err = c.fundPendingBatch(ctx, FundParams(params))
 		if err != nil {
 			return nil, err
 		}
@@ -2708,42 +2468,68 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 
 	// Now that funding and sealing have succeeded, freeze the
 	// batch on disk and in memory. This means no further
-	// seedlings can be added to this batch.
-	err = freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
+	// seedlings can be added to this batch. freezeMintingBatch
+	// updates both the on-disk row and the in-memory state in a
+	// single atomic step via the BatchStore.
+	err = freezeMintingBatch(ctx, c.cfg.BatchStore, c.pendingBatch)
 	if err != nil {
 		return nil, err
 	}
-	c.pendingBatch.UpdateState(BatchStateFrozen)
-	caretaker := c.newCaretakerForBatch(c.pendingBatch, feeRate)
-	if err := caretaker.Start(); err != nil {
-		return nil, fmt.Errorf("unable to start new caretaker: %w", err)
+	cultivator := c.newCultivatorForBatch(c.pendingBatch, feeRate)
+	if err := cultivator.Start(); err != nil {
+		return nil, fmt.Errorf("unable to start new "+
+			"cultivator: %w", err)
 	}
 
-	return caretaker, nil
+	return cultivator, nil
+}
+
+// dispatchStateReq sends a closure to the gardener loop and waits
+// for its typed result. The closure runs inside the loop's
+// goroutine with full access to ChainPlanter state. Returns a
+// shutdown error if the planter quits before the request can be
+// sent or its response received.
+func dispatchStateReq[T any](c *ChainPlanter,
+	handler func(out chan<- stateResult[T])) (T, error) {
+
+	var zero T
+	out := make(chan stateResult[T], 1)
+	req := stateReq(func() { handler(out) })
+
+	if !fn.SendOrQuit(c.stateReqs, req, c.Quit) {
+		return zero, fmt.Errorf("chain planter shutting down")
+	}
+
+	select {
+	case r := <-out:
+		return r.val, r.err
+	case <-c.Quit:
+		return zero, fmt.Errorf("chain planter shutting down")
+	}
 }
 
 // PendingBatch returns the current pending batch, or nil if no batch is
 // pending.
 func (c *ChainPlanter) PendingBatch() (*MintingBatch, error) {
-	req := newStateReq[*MintingBatch](reqTypePendingBatch)
-
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return nil, fmt.Errorf("chain planter shutting down")
-	}
-
-	return <-req.resp, nil
+	return dispatchStateReq(
+		c, func(out chan<- stateResult[*MintingBatch]) {
+			// Resolve a copy of the state to prevent potential
+			// concurrent read/write issues.
+			if c.pendingBatch == nil {
+				out <- stateOk[*MintingBatch](nil)
+				return
+			}
+			out <- stateOk(c.pendingBatch.Copy())
+		},
+	)
 }
 
 // NumActiveBatches returns the total number of active batches that have an
-// outstanding caretaker assigned.
+// outstanding cultivator assigned.
 func (c *ChainPlanter) NumActiveBatches() (int, error) {
-	req := newStateReq[int](reqTypeNumActiveBatches)
-
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return 0, fmt.Errorf("chain planter shutting down")
-	}
-
-	return <-req.resp, nil
+	return dispatchStateReq(c, func(out chan<- stateResult[int]) {
+		out <- stateOk(len(c.cultivators))
+	})
 }
 
 // ListBatches returns the single batch specified by the batch key, or the set
@@ -2751,143 +2537,221 @@ func (c *ChainPlanter) NumActiveBatches() (int, error) {
 func (c *ChainPlanter) ListBatches(params ListBatchesParams) ([]*VerboseBatch,
 	error) {
 
-	req := newStateParamReq[[]*VerboseBatch](reqTypeListBatches, params)
-
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return nil, fmt.Errorf("chain planter shutting down")
-	}
-
-	return <-req.resp, <-req.err
+	return dispatchStateReq(
+		c, func(out chan<- stateResult[[]*VerboseBatch]) {
+			ctx, cancel := c.WithCtxQuit()
+			batches, err := listBatches(
+				ctx, c.cfg.BatchStore, c.cfg.MintingRefs,
+				c.cfg.ProofFiles, c.cfg.GenTxBuilder, params,
+			)
+			cancel()
+			if err != nil {
+				out <- stateErr[[]*VerboseBatch](err)
+				return
+			}
+			out <- stateOk(batches)
+		},
+	)
 }
 
 // FundBatch sends a signal to the planter to fund the current batch, or create
 // a funded batch.
-func (c *ChainPlanter) FundBatch(params FundParams) (*FundBatchResp, error) {
-	req := newStateParamReq[*FundBatchResp](reqTypeFundBatch, params)
+func (c *ChainPlanter) FundBatch(params FundParams) (*VerboseBatch, error) {
+	return dispatchStateReq(
+		c, func(out chan<- stateResult[*VerboseBatch]) {
+			if c.pendingBatch != nil &&
+				c.pendingBatch.IsFunded() {
 
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return nil, fmt.Errorf("chain planter shutting down")
-	}
+				out <- stateErr[*VerboseBatch](fmt.Errorf(
+					"batch already funded",
+				))
+				return
+			}
 
-	return <-req.resp, <-req.err
+			ctx, cancel := c.WithCtxQuit()
+			err := c.fundPendingBatch(ctx, params)
+			cancel()
+			if err != nil {
+				out <- stateErr[*VerboseBatch](fmt.Errorf(
+					"unable to fund minting batch: %w",
+					err,
+				))
+				return
+			}
+
+			verboseBatch, err := newVerboseBatch(
+				c.pendingBatch, c.cfg.GenTxBuilder,
+			)
+			if err != nil {
+				out <- stateErr[*VerboseBatch](err)
+				return
+			}
+
+			out <- stateOk(verboseBatch)
+		},
+	)
 }
 
 // SealBatch attempts to seal the current batch, by providing or deriving all
 // witnesses necessary to create the final genesis TX.
 func (c *ChainPlanter) SealBatch(params SealParams) (*MintingBatch, error) {
-	req := newStateParamReq[*MintingBatch](reqTypeSealBatch, params)
+	return dispatchStateReq(
+		c, func(out chan<- stateResult[*MintingBatch]) {
+			if c.pendingBatch == nil {
+				out <- stateErr[*MintingBatch](fmt.Errorf(
+					"no pending batch",
+				))
+				return
+			}
 
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return nil, fmt.Errorf("chain planter shutting down")
-	}
+			ctx, cancel := c.WithCtxQuit()
+			sealedBatch, err := c.sealBatch(
+				ctx, params, c.pendingBatch,
+			)
+			cancel()
+			if err != nil {
+				out <- stateErr[*MintingBatch](fmt.Errorf(
+					"unable to seal minting batch: %w",
+					err,
+				))
+				return
+			}
 
-	return <-req.resp, <-req.err
+			if sealedBatch != nil {
+				c.pendingBatch = sealedBatch
+			}
+
+			// Resolve a copy of the state to prevent potential
+			// concurrent read/write issues.
+			if c.pendingBatch == nil {
+				out <- stateOk[*MintingBatch](nil)
+				return
+			}
+			out <- stateOk(c.pendingBatch.Copy())
+		},
+	)
 }
 
 // FinalizeBatch sends a signal to the planter to finalize the current batch.
 func (c *ChainPlanter) FinalizeBatch(params FinalizeParams) (*MintingBatch,
 	error) {
 
-	req := newStateParamReq[*MintingBatch](reqTypeFinalizeBatch, params)
+	return dispatchStateReq(
+		c, func(out chan<- stateResult[*MintingBatch]) {
+			if c.pendingBatch == nil {
+				out <- stateErr[*MintingBatch](fmt.Errorf(
+					"no pending batch",
+				))
+				return
+			}
 
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return nil, fmt.Errorf("chain planter shutting down")
-	}
+			batchKey := c.pendingBatch.BatchKey.PubKey
+			batchKeySerial := asset.ToSerialized(batchKey)
+			log.Infof("Finalizing batch %x", batchKeySerial)
 
-	return <-req.resp, <-req.err
+			cultivator, err := c.finalizeBatch(params)
+			if err != nil {
+				freezeErr := fmt.Errorf("unable to finalize "+
+					"minting batch: %w", err)
+				log.Warnf(freezeErr.Error())
+				out <- stateErr[*MintingBatch](freezeErr)
+				return
+			}
+
+			// Wait for the cultivator to either broadcast the
+			// batch or fail to do so.
+			select {
+			case <-cultivator.cfg.BroadcastCompleteChan:
+				// Snapshot the cultivator's live batch before
+				// handing it to the caller. The cultivator
+				// goroutine continues to mutate
+				// Batch.GenesisPacket and
+				// Batch.RootAssetCommitment after this point
+				// (Broadcast -> Confirmed -> Finalized);
+				// returning the live pointer would race
+				// those writes against any read the caller
+				// does.
+				out <- stateOk(cultivator.cfg.Batch.Copy())
+
+			case err := <-cultivator.cfg.BroadcastErrChan:
+				out <- stateErr[*MintingBatch](err)
+
+				// Unrecoverable error, stop cultivator
+				// directly. The pending batch will not be
+				// saved.
+				stopErr := cultivator.Stop()
+				if stopErr != nil {
+					log.Warnf("Unable to stop cultivator "+
+						"gracefully: %v", err)
+				}
+
+				delete(c.cultivators, batchKeySerial)
+
+				// Cancel the failed batch on disk so it does
+				// not stay wedged in a pre-broadcast state,
+				// where the singleton invariant added in
+				// migration 000061 would block any
+				// subsequent batch from being created. We
+				// use the same cancel-state rule as
+				// cultivator.Cancel(): Pending or Frozen →
+				// SeedlingCancelled (no sprouts yet);
+				// Committed → SproutCancelled (sprouts
+				// already on disk).
+				cancelState := BatchStateSeedlingCancelled
+				if c.pendingBatch.State() ==
+					BatchStateCommitted {
+
+					cancelState = BatchStateSproutCancelled
+				}
+
+				cancelCtx, cancelCtxCancel := c.WithCtxQuit()
+				cancelErr := c.cfg.BatchStore.UpdateBatchState(
+					cancelCtx, c.pendingBatch, cancelState,
+				)
+				cancelCtxCancel()
+				if cancelErr != nil {
+					log.Warnf("Unable to cancel failed "+
+						"batch (%x): %v",
+						batchKeySerial[:], cancelErr)
+				}
+
+			case <-c.Quit:
+				return
+			}
+
+			// Now that we have a cultivator launched for this
+			// batch and broadcast its minting transaction, we
+			// can remove the pending batch.
+			c.pendingBatch = nil
+		},
+	)
 }
 
 // CancelBatch sends a signal to the planter to cancel the current batch.
 func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
-	req := newStateReq[*btcec.PublicKey](reqTypeCancelBatch)
+	return dispatchStateReq(
+		c, func(out chan<- stateResult[*btcec.PublicKey]) {
+			batchKey, err := c.canCancelBatch()
+			if err != nil {
+				out <- stateErr[*btcec.PublicKey](err)
+				return
+			}
 
-	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return nil, fmt.Errorf("chain planter shutting down")
-	}
+			// Attempt to cancel the current batch, and then
+			// clear the pending batch in the planter.
+			ctx, cancel := c.WithCtxQuit()
+			err = c.cancelMintingBatch(ctx, batchKey)
+			cancel()
+			c.pendingBatch = nil
 
-	return <-req.resp, <-req.err
-}
-
-// prepSeedlingDelegationKey finalizes the seedling delegation key.
-func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
-	req *Seedling) error {
-
-	// If the universe commitments feature is disabled for this seedling,
-	// we can skip any further delegation key considerations.
-	if !req.SupplyCommitments {
-		return nil
-	}
-
-	// If the delegation key is already set, we can skip any further
-	// delegation key considerations.
-	if req.DelegationKey.IsSome() {
-		return nil
-	}
-
-	// At this point, we know that the universe commitments feature is
-	// enabled for the seedling. If a group anchor seedling is specified
-	// we will use its delegation key.
-	if req.GroupAnchor != nil {
-		// Retrieve the group anchor seedling from the pending batch.
-		anchorSeedlingName := *req.GroupAnchor
-
-		anchor, ok := c.pendingBatch.Seedlings[anchorSeedlingName]
-		if anchor == nil || !ok {
-			return fmt.Errorf("group anchor seedling not present "+
-				"in batch (anchor_seedling_name=%s)",
-				anchorSeedlingName)
-		}
-
-		if anchor.DelegationKey.IsNone() {
-			return fmt.Errorf("group anchor seedling has no "+
-				"delegation key (anchor_seedling_name=%s)",
-				anchorSeedlingName)
-		}
-
-		// Set the delegation key for the seedling to the delegation key
-		// of the group anchor seedling.
-		req.DelegationKey = anchor.DelegationKey
-
-		// Return early, no further seedling prep required for universe
-		// commitments feature.
-		return nil
-	}
-
-	// If an existing group key is set, we can use that to look up the
-	// delegation key.
-	if req.GroupInfo != nil && req.GroupInfo.GroupKey != nil {
-		dKeyOpt, err := c.cfg.Log.FetchDelegationKey(
-			ctx, req.GroupInfo.GroupKey.GroupPubKey,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to fetch delegation key "+
-				"for group key: %w", err)
-		}
-
-		// Return early if a corresponding delegation key is found.
-		if dKeyOpt.IsSome() {
-			req.DelegationKey = dKeyOpt
-			return nil
-		}
-	}
-
-	// On the other hand, if we're handling the group anchor seedling,
-	// and the delegation key is unset, we must generate a new one.
-	if req.EnableEmission && req.GroupAnchor == nil {
-		newKey, err := c.cfg.KeyRing.DeriveNextKey(
-			ctx, asset.TaprootAssetsKeyFamily,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to derive pre-commitment "+
-				"output key: %w", err)
-		}
-
-		req.DelegationKey = fn.Some(newKey)
-		return nil
-	}
-
-	return fmt.Errorf("failed to finalize delegation key for "+
-		"seedling %s", req.AssetName)
+			// Always return the key of the batch we tried to
+			// cancel.
+			out <- stateResult[*btcec.PublicKey]{
+				val: batchKey,
+				err: err,
+			}
+		},
+	)
 }
 
 // prepAssetSeedling performs some basic validation for the Seedling, then
@@ -2895,13 +2759,14 @@ func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
 
-	// If the seedling has the universe/supply commitment feature enabled,
-	// finalize the delegation key.
-	if req.SupplyCommitments {
-		err := c.prepSeedlingDelegationKey(ctx, req)
-		if err != nil {
-			return err
-		}
+	// Let the configured augmenter populate any augmenter-managed
+	// fields on the seedling (e.g. a delegation key for
+	// supply-commit-flagged seedlings). When no augmenter is
+	// active the call is a no-op.
+	if err := c.augmenter().PrepareSeedling(
+		ctx, c.pendingBatch, req,
+	); err != nil {
+		return err
 	}
 
 	// Set seedling asset metadata fields.
@@ -2942,7 +2807,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	if req.HasGroupKey() {
 		groupKeyBytes := req.GroupInfo.GroupPubKey.
 			SerializeCompressed()
-		groupInfo, err := c.cfg.Log.FetchGroupByGroupKey(
+		groupInfo, err := c.cfg.MintingRefs.FetchGroupByGroupKey(
 			ctx, &req.GroupInfo.GroupPubKey,
 		)
 		if err != nil {
@@ -2951,7 +2816,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 			)
 		}
 
-		anchorMeta, err := c.cfg.Log.FetchAssetMeta(
+		anchorMeta, err := c.cfg.MintingRefs.FetchAssetMeta(
 			ctx, groupInfo.Genesis.ID(),
 		)
 		if err != nil {
@@ -2976,7 +2841,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 				"invalid", *req.GroupAnchor)
 		}
 
-		err := c.pendingBatch.validateGroupAnchor(req)
+		err := c.pendingBatch.ValidateGroupAnchor(req)
 		if err != nil {
 			return err
 		}
@@ -3037,17 +2902,50 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	// No batch, so we'll create a new one with only this seedling as part
 	// of the batch.
 	case c.pendingBatch == nil:
+		// The pre-broadcast singleton invariant is enforced by
+		// the partial unique index added in migration 000061. A
+		// naive CommitMintingBatch here would surface that as a
+		// raw SQL error if any active cultivator still holds its
+		// batch in {Pending, Frozen} -- e.g. a restart where the
+		// cultivator is still advancing a Frozen batch past
+		// Committed. Refuse the seedling with an actionable error
+		// instead of letting the DB do the guarding.
+		for _, cult := range c.cultivators {
+			switch cult.cfg.Batch.State() {
+			case BatchStatePending, BatchStateFrozen:
+				return fmt.Errorf("mint batch already in " +
+					"flight in a pre-broadcast state; " +
+					"wait for it to broadcast before " +
+					"starting a new one")
+			default:
+			}
+		}
+
 		newBatch, err := c.newBatch()
 		if err != nil {
 			return err
 		}
 
-		c.pendingBatch = newBatch
-
 		log.Infof("Attempting to add a seedling to a new batch "+
 			"(seedling=%v)", req)
 
-		err = c.pendingBatch.AddSeedling(*req)
+		// Let the augmenter run its intake gate against the
+		// fresh (empty) batch. It enforces invariants like
+		// "first seedling sets the SupplyCommitments flag" and
+		// "delegation key must be set if SupplyCommitments
+		// is on."
+		err = c.augmenter().ValidateSeedling(newBatch, *req)
+		if err != nil {
+			return fmt.Errorf("failed to add seedling to batch: %w",
+				err)
+		}
+
+		// Stage the seedling on the local newBatch and persist
+		// the whole batch atomically via CommitMintingBatch. The
+		// planter's pendingBatch is assigned only after the DB
+		// write succeeds; on any failure newBatch is discarded
+		// and the planter state is unchanged.
+		err = newBatch.AddSeedling(*req)
 		if err != nil {
 			return fmt.Errorf("failed to add seedling to batch: %w",
 				err)
@@ -3055,10 +2953,14 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err = c.cfg.Log.CommitMintingBatch(ctx, c.pendingBatch)
+		err = c.cfg.BatchStore.CommitMintingBatch(
+			ctx, newBatch, fn.None[PreCommitBindData](),
+		)
 		if err != nil {
 			return err
 		}
+
+		c.pendingBatch = newBatch
 
 	// A batch already exists, so we'll add this seedling to the batch,
 	// committing it to disk fully before we move on.
@@ -3066,21 +2968,38 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		log.Infof("Attempting to add a seedling to batch (seedling=%v)",
 			req)
 
-		err := c.pendingBatch.AddSeedling(*req)
+		// Let the augmenter run its intake gate before the
+		// batch's own validation. Splitting validation in two
+		// keeps augmenter-owned invariants in the augmenter and
+		// batch-owned invariants on MintingBatch.
+		err := c.augmenter().ValidateSeedling(c.pendingBatch, *req)
 		if err != nil {
 			return fmt.Errorf("failed to add seedling to batch: %w",
 				err)
 		}
 
-		// Now that we know the seedling is ok, we'll write it to disk.
+		// Validate first without mutating the in-memory batch,
+		// then persist, then mirror the seedling into memory.
+		// This ordering ensures the in-memory batch never
+		// advances unless the DB write succeeded: a failed
+		// AddSeedlingsToBatch leaves both disk and memory at
+		// their prior state.
+		err = c.pendingBatch.validateSeedling(*req)
+		if err != nil {
+			return fmt.Errorf("failed to add seedling to batch: %w",
+				err)
+		}
+
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err = c.cfg.Log.AddSeedlingsToBatch(
+		err = c.cfg.BatchStore.AddSeedlingsToBatch(
 			ctx, c.pendingBatch.BatchKey.PubKey, req,
 		)
 		if err != nil {
 			return err
 		}
+
+		c.pendingBatch.commitSeedling(*req)
 	}
 
 	// Now that we have the batch committed to disk, we'll return back to
@@ -3090,7 +3009,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 }
 
 // updateMintingProofs is called by the re-org watcher when it detects a re-org
-// and has updated the minting proofs. This cannot be done by the caretaker
+// and has updated the minting proofs. This cannot be done by the cultivator
 // itself, because its job is already done at the point that a re-org can happen
 // (the batch is finalized after a single confirmation).
 func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
@@ -3136,58 +3055,17 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 					"minted proofs: %w", err)
 			}
 		}
+	}
 
-		// The universe ID serves to identify the universe root we want
-		// to update this asset in. This is either the assetID or the
-		// group key.
-		uniID := universe.Identifier{
-			AssetID: p.Asset.ID(),
-		}
-		if p.Asset.GroupKey != nil {
-			uniID.GroupKey = &p.Asset.GroupKey.GroupPubKey
-		}
+	if c.cfg.MintProofPublisher == nil {
+		return nil
+	}
 
-		log.Debugf("Updating issuance proof for asset with universe, "+
-			"key=%v", spew.Sdump(uniID))
-
-		// The base key is the set of bytes that keys into the universe,
-		// this'll be the outpoint where it was created at and the
-		// script key for that asset.
-		leafKey := universe.BaseLeafKey{
-			OutPoint: wire.OutPoint{
-				Hash:  p.AnchorTx.TxHash(),
-				Index: p.InclusionProof.OutputIndex,
-			},
-			ScriptKey: &p.Asset.ScriptKey,
-		}
-
-		// The universe leaf stores the raw proof, so we'll encode it
-		// here now.
-		proofBytes, err := p.Bytes()
-		if err != nil {
-			return fmt.Errorf("unable to encode proof: %w", err)
-		}
-
-		// With both of those assembled, we can now update issuance
-		// which takes the amount and proof of the minting event.
-		uniGen := universe.GenesisWithGroup{
-			Genesis: p.Asset.Genesis,
-		}
-		if p.Asset.GroupKey != nil {
-			uniGen.GroupKey = p.Asset.GroupKey
-		}
-		mintingLeaf := &universe.Leaf{
-			GenesisWithGroup: uniGen,
-			RawProof:         proofBytes,
-			Amt:              p.Asset.Amount,
-			Asset:            &p.Asset,
-		}
-		_, err = c.cfg.Universe.UpsertProofLeaf(
-			ctx, uniID, leafKey, mintingLeaf,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to update issuance: %w", err)
-		}
+	if err := c.cfg.MintProofPublisher.PublishMintProofUpdates(
+		ctx, proofs,
+	); err != nil {
+		return fmt.Errorf("unable to publish minting proof "+
+			"updates: %w", err)
 	}
 
 	return nil
@@ -3197,8 +3075,6 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 // New asset creation or ongoing issuance) to the ChainPlanter. A channel is
 // returned where future updates will be sent over. If an error is returned no
 // issuance operation was possible.
-//
-// NOTE: This is part of the Planter interface.
 func (c *ChainPlanter) QueueNewSeedling(req *Seedling) (SeedlingUpdates, error) {
 	req.updates = make(SeedlingUpdates, 1)
 
@@ -3214,8 +3090,6 @@ func (c *ChainPlanter) QueueNewSeedling(req *Seedling) (SeedlingUpdates, error) 
 // CancelSeedling attempts to cancel the creation of a new asset identified by
 // its name. If the seedling has already progressed to a point where the
 // genesis PSBT has been broadcasted, an error is returned.
-//
-// NOTE: This is part of the Planter interface.
 func (c *ChainPlanter) CancelSeedling() error {
 	// TODO(roasbeef): actually needed?
 	return nil
@@ -3268,9 +3142,9 @@ func (c *ChainPlanter) publishSubscriberEvent(event fn.Event) {
 
 // verifierCtx returns a verifier context that can be used to verify proofs.
 func (c *ChainPlanter) verifierCtx(ctx context.Context) proof.VerifierCtx {
-	headerVerifier := GenHeaderVerifier(ctx, c.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, c.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
-	groupVerifier := GenGroupVerifier(ctx, c.cfg.Log)
+	groupVerifier := tapnode.GenGroupVerifier(ctx, c.cfg.MintingRefs)
 
 	return proof.VerifierCtx{
 		HeaderVerifier: headerVerifier,
@@ -3281,68 +3155,9 @@ func (c *ChainPlanter) verifierCtx(ctx context.Context) proof.VerifierCtx {
 	}
 }
 
-// A compile-time assertion to make sure that ChainPlanter implements the
-// tapgarden.Planter interface.
-var _ Planter = (*ChainPlanter)(nil)
-
-// A compile-time assertion to make sure BatchCaretaker satisfies the
+// A compile-time assertion to make sure ChainPlanter satisfies the
 // fn.EventPublisher interface.
 var _ fn.EventPublisher[fn.Event, bool] = (*ChainPlanter)(nil)
-
-// PreCommitmentOutput provides metadata related to the pre-commitment output
-// of a mint anchor transaction. This output serves as an intermediate step
-// before being spent by the universe commitment transaction.
-type PreCommitmentOutput struct {
-	// OutIdx specifies the index of the pre-commitment output within the
-	// batch mint anchor transaction.
-	OutIdx uint32
-
-	// InternalKey is the Taproot internal public key associated with the
-	// pre-commitment output.
-	InternalKey DelegationKey
-
-	// GroupPubKey is the asset-group public key for this pre-commitment.
-	//
-	// Optional:
-	//   - Present when the group key is already known—either reused from an
-	//     existing group at funding time or generated once the batch is
-	//     sealed.
-	//   - Absent while an unsealed batch without a prior group key is still
-	//     in progress.
-	GroupPubKey fn.Option[btcec.PublicKey]
-}
-
-// NewPreCommitmentOutput creates a new PreCommitmentOutput instance.
-func NewPreCommitmentOutput(outIdx uint32, internalKey DelegationKey,
-	groupPubKey fn.Option[btcec.PublicKey]) PreCommitmentOutput {
-
-	return PreCommitmentOutput{
-		OutIdx:      outIdx,
-		InternalKey: internalKey,
-		GroupPubKey: groupPubKey,
-	}
-}
-
-// PreCommitTxOut returns the pre-commitment output as a wire.TxOut instance.
-func PreCommitTxOut(internalKey btcec.PublicKey) (wire.TxOut, error) {
-	var zero wire.TxOut
-
-	// Formulate a taproot output key from the taproot internal key.
-	taprootOutputKey := txscript.ComputeTaprootKeyNoScript(&internalKey)
-
-	// Create a new pay-to-taproot pk script from the taproot output key.
-	pkScript, err := txscript.PayToTaprootScript(taprootOutputKey)
-	if err != nil {
-		return zero, fmt.Errorf("unable to create pre-commitment "+
-			"output pk script: %w", err)
-	}
-
-	// Return the minting anchor transaction pre-commitment output.
-	return wire.TxOut{
-		Value:    int64(tapsend.DummyAmtSats),
-		PkScript: pkScript,
-	}, nil
-}
 
 // FundedMintAnchorPsbt is a struct that contains a funded minting anchor
 // transaction PSBT.
@@ -3353,35 +3168,16 @@ type FundedMintAnchorPsbt struct {
 	// AssetAnchorOutIdx is the index of the asset anchor output in the
 	// transaction.
 	AssetAnchorOutIdx uint32
-
-	// PreCommitmentOutput contains metadata describing the pre-commitment
-	// output.
-	//
-	// This field is set only if the pre-commitment output exists in the
-	// transaction. The pre-commitment output is later spent by the universe
-	// commitment transaction.
-	PreCommitmentOutput fn.Option[PreCommitmentOutput]
 }
 
 // NewFundedMintAnchorPsbt creates a new funded minting anchor PSBT package from
 // a funded PSBT.
-func NewFundedMintAnchorPsbt(
-	fundedPsbt tapsend.FundedPsbt, anchorOutIndexes AnchorTxOutputIndexes,
-	preCommitOut fn.Option[PreCommitmentOutput]) (FundedMintAnchorPsbt,
-	error) {
-
-	var zero FundedMintAnchorPsbt
-
-	// Sanity check pre-commitment output arguments.
-	if anchorOutIndexes.PreCommitOutIdx.IsSome() != preCommitOut.IsSome() {
-		return zero, fmt.Errorf("pre-commitment output index and " +
-			"pre-commitment output must be both set or both unset")
-	}
+func NewFundedMintAnchorPsbt(fundedPsbt tapsend.FundedPsbt,
+	anchorOutIndexes AnchorTxOutputIndexes) (FundedMintAnchorPsbt, error) {
 
 	return FundedMintAnchorPsbt{
-		FundedPsbt:          fundedPsbt,
-		AssetAnchorOutIdx:   anchorOutIndexes.AssetAnchorOutIdx,
-		PreCommitmentOutput: preCommitOut,
+		FundedPsbt:        fundedPsbt,
+		AssetAnchorOutIdx: anchorOutIndexes.AssetAnchorOutIdx,
 	}, nil
 }
 
@@ -3405,7 +3201,15 @@ func (f *FundedMintAnchorPsbt) GenesisOutpoint() fn.Option[wire.OutPoint] {
 	return fn.Some(f.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint)
 }
 
-// Copy creates a deep copy of FundedMintAnchorPsbt.
+// Copy returns a deep copy of FundedMintAnchorPsbt. The contained
+// psbt.Packet is cloned via a serialize/parse round-trip so every nested
+// PInput/POutput/Unknown -- each of which carries its own slice and map
+// substructure -- is duplicated. LockedUTXOs holds wire.OutPoint values
+// (no pointer reachability) so fn.CopySlice is a true deep copy there.
+//
+// If the round-trip fails (the underlying packet is malformed) we panic,
+// since tapgarden only ever holds packets it constructed itself via the
+// wallet's funding flow.
 func (f *FundedMintAnchorPsbt) Copy() *FundedMintAnchorPsbt {
 	newMintAnchorPsbt := &FundedMintAnchorPsbt{
 		FundedPsbt: tapsend.FundedPsbt{
@@ -3413,22 +3217,33 @@ func (f *FundedMintAnchorPsbt) Copy() *FundedMintAnchorPsbt {
 			ChainFees:         f.ChainFees,
 			LockedUTXOs:       fn.CopySlice(f.LockedUTXOs),
 		},
-		AssetAnchorOutIdx:   f.AssetAnchorOutIdx,
-		PreCommitmentOutput: f.PreCommitmentOutput,
+		AssetAnchorOutIdx: f.AssetAnchorOutIdx,
 	}
 
 	if f.Pkt != nil {
-		var unsignedTx *wire.MsgTx
-		if f.Pkt.UnsignedTx != nil {
-			unsignedTx = f.Pkt.UnsignedTx.Copy()
+		// Real-world packets always carry an UnsignedTx (the psbt
+		// package's Serialize requires it). Surface the impossible
+		// case explicitly rather than letting Serialize panic with
+		// a less-actionable nil-pointer dereference.
+		if f.Pkt.UnsignedTx == nil {
+			panic("FundedMintAnchorPsbt.Copy: Pkt has nil " +
+				"UnsignedTx; not a valid psbt")
 		}
 
-		newMintAnchorPsbt.Pkt = &psbt.Packet{
-			UnsignedTx: unsignedTx,
-			Inputs:     fn.CopySlice(f.Pkt.Inputs),
-			Outputs:    fn.CopySlice(f.Pkt.Outputs),
-			Unknowns:   fn.CopySlice(f.Pkt.Unknowns),
+		var buf bytes.Buffer
+		if err := f.Pkt.Serialize(&buf); err != nil {
+			panic(fmt.Errorf("FundedMintAnchorPsbt.Copy: "+
+				"serializing packet failed: %w", err))
 		}
+
+		pktCopy, err := psbt.NewFromRawBytes(
+			bytes.NewReader(buf.Bytes()), false,
+		)
+		if err != nil {
+			panic(fmt.Errorf("FundedMintAnchorPsbt.Copy: parsing "+
+				"round-tripped packet failed: %w", err))
+		}
+		newMintAnchorPsbt.Pkt = pktCopy
 	}
 
 	return newMintAnchorPsbt

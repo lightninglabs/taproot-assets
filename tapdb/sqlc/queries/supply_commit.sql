@@ -65,12 +65,50 @@ UPDATE supply_commit_transitions
 SET finalized = TRUE
 WHERE transition_id = @transition_id;
 
--- name: InsertSupplyUpdateEvent :exec
+-- name: InsertSupplyUpdateEvent :execrows
+-- The event_key column is a deterministic content hash that
+-- identifies a logical update event. A duplicate insert (e.g. on
+-- restart re-run of the Confirmed branch in the minting state
+-- machine) hits the unique index on event_key and is silently
+-- dropped, leaving the existing row -- and any transition_id it
+-- already carries -- untouched.
+--
+-- Returning rows-affected (1 on insert, 0 on conflict) lets the
+-- caller distinguish "new event recorded" from "dedup absorbed an
+-- old one" -- the latter is the signal InsertPendingUpdate needs
+-- to avoid creating an empty pending transition when a re-fired
+-- event matches a row already attached to a prior (finalized)
+-- transition.
 INSERT INTO supply_update_events (
-    group_key, transition_id, update_type_id, event_data
+    group_key, transition_id, update_type_id, event_data, event_key
 ) VALUES (
-    $1, $2, $3, $4
-);
+    $1, $2, $3, $4, $5
+)
+ON CONFLICT (event_key) DO NOTHING;
+
+-- name: FetchSupplyUpdateEventsForBackfill :many
+-- Returns rows that pre-date the event_key column and still need
+-- a hash computed. Used by the programmatic migration that runs
+-- at schema version 62.
+--
+-- Rows attached to a transition come first so the backfill's
+-- "keep the first duplicate" dedup logic can never drop the row
+-- a finalized transition depends on. Within either partition,
+-- event_id ASC is the deterministic tie-break.
+SELECT event_id, transition_id, group_key, update_type_id, event_data
+FROM supply_update_events
+WHERE event_key IS NULL
+ORDER BY
+    CASE WHEN transition_id IS NULL THEN 1 ELSE 0 END,
+    event_id ASC;
+
+-- name: SetSupplyUpdateEventKey :exec
+-- Sets the content-hash key for a single supply update event row.
+-- Used by the programmatic migration that backfills pre-existing
+-- rows after column 000062 is added.
+UPDATE supply_update_events
+SET event_key = @event_key
+WHERE event_id = @event_id;
 
 -- name: QuerySupplyCommitStateMachine :one
 SELECT
@@ -202,6 +240,13 @@ WHERE transition_id = @transition_id;
 -- name: DeleteSupplyUpdateEvents :exec
 DELETE FROM supply_update_events
 WHERE transition_id = @transition_id;
+
+-- name: DeleteSupplyUpdateEvent :exec
+-- Deletes a single supply update event row identified by its
+-- event_id. Used by the migration 63 backfill to drop duplicate
+-- rows that hash to the same event_key as an earlier row.
+DELETE FROM supply_update_events
+WHERE event_id = @event_id;
 
 -- name: FetchUnspentSupplyPreCommits :many
 -- Fetch unspent supply pre-commitment outputs. Each pre-commitment output

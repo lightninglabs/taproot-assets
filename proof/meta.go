@@ -174,6 +174,39 @@ type MetaReveal struct {
 	UnknownOddTypes tlv.TypeMap
 }
 
+// Copy returns a deep copy of *MetaReveal: data slice, the optional
+// canonical-universes slice, and the unknown-types byte map are all
+// duplicated. The Option-wrapped DelegationKey contains a value-typed
+// PublicKey copied trivially when the Option is assigned. Returns
+// nil if m is nil.
+func (m *MetaReveal) Copy() *MetaReveal {
+	if m == nil {
+		return nil
+	}
+	out := &MetaReveal{
+		Type:                m.Type,
+		Data:                bytes.Clone(m.Data),
+		DecimalDisplay:      m.DecimalDisplay,
+		UniverseCommitments: m.UniverseCommitments,
+		DelegationKey:       m.DelegationKey,
+	}
+	m.CanonicalUniverses.WhenSome(func(urls []url.URL) {
+		cloned := make([]url.URL, len(urls))
+		copy(cloned, urls)
+		out.CanonicalUniverses = fn.Some(cloned)
+	})
+	// Preserve the empty-vs-nil distinction: an explicitly-empty
+	// TypeMap is observably different from a nil one under
+	// reflect.DeepEqual, and AssertCopyEqual catches the collapse.
+	if m.UnknownOddTypes != nil {
+		out.UnknownOddTypes = make(tlv.TypeMap, len(m.UnknownOddTypes))
+		for k, v := range m.UnknownOddTypes {
+			out.UnknownOddTypes[k] = bytes.Clone(v)
+		}
+	}
+	return out
+}
+
 // Validate validates the meta reveal.
 func (m *MetaReveal) Validate() error {
 	// A meta reveal is allowed to be nil.

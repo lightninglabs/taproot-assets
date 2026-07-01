@@ -8,6 +8,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/stretchr/testify/require"
 )
@@ -22,8 +23,8 @@ type Mint struct {
 
 	MintingStore *tapdb.AssetMintingStore
 	Planter      *tapgarden.ChainPlanter
-	ChainBridge  *tapgarden.MockChainBridge
-	Wallet       *tapgarden.MockWalletAnchor
+	ChainBridge  *tapnodemock.ChainBridge
+	Wallet       *tapnodemock.WalletAnchor
 	GenSigner    *tapgarden.MockGenSigner
 }
 
@@ -42,8 +43,8 @@ func NewMint(tb testing.TB) *Mint {
 	mintingStore := tapdb.NewAssetMintingStore(mintingExec)
 	treeMgr := tapgarden.NewFallibleTapscriptTreeMgr(mintingStore)
 
-	chainBridge := tapgarden.NewMockChainBridge()
-	wallet := tapgarden.NewMockWalletAnchor()
+	chainBridge := tapnodemock.NewChainBridge()
+	wallet := tapnodemock.NewWalletAnchor()
 	genSigner := tapgarden.NewMockGenSigner(st.KeyRing)
 
 	errChan := make(chan error, 16)
@@ -52,7 +53,8 @@ func NewMint(tb testing.TB) *Mint {
 		GardenKit: tapgarden.GardenKit{
 			Wallet:       wallet,
 			ChainBridge:  chainBridge,
-			Log:          mintingStore,
+			BatchStore:   mintingStore,
+			MintingRefs:  mintingStore,
 			TreeStore:    &treeMgr,
 			KeyRing:      st.KeyRing,
 			GenSigner:    genSigner,
