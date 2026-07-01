@@ -162,7 +162,7 @@ func local_request_Mint_CancelBatch_0(ctx context.Context, marshaler runtime.Mar
 }
 
 var (
-	filter_Mint_ListBatches_0 = &utilities.DoubleArray{Encoding: map[string]int{"batch_key": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
+	filter_Mint_ListBatches_0 = &utilities.DoubleArray{Encoding: map[string]int{"batch_key_str": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
 )
 
 func request_Mint_ListBatches_0(ctx context.Context, marshaler runtime.Marshaler, client MintClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -176,19 +176,19 @@ func request_Mint_ListBatches_0(ctx context.Context, marshaler runtime.Marshaler
 		_   = err
 	)
 
-	val, ok = pathParams["batch_key"]
+	val, ok = pathParams["batch_key_str"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "batch_key")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "batch_key_str")
 	}
 
 	if protoReq.Filter == nil {
-		protoReq.Filter = &ListBatchRequest_BatchKey{}
-	} else if _, ok := protoReq.Filter.(*ListBatchRequest_BatchKey); !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "expect type: *ListBatchRequest_BatchKey, but: %t\n", protoReq.Filter)
+		protoReq.Filter = &ListBatchRequest_BatchKeyStr{}
+	} else if _, ok := protoReq.Filter.(*ListBatchRequest_BatchKeyStr); !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "expect type: *ListBatchRequest_BatchKeyStr, but: %t\n", protoReq.Filter)
 	}
-	protoReq.Filter.(*ListBatchRequest_BatchKey).BatchKey, err = runtime.Bytes(val)
+	protoReq.Filter.(*ListBatchRequest_BatchKeyStr).BatchKeyStr, err = runtime.String(val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "batch_key", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "batch_key_str", err)
 	}
 
 	if err := req.ParseForm(); err != nil {
@@ -214,19 +214,19 @@ func local_request_Mint_ListBatches_0(ctx context.Context, marshaler runtime.Mar
 		_   = err
 	)
 
-	val, ok = pathParams["batch_key"]
+	val, ok = pathParams["batch_key_str"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "batch_key")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "batch_key_str")
 	}
 
 	if protoReq.Filter == nil {
-		protoReq.Filter = &ListBatchRequest_BatchKey{}
-	} else if _, ok := protoReq.Filter.(*ListBatchRequest_BatchKey); !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "expect type: *ListBatchRequest_BatchKey, but: %t\n", protoReq.Filter)
+		protoReq.Filter = &ListBatchRequest_BatchKeyStr{}
+	} else if _, ok := protoReq.Filter.(*ListBatchRequest_BatchKeyStr); !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "expect type: *ListBatchRequest_BatchKeyStr, but: %t\n", protoReq.Filter)
 	}
-	protoReq.Filter.(*ListBatchRequest_BatchKey).BatchKey, err = runtime.Bytes(val)
+	protoReq.Filter.(*ListBatchRequest_BatchKeyStr).BatchKeyStr, err = runtime.String(val)
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "batch_key", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "batch_key_str", err)
 	}
 
 	if err := req.ParseForm(); err != nil {
@@ -401,7 +401,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/mintrpc.Mint/ListBatches", runtime.WithHTTPPathPattern("/v1/taproot-assets/assets/mint/batches/{batch_key}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/mintrpc.Mint/ListBatches", runtime.WithHTTPPathPattern("/v1/taproot-assets/assets/mint/batches/{batch_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -582,7 +582,7 @@ func RegisterMintHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/mintrpc.Mint/ListBatches", runtime.WithHTTPPathPattern("/v1/taproot-assets/assets/mint/batches/{batch_key}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/mintrpc.Mint/ListBatches", runtime.WithHTTPPathPattern("/v1/taproot-assets/assets/mint/batches/{batch_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -634,7 +634,7 @@ var (
 
 	pattern_Mint_CancelBatch_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "assets", "mint", "cancel"}, ""))
 
-	pattern_Mint_ListBatches_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "assets", "mint", "batches", "batch_key"}, ""))
+	pattern_Mint_ListBatches_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "assets", "mint", "batches", "batch_key_str"}, ""))
 
 	pattern_Mint_SubscribeMintEvents_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "events", "asset-mint"}, ""))
 )

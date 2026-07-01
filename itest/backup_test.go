@@ -121,7 +121,7 @@ func testBackupRestoreGenesis(t *harnessTest) {
 //     imported (both anchor outpoints spent in step 7)
 func testBackupRestoreTransferred(t *harnessTest) {
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*4)
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
 	// === Stage 1: Mint 2 assets on Alice in separate batches ===
@@ -475,7 +475,7 @@ func assertAssetsMatch(t *harnessTest, expected []*taprpc.Asset,
 //  5. Verify asset counts and group key presence on both nodes
 func testBackupRestoreGrouped(t *harnessTest) {
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*4)
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
 	// Mint a grouped asset and an ungrouped asset together.

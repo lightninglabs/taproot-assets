@@ -18,6 +18,10 @@ var allTestCases = []*testCase{
 		test: testMintBatchResume,
 	},
 	{
+		name: "mint list batches REST batch key encoding",
+		test: testMintListBatchesRESTBatchKeyEncoding,
+	},
+	{
 		name: "mint batch and transfer",
 		test: testMintBatchAndTransfer,
 	},
