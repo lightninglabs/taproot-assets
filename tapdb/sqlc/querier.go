@@ -114,6 +114,10 @@ type Querier interface {
 	// filtering.
 	FetchMintSupplyPreCommits(ctx context.Context, arg FetchMintSupplyPreCommitsParams) ([]FetchMintSupplyPreCommitsRow, error)
 	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)
+	// ORDER BY matches the tie-break used by migration 61's self-heal
+	// (creation_time_unix DESC, batch_id DESC), so any code that has to
+	// pick "the most recent" pre-broadcast batch when several share a
+	// timestamp reaches the same row as the migration.
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchMultiverseRoot(ctx context.Context, namespaceRoot string) (FetchMultiverseRootRow, error)
 	FetchPeerAcceptedBuyPeerByScid(ctx context.Context, scid int64) ([]byte, error)

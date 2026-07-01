@@ -1794,6 +1794,7 @@ FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
 WHERE batches.batch_state != $1
+ORDER BY batches.creation_time_unix DESC, batches.batch_id DESC
 `
 
 type FetchMintingBatchesByInverseStateRow struct {
@@ -1813,6 +1814,10 @@ type FetchMintingBatchesByInverseStateRow struct {
 	KeyIndex            int32
 }
 
+// ORDER BY matches the tie-break used by migration 61's self-heal
+// (creation_time_unix DESC, batch_id DESC), so any code that has to
+// pick "the most recent" pre-broadcast batch when several share a
+// timestamp reaches the same row as the migration.
 func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error) {
 	rows, err := q.db.QueryContext(ctx, FetchMintingBatchesByInverseState, batchState)
 	if err != nil {

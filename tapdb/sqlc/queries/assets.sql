@@ -14,11 +14,16 @@ INSERT INTO asset_minting_batches (
 ) VALUES (0, $1, $2, $3, $4);
 
 -- name: FetchMintingBatchesByInverseState :many
+-- ORDER BY matches the tie-break used by migration 61's self-heal
+-- (creation_time_unix DESC, batch_id DESC), so any code that has to
+-- pick "the most recent" pre-broadcast batch when several share a
+-- timestamp reaches the same row as the migration.
 SELECT *
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
-WHERE batches.batch_state != $1;
+WHERE batches.batch_state != $1
+ORDER BY batches.creation_time_unix DESC, batches.batch_id DESC;
 
 -- name: FetchMintingBatch :one
 WITH target_batch AS (

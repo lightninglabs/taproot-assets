@@ -1066,7 +1066,10 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized(
 	isNotCancelledBatch := func(batch *tapgarden.MintingBatch) bool {
 		return !isCancelledBatch(batch)
 	}
-	pendingBatch, err := fn.Last(pendingBatches, isNotCancelledBatch)
+	// FetchNonFinalBatches returns rows in newest-first order
+	// (creation_time_unix DESC, batch_id DESC), so First is what
+	// picks the most recent non-cancelled batch here.
+	pendingBatch, err := fn.First(pendingBatches, isNotCancelledBatch)
 	require.NoError(t, err)
 
 	// The minting key of the batch should match the public key

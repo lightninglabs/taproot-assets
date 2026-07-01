@@ -111,9 +111,12 @@ func RunRepairTool(cfg *Config, cfgLogger btclog.Logger,
 	}
 
 	// Sort newest-first by CreationTime; preserve [0], cancel the
-	// rest. SliceStable gives a deterministic winner when two
-	// batches share a timestamp -- the input order (from
-	// FetchNonFinalBatches) then acts as the tiebreak.
+	// rest. FetchNonFinalBatches returns rows already ordered
+	// (creation_time_unix DESC, batch_id DESC) to match the tie-
+	// break migration 61's self-heal uses, and SliceStable
+	// preserves that ordering on timestamp ties -- so the winner
+	// picked here is the same row the migration would have
+	// preserved.
 	sort.SliceStable(preBroadcast, func(i, j int) bool {
 		return preBroadcast[i].CreationTime.After(
 			preBroadcast[j].CreationTime,
