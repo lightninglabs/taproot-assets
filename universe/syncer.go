@@ -45,6 +45,15 @@ type SimpleSyncCfg struct {
 
 	// SyncBatchSize is the number of items to sync in a single batch.
 	SyncBatchSize int
+
+	// SyncRootConcurrency caps the number of universe roots syncRoots
+	// processes at once. Left unset (or non-positive), it defaults to
+	// 1 in NewSimpleSyncer. Kept internal for now — issue #2026's
+	// reporter observed DB tx retry exhaustion at unbounded fan-out
+	// and no retries at concurrency 2 in their environment; the
+	// production wiring picks 2, and only the tests exercise other
+	// values.
+	SyncRootConcurrency int
 }
 
 // SyncDiffEvent is sent to subscribers after a universe sync completes,
@@ -80,8 +89,13 @@ type SimpleSyncer struct {
 	eventDistributor *fn.EventDistributor[fn.Event]
 }
 
-// NewSimpleSyncer creates a new SimpleSyncer instance.
+// NewSimpleSyncer creates a new SimpleSyncer instance. Any
+// non-positive SyncRootConcurrency is clamped up to 1 so the internal
+// fan-out can trust the invariant "at least one worker."
 func NewSimpleSyncer(cfg SimpleSyncCfg) *SimpleSyncer {
+	if cfg.SyncRootConcurrency <= 0 {
+		cfg.SyncRootConcurrency = 1
+	}
 	return &SimpleSyncer{
 		cfg:              cfg,
 		eventDistributor: fn.NewEventDistributor[fn.Event](),
@@ -217,20 +231,93 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	log.Infof("Obtained %v roots from remote Universe server",
 		len(targetRoots))
 
-	// Now that we know the set of Universes we need to sync, we'll execute
-	// the diff operation for each of them.
+	// Split the target roots by proof type. Issuance roots must land
+	// first so that any transfer root referencing an issuance can find
+	// its predecessor when the archive verifies the batch — otherwise
+	// the transfer would surface a "no universe proof found" error
+	// mid-batch and abort. See issue #2026 for the reported symptom.
+	sorted := partitionByProofType(targetRoots)
+
 	syncDiffs := make(chan AssetSyncDiff, len(targetRoots))
-	err = fn.ParSlice(
-		ctx, targetRoots, func(ctx context.Context, r Root) error {
-			return s.syncRoot(ctx, r, diffEngine, syncDiffs)
-		},
-	)
-	if err != nil {
+	if err := s.syncRoots(
+		ctx, sorted.Issuance, diffEngine, syncDiffs,
+	); err != nil {
+		return nil, err
+	}
+	if err := s.syncRoots(
+		ctx, sorted.Transfer, diffEngine, syncDiffs,
+	); err != nil {
+		return nil, err
+	}
+	for _, r := range sorted.Other {
+		log.Warnf("Syncing UniverseRoot(%v) with unusual proof "+
+			"type %v through SimpleSyncer; dedicated syncers "+
+			"exist for burn/ignore/mint-supply", r.ID.String(),
+			r.ID.ProofType)
+	}
+	if err := s.syncRoots(
+		ctx, sorted.Other, diffEngine, syncDiffs,
+	); err != nil {
 		return nil, err
 	}
 
-	// Finally, we'll collect all the diffs and return them to the caller.
 	return fn.Collect(syncDiffs), nil
+}
+
+// SortedRoots is a proof-type-partitioned view of a set of Root
+// values. The three fields are structurally distinct so a caller
+// cannot accidentally interleave issuance, transfer, and unknown-
+// type processing — each must be handled in its own phase.
+type SortedRoots struct {
+	Issuance []Root
+	Transfer []Root
+
+	// Other holds roots whose proof type is neither issuance nor
+	// transfer (burn, ignore, mint-supply, unspecified). SimpleSyncer's
+	// leaf-fetch path was designed for issuance and transfer, so these
+	// roots are rare here in practice — they normally flow through
+	// dedicated syncers. Retained rather than dropped so an explicit
+	// idsToSync call driving an unusual proof type still produces some
+	// visible effect (a warning) rather than a silent no-op.
+	Other []Root
+}
+
+// partitionByProofType splits roots into issuance, transfer, and
+// other buckets by their ID.ProofType. Relative order within each
+// bucket is preserved.
+func partitionByProofType(roots []Root) SortedRoots {
+	var out SortedRoots
+	for _, r := range roots {
+		switch r.ID.ProofType {
+		case ProofTypeIssuance:
+			out.Issuance = append(out.Issuance, r)
+		case ProofTypeTransfer:
+			out.Transfer = append(out.Transfer, r)
+		case ProofTypeUnspecified, ProofTypeIgnore, ProofTypeBurn,
+			ProofTypeMintSupply:
+			out.Other = append(out.Other, r)
+		}
+	}
+	return out
+}
+
+// syncRoots is the shared per-root fan-out used by executeSync. Roots
+// are processed by a worker pool bounded to cfg.SyncRootConcurrency.
+// Bounded concurrency (rather than the previous unbounded fn.ParSlice)
+// is what keeps DB transaction retries from exhausting themselves on
+// large sync sets, per issue #2026.
+func (s *SimpleSyncer) syncRoots(ctx context.Context, roots []Root,
+	diffEngine DiffEngine, syncDiffs chan<- AssetSyncDiff) error {
+
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(s.cfg.SyncRootConcurrency)
+	for _, r := range roots {
+		r := r
+		eg.Go(func() error {
+			return s.syncRoot(ctx, r, diffEngine, syncDiffs)
+		})
+	}
+	return eg.Wait()
 }
 
 // fetchRootsForIDs fetches the roots for a specific set of universe IDs.
@@ -333,7 +420,23 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 
 	// With the set of keys fetched, we can now find the set of keys that
 	// need to be synced.
-	keysToFetch := fn.SetDiff(remoteUniKeys, localUniKeys)
+	keysToFetch := diffLeafKeys(remoteUniKeys, localUniKeys)
+
+	// We only reach this point when the roots diverged (the equal-root
+	// case exited above). If the content-based diff nonetheless comes
+	// up empty, the divergence must live in the leaf contents at
+	// shared keys — the canonical trigger is a re-org update on the
+	// remote side rewriting a leaf's proof at an unchanged (outpoint,
+	// script_key). Refetch every remote key so the archive picks up
+	// the fresh content; the multiverse upsert is idempotent for
+	// content-identical leaves, so the extra work is bounded to
+	// actually-stale entries.
+	if len(keysToFetch) == 0 {
+		log.Infof("UniverseRoot(%v) diverges with empty leaf-key "+
+			"diff; refetching all remote leaves to pick up "+
+			"content updates", uniID.String())
+		keysToFetch = remoteUniKeys
+	}
 
 	log.Infof("UniverseRoot(%v): diff_size=%v", uniID.String(),
 		len(keysToFetch))
@@ -709,6 +812,39 @@ func (s *SimpleSyncer) fetchAllLeafKeys(ctx context.Context,
 	}
 
 	return leafKeys, nil
+}
+
+// diffLeafKeys returns the leaf keys that appear in remote but not in
+// local, compared by content (via UniverseKey) rather than by the
+// interface identity fn.SetDiff would use. Concretely, LeafKey is an
+// interface whose common concrete implementation (BaseLeafKey) embeds
+// a *asset.ScriptKey; interface equality would compare that pointer
+// by address, so two BaseLeafKeys with identical outpoint and script
+// pubkey but freshly-allocated ScriptKey pointers — which is exactly
+// what mintingKeys returns per-call — would be treated as distinct.
+// Keying by UniverseKey() sidesteps that entirely because it is the
+// same 32-byte content hash the multiverse itself uses.
+//
+// Two invariants the result satisfies:
+//
+//   - it is a subset of remote by content, and
+//   - it preserves remote's relative order (a subsequence).
+//
+// The second matters because callers index into the returned slice
+// alongside a parallel fetch loop for error attribution.
+func diffLeafKeys(remote, local []LeafKey) []LeafKey {
+	localSet := make(map[[32]byte]struct{}, len(local))
+	for _, k := range local {
+		localSet[k.UniverseKey()] = struct{}{}
+	}
+
+	diff := make([]LeafKey, 0, len(remote))
+	for _, k := range remote {
+		if _, ok := localSet[k.UniverseKey()]; !ok {
+			diff = append(diff, k)
+		}
+	}
+	return diff
 }
 
 // IsEmptyRoot return true if the given root does not have any values set.
