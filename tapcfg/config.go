@@ -111,8 +111,17 @@ const (
 	defaultUniverseSyncInterval = time.Minute * 10
 
 	// defaultUniverseSyncBatchSize is the default number of proofs we'll
-	// sync in a single batch.
-	defaultUniverseSyncBatchSize = 200
+	// sync in a single batch. Kept small to shorten the write-side DB
+	// transaction and reduce contention when several roots are being
+	// synced concurrently — see issue #2026 for the "db tx retries
+	// exceeded" symptom the old value of 200 was surfacing.
+	defaultUniverseSyncBatchSize = 50
+
+	// defaultUniverseSyncRootConcurrency caps the number of universe
+	// roots the syncer processes at once. A small cap in combination
+	// with the smaller batch size above keeps the write-side DB
+	// transaction pool from thrashing.
+	defaultUniverseSyncRootConcurrency = 2
 
 	// defaultReOrgSafeDepth is the default number of confirmations we'll
 	// wait for before considering a transaction safely buried in the chain.

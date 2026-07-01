@@ -225,16 +225,22 @@ func (r *directRegistrar) classify(err error) {
 	}
 }
 
-// SyncFixtureOpts configures a SyncFixture. The zero value picks the
-// production default for SyncBatchSize (200 as of writing).
+// SyncFixtureOpts configures a SyncFixture. Zero fields fall back to
+// the production defaults (batch=50, root-concurrency=2).
 type SyncFixtureOpts struct {
 	// SyncBatchSize is the leaf batch size passed to SimpleSyncer.
 	SyncBatchSize int
+
+	// SyncRootConcurrency caps the syncer's per-root fan-out.
+	SyncRootConcurrency int
 }
 
 func (o SyncFixtureOpts) withDefaults() SyncFixtureOpts {
 	if o.SyncBatchSize == 0 {
-		o.SyncBatchSize = 200
+		o.SyncBatchSize = 50
+	}
+	if o.SyncRootConcurrency == 0 {
+		o.SyncRootConcurrency = 2
 	}
 	return o
 }
@@ -276,7 +282,8 @@ func NewSyncFixture(tb testing.TB, opts SyncFixtureOpts) *SyncFixture {
 
 			return remote.Archive, nil
 		},
-		SyncBatchSize: opts.SyncBatchSize,
+		SyncBatchSize:       opts.SyncBatchSize,
+		SyncRootConcurrency: opts.SyncRootConcurrency,
 	})
 
 	return &SyncFixture{
