@@ -388,8 +388,12 @@ func (b *Cultivator) assetCultivator() {
 	defer b.Wg.Done()
 
 	currentBatchState := b.cfg.Batch.State()
-	// If the batch is already marked as confirmed, then we just need to
-	// advance it one more level to be finalized.
+	// If the batch is already marked as confirmed, then we just
+	// need to advance it one more level to be finalized. Under the
+	// current Confirmed-branch ordering, MarkBatchConfirmed is the
+	// last persistence write, so disk-Confirmed means the full
+	// Confirmed branch (including the re-org watcher registration)
+	// already ran to completion; the skip is semantically justified.
 	if currentBatchState == BatchStateConfirmed {
 		log.Infof("MintingBatch(%x): already confirmed!", b.batchKey[:])
 
@@ -1231,9 +1235,8 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		// confirmation branch re-runs on restart: universe
 		// publish above is idempotent, the event_key dedup
 		// index (migration 62, backfilled by 63) makes the
-		// augmenter side idempotent, and MarkBatchConfirmed
-		// below is what advances state on disk -- so retry is
-		// safe.
+		// augmenter side idempotent, and MarkBatchConfirmed is
+		// the last write below -- so retry is safe.
 		err = b.augmenter().OnBatchConfirmed(
 			ctx, b.cfg.Batch, anchorAssets, nonAnchorAssets,
 			mintingProofs,
@@ -1243,6 +1246,35 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 				err)
 		}
 
+		// Register the batch's proofs with the re-org watcher
+		// before advancing state on disk. If this fails, the
+		// batch stays in BatchStateBroadcast and the whole
+		// confirmation branch re-runs on restart, ensuring the
+		// correct updateMintingProofs callback is the one bound
+		// to the anchor tx. If we instead registered after
+		// MarkBatchConfirmed, a crash between the two would
+		// leave disk at Confirmed with no callback registered by
+		// us; the re-org watcher's Start-time recovery would
+		// re-register with its DefaultUpdateCallback, silently
+		// dropping the universe re-publish on any subsequent
+		// re-org.
+		if err := b.cfg.ProofWatcher.WatchProofs(
+			maps.Values(mintingProofs), b.cfg.UpdateMintingProofs,
+		); err != nil {
+			return 0, fmt.Errorf("error watching proof: %w", err)
+		}
+
+		// MarkBatchConfirmed is the last persistence write in
+		// this branch. Under this ordering, disk-Confirmed
+		// genuinely means "every step this branch owes is done."
+		// A crash before this call keeps the batch at
+		// BatchStateBroadcast and the branch re-runs on restart;
+		// a crash after has nothing left to do beyond the
+		// terminal Finalized state advance. The essence-splitting
+		// that produced the older reorg-callback gap (disk-
+		// Confirmed as both an input state and a mid-branch
+		// checkpoint) is dissolved by making the on-disk name
+		// mean what it says.
 		err = b.cfg.BatchStore.MarkBatchConfirmed(
 			ctx, b.cfg.Batch, confInfo.BlockHash,
 			confInfo.BlockHeight, confInfo.TxIndex,
@@ -1250,14 +1282,6 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to confirm batch: %w", err)
-		}
-
-		// Now that we've confirmed the batch, we'll hand over the
-		// proofs to the re-org watcher.
-		if err := b.cfg.ProofWatcher.WatchProofs(
-			maps.Values(mintingProofs), b.cfg.UpdateMintingProofs,
-		); err != nil {
-			return 0, fmt.Errorf("error watching proof: %w", err)
 		}
 
 		log.Infof("Cultivator(%x): transition states: %v -> %v",
@@ -1271,7 +1295,6 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		log.Infof("Cultivator(%x): transition states: %v -> %v",
 			b.batchKey[:], BatchStateFinalized, BatchStateFinalized)
 
-		// TODO(roasbeef): confirmed should just be the final state?
 		ctx, cancel := b.WithCtxQuit()
 		defer cancel()
 		err := b.cfg.BatchStore.UpdateBatchState(

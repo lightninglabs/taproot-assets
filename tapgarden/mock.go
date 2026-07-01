@@ -571,10 +571,20 @@ func (m *MockProofArchive) ImportProofs(context.Context,
 }
 
 type MockProofWatcher struct {
+	// ShouldFail, when set, causes WatchProofs to return an error
+	// instead of the usual no-op. Tests that need to observe the
+	// caretaker's handling of a re-org watcher registration failure
+	// flip this on before driving the relevant state transition and
+	// off before the retry.
+	ShouldFail atomic.Bool
 }
 
 func (m *MockProofWatcher) WatchProofs([]*proof.Proof,
 	proof.UpdateCallback) error {
+
+	if m.ShouldFail.Load() {
+		return fmt.Errorf("simulated re-org watcher failure")
+	}
 
 	return nil
 }

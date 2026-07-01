@@ -2302,6 +2302,98 @@ func testOnBatchConfirmedFailureAbortsConfirmation(t *mintingTestHarness) {
 	t.assertNumCaretakersActive(0)
 }
 
+// testWatchProofsFailureAbortsConfirmation asserts that a failure
+// returned from ProofWatcher.WatchProofs aborts mint confirmation:
+// the batch stays in BatchStateBroadcast on disk so the whole
+// confirmation branch re-runs on restart. This pins the ordering
+// invariant that MarkBatchConfirmed is the LAST persistence write
+// in the Confirmed branch -- under the pre-A2 ordering
+// (MarkBatchConfirmed before WatchProofs), a WatchProofs failure
+// would leave the batch at BatchStateConfirmed and this assertion
+// would fail. The invariant matters because a batch at disk-
+// Confirmed with no registered re-org callback silently drops
+// universe re-publish on subsequent re-orgs.
+func testWatchProofsFailureAbortsConfirmation(t *mintingTestHarness) {
+	// Wire the harness so the mock re-org watcher rejects the
+	// registration on the first pass; the retry after restart
+	// receives a fresh MockProofWatcher (zero ShouldFail) and
+	// succeeds.
+	t.proofWatcher.ShouldFail.Store(true)
+	t.refreshChainPlanter()
+
+	// Drive Pending -> Frozen -> Committed -> Broadcast.
+	const numSeedlings = 3
+	_ = t.queueInitialBatch(numSeedlings)
+	frozenBatch := t.finalizeBatchAssertFrozen(false)
+	t.assertBatchCommitted(frozenBatch.BatchKey.PubKey)
+	t.assertGenesisPsbtFinalized(nil)
+	tx := t.assertTxPublished()
+
+	// Assemble the confirmation block.
+	merkleTree := blockchain.BuildMerkleTreeStore(
+		[]*btcutil.Tx{btcutil.NewTx(tx)}, false,
+	)
+	merkleRoot := merkleTree[len(merkleTree)-1]
+	blockHeader := wire.NewBlockHeader(
+		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
+	)
+	block := &wire.MsgBlock{
+		Header:       *blockHeader,
+		Transactions: []*wire.MsgTx{tx},
+	}
+
+	// Deliver the confirmation. WatchProofs will fail and the
+	// Confirmed branch must abort before MarkBatchConfirmed.
+	sendConfNtfn := t.assertConfReqSent(tx, block)
+	sendConfNtfn()
+
+	// The batch on disk must remain at BatchStateBroadcast. If A2's
+	// ordering regressed and MarkBatchConfirmed ran before the
+	// WatchProofs failure, we'd see BatchStateConfirmed here
+	// instead.
+	require.Never(t, func() bool {
+		batches, err := t.store.FetchAllBatches(context.Background())
+		require.NoError(t, err)
+		if len(batches) != 1 {
+			return false
+		}
+		return batches[0].State() != tapgarden.BatchStateBroadcast
+	}, 500*time.Millisecond, 50*time.Millisecond,
+		"batch advanced past Broadcast despite WatchProofs failure")
+
+	// Simulate a restart with a now-succeeding re-org watcher. The
+	// fresh caretaker resumes the Broadcast batch, re-publishes the
+	// tx, and re-registers for a confirmation.
+	t.proofWatcher.ShouldFail.Store(false)
+	t.refreshChainPlanter()
+	select {
+	case <-t.errChan:
+	default:
+	}
+
+	_ = t.assertTxPublished()
+	sendConfNtfn = t.assertConfReqSent(tx, block)
+	sendConfNtfn()
+
+	// With WatchProofs now returning nil, the Confirmed branch
+	// completes and the batch advances to Finalized.
+	err := wait.Predicate(func() bool {
+		batches, err := t.store.FetchAllBatches(
+			context.Background(),
+		)
+		require.NoError(t, err)
+		if len(batches) != 1 {
+			return false
+		}
+		return batches[0].State() == tapgarden.BatchStateFinalized
+	}, defaultTimeout)
+	require.NoError(
+		t, err, "batch never advanced to Finalized on retry",
+	)
+
+	t.assertNumCaretakersActive(0)
+}
+
 // mintingStoreTestCase is used to programmatically run a series of test cases
 // that are parametrized based on a fresh minting store.
 type mintingStoreTestCase struct {
@@ -2350,6 +2442,10 @@ var testCases = []mintingStoreTestCase{
 	{
 		name:     "on_batch_confirmed_failure_aborts_confirmation",
 		testFunc: testOnBatchConfirmedFailureAbortsConfirmation,
+	},
+	{
+		name:     "watch_proofs_failure_aborts_confirmation",
+		testFunc: testWatchProofsFailureAbortsConfirmation,
 	},
 }
 
