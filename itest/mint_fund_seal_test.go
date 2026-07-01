@@ -599,17 +599,17 @@ func testMintExternalGroupKeyChantools(t *harnessTest) {
 func deriveRandomKey(t *testing.T, ctxt context.Context,
 	keyRing *lndservices.LndRpcKeyRing) keychain.KeyDescriptor {
 
+	// The random key family is capped to MaxInt8 to stay inside the range
+	// of accounts known to the watch-only signer set up by the remote
+	// signing itest mode. The cap also keeps the family safely below
+	// asset.TaprootAssetsKeyFamily, so no explicit collision check is
+	// needed.
 	var (
-		randFam = test.RandInt31n(math.MaxInt32)
+		randFam = test.RandInt31n(math.MaxInt8)
 		randInd = test.RandInt31n(255)
 		desc    keychain.KeyDescriptor
 		err     error
 	)
-
-	// Ensure that we use a different key family from tapd.
-	for randFam == asset.TaprootAssetsKeyFamily {
-		randFam = test.RandInt31n(math.MaxInt32)
-	}
 
 	desc, err = keyRing.DeriveNextKey(
 		ctxt, keychain.KeyFamily(randFam),
