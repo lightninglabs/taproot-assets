@@ -303,6 +303,19 @@
   extends macaroon auth to the portfolio pilot client, configurable via
   `experimental.rfq.portfoliopilotmacaroonpath`.
 
+* [PR#2112](https://github.com/lightninglabs/taproot-assets/pull/2112)
+  `DecodeAddr`, `DecodeProof`, and `ExportProof` now return
+  `codes.InvalidArgument` for request validation errors instead of
+  `codes.Unknown`. This enables clients to programmatically distinguish
+  bad input from internal errors.
+
+* [PR#2005](https://github.com/lightninglabs/taproot-assets/pull/2005)
+  Add a `node_id` field to `QueryAssetRatesRequest` containing the local
+  node's 33-byte compressed public key. This allows the price oracle to
+  identify which tapd node is querying rates. The field is populated by
+  default and can be disabled via
+  `experimental.rfq.priceoracledisablenodeid`.
+
 ## RPC Updates
 
 - [PR#1766](https://github.com/lightninglabs/taproot-assets/pull/1766):
