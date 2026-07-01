@@ -291,8 +291,13 @@ func (b *Cultivator) Cancel(respCh chan<- CancelResp) error {
 		b.batchKey[:])
 }
 
-// advanceStateUntil attempts to advance the internal state machine until the
-// target state has been reached.
+// advanceStateUntil advances the internal state machine from
+// currentState until it reaches a fixpoint (a state whose stateStep
+// returns itself, e.g. the Broadcast wait or the Finalized terminal).
+// targetState is the caller's declaration of which fixpoint they
+// expect to reach; if the loop terminates at a different fixpoint the
+// function returns an error, which catches caller/state-machine
+// mismatches instead of silently succeeding.
 func (b *Cultivator) advanceStateUntil(currentState,
 	targetState BatchState) (BatchState, error) {
 
@@ -341,9 +346,9 @@ func (b *Cultivator) advanceStateUntil(currentState,
 			currentState, b.cfg.Batch,
 		))
 
-		// We've reached a terminal state once the next state is our
-		// current state (state machine loops back to the current
-		// state).
+		// We've reached a terminal state once the state machine
+		// loops back to the current state (a self-transitioning
+		// fixpoint).
 		terminalState = nextState == currentState
 
 		currentState = nextState
@@ -354,6 +359,17 @@ func (b *Cultivator) advanceStateUntil(currentState,
 		// mirror only after the DB write succeeds. Writing the local
 		// currentState here would re-introduce the two-truth split
 		// that the store calls exist to prevent.
+	}
+
+	// The loop terminated at a fixpoint. Assert that it matches the
+	// target the caller declared; a mismatch means either the caller
+	// passed the wrong target or the state machine's geometry has
+	// changed under us, both of which are bugs worth surfacing rather
+	// than silently succeeding.
+	if currentState != targetState {
+		return 0, fmt.Errorf("Cultivator(%x): advanceStateUntil "+
+			"reached fixpoint at %v but caller expected %v",
+			b.batchKey[:], currentState, targetState)
 	}
 
 	return currentState, nil
