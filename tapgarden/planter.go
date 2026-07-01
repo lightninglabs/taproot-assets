@@ -400,9 +400,14 @@ type ChainPlanter struct {
 // NewChainPlanter creates a new ChainPlanter instance given the passed config.
 func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 	return &ChainPlanter{
-		cfg:               cfg,
-		cultivators:       make(map[BatchKey]*Cultivator),
-		completionSignals: make(chan BatchKey),
+		cfg:         cfg,
+		cultivators: make(map[BatchKey]*Cultivator),
+		// Buffer size 1 so a cultivator that finishes while the
+		// gardener is inside a stateReq closure (e.g. servicing a
+		// cancel request) can hand off its completion signal and
+		// exit without blocking. The gardener drains it on the
+		// next select loop iteration.
+		completionSignals: make(chan BatchKey, 1),
 		seedlingReqs:      make(chan *Seedling),
 		stateReqs:         make(chan stateReq),
 		subscribers:       make(map[uint64]*fn.EventReceiver[fn.Event]),
@@ -1692,6 +1697,13 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 		// Wait for the cultivator to reply to the cancellation request.
 		// If the request succeeded, the cultivator will update the
 		// batch state on disk.
+		//
+		// A third case is required: if the cultivator's goroutine
+		// has already exited (or is past the point of reading
+		// CancelReqChan, e.g. blocked in the post-broadcast wait for
+		// completion), no one will drain the request. Selecting on
+		// cultivator.Done() lets us surface an actionable error
+		// instead of deadlocking until Quit.
 		select {
 		case cancelResp := <-respCh:
 			// If the cultivator returned a batch state, then batch
@@ -1703,6 +1715,15 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 			}
 
 			return cancelResp.err
+
+		case <-cultivator.Done():
+			// The cultivator finished before we could deliver the
+			// request. Drop it from the map so a future retry does
+			// not race against a stale entry and return a clear
+			// error to the caller.
+			delete(c.cultivators, batchKeySerialized)
+			return fmt.Errorf("batch %x already completed, cannot "+
+				"cancel", batchKeySerialized[:])
 
 		case <-c.Quit:
 			return nil
@@ -2858,6 +2879,24 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	// No batch, so we'll create a new one with only this seedling as part
 	// of the batch.
 	case c.pendingBatch == nil:
+		// The pre-broadcast singleton invariant is enforced by
+		// the partial unique index added in migration 000061. A
+		// naive CommitMintingBatch here would surface that as a
+		// raw SQL error if any active cultivator still holds its
+		// batch in {Pending, Frozen} -- e.g. a restart where the
+		// cultivator is still advancing a Frozen batch past
+		// Committed. Refuse the seedling with an actionable error
+		// instead of letting the DB do the guarding.
+		for _, cult := range c.cultivators {
+			switch cult.cfg.Batch.State() {
+			case BatchStatePending, BatchStateFrozen:
+				return fmt.Errorf("mint batch already in " +
+					"flight in a pre-broadcast state; " +
+					"wait for it to broadcast before " +
+					"starting a new one")
+			}
+		}
+
 		newBatch, err := c.newBatch()
 		if err != nil {
 			return err

@@ -133,6 +133,14 @@ type Cultivator struct {
 	// confInfo is used to store a delivered confirmation event.
 	confInfo *chainntnfs.TxConfirmation
 
+	// done is closed once the assetCultivator goroutine has exited.
+	// The planter selects on this in cancelMintingBatch so a cancel
+	// request that arrives after the cultivator has already finished
+	// (or has stopped reading CancelReqChan) returns an actionable
+	// "already completed" error instead of deadlocking on the reply
+	// channel.
+	done chan struct{}
+
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
 	*fn.ContextGuard
@@ -155,11 +163,21 @@ func NewCultivator(cfg *CultivatorConfig) *Cultivator {
 		batchKey:  asset.ToSerialized(cfg.Batch.BatchKey.PubKey),
 		cfg:       cfg,
 		confEvent: make(chan *chainntnfs.TxConfirmation, 1),
+		done:      make(chan struct{}),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
 		},
 	}
+}
+
+// Done returns a channel that is closed once the cultivator's main
+// goroutine has exited. Callers waiting on a per-request reply channel
+// from the cultivator should also select on Done to avoid deadlocking
+// when the cultivator has already finished and cannot service the
+// request.
+func (b *Cultivator) Done() <-chan struct{} {
+	return b.done
 }
 
 // Start attempts to start a new batch cultivator.
@@ -346,6 +364,11 @@ func (b *Cultivator) advanceStateUntil(currentState,
 // broadcast. Once the batch has been broadcast, we'll register for a
 // confirmation to progress the batch to the final terminal state.
 func (b *Cultivator) assetCultivator() {
+	// LIFO defer ordering: close(b.done) registered first runs
+	// last, so Done() only fires after Wg.Done() has released.
+	// Anyone waiting on Done() therefore observes the goroutine as
+	// finished only after all other deferred cleanup has run.
+	defer close(b.done)
 	defer b.Wg.Done()
 
 	currentBatchState := b.cfg.Batch.State()
@@ -638,7 +661,10 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 				"sprouts: %w", err)
 		}
 
-		b.cfg.Batch.RootAssetCommitment = tapCommitment
+		// tapCommitment is kept in a local until the DB write below
+		// succeeds. Mutating b.cfg.Batch.RootAssetCommitment here
+		// would give any concurrent Copy() reader a view where the
+		// in-memory batch has advanced past what is on disk.
 
 		// Fetch the optional Tapscript sibling for this batch, and
 		// convert it to a TapscriptPreimage.
@@ -658,10 +684,20 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 			}
 		}
 
+		// Stage the freshly-computed commitment on a copy so
+		// derivations that need it (genesisScript, augmenter
+		// BindData) can read it without us mutating the live
+		// batch. Live-batch mutation is deferred until the
+		// AddSproutsToBatch DB write succeeds, so a concurrent
+		// Copy() from the planter never sees an in-memory batch
+		// that has advanced past what is on disk.
+		stagingBatch := b.cfg.Batch.Copy()
+		stagingBatch.RootAssetCommitment = tapCommitment
+
 		// With the commitment Taproot Asset root SMT constructed, we'll
 		// map that into the tapscript root we'll insert into the
 		// genesis transaction.
-		genesisScript, err := b.cfg.Batch.genesisScript(batchSibling)
+		genesisScript, err := stagingBatch.genesisScript(batchSibling)
 		if err != nil {
 			return 0, fmt.Errorf("unable to create genesis "+
 				"script: %w", err)
@@ -684,10 +720,8 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 
 		// The augmenter is the source of truth for the
 		// persistence payload that pairs with the binding tx.
-		// Stage the freshly-rebuilt genesis packet on a copy
-		// so the augmenter can read the script-stamped tx
-		// without us mutating the live batch.
-		stagingBatch := b.cfg.Batch.Copy()
+		// Give it the same staging batch so it observes the
+		// script-stamped tx and the fresh commitment.
 		stagingBatch.GenesisPacket = &fundedGenesisPsbt
 		preCommit, err := b.augmenter().BindData(ctx, stagingBatch)
 		if err != nil {
@@ -699,13 +733,16 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		// created for each of these assets.
 		err = b.cfg.BatchStore.AddSproutsToBatch(
 			ctx, b.cfg.Batch,
-			&fundedGenesisPsbt, b.cfg.Batch.RootAssetCommitment,
+			&fundedGenesisPsbt, tapCommitment,
 			preCommit,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to commit batch: %w", err)
 		}
 
+		// The DB write succeeded; sync in-memory batch with the
+		// state now on disk.
+		b.cfg.Batch.RootAssetCommitment = tapCommitment
 		b.cfg.Batch.GenesisPacket.Pkt = genesisTxPkt
 
 		// Now that we know the script key for all the assets, we'll
@@ -762,15 +799,17 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 				"%w", err)
 		}
 
-		b.cfg.Batch.GenesisPacket.Pkt = signedPkt
-
 		// Populate how much this tx paid in on-chain fees.
 		chainFees, err := signedPkt.GetTxFee()
 		if err != nil {
 			return 0, fmt.Errorf("unable to get on-chain fees "+
 				"for psbt: %w", err)
 		}
-		b.cfg.Batch.GenesisPacket.ChainFees = int64(chainFees)
+
+		// signedPkt/chainFees are held in locals until the DB
+		// write below succeeds. The live batch is not mutated
+		// yet, so a concurrent Copy() (e.g. via FinalizeBatch)
+		// still sees the pre-signing state that matches on-disk.
 
 		log.Infof("Cultivator(%x): GenesisPacket finalized "+
 			"(absolute_fee_sats: %d)", b.batchKey[:], chainFees)
@@ -845,9 +884,14 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 			return 0, fmt.Errorf("unable to import key: %w", err)
 		}
 
+		signedFundedPsbt := tapsend.FundedPsbt{
+			Pkt:               signedPkt,
+			ChangeOutputIndex: b.cfg.Batch.GenesisPacket.ChangeOutputIndex,
+			ChainFees:         int64(chainFees),
+		}
 		err = b.cfg.BatchStore.CommitSignedGenesisTx(
 			ctx, b.cfg.Batch,
-			&b.cfg.Batch.GenesisPacket.FundedPsbt,
+			&signedFundedPsbt,
 			b.cfg.Batch.GenesisPacket.AssetAnchorOutIdx,
 			merkleRoot, tapCommitmentRoot[:], siblingBytes,
 		)
@@ -855,6 +899,10 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 			return 0, fmt.Errorf("unable to commit genesis "+
 				"tx: %w", err)
 		}
+
+		// DB write succeeded; sync in-memory batch with disk.
+		b.cfg.Batch.GenesisPacket.Pkt = signedPkt
+		b.cfg.Batch.GenesisPacket.ChainFees = int64(chainFees)
 
 		log.Infof("Cultivator(%x): transition states: %v -> %v",
 			b.batchKey[:], BatchStateCommitted, BatchStateBroadcast)
@@ -1159,16 +1207,21 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 
 		// Let the augmenter emit any downstream events that
 		// pair with batch confirmation (e.g. supply-commit
-		// notifications). Errors are reported but do not roll
-		// back the confirmation; the augmenter substance is
-		// expected to be re-runnable.
+		// notifications). Errors are logged but do not unwind
+		// the confirmation: the augmenter substance is
+		// expected to be re-runnable, and returning here would
+		// leave the batch stuck in Broadcast forever because
+		// MarkBatchConfirmed below is what advances state on
+		// disk. The event_key dedup index added in migration
+		// 62 (backfilled by 63) makes any augmenter re-run
+		// idempotent.
 		err = b.augmenter().OnBatchConfirmed(
 			ctx, b.cfg.Batch, anchorAssets, nonAnchorAssets,
 			mintingProofs,
 		)
 		if err != nil {
-			return 0, fmt.Errorf("augmenter OnBatchConfirmed: %w",
-				err)
+			log.Errorf("Cultivator(%x): augmenter "+
+				"OnBatchConfirmed: %v", b.batchKey[:], err)
 		}
 
 		err = b.cfg.BatchStore.MarkBatchConfirmed(
