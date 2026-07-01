@@ -217,20 +217,88 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	log.Infof("Obtained %v roots from remote Universe server",
 		len(targetRoots))
 
-	// Now that we know the set of Universes we need to sync, we'll execute
-	// the diff operation for each of them.
+	// Split the target roots by proof type. Issuance roots must land
+	// first so that any transfer root referencing an issuance can find
+	// its predecessor when the archive verifies the batch — otherwise
+	// the transfer would surface a "no universe proof found" error
+	// mid-batch and abort. See issue #2026 for the reported symptom.
+	sorted := partitionByProofType(targetRoots)
+
 	syncDiffs := make(chan AssetSyncDiff, len(targetRoots))
-	err = fn.ParSlice(
-		ctx, targetRoots, func(ctx context.Context, r Root) error {
-			return s.syncRoot(ctx, r, diffEngine, syncDiffs)
-		},
-	)
-	if err != nil {
+	if err := s.syncRoots(
+		ctx, sorted.Issuance, diffEngine, syncDiffs,
+	); err != nil {
+		return nil, err
+	}
+	if err := s.syncRoots(
+		ctx, sorted.Transfer, diffEngine, syncDiffs,
+	); err != nil {
+		return nil, err
+	}
+	for _, r := range sorted.Other {
+		log.Warnf("Syncing UniverseRoot(%v) with unusual proof "+
+			"type %v through SimpleSyncer; dedicated syncers "+
+			"exist for burn/ignore/mint-supply", r.ID.String(),
+			r.ID.ProofType)
+	}
+	if err := s.syncRoots(
+		ctx, sorted.Other, diffEngine, syncDiffs,
+	); err != nil {
 		return nil, err
 	}
 
-	// Finally, we'll collect all the diffs and return them to the caller.
 	return fn.Collect(syncDiffs), nil
+}
+
+// SortedRoots is a proof-type-partitioned view of a set of Root
+// values. The three fields are structurally distinct so a caller
+// cannot accidentally interleave issuance, transfer, and unknown-
+// type processing — each must be handled in its own phase.
+type SortedRoots struct {
+	Issuance []Root
+	Transfer []Root
+
+	// Other holds roots whose proof type is neither issuance nor
+	// transfer (burn, ignore, mint-supply, unspecified). SimpleSyncer's
+	// leaf-fetch path was designed for issuance and transfer, so these
+	// roots are rare here in practice — they normally flow through
+	// dedicated syncers. Retained rather than dropped so an explicit
+	// idsToSync call driving an unusual proof type still produces some
+	// visible effect (a warning) rather than a silent no-op.
+	Other []Root
+}
+
+// partitionByProofType splits roots into issuance, transfer, and
+// other buckets by their ID.ProofType. Relative order within each
+// bucket is preserved.
+func partitionByProofType(roots []Root) SortedRoots {
+	var out SortedRoots
+	for _, r := range roots {
+		switch r.ID.ProofType {
+		case ProofTypeIssuance:
+			out.Issuance = append(out.Issuance, r)
+		case ProofTypeTransfer:
+			out.Transfer = append(out.Transfer, r)
+		case ProofTypeUnspecified, ProofTypeIgnore, ProofTypeBurn,
+			ProofTypeMintSupply:
+			out.Other = append(out.Other, r)
+		}
+	}
+	return out
+}
+
+// syncRoots is the shared per-root fan-out used by executeSync. It
+// runs syncRoot over every input root, currently in fully-parallel
+// fashion via fn.ParSlice; Phase 3 replaces that with a bounded
+// worker pool.
+func (s *SimpleSyncer) syncRoots(ctx context.Context, roots []Root,
+	diffEngine DiffEngine, syncDiffs chan<- AssetSyncDiff) error {
+
+	return fn.ParSlice(
+		ctx, roots, func(ctx context.Context, r Root) error {
+			return s.syncRoot(ctx, r, diffEngine, syncDiffs)
+		},
+	)
 }
 
 // fetchRootsForIDs fetches the roots for a specific set of universe IDs.
