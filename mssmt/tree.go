@@ -563,7 +563,15 @@ func (t *FullTree) InsertMany(ctx context.Context,
 func VerifyMerkleProof(key [hashSize]byte, leaf *LeafNode, proof *Proof,
 	root Node) bool {
 
-	return IsEqualNode(proof.Root(key, leaf), root)
+	if leaf == nil || proof == nil || root == nil {
+		return false
+	}
+	if len(proof.Nodes) != MaxTreeLevels {
+		return false
+	}
+
+	h, s := proof.rootSum(&key, leaf)
+	return h == root.NodeHash() && s == root.NodeSum()
 }
 
 // CheckSumOverflowUint64 checks if the sum of two uint64 values will overflow.
