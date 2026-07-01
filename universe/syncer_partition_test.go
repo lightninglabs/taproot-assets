@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -49,6 +50,13 @@ func (r *syncOrderRecorder) RootNode(_ context.Context,
 	r.mu.Lock()
 	r.order = append(r.order, id.ProofType)
 	r.mu.Unlock()
+
+	// A short sleep after recording widens the window in which a
+	// collapsed single-pool refactor would interleave transfer with
+	// issuance. Without it the goroutine could return before any
+	// racing goroutine had a chance to start recording, letting a
+	// bad refactor pass by accident.
+	time.Sleep(time.Millisecond)
 
 	return Root{}, ErrNoUniverseRoot
 }
@@ -97,6 +105,13 @@ func (noopRegistrar) Close() error { return nil }
 // transfer roots on the remote, every issuance-typed root must reach
 // syncRoot before any transfer-typed root does. The property is
 // observed via a call log threaded through the LocalDiffEngine.
+//
+// SyncRootConcurrency is set well above the input size so that within
+// a phase all roots race in parallel — the only reason issuance can
+// still finish before transfer is the sequential invocation of the
+// two syncRoots calls in executeSync. A refactor that collapsed the
+// two calls into one bounded worker pool would fail this test even if
+// partitionByProofType still returned roots in the right buckets.
 func TestExecuteSync_IssuanceBeforeTransfer(t *testing.T) {
 	t.Parallel()
 
@@ -124,7 +139,8 @@ func TestExecuteSync_IssuanceBeforeTransfer(t *testing.T) {
 		NewRemoteDiffEngine: func(_ ServerAddr) (DiffEngine, error) {
 			return remote, nil
 		},
-		SyncBatchSize: 50,
+		SyncBatchSize:       50,
+		SyncRootConcurrency: 8,
 	})
 
 	_, err := syncer.SyncUniverse(

@@ -45,6 +45,15 @@ type SimpleSyncCfg struct {
 
 	// SyncBatchSize is the number of items to sync in a single batch.
 	SyncBatchSize int
+
+	// SyncRootConcurrency caps the number of universe roots syncRoots
+	// processes at once. Left unset (or non-positive), it defaults to
+	// 1 in NewSimpleSyncer. Kept internal for now — issue #2026's
+	// reporter observed DB tx retry exhaustion at unbounded fan-out
+	// and no retries at concurrency 2 in their environment; the
+	// production wiring picks 2, and only the tests exercise other
+	// values.
+	SyncRootConcurrency int
 }
 
 // SyncDiffEvent is sent to subscribers after a universe sync completes,
@@ -80,8 +89,13 @@ type SimpleSyncer struct {
 	eventDistributor *fn.EventDistributor[fn.Event]
 }
 
-// NewSimpleSyncer creates a new SimpleSyncer instance.
+// NewSimpleSyncer creates a new SimpleSyncer instance. Any
+// non-positive SyncRootConcurrency is clamped up to 1 so the internal
+// fan-out can trust the invariant "at least one worker."
 func NewSimpleSyncer(cfg SimpleSyncCfg) *SimpleSyncer {
+	if cfg.SyncRootConcurrency <= 0 {
+		cfg.SyncRootConcurrency = 1
+	}
 	return &SimpleSyncer{
 		cfg:              cfg,
 		eventDistributor: fn.NewEventDistributor[fn.Event](),
@@ -287,18 +301,23 @@ func partitionByProofType(roots []Root) SortedRoots {
 	return out
 }
 
-// syncRoots is the shared per-root fan-out used by executeSync. It
-// runs syncRoot over every input root, currently in fully-parallel
-// fashion via fn.ParSlice; Phase 3 replaces that with a bounded
-// worker pool.
+// syncRoots is the shared per-root fan-out used by executeSync. Roots
+// are processed by a worker pool bounded to cfg.SyncRootConcurrency.
+// Bounded concurrency (rather than the previous unbounded fn.ParSlice)
+// is what keeps DB transaction retries from exhausting themselves on
+// large sync sets, per issue #2026.
 func (s *SimpleSyncer) syncRoots(ctx context.Context, roots []Root,
 	diffEngine DiffEngine, syncDiffs chan<- AssetSyncDiff) error {
 
-	return fn.ParSlice(
-		ctx, roots, func(ctx context.Context, r Root) error {
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(s.cfg.SyncRootConcurrency)
+	for _, r := range roots {
+		r := r
+		eg.Go(func() error {
 			return s.syncRoot(ctx, r, diffEngine, syncDiffs)
-		},
-	)
+		})
+	}
+	return eg.Wait()
 }
 
 // fetchRootsForIDs fetches the roots for a specific set of universe IDs.

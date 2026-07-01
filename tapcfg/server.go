@@ -448,6 +448,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		NewRemoteDiffEngine: rpcserver.NewRpcUniverseDiff,
 		LocalRegistrar:      uniArchive,
 		SyncBatchSize:       defaultUniverseSyncBatchSize,
+		SyncRootConcurrency: defaultUniverseSyncRootConcurrency,
 	})
 
 	var runtimeIDBytes [8]byte
