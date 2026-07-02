@@ -698,12 +698,16 @@ func listBatches(ctx *cli.Context) error {
 		}
 	}
 
-	resp, err := client.ListBatches(ctxc, &mintrpc.ListBatchRequest{
-		Filter: &mintrpc.ListBatchRequest_BatchKey{
-			BatchKey: batchKey,
-		},
+	listReq := &mintrpc.ListBatchRequest{
 		Verbose: ctx.Bool("verbose"),
-	})
+	}
+	if len(batchKey) > 0 {
+		listReq.Filter = &mintrpc.ListBatchRequest_BatchKey{
+			BatchKey: batchKey,
+		}
+	}
+
+	resp, err := client.ListBatches(ctxc, listReq)
 	if err != nil {
 		return fmt.Errorf("unable to list batches: %w", err)
 	}

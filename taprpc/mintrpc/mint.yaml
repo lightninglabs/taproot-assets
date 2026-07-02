@@ -24,7 +24,7 @@ http:
       body: "*"
 
     - selector: mintrpc.Mint.ListBatches
-      get: "/v1/taproot-assets/assets/mint/batches/{batch_key}"
+      get: "/v1/taproot-assets/assets/mint/batches/{batch_key_str}"
 
     - selector: mintrpc.Mint.SubscribeMintEvents
       post: "/v1/taproot-assets/events/asset-mint"

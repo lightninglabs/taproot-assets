@@ -49,7 +49,7 @@
         ]
       }
     },
-    "/v1/taproot-assets/assets/mint/batches/{batch_key}": {
+    "/v1/taproot-assets/assets/mint/batches/{batch_key_str}": {
       "get": {
         "summary": "tapcli: `assets mint batches`\nListBatches lists the set of batches submitted to the daemon, including\npending and cancelled batches.",
         "operationId": "Mint_ListBatches",
@@ -69,19 +69,19 @@
         },
         "parameters": [
           {
-            "name": "batch_key",
-            "description": "The optional batch key of the batch to list, specified as raw bytes\n(gRPC only).",
-            "in": "path",
-            "required": true,
-            "type": "string",
-            "format": "byte"
-          },
-          {
             "name": "batch_key_str",
             "description": "The optional batch key of the batch to list, specified as a hex\nencoded string (use this for REST).",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "batch_key",
+            "description": "The optional batch key of the batch to list, specified as raw bytes\n(gRPC only).",
             "in": "query",
             "required": false,
-            "type": "string"
+            "type": "string",
+            "format": "byte"
           },
           {
             "name": "verbose",
