@@ -121,9 +121,10 @@ func (t *CompactedTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 
 // merge is a helper function to create the common subtree from two leafs lying
 // on the same (partial) path. The resulting subtree contains branch nodes from
-// diverging bit of the passed key's.
-func (t *CompactedTree) merge(tx TreeStoreUpdateTx, height int, key1 [32]byte,
-	leaf1 *LeafNode, key2 [32]byte, leaf2 *LeafNode) (*BranchNode, error) {
+// diverging bit of the passed key's. All storage writes are queued into muts.
+func (t *CompactedTree) merge(height int, key1 [32]byte, leaf1 *LeafNode,
+	key2 [32]byte, leaf2 *LeafNode,
+	muts *[]mutation) *BranchNode {
 
 	// Find the common prefix first.
 	var commonPrefixLen int
@@ -135,46 +136,43 @@ func (t *CompactedTree) merge(tx TreeStoreUpdateTx, height int, key1 [32]byte,
 		}
 	}
 
-	// Now we create two compacted leaves and insert them as children of
-	// a newly created branch.
+	// Now we create two compacted leaves and queue them as children
+	// of a newly created branch.
 	node1 := NewCompactedLeafNode(commonPrefixLen+1, &key1, leaf1)
 	node2 := NewCompactedLeafNode(commonPrefixLen+1, &key2, leaf2)
-	if err := tx.InsertCompactedLeaf(node1); err != nil {
-		return nil, err
-	}
-
-	if err := tx.InsertCompactedLeaf(node2); err != nil {
-		return nil, err
-	}
+	insertCompactedLeaf(muts, node1)
+	insertCompactedLeaf(muts, node2)
 
 	left, right := stepOrder(commonPrefixLen, &key1, node1, node2)
 	parent := NewBranch(left, right)
-	if err := tx.InsertBranch(parent); err != nil {
-		return nil, err
-	}
+	insertBranch(muts, parent)
 
 	// From here we'll walk up to the current level and create branches
 	// along the way. Optionally we could compact these branches too.
 	for i := commonPrefixLen - 1; i >= height; i-- {
 		left, right := stepOrder(i, &key1, parent, EmptyTree[i+1])
 		parent = NewBranch(left, right)
-		if err := tx.InsertBranch(parent); err != nil {
-			return nil, err
-		}
+		insertBranch(muts, parent)
 	}
 
-	return parent, nil
+	return parent
 }
 
 // insert inserts the key at the current height either by adding a new compacted
 // leaf, merging an existing leaf with the passed leaf in a new subtree or by
 // recursing down further.
+//
+// All storage writes are queued into muts; reads still go through tx.
+// priorSum is the sum of any leaf at the insertion key that was
+// replaced (0 if none); it's threaded up so the public Insert can
+// compute an effective overflow delta without a separate walk.
 func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
-	height int, root *BranchNode, leaf *LeafNode) (*BranchNode, error) {
+	height int, root *BranchNode, leaf *LeafNode,
+	muts *[]mutation) (branch *BranchNode, priorSum uint64, err error) {
 
 	left, right, err := tx.GetChildren(height, root.NodeHash())
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	var next, sibling Node
@@ -191,85 +189,69 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 	switch node := next.(type) {
 	case *BranchNode:
 		if node == EmptyTree[nextHeight] {
-			// This is an empty subtree, so we can just walk up
-			// from the leaf to recreate the node key for this
-			// subtree then replace it with a compacted leaf.
+			// Empty subtree: collapse to a single compacted leaf
+			// at nextHeight. No prior leaf existed at key.
 			newLeaf := NewCompactedLeafNode(nextHeight, key, leaf)
-			err = tx.InsertCompactedLeaf(newLeaf)
-			if err != nil {
-				return nil, err
-			}
-
+			insertCompactedLeaf(muts, newLeaf)
 			newNode = newLeaf
 		} else {
-			// Not an empty subtree, recurse down the tree to find
-			// the insertion point for the leaf.
-			newNode, err = t.insert(tx, key, nextHeight, node, leaf)
+			// Not an empty subtree, recurse to find the
+			// insertion point.
+			newNode, priorSum, err = t.insert(
+				tx, key, nextHeight, node, leaf, muts,
+			)
 			if err != nil {
-				return nil, err
+				return nil, 0, err
 			}
 		}
 
 	case *CompactedLeafNode:
-		// First delete the old leaf.
-		err = tx.DeleteCompactedLeaf(node.NodeHash())
-		if err != nil {
-			return nil, err
-		}
+		// The compacted leaf at this position is always being
+		// rewritten — queue its delete first.
+		deleteCompactedLeaf(muts, node.NodeHash())
 
 		if *key == node.key {
-			// Replace of an existing leaf.
+			// Replacement of an existing leaf at our key — its
+			// sum is the priorSum we report.
+			priorSum = node.LeafNode.NodeSum()
+
 			if leaf.IsEmpty() {
 				newNode = EmptyTree[nextHeight]
 			} else {
 				newLeaf := NewCompactedLeafNode(
 					nextHeight, key, leaf,
 				)
-
-				err := tx.InsertCompactedLeaf(newLeaf)
-				if err != nil {
-					return nil, err
-				}
-
+				insertCompactedLeaf(muts, newLeaf)
 				newNode = newLeaf
 			}
 		} else {
-			// Merge the two leaves into a subtree.
-			newNode, err = t.merge(
-				tx, nextHeight, *key, leaf, node.key,
-				node.LeafNode,
+			// Different key: the prior leaf isn't AT our key, so
+			// priorSum stays 0 (merge relocates the existing
+			// leaf into a new subtree alongside ours).
+			newNode = t.merge(
+				nextHeight, *key, leaf, node.key,
+				node.LeafNode, muts,
 			)
-			if err != nil {
-				return nil, err
-			}
 		}
 	}
 
-	// Delete the old root.
+	// Queue the delete of the old root (unless it's the empty
+	// placeholder), and the insert of the new branch (unless empty).
 	if root != EmptyTree[height] {
-		err = tx.DeleteBranch(root.NodeHash())
-		if err != nil {
-			return nil, err
-		}
+		deleteBranch(muts, root.NodeHash())
 	}
 
-	// Create the new root.
-	var branch *BranchNode
 	if isLeft {
 		branch = NewBranch(newNode, sibling)
 	} else {
 		branch = NewBranch(sibling, newNode)
 	}
 
-	// Only insert this new branch if not a default one.
 	if !IsEqualNode(branch, EmptyTree[height]) {
-		err = tx.InsertBranch(branch)
-		if err != nil {
-			return nil, err
-		}
+		insertBranch(muts, branch)
 	}
 
-	return branch, nil
+	return branch, priorSum, nil
 }
 
 // Insert inserts a leaf node at the given key within the MS-SMT.
@@ -281,25 +263,38 @@ func (t *CompactedTree) Insert(ctx context.Context, key [hashSize]byte,
 		if err != nil {
 			return err
 		}
+		rootBranch := currentRoot.(*BranchNode)
 
-		// First we'll check if the sum of the root and new leaf will
-		// overflow. If so, we'll return an error.
-		sumRoot := currentRoot.NodeSum()
-		sumLeaf := leaf.NodeSum()
-		err = CheckSumOverflowUint64(sumRoot, sumLeaf)
-		if err != nil {
-			return fmt.Errorf("compact tree leaf insert sum "+
-				"overflow, root: %d, leaf: %d; %w", sumRoot,
-				sumLeaf, err)
-		}
-
-		root, err := t.insert(
-			tx, &key, 0, currentRoot.(*BranchNode), leaf,
+		// insert runs read-only: it builds the new tree shape in
+		// memory, queues every write into muts and reports priorSum
+		// (the sum of the leaf being replaced at key, or 0).
+		muts := make([]mutation, 0, singleInsertMutsCap)
+		root, priorSum, err := t.insert(
+			tx, &key, 0, rootBranch, leaf, &muts,
 		)
 		if err != nil {
 			return err
 		}
 
+		// Effective-delta overflow check; symmetric with the
+		// FullTree variant.
+		sumLeaf := leaf.NodeSum()
+		if sumLeaf > priorSum {
+			delta := sumLeaf - priorSum
+			err := CheckSumOverflowUint64(
+				rootBranch.NodeSum(), delta,
+			)
+			if err != nil {
+				return fmt.Errorf("compact tree leaf "+
+					"insert sum overflow, root: %d, "+
+					"effective delta: %d; %w",
+					rootBranch.NodeSum(), delta, err)
+			}
+		}
+
+		if err := applyAll(tx, muts); err != nil {
+			return err
+		}
 		return tx.UpdateRoot(root)
 	})
 	if dbErr != nil {
@@ -319,13 +314,20 @@ func (t *CompactedTree) Delete(ctx context.Context, key [hashSize]byte) (
 			return err
 		}
 
-		root, err := t.insert(
-			tx, &key, 0, currentRoot.(*BranchNode), EmptyLeafNode,
+		// Delete cannot increase the root sum, so the overflow
+		// check is skipped; we just plan and flush.
+		muts := make([]mutation, 0, singleInsertMutsCap)
+		root, _, err := t.insert(
+			tx, &key, 0, currentRoot.(*BranchNode),
+			EmptyLeafNode, &muts,
 		)
 		if err != nil {
 			return err
 		}
 
+		if err := applyAll(tx, muts); err != nil {
+			return err
+		}
 		return tx.UpdateRoot(root)
 	})
 	if err != nil {
@@ -614,30 +616,18 @@ func (t *CompactedTree) InsertMany(ctx context.Context,
 		}
 		rootBranch := currentRoot.(*BranchNode)
 
-		// Account for existing leaves at batch keys when checking
-		// overflow — see sumExistingLeavesFull for rationale. Fresh
-		// trees skip the per-key walk since no leaves can be replaced.
-		var existingBatchSum uint64
-		if rootBranch.NodeHash() != EmptyTreeRootHash {
-			for key := range leaves {
-				k := key
-				existing, err := t.walkDown(tx, &k, nil)
-				if err != nil {
-					return err
-				}
-				if existing == nil || existing.IsEmpty() {
-					continue
-				}
-				next, carry := bits.Add64(
-					existingBatchSum,
-					existing.NodeSum(), 0,
-				)
-				if carry != 0 {
-					return ErrIntegerOverflow
-				}
-				existingBatchSum = next
-			}
+		// batchInsert reads the tree, builds the new subtree in
+		// memory, collects existingBatchSum and queues writes into
+		// muts. No mutation has touched storage yet — the overflow
+		// check can reject the batch atomically.
+		muts := make([]mutation, 0, mutsCap(len(items)))
+		newRoot, existingBatchSum, err := t.batchInsert(
+			tx, items, currentRoot, 0, &muts,
+		)
+		if err != nil {
+			return fmt.Errorf("batch insert: %w", err)
 		}
+
 		if batchSum > existingBatchSum {
 			delta := batchSum - existingBatchSum
 			err := CheckSumOverflowUint64(
@@ -651,17 +641,15 @@ func (t *CompactedTree) InsertMany(ctx context.Context,
 			}
 		}
 
-		newRoot, err := t.batchInsert(tx, items, currentRoot, 0)
-		if err != nil {
-			return fmt.Errorf("batch insert: %w", err)
-		}
-
 		newRootBranch, ok := newRoot.(*BranchNode)
 		if !ok {
 			return fmt.Errorf("batch insert: unexpected root "+
 				"node type %T", newRoot)
 		}
 
+		if err := applyAll(tx, muts); err != nil {
+			return err
+		}
 		return tx.UpdateRoot(newRootBranch)
 	})
 	if dbErr != nil {
@@ -673,96 +661,145 @@ func (t *CompactedTree) InsertMany(ctx context.Context,
 
 // batchInsert applies a set of items to the subtree rooted at node,
 // located at depth. It mirrors the dispatch in CompactedTree.insert
-// (empty branch / non-empty branch / compacted leaf) but processes the
-// whole batch in one descent, materialising each touched internal node
-// exactly once.
+// (empty branch / non-empty branch / compacted leaf) but processes
+// the whole batch in one descent, materialising each touched internal
+// node exactly once. All storage writes are queued into muts; reads
+// still go through tx. existingSum returned is the sum of any leaves
+// at batch keys that are being replaced within this subtree, threaded
+// up so the public InsertMany wrapper can run the overflow check
+// without a separate walk.
 func (t *CompactedTree) batchInsert(tx TreeStoreUpdateTx,
-	items []batchItem, node Node, depth int) (Node, error) {
+	items []batchItem, node Node, depth int,
+	muts *[]mutation) (Node, uint64, error) {
 
 	if len(items) == 0 {
-		return node, nil
+		return node, 0, nil
 	}
 
-	// A compacted leaf at this depth represents a single existing leaf
-	// somewhere in this subtree. Absorb its (key, leaf) into the batch
-	// — unless one of our items already overwrites the same key —
-	// then rebuild the subtree from scratch at this depth.
+	// A compacted leaf at this depth represents a single existing
+	// leaf somewhere in this subtree. Absorb its (key, leaf) into the
+	// batch — unless one of our items already overwrites the same
+	// key — then rebuild the subtree from scratch.
 	if cl, ok := node.(*CompactedLeafNode); ok {
-		if err := tx.DeleteCompactedLeaf(cl.NodeHash()); err != nil {
-			return nil, err
-		}
-
-		overwritten := false
+		var overwritten, anyNonEmpty bool
 		for _, item := range items {
 			if item.key == cl.key {
 				overwritten = true
-				break
+			}
+			if !item.leaf.IsEmpty() {
+				anyNonEmpty = true
 			}
 		}
-		if !overwritten {
+
+		// Fast path: the batch contains only deletes of absent
+		// keys (none target cl.key) and inserts nothing. The
+		// rebuild would re-emit cl unchanged, so skip the
+		// delete-then-reinsert churn entirely.
+		if !overwritten && !anyNonEmpty {
+			return node, 0, nil
+		}
+
+		deleteCompactedLeaf(muts, cl.NodeHash())
+
+		var existingSum uint64
+		if overwritten {
+			// The existing leaf is being replaced — contribute
+			// its sum to existingSum.
+			existingSum = cl.LeafNode.NodeSum()
+		} else {
+			// No batch item touches this key; absorb the
+			// existing leaf so it survives the rebuild. The
+			// absorbed sum is not a "replacement" — it stays
+			// in the tree — so it does NOT contribute to
+			// existingSum.
 			items = append(items, batchItem{
 				key: cl.key, leaf: cl.LeafNode,
 			})
 		}
-		return t.buildSubtree(tx, items, depth)
+		built, err := t.buildSubtree(items, depth, muts)
+		if err != nil {
+			return nil, 0, err
+		}
+		return built, existingSum, nil
 	}
 
 	branch := node.(*BranchNode)
 
 	// An empty subtree at this depth: build from scratch. buildSubtree
 	// will compact down to a single CompactedLeafNode when the batch
-	// reduces to one non-empty leaf in this subtree. We gate this on
-	// depth > 0 because the root node must remain a *BranchNode.
+	// reduces to one non-empty leaf. We gate this on depth > 0
+	// because the root node must remain a *BranchNode. No prior
+	// leaves exist here, so existingSum is zero.
 	if depth > 0 && branch.NodeHash() == EmptyTree[depth].NodeHash() {
-		return t.buildSubtree(tx, items, depth)
+		built, err := t.buildSubtree(items, depth, muts)
+		if err != nil {
+			return nil, 0, err
+		}
+		return built, 0, nil
 	}
 
 	// Non-empty branch: fetch children once, partition items by the
 	// next bit, recurse into each non-empty side.
 	left, right, err := tx.GetChildren(depth, branch.NodeHash())
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	leftItems, rightItems := partitionByBit(items, depth)
 
 	newLeft, newRight := left, right
+	var leftSum, rightSum uint64
 	if len(leftItems) > 0 {
-		newLeft, err = t.batchInsert(tx, leftItems, left, depth+1)
+		newLeft, leftSum, err = t.batchInsert(
+			tx, leftItems, left, depth+1, muts,
+		)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 	if len(rightItems) > 0 {
-		newRight, err = t.batchInsert(tx, rightItems, right, depth+1)
+		newRight, rightSum, err = t.batchInsert(
+			tx, rightItems, right, depth+1, muts,
+		)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
 	newParent := NewBranch(newLeft, newRight)
 
-	if branch.NodeHash() != EmptyTree[depth].NodeHash() {
-		if err := tx.DeleteBranch(branch.NodeHash()); err != nil {
-			return nil, err
-		}
-	}
-	if newParent.NodeHash() != EmptyTree[depth].NodeHash() {
-		if err := tx.InsertBranch(newParent); err != nil {
-			return nil, err
-		}
+	// Fast path: if the rebuilt parent matches the existing branch
+	// (e.g., a one-sided batch where the recursed side returned its
+	// subtree unchanged), the storage state at this level is
+	// already correct — skip the delete + reinsert churn.
+	if newParent.NodeHash() == branch.NodeHash() {
+		return branch, leftSum + rightSum, nil
 	}
 
-	return newParent, nil
+	if branch.NodeHash() != EmptyTree[depth].NodeHash() {
+		deleteBranch(muts, branch.NodeHash())
+	}
+	if newParent.NodeHash() != EmptyTree[depth].NodeHash() {
+		insertBranch(muts, newParent)
+	}
+
+	return newParent, leftSum + rightSum, nil
 }
 
 // buildSubtree constructs a subtree at depth from a fresh item set,
-// applying compaction at the natural boundary: zero non-empty items →
-// empty subtree; exactly one non-empty item → CompactedLeafNode at
-// this depth; two or more → partition and recurse, writing one branch
-// per touched level.
-func (t *CompactedTree) buildSubtree(tx TreeStoreUpdateTx,
-	items []batchItem, depth int) (Node, error) {
+// applying compaction at the natural boundary: zero non-empty items
+// → empty subtree; exactly one non-empty item → CompactedLeafNode at
+// this depth; two or more → partition and recurse, queuing one
+// branch per touched level. No reads; all writes are queued into
+// muts.
+//
+// items must be uniquely owned by the caller — buildSubtree compacts
+// in place via items[:0]. Currently every caller passes a slice
+// returned from partitionByBit or freshly extended in batchInsert's
+// CompactedLeafNode branch, so the invariant holds; a future caller
+// that wants to retain items must copy first.
+func (t *CompactedTree) buildSubtree(items []batchItem, depth int,
+	muts *[]mutation) (Node, error) {
 
 	// Filter deletions of absent keys: an empty leaf into an empty
 	// subtree is a no-op.
@@ -781,28 +818,24 @@ func (t *CompactedTree) buildSubtree(tx TreeStoreUpdateTx,
 	if len(items) == 1 {
 		item := items[0]
 		clNode := NewCompactedLeafNode(depth, &item.key, item.leaf)
-		if err := tx.InsertCompactedLeaf(clNode); err != nil {
-			return nil, err
-		}
+		insertCompactedLeaf(muts, clNode)
 		return clNode, nil
 	}
 
 	leftItems, rightItems := partitionByBit(items, depth)
 
-	newLeft, err := t.buildSubtree(tx, leftItems, depth+1)
+	newLeft, err := t.buildSubtree(leftItems, depth+1, muts)
 	if err != nil {
 		return nil, err
 	}
-	newRight, err := t.buildSubtree(tx, rightItems, depth+1)
+	newRight, err := t.buildSubtree(rightItems, depth+1, muts)
 	if err != nil {
 		return nil, err
 	}
 
 	newParent := NewBranch(newLeft, newRight)
 	if newParent.NodeHash() != EmptyTree[depth].NodeHash() {
-		if err := tx.InsertBranch(newParent); err != nil {
-			return nil, err
-		}
+		insertBranch(muts, newParent)
 	}
 	return newParent, nil
 }

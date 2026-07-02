@@ -35,9 +35,16 @@ func drawBatchKey(t *rapid.T, label string) [hashSize]byte {
 	return k
 }
 
-// drawBatchLeaf draws a LeafNode with a bounded sum so cumulative sums
-// across batches do not overflow uint64.
+// drawBatchLeaf draws a LeafNode with a bounded sum so cumulative
+// sums across batches do not overflow uint64. With probability ~25%
+// it draws an EmptyLeafNode instead — these exercise the deletion
+// paths in batchInsert/buildSubtree (delete-of-present-key, delete-
+// of-absent-key, empty leaf into empty subtree) that are silently
+// uncovered if all draws are non-empty.
 func drawBatchLeaf(t *rapid.T, label string) *LeafNode {
+	if rapid.IntRange(0, 3).Draw(t, label+"_empty") == 0 {
+		return EmptyLeafNode
+	}
 	valLen := rapid.IntRange(1, 32).Draw(t, label+"_len")
 	val := rapid.SliceOfN(rapid.Byte(), valLen, valLen).Draw(
 		t, label+"_val",
@@ -218,6 +225,203 @@ func TestInsertManyOverPopulated(t *testing.T) {
 	}
 }
 
+// TestExistingSumGroundTruth pins the descent's existingSum
+// accounting against an independent ground truth: for any random
+// batch on a random tree, the sum that the descent collects must
+// equal the sum of tree.Get(k).NodeSum() over k in the batch.
+//
+// This is the load-bearing invariant the overflow check relies on.
+// If the descent over- or under-counts existingSum, the overflow
+// gate either rejects valid batches or accepts overflowing ones.
+func TestExistingSumGroundTruth(t *testing.T) {
+	t.Parallel()
+
+	for _, ctor := range batchTreeCtors {
+		ctor := ctor
+		t.Run(ctor.name, func(t *testing.T) {
+			t.Parallel()
+
+			rapid.Check(t, func(t *rapid.T) {
+				ctx := context.Background()
+
+				// Build a tree with a random initial
+				// population.
+				nInit := rapid.IntRange(0, 16).Draw(t, "n_init")
+				initial := drawBatchMap(t, nInit)
+				tree := ctor.make()
+				_, err := tree.InsertMany(ctx, initial)
+				require.NoError(t, err)
+
+				// Draw a random batch. Some keys may overlap
+				// with the initial population; some won't.
+				// Make overlap likely by occasionally
+				// re-using keys from the initial set.
+				nBatch := rapid.IntRange(0, 16).Draw(
+					t, "n_batch",
+				)
+				batch := make(map[[hashSize]byte]*LeafNode)
+				initialKeys := make(
+					[][hashSize]byte, 0, len(initial),
+				)
+				for k := range initial {
+					initialKeys = append(initialKeys, k)
+				}
+				for i := 0; i < nBatch; i++ {
+					var k [hashSize]byte
+					reuse := len(initialKeys) > 0 &&
+						rapid.IntRange(0, 1).Draw(
+							t, "reuse",
+						) == 0
+					if reuse {
+						idx := rapid.IntRange(
+							0, len(initialKeys)-1,
+						).Draw(t, "reuse_idx")
+						k = initialKeys[idx]
+					} else {
+						k = drawBatchKey(t, "k")
+					}
+					batch[k] = drawBatchLeaf(t, "leaf")
+				}
+
+				// Ground truth: sum of existing leaves at
+				// the batch's keys.
+				var truth uint64
+				for k := range batch {
+					existing, err := tree.Get(ctx, k)
+					require.NoError(t, err)
+					if existing == nil ||
+						existing.IsEmpty() {
+
+						continue
+					}
+					truth += existing.NodeSum()
+				}
+
+				// Run the descent and capture what it
+				// reports. We do this by side: call
+				// InsertMany and then derive the implied
+				// existingSum from the root-sum delta.
+				oldRoot, err := tree.Root(ctx)
+				require.NoError(t, err)
+				oldSum := oldRoot.NodeSum()
+
+				var batchSum uint64
+				for _, leaf := range batch {
+					batchSum += leaf.NodeSum()
+				}
+
+				_, err = tree.InsertMany(ctx, batch)
+				require.NoError(t, err)
+
+				newRoot, err := tree.Root(ctx)
+				require.NoError(t, err)
+				newSum := newRoot.NodeSum()
+
+				// Implied existingSum from the observed
+				// root-sum delta: newSum = oldSum - existing
+				// + batchSum, so existing = oldSum +
+				// batchSum - newSum (in uint64 arithmetic,
+				// which won't wrap given our bounded draws).
+				impliedExisting := oldSum + batchSum - newSum
+				require.Equal(
+					t, truth, impliedExisting,
+					"descent's existingSum diverges from "+
+						"ground truth",
+				)
+			})
+		})
+	}
+}
+
+// TestInsertManyOverflowAtomicity pins the atomicity claim of the
+// descent/flush split: when overflow is detected on the
+// rootSum+effectiveDelta gate (NOT on the early batchSum carry),
+// the descent has already built the new-tree shape in memory and
+// queued mutations, but the flush must NOT have happened. The
+// tree's storage state must be byte-identical to its pre-call
+// state.
+//
+// This is distinct from TestInsertManySumOverflow, which trips on
+// the early batchSum accumulation carry before the descent runs.
+// Here batchSum is small; what overflows is rootSum + batchSum.
+func TestInsertManyOverflowAtomicity(t *testing.T) {
+	t.Parallel()
+
+	for _, ctor := range batchTreeCtors {
+		ctor := ctor
+		t.Run(ctor.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			tree := ctor.make()
+
+			// Pre-populate: one leaf with a sum near uint64
+			// max. rootSum becomes MaxUint64-10.
+			var seedKey [hashSize]byte
+			seedKey[0] = 0x01
+			seedLeaf := NewLeafNode(
+				[]byte("seed"), ^uint64(0)-10,
+			)
+			_, err := tree.Insert(ctx, seedKey, seedLeaf)
+			require.NoError(t, err)
+
+			// Snapshot the pre-call state.
+			preRoot, err := tree.Root(ctx)
+			require.NoError(t, err)
+			preRootHash := preRoot.NodeHash()
+			preRootSum := preRoot.NodeSum()
+			preSeed, err := tree.Get(ctx, seedKey)
+			require.NoError(t, err)
+
+			// Batch: insert a small-sum leaf at a different
+			// key. batchSum = 100 — no carry on accumulation.
+			// existingSum = 0 — the key is not present. Then
+			// rootSum (MaxUint64-10) + delta (100) overflows
+			// the descent gate.
+			var batchKey [hashSize]byte
+			batchKey[0] = 0x02
+			batch := map[[hashSize]byte]*LeafNode{
+				batchKey: NewLeafNode([]byte("b"), 100),
+			}
+			_, err = tree.InsertMany(ctx, batch)
+			require.Error(t, err)
+			require.ErrorIs(t, err, ErrIntegerOverflow)
+
+			// Atomicity: the tree must look exactly as it did
+			// before the failed call.
+			postRoot, err := tree.Root(ctx)
+			require.NoError(t, err)
+			require.Equal(
+				t, preRootHash, postRoot.NodeHash(),
+				"root hash changed despite overflow error",
+			)
+			require.Equal(
+				t, preRootSum, postRoot.NodeSum(),
+				"root sum changed despite overflow error",
+			)
+			postSeed, err := tree.Get(ctx, seedKey)
+			require.NoError(t, err)
+			require.Equal(
+				t, preSeed.NodeHash(), postSeed.NodeHash(),
+				"seeded leaf hash changed despite "+
+					"overflow error",
+			)
+			require.Equal(
+				t, preSeed.NodeSum(), postSeed.NodeSum(),
+				"seeded leaf sum changed despite "+
+					"overflow error",
+			)
+			batchLeaf, err := tree.Get(ctx, batchKey)
+			require.NoError(t, err)
+			require.True(
+				t, batchLeaf.IsEmpty(),
+				"batch leaf was written despite overflow "+
+					"error",
+			)
+		})
+	}
+}
+
 // TestInsertManySumOverflow constructs a batch whose cumulative sum
 // would overflow uint64 and requires InsertMany to return an error
 // rather than panicking or producing a wrapped result.
@@ -243,6 +447,65 @@ func TestInsertManySumOverflow(t *testing.T) {
 			_, err := tree.InsertMany(ctx, items)
 			require.Error(t, err)
 			require.ErrorIs(t, err, ErrIntegerOverflow)
+		})
+	}
+}
+
+// TestInsertOverflowReplacementParity asserts that Insert and
+// InsertMany use the same replacement-aware overflow check: a leaf
+// that REPLACES an existing leaf is judged against the effective
+// delta (newSum - priorSum), not the conservative sum(rootSum,
+// newSum) that both APIs used historically. Without this, a leaf
+// that fits the final tree could be rejected on either API.
+func TestInsertOverflowReplacementParity(t *testing.T) {
+	t.Parallel()
+
+	for _, ctor := range batchTreeCtors {
+		ctor := ctor
+		t.Run(ctor.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+
+			var k [hashSize]byte
+			k[0] = 0x01
+
+			// Seed the tree with a leaf whose sum is one short of
+			// MaxUint64. Replacing it with a small-sum leaf is a
+			// valid operation; the final root sum drops below
+			// uint64 max.
+			tree := ctor.make()
+			_, err := tree.Insert(
+				ctx, k,
+				NewLeafNode([]byte("big"), ^uint64(0)-5),
+			)
+			require.NoError(t, err)
+
+			// Both APIs must accept the replacement.
+			_, err = tree.Insert(
+				ctx, k, NewLeafNode([]byte("small"), 10),
+			)
+			require.NoError(
+				t, err,
+				"Insert rejected a valid replacement",
+			)
+
+			batchTree := ctor.make()
+			_, err = batchTree.Insert(
+				ctx, k,
+				NewLeafNode([]byte("big"), ^uint64(0)-5),
+			)
+			require.NoError(t, err)
+			_, err = batchTree.InsertMany(
+				ctx,
+				map[[hashSize]byte]*LeafNode{
+					k: NewLeafNode([]byte("small"), 10),
+				},
+			)
+			require.NoError(
+				t, err,
+				"InsertMany rejected a valid replacement",
+			)
 		})
 	}
 }
