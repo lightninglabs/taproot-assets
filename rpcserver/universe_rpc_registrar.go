@@ -19,6 +19,11 @@ import (
 // that uses an RPC connection to target Universe.
 type RpcUniverseRegistrar struct {
 	conn *universeClientConn
+
+	// pooled is true when the underlying connection is owned by a
+	// UniverseConnPool. In that case Close is a no-op; the pool
+	// manages the connection's lifecycle.
+	pooled bool
 }
 
 // NewRpcUniverseRegistrar creates a new RpcUniverseRegistrar instance that
@@ -35,6 +40,18 @@ func NewRpcUniverseRegistrar(
 	return &RpcUniverseRegistrar{
 		conn: conn,
 	}, nil
+}
+
+// NewPooledRpcUniverseRegistrar wraps a pool-owned *universeClientConn
+// in a Registrar. The returned wrapper's Close is a no-op; the pool
+// owns the underlying connection.
+func NewPooledRpcUniverseRegistrar(
+	conn *universeClientConn) universe.Registrar {
+
+	return &RpcUniverseRegistrar{
+		conn:   conn,
+		pooled: true,
+	}
 }
 
 // unmarshalIssuanceProof un-marshals an issuance proof response into a struct
@@ -116,7 +133,12 @@ func (r *RpcUniverseRegistrar) UpsertProofLeaf(ctx context.Context,
 }
 
 // Close closes the underlying RPC connection to the remote Universe server.
+// When the registrar's connection is pool-owned, Close is a no-op.
 func (r *RpcUniverseRegistrar) Close() error {
+	if r.pooled {
+		return nil
+	}
+
 	if err := r.conn.Close(); err != nil {
 		tapdLog.Warnf("unable to close universe RPC "+
 			"connection: %v", err)
