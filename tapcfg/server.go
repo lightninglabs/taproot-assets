@@ -479,6 +479,8 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			UniverseSyncer:          universeSyncer,
 			LocalRegistrar:          uniArchive,
 			SyncInterval:            cfg.Universe.SyncInterval,
+			DisableDeltaSync:        cfg.Universe.NoDeltaSync,
+			SyncAuditInterval:       cfg.Universe.SyncAuditInterval,
 			NewRemoteRegistrar:      pooledRegistrar,
 			StaticFederationMembers: federationMembers,
 			ServerChecker: func(addr universe.ServerAddr) error {

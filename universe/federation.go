@@ -18,6 +18,12 @@ const (
 	// DefaultTimeout is the default timeout we use for RPC and database
 	// operations.
 	DefaultTimeout = 30 * time.Second
+
+	// DefaultSyncAuditInterval is the default period between the forced
+	// enumeration syncs that audit the delta sync fast path. One
+	// enumeration sync per server per day bounds any divergence the
+	// delta path cannot observe.
+	DefaultSyncAuditInterval = 24 * time.Hour
 )
 
 // FederationConfig is a config that the FederationEnvoy will use to
@@ -44,6 +50,19 @@ type FederationConfig struct {
 	// SyncInterval is the period that we'll use to synchronize with the
 	// set of Universe servers.
 	SyncInterval time.Duration
+
+	// DisableDeltaSync forces the envoy to use full enumeration sync
+	// even against servers that support cursor-based delta sync. This
+	// is a kill switch for the delta sync mechanism.
+	DisableDeltaSync bool
+
+	// SyncAuditInterval is the longest the envoy will rely on
+	// cursor-based delta sync against a server before forcing a full
+	// enumeration sync as an audit. The audit bounds the divergence the
+	// delta path cannot see: quiet-universe drift, export config
+	// changes on the remote, and journal replacements the rewind check
+	// was never shown. A zero value applies DefaultSyncAuditInterval.
+	SyncAuditInterval time.Duration
 
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
@@ -115,6 +134,14 @@ type FederationEnvoy struct {
 	// batchPushRequests is a channel that will be sent new requests to push
 	// out batch proof leaves to the federation.
 	batchPushRequests chan *FederationProofBatchPushReq
+
+	// lastEnumSync tracks, per server host, when a full enumeration
+	// sync last completed (or when the server was first seen), driving
+	// the periodic enumeration audit.
+	lastEnumSync map[string]time.Time
+
+	// lastEnumSyncMtx guards lastEnumSync; servers sync in parallel.
+	lastEnumSyncMtx sync.Mutex
 }
 
 // A compile-time check to ensure that FederationEnvoy meets the
@@ -127,6 +154,7 @@ func NewFederationEnvoy(cfg FederationConfig) *FederationEnvoy {
 		cfg:               cfg,
 		pushRequests:      make(chan *FederationPushReq),
 		batchPushRequests: make(chan *FederationProofBatchPushReq),
+		lastEnumSync:      make(map[string]time.Time),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -192,13 +220,75 @@ func (f *FederationEnvoy) Stop() error {
 	return nil
 }
 
+// enumerationAuditDue reports whether the periodic enumeration audit
+// should replace delta sync for the given server this round. The first
+// call for a server starts its audit clock rather than forcing an
+// immediate audit: a fresh envoy has no delta history to audit yet.
+func (f *FederationEnvoy) enumerationAuditDue(host string) bool {
+	interval := f.cfg.SyncAuditInterval
+	if interval == 0 {
+		interval = DefaultSyncAuditInterval
+	}
+
+	f.lastEnumSyncMtx.Lock()
+	defer f.lastEnumSyncMtx.Unlock()
+
+	last, ok := f.lastEnumSync[host]
+	if !ok {
+		f.lastEnumSync[host] = time.Now()
+		return false
+	}
+
+	return time.Since(last) >= interval
+}
+
+// markEnumSync records a completed enumeration sync against the given
+// server, resetting its audit clock.
+func (f *FederationEnvoy) markEnumSync(host string) {
+	f.lastEnumSyncMtx.Lock()
+	defer f.lastEnumSyncMtx.Unlock()
+
+	f.lastEnumSync[host] = time.Now()
+}
+
 // syncServerState attempts to sync Universe state with the target server.
 // If the sync is successful (even if no diff is generated), then a new sync
-// event will be logged.
+// event will be logged. Cursor-based delta sync is attempted first when
+// available; full enumeration sync remains the fallback for servers that
+// don't support it (and the always-correct path on any delta failure), as
+// well as the periodic audit that bounds any divergence the delta path
+// cannot see.
 func (f *FederationEnvoy) syncServerState(ctx context.Context,
 	addr ServerAddr, syncConfigs SyncConfigs) error {
 
 	log.Infof("Syncing Universe state with server=%s", addr.HostStr())
+
+	auditDue := f.enumerationAuditDue(addr.HostStr())
+	if auditDue {
+		log.Infof("Enumeration sync audit due for server=%v",
+			addr.HostStr())
+	}
+
+	deltaSyncer, canDelta := f.cfg.UniverseSyncer.(DeltaSyncer)
+	if canDelta && !f.cfg.DisableDeltaSync && !auditDue {
+		done, diffSize, err := f.tryDeltaSync(
+			ctx, deltaSyncer, addr, syncConfigs,
+		)
+		if err != nil {
+			// The delta path is an optimization: on failure we
+			// log and let the enumeration path below have a go.
+			log.Warnf("Delta sync with server=%v failed, "+
+				"falling back to enumeration sync: %v",
+				addr.HostStr(), err)
+		}
+		if done {
+			if diffSize > 0 {
+				f.logSyncEvent(addr, diffSize)
+			}
+
+			return nil
+		}
+	}
 
 	// Attempt to sync with the remote Universe server, if this errors then
 	// we'll bail out early as something wrong happened.
@@ -209,13 +299,92 @@ func (f *FederationEnvoy) syncServerState(ctx context.Context,
 		return err
 	}
 
+	f.markEnumSync(addr.HostStr())
+
 	if len(diff) == 0 {
 		return nil
 	}
 
-	// If we synced anything from the server, then we'll log that here.
+	f.logSyncEvent(addr, len(diff))
+
+	return nil
+}
+
+// tryDeltaSync runs a cursor-based delta sync against the target server,
+// persisting the advanced cursor on success. It reports done=false when
+// the remote doesn't support delta sync, signaling the caller to use the
+// enumeration path instead.
+func (f *FederationEnvoy) tryDeltaSync(ctx context.Context,
+	deltaSyncer DeltaSyncer, addr ServerAddr,
+	syncConfigs SyncConfigs) (bool, int, error) {
+
+	cursor, err := f.cfg.FederationDB.FetchSyncCursor(ctx, addr)
+	if err != nil {
+		return false, 0, fmt.Errorf("unable to fetch sync cursor: %w",
+			err)
+	}
+
+	res, err := deltaSyncer.SyncUniverseDelta(
+		ctx, addr, cursor, syncConfigs,
+	)
+	var rewindErr *ErrJournalRewind
+	switch {
+	// The remote predates delta sync; the enumeration path takes over.
+	case errors.Is(err, ErrDeltaUnsupported):
+		log.Debugf("Server=%v does not support delta sync",
+			addr.HostStr())
+		return false, 0, nil
+
+	// The journal our cursor pointed into no longer exists in that
+	// form. Reset the cursor to the remote's tail and let the
+	// enumeration path reconcile: for a merely rewound journal the
+	// entries at or below the tail are an append-only prefix we have
+	// already consumed, and for a replaced instance the enumeration
+	// pass delivers everything the reset would otherwise skip.
+	case errors.As(err, &rewindErr):
+		log.Warnf("Delta sync cursor %d beyond journal tail %d "+
+			"for server=%v; resetting cursor and running "+
+			"enumeration sync", rewindErr.Cursor, rewindErr.Tail,
+			addr.HostStr())
+
+		err := f.cfg.FederationDB.UpsertSyncCursor(
+			ctx, addr, rewindErr.Tail,
+		)
+		if err != nil {
+			return false, 0, fmt.Errorf("unable to reset sync "+
+				"cursor: %w", err)
+		}
+
+		return false, 0, nil
+
+	case err != nil:
+		return false, 0, err
+	}
+
+	// A successful run means every universe the delta touched has been
+	// verified as converged, so the cursor may be persisted.
+	if res.NewCursor != cursor {
+		err := f.cfg.FederationDB.UpsertSyncCursor(
+			ctx, addr, res.NewCursor,
+		)
+		if err != nil {
+			return false, 0, fmt.Errorf("unable to persist sync "+
+				"cursor: %w", err)
+		}
+	}
+
+	log.Infof("Delta sync with server=%v complete: cursor %d -> %d, "+
+		"diff_size=%d", addr.HostStr(), cursor, res.NewCursor,
+		len(res.Diffs))
+
+	return true, len(res.Diffs), nil
+}
+
+// logSyncEvent records a successful sync with the given server in the
+// background.
+func (f *FederationEnvoy) logSyncEvent(addr ServerAddr, diffSize int) {
 	log.Infof("Synced new Universe leaves from server=%v, diff_size=%v",
-		spew.Sdump(addr), len(diff))
+		spew.Sdump(addr), diffSize)
 
 	// Log a new sync event in the background now that we know we were able
 	// to contract the remote server.
@@ -231,8 +400,6 @@ func (f *FederationEnvoy) syncServerState(ctx context.Context,
 			log.Warnf("unable to log new sync: %v", err)
 		}
 	}()
-
-	return nil
 }
 
 // pushProofToServer attempts to push out a new proof to the target server.
