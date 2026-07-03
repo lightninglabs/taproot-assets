@@ -850,8 +850,6 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		Node:      uniProof.UniverseRoot,
 	})
 
-	b.leafKeysCache.wipeCache(id.String())
-
 	// Notify subscribers about the new proof leaf, now that we're sure we
 	// have written it to the database. But we only care about transfer
 	// proofs, as the events are received by the custodian to finalize
