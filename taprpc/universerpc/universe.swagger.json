@@ -1873,6 +1873,47 @@
           "Universe"
         ]
       }
+    },
+    "/v1/taproot-assets/universe/sync/delta": {
+      "get": {
+        "summary": "SyncDelta returns the universe leaves inserted on this server after\nthe given sequence number, in insertion order. A federation peer\nthat tracks a per-server cursor can fetch exactly the leaves it\nhasn't seen yet, instead of enumerating all leaf keys to compute a\nset difference. The response carries the current roots of every\nuniverse touched by the delta so the caller can verify convergence\nafter applying it.",
+        "operationId": "Universe_SyncDelta",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcSyncDeltaResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "since_seq",
+            "description": "Return leaves inserted after this sequence number. Zero means from\nthe beginning (bootstrap).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "page_size",
+            "description": "The maximum number of leaves to return in one response. Clamped\nserver-side; the server may additionally cut the page short to\nrespect its response size budget. Callers should page until a\nresponse returns fewer items than requested and latest_seq stops\nadvancing.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
     }
   },
   "definitions": {
@@ -3304,6 +3345,59 @@
         }
       },
       "description": "SupplyLeafKey identifies a supply leaf entry. It contains the components\nused to derive the key, which is computed as a hash of these fields."
+    },
+    "universerpcSyncDeltaItem": {
+      "type": "object",
+      "properties": {
+        "universe_id": {
+          "$ref": "#/definitions/universerpcID",
+          "description": "The universe the leaf belongs to."
+        },
+        "key": {
+          "$ref": "#/definitions/universerpcAssetKey",
+          "description": "The leaf key the leaf is stored at."
+        },
+        "leaf": {
+          "$ref": "#/definitions/universerpcAssetLeaf",
+          "description": "The leaf payload: the asset and its raw issuance/transfer proof."
+        },
+        "universe_inclusion_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "The universe inclusion proof binding the leaf to its universe root\n(one of the roots in the enclosing response)."
+        },
+        "seq": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The insertion sequence number of the leaf on the serving universe."
+        }
+      }
+    },
+    "universerpcSyncDeltaResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/universerpcSyncDeltaItem"
+          },
+          "description": "The leaves inserted after the requested sequence number, in\ninsertion order. Leaves whose universes have proof export disabled\nare omitted, but still advance latest_seq."
+        },
+        "universe_roots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/universerpcUniverseRoot"
+          },
+          "description": "The current roots of every universe that appears in items."
+        },
+        "latest_seq": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The high-water sequence mark of this page: the cursor value the\ncaller should persist once the page's items are applied and\nverified."
+        }
+      }
     },
     "universerpcSyncRequest": {
       "type": "object",
