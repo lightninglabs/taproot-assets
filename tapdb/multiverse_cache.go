@@ -11,7 +11,6 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/universe"
-	"github.com/lightningnetwork/lnd/lnutils"
 )
 
 const (
@@ -380,25 +379,6 @@ func (r *rootPageCache) wipe(cacheSize uint64) {
 	r.Store(rootCache)
 }
 
-// rootIndex maps a tree ID to a universe root.
-type rootIndex struct {
-	atomic.Pointer[lnutils.SyncMap[universeIDKey, *universe.Root]]
-}
-
-// newRootIndex creates a new atomic root index.
-func newRootIndex() *rootIndex {
-	var a rootIndex
-	a.wipe()
-
-	return &a
-}
-
-// wipe wipes the cache.
-func (r *rootIndex) wipe() {
-	var idx lnutils.SyncMap[universeIDKey, *universe.Root]
-	r.Store(&idx)
-}
-
 // syncerRootNodeCache is used to cache the set of active root nodes for the
 // multiverse tree, which is specifically kept for the universe sync.
 type syncerRootNodeCache struct {
@@ -666,8 +646,6 @@ type rootNodeCache struct {
 
 	cacheSize uint64
 
-	rootIndex *rootIndex
-
 	allRoots *rootPageCache
 
 	*cacheLogger
@@ -679,7 +657,6 @@ type rootNodeCache struct {
 func newRootNodeCache(cacheSize uint64) *rootNodeCache {
 	return &rootNodeCache{
 		cacheSize:   cacheSize,
-		rootIndex:   newRootIndex(),
 		allRoots:    newRootPageCache(cacheSize),
 		cacheLogger: newCacheLogger("universe_roots"),
 	}
@@ -716,17 +693,10 @@ func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 
 	log.Debugf("Caching root node (count=%v)", len(rootNodes))
 
-	// Store the main root pointer, then update the root index.
 	rootPageCache := r.allRoots.Load()
 	_, err := rootPageCache.Put(newRootPageQuery(q), rootNodes)
 	if err != nil {
 		log.Errorf("unable to insert into root cache: %v", err)
-	}
-
-	rootIndex := r.rootIndex.Load()
-	for _, rootNode := range rootNodes {
-		rootNode := rootNode
-		rootIndex.Store(rootNode.ID.String(), &rootNode)
 	}
 }
 
@@ -735,7 +705,6 @@ func (r *rootNodeCache) wipeCache() {
 	log.Debugf("Wiping universe root node cache")
 
 	r.allRoots.wipe(r.cacheSize)
-	r.rootIndex.wipe()
 }
 
 // cachedLeafKeys is used to cache the set of leaf keys for a given universe.
