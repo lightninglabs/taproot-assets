@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -792,6 +793,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	var (
 		writeTx         BaseMultiverseOptions
 		uniProof        *universe.Proof
+		rootStatus      universeRootStatus
 		multiverseRoot  mssmt.Node
 		multiverseProof *mssmt.Proof
 	)
@@ -805,7 +807,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 			return err
 		}
 
-		uniProof, _, err = universeUpsertProofLeaf(
+		uniProof, rootStatus, err = universeUpsertProofLeaf(
 			ctx, dbTx, id.String(), id.ProofType,
 			id.GroupKey, key, leaf, metaReveal, blockHeight,
 		)
@@ -836,19 +838,22 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	uniProof.MultiverseRoot = multiverseRoot
 	uniProof.MultiverseInclusionProof = multiverseProof
 
-	// Invalidate the cache since we just updated the root. Every
-	// previously cached proof under this universe embeds the
-	// UniverseRoot at the time it was fetched; inserting a new leaf
-	// changes the root, so all sibling entries are now stale and
-	// must be evicted, not just the one we wrote.
-	b.rootNodeCache.wipeCache()
-	b.proofCache.RemoveUniverseProofs(id)
-	b.leafKeysCache.wipeCache(id.String())
-	b.syncerCache.addOrReplace(universe.Root{
+	// The transaction is committed, so invalidate the affected caches.
+	// The root node page cache is wiped if the upsert created the
+	// universe, and only has the pages containing the universe's root
+	// evicted otherwise. Every previously cached proof under this
+	// universe embeds the UniverseRoot at the time it was fetched;
+	// inserting a new leaf changes the root, so all of the universe's
+	// proofs and leaf keys are evicted, not just the one we wrote.
+	newRoot := universe.Root{
 		ID:        id,
 		AssetName: leaf.Asset.Tag,
 		Node:      uniProof.UniverseRoot,
-	})
+	}
+	b.rootNodeCache.handleRootUpdate(newRoot, rootStatus)
+	b.proofCache.RemoveUniverseProofs(id)
+	b.leafKeysCache.wipeCache(id.String())
+	b.syncerCache.addOrReplace(newRoot)
 
 	// Notify subscribers about the new proof leaf, now that we're sure we
 	// have written it to the database. But we only care about transfer
@@ -867,12 +872,16 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	items []*universe.Item) error {
 
 	var (
-		writeTx   BaseMultiverseOptions
-		uniProofs []*universe.Proof
+		writeTx      BaseMultiverseOptions
+		uniProofs    []*universe.Proof
+		rootStatuses []universeRootStatus
 	)
 	dbErr := b.db.ExecTx(
 		ctx, &writeTx, func(store BaseMultiverseStore) error {
 			uniProofs = make([]*universe.Proof, len(items))
+			rootStatuses = make(
+				[]universeRootStatus, len(items),
+			)
 			for idx := range items {
 				item := items[idx]
 
@@ -887,18 +896,21 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 
 				// Upsert into the specific universe tree to
 				// start with.
-				uniProof, _, err := universeUpsertProofLeaf(
-					ctx, store, item.ID.String(),
-					item.ID.ProofType,
-					item.ID.GroupKey, item.Key, item.Leaf,
-					item.MetaReveal, blockHeight,
-				)
+				uniProof, status, err :=
+					universeUpsertProofLeaf(
+						ctx, store, item.ID.String(),
+						item.ID.ProofType,
+						item.ID.GroupKey, item.Key,
+						item.Leaf, item.MetaReveal,
+						blockHeight,
+					)
 				if err != nil {
 					return fmt.Errorf("failed universe "+
 						"upsert for item %d: %w",
 						idx, err)
 				}
 				uniProofs[idx] = uniProof
+				rootStatuses[idx] = status
 
 				// Next we'll, attempt to insert the universe
 				// root into the main multiverse tree.
@@ -927,14 +939,21 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 		return dbErr
 	}
 
-	// TODO(roasbeef): want to write thru but then need db query again?
-
-	b.rootNodeCache.wipeCache()
+	// If any of the inserted leaves created a new universe, the
+	// composition of paginated root queries changed and the page cache as
+	// a whole is stale. Pure updates only change the value of already
+	// placed roots, so it's enough to evict the pages containing them,
+	// which we do in one pass after the loop below.
+	wiped := slices.Contains(rootStatuses, universeRootCreated)
+	if wiped {
+		b.rootNodeCache.wipeCache()
+	}
 
 	// Notify subscribers about the new proof leaves, now that we're sure we
 	// have written them to the database. But we only care about transfer
 	// proofs, as the events are received by the custodian to finalize
 	// inbound transfers.
+	newRoots := make([]universe.Root, len(items))
 	for idx := range items {
 		if items[idx].ID.ProofType == universe.ProofTypeTransfer {
 			b.transferProofDistributor.NotifySubscribers(
@@ -942,16 +961,26 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 			)
 		}
 
-		// Update the syncer cache with the new root node.
-		b.syncerCache.addOrReplace(universe.Root{
+		newRoots[idx] = universe.Root{
 			ID:        items[idx].ID,
 			AssetName: items[idx].Leaf.Asset.Tag,
 			Node:      uniProofs[idx].UniverseRoot,
-		})
+		}
+
+		// Update the syncer cache with the new root node.
+		b.syncerCache.addOrReplace(newRoots[idx])
 	}
 
-	// Invalidate the root node cache for all the assets we just
-	// inserted. Each insert changes the root of its universe tree,
+	// Evict the cached pages that contain any of the updated roots. If
+	// the cache was wiped above there is nothing to evict: any page
+	// refilled since the wipe was read from post-commit state and is
+	// already fresh.
+	if !wiped {
+		b.rootNodeCache.evictRoots(newRoots)
+	}
+
+	// Invalidate the proof and leaf key caches for all the universes we
+	// just touched. Each insert changes the root of its universe tree,
 	// which invalidates the UniverseRoot snapshot embedded in every
 	// previously cached proof under that universe, so we evict by
 	// universe id rather than per leaf key.

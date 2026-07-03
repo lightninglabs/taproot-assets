@@ -719,6 +719,77 @@ func (r *rootNodeCache) wipeCache() {
 	r.allRoots.wipe(r.cacheSize)
 }
 
+// handleRootUpdate updates the cached roots after a proof leaf was inserted
+// into the universe identified by root.ID. Creating a new universe changes
+// which roots appear on which page of paginated root queries, so the whole
+// page cache is invalidated. Updating an existing universe only changes the
+// value of a single, already placed root, so only the cached pages
+// containing that root are evicted and all other pages stay warm.
+func (r *rootNodeCache) handleRootUpdate(root universe.Root,
+	status universeRootStatus) {
+
+	switch status {
+	case universeRootCreated:
+		r.wipeCache()
+
+	case universeRootUpdated:
+		r.evictRoots([]universe.Root{root})
+	}
+}
+
+// evictRoots removes all cached pages that contain any of the given universe
+// roots. Pages are keyed by pagination parameters only and the backing query
+// orders by the stable universe_roots.id column, so updating an existing
+// universe never changes which page its root appears on. Cached pages that
+// don't contain any of the roots therefore remain valid, and absence of a
+// root from all cached pages means there is nothing to invalidate for it.
+//
+// The affected pages are evicted rather than patched with the new root
+// value: eviction is idempotent, so concurrent updates of the same universe
+// can apply in any order without ever leaving a value in the cache that is
+// older than the database state. It also keeps query-derived fields honest:
+// a grouped universe's asset name, for example, is frozen to its first
+// member by the backing query and would diverge if we patched in the latest
+// leaf's tag.
+func (r *rootNodeCache) evictRoots(roots []universe.Root) {
+	// The lock serializes us with the cache fill in RootNodes, which
+	// holds it across both its database read and cacheRoots. Without it
+	// we could evict between the two, and the fill would then install a
+	// page that was read before our root update committed.
+	r.Lock()
+	defer r.Unlock()
+
+	keys := make(map[universe.IdentifierKey]struct{}, len(roots))
+	for _, root := range roots {
+		keys[root.ID.Key()] = struct{}{}
+	}
+
+	rootPages := r.allRoots.Load()
+
+	// We first collect the affected pages, as mutating the cache while
+	// iterating over it isn't safe.
+	var evicted []rootPageQueryKey
+	rootPages.Range(func(key rootPageQueryKey,
+		page universeRootPage) bool {
+
+		stale := slices.ContainsFunc(
+			page, func(cached universe.Root) bool {
+				_, ok := keys[cached.ID.Key()]
+				return ok
+			},
+		)
+		if stale {
+			evicted = append(evicted, key)
+		}
+
+		return true
+	})
+
+	for _, key := range evicted {
+		rootPages.Delete(key)
+	}
+}
+
 // cachedLeafKeys is used to cache the set of leaf keys for a given universe.
 type cachedLeafKeys []universe.LeafKey
 
