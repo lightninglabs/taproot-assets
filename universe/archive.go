@@ -697,6 +697,18 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 	}, nil
 }
 
+// FetchLeavesSince returns up to limit leaves inserted after sinceSeq
+// across all issuance and transfer universes, in insertion order, along
+// with the highest sequence number seen.
+func (a *Archive) FetchLeavesSince(ctx context.Context, sinceSeq uint64,
+	limit int32) ([]DeltaLeafItem, uint64, error) {
+
+	log.Tracef("Fetching leaf delta since seq=%v (limit=%v)", sinceSeq,
+		limit)
+
+	return a.cfg.Multiverse.FetchLeavesSince(ctx, sinceSeq, limit)
+}
+
 // FetchProofLeaf attempts to fetch a proof leaf for the target leaf key
 // and given a universe identifier (assetID/groupKey).
 func (a *Archive) FetchProofLeaf(ctx context.Context, id Identifier,

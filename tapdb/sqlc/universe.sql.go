@@ -238,6 +238,76 @@ func (q *Queries) FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysPa
 	return items, nil
 }
 
+const FetchUniverseLeavesSince = `-- name: FetchUniverseLeavesSince :many
+SELECT leaves.id AS seq, leaves.minting_point, leaves.script_key_bytes,
+       leaves.asset_genesis_id, nodes.value AS genesis_proof,
+       nodes.sum AS sum_amt, roots.asset_id AS root_asset_id,
+       roots.group_key AS root_group_key, roots.proof_type
+FROM universe_leaves AS leaves
+JOIN universe_roots AS roots
+    ON leaves.universe_root_id = roots.id
+JOIN mssmt_nodes AS nodes
+    ON leaves.leaf_node_key = nodes.key
+       AND leaves.leaf_node_namespace = nodes.namespace
+WHERE leaves.id > $1
+      -- The insertion-ordered delta serves federation sync, whose
+      -- domain is issuance and transfer universes; other proof types
+      -- flow through dedicated syncers.
+      AND roots.proof_type IN ('issuance', 'transfer')
+ORDER BY leaves.id ASC
+LIMIT $2
+`
+
+type FetchUniverseLeavesSinceParams struct {
+	SinceSeq int64
+	NumLimit int32
+}
+
+type FetchUniverseLeavesSinceRow struct {
+	Seq            int64
+	MintingPoint   []byte
+	ScriptKeyBytes []byte
+	AssetGenesisID int64
+	GenesisProof   []byte
+	SumAmt         int64
+	RootAssetID    []byte
+	RootGroupKey   []byte
+	ProofType      sql.NullString
+}
+
+func (q *Queries) FetchUniverseLeavesSince(ctx context.Context, arg FetchUniverseLeavesSinceParams) ([]FetchUniverseLeavesSinceRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchUniverseLeavesSince, arg.SinceSeq, arg.NumLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchUniverseLeavesSinceRow
+	for rows.Next() {
+		var i FetchUniverseLeavesSinceRow
+		if err := rows.Scan(
+			&i.Seq,
+			&i.MintingPoint,
+			&i.ScriptKeyBytes,
+			&i.AssetGenesisID,
+			&i.GenesisProof,
+			&i.SumAmt,
+			&i.RootAssetID,
+			&i.RootGroupKey,
+			&i.ProofType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FetchUniverseRoot = `-- name: FetchUniverseRoot :one
 SELECT universe_roots.asset_id, group_key, proof_type,
        mssmt_nodes.hash_key root_hash, mssmt_nodes.sum root_sum,

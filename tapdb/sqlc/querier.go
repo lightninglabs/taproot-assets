@@ -128,6 +128,7 @@ type Querier interface {
 	// computed from mssmt_nodes.value (the leaf's RawProof bytes) and
 	// mssmt_nodes.sum. Callers compute the hash from these two columns.
 	FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysParams) ([]FetchUniverseKeysRow, error)
+	FetchUniverseLeavesSince(ctx context.Context, arg FetchUniverseLeavesSinceParams) ([]FetchUniverseLeavesSinceRow, error)
 	FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error)
 	FetchUniverseSupplyRoot(ctx context.Context, namespaceRoot string) (FetchUniverseSupplyRootRow, error)
 	FetchUnknownTypeScriptKeys(ctx context.Context) ([]FetchUnknownTypeScriptKeysRow, error)

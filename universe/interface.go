@@ -526,6 +526,23 @@ type MultiverseLeaf struct {
 	*mssmt.LeafNode
 }
 
+// DeltaLeafItem is one entry of an insertion-ordered universe leaf
+// delta: a leaf, the universe it belongs to, and the sequence number
+// under which it was inserted on the serving store.
+type DeltaLeafItem struct {
+	// Seq is the leaf's insertion sequence number.
+	Seq uint64
+
+	// ID identifies the universe the leaf belongs to.
+	ID Identifier
+
+	// Key is the universe leaf key the leaf is stored at.
+	Key LeafKey
+
+	// Leaf is the leaf payload.
+	Leaf *Leaf
+}
+
 // MultiverseArchive is an interface for tracking the set of known universe
 // roots. While the StorageBackend interface operates on a single universe, this
 // interface provides aggregate access across multiple universes.
@@ -581,6 +598,14 @@ type MultiverseArchive interface {
 	// proof type.
 	MultiverseRootNode(ctx context.Context,
 		proofType ProofType) (fn.Option[MultiverseRoot], error)
+
+	// FetchLeavesSince returns up to limit leaves inserted after
+	// sinceSeq across all issuance and transfer universes, in insertion
+	// order, along with the highest sequence number seen. Rewrites of
+	// existing leaves keep their sequence number and are invisible
+	// here; root comparison remains the authority on divergence.
+	FetchLeavesSince(ctx context.Context, sinceSeq uint64,
+		limit int32) ([]DeltaLeafItem, uint64, error)
 }
 
 // Registrar is an interface that allows a caller to upsert a proof leaf in a
