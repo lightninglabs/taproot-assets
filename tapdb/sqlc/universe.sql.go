@@ -11,6 +11,24 @@ import (
 	"time"
 )
 
+const BumpUniverseLeafJournalTail = `-- name: BumpUniverseLeafJournalTail :one
+UPDATE universe_leaf_journal_tail
+SET tail = tail + $1
+WHERE id = 1
+RETURNING tail
+`
+
+// Reserves a contiguous range of journal seq values ending at the
+// returned tail. The row lock taken here is held until the enclosing
+// transaction commits, serializing journal appends so that seq order
+// equals commit order.
+func (q *Queries) BumpUniverseLeafJournalTail(ctx context.Context, delta int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, BumpUniverseLeafJournalTail, delta)
+	var tail int64
+	err := row.Scan(&tail)
+	return tail, err
+}
+
 const DeleteFederationProofSyncLog = `-- name: DeleteFederationProofSyncLog :exec
 WITH selected_server_id AS (
     -- Select the server ids from the universe_servers table for the specified
@@ -238,6 +256,81 @@ func (q *Queries) FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysPa
 	return items, nil
 }
 
+const FetchUniverseLeavesSince = `-- name: FetchUniverseLeavesSince :many
+SELECT journal.seq, leaves.minting_point, leaves.script_key_bytes,
+       leaves.asset_genesis_id, nodes.value AS genesis_proof,
+       nodes.sum AS sum_amt, roots.asset_id AS root_asset_id,
+       roots.group_key AS root_group_key, roots.proof_type
+FROM universe_leaf_journal AS journal
+JOIN universe_leaves AS leaves
+    ON journal.leaf_id = leaves.id
+JOIN universe_roots AS roots
+    ON leaves.universe_root_id = roots.id
+JOIN mssmt_nodes AS nodes
+    ON leaves.leaf_node_key = nodes.key
+       AND leaves.leaf_node_namespace = nodes.namespace
+WHERE journal.seq > $1
+      AND roots.proof_type IN ('issuance', 'transfer')
+ORDER BY journal.seq ASC
+LIMIT $2
+`
+
+type FetchUniverseLeavesSinceParams struct {
+	SinceSeq int64
+	NumLimit int32
+}
+
+type FetchUniverseLeavesSinceRow struct {
+	Seq            int64
+	MintingPoint   []byte
+	ScriptKeyBytes []byte
+	AssetGenesisID int64
+	GenesisProof   []byte
+	SumAmt         int64
+	RootAssetID    []byte
+	RootGroupKey   []byte
+	ProofType      sql.NullString
+}
+
+// The commit-ordered delta serves federation sync, whose domain is
+// issuance and transfer universes; other proof types flow through
+// dedicated syncers. Sequencing comes from the journal, whose seq
+// assignment guarantees seq order equals commit order, so a reader
+// can never observe a seq while a lower unserved seq is still
+// uncommitted.
+func (q *Queries) FetchUniverseLeavesSince(ctx context.Context, arg FetchUniverseLeavesSinceParams) ([]FetchUniverseLeavesSinceRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchUniverseLeavesSince, arg.SinceSeq, arg.NumLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchUniverseLeavesSinceRow
+	for rows.Next() {
+		var i FetchUniverseLeavesSinceRow
+		if err := rows.Scan(
+			&i.Seq,
+			&i.MintingPoint,
+			&i.ScriptKeyBytes,
+			&i.AssetGenesisID,
+			&i.GenesisProof,
+			&i.SumAmt,
+			&i.RootAssetID,
+			&i.RootGroupKey,
+			&i.ProofType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FetchUniverseRoot = `-- name: FetchUniverseRoot :one
 SELECT universe_roots.asset_id, group_key, proof_type,
        mssmt_nodes.hash_key root_hash, mssmt_nodes.sum root_sum,
@@ -374,6 +467,25 @@ func (q *Queries) InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEvent
 	return err
 }
 
+const InsertUniverseLeafJournal = `-- name: InsertUniverseLeafJournal :exec
+INSERT INTO universe_leaf_journal (seq, leaf_id)
+VALUES ($1, $2)
+ON CONFLICT (leaf_id) DO NOTHING
+`
+
+type InsertUniverseLeafJournalParams struct {
+	Seq    int64
+	LeafID int64
+}
+
+// A leaf already journaled keeps its original seq: re-upserts and
+// in-place rewrites are not re-delivered by delta sync, and heal via
+// the root comparison on the enumeration path instead.
+func (q *Queries) InsertUniverseLeafJournal(ctx context.Context, arg InsertUniverseLeafJournalParams) error {
+	_, err := q.db.ExecContext(ctx, InsertUniverseLeafJournal, arg.Seq, arg.LeafID)
+	return err
+}
+
 const InsertUniverseServer = `-- name: InsertUniverseServer :exec
 INSERT INTO universe_servers(
     server_host, last_sync_time
@@ -406,6 +518,18 @@ type LogServerSyncParams struct {
 func (q *Queries) LogServerSync(ctx context.Context, arg LogServerSyncParams) error {
 	_, err := q.db.ExecContext(ctx, LogServerSync, arg.NewSyncTime, arg.TargetServer)
 	return err
+}
+
+const MaxUniverseLeafJournalSeq = `-- name: MaxUniverseLeafJournalSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS BIGINT) AS max_seq
+FROM universe_leaf_journal
+`
+
+func (q *Queries) MaxUniverseLeafJournalSeq(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, MaxUniverseLeafJournalSeq)
+	var max_seq int64
+	err := row.Scan(&max_seq)
+	return max_seq, err
 }
 
 const QueryAssetStatsPerDayPostgres = `-- name: QueryAssetStatsPerDayPostgres :many
@@ -1415,7 +1539,7 @@ func (q *Queries) UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverse
 	return id, err
 }
 
-const UpsertUniverseLeaf = `-- name: UpsertUniverseLeaf :exec
+const UpsertUniverseLeaf = `-- name: UpsertUniverseLeaf :one
 INSERT INTO universe_leaves (
     asset_genesis_id, script_key_bytes, universe_root_id, leaf_node_key,
     leaf_node_namespace, minting_point, block_height
@@ -1429,6 +1553,7 @@ INSERT INTO universe_leaves (
                   script_key_bytes = EXCLUDED.script_key_bytes,
                   leaf_node_namespace = EXCLUDED.leaf_node_namespace,
                   block_height = EXCLUDED.block_height
+RETURNING id
 `
 
 type UpsertUniverseLeafParams struct {
@@ -1441,8 +1566,8 @@ type UpsertUniverseLeafParams struct {
 	BlockHeight       sql.NullInt32
 }
 
-func (q *Queries) UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) error {
-	_, err := q.db.ExecContext(ctx, UpsertUniverseLeaf,
+func (q *Queries) UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertUniverseLeaf,
 		arg.AssetGenesisID,
 		arg.ScriptKeyBytes,
 		arg.UniverseRootID,
@@ -1451,7 +1576,9 @@ func (q *Queries) UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeaf
 		arg.MintingPoint,
 		arg.BlockHeight,
 	)
-	return err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const UpsertUniverseRoot = `-- name: UpsertUniverseRoot :one

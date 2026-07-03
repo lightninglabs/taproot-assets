@@ -128,7 +128,7 @@ func addTuplesInternal(ctx context.Context, db BaseUniverseStore,
 		)
 
 		scriptKey := ignoreTup.ScriptKey
-		err = db.UpsertUniverseLeaf(ctx, UpsertUniverseLeaf{
+		_, err = db.UpsertUniverseLeaf(ctx, UpsertUniverseLeaf{
 			AssetGenesisID:    assetGenID,
 			ScriptKeyBytes:    scriptKey.SchnorrSerialized(),
 			UniverseRootID:    universeRootID,

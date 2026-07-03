@@ -1206,6 +1206,19 @@ CREATE INDEX universe_events_event_time_idx ON universe_events(event_time);
 
 CREATE INDEX universe_events_type_idx ON universe_events(event_type);
 
+CREATE TABLE universe_leaf_journal (
+    seq BIGINT PRIMARY KEY,
+
+    leaf_id BIGINT NOT NULL UNIQUE REFERENCES universe_leaves(id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE universe_leaf_journal_tail (
+    id SMALLINT PRIMARY KEY,
+
+    tail BIGINT NOT NULL
+);
+
 CREATE TABLE "universe_leaves" (
     id INTEGER PRIMARY KEY,
     asset_genesis_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id),

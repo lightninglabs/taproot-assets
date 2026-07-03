@@ -131,7 +131,7 @@ func insertBurnsInternal(ctx context.Context, db BaseUniverseStore,
 				"tree type to universe proof type: %w", err)
 		}
 
-		_, _, err = universeUpsertProofLeaf(
+		_, _, _, err = universeUpsertProofLeaf(
 			ctx, db, subNs, uniProofType, groupKey, leafKey, leaf,
 			nil, blockHeight,
 		)

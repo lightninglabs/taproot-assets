@@ -520,6 +520,16 @@ type UniverseEvent struct {
 	EventTimestamp int64
 }
 
+type UniverseLeafJournal struct {
+	Seq    int64
+	LeafID int64
+}
+
+type UniverseLeafJournalTail struct {
+	ID   int16
+	Tail int64
+}
+
 type UniverseLeafe struct {
 	ID                int64
 	AssetGenesisID    int64

@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -82,6 +83,14 @@ type (
 	// QueryMultiverseLeaves is used to query for a set of leaves based on
 	// the proof type and asset ID (or group key)
 	QueryMultiverseLeaves = sqlc.QueryMultiverseLeavesParams
+
+	// UniverseLeavesSinceQuery is used to query for the insertion-ordered
+	// set of leaves inserted after a given sequence number.
+	UniverseLeavesSinceQuery = sqlc.FetchUniverseLeavesSinceParams
+
+	// UniverseLeafDeltaRow is one row of the insertion-ordered leaf
+	// delta query.
+	UniverseLeafDeltaRow = sqlc.FetchUniverseLeavesSinceRow
 )
 
 // BaseMultiverseStore is used to interact with a set of base universe
@@ -111,6 +120,16 @@ type BaseMultiverseStore interface {
 	// given target namespace (proof type in this case).
 	FetchMultiverseRoot(ctx context.Context,
 		proofNamespace string) (MultiverseRoot, error)
+
+	// FetchUniverseLeavesSince returns leaves inserted after the given
+	// sequence number, in insertion order, across all issuance and
+	// transfer universes.
+	FetchUniverseLeavesSince(ctx context.Context,
+		arg UniverseLeavesSinceQuery) ([]UniverseLeafDeltaRow, error)
+
+	// MaxUniverseLeafJournalSeq returns the highest committed leaf
+	// journal seq, or zero for an empty journal.
+	MaxUniverseLeafJournalSeq(ctx context.Context) (int64, error)
 }
 
 // BaseMultiverseOptions is the set of options for multiverse queries.
@@ -981,6 +1000,62 @@ func (b *MultiverseStore) FetchProof(ctx context.Context,
 	return buf.Bytes(), nil
 }
 
+// shouldJournalLeaf reports whether leaves of the given universe are
+// recorded in the insertion journal that cursor-based delta sync pages
+// from. Only issuance and transfer universes take part in delta sync;
+// other proof types flow through dedicated syncers.
+func shouldJournalLeaf(id universe.Identifier) bool {
+	return id.ProofType == universe.ProofTypeIssuance ||
+		id.ProofType == universe.ProofTypeTransfer
+}
+
+// journalUniverseLeaves appends the given universe leaves to the
+// insertion journal, reserving their seq range with a single tail
+// bump. The tail row lock is held from the bump until the transaction
+// commits, which orders journal appends by commit: a reader can never
+// observe a seq while a lower unserved seq is still uncommitted. Bare
+// sequence ids cannot give that guarantee on Postgres, where value
+// allocation is non-transactional and independent of commit order.
+//
+// Callers must invoke this at the tail of the writing transaction so
+// the lock window stays small; a concurrent writer that hits the
+// locked row is serialized (or retried, under serializable isolation)
+// only for that window rather than for the full transaction.
+func journalUniverseLeaves(ctx context.Context, db BaseUniverseStore,
+	leafIDs []int64) error {
+
+	if len(leafIDs) == 0 {
+		return nil
+	}
+
+	tail, err := db.BumpUniverseLeafJournalTail(
+		ctx, int64(len(leafIDs)),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to bump leaf journal tail: %w", err)
+	}
+
+	// Already-journaled leaves keep their original seq (the insert is a
+	// no-op), leaving a benign gap in the reserved range.
+	seq := tail - int64(len(leafIDs)) + 1
+	for _, leafID := range leafIDs {
+		err := db.InsertUniverseLeafJournal(
+			ctx, InsertUniverseLeafJournal{
+				Seq:    seq,
+				LeafID: leafID,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to journal leaf %d: %w",
+				leafID, err)
+		}
+
+		seq++
+	}
+
+	return nil
+}
+
 // UpsertProofLeaf upserts a proof leaf within the multiverse tree and the
 // universe tree that corresponds to the given key.
 //
@@ -1011,14 +1086,26 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		// Register issuance in the asset (group) specific universe
 		// tree. The block height is extracted from the decoded proof
 		// by universeUpsertProofLeaf itself.
-		var err error
-		uniProof, rootStatus, err = universeUpsertProofLeaf(
+		var (
+			err    error
+			leafID int64
+		)
+		uniProof, rootStatus, leafID, err = universeUpsertProofLeaf(
 			ctx, dbTx, id.String(), id.ProofType,
 			id.GroupKey, key, leaf, metaReveal,
 			lfn.None[uint32](),
 		)
 		if err != nil {
 			return fmt.Errorf("failed universe upsert: %w", err)
+		}
+
+		if shouldJournalLeaf(id) {
+			err = journalUniverseLeaves(
+				ctx, dbTx, []int64{leafID},
+			)
+			if err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -1144,6 +1231,7 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 			)
 			seen := make(map[universeIDKey]struct{}, len(items))
 
+			journalIDs := make([]int64, 0, len(items))
 			for idx := range items {
 				item := items[idx]
 
@@ -1151,7 +1239,7 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 				// start with. The block height is extracted
 				// from the decoded proof by
 				// universeUpsertProofLeaf itself.
-				uniProof, status, err :=
+				uniProof, status, leafID, err :=
 					universeUpsertProofLeaf(
 						ctx, store, item.ID.String(),
 						item.ID.ProofType,
@@ -1174,9 +1262,17 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 						dirtyUniverses, item.ID,
 					)
 				}
+
+				if shouldJournalLeaf(item.ID) {
+					journalIDs = append(
+						journalIDs, leafID,
+					)
+				}
 			}
 
-			return nil
+			// Journal the batch in one reserved seq range, last so
+			// the tail lock window stays small.
+			return journalUniverseLeaves(ctx, store, journalIDs)
 		},
 	)
 	if dbErr != nil {
@@ -1479,6 +1575,162 @@ func (b *MultiverseStore) FetchLeaves(ctx context.Context,
 	}
 
 	return leaves, nil
+}
+
+// FetchLeavesSince returns up to limit leaves inserted after sinceSeq
+// across all issuance and transfer universes, in insertion order, along
+// with the highest sequence number seen. If no leaves qualify, the
+// returned sequence number is the committed journal tail: equal to
+// sinceSeq in the caught-up steady state, and below it when sinceSeq
+// lies beyond the journal — the signal a client uses to detect that a
+// server's journal has been rewound (restored from backup, or replaced
+// by a different instance).
+//
+// NOTE: an upsert that rewrites an existing leaf (re-org replacement)
+// keeps its original sequence number and is therefore invisible to this
+// query. Callers must not treat the delta as the sole source of
+// divergence; root comparison remains authoritative.
+func (b *MultiverseStore) FetchLeavesSince(ctx context.Context,
+	sinceSeq uint64, limit int32) ([]universe.DeltaLeafItem, uint64,
+	error) {
+
+	if limit <= 0 {
+		limit = universe.RequestPageSize
+	}
+
+	var (
+		readTx = NewBaseUniverseReadTx()
+		items  []universe.DeltaLeafItem
+		maxSeq = sinceSeq
+	)
+	dbErr := b.db.ExecTx(ctx, &readTx, func(q BaseMultiverseStore) error {
+		items = nil
+		maxSeq = sinceSeq
+
+		rows, err := q.FetchUniverseLeavesSince(
+			ctx, UniverseLeavesSinceQuery{
+				SinceSeq: int64(sinceSeq),
+				NumLimit: limit,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, row := range rows {
+			item, err := unmarshalLeafDeltaRow(ctx, q, row)
+			if err != nil {
+				return err
+			}
+
+			items = append(items, *item)
+			maxSeq = item.Seq
+		}
+
+		// An empty page means sinceSeq is at or beyond the journal
+		// tail; report the tail itself so callers can distinguish
+		// "caught up" (tail == sinceSeq) from "cursor beyond the
+		// journal" (tail < sinceSeq). The tail is read within the
+		// same snapshot as the page, and by the journal's commit
+		// ordering every seq at or below it is committed.
+		if len(rows) == 0 {
+			tail, err := q.MaxUniverseLeafJournalSeq(ctx)
+			if err != nil {
+				return err
+			}
+			maxSeq = uint64(tail)
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, 0, dbErr
+	}
+
+	return items, maxSeq, nil
+}
+
+// unmarshalLeafDeltaRow converts one row of the leaf delta query into a
+// LeafDeltaItem.
+func unmarshalLeafDeltaRow(ctx context.Context, q BaseMultiverseStore,
+	row UniverseLeafDeltaRow) (*universe.DeltaLeafItem, error) {
+
+	if !row.ProofType.Valid {
+		return nil, fmt.Errorf("delta row %d: missing proof type",
+			row.Seq)
+	}
+
+	uniID, err := universe.NewUniIDFromRawArgs(
+		row.RootAssetID, row.RootGroupKey, row.ProofType.String,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("delta row %d: %w", row.Seq, err)
+	}
+
+	scriptKeyPub, err := schnorr.ParsePubKey(row.ScriptKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("delta row %d: %w", row.Seq, err)
+	}
+	scriptKey := asset.NewScriptKey(scriptKeyPub)
+
+	var genPoint wire.OutPoint
+	err = readOutPoint(bytes.NewReader(row.MintingPoint), 0, 0, &genPoint)
+	if err != nil {
+		return nil, fmt.Errorf("delta row %d: %w", row.Seq, err)
+	}
+
+	leafKey := universe.BaseLeafKey{
+		OutPoint:  genPoint,
+		ScriptKey: &scriptKey,
+	}
+
+	leafAssetGen, err := fetchGenesis(ctx, q, row.AssetGenesisID)
+	if err != nil {
+		return nil, fmt.Errorf("delta row %d: %w", row.Seq, err)
+	}
+
+	// We only need the asset record for the leaf, so sparse decode just
+	// that from the raw proof.
+	var leafAsset asset.Asset
+	assetRecord := proof.AssetLeafRecord(&leafAsset)
+	err = proof.SparseDecode(
+		bytes.NewReader(row.GenesisProof), assetRecord,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("delta row %d: unable to decode "+
+			"proof: %w", row.Seq, err)
+	}
+
+	leaf := &universe.Leaf{
+		GenesisWithGroup: universe.GenesisWithGroup{
+			Genesis: leafAssetGen,
+		},
+		RawProof: row.GenesisProof,
+		Asset:    &leafAsset,
+		Amt:      uint64(row.SumAmt),
+	}
+
+	if uniID.GroupKey != nil {
+		leafAssetGroup, err := fetchGroupByGenesis(
+			ctx, q, row.AssetGenesisID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("delta row %d: %w", row.Seq,
+				err)
+		}
+
+		leaf.GroupKey = &asset.GroupKey{
+			GroupPubKey: *uniID.GroupKey,
+			Witness:     leafAssetGroup.Witness,
+		}
+	}
+
+	return &universe.DeltaLeafItem{
+		Seq:  uint64(row.Seq),
+		ID:   uniID,
+		Key:  leafKey,
+		Leaf: leaf,
+	}, nil
 }
 
 // RegisterSubscriber adds a new subscriber for receiving events. The
