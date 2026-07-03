@@ -214,6 +214,7 @@ type Querier interface {
 	// Join on mssmt_nodes to get leaf related fields.
 	// Join on genesis_info_view to get leaf related fields.
 	QueryFederationProofSyncLog(ctx context.Context, arg QueryFederationProofSyncLogParams) ([]QueryFederationProofSyncLogRow, error)
+	QueryFederationSyncCursor(ctx context.Context, targetServer string) (int64, error)
 	QueryFederationUniSyncConfigs(ctx context.Context) ([]QueryFederationUniSyncConfigsRow, error)
 	QueryForwards(ctx context.Context, arg QueryForwardsParams) ([]QueryForwardsRow, error)
 	QueryLastEventHeight(ctx context.Context, version int16) (int64, error)
@@ -270,6 +271,7 @@ type Querier interface {
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error)
 	UpsertFederationGlobalSyncConfig(ctx context.Context, arg UpsertFederationGlobalSyncConfigParams) error
 	UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFederationProofSyncLogParams) (int64, error)
+	UpsertFederationSyncCursor(ctx context.Context, arg UpsertFederationSyncCursorParams) error
 	UpsertFederationUniSyncConfig(ctx context.Context, arg UpsertFederationUniSyncConfigParams) error
 	UpsertForward(ctx context.Context, arg UpsertForwardParams) (int64, error)
 	UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int64, error)

@@ -709,6 +709,18 @@ func (q *Queries) QueryFederationProofSyncLog(ctx context.Context, arg QueryFede
 	return items, nil
 }
 
+const QueryFederationSyncCursor = `-- name: QueryFederationSyncCursor :one
+SELECT last_sync_seq FROM universe_servers
+WHERE server_host = $1
+`
+
+func (q *Queries) QueryFederationSyncCursor(ctx context.Context, targetServer string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, QueryFederationSyncCursor, targetServer)
+	var last_sync_seq int64
+	err := row.Scan(&last_sync_seq)
+	return last_sync_seq, err
+}
+
 const QueryFederationUniSyncConfigs = `-- name: QueryFederationUniSyncConfigs :many
 SELECT namespace, asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
 FROM federation_uni_sync_config
@@ -1049,7 +1061,7 @@ func (q *Queries) QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeav
 }
 
 const QueryUniverseServers = `-- name: QueryUniverseServers :many
-SELECT id, server_host, last_sync_time FROM universe_servers
+SELECT id, server_host, last_sync_time, last_sync_seq FROM universe_servers
 WHERE (id = $1 OR $1 IS NULL) AND
       (server_host = $2
            OR $2 IS NULL)
@@ -1069,7 +1081,12 @@ func (q *Queries) QueryUniverseServers(ctx context.Context, arg QueryUniverseSer
 	var items []UniverseServer
 	for rows.Next() {
 		var i UniverseServer
-		if err := rows.Scan(&i.ID, &i.ServerHost, &i.LastSyncTime); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.ServerHost,
+			&i.LastSyncTime,
+			&i.LastSyncSeq,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1333,6 +1350,22 @@ func (q *Queries) UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFe
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const UpsertFederationSyncCursor = `-- name: UpsertFederationSyncCursor :exec
+UPDATE universe_servers
+SET last_sync_seq = $1
+WHERE server_host = $2
+`
+
+type UpsertFederationSyncCursorParams struct {
+	LastSyncSeq  int64
+	TargetServer string
+}
+
+func (q *Queries) UpsertFederationSyncCursor(ctx context.Context, arg UpsertFederationSyncCursorParams) error {
+	_, err := q.db.ExecContext(ctx, UpsertFederationSyncCursor, arg.LastSyncSeq, arg.TargetServer)
+	return err
 }
 
 const UpsertFederationUniSyncConfig = `-- name: UpsertFederationUniSyncConfig :exec

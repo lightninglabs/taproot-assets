@@ -155,6 +155,15 @@ UPDATE universe_servers
 SET last_sync_time = @new_sync_time
 WHERE server_host = @target_server;
 
+-- name: UpsertFederationSyncCursor :exec
+UPDATE universe_servers
+SET last_sync_seq = @last_sync_seq
+WHERE server_host = @target_server;
+
+-- name: QueryFederationSyncCursor :one
+SELECT last_sync_seq FROM universe_servers
+WHERE server_host = @target_server;
+
 -- name: QueryUniverseServers :many
 SELECT * FROM universe_servers
 WHERE (id = sqlc.narg('id') OR sqlc.narg('id') IS NULL) AND

@@ -139,6 +139,16 @@ type UniverseServerStore interface {
 	// LogServerSync marks that a server was just synced in the DB.
 	LogServerSync(ctx context.Context, arg sqlc.LogServerSyncParams) error
 
+	// UpsertFederationSyncCursor updates the delta sync cursor stored
+	// for a server.
+	UpsertFederationSyncCursor(ctx context.Context,
+		arg sqlc.UpsertFederationSyncCursorParams) error
+
+	// QueryFederationSyncCursor returns the delta sync cursor stored
+	// for a server.
+	QueryFederationSyncCursor(ctx context.Context,
+		targetServer string) (int64, error)
+
 	// QueryUniverseServers returns a set of universe servers.
 	QueryUniverseServers(ctx context.Context,
 		arg sqlc.QueryUniverseServersParams) ([]sqlc.UniverseServer,
@@ -300,6 +310,49 @@ func (u *UniverseFederationDB) LogNewSyncs(ctx context.Context,
 			})
 		})
 	})
+}
+
+// UpsertSyncCursor updates the delta sync cursor stored for the given
+// server.
+//
+// NOTE: this is part of the universe.FederationLog interface.
+func (u *UniverseFederationDB) UpsertSyncCursor(ctx context.Context,
+	addr universe.ServerAddr, seq uint64) error {
+
+	var writeTx UniverseFederationOptions
+	return u.db.ExecTx(ctx, &writeTx, func(db UniverseServerStore) error {
+		return db.UpsertFederationSyncCursor(
+			ctx, sqlc.UpsertFederationSyncCursorParams{
+				LastSyncSeq:  int64(seq),
+				TargetServer: addr.HostStr(),
+			},
+		)
+	})
+}
+
+// FetchSyncCursor returns the delta sync cursor stored for the given
+// server. A server that has never delta-synced reports cursor zero.
+//
+// NOTE: this is part of the universe.FederationLog interface.
+func (u *UniverseFederationDB) FetchSyncCursor(ctx context.Context,
+	addr universe.ServerAddr) (uint64, error) {
+
+	var (
+		readTx UniverseFederationOptions
+		cursor int64
+	)
+	dbErr := u.db.ExecTx(ctx, &readTx, func(db UniverseServerStore) error {
+		var err error
+		cursor, err = db.QueryFederationSyncCursor(
+			ctx, addr.HostStr(),
+		)
+		return err
+	})
+	if dbErr != nil {
+		return 0, dbErr
+	}
+
+	return uint64(cursor), nil
 }
 
 // UpsertFederationProofSyncLog upserts a federation proof sync log entry for a

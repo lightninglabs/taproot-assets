@@ -906,6 +906,17 @@ type FederationLog interface {
 	// LogNewSyncs logs a new sync event for each server. This can be used
 	// to keep track of the last time we synced with a remote server.
 	LogNewSyncs(ctx context.Context, addrs ...ServerAddr) error
+
+	// UpsertSyncCursor updates the delta sync cursor stored for the
+	// given server: the highest remote insertion sequence number that
+	// has been fully applied and verified locally.
+	UpsertSyncCursor(ctx context.Context, addr ServerAddr,
+		seq uint64) error
+
+	// FetchSyncCursor returns the delta sync cursor stored for the
+	// given server. A server that has never delta-synced reports
+	// cursor zero.
+	FetchSyncCursor(ctx context.Context, addr ServerAddr) (uint64, error)
 }
 
 // ProofType is an enum that describes the type of proof which can be stored in
