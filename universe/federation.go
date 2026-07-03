@@ -2,6 +2,7 @@ package universe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -43,6 +44,11 @@ type FederationConfig struct {
 	// SyncInterval is the period that we'll use to synchronize with the
 	// set of Universe servers.
 	SyncInterval time.Duration
+
+	// DisableDeltaSync forces the envoy to use full enumeration sync
+	// even against servers that support cursor-based delta sync. This
+	// is a kill switch for the delta sync mechanism.
+	DisableDeltaSync bool
 
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
@@ -193,11 +199,34 @@ func (f *FederationEnvoy) Stop() error {
 
 // syncServerState attempts to sync Universe state with the target server.
 // If the sync is successful (even if no diff is generated), then a new sync
-// event will be logged.
+// event will be logged. Cursor-based delta sync is attempted first when
+// available; full enumeration sync remains the fallback for servers that
+// don't support it (and the always-correct path on any delta failure).
 func (f *FederationEnvoy) syncServerState(ctx context.Context,
 	addr ServerAddr, syncConfigs SyncConfigs) error {
 
 	log.Infof("Syncing Universe state with server=%s", addr.HostStr())
+
+	deltaSyncer, canDelta := f.cfg.UniverseSyncer.(DeltaSyncer)
+	if canDelta && !f.cfg.DisableDeltaSync {
+		done, diffSize, err := f.tryDeltaSync(
+			ctx, deltaSyncer, addr, syncConfigs,
+		)
+		if err != nil {
+			// The delta path is an optimization: on failure we
+			// log and let the enumeration path below have a go.
+			log.Warnf("Delta sync with server=%v failed, "+
+				"falling back to enumeration sync: %v",
+				addr.HostStr(), err)
+		}
+		if done {
+			if diffSize > 0 {
+				f.logSyncEvent(addr, diffSize)
+			}
+
+			return nil
+		}
+	}
 
 	// Attempt to sync with the remote Universe server, if this errors then
 	// we'll bail out early as something wrong happened.
@@ -212,9 +241,63 @@ func (f *FederationEnvoy) syncServerState(ctx context.Context,
 		return nil
 	}
 
-	// If we synced anything from the server, then we'll log that here.
+	f.logSyncEvent(addr, len(diff))
+
+	return nil
+}
+
+// tryDeltaSync runs a cursor-based delta sync against the target server,
+// persisting the advanced cursor on success. It reports done=false when
+// the remote doesn't support delta sync, signaling the caller to use the
+// enumeration path instead.
+func (f *FederationEnvoy) tryDeltaSync(ctx context.Context,
+	deltaSyncer DeltaSyncer, addr ServerAddr,
+	syncConfigs SyncConfigs) (bool, int, error) {
+
+	cursor, err := f.cfg.FederationDB.FetchSyncCursor(ctx, addr)
+	if err != nil {
+		return false, 0, fmt.Errorf("unable to fetch sync cursor: %w",
+			err)
+	}
+
+	res, err := deltaSyncer.SyncUniverseDelta(
+		ctx, addr, cursor, syncConfigs,
+	)
+	switch {
+	// The remote predates delta sync; the enumeration path takes over.
+	case errors.Is(err, ErrDeltaUnsupported):
+		log.Debugf("Server=%v does not support delta sync",
+			addr.HostStr())
+		return false, 0, nil
+
+	case err != nil:
+		return false, 0, err
+	}
+
+	// A successful run means every universe the delta touched has been
+	// verified as converged, so the cursor may be persisted.
+	if res.NewCursor != cursor {
+		err := f.cfg.FederationDB.UpsertSyncCursor(
+			ctx, addr, res.NewCursor,
+		)
+		if err != nil {
+			return false, 0, fmt.Errorf("unable to persist sync "+
+				"cursor: %w", err)
+		}
+	}
+
+	log.Infof("Delta sync with server=%v complete: cursor %d -> %d, "+
+		"diff_size=%d", addr.HostStr(), cursor, res.NewCursor,
+		len(res.Diffs))
+
+	return true, len(res.Diffs), nil
+}
+
+// logSyncEvent records a successful sync with the given server in the
+// background.
+func (f *FederationEnvoy) logSyncEvent(addr ServerAddr, diffSize int) {
 	log.Infof("Synced new Universe leaves from server=%v, diff_size=%v",
-		spew.Sdump(addr), len(diff))
+		spew.Sdump(addr), diffSize)
 
 	// Log a new sync event in the background now that we know we were able
 	// to contract the remote server.
@@ -230,8 +313,6 @@ func (f *FederationEnvoy) syncServerState(ctx context.Context,
 			log.Warnf("unable to log new sync: %v", err)
 		}
 	}()
-
-	return nil
 }
 
 // pushProofToServer attempts to push out a new proof to the target server.

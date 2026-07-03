@@ -336,6 +336,8 @@ type UniverseConfig struct {
 
 	SyncAllAssets bool `long:"sync-all-assets" description:"If set, the federation syncer will default to syncing all assets."`
 
+	NoDeltaSync bool `long:"no-delta-sync" description:"If set, the federation syncer will always use full enumeration sync instead of cursor-based delta sync, even against servers that support the latter."`
+
 	PublicAccess string `long:"public-access" description:"The public access mode for the universe server, controlling whether remote parties can read from and/or write to this universe server over RPC if exposed to a public network interface. This can be unset, 'r', 'w', or 'rw'. If unset, public access is not enabled for the universe server. If 'r' is included, public access is allowed for read-only endpoints. If 'w' is included, public access is allowed for write endpoints."`
 
 	StatsCacheDuration time.Duration `long:"stats-cache-duration" description:"The amount of time to cache stats for before refreshing them. Valid time units are {s, m, h}."`

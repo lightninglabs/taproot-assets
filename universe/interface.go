@@ -860,6 +860,17 @@ type Syncer interface {
 		idsToSync ...Identifier) ([]AssetSyncDiff, error)
 }
 
+// DeltaSyncer is implemented by syncers that can additionally perform
+// cursor-based delta sync against delta-capable servers.
+type DeltaSyncer interface {
+	// SyncUniverseDelta attempts a cursor-based delta sync against the
+	// given host, returning ErrDeltaUnsupported if the remote cannot
+	// serve deltas.
+	SyncUniverseDelta(ctx context.Context, host ServerAddr,
+		sinceSeq uint64,
+		syncConfigs SyncConfigs) (*DeltaSyncResult, error)
+}
+
 // DiffEngine is a Universe diff engine that can be used to compare the state
 // of two universes and find the set of assets that are different between them.
 type DiffEngine interface {
