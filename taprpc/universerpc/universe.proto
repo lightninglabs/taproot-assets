@@ -107,6 +107,17 @@ service Universe {
 
     // TODO(roasebeef): streaming response, so can give feedback? ^
 
+    /*
+    SyncDelta returns the universe leaves inserted on this server after
+    the given sequence number, in insertion order. A federation peer
+    that tracks a per-server cursor can fetch exactly the leaves it
+    hasn't seen yet, instead of enumerating all leaf keys to compute a
+    set difference. The response carries the current roots of every
+    universe touched by the delta so the caller can verify convergence
+    after applying it.
+    */
+    rpc SyncDelta (SyncDeltaRequest) returns (SyncDeltaResponse);
+
     /* tapcli: `universe federation list`
     ListFederationServers lists the set of servers that make up the federation
     of the local Universe server. This servers are used to push out new proofs,
@@ -562,6 +573,52 @@ message StatsRequest {
 message SyncResponse {
     // The set of synced asset Universes.
     repeated SyncedUniverse synced_universes = 1;
+}
+
+message SyncDeltaRequest {
+    // Return leaves inserted after this sequence number. Zero means from
+    // the beginning (bootstrap).
+    uint64 since_seq = 1;
+
+    // The maximum number of leaves to return in one response. Clamped
+    // server-side; the server may additionally cut the page short to
+    // respect its response size budget. Callers should page until a
+    // response returns fewer items than requested and latest_seq stops
+    // advancing.
+    int32 page_size = 2;
+}
+
+message SyncDeltaItem {
+    // The universe the leaf belongs to.
+    ID universe_id = 1;
+
+    // The leaf key the leaf is stored at.
+    AssetKey key = 2;
+
+    // The leaf payload: the asset and its raw issuance/transfer proof.
+    AssetLeaf leaf = 3;
+
+    // The universe inclusion proof binding the leaf to its universe root
+    // (one of the roots in the enclosing response).
+    bytes universe_inclusion_proof = 4;
+
+    // The insertion sequence number of the leaf on the serving universe.
+    uint64 seq = 5;
+}
+
+message SyncDeltaResponse {
+    // The leaves inserted after the requested sequence number, in
+    // insertion order. Leaves whose universes have proof export disabled
+    // are omitted, but still advance latest_seq.
+    repeated SyncDeltaItem items = 1;
+
+    // The current roots of every universe that appears in items.
+    repeated UniverseRoot universe_roots = 2;
+
+    // The high-water sequence mark of this page: the cursor value the
+    // caller should persist once the page's items are applied and
+    // verified.
+    uint64 latest_seq = 3;
 }
 
 message UniverseFederationServer {

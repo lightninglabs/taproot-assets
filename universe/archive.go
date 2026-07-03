@@ -709,6 +709,63 @@ func (a *Archive) FetchLeavesSince(ctx context.Context, sinceSeq uint64,
 	return a.cfg.Multiverse.FetchLeavesSince(ctx, sinceSeq, limit)
 }
 
+// SyncDelta returns the page of leaves inserted after sinceSeq, in
+// insertion order, each with the inclusion proof binding it to its
+// universe root.
+//
+// NOTE: proof export gating is an RPC-layer policy; this method serves
+// every leaf. This is part of the universe.DeltaEngine interface.
+func (a *Archive) SyncDelta(ctx context.Context, sinceSeq uint64,
+	pageSize int32) (*DeltaPage, error) {
+
+	items, latestSeq, err := a.FetchLeavesSince(ctx, sinceSeq, pageSize)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch leaf delta: %w", err)
+	}
+
+	page := &DeltaPage{
+		Roots:     make(map[IdentifierKey]Root),
+		LatestSeq: latestSeq,
+	}
+
+	for i := range items {
+		item := items[i]
+
+		proofs, err := a.FetchProofLeaf(ctx, item.ID, item.Key)
+		switch {
+		// The leaf disappeared between the delta query and the proof
+		// fetch; the caller's root comparison reconciles whatever
+		// divergence remains.
+		case errors.Is(err, ErrNoUniverseProofFound):
+			log.Warnf("SyncDelta: leaf at seq=%d vanished "+
+				"before proof fetch, skipping", item.Seq)
+			continue
+
+		case err != nil:
+			return nil, fmt.Errorf("unable to fetch proof leaf "+
+				"(seq=%d): %w", item.Seq, err)
+		}
+		firstProof := proofs[0]
+
+		item.InclusionProof = firstProof.UniverseInclusionProof
+		page.Items = append(page.Items, item)
+
+		idKey := item.ID.Key()
+		if _, ok := page.Roots[idKey]; !ok {
+			page.Roots[idKey] = Root{
+				ID:   item.ID,
+				Node: firstProof.UniverseRoot,
+			}
+		}
+	}
+
+	return page, nil
+}
+
+// A compile-time assertion to ensure Archive satisfies the DeltaEngine
+// interface.
+var _ DeltaEngine = (*Archive)(nil)
+
 // FetchProofLeaf attempts to fetch a proof leaf for the target leaf key
 // and given a universe identifier (assetID/groupKey).
 func (a *Archive) FetchProofLeaf(ctx context.Context, id Identifier,

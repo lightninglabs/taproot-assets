@@ -8197,6 +8197,176 @@ func (r *RPCServer) SyncUniverse(ctx context.Context,
 	return r.marshalUniverseDiff(ctx, universeDiff)
 }
 
+// syncDeltaByteBudget caps the approximate payload size of a single
+// SyncDelta response page, keeping it comfortably under the default
+// 4 MiB gRPC message size limit. A variable rather than a constant so
+// tests can exercise the page-splitting path with small payloads.
+var syncDeltaByteBudget = 3 * 1024 * 1024
+
+// syncDeltaItemOverhead is the approximate per-item wire overhead of a
+// SyncDeltaItem beyond its raw proof and inclusion proof blobs
+// (universe ID, leaf key, decoded asset fields, framing).
+const syncDeltaItemOverhead = 512
+
+// SyncDelta returns the universe leaves inserted on this server after the
+// given sequence number, in insertion order, together with the current
+// roots of the universes the delta touches. Leaves of universes with
+// proof export disabled are omitted from the response but still advance
+// latest_seq: the sequence is a position in this server's insertion log,
+// not a count of exported items.
+func (r *RPCServer) SyncDelta(ctx context.Context,
+	req *unirpc.SyncDeltaRequest) (*unirpc.SyncDeltaResponse, error) {
+
+	pageSize := req.PageSize
+	switch {
+	case pageSize == 0:
+		pageSize = universe.RequestPageSize
+
+	case pageSize < 0:
+		return nil, fmt.Errorf("invalid page size %d", pageSize)
+
+	case pageSize > universe.MaxPageSize:
+		return nil, fmt.Errorf("page size %d exceeds maximum %d",
+			pageSize, universe.MaxPageSize)
+	}
+
+	// Obtain the export gating config once for the whole page.
+	globalConfigs, uniSyncConfigs, err :=
+		r.cfg.FederationDB.QueryFederationSyncConfigs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("query federation sync configs: %w",
+			err)
+	}
+	syncConfigs := universe.SyncConfigs{
+		GlobalSyncConfigs: globalConfigs,
+		UniSyncConfigs:    uniSyncConfigs,
+	}
+
+	// A delta page is a single request that can carry many proofs, so we
+	// wait on the proof query rate limiter once per request rather than
+	// once per item.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limiter: %w", err)
+	}
+
+	items, _, err := r.cfg.UniverseArchive.FetchLeavesSince(
+		ctx, req.SinceSeq, pageSize,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("fetch leaves since seq=%d: %w",
+			req.SinceSeq, err)
+	}
+
+	resp := &unirpc.SyncDeltaResponse{
+		LatestSeq: req.SinceSeq,
+	}
+
+	var (
+		bytesUsed int
+		rootsSeen = make(map[universe.IdentifierKey]struct{})
+	)
+
+	for i := range items {
+		item := items[i]
+
+		// Universes with export disabled are omitted, but their
+		// leaves still advance the cursor.
+		if !syncConfigs.IsSyncExportEnabled(item.ID) {
+			resp.LatestSeq = item.Seq
+			continue
+		}
+
+		// Fetch the leaf's inclusion proof along with its universe
+		// root.
+		proofs, err := r.cfg.UniverseArchive.FetchProofLeaf(
+			ctx, item.ID, item.Key,
+		)
+		switch {
+		// The leaf disappeared between the delta query and the proof
+		// fetch (e.g. an administrative delete). Skipping it is
+		// safe: the caller's root comparison reconciles whatever
+		// divergence remains.
+		case errors.Is(err, universe.ErrNoUniverseProofFound):
+			rpcsLog.Warnf("SyncDelta: leaf at seq=%d vanished "+
+				"before proof fetch, skipping", item.Seq)
+			resp.LatestSeq = item.Seq
+			continue
+
+		case err != nil:
+			return nil, fmt.Errorf("fetch proof leaf "+
+				"(seq=%d): %w", item.Seq, err)
+		}
+		firstProof := proofs[0]
+
+		inclusionProof, err := marshalMssmtProof(
+			firstProof.UniverseInclusionProof,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Stop before this item if it would push the page past the
+		// response byte budget; latest_seq then points at the last
+		// included item and the caller simply pages again.
+		itemSize := len(item.Leaf.RawProof) + len(inclusionProof) +
+			syncDeltaItemOverhead
+		if len(resp.Items) > 0 &&
+			bytesUsed+itemSize > syncDeltaByteBudget {
+
+			break
+		}
+
+		decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(
+			ctx, item.Leaf.ID(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		assetLeaf, err := r.marshalAssetLeaf(
+			ctx, item.Leaf, decDisplay,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		uniID, err := MarshalUniID(item.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		resp.Items = append(resp.Items, &unirpc.SyncDeltaItem{
+			UniverseId:             uniID,
+			Key:                    marshalLeafKey(item.Key),
+			Leaf:                   assetLeaf,
+			UniverseInclusionProof: inclusionProof,
+			Seq:                    item.Seq,
+		})
+		bytesUsed += itemSize
+		resp.LatestSeq = item.Seq
+
+		// Include this universe's root once per page.
+		idKey := item.ID.Key()
+		if _, ok := rootsSeen[idKey]; !ok {
+			rootsSeen[idKey] = struct{}{}
+
+			uniRoot, err := marshalUniverseRoot(universe.Root{
+				ID:   item.ID,
+				Node: firstProof.UniverseRoot,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			resp.UniverseRoots = append(
+				resp.UniverseRoots, uniRoot,
+			)
+		}
+	}
+
+	return resp, nil
+}
+
 func marshalUniverseServer(
 	server universe.ServerAddr) *unirpc.UniverseFederationServer {
 

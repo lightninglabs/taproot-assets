@@ -526,6 +526,11 @@ type MultiverseLeaf struct {
 	*mssmt.LeafNode
 }
 
+// ErrDeltaUnsupported is returned by a delta-capable diff engine when
+// the serving side does not implement delta sync. Callers must fall
+// back to enumeration-based sync via the DiffEngine interface.
+var ErrDeltaUnsupported = fmt.Errorf("delta sync not supported by server")
+
 // DeltaLeafItem is one entry of an insertion-ordered universe leaf
 // delta: a leaf, the universe it belongs to, and the sequence number
 // under which it was inserted on the serving store.
@@ -541,6 +546,40 @@ type DeltaLeafItem struct {
 
 	// Leaf is the leaf payload.
 	Leaf *Leaf
+
+	// InclusionProof binds the leaf to its universe's root as reported
+	// in the enclosing DeltaPage. It is populated when the item is
+	// served by a DeltaEngine and nil at the storage layer.
+	InclusionProof *mssmt.Proof
+}
+
+// DeltaPage is one page of an insertion-ordered universe leaf delta, as
+// served by a delta-capable diff engine.
+type DeltaPage struct {
+	// Items are the delta leaves in insertion order, each carrying the
+	// inclusion proof that binds it to its universe's root in Roots.
+	Items []DeltaLeafItem
+
+	// Roots are the current universe roots of every universe that
+	// appears in Items, keyed by universe identifier.
+	Roots map[IdentifierKey]Root
+
+	// LatestSeq is the high-water cursor value the caller should
+	// persist once the page's items have been applied and verified.
+	// Equal to the requested since-seq when the delta is empty.
+	LatestSeq uint64
+}
+
+// DeltaEngine is implemented by diff engines that can serve
+// insertion-ordered leaf deltas. Serving sides that don't support delta
+// sync return ErrDeltaUnsupported, in which case callers fall back to
+// enumeration via DiffEngine.
+type DeltaEngine interface {
+	// SyncDelta returns the page of leaves inserted after sinceSeq, in
+	// insertion order, along with the roots of the universes the page
+	// touches.
+	SyncDelta(ctx context.Context, sinceSeq uint64,
+		pageSize int32) (*DeltaPage, error)
 }
 
 // MultiverseArchive is an interface for tracking the set of known universe
