@@ -1,7 +1,6 @@
 package tapdb
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/binary"
@@ -15,9 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
-	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
-	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/constraints"
 )
@@ -134,25 +131,6 @@ func sqlTime(t time.Time) sql.NullTime {
 		Time:  t,
 		Valid: true,
 	}
-}
-
-// SparseDecodeBlockHeight sparse decodes a proof to extract the block height.
-func SparseDecodeBlockHeight(rawProof []byte) (lfn.Option[uint32], error) {
-	var blockHeightVal uint32
-	err := proof.SparseDecode(
-		bytes.NewReader(rawProof),
-		proof.BlockHeightRecord(&blockHeightVal),
-	)
-	if err != nil {
-		return lfn.None[uint32](), fmt.Errorf("unable to "+
-			"sparse decode proof: %w", err)
-	}
-
-	if blockHeightVal == 0 {
-		return lfn.None[uint32](), nil
-	}
-
-	return lfn.Some(blockHeightVal), nil
 }
 
 // extractSqlInt64 turns a NullInt64 into a numerical type. This can be useful

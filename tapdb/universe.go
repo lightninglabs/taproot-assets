@@ -758,16 +758,12 @@ func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
 		namespace := b.id.String()
 
-		// We don't need to decode the whole proof, we just need the
-		// block height.
-		blockHeight, err := SparseDecodeBlockHeight(leaf.RawProof)
-		if err != nil {
-			return err
-		}
-
+		// The block height is extracted from the decoded proof by
+		// universeUpsertProofLeaf itself.
 		issuanceProof, _, err := universeUpsertProofLeaf(
 			ctx, dbTx, namespace, b.id.ProofType,
-			b.id.GroupKey, key, leaf, metaReveal, blockHeight,
+			b.id.GroupKey, key, leaf, metaReveal,
+			lfn.None[uint32](),
 		)
 		if err != nil {
 			return fmt.Errorf("failed universe upsert: %w", err)
