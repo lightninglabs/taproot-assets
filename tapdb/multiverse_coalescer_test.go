@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -239,6 +240,106 @@ func TestMultiverseRootCoalescer(t *testing.T) {
 	}
 }
 
+// TestMultiverseRootCoalescerBatch asserts that batch root updates,
+// interleaved with concurrent single updates, leave the multiverse
+// trees identical to inserting the same leaves directly.
+func TestMultiverseRootCoalescerBatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, _ := newTestMultiverse(t)
+
+	// A pending universe holds one committed leaf, awaiting its
+	// multiverse update.
+	type pendingUniverse struct {
+		id   universe.Identifier
+		root mssmt.Node
+	}
+	newBatch := func(n int) ([]pendingUniverse, []universe.Identifier) {
+		pending := make([]pendingUniverse, n)
+		ids := make([]universe.Identifier, n)
+		for i := range pending {
+			item := genRandomAsset(t)
+			root, err := insertUniverseLeafOnly(
+				ctx, multiverse, item,
+			)
+			require.NoError(t, err)
+
+			pending[i] = pendingUniverse{
+				id:   item.ID,
+				root: root,
+			}
+			ids[i] = item.ID
+		}
+
+		return pending, ids
+	}
+
+	// Two batches and a handful of single updates, all submitted
+	// concurrently.
+	batchA, idsA := newBatch(8)
+	batchB, idsB := newBatch(8)
+	singles, _ := newBatch(4)
+
+	var (
+		wg         sync.WaitGroup
+		batchErrs  = make([]error, 2)
+		singleErrs = make([]error, len(singles))
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		batchErrs[0] = multiverse.rootCoalescer.updateRoots(ctx, idsA)
+	}()
+	go func() {
+		defer wg.Done()
+		batchErrs[1] = multiverse.rootCoalescer.updateRoots(ctx, idsB)
+	}()
+	for i := range singles {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, singleErrs[i] = multiverse.rootCoalescer.updateRoot(
+				ctx, singles[i].id,
+			)
+		}(i)
+	}
+	wg.Wait()
+
+	for _, err := range batchErrs {
+		require.NoError(t, err)
+	}
+	for _, err := range singleErrs {
+		require.NoError(t, err)
+	}
+
+	oracles := map[universe.ProofType]*mssmt.CompactedTree{
+		universe.ProofTypeIssuance: mssmt.NewCompactedTree(
+			mssmt.NewDefaultStore(),
+		),
+		universe.ProofTypeTransfer: mssmt.NewCompactedTree(
+			mssmt.NewDefaultStore(),
+		),
+	}
+	touched := make(map[universe.ProofType]bool)
+	allUpdates := append(append(batchA, batchB...), singles...)
+	for _, update := range allUpdates {
+		_, err := oracles[update.id.ProofType].Insert(
+			ctx, update.id.Bytes(),
+			multiverseLeafForRoot(update.id, update.root),
+		)
+		require.NoError(t, err)
+		touched[update.id.ProofType] = true
+	}
+	for proofType, oracle := range oracles {
+		if !touched[proofType] {
+			continue
+		}
+
+		assertOracleRoot(t, ctx, multiverse, oracle, proofType)
+	}
+}
+
 // TestMultiverseRootCoalescerProps property-tests the coalescer against
 // an in-memory oracle: for any schedule of concurrent per-universe
 // insert sequences, the flushed multiverse roots must equal the oracle
@@ -404,8 +505,11 @@ func TestMultiverseRootCoalescerFlushPanic(t *testing.T) {
 	waiterID := newID()
 	coalescer.mu.Lock()
 	coalescer.pending[waiterID.String()] = &pendingRootUpdate{
-		id:      waiterID,
-		waiters: []chan flushResult{waiterChan},
+		id: waiterID,
+		waiters: []flushWaiter{{
+			result:    waiterChan,
+			wantProof: true,
+		}},
 	}
 	coalescer.order = append(coalescer.order, waiterID.String())
 	coalescer.mu.Unlock()
@@ -669,5 +773,163 @@ func TestUpsertProofLeafConcurrentDelete(t *testing.T) {
 	}
 	require.True(t, mssmt.VerifyMerkleProof(
 		id.Bytes(), expected, mvProof, mvRoot,
+	))
+}
+
+// countTxDB is a BatchedMultiverse that counts the transactions
+// executed through it.
+type countTxDB struct {
+	BatchedMultiverse
+
+	count atomic.Int32
+}
+
+func (c *countTxDB) ExecTx(ctx context.Context, opts TxOptions,
+	txBody func(BaseMultiverseStore) error) error {
+
+	c.count.Add(1)
+
+	return c.BatchedMultiverse.ExecTx(ctx, opts, txBody)
+}
+
+// TestMultiverseRootCoalescerRollover asserts that a submission larger
+// than the flush batch size is applied across several bounded rounds
+// of one transaction each: every waiter is served, a refresh callback
+// arrives for every universe in submission order, and the multiverse
+// state matches the oracle.
+func TestMultiverseRootCoalescerRollover(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, _ := newTestMultiverse(t)
+
+	// Shrink the per-round cap so a small submission spans several
+	// rounds, and capture the refresh callbacks.
+	multiverse.rootCoalescer.flushBatchSize = 4
+
+	var (
+		refreshMu sync.Mutex
+		refreshed []universe.Root
+	)
+	multiverse.rootCoalescer.onRefresh = func(root universe.Root) {
+		refreshMu.Lock()
+		defer refreshMu.Unlock()
+
+		refreshed = append(refreshed, root)
+	}
+
+	const numUniverses = 9
+
+	ids := make([]universe.Identifier, numUniverses)
+	roots := make([]mssmt.Node, numUniverses)
+	for i := 0; i < numUniverses; i++ {
+		item := genRandomAsset(t)
+
+		root, err := insertUniverseLeafOnly(ctx, multiverse, item)
+		require.NoError(t, err)
+
+		ids[i] = item.ID
+		roots[i] = root
+	}
+
+	// Count the flush transactions from here on: the coalescer's
+	// handle only ever executes flushes, so wrapping it counts exactly
+	// those.
+	counter := &countTxDB{
+		BatchedMultiverse: multiverse.rootCoalescer.db,
+	}
+	multiverse.rootCoalescer.db = counter
+
+	require.NoError(t, multiverse.rootCoalescer.updateRoots(ctx, ids))
+
+	// Nine universes at a cap of four must have flushed in exactly
+	// three rounds, one transaction each. An implementation that
+	// ignored the cap would apply them in a single transaction.
+	require.EqualValues(t, 3, counter.count.Load())
+
+	// Every universe must have been refreshed exactly once, in
+	// submission order: rounds are taken from the front of the
+	// pending queue, which preserves first-submission order.
+	require.Len(t, refreshed, numUniverses)
+	for i, root := range refreshed {
+		require.Equal(t, ids[i].Bytes(), root.ID.Bytes())
+		require.True(t, mssmt.IsEqualNode(roots[i], root.Node))
+	}
+
+	// The multiverse trees must match oracles fed the same roots.
+	oracles := map[universe.ProofType]*mssmt.CompactedTree{
+		universe.ProofTypeIssuance: mssmt.NewCompactedTree(
+			mssmt.NewDefaultStore(),
+		),
+		universe.ProofTypeTransfer: mssmt.NewCompactedTree(
+			mssmt.NewDefaultStore(),
+		),
+	}
+	touched := make(map[universe.ProofType]bool)
+	for i, id := range ids {
+		_, err := oracles[id.ProofType].Insert(
+			ctx, id.Bytes(), multiverseLeafForRoot(id, roots[i]),
+		)
+		require.NoError(t, err)
+		touched[id.ProofType] = true
+	}
+	for proofType, oracle := range oracles {
+		if !touched[proofType] {
+			continue
+		}
+
+		assertOracleRoot(t, ctx, multiverse, oracle, proofType)
+	}
+}
+
+// TestMultiverseRootCoalescerMixedDeleted asserts that a flush round
+// containing both a missing universe and a healthy one commits the
+// healthy refresh while failing only the missing universe's waiters
+// with the typed error.
+func TestMultiverseRootCoalescerMixedDeleted(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, _ := newTestMultiverse(t)
+
+	// One healthy universe with a committed leaf, and one universe
+	// identifier with no committed state, as left behind by a
+	// concurrent deletion.
+	item := genRandomAsset(t)
+	rootX, err := insertUniverseLeafOnly(ctx, multiverse, item)
+	require.NoError(t, err)
+
+	var missing universe.Identifier
+	missing.ProofType = item.ID.ProofType
+	copy(missing.AssetID[:], test.RandBytes(32))
+
+	// Both universes are submitted together, so they land in the same
+	// flush round and transaction.
+	err = multiverse.rootCoalescer.updateRoots(
+		ctx, []universe.Identifier{missing, item.ID},
+	)
+	require.ErrorIs(t, err, errUniverseDeleted)
+
+	// The healthy universe's refresh must have committed in that same
+	// round regardless.
+	var (
+		mvRoot  mssmt.Node
+		mvProof *mssmt.Proof
+	)
+	readTx := NewBaseMultiverseReadTx()
+	err = multiverse.db.ExecTx(
+		ctx, &readTx, func(db BaseMultiverseStore) error {
+			var err error
+			mvRoot, mvProof, err = multiverseRootAndProof(
+				ctx, db, item.ID,
+			)
+			return err
+		},
+	)
+	require.NoError(t, err)
+
+	require.True(t, mssmt.VerifyMerkleProof(
+		item.ID.Bytes(), multiverseLeafForRoot(item.ID, rootX),
+		mvProof, mvRoot,
 	))
 }
