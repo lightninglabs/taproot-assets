@@ -27,6 +27,11 @@ func tamperMultiverseLeaf(t require.TestingT, ctx context.Context,
 		bogusHash, uint64(test.RandInt[uint32]()),
 	)
 
+	// Take the multiverse write lock, as every multiverse writer
+	// must.
+	multiverse.multiverseWriteMu.Lock()
+	defer multiverse.multiverseWriteMu.Unlock()
+
 	var writeTx BaseMultiverseOptions
 	err := multiverse.db.ExecTx(
 		ctx, &writeTx, func(store BaseMultiverseStore) error {
@@ -231,6 +236,7 @@ func TestReconcileMultiverseSupplyTrees(t *testing.T) {
 		multiverseTxer, DefaultMultiverseStoreConfig(),
 	)
 	require.NoError(t, err)
+	t.Cleanup(multiverse.Stop)
 
 	uniTxer := NewTransactionExecutor(
 		db, func(tx *sql.Tx) BaseUniverseStore {
@@ -363,6 +369,7 @@ func TestReconcileMultiverseSyncerCache(t *testing.T) {
 	cfg.Caches.SyncerCacheEnabled = true
 	multiverse, err := NewMultiverseStore(dbTxer, cfg)
 	require.NoError(t, err)
+	t.Cleanup(multiverse.Stop)
 
 	// A few healthy universes, plus one orphaned universe whose leaf
 	// committed without its multiverse update.

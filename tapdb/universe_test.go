@@ -97,6 +97,7 @@ func newTestMultiverse(t testing.TB) (*MultiverseStore, sqlc.Querier) {
 		dbTxer, DefaultMultiverseStoreConfig(),
 	)
 	require.NoError(t, err)
+	t.Cleanup(multiverseStore.Stop)
 
 	return multiverseStore, db
 }
@@ -114,6 +115,7 @@ func newTestMultiverseWithDb(t *testing.T, db *BaseDB) (*MultiverseStore,
 		dbTxer, DefaultMultiverseStoreConfig(),
 	)
 	require.NoError(t, err)
+	t.Cleanup(multiverseStore.Stop)
 
 	return multiverseStore, db
 }

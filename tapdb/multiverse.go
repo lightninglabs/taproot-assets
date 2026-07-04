@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -165,6 +166,16 @@ type MultiverseStore struct {
 	// universe.RequestPageSize and is only overridden in tests.
 	reconcilePageSize int32
 
+	// multiverseWriteMu serializes all multiverse writes in this
+	// process: the coalescer's flushes and the deletion paths. It
+	// keeps the post-commit cache maintenance of those writers in
+	// commit order, and keeps their transactions from aborting each
+	// other under serializable isolation. It is not what makes
+	// concurrent multiverse writes safe: that is the database's
+	// serializable isolation, which also covers writers outside this
+	// process, such as a second tapd sharing the database.
+	multiverseWriteMu sync.Mutex
+
 	// transferProofDistributor is an event distributor that will be used to
 	// notify subscribers about new proof leaves that are added to the
 	// multiverse. This is used to notify the custodian about new incoming
@@ -201,7 +212,9 @@ func NewMultiverseStore(db BatchedMultiverse,
 		reconcileBatchSize:       defaultReconcileBatchSize,
 		reconcilePageSize:        universe.RequestPageSize,
 	}
-	store.rootCoalescer = newMultiverseRootCoalescer(db)
+	store.rootCoalescer = newMultiverseRootCoalescer(
+		db, &store.multiverseWriteMu,
+	)
 
 	// Install flushed roots into the syncer cache from the flush
 	// callback: flushes run one at a time and derive the current
@@ -216,6 +229,15 @@ func NewMultiverseStore(db BatchedMultiverse,
 	store.rootCoalescer.onFlushError = store.syncerCache.invalidate
 
 	return store, nil
+}
+
+// Stop winds down the store's background multiverse flusher. A flush
+// transaction already in flight completes or fails on its own; callers
+// still awaiting a flush receive an error. Universe leaves already
+// committed stay durable, and multiverse updates abandoned here are
+// repaired by ReconcileMultiverse at the next startup.
+func (b *MultiverseStore) Stop() {
+	b.rootCoalescer.stop()
 }
 
 // namespaceForProof returns the multiverse namespace used for the given proof
@@ -909,11 +931,12 @@ func (b *MultiverseStore) FetchProof(ctx context.Context,
 // universe tree that corresponds to the given key.
 //
 // The universe leaf commits first, in its own transaction, and the
-// shared multiverse tree is updated afterwards. An error return may
-// therefore mean the leaf is durably stored while the multiverse
-// update failed; in that case the universe's multiverse entry is
-// healed by its next successful update, or by ReconcileMultiverse at
-// the next startup.
+// shared multiverse tree is updated afterwards. An error wrapping
+// universe.ErrMultiversePending therefore means the leaf is durably
+// stored while its multiverse update is still outstanding; the
+// coalescer retries the update in the background until it commits,
+// and ReconcileMultiverse repairs any update abandoned by a shutdown
+// at the next startup.
 //
 // The returned proof always composes: its multiverse proof commits to
 // its universe root. If a concurrent insert into the same universe
@@ -988,8 +1011,8 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	// multiverse rows are contended by every insert into every universe,
 	// so writing them under the insert's own transaction would serialize
 	// ingest across universes. If this fails, the universe leaf above
-	// remains committed, and the universe's multiverse entry is healed by
-	// its next successful update.
+	// remains committed, and the coalescer keeps retrying the multiverse
+	// update in the background.
 	update, err := b.rootCoalescer.updateRoot(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed multiverse upsert: %w", err)
@@ -1026,11 +1049,12 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 // and the universe tree that corresponds to the given key(s).
 //
 // The universe leaves commit first, in their own transaction, and the
-// shared multiverse tree is updated afterwards. An error return may
-// therefore mean the leaves are durably stored while the multiverse
-// update failed; in that case each universe's multiverse entry is
-// healed by its next successful update, or by ReconcileMultiverse at
-// the next startup.
+// shared multiverse tree is updated afterwards. An error wrapping
+// universe.ErrMultiversePending therefore means the leaves are durably
+// stored while their multiverse updates are still outstanding; the
+// coalescer retries the updates in the background until they commit,
+// and ReconcileMultiverse repairs any update abandoned by a shutdown
+// at the next startup.
 func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	items []*universe.Item) error {
 
@@ -1164,9 +1188,9 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	// transaction above: the multiverse rows are contended by every
 	// insert into every universe, so writing them under the batch's
 	// own transaction would collide with concurrent inserts. If this
-	// fails, the universe leaves above remain committed, and each
-	// universe's multiverse entry is healed by its next successful
-	// update.
+	// fails, the universe leaves above remain committed, and the
+	// coalescer keeps retrying the multiverse updates in the
+	// background.
 	err := b.rootCoalescer.updateRoots(ctx, dirtyUniverses)
 	if err != nil {
 		return fmt.Errorf("failed multiverse upsert: %w", err)
@@ -1180,6 +1204,12 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 	id universe.Identifier) (string, error) {
 
 	var writeTx BaseUniverseStoreOptions
+
+	// Deleting touches the shared multiverse tree, so take the
+	// multiverse write lock to stay mutually exclusive with the root
+	// coalescer's flushes.
+	b.multiverseWriteMu.Lock()
+	defer b.multiverseWriteMu.Unlock()
 
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(tx BaseMultiverseStore) error {
 		multiverseNS, err := namespaceForProof(id.ProofType)
@@ -1221,6 +1251,12 @@ func (b *MultiverseStore) DeleteProofLeaf(ctx context.Context,
 	key universe.LeafKey) (string, error) {
 
 	var writeTx BaseMultiverseOptions
+
+	// Deleting touches the shared multiverse tree, so take the
+	// multiverse write lock to stay mutually exclusive with the root
+	// coalescer's flushes.
+	b.multiverseWriteMu.Lock()
+	defer b.multiverseWriteMu.Unlock()
 
 	dbErr := b.db.ExecTx(
 		ctx, &writeTx, func(tx BaseMultiverseStore) error {

@@ -351,13 +351,16 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	issuanceProof, err := a.cfg.Multiverse.UpsertProofLeaf(
 		ctx, id, key, leaf, assetSnapshot.MetaReveal,
 	)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrMultiversePending) {
 		return nil, fmt.Errorf("unable to register new "+
 			"issuance: %w", err)
 	}
+	upsertErr := err
 
 	// Log a sync event for the newly inserted leaf in the background as an
-	// async goroutine.
+	// async goroutine. This runs for the pending case too: the universe
+	// leaf is durably stored, only its multiverse entry is still
+	// outstanding.
 	go func() {
 		err := a.cfg.UniverseStats.LogNewProofEvent(
 			context.Background(), id, key,
@@ -367,6 +370,14 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 				id.StringForLog(), err)
 		}
 	}()
+
+	// With the proof stored but its multiverse update outstanding, no
+	// composing receipt exists to return; surface the typed error to
+	// the caller.
+	if upsertErr != nil {
+		return nil, fmt.Errorf("unable to register new "+
+			"issuance: %w", upsertErr)
+	}
 
 	return issuanceProof, nil
 }

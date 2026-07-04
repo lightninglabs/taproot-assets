@@ -2,6 +2,7 @@ package universe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -546,17 +547,30 @@ func (f *FederationEnvoy) handlePushRequest(pushReq *FederationPushReq) error {
 	newProof, err := f.cfg.LocalRegistrar.UpsertProofLeaf(
 		ctx, pushReq.ID, pushReq.Key, pushReq.Leaf,
 	)
-	if err != nil {
+	switch {
+	// The proof leaf is durably stored; only its entry in the shared
+	// multiverse trees is still outstanding, and the archive repairs
+	// that in the background. The caller cannot receive a composing
+	// receipt, but the proof must not be stranded local-only, so the
+	// federation push below proceeds.
+	case errors.Is(err, ErrMultiversePending):
+		log.Warnf("Proof stored with multiverse update pending, "+
+			"proceeding with federation push (id=%v): %v",
+			pushReq.ID.StringForLog(), err)
+		pushReq.err <- err
+
+	case err != nil:
 		err = fmt.Errorf("unable to insert proof into local "+
 			"universe: %w", err)
 		pushReq.err <- err
 		return err
-	}
 
-	// Now that we know we were able to register the proof, we'll return
-	// back to the caller, and push the new proof out to the federation in
-	// the background.
-	pushReq.resp <- newProof
+	default:
+		// Now that we know we were able to register the proof, we'll
+		// return back to the caller, and push the new proof out to
+		// the federation in the background.
+		pushReq.resp <- newProof
+	}
 
 	// Fetch all universe servers in our federation.
 	fedServers, err := f.tryFetchServers()

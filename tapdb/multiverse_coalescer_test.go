@@ -4,13 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/universe"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/stretchr/testify/require"
@@ -490,7 +494,9 @@ func TestMultiverseRootCoalescerFlushPanic(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	coalescer := newMultiverseRootCoalescer(panicFlushDB{})
+
+	var writeMu sync.Mutex
+	coalescer := newMultiverseRootCoalescer(panicFlushDB{}, &writeMu)
 
 	newID := func() universe.Identifier {
 		var id universe.Identifier
@@ -527,13 +533,21 @@ func TestMultiverseRootCoalescerFlushPanic(t *testing.T) {
 		t.Fatal("waiter was not notified of the failed flush")
 	}
 
-	// The flusher role and the pending queue must be clean, so
-	// future updates are not blocked.
-	coalescer.mu.Lock()
-	require.False(t, coalescer.flushing)
-	require.Empty(t, coalescer.pending)
-	require.Empty(t, coalescer.order)
-	coalescer.mu.Unlock()
+	// The flusher must surrender its role and leave no pending state:
+	// a panic is presumed to be a bug, so the round is not retried,
+	// and future updates must not be blocked.
+	require.Eventually(t, func() bool {
+		coalescer.mu.Lock()
+		defer coalescer.mu.Unlock()
+
+		return !coalescer.flushing && len(coalescer.pending) == 0 &&
+			len(coalescer.order) == 0
+	}, time.Second, time.Millisecond)
+
+	// The multiverse write lock must have been released on the way
+	// out, or the deletion paths would deadlock.
+	require.True(t, writeMu.TryLock())
+	writeMu.Unlock()
 }
 
 // TestMultiverseRootCoalescerMissingUniverse asserts that an update for
@@ -932,4 +946,780 @@ func TestMultiverseRootCoalescerMixedDeleted(t *testing.T) {
 		item.ID.Bytes(), multiverseLeafForRoot(item.ID, rootX),
 		mvProof, mvRoot,
 	))
+}
+
+// failFlushDB is a BatchedMultiverse that fails coalescer flush
+// transactions — recognized by their distinct options type — while
+// letting every other transaction through, simulating a database that
+// becomes unavailable between a universe commit and its multiverse
+// flush.
+type failFlushDB struct {
+	BatchedMultiverse
+
+	failing atomic.Bool
+}
+
+func (f *failFlushDB) ExecTx(ctx context.Context, opts TxOptions,
+	txBody func(BaseMultiverseStore) error) error {
+
+	if _, isFlush := opts.(multiverseFlushTx); isFlush &&
+		f.failing.Load() {
+
+		return fmt.Errorf("flush unavailable")
+	}
+
+	return f.BatchedMultiverse.ExecTx(ctx, opts, txBody)
+}
+
+// TestUpsertProofLeafFlushFailure asserts that when the multiverse
+// flush fails after the universe transaction has committed, the
+// commit-tied bookkeeping has still run: stale cached proofs are
+// evicted and the custodian notification for the stored transfer proof
+// is emitted, even though the call reports the flush error.
+func TestUpsertProofLeafFlushFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	db := NewTestDB(t)
+	failDB := &failFlushDB{
+		BatchedMultiverse: NewTransactionExecutor(
+			db, func(tx *sql.Tx) BaseMultiverseStore {
+				return db.WithTx(tx)
+			},
+		),
+	}
+	cfg := DefaultMultiverseStoreConfig()
+	cfg.Caches.SyncerCacheEnabled = true
+	multiverse, err := NewMultiverseStore(failDB, cfg)
+	require.NoError(t, err)
+	t.Cleanup(multiverse.Stop)
+
+	// Fast retry pacing: the background retries simply keep failing
+	// until the database recovers below.
+	multiverse.rootCoalescer.initialRetryBackoff = 5 * time.Millisecond
+	multiverse.rootCoalescer.maxRetryBackoff = 20 * time.Millisecond
+
+	items := genUniverseItemsWithType(t, universe.ProofTypeTransfer, 2)
+	id := items[0].ID
+
+	// Insert a first leaf and fetch it, so the proof cache holds an
+	// entry that the failing insert below must evict.
+	_, err = multiverse.UpsertProofLeaf(
+		ctx, items[0].ID, items[0].Key, items[0].Leaf,
+		items[0].MetaReveal,
+	)
+	require.NoError(t, err)
+
+	proofs, err := multiverse.FetchProofLeaf(ctx, id, items[0].Key)
+	require.NoError(t, err)
+	require.Len(t, proofs, 1)
+	require.NotEmpty(t, multiverse.proofCache.fetchProof(
+		id, items[0].Key,
+	))
+
+	// Initialize the syncer cache and pin the universe root it now
+	// serves.
+	rootsQuery := universe.RootNodesQuery{
+		SortDirection: universe.SortAscending,
+		Limit:         universe.RequestPageSize,
+	}
+	roots, err := multiverse.RootNodes(ctx, rootsQuery)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	staleRoot := roots[0].Node
+
+	receiver := fn.NewEventReceiver[proof.Blob](fn.DefaultQueueSize)
+	require.NoError(t, multiverse.RegisterSubscriber(
+		receiver, false, nil,
+	))
+
+	// Insert a second leaf with the flush failing: the call must
+	// report the typed partial-commit error, as the universe leaf
+	// committed while the multiverse update did not.
+	failDB.failing.Store(true)
+	_, err = multiverse.UpsertProofLeaf(
+		ctx, items[1].ID, items[1].Key, items[1].Leaf,
+		items[1].MetaReveal,
+	)
+	require.ErrorIs(t, err, universe.ErrMultiversePending)
+	require.ErrorContains(t, err, "flush unavailable")
+
+	// The universe commit went through, so the bookkeeping tied to it
+	// must have run regardless: the previously cached proof, stale as
+	// of the new leaf, is gone, and the stored transfer proof was
+	// delivered to subscribers.
+	require.Empty(t, multiverse.proofCache.fetchProof(id, items[0].Key))
+
+	select {
+	case blob := <-receiver.NewItemCreated.ChanOut():
+		require.Equal(
+			t, []byte(items[1].Leaf.RawProof), []byte(blob),
+		)
+
+	case <-time.After(time.Second):
+		t.Fatal("no transfer proof notification received")
+	}
+
+	// The failed flush must have invalidated the syncer cache: the
+	// next syncer query repopulates from the database and serves the
+	// universe root committed by the failed call, not the stale one
+	// installed before it.
+	roots, err = multiverse.RootNodes(ctx, rootsQuery)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.False(t, mssmt.IsEqualNode(staleRoot, roots[0].Node))
+
+	// Once the database recovers, the read path heals the multiverse
+	// on the next fetch.
+	failDB.failing.Store(false)
+	proofs, err = multiverse.FetchProofLeaf(ctx, id, items[1].Key)
+	require.NoError(t, err)
+	require.Len(t, proofs, 1)
+	assertReceiptComposes(t, id, proofs[0])
+}
+
+// hookFlushDB is a BatchedMultiverse that recognizes coalescer flush
+// transactions by their distinct options type, letting tests act
+// deterministically at the boundary between a universe commit and its
+// multiverse flush: it counts flushes, runs a one-shot hook right
+// before a flush executes, and can fail flushes from a given ordinal
+// onwards.
+type hookFlushDB struct {
+	BatchedMultiverse
+
+	// beforeFlush, if armed, runs exactly once, right before the next
+	// flush transaction executes. The flusher holds the multiverse
+	// write lock at that point, so work done here is already
+	// serialized against the flush itself.
+	beforeFlush atomic.Pointer[func()]
+
+	// flushCount is the number of flush transactions attempted.
+	flushCount atomic.Int32
+
+	// failFrom, if positive, fails every flush whose ordinal (from
+	// one) is greater than or equal to it.
+	failFrom atomic.Int32
+}
+
+func (h *hookFlushDB) ExecTx(ctx context.Context, opts TxOptions,
+	txBody func(BaseMultiverseStore) error) error {
+
+	if _, isFlush := opts.(multiverseFlushTx); isFlush {
+		n := h.flushCount.Add(1)
+
+		if hook := h.beforeFlush.Swap(nil); hook != nil {
+			(*hook)()
+		}
+
+		if from := h.failFrom.Load(); from > 0 && n >= from {
+			return fmt.Errorf("flush unavailable")
+		}
+	}
+
+	return h.BatchedMultiverse.ExecTx(ctx, opts, txBody)
+}
+
+// newHookedMultiverse creates a multiverse store whose flush
+// transactions pass through a hookFlushDB.
+func newHookedMultiverse(t *testing.T) (*MultiverseStore, *hookFlushDB) {
+	db := NewTestDB(t)
+	hookDB := &hookFlushDB{
+		BatchedMultiverse: NewTransactionExecutor(
+			db, func(tx *sql.Tx) BaseMultiverseStore {
+				return db.WithTx(tx)
+			},
+		),
+	}
+	multiverse, err := NewMultiverseStore(
+		hookDB, DefaultMultiverseStoreConfig(),
+	)
+	require.NoError(t, err)
+	t.Cleanup(multiverse.Stop)
+
+	return multiverse, hookDB
+}
+
+// TestUpsertProofLeafSuperseded deterministically forces the
+// superseded-receipt path: a second leaf commits into the universe
+// after the first caller's transaction but before its flush, so the
+// flush derives the newer root and the first caller's receipt must be
+// rebuilt against it.
+func TestUpsertProofLeafSuperseded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, hookDB := newHookedMultiverse(t)
+
+	items := genUniverseItems(t, 2)
+	id := items[0].ID
+
+	// Arm the hook: right before the first insert's flush runs, a
+	// second leaf commits into the same universe.
+	var (
+		superseding mssmt.Node
+		hookErr     error
+	)
+	hook := func() {
+		superseding, hookErr = insertUniverseLeafOnly(
+			ctx, multiverse, items[1],
+		)
+	}
+	hookDB.beforeFlush.Store(&hook)
+
+	receipt, err := multiverse.UpsertProofLeaf(
+		ctx, items[0].ID, items[0].Key, items[0].Leaf,
+		items[0].MetaReveal,
+	)
+	require.NoError(t, err)
+	require.NoError(t, hookErr)
+	require.NotNil(t, superseding)
+
+	// The receipt must compose, and it must commit to the superseding
+	// root rather than the root of the caller's own transaction.
+	assertReceiptComposes(t, id, receipt)
+	require.True(t, mssmt.IsEqualNode(superseding, receipt.UniverseRoot))
+}
+
+// TestUpsertProofLeafDeletedInGap deterministically forces a universe
+// deletion into the gap between a caller's universe commit and its
+// multiverse flush: the flush finds the universe gone, the caller
+// receives the typed error, and no multiverse leaf is resurrected.
+func TestUpsertProofLeafDeletedInGap(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, hookDB := newHookedMultiverse(t)
+
+	items := genUniverseItems(t, 1)
+	id := items[0].ID
+
+	// Arm the hook: right before the insert's flush runs, the
+	// universe is deleted. The flusher holds the multiverse write
+	// lock here, so the deletion is already serialized with the
+	// flush.
+	var hookErr error
+	hook := func() {
+		var writeTx BaseMultiverseOptions
+		hookErr = multiverse.db.ExecTx(
+			ctx, &writeTx,
+			func(store BaseMultiverseStore) error {
+				multiverseNS, err := namespaceForProof(
+					id.ProofType,
+				)
+				if err != nil {
+					return err
+				}
+
+				multiverseTree := mssmt.NewCompactedTree(
+					newTreeStoreWrapperTx(
+						store, multiverseNS,
+					),
+				)
+				_, err = multiverseTree.Delete(
+					ctx, id.Bytes(),
+				)
+				if err != nil {
+					return err
+				}
+
+				return deleteUniverseTree(ctx, store, id)
+			},
+		)
+	}
+	hookDB.beforeFlush.Store(&hook)
+
+	_, err := multiverse.UpsertProofLeaf(
+		ctx, items[0].ID, items[0].Key, items[0].Leaf,
+		items[0].MetaReveal,
+	)
+	require.ErrorIs(t, err, errUniverseDeleted)
+	require.NoError(t, hookErr)
+
+	// The skipped flush must not have resurrected any multiverse
+	// state for the deleted universe.
+	_, err = multiverse.MultiverseRootNode(ctx, id.ProofType)
+	require.ErrorIs(t, err, ErrNoMultiverseRoot)
+}
+
+// TestMultiverseRootCoalescerCoalesces proves that updates enqueued
+// while a flush is in flight are applied together: with the first flush
+// blocked, several universes are submitted, and releasing the flush
+// must drain all of them in exactly one further flush transaction.
+func TestMultiverseRootCoalescerCoalesces(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, hookDB := newHookedMultiverse(t)
+
+	const numQueued = 4
+
+	leader := genRandomAsset(t)
+	_, err := insertUniverseLeafOnly(ctx, multiverse, leader)
+	require.NoError(t, err)
+
+	queued := make([]*universe.Item, numQueued)
+	for i := range queued {
+		queued[i] = genRandomAsset(t)
+		_, err := insertUniverseLeafOnly(ctx, multiverse, queued[i])
+		require.NoError(t, err)
+	}
+
+	// Block the leader's flush until the queued universes are
+	// pending.
+	inFlush := make(chan struct{})
+	release := make(chan struct{})
+	hook := func() {
+		close(inFlush)
+		<-release
+	}
+	hookDB.beforeFlush.Store(&hook)
+
+	var (
+		wg        sync.WaitGroup
+		leaderErr error
+		queueErrs = make([]error, numQueued)
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		_, leaderErr = multiverse.rootCoalescer.updateRoot(
+			ctx, leader.ID,
+		)
+	}()
+	<-inFlush
+
+	for i := range queued {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+
+			_, queueErrs[i] = multiverse.rootCoalescer.updateRoot(
+				ctx, queued[i].ID,
+			)
+		}(i)
+	}
+
+	// Wait until all queued universes are registered as pending, then
+	// let the blocked flush proceed.
+	coalescer := multiverse.rootCoalescer
+	require.Eventually(t, func() bool {
+		coalescer.mu.Lock()
+		defer coalescer.mu.Unlock()
+
+		return len(coalescer.order) == numQueued
+	}, time.Second, time.Millisecond)
+	close(release)
+
+	wg.Wait()
+	require.NoError(t, leaderErr)
+	for _, err := range queueErrs {
+		require.NoError(t, err)
+	}
+
+	// The leader's round plus exactly one coalesced round for the
+	// queued universes.
+	require.EqualValues(t, 2, hookDB.flushCount.Load())
+}
+
+// TestMultiverseCoalescerCallerDecoupled asserts that the caller that
+// starts the flusher is not conscripted into draining the queue: it
+// returns as soon as its own result — or its context — permits, while
+// updates queued behind it are flushed by the background flusher
+// rather than stranded.
+func TestMultiverseCoalescerCallerDecoupled(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, hookDB := newHookedMultiverse(t)
+
+	first := genRandomAsset(t)
+	second := genRandomAsset(t)
+	for _, item := range []*universe.Item{first, second} {
+		_, err := insertUniverseLeafOnly(ctx, multiverse, item)
+		require.NoError(t, err)
+	}
+
+	// Block the first flush round, so the second update queues behind
+	// it while the first caller is already waiting.
+	inFlush := make(chan struct{})
+	release := make(chan struct{})
+	hook := func() {
+		close(inFlush)
+		<-release
+	}
+	hookDB.beforeFlush.Store(&hook)
+
+	callerCtx, cancelCaller := context.WithCancel(ctx)
+	defer cancelCaller()
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := multiverse.rootCoalescer.updateRoot(
+			callerCtx, first.ID,
+		)
+		firstDone <- err
+	}()
+	<-inFlush
+
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := multiverse.rootCoalescer.updateRoot(ctx, second.ID)
+		secondDone <- err
+	}()
+
+	// Wait until the second update is registered as pending.
+	coalescer := multiverse.rootCoalescer
+	require.Eventually(t, func() bool {
+		coalescer.mu.Lock()
+		defer coalescer.mu.Unlock()
+
+		return len(coalescer.order) == 1
+	}, time.Second, time.Millisecond)
+
+	// Cancelling the first caller must return it promptly, even
+	// though it started the flusher and the queue behind it is
+	// non-empty: draining is not its responsibility.
+	cancelCaller()
+	select {
+	case err := <-firstDone:
+		require.ErrorIs(t, err, context.Canceled)
+
+	case <-time.After(time.Second):
+		t.Fatal("caller pinned by the flusher after cancellation")
+	}
+
+	// The queued update must not be stranded by the departed caller:
+	// once the blocked round completes, the flusher applies it.
+	close(release)
+	select {
+	case err := <-secondDone:
+		require.NoError(t, err)
+
+	case <-time.After(5 * time.Second):
+		t.Fatal("queued update stranded after caller departure")
+	}
+
+	// The flusher must wind down once the queue drains.
+	require.Eventually(t, func() bool {
+		coalescer.mu.Lock()
+		defer coalescer.mu.Unlock()
+
+		return !coalescer.flushing && len(coalescer.pending) == 0
+	}, time.Second, time.Millisecond)
+}
+
+// TestMultiverseCoalescerStop asserts that stopping the store fails
+// pending waiters, lets an in-flight flush complete on its own,
+// rejects new submissions, and leaves the flusher wound down rather
+// than permanently marked active.
+func TestMultiverseCoalescerStop(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, hookDB := newHookedMultiverse(t)
+
+	first := genRandomAsset(t)
+	queued := genRandomAsset(t)
+	for _, item := range []*universe.Item{first, queued} {
+		_, err := insertUniverseLeafOnly(ctx, multiverse, item)
+		require.NoError(t, err)
+	}
+
+	// Block the first flush round and queue another update behind it,
+	// then stop the store while both are outstanding.
+	inFlush := make(chan struct{})
+	release := make(chan struct{})
+	hook := func() {
+		close(inFlush)
+		<-release
+	}
+	hookDB.beforeFlush.Store(&hook)
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := multiverse.rootCoalescer.updateRoot(ctx, first.ID)
+		firstDone <- err
+	}()
+	<-inFlush
+
+	queuedDone := make(chan error, 1)
+	go func() {
+		_, err := multiverse.rootCoalescer.updateRoot(ctx, queued.ID)
+		queuedDone <- err
+	}()
+
+	coalescer := multiverse.rootCoalescer
+	require.Eventually(t, func() bool {
+		coalescer.mu.Lock()
+		defer coalescer.mu.Unlock()
+
+		return len(coalescer.order) == 1
+	}, time.Second, time.Millisecond)
+
+	stopDone := make(chan struct{})
+	go func() {
+		multiverse.Stop()
+		close(stopDone)
+	}()
+
+	// The waiter still pending — not part of the in-flight round —
+	// must be failed promptly, without waiting for the blocked flush.
+	select {
+	case err := <-queuedDone:
+		require.ErrorIs(t, err, errCoalescerStopped)
+
+	case <-time.After(time.Second):
+		t.Fatal("pending waiter not failed by stop")
+	}
+
+	// The in-flight round is not torn down: released, it completes
+	// and serves its waiter normally.
+	close(release)
+	select {
+	case err := <-firstDone:
+		require.NoError(t, err)
+
+	case <-time.After(5 * time.Second):
+		t.Fatal("in-flight round did not complete under stop")
+	}
+
+	select {
+	case <-stopDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stop did not return after flusher exit")
+	}
+
+	// The flusher must be wound down, not left marked active.
+	coalescer.mu.Lock()
+	require.False(t, coalescer.flushing)
+	coalescer.mu.Unlock()
+
+	// New submissions must fail fast on a stopped coalescer.
+	_, err := multiverse.rootCoalescer.updateRoot(ctx, first.ID)
+	require.ErrorIs(t, err, errCoalescerStopped)
+}
+
+// TestUpsertProofLeafFlushRecovery asserts that a flush failure after
+// the universe commit surfaces as the typed pending error, and that
+// the background flusher heals the divergence on its own once the
+// database recovers — with no further proof insert and no restart.
+func TestUpsertProofLeafFlushRecovery(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, hookDB := newHookedMultiverse(t)
+
+	// Fast retry pacing, so recovery is observable in test time.
+	multiverse.rootCoalescer.initialRetryBackoff = 5 * time.Millisecond
+	multiverse.rootCoalescer.maxRetryBackoff = 20 * time.Millisecond
+
+	item := genRandomAsset(t)
+
+	// Every flush fails, as under a database outage.
+	hookDB.failFrom.Store(1)
+
+	_, err := multiverse.UpsertProofLeaf(
+		ctx, item.ID, item.Key, item.Leaf, item.MetaReveal,
+	)
+	require.ErrorIs(t, err, universe.ErrMultiversePending)
+
+	// The universe leaf is durable, its divergence visible, and it
+	// stays that way while the database remains down: the retries
+	// keep failing.
+	diverged, err := multiverse.multiverseDivergence(ctx)
+	require.NoError(t, err)
+	require.Len(t, diverged, 1)
+
+	// Once the database recovers, the retrying flusher repairs the
+	// multiverse without any further write.
+	hookDB.failFrom.Store(0)
+	require.Eventually(t, func() bool {
+		diverged, err := multiverse.multiverseDivergence(ctx)
+		return err == nil && len(diverged) == 0
+	}, 10*time.Second, 10*time.Millisecond)
+
+	// The flusher winds down once the queue is drained.
+	require.Eventually(t, func() bool {
+		coalescer := multiverse.rootCoalescer
+		coalescer.mu.Lock()
+		defer coalescer.mu.Unlock()
+
+		return !coalescer.flushing
+	}, time.Second, time.Millisecond)
+
+	// And the read path returns a composing receipt.
+	proofs, err := multiverse.FetchProofLeaf(ctx, item.ID, item.Key)
+	require.NoError(t, err)
+	require.Len(t, proofs, 1)
+	assertReceiptComposes(t, item.ID, proofs[0])
+}
+
+// TestMultiverseConcurrentStores emulates two tapd processes sharing
+// one database: two MultiverseStore instances with independent write
+// mutexes update distinct universes of the same proof type
+// concurrently, so nothing but the database's isolation serializes
+// their multiverse flushes against each other. Every universe's leaf
+// must end up reachable under the final multiverse root: a lost update
+// between the two flushers tears the shared tree at the branch level,
+// which leaf-level reconciliation cannot detect, so composition is
+// verified directly rather than trusting an empty divergence report.
+// The interesting backend is Postgres, where flushes genuinely
+// interleave; on SQLite the driver serializes them.
+func TestMultiverseConcurrentStores(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	db := NewTestDB(t)
+	storeA, _ := newTestMultiverseWithDb(t, db.BaseDB)
+	storeB, _ := newTestMultiverseWithDb(t, db.BaseDB)
+
+	const numPerStore = 12
+	proofType := universe.ProofTypeIssuance
+
+	newItems := func(n int) []*universe.Item {
+		items := make([]*universe.Item, n)
+		for i := range items {
+			items[i] = genUniverseItemsWithType(t, proofType, 1)[0]
+		}
+
+		return items
+	}
+	itemsA := newItems(numPerStore)
+	itemsB := newItems(numPerStore)
+
+	// Each universe is inserted and flushed through its store, all
+	// universes of both stores concurrently.
+	var (
+		wg      sync.WaitGroup
+		updates = make([]multiverseRootUpdate, 2*numPerStore)
+		errs    = make([]error, 2*numPerStore)
+	)
+	run := func(store *MultiverseStore, item *universe.Item, slot int) {
+		defer wg.Done()
+
+		_, err := insertUniverseLeafOnly(ctx, store, item)
+		if err != nil {
+			errs[slot] = err
+			return
+		}
+
+		updates[slot], errs[slot] = store.rootCoalescer.updateRoot(
+			ctx, item.ID,
+		)
+	}
+	for i := range itemsA {
+		wg.Add(2)
+		go run(storeA, itemsA[i], i)
+		go run(storeB, itemsB[i], numPerStore+i)
+	}
+	wg.Wait()
+
+	allItems := append(append([]*universe.Item{}, itemsA...), itemsB...)
+	for i, item := range allItems {
+		require.NoError(t, errs[i])
+
+		// The receipt returned to each caller must compose with the
+		// multiverse root of the flush that carried it.
+		leaf := multiverseLeafForRoot(
+			item.ID, updates[i].universeRoot,
+		)
+		require.True(t, mssmt.VerifyMerkleProof(
+			item.ID.Bytes(), leaf, updates[i].inclusionProof,
+			updates[i].multiverseRoot,
+		))
+	}
+
+	// Every universe's current root must be committed to by the final
+	// multiverse tree. This is the direct detector for a lost update:
+	// a torn branch leaves some leaf unreachable even though its
+	// leaf-level value looks intact.
+	readTx := NewBaseMultiverseReadTx()
+	err := storeA.db.ExecTx(
+		ctx, &readTx, func(dbtx BaseMultiverseStore) error {
+			for _, item := range allItems {
+				id := item.ID
+				dbRoot, err := dbtx.FetchUniverseRoot(
+					ctx, id.String(),
+				)
+				if err != nil {
+					return err
+				}
+
+				var rootHash mssmt.NodeHash
+				copy(rootHash[:], dbRoot.RootHash[:])
+				uniRoot := mssmt.NewComputedNode(
+					rootHash, uint64(dbRoot.RootSum),
+				)
+
+				mvRoot, mvProof, err := multiverseRootAndProof(
+					ctx, dbtx, id,
+				)
+				if err != nil {
+					return err
+				}
+
+				require.True(t, mssmt.VerifyMerkleProof(
+					id.Bytes(),
+					multiverseLeafForRoot(id, uniRoot),
+					mvProof, mvRoot,
+				), "universe %v unreachable under final "+
+					"multiverse root", id.String())
+			}
+
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	// And the leaf-level view must agree that nothing diverged.
+	diverged, err := storeA.multiverseDivergence(ctx)
+	require.NoError(t, err)
+	require.Empty(t, diverged)
+}
+
+// TestReconcileMultiverseChunkFailure asserts that chunked startup
+// repairs make durable forward progress: a failure in the second chunk
+// leaves the first chunk's repairs committed, and a subsequent
+// reconcile completes from the remaining divergence.
+func TestReconcileMultiverseChunkFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, hookDB := newHookedMultiverse(t)
+
+	// Repair three universes per chunk, with seven diverged: chunks
+	// of 3, 3 and 1.
+	multiverse.reconcileBatchSize = 3
+
+	const numDiverged = 7
+	for i := 0; i < numDiverged; i++ {
+		_, err := insertUniverseLeafOnly(
+			ctx, multiverse, genRandomAsset(t),
+		)
+		require.NoError(t, err)
+	}
+
+	// The first chunk's flush succeeds, everything after fails.
+	hookDB.failFrom.Store(2)
+
+	err := multiverse.ReconcileMultiverse(ctx)
+	require.ErrorContains(t, err, "flush unavailable")
+
+	// The first chunk must have committed: only the remaining four
+	// universes still diverge.
+	diverged, err := multiverse.multiverseDivergence(ctx)
+	require.NoError(t, err)
+	require.Len(t, diverged, numDiverged-3)
+
+	// Once the database recovers, reconciliation completes from where
+	// it left off.
+	hookDB.failFrom.Store(0)
+	require.NoError(t, multiverse.ReconcileMultiverse(ctx))
+
+	diverged, err = multiverse.multiverseDivergence(ctx)
+	require.NoError(t, err)
+	require.Empty(t, diverged)
 }

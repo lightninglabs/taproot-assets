@@ -32,6 +32,16 @@ var (
 	// ErrNoUniverseProofFound is returned when a user attempts to look up
 	// a key in the universe that actually points to the empty leaf.
 	ErrNoUniverseProofFound = fmt.Errorf("no universe proof found")
+
+	// ErrMultiversePending is returned, wrapped, by multiverse upsert
+	// operations when the universe leaves committed durably but the
+	// update of the shared multiverse trees did not. The write is not
+	// lost: the archive retries the multiverse update in the
+	// background until the database recovers, and any update
+	// abandoned by a shutdown is repaired by reconciliation at the
+	// next startup. Callers should treat this as a transient,
+	// retryable condition, not as a failure to store the proof.
+	ErrMultiversePending = fmt.Errorf("multiverse update pending")
 )
 
 const (
@@ -561,12 +571,26 @@ type MultiverseArchive interface {
 
 	// UpsertProofLeaf upserts a proof leaf within the multiverse tree and
 	// the universe tree that corresponds to the given key.
+	//
+	// The universe leaf commits first, in its own transaction, and
+	// the shared multiverse trees are updated afterwards. An error
+	// wrapping ErrMultiversePending therefore means the leaf is
+	// durably stored while its multiverse update is still
+	// outstanding; the archive repairs the gap in the background, or
+	// at the next startup. On success the returned proof composes:
+	// its multiverse inclusion proof commits to its universe root.
 	UpsertProofLeaf(ctx context.Context, id Identifier, key LeafKey,
 		leaf *Leaf,
 		metaReveal *proof.MetaReveal) (*Proof, error)
 
 	// UpsertProofLeafBatch upserts a proof leaf batch within the multiverse
 	// tree and the universe tree that corresponds to the given key(s).
+	//
+	// As with UpsertProofLeaf, the universe leaves commit first: an
+	// error wrapping ErrMultiversePending means the leaves are
+	// durably stored while their multiverse updates are still
+	// outstanding, to be repaired in the background or at the next
+	// startup.
 	UpsertProofLeafBatch(ctx context.Context, items []*Item) error
 
 	// FetchProofLeaf returns a proof leaf for the target key. If the key
