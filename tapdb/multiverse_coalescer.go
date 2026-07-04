@@ -61,6 +61,14 @@ type flushResult struct {
 	err    error
 }
 
+// flushWaiter is a caller awaiting the flush of a pending update. Only
+// waiters that want the multiverse root and inclusion proof cause them
+// to be generated; batch callers skip that work.
+type flushWaiter struct {
+	result    chan flushResult
+	wantProof bool
+}
+
 // pendingRootUpdate is a universe awaiting a refresh of its multiverse
 // leaf, along with every caller awaiting a flush that carries the
 // refresh. Keeping at most one pending entry per universe is what
@@ -69,7 +77,7 @@ type flushResult struct {
 // caller.
 type pendingRootUpdate struct {
 	id      universe.Identifier
-	waiters []chan flushResult
+	waiters []flushWaiter
 }
 
 // multiverseRootCoalescer serializes all writes to the shared
@@ -158,18 +166,8 @@ func newMultiverseRootCoalescer(
 func (c *multiverseRootCoalescer) updateRoot(ctx context.Context,
 	id universe.Identifier) (multiverseRootUpdate, error) {
 
-	result := make(chan flushResult, 1)
-
 	c.mu.Lock()
-	key := id.String()
-	update, ok := c.pending[key]
-	if !ok {
-		update = &pendingRootUpdate{id: id}
-		c.pending[key] = update
-		c.order = append(c.order, key)
-	}
-	update.waiters = append(update.waiters, result)
-
+	result := c.enqueue(id, true)
 	lead := !c.flushing
 	if lead {
 		c.flushing = true
@@ -187,6 +185,73 @@ func (c *multiverseRootCoalescer) updateRoot(ctx context.Context,
 	case <-ctx.Done():
 		return multiverseRootUpdate{}, ctx.Err()
 	}
+}
+
+// updateRoots marks each given universe's multiverse leaf as needing a
+// refresh and returns once a flush carrying every refresh has
+// committed. Unlike updateRoot, it does not cause multiverse roots or
+// inclusion proofs to be generated, as batch callers do not consume
+// them.
+func (c *multiverseRootCoalescer) updateRoots(ctx context.Context,
+	ids []universe.Identifier) error {
+
+	if len(ids) == 0 {
+		return nil
+	}
+
+	waiters := make([]chan flushResult, len(ids))
+
+	c.mu.Lock()
+	for i, id := range ids {
+		waiters[i] = c.enqueue(id, false)
+	}
+	lead := !c.flushing
+	if lead {
+		c.flushing = true
+	}
+	c.mu.Unlock()
+
+	if lead {
+		c.flush()
+	}
+
+	for _, waiter := range waiters {
+		select {
+		case res := <-waiter:
+			if res.err != nil {
+				return res.err
+			}
+
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return nil
+}
+
+// enqueue marks the given universe's multiverse leaf as needing a
+// refresh and registers a waiter for the flush that carries it.
+//
+// NOTE: The caller must hold c.mu.
+func (c *multiverseRootCoalescer) enqueue(id universe.Identifier,
+	wantProof bool) chan flushResult {
+
+	result := make(chan flushResult, 1)
+
+	key := id.String()
+	update, ok := c.pending[key]
+	if !ok {
+		update = &pendingRootUpdate{id: id}
+		c.pending[key] = update
+		c.order = append(c.order, key)
+	}
+	update.waiters = append(update.waiters, flushWaiter{
+		result:    result,
+		wantProof: wantProof,
+	})
+
+	return result
 }
 
 // flush drains pending updates in rounds until none remain, applying
@@ -243,7 +308,7 @@ func (c *multiverseRootCoalescer) flushBatch(batch []*pendingRootUpdate) {
 			// normal delivery path below.
 			for _, waiter := range update.waiters {
 				select {
-				case waiter <- res:
+				case waiter.result <- res:
 				default:
 				}
 			}
@@ -259,6 +324,16 @@ func (c *multiverseRootCoalescer) flushBatch(batch []*pendingRootUpdate) {
 		context.Background(), defaultFlushTimeout,
 	)
 	defer cancel()
+
+	wantProof := func(update *pendingRootUpdate) bool {
+		for _, waiter := range update.waiters {
+			if waiter.wantProof {
+				return true
+			}
+		}
+
+		return false
+	}
 
 	var (
 		writeTx BaseMultiverseOptions
@@ -276,7 +351,8 @@ func (c *multiverseRootCoalescer) flushBatch(batch []*pendingRootUpdate) {
 
 			// Refresh every universe's multiverse leaf first,
 			// then read back the resulting root and one
-			// inclusion proof per universe.
+			// inclusion proof per universe that has a waiter
+			// consuming them.
 			for i, update := range batch {
 				// Derive the universe's current root here,
 				// inside the flush transaction, rather than
@@ -324,7 +400,7 @@ func (c *multiverseRootCoalescer) flushBatch(batch []*pendingRootUpdate) {
 			}
 
 			for i, update := range batch {
-				if missing[i] {
+				if missing[i] || !wantProof(update) {
 					continue
 				}
 
@@ -378,7 +454,7 @@ func (c *multiverseRootCoalescer) flushBatch(batch []*pendingRootUpdate) {
 		// blocks the flusher, even if a waiter has abandoned its
 		// call due to context cancellation.
 		for _, waiter := range update.waiters {
-			waiter <- res
+			waiter.result <- res
 		}
 	}
 }
