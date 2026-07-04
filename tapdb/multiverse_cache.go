@@ -387,6 +387,13 @@ type syncerRootNodeCache struct {
 	// enabled is a flag that indicates if the cache is enabled.
 	enabled bool
 
+	// initialized indicates that the cache has been populated with the
+	// complete set of universe roots. Both serving and incremental
+	// maintenance are gated on it: the read path treats the cache as
+	// the authoritative full set, so a partially seeded cache must
+	// never be observable.
+	initialized bool
+
 	// preAllocSize is the pre-allocated size of the cache.
 	preAllocSize uint64
 
@@ -469,8 +476,11 @@ func (r *syncerRootNodeCache) fetchRoots(q universe.RootNodesQuery,
 		defer r.RUnlock()
 	}
 
-	// If the cache is empty, we'll short-cut as well.
-	if len(r.universeRoots) == 0 {
+	// If the cache has not been populated wholesale yet, we can't
+	// serve from it: it may hold a subset of roots installed by flush
+	// callbacks, and the pagination below treats the cache as the
+	// complete set.
+	if !r.initialized {
 		// This is a miss, but we'll return nil to indicate that we
 		// don't have any roots.
 		r.Miss()
@@ -583,6 +593,8 @@ func (r *syncerRootNodeCache) replaceCache(newRoots []universe.Root) {
 	}
 
 	r.sortKeys()
+
+	r.initialized = true
 }
 
 // addOrReplace adds a single root to the cache if it isn't already present or
@@ -594,6 +606,13 @@ func (r *syncerRootNodeCache) addOrReplace(root universe.Root) {
 
 	r.Lock()
 	defer r.Unlock()
+
+	// Until the cache has been populated wholesale, incremental
+	// installs must not apply: they would seed a partial cache that
+	// the read path would then serve as the complete set.
+	if !r.initialized {
+		return
+	}
 
 	if _, ok := r.universeRoots[root.ID.Key()]; ok {
 		// If the root is already in the cache, we'll just replace it in
@@ -619,6 +638,12 @@ func (r *syncerRootNodeCache) remove(key universe.IdentifierKey) {
 	r.Lock()
 	defer r.Unlock()
 
+	// An uninitialized cache holds nothing to remove; it will be
+	// populated from post-deletion state when it is next filled.
+	if !r.initialized {
+		return
+	}
+
 	idx := sort.Search(len(r.universeKeyList), func(i int) bool {
 		return bytes.Compare(r.universeKeyList[i][:], key[:]) >= 0
 	})
@@ -631,12 +656,32 @@ func (r *syncerRootNodeCache) remove(key universe.IdentifierKey) {
 	}
 }
 
-// isEmpty returns true if the cache is empty.
-func (r *syncerRootNodeCache) isEmpty() bool {
+// needsFill returns true if the cache has not yet been populated with
+// the complete set of universe roots.
+func (r *syncerRootNodeCache) needsFill() bool {
 	r.RLock()
 	defer r.RUnlock()
 
-	return len(r.universeKeyList) == 0
+	return !r.initialized
+}
+
+// invalidate empties the cache and marks it uninitialized, so the next
+// syncer query repopulates it wholesale from the database. This is the
+// recovery path for failed multiverse flushes: the flush callback that
+// maintains the cache incrementally only runs for flushes that commit,
+// so the roots of a failed round would otherwise stay stale until
+// their universes are written again.
+func (r *syncerRootNodeCache) invalidate() {
+	if !r.enabled {
+		return
+	}
+
+	r.Lock()
+	defer r.Unlock()
+
+	r.universeKeyList = nil
+	r.universeRoots = make(map[universe.IdentifierKey]universe.Root)
+	r.initialized = false
 }
 
 // rootNodeCache is used to cache the set of active root nodes for the
