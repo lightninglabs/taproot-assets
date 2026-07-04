@@ -2,6 +2,8 @@ package tapdb
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"sync"
 	"testing"
 
@@ -107,6 +109,20 @@ func multiverseLeafForRoot(id universe.Identifier,
 	}
 
 	return mssmt.NewLeafNode(rootHash[:], sum)
+}
+
+// assertReceiptComposes asserts that an upsert or fetch receipt is
+// internally consistent: its leaf is included in its universe root, and
+// the multiverse leaf committing to that universe root is included in
+// its multiverse root.
+func assertReceiptComposes(t require.TestingT, id universe.Identifier,
+	p *universe.Proof) {
+
+	require.True(t, p.VerifyRoot(p.UniverseRoot))
+	require.True(t, mssmt.VerifyMerkleProof(
+		id.Bytes(), multiverseLeafNode(id, p.UniverseRoot),
+		p.MultiverseInclusionProof, p.MultiverseRoot,
+	))
 }
 
 // assertOracleRoot asserts that the multiverse root stored for the
@@ -439,4 +455,219 @@ func TestMultiverseRootCoalescerMissingUniverse(t *testing.T) {
 		ctx, universe.ProofTypeIssuance,
 	)
 	require.ErrorIs(t, err, ErrNoMultiverseRoot)
+}
+
+// TestUpsertProofLeafSameUniverseConcurrent asserts that concurrent
+// inserts into the same universe leave the multiverse leaf committing
+// to the universe's current root. Submission order to the coalescer
+// does not track universe commit order, so this holds only because the
+// flush derives the root itself rather than trusting submitted values.
+func TestUpsertProofLeafSameUniverseConcurrent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, _ := newTestMultiverse(t)
+
+	const numLeaves = 8
+	items := genUniverseItems(t, numLeaves)
+	id := items[0].ID
+
+	var (
+		wg       sync.WaitGroup
+		receipts = make([]*universe.Proof, numLeaves)
+		errs     = make([]error, numLeaves)
+	)
+	for i := range items {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+
+			receipts[i], errs[i] = multiverse.UpsertProofLeaf(
+				ctx, items[i].ID, items[i].Key,
+				items[i].Leaf, items[i].MetaReveal,
+			)
+		}(i)
+	}
+	wg.Wait()
+
+	// Every returned receipt must compose, whichever flush round
+	// served it and whether or not it was superseded by a concurrent
+	// insert.
+	for i, err := range errs {
+		require.NoError(t, err)
+		assertReceiptComposes(t, id, receipts[i])
+	}
+
+	// The multiverse leaf must commit to the universe's current root,
+	// not to whichever root happened to be submitted last.
+	var (
+		uniRoot mssmt.Node
+		mvRoot  mssmt.Node
+		mvProof *mssmt.Proof
+	)
+	readTx := NewBaseMultiverseReadTx()
+	err := multiverse.db.ExecTx(
+		ctx, &readTx, func(db BaseMultiverseStore) error {
+			dbRoot, err := db.FetchUniverseRoot(ctx, id.String())
+			if err != nil {
+				return err
+			}
+
+			var rootHash mssmt.NodeHash
+			copy(rootHash[:], dbRoot.RootHash[:])
+			uniRoot = mssmt.NewComputedNode(
+				rootHash, uint64(dbRoot.RootSum),
+			)
+
+			mvRoot, mvProof, err = multiverseRootAndProof(
+				ctx, db, id,
+			)
+			return err
+		},
+	)
+	require.NoError(t, err)
+
+	require.True(t, mssmt.VerifyMerkleProof(
+		id.Bytes(), multiverseLeafForRoot(id, uniRoot), mvProof, mvRoot,
+	))
+}
+
+// TestFetchProofLeafHealsMultiverse asserts that fetching a proof in
+// the window between a universe commit and its multiverse flush returns
+// a consistent composite: the read path detects the missing or stale
+// multiverse leaf, waits for a healing flush, and reads again.
+func TestFetchProofLeafHealsMultiverse(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, _ := newTestMultiverse(t)
+
+	items := genUniverseItems(t, 2)
+	id := items[0].ID
+
+	// A committed universe leaf with no multiverse update is exactly
+	// the state a fetcher observes in the gap, with the multiverse
+	// leaf missing entirely.
+	_, err := insertUniverseLeafOnly(ctx, multiverse, items[0])
+	require.NoError(t, err)
+
+	proofs, err := multiverse.FetchProofLeaf(ctx, id, items[0].Key)
+	require.NoError(t, err)
+	require.Len(t, proofs, 1)
+	assertReceiptComposes(t, id, proofs[0])
+
+	// The heal above flushed the multiverse leaf; a second universe
+	// commit without its multiverse update now leaves the leaf
+	// present but stale.
+	_, err = insertUniverseLeafOnly(ctx, multiverse, items[1])
+	require.NoError(t, err)
+
+	proofs, err = multiverse.FetchProofLeaf(ctx, id, items[1].Key)
+	require.NoError(t, err)
+	require.Len(t, proofs, 1)
+	assertReceiptComposes(t, id, proofs[0])
+}
+
+// TestUpsertProofLeafConcurrentDelete asserts that inserts racing a
+// deletion of their universe either succeed with a composing receipt or
+// fail outright, and that the persisted multiverse state is consistent
+// with the universe state whatever the interleaving.
+func TestUpsertProofLeafConcurrentDelete(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, _ := newTestMultiverse(t)
+
+	const numLeaves = 8
+	items := genUniverseItems(t, numLeaves)
+	id := items[0].ID
+
+	// Seed the universe so the deletion has something to delete.
+	_, err := multiverse.UpsertProofLeaf(
+		ctx, items[0].ID, items[0].Key, items[0].Leaf,
+		items[0].MetaReveal,
+	)
+	require.NoError(t, err)
+
+	var (
+		wg       sync.WaitGroup
+		receipts = make([]*universe.Proof, numLeaves)
+		errs     = make([]error, numLeaves)
+		delErr   error
+	)
+	for i := 1; i < numLeaves; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+
+			receipts[i], errs[i] = multiverse.UpsertProofLeaf(
+				ctx, items[i].ID, items[i].Key,
+				items[i].Leaf, items[i].MetaReveal,
+			)
+		}(i)
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		_, delErr = multiverse.DeleteUniverse(ctx, id)
+	}()
+	wg.Wait()
+
+	require.NoError(t, delErr)
+
+	// An insert that reported success must have returned a composing
+	// receipt; failures (universe deleted under the insert's
+	// multiverse update or receipt fetch) are acceptable.
+	for i := 1; i < numLeaves; i++ {
+		if errs[i] != nil {
+			continue
+		}
+
+		assertReceiptComposes(t, id, receipts[i])
+	}
+
+	// Whatever the interleaving, the persisted multiverse leaf must
+	// agree with the persisted universe state: absent if the universe
+	// is gone, committing to its current root otherwise.
+	var (
+		exists  bool
+		uniRoot mssmt.Node
+		mvRoot  mssmt.Node
+		mvProof *mssmt.Proof
+	)
+	readTx := NewBaseMultiverseReadTx()
+	err = multiverse.db.ExecTx(
+		ctx, &readTx, func(db BaseMultiverseStore) error {
+			dbRoot, err := db.FetchUniverseRoot(ctx, id.String())
+			switch {
+			case errors.Is(err, sql.ErrNoRows):
+
+			case err != nil:
+				return err
+
+			default:
+				exists = true
+				var rootHash mssmt.NodeHash
+				copy(rootHash[:], dbRoot.RootHash[:])
+				uniRoot = mssmt.NewComputedNode(
+					rootHash, uint64(dbRoot.RootSum),
+				)
+			}
+
+			mvRoot, mvProof, err = multiverseRootAndProof(
+				ctx, db, id,
+			)
+			return err
+		},
+	)
+	require.NoError(t, err)
+
+	expected := mssmt.EmptyLeafNode
+	if exists {
+		expected = multiverseLeafNode(id, uniRoot)
+	}
+	require.True(t, mssmt.VerifyMerkleProof(
+		id.Bytes(), expected, mvProof, mvRoot,
+	))
 }

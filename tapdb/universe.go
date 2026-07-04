@@ -805,6 +805,23 @@ func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 //
 // NOTE: This function accepts a db transaction, as it's used when making
 // broader DB updates.
+// multiverseLeafNode builds the multiverse leaf that commits to the
+// given universe root. For issuance proofs, the sum in the multiverse
+// is always 1 (one asset or group). For transfers, it's the actual
+// amount.
+func multiverseLeafNode(id universe.Identifier,
+	universeRoot mssmt.Node) *mssmt.LeafNode {
+
+	universeRootHash := universeRoot.NodeHash()
+	assetGroupSum := universeRoot.NodeSum()
+
+	if id.ProofType == universe.ProofTypeIssuance {
+		assetGroupSum = 1
+	}
+
+	return mssmt.NewLeafNode(universeRootHash[:], assetGroupSum)
+}
+
 func upsertMultiverseLeafEntry(ctx context.Context, dbTx BaseUniverseStore,
 	id universe.Identifier, universeRoot mssmt.Node) error {
 
@@ -820,16 +837,7 @@ func upsertMultiverseLeafEntry(ctx context.Context, dbTx BaseUniverseStore,
 	)
 
 	// Construct a leaf node for insertion into the multiverse tree.
-	universeRootHash := universeRoot.NodeHash()
-	assetGroupSum := universeRoot.NodeSum()
-
-	// For issuance proofs, the sum in the multiverse is always 1 (one asset
-	// or group). For transfers, it's the actual amount.
-	if id.ProofType == universe.ProofTypeIssuance {
-		assetGroupSum = 1
-	}
-
-	uniLeafNode := mssmt.NewLeafNode(universeRootHash[:], assetGroupSum)
+	uniLeafNode := multiverseLeafNode(id, universeRoot)
 
 	// Use asset ID (or asset group hash) as the upper tree leaf node key.
 	uniLeafNodeKey := id.Bytes()
