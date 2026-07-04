@@ -34,6 +34,32 @@ var errUniverseDeleted = errors.New(
 	"universe deleted during multiverse update",
 )
 
+// multiverseFlushTx is the transaction options for the coalescer's
+// flushes. The flush is the sole writer of the multiverse namespaces
+// (enforced by the single-flusher role plus the multiverse write mutex
+// shared with the deletion paths), so serializable isolation buys it
+// nothing. Running it at read committed on Postgres means it takes no
+// predicate locks, and, since only serializable writers flag conflicts
+// on serializable readers, it can neither abort nor be aborted by the
+// concurrent universe insert transactions.
+//
+// Abort-freedom alone is not what makes the downgrade safe, though: a
+// read-committed writer can invalidate a concurrent serializable
+// transaction's reads without either of them aborting. Safety rests on
+// write disjointness: the flush writes only multiverse rows, which the
+// serializable insert transactions neither read nor write.
+type multiverseFlushTx struct{}
+
+// ReadOnly returns false: flushes write.
+func (multiverseFlushTx) ReadOnly() bool {
+	return false
+}
+
+// TxIsolation overrides the flush transaction's isolation level.
+func (multiverseFlushTx) TxIsolation() sql.IsolationLevel {
+	return sql.LevelReadCommitted
+}
+
 // multiverseRootUpdate is the outcome of a flushed multiverse root
 // update: the universe root the flush derived and committed, the
 // multiverse root after the flush that carried the update, and the
@@ -119,6 +145,13 @@ type multiverseRootCoalescer struct {
 	// rebuilt.
 	onFlushError func()
 
+	// writeMu serializes all multiverse writes in this process. The
+	// flusher holds it for the duration of a flush transaction, and
+	// the deletion paths hold it around theirs. This mutual
+	// exclusion is what makes it safe to run flushes below
+	// serializable isolation.
+	writeMu sync.Locker
+
 	mu sync.Mutex
 
 	// pending holds the universes awaiting a multiverse leaf refresh.
@@ -140,12 +173,14 @@ type multiverseRootCoalescer struct {
 }
 
 // newMultiverseRootCoalescer creates a new coalescer that writes
-// through the given db handle.
-func newMultiverseRootCoalescer(
-	db BatchedMultiverse) *multiverseRootCoalescer {
+// through the given db handle. The given lock must be held by every
+// other multiverse writer in the process.
+func newMultiverseRootCoalescer(db BatchedMultiverse,
+	writeMu sync.Locker) *multiverseRootCoalescer {
 
 	return &multiverseRootCoalescer{
 		db:             db,
+		writeMu:        writeMu,
 		pending:        make(map[universeIDKey]*pendingRootUpdate),
 		flushBatchSize: maxFlushBatchSize,
 	}
@@ -335,14 +370,17 @@ func (c *multiverseRootCoalescer) flushBatch(batch []*pendingRootUpdate) {
 		return false
 	}
 
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
 	var (
-		writeTx BaseMultiverseOptions
 		results = make([]multiverseRootUpdate, len(batch))
 		missing = make([]bool, len(batch))
 		roots   = make([]universe.Root, len(batch))
 	)
+	flushTx := multiverseFlushTx{}
 	err := c.db.ExecTx(
-		ctx, &writeTx, func(store BaseMultiverseStore) error {
+		ctx, flushTx, func(store BaseMultiverseStore) error {
 			// The transaction may retry the closure wholesale,
 			// so reset the per-entry state it populates.
 			for i := range missing {

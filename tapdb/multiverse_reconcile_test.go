@@ -23,6 +23,11 @@ func tamperMultiverseLeaf(t require.TestingT, ctx context.Context,
 		bogusHash, uint64(test.RandInt[uint32]()),
 	)
 
+	// Take the multiverse write lock, as every multiverse writer
+	// must.
+	multiverse.multiverseWriteMu.Lock()
+	defer multiverse.multiverseWriteMu.Unlock()
+
 	var writeTx BaseMultiverseOptions
 	err := multiverse.db.ExecTx(
 		ctx, &writeTx, func(store BaseMultiverseStore) error {

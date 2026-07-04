@@ -747,6 +747,11 @@ func maybeUpsertSupplyPreCommit(ctx context.Context, dbTx UpsertAssetStore,
 // UpsertProofLeaf inserts or updates a proof leaf within the universe tree,
 // stored at the base key. The metaReveal type is purely optional, and should be
 // specified if the genesis proof committed to a non-zero meta hash.
+//
+// NOTE: This method writes the shared multiverse namespaces inline, at
+// serializable isolation and without MultiverseStore's multiverse write
+// lock. No production write path uses it; it must not run concurrently
+// with a MultiverseStore writing to the same database.
 func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 	key universe.LeafKey, leaf *universe.Leaf,
 	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
@@ -1585,6 +1590,10 @@ func deleteUniverseTree(ctx context.Context,
 }
 
 // DeleteUniverse deletes the entire universe tree.
+//
+// NOTE: This method writes the shared multiverse namespaces inline,
+// without MultiverseStore's multiverse write lock; the same caveat as
+// on UpsertProofLeaf applies.
 func (b *BaseUniverseTree) DeleteUniverse(ctx context.Context) (string, error) {
 	var writeTx BaseUniverseStoreOptions
 

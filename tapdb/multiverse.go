@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -152,6 +153,14 @@ type MultiverseStore struct {
 	// to defaultReconcileBatchSize and is only overridden in tests.
 	reconcileBatchSize int
 
+	// multiverseWriteMu serializes all multiverse writes in this
+	// process: the coalescer's flushes and the deletion paths. This
+	// mutual exclusion is what makes it safe for flushes to run
+	// below serializable isolation. The lock is in-process only, so
+	// this assumes exactly one tapd process writes to the database;
+	// a second process would be an unsynchronized multiverse writer.
+	multiverseWriteMu sync.Mutex
+
 	// transferProofDistributor is an event distributor that will be used to
 	// notify subscribers about new proof leaves that are added to the
 	// multiverse. This is used to notify the custodian about new incoming
@@ -187,7 +196,9 @@ func NewMultiverseStore(db BatchedMultiverse,
 		transferProofDistributor: fn.NewEventDistributor[proof.Blob](),
 		reconcileBatchSize:       defaultReconcileBatchSize,
 	}
-	store.rootCoalescer = newMultiverseRootCoalescer(db)
+	store.rootCoalescer = newMultiverseRootCoalescer(
+		db, &store.multiverseWriteMu,
+	)
 
 	// Install flushed roots into the syncer cache from the flush
 	// callback: flushes run one at a time and derive the current
@@ -1167,6 +1178,12 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 
 	var writeTx BaseUniverseStoreOptions
 
+	// Deleting touches the shared multiverse tree, so take the
+	// multiverse write lock to stay mutually exclusive with the root
+	// coalescer's flushes.
+	b.multiverseWriteMu.Lock()
+	defer b.multiverseWriteMu.Unlock()
+
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(tx BaseMultiverseStore) error {
 		multiverseNS, err := namespaceForProof(id.ProofType)
 		if err != nil {
@@ -1207,6 +1224,12 @@ func (b *MultiverseStore) DeleteProofLeaf(ctx context.Context,
 	key universe.LeafKey) (string, error) {
 
 	var writeTx BaseMultiverseOptions
+
+	// Deleting touches the shared multiverse tree, so take the
+	// multiverse write lock to stay mutually exclusive with the root
+	// coalescer's flushes.
+	b.multiverseWriteMu.Lock()
+	defer b.multiverseWriteMu.Unlock()
 
 	dbErr := b.db.ExecTx(
 		ctx, &writeTx, func(tx BaseMultiverseStore) error {
