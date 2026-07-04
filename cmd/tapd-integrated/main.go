@@ -163,7 +163,19 @@ func run() error {
 	// Step 2: Wrap the shell in AuxComponents. These fn.Option[T] values
 	// point to the shell. Once ConfigureSubServer fills it in, the same
 	// pointer provides real behavior.
-	ctx := context.Background()
+	// A context that ends when the interceptor signals shutdown, so
+	// long-running startup work can be interrupted.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-interceptor.ShutdownChannel():
+			cancel()
+
+		case <-ctx.Done():
+		}
+	}()
+
 	auxComponents, cleanup, err := integration.BuildAuxComponents(
 		ctx, tapServer,
 	)
@@ -283,7 +295,7 @@ func run() error {
 	// integration, etc.
 	tapErrChan := make(chan error, 1)
 	err = tapcfg.ConfigureSubServer(
-		tapServer, cfg.TaprootAssets, tapdLog,
+		ctx, tapServer, cfg.TaprootAssets, tapdLog,
 		&lndServices.LndServices, true, tapErrChan,
 	)
 	if err != nil {

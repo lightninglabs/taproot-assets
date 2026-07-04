@@ -45,8 +45,9 @@ import (
 //
 // NOTE: The RPCConfig and SignalInterceptor fields must be set by the caller
 // after generating the server config.
-func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
-	lndServices *lndclient.LndServices, enableChannelFeatures bool,
+func genServerConfig(ctx context.Context, cfg *Config,
+	cfgLogger btclog.Logger, lndServices *lndclient.LndServices,
+	enableChannelFeatures bool,
 	mainErrChan chan<- error) (*tapconfig.Config, error) {
 
 	var (
@@ -194,6 +195,16 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create multiverse store: %w", err)
+	}
+
+	// The multiverse trees are derived from the universe roots; repair any
+	// entries that diverged, for example because the daemon stopped
+	// between a proof insert committing and its multiverse update being
+	// written. The context is shutdown-derived, so an operator can
+	// interrupt a long-running reconcile.
+	err = multiverse.ReconcileMultiverse(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reconcile multiverse: %w", err)
 	}
 
 	uniStatsDB := tapdb.NewTransactionExecutor(
@@ -946,9 +957,23 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	cfgLogger.Infof("lnd connection initialized")
 
+	// Derive a context that ends when the interceptor signals
+	// shutdown, so long-running startup work — the multiverse
+	// reconcile in particular — can be interrupted.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-shutdownInterceptor.ShutdownChannel():
+			cancel()
+
+		case <-ctx.Done():
+		}
+	}()
+
 	serverCfg, err := genServerConfig(
-		cfg, cfgLogger, &lndConn.LndServices, enableChannelFeatures,
-		mainErrChan,
+		ctx, cfg, cfgLogger, &lndConn.LndServices,
+		enableChannelFeatures, mainErrChan,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate server config: %w",
@@ -1052,12 +1077,15 @@ func mboxOutpointChecker(
 }
 
 // ConfigureSubServer updates a Taproot Asset server with the given CLI config.
-func ConfigureSubServer(srv *tap.Server, cfg *Config, cfgLogger btclog.Logger,
-	lndServices *lndclient.LndServices, litdIntegrated bool,
-	mainErrChan chan<- error) error {
+// The context bounds the startup work done here, the multiverse
+// reconcile in particular, and should be derived from the daemon's
+// shutdown signal.
+func ConfigureSubServer(ctx context.Context, srv *tap.Server, cfg *Config,
+	cfgLogger btclog.Logger, lndServices *lndclient.LndServices,
+	litdIntegrated bool, mainErrChan chan<- error) error {
 
 	serverCfg, err := genServerConfig(
-		cfg, cfgLogger, lndServices, litdIntegrated, mainErrChan,
+		ctx, cfg, cfgLogger, lndServices, litdIntegrated, mainErrChan,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to generate server config: %w", err)

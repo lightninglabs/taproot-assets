@@ -73,6 +73,14 @@ type BaseMultiverseStore interface {
 	UniverseRoots(ctx context.Context,
 		params UniverseRootsParams) ([]BaseUniverseRoot, error)
 
+	// UniverseRootsAfterID returns a page of universe roots ordered
+	// by their table id, starting after the given id. Unlike the
+	// offset pagination of UniverseRoots, this keyset form costs the
+	// same for every page.
+	UniverseRootsAfterID(ctx context.Context,
+		arg sqlc.UniverseRootsAfterIDParams) (
+		[]sqlc.UniverseRootsAfterIDRow, error)
+
 	// QueryMultiverseLeaves is used to query for the set of leaves that
 	// reside in a multiverse tree.
 	QueryMultiverseLeaves(ctx context.Context,
@@ -147,6 +155,16 @@ type MultiverseStore struct {
 	// contended across universes.
 	rootCoalescer *multiverseRootCoalescer
 
+	// reconcileBatchSize is the number of universes repaired per
+	// coalescer submission during startup reconciliation. It defaults
+	// to defaultReconcileBatchSize and is only overridden in tests.
+	reconcileBatchSize int
+
+	// reconcilePageSize is the number of universe roots the
+	// reconciliation divergence scan reads per page. It defaults to
+	// universe.RequestPageSize and is only overridden in tests.
+	reconcilePageSize int32
+
 	// transferProofDistributor is an event distributor that will be used to
 	// notify subscribers about new proof leaves that are added to the
 	// multiverse. This is used to notify the custodian about new incoming
@@ -180,6 +198,8 @@ func NewMultiverseStore(db BatchedMultiverse,
 			cfg.Caches.LeavesPerUniverse,
 		),
 		transferProofDistributor: fn.NewEventDistributor[proof.Blob](),
+		reconcileBatchSize:       defaultReconcileBatchSize,
+		reconcilePageSize:        universe.RequestPageSize,
 	}
 	store.rootCoalescer = newMultiverseRootCoalescer(db)
 
@@ -892,7 +912,8 @@ func (b *MultiverseStore) FetchProof(ctx context.Context,
 // shared multiverse tree is updated afterwards. An error return may
 // therefore mean the leaf is durably stored while the multiverse
 // update failed; in that case the universe's multiverse entry is
-// healed by its next successful update.
+// healed by its next successful update, or by ReconcileMultiverse at
+// the next startup.
 //
 // The returned proof always composes: its multiverse proof commits to
 // its universe root. If a concurrent insert into the same universe
@@ -1008,7 +1029,8 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 // shared multiverse tree is updated afterwards. An error return may
 // therefore mean the leaves are durably stored while the multiverse
 // update failed; in that case each universe's multiverse entry is
-// healed by its next successful update.
+// healed by its next successful update, or by ReconcileMultiverse at
+// the next startup.
 func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	items []*universe.Item) error {
 

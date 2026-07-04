@@ -120,6 +120,21 @@ ORDER BY
     CASE WHEN sqlc.narg('sort_direction') = 1 THEN universe_roots.id END DESC
 LIMIT @num_limit OFFSET @num_offset;
 
+-- name: UniverseRootsAfterID :many
+SELECT universe_roots.id, universe_roots.asset_id, group_key, proof_type,
+       mssmt_roots.root_hash AS root_hash, mssmt_nodes.sum AS root_sum
+FROM universe_roots
+JOIN mssmt_roots
+    ON universe_roots.namespace_root = mssmt_roots.namespace
+JOIN mssmt_nodes
+    ON mssmt_nodes.hash_key = mssmt_roots.root_hash
+       AND mssmt_nodes.namespace = mssmt_roots.namespace
+JOIN genesis_assets
+    ON genesis_assets.asset_id = universe_roots.asset_id
+WHERE universe_roots.id > @after_id
+ORDER BY universe_roots.id ASC
+LIMIT @num_limit;
+
 -- name: InsertUniverseServer :exec
 INSERT INTO universe_servers(
     server_host, last_sync_time

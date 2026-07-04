@@ -797,18 +797,9 @@ func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 	return uniProof, nil
 }
 
-// upsertMultiverseLeafEntry inserts the universe root into the main multiverse
-// tree. This should be called *after* universeUpsertProofLeaf if the proof
-// needs to be added to the main issuance/transfer multiverse. The resulting
-// multiverse root and inclusion proof can be fetched separately with
-// multiverseRootAndProof.
-//
-// NOTE: This function accepts a db transaction, as it's used when making
-// broader DB updates.
-// multiverseLeafNode builds the multiverse leaf that commits to the
-// given universe root. For issuance proofs, the sum in the multiverse
-// is always 1 (one asset or group). For transfers, it's the actual
-// amount.
+// multiverseLeafNode builds the multiverse leaf committing to the given
+// universe root. For issuance proofs, the leaf sum is always 1 (one asset or
+// group). For transfers, it's the universe root's actual amount.
 func multiverseLeafNode(id universe.Identifier,
 	universeRoot mssmt.Node) *mssmt.LeafNode {
 
@@ -822,6 +813,14 @@ func multiverseLeafNode(id universe.Identifier,
 	return mssmt.NewLeafNode(universeRootHash[:], assetGroupSum)
 }
 
+// upsertMultiverseLeafEntry inserts the universe root into the main multiverse
+// tree. This should be called *after* universeUpsertProofLeaf if the proof
+// needs to be added to the main issuance/transfer multiverse. The resulting
+// multiverse root and inclusion proof can be fetched separately with
+// multiverseRootAndProof.
+//
+// NOTE: This function accepts a db transaction, as it's used when making
+// broader DB updates.
 func upsertMultiverseLeafEntry(ctx context.Context, dbTx BaseUniverseStore,
 	id universe.Identifier, universeRoot mssmt.Node) error {
 
