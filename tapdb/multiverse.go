@@ -134,6 +134,11 @@ type MultiverseStore struct {
 
 	leafKeysCache *universeLeafPageCache
 
+	// rootCoalescer batches all writes to the shared multiverse
+	// trees, so proof insert transactions never touch rows that are
+	// contended across universes.
+	rootCoalescer *multiverseRootCoalescer
+
 	// transferProofDistributor is an event distributor that will be used to
 	// notify subscribers about new proof leaves that are added to the
 	// multiverse. This is used to notify the custodian about new incoming
@@ -151,7 +156,7 @@ func NewMultiverseStore(db BatchedMultiverse,
 		return nil, fmt.Errorf("parse max proof cache size: %w", err)
 	}
 
-	return &MultiverseStore{
+	store := &MultiverseStore{
 		db:  db,
 		cfg: cfg,
 		syncerCache: newSyncerRootNodeCache(
@@ -167,7 +172,22 @@ func NewMultiverseStore(db BatchedMultiverse,
 			cfg.Caches.LeavesPerUniverse,
 		),
 		transferProofDistributor: fn.NewEventDistributor[proof.Blob](),
-	}, nil
+	}
+	store.rootCoalescer = newMultiverseRootCoalescer(db)
+
+	// Install flushed roots into the syncer cache from the flush
+	// callback: flushes run one at a time and derive the current
+	// root, so installs done here arrive in commit order per
+	// universe and can never regress a cached root, unlike installs
+	// from the unordered post-commit sections of concurrent inserts.
+	store.rootCoalescer.onRefresh = store.syncerCache.addOrReplace
+
+	// A failed flush never reports its universes through onRefresh,
+	// so their cached roots would stay stale until their universes
+	// are written again. Rebuild the cache from the database instead.
+	store.rootCoalescer.onFlushError = store.syncerCache.invalidate
+
+	return store, nil
 }
 
 // namespaceForProof returns the multiverse namespace used for the given proof
@@ -269,9 +289,9 @@ func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 		return *rootNode, nil
 	}
 
-	// If the cache is still empty, we'll populate it now, given it is
-	// enabled.
-	if b.syncerCache.isEmpty() && b.cfg.Caches.SyncerCacheEnabled {
+	// If the cache hasn't been filled yet, we'll populate it now,
+	// given it is enabled.
+	if b.syncerCache.needsFill() && b.cfg.Caches.SyncerCacheEnabled {
 		// We attempt to acquire the write lock to fill the cache. If
 		// another goroutine is already filling the cache, we'll wait
 		// for it to finish that way.
@@ -404,8 +424,9 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 			return rootNodes, nil
 		}
 
-		// If the cache is still empty, we'll populate it now.
-		if b.syncerCache.isEmpty() {
+		// If the cache hasn't been filled yet, we'll populate it
+		// now.
+		if b.syncerCache.needsFill() {
 			// We attempt to acquire the write lock to fill the
 			// cache. If another goroutine is already filling the
 			// cache, we'll wait for it to finish that way.
