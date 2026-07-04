@@ -1895,3 +1895,94 @@ func TestProofCacheInvalidatesOnSiblingInsert(t *testing.T) {
 			"current universe root",
 	)
 }
+
+// TestUpsertProofLeafBatchMultiverseRoot asserts that the batch insert
+// path produces the same multiverse roots as inserting the same items
+// one at a time, including when a batch contains multiple items for the
+// same universe (in which case only the universe's final root must be
+// reflected in the multiverse tree).
+func TestUpsertProofLeafBatchMultiverseRoot(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	batchStore, _ := newTestMultiverse(t)
+	serialStore, _ := newTestMultiverse(t)
+
+	// Generate random items, then add a second leaf to each universe
+	// so the batch contains multiple items per universe. The first two
+	// items are pinned to one proof type each, so both multiverse
+	// trees deterministically exist for the assertions below.
+	const numAssets = 5
+	pinned := []universe.ProofType{
+		universe.ProofTypeIssuance, universe.ProofTypeTransfer,
+	}
+	var items []*universe.Item
+	for i := 0; i < numAssets; i++ {
+		item := genRandomAsset(t)
+		if i < len(pinned) {
+			for item.ID.ProofType != pinned[i] {
+				item = genRandomAsset(t)
+			}
+		}
+		items = append(items, item)
+
+		leaf := randMintingLeaf(
+			t, item.Leaf.Genesis, item.ID.GroupKey,
+		)
+		if item.ID.ProofType == universe.ProofTypeTransfer {
+			prevWitnesses := leaf.Asset.PrevWitnesses
+			prevWitnesses[0].TxWitness = [][]byte{
+				{1}, {1}, {1},
+			}
+			prevID := prevWitnesses[0].PrevID
+			prevID.OutPoint.Hash = [32]byte{1}
+		}
+
+		items = append(items, &universe.Item{
+			ID:   item.ID,
+			Key:  randLeafKey(t),
+			Leaf: &leaf,
+		})
+	}
+
+	err := batchStore.UpsertProofLeafBatch(ctx, items)
+	require.NoError(t, err)
+
+	for _, item := range items {
+		_, err := serialStore.UpsertProofLeaf(
+			ctx, item.ID, item.Key, item.Leaf, item.MetaReveal,
+		)
+		require.NoError(t, err)
+	}
+
+	proofTypes := []universe.ProofType{
+		universe.ProofTypeIssuance, universe.ProofTypeTransfer,
+	}
+	for _, proofType := range proofTypes {
+		batchRoot, err := batchStore.MultiverseRootNode(
+			ctx, proofType,
+		)
+		require.NoError(t, err)
+		serialRoot, err := serialStore.MultiverseRootNode(
+			ctx, proofType,
+		)
+		require.NoError(t, err)
+
+		require.Equal(
+			t, serialRoot.IsSome(), batchRoot.IsSome(),
+			"proof type %v", proofType,
+		)
+
+		serialRoot.WhenSome(func(sr universe.MultiverseRoot) {
+			batchRoot.WhenSome(func(br universe.MultiverseRoot) {
+				require.True(
+					t, mssmt.IsEqualNode(sr.Node, br.Node),
+					"proof type %v: serial root %v != "+
+						"batch root %v", proofType,
+					sr.Node, br.Node,
+				)
+			})
+		})
+	}
+}
