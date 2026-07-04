@@ -817,13 +817,19 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 
 		// Now, attempt to insert the universe root into the main
 		// multiverse tree.
-		//
-		// nolint:lll
-		multiverseRoot, multiverseProof, err = upsertMultiverseLeafEntry(
+		err = upsertMultiverseLeafEntry(
 			ctx, dbTx, id, uniProof.UniverseRoot,
 		)
 		if err != nil {
 			return fmt.Errorf("failed multiverse upsert: %w", err)
+		}
+
+		multiverseRoot, multiverseProof, err = multiverseRootAndProof(
+			ctx, dbTx, id,
+		)
+		if err != nil {
+			return fmt.Errorf("failed multiverse root fetch: %w",
+				err)
 		}
 
 		return nil
@@ -876,12 +882,27 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 		uniProofs    []*universe.Proof
 		rootStatuses []universeRootStatus
 	)
+	// Track the final universe root per universe, so the shared
+	// multiverse tree is updated once per universe with its latest root,
+	// rather than once per item.
+	type multiverseUpdate struct {
+		id   universe.Identifier
+		root mssmt.Node
+	}
+
 	dbErr := b.db.ExecTx(
 		ctx, &writeTx, func(store BaseMultiverseStore) error {
 			uniProofs = make([]*universe.Proof, len(items))
 			rootStatuses = make(
 				[]universeRootStatus, len(items),
 			)
+
+			finalRoots := make(
+				map[universeIDKey]*multiverseUpdate,
+				len(items),
+			)
+			var updateOrder []universeIDKey
+
 			for idx := range items {
 				item := items[idx]
 
@@ -905,24 +926,27 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 				uniProofs[idx] = uniProof
 				rootStatuses[idx] = status
 
-				// Next we'll, attempt to insert the universe
-				// root into the main multiverse tree.
-				//
-				//nolint:lll
-				multiRoot, multiProof, err := upsertMultiverseLeafEntry(
-					ctx, store, item.ID,
-					uniProof.UniverseRoot,
+				key := item.ID.String()
+				if _, ok := finalRoots[key]; !ok {
+					updateOrder = append(updateOrder, key)
+				}
+				finalRoots[key] = &multiverseUpdate{
+					id:   item.ID,
+					root: uniProof.UniverseRoot,
+				}
+			}
+
+			// Next, we'll insert each universe's final root into
+			// the main multiverse tree.
+			for _, key := range updateOrder {
+				update := finalRoots[key]
+				err := upsertMultiverseLeafEntry(
+					ctx, store, update.id, update.root,
 				)
 				if err != nil {
 					return fmt.Errorf("failed multiverse "+
-						"upsert for item %d: %w",
-						idx, err)
+						"upsert for %v: %w", key, err)
 				}
-
-				// Update the proof object with multiverse
-				// details.
-				uniProofs[idx].MultiverseRoot = multiRoot
-				uniProofs[idx].MultiverseInclusionProof = multiProof //nolint:lll
 			}
 
 			return nil
@@ -1080,7 +1104,7 @@ func (b *MultiverseStore) DeleteProofLeaf(ctx context.Context,
 
 			// Otherwise, update the multiverse entry with the
 			// new universe root.
-			_, _, err = upsertMultiverseLeafEntry(
+			err = upsertMultiverseLeafEntry(
 				ctx, tx, id, newRoot,
 			)
 			if err != nil {
