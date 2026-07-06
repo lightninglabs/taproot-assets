@@ -46,10 +46,56 @@ FROM reorg_anchorings
 WHERE phase_code < 3
 ORDER BY id;
 
--- name: ListReorgAnchorings :many
-SELECT *
+-- name: ListReorgAnchoringSummariesPage :many
+-- The observability surface's list query: a pure row projection with
+-- an aggregated candidate count — no per-row follow-up queries and
+-- no raw transaction or proof deserialization behind it. Filters are
+-- applied here, not over materialized rows, and every page is
+-- bounded — the table is never pruned, so an unbounded scan would
+-- grow without limit.
+SELECT
+    a.id, a.site_id, a.threshold, a.created_height, a.phase_code,
+    a.phase_evidence, a.delivered_code, a.delivered_evidence,
+    a.witness_txid, a.stuck, a.delivery_attempts,
+    a.last_delivery_error, a.terminal_at,
+    (
+        SELECT COUNT(*)
+        FROM reorg_candidate_spends c
+        WHERE c.anchoring_id = a.id
+    ) AS num_candidates
+FROM reorg_anchorings a
+WHERE (a.site_id = sqlc.narg('site_id') OR sqlc.narg('site_id') IS NULL)
+  AND (a.phase_code = sqlc.narg('phase_code')
+       OR sqlc.narg('phase_code') IS NULL)
+  AND (a.stuck = sqlc.narg('stuck') OR sqlc.narg('stuck') IS NULL)
+ORDER BY a.id
+LIMIT @num_limit OFFSET @num_offset;
+
+-- name: CountLiveReorgAnchoringsByPhase :many
+-- The live gauge's rollup: counts grouped in the database, so a
+-- metrics scrape never materializes anchoring rows.
+SELECT site_id, phase_code, COUNT(*) AS num_anchorings
 FROM reorg_anchorings
-ORDER BY id;
+WHERE phase_code < 3
+GROUP BY site_id, phase_code
+ORDER BY site_id, phase_code;
+
+-- name: CountStuckReorgAnchorings :one
+-- Over ALL anchorings, terminal included: the delivery predicate has
+-- no terminal restriction (a buried or abandoned anchoring's site
+-- handler can still be failing), so the alarm gauges must not
+-- either.
+SELECT COUNT(*)
+FROM reorg_anchorings
+WHERE stuck = TRUE;
+
+-- name: CountLaggingReorgAnchorings :one
+-- Over ALL anchorings, terminal included; see
+-- CountStuckReorgAnchorings.
+SELECT COUNT(*)
+FROM reorg_anchorings
+WHERE phase_code != delivered_code
+   OR phase_evidence != delivered_evidence;
 
 -- name: UpsertReorgCandidateSpend :exec
 -- Certification is sticky: once set it survives every later update,

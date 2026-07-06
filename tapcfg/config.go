@@ -418,6 +418,8 @@ type Config struct {
 
 	ReOrgSafeDepth int32 `long:"reorgsafedepth" description:"The number of confirmations we'll wait for before considering a transaction safely buried in the chain."`
 
+	DisableAnchoringWatcher bool `long:"disable-anchoring-watcher" description:"Disable the anchoring watcher service (chain sensing and site delivery for the anchoring registry). The registry's read surfaces (ListAnchorings, Prometheus collector) stay available. The watcher runs by default."`
+
 	// The following options are used to configure the proof courier.
 	DefaultProofCourierAddr string                       `long:"proofcourieraddr" description:"Default proof courier service address."`
 	HashMailCourier         *proof.HashMailCourierCfg    `group:"hashmailcourier" namespace:"hashmailcourier"`

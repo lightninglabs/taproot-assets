@@ -41,7 +41,18 @@ type Querier interface {
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
 	CountAuthMailboxMessages(ctx context.Context) (int64, error)
 	CountForwards(ctx context.Context, arg CountForwardsParams) (int64, error)
+	// Over ALL anchorings, terminal included; see
+	// CountStuckReorgAnchorings.
+	CountLaggingReorgAnchorings(ctx context.Context) (int64, error)
+	// The live gauge's rollup: counts grouped in the database, so a
+	// metrics scrape never materializes anchoring rows.
+	CountLiveReorgAnchoringsByPhase(ctx context.Context) ([]CountLiveReorgAnchoringsByPhaseRow, error)
 	CountLiveReorgDependents(ctx context.Context, parentID int64) (int64, error)
+	// Over ALL anchorings, terminal included: the delivery predicate has
+	// no terminal restriction (a buried or abandoned anchoring's site
+	// handler can still be failing), so the alarm gauges must not
+	// either.
+	CountStuckReorgAnchorings(ctx context.Context) (int64, error)
 	CountUnconfirmedAssets(ctx context.Context, arg CountUnconfirmedAssetsParams) (int64, error)
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
@@ -269,7 +280,13 @@ type Querier interface {
 	LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error
 	ListClaimedOutpoints(ctx context.Context, arg ListClaimedOutpointsParams) ([]ListClaimedOutpointsRow, error)
 	ListLiveReorgAnchorings(ctx context.Context) ([]ReorgAnchoring, error)
-	ListReorgAnchorings(ctx context.Context) ([]ReorgAnchoring, error)
+	// The observability surface's list query: a pure row projection with
+	// an aggregated candidate count — no per-row follow-up queries and
+	// no raw transaction or proof deserialization behind it. Filters are
+	// applied here, not over materialized rows, and every page is
+	// bounded — the table is never pruned, so an unbounded scan would
+	// grow without limit.
+	ListReorgAnchoringSummariesPage(ctx context.Context, arg ListReorgAnchoringSummariesPageParams) ([]ListReorgAnchoringSummariesPageRow, error)
 	ListReorgPendingDeliveries(ctx context.Context, now int64) ([]ReorgAnchoring, error)
 	ListReorgPendingEffects(ctx context.Context, arg ListReorgPendingEffectsParams) ([]ReorgOutbox, error)
 	LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error

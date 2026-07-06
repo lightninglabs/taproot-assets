@@ -241,25 +241,160 @@ func (s *ReorgRegistryStore) LiveAnchorings(
 	return out, nil
 }
 
-// AllAnchorings returns every anchoring in the registry, live and
-// terminal, for the observability surface.
-func (s *ReorgRegistryStore) AllAnchorings(
-	ctx context.Context) ([]*tapreorg.Anchoring, error) {
+// AnchoringQuery bounds and filters an observability listing of the
+// registry.
+type AnchoringQuery struct {
+	// Site restricts the listing to one site when non-empty.
+	Site string
 
-	var out []*tapreorg.Anchoring
+	// Phase restricts the listing to one phase variant when set.
+	Phase fn.Option[tapreorg.PhaseCode]
+
+	// StuckOnly restricts the listing to anchorings whose delivery
+	// is flagged stuck.
+	StuckOnly bool
+
+	// Limit bounds the page size; it must be positive. The
+	// anchoring table is never pruned, so unbounded listings are
+	// not offered.
+	Limit int32
+
+	// Offset skips that many matching rows, for paging.
+	Offset int32
+}
+
+// AnchoringSummary is one row of the observability listing: the
+// anchoring's registration and delivery bookkeeping, without its
+// assembled chain view. Listing pages never deserialize candidate
+// transactions or proofs.
+type AnchoringSummary struct {
+	// ID is the registry-assigned identifier.
+	ID tapreorg.AnchoringID
+
+	// Site is the owning site.
+	Site tapreorg.SiteID
+
+	// Threshold is the act-confirmation depth.
+	Threshold uint32
+
+	// CreatedHeight is the best height at registration time.
+	CreatedHeight uint32
+
+	// Phase is the sensed phase's variant; PhaseDetail renders the
+	// decoded phase with its evidence summarized. An undecodable
+	// evidence blob is reported in the detail rather than dropping
+	// the row from the listing.
+	Phase       tapreorg.PhaseCode
+	PhaseDetail string
+
+	// Delivered and DeliveredDetail mirror Phase and PhaseDetail
+	// for the last phase the site durably acknowledged.
+	Delivered       tapreorg.PhaseCode
+	DeliveredDetail string
+
+	// WitnessTxid is the current witness transaction hash, set
+	// exactly when the sensed phase is witnessed or buried.
+	WitnessTxid []byte
+
+	// Stuck, DeliveryAttempts and LastDeliveryError are the
+	// delivery failure bookkeeping; LastDeliveryError is empty
+	// after a successful delivery.
+	Stuck             bool
+	DeliveryAttempts  uint32
+	LastDeliveryError string
+
+	// TerminalAt is the unix time the anchoring's terminal phase
+	// was delivered; zero while live.
+	TerminalAt int64
+
+	// NumCandidates counts the candidate spends observed for the
+	// trigger set.
+	NumCandidates uint32
+}
+
+// summarizePhase decodes a stored phase for listing purposes: the
+// variant code is always available, and a corrupt evidence blob is
+// reported in place of the rendering.
+func summarizePhase(code int16,
+	evidence []byte) (tapreorg.PhaseCode, string) {
+
+	phaseCode := tapreorg.PhaseCode(code)
+	phase, err := tapreorg.DecodePhase(phaseCode, evidence)
+	if err != nil {
+		return phaseCode, fmt.Sprintf("undecodable: %v", err)
+	}
+
+	return phaseCode, phase.String()
+}
+
+// QueryAnchorings returns one page of anchoring summaries, live and
+// terminal, for the observability surface. Filters and bounds apply
+// in the query itself, so unmatched rows are never materialized.
+func (s *ReorgRegistryStore) QueryAnchorings(ctx context.Context,
+	query AnchoringQuery) ([]AnchoringSummary, error) {
+
+	if query.Limit <= 0 {
+		return nil, fmt.Errorf("anchoring query requires a "+
+			"positive limit, got %d", query.Limit)
+	}
+
+	params := sqlc.ListReorgAnchoringSummariesPageParams{
+		NumLimit:  query.Limit,
+		NumOffset: query.Offset,
+	}
+	if query.Site != "" {
+		params.SiteID = sql.NullString{
+			String: query.Site,
+			Valid:  true,
+		}
+	}
+	query.Phase.WhenSome(func(code tapreorg.PhaseCode) {
+		params.PhaseCode = sql.NullInt16{
+			Int16: int16(code),
+			Valid: true,
+		}
+	})
+	if query.StuckOnly {
+		params.Stuck = sql.NullBool{Bool: true, Valid: true}
+	}
+
+	var out []AnchoringSummary
 	dbErr := s.db.ExecTx(ctx, ReadTxOption(), func(q *sqlc.Queries) error {
-		rows, err := q.ListReorgAnchorings(ctx)
+		rows, err := q.ListReorgAnchoringSummariesPage(ctx, params)
 		if err != nil {
 			return err
 		}
 
-		out = make([]*tapreorg.Anchoring, 0, len(rows))
-		for _, row := range rows {
-			anchoring, err := assembleAnchoring(ctx, q, row)
-			if err != nil {
-				return err
+		out = make([]AnchoringSummary, len(rows))
+		for i, row := range rows {
+			phase, phaseDetail := summarizePhase(
+				row.PhaseCode, row.PhaseEvidence,
+			)
+			delivered, deliveredDetail := summarizePhase(
+				row.DeliveredCode, row.DeliveredEvidence,
+			)
+
+			out[i] = AnchoringSummary{
+				ID:   tapreorg.AnchoringID(row.ID),
+				Site: tapreorg.SiteID(row.SiteID),
+				Threshold: uint32(
+					row.Threshold,
+				),
+				CreatedHeight:   uint32(row.CreatedHeight),
+				Phase:           phase,
+				PhaseDetail:     phaseDetail,
+				Delivered:       delivered,
+				DeliveredDetail: deliveredDetail,
+				WitnessTxid:     row.WitnessTxid,
+				Stuck:           row.Stuck,
+				DeliveryAttempts: uint32(
+					row.DeliveryAttempts,
+				),
+				LastDeliveryError: row.LastDeliveryError.
+					String,
+				TerminalAt:    row.TerminalAt.Int64,
+				NumCandidates: uint32(row.NumCandidates),
 			}
-			out = append(out, anchoring)
 		}
 
 		return nil
@@ -269,6 +404,77 @@ func (s *ReorgRegistryStore) AllAnchorings(
 	}
 
 	return out, nil
+}
+
+// LiveAnchoringCount is the number of live anchorings one (site,
+// phase) pair holds.
+type LiveAnchoringCount struct {
+	// Site is the owning site.
+	Site tapreorg.SiteID
+
+	// Phase is the sensed phase's variant.
+	Phase tapreorg.PhaseCode
+
+	// Count is the number of live anchorings.
+	Count int64
+}
+
+// LiveAnchoringCounts returns the live anchoring counts per (site,
+// phase) pair, grouped in the database: a metrics scrape never
+// materializes anchoring rows.
+func (s *ReorgRegistryStore) LiveAnchoringCounts(
+	ctx context.Context) ([]LiveAnchoringCount, error) {
+
+	var out []LiveAnchoringCount
+	dbErr := s.db.ExecTx(ctx, ReadTxOption(), func(q *sqlc.Queries) error {
+		rows, err := q.CountLiveReorgAnchoringsByPhase(ctx)
+		if err != nil {
+			return err
+		}
+
+		out = make([]LiveAnchoringCount, len(rows))
+		for i, row := range rows {
+			out[i] = LiveAnchoringCount{
+				Site:  tapreorg.SiteID(row.SiteID),
+				Phase: tapreorg.PhaseCode(row.PhaseCode),
+				Count: row.NumAnchorings,
+			}
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return out, nil
+}
+
+// DeliveryHealth returns the number of anchorings flagged stuck and
+// the number whose delivered phase lags their sensed phase — over
+// all anchorings, terminal included, since the delivery predicate
+// has no terminal restriction and a stuck terminal delivery is
+// exactly what the alarm exists for.
+func (s *ReorgRegistryStore) DeliveryHealth(
+	ctx context.Context) (int64, int64, error) {
+
+	var stuck, lagging int64
+	dbErr := s.db.ExecTx(ctx, ReadTxOption(), func(q *sqlc.Queries) error {
+		var err error
+		stuck, err = q.CountStuckReorgAnchorings(ctx)
+		if err != nil {
+			return err
+		}
+
+		lagging, err = q.CountLaggingReorgAnchorings(ctx)
+
+		return err
+	})
+	if dbErr != nil {
+		return 0, 0, dbErr
+	}
+
+	return stuck, lagging, nil
 }
 
 // ChainView assembles the anchoring's chain view.

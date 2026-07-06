@@ -40,6 +40,12 @@ type TaprootAssetsClient interface {
 	// tapcli: `assets transfers`
 	// ListTransfers lists outbound asset transfers tracked by the target daemon.
 	ListTransfers(ctx context.Context, in *ListTransfersRequest, opts ...grpc.CallOption) (*ListTransfersResponse, error)
+	// tapcli: `anchorings`
+	// ListAnchorings lists the re-org watcher's speculative anchorings:
+	// everything the daemon has staked on chain outcomes, the phase the
+	// chain has assigned to each stake, and the delivery state of the
+	// owning subsystem.
+	ListAnchorings(ctx context.Context, in *ListAnchoringsRequest, opts ...grpc.CallOption) (*ListAnchoringsResponse, error)
 	// tapcli: `stop`
 	// StopDaemon will send a shutdown request to the interrupt handler, triggering
 	// a graceful shutdown of the daemon.
@@ -186,6 +192,15 @@ func (c *taprootAssetsClient) ListBalances(ctx context.Context, in *ListBalances
 func (c *taprootAssetsClient) ListTransfers(ctx context.Context, in *ListTransfersRequest, opts ...grpc.CallOption) (*ListTransfersResponse, error) {
 	out := new(ListTransfersResponse)
 	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/ListTransfers", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taprootAssetsClient) ListAnchorings(ctx context.Context, in *ListAnchoringsRequest, opts ...grpc.CallOption) (*ListAnchoringsResponse, error) {
+	out := new(ListAnchoringsResponse)
+	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/ListAnchorings", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -435,6 +450,12 @@ type TaprootAssetsServer interface {
 	// tapcli: `assets transfers`
 	// ListTransfers lists outbound asset transfers tracked by the target daemon.
 	ListTransfers(context.Context, *ListTransfersRequest) (*ListTransfersResponse, error)
+	// tapcli: `anchorings`
+	// ListAnchorings lists the re-org watcher's speculative anchorings:
+	// everything the daemon has staked on chain outcomes, the phase the
+	// chain has assigned to each stake, and the delivery state of the
+	// owning subsystem.
+	ListAnchorings(context.Context, *ListAnchoringsRequest) (*ListAnchoringsResponse, error)
 	// tapcli: `stop`
 	// StopDaemon will send a shutdown request to the interrupt handler, triggering
 	// a graceful shutdown of the daemon.
@@ -547,6 +568,9 @@ func (UnimplementedTaprootAssetsServer) ListBalances(context.Context, *ListBalan
 }
 func (UnimplementedTaprootAssetsServer) ListTransfers(context.Context, *ListTransfersRequest) (*ListTransfersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListTransfers not implemented")
+}
+func (UnimplementedTaprootAssetsServer) ListAnchorings(context.Context, *ListAnchoringsRequest) (*ListAnchoringsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAnchorings not implemented")
 }
 func (UnimplementedTaprootAssetsServer) StopDaemon(context.Context, *StopRequest) (*StopResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopDaemon not implemented")
@@ -722,6 +746,24 @@ func _TaprootAssets_ListTransfers_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TaprootAssetsServer).ListTransfers(ctx, req.(*ListTransfersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TaprootAssets_ListAnchorings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAnchoringsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetsServer).ListAnchorings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/taprpc.TaprootAssets/ListAnchorings",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetsServer).ListAnchorings(ctx, req.(*ListAnchoringsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1104,6 +1146,10 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListTransfers",
 			Handler:    _TaprootAssets_ListTransfers_Handler,
+		},
+		{
+			MethodName: "ListAnchorings",
+			Handler:    _TaprootAssets_ListAnchorings_Handler,
 		},
 		{
 			MethodName: "StopDaemon",

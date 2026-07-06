@@ -7487,6 +7487,306 @@ func (x *BakeMacaroonResponse) GetMacaroon() string {
 	return ""
 }
 
+type ListAnchoringsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Only return anchorings registered by this site, when set.
+	Site string `protobuf:"bytes,1,opt,name=site,proto3" json:"site,omitempty"`
+	// Only return anchorings whose sensed phase has exactly this
+	// name, when set: one of unwitnessed, witnessed, conflicted,
+	// buried, abandoned, withdrawn. Any other value is an error.
+	Phase string `protobuf:"bytes,2,opt,name=phase,proto3" json:"phase,omitempty"`
+	// Only return anchorings whose delivery is flagged stuck.
+	StuckOnly bool `protobuf:"varint,3,opt,name=stuck_only,json=stuckOnly,proto3" json:"stuck_only,omitempty"`
+	// The maximum number of anchorings to return; at most 1000 per
+	// page. Zero requests the default page size of 100.
+	Limit int32 `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	// The number of matching anchorings to skip, for paging.
+	Offset        int32 `protobuf:"varint,5,opt,name=offset,proto3" json:"offset,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAnchoringsRequest) Reset() {
+	*x = ListAnchoringsRequest{}
+	mi := &file_taprootassets_proto_msgTypes[88]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAnchoringsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAnchoringsRequest) ProtoMessage() {}
+
+func (x *ListAnchoringsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_taprootassets_proto_msgTypes[88]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAnchoringsRequest.ProtoReflect.Descriptor instead.
+func (*ListAnchoringsRequest) Descriptor() ([]byte, []int) {
+	return file_taprootassets_proto_rawDescGZIP(), []int{88}
+}
+
+func (x *ListAnchoringsRequest) GetSite() string {
+	if x != nil {
+		return x.Site
+	}
+	return ""
+}
+
+func (x *ListAnchoringsRequest) GetPhase() string {
+	if x != nil {
+		return x.Phase
+	}
+	return ""
+}
+
+func (x *ListAnchoringsRequest) GetStuckOnly() bool {
+	if x != nil {
+		return x.StuckOnly
+	}
+	return false
+}
+
+func (x *ListAnchoringsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListAnchoringsRequest) GetOffset() int32 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+type ListAnchoringsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The matching anchorings.
+	Anchorings    []*Anchoring `protobuf:"bytes,1,rep,name=anchorings,proto3" json:"anchorings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAnchoringsResponse) Reset() {
+	*x = ListAnchoringsResponse{}
+	mi := &file_taprootassets_proto_msgTypes[89]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAnchoringsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAnchoringsResponse) ProtoMessage() {}
+
+func (x *ListAnchoringsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_taprootassets_proto_msgTypes[89]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAnchoringsResponse.ProtoReflect.Descriptor instead.
+func (*ListAnchoringsResponse) Descriptor() ([]byte, []int) {
+	return file_taprootassets_proto_rawDescGZIP(), []int{89}
+}
+
+func (x *ListAnchoringsResponse) GetAnchorings() []*Anchoring {
+	if x != nil {
+		return x.Anchorings
+	}
+	return nil
+}
+
+type Anchoring struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The registry-assigned identifier.
+	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The owning site.
+	Site string `protobuf:"bytes,2,opt,name=site,proto3" json:"site,omitempty"`
+	// The sensed phase: the registry's derived truth. One of
+	// unwitnessed, witnessed, conflicted, buried, abandoned,
+	// withdrawn — the same vocabulary the request's phase filter
+	// takes, so a listed value filters verbatim.
+	Phase string `protobuf:"bytes,3,opt,name=phase,proto3" json:"phase,omitempty"`
+	// The phase the owning site last durably acknowledged, in the
+	// same vocabulary as phase. The site is converged when this
+	// equals the sensed phase.
+	DeliveredPhase string `protobuf:"bytes,4,opt,name=delivered_phase,json=deliveredPhase,proto3" json:"delivered_phase,omitempty"`
+	// The confirmation depth at which this anchoring is
+	// act-confirmed.
+	Threshold uint32 `protobuf:"varint,5,opt,name=threshold,proto3" json:"threshold,omitempty"`
+	// The best height at registration time.
+	CreatedHeight uint32 `protobuf:"varint,6,opt,name=created_height,json=createdHeight,proto3" json:"created_height,omitempty"`
+	// Whether delivery has failed repeatedly; retries continue
+	// regardless.
+	Stuck bool `protobuf:"varint,7,opt,name=stuck,proto3" json:"stuck,omitempty"`
+	// Failed delivery attempts since the last successful delivery.
+	DeliveryAttempts uint32 `protobuf:"varint,8,opt,name=delivery_attempts,json=deliveryAttempts,proto3" json:"delivery_attempts,omitempty"`
+	// The current witness transaction, when witnessed or buried.
+	WitnessTxid []byte `protobuf:"bytes,9,opt,name=witness_txid,json=witnessTxid,proto3" json:"witness_txid,omitempty"`
+	// The number of candidate spends observed for the trigger set.
+	NumCandidates uint32 `protobuf:"varint,10,opt,name=num_candidates,json=numCandidates,proto3" json:"num_candidates,omitempty"`
+	// The sensed phase with its evidence summarized, human-readable.
+	PhaseDetail string `protobuf:"bytes,11,opt,name=phase_detail,json=phaseDetail,proto3" json:"phase_detail,omitempty"`
+	// The delivered phase with its evidence summarized.
+	DeliveredPhaseDetail string `protobuf:"bytes,12,opt,name=delivered_phase_detail,json=deliveredPhaseDetail,proto3" json:"delivered_phase_detail,omitempty"`
+	// The error text of the most recent failed delivery attempt;
+	// empty after a successful delivery.
+	LastDeliveryError string `protobuf:"bytes,13,opt,name=last_delivery_error,json=lastDeliveryError,proto3" json:"last_delivery_error,omitempty"`
+	// The unix time the terminal phase was delivered; zero while
+	// live.
+	TerminalAt    int64 `protobuf:"varint,14,opt,name=terminal_at,json=terminalAt,proto3" json:"terminal_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Anchoring) Reset() {
+	*x = Anchoring{}
+	mi := &file_taprootassets_proto_msgTypes[90]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Anchoring) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Anchoring) ProtoMessage() {}
+
+func (x *Anchoring) ProtoReflect() protoreflect.Message {
+	mi := &file_taprootassets_proto_msgTypes[90]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Anchoring.ProtoReflect.Descriptor instead.
+func (*Anchoring) Descriptor() ([]byte, []int) {
+	return file_taprootassets_proto_rawDescGZIP(), []int{90}
+}
+
+func (x *Anchoring) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *Anchoring) GetSite() string {
+	if x != nil {
+		return x.Site
+	}
+	return ""
+}
+
+func (x *Anchoring) GetPhase() string {
+	if x != nil {
+		return x.Phase
+	}
+	return ""
+}
+
+func (x *Anchoring) GetDeliveredPhase() string {
+	if x != nil {
+		return x.DeliveredPhase
+	}
+	return ""
+}
+
+func (x *Anchoring) GetThreshold() uint32 {
+	if x != nil {
+		return x.Threshold
+	}
+	return 0
+}
+
+func (x *Anchoring) GetCreatedHeight() uint32 {
+	if x != nil {
+		return x.CreatedHeight
+	}
+	return 0
+}
+
+func (x *Anchoring) GetStuck() bool {
+	if x != nil {
+		return x.Stuck
+	}
+	return false
+}
+
+func (x *Anchoring) GetDeliveryAttempts() uint32 {
+	if x != nil {
+		return x.DeliveryAttempts
+	}
+	return 0
+}
+
+func (x *Anchoring) GetWitnessTxid() []byte {
+	if x != nil {
+		return x.WitnessTxid
+	}
+	return nil
+}
+
+func (x *Anchoring) GetNumCandidates() uint32 {
+	if x != nil {
+		return x.NumCandidates
+	}
+	return 0
+}
+
+func (x *Anchoring) GetPhaseDetail() string {
+	if x != nil {
+		return x.PhaseDetail
+	}
+	return ""
+}
+
+func (x *Anchoring) GetDeliveredPhaseDetail() string {
+	if x != nil {
+		return x.DeliveredPhaseDetail
+	}
+	return ""
+}
+
+func (x *Anchoring) GetLastDeliveryError() string {
+	if x != nil {
+		return x.LastDeliveryError
+	}
+	return ""
+}
+
+func (x *Anchoring) GetTerminalAt() int64 {
+	if x != nil {
+		return x.TerminalAt
+	}
+	return 0
+}
+
 var File_taprootassets_proto protoreflect.FileDescriptor
 
 const file_taprootassets_proto_rawDesc = "" +
@@ -8012,7 +8312,35 @@ const file_taprootassets_proto_rawDesc = "" +
 	"\vroot_key_id\x18\x02 \x01(\x04R\trootKeyId\x12<\n" +
 	"\x1aallow_external_permissions\x18\x03 \x01(\bR\x18allowExternalPermissions\"2\n" +
 	"\x14BakeMacaroonResponse\x12\x1a\n" +
-	"\bmacaroon\x18\x01 \x01(\tR\bmacaroon*(\n" +
+	"\bmacaroon\x18\x01 \x01(\tR\bmacaroon\"\x8e\x01\n" +
+	"\x15ListAnchoringsRequest\x12\x12\n" +
+	"\x04site\x18\x01 \x01(\tR\x04site\x12\x14\n" +
+	"\x05phase\x18\x02 \x01(\tR\x05phase\x12\x1d\n" +
+	"\n" +
+	"stuck_only\x18\x03 \x01(\bR\tstuckOnly\x12\x14\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06offset\x18\x05 \x01(\x05R\x06offset\"K\n" +
+	"\x16ListAnchoringsResponse\x121\n" +
+	"\n" +
+	"anchorings\x18\x01 \x03(\v2\x11.taprpc.AnchoringR\n" +
+	"anchorings\"\xea\x03\n" +
+	"\tAnchoring\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04site\x18\x02 \x01(\tR\x04site\x12\x14\n" +
+	"\x05phase\x18\x03 \x01(\tR\x05phase\x12'\n" +
+	"\x0fdelivered_phase\x18\x04 \x01(\tR\x0edeliveredPhase\x12\x1c\n" +
+	"\tthreshold\x18\x05 \x01(\rR\tthreshold\x12%\n" +
+	"\x0ecreated_height\x18\x06 \x01(\rR\rcreatedHeight\x12\x14\n" +
+	"\x05stuck\x18\a \x01(\bR\x05stuck\x12+\n" +
+	"\x11delivery_attempts\x18\b \x01(\rR\x10deliveryAttempts\x12!\n" +
+	"\fwitness_txid\x18\t \x01(\fR\vwitnessTxid\x12%\n" +
+	"\x0enum_candidates\x18\n" +
+	" \x01(\rR\rnumCandidates\x12!\n" +
+	"\fphase_detail\x18\v \x01(\tR\vphaseDetail\x124\n" +
+	"\x16delivered_phase_detail\x18\f \x01(\tR\x14deliveredPhaseDetail\x12.\n" +
+	"\x13last_delivery_error\x18\r \x01(\tR\x11lastDeliveryError\x12\x1f\n" +
+	"\vterminal_at\x18\x0e \x01(\x03R\n" +
+	"terminalAt*(\n" +
 	"\tAssetType\x12\n" +
 	"\n" +
 	"\x06NORMAL\x10\x00\x12\x0f\n" +
@@ -8065,7 +8393,7 @@ const file_taprootassets_proto_rawDesc = "" +
 	"\x13PARCEL_TYPE_ADDRESS\x10\x00\x12\x1a\n" +
 	"\x16PARCEL_TYPE_PRE_SIGNED\x10\x01\x12\x17\n" +
 	"\x13PARCEL_TYPE_PENDING\x10\x02\x12\x1c\n" +
-	"\x18PARCEL_TYPE_PRE_ANCHORED\x10\x032\xe2\r\n" +
+	"\x18PARCEL_TYPE_PRE_ANCHORED\x10\x032\xb3\x0e\n" +
 	"\rTaprootAssets\x12A\n" +
 	"\n" +
 	"ListAssets\x12\x18.taprpc.ListAssetRequest\x1a\x19.taprpc.ListAssetResponse\x12C\n" +
@@ -8075,7 +8403,8 @@ const file_taprootassets_proto_rawDesc = "" +
 	"\n" +
 	"ListGroups\x12\x19.taprpc.ListGroupsRequest\x1a\x1a.taprpc.ListGroupsResponse\x12I\n" +
 	"\fListBalances\x12\x1b.taprpc.ListBalancesRequest\x1a\x1c.taprpc.ListBalancesResponse\x12L\n" +
-	"\rListTransfers\x12\x1c.taprpc.ListTransfersRequest\x1a\x1d.taprpc.ListTransfersResponse\x127\n" +
+	"\rListTransfers\x12\x1c.taprpc.ListTransfersRequest\x1a\x1d.taprpc.ListTransfersResponse\x12O\n" +
+	"\x0eListAnchorings\x12\x1d.taprpc.ListAnchoringsRequest\x1a\x1e.taprpc.ListAnchoringsResponse\x127\n" +
 	"\n" +
 	"StopDaemon\x12\x13.taprpc.StopRequest\x1a\x14.taprpc.StopResponse\x12C\n" +
 	"\n" +
@@ -8113,7 +8442,7 @@ func file_taprootassets_proto_rawDescGZIP() []byte {
 }
 
 var file_taprootassets_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
-var file_taprootassets_proto_msgTypes = make([]protoimpl.MessageInfo, 93)
+var file_taprootassets_proto_msgTypes = make([]protoimpl.MessageInfo, 96)
 var file_taprootassets_proto_goTypes = []any{
 	(AssetType)(0),                        // 0: taprpc.AssetType
 	(AssetMetaType)(0),                    // 1: taprpc.AssetMetaType
@@ -8213,13 +8542,16 @@ var file_taprootassets_proto_goTypes = []any{
 	(*MacaroonPermission)(nil),            // 95: taprpc.MacaroonPermission
 	(*BakeMacaroonRequest)(nil),           // 96: taprpc.BakeMacaroonRequest
 	(*BakeMacaroonResponse)(nil),          // 97: taprpc.BakeMacaroonResponse
-	nil,                                   // 98: taprpc.ListUtxosResponse.ManagedUtxosEntry
-	nil,                                   // 99: taprpc.ListGroupsResponse.GroupsEntry
-	nil,                                   // 100: taprpc.ListBalancesResponse.AssetBalancesEntry
-	nil,                                   // 101: taprpc.ListBalancesResponse.AssetGroupBalancesEntry
-	nil,                                   // 102: taprpc.FetchAssetMetaResponse.UnknownOddTypesEntry
-	(*OutPoint)(nil),                      // 103: taprpc.OutPoint
-	(SortDirection)(0),                    // 104: taprpc.SortDirection
+	(*ListAnchoringsRequest)(nil),         // 98: taprpc.ListAnchoringsRequest
+	(*ListAnchoringsResponse)(nil),        // 99: taprpc.ListAnchoringsResponse
+	(*Anchoring)(nil),                     // 100: taprpc.Anchoring
+	nil,                                   // 101: taprpc.ListUtxosResponse.ManagedUtxosEntry
+	nil,                                   // 102: taprpc.ListGroupsResponse.GroupsEntry
+	nil,                                   // 103: taprpc.ListBalancesResponse.AssetBalancesEntry
+	nil,                                   // 104: taprpc.ListBalancesResponse.AssetGroupBalancesEntry
+	nil,                                   // 105: taprpc.FetchAssetMetaResponse.UnknownOddTypesEntry
+	(*OutPoint)(nil),                      // 106: taprpc.OutPoint
+	(SortDirection)(0),                    // 107: taprpc.SortDirection
 }
 var file_taprootassets_proto_depIdxs = []int32{
 	1,   // 0: taprpc.AssetMeta.type:type_name -> taprpc.AssetMetaType
@@ -8227,9 +8559,9 @@ var file_taprootassets_proto_depIdxs = []int32{
 	56,  // 2: taprpc.FetchAssetRequest.script_key_type:type_name -> taprpc.ScriptKeyTypeQuery
 	26,  // 3: taprpc.FetchAssetResponse.assets:type_name -> taprpc.Asset
 	57,  // 4: taprpc.ListAssetRequest.script_key:type_name -> taprpc.ScriptKey
-	103, // 5: taprpc.ListAssetRequest.anchor_outpoint:type_name -> taprpc.OutPoint
+	106, // 5: taprpc.ListAssetRequest.anchor_outpoint:type_name -> taprpc.OutPoint
 	56,  // 6: taprpc.ListAssetRequest.script_key_type:type_name -> taprpc.ScriptKeyTypeQuery
-	104, // 7: taprpc.ListAssetRequest.direction:type_name -> taprpc.SortDirection
+	107, // 7: taprpc.ListAssetRequest.direction:type_name -> taprpc.SortDirection
 	0,   // 8: taprpc.GenesisInfo.asset_type:type_name -> taprpc.AssetType
 	59,  // 9: taprpc.GroupKeyRequest.raw_key:type_name -> taprpc.KeyDescriptor
 	16,  // 10: taprpc.GroupKeyRequest.anchor_genesis:type_name -> taprpc.GenesisInfo
@@ -8249,15 +8581,15 @@ var file_taprootassets_proto_depIdxs = []int32{
 	26,  // 24: taprpc.ListAssetResponse.assets:type_name -> taprpc.Asset
 	56,  // 25: taprpc.ListUtxosRequest.script_key_type:type_name -> taprpc.ScriptKeyTypeQuery
 	26,  // 26: taprpc.ManagedUtxo.assets:type_name -> taprpc.Asset
-	98,  // 27: taprpc.ListUtxosResponse.managed_utxos:type_name -> taprpc.ListUtxosResponse.ManagedUtxosEntry
+	101, // 27: taprpc.ListUtxosResponse.managed_utxos:type_name -> taprpc.ListUtxosResponse.ManagedUtxosEntry
 	0,   // 28: taprpc.AssetHumanReadable.type:type_name -> taprpc.AssetType
 	2,   // 29: taprpc.AssetHumanReadable.version:type_name -> taprpc.AssetVersion
 	34,  // 30: taprpc.GroupedAssets.assets:type_name -> taprpc.AssetHumanReadable
-	99,  // 31: taprpc.ListGroupsResponse.groups:type_name -> taprpc.ListGroupsResponse.GroupsEntry
+	102, // 31: taprpc.ListGroupsResponse.groups:type_name -> taprpc.ListGroupsResponse.GroupsEntry
 	56,  // 32: taprpc.ListBalancesRequest.script_key_type:type_name -> taprpc.ScriptKeyTypeQuery
 	16,  // 33: taprpc.AssetBalance.asset_genesis:type_name -> taprpc.GenesisInfo
-	100, // 34: taprpc.ListBalancesResponse.asset_balances:type_name -> taprpc.ListBalancesResponse.AssetBalancesEntry
-	101, // 35: taprpc.ListBalancesResponse.asset_group_balances:type_name -> taprpc.ListBalancesResponse.AssetGroupBalancesEntry
+	103, // 34: taprpc.ListBalancesResponse.asset_balances:type_name -> taprpc.ListBalancesResponse.AssetBalancesEntry
+	104, // 35: taprpc.ListBalancesResponse.asset_group_balances:type_name -> taprpc.ListBalancesResponse.AssetGroupBalancesEntry
 	44,  // 36: taprpc.ListTransfersResponse.transfers:type_name -> taprpc.AssetTransfer
 	45,  // 37: taprpc.AssetTransfer.inputs:type_name -> taprpc.TransferInput
 	47,  // 38: taprpc.AssetTransfer.outputs:type_name -> taprpc.TransferOutput
@@ -8287,16 +8619,16 @@ var file_taprootassets_proto_depIdxs = []int32{
 	23,  // 62: taprpc.DecodedProof.group_key_reveal:type_name -> taprpc.GroupKeyReveal
 	65,  // 63: taprpc.VerifyProofResponse.decoded_proof:type_name -> taprpc.DecodedProof
 	65,  // 64: taprpc.DecodeProofResponse.decoded_proof:type_name -> taprpc.DecodedProof
-	103, // 65: taprpc.ExportProofRequest.outpoint:type_name -> taprpc.OutPoint
+	106, // 65: taprpc.ExportProofRequest.outpoint:type_name -> taprpc.OutPoint
 	52,  // 66: taprpc.AddrEvent.addr:type_name -> taprpc.Addr
 	7,   // 67: taprpc.AddrEvent.status:type_name -> taprpc.AddrEventStatus
 	7,   // 68: taprpc.AddrReceivesRequest.filter_status:type_name -> taprpc.AddrEventStatus
-	104, // 69: taprpc.AddrReceivesRequest.direction:type_name -> taprpc.SortDirection
+	107, // 69: taprpc.AddrReceivesRequest.direction:type_name -> taprpc.SortDirection
 	72,  // 70: taprpc.AddrReceivesResponse.events:type_name -> taprpc.AddrEvent
 	76,  // 71: taprpc.SendAssetRequest.addresses_with_amounts:type_name -> taprpc.AddressWithAmount
 	44,  // 72: taprpc.SendAssetResponse.transfer:type_name -> taprpc.AssetTransfer
 	1,   // 73: taprpc.FetchAssetMetaResponse.type:type_name -> taprpc.AssetMetaType
-	102, // 74: taprpc.FetchAssetMetaResponse.unknown_odd_types:type_name -> taprpc.FetchAssetMetaResponse.UnknownOddTypesEntry
+	105, // 74: taprpc.FetchAssetMetaResponse.unknown_odd_types:type_name -> taprpc.FetchAssetMetaResponse.UnknownOddTypesEntry
 	11,  // 75: taprpc.BurnAssetRequest.asset_specifier:type_name -> taprpc.AssetSpecifier
 	44,  // 76: taprpc.BurnAssetResponse.burn_transfer:type_name -> taprpc.AssetTransfer
 	65,  // 77: taprpc.BurnAssetResponse.burn_proof:type_name -> taprpc.DecodedProof
@@ -8309,69 +8641,72 @@ var file_taprootassets_proto_depIdxs = []int32{
 	52,  // 84: taprpc.SendEvent.addresses:type_name -> taprpc.Addr
 	92,  // 85: taprpc.SendEvent.anchor_transaction:type_name -> taprpc.AnchorTransaction
 	44,  // 86: taprpc.SendEvent.transfer:type_name -> taprpc.AssetTransfer
-	103, // 87: taprpc.AnchorTransaction.lnd_locked_utxos:type_name -> taprpc.OutPoint
-	103, // 88: taprpc.RegisterTransferRequest.outpoint:type_name -> taprpc.OutPoint
+	106, // 87: taprpc.AnchorTransaction.lnd_locked_utxos:type_name -> taprpc.OutPoint
+	106, // 88: taprpc.RegisterTransferRequest.outpoint:type_name -> taprpc.OutPoint
 	26,  // 89: taprpc.RegisterTransferResponse.registered_asset:type_name -> taprpc.Asset
 	95,  // 90: taprpc.BakeMacaroonRequest.permissions:type_name -> taprpc.MacaroonPermission
-	31,  // 91: taprpc.ListUtxosResponse.ManagedUtxosEntry.value:type_name -> taprpc.ManagedUtxo
-	35,  // 92: taprpc.ListGroupsResponse.GroupsEntry.value:type_name -> taprpc.GroupedAssets
-	38,  // 93: taprpc.ListBalancesResponse.AssetBalancesEntry.value:type_name -> taprpc.AssetBalance
-	39,  // 94: taprpc.ListBalancesResponse.AssetGroupBalancesEntry.value:type_name -> taprpc.AssetGroupBalance
-	14,  // 95: taprpc.TaprootAssets.ListAssets:input_type -> taprpc.ListAssetRequest
-	12,  // 96: taprpc.TaprootAssets.FetchAsset:input_type -> taprpc.FetchAssetRequest
-	30,  // 97: taprpc.TaprootAssets.ListUtxos:input_type -> taprpc.ListUtxosRequest
-	33,  // 98: taprpc.TaprootAssets.ListGroups:input_type -> taprpc.ListGroupsRequest
-	37,  // 99: taprpc.TaprootAssets.ListBalances:input_type -> taprpc.ListBalancesRequest
-	41,  // 100: taprpc.TaprootAssets.ListTransfers:input_type -> taprpc.ListTransfersRequest
-	48,  // 101: taprpc.TaprootAssets.StopDaemon:input_type -> taprpc.StopRequest
-	50,  // 102: taprpc.TaprootAssets.DebugLevel:input_type -> taprpc.DebugLevelRequest
-	53,  // 103: taprpc.TaprootAssets.QueryAddrs:input_type -> taprpc.QueryAddrRequest
-	55,  // 104: taprpc.TaprootAssets.NewAddr:input_type -> taprpc.NewAddrRequest
-	63,  // 105: taprpc.TaprootAssets.DecodeAddr:input_type -> taprpc.DecodeAddrRequest
-	73,  // 106: taprpc.TaprootAssets.AddrReceives:input_type -> taprpc.AddrReceivesRequest
-	64,  // 107: taprpc.TaprootAssets.VerifyProof:input_type -> taprpc.ProofFile
-	67,  // 108: taprpc.TaprootAssets.DecodeProof:input_type -> taprpc.DecodeProofRequest
-	69,  // 109: taprpc.TaprootAssets.ExportProof:input_type -> taprpc.ExportProofRequest
-	70,  // 110: taprpc.TaprootAssets.UnpackProofFile:input_type -> taprpc.UnpackProofFileRequest
-	75,  // 111: taprpc.TaprootAssets.SendAsset:input_type -> taprpc.SendAssetRequest
-	83,  // 112: taprpc.TaprootAssets.BurnAsset:input_type -> taprpc.BurnAssetRequest
-	85,  // 113: taprpc.TaprootAssets.ListBurns:input_type -> taprpc.ListBurnsRequest
-	79,  // 114: taprpc.TaprootAssets.GetInfo:input_type -> taprpc.GetInfoRequest
-	96,  // 115: taprpc.TaprootAssets.BakeMacaroon:input_type -> taprpc.BakeMacaroonRequest
-	81,  // 116: taprpc.TaprootAssets.FetchAssetMeta:input_type -> taprpc.FetchAssetMetaRequest
-	88,  // 117: taprpc.TaprootAssets.SubscribeReceiveEvents:input_type -> taprpc.SubscribeReceiveEventsRequest
-	90,  // 118: taprpc.TaprootAssets.SubscribeSendEvents:input_type -> taprpc.SubscribeSendEventsRequest
-	93,  // 119: taprpc.TaprootAssets.RegisterTransfer:input_type -> taprpc.RegisterTransferRequest
-	29,  // 120: taprpc.TaprootAssets.ListAssets:output_type -> taprpc.ListAssetResponse
-	13,  // 121: taprpc.TaprootAssets.FetchAsset:output_type -> taprpc.FetchAssetResponse
-	32,  // 122: taprpc.TaprootAssets.ListUtxos:output_type -> taprpc.ListUtxosResponse
-	36,  // 123: taprpc.TaprootAssets.ListGroups:output_type -> taprpc.ListGroupsResponse
-	40,  // 124: taprpc.TaprootAssets.ListBalances:output_type -> taprpc.ListBalancesResponse
-	42,  // 125: taprpc.TaprootAssets.ListTransfers:output_type -> taprpc.ListTransfersResponse
-	49,  // 126: taprpc.TaprootAssets.StopDaemon:output_type -> taprpc.StopResponse
-	51,  // 127: taprpc.TaprootAssets.DebugLevel:output_type -> taprpc.DebugLevelResponse
-	54,  // 128: taprpc.TaprootAssets.QueryAddrs:output_type -> taprpc.QueryAddrResponse
-	52,  // 129: taprpc.TaprootAssets.NewAddr:output_type -> taprpc.Addr
-	52,  // 130: taprpc.TaprootAssets.DecodeAddr:output_type -> taprpc.Addr
-	74,  // 131: taprpc.TaprootAssets.AddrReceives:output_type -> taprpc.AddrReceivesResponse
-	66,  // 132: taprpc.TaprootAssets.VerifyProof:output_type -> taprpc.VerifyProofResponse
-	68,  // 133: taprpc.TaprootAssets.DecodeProof:output_type -> taprpc.DecodeProofResponse
-	64,  // 134: taprpc.TaprootAssets.ExportProof:output_type -> taprpc.ProofFile
-	71,  // 135: taprpc.TaprootAssets.UnpackProofFile:output_type -> taprpc.UnpackProofFileResponse
-	78,  // 136: taprpc.TaprootAssets.SendAsset:output_type -> taprpc.SendAssetResponse
-	84,  // 137: taprpc.TaprootAssets.BurnAsset:output_type -> taprpc.BurnAssetResponse
-	87,  // 138: taprpc.TaprootAssets.ListBurns:output_type -> taprpc.ListBurnsResponse
-	80,  // 139: taprpc.TaprootAssets.GetInfo:output_type -> taprpc.GetInfoResponse
-	97,  // 140: taprpc.TaprootAssets.BakeMacaroon:output_type -> taprpc.BakeMacaroonResponse
-	82,  // 141: taprpc.TaprootAssets.FetchAssetMeta:output_type -> taprpc.FetchAssetMetaResponse
-	89,  // 142: taprpc.TaprootAssets.SubscribeReceiveEvents:output_type -> taprpc.ReceiveEvent
-	91,  // 143: taprpc.TaprootAssets.SubscribeSendEvents:output_type -> taprpc.SendEvent
-	94,  // 144: taprpc.TaprootAssets.RegisterTransfer:output_type -> taprpc.RegisterTransferResponse
-	120, // [120:145] is the sub-list for method output_type
-	95,  // [95:120] is the sub-list for method input_type
-	95,  // [95:95] is the sub-list for extension type_name
-	95,  // [95:95] is the sub-list for extension extendee
-	0,   // [0:95] is the sub-list for field type_name
+	100, // 91: taprpc.ListAnchoringsResponse.anchorings:type_name -> taprpc.Anchoring
+	31,  // 92: taprpc.ListUtxosResponse.ManagedUtxosEntry.value:type_name -> taprpc.ManagedUtxo
+	35,  // 93: taprpc.ListGroupsResponse.GroupsEntry.value:type_name -> taprpc.GroupedAssets
+	38,  // 94: taprpc.ListBalancesResponse.AssetBalancesEntry.value:type_name -> taprpc.AssetBalance
+	39,  // 95: taprpc.ListBalancesResponse.AssetGroupBalancesEntry.value:type_name -> taprpc.AssetGroupBalance
+	14,  // 96: taprpc.TaprootAssets.ListAssets:input_type -> taprpc.ListAssetRequest
+	12,  // 97: taprpc.TaprootAssets.FetchAsset:input_type -> taprpc.FetchAssetRequest
+	30,  // 98: taprpc.TaprootAssets.ListUtxos:input_type -> taprpc.ListUtxosRequest
+	33,  // 99: taprpc.TaprootAssets.ListGroups:input_type -> taprpc.ListGroupsRequest
+	37,  // 100: taprpc.TaprootAssets.ListBalances:input_type -> taprpc.ListBalancesRequest
+	41,  // 101: taprpc.TaprootAssets.ListTransfers:input_type -> taprpc.ListTransfersRequest
+	98,  // 102: taprpc.TaprootAssets.ListAnchorings:input_type -> taprpc.ListAnchoringsRequest
+	48,  // 103: taprpc.TaprootAssets.StopDaemon:input_type -> taprpc.StopRequest
+	50,  // 104: taprpc.TaprootAssets.DebugLevel:input_type -> taprpc.DebugLevelRequest
+	53,  // 105: taprpc.TaprootAssets.QueryAddrs:input_type -> taprpc.QueryAddrRequest
+	55,  // 106: taprpc.TaprootAssets.NewAddr:input_type -> taprpc.NewAddrRequest
+	63,  // 107: taprpc.TaprootAssets.DecodeAddr:input_type -> taprpc.DecodeAddrRequest
+	73,  // 108: taprpc.TaprootAssets.AddrReceives:input_type -> taprpc.AddrReceivesRequest
+	64,  // 109: taprpc.TaprootAssets.VerifyProof:input_type -> taprpc.ProofFile
+	67,  // 110: taprpc.TaprootAssets.DecodeProof:input_type -> taprpc.DecodeProofRequest
+	69,  // 111: taprpc.TaprootAssets.ExportProof:input_type -> taprpc.ExportProofRequest
+	70,  // 112: taprpc.TaprootAssets.UnpackProofFile:input_type -> taprpc.UnpackProofFileRequest
+	75,  // 113: taprpc.TaprootAssets.SendAsset:input_type -> taprpc.SendAssetRequest
+	83,  // 114: taprpc.TaprootAssets.BurnAsset:input_type -> taprpc.BurnAssetRequest
+	85,  // 115: taprpc.TaprootAssets.ListBurns:input_type -> taprpc.ListBurnsRequest
+	79,  // 116: taprpc.TaprootAssets.GetInfo:input_type -> taprpc.GetInfoRequest
+	96,  // 117: taprpc.TaprootAssets.BakeMacaroon:input_type -> taprpc.BakeMacaroonRequest
+	81,  // 118: taprpc.TaprootAssets.FetchAssetMeta:input_type -> taprpc.FetchAssetMetaRequest
+	88,  // 119: taprpc.TaprootAssets.SubscribeReceiveEvents:input_type -> taprpc.SubscribeReceiveEventsRequest
+	90,  // 120: taprpc.TaprootAssets.SubscribeSendEvents:input_type -> taprpc.SubscribeSendEventsRequest
+	93,  // 121: taprpc.TaprootAssets.RegisterTransfer:input_type -> taprpc.RegisterTransferRequest
+	29,  // 122: taprpc.TaprootAssets.ListAssets:output_type -> taprpc.ListAssetResponse
+	13,  // 123: taprpc.TaprootAssets.FetchAsset:output_type -> taprpc.FetchAssetResponse
+	32,  // 124: taprpc.TaprootAssets.ListUtxos:output_type -> taprpc.ListUtxosResponse
+	36,  // 125: taprpc.TaprootAssets.ListGroups:output_type -> taprpc.ListGroupsResponse
+	40,  // 126: taprpc.TaprootAssets.ListBalances:output_type -> taprpc.ListBalancesResponse
+	42,  // 127: taprpc.TaprootAssets.ListTransfers:output_type -> taprpc.ListTransfersResponse
+	99,  // 128: taprpc.TaprootAssets.ListAnchorings:output_type -> taprpc.ListAnchoringsResponse
+	49,  // 129: taprpc.TaprootAssets.StopDaemon:output_type -> taprpc.StopResponse
+	51,  // 130: taprpc.TaprootAssets.DebugLevel:output_type -> taprpc.DebugLevelResponse
+	54,  // 131: taprpc.TaprootAssets.QueryAddrs:output_type -> taprpc.QueryAddrResponse
+	52,  // 132: taprpc.TaprootAssets.NewAddr:output_type -> taprpc.Addr
+	52,  // 133: taprpc.TaprootAssets.DecodeAddr:output_type -> taprpc.Addr
+	74,  // 134: taprpc.TaprootAssets.AddrReceives:output_type -> taprpc.AddrReceivesResponse
+	66,  // 135: taprpc.TaprootAssets.VerifyProof:output_type -> taprpc.VerifyProofResponse
+	68,  // 136: taprpc.TaprootAssets.DecodeProof:output_type -> taprpc.DecodeProofResponse
+	64,  // 137: taprpc.TaprootAssets.ExportProof:output_type -> taprpc.ProofFile
+	71,  // 138: taprpc.TaprootAssets.UnpackProofFile:output_type -> taprpc.UnpackProofFileResponse
+	78,  // 139: taprpc.TaprootAssets.SendAsset:output_type -> taprpc.SendAssetResponse
+	84,  // 140: taprpc.TaprootAssets.BurnAsset:output_type -> taprpc.BurnAssetResponse
+	87,  // 141: taprpc.TaprootAssets.ListBurns:output_type -> taprpc.ListBurnsResponse
+	80,  // 142: taprpc.TaprootAssets.GetInfo:output_type -> taprpc.GetInfoResponse
+	97,  // 143: taprpc.TaprootAssets.BakeMacaroon:output_type -> taprpc.BakeMacaroonResponse
+	82,  // 144: taprpc.TaprootAssets.FetchAssetMeta:output_type -> taprpc.FetchAssetMetaResponse
+	89,  // 145: taprpc.TaprootAssets.SubscribeReceiveEvents:output_type -> taprpc.ReceiveEvent
+	91,  // 146: taprpc.TaprootAssets.SubscribeSendEvents:output_type -> taprpc.SendEvent
+	94,  // 147: taprpc.TaprootAssets.RegisterTransfer:output_type -> taprpc.RegisterTransferResponse
+	122, // [122:148] is the sub-list for method output_type
+	96,  // [96:122] is the sub-list for method input_type
+	96,  // [96:96] is the sub-list for extension type_name
+	96,  // [96:96] is the sub-list for extension extendee
+	0,   // [0:96] is the sub-list for field type_name
 }
 
 func init() { file_taprootassets_proto_init() }
@@ -8410,7 +8745,7 @@ func file_taprootassets_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_taprootassets_proto_rawDesc), len(file_taprootassets_proto_rawDesc)),
 			NumEnums:      10,
-			NumMessages:   93,
+			NumMessages:   96,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

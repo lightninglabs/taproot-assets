@@ -30,6 +30,61 @@ func (q *Queries) ClearReorgDependencyForeclosure(ctx context.Context, arg Clear
 	return err
 }
 
+const CountLaggingReorgAnchorings = `-- name: CountLaggingReorgAnchorings :one
+SELECT COUNT(*)
+FROM reorg_anchorings
+WHERE phase_code != delivered_code
+   OR phase_evidence != delivered_evidence
+`
+
+// Over ALL anchorings, terminal included; see
+// CountStuckReorgAnchorings.
+func (q *Queries) CountLaggingReorgAnchorings(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, CountLaggingReorgAnchorings)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const CountLiveReorgAnchoringsByPhase = `-- name: CountLiveReorgAnchoringsByPhase :many
+SELECT site_id, phase_code, COUNT(*) AS num_anchorings
+FROM reorg_anchorings
+WHERE phase_code < 3
+GROUP BY site_id, phase_code
+ORDER BY site_id, phase_code
+`
+
+type CountLiveReorgAnchoringsByPhaseRow struct {
+	SiteID        string
+	PhaseCode     int16
+	NumAnchorings int64
+}
+
+// The live gauge's rollup: counts grouped in the database, so a
+// metrics scrape never materializes anchoring rows.
+func (q *Queries) CountLiveReorgAnchoringsByPhase(ctx context.Context) ([]CountLiveReorgAnchoringsByPhaseRow, error) {
+	rows, err := q.db.QueryContext(ctx, CountLiveReorgAnchoringsByPhase)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CountLiveReorgAnchoringsByPhaseRow
+	for rows.Next() {
+		var i CountLiveReorgAnchoringsByPhaseRow
+		if err := rows.Scan(&i.SiteID, &i.PhaseCode, &i.NumAnchorings); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const CountLiveReorgDependents = `-- name: CountLiveReorgDependents :one
 SELECT COUNT(*)
 FROM reorg_dependencies d
@@ -41,6 +96,23 @@ WHERE d.parent_id = $1
 
 func (q *Queries) CountLiveReorgDependents(ctx context.Context, parentID int64) (int64, error) {
 	row := q.db.QueryRowContext(ctx, CountLiveReorgDependents, parentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const CountStuckReorgAnchorings = `-- name: CountStuckReorgAnchorings :one
+SELECT COUNT(*)
+FROM reorg_anchorings
+WHERE stuck = TRUE
+`
+
+// Over ALL anchorings, terminal included: the delivery predicate has
+// no terminal restriction (a buried or abandoned anchoring's site
+// handler can still be failing), so the alarm gauges must not
+// either.
+func (q *Queries) CountStuckReorgAnchorings(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, CountStuckReorgAnchorings)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -475,29 +547,76 @@ func (q *Queries) ListLiveReorgAnchorings(ctx context.Context) ([]ReorgAnchoring
 	return items, nil
 }
 
-const ListReorgAnchorings = `-- name: ListReorgAnchorings :many
-SELECT id, site_id, threshold, match_version, match_data, payload_version, payload_data, created_height, phase_code, phase_evidence, delivered_code, delivered_evidence, witness_txid, stuck, delivery_attempts, last_delivery_error, next_delivery_at, terminal_at
-FROM reorg_anchorings
-ORDER BY id
+const ListReorgAnchoringSummariesPage = `-- name: ListReorgAnchoringSummariesPage :many
+SELECT
+    a.id, a.site_id, a.threshold, a.created_height, a.phase_code,
+    a.phase_evidence, a.delivered_code, a.delivered_evidence,
+    a.witness_txid, a.stuck, a.delivery_attempts,
+    a.last_delivery_error, a.terminal_at,
+    (
+        SELECT COUNT(*)
+        FROM reorg_candidate_spends c
+        WHERE c.anchoring_id = a.id
+    ) AS num_candidates
+FROM reorg_anchorings a
+WHERE (a.site_id = $1 OR $1 IS NULL)
+  AND (a.phase_code = $2
+       OR $2 IS NULL)
+  AND (a.stuck = $3 OR $3 IS NULL)
+ORDER BY a.id
+LIMIT $5 OFFSET $4
 `
 
-func (q *Queries) ListReorgAnchorings(ctx context.Context) ([]ReorgAnchoring, error) {
-	rows, err := q.db.QueryContext(ctx, ListReorgAnchorings)
+type ListReorgAnchoringSummariesPageParams struct {
+	SiteID    sql.NullString
+	PhaseCode sql.NullInt16
+	Stuck     sql.NullBool
+	NumOffset int32
+	NumLimit  int32
+}
+
+type ListReorgAnchoringSummariesPageRow struct {
+	ID                int64
+	SiteID            string
+	Threshold         int32
+	CreatedHeight     int32
+	PhaseCode         int16
+	PhaseEvidence     []byte
+	DeliveredCode     int16
+	DeliveredEvidence []byte
+	WitnessTxid       []byte
+	Stuck             bool
+	DeliveryAttempts  int32
+	LastDeliveryError sql.NullString
+	TerminalAt        sql.NullInt64
+	NumCandidates     int64
+}
+
+// The observability surface's list query: a pure row projection with
+// an aggregated candidate count — no per-row follow-up queries and
+// no raw transaction or proof deserialization behind it. Filters are
+// applied here, not over materialized rows, and every page is
+// bounded — the table is never pruned, so an unbounded scan would
+// grow without limit.
+func (q *Queries) ListReorgAnchoringSummariesPage(ctx context.Context, arg ListReorgAnchoringSummariesPageParams) ([]ListReorgAnchoringSummariesPageRow, error) {
+	rows, err := q.db.QueryContext(ctx, ListReorgAnchoringSummariesPage,
+		arg.SiteID,
+		arg.PhaseCode,
+		arg.Stuck,
+		arg.NumOffset,
+		arg.NumLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ReorgAnchoring
+	var items []ListReorgAnchoringSummariesPageRow
 	for rows.Next() {
-		var i ReorgAnchoring
+		var i ListReorgAnchoringSummariesPageRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.SiteID,
 			&i.Threshold,
-			&i.MatchVersion,
-			&i.MatchData,
-			&i.PayloadVersion,
-			&i.PayloadData,
 			&i.CreatedHeight,
 			&i.PhaseCode,
 			&i.PhaseEvidence,
@@ -507,8 +626,8 @@ func (q *Queries) ListReorgAnchorings(ctx context.Context) ([]ReorgAnchoring, er
 			&i.Stuck,
 			&i.DeliveryAttempts,
 			&i.LastDeliveryError,
-			&i.NextDeliveryAt,
 			&i.TerminalAt,
+			&i.NumCandidates,
 		); err != nil {
 			return nil, err
 		}

@@ -41,6 +41,14 @@ service TaprootAssets {
     */
     rpc ListTransfers (ListTransfersRequest) returns (ListTransfersResponse);
 
+    /* tapcli: `anchorings`
+    ListAnchorings lists the re-org watcher's speculative anchorings:
+    everything the daemon has staked on chain outcomes, the phase the
+    chain has assigned to each stake, and the delivery state of the
+    owning subsystem.
+    */
+    rpc ListAnchorings (ListAnchoringsRequest) returns (ListAnchoringsResponse);
+
     /* tapcli: `stop`
     StopDaemon will send a shutdown request to the interrupt handler, triggering
     a graceful shutdown of the daemon.
@@ -2114,4 +2122,82 @@ message BakeMacaroonRequest {
 message BakeMacaroonResponse {
     // The hex encoded macaroon, serialized in binary format.
     string macaroon = 1;
+}
+
+message ListAnchoringsRequest {
+    // Only return anchorings registered by this site, when set.
+    string site = 1;
+
+    // Only return anchorings whose sensed phase has exactly this
+    // name, when set: one of unwitnessed, witnessed, conflicted,
+    // buried, abandoned, withdrawn. Any other value is an error.
+    string phase = 2;
+
+    // Only return anchorings whose delivery is flagged stuck.
+    bool stuck_only = 3;
+
+    // The maximum number of anchorings to return; at most 1000 per
+    // page. Zero requests the default page size of 100.
+    int32 limit = 4;
+
+    // The number of matching anchorings to skip, for paging.
+    int32 offset = 5;
+}
+
+message ListAnchoringsResponse {
+    // The matching anchorings.
+    repeated Anchoring anchorings = 1;
+}
+
+message Anchoring {
+    // The registry-assigned identifier.
+    int64 id = 1;
+
+    // The owning site.
+    string site = 2;
+
+    // The sensed phase: the registry's derived truth. One of
+    // unwitnessed, witnessed, conflicted, buried, abandoned,
+    // withdrawn — the same vocabulary the request's phase filter
+    // takes, so a listed value filters verbatim.
+    string phase = 3;
+
+    // The phase the owning site last durably acknowledged, in the
+    // same vocabulary as phase. The site is converged when this
+    // equals the sensed phase.
+    string delivered_phase = 4;
+
+    // The confirmation depth at which this anchoring is
+    // act-confirmed.
+    uint32 threshold = 5;
+
+    // The best height at registration time.
+    uint32 created_height = 6;
+
+    // Whether delivery has failed repeatedly; retries continue
+    // regardless.
+    bool stuck = 7;
+
+    // Failed delivery attempts since the last successful delivery.
+    uint32 delivery_attempts = 8;
+
+    // The current witness transaction, when witnessed or buried.
+    bytes witness_txid = 9;
+
+    // The number of candidate spends observed for the trigger set.
+    uint32 num_candidates = 10;
+
+    // The sensed phase with its evidence summarized, human-readable.
+    string phase_detail = 11;
+
+    // The delivered phase with its evidence summarized.
+    string delivered_phase_detail = 12;
+
+    // The error text of the most recent failed delivery attempt;
+    // empty after a successful delivery.
+    string last_delivery_error = 13;
+
+    // The unix time the terminal phase was delivered; zero while
+    // live.
+    int64 terminal_at = 14;
 }

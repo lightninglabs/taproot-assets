@@ -990,6 +990,205 @@ func TestReorgRegistryStrongestForeclosure(t *testing.T) {
 	require.Equal(t, fc1.TxHash(), cause.W.TxHash())
 }
 
+// TestReorgRegistryQueryAnchorings exercises every filter path of the
+// paged observability listing, on both database backends: the filters
+// are typed at prepare time, so operand order in the SQL matters on
+// Postgres.
+func TestReorgRegistryQueryAnchorings(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newReorgStore(t)
+	ctx := context.Background()
+
+	// Three minter anchorings and two porter anchorings; one
+	// minter witnessed, one minter buried (terminal rows must
+	// appear, unlike the sensing scan), one porter stuck.
+	var ids []tapreorg.AnchoringID
+	for i := 0; i < 5; i++ {
+		site := tapreorg.SiteID("minter")
+		if i >= 3 {
+			site = "porter"
+		}
+		op := testOutPoint(50+byte(i), 0)
+		id, err := store.Register(
+			ctx, testSpec(t, site, op), 500, nil,
+		)
+		require.NoError(t, err)
+		ids = append(ids, id)
+	}
+
+	w1 := testWitness(t, 55, 600, testOutPoint(51, 0))
+	require.NoError(t, store.SetPhase(
+		ctx, ids[1], tapreorg.Witnessed{W: w1},
+	))
+	w2 := testWitness(t, 56, 600, testOutPoint(52, 0))
+	require.NoError(t, store.SetPhase(
+		ctx, ids[2], tapreorg.Buried{W: w2},
+	))
+	require.NoError(t, store.RecordDeliveryFailure(
+		ctx, ids[4], errors.New("handler down"),
+		time.Unix(2_000_000, 0), true,
+	))
+
+	page := func(q AnchoringQuery) []tapreorg.AnchoringID {
+		anchorings, err := store.QueryAnchorings(ctx, q)
+		require.NoError(t, err)
+
+		out := make([]tapreorg.AnchoringID, len(anchorings))
+		for i, a := range anchorings {
+			out[i] = a.ID
+		}
+
+		return out
+	}
+
+	// Unfiltered, bounded, offset paging.
+	require.Equal(t, ids, page(AnchoringQuery{Limit: 10}))
+	require.Equal(t, ids[:2], page(AnchoringQuery{Limit: 2}))
+	require.Equal(t, ids[2:], page(AnchoringQuery{
+		Limit: 10, Offset: 2,
+	}))
+
+	// Each filter alone.
+	require.Equal(t, ids[:3], page(AnchoringQuery{
+		Site: "minter", Limit: 10,
+	}))
+	require.Equal(t, []tapreorg.AnchoringID{ids[2]}, page(
+		AnchoringQuery{
+			Phase: fn.Some(tapreorg.PhaseCodeBuried),
+			Limit: 10,
+		},
+	))
+	require.Equal(t, []tapreorg.AnchoringID{ids[4]}, page(
+		AnchoringQuery{StuckOnly: true, Limit: 10},
+	))
+
+	// Filters combined, matching and not.
+	require.Equal(t, []tapreorg.AnchoringID{ids[1]}, page(
+		AnchoringQuery{
+			Site:  "minter",
+			Phase: fn.Some(tapreorg.PhaseCodeWitnessed),
+			Limit: 10,
+		},
+	))
+	require.Empty(t, page(AnchoringQuery{
+		Site: "minter", StuckOnly: true, Limit: 10,
+	}))
+
+	// A listing without a positive bound is refused.
+	_, err := store.QueryAnchorings(ctx, AnchoringQuery{})
+	require.Error(t, err)
+
+	// The summaries carry what the listing exists to expose: the
+	// stable phase names (round-tripping through the filter), the
+	// evidence renderings alongside, and the delivery failure text
+	// and terminal stamp read back.
+	require.NoError(t, store.UpsertCandidate(
+		ctx, ids[1], tapreorg.CandidateSpend{
+			Verdict:        tapreorg.VerdictSatisfies,
+			W:              w1,
+			OnChain:        true,
+			SpentOutPoints: []wire.OutPoint{testOutPoint(51, 0)},
+		},
+	))
+	require.NoError(t, store.Deliver(
+		ctx, ids[2], tapreorg.Buried{W: w2}, nil,
+	))
+
+	summaries, err := store.QueryAnchorings(ctx, AnchoringQuery{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, summaries, 5)
+
+	witnessed := summaries[1]
+	require.Equal(t, tapreorg.PhaseCodeWitnessed, witnessed.Phase)
+	require.Equal(
+		t, tapreorg.Witnessed{W: w1}.String(), witnessed.PhaseDetail,
+	)
+	w1Hash := w1.TxHash()
+	require.Equal(t, w1Hash.CloneBytes(), witnessed.WitnessTxid)
+	require.Equal(t, uint32(1), witnessed.NumCandidates)
+	require.Equal(t, tapreorg.PhaseCodeUnwitnessed, witnessed.Delivered)
+	require.Zero(t, witnessed.TerminalAt)
+
+	buried := summaries[2]
+	require.Equal(t, tapreorg.PhaseCodeBuried, buried.Phase)
+	require.Equal(t, tapreorg.PhaseCodeBuried, buried.Delivered)
+	require.NotZero(t, buried.TerminalAt)
+
+	stuckRow := summaries[4]
+	require.True(t, stuckRow.Stuck)
+	require.Equal(t, uint32(1), stuckRow.DeliveryAttempts)
+	require.Equal(t, "handler down", stuckRow.LastDeliveryError)
+
+	code, err := tapreorg.PhaseCodeFromName(buried.Phase.String())
+	require.NoError(t, err)
+	require.Equal(t, buried.Phase, code)
+}
+
+// TestReorgRegistryObservabilityRollups pins the collector's source
+// queries. The live gauge counts grouped in the database; the
+// delivery-health counts cover terminal anchorings — the delivery
+// predicate has no terminal restriction, so a stuck burial handler
+// must be visible, not structurally hidden behind a live-only scan.
+func TestReorgRegistryObservabilityRollups(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newReorgStore(t)
+	ctx := context.Background()
+
+	mkAnchoring := func(site tapreorg.SiteID,
+		seed byte) tapreorg.AnchoringID {
+
+		id, err := store.Register(
+			ctx, testSpec(t, site, testOutPoint(seed, 0)), 500,
+			nil,
+		)
+		require.NoError(t, err)
+
+		return id
+	}
+
+	_ = mkAnchoring("minter", 60)
+	m2 := mkAnchoring("minter", 61)
+	p1 := mkAnchoring("porter", 62)
+
+	// One minter anchoring witnessed; the porter anchoring buried,
+	// its site handler failing until flagged stuck.
+	w := testWitness(t, 63, 600, testOutPoint(61, 0))
+	require.NoError(t, store.SetPhase(ctx, m2, tapreorg.Witnessed{W: w}))
+
+	wB := testWitness(t, 64, 600, testOutPoint(62, 0))
+	require.NoError(t, store.SetPhase(ctx, p1, tapreorg.Buried{W: wB}))
+	require.NoError(t, store.RecordDeliveryFailure(
+		ctx, p1, errors.New("burial handler down"),
+		time.Unix(2_000_000, 0), true,
+	))
+
+	// The live gauge: grouped counts, terminal rows excluded.
+	counts, err := store.LiveAnchoringCounts(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []LiveAnchoringCount{
+		{
+			Site:  "minter",
+			Phase: tapreorg.PhaseCodeUnwitnessed,
+			Count: 1,
+		},
+		{
+			Site:  "minter",
+			Phase: tapreorg.PhaseCodeWitnessed,
+			Count: 1,
+		},
+	}, counts)
+
+	// The alarm gauges: the buried anchoring's stuck delivery is
+	// counted, terminal phase notwithstanding, and both undelivered
+	// anchorings lag.
+	stuck, lagging, err := store.DeliveryHealth(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, stuck)
+	require.EqualValues(t, 2, lagging)
+}
+
 // TestReorgRegistryRapid is a model-based test of the pending-
 // delivery invariant: after arbitrary interleavings of registration,
 // phase changes, deliveries, failures and clock advances, the set of

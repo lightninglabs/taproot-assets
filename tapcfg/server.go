@@ -432,6 +432,33 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		ErrChan:   mainErrChan,
 	})
 
+	// The righteous watcher runs alongside the legacy one until
+	// every site has migrated onto it. Its registry advances run
+	// site handlers in the same transaction, so its executor is
+	// instantiated at the full generated query set.
+	reorgRegistryDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) *sqlc.Queries {
+			return db.WithTx(tx)
+		},
+	)
+	anchoringRegistry := tapdb.NewReorgRegistryStore(
+		reorgRegistryDB, defaultClock,
+	)
+	var defaultThreshold uint32
+	if cfg.ReOrgSafeDepth > 0 {
+		defaultThreshold = uint32(cfg.ReOrgSafeDepth)
+	}
+	var anchoringWatcher *tapreorg.Watcher
+	if !cfg.DisableAnchoringWatcher {
+		anchoringWatcher = tapreorg.NewWatcher(&tapreorg.WatcherConfig{
+			Notifier:         chainBridge,
+			Registry:         anchoringRegistry,
+			Clock:            defaultClock,
+			DefaultThreshold: defaultThreshold,
+			ErrChan:          mainErrChan,
+		})
+	}
+
 	uniArchive := universe.NewArchive(uniArchiveCfg)
 
 	// Pool of outbound gRPC connections used by the federation push
@@ -858,6 +885,8 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		Lnd:                   lndServices,
 		ChainParams:           tapChainParams,
 		ReOrgWatcher:          reOrgWatcher,
+		AnchoringWatcher:      anchoringWatcher,
+		AnchoringRegistry:     anchoringRegistry,
 		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
 			// nolint: lll
 			GardenKit: tapgarden.GardenKit{

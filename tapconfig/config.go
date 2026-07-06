@@ -219,6 +219,18 @@ type Config struct {
 
 	ReOrgWatcher *tapreorg.LegacyWatcher
 
+	// AnchoringWatcher is the righteous re-org watcher: sites
+	// register speculative anchorings with it, and it converges
+	// them to chain truth. It runs alongside the legacy watcher
+	// until every site has migrated. Nil when disabled by
+	// configuration; the registry's read surfaces stay available
+	// either way.
+	AnchoringWatcher *tapreorg.Watcher
+
+	// AnchoringRegistry is the anchoring watcher's durable store,
+	// exposed for the observability surface.
+	AnchoringRegistry *tapdb.ReorgRegistryStore
+
 	AssetMinter *tapgarden.ChainPlanter
 
 	AssetCustodian *tapcustody.Custodian

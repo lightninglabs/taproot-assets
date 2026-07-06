@@ -53,6 +53,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -1829,6 +1830,96 @@ func (r *RPCServer) ListTransfers(ctx context.Context,
 	}
 
 	return resp, nil
+}
+
+const (
+	// defaultAnchoringPageSize is the ListAnchorings page size used
+	// when the request leaves the limit unset.
+	defaultAnchoringPageSize = 100
+
+	// maxAnchoringPageSize caps the ListAnchorings page size. The
+	// anchoring table is never pruned, so the listing is always
+	// paged rather than offered unbounded.
+	maxAnchoringPageSize = 1000
+)
+
+// ListAnchorings lists one page of the re-org watcher's speculative
+// anchorings: everything the daemon has staked on chain outcomes, the
+// phase the chain has assigned to each stake, and the delivery state
+// of the owning subsystem. Filters and page bounds are applied by the
+// registry query itself.
+func (r *RPCServer) ListAnchorings(ctx context.Context,
+	req *taprpc.ListAnchoringsRequest) (*taprpc.ListAnchoringsResponse,
+	error) {
+
+	if r.cfg.AnchoringRegistry == nil {
+		return nil, fmt.Errorf("anchoring registry not available")
+	}
+
+	query := tapdb.AnchoringQuery{
+		Site:      req.Site,
+		StuckOnly: req.StuckOnly,
+		Limit:     defaultAnchoringPageSize,
+		Offset:    req.Offset,
+	}
+	switch {
+	case req.Limit < 0 || req.Offset < 0:
+		return nil, fmt.Errorf("limit and offset must not be " +
+			"negative")
+
+	case req.Limit > maxAnchoringPageSize:
+		return nil, fmt.Errorf("limit %d exceeds the maximum "+
+			"page size %d", req.Limit, maxAnchoringPageSize)
+
+	case req.Limit > 0:
+		query.Limit = req.Limit
+	}
+	if req.Phase != "" {
+		code, err := tapreorg.PhaseCodeFromName(req.Phase)
+		if err != nil {
+			return nil, err
+		}
+		query.Phase = fn.Some(code)
+	}
+
+	anchorings, err := r.cfg.AnchoringRegistry.QueryAnchorings(
+		ctx, query,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to list anchorings: %w", err)
+	}
+
+	resp := &taprpc.ListAnchoringsResponse{}
+	for _, anchoring := range anchorings {
+		resp.Anchorings = append(
+			resp.Anchorings, marshalAnchoring(anchoring),
+		)
+	}
+
+	return resp, nil
+}
+
+// marshalAnchoring renders an anchoring summary for the RPC surface.
+// The phase fields carry the stable phase names — the same vocabulary
+// the request's phase filter takes — with the evidence renderings in
+// the detail fields alongside.
+func marshalAnchoring(summary tapdb.AnchoringSummary) *taprpc.Anchoring {
+	return &taprpc.Anchoring{
+		Id:                   int64(summary.ID),
+		Site:                 string(summary.Site),
+		Phase:                summary.Phase.String(),
+		PhaseDetail:          summary.PhaseDetail,
+		DeliveredPhase:       summary.Delivered.String(),
+		DeliveredPhaseDetail: summary.DeliveredDetail,
+		Threshold:            summary.Threshold,
+		CreatedHeight:        summary.CreatedHeight,
+		Stuck:                summary.Stuck,
+		DeliveryAttempts:     summary.DeliveryAttempts,
+		WitnessTxid:          summary.WitnessTxid,
+		NumCandidates:        summary.NumCandidates,
+		LastDeliveryError:    summary.LastDeliveryError,
+		TerminalAt:           summary.TerminalAt,
+	}
 }
 
 // QueryAddrs queries the set of Taproot Asset addresses stored in the database.
