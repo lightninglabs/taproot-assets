@@ -424,16 +424,14 @@ type Querier interface {
 	UpsertMultiverseLeaf(ctx context.Context, arg UpsertMultiverseLeafParams) (int64, error)
 	UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error)
 	// Certification is sticky: once set it survives every later update,
-	// since a certified act crossing is never retracted by re-orgs.
+	// since a certified act crossing is never retracted by re-orgs. The
+	// watcher verifies a certifying location against the chain before it
+	// upserts, so a certified row's location was dominant when recorded.
 	//
-	// The on_chain flag is overwritten from EXCLUDED. This is safe even
-	// when an act certification arrives while the candidate is briefly
-	// off-chain in a re-org window (rare but possible): DerivePhase
-	// consults act_certified before touching on_chain for act-tier
-	// phases, so the sticky certification dominates the phase output and
-	// the on-chain flag only becomes meaningful again once the
-	// transaction is back on the dominant chain (at which point the next
-	// location-conf upsert will set it true).
+	// Witness enrichment (block_header, merkle_proof) only ever
+	// refreshes: a later observation that lacks block data must not
+	// erase enrichment already captured, since burial handlers rebuild
+	// proofs from it without network access.
 	UpsertReorgCandidateSpend(ctx context.Context, arg UpsertReorgCandidateSpendParams) error
 	// Edge creation is idempotent: registration-time and candidate-time
 	// derivation can discover the same edge, and the first write wins.

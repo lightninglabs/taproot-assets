@@ -260,17 +260,6 @@ func (w Witness) Tx() *wire.MsgTx {
 	return w.tx.Copy()
 }
 
-// Depth returns the confirmation depth of the witness at the given
-// best height: 1 at inclusion height, 0 if the best height precedes
-// it.
-func (w Witness) Depth(bestHeight uint32) uint32 {
-	if bestHeight < w.height {
-		return 0
-	}
-
-	return bestHeight - w.height + 1
-}
-
 // ForeignSpend is an observed foreign spend of a trigger outpoint: the
 // spent outpoint plus the located spending transaction.
 type ForeignSpend struct {
@@ -317,9 +306,12 @@ type RegistrationSpec struct {
 	// Threshold is the confirmation depth at which this site
 	// considers an outcome final (act-confirmed). It must lie
 	// within the chain notifier's supported range, 1 to
-	// chainntnfs.MaxNumConfs. A threshold of one makes the very
-	// first confirmation act-final and absorbing — sound only for
-	// sites that genuinely want single-confirmation finality.
+	// chainntnfs.MaxNumConfs. Zero defers to the watcher's
+	// configured default, which carries the daemon's re-org
+	// safety policy (--reorgsafedepth). A threshold of one makes
+	// the very first confirmation act-final and absorbing — sound
+	// only for sites that genuinely want single-confirmation
+	// finality.
 	Threshold uint32
 }
 

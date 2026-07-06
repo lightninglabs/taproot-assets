@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 )
 
 // CandidateSpend is one observed spending transaction of an
@@ -38,6 +39,16 @@ type CandidateSpend struct {
 	// and the flag is sticky: a deeper reorg afterwards is the
 	// out-of-scope case, not a retraction.
 	ActCertified bool
+
+	// BlockHeader is the header of the including block, captured
+	// from the confirmation event at sensing time so that site
+	// handlers can rebuild proofs without network access inside
+	// their transaction.
+	BlockHeader *wire.BlockHeader
+
+	// MerkleProof is the candidate's inclusion proof in its block,
+	// captured alongside BlockHeader.
+	MerkleProof *proof.TxMerkleProof
 
 	// SpentOutPoints are the trigger outpoints the candidate
 	// spends.

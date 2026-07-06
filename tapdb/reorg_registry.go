@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightningnetwork/lnd/clock"
@@ -306,7 +307,50 @@ func (s *ReorgRegistryStore) UpsertCandidate(ctx context.Context,
 	spenderTxid := candidate.W.TxHash()
 	blockHash := candidate.W.BlockHash()
 
+	var headerBytes, merkleBytes []byte
+	if candidate.BlockHeader != nil {
+		var buf bytes.Buffer
+		err := candidate.BlockHeader.Serialize(&buf)
+		if err != nil {
+			return fmt.Errorf("unable to serialize block "+
+				"header: %w", err)
+		}
+		headerBytes = buf.Bytes()
+	}
+	if candidate.MerkleProof != nil {
+		var buf bytes.Buffer
+		err := candidate.MerkleProof.Encode(&buf)
+		if err != nil {
+			return fmt.Errorf("unable to encode merkle "+
+				"proof: %w", err)
+		}
+		merkleBytes = buf.Bytes()
+	}
+
 	return s.db.ExecTx(ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+		// The whole-set rule, held at the durable boundary: a
+		// satisfying candidate must spend the anchoring's entire
+		// trigger set. Coverage is recomputed from the
+		// transaction itself, so no caller can record a partial
+		// satisfier, however it arrived.
+		if candidate.Verdict == tapreorg.VerdictSatisfies {
+			triggers, err := q.FetchReorgTriggerOutpoints(
+				ctx, int64(id),
+			)
+			if err != nil {
+				return fmt.Errorf("unable to fetch trigger "+
+					"outpoints: %w", err)
+			}
+			tx := candidate.W.Tx()
+			for _, trigger := range triggers {
+				if !spendsTrigger(tx, trigger) {
+					return fmt.Errorf("anchoring %d: %w",
+						id,
+						tapreorg.ErrIncompleteSpend)
+				}
+			}
+		}
+
 		err := q.UpsertReorgCandidateSpend(
 			ctx, sqlc.UpsertReorgCandidateSpendParams{
 				AnchoringID: int64(id),
@@ -327,6 +371,8 @@ func (s *ReorgRegistryStore) UpsertCandidate(ctx context.Context,
 					Valid: true,
 				},
 				ActCertified: candidate.ActCertified,
+				BlockHeader:  headerBytes,
+				MerkleProof:  merkleBytes,
 				SpentOutpoints: orEmpty(
 					tapreorg.EncodeOutPoints(
 						candidate.SpentOutPoints,
@@ -1096,11 +1142,33 @@ func assembleCandidate(
 		return zero, err
 	}
 
+	var header *wire.BlockHeader
+	if len(row.BlockHeader) > 0 {
+		header = &wire.BlockHeader{}
+		err := header.Deserialize(bytes.NewReader(row.BlockHeader))
+		if err != nil {
+			return zero, fmt.Errorf("candidate %d header: %w",
+				row.ID, err)
+		}
+	}
+
+	var merkle *proof.TxMerkleProof
+	if len(row.MerkleProof) > 0 {
+		merkle = &proof.TxMerkleProof{}
+		err := merkle.Decode(bytes.NewReader(row.MerkleProof))
+		if err != nil {
+			return zero, fmt.Errorf("candidate %d merkle "+
+				"proof: %w", row.ID, err)
+		}
+	}
+
 	return tapreorg.CandidateSpend{
 		Verdict:        verdict,
 		W:              w,
 		OnChain:        row.OnChain,
 		ActCertified:   row.ActCertified,
+		BlockHeader:    header,
+		MerkleProof:    merkle,
 		SpentOutPoints: spent,
 	}, nil
 }
@@ -1159,6 +1227,21 @@ func mapAnchoringErr(err error) error {
 	}
 
 	return err
+}
+
+// spendsTrigger reports whether the transaction spends the trigger
+// row's outpoint.
+func spendsTrigger(tx *wire.MsgTx, row sqlc.ReorgTriggerOutpoint) bool {
+	for _, txIn := range tx.TxIn {
+		op := txIn.PreviousOutPoint
+		if bytes.Equal(op.Hash[:], row.OutpointTxid) &&
+			op.Index == uint32(row.OutpointIndex) {
+
+			return true
+		}
+	}
+
+	return false
 }
 
 // orEmpty normalizes a nil byte slice to an empty one, so that

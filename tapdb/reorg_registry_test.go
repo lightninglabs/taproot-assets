@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightningnetwork/lnd/clock"
@@ -568,6 +569,59 @@ func TestReorgRegistryEdgesBeforeParentObserved(t *testing.T) {
 	require.Len(t, edges, 2)
 }
 
+// TestReorgRegistryPartialSatisfierRefused pins the durable half of
+// the whole-set rule: a satisfying candidate whose transaction does
+// not spend the anchoring's entire trigger set is refused at the
+// registry boundary — whatever path tried to record it — since
+// recording it would let satisfying and foreign outcomes coexist on
+// one chain.
+func TestReorgRegistryPartialSatisfierRefused(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newReorgStore(t)
+	ctx := context.Background()
+
+	opA := testOutPoint(70, 0)
+	opB := testOutPoint(70, 1)
+	id, err := store.Register(
+		ctx, testSpec(t, "minter", opA, opB), 500, nil,
+	)
+	require.NoError(t, err)
+
+	// A satisfying candidate spending only opA is refused.
+	partial := testWitness(t, 71, 600, opA)
+	err = store.UpsertCandidate(ctx, id, tapreorg.CandidateSpend{
+		Verdict:        tapreorg.VerdictSatisfies,
+		W:              partial,
+		OnChain:        true,
+		SpentOutPoints: []wire.OutPoint{opA},
+	})
+	require.ErrorIs(t, err, tapreorg.ErrIncompleteSpend)
+
+	// The same transaction records fine as foreign: a partial
+	// spend genuinely forecloses.
+	require.NoError(t, store.UpsertCandidate(
+		ctx, id, tapreorg.CandidateSpend{
+			Verdict:        tapreorg.VerdictForeign,
+			W:              partial,
+			OnChain:        true,
+			SpentOutPoints: []wire.OutPoint{opA},
+		},
+	))
+
+	// A satisfying candidate covering the whole set — extra
+	// non-trigger inputs allowed — records fine.
+	complete := testWitness(t, 72, 601, opA, opB, testOutPoint(71, 5))
+	require.NoError(t, store.UpsertCandidate(
+		ctx, id, tapreorg.CandidateSpend{
+			Verdict:        tapreorg.VerdictSatisfies,
+			W:              complete,
+			OnChain:        true,
+			SpentOutPoints: []wire.OutPoint{opA, opB},
+		},
+	))
+}
+
 // TestReorgRegistryBurialSettlesEdges pins the terminal edge
 // settlement: delivering Buried clears the edges pinned to the buried
 // form and forecloses every other edge, inside the delivery
@@ -1122,4 +1176,84 @@ func TestReorgRegistryRapid(t *testing.T) {
 			require.Equal(rt, want, got)
 		}
 	})
+}
+
+// TestReorgRegistryDeliveryFreshAggregate pins the fresh-aggregate
+// contract: the anchoring aggregate handed to the delivery handler is
+// assembled INSIDE the delivery transaction, so candidate enrichment
+// that landed between the caller's scan and Deliver's tx is visible.
+// Without this, handlers that read Spends[i].BlockHeader / MerkleProof
+// (the mint site's witness context, the porter's witness context)
+// could see stale evidence and spuriously fail.
+func TestReorgRegistryDeliveryFreshAggregate(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newReorgStore(t)
+	ctx := context.Background()
+
+	op := testOutPoint(42, 0)
+	id, err := store.Register(
+		ctx, testSpec(t, "porter", op), 500, nil,
+	)
+	require.NoError(t, err)
+
+	// A satisfying candidate lands WITHOUT block enrichment — the
+	// initial state at witness delivery time.
+	w := testWitness(t, 9, 600, op)
+	require.NoError(t, store.UpsertCandidate(
+		ctx, id, tapreorg.CandidateSpend{
+			Verdict:        tapreorg.VerdictSatisfies,
+			W:              w,
+			OnChain:        true,
+			SpentOutPoints: []wire.OutPoint{op},
+		},
+	))
+
+	view, err := store.ChainView(ctx, id)
+	require.NoError(t, err)
+	witnessed := tapreorg.DerivePhase(view)
+	require.IsType(t, tapreorg.Witnessed{}, witnessed)
+	require.NoError(t, store.SetPhase(ctx, id, witnessed))
+
+	// Snapshot the anchoring at scan time: no block header, no
+	// merkle proof.
+	scanned, err := store.GetAnchoring(ctx, id)
+	require.NoError(t, err)
+	require.Len(t, scanned.Spends, 1)
+	require.Nil(t, scanned.Spends[0].BlockHeader)
+	require.Nil(t, scanned.Spends[0].MerkleProof)
+
+	// Sensing enriches the candidate between scan and Deliver.
+	header := wire.BlockHeader{Version: 42}
+	merkle := proof.TxMerkleProof{Bits: []bool{true}}
+	enriched := scanned.Spends[0]
+	enriched.BlockHeader = &header
+	enriched.MerkleProof = &merkle
+	require.NoError(t, store.UpsertCandidate(ctx, id, enriched))
+
+	// Deliver: the handler must observe the fresh (enriched) view,
+	// not the scanned (stale) view.
+	err = store.Deliver(
+		ctx, id, witnessed,
+		func(_ context.Context, _ tapreorg.RegistryTx,
+			fresh *tapreorg.Anchoring) error {
+
+			require.Len(t, fresh.Spends, 1)
+			require.NotNil(
+				t, fresh.Spends[0].BlockHeader,
+				"handler saw stale headerless spend",
+			)
+			require.NotNil(
+				t, fresh.Spends[0].MerkleProof,
+				"handler saw stale merkle-less spend",
+			)
+			require.Equal(
+				t, header.Version,
+				fresh.Spends[0].BlockHeader.Version,
+			)
+
+			return nil
+		},
+	)
+	require.NoError(t, err)
 }
