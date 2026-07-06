@@ -51,8 +51,11 @@ const (
 
 // EffectHandler dispatches one kind of outbox effect. Handlers must
 // be idempotent: an effect can be dispatched more than once if the
-// process dies between the dispatch and the bookkeeping write. The
-// anchoring the effect was enqueued for, if any, is passed along.
+// process dies between the dispatch and the bookkeeping write. A
+// handler whose inputs the owning subsystem has not materialized yet
+// returns ErrEffectNotReady, which leaves the effect pending without
+// failure bookkeeping. The anchoring the effect was enqueued for, if
+// any, is passed along.
 type EffectHandler func(ctx context.Context,
 	anchoring fn.Option[AnchoringID], payload VersionedBlob) error
 
@@ -2215,8 +2218,9 @@ func (w *Watcher) dispatchEffects(ctx context.Context) {
 // dispatchOne dispatches a single effect and applies the failure
 // policy. It reports whether the effect's bookkeeping advanced (the
 // effect was marked dispatched, or its failure was recorded with a
-// backoff): an effect whose bookkeeping did not advance would be
-// re-fetched, and re-dispatched, by an immediate rescan.
+// backoff): an effect whose bookkeeping did not advance — a not-ready
+// effect included — would be re-fetched, and re-dispatched, by an
+// immediate rescan.
 func (w *Watcher) dispatchOne(ctx context.Context,
 	effect *StoredEffect) bool {
 
@@ -2246,6 +2250,17 @@ func (w *Watcher) dispatchOne(ctx context.Context,
 		return true
 	}
 
+	// The effect's inputs are not there yet: this is not a failure
+	// of the handler, so nothing is recorded and no backoff applies.
+	// The effect stays pending for the next pass, which the owning
+	// subsystem kicks once the inputs exist.
+	if errors.Is(dispatchErr, ErrEffectNotReady) {
+		log.Debugf("Effect %d (kind=%v): not ready, awaiting "+
+			"its inputs: %v", effect.ID, effect.Effect.Kind,
+			dispatchErr)
+		return false
+	}
+
 	attempts := effect.Attempts + 1
 	backoff := w.backoffFor(attempts)
 
@@ -2262,6 +2277,11 @@ func (w *Watcher) dispatchOne(ctx context.Context,
 	}
 
 	return true
+}
+
+// KickOutbox wakes the outbox dispatcher ahead of its scan.
+func (w *Watcher) KickOutbox() {
+	w.kick(w.outboxKick)
 }
 
 // kick wakes a loop ahead of its ticker.

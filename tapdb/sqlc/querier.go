@@ -250,6 +250,13 @@ type Querier interface {
 	// Fetch unspent supply pre-commitment outputs. Each pre-commitment output
 	// comes from a mint anchor transaction and relates to an asset issuance
 	// where the local node acted as the issuer.
+	//
+	// Cancelled batches are excluded. A batch whose genesis transaction lost
+	// to a buried conflicting spender is cancelled by the mint site's
+	// abandonment, but its pre-commitment row survives to keep the
+	// issuance record. That outpoint does not exist on the surviving
+	// chain, so offering it here would build a commitment transaction that
+	// can never be broadcast, and whose own anchoring would never witness.
 	FetchUnspentMintSupplyPreCommits(ctx context.Context, groupKey []byte) ([]FetchUnspentMintSupplyPreCommitsRow, error)
 	// Fetch unspent supply pre-commitment outputs. Each pre-commitment output
 	// comes from a mint anchor transaction and relates to an asset issuance

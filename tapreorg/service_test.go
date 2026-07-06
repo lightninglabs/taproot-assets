@@ -1888,6 +1888,160 @@ func TestWatcherCallbackPanicsContained(t *testing.T) {
 	require.NoError(t, h.escalation())
 }
 
+// TestWatcherEffectNotReady pins the not-ready dispatch policy: a
+// handler that reports ErrEffectNotReady leaves its effect pending
+// exactly as enqueued — no failure recorded, no backoff — and the
+// effect dispatches once the handler finds its inputs, after the
+// owning subsystem kicks the outbox.
+func TestWatcherEffectNotReady(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	ctx := context.Background()
+
+	var (
+		ready               atomic.Bool
+		attempts, completed atomic.Int32
+	)
+	require.NoError(t, h.watcher.RegisterEffectHandler(
+		"gated",
+		func(context.Context, fn.Option[tapreorg.AnchoringID],
+			tapreorg.VersionedBlob) error {
+
+			attempts.Add(1)
+			if !ready.Load() {
+				return fmt.Errorf("inputs pending: %w",
+					tapreorg.ErrEffectNotReady)
+			}
+			completed.Add(1)
+
+			return nil
+		},
+	))
+
+	h.start()
+
+	op := wire.OutPoint{Hash: chainhash.Hash{0xed}, Index: 0}
+	id := h.register(2, nil, op)
+	require.NoError(t, h.watcher.Withdraw(
+		ctx, id,
+		func(ctx context.Context, tx tapreorg.RegistryTx) error {
+			return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+				Kind:      "gated",
+				Anchoring: fn.Some(id),
+				Payload:   tapreorg.VersionedBlob{Version: 1},
+			})
+		},
+	))
+
+	pendingGated := func() []*tapreorg.StoredEffect {
+		pending, err := h.store.PendingEffects(ctx, time.Now(), 10)
+		require.NoError(t, err)
+
+		var gated []*tapreorg.StoredEffect
+		for _, effect := range pending {
+			if effect.Effect.Kind == "gated" {
+				gated = append(gated, effect)
+			}
+		}
+
+		return gated
+	}
+
+	// Every pass re-runs the handler, and every run leaves the effect
+	// as it was enqueued: pending, with no attempt on record.
+	require.Eventually(t, func() bool {
+		return attempts.Load() >= 3
+	}, settleTimeout, settleTick)
+	gated := pendingGated()
+	require.Len(t, gated, 1)
+	require.Zero(t, gated[0].Attempts)
+	require.Zero(t, completed.Load())
+
+	// The inputs land: the owning subsystem kicks the outbox and the
+	// effect dispatches.
+	ready.Store(true)
+	h.watcher.KickOutbox()
+	require.Eventually(t, func() bool {
+		return completed.Load() == 1
+	}, settleTimeout, settleTick)
+	require.Eventually(t, func() bool {
+		return len(pendingGated()) == 0
+	}, settleTimeout, settleTick)
+	require.NoError(t, h.escalation())
+}
+
+// TestWatcherEffectDispatchPerHandlerDeadline pins the per-handler
+// dispatch policy: a handler registered unbounded, and one registered
+// with its own longer deadline, both outlive the configured default
+// and complete in a single attempt. The default still bounds every
+// other handler (TestWatcherEffectDispatchDeadline).
+func TestWatcherEffectDispatchPerHandlerDeadline(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	ctx := context.Background()
+
+	// Each handler works well past the harness's 100ms default and
+	// records whether the attempt was cut short by its context.
+	const work = 300 * time.Millisecond
+	var attempts, cutShort, completed atomic.Int32
+	slow := func(ctx context.Context, _ fn.Option[tapreorg.AnchoringID],
+		_ tapreorg.VersionedBlob) error {
+
+		attempts.Add(1)
+		select {
+		case <-time.After(work):
+			completed.Add(1)
+			return nil
+
+		case <-ctx.Done():
+			cutShort.Add(1)
+			return ctx.Err()
+		}
+	}
+	require.NoError(t, h.watcher.RegisterEffectHandler(
+		"unbounded", slow, tapreorg.WithDispatchTimeout(0),
+	))
+	require.NoError(t, h.watcher.RegisterEffectHandler(
+		"long", slow, tapreorg.WithDispatchTimeout(time.Second),
+	))
+
+	h.start()
+
+	op := wire.OutPoint{Hash: chainhash.Hash{0xef}, Index: 0}
+	id := h.register(2, nil, op)
+	require.NoError(t, h.watcher.Withdraw(
+		ctx, id,
+		func(ctx context.Context, tx tapreorg.RegistryTx) error {
+			for _, kind := range []tapreorg.EffectKind{
+				"unbounded", "long",
+			} {
+				effect := tapreorg.OutboxEffect{
+					Kind:      kind,
+					Anchoring: fn.Some(id),
+					Payload: tapreorg.VersionedBlob{
+						Version: 1,
+					},
+				}
+				err := tx.EnqueueEffect(ctx, effect)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		},
+	))
+
+	require.Eventually(t, func() bool {
+		return completed.Load() == 2
+	}, settleTimeout, settleTick)
+	require.EqualValues(t, 2, attempts.Load())
+	require.Zero(t, cutShort.Load())
+	require.NoError(t, h.escalation())
+}
+
 // TestWatcherLateRegistrationRefused pins the registration window:
 // sites, listeners and effect handlers register strictly before
 // Start, which is what lets the loops read their tables without

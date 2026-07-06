@@ -782,6 +782,52 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		},
 	)
 
+	genesisAugmenter, err := supplycommit.NewGenesisAugmenter(
+		supplycommit.GenesisAugmenterCfg{
+			PreCommitStore: tapdb.NewSupplyPreCommitStore(
+				mintingStore,
+			),
+			KeyRing:              keyRing,
+			DelegationKeyChecker: addrBook,
+			MintEvents:           supplyCommitManager,
+			ChainParams:          tapChainParams,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create genesis augmenter: %w",
+			err)
+	}
+
+	assetMinter := tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
+		// nolint: lll
+		GardenKit: tapgarden.GardenKit{
+			Wallet:       walletAnchor,
+			ChainBridge:  chainBridge,
+			BatchStore:   assetMintingStore,
+			MintingRefs:  assetMintingStore,
+			TreeStore:    assetMintingStore,
+			KeyRing:      keyRing,
+			GenSigner:    virtualTxSigner,
+			GenTxBuilder: &tapscript.GroupTxBuilder{},
+			TxValidator:  &tap.ValidatorV0{},
+			ProofFiles:   proofFileStore,
+			ProofArchive: proofArchive,
+			MintProofPublisher: mintpublish.NewPublisher(
+				universeFederation,
+				defaultUniverseSyncBatchSize,
+			),
+			ProofWatcher:       reOrgWatcher,
+			IgnoreChecker:      ignoreCheckerOpt,
+			GenesisTxAugmenter: genesisAugmenter,
+			AnchoringWatcher:   watcherRegistrar,
+			MintAnchoringLog:   assetStore,
+			AnchoringThreshold: uint32(cfg.ReOrgSafeDepth),
+		},
+		ChainParams:  tapChainParams,
+		ProofUpdates: proofArchive,
+		ErrChan:      mainErrChan,
+	})
+
 	assetCustodian := tapcustody.NewCustodian(&tapcustody.Config{
 		ChainParams:            &tapChainParams,
 		WalletAnchor:           walletAnchor,
@@ -836,6 +882,28 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		if err != nil {
 			return nil, fmt.Errorf("unable to register receive "+
 				"site: %w", err)
+		}
+		err = anchoringWatcher.RegisterSite(
+			assetMinter.AnchoringSite(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to register mint "+
+				"site: %w", err)
+		}
+		err = anchoringWatcher.RegisterDeliveryListener(
+			assetMinter.OnAnchoringDelivered,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to register mint "+
+				"delivery listener: %w", err)
+		}
+		err = anchoringWatcher.RegisterEffectHandler(
+			tapgarden.MintPublishEffectKind,
+			assetMinter.DispatchMintPublish,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to register mint "+
+				"publish handler: %w", err)
 		}
 	}
 
@@ -933,48 +1001,6 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			ProofWatcher:       reOrgWatcher,
 		},
 	)
-	genesisAugmenter, err := supplycommit.NewGenesisAugmenter(
-		supplycommit.GenesisAugmenterCfg{
-			PreCommitStore: tapdb.NewSupplyPreCommitStore(
-				mintingStore,
-			),
-			KeyRing:              keyRing,
-			DelegationKeyChecker: addrBook,
-			MintEvents:           supplyCommitManager,
-			ChainParams:          tapChainParams,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create genesis augmenter: %w",
-			err)
-	}
-
-	assetMinter := tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
-		// nolint: lll
-		GardenKit: tapgarden.GardenKit{
-			Wallet:       walletAnchor,
-			ChainBridge:  chainBridge,
-			BatchStore:   assetMintingStore,
-			MintingRefs:  assetMintingStore,
-			TreeStore:    assetMintingStore,
-			KeyRing:      keyRing,
-			GenSigner:    virtualTxSigner,
-			GenTxBuilder: &tapscript.GroupTxBuilder{},
-			TxValidator:  &tap.ValidatorV0{},
-			ProofFiles:   proofFileStore,
-			MintProofPublisher: mintpublish.NewPublisher(
-				universeFederation,
-				defaultUniverseSyncBatchSize,
-			),
-			ProofWatcher:       reOrgWatcher,
-			IgnoreChecker:      ignoreCheckerOpt,
-			GenesisTxAugmenter: genesisAugmenter,
-		},
-		ChainParams:  tapChainParams,
-		ProofUpdates: proofArchive,
-		ErrChan:      mainErrChan,
-	})
-
 	// The backup updater keeps an encrypted copy of the wallet's asset
 	// state on disk, in the same spirit as lnd's channel.backup file.
 	var backupUpdater *backup.Updater

@@ -202,6 +202,8 @@ LEFT JOIN supply_commitments sc ON mac.spent_by = sc.commit_id
 LEFT JOIN chain_txns commit_txn ON sc.chain_txn_id = commit_txn.txn_id
 WHERE
     mac.group_key = $1 AND
+    -- BatchStateSeedlingCancelled (6) and BatchStateSproutCancelled (7).
+    amb.batch_state NOT IN (6, 7) AND
     (mac.spent_by IS NULL OR commit_txn.block_hash IS NULL)
 `
 
@@ -216,6 +218,13 @@ type FetchUnspentMintSupplyPreCommitsRow struct {
 // Fetch unspent supply pre-commitment outputs. Each pre-commitment output
 // comes from a mint anchor transaction and relates to an asset issuance
 // where the local node acted as the issuer.
+//
+// Cancelled batches are excluded. A batch whose genesis transaction lost
+// to a buried conflicting spender is cancelled by the mint site's
+// abandonment, but its pre-commitment row survives to keep the
+// issuance record. That outpoint does not exist on the surviving
+// chain, so offering it here would build a commitment transaction that
+// can never be broadcast, and whose own anchoring would never witness.
 func (q *Queries) FetchUnspentMintSupplyPreCommits(ctx context.Context, groupKey []byte) ([]FetchUnspentMintSupplyPreCommitsRow, error) {
 	rows, err := q.db.QueryContext(ctx, FetchUnspentMintSupplyPreCommits, groupKey)
 	if err != nil {

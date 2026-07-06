@@ -36,6 +36,15 @@ var (
 	// simply rescans.
 	ErrStaleDelivery = errors.New("sensed phase changed; " +
 		"delivery is stale")
+
+	// ErrEffectNotReady is returned by an effect handler whose
+	// inputs the owning subsystem has not materialized yet: the
+	// effect was enqueued by a delivery that ran ahead of the work
+	// it emits. The dispatcher leaves such an effect pending as it
+	// is, with no failure recorded and no backoff, and runs it again
+	// on the next outbox pass: the next scan, or the kick the owning
+	// subsystem gives once the inputs exist.
+	ErrEffectNotReady = errors.New("effect inputs not ready")
 )
 
 // DependencyEdge records that a child anchoring's trigger outpoints
