@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/lightninglabs/taproot-assets/internal/lncfg"
 	"github.com/urfave/cli"
 	"gopkg.in/macaroon.v2"

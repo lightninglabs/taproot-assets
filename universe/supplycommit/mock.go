@@ -5,11 +5,11 @@ import (
 	"net/url"
 	"sync"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -138,13 +138,13 @@ func (m *mockWallet) SignPsbt(ctx context.Context,
 }
 
 func (m *mockWallet) ImportTaprootOutput(ctx context.Context,
-	pubKey *btcec.PublicKey) (btcutil.Address, error) {
+	pubKey *btcec.PublicKey) (btcaddr.Address, error) {
 
 	args := m.Called(ctx, pubKey)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(btcutil.Address), args.Error(1)
+	return args.Get(0).(btcaddr.Address), args.Error(1)
 }
 
 func (m *mockWallet) UnlockInput(ctx context.Context, op wire.OutPoint) error {
