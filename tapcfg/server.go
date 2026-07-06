@@ -414,7 +414,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		}
 	}
 
-	reOrgWatcher := tapreorg.NewWatcher(&tapreorg.Config{
+	reOrgWatcher := tapreorg.NewLegacyWatcher(&tapreorg.LegacyConfig{
 		ChainBridge:   chainBridge,
 		GroupVerifier: groupVerifier,
 		ProofArchive:  proofArchive,

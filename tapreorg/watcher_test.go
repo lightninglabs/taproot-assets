@@ -28,8 +28,8 @@ const (
 
 type watcherHarness struct {
 	t           *testing.T
-	w           *Watcher
-	cfg         *Config
+	w           *LegacyWatcher
+	cfg         *LegacyConfig
 	chainBridge *tapnodemock.ChainBridge
 }
 
@@ -50,7 +50,7 @@ func (h *watcherHarness) eventually(fn func() bool) {
 
 func newWatcherHarness(t *testing.T) *watcherHarness {
 	chainBridge := tapnodemock.NewChainBridge()
-	cfg := &Config{
+	cfg := &LegacyConfig{
 		ChainBridge:   chainBridge,
 		GroupVerifier: tapnodemock.GenGroupVerifier(),
 		NonBuriedAssetFetcher: func(ctx context.Context,
@@ -63,7 +63,7 @@ func newWatcherHarness(t *testing.T) *watcherHarness {
 	}
 	return &watcherHarness{
 		t:           t,
-		w:           NewWatcher(cfg),
+		w:           NewLegacyWatcher(cfg),
 		cfg:         cfg,
 		chainBridge: chainBridge,
 	}
