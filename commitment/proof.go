@@ -2,6 +2,7 @@ package commitment
 
 import (
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -166,9 +167,12 @@ func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TapCommitment,
 	if err != nil {
 		return nil, err
 	}
-	assetProofRoot := p.AssetProof.Root(
+	assetProofRoot, err := p.AssetProof.Root(
 		asset.AssetCommitmentKey(), assetCommitmentLeaf,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("derive asset proof root: %w", err)
+	}
 	assetCommitment := &AssetCommitment{
 		Version:  p.AssetProof.Version,
 		TapKey:   p.AssetProof.TapKey,
@@ -177,10 +181,14 @@ func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TapCommitment,
 
 	// Use the Taproot Asset commitment proof to arrive at the Taproot Asset
 	// commitment.
-	tapProofRoot := p.TaprootAssetProof.Root(
+	tapProofRoot, err := p.TaprootAssetProof.Root(
 		assetCommitment.TapCommitmentKey(),
 		assetCommitment.TapCommitmentLeaf(),
 	)
+	if err != nil {
+		return nil, fmt.Errorf("derive taproot asset proof root: %w",
+			err)
+	}
 	log.Tracef("Derived asset inclusion proof for asset_id=%v, "+
 		"asset_commitment_key=%x, asset_commitment_leaf=%s",
 		asset.ID(), fn.ByteSlice(asset.AssetCommitmentKey()),
@@ -207,9 +215,12 @@ func (p Proof) DeriveByAssetExclusion(assetCommitmentKey [32]byte) (
 	// Use the asset proof to arrive at the asset commitment included within
 	// the Taproot Asset commitment.
 	assetCommitmentLeaf := mssmt.EmptyLeafNode
-	assetProofRoot := p.AssetProof.Root(
+	assetProofRoot, err := p.AssetProof.Root(
 		assetCommitmentKey, assetCommitmentLeaf,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("derive asset proof root: %w", err)
+	}
 	assetCommitment := &AssetCommitment{
 		Version:  p.AssetProof.Version,
 		TapKey:   p.AssetProof.TapKey,
@@ -218,10 +229,14 @@ func (p Proof) DeriveByAssetExclusion(assetCommitmentKey [32]byte) (
 
 	// Use the Taproot Asset commitment proof to arrive at the Taproot Asset
 	// commitment.
-	tapProofRoot := p.TaprootAssetProof.Root(
+	tapProofRoot, err := p.TaprootAssetProof.Root(
 		assetCommitment.TapCommitmentKey(),
 		assetCommitment.TapCommitmentLeaf(),
 	)
+	if err != nil {
+		return nil, fmt.Errorf("derive taproot asset proof root: %w",
+			err)
+	}
 	return NewTapCommitmentWithRoot(
 		p.TaprootAssetProof.Version, tapProofRoot,
 	), nil
@@ -242,9 +257,13 @@ func (p Proof) DeriveByAssetCommitmentExclusion(tapCommitmentKey [32]byte) (
 
 	// Use the Taproot Asset commitment proof to arrive at the Taproot Asset
 	// commitment.
-	tapProofRoot := p.TaprootAssetProof.Root(
+	tapProofRoot, err := p.TaprootAssetProof.Root(
 		tapCommitmentKey, mssmt.EmptyLeafNode,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("derive taproot asset proof root: %w",
+			err)
+	}
 	return NewTapCommitmentWithRoot(
 		p.TaprootAssetProof.Version, tapProofRoot,
 	), nil

@@ -61,8 +61,10 @@ func TestRootSumEquivalence(t *testing.T) {
 		leaf := genLeaf(t)
 		proof := genProof(t)
 
-		oldRoot := proof.Root(*key, leaf)
-		newHash, newSum := proof.rootSum(key, leaf)
+		oldRoot, err := proof.Root(*key, leaf)
+		require.NoError(t, err)
+		newHash, newSum, validSum := proof.rootSum(key, leaf)
+		require.True(t, validSum)
 
 		require.Equal(
 			t, oldRoot.NodeHash(), newHash,
@@ -152,7 +154,8 @@ func TestVerifyMerkleProofAdversarial(t *testing.T) {
 
 		// Derive the "honest" root from this proof so we can mutate
 		// against it.
-		hash, sum := proof.rootSum(&key, leaf)
+		hash, sum, validSum := proof.rootSum(&key, leaf)
+		require.True(t, validSum)
 		root := NewComputedBranch(hash, sum)
 
 		// Sanity check: untampered must verify.
@@ -249,7 +252,8 @@ func TestVerifyMerkleProofMalformedInputs(t *testing.T) {
 	for i := range proof.Nodes {
 		proof.Nodes[i] = EmptyTree[MaxTreeLevels-i]
 	}
-	hash, sum := proof.rootSum(&key, leaf)
+	hash, sum, validSum := proof.rootSum(&key, leaf)
+	require.True(t, validSum)
 	root := NewComputedBranch(hash, sum)
 
 	require.False(
@@ -276,34 +280,5 @@ func TestVerifyMerkleProofMalformedInputs(t *testing.T) {
 	require.False(
 		t, VerifyMerkleProof(key, leaf, long, root),
 		"long proof accepted",
-	)
-}
-
-// TestVerifyMerkleProofSumOverflow exercises the path where sibling
-// sums wrap uint64. The existing BranchNode path also wraps, so the
-// only invariant here is "does not panic, and the result is consistent
-// with what walkUp would produce on the same inputs".
-func TestVerifyMerkleProofSumOverflow(t *testing.T) {
-	t.Parallel()
-
-	var key [hashSize]byte
-	leaf := NewLeafNode([]byte("overflow-leaf"), ^uint64(0)-1)
-
-	// Build a proof whose siblings are all max-value computed nodes —
-	// summing these with the leaf sum will wrap repeatedly.
-	nodes := make([]Node, MaxTreeLevels)
-	for i := range nodes {
-		var h NodeHash
-		h[0] = byte(i + 1)
-		nodes[i] = NewComputedNode(h, ^uint64(0))
-	}
-	proof := NewProof(nodes)
-
-	// The expected root is whatever the existing path computes; we
-	// just require both paths agree, and that no panic occurs.
-	expected := proof.Root(key, leaf)
-	require.True(
-		t, VerifyMerkleProof(key, leaf, proof, expected),
-		"overflow path: expected root not accepted",
 	)
 }

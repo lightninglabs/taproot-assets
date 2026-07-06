@@ -683,7 +683,8 @@ func AssertInclusionProof(t *harnessTest, expectedRootHash [32]byte,
 	require.NoError(t.t, err)
 
 	// Derive the root from the inclusion proof and the leaf node.
-	derivedRoot := inclusionProof.Root(leafKey, leafNode)
+	derivedRoot, err := inclusionProof.Root(leafKey, leafNode)
+	require.NoError(t.t, err)
 	derivedRootHash := fn.ByteSlice(derivedRoot.NodeHash())
 
 	// Verify that the derived root hash matches the expected root hash.
