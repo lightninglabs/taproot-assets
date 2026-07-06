@@ -218,6 +218,11 @@ type ActiveAssetsStore interface {
 	// transfer.
 	DeleteBurnsByTransferID(ctx context.Context, transferID int64) error
 
+	// AssetProofBlobByAssetID fetches a proof blob by the asset's
+	// primary key.
+	AssetProofBlobByAssetID(ctx context.Context,
+		assetID int64) ([]byte, error)
+
 	// QueryAssets fetches the set of fully confirmed assets.
 	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset,
 		error)
@@ -2368,6 +2373,17 @@ func (a *AssetStore) RemoveSubscriber(
 	subscriber *fn.EventReceiver[proof.Blob]) error {
 
 	return a.eventDistributor.RemoveSubscriber(subscriber)
+}
+
+// NotifyProofs delivers the given proof files to the proof event
+// subscribers. It must be called outside any transaction that stores
+// the proofs, so that subscribers looking them up find them committed.
+func (a *AssetStore) NotifyProofs(blobs ...proof.Blob) {
+	if len(blobs) == 0 {
+		return
+	}
+
+	a.eventDistributor.NotifySubscribers(blobs...)
 }
 
 // queryChainAssets queries the database for assets matching the passed filter.

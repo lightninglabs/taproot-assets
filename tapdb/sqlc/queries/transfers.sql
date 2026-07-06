@@ -337,11 +337,17 @@ WHERE swept_txn_id = (
 -- name: TransferOutputAssetID :one
 -- The asset row a transfer output materialized into, if any: the
 -- convergence guard for re-applying a confirmation, and the target
--- of compensation when the transfer is abandoned.
+-- of compensation when the transfer is abandoned. The genesis filter
+-- is necessary: distinct assets can share both script key and anchor
+-- UTXO (a multi-asset HTLC swept in one transaction), so the pair
+-- alone is ambiguous.
 SELECT assets.asset_id
 FROM assets
+JOIN genesis_assets
+    ON assets.genesis_id = genesis_assets.gen_asset_id
 WHERE assets.script_key_id = @script_key_id
-  AND assets.anchor_utxo_id = @anchor_utxo_id;
+  AND assets.anchor_utxo_id = @anchor_utxo_id
+  AND genesis_assets.asset_id = @asset_id;
 
 -- name: DeleteAssetByID :exec
 DELETE FROM assets

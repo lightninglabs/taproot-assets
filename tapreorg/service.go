@@ -51,8 +51,10 @@ const (
 
 // EffectHandler dispatches one kind of outbox effect. Handlers must
 // be idempotent: an effect can be dispatched more than once if the
-// process dies between the dispatch and the bookkeeping write.
-type EffectHandler func(ctx context.Context, payload VersionedBlob) error
+// process dies between the dispatch and the bookkeeping write. The
+// anchoring the effect was enqueued for, if any, is passed along.
+type EffectHandler func(ctx context.Context,
+	anchoring fn.Option[AnchoringID], payload VersionedBlob) error
 
 // WatcherConfig houses the watcher's dependencies and policy knobs.
 type WatcherConfig struct {
@@ -359,6 +361,32 @@ func (w *Watcher) Withdraw(ctx context.Context, id AnchoringID,
 	}
 
 	return nil
+}
+
+// Anchoring reads one anchoring, live or terminal, from the registry.
+func (w *Watcher) Anchoring(ctx context.Context,
+	id AnchoringID) (*Anchoring, error) {
+
+	return w.cfg.Registry.GetAnchoring(ctx, id)
+}
+
+// Anchorings reads the live anchorings registered by one site.
+func (w *Watcher) Anchorings(ctx context.Context,
+	site SiteID) ([]*Anchoring, error) {
+
+	live, err := w.cfg.Registry.LiveAnchorings(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*Anchoring, 0, len(live))
+	for _, anchoring := range live {
+		if anchoring.Site == site {
+			out = append(out, anchoring)
+		}
+	}
+
+	return out, nil
 }
 
 // sendEvent delivers an event to the sensing loop, respecting
@@ -2201,7 +2229,10 @@ func (w *Watcher) dispatchOne(ctx context.Context,
 		// A panicking handler fails this one dispatch, entering
 		// the ordinary backoff-and-retry bookkeeping.
 		dispatchErr = capturePanic("effect handler", func() error {
-			return handler(ctx, effect.Effect.Payload)
+			return handler(
+				ctx, effect.Effect.Anchoring,
+				effect.Effect.Payload,
+			)
 		})
 	}
 

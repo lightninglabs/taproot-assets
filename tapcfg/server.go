@@ -763,6 +763,9 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			Signer:                 virtualTxSigner,
 			TxValidator:            &tap.ValidatorV0{},
 			ExportLog:              assetStore,
+			AnchoringWatcher:       anchoringWatcher,
+			AnchoringLog:           assetStore,
+			AnchoringThreshold:     uint32(cfg.ReOrgSafeDepth),
 			ChainBridge:            chainBridge,
 			GroupVerifier:          groupVerifier,
 			Wallet:                 walletAnchor,
@@ -778,6 +781,36 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			DelegationKeyChecker:   addrBook,
 		},
 	)
+
+	// The porter runs as a site on the anchoring watcher: its
+	// handlers, delivery nudges and act-gated burn dispatch are all
+	// registered before the watcher starts. A disabled watcher has
+	// nothing to register against — the porter keeps its legacy
+	// re-org path instead.
+	if anchoringWatcher != nil {
+		err = anchoringWatcher.RegisterSite(
+			chainPorter.AnchoringSite(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to register porter "+
+				"site: %w", err)
+		}
+		err = anchoringWatcher.RegisterDeliveryListener(
+			chainPorter.OnAnchoringDelivered,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to register porter "+
+				"delivery listener: %w", err)
+		}
+		err = anchoringWatcher.RegisterEffectHandler(
+			tapfreighter.BurnSupplyEventsEffectKind,
+			chainPorter.DispatchBurnSupplyEvents,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to register burn "+
+				"effect handler: %w", err)
+		}
+	}
 
 	auxFundingController := tapchannel.NewFundingController(
 		tapchannel.FundingControllerCfg{

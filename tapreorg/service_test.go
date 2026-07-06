@@ -454,7 +454,9 @@ func (h *harness) newWatcher() *tapreorg.Watcher {
 	})
 	require.NoError(h.t, w.RegisterSite(h.site))
 	require.NoError(h.t, w.RegisterEffectHandler(
-		"test", func(context.Context, tapreorg.VersionedBlob) error {
+		"test", func(context.Context, fn.Option[tapreorg.AnchoringID],
+			tapreorg.VersionedBlob) error {
+
 			h.effects.Add(1)
 			return nil
 		},
@@ -1776,7 +1778,9 @@ func TestWatcherCallbackPanicsContained(t *testing.T) {
 	effectPanic.Store(true)
 	require.NoError(t, h.watcher.RegisterEffectHandler(
 		"boom",
-		func(context.Context, tapreorg.VersionedBlob) error {
+		func(context.Context, fn.Option[tapreorg.AnchoringID],
+			tapreorg.VersionedBlob) error {
+
 			if effectPanic.Load() {
 				panic("effect boom")
 			}
@@ -1897,7 +1901,9 @@ func TestWatcherLateRegistrationRefused(t *testing.T) {
 	require.Error(t, h.watcher.RegisterSite(newTestSite("late")))
 	require.Error(t, h.watcher.RegisterEffectHandler(
 		"late",
-		func(context.Context, tapreorg.VersionedBlob) error {
+		func(context.Context, fn.Option[tapreorg.AnchoringID],
+			tapreorg.VersionedBlob) error {
+
 			return nil
 		},
 	))

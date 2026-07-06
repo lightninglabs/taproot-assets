@@ -306,10 +306,12 @@ func (a *AssetStore) applyAnchorTxConfirm(ctx context.Context,
 		// The convergence guard: an earlier run of this body may
 		// already have materialized this output. If so, the
 		// asset row stands; only its proof is refreshed below.
+		outAssetID := outProofAsset.ID()
 		newAssetID, err := q.TransferOutputAssetID(
 			ctx, sqlc.TransferOutputAssetIDParams{
 				ScriptKeyID:  out.ScriptKey.ScriptKeyID,
 				AnchorUtxoID: sqlInt64(out.AnchorUtxoID),
+				AssetID:      outAssetID[:],
 			},
 		)
 		switch {
@@ -499,11 +501,29 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 	}
 	for idx := range outputs {
 		out := outputs[idx]
+		if len(out.ProofSuffix) == 0 {
+			continue
+		}
+
+		// The suffix identifies which asset this output row
+		// materialized: outputs of distinct assets can share
+		// both script key and anchor UTXO.
+		var outProofAsset asset.Asset
+		err = proof.SparseDecode(
+			bytes.NewReader(out.ProofSuffix),
+			proof.AssetLeafRecord(&outProofAsset),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to sparse decode "+
+				"proof: %w", err)
+		}
+		outAssetID := outProofAsset.ID()
 
 		assetID, err := q.TransferOutputAssetID(
 			ctx, sqlc.TransferOutputAssetIDParams{
 				ScriptKeyID:  out.ScriptKey.ScriptKeyID,
 				AnchorUtxoID: sqlInt64(out.AnchorUtxoID),
+				AssetID:      outAssetID[:],
 			},
 		)
 		switch {
@@ -561,6 +581,15 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 		})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("unable to un-spend asset: %w", err)
+		}
+
+		// Release the lease the pending write took on the input,
+		// so the coins are selectable again without waiting for
+		// expiry.
+		err = q.DeleteUTXOLease(ctx, inputs[idx].AnchorPoint)
+		if err != nil {
+			return fmt.Errorf("unable to release input "+
+				"lease: %w", err)
 		}
 
 		numRevived, err := q.UnsupersedeSafeTransfers(
@@ -779,6 +808,21 @@ func (a *AssetStore) RebuildAnchorConfirm(ctx context.Context,
 	burnNote string) (*tapfreighter.AssetConfirmEvent,
 	[]*tapfreighter.AssetBurn, error) {
 
+	return a.rebuildAnchorConfirm(
+		ctx, q, anchorTx, blockHash, blockHeight, txIndex, header,
+		merkle, burnNote,
+	)
+}
+
+// rebuildAnchorConfirm is the store-interface-typed body of
+// RebuildAnchorConfirm.
+func (a *AssetStore) rebuildAnchorConfirm(ctx context.Context,
+	q ActiveAssetsStore, anchorTx *wire.MsgTx, blockHash chainhash.Hash,
+	blockHeight, txIndex uint32, header wire.BlockHeader,
+	merkle proof.TxMerkleProof,
+	burnNote string) (*tapfreighter.AssetConfirmEvent,
+	[]*tapfreighter.AssetBurn, error) {
+
 	anchorTxid := anchorTx.TxHash()
 
 	assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
@@ -805,11 +849,13 @@ func (a *AssetStore) RebuildAnchorConfirm(ctx context.Context,
 			"outputs: %w", err)
 	}
 
-	// Group the transfer's inputs by asset ID: each output's full
-	// proof file is its (per-asset) primary input's file with the
-	// output's suffix appended, and any additional inputs' files
-	// attached to the suffix.
-	prevIDsByAsset := make(map[asset.ID][]asset.PrevID, len(inputs))
+	// Decode the transfer's inputs into their previous IDs. Each
+	// output picks out its own inputs from these below, by witness
+	// reference: an anchor transaction can carry several independent
+	// same-asset transitions (aggregated sweeps), so grouping by
+	// asset ID alone would staple a suffix onto an unrelated input's
+	// file.
+	inputPrevIDs := make([]asset.PrevID, 0, len(inputs))
 	for idx := range inputs {
 		in := inputs[idx]
 
@@ -828,13 +874,11 @@ func (a *AssetStore) RebuildAnchorConfirm(ctx context.Context,
 		var scriptKey asset.SerializedKey
 		copy(scriptKey[:], in.ScriptKey)
 
-		prevIDsByAsset[assetID] = append(
-			prevIDsByAsset[assetID], asset.PrevID{
-				OutPoint:  op,
-				ID:        assetID,
-				ScriptKey: scriptKey,
-			},
-		)
+		inputPrevIDs = append(inputPrevIDs, asset.PrevID{
+			OutPoint:  op,
+			ID:        assetID,
+			ScriptKey: scriptKey,
+		})
 	}
 
 	// fetchInputFile loads an input's full proof file from the
@@ -899,9 +943,25 @@ func (a *AssetStore) RebuildAnchorConfirm(ctx context.Context,
 		suffix.BlockHeight = blockHeight
 		suffix.TxMerkleProof = merkle
 
+		// The output's full proof file is its primary input's
+		// file with the suffix appended, and any additional
+		// inputs' files attached to the suffix. Which inputs
+		// those are is determined by the suffix's own witnesses
+		// (resolved through the split commitment root where
+		// applicable), exactly as at pre-broadcast verification.
 		assetID := suffix.Asset.ID()
-		prevIDs, ok := prevIDsByAsset[assetID]
-		if !ok || len(prevIDs) == 0 {
+		witnesses := suffix.Asset.Witnesses()
+		var prevIDs []asset.PrevID
+		for _, in := range inputPrevIDs {
+			for _, witness := range witnesses {
+				if witness.PrevID != nil &&
+					in == *witness.PrevID {
+
+					prevIDs = append(prevIDs, in)
+				}
+			}
+		}
+		if len(prevIDs) == 0 {
 			return nil, nil, fmt.Errorf("no inputs found for "+
 				"output asset %v", assetID)
 		}
@@ -1076,3 +1136,38 @@ func (a *AssetStore) RebuildAnchorConfirm(ctx context.Context,
 
 	return conf, burns, nil
 }
+
+// RebuildConfirmEvent is RebuildAnchorConfirm inside a read
+// transaction of its own, for callers outside the watcher's delivery
+// path (the porter's proof-file mirroring and burn-event dispatch).
+func (a *AssetStore) RebuildConfirmEvent(ctx context.Context,
+	anchorTx *wire.MsgTx, blockHash chainhash.Hash,
+	blockHeight, txIndex uint32, header wire.BlockHeader,
+	merkle proof.TxMerkleProof,
+	burnNote string) (*tapfreighter.AssetConfirmEvent,
+	[]*tapfreighter.AssetBurn, error) {
+
+	var (
+		conf  *tapfreighter.AssetConfirmEvent
+		burns []*tapfreighter.AssetBurn
+	)
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		var err error
+		conf, burns, err = a.rebuildAnchorConfirm(
+			ctx, q, anchorTx, blockHash, blockHeight, txIndex,
+			header, merkle, burnNote,
+		)
+
+		return err
+	})
+	if dbErr != nil {
+		return nil, nil, dbErr
+	}
+
+	return conf, burns, nil
+}
+
+// A compile-time assertion that the asset store provides the porter
+// site's persistence surface.
+var _ tapfreighter.AnchoringLog = (*AssetStore)(nil)

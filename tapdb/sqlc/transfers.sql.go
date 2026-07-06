@@ -939,20 +939,27 @@ func (q *Queries) SupersedeConflictingTransfers(ctx context.Context, arg Superse
 const TransferOutputAssetID = `-- name: TransferOutputAssetID :one
 SELECT assets.asset_id
 FROM assets
+JOIN genesis_assets
+    ON assets.genesis_id = genesis_assets.gen_asset_id
 WHERE assets.script_key_id = $1
   AND assets.anchor_utxo_id = $2
+  AND genesis_assets.asset_id = $3
 `
 
 type TransferOutputAssetIDParams struct {
 	ScriptKeyID  int64
 	AnchorUtxoID sql.NullInt64
+	AssetID      []byte
 }
 
 // The asset row a transfer output materialized into, if any: the
 // convergence guard for re-applying a confirmation, and the target
-// of compensation when the transfer is abandoned.
+// of compensation when the transfer is abandoned. The genesis filter
+// is necessary: distinct assets can share both script key and anchor
+// UTXO (a multi-asset HTLC swept in one transaction), so the pair
+// alone is ambiguous.
 func (q *Queries) TransferOutputAssetID(ctx context.Context, arg TransferOutputAssetIDParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, TransferOutputAssetID, arg.ScriptKeyID, arg.AnchorUtxoID)
+	row := q.db.QueryRowContext(ctx, TransferOutputAssetID, arg.ScriptKeyID, arg.AnchorUtxoID, arg.AssetID)
 	var asset_id int64
 	err := row.Scan(&asset_id)
 	return asset_id, err

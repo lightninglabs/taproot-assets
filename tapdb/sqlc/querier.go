@@ -424,7 +424,10 @@ type Querier interface {
 	SupersedeConflictingTransfers(ctx context.Context, arg SupersedeConflictingTransfersParams) (int64, error)
 	// The asset row a transfer output materialized into, if any: the
 	// convergence guard for re-applying a confirmation, and the target
-	// of compensation when the transfer is abandoned.
+	// of compensation when the transfer is abandoned. The genesis filter
+	// is necessary: distinct assets can share both script key and anchor
+	// UTXO (a multi-asset HTLC swept in one transaction), so the pair
+	// alone is ambiguous.
 	TransferOutputAssetID(ctx context.Context, arg TransferOutputAssetIDParams) (int64, error)
 	// The inverse of ConfirmChainAnchorTx: the anchor transaction's
 	// recorded confirmation is withdrawn (its block was re-organized
