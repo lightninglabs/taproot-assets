@@ -279,3 +279,92 @@ WHERE
     -- Optionally filter by anchor_txid in chain_txns.txid.
     AND (ct.txid = @anchor_txid OR @anchor_txid IS NULL)
 ORDER BY abt.burn_id;
+
+-- name: UnconfirmChainAnchorTx :exec
+-- The inverse of ConfirmChainAnchorTx: the anchor transaction's
+-- recorded confirmation is withdrawn (its block was re-organized
+-- away and nothing has replaced it yet).
+UPDATE chain_txns
+SET block_hash = NULL, block_height = NULL, tx_index = NULL
+WHERE txid = @txid;
+
+-- name: UnsupersedeSafeTransfers :execrows
+-- The inverse of SupersedeConflictingTransfers, applied when the
+-- confirming transfer is abandoned: unconfirmed transfers spending
+-- the given anchor point become live again, provided no other
+-- confirmed transfer still spends it.
+UPDATE asset_transfers
+SET superseded = false
+WHERE superseded = true
+  AND asset_transfers.id != @abandoned_transfer_id
+  AND asset_transfers.id IN (
+      SELECT inputs.transfer_id
+      FROM asset_transfer_inputs inputs
+      WHERE inputs.anchor_point = @anchor_point
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM asset_transfer_inputs other_in
+      JOIN asset_transfers other
+        ON other.id = other_in.transfer_id
+      JOIN chain_txns txns
+        ON txns.txn_id = other.anchor_txn_id
+      WHERE other_in.anchor_point = @anchor_point
+        AND txns.block_hash IS NOT NULL
+  );
+
+-- name: MarkTransferSuperseded :exec
+-- An abandoned transfer is permanently dead: its anchor inputs were
+-- claimed by a buried foreign transaction, so its own anchor can
+-- never confirm. Superseded transfers are not resumed at startup.
+UPDATE asset_transfers
+SET superseded = true
+WHERE id = @transfer_id;
+
+-- name: DeleteBurnsByTransferID :exec
+DELETE FROM asset_burn_transfers
+WHERE transfer_id = @transfer_id;
+
+-- name: UnsweepManagedUTXOsByTxid :exec
+-- The inverse of MarkManagedUTXOAsSwept for every UTXO swept by the
+-- given (now abandoned) transaction.
+UPDATE managed_utxos
+SET swept_txn_id = NULL
+WHERE swept_txn_id = (
+    SELECT txn_id FROM chain_txns WHERE txid = @txid
+);
+
+-- name: TransferOutputAssetID :one
+-- The asset row a transfer output materialized into, if any: the
+-- convergence guard for re-applying a confirmation, and the target
+-- of compensation when the transfer is abandoned.
+SELECT assets.asset_id
+FROM assets
+WHERE assets.script_key_id = @script_key_id
+  AND assets.anchor_utxo_id = @anchor_utxo_id;
+
+-- name: DeleteAssetByID :exec
+DELETE FROM assets
+WHERE asset_id = @asset_id;
+
+-- name: DeleteAssetProofByAssetID :exec
+DELETE FROM asset_proofs
+WHERE asset_id = @asset_id;
+
+-- name: AssetProofBlobByAssetID :one
+-- The proof blob keyed by the asset's primary key (not the BIPS
+-- asset ID), as needed when compensating passive re-anchors.
+SELECT proof_file
+FROM asset_proofs
+WHERE asset_id = @asset_id;
+
+-- name: RestoreAssetSpendTemplate :exec
+-- The inverse of ReAnchorPassiveAssets: restore the anchor UTXO and
+-- the spend-template fields that the re-anchor reset.
+UPDATE assets
+SET anchor_utxo_id = @anchor_utxo_id,
+    split_commitment_root_hash = @split_commitment_root_hash,
+    split_commitment_root_value = @split_commitment_root_value,
+    lock_time = @lock_time,
+    relative_lock_time = @relative_lock_time
+WHERE asset_id = @asset_id;

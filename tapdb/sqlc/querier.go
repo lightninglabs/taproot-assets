@@ -17,6 +17,9 @@ type Querier interface {
 	AnchorGenesisPoint(ctx context.Context, arg AnchorGenesisPointParams) error
 	AnchorPendingAssets(ctx context.Context, arg AnchorPendingAssetsParams) error
 	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int64, error)
+	// The proof blob keyed by the asset's primary key (not the BIPS
+	// asset ID), as needed when compensating passive re-anchors.
+	AssetProofBlobByAssetID(ctx context.Context, assetID int64) ([]byte, error)
 	AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]AssetsByGenesisPointRow, error)
 	AssetsDBSizePostgres(ctx context.Context) (int64, error)
 	AssetsDBSizeSqlite(ctx context.Context) (int32, error)
@@ -55,9 +58,12 @@ type Querier interface {
 	CountStuckReorgAnchorings(ctx context.Context) (int64, error)
 	CountUnconfirmedAssets(ctx context.Context, arg CountUnconfirmedAssetsParams) (int64, error)
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
+	DeleteAssetByID(ctx context.Context, assetID int64) error
+	DeleteAssetProofByAssetID(ctx context.Context, assetID int64) error
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
 	DeleteAuthMailboxMessageByIDAndReceiver(ctx context.Context, arg DeleteAuthMailboxMessageByIDAndReceiverParams) (int64, error)
 	DeleteAuxCloseInfo(ctx context.Context, chanPoint []byte) error
+	DeleteBurnsByTransferID(ctx context.Context, transferID int64) error
 	DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error
 	DeleteFederationProofSyncLog(ctx context.Context, arg DeleteFederationProofSyncLogParams) error
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
@@ -303,6 +309,10 @@ type Querier interface {
 	MarkPreCommitSpentByOutpoint(ctx context.Context, arg MarkPreCommitSpentByOutpointParams) error
 	MarkReorgAnchoringDelivered(ctx context.Context, arg MarkReorgAnchoringDeliveredParams) error
 	MarkReorgEffectDispatched(ctx context.Context, arg MarkReorgEffectDispatchedParams) error
+	// An abandoned transfer is permanently dead: its anchor inputs were
+	// claimed by a buried foreign transaction, so its own anchor can
+	// never confirm. Superseded transfers are not resumed at startup.
+	MarkTransferSuperseded(ctx context.Context, transferID int64) error
 	MaxUniverseLeafJournalSeq(ctx context.Context) (int64, error)
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	QueryAddr(ctx context.Context, arg QueryAddrParams) (QueryAddrRow, error)
@@ -376,8 +386,24 @@ type Querier interface {
 	ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error
 	RecordReorgDeliveryFailure(ctx context.Context, arg RecordReorgDeliveryFailureParams) error
 	RecordReorgEffectFailure(ctx context.Context, arg RecordReorgEffectFailureParams) error
+	// The inverse of ReAnchorPassiveAssets: restore the anchor UTXO and
+	// the spend-template fields that the re-anchor reset.
+	RestoreAssetSpendTemplate(ctx context.Context, arg RestoreAssetSpendTemplateParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
+	// The inverse of SetAssetSpent, applied when the transfer that spent
+	// the asset is abandoned: the asset's anchor input was never
+	// consumed on the surviving chain.
+	//
+	// Unless some other transfer legitimately consumed it. Two local
+	// transfers may spend one input — the sweeper's fee bump composes a
+	// replacement form against the same outpoint — and only the losing
+	// form is abandoned. Un-spending then contradicts the winner's
+	// confirmed spend and inflates the balance, so the same
+	// surviving-claimant test UnsupersedeSafeTransfers applies is applied
+	// here. The abandoned transfer's own confirmation is withdrawn before
+	// this runs, so it cannot answer for itself.
+	SetAssetUnspent(ctx context.Context, arg SetAssetUnspentParams) (int64, error)
 	// A newly sensed phase is a new delivery objective, so the failure
 	// bookkeeping of the previous objective (backoff, attempts, stuck)
 	// resets with it; a systematically failing handler re-sticks after
@@ -396,9 +422,25 @@ type Querier interface {
 	// conflicting transfer has confirmed on-chain, these transfers' anchor
 	// transactions can never confirm.
 	SupersedeConflictingTransfers(ctx context.Context, arg SupersedeConflictingTransfersParams) (int64, error)
+	// The asset row a transfer output materialized into, if any: the
+	// convergence guard for re-applying a confirmation, and the target
+	// of compensation when the transfer is abandoned.
+	TransferOutputAssetID(ctx context.Context, arg TransferOutputAssetIDParams) (int64, error)
+	// The inverse of ConfirmChainAnchorTx: the anchor transaction's
+	// recorded confirmation is withdrawn (its block was re-organized
+	// away and nothing has replaced it yet).
+	UnconfirmChainAnchorTx(ctx context.Context, txid []byte) error
 	UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error)
 	UniverseRoots(ctx context.Context, arg UniverseRootsParams) ([]UniverseRootsRow, error)
 	UniverseRootsAfterID(ctx context.Context, arg UniverseRootsAfterIDParams) ([]UniverseRootsAfterIDRow, error)
+	// The inverse of SupersedeConflictingTransfers, applied when the
+	// confirming transfer is abandoned: unconfirmed transfers spending
+	// the given anchor point become live again, provided no other
+	// confirmed transfer still spends it.
+	UnsupersedeSafeTransfers(ctx context.Context, arg UnsupersedeSafeTransfersParams) (int64, error)
+	// The inverse of MarkManagedUTXOAsSwept for every UTXO swept by the
+	// given (now abandoned) transaction.
+	UnsweepManagedUTXOsByTxid(ctx context.Context, txid []byte) error
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	// The first certified foreclosure freezes the edge: certification is

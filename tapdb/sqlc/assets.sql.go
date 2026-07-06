@@ -3079,6 +3079,65 @@ func (q *Queries) SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (i
 	return asset_id, err
 }
 
+const SetAssetUnspent = `-- name: SetAssetUnspent :one
+WITH target_asset(asset_id) AS (
+    SELECT assets.asset_id
+    FROM assets
+    JOIN script_keys
+      ON assets.script_key_id = script_keys.script_key_id
+    JOIN genesis_assets
+      ON assets.genesis_id = genesis_assets.gen_asset_id
+    JOIN managed_utxos utxos
+         ON assets.anchor_utxo_id = utxos.utxo_id AND
+            (utxos.outpoint = $3 OR
+             $3 IS NULL)
+    WHERE script_keys.tweaked_script_key = $1
+     AND genesis_assets.asset_id = $2
+)
+UPDATE assets
+SET spent = FALSE
+WHERE asset_id = (SELECT asset_id FROM target_asset)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM asset_transfer_inputs claimant_in
+      JOIN asset_transfers claimant
+        ON claimant.id = claimant_in.transfer_id
+      JOIN chain_txns claimant_txn
+        ON claimant_txn.txn_id = claimant.anchor_txn_id
+      WHERE claimant_in.script_key = $1
+        AND claimant_in.asset_id = $2
+        AND (claimant_in.anchor_point = $3 OR
+             $3 IS NULL)
+        AND claimant_txn.block_hash IS NOT NULL
+  )
+RETURNING assets.asset_id
+`
+
+type SetAssetUnspentParams struct {
+	ScriptKey   []byte
+	GenAssetID  []byte
+	AnchorPoint []byte
+}
+
+// The inverse of SetAssetSpent, applied when the transfer that spent
+// the asset is abandoned: the asset's anchor input was never
+// consumed on the surviving chain.
+//
+// Unless some other transfer legitimately consumed it. Two local
+// transfers may spend one input — the sweeper's fee bump composes a
+// replacement form against the same outpoint — and only the losing
+// form is abandoned. Un-spending then contradicts the winner's
+// confirmed spend and inflates the balance, so the same
+// surviving-claimant test UnsupersedeSafeTransfers applies is applied
+// here. The abandoned transfer's own confirmation is withdrawn before
+// this runs, so it cannot answer for itself.
+func (q *Queries) SetAssetUnspent(ctx context.Context, arg SetAssetUnspentParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, SetAssetUnspent, arg.ScriptKey, arg.GenAssetID, arg.AnchorPoint)
+	var asset_id int64
+	err := row.Scan(&asset_id)
+	return asset_id, err
+}
+
 const UpdateBatchGenesisTx = `-- name: UpdateBatchGenesisTx :exec
 WITH target_batch AS (
     SELECT batch_id

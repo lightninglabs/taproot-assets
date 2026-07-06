@@ -67,6 +67,41 @@ func (q *Queries) ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutput
 	return asset_id, err
 }
 
+const AssetProofBlobByAssetID = `-- name: AssetProofBlobByAssetID :one
+SELECT proof_file
+FROM asset_proofs
+WHERE asset_id = $1
+`
+
+// The proof blob keyed by the asset's primary key (not the BIPS
+// asset ID), as needed when compensating passive re-anchors.
+func (q *Queries) AssetProofBlobByAssetID(ctx context.Context, assetID int64) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, AssetProofBlobByAssetID, assetID)
+	var proof_file []byte
+	err := row.Scan(&proof_file)
+	return proof_file, err
+}
+
+const DeleteAssetByID = `-- name: DeleteAssetByID :exec
+DELETE FROM assets
+WHERE asset_id = $1
+`
+
+func (q *Queries) DeleteAssetByID(ctx context.Context, assetID int64) error {
+	_, err := q.db.ExecContext(ctx, DeleteAssetByID, assetID)
+	return err
+}
+
+const DeleteAssetProofByAssetID = `-- name: DeleteAssetProofByAssetID :exec
+DELETE FROM asset_proofs
+WHERE asset_id = $1
+`
+
+func (q *Queries) DeleteAssetProofByAssetID(ctx context.Context, assetID int64) error {
+	_, err := q.db.ExecContext(ctx, DeleteAssetProofByAssetID, assetID)
+	return err
+}
+
 const DeleteAssetWitnesses = `-- name: DeleteAssetWitnesses :exec
 DELETE FROM asset_witnesses
 WHERE asset_id = $1
@@ -74,6 +109,16 @@ WHERE asset_id = $1
 
 func (q *Queries) DeleteAssetWitnesses(ctx context.Context, assetID int64) error {
 	_, err := q.db.ExecContext(ctx, DeleteAssetWitnesses, assetID)
+	return err
+}
+
+const DeleteBurnsByTransferID = `-- name: DeleteBurnsByTransferID :exec
+DELETE FROM asset_burn_transfers
+WHERE transfer_id = $1
+`
+
+func (q *Queries) DeleteBurnsByTransferID(ctx context.Context, transferID int64) error {
+	_, err := q.db.ExecContext(ctx, DeleteBurnsByTransferID, transferID)
 	return err
 }
 
@@ -461,6 +506,20 @@ func (q *Queries) LogProofTransferAttempt(ctx context.Context, arg LogProofTrans
 	return err
 }
 
+const MarkTransferSuperseded = `-- name: MarkTransferSuperseded :exec
+UPDATE asset_transfers
+SET superseded = true
+WHERE id = $1
+`
+
+// An abandoned transfer is permanently dead: its anchor inputs were
+// claimed by a buried foreign transaction, so its own anchor can
+// never confirm. Superseded transfers are not resumed at startup.
+func (q *Queries) MarkTransferSuperseded(ctx context.Context, transferID int64) error {
+	_, err := q.db.ExecContext(ctx, MarkTransferSuperseded, transferID)
+	return err
+}
+
 const QueryAssetTransfers = `-- name: QueryAssetTransfers :many
 SELECT
     id, height_hint, txns.txid, txns.block_hash AS anchor_tx_block_hash,
@@ -785,6 +844,39 @@ func (q *Queries) ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassive
 	return err
 }
 
+const RestoreAssetSpendTemplate = `-- name: RestoreAssetSpendTemplate :exec
+UPDATE assets
+SET anchor_utxo_id = $1,
+    split_commitment_root_hash = $2,
+    split_commitment_root_value = $3,
+    lock_time = $4,
+    relative_lock_time = $5
+WHERE asset_id = $6
+`
+
+type RestoreAssetSpendTemplateParams struct {
+	AnchorUtxoID             sql.NullInt64
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
+	LockTime                 sql.NullInt32
+	RelativeLockTime         sql.NullInt32
+	AssetID                  int64
+}
+
+// The inverse of ReAnchorPassiveAssets: restore the anchor UTXO and
+// the spend-template fields that the re-anchor reset.
+func (q *Queries) RestoreAssetSpendTemplate(ctx context.Context, arg RestoreAssetSpendTemplateParams) error {
+	_, err := q.db.ExecContext(ctx, RestoreAssetSpendTemplate,
+		arg.AnchorUtxoID,
+		arg.SplitCommitmentRootHash,
+		arg.SplitCommitmentRootValue,
+		arg.LockTime,
+		arg.RelativeLockTime,
+		arg.AssetID,
+	)
+	return err
+}
+
 const SetTransferOutputProofDeliveryStatus = `-- name: SetTransferOutputProofDeliveryStatus :exec
 WITH target(output_id) AS (
     SELECT output_id
@@ -842,4 +934,94 @@ func (q *Queries) SupersedeConflictingTransfers(ctx context.Context, arg Superse
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const TransferOutputAssetID = `-- name: TransferOutputAssetID :one
+SELECT assets.asset_id
+FROM assets
+WHERE assets.script_key_id = $1
+  AND assets.anchor_utxo_id = $2
+`
+
+type TransferOutputAssetIDParams struct {
+	ScriptKeyID  int64
+	AnchorUtxoID sql.NullInt64
+}
+
+// The asset row a transfer output materialized into, if any: the
+// convergence guard for re-applying a confirmation, and the target
+// of compensation when the transfer is abandoned.
+func (q *Queries) TransferOutputAssetID(ctx context.Context, arg TransferOutputAssetIDParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, TransferOutputAssetID, arg.ScriptKeyID, arg.AnchorUtxoID)
+	var asset_id int64
+	err := row.Scan(&asset_id)
+	return asset_id, err
+}
+
+const UnconfirmChainAnchorTx = `-- name: UnconfirmChainAnchorTx :exec
+UPDATE chain_txns
+SET block_hash = NULL, block_height = NULL, tx_index = NULL
+WHERE txid = $1
+`
+
+// The inverse of ConfirmChainAnchorTx: the anchor transaction's
+// recorded confirmation is withdrawn (its block was re-organized
+// away and nothing has replaced it yet).
+func (q *Queries) UnconfirmChainAnchorTx(ctx context.Context, txid []byte) error {
+	_, err := q.db.ExecContext(ctx, UnconfirmChainAnchorTx, txid)
+	return err
+}
+
+const UnsupersedeSafeTransfers = `-- name: UnsupersedeSafeTransfers :execrows
+UPDATE asset_transfers
+SET superseded = false
+WHERE superseded = true
+  AND asset_transfers.id != $1
+  AND asset_transfers.id IN (
+      SELECT inputs.transfer_id
+      FROM asset_transfer_inputs inputs
+      WHERE inputs.anchor_point = $2
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM asset_transfer_inputs other_in
+      JOIN asset_transfers other
+        ON other.id = other_in.transfer_id
+      JOIN chain_txns txns
+        ON txns.txn_id = other.anchor_txn_id
+      WHERE other_in.anchor_point = $2
+        AND txns.block_hash IS NOT NULL
+  )
+`
+
+type UnsupersedeSafeTransfersParams struct {
+	AbandonedTransferID int64
+	AnchorPoint         []byte
+}
+
+// The inverse of SupersedeConflictingTransfers, applied when the
+// confirming transfer is abandoned: unconfirmed transfers spending
+// the given anchor point become live again, provided no other
+// confirmed transfer still spends it.
+func (q *Queries) UnsupersedeSafeTransfers(ctx context.Context, arg UnsupersedeSafeTransfersParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, UnsupersedeSafeTransfers, arg.AbandonedTransferID, arg.AnchorPoint)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const UnsweepManagedUTXOsByTxid = `-- name: UnsweepManagedUTXOsByTxid :exec
+UPDATE managed_utxos
+SET swept_txn_id = NULL
+WHERE swept_txn_id = (
+    SELECT txn_id FROM chain_txns WHERE txid = $1
+)
+`
+
+// The inverse of MarkManagedUTXOAsSwept for every UTXO swept by the
+// given (now abandoned) transaction.
+func (q *Queries) UnsweepManagedUTXOsByTxid(ctx context.Context, txid []byte) error {
+	_, err := q.db.ExecContext(ctx, UnsweepManagedUTXOsByTxid, txid)
+	return err
 }
