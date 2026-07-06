@@ -52,12 +52,24 @@ FROM reorg_anchorings
 ORDER BY id;
 
 -- name: UpsertReorgCandidateSpend :exec
+-- Certification is sticky: once set it survives every later update,
+-- since a certified act crossing is never retracted by re-orgs.
+--
+-- The on_chain flag is overwritten from EXCLUDED. This is safe even
+-- when an act certification arrives while the candidate is briefly
+-- off-chain in a re-org window (rare but possible): DerivePhase
+-- consults act_certified before touching on_chain for act-tier
+-- phases, so the sticky certification dominates the phase output and
+-- the on-chain flag only becomes meaningful again once the
+-- transaction is back on the dominant chain (at which point the next
+-- location-conf upsert will set it true).
 INSERT INTO reorg_candidate_spends (
     anchoring_id, spender_txid, raw_tx, verdict, on_chain, block_hash,
-    block_height, tx_index, spent_outpoints
+    block_height, tx_index, act_certified, spent_outpoints
 ) VALUES (
     @anchoring_id, @spender_txid, @raw_tx, @verdict, @on_chain,
-    @block_hash, @block_height, @tx_index, @spent_outpoints
+    @block_hash, @block_height, @tx_index, @act_certified,
+    @spent_outpoints
 )
 ON CONFLICT (anchoring_id, spender_txid)
 DO UPDATE SET
@@ -67,6 +79,8 @@ DO UPDATE SET
     block_hash = EXCLUDED.block_hash,
     block_height = EXCLUDED.block_height,
     tx_index = EXCLUDED.tx_index,
+    act_certified = reorg_candidate_spends.act_certified
+        OR EXCLUDED.act_certified,
     spent_outpoints = EXCLUDED.spent_outpoints;
 
 -- name: SetReorgAnchoringPhase :execrows
@@ -170,18 +184,26 @@ WHERE child_id = @child_id
 ORDER BY id;
 
 -- name: UpdateReorgDependencyForeclosure :exec
+-- The first certified foreclosure freezes the edge: certification is
+-- act-final, so later stagings — fresher parent forms, off-chain
+-- flips — must not displace evidence the notifier certified, lest
+-- the child absorb an abandonment on a transaction it never did.
 UPDATE reorg_dependencies
 SET foreclosing_evidence = @foreclosing_evidence,
-    foreclosing_on_chain = @foreclosing_on_chain
+    foreclosing_on_chain = @foreclosing_on_chain,
+    foreclosing_act_certified = @foreclosing_act_certified
 WHERE child_id = @child_id
-  AND parent_id = @parent_id;
+  AND parent_id = @parent_id
+  AND foreclosing_act_certified = FALSE;
 
 -- name: ClearReorgDependencyForeclosure :exec
+-- A certified foreclosure is absorbing and never cleared.
 UPDATE reorg_dependencies
 SET foreclosing_evidence = NULL,
     foreclosing_on_chain = FALSE
 WHERE child_id = @child_id
-  AND parent_id = @parent_id;
+  AND parent_id = @parent_id
+  AND foreclosing_act_certified = FALSE;
 
 -- name: CountLiveReorgDependents :one
 SELECT COUNT(*)

@@ -187,14 +187,17 @@ type Registry interface {
 
 	// StageForeclosure stages (or refreshes) foreclosing evidence
 	// on the child→parent edge. Staging is reversible until the
-	// child's threshold is reached.
+	// child's threshold is reached; the first certified
+	// foreclosure freezes the edge, and later stagings are benign
+	// no-ops.
 	StageForeclosure(ctx context.Context, child, parent AnchoringID,
 		foreclosure ForeclosureEvent) error
 
 	// ClearForeclosure removes staged foreclosing evidence from
 	// the child→parent edge (the foreclosing event itself reorged
 	// out, or the parent's witness reverted to the depended-upon
-	// form).
+	// form). A certified foreclosure is absorbing and never
+	// cleared.
 	ClearForeclosure(ctx context.Context,
 		child, parent AnchoringID) error
 

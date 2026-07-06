@@ -16,6 +16,7 @@ SET foreclosing_evidence = NULL,
     foreclosing_on_chain = FALSE
 WHERE child_id = $1
   AND parent_id = $2
+  AND foreclosing_act_certified = FALSE
 `
 
 type ClearReorgDependencyForeclosureParams struct {
@@ -23,6 +24,7 @@ type ClearReorgDependencyForeclosureParams struct {
 	ParentID int64
 }
 
+// A certified foreclosure is absorbing and never cleared.
 func (q *Queries) ClearReorgDependencyForeclosure(ctx context.Context, arg ClearReorgDependencyForeclosureParams) error {
 	_, err := q.db.ExecContext(ctx, ClearReorgDependencyForeclosure, arg.ChildID, arg.ParentID)
 	return err
@@ -753,22 +755,30 @@ func (q *Queries) SetReorgAnchoringPhase(ctx context.Context, arg SetReorgAnchor
 const UpdateReorgDependencyForeclosure = `-- name: UpdateReorgDependencyForeclosure :exec
 UPDATE reorg_dependencies
 SET foreclosing_evidence = $1,
-    foreclosing_on_chain = $2
-WHERE child_id = $3
-  AND parent_id = $4
+    foreclosing_on_chain = $2,
+    foreclosing_act_certified = $3
+WHERE child_id = $4
+  AND parent_id = $5
+  AND foreclosing_act_certified = FALSE
 `
 
 type UpdateReorgDependencyForeclosureParams struct {
-	ForeclosingEvidence []byte
-	ForeclosingOnChain  bool
-	ChildID             int64
-	ParentID            int64
+	ForeclosingEvidence     []byte
+	ForeclosingOnChain      bool
+	ForeclosingActCertified bool
+	ChildID                 int64
+	ParentID                int64
 }
 
+// The first certified foreclosure freezes the edge: certification is
+// act-final, so later stagings — fresher parent forms, off-chain
+// flips — must not displace evidence the notifier certified, lest
+// the child absorb an abandonment on a transaction it never did.
 func (q *Queries) UpdateReorgDependencyForeclosure(ctx context.Context, arg UpdateReorgDependencyForeclosureParams) error {
 	_, err := q.db.ExecContext(ctx, UpdateReorgDependencyForeclosure,
 		arg.ForeclosingEvidence,
 		arg.ForeclosingOnChain,
+		arg.ForeclosingActCertified,
 		arg.ChildID,
 		arg.ParentID,
 	)
@@ -778,10 +788,11 @@ func (q *Queries) UpdateReorgDependencyForeclosure(ctx context.Context, arg Upda
 const UpsertReorgCandidateSpend = `-- name: UpsertReorgCandidateSpend :exec
 INSERT INTO reorg_candidate_spends (
     anchoring_id, spender_txid, raw_tx, verdict, on_chain, block_hash,
-    block_height, tx_index, spent_outpoints
+    block_height, tx_index, act_certified, spent_outpoints
 ) VALUES (
     $1, $2, $3, $4, $5,
-    $6, $7, $8, $9
+    $6, $7, $8, $9,
+    $10
 )
 ON CONFLICT (anchoring_id, spender_txid)
 DO UPDATE SET
@@ -791,6 +802,8 @@ DO UPDATE SET
     block_hash = EXCLUDED.block_hash,
     block_height = EXCLUDED.block_height,
     tx_index = EXCLUDED.tx_index,
+    act_certified = reorg_candidate_spends.act_certified
+        OR EXCLUDED.act_certified,
     spent_outpoints = EXCLUDED.spent_outpoints
 `
 
@@ -803,9 +816,21 @@ type UpsertReorgCandidateSpendParams struct {
 	BlockHash      []byte
 	BlockHeight    sql.NullInt32
 	TxIndex        sql.NullInt32
+	ActCertified   bool
 	SpentOutpoints []byte
 }
 
+// Certification is sticky: once set it survives every later update,
+// since a certified act crossing is never retracted by re-orgs.
+//
+// The on_chain flag is overwritten from EXCLUDED. This is safe even
+// when an act certification arrives while the candidate is briefly
+// off-chain in a re-org window (rare but possible): DerivePhase
+// consults act_certified before touching on_chain for act-tier
+// phases, so the sticky certification dominates the phase output and
+// the on-chain flag only becomes meaningful again once the
+// transaction is back on the dominant chain (at which point the next
+// location-conf upsert will set it true).
 func (q *Queries) UpsertReorgCandidateSpend(ctx context.Context, arg UpsertReorgCandidateSpendParams) error {
 	_, err := q.db.ExecContext(ctx, UpsertReorgCandidateSpend,
 		arg.AnchoringID,
@@ -816,6 +841,7 @@ func (q *Queries) UpsertReorgCandidateSpend(ctx context.Context, arg UpsertReorg
 		arg.BlockHash,
 		arg.BlockHeight,
 		arg.TxIndex,
+		arg.ActCertified,
 		arg.SpentOutpoints,
 	)
 	return err

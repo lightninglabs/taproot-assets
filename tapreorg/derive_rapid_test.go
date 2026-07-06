@@ -152,6 +152,27 @@ func TestPhaseCodecRoundTrip(t *testing.T) {
 	})
 }
 
+// TestPhaseNameRoundTrip asserts that every phase code's stable name
+// resolves back to the code: a phase name read off one operator
+// surface (a listing, a metric label) filters on another verbatim.
+func TestPhaseNameRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	codes := []PhaseCode{
+		PhaseCodeUnwitnessed, PhaseCodeWitnessed,
+		PhaseCodeConflicted, PhaseCodeBuried, PhaseCodeAbandoned,
+		PhaseCodeWithdrawn,
+	}
+	for _, code := range codes {
+		back, err := PhaseCodeFromName(code.String())
+		require.NoError(t, err)
+		require.Equal(t, code, back)
+	}
+
+	_, err := PhaseCodeFromName(PhaseCode(17).String())
+	require.Error(t, err)
+}
+
 // genHostileView draws a completely unconstrained chain view: any
 // combination of verdicts, on-chain flags and locations, including
 // combinations the whole-set rule forbids.
@@ -177,9 +198,12 @@ func genHostileView(t *rapid.T, maxHeight uint32) ChainView {
 		}
 
 		spends[i] = CandidateSpend{
-			Verdict:        verdict,
-			W:              genWitness(t, label+".w", maxHeight),
-			OnChain:        rapid.Bool().Draw(t, label+".onChain"),
+			Verdict: verdict,
+			W:       genWitness(t, label+".w", maxHeight),
+			OnChain: rapid.Bool().Draw(t, label+".onChain"),
+			ActCertified: rapid.Bool().Draw(
+				t, label+".certified",
+			),
 			SpentOutPoints: ops,
 		}
 	}
@@ -192,6 +216,9 @@ func genHostileView(t *rapid.T, maxHeight uint32) ChainView {
 			)),
 			W:       genWitness(t, "fc.w", maxHeight),
 			OnChain: rapid.Bool().Draw(t, "fc.onChain"),
+			ActCertified: rapid.Bool().Draw(
+				t, "fc.certified",
+			),
 		})
 	}
 
@@ -200,20 +227,16 @@ func genHostileView(t *rapid.T, maxHeight uint32) ChainView {
 
 // TestDerivePhaseTotal asserts totality and the conservative reading
 // over hostile views: derivation always yields a well-formed,
-// non-Withdrawn phase; it never affirms without on-chain satisfying
-// evidence, and never buries while a foreign spend sits on-chain.
+// non-Withdrawn phase, act phases derive only from certifications,
+// and contradictory evidence never buries or compensates.
 func TestDerivePhaseTotal(t *testing.T) {
 	t.Parallel()
 
 	rapid.Check(t, func(rt *rapid.T) {
 		const maxHeight = 2_000
 		view := genHostileView(rt, maxHeight)
-		threshold := uint32(rapid.IntRange(1, 20).Draw(rt, "threshold"))
-		bestHeight := uint32(rapid.IntRange(0, 2*maxHeight).Draw(
-			rt, "bestHeight",
-		))
 
-		p := DerivePhase(view, threshold, bestHeight)
+		p := DerivePhase(view)
 		require.NotNil(rt, p)
 
 		// Withdrawn is never derived.
@@ -225,27 +248,45 @@ func TestDerivePhaseTotal(t *testing.T) {
 		require.NoError(rt, err)
 
 		var (
-			haveSatisfying bool
-			haveForeign    bool
+			haveSatisfying     bool
+			haveCertSatisfying bool
+			haveCertForeign    bool
 		)
 		for _, s := range view.Spends {
-			if !s.OnChain {
-				continue
-			}
-			switch s.Verdict {
-			case VerdictSatisfies:
+			satisfying := s.Verdict == VerdictSatisfies
+			if s.OnChain && satisfying {
 				haveSatisfying = true
-			case VerdictForeign:
-				haveForeign = true
+			}
+			if s.ActCertified && satisfying {
+				haveCertSatisfying = true
+			}
+			if s.ActCertified && !satisfying {
+				haveCertForeign = true
 			}
 		}
+		fc := view.Foreclosure.UnwrapToPtr()
+		haveCertForeclosure := fc != nil && fc.ActCertified
 
-		switch p.(type) {
+		switch phase := p.(type) {
+		// Affirmatives require the corresponding evidence, and
+		// act affirmatives require an uncontradicted
+		// certification.
 		case Witnessed:
 			require.True(rt, haveSatisfying)
+
 		case Buried:
-			require.True(rt, haveSatisfying)
-			require.False(rt, haveForeign)
+			require.True(rt, haveCertSatisfying)
+			require.False(rt, haveCertForeign)
+
+		case Abandoned:
+			switch phase.Cause.(type) {
+			case ForeignBurial:
+				require.True(rt, haveCertForeign)
+				require.False(rt, haveCertSatisfying)
+
+			case Foreclosed:
+				require.True(rt, haveCertForeclosure)
+			}
 		}
 	})
 }
@@ -255,29 +296,34 @@ func TestDerivePhaseTotal(t *testing.T) {
 type wholeSetView struct {
 	view ChainView
 
-	// mode is 0 (nothing on-chain), 1 (satisfying on-chain) or 2
-	// (foreign on-chain).
+	// mode is 0 (nothing spent), 1 (satisfying spend) or 2
+	// (foreign spends).
 	mode int
 
-	// witness is the on-chain satisfying spend in mode 1.
+	// certified reports whether the mode's evidence carries an act
+	// certification.
+	certified bool
+
+	// witness is the satisfying spend in mode 1.
 	witness Witness
 
-	// minForeignHeight is the deepest on-chain foreign height in
-	// mode 2.
-	minForeignHeight uint32
+	// certForeignTxHash is the certified foreign spend in mode 2,
+	// when certified.
+	certForeignTxHash chainhash.Hash
 
-	// numForeign is the number of on-chain foreign spends in mode
-	// 2.
-	numForeign int
+	// numOnChainForeign is the number of on-chain foreign spends
+	// in mode 2.
+	numOnChainForeign int
 }
 
 // genWholeSetView draws a chain view obeying the whole-set rule: at
-// most one on-chain satisfying spend, never coexisting with on-chain
-// foreign spends; off-chain candidates unconstrained.
+// most one satisfying spend, never coexisting with foreign spends;
+// certifications consistent with a single chain history.
 func genWholeSetView(t *rapid.T, maxHeight uint32) wholeSetView {
 	out := wholeSetView{mode: rapid.IntRange(0, 2).Draw(t, "mode")}
 
-	// Off-chain candidates are harmless in every mode.
+	// Off-chain, uncertified candidates are harmless in every
+	// mode.
 	numOff := rapid.IntRange(0, 2).Draw(t, "numOffChain")
 	for i := 0; i < numOff; i++ {
 		label := fmt.Sprintf("off%d", i)
@@ -293,28 +339,52 @@ func genWholeSetView(t *rapid.T, maxHeight uint32) wholeSetView {
 	}
 
 	switch out.mode {
+	// A satisfying spend: on-chain, certified, or both (a
+	// certified spend that later fell off-chain is the
+	// deeper-than-threshold reorg, and certification is sticky).
 	case 1:
+		out.certified = rapid.Bool().Draw(t, "sat.certified")
+		onChain := true
+		if out.certified {
+			onChain = rapid.Bool().Draw(t, "sat.onChain")
+		}
+
 		out.witness = genWitness(t, "sat.w", maxHeight)
 		out.view.Spends = append(out.view.Spends, CandidateSpend{
-			Verdict: VerdictSatisfies,
-			W:       out.witness,
-			OnChain: true,
+			Verdict:      VerdictSatisfies,
+			W:            out.witness,
+			OnChain:      onChain,
+			ActCertified: out.certified,
 		})
 
+	// Foreign spends of distinct outpoints; at most one certified.
 	case 2:
+		out.certified = rapid.Bool().Draw(t, "foreign.certified")
 		numForeign := rapid.IntRange(1, 3).Draw(t, "numForeign")
-		out.numForeign = numForeign
 		for i := 0; i < numForeign; i++ {
 			label := fmt.Sprintf("foreign%d", i)
 			w := genWitness(t, label+".w", maxHeight)
-			if i == 0 || w.Height() < out.minForeignHeight {
-				out.minForeignHeight = w.Height()
+
+			certified := out.certified && i == 0
+			onChain := true
+			if certified {
+				onChain = rapid.Bool().Draw(
+					t, label+".onChain",
+				)
 			}
+			if certified {
+				out.certForeignTxHash = w.TxHash()
+			}
+			if onChain {
+				out.numOnChainForeign++
+			}
+
 			out.view.Spends = append(
 				out.view.Spends, CandidateSpend{
-					Verdict: VerdictForeign,
-					W:       w,
-					OnChain: true,
+					Verdict:      VerdictForeign,
+					W:            w,
+					OnChain:      onChain,
+					ActCertified: certified,
 					SpentOutPoints: []wire.OutPoint{{
 						Hash: genHash(
 							t, label+".op",
@@ -325,8 +395,8 @@ func genWholeSetView(t *rapid.T, maxHeight uint32) wholeSetView {
 		}
 	}
 
-	// Foreclosure can only be staged when the child is not itself
-	// witnessed: a foreclosed premise and an on-chain witness
+	// Foreclosure can only be staged when the anchoring is not
+	// itself witnessed: a foreclosed premise and a live witness
 	// cannot coexist.
 	if out.mode == 0 && rapid.Bool().Draw(t, "haveForeclosure") {
 		out.view.Foreclosure = fn.Some(ForeclosureEvent{
@@ -335,6 +405,9 @@ func genWholeSetView(t *rapid.T, maxHeight uint32) wholeSetView {
 			OnChain: rapid.Bool().Draw(
 				t, "fc.onChain",
 			),
+			ActCertified: rapid.Bool().Draw(
+				t, "fc.certified",
+			),
 		})
 	}
 
@@ -342,30 +415,23 @@ func genWholeSetView(t *rapid.T, maxHeight uint32) wholeSetView {
 }
 
 // TestDeriveEvidenceAdequacy asserts, over whole-set views, that the
-// derived phase is exactly what the evidence justifies at each depth
-// tier.
+// derived phase is exactly what the evidence justifies at each tier:
+// certifications decide act, the dominant chain decides potency.
 func TestDeriveEvidenceAdequacy(t *testing.T) {
 	t.Parallel()
 
 	rapid.Check(t, func(rt *rapid.T) {
 		const maxHeight = 2_000
 		ws := genWholeSetView(rt, maxHeight)
-		threshold := uint32(rapid.IntRange(1, 20).Draw(rt, "threshold"))
-		bestHeight := uint32(rapid.IntRange(0, 2*maxHeight).Draw(
-			rt, "bestHeight",
-		))
 
-		p := DerivePhase(ws.view, threshold, bestHeight)
+		p := DerivePhase(ws.view)
 
 		switch ws.mode {
-		// Nothing on-chain: Unwitnessed, unless an on-chain
-		// foreclosure has reached threshold depth.
+		// Nothing spent: Unwitnessed, unless a certified
+		// foreclosure resolves the anchoring.
 		case 0:
 			fc := ws.view.Foreclosure.UnwrapToPtr()
-			foreclosed := fc != nil && fc.OnChain &&
-				fc.W.Depth(bestHeight) >= threshold
-
-			if foreclosed {
+			if fc != nil && fc.ActCertified {
 				abandoned, ok := p.(Abandoned)
 				require.True(rt, ok)
 				cause, ok := abandoned.Cause.(Foreclosed)
@@ -377,118 +443,177 @@ func TestDeriveEvidenceAdequacy(t *testing.T) {
 				require.Equal(rt, Unwitnessed{}, p)
 			}
 
-		// A satisfying spend on-chain: Witnessed below threshold,
-		// Buried at it, with the same witness either way.
+		// A satisfying spend: Buried when certified (on-chain or
+		// not — certification is sticky), Witnessed while merely
+		// on-chain, with the same witness either way.
 		case 1:
-			if ws.witness.Depth(bestHeight) >= threshold {
+			onChain := ws.view.Spends[len(ws.view.Spends)-1].
+				OnChain
+
+			switch {
+			case ws.certified:
 				buried, ok := p.(Buried)
 				require.True(rt, ok)
 				require.Equal(
 					rt, ws.witness.TxHash(),
 					buried.W.TxHash(),
 				)
-			} else {
+
+			case onChain:
 				witnessed, ok := p.(Witnessed)
 				require.True(rt, ok)
 				require.Equal(
 					rt, ws.witness.TxHash(),
 					witnessed.W.TxHash(),
 				)
+
+			default:
+				require.Equal(rt, Unwitnessed{}, p)
 			}
 
-		// Foreign spends on-chain: Conflicted below threshold,
-		// Abandoned once the deepest reaches it.
+		// Foreign spends: Abandoned when one is certified,
+		// Conflicted while any is merely on-chain.
 		case 2:
-			deepestDepth := bestHeight - ws.minForeignHeight + 1
-			if bestHeight < ws.minForeignHeight {
-				deepestDepth = 0
-			}
-
-			if deepestDepth >= threshold {
+			switch {
+			case ws.certified:
 				abandoned, ok := p.(Abandoned)
 				require.True(rt, ok)
 				cause, ok := abandoned.Cause.(ForeignBurial)
 				require.True(rt, ok)
 				require.Equal(
-					rt, ws.minForeignHeight,
-					cause.Spend.W.Height(),
+					rt, ws.certForeignTxHash,
+					cause.Spend.W.TxHash(),
 				)
-			} else {
+
+			case ws.numOnChainForeign > 0:
 				conflicted, ok := p.(Conflicted)
 				require.True(rt, ok)
 				require.Len(
-					rt, conflicted.Spends, ws.numForeign,
+					rt, conflicted.Spends,
+					ws.numOnChainForeign,
 				)
+
+			default:
+				require.Equal(rt, Unwitnessed{}, p)
 			}
 		}
 	})
 }
 
-// TestDeriveActMonotone asserts that, with the view fixed, growing
-// best height can only move a phase from potency to act — never the
-// reverse, and never across the verdict's sign.
-func TestDeriveActMonotone(t *testing.T) {
+// TestDeriveCertificationMonotone asserts that certifying the
+// evidence a potency phase rests on moves it to the act tier of the
+// same sign, with the same deciding transaction — and never flips the
+// sign.
+func TestDeriveCertificationMonotone(t *testing.T) {
 	t.Parallel()
 
 	rapid.Check(t, func(rt *rapid.T) {
 		const maxHeight = 2_000
 		ws := genWholeSetView(rt, maxHeight)
-		threshold := uint32(rapid.IntRange(1, 20).Draw(rt, "threshold"))
-		h1 := uint32(rapid.IntRange(0, 2*maxHeight).Draw(rt, "h1"))
-		h2 := h1 + uint32(rapid.IntRange(0, 100).Draw(rt, "delta"))
 
-		p1 := DerivePhase(ws.view, threshold, h1)
-		p2 := DerivePhase(ws.view, threshold, h2)
+		p1 := DerivePhase(ws.view)
+
+		// Certify every on-chain candidate.
+		certified := ChainView{
+			Spends: append(
+				[]CandidateSpend{}, ws.view.Spends...,
+			),
+			Foreclosure: ws.view.Foreclosure,
+		}
+		for i := range certified.Spends {
+			if certified.Spends[i].OnChain {
+				certified.Spends[i].ActCertified = true
+			}
+		}
+
+		p2 := DerivePhase(certified)
 
 		switch phase1 := p1.(type) {
-		case Buried:
-			buried2, ok := p2.(Buried)
+		case Witnessed:
+			buried, ok := p2.(Buried)
 			require.True(rt, ok)
 			require.Equal(
-				rt, phase1.W.TxHash(), buried2.W.TxHash(),
+				rt, phase1.W.TxHash(), buried.W.TxHash(),
 			)
 
+		case Conflicted:
+			abandoned, ok := p2.(Abandoned)
+			require.True(rt, ok)
+			_, ok = abandoned.Cause.(ForeignBurial)
+			require.True(rt, ok)
+
+		case Buried:
+			require.True(rt, PhaseEqual(p1, p2))
+
 		case Abandoned:
+			// Additional certifications can change which
+			// foreign spend is preferred as the cause;
+			// derivation is pure, and absorption of the
+			// first-sensed terminal is the service's job.
+			// The sign, however, never flips.
 			_, ok := p2.(Abandoned)
 			require.True(rt, ok)
 
-		case Witnessed:
-			switch phase2 := p2.(type) {
-			case Witnessed:
-				require.Equal(
-					rt, phase1.W.TxHash(),
-					phase2.W.TxHash(),
-				)
-			case Buried:
-				require.Equal(
-					rt, phase1.W.TxHash(),
-					phase2.W.TxHash(),
-				)
-			default:
-				rt.Fatalf("witnessed regressed to %v", p2)
-			}
-
-		case Conflicted:
-			switch p2.(type) {
-			case Conflicted, Abandoned:
-			default:
-				rt.Fatalf("conflicted regressed to %v", p2)
-			}
-
 		case Unwitnessed:
-			switch p2.(type) {
-			case Unwitnessed:
-			case Abandoned:
-				// Only an on-chain foreclosure can resolve
-				// an unwitnessed anchoring.
-				fc := ws.view.Foreclosure.UnwrapToPtr()
-				require.NotNil(rt, fc)
-				require.True(rt, fc.OnChain)
-			default:
-				rt.Fatalf("unwitnessed regressed to %v", p2)
-			}
+			// Nothing on-chain to certify: unchanged.
+			require.True(rt, PhaseEqual(p1, p2))
 		}
 	})
+}
+
+// TestDeriveCertifiedForeclosureAbsorbing pins the act-tier ranking
+// around a certified foreclosure: it abandons the anchoring even
+// while an uncertified satisfying spend sits on the dominant chain —
+// terminal abandonment must never hinge on the reversible on-chain
+// flag — while the anchoring's own certified witness outranks it.
+func TestDeriveCertifiedForeclosureAbsorbing(t *testing.T) {
+	t.Parallel()
+
+	mkWitness := func(lock, height uint32) Witness {
+		tx := wire.NewMsgTx(2)
+		tx.LockTime = lock
+		w, err := NewWitness(tx, chainhash.Hash{1}, height, 0)
+		require.NoError(t, err)
+
+		return w
+	}
+
+	own := mkWitness(1, 100)
+	foreclosing := mkWitness(2, 101)
+
+	view := ChainView{
+		Spends: []CandidateSpend{{
+			Verdict: VerdictSatisfies,
+			W:       own,
+			OnChain: true,
+		}},
+		Foreclosure: fn.Some(ForeclosureEvent{
+			Parent:       1,
+			W:            foreclosing,
+			OnChain:      true,
+			ActCertified: true,
+		}),
+	}
+
+	p := DerivePhase(view)
+	abandoned, ok := p.(Abandoned)
+	require.True(t, ok, "got %v", p)
+	cause, ok := abandoned.Cause.(Foreclosed)
+	require.True(t, ok)
+	require.Equal(t, foreclosing.TxHash(), cause.W.TxHash())
+
+	// Flipping the witness's on-chain flag must not change the
+	// outcome: the deciding evidence is act-tier, not potency.
+	view.Spends[0].OnChain = false
+	require.True(t, PhaseEqual(p, DerivePhase(view)))
+
+	// The anchoring's own certified witness outranks the certified
+	// foreclosure: direct act evidence wins over cascaded.
+	view.Spends[0].OnChain = true
+	view.Spends[0].ActCertified = true
+	buried, ok := DerivePhase(view).(Buried)
+	require.True(t, ok)
+	require.Equal(t, own.TxHash(), buried.W.TxHash())
 }
 
 // TestDerivePermutationInvariant asserts that derivation does not
@@ -499,12 +624,8 @@ func TestDerivePermutationInvariant(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		const maxHeight = 2_000
 		view := genHostileView(rt, maxHeight)
-		threshold := uint32(rapid.IntRange(1, 20).Draw(rt, "threshold"))
-		bestHeight := uint32(rapid.IntRange(0, 2*maxHeight).Draw(
-			rt, "bestHeight",
-		))
 
-		p1 := DerivePhase(view, threshold, bestHeight)
+		p1 := DerivePhase(view)
 
 		// Fisher-Yates over the spends, with rapid-drawn swaps.
 		shuffled := ChainView{
@@ -519,7 +640,7 @@ func TestDerivePermutationInvariant(t *testing.T) {
 				shuffled.Spends[j], shuffled.Spends[i]
 		}
 
-		p2 := DerivePhase(shuffled, threshold, bestHeight)
+		p2 := DerivePhase(shuffled)
 		require.True(rt, PhaseEqual(p1, p2), "p1=%v p2=%v", p1, p2)
 	})
 }

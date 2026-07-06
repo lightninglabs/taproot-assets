@@ -65,4 +65,13 @@ type ChainNotifier interface {
 	// GetBlock returns a chain block given its hash.
 	GetBlock(ctx context.Context,
 		hash chainhash.Hash) (*wire.MsgBlock, error)
+
+	// GetBlockHash returns the hash of the block at the given
+	// height in the best chain. The watcher uses it for startup
+	// reconciliation: notifications missed while down are
+	// recovered by historical dispatch only for transactions
+	// still in the chain, so candidates recorded on-chain must be
+	// re-verified against the dominant chain explicitly.
+	GetBlockHash(ctx context.Context,
+		blockHeight int64) (chainhash.Hash, error)
 }

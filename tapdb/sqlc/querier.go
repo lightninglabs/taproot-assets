@@ -35,6 +35,7 @@ type Querier interface {
 	// transaction commits, serializing journal appends so that seq order
 	// equals commit order.
 	BumpUniverseLeafJournalTail(ctx context.Context, delta int64) (int64, error)
+	// A certified foreclosure is absorbing and never cleared.
 	ClearReorgDependencyForeclosure(ctx context.Context, arg ClearReorgDependencyForeclosureParams) error
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
@@ -382,6 +383,10 @@ type Querier interface {
 	UniverseRootsAfterID(ctx context.Context, arg UniverseRootsAfterIDParams) ([]UniverseRootsAfterIDRow, error)
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
+	// The first certified foreclosure freezes the edge: certification is
+	// act-final, so later stagings — fresher parent forms, off-chain
+	// flips — must not displace evidence the notifier certified, lest
+	// the child absorb an abandonment on a transaction it never did.
 	UpdateReorgDependencyForeclosure(ctx context.Context, arg UpdateReorgDependencyForeclosureParams) error
 	UpdateSupplyCommitTransitionCommitment(ctx context.Context, arg UpdateSupplyCommitTransitionCommitmentParams) error
 	UpdateSupplyCommitmentChainDetails(ctx context.Context, arg UpdateSupplyCommitmentChainDetailsParams) error
@@ -418,6 +423,17 @@ type Querier interface {
 	UpsertMintSupplyPreCommit(ctx context.Context, arg UpsertMintSupplyPreCommitParams) (int64, error)
 	UpsertMultiverseLeaf(ctx context.Context, arg UpsertMultiverseLeafParams) (int64, error)
 	UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error)
+	// Certification is sticky: once set it survives every later update,
+	// since a certified act crossing is never retracted by re-orgs.
+	//
+	// The on_chain flag is overwritten from EXCLUDED. This is safe even
+	// when an act certification arrives while the candidate is briefly
+	// off-chain in a re-org window (rare but possible): DerivePhase
+	// consults act_certified before touching on_chain for act-tier
+	// phases, so the sticky certification dominates the phase output and
+	// the on-chain flag only becomes meaningful again once the
+	// transaction is back on the dominant chain (at which point the next
+	// location-conf upsert will set it true).
 	UpsertReorgCandidateSpend(ctx context.Context, arg UpsertReorgCandidateSpendParams) error
 	// Edge creation is idempotent: registration-time and candidate-time
 	// derivation can discover the same edge, and the first write wins.
