@@ -22,6 +22,14 @@ var (
 	// live anchoring but the anchoring is terminal.
 	ErrTerminalPhase = errors.New("anchoring is terminal")
 
+	// ErrIncompleteSpend is returned when a satisfying candidate's
+	// transaction does not spend the anchoring's entire trigger
+	// set: under the whole-set rule such a transaction cannot
+	// realize the anchoring, and recording it as satisfying would
+	// let satisfying and foreign outcomes coexist on one chain.
+	ErrIncompleteSpend = errors.New("satisfying candidate does not " +
+		"spend the entire trigger set")
+
 	// ErrStaleDelivery is returned by Deliver when the sensed
 	// phase changed between the delivery decision and the delivery
 	// transaction; the delivery is a benign no-op and the caller
@@ -70,14 +78,26 @@ type StoredEffect struct {
 // registry advances and site handlers possible.
 type Registry interface {
 	// Register inserts the anchoring (phase Unwitnessed, delivered
-	// Unwitnessed), derives its dependency edges from live
-	// anchorings whose current witness created its trigger
-	// outpoints, and runs the site's phase-1 speculative write —
-	// all in one transaction. There is no instant at which the
-	// stake exists without its registration.
+	// Unwitnessed) at the given best height, derives its
+	// dependency edges from live anchorings with a recorded
+	// satisfying candidate that created its trigger outpoints, and
+	// runs the site's phase-1 speculative write — all in one
+	// transaction. There is no instant at which the stake exists
+	// without its registration. The phase-1 write receives the new
+	// anchoring's ID so the site can key its own rows (and
+	// effects) to it.
+	//
+	// A child registered before its parent's transaction has ever
+	// been observed cannot be matched here; its edge derives when
+	// the parent first records a satisfying candidate in the
+	// depended-upon form (see UpsertCandidate). A parent that
+	// never confirms in that form derives no edge — but then the
+	// child's trigger outpoints never exist on chain either, so no
+	// chain outcome is being missed.
 	Register(ctx context.Context, spec RegistrationSpec,
-		phase1 func(context.Context, RegistryTx) error) (AnchoringID,
-		error)
+		createdHeight uint32,
+		phase1 func(context.Context, RegistryTx,
+			AnchoringID) error) (AnchoringID, error)
 
 	// GetAnchoring fetches an anchoring with its chain view.
 	GetAnchoring(ctx context.Context,
@@ -92,24 +112,45 @@ type Registry interface {
 	ChainView(ctx context.Context, id AnchoringID) (ChainView, error)
 
 	// UpsertCandidate records or updates a candidate spend
-	// observation, keyed by (anchoring, spending txid).
+	// observation, keyed by (anchoring, spending txid). A
+	// satisfying candidate whose transaction does not spend the
+	// anchoring's entire trigger set is refused with
+	// ErrIncompleteSpend — the whole-set rule held at the durable
+	// boundary. Recording a satisfying candidate also derives
+	// dependency edges, in the same transaction, for live children
+	// staked on the transaction's outputs that registered before
+	// the form was first observed.
 	UpsertCandidate(ctx context.Context, id AnchoringID,
 		candidate CandidateSpend) error
 
 	// SetPhase persists a newly derived phase for a live
-	// anchoring.
+	// anchoring. Terminal phases are absorbing at the row level:
+	// if another writer pinned the anchoring terminal after the
+	// caller derived, the stale write is refused with
+	// ErrTerminalPhase and the row is left untouched.
 	SetPhase(ctx context.Context, id AnchoringID, phase Phase) error
 
 	// Deliver invokes the handler inside a transaction and, on
 	// success, records the target phase as delivered — resetting
 	// the failure bookkeeping, stamping terminal phases terminal,
-	// and, for an Abandoned target, foreclosing the anchoring's
-	// live dependents' edges in the same transaction (which is
-	// what makes cascade delivery parent-first structural). If the
-	// sensed phase no longer equals the target, ErrStaleDelivery
-	// is returned and nothing happens.
+	// and, for a terminal target, settling the anchoring's live
+	// dependents' edges in the same transaction: an abandonment
+	// forecloses every edge (which is what makes cascade delivery
+	// parent-first structural), and a burial forecloses the edges
+	// depending on a different form while clearing those pinned to
+	// the buried one. If the sensed phase no longer equals the
+	// target, ErrStaleDelivery is returned and nothing happens.
+	//
+	// The handler receives an Anchoring aggregate assembled inside
+	// the delivery transaction (candidates and their block
+	// enrichment reflect the durable state at the moment the tx
+	// opens, not whatever the caller last scanned). Handlers that
+	// read candidate evidence — the mint site's witness context,
+	// the porter's witness context — thus never see stale
+	// enrichment data.
 	Deliver(ctx context.Context, id AnchoringID, target Phase,
-		handler func(context.Context, RegistryTx) error) error
+		handler func(context.Context, RegistryTx,
+			*Anchoring) error) error
 
 	// RecordDeliveryFailure records a failed delivery attempt:
 	// attempt count, error text, next-attempt time, and the stuck
@@ -135,6 +176,14 @@ type Registry interface {
 	// given parent.
 	DependencyEdges(ctx context.Context,
 		parent AnchoringID) ([]DependencyEdge, error)
+
+	// IncomingEdges returns the edges from the given child to its
+	// parents. Staged foreclosure evidence is a pure function of
+	// the parent's phase and the edge's depended-upon form, so a
+	// child can rebuild its own staging from these edges when a
+	// parent's restage write was lost.
+	IncomingEdges(ctx context.Context,
+		child AnchoringID) ([]DependencyEdge, error)
 
 	// StageForeclosure stages (or refreshes) foreclosing evidence
 	// on the child→parent edge. Staging is reversible until the
