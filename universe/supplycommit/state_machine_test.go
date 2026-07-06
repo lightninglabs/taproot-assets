@@ -106,8 +106,9 @@ func (u *unknownEvent) eventSealed() {}
 
 // harnessCfg holds configuration for the test harness.
 type harnessCfg struct {
-	initialState State
-	assetSpec    asset.Specifier
+	initialState     State
+	assetSpec        asset.Specifier
+	anchoringWatcher AnchoringRegistrar
 }
 
 // supplyCommitTestHarness is a test harness for the supply commit state
@@ -162,6 +163,7 @@ func newSupplyCommitTestHarness(t *testing.T,
 		SupplySyncer:       mSupplySyncer,
 		CommitConfTarget:   DefaultCommitConfTarget,
 		IgnoreCheckerCache: mCache,
+		AnchoringWatcher:   cfg.anchoringWatcher,
 	}
 
 	fsmCfg := Config{
@@ -211,6 +213,13 @@ func (h *supplyCommitTestHarness) stopAndAssert() {
 	h.t.Helper()
 	h.stateMachine.Stop()
 	h.stateMachine.RemoveStateSub(h.stateSub)
+
+	h.assertExpectations()
+}
+
+// assertExpectations checks every mock's expectations.
+func (h *supplyCommitTestHarness) assertExpectations() {
+	h.t.Helper()
 
 	h.mockTreeView.AssertExpectations(h.t)
 	h.mockCommits.AssertExpectations(h.t)

@@ -709,10 +709,22 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		},
 	)
 
+	// Interface-typed config fields must never receive a nil
+	// *tapreorg.Watcher: a nil concrete pointer stored in an
+	// interface is not a nil interface, and the sites guard on the
+	// latter. The disabled case is therefore threaded as an
+	// explicit interface nil.
+	var supplyRegistrar supplycommit.AnchoringRegistrar
+	if anchoringWatcher != nil {
+		supplyRegistrar = anchoringWatcher
+	}
+
 	// Create the supply commitment state machine manager, which is used to
 	// manage the supply commitment state machines for each asset group.
 	supplyCommitManager := supplycommit.NewManager(
 		supplycommit.ManagerCfg{
+			AnchoringWatcher:   supplyRegistrar,
+			AnchoringThreshold: uint32(cfg.ReOrgSafeDepth),
 			TreeView:           supplyTreeStore,
 			Commitments:        supplyCommitStore,
 			Wallet:             walletAnchor,
@@ -904,6 +916,43 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		if err != nil {
 			return nil, fmt.Errorf("unable to register mint "+
 				"publish handler: %w", err)
+		}
+		err = anchoringWatcher.RegisterSite(&supplycommit.SupplySite{
+			Log: supplyCommitStore,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to register supply "+
+				"site: %w", err)
+		}
+		commitPushCfg := supplycommit.CommitPushCfg{
+			Log:         supplyCommitStore,
+			Syncer:      &supplySyncer,
+			AssetLookup: tapdbAddrBook,
+			IgnoreCache: ignoreChecker,
+			Manager:     supplyCommitManager,
+		}
+		err = anchoringWatcher.RegisterEffectHandler(
+			supplycommit.CommitPushEffectKind,
+			func(ctx context.Context,
+				id fn.Option[tapreorg.AnchoringID],
+				payload tapreorg.VersionedBlob) error {
+
+				return supplycommit.DispatchCommitPush(
+					ctx, commitPushCfg, id, payload,
+				)
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to register commit "+
+				"push handler: %w", err)
+		}
+		err = anchoringWatcher.RegisterEffectHandler(
+			supplycommit.CommitNudgeEffectKind,
+			supplyCommitManager.DispatchCommitNudge,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to register commit "+
+				"nudge handler: %w", err)
 		}
 	}
 

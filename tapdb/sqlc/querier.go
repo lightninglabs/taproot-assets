@@ -97,6 +97,7 @@ type Querier interface {
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	DeleteRoot(ctx context.Context, namespace string) (int64, error)
 	DeleteSupplyCommitTransition(ctx context.Context, transitionID int64) error
+	DeleteSupplyCommitment(ctx context.Context, commitID int64) error
 	// Deletes a single supply update event row identified by its
 	// event_id. Used by the migration 65 backfill to drop duplicate
 	// rows that hash to the same event_key as an earlier row.
@@ -210,6 +211,11 @@ type Querier interface {
 	// Fetches all push log entries for a given asset group, ordered by
 	// creation time with the most recent entries first.
 	FetchSupplySyncerPushLogs(ctx context.Context, groupKey []byte) ([]SupplySyncerPushLog, error)
+	// Fetches the addresses of the servers a given supply commitment has
+	// already been pushed to, identified by its commitment outpoint. The
+	// push log records every successful remote insert, so this is the
+	// sender's durable view of which servers already hold the commitment.
+	FetchSupplySyncerPushedServers(ctx context.Context, arg FetchSupplySyncerPushedServersParams) ([]string, error)
 	// Returns rows that pre-date the event_key column and still need
 	// a hash computed. Used by the programmatic migration that runs
 	// at schema version 65.
@@ -401,9 +407,11 @@ type Querier interface {
 	QueryStartingSupplyCommitment(ctx context.Context, groupKey []byte) (QueryStartingSupplyCommitmentRow, error)
 	QuerySupersededTransferIDs(ctx context.Context) ([]int64, error)
 	QuerySupplyCommitStateMachine(ctx context.Context, groupKey []byte) (QuerySupplyCommitStateMachineRow, error)
+	QuerySupplyCommitTransitionByNewCommitment(ctx context.Context, newCommitmentID sql.NullInt64) (QuerySupplyCommitTransitionByNewCommitmentRow, error)
 	QuerySupplyCommitment(ctx context.Context, commitID int64) (QuerySupplyCommitmentRow, error)
 	QuerySupplyCommitmentByOutpoint(ctx context.Context, arg QuerySupplyCommitmentByOutpointParams) (QuerySupplyCommitmentByOutpointRow, error)
 	QuerySupplyCommitmentBySpentOutpoint(ctx context.Context, arg QuerySupplyCommitmentBySpentOutpointParams) (QuerySupplyCommitmentBySpentOutpointRow, error)
+	QuerySupplyCommitmentByTxid(ctx context.Context, arg QuerySupplyCommitmentByTxidParams) (SupplyCommitment, error)
 	QuerySupplyCommitmentOutpoint(ctx context.Context, commitID int64) (QuerySupplyCommitmentOutpointRow, error)
 	QuerySupplyLeavesByHeight(ctx context.Context, arg QuerySupplyLeavesByHeightParams) ([]QuerySupplyLeavesByHeightRow, error)
 	QuerySupplyUpdateEvents(ctx context.Context, transitionID sql.NullInt64) ([]QuerySupplyUpdateEventsRow, error)
@@ -467,6 +475,7 @@ type Querier interface {
 	// UTXO (a multi-asset HTLC swept in one transaction), so the pair
 	// alone is ambiguous.
 	TransferOutputAssetID(ctx context.Context, arg TransferOutputAssetIDParams) (int64, error)
+	UnbindSupplyUpdateEvents(ctx context.Context, transitionID sql.NullInt64) error
 	// The inverse of ConfirmChainAnchorTx: the anchor transaction's
 	// recorded confirmation is withdrawn (its block was re-organized
 	// away and nothing has replaced it yet).

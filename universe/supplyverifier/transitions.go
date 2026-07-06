@@ -105,6 +105,24 @@ func maybeFetchSupplyCommit(ctx context.Context, env *Environment,
 	return fn.MaybeSome(commit), nil
 }
 
+// quitContext returns a context cancelled when the environment's quit
+// channel closes, so a network round inside a state transition cannot
+// outlive shutdown. The retry wait between pull attempts already
+// selects on QuitChan; the calls in between must be interruptible
+// too, or shutdown waits out whatever round is in flight.
+func quitContext(env *Environment) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		defer cancel()
+		select {
+		case <-env.QuitChan:
+		case <-ctx.Done():
+		}
+	}()
+
+	return ctx, cancel
+}
+
 // ProcessEvent handles state transitions for the SyncVerifyState.
 func (s *SyncVerifyState) ProcessEvent(event Event,
 	env *Environment) (*StateTransition, error) {
@@ -114,7 +132,12 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 		log.Debugf("Processing SyncVerifyEvent (has_spent_commit=%v)",
 			e.SpentCommitOutpoint.IsSome())
 
-		ctx := context.Background()
+		// The pull below reaches remote universe servers; its
+		// context is scoped to the verifier's lifetime so
+		// shutdown interrupts an in-flight round instead of
+		// waiting it out.
+		ctx, cancel := quitContext(env)
+		defer cancel()
 
 		// Check to ensure that we haven't already processed a supply
 		// commitment for the spent outpoint, if one was provided.
@@ -189,9 +212,100 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 			ctx, env.AssetSpec, e.SpentCommitOutpoint,
 			canonicalUniverses,
 		)
+
+		// A miss is not terminal when the sync was triggered by an
+		// on-chain spend: the new commitment provably exists, and
+		// the issuer act-gates its publication on a burial depth
+		// this verifier cannot know. Fast in-place retries absorb
+		// a push that is merely in flight; once they are spent,
+		// re-arm on the chain clock — one retry round per further
+		// confirmation of the spending transaction — up to the
+		// chain notifier's depth ceiling, past which no burial
+		// threshold can still be pending. Without an observed
+		// spend there is no such existence proof — the canonical
+		// universe URLs come from issuer-controlled metadata, so
+		// looping on a pull that may never succeed would park the
+		// machine's goroutine forever.
+		retryLater := func(reason error) (*StateTransition, error) {
+			if e.SpendDetail == nil {
+				return nil, reason
+			}
+			if e.RetryAttempt < env.MaxSyncRetries {
+				log.Warnf("SupplyVerifier(%s): supply "+
+					"commitment pull unsuccessful (%v), "+
+					"retrying in %v (attempt %d of %d)",
+					env.AssetSpec.String(), reason,
+					env.SpendSyncDelay, e.RetryAttempt+1,
+					env.MaxSyncRetries)
+
+				select {
+				case <-env.QuitChan:
+					return nil, fmt.Errorf("supply " +
+						"verifier shutting down")
+				case <-time.After(env.SpendSyncDelay):
+				}
+
+				return &StateTransition{
+					NextState: &SyncVerifyState{},
+					NewEvents: lfn.Some(FsmEvent{
+						InternalEvent: []Event{
+							&SyncVerifyEvent{
+								SpentCommitOutpoint: e.SpentCommitOutpoint, //nolint:lll
+								RetryAttempt:        e.RetryAttempt + 1,    //nolint:lll
+								SpendDetail:         e.SpendDetail,         //nolint:lll
+								SpendConfDepth:      e.SpendConfDepth,      //nolint:lll
+							},
+						},
+					}),
+				}, nil
+			}
+
+			nextDepth := e.SpendConfDepth + 1
+			if nextDepth > chainntnfs.MaxNumConfs {
+				return nil, fmt.Errorf("supply commitment "+
+					"pull failed after %d confirmations "+
+					"of spend tx %s: %w", e.SpendConfDepth,
+					e.SpendDetail.SpenderTxHash, reason)
+			}
+
+			log.Warnf("SupplyVerifier(%s): supply commitment "+
+				"pull unsuccessful (%v), re-arming at "+
+				"confirmation %d of spend tx %s",
+				env.AssetSpec.String(), reason, nextDepth,
+				e.SpendDetail.SpenderTxHash)
+
+			detail := e.SpendDetail
+			spentOutpoint := e.SpentCommitOutpoint
+			mapper := func(_ *chainntnfs.TxConfirmation) Event {
+				return &SyncVerifyEvent{
+					SpentCommitOutpoint: spentOutpoint,
+					SpendDetail:         detail,
+					SpendConfDepth:      nextDepth,
+				}
+			}
+
+			postConf := lfn.Some[protofsm.ConfMapper[Event]](mapper)
+			pkScript := detail.SpendingTx.TxOut[0].PkScript
+			confEvent := &protofsm.RegisterConf[Event]{
+				Txid:           *detail.SpenderTxHash,
+				PkScript:       pkScript,
+				HeightHint:     uint32(detail.SpendingHeight),
+				NumConfs:       lfn.Some(nextDepth),
+				PostConfMapper: postConf,
+			}
+
+			return &StateTransition{
+				NextState: &SyncVerifyState{},
+				NewEvents: lfn.Some(FsmEvent{
+					ExternalEvents: protofsm.DaemonEventSet{
+						confEvent,
+					},
+				}),
+			}, nil
+		}
 		if err != nil {
-			return nil, fmt.Errorf("unable to pull supply "+
-				"commitment: %w", err)
+			return retryLater(fmt.Errorf("unable to pull supply "+
+				"commitment: %w", err))
 		}
 
 		// Verify the pulled commitment.
@@ -199,7 +313,7 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 			fmt.Errorf("no commitment found"),
 		)
 		if err != nil {
-			return nil, err
+			return retryLater(err)
 		}
 
 		// Fetch all known unspent pre-commitment outputs for the asset
@@ -308,8 +422,13 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 			)
 		}
 
+		// The spend notification fires at the spending transaction's
+		// first confirmation, which the retry escalation's conf
+		// depth accounts for.
 		syncEvent := SyncVerifyEvent{
 			SpentCommitOutpoint: spentCommitOutpoint,
+			SpendDetail:         e.SpendDetail,
+			SpendConfDepth:      1,
 		}
 		return &StateTransition{
 			NextState: &SyncVerifyState{},

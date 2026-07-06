@@ -18,3 +18,14 @@ SELECT id, group_key, max_pushed_block_height, server_address,
 FROM supply_syncer_push_log 
 WHERE group_key = @group_key
 ORDER BY created_at DESC;
+
+-- name: FetchSupplySyncerPushedServers :many
+-- Fetches the addresses of the servers a given supply commitment has
+-- already been pushed to, identified by its commitment outpoint. The
+-- push log records every successful remote insert, so this is the
+-- sender's durable view of which servers already hold the commitment.
+SELECT server_address
+FROM supply_syncer_push_log
+WHERE group_key = @group_key
+  AND commit_txid = @commit_txid
+  AND output_index = @output_index;

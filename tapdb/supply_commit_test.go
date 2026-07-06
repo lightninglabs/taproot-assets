@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -35,6 +36,7 @@ type supplyCommitTestSetup struct {
 	commitMachine   *SupplyCommitMachine
 	commitTreeStore *SupplyTreeStore
 	db              sqlc.Querier
+	baseDB          *BaseDB
 	baseGenesis     asset.Genesis
 	groupPubKey     *btcec.PublicKey
 }
@@ -85,6 +87,7 @@ func setupSupplyCommitTest(t *testing.T) *supplyCommitTestSetup {
 		commitMachine:   commitMachine,
 		commitTreeStore: commitTreeStore,
 		db:              db,
+		baseDB:          sqlDB,
 		baseGenesis:     baseGenesis,
 		groupPubKey:     groupPubKey,
 	}
@@ -201,6 +204,7 @@ type supplyCommitTestHarness struct {
 	groupKey        *asset.GroupKey
 	batchedTreeDB   BatchedUniverseTree
 	commitTreeStore *SupplyTreeStore
+	baseDB          *BaseDB
 }
 
 // newSupplyCommitTestHarness creates a new test harness instance.
@@ -230,6 +234,7 @@ func newSupplyCommitTestHarness(t *testing.T) *supplyCommitTestHarness {
 		groupKey:        groupKey,
 		batchedTreeDB:   setup.commitTreeStore.db,
 		commitTreeStore: setup.commitTreeStore,
+		baseDB:          setup.baseDB,
 	}
 }
 
@@ -2572,6 +2577,22 @@ func TestSupplySyncerPushLog(t *testing.T) {
 		"timestamp=%d, leaves=%d", logEntry.CommitTxid,
 		logEntry.OutputIndex, logEntry.CreatedAt,
 		logEntry.NumLeavesPushed)
+
+	// The pushed-servers view reflects the log: the syncer consults
+	// it before a push so a retry only targets servers still missing
+	// the commitment.
+	pushed, err := syncerStore.FetchPushedServers(
+		h.ctx, h.assetSpec, commitment,
+	)
+	require.NoError(t, err)
+	require.Equal(t, []string{"localhost:8080"}, pushed)
+
+	// A different commitment outpoint reports nothing pushed.
+	other := commitment
+	other.Txn = wire.NewMsgTx(2)
+	pushed, err = syncerStore.FetchPushedServers(h.ctx, h.assetSpec, other)
+	require.NoError(t, err)
+	require.Empty(t, pushed)
 }
 
 // assertEqualEvents compares two supply update events by serializing them and
@@ -2589,4 +2610,58 @@ func assertEqualEvents(t *testing.T, expected,
 	require.NoError(t, err)
 
 	require.Equal(t, expectedBytes.String(), actualBytes.String())
+}
+
+// TestInsertSupplyCommitAbsorbsDuplicate pins the insert's identity
+// idempotency: a commitment already stored under its outpoint is
+// absorbed rather than failing supply_commitments_outpoint_uk. The
+// sender retries its whole dispatch whenever any one universe server
+// fails, and the verifier's pull path can redeliver, so the same
+// commitment is legitimately presented more than once — and the
+// insert runs in one transaction, so an existing row implies its
+// leaves and pre-commitment spends landed with it.
+func TestInsertSupplyCommitAbsorbsDuplicate(t *testing.T) {
+	t.Parallel()
+
+	h := newSupplyCommitTestHarness(t)
+
+	// An existing commitment, recorded the way the apply path
+	// records one.
+	genesisPoint := test.RandOp(h.t)
+	tx := wire.NewMsgTx(2)
+	tx.AddTxIn(&wire.TxIn{PreviousOutPoint: genesisPoint})
+	tx.AddTxOut(&wire.TxOut{
+		Value:    1000,
+		PkScript: test.RandBytes(20),
+	})
+	txBytes, err := encodeTx(tx)
+	require.NoError(t, err)
+	txid := tx.TxHash()
+	chainTxID, err := h.db.UpsertChainTx(h.ctx, sqlc.UpsertChainTxParams{
+		Txid:  txid[:],
+		RawTx: txBytes,
+	})
+	require.NoError(t, err)
+	h.addTestSupplyCommitment(chainTxID, txid[:], txBytes, true)
+
+	// Re-presenting the same commitment — the shape of a re-push or
+	// a redelivered pull — is absorbed. The guard answers before the
+	// leaves are read, so none are needed.
+	commitment := supplycommit.RootCommitment{
+		Txn:         tx,
+		TxOutIdx:    0,
+		InternalKey: keychain.KeyDescriptor{PubKey: h.groupPubKey},
+		OutputKey:   h.groupPubKey,
+		SupplyRoot: mssmt.NewComputedBranch(
+			mssmt.NodeHash{0x01}, 1,
+		),
+		CommitmentBlock: fn.Some(supplycommit.CommitmentBlock{
+			Height: 123,
+		}),
+	}
+	err = h.commitMachine.InsertSupplyCommit(
+		h.ctx, h.assetSpec, commitment, supplycommit.SupplyLeaves{},
+		nil,
+	)
+	require.NoError(t, err)
 }
