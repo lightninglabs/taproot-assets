@@ -93,7 +93,9 @@ type TriggerOutPoint struct {
 	PkScript []byte
 
 	// HeightHint is the earliest height at which the outpoint
-	// could have been spent.
+	// could have been spent, or zero when the site does not know
+	// it, in which case the watcher hints from the anchoring's
+	// registration height.
 	HeightHint uint32
 }
 

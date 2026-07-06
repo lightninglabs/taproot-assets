@@ -52,6 +52,12 @@ type SupplySyncerStore interface {
 		assetSpec asset.Specifier,
 		commitment supplycommit.RootCommitment,
 		leaves supplycommit.SupplyLeaves) error
+
+	// FetchPushedServers returns the addresses of the servers the
+	// given supply commitment has already been pushed to, as
+	// recorded by LogSupplyCommitPush.
+	FetchPushedServers(ctx context.Context, assetSpec asset.Specifier,
+		commitment supplycommit.RootCommitment) ([]string, error)
 }
 
 // UniverseFederationView is an interface that provides a view of the
@@ -197,6 +203,41 @@ func (s *SupplySyncer) PushSupplyCommitment(ctx context.Context,
 		// proceeding.
 		return nil, fmt.Errorf("unable to fetch target universe "+
 			"server addresses: %w", err)
+	}
+
+	// Skip servers that already hold this commitment. The push log
+	// records every successful remote insert, and the caller retries
+	// the whole dispatch whenever any one server fails — so without
+	// the skip, a retry re-pushes to servers that already integrated
+	// the commitment, and one persistently failing server keeps
+	// every healthy one in the target set forever.
+	pushed, err := s.cfg.Store.FetchPushedServers(
+		ctx, assetSpec, commitment,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch pushed servers: %w",
+			err)
+	}
+	if len(pushed) > 0 {
+		pushedSet := make(map[string]struct{}, len(pushed))
+		for _, host := range pushed {
+			pushedSet[host] = struct{}{}
+		}
+
+		remaining := make(
+			[]universe.ServerAddr, 0, len(targetAddrs),
+		)
+		for _, addr := range targetAddrs {
+			if _, ok := pushedSet[addr.HostStr()]; ok {
+				continue
+			}
+			remaining = append(remaining, addr)
+		}
+
+		log.Infof("Skipping %d server(s) already holding supply "+
+			"commitment for asset %s",
+			len(targetAddrs)-len(remaining), assetSpec.String())
+		targetAddrs = remaining
 	}
 
 	log.Infof("Starting push of supply commitment for asset: %s to "+

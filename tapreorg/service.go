@@ -906,12 +906,24 @@ func (w *Watcher) stopSensor(id AnchoringID) {
 
 // watchTrigger opens the spend subscription for one trigger outpoint
 // and forwards its events into the sensing loop.
+//
+// A trigger registered without a height hint is subscribed from the
+// anchoring's registration height, as the candidate subscriptions
+// are: the notifier requires a positive hint, and no spend the
+// watcher needs to see can predate the anchoring that watches for
+// it. A site that does not know when an outpoint was created — an
+// unconfirmed output, say — passes zero rather than guessing low,
+// since a low hint makes some chain backends rescan from there.
 func (w *Watcher) watchTrigger(s *sensor, trigger TriggerOutPoint) error {
 	op := trigger.OutPoint
 	reOrgChan := make(chan struct{}, 1)
 
+	hint := trigger.HeightHint
+	if hint == 0 {
+		hint = s.anchoring.CreatedHeight
+	}
 	spendChan, errChan, err := w.cfg.Notifier.RegisterSpendNtfn(
-		s.ctx, &op, trigger.PkScript, trigger.HeightHint, reOrgChan,
+		s.ctx, &op, trigger.PkScript, hint, reOrgChan,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to register spend ntfn for %v: %w",

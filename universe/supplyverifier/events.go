@@ -33,6 +33,24 @@ type SyncVerifyEvent struct {
 	// triggered the need to start syncing from the beginning. If this is
 	// None, then we will sync from the first supply commitment.
 	SpentCommitOutpoint fn.Option[wire.OutPoint]
+
+	// RetryAttempt counts the fast pull retries already spent on this
+	// sync. It bounds the in-place retry loop a spend-triggered sync
+	// enters while the issuer's push to the universe servers is still in
+	// flight.
+	RetryAttempt int
+
+	// SpendDetail is the on-chain spend that triggered this sync, if
+	// any. Its presence is the proof that a successor commitment exists
+	// and can eventually be pulled, and its transaction is the chain
+	// clock that patient retries re-arm against once the fast retries
+	// are exhausted.
+	SpendDetail *chainntnfs.SpendDetail
+
+	// SpendConfDepth is the confirmation depth of the spending
+	// transaction that this sync round was armed against. The spend
+	// notification itself accounts for the first confirmation.
+	SpendConfDepth uint32
 }
 
 // eventSealed is a special method that is used to seal the interface.

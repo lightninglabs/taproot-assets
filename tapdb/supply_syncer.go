@@ -104,3 +104,43 @@ func (s *SupplySyncerStore) LogSupplyCommitPush(ctx context.Context,
 		return nil
 	})
 }
+
+// FetchPushedServers returns the addresses of the servers a supply
+// commitment has already been pushed to, identified by its commitment
+// outpoint. The syncer consults this before a push so a retry after a
+// partial failure only targets the servers still missing the
+// commitment.
+func (s *SupplySyncerStore) FetchPushedServers(ctx context.Context,
+	assetSpec asset.Specifier,
+	commitment supplycommit.RootCommitment) ([]string, error) {
+
+	groupKey, err := assetSpec.UnwrapGroupKeyOrErr()
+	if err != nil {
+		return nil, fmt.Errorf("group key must be specified for "+
+			"supply syncer push lookup: %w", err)
+	}
+	groupKeyBytes := schnorr.SerializePubKey(groupKey)
+
+	commitTxid := commitment.Txn.TxHash()
+
+	var servers []string
+	readTx := NewBaseUniverseReadTx()
+	dbErr := s.db.ExecTx(ctx, &readTx, func(dbTx BaseUniverseStore) error {
+		var err error
+		servers, err = dbTx.FetchSupplySyncerPushedServers(
+			ctx, sqlc.FetchSupplySyncerPushedServersParams{
+				GroupKey:    groupKeyBytes,
+				CommitTxid:  commitTxid[:],
+				OutputIndex: int32(commitment.TxOutIdx),
+			},
+		)
+
+		return err
+	})
+	if dbErr != nil {
+		return nil, fmt.Errorf("failed to fetch pushed servers: %w",
+			dbErr)
+	}
+
+	return servers, nil
+}

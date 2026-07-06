@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -828,6 +829,13 @@ type StateMachineStore interface {
 	InsertSignedCommitTx(context.Context, asset.Specifier,
 		SupplyCommitTxn) error
 
+	// ApplyCommitTxStake is the transaction-scoped body of
+	// InsertSignedCommitTx, run inside the re-org watcher's
+	// registration transaction so the signed commitment transaction
+	// and the anchoring staked on it commit together.
+	ApplyCommitTxStake(context.Context, *sqlc.Queries, asset.Specifier,
+		SupplyCommitTxn) error
+
 	// CommitState is used to commit the state of the state machine to then
 	// disk.
 	CommitState(context.Context, asset.Specifier, State) error
@@ -917,6 +925,17 @@ type Environment struct {
 
 	// KeyRing is the main key ring interface used to manage keys.
 	KeyRing KeyRing
+
+	// AnchoringWatcher is the re-org watcher a broadcast commitment
+	// registers with as a speculative anchoring. When set, the
+	// machine defers finalization until the watcher reports the
+	// commit transaction buried, instead of finalizing at a single
+	// confirmation.
+	AnchoringWatcher AnchoringRegistrar
+
+	// AnchoringThreshold is the depth at which the commitment is
+	// act-confirmed (buried).
+	AnchoringThreshold uint32
 
 	// Chain is our access to the current main chain.
 	//

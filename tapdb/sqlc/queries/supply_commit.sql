@@ -371,3 +371,25 @@ WHERE key_id = @key_id;
 SELECT raw_tx, block_height -- Include block_height needed by FetchState
 FROM chain_txns
 WHERE txn_id = @txn_id;
+
+-- name: QuerySupplyCommitmentByTxid :one
+SELECT sc.*
+FROM supply_commitments sc
+JOIN chain_txns ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.group_key = @group_key
+    AND ct.txid = @txid;
+
+-- name: UnbindSupplyUpdateEvents :exec
+UPDATE supply_update_events
+SET transition_id = NULL
+WHERE transition_id = @transition_id;
+
+-- name: DeleteSupplyCommitment :exec
+DELETE FROM supply_commitments
+WHERE commit_id = @commit_id;
+
+-- name: QuerySupplyCommitTransitionByNewCommitment :one
+SELECT sqlc.embed(t)
+FROM supply_commit_transitions t
+WHERE t.new_commitment_id = @new_commitment_id;
