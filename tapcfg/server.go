@@ -417,24 +417,6 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		}
 	}
 
-	reOrgWatcher := tapreorg.NewLegacyWatcher(&tapreorg.LegacyConfig{
-		ChainBridge:   chainBridge,
-		GroupVerifier: groupVerifier,
-		ProofArchive:  proofArchive,
-		IgnoreChecker: ignoreCheckerOpt,
-		NonBuriedAssetFetcher: func(ctx context.Context,
-			minHeight int32) ([]*asset.ChainAsset, error) {
-
-			return assetStore.FetchAllAssets(
-				ctx, false, true, &tapdb.AssetQueryFilters{
-					MinAnchorHeight: minHeight,
-				},
-			)
-		},
-		SafeDepth: cfg.ReOrgSafeDepth,
-		ErrChan:   mainErrChan,
-	})
-
 	// The watcher's registry advances run site handlers in the same
 	// transaction, so its executor is instantiated at the full
 	// generated query set.
@@ -1141,7 +1123,6 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		EnableChannelFeatures:    enableChannelFeatures,
 		Lnd:                      lndServices,
 		ChainParams:              tapChainParams,
-		ReOrgWatcher:             reOrgWatcher,
 		AnchoringWatcher:         anchoringWatcher,
 		AnchoringRegistry:        anchoringRegistry,
 		AssetMinter:              assetMinter,

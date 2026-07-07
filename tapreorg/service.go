@@ -19,6 +19,10 @@ import (
 )
 
 const (
+	// DefaultTimeout is the default timeout used for RPC and database
+	// operations issued by the watcher.
+	DefaultTimeout = 30 * time.Second
+
 	// DefaultInitialDeliveryBackoff is the default backoff after a
 	// first failed delivery or dispatch attempt.
 	DefaultInitialDeliveryBackoff = 30 * time.Second
