@@ -81,6 +81,19 @@ type StoredEffect struct {
 	Attempts uint32
 }
 
+// ReconcileFunc runs inside the registration transaction whenever
+// the state a caller materialized before registering must be brought
+// onto an anchoring's delivered phase: when Register finds the spec's
+// (site, match key) identity already registered, and when a seeded
+// registration is born delivered. It receives the anchoring as
+// assembled on the registration transaction — for an attach, before
+// the trigger union, with the trigger outpoints the union added; for
+// a seeded birth, with the seed as its only candidate and no added
+// triggers — and runs atomically with the registration, so what it
+// reconciles cannot race a concurrent phase delivery.
+type ReconcileFunc func(ctx context.Context, tx RegistryTx,
+	anchoring *Anchoring, addedTriggers []TriggerOutPoint) error
+
 // Registry is the durable store of anchorings: the watcher's source
 // of truth. Implemented by tapdb, over the same database every site's
 // state lives in — which is what makes the transactional coupling of
@@ -103,10 +116,34 @@ type Registry interface {
 	// never confirms in that form derives no edge — but then the
 	// child's trigger outpoints never exist on chain either, so no
 	// chain outcome is being missed.
+	//
+	// Registration is idempotent per (site, match key): an
+	// existing anchoring with the spec's identity is attached to
+	// rather than inserted. The phase-1 write does not run in that
+	// case — the original registration's already did. Instead,
+	// trigger outpoints the existing set lacks are unioned in with
+	// their dependency edges (refused if a recorded satisfying
+	// candidate would no longer spend the whole set), and the
+	// reconcile callback, when non-nil, runs in the same
+	// transaction as the lookup that found the anchoring: the
+	// caller's chance to reconcile late-attaching state against
+	// what has already been delivered, without racing a concurrent
+	// delivery.
+	//
+	// A registration carrying a seed candidate is born delivered:
+	// the phase the seed derives (Witnessed at the seed's
+	// location) is stamped sensed and delivered in the registration
+	// transaction, after the phase-1 write, and the reconcile
+	// callback runs against the seeded anchoring so the caller's
+	// materialized state lands on that phase at once. Should the
+	// seed's location have gone stale by then, the sensor's
+	// adoption-time verification downgrades it through the ordinary
+	// delivery path.
 	Register(ctx context.Context, spec RegistrationSpec,
 		createdHeight uint32,
 		phase1 func(context.Context, RegistryTx,
-			AnchoringID) error) (AnchoringID, error)
+			AnchoringID) error,
+		reconcile ReconcileFunc) (AnchoringID, error)
 
 	// GetAnchoring fetches an anchoring with its chain view.
 	GetAnchoring(ctx context.Context,
@@ -115,6 +152,16 @@ type Registry interface {
 	// LiveAnchorings returns all anchorings in a non-terminal
 	// phase, with their chain views.
 	LiveAnchorings(ctx context.Context) ([]*Anchoring, error)
+
+	// AllAnchorings returns every anchoring, live and settled.
+	AllAnchorings(ctx context.Context) ([]*Anchoring, error)
+
+	// LookupByMatchKey returns the site's anchoring with the given
+	// match key, or (nil, nil) if none exists. The registry
+	// enforces (site_id, match_key) uniqueness on non-null keys,
+	// so this is O(1) via index.
+	LookupByMatchKey(ctx context.Context, site SiteID,
+		matchKey []byte) (*Anchoring, error)
 
 	// ChainView assembles the anchoring's chain view: its
 	// candidate spends plus its strongest staged foreclosure.

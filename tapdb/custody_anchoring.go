@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapcustody"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 )
 
 // This file houses the transaction-scoped bodies of the receive
@@ -189,3 +190,88 @@ func (a *AssetStore) ApplyReceiveAbandonment(ctx context.Context,
 // A compile-time assertion that the asset store provides the receive
 // site's persistence surface.
 var _ tapcustody.ReceiveAnchoringLog = (*AssetStore)(nil)
+
+// hasReceivedProof reports whether the database holds a proof for
+// exactly the asset the locator names. A script key alone is not an
+// identity here — the leaves of a grouped receive share one — so the
+// locator must carry the asset ID and the outpoint as well, and
+// presence is judged on all three, as the proof fetch does.
+func hasReceivedProof(ctx context.Context, q ActiveAssetsStore,
+	locator proof.Locator) (bool, error) {
+
+	if locator.AssetID == nil || locator.OutPoint == nil {
+		return false, fmt.Errorf("received proof locator must name " +
+			"the asset and the outpoint")
+	}
+
+	args, err := locatorToProofQuery(locator)
+	if err != nil {
+		return false, err
+	}
+
+	rows, err := q.FetchAssetProof(ctx, args)
+	if err != nil {
+		return false, fmt.Errorf("unable to look up asset proof: %w",
+			err)
+	}
+
+	return len(rows) > 0, nil
+}
+
+// HasReceivedProof reports whether the database holds a proof for
+// exactly the asset the locator names: asset ID, script key and
+// outpoint together. The database is the authority on what a receive
+// holds; the proof-file mirror trails it.
+func (a *AssetStore) HasReceivedProof(ctx context.Context,
+	locator proof.Locator) (bool, error) {
+
+	var have bool
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		var err error
+		have, err = hasReceivedProof(ctx, q, locator)
+
+		return err
+	})
+	if dbErr != nil {
+		return false, dbErr
+	}
+
+	return have, nil
+}
+
+// StakeReceivedProofs imports verified received proofs on the
+// registration transaction, skipping any the database already holds
+// (judged on the whole locator: asset ID, script key and outpoint),
+// and returns the blobs it imported. Running on the registry's
+// transaction is what makes a received stake and the custody that
+// covers it commit together: a registration the registry refuses
+// rolls the import back with it, and a re-driven registration finds
+// the earlier import and stakes nothing twice.
+func (a *AssetStore) StakeReceivedProofs(ctx context.Context,
+	tx tapreorg.RegistryTx,
+	proofs ...proof.VerifiedAnnotatedProof) ([]proof.Blob, error) {
+
+	q := tx.Queries()
+
+	var imported []proof.Blob
+	for _, verified := range proofs {
+		p := verified.AnnotatedProof()
+
+		have, err := hasReceivedProof(ctx, q, p.Locator)
+		if err != nil {
+			return nil, err
+		}
+		if have {
+			continue
+		}
+
+		if err := a.importAssetFromProof(ctx, q, p); err != nil {
+			return nil, fmt.Errorf("unable to import asset: %w",
+				err)
+		}
+		imported = append(imported, p.Blob)
+	}
+
+	return imported, nil
+}

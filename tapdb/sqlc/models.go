@@ -405,6 +405,7 @@ type ReorgAnchoring struct {
 	LastDeliveryError sql.NullString
 	NextDeliveryAt    int64
 	TerminalAt        sql.NullInt64
+	MatchKey          []byte
 }
 
 type ReorgCandidateSpend struct {

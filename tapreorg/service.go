@@ -311,11 +311,23 @@ func (w *Watcher) Stop() error {
 // edge derivation and the site's phase-1 write commit in one
 // transaction, and sensing begins immediately after. The site must
 // have been registered with the watcher.
+//
+// A registration whose (site, match key) identity already exists
+// attaches to the existing anchoring instead: trigger outpoints the
+// existing set lacks are unioned in, and the anchoring's delivered
+// phase is re-delivered to the site inside the registration
+// transaction, so state materialized before this registration lands
+// on the phase the anchoring's earlier stakes already reflect. A
+// registration carrying a seed candidate is born delivered on the
+// phase the seed derives, delivered to the site in the same
+// transaction, for the same reason: the site's materialized state
+// then starts on a phase that says what the site already knows.
 func (w *Watcher) Register(ctx context.Context, spec RegistrationSpec,
 	phase1 func(context.Context, RegistryTx,
 		AnchoringID) error) (AnchoringID, error) {
 
-	if _, ok := w.sites[spec.Site]; !ok {
+	site, ok := w.sites[spec.Site]
+	if !ok {
 		return 0, fmt.Errorf("unknown site %v", spec.Site)
 	}
 
@@ -325,8 +337,48 @@ func (w *Watcher) Register(ctx context.Context, spec RegistrationSpec,
 		spec.Threshold = w.cfg.DefaultThreshold
 	}
 
+	// The reconcile callback lands the site's materialized state on
+	// an anchoring's delivered phase inside the registration
+	// transaction. For a registration that finds its identity
+	// already registered, that phase is what the anchoring's earlier
+	// stakes already reflect, re-delivered atomically with the
+	// lookup that found the anchoring so a concurrent delivery
+	// cannot slip between them. Handlers are convergent by contract,
+	// which is what makes the re-delivery safe, and it is what
+	// attaches late-arriving state to a resting or terminal
+	// anchoring that will never be delivered again. That includes a
+	// delivered Unwitnessed after a soft re-org at rest — such an
+	// anchoring may likewise see no further delivery, and an
+	// exemption would let state imported with a confirmation the
+	// re-org discarded outlive the rollback. For a seeded
+	// registration the callback runs at birth, against the phase the
+	// seed derives, so a site that materialized confirmed state
+	// before registering is never handed the registry's default
+	// Unwitnessed by a later attach: the birth phase already says
+	// what the site knows. Sites that register before their
+	// transaction confirms are born Unwitnessed with nothing to
+	// withdraw.
+	var triggersAdded bool
+	reconcile := func(ctx context.Context, tx RegistryTx,
+		anchoring *Anchoring, added []TriggerOutPoint) error {
+
+		if len(added) > 0 {
+			triggersAdded = true
+		}
+
+		delivered := anchoring.DeliveredPhase
+		reconciled := *anchoring
+		reconciled.Phase = delivered
+
+		return capturePanic("site handler", func() error {
+			return dispatchPhase(
+				ctx, site, tx, &reconciled, delivered,
+			)
+		})
+	}
+
 	id, err := w.cfg.Registry.Register(
-		ctx, spec, w.bestHeight.Load(), phase1,
+		ctx, spec, w.bestHeight.Load(), phase1, reconcile,
 	)
 	if err != nil {
 		return 0, err
@@ -336,8 +388,24 @@ func (w *Watcher) Register(ctx context.Context, spec RegistrationSpec,
 	// sensing hand-off is best-effort: a live anchoring without a
 	// sensor is adopted by the reconciliation sweep, and an error
 	// returned now would misreport a committed registration as
-	// failed.
-	if err := w.sendEvent(ctx, evSense{id: id}); err != nil {
+	// failed. The hand-off runs under the watcher's own lifetime
+	// rather than the caller's: a caller that departs once its
+	// registration has committed (an RPC client disconnecting) must
+	// not be able to skip it. A union that added triggers tears the
+	// running sensor down first, so the adoption reopens spend
+	// subscriptions over the enlarged set.
+	handOffCtx, cancel := w.WithCtxQuit()
+	defer cancel()
+
+	if triggersAdded {
+		err := w.sendEvent(handOffCtx, evStopSensing{id: id})
+		if err != nil {
+			log.Warnf("Anchoring %d: sensor teardown "+
+				"hand-off failed, reconciliation sweep "+
+				"will adopt: %v", id, err)
+		}
+	}
+	if err := w.sendEvent(handOffCtx, evSense{id: id}); err != nil {
 		log.Warnf("Anchoring %d: sensing hand-off failed, "+
 			"reconciliation sweep will adopt: %v", id, err)
 	}
@@ -384,6 +452,38 @@ func (w *Watcher) Anchorings(ctx context.Context,
 
 	out := make([]*Anchoring, 0, len(live))
 	for _, anchoring := range live {
+		if anchoring.Site == site {
+			out = append(out, anchoring)
+		}
+	}
+
+	return out, nil
+}
+
+// LookupByMatchKey reads a site's anchoring by its per-site identity
+// key. See Registrar.LookupByMatchKey for the contract.
+func (w *Watcher) LookupByMatchKey(ctx context.Context, site SiteID,
+	matchKey []byte) (*Anchoring, error) {
+
+	return w.cfg.Registry.LookupByMatchKey(ctx, site, matchKey)
+}
+
+// AllAnchorings reads one site's anchorings across every phase,
+// settled ones included. Identity lookups — a resumed subsystem
+// re-finding its stake, a registration deduplicating by payload —
+// must span the full history: an anchoring leaves the live set the
+// moment it is buried, which is precisely when a restarted consumer
+// comes looking for it.
+func (w *Watcher) AllAnchorings(ctx context.Context,
+	site SiteID) ([]*Anchoring, error) {
+
+	all, err := w.cfg.Registry.AllAnchorings(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*Anchoring, 0, len(all))
+	for _, anchoring := range all {
 		if anchoring.Site == site {
 			out = append(out, anchoring)
 		}
@@ -508,6 +608,29 @@ type sensor struct {
 
 	// pending holds discovered spenders not yet located.
 	pending map[chainhash.Hash]*pendingCandidate
+
+	// watched records the trigger outpoints this sensor opened
+	// spend subscriptions for. The registry's trigger set can grow
+	// after the sensor started (a registration attaching to the
+	// anchoring unions in outpoints it lacked) and the cached
+	// anchoring is refreshed on every re-derivation, so the set the
+	// subscriptions actually span is recorded separately.
+	watched map[wire.OutPoint]struct{}
+}
+
+// covers reports whether the sensor's spend subscriptions span the
+// given trigger set.
+func (s *sensor) covers(triggers TriggerSet) bool {
+	if triggers.Len() != len(s.watched) {
+		return false
+	}
+	for _, trigger := range triggers.OutPoints() {
+		if _, ok := s.watched[trigger.OutPoint]; !ok {
+			return false
+		}
+	}
+
+	return true
 }
 
 // sensingLoop owns all chain subscriptions and the registry's sensed
@@ -668,8 +791,11 @@ func (w *Watcher) resense(id AnchoringID) {
 }
 
 // reconcileSensors adopts live anchorings that have no sensor —
-// however they came to be missed. Sensing must never depend on any
-// single hand-off succeeding.
+// however they came to be missed — and rebuilds sensors whose
+// subscriptions no longer span their anchoring's trigger set. Sensing
+// must never depend on any single hand-off succeeding: a union whose
+// teardown hand-off was lost would otherwise leave the added
+// outpoints unwatched until restart.
 func (w *Watcher) reconcileSensors(ctx context.Context) {
 	live, err := w.cfg.Registry.LiveAnchorings(ctx)
 	if err != nil {
@@ -681,12 +807,22 @@ func (w *Watcher) reconcileSensors(ctx context.Context) {
 	}
 
 	for _, anchoring := range live {
-		if _, ok := w.sensors[anchoring.ID]; ok {
+		s, ok := w.sensors[anchoring.ID]
+		switch {
+		case ok && s.covers(anchoring.Triggers):
 			continue
-		}
 
-		log.Infof("Anchoring %d (site=%v): adopted by "+
-			"reconciliation sweep", anchoring.ID, anchoring.Site)
+		case ok:
+			log.Infof("Anchoring %d (site=%v): trigger set grew "+
+				"past its sensor, rebuilt by reconciliation "+
+				"sweep", anchoring.ID, anchoring.Site)
+			w.stopSensor(anchoring.ID)
+
+		default:
+			log.Infof("Anchoring %d (site=%v): adopted by "+
+				"reconciliation sweep", anchoring.ID,
+				anchoring.Site)
+		}
 
 		if err := w.adopt(ctx, anchoring); err != nil {
 			log.Warnf("Unable to start sensor, next sweep "+
@@ -794,6 +930,7 @@ func (w *Watcher) startSensor(ctx context.Context,
 		actSubs:         make(map[chainhash.Hash]struct{}),
 		foreclosureSubs: make(map[chainhash.Hash]struct{}),
 		pending:         make(map[chainhash.Hash]*pendingCandidate),
+		watched:         make(map[wire.OutPoint]struct{}),
 	}
 
 	for _, trigger := range anchoring.Triggers.OutPoints() {
@@ -802,6 +939,7 @@ func (w *Watcher) startSensor(ctx context.Context,
 			return fmt.Errorf("anchoring %d: %w", anchoring.ID,
 				err)
 		}
+		s.watched[trigger.OutPoint] = struct{}{}
 	}
 
 	// Known candidates re-subscribe so their re-confirmations and

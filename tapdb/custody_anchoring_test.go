@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -12,9 +14,11 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
@@ -466,4 +470,173 @@ func TestReceiveAnchoringMultiLeaf(t *testing.T) {
 	).Scan(&numProofs)
 	require.NoError(t, err)
 	require.Zero(t, numProofs)
+}
+
+// completeLocator names an annotated proof by its snapshot's asset and
+// outpoint, as the custodian names a received file by its tip.
+func completeLocator(p *proof.AnnotatedProof) {
+	p.Locator.AssetID = fn.Ptr(p.Asset.ID())
+	p.Locator.ScriptKey = *p.Asset.ScriptKey.PubKey
+	p.Locator.OutPoint = fn.Ptr(p.AssetSnapshot.OutPoint)
+}
+
+// snapshotVerifier answers every verification with a fixed snapshot,
+// standing in for chain verification the store's tests cannot do.
+type snapshotVerifier struct {
+	snapshot *proof.AssetSnapshot
+}
+
+func (v snapshotVerifier) Verify(context.Context, io.Reader,
+	proof.VerifierCtx, ...proof.VerifyOption) (*proof.AssetSnapshot,
+	error) {
+
+	return v.snapshot, nil
+}
+
+// TestStakeReceivedProofsAtomic pins the receive stake to the
+// registration transaction: a registration that fails after the
+// import rolls the import back with it, a registration that commits
+// holds both the asset and the anchoring, and a re-driven registration
+// attaches without importing twice.
+func TestStakeReceivedProofsAtomic(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	executor := NewTransactionExecutor(
+		db, func(tx *sql.Tx) *sqlc.Queries {
+			return db.WithTx(tx)
+		},
+	)
+	registry := NewReorgRegistryStore(
+		executor, clock.NewTestClock(time.Unix(1_000_000, 0)),
+	)
+
+	// A verified proof for an asset this database does not hold: the
+	// scratch handle that built it is a different database. The
+	// custodian names the proof by its tip; here the locator is
+	// completed by hand.
+	sharedKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		PubKey: test.RandPubKey(t),
+	})
+	_, annotated := NewDbHandle(t).AddRandomAssetProof(
+		t, withScriptKey(sharedKey),
+	)
+	completeLocator(annotated)
+	verified, err := proof.VerifyAnnotatedProofsWithVerifier(
+		ctx, snapshotVerifier{snapshot: annotated.AssetSnapshot},
+		proof.MockVerifierCtx, annotated,
+	)
+	require.NoError(t, err)
+	locator := proof.Locator{ScriptKey: annotated.ScriptKey}
+
+	anchorTxid := annotated.AnchorTx.TxHash()
+	spec := testSpec(
+		t, "receiver", annotated.AnchorTx.TxIn[0].PreviousOutPoint,
+	)
+	spec.MatchKey = anchorTxid.CloneBytes()
+	spec.Phase1OnAttach = true
+
+	var imported []proof.Blob
+	stake := func(ctx context.Context, tx tapreorg.RegistryTx,
+		_ tapreorg.AnchoringID) error {
+
+		var err error
+		imported, err = assetsStore.StakeReceivedProofs(
+			ctx, tx, verified...,
+		)
+
+		return err
+	}
+
+	// A failure after the import, inside the transaction, leaves no
+	// asset behind.
+	boom := errors.New("registration fails after the stake")
+	stakeThenFail := func(ctx context.Context, tx tapreorg.RegistryTx,
+		id tapreorg.AnchoringID) error {
+
+		if err := stake(ctx, tx, id); err != nil {
+			return err
+		}
+
+		return boom
+	}
+	_, err = registry.Register(ctx, spec, 500, stakeThenFail, nil)
+	require.ErrorIs(t, err, boom)
+	require.Len(t, imported, 1)
+
+	has, err := assetsStore.HasProof(ctx, locator)
+	require.NoError(t, err)
+	require.False(t, has, "rolled-back stake left the asset behind")
+
+	existing, err := registry.LookupByMatchKey(
+		ctx, "receiver", spec.MatchKey,
+	)
+	require.NoError(t, err)
+	require.Nil(t, existing, "rolled-back stake left the anchoring")
+
+	// The same registration, committing: asset and anchoring together.
+	id, err := registry.Register(ctx, spec, 500, stake, nil)
+	require.NoError(t, err)
+	require.Len(t, imported, 1)
+
+	has, err = assetsStore.HasProof(ctx, locator)
+	require.NoError(t, err)
+	require.True(t, has)
+
+	// Re-driven, the registration attaches and imports nothing twice.
+	again, err := registry.Register(ctx, spec, 500, stake, nil)
+	require.NoError(t, err)
+	require.Equal(t, id, again)
+	require.Empty(t, imported)
+
+	// A second leaf under the same script key — the multi-asset shape
+	// a grouped receive materializes — is a different asset at a
+	// different outpoint, and presence is judged on the whole
+	// locator: it is imported, not mistaken for the first.
+	_, sibling := NewDbHandle(t).AddRandomAssetProof(
+		t, withScriptKey(sharedKey),
+	)
+	completeLocator(sibling)
+	require.Equal(t, annotated.ScriptKey, sibling.ScriptKey)
+	require.NotEqual(t, *annotated.AssetID, *sibling.AssetID)
+
+	verifiedSibling, err := proof.VerifyAnnotatedProofsWithVerifier(
+		ctx, snapshotVerifier{snapshot: sibling.AssetSnapshot},
+		proof.MockVerifierCtx, sibling,
+	)
+	require.NoError(t, err)
+
+	has, err = assetsStore.HasReceivedProof(ctx, sibling.Locator)
+	require.NoError(t, err)
+	require.False(t, has, "sibling leaf mistaken for the first")
+
+	siblingTxid := sibling.AnchorTx.TxHash()
+	siblingSpec := testSpec(
+		t, "receiver", sibling.AnchorTx.TxIn[0].PreviousOutPoint,
+	)
+	siblingSpec.MatchKey = siblingTxid.CloneBytes()
+	siblingSpec.Phase1OnAttach = true
+	stakeSibling := func(ctx context.Context, tx tapreorg.RegistryTx,
+		_ tapreorg.AnchoringID) error {
+
+		var err error
+		imported, err = assetsStore.StakeReceivedProofs(
+			ctx, tx, verifiedSibling...,
+		)
+
+		return err
+	}
+	_, err = registry.Register(ctx, siblingSpec, 500, stakeSibling, nil)
+	require.NoError(t, err)
+	require.Len(t, imported, 1)
+
+	for _, loc := range []proof.Locator{
+		annotated.Locator, sibling.Locator,
+	} {
+		has, err = assetsStore.HasReceivedProof(ctx, loc)
+		require.NoError(t, err)
+		require.True(t, has)
+	}
 }

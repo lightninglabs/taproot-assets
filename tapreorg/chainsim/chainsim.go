@@ -132,6 +132,9 @@ type spendSub struct {
 	errChan   chan error
 	queue     *eventQueue
 
+	// heightHint is the hint the subscription was registered with.
+	heightHint uint32
+
 	// last identifies the (txid, height) last reported as the
 	// spender, nil if none.
 	lastTxid   *chainhash.Hash
@@ -682,6 +685,36 @@ func (c *Chain) TxHeight(txid chainhash.Hash) (uint32, bool) {
 	return loc.height, true
 }
 
+// SpendSubscribed reports whether a live spend subscription is open
+// for the outpoint.
+func (c *Chain) SpendSubscribed(op wire.OutPoint) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, sub := range c.spendSubs {
+		if sub.op == op && sub.ctx.Err() == nil {
+			return true
+		}
+	}
+
+	return false
+}
+
+// SpendHint reports the height hint of the live spend subscription
+// for the outpoint, if one exists.
+func (c *Chain) SpendHint(op wire.OutPoint) (uint32, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, sub := range c.spendSubs {
+		if sub.op == op && sub.ctx.Err() == nil {
+			return sub.heightHint, true
+		}
+	}
+
+	return 0, false
+}
+
 // RegisterConfirmationsNtfn implements tapreorg.ChainNotifier.
 func (c *Chain) RegisterConfirmationsNtfn(ctx context.Context,
 	txid *chainhash.Hash, pkScript []byte, numConfs, heightHint uint32,
@@ -762,13 +795,21 @@ func (c *Chain) RegisterSpendNtfn(ctx context.Context,
 			"pkScript %x: %w", pkScript, err)
 	}
 
+	// Mirror lnd's hint validation: a spend registration without a
+	// positive height hint is refused.
+	if heightHint == 0 {
+		return nil, nil, fmt.Errorf("chainsim: spend registration "+
+			"for %v carries no height hint", outpoint)
+	}
+
 	sub := &spendSub{
-		ctx:       ctx,
-		op:        *outpoint,
-		reorgChan: reOrgChan,
-		spendChan: make(chan *chainntnfs.SpendDetail, 1),
-		errChan:   make(chan error, 1),
-		queue:     newEventQueue(ctx),
+		ctx:        ctx,
+		op:         *outpoint,
+		reorgChan:  reOrgChan,
+		spendChan:  make(chan *chainntnfs.SpendDetail, 1),
+		errChan:    make(chan error, 1),
+		queue:      newEventQueue(ctx),
+		heightHint: heightHint,
 	}
 
 	id := c.nextSubID

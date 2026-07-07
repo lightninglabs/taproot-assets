@@ -714,8 +714,12 @@ func genServerConfig(ctx context.Context, cfg *Config,
 	// interface is not a nil interface, and the sites guard on the
 	// latter. The disabled case is therefore threaded as an
 	// explicit interface nil.
-	var supplyRegistrar supplycommit.AnchoringRegistrar
+	var (
+		watcherRegistrar tapreorg.Registrar
+		supplyRegistrar  supplycommit.AnchoringRegistrar
+	)
 	if anchoringWatcher != nil {
+		watcherRegistrar = anchoringWatcher
 		supplyRegistrar = anchoringWatcher
 	}
 
@@ -855,9 +859,10 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		ProofRetrievalDelay:    cfg.CustodianProofRetrievalDelay,
 		ProofWatcher:           reOrgWatcher,
 		IgnoreChecker:          ignoreCheckerOpt,
-		AnchoringWatcher:       anchoringWatcher,
+		AnchoringWatcher:       watcherRegistrar,
 		AnchoringLog:           assetStore,
 		AnchoringThreshold:     uint32(cfg.ReOrgSafeDepth),
+		ProofFiles:             proofFileStore,
 	})
 
 	// The sites run on the anchoring watcher: their handlers,

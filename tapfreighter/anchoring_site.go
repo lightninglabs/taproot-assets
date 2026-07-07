@@ -390,27 +390,22 @@ func (p *ChainPorter) DispatchBurnSupplyEvents(ctx context.Context,
 }
 
 // findAnchoring resolves the porter anchoring for the given anchor
-// transaction, by payload.
+// transaction via the site's per-txid identity index.
 func (p *ChainPorter) findAnchoring(ctx context.Context,
 	anchorTxid chainhash.Hash) (*tapreorg.Anchoring, error) {
 
-	anchorings, err := p.cfg.AnchoringWatcher.Anchorings(ctx, PorterSiteID)
+	anchoring, err := p.cfg.AnchoringWatcher.LookupByMatchKey(
+		ctx, PorterSiteID, anchorTxid.CloneBytes(),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to list anchorings: %w", err)
+		return nil, fmt.Errorf("unable to look up anchoring: %w", err)
+	}
+	if anchoring == nil {
+		return nil, fmt.Errorf("no anchoring found for anchor tx %v",
+			anchorTxid)
 	}
 
-	for _, anchoring := range anchorings {
-		blob, err := decodePorterBlob(anchoring.Payload)
-		if err != nil {
-			continue
-		}
-		if blob.AnchorTxid == anchorTxid {
-			return anchoring, nil
-		}
-	}
-
-	return nil, fmt.Errorf("no anchoring found for anchor tx %v",
-		anchorTxid)
+	return anchoring, nil
 }
 
 // registerParcelAnchoring stakes the parcel on its anchor transaction
@@ -453,8 +448,9 @@ func (p *ChainPorter) registerParcelAnchoring(ctx context.Context,
 		return 0, fmt.Errorf("unable to build trigger set: %w", err)
 	}
 
+	anchorTxid := parcel.AnchorTx.TxHash()
 	blob := encodePorterBlob(porterBlob{
-		AnchorTxid: parcel.AnchorTx.TxHash(),
+		AnchorTxid: anchorTxid,
 		Note:       pkg.Note,
 	})
 
@@ -463,6 +459,7 @@ func (p *ChainPorter) registerParcelAnchoring(ctx context.Context,
 		Triggers:  triggers,
 		MatchData: blob,
 		Payload:   blob,
+		MatchKey:  anchorTxid.CloneBytes(),
 		Threshold: p.cfg.AnchoringThreshold,
 	}
 

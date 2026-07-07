@@ -475,18 +475,16 @@ func (b *Cultivator) registerMintAnchoring(ctx context.Context,
 
 	genesisTxid := signedTx.TxHash()
 
-	existing, err := b.cfg.AnchoringWatcher.Anchorings(ctx, MintSiteID)
+	matchKey := genesisTxid.CloneBytes()
+	existing, err := b.cfg.AnchoringWatcher.LookupByMatchKey(
+		ctx, MintSiteID, matchKey,
+	)
 	if err != nil {
-		return fmt.Errorf("unable to list anchorings: %w", err)
+		return fmt.Errorf("unable to look up mint anchoring: %w",
+			err)
 	}
-	for _, anchoring := range existing {
-		blob, err := decodeMintBlob(anchoring.Payload)
-		if err != nil {
-			continue
-		}
-		if blob.GenesisTxid == genesisTxid {
-			return nil
-		}
+	if existing != nil {
+		return nil
 	}
 
 	// Input scripts come from the funded PSBT.
@@ -534,6 +532,7 @@ func (b *Cultivator) registerMintAnchoring(ctx context.Context,
 			Triggers:  triggers,
 			MatchData: blob,
 			Payload:   blob,
+			MatchKey:  matchKey,
 			Threshold: b.cfg.AnchoringThreshold,
 		}, nil,
 	)
