@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -452,13 +453,25 @@ func genServerConfig(ctx context.Context, cfg *Config,
 	}
 	var anchoringWatcher *tapreorg.Watcher
 	if !cfg.DisableAnchoringWatcher {
-		anchoringWatcher = tapreorg.NewWatcher(&tapreorg.WatcherConfig{
+		watcherCfg := &tapreorg.WatcherConfig{
 			Notifier:         chainBridge,
 			Registry:         anchoringRegistry,
 			Clock:            defaultClock,
 			DefaultThreshold: defaultThreshold,
 			ErrChan:          mainErrChan,
-		})
+		}
+
+		// Regtest and simnet blocks arrive on demand and
+		// consumers wait on short windows, so retry and scan
+		// quickly there; the defaults are tuned to
+		// public-network block cadence.
+		switch cfg.ChainConf.Network {
+		case "regtest", "simnet":
+			watcherCfg.InitialDeliveryBackoff = time.Second
+			watcherCfg.MaxDeliveryBackoff = 10 * time.Second
+			watcherCfg.ScanInterval = time.Second
+		}
+		anchoringWatcher = tapreorg.NewWatcher(watcherCfg)
 	}
 
 	uniArchive := universe.NewArchive(uniArchiveCfg)

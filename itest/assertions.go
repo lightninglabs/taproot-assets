@@ -2909,6 +2909,45 @@ func WaitForSupplyCommit(t *testing.T, ctx context.Context,
 	return fetchResp, supplyCommitOutpoint
 }
 
+// AssertNoSupplyCommit asserts that no supply commitment is visible for
+// the asset group on the given node, and that none becomes visible for
+// the settle period.
+//
+// This is the negative half of the act-gating contract for supply
+// commitments. A commitment is finalized locally by the watcher's
+// burial delivery and pushed to remote universes through its outbox,
+// so at any single instant "not yet visible" and "visible a moment
+// later" are indistinguishable; waiting establishes that the gate is
+// holding rather than that the delivery was merely slow. A fetch below
+// the threshold fails outright: the commitment's chain proof is only
+// written at finalization, and a remote node holds nothing at all.
+func AssertNoSupplyCommit(t *testing.T, tapd unirpc.UniverseClient,
+	groupKeyBytes []byte, settle time.Duration) {
+
+	t.Helper()
+
+	ctxb := context.Background()
+	req := &unirpc.FetchSupplyCommitRequest{
+		GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
+			GroupKeyBytes: groupKeyBytes,
+		},
+		Locator: &unirpc.FetchSupplyCommitRequest_Latest{
+			Latest: true,
+		},
+	}
+
+	deadline := time.Now().Add(settle)
+	for time.Now().Before(deadline) {
+		resp, err := tapd.FetchSupplyCommit(ctxb, req)
+		require.Errorf(
+			t, err, "supply commitment visible below the act "+
+				"threshold: %v", resp,
+		)
+
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 // AssertSupplyLeafBlockHeaders makes sure that the given block header exists
 // in the map of block headers and that its contents matches the expected
 // values.

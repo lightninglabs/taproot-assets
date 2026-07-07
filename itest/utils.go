@@ -9,6 +9,7 @@ import (
 
 	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
@@ -299,11 +300,23 @@ type MintOptions struct {
 	siblingFullTree *mintrpc.FinalizeBatchRequest_FullTree
 	feeRate         uint32
 	errText         string
+
+	// noUniverseLeafWait skips the wait for the minted assets'
+	// issuance leaves. Tests running at a burial depth deeper than
+	// the blocks they mine (the re-org tests) opt out, since the
+	// act-gated publication intentionally hasn't happened yet.
+	noUniverseLeafWait bool
 }
 
 func DefaultMintOptions() *MintOptions {
 	return &MintOptions{
 		mintingTimeout: defaultWaitTimeout,
+	}
+}
+
+func WithNoUniverseLeafWait() MintOption {
+	return func(options *MintOptions) {
+		options.noUniverseLeafWait = true
 	}
 }
 
@@ -587,9 +600,184 @@ func ConfirmBatch(t *testing.T, minerClient *miner.HarnessMiner,
 	batch := batchResp.Batches[0]
 	require.NotEmpty(t, batch.Batch.BatchTxid)
 
-	return AssertAssetsMinted(
+	mintedAssets := AssertAssetsMinted(
 		t, tapClient, assetRequests, mintTXID, blockHash,
 	)
+
+	// The universe publication of a minted batch is act-gated behind
+	// the genesis transaction's burial and rides the re-org watcher's
+	// outbox, so it lands shortly after the batch finalizes rather
+	// than during it. Callers historically rely on mint completion
+	// implying universe visibility (and, through the augmenter,
+	// pending supply-commit updates), so wait for each minted asset's
+	// issuance leaf before returning — in the minting node's own
+	// universe, and in the federation members it pushes to, which is
+	// where the other nodes in a test resolve unknown assets from.
+	if !options.noUniverseLeafWait {
+		WaitForMintUniverseLeaves(t, tapClient, mintedAssets)
+
+		if h, ok := tapClient.(*tapdHarness); ok && h.ht != nil {
+			waitForFederationMintLeaves(t, h, mintedAssets)
+		}
+	}
+
+	return mintedAssets
+}
+
+// waitForFederationMintLeaves waits until every minted asset's
+// issuance leaf is visible in each federation member of the minting
+// node that the harness runs. The daemon answers a local publication
+// before its push to the federation completes, so a peer resolving a
+// fresh asset from a member would otherwise race the push. Members
+// the harness does not run, or has stopped, are skipped: their
+// visibility is not this helper's to certify. A member configured to
+// refuse issuance inserts never shows the leaf; a test that
+// configures one so opts out of the wait.
+func waitForFederationMintLeaves(t *testing.T, minter *tapdHarness,
+	mintedAssets []*taprpc.Asset) {
+
+	t.Helper()
+
+	servers, err := minter.ListFederationServers(
+		context.Background(), &unirpc.ListFederationServersRequest{},
+	)
+	require.NoError(t, err)
+
+	for _, server := range servers.Servers {
+		member, ok := minter.ht.nodes[server.Host]
+		if !ok || member.TaprootAssetsClient == nil {
+			continue
+		}
+
+		WaitForMintUniverseLeaves(t, member, mintedAssets)
+	}
+}
+
+// WaitForMintUniverseLeaves waits until every minted asset's issuance
+// leaf is visible in the minting node's local universe. The augmenter's
+// supply-commit obligations run before the publication, so leaf
+// visibility also certifies that any supply update events for the batch
+// have been durably recorded.
+func WaitForMintUniverseLeaves(t *testing.T,
+	tapClient commands.RpcClientsBundle,
+	mintedAssets []*taprpc.Asset) {
+
+	t.Helper()
+
+	ctxb := context.Background()
+	for _, mintedAsset := range mintedAssets {
+		uniID := &unirpc.ID{
+			ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
+		}
+		if mintedAsset.AssetGroup != nil &&
+			len(mintedAsset.AssetGroup.TweakedGroupKey) > 0 {
+
+			groupKey, err := btcec.ParsePubKey(
+				mintedAsset.AssetGroup.TweakedGroupKey,
+			)
+			require.NoError(t, err)
+			uniID.Id = &unirpc.ID_GroupKey{
+				GroupKey: schnorr.SerializePubKey(groupKey),
+			}
+		} else {
+			uniID.Id = &unirpc.ID_AssetId{
+				AssetId: mintedAsset.AssetGenesis.AssetId,
+			}
+		}
+
+		assetID := mintedAsset.AssetGenesis.AssetId
+		require.Eventually(t, func() bool {
+			leaves, err := tapClient.AssetLeaves(
+				ctxb, &unirpc.AssetLeavesRequest{Id: uniID},
+			)
+			if err != nil {
+				return false
+			}
+			for _, leaf := range leaves.Leaves {
+				if leaf.Asset == nil ||
+					leaf.Asset.AssetGenesis == nil {
+
+					continue
+				}
+				genesisID := leaf.Asset.AssetGenesis.AssetId
+				if bytes.Equal(genesisID, assetID) {
+					return true
+				}
+			}
+
+			return false
+		}, defaultWaitTimeout, 200*time.Millisecond)
+	}
+}
+
+// AssertNoMintUniverseLeaves asserts that no minted asset's issuance
+// leaf is visible in the node's local universe, and that none appears
+// for the given settle period.
+//
+// This is the negative half of the act-gating contract, and it needs a
+// settle period rather than a single poll: the publication is an outbox
+// effect, so "not yet published" and "published a moment later" are
+// indistinguishable at any single instant. Waiting establishes that the
+// gate is holding rather than that the dispatcher was merely slow.
+func AssertNoMintUniverseLeaves(t *testing.T,
+	tapClient commands.RpcClientsBundle, mintedAssets []*taprpc.Asset,
+	settle time.Duration) {
+
+	t.Helper()
+
+	ctxb := context.Background()
+	deadline := time.Now().Add(settle)
+
+	for time.Now().Before(deadline) {
+		for _, mintedAsset := range mintedAssets {
+			uniID := &unirpc.ID{
+				ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
+			}
+			assetID := mintedAsset.AssetGenesis.AssetId
+			assetGroup := mintedAsset.AssetGroup
+			if assetGroup != nil &&
+				len(assetGroup.TweakedGroupKey) > 0 {
+
+				groupKey, err := btcec.ParsePubKey(
+					assetGroup.TweakedGroupKey,
+				)
+				require.NoError(t, err)
+				uniID.Id = &unirpc.ID_GroupKey{
+					GroupKey: schnorr.SerializePubKey(
+						groupKey,
+					),
+				}
+			} else {
+				uniID.Id = &unirpc.ID_AssetId{AssetId: assetID}
+			}
+
+			leaves, err := tapClient.AssetLeaves(
+				ctxb, &unirpc.AssetLeavesRequest{Id: uniID},
+			)
+			if err != nil {
+				// No leaves at all is the expected shape
+				// before burial.
+				continue
+			}
+			for _, leaf := range leaves.Leaves {
+				if leaf.Asset == nil ||
+					leaf.Asset.AssetGenesis == nil {
+
+					continue
+				}
+				genesisID := leaf.Asset.AssetGenesis.AssetId
+				require.False(
+					t, bytes.Equal(genesisID, assetID),
+					"issuance leaf for %x was published "+
+						"before the anchoring reached "+
+						"the act threshold",
+					assetID,
+				)
+			}
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
