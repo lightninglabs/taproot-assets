@@ -821,18 +821,12 @@ type StateMachineStore interface {
 	InsertPendingUpdate(context.Context, asset.Specifier,
 		SupplyUpdateEvent) error
 
-	// InsertSignedCommitTx will associated a new signed commitment
-	// anchor transaction with the current active supply commitment state
-	// transition. This'll update the existing funded txn with a signed
-	// copy. Finally the state of the  supply commit state transition will
-	// transition to CommitBroadcastState.
-	InsertSignedCommitTx(context.Context, asset.Specifier,
-		SupplyCommitTxn) error
-
-	// ApplyCommitTxStake is the transaction-scoped body of
-	// InsertSignedCommitTx, run inside the re-org watcher's
-	// registration transaction so the signed commitment transaction
-	// and the anchoring staked on it commit together.
+	// ApplyCommitTxStake associates a new signed commitment anchor
+	// transaction with the current active supply commitment state
+	// transition and moves the durable state to CommitBroadcastState.
+	// It runs inside the re-org watcher's registration transaction so
+	// the signed commitment transaction and the anchoring staked on
+	// it commit together.
 	ApplyCommitTxStake(context.Context, *sqlc.Queries, asset.Specifier,
 		SupplyCommitTxn) error
 
@@ -926,11 +920,10 @@ type Environment struct {
 	// KeyRing is the main key ring interface used to manage keys.
 	KeyRing KeyRing
 
-	// AnchoringWatcher is the re-org watcher a broadcast commitment
-	// registers with as a speculative anchoring. When set, the
-	// machine defers finalization until the watcher reports the
-	// commit transaction buried, instead of finalizing at a single
-	// confirmation.
+	// AnchoringWatcher is the re-org watcher a signed commitment is
+	// staked on as a speculative anchoring. The machine defers
+	// finalization until the watcher reports the commit transaction
+	// buried.
 	AnchoringWatcher AnchoringRegistrar
 
 	// AnchoringThreshold is the depth at which the commitment is

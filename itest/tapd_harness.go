@@ -92,10 +92,6 @@ const (
 type tapdHarness struct {
 	cfg *tapdConfig
 
-	// anchoringWatcherDisabled records that this node runs without
-	// the anchoring watcher, on the legacy re-org protection paths.
-	anchoringWatcherDisabled bool
-
 	// cliArgs holds the CLI arguments used to start the tapd process.
 	cliArgs []string
 
@@ -179,11 +175,6 @@ type harnessOpts struct {
 	// re-org tests override it so burial certification stays deeper
 	// than the re-orgs they generate.
 	reOrgSafeDepth int32
-
-	// disableAnchoringWatcher runs the tapd node with the anchoring
-	// watcher disabled, so every site falls back to its legacy
-	// re-org protection path.
-	disableAnchoringWatcher bool
 
 	// sendPriceHint indicates whether the tapd should send price hints from
 	// the local oracle to the counterparty when requesting a quote.
@@ -302,10 +293,6 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	args = append(args, fmt.Sprintf(
 		"--reorgsafedepth=%d", reOrgSafeDepth,
 	))
-
-	if opts.disableAnchoringWatcher {
-		args = append(args, "--disable-anchoring-watcher")
-	}
 
 	// Resolve the proof courier address.
 	proofCourierAddr := ""
@@ -514,16 +501,15 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	)
 
 	harness := &tapdHarness{
-		cfg:                      &cfg,
-		anchoringWatcherDisabled: opts.disableAnchoringWatcher,
-		cliArgs:                  args,
-		rpcListenAddr:            rpcListenAddr,
-		restListenAddr:           restListenAddr,
-		tlsCertPath:              tlsCertPath,
-		macPath:                  macPath,
-		hashmailBackoffCfg:       hashmailBackoffCfg,
-		universeRpcBackoffCfg:    universeRpcBackoffCfg,
-		ht:                       ht,
+		cfg:                   &cfg,
+		cliArgs:               args,
+		rpcListenAddr:         rpcListenAddr,
+		restListenAddr:        restListenAddr,
+		tlsCertPath:           tlsCertPath,
+		macPath:               macPath,
+		hashmailBackoffCfg:    hashmailBackoffCfg,
+		universeRpcBackoffCfg: universeRpcBackoffCfg,
+		ht:                    ht,
 	}
 	if ht != nil && ht.nodes != nil {
 		ht.nodes[rpcListenAddr] = harness

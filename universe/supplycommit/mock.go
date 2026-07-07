@@ -318,13 +318,6 @@ func (m *mockStateMachineStore) InsertPendingUpdate(ctx context.Context,
 	return args.Error(0)
 }
 
-func (m *mockStateMachineStore) InsertSignedCommitTx(ctx context.Context,
-	spec asset.Specifier, tx SupplyCommitTxn) error {
-
-	args := m.Called(ctx, spec, tx)
-	return args.Error(0)
-}
-
 func (m *mockStateMachineStore) ApplyCommitTxStake(ctx context.Context,
 	q *sqlc.Queries, spec asset.Specifier, tx SupplyCommitTxn) error {
 

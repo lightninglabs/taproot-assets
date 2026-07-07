@@ -209,26 +209,18 @@ func testReOrgSend(t *harnessTest) {
 	// reflects that honestly: the transfer and everything it anchors
 	// are unconfirmed until the transaction confirms again, so no
 	// confirmed assets or balances are reported in the meantime. The
-	// legacy proof watcher has no such tier: the sender keeps listing
-	// the transfer's outputs, with proofs that no longer verify.
+	// downgrade is delivered once the watcher senses the re-org,
+	// asynchronously to the node's chain sync, so it is awaited
+	// rather than asserted at once.
 	listAssetRequest := &taprpc.ListAssetRequest{}
-	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
-	require.NoError(t.t, err)
-	if t.tapd.anchoringWatcherDisabled {
-		require.NotEmpty(t.t, aliceAssets.Assets)
-	} else {
-		// The downgrade is delivered once the watcher senses the
-		// re-org, asynchronously to the node's chain sync, so it
-		// is awaited rather than asserted at once.
-		require.Eventually(t.t, func() bool {
-			aliceAssets, err = t.tapd.ListAssets(
-				ctx, listAssetRequest,
-			)
+	var aliceAssets *taprpc.ListAssetResponse
+	require.Eventually(t.t, func() bool {
+		var err error
+		aliceAssets, err = t.tapd.ListAssets(ctx, listAssetRequest)
 
-			return err == nil && len(aliceAssets.Assets) == 0 &&
-				aliceAssets.UnconfirmedTransfers == 1
-		}, defaultWaitTimeout, 200*time.Millisecond)
-	}
+		return err == nil && len(aliceAssets.Assets) == 0 &&
+			aliceAssets.UnconfirmedTransfers == 1
+	}, defaultWaitTimeout, 200*time.Millisecond)
 
 	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)
@@ -374,26 +366,18 @@ func testReOrgSendV2Address(t *harnessTest) {
 	// reflects that honestly: the transfer and everything it anchors
 	// are unconfirmed until the transaction confirms again, so no
 	// confirmed assets or balances are reported in the meantime. The
-	// legacy proof watcher has no such tier: the sender keeps listing
-	// the transfer's outputs, with proofs that no longer verify.
+	// downgrade is delivered once the watcher senses the re-org,
+	// asynchronously to the node's chain sync, so it is awaited
+	// rather than asserted at once.
 	listAssetRequest := &taprpc.ListAssetRequest{}
-	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
-	require.NoError(t.t, err)
-	if t.tapd.anchoringWatcherDisabled {
-		require.NotEmpty(t.t, aliceAssets.Assets)
-	} else {
-		// The downgrade is delivered once the watcher senses the
-		// re-org, asynchronously to the node's chain sync, so it
-		// is awaited rather than asserted at once.
-		require.Eventually(t.t, func() bool {
-			aliceAssets, err = t.tapd.ListAssets(
-				ctx, listAssetRequest,
-			)
+	var aliceAssets *taprpc.ListAssetResponse
+	require.Eventually(t.t, func() bool {
+		var err error
+		aliceAssets, err = t.tapd.ListAssets(ctx, listAssetRequest)
 
-			return err == nil && len(aliceAssets.Assets) == 0 &&
-				aliceAssets.UnconfirmedTransfers == 1
-		}, defaultWaitTimeout, 200*time.Millisecond)
-	}
+		return err == nil && len(aliceAssets.Assets) == 0 &&
+			aliceAssets.UnconfirmedTransfers == 1
+	}, defaultWaitTimeout, 200*time.Millisecond)
 
 	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)

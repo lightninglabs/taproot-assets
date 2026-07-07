@@ -435,10 +435,9 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		ErrChan:   mainErrChan,
 	})
 
-	// The righteous watcher runs alongside the legacy one until
-	// every site has migrated onto it. Its registry advances run
-	// site handlers in the same transaction, so its executor is
-	// instantiated at the full generated query set.
+	// The watcher's registry advances run site handlers in the same
+	// transaction, so its executor is instantiated at the full
+	// generated query set.
 	reorgRegistryDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) *sqlc.Queries {
 			return db.WithTx(tx)
@@ -451,28 +450,24 @@ func genServerConfig(ctx context.Context, cfg *Config,
 	if cfg.ReOrgSafeDepth > 0 {
 		defaultThreshold = uint32(cfg.ReOrgSafeDepth)
 	}
-	var anchoringWatcher *tapreorg.Watcher
-	if !cfg.DisableAnchoringWatcher {
-		watcherCfg := &tapreorg.WatcherConfig{
-			Notifier:         chainBridge,
-			Registry:         anchoringRegistry,
-			Clock:            defaultClock,
-			DefaultThreshold: defaultThreshold,
-			ErrChan:          mainErrChan,
-		}
-
-		// Regtest and simnet blocks arrive on demand and
-		// consumers wait on short windows, so retry and scan
-		// quickly there; the defaults are tuned to
-		// public-network block cadence.
-		switch cfg.ChainConf.Network {
-		case "regtest", "simnet":
-			watcherCfg.InitialDeliveryBackoff = time.Second
-			watcherCfg.MaxDeliveryBackoff = 10 * time.Second
-			watcherCfg.ScanInterval = time.Second
-		}
-		anchoringWatcher = tapreorg.NewWatcher(watcherCfg)
+	watcherCfg := &tapreorg.WatcherConfig{
+		Notifier:         chainBridge,
+		Registry:         anchoringRegistry,
+		Clock:            defaultClock,
+		DefaultThreshold: defaultThreshold,
+		ErrChan:          mainErrChan,
 	}
+
+	// Regtest and simnet blocks arrive on demand and consumers wait
+	// on short windows, so retry and scan quickly there; the
+	// defaults are tuned to public-network block cadence.
+	switch cfg.ChainConf.Network {
+	case "regtest", "simnet":
+		watcherCfg.InitialDeliveryBackoff = time.Second
+		watcherCfg.MaxDeliveryBackoff = 10 * time.Second
+		watcherCfg.ScanInterval = time.Second
+	}
+	anchoringWatcher := tapreorg.NewWatcher(watcherCfg)
 
 	uniArchive := universe.NewArchive(uniArchiveCfg)
 
@@ -722,25 +717,11 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		},
 	)
 
-	// Interface-typed config fields must never receive a nil
-	// *tapreorg.Watcher: a nil concrete pointer stored in an
-	// interface is not a nil interface, and the sites guard on the
-	// latter. The disabled case is therefore threaded as an
-	// explicit interface nil.
-	var (
-		watcherRegistrar tapreorg.Registrar
-		supplyRegistrar  supplycommit.AnchoringRegistrar
-	)
-	if anchoringWatcher != nil {
-		watcherRegistrar = anchoringWatcher
-		supplyRegistrar = anchoringWatcher
-	}
-
 	// Create the supply commitment state machine manager, which is used to
 	// manage the supply commitment state machines for each asset group.
 	supplyCommitManager := supplycommit.NewManager(
 		supplycommit.ManagerCfg{
-			AnchoringWatcher:   supplyRegistrar,
+			AnchoringWatcher:   anchoringWatcher,
 			AnchoringThreshold: uint32(cfg.ReOrgSafeDepth),
 			TreeView:           supplyTreeStore,
 			Commitments:        supplyCommitStore,
@@ -792,7 +773,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			Signer:                 virtualTxSigner,
 			TxValidator:            &tap.ValidatorV0{},
 			ExportLog:              assetStore,
-			AnchoringWatcher:       watcherRegistrar,
+			AnchoringWatcher:       anchoringWatcher,
 			AnchoringLog:           assetStore,
 			AnchoringThreshold:     uint32(cfg.ReOrgSafeDepth),
 			ChainBridge:            chainBridge,
@@ -803,7 +784,6 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			ProofReader:            porterProofReader,
 			ProofWriter:            proofFileStore,
 			ProofCourierDispatcher: proofCourierDispatcher,
-			ProofWatcher:           reOrgWatcher,
 			IgnoreChecker:          ignoreCheckerOpt,
 			ErrChan:                mainErrChan,
 			BurnCommitter:          supplyCommitManager,
@@ -845,10 +825,9 @@ func genServerConfig(ctx context.Context, cfg *Config,
 				universeFederation,
 				defaultUniverseSyncBatchSize,
 			),
-			ProofWatcher:       reOrgWatcher,
 			IgnoreChecker:      ignoreCheckerOpt,
 			GenesisTxAugmenter: genesisAugmenter,
-			AnchoringWatcher:   watcherRegistrar,
+			AnchoringWatcher:   anchoringWatcher,
 			MintAnchoringLog:   assetStore,
 			AnchoringThreshold: uint32(cfg.ReOrgSafeDepth),
 		},
@@ -870,9 +849,8 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		ProofCourierDispatcher: proofCourierDispatcher,
 		MboxBackoffCfg:         cfg.UniverseRpcCourier.BackoffCfg,
 		ProofRetrievalDelay:    cfg.CustodianProofRetrievalDelay,
-		ProofWatcher:           reOrgWatcher,
 		IgnoreChecker:          ignoreCheckerOpt,
-		AnchoringWatcher:       watcherRegistrar,
+		AnchoringWatcher:       anchoringWatcher,
 		AnchoringLog:           assetStore,
 		AnchoringThreshold:     uint32(cfg.ReOrgSafeDepth),
 		ProofFiles:             proofFileStore,
@@ -880,140 +858,136 @@ func genServerConfig(ctx context.Context, cfg *Config,
 
 	// The sites run on the anchoring watcher: their handlers,
 	// delivery nudges and act-gated effect dispatch are all
-	// registered before the watcher starts. A disabled watcher has
-	// nothing to register against — every site keeps its legacy
-	// re-org path instead.
-	if anchoringWatcher != nil {
-		err = anchoringWatcher.RegisterSite(
-			chainPorter.AnchoringSite(),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to register porter "+
-				"site: %w", err)
-		}
-		err = anchoringWatcher.RegisterDeliveryListener(
-			chainPorter.OnAnchoringDelivered,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to register porter "+
-				"delivery listener: %w", err)
-		}
-		// The burn handler is local — it rebuilds the burn records
-		// from stored state and hands them to the supply-commit
-		// event system — and scales with its payload, so it runs
-		// unbounded; the commit push reaches remote universe
-		// servers and keeps the default deadline.
-		err = anchoringWatcher.RegisterEffectHandler(
-			tapfreighter.BurnSupplyEventsEffectKind,
-			chainPorter.DispatchBurnSupplyEvents,
-			tapreorg.WithDispatchTimeout(0),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to register burn "+
-				"effect handler: %w", err)
-		}
-		err = anchoringWatcher.RegisterSite(
-			assetCustodian.AnchoringSite(),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to register receive "+
-				"site: %w", err)
-		}
-		err = anchoringWatcher.RegisterSite(
-			assetMinter.AnchoringSite(),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to register mint "+
-				"site: %w", err)
-		}
-		err = anchoringWatcher.RegisterDeliveryListener(
-			assetMinter.OnAnchoringDelivered,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to register mint "+
-				"delivery listener: %w", err)
-		}
-		// The mint-publish handler's own work is local — one
-		// universe leaf per minted asset — and scales with its
-		// payload: a large batch cannot finish inside the default
-		// deadline and would fail forever at the capped backoff, so
-		// it runs unbounded. Its wait is bounded by the federation
-		// envoy instead: the envoy answers each upsert from its
-		// serial loop, which puts a deadline on every push it makes
-		// to a remote member and drops a member that misses one for
-		// the rest of the batch, so a member that accepts a stream
-		// and never answers costs this effect one deadline per
-		// chunk rather than the outbox until restart.
-		err = anchoringWatcher.RegisterEffectHandler(
-			tapgarden.MintPublishEffectKind,
-			assetMinter.DispatchMintPublish,
-			tapreorg.WithDispatchTimeout(0),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to register mint "+
-				"publish handler: %w", err)
-		}
-		err = anchoringWatcher.RegisterSite(&supplycommit.SupplySite{
-			Log: supplyCommitStore,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("unable to register supply "+
-				"site: %w", err)
-		}
-		commitPushCfg := supplycommit.CommitPushCfg{
-			Log:         supplyCommitStore,
-			Syncer:      &supplySyncer,
-			AssetLookup: tapdbAddrBook,
-			IgnoreCache: ignoreChecker,
-		}
-		err = anchoringWatcher.RegisterEffectHandler(
-			supplycommit.CommitPushEffectKind,
-			func(ctx context.Context,
-				id fn.Option[tapreorg.AnchoringID],
-				payload tapreorg.VersionedBlob) error {
+	// registered before the watcher starts.
+	err = anchoringWatcher.RegisterSite(
+		chainPorter.AnchoringSite(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register porter "+
+			"site: %w", err)
+	}
+	err = anchoringWatcher.RegisterDeliveryListener(
+		chainPorter.OnAnchoringDelivered,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register porter "+
+			"delivery listener: %w", err)
+	}
+	// The burn handler is local — it rebuilds the burn records
+	// from stored state and hands them to the supply-commit
+	// event system — and scales with its payload, so it runs
+	// unbounded; the commit push reaches remote universe
+	// servers and keeps the default deadline.
+	err = anchoringWatcher.RegisterEffectHandler(
+		tapfreighter.BurnSupplyEventsEffectKind,
+		chainPorter.DispatchBurnSupplyEvents,
+		tapreorg.WithDispatchTimeout(0),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register burn "+
+			"effect handler: %w", err)
+	}
+	err = anchoringWatcher.RegisterSite(
+		assetCustodian.AnchoringSite(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register receive "+
+			"site: %w", err)
+	}
+	err = anchoringWatcher.RegisterSite(
+		assetMinter.AnchoringSite(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register mint "+
+			"site: %w", err)
+	}
+	err = anchoringWatcher.RegisterDeliveryListener(
+		assetMinter.OnAnchoringDelivered,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register mint "+
+			"delivery listener: %w", err)
+	}
+	// The mint-publish handler's own work is local — one
+	// universe leaf per minted asset — and scales with its
+	// payload: a large batch cannot finish inside the default
+	// deadline and would fail forever at the capped backoff, so
+	// it runs unbounded. Its wait is bounded by the federation
+	// envoy instead: the envoy answers each upsert from its
+	// serial loop, which puts a deadline on every push it makes
+	// to a remote member and drops a member that misses one for
+	// the rest of the batch, so a member that accepts a stream
+	// and never answers costs this effect one deadline per
+	// chunk rather than the outbox until restart.
+	err = anchoringWatcher.RegisterEffectHandler(
+		tapgarden.MintPublishEffectKind,
+		assetMinter.DispatchMintPublish,
+		tapreorg.WithDispatchTimeout(0),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register mint "+
+			"publish handler: %w", err)
+	}
+	err = anchoringWatcher.RegisterSite(&supplycommit.SupplySite{
+		Log: supplyCommitStore,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to register supply "+
+			"site: %w", err)
+	}
+	commitPushCfg := supplycommit.CommitPushCfg{
+		Log:         supplyCommitStore,
+		Syncer:      &supplySyncer,
+		AssetLookup: tapdbAddrBook,
+		IgnoreCache: ignoreChecker,
+	}
+	err = anchoringWatcher.RegisterEffectHandler(
+		supplycommit.CommitPushEffectKind,
+		func(ctx context.Context,
+			id fn.Option[tapreorg.AnchoringID],
+			payload tapreorg.VersionedBlob) error {
 
-				return supplycommit.DispatchCommitPush(
-					ctx, commitPushCfg, id, payload,
-				)
-			},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to register commit "+
-				"push handler: %w", err)
-		}
-		err = anchoringWatcher.RegisterEffectHandler(
-			supplycommit.CommitNudgeEffectKind,
-			supplyCommitManager.DispatchCommitNudge,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to register commit "+
-				"nudge handler: %w", err)
-		}
+			return supplycommit.DispatchCommitPush(
+				ctx, commitPushCfg, id, payload,
+			)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register commit "+
+			"push handler: %w", err)
+	}
+	err = anchoringWatcher.RegisterEffectHandler(
+		supplycommit.CommitNudgeEffectKind,
+		supplyCommitManager.DispatchCommitNudge,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register commit "+
+			"nudge handler: %w", err)
+	}
 
-		// The sites rewrite and delete database proofs inside
-		// their delivery transactions; the flat-file mirror is
-		// brought back into lockstep afterwards, through the
-		// outbox.
-		mirrorSyncCfg := proof.MirrorSyncCfg{
-			Source: assetStore,
-			Mirror: proofFileStore,
-		}
-		err = anchoringWatcher.RegisterEffectHandler(
-			proof.MirrorSyncEffectKind,
-			func(ctx context.Context,
-				_ fn.Option[tapreorg.AnchoringID],
-				payload tapreorg.VersionedBlob) error {
+	// The sites rewrite and delete database proofs inside
+	// their delivery transactions; the flat-file mirror is
+	// brought back into lockstep afterwards, through the
+	// outbox.
+	mirrorSyncCfg := proof.MirrorSyncCfg{
+		Source: assetStore,
+		Mirror: proofFileStore,
+	}
+	err = anchoringWatcher.RegisterEffectHandler(
+		proof.MirrorSyncEffectKind,
+		func(ctx context.Context,
+			_ fn.Option[tapreorg.AnchoringID],
+			payload tapreorg.VersionedBlob) error {
 
-				return proof.DispatchMirrorSync(
-					ctx, mirrorSyncCfg, payload.Version,
-					payload.Data,
-				)
-			},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to register mirror "+
-				"sync handler: %w", err)
-		}
+			return proof.DispatchMirrorSync(
+				ctx, mirrorSyncCfg, payload.Version,
+				payload.Data,
+			)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register mirror "+
+			"sync handler: %w", err)
 	}
 
 	auxFundingController := tapchannel.NewFundingController(
@@ -1083,16 +1057,6 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			CloseStore:         auxCloseStore,
 		},
 	)
-	// The sweeper falls back to the legacy proof watcher when its
-	// registrar is nil. The custodian itself is always non-nil, so
-	// it must only be offered as a registrar when the anchoring
-	// watcher it registers against is actually running — otherwise
-	// force-close sweep proofs would get no re-org protection from
-	// either watcher.
-	var sweepRegistrar tapchannel.ReceiveAnchoringRegistrar
-	if anchoringWatcher != nil {
-		sweepRegistrar = assetCustodian
-	}
 	auxSweeper := tapchannel.NewAuxSweeper(
 		&tapchannel.AuxSweeperCfg{
 			AddrBook:           addrBook,
@@ -1106,8 +1070,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			GroupVerifier:      groupVerifier,
 			ChainBridge:        chainBridge,
 			IgnoreChecker:      ignoreCheckerOpt,
-			AnchoringRegistrar: sweepRegistrar,
-			ProofWatcher:       reOrgWatcher,
+			AnchoringRegistrar: assetCustodian,
 		},
 	)
 	// The backup updater keeps an encrypted copy of the wallet's asset

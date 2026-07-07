@@ -85,11 +85,6 @@ type testCase struct {
 	// reOrgSafeDepth, if non-zero, overrides the itest default burial
 	// depth of 1 for the test's primary tapd node.
 	reOrgSafeDepth int32
-
-	// disableAnchoringWatcher runs the test's primary tapd node
-	// with the anchoring watcher disabled, exercising the legacy
-	// re-org protection paths the kill switch falls back to.
-	disableAnchoringWatcher bool
 }
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
@@ -288,8 +283,7 @@ func (h *harnessTest) addFederationServer(host string, target *tapdHarness) {
 // to each other through an in-memory gRPC connection.
 func setupHarnesses(t *testing.T, ht *harnessTest,
 	lndHarness *lntest.HarnessTest, uniServerLndHarness *node.HarnessNode,
-	proofCourierType proof.CourierType, reOrgSafeDepth int32,
-	disableAnchoringWatcher bool) (*tapdHarness,
+	proofCourierType proof.CourierType, reOrgSafeDepth int32) (*tapdHarness,
 	*universeServerHarness, proof.CourierHarness) {
 
 	// Create a new universe server harness and start it.
@@ -376,7 +370,6 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 		t, ht, alice, universeServer, func(params *tapdHarnessParams) {
 			params.proofCourier = proofCourier
 			params.reOrgSafeDepth = reOrgSafeDepth
-			params.disableAnchoringWatcher = disableAnchoringWatcher
 		},
 	)
 	return tapdHarness, universeServer, proofCourier
@@ -429,10 +422,6 @@ type tapdHarnessParams struct {
 	// reOrgSafeDepth, if non-zero, overrides the itest default burial
 	// depth of 1.
 	reOrgSafeDepth int32
-
-	// disableAnchoringWatcher runs the tapd node with the anchoring
-	// watcher disabled.
-	disableAnchoringWatcher bool
 
 	// sqliteDatabaseFilePath is the path to the SQLite database file to
 	// use.
@@ -556,7 +545,6 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.sendPriceHint = params.sendPriceHint
 		ho.disableSweepOrphanUtxos = !params.sweepOrphanUtxos
 		ho.reOrgSafeDepth = params.reOrgSafeDepth
-		ho.disableAnchoringWatcher = params.disableAnchoringWatcher
 	}
 
 	tapdCfg := tapdConfig{

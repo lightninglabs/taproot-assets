@@ -107,10 +107,6 @@ type GardenKit struct {
 	// path is unaffected.
 	MintProofPublisher MintProofPublisher
 
-	// ProofWatcher is used to watch new proofs for their anchor transaction
-	// to be confirmed safely with a minimum number of confirmations.
-	ProofWatcher proof.Watcher
-
 	// IgnoreChecker is an optional function that can be used to check if
 	// a proof should be ignored.
 	IgnoreChecker lfn.Option[proof.IgnoreChecker]
@@ -511,11 +507,10 @@ func (c *ChainPlanter) newCultivatorForBatch(batch *MintingBatch,
 				}
 			}()
 		},
-		CancelReqChan:       make(chan cancelReq, 1),
-		UpdateMintingProofs: c.updateMintingProofs,
-		PublishMintEvent:    c.publishSubscriberEvent,
-		ErrChan:             c.cfg.ErrChan,
-		AnchoringWaiters:    c.waiters,
+		CancelReqChan:    make(chan cancelReq, 1),
+		PublishMintEvent: c.publishSubscriberEvent,
+		ErrChan:          c.cfg.ErrChan,
+		AnchoringWaiters: c.waiters,
 	}
 	if feeRate != nil {
 		batchConfig.BatchFeeRate = feeRate
@@ -3340,69 +3335,6 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	return nil
 }
 
-// updateMintingProofs is called by the re-org watcher when it detects a re-org
-// and has updated the minting proofs. This cannot be done by the cultivator
-// itself, because its job is already done at the point that a re-org can happen
-// (the batch is finalized after a single confirmation).
-func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
-	ctx, cancel := c.WithCtxQuitNoTimeout()
-	defer cancel()
-
-	// This is a bit of a hacky part. If we have a chain of transactions
-	// that were re-organized, we can't verify the whole chain until all of
-	// the transactions were confirmed and all proofs were updated with the
-	// new blocks and merkle roots. So we'll skip the verification here
-	// since we don't know if the whole chain has been updated yet (the
-	// confirmations might come in out of order).
-	// TODO(guggero): Find a better way to do this.
-	vCtx := c.verifierCtx(ctx)
-	vCtx.HeaderVerifier = func(wire.BlockHeader, uint32) error {
-		return nil
-	}
-
-	for idx := range proofs {
-		p := proofs[idx]
-
-		existingProofs, err := c.cfg.ProofUpdates.FetchProofs(
-			ctx, p.Asset.ID(),
-		)
-		if err != nil {
-			return fmt.Errorf("unable to fetch proofs: %w", err)
-		}
-
-		updatedProofs, err := proof.ReplaceProofInFiles(
-			p, existingProofs,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to update minted proofs: %w",
-				err)
-		}
-
-		if len(updatedProofs) > 0 {
-			err = c.cfg.ProofUpdates.ImportProofs(
-				ctx, vCtx, true, updatedProofs...,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to import updated "+
-					"minted proofs: %w", err)
-			}
-		}
-	}
-
-	if c.cfg.MintProofPublisher == nil {
-		return nil
-	}
-
-	if err := c.cfg.MintProofPublisher.PublishMintProofUpdates(
-		ctx, proofs,
-	); err != nil {
-		return fmt.Errorf("unable to publish minting proof "+
-			"updates: %w", err)
-	}
-
-	return nil
-}
-
 // QueueNewSeedling attempts to queue a new seedling request (the intent for
 // New asset creation or ongoing issuance) to the ChainPlanter. A channel is
 // returned where future updates will be sent over. If an error is returned no
@@ -3469,21 +3401,6 @@ func (c *ChainPlanter) publishSubscriberEvent(event fn.Event) {
 
 	for _, sub := range c.subscribers {
 		sub.NewItemCreated.ChanIn() <- event
-	}
-}
-
-// verifierCtx returns a verifier context that can be used to verify proofs.
-func (c *ChainPlanter) verifierCtx(ctx context.Context) proof.VerifierCtx {
-	headerVerifier := tapnode.GenHeaderVerifier(ctx, c.cfg.ChainBridge)
-	merkleVerifier := proof.DefaultMerkleVerifier
-	groupVerifier := tapnode.GenGroupVerifier(ctx, c.cfg.MintingRefs)
-
-	return proof.VerifierCtx{
-		HeaderVerifier: headerVerifier,
-		MerkleVerifier: merkleVerifier,
-		GroupVerifier:  groupVerifier,
-		ChainLookupGen: c.cfg.ChainBridge,
-		IgnoreChecker:  c.cfg.IgnoreChecker,
 	}
 }
 

@@ -101,61 +101,6 @@ func (p *Publisher) PublishMintBatch(ctx context.Context,
 	return nil
 }
 
-// PublishMintProofUpdates ships post-reorg proof updates to the universe.
-func (p *Publisher) PublishMintProofUpdates(ctx context.Context,
-	proofs []*proof.Proof) error {
-
-	for idx := range proofs {
-		pr := proofs[idx]
-
-		uniID := universe.Identifier{
-			AssetID: pr.Asset.ID(),
-		}
-		if pr.Asset.GroupKey != nil {
-			uniID.GroupKey = &pr.Asset.GroupKey.GroupPubKey
-		}
-
-		log.Debugf("Updating issuance proof for asset with "+
-			"universe, key=%v", spew.Sdump(uniID))
-
-		leafKey := universe.BaseLeafKey{
-			OutPoint: wire.OutPoint{
-				Hash:  pr.AnchorTx.TxHash(),
-				Index: pr.InclusionProof.OutputIndex,
-			},
-			ScriptKey: &pr.Asset.ScriptKey,
-		}
-
-		proofBytes, err := pr.Bytes()
-		if err != nil {
-			return fmt.Errorf("unable to encode proof: %w", err)
-		}
-
-		uniGen := universe.GenesisWithGroup{
-			Genesis: pr.Asset.Genesis,
-		}
-		if pr.Asset.GroupKey != nil {
-			uniGen.GroupKey = pr.Asset.GroupKey
-		}
-
-		mintingLeaf := &universe.Leaf{
-			GenesisWithGroup: uniGen,
-			RawProof:         proofBytes,
-			Amt:              pr.Asset.Amount,
-			Asset:            &pr.Asset,
-		}
-
-		_, err = p.reg.UpsertProofLeaf(
-			ctx, uniID, leafKey, mintingLeaf,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to update issuance: %w", err)
-		}
-	}
-
-	return nil
-}
-
 // buildItem assembles the universe item for a single newly-minted asset.
 func buildItem(a *asset.Asset, mintingProof *proof.Proof,
 	mintTxHash chainhash.Hash, anchorOutIdx uint32) (*universe.Item,

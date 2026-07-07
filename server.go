@@ -201,13 +201,9 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		return fmt.Errorf("unable to start re-org watcher: %w", err)
 	}
 
-	// The anchoring watcher is nil when disabled by configuration;
-	// the registry's read surfaces stay up regardless.
-	if s.cfg.AnchoringWatcher != nil {
-		if err := s.cfg.AnchoringWatcher.Start(); err != nil {
-			return fmt.Errorf("unable to start anchoring "+
-				"watcher: %w", err)
-		}
+	if err := s.cfg.AnchoringWatcher.Start(); err != nil {
+		return fmt.Errorf("unable to start anchoring watcher: %w",
+			err)
 	}
 
 	if err := s.cfg.ChainPorter.Start(); err != nil {
@@ -867,10 +863,8 @@ func (s *Server) Stop() error {
 		return err
 	}
 
-	if s.cfg.AnchoringWatcher != nil {
-		if err := s.cfg.AnchoringWatcher.Stop(); err != nil {
-			return err
-		}
+	if err := s.cfg.AnchoringWatcher.Stop(); err != nil {
+		return err
 	}
 
 	if err := s.cfg.ChainPorter.Stop(); err != nil {
