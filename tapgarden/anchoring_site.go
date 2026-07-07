@@ -136,45 +136,6 @@ func (s *mintSite) EvaluateCandidate(match tapreorg.VersionedBlob,
 	return tapreorg.VerdictForeign, nil
 }
 
-// mintWitnessContext extracts the given phase's witness candidate
-// with its block enrichment.
-func mintWitnessContext(anchoring *tapreorg.Anchoring,
-	phase tapreorg.Phase) (*tapreorg.CandidateSpend, error) {
-
-	var witness tapreorg.Witness
-	switch p := phase.(type) {
-	case tapreorg.Witnessed:
-		witness = p.W
-
-	case tapreorg.Buried:
-		witness = p.W
-
-	default:
-		return nil, fmt.Errorf("no witness in phase %v", phase)
-	}
-
-	for idx := range anchoring.Spends {
-		candidate := &anchoring.Spends[idx]
-		if candidate.W.TxHash() != witness.TxHash() {
-			continue
-		}
-		if candidate.BlockHeader == nil ||
-			candidate.MerkleProof == nil {
-
-			return nil, fmt.Errorf("witness %v lacks block "+
-				"enrichment", witness.TxHash())
-		}
-
-		enriched := *candidate
-		enriched.W = witness
-
-		return &enriched, nil
-	}
-
-	return nil, fmt.Errorf("witness %v not among candidates",
-		witness.TxHash())
-}
-
 // reconfirm converges minted state to the current witness.
 func (s *mintSite) reconfirm(ctx context.Context, tx tapreorg.RegistryTx,
 	anchoring *tapreorg.Anchoring) error {
@@ -184,7 +145,7 @@ func (s *mintSite) reconfirm(ctx context.Context, tx tapreorg.RegistryTx,
 		return err
 	}
 
-	witness, err := mintWitnessContext(anchoring, anchoring.Phase)
+	witness, err := tapreorg.WitnessContext(anchoring, anchoring.Phase)
 	if err != nil {
 		return err
 	}

@@ -2158,6 +2158,46 @@ func TestWatcherSweepRebuildsGrownSensor(t *testing.T) {
 	require.NoError(t, h.escalation())
 }
 
+// TestWatcherZeroTriggerHint pins the hint a trigger registered
+// without one is subscribed under: the anchoring's registration
+// height. The notifier refuses a zero hint outright, so passing it
+// through would leave the anchoring blind, and a site that does not
+// know when an outpoint was created must not have to guess a height
+// so low that the notifier rescans the chain from there.
+func TestWatcherZeroTriggerHint(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	h.sim.MineBlocks(40)
+	h.start()
+
+	op := wire.OutPoint{Hash: chainhash.Hash{0xf9}, Index: 0}
+	sat := h.spendTx(op)
+	spec := h.identitySpec(sat, []byte("zero-hint"), op)
+	points := spec.Triggers.OutPoints()
+	points[0].HeightHint = 0
+	triggers, err := tapreorg.NewTriggerSet(points)
+	require.NoError(t, err)
+	spec.Triggers = triggers
+
+	registeredAt := h.sim.BestHeight()
+	id := h.registerSpec(spec, nil)
+
+	require.Eventually(t, func() bool {
+		return h.sim.SpendSubscribed(op)
+	}, settleTimeout, settleTick)
+	hint, ok := h.sim.SpendHint(op)
+	require.True(t, ok)
+	require.Equal(t, registeredAt, hint)
+
+	// The sensor is whole: the satisfying spend witnesses through it.
+	h.sim.MineBlock(sat)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		return phaseKind(a.Phase) == "witnessed"
+	})
+	require.NoError(t, h.escalation())
+}
+
 // TestWatcherNonStandardSpenderScripts pins candidate subscription
 // against spenders carrying output scripts the notifier rejects —
 // for a foreign spend, the counterparty's choice. A spender whose
@@ -3470,6 +3510,13 @@ func TestWatcherRapid(t *testing.T) {
 			case 8:
 				h.sim.HoldDeliveries()
 				h.sim.MineBlocks(1)
+
+				// The block may have buried a candidate that
+				// the re-org below unburies again. The held
+				// act report still arrives, stale, and act
+				// certification is sticky, so that transient
+				// reading is a legitimate terminal too.
+				recordPossible()
 				if h.sim.Length() > 0 && rapid.Bool().Draw(
 					rt, label+".alsoReorg",
 				) {

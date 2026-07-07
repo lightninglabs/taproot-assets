@@ -160,55 +160,6 @@ func (s *porterSite) EvaluateCandidate(match tapreorg.VersionedBlob,
 	return tapreorg.VerdictForeign, nil
 }
 
-// witnessContext extracts the sensed phase's witness candidate with
-// its block enrichment.
-func witnessContext(
-	anchoring *tapreorg.Anchoring) (*tapreorg.CandidateSpend, error) {
-
-	return witnessContextFor(anchoring, anchoring.Phase)
-}
-
-// witnessContextFor extracts the given phase's witness candidate with
-// its block enrichment from the anchoring's chain view.
-func witnessContextFor(anchoring *tapreorg.Anchoring,
-	phase tapreorg.Phase) (*tapreorg.CandidateSpend, error) {
-
-	var witness tapreorg.Witness
-	switch p := phase.(type) {
-	case tapreorg.Witnessed:
-		witness = p.W
-
-	case tapreorg.Buried:
-		witness = p.W
-
-	default:
-		return nil, fmt.Errorf("no witness in phase %v", phase)
-	}
-
-	for idx := range anchoring.Spends {
-		candidate := &anchoring.Spends[idx]
-		if candidate.W.TxHash() != witness.TxHash() {
-			continue
-		}
-		if candidate.BlockHeader == nil ||
-			candidate.MerkleProof == nil {
-
-			return nil, fmt.Errorf("witness %v lacks block "+
-				"enrichment", witness.TxHash())
-		}
-
-		// Use the phase's witness location (the current one),
-		// with the candidate's enrichment.
-		enriched := *candidate
-		enriched.W = witness
-
-		return &enriched, nil
-	}
-
-	return nil, fmt.Errorf("witness %v not among candidates",
-		witness.TxHash())
-}
-
 // applyConfirm rebuilds the confirmation event from stored state plus
 // the witness's block context and applies it, all on the handler's
 // transaction.
@@ -220,7 +171,7 @@ func (s *porterSite) applyConfirm(ctx context.Context,
 		return err
 	}
 
-	witness, err := witnessContext(anchoring)
+	witness, err := tapreorg.WitnessContext(anchoring, anchoring.Phase)
 	if err != nil {
 		return err
 	}
@@ -369,7 +320,7 @@ func (p *ChainPorter) DispatchBurnSupplyEvents(ctx context.Context,
 		return err
 	}
 
-	witness, err := witnessContext(anchoring)
+	witness, err := tapreorg.WitnessContext(anchoring, anchoring.Phase)
 	if err != nil {
 		return err
 	}
@@ -529,7 +480,7 @@ func (p *ChainPorter) waitForAnchoringOutcome(ctx context.Context,
 			// sensing may already have moved past it, but the
 			// delivered phase is what the site's state was
 			// converged to.
-			witness, err := witnessContextFor(
+			witness, err := tapreorg.WitnessContext(
 				anchoring, anchoring.DeliveredPhase,
 			)
 			if err != nil {
