@@ -32,6 +32,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/signal"
@@ -429,7 +430,7 @@ type Config struct {
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 	Profile    string `long:"profile" description:"Enable HTTP profiling on either a port or host:port"`
 
-	ReOrgSafeDepth int32 `long:"reorgsafedepth" description:"The number of confirmations we'll wait for before considering a transaction safely buried in the chain."`
+	ReOrgSafeDepth int32 `long:"reorgsafedepth" description:"The number of confirmations before a transaction is considered safely buried in the chain. This is also the act threshold: irreversible emissions (universe publication, supply commitment pushes, burn events) wait for this depth. Must be between 1 and 144; at 1, burial coincides with the first confirmation and the extra act gating is effectively disabled."`
 
 	DisableAnchoringWatcher bool `long:"disable-anchoring-watcher" description:"Disable the anchoring watcher service (chain sensing and site delivery for the anchoring registry). The registry's read surfaces (ListAnchorings, Prometheus collector) stay available. The watcher runs by default."`
 
@@ -1078,6 +1079,13 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 		cfg.ReOrgSafeDepth = testnetDefaultReOrgSafeDepth
 	}
 
+	err = validateReOrgSafeDepth(
+		cfg.ReOrgSafeDepth, cfg.DisableAnchoringWatcher, cfgLogger,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// Let's validate that the wallet's psbt max fee ratio is within the
 	// expected range.
 	switch {
@@ -1096,6 +1104,52 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 
 	// All good, return the sanitized result.
 	return &cfg, nil
+}
+
+// validateReOrgSafeDepth bounds the re-org safe depth.
+//
+// The upper bound exists only for the anchoring watcher. There the
+// depth doubles as every anchoring's confirmation threshold, which the
+// registration path bounds to the chain notifier's maximum, so an
+// out-of-range value would pass startup cleanly and then fail every
+// registration after its transaction had already broadcast. It is
+// refused at the door instead.
+//
+// The legacy watcher has no such ceiling: it subscribes for a single
+// confirmation and counts depth itself. Applying the bound when the
+// anchoring watcher is disabled would therefore refuse a configuration
+// the running code handles perfectly well — and would do so precisely
+// when an operator is reaching for the kill switch to roll back, which
+// is the one moment the daemon must still start.
+//
+// A depth of one is legal but collapses act gating, which deserves a
+// warning rather than an error. That warning is likewise about the
+// anchoring path, and is silent when there is no act to gate.
+func validateReOrgSafeDepth(depth int32, watcherDisabled bool,
+	cfgLogger btclog.Logger) error {
+
+	if depth < 1 {
+		return fmt.Errorf("reorgsafedepth must be at least 1, "+
+			"got %d", depth)
+	}
+
+	if watcherDisabled {
+		return nil
+	}
+
+	switch {
+	case depth > int32(chainntnfs.MaxNumConfs):
+		return fmt.Errorf("reorgsafedepth %d exceeds the chain "+
+			"notifier's maximum of %d confirmations",
+			depth, uint32(chainntnfs.MaxNumConfs))
+
+	case depth == 1:
+		cfgLogger.Warnf("reorgsafedepth is 1: burial coincides " +
+			"with the first confirmation, so irreversible " +
+			"emissions are not act-gated beyond it")
+	}
+
+	return nil
 }
 
 // getTLSConfig returns a TLS configuration for the gRPC server and credentials
