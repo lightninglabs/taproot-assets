@@ -128,9 +128,15 @@ type AnchoringRegistrar interface {
 			tapreorg.AnchoringID) error) (tapreorg.AnchoringID,
 		error)
 
-	// Anchorings lists the site's live anchorings.
-	Anchorings(ctx context.Context,
+	// AllAnchorings lists the site's anchorings across every phase,
+	// settled ones included.
+	AllAnchorings(ctx context.Context,
 		site tapreorg.SiteID) ([]*tapreorg.Anchoring, error)
+
+	// LookupByMatchKey returns the site's existing anchoring for
+	// this per-site identity key, or (nil, nil) if none.
+	LookupByMatchKey(ctx context.Context, site tapreorg.SiteID,
+		matchKey []byte) (*tapreorg.Anchoring, error)
 }
 
 // SupplyAnchoringLog is the supply site's persistence surface,

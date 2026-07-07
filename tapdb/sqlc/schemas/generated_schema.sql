@@ -895,13 +895,17 @@ CREATE TABLE reorg_anchorings (
     -- Set (unix seconds) when a terminal phase is delivered. Terminal
     -- rows are retained for observability and post-mortem audit.
     terminal_at BIGINT
-);
+, match_key BLOB);
 
 CREATE INDEX reorg_anchorings_phase_idx
     ON reorg_anchorings(phase_code);
 
 CREATE INDEX reorg_anchorings_site_idx
     ON reorg_anchorings(site_id);
+
+CREATE UNIQUE INDEX reorg_anchorings_site_match_key_uk
+    ON reorg_anchorings(site_id, match_key)
+    WHERE match_key IS NOT NULL;
 
 CREATE INDEX reorg_anchorings_stuck_idx
     ON reorg_anchorings(stuck) WHERE stuck = TRUE;

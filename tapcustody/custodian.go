@@ -227,7 +227,7 @@ type Config struct {
 	// received transfers with as speculative anchorings. When set,
 	// received state converges through the watcher's registry
 	// instead of the legacy proof watcher.
-	AnchoringWatcher *tapreorg.Watcher
+	AnchoringWatcher tapreorg.Registrar
 
 	// AnchoringLog is the transaction-scoped persistence surface the
 	// receive site drives from its watcher handlers.
@@ -236,6 +236,15 @@ type Config struct {
 	// AnchoringThreshold is the confirmation depth at which the
 	// receive side considers a transfer act-confirmed (buried).
 	AnchoringThreshold uint32
+
+	// ProofFiles is the proof-file mirror, written for the proofs a
+	// stake imported once its transaction commits; the mirror-sync
+	// effect the receive site enqueues repairs a write that is lost.
+	ProofFiles VerifiedProofWriter
+
+	// ProofVerifier verifies received proof files before they are
+	// staked. Nil selects the base verifier.
+	ProofVerifier proof.Verifier
 
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.
@@ -974,17 +983,15 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint,
 	ctx, cancel = c.CtxBlocking()
 	defer cancel()
 
-	err = c.cfg.ProofArchive.ImportProofs(
-		ctx, c.verifierCtx(ctx), false, addrProof,
-	)
+	err = c.importOrStake(ctx, addrProof)
 	if err != nil {
 		return fmt.Errorf("unable to import proofs script_key=%x, "+
 			"asset_id=%x: %w", scriptKeyBytes, assetID[:], err)
 	}
 
-	// The proof is now verified and in our local archive. We will now
-	// finalize handling the proof like we would with any other newly
-	// received proof.
+	// The proof is now verified and in custody. We will now finalize
+	// handling the proof like we would with any other newly received
+	// proof.
 	c.proofSubscription.NewItemCreated.ChanIn() <- addrProof.Blob
 
 	return nil
@@ -1531,7 +1538,7 @@ func (c *Custodian) checkProofAvailable(event *address.Event) (bool, error) {
 	// The proof might be an old state, let's make sure it matches our event
 	// before marking the inbound asset transfer as complete.
 	if AddrMatchesAsset(event.Addr, &lastProof.Asset) {
-		return true, c.setReceiveCompleted(event, file)
+		return true, c.setReceiveCompleted(event, file, blob)
 	}
 
 	return false, nil
@@ -1679,7 +1686,7 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 		// database. Therefore, all we need to do is update the
 		// state of the address event to mark it as completed
 		// successfully.
-		err = c.setReceiveCompleted(event, file)
+		err = c.setReceiveCompleted(event, file, proofBlob)
 		if err != nil {
 			c.publishSubscriberStatusEvent(
 				NewAssetReceiveErrorEvent(
@@ -1710,10 +1717,7 @@ func (c *Custodian) assertProofInLocalArchive(p *proof.AnnotatedProof) error {
 	// We don't have the proof yet, or not in all backends, so we
 	// need to import it now.
 	if !haveProof {
-		err = c.cfg.ProofArchive.ImportProofs(
-			ctxt, c.verifierCtx(ctxt), false, p,
-		)
-		if err != nil {
+		if err := c.importOrStake(ctxt, p); err != nil {
 			return fmt.Errorf("error importing proof file into "+
 				"main archive: %w", err)
 		}
@@ -1722,22 +1726,39 @@ func (c *Custodian) assertProofInLocalArchive(p *proof.AnnotatedProof) error {
 	return nil
 }
 
+// importOrStake brings a received proof into custody. With the
+// anchoring watcher, StakeReceive commits the import and the
+// anchoring together; without it, the proof is imported through the
+// archive for the legacy proof watcher to cover.
+func (c *Custodian) importOrStake(ctx context.Context,
+	p *proof.AnnotatedProof) error {
+
+	if c.cfg.AnchoringWatcher != nil {
+		return c.StakeReceive(ctx, p)
+	}
+
+	return c.cfg.ProofArchive.ImportProofs(
+		ctx, c.verifierCtx(ctx), false, p,
+	)
+}
+
 // setReceiveCompleted updates the address event in the database to mark it as
 // completed successfully and to link it to the proof we received.
 //
-// Recovery invariant. The proof was already imported into the archive by the
-// caller (mapProofToEvent's ImportProofs, or the mailbox / courier import
-// path), so we're crossing three writes: archive import (already durable) →
-// RegisterReceiveAnchoring → CompleteEvent. A crash between the archive
-// import and CompleteEvent is recovered by the custodian's startup path: the
-// address event stays at its pre-Completed status (StatusProofReceived or
-// earlier), inspectWalletTx re-drives the pipeline for its wallet
-// transaction, and the flow lands back here. Both ImportProofs (idempotent
-// via archive locator dedupe) and RegisterReceiveAnchoring (idempotent via
-// the anchoring registry's (site, match_key) unique index) tolerate the
-// repeat, and CompleteEvent is the final act that closes the resume window.
+// Recovery invariant. With the anchoring watcher the proof import and
+// the registration commit together (StakeReceive), so the receiver
+// never holds an asset the watcher does not: the only window left is
+// between that transaction and CompleteEvent, and the custodian's
+// startup path recovers it — the address event stays at its
+// pre-Completed status, inspectWalletTx re-drives the pipeline for its
+// wallet transaction, and the flow lands back here. StakeReceive
+// tolerates the repeat (a held proof is not imported twice, a
+// registered anchoring attaches) and CompleteEvent is the final act
+// that closes the resume window. Without the watcher the archive
+// import (already durable by the time we get here) and the legacy
+// proof watcher stand in.
 func (c *Custodian) setReceiveCompleted(event *address.Event,
-	proofFile *proof.File) error {
+	proofFile *proof.File, proofBlob proof.Blob) error {
 
 	// Let's not be interrupted by a shutdown.
 	ctxt, cancel := c.CtxBlocking()
@@ -1745,26 +1766,22 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 
 	// The proof is created after a single confirmation. To make sure we
 	// notice if the anchor transaction is re-organized out of the chain,
-	// the receive registers with the re-org watcher as a speculative
-	// anchoring; its handlers converge received state to whatever the
-	// chain answers. Files whose trigger set cannot be derived (a
-	// single-proof genesis file), or deployments without the watcher,
-	// fall back to the legacy proof watcher.
-	registered := false
+	// the receive stakes its state on the re-org watcher as a
+	// speculative anchoring; its handlers converge received state to
+	// whatever the chain answers. A file that cannot be staked — its
+	// tip lacks block context and it has no trigger to watch — is
+	// refused rather than held: the receiver never keeps an asset
+	// nothing watches. Deployments without the watcher fall back to
+	// the legacy proof watcher.
 	if c.cfg.AnchoringWatcher != nil {
-		err := c.RegisterReceiveAnchoring(ctxt, proofFile)
-		switch {
-		case err == nil:
-			registered = true
-
-		case errors.Is(err, ErrNoTriggers):
-
-		default:
-			return fmt.Errorf("error registering receive "+
-				"anchoring: %w", err)
+		err := c.StakeReceive(ctxt, &proof.AnnotatedProof{
+			Blob: proofBlob,
+		})
+		if err != nil {
+			return fmt.Errorf("error staking received proof: %w",
+				err)
 		}
-	}
-	if !registered {
+	} else {
 		err := c.cfg.ProofWatcher.MaybeWatch(
 			proofFile, c.cfg.ProofWatcher.DefaultUpdateCallback(),
 		)
@@ -1776,7 +1793,10 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 
 	// Do we have all proofs for all outputs of the event? If not, then we
 	// can't complete the event yet. We'll be called again here with more
-	// proofs once the sender sends them to us.
+	// proofs once the sender sends them to us. With the watcher the
+	// database is the authority on what the receive holds — the
+	// proof-file mirror trails it through the outbox, and a mirror
+	// still catching up must not hold the event back.
 	for assetID, output := range event.Outputs {
 		loc := proof.Locator{
 			AssetID:   &assetID,
@@ -1784,7 +1804,17 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 			ScriptKey: *output.ScriptKey.PubKey,
 			OutPoint:  &event.Outpoint,
 		}
-		haveProof, err := c.cfg.ProofArchive.HasProof(ctxt, loc)
+		var (
+			haveProof bool
+			err       error
+		)
+		if c.cfg.AnchoringWatcher != nil {
+			haveProof, err = c.cfg.AnchoringLog.HasReceivedProof(
+				ctxt, loc,
+			)
+		} else {
+			haveProof, err = c.cfg.ProofArchive.HasProof(ctxt, loc)
+		}
 		if err != nil {
 			return fmt.Errorf("error checking if proof is "+
 				"available for asset %s: %w", assetID, err)

@@ -50,7 +50,7 @@ func (m *mockAnchoringRegistrar) Register(ctx context.Context,
 	return id, nil
 }
 
-func (m *mockAnchoringRegistrar) Anchorings(ctx context.Context,
+func (m *mockAnchoringRegistrar) AllAnchorings(ctx context.Context,
 	site tapreorg.SiteID) ([]*tapreorg.Anchoring, error) {
 
 	args := m.Called(ctx, site)
@@ -58,6 +58,17 @@ func (m *mockAnchoringRegistrar) Anchorings(ctx context.Context,
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]*tapreorg.Anchoring), args.Error(1)
+}
+
+func (m *mockAnchoringRegistrar) LookupByMatchKey(ctx context.Context,
+	site tapreorg.SiteID, matchKey []byte) (*tapreorg.Anchoring,
+	error) {
+
+	args := m.Called(ctx, site, matchKey)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*tapreorg.Anchoring), args.Error(1)
 }
 
 func (m *mockAnchoringRegistrar) KickOutbox() {}

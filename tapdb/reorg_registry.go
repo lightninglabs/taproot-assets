@@ -79,10 +79,20 @@ var _ tapreorg.RegistryTx = (*registryTx)(nil)
 
 // Register inserts the anchoring, derives its dependency edges and
 // runs the site's phase-1 write, all in one transaction.
+//
+// Registration is idempotent per (site, match key), and the identity
+// lookup runs inside the write transaction: an existing anchoring is
+// attached to atomically with the lookup that found it — the trigger
+// union, the edges the added triggers derive, and the caller's
+// onExisting reconcile commit together, so none of it can race a
+// concurrent phase delivery. The phase-1 write does not run in that
+// case — the original registration's already did, inside its own
+// registration transaction.
 func (s *ReorgRegistryStore) Register(ctx context.Context,
 	spec tapreorg.RegistrationSpec, createdHeight uint32,
 	phase1 func(context.Context, tapreorg.RegistryTx,
-		tapreorg.AnchoringID) error) (tapreorg.AnchoringID, error) {
+		tapreorg.AnchoringID) error,
+	reconcile tapreorg.ReconcileFunc) (tapreorg.AnchoringID, error) {
 
 	if err := spec.Validate(); err != nil {
 		return 0, err
@@ -98,7 +108,26 @@ func (s *ReorgRegistryStore) Register(ctx context.Context,
 	matchVersion := int16(spec.MatchData.Version)
 
 	var id int64
-	dbErr := s.db.ExecTx(ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+	register := func(q *sqlc.Queries) error {
+		if len(spec.MatchKey) > 0 {
+			row, err := q.LookupReorgAnchoringByMatchKey(
+				ctx, sqlc.LookupReorgAnchoringByMatchKeyParams{
+					SiteID:   string(spec.Site),
+					MatchKey: spec.MatchKey,
+				},
+			)
+			switch {
+			case err == nil:
+				return s.attachExisting(
+					ctx, q, row, spec, phase1, reconcile,
+					&id,
+				)
+
+			case !errors.Is(err, sql.ErrNoRows):
+				return err
+			}
+		}
+
 		var err error
 		id, err = q.InsertReorgAnchoring(
 			ctx, sqlc.InsertReorgAnchoringParams{
@@ -108,6 +137,7 @@ func (s *ReorgRegistryStore) Register(ctx context.Context,
 				MatchData:         orEmpty(spec.MatchData.Data),
 				PayloadVersion:    int16(spec.Payload.Version),
 				PayloadData:       orEmpty(spec.Payload.Data),
+				MatchKey:          spec.MatchKey,
 				CreatedHeight:     int32(createdHeight),
 				PhaseCode:         int16(unwitnessedCode),
 				PhaseEvidence:     orEmpty(unwitnessedEv),
@@ -177,6 +207,20 @@ func (s *ReorgRegistryStore) Register(ctx context.Context,
 			}
 		}
 
+		// A seeded candidate is inserted before phase1 runs so
+		// the site's phase-1 write can observe the seed if it
+		// needs to (though most sites do not).
+		if spec.SeedCandidate != nil {
+			err := insertCandidateSpend(
+				ctx, q, tapreorg.AnchoringID(id),
+				*spec.SeedCandidate,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to seed "+
+					"candidate: %w", err)
+			}
+		}
+
 		if phase1 != nil {
 			handle := &registryTx{q: q, clock: s.clock}
 			newID := tapreorg.AnchoringID(id)
@@ -185,13 +229,234 @@ func (s *ReorgRegistryStore) Register(ctx context.Context,
 			}
 		}
 
+		// A seeded registration is born delivered. The seed is the
+		// caller's own evidence that the transaction confirmed at
+		// the recorded location, so the sensed phase is derived
+		// from it here rather than left at the Unwitnessed default
+		// until the sensor's first pass, and the site's handler
+		// for that phase runs on this transaction with the phase
+		// stamped delivered. The state the caller materialized
+		// before registering thus never sits behind a delivered
+		// phase that says less than the caller already knows — the
+		// phase a later attach re-delivers, and one that would
+		// otherwise withdraw the confirmation the caller recorded.
+		if spec.SeedCandidate != nil {
+			err := s.deliverSeed(
+				ctx, q, tapreorg.AnchoringID(id), reconcile,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
 		return nil
-	})
+	}
+
+	dbErr := s.db.ExecTx(ctx, WriteTxOption(), register)
+
+	// The (site, match_key) unique index may have refused the insert
+	// because a concurrent registration committed between this
+	// transaction's lookup and its insert. Re-run once: the retry's
+	// lookup finds the winner and takes the attach path, atomically.
+	// An empty match key cannot be looked up, so any violation it
+	// carries propagates unchanged — as does a violation raised by
+	// the phase-1 write, whose transaction rolled back whole and
+	// leaves no winning row for the retry to find.
+	var uniqueErr *ErrSqlUniqueConstraintViolation
+	if errors.As(dbErr, &uniqueErr) && len(spec.MatchKey) > 0 {
+		id = 0
+		dbErr = s.db.ExecTx(ctx, WriteTxOption(), register)
+	}
 	if dbErr != nil {
 		return 0, dbErr
 	}
 
 	return tapreorg.AnchoringID(id), nil
+}
+
+// deliverSeed derives a freshly registered anchoring's phase from its
+// seed candidate, stamps it sensed and delivered, and runs the
+// caller's reconcile callback against the seeded anchoring, all on
+// the registration transaction. A seed is a satisfying, uncertified
+// witness (RegistrationSpec.Validate), so the derived phase is
+// Witnessed at the seed's location, never terminal.
+func (s *ReorgRegistryStore) deliverSeed(ctx context.Context,
+	q *sqlc.Queries, id tapreorg.AnchoringID,
+	reconcile tapreorg.ReconcileFunc) error {
+
+	view, err := assembleChainView(ctx, q, int64(id))
+	if err != nil {
+		return fmt.Errorf("unable to assemble seeded view: %w", err)
+	}
+	phase := tapreorg.DerivePhase(view)
+	if tapreorg.IsTerminal(phase) {
+		return fmt.Errorf("seed derives terminal phase %T", phase)
+	}
+	code, evidence, err := tapreorg.EncodePhase(phase)
+	if err != nil {
+		return err
+	}
+
+	rows, err := q.SetReorgAnchoringPhase(
+		ctx, sqlc.SetReorgAnchoringPhaseParams{
+			ID:            int64(id),
+			PhaseCode:     int16(code),
+			PhaseEvidence: orEmpty(evidence),
+			WitnessTxid:   witnessTxidOf(phase),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to set seeded phase: %w", err)
+	}
+	if rows == 0 {
+		return tapreorg.ErrTerminalPhase
+	}
+
+	err = q.MarkReorgAnchoringDelivered(
+		ctx, sqlc.MarkReorgAnchoringDeliveredParams{
+			ID:                int64(id),
+			DeliveredCode:     int16(code),
+			DeliveredEvidence: orEmpty(evidence),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to mark seeded phase "+
+			"delivered: %w", err)
+	}
+
+	if reconcile == nil {
+		return nil
+	}
+
+	row, err := q.FetchReorgAnchoring(ctx, int64(id))
+	if err != nil {
+		return mapAnchoringErr(err)
+	}
+	fresh, err := assembleAnchoring(ctx, q, row)
+	if err != nil {
+		return fmt.Errorf("unable to assemble seeded anchoring: %w",
+			err)
+	}
+	handle := &registryTx{q: q, clock: s.clock}
+	if err := reconcile(ctx, handle, fresh, nil); err != nil {
+		return fmt.Errorf("seed delivery: %w", err)
+	}
+
+	return nil
+}
+
+// attachExisting attaches a registration to the anchoring already
+// carrying its (site, match key) identity, on the registration
+// transaction. Trigger outpoints the existing set lacks are inserted
+// with the dependency edges they derive — refused if a recorded
+// satisfying candidate would not spend the enlarged set whole, the
+// whole-set rule held at the durable boundary as in UpsertCandidate —
+// then the phase-1 write runs if the spec marks the stake as this
+// registration's own (Phase1OnAttach; otherwise the original
+// registration's already ran and a repeat would stake twice), and the
+// caller's reconcile callback runs against the existing anchoring.
+func (s *ReorgRegistryStore) attachExisting(ctx context.Context,
+	q *sqlc.Queries, row sqlc.ReorgAnchoring,
+	spec tapreorg.RegistrationSpec,
+	phase1 func(context.Context, tapreorg.RegistryTx,
+		tapreorg.AnchoringID) error,
+	reconcile tapreorg.ReconcileFunc, idOut *int64) error {
+
+	existing, err := assembleAnchoring(ctx, q, row)
+	if err != nil {
+		return err
+	}
+	*idOut = int64(existing.ID)
+
+	var added []tapreorg.TriggerOutPoint
+	parents := make(map[int64]chainhash.Hash)
+	for _, trigger := range spec.Triggers.OutPoints() {
+		if existing.Triggers.Contains(trigger.OutPoint) {
+			continue
+		}
+
+		for _, candidate := range existing.Spends {
+			if candidate.Verdict != tapreorg.VerdictSatisfies {
+				continue
+			}
+			if !spendsOutPoint(
+				candidate.W.Tx(), trigger.OutPoint,
+			) {
+
+				return fmt.Errorf("anchoring %d: trigger "+
+					"union outgrows satisfying "+
+					"candidate %v: %w", existing.ID,
+					candidate.W.TxHash(),
+					tapreorg.ErrIncompleteSpend)
+			}
+		}
+
+		err := q.InsertReorgTriggerOutpoint(
+			ctx, sqlc.InsertReorgTriggerOutpointParams{
+				AnchoringID:  int64(existing.ID),
+				OutpointTxid: trigger.OutPoint.Hash[:],
+				OutpointIndex: int32(
+					trigger.OutPoint.Index,
+				),
+				PkScript: orEmpty(trigger.PkScript),
+				HeightHint: int32(
+					trigger.HeightHint,
+				),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert trigger "+
+				"outpoint: %w", err)
+		}
+
+		candidates, err := q.FetchLiveReorgParentsByCandidate(
+			ctx, trigger.OutPoint.Hash[:],
+		)
+		if err != nil {
+			return fmt.Errorf("unable to look up parent "+
+				"anchorings: %w", err)
+		}
+		for _, parentID := range candidates {
+			if parentID == int64(existing.ID) {
+				continue
+			}
+			parents[parentID] = trigger.OutPoint.Hash
+		}
+
+		added = append(added, trigger)
+	}
+
+	for parentID, witnessTxid := range parents {
+		err := q.UpsertReorgDependency(
+			ctx, sqlc.UpsertReorgDependencyParams{
+				ChildID:  int64(existing.ID),
+				ParentID: parentID,
+				ParentWitnessTxid: witnessTxid.
+					CloneBytes(),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert dependency "+
+				"edge: %w", err)
+		}
+	}
+
+	if spec.Phase1OnAttach && phase1 != nil {
+		handle := &registryTx{q: q, clock: s.clock}
+		if err := phase1(ctx, handle, existing.ID); err != nil {
+			return fmt.Errorf("phase-1 write: %w", err)
+		}
+	}
+
+	if reconcile != nil {
+		handle := &registryTx{q: q, clock: s.clock}
+		err := reconcile(ctx, handle, existing, added)
+		if err != nil {
+			return fmt.Errorf("reconcile write: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // GetAnchoring fetches an anchoring with its chain view.
@@ -231,6 +496,36 @@ func (s *ReorgRegistryStore) LiveAnchorings(
 		}
 
 		out = assembleAnchorings(ctx, q, rows)
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return out, nil
+}
+
+// AllAnchorings returns every anchoring in the registry, live and
+// terminal.
+func (s *ReorgRegistryStore) AllAnchorings(
+	ctx context.Context) ([]*tapreorg.Anchoring, error) {
+
+	var out []*tapreorg.Anchoring
+	dbErr := s.db.ExecTx(ctx, ReadTxOption(), func(q *sqlc.Queries) error {
+		rows, err := q.ListReorgAnchorings(ctx)
+		if err != nil {
+			return err
+		}
+
+		out = make([]*tapreorg.Anchoring, 0, len(rows))
+		for _, row := range rows {
+			anchoring, err := assembleAnchoring(ctx, q, row)
+			if err != nil {
+				return err
+			}
+			out = append(out, anchoring)
+		}
 
 		return nil
 	})
@@ -477,6 +772,41 @@ func (s *ReorgRegistryStore) DeliveryHealth(
 	return stuck, lagging, nil
 }
 
+// LookupByMatchKey returns the site's anchoring for the given
+// per-site identity key via the (site_id, match_key) unique index.
+// An empty match key or a miss both return (nil, nil).
+func (s *ReorgRegistryStore) LookupByMatchKey(ctx context.Context,
+	site tapreorg.SiteID, matchKey []byte) (*tapreorg.Anchoring, error) {
+
+	if len(matchKey) == 0 {
+		return nil, nil
+	}
+
+	var out *tapreorg.Anchoring
+	dbErr := s.db.ExecTx(ctx, ReadTxOption(), func(q *sqlc.Queries) error {
+		row, err := q.LookupReorgAnchoringByMatchKey(
+			ctx, sqlc.LookupReorgAnchoringByMatchKeyParams{
+				SiteID:   string(site),
+				MatchKey: matchKey,
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		out, err = assembleAnchoring(ctx, q, row)
+		return err
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return out, nil
+}
+
 // ChainView assembles the anchoring's chain view.
 func (s *ReorgRegistryStore) ChainView(ctx context.Context,
 	id tapreorg.AnchoringID) (tapreorg.ChainView, error) {
@@ -503,6 +833,18 @@ func (s *ReorgRegistryStore) ChainView(ctx context.Context,
 
 // UpsertCandidate records or updates a candidate spend observation.
 func (s *ReorgRegistryStore) UpsertCandidate(ctx context.Context,
+	id tapreorg.AnchoringID, candidate tapreorg.CandidateSpend) error {
+
+	return s.db.ExecTx(ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+		return insertCandidateSpend(ctx, q, id, candidate)
+	})
+}
+
+// insertCandidateSpend writes a candidate spend row inside whatever
+// transaction the caller owns. Shared by UpsertCandidate (own
+// transaction) and Register (registration transaction, for a
+// SeedCandidate).
+func insertCandidateSpend(ctx context.Context, q *sqlc.Queries,
 	id tapreorg.AnchoringID, candidate tapreorg.CandidateSpend) error {
 
 	var rawTx bytes.Buffer
@@ -533,99 +875,97 @@ func (s *ReorgRegistryStore) UpsertCandidate(ctx context.Context,
 		merkleBytes = buf.Bytes()
 	}
 
-	return s.db.ExecTx(ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-		// The whole-set rule, held at the durable boundary: a
-		// satisfying candidate must spend the anchoring's entire
-		// trigger set. Coverage is recomputed from the
-		// transaction itself, so no caller can record a partial
-		// satisfier, however it arrived.
-		if candidate.Verdict == tapreorg.VerdictSatisfies {
-			triggers, err := q.FetchReorgTriggerOutpoints(
-				ctx, int64(id),
-			)
-			if err != nil {
-				return fmt.Errorf("unable to fetch trigger "+
-					"outpoints: %w", err)
-			}
-			tx := candidate.W.Tx()
-			for _, trigger := range triggers {
-				if !spendsTrigger(tx, trigger) {
-					return fmt.Errorf("anchoring %d: %w",
-						id,
-						tapreorg.ErrIncompleteSpend)
-				}
+	// The whole-set rule, held at the durable boundary: a
+	// satisfying candidate must spend the anchoring's entire
+	// trigger set. Coverage is recomputed from the
+	// transaction itself, so no caller can record a partial
+	// satisfier, however it arrived.
+	if candidate.Verdict == tapreorg.VerdictSatisfies {
+		triggers, err := q.FetchReorgTriggerOutpoints(
+			ctx, int64(id),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch trigger "+
+				"outpoints: %w", err)
+		}
+		tx := candidate.W.Tx()
+		for _, trigger := range triggers {
+			if !spendsTrigger(tx, trigger) {
+				return fmt.Errorf("anchoring %d: %w",
+					id,
+					tapreorg.ErrIncompleteSpend)
 			}
 		}
+	}
 
-		err := q.UpsertReorgCandidateSpend(
-			ctx, sqlc.UpsertReorgCandidateSpendParams{
-				AnchoringID: int64(id),
-				SpenderTxid: spenderTxid.CloneBytes(),
-				RawTx:       rawTx.Bytes(),
-				Verdict: sql.NullInt16{
-					Int16: int16(candidate.Verdict),
-					Valid: true,
-				},
-				OnChain:   candidate.OnChain,
-				BlockHash: blockHash.CloneBytes(),
-				BlockHeight: sql.NullInt32{
-					Int32: int32(candidate.W.Height()),
-					Valid: true,
-				},
-				TxIndex: sql.NullInt32{
-					Int32: int32(candidate.W.TxIndex()),
-					Valid: true,
-				},
-				ActCertified: candidate.ActCertified,
-				BlockHeader:  headerBytes,
-				MerkleProof:  merkleBytes,
-				SpentOutpoints: orEmpty(
-					tapreorg.EncodeOutPoints(
-						candidate.SpentOutPoints,
-					),
+	err := q.UpsertReorgCandidateSpend(
+		ctx, sqlc.UpsertReorgCandidateSpendParams{
+			AnchoringID: int64(id),
+			SpenderTxid: spenderTxid.CloneBytes(),
+			RawTx:       rawTx.Bytes(),
+			Verdict: sql.NullInt16{
+				Int16: int16(candidate.Verdict),
+				Valid: true,
+			},
+			OnChain:   candidate.OnChain,
+			BlockHash: blockHash.CloneBytes(),
+			BlockHeight: sql.NullInt32{
+				Int32: int32(candidate.W.Height()),
+				Valid: true,
+			},
+			TxIndex: sql.NullInt32{
+				Int32: int32(candidate.W.TxIndex()),
+				Valid: true,
+			},
+			ActCertified: candidate.ActCertified,
+			BlockHeader:  headerBytes,
+			MerkleProof:  merkleBytes,
+			SpentOutpoints: orEmpty(
+				tapreorg.EncodeOutPoints(
+					candidate.SpentOutPoints,
 				),
+			),
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	// A satisfying candidate identifies this anchoring as the
+	// parent of every child staked on the transaction's
+	// outputs. A child registered before this form was first
+	// observed could not derive its edge at registration;
+	// derive it now.
+	if candidate.Verdict != tapreorg.VerdictSatisfies {
+		return nil
+	}
+
+	children, err := q.FetchLiveReorgDependentsByTrigger(
+		ctx, spenderTxid.CloneBytes(),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to look up dependent "+
+			"anchorings: %w", err)
+	}
+	for _, childID := range children {
+		if childID == int64(id) {
+			continue
+		}
+		err := q.UpsertReorgDependency(
+			ctx, sqlc.UpsertReorgDependencyParams{
+				ChildID:  childID,
+				ParentID: int64(id),
+				ParentWitnessTxid: spenderTxid.
+					CloneBytes(),
 			},
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to derive "+
+				"dependency edge: %w", err)
 		}
+	}
 
-		// A satisfying candidate identifies this anchoring as the
-		// parent of every child staked on the transaction's
-		// outputs. A child registered before this form was first
-		// observed could not derive its edge at registration;
-		// derive it now.
-		if candidate.Verdict != tapreorg.VerdictSatisfies {
-			return nil
-		}
-
-		children, err := q.FetchLiveReorgDependentsByTrigger(
-			ctx, spenderTxid.CloneBytes(),
-		)
-		if err != nil {
-			return fmt.Errorf("unable to look up dependent "+
-				"anchorings: %w", err)
-		}
-		for _, childID := range children {
-			if childID == int64(id) {
-				continue
-			}
-			err := q.UpsertReorgDependency(
-				ctx, sqlc.UpsertReorgDependencyParams{
-					ChildID:  childID,
-					ParentID: int64(id),
-					ParentWitnessTxid: spenderTxid.
-						CloneBytes(),
-				},
-			)
-			if err != nil {
-				return fmt.Errorf("unable to derive "+
-					"dependency edge: %w", err)
-			}
-		}
-
-		return nil
-	})
+	return nil
 }
 
 // SetPhase persists a newly derived phase.
@@ -1205,10 +1545,17 @@ func assembleAnchoring(ctx context.Context, q *sqlc.Queries,
 			HeightHint: uint32(tr.HeightHint),
 		}
 	}
-	triggers, err := tapreorg.NewTriggerSet(triggerPoints)
-	if err != nil {
-		return nil, fmt.Errorf("anchoring %d triggers: %w", row.ID,
-			err)
+	// A seed-candidate registration legitimately carries no trigger
+	// outpoints (the genesis shape), and the zero trigger set
+	// represents that faithfully; only non-empty sets go through
+	// the validating constructor.
+	var triggers tapreorg.TriggerSet
+	if len(triggerPoints) > 0 {
+		triggers, err = tapreorg.NewTriggerSet(triggerPoints)
+		if err != nil {
+			return nil, fmt.Errorf("anchoring %d triggers: %w",
+				row.ID, err)
+		}
 	}
 
 	view, err := assembleChainView(ctx, q, row.ID)
@@ -1229,6 +1576,7 @@ func assembleAnchoring(ctx context.Context, q *sqlc.Queries,
 			Version: uint16(row.PayloadVersion),
 			Data:    row.PayloadData,
 		},
+		MatchKey:         row.MatchKey,
 		CreatedHeight:    uint32(row.CreatedHeight),
 		Phase:            phase,
 		DeliveredPhase:   delivered,
@@ -1437,6 +1785,17 @@ func mapAnchoringErr(err error) error {
 
 // spendsTrigger reports whether the transaction spends the trigger
 // row's outpoint.
+// spendsOutPoint reports whether the transaction spends the outpoint.
+func spendsOutPoint(tx *wire.MsgTx, op wire.OutPoint) bool {
+	for _, txIn := range tx.TxIn {
+		if txIn.PreviousOutPoint == op {
+			return true
+		}
+	}
+
+	return false
+}
+
 func spendsTrigger(tx *wire.MsgTx, row sqlc.ReorgTriggerOutpoint) bool {
 	for _, txIn := range tx.TxIn {
 		op := txIn.PreviousOutPoint

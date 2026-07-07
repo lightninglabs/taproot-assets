@@ -12503,43 +12503,41 @@ func (r *RPCServer) RegisterTransfer(ctx context.Context,
 			err)
 	}
 
-	// All seems well, we can now import the proof into our local proof
-	// archive, which will also materialize an asset in the asset database.
-	if !haveProof {
-		err = r.cfg.ProofArchive.ImportProofs(
-			ctx, r.ProofVerifierCtx(ctx), false,
-			&proof.AnnotatedProof{
+	// With the anchoring watcher the import and the registration
+	// commit together: the receiver never holds an asset the watcher
+	// does not, a receive the watcher has abandoned is refused (the
+	// universe's copy outlived the compensation), and a file that
+	// cannot be staked is refused rather than held. A proof already
+	// imported — a run of this RPC that failed after its stake
+	// committed — is staked again without being imported twice, so
+	// retries are safe. Without the watcher the archive import and
+	// the legacy proof watcher stand in.
+	if r.cfg.AnchoringWatcher != nil && r.cfg.AssetCustodian != nil {
+		err := r.cfg.AssetCustodian.StakeReceive(
+			ctx, &proof.AnnotatedProof{
 				Locator: locator,
 				Blob:    fullProvenance,
 			},
 		)
 		if err != nil {
-			return nil, fmt.Errorf("error importing proof: %w", err)
+			return nil, fmt.Errorf("error staking received "+
+				"proof: %w", err)
 		}
-	}
-
-	// In case this proof hasn't been buried sufficiently, register it
-	// with the re-org watcher: as a speculative anchoring when the
-	// anchoring watcher is available (and a trigger set is derivable
-	// from the file), falling back to the legacy proof watcher
-	// otherwise.
-	registered := false
-	if r.cfg.AnchoringWatcher != nil && r.cfg.AssetCustodian != nil {
-		err := r.cfg.AssetCustodian.RegisterReceiveAnchoring(
-			ctx, proofFile,
-		)
-		switch {
-		case err == nil:
-			registered = true
-
-		case errors.Is(err, tapcustody.ErrNoTriggers):
-
-		default:
-			return nil, fmt.Errorf("error registering receive "+
-				"anchoring: %w", err)
+	} else {
+		if !haveProof {
+			err = r.cfg.ProofArchive.ImportProofs(
+				ctx, r.ProofVerifierCtx(ctx), false,
+				&proof.AnnotatedProof{
+					Locator: locator,
+					Blob:    fullProvenance,
+				},
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error importing "+
+					"proof: %w", err)
+			}
 		}
-	}
-	if !registered {
+
 		err = r.cfg.ReOrgWatcher.MaybeWatch(
 			proofFile, r.cfg.ReOrgWatcher.DefaultUpdateCallback(),
 		)

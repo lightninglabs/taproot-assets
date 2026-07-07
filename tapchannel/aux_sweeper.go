@@ -3,7 +3,6 @@ package tapchannel
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"net/url"
@@ -22,7 +21,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
-	"github.com/lightninglabs/taproot-assets/tapcustody"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -1864,36 +1862,33 @@ func (a *AuxSweeper) materializeAssetOutputs(ctx context.Context,
 			"outpoint=%v, script_key=%x", outProof.OutPoint(),
 			outProof.Asset.ScriptKey.PubKey.SerializeCompressed())
 
-		err = a.cfg.ProofArchive.ImportProofs(
-			ctx, vCtx, false, &proof.AnnotatedProof{
-				Locator: locator,
-				Blob:    finalProofBuf.Bytes(),
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("unable to import proof: %w", err)
+		annotated := &proof.AnnotatedProof{
+			Locator: locator,
+			Blob:    finalProofBuf.Bytes(),
 		}
 
-		// Hand the imported state to the re-org watcher: as a
-		// speculative anchoring when the registrar is available (and
-		// a trigger set is derivable from the file), falling back to
-		// the legacy proof watcher otherwise.
-		registered := false
+		// With the re-org watcher the import and the stake commit
+		// together: the swept output is never held without
+		// custody, and a file that cannot be staked is refused
+		// rather than held. Without it the archive import and the
+		// legacy proof watcher stand in.
 		if a.cfg.AnchoringRegistrar != nil {
-			err := a.cfg.AnchoringRegistrar.
-				RegisterReceiveAnchoring(ctx, &proofFile)
-			switch {
-			case err == nil:
-				registered = true
-
-			case errors.Is(err, tapcustody.ErrNoTriggers):
-
-			default:
-				return fmt.Errorf("unable to register sweep "+
-					"anchoring: %w", err)
+			err := a.cfg.AnchoringRegistrar.StakeReceive(
+				ctx, annotated,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to stake swept "+
+					"proof: %w", err)
 			}
-		}
-		if !registered {
+		} else {
+			err = a.cfg.ProofArchive.ImportProofs(
+				ctx, vCtx, false, annotated,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to import proof: %w",
+					err)
+			}
+
 			err = a.cfg.ProofWatcher.WatchProofs(
 				[]*proof.Proof{outProof},
 				a.cfg.ProofWatcher.DefaultUpdateCallback(),
@@ -1908,14 +1903,15 @@ func (a *AuxSweeper) materializeAssetOutputs(ctx context.Context,
 	return nil
 }
 
-// ReceiveAnchoringRegistrar registers an imported proof file as a
-// speculative anchoring with the re-org watcher.
+// ReceiveAnchoringRegistrar stakes a received proof file on the
+// re-org watcher: the import and the anchoring commit together.
 type ReceiveAnchoringRegistrar interface {
-	// RegisterReceiveAnchoring stakes the file's imported state on
-	// its tip anchor transaction; it returns
-	// tapcustody.ErrNoTriggers when no trigger set is derivable.
-	RegisterReceiveAnchoring(ctx context.Context,
-		file *proof.File) error
+	// StakeReceive verifies the proof file and commits its import
+	// and its anchoring in one registration transaction. Files
+	// with derivable asset-bearing triggers register the ordinary
+	// way; single-proof genesis-shaped files seed the anchor tx
+	// directly as the anchoring's candidate spend.
+	StakeReceive(ctx context.Context, p *proof.AnnotatedProof) error
 }
 
 // importCommitTx imports the commitment transaction into the wallet. This is
