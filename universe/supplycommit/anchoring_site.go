@@ -248,7 +248,7 @@ func (s *SupplySite) OnBuried(ctx context.Context, tx tapreorg.RegistryTx,
 		return fmt.Errorf("unable to parse group key: %w", err)
 	}
 
-	witness, err := supplyWitnessContext(anchoring)
+	witness, err := tapreorg.WitnessContext(anchoring, anchoring.Phase)
 	if err != nil {
 		return err
 	}
@@ -271,46 +271,6 @@ func (s *SupplySite) OnBuried(ctx context.Context, tx tapreorg.RegistryTx,
 		Anchoring: fn.Some(anchoring.ID),
 		Payload:   anchoring.Payload,
 	})
-}
-
-// supplyWitnessContext extracts the buried phase's witness candidate
-// with its block enrichment.
-func supplyWitnessContext(
-	anchoring *tapreorg.Anchoring) (*tapreorg.CandidateSpend, error) {
-
-	var witness tapreorg.Witness
-	switch p := anchoring.Phase.(type) {
-	case tapreorg.Witnessed:
-		witness = p.W
-
-	case tapreorg.Buried:
-		witness = p.W
-
-	default:
-		return nil, fmt.Errorf("no witness in phase %v",
-			anchoring.Phase)
-	}
-
-	for idx := range anchoring.Spends {
-		candidate := &anchoring.Spends[idx]
-		if candidate.W.TxHash() != witness.TxHash() {
-			continue
-		}
-		if candidate.BlockHeader == nil ||
-			candidate.MerkleProof == nil {
-
-			return nil, fmt.Errorf("witness %v lacks block "+
-				"enrichment", witness.TxHash())
-		}
-
-		enriched := *candidate
-		enriched.W = witness
-
-		return &enriched, nil
-	}
-
-	return nil, fmt.Errorf("witness %v not among candidates",
-		witness.TxHash())
 }
 
 // OnAbandoned compensates the loss: the pending transition and its

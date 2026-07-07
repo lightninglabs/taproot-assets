@@ -263,6 +263,62 @@ func (w Witness) Tx() *wire.MsgTx {
 	return w.tx.Copy()
 }
 
+// WitnessContext extracts the given phase's witness candidate from the
+// anchoring's Spends, with its block enrichment attached. The witness
+// used is the phase's (current location), but the enrichment comes
+// from the recorded candidate — the phase carries the witness
+// identity, and the candidate carries the block header and merkle
+// proof sensing enriched into it.
+//
+// Every site's Buried and Witnessed handler needs the same
+// combination: mint reconfirmation, porter proof rebuilding, receive
+// tip patching, supply-commit finalization. The pattern extracts here
+// so the four sites don't each maintain their own copy of the same
+// enrichment-lookup logic.
+//
+// Returns an error if the phase is not a witness-bearing phase, if
+// the phase's witness is not among the anchoring's candidates, or if
+// the matching candidate is missing block enrichment (a wiring
+// invariant sensing is expected to have upheld).
+func WitnessContext(anchoring *Anchoring,
+	phase Phase) (*CandidateSpend, error) {
+
+	var witness Witness
+	switch p := phase.(type) {
+	case Witnessed:
+		witness = p.W
+
+	case Buried:
+		witness = p.W
+
+	default:
+		return nil, fmt.Errorf("no witness in phase %v", phase)
+	}
+
+	for idx := range anchoring.Spends {
+		candidate := &anchoring.Spends[idx]
+		if candidate.W.TxHash() != witness.TxHash() {
+			continue
+		}
+		if candidate.BlockHeader == nil ||
+			candidate.MerkleProof == nil {
+
+			return nil, fmt.Errorf("witness %v lacks block "+
+				"enrichment", witness.TxHash())
+		}
+
+		// Use the phase's witness location (the current one) with
+		// the candidate's enrichment.
+		enriched := *candidate
+		enriched.W = witness
+
+		return &enriched, nil
+	}
+
+	return nil, fmt.Errorf("witness %v not among candidates",
+		witness.TxHash())
+}
+
 // ForeignSpend is an observed foreign spend of a trigger outpoint: the
 // spent outpoint plus the located spending transaction.
 type ForeignSpend struct {

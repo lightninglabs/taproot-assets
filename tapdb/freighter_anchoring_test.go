@@ -43,7 +43,9 @@ func blockContextFor(t *testing.T, tx *wire.MsgTx,
 // pending write, the rebuilt-and-applied confirmation, a re-organized
 // re-confirmation (convergence: no duplicated state, refreshed block
 // info), the potency-tier unconfirm, and act-level abandonment with
-// full compensation.
+// full compensation. Every handler body is applied twice at its
+// stage: phases coalesce and deliveries redeliver, so twice must
+// equal once.
 func TestPorterAnchoringPersistence(t *testing.T) {
 	t.Parallel()
 
@@ -310,6 +312,17 @@ func TestPorterAnchoringPersistence(t *testing.T) {
 	}
 	require.Equal(t, 1, spentCount)
 
+	// A redelivered confirmation with the same block context applied
+	// twice equals once: no duplicated rows, same chain info.
+	require.NoError(
+		t, rebuildAndApply(blockHashA, headerA, merkleA, 600, 0),
+	)
+	require.Equal(t, 3, assetCount())
+
+	chainTxA, err := db.FetchChainTx(ctx, anchorTxHash[:])
+	require.NoError(t, err)
+	require.Equal(t, blockHashA[:], chainTxA.BlockHash)
+
 	// Convergence under re-confirmation: the same transaction
 	// re-confirms in block B after a re-org. No duplicate rows; the
 	// chain info refreshes.
@@ -332,15 +345,19 @@ func TestPorterAnchoringPersistence(t *testing.T) {
 	require.Equal(t, blockHashB[:], chainTx.BlockHash)
 
 	// The potency-tier downgrade: the witness was lost, the
-	// confirmation is withdrawn, nothing else moves.
-	err = executor.ExecTx(
-		ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-			return assetsStore.ApplyAnchorTxUnconfirm(
-				ctx, q, anchorTxHash,
-			)
-		},
-	)
-	require.NoError(t, err)
+	// confirmation is withdrawn, nothing else moves. Applied twice:
+	// a redelivered downgrade equals one.
+	unconfirm := func() error {
+		return executor.ExecTx(
+			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+				return assetsStore.ApplyAnchorTxUnconfirm(
+					ctx, q, anchorTxHash,
+				)
+			},
+		)
+	}
+	require.NoError(t, unconfirm())
+	require.NoError(t, unconfirm())
 
 	chainTx, err = db.FetchChainTx(ctx, anchorTxHash[:])
 	require.NoError(t, err)
@@ -354,14 +371,16 @@ func TestPorterAnchoringPersistence(t *testing.T) {
 
 	// Act-level loss: a conflicting transaction buried. Everything
 	// staked on this transfer reverses.
-	err = executor.ExecTx(
-		ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-			return assetsStore.ApplyTransferAbandonment(
-				ctx, q, anchorTxHash,
-			)
-		},
-	)
-	require.NoError(t, err)
+	abandon := func() error {
+		return executor.ExecTx(
+			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+				return assetsStore.ApplyTransferAbandonment(
+					ctx, q, anchorTxHash,
+				)
+			},
+		)
+	}
+	require.NoError(t, abandon())
 
 	// The materialized outputs are gone, the input is unspent
 	// again, and its lease is released (visible without leased
@@ -390,6 +409,18 @@ func TestPorterAnchoringPersistence(t *testing.T) {
 	).Scan(&superseded)
 	require.NoError(t, err)
 	require.True(t, superseded)
+
+	// A redelivered abandonment converges to the same end state.
+	require.NoError(t, abandon())
+
+	assets, err = assetsStore.FetchAllAssets(ctx, true, false, nil)
+	require.NoError(t, err)
+	require.Len(t, assets, 1)
+	require.False(t, assets[0].IsSpent)
+
+	parcels, err = assetsStore.QueryParcels(ctx, nil, true)
+	require.NoError(t, err)
+	require.Len(t, parcels, 0)
 }
 
 // TestPorterAnchoringRebuildAggregated drives the confirmation rebuild

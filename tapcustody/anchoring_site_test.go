@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 )
 
 // singleProofGenesisFile returns a single-proof file whose tip has no
@@ -288,6 +289,55 @@ func TestRegisterReceiveAnchoringUnwatchable(t *testing.T) {
 	require.Empty(t, anchorings)
 }
 
+// TestReceiveBlobRoundTrip asserts that every receive blob survives
+// the encode/decode round trip, and that the encoding is canonical:
+// the decoded value re-encodes to identical bytes.
+func TestReceiveBlobRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		var txid chainhash.Hash
+		copy(txid[:], rapid.SliceOfN(rapid.Byte(), 32, 32).Draw(
+			rt, "txid",
+		))
+
+		encoded := encodeReceiveBlob(txid)
+		decoded, err := decodeReceiveBlob(encoded)
+		require.NoError(rt, err)
+		require.Equal(rt, txid, decoded)
+
+		require.Equal(rt, encoded, encodeReceiveBlob(decoded))
+	})
+}
+
+// TestReceiveBlobDecodeRejects asserts the decoder rejects unknown
+// versions and payloads of the wrong length.
+func TestReceiveBlobDecodeRejects(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		data := rapid.SliceOfN(rapid.Byte(), 0, 64).Draw(rt, "data")
+
+		version := rapid.Uint16().Draw(rt, "version")
+		_, err := decodeReceiveBlob(tapreorg.VersionedBlob{
+			Version: version,
+			Data:    data,
+		})
+
+		switch {
+		case version != receiveBlobVersion:
+			require.ErrorContains(rt, err, "unknown receive "+
+				"blob version")
+
+		case len(data) != 32:
+			require.ErrorContains(rt, err, "receive blob has")
+
+		default:
+			require.NoError(rt, err)
+		}
+	})
+}
+
 // TestReceiveTriggerPointsSharedOutpoint asserts that inputs sharing
 // one chain outpoint — several asset leaves under a single UTXO,
 // merged in one transition — contribute a single trigger point:
@@ -444,4 +494,67 @@ func TestReceiveTriggerPointsAnchorInputsOnly(t *testing.T) {
 	require.Equal(t, 1, spec.Triggers.Len())
 	require.NotNil(t, spec.SeedCandidate)
 	require.True(t, spec.Phase1OnAttach)
+}
+
+// TestReceiveSiteEvaluateCandidate pins the receive site's verdict:
+// exactly the received proof's anchor transaction satisfies the
+// anchoring, any other spender of its inputs is foreign, and a match
+// blob the site cannot decode is an error rather than a verdict. A
+// transaction spending only part of the trigger set never reaches the
+// predicate — the watcher judges it foreign by the whole-set rule — so
+// it is not a case here.
+func TestReceiveSiteEvaluateCandidate(t *testing.T) {
+	t.Parallel()
+
+	inputOp := test.RandOp(t)
+	anchorTx := wire.NewMsgTx(2)
+	anchorTx.AddTxIn(wire.NewTxIn(&inputOp, nil, nil))
+	anchorTx.AddTxOut(wire.NewTxOut(1_000, []byte{0x51}))
+
+	// A rival spends the same input to a different output.
+	rivalTx := anchorTx.Copy()
+	rivalTx.TxOut[0].Value++
+
+	match := encodeReceiveBlob(anchorTx.TxHash())
+
+	tests := []struct {
+		name    string
+		match   tapreorg.VersionedBlob
+		spender *wire.MsgTx
+		want    tapreorg.Verdict
+		wantErr bool
+	}{{
+		name:    "received anchor transaction satisfies",
+		match:   match,
+		spender: anchorTx,
+		want:    tapreorg.VerdictSatisfies,
+	}, {
+		name:    "other spender of the inputs is foreign",
+		match:   match,
+		spender: rivalTx,
+		want:    tapreorg.VerdictForeign,
+	}, {
+		name: "undecodable match is an error",
+		match: tapreorg.VersionedBlob{
+			Version: receiveBlobVersion,
+			Data:    []byte{0x01},
+		},
+		spender: anchorTx,
+		wantErr: true,
+	}}
+
+	site := &receiveSite{}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			verdict, err := site.EvaluateCandidate(
+				tc.match, tc.spender,
+			)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, verdict)
+		})
+	}
 }

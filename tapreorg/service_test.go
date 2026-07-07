@@ -3470,6 +3470,13 @@ func TestWatcherRapid(t *testing.T) {
 			case 8:
 				h.sim.HoldDeliveries()
 				h.sim.MineBlocks(1)
+
+				// The block may have buried a candidate that
+				// the re-org below unburies again. The held
+				// act report still arrives, stale, and act
+				// certification is sticky, so that transient
+				// reading is a legitimate terminal too.
+				recordPossible()
 				if h.sim.Length() > 0 && rapid.Bool().Draw(
 					rt, label+".alsoReorg",
 				) {
