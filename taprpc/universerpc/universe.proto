@@ -387,13 +387,31 @@ message AssetLeavesRequest {
     taprpc.SortDirection direction = 4;
 }
 
+message AssetLeafEntry {
+    // The asset key identifying the leaf within the universe.
+    AssetKey asset_key = 1;
+
+    // The 32-byte MS-SMT leaf node hash committing to the leaf's
+    // content. Peers that predate this field leave it empty; readers
+    // must fall back to a key-only diff in that case.
+    bytes leaf_node_hash = 2;
+}
+
 message AssetLeafKeyResponse {
-    // The set of asset leaf keys for the given asset ID or group key.
-    repeated AssetKey asset_keys = 1;
+    // Deprecated. Superseded by `entries`, which additionally carries
+    // each leaf's MS-SMT node hash so a diff can detect shared-key
+    // content divergence directly. Populated for peers whose readers
+    // predate `entries`.
+    repeated AssetKey asset_keys = 1 [deprecated = true];
 
     // Indicates whether there are more results beyond the current
     // page.
     bool has_more = 2;
+
+    // The set of asset leaf entries for the given asset ID or group
+    // key. Each entry pairs an asset key with the MS-SMT node hash
+    // committing to the leaf's content.
+    repeated AssetLeafEntry entries = 3;
 }
 
 message AssetLeaf {

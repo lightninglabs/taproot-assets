@@ -137,9 +137,11 @@ func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 }
 
 // UniverseLeafKeys returns all the leaf entries in the universe.
-// The RPC schema exposes only universe keys, so NodeHash is left
-// unset on every returned entry — callers must fall back to a
-// key-only diff for RPC-sourced entries.
+// When the responding peer populates `entries`, each returned
+// LeafEntry carries the peer's MS-SMT leaf node hash so the syncer
+// can diff on content. When only the legacy `asset_keys` field is
+// populated, NodeHash is left as None and callers must fall back to
+// a key-only diff for that peer.
 func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
 	q universe.UniverseLeafKeysQuery) ([]universe.LeafEntry, error) {
 
@@ -158,6 +160,38 @@ func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// Prefer the entries field (carries per-leaf node hashes) when
+	// the peer populated it; otherwise fall back to the legacy
+	// asset_keys field with NodeHash unset.
+	if len(resp.Entries) > 0 {
+		entries := make([]universe.LeafEntry, len(resp.Entries))
+		for i, entry := range resp.Entries {
+			leafKey, err := unmarshalLeafKey(entry.AssetKey)
+			if err != nil {
+				return nil, err
+			}
+
+			nodeHash := fn.None[mssmt.NodeHash]()
+			if len(entry.LeafNodeHash) > 0 {
+				h, err := mssmt.NewNodeHashFromBytes(
+					entry.LeafNodeHash,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("invalid "+
+						"leaf node hash: %w", err)
+				}
+				nodeHash = fn.Some(h)
+			}
+
+			entries[i] = universe.LeafEntry{
+				Key:      leafKey,
+				NodeHash: nodeHash,
+			}
+		}
+
+		return entries, nil
 	}
 
 	entries := make([]universe.LeafEntry, len(resp.AssetKeys))
