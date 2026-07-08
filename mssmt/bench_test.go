@@ -167,3 +167,47 @@ func BenchmarkTree(b *testing.B) {
 		return mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 	})
 }
+
+// BenchmarkInsertManyPopulated measures a single InsertMany call against a
+// CompactedTree that already holds `seed` leaves. The existing tree-wide
+// InsertMany benches only ever ran against a fresh tree; this one exposes
+// the populated-tree path, where the phase-split reform removed the O(N)
+// per-key pre-walk from the overflow check.
+func BenchmarkInsertManyPopulated(b *testing.B) {
+	ctx := context.Background()
+
+	for _, seed := range []int{1_000, 10_000} {
+		for _, batch := range []int{100, 1_000} {
+			name := fmt.Sprintf("seed=%d/batch=%d", seed, batch)
+			b.Run(name, func(b *testing.B) {
+				b.ReportAllocs()
+
+				for i := 0; i < b.N; i++ {
+					b.StopTimer()
+					tree := mssmt.NewCompactedTree(
+						mssmt.NewDefaultStore(),
+					)
+					for _, item := range randTree(seed) {
+						_, err := tree.Insert(
+							ctx, item.key,
+							item.leaf,
+						)
+						require.NoError(b, err)
+					}
+					batchLeaves := randTree(batch)
+					m := make(
+						map[[32]byte]*mssmt.LeafNode,
+						batch,
+					)
+					for _, item := range batchLeaves {
+						m[item.key] = item.leaf
+					}
+					b.StartTimer()
+
+					_, err := tree.InsertMany(ctx, m)
+					require.NoError(b, err)
+				}
+			})
+		}
+	}
+}

@@ -169,67 +169,69 @@ func walkUp(key *[hashSize]byte, start Node, siblings []Node,
 	return current.(*BranchNode), nil
 }
 
-// insert inserts a leaf node at the given key within the MS-SMT.
+// insert builds the mutation queue for inserting (or deleting, when
+// leaf is empty) a leaf at key. It performs only reads against tx; all
+// writes are appended to muts so the caller can run overflow / parity
+// checks before any storage state is touched.
+//
+// The returned priorSum is the sum of the leaf currently at key (zero
+// if none), letting the caller compute an effective batch delta for
+// the overflow check without doing a second walk.
 func (t *FullTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
-	leaf *LeafNode) (*BranchNode, error) {
+	leaf *LeafNode, muts *[]mutation) (root *BranchNode, priorSum uint64,
+	err error) {
 
 	// As we walk down to the leaf node, we'll keep track of the sibling
-	// and parent for each node we visit.
+	// and parent for each node we visit. walkDown's return value is the
+	// existing leaf at key (or empty); its sum is the priorSum the
+	// overflow check needs.
 	prevParents := make([]NodeHash, MaxTreeLevels)
 	siblings := make([]Node, MaxTreeLevels)
-	_, err := t.walkDown(
+	priorLeaf, err := t.walkDown(
 		tx, key, func(i int, _, sibling, parent Node) error {
 			prevParents[MaxTreeLevels-1-i] = parent.NodeHash()
 			siblings[MaxTreeLevels-1-i] = sibling
 			return nil
 		})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+	if priorLeaf != nil && !priorLeaf.IsEmpty() {
+		priorSum = priorLeaf.NodeSum()
 	}
 
 	// Now that we've arrived at the leaf node, we'll need to work our way
-	// back up to the root, updating any stale and new intermediate branch
-	// nodes.
-	root, err := walkUp(
+	// back up to the root, queuing storage writes for any stale and new
+	// intermediate branch nodes.
+	root, err = walkUp(
 		key, leaf, siblings, func(i int, _, _, parent Node) error {
 			// Replace the old parent with the new one. Our store
 			// should never track empty branches.
 			prevParent := prevParents[MaxTreeLevels-1-i]
 			if prevParent != EmptyTree[i].NodeHash() {
-				err := tx.DeleteBranch(prevParent)
-				if err != nil {
-					return err
-				}
+				deleteBranch(muts, prevParent)
 			}
 
 			if parent.NodeHash() != EmptyTree[i].NodeHash() {
-				err := tx.InsertBranch(parent.(*BranchNode))
-				if err != nil {
-					return err
-				}
+				insertBranch(muts, parent.(*BranchNode))
 			}
 
 			return nil
 		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	// With our new root updated, we can update the leaf node within the
-	// store. If we've inserted an empty leaf, then the leaf node found at
-	// the given key is being deleted, otherwise it's being inserted.
+	// Queue the per-leaf storage write. An empty leaf is a deletion at
+	// key; a non-empty leaf is an insert/replacement.
 	if leaf.IsEmpty() {
-		if err := tx.DeleteLeaf(*key); err != nil {
-			return nil, err
-		}
+		deleteLeaf(muts, *key)
 	} else {
-		if err := tx.InsertLeaf(leaf); err != nil {
-			return nil, err
-		}
+		insertLeaf(muts, leaf)
 	}
 
-	return root, nil
+	return root, priorSum, nil
 }
 
 // Insert inserts a leaf node at the given key within the MS-SMT.
@@ -237,27 +239,46 @@ func (t *FullTree) Insert(ctx context.Context, key [hashSize]byte,
 	leaf *LeafNode) (Tree, error) {
 
 	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
-		currentRoot, err := t.Root(ctx)
+		currentRoot, err := tx.RootNode()
+		if err != nil {
+			return err
+		}
+		rootBranch := currentRoot.(*BranchNode)
+
+		// Run the descent read-only: insert builds up a mutation
+		// queue and reports priorSum (the sum of any existing leaf
+		// being replaced). No storage state has changed yet.
+		// Single Insert queues at most one delete+insert per
+		// level plus one leaf write; pre-size to skip the
+		// doubling tail.
+		muts := make([]mutation, 0, singleInsertMutsCap)
+		root, priorSum, err := t.insert(tx, &key, leaf, &muts)
 		if err != nil {
 			return err
 		}
 
-		// First we'll check if the sum of the root and new leaf will
-		// overflow. If so, we'll return an error.
-		sumRoot := currentRoot.NodeSum()
+		// Effective-delta overflow check. Replacing a large leaf
+		// with a small one drops the prior sum out of the root, so
+		// the conservative rootSum + newSum check would reject
+		// inputs that sequential Insert would accept.
 		sumLeaf := leaf.NodeSum()
-		err = CheckSumOverflowUint64(sumRoot, sumLeaf)
-		if err != nil {
-			return fmt.Errorf("full tree leaf insert sum "+
-				"overflow, root: %d, leaf: %d; %w", sumRoot,
-				sumLeaf, err)
+		if sumLeaf > priorSum {
+			delta := sumLeaf - priorSum
+			err := CheckSumOverflowUint64(
+				rootBranch.NodeSum(), delta,
+			)
+			if err != nil {
+				return fmt.Errorf("full tree leaf insert "+
+					"sum overflow, root: %d, effective "+
+					"delta: %d; %w",
+					rootBranch.NodeSum(), delta, err)
+			}
 		}
 
-		root, err := t.insert(tx, &key, leaf)
-		if err != nil {
+		// Flush the queued storage writes and update the root.
+		if err := applyAll(tx, muts); err != nil {
 			return err
 		}
-
 		return tx.UpdateRoot(root)
 	})
 	if err != nil {
@@ -272,11 +293,17 @@ func (t *FullTree) Delete(ctx context.Context, key [hashSize]byte) (
 	Tree, error) {
 
 	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
-		root, err := t.insert(tx, &key, EmptyLeafNode)
+		// Delete cannot increase the root sum, so the overflow
+		// check is skipped; we just plan and flush.
+		muts := make([]mutation, 0, singleInsertMutsCap)
+		root, _, err := t.insert(tx, &key, EmptyLeafNode, &muts)
 		if err != nil {
 			return err
 		}
 
+		if err := applyAll(tx, muts); err != nil {
+			return err
+		}
 		return tx.UpdateRoot(root)
 	})
 	if err != nil {
@@ -501,13 +528,58 @@ func (t *FullTree) CopyFilter(ctx context.Context, targetTree Tree,
 	return nil
 }
 
+// batchItem pairs an (immutable) key with its leaf for the batched
+// insert recursion.
+type batchItem struct {
+	key  [hashSize]byte
+	leaf *LeafNode
+}
+
+// mutsCap returns the starting capacity for an InsertMany mutation
+// queue. The actual queue length depends on the tree shape (random
+// keys produce O(N) mutations on CompactedTree thanks to subtree
+// compaction; FullTree pays more on pathologically-deep batches)
+// but a small linear-in-N starting cap covers the common case
+// without holding a large unused buffer.
+func mutsCap(n int) int {
+	if n < 16 {
+		return 32
+	}
+	return n * 4
+}
+
+// singleInsertMutsCap is the starting cap for the mutation queue
+// of a single Insert/Delete. Covers the typical compacted-tree
+// descent (~log(N) levels touched) without over-allocating; the
+// rare FullTree pathological worst case (513) absorbs a few extra
+// doublings, which is in the noise relative to the descent's own
+// allocations.
+const singleInsertMutsCap = 64
+
 // InsertMany inserts multiple leaf nodes provided in the leaves map within a
-// single database transaction.
+// single database transaction. Internal nodes shared by multiple inserted
+// leaves are computed once per batch, not once per leaf, so the per-call
+// cost approaches O(N log N + N) rather than O(N * MaxTreeLevels).
 func (t *FullTree) InsertMany(ctx context.Context,
 	leaves map[[hashSize]byte]*LeafNode) (Tree, error) {
 
 	if len(leaves) == 0 {
 		return t, nil
+	}
+
+	// Materialise items in a slice the recursion can partition. The map
+	// iteration order is unstable but the resulting tree is order-
+	// independent, so any iteration order is fine.
+	items := make([]batchItem, 0, len(leaves))
+	var batchSum uint64
+	for key, leaf := range leaves {
+		items = append(items, batchItem{key: key, leaf: leaf})
+		nextSum, carry := bits.Add64(batchSum, leaf.NodeSum(), 0)
+		if carry != 0 {
+			return nil, fmt.Errorf("full tree batch insert sum "+
+				"overflow: %w", ErrIntegerOverflow)
+		}
+		batchSum = nextSum
 	}
 
 	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
@@ -517,45 +589,133 @@ func (t *FullTree) InsertMany(ctx context.Context,
 		}
 		rootBranch := currentRoot.(*BranchNode)
 
-		for key, leaf := range leaves {
-			// Check for potential sum overflow before each
-			// insertion.
-			sumRoot := rootBranch.NodeSum()
-			sumLeaf := leaf.NodeSum()
-			err = CheckSumOverflowUint64(sumRoot, sumLeaf)
-			if err != nil {
-				return fmt.Errorf("full tree leaf insert sum "+
-					"overflow, root: %d, leaf: %d; %w",
-					sumRoot, sumLeaf, err)
-			}
+		// batchInsert reads the tree, builds the new subtree in
+		// memory, collects existingBatchSum (the sum of any leaves
+		// at batch keys being replaced) and queues all storage
+		// writes into muts. No store mutation yet.
+		muts := make([]mutation, 0, mutsCap(len(items)))
+		newRoot, existingBatchSum, err := t.batchInsert(
+			tx, items, currentRoot, 0, &muts,
+		)
+		if err != nil {
+			return fmt.Errorf("batch insert: %w", err)
+		}
 
-			// Insert the leaf using the internal helper.
-			newRoot, err := t.insert(tx, &key, leaf)
+		// Effective-delta overflow check. Identical shape to the
+		// single Insert check; rides on the descent that just
+		// happened — no extra walks needed.
+		if batchSum > existingBatchSum {
+			delta := batchSum - existingBatchSum
+			err := CheckSumOverflowUint64(
+				rootBranch.NodeSum(), delta,
+			)
 			if err != nil {
-				return fmt.Errorf("error inserting leaf "+
-					"with key %x: %w", key, err)
-			}
-			rootBranch = newRoot
-
-			// Update the root within the transaction so subsequent
-			// inserts in this batch read the correct state.
-			err = tx.UpdateRoot(rootBranch)
-			if err != nil {
-				return fmt.Errorf("error updating root "+
-					"during InsertMany: %w", err)
+				return fmt.Errorf("full tree batch insert "+
+					"sum overflow, root: %d, effective "+
+					"delta: %d; %w",
+					rootBranch.NodeSum(), delta, err)
 			}
 		}
 
-		// The root is already updated by the last iteration of the
-		// loop. No final update needed here, but returning nil error
-		// signals success.
-		return nil
+		newRootBranch, ok := newRoot.(*BranchNode)
+		if !ok {
+			return fmt.Errorf("batch insert: unexpected root "+
+				"node type %T", newRoot)
+		}
+
+		if err := applyAll(tx, muts); err != nil {
+			return err
+		}
+		return tx.UpdateRoot(newRootBranch)
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return t, nil
+}
+
+// batchInsert recursively descends into the subtree rooted at node,
+// partitioning items by the bit at depth and computing the new
+// subtree in memory. Storage writes are queued into muts rather than
+// executed, so the caller can run the overflow check and flush only
+// if it passes; existingSum returned by each recursive call is the
+// sum of any leaves at batch keys that were replaced within that
+// subtree, threaded up so the caller can compute the effective delta
+// without a separate walk.
+func (t *FullTree) batchInsert(tx TreeStoreUpdateTx, items []batchItem,
+	node Node, depth int, muts *[]mutation) (Node, uint64, error) {
+
+	if len(items) == 0 {
+		return node, 0, nil
+	}
+
+	// At leaf depth, exactly one item lives here. The `node` parameter
+	// is the prior leaf at this position (or EmptyLeafNode); its sum
+	// is the existingSum we contribute to the overflow accounting.
+	if depth == MaxTreeLevels {
+		item := items[0]
+		var existing uint64
+		if prior, ok := node.(*LeafNode); ok && !prior.IsEmpty() {
+			existing = prior.NodeSum()
+		}
+		if item.leaf.IsEmpty() {
+			deleteLeaf(muts, item.key)
+		} else {
+			insertLeaf(muts, item.leaf)
+		}
+		return item.leaf, existing, nil
+	}
+
+	// Fetch the current children once for this whole subtree's update.
+	left, right, err := tx.GetChildren(depth, node.NodeHash())
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Partition items by the next bit. Items whose bit is 0 go left.
+	leftItems, rightItems := partitionByBit(items, depth)
+
+	newLeft, newRight := left, right
+	var leftSum, rightSum uint64
+	if len(leftItems) > 0 {
+		newLeft, leftSum, err = t.batchInsert(
+			tx, leftItems, left, depth+1, muts,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+	if len(rightItems) > 0 {
+		newRight, rightSum, err = t.batchInsert(
+			tx, rightItems, right, depth+1, muts,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	newParent := NewBranch(newLeft, newRight)
+
+	// Fast path: if the rebuilt parent has the same hash as the
+	// existing branch (e.g., a one-sided batch where the recursed
+	// side returned its subtree unchanged), the storage state at
+	// this level is already correct — skip the delete + reinsert.
+	if newParent.NodeHash() == node.NodeHash() {
+		return node, leftSum + rightSum, nil
+	}
+
+	// Queue the old/new pair for this level. Mirrors the single-
+	// insert walkUp emitter; both writes are deferred until the
+	// caller verifies the overflow check passes.
+	if node.NodeHash() != EmptyTree[depth].NodeHash() {
+		deleteBranch(muts, node.NodeHash())
+	}
+	if newParent.NodeHash() != EmptyTree[depth].NodeHash() {
+		insertBranch(muts, newParent)
+	}
+
+	return newParent, leftSum + rightSum, nil
 }
 
 // VerifyMerkleProof determines whether a merkle proof for the leaf found at the

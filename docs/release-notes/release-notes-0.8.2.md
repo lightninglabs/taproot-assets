@@ -51,6 +51,9 @@
 - [PR#2183](https://github.com/lightninglabs/taproot-assets/pull/2183)
   dramatically improves the performance of MS-SMT proof verification.
 
+- [PR#2188](https://github.com/lightninglabs/taproot-assets/pull/2188)
+  dramatically improves the performance of batched MS-SMT insertions.
+
 ## Deprecations
 
 # Technical and Architectural Updates
