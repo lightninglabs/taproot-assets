@@ -1363,19 +1363,20 @@ func AssertNonInteractiveRecvComplete(t *testing.T,
 		return
 	}
 
-	var lastErr error
 	for {
 		event, err := stream.Recv()
 		if err != nil {
 			// Stream ended (deadline or error). Do one last
-			// authoritative check before failing.
-			if final := check(); final == nil {
+			// authoritative check before failing, and surface
+			// that snapshot as the failure reason.
+			final := check()
+			if final == nil {
 				return
 			}
 			require.Failf(t, "receive not complete",
 				"waiting for %d completed inbound "+
 					"transfers: %v",
-				totalInboundTransfers, lastErr)
+				totalInboundTransfers, final)
 			return
 		}
 
@@ -1384,10 +1385,8 @@ func AssertNonInteractiveRecvComplete(t *testing.T,
 			continue
 		}
 
-		if err := check(); err == nil {
+		if check() == nil {
 			return
-		} else {
-			lastErr = err
 		}
 	}
 }
