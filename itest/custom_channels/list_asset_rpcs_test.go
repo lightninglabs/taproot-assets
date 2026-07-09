@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"slices"
 	"testing"
 
@@ -17,6 +18,7 @@ import (
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -110,17 +112,52 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 	// so wait for it before proceeding.
 	assertPeerPolicyKnown(t.t, bob, alice, assetChanPoint)
 
+	subCtx, cancelSubscriptions := context.WithTimeout(
+		ctx, 2*wait.DefaultTimeout,
+	)
+	defer cancelSubscriptions()
+
+	bobInvoiceStream, err := asTapd(bob).SubscribeInvoices(
+		subCtx, &tchrpc.SubscribeInvoicesRequest{
+			Request: &lnrpc.InvoiceSubscription{},
+		},
+	)
+	require.NoError(t.t, err)
+
+	alicePaymentStream, err := asTapd(alice).SubscribePayments(
+		subCtx, &tchrpc.SubscribePaymentsRequest{
+			Request: &routerrpc.TrackPaymentsRequest{
+				NoInflightUpdates: true,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	btcPaymentHash := sendKeySendPayment(t.t, alice, bob, btcutil.Amount(10))
+	btcPaymentHashHex := hex.EncodeToString(btcPaymentHash[:])
+
 	// Create a plain BTC invoice on Alice. We never settle it, but we use
 	// it later to verify that tapd's ListInvoices filters out invoices
 	// that don't involve any asset.
 	btcInvoice := createNormalInvoice(t.t, alice, btcutil.Amount(1234))
 	require.NotEmpty(t.t, btcInvoice.RHash)
 
+	// Create a plain BTC invoice on Bob after subscribing. The subscription
+	// should filter it out and only forward later asset invoice updates.
+	bobBTCInvoice := createNormalInvoice(t.t, bob, btcutil.Amount(2345))
+	require.NotEmpty(t.t, bobBTCInvoice.RHash)
+
 	// Create and pay an asset invoice on Bob.
 	const assetInvoiceAmount = 1_500
 	invoiceResp := createAssetInvoice(
 		t.t, alice, bob, assetInvoiceAmount, assetID,
 	)
+	assetInvoiceAddUpdate := waitForAssetInvoiceUpdate(
+		t.t, bobInvoiceStream, invoiceResp.RHash, bobBTCInvoice.RHash,
+	)
+	require.Equal(t.t, lnrpc.Invoice_OPEN, assetInvoiceAddUpdate.Invoice.State)
+	require.Empty(t.t, assetInvoiceAddUpdate.AssetAmounts)
+
 	sentUnits, _ := payInvoiceWithAssets(
 		t.t, alice, bob, invoiceResp.PaymentRequest, assetID,
 	)
@@ -128,6 +165,65 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 	t.Logf("Paid asset invoice: %d units sent", sentUnits)
 
 	waitForAssetChannelHtlcSettlement(t.t, alice, assetChanPoint)
+
+	assetInvoiceUpdate := waitForAssetInvoiceUpdate(
+		t.t, bobInvoiceStream, invoiceResp.RHash, bobBTCInvoice.RHash,
+	)
+	require.Len(t.t, assetInvoiceUpdate.AssetAmounts, 1)
+	require.Equal(t.t, assetID, assetInvoiceUpdate.AssetAmounts[0].AssetId)
+	require.Equal(t.t, sentUnits, assetInvoiceUpdate.AssetAmounts[0].Amount)
+	require.Equal(
+		t.t, expectedGroupKey, assetInvoiceUpdate.AssetAmounts[0].GroupKey,
+	)
+
+	assetPaymentUpdate := waitForAssetPaymentUpdate(
+		t.t, alicePaymentStream, hex.EncodeToString(invoiceResp.RHash),
+		btcPaymentHashHex,
+	)
+	require.Equal(t.t, lnrpc.Payment_SUCCEEDED, assetPaymentUpdate.Payment.Status)
+	require.Len(t.t, assetPaymentUpdate.AssetAmounts, 1)
+	require.Equal(t.t, assetID, assetPaymentUpdate.AssetAmounts[0].AssetId)
+	require.Equal(t.t, sentUnits, assetPaymentUpdate.AssetAmounts[0].Amount)
+
+	trackCtx, cancelTrackPayment := context.WithTimeout(
+		ctx, wait.DefaultTimeout,
+	)
+	defer cancelTrackPayment()
+
+	trackPaymentStream, err := asTapd(alice).TrackPayment(
+		trackCtx, &tchrpc.TrackPaymentRequest{
+			Request: &routerrpc.TrackPaymentRequest{
+				PaymentHash:       invoiceResp.RHash,
+				NoInflightUpdates: true,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	trackedPayment := waitForAssetPaymentUpdate(
+		t.t, trackPaymentStream, hex.EncodeToString(invoiceResp.RHash),
+		"",
+	)
+	require.Equal(t.t, lnrpc.Payment_SUCCEEDED, trackedPayment.Payment.Status)
+	require.Len(t.t, trackedPayment.AssetAmounts, 1)
+	require.Equal(t.t, assetID, trackedPayment.AssetAmounts[0].AssetId)
+	require.Equal(t.t, sentUnits, trackedPayment.AssetAmounts[0].Amount)
+
+	btcTrackCtx, cancelBTCTrack := context.WithTimeout(
+		ctx, wait.DefaultTimeout,
+	)
+	defer cancelBTCTrack()
+
+	btcTrackPaymentStream, err := asTapd(alice).TrackPayment(
+		btcTrackCtx, &tchrpc.TrackPaymentRequest{
+			Request: &routerrpc.TrackPaymentRequest{
+				PaymentHash:       btcPaymentHash[:],
+				NoInflightUpdates: true,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	assertNoAssetPaymentUpdate(t.t, btcTrackPaymentStream)
 
 	// Create an asset hodl invoice, send an HTLC to it, then cancel it.
 	// ListInvoices should still include the invoice as asset-related, but
@@ -149,6 +245,15 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 	)
 	require.NoError(t.t, err)
 	assertNumHtlcsAll(t.t, 0, alice, bob)
+
+	canceledPaymentUpdate := waitForAssetPaymentUpdate(
+		t.t, alicePaymentStream, hex.EncodeToString(canceledHash[:]),
+		btcPaymentHashHex,
+	)
+	require.Equal(
+		t.t, lnrpc.Payment_FAILED, canceledPaymentUpdate.Payment.Status,
+	)
+	require.Empty(t.t, canceledPaymentUpdate.AssetAmounts)
 
 	// Create another asset hodl invoice and settle it explicitly. This
 	// exercises the same hodl invoice code path as the canceled case above,
@@ -238,7 +343,6 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 			t.t, lnrpc.InvoiceHTLCState_CANCELED, htlc.State,
 		)
 	}
-
 	settledHodlInv := findAssetInvoice(
 		t.t, bobInvoices, settledHodlHash[:],
 	)
@@ -265,6 +369,30 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 	)
 	require.Equal(
 		t.t, expectedGroupKey, assetInv.AssetAmounts[0].GroupKey,
+	)
+	require.NotZero(t.t, assetInv.Invoice.SettleIndex)
+
+	replaySettleCtx, cancelReplaySettle := context.WithTimeout(
+		ctx, wait.DefaultTimeout,
+	)
+	defer cancelReplaySettle()
+
+	replaySettleStream, err := asTapd(bob).SubscribeInvoices(
+		replaySettleCtx, &tchrpc.SubscribeInvoicesRequest{
+			Request: &lnrpc.InvoiceSubscription{
+				SettleIndex: assetInv.Invoice.SettleIndex - 1,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	replayedSettledInvoice := waitForAssetInvoiceUpdate(
+		t.t, replaySettleStream, invoiceResp.RHash, bobBTCInvoice.RHash,
+	)
+	require.Equal(t.t, lnrpc.Invoice_SETTLED, replayedSettledInvoice.Invoice.State)
+	require.Len(t.t, replayedSettledInvoice.AssetAmounts, 1)
+	require.Equal(
+		t.t, sentUnits, replayedSettledInvoice.AssetAmounts[0].Amount,
 	)
 
 	// Pagination offsets must come straight from lnd.
@@ -397,6 +525,73 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 	)
 	require.NoError(t.t, err)
 	require.Empty(t.t, bobPayments.Payments)
+}
+
+type assetInvoiceStream interface {
+	Recv() (*tchrpc.AssetInvoice, error)
+}
+
+type assetPaymentStream interface {
+	Recv() (*tchrpc.AssetPayment, error)
+}
+
+// waitForAssetInvoiceUpdate reads asset invoice subscription updates until the
+// target invoice is found. If the explicitly forbidden invoice is seen, the
+// subscription failed to filter a non-asset invoice.
+func waitForAssetInvoiceUpdate(t *testing.T, stream assetInvoiceStream,
+	wantHash, forbiddenHash []byte) *tchrpc.AssetInvoice {
+
+	t.Helper()
+
+	for {
+		inv, err := stream.Recv()
+		require.NoError(t, err)
+		require.NotNil(t, inv)
+		require.NotNil(t, inv.Invoice)
+
+		require.Falsef(
+			t, bytes.Equal(inv.Invoice.RHash, forbiddenHash),
+			"non-asset invoice %x was forwarded", forbiddenHash,
+		)
+
+		if bytes.Equal(inv.Invoice.RHash, wantHash) {
+			return inv
+		}
+	}
+}
+
+// waitForAssetPaymentUpdate reads asset payment subscription updates until the
+// target payment is found.
+func waitForAssetPaymentUpdate(t *testing.T, stream assetPaymentStream,
+	wantHash, forbiddenHash string) *tchrpc.AssetPayment {
+
+	t.Helper()
+
+	for {
+		payment, err := stream.Recv()
+		require.NoError(t, err)
+		require.NotNil(t, payment)
+		require.NotNil(t, payment.Payment)
+
+		require.NotEqualf(
+			t, forbiddenHash, payment.Payment.PaymentHash,
+			"non-asset payment %s was forwarded", forbiddenHash,
+		)
+
+		if payment.Payment.PaymentHash == wantHash {
+			return payment
+		}
+	}
+}
+
+// assertNoAssetPaymentUpdate asserts that a payment stream closes without
+// forwarding any asset payment update.
+func assertNoAssetPaymentUpdate(t *testing.T, stream assetPaymentStream) {
+	t.Helper()
+
+	payment, err := stream.Recv()
+	require.ErrorIs(t, err, io.EOF)
+	require.Nil(t, payment)
 }
 
 // findAssetInvoiceOptional locates the asset invoice with the given r_hash in

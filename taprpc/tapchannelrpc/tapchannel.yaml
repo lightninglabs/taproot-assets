@@ -24,3 +24,12 @@ http:
     - selector: tapchannelrpc.TaprootAssetChannels.ListPayments
       post: "/v1/taproot-assets/channels/payments"
       body: "*"
+    - selector: tapchannelrpc.TaprootAssetChannels.SubscribeInvoices
+      post: "/v1/taproot-assets/channels/invoices/subscribe"
+      body: "*"
+    - selector: tapchannelrpc.TaprootAssetChannels.SubscribePayments
+      post: "/v1/taproot-assets/channels/payments/subscribe"
+      body: "*"
+    - selector: tapchannelrpc.TaprootAssetChannels.TrackPayment
+      post: "/v1/taproot-assets/channels/payments/track"
+      body: "*"

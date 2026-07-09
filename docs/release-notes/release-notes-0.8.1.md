@@ -44,6 +44,13 @@
   the HTLCs' custom records. Results are filtered to records that involve
   a Taproot Asset; lnd's pagination offsets are passed through unchanged.
 
+- [PR#2195](https://github.com/lightninglabs/taproot-assets/pull/2195)
+  adds `SubscribeInvoices`, `SubscribePayments`, and `TrackPayment` RPCs to
+  the `TaprootAssetChannels` service. The new streaming RPCs wrap the
+  corresponding lnd invoice/payment streams, preserve lnd's request semantics
+  and index handling, and filter updates down to those involving Taproot
+  Assets while returning decoded `AssetAmount` summaries.
+
 ## tapcli Additions
 
 # Improvements

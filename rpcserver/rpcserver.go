@@ -10791,7 +10791,9 @@ func (r *RPCServer) ListInvoices(ctx context.Context,
 
 	assetInvoices := make([]*tchrpc.AssetInvoice, 0, len(resp.Invoices))
 	for _, invoice := range resp.Invoices {
-		amounts, isAsset, err := assetAmountsFromInvoice(invoice)
+		assetInvoice, isAsset, err := marshalAssetInvoice(
+			invoice, lookup, r.cfg.AuxInvoiceManager,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("error decoding asset "+
 				"amounts from invoice %x: %w",
@@ -10803,10 +10805,7 @@ func (r *RPCServer) ListInvoices(ctx context.Context,
 			continue
 		}
 
-		assetInvoices = append(assetInvoices, &tchrpc.AssetInvoice{
-			Invoice:      invoice,
-			AssetAmounts: marshalAssetAmounts(amounts, lookup),
-		})
+		assetInvoices = append(assetInvoices, assetInvoice)
 	}
 
 	return &tchrpc.ListInvoicesResponse{
@@ -10838,7 +10837,9 @@ func (r *RPCServer) ListPayments(ctx context.Context,
 
 	assetPayments := make([]*tchrpc.AssetPayment, 0, len(resp.Payments))
 	for _, payment := range resp.Payments {
-		amounts, isAsset, err := assetAmountsFromPayment(payment)
+		assetPayment, isAsset, err := marshalAssetPayment(
+			payment, lookup,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("error decoding asset "+
 				"amounts from payment %s: %w",
@@ -10850,10 +10851,7 @@ func (r *RPCServer) ListPayments(ctx context.Context,
 			continue
 		}
 
-		assetPayments = append(assetPayments, &tchrpc.AssetPayment{
-			Payment:      payment,
-			AssetAmounts: marshalAssetAmounts(amounts, lookup),
-		})
+		assetPayments = append(assetPayments, assetPayment)
 	}
 
 	return &tchrpc.ListPaymentsResponse{
@@ -10861,6 +10859,187 @@ func (r *RPCServer) ListPayments(ctx context.Context,
 		FirstIndexOffset: resp.FirstIndexOffset,
 		LastIndexOffset:  resp.LastIndexOffset,
 	}, nil
+}
+
+// SubscribeInvoices is a wrapper around lnd's lnrpc.SubscribeInvoices method
+// that only streams invoices that involve at least one Taproot Asset. The full
+// lnd invoice is returned along with the decoded asset amounts that the
+// invoice's HTLCs carry.
+func (r *RPCServer) SubscribeInvoices(req *tchrpc.SubscribeInvoicesRequest,
+	stream tchrpc.TaprootAssetChannels_SubscribeInvoicesServer) error {
+
+	lndReq := req.GetRequest()
+	if lndReq == nil {
+		lndReq = &lnrpc.InvoiceSubscription{}
+	}
+
+	ctx := stream.Context()
+	rpcCtx, _, rawClient := r.cfg.Lnd.Client.RawClientWithMacAuth(ctx)
+	lndStream, err := rawClient.SubscribeInvoices(rpcCtx, lndReq)
+	if err != nil {
+		return fmt.Errorf("error subscribing to invoices: %w", err)
+	}
+
+	lookup := newAssetGroupLookup(ctx, r.cfg.AddrBook)
+
+	for {
+		invoice, err := lndStream.Recv()
+		if err != nil {
+			return streamRecvError(ctx, err)
+		}
+
+		assetInvoice, isAsset, err := marshalAssetInvoice(
+			invoice, lookup, r.cfg.AuxInvoiceManager,
+		)
+		if err != nil {
+			return fmt.Errorf("error decoding asset amounts from "+
+				"invoice %x: %w", invoice.GetRHash(), err)
+		}
+		if !isAsset {
+			continue
+		}
+
+		if err := stream.Send(assetInvoice); err != nil {
+			return err
+		}
+	}
+}
+
+// SubscribePayments is a wrapper around lnd's routerrpc.TrackPayments method
+// that only streams payments that involve at least one Taproot Asset. The full
+// lnd payment is returned along with the decoded asset amounts that the
+// payment's HTLCs carry.
+func (r *RPCServer) SubscribePayments(req *tchrpc.SubscribePaymentsRequest,
+	stream tchrpc.TaprootAssetChannels_SubscribePaymentsServer) error {
+
+	lndReq := req.GetRequest()
+	if lndReq == nil {
+		lndReq = &routerrpc.TrackPaymentsRequest{}
+	}
+
+	ctx := stream.Context()
+	rpcCtx, _, routerClient := r.cfg.Lnd.Router.RawClientWithMacAuth(ctx)
+	lndStream, err := routerClient.TrackPayments(rpcCtx, lndReq)
+	if err != nil {
+		return fmt.Errorf("error subscribing to payments: %w", err)
+	}
+
+	return r.forwardAssetPaymentUpdates(ctx, lndStream.Recv, stream.Send)
+}
+
+// TrackPayment is a wrapper around lnd's routerrpc.TrackPaymentV2 method that
+// only streams updates that involve at least one Taproot Asset. The full lnd
+// payment is returned along with the decoded asset amounts that the payment's
+// HTLCs carry.
+func (r *RPCServer) TrackPayment(req *tchrpc.TrackPaymentRequest,
+	stream tchrpc.TaprootAssetChannels_TrackPaymentServer) error {
+
+	lndReq := req.GetRequest()
+	if lndReq == nil {
+		lndReq = &routerrpc.TrackPaymentRequest{}
+	}
+
+	ctx := stream.Context()
+	rpcCtx, _, routerClient := r.cfg.Lnd.Router.RawClientWithMacAuth(ctx)
+	lndStream, err := routerClient.TrackPaymentV2(rpcCtx, lndReq)
+	if err != nil {
+		return fmt.Errorf("error tracking payment: %w", err)
+	}
+
+	return r.forwardAssetPaymentUpdates(ctx, lndStream.Recv, stream.Send)
+}
+
+// forwardAssetPaymentUpdates receives lnd payment updates, filters out
+// non-asset payments, and forwards asset payments to the caller.
+func (r *RPCServer) forwardAssetPaymentUpdates(ctx context.Context,
+	recv func() (*lnrpc.Payment, error),
+	send func(*tchrpc.AssetPayment) error) error {
+
+	lookup := newAssetGroupLookup(ctx, r.cfg.AddrBook)
+
+	for {
+		payment, err := recv()
+		if err != nil {
+			return streamRecvError(ctx, err)
+		}
+
+		assetPayment, isAsset, err := marshalAssetPayment(
+			payment, lookup,
+		)
+		if err != nil {
+			return fmt.Errorf("error decoding asset amounts from "+
+				"payment %s: %w", payment.GetPaymentHash(), err)
+		}
+		if !isAsset {
+			continue
+		}
+
+		if err := send(assetPayment); err != nil {
+			return err
+		}
+	}
+}
+
+// streamRecvError normalizes expected stream shutdown errors.
+func streamRecvError(ctx context.Context, err error) error {
+	if err == io.EOF {
+		return nil
+	}
+
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if errors.Is(ctxErr, context.Canceled) {
+			return nil
+		}
+
+		return ctxErr
+	}
+
+	return err
+}
+
+// marshalAssetInvoice converts an lnd invoice into an asset invoice. The second
+// return value tells whether the invoice involves any asset at all.
+func marshalAssetInvoice(invoice *lnrpc.Invoice, lookup *assetGroupLookup,
+	rfqLookup tapchannel.RfqLookup) (*tchrpc.AssetInvoice, bool, error) {
+
+	amounts, isAsset, err := assetAmountsFromInvoice(invoice)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// Freshly added asset invoices have RFQ route hints, but no HTLCs yet.
+	// Keep lnd's invoice add semantics by classifying those as asset
+	// invoices even though their settled asset amount is still empty.
+	if !isAsset && tapchannel.IsAssetInvoice(invoice, rfqLookup) {
+		isAsset = true
+	}
+	if !isAsset {
+		return nil, false, nil
+	}
+
+	return &tchrpc.AssetInvoice{
+		Invoice:      invoice,
+		AssetAmounts: marshalAssetAmounts(amounts, lookup),
+	}, true, nil
+}
+
+// marshalAssetPayment converts an lnd payment into an asset payment. The second
+// return value tells whether the payment involves any asset at all.
+func marshalAssetPayment(payment *lnrpc.Payment,
+	lookup *assetGroupLookup) (*tchrpc.AssetPayment, bool, error) {
+
+	amounts, isAsset, err := assetAmountsFromPayment(payment)
+	if err != nil {
+		return nil, false, err
+	}
+	if !isAsset {
+		return nil, false, nil
+	}
+
+	return &tchrpc.AssetPayment{
+		Payment:      payment,
+		AssetAmounts: marshalAssetAmounts(amounts, lookup),
+	}, true, nil
 }
 
 // assetAmountsFromInvoice extracts the per-asset amounts carried by an
