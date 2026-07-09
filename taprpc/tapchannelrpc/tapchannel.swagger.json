@@ -181,6 +181,48 @@
         ]
       }
     },
+    "/v1/taproot-assets/channels/invoices/subscribe": {
+      "post": {
+        "summary": "litcli: `ln subscribeinvoices`\nSubscribeInvoices is a wrapper around lnd's lnrpc.SubscribeInvoices method\nthat only streams invoices that involve at least one Taproot Asset. The full\nlnd invoice is returned along with the decoded asset amounts that the\ninvoice's HTLCs carry, so that callers don't need to parse the custom\nchannel data themselves. All request fields behave the same way as they do\nfor lnd's lnrpc.SubscribeInvoices RPC method.",
+        "operationId": "TaprootAssetChannels_SubscribeInvoices",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/tapchannelrpcAssetInvoice"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of tapchannelrpcAssetInvoice"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcSubscribeInvoicesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssetChannels"
+        ]
+      }
+    },
     "/v1/taproot-assets/channels/payments": {
       "post": {
         "summary": "litcli: `ln listpayments`\nListPayments is a wrapper around lnd's lnrpc.ListPayments method that only\nreturns payments that involve at least one Taproot Asset. The full lnd\npayment is returned along with the decoded asset amounts that the payment's\nHTLCs carry, so that callers don't need to parse the custom channel data\nthemselves. All request fields behave the same way as they do for lnd's\nlnrpc.ListPayments RPC method.",
@@ -206,6 +248,90 @@
             "required": true,
             "schema": {
               "$ref": "#/definitions/tapchannelrpcListPaymentsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssetChannels"
+        ]
+      }
+    },
+    "/v1/taproot-assets/channels/payments/subscribe": {
+      "post": {
+        "summary": "litcli: `ln subscribepayments`\nSubscribePayments is a wrapper around lnd's routerrpc.TrackPayments method\nthat only streams payment updates that involve at least one Taproot Asset.\nThe full lnd payment is returned along with the decoded asset amounts that\nthe payment's HTLCs carry, so that callers don't need to parse the custom\nchannel data themselves. All request fields behave the same way as they do\nfor lnd's routerrpc.TrackPayments RPC method.",
+        "operationId": "TaprootAssetChannels_SubscribePayments",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/tapchannelrpcAssetPayment"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of tapchannelrpcAssetPayment"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcSubscribePaymentsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssetChannels"
+        ]
+      }
+    },
+    "/v1/taproot-assets/channels/payments/track": {
+      "post": {
+        "summary": "litcli: `ln trackpayment`\nTrackPayment is a wrapper around lnd's routerrpc.TrackPaymentV2 method that\nonly streams payment updates that involve at least one Taproot Asset. The\nfull lnd payment is returned along with the decoded asset amounts that the\npayment's HTLCs carry, so that callers don't need to parse the custom\nchannel data themselves. All request fields behave the same way as they do\nfor lnd's routerrpc.TrackPaymentV2 RPC method.",
+        "operationId": "TaprootAssetChannels_TrackPayment",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/tapchannelrpcAssetPayment"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of tapchannelrpcAssetPayment"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcTrackPaymentRequest"
             }
           }
         ],
@@ -1063,6 +1189,21 @@
       ],
       "default": "ACCEPTED"
     },
+    "lnrpcInvoiceSubscription": {
+      "type": "object",
+      "properties": {
+        "add_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "If specified (non-zero), then we'll first start by sending out\nnotifications for all added indexes with an add_index greater than this\nvalue. This allows callers to catch up on any events they missed while they\nweren't connected to the streaming RPC."
+        },
+        "settle_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "If specified (non-zero), then we'll first start by sending out\nnotifications for all settled indexes with an settle_index greater than\nthis value. This allows callers to catch up on any events they missed while\nthey weren't connected to the streaming RPC."
+        }
+      }
+    },
     "lnrpcListInvoiceRequest": {
       "type": "object",
       "properties": {
@@ -1661,6 +1802,29 @@
         }
       }
     },
+    "routerrpcTrackPaymentRequest": {
+      "type": "object",
+      "properties": {
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the payment to look up."
+        },
+        "no_inflight_updates": {
+          "type": "boolean",
+          "description": "If set, only the final payment update is streamed back. Intermediate updates\nthat show which htlcs are still in flight are suppressed."
+        }
+      }
+    },
+    "routerrpcTrackPaymentsRequest": {
+      "type": "object",
+      "properties": {
+        "no_inflight_updates": {
+          "type": "boolean",
+          "description": "If set, only the final payment updates are streamed back. Intermediate\nupdates that show which htlcs are still in flight are suppressed."
+        }
+      }
+    },
     "rpcStatus": {
       "type": "object",
       "properties": {
@@ -2078,6 +2242,33 @@
         "payment_result": {
           "$ref": "#/definitions/lnrpcPayment",
           "description": "The payment result of a single payment attempt. Multiple attempts\nmay be returned per payment request until either the payment\nsucceeds or the payment times out."
+        }
+      }
+    },
+    "tapchannelrpcSubscribeInvoicesRequest": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/lnrpcInvoiceSubscription",
+          "description": "The standard lnd invoice subscription request. All fields behave the same\nway as they do for lnd's lnrpc.SubscribeInvoices RPC method (see the API\ndocs at\nhttps://lightning.engineering/api-docs/api/lnd/lightning/subscribe-invoices\nfor more details). Invoice index replay is performed by lnd over all\ninvoices; the returned stream is then filtered down to only those that\ninvolve assets."
+        }
+      }
+    },
+    "tapchannelrpcSubscribePaymentsRequest": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/routerrpcTrackPaymentsRequest",
+          "description": "The standard lnd payment tracking request. All fields behave the same way\nas they do for lnd's routerrpc.TrackPayments RPC method (see the API docs\nat https://lightning.engineering/api-docs/api/lnd/router/track-payments\nfor more details). The payment update stream is produced by lnd over all\nactive payments; the returned stream is then filtered down to only those\nthat involve assets."
+        }
+      }
+    },
+    "tapchannelrpcTrackPaymentRequest": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/routerrpcTrackPaymentRequest",
+          "description": "The standard lnd payment tracking request. All fields behave the same way\nas they do for lnd's routerrpc.TrackPaymentV2 RPC method (see the API\ndocs at\nhttps://lightning.engineering/api-docs/api/lnd/router/track-payment-v2\nfor more details). The payment update stream is produced by lnd for the\nrequested payment; the returned stream is then filtered down to only\nupdates that involve assets."
         }
       }
     },
