@@ -65,6 +65,30 @@ type TaprootAssetChannelsClient interface {
 	// themselves. All request fields behave the same way as they do for lnd's
 	// lnrpc.ListPayments RPC method.
 	ListPayments(ctx context.Context, in *ListPaymentsRequest, opts ...grpc.CallOption) (*ListPaymentsResponse, error)
+	// litcli: `ln subscribeinvoices`
+	// SubscribeInvoices is a wrapper around lnd's lnrpc.SubscribeInvoices method
+	// that only streams invoices that involve at least one Taproot Asset. The full
+	// lnd invoice is returned along with the decoded asset amounts that the
+	// invoice's HTLCs carry, so that callers don't need to parse the custom
+	// channel data themselves. All request fields behave the same way as they do
+	// for lnd's lnrpc.SubscribeInvoices RPC method.
+	SubscribeInvoices(ctx context.Context, in *SubscribeInvoicesRequest, opts ...grpc.CallOption) (TaprootAssetChannels_SubscribeInvoicesClient, error)
+	// litcli: `ln subscribepayments`
+	// SubscribePayments is a wrapper around lnd's routerrpc.TrackPayments method
+	// that only streams payment updates that involve at least one Taproot Asset.
+	// The full lnd payment is returned along with the decoded asset amounts that
+	// the payment's HTLCs carry, so that callers don't need to parse the custom
+	// channel data themselves. All request fields behave the same way as they do
+	// for lnd's routerrpc.TrackPayments RPC method.
+	SubscribePayments(ctx context.Context, in *SubscribePaymentsRequest, opts ...grpc.CallOption) (TaprootAssetChannels_SubscribePaymentsClient, error)
+	// litcli: `ln trackpayment`
+	// TrackPayment is a wrapper around lnd's routerrpc.TrackPaymentV2 method that
+	// only streams payment updates that involve at least one Taproot Asset. The
+	// full lnd payment is returned along with the decoded asset amounts that the
+	// payment's HTLCs carry, so that callers don't need to parse the custom
+	// channel data themselves. All request fields behave the same way as they do
+	// for lnd's routerrpc.TrackPaymentV2 RPC method.
+	TrackPayment(ctx context.Context, in *TrackPaymentRequest, opts ...grpc.CallOption) (TaprootAssetChannels_TrackPaymentClient, error)
 }
 
 type taprootAssetChannelsClient struct {
@@ -162,6 +186,102 @@ func (c *taprootAssetChannelsClient) ListPayments(ctx context.Context, in *ListP
 	return out, nil
 }
 
+func (c *taprootAssetChannelsClient) SubscribeInvoices(ctx context.Context, in *SubscribeInvoicesRequest, opts ...grpc.CallOption) (TaprootAssetChannels_SubscribeInvoicesClient, error) {
+	stream, err := c.cc.NewStream(ctx, &TaprootAssetChannels_ServiceDesc.Streams[1], "/tapchannelrpc.TaprootAssetChannels/SubscribeInvoices", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &taprootAssetChannelsSubscribeInvoicesClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type TaprootAssetChannels_SubscribeInvoicesClient interface {
+	Recv() (*AssetInvoice, error)
+	grpc.ClientStream
+}
+
+type taprootAssetChannelsSubscribeInvoicesClient struct {
+	grpc.ClientStream
+}
+
+func (x *taprootAssetChannelsSubscribeInvoicesClient) Recv() (*AssetInvoice, error) {
+	m := new(AssetInvoice)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *taprootAssetChannelsClient) SubscribePayments(ctx context.Context, in *SubscribePaymentsRequest, opts ...grpc.CallOption) (TaprootAssetChannels_SubscribePaymentsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &TaprootAssetChannels_ServiceDesc.Streams[2], "/tapchannelrpc.TaprootAssetChannels/SubscribePayments", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &taprootAssetChannelsSubscribePaymentsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type TaprootAssetChannels_SubscribePaymentsClient interface {
+	Recv() (*AssetPayment, error)
+	grpc.ClientStream
+}
+
+type taprootAssetChannelsSubscribePaymentsClient struct {
+	grpc.ClientStream
+}
+
+func (x *taprootAssetChannelsSubscribePaymentsClient) Recv() (*AssetPayment, error) {
+	m := new(AssetPayment)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *taprootAssetChannelsClient) TrackPayment(ctx context.Context, in *TrackPaymentRequest, opts ...grpc.CallOption) (TaprootAssetChannels_TrackPaymentClient, error) {
+	stream, err := c.cc.NewStream(ctx, &TaprootAssetChannels_ServiceDesc.Streams[3], "/tapchannelrpc.TaprootAssetChannels/TrackPayment", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &taprootAssetChannelsTrackPaymentClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type TaprootAssetChannels_TrackPaymentClient interface {
+	Recv() (*AssetPayment, error)
+	grpc.ClientStream
+}
+
+type taprootAssetChannelsTrackPaymentClient struct {
+	grpc.ClientStream
+}
+
+func (x *taprootAssetChannelsTrackPaymentClient) Recv() (*AssetPayment, error) {
+	m := new(AssetPayment)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // TaprootAssetChannelsServer is the server API for TaprootAssetChannels service.
 // All implementations must embed UnimplementedTaprootAssetChannelsServer
 // for forward compatibility
@@ -213,6 +333,30 @@ type TaprootAssetChannelsServer interface {
 	// themselves. All request fields behave the same way as they do for lnd's
 	// lnrpc.ListPayments RPC method.
 	ListPayments(context.Context, *ListPaymentsRequest) (*ListPaymentsResponse, error)
+	// litcli: `ln subscribeinvoices`
+	// SubscribeInvoices is a wrapper around lnd's lnrpc.SubscribeInvoices method
+	// that only streams invoices that involve at least one Taproot Asset. The full
+	// lnd invoice is returned along with the decoded asset amounts that the
+	// invoice's HTLCs carry, so that callers don't need to parse the custom
+	// channel data themselves. All request fields behave the same way as they do
+	// for lnd's lnrpc.SubscribeInvoices RPC method.
+	SubscribeInvoices(*SubscribeInvoicesRequest, TaprootAssetChannels_SubscribeInvoicesServer) error
+	// litcli: `ln subscribepayments`
+	// SubscribePayments is a wrapper around lnd's routerrpc.TrackPayments method
+	// that only streams payment updates that involve at least one Taproot Asset.
+	// The full lnd payment is returned along with the decoded asset amounts that
+	// the payment's HTLCs carry, so that callers don't need to parse the custom
+	// channel data themselves. All request fields behave the same way as they do
+	// for lnd's routerrpc.TrackPayments RPC method.
+	SubscribePayments(*SubscribePaymentsRequest, TaprootAssetChannels_SubscribePaymentsServer) error
+	// litcli: `ln trackpayment`
+	// TrackPayment is a wrapper around lnd's routerrpc.TrackPaymentV2 method that
+	// only streams payment updates that involve at least one Taproot Asset. The
+	// full lnd payment is returned along with the decoded asset amounts that the
+	// payment's HTLCs carry, so that callers don't need to parse the custom
+	// channel data themselves. All request fields behave the same way as they do
+	// for lnd's routerrpc.TrackPaymentV2 RPC method.
+	TrackPayment(*TrackPaymentRequest, TaprootAssetChannels_TrackPaymentServer) error
 	mustEmbedUnimplementedTaprootAssetChannelsServer()
 }
 
@@ -240,6 +384,15 @@ func (UnimplementedTaprootAssetChannelsServer) ListInvoices(context.Context, *Li
 }
 func (UnimplementedTaprootAssetChannelsServer) ListPayments(context.Context, *ListPaymentsRequest) (*ListPaymentsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListPayments not implemented")
+}
+func (UnimplementedTaprootAssetChannelsServer) SubscribeInvoices(*SubscribeInvoicesRequest, TaprootAssetChannels_SubscribeInvoicesServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeInvoices not implemented")
+}
+func (UnimplementedTaprootAssetChannelsServer) SubscribePayments(*SubscribePaymentsRequest, TaprootAssetChannels_SubscribePaymentsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribePayments not implemented")
+}
+func (UnimplementedTaprootAssetChannelsServer) TrackPayment(*TrackPaymentRequest, TaprootAssetChannels_TrackPaymentServer) error {
+	return status.Errorf(codes.Unimplemented, "method TrackPayment not implemented")
 }
 func (UnimplementedTaprootAssetChannelsServer) mustEmbedUnimplementedTaprootAssetChannelsServer() {}
 
@@ -383,6 +536,69 @@ func _TaprootAssetChannels_ListPayments_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaprootAssetChannels_SubscribeInvoices_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeInvoicesRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(TaprootAssetChannelsServer).SubscribeInvoices(m, &taprootAssetChannelsSubscribeInvoicesServer{stream})
+}
+
+type TaprootAssetChannels_SubscribeInvoicesServer interface {
+	Send(*AssetInvoice) error
+	grpc.ServerStream
+}
+
+type taprootAssetChannelsSubscribeInvoicesServer struct {
+	grpc.ServerStream
+}
+
+func (x *taprootAssetChannelsSubscribeInvoicesServer) Send(m *AssetInvoice) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _TaprootAssetChannels_SubscribePayments_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribePaymentsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(TaprootAssetChannelsServer).SubscribePayments(m, &taprootAssetChannelsSubscribePaymentsServer{stream})
+}
+
+type TaprootAssetChannels_SubscribePaymentsServer interface {
+	Send(*AssetPayment) error
+	grpc.ServerStream
+}
+
+type taprootAssetChannelsSubscribePaymentsServer struct {
+	grpc.ServerStream
+}
+
+func (x *taprootAssetChannelsSubscribePaymentsServer) Send(m *AssetPayment) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _TaprootAssetChannels_TrackPayment_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(TrackPaymentRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(TaprootAssetChannelsServer).TrackPayment(m, &taprootAssetChannelsTrackPaymentServer{stream})
+}
+
+type TaprootAssetChannels_TrackPaymentServer interface {
+	Send(*AssetPayment) error
+	grpc.ServerStream
+}
+
+type taprootAssetChannelsTrackPaymentServer struct {
+	grpc.ServerStream
+}
+
+func (x *taprootAssetChannelsTrackPaymentServer) Send(m *AssetPayment) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // TaprootAssetChannels_ServiceDesc is the grpc.ServiceDesc for TaprootAssetChannels service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -419,6 +635,21 @@ var TaprootAssetChannels_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "SendPayment",
 			Handler:       _TaprootAssetChannels_SendPayment_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "SubscribeInvoices",
+			Handler:       _TaprootAssetChannels_SubscribeInvoices_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "SubscribePayments",
+			Handler:       _TaprootAssetChannels_SubscribePayments_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "TrackPayment",
+			Handler:       _TaprootAssetChannels_TrackPayment_Handler,
 			ServerStreams: true,
 		},
 	},

@@ -208,6 +208,69 @@ func local_request_TaprootAssetChannels_ListPayments_0(ctx context.Context, mars
 
 }
 
+func request_TaprootAssetChannels_SubscribeInvoices_0(ctx context.Context, marshaler runtime.Marshaler, client TaprootAssetChannelsClient, req *http.Request, pathParams map[string]string) (TaprootAssetChannels_SubscribeInvoicesClient, runtime.ServerMetadata, error) {
+	var protoReq SubscribeInvoicesRequest
+	var metadata runtime.ServerMetadata
+
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	stream, err := client.SubscribeInvoices(ctx, &protoReq)
+	if err != nil {
+		return nil, metadata, err
+	}
+	header, err := stream.Header()
+	if err != nil {
+		return nil, metadata, err
+	}
+	metadata.HeaderMD = header
+	return stream, metadata, nil
+
+}
+
+func request_TaprootAssetChannels_SubscribePayments_0(ctx context.Context, marshaler runtime.Marshaler, client TaprootAssetChannelsClient, req *http.Request, pathParams map[string]string) (TaprootAssetChannels_SubscribePaymentsClient, runtime.ServerMetadata, error) {
+	var protoReq SubscribePaymentsRequest
+	var metadata runtime.ServerMetadata
+
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	stream, err := client.SubscribePayments(ctx, &protoReq)
+	if err != nil {
+		return nil, metadata, err
+	}
+	header, err := stream.Header()
+	if err != nil {
+		return nil, metadata, err
+	}
+	metadata.HeaderMD = header
+	return stream, metadata, nil
+
+}
+
+func request_TaprootAssetChannels_TrackPayment_0(ctx context.Context, marshaler runtime.Marshaler, client TaprootAssetChannelsClient, req *http.Request, pathParams map[string]string) (TaprootAssetChannels_TrackPaymentClient, runtime.ServerMetadata, error) {
+	var protoReq TrackPaymentRequest
+	var metadata runtime.ServerMetadata
+
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	stream, err := client.TrackPayment(ctx, &protoReq)
+	if err != nil {
+		return nil, metadata, err
+	}
+	header, err := stream.Header()
+	if err != nil {
+		return nil, metadata, err
+	}
+	metadata.HeaderMD = header
+	return stream, metadata, nil
+
+}
+
 // RegisterTaprootAssetChannelsHandlerServer registers the http handlers for service TaprootAssetChannels to "mux".
 // UnaryRPC     :call TaprootAssetChannelsServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
@@ -369,6 +432,27 @@ func RegisterTaprootAssetChannelsHandlerServer(ctx context.Context, mux *runtime
 
 		forward_TaprootAssetChannels_ListPayments_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
+	})
+
+	mux.Handle("POST", pattern_TaprootAssetChannels_SubscribeInvoices_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
+		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+		return
+	})
+
+	mux.Handle("POST", pattern_TaprootAssetChannels_SubscribePayments_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
+		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+		return
+	})
+
+	mux.Handle("POST", pattern_TaprootAssetChannels_TrackPayment_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
+		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+		return
 	})
 
 	return nil
@@ -566,6 +650,72 @@ func RegisterTaprootAssetChannelsHandlerClient(ctx context.Context, mux *runtime
 
 	})
 
+	mux.Handle("POST", pattern_TaprootAssetChannels_SubscribeInvoices_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/tapchannelrpc.TaprootAssetChannels/SubscribeInvoices", runtime.WithHTTPPathPattern("/v1/taproot-assets/channels/invoices/subscribe"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_TaprootAssetChannels_SubscribeInvoices_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_TaprootAssetChannels_SubscribeInvoices_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("POST", pattern_TaprootAssetChannels_SubscribePayments_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/tapchannelrpc.TaprootAssetChannels/SubscribePayments", runtime.WithHTTPPathPattern("/v1/taproot-assets/channels/payments/subscribe"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_TaprootAssetChannels_SubscribePayments_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_TaprootAssetChannels_SubscribePayments_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("POST", pattern_TaprootAssetChannels_TrackPayment_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/tapchannelrpc.TaprootAssetChannels/TrackPayment", runtime.WithHTTPPathPattern("/v1/taproot-assets/channels/payments/track"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_TaprootAssetChannels_TrackPayment_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_TaprootAssetChannels_TrackPayment_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+
+	})
+
 	return nil
 }
 
@@ -583,6 +733,12 @@ var (
 	pattern_TaprootAssetChannels_ListInvoices_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "channels", "invoices"}, ""))
 
 	pattern_TaprootAssetChannels_ListPayments_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "channels", "payments"}, ""))
+
+	pattern_TaprootAssetChannels_SubscribeInvoices_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "channels", "invoices", "subscribe"}, ""))
+
+	pattern_TaprootAssetChannels_SubscribePayments_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "channels", "payments", "subscribe"}, ""))
+
+	pattern_TaprootAssetChannels_TrackPayment_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "channels", "payments", "track"}, ""))
 )
 
 var (
@@ -599,4 +755,10 @@ var (
 	forward_TaprootAssetChannels_ListInvoices_0 = runtime.ForwardResponseMessage
 
 	forward_TaprootAssetChannels_ListPayments_0 = runtime.ForwardResponseMessage
+
+	forward_TaprootAssetChannels_SubscribeInvoices_0 = runtime.ForwardResponseStream
+
+	forward_TaprootAssetChannels_SubscribePayments_0 = runtime.ForwardResponseStream
+
+	forward_TaprootAssetChannels_TrackPayment_0 = runtime.ForwardResponseStream
 )
