@@ -2139,7 +2139,7 @@ func getPaymentResult(stream routerrpc.Router_SendPaymentV2Client,
 
 // sendKeySendPayment sends a BTC-only keysend payment (no assets).
 func sendKeySendPayment(t *testing.T, src, dst *itest.IntegratedNode,
-	amt btcutil.Amount, opts ...payOpt) {
+	amt btcutil.Amount, opts ...payOpt) lntypes.Hash {
 
 	cfg := defaultPayConfig()
 	for _, opt := range opts {
@@ -2182,6 +2182,8 @@ func sendKeySendPayment(t *testing.T, src, dst *itest.IntegratedNode,
 	result, err := getPaymentResult(stream, false)
 	require.NoError(t, err)
 	require.Equal(t, lnrpc.Payment_SUCCEEDED, result.Status)
+
+	return hash
 }
 
 // createNormalInvoice creates a non-asset LN invoice.
