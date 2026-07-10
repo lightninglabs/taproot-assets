@@ -1,4 +1,4 @@
-package tapgarden
+package tapnodemock
 
 import (
 	"context"
@@ -9,10 +9,10 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 )
 
-// TestMockChainBridgeBlocksRace exercises concurrent SetBlock / GetBlock
+// TestChainBridgeBlocksRace exercises concurrent SetBlock / GetBlock
 // access. Run with `go test -race` to catch any future writer that
 // bypasses the SetBlock helper.
-func TestMockChainBridgeBlocksRace(t *testing.T) {
+func TestChainBridgeBlocksRace(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -27,7 +27,7 @@ func TestMockChainBridgeBlocksRace(t *testing.T) {
 		hashes[i][0] = byte(i)
 	}
 
-	m := NewMockChainBridge()
+	m := NewChainBridge()
 	ctx := context.Background()
 	block := &wire.MsgBlock{}
 

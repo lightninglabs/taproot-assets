@@ -20,7 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -930,7 +930,7 @@ func (f *AssetWallet) SignVirtualPacket(ctx context.Context,
 		optFunc(opts)
 	}
 
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, f.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, f.cfg.ChainBridge)
 	vCtx := proof.VerifierCtx{
 		HeaderVerifier: headerVerifier,
 		MerkleVerifier: proof.DefaultMerkleVerifier,

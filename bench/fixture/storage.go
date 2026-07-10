@@ -9,7 +9,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -36,7 +36,7 @@ type Storage struct {
 	UniverseFederation *universe.FederationEnvoy
 	FederationDB       *tapdb.UniverseFederationDB
 	ProofArchive       proof.NotifyArchiver
-	KeyRing            *tapgarden.MockKeyRing
+	KeyRing            *tapnodemock.KeyRing
 }
 
 // NewStorage constructs a Storage fixture, populates the rpcserver config
@@ -76,7 +76,7 @@ func NewStorage(tb testing.TB) *Storage {
 
 	// Address Book consumes the tapdb store + a mock key ring; no syncer
 	// (benches never reach out to federation servers).
-	keyRing := tapgarden.NewMockKeyRing()
+	keyRing := tapnodemock.NewKeyRing()
 	addrBook := address.NewBook(address.BookConfig{
 		Store:        tapAddrBook,
 		Syncer:       nil,

@@ -26,6 +26,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -34,6 +35,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	_ "github.com/lightninglabs/taproot-assets/tapdb" // Register relevant drivers.
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
@@ -47,6 +49,7 @@ import (
 // Default to a large interval so the planter never actually ticks and only
 // rely on our manual ticks.
 var (
+	chainParams       = &address.RegressionNetTap
 	defaultTimeout    = time.Second * 30
 	noCaretakerStates = fn.NewSet(
 		tapgarden.BatchStatePending,
@@ -84,15 +87,15 @@ func newMintingStore(t *testing.T) tapgarden.MintingStore {
 // create succinct and fully featured unit/systems tests for the batched asset
 // minting process.
 type mintingTestHarness struct {
-	wallet *tapgarden.MockWalletAnchor
+	wallet *tapnodemock.WalletAnchor
 
-	chain *tapgarden.MockChainBridge
+	chain *tapnodemock.ChainBridge
 
 	store tapgarden.MintingStore
 
 	treeStore *tapgarden.FallibleTapscriptTreeMgr
 
-	keyRing *tapgarden.MockKeyRing
+	keyRing *tapnodemock.KeyRing
 
 	genSigner *tapgarden.MockGenSigner
 
@@ -116,7 +119,7 @@ type mintingTestHarness struct {
 func newMintingTestHarness(t *testing.T,
 	store tapgarden.MintingStore) *mintingTestHarness {
 
-	keyRing := tapgarden.NewMockKeyRing()
+	keyRing := tapnodemock.NewKeyRing()
 	genSigner := tapgarden.NewMockGenSigner(keyRing)
 	treeMgr := tapgarden.NewFallibleTapscriptTreeMgr(store)
 	archiver := proof.NewMockProofArchive()
@@ -125,8 +128,8 @@ func newMintingTestHarness(t *testing.T,
 		T:            t,
 		store:        store,
 		treeStore:    &treeMgr,
-		wallet:       tapgarden.NewMockWalletAnchor(),
-		chain:        tapgarden.NewMockChainBridge(),
+		wallet:       tapnodemock.NewWalletAnchor(),
+		chain:        tapnodemock.NewChainBridge(),
 		proofFiles:   archiver,
 		proofWatcher: &tapgarden.MockProofWatcher{},
 		keyRing:      keyRing,
@@ -968,19 +971,29 @@ func (t *mintingTestHarness) assertBatchGenesisTx(
 }
 
 // assertMintOutputKey asserts that the genesis output key for the batch was
-// computed correctly during minting and includes a tapscript sibling.
+// computed correctly during minting and includes a tapscript sibling. The
+// sibling preimage is passed through to MintingOutputKey explicitly --
+// the helper must not rely on any previously cached value, since
+// MintingOutputKey is pure in its sibling argument.
 func (t *mintingTestHarness) assertMintOutputKey(batch *tapgarden.MintingBatch,
-	siblingHash *chainhash.Hash) {
+	siblingPreimage *commitment.TapscriptPreimage) {
 
 	rootCommitment := batch.RootAssetCommitment
 	require.NotNil(t, rootCommitment)
+
+	var siblingHash *chainhash.Hash
+	if siblingPreimage != nil {
+		h, err := siblingPreimage.TapHash()
+		require.NoError(t, err)
+		siblingHash = h
+	}
 
 	scriptRoot := rootCommitment.TapscriptRoot(siblingHash)
 	expectedOutputKey := txscript.ComputeTaprootOutputKey(
 		batch.BatchKey.PubKey, scriptRoot[:],
 	)
 
-	outputKey, _, err := batch.MintingOutputKey(nil)
+	outputKey, _, err := batch.MintingOutputKey(siblingPreimage)
 	require.NoError(t, err)
 	require.True(t, expectedOutputKey.IsEqual(outputKey))
 }
@@ -1729,9 +1742,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 
 	// Verify that the final minting output key matches what we would derive
 	// manually.
-	siblingHash, err := siblingPreimage.TapHash()
-	require.NoError(t, err)
-	t.assertMintOutputKey(batchWithSibling, siblingHash)
+	t.assertMintOutputKey(batchWithSibling, &siblingPreimage)
 }
 
 // testFundFailSiblingNotLeaked verifies that when a finalize attempt
@@ -2110,7 +2121,7 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 
 	t.assertNumCaretakersActive(0)
 	t.assertLastBatchState(1, tapgarden.BatchStateFinalized)
-	t.assertMintOutputKey(mintedBatch, &defaultTapHash)
+	t.assertMintOutputKey(mintedBatch, &defaultPreimage)
 }
 
 func testFundSealOnRestart(t *mintingTestHarness) {
@@ -2308,7 +2319,7 @@ func TestBatchedAssetIssuance(t *testing.T) {
 func TestGroupKeyRevealV1WitnessWithCustomRoot(t *testing.T) {
 	var (
 		ctx              = context.Background()
-		mockKeyRing      = tapgarden.NewMockKeyRing()
+		mockKeyRing      = tapnodemock.NewKeyRing()
 		mockSigner       = tapgarden.NewMockGenSigner(mockKeyRing)
 		txBuilder        = &tapscript.GroupTxBuilder{}
 		txValidator      = &tap.ValidatorV0{}
@@ -2471,7 +2482,7 @@ func TestGroupKeyRevealV1WitnessWithCustomRoot(t *testing.T) {
 func TestGroupKeyRevealV1WitnessNoScripts(t *testing.T) {
 	var (
 		ctx         = context.Background()
-		mockKeyRing = tapgarden.NewMockKeyRing()
+		mockKeyRing = tapnodemock.NewKeyRing()
 		mockSigner  = tapgarden.NewMockGenSigner(mockKeyRing)
 		txBuilder   = &tapscript.GroupTxBuilder{}
 		txValidator = &tap.ValidatorV0{}

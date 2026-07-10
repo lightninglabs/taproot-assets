@@ -16,10 +16,13 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
+	"github.com/lightninglabs/taproot-assets/tapcustody"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
@@ -214,13 +217,13 @@ type Config struct {
 
 	MboxServerConfig authmailbox.ServerConfig
 
-	ReOrgWatcher *tapgarden.ReOrgWatcher
+	ReOrgWatcher *tapreorg.Watcher
 
 	AssetMinter tapgarden.Planter
 
-	AssetCustodian *tapgarden.Custodian
+	AssetCustodian *tapcustody.Custodian
 
-	ChainBridge tapgarden.ChainBridge
+	ChainBridge tapnode.ChainBridge
 
 	AddrBook *address.Book
 

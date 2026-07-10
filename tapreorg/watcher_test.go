@@ -1,4 +1,4 @@
-package tapgarden
+package tapreorg
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/stretchr/testify/require"
 )
@@ -25,15 +26,15 @@ const (
 	testReOrgBlockHeight   = 123_654
 )
 
-type reOrgWatcherHarness struct {
+type watcherHarness struct {
 	t           *testing.T
-	w           *ReOrgWatcher
-	cfg         *ReOrgWatcherConfig
-	chainBridge *MockChainBridge
+	w           *Watcher
+	cfg         *Config
+	chainBridge *tapnodemock.ChainBridge
 }
 
-// assertStartup makes sure the custodian was started correctly.
-func (h *reOrgWatcherHarness) assertStartup() {
+// assertStartup makes sure the watcher was started correctly.
+func (h *watcherHarness) assertStartup() {
 	// Make sure RegisterBlockEpochNtfn is called on startup.
 	_, err := fn.RecvOrTimeout(
 		h.chainBridge.BlockEpochSignal, testTimeout,
@@ -43,15 +44,15 @@ func (h *reOrgWatcherHarness) assertStartup() {
 
 // eventually is a shortcut for require.Eventually with the timeout and poll
 // interval pre-set.
-func (h *reOrgWatcherHarness) eventually(fn func() bool) {
+func (h *watcherHarness) eventually(fn func() bool) {
 	require.Eventually(h.t, fn, testTimeout, testPollInterval)
 }
 
-func newReOrgWatcherHarness(t *testing.T) *reOrgWatcherHarness {
-	chainBridge := NewMockChainBridge()
-	cfg := &ReOrgWatcherConfig{
+func newWatcherHarness(t *testing.T) *watcherHarness {
+	chainBridge := tapnodemock.NewChainBridge()
+	cfg := &Config{
 		ChainBridge:   chainBridge,
-		GroupVerifier: GenMockGroupVerifier(),
+		GroupVerifier: tapnodemock.GenGroupVerifier(),
 		NonBuriedAssetFetcher: func(ctx context.Context,
 			minHeight int32) ([]*asset.ChainAsset, error) {
 
@@ -60,9 +61,9 @@ func newReOrgWatcherHarness(t *testing.T) *reOrgWatcherHarness {
 		SafeDepth: testSafeDepth,
 		ErrChan:   make(chan error, 1),
 	}
-	return &reOrgWatcherHarness{
+	return &watcherHarness{
 		t:           t,
-		w:           NewReOrgWatcher(cfg),
+		w:           NewWatcher(cfg),
 		cfg:         cfg,
 		chainBridge: chainBridge,
 	}
@@ -110,7 +111,7 @@ func makeBlock(secondTransaction *wire.MsgTx) *wire.MsgBlock {
 func TestWatchProofs(t *testing.T) {
 	t.Parallel()
 
-	h := newReOrgWatcherHarness(t)
+	h := newWatcherHarness(t)
 	require.NoError(t, h.w.Start())
 	h.assertStartup()
 

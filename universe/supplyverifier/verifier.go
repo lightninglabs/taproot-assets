@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 )
 
@@ -24,7 +25,7 @@ type VerifierCfg struct {
 	AssetSpec asset.Specifier
 
 	// Chain is our access to the chain.
-	ChainBridge tapgarden.ChainBridge
+	ChainBridge tapnode.ChainBridge
 
 	// AssetLookup is used to look up asset information such as asset groups
 	// and asset metadata.
@@ -34,7 +35,7 @@ type VerifierCfg struct {
 	Lnd *lndclient.LndServices
 
 	// GroupFetcher is used to fetch asset groups.
-	GroupFetcher tapgarden.GroupFetcher
+	GroupFetcher tapnode.GroupFetcher
 
 	// SupplyCommitView allows us to look up supply commitments and
 	// pre-commitments.
@@ -403,7 +404,7 @@ func (v *Verifier) verifyIncrementalCommit(ctx context.Context,
 // proofVerifierCtx returns a verifier context that can be used to verify
 // proofs.
 func (v *Verifier) proofVerifierCtx(ctx context.Context) proof.VerifierCtx {
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, v.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, v.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, v.cfg.GroupFetcher)
 	groupAnchorVerifier := tapgarden.GenGroupAnchorVerifier(
@@ -748,7 +749,7 @@ func (v *Verifier) VerifyCommit(ctx context.Context,
 	// anchoring block header. This provides a basic proof-of-work guarantee
 	// that gates further verification steps.
 	v.assetLog.Debugf("Verifying chain anchor for commitment")
-	headerVerifier := tapgarden.GenHeaderVerifier(ctx, v.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, v.cfg.ChainBridge)
 	err := commitment.VerifyChainAnchor(
 		proof.DefaultMerkleVerifier, headerVerifier,
 	)

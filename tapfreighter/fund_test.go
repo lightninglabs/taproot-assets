@@ -19,7 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -326,7 +326,7 @@ func TestFundPacket(t *testing.T) {
 		expectedErr              string
 		expectedInputCommitments tappsbt.InputCommitments
 		expectedOutputs          func(*testing.T,
-			*tapgarden.MockKeyRing) [][]*tappsbt.VOutput
+			*tapnodemock.KeyRing) [][]*tappsbt.VOutput
 	}{
 		{
 			name: "single input, no change present",
@@ -378,7 +378,7 @@ func TestFundPacket(t *testing.T) {
 				inputPrevID: inputCommitment,
 			},
 			expectedOutputs: func(t *testing.T,
-				r *tapgarden.MockKeyRing) [][]*tappsbt.VOutput {
+				r *tapnodemock.KeyRing) [][]*tappsbt.VOutput {
 
 				pkt0Outputs := []*tappsbt.VOutput{{
 					Amount:    mintAmount - 20,
@@ -429,7 +429,7 @@ func TestFundPacket(t *testing.T) {
 				inputPrevID: inputCommitment,
 			},
 			expectedOutputs: func(t *testing.T,
-				r *tapgarden.MockKeyRing) [][]*tappsbt.VOutput {
+				r *tapnodemock.KeyRing) [][]*tappsbt.VOutput {
 
 				pkt0Outputs := []*tappsbt.VOutput{{
 					Amount:    0,
@@ -486,7 +486,7 @@ func TestFundPacket(t *testing.T) {
 				inputPrevID: inputCommitment,
 			},
 			expectedOutputs: func(t *testing.T,
-				r *tapgarden.MockKeyRing) [][]*tappsbt.VOutput {
+				r *tapnodemock.KeyRing) [][]*tappsbt.VOutput {
 
 				pkt0Outputs := []*tappsbt.VOutput{{
 					Amount:    0,
@@ -556,7 +556,7 @@ func TestFundPacket(t *testing.T) {
 			// to the same anchor output. And the same anchor output
 			// key should be derived for the same output indexes.
 			expectedOutputs: func(t *testing.T,
-				r *tapgarden.MockKeyRing) [][]*tappsbt.VOutput {
+				r *tapnodemock.KeyRing) [][]*tappsbt.VOutput {
 
 				pkt0Outputs := []*tappsbt.VOutput{{
 					Amount:    0,
@@ -643,7 +643,7 @@ func TestFundPacket(t *testing.T) {
 			// to the same anchor output. And the same anchor output
 			// key should be derived for the same output indexes.
 			expectedOutputs: func(t *testing.T,
-				r *tapgarden.MockKeyRing) [][]*tappsbt.VOutput {
+				r *tapnodemock.KeyRing) [][]*tappsbt.VOutput {
 
 				pkt0Outputs := []*tappsbt.VOutput{{
 					Amount:    mintAmount,
@@ -733,7 +733,7 @@ func TestFundPacket(t *testing.T) {
 			// the same anchor output. And the same anchor output
 			// key should be derived for the same output indexes.
 			expectedOutputs: func(t *testing.T,
-				r *tapgarden.MockKeyRing) [][]*tappsbt.VOutput {
+				r *tapnodemock.KeyRing) [][]*tappsbt.VOutput {
 
 				pkt0Outputs := []*tappsbt.VOutput{{
 					Amount:    mintAmount,
@@ -783,7 +783,7 @@ func TestFundPacket(t *testing.T) {
 				proofs: tc.inputProofs,
 			}
 			addrBook := &mockAddrBook{}
-			keyRing := tapgarden.NewMockKeyRing()
+			keyRing := tapnodemock.NewKeyRing()
 
 			result, err := createFundedPacketWithInputs(
 				ctx, exporter, keyRing, addrBook,

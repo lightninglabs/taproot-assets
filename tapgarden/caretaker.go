@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -745,26 +746,20 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		// At this point we have a fully signed PSBT packet which'll
 		// create our set of assets once mined. We'll write this to
-		// disk, then import the public key into the wallet. The sibling
-		// here can always be nil as we'll fetch the output key computed
-		// previously in BatchStateFrozen.
+		// disk, then import the public key into the wallet. To do so
+		// we need the minting output key, which is derived from the
+		// batch key, the asset commitment root, and the optional
+		// tapscript sibling -- so we load the sibling preimage first
+		// and pass it explicitly. MintingOutputKey is now pure in
+		// its arguments, so we cannot rely on a value cached during
+		// BatchStateFrozen.
 		//
 		// TODO(roasbeef): re-run during the broadcast phase to ensure
 		// it's fully imported?
-		mintingOutputKey, merkleRoot, err := b.cfg.Batch.
-			MintingOutputKey(nil)
-		if err != nil {
-			return 0, err
-		}
-
-		// To spend this output in the future, we must also commit the
-		// Taproot Asset commitment root and batch tapscript sibling.
-		tapCommitmentRoot := b.cfg.Batch.RootAssetCommitment.
-			TapscriptRoot(nil)
-
-		// Fetch the optional Tapscript sibling for this batch, and
-		// encode it to bytes.
-		var siblingBytes []byte
+		var (
+			batchSibling *commitment.TapscriptPreimage
+			siblingBytes []byte
+		)
 		if b.cfg.Batch.tapSibling != nil {
 			tapSibling, err := b.cfg.TreeStore.LoadTapscriptTree(
 				ctx, *b.cfg.Batch.tapSibling,
@@ -773,7 +768,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				return 0, err
 			}
 
-			batchSibling, err := commitment.
+			batchSibling, err = commitment.
 				NewPreimageFromTapscriptTreeNodes(*tapSibling)
 			if err != nil {
 				return 0, err
@@ -785,6 +780,17 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				return 0, err
 			}
 		}
+
+		mintingOutputKey, merkleRoot, err := b.cfg.Batch.
+			MintingOutputKey(batchSibling)
+		if err != nil {
+			return 0, err
+		}
+
+		// To spend this output in the future, we must also commit the
+		// Taproot Asset commitment root and batch tapscript sibling.
+		tapCommitmentRoot := b.cfg.Batch.RootAssetCommitment.
+			TapscriptRoot(nil)
 
 		err = b.cfg.Log.CommitSignedGenesisTx(
 			ctx, b.cfg.Batch.BatchKey.PubKey,
@@ -1434,17 +1440,6 @@ func SortAssets(fullAssets []*asset.Asset,
 	return anchorAssets, nonAnchorAssets, nil
 }
 
-// GenHeaderVerifier generates a block header on-chain verification callback
-// function given a chain bridge.
-func GenHeaderVerifier(ctx context.Context,
-	chainBridge ChainBridge) func(wire.BlockHeader, uint32) error {
-
-	return func(header wire.BlockHeader, height uint32) error {
-		err := chainBridge.VerifyBlock(ctx, header, height)
-		return err
-	}
-}
-
 // sendSupplyCommitEvents sends supply commitment events for all minted assets
 // in the batch to track them in the supply commitment state machine.
 func (b *BatchCaretaker) sendSupplyCommitEvents(ctx context.Context,
@@ -1597,7 +1592,7 @@ type emptyCacheVal = singleCacheValue[emptyVal]
 // GenGroupVerifier generates a group key verification callback function given a
 // DB handle.
 func GenGroupVerifier(ctx context.Context,
-	mintingStore GroupFetcher) func(*btcec.PublicKey) error {
+	mintingStore tapnode.GroupFetcher) func(*btcec.PublicKey) error {
 
 	// Cache known group keys that were previously fetched.
 	assetGroups := lru.NewCache[asset.SerializedKey, emptyCacheVal](
@@ -1633,7 +1628,8 @@ func GenGroupVerifier(ctx context.Context,
 // GenGroupAnchorVerifier generates a caching group anchor verification
 // callback function given a DB handle.
 func GenGroupAnchorVerifier(ctx context.Context,
-	mintingStore GroupFetcher) func(*asset.Genesis, *asset.GroupKey) error {
+	mintingStore tapnode.GroupFetcher) func(*asset.Genesis,
+	*asset.GroupKey) error {
 
 	// Cache anchors for groups that were previously fetched.
 	groupAnchors := lru.NewCache[
@@ -1730,7 +1726,7 @@ func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
 
 // verifierCtx returns a verifier context that can be used to verify proofs.
 func (b *BatchCaretaker) verifierCtx(ctx context.Context) proof.VerifierCtx {
-	headerVerifier := GenHeaderVerifier(ctx, b.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, b.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
 	groupVerifier := GenGroupVerifier(ctx, b.cfg.Log)
 	groupAnchorVerifier := GenGroupAnchorVerifier(ctx, b.cfg.Log)

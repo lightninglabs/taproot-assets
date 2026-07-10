@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -45,11 +46,11 @@ type MintSupplyCommitter interface {
 // the tapgarden need to function.
 type GardenKit struct {
 	// Wallet is an active on chain wallet for the target chain.
-	Wallet WalletAnchor
+	Wallet tapnode.WalletAnchor
 
 	// ChainBridge provides access to the chain for confirmation
 	// notification, and other block related actions.
-	ChainBridge ChainBridge
+	ChainBridge tapnode.ChainBridge
 
 	// Log stores the current state of any active batch, throughout the
 	// various states the planter will progress it through.
@@ -62,7 +63,7 @@ type GardenKit struct {
 	// KeyRing is used for obtaining internal keys for the anchor
 	// transaction, as well as script keys for each asset and group keys
 	// for assets created that permit ongoing emission.
-	KeyRing KeyRing
+	KeyRing tapnode.KeyRing
 
 	// GenSigner is used to generate signatures for the key group tweaked
 	// by the genesis point when creating assets that permit on going
@@ -3268,7 +3269,7 @@ func (c *ChainPlanter) publishSubscriberEvent(event fn.Event) {
 
 // verifierCtx returns a verifier context that can be used to verify proofs.
 func (c *ChainPlanter) verifierCtx(ctx context.Context) proof.VerifierCtx {
-	headerVerifier := GenHeaderVerifier(ctx, c.cfg.ChainBridge)
+	headerVerifier := tapnode.GenHeaderVerifier(ctx, c.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
 	groupVerifier := GenGroupVerifier(ctx, c.cfg.Log)
 

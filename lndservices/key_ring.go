@@ -8,7 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -108,5 +108,5 @@ func (l *LndRpcKeyRing) DeriveSharedKey(ctx context.Context,
 }
 
 // A compile time assertion to ensure LndRpcKeyRing meets the
-// tapgarden.KeyRing interface.
-var _ tapgarden.KeyRing = (*LndRpcKeyRing)(nil)
+// tapnode.KeyRing interface.
+var _ tapnode.KeyRing = (*LndRpcKeyRing)(nil)

@@ -30,7 +30,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/vm"
@@ -700,7 +700,7 @@ func (p *pendingAssetFunding) toAuxFundingDesc(req *bindFundingReq,
 
 // unlockInputs unlocks any inputs that were locked during the funding process.
 func (p *pendingAssetFunding) unlockInputs(ctx context.Context,
-	wallet tapgarden.WalletAnchor) error {
+	wallet tapnode.WalletAnchor) error {
 
 	for _, outpoint := range p.lockedInputs {
 		if err := wallet.UnlockInput(ctx, outpoint); err != nil {

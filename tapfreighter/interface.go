@@ -19,7 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -695,20 +695,21 @@ type ExportLog interface {
 		[]*OutboundParcel, error)
 }
 
-// ChainBridge aliases into the ChainBridge of the tapgarden package.
-type ChainBridge = tapgarden.ChainBridge
+// ChainBridge aliases into the ChainBridge of the tapnode package.
+type ChainBridge = tapnode.ChainBridge
 
-// WalletAnchor aliases into the WalletAnchor of the taparden package.
+// WalletAnchor extends the WalletAnchor of the tapnode package with the
+// PSBT-signing capability that the freighter requires.
 type WalletAnchor interface {
-	tapgarden.WalletAnchor
+	tapnode.WalletAnchor
 
 	// SignPsbt signs all the inputs it can in the passed-in PSBT packet,
 	// returning a new one with updated signature/witness data.
 	SignPsbt(ctx context.Context, packet *psbt.Packet) (*psbt.Packet, error)
 }
 
-// KeyRing aliases into the KeyRing of the tapgarden package.
-type KeyRing = tapgarden.KeyRing
+// KeyRing aliases into the KeyRing of the tapnode package.
+type KeyRing = tapnode.KeyRing
 
 // Signer aliases into the Signer interface of the tapscript package.
 type Signer = tapscript.Signer

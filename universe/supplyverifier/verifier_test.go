@@ -7,7 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +19,7 @@ func newTestVerifierCfg(t *testing.T) VerifierCfg {
 
 	return VerifierCfg{
 		AssetSpec:        createTestAssetSpec(t),
-		ChainBridge:      tapgarden.NewMockChainBridge(),
+		ChainBridge:      tapnodemock.NewChainBridge(),
 		AssetLookup:      &supplycommit.MockAssetLookup{},
 		Lnd:              &lndclient.LndServices{},
 		GroupFetcher:     &MockGroupFetcher{},
