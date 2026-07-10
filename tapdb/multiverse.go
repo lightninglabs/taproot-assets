@@ -341,11 +341,13 @@ func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 	return dbRoot, nil
 }
 
-// UniverseLeafKeys returns the set of leaf keys for the given universe.
+// UniverseLeafKeys returns the set of leaf entries for the given
+// universe. Each entry pairs the leaf's universe key with the
+// MS-SMT node hash committing to its content.
 func (b *MultiverseStore) UniverseLeafKeys(ctx context.Context,
-	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
+	q universe.UniverseLeafKeysQuery) ([]universe.LeafEntry, error) {
 
-	// First, check to see if we have the leaf keys cached.
+	// First, check to see if we have the leaf entries cached.
 	leafKeys := b.leafKeysCache.fetchLeafKeys(q)
 	if len(leafKeys) > 0 {
 		return leafKeys, nil

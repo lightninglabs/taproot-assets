@@ -146,7 +146,7 @@ func NewStorage(tb testing.TB) *Storage {
 		LocalDiffEngine:     uniArchive,
 		LocalRegistrar:      uniArchive,
 		NewRemoteDiffEngine: noRemoteDiffEngine,
-		SyncBatchSize:       100,
+		SyncBatchSize:       50,
 	})
 
 	envoyErrChan := make(chan error, 1)

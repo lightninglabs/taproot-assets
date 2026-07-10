@@ -171,10 +171,14 @@ func (q *Queries) FetchMultiverseRoot(ctx context.Context, namespaceRoot string)
 }
 
 const FetchUniverseKeys = `-- name: FetchUniverseKeys :many
-SELECT leaves.minting_point, leaves.script_key_bytes
+SELECT leaves.minting_point, leaves.script_key_bytes,
+       nodes.value AS leaf_value, nodes.sum AS leaf_sum
 FROM universe_leaves AS leaves
+JOIN mssmt_nodes AS nodes
+    ON leaves.leaf_node_key = nodes.key
+       AND leaves.leaf_node_namespace = nodes.namespace
 WHERE leaves.leaf_node_namespace = $1
-ORDER BY 
+ORDER BY
     CASE WHEN $2 = 0 THEN leaves.id END ASC,
     CASE WHEN $2 = 1 THEN leaves.id END DESC
 LIMIT $4 OFFSET $3
@@ -190,8 +194,17 @@ type FetchUniverseKeysParams struct {
 type FetchUniverseKeysRow struct {
 	MintingPoint   []byte
 	ScriptKeyBytes []byte
+	LeafValue      []byte
+	LeafSum        int64
 }
 
+// Note on hash construction: mssmt_nodes.hash_key on a compacted leaf
+// commits to the subtree root at that leaf's tree height, which
+// varies with the tree's shape and is therefore NOT canonical across
+// universes with the same leaves. What we want for a cross-universe
+// diff is the leaf's own canonical content hash H(value || sum),
+// computed from mssmt_nodes.value (the leaf's RawProof bytes) and
+// mssmt_nodes.sum. Callers compute the hash from these two columns.
 func (q *Queries) FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysParams) ([]FetchUniverseKeysRow, error) {
 	rows, err := q.db.QueryContext(ctx, FetchUniverseKeys,
 		arg.Namespace,
@@ -206,7 +219,12 @@ func (q *Queries) FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysPa
 	var items []FetchUniverseKeysRow
 	for rows.Next() {
 		var i FetchUniverseKeysRow
-		if err := rows.Scan(&i.MintingPoint, &i.ScriptKeyBytes); err != nil {
+		if err := rows.Scan(
+			&i.MintingPoint,
+			&i.ScriptKeyBytes,
+			&i.LeafValue,
+			&i.LeafSum,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

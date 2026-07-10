@@ -120,6 +120,13 @@ type Querier interface {
 	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)
 	FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error)
 	FetchTransferOutputs(ctx context.Context, transferID int64) ([]FetchTransferOutputsRow, error)
+	// Note on hash construction: mssmt_nodes.hash_key on a compacted leaf
+	// commits to the subtree root at that leaf's tree height, which
+	// varies with the tree's shape and is therefore NOT canonical across
+	// universes with the same leaves. What we want for a cross-universe
+	// diff is the leaf's own canonical content hash H(value || sum),
+	// computed from mssmt_nodes.value (the leaf's RawProof bytes) and
+	// mssmt_nodes.sum. Callers compute the hash from these two columns.
 	FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysParams) ([]FetchUniverseKeysRow, error)
 	FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error)
 	FetchUniverseSupplyRoot(ctx context.Context, namespaceRoot string) (FetchUniverseSupplyRootRow, error)

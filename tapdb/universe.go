@@ -1204,10 +1204,12 @@ func universeFetchProofLeaf(ctx context.Context,
 	return proofs, nil
 }
 
-// mintingKeys returns all the leaf keys in the target universe.
+// mintingKeys returns all the leaf entries in the target universe,
+// each pairing a universe key with the MS-SMT node hash that
+// commits to the leaf's content.
 func mintingKeys(ctx context.Context, dbTx BaseUniverseStore,
 	q universe.UniverseLeafKeysQuery,
-	namespace string) ([]universe.LeafKey, error) {
+	namespace string) ([]universe.LeafEntry, error) {
 
 	universeKeys, err := dbTx.FetchUniverseKeys(
 		ctx, UniverseLeafKeysQuery{
@@ -1227,7 +1229,7 @@ func mintingKeys(ctx context.Context, dbTx BaseUniverseStore,
 		return nil, err
 	}
 
-	var leafKeys []universe.LeafKey
+	var entries []universe.LeafEntry
 	err = fn.ForEachErr(universeKeys, func(key UniverseKeys) error {
 		scriptKeyPub, err := schnorr.ParsePubKey(
 			key.ScriptKeyBytes,
@@ -1246,9 +1248,22 @@ func mintingKeys(ctx context.Context, dbTx BaseUniverseStore,
 			return err
 		}
 
-		leafKeys = append(leafKeys, universe.BaseLeafKey{
-			OutPoint:  genPoint,
-			ScriptKey: &scriptKey,
+		// The canonical leaf hash H(value || sum) commits to the
+		// leaf's content independently of tree shape, unlike the
+		// compacted-leaf hash_key stored in mssmt_nodes (which
+		// commits to the subtree root at the leaf's height and so
+		// varies with the enclosing tree). Reconstruct it from
+		// the leaf's stored value + sum.
+		nodeHash := mssmt.NewLeafNode(
+			key.LeafValue, uint64(key.LeafSum),
+		).NodeHash()
+
+		entries = append(entries, universe.LeafEntry{
+			Key: universe.BaseLeafKey{
+				OutPoint:  genPoint,
+				ScriptKey: &scriptKey,
+			},
+			NodeHash: fn.Some(nodeHash),
 		})
 
 		return nil
@@ -1257,14 +1272,14 @@ func mintingKeys(ctx context.Context, dbTx BaseUniverseStore,
 		return nil, err
 	}
 
-	return leafKeys, nil
+	return entries, nil
 }
 
-// FetchKeys retrieves all keys from the universe tree.
+// FetchKeys retrieves all leaf entries from the universe tree.
 func (b *BaseUniverseTree) FetchKeys(ctx context.Context,
-	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
+	q universe.UniverseLeafKeysQuery) ([]universe.LeafEntry, error) {
 
-	var leafKeys []universe.LeafKey
+	var leafKeys []universe.LeafEntry
 
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {

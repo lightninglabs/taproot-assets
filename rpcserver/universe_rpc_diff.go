@@ -136,16 +136,21 @@ func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 	return unmarshalUniverseRoot(universeRoot.TransferRoot)
 }
 
-// UniverseLeafKeys returns all the keys inserted in the universe.
+// UniverseLeafKeys returns all the leaf entries in the universe.
+// When the responding peer populates `entries`, each returned
+// LeafEntry carries the peer's MS-SMT leaf node hash so the syncer
+// can diff on content. When only the legacy `asset_keys` field is
+// populated, NodeHash is left as None and callers must fall back to
+// a key-only diff for that peer.
 func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
-	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
+	q universe.UniverseLeafKeysQuery) ([]universe.LeafEntry, error) {
 
 	uniID, err := MarshalUniID(q.Id)
 	if err != nil {
 		return nil, err
 	}
 
-	assetKeys, err := r.conn.AssetLeafKeys(
+	resp, err := r.conn.AssetLeafKeys(
 		ctx, &unirpc.AssetLeafKeysRequest{
 			Id:        uniID,
 			Direction: taprpc.SortDirection(q.SortDirection),
@@ -157,17 +162,52 @@ func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
 		return nil, err
 	}
 
-	keys := make([]universe.LeafKey, len(assetKeys.AssetKeys))
-	for i, key := range assetKeys.AssetKeys {
+	// Prefer the entries field (carries per-leaf node hashes) when
+	// the peer populated it; otherwise fall back to the legacy
+	// asset_keys field with NodeHash unset.
+	if len(resp.Entries) > 0 {
+		entries := make([]universe.LeafEntry, len(resp.Entries))
+		for i, entry := range resp.Entries {
+			leafKey, err := unmarshalLeafKey(entry.AssetKey)
+			if err != nil {
+				return nil, err
+			}
+
+			nodeHash := fn.None[mssmt.NodeHash]()
+			if len(entry.LeafNodeHash) > 0 {
+				h, err := mssmt.NewNodeHashFromBytes(
+					entry.LeafNodeHash,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("invalid "+
+						"leaf node hash: %w", err)
+				}
+				nodeHash = fn.Some(h)
+			}
+
+			entries[i] = universe.LeafEntry{
+				Key:      leafKey,
+				NodeHash: nodeHash,
+			}
+		}
+
+		return entries, nil
+	}
+
+	entries := make([]universe.LeafEntry, len(resp.AssetKeys))
+	for i, key := range resp.AssetKeys {
 		leafKey, err := unmarshalLeafKey(key)
 		if err != nil {
 			return nil, err
 		}
 
-		keys[i] = leafKey
+		entries[i] = universe.LeafEntry{
+			Key:      leafKey,
+			NodeHash: fn.None[mssmt.NodeHash](),
+		}
 	}
 
-	return keys, nil
+	return entries, nil
 }
 
 // FetchProofLeaf attempts to fetch a proof leaf for the target leaf key

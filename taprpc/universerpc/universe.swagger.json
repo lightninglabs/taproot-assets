@@ -2519,6 +2519,20 @@
         }
       }
     },
+    "universerpcAssetLeafEntry": {
+      "type": "object",
+      "properties": {
+        "asset_key": {
+          "$ref": "#/definitions/universerpcAssetKey",
+          "description": "The asset key identifying the leaf within the universe."
+        },
+        "leaf_node_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte MS-SMT leaf node hash committing to the leaf's\ncontent. Peers that predate this field leave it empty; readers\nmust fall back to a key-only diff in that case."
+        }
+      }
+    },
     "universerpcAssetLeafKeyResponse": {
       "type": "object",
       "properties": {
@@ -2528,11 +2542,19 @@
             "type": "object",
             "$ref": "#/definitions/universerpcAssetKey"
           },
-          "description": "The set of asset leaf keys for the given asset ID or group key."
+          "description": "Deprecated. Superseded by `entries`, which additionally carries\neach leaf's MS-SMT node hash so a diff can detect shared-key\ncontent divergence directly. Populated for peers whose readers\npredate `entries`."
         },
         "has_more": {
           "type": "boolean",
           "description": "Indicates whether there are more results beyond the current\npage."
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/universerpcAssetLeafEntry"
+          },
+          "description": "The set of asset leaf entries for the given asset ID or group\nkey. Each entry pairs an asset key with the MS-SMT node hash\ncommitting to the leaf's content."
         }
       }
     },

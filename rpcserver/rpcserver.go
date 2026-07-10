@@ -7242,7 +7242,7 @@ func (r *RPCServer) AssetLeafKeys(ctx context.Context,
 		limit = universe.RequestPageSize
 	}
 
-	leafKeys, err := r.cfg.UniverseArchive.UniverseLeafKeys(
+	leafEntries, err := r.cfg.UniverseArchive.UniverseLeafKeys(
 		ctx, universe.UniverseLeafKeysQuery{
 			Id:            universeID,
 			SortDirection: unmarshalUniSortDirection(req.Direction),
@@ -7256,18 +7256,30 @@ func (r *RPCServer) AssetLeafKeys(ctx context.Context,
 			universeID.StringForLog(), req.Offset, limit, err)
 	}
 
-	hasMore := int32(len(leafKeys)) > limit
+	hasMore := int32(len(leafEntries)) > limit
 	if hasMore {
-		leafKeys = leafKeys[:limit]
+		leafEntries = leafEntries[:limit]
 	}
 
+	// Populate both the legacy `asset_keys` field and the new
+	// `entries` field. Old clients read `asset_keys`; new clients
+	// prefer `entries` and use its leaf_node_hash to diff on
+	// content.
 	resp := &unirpc.AssetLeafKeyResponse{
-		AssetKeys: make([]*unirpc.AssetKey, len(leafKeys)),
+		AssetKeys: make([]*unirpc.AssetKey, len(leafEntries)),
+		Entries:   make([]*unirpc.AssetLeafEntry, len(leafEntries)),
 		HasMore:   hasMore,
 	}
 
-	for i, leafKey := range leafKeys {
-		resp.AssetKeys[i] = marshalLeafKey(leafKey)
+	for i, entry := range leafEntries {
+		assetKey := marshalLeafKey(entry.Key)
+		resp.AssetKeys[i] = assetKey
+
+		rpcEntry := &unirpc.AssetLeafEntry{AssetKey: assetKey}
+		entry.NodeHash.WhenSome(func(h mssmt.NodeHash) {
+			rpcEntry.LeafNodeHash = h[:]
+		})
+		resp.Entries[i] = rpcEntry
 	}
 
 	return resp, nil
