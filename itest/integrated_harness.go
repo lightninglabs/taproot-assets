@@ -72,6 +72,18 @@ func NewIntegratedNetworkHarness(t *testing.T, binary string,
 	}
 }
 
+// ConnectMiner connects the chain backend to the miner.
+func (h *IntegratedNetworkHarness) ConnectMiner() error {
+	return h.chainBackend.ConnectMiner()
+}
+
+// DisconnectMiner disconnects the chain backend from the miner. Used by
+// re-org tests: with the backend detached, a temporary miner can extend a
+// competing fork that the backend then re-orgs onto when reconnected.
+func (h *IntegratedNetworkHarness) DisconnectMiner() error {
+	return h.chainBackend.DisconnectMiner()
+}
+
 // NewNode creates, starts, and returns a new IntegratedNode. Chain backend
 // connection args from the harness are automatically prepended to the node's
 // lnd args so the caller only needs to pass test-specific overrides.
