@@ -142,8 +142,23 @@ var allTestCases = []*testCase{
 		reOrgSafeDepth: 6,
 	},
 	{
+		name:           "re-org send conflicting spend",
+		test:           testReOrgSendConflictingSpend,
+		reOrgSafeDepth: 6,
+	},
+	{
 		name:           "re-org deep stuck",
 		test:           testReOrgDeepStuck,
+		reOrgSafeDepth: 3,
+	},
+	{
+		name:           "re-org supply commit",
+		test:           testReOrgSupplyCommit,
+		reOrgSafeDepth: 3,
+	},
+	{
+		name:           "re-org genesis receive",
+		test:           testReOrgGenesisReceive,
 		reOrgSafeDepth: 3,
 	},
 	{
