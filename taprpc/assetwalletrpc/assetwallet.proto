@@ -278,8 +278,9 @@ message AnchorVirtualPsbtsRequest {
 
 enum TransitionProofVersion {
     /*
-    The first version of the state transition proof. This is the default for
-    backward compatibility.
+    The first version of the state transition proof. As the zero value of
+    this enum it is also what an unset field carries, so selecting it
+    applies the daemon's default proof version rather than V0.
     */
     TRANSITION_PROOF_VERSION_V0 = 0;
 
@@ -373,7 +374,7 @@ message CommitVirtualPsbtsRequest {
 
     /*
     The version to use when generating the state transition proof suffixes.
-    This defaults to TRANSITION_PROOF_VERSION_V0 for backward compatibility.
+    If unset, the daemon's default proof version is used.
     */
     TransitionProofVersion transition_proof_version = 11;
 }

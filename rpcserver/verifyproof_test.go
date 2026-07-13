@@ -5,21 +5,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapconfig"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/stretchr/testify/require"
 )
-
-// newTestServer creates a minimal RPCServer for validation testing.
-func newTestServer() *RPCServer {
-	return &RPCServer{
-		cfg: &tapconfig.Config{
-			ChainParams: address.MainNetTap,
-		},
-	}
-}
 
 // TestVerifyProofInvalidProofResponse ensures that a proof file that fails
 // verification results in a successful RPC response with valid=false and no

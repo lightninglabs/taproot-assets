@@ -2135,12 +2135,14 @@ func (r *RPCServer) DecodeAddr(_ context.Context,
 	req *taprpc.DecodeAddrRequest) (*taprpc.Addr, error) {
 
 	if len(req.Addr) == 0 {
-		return nil, fmt.Errorf("must specify an addr")
+		return nil, status.Error(codes.InvalidArgument,
+			"must specify an addr")
 	}
 
 	addr, err := address.DecodeAddress(req.Addr, &r.cfg.ChainParams)
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode addr: %w", err)
+		return nil, status.Errorf(codes.InvalidArgument,
+			"unable to decode addr: %v", err)
 	}
 
 	rpcAddr, err := marshalAddr(addr, r.cfg.TapAddrBook)
@@ -2214,8 +2216,8 @@ func (r *RPCServer) DecodeProof(ctx context.Context,
 	case proof.IsSingleProof(req.RawProof):
 		p, err := proof.Decode(req.RawProof)
 		if err != nil {
-			return nil, fmt.Errorf("unable to decode proof: %w",
-				err)
+			return nil, status.Errorf(codes.InvalidArgument,
+				"unable to decode proof: %v", err)
 		}
 
 		rpcProof, err = r.marshalProof(
@@ -2230,20 +2232,22 @@ func (r *RPCServer) DecodeProof(ctx context.Context,
 
 	case proof.IsProofFile(req.RawProof):
 		if err := proof.CheckMaxFileSize(req.RawProof); err != nil {
-			return nil, fmt.Errorf("invalid proof file: %w", err)
+			return nil, status.Errorf(codes.InvalidArgument,
+				"invalid proof file: %v", err)
 		}
 
 		proofFile, err := proof.DecodeFile(req.RawProof)
 		if err != nil {
-			return nil, fmt.Errorf("unable to decode proof file: "+
-				"%w", err)
+			return nil, status.Errorf(codes.InvalidArgument,
+				"unable to decode proof file: %v", err)
 		}
 
 		latestProofIndex := uint32(proofFile.NumProofs() - 1)
 		if req.ProofAtDepth > latestProofIndex {
-			return nil, fmt.Errorf("invalid depth %d is greater "+
-				"than latest proof index of %d",
-				req.ProofAtDepth, latestProofIndex)
+			return nil, status.Errorf(codes.InvalidArgument,
+				"invalid depth %d is greater than latest "+
+					"proof index of %d", req.ProofAtDepth,
+				latestProofIndex)
 		}
 
 		// Default to latest proof.
@@ -2266,8 +2270,8 @@ func (r *RPCServer) DecodeProof(ctx context.Context,
 		rpcProof.NumberOfProofs = uint32(proofFile.NumProofs())
 
 	default:
-		return nil, fmt.Errorf("invalid raw proof, could not " +
-			"identify decoding format")
+		return nil, status.Error(codes.InvalidArgument,
+			"invalid raw proof, could not identify decoding format")
 	}
 
 	return &taprpc.DecodeProofResponse{
@@ -2458,16 +2462,19 @@ func (r *RPCServer) ExportProof(ctx context.Context,
 	req *taprpc.ExportProofRequest) (*taprpc.ProofFile, error) {
 
 	if len(req.ScriptKey) == 0 {
-		return nil, fmt.Errorf("a valid script key must be specified")
+		return nil, status.Error(codes.InvalidArgument,
+			"a valid script key must be specified")
 	}
 
 	scriptKey, err := rpcutils.ParseUserKey(req.ScriptKey)
 	if err != nil {
-		return nil, fmt.Errorf("invalid script key: %w", err)
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid script key: %v", err)
 	}
 
 	if len(req.AssetId) != 32 {
-		return nil, fmt.Errorf("asset ID must be 32 bytes")
+		return nil, status.Error(codes.InvalidArgument,
+			"asset ID must be 32 bytes")
 	}
 
 	var (
@@ -2483,8 +2490,8 @@ func (r *RPCServer) ExportProof(ctx context.Context,
 	if req.Outpoint != nil {
 		op, err := rpcutils.UnmarshalOutPoint(req.Outpoint)
 		if err != nil {
-			return nil, fmt.Errorf("unmarshalling outpoint: %w",
-				err)
+			return nil, status.Errorf(codes.InvalidArgument,
+				"unmarshalling outpoint: %v", err)
 		}
 
 		outPoint = &op
@@ -3013,15 +3020,20 @@ func (r *RPCServer) AnchorVirtualPsbts(ctx context.Context,
 	}, nil
 }
 
-func transitionProofOption(
-	version wrpc.TransitionProofVersion) (proof.GenOption, error) {
+// transitionProofOptions maps the requested transition proof version to
+// proof generation options. The enum's zero value is what an unset field
+// carries, so it selects the daemon's default version rather than V0.
+func transitionProofOptions(
+	version wrpc.TransitionProofVersion) ([]proof.GenOption, error) {
 
 	switch version {
 	case wrpc.TransitionProofVersion_TRANSITION_PROOF_VERSION_V0:
-		return proof.WithVersion(proof.TransitionV0), nil
+		return nil, nil
 
 	case wrpc.TransitionProofVersion_TRANSITION_PROOF_VERSION_V1:
-		return proof.WithVersion(proof.TransitionV1), nil
+		return []proof.GenOption{
+			proof.WithVersion(proof.TransitionV1),
+		}, nil
 
 	default:
 		return nil, status.Errorf(
@@ -3039,7 +3051,7 @@ func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 	req *wrpc.CommitVirtualPsbtsRequest) (*wrpc.CommitVirtualPsbtsResponse,
 	error) {
 
-	proofOption, err := transitionProofOption(req.TransitionProofVersion)
+	proofOpts, err := transitionProofOptions(req.TransitionProofVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -3206,7 +3218,7 @@ func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 			proofSuffix, err := tapsend.CreateProofSuffix(
 				fundedPacket.UnsignedTx, fundedPacket.Outputs,
 				vPkt, outputCommitments, vOutIdx, allPackets,
-				proofOption,
+				proofOpts...,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to create "+
