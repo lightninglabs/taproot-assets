@@ -2136,12 +2136,14 @@ func (r *RPCServer) DecodeAddr(_ context.Context,
 	req *taprpc.DecodeAddrRequest) (*taprpc.Addr, error) {
 
 	if len(req.Addr) == 0 {
-		return nil, fmt.Errorf("must specify an addr")
+		return nil, status.Error(codes.InvalidArgument,
+			"must specify an addr")
 	}
 
 	addr, err := address.DecodeAddress(req.Addr, &r.cfg.ChainParams)
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode addr: %w", err)
+		return nil, status.Errorf(codes.InvalidArgument,
+			"unable to decode addr: %v", err)
 	}
 
 	rpcAddr, err := marshalAddr(addr, r.cfg.TapAddrBook)
@@ -2208,8 +2210,8 @@ func (r *RPCServer) DecodeProof(ctx context.Context,
 	case proof.IsSingleProof(req.RawProof):
 		p, err := proof.Decode(req.RawProof)
 		if err != nil {
-			return nil, fmt.Errorf("unable to decode proof: %w",
-				err)
+			return nil, status.Errorf(codes.InvalidArgument,
+				"unable to decode proof: %v", err)
 		}
 
 		rpcProof, err = r.marshalProof(
@@ -2224,20 +2226,22 @@ func (r *RPCServer) DecodeProof(ctx context.Context,
 
 	case proof.IsProofFile(req.RawProof):
 		if err := proof.CheckMaxFileSize(req.RawProof); err != nil {
-			return nil, fmt.Errorf("invalid proof file: %w", err)
+			return nil, status.Errorf(codes.InvalidArgument,
+				"invalid proof file: %v", err)
 		}
 
 		proofFile, err := proof.DecodeFile(req.RawProof)
 		if err != nil {
-			return nil, fmt.Errorf("unable to decode proof file: "+
-				"%w", err)
+			return nil, status.Errorf(codes.InvalidArgument,
+				"unable to decode proof file: %v", err)
 		}
 
 		latestProofIndex := uint32(proofFile.NumProofs() - 1)
 		if req.ProofAtDepth > latestProofIndex {
-			return nil, fmt.Errorf("invalid depth %d is greater "+
-				"than latest proof index of %d",
-				req.ProofAtDepth, latestProofIndex)
+			return nil, status.Errorf(codes.InvalidArgument,
+				"invalid depth %d is greater than latest "+
+					"proof index of %d", req.ProofAtDepth,
+				latestProofIndex)
 		}
 
 		// Default to latest proof.
@@ -2260,8 +2264,8 @@ func (r *RPCServer) DecodeProof(ctx context.Context,
 		rpcProof.NumberOfProofs = uint32(proofFile.NumProofs())
 
 	default:
-		return nil, fmt.Errorf("invalid raw proof, could not " +
-			"identify decoding format")
+		return nil, status.Error(codes.InvalidArgument,
+			"invalid raw proof, could not identify decoding format")
 	}
 
 	return &taprpc.DecodeProofResponse{
@@ -2452,16 +2456,19 @@ func (r *RPCServer) ExportProof(ctx context.Context,
 	req *taprpc.ExportProofRequest) (*taprpc.ProofFile, error) {
 
 	if len(req.ScriptKey) == 0 {
-		return nil, fmt.Errorf("a valid script key must be specified")
+		return nil, status.Error(codes.InvalidArgument,
+			"a valid script key must be specified")
 	}
 
 	scriptKey, err := rpcutils.ParseUserKey(req.ScriptKey)
 	if err != nil {
-		return nil, fmt.Errorf("invalid script key: %w", err)
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid script key: %v", err)
 	}
 
 	if len(req.AssetId) != 32 {
-		return nil, fmt.Errorf("asset ID must be 32 bytes")
+		return nil, status.Error(codes.InvalidArgument,
+			"asset ID must be 32 bytes")
 	}
 
 	var (
@@ -2477,8 +2484,8 @@ func (r *RPCServer) ExportProof(ctx context.Context,
 	if req.Outpoint != nil {
 		op, err := rpcutils.UnmarshalOutPoint(req.Outpoint)
 		if err != nil {
-			return nil, fmt.Errorf("unmarshalling outpoint: %w",
-				err)
+			return nil, status.Errorf(codes.InvalidArgument,
+				"unmarshalling outpoint: %v", err)
 		}
 
 		outPoint = &op
