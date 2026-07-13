@@ -52,6 +52,10 @@ var (
 			Entity: "assets",
 			Action: "read",
 		}},
+		"/taprpc.TaprootAssets/WithdrawAnchoring": {{
+			Entity: "assets",
+			Action: "write",
+		}},
 		"/taprpc.TaprootAssets/QueryAddrs": {{
 			Entity: "addresses",
 			Action: "read",

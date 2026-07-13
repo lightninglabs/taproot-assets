@@ -156,6 +156,22 @@ type Registry interface {
 	// AllAnchorings returns every anchoring, live and settled.
 	AllAnchorings(ctx context.Context) ([]*Anchoring, error)
 
+	// RecentTerminals returns the chain-decided terminal
+	// anchorings (buried or abandoned) that are not already
+	// flagged stuck and whose terminal delivery happened at or
+	// after the cutoff, or is still pending: the terminal audit's
+	// working set.
+	RecentTerminals(ctx context.Context,
+		cutoff time.Time) ([]*Anchoring, error)
+
+	// MarkStuck flags an anchoring stuck outside the delivery
+	// path, with a reason surfaced in place of the last delivery
+	// error. The terminal audit uses it when the chain contradicts
+	// a terminal phase's recorded evidence; delivery bookkeeping
+	// is left untouched.
+	MarkStuck(ctx context.Context, id AnchoringID,
+		reason string) error
+
 	// LookupByMatchKey returns the site's anchoring with the given
 	// match key, or (nil, nil) if none exists. The registry
 	// enforces (site_id, match_key) uniqueness on non-null keys,
@@ -224,7 +240,11 @@ type Registry interface {
 	// anchoring to Withdrawn in one transaction. It refuses when
 	// live anchorings still depend on this one
 	// (ErrLiveDependents), and when the anchoring is already
-	// terminal (ErrTerminalPhase).
+	// terminal (ErrTerminalPhase) — with one exception: a terminal
+	// flagged stuck may be withdrawn, which is the documented
+	// operator disposal of a terminal the chain has contradicted.
+	// Withdrawal clears the stuck flag along with the rest of the
+	// delivery bookkeeping.
 	Withdraw(ctx context.Context, id AnchoringID,
 		onWithdraw func(context.Context, RegistryTx) error) error
 

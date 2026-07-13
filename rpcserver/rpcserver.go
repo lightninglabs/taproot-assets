@@ -1904,6 +1904,14 @@ func (r *RPCServer) ListAnchorings(ctx context.Context,
 // the request's phase filter takes — with the evidence renderings in
 // the detail fields alongside.
 func marshalAnchoring(summary tapdb.AnchoringSummary) *taprpc.Anchoring {
+	// The error column also holds transient text while delivery
+	// retries below the stuck threshold; it surfaces as the stuck
+	// reason only once the flag is set.
+	var stuckReason string
+	if summary.Stuck {
+		stuckReason = summary.LastDeliveryError
+	}
+
 	return &taprpc.Anchoring{
 		Id:                   int64(summary.ID),
 		Site:                 string(summary.Site),
@@ -1914,11 +1922,86 @@ func marshalAnchoring(summary tapdb.AnchoringSummary) *taprpc.Anchoring {
 		Threshold:            summary.Threshold,
 		CreatedHeight:        summary.CreatedHeight,
 		Stuck:                summary.Stuck,
+		StuckReason:          stuckReason,
 		DeliveryAttempts:     summary.DeliveryAttempts,
 		WitnessTxid:          summary.WitnessTxid,
 		NumCandidates:        summary.NumCandidates,
 		LastDeliveryError:    summary.LastDeliveryError,
 		TerminalAt:           summary.TerminalAt,
+	}
+}
+
+// WithdrawAnchoring withdraws a stuck anchoring: the operator's
+// manual disposal after auditing a repeatedly failing delivery or a
+// terminal the chain has contradicted. The registry enforces the
+// structural refusals (live dependents, settled terminals); this
+// surface additionally requires the stuck flag, so a healthy stake
+// cannot be ripped out from under its owning subsystem by accident.
+func (r *RPCServer) WithdrawAnchoring(ctx context.Context,
+	req *taprpc.WithdrawAnchoringRequest) (
+	*taprpc.WithdrawAnchoringResponse, error) {
+
+	if r.cfg.AnchoringWatcher == nil {
+		return nil, fmt.Errorf("anchoring watcher not available")
+	}
+
+	id := tapreorg.AnchoringID(req.AnchoringId)
+	anchoring, err := r.cfg.AnchoringWatcher.Anchoring(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch anchoring: %w", err)
+	}
+	if !anchoring.Stuck {
+		return nil, fmt.Errorf("anchoring %d is not flagged stuck; "+
+			"manual withdrawal is reserved for stuck anchorings",
+			id)
+	}
+
+	// No site write runs: the subsystem's state is left exactly as
+	// it stands, in the operator's hands.
+	if err := r.cfg.AnchoringWatcher.Withdraw(ctx, id, nil); err != nil {
+		return nil, fmt.Errorf("unable to withdraw anchoring: %w",
+			err)
+	}
+
+	anchoring, err = r.cfg.AnchoringWatcher.Anchoring(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch withdrawn "+
+			"anchoring: %w", err)
+	}
+
+	return &taprpc.WithdrawAnchoringResponse{
+		Anchoring: marshalAnchoringAggregate(anchoring),
+	}, nil
+}
+
+// marshalAnchoringAggregate renders a full anchoring aggregate for
+// the RPC surface.
+func marshalAnchoringAggregate(
+	anchoring *tapreorg.Anchoring) *taprpc.Anchoring {
+
+	var witnessTxid []byte
+	switch phase := anchoring.Phase.(type) {
+	case tapreorg.Witnessed:
+		hash := phase.W.TxHash()
+		witnessTxid = hash.CloneBytes()
+
+	case tapreorg.Buried:
+		hash := phase.W.TxHash()
+		witnessTxid = hash.CloneBytes()
+	}
+
+	return &taprpc.Anchoring{
+		Id:               int64(anchoring.ID),
+		Site:             string(anchoring.Site),
+		Phase:            anchoring.Phase.String(),
+		DeliveredPhase:   anchoring.DeliveredPhase.String(),
+		Threshold:        anchoring.Threshold,
+		CreatedHeight:    anchoring.CreatedHeight,
+		Stuck:            anchoring.Stuck,
+		StuckReason:      anchoring.StuckReason,
+		DeliveryAttempts: anchoring.DeliveryAttempts,
+		WitnessTxid:      witnessTxid,
+		NumCandidates:    uint32(len(anchoring.Spends)),
 	}
 }
 

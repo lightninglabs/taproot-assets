@@ -551,6 +551,63 @@ func (q *Queries) ListLiveReorgAnchorings(ctx context.Context) ([]ReorgAnchoring
 	return items, nil
 }
 
+const ListRecentReorgTerminals = `-- name: ListRecentReorgTerminals :many
+SELECT id, site_id, threshold, match_version, match_data, payload_version, payload_data, created_height, phase_code, phase_evidence, delivered_code, delivered_evidence, witness_txid, stuck, delivery_attempts, last_delivery_error, next_delivery_at, terminal_at, match_key
+FROM reorg_anchorings
+WHERE phase_code IN (3, 4)
+  AND stuck = FALSE
+  AND (terminal_at IS NULL OR terminal_at >= $1)
+ORDER BY id
+`
+
+// The terminal-audit working set: chain-decided terminals (buried
+// or abandoned; withdrawn rests on no chain evidence) that are not
+// already flagged stuck and whose terminal delivery is recent or
+// still pending. The audit verifies each one's recorded evidence
+// block against the dominant chain and flags contradictions.
+func (q *Queries) ListRecentReorgTerminals(ctx context.Context, cutoff sql.NullInt64) ([]ReorgAnchoring, error) {
+	rows, err := q.db.QueryContext(ctx, ListRecentReorgTerminals, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReorgAnchoring
+	for rows.Next() {
+		var i ReorgAnchoring
+		if err := rows.Scan(
+			&i.ID,
+			&i.SiteID,
+			&i.Threshold,
+			&i.MatchVersion,
+			&i.MatchData,
+			&i.PayloadVersion,
+			&i.PayloadData,
+			&i.CreatedHeight,
+			&i.PhaseCode,
+			&i.PhaseEvidence,
+			&i.DeliveredCode,
+			&i.DeliveredEvidence,
+			&i.WitnessTxid,
+			&i.Stuck,
+			&i.DeliveryAttempts,
+			&i.LastDeliveryError,
+			&i.NextDeliveryAt,
+			&i.TerminalAt,
+			&i.MatchKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const ListReorgAnchoringSummariesPage = `-- name: ListReorgAnchoringSummariesPage :many
 SELECT
     a.id, a.site_id, a.threshold, a.created_height, a.phase_code,
@@ -866,6 +923,26 @@ func (q *Queries) MarkReorgAnchoringDelivered(ctx context.Context, arg MarkReorg
 	return err
 }
 
+const MarkReorgAnchoringStuck = `-- name: MarkReorgAnchoringStuck :exec
+UPDATE reorg_anchorings
+SET stuck = TRUE,
+    last_delivery_error = $1
+WHERE id = $2
+`
+
+type MarkReorgAnchoringStuckParams struct {
+	Reason sql.NullString
+	ID     int64
+}
+
+// Flag an anchoring stuck outside the delivery path: the terminal
+// audit found the chain contradicting a terminal phase's recorded
+// evidence. Delivery bookkeeping is left untouched.
+func (q *Queries) MarkReorgAnchoringStuck(ctx context.Context, arg MarkReorgAnchoringStuckParams) error {
+	_, err := q.db.ExecContext(ctx, MarkReorgAnchoringStuck, arg.Reason, arg.ID)
+	return err
+}
+
 const MarkReorgEffectDispatched = `-- name: MarkReorgEffectDispatched :exec
 UPDATE reorg_outbox
 SET dispatched_at = $1
@@ -1091,4 +1168,35 @@ type UpsertReorgDependencyParams struct {
 func (q *Queries) UpsertReorgDependency(ctx context.Context, arg UpsertReorgDependencyParams) error {
 	_, err := q.db.ExecContext(ctx, UpsertReorgDependency, arg.ChildID, arg.ParentID, arg.ParentWitnessTxid)
 	return err
+}
+
+const WithdrawReorgAnchoring = `-- name: WithdrawReorgAnchoring :execrows
+UPDATE reorg_anchorings
+SET phase_code = $1,
+    phase_evidence = $2,
+    witness_txid = NULL,
+    delivery_attempts = 0,
+    stuck = FALSE,
+    last_delivery_error = NULL,
+    next_delivery_at = 0
+WHERE id = $3
+  AND (phase_code < 3 OR stuck = TRUE)
+`
+
+type WithdrawReorgAnchoringParams struct {
+	PhaseCode     int16
+	PhaseEvidence []byte
+	ID            int64
+}
+
+// The operator's disposal of a stuck terminal is the one permitted
+// terminal phase transition, so this update relaxes the absorption
+// guard of SetReorgAnchoringPhase to admit terminal rows whose stuck
+// flag is set. Live rows withdraw freely.
+func (q *Queries) WithdrawReorgAnchoring(ctx context.Context, arg WithdrawReorgAnchoringParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, WithdrawReorgAnchoring, arg.PhaseCode, arg.PhaseEvidence, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

@@ -2,7 +2,9 @@ package itest
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/miner"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -678,4 +681,214 @@ func generateReOrg(t *testing.T, lnd *lntest.HarnessTest,
 	lnd.Miner().DisconnectMiner(tempMiner)
 
 	lnd.ConnectMiner()
+}
+
+// assertAnchoringStuck waits until the site's single anchoring
+// reports the given stuck state while both its sensed and delivered
+// phases keep the given prefix.
+func assertAnchoringStuck(t *testing.T, tapd *tapdHarness, site,
+	phase string, stuck bool) {
+
+	t.Helper()
+
+	ctxb := context.Background()
+	err := wait.NoError(func() error {
+		resp, err := tapd.ListAnchorings(
+			ctxb, &taprpc.ListAnchoringsRequest{Site: site},
+		)
+		if err != nil {
+			return err
+		}
+		if len(resp.Anchorings) != 1 {
+			return fmt.Errorf("expected 1 anchoring for site "+
+				"%v, got %d", site, len(resp.Anchorings))
+		}
+
+		a := resp.Anchorings[0]
+		if !strings.HasPrefix(a.Phase, phase) ||
+			!strings.HasPrefix(a.DeliveredPhase, phase) {
+
+			return fmt.Errorf("anchoring %d: phase %v "+
+				"(delivered %v), want %v", a.Id, a.Phase,
+				a.DeliveredPhase, phase)
+		}
+		if a.Stuck != stuck {
+			return fmt.Errorf("anchoring %d: stuck=%v, want %v",
+				a.Id, a.Stuck, stuck)
+		}
+
+		return nil
+	}, defaultWaitTimeout)
+	require.NoError(t, err)
+}
+
+// testReOrgDeepStuck tests the terminal-absorption policy's operator
+// surface: a re-org deeper than the safe depth after a transfer has
+// buried. The buried and act-emitted state is out of the watcher's
+// reach to reverse, so nothing is compensated and no phase moves;
+// instead the terminal audit flags the contradicted anchorings stuck
+// on both sides, and the flag stays latched even after the transfer
+// re-confirms on the rewritten chain.
+func testReOrgDeepStuck(t *harnessTest) {
+	// Mint and bury the batch at the test's safe depth of 3: the
+	// re-org under test targets the send transaction, and the fork
+	// point must sit past the mint's burial.
+	mintRequests := []*mintrpc.MintAssetRequest{
+		issuableAssets[0], issuableAssets[1],
+	}
+	lndMiner := t.lndHarness.Miner()
+	assetList := MintAssetsConfirmBatch(
+		t.t, lndMiner, t.tapd, mintRequests, WithNoUniverseLeafWait(),
+	)
+	t.lndHarness.MineBlocks(3)
+	WaitForMintUniverseLeaves(t.t, t.tapd, assetList)
+
+	ctx := context.Background()
+
+	// Bob receives the assets on a second tapd instance with the
+	// same safe depth.
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(
+		t.t, t, lndBob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.reOrgSafeDepth = 3
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	// The fork point: everything mined past here re-orgs out.
+	tempMiner := spawnTempMiner(t.t, t, ctx)
+
+	// Send to Bob and bury the transfer: one confirmation plus
+	// three more blocks puts the witness one past the safe depth.
+	sendAsset := assetList[0]
+	sendAssetGen := sendAsset.AssetGenesis
+	sendAmount := uint64(500)
+	bobAddr, err := secondTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
+		AssetId: sendAssetGen.AssetId,
+		Amt:     sendAmount,
+	})
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, secondTapd, sendAsset, bobAddr)
+	sendResp, _ := sendAssetsToAddr(t, t.tapd, bobAddr)
+	ConfirmAndAssertOutboundTransfer(
+		t.t, lndMiner, t.tapd, sendResp, sendAssetGen.AssetId,
+		[]uint64{sendAsset.Amount - sendAmount, sendAmount}, 0, 1,
+	)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
+	t.lndHarness.MineBlocks(3)
+
+	assertAnchoringStuck(
+		t.t, t.tapd, "tapfreighter.porter", "buried", false,
+	)
+	assertAnchoringStuck(
+		t.t, secondTapd, "tapcustody.receiver", "buried", false,
+	)
+
+	// Re-org out everything past the fork point: four blocks,
+	// deeper than the safe depth of 3. The send transaction
+	// returns to the mempool.
+	generateReOrg(t.t, t.lndHarness, tempMiner, 5, 1)
+	lndMiner.AssertNumTxsInMempool(1)
+
+	_, tempMinerHeight := tempMiner.GetBestBlock()
+	t.lndHarness.WaitForNodeBlockHeight(
+		t.tapd.cfg.LndNode, tempMinerHeight,
+	)
+	t.lndHarness.WaitForNodeBlockHeight(lndBob, tempMinerHeight)
+
+	// The terminal audit surfaces the contradiction on both sides:
+	// stuck, with the phase absorbed at buried.
+	assertAnchoringStuck(
+		t.t, t.tapd, "tapfreighter.porter", "buried", true,
+	)
+	assertAnchoringStuck(
+		t.t, secondTapd, "tapcustody.receiver", "buried", true,
+	)
+
+	// The mint's evidence sits below the fork point: the audit
+	// leaves it alone.
+	assertAnchoringStuck(
+		t.t, t.tapd, "tapgarden.minter", "buried", false,
+	)
+
+	// Nothing was compensated: the act-final state stands on both
+	// nodes, per the terminal-absorption policy.
+	listAssetRequest := &taprpc.ListAssetRequest{}
+	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, bobAssets.Assets)
+	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, aliceAssets.Assets)
+
+	// The transfer re-confirms on the rewritten chain; the flag
+	// stays latched — the recorded evidence remains contradicted,
+	// and the operator decides what to do about it.
+	t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)
+	assertAnchoringStuck(
+		t.t, t.tapd, "tapfreighter.porter", "buried", true,
+	)
+	assertAnchoringStuck(
+		t.t, secondTapd, "tapcustody.receiver", "buried", true,
+	)
+
+	// The surfaced reason names the contradiction.
+	porterAnchoring := fetchSiteAnchoring(
+		t.t, t.tapd, "tapfreighter.porter",
+	)
+	require.Contains(
+		t.t, porterAnchoring.StuckReason, "terminal contradicted",
+	)
+
+	// A healthy anchoring refuses manual withdrawal: the mint
+	// buried below the fork point and was never contradicted.
+	mintAnchoring := fetchSiteAnchoring(t.t, t.tapd, "tapgarden.minter")
+	_, err = t.tapd.WithdrawAnchoring(
+		ctx, &taprpc.WithdrawAnchoringRequest{
+			AnchoringId: mintAnchoring.Id,
+		},
+	)
+	require.ErrorContains(t.t, err, "not flagged stuck")
+
+	// The operator disposes of the audited contradiction: the
+	// anchoring withdraws, the flag and reason clear, and the node
+	// reports nothing stuck any more.
+	withdrawResp, err := t.tapd.WithdrawAnchoring(
+		ctx, &taprpc.WithdrawAnchoringRequest{
+			AnchoringId: porterAnchoring.Id,
+		},
+	)
+	require.NoError(t.t, err)
+	require.True(
+		t.t, strings.HasPrefix(withdrawResp.Anchoring.Phase,
+			"withdrawn"),
+	)
+	require.False(t.t, withdrawResp.Anchoring.Stuck)
+	require.Empty(t.t, withdrawResp.Anchoring.StuckReason)
+
+	stuckList, err := t.tapd.ListAnchorings(
+		ctx, &taprpc.ListAnchoringsRequest{StuckOnly: true},
+	)
+	require.NoError(t.t, err)
+	require.Empty(t.t, stuckList.Anchorings)
+}
+
+// fetchSiteAnchoring returns the site's single anchoring.
+func fetchSiteAnchoring(t *testing.T, tapd *tapdHarness,
+	site string) *taprpc.Anchoring {
+
+	t.Helper()
+
+	resp, err := tapd.ListAnchorings(
+		context.Background(), &taprpc.ListAnchoringsRequest{
+			Site: site,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, resp.Anchorings, 1)
+
+	return resp.Anchorings[0]
 }

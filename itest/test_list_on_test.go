@@ -142,6 +142,11 @@ var allTestCases = []*testCase{
 		reOrgSafeDepth: 6,
 	},
 	{
+		name:           "re-org deep stuck",
+		test:           testReOrgDeepStuck,
+		reOrgSafeDepth: 3,
+	},
+	{
 		name:             "basic send unidirectional hashmail courier",
 		test:             testBasicSendUnidirectional,
 		proofCourierType: proof.HashmailCourierType,

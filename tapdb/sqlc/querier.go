@@ -356,6 +356,12 @@ type Querier interface {
 	LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error
 	ListClaimedOutpoints(ctx context.Context, arg ListClaimedOutpointsParams) ([]ListClaimedOutpointsRow, error)
 	ListLiveReorgAnchorings(ctx context.Context) ([]ReorgAnchoring, error)
+	// The terminal-audit working set: chain-decided terminals (buried
+	// or abandoned; withdrawn rests on no chain evidence) that are not
+	// already flagged stuck and whose terminal delivery is recent or
+	// still pending. The audit verifies each one's recorded evidence
+	// block against the dominant chain and flags contradictions.
+	ListRecentReorgTerminals(ctx context.Context, cutoff sql.NullInt64) ([]ReorgAnchoring, error)
 	// The observability surface's list query: a pure row projection with
 	// an aggregated candidate count — no per-row follow-up queries and
 	// no raw transaction or proof deserialization behind it. Filters are
@@ -383,6 +389,10 @@ type Querier interface {
 	// the issuer.
 	MarkPreCommitSpentByOutpoint(ctx context.Context, arg MarkPreCommitSpentByOutpointParams) error
 	MarkReorgAnchoringDelivered(ctx context.Context, arg MarkReorgAnchoringDeliveredParams) error
+	// Flag an anchoring stuck outside the delivery path: the terminal
+	// audit found the chain contradicting a terminal phase's recorded
+	// evidence. Delivery bookkeeping is left untouched.
+	MarkReorgAnchoringStuck(ctx context.Context, arg MarkReorgAnchoringStuckParams) error
 	MarkReorgEffectDispatched(ctx context.Context, arg MarkReorgEffectDispatchedParams) error
 	// An abandoned transfer is permanently dead: its anchor inputs were
 	// claimed by a buried foreign transaction, so its own anchor can
@@ -639,6 +649,11 @@ type Querier interface {
 	UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int64, error)
 	UpsertUniverseSupplyLeaf(ctx context.Context, arg UpsertUniverseSupplyLeafParams) (int64, error)
 	UpsertUniverseSupplyRoot(ctx context.Context, arg UpsertUniverseSupplyRootParams) (int64, error)
+	// The operator's disposal of a stuck terminal is the one permitted
+	// terminal phase transition, so this update relaxes the absorption
+	// guard of SetReorgAnchoringPhase to admit terminal rows whose stuck
+	// flag is set. Live rows withdraw freely.
+	WithdrawReorgAnchoring(ctx context.Context, arg WithdrawReorgAnchoringParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)
