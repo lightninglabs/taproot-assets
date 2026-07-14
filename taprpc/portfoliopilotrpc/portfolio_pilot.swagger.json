@@ -15,110 +15,7 @@
   "produces": [
     "application/json"
   ],
-  "paths": {
-    "/v1/taproot-assets/rfq/portfoliopilot/assetrates": {
-      "post": {
-        "summary": "QueryAssetRates returns current asset rate information for a given asset\nand direction. This can be used for rate discovery, outgoing RFQ request\nconstruction, or general pricing information.",
-        "operationId": "PortfolioPilot_QueryAssetRates",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/portfoliopilotrpcQueryAssetRatesResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "body",
-            "description": "QueryAssetRatesRequest specifies the parameters for querying asset rates.",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/portfoliopilotrpcQueryAssetRatesRequest"
-            }
-          }
-        ],
-        "tags": [
-          "PortfolioPilot"
-        ]
-      }
-    },
-    "/v1/taproot-assets/rfq/portfoliopilot/resolve": {
-      "post": {
-        "summary": "ResolveRequest resolves a quote request by returning either an accepted\nasset rate or a rejection reason.",
-        "operationId": "PortfolioPilot_ResolveRequest",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/portfoliopilotrpcResolveRequestResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "body",
-            "description": "ResolveRequestRequest specifies a quote request to resolve.",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/portfoliopilotrpcResolveRequestRequest"
-            }
-          }
-        ],
-        "tags": [
-          "PortfolioPilot"
-        ]
-      }
-    },
-    "/v1/taproot-assets/rfq/portfoliopilot/verify": {
-      "post": {
-        "summary": "VerifyAcceptQuote verifies that an accepted quote from a peer meets\nacceptable conditions.",
-        "operationId": "PortfolioPilot_VerifyAcceptQuote",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/portfoliopilotrpcVerifyAcceptQuoteResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "body",
-            "description": "VerifyAcceptQuoteRequest specifies an accepted quote to verify.",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/portfoliopilotrpcVerifyAcceptQuoteRequest"
-            }
-          }
-        ],
-        "tags": [
-          "PortfolioPilot"
-        ]
-      }
-    }
-  },
+  "paths": {},
   "definitions": {
     "portfoliopilotrpcAcceptedQuote": {
       "type": "object",
@@ -275,52 +172,6 @@
       "default": "INTENT_UNSPECIFIED",
       "description": "Intent is an enum informing the portfolio pilot about the intent of the\nprice rate query. This is used to provide context for the asset rates being\nrequested, allowing the pilot to tailor the response based on the specific\nuse case, such as paying an invoice or receiving a payment and the different\nstages involved in those.\n\n - INTENT_UNSPECIFIED: INTENT_UNSPECIFIED is used to indicate that the intent of the price rate\nquery is not specified. This is the fallback default value and should not\nbe used in production code. It is primarily used for backward\ncompatibility with older versions of the protocol that did not include\nintent information.\n - INTENT_PAY_INVOICE_HINT: INTENT_PAY_INVOICE_HINT is used to indicate that the user is requesting\na price rate hint for paying an invoice. This is typically used by the\npayer of an invoice to provide a suggestion of the expected asset rate to\nthe RFQ peer (edge node) that will determine the actual rate for the\npayment.\n - INTENT_PAY_INVOICE: INTENT_PAY_INVOICE is used to indicate that a peer wants to pay an\ninvoice with assets. This is typically used by the edge node that\nfacilitates the swap from assets to BTC for the payer of an invoice. This\nintent is used to provide the actual asset rate for the payment, which\nmay differ from the hint provided by the payer.\n - INTENT_PAY_INVOICE_QUALIFY: INTENT_PAY_INVOICE_QUALIFY is used to indicate that the payer of an\ninvoice has received an asset rate from their RFQ peer (edge node) and is\nqualifying the rate for the payment. This is typically used by the payer\nof an invoice to ensure that the asset rate provided by their peer (edge\nnode) is acceptable before proceeding with the payment.\n - INTENT_RECV_PAYMENT_HINT: INTENT_RECV_PAYMENT_HINT is used to indicate that the user is requesting\na price rate hint for receiving a payment through an invoice. This is\ntypically used by the creator of an invoice to provide a suggestion of\nthe expected asset rate to the RFQ peer (edge node) that will determine\nthe actual rate used for creating an invoice.\n - INTENT_RECV_PAYMENT: INTENT_RECV_PAYMENT is used to indicate that a peer wants to create an\ninvoice to receive a payment with assets. This is typically used by the\nedge node that facilitates the swap from BTC to assets for the receiver\nof a payment. This intent is used to provide the actual asset rate for\nthe invoice creation, which may differ from the hint provided by the\nreceiver.\n - INTENT_RECV_PAYMENT_QUALIFY: INTENT_RECV_PAYMENT_QUALIFY is used to indicate that the creator of an\ninvoice received an asset rate from their RFQ peer (edge node) and is\nqualifying the rate for the creation of the invoice. This is typically\nused by the creator of an invoice to ensure that the asset rate provided\nby their peer (edge node) is acceptable before proceeding with creating\nthe invoice."
     },
-    "portfoliopilotrpcQueryAssetRatesRequest": {
-      "type": "object",
-      "properties": {
-        "asset_specifier": {
-          "$ref": "#/definitions/portfoliopilotrpcAssetSpecifier",
-          "description": "asset_specifier identifies the subject asset."
-        },
-        "direction": {
-          "$ref": "#/definitions/portfoliopilotrpcAssetTransferDirection",
-          "description": "direction specifies whether we want to buy or sell the asset."
-        },
-        "intent": {
-          "$ref": "#/definitions/portfoliopilotrpcIntent",
-          "description": "intent specifies the purpose of the query."
-        },
-        "asset_amount": {
-          "type": "string",
-          "format": "uint64",
-          "description": "asset_amount is an optional constraint on the asset amount. If set to\nzero, it is considered unset."
-        },
-        "payment_amount": {
-          "type": "string",
-          "format": "uint64",
-          "description": "payment_amount is an optional constraint on the payment amount in msat.\nIf set to zero, it is considered unset."
-        },
-        "asset_rate_hint": {
-          "$ref": "#/definitions/portfoliopilotrpcAssetRate",
-          "description": "asset_rate_hint is an optional suggested asset rate."
-        },
-        "price_oracle_metadata": {
-          "type": "string",
-          "description": "price_oracle_metadata is optional metadata for pricing decisions."
-        },
-        "peer_id": {
-          "type": "string",
-          "format": "byte",
-          "description": "peer_id is the 33-byte public key of the counterparty peer."
-        },
-        "expiry_timestamp": {
-          "type": "string",
-          "format": "uint64",
-          "description": "expiry_timestamp is an optional expiry Unix timestamp (seconds) for the\nquery context. If set to zero, it is considered unset."
-        }
-      },
-      "description": "QueryAssetRatesRequest specifies the parameters for querying asset rates."
-    },
     "portfoliopilotrpcQueryAssetRatesResponse": {
       "type": "object",
       "properties": {
@@ -373,20 +224,6 @@
         }
       },
       "description": "RejectErr captures a rejection reason for a quote request."
-    },
-    "portfoliopilotrpcResolveRequestRequest": {
-      "type": "object",
-      "properties": {
-        "buy_request": {
-          "$ref": "#/definitions/portfoliopilotrpcBuyRequest",
-          "description": "buy_request is a request to buy the subject asset."
-        },
-        "sell_request": {
-          "$ref": "#/definitions/portfoliopilotrpcSellRequest",
-          "description": "sell_request is a request to sell the subject asset."
-        }
-      },
-      "description": "ResolveRequestRequest specifies a quote request to resolve."
     },
     "portfoliopilotrpcResolveRequestResponse": {
       "type": "object",
@@ -447,16 +284,6 @@
         }
       },
       "description": "SellRequest represents a request to sell the subject asset."
-    },
-    "portfoliopilotrpcVerifyAcceptQuoteRequest": {
-      "type": "object",
-      "properties": {
-        "accept": {
-          "$ref": "#/definitions/portfoliopilotrpcAcceptedQuote",
-          "description": "accept is the accepted quote and request details."
-        }
-      },
-      "description": "VerifyAcceptQuoteRequest specifies an accepted quote to verify."
     },
     "portfoliopilotrpcVerifyAcceptQuoteResponse": {
       "type": "object",
