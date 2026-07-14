@@ -938,14 +938,21 @@ func AssertAddrEventByStatus(t *testing.T, client taprpc.TaprootAssetsClient,
 	require.NoError(t, err)
 }
 
-// AssertReceiveEvents makes sure all events with incremental status are sent
-// on the stream for the given address.
+// AssertReceiveEvents makes sure events with non-decreasing status are sent
+// on the stream for the given address, ending with the completed status.
+// Intermediate statuses may be skipped or repeated: the custodian only
+// publishes status transitions it actually observes, and a single
+// transition can jump multiple statuses. For example, on a send between
+// two addresses of the same node, the proof can arrive through the local
+// proof archive before lnd's confirmation notification is processed, in
+// which case the confirmed status is never published. Statuses can also
+// repeat, for example one proof received event per output of a V2 address.
 func AssertReceiveEvents(t *testing.T, addr *taprpc.Addr,
 	stream *EventSubscription[*taprpc.ReceiveEvent]) {
 
 	success := make(chan struct{})
 	timeout := time.After(defaultWaitTimeout)
-	startStatus := statusDetected
+	lastStatus := statusDetected
 
 	// To make sure we don't forever hang on receiving on the stream, we'll
 	// cancel it after the timeout.
@@ -963,7 +970,8 @@ func AssertReceiveEvents(t *testing.T, addr *taprpc.Addr,
 		require.NoError(t, err, "receiving address receive event")
 
 		require.True(t, proto.Equal(event.Address, addr))
-		require.Equal(t, startStatus, event.Status)
+		require.GreaterOrEqual(t, event.Status, lastStatus)
+		require.LessOrEqual(t, event.Status, statusCompleted)
 		require.Empty(t, event.Error)
 
 		if event.Status == statusCompleted {
@@ -973,7 +981,7 @@ func AssertReceiveEvents(t *testing.T, addr *taprpc.Addr,
 			return
 		}
 
-		startStatus++
+		lastStatus = event.Status
 	}
 }
 
