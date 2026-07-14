@@ -1309,22 +1309,39 @@ func AssertAssetOutboundTransferWithOutputs(t *testing.T,
 
 // AssertNonInteractiveRecvComplete makes sure the given receiver has the
 // correct number of completed non-interactive inbound asset transfers in their
-// list of events.
+// list of events. It subscribes to the receive-event stream first so status
+// transitions that happen after this point wake us immediately, avoiding a
+// polling race against the wait deadline.
 func AssertNonInteractiveRecvComplete(t *testing.T,
 	receiver taprpc.TaprootAssetsClient, totalInboundTransfers int) {
 
-	// And finally, they should be marked as completed with a proof
-	// available.
-	err := wait.NoError(func() error {
-		ctxb := context.Background()
-		ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout/2)
+	ctxb := context.Background()
+
+	ctxSub, cancelSub := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancelSub()
+
+	stream, err := receiver.SubscribeReceiveEvents(
+		ctxSub, &taprpc.SubscribeReceiveEventsRequest{},
+	)
+	require.NoError(t, err)
+
+	check := func() error {
+		ctxt, cancel := context.WithTimeout(
+			ctxb, defaultWaitTimeout/2,
+		)
 		defer cancel()
 
 		resp, err := receiver.AddrReceives(
 			ctxt, &taprpc.AddrReceivesRequest{},
 		)
-		require.NoError(t, err)
-		require.Len(t, resp.Events, totalInboundTransfers)
+		if err != nil {
+			return err
+		}
+
+		if len(resp.Events) != totalInboundTransfers {
+			return fmt.Errorf("want %d receive events, have %d",
+				totalInboundTransfers, len(resp.Events))
+		}
 
 		for _, event := range resp.Events {
 			if event.Status != statusCompleted {
@@ -1338,8 +1355,40 @@ func AssertNonInteractiveRecvComplete(t *testing.T,
 		}
 
 		return nil
-	}, defaultWaitTimeout)
-	require.NoError(t, err)
+	}
+
+	// The target may already be met before we subscribed; check once up
+	// front so we don't block on a stream that has nothing left to send.
+	if check() == nil {
+		return
+	}
+
+	for {
+		event, err := stream.Recv()
+		if err != nil {
+			// Stream ended (deadline or error). Do one last
+			// authoritative check before failing, and surface
+			// that snapshot as the failure reason.
+			final := check()
+			if final == nil {
+				return
+			}
+			require.Failf(t, "receive not complete",
+				"waiting for %d completed inbound "+
+					"transfers: %v",
+				totalInboundTransfers, final)
+			return
+		}
+
+		// Only completed events can move the counter over the line.
+		if event.Status != statusCompleted {
+			continue
+		}
+
+		if check() == nil {
+			return
+		}
+	}
 }
 
 // AssertAddr asserts that an address contains the correct information of an
