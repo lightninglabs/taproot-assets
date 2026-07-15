@@ -38,6 +38,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/mssmt/arith"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
@@ -1245,7 +1246,7 @@ func (r *RPCServer) checkBalanceOverflow(ctx context.Context,
 	}
 
 	// Check for overflow.
-	err := mssmt.CheckSumOverflowUint64(balance, newAmount)
+	err := arith.CheckAdd(balance, newAmount)
 	if err != nil {
 		return fmt.Errorf("new asset amount would overflow "+
 			"asset balance: %w", err)

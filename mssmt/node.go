@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+
+	"github.com/lightninglabs/taproot-assets/mssmt/arith"
 )
 
 const (
@@ -243,6 +245,21 @@ func NewBranch(left, right Node) *BranchNode {
 	}
 }
 
+// newCheckedBranch constructs a branch after verifying its child sum.
+func newCheckedBranch(left, right Node) (*BranchNode, error) {
+	sum, err := arith.Add(left.NodeSum(), right.NodeSum()).Unpack()
+	if err != nil {
+		return nil, err
+	}
+
+	return &BranchNode{
+		Left:  left,
+		Right: right,
+		sum:   sum,
+		sumOk: true,
+	}, nil
+}
+
 // NodeHash returns the unique identifier for a MS-SMT node. It represents the
 // hash of the branch committing to its internal data.
 //
@@ -274,7 +291,11 @@ func (n *BranchNode) NodeSum() uint64 {
 		return n.sum
 	}
 
-	n.sum = n.Left.NodeSum() + n.Right.NodeSum()
+	sum, err := arith.Add(n.Left.NodeSum(), n.Right.NodeSum()).Unpack()
+	if err != nil {
+		panic(err)
+	}
+	n.sum = sum
 	n.sumOk = true
 	return n.sum
 }

@@ -3,7 +3,8 @@ package mssmt
 import (
 	"context"
 	"fmt"
-	"math/bits"
+
+	"github.com/lightninglabs/taproot-assets/mssmt/arith"
 )
 
 // CompactedTree represents a compacted Merkle-Sum Sparse Merkle Tree (MS-SMT).
@@ -124,7 +125,7 @@ func (t *CompactedTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 // diverging bit of the passed key's. All storage writes are queued into muts.
 func (t *CompactedTree) merge(height int, key1 [32]byte, leaf1 *LeafNode,
 	key2 [32]byte, leaf2 *LeafNode,
-	muts *[]mutation) *BranchNode {
+	muts *[]mutation) (*BranchNode, error) {
 
 	// Find the common prefix first.
 	var commonPrefixLen int
@@ -144,18 +145,26 @@ func (t *CompactedTree) merge(height int, key1 [32]byte, leaf1 *LeafNode,
 	insertCompactedLeaf(muts, node2)
 
 	left, right := stepOrder(commonPrefixLen, &key1, node1, node2)
-	parent := NewBranch(left, right)
+	parent, err := newCheckedBranch(left, right)
+	if err != nil {
+		return nil, fmt.Errorf("compact tree merge sum error "+
+			"at height %d: %w", commonPrefixLen, err)
+	}
 	insertBranch(muts, parent)
 
 	// From here we'll walk up to the current level and create branches
 	// along the way. Optionally we could compact these branches too.
 	for i := commonPrefixLen - 1; i >= height; i-- {
 		left, right := stepOrder(i, &key1, parent, EmptyTree[i+1])
-		parent = NewBranch(left, right)
+		parent, err = newCheckedBranch(left, right)
+		if err != nil {
+			return nil, fmt.Errorf("compact tree merge sum error "+
+				"at height %d: %w", i, err)
+		}
 		insertBranch(muts, parent)
 	}
 
-	return parent
+	return parent, nil
 }
 
 // insert inserts the key at the current height either by adding a new compacted
@@ -228,10 +237,13 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 			// Different key: the prior leaf isn't AT our key, so
 			// priorSum stays 0 (merge relocates the existing
 			// leaf into a new subtree alongside ours).
-			newNode = t.merge(
+			newNode, err = t.merge(
 				nextHeight, *key, leaf, node.key,
 				node.LeafNode, muts,
 			)
+			if err != nil {
+				return nil, 0, err
+			}
 		}
 	}
 
@@ -242,9 +254,13 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 	}
 
 	if isLeft {
-		branch = NewBranch(newNode, sibling)
+		branch, err = newCheckedBranch(newNode, sibling)
 	} else {
-		branch = NewBranch(sibling, newNode)
+		branch, err = newCheckedBranch(sibling, newNode)
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("compact tree insert sum error "+
+			"at height %d: %w", height, err)
 	}
 
 	if !IsEqualNode(branch, EmptyTree[height]) {
@@ -281,12 +297,12 @@ func (t *CompactedTree) Insert(ctx context.Context, key [hashSize]byte,
 		sumLeaf := leaf.NodeSum()
 		if sumLeaf > priorSum {
 			delta := sumLeaf - priorSum
-			err := CheckSumOverflowUint64(
+			err := arith.CheckAdd(
 				rootBranch.NodeSum(), delta,
 			)
 			if err != nil {
 				return fmt.Errorf("compact tree leaf "+
-					"insert sum overflow, root: %d, "+
+					"insert sum error, root: %d, "+
 					"effective delta: %d; %w",
 					rootBranch.NodeSum(), delta, err)
 			}
@@ -601,10 +617,10 @@ func (t *CompactedTree) InsertMany(ctx context.Context,
 	var batchSum uint64
 	for key, leaf := range leaves {
 		items = append(items, batchItem{key: key, leaf: leaf})
-		nextSum, carry := bits.Add64(batchSum, leaf.NodeSum(), 0)
-		if carry != 0 {
+		nextSum, err := arith.Add(batchSum, leaf.NodeSum()).Unpack()
+		if err != nil {
 			return nil, fmt.Errorf("compact tree batch insert "+
-				"sum overflow: %w", ErrIntegerOverflow)
+				"sum error: %w", err)
 		}
 		batchSum = nextSum
 	}
@@ -630,12 +646,12 @@ func (t *CompactedTree) InsertMany(ctx context.Context,
 
 		if batchSum > existingBatchSum {
 			delta := batchSum - existingBatchSum
-			err := CheckSumOverflowUint64(
+			err := arith.CheckAdd(
 				rootBranch.NodeSum(), delta,
 			)
 			if err != nil {
 				return fmt.Errorf("compact tree batch "+
-					"insert sum overflow, root: %d, "+
+					"insert sum error, root: %d, "+
 					"effective delta: %d; %w",
 					rootBranch.NodeSum(), delta, err)
 			}
@@ -766,14 +782,19 @@ func (t *CompactedTree) batchInsert(tx TreeStoreUpdateTx,
 		}
 	}
 
-	newParent := NewBranch(newLeft, newRight)
+	newParent, err := newCheckedBranch(newLeft, newRight)
+	if err != nil {
+		return nil, 0, fmt.Errorf("compact tree batch insert sum "+
+			"error at depth %d: %w", depth, err)
+	}
 
 	// Fast path: if the rebuilt parent matches the existing branch
 	// (e.g., a one-sided batch where the recursed side returned its
 	// subtree unchanged), the storage state at this level is
 	// already correct — skip the delete + reinsert churn.
 	if newParent.NodeHash() == branch.NodeHash() {
-		return branch, leftSum + rightSum, nil
+		existingSum, err := arith.Add(leftSum, rightSum).Unpack()
+		return branch, existingSum, err
 	}
 
 	if branch.NodeHash() != EmptyTree[depth].NodeHash() {
@@ -783,7 +804,8 @@ func (t *CompactedTree) batchInsert(tx TreeStoreUpdateTx,
 		insertBranch(muts, newParent)
 	}
 
-	return newParent, leftSum + rightSum, nil
+	existingSum, err := arith.Add(leftSum, rightSum).Unpack()
+	return newParent, existingSum, err
 }
 
 // buildSubtree constructs a subtree at depth from a fresh item set,
@@ -833,7 +855,11 @@ func (t *CompactedTree) buildSubtree(items []batchItem, depth int,
 		return nil, err
 	}
 
-	newParent := NewBranch(newLeft, newRight)
+	newParent, err := newCheckedBranch(newLeft, newRight)
+	if err != nil {
+		return nil, fmt.Errorf("compact subtree sum error at "+
+			"depth %d: %w", depth, err)
+	}
 	if newParent.NodeHash() != EmptyTree[depth].NodeHash() {
 		insertBranch(muts, newParent)
 	}
