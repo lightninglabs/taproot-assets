@@ -2,9 +2,9 @@ package mssmt
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"math/bits"
+
+	"github.com/lightninglabs/taproot-assets/mssmt/arith"
 )
 
 const (
@@ -28,7 +28,7 @@ var (
 	// ErrIntegerOverflow is an error returned when the result of an
 	// arithmetic operation on two integer values exceeds the maximum value
 	// that can be stored in the data type.
-	ErrIntegerOverflow = errors.New("integer overflow")
+	ErrIntegerOverflow = arith.ErrOverflow
 )
 
 func init() {
@@ -151,6 +151,13 @@ func walkUp(key *[hashSize]byte, start Node, siblings []Node,
 	var current = start
 	for i := lastBitIndex; i >= 0; i-- {
 		sibling := siblings[lastBitIndex-i]
+		if err := arith.CheckAdd(
+			current.NodeSum(), sibling.NodeSum(),
+		); err != nil {
+			return nil, fmt.Errorf("proof branch sum error at "+
+				"level %d: %w", i, err)
+		}
+
 		var parent Node
 		if bitIndex(uint8(i), key) == 0 {
 			parent = NewBranch(current, sibling)
@@ -264,12 +271,12 @@ func (t *FullTree) Insert(ctx context.Context, key [hashSize]byte,
 		sumLeaf := leaf.NodeSum()
 		if sumLeaf > priorSum {
 			delta := sumLeaf - priorSum
-			err := CheckSumOverflowUint64(
+			err := arith.CheckAdd(
 				rootBranch.NodeSum(), delta,
 			)
 			if err != nil {
 				return fmt.Errorf("full tree leaf insert "+
-					"sum overflow, root: %d, effective "+
+					"sum error, root: %d, effective "+
 					"delta: %d; %w",
 					rootBranch.NodeSum(), delta, err)
 			}
@@ -574,10 +581,10 @@ func (t *FullTree) InsertMany(ctx context.Context,
 	var batchSum uint64
 	for key, leaf := range leaves {
 		items = append(items, batchItem{key: key, leaf: leaf})
-		nextSum, carry := bits.Add64(batchSum, leaf.NodeSum(), 0)
-		if carry != 0 {
+		nextSum, err := arith.Add(batchSum, leaf.NodeSum()).Unpack()
+		if err != nil {
 			return nil, fmt.Errorf("full tree batch insert sum "+
-				"overflow: %w", ErrIntegerOverflow)
+				"error: %w", err)
 		}
 		batchSum = nextSum
 	}
@@ -606,12 +613,12 @@ func (t *FullTree) InsertMany(ctx context.Context,
 		// happened — no extra walks needed.
 		if batchSum > existingBatchSum {
 			delta := batchSum - existingBatchSum
-			err := CheckSumOverflowUint64(
+			err := arith.CheckAdd(
 				rootBranch.NodeSum(), delta,
 			)
 			if err != nil {
 				return fmt.Errorf("full tree batch insert "+
-					"sum overflow, root: %d, effective "+
+					"sum error, root: %d, effective "+
 					"delta: %d; %w",
 					rootBranch.NodeSum(), delta, err)
 			}
@@ -695,14 +702,19 @@ func (t *FullTree) batchInsert(tx TreeStoreUpdateTx, items []batchItem,
 		}
 	}
 
-	newParent := NewBranch(newLeft, newRight)
+	newParent, err := newCheckedBranch(newLeft, newRight)
+	if err != nil {
+		return nil, 0, fmt.Errorf("full tree batch insert sum "+
+			"error at depth %d: %w", depth, err)
+	}
 
 	// Fast path: if the rebuilt parent has the same hash as the
 	// existing branch (e.g., a one-sided batch where the recursed
 	// side returned its subtree unchanged), the storage state at
 	// this level is already correct — skip the delete + reinsert.
 	if newParent.NodeHash() == node.NodeHash() {
-		return node, leftSum + rightSum, nil
+		existingSum, err := arith.Add(leftSum, rightSum).Unpack()
+		return node, existingSum, err
 	}
 
 	// Queue the old/new pair for this level. Mirrors the single-
@@ -715,7 +727,8 @@ func (t *FullTree) batchInsert(tx TreeStoreUpdateTx, items []batchItem,
 		insertBranch(muts, newParent)
 	}
 
-	return newParent, leftSum + rightSum, nil
+	existingSum, err := arith.Add(leftSum, rightSum).Unpack()
+	return newParent, existingSum, err
 }
 
 // VerifyMerkleProof determines whether a merkle proof for the leaf found at the
@@ -730,16 +743,10 @@ func VerifyMerkleProof(key [hashSize]byte, leaf *LeafNode, proof *Proof,
 		return false
 	}
 
-	h, s := proof.rootSum(&key, leaf)
-	return h == root.NodeHash() && s == root.NodeSum()
-}
-
-// CheckSumOverflowUint64 checks if the sum of two uint64 values will overflow.
-func CheckSumOverflowUint64(a, b uint64) error {
-	_, carry := bits.Add64(a, b, 0)
-	overflow := carry != 0
-	if overflow {
-		return ErrIntegerOverflow
+	h, s, validSum := proof.rootSum(&key, leaf)
+	if !validSum {
+		return false
 	}
-	return nil
+
+	return h == root.NodeHash() && s == root.NodeSum()
 }
