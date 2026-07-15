@@ -758,16 +758,12 @@ func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
 		namespace := b.id.String()
 
-		// We don't need to decode the whole proof, we just need the
-		// block height.
-		blockHeight, err := SparseDecodeBlockHeight(leaf.RawProof)
-		if err != nil {
-			return err
-		}
-
+		// The block height is extracted from the decoded proof by
+		// universeUpsertProofLeaf itself.
 		issuanceProof, _, err := universeUpsertProofLeaf(
 			ctx, dbTx, namespace, b.id.ProofType,
-			b.id.GroupKey, key, leaf, metaReveal, blockHeight,
+			b.id.GroupKey, key, leaf, metaReveal,
+			lfn.None[uint32](),
 		)
 		if err != nil {
 			return fmt.Errorf("failed universe upsert: %w", err)
@@ -998,18 +994,19 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		return nil, rootStatus, err
 	}
 
-	var leafProof proof.Proof
-	err = leafProof.Decode(bytes.NewReader(leaf.RawProof))
+	// On the ingest path the archive has already decoded and memoized the
+	// proof, so this avoids re-decoding the raw blob inside the write
+	// transaction.
+	leafProof, err := leaf.DecodedProof()
 	if err != nil {
-		return nil, rootStatus, fmt.Errorf("unable to decode proof: %w",
-			err)
+		return nil, rootStatus, err
 	}
 
 	// Upsert into the DB: the genesis point, asset genesis,
 	// group key reveal, and the anchoring transaction for the issuance or
 	// transfer.
 	assetGenID, err := upsertAssetGen(
-		ctx, dbTx, leaf.Genesis, leaf.GroupKey, &leafProof,
+		ctx, dbTx, leaf.Genesis, leaf.GroupKey, leafProof,
 	)
 	if err != nil {
 		return nil, rootStatus, err
@@ -1019,7 +1016,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	// issuance proof, then we may need to log the supply pre-commitment
 	// output.
 	err = maybeUpsertSupplyPreCommit(
-		ctx, dbTx, proofType, leafProof, metaReveal,
+		ctx, dbTx, proofType, *leafProof, metaReveal,
 	)
 	if err != nil {
 		return nil, rootStatus, fmt.Errorf("unable to upsert supply "+

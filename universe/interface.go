@@ -248,6 +248,31 @@ type Leaf struct {
 	// IsBurn is a boolean that indicates whether the leaf represents a burn
 	// or not.
 	IsBurn bool
+
+	// decodedProof is the memoized result of decoding RawProof. It is
+	// only ever populated by DecodedProof, which guarantees it always
+	// matches RawProof.
+	decodedProof *proof.Proof
+}
+
+// DecodedProof returns the decoded form of RawProof. The result is memoized,
+// so the raw proof is decoded at most once per leaf.
+//
+// NOTE: Memoization is not synchronized, so the first call must not race
+// with other calls on the same leaf.
+func (m *Leaf) DecodedProof() (*proof.Proof, error) {
+	if m.decodedProof != nil {
+		return m.decodedProof, nil
+	}
+
+	var p proof.Proof
+	if err := p.Decode(bytes.NewReader(m.RawProof)); err != nil {
+		return nil, fmt.Errorf("unable to decode proof: %w", err)
+	}
+
+	m.decodedProof = &p
+
+	return &p, nil
 }
 
 // SmtLeafNode returns the SMT leaf node for the given leaf.

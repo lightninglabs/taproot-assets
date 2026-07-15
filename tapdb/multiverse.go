@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
 
 const (
@@ -802,16 +803,13 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 
 	execTxFunc := func(dbTx BaseMultiverseStore) error {
 		// Register issuance in the asset (group) specific universe
-		// tree. We don't need to decode the whole proof, we just
-		// need the block height.
-		blockHeight, err := SparseDecodeBlockHeight(leaf.RawProof)
-		if err != nil {
-			return err
-		}
-
+		// tree. The block height is extracted from the decoded proof
+		// by universeUpsertProofLeaf itself.
+		var err error
 		uniProof, rootStatus, err = universeUpsertProofLeaf(
 			ctx, dbTx, id.String(), id.ProofType,
-			id.GroupKey, key, leaf, metaReveal, blockHeight,
+			id.GroupKey, key, leaf, metaReveal,
+			lfn.None[uint32](),
 		)
 		if err != nil {
 			return fmt.Errorf("failed universe upsert: %w", err)
@@ -887,24 +885,17 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 			for idx := range items {
 				item := items[idx]
 
-				// We don't need to decode the whole proof, we
-				// just need the block height.
-				blockHeight, err := SparseDecodeBlockHeight(
-					item.Leaf.RawProof,
-				)
-				if err != nil {
-					return err
-				}
-
 				// Upsert into the specific universe tree to
-				// start with.
+				// start with. The block height is extracted
+				// from the decoded proof by
+				// universeUpsertProofLeaf itself.
 				uniProof, status, err :=
 					universeUpsertProofLeaf(
 						ctx, store, item.ID.String(),
 						item.ID.ProofType,
 						item.ID.GroupKey, item.Key,
 						item.Leaf, item.MetaReveal,
-						blockHeight,
+						lfn.None[uint32](),
 					)
 				if err != nil {
 					return fmt.Errorf("failed universe "+

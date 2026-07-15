@@ -501,17 +501,12 @@ func (s *SupplyTreeStore) RegisterMintSupply(ctx context.Context,
 		newRootSupplyRoot mssmt.Node
 	)
 	dbErr := s.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
-		// We don't need to decode the whole proof, we just need the
-		// block height.
-		blockHeight, err := SparseDecodeBlockHeight(leaf.RawProof)
-		if err != nil {
-			return err
-		}
-
 		// Upsert the leaf into the mint supply sub-tree SMT and DB
-		// first.
+		// first. The block height is extracted from the decoded proof
+		// by universeUpsertProofLeaf itself.
+		var err error
 		mintSupplyProof, err = registerMintSupplyInternal(
-			ctx, dbTx, spec, key, leaf, nil, blockHeight,
+			ctx, dbTx, spec, key, leaf, nil, lfn.None[uint32](),
 		)
 		if err != nil {
 			return fmt.Errorf("failed mint supply universe "+

@@ -284,9 +284,11 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 		return nil, err
 	}
 
-	// We need to decode the new proof now.
-	var newProof proof.Proof
-	if err := newProof.Decode(bytes.NewReader(leaf.RawProof)); err != nil {
+	// We need to decode the new proof now. The result is memoized on the
+	// leaf, so the database layer below can reuse it instead of decoding
+	// the raw proof again inside the write transaction.
+	newProof, err := leaf.DecodedProof()
+	if err != nil {
 		return nil, err
 	}
 
@@ -338,7 +340,7 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	}
 
 	assetSnapshot, err := a.verifyIssuanceProof(
-		ctx, id, key, &newProof, prevAssetSnapshot,
+		ctx, id, key, newProof, prevAssetSnapshot,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to verify proof: %w", err)
@@ -458,7 +460,6 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 	// proper verification of re-issuances, which may be in this batch.
 	var anchorItems []*Item
 	nonAnchorItems := make([]*Item, 0, len(items))
-	assetProofs := make(map[LeafKey]*proof.Proof)
 	for ind := range items {
 		item := items[ind]
 
@@ -482,14 +483,13 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 		}
 
 		// At this point, we'll need to decode the proof so we can
-		// partition it below.
-		var assetProof proof.Proof
-		err = assetProof.Decode(bytes.NewReader(item.Leaf.RawProof))
+		// partition it below. The result is memoized on the leaf, so
+		// verification and the database layer can reuse it without
+		// decoding the raw proof again.
+		assetProof, err := item.Leaf.DecodedProof()
 		if err != nil {
 			return fmt.Errorf("unable to decode proof: %w", err)
 		}
-
-		assetProofs[item.Key] = &assetProof
 
 		// Any group anchor issuance proof must have a group key reveal
 		// attached, so that can be used to partition anchor assets and
@@ -518,10 +518,13 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 						"snapshot: %w", err)
 				}
 
-				assetProof, ok := assetProofs[i.Key]
-				if !ok {
-					return fmt.Errorf("missing proof "+
-						"for key=%v", i.Key)
+				// The decode was memoized when the items were
+				// partitioned above, so this is a pure cache
+				// read.
+				assetProof, err := i.Leaf.DecodedProof()
+				if err != nil {
+					return fmt.Errorf("unable to decode "+
+						"proof: %w", err)
 				}
 
 				assetSnapshot, err := a.verifyIssuanceProof(
