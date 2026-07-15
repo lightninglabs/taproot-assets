@@ -688,6 +688,10 @@ func (r *rootNodeCache) fetchRoots(q universe.RootNodesQuery,
 }
 
 // cacheRoots stores the given roots in the cache.
+//
+// NOTE: This method must be called while holding the rootNodeCache lock, so
+// that the page installed here can't be made stale by a concurrent wipe or
+// eviction running between the caller's database read and this call.
 func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 	rootNodes []universe.Root) {
 
@@ -703,6 +707,14 @@ func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 // wipeCache wipes all the cached roots.
 func (r *rootNodeCache) wipeCache() {
 	log.Debugf("Wiping universe root node cache")
+
+	// The lock serializes us with the cache fill in RootNodes, which
+	// holds it across both its database read and cacheRoots. Without it
+	// we could wipe between the two, and the fill would then install a
+	// page into the fresh cache that was read before the write that
+	// triggered this wipe committed.
+	r.Lock()
+	defer r.Unlock()
 
 	r.allRoots.wipe(r.cacheSize)
 }
