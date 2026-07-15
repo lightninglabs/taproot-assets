@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -275,6 +276,30 @@ func TestRootNodeCacheTargetedInvalidation(t *testing.T) {
 	require.Equal(t, before+6, misses())
 	require.Len(t, roots, numAssets+2)
 	requireSameRoots(t, freshView(), roots)
+
+	// Deleting the last leaf of a universe removes the universe
+	// entirely, which also wipes the page cache. Re-inserting the same
+	// universe afterwards must be detected as a creation and wipe the
+	// refilled pages again, even though a root with the same ID existed
+	// before the deletion.
+	victim := items[5]
+	_, err = multiverse.DeleteProofLeaf(ctx, victim.ID, victim.Key)
+	require.NoError(t, err)
+
+	roots = queryRoots(t, multiverse, pageSize)
+	require.Len(t, roots, numAssets+1)
+	requireSameRoots(t, freshView(), roots)
+
+	before = misses()
+	_, err = multiverse.UpsertProofLeaf(
+		ctx, victim.ID, victim.Key, victim.Leaf, nil,
+	)
+	require.NoError(t, err)
+
+	roots = queryRoots(t, multiverse, pageSize)
+	require.Equal(t, before+6, misses())
+	require.Len(t, roots, numAssets+2)
+	requireSameRoots(t, freshView(), roots)
 }
 
 // TestRootNodeCacheProperties is a model-based property test for the
@@ -411,6 +436,21 @@ func TestRootNodeCacheProperties(t *testing.T) {
 				)
 			},
 
+			// Delete a universe: its root disappears, which
+			// shifts the page composition. The store handles
+			// both deletion paths with a full cache wipe.
+			"delete": func(rt *rapid.T) {
+				if len(db) == 0 {
+					return
+				}
+
+				idx := rapid.IntRange(0, len(db)-1).Draw(
+					rt, "victim",
+				)
+				db = slices.Delete(db, idx, idx+1)
+				cache.wipeCache()
+			},
+
 			// Invariant check, run after every action: the cache
 			// may miss on any tracked query, but a page it does
 			// serve must match a fresh database read.
@@ -441,6 +481,178 @@ func TestRootNodeCacheProperties(t *testing.T) {
 			},
 		})
 	})
+}
+
+// TestRootNodeCacheConcurrency exercises the root node page cache with
+// concurrent writers and readers. Invalidation runs after the database
+// transaction commits, so a reader may briefly observe a page that predates
+// a concurrent commit; once all writers are done, however, the cache must
+// have converged: every page it still serves has to match a fresh database
+// read. Under the race detector this also validates the locking of the
+// fill, wipe and eviction paths.
+func TestRootNodeCacheConcurrency(t *testing.T) {
+	ctx := context.Background()
+	db := NewTestDB(t)
+	multiverse, _ := newTestMultiverseWithDb(t, db.BaseDB)
+
+	// The concurrency is deliberately modest: postgres runs these
+	// transactions under serializable isolation, and too many overlapping
+	// writers and readers exhaust the default predicate lock allowance
+	// of the test fixture (SQLSTATE 53200), which is not a retryable
+	// serialization failure.
+	const (
+		numSeed    = 16
+		pageSize   = int32(4)
+		numWriters = 2
+		numReaders = 2
+		numOps     = 20
+	)
+
+	// Seed a set of universes for the update operations to target.
+	seed := make([]*universe.Item, numSeed)
+	for i := range seed {
+		seed[i] = genRandomAsset(t)
+		_, err := multiverse.UpsertProofLeaf(
+			ctx, seed[i].ID, seed[i].Key, seed[i].Leaf, nil,
+		)
+		require.NoError(t, err)
+	}
+
+	// The test helpers draw their randomness through the test object, so
+	// we pre-generate every writer's workload on the main goroutine.
+	// Most operations update an existing universe, with an occasional
+	// creation sprinkled in so wipes race with fills and evictions.
+	newUpdate := func(src *universe.Item) *universe.Item {
+		leaf := randMintingLeaf(t, src.Leaf.Genesis, src.ID.GroupKey)
+		return &universe.Item{
+			ID:   src.ID,
+			Key:  randLeafKey(t),
+			Leaf: &leaf,
+		}
+	}
+	workloads := make([][]*universe.Item, numWriters)
+	for w := range workloads {
+		workloads[w] = make([]*universe.Item, numOps)
+		for op := range workloads[w] {
+			if op%5 == 0 {
+				workloads[w][op] = genRandomAsset(t)
+				continue
+			}
+
+			workloads[w][op] = newUpdate(seed[(w+op)%numSeed])
+		}
+	}
+
+	pageQuery := func(offset int32) universe.RootNodesQuery {
+		return universe.RootNodesQuery{
+			SortDirection: universe.SortAscending,
+			Offset:        offset,
+			Limit:         pageSize,
+		}
+	}
+
+	// readAll pages through all roots, filling the cache as it goes.
+	readAll := func() error {
+		for offset := int32(0); ; offset += pageSize {
+			page, err := multiverse.RootNodes(
+				ctx, pageQuery(offset),
+			)
+			if err != nil {
+				return err
+			}
+			if int32(len(page)) < pageSize {
+				return nil
+			}
+		}
+	}
+
+	errs := make(chan error, numWriters+numReaders)
+
+	// Half the writers upsert leaves one at a time, the other half in
+	// batches, so both invalidation paths run concurrently.
+	var writers sync.WaitGroup
+	for w := 0; w < numWriters; w++ {
+		writers.Add(1)
+		go func(ops []*universe.Item, useBatch bool) {
+			defer writers.Done()
+
+			if useBatch {
+				const chunk = 5
+				for i := 0; i < len(ops); i += chunk {
+					end := min(i+chunk, len(ops))
+					err := multiverse.UpsertProofLeafBatch(
+						ctx, ops[i:end],
+					)
+					if err != nil {
+						errs <- err
+						return
+					}
+				}
+
+				return
+			}
+
+			for _, op := range ops {
+				_, err := multiverse.UpsertProofLeaf(
+					ctx, op.ID, op.Key, op.Leaf, nil,
+				)
+				if err != nil {
+					errs <- err
+					return
+				}
+			}
+		}(workloads[w], w%2 == 1)
+	}
+
+	// Readers keep paging through the roots until the writers are done.
+	done := make(chan struct{})
+	var readers sync.WaitGroup
+	for r := 0; r < numReaders; r++ {
+		readers.Add(1)
+		go func() {
+			defer readers.Done()
+
+			for {
+				select {
+				case <-done:
+					return
+				case <-time.After(time.Millisecond):
+				}
+
+				if err := readAll(); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+
+	writers.Wait()
+	close(done)
+	readers.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	// With all writers done, every page the cache still serves must
+	// match what a fresh store reads from the database.
+	fresh, _ := newTestMultiverseWithDb(t, db.BaseDB)
+	for offset := int32(0); ; offset += pageSize {
+		q := pageQuery(offset)
+
+		cachedPage, err := multiverse.RootNodes(ctx, q)
+		require.NoError(t, err)
+
+		freshPage, err := fresh.RootNodes(ctx, q)
+		require.NoError(t, err)
+
+		requireSameRoots(t, freshPage, cachedPage)
+
+		if int32(len(freshPage)) < pageSize {
+			break
+		}
+	}
 }
 
 // TestMultiverseSyncerCache tests the syncer cache of the multiverse store.
