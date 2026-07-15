@@ -469,7 +469,7 @@ func registerMintSupplyInternal(ctx context.Context, dbTx BaseUniverseStore,
 			"to universe proof type: %w", err)
 	}
 
-	mintSupplyProof, err := universeUpsertProofLeaf(
+	mintSupplyProof, _, err := universeUpsertProofLeaf(
 		ctx, dbTx, subNs, uniProofType, groupKey,
 		key, leaf, metaReveal, blockHeight,
 	)

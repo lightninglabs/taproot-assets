@@ -73,6 +73,11 @@
 
 ## Performance Improvements
 
+- [PR#2192](https://github.com/lightninglabs/taproot-assets/pull/2192)
+  keeps the universe root node page cache warm across proof inserts.
+  Previously, every inserted proof leaf wiped the whole page cache,
+  leaving `AssetRoots` pagination permanently cold on a busy server.
+
 ## Deprecations
 
 # Technical and Architectural Updates

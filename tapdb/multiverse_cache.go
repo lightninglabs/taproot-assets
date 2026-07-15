@@ -11,7 +11,6 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/universe"
-	"github.com/lightningnetwork/lnd/lnutils"
 )
 
 const (
@@ -380,25 +379,6 @@ func (r *rootPageCache) wipe(cacheSize uint64) {
 	r.Store(rootCache)
 }
 
-// rootIndex maps a tree ID to a universe root.
-type rootIndex struct {
-	atomic.Pointer[lnutils.SyncMap[universeIDKey, *universe.Root]]
-}
-
-// newRootIndex creates a new atomic root index.
-func newRootIndex() *rootIndex {
-	var a rootIndex
-	a.wipe()
-
-	return &a
-}
-
-// wipe wipes the cache.
-func (r *rootIndex) wipe() {
-	var idx lnutils.SyncMap[universeIDKey, *universe.Root]
-	r.Store(&idx)
-}
-
 // syncerRootNodeCache is used to cache the set of active root nodes for the
 // multiverse tree, which is specifically kept for the universe sync.
 type syncerRootNodeCache struct {
@@ -666,8 +646,6 @@ type rootNodeCache struct {
 
 	cacheSize uint64
 
-	rootIndex *rootIndex
-
 	allRoots *rootPageCache
 
 	*cacheLogger
@@ -679,7 +657,6 @@ type rootNodeCache struct {
 func newRootNodeCache(cacheSize uint64) *rootNodeCache {
 	return &rootNodeCache{
 		cacheSize:   cacheSize,
-		rootIndex:   newRootIndex(),
 		allRoots:    newRootPageCache(cacheSize),
 		cacheLogger: newCacheLogger("universe_roots"),
 	}
@@ -711,22 +688,19 @@ func (r *rootNodeCache) fetchRoots(q universe.RootNodesQuery,
 }
 
 // cacheRoots stores the given roots in the cache.
+//
+// NOTE: This method must be called while holding the rootNodeCache lock, so
+// that the page installed here can't be made stale by a concurrent wipe or
+// eviction running between the caller's database read and this call.
 func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 	rootNodes []universe.Root) {
 
 	log.Debugf("Caching root node (count=%v)", len(rootNodes))
 
-	// Store the main root pointer, then update the root index.
 	rootPageCache := r.allRoots.Load()
 	_, err := rootPageCache.Put(newRootPageQuery(q), rootNodes)
 	if err != nil {
 		log.Errorf("unable to insert into root cache: %v", err)
-	}
-
-	rootIndex := r.rootIndex.Load()
-	for _, rootNode := range rootNodes {
-		rootNode := rootNode
-		rootIndex.Store(rootNode.ID.String(), &rootNode)
 	}
 }
 
@@ -734,8 +708,86 @@ func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 func (r *rootNodeCache) wipeCache() {
 	log.Debugf("Wiping universe root node cache")
 
+	// The lock serializes us with the cache fill in RootNodes, which
+	// holds it across both its database read and cacheRoots. Without it
+	// we could wipe between the two, and the fill would then install a
+	// page into the fresh cache that was read before the write that
+	// triggered this wipe committed.
+	r.Lock()
+	defer r.Unlock()
+
 	r.allRoots.wipe(r.cacheSize)
-	r.rootIndex.wipe()
+}
+
+// handleRootUpdate updates the cached roots after a proof leaf was inserted
+// into the universe identified by root.ID. Creating a new universe changes
+// which roots appear on which page of paginated root queries, so the whole
+// page cache is invalidated. Updating an existing universe only changes the
+// value of a single, already placed root, so only the cached pages
+// containing that root are evicted and all other pages stay warm.
+func (r *rootNodeCache) handleRootUpdate(root universe.Root,
+	status universeRootStatus) {
+
+	switch status {
+	case universeRootCreated:
+		r.wipeCache()
+
+	case universeRootUpdated:
+		r.evictRoots([]universe.Root{root})
+	}
+}
+
+// evictRoots removes all cached pages that contain any of the given universe
+// roots. Pages are keyed by pagination parameters only and the backing query
+// orders by the stable universe_roots.id column, so updating an existing
+// universe never changes which page its root appears on. Cached pages that
+// don't contain any of the roots therefore remain valid, and absence of a
+// root from all cached pages means there is nothing to invalidate for it.
+//
+// The affected pages are evicted rather than patched with the new root
+// value: eviction is idempotent, so concurrent updates of the same universe
+// can apply in any order without ever leaving a value in the cache that is
+// older than the database state. It also keeps query-derived fields honest:
+// a grouped universe's asset name, for example, is frozen to its first
+// member by the backing query and would diverge if we patched in the latest
+// leaf's tag.
+func (r *rootNodeCache) evictRoots(roots []universe.Root) {
+	// The lock serializes us with the cache fill in RootNodes, which
+	// holds it across both its database read and cacheRoots. Without it
+	// we could evict between the two, and the fill would then install a
+	// page that was read before our root update committed.
+	r.Lock()
+	defer r.Unlock()
+
+	keys := make(map[universe.IdentifierKey]struct{}, len(roots))
+	for _, root := range roots {
+		keys[root.ID.Key()] = struct{}{}
+	}
+
+	rootPages := r.allRoots.Load()
+
+	// We first collect the affected pages, as mutating the cache while
+	// iterating over it isn't safe.
+	var evicted []rootPageQueryKey
+	rootPages.Range(func(key rootPageQueryKey,
+		page universeRootPage) bool {
+
+		stale := slices.ContainsFunc(
+			page, func(cached universe.Root) bool {
+				_, ok := keys[cached.ID.Key()]
+				return ok
+			},
+		)
+		if stale {
+			evicted = append(evicted, key)
+		}
+
+		return true
+	})
+
+	for _, key := range evicted {
+		rootPages.Delete(key)
+	}
 }
 
 // cachedLeafKeys is used to cache the set of leaf entries for a
