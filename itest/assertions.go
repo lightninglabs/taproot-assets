@@ -1804,6 +1804,13 @@ func AssertUniverseRootEquality(t *testing.T,
 
 // AssertUniverseRootEqualityEventually checks that the universe roots returned
 // by two daemons are either equal eventually.
+//
+// The wait window is intentionally longer than defaultWaitTimeout: the
+// only callers are large multi-asset-group mints, whose federation
+// push drains the batch serially on the envoy's syncer goroutine (see
+// FederationEnvoy.handleBatchPushRequest). Under Postgres in CI a 52-
+// item mint routinely takes longer than the 30 s default window to
+// converge.
 func AssertUniverseRootEqualityEventually(t *testing.T,
 	clientA, clientB unirpc.UniverseClient) {
 
@@ -1824,7 +1831,7 @@ func AssertUniverseRootEqualityEventually(t *testing.T,
 		}
 
 		return nil
-	}, defaultWaitTimeout)
+	}, 2*defaultWaitTimeout)
 	require.NoError(t, err)
 }
 
