@@ -994,18 +994,18 @@ func (s *Server) FetchLeavesFromCommit(chanState lnwl.AuxChanState,
 // from a channel revocation that stores balance + blob information.
 //
 // NOTE: This method is part of the lnwallet.AuxLeafStore interface.
-func (s *Server) FetchLeavesFromRevocation(r *channeldb.RevocationLog,
-	chanState lnwl.AuxChanState, keys lnwl.CommitmentKeyRing,
-	commitTx *wire.MsgTx) lfn.Result[lnwl.CommitDiffAuxResult] {
+func (s *Server) FetchLeavesFromRevocation(
+	req lnwl.RevocationLeavesReq) lfn.Result[lnwl.CommitDiffAuxResult] {
 
 	srvrLog.Debugf("FetchLeavesFromRevocation called, ourBalance=%v, "+
-		"teirBalance=%v, numHtlcs=%d", r.OurBalance, r.TheirBalance,
-		len(r.HTLCEntries))
+		"teirBalance=%v, numHtlcs=%d", req.Revocation.OurBalance,
+		req.Revocation.TheirBalance, len(req.Revocation.HTLCEntries))
 
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.
 	return tapchannel.FetchLeavesFromRevocation(
-		r, chanState, keys, commitTx, s.chainParams,
+		req.Revocation, req.ChanState, req.Keys, req.CommitTx,
+		s.chainParams,
 	)
 }
 
