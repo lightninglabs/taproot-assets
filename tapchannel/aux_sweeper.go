@@ -342,7 +342,7 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 		}
 
 		for outIdx := range vPackets[idx].Outputs {
-			//nolint:llll
+			//nolint:lll
 			vPackets[idx].Outputs[outIdx].ProofDeliveryAddress = courierAddr
 		}
 	}
@@ -484,7 +484,7 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 
 				// With the sig obtained, we'll now insert the
 				// signature at the specified index.
-				//nolint:llll
+				//nolint:lll
 				sigIndex, err := secondLevelSigIndex.UnwrapOrErr(
 					fmt.Errorf("no sig index"),
 				)
@@ -499,7 +499,7 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 
 				newAsset := vPacket.Outputs[0].Asset
 
-				//nolint:llll
+				//nolint:lll
 				prevWitness := newAsset.PrevWitnesses[0].TxWitness
 				prevWitness = slices.Insert(
 					prevWitness, int(sigIndex), auxSigBytes,
@@ -1417,7 +1417,7 @@ func assetOutputToVPacket(fundingInputProofs map[asset.ID]*proof.Proof,
 		Interactive:             true,
 		AnchorOutputIndex:       inclusionProof.OutputIndex,
 		AnchorOutputInternalKey: inclusionProof.InternalKey,
-		//nolint:llll
+		//nolint:lll
 		AnchorOutputTapscriptSibling: inclusionProof.CommitmentProof.TapSiblingPreimage,
 		ScriptKey:                    scriptKey,
 		ProofSuffix:                  &assetProof,
@@ -2306,7 +2306,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 			return err
 		}
 	}
-	//nolint:llll
+	//nolint:lll
 	for _, outgoingHTLCs := range commitState.OutgoingHtlcAssets.Val.HtlcOutputs {
 		for _, outgoingHTLC := range outgoingHTLCs.Outputs {
 			err := assetOutputToVPacket(
@@ -2319,7 +2319,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 			}
 		}
 	}
-	//nolint:llll
+	//nolint:lll
 	for _, incomingHTLCs := range commitState.IncomingHtlcAssets.Val.HtlcOutputs {
 		for _, incomingHTLC := range incomingHTLCs.Outputs {
 			err := assetOutputToVPacket(
@@ -2605,8 +2605,8 @@ func (a *AuxSweeper) signSecondLevelImport(
 	// 2 to be safe.
 	isSuccessPath := false
 	var preimage []byte
-	if req.SecondLevelTx != nil {
-		for _, txIn := range req.SecondLevelTx.TxIn {
+	req.SecondLevel.WhenSome(func(sl lnwallet.SecondLevelInfo) {
+		for _, txIn := range sl.Tx.TxIn {
 			if len(txIn.Witness) < 4 {
 				continue
 			}
@@ -2626,7 +2626,7 @@ func (a *AuxSweeper) signSecondLevelImport(
 				break
 			}
 		}
-	}
+	})
 
 	var (
 		scriptPath    input.ScriptPath
@@ -2872,10 +2872,14 @@ func (a *AuxSweeper) importSecondLevelHtlcTx(
 	outCommitments tappsbt.OutputCommitments,
 	commitState *cmsg.Commitment) error {
 
-	secondLevelTx := req.SecondLevelTx
-	if secondLevelTx == nil {
-		return fmt.Errorf("no second-level tx provided")
+	secondLevel, err := req.SecondLevel.UnwrapOrErr(
+		fmt.Errorf("no second-level tx provided"),
+	)
+	if err != nil {
+		return err
 	}
+	secondLevelTx := secondLevel.Tx
+	secondLevelBlockHeight := secondLevel.BlockHeight
 
 	ctx := context.Background()
 	secondLevelTxHash := secondLevelTx.TxHash()
@@ -2894,7 +2898,7 @@ func (a *AuxSweeper) importSecondLevelHtlcTx(
 	}
 
 	log.Infof("Importing second-level HTLC tx %v (height=%d)",
-		secondLevelTxHash, req.SecondLevelTxBlockHeight)
+		secondLevelTxHash, secondLevelBlockHeight)
 
 	supportSTXO := commitState.STXO.Val
 
@@ -2959,14 +2963,14 @@ func (a *AuxSweeper) importSecondLevelHtlcTx(
 
 	// Ship the second-level tx. It's already confirmed.
 	heightHint := fn.None[uint32]()
-	if req.SecondLevelTxBlockHeight > 0 {
-		heightHint = fn.Some(req.SecondLevelTxBlockHeight)
+	if secondLevelBlockHeight > 0 {
+		heightHint = fn.Some(secondLevelBlockHeight)
 	}
 
 	var parcelOpts []tapfreighter.PreAnchoredParcelOpt
 
 	log.Infof("Shipping second-level HTLC tx %v (height=%d)",
-		secondLevelTxHash, req.SecondLevelTxBlockHeight)
+		secondLevelTxHash, secondLevelBlockHeight)
 	err = shipChannelTxn(
 		a.cfg.TxSender, secondLevelTx, outCommitments,
 		secondLevelPkts, 0, heightHint, true,
@@ -3232,6 +3236,19 @@ func (a *AuxSweeper) resolveContract(
 		isSuccess := req.Type ==
 			input.TaprootHtlcAcceptedSuccessSecondLevel
 
+		// Extract the optional second-level tx info once for use
+		// throughout this branch. The Option is None when the
+		// resolver hasn't yet observed the second-level tx on
+		// chain (e.g. early breach paths).
+		var (
+			secondLevelTx            *wire.MsgTx
+			secondLevelTxBlockHeight uint32
+		)
+		req.SecondLevel.WhenSome(func(sl lnwallet.SecondLevelInfo) {
+			secondLevelTx = sl.Tx
+			secondLevelTxBlockHeight = sl.BlockHeight
+		})
+
 		if htlcIDErr != nil {
 			return lfn.Err[returnType](htlcIDErr)
 		}
@@ -3346,11 +3363,11 @@ func (a *AuxSweeper) resolveContract(
 		// amount. The signer used the fee-deducted value
 		// when creating the second-level tx.
 		secondLevelBtcAmt := req.HtlcAmt
-		if req.SecondLevelTx != nil &&
-			len(req.SecondLevelTx.TxOut) > 0 {
+		if secondLevelTx != nil &&
+			len(secondLevelTx.TxOut) > 0 {
 
 			secondLevelBtcAmt = btcutil.Amount(
-				req.SecondLevelTx.TxOut[0].Value,
+				secondLevelTx.TxOut[0].Value,
 			)
 		}
 
@@ -3397,7 +3414,7 @@ func (a *AuxSweeper) resolveContract(
 		// continue on error to avoid blocking the BTC-level
 		// justice sweep. The proof chain gap can be repaired
 		// after the fact.
-		if req.SecondLevelTx != nil {
+		if secondLevelTx != nil {
 			importErr := a.importSecondLevelHtlcTx(
 				req, secondLevelPkts,
 				secondLevelAllocs, outCommitments,
@@ -3432,14 +3449,14 @@ func (a *AuxSweeper) resolveContract(
 				// But the block data may not be
 				// populated yet (the porter finalizes
 				// asynchronously), so we add it here.
-				if req.SecondLevelTx != nil &&
-					req.SecondLevelTxBlockHeight > 0 {
+				if secondLevelTx != nil &&
+					secondLevelTxBlockHeight > 0 {
 
 					stxParams, ppErr := proofParamsForCommitTx( //nolint:lll
 						ctxImport,
 						a.cfg.ChainBridge,
-						req.SecondLevelTxBlockHeight,
-						*req.SecondLevelTx,
+						secondLevelTxBlockHeight,
+						*secondLevelTx,
 					)
 					if ppErr != nil {
 						log.Warnf("Unable to get "+
@@ -3477,8 +3494,8 @@ func (a *AuxSweeper) resolveContract(
 				secondLevelProof := assetOutputs[i].Proof.Val
 				secondLevelProof.Asset = *outAsset
 
-				if req.SecondLevelTx != nil {
-					stx := req.SecondLevelTx
+				if secondLevelTx != nil {
+					stx := secondLevelTx
 					secondLevelProof.AnchorTx = *stx
 
 					if len(stx.TxIn) > 0 {
@@ -3732,7 +3749,7 @@ func (a *AuxSweeper) resolveContract(
 		// level packets yet, as we don't know what the sweeping
 		// transaction will look like. So we'll just create them.
 		secondLevelPkts, err = lfn.MapOption(
-			//nolint:llll
+			//nolint:lll
 			func(desc tapscriptSweepDesc) lfn.Result[packetList] {
 				return a.createSweepVpackets(
 					secondLevelInputs, lfn.Ok(desc), req,
@@ -3753,7 +3770,7 @@ func (a *AuxSweeper) resolveContract(
 			prevAsset := firstLevelPkts[pktIdx].Outputs[0].Asset
 
 			for inputIdx, vIn := range vPkt.Inputs {
-				//nolint:llll
+				//nolint:lll
 				prevScriptKey := prevAsset.ScriptKey
 				vIn.PrevID.ScriptKey = asset.ToSerialized(
 					prevScriptKey.PubKey,
@@ -4143,7 +4160,7 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 				vIn.PrevID.OutPoint = prevOut
 			}
 			for _, vOut := range vPkt.Outputs {
-				//nolint:llll
+				//nolint:lll
 				vOut.Asset.PrevWitnesses[0].PrevID.OutPoint = prevOut
 			}
 		}
@@ -4418,7 +4435,7 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 			}
 
 			for _, vOut := range vPkt.Outputs {
-				//nolint:llll
+				//nolint:lll
 				vOut.Asset.PrevWitnesses[0].PrevID.OutPoint = prevOut
 			}
 		}
