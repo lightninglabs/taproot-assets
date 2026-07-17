@@ -472,10 +472,12 @@ func assertAssetsMatch(t *harnessTest, expected []*taprpc.Asset,
 //  3. Bob (fresh LND, no federation) imports RAW — both assets
 //     imported, NumSkipped=0
 //  4. Charlie (fresh LND, no federation) imports COMPACT — same
-//  5. Verify asset counts and group key presence on both nodes
+//  5. Transfer the grouped asset to Dave and export all backup modes
+//  6. Restore each mode onto Dave's LND with fresh tapd state
+//  7. Verify the group association and post-restore spendability
 func testBackupRestoreGrouped(t *harnessTest) {
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*4)
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*6)
 	defer cancel()
 
 	// Mint a grouped asset and an ungrouped asset together.
@@ -595,6 +597,89 @@ func testBackupRestoreGrouped(t *harnessTest) {
 	t.Logf("Charlie (COMPACT, no federation): imported %d, "+
 		"skipped %d", charlieImport.NumImported,
 		charlieImport.NumSkipped)
+
+	// Transfer the grouped asset so the final proof state no longer
+	// contains its genesis group witness.
+	groupedAsset := rpcAssets[0]
+	groupedAssetID := groupedAsset.AssetGenesis.AssetId
+	daveLnd := t.lndHarness.NewNodeWithCoins("backup-dave", nil)
+	daveTapd := setupTapdHarness(t.t, t, daveLnd, t.universeServer)
+
+	daveAddr, err := daveTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId: groupedAssetID,
+		Amt:     100,
+	})
+	require.NoError(t.t, err)
+	sendResp, _ := sendAssetsToAddr(t, t.tapd, daveAddr)
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp,
+		groupedAssetID, []uint64{4900, 100}, 0, 1,
+	)
+	AssertNonInteractiveRecvComplete(t.t, daveTapd, 1)
+
+	transferredBackups := []struct {
+		name string
+		mode wrpc.BackupMode
+		blob []byte
+	}{
+		{name: "raw", mode: wrpc.BackupMode_RAW},
+		{name: "compact", mode: wrpc.BackupMode_COMPACT},
+		{name: "optimistic", mode: wrpc.BackupMode_OPTIMISTIC},
+	}
+	for idx := range transferredBackups {
+		backupResp, err := daveTapd.ExportAssetWalletBackup(
+			ctxt, &wrpc.ExportAssetWalletBackupRequest{
+				Mode: transferredBackups[idx].mode,
+			},
+		)
+		require.NoError(t.t, err)
+		transferredBackups[idx].blob = backupResp.Backup
+	}
+	require.NoError(t.t, daveTapd.stop(!*noDelete))
+
+	for idx, walletBackup := range transferredBackups {
+		t.Logf("Restoring transferred asset from %s backup",
+			walletBackup.name)
+		restored := setupTapdHarness(
+			t.t, t, daveLnd, t.universeServer,
+			func(params *tapdHarnessParams) {
+				params.noDefaultUniverseSync = true
+			},
+		)
+
+		importResp, err := restored.ImportAssetsFromBackup(
+			ctxt, &wrpc.ImportAssetsFromBackupRequest{
+				Backup: walletBackup.blob,
+			},
+		)
+		require.NoError(t.t, err)
+		require.Equal(t.t, uint32(1), importResp.NumImported)
+
+		restoredAssets, err := restored.ListAssets(
+			ctxt, &taprpc.ListAssetRequest{},
+		)
+		require.NoError(t.t, err)
+		require.Len(t.t, restoredAssets.Assets, 1)
+		require.NotNil(t.t, restoredAssets.Assets[0].AssetGroup)
+
+		if idx == len(transferredBackups)-1 {
+			aliceAddr, err := t.tapd.NewAddr(
+				ctxt, &taprpc.NewAddrRequest{
+					AssetId: groupedAssetID,
+					Amt:     100,
+				},
+			)
+			require.NoError(t.t, err)
+			sendResp, _ = sendAssetsToAddr(t, restored, aliceAddr)
+			ConfirmAndAssertOutboundTransfer(
+				t.t, t.lndHarness.Miner(), restored, sendResp,
+				groupedAssetID,
+				[]uint64{0, 100}, 0, 1,
+			)
+		}
+
+		require.NoError(t.t, restored.stop(!*noDelete))
+	}
 }
 
 // testBackupRestoreOptimistic tests that OPTIMISTIC (v3) backups

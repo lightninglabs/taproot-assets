@@ -2047,7 +2047,11 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 		return fmt.Errorf("unable to insert managed utxo: %w", err)
 	}
 
-	newAsset := proof.Asset
+	newAsset := proof.Asset.Copy()
+	err = restoreGroupWitness(newAsset, proof.Blob)
+	if err != nil {
+		return fmt.Errorf("unable to restore group witness: %w", err)
+	}
 
 	// If this proof also has a meta reveal (should only exist for genesis
 	// assets, so we skip that validation here), then we'll insert this now
@@ -2083,6 +2087,52 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 		AssetID:   assetIDs[0],
 		ProofFile: proof.Blob,
 	})
+}
+
+// restoreGroupWitness restores the group witness of a transferred asset from
+// the genesis proof in its proof file. The group witness is only encoded in
+// the genesis asset's previous witness, so it isn't present in the final asset
+// snapshot of a transferred asset. The database needs it to associate the
+// imported asset with its group.
+func restoreGroupWitness(a *asset.Asset, proofBlob proof.Blob) error {
+	if a.GroupKey == nil || len(a.GroupKey.Witness) > 0 {
+		return nil
+	}
+
+	proofFile, err := proof.DecodeFile(proofBlob)
+	if err != nil {
+		return fmt.Errorf("unable to decode proof file: %w", err)
+	}
+
+	rawGenesis, err := proofFile.RawProofAt(0)
+	if err != nil {
+		return fmt.Errorf("unable to read genesis proof: %w", err)
+	}
+
+	var genesisProof proof.Proof
+	err = proof.SparseDecode(
+		bytes.NewReader(rawGenesis),
+		proof.AssetLeafRecord(&genesisProof.Asset),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to decode genesis asset: %w", err)
+	}
+
+	if genesisProof.Asset.GroupKey == nil ||
+		!genesisProof.Asset.GroupKey.GroupPubKey.IsEqual(
+			&a.GroupKey.GroupPubKey,
+		) {
+
+		return fmt.Errorf("genesis and final asset group keys differ")
+	}
+
+	if !genesisProof.Asset.HasGenesisWitnessForGroup() {
+		return nil
+	}
+
+	a.GroupKey.Witness = genesisProof.Asset.PrevWitnesses[0].TxWitness
+
+	return nil
 }
 
 // upsertAssetProof updates the proof of an asset in the database, overwriting

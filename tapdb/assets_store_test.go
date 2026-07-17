@@ -3553,6 +3553,38 @@ func TestUpsertAssetsWithSplitCommitments(t *testing.T) {
 	}
 }
 
+// TestRestoreGroupWitness verifies that a transferred asset's group witness
+// can be recovered from the genesis asset in its proof file.
+func TestRestoreGroupWitness(t *testing.T) {
+	t.Parallel()
+
+	anchorTx := wire.NewMsgTx(2)
+	anchorTx.AddTxOut(&wire.TxOut{Value: 1000})
+	anchorTx.AddTxOut(&wire.TxOut{Value: 1000})
+	block := wire.MsgBlock{Transactions: []*wire.MsgTx{anchorTx}}
+	genesisProof := proof.RandProof(
+		t, asset.RandGenesis(t, asset.Normal), test.RandPubKey(t),
+		block, 0, 1,
+	)
+	require.True(t, genesisProof.Asset.HasGenesisWitnessForGroup())
+	expectedWitness := genesisProof.Asset.PrevWitnesses[0].TxWitness
+
+	proofFile, err := proof.NewFile(proof.V0, genesisProof)
+	require.NoError(t, err)
+
+	var proofBuf bytes.Buffer
+	require.NoError(t, proofFile.Encode(&proofBuf))
+
+	transferredAsset := genesisProof.Asset.Copy()
+	transferredAsset.GroupKey.Witness = nil
+	transferredAsset.PrevWitnesses = []asset.Witness{{}}
+	require.False(t, transferredAsset.HasGenesisWitnessForGroup())
+
+	err = restoreGroupWitness(transferredAsset, proofBuf.Bytes())
+	require.NoError(t, err)
+	require.Equal(t, expectedWitness, transferredAsset.GroupKey.Witness)
+}
+
 // TestFetchOrphanUTXOs tests that FetchOrphanUTXOs:
 // 1. Filters out UTXOs with missing signing info (KeyFamily=0 AND KeyIndex=0)
 // 2. Respects the MaxOrphanUTXOs limit.
