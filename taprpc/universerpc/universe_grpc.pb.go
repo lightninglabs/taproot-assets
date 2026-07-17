@@ -85,6 +85,14 @@ type UniverseClient interface {
 	// the latest known root for each asset, performing tree based reconciliation
 	// to arrive at a new shared root.
 	SyncUniverse(ctx context.Context, in *SyncRequest, opts ...grpc.CallOption) (*SyncResponse, error)
+	// SyncDelta returns the universe leaves inserted on this server after
+	// the given sequence number, in insertion order. A federation peer
+	// that tracks a per-server cursor can fetch exactly the leaves it
+	// hasn't seen yet, instead of enumerating all leaf keys to compute a
+	// set difference. The response carries the current roots of every
+	// universe touched by the delta so the caller can verify convergence
+	// after applying it.
+	SyncDelta(ctx context.Context, in *SyncDeltaRequest, opts ...grpc.CallOption) (*SyncDeltaResponse, error)
 	// tapcli: `universe federation list`
 	// ListFederationServers lists the set of servers that make up the federation
 	// of the local Universe server. This servers are used to push out new proofs,
@@ -256,6 +264,15 @@ func (c *universeClient) Info(ctx context.Context, in *InfoRequest, opts ...grpc
 func (c *universeClient) SyncUniverse(ctx context.Context, in *SyncRequest, opts ...grpc.CallOption) (*SyncResponse, error) {
 	out := new(SyncResponse)
 	err := c.cc.Invoke(ctx, "/universerpc.Universe/SyncUniverse", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *universeClient) SyncDelta(ctx context.Context, in *SyncDeltaRequest, opts ...grpc.CallOption) (*SyncDeltaResponse, error) {
+	out := new(SyncDeltaResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/SyncDelta", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -450,6 +467,14 @@ type UniverseServer interface {
 	// the latest known root for each asset, performing tree based reconciliation
 	// to arrive at a new shared root.
 	SyncUniverse(context.Context, *SyncRequest) (*SyncResponse, error)
+	// SyncDelta returns the universe leaves inserted on this server after
+	// the given sequence number, in insertion order. A federation peer
+	// that tracks a per-server cursor can fetch exactly the leaves it
+	// hasn't seen yet, instead of enumerating all leaf keys to compute a
+	// set difference. The response carries the current roots of every
+	// universe touched by the delta so the caller can verify convergence
+	// after applying it.
+	SyncDelta(context.Context, *SyncDeltaRequest) (*SyncDeltaResponse, error)
 	// tapcli: `universe federation list`
 	// ListFederationServers lists the set of servers that make up the federation
 	// of the local Universe server. This servers are used to push out new proofs,
@@ -551,6 +576,9 @@ func (UnimplementedUniverseServer) Info(context.Context, *InfoRequest) (*InfoRes
 }
 func (UnimplementedUniverseServer) SyncUniverse(context.Context, *SyncRequest) (*SyncResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SyncUniverse not implemented")
+}
+func (UnimplementedUniverseServer) SyncDelta(context.Context, *SyncDeltaRequest) (*SyncDeltaResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SyncDelta not implemented")
 }
 func (UnimplementedUniverseServer) ListFederationServers(context.Context, *ListFederationServersRequest) (*ListFederationServersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListFederationServers not implemented")
@@ -816,6 +844,24 @@ func _Universe_SyncUniverse_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(UniverseServer).SyncUniverse(ctx, req.(*SyncRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Universe_SyncDelta_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SyncDeltaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).SyncDelta(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/SyncDelta",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).SyncDelta(ctx, req.(*SyncDeltaRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1108,6 +1154,10 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SyncUniverse",
 			Handler:    _Universe_SyncUniverse_Handler,
+		},
+		{
+			MethodName: "SyncDelta",
+			Handler:    _Universe_SyncDelta_Handler,
 		},
 		{
 			MethodName: "ListFederationServers",

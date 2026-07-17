@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"math/rand"
 	"strings"
 	"sync/atomic"
@@ -104,6 +105,13 @@ type SeedSpec struct {
 	// the local side starts empty; one means the two sides are already
 	// identical (and sync should be a no-op).
 	LocalOverlap Fraction
+
+	// DivergentRoots, when non-zero, limits the LocalOverlap shortfall
+	// to the first DivergentRoots roots of each sweep; the remaining
+	// roots are seeded fully overlapped (locally identical). This
+	// models a steady-state federation where most universes are quiet
+	// and only a few gained new leaves since the last tick.
+	DivergentRoots int
 }
 
 // universePair is one side of the sync fixture. Each side has its own
@@ -253,6 +261,16 @@ type SyncFixture struct {
 	Remote  *universePair
 	Syncer  *universe.SimpleSyncer
 	Metrics *SyncMetrics
+
+	// Discovery tallies the remote DiffEngine traffic (round trips and
+	// approximate wire bytes) the syncer generates while finding out
+	// what to fetch.
+	Discovery *DiscoveryMetrics
+
+	// seededGens records the asset genesis used for each seeded root,
+	// keyed by proof type, in creation order. This is what allows a
+	// bench to grow a specific already-seeded universe after the fact.
+	seededGens map[universe.ProofType][]asset.Genesis
 }
 
 // NewSyncFixture constructs an unseeded SyncFixture. Call Seed to
@@ -270,6 +288,7 @@ func NewSyncFixture(tb testing.TB, opts SyncFixtureOpts) *SyncFixture {
 	remote := newUniversePair(tb, clk)
 
 	metrics := &SyncMetrics{}
+	discovery := &DiscoveryMetrics{}
 
 	syncer := universe.NewSimpleSyncer(universe.SimpleSyncCfg{
 		LocalDiffEngine: local.Archive,
@@ -280,17 +299,24 @@ func NewSyncFixture(tb testing.TB, opts SyncFixtureOpts) *SyncFixture {
 		NewRemoteDiffEngine: func(
 			_ universe.ServerAddr) (universe.DiffEngine, error) {
 
-			return remote.Archive, nil
+			return &countingDiffEngine{
+				inner:   remote.Archive,
+				metrics: discovery,
+			}, nil
 		},
 		SyncBatchSize:       opts.SyncBatchSize,
 		SyncRootConcurrency: opts.SyncRootConcurrency,
 	})
 
 	return &SyncFixture{
-		Local:   local,
-		Remote:  remote,
-		Syncer:  syncer,
-		Metrics: metrics,
+		Local:     local,
+		Remote:    remote,
+		Syncer:    syncer,
+		Metrics:   metrics,
+		Discovery: discovery,
+		seededGens: make(
+			map[universe.ProofType][]asset.Genesis,
+		),
 	}
 }
 
@@ -324,14 +350,15 @@ func (f *SyncFixture) Seed(tb testing.TB, spec SeedSpec) {
 	ctx := context.Background()
 
 	seedType(tb, ctx, f, universe.ProofTypeIssuance, spec.Issuance,
-		spec.LocalOverlap)
+		spec.LocalOverlap, spec.DivergentRoots)
 	seedType(tb, ctx, f, universe.ProofTypeTransfer, spec.Transfer,
-		spec.LocalOverlap)
+		spec.LocalOverlap, spec.DivergentRoots)
 }
 
 // seedType is the per-proof-type worker used by Seed.
 func seedType(tb testing.TB, ctx context.Context, f *SyncFixture,
-	pt universe.ProofType, sweep RootSweep, overlap Fraction) {
+	pt universe.ProofType, sweep RootSweep, overlap Fraction,
+	divergentRoots int) {
 
 	tb.Helper()
 
@@ -342,6 +369,12 @@ func seedType(tb testing.TB, ctx context.Context, f *SyncFixture,
 	localCount := int(float64(sweep.Leaves) * float64(overlap))
 
 	for r := 0; r < sweep.Roots; r++ {
+		// Roots beyond the divergent prefix are seeded fully
+		// overlapped: the local side already has every leaf.
+		rootLocalCount := localCount
+		if divergentRoots > 0 && r >= divergentRoots {
+			rootLocalCount = sweep.Leaves
+		}
 		// All leaves under one root share a single asset genesis; the
 		// universe identifier is derived from that same genesis so
 		// insert-time and query-time namespaces agree. Deriving id
@@ -353,6 +386,7 @@ func seedType(tb testing.TB, ctx context.Context, f *SyncFixture,
 			AssetID:   assetGen.ID(),
 			ProofType: pt,
 		}
+		f.seededGens[pt] = append(f.seededGens[pt], assetGen)
 
 		remoteItems := make([]*universe.Item, sweep.Leaves)
 		for i := 0; i < sweep.Leaves; i++ {
@@ -370,15 +404,56 @@ func seedType(tb testing.TB, ctx context.Context, f *SyncFixture,
 		)
 		require.NoError(tb, err)
 
-		if localCount == 0 {
+		if rootLocalCount == 0 {
 			continue
 		}
 
 		err = f.Local.Multiverse.UpsertProofLeafBatch(
-			ctx, remoteItems[:localCount],
+			ctx, remoteItems[:rootLocalCount],
 		)
 		require.NoError(tb, err)
 	}
+}
+
+// AddRemoteDivergence grows an already-seeded universe on the remote
+// side only: n new leaves are appended to the rootIdx-th root of the
+// given proof type's sweep. This models the steady-state shape where a
+// previously synced universe gains new leaves between federation ticks.
+func (f *SyncFixture) AddRemoteDivergence(tb testing.TB,
+	pt universe.ProofType, rootIdx, n int) {
+
+	tb.Helper()
+
+	gens := f.seededGens[pt]
+	require.Less(tb, rootIdx, len(gens), "root index out of range")
+
+	assetGen := gens[rootIdx]
+	id := universe.Identifier{
+		AssetID:   assetGen.ID(),
+		ProofType: pt,
+	}
+
+	ctx := context.Background()
+	for i := 0; i < n; i++ {
+		_, err := f.Remote.Multiverse.UpsertProofLeaf(
+			ctx, id, randLeafKey(tb),
+			randMintingLeafFor(tb, assetGen), nil,
+		)
+		require.NoError(tb, err)
+	}
+}
+
+// RemoteMaxSeq returns the remote side's current insertion-journal
+// high-water mark, i.e. the cursor a fully synced peer would hold.
+func (f *SyncFixture) RemoteMaxSeq(tb testing.TB) uint64 {
+	tb.Helper()
+
+	_, maxSeq, err := f.Remote.Multiverse.FetchLeavesSince(
+		context.Background(), 0, int32(math.MaxInt32),
+	)
+	require.NoError(tb, err)
+
+	return maxSeq
 }
 
 // randLeafKey returns a random universe leaf key. Each call allocates

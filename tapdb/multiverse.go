@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -53,6 +54,14 @@ type (
 	// QueryMultiverseLeaves is used to query for a set of leaves based on
 	// the proof type and asset ID (or group key)
 	QueryMultiverseLeaves = sqlc.QueryMultiverseLeavesParams
+
+	// UniverseLeavesSinceQuery is used to query for the insertion-ordered
+	// set of leaves inserted after a given sequence number.
+	UniverseLeavesSinceQuery = sqlc.FetchUniverseLeavesSinceParams
+
+	// UniverseLeafDeltaRow is one row of the insertion-ordered leaf
+	// delta query.
+	UniverseLeafDeltaRow = sqlc.FetchUniverseLeavesSinceRow
 )
 
 // BaseMultiverseStore is used to interact with a set of base universe
@@ -74,6 +83,12 @@ type BaseMultiverseStore interface {
 	// given target namespace (proof type in this case).
 	FetchMultiverseRoot(ctx context.Context,
 		proofNamespace string) (MultiverseRoot, error)
+
+	// FetchUniverseLeavesSince returns leaves inserted after the given
+	// sequence number, in insertion order, across all issuance and
+	// transfer universes.
+	FetchUniverseLeavesSince(ctx context.Context,
+		arg UniverseLeavesSinceQuery) ([]UniverseLeafDeltaRow, error)
 }
 
 // BaseMultiverseOptions is the set of options for multiverse queries.
@@ -1188,6 +1203,144 @@ func (b *MultiverseStore) FetchLeaves(ctx context.Context,
 	}
 
 	return leaves, nil
+}
+
+// FetchLeavesSince returns up to limit leaves inserted after sinceSeq
+// across all issuance and transfer universes, in insertion order, along
+// with the highest sequence number seen. If no leaves qualify, the
+// returned sequence number equals sinceSeq.
+//
+// NOTE: an upsert that rewrites an existing leaf (re-org replacement)
+// keeps its original sequence number and is therefore invisible to this
+// query. Callers must not treat the delta as the sole source of
+// divergence; root comparison remains authoritative.
+func (b *MultiverseStore) FetchLeavesSince(ctx context.Context,
+	sinceSeq uint64, limit int32) ([]universe.DeltaLeafItem, uint64,
+	error) {
+
+	if limit <= 0 {
+		limit = universe.RequestPageSize
+	}
+
+	var (
+		readTx = NewBaseUniverseReadTx()
+		items  []universe.DeltaLeafItem
+		maxSeq = sinceSeq
+	)
+	dbErr := b.db.ExecTx(ctx, &readTx, func(q BaseMultiverseStore) error {
+		items = nil
+		maxSeq = sinceSeq
+
+		rows, err := q.FetchUniverseLeavesSince(
+			ctx, UniverseLeavesSinceQuery{
+				SinceSeq: int64(sinceSeq),
+				NumLimit: limit,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, row := range rows {
+			item, err := unmarshalLeafDeltaRow(ctx, q, row)
+			if err != nil {
+				return err
+			}
+
+			items = append(items, *item)
+			maxSeq = item.Seq
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, 0, dbErr
+	}
+
+	return items, maxSeq, nil
+}
+
+// unmarshalLeafDeltaRow converts one row of the leaf delta query into a
+// LeafDeltaItem.
+func unmarshalLeafDeltaRow(ctx context.Context, q BaseMultiverseStore,
+	row UniverseLeafDeltaRow) (*universe.DeltaLeafItem, error) {
+
+	if !row.ProofType.Valid {
+		return nil, fmt.Errorf("delta row %d: missing proof type",
+			row.Seq)
+	}
+
+	uniID, err := universe.NewUniIDFromRawArgs(
+		row.RootAssetID, row.RootGroupKey, row.ProofType.String,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("delta row %d: %w", row.Seq, err)
+	}
+
+	scriptKeyPub, err := schnorr.ParsePubKey(row.ScriptKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("delta row %d: %w", row.Seq, err)
+	}
+	scriptKey := asset.NewScriptKey(scriptKeyPub)
+
+	var genPoint wire.OutPoint
+	err = readOutPoint(bytes.NewReader(row.MintingPoint), 0, 0, &genPoint)
+	if err != nil {
+		return nil, fmt.Errorf("delta row %d: %w", row.Seq, err)
+	}
+
+	leafKey := universe.BaseLeafKey{
+		OutPoint:  genPoint,
+		ScriptKey: &scriptKey,
+	}
+
+	leafAssetGen, err := fetchGenesis(ctx, q, row.AssetGenesisID)
+	if err != nil {
+		return nil, fmt.Errorf("delta row %d: %w", row.Seq, err)
+	}
+
+	// We only need the asset record for the leaf, so sparse decode just
+	// that from the raw proof.
+	var leafAsset asset.Asset
+	assetRecord := proof.AssetLeafRecord(&leafAsset)
+	err = proof.SparseDecode(
+		bytes.NewReader(row.GenesisProof), assetRecord,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("delta row %d: unable to decode "+
+			"proof: %w", row.Seq, err)
+	}
+
+	leaf := &universe.Leaf{
+		GenesisWithGroup: universe.GenesisWithGroup{
+			Genesis: leafAssetGen,
+		},
+		RawProof: row.GenesisProof,
+		Asset:    &leafAsset,
+		Amt:      uint64(row.SumAmt),
+	}
+
+	if uniID.GroupKey != nil {
+		leafAssetGroup, err := fetchGroupByGenesis(
+			ctx, q, row.AssetGenesisID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("delta row %d: %w", row.Seq,
+				err)
+		}
+
+		leaf.GroupKey = &asset.GroupKey{
+			GroupPubKey: *uniID.GroupKey,
+			Witness:     leafAssetGroup.Witness,
+		}
+	}
+
+	return &universe.DeltaLeafItem{
+		Seq:  uint64(row.Seq),
+		ID:   uniID,
+		Key:  leafKey,
+		Leaf: leaf,
+	}, nil
 }
 
 // RegisterSubscriber adds a new subscriber for receiving events. The

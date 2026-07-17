@@ -2269,6 +2269,214 @@ func (x *SyncResponse) GetSyncedUniverses() []*SyncedUniverse {
 	return nil
 }
 
+type SyncDeltaRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Return leaves inserted after this sequence number. Zero means from
+	// the beginning (bootstrap).
+	SinceSeq uint64 `protobuf:"varint,1,opt,name=since_seq,json=sinceSeq,proto3" json:"since_seq,omitempty"`
+	// The maximum number of leaves to return in one response. Clamped
+	// server-side; the server may additionally cut the page short to
+	// respect its response size budget. Callers should page until a
+	// response returns fewer items than requested and latest_seq stops
+	// advancing.
+	PageSize      int32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SyncDeltaRequest) Reset() {
+	*x = SyncDeltaRequest{}
+	mi := &file_universerpc_universe_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncDeltaRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncDeltaRequest) ProtoMessage() {}
+
+func (x *SyncDeltaRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_universerpc_universe_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncDeltaRequest.ProtoReflect.Descriptor instead.
+func (*SyncDeltaRequest) Descriptor() ([]byte, []int) {
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *SyncDeltaRequest) GetSinceSeq() uint64 {
+	if x != nil {
+		return x.SinceSeq
+	}
+	return 0
+}
+
+func (x *SyncDeltaRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+type SyncDeltaItem struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The universe the leaf belongs to.
+	UniverseId *ID `protobuf:"bytes,1,opt,name=universe_id,json=universeId,proto3" json:"universe_id,omitempty"`
+	// The leaf key the leaf is stored at.
+	Key *AssetKey `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	// The leaf payload: the asset and its raw issuance/transfer proof.
+	Leaf *AssetLeaf `protobuf:"bytes,3,opt,name=leaf,proto3" json:"leaf,omitempty"`
+	// The universe inclusion proof binding the leaf to its universe root
+	// (one of the roots in the enclosing response).
+	UniverseInclusionProof []byte `protobuf:"bytes,4,opt,name=universe_inclusion_proof,json=universeInclusionProof,proto3" json:"universe_inclusion_proof,omitempty"`
+	// The insertion sequence number of the leaf on the serving universe.
+	Seq           uint64 `protobuf:"varint,5,opt,name=seq,proto3" json:"seq,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SyncDeltaItem) Reset() {
+	*x = SyncDeltaItem{}
+	mi := &file_universerpc_universe_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncDeltaItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncDeltaItem) ProtoMessage() {}
+
+func (x *SyncDeltaItem) ProtoReflect() protoreflect.Message {
+	mi := &file_universerpc_universe_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncDeltaItem.ProtoReflect.Descriptor instead.
+func (*SyncDeltaItem) Descriptor() ([]byte, []int) {
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *SyncDeltaItem) GetUniverseId() *ID {
+	if x != nil {
+		return x.UniverseId
+	}
+	return nil
+}
+
+func (x *SyncDeltaItem) GetKey() *AssetKey {
+	if x != nil {
+		return x.Key
+	}
+	return nil
+}
+
+func (x *SyncDeltaItem) GetLeaf() *AssetLeaf {
+	if x != nil {
+		return x.Leaf
+	}
+	return nil
+}
+
+func (x *SyncDeltaItem) GetUniverseInclusionProof() []byte {
+	if x != nil {
+		return x.UniverseInclusionProof
+	}
+	return nil
+}
+
+func (x *SyncDeltaItem) GetSeq() uint64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+type SyncDeltaResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The leaves inserted after the requested sequence number, in
+	// insertion order. Leaves whose universes have proof export disabled
+	// are omitted, but still advance latest_seq.
+	Items []*SyncDeltaItem `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	// The current roots of every universe that appears in items.
+	UniverseRoots []*UniverseRoot `protobuf:"bytes,2,rep,name=universe_roots,json=universeRoots,proto3" json:"universe_roots,omitempty"`
+	// The high-water sequence mark of this page: the cursor value the
+	// caller should persist once the page's items are applied and
+	// verified.
+	LatestSeq     uint64 `protobuf:"varint,3,opt,name=latest_seq,json=latestSeq,proto3" json:"latest_seq,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SyncDeltaResponse) Reset() {
+	*x = SyncDeltaResponse{}
+	mi := &file_universerpc_universe_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncDeltaResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncDeltaResponse) ProtoMessage() {}
+
+func (x *SyncDeltaResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_universerpc_universe_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncDeltaResponse.ProtoReflect.Descriptor instead.
+func (*SyncDeltaResponse) Descriptor() ([]byte, []int) {
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *SyncDeltaResponse) GetItems() []*SyncDeltaItem {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *SyncDeltaResponse) GetUniverseRoots() []*UniverseRoot {
+	if x != nil {
+		return x.UniverseRoots
+	}
+	return nil
+}
+
+func (x *SyncDeltaResponse) GetLatestSeq() uint64 {
+	if x != nil {
+		return x.LatestSeq
+	}
+	return 0
+}
+
 type UniverseFederationServer struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The host of the federation server, which is used to connect to the
@@ -2283,7 +2491,7 @@ type UniverseFederationServer struct {
 
 func (x *UniverseFederationServer) Reset() {
 	*x = UniverseFederationServer{}
-	mi := &file_universerpc_universe_proto_msgTypes[34]
+	mi := &file_universerpc_universe_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2295,7 +2503,7 @@ func (x *UniverseFederationServer) String() string {
 func (*UniverseFederationServer) ProtoMessage() {}
 
 func (x *UniverseFederationServer) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[34]
+	mi := &file_universerpc_universe_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2308,7 +2516,7 @@ func (x *UniverseFederationServer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UniverseFederationServer.ProtoReflect.Descriptor instead.
 func (*UniverseFederationServer) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{34}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *UniverseFederationServer) GetHost() string {
@@ -2333,7 +2541,7 @@ type ListFederationServersRequest struct {
 
 func (x *ListFederationServersRequest) Reset() {
 	*x = ListFederationServersRequest{}
-	mi := &file_universerpc_universe_proto_msgTypes[35]
+	mi := &file_universerpc_universe_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2345,7 +2553,7 @@ func (x *ListFederationServersRequest) String() string {
 func (*ListFederationServersRequest) ProtoMessage() {}
 
 func (x *ListFederationServersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[35]
+	mi := &file_universerpc_universe_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2358,7 +2566,7 @@ func (x *ListFederationServersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFederationServersRequest.ProtoReflect.Descriptor instead.
 func (*ListFederationServersRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{35}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{38}
 }
 
 type ListFederationServersResponse struct {
@@ -2372,7 +2580,7 @@ type ListFederationServersResponse struct {
 
 func (x *ListFederationServersResponse) Reset() {
 	*x = ListFederationServersResponse{}
-	mi := &file_universerpc_universe_proto_msgTypes[36]
+	mi := &file_universerpc_universe_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2384,7 +2592,7 @@ func (x *ListFederationServersResponse) String() string {
 func (*ListFederationServersResponse) ProtoMessage() {}
 
 func (x *ListFederationServersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[36]
+	mi := &file_universerpc_universe_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2397,7 +2605,7 @@ func (x *ListFederationServersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFederationServersResponse.ProtoReflect.Descriptor instead.
 func (*ListFederationServersResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{36}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ListFederationServersResponse) GetServers() []*UniverseFederationServer {
@@ -2417,7 +2625,7 @@ type AddFederationServerRequest struct {
 
 func (x *AddFederationServerRequest) Reset() {
 	*x = AddFederationServerRequest{}
-	mi := &file_universerpc_universe_proto_msgTypes[37]
+	mi := &file_universerpc_universe_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2429,7 +2637,7 @@ func (x *AddFederationServerRequest) String() string {
 func (*AddFederationServerRequest) ProtoMessage() {}
 
 func (x *AddFederationServerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[37]
+	mi := &file_universerpc_universe_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2442,7 +2650,7 @@ func (x *AddFederationServerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddFederationServerRequest.ProtoReflect.Descriptor instead.
 func (*AddFederationServerRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{37}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *AddFederationServerRequest) GetServers() []*UniverseFederationServer {
@@ -2460,7 +2668,7 @@ type AddFederationServerResponse struct {
 
 func (x *AddFederationServerResponse) Reset() {
 	*x = AddFederationServerResponse{}
-	mi := &file_universerpc_universe_proto_msgTypes[38]
+	mi := &file_universerpc_universe_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2472,7 +2680,7 @@ func (x *AddFederationServerResponse) String() string {
 func (*AddFederationServerResponse) ProtoMessage() {}
 
 func (x *AddFederationServerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[38]
+	mi := &file_universerpc_universe_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2485,7 +2693,7 @@ func (x *AddFederationServerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddFederationServerResponse.ProtoReflect.Descriptor instead.
 func (*AddFederationServerResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{38}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{41}
 }
 
 type DeleteFederationServerRequest struct {
@@ -2498,7 +2706,7 @@ type DeleteFederationServerRequest struct {
 
 func (x *DeleteFederationServerRequest) Reset() {
 	*x = DeleteFederationServerRequest{}
-	mi := &file_universerpc_universe_proto_msgTypes[39]
+	mi := &file_universerpc_universe_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2510,7 +2718,7 @@ func (x *DeleteFederationServerRequest) String() string {
 func (*DeleteFederationServerRequest) ProtoMessage() {}
 
 func (x *DeleteFederationServerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[39]
+	mi := &file_universerpc_universe_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2523,7 +2731,7 @@ func (x *DeleteFederationServerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteFederationServerRequest.ProtoReflect.Descriptor instead.
 func (*DeleteFederationServerRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{39}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *DeleteFederationServerRequest) GetServers() []*UniverseFederationServer {
@@ -2541,7 +2749,7 @@ type DeleteFederationServerResponse struct {
 
 func (x *DeleteFederationServerResponse) Reset() {
 	*x = DeleteFederationServerResponse{}
-	mi := &file_universerpc_universe_proto_msgTypes[40]
+	mi := &file_universerpc_universe_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2553,7 +2761,7 @@ func (x *DeleteFederationServerResponse) String() string {
 func (*DeleteFederationServerResponse) ProtoMessage() {}
 
 func (x *DeleteFederationServerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[40]
+	mi := &file_universerpc_universe_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2566,7 +2774,7 @@ func (x *DeleteFederationServerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteFederationServerResponse.ProtoReflect.Descriptor instead.
 func (*DeleteFederationServerResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{40}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{43}
 }
 
 type StatsResponse struct {
@@ -2581,7 +2789,7 @@ type StatsResponse struct {
 
 func (x *StatsResponse) Reset() {
 	*x = StatsResponse{}
-	mi := &file_universerpc_universe_proto_msgTypes[41]
+	mi := &file_universerpc_universe_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2593,7 +2801,7 @@ func (x *StatsResponse) String() string {
 func (*StatsResponse) ProtoMessage() {}
 
 func (x *StatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[41]
+	mi := &file_universerpc_universe_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2606,7 +2814,7 @@ func (x *StatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatsResponse.ProtoReflect.Descriptor instead.
 func (*StatsResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{41}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *StatsResponse) GetNumTotalAssets() int64 {
@@ -2665,7 +2873,7 @@ type AssetStatsQuery struct {
 
 func (x *AssetStatsQuery) Reset() {
 	*x = AssetStatsQuery{}
-	mi := &file_universerpc_universe_proto_msgTypes[42]
+	mi := &file_universerpc_universe_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2677,7 +2885,7 @@ func (x *AssetStatsQuery) String() string {
 func (*AssetStatsQuery) ProtoMessage() {}
 
 func (x *AssetStatsQuery) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[42]
+	mi := &file_universerpc_universe_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2690,7 +2898,7 @@ func (x *AssetStatsQuery) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssetStatsQuery.ProtoReflect.Descriptor instead.
 func (*AssetStatsQuery) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{42}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *AssetStatsQuery) GetAssetNameFilter() string {
@@ -2768,7 +2976,7 @@ type AssetStatsSnapshot struct {
 
 func (x *AssetStatsSnapshot) Reset() {
 	*x = AssetStatsSnapshot{}
-	mi := &file_universerpc_universe_proto_msgTypes[43]
+	mi := &file_universerpc_universe_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2780,7 +2988,7 @@ func (x *AssetStatsSnapshot) String() string {
 func (*AssetStatsSnapshot) ProtoMessage() {}
 
 func (x *AssetStatsSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[43]
+	mi := &file_universerpc_universe_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2793,7 +3001,7 @@ func (x *AssetStatsSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssetStatsSnapshot.ProtoReflect.Descriptor instead.
 func (*AssetStatsSnapshot) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{43}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *AssetStatsSnapshot) GetGroupKey() []byte {
@@ -2870,7 +3078,7 @@ type AssetStatsAsset struct {
 
 func (x *AssetStatsAsset) Reset() {
 	*x = AssetStatsAsset{}
-	mi := &file_universerpc_universe_proto_msgTypes[44]
+	mi := &file_universerpc_universe_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2882,7 +3090,7 @@ func (x *AssetStatsAsset) String() string {
 func (*AssetStatsAsset) ProtoMessage() {}
 
 func (x *AssetStatsAsset) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[44]
+	mi := &file_universerpc_universe_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2895,7 +3103,7 @@ func (x *AssetStatsAsset) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssetStatsAsset.ProtoReflect.Descriptor instead.
 func (*AssetStatsAsset) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{44}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *AssetStatsAsset) GetAssetId() []byte {
@@ -2974,7 +3182,7 @@ type UniverseAssetStats struct {
 
 func (x *UniverseAssetStats) Reset() {
 	*x = UniverseAssetStats{}
-	mi := &file_universerpc_universe_proto_msgTypes[45]
+	mi := &file_universerpc_universe_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2986,7 +3194,7 @@ func (x *UniverseAssetStats) String() string {
 func (*UniverseAssetStats) ProtoMessage() {}
 
 func (x *UniverseAssetStats) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[45]
+	mi := &file_universerpc_universe_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2999,7 +3207,7 @@ func (x *UniverseAssetStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UniverseAssetStats.ProtoReflect.Descriptor instead.
 func (*UniverseAssetStats) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{45}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *UniverseAssetStats) GetAssetStats() []*AssetStatsSnapshot {
@@ -3028,7 +3236,7 @@ type QueryEventsRequest struct {
 
 func (x *QueryEventsRequest) Reset() {
 	*x = QueryEventsRequest{}
-	mi := &file_universerpc_universe_proto_msgTypes[46]
+	mi := &file_universerpc_universe_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3040,7 +3248,7 @@ func (x *QueryEventsRequest) String() string {
 func (*QueryEventsRequest) ProtoMessage() {}
 
 func (x *QueryEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[46]
+	mi := &file_universerpc_universe_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3053,7 +3261,7 @@ func (x *QueryEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryEventsRequest.ProtoReflect.Descriptor instead.
 func (*QueryEventsRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{46}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *QueryEventsRequest) GetStartTimestamp() int64 {
@@ -3082,7 +3290,7 @@ type QueryEventsResponse struct {
 
 func (x *QueryEventsResponse) Reset() {
 	*x = QueryEventsResponse{}
-	mi := &file_universerpc_universe_proto_msgTypes[47]
+	mi := &file_universerpc_universe_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3094,7 +3302,7 @@ func (x *QueryEventsResponse) String() string {
 func (*QueryEventsResponse) ProtoMessage() {}
 
 func (x *QueryEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[47]
+	mi := &file_universerpc_universe_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3107,7 +3315,7 @@ func (x *QueryEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryEventsResponse.ProtoReflect.Descriptor instead.
 func (*QueryEventsResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{47}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *QueryEventsResponse) GetEvents() []*GroupedUniverseEvents {
@@ -3131,7 +3339,7 @@ type GroupedUniverseEvents struct {
 
 func (x *GroupedUniverseEvents) Reset() {
 	*x = GroupedUniverseEvents{}
-	mi := &file_universerpc_universe_proto_msgTypes[48]
+	mi := &file_universerpc_universe_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3143,7 +3351,7 @@ func (x *GroupedUniverseEvents) String() string {
 func (*GroupedUniverseEvents) ProtoMessage() {}
 
 func (x *GroupedUniverseEvents) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[48]
+	mi := &file_universerpc_universe_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3156,7 +3364,7 @@ func (x *GroupedUniverseEvents) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GroupedUniverseEvents.ProtoReflect.Descriptor instead.
 func (*GroupedUniverseEvents) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{48}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *GroupedUniverseEvents) GetDate() string {
@@ -3192,7 +3400,7 @@ type SetFederationSyncConfigRequest struct {
 
 func (x *SetFederationSyncConfigRequest) Reset() {
 	*x = SetFederationSyncConfigRequest{}
-	mi := &file_universerpc_universe_proto_msgTypes[49]
+	mi := &file_universerpc_universe_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3204,7 +3412,7 @@ func (x *SetFederationSyncConfigRequest) String() string {
 func (*SetFederationSyncConfigRequest) ProtoMessage() {}
 
 func (x *SetFederationSyncConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[49]
+	mi := &file_universerpc_universe_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3217,7 +3425,7 @@ func (x *SetFederationSyncConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetFederationSyncConfigRequest.ProtoReflect.Descriptor instead.
 func (*SetFederationSyncConfigRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{49}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *SetFederationSyncConfigRequest) GetGlobalSyncConfigs() []*GlobalFederationSyncConfig {
@@ -3242,7 +3450,7 @@ type SetFederationSyncConfigResponse struct {
 
 func (x *SetFederationSyncConfigResponse) Reset() {
 	*x = SetFederationSyncConfigResponse{}
-	mi := &file_universerpc_universe_proto_msgTypes[50]
+	mi := &file_universerpc_universe_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3254,7 +3462,7 @@ func (x *SetFederationSyncConfigResponse) String() string {
 func (*SetFederationSyncConfigResponse) ProtoMessage() {}
 
 func (x *SetFederationSyncConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[50]
+	mi := &file_universerpc_universe_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3267,7 +3475,7 @@ func (x *SetFederationSyncConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetFederationSyncConfigResponse.ProtoReflect.Descriptor instead.
 func (*SetFederationSyncConfigResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{50}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{53}
 }
 
 // GlobalFederationSyncConfig is a global proof type specific configuration
@@ -3290,7 +3498,7 @@ type GlobalFederationSyncConfig struct {
 
 func (x *GlobalFederationSyncConfig) Reset() {
 	*x = GlobalFederationSyncConfig{}
-	mi := &file_universerpc_universe_proto_msgTypes[51]
+	mi := &file_universerpc_universe_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3302,7 +3510,7 @@ func (x *GlobalFederationSyncConfig) String() string {
 func (*GlobalFederationSyncConfig) ProtoMessage() {}
 
 func (x *GlobalFederationSyncConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[51]
+	mi := &file_universerpc_universe_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3315,7 +3523,7 @@ func (x *GlobalFederationSyncConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GlobalFederationSyncConfig.ProtoReflect.Descriptor instead.
 func (*GlobalFederationSyncConfig) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{51}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *GlobalFederationSyncConfig) GetProofType() ProofType {
@@ -3359,7 +3567,7 @@ type AssetFederationSyncConfig struct {
 
 func (x *AssetFederationSyncConfig) Reset() {
 	*x = AssetFederationSyncConfig{}
-	mi := &file_universerpc_universe_proto_msgTypes[52]
+	mi := &file_universerpc_universe_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3371,7 +3579,7 @@ func (x *AssetFederationSyncConfig) String() string {
 func (*AssetFederationSyncConfig) ProtoMessage() {}
 
 func (x *AssetFederationSyncConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[52]
+	mi := &file_universerpc_universe_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3384,7 +3592,7 @@ func (x *AssetFederationSyncConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssetFederationSyncConfig.ProtoReflect.Descriptor instead.
 func (*AssetFederationSyncConfig) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{52}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *AssetFederationSyncConfig) GetId() *ID {
@@ -3418,7 +3626,7 @@ type QueryFederationSyncConfigRequest struct {
 
 func (x *QueryFederationSyncConfigRequest) Reset() {
 	*x = QueryFederationSyncConfigRequest{}
-	mi := &file_universerpc_universe_proto_msgTypes[53]
+	mi := &file_universerpc_universe_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3430,7 +3638,7 @@ func (x *QueryFederationSyncConfigRequest) String() string {
 func (*QueryFederationSyncConfigRequest) ProtoMessage() {}
 
 func (x *QueryFederationSyncConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[53]
+	mi := &file_universerpc_universe_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3443,7 +3651,7 @@ func (x *QueryFederationSyncConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryFederationSyncConfigRequest.ProtoReflect.Descriptor instead.
 func (*QueryFederationSyncConfigRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{53}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *QueryFederationSyncConfigRequest) GetId() []*ID {
@@ -3465,7 +3673,7 @@ type QueryFederationSyncConfigResponse struct {
 
 func (x *QueryFederationSyncConfigResponse) Reset() {
 	*x = QueryFederationSyncConfigResponse{}
-	mi := &file_universerpc_universe_proto_msgTypes[54]
+	mi := &file_universerpc_universe_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3477,7 +3685,7 @@ func (x *QueryFederationSyncConfigResponse) String() string {
 func (*QueryFederationSyncConfigResponse) ProtoMessage() {}
 
 func (x *QueryFederationSyncConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[54]
+	mi := &file_universerpc_universe_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3490,7 +3698,7 @@ func (x *QueryFederationSyncConfigResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use QueryFederationSyncConfigResponse.ProtoReflect.Descriptor instead.
 func (*QueryFederationSyncConfigResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{54}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *QueryFederationSyncConfigResponse) GetGlobalSyncConfigs() []*GlobalFederationSyncConfig {
@@ -3519,7 +3727,7 @@ type IgnoreAssetOutPointRequest struct {
 
 func (x *IgnoreAssetOutPointRequest) Reset() {
 	*x = IgnoreAssetOutPointRequest{}
-	mi := &file_universerpc_universe_proto_msgTypes[55]
+	mi := &file_universerpc_universe_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3531,7 +3739,7 @@ func (x *IgnoreAssetOutPointRequest) String() string {
 func (*IgnoreAssetOutPointRequest) ProtoMessage() {}
 
 func (x *IgnoreAssetOutPointRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[55]
+	mi := &file_universerpc_universe_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3544,7 +3752,7 @@ func (x *IgnoreAssetOutPointRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IgnoreAssetOutPointRequest.ProtoReflect.Descriptor instead.
 func (*IgnoreAssetOutPointRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{55}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *IgnoreAssetOutPointRequest) GetAssetOutPoint() *taprpc.AssetOutPoint {
@@ -3574,7 +3782,7 @@ type IgnoreAssetOutPointResponse struct {
 
 func (x *IgnoreAssetOutPointResponse) Reset() {
 	*x = IgnoreAssetOutPointResponse{}
-	mi := &file_universerpc_universe_proto_msgTypes[56]
+	mi := &file_universerpc_universe_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3586,7 +3794,7 @@ func (x *IgnoreAssetOutPointResponse) String() string {
 func (*IgnoreAssetOutPointResponse) ProtoMessage() {}
 
 func (x *IgnoreAssetOutPointResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[56]
+	mi := &file_universerpc_universe_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3599,7 +3807,7 @@ func (x *IgnoreAssetOutPointResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IgnoreAssetOutPointResponse.ProtoReflect.Descriptor instead.
 func (*IgnoreAssetOutPointResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{56}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *IgnoreAssetOutPointResponse) GetLeafKey() []byte {
@@ -3632,7 +3840,7 @@ type UpdateSupplyCommitRequest struct {
 
 func (x *UpdateSupplyCommitRequest) Reset() {
 	*x = UpdateSupplyCommitRequest{}
-	mi := &file_universerpc_universe_proto_msgTypes[57]
+	mi := &file_universerpc_universe_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3644,7 +3852,7 @@ func (x *UpdateSupplyCommitRequest) String() string {
 func (*UpdateSupplyCommitRequest) ProtoMessage() {}
 
 func (x *UpdateSupplyCommitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[57]
+	mi := &file_universerpc_universe_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3657,7 +3865,7 @@ func (x *UpdateSupplyCommitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSupplyCommitRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSupplyCommitRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{57}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *UpdateSupplyCommitRequest) GetGroupKey() isUpdateSupplyCommitRequest_GroupKey {
@@ -3712,7 +3920,7 @@ type UpdateSupplyCommitResponse struct {
 
 func (x *UpdateSupplyCommitResponse) Reset() {
 	*x = UpdateSupplyCommitResponse{}
-	mi := &file_universerpc_universe_proto_msgTypes[58]
+	mi := &file_universerpc_universe_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3724,7 +3932,7 @@ func (x *UpdateSupplyCommitResponse) String() string {
 func (*UpdateSupplyCommitResponse) ProtoMessage() {}
 
 func (x *UpdateSupplyCommitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[58]
+	mi := &file_universerpc_universe_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3737,7 +3945,7 @@ func (x *UpdateSupplyCommitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSupplyCommitResponse.ProtoReflect.Descriptor instead.
 func (*UpdateSupplyCommitResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{58}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{61}
 }
 
 type FetchSupplyCommitRequest struct {
@@ -3765,7 +3973,7 @@ type FetchSupplyCommitRequest struct {
 
 func (x *FetchSupplyCommitRequest) Reset() {
 	*x = FetchSupplyCommitRequest{}
-	mi := &file_universerpc_universe_proto_msgTypes[59]
+	mi := &file_universerpc_universe_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3777,7 +3985,7 @@ func (x *FetchSupplyCommitRequest) String() string {
 func (*FetchSupplyCommitRequest) ProtoMessage() {}
 
 func (x *FetchSupplyCommitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[59]
+	mi := &file_universerpc_universe_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3790,7 +3998,7 @@ func (x *FetchSupplyCommitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchSupplyCommitRequest.ProtoReflect.Descriptor instead.
 func (*FetchSupplyCommitRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{59}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *FetchSupplyCommitRequest) GetGroupKey() isFetchSupplyCommitRequest_GroupKey {
@@ -3940,7 +4148,7 @@ type SupplyCommitSubtreeRoot struct {
 
 func (x *SupplyCommitSubtreeRoot) Reset() {
 	*x = SupplyCommitSubtreeRoot{}
-	mi := &file_universerpc_universe_proto_msgTypes[60]
+	mi := &file_universerpc_universe_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3952,7 +4160,7 @@ func (x *SupplyCommitSubtreeRoot) String() string {
 func (*SupplyCommitSubtreeRoot) ProtoMessage() {}
 
 func (x *SupplyCommitSubtreeRoot) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[60]
+	mi := &file_universerpc_universe_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3965,7 +4173,7 @@ func (x *SupplyCommitSubtreeRoot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SupplyCommitSubtreeRoot.ProtoReflect.Descriptor instead.
 func (*SupplyCommitSubtreeRoot) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{60}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *SupplyCommitSubtreeRoot) GetType() string {
@@ -4038,7 +4246,7 @@ type FetchSupplyCommitResponse struct {
 
 func (x *FetchSupplyCommitResponse) Reset() {
 	*x = FetchSupplyCommitResponse{}
-	mi := &file_universerpc_universe_proto_msgTypes[61]
+	mi := &file_universerpc_universe_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4050,7 +4258,7 @@ func (x *FetchSupplyCommitResponse) String() string {
 func (*FetchSupplyCommitResponse) ProtoMessage() {}
 
 func (x *FetchSupplyCommitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[61]
+	mi := &file_universerpc_universe_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4063,7 +4271,7 @@ func (x *FetchSupplyCommitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchSupplyCommitResponse.ProtoReflect.Descriptor instead.
 func (*FetchSupplyCommitResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{61}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *FetchSupplyCommitResponse) GetChainData() *SupplyCommitChainData {
@@ -4172,7 +4380,7 @@ type FetchSupplyLeavesRequest struct {
 
 func (x *FetchSupplyLeavesRequest) Reset() {
 	*x = FetchSupplyLeavesRequest{}
-	mi := &file_universerpc_universe_proto_msgTypes[62]
+	mi := &file_universerpc_universe_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4184,7 +4392,7 @@ func (x *FetchSupplyLeavesRequest) String() string {
 func (*FetchSupplyLeavesRequest) ProtoMessage() {}
 
 func (x *FetchSupplyLeavesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[62]
+	mi := &file_universerpc_universe_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4197,7 +4405,7 @@ func (x *FetchSupplyLeavesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchSupplyLeavesRequest.ProtoReflect.Descriptor instead.
 func (*FetchSupplyLeavesRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{62}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *FetchSupplyLeavesRequest) GetGroupKey() isFetchSupplyLeavesRequest_GroupKey {
@@ -4297,7 +4505,7 @@ type SupplyLeafKey struct {
 
 func (x *SupplyLeafKey) Reset() {
 	*x = SupplyLeafKey{}
-	mi := &file_universerpc_universe_proto_msgTypes[63]
+	mi := &file_universerpc_universe_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4309,7 +4517,7 @@ func (x *SupplyLeafKey) String() string {
 func (*SupplyLeafKey) ProtoMessage() {}
 
 func (x *SupplyLeafKey) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[63]
+	mi := &file_universerpc_universe_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4322,7 +4530,7 @@ func (x *SupplyLeafKey) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SupplyLeafKey.ProtoReflect.Descriptor instead.
 func (*SupplyLeafKey) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{63}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *SupplyLeafKey) GetOutpoint() *Outpoint {
@@ -4363,7 +4571,7 @@ type SupplyLeafEntry struct {
 
 func (x *SupplyLeafEntry) Reset() {
 	*x = SupplyLeafEntry{}
-	mi := &file_universerpc_universe_proto_msgTypes[64]
+	mi := &file_universerpc_universe_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4375,7 +4583,7 @@ func (x *SupplyLeafEntry) String() string {
 func (*SupplyLeafEntry) ProtoMessage() {}
 
 func (x *SupplyLeafEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[64]
+	mi := &file_universerpc_universe_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4388,7 +4596,7 @@ func (x *SupplyLeafEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SupplyLeafEntry.ProtoReflect.Descriptor instead.
 func (*SupplyLeafEntry) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{64}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *SupplyLeafEntry) GetLeafKey() *SupplyLeafKey {
@@ -4431,7 +4639,7 @@ type SupplyLeafBlockHeader struct {
 
 func (x *SupplyLeafBlockHeader) Reset() {
 	*x = SupplyLeafBlockHeader{}
-	mi := &file_universerpc_universe_proto_msgTypes[65]
+	mi := &file_universerpc_universe_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4443,7 +4651,7 @@ func (x *SupplyLeafBlockHeader) String() string {
 func (*SupplyLeafBlockHeader) ProtoMessage() {}
 
 func (x *SupplyLeafBlockHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[65]
+	mi := &file_universerpc_universe_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4456,7 +4664,7 @@ func (x *SupplyLeafBlockHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SupplyLeafBlockHeader.ProtoReflect.Descriptor instead.
 func (*SupplyLeafBlockHeader) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{65}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *SupplyLeafBlockHeader) GetTimestamp() int64 {
@@ -4498,7 +4706,7 @@ type FetchSupplyLeavesResponse struct {
 
 func (x *FetchSupplyLeavesResponse) Reset() {
 	*x = FetchSupplyLeavesResponse{}
-	mi := &file_universerpc_universe_proto_msgTypes[66]
+	mi := &file_universerpc_universe_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4510,7 +4718,7 @@ func (x *FetchSupplyLeavesResponse) String() string {
 func (*FetchSupplyLeavesResponse) ProtoMessage() {}
 
 func (x *FetchSupplyLeavesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[66]
+	mi := &file_universerpc_universe_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4523,7 +4731,7 @@ func (x *FetchSupplyLeavesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchSupplyLeavesResponse.ProtoReflect.Descriptor instead.
 func (*FetchSupplyLeavesResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{66}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *FetchSupplyLeavesResponse) GetIssuanceLeaves() []*SupplyLeafEntry {
@@ -4615,7 +4823,7 @@ type SupplyCommitChainData struct {
 
 func (x *SupplyCommitChainData) Reset() {
 	*x = SupplyCommitChainData{}
-	mi := &file_universerpc_universe_proto_msgTypes[67]
+	mi := &file_universerpc_universe_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4627,7 +4835,7 @@ func (x *SupplyCommitChainData) String() string {
 func (*SupplyCommitChainData) ProtoMessage() {}
 
 func (x *SupplyCommitChainData) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[67]
+	mi := &file_universerpc_universe_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4640,7 +4848,7 @@ func (x *SupplyCommitChainData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SupplyCommitChainData.ProtoReflect.Descriptor instead.
 func (*SupplyCommitChainData) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{67}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *SupplyCommitChainData) GetTxn() []byte {
@@ -4754,7 +4962,7 @@ type InsertSupplyCommitRequest struct {
 
 func (x *InsertSupplyCommitRequest) Reset() {
 	*x = InsertSupplyCommitRequest{}
-	mi := &file_universerpc_universe_proto_msgTypes[68]
+	mi := &file_universerpc_universe_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4766,7 +4974,7 @@ func (x *InsertSupplyCommitRequest) String() string {
 func (*InsertSupplyCommitRequest) ProtoMessage() {}
 
 func (x *InsertSupplyCommitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[68]
+	mi := &file_universerpc_universe_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4779,7 +4987,7 @@ func (x *InsertSupplyCommitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InsertSupplyCommitRequest.ProtoReflect.Descriptor instead.
 func (*InsertSupplyCommitRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{68}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *InsertSupplyCommitRequest) GetGroupKey() isInsertSupplyCommitRequest_GroupKey {
@@ -4869,7 +5077,7 @@ type InsertSupplyCommitResponse struct {
 
 func (x *InsertSupplyCommitResponse) Reset() {
 	*x = InsertSupplyCommitResponse{}
-	mi := &file_universerpc_universe_proto_msgTypes[69]
+	mi := &file_universerpc_universe_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4881,7 +5089,7 @@ func (x *InsertSupplyCommitResponse) String() string {
 func (*InsertSupplyCommitResponse) ProtoMessage() {}
 
 func (x *InsertSupplyCommitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[69]
+	mi := &file_universerpc_universe_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4894,7 +5102,7 @@ func (x *InsertSupplyCommitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InsertSupplyCommitResponse.ProtoReflect.Descriptor instead.
 func (*InsertSupplyCommitResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{69}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{72}
 }
 
 var File_universerpc_universe_proto protoreflect.FileDescriptor
@@ -5032,7 +5240,22 @@ const file_universerpc_universe_proto_rawDesc = "" +
 	"\x10new_asset_leaves\x18\x03 \x03(\v2\x16.universerpc.AssetLeafR\x0enewAssetLeaves\"\x0e\n" +
 	"\fStatsRequest\"V\n" +
 	"\fSyncResponse\x12F\n" +
-	"\x10synced_universes\x18\x01 \x03(\v2\x1b.universerpc.SyncedUniverseR\x0fsyncedUniverses\">\n" +
+	"\x10synced_universes\x18\x01 \x03(\v2\x1b.universerpc.SyncedUniverseR\x0fsyncedUniverses\"L\n" +
+	"\x10SyncDeltaRequest\x12\x1b\n" +
+	"\tsince_seq\x18\x01 \x01(\x04R\bsinceSeq\x12\x1b\n" +
+	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\"\xe2\x01\n" +
+	"\rSyncDeltaItem\x120\n" +
+	"\vuniverse_id\x18\x01 \x01(\v2\x0f.universerpc.IDR\n" +
+	"universeId\x12'\n" +
+	"\x03key\x18\x02 \x01(\v2\x15.universerpc.AssetKeyR\x03key\x12*\n" +
+	"\x04leaf\x18\x03 \x01(\v2\x16.universerpc.AssetLeafR\x04leaf\x128\n" +
+	"\x18universe_inclusion_proof\x18\x04 \x01(\fR\x16universeInclusionProof\x12\x10\n" +
+	"\x03seq\x18\x05 \x01(\x04R\x03seq\"\xa6\x01\n" +
+	"\x11SyncDeltaResponse\x120\n" +
+	"\x05items\x18\x01 \x03(\v2\x1a.universerpc.SyncDeltaItemR\x05items\x12@\n" +
+	"\x0euniverse_roots\x18\x02 \x03(\v2\x19.universerpc.UniverseRootR\runiverseRoots\x12\x1d\n" +
+	"\n" +
+	"latest_seq\x18\x03 \x01(\x04R\tlatestSeq\">\n" +
 	"\x18UniverseFederationServer\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\x05R\x02id\"\x1e\n" +
@@ -5236,7 +5459,7 @@ const file_universerpc_universe_proto_rawDesc = "" +
 	"\x0fAssetTypeFilter\x12\x15\n" +
 	"\x11FILTER_ASSET_NONE\x10\x00\x12\x17\n" +
 	"\x13FILTER_ASSET_NORMAL\x10\x01\x12\x1c\n" +
-	"\x18FILTER_ASSET_COLLECTIBLE\x10\x022\xe4\x11\n" +
+	"\x18FILTER_ASSET_COLLECTIBLE\x10\x022\xb0\x12\n" +
 	"\bUniverse\x12Y\n" +
 	"\x0eMultiverseRoot\x12\".universerpc.MultiverseRootRequest\x1a#.universerpc.MultiverseRootResponse\x12K\n" +
 	"\n" +
@@ -5251,7 +5474,8 @@ const file_universerpc_universe_proto_rawDesc = "" +
 	"\vInsertProof\x12\x17.universerpc.AssetProof\x1a\x1f.universerpc.AssetProofResponse\x12J\n" +
 	"\tPushProof\x12\x1d.universerpc.PushProofRequest\x1a\x1e.universerpc.PushProofResponse\x12;\n" +
 	"\x04Info\x12\x18.universerpc.InfoRequest\x1a\x19.universerpc.InfoResponse\x12C\n" +
-	"\fSyncUniverse\x12\x18.universerpc.SyncRequest\x1a\x19.universerpc.SyncResponse\x12n\n" +
+	"\fSyncUniverse\x12\x18.universerpc.SyncRequest\x1a\x19.universerpc.SyncResponse\x12J\n" +
+	"\tSyncDelta\x12\x1d.universerpc.SyncDeltaRequest\x1a\x1e.universerpc.SyncDeltaResponse\x12n\n" +
 	"\x15ListFederationServers\x12).universerpc.ListFederationServersRequest\x1a*.universerpc.ListFederationServersResponse\x12h\n" +
 	"\x13AddFederationServer\x12'.universerpc.AddFederationServerRequest\x1a(.universerpc.AddFederationServerResponse\x12q\n" +
 	"\x16DeleteFederationServer\x12*.universerpc.DeleteFederationServerRequest\x1a+.universerpc.DeleteFederationServerResponse\x12F\n" +
@@ -5279,7 +5503,7 @@ func file_universerpc_universe_proto_rawDescGZIP() []byte {
 }
 
 var file_universerpc_universe_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_universerpc_universe_proto_msgTypes = make([]protoimpl.MessageInfo, 74)
+var file_universerpc_universe_proto_msgTypes = make([]protoimpl.MessageInfo, 77)
 var file_universerpc_universe_proto_goTypes = []any{
 	(ProofType)(0),                            // 0: universerpc.ProofType
 	(UniverseSyncMode)(0),                     // 1: universerpc.UniverseSyncMode
@@ -5319,65 +5543,68 @@ var file_universerpc_universe_proto_goTypes = []any{
 	(*SyncedUniverse)(nil),                    // 35: universerpc.SyncedUniverse
 	(*StatsRequest)(nil),                      // 36: universerpc.StatsRequest
 	(*SyncResponse)(nil),                      // 37: universerpc.SyncResponse
-	(*UniverseFederationServer)(nil),          // 38: universerpc.UniverseFederationServer
-	(*ListFederationServersRequest)(nil),      // 39: universerpc.ListFederationServersRequest
-	(*ListFederationServersResponse)(nil),     // 40: universerpc.ListFederationServersResponse
-	(*AddFederationServerRequest)(nil),        // 41: universerpc.AddFederationServerRequest
-	(*AddFederationServerResponse)(nil),       // 42: universerpc.AddFederationServerResponse
-	(*DeleteFederationServerRequest)(nil),     // 43: universerpc.DeleteFederationServerRequest
-	(*DeleteFederationServerResponse)(nil),    // 44: universerpc.DeleteFederationServerResponse
-	(*StatsResponse)(nil),                     // 45: universerpc.StatsResponse
-	(*AssetStatsQuery)(nil),                   // 46: universerpc.AssetStatsQuery
-	(*AssetStatsSnapshot)(nil),                // 47: universerpc.AssetStatsSnapshot
-	(*AssetStatsAsset)(nil),                   // 48: universerpc.AssetStatsAsset
-	(*UniverseAssetStats)(nil),                // 49: universerpc.UniverseAssetStats
-	(*QueryEventsRequest)(nil),                // 50: universerpc.QueryEventsRequest
-	(*QueryEventsResponse)(nil),               // 51: universerpc.QueryEventsResponse
-	(*GroupedUniverseEvents)(nil),             // 52: universerpc.GroupedUniverseEvents
-	(*SetFederationSyncConfigRequest)(nil),    // 53: universerpc.SetFederationSyncConfigRequest
-	(*SetFederationSyncConfigResponse)(nil),   // 54: universerpc.SetFederationSyncConfigResponse
-	(*GlobalFederationSyncConfig)(nil),        // 55: universerpc.GlobalFederationSyncConfig
-	(*AssetFederationSyncConfig)(nil),         // 56: universerpc.AssetFederationSyncConfig
-	(*QueryFederationSyncConfigRequest)(nil),  // 57: universerpc.QueryFederationSyncConfigRequest
-	(*QueryFederationSyncConfigResponse)(nil), // 58: universerpc.QueryFederationSyncConfigResponse
-	(*IgnoreAssetOutPointRequest)(nil),        // 59: universerpc.IgnoreAssetOutPointRequest
-	(*IgnoreAssetOutPointResponse)(nil),       // 60: universerpc.IgnoreAssetOutPointResponse
-	(*UpdateSupplyCommitRequest)(nil),         // 61: universerpc.UpdateSupplyCommitRequest
-	(*UpdateSupplyCommitResponse)(nil),        // 62: universerpc.UpdateSupplyCommitResponse
-	(*FetchSupplyCommitRequest)(nil),          // 63: universerpc.FetchSupplyCommitRequest
-	(*SupplyCommitSubtreeRoot)(nil),           // 64: universerpc.SupplyCommitSubtreeRoot
-	(*FetchSupplyCommitResponse)(nil),         // 65: universerpc.FetchSupplyCommitResponse
-	(*FetchSupplyLeavesRequest)(nil),          // 66: universerpc.FetchSupplyLeavesRequest
-	(*SupplyLeafKey)(nil),                     // 67: universerpc.SupplyLeafKey
-	(*SupplyLeafEntry)(nil),                   // 68: universerpc.SupplyLeafEntry
-	(*SupplyLeafBlockHeader)(nil),             // 69: universerpc.SupplyLeafBlockHeader
-	(*FetchSupplyLeavesResponse)(nil),         // 70: universerpc.FetchSupplyLeavesResponse
-	(*SupplyCommitChainData)(nil),             // 71: universerpc.SupplyCommitChainData
-	(*InsertSupplyCommitRequest)(nil),         // 72: universerpc.InsertSupplyCommitRequest
-	(*InsertSupplyCommitResponse)(nil),        // 73: universerpc.InsertSupplyCommitResponse
-	nil,                                       // 74: universerpc.UniverseRoot.AmountsByAssetIdEntry
-	nil,                                       // 75: universerpc.AssetRootResponse.UniverseRootsEntry
-	nil,                                       // 76: universerpc.FetchSupplyCommitResponse.BlockHeadersEntry
-	nil,                                       // 77: universerpc.FetchSupplyLeavesResponse.BlockHeadersEntry
-	(taprpc.SortDirection)(0),                 // 78: taprpc.SortDirection
-	(*taprpc.Asset)(nil),                      // 79: taprpc.Asset
-	(*taprpc.AssetMeta)(nil),                  // 80: taprpc.AssetMeta
-	(*taprpc.GenesisReveal)(nil),              // 81: taprpc.GenesisReveal
-	(*taprpc.GroupKeyReveal)(nil),             // 82: taprpc.GroupKeyReveal
-	(taprpc.AssetType)(0),                     // 83: taprpc.AssetType
-	(*taprpc.AssetOutPoint)(nil),              // 84: taprpc.AssetOutPoint
-	(*taprpc.OutPoint)(nil),                   // 85: taprpc.OutPoint
+	(*SyncDeltaRequest)(nil),                  // 38: universerpc.SyncDeltaRequest
+	(*SyncDeltaItem)(nil),                     // 39: universerpc.SyncDeltaItem
+	(*SyncDeltaResponse)(nil),                 // 40: universerpc.SyncDeltaResponse
+	(*UniverseFederationServer)(nil),          // 41: universerpc.UniverseFederationServer
+	(*ListFederationServersRequest)(nil),      // 42: universerpc.ListFederationServersRequest
+	(*ListFederationServersResponse)(nil),     // 43: universerpc.ListFederationServersResponse
+	(*AddFederationServerRequest)(nil),        // 44: universerpc.AddFederationServerRequest
+	(*AddFederationServerResponse)(nil),       // 45: universerpc.AddFederationServerResponse
+	(*DeleteFederationServerRequest)(nil),     // 46: universerpc.DeleteFederationServerRequest
+	(*DeleteFederationServerResponse)(nil),    // 47: universerpc.DeleteFederationServerResponse
+	(*StatsResponse)(nil),                     // 48: universerpc.StatsResponse
+	(*AssetStatsQuery)(nil),                   // 49: universerpc.AssetStatsQuery
+	(*AssetStatsSnapshot)(nil),                // 50: universerpc.AssetStatsSnapshot
+	(*AssetStatsAsset)(nil),                   // 51: universerpc.AssetStatsAsset
+	(*UniverseAssetStats)(nil),                // 52: universerpc.UniverseAssetStats
+	(*QueryEventsRequest)(nil),                // 53: universerpc.QueryEventsRequest
+	(*QueryEventsResponse)(nil),               // 54: universerpc.QueryEventsResponse
+	(*GroupedUniverseEvents)(nil),             // 55: universerpc.GroupedUniverseEvents
+	(*SetFederationSyncConfigRequest)(nil),    // 56: universerpc.SetFederationSyncConfigRequest
+	(*SetFederationSyncConfigResponse)(nil),   // 57: universerpc.SetFederationSyncConfigResponse
+	(*GlobalFederationSyncConfig)(nil),        // 58: universerpc.GlobalFederationSyncConfig
+	(*AssetFederationSyncConfig)(nil),         // 59: universerpc.AssetFederationSyncConfig
+	(*QueryFederationSyncConfigRequest)(nil),  // 60: universerpc.QueryFederationSyncConfigRequest
+	(*QueryFederationSyncConfigResponse)(nil), // 61: universerpc.QueryFederationSyncConfigResponse
+	(*IgnoreAssetOutPointRequest)(nil),        // 62: universerpc.IgnoreAssetOutPointRequest
+	(*IgnoreAssetOutPointResponse)(nil),       // 63: universerpc.IgnoreAssetOutPointResponse
+	(*UpdateSupplyCommitRequest)(nil),         // 64: universerpc.UpdateSupplyCommitRequest
+	(*UpdateSupplyCommitResponse)(nil),        // 65: universerpc.UpdateSupplyCommitResponse
+	(*FetchSupplyCommitRequest)(nil),          // 66: universerpc.FetchSupplyCommitRequest
+	(*SupplyCommitSubtreeRoot)(nil),           // 67: universerpc.SupplyCommitSubtreeRoot
+	(*FetchSupplyCommitResponse)(nil),         // 68: universerpc.FetchSupplyCommitResponse
+	(*FetchSupplyLeavesRequest)(nil),          // 69: universerpc.FetchSupplyLeavesRequest
+	(*SupplyLeafKey)(nil),                     // 70: universerpc.SupplyLeafKey
+	(*SupplyLeafEntry)(nil),                   // 71: universerpc.SupplyLeafEntry
+	(*SupplyLeafBlockHeader)(nil),             // 72: universerpc.SupplyLeafBlockHeader
+	(*FetchSupplyLeavesResponse)(nil),         // 73: universerpc.FetchSupplyLeavesResponse
+	(*SupplyCommitChainData)(nil),             // 74: universerpc.SupplyCommitChainData
+	(*InsertSupplyCommitRequest)(nil),         // 75: universerpc.InsertSupplyCommitRequest
+	(*InsertSupplyCommitResponse)(nil),        // 76: universerpc.InsertSupplyCommitResponse
+	nil,                                       // 77: universerpc.UniverseRoot.AmountsByAssetIdEntry
+	nil,                                       // 78: universerpc.AssetRootResponse.UniverseRootsEntry
+	nil,                                       // 79: universerpc.FetchSupplyCommitResponse.BlockHeadersEntry
+	nil,                                       // 80: universerpc.FetchSupplyLeavesResponse.BlockHeadersEntry
+	(taprpc.SortDirection)(0),                 // 81: taprpc.SortDirection
+	(*taprpc.Asset)(nil),                      // 82: taprpc.Asset
+	(*taprpc.AssetMeta)(nil),                  // 83: taprpc.AssetMeta
+	(*taprpc.GenesisReveal)(nil),              // 84: taprpc.GenesisReveal
+	(*taprpc.GroupKeyReveal)(nil),             // 85: taprpc.GroupKeyReveal
+	(taprpc.AssetType)(0),                     // 86: taprpc.AssetType
+	(*taprpc.AssetOutPoint)(nil),              // 87: taprpc.AssetOutPoint
+	(*taprpc.OutPoint)(nil),                   // 88: taprpc.OutPoint
 }
 var file_universerpc_universe_proto_depIdxs = []int32{
 	0,   // 0: universerpc.MultiverseRootRequest.proof_type:type_name -> universerpc.ProofType
 	8,   // 1: universerpc.MultiverseRootRequest.specific_ids:type_name -> universerpc.ID
 	7,   // 2: universerpc.MultiverseRootResponse.multiverse_root:type_name -> universerpc.MerkleSumNode
-	78,  // 3: universerpc.AssetRootRequest.direction:type_name -> taprpc.SortDirection
+	81,  // 3: universerpc.AssetRootRequest.direction:type_name -> taprpc.SortDirection
 	0,   // 4: universerpc.ID.proof_type:type_name -> universerpc.ProofType
 	8,   // 5: universerpc.UniverseRoot.id:type_name -> universerpc.ID
 	7,   // 6: universerpc.UniverseRoot.mssmt_root:type_name -> universerpc.MerkleSumNode
-	74,  // 7: universerpc.UniverseRoot.amounts_by_asset_id:type_name -> universerpc.UniverseRoot.AmountsByAssetIdEntry
-	75,  // 8: universerpc.AssetRootResponse.universe_roots:type_name -> universerpc.AssetRootResponse.UniverseRootsEntry
+	77,  // 7: universerpc.UniverseRoot.amounts_by_asset_id:type_name -> universerpc.UniverseRoot.AmountsByAssetIdEntry
+	78,  // 8: universerpc.AssetRootResponse.universe_roots:type_name -> universerpc.AssetRootResponse.UniverseRootsEntry
 	8,   // 9: universerpc.AssetRootQuery.id:type_name -> universerpc.ID
 	9,   // 10: universerpc.QueryRootResponse.issuance_root:type_name -> universerpc.UniverseRoot
 	9,   // 11: universerpc.QueryRootResponse.transfer_root:type_name -> universerpc.UniverseRoot
@@ -5385,13 +5612,13 @@ var file_universerpc_universe_proto_depIdxs = []int32{
 	25,  // 13: universerpc.DeleteAssetLeafRequest.key:type_name -> universerpc.UniverseKey
 	17,  // 14: universerpc.AssetKey.op:type_name -> universerpc.Outpoint
 	8,   // 15: universerpc.AssetLeafKeysRequest.id:type_name -> universerpc.ID
-	78,  // 16: universerpc.AssetLeafKeysRequest.direction:type_name -> taprpc.SortDirection
+	81,  // 16: universerpc.AssetLeafKeysRequest.direction:type_name -> taprpc.SortDirection
 	8,   // 17: universerpc.AssetLeavesRequest.id:type_name -> universerpc.ID
-	78,  // 18: universerpc.AssetLeavesRequest.direction:type_name -> taprpc.SortDirection
+	81,  // 18: universerpc.AssetLeavesRequest.direction:type_name -> taprpc.SortDirection
 	18,  // 19: universerpc.AssetLeafEntry.asset_key:type_name -> universerpc.AssetKey
 	18,  // 20: universerpc.AssetLeafKeyResponse.asset_keys:type_name -> universerpc.AssetKey
 	21,  // 21: universerpc.AssetLeafKeyResponse.entries:type_name -> universerpc.AssetLeafEntry
-	79,  // 22: universerpc.AssetLeaf.asset:type_name -> taprpc.Asset
+	82,  // 22: universerpc.AssetLeaf.asset:type_name -> taprpc.Asset
 	23,  // 23: universerpc.AssetLeafResponse.leaves:type_name -> universerpc.AssetLeaf
 	8,   // 24: universerpc.UniverseKey.id:type_name -> universerpc.ID
 	18,  // 25: universerpc.UniverseKey.leaf_key:type_name -> universerpc.AssetKey
@@ -5400,13 +5627,13 @@ var file_universerpc_universe_proto_depIdxs = []int32{
 	23,  // 28: universerpc.AssetProofResponse.asset_leaf:type_name -> universerpc.AssetLeaf
 	7,   // 29: universerpc.AssetProofResponse.multiverse_root:type_name -> universerpc.MerkleSumNode
 	27,  // 30: universerpc.AssetProofResponse.issuance_data:type_name -> universerpc.IssuanceData
-	80,  // 31: universerpc.IssuanceData.meta_reveal:type_name -> taprpc.AssetMeta
-	81,  // 32: universerpc.IssuanceData.genesis_reveal:type_name -> taprpc.GenesisReveal
-	82,  // 33: universerpc.IssuanceData.group_key_reveal:type_name -> taprpc.GroupKeyReveal
+	83,  // 31: universerpc.IssuanceData.meta_reveal:type_name -> taprpc.AssetMeta
+	84,  // 32: universerpc.IssuanceData.genesis_reveal:type_name -> taprpc.GenesisReveal
+	85,  // 33: universerpc.IssuanceData.group_key_reveal:type_name -> taprpc.GroupKeyReveal
 	25,  // 34: universerpc.AssetProof.key:type_name -> universerpc.UniverseKey
 	23,  // 35: universerpc.AssetProof.asset_leaf:type_name -> universerpc.AssetLeaf
 	25,  // 36: universerpc.PushProofRequest.key:type_name -> universerpc.UniverseKey
-	38,  // 37: universerpc.PushProofRequest.server:type_name -> universerpc.UniverseFederationServer
+	41,  // 37: universerpc.PushProofRequest.server:type_name -> universerpc.UniverseFederationServer
 	25,  // 38: universerpc.PushProofResponse.key:type_name -> universerpc.UniverseKey
 	8,   // 39: universerpc.SyncTarget.id:type_name -> universerpc.ID
 	1,   // 40: universerpc.SyncRequest.sync_mode:type_name -> universerpc.UniverseSyncMode
@@ -5415,108 +5642,115 @@ var file_universerpc_universe_proto_depIdxs = []int32{
 	9,   // 43: universerpc.SyncedUniverse.new_asset_root:type_name -> universerpc.UniverseRoot
 	23,  // 44: universerpc.SyncedUniverse.new_asset_leaves:type_name -> universerpc.AssetLeaf
 	35,  // 45: universerpc.SyncResponse.synced_universes:type_name -> universerpc.SyncedUniverse
-	38,  // 46: universerpc.ListFederationServersResponse.servers:type_name -> universerpc.UniverseFederationServer
-	38,  // 47: universerpc.AddFederationServerRequest.servers:type_name -> universerpc.UniverseFederationServer
-	38,  // 48: universerpc.DeleteFederationServerRequest.servers:type_name -> universerpc.UniverseFederationServer
-	3,   // 49: universerpc.AssetStatsQuery.asset_type_filter:type_name -> universerpc.AssetTypeFilter
-	2,   // 50: universerpc.AssetStatsQuery.sort_by:type_name -> universerpc.AssetQuerySort
-	78,  // 51: universerpc.AssetStatsQuery.direction:type_name -> taprpc.SortDirection
-	48,  // 52: universerpc.AssetStatsSnapshot.group_anchor:type_name -> universerpc.AssetStatsAsset
-	48,  // 53: universerpc.AssetStatsSnapshot.asset:type_name -> universerpc.AssetStatsAsset
-	83,  // 54: universerpc.AssetStatsAsset.asset_type:type_name -> taprpc.AssetType
-	47,  // 55: universerpc.UniverseAssetStats.asset_stats:type_name -> universerpc.AssetStatsSnapshot
-	52,  // 56: universerpc.QueryEventsResponse.events:type_name -> universerpc.GroupedUniverseEvents
-	55,  // 57: universerpc.SetFederationSyncConfigRequest.global_sync_configs:type_name -> universerpc.GlobalFederationSyncConfig
-	56,  // 58: universerpc.SetFederationSyncConfigRequest.asset_sync_configs:type_name -> universerpc.AssetFederationSyncConfig
-	0,   // 59: universerpc.GlobalFederationSyncConfig.proof_type:type_name -> universerpc.ProofType
-	8,   // 60: universerpc.AssetFederationSyncConfig.id:type_name -> universerpc.ID
-	8,   // 61: universerpc.QueryFederationSyncConfigRequest.id:type_name -> universerpc.ID
-	55,  // 62: universerpc.QueryFederationSyncConfigResponse.global_sync_configs:type_name -> universerpc.GlobalFederationSyncConfig
-	56,  // 63: universerpc.QueryFederationSyncConfigResponse.asset_sync_configs:type_name -> universerpc.AssetFederationSyncConfig
-	84,  // 64: universerpc.IgnoreAssetOutPointRequest.asset_out_point:type_name -> taprpc.AssetOutPoint
-	7,   // 65: universerpc.IgnoreAssetOutPointResponse.leaf:type_name -> universerpc.MerkleSumNode
-	85,  // 66: universerpc.FetchSupplyCommitRequest.commit_outpoint:type_name -> taprpc.OutPoint
-	85,  // 67: universerpc.FetchSupplyCommitRequest.spent_commit_outpoint:type_name -> taprpc.OutPoint
-	7,   // 68: universerpc.SupplyCommitSubtreeRoot.root_node:type_name -> universerpc.MerkleSumNode
-	71,  // 69: universerpc.FetchSupplyCommitResponse.chain_data:type_name -> universerpc.SupplyCommitChainData
-	64,  // 70: universerpc.FetchSupplyCommitResponse.issuance_subtree_root:type_name -> universerpc.SupplyCommitSubtreeRoot
-	64,  // 71: universerpc.FetchSupplyCommitResponse.burn_subtree_root:type_name -> universerpc.SupplyCommitSubtreeRoot
-	64,  // 72: universerpc.FetchSupplyCommitResponse.ignore_subtree_root:type_name -> universerpc.SupplyCommitSubtreeRoot
-	68,  // 73: universerpc.FetchSupplyCommitResponse.issuance_leaves:type_name -> universerpc.SupplyLeafEntry
-	68,  // 74: universerpc.FetchSupplyCommitResponse.burn_leaves:type_name -> universerpc.SupplyLeafEntry
-	68,  // 75: universerpc.FetchSupplyCommitResponse.ignore_leaves:type_name -> universerpc.SupplyLeafEntry
-	85,  // 76: universerpc.FetchSupplyCommitResponse.spent_commitment_outpoint:type_name -> taprpc.OutPoint
-	76,  // 77: universerpc.FetchSupplyCommitResponse.block_headers:type_name -> universerpc.FetchSupplyCommitResponse.BlockHeadersEntry
-	17,  // 78: universerpc.SupplyLeafKey.outpoint:type_name -> universerpc.Outpoint
-	67,  // 79: universerpc.SupplyLeafEntry.leaf_key:type_name -> universerpc.SupplyLeafKey
-	7,   // 80: universerpc.SupplyLeafEntry.leaf_node:type_name -> universerpc.MerkleSumNode
-	68,  // 81: universerpc.FetchSupplyLeavesResponse.issuance_leaves:type_name -> universerpc.SupplyLeafEntry
-	68,  // 82: universerpc.FetchSupplyLeavesResponse.burn_leaves:type_name -> universerpc.SupplyLeafEntry
-	68,  // 83: universerpc.FetchSupplyLeavesResponse.ignore_leaves:type_name -> universerpc.SupplyLeafEntry
-	77,  // 84: universerpc.FetchSupplyLeavesResponse.block_headers:type_name -> universerpc.FetchSupplyLeavesResponse.BlockHeadersEntry
-	71,  // 85: universerpc.InsertSupplyCommitRequest.chain_data:type_name -> universerpc.SupplyCommitChainData
-	85,  // 86: universerpc.InsertSupplyCommitRequest.spent_commitment_outpoint:type_name -> taprpc.OutPoint
-	68,  // 87: universerpc.InsertSupplyCommitRequest.issuance_leaves:type_name -> universerpc.SupplyLeafEntry
-	68,  // 88: universerpc.InsertSupplyCommitRequest.burn_leaves:type_name -> universerpc.SupplyLeafEntry
-	68,  // 89: universerpc.InsertSupplyCommitRequest.ignore_leaves:type_name -> universerpc.SupplyLeafEntry
-	9,   // 90: universerpc.AssetRootResponse.UniverseRootsEntry.value:type_name -> universerpc.UniverseRoot
-	69,  // 91: universerpc.FetchSupplyCommitResponse.BlockHeadersEntry.value:type_name -> universerpc.SupplyLeafBlockHeader
-	69,  // 92: universerpc.FetchSupplyLeavesResponse.BlockHeadersEntry.value:type_name -> universerpc.SupplyLeafBlockHeader
-	4,   // 93: universerpc.Universe.MultiverseRoot:input_type -> universerpc.MultiverseRootRequest
-	6,   // 94: universerpc.Universe.AssetRoots:input_type -> universerpc.AssetRootRequest
-	11,  // 95: universerpc.Universe.QueryAssetRoots:input_type -> universerpc.AssetRootQuery
-	13,  // 96: universerpc.Universe.DeleteAssetRoot:input_type -> universerpc.DeleteRootQuery
-	15,  // 97: universerpc.Universe.DeleteAssetLeaf:input_type -> universerpc.DeleteAssetLeafRequest
-	19,  // 98: universerpc.Universe.AssetLeafKeys:input_type -> universerpc.AssetLeafKeysRequest
-	20,  // 99: universerpc.Universe.AssetLeaves:input_type -> universerpc.AssetLeavesRequest
-	25,  // 100: universerpc.Universe.QueryProof:input_type -> universerpc.UniverseKey
-	28,  // 101: universerpc.Universe.InsertProof:input_type -> universerpc.AssetProof
-	29,  // 102: universerpc.Universe.PushProof:input_type -> universerpc.PushProofRequest
-	31,  // 103: universerpc.Universe.Info:input_type -> universerpc.InfoRequest
-	34,  // 104: universerpc.Universe.SyncUniverse:input_type -> universerpc.SyncRequest
-	39,  // 105: universerpc.Universe.ListFederationServers:input_type -> universerpc.ListFederationServersRequest
-	41,  // 106: universerpc.Universe.AddFederationServer:input_type -> universerpc.AddFederationServerRequest
-	43,  // 107: universerpc.Universe.DeleteFederationServer:input_type -> universerpc.DeleteFederationServerRequest
-	36,  // 108: universerpc.Universe.UniverseStats:input_type -> universerpc.StatsRequest
-	46,  // 109: universerpc.Universe.QueryAssetStats:input_type -> universerpc.AssetStatsQuery
-	50,  // 110: universerpc.Universe.QueryEvents:input_type -> universerpc.QueryEventsRequest
-	53,  // 111: universerpc.Universe.SetFederationSyncConfig:input_type -> universerpc.SetFederationSyncConfigRequest
-	57,  // 112: universerpc.Universe.QueryFederationSyncConfig:input_type -> universerpc.QueryFederationSyncConfigRequest
-	59,  // 113: universerpc.Universe.IgnoreAssetOutPoint:input_type -> universerpc.IgnoreAssetOutPointRequest
-	61,  // 114: universerpc.Universe.UpdateSupplyCommit:input_type -> universerpc.UpdateSupplyCommitRequest
-	63,  // 115: universerpc.Universe.FetchSupplyCommit:input_type -> universerpc.FetchSupplyCommitRequest
-	66,  // 116: universerpc.Universe.FetchSupplyLeaves:input_type -> universerpc.FetchSupplyLeavesRequest
-	72,  // 117: universerpc.Universe.InsertSupplyCommit:input_type -> universerpc.InsertSupplyCommitRequest
-	5,   // 118: universerpc.Universe.MultiverseRoot:output_type -> universerpc.MultiverseRootResponse
-	10,  // 119: universerpc.Universe.AssetRoots:output_type -> universerpc.AssetRootResponse
-	12,  // 120: universerpc.Universe.QueryAssetRoots:output_type -> universerpc.QueryRootResponse
-	14,  // 121: universerpc.Universe.DeleteAssetRoot:output_type -> universerpc.DeleteRootResponse
-	16,  // 122: universerpc.Universe.DeleteAssetLeaf:output_type -> universerpc.DeleteAssetLeafResponse
-	22,  // 123: universerpc.Universe.AssetLeafKeys:output_type -> universerpc.AssetLeafKeyResponse
-	24,  // 124: universerpc.Universe.AssetLeaves:output_type -> universerpc.AssetLeafResponse
-	26,  // 125: universerpc.Universe.QueryProof:output_type -> universerpc.AssetProofResponse
-	26,  // 126: universerpc.Universe.InsertProof:output_type -> universerpc.AssetProofResponse
-	30,  // 127: universerpc.Universe.PushProof:output_type -> universerpc.PushProofResponse
-	32,  // 128: universerpc.Universe.Info:output_type -> universerpc.InfoResponse
-	37,  // 129: universerpc.Universe.SyncUniverse:output_type -> universerpc.SyncResponse
-	40,  // 130: universerpc.Universe.ListFederationServers:output_type -> universerpc.ListFederationServersResponse
-	42,  // 131: universerpc.Universe.AddFederationServer:output_type -> universerpc.AddFederationServerResponse
-	44,  // 132: universerpc.Universe.DeleteFederationServer:output_type -> universerpc.DeleteFederationServerResponse
-	45,  // 133: universerpc.Universe.UniverseStats:output_type -> universerpc.StatsResponse
-	49,  // 134: universerpc.Universe.QueryAssetStats:output_type -> universerpc.UniverseAssetStats
-	51,  // 135: universerpc.Universe.QueryEvents:output_type -> universerpc.QueryEventsResponse
-	54,  // 136: universerpc.Universe.SetFederationSyncConfig:output_type -> universerpc.SetFederationSyncConfigResponse
-	58,  // 137: universerpc.Universe.QueryFederationSyncConfig:output_type -> universerpc.QueryFederationSyncConfigResponse
-	60,  // 138: universerpc.Universe.IgnoreAssetOutPoint:output_type -> universerpc.IgnoreAssetOutPointResponse
-	62,  // 139: universerpc.Universe.UpdateSupplyCommit:output_type -> universerpc.UpdateSupplyCommitResponse
-	65,  // 140: universerpc.Universe.FetchSupplyCommit:output_type -> universerpc.FetchSupplyCommitResponse
-	70,  // 141: universerpc.Universe.FetchSupplyLeaves:output_type -> universerpc.FetchSupplyLeavesResponse
-	73,  // 142: universerpc.Universe.InsertSupplyCommit:output_type -> universerpc.InsertSupplyCommitResponse
-	118, // [118:143] is the sub-list for method output_type
-	93,  // [93:118] is the sub-list for method input_type
-	93,  // [93:93] is the sub-list for extension type_name
-	93,  // [93:93] is the sub-list for extension extendee
-	0,   // [0:93] is the sub-list for field type_name
+	8,   // 46: universerpc.SyncDeltaItem.universe_id:type_name -> universerpc.ID
+	18,  // 47: universerpc.SyncDeltaItem.key:type_name -> universerpc.AssetKey
+	23,  // 48: universerpc.SyncDeltaItem.leaf:type_name -> universerpc.AssetLeaf
+	39,  // 49: universerpc.SyncDeltaResponse.items:type_name -> universerpc.SyncDeltaItem
+	9,   // 50: universerpc.SyncDeltaResponse.universe_roots:type_name -> universerpc.UniverseRoot
+	41,  // 51: universerpc.ListFederationServersResponse.servers:type_name -> universerpc.UniverseFederationServer
+	41,  // 52: universerpc.AddFederationServerRequest.servers:type_name -> universerpc.UniverseFederationServer
+	41,  // 53: universerpc.DeleteFederationServerRequest.servers:type_name -> universerpc.UniverseFederationServer
+	3,   // 54: universerpc.AssetStatsQuery.asset_type_filter:type_name -> universerpc.AssetTypeFilter
+	2,   // 55: universerpc.AssetStatsQuery.sort_by:type_name -> universerpc.AssetQuerySort
+	81,  // 56: universerpc.AssetStatsQuery.direction:type_name -> taprpc.SortDirection
+	51,  // 57: universerpc.AssetStatsSnapshot.group_anchor:type_name -> universerpc.AssetStatsAsset
+	51,  // 58: universerpc.AssetStatsSnapshot.asset:type_name -> universerpc.AssetStatsAsset
+	86,  // 59: universerpc.AssetStatsAsset.asset_type:type_name -> taprpc.AssetType
+	50,  // 60: universerpc.UniverseAssetStats.asset_stats:type_name -> universerpc.AssetStatsSnapshot
+	55,  // 61: universerpc.QueryEventsResponse.events:type_name -> universerpc.GroupedUniverseEvents
+	58,  // 62: universerpc.SetFederationSyncConfigRequest.global_sync_configs:type_name -> universerpc.GlobalFederationSyncConfig
+	59,  // 63: universerpc.SetFederationSyncConfigRequest.asset_sync_configs:type_name -> universerpc.AssetFederationSyncConfig
+	0,   // 64: universerpc.GlobalFederationSyncConfig.proof_type:type_name -> universerpc.ProofType
+	8,   // 65: universerpc.AssetFederationSyncConfig.id:type_name -> universerpc.ID
+	8,   // 66: universerpc.QueryFederationSyncConfigRequest.id:type_name -> universerpc.ID
+	58,  // 67: universerpc.QueryFederationSyncConfigResponse.global_sync_configs:type_name -> universerpc.GlobalFederationSyncConfig
+	59,  // 68: universerpc.QueryFederationSyncConfigResponse.asset_sync_configs:type_name -> universerpc.AssetFederationSyncConfig
+	87,  // 69: universerpc.IgnoreAssetOutPointRequest.asset_out_point:type_name -> taprpc.AssetOutPoint
+	7,   // 70: universerpc.IgnoreAssetOutPointResponse.leaf:type_name -> universerpc.MerkleSumNode
+	88,  // 71: universerpc.FetchSupplyCommitRequest.commit_outpoint:type_name -> taprpc.OutPoint
+	88,  // 72: universerpc.FetchSupplyCommitRequest.spent_commit_outpoint:type_name -> taprpc.OutPoint
+	7,   // 73: universerpc.SupplyCommitSubtreeRoot.root_node:type_name -> universerpc.MerkleSumNode
+	74,  // 74: universerpc.FetchSupplyCommitResponse.chain_data:type_name -> universerpc.SupplyCommitChainData
+	67,  // 75: universerpc.FetchSupplyCommitResponse.issuance_subtree_root:type_name -> universerpc.SupplyCommitSubtreeRoot
+	67,  // 76: universerpc.FetchSupplyCommitResponse.burn_subtree_root:type_name -> universerpc.SupplyCommitSubtreeRoot
+	67,  // 77: universerpc.FetchSupplyCommitResponse.ignore_subtree_root:type_name -> universerpc.SupplyCommitSubtreeRoot
+	71,  // 78: universerpc.FetchSupplyCommitResponse.issuance_leaves:type_name -> universerpc.SupplyLeafEntry
+	71,  // 79: universerpc.FetchSupplyCommitResponse.burn_leaves:type_name -> universerpc.SupplyLeafEntry
+	71,  // 80: universerpc.FetchSupplyCommitResponse.ignore_leaves:type_name -> universerpc.SupplyLeafEntry
+	88,  // 81: universerpc.FetchSupplyCommitResponse.spent_commitment_outpoint:type_name -> taprpc.OutPoint
+	79,  // 82: universerpc.FetchSupplyCommitResponse.block_headers:type_name -> universerpc.FetchSupplyCommitResponse.BlockHeadersEntry
+	17,  // 83: universerpc.SupplyLeafKey.outpoint:type_name -> universerpc.Outpoint
+	70,  // 84: universerpc.SupplyLeafEntry.leaf_key:type_name -> universerpc.SupplyLeafKey
+	7,   // 85: universerpc.SupplyLeafEntry.leaf_node:type_name -> universerpc.MerkleSumNode
+	71,  // 86: universerpc.FetchSupplyLeavesResponse.issuance_leaves:type_name -> universerpc.SupplyLeafEntry
+	71,  // 87: universerpc.FetchSupplyLeavesResponse.burn_leaves:type_name -> universerpc.SupplyLeafEntry
+	71,  // 88: universerpc.FetchSupplyLeavesResponse.ignore_leaves:type_name -> universerpc.SupplyLeafEntry
+	80,  // 89: universerpc.FetchSupplyLeavesResponse.block_headers:type_name -> universerpc.FetchSupplyLeavesResponse.BlockHeadersEntry
+	74,  // 90: universerpc.InsertSupplyCommitRequest.chain_data:type_name -> universerpc.SupplyCommitChainData
+	88,  // 91: universerpc.InsertSupplyCommitRequest.spent_commitment_outpoint:type_name -> taprpc.OutPoint
+	71,  // 92: universerpc.InsertSupplyCommitRequest.issuance_leaves:type_name -> universerpc.SupplyLeafEntry
+	71,  // 93: universerpc.InsertSupplyCommitRequest.burn_leaves:type_name -> universerpc.SupplyLeafEntry
+	71,  // 94: universerpc.InsertSupplyCommitRequest.ignore_leaves:type_name -> universerpc.SupplyLeafEntry
+	9,   // 95: universerpc.AssetRootResponse.UniverseRootsEntry.value:type_name -> universerpc.UniverseRoot
+	72,  // 96: universerpc.FetchSupplyCommitResponse.BlockHeadersEntry.value:type_name -> universerpc.SupplyLeafBlockHeader
+	72,  // 97: universerpc.FetchSupplyLeavesResponse.BlockHeadersEntry.value:type_name -> universerpc.SupplyLeafBlockHeader
+	4,   // 98: universerpc.Universe.MultiverseRoot:input_type -> universerpc.MultiverseRootRequest
+	6,   // 99: universerpc.Universe.AssetRoots:input_type -> universerpc.AssetRootRequest
+	11,  // 100: universerpc.Universe.QueryAssetRoots:input_type -> universerpc.AssetRootQuery
+	13,  // 101: universerpc.Universe.DeleteAssetRoot:input_type -> universerpc.DeleteRootQuery
+	15,  // 102: universerpc.Universe.DeleteAssetLeaf:input_type -> universerpc.DeleteAssetLeafRequest
+	19,  // 103: universerpc.Universe.AssetLeafKeys:input_type -> universerpc.AssetLeafKeysRequest
+	20,  // 104: universerpc.Universe.AssetLeaves:input_type -> universerpc.AssetLeavesRequest
+	25,  // 105: universerpc.Universe.QueryProof:input_type -> universerpc.UniverseKey
+	28,  // 106: universerpc.Universe.InsertProof:input_type -> universerpc.AssetProof
+	29,  // 107: universerpc.Universe.PushProof:input_type -> universerpc.PushProofRequest
+	31,  // 108: universerpc.Universe.Info:input_type -> universerpc.InfoRequest
+	34,  // 109: universerpc.Universe.SyncUniverse:input_type -> universerpc.SyncRequest
+	38,  // 110: universerpc.Universe.SyncDelta:input_type -> universerpc.SyncDeltaRequest
+	42,  // 111: universerpc.Universe.ListFederationServers:input_type -> universerpc.ListFederationServersRequest
+	44,  // 112: universerpc.Universe.AddFederationServer:input_type -> universerpc.AddFederationServerRequest
+	46,  // 113: universerpc.Universe.DeleteFederationServer:input_type -> universerpc.DeleteFederationServerRequest
+	36,  // 114: universerpc.Universe.UniverseStats:input_type -> universerpc.StatsRequest
+	49,  // 115: universerpc.Universe.QueryAssetStats:input_type -> universerpc.AssetStatsQuery
+	53,  // 116: universerpc.Universe.QueryEvents:input_type -> universerpc.QueryEventsRequest
+	56,  // 117: universerpc.Universe.SetFederationSyncConfig:input_type -> universerpc.SetFederationSyncConfigRequest
+	60,  // 118: universerpc.Universe.QueryFederationSyncConfig:input_type -> universerpc.QueryFederationSyncConfigRequest
+	62,  // 119: universerpc.Universe.IgnoreAssetOutPoint:input_type -> universerpc.IgnoreAssetOutPointRequest
+	64,  // 120: universerpc.Universe.UpdateSupplyCommit:input_type -> universerpc.UpdateSupplyCommitRequest
+	66,  // 121: universerpc.Universe.FetchSupplyCommit:input_type -> universerpc.FetchSupplyCommitRequest
+	69,  // 122: universerpc.Universe.FetchSupplyLeaves:input_type -> universerpc.FetchSupplyLeavesRequest
+	75,  // 123: universerpc.Universe.InsertSupplyCommit:input_type -> universerpc.InsertSupplyCommitRequest
+	5,   // 124: universerpc.Universe.MultiverseRoot:output_type -> universerpc.MultiverseRootResponse
+	10,  // 125: universerpc.Universe.AssetRoots:output_type -> universerpc.AssetRootResponse
+	12,  // 126: universerpc.Universe.QueryAssetRoots:output_type -> universerpc.QueryRootResponse
+	14,  // 127: universerpc.Universe.DeleteAssetRoot:output_type -> universerpc.DeleteRootResponse
+	16,  // 128: universerpc.Universe.DeleteAssetLeaf:output_type -> universerpc.DeleteAssetLeafResponse
+	22,  // 129: universerpc.Universe.AssetLeafKeys:output_type -> universerpc.AssetLeafKeyResponse
+	24,  // 130: universerpc.Universe.AssetLeaves:output_type -> universerpc.AssetLeafResponse
+	26,  // 131: universerpc.Universe.QueryProof:output_type -> universerpc.AssetProofResponse
+	26,  // 132: universerpc.Universe.InsertProof:output_type -> universerpc.AssetProofResponse
+	30,  // 133: universerpc.Universe.PushProof:output_type -> universerpc.PushProofResponse
+	32,  // 134: universerpc.Universe.Info:output_type -> universerpc.InfoResponse
+	37,  // 135: universerpc.Universe.SyncUniverse:output_type -> universerpc.SyncResponse
+	40,  // 136: universerpc.Universe.SyncDelta:output_type -> universerpc.SyncDeltaResponse
+	43,  // 137: universerpc.Universe.ListFederationServers:output_type -> universerpc.ListFederationServersResponse
+	45,  // 138: universerpc.Universe.AddFederationServer:output_type -> universerpc.AddFederationServerResponse
+	47,  // 139: universerpc.Universe.DeleteFederationServer:output_type -> universerpc.DeleteFederationServerResponse
+	48,  // 140: universerpc.Universe.UniverseStats:output_type -> universerpc.StatsResponse
+	52,  // 141: universerpc.Universe.QueryAssetStats:output_type -> universerpc.UniverseAssetStats
+	54,  // 142: universerpc.Universe.QueryEvents:output_type -> universerpc.QueryEventsResponse
+	57,  // 143: universerpc.Universe.SetFederationSyncConfig:output_type -> universerpc.SetFederationSyncConfigResponse
+	61,  // 144: universerpc.Universe.QueryFederationSyncConfig:output_type -> universerpc.QueryFederationSyncConfigResponse
+	63,  // 145: universerpc.Universe.IgnoreAssetOutPoint:output_type -> universerpc.IgnoreAssetOutPointResponse
+	65,  // 146: universerpc.Universe.UpdateSupplyCommit:output_type -> universerpc.UpdateSupplyCommitResponse
+	68,  // 147: universerpc.Universe.FetchSupplyCommit:output_type -> universerpc.FetchSupplyCommitResponse
+	73,  // 148: universerpc.Universe.FetchSupplyLeaves:output_type -> universerpc.FetchSupplyLeavesResponse
+	76,  // 149: universerpc.Universe.InsertSupplyCommit:output_type -> universerpc.InsertSupplyCommitResponse
+	124, // [124:150] is the sub-list for method output_type
+	98,  // [98:124] is the sub-list for method input_type
+	98,  // [98:98] is the sub-list for extension type_name
+	98,  // [98:98] is the sub-list for extension extendee
+	0,   // [0:98] is the sub-list for field type_name
 }
 
 func init() { file_universerpc_universe_proto_init() }
@@ -5536,11 +5770,11 @@ func file_universerpc_universe_proto_init() {
 		(*AssetKey_ScriptKeyBytes)(nil),
 		(*AssetKey_ScriptKeyStr)(nil),
 	}
-	file_universerpc_universe_proto_msgTypes[57].OneofWrappers = []any{
+	file_universerpc_universe_proto_msgTypes[60].OneofWrappers = []any{
 		(*UpdateSupplyCommitRequest_GroupKeyBytes)(nil),
 		(*UpdateSupplyCommitRequest_GroupKeyStr)(nil),
 	}
-	file_universerpc_universe_proto_msgTypes[59].OneofWrappers = []any{
+	file_universerpc_universe_proto_msgTypes[62].OneofWrappers = []any{
 		(*FetchSupplyCommitRequest_GroupKeyBytes)(nil),
 		(*FetchSupplyCommitRequest_GroupKeyStr)(nil),
 		(*FetchSupplyCommitRequest_CommitOutpoint)(nil),
@@ -5548,11 +5782,11 @@ func file_universerpc_universe_proto_init() {
 		(*FetchSupplyCommitRequest_VeryFirst)(nil),
 		(*FetchSupplyCommitRequest_Latest)(nil),
 	}
-	file_universerpc_universe_proto_msgTypes[62].OneofWrappers = []any{
+	file_universerpc_universe_proto_msgTypes[65].OneofWrappers = []any{
 		(*FetchSupplyLeavesRequest_GroupKeyBytes)(nil),
 		(*FetchSupplyLeavesRequest_GroupKeyStr)(nil),
 	}
-	file_universerpc_universe_proto_msgTypes[68].OneofWrappers = []any{
+	file_universerpc_universe_proto_msgTypes[71].OneofWrappers = []any{
 		(*InsertSupplyCommitRequest_GroupKeyBytes)(nil),
 		(*InsertSupplyCommitRequest_GroupKeyStr)(nil),
 	}
@@ -5562,7 +5796,7 @@ func file_universerpc_universe_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_universerpc_universe_proto_rawDesc), len(file_universerpc_universe_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   74,
+			NumMessages:   77,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

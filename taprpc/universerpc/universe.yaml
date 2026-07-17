@@ -51,6 +51,9 @@ http:
       post: "/v1/taproot-assets/universe/sync"
       body: "*"
 
+    - selector: universerpc.Universe.SyncDelta
+      get: "/v1/taproot-assets/universe/sync/delta"
+
     - selector: universerpc.Universe.SetFederationSyncConfig
       post: "/v1/taproot-assets/universe/sync/config"
       body: "*"

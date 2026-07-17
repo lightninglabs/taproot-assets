@@ -247,6 +247,10 @@ var (
 			Entity: "universe",
 			Action: "write",
 		}},
+		"/universerpc.Universe/SyncDelta": {{
+			Entity: "universe",
+			Action: "read",
+		}},
 		"/universerpc.Universe/ListFederationServers": {{
 			Entity: "universe",
 			Action: "read",
@@ -423,6 +427,7 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 			"/universerpc.Universe/AssetLeafKeys",
 			"/universerpc.Universe/AssetLeaves",
 			"/universerpc.Universe/QueryProof",
+			"/universerpc.Universe/SyncDelta",
 
 			"/universerpc.Universe/FetchSupplyCommit",
 			"/universerpc.Universe/FetchSupplyLeaves",

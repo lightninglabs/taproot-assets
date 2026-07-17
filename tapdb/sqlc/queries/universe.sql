@@ -103,6 +103,25 @@ LIMIT @num_limit OFFSET @num_offset;
 -- name: UniverseLeaves :many
 SELECT * FROM universe_leaves;
 
+-- name: FetchUniverseLeavesSince :many
+SELECT leaves.id AS seq, leaves.minting_point, leaves.script_key_bytes,
+       leaves.asset_genesis_id, nodes.value AS genesis_proof,
+       nodes.sum AS sum_amt, roots.asset_id AS root_asset_id,
+       roots.group_key AS root_group_key, roots.proof_type
+FROM universe_leaves AS leaves
+JOIN universe_roots AS roots
+    ON leaves.universe_root_id = roots.id
+JOIN mssmt_nodes AS nodes
+    ON leaves.leaf_node_key = nodes.key
+       AND leaves.leaf_node_namespace = nodes.namespace
+WHERE leaves.id > @since_seq
+      -- The insertion-ordered delta serves federation sync, whose
+      -- domain is issuance and transfer universes; other proof types
+      -- flow through dedicated syncers.
+      AND roots.proof_type IN ('issuance', 'transfer')
+ORDER BY leaves.id ASC
+LIMIT @num_limit;
+
 -- name: UniverseRoots :many
 SELECT universe_roots.asset_id, group_key, proof_type,
        mssmt_roots.root_hash AS root_hash, mssmt_nodes.sum AS root_sum,
@@ -134,6 +153,15 @@ WHERE server_host = @target_server OR id = @target_id;
 -- name: LogServerSync :exec
 UPDATE universe_servers
 SET last_sync_time = @new_sync_time
+WHERE server_host = @target_server;
+
+-- name: UpsertFederationSyncCursor :exec
+UPDATE universe_servers
+SET last_sync_seq = @last_sync_seq
+WHERE server_host = @target_server;
+
+-- name: QueryFederationSyncCursor :one
+SELECT last_sync_seq FROM universe_servers
 WHERE server_host = @target_server;
 
 -- name: QueryUniverseServers :many

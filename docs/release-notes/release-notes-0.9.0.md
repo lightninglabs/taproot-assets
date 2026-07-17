@@ -37,17 +37,45 @@
 
 ## Functional Updates
 
+- [PR#2202](https://github.com/lightninglabs/taproot-assets/pull/2202)
+  adds cursor-based delta sync to the universe federation. Each server
+  exposes its insertion-ordered leaf journal via the new `SyncDelta`
+  RPC; a peer that remembers the last sequence number it applied can
+  fetch exactly the leaves it lacks, instead of enumerating every leaf
+  key of every divergent universe to compute a set difference. In the
+  fully synced steady state this reduces per-tick sync traffic from
+  O(universes + leaves) enumeration to a single round trip carrying
+  only the new proofs (measured discovery overhead drops from ~88% of
+  transferred bytes at 400 leaves/universe to zero). Convergence is
+  still verified by comparing local and remote universe roots after
+  each delta; any mismatch falls back to the existing enumeration
+  sync, and servers that don't support the new RPC are synced exactly
+  as before.
+
 ## RPC Updates
 
 ## tapcli Updates
 
 ## Config Changes
 
+- The new `--universe.no-delta-sync` flag forces the federation syncer
+  to always use full enumeration sync, serving as a kill switch for
+  the cursor-based delta sync mechanism.
+
 ## Code Health
 
 ## Breaking Changes
 
 ## Performance Improvements
+
+- [PR#2184](https://github.com/lightninglabs/taproot-assets/pull/2184)
+  dramatically improves the performance of universe federation proof push.
+
+- [PR#2183](https://github.com/lightninglabs/taproot-assets/pull/2183)
+  dramatically improves the performance of MS-SMT proof verification.
+
+- [PR#2188](https://github.com/lightninglabs/taproot-assets/pull/2188)
+  dramatically improves the performance of batched MS-SMT insertions.
 
 ## Deprecations
 
