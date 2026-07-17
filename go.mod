@@ -232,3 +232,5 @@ replace github.com/prometheus/common => github.com/prometheus/common v0.66.1
 
 // Note this is a temporary replace and will be removed when taprpc is tagged.
 replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
+
+replace github.com/lightningnetwork/lnd => github.com/GeorgeTsagk/lnd v0.0.0-20260716113926-b0a25b9831e7
