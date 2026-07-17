@@ -25,6 +25,10 @@
   fixes a bug that could cause minted assets to commit to the wrong
   address.
 
+* [PR#2203](https://github.com/lightninglabs/taproot-assets/pull/2203)
+  fixes a bug that could leave invalid minting batch state on disk after
+  failure.
+
 # New Features
 
 ## Functional Enhancements

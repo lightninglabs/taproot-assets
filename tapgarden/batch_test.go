@@ -1,6 +1,7 @@
 package tapgarden
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"github.com/btcsuite/btcd/txscript/v2"
@@ -282,6 +283,93 @@ func TestMintingBatchCopy(t *testing.T) {
 	})
 }
 
+// TestCheckSingletonInvariant pins the contract of
+// checkSingletonInvariant: it returns nil for any slice of batches
+// containing at most one batch in {Pending, Frozen}, and returns a
+// descriptive error otherwise. Counts both states together
+// (Pending ∪ Frozen), not separately, and ignores batches in any
+// other state.
+func TestCheckSingletonInvariant(t *testing.T) {
+	t.Parallel()
+
+	mkBatch := func(state BatchState) *MintingBatch {
+		batchKey, _ := test.RandKeyDesc(t)
+		b := &MintingBatch{BatchKey: batchKey}
+		b.setState(state)
+		return b
+	}
+
+	t.Run("empty slice is ok", func(t *testing.T) {
+		require.NoError(t, checkSingletonInvariant(nil))
+	})
+
+	t.Run("single Pending is ok", func(t *testing.T) {
+		err := checkSingletonInvariant([]*MintingBatch{
+			mkBatch(BatchStatePending),
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("single Frozen is ok", func(t *testing.T) {
+		err := checkSingletonInvariant([]*MintingBatch{
+			mkBatch(BatchStateFrozen),
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("Pending plus Committed is ok", func(t *testing.T) {
+		err := checkSingletonInvariant([]*MintingBatch{
+			mkBatch(BatchStatePending),
+			mkBatch(BatchStateCommitted),
+			mkBatch(BatchStateBroadcast),
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("two Pending errors", func(t *testing.T) {
+		err := checkSingletonInvariant([]*MintingBatch{
+			mkBatch(BatchStatePending),
+			mkBatch(BatchStatePending),
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "singleton")
+		require.Contains(t, err.Error(), "found 2 batches")
+	})
+
+	t.Run("Pending plus Frozen errors", func(t *testing.T) {
+		err := checkSingletonInvariant([]*MintingBatch{
+			mkBatch(BatchStatePending),
+			mkBatch(BatchStateFrozen),
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "singleton")
+	})
+
+	t.Run("error names offending keys and repair tool",
+		func(t *testing.T) {
+			a := mkBatch(BatchStatePending)
+			b := mkBatch(BatchStateFrozen)
+
+			err := checkSingletonInvariant(
+				[]*MintingBatch{a, b},
+			)
+			require.Error(t, err)
+			require.Contains(t, err.Error(),
+				"--repair.cancel-duplicate-batches")
+			// Both batch keys should appear in the error.
+			require.Contains(t, err.Error(),
+				hex.EncodeToString(
+					a.BatchKey.PubKey.
+						SerializeCompressed(),
+				))
+			require.Contains(t, err.Error(),
+				hex.EncodeToString(
+					b.BatchKey.PubKey.
+						SerializeCompressed(),
+				))
+		})
+}
+
 // TestMintingOutputKeyPureInSibling pins the contract that
 // MintingOutputKey is a function of (batch, sibling): two calls
 // with different siblings must produce different output keys, two
@@ -359,4 +447,197 @@ func TestMintingOutputKeyPureInSibling(t *testing.T) {
 		"MintingOutputKey(nil) must not return the same value "+
 			"as MintingOutputKey(siblingA)",
 	)
+}
+
+// TestUniqueAnchorSeedling pins the contract of
+// MintingBatch.uniqueAnchorSeedling: it deterministically returns
+// the batch's single group anchor seedling (the one with GroupAnchor
+// == nil) and errors loudly when that invariant doesn't hold. The
+// callers (fetchDelegationKey, fetchPreCommitGroupKey) used to scan
+// non-deterministically and pick whichever seedling Go's map
+// iteration handed them first; this test exists to keep them from
+// regressing back to that pattern.
+func TestUniqueAnchorSeedling(t *testing.T) {
+	t.Parallel()
+
+	mkAnchor := func(name string) *Seedling {
+		return &Seedling{
+			AssetName:      name,
+			AssetType:      asset.Normal,
+			Amount:         1,
+			EnableEmission: true,
+		}
+	}
+
+	mkChild := func(name, anchorName string) *Seedling {
+		s := &Seedling{
+			AssetName: name,
+			AssetType: asset.Normal,
+			Amount:    1,
+		}
+		s.GroupAnchor = &anchorName
+		return s
+	}
+
+	t.Run("anchor only", func(t *testing.T) {
+		batch := &MintingBatch{
+			Seedlings: map[string]*Seedling{
+				"a": mkAnchor("a"),
+			},
+		}
+
+		got, err := batch.uniqueAnchorSeedling()
+		require.NoError(t, err)
+		require.Equal(t, "a", got.AssetName)
+	})
+
+	t.Run("anchor plus children", func(t *testing.T) {
+		batch := &MintingBatch{
+			Seedlings: map[string]*Seedling{
+				"a":     mkAnchor("a"),
+				"child": mkChild("child", "a"),
+				"other": mkChild("other", "a"),
+			},
+		}
+
+		// Run many times to defeat any incidental ordering: the
+		// returned anchor must be "a" regardless of how Go
+		// iterates the map.
+		for i := 0; i < 32; i++ {
+			got, err := batch.uniqueAnchorSeedling()
+			require.NoError(t, err)
+			require.Equal(t, "a", got.AssetName)
+		}
+	})
+
+	t.Run("multiple anchors errors", func(t *testing.T) {
+		batch := &MintingBatch{
+			Seedlings: map[string]*Seedling{
+				"a": mkAnchor("a"),
+				"b": mkAnchor("b"),
+			},
+		}
+
+		_, err := batch.uniqueAnchorSeedling()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "expected exactly 1")
+	})
+
+	t.Run("no anchor errors", func(t *testing.T) {
+		batch := &MintingBatch{
+			Seedlings: map[string]*Seedling{
+				"child1": mkChild("child1", "missing"),
+				"child2": mkChild("child2", "missing"),
+			},
+		}
+
+		_, err := batch.uniqueAnchorSeedling()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no group anchor")
+	})
+
+	t.Run("empty batch errors", func(t *testing.T) {
+		batch := &MintingBatch{}
+
+		_, err := batch.uniqueAnchorSeedling()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no group anchor")
+	})
+}
+
+// TestSeedlingValidateCommitSplit pins the invariant that
+// validateSeedling never mutates the batch -- it is the read-only
+// half of AddSeedling, used by callers that need to persist a
+// seedling before mirroring it into the in-memory batch. A regression
+// here would silently revive the §X bug shape in prepAssetSeedling:
+// an in-memory mutation that precedes the DB write that justifies it.
+func TestSeedlingValidateCommitSplit(t *testing.T) {
+	t.Parallel()
+
+	mkCandidate := func(name string, supplyCommitments bool) Seedling {
+		return Seedling{
+			AssetName:         name,
+			AssetType:         asset.Normal,
+			Amount:            1,
+			SupplyCommitments: supplyCommitments,
+			DelegationKey:     fn.None[keychain.KeyDescriptor](),
+		}
+	}
+
+	t.Run("validate on populated batch leaves it unchanged",
+		func(t *testing.T) {
+			batch := RandMintingBatch(
+				t, WithTotalSeedlings(3),
+			)
+			seedlingsBefore := len(batch.Seedlings)
+			supplyBefore := batch.SupplyCommitments
+
+			candidate := mkCandidate(
+				"validate-only-candidate", supplyBefore,
+			)
+
+			err := batch.validateSeedling(candidate)
+			require.NoError(t, err)
+
+			require.Equal(t, seedlingsBefore, len(batch.Seedlings))
+			require.Equal(
+				t, supplyBefore, batch.SupplyCommitments,
+			)
+			require.NotContains(
+				t, batch.Seedlings, candidate.AssetName,
+			)
+		})
+
+	t.Run("validate failure also leaves batch unchanged",
+		func(t *testing.T) {
+			batch := RandMintingBatch(
+				t, WithTotalSeedlings(3),
+			)
+			seedlingsBefore := len(batch.Seedlings)
+			supplyBefore := batch.SupplyCommitments
+
+			// Force a SupplyCommitments mismatch so
+			// validateUniCommitment rejects the seedling.
+			candidate := mkCandidate(
+				"validate-fail-candidate", !supplyBefore,
+			)
+
+			err := batch.validateSeedling(candidate)
+			require.Error(t, err)
+
+			require.Equal(t, seedlingsBefore, len(batch.Seedlings))
+			require.Equal(
+				t, supplyBefore, batch.SupplyCommitments,
+			)
+			require.NotContains(
+				t, batch.Seedlings, candidate.AssetName,
+			)
+		})
+
+	t.Run("commit on empty batch adopts SupplyCommitments",
+		func(t *testing.T) {
+			batch := &MintingBatch{}
+
+			candidate := mkCandidate("first-seedling", false)
+
+			require.NoError(t, batch.validateSeedling(candidate))
+
+			// validateSeedling must not have set
+			// SupplyCommitments even though this would be
+			// "the first seedling" -- only commitSeedling may
+			// do that.
+			require.False(t, batch.SupplyCommitments)
+			require.Empty(t, batch.Seedlings)
+
+			batch.commitSeedling(candidate)
+
+			require.Equal(t, 1, len(batch.Seedlings))
+			require.Contains(
+				t, batch.Seedlings, candidate.AssetName,
+			)
+			require.Equal(
+				t, candidate.SupplyCommitments,
+				batch.SupplyCommitments,
+			)
+		})
 }

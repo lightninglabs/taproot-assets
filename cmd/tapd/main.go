@@ -35,6 +35,20 @@ func main() {
 		os.Exit(0)
 	}
 
+	// If the operator has invoked tapd in one-shot repair mode, run
+	// the requested repair against the database and exit before
+	// constructing the full server. The repair tool opens the DB
+	// with migrations skipped, so it can recover a legacy DB whose
+	// state would otherwise block a migration from applying.
+	if cfg.Repair != nil && cfg.Repair.CancelDuplicateBatches {
+		err := tapcfg.RunRepairTool(cfg, cfgLogger, shutdownInterceptor)
+		if err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	// Enable http profiling server if requested.
 	if cfg.Profile != "" {
 		go func() {
