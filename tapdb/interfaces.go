@@ -322,13 +322,30 @@ type BaseDB struct {
 	*sqlc.Queries
 }
 
+// TxIsolationOverrider is an optional interface that TxOptions can implement
+// to override the default serializable isolation level a transaction is
+// started with. The override is only honored on the Postgres backend;
+// SQLite's driver only supports its default isolation.
+type TxIsolationOverrider interface {
+	// TxIsolation returns the isolation level to start the transaction
+	// with.
+	TxIsolation() sql.IsolationLevel
+}
+
 // BeginTx wraps the normal sql specific BeginTx method with the TxOptions
 // interface. This interface is then mapped to the concrete sql tx options
 // struct.
 func (s *BaseDB) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx, error) {
+	isolation := sql.LevelSerializable
+	if o, ok := opts.(TxIsolationOverrider); ok &&
+		s.Backend() == sqlc.BackendTypePostgres {
+
+		isolation = o.TxIsolation()
+	}
+
 	sqlOptions := sql.TxOptions{
 		ReadOnly:  opts.ReadOnly(),
-		Isolation: sql.LevelSerializable,
+		Isolation: isolation,
 	}
 	return s.DB.BeginTx(ctx, &sqlOptions)
 }

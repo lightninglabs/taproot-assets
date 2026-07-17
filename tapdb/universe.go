@@ -747,6 +747,11 @@ func maybeUpsertSupplyPreCommit(ctx context.Context, dbTx UpsertAssetStore,
 // UpsertProofLeaf inserts or updates a proof leaf within the universe tree,
 // stored at the base key. The metaReveal type is purely optional, and should be
 // specified if the genesis proof committed to a non-zero meta hash.
+//
+// NOTE: This method writes the shared multiverse namespaces inline, at
+// serializable isolation and without MultiverseStore's multiverse write
+// lock. No production write path uses it; it must not run concurrently
+// with a MultiverseStore writing to the same database.
 func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 	key universe.LeafKey, leaf *universe.Leaf,
 	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
@@ -769,11 +774,19 @@ func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 			return fmt.Errorf("failed universe upsert: %w", err)
 		}
 
-		multiRoot, multiProof, err := upsertMultiverseLeafEntry(
+		err = upsertMultiverseLeafEntry(
 			ctx, dbTx, b.id, issuanceProof.UniverseRoot,
 		)
 		if err != nil {
 			return fmt.Errorf("failed multiverse upsert: %w", err)
+		}
+
+		multiRoot, multiProof, err := multiverseRootAndProof(
+			ctx, dbTx, b.id,
+		)
+		if err != nil {
+			return fmt.Errorf("failed multiverse root fetch: %w",
+				err)
 		}
 
 		issuanceProof.MultiverseRoot = multiRoot
@@ -789,20 +802,37 @@ func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 	return uniProof, nil
 }
 
+// multiverseLeafNode builds the multiverse leaf committing to the given
+// universe root. For issuance proofs, the leaf sum is always 1 (one asset or
+// group). For transfers, it's the universe root's actual amount.
+func multiverseLeafNode(id universe.Identifier,
+	universeRoot mssmt.Node) *mssmt.LeafNode {
+
+	universeRootHash := universeRoot.NodeHash()
+	assetGroupSum := universeRoot.NodeSum()
+
+	if id.ProofType == universe.ProofTypeIssuance {
+		assetGroupSum = 1
+	}
+
+	return mssmt.NewLeafNode(universeRootHash[:], assetGroupSum)
+}
+
 // upsertMultiverseLeafEntry inserts the universe root into the main multiverse
 // tree. This should be called *after* universeUpsertProofLeaf if the proof
-// needs to be added to the main issuance/transfer multiverse.
+// needs to be added to the main issuance/transfer multiverse. The resulting
+// multiverse root and inclusion proof can be fetched separately with
+// multiverseRootAndProof.
 //
 // NOTE: This function accepts a db transaction, as it's used when making
 // broader DB updates.
 func upsertMultiverseLeafEntry(ctx context.Context, dbTx BaseUniverseStore,
-	id universe.Identifier, universeRoot mssmt.Node) (
-	mssmt.Node, *mssmt.Proof, error) {
+	id universe.Identifier, universeRoot mssmt.Node) error {
 
 	// Determine the multiverse namespace based on the proof type.
 	multiverseNS, err := namespaceForProof(id.ProofType)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Retrieve a handle to the multiverse tree.
@@ -811,24 +841,14 @@ func upsertMultiverseLeafEntry(ctx context.Context, dbTx BaseUniverseStore,
 	)
 
 	// Construct a leaf node for insertion into the multiverse tree.
-	universeRootHash := universeRoot.NodeHash()
-	assetGroupSum := universeRoot.NodeSum()
-
-	// For issuance proofs, the sum in the multiverse is always 1 (one asset
-	// or group). For transfers, it's the actual amount.
-	if id.ProofType == universe.ProofTypeIssuance {
-		assetGroupSum = 1
-	}
-
-	uniLeafNode := mssmt.NewLeafNode(universeRootHash[:], assetGroupSum)
+	uniLeafNode := multiverseLeafNode(id, universeRoot)
 
 	// Use asset ID (or asset group hash) as the upper tree leaf node key.
 	uniLeafNodeKey := id.Bytes()
 
 	_, err = multiverseTree.Insert(ctx, uniLeafNodeKey, uniLeafNode)
 	if err != nil {
-		return nil, nil, fmt.Errorf("multiverse tree insert "+
-			"failed: %w", err)
+		return fmt.Errorf("multiverse tree insert failed: %w", err)
 	}
 
 	// Ensure the corresponding multiverse roots and leaves DB entries
@@ -840,8 +860,7 @@ func upsertMultiverseLeafEntry(ctx context.Context, dbTx BaseUniverseStore,
 		},
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to upsert multiverse "+
-			"root: %w", err)
+		return fmt.Errorf("unable to upsert multiverse root: %w", err)
 	}
 
 	var assetIDBytes, groupKeyBytes []byte
@@ -859,26 +878,47 @@ func upsertMultiverseLeafEntry(ctx context.Context, dbTx BaseUniverseStore,
 		LeafNodeNamespace: multiverseNS,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to upsert multiverse "+
-			"leaf: %w", err)
+		return fmt.Errorf("unable to upsert multiverse leaf: %w", err)
 	}
 
-	// Retrieve the multiverse root and inclusion proof.
-	finalMultiverseRoot, err := multiverseTree.Root(ctx)
+	return nil
+}
+
+// multiverseRootAndProof returns the current root of the multiverse tree for
+// the given universe's proof type, along with the inclusion proof for the
+// universe's leaf within it.
+//
+// NOTE: This function accepts a db transaction, as it's used when making
+// broader DB updates.
+func multiverseRootAndProof(ctx context.Context, dbTx BaseUniverseStore,
+	id universe.Identifier) (mssmt.Node, *mssmt.Proof, error) {
+
+	// Determine the multiverse namespace based on the proof type.
+	multiverseNS, err := namespaceForProof(id.ProofType)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Retrieve a handle to the multiverse tree.
+	multiverseTree := mssmt.NewCompactedTree(
+		newTreeStoreWrapperTx(dbTx, multiverseNS),
+	)
+
+	multiverseRoot, err := multiverseTree.Root(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get multiverse "+
 			"root: %w", err)
 	}
 
 	multiverseInclusionProof, err := multiverseTree.MerkleProof(
-		ctx, uniLeafNodeKey,
+		ctx, id.Bytes(),
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get multiverse "+
 			"proof: %w", err)
 	}
 
-	return finalMultiverseRoot, multiverseInclusionProof, nil
+	return multiverseRoot, multiverseInclusionProof, nil
 }
 
 // universeRootStatus indicates whether upserting a proof leaf into a
@@ -1550,6 +1590,10 @@ func deleteUniverseTree(ctx context.Context,
 }
 
 // DeleteUniverse deletes the entire universe tree.
+//
+// NOTE: This method writes the shared multiverse namespaces inline,
+// without MultiverseStore's multiverse write lock; the same caveat as
+// on UpsertProofLeaf applies.
 func (b *BaseUniverseTree) DeleteUniverse(ctx context.Context) (string, error) {
 	var writeTx BaseUniverseStoreOptions
 

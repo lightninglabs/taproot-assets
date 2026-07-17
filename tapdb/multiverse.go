@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -34,6 +35,14 @@ var (
 	// ErrNoMultiverseRoot is returned when no universe root is found for
 	// the target proof type.
 	ErrNoMultiverseRoot = errors.New("no multiverse root found")
+
+	// ErrMultiverseInconsistent is returned when a fetched multiverse
+	// proof repeatedly fails to commit to the universe root fetched
+	// in the same snapshot, even after awaiting multiverse flushes of
+	// the universe.
+	ErrMultiverseInconsistent = errors.New(
+		"multiverse proof inconsistent with universe root",
+	)
 )
 
 type (
@@ -134,6 +143,24 @@ type MultiverseStore struct {
 
 	leafKeysCache *universeLeafPageCache
 
+	// rootCoalescer batches all writes to the shared multiverse
+	// trees, so proof insert transactions never touch rows that are
+	// contended across universes.
+	rootCoalescer *multiverseRootCoalescer
+
+	// reconcileBatchSize is the number of universes repaired per
+	// coalescer submission during startup reconciliation. It defaults
+	// to defaultReconcileBatchSize and is only overridden in tests.
+	reconcileBatchSize int
+
+	// multiverseWriteMu serializes all multiverse writes in this
+	// process: the coalescer's flushes and the deletion paths. This
+	// mutual exclusion is what makes it safe for flushes to run
+	// below serializable isolation. The lock is in-process only, so
+	// this assumes exactly one tapd process writes to the database;
+	// a second process would be an unsynchronized multiverse writer.
+	multiverseWriteMu sync.Mutex
+
 	// transferProofDistributor is an event distributor that will be used to
 	// notify subscribers about new proof leaves that are added to the
 	// multiverse. This is used to notify the custodian about new incoming
@@ -151,7 +178,7 @@ func NewMultiverseStore(db BatchedMultiverse,
 		return nil, fmt.Errorf("parse max proof cache size: %w", err)
 	}
 
-	return &MultiverseStore{
+	store := &MultiverseStore{
 		db:  db,
 		cfg: cfg,
 		syncerCache: newSyncerRootNodeCache(
@@ -167,7 +194,25 @@ func NewMultiverseStore(db BatchedMultiverse,
 			cfg.Caches.LeavesPerUniverse,
 		),
 		transferProofDistributor: fn.NewEventDistributor[proof.Blob](),
-	}, nil
+		reconcileBatchSize:       defaultReconcileBatchSize,
+	}
+	store.rootCoalescer = newMultiverseRootCoalescer(
+		db, &store.multiverseWriteMu,
+	)
+
+	// Install flushed roots into the syncer cache from the flush
+	// callback: flushes run one at a time and derive the current
+	// root, so installs done here arrive in commit order per
+	// universe and can never regress a cached root, unlike installs
+	// from the unordered post-commit sections of concurrent inserts.
+	store.rootCoalescer.onRefresh = store.syncerCache.addOrReplace
+
+	// A failed flush never reports its universes through onRefresh,
+	// so their cached roots would stay stale until their universes
+	// are written again. Rebuild the cache from the database instead.
+	store.rootCoalescer.onFlushError = store.syncerCache.invalidate
+
+	return store, nil
 }
 
 // namespaceForProof returns the multiverse namespace used for the given proof
@@ -269,9 +314,9 @@ func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 		return *rootNode, nil
 	}
 
-	// If the cache is still empty, we'll populate it now, given it is
-	// enabled.
-	if b.syncerCache.isEmpty() && b.cfg.Caches.SyncerCacheEnabled {
+	// If the cache hasn't been filled yet, we'll populate it now,
+	// given it is enabled.
+	if b.syncerCache.needsFill() && b.cfg.Caches.SyncerCacheEnabled {
 		// We attempt to acquire the write lock to fill the cache. If
 		// another goroutine is already filling the cache, we'll wait
 		// for it to finish that way.
@@ -404,8 +449,9 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 			return rootNodes, nil
 		}
 
-		// If the cache is still empty, we'll populate it now.
-		if b.syncerCache.isEmpty() {
+		// If the cache hasn't been filled yet, we'll populate it
+		// now.
+		if b.syncerCache.needsFill() {
 			// We attempt to acquire the write lock to fill the
 			// cache. If another goroutine is already filling the
 			// cache, we'll wait for it to finish that way.
@@ -643,15 +689,87 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 		return proofsFromCache, nil
 	}
 
-	var (
-		readTx = NewBaseUniverseReadTx()
-		proofs []*universe.Proof
-	)
-
 	multiverseNS, err := namespaceForProof(id.ProofType)
 	if err != nil {
 		return nil, err
 	}
+
+	// A universe insert commits before its multiverse update is
+	// flushed, so a snapshot taken in that window legitimately holds
+	// the new universe root next to a stale (or missing) multiverse
+	// leaf, and proofs assembled from it would not compose. On
+	// detecting that, wait for a multiverse flush of this universe to
+	// commit — outside the read transaction, whose snapshot would
+	// never observe it — and read again from a fresh snapshot.
+	const maxFetchAttempts = 3
+	for attempt := 0; attempt < maxFetchAttempts; attempt++ {
+		proofs, err := b.fetchProofLeafSnapshot(
+			ctx, id, universeKey, multiverseNS,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if multiverseProofsConsistent(id, proofs) {
+			// Insert the proofs we just read up into the main
+			// cache. Only consistent proofs are ever cached.
+			b.proofCache.insertProofs(id, universeKey, proofs)
+
+			return proofs, nil
+		}
+
+		err = b.rootCoalescer.updateRoots(
+			ctx, []universe.Identifier{id},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed multiverse heal "+
+				"for %v: %w", id.String(), err)
+		}
+	}
+
+	return nil, fmt.Errorf("%w: universe %v", ErrMultiverseInconsistent,
+		id.String())
+}
+
+// multiverseProofsConsistent reports whether the multiverse proof
+// attached to each of the given fetched proofs commits to the universe
+// root fetched in the same snapshot.
+func multiverseProofsConsistent(id universe.Identifier,
+	proofs []*universe.Proof) bool {
+
+	for _, p := range proofs {
+		// Proof types without a multiverse tree carry no
+		// multiverse proof; there is nothing to compose.
+		if p.MultiverseRoot == nil ||
+			p.MultiverseInclusionProof == nil {
+
+			continue
+		}
+
+		leaf := multiverseLeafNode(id, p.UniverseRoot)
+		valid := mssmt.VerifyMerkleProof(
+			id.Bytes(), leaf, p.MultiverseInclusionProof,
+			p.MultiverseRoot,
+		)
+		if !valid {
+			return false
+		}
+	}
+
+	return true
+}
+
+// fetchProofLeafSnapshot reads the proofs for the given key, along with
+// the multiverse root and inclusion proof for the universe, from a
+// single database snapshot.
+func (b *MultiverseStore) fetchProofLeafSnapshot(ctx context.Context,
+	id universe.Identifier, universeKey universe.LeafKey,
+	multiverseNS string) ([]*universe.Proof, error) {
+
+	var (
+		readTx = NewBaseUniverseReadTx()
+		proofs []*universe.Proof
+	)
 
 	dbErr := b.db.ExecTx(ctx, &readTx, func(tx BaseMultiverseStore) error {
 		var err error
@@ -706,9 +824,6 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 	if dbErr != nil {
 		return nil, dbErr
 	}
-
-	// Insert the proofs we just read up into the main cache.
-	b.proofCache.insertProofs(id, universeKey, proofs)
 
 	return proofs, nil
 }
@@ -789,16 +904,27 @@ func (b *MultiverseStore) FetchProof(ctx context.Context,
 
 // UpsertProofLeaf upserts a proof leaf within the multiverse tree and the
 // universe tree that corresponds to the given key.
+//
+// The universe leaf commits first, in its own transaction, and the
+// shared multiverse tree is updated afterwards. An error return may
+// therefore mean the leaf is durably stored while the multiverse
+// update failed; in that case the universe's multiverse entry is
+// healed by its next successful update, or by ReconcileMultiverse at
+// the next startup.
+//
+// The returned proof always composes: its multiverse proof commits to
+// its universe root. If a concurrent insert into the same universe
+// superseded this one before the multiverse update was flushed, the
+// receipt is rebuilt from the newer state, so its universe root may be
+// fresher than the root this call's own transaction committed.
 func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	id universe.Identifier, key universe.LeafKey, leaf *universe.Leaf,
 	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
 
 	var (
-		writeTx         BaseMultiverseOptions
-		uniProof        *universe.Proof
-		rootStatus      universeRootStatus
-		multiverseRoot  mssmt.Node
-		multiverseProof *mssmt.Proof
+		writeTx    BaseMultiverseOptions
+		uniProof   *universe.Proof
+		rootStatus universeRootStatus
 	)
 
 	execTxFunc := func(dbTx BaseMultiverseStore) error {
@@ -815,17 +941,6 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 			return fmt.Errorf("failed universe upsert: %w", err)
 		}
 
-		// Now, attempt to insert the universe root into the main
-		// multiverse tree.
-		//
-		// nolint:lll
-		multiverseRoot, multiverseProof, err = upsertMultiverseLeafEntry(
-			ctx, dbTx, id, uniProof.UniverseRoot,
-		)
-		if err != nil {
-			return fmt.Errorf("failed multiverse upsert: %w", err)
-		}
-
 		return nil
 	}
 	dbErr := b.db.ExecTx(ctx, &writeTx, execTxFunc)
@@ -833,18 +948,21 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		return nil, dbErr
 	}
 
-	// Populate the multiverse fields in the proof object now that the
-	// transaction is complete.
-	uniProof.MultiverseRoot = multiverseRoot
-	uniProof.MultiverseInclusionProof = multiverseProof
-
-	// The transaction is committed, so invalidate the affected caches.
+	// The universe leaf is now durably committed, so run the
+	// bookkeeping tied to that commit before the multiverse update: a
+	// failed or slow multiverse flush must not leave caches stale or
+	// keep the custodian from learning about a stored transfer proof.
+	//
 	// The root node page cache is wiped if the upsert created the
 	// universe, and only has the pages containing the universe's root
 	// evicted otherwise. Every previously cached proof under this
 	// universe embeds the UniverseRoot at the time it was fetched;
 	// inserting a new leaf changes the root, so all of the universe's
-	// proofs and leaf keys are evicted, not just the one we wrote.
+	// proofs and leaf keys are evicted, not just the one we wrote. The
+	// syncer cache is deliberately absent here: it installs values
+	// rather than evicting them, and the unordered post-commit
+	// sections of concurrent inserts could install roots out of commit
+	// order. It is fed from the coalescer's flush callback instead.
 	newRoot := universe.Root{
 		ID:        id,
 		AssetName: leaf.Asset.Tag,
@@ -853,7 +971,6 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	b.rootNodeCache.handleRootUpdate(newRoot, rootStatus)
 	b.proofCache.RemoveUniverseProofs(id)
 	b.leafKeysCache.wipeCache(id.String())
-	b.syncerCache.addOrReplace(newRoot)
 
 	// Notify subscribers about the new proof leaf, now that we're sure we
 	// have written it to the database. But we only care about transfer
@@ -863,11 +980,54 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		b.transferProofDistributor.NotifySubscribers(leaf.RawProof)
 	}
 
+	// Now reflect the universe's new root in the shared multiverse tree,
+	// through the root coalescer rather than the transaction above: the
+	// multiverse rows are contended by every insert into every universe,
+	// so writing them under the insert's own transaction would serialize
+	// ingest across universes. If this fails, the universe leaf above
+	// remains committed, and the universe's multiverse entry is healed by
+	// its next successful update.
+	update, err := b.rootCoalescer.updateRoot(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed multiverse upsert: %w", err)
+	}
+
+	// If a concurrent insert into the same universe committed between
+	// our transaction and the flush, the flush derived and committed
+	// the newer root, and the multiverse proof it returned does not
+	// compose with the universe proof assembled above. Rebuild the
+	// whole receipt from one consistent snapshot instead.
+	if !mssmt.IsEqualNode(update.universeRoot, uniProof.UniverseRoot) {
+		proofs, err := b.FetchProofLeaf(ctx, id, key)
+		if err != nil {
+			return nil, fmt.Errorf("failed superseded proof "+
+				"fetch: %w", err)
+		}
+		if len(proofs) != 1 {
+			return nil, fmt.Errorf("expected one proof for "+
+				"superseded upsert, got %d", len(proofs))
+		}
+
+		return proofs[0], nil
+	}
+
+	// Populate the multiverse fields in the proof object now that the
+	// update is complete.
+	uniProof.MultiverseRoot = update.multiverseRoot
+	uniProof.MultiverseInclusionProof = update.inclusionProof
+
 	return uniProof, nil
 }
 
 // UpsertProofLeafBatch upserts a proof leaf batch within the multiverse tree
 // and the universe tree that corresponds to the given key(s).
+//
+// The universe leaves commit first, in their own transaction, and the
+// shared multiverse tree is updated afterwards. An error return may
+// therefore mean the leaves are durably stored while the multiverse
+// update failed; in that case each universe's multiverse entry is
+// healed by its next successful update, or by ReconcileMultiverse at
+// the next startup.
 func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	items []*universe.Item) error {
 
@@ -876,12 +1036,23 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 		uniProofs    []*universe.Proof
 		rootStatuses []universeRootStatus
 	)
+	// Track the universes the batch touches, in first-touch order, so
+	// the shared multiverse tree is refreshed once per universe rather
+	// than once per item.
+	var dirtyUniverses []universe.Identifier
+
 	dbErr := b.db.ExecTx(
 		ctx, &writeTx, func(store BaseMultiverseStore) error {
 			uniProofs = make([]*universe.Proof, len(items))
 			rootStatuses = make(
 				[]universeRootStatus, len(items),
 			)
+
+			dirtyUniverses = make(
+				[]universe.Identifier, 0, len(items),
+			)
+			seen := make(map[universeIDKey]struct{}, len(items))
+
 			for idx := range items {
 				item := items[idx]
 
@@ -905,24 +1076,13 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 				uniProofs[idx] = uniProof
 				rootStatuses[idx] = status
 
-				// Next we'll, attempt to insert the universe
-				// root into the main multiverse tree.
-				//
-				//nolint:lll
-				multiRoot, multiProof, err := upsertMultiverseLeafEntry(
-					ctx, store, item.ID,
-					uniProof.UniverseRoot,
-				)
-				if err != nil {
-					return fmt.Errorf("failed multiverse "+
-						"upsert for item %d: %w",
-						idx, err)
+				key := item.ID.String()
+				if _, ok := seen[key]; !ok {
+					seen[key] = struct{}{}
+					dirtyUniverses = append(
+						dirtyUniverses, item.ID,
+					)
 				}
-
-				// Update the proof object with multiverse
-				// details.
-				uniProofs[idx].MultiverseRoot = multiRoot
-				uniProofs[idx].MultiverseInclusionProof = multiProof //nolint:lll
 			}
 
 			return nil
@@ -932,6 +1092,11 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 		return dbErr
 	}
 
+	// The universe leaves are now durably committed, so run the
+	// bookkeeping tied to that commit before the multiverse update: a
+	// failed or slow multiverse flush must not leave caches stale or
+	// keep the custodian from learning about stored transfer proofs.
+	//
 	// If any of the inserted leaves created a new universe, the
 	// composition of paginated root queries changed and the page cache as
 	// a whole is stale. Pure updates only change the value of already
@@ -954,14 +1119,16 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 			)
 		}
 
+		// The syncer cache is deliberately not updated here: it
+		// installs values rather than evicting them, and the
+		// unordered post-commit sections of concurrent inserts
+		// could install roots out of commit order. It is fed from
+		// the coalescer's flush callback instead.
 		newRoots[idx] = universe.Root{
 			ID:        items[idx].ID,
 			AssetName: items[idx].Leaf.Asset.Tag,
 			Node:      uniProofs[idx].UniverseRoot,
 		}
-
-		// Update the syncer cache with the new root node.
-		b.syncerCache.addOrReplace(newRoots[idx])
 	}
 
 	// Evict the cached pages that contain any of the updated roots. If
@@ -989,6 +1156,19 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 		b.proofCache.RemoveUniverseProofs(items[idx].ID)
 	}
 
+	// Finally, reflect each universe's new root in the shared
+	// multiverse tree, through the root coalescer rather than the
+	// transaction above: the multiverse rows are contended by every
+	// insert into every universe, so writing them under the batch's
+	// own transaction would collide with concurrent inserts. If this
+	// fails, the universe leaves above remain committed, and each
+	// universe's multiverse entry is healed by its next successful
+	// update.
+	err := b.rootCoalescer.updateRoots(ctx, dirtyUniverses)
+	if err != nil {
+		return fmt.Errorf("failed multiverse upsert: %w", err)
+	}
+
 	return nil
 }
 
@@ -997,6 +1177,12 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 	id universe.Identifier) (string, error) {
 
 	var writeTx BaseUniverseStoreOptions
+
+	// Deleting touches the shared multiverse tree, so take the
+	// multiverse write lock to stay mutually exclusive with the root
+	// coalescer's flushes.
+	b.multiverseWriteMu.Lock()
+	defer b.multiverseWriteMu.Unlock()
 
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(tx BaseMultiverseStore) error {
 		multiverseNS, err := namespaceForProof(id.ProofType)
@@ -1039,6 +1225,12 @@ func (b *MultiverseStore) DeleteProofLeaf(ctx context.Context,
 
 	var writeTx BaseMultiverseOptions
 
+	// Deleting touches the shared multiverse tree, so take the
+	// multiverse write lock to stay mutually exclusive with the root
+	// coalescer's flushes.
+	b.multiverseWriteMu.Lock()
+	defer b.multiverseWriteMu.Unlock()
+
 	dbErr := b.db.ExecTx(
 		ctx, &writeTx, func(tx BaseMultiverseStore) error {
 			namespace := id.String()
@@ -1080,7 +1272,7 @@ func (b *MultiverseStore) DeleteProofLeaf(ctx context.Context,
 
 			// Otherwise, update the multiverse entry with the
 			// new universe root.
-			_, _, err = upsertMultiverseLeafEntry(
+			err = upsertMultiverseLeafEntry(
 				ctx, tx, id, newRoot,
 			)
 			if err != nil {

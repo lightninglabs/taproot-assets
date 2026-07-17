@@ -682,11 +682,14 @@ func TestMultiverseSyncerCache(t *testing.T) {
 	require.Len(t, originalRoots, numAssets)
 	assertAllLeavesInRoots(t, allLeaves, originalRoots)
 
-	// Because we've enabled the cache from the beginning, the leaves
-	// inserted into the DB above should already be in the cache. That means
-	// we should have zero misses.
+	// The cache only serves once it has been populated wholesale, so
+	// the first page query filled it (its two pre-fill lookups are the
+	// two misses); every page after that was served from the cache.
+	// The inserts above did not seed the cache: incremental installs
+	// apply only to an initialized cache, as a partially seeded cache
+	// would be served as though it were complete.
 	hitsPerFetch := numAssets / pageSize
-	require.EqualValues(t, 0, multiverse.syncerCache.miss.Load())
+	require.EqualValues(t, 2, multiverse.syncerCache.miss.Load())
 	require.EqualValues(t, hitsPerFetch, multiverse.syncerCache.hit.Load())
 
 	// We now randomly remove and re-insert some of the assets. The result
@@ -716,9 +719,10 @@ func TestMultiverseSyncerCache(t *testing.T) {
 		require.Equal(t, originalRoots, roots)
 
 		// No matter how we manipulate the entries, we should always hit
-		// the cache for syncer queries.
+		// the cache for syncer queries; the miss count stays at the
+		// two pre-fill lookups of the very first query.
 		hits := hitsPerFetch * (i + 2)
-		require.EqualValues(t, 0, multiverse.syncerCache.miss.Load())
+		require.EqualValues(t, 2, multiverse.syncerCache.miss.Load())
 		require.EqualValues(t, hits, multiverse.syncerCache.hit.Load())
 	}
 }
