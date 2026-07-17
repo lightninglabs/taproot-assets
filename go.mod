@@ -189,7 +189,7 @@ require (
 	go.etcd.io/etcd/server/v3 v3.5.12 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0 // indirect
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0 // indirect
 	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.29.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.20.0 // indirect
@@ -232,3 +232,25 @@ replace github.com/prometheus/common => github.com/prometheus/common v0.66.1
 
 // Note this is a temporary replace and will be removed when taprpc is tagged.
 replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
+
+replace github.com/lightningnetwork/lnd => github.com/GeorgeTsagk/lnd v0.0.0-20260715182120-7952e88f04e7
+
+replace github.com/lightningnetwork/lnd/sqldb => github.com/GeorgeTsagk/lnd/sqldb v0.0.0-20260715182120-7952e88f04e7
+
+replace github.com/lightningnetwork/lnd/tlv => github.com/GeorgeTsagk/lnd/tlv v0.0.0-20260715182120-7952e88f04e7
+
+replace github.com/lightningnetwork/lnd/cert => github.com/GeorgeTsagk/lnd/cert v0.0.0-20260715182120-7952e88f04e7
+
+replace github.com/lightningnetwork/lnd/clock => github.com/GeorgeTsagk/lnd/clock v0.0.0-20260715182120-7952e88f04e7
+
+replace github.com/lightningnetwork/lnd/healthcheck => github.com/GeorgeTsagk/lnd/healthcheck v0.0.0-20260715182120-7952e88f04e7
+
+replace github.com/lightningnetwork/lnd/kvdb => github.com/GeorgeTsagk/lnd/kvdb v0.0.0-20260715182120-7952e88f04e7
+
+replace github.com/lightningnetwork/lnd/queue => github.com/GeorgeTsagk/lnd/queue v0.0.0-20260715182120-7952e88f04e7
+
+replace github.com/lightningnetwork/lnd/tor => github.com/GeorgeTsagk/lnd/tor v0.0.0-20260715182120-7952e88f04e7
+
+replace github.com/lightningnetwork/lnd/actor => github.com/GeorgeTsagk/lnd/actor v0.0.0-20260715182120-7952e88f04e7
+
+replace github.com/lightningnetwork/lnd/fn/v2 => github.com/GeorgeTsagk/lnd/fn/v2 v2.0.0-20260715182120-7952e88f04e7
