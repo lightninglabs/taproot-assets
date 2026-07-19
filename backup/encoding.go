@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
@@ -61,6 +62,16 @@ const (
 	// maxFederationURLLen is the maximum length of a single federation
 	// URL in bytes.
 	maxFederationURLLen = 2048
+
+	// keyMarkerMagicBytes identifies the optional key-family marker section
+	// appended to the wallet backup payload. Keeping this as a trailing
+	// extension lets older readers continue to import newer backups while
+	// ignoring the marker data.
+	keyMarkerMagicBytes = "KEYI"
+
+	// maxKeyFamilyMarkers bounds the number of key-family markers decoded
+	// from an untrusted backup.
+	maxKeyFamilyMarkers = 100
 )
 
 // TLV type constants for AssetBackup fields.
@@ -198,6 +209,112 @@ func decodeFederationURLs(r io.Reader) ([]string, error) {
 	return urls, nil
 }
 
+// encodeKeyFamilyMarkers writes the optional key-family high-water markers.
+func encodeKeyFamilyMarkers(w io.Writer,
+	markers []*KeyDescriptorBackup) error {
+
+	if len(markers) > maxKeyFamilyMarkers {
+		return fmt.Errorf("key marker count %d exceeds maximum %d",
+			len(markers), maxKeyFamilyMarkers)
+	}
+
+	if _, err := w.Write([]byte(keyMarkerMagicBytes)); err != nil {
+		return fmt.Errorf("failed to write key marker magic: %w", err)
+	}
+
+	var scratch [8]byte
+	err := tlv.WriteVarInt(w, uint64(len(markers)), &scratch)
+	if err != nil {
+		return fmt.Errorf("failed to write key marker count: %w", err)
+	}
+
+	for i, marker := range markers {
+		if marker == nil || marker.PubKey == nil {
+			return fmt.Errorf("key marker %d is incomplete", i)
+		}
+
+		var markerBuf bytes.Buffer
+		if err := marker.Encode(&markerBuf); err != nil {
+			return fmt.Errorf("failed to encode key marker %d: %w",
+				i, err)
+		}
+
+		err = tlv.WriteVarInt(
+			w, uint64(markerBuf.Len()), &scratch,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to write key marker %d "+
+				"length: %w", i, err)
+		}
+		if _, err := w.Write(markerBuf.Bytes()); err != nil {
+			return fmt.Errorf("failed to write key marker %d: %w",
+				i, err)
+		}
+	}
+
+	return nil
+}
+
+// decodeKeyFamilyMarkers reads an optional trailing key-family marker
+// section. An empty reader represents a legacy backup without the extension.
+func decodeKeyFamilyMarkers(r io.Reader) ([]*KeyDescriptorBackup, error) {
+	var magic [len(keyMarkerMagicBytes)]byte
+	n, err := io.ReadFull(r, magic[:])
+	switch {
+	case errors.Is(err, io.EOF) && n == 0:
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("failed to read key marker magic: %w",
+			err)
+	case string(magic[:]) != keyMarkerMagicBytes:
+		return nil, fmt.Errorf("unknown wallet backup extension %x",
+			magic)
+	}
+
+	var scratch [8]byte
+	count, err := tlv.ReadVarInt(r, &scratch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read key marker count: %w",
+			err)
+	}
+	if count > maxKeyFamilyMarkers {
+		return nil, fmt.Errorf("key marker count %d exceeds maximum %d",
+			count, maxKeyFamilyMarkers)
+	}
+
+	markers := make([]*KeyDescriptorBackup, count)
+	for i := uint64(0); i < count; i++ {
+		markerLen, err := tlv.ReadVarInt(r, &scratch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read key marker %d "+
+				"length: %w", i, err)
+		}
+		if markerLen > maxTLVSize {
+			return nil, fmt.Errorf("key marker %d length %d "+
+				"exceeds maximum %d", i, markerLen, maxTLVSize)
+		}
+
+		markerBytes := make([]byte, markerLen)
+		if _, err := io.ReadFull(r, markerBytes); err != nil {
+			return nil, fmt.Errorf("failed to read key marker "+
+				"%d: %w", i, err)
+		}
+
+		marker := &KeyDescriptorBackup{}
+		markerReader := bytes.NewReader(markerBytes)
+		if err := marker.Decode(markerReader); err != nil {
+			return nil, fmt.Errorf("failed to decode key marker "+
+				"%d: %w", i, err)
+		}
+		if marker.PubKey == nil || marker.KeyLocator.IsEmpty() {
+			return nil, fmt.Errorf("key marker %d is incomplete", i)
+		}
+		markers[i] = marker
+	}
+
+	return markers, nil
+}
+
 // Encode serializes a WalletBackup to a writer.
 func (w *WalletBackup) Encode(writer io.Writer) error {
 	// Write magic bytes.
@@ -235,6 +352,16 @@ func (w *WalletBackup) Encode(writer io.Writer) error {
 			return fmt.Errorf("failed to encode "+
 				"asset %d: %w", i, err)
 		}
+	}
+
+	// Always write the extension, even when empty, so new backups have a
+	// canonical encoding. Older readers stop after the assets and therefore
+	// remain able to import this payload.
+	if err := encodeKeyFamilyMarkers(
+		writer, w.KeyFamilyMarkers,
+	); err != nil {
+		return fmt.Errorf("failed to encode key family markers: "+
+			"%w", err)
 	}
 
 	return nil
@@ -294,6 +421,14 @@ func (w *WalletBackup) Decode(reader io.Reader) error {
 				"asset %d: %w", i, err)
 		}
 		w.Assets[i] = ab
+	}
+
+	w.KeyFamilyMarkers, err = decodeKeyFamilyMarkers(
+		reader,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to decode key family markers: "+
+			"%w", err)
 	}
 
 	return nil
