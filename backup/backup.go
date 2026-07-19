@@ -122,6 +122,11 @@ type WalletBackup struct {
 	// FederationURLs contains the universe federation server URLs used
 	// in v3 (optimistic) backups to fetch proofs on import.
 	FederationURLs []string
+
+	// KeyFamilyMarkers contains the last key derived in each local key
+	// family at the time the backup was created. Import uses these markers
+	// to restore LND's key-family counters after an aezeed recovery.
+	KeyFamilyMarkers []*KeyDescriptorBackup
 }
 
 // createAssetBackup creates a backup for a single asset by storing the

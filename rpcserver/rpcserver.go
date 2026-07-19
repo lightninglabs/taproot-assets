@@ -37,6 +37,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/backup"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/mssmt/arith"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -12299,9 +12300,21 @@ func (r *RPCServer) ExportAssetWalletBackup(ctx context.Context,
 	}
 
 	// Delegate to the backup package.
+	keyMarker, err := r.cfg.Lnd.WalletKit.DeriveNextKey(
+		ctx, int32(asset.TaprootAssetsKeyFamily),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive backup key family "+
+			"marker: %w", err)
+	}
+
 	blob, err := backup.ExportBackup(
 		ctx, mode, confirmedAssets, r.cfg.ProofArchive,
 		r.cfg.TapAddrBook, fedURLs,
+		[]*backup.KeyDescriptorBackup{{
+			PubKey:     keyMarker.PubKey,
+			KeyLocator: keyMarker.KeyLocator,
+		}},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export backup: %w", err)
@@ -12323,6 +12336,7 @@ func (r *RPCServer) ImportAssetsFromBackup(ctx context.Context,
 		ChainQuerier:  r.cfg.ChainBridge,
 		ProofArchive:  r.cfg.ProofArchive,
 		KeyRegistrar:  r.cfg.TapAddrBook,
+		KeyRing:       lndservices.NewLndRpcKeyRing(r.cfg.Lnd),
 		ProofVerifier: r.ProofVerifierCtx(ctx),
 	}
 
