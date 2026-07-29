@@ -39,6 +39,10 @@
 
 ## RPC Updates
 
+* [PR#2226](https://github.com/lightninglabs/taproot-assets/pull/2226)
+  lets `CommitVirtualPsbts` select the transition proof version and adds
+  BIP-371 tapscript sibling exclusion proofs for version 1 proofs.
+
 ## tapcli Updates
 
 ## Config Changes
