@@ -30,7 +30,7 @@ require (
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.4-0.20250610182311-2f1d46ef18b7
 	github.com/lightninglabs/lndclient v0.21.0-1
 	github.com/lightninglabs/neutrino/cache v1.1.3
-	github.com/lightninglabs/taproot-assets/taprpc v1.1.0
+	github.com/lightninglabs/taproot-assets/taprpc v1.2.0
 	github.com/lightningnetwork/lnd v0.21.0-beta
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
@@ -225,6 +225,3 @@ replace github.com/golang-migrate/migrate/v4 => github.com/lightninglabs/migrate
 
 // Needed for healthcheck import.
 replace github.com/prometheus/common => github.com/prometheus/common v0.26.0
-
-// Note this is a temporary replace and will be removed when taprpc is tagged.
-replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
