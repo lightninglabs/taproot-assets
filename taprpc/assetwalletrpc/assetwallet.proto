@@ -276,6 +276,20 @@ message AnchorVirtualPsbtsRequest {
     repeated bytes virtual_psbts = 1;
 }
 
+enum TransitionProofVersion {
+    /*
+    The first version of the state transition proof. This is the default for
+    backward compatibility.
+    */
+    TRANSITION_PROOF_VERSION_V0 = 0;
+
+    /*
+    The second version of the state transition proof. This version adds spent
+    transaction output (STXO) inclusion and exclusion proofs.
+    */
+    TRANSITION_PROOF_VERSION_V1 = 1;
+}
+
 message CommitVirtualPsbtsRequest {
     /*
     The list of virtual transactions that should be mapped to the given BTC
@@ -356,6 +370,12 @@ message CommitVirtualPsbtsRequest {
     is to create a zero-fee transaction.
     */
     bool skip_funding = 10;
+
+    /*
+    The version to use when generating the state transition proof suffixes.
+    This defaults to TRANSITION_PROOF_VERSION_V0 for backward compatibility.
+    */
+    TransitionProofVersion transition_proof_version = 11;
 }
 
 message CommitVirtualPsbtsResponse {
