@@ -25,6 +25,11 @@
   fixes a bug that could cause minted assets to commit to the wrong
   address.
 
+* [PR#2228](https://github.com/lightninglabs/taproot-assets/pull/2228)
+  fixes `VerifyProof` failing the whole RPC for an invalid proof when
+  decoding the last proof requires unknown asset metadata; it now
+  returns `valid=false` as documented.
+
 # New Features
 
 ## Functional Enhancements
