@@ -2178,10 +2178,17 @@ func (r *RPCServer) VerifyProof(ctx context.Context,
 	if err != nil {
 		// We don't want to fail the RPC request because of a proof
 		// verification error, but we do want to log it for easier
-		// debugging.
+		// debugging. The decoded proof is only returned for valid
+		// proof files, so we can respond right away. Decoding the
+		// last proof here could itself fail (for example when the
+		// asset is entirely unknown to this node) and would turn an
+		// already-classified invalid proof into an RPC failure.
 		rpcsLog.Errorf("Proof verification failed with err: %v", err)
+
+		return &taprpc.VerifyProofResponse{
+			Valid: false,
+		}, nil
 	}
-	valid := err == nil
 
 	p, err := proofFile.LastProof()
 	if err != nil {
@@ -2196,7 +2203,7 @@ func (r *RPCServer) VerifyProof(ctx context.Context,
 	decodedProof.NumberOfProofs = uint32(proofFile.NumProofs())
 
 	return &taprpc.VerifyProofResponse{
-		Valid:        valid,
+		Valid:        true,
 		DecodedProof: decodedProof,
 	}, nil
 }
