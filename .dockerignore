@@ -1,0 +1,15 @@
+.git
+.github
+
+# Locally built daemon and integration-test binaries are not required by the
+# development image. Excluding them keeps the Docker build context small and
+# stable while another test build may be updating those files.
+tapcli-debug
+tapd-debug
+itest/*-itest
+itest/chantools/chantools
+
+# Runtime and editor artifacts never belong in a source build context.
+*.log
+.DS_Store
+test-artifacts
