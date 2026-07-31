@@ -456,6 +456,24 @@ func (m *Manager) handleIncomingMessage(ctx context.Context,
 				return
 			}
 
+			// Since we're going to buy assets from our peer, we
+			// need to make sure we can identify the incoming asset
+			// payment by the SCID alias through which it comes in
+			// and compare it to the one in the invoice. If the
+			// alias cannot be registered, the quote is unusable,
+			// so we fail it before persisting anything.
+			err := m.addScidAlias(
+				uint64(msg.ShortChannelId()),
+				msg.Request.AssetSpecifier, msg.Peer,
+			)
+			if err != nil {
+				m.handleError(
+					fmt.Errorf("error adding local alias: "+
+						"%w", err),
+				)
+				return
+			}
+
 			// The quote request has been accepted. Persist to
 			// DB first so that on restart the quote is not
 			// silently lost.
@@ -475,22 +493,6 @@ func (m *Manager) handleIncomingMessage(ctx context.Context,
 			// DB write succeeded; populate the in-memory
 			// cache.
 			m.orderHandler.peerBuyQuotes.Store(scid, msg)
-
-			// Since we're going to buy assets from our peer, we
-			// need to make sure we can identify the incoming asset
-			// payment by the SCID alias through which it comes in
-			// and compare it to the one in the invoice.
-			err := m.addScidAlias(
-				uint64(msg.ShortChannelId()),
-				msg.Request.AssetSpecifier, msg.Peer,
-			)
-			if err != nil {
-				m.handleError(
-					fmt.Errorf("error adding local alias: "+
-						"%w", err),
-				)
-				return
-			}
 
 			// Notify subscribers of the incoming peer accepted
 			// asset buy quote.
@@ -577,26 +579,39 @@ func (m *Manager) handleOutgoingMessage(ctx context.Context,
 	// Perform type specific handling of the outgoing message.
 	switch msg := outgoingMsg.(type) {
 	case *rfqmsg.BuyAccept:
+		// Since our peer is going to buy assets from us, we need to
+		// make sure we can identify the forwarded asset payment by the
+		// outgoing SCID alias within the onion packet. If the alias
+		// cannot be registered, the quote is unusable, so we send the
+		// peer a reject instead of the accept.
+		err := m.addScidAlias(
+			uint64(msg.ShortChannelId()),
+			msg.Request.AssetSpecifier, msg.Peer,
+		)
+		if err != nil {
+			reject := rfqmsg.NewReject(
+				msg.Peer, msg.ID, rfqmsg.ErrUnknownReject,
+			)
+			sendErr := m.streamHandler.HandleOutgoingMessage(
+				ctx, reject,
+			)
+			if sendErr != nil {
+				log.Errorf("Error sending quote reject "+
+					"message: %v", sendErr)
+			}
+
+			return fmt.Errorf("error adding local alias: %w", err)
+		}
+
 		// A peer sent us an asset buy quote request in an attempt to
 		// buy an asset from us. Having accepted the request, but before
 		// we inform our peer of our decision, we inform the order
 		// handler that we are willing to sell the asset subject to a
 		// sale policy.
-		err := m.orderHandler.RegisterAssetSalePolicy(ctx, *msg)
+		err = m.orderHandler.RegisterAssetSalePolicy(ctx, *msg)
 		if err != nil {
 			return fmt.Errorf("registering asset sale "+
 				"policy: %w", err)
-		}
-
-		// Since our peer is going to buy assets from us, we need to
-		// make sure we can identify the forwarded asset payment by the
-		// outgoing SCID alias within the onion packet.
-		err = m.addScidAlias(
-			uint64(msg.ShortChannelId()),
-			msg.Request.AssetSpecifier, msg.Peer,
-		)
-		if err != nil {
-			return fmt.Errorf("error adding local alias: %w", err)
 		}
 
 	case *rfqmsg.SellAccept:
@@ -637,26 +652,36 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 		return err
 	}
 
+	// Only channels that negotiated the option-scid-alias feature can
+	// serve as the base of an alias mapping; lnd rejects the mapping for
+	// any other channel.
+	aliasCapable := func(c TapChannel) bool {
+		return len(c.ChannelInfo.AliasScids) > 0
+	}
+	baseChans := fn.Filter(peerChans[peer], aliasCapable)
+
 	// As a fallback, if we didn't find any compatible channels with the
-	// peer, let's pick any channel that is available with this peer. This
-	// is okay, because non-strict forwarding will ask each channel if the
-	// bandwidth matches the provided specifier.
-	if len(peerChans[peer]) == 0 {
+	// peer, let's pick any alias-capable channel that is available with
+	// this peer. This is okay, because non-strict forwarding will ask each
+	// channel if the bandwidth matches the provided specifier.
+	if len(baseChans) == 0 {
 		peerChans, err = m.FetchChannel(
 			ctxb, asset.Specifier{}, &peer, NoIntention,
 		)
 		if err != nil {
 			return err
 		}
+
+		baseChans = fn.Filter(peerChans[peer], aliasCapable)
 	}
 
-	if len(peerChans[peer]) == 0 {
+	if len(baseChans) == 0 {
 		return fmt.Errorf("cannot add scid alias with peer=%v, no "+
-			"compatible channels found for %s", peer,
+			"scid-alias-capable channels found for %s", peer,
 			&assetSpecifier)
 	}
 
-	baseSCID := peerChans[peer][0].ChannelInfo.ChannelID
+	baseSCID := baseChans[0].ChannelInfo.ChannelID
 
 	// At this point, if the base SCID is still not found, we return an
 	// error. We can't map the SCID alias to a base SCID.
@@ -672,12 +697,8 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 		lnwire.NewShortChanIDFromInt(baseSCID),
 	)
 	if err != nil {
-		// Not being able to call lnd to add the alias is a critical
-		// error, which warrants shutting down, as something is wrong.
-		return fn.NewCriticalError(
-			fmt.Errorf("add alias: error adding SCID alias to "+
-				"lnd alias manager: %w", err),
-		)
+		return fmt.Errorf("add alias: error adding SCID alias to "+
+			"lnd alias manager: %w", err)
 	}
 
 	return nil

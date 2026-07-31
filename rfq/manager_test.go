@@ -13,10 +13,12 @@ import (
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	tpchmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 )
@@ -701,4 +703,131 @@ func pubKeyFromUint64(num uint64) *btcec.PublicKey {
 	binary.BigEndian.PutUint64(buf, num)
 	_ = scalar.SetByteSlice(buf)
 	return secp256k1.NewPrivateKey(scalar).PubKey()
+}
+
+// mockChannelLister is a mock ChannelLister that returns a fixed set of
+// channels.
+type mockChannelLister struct {
+	channels []lndclient.ChannelInfo
+}
+
+func (m *mockChannelLister) ListChannels(_ context.Context, _, _ bool,
+	_ ...lndclient.ListChannelsOption) ([]lndclient.ChannelInfo, error) {
+
+	return m.channels, nil
+}
+
+// mockAliasManager is a mock ScidAliasManager that records the base SCIDs
+// passed to AddLocalAlias and can be configured to fail.
+type mockAliasManager struct {
+	failAdd bool
+
+	addedBases []lnwire.ShortChannelID
+}
+
+func (m *mockAliasManager) AddLocalAlias(_ context.Context, _,
+	baseScid lnwire.ShortChannelID) error {
+
+	if m.failAdd {
+		return fmt.Errorf("add alias failure")
+	}
+
+	m.addedBases = append(m.addedBases, baseScid)
+
+	return nil
+}
+
+func (m *mockAliasManager) DeleteLocalAlias(_ context.Context, _,
+	_ lnwire.ShortChannelID) error {
+
+	return nil
+}
+
+func (m *mockAliasManager) FetchBaseAlias(_ context.Context,
+	_ lnwire.ShortChannelID) (lnwire.ShortChannelID, error) {
+
+	return lnwire.ShortChannelID{}, nil
+}
+
+// newAliasTestManager creates a Manager wired up with the given channels and
+// alias manager.
+func newAliasTestManager(t *testing.T, channels []lndclient.ChannelInfo,
+	aliasMgr ScidAliasManager) *Manager {
+
+	manager, err := NewManager(ManagerCfg{
+		GroupLookup:   &GroupLookupMock{},
+		PolicyStore:   mockPolicyStore{},
+		ChannelLister: &mockChannelLister{channels: channels},
+		AliasManager:  aliasMgr,
+	})
+	require.NoError(t, err)
+
+	return manager
+}
+
+// TestAddScidAliasChannelSelection verifies that addScidAlias maps the alias
+// onto an alias-capable base channel, skipping channels that did not
+// negotiate the option-scid-alias feature.
+func TestAddScidAliasChannelSelection(t *testing.T) {
+	t.Parallel()
+
+	aliasMgr := &mockAliasManager{}
+	manager := newAliasTestManager(t, []lndclient.ChannelInfo{
+		{
+			ChannelID:   100,
+			PubKeyBytes: peer1,
+		},
+		{
+			ChannelID:   200,
+			PubKeyBytes: peer1,
+			AliasScids:  []uint64{16_000_000},
+		},
+	}, aliasMgr)
+
+	err := manager.addScidAlias(42, asset.Specifier{}, peer1)
+	require.NoError(t, err)
+
+	require.Len(t, aliasMgr.addedBases, 1)
+	require.EqualValues(t, 200, aliasMgr.addedBases[0].ToUint64())
+}
+
+// TestAddScidAliasNoCapableChannel verifies that addScidAlias fails with a
+// non-critical error when no channel with the peer supports SCID aliases,
+// without attempting to register the alias with lnd. A critical error here
+// would shut down the daemon on a per-quote data condition.
+func TestAddScidAliasNoCapableChannel(t *testing.T) {
+	t.Parallel()
+
+	aliasMgr := &mockAliasManager{}
+	manager := newAliasTestManager(t, []lndclient.ChannelInfo{
+		{
+			ChannelID:   100,
+			PubKeyBytes: peer1,
+		},
+	}, aliasMgr)
+
+	err := manager.addScidAlias(42, asset.Specifier{}, peer1)
+	require.ErrorContains(t, err, "no scid-alias-capable channels")
+	require.False(t, fn.ErrorAs[*fn.CriticalError](err))
+	require.Empty(t, aliasMgr.addedBases)
+}
+
+// TestAddScidAliasFailureNotCritical verifies that a failure to register the
+// alias with lnd surfaces as a normal error rather than a critical one, so a
+// single failed quote cannot shut down the daemon.
+func TestAddScidAliasFailureNotCritical(t *testing.T) {
+	t.Parallel()
+
+	aliasMgr := &mockAliasManager{failAdd: true}
+	manager := newAliasTestManager(t, []lndclient.ChannelInfo{
+		{
+			ChannelID:   200,
+			PubKeyBytes: peer1,
+			AliasScids:  []uint64{16_000_000},
+		},
+	}, aliasMgr)
+
+	err := manager.addScidAlias(42, asset.Specifier{}, peer1)
+	require.ErrorContains(t, err, "add alias")
+	require.False(t, fn.ErrorAs[*fn.CriticalError](err))
 }
