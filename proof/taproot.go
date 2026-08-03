@@ -1,6 +1,7 @@
 package proof
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -634,6 +635,16 @@ func (p TaprootProof) DeriveByTapscriptProof() (*btcec.PublicKey, error) {
 func AddExclusionProofs(baseProof *BaseProofParams, finalTx *wire.MsgTx,
 	finalTxPacketOutputs []psbt.POutput, isAnchor func(uint32) bool) error {
 
+	if finalTx == nil {
+		return fmt.Errorf("cannot add exclusion proofs without a " +
+			"final transaction")
+	}
+	if len(finalTx.TxOut) != len(finalTxPacketOutputs) {
+		return fmt.Errorf("cannot add exclusion proofs, "+
+			"transaction has %d outputs but PSBT has %d",
+			len(finalTx.TxOut), len(finalTxPacketOutputs))
+	}
+
 	for outIdx := range finalTxPacketOutputs {
 		txOut := finalTx.TxOut[outIdx]
 
@@ -664,28 +675,266 @@ func AddExclusionProofs(baseProof *BaseProofParams, finalTx *wire.MsgTx,
 				"invalid: %w", outIdx, err)
 		}
 
-		// Make sure this is a BIP-0086 key spend as that is the only
-		// method we currently support here.
-		if len(out.TaprootTapTree) > 0 {
-			return fmt.Errorf("cannot add exclusion proof, output "+
-				"%d uses a tap tree which is currently not "+
-				"supported", outIdx)
+		var (
+			tapTree        txscript.TapNode
+			tapscriptProof *TapscriptProof
+		)
+		if len(out.TaprootTapTree) == 0 {
+			// An output without a declared tap tree is a BIP-0086
+			// key spend.
+			tapscriptProof = &TapscriptProof{
+				Bip86: true,
+			}
+		} else {
+			tapTree, err = parseBIP371TapTree(out.TaprootTapTree)
+			if err != nil {
+				return fmt.Errorf("cannot add exclusion "+
+					"proof, output %d has an invalid "+
+					"PSBT tap tree: %w", outIdx, err)
+			}
+
+			tapscriptProof, err = createTapscriptProofFromRoot(
+				tapTree,
+			)
+			if err != nil {
+				return fmt.Errorf("cannot add exclusion "+
+					"proof, output %d has an invalid "+
+					"tapscript tree: %w", outIdx, err)
+			}
 		}
 
-		// Okay, we now know this is a normal BIP-0086 key spend and can
-		// add the exclusion proof accordingly.
+		// The PSBT metadata is supplied by the creator of the output.
+		// Make sure it actually opens the P2TR output before using it
+		// to create an exclusion proof.
+		var tapscriptRoot []byte
+		if tapTree != nil {
+			rootHash := tapTree.TapHash()
+			tapscriptRoot = rootHash[:]
+		}
+		outputKey := txscript.ComputeTaprootOutputKey(
+			internalKey, tapscriptRoot,
+		)
+		expectedPkScript, err := txscript.PayToTaprootScript(outputKey)
+		if err != nil {
+			return fmt.Errorf("cannot add exclusion proof, output "+
+				"%d has an invalid taproot key: %w", outIdx,
+				err)
+		}
+		if !bytes.Equal(expectedPkScript, txOut.PkScript) {
+			return fmt.Errorf("cannot add exclusion proof, output "+
+				"%d PSBT taproot metadata does not match the "+
+				"transaction output", outIdx)
+		}
+
 		baseProof.ExclusionProofs = append(
 			baseProof.ExclusionProofs, TaprootProof{
-				OutputIndex: uint32(outIdx),
-				InternalKey: internalKey,
-				TapscriptProof: &TapscriptProof{
-					Bip86: true,
-				},
+				OutputIndex:    uint32(outIdx),
+				InternalKey:    internalKey,
+				TapscriptProof: tapscriptProof,
 			},
 		)
 	}
 
 	return nil
+}
+
+// bip371TapLeaf is a single PSBT_OUT_TAP_TREE depth-first tuple.
+type bip371TapLeaf struct {
+	depth uint8
+	leaf  txscript.TapLeaf
+}
+
+// bip371TapTreeParser reconstructs the exact tree shape committed to by the
+// depth-first PSBT_OUT_TAP_TREE tuples.
+type bip371TapTreeParser struct {
+	leaves []bip371TapLeaf
+	next   int
+}
+
+// parseNode parses either a leaf at expectedDepth or the two children of a
+// branch at expectedDepth. A complete binary tree has exactly one root and two
+// children for every branch, so a depth-first leaf stream is unambiguous.
+func (p *bip371TapTreeParser) parseNode(expectedDepth uint8) (
+	txscript.TapNode, error) {
+
+	if p.next >= len(p.leaves) {
+		return nil, fmt.Errorf(
+			"missing node at depth %d", expectedDepth,
+		)
+	}
+
+	nextLeaf := p.leaves[p.next]
+	if nextLeaf.depth < expectedDepth {
+		return nil, fmt.Errorf(
+			"leaf %d at depth %d cannot fill node at depth %d",
+			p.next, nextLeaf.depth, expectedDepth,
+		)
+	}
+	if nextLeaf.depth == expectedDepth {
+		p.next++
+		return nextLeaf.leaf, nil
+	}
+	if expectedDepth >= txscript.ControlBlockMaxNodeCount {
+		return nil, fmt.Errorf("tree exceeds maximum depth %d",
+			txscript.ControlBlockMaxNodeCount)
+	}
+
+	left, err := p.parseNode(expectedDepth + 1)
+	if err != nil {
+		return nil, fmt.Errorf("invalid left subtree at depth %d: %w",
+			expectedDepth, err)
+	}
+	right, err := p.parseNode(expectedDepth + 1)
+	if err != nil {
+		return nil, fmt.Errorf("invalid right subtree at depth %d: %w",
+			expectedDepth, err)
+	}
+
+	return txscript.NewTapBranch(left, right), nil
+}
+
+// parseBIP371TapTree decodes PSBT_OUT_TAP_TREE and reconstructs its exact
+// binary tree. BIP-371 encodes leaves as depth-first tuples:
+//
+//	<depth><leaf version><compact size script><script>
+//
+// The depth stream is validated as a complete binary tree rather than flattened
+// and reassembled, since a different tree shape can produce a different root.
+func parseBIP371TapTree(encoded []byte) (txscript.TapNode, error) {
+	if len(encoded) == 0 {
+		return nil, fmt.Errorf("tap tree is empty")
+	}
+
+	reader := bytes.NewReader(encoded)
+	leaves := make([]bip371TapLeaf, 0)
+	for reader.Len() > 0 {
+		leafIndex := len(leaves)
+
+		depth, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("read leaf %d depth: %w",
+				leafIndex, err)
+		}
+		if int(depth) > txscript.ControlBlockMaxNodeCount {
+			return nil, fmt.Errorf("leaf %d depth %d exceeds "+
+				"maximum %d", leafIndex, depth,
+				txscript.ControlBlockMaxNodeCount)
+		}
+
+		leafVersion, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("read leaf %d version: %w",
+				leafIndex, err)
+		}
+		if leafVersion&1 != 0 {
+			return nil, fmt.Errorf(
+				"leaf %d has odd leaf version %d", leafIndex,
+				leafVersion,
+			)
+		}
+
+		scriptLen, err := wire.ReadVarInt(reader, 0)
+		if err != nil {
+			return nil, fmt.Errorf("read leaf %d script length: %w",
+				leafIndex, err)
+		}
+		if scriptLen > uint64(reader.Len()) {
+			return nil, fmt.Errorf(
+				"leaf %d script length %d exceeds "+
+					"remaining tap tree bytes %d",
+				leafIndex, scriptLen, reader.Len(),
+			)
+		}
+
+		script := make([]byte, int(scriptLen))
+		if _, err := io.ReadFull(reader, script); err != nil {
+			return nil, fmt.Errorf("read leaf %d script: %w",
+				leafIndex, err)
+		}
+		leaves = append(leaves, bip371TapLeaf{
+			depth: depth,
+			leaf: txscript.NewTapLeaf(
+				txscript.TapscriptLeafVersion(leafVersion),
+				script,
+			),
+		})
+	}
+
+	parser := &bip371TapTreeParser{
+		leaves: leaves,
+	}
+	root, err := parser.parseNode(0)
+	if err != nil {
+		return nil, fmt.Errorf("invalid depth-first tree: %w", err)
+	}
+	if parser.next != len(leaves) {
+		return nil, fmt.Errorf("invalid depth-first tree: %d trailing "+
+			"leaf tuples after root", len(leaves)-parser.next)
+	}
+
+	return root, nil
+}
+
+// createTapscriptProofFromRoot creates a tapscript exclusion proof from the
+// actual root children reconstructed from PSBT_OUT_TAP_TREE.
+func createTapscriptProofFromRoot(root txscript.TapNode) (
+	*TapscriptProof, error) {
+
+	switch node := root.(type) {
+	case txscript.TapLeaf:
+		preimage, err := commitment.NewPreimageFromLeaf(node)
+		if err != nil {
+			return nil, err
+		}
+
+		return &TapscriptProof{
+			TapPreimage1: preimage,
+		}, nil
+
+	case txscript.TapBranch:
+		first, err := tapscriptPreimage(node.Left())
+		if err != nil {
+			return nil, err
+		}
+		second, err := tapscriptPreimage(node.Right())
+		if err != nil {
+			return nil, err
+		}
+
+		// TapscriptProof's mixed-node encoding requires the leaf to be
+		// the first preimage. TapBranch hashing itself is commutative.
+		if first.Type() == commitment.BranchPreimage &&
+			second.Type() == commitment.LeafPreimage {
+
+			first, second = second, first
+		}
+
+		return &TapscriptProof{
+			TapPreimage1: first,
+			TapPreimage2: second,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown tap tree root type %T", root)
+	}
+}
+
+// tapscriptPreimage returns the leaf or branch preimage required to open one
+// child of a tapscript root.
+func tapscriptPreimage(node txscript.TapNode) (
+	*commitment.TapscriptPreimage, error) {
+
+	switch node := node.(type) {
+	case txscript.TapLeaf:
+		return commitment.NewPreimageFromLeaf(node)
+
+	case txscript.TapBranch:
+		preimage := commitment.NewPreimageFromBranch(node)
+		return &preimage, nil
+
+	default:
+		return nil, fmt.Errorf("unknown tap tree node type %T", node)
+	}
 }
 
 // CreateTapscriptProof creates a TapscriptProof from a list of tapscript leaves

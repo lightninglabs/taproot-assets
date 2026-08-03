@@ -2861,7 +2861,22 @@ func testPsbtExternalCommit(t *harnessTest) {
 	var commitResp *wrpc.CommitVirtualPsbtsResponse
 	btcPacket, activeAssets, passiveAssets, commitResp = CommitVirtualPsbts(
 		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets, -1,
+		withTransitionProofVersion(
+			wrpc.TransitionProofVersion_TRANSITION_PROOF_VERSION_V1,
+		),
 	)
+
+	allPackets = append([]*tappsbt.VPacket{}, activeAssets...)
+	allPackets = append(allPackets, passiveAssets...)
+	for _, packet := range allPackets {
+		for _, output := range packet.Outputs {
+			require.NotNil(t.t, output.ProofSuffix)
+			require.Equal(
+				t.t, proof.TransitionV1,
+				output.ProofSuffix.Version,
+			)
+		}
+	}
 
 	t.Logf("Committed transaction: %v", toJSON(t.t, commitResp))
 

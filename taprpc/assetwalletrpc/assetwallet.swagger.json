@@ -602,6 +602,10 @@
         "skip_funding": {
           "type": "boolean",
           "description": "If set, the psbt funding step will be skipped. This is useful if the intent\nis to create a zero-fee transaction."
+        },
+        "transition_proof_version": {
+          "$ref": "#/definitions/assetwalletrpcTransitionProofVersion",
+          "description": "The version to use when generating the state transition proof suffixes.\nThis defaults to TRANSITION_PROOF_VERSION_V0 for backward compatibility."
         }
       }
     },
@@ -941,6 +945,15 @@
           "description": "The indices of signed inputs."
         }
       }
+    },
+    "assetwalletrpcTransitionProofVersion": {
+      "type": "string",
+      "enum": [
+        "TRANSITION_PROOF_VERSION_V0",
+        "TRANSITION_PROOF_VERSION_V1"
+      ],
+      "default": "TRANSITION_PROOF_VERSION_V0",
+      "description": " - TRANSITION_PROOF_VERSION_V0: The first version of the state transition proof. This is the default for\nbackward compatibility.\n - TRANSITION_PROOF_VERSION_V1: The second version of the state transition proof. This version adds spent\ntransaction output (STXO) inclusion and exclusion proofs."
     },
     "assetwalletrpcTxTemplate": {
       "type": "object",

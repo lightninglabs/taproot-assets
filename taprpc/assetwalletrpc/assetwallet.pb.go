@@ -77,6 +77,56 @@ func (CoinSelectType) EnumDescriptor() ([]byte, []int) {
 	return file_assetwalletrpc_assetwallet_proto_rawDescGZIP(), []int{0}
 }
 
+type TransitionProofVersion int32
+
+const (
+	// The first version of the state transition proof. This is the default for
+	// backward compatibility.
+	TransitionProofVersion_TRANSITION_PROOF_VERSION_V0 TransitionProofVersion = 0
+	// The second version of the state transition proof. This version adds spent
+	// transaction output (STXO) inclusion and exclusion proofs.
+	TransitionProofVersion_TRANSITION_PROOF_VERSION_V1 TransitionProofVersion = 1
+)
+
+// Enum value maps for TransitionProofVersion.
+var (
+	TransitionProofVersion_name = map[int32]string{
+		0: "TRANSITION_PROOF_VERSION_V0",
+		1: "TRANSITION_PROOF_VERSION_V1",
+	}
+	TransitionProofVersion_value = map[string]int32{
+		"TRANSITION_PROOF_VERSION_V0": 0,
+		"TRANSITION_PROOF_VERSION_V1": 1,
+	}
+)
+
+func (x TransitionProofVersion) Enum() *TransitionProofVersion {
+	p := new(TransitionProofVersion)
+	*p = x
+	return p
+}
+
+func (x TransitionProofVersion) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TransitionProofVersion) Descriptor() protoreflect.EnumDescriptor {
+	return file_assetwalletrpc_assetwallet_proto_enumTypes[1].Descriptor()
+}
+
+func (TransitionProofVersion) Type() protoreflect.EnumType {
+	return &file_assetwalletrpc_assetwallet_proto_enumTypes[1]
+}
+
+func (x TransitionProofVersion) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TransitionProofVersion.Descriptor instead.
+func (TransitionProofVersion) EnumDescriptor() ([]byte, []int) {
+	return file_assetwalletrpc_assetwallet_proto_rawDescGZIP(), []int{1}
+}
+
 // BackupMode specifies the backup format to use when exporting.
 type BackupMode int32
 
@@ -118,11 +168,11 @@ func (x BackupMode) String() string {
 }
 
 func (BackupMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_assetwalletrpc_assetwallet_proto_enumTypes[1].Descriptor()
+	return file_assetwalletrpc_assetwallet_proto_enumTypes[2].Descriptor()
 }
 
 func (BackupMode) Type() protoreflect.EnumType {
-	return &file_assetwalletrpc_assetwallet_proto_enumTypes[1]
+	return &file_assetwalletrpc_assetwallet_proto_enumTypes[2]
 }
 
 func (x BackupMode) Number() protoreflect.EnumNumber {
@@ -131,7 +181,7 @@ func (x BackupMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use BackupMode.Descriptor instead.
 func (BackupMode) EnumDescriptor() ([]byte, []int) {
-	return file_assetwalletrpc_assetwallet_proto_rawDescGZIP(), []int{1}
+	return file_assetwalletrpc_assetwallet_proto_rawDescGZIP(), []int{2}
 }
 
 type FundVirtualPsbtRequest struct {
@@ -634,9 +684,12 @@ type CommitVirtualPsbtsRequest struct {
 	LockExpirationSeconds uint64 `protobuf:"varint,9,opt,name=lock_expiration_seconds,json=lockExpirationSeconds,proto3" json:"lock_expiration_seconds,omitempty"`
 	// If set, the psbt funding step will be skipped. This is useful if the intent
 	// is to create a zero-fee transaction.
-	SkipFunding   bool `protobuf:"varint,10,opt,name=skip_funding,json=skipFunding,proto3" json:"skip_funding,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SkipFunding bool `protobuf:"varint,10,opt,name=skip_funding,json=skipFunding,proto3" json:"skip_funding,omitempty"`
+	// The version to use when generating the state transition proof suffixes.
+	// This defaults to TRANSITION_PROOF_VERSION_V0 for backward compatibility.
+	TransitionProofVersion TransitionProofVersion `protobuf:"varint,11,opt,name=transition_proof_version,json=transitionProofVersion,proto3,enum=assetwalletrpc.TransitionProofVersion" json:"transition_proof_version,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *CommitVirtualPsbtsRequest) Reset() {
@@ -759,6 +812,13 @@ func (x *CommitVirtualPsbtsRequest) GetSkipFunding() bool {
 		return x.SkipFunding
 	}
 	return false
+}
+
+func (x *CommitVirtualPsbtsRequest) GetTransitionProofVersion() TransitionProofVersion {
+	if x != nil {
+		return x.TransitionProofVersion
+	}
+	return TransitionProofVersion_TRANSITION_PROOF_VERSION_V0
 }
 
 type isCommitVirtualPsbtsRequest_AnchorChangeOutput interface {
@@ -2045,7 +2105,7 @@ const file_assetwalletrpc_assetwallet_proto_rawDesc = "" +
 	"signedPsbt\x12#\n" +
 	"\rsigned_inputs\x18\x02 \x03(\rR\fsignedInputs\"@\n" +
 	"\x19AnchorVirtualPsbtsRequest\x12#\n" +
-	"\rvirtual_psbts\x18\x01 \x03(\fR\fvirtualPsbts\"\xc5\x03\n" +
+	"\rvirtual_psbts\x18\x01 \x03(\fR\fvirtualPsbts\"\xa7\x04\n" +
 	"\x19CommitVirtualPsbtsRequest\x12#\n" +
 	"\rvirtual_psbts\x18\x01 \x03(\fR\fvirtualPsbts\x12.\n" +
 	"\x13passive_asset_psbts\x18\x02 \x03(\fR\x11passiveAssetPsbts\x12\x1f\n" +
@@ -2059,7 +2119,8 @@ const file_assetwalletrpc_assetwallet_proto_rawDesc = "" +
 	"\x0ecustom_lock_id\x18\b \x01(\fR\fcustomLockId\x126\n" +
 	"\x17lock_expiration_seconds\x18\t \x01(\x04R\x15lockExpirationSeconds\x12!\n" +
 	"\fskip_funding\x18\n" +
-	" \x01(\bR\vskipFundingB\x16\n" +
+	" \x01(\bR\vskipFunding\x12`\n" +
+	"\x18transition_proof_version\x18\v \x01(\x0e2&.assetwalletrpc.TransitionProofVersionR\x16transitionProofVersionB\x16\n" +
 	"\x14anchor_change_outputB\x06\n" +
 	"\x04fees\"\xfe\x01\n" +
 	"\x1aCommitVirtualPsbtsResponse\x12\x1f\n" +
@@ -2140,7 +2201,10 @@ const file_assetwalletrpc_assetwallet_proto_rawDesc = "" +
 	"\x0eCoinSelectType\x12\x17\n" +
 	"\x13COIN_SELECT_DEFAULT\x10\x00\x12\x1a\n" +
 	"\x16COIN_SELECT_BIP86_ONLY\x10\x01\x12$\n" +
-	" COIN_SELECT_SCRIPT_TREES_ALLOWED\x10\x02*2\n" +
+	" COIN_SELECT_SCRIPT_TREES_ALLOWED\x10\x02*Z\n" +
+	"\x16TransitionProofVersion\x12\x1f\n" +
+	"\x1bTRANSITION_PROOF_VERSION_V0\x10\x00\x12\x1f\n" +
+	"\x1bTRANSITION_PROOF_VERSION_V1\x10\x01*2\n" +
 	"\n" +
 	"BackupMode\x12\a\n" +
 	"\x03RAW\x10\x00\x12\v\n" +
@@ -2176,102 +2240,104 @@ func file_assetwalletrpc_assetwallet_proto_rawDescGZIP() []byte {
 	return file_assetwalletrpc_assetwallet_proto_rawDescData
 }
 
-var file_assetwalletrpc_assetwallet_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_assetwalletrpc_assetwallet_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_assetwalletrpc_assetwallet_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_assetwalletrpc_assetwallet_proto_goTypes = []any{
 	(CoinSelectType)(0),                     // 0: assetwalletrpc.CoinSelectType
-	(BackupMode)(0),                         // 1: assetwalletrpc.BackupMode
-	(*FundVirtualPsbtRequest)(nil),          // 2: assetwalletrpc.FundVirtualPsbtRequest
-	(*FundVirtualPsbtResponse)(nil),         // 3: assetwalletrpc.FundVirtualPsbtResponse
-	(*TxTemplate)(nil),                      // 4: assetwalletrpc.TxTemplate
-	(*PrevId)(nil),                          // 5: assetwalletrpc.PrevId
-	(*SignVirtualPsbtRequest)(nil),          // 6: assetwalletrpc.SignVirtualPsbtRequest
-	(*SignVirtualPsbtResponse)(nil),         // 7: assetwalletrpc.SignVirtualPsbtResponse
-	(*AnchorVirtualPsbtsRequest)(nil),       // 8: assetwalletrpc.AnchorVirtualPsbtsRequest
-	(*CommitVirtualPsbtsRequest)(nil),       // 9: assetwalletrpc.CommitVirtualPsbtsRequest
-	(*CommitVirtualPsbtsResponse)(nil),      // 10: assetwalletrpc.CommitVirtualPsbtsResponse
-	(*PublishAndLogRequest)(nil),            // 11: assetwalletrpc.PublishAndLogRequest
-	(*NextInternalKeyRequest)(nil),          // 12: assetwalletrpc.NextInternalKeyRequest
-	(*NextInternalKeyResponse)(nil),         // 13: assetwalletrpc.NextInternalKeyResponse
-	(*NextScriptKeyRequest)(nil),            // 14: assetwalletrpc.NextScriptKeyRequest
-	(*NextScriptKeyResponse)(nil),           // 15: assetwalletrpc.NextScriptKeyResponse
-	(*QueryInternalKeyRequest)(nil),         // 16: assetwalletrpc.QueryInternalKeyRequest
-	(*QueryInternalKeyResponse)(nil),        // 17: assetwalletrpc.QueryInternalKeyResponse
-	(*QueryScriptKeyRequest)(nil),           // 18: assetwalletrpc.QueryScriptKeyRequest
-	(*QueryScriptKeyResponse)(nil),          // 19: assetwalletrpc.QueryScriptKeyResponse
-	(*ProveAssetOwnershipRequest)(nil),      // 20: assetwalletrpc.ProveAssetOwnershipRequest
-	(*ProveAssetOwnershipResponse)(nil),     // 21: assetwalletrpc.ProveAssetOwnershipResponse
-	(*VerifyAssetOwnershipRequest)(nil),     // 22: assetwalletrpc.VerifyAssetOwnershipRequest
-	(*VerifyAssetOwnershipResponse)(nil),    // 23: assetwalletrpc.VerifyAssetOwnershipResponse
-	(*RemoveUTXOLeaseRequest)(nil),          // 24: assetwalletrpc.RemoveUTXOLeaseRequest
-	(*RemoveUTXOLeaseResponse)(nil),         // 25: assetwalletrpc.RemoveUTXOLeaseResponse
-	(*DeclareScriptKeyRequest)(nil),         // 26: assetwalletrpc.DeclareScriptKeyRequest
-	(*DeclareScriptKeyResponse)(nil),        // 27: assetwalletrpc.DeclareScriptKeyResponse
-	(*ExportAssetWalletBackupRequest)(nil),  // 28: assetwalletrpc.ExportAssetWalletBackupRequest
-	(*ExportAssetWalletBackupResponse)(nil), // 29: assetwalletrpc.ExportAssetWalletBackupResponse
-	(*ImportAssetsFromBackupRequest)(nil),   // 30: assetwalletrpc.ImportAssetsFromBackupRequest
-	(*ImportAssetsFromBackupResponse)(nil),  // 31: assetwalletrpc.ImportAssetsFromBackupResponse
-	nil,                                     // 32: assetwalletrpc.TxTemplate.RecipientsEntry
-	(*taprpc.AddressWithAmount)(nil),        // 33: taprpc.AddressWithAmount
-	(*taprpc.OutPoint)(nil),                 // 34: taprpc.OutPoint
-	(*taprpc.KeyDescriptor)(nil),            // 35: taprpc.KeyDescriptor
-	(*taprpc.ScriptKey)(nil),                // 36: taprpc.ScriptKey
-	(*taprpc.SendAssetResponse)(nil),        // 37: taprpc.SendAssetResponse
+	(TransitionProofVersion)(0),             // 1: assetwalletrpc.TransitionProofVersion
+	(BackupMode)(0),                         // 2: assetwalletrpc.BackupMode
+	(*FundVirtualPsbtRequest)(nil),          // 3: assetwalletrpc.FundVirtualPsbtRequest
+	(*FundVirtualPsbtResponse)(nil),         // 4: assetwalletrpc.FundVirtualPsbtResponse
+	(*TxTemplate)(nil),                      // 5: assetwalletrpc.TxTemplate
+	(*PrevId)(nil),                          // 6: assetwalletrpc.PrevId
+	(*SignVirtualPsbtRequest)(nil),          // 7: assetwalletrpc.SignVirtualPsbtRequest
+	(*SignVirtualPsbtResponse)(nil),         // 8: assetwalletrpc.SignVirtualPsbtResponse
+	(*AnchorVirtualPsbtsRequest)(nil),       // 9: assetwalletrpc.AnchorVirtualPsbtsRequest
+	(*CommitVirtualPsbtsRequest)(nil),       // 10: assetwalletrpc.CommitVirtualPsbtsRequest
+	(*CommitVirtualPsbtsResponse)(nil),      // 11: assetwalletrpc.CommitVirtualPsbtsResponse
+	(*PublishAndLogRequest)(nil),            // 12: assetwalletrpc.PublishAndLogRequest
+	(*NextInternalKeyRequest)(nil),          // 13: assetwalletrpc.NextInternalKeyRequest
+	(*NextInternalKeyResponse)(nil),         // 14: assetwalletrpc.NextInternalKeyResponse
+	(*NextScriptKeyRequest)(nil),            // 15: assetwalletrpc.NextScriptKeyRequest
+	(*NextScriptKeyResponse)(nil),           // 16: assetwalletrpc.NextScriptKeyResponse
+	(*QueryInternalKeyRequest)(nil),         // 17: assetwalletrpc.QueryInternalKeyRequest
+	(*QueryInternalKeyResponse)(nil),        // 18: assetwalletrpc.QueryInternalKeyResponse
+	(*QueryScriptKeyRequest)(nil),           // 19: assetwalletrpc.QueryScriptKeyRequest
+	(*QueryScriptKeyResponse)(nil),          // 20: assetwalletrpc.QueryScriptKeyResponse
+	(*ProveAssetOwnershipRequest)(nil),      // 21: assetwalletrpc.ProveAssetOwnershipRequest
+	(*ProveAssetOwnershipResponse)(nil),     // 22: assetwalletrpc.ProveAssetOwnershipResponse
+	(*VerifyAssetOwnershipRequest)(nil),     // 23: assetwalletrpc.VerifyAssetOwnershipRequest
+	(*VerifyAssetOwnershipResponse)(nil),    // 24: assetwalletrpc.VerifyAssetOwnershipResponse
+	(*RemoveUTXOLeaseRequest)(nil),          // 25: assetwalletrpc.RemoveUTXOLeaseRequest
+	(*RemoveUTXOLeaseResponse)(nil),         // 26: assetwalletrpc.RemoveUTXOLeaseResponse
+	(*DeclareScriptKeyRequest)(nil),         // 27: assetwalletrpc.DeclareScriptKeyRequest
+	(*DeclareScriptKeyResponse)(nil),        // 28: assetwalletrpc.DeclareScriptKeyResponse
+	(*ExportAssetWalletBackupRequest)(nil),  // 29: assetwalletrpc.ExportAssetWalletBackupRequest
+	(*ExportAssetWalletBackupResponse)(nil), // 30: assetwalletrpc.ExportAssetWalletBackupResponse
+	(*ImportAssetsFromBackupRequest)(nil),   // 31: assetwalletrpc.ImportAssetsFromBackupRequest
+	(*ImportAssetsFromBackupResponse)(nil),  // 32: assetwalletrpc.ImportAssetsFromBackupResponse
+	nil,                                     // 33: assetwalletrpc.TxTemplate.RecipientsEntry
+	(*taprpc.AddressWithAmount)(nil),        // 34: taprpc.AddressWithAmount
+	(*taprpc.OutPoint)(nil),                 // 35: taprpc.OutPoint
+	(*taprpc.KeyDescriptor)(nil),            // 36: taprpc.KeyDescriptor
+	(*taprpc.ScriptKey)(nil),                // 37: taprpc.ScriptKey
+	(*taprpc.SendAssetResponse)(nil),        // 38: taprpc.SendAssetResponse
 }
 var file_assetwalletrpc_assetwallet_proto_depIdxs = []int32{
-	4,  // 0: assetwalletrpc.FundVirtualPsbtRequest.raw:type_name -> assetwalletrpc.TxTemplate
+	5,  // 0: assetwalletrpc.FundVirtualPsbtRequest.raw:type_name -> assetwalletrpc.TxTemplate
 	0,  // 1: assetwalletrpc.FundVirtualPsbtRequest.coin_select_type:type_name -> assetwalletrpc.CoinSelectType
-	5,  // 2: assetwalletrpc.TxTemplate.inputs:type_name -> assetwalletrpc.PrevId
-	32, // 3: assetwalletrpc.TxTemplate.recipients:type_name -> assetwalletrpc.TxTemplate.RecipientsEntry
-	33, // 4: assetwalletrpc.TxTemplate.addresses_with_amounts:type_name -> taprpc.AddressWithAmount
-	34, // 5: assetwalletrpc.PrevId.outpoint:type_name -> taprpc.OutPoint
-	34, // 6: assetwalletrpc.CommitVirtualPsbtsResponse.lnd_locked_utxos:type_name -> taprpc.OutPoint
-	34, // 7: assetwalletrpc.PublishAndLogRequest.lnd_locked_utxos:type_name -> taprpc.OutPoint
-	35, // 8: assetwalletrpc.NextInternalKeyResponse.internal_key:type_name -> taprpc.KeyDescriptor
-	36, // 9: assetwalletrpc.NextScriptKeyResponse.script_key:type_name -> taprpc.ScriptKey
-	35, // 10: assetwalletrpc.QueryInternalKeyResponse.internal_key:type_name -> taprpc.KeyDescriptor
-	36, // 11: assetwalletrpc.QueryScriptKeyResponse.script_key:type_name -> taprpc.ScriptKey
-	34, // 12: assetwalletrpc.ProveAssetOwnershipRequest.outpoint:type_name -> taprpc.OutPoint
-	34, // 13: assetwalletrpc.VerifyAssetOwnershipResponse.outpoint:type_name -> taprpc.OutPoint
-	34, // 14: assetwalletrpc.RemoveUTXOLeaseRequest.outpoint:type_name -> taprpc.OutPoint
-	36, // 15: assetwalletrpc.DeclareScriptKeyRequest.script_key:type_name -> taprpc.ScriptKey
-	36, // 16: assetwalletrpc.DeclareScriptKeyResponse.script_key:type_name -> taprpc.ScriptKey
-	1,  // 17: assetwalletrpc.ExportAssetWalletBackupRequest.mode:type_name -> assetwalletrpc.BackupMode
-	2,  // 18: assetwalletrpc.AssetWallet.FundVirtualPsbt:input_type -> assetwalletrpc.FundVirtualPsbtRequest
-	6,  // 19: assetwalletrpc.AssetWallet.SignVirtualPsbt:input_type -> assetwalletrpc.SignVirtualPsbtRequest
-	8,  // 20: assetwalletrpc.AssetWallet.AnchorVirtualPsbts:input_type -> assetwalletrpc.AnchorVirtualPsbtsRequest
-	9,  // 21: assetwalletrpc.AssetWallet.CommitVirtualPsbts:input_type -> assetwalletrpc.CommitVirtualPsbtsRequest
-	11, // 22: assetwalletrpc.AssetWallet.PublishAndLogTransfer:input_type -> assetwalletrpc.PublishAndLogRequest
-	12, // 23: assetwalletrpc.AssetWallet.NextInternalKey:input_type -> assetwalletrpc.NextInternalKeyRequest
-	14, // 24: assetwalletrpc.AssetWallet.NextScriptKey:input_type -> assetwalletrpc.NextScriptKeyRequest
-	16, // 25: assetwalletrpc.AssetWallet.QueryInternalKey:input_type -> assetwalletrpc.QueryInternalKeyRequest
-	18, // 26: assetwalletrpc.AssetWallet.QueryScriptKey:input_type -> assetwalletrpc.QueryScriptKeyRequest
-	20, // 27: assetwalletrpc.AssetWallet.ProveAssetOwnership:input_type -> assetwalletrpc.ProveAssetOwnershipRequest
-	22, // 28: assetwalletrpc.AssetWallet.VerifyAssetOwnership:input_type -> assetwalletrpc.VerifyAssetOwnershipRequest
-	24, // 29: assetwalletrpc.AssetWallet.RemoveUTXOLease:input_type -> assetwalletrpc.RemoveUTXOLeaseRequest
-	26, // 30: assetwalletrpc.AssetWallet.DeclareScriptKey:input_type -> assetwalletrpc.DeclareScriptKeyRequest
-	28, // 31: assetwalletrpc.AssetWallet.ExportAssetWalletBackup:input_type -> assetwalletrpc.ExportAssetWalletBackupRequest
-	30, // 32: assetwalletrpc.AssetWallet.ImportAssetsFromBackup:input_type -> assetwalletrpc.ImportAssetsFromBackupRequest
-	3,  // 33: assetwalletrpc.AssetWallet.FundVirtualPsbt:output_type -> assetwalletrpc.FundVirtualPsbtResponse
-	7,  // 34: assetwalletrpc.AssetWallet.SignVirtualPsbt:output_type -> assetwalletrpc.SignVirtualPsbtResponse
-	37, // 35: assetwalletrpc.AssetWallet.AnchorVirtualPsbts:output_type -> taprpc.SendAssetResponse
-	10, // 36: assetwalletrpc.AssetWallet.CommitVirtualPsbts:output_type -> assetwalletrpc.CommitVirtualPsbtsResponse
-	37, // 37: assetwalletrpc.AssetWallet.PublishAndLogTransfer:output_type -> taprpc.SendAssetResponse
-	13, // 38: assetwalletrpc.AssetWallet.NextInternalKey:output_type -> assetwalletrpc.NextInternalKeyResponse
-	15, // 39: assetwalletrpc.AssetWallet.NextScriptKey:output_type -> assetwalletrpc.NextScriptKeyResponse
-	17, // 40: assetwalletrpc.AssetWallet.QueryInternalKey:output_type -> assetwalletrpc.QueryInternalKeyResponse
-	19, // 41: assetwalletrpc.AssetWallet.QueryScriptKey:output_type -> assetwalletrpc.QueryScriptKeyResponse
-	21, // 42: assetwalletrpc.AssetWallet.ProveAssetOwnership:output_type -> assetwalletrpc.ProveAssetOwnershipResponse
-	23, // 43: assetwalletrpc.AssetWallet.VerifyAssetOwnership:output_type -> assetwalletrpc.VerifyAssetOwnershipResponse
-	25, // 44: assetwalletrpc.AssetWallet.RemoveUTXOLease:output_type -> assetwalletrpc.RemoveUTXOLeaseResponse
-	27, // 45: assetwalletrpc.AssetWallet.DeclareScriptKey:output_type -> assetwalletrpc.DeclareScriptKeyResponse
-	29, // 46: assetwalletrpc.AssetWallet.ExportAssetWalletBackup:output_type -> assetwalletrpc.ExportAssetWalletBackupResponse
-	31, // 47: assetwalletrpc.AssetWallet.ImportAssetsFromBackup:output_type -> assetwalletrpc.ImportAssetsFromBackupResponse
-	33, // [33:48] is the sub-list for method output_type
-	18, // [18:33] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	6,  // 2: assetwalletrpc.TxTemplate.inputs:type_name -> assetwalletrpc.PrevId
+	33, // 3: assetwalletrpc.TxTemplate.recipients:type_name -> assetwalletrpc.TxTemplate.RecipientsEntry
+	34, // 4: assetwalletrpc.TxTemplate.addresses_with_amounts:type_name -> taprpc.AddressWithAmount
+	35, // 5: assetwalletrpc.PrevId.outpoint:type_name -> taprpc.OutPoint
+	1,  // 6: assetwalletrpc.CommitVirtualPsbtsRequest.transition_proof_version:type_name -> assetwalletrpc.TransitionProofVersion
+	35, // 7: assetwalletrpc.CommitVirtualPsbtsResponse.lnd_locked_utxos:type_name -> taprpc.OutPoint
+	35, // 8: assetwalletrpc.PublishAndLogRequest.lnd_locked_utxos:type_name -> taprpc.OutPoint
+	36, // 9: assetwalletrpc.NextInternalKeyResponse.internal_key:type_name -> taprpc.KeyDescriptor
+	37, // 10: assetwalletrpc.NextScriptKeyResponse.script_key:type_name -> taprpc.ScriptKey
+	36, // 11: assetwalletrpc.QueryInternalKeyResponse.internal_key:type_name -> taprpc.KeyDescriptor
+	37, // 12: assetwalletrpc.QueryScriptKeyResponse.script_key:type_name -> taprpc.ScriptKey
+	35, // 13: assetwalletrpc.ProveAssetOwnershipRequest.outpoint:type_name -> taprpc.OutPoint
+	35, // 14: assetwalletrpc.VerifyAssetOwnershipResponse.outpoint:type_name -> taprpc.OutPoint
+	35, // 15: assetwalletrpc.RemoveUTXOLeaseRequest.outpoint:type_name -> taprpc.OutPoint
+	37, // 16: assetwalletrpc.DeclareScriptKeyRequest.script_key:type_name -> taprpc.ScriptKey
+	37, // 17: assetwalletrpc.DeclareScriptKeyResponse.script_key:type_name -> taprpc.ScriptKey
+	2,  // 18: assetwalletrpc.ExportAssetWalletBackupRequest.mode:type_name -> assetwalletrpc.BackupMode
+	3,  // 19: assetwalletrpc.AssetWallet.FundVirtualPsbt:input_type -> assetwalletrpc.FundVirtualPsbtRequest
+	7,  // 20: assetwalletrpc.AssetWallet.SignVirtualPsbt:input_type -> assetwalletrpc.SignVirtualPsbtRequest
+	9,  // 21: assetwalletrpc.AssetWallet.AnchorVirtualPsbts:input_type -> assetwalletrpc.AnchorVirtualPsbtsRequest
+	10, // 22: assetwalletrpc.AssetWallet.CommitVirtualPsbts:input_type -> assetwalletrpc.CommitVirtualPsbtsRequest
+	12, // 23: assetwalletrpc.AssetWallet.PublishAndLogTransfer:input_type -> assetwalletrpc.PublishAndLogRequest
+	13, // 24: assetwalletrpc.AssetWallet.NextInternalKey:input_type -> assetwalletrpc.NextInternalKeyRequest
+	15, // 25: assetwalletrpc.AssetWallet.NextScriptKey:input_type -> assetwalletrpc.NextScriptKeyRequest
+	17, // 26: assetwalletrpc.AssetWallet.QueryInternalKey:input_type -> assetwalletrpc.QueryInternalKeyRequest
+	19, // 27: assetwalletrpc.AssetWallet.QueryScriptKey:input_type -> assetwalletrpc.QueryScriptKeyRequest
+	21, // 28: assetwalletrpc.AssetWallet.ProveAssetOwnership:input_type -> assetwalletrpc.ProveAssetOwnershipRequest
+	23, // 29: assetwalletrpc.AssetWallet.VerifyAssetOwnership:input_type -> assetwalletrpc.VerifyAssetOwnershipRequest
+	25, // 30: assetwalletrpc.AssetWallet.RemoveUTXOLease:input_type -> assetwalletrpc.RemoveUTXOLeaseRequest
+	27, // 31: assetwalletrpc.AssetWallet.DeclareScriptKey:input_type -> assetwalletrpc.DeclareScriptKeyRequest
+	29, // 32: assetwalletrpc.AssetWallet.ExportAssetWalletBackup:input_type -> assetwalletrpc.ExportAssetWalletBackupRequest
+	31, // 33: assetwalletrpc.AssetWallet.ImportAssetsFromBackup:input_type -> assetwalletrpc.ImportAssetsFromBackupRequest
+	4,  // 34: assetwalletrpc.AssetWallet.FundVirtualPsbt:output_type -> assetwalletrpc.FundVirtualPsbtResponse
+	8,  // 35: assetwalletrpc.AssetWallet.SignVirtualPsbt:output_type -> assetwalletrpc.SignVirtualPsbtResponse
+	38, // 36: assetwalletrpc.AssetWallet.AnchorVirtualPsbts:output_type -> taprpc.SendAssetResponse
+	11, // 37: assetwalletrpc.AssetWallet.CommitVirtualPsbts:output_type -> assetwalletrpc.CommitVirtualPsbtsResponse
+	38, // 38: assetwalletrpc.AssetWallet.PublishAndLogTransfer:output_type -> taprpc.SendAssetResponse
+	14, // 39: assetwalletrpc.AssetWallet.NextInternalKey:output_type -> assetwalletrpc.NextInternalKeyResponse
+	16, // 40: assetwalletrpc.AssetWallet.NextScriptKey:output_type -> assetwalletrpc.NextScriptKeyResponse
+	18, // 41: assetwalletrpc.AssetWallet.QueryInternalKey:output_type -> assetwalletrpc.QueryInternalKeyResponse
+	20, // 42: assetwalletrpc.AssetWallet.QueryScriptKey:output_type -> assetwalletrpc.QueryScriptKeyResponse
+	22, // 43: assetwalletrpc.AssetWallet.ProveAssetOwnership:output_type -> assetwalletrpc.ProveAssetOwnershipResponse
+	24, // 44: assetwalletrpc.AssetWallet.VerifyAssetOwnership:output_type -> assetwalletrpc.VerifyAssetOwnershipResponse
+	26, // 45: assetwalletrpc.AssetWallet.RemoveUTXOLease:output_type -> assetwalletrpc.RemoveUTXOLeaseResponse
+	28, // 46: assetwalletrpc.AssetWallet.DeclareScriptKey:output_type -> assetwalletrpc.DeclareScriptKeyResponse
+	30, // 47: assetwalletrpc.AssetWallet.ExportAssetWalletBackup:output_type -> assetwalletrpc.ExportAssetWalletBackupResponse
+	32, // 48: assetwalletrpc.AssetWallet.ImportAssetsFromBackup:output_type -> assetwalletrpc.ImportAssetsFromBackupResponse
+	34, // [34:49] is the sub-list for method output_type
+	19, // [19:34] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_assetwalletrpc_assetwallet_proto_init() }
@@ -2294,7 +2360,7 @@ func file_assetwalletrpc_assetwallet_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_assetwalletrpc_assetwallet_proto_rawDesc), len(file_assetwalletrpc_assetwallet_proto_rawDesc)),
-			NumEnums:      2,
+			NumEnums:      3,
 			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
