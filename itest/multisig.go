@@ -385,10 +385,21 @@ func DeriveKeys(t *testing.T, tapd commands.RpcClientsBundle) (asset.ScriptKey,
 	return *scriptKey, internalKeyLnd
 }
 
+type commitVirtualPsbtsOption func(*wrpc.CommitVirtualPsbtsRequest)
+
+func withTransitionProofVersion(
+	version wrpc.TransitionProofVersion) commitVirtualPsbtsOption {
+
+	return func(request *wrpc.CommitVirtualPsbtsRequest) {
+		request.TransitionProofVersion = version
+	}
+}
+
 func CommitVirtualPsbts(t *testing.T, funder commands.RpcClientsBundle,
 	packet *psbt.Packet, activePackets []*tappsbt.VPacket,
 	passivePackets []*tappsbt.VPacket,
-	changeOutputIndex int32) (*psbt.Packet, []*tappsbt.VPacket,
+	changeOutputIndex int32,
+	opts ...commitVirtualPsbtsOption) (*psbt.Packet, []*tappsbt.VPacket,
 	[]*tappsbt.VPacket, *wrpc.CommitVirtualPsbtsResponse) {
 
 	ctx := context.Background()
@@ -403,6 +414,9 @@ func CommitVirtualPsbts(t *testing.T, funder commands.RpcClientsBundle,
 		Fees: &wrpc.CommitVirtualPsbtsRequest_SatPerVbyte{
 			SatPerVbyte: uint64(feeRateSatPerKVByte / 1000),
 		},
+	}
+	for _, opt := range opts {
+		opt(request)
 	}
 
 	type existingIndex = wrpc.CommitVirtualPsbtsRequest_ExistingOutputIndex

@@ -3022,6 +3022,24 @@ func (r *RPCServer) AnchorVirtualPsbts(ctx context.Context,
 	}, nil
 }
 
+func transitionProofOption(
+	version wrpc.TransitionProofVersion) (proof.GenOption, error) {
+
+	switch version {
+	case wrpc.TransitionProofVersion_TRANSITION_PROOF_VERSION_V0:
+		return proof.WithVersion(proof.TransitionV0), nil
+
+	case wrpc.TransitionProofVersion_TRANSITION_PROOF_VERSION_V1:
+		return proof.WithVersion(proof.TransitionV1), nil
+
+	default:
+		return nil, status.Errorf(
+			codes.InvalidArgument,
+			"unsupported transition proof version: %v", version,
+		)
+	}
+}
+
 // CommitVirtualPsbts creates the output commitments and proofs for the given
 // virtual transactions by committing them to the BTC level anchor transaction.
 // In addition, the BTC level anchor transaction is funded and prepared up to
@@ -3029,6 +3047,11 @@ func (r *RPCServer) AnchorVirtualPsbts(ctx context.Context,
 func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 	req *wrpc.CommitVirtualPsbtsRequest) (*wrpc.CommitVirtualPsbtsResponse,
 	error) {
+
+	proofOption, err := transitionProofOption(req.TransitionProofVersion)
+	if err != nil {
+		return nil, err
+	}
 
 	if len(req.VirtualPsbts) == 0 {
 		return nil, fmt.Errorf("no virtual PSBTs specified")
@@ -3192,6 +3215,7 @@ func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 			proofSuffix, err := tapsend.CreateProofSuffix(
 				fundedPacket.UnsignedTx, fundedPacket.Outputs,
 				vPkt, outputCommitments, vOutIdx, allPackets,
+				proofOption,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to create "+

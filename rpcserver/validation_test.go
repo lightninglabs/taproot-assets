@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapconfig"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -40,6 +41,70 @@ func newTestServer() *RPCServer {
 			ChainParams: address.MainNetTap,
 		},
 	}
+}
+
+// TestTransitionProofOption tests the mapping from RPC proof versions to
+// internal proof generation options.
+func TestTransitionProofOption(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		rpcVersion  wrpc.TransitionProofVersion
+		wantVersion proof.TransitionVersion
+		wantErr     bool
+	}{
+		{
+			name:        "default v0",
+			rpcVersion:  wrpc.TransitionProofVersion(0),
+			wantVersion: proof.TransitionV0,
+		},
+		{
+			name:        "v1",
+			rpcVersion:  wrpc.TransitionProofVersion(1),
+			wantVersion: proof.TransitionV1,
+		},
+		{
+			name:       "unsupported",
+			rpcVersion: wrpc.TransitionProofVersion(2),
+			wantErr:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			option, err := transitionProofOption(tc.rpcVersion)
+			if tc.wantErr {
+				assertCode(t, err, codes.InvalidArgument)
+				return
+			}
+
+			require.NoError(t, err)
+
+			cfg := proof.DefaultGenConfig()
+			option(&cfg)
+			require.Equal(t, tc.wantVersion, cfg.TransitionVersion)
+		})
+	}
+}
+
+// TestCommitVirtualPsbtsProofVersionValidation tests that unsupported proof
+// versions are rejected before the request is decoded or any funding is
+// attempted.
+func TestCommitVirtualPsbtsProofVersionValidation(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer()
+	_, err := server.CommitVirtualPsbts(
+		context.Background(), &wrpc.CommitVirtualPsbtsRequest{
+			VirtualPsbts:           [][]byte{{0x01}},
+			TransitionProofVersion: wrpc.TransitionProofVersion(2),
+		},
+	)
+	assertCode(t, err, codes.InvalidArgument)
 }
 
 // TestDecodeAddrValidation tests that DecodeAddr returns InvalidArgument
