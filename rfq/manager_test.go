@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -15,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	tpchmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -717,22 +719,45 @@ func (m *mockChannelLister) ListChannels(_ context.Context, _, _ bool,
 	return m.channels, nil
 }
 
-// mockAliasManager is a mock ScidAliasManager that records the base SCIDs
-// passed to AddLocalAlias and can be configured to fail.
+// aliasReq records the arguments of a single AddLocalAlias call.
+type aliasReq struct {
+	alias, base lnwire.ShortChannelID
+}
+
+// callTrace records an ordered sequence of mock invocations, so that tests can
+// assert the order in which subsystems were called.
+type callTrace struct {
+	calls []string
+}
+
+// record appends a call to the trace.
+func (c *callTrace) record(name string) {
+	c.calls = append(c.calls, name)
+}
+
+// mockAliasManager is a mock ScidAliasManager that records AddLocalAlias
+// calls and can be configured to fail.
 type mockAliasManager struct {
 	failAdd bool
 
-	addedBases []lnwire.ShortChannelID
+	// trace, if set, records each AddLocalAlias call.
+	trace *callTrace
+
+	added []aliasReq
 }
 
-func (m *mockAliasManager) AddLocalAlias(_ context.Context, _,
+func (m *mockAliasManager) AddLocalAlias(_ context.Context, alias,
 	baseScid lnwire.ShortChannelID) error {
+
+	if m.trace != nil {
+		m.trace.record("alias")
+	}
 
 	if m.failAdd {
 		return fmt.Errorf("add alias failure")
 	}
 
-	m.addedBases = append(m.addedBases, baseScid)
+	m.added = append(m.added, aliasReq{alias: alias, base: baseScid})
 
 	return nil
 }
@@ -766,13 +791,20 @@ func newAliasTestManager(t *testing.T, channels []lndclient.ChannelInfo,
 }
 
 // TestAddScidAliasChannelSelection verifies that addScidAlias maps the alias
-// onto an alias-capable base channel, skipping channels that did not
-// negotiate the option-scid-alias feature.
+// onto an alias-capable base channel, skipping channels for which lnd holds
+// no alias mapping as well as channels without a real channel ID.
 func TestAddScidAliasChannelSelection(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
+
 	aliasMgr := &mockAliasManager{}
 	manager := newAliasTestManager(t, []lndclient.ChannelInfo{
+		{
+			ChannelID:   0,
+			PubKeyBytes: peer1,
+			AliasScids:  []uint64{16_000_000},
+		},
 		{
 			ChannelID:   100,
 			PubKeyBytes: peer1,
@@ -780,15 +812,21 @@ func TestAddScidAliasChannelSelection(t *testing.T) {
 		{
 			ChannelID:   200,
 			PubKeyBytes: peer1,
-			AliasScids:  []uint64{16_000_000},
+			AliasScids:  []uint64{16_000_001},
+		},
+		{
+			ChannelID:   300,
+			PubKeyBytes: peer1,
+			AliasScids:  []uint64{16_000_002},
 		},
 	}, aliasMgr)
 
-	err := manager.addScidAlias(42, asset.Specifier{}, peer1)
+	err := manager.addScidAlias(ctx, 42, asset.Specifier{}, peer1)
 	require.NoError(t, err)
 
-	require.Len(t, aliasMgr.addedBases, 1)
-	require.EqualValues(t, 200, aliasMgr.addedBases[0].ToUint64())
+	require.Len(t, aliasMgr.added, 1)
+	require.EqualValues(t, 42, aliasMgr.added[0].alias.ToUint64())
+	require.EqualValues(t, 200, aliasMgr.added[0].base.ToUint64())
 }
 
 // TestAddScidAliasNoCapableChannel verifies that addScidAlias fails with a
@@ -798,6 +836,8 @@ func TestAddScidAliasChannelSelection(t *testing.T) {
 func TestAddScidAliasNoCapableChannel(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
+
 	aliasMgr := &mockAliasManager{}
 	manager := newAliasTestManager(t, []lndclient.ChannelInfo{
 		{
@@ -806,10 +846,10 @@ func TestAddScidAliasNoCapableChannel(t *testing.T) {
 		},
 	}, aliasMgr)
 
-	err := manager.addScidAlias(42, asset.Specifier{}, peer1)
+	err := manager.addScidAlias(ctx, 42, asset.Specifier{}, peer1)
 	require.ErrorContains(t, err, "no scid-alias-capable channels")
 	require.False(t, fn.ErrorAs[*fn.CriticalError](err))
-	require.Empty(t, aliasMgr.addedBases)
+	require.Empty(t, aliasMgr.added)
 }
 
 // TestAddScidAliasFailureNotCritical verifies that a failure to register the
@@ -817,6 +857,8 @@ func TestAddScidAliasNoCapableChannel(t *testing.T) {
 // single failed quote cannot shut down the daemon.
 func TestAddScidAliasFailureNotCritical(t *testing.T) {
 	t.Parallel()
+
+	ctx := context.Background()
 
 	aliasMgr := &mockAliasManager{failAdd: true}
 	manager := newAliasTestManager(t, []lndclient.ChannelInfo{
@@ -827,7 +869,461 @@ func TestAddScidAliasFailureNotCritical(t *testing.T) {
 		},
 	}, aliasMgr)
 
-	err := manager.addScidAlias(42, asset.Specifier{}, peer1)
+	err := manager.addScidAlias(ctx, 42, asset.Specifier{}, peer1)
 	require.ErrorContains(t, err, "add alias")
 	require.False(t, fn.ErrorAs[*fn.CriticalError](err))
+}
+
+// TestAddScidAliasAssetChannelPreferred verifies that a channel matching the
+// asset specifier is preferred as the alias base over other channels with the
+// same peer.
+func TestAddScidAliasAssetChannelPreferred(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	assetChan := createChannelWithCustomData(
+		t, testAssetID3, 1_000, 1_000, proof3, peer1,
+	)
+	assetChan.ChannelID = 100
+	assetChan.AliasScids = []uint64{16_000_000}
+
+	btcChan := lndclient.ChannelInfo{
+		ChannelID:   200,
+		PubKeyBytes: peer1,
+		AliasScids:  []uint64{16_000_001},
+	}
+
+	aliasMgr := &mockAliasManager{}
+	manager := newAliasTestManager(
+		t, []lndclient.ChannelInfo{btcChan, assetChan}, aliasMgr,
+	)
+
+	spec := asset.NewSpecifierFromId(testAssetID3)
+	err := manager.addScidAlias(ctx, 42, spec, peer1)
+	require.NoError(t, err)
+
+	require.Len(t, aliasMgr.added, 1)
+	require.EqualValues(t, 100, aliasMgr.added[0].base.ToUint64())
+}
+
+// TestAddScidAliasAssetChannelNotCapable verifies that when channels matching
+// the asset specifier exist but none of them supports SCID aliases, the
+// selection fails rather than silently mapping the alias onto an unrelated
+// channel with the peer.
+func TestAddScidAliasAssetChannelNotCapable(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	assetChan := createChannelWithCustomData(
+		t, testAssetID3, 1_000, 1_000, proof3, peer1,
+	)
+	assetChan.ChannelID = 100
+
+	btcChan := lndclient.ChannelInfo{
+		ChannelID:   200,
+		PubKeyBytes: peer1,
+		AliasScids:  []uint64{16_000_001},
+	}
+
+	aliasMgr := &mockAliasManager{}
+	manager := newAliasTestManager(
+		t, []lndclient.ChannelInfo{assetChan, btcChan}, aliasMgr,
+	)
+
+	spec := asset.NewSpecifierFromId(testAssetID3)
+	err := manager.addScidAlias(ctx, 42, spec, peer1)
+	require.ErrorContains(t, err, "no scid-alias-capable channels")
+	require.Empty(t, aliasMgr.added)
+}
+
+// TestAddScidAliasFallback verifies that when the peer has no channels
+// matching the asset specifier at all, the alias is mapped onto any
+// alias-capable channel with the peer. This exercises the peer-specific "no
+// asset channels found" error from FetchChannel, which must be tolerated for
+// the fallback to be reachable.
+func TestAddScidAliasFallback(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// The only asset channel lives with another peer, so the specifier
+	// pass fails with a peer-specific error and the fallback applies.
+	assetChan := createChannelWithCustomData(
+		t, testAssetID3, 1_000, 1_000, proof3, peer2,
+	)
+	assetChan.ChannelID = 100
+	assetChan.AliasScids = []uint64{16_000_000}
+
+	btcChan := lndclient.ChannelInfo{
+		ChannelID:   200,
+		PubKeyBytes: peer1,
+		AliasScids:  []uint64{16_000_001},
+	}
+
+	aliasMgr := &mockAliasManager{}
+	manager := newAliasTestManager(
+		t, []lndclient.ChannelInfo{assetChan, btcChan}, aliasMgr,
+	)
+
+	spec := asset.NewSpecifierFromId(testAssetID3)
+	err := manager.addScidAlias(ctx, 42, spec, peer1)
+	require.NoError(t, err)
+
+	require.Len(t, aliasMgr.added, 1)
+	require.EqualValues(t, 200, aliasMgr.added[0].base.ToUint64())
+}
+
+// traceStore is a PolicyStore mock that records policy registrations in a
+// shared call trace, counts persisted peer accepted quotes, and can be
+// configured to fail policy registration.
+type traceStore struct {
+	mockPolicyStore
+
+	trace      *callTrace
+	failPolicy bool
+
+	peerQuotes int
+}
+
+func (s *traceStore) StoreSalePolicy(context.Context, rfqmsg.BuyAccept) error {
+	s.trace.record("policy")
+
+	if s.failPolicy {
+		return fmt.Errorf("policy store failure")
+	}
+
+	return nil
+}
+
+func (s *traceStore) StorePurchasePolicy(context.Context,
+	rfqmsg.SellAccept) error {
+
+	s.trace.record("policy")
+
+	if s.failPolicy {
+		return fmt.Errorf("policy store failure")
+	}
+
+	return nil
+}
+
+func (s *traceStore) StorePeerAcceptedBuyQuote(context.Context,
+	rfqmsg.BuyAccept) error {
+
+	s.peerQuotes++
+
+	return nil
+}
+
+// mockPeerMessenger is a PeerMessenger that records the raw messages sent to
+// peers.
+type mockPeerMessenger struct {
+	sent []lndclient.CustomMessage
+}
+
+func (m *mockPeerMessenger) SubscribeCustomMessages(context.Context) (
+	<-chan lndclient.CustomMessage, <-chan error, error) {
+
+	return make(chan lndclient.CustomMessage), make(chan error), nil
+}
+
+func (m *mockPeerMessenger) SendCustomMessage(_ context.Context,
+	msg lndclient.CustomMessage) error {
+
+	m.sent = append(m.sent, msg)
+
+	return nil
+}
+
+// aliasCapableChans returns a single channel with peer1 for which lnd holds an
+// alias mapping, so that alias registration can proceed.
+func aliasCapableChans() []lndclient.ChannelInfo {
+	return []lndclient.ChannelInfo{{
+		ChannelID:   200,
+		PubKeyBytes: peer1,
+		AliasScids:  []uint64{16_000_000},
+	}}
+}
+
+// testQuoteRate returns an asset rate that is valid for the next hour.
+func testQuoteRate() rfqmsg.AssetRate {
+	return rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(100, 0),
+		time.Now().UTC().Add(time.Hour),
+	)
+}
+
+// testBuyAccept returns a buy accept message for a quote request made by
+// peer1, along with the request it responds to. The session ID is generated
+// the way it is in production, so that the SCID alias derived from it is a
+// valid one.
+func testBuyAccept(t *testing.T) (*rfqmsg.BuyAccept, *rfqmsg.BuyRequest) {
+	id, err := rfqmsg.NewID()
+	require.NoError(t, err)
+
+	request := &rfqmsg.BuyRequest{
+		Peer:        peer1,
+		ID:          id,
+		AssetMaxAmt: 1_000,
+	}
+
+	return rfqmsg.NewBuyAcceptFromRequest(
+		*request, testQuoteRate(), fn.None[uint64](),
+	), request
+}
+
+// testSellAccept returns a sell accept message for a quote request made by
+// peer1, along with the request it responds to.
+func testSellAccept(t *testing.T) (*rfqmsg.SellAccept, *rfqmsg.SellRequest) {
+	id, err := rfqmsg.NewID()
+	require.NoError(t, err)
+
+	request := &rfqmsg.SellRequest{
+		Peer:          peer1,
+		ID:            id,
+		PaymentMaxAmt: 1_000,
+	}
+
+	return rfqmsg.NewSellAcceptFromRequest(
+		*request, testQuoteRate(), fn.None[uint64](),
+	), request
+}
+
+// newOutgoingTestManager creates a Manager with its order handler and stream
+// handler wired up to mocks, for exercising handleOutgoingMessage.
+func newOutgoingTestManager(t *testing.T, store PolicyStore,
+	aliasMgr ScidAliasManager, messenger PeerMessenger) *Manager {
+
+	manager, err := NewManager(ManagerCfg{
+		GroupLookup: &GroupLookupMock{},
+		PolicyStore: store,
+		ChannelLister: &mockChannelLister{
+			channels: aliasCapableChans(),
+		},
+		AliasManager: aliasMgr,
+	})
+	require.NoError(t, err)
+
+	manager.orderHandler, err = NewOrderHandler(OrderHandlerCfg{
+		PolicyStore: store,
+	})
+	require.NoError(t, err)
+
+	manager.streamHandler, err = NewStreamHandler(
+		context.Background(), StreamHandlerCfg{
+			PeerMessenger: messenger,
+		},
+	)
+	require.NoError(t, err)
+
+	return manager
+}
+
+// TestHandleOutgoingAccept verifies that an accept message handed to the
+// outgoing message path always yields exactly one message to the peer: the
+// accept itself once every registration has succeeded, and a reject if any of
+// them failed. It also pins the order of the two registrations on the buy
+// path, since an alias registered before its sale policy would never be
+// cleaned up.
+func TestHandleOutgoingAccept(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		sell       bool
+		failPolicy bool
+		failAlias  bool
+		wantTrace  []string
+		wantMsgTyp lnwire.MessageType
+		wantReason string
+		wantErr    bool
+	}{
+		{
+			name:       "buy accept",
+			wantTrace:  []string{"policy", "alias"},
+			wantMsgTyp: rfqmsg.MsgTypeAccept,
+		},
+		{
+			name:       "buy accept, policy failure",
+			failPolicy: true,
+			wantTrace:  []string{"policy"},
+			wantMsgTyp: rfqmsg.MsgTypeReject,
+			wantReason: "failed to register asset sale policy",
+			wantErr:    true,
+		},
+		{
+			name:       "buy accept, alias failure",
+			failAlias:  true,
+			wantTrace:  []string{"policy", "alias"},
+			wantMsgTyp: rfqmsg.MsgTypeReject,
+			wantReason: "failed to register SCID alias",
+			wantErr:    true,
+		},
+		{
+			name:       "sell accept",
+			sell:       true,
+			wantTrace:  []string{"policy"},
+			wantMsgTyp: rfqmsg.MsgTypeAccept,
+		},
+		{
+			name:       "sell accept, policy failure",
+			sell:       true,
+			failPolicy: true,
+			wantTrace:  []string{"policy"},
+			wantMsgTyp: rfqmsg.MsgTypeReject,
+			wantReason: "failed to register asset purchase policy",
+			wantErr:    true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			trace := &callTrace{}
+			store := &traceStore{
+				trace:      trace,
+				failPolicy: tc.failPolicy,
+			}
+			aliasMgr := &mockAliasManager{
+				trace:   trace,
+				failAdd: tc.failAlias,
+			}
+			messenger := &mockPeerMessenger{}
+			manager := newOutgoingTestManager(
+				t, store, aliasMgr, messenger,
+			)
+
+			// The session lookup used to decode any reject stands
+			// in for the peer's view of the session, so it must
+			// hold the request that the accept responds to.
+			var (
+				outgoing rfqmsg.OutgoingMsg
+				request  rfqmsg.OutgoingMsg
+				quoteID  rfqmsg.ID
+			)
+			if tc.sell {
+				accept, req := testSellAccept(t)
+				outgoing, request, quoteID = accept, req,
+					accept.ID
+			} else {
+				accept, req := testBuyAccept(t)
+				outgoing, request, quoteID = accept, req,
+					accept.ID
+			}
+
+			err := manager.handleOutgoingMessage(
+				context.Background(), outgoing,
+			)
+			if tc.wantErr {
+				require.Error(t, err)
+
+				// A single unusable quote must never take down
+				// the daemon.
+				require.False(
+					t, fn.ErrorAs[*fn.CriticalError](err),
+				)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, tc.wantTrace, trace.calls)
+
+			// Whatever the outcome, the peer hears back exactly
+			// once.
+			require.Len(t, messenger.sent, 1)
+
+			sent := messenger.sent[0]
+			require.EqualValues(t, tc.wantMsgTyp, sent.MsgType)
+			require.Equal(t, peer1, sent.Peer)
+
+			if tc.wantMsgTyp != rfqmsg.MsgTypeReject {
+				return
+			}
+
+			// The reject must terminate the session the accept
+			// belonged to, and say which step failed.
+			msgType := lnwire.MessageType(sent.MsgType)
+			reject, err := rfqmsg.NewQuoteRejectFromWireMsg(
+				rfqmsg.WireMessage{
+					Peer:    sent.Peer,
+					MsgType: msgType,
+					Data:    sent.Data,
+				},
+				func(_ rfqmsg.ID) (rfqmsg.OutgoingMsg, bool) {
+					return request, true
+				},
+			)
+			require.NoError(t, err)
+			require.Equal(t, quoteID, reject.ID.Val)
+			require.Equal(t, peer1, reject.Peer)
+			require.Equal(t, tc.wantReason, reject.Err.Val.Msg)
+		})
+	}
+}
+
+// TestHandleIncomingBuyAcceptAliasFailure verifies that when the SCID alias
+// for an incoming buy accept cannot be registered, the quote is failed right
+// away: subscribers are notified with a dedicated status so that a waiting
+// caller does not block until its own timeout, the unusable quote is neither
+// persisted nor cached, and the daemon's error channel is left untouched.
+func TestHandleIncomingBuyAcceptAliasFailure(t *testing.T) {
+	t.Parallel()
+
+	store := &traceStore{trace: &callTrace{}}
+	errChan := make(chan error, 1)
+
+	manager, err := NewManager(ManagerCfg{
+		GroupLookup: &GroupLookupMock{},
+		PolicyStore: store,
+		ChannelLister: &mockChannelLister{
+			channels: aliasCapableChans(),
+		},
+		AliasManager: &mockAliasManager{failAdd: true},
+		ErrChan:      errChan,
+	})
+	require.NoError(t, err)
+
+	manager.orderHandler = &OrderHandler{}
+	manager.negotiator, err = NewNegotiator(NegotiatorCfg{
+		SkipQuoteAcceptVerify: true,
+	})
+	require.NoError(t, err)
+
+	receiver := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
+	require.NoError(t, manager.RegisterSubscriber(receiver, false, 0))
+	defer func() {
+		require.NoError(t, manager.RemoveSubscriber(receiver))
+	}()
+
+	accept, _ := testBuyAccept(t)
+
+	err = manager.handleIncomingMessage(context.Background(), accept)
+	require.NoError(t, err)
+
+	// The caller waiting on the quote is told that it is unusable.
+	var event fn.Event
+	select {
+	case event = <-receiver.NewItemCreated.ChanOut():
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for quote response event")
+	}
+
+	invalid, ok := event.(*InvalidQuoteRespEvent)
+	require.True(t, ok, "expected invalid quote event, got %T", event)
+	require.Equal(t, ScidAliasErrQuoteRespStatus, invalid.Status)
+	require.Equal(t, accept.ID, invalid.QuoteResponse.MsgID())
+
+	// The unusable quote is neither persisted nor cached.
+	require.Zero(t, store.peerQuotes)
+
+	_, ok = manager.orderHandler.peerBuyQuotes.Load(
+		accept.ShortChannelId(),
+	)
+	require.False(t, ok)
+
+	// A quote that cannot be honoured must not shut down the daemon.
+	require.Empty(t, errChan)
 }
