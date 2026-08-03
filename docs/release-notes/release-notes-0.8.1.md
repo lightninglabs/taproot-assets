@@ -30,6 +30,11 @@
   fixes a proof cache issue that could cause universe sync to fail for
   groups receiving new issuances.
 
+- [PR#2231](https://github.com/lightninglabs/taproot-assets/pull/2231)
+  fixes a bug in which ListPayments returned every Lightning payment, aux
+  or otherwise. Non-asset payments are now excluded, as are the
+  same payments in SubscribePayments and TrackPayment.
+
 ## Functional Updates
 
 - [PR#2183](https://github.com/lightninglabs/taproot-assets/pull/2183)
