@@ -11158,7 +11158,12 @@ func assetAmountsFromPayment(payment *lnrpc.Payment) (map[asset.ID]uint64, bool,
 			return nil, false, err
 		}
 
-		if balances == nil {
+		// On nodes with the aux components active, every payment's
+		// route can carry custom channel data, with non-asset
+		// payments decoding to an empty balance list. Only attempts
+		// that actually carry asset balances mark the payment as an
+		// asset payment.
+		if len(balances) == 0 {
 			continue
 		}
 
