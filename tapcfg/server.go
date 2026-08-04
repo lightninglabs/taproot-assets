@@ -196,6 +196,15 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		return nil, fmt.Errorf("create multiverse store: %w", err)
 	}
 
+	// The multiverse trees are derived from the universe roots; repair any
+	// entries that diverged, for example because the daemon stopped
+	// between a proof insert committing and its multiverse update being
+	// written.
+	err = multiverse.ReconcileMultiverse(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("reconcile multiverse: %w", err)
+	}
+
 	uniStatsDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.UniverseStatsStore {
 			return db.WithTx(tx)
