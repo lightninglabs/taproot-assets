@@ -456,6 +456,33 @@ func (m *Manager) handleIncomingMessage(ctx context.Context,
 				return
 			}
 
+			// Since we're going to buy assets from our peer, we
+			// need to make sure we can identify the incoming asset
+			// payment by the SCID alias through which it comes in
+			// and compare it to the one in the invoice. If the
+			// alias cannot be registered, the quote is unusable,
+			// so we fail it before persisting anything.
+			err := m.addScidAlias(
+				ctx, uint64(msg.ShortChannelId()),
+				msg.Request.AssetSpecifier, msg.Peer,
+			)
+			if err != nil {
+				// Notify subscribers (such as a waiting
+				// AddAssetBuyOrder RPC call) that the quote is
+				// unusable, so that the caller fails fast
+				// instead of timing out.
+				event := NewInvalidQuoteRespEvent(
+					&msg, ScidAliasErrQuoteRespStatus,
+				)
+				m.publishSubscriberEvent(event)
+
+				m.handleError(
+					fmt.Errorf("error adding local alias: "+
+						"%w", err),
+				)
+				return
+			}
+
 			// The quote request has been accepted. Persist to
 			// DB first so that on restart the quote is not
 			// silently lost.
@@ -475,22 +502,6 @@ func (m *Manager) handleIncomingMessage(ctx context.Context,
 			// DB write succeeded; populate the in-memory
 			// cache.
 			m.orderHandler.peerBuyQuotes.Store(scid, msg)
-
-			// Since we're going to buy assets from our peer, we
-			// need to make sure we can identify the incoming asset
-			// payment by the SCID alias through which it comes in
-			// and compare it to the one in the invoice.
-			err := m.addScidAlias(
-				uint64(msg.ShortChannelId()),
-				msg.Request.AssetSpecifier, msg.Peer,
-			)
-			if err != nil {
-				m.handleError(
-					fmt.Errorf("error adding local alias: "+
-						"%w", err),
-				)
-				return
-			}
 
 			// Notify subscribers of the incoming peer accepted
 			// asset buy quote.
@@ -584,18 +595,31 @@ func (m *Manager) handleOutgoingMessage(ctx context.Context,
 		// sale policy.
 		err := m.orderHandler.RegisterAssetSalePolicy(ctx, *msg)
 		if err != nil {
+			m.rejectQuote(
+				ctx, msg.Peer, msg.ID,
+				"failed to register asset sale policy",
+			)
+
 			return fmt.Errorf("registering asset sale "+
 				"policy: %w", err)
 		}
 
 		// Since our peer is going to buy assets from us, we need to
 		// make sure we can identify the forwarded asset payment by the
-		// outgoing SCID alias within the onion packet.
+		// outgoing SCID alias within the onion packet. The alias is
+		// registered after the sale policy on purpose: expired
+		// policies are swept together with their alias, whereas an
+		// alias registered without a policy would never be cleaned up.
 		err = m.addScidAlias(
-			uint64(msg.ShortChannelId()),
+			ctx, uint64(msg.ShortChannelId()),
 			msg.Request.AssetSpecifier, msg.Peer,
 		)
 		if err != nil {
+			m.rejectQuote(
+				ctx, msg.Peer, msg.ID,
+				"failed to register SCID alias",
+			)
+
 			return fmt.Errorf("error adding local alias: %w", err)
 		}
 
@@ -605,8 +629,17 @@ func (m *Manager) handleOutgoingMessage(ctx context.Context,
 		// we inform our peer of our decision, we inform the order
 		// handler that we are willing to buy the asset subject to a
 		// purchase policy.
+		//
+		// Note that unlike the buy accept case, no SCID alias is
+		// registered here: purchase policies match HTLCs on the RFQ ID
+		// in their custom records, not on an SCID alias.
 		err := m.orderHandler.RegisterAssetPurchasePolicy(ctx, *msg)
 		if err != nil {
+			m.rejectQuote(
+				ctx, msg.Peer, msg.ID,
+				"failed to register asset purchase policy",
+			)
+
 			return fmt.Errorf("registering asset purchase "+
 				"policy: %w", err)
 		}
@@ -622,41 +655,83 @@ func (m *Manager) handleOutgoingMessage(ctx context.Context,
 	return nil
 }
 
-// addScidAlias adds a SCID alias to the alias manager.
-func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
-	peer route.Vertex) error {
+// rejectQuote informs a peer that a quote we had already accepted cannot be
+// honoured after all, so that the peer treats the session as terminated
+// instead of waiting out its own timeout for a response that never arrives.
+//
+// The reject is handed to the stream handler directly rather than being
+// enqueued on the outgoing message channel: that channel is unbuffered and
+// drained by the very goroutine that calls this method, so enqueueing here
+// would deadlock.
+func (m *Manager) rejectQuote(ctx context.Context, peer route.Vertex,
+	id rfqmsg.ID, reason string) {
 
-	ctxb := context.Background()
-	peerChans, err := m.FetchChannel(
-		ctxb, assetSpecifier, &peer, NoIntention,
-	)
-	if err != nil && !strings.Contains(
+	reject := rfqmsg.NewReject(peer, id, rfqmsg.NewRejectErr(reason))
+
+	err := m.streamHandler.HandleOutgoingMessage(ctx, reject)
+	if err != nil {
+		log.Errorf("Error sending quote reject message: %v", err)
+	}
+}
+
+// isNoMatchingChannelErr reports whether err indicates that FetchChannel
+// found no channels matching an asset specifier, as opposed to a failure to
+// list or evaluate channels.
+func isNoMatchingChannelErr(err error) bool {
+	return strings.Contains(
 		err.Error(), "no asset channel balance found for",
-	) {
+	) || strings.Contains(err.Error(), "no asset channels found for")
+}
 
+// addScidAlias adds a SCID alias to the alias manager.
+func (m *Manager) addScidAlias(ctx context.Context, scidAlias uint64,
+	assetSpecifier asset.Specifier, peer route.Vertex) error {
+
+	peerChans, err := m.FetchChannel(
+		ctx, assetSpecifier, &peer, NoIntention,
+	)
+	if err != nil && !isNoMatchingChannelErr(err) {
 		return err
 	}
 
-	// As a fallback, if we didn't find any compatible channels with the
-	// peer, let's pick any channel that is available with this peer. This
-	// is okay, because non-strict forwarding will ask each channel if the
-	// bandwidth matches the provided specifier.
+	// Only channels for which lnd already holds at least one alias
+	// mapping can serve as the base of a new alias: this is precisely
+	// what lnd's XAddLocalChanAliases validates against, and covers both
+	// option_scid_alias and zero-conf channels. A channel without a real
+	// channel ID cannot serve as a base either.
+	aliasCapable := func(c TapChannel) bool {
+		return c.ChannelInfo.ChannelID != 0 &&
+			len(c.ChannelInfo.AliasScids) > 0
+	}
+	baseChans := fn.Filter(peerChans[peer], aliasCapable)
+
+	// As a fallback, if we didn't find any channels matching the
+	// specifier with the peer, let's pick any alias-capable channel that
+	// is available with this peer. This is okay, because non-strict
+	// forwarding will ask each channel if the bandwidth matches the
+	// provided specifier. Note that if matching asset channels exist but
+	// none of them is alias-capable, we deliberately do not widen the
+	// search: the alias would silently map onto a channel that cannot
+	// carry the asset.
 	if len(peerChans[peer]) == 0 {
 		peerChans, err = m.FetchChannel(
-			ctxb, asset.Specifier{}, &peer, NoIntention,
+			ctx, asset.Specifier{}, &peer, NoIntention,
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("fallback channel lookup for %s: %w",
+				&assetSpecifier, err)
 		}
+
+		baseChans = fn.Filter(peerChans[peer], aliasCapable)
 	}
 
-	if len(peerChans[peer]) == 0 {
+	if len(baseChans) == 0 {
 		return fmt.Errorf("cannot add scid alias with peer=%v, no "+
-			"compatible channels found for %s", peer,
+			"scid-alias-capable channels found for %s", peer,
 			&assetSpecifier)
 	}
 
-	baseSCID := peerChans[peer][0].ChannelInfo.ChannelID
+	baseSCID := baseChans[0].ChannelInfo.ChannelID
 
 	// At this point, if the base SCID is still not found, we return an
 	// error. We can't map the SCID alias to a base SCID.
@@ -668,16 +743,12 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 	log.Debugf("Adding SCID alias %d for base SCID %d", scidAlias, baseSCID)
 
 	err = m.cfg.AliasManager.AddLocalAlias(
-		ctxb, lnwire.NewShortChanIDFromInt(scidAlias),
+		ctx, lnwire.NewShortChanIDFromInt(scidAlias),
 		lnwire.NewShortChanIDFromInt(baseSCID),
 	)
 	if err != nil {
-		// Not being able to call lnd to add the alias is a critical
-		// error, which warrants shutting down, as something is wrong.
-		return fn.NewCriticalError(
-			fmt.Errorf("add alias: error adding SCID alias to "+
-				"lnd alias manager: %w", err),
-		)
+		return fmt.Errorf("add alias: error adding SCID alias to "+
+			"lnd alias manager: %w", err)
 	}
 
 	return nil
@@ -1481,6 +1552,10 @@ const (
 	// FillExceedsMaxQuoteRespStatus indicates that the negotiated
 	// fill amount exceeds the requester's maximum.
 	FillExceedsMaxQuoteRespStatus QuoteRespStatus = 8
+
+	// ScidAliasErrQuoteRespStatus indicates that a SCID alias could not
+	// be registered for the accepted quote, making the quote unusable.
+	ScidAliasErrQuoteRespStatus QuoteRespStatus = 9
 )
 
 // InvalidQuoteRespEvent is an event that is broadcast when the RFQ manager
