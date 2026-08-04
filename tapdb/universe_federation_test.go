@@ -87,6 +87,53 @@ func TestUniverseFederationCRUD(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestFederationSyncCursor tests the per-server delta sync cursor
+// round-trip, and that removing and re-adding a server resets its
+// cursor to zero.
+func TestFederationSyncCursor(t *testing.T) {
+	t.Parallel()
+
+	var (
+		ctx   = context.Background()
+		db    = NewDbHandle(t)
+		fedDB = db.UniverseFederationStore
+	)
+
+	addrs := db.AddRandomServerAddrs(t, 2)
+	target, other := addrs[0], addrs[1]
+
+	// A freshly added server starts at cursor zero.
+	cursor, err := fedDB.FetchSyncCursor(ctx, target)
+	require.NoError(t, err)
+	require.Zero(t, cursor)
+
+	// The cursor round-trips, and only for the targeted server.
+	err = fedDB.UpsertSyncCursor(ctx, target, 42)
+	require.NoError(t, err)
+
+	cursor, err = fedDB.FetchSyncCursor(ctx, target)
+	require.NoError(t, err)
+	require.EqualValues(t, 42, cursor)
+
+	cursor, err = fedDB.FetchSyncCursor(ctx, other)
+	require.NoError(t, err)
+	require.Zero(t, cursor)
+
+	// Removing and re-adding a server implicitly resets its cursor:
+	// the fresh row starts from zero (bootstrap).
+	err = fedDB.RemoveServers(ctx, target)
+	require.NoError(t, err)
+
+	err = fedDB.AddServers(
+		ctx, universe.NewServerAddrFromStr(target.HostStr()),
+	)
+	require.NoError(t, err)
+
+	cursor, err = fedDB.FetchSyncCursor(ctx, target)
+	require.NoError(t, err)
+	require.Zero(t, cursor)
+}
+
 // TestFederationProofSyncLogCRUD tests that we can add, modify, and remove
 // proof sync log entries from the Universe DB.
 func TestFederationProofSyncLogCRUD(t *testing.T) {

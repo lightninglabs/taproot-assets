@@ -543,6 +543,7 @@ type UniverseServer struct {
 	ID           int64
 	ServerHost   string
 	LastSyncTime time.Time
+	LastSyncSeq  int64
 }
 
 type UniverseStat struct {

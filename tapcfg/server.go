@@ -468,6 +468,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			UniverseSyncer:          universeSyncer,
 			LocalRegistrar:          uniArchive,
 			SyncInterval:            cfg.Universe.SyncInterval,
+			DisableDeltaSync:        cfg.Universe.NoDeltaSync,
 			NewRemoteRegistrar:      pooledRegistrar,
 			StaticFederationMembers: federationMembers,
 			ServerChecker: func(addr universe.ServerAddr) error {

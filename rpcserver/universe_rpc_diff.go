@@ -12,6 +12,8 @@ import (
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"golang.org/x/exp/maps"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // RpcUniverseDiff is an implementation of the universe.DiffEngine interface
@@ -266,6 +268,91 @@ func (r *RpcUniverseDiff) FetchProofLeaf(ctx context.Context,
 	return []*universe.Proof{uniProof}, nil
 }
 
+// SyncDelta returns the page of leaves inserted on the remote server
+// after sinceSeq, in insertion order. If the remote server predates the
+// delta sync RPC, universe.ErrDeltaUnsupported is returned and the
+// caller should fall back to enumeration-based sync.
+//
+// NOTE: this is part of the universe.DeltaEngine interface.
+func (r *RpcUniverseDiff) SyncDelta(ctx context.Context, sinceSeq uint64,
+	pageSize int32) (*universe.DeltaPage, error) {
+
+	resp, err := r.conn.SyncDelta(ctx, &universerpc.SyncDeltaRequest{
+		SinceSeq: sinceSeq,
+		PageSize: pageSize,
+	})
+	if status.Code(err) == codes.Unimplemented {
+		return nil, universe.ErrDeltaUnsupported
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	page := &universe.DeltaPage{
+		Roots: make(
+			map[universe.IdentifierKey]universe.Root,
+			len(resp.UniverseRoots),
+		),
+		LatestSeq: resp.LatestSeq,
+	}
+
+	for _, rpcRoot := range resp.UniverseRoots {
+		root, err := unmarshalUniverseRoot(rpcRoot)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unmarshal "+
+				"universe root: %w", err)
+		}
+
+		page.Roots[root.ID.Key()] = root
+	}
+
+	for _, rpcItem := range resp.Items {
+		uniID, err := UnmarshalUniID(rpcItem.UniverseId)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unmarshal "+
+				"universe ID (seq=%d): %w", rpcItem.Seq, err)
+		}
+
+		leafKey, err := unmarshalLeafKey(rpcItem.Key)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unmarshal leaf "+
+				"key (seq=%d): %w", rpcItem.Seq, err)
+		}
+
+		leaf, err := unmarshalAssetLeaf(rpcItem.Leaf)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unmarshal asset "+
+				"leaf (seq=%d): %w", rpcItem.Seq, err)
+		}
+
+		var compressedProof mssmt.CompressedProof
+		err = compressedProof.Decode(
+			bytes.NewReader(rpcItem.UniverseInclusionProof),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode inclusion "+
+				"proof (seq=%d): %w", rpcItem.Seq, err)
+		}
+
+		inclusionProof, err := compressedProof.Decompress()
+		if err != nil {
+			return nil, fmt.Errorf("unable to decompress "+
+				"inclusion proof (seq=%d): %w", rpcItem.Seq,
+				err)
+		}
+
+		page.Items = append(page.Items, universe.DeltaLeafItem{
+			Seq:            rpcItem.Seq,
+			ID:             uniID,
+			Key:            leafKey,
+			Leaf:           leaf,
+			InclusionProof: inclusionProof,
+		})
+	}
+
+	return page, nil
+}
+
 // Close closes the underlying RPC connection to the remote universe server.
 func (r *RpcUniverseDiff) Close() error {
 	if err := r.conn.Close(); err != nil {
@@ -280,3 +367,7 @@ func (r *RpcUniverseDiff) Close() error {
 // A compile time interface to ensure that RpcUniverseDiff implements the
 // universe.DiffEngine interface.
 var _ universe.DiffEngine = (*RpcUniverseDiff)(nil)
+
+// A compile time interface to ensure that RpcUniverseDiff implements the
+// universe.DeltaEngine interface.
+var _ universe.DeltaEngine = (*RpcUniverseDiff)(nil)

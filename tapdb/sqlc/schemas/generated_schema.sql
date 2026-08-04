@@ -1257,7 +1257,7 @@ CREATE TABLE universe_servers (
 
     -- TODO(roasbeef): can also add stuff like filters re which items to sync,
     -- etc? also sync mode, ones that should get everything pushed, etc
-);
+, last_sync_seq BIGINT NOT NULL DEFAULT 0);
 
 CREATE INDEX universe_servers_host ON universe_servers(server_host);
 
