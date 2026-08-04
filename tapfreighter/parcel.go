@@ -436,19 +436,41 @@ type PreAnchoredParcel struct {
 	// anchorTxHeightHint is an optional height hint for the anchor
 	// transaction.
 	anchorTxHeightHint fn.Option[uint32]
+
+	// skipProofVerify skips the output proof verification step. This is
+	// used when importing already-confirmed channel transactions whose
+	// asset-level witnesses cannot be reconstructed (e.g. second-level
+	// HTLC transactions where the HTLC script keys require signatures
+	// we don't possess). The BTC-level confirmation serves as proof of
+	// validity.
+	skipProofVerify bool
 }
 
 // A compile-time assertion to ensure PreAnchoredParcel implements the Parcel
 // interface.
 var _ Parcel = (*PreAnchoredParcel)(nil)
 
+// PreAnchoredParcelOpt is a functional option for NewPreAnchoredParcel.
+type PreAnchoredParcelOpt func(*PreAnchoredParcel)
+
+// WithSkipProofVerify returns an option that skips the output proof
+// verification step in the porter. This is used when importing
+// already-confirmed channel transactions whose asset-level witnesses
+// cannot be reconstructed.
+func WithSkipProofVerify() PreAnchoredParcelOpt {
+	return func(p *PreAnchoredParcel) {
+		p.skipProofVerify = true
+	}
+}
+
 // NewPreAnchoredParcel creates a new PreAnchoredParcel.
 func NewPreAnchoredParcel(vPackets []*tappsbt.VPacket,
 	passiveAssets []*tappsbt.VPacket, anchorTx *tapsend.AnchorTransaction,
 	skipAnchorTxBroadcast bool, label string,
-	anchorTxHeightHint fn.Option[uint32]) *PreAnchoredParcel {
+	anchorTxHeightHint fn.Option[uint32],
+	opts ...PreAnchoredParcelOpt) *PreAnchoredParcel {
 
-	return &PreAnchoredParcel{
+	p := &PreAnchoredParcel{
 		parcelKit: &parcelKit{
 			respChan: make(chan *OutboundParcel, 1),
 			errChan:  make(chan error, 1),
@@ -460,6 +482,11 @@ func NewPreAnchoredParcel(vPackets []*tappsbt.VPacket,
 		label:                 label,
 		anchorTxHeightHint:    anchorTxHeightHint,
 	}
+	for _, opt := range opts {
+		opt(p)
+	}
+
+	return p
 }
 
 // pkg returns the send package that should be delivered.
@@ -467,16 +494,25 @@ func (p *PreAnchoredParcel) pkg() *sendPackage {
 	log.Infof("New anchored delivery request with %d packets",
 		len(p.virtualPackets))
 
+	// When proof verification is skipped (e.g. for already-confirmed
+	// channel txs with placeholder witnesses), jump directly to the
+	// store state.
+	startState := SendStateVerifyPreBroadcast
+	if p.skipProofVerify {
+		startState = SendStateStorePreBroadcast
+	}
+
 	// Initialize a package the signed virtual transaction and input
 	// commitment.
 	return &sendPackage{
 		Parcel:                p,
-		SendState:             SendStateVerifyPreBroadcast,
+		SendState:             startState,
 		VirtualPackets:        p.virtualPackets,
 		PassiveAssets:         p.passiveAssets,
 		AnchorTx:              p.anchorTx,
 		Label:                 p.label,
 		SkipAnchorTxBroadcast: p.skipAnchorTxBroadcast,
+		SkipProofVerify:       p.skipProofVerify,
 	}
 }
 
@@ -589,6 +625,12 @@ type sendPackage struct {
 	// broadcast should be skipped. Useful when an external system handles
 	// broadcasting, such as in custom transaction packaging workflows.
 	SkipAnchorTxBroadcast bool
+
+	// SkipProofVerify skips asset witness verification for both
+	// pre-broadcast and post-confirmation steps. Used when importing
+	// already-confirmed channel transactions whose asset-level witnesses
+	// are placeholders.
+	SkipProofVerify bool
 }
 
 // ConvertToTransfer prepares the finished send data for storing to the database
