@@ -30,11 +30,6 @@
   fixes a proof cache issue that could cause universe sync to fail for
   groups receiving new issuances.
 
-- [PR#2231](https://github.com/lightninglabs/taproot-assets/pull/2231)
-  fixes a bug in which ListPayments returned every Lightning payment, aux
-  or otherwise. Non-asset payments are now excluded, as are the
-  same payments in SubscribePayments and TrackPayment.
-
 - [PR#2232](https://github.com/lightninglabs/taproot-assets/pull/2232)
   fixes a bug in which accepting an RFQ quote could shut down the daemon
   if the channel selected as the SCID alias base had not negotiated
