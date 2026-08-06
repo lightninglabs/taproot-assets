@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/taproot-assets/backup"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -2140,9 +2141,17 @@ func testRestoreLndFromSeed(t *harnessTest) {
 
 	// We mint a batch of normal assets with enough units to allow us to
 	// send it around a few times.
+	seedRestoreAsset := &mintrpc.MintAssetRequest{
+		Asset: &mintrpc.MintAsset{
+			AssetType: taprpc.AssetType_NORMAL,
+			Name:      "seed-restore-key-index",
+			Amount:    5000,
+			AssetMeta: &taprpc.AssetMeta{},
+		},
+	}
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner(), bob,
-		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+		[]*mintrpc.MintAssetRequest{seedRestoreAsset},
 	)
 
 	var (
@@ -2172,8 +2181,42 @@ func testRestoreLndFromSeed(t *harnessTest) {
 	AssertNonInteractiveRecvComplete(t.t, alice, 1)
 	AssertSendEventsComplete(t.t, aliceAddr.ScriptKey, sendEvents)
 
-	// We now restore Bob's lnd node from the seed.
-	require.NoError(t.t, bob.stop(false))
+	// Consume several address keys, then export a backup. The export also
+	// records LND's Taproot Assets key-family high-water marker.
+	historicalScriptKeys := make(map[string]struct{})
+	bobAssets, err := bob.ListAssets(ctxb, &taprpc.ListAssetRequest{
+		IncludeSpent: true,
+	})
+	require.NoError(t.t, err)
+	for _, bobAsset := range bobAssets.Assets {
+		historicalScriptKeys[hex.EncodeToString(bobAsset.ScriptKey)] =
+			struct{}{}
+	}
+	for range 3 {
+		bobAddr, err := bob.NewAddr(ctxb, &taprpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     sendAmount,
+		})
+		require.NoError(t.t, err)
+		historicalScriptKeys[hex.EncodeToString(bobAddr.ScriptKey)] =
+			struct{}{}
+	}
+
+	backupResp, err := bob.ExportAssetWalletBackup(
+		ctxb, &wrpc.ExportAssetWalletBackupRequest{
+			Mode: wrpc.BackupMode_RAW,
+		},
+	)
+	require.NoError(t.t, err)
+
+	decodedBackup, err := backup.DecodeWalletBackup(backupResp.Backup)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, decodedBackup.KeyFamilyMarkers)
+
+	// We now destroy both Bob's tapd state and LND wallet, then restore LND
+	// only from aezeed. This reproduces a full disaster recovery instead of
+	// a normal daemon restart.
+	require.NoError(t.t, bob.stop(true))
 	require.NoError(t.t, seedLnd.Shutdown())
 
 	// Starting the node again should restore it to the same state as
@@ -2187,6 +2230,27 @@ func testRestoreLndFromSeed(t *harnessTest) {
 	bob.updateLndNode(seedLnd)
 
 	require.NoError(t.t, bob.start(false))
+
+	importResp, err := bob.ImportAssetsFromBackup(
+		ctxb, &wrpc.ImportAssetsFromBackupRequest{
+			Backup: backupResp.Backup,
+		},
+	)
+	require.NoError(t.t, err)
+	require.NotZero(t.t, importResp.NumImported)
+
+	// The first address after restore must not reuse a key that was issued
+	// before the backup. Without restoring LND's family index, the address
+	// starts again at the first historical key.
+	restoredAddr, err := bob.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     sendAmount,
+	})
+	require.NoError(t.t, err)
+	restoredKey := hex.EncodeToString(restoredAddr.ScriptKey)
+	_, reused := historicalScriptKeys[restoredKey]
+	require.False(t.t, reused, "restored wallet reused script key %x",
+		restoredAddr.ScriptKey)
 
 	// Let's make sure we properly clean up the node at the end of the test.
 	defer func() {
@@ -2207,7 +2271,7 @@ func testRestoreLndFromSeed(t *harnessTest) {
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner(), bob, sendResp,
 		genInfo.AssetId,
-		[]uint64{rpcAsset.Amount - sendAmount*2, sendAmount}, 1, 2,
+		[]uint64{rpcAsset.Amount - sendAmount*2, sendAmount}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, alice, 2)
 	AssertSendEventsComplete(t.t, aliceAddr.ScriptKey, sendEvents)
