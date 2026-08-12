@@ -407,6 +407,13 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 						"decoding asset sig list "+
 						"record: %w", err)
 				}
+				if vPktIndex >= len(assetSigs.Sigs) {
+					return fmt.Errorf("no signature "+
+						"at index %d, only have "+
+						"%d", vPktIndex,
+						len(assetSigs.Sigs))
+				}
+
 				auxSig := assetSigs.Sigs[vPktIndex]
 
 				// With the sig obtained, we'll now insert the
