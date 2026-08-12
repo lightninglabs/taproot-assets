@@ -378,6 +378,14 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 			err)
 	}
 
+	// The signatures are provided by the remote party, so we can't assume
+	// they line up with the virtual packets we derived ourselves. We expect
+	// exactly one signature per packet, in the same order.
+	if len(sigs) != len(vPackets) {
+		return fmt.Errorf("unexpected number of HTLC signatures: "+
+			"expected %d, got %d", len(vPackets), len(sigs))
+	}
+
 	for idx, vPacket := range vPackets {
 		// This is a signature for a second-level HTLC, which always
 		// only has one input and one output. But there might be
@@ -426,10 +434,20 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 			signMethod: input.TaprootScriptSpendSignMethod,
 		}
 
-		return validator.validateSchnorrSig(
-			virtualTx, vIn.Asset(), newAsset, uint32(idx),
+		// Each virtual packet is an independent, single-input virtual
+		// transaction, so every signature is created over virtual
+		// input index 0. Using the packet index here would commit to a
+		// different virtual prevout, and therefore a different sighash.
+		const virtualInputIdx = 0
+
+		err = validator.validateSchnorrSig(
+			virtualTx, vIn.Asset(), newAsset, virtualInputIdx,
 			txscript.SigHashType(sig.SigHashType.Val), sig.Sig.Val,
 		)
+		if err != nil {
+			return fmt.Errorf("error validating second level sig "+
+				"for asset ID %v: %w", vIn.PrevID.ID, err)
+		}
 	}
 
 	return nil
@@ -686,10 +704,14 @@ func (v *schnorrSigValidator) ValidateWitnesses(newAsset *asset.Asset,
 			return err
 		}
 
-		return v.validateSchnorrSig(
+		err = v.validateSchnorrSig(
 			virtualTx, prevAsset, newAsset, uint32(idx),
 			sigHashType, schnorrSig,
 		)
+		if err != nil {
+			return fmt.Errorf("error validating witness at "+
+				"witness_idx=%d: %w", idx, err)
+		}
 	}
 
 	return nil

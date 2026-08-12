@@ -11,13 +11,21 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
+	"github.com/lightninglabs/taproot-assets/tapscript"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
@@ -448,4 +456,288 @@ func TestAddTweakWithIndex(t *testing.T) {
 				tweakBigInt.String())
 		})
 	}
+}
+
+// htlcVerifyJob creates a verification job for a single-asset outgoing HTLC,
+// carrying the given number of peer-supplied signatures.
+func htlcVerifyJob(t *testing.T, numSigs int) (*wire.MsgTx,
+	lnwallet.AuxVerifyJob) {
+
+	inputProof := randProof(t)
+
+	outgoingHtlcs := make(map[input.HtlcIndex][]*cmsg.AssetOutput)
+	outgoingHtlcs[0] = []*cmsg.AssetOutput{
+		cmsg.NewAssetOutput(
+			inputProof.Asset.ID(), inputProof.Asset.Amount,
+			inputProof,
+		),
+	}
+
+	com := cmsg.NewCommitment(
+		nil, nil, outgoingHtlcs, nil, lnwallet.CommitAuxLeaves{}, false,
+	)
+
+	sigs := make([]*cmsg.AssetSig, numSigs)
+	for idx := range sigs {
+		sigs[idx] = cmsg.NewAssetSig(
+			inputProof.Asset.ID(), testSchnorrSig,
+			txscript.SigHashDefault,
+		)
+	}
+	sigList := &cmsg.AssetSigListRecord{Sigs: sigs}
+
+	return &inputProof.AnchorTx, lnwallet.AuxVerifyJob{
+		SigBlob: lfn.Some(sigList.Bytes()),
+		BaseAuxJob: lnwallet.BaseAuxJob{
+			KeyRing: test.RandCommitmentKeyRing(t),
+			HTLC: lnwallet.AuxHtlcDescriptor{
+				HtlcIndex: 0,
+				Amount:    lnwire.NewMSatFromSatoshis(354),
+				EntryType: lnwallet.Add,
+			},
+			CommitBlob: lfn.Some(com.Bytes()),
+		},
+	}
+}
+
+// TestVerifySecondLevelSigCount tests that a signature list that doesn't line
+// up with the virtual packets derived from our own commitment is rejected.
+func TestVerifySecondLevelSigCount(t *testing.T) {
+	testCases := []struct {
+		name    string
+		numSigs int
+	}{{
+		name:    "no signatures",
+		numSigs: 0,
+	}, {
+		name:    "too many signatures",
+		numSigs: 2,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			commitTx, job := htlcVerifyJob(t, tc.numSigs)
+
+			err := VerifySecondLevelSigs(
+				testChainParams, chanState, commitTx,
+				[]lnwallet.AuxVerifyJob{job},
+			)
+			require.ErrorContains(
+				t, err, "unexpected number of HTLC signatures",
+			)
+		})
+	}
+}
+
+// TestValidateWitnessesAllInputs tests that every witness of a state transition
+// is validated, and not just the first one.
+func TestValidateWitnessesAllInputs(t *testing.T) {
+	privKey := test.RandPrivKey()
+	tapLeaf := txscript.NewBaseTapLeaf([]byte("test script"))
+
+	validator := &schnorrSigValidator{
+		pubKey:     *privKey.PubKey(),
+		tapLeaf:    lfn.Some(tapLeaf),
+		signMethod: input.TaprootScriptSpendSignMethod,
+	}
+
+	// We create a state transition that spends two inputs, so the validator
+	// has more than a single witness to look at.
+	genesis := asset.RandGenesis(t, asset.Normal)
+	newAsset := asset.NewAssetNoErr(
+		t, genesis, 2, 0, 0, asset.RandScriptKey(t), nil,
+	)
+
+	prevAssets := make(commitment.InputSet, 2)
+	prevIDs := make([]asset.PrevID, 2)
+	for idx := range prevIDs {
+		prevAsset := asset.NewAssetNoErr(
+			t, genesis, 1, 0, 0, asset.RandScriptKey(t), nil,
+		)
+		prevIDs[idx] = asset.PrevID{
+			OutPoint: test.RandOp(t),
+			ID:       genesis.ID(),
+			ScriptKey: asset.ToSerialized(
+				prevAsset.ScriptKey.PubKey,
+			),
+		}
+		prevAssets[prevIDs[idx]] = prevAsset
+	}
+
+	newAsset.PrevWitnesses = []asset.Witness{
+		{PrevID: &prevIDs[0]},
+		{PrevID: &prevIDs[1]},
+	}
+
+	virtualTx, _, err := tapscript.VirtualTx(newAsset, prevAssets)
+	require.NoError(t, err)
+
+	signInput := func(idx uint32) []byte {
+		sigHash, err := tapscript.InputScriptSpendSigHash(
+			virtualTx, prevAssets[prevIDs[idx]], newAsset, idx,
+			txscript.SigHashDefault, &tapLeaf,
+		)
+		require.NoError(t, err)
+
+		sig, err := schnorr.Sign(privKey, sigHash)
+		require.NoError(t, err)
+
+		return sig.Serialize()
+	}
+
+	for idx := range newAsset.PrevWitnesses {
+		newAsset.PrevWitnesses[idx].TxWitness = [][]byte{
+			signInput(uint32(idx)),
+		}
+	}
+
+	// With both signatures valid, the transition validates.
+	require.NoError(t, validator.ValidateWitnesses(
+		newAsset, nil, prevAssets,
+	))
+
+	// Invalidating only the second signature must still be detected.
+	newAsset.PrevWitnesses[1].TxWitness = [][]byte{
+		bytes.Repeat([]byte{0xff}, 64),
+	}
+	require.ErrorContains(t, validator.ValidateWitnesses(
+		newAsset, nil, prevAssets,
+	), "witness_idx=1")
+}
+
+// htlcGroupProof creates a proof for an asset that belongs to the given group,
+// so that multiple asset IDs can be committed to the same HTLC.
+func htlcGroupProof(t *testing.T, groupKey *asset.GroupKey,
+	anchorTx wire.MsgTx) (asset.ID, *proof.Proof) {
+
+	genesis := asset.RandGenesis(t, asset.Normal)
+	groupedAsset := asset.NewAssetNoErr(
+		t, genesis, 100, 0, 0, asset.RandScriptKey(t), groupKey,
+	)
+
+	tapCommitment, err := commitment.FromAssets(
+		fn.Ptr(commitment.TapCommitmentV2), groupedAsset,
+	)
+	require.NoError(t, err)
+
+	_, commitmentProof, err := tapCommitment.Proof(
+		groupedAsset.TapCommitmentKey(),
+		groupedAsset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	return genesis.ID(), &proof.Proof{
+		Asset:    *groupedAsset,
+		AnchorTx: anchorTx,
+		InclusionProof: proof.TaprootProof{
+			OutputIndex: 0,
+			InternalKey: test.RandPubKey(t),
+			CommitmentProof: &proof.CommitmentProof{
+				Proof: *commitmentProof,
+			},
+		},
+	}
+}
+
+// TestVerifyHtlcSignatureMultiAsset tests that an HTLC committing to more than
+// one asset ID verifies a correct signature for every asset ID, and rejects a
+// bad signature no matter which asset ID it belongs to.
+func TestVerifyHtlcSignatureMultiAsset(t *testing.T) {
+	privKey := test.RandPrivKey()
+
+	keyRing := test.RandCommitmentKeyRing(t)
+	keyRing.RemoteHtlcKey = privKey.PubKey()
+
+	commitTx := randProof(t).AnchorTx
+
+	// An HTLC that is backed by two tranches of the same asset group, which
+	// is what a channel funded with multiple asset IDs looks like.
+	groupKey := &asset.GroupKey{
+		GroupPubKey: *test.RandPubKey(t),
+	}
+	htlcOutputs := make([]*cmsg.AssetOutput, 2)
+	for idx := range htlcOutputs {
+		assetID, p := htlcGroupProof(t, groupKey, commitTx)
+		htlcOutputs[idx] = cmsg.NewAssetOutput(
+			assetID, p.Asset.Amount, *p,
+		)
+	}
+
+	baseJob := lnwallet.BaseAuxJob{
+		KeyRing: keyRing,
+		HTLC: lnwallet.AuxHtlcDescriptor{
+			HtlcIndex: 0,
+			Amount:    lnwire.NewMSatFromSatoshis(354),
+			EntryType: lnwallet.Add,
+		},
+	}
+
+	// Derive the very same packets that the verification will derive. There
+	// must be one per asset ID.
+	vPackets, err := htlcSecondLevelPacketsFromCommit(
+		testChainParams, chanState, &commitTx, keyRing, htlcOutputs,
+		baseJob, fn.Some(baseJob.HTLC.Timeout), baseJob.HTLC.HtlcIndex,
+	)
+	require.NoError(t, err)
+	require.Len(t, vPackets, len(htlcOutputs))
+
+	htlcScript, err := lnwallet.GenTaprootHtlcScript(
+		baseJob.Incoming, lntypes.Local, baseJob.HTLC.Timeout,
+		baseJob.HTLC.RHash, &keyRing, lfn.None[txscript.TapLeaf](),
+	)
+	require.NoError(t, err)
+
+	tapLeaf := txscript.TapLeaf{
+		Script:      htlcScript.WitnessScriptToSign(),
+		LeafVersion: txscript.BaseLeafVersion,
+	}
+
+	// Sign each packet the way the remote party would, which is over the
+	// single input of that packet.
+	sigs := make([]*cmsg.AssetSig, len(vPackets))
+	for idx, vPacket := range vPackets {
+		vIn := vPacket.Inputs[0]
+		newAsset := vPacket.Outputs[0].Asset
+
+		virtualTx, _, err := tapscript.VirtualTx(
+			newAsset, commitment.InputSet{
+				vIn.PrevID: vIn.Asset(),
+			},
+		)
+		require.NoError(t, err)
+
+		sigHash, err := tapscript.InputScriptSpendSigHash(
+			virtualTx, vIn.Asset(), newAsset, 0,
+			txscript.SigHashDefault, &tapLeaf,
+		)
+		require.NoError(t, err)
+
+		rawSig, err := schnorr.Sign(privKey, sigHash)
+		require.NoError(t, err)
+
+		sig, err := lnwire.NewSigFromSchnorrRawSignature(
+			rawSig.Serialize(),
+		)
+		require.NoError(t, err)
+
+		sigs[idx] = cmsg.NewAssetSig(
+			vIn.PrevID.ID, sig, txscript.SigHashDefault,
+		)
+	}
+
+	// With a correct signature for every asset ID, verification passes.
+	require.NoError(t, verifyHtlcSignature(
+		testChainParams, chanState, &commitTx, keyRing, sigs,
+		htlcOutputs, baseJob,
+	))
+
+	// Corrupting only the signature of the second asset ID must still be
+	// detected.
+	sigs[1] = cmsg.NewAssetSig(
+		sigs[1].AssetID.Val, testSchnorrSig, txscript.SigHashDefault,
+	)
+	require.ErrorContains(t, verifyHtlcSignature(
+		testChainParams, chanState, &commitTx, keyRing, sigs,
+		htlcOutputs, baseJob,
+	), "signature verification failed")
 }
