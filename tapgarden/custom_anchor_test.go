@@ -71,6 +71,85 @@ func TestCustomGenesisPsbtValidation(t *testing.T) {
 		address.TestNet3Tap, nil, dust, 0, -1, noneUint32(),
 	)
 	require.ErrorContains(t, err, "anchor output is dust")
+
+	// Every non-anchor P2TR output needs enough metadata to construct an
+	// exclusion proof after the mint confirms.
+	for _, testCase := range []struct {
+		name        string
+		output      psbt.POutput
+		errContains string
+	}{
+		{
+			name:        "missing internal key",
+			errContains: "output 1 is a P2TR output but is missing",
+		},
+		{
+			name: "invalid internal key",
+			output: psbt.POutput{
+				TaprootInternalKey: bytes.Repeat([]byte{0xff}, 32),
+			},
+			errContains: "internal key is invalid",
+		},
+		{
+			name: "metadata mismatch",
+			output: psbt.POutput{
+				TaprootInternalKey: fn.CopySlice(
+					testCustomAnchorPacket(t).Outputs[0].
+						TaprootInternalKey,
+				),
+			},
+			errContains: "metadata does not match",
+		},
+		{
+			name: "malformed tap tree",
+			output: psbt.POutput{
+				TaprootInternalKey: fn.CopySlice(
+					testCustomAnchorPacket(t).Outputs[0].
+						TaprootInternalKey,
+				),
+				TaprootTapTree: []byte{0x00},
+			},
+			errContains: "invalid PSBT tap tree",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			invalid := testCustomAnchorPacket(t)
+			invalid.UnsignedTx.AddTxOut(&wire.TxOut{
+				Value: 1_000,
+				PkScript: fn.CopySlice(
+					invalid.UnsignedTx.TxOut[0].PkScript,
+				),
+			})
+			invalid.Outputs = append(invalid.Outputs, testCase.output)
+			_, err := customGenesisPsbt(
+				address.TestNet3Tap, nil, invalid, 0, -1,
+				noneUint32(),
+			)
+			require.ErrorContains(t, err, testCase.errContains)
+		})
+	}
+
+	validMetadata := testCustomAnchorPacket(t)
+	validInternalKey, err := schnorr.ParsePubKey(
+		validMetadata.Outputs[0].TaprootInternalKey,
+	)
+	require.NoError(t, err)
+	validOutputKey := txscript.ComputeTaprootKeyNoScript(validInternalKey)
+	validOutputScript, err := txscript.PayToTaprootScript(validOutputKey)
+	require.NoError(t, err)
+	validMetadata.UnsignedTx.AddTxOut(&wire.TxOut{
+		Value:    1_000,
+		PkScript: validOutputScript,
+	})
+	validMetadata.Outputs = append(validMetadata.Outputs, psbt.POutput{
+		TaprootInternalKey: fn.CopySlice(
+			validMetadata.Outputs[0].TaprootInternalKey,
+		),
+	})
+	_, err = customGenesisPsbt(
+		address.TestNet3Tap, nil, validMetadata, 0, -1, noneUint32(),
+	)
+	require.NoError(t, err)
 }
 
 func TestMergeSignedCustomPsbt(t *testing.T) {

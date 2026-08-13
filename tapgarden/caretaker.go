@@ -142,7 +142,7 @@ type BatchCaretaker struct {
 //
 // TODO(roasbeef): rename to Cultivator?
 func NewBatchCaretaker(cfg *BatchCaretakerConfig) *BatchCaretaker {
-	return &BatchCaretaker{
+	caretaker := &BatchCaretaker{
 		batchKey:  asset.ToSerialized(cfg.Batch.BatchKey.PubKey),
 		cfg:       cfg,
 		confEvent: make(chan *chainntnfs.TxConfirmation, 1),
@@ -151,6 +151,12 @@ func NewBatchCaretaker(cfg *BatchCaretakerConfig) *BatchCaretaker {
 			Quit:           make(chan struct{}),
 		},
 	}
+	if cfg.Batch.GenesisPacket != nil {
+		caretaker.anchorOutputIndex = cfg.Batch.GenesisPacket.
+			AssetAnchorOutIdx
+	}
+
+	return caretaker
 }
 
 // Start attempts to start a new batch caretaker.
@@ -734,6 +740,12 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			return 0, fmt.Errorf("genesis TX failed final checks: "+
 				"%w", err)
 		}
+		if err := validateExclusionProofOutputs(
+			signedPkt, b.anchorOutputIndex,
+		); err != nil {
+
+			return 0, err
+		}
 
 		b.cfg.Batch.GenesisPacket.Pkt = signedPkt
 
@@ -861,8 +873,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			ctx, signedTx, IssuanceTxLabel,
 		)
 		if err != nil {
-			return 0, fmt.Errorf("unable to publish "+
-				"transaction: %w", err)
+			return 0, fmt.Errorf("unable to publish transaction: %w", err)
 		}
 
 		// Now we'll wait for a confirmation as we reach our terminal
@@ -876,7 +887,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		txHash := signedTx.TxHash()
 		confCtx, confCancel := b.WithCtxQuitNoTimeout()
 		confNtfn, errChan, err := b.cfg.ChainBridge.RegisterConfirmationsNtfn(
-			confCtx, &txHash, signedTx.TxOut[0].PkScript, 1,
+			confCtx, &txHash,
+			signedTx.TxOut[b.anchorOutputIndex].PkScript, 1,
 			heightHint, true, nil,
 		)
 		if err != nil {

@@ -211,8 +211,11 @@ func TestIssue721PrepareSignResume(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, (*importedKey).IsEqual(expectedOutputKey))
 	published := h.assertTxPublished()
-	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+	confReq, err := fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
 	require.NoError(t, err)
+	require.Equal(
+		t, published.TxOut[1].PkScript, h.chain.ConfPkScripts[*confReq],
+	)
 	minted := h.assertFinalizeBatch(&wg, respChan, "")
 	require.Equal(t, original.UnsignedTx.TxIn[0].PreviousOutPoint,
 		published.TxIn[0].PreviousOutPoint)
@@ -222,6 +225,165 @@ func TestIssue721PrepareSignResume(t *testing.T) {
 	require.Equal(t, original.UnsignedTx.TxOut[1].Value,
 		published.TxOut[1].Value)
 	require.Equal(t, tapgarden.BatchStateBroadcast, minted.State())
+}
+
+// TestIssue721PublishRetry verifies a backend publication error leaves a
+// caller-authored batch durably available for retry without re-preparation.
+func TestIssue721PublishRetry(t *testing.T) {
+	t.Run("same process", func(t *testing.T) {
+		testIssue721PublishRetry(t, false)
+	})
+	t.Run("after restart", func(t *testing.T) {
+		testIssue721PublishRetry(t, true)
+	})
+}
+
+func testIssue721PublishRetry(t *testing.T, restartBeforeRetry bool) {
+	store := newMintingStore(t)
+	h := newMintingTestHarness(t, store)
+	h.refreshChainPlanter()
+	t.Cleanup(func() {
+		if h.planter != nil {
+			_ = h.planter.Stop()
+		}
+	})
+
+	h.queueSeedlingsInBatch(false, issue721Seedling())
+	pkt, _, witnessScript := issue721Anchor(t)
+	issue721Fund(t, h, pkt)
+	prepared, err := h.planter.PrepareBatch()
+	require.NoError(t, err)
+
+	signed := clonePacket(t, prepared.GenesisPacket.Pkt)
+	signed.Inputs[0].FinalScriptWitness = issue721FinalWitness(
+		t, witnessScript,
+	)
+
+	h.chain.FailPublishOnce()
+	var wg sync.WaitGroup
+	respChan := make(chan *FinalizeBatchResp, 1)
+	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
+		SignedPsbt: signed,
+	})
+	_, err = fn.RecvOrTimeout(
+		h.wallet.ImportPubKeySignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	h.assertFinalizeBatch(&wg, respChan, "failed to publish transaction")
+	firstAttempt, err := fn.RecvOrTimeout(
+		h.chain.PublishAttempts, defaultTimeout,
+	)
+	require.NoError(t, err)
+
+	pending, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	require.Equal(t, tapgarden.BatchStateBroadcast, pending.State())
+	persisted := h.fetchSingleBatch(pending.BatchKey.PubKey)
+	require.Equal(t, tapgarden.BatchStateBroadcast, persisted.State())
+	_, err = h.planter.CancelBatch()
+	require.ErrorContains(t, err, "not cancellable")
+
+	if restartBeforeRetry {
+		// A broadcast batch resumes automatically after restart without
+		// returning to an externally cancellable pre-broadcast state.
+		h.refreshChainPlanter()
+		published := h.assertTxPublished()
+		require.Equal(t, (*firstAttempt).TxHash(), published.TxHash())
+		_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+		require.NoError(t, err)
+		h.assertNumCaretakersActive(1)
+		persisted = h.fetchSingleBatch(pending.BatchKey.PubKey)
+		require.Equal(t, tapgarden.BatchStateBroadcast, persisted.State())
+
+		return
+	}
+
+	retry := clonePacket(t, pending.GenesisPacket.Pkt)
+	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
+		SignedPsbt: retry,
+	})
+	published := h.assertTxPublished()
+	require.Equal(t, (*firstAttempt).TxHash(), published.TxHash())
+	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+	require.NoError(t, err)
+	minted := h.assertFinalizeBatch(&wg, respChan, "")
+	require.Equal(t, tapgarden.BatchStateBroadcast, minted.State())
+}
+
+// TestIssue721ConfirmationRegistrationRetry ensures a successful publish
+// followed by a transient notifier error remains retryable in the same process.
+func TestIssue721ConfirmationRegistrationRetry(t *testing.T) {
+	store := newMintingStore(t)
+	h := newMintingTestHarness(t, store)
+	h.refreshChainPlanter()
+	t.Cleanup(func() {
+		if h.planter != nil {
+			_ = h.planter.Stop()
+		}
+	})
+
+	h.queueSeedlingsInBatch(false, issue721Seedling())
+	pkt, _, witnessScript := issue721Anchor(t)
+	issue721Fund(t, h, pkt)
+	prepared, err := h.planter.PrepareBatch()
+	require.NoError(t, err)
+	signed := clonePacket(t, prepared.GenesisPacket.Pkt)
+	signed.Inputs[0].FinalScriptWitness = issue721FinalWitness(
+		t, witnessScript,
+	)
+
+	h.chain.FailConfRegistrationOnce()
+	var wg sync.WaitGroup
+	respChan := make(chan *FinalizeBatchResp, 1)
+	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
+		SignedPsbt: signed,
+	})
+	_, err = fn.RecvOrTimeout(
+		h.wallet.ImportPubKeySignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	h.assertTxPublished()
+	h.assertFinalizeBatch(
+		&wg, respChan, "failed to register confirmation",
+	)
+
+	pending, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	require.Equal(t, tapgarden.BatchStateBroadcast, pending.State())
+	retry := clonePacket(t, pending.GenesisPacket.Pkt)
+	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
+		SignedPsbt: retry,
+	})
+	h.assertTxPublished()
+	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+	require.NoError(t, err)
+	minted := h.assertFinalizeBatch(&wg, respChan, "")
+	require.Equal(t, tapgarden.BatchStateBroadcast, minted.State())
+}
+
+// TestIssue721CancelPreparedBatch verifies a paused batch that already contains
+// sprouts is cancelled using the sprout terminal state.
+func TestIssue721CancelPreparedBatch(t *testing.T) {
+	store := newMintingStore(t)
+	h := newMintingTestHarness(t, store)
+	h.refreshChainPlanter()
+	t.Cleanup(func() {
+		if h.planter != nil {
+			_ = h.planter.Stop()
+		}
+	})
+
+	h.queueSeedlingsInBatch(false, issue721Seedling())
+	pkt, _, _ := issue721Anchor(t)
+	issue721Fund(t, h, pkt)
+	prepared, err := h.planter.PrepareBatch()
+	require.NoError(t, err)
+
+	batchKey, err := h.planter.CancelBatch()
+	require.NoError(t, err)
+	require.True(t, batchKey.IsEqual(prepared.BatchKey.PubKey))
+	cancelled := h.fetchSingleBatch(batchKey)
+	require.Equal(t, tapgarden.BatchStateSproutCancelled, cancelled.State())
 }
 
 // TestIssue721CustomRestartStates pins the startup distinction introduced by
