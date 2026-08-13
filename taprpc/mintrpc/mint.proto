@@ -34,6 +34,13 @@ service Mint {
     */
     rpc SealBatch (SealBatchRequest) returns (SealBatchResponse);
 
+    /* tapcli `assets mint prepare`
+    PrepareBatch commits the assets into a caller-authored anchor PSBT and
+    returns the packet for external signing. The batch remains paused until
+    FinalizeBatch is called with the signed packet.
+    */
+    rpc PrepareBatch (PrepareBatchRequest) returns (PrepareBatchResponse);
+
     /* tapcli: `assets mint finalize`
     FinalizeBatch will attempt to finalize the current pending batch.
     */
@@ -333,11 +340,40 @@ message FundBatchRequest {
         // A TapBranch that represents a Tapscript tree managed externally.
         taprpc.TapBranch branch = 4;
     }
+
+    // An optional caller-funded anchor PSBT. Input zero remains the asset
+    // genesis point and the packet must not contain signatures yet.
+    bytes anchor_psbt = 5;
+
+    // The output that will receive the Taproot Asset commitment.
+    uint32 asset_anchor_output_index = 6;
+
+    // The index of an existing change output in anchor_psbt.
+    int32 change_output_index = 7;
+
+    // Set when anchor_psbt has no change output.
+    bool no_change_output = 8;
+
+    // The supply commitment output in anchor_psbt, when applicable.
+    optional uint32 pre_commit_output_index = 9;
 }
 
 message FundBatchResponse {
     // The funded batch.
     VerboseBatch batch = 1;
+}
+
+message PrepareBatchRequest {
+    /*
+    If true, then the assets currently in the batch won't be returned in the
+    response.
+    */
+    bool short_response = 1;
+}
+
+message PrepareBatchResponse {
+    // The prepared batch, including the commitment-mutated anchor PSBT.
+    MintingBatch batch = 1;
 }
 
 message SealBatchRequest {
@@ -390,6 +426,10 @@ message FinalizeBatchRequest {
         // A TapBranch that represents a Tapscript tree managed externally.
         taprpc.TapBranch branch = 4;
     }
+
+    // The externally signed packet returned by PrepareBatch. All non-signing
+    // fields must be identical to the prepared packet.
+    bytes signed_psbt = 5;
 }
 
 message FinalizeBatchResponse {

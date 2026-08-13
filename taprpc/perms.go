@@ -183,6 +183,10 @@ var (
 			Entity: "mint",
 			Action: "write",
 		}},
+		"/mintrpc.Mint/PrepareBatch": {{
+			Entity: "mint",
+			Action: "write",
+		}},
 		"/mintrpc.Mint/FinalizeBatch": {{
 			Entity: "mint",
 			Action: "write",

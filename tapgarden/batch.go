@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -190,11 +191,44 @@ func (m *MintingBatch) MintingOutputKey(sibling *commitment.TapscriptPreimage) (
 		siblingHash,
 	)
 
+	internalKey, err := m.MintingInternalKey()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	mintingPubKey := txscript.ComputeTaprootOutputKey(
-		m.BatchKey.PubKey, taprootAssetScriptRoot[:],
+		internalKey, taprootAssetScriptRoot[:],
 	)
 
 	return mintingPubKey, taprootAssetScriptRoot[:], nil
+}
+
+// MintingInternalKey returns the internal key used for the asset anchor. A
+// caller-authored anchor carries this key in the selected PSBT output; legacy
+// batches continue to use the batch key.
+func (m *MintingBatch) MintingInternalKey() (*btcec.PublicKey, error) {
+	if m.GenesisPacket == nil ||
+		!isCustomAnchorPsbt(m.GenesisPacket.Pkt) {
+
+		return m.BatchKey.PubKey, nil
+	}
+
+	pkt := m.GenesisPacket.Pkt
+	anchorIdx := m.GenesisPacket.AssetAnchorOutIdx
+	if pkt == nil || int(anchorIdx) >= len(pkt.Outputs) {
+		return nil, fmt.Errorf("custom anchor PSBT is missing the asset " +
+			"anchor output map")
+	}
+
+	internalKey, err := schnorr.ParsePubKey(
+		pkt.Outputs[anchorIdx].TaprootInternalKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid custom anchor internal key: %w",
+			err)
+	}
+
+	return internalKey, nil
 }
 
 // VerifyOutputScript recomputes a batch genesis output script from a batch key,

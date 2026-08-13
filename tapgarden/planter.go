@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -314,6 +316,7 @@ type UnsealedSeedling struct {
 type FinalizeParams struct {
 	FeeRate        fn.Option[chainfee.SatPerKWeight]
 	SiblingTapTree fn.Option[asset.TapscriptTreeNodes]
+	SignedPsbt     *psbt.Packet
 }
 
 // FundParams are the options available to change how a batch is funded, and how
@@ -321,6 +324,54 @@ type FinalizeParams struct {
 type FundParams struct {
 	FeeRate        fn.Option[chainfee.SatPerKWeight]
 	SiblingTapTree fn.Option[asset.TapscriptTreeNodes]
+
+	// AnchorPsbt is an optional caller-authored anchor transaction. When
+	// present, the wallet funding step is skipped and the caller-selected
+	// inputs, outputs and PSBT metadata are preserved.
+	AnchorPsbt *psbt.Packet
+
+	// AssetAnchorOutIdx selects the output whose script will be replaced by
+	// the final Taproot Asset commitment during batch preparation.
+	AssetAnchorOutIdx uint32
+
+	// ChangeOutputIndex identifies a pre-existing change output in the
+	// caller-authored PSBT. A value of -1 means that there is no change
+	// output.
+	ChangeOutputIndex int32
+
+	// PreCommitOutputIndex selects the caller-provided supply commitment
+	// pre-commitment output. It must be set when the pending batch enables
+	// supply commitments.
+	PreCommitOutputIndex fn.Option[uint32]
+}
+
+var customAnchorPsbtMarker = []byte{
+	0xfc, 0x04, 't', 'a', 'p', 'd', 0x01,
+}
+
+func markCustomAnchorPsbt(packet *psbt.Packet) {
+	if isCustomAnchorPsbt(packet) {
+		return
+	}
+
+	packet.Unknowns = append(packet.Unknowns, &psbt.Unknown{
+		Key:   fn.CopySlice(customAnchorPsbtMarker),
+		Value: []byte{1},
+	})
+}
+
+func isCustomAnchorPsbt(packet *psbt.Packet) bool {
+	if packet == nil {
+		return false
+	}
+
+	for _, unknown := range packet.Unknowns {
+		if bytes.Equal(unknown.Key, customAnchorPsbtMarker) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // PendingGroupWitness specifies the asset group witness for an asset seedling
@@ -391,6 +442,7 @@ const (
 	reqTypeCancelBatch
 	reqTypeFundBatch
 	reqTypeSealBatch
+	reqTypePrepareBatch
 )
 
 // ChainPlanter is responsible for accepting new incoming requests to create
@@ -523,11 +575,30 @@ func (c *ChainPlanter) Start() error {
 				continue
 			}
 
-			// For batches before the actual assets have been
-			// committed, we'll need to populate this field
-			// manually.
+			// All restored batches need a writable metadata map before any
+			// custom batch can be resumed through preparation or proof work.
 			if batch.AssetMetas == nil {
 				batch.AssetMetas = make(AssetMetas)
+			}
+
+			// A committed custom batch is deliberately paused for an
+			// external signer. Restore it as the pending batch instead of
+			// launching a caretaker that would immediately ask lnd to sign.
+			customBatch := batch.GenesisPacket != nil &&
+				isCustomAnchorPsbt(batch.GenesisPacket.Pkt)
+			awaitingExternalSigner := customBatch &&
+				(batchState == BatchStatePending ||
+					batchState == BatchStateFrozen ||
+					batchState == BatchStateCommitted)
+			if awaitingExternalSigner {
+
+				if c.pendingBatch != nil {
+					startErr = fmt.Errorf("multiple custom batches " +
+						"awaiting external signatures")
+					return
+				}
+				c.pendingBatch = batch
+				continue
 			}
 
 			// If batch funding or sealing fail during startup, the
@@ -1171,6 +1242,172 @@ func fundGenesisPsbt(ctx context.Context, chainParams address.ChainParams,
 	return fundedMintAnchorPsbt, nil
 }
 
+// customGenesisPsbt validates and packages a caller-authored mint anchor
+// PSBT. Unlike fundGenesisPsbt, this path doesn't ask the backing wallet to
+// add or reorder anything in the packet.
+func customGenesisPsbt(chainParams address.ChainParams,
+	pendingBatch *MintingBatch, packet *psbt.Packet,
+	assetAnchorOutIdx uint32,
+	changeOutputIndex int32,
+	preCommitOutputIndex fn.Option[uint32]) (FundedMintAnchorPsbt, error) {
+
+	var zero FundedMintAnchorPsbt
+
+	if packet == nil || packet.UnsignedTx == nil {
+		return zero, fmt.Errorf("custom anchor PSBT is missing its " +
+			"unsigned transaction")
+	}
+	if len(packet.UnsignedTx.TxIn) == 0 {
+		return zero, fmt.Errorf("custom anchor PSBT must have at least " +
+			"one input")
+	}
+	if len(packet.Inputs) != len(packet.UnsignedTx.TxIn) {
+		return zero, fmt.Errorf("custom anchor PSBT input maps don't " +
+			"match unsigned transaction inputs")
+	}
+	if len(packet.Outputs) != len(packet.UnsignedTx.TxOut) {
+		return zero, fmt.Errorf("custom anchor PSBT output maps don't " +
+			"match unsigned transaction outputs")
+	}
+	if int(assetAnchorOutIdx) >= len(packet.UnsignedTx.TxOut) {
+		return zero, fmt.Errorf("asset anchor output index %d out of "+
+			"range", assetAnchorOutIdx)
+	}
+	if changeOutputIndex < -1 ||
+		changeOutputIndex >= int32(len(packet.UnsignedTx.TxOut)) {
+
+		return zero, fmt.Errorf("change output index %d out of range",
+			changeOutputIndex)
+	}
+	if changeOutputIndex == int32(assetAnchorOutIdx) {
+		return zero, fmt.Errorf("asset anchor and change output indexes " +
+			"must be distinct")
+	}
+	if err := packet.SanityCheck(); err != nil {
+		return zero, fmt.Errorf("invalid custom anchor PSBT: %w", err)
+	}
+	fee, err := packet.GetTxFee()
+	if err != nil {
+		return zero, fmt.Errorf("custom anchor PSBT has incomplete or "+
+			"invalid input values: %w", err)
+	}
+	if fee < 0 {
+		return zero, fmt.Errorf("custom anchor PSBT outputs exceed " +
+			"known input value")
+	}
+	anchorOutput := packet.UnsignedTx.TxOut[assetAnchorOutIdx]
+	eventualAnchorOutput := tapsend.CreateDummyOutput()
+	eventualAnchorOutput.Value = anchorOutput.Value
+	if eventualAnchorOutput.Value <
+		mempool.GetDustThreshold(eventualAnchorOutput) {
+
+		return zero, fmt.Errorf("custom asset anchor output is dust")
+	}
+
+	for idx := range packet.Inputs {
+		pIn := &packet.Inputs[idx]
+		if len(pIn.PartialSigs) != 0 || len(pIn.FinalScriptSig) != 0 ||
+			len(pIn.FinalScriptWitness) != 0 ||
+			len(pIn.TaprootKeySpendSig) != 0 ||
+			len(pIn.TaprootScriptSpendSig) != 0 {
+
+			return zero, fmt.Errorf("custom anchor PSBT must be " +
+				"unsigned before batch preparation")
+		}
+	}
+
+	// A custom anchor's internal key is carried in the standard PSBT output
+	// field. This lets the caretaker derive the final output script without
+	// conflating the externally controlled key with the batch key.
+	pOut := packet.Outputs[assetAnchorOutIdx]
+	if len(pOut.TaprootInternalKey) != schnorr.PubKeyBytesLen {
+		return zero, fmt.Errorf("custom asset anchor output must specify " +
+			"a taproot internal key")
+	}
+	if _, err := schnorr.ParsePubKey(pOut.TaprootInternalKey); err != nil {
+		return zero, fmt.Errorf("invalid custom asset anchor internal "+
+			"key: %w", err)
+	}
+
+	funded := tapsend.FundedPsbt{
+		Pkt:               packet,
+		ChangeOutputIndex: changeOutputIndex,
+	}
+	markCustomAnchorPsbt(packet)
+
+	var preCommitOut fn.Option[PreCommitmentOutput]
+	var preCommitIdx fn.Option[uint32]
+	if pendingBatch != nil && pendingBatch.SupplyCommitments {
+		idx, err := preCommitOutputIndex.UnwrapOrErr(fmt.Errorf(
+			"custom supply commitment batch requires a pre-commitment " +
+				"output index",
+		))
+		if err != nil {
+			return zero, err
+		}
+		if int(idx) >= len(packet.UnsignedTx.TxOut) ||
+			idx == assetAnchorOutIdx || idx == uint32(changeOutputIndex) {
+
+			return zero, fmt.Errorf("invalid pre-commitment output "+
+				"index %d", idx)
+		}
+
+		delegationKey, err := fetchDelegationKey(pendingBatch)
+		if err != nil {
+			return zero, err
+		}
+		dKey, err := delegationKey.UnwrapOrErr(fmt.Errorf(
+			"missing supply commitment delegation key",
+		))
+		if err != nil {
+			return zero, err
+		}
+		expectedOutput, err := PreCommitTxOut(*dKey.PubKey)
+		if err != nil {
+			return zero, err
+		}
+		actualOutput := packet.UnsignedTx.TxOut[idx]
+		if actualOutput.Value != expectedOutput.Value ||
+			!bytes.Equal(actualOutput.PkScript, expectedOutput.PkScript) {
+
+			return zero, fmt.Errorf("pre-commitment output %d doesn't "+
+				"match the batch delegation key", idx)
+		}
+
+		bip32Derivation, trBip32Derivation :=
+			tappsbt.Bip32DerivationFromKeyDesc(
+				dKey, chainParams.HDCoinType,
+			)
+		pOut := &packet.Outputs[idx]
+		pOut.Bip32Derivation = []*psbt.Bip32Derivation{bip32Derivation}
+		pOut.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+			trBip32Derivation,
+		}
+		pOut.TaprootInternalKey = trBip32Derivation.XOnlyPubKey
+
+		groupKey, err := fetchPreCommitGroupKey(pendingBatch)
+		if err != nil {
+			return zero, err
+		}
+		preCommitOut = fn.Some(NewPreCommitmentOutput(
+			idx, dKey, groupKey,
+		))
+		preCommitIdx = fn.Some(idx)
+	} else if preCommitOutputIndex.IsSome() {
+		return zero, fmt.Errorf("pre-commitment output index specified " +
+			"for batch without supply commitments")
+	}
+	indexes := AnchorTxOutputIndexes{
+		AssetAnchorOutIdx: assetAnchorOutIdx,
+		ChangeOutIdx:      0,
+		PreCommitOutIdx:   preCommitIdx,
+	}
+
+	return NewFundedMintAnchorPsbt(
+		funded, indexes, preCommitOut,
+	)
+}
+
 // filterSeedlingsWithGroup separates a set of seedlings into two sets based on
 // their relation to an asset group, which has not been constructed yet.
 func filterSeedlingsWithGroup(
@@ -1569,8 +1806,12 @@ func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
 		}
 	}
 
+	mintingInternalKey, err := batch.MintingInternalKey()
+	if err != nil {
+		return nil, err
+	}
 	tapCommitment, err := VerifyOutputScript(
-		batch.BatchKey.PubKey, tapSibling, genScript, batchAssets,
+		mintingInternalKey, tapSibling, genScript, batchAssets,
 	)
 
 	if err != nil {
@@ -2065,6 +2306,26 @@ func (c *ChainPlanter) gardener() {
 					req.Resolve(c.pendingBatch.Copy())
 				}
 
+			case reqTypePrepareBatch:
+				if c.pendingBatch == nil {
+					req.Error(fmt.Errorf("no pending batch"))
+					break
+				}
+
+				ctx, cancel := c.WithCtxQuit()
+				preparedBatch, err := c.prepareBatch(
+					ctx, c.pendingBatch,
+				)
+				cancel()
+				if err != nil {
+					req.Error(fmt.Errorf("unable to prepare minting "+
+						"batch: %w", err))
+					break
+				}
+
+				c.pendingBatch = preparedBatch
+				req.Resolve(preparedBatch.Copy())
+
 			case reqTypeFinalizeBatch:
 				if c.pendingBatch == nil {
 					req.Error(fmt.Errorf("no pending " +
@@ -2096,10 +2357,17 @@ func (c *ChainPlanter) gardener() {
 					break
 				}
 
+				customBatch := c.pendingBatch.GenesisPacket != nil &&
+					isCustomAnchorPsbt(
+						c.pendingBatch.GenesisPacket.Pkt,
+					)
+				broadcastSucceeded := false
+
 				// We now wait for the caretaker to either
 				// broadcast the batch or fail to do so.
 				select {
 				case <-caretaker.cfg.BroadcastCompleteChan:
+					broadcastSucceeded = true
 					req.Resolve(caretaker.cfg.Batch)
 
 				case err := <-caretaker.cfg.BroadcastErrChan:
@@ -2123,7 +2391,9 @@ func (c *ChainPlanter) gardener() {
 				// Now that we have a caretaker launched for
 				// this batch and broadcast its minting
 				// transaction, we can remove the pending batch.
-				c.pendingBatch = nil
+				if broadcastSucceeded || !customBatch {
+					c.pendingBatch = nil
+				}
 
 			case reqTypeCancelBatch:
 				batchKey, err := c.canCancelBatch()
@@ -2182,6 +2452,19 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 	// succeeded, so a failure leaves the batch unchanged.
 	computeFunding := func(batch *MintingBatch) (
 		*FundedMintAnchorPsbt, error) {
+		if params.AnchorPsbt != nil {
+			funded, err := customGenesisPsbt(
+				c.cfg.ChainParams, batch, params.AnchorPsbt,
+				params.AssetAnchorOutIdx,
+				params.ChangeOutputIndex,
+				params.PreCommitOutputIndex,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &funded, nil
+		}
 
 		feeRate, err := c.anchorTxFeeRate(ctx, params.FeeRate)
 		if err != nil {
@@ -2645,6 +2928,233 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 	return batchWithGroupInfo, nil
 }
 
+// prepareBatch commits the asset tree into a caller-authored anchor PSBT and
+// then pauses at the committed state so the packet can be signed externally.
+func (c *ChainPlanter) prepareBatch(ctx context.Context,
+	batch *MintingBatch) (*MintingBatch, error) {
+
+	if !batch.IsFunded() || !isCustomAnchorPsbt(batch.GenesisPacket.Pkt) {
+		return nil, fmt.Errorf("batch does not use a custom anchor PSBT")
+	}
+	if batch.State() != BatchStatePending &&
+		batch.State() != BatchStateFrozen {
+
+		return nil, fmt.Errorf("batch is not ready for preparation: %v",
+			batch.State())
+	}
+
+	sealedBatch, err := c.sealBatch(ctx, SealParams{}, batch)
+	if err != nil && !errors.Is(err, ErrBatchAlreadySealed) {
+		return nil, err
+	}
+	if sealedBatch != nil {
+		batch = sealedBatch
+	}
+
+	if batch.State() == BatchStatePending {
+		if err := freezeMintingBatch(ctx, c.cfg.Log, batch); err != nil {
+			return nil, err
+		}
+		batch.UpdateState(BatchStateFrozen)
+	}
+
+	caretaker := c.newCaretakerForBatch(batch, nil)
+	nextState, err := caretaker.stateStep(BatchStateFrozen)
+	delete(c.caretakers, asset.ToSerialized(batch.BatchKey.PubKey))
+	if err != nil {
+		return nil, err
+	}
+	if nextState != BatchStateCommitted {
+		return nil, fmt.Errorf("unexpected prepared batch state: %v",
+			nextState)
+	}
+
+	batch.UpdateState(BatchStateCommitted)
+	return batch, nil
+}
+
+// mergeSignedCustomPsbt accepts only signing/finalization fields from an
+// externally signed packet. All transaction-defining and descriptive fields
+// remain those that were persisted during preparation.
+func mergeSignedCustomPsbt(stored,
+	signed *psbt.Packet) (*psbt.Packet, error) {
+
+	if stored == nil || signed == nil {
+		return nil, fmt.Errorf("signed custom anchor PSBT is missing")
+	}
+	if err := signed.SanityCheck(); err != nil {
+		return nil, fmt.Errorf("invalid signed custom anchor PSBT: %w", err)
+	}
+	normalizePacket := func(pkt *psbt.Packet) (*psbt.Packet, error) {
+		var buf bytes.Buffer
+		if err := pkt.Serialize(&buf); err != nil {
+			return nil, err
+		}
+		return psbt.NewFromRawBytes(&buf, false)
+	}
+	storedNorm, err := normalizePacket(stored)
+	if err != nil {
+		return nil, err
+	}
+	signedNorm, err := normalizePacket(signed)
+	if err != nil {
+		return nil, err
+	}
+	if !reflect.DeepEqual(storedNorm.UnsignedTx, signedNorm.UnsignedTx) ||
+		!reflect.DeepEqual(storedNorm.Outputs, signedNorm.Outputs) ||
+		!reflect.DeepEqual(storedNorm.XPubs, signedNorm.XPubs) ||
+		!reflect.DeepEqual(storedNorm.Unknowns, signedNorm.Unknowns) ||
+		len(stored.Inputs) != len(signed.Inputs) {
+
+		return nil, fmt.Errorf("signed custom anchor PSBT changes prepared " +
+			"transaction or metadata")
+	}
+
+	hasSignature := false
+	for idx := range stored.Inputs {
+		storedCmp := stored.Inputs[idx]
+		signedCmp := signed.Inputs[idx]
+		isFinal := signedCmp.FinalScriptSig != nil ||
+			signedCmp.FinalScriptWitness != nil
+		if isFinal {
+			// Standard PSBT finalizers intentionally prune all input
+			// fields except the UTXO and final scripts. The stored packet
+			// remains authoritative for those omitted fields.
+			if signedCmp.WitnessUtxo != nil &&
+				!reflect.DeepEqual(
+					storedCmp.WitnessUtxo, signedCmp.WitnessUtxo,
+				) {
+
+				return nil, fmt.Errorf("signed custom anchor PSBT " +
+					"changes input UTXO")
+			}
+			if signedCmp.NonWitnessUtxo != nil &&
+				!reflect.DeepEqual(
+					storedCmp.NonWitnessUtxo,
+					signedCmp.NonWitnessUtxo,
+				) {
+
+				return nil, fmt.Errorf("signed custom anchor PSBT " +
+					"changes input UTXO")
+			}
+			if signedCmp.WitnessUtxo == nil &&
+				signedCmp.NonWitnessUtxo == nil {
+
+				return nil, fmt.Errorf("finalized custom anchor PSBT " +
+					"drops input UTXO")
+			}
+
+			hasSignature = true
+			continue
+		}
+
+		storedCmp.PartialSigs = nil
+		storedCmp.FinalScriptSig = nil
+		storedCmp.FinalScriptWitness = nil
+		storedCmp.TaprootKeySpendSig = nil
+		storedCmp.TaprootScriptSpendSig = nil
+		signedCmp.PartialSigs = nil
+		signedCmp.FinalScriptSig = nil
+		signedCmp.FinalScriptWitness = nil
+		signedCmp.TaprootKeySpendSig = nil
+		signedCmp.TaprootScriptSpendSig = nil
+
+		if !reflect.DeepEqual(storedCmp, signedCmp) {
+			return nil, fmt.Errorf("signed custom anchor PSBT changes input "+
+				"%d metadata", idx)
+		}
+
+		src := &signed.Inputs[idx]
+		if len(src.PartialSigs) != 0 || src.FinalScriptSig != nil ||
+			src.FinalScriptWitness != nil ||
+			len(src.TaprootKeySpendSig) != 0 ||
+			len(src.TaprootScriptSpendSig) != 0 {
+
+			hasSignature = true
+		}
+	}
+
+	if !hasSignature {
+		return nil, fmt.Errorf("signed custom anchor PSBT has no signatures")
+	}
+
+	var buf bytes.Buffer
+	if err := stored.Serialize(&buf); err != nil {
+		return nil, err
+	}
+	merged, err := psbt.NewFromRawBytes(&buf, false)
+	if err != nil {
+		return nil, err
+	}
+	for idx := range merged.Inputs {
+		src := &signed.Inputs[idx]
+		dst := &merged.Inputs[idx]
+		dst.PartialSigs = src.PartialSigs
+		dst.FinalScriptSig = src.FinalScriptSig
+		dst.FinalScriptWitness = src.FinalScriptWitness
+		dst.TaprootKeySpendSig = src.TaprootKeySpendSig
+		dst.TaprootScriptSpendSig = src.TaprootScriptSpendSig
+	}
+
+	return merged, nil
+}
+
+// validateFinalizedAnchorPsbt executes every input script locally before the
+// caretaker persists a broadcast state. This keeps a malformed external
+// witness retryable at the prepared state.
+func validateFinalizedAnchorPsbt(packet *psbt.Packet) error {
+	tx, err := psbt.Extract(packet)
+	if err != nil {
+		return err
+	}
+
+	prevOuts := txscript.NewMultiPrevOutFetcher(nil)
+	for idx := range packet.Inputs {
+		pIn := &packet.Inputs[idx]
+		var prevOut *wire.TxOut
+		switch {
+		case pIn.WitnessUtxo != nil:
+			prevOut = pIn.WitnessUtxo
+
+		case pIn.NonWitnessUtxo != nil:
+			outpoint := tx.TxIn[idx].PreviousOutPoint
+			if int(outpoint.Index) >= len(pIn.NonWitnessUtxo.TxOut) ||
+				pIn.NonWitnessUtxo.TxHash() != outpoint.Hash {
+
+				return fmt.Errorf("invalid non-witness UTXO for input %d",
+					idx)
+			}
+			prevOut = pIn.NonWitnessUtxo.TxOut[outpoint.Index]
+
+		default:
+			return fmt.Errorf("missing UTXO for input %d", idx)
+		}
+
+		prevOuts.AddPrevOut(tx.TxIn[idx].PreviousOutPoint, prevOut)
+	}
+
+	sigHashes := txscript.NewTxSigHashes(tx, prevOuts)
+	for idx := range tx.TxIn {
+		prevOut := prevOuts.FetchPrevOutput(
+			tx.TxIn[idx].PreviousOutPoint,
+		)
+		vm, err := txscript.NewEngine(
+			prevOut.PkScript, tx, idx, txscript.StandardVerifyFlags,
+			nil, sigHashes, prevOut.Value, prevOuts,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to validate input %d: %w", idx,
+				err)
+		}
+		if err := vm.Execute(); err != nil {
+			return fmt.Errorf("invalid witness for input %d: %w", idx,
+				err)
+		}
+	}
+
+	return nil
+}
+
 // finalizeBatch creates a new caretaker for the batch and starts it.
 func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	error) {
@@ -2658,6 +3168,43 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	// funded. If so, reject any provided parameters, as they would conflict
 	// with those previously used for batch funding.
 	haveParams := params.FeeRate.IsSome() || params.SiblingTapTree.IsSome()
+	if params.SignedPsbt != nil {
+		if haveParams {
+			return nil, fmt.Errorf("signed PSBT cannot be combined with " +
+				"fee rate or tapscript sibling")
+		}
+		if c.pendingBatch.State() != BatchStateCommitted ||
+			!isCustomAnchorPsbt(c.pendingBatch.GenesisPacket.Pkt) {
+
+			return nil, fmt.Errorf("no prepared custom batch awaiting " +
+				"an external signature")
+		}
+		merged, err := mergeSignedCustomPsbt(
+			c.pendingBatch.GenesisPacket.Pkt, params.SignedPsbt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateFinalizedAnchorPsbt(merged); err != nil {
+			return nil, fmt.Errorf("externally signed PSBT is not fully "+
+				"valid: %w", err)
+		}
+		c.pendingBatch.GenesisPacket.Pkt = merged
+
+		caretaker := c.newCaretakerForBatch(c.pendingBatch, nil)
+		if err := caretaker.Start(); err != nil {
+			return nil, fmt.Errorf("unable to start new caretaker: %w",
+				err)
+		}
+
+		return caretaker, nil
+	}
+	if c.pendingBatch.IsFunded() && c.pendingBatch.GenesisPacket != nil &&
+		isCustomAnchorPsbt(c.pendingBatch.GenesisPacket.Pkt) {
+
+		return nil, fmt.Errorf("custom anchor batch must be prepared and " +
+			"finalized with an externally signed PSBT")
+	}
 	if haveParams && c.pendingBatch.IsFunded() {
 		return nil, fmt.Errorf("cannot provide finalize parameters " +
 			"if batch already funded")
@@ -2681,7 +3228,10 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	// fails, the batch stays pending so the user can retry.
 	if !c.pendingBatch.IsFunded() {
 		err = c.fundBatch(
-			ctx, FundParams(params), c.pendingBatch,
+			ctx, FundParams{
+				FeeRate:        params.FeeRate,
+				SiblingTapTree: params.SiblingTapTree,
+			}, c.pendingBatch,
 		)
 		if err != nil {
 			return nil, err
@@ -2765,6 +3315,18 @@ func (c *ChainPlanter) ListBatches(params ListBatchesParams) ([]*VerboseBatch,
 // a funded batch.
 func (c *ChainPlanter) FundBatch(params FundParams) (*FundBatchResp, error) {
 	req := newStateParamReq[*FundBatchResp](reqTypeFundBatch, params)
+
+	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+		return nil, fmt.Errorf("chain planter shutting down")
+	}
+
+	return <-req.resp, <-req.err
+}
+
+// PrepareBatch commits a caller-authored batch into its selected anchor
+// output and returns the packet for external signing.
+func (c *ChainPlanter) PrepareBatch() (*MintingBatch, error) {
+	req := newStateReq[*MintingBatch](reqTypePrepareBatch)
 
 	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")
@@ -3419,18 +3981,51 @@ func (f *FundedMintAnchorPsbt) Copy() *FundedMintAnchorPsbt {
 	}
 
 	if f.Pkt != nil {
-		var unsignedTx *wire.MsgTx
-		if f.Pkt.UnsignedTx != nil {
-			unsignedTx = f.Pkt.UnsignedTx.Copy()
-		}
-
-		newMintAnchorPsbt.Pkt = &psbt.Packet{
-			UnsignedTx: unsignedTx,
-			Inputs:     fn.CopySlice(f.Pkt.Inputs),
-			Outputs:    fn.CopySlice(f.Pkt.Outputs),
-			Unknowns:   fn.CopySlice(f.Pkt.Unknowns),
+		if f.Pkt.UnsignedTx == nil {
+			newMintAnchorPsbt.Pkt = copyMalformedPsbt(f.Pkt)
+		} else {
+			var buf bytes.Buffer
+			if err := f.Pkt.Serialize(&buf); err == nil {
+				newMintAnchorPsbt.Pkt, _ = psbt.NewFromRawBytes(
+					&buf, false,
+				)
+			}
+			if newMintAnchorPsbt.Pkt == nil {
+				newMintAnchorPsbt.Pkt = copyMalformedPsbt(f.Pkt)
+			}
 		}
 	}
 
 	return newMintAnchorPsbt
+}
+
+func copyMalformedPsbt(pkt *psbt.Packet) *psbt.Packet {
+	copyUnknowns := func(src []*psbt.Unknown) []*psbt.Unknown {
+		if src == nil {
+			return nil
+		}
+		dst := make([]*psbt.Unknown, len(src))
+		for idx, unknown := range src {
+			if unknown == nil {
+				continue
+			}
+			dst[idx] = &psbt.Unknown{
+				Key:   fn.CopySlice(unknown.Key),
+				Value: fn.CopySlice(unknown.Value),
+			}
+		}
+		return dst
+	}
+
+	var txCopy *wire.MsgTx
+	if pkt.UnsignedTx != nil {
+		txCopy = pkt.UnsignedTx.Copy()
+	}
+	return &psbt.Packet{
+		UnsignedTx: txCopy,
+		Inputs:     fn.CopySlice(pkt.Inputs),
+		Outputs:    fn.CopySlice(pkt.Outputs),
+		XPubs:      fn.CopySlice(pkt.XPubs),
+		Unknowns:   copyUnknowns(pkt.Unknowns),
+	}
 }

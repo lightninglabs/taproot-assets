@@ -54,6 +54,11 @@ type Planter interface {
 	// deriving all witnesses necessary to create the final genesis TX.
 	SealBatch(params SealParams) (*MintingBatch, error)
 
+	// PrepareBatch freezes a caller-funded batch and commits the asset tree
+	// into its selected anchor output. The returned PSBT is then ready for
+	// external signing.
+	PrepareBatch() (*MintingBatch, error)
+
 	// FinalizeBatch signals that the asset minter should finalize
 	// the current batch, if one exists.
 	FinalizeBatch(params FinalizeParams) (*MintingBatch, error)
