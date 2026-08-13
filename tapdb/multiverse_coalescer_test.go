@@ -1368,6 +1368,72 @@ func TestUpsertProofLeafSuperseded(t *testing.T) {
 	require.True(t, mssmt.IsEqualNode(superseding, receipt.UniverseRoot))
 }
 
+// TestUpsertProofLeafSupersededStaleCache asserts that the
+// superseded-receipt rebuild does not trust the proof cache: a
+// concurrent reader may repopulate the cache — after the upsert's own
+// eviction — from a snapshot predating the upsert's insert, and the
+// rebuilt receipt must nonetheless reflect the caller's committed
+// leaf and compose with the superseding state.
+func TestUpsertProofLeafSupersededStaleCache(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, hookDB := newHookedMultiverse(t)
+
+	items := genUniverseItems(t, 3)
+	id := items[0].ID
+
+	// The second item replaces the first at the same leaf key; the
+	// third supersedes the second's root at a distinct key.
+	items[1].Key = items[0].Key
+
+	// Store and fetch the first version of the leaf, so a receipt
+	// predating everything below exists to poison the cache with.
+	_, err := multiverse.UpsertProofLeaf(
+		ctx, items[0].ID, items[0].Key, items[0].Leaf,
+		items[0].MetaReveal,
+	)
+	require.NoError(t, err)
+
+	stale, err := multiverse.FetchProofLeaf(ctx, id, items[0].Key)
+	require.NoError(t, err)
+	require.Len(t, stale, 1)
+
+	// Arm the hook: while the second upsert awaits its flush, a
+	// concurrent insert supersedes its root, and the old receipt
+	// lands back in the proof cache — after the upsert's commit-tied
+	// eviction has already run.
+	var (
+		superseding mssmt.Node
+		hookErr     error
+	)
+	hook := func() {
+		superseding, hookErr = insertUniverseLeafOnly(
+			ctx, multiverse, items[2],
+		)
+		multiverse.proofCache.insertProofs(id, items[0].Key, stale)
+	}
+	hookDB.beforeFlush.Store(&hook)
+
+	receipt, err := multiverse.UpsertProofLeaf(
+		ctx, items[1].ID, items[1].Key, items[1].Leaf,
+		items[1].MetaReveal,
+	)
+	require.NoError(t, err)
+	require.NoError(t, hookErr)
+	require.NotNil(t, superseding)
+
+	// The rebuilt receipt must carry the leaf this call committed —
+	// not the cached pre-insert version — and compose with the
+	// superseding universe root.
+	assertReceiptComposes(t, id, receipt)
+	require.Equal(
+		t, []byte(items[1].Leaf.RawProof),
+		[]byte(receipt.Leaf.RawProof),
+	)
+	require.True(t, mssmt.IsEqualNode(superseding, receipt.UniverseRoot))
+}
+
 // TestUpsertProofLeafDeletedInGap deterministically forces a universe
 // deletion into the gap between a caller's universe commit and its
 // multiverse flush: the flush finds the universe gone, the caller

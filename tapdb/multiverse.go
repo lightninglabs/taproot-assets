@@ -734,10 +734,26 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 	id universe.Identifier,
 	universeKey universe.LeafKey) ([]*universe.Proof, error) {
 
-	// First, check the cached to see if we already have this proof.
-	proofsFromCache := b.proofCache.fetchProof(id, universeKey)
-	if len(proofsFromCache) > 0 {
-		return proofsFromCache, nil
+	return b.fetchProofLeaf(ctx, id, universeKey, false)
+}
+
+// fetchProofLeaf implements FetchProofLeaf. With skipCache set, the
+// proof cache is not consulted and the proofs are read from a fresh
+// database snapshot; a consistent result is still installed into the
+// cache. Callers that must observe their own committed writes — the
+// superseded-receipt rebuild — need the bypass, because a concurrent
+// reader may legitimately repopulate the cache from a snapshot
+// predating those writes.
+func (b *MultiverseStore) fetchProofLeaf(ctx context.Context,
+	id universe.Identifier, universeKey universe.LeafKey,
+	skipCache bool) ([]*universe.Proof, error) {
+
+	// First, check the cache to see if we already have this proof.
+	if !skipCache {
+		proofsFromCache := b.proofCache.fetchProof(id, universeKey)
+		if len(proofsFromCache) > 0 {
+			return proofsFromCache, nil
+		}
 	}
 
 	multiverseNS, err := namespaceForProof(id.ProofType)
@@ -1061,9 +1077,13 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	// our transaction and the flush, the flush derived and committed
 	// the newer root, and the multiverse proof it returned does not
 	// compose with the universe proof assembled above. Rebuild the
-	// whole receipt from one consistent snapshot instead.
+	// whole receipt from one consistent snapshot instead, bypassing
+	// the proof cache: a concurrent reader may have repopulated it,
+	// after the eviction above, from a snapshot predating this call's
+	// own insert, and that receipt would not reflect the leaf this
+	// call committed.
 	if !mssmt.IsEqualNode(update.universeRoot, uniProof.UniverseRoot) {
-		proofs, err := b.FetchProofLeaf(ctx, id, key)
+		proofs, err := b.fetchProofLeaf(ctx, id, key, true)
 		if err != nil {
 			return nil, fmt.Errorf("failed superseded proof "+
 				"fetch: %w", err)
