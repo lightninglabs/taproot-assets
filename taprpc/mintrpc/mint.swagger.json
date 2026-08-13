@@ -392,7 +392,7 @@
         "anchor_psbt": {
           "type": "string",
           "format": "byte",
-          "description": "An optional caller-funded anchor PSBT. Input zero remains the asset\ngenesis point and the packet must not contain signatures yet."
+          "description": "An optional caller-funded anchor PSBT. Input zero remains the asset\ngenesis point and the packet must not contain signatures yet. The selected\nasset anchor output must not contain PSBT_OUT_TAP_TREE because PrepareBatch\nreplaces its script tree with the asset commitment and the optional\nbatch_sibling."
         },
         "asset_anchor_output_index": {
           "type": "integer",

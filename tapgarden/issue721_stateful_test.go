@@ -386,6 +386,47 @@ func TestIssue721CancelPreparedBatch(t *testing.T) {
 	require.Equal(t, tapgarden.BatchStateSproutCancelled, cancelled.State())
 }
 
+// TestIssue721LowFeeRejectsBeforeBroadcast verifies a caller-authored
+// transaction that cannot meet the node's minimum relay fee remains in the
+// prepared state, where it can still be cancelled and rebuilt.
+func TestIssue721LowFeeRejectsBeforeBroadcast(t *testing.T) {
+	store := newMintingStore(t)
+	h := newMintingTestHarness(t, store)
+	h.refreshChainPlanter()
+	t.Cleanup(func() {
+		if h.planter != nil {
+			_ = h.planter.Stop()
+		}
+	})
+
+	h.queueSeedlingsInBatch(false, issue721Seedling())
+	pkt, _, witnessScript := issue721Anchor(t)
+	pkt.Inputs[0].WitnessUtxo.Value = 12_000
+	issue721Fund(t, h, pkt)
+	prepared, err := h.planter.PrepareBatch()
+	require.NoError(t, err)
+
+	signed := clonePacket(t, prepared.GenesisPacket.Pkt)
+	signed.Inputs[0].FinalScriptWitness = issue721FinalWitness(
+		t, witnessScript,
+	)
+	_, err = h.planter.FinalizeBatch(tapgarden.FinalizeParams{
+		SignedPsbt: signed,
+	})
+	require.ErrorContains(t, err, "fee does not meet minrelayfee")
+
+	pending, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	require.Equal(t, tapgarden.BatchStateCommitted, pending.State())
+	h.assertNumCaretakersActive(0)
+
+	batchKey, err := h.planter.CancelBatch()
+	require.NoError(t, err)
+	require.True(t, batchKey.IsEqual(prepared.BatchKey.PubKey))
+	cancelled := h.fetchSingleBatch(batchKey)
+	require.Equal(t, tapgarden.BatchStateSproutCancelled, cancelled.State())
+}
+
 // TestIssue721CustomRestartStates pins the startup distinction introduced by
 // the external-signing flow: custom pending/frozen batches pause, while a
 // legacy pending batch still resumes through the existing caretaker path.

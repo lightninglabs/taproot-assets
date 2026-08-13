@@ -10,8 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/mempool"
@@ -30,6 +32,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
 )
@@ -1327,6 +1330,10 @@ func customGenesisPsbt(chainParams address.ChainParams,
 	if _, err := schnorr.ParsePubKey(pOut.TaprootInternalKey); err != nil {
 		return zero, fmt.Errorf("invalid custom asset anchor internal "+
 			"key: %w", err)
+	}
+	if len(pOut.TaprootTapTree) != 0 {
+		return zero, fmt.Errorf("custom asset anchor output must not " +
+			"specify a PSBT tap tree; use the batch sibling fields")
 	}
 	funded := tapsend.FundedPsbt{
 		Pkt:               packet,
@@ -3200,6 +3207,40 @@ func validateFinalizedAnchorPsbt(packet *psbt.Packet) error {
 	return nil
 }
 
+// validateCustomAnchorFeeRate ensures an externally signed anchor transaction
+// meets the backing node's current minimum relay fee before the batch is moved
+// into its irreversible broadcast state.
+func (c *ChainPlanter) validateCustomAnchorFeeRate(ctx context.Context,
+	packet *psbt.Packet) error {
+
+	fee, err := packet.GetTxFee()
+	if err != nil {
+		return fmt.Errorf("unable to determine custom anchor fee: %w", err)
+	}
+
+	signedTx, err := psbt.Extract(packet)
+	if err != nil {
+		return fmt.Errorf("unable to extract custom anchor transaction: %w",
+			err)
+	}
+	weight := lntypes.WeightUnit(
+		blockchain.GetTransactionWeight(btcutil.NewTx(signedTx)),
+	)
+
+	minRelayFee, err := c.cfg.Wallet.MinRelayFee(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to obtain minimum relay fee: %w", err)
+	}
+	minFee := minRelayFee.FeeForWeightRoundUp(weight)
+	if fee < minFee {
+		return fmt.Errorf("custom anchor fee does not meet minrelayfee: "+
+			"(fee=%d, minimum_fee=%d, minrelayfee=%s)", fee, minFee,
+			minRelayFee.String())
+	}
+
+	return nil
+}
+
 // finalizeBatch creates a new caretaker for the batch and starts it.
 func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	error) {
@@ -3237,6 +3278,15 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 		if err := validateFinalizedAnchorPsbt(merged); err != nil {
 			return nil, fmt.Errorf("externally signed PSBT is not fully "+
 				"valid: %w", err)
+		}
+		if state == BatchStateCommitted {
+			ctx, cancel := c.WithCtxQuit()
+			err = c.validateCustomAnchorFeeRate(ctx, merged)
+			cancel()
+			if err != nil {
+				return nil, fmt.Errorf("externally signed PSBT has an invalid "+
+					"fee rate: %w", err)
+			}
 		}
 		c.pendingBatch.GenesisPacket.Pkt = merged
 

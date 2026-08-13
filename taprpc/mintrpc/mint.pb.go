@@ -790,7 +790,10 @@ type FundBatchRequest struct {
 	//	*FundBatchRequest_Branch
 	BatchSibling isFundBatchRequest_BatchSibling `protobuf_oneof:"batch_sibling"`
 	// An optional caller-funded anchor PSBT. Input zero remains the asset
-	// genesis point and the packet must not contain signatures yet.
+	// genesis point and the packet must not contain signatures yet. The
+	// selected asset anchor output must not contain PSBT_OUT_TAP_TREE because
+	// PrepareBatch replaces its script tree with the asset commitment and the
+	// optional batch_sibling.
 	AnchorPsbt []byte `protobuf:"bytes,5,opt,name=anchor_psbt,json=anchorPsbt,proto3" json:"anchor_psbt,omitempty"`
 	// The output that will receive the Taproot Asset commitment.
 	AssetAnchorOutputIndex uint32 `protobuf:"varint,6,opt,name=asset_anchor_output_index,json=assetAnchorOutputIndex,proto3" json:"asset_anchor_output_index,omitempty"`

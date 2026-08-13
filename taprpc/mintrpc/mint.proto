@@ -342,7 +342,10 @@ message FundBatchRequest {
     }
 
     // An optional caller-funded anchor PSBT. Input zero remains the asset
-    // genesis point and the packet must not contain signatures yet.
+    // genesis point and the packet must not contain signatures yet. The
+    // selected asset anchor output must not contain PSBT_OUT_TAP_TREE because
+    // PrepareBatch replaces its script tree with the asset commitment and the
+    // optional batch_sibling.
     bytes anchor_psbt = 5;
 
     // The output that will receive the Taproot Asset commitment.
