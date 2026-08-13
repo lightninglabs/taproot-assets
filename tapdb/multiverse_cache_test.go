@@ -87,10 +87,9 @@ func TestMultiverseRootsCachePerformance(t *testing.T) {
 		t, numMisses, multiverse.rootNodeCache.miss.Load(),
 	)
 
-	// The new syncer cache should only have two misses, one from when the
-	// cache was empty, one from after acquiring the write lock and all
-	// other queries should be hits.
-	require.EqualValues(t, 2, multiverse.syncerCache.miss.Load())
+	// The new syncer cache should only have a single miss, from when
+	// the cache was still empty; all other queries should be hits.
+	require.EqualValues(t, 1, multiverse.syncerCache.miss.Load())
 	require.EqualValues(t, numHits, multiverse.syncerCache.hit.Load())
 }
 
@@ -683,13 +682,13 @@ func TestMultiverseSyncerCache(t *testing.T) {
 	assertAllLeavesInRoots(t, allLeaves, originalRoots)
 
 	// The cache only serves once it has been populated wholesale, so
-	// the first page query filled it (its two pre-fill lookups are the
-	// two misses); every page after that was served from the cache.
+	// the first page query filled it (its one pre-fill lookup is the
+	// only miss); every page after that was served from the cache.
 	// The inserts above did not seed the cache: incremental installs
 	// apply only to an initialized cache, as a partially seeded cache
 	// would be served as though it were complete.
 	hitsPerFetch := numAssets / pageSize
-	require.EqualValues(t, 2, multiverse.syncerCache.miss.Load())
+	require.EqualValues(t, 1, multiverse.syncerCache.miss.Load())
 	require.EqualValues(t, hitsPerFetch, multiverse.syncerCache.hit.Load())
 
 	// We now randomly remove and re-insert some of the assets. The result
@@ -720,11 +719,97 @@ func TestMultiverseSyncerCache(t *testing.T) {
 
 		// No matter how we manipulate the entries, we should always hit
 		// the cache for syncer queries; the miss count stays at the
-		// two pre-fill lookups of the very first query.
+		// single pre-fill lookup of the very first query.
 		hits := hitsPerFetch * (i + 2)
-		require.EqualValues(t, 2, multiverse.syncerCache.miss.Load())
+		require.EqualValues(t, 1, multiverse.syncerCache.miss.Load())
 		require.EqualValues(t, hits, multiverse.syncerCache.hit.Load())
 	}
+}
+
+// syncerTestRoot builds a distinct universe root for direct syncer
+// cache tests.
+func syncerTestRoot(seed byte, sum uint64) universe.Root {
+	var id universe.Identifier
+	id.AssetID[0] = seed
+	id.ProofType = universe.ProofTypeIssuance
+
+	var hash mssmt.NodeHash
+	hash[0] = seed
+	hash[1] = byte(sum)
+
+	return universe.Root{
+		ID:   id,
+		Node: mssmt.NewComputedBranch(hash, sum),
+	}
+}
+
+// TestSyncerCacheFillBuffersMutations asserts that incremental installs
+// and removals arriving while a wholesale fill reads the database are
+// neither dropped nor stalled: they are buffered and replayed onto the
+// snapshot when the fill installs it, so the installed cache reflects
+// them even where the snapshot's pages predate them.
+func TestSyncerCacheFillBuffersMutations(t *testing.T) {
+	t.Parallel()
+
+	cache := newSyncerRootNodeCache(true, 10)
+
+	rootA := syncerTestRoot(1, 1)
+	rootB := syncerTestRoot(2, 1)
+	rootC := syncerTestRoot(3, 1)
+
+	// A fill begins; its snapshot will hold A and a stale B.
+	gen := cache.beginFill()
+
+	// While the fill reads, a flush installs a fresh B and a new C,
+	// and a deletion removes A. None of these may block, and none may
+	// be lost.
+	freshB := syncerTestRoot(2, 7)
+	cache.addOrReplace(freshB)
+	cache.addOrReplace(rootC)
+	cache.remove(rootA.ID.Key())
+
+	// Install the stale snapshot: the buffered operations must win
+	// over it.
+	installed := cache.completeFill(gen, []universe.Root{rootA, rootB})
+	require.True(t, installed)
+	require.False(t, cache.needsFill())
+
+	require.Nil(t, cache.fetchRoot(rootA.ID))
+
+	gotB := cache.fetchRoot(rootB.ID)
+	require.NotNil(t, gotB)
+	require.True(t, mssmt.IsEqualNode(freshB.Node, gotB.Node))
+
+	require.NotNil(t, cache.fetchRoot(rootC.ID))
+}
+
+// TestSyncerCacheFillDiscardedOnInvalidate asserts that a fill whose
+// read window contained an invalidation installs nothing: its snapshot
+// may straddle the invalidating event, so the cache stays uninitialized
+// and the next fill starts afresh.
+func TestSyncerCacheFillDiscardedOnInvalidate(t *testing.T) {
+	t.Parallel()
+
+	cache := newSyncerRootNodeCache(true, 10)
+
+	gen := cache.beginFill()
+	cache.invalidate()
+
+	installed := cache.completeFill(gen, []universe.Root{
+		syncerTestRoot(1, 1),
+	})
+	require.False(t, installed)
+	require.True(t, cache.needsFill())
+	require.Nil(t, cache.fetchRoot(syncerTestRoot(1, 1).ID))
+
+	// A subsequent, uninterrupted fill installs normally.
+	gen = cache.beginFill()
+	installed = cache.completeFill(gen, []universe.Root{
+		syncerTestRoot(2, 1),
+	})
+	require.True(t, installed)
+	require.False(t, cache.needsFill())
+	require.NotNil(t, cache.fetchRoot(syncerTestRoot(2, 1).ID))
 }
 
 // TestSyncerCacheDeleteProofLeaf asserts that deleting a single proof

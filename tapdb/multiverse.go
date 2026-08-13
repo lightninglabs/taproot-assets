@@ -360,29 +360,16 @@ func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 	// root node, as that shouldn't happen (unless the cache is empty).
 	// This will always return nil if the cache is disabled, so we don't
 	// need an extra indentation for that check here.
-	rootNode := b.syncerCache.fetchRoot(id, false)
+	rootNode := b.syncerCache.fetchRoot(id)
 	if rootNode != nil {
 		return *rootNode, nil
 	}
 
 	// If the cache hasn't been filled yet, we'll populate it now,
-	// given it is enabled.
+	// given it is enabled. Fills are serialized internally, and the
+	// filler holds no cache lock across its database reads, so
+	// concurrent cache maintenance never stalls behind this.
 	if b.syncerCache.needsFill() && b.cfg.Caches.SyncerCacheEnabled {
-		// We attempt to acquire the write lock to fill the cache. If
-		// another goroutine is already filling the cache, we'll wait
-		// for it to finish that way.
-		b.syncerCache.Lock()
-		defer b.syncerCache.Unlock()
-
-		// Because another goroutine might have filled the cache while
-		// we were waiting for the lock, we'll check again if the item
-		// is now in the cache.
-		rootNode = b.syncerCache.fetchRoot(id, true)
-		if rootNode != nil {
-			return *rootNode, nil
-		}
-
-		// Populate the cache with all the root nodes.
 		err := b.fillSyncerCache(ctx)
 		if err != nil {
 			return universe.Root{}, fmt.Errorf("error filling "+
@@ -390,14 +377,14 @@ func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 		}
 
 		// We now try again to fetch the root node from the cache.
-		rootNode = b.syncerCache.fetchRoot(id, true)
+		rootNode = b.syncerCache.fetchRoot(id)
 		if rootNode != nil {
 			return *rootNode, nil
 		}
 
-		// Still no luck with the cache (this should really never
-		// happen), so we'll go to the secondary cache or the disk to
-		// fetch it.
+		// Still no luck with the cache (a discarded fill, or a
+		// universe unknown to the database), so we'll go to the
+		// secondary cache or the disk to fetch it.
 		log.Warnf("Fetching root node from disk for id %v, cache miss "+
 			"even after filling the cache", id)
 	}
@@ -495,29 +482,16 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 	if isQueryForSyncerCache(q) && b.cfg.Caches.SyncerCacheEnabled {
 		// First, check to see if we have the root nodes cached in the
 		// syncer cache.
-		rootNodes, emptyPage := b.syncerCache.fetchRoots(q, false)
+		rootNodes, emptyPage := b.syncerCache.fetchRoots(q)
 		if len(rootNodes) > 0 || emptyPage {
 			return rootNodes, nil
 		}
 
 		// If the cache hasn't been filled yet, we'll populate it
-		// now.
+		// now. Fills are serialized internally, and the filler holds
+		// no cache lock across its database reads, so concurrent
+		// cache maintenance never stalls behind this.
 		if b.syncerCache.needsFill() {
-			// We attempt to acquire the write lock to fill the
-			// cache. If another goroutine is already filling the
-			// cache, we'll wait for it to finish that way.
-			b.syncerCache.Lock()
-			defer b.syncerCache.Unlock()
-
-			// Because another goroutine might have filled the cache
-			// while we were waiting for the lock, we'll check again
-			// if the item is now in the cache.
-			rootNodes, emptyPage = b.syncerCache.fetchRoots(q, true)
-			if len(rootNodes) > 0 || emptyPage {
-				return rootNodes, nil
-			}
-
-			// Populate the cache with all the root nodes.
 			err := b.fillSyncerCache(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("error filling syncer "+
@@ -526,14 +500,14 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 
 			// We now try again to fetch the root nodes page from
 			// the cache.
-			rootNodes, emptyPage = b.syncerCache.fetchRoots(q, true)
+			rootNodes, emptyPage = b.syncerCache.fetchRoots(q)
 			if len(rootNodes) > 0 || emptyPage {
 				return rootNodes, nil
 			}
 
-			// Still no luck with the cache (this should really
-			// never happen), so we'll go to the secondary cache or
-			// disk to fetch it.
+			// Still no luck with the cache (a discarded fill, or
+			// a page past the end), so we'll go to the secondary
+			// cache or disk to fetch it.
 			log.Warnf("Fetching root nodes page from disk for "+
 				"query %v, cache miss even after filling the "+
 				"cache", q)
@@ -690,10 +664,26 @@ func (b *MultiverseStore) queryRootNodes(ctx context.Context,
 // currently known. This is used to quickly serve the syncer with the root nodes
 // it needs to sync the multiverse.
 //
-// NOTE: This method must be called while holding the syncer cache lock.
+// Concurrent fillers are serialized: the first performs the paginated
+// database read and the rest wait for it, then return without reading
+// again. The cache's own lock is never held across the reads —
+// incremental maintenance arriving from the coalescer's flush
+// callbacks or the deletion paths while the fill runs is buffered by
+// the cache and replayed onto the snapshot when it is installed.
 func (b *MultiverseStore) fillSyncerCache(ctx context.Context) error {
+	b.syncerCache.fillMu.Lock()
+	defer b.syncerCache.fillMu.Unlock()
+
+	// Whoever held the fill lock before us may have completed the
+	// fill already.
+	if !b.syncerCache.needsFill() {
+		return nil
+	}
+
 	now := time.Now()
 	log.Infof("Populating syncer root cache...")
+
+	gen := b.syncerCache.beginFill()
 
 	params := sqlc.UniverseRootsParams{
 		SortDirection: sqlInt16(universe.SortAscending),
@@ -707,6 +697,7 @@ func (b *MultiverseStore) fillSyncerCache(ctx context.Context) error {
 	for {
 		newRoots, err := b.queryRootNodes(ctx, params, false)
 		if err != nil {
+			b.syncerCache.abortFill()
 			return err
 		}
 
@@ -718,10 +709,18 @@ func (b *MultiverseStore) fillSyncerCache(ctx context.Context) error {
 		}
 	}
 
+	if !b.syncerCache.completeFill(gen, allRoots) {
+		// The cache was invalidated while the fill read: the
+		// snapshot's pages may straddle the invalidating event, so
+		// it was discarded. The next syncer query starts afresh.
+		log.Debugf("Syncer cache fill discarded after concurrent " +
+			"invalidation")
+
+		return nil
+	}
+
 	log.Debugf("Populating %v root nodes into syncer cache, took=%v",
 		len(allRoots), time.Since(now))
-
-	b.syncerCache.replaceCache(allRoots)
 
 	return nil
 }
