@@ -1321,7 +1321,15 @@ func (b *MultiverseStore) DeleteProofLeaf(ctx context.Context,
 	b.rootNodeCache.wipeCache()
 	b.proofCache.RemoveUniverseProofs(id)
 	b.leafKeysCache.wipeCache(id.String())
-	b.syncerCache.remove(id.Key())
+
+	// The universe may or may not have survived the deletion: if the
+	// deleted leaf was its last, the whole universe was cleaned up,
+	// otherwise it lives on under a new root. Removing its syncer
+	// cache entry unconditionally would make a surviving universe
+	// invisible to syncers, so invalidate the cache wholesale and let
+	// the next syncer query repopulate it from post-deletion state.
+	// Deletions are rare enough that the refill cost is irrelevant.
+	b.syncerCache.invalidate()
 
 	return id.String(), nil
 }
