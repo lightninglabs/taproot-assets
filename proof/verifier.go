@@ -175,6 +175,13 @@ func VerifyProofSuffix(ctx context.Context, suffix *Proof,
 			"proof files")
 	}
 
+	// A structurally incomplete suffix must be rejected before it is
+	// re-encoded below, since the TLV size functions cannot report
+	// errors for missing mandatory fields.
+	if err := checkProofEncodable(suffix); err != nil {
+		return nil, fmt.Errorf("invalid proof suffix: %w", err)
+	}
+
 	primaryPrevID, err := suffix.Asset.PrimaryPrevID()
 	if err != nil {
 		return nil, fmt.Errorf("unable to determine primary input: %w",
@@ -275,6 +282,33 @@ func VerifyProofSuffix(ctx context.Context, suffix *Proof,
 	)
 }
 
+// checkProofEncodable rejects proofs whose mandatory pointer fields are
+// absent. Nothing at the decoding layer enforces the presence of these
+// fields, and the TLV size functions panic on encoding errors, so a decoded
+// proof must be checked before it is re-encoded.
+func checkProofEncodable(p *Proof) error {
+	if err := p.Asset.Validate(); err != nil {
+		return fmt.Errorf("invalid asset: %w", err)
+	}
+
+	if p.InclusionProof.InternalKey == nil {
+		return fmt.Errorf("inclusion proof is missing the internal " +
+			"key")
+	}
+	for idx := range p.ExclusionProofs {
+		if p.ExclusionProofs[idx].InternalKey == nil {
+			return fmt.Errorf("exclusion proof %d is missing "+
+				"the internal key", idx)
+		}
+	}
+	if p.SplitRootProof != nil && p.SplitRootProof.InternalKey == nil {
+		return fmt.Errorf("split root proof is missing the internal " +
+			"key")
+	}
+
+	return nil
+}
+
 // cloneProofFile returns an independent copy of a proof file.
 func cloneProofFile(file *File) (*File, error) {
 	if file == nil {
@@ -324,6 +358,14 @@ func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
 func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 	a *asset.Asset, inclusion bool) (*commitment.TapCommitment,
 	error) {
+
+	// The internal key is a mandatory field, but nothing at the decoding
+	// layer enforces its presence, so a malformed proof must be rejected
+	// here rather than crash the key derivation below.
+	if proof.InternalKey == nil {
+		return nil, fmt.Errorf("taproot proof is missing the " +
+			"internal key")
+	}
 
 	// Extract the final taproot key from the output including/excluding the
 	// asset, which we'll use to compare our derived key against.
@@ -1370,6 +1412,14 @@ func (p *Proof) VerifyProofIntegrity(ctx context.Context, vCtx VerifierCtx,
 // VerifyProofs verifies the inclusion and exclusion proofs as well as the split
 // root proof.
 func (p *Proof) VerifyProofs() (*commitment.TapCommitment, error) {
+	// A structurally incomplete asset (such as one decoded without a
+	// script key record) must be rejected before any commitment key
+	// derivation.
+	if err := p.Asset.Validate(); err != nil {
+		return nil, fmt.Errorf("failed to validate proof asset: %w",
+			err)
+	}
+
 	// A valid inclusion proof for the resulting asset is included.
 	tapCommitment, err := p.verifyInclusionProof()
 	if err != nil {

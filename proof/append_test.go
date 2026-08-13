@@ -321,6 +321,45 @@ func TestVerifyProofSuffix(t *testing.T) {
 	})
 }
 
+// TestMalformedProofNoPanic ensures that structurally incomplete proofs,
+// such as those decoded without mandatory records, are rejected with errors
+// instead of crashing verification or encoding.
+func TestMalformedProofNoPanic(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil script key", func(t *testing.T) {
+		proofFile := buildTransitionProofFile(t, 0, 0)
+		suffix, inputFiles := makeSuffixInputFiles(t, proofFile)
+
+		suffix.Asset.ScriptKey.PubKey = nil
+
+		_, err := suffix.VerifyProofs()
+		require.ErrorContains(t, err, "script key is missing")
+
+		_, err = VerifyProofSuffix(
+			context.Background(), suffix, inputFiles,
+			&BaseVerifier{}, MockVerifierCtx,
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("nil inclusion proof internal key", func(t *testing.T) {
+		proofFile := buildTransitionProofFile(t, 0, 0)
+		suffix, inputFiles := makeSuffixInputFiles(t, proofFile)
+
+		suffix.InclusionProof.InternalKey = nil
+
+		_, err := suffix.VerifyProofs()
+		require.ErrorContains(t, err, "missing the internal key")
+
+		_, err = VerifyProofSuffix(
+			context.Background(), suffix, inputFiles,
+			&BaseVerifier{}, MockVerifierCtx,
+		)
+		require.Error(t, err)
+	})
+}
+
 // runAppendTransitionTest runs the test that makes sure a proof can be appended
 // to an existing proof for an asset transition of the given type and amount.
 func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
